@@ -10,6 +10,7 @@
   "agents": {
     "dir": "agents",
     "timeout": 1800,
+    "sandbox": { "timeout": 900 },
     "includeFiles": [
       "runtime/**",
       "shared/**",

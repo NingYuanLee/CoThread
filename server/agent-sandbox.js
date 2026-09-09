@@ -2,6 +2,7 @@ import { Sandbox } from "e2b";
 import { acsOptions } from "./acs.js";
 import { query } from "./db.js";
 import { agentSession } from "./agent-session.js";
+import { currentMakersSandbox, makersWorkspace } from "./makers-sandbox.js";
 
 export const shellQuote = (value) => `'${value.replace(/'/g, `'"'"'`)}'`;
 const handles = new Map();
@@ -12,6 +13,10 @@ export async function acquireSandbox(
   provider = Sandbox,
 ) {
   const { table, key, id: workspaceId } = agentSession(threadId);
+  if (currentMakersSandbox() || (provider === Sandbox && process.env.COTHREAD_MAKERS === "true")) {
+    await progress("正在准备 Makers 沙箱工作区");
+    return makersWorkspace(workspaceId);
+  }
   const options = { ...acsOptions(), timeoutMs: 900000 };
   let sandbox = handles.get(workspaceId);
   if (sandbox) {
@@ -54,6 +59,11 @@ export async function acquireSandbox(
 }
 export async function releaseSandbox(db, threadId) {
   const { table, key, id: workspaceId } = agentSession(threadId);
+  if (currentMakersSandbox() || process.env.COTHREAD_MAKERS === "true") {
+    // Ignore legacy ACS IDs; the managed instance is shared by active children.
+    handles.delete(workspaceId);
+    return;
+  }
   let sandbox = handles.get(workspaceId);
   handles.delete(workspaceId);
   if (!sandbox) {

@@ -7,6 +7,7 @@ import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
 import { generateReply } from "./replies.js";
 import { modelDiscussion } from "./model-context.js";
+import { currentMakersSandbox, makersWorkspace } from "./makers-sandbox.js";
 
 // Adapted from D:\work\dsh runtime/_e2b-acs-compat.mjs (MIT; see THIRD_PARTY_NOTICES).
 const originalHost = ConnectionConfig.prototype.getHost;
@@ -69,7 +70,8 @@ export async function executeRun(
     kind === "summary" &&
     process.env.SUMMARY_MODE !== "dsh" &&
     provider === Sandbox;
-  const options = directSummary ? {} : acsOptions();
+  const managed = !!currentMakersSandbox();
+  const options = directSummary || managed ? {} : acsOptions();
   if (kind === "summary" && process.env.DSH_ENABLED === "false")
     throw new HttpError(503, "DSH 助手尚未启用，请先准备带 DSH 的 ACS 模板");
   const runId = randomUUID();
@@ -116,8 +118,8 @@ export async function executeRun(
       });
       status = "succeeded";
     } else {
-      await progress("正在连接 ACS 沙箱");
-      sandbox = await provider.create(
+      await progress(managed ? "正在准备 Makers 沙箱" : "正在连接 ACS 沙箱");
+      sandbox = managed ? await makersWorkspace(threadId) : await provider.create(
         process.env.E2B_TEMPLATE || "code-interpreter",
         { ...options, ...(kind === "summary" ? { timeoutMs: 600000 } : {}) },
       );
@@ -233,7 +235,7 @@ export async function executeRun(
     output =
       error instanceof HttpError
         ? error.message
-        : "ACS 执行失败。请检查模板、网络和服务端配置；群聊与文档数据不受影响。";
+        : "沙箱执行失败。请检查服务可用性；群聊与文档数据不受影响。";
     if (stage === "prepare-dsh")
       output =
         "助手环境准备失败或超时，尚未开始梳理讨论。请重试；群聊和文档均已保存。";
@@ -249,7 +251,7 @@ export async function executeRun(
       diagnostic: kind === "summary" ? diagnostic : undefined,
     });
   } finally {
-    await progress(sandbox ? "正在回收沙箱" : "正在保存执行状态");
+    await progress(sandbox && !managed ? "正在回收沙箱" : "正在保存执行状态");
     if (sandbox) {
       try {
         await sandbox.kill();

@@ -51,7 +51,8 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     res.json({
       status: "ok",
       database: "mysql",
-      sandbox: "acs",
+      sandbox: makers ? "makers" : "acs",
+      sandboxConfigured: makers || !!(process.env.E2B_API_KEY && process.env.E2B_DOMAIN),
       acsConfigured: !!(process.env.E2B_API_KEY && process.env.E2B_DOMAIN),
       dshEnabled: process.env.DSH_ENABLED !== "false",
       ...(makers ? { agentEndpoint: "/cothread-agent", mcpEndpoint: "/cothread-mcp" } : {}),
@@ -113,7 +114,8 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       ]);
     }
     res.json({ user: personalProfile(profile), projects, project, thread,
-      health: { status: "ok", database: "mysql", sandbox: "acs",
+      health: { status: "ok", database: "mysql", sandbox: makers ? "makers" : "acs",
+        sandboxConfigured: makers || !!(process.env.E2B_API_KEY && process.env.E2B_DOMAIN),
         acsConfigured: !!(process.env.E2B_API_KEY && process.env.E2B_DOMAIN), dshEnabled: process.env.DSH_ENABLED !== "false",
         ...(makers ? { agentEndpoint: "/cothread-agent", mcpEndpoint: "/cothread-mcp" } : {}) },
     });

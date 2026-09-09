@@ -1,9 +1,10 @@
 import { authenticate } from "../../server/auth.js";
 import { HttpError } from "../../server/service.js";
-import { makersDatabase } from "../../server/makers.js";
+import { makersDatabase, makersErrorDetails } from "../../server/makers.js";
 import { runMakersThread, validateMakersOrigin } from "../../server/makers-runner.js";
+import { withMakersSandbox } from "../../server/makers-sandbox.js";
 
-export async function onRequest({ request }) {
+async function handleRequest({ request }) {
   try {
     if (request.method !== "POST") return Response.json({ error: "仅支持 POST" }, { status: 405 });
     validateMakersOrigin(request);
@@ -19,6 +20,11 @@ export async function onRequest({ request }) {
   } catch (error) {
     const status = error.status || 500;
     if (status === 500) console.error("Makers Agent failed", { code: error.code || error.name });
-    return Response.json({ error: status === 500 ? "Agent 运行失败，请检查云端日志及配置" : error.message }, { status });
+    return Response.json({ error: status === 500 ? "Agent 运行失败，请检查云端日志及配置" : error.message,
+      ...makersErrorDetails(error) }, { status });
   }
+}
+
+export function onRequest(context) {
+  return withMakersSandbox(context.sandbox, () => handleRequest(context));
 }

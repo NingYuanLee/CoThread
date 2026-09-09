@@ -7,6 +7,7 @@ import { HttpError } from "./service.js";
 import { modelDiscussion, modelProject } from "./model-context.js";
 import { agentSession } from "./agent-session.js";
 import { acquireSandbox, safeRemotePath, shellQuote } from "./agent-sandbox.js";
+import { bindMakersSandbox } from "./makers-sandbox.js";
 
 const titles = {
   project_context: "读取",
@@ -33,8 +34,9 @@ export function createAgentTools(
   service,
   user,
   job,
-  { getSandbox = acquireSandbox } = {},
+  { getSandbox } = {},
 ) {
+  getSandbox ||= bindMakersSandbox(acquireSandbox);
   let calls = 0;
   const progress = (text) =>
     query(
@@ -98,8 +100,8 @@ export function createAgentTools(
             ? version.content.toString("utf8").slice(0, 50000)
             : undefined,
           note: text
-            ? "正文最多返回 50000 字符，完整文件已复制到 ACS。"
-            : "二进制文件已复制到 ACS，可使用命令解析。",
+            ? "正文最多返回 50000 字符，完整文件已复制到沙箱。"
+            : "二进制文件已复制到沙箱，可使用命令解析。",
         };
       } else {
         const sandbox = await getSandbox(service.db, sandboxScope, progress);

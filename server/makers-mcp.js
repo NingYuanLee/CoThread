@@ -2,7 +2,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { createMcpServer } from "./mcp.js";
 import { authenticate } from "./auth.js";
 import { Service, HttpError } from "./service.js";
-import { makersDatabase } from "./makers.js";
+import { makersDatabase, makersErrorDetails } from "./makers.js";
 import { runMakersThread, validateMakersOrigin } from "./makers-runner.js";
 
 export function createMakersMcpHandler(getDatabase = makersDatabase) {
@@ -31,7 +31,8 @@ export function createMakersMcpHandler(getDatabase = makersDatabase) {
       });
     } catch (error) {
       console.error("Makers MCP failed", { code: error.code || error.name });
-      return Response.json({ error: error.status ? error.message : "MCP 暂时不可用，请检查云端配置" }, { status: error.status || 503 });
+      return Response.json({ error: error.status ? error.message : "MCP 暂时不可用，请检查云端配置",
+        ...makersErrorDetails(error) }, { status: error.status || 503 });
     } finally { await server?.close(); }
   };
 }

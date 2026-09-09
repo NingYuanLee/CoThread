@@ -1,7 +1,6 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "nodeVersion": "22.19.0",
   "cloudFunctions": {
     "maxDuration": 120,
     "includeFiles": ["migrations/**"]

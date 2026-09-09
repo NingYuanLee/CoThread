@@ -62,7 +62,6 @@ export function AgentActivity({threadId,messageId,events,output,status,hasFinal,
  const statusLine=<>
    <span className={`agent-current-step${changing?' agent-step-active':''}`} aria-live="polite" aria-atomic="true">{current}</span>
    {elapsed&&<small className="agent-elapsed">{elapsed}</small>}
-   {hasContent&&<svg className="agent-trace-toggle" width="22" height="20" viewBox="0 0 22 20" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 3C2 6 2 14 6 17M16 3C20 6 20 14 16 17"/><path className="agent-trace-chevron" d="m8 9 3 3 3-3"/></svg>}
   </>;
  return <div className="agent-trace" data-open={open&&hasContent}>
   {hasContent?<button className="agent-status-line" type="button" aria-expanded={open} title={`${current}；点击展开或收起后续过程`} onClick={()=>setOpen(!open)}>{statusLine}</button>:<div className="agent-status-line">{statusLine}</div>}

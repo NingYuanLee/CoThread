@@ -1,5 +1,6 @@
 import mysql from "mysql2/promise";
 import { readFile } from "node:fs/promises";
+import { recordQuery } from "./request-timing.js";
 
 export async function createDatabase(url = process.env.DATABASE_URL) {
   if (!url) throw new Error("DATABASE_URL 未配置，请先运行 npm run setup");
@@ -33,8 +34,11 @@ export async function createDatabase(url = process.env.DATABASE_URL) {
   return pool;
 }
 export async function query(db, sql, params = []) {
-  const [rows] = await db.execute(sql, params);
-  return rows;
+  const start = performance.now();
+  try {
+    const [rows] = await db.execute(sql, params);
+    return rows;
+  } finally { recordQuery(start); }
 }
 export async function transaction(pool, fn) {
   const conn = await pool.getConnection();

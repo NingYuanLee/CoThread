@@ -1,3 +1,4 @@
+import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
@@ -192,8 +193,7 @@ export function Documents({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    const result = await res.json();
-    if (!res.ok) throw new Error(result.error || "操作失败");
+    const result = await readJsonResponse(res, `/api${path}`);
     return result;
   };
   const act = async (fn: () => Promise<void>) => {
@@ -312,8 +312,7 @@ export function Documents({
     let objectUrl = "";
     apiFetch(`/api/versions/${selected}`)
       .then(async (res) => {
-        const result = await res.json();
-        if (!res.ok) throw new Error(result.error);
+        const result = await readJsonResponse(res, `/api/versions/${selected}`);
         return result;
       })
       .then((v) => {

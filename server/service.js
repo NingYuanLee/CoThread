@@ -33,7 +33,7 @@ export class Service {
     const params = [user.id];
     if (kind !== "all") params.push(kind);
     if (before) params.push(before, user.id);
-    const items = await query(this.db, `SELECT n.*,p.name project_name,
+    const itemsQuery = input.summary === "1" ? Promise.resolve([]) : query(this.db, `SELECT n.*,p.name project_name,
       CASE n.kind WHEN 'mention' THEN CONCAT('在「',COALESCE(t.title,p.name),'」中提到了你') WHEN 'member_added' THEN CONCAT('你已加入「',p.name,'」') ELSE CONCAT('你已被移出「',p.name,'」') END title,
       (m.user_id IS NOT NULL AND n.kind<>'member_removed') can_open
       FROM notifications n JOIN projects p ON p.id=n.project_id
@@ -41,7 +41,8 @@ export class Service {
       LEFT JOIN members m ON m.project_id=n.project_id AND m.user_id=n.user_id
       WHERE n.user_id=? ${kind !== "all" ? "AND n.kind=?" : ""} ${before ? "AND (n.created_at,n.id)<(SELECT created_at,id FROM notifications WHERE id=? AND user_id=?)" : ""}
       ORDER BY n.created_at DESC,n.id DESC LIMIT ${limit + 1}`, params);
-    const counts = await query(this.db, "SELECT kind,COUNT(*) total,SUM(read_at IS NULL) unread FROM notifications WHERE user_id=? GROUP BY kind", [user.id]);
+    const countsQuery = query(this.db, "SELECT kind,COUNT(*) total,SUM(read_at IS NULL) unread FROM notifications WHERE user_id=? GROUP BY kind", [user.id]);
+    const [items, counts] = await Promise.all([itemsQuery, countsQuery]);
     return { items: items.slice(0, limit), unread: counts.reduce((sum, row) => sum + Number(row.unread), 0), counts: Object.fromEntries(counts.map((row) => [row.kind, { total: Number(row.total), unread: Number(row.unread) }])), next: items.length > limit ? items[limit - 1].id : null };
   }
   async readNotification(user, notificationId) {

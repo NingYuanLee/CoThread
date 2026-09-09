@@ -1,3 +1,4 @@
+import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
 import React, { useEffect, useRef, useState } from "react";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
@@ -49,7 +50,7 @@ function FilePreview({
     void apiFetch(`/api/versions/${id}`)
       .then(async (r) => {
         if (!r.ok) return;
-        const v = await r.json();
+        const v = await readJsonResponse(r, `/api/versions/${id}`);
         if (!alive) return;
         const ext = name.split(".").pop()?.toLowerCase();
         const mime =
@@ -175,8 +176,7 @@ export function ChatComposer({
             body: JSON.stringify({title: file.name, filename: file.name,
               mime: file.type || "application/octet-stream", contentBase64: btoa(binary)}),
           }, (progress) => update(key, {progress}));
-          const result = await response.json();
-          if (!response.ok) throw new Error(result.error || "上传失败");
+          const result = await readJsonResponse(response, `/api/threads/${threadId}/attachments`);
           if (cancelled.current.has(key)) {
             update(key, { ...result, progress: 100 });
             await remove({
@@ -234,7 +234,7 @@ export function ChatComposer({
           },
         );
         if (!response.ok)
-          throw new Error((await response.json()).error || "删除失败");
+          await readJsonResponse(response, "/api/attachments");
       }
       if (!alive.current) return;
       setUploads((rows) => rows.filter((r) => r.key !== item.key));

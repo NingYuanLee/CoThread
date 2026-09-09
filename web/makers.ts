@@ -1,3 +1,4 @@
+import { readJsonResponse } from "../shared/json-response.js";
 let endpoint: string | undefined;
 const running = new Map<string, Promise<void>>();
 export function configureMakers(value: { agentEndpoint?: string }) {
@@ -11,9 +12,12 @@ export async function invokeMakers(threadId: string, body: object = {}) {
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(16 * 60 * 1000),
   });
-  const value = await response.json();
-  if (!response.ok) throw new Error(value.error || "云端 Agent 请求失败，请稍后重试");
-  return value;
+  try { return await readJsonResponse(response, endpoint); }
+  catch (error) {
+    if ((error as Error & { transient?: boolean }).transient)
+      throw new Error("助手连接暂时中断，任务可能仍在后台运行，请查看会话中的进度。");
+    throw error;
+  }
 }
 export function wakeMakers(threadId: string, onError: (message: string) => void) {
   if (!endpoint || running.has(threadId)) return;

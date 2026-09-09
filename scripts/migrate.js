@@ -24,30 +24,29 @@ async function matchingExistingColumn(conn, statement) {
 }
 
 export async function migrate(db, directory = new URL("../migrations/", import.meta.url)) {
+  const names = (await readdir(directory)).filter((name) => name.endsWith(".sql")).sort();
+  // Warm schemas need one read, not one database round trip per migration.
+  // Recheck under the lock when work remains, so overlapping cold starts are safe.
+  try {
+    const applied = new Set((await query(db, "SELECT name FROM schema_migrations")).map((row) => row.name));
+    if (names.every((name) => applied.has(name))) return;
+  } catch (error) { if (error.code !== "ER_NO_SUCH_TABLE") throw error; }
   const conn = await db.getConnection();
+  let locked = false;
   try {
     const [lock] = await query(
       conn,
       "SELECT GET_LOCK('cothread_migrate',30) acquired",
     );
     if (Number(lock.acquired) !== 1) throw new Error("数据库迁移锁超时");
+    locked = true;
     await query(
       conn,
       "CREATE TABLE IF NOT EXISTS schema_migrations (name VARCHAR(191) PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
     );
-    for (const name of (
-      await readdir(directory)
-    )
-      .filter((x) => x.endsWith(".sql"))
-      .sort()) {
-      if (
-        (
-          await query(conn, "SELECT name FROM schema_migrations WHERE name=?", [
-            name,
-          ])
-        ).length
-      )
-        continue;
+    const applied = new Set((await query(conn, "SELECT name FROM schema_migrations")).map((row) => row.name));
+    for (const name of names) {
+      if (applied.has(name)) continue;
       const sql = await readFile(
         typeof directory === "string" ? join(directory, name) : new URL(name, directory),
         "utf8",
@@ -72,8 +71,8 @@ export async function migrate(db, directory = new URL("../migrations/", import.m
       console.log(`Applied ${name}`);
     }
   } finally {
-    await query(conn, "SELECT RELEASE_LOCK('cothread_migrate')");
-    conn.release();
+    try { if (locked) await query(conn, "SELECT RELEASE_LOCK('cothread_migrate')"); }
+    finally { conn.release(); }
   }
 }
 if (process.argv[1]?.endsWith("migrate.js")) {

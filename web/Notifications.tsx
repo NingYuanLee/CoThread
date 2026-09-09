@@ -7,7 +7,7 @@ const tabs: { id: Kind; label: string }[] = [{ id: "all", label: "全部" }, { i
 const empty: Page = { items: [], unread: 0, counts: {}, next: null };
 const time = (value: string, compact = false) => new Date(value.includes("T") ? value : value.replace(" ", "T") + "Z").toLocaleString("zh-CN", compact ? { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false } : { hour12: false });
 export function Notifications({ api, onOpen }: {
-  api: (path: string, data?: unknown, method?: string) => Promise<any>;
+  api: (path: string, data?: unknown, method?: string, signal?: AbortSignal) => Promise<any>;
   onOpen: (target: any) => void;
 }) {
   const [page, setPage] = useState<Page>(empty);
@@ -22,6 +22,7 @@ export function Notifications({ api, onOpen }: {
   const dialog = useRef<HTMLDialogElement>(null);
   const bell = useRef<HTMLButtonElement>(null);
   const revision = useRef(0);
+  const pages = useRef(new Map<string, Page>());
   const selected = page.items.find((n) => n.id === selectedId);
   const cursor = cursors[cursors.length - 1];
   const total = kind === "all" ? Object.values(page.counts).reduce((sum, count) => sum + count.total, 0) : page.counts[kind]?.total || 0;
@@ -29,33 +30,49 @@ export function Notifications({ api, onOpen }: {
     let alive = true;
     const version = ++revision.current;
     const path = `/notifications?kind=${kind}&limit=12${cursor ? `&before=${cursor}` : ""}`;
-    const load = async (initial: boolean) => {
-      if (initial && open) setLoading(true);
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    let inFlight = false;
+    let needsPage = open;
+    const cached = pages.current.get(path);
+    if (open) {
+      if (cached) setPage(cached);
+      else setPage((old) => ({ ...empty, counts: old.counts, unread: old.unread }));
+    }
+    const load = async () => {
+      clearTimeout(timer);
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      if (needsPage && !cached) setLoading(true);
       try {
-        const result: Page = await api(path);
+        const full = needsPage;
+        const result: Page = await api(full ? path : "/notifications?summary=1", undefined, undefined, controller.signal);
         if (!alive || version !== revision.current) return;
-        setPage(result);
+        if (full) {
+          needsPage = false;
+          pages.current.set(path, result);
+          if (pages.current.size > 12) pages.current.delete(pages.current.keys().next().value!);
+          setPage(result);
+          setSelectedId((current) => result.items.some((n) => n.id === current) ? current : "");
+        } else setPage((old) => ({ ...old, unread: result.unread, counts: result.counts }));
         setError("");
-        setSelectedId((current) => result.items.some((n) => n.id === current) ? current : "");
       } catch (e) { if (alive) setError((e as Error).message); }
-      finally { if (alive) setLoading(false); }
+      finally {
+        inFlight = false;
+        if (alive) { setLoading(false); timer = setTimeout(() => void load(), open ? 8000 : 15000); }
+      }
     };
-    void load(true);
-    // Refresh counts while reading without moving messages between pages.
-    const timer = setInterval(async () => {
-      try {
-        const result: Page = await api("/notifications?limit=1");
-        if (alive && version === revision.current) setPage((old) => ({ ...old, unread: result.unread, counts: result.counts }));
-      } catch (e) { if (alive) setError((e as Error).message); }
-    }, 4000);
-    return () => { alive = false; clearInterval(timer); };
+    const resume = () => { if (!document.hidden) void load(); else clearTimeout(timer); };
+    void load();
+    document.addEventListener("visibilitychange", resume);
+    return () => { alive = false; controller.abort(); clearTimeout(timer); document.removeEventListener("visibilitychange", resume); };
   }, [open, kind, cursor, reload]);
   useEffect(() => {
     if (open) dialog.current?.showModal();
     else dialog.current?.close();
   }, [open]);
   const act = async (action: () => Promise<void>) => {
-    setBusy(true); setError("");
+    setBusy(true); setError(""); pages.current.clear();
     try { await action(); } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };

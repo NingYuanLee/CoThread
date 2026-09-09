@@ -17,11 +17,13 @@ import { handleMcp } from "./mcp.js";
 import { retryReply } from "./reply-actions.js";
 import { personalProfile, profileSchema } from "./profile.js";
 import { registerRequestParts } from "./request-parts.js";
+import { requestTiming } from "./request-timing.js";
 
 export function createApp(db, { makers = false, afterMcpMessage, executeRun, stopAgent = async () => {} } = {}) {
   const app = express();
   const service = new Service(db);
   app.disable("x-powered-by");
+  app.use(requestTiming);
   const origins = process.env.APP_ORIGIN
     ? [process.env.APP_ORIGIN]
     : makers ? ["http://cothread.z2l.top", "https://cothread.z2l.top"] : ["http://localhost:3100"];
@@ -91,6 +93,31 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     next();
   });
   registerRequestParts(app, db);
+  app.get("/api/workspace", async (req, res) => {
+    const [[profile], projects] = await Promise.all([
+      query(db, "SELECT id,name,email,avatar,motto,identity_tags FROM users WHERE id=?", [req.user.id]),
+      service.projects(req.user),
+    ]);
+    const selected = projects.find((p) => p.id === req.query.projectId && p.tab_visible)
+      || projects.find((p) => p.tab_visible);
+    let project = null, thread = null;
+    if (selected) {
+      [project, thread] = await Promise.all([
+        service.project(req.user, selected.id, { display: true }),
+        (async () => {
+          const [target] = await query(db,
+            "SELECT id FROM threads WHERE project_id=? ORDER BY (id=?) DESC,(status='active') DESC,created_at DESC,id LIMIT 1",
+            [selected.id, typeof req.query.threadId === "string" ? req.query.threadId.slice(0, 36) : ""]);
+          return target ? service.context(req.user, target.id, db, { display: true }) : null;
+        })(),
+      ]);
+    }
+    res.json({ user: personalProfile(profile), projects, project, thread,
+      health: { status: "ok", database: "mysql", sandbox: "acs",
+        acsConfigured: !!(process.env.E2B_API_KEY && process.env.E2B_DOMAIN), dshEnabled: process.env.DSH_ENABLED !== "false",
+        ...(makers ? { agentEndpoint: "/cothread-agent", mcpEndpoint: "/cothread-mcp" } : {}) },
+    });
+  });
   app.get("/api/me", async (req, res) => {
     const [profile] = await query(db, "SELECT id,name,email,avatar,motto,identity_tags FROM users WHERE id=?", [req.user.id]);
     res.json(personalProfile(profile));

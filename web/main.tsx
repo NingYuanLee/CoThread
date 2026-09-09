@@ -1,4 +1,4 @@
-import { apiFetch } from "./api-fetch";
+import { apiFetch, fetchJson } from "./api-fetch";
 import {
   AGENT_MEMBER,
   SUMMARY_REQUEST,
@@ -13,7 +13,8 @@ const Documents = lazy(() =>
   import("./Documents").then((module) => ({ default: module.Documents })),
 );
 import { MessageNavigator } from "./MessageNavigator";
-import { ChatComposer } from "./ChatComposer";
+const loadComposer = () => import("./ChatComposer");
+const ChatComposer = lazy(() => loadComposer().then((module) => ({ default: module.ChatComposer })));
 import { ContextMeter } from "./ContextMeter";
 import { Notifications } from "./Notifications";
 import { ProjectSettings } from "./ProjectSettings";
@@ -327,20 +328,19 @@ type Modal =
   | "run"
   | null;
 async function api(path: string, data?: unknown, method?: string, signal?: AbortSignal) {
-  const res = await apiFetch(`/api${path}`, {
+  return fetchJson(`/api${path}`, {
     method: method || (data === undefined ? "GET" : "POST"),
     headers: { "Content-Type": "application/json" },
     signal,
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
-  const value = await res.json();
-  if (!res.ok) throw Object.assign(new Error(value.error || "请求失败"), { status: res.status });
-  return value;
 }
 function App() {
   const [user, setUser] = useState<PersonalProfile | null>(null);
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [startupError, setStartupError] = useState("");
+  const bootstrappedUser = useRef<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
@@ -476,35 +476,65 @@ function App() {
       setBusy(false);
     }
   };
+  const loadWorkspace = async (signal?: AbortSignal) => {
+    setLoading(true);
+    setStartupError("");
+    void loadComposer().catch(() => {});
+    let selection: { projectId?: string; threadId?: string } = {};
+    try { const saved = JSON.parse(sessionStorage.getItem("cothread-selection") || "{}"); if (saved && typeof saved === "object") selection = saved; } catch {}
+    try {
+      const params = new URLSearchParams();
+      if (typeof selection.projectId === "string") params.set("projectId", selection.projectId);
+      if (typeof selection.threadId === "string") params.set("threadId", selection.threadId);
+      const workspace = await api(`/workspace?${params}`, undefined, undefined, signal);
+      if (signal?.aborted) return;
+      projectCache.current.clear();
+      threadCache.current.clear();
+      if (workspace.project) projectCache.current.update(workspace.project.id, () => workspace.project);
+      if (workspace.thread) threadCache.current.update(workspace.thread.id, () => workspace.thread);
+      bootstrappedUser.current = workspace.user.id;
+      setUser(workspace.user);
+      setProjects(workspace.projects);
+      setProjectId(workspace.project?.id || "");
+      setThreadId(workspace.thread?.id || "");
+      setShowArchived(workspace.thread?.status === "archived");
+      setDetail(workspace.project);
+      setThread(workspace.thread);
+      configureMakers(workspace.health);
+      setHealth(workspace.health);
+    } catch (cause) {
+      if (signal?.aborted) return;
+      if ((cause as { status?: number }).status === 401) setUser(null);
+      else setStartupError((cause as Error).message);
+    } finally { if (!signal?.aborted) setLoading(false); }
+  };
   useEffect(() => {
-    api("/me")
-      .then(setUser)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-    api("/health")
-      .then((value) => { configureMakers(value); setHealth(value); })
-      .catch(() => {});
+    const controller = new AbortController();
+    void loadWorkspace(controller.signal);
+    return () => controller.abort();
   }, []);
   useEffect(() => {
-    if (user)
-      api("/projects")
-        .then(setProjects)
-        .catch((e) => setError(e.message));
-  }, [user]);
+    if (user && bootstrappedUser.current !== user.id) void loadWorkspace();
+    if (!user) {
+      bootstrappedUser.current = null;
+      projectCache.current.clear();
+      threadCache.current.clear();
+      setDetail(null);
+      setThread(null);
+    }
+  }, [user?.id]);
+  useEffect(() => {
+    if (!user || !projectId) return;
+    try { sessionStorage.setItem("cothread-selection", JSON.stringify({ projectId, threadId })); } catch {}
+  }, [user?.id, projectId, threadId]);
   useEffect(() => {
     if (!projects.some((p) => p.id === projectId && p.tab_visible))
       setProjectId(projects.find((p) => p.tab_visible)?.id || "");
   }, [projects, projectId]);
   useEffect(() => {
-    projectCache.current.clear();
-    threadCache.current.clear();
-    setDetail(null);
-    setThread(null);
-  }, [user?.id]);
-  useEffect(() => {
     const cached = projectCache.current.get(projectId);
     setDetail(cached || null);
-    setThreadId(cached?.threads.find((t) => t.status === "active")?.id || cached?.threads[0]?.id || "");
+    setThreadId((current) => cached?.threads.some((t) => t.id === current) ? current : cached?.threads.find((t) => t.status === "active")?.id || cached?.threads[0]?.id || "");
     setRefs([]);
     setMessage("");
     if (!projectId || !user) return;
@@ -539,7 +569,8 @@ function App() {
         if (alive) { clearTimeout(timer); timer = setTimeout(load, 8000); }
       }
     };
-    void load();
+    if (cached) timer = setTimeout(load, 8000);
+    else void load();
     document.addEventListener("visibilitychange", load);
     return () => {
       alive = false;
@@ -551,7 +582,8 @@ function App() {
   useEffect(() => {
     historyRequest.current?.abort();
     setHistoryLoading(false);
-    setThread(threadCache.current.get(threadId) || null);
+    const cached = threadCache.current.get(threadId);
+    setThread(cached || null);
     followConversation.current = true;
     setRefs([]);
     setMessage("");
@@ -579,7 +611,8 @@ function App() {
         if (alive) { clearTimeout(timer); timer = setTimeout(load, active ? 2500 : 8000); }
       }
     };
-    void load();
+    if (cached) timer = setTimeout(load, 2500);
+    else void load();
     document.addEventListener("visibilitychange", load);
     return () => {
       alive = false;
@@ -774,7 +807,7 @@ function App() {
           title: value("title"),
         });
         setThreadId(t.id);
-        setDetail(await api(`/projects/${projectId}`));
+        setDetail(await api(`/projects/${projectId}?view=chat`));
       }
       if (modal === "account") {
         await api("/users", {
@@ -1000,13 +1033,14 @@ function App() {
       </a>
     );
   };
-  if (loading)
+  if (loading || startupError)
     return (
       <div className="login">
         <div className="brand">
           共序 <small>CoThread</small>
         </div>
-        <p>正在连接工作空间…</p>
+        <p role="status">{startupError || "正在加载工作空间…"}</p>
+        {startupError && <button onClick={() => void loadWorkspace()}>重新加载</button>}
       </div>
     );
   if (!user)
@@ -1438,7 +1472,14 @@ function App() {
             <button onClick={() => setError("")}>×</button>
           </div>
         )}
-        {!thread ? (
+        {!thread && projectId && (!detail || threadId || detail.threads.length > 0) ? (
+          <div className="conversation-loading" role="status" aria-live="polite" aria-busy="true">
+            <p>{threadId ? "正在加载会话…" : "正在加载项目…"}</p>
+            <div className="conversation-skeleton"><i /><span /><span /></div>
+            <div className="conversation-skeleton"><i /><span /><span /></div>
+            <div className="conversation-skeleton"><i /><span /><span /></div>
+          </div>
+        ) : !thread ? (
           <div className="welcome">
             <div className="welcome-icon">◈</div>
             <span className="eyebrow">BUILD CONTEXT TOGETHER</span>
@@ -1685,6 +1726,7 @@ function App() {
                 </div>
               }
               {active ? (
+                <Suspense fallback={<div className="composer-loading" role="status">正在加载输入框…</div>}>
                 <ChatComposer
                   key={`${projectId}:${threadId}`}
                   projectId={projectId}
@@ -1714,6 +1756,7 @@ function App() {
                     return sent;
                   }}
                 />
+                </Suspense>
               ) : (
                 <div className="readonly">
                   {thread.status === "archived"
@@ -1781,7 +1824,7 @@ function App() {
                 onOpen={showDocument}
                 onClose={() => {}}
                 onRefresh={async () =>
-                  setDetail(await api(`/projects/${projectId}`))
+                  setDetail(await api(`/projects/${projectId}?view=chat`))
                 }
                 onReference={
                   active
@@ -1947,7 +1990,7 @@ function App() {
             writable={writable}
             folders={detail?.folders || []}
             onRefresh={async () => {
-              setDetail(await api(`/projects/${projectId}`));
+              setDetail(await api(`/projects/${projectId}?view=chat`));
             }}
             versions={detail?.versions || []}
             selected={documentId}

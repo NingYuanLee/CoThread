@@ -3,6 +3,7 @@ import { assetPath } from "./assets.js";
 import { createDatabase } from "./db.js";
 import { createApp } from "./http-app.js";
 import { migrate } from "../scripts/migrate.js";
+import { requestTiming, currentTiming } from "./request-timing.js";
 
 let database;
 export function makersDatabase() {
@@ -25,10 +26,15 @@ export function makersDatabase() {
 
 export function createMakersApp(getDatabase = makersDatabase) {
   const app = express();
+  app.use(requestTiming);
   let api;
   app.use(async (req, res, next) => {
     try {
-      api ??= createApp(await getDatabase(), { makers: true });
+      if (!api) {
+        const start = performance.now();
+        try { api = createApp(await getDatabase(), { makers: true }); }
+        finally { currentTiming().init = performance.now() - start; }
+      }
       return api(req, res, next);
     } catch (error) {
       console.error("Makers initialization failed", { code: error.code || error.name,

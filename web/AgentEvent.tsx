@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { apiFetch } from "./api-fetch";
+import { fetchJson } from "./api-fetch";
 
 export function AgentEvent({ threadId, event, children }: {
   threadId: string;
@@ -13,10 +13,8 @@ export function AgentEvent({ threadId, event, children }: {
     if (!open || event.tool === "thinking") return;
     const controller = new AbortController();
     setError("");
-    apiFetch(`/api/threads/${threadId}/events/${event.id}`, { signal: controller.signal })
-      .then(async (response) => {
-        const value = await response.json();
-        if (!response.ok) throw new Error(value.error || "读取执行详情失败");
+    fetchJson(`/api/threads/${threadId}/events/${event.id}`, { signal: controller.signal })
+      .then((value) => {
         if (!controller.signal.aborted) setPayload(value);
       }).catch((e) => { if (!controller.signal.aborted) setError(e.message); });
     return () => controller.abort();

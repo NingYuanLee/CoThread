@@ -60,3 +60,15 @@ test("a duplicate column with a different definition remains an actionable migra
     assert.equal((await query(database.db, "SELECT name FROM schema_migrations WHERE name='017_child_agents.sql'")).length, 0);
   } finally { await database.close(); }
 });
+
+test("a fully migrated cold start needs one query and no migration lock", async () => {
+  const database = await testDatabase();
+  try {
+    let queries = 0;
+    await migrate({
+      execute: async (...args) => { queries++; return database.db.execute(...args); },
+      getConnection: () => assert.fail("Current schema must not wait on the migration lock"),
+    });
+    assert.equal(queries, 1);
+  } finally { await database.close(); }
+});

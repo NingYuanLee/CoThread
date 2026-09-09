@@ -32,6 +32,10 @@ test("notifications persist, isolate recipients, import projects and enforce rev
     await service.postMessage(owner, thread.id, { body: "@小明 请处理，@小明 谢谢。@负责人 自己" });
     assert.equal((await service.notifications(owner)).unread, 0);
     let inbox = await service.notifications(member);
+    const countsOnly = await service.notifications(member, undefined, { summary: "1" });
+    assert.deepEqual(countsOnly.items, []);
+    assert.deepEqual(countsOnly.counts, inbox.counts);
+    assert.equal(countsOnly.unread, inbox.unread);
     assert.equal(inbox.unread, 1);
     const mention = inbox.items.find((n) => n.kind === "mention");
     assert.equal(mention.sender_name, owner.name);

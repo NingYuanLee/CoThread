@@ -1,3 +1,9 @@
+import { readJsonResponse, requestJson } from "../shared/json-response.js";
+
+export function fetchJson(url: string, options: RequestInit = {}) {
+  return requestJson(url, options, apiFetch);
+}
+
 // Keep each network request below the Makers Cloud Functions 6 MB boundary.
 // Reassembled payloads still pass the same backend authorization and validators.
 export async function apiFetch(url: string, options: RequestInit = {}, progress?: (percent: number) => void): Promise<Response> {
@@ -10,7 +16,7 @@ export async function apiFetch(url: string, options: RequestInit = {}, progress?
     let binary = "";
     for (let i = 0; i < bytes.length; i += 8192)
       binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-    return Response.json({ ...await meta.json(), contentBase64: btoa(binary) });
+    return Response.json({ ...await readJsonResponse(meta, url), contentBase64: btoa(binary) });
   }
   const body = options.body;
   if (typeof body !== "string" || body.length <= 524288) return fetch(url, options);

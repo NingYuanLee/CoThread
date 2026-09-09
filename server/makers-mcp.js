@@ -4,11 +4,13 @@ import { authenticate } from "./auth.js";
 import { Service, HttpError } from "./service.js";
 import { makersDatabase, makersErrorDetails } from "./makers.js";
 import { runMakersThread, validateMakersOrigin } from "./makers-runner.js";
+import { makersWebRequest } from "./makers-request.js";
 
 export function createMakersMcpHandler(getDatabase = makersDatabase) {
   return async ({ request }) => {
     let server;
     try {
+      request = makersWebRequest(request);
       validateMakersOrigin(request);
       const db = await getDatabase();
       const user = await authenticate(db, { headers: Object.fromEntries(request.headers) });

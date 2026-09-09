@@ -43,12 +43,12 @@ test("Makers Express adapter returns real API JSON, enforces origin, authenticat
     assert.equal((await request("/api/me", undefined, { Cookie: cookie })).statusCode, 200);
     const token = await issueCredential(database.db, userId, "api", "test");
     const handler = createMakersMcpHandler(async () => database.db);
-    const mcp = await handler({request: new Request('https://cothread.z2l.top/cothread-mcp', {
-      method: 'POST', headers: { 'Content-Type': 'application/json',
+    const mcp = await handler({request: {
+      url: 'https://cothread.z2l.top/cothread-mcp', method: 'POST', headers: { 'Content-Type': 'application/json',
         Authorization: 'Bearer ' + token.token, Accept: 'application/json, text/event-stream',
         'Makers-Conversation-Id': userId },
-      body: JSON.stringify({jsonrpc:'2.0', id:1, method:'tools/list'}),
-    })});
+      body: {jsonrpc:'2.0', id:1, method:'tools/list'},
+    }});
     assert.equal(mcp.status, 200);
     assert.equal((await mcp.json()).result.tools.length, 7);
     const guide = createMcpInstallGuide({ url: "https://cothread.z2l.top/cothread-mcp", token: "test-token", conversationId: userId });

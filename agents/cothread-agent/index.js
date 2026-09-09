@@ -3,9 +3,11 @@ import { HttpError } from "../../server/service.js";
 import { makersDatabase, makersErrorDetails } from "../../server/makers.js";
 import { runMakersThread, validateMakersOrigin } from "../../server/makers-runner.js";
 import { withMakersSandbox } from "../../server/makers-sandbox.js";
+import { makersWebRequest } from "../../server/makers-request.js";
 
 async function handleRequest({ request }) {
   try {
+    request = makersWebRequest(request);
     if (request.method !== "POST") return Response.json({ error: "仅支持 POST" }, { status: 405 });
     validateMakersOrigin(request);
     const threadId = request.headers.get("Makers-Conversation-Id");

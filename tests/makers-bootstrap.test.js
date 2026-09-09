@@ -22,6 +22,11 @@ test("Agent entry can boot without loading the DSH execution SDK", () => {
     if (Object.keys(detail).sort().join(',') !== 'code,error') throw new Error('Unexpected diagnostic fields');
     const { makersErrorDetails } = await import(${JSON.stringify(new URL("../server/makers.js", import.meta.url).href)});
     if (Object.keys(makersErrorDetails({ initializationCode: 'secret', message: 'secret' })).length) throw new Error('Unknown diagnostic leaked');
+    const native = await onRequest({ request: {
+      url: 'https://example.test/cothread-agent', method: 'POST',
+      headers: { 'makers-conversation-id': 'ede432bd-69c1-4a65-924d-c50aec6999dc', 'content-type': 'application/json' }, body: {}
+    } });
+    if ((await native.json()).code !== 'INIT_ENCRYPTION_KEY') throw new Error('Native Makers request did not reach initialization');
   `;
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 15000 });
   assert.equal(result.status, 0, result.stderr);

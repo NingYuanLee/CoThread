@@ -288,8 +288,9 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   });
   app.get("/api/threads/:id/replies/:messageId/activity", async (req,res) => {
     await service.thread(req.user,req.params.id);
+    const first = req.query.view === 'first';
     const rows=await query(db,`SELECT e.id,e.tool,LEFT(e.output,32000) output FROM agent_events e JOIN messages m ON m.id=e.message_id
-      WHERE m.thread_id=? AND e.message_id=? AND e.tool IN ('thinking','assistant_text','assistant_final') ORDER BY e.id LIMIT 200`,[req.params.id,req.params.messageId]);
+      WHERE m.thread_id=? AND e.message_id=? AND e.tool IN ('thinking','assistant_text','assistant_final') ${first ? "AND LENGTH(e.output)>0" : ""} ORDER BY e.id LIMIT ${first ? 1 : 200}`,[req.params.id,req.params.messageId]);
     let remaining=240000;
     res.json(rows.map(row=>{const output=(row.output||'').slice(0,remaining);remaining-=output.length;return {...row,output};}));
   });

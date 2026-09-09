@@ -6,6 +6,7 @@ export function trackThinking(db,messageId,sessionId){
  const started=performance.now();let firstChunk=false;
  let queue=Promise.resolve(),phase,lastPhase,timer,failure,closed=false;
  const enqueue=task=>{queue=queue.then(task).catch(error=>{failure ||= error;});};
+ const received=()=>{if(firstChunk)return;firstChunk=true;const receivedAt=new Date();enqueue(()=>query(db,"UPDATE assistant_replies SET first_response_at=COALESCE(first_response_at,?) WHERE message_id=? AND status='running'",[receivedAt,messageId]));console.log('Agent timing',{messageId,stage:'first_model_chunk',elapsedMs:Math.round(performance.now()-started)});};
  const flushText=()=>{
   clearTimeout(timer);timer=undefined;if(!phase)return;
   const current=phase,text=current.text;
@@ -33,12 +34,13 @@ export function trackThinking(db,messageId,sessionId){
     const c=e.data?.chunk;
     const kind=c?.type==='reasoning-delta'?'thinking':c?.type==='text-delta'?'assistant_text':undefined;
     if(kind&&typeof c.text==='string'){
-     if(!firstChunk){firstChunk=true;console.log('Agent timing',{messageId,stage:'first_model_chunk',elapsedMs:Math.round(performance.now()-started)});}
+     if(c.text.length)received();
      if(phase?.kind!==kind){begin(kind);live.beginPhase(kind);}
      phase.text=(phase.text+c.text).slice(0,kind==='thinking'?16000:32000);
      if(!timer){timer=setTimeout(flushText,300);timer.unref?.();}
     }
    }else if(['assistant/message','tool/call','step/end','turn/end'].includes(e?.type)){
+    if(e.type==='tool/call')received();
     // Keep the last phase until close so a completed final answer can be marked.
     finish();
    }

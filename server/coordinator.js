@@ -91,6 +91,7 @@ export async function processNextCoordinator(db, threadId, decide = decideDispat
     const context = await dispatchContext(db, thread, job);
     const loaded = performance.now();
     const decision = decisionSchema.parse(await decide(context, job));
+    const firstResponseAt = new Date();
     console.log('Agent timing', { messageId:job.message_id, stage:'routing', contextMs:Math.round(loaded-started), modelMs:Math.round(performance.now()-loaded) });
     if (decision.action === "silent" && (mentionsAgent(job.body) || job.participation === "reply")) {
       decision.action = "reply";
@@ -147,7 +148,7 @@ export async function processNextCoordinator(db, threadId, decide = decideDispat
           `UPDATE assistant_replies SET status='completed',participation=?,reply_id=?,progress='主助手已回应',finished_at=UTC_TIMESTAMP(3)
            WHERE message_id=?`, [decision.action === "silent" ? "silent" : "reply", responseId, job.message_id]);
       }
-      await query(conn, "UPDATE agent_requests SET status='completed',response_id=?,error=NULL WHERE message_id=?", [responseId, job.message_id]);
+      await query(conn, "UPDATE agent_requests SET status='completed',response_id=?,error=NULL,first_response_at=? WHERE message_id=?", [responseId, firstResponseAt, job.message_id]);
     });
   } catch (error) {
     await transaction(db, async (conn) => {

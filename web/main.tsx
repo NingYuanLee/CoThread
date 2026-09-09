@@ -306,11 +306,12 @@ type Thread = {
     status: string;
     finished_at?: string | null;
     started_at?: string;
+    first_response_at?: string | null;
     error: string | null;
     progress: string | null;
   }[];
   updates: { message_id: string; task_message_id: string; delivered_at: string | null }[];
-  requests: { message_id: string; status: string; response_id: string | null; error: string | null }[];
+  requests: { first_response_at?: string | null; message_id: string; status: string; response_id: string | null; error: string | null }[];
   events: {
     id: string;
     message_id: string;
@@ -963,7 +964,7 @@ function App() {
     return (
       <div className="agent-round" data-message-id={reply.message_id}>
         <div className="agent-trace-row">
-          <AgentActivity threadId={threadId} messageId={reply.message_id} events={events} output={output} status={reply.status} progress={makersConnection==='unavailable'?'助手暂时无法连接，消息已保存。':reply.progress} startedAt={reply.started_at || thread?.messages.find(m=>m.id===reply.message_id)?.created_at} finishedAt={reply.finished_at || thread?.messages.find(m=>m.id===reply.reply_id)?.created_at} hasFinal={!!reply.reply_id} versions={detail?.versions} threads={detail?.threads}/>
+          <AgentActivity threadId={threadId} messageId={reply.message_id} events={events} output={output} status={reply.status} progress={makersConnection==='unavailable'?'助手暂时无法连接，消息已保存。':reply.progress} startedAt={reply.status==='queued'?undefined:reply.first_response_at || (output?.status===reply.status?output.first_response_at:undefined) || undefined} finishedAt={reply.finished_at || thread?.messages.find(m=>m.id===reply.reply_id)?.created_at} hasFinal={!!reply.reply_id} versions={detail?.versions} threads={detail?.threads}/>
           {stopControl}
         </div>
         {[reply]
@@ -1568,8 +1569,8 @@ function App() {
                         )}
                         <time>{time(m.created_at)}</time>
                       </div>
-                      {m.id.startsWith('agent-reception:') && <AgentActivity threadId={threadId} messageId={m.id.slice('agent-reception:'.length)} events={[]} status="queued" startedAt={m.created_at} hasFinal={false}/>}
-                      {m.source==='assistant' && thread.requests.filter(r=>r.response_id===m.id).map(r=><AgentActivity key={r.message_id} threadId={threadId} messageId={r.message_id} events={[]} status="completed" startedAt={thread.messages.find(item=>item.id===r.message_id)?.created_at} finishedAt={m.created_at} hasFinal={true}/>)}
+                      {m.id.startsWith('agent-reception:') && <AgentActivity threadId={threadId} messageId={m.id.slice('agent-reception:'.length)} events={[]} status="queued" hasFinal={false}/>}
+                      {m.source==='assistant' && thread.requests.filter(r=>r.response_id===m.id).map(r=><AgentActivity key={r.message_id} threadId={threadId} messageId={r.message_id} events={[]} status="completed" startedAt={r.first_response_at || undefined} finishedAt={m.created_at} hasFinal={true}/>)}
                       {m.source === "assistant" &&
                         thread.replies
                           .filter((reply) => m.agent_task_id === reply.message_id || reply.reply_id === m.id)
@@ -1610,14 +1611,14 @@ function App() {
                           {m.body}
                         </Markdown>
                       </div>
-                      {!m.id.startsWith('agent-reception:') && <div className="message-actions">
-                        <button type="button" onClick={() => void copyMessage(m)}>{copiedMessage === m.id ? "已复制" : "复制"}</button>
-                        <button type="button" disabled={!active || (m.id.startsWith("agent-task:") && !m.quoteTargetId)} onClick={() => {
+                      {!!m.body.trim() && !m.id.startsWith('agent-reception:') && <div className="message-actions">
+                        <button type="button" title={copiedMessage === m.id ? "已复制" : "复制"} aria-label={copiedMessage === m.id ? "已复制" : "复制"} onClick={() => void copyMessage(m)}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedMessage === m.id ? <path d="m4 10 4 4 8-8"/> : <><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M12 4V3H3v9h1"/></>}</svg></button>
+                        <button type="button" title="引用" aria-label="引用" disabled={!active || (m.id.startsWith("agent-task:") && !m.quoteTargetId)} onClick={() => {
                           const id = m.quoteTargetId || m.id;
                           const original = thread.messages.find(item => item.id === id) || m;
                           setQuotedMessages(previous => previous.some(q => q.id === id) ? previous : [...previous, {...original, id}].slice(0,10));
                           requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus());
-                        }}>引用</button>
+                        }}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 5H3v6h5V5Zm9 0h-5v6h5V5ZM8 11c0 3-2 4-4 4m13-4c0 3-2 4-4 4"/></svg></button>
                       </div>}
                       {!!m.refs.length && (
                         <div className="references">

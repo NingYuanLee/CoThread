@@ -51,7 +51,7 @@ export function trackLiveOutput(db,messageId,sessionId,{interval=300,cursor=()=>
 export async function liveOutputSnapshot(db,threadId){
  let cache=caches.get(db);if(!cache)caches.set(db,cache=new Map());
  const previous=cache.get(threadId);if(previous && Date.now()-previous.at<500)return previous.promise;
- const promise=query(db,`SELECT o.message_id,o.event_id,o.run_id,o.step,o.reasoning,o.content,o.truncated,o.revision,r.status
+ const promise=query(db,`SELECT o.message_id,o.event_id,o.run_id,o.step,o.reasoning,o.content,o.truncated,o.revision,r.status,r.first_response_at
    FROM agent_live_output o JOIN assistant_replies r ON r.message_id=o.message_id JOIN messages m ON m.id=o.message_id
    WHERE m.thread_id=? ORDER BY (r.status='running') DESC,m.sequence DESC LIMIT 3`,[threadId]);
  cache.set(threadId,{at:Date.now(),promise});if(cache.size>64)cache.delete(cache.keys().next().value);

@@ -1,6 +1,6 @@
 import {useEffect,useState} from 'react';
 import {fetchJson} from './api-fetch';
-export type LiveOutput={message_id:string;event_id?:string|null;run_id:string;step:number;reasoning:string;content:string;truncated:boolean;status:string;revision:string;reset?:boolean};
+export type LiveOutput={first_response_at?:string|null;message_id:string;event_id?:string|null;run_id:string;step:number;reasoning:string;content:string;truncated:boolean;status:string;revision:string;reset?:boolean};
 export function useAgentLiveOutput(threadId:string,enabled:boolean){
  const [state,setState]=useState<{threadId:string;rows:Record<string,LiveOutput>}>({threadId:'',rows:{}});
  useEffect(()=>{

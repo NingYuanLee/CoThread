@@ -17,13 +17,27 @@ test('thinking, intermediate text and tools retain actual order; final text is m
   const tracker=trackThinking(db,message.id,'s');
   const emit=(type,data={})=>tracker.notify({method:'session.event',params:{sessionId:'s',event:{type,data}}});
   const chunk=(type,text)=>emit('assistant/chunk',{chunk:{type,text}});
-  emit('step/start',{step:1});chunk('reasoning-delta','先确认成员。');chunk('text-delta','我先读取项目成员。');emit('tool/call');await tracker.flush();
+  emit('step/start',{step:1});await tracker.flush();
+  assert.equal((await query(db,'SELECT first_response_at FROM assistant_replies WHERE message_id=?',[message.id]))[0].first_response_at,null);
+  chunk('reasoning-delta','');await tracker.flush();
+  assert.equal((await query(db,'SELECT first_response_at FROM assistant_replies WHERE message_id=?',[message.id]))[0].first_response_at,null);
+  chunk('reasoning-delta','先确认成员。');await tracker.flush();
+  const firstResponse=(await query(db,'SELECT first_response_at FROM assistant_replies WHERE message_id=?',[message.id]))[0].first_response_at;
+  assert.ok(firstResponse);
+  chunk('text-delta','我先读取项目成员。');emit('tool/call');await tracker.flush();
   await createAgentTools(service,user,{message_id:message.id,thread_id:thread.id})('list_members',{});
   emit('step/start',{step:2});chunk('reasoning-delta','成员资料已齐全。');chunk('text-delta','最终结果：资料完整。');emit('assistant/message');emit('step/end');await tracker.close('completed','最终结果：资料完整。');
   const rows=await query(db,'SELECT id,tool,output,status FROM agent_events WHERE message_id=? ORDER BY id',[message.id]);
   assert.deepEqual(rows.map(e=>e.tool),['thinking','assistant_text','list_members','thinking','assistant_final']);
   assert.equal(rows[0].output,'先确认成员。');assert.equal(rows[1].output,'我先读取项目成员。');assert.equal(rows[3].output,'成员资料已齐全。');
   assert.ok(rows.every(e=>e.status==='completed'));
+  assert.equal((await query(db,'SELECT first_response_at FROM assistant_replies WHERE message_id=?',[message.id]))[0].first_response_at,firstResponse);
   const [live]=await query(db,'SELECT event_id FROM agent_live_output WHERE message_id=?',[message.id]);assert.equal(String(live.event_id),String(rows[4].id));
+  const direct=await service.postMessage(user,thread.id,{body:'直接调用工具'});
+  await query(db,"UPDATE assistant_replies SET status='running' WHERE message_id=?",[direct.id]);
+  const toolOnly=trackThinking(db,direct.id,'tool-only');
+  toolOnly.notify({method:'session.event',params:{sessionId:'tool-only',event:{type:'tool/call',data:{}}}});
+  await toolOnly.close('completed');
+  assert.ok((await query(db,'SELECT first_response_at FROM assistant_replies WHERE message_id=?',[direct.id]))[0].first_response_at);
  }finally{await database.close();}
 });

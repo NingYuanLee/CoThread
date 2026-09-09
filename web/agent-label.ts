@@ -27,5 +27,5 @@ export function agentLabel(
   const category = event.tool.startsWith("sandbox_") ? "沙箱操作"
     : ["read_document", "publish_artifact", "list_documents", "manage_document", "manage_folder"].includes(event.tool) ? "项目文档"
       : ["project_context", "read_iteration", "list_messages", "read_message", "list_members", "read_member"].includes(event.tool) ? "会话资料" : "外部工具";
-  return { ...label, action: event.tool === "thinking" ? label.action : `${category} · ${label.action}` };
+  return { ...label, category, action: event.tool === "thinking" ? label.action : `${category} · ${label.action}` };
 }

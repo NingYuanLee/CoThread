@@ -5,6 +5,17 @@ const message = (id, source='human', extra={}) => ({id,sequence:'1',source,body:
 const reply = {message_id:'user',reply_id:null,participation:'reply',parent_message_id:'user',agent_slot:1};
 const request = [{message_id:'user',response_id:'host'}];
 const base = [message('user'),message('host','assistant')];
+test('accepted request renders immediately and keeps its row key when reception arrives',()=>{
+  const queued={...reply,parent_message_id:null,agent_slot:null};
+  const rows=taskTimeline([base[0]],[queued],[{message_id:'user',response_id:null,status:'queued'}],()=>false);
+  assert.equal(rows[1].body,'');
+  assert.equal(rows[1].render_key,'agent-reception:user');
+  assert.equal(rows[1].agent_task_id,null);
+  const done=taskTimeline(base,[queued],[{message_id:'user',response_id:'host',status:'completed'}],()=>false);
+  assert.equal(done[1].render_key,rows[1].render_key);
+  assert.equal(done.length,2);
+  assert.equal(taskTimeline([base[0]],[{...queued,participation:'pending'}],[{message_id:'user',response_id:null,status:'queued'}],()=>false).length,1);
+});
 test('task remains after reception as publication and final reply arrive; refs stay with steps',()=>{
   const running=taskTimeline(base,[reply],request,()=>true);
   assert.deepEqual(running.map(m=>m.id),['user','host','agent-task:user']);

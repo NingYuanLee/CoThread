@@ -283,6 +283,7 @@ type Thread = {
     author_role?: string | null;
     agent_task_id?: string | null;
     quoteTargetId?: string;
+    render_key?: string;
     quotes?: MessageQuote[];
     created_at: string;
   }[];
@@ -303,6 +304,8 @@ type Thread = {
     dispatch_ready: boolean;
     participation: "pending" | "reply" | "silent";
     status: string;
+    finished_at?: string | null;
+    started_at?: string;
     error: string | null;
     progress: string | null;
   }[];
@@ -940,9 +943,10 @@ function App() {
       minute: "2-digit",
     });
   const hasAgentActivity = (reply: Thread["replies"][number]) =>
+    !!reply.parent_message_id || !!reply.agent_slot ||
+    (!!reply.dispatch_ready && ['queued','running'].includes(reply.status)) ||
     !!liveOutput[reply.message_id]?.reasoning || (!!liveOutput[reply.message_id]?.content && !reply.reply_id) ||
     reply.status === "failed" ||
-    (reply.status === "queued" && makersConnection === "unavailable") ||
     !!thread?.events.some((event) => event.message_id === reply.message_id &&
       (event.tool !== "thinking" || (reply.status === "running" && event.status === "running")));
   const timeline = thread ? taskTimeline(thread.messages, thread.replies, thread.requests || [], hasAgentActivity) : [];
@@ -958,11 +962,10 @@ function App() {
     );
     return (
       <div className="agent-round" data-message-id={reply.message_id}>
-        {events.length > 0 || output?.reasoning || output?.content ? <div className="agent-trace-row">
-          <AgentActivity threadId={threadId} messageId={reply.message_id} events={events} output={output} status={reply.status} hasFinal={!!reply.reply_id} versions={detail?.versions} threads={detail?.threads}/>
+        <div className="agent-trace-row">
+          <AgentActivity threadId={threadId} messageId={reply.message_id} events={events} output={output} status={reply.status} progress={makersConnection==='unavailable'?'助手暂时无法连接，消息已保存。':reply.progress} startedAt={reply.started_at || thread?.messages.find(m=>m.id===reply.message_id)?.created_at} finishedAt={reply.finished_at || thread?.messages.find(m=>m.id===reply.reply_id)?.created_at} hasFinal={!!reply.reply_id} versions={detail?.versions} threads={detail?.threads}/>
           {stopControl}
-        </div> : <div className="reply-status agent-status"><span>{makersConnection === "unavailable" ? "助手暂时无法连接，消息已保存。" : "消息已收到。"}</span>{stopControl}</div>}
-        {!!reply.reply_id && <hr className="agent-result-divider"/>}
+        </div>
         {[reply]
           ?.filter((r) => r.status === "failed")
           .map((r) => (
@@ -1517,11 +1520,11 @@ function App() {
                 </div>
               )}
               {timeline.map((m) => (
-                <React.Fragment key={m.id}>
+                <React.Fragment key={m.render_key || m.id}>
                   <article
                     data-message-id={m.id}
                     className={`message ${m.source === "system" ? "system" : ""} ${m.author_id === user.id && ["human", "local_ai"].includes(m.source) ? "own" : ""}`}
-                    key={m.id}
+                    key={m.render_key || m.id}
                   >
                     <span
                       className={`avatar ${m.source === "assistant" ? "ai" : ""}`}
@@ -1565,6 +1568,8 @@ function App() {
                         )}
                         <time>{time(m.created_at)}</time>
                       </div>
+                      {m.id.startsWith('agent-reception:') && <AgentActivity threadId={threadId} messageId={m.id.slice('agent-reception:'.length)} events={[]} status="queued" startedAt={m.created_at} hasFinal={false}/>}
+                      {m.source==='assistant' && thread.requests.filter(r=>r.response_id===m.id).map(r=><AgentActivity key={r.message_id} threadId={threadId} messageId={r.message_id} events={[]} status="completed" startedAt={thread.messages.find(item=>item.id===r.message_id)?.created_at} finishedAt={m.created_at} hasFinal={true}/>)}
                       {m.source === "assistant" &&
                         thread.replies
                           .filter((reply) => m.agent_task_id === reply.message_id || reply.reply_id === m.id)
@@ -1605,7 +1610,7 @@ function App() {
                           {m.body}
                         </Markdown>
                       </div>
-                      <div className="message-actions">
+                      {!m.id.startsWith('agent-reception:') && <div className="message-actions">
                         <button type="button" onClick={() => void copyMessage(m)}>{copiedMessage === m.id ? "已复制" : "复制"}</button>
                         <button type="button" disabled={!active || (m.id.startsWith("agent-task:") && !m.quoteTargetId)} onClick={() => {
                           const id = m.quoteTargetId || m.id;
@@ -1613,7 +1618,7 @@ function App() {
                           setQuotedMessages(previous => previous.some(q => q.id === id) ? previous : [...previous, {...original, id}].slice(0,10));
                           requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus());
                         }}>引用</button>
-                      </div>
+                      </div>}
                       {!!m.refs.length && (
                         <div className="references">
                           {m.refs.map(renderRef)}
@@ -1717,10 +1722,19 @@ function App() {
                   onSend={async () => {
                     let sent = false;
                     await run(async () => {
-                      await api(`/threads/${threadId}/messages`, {
+                      const saved = await api(`/threads/${threadId}/messages`, {
                         body: message,
                         refs,
                         quoteIds: quotedMessages.map(q => q.id),
+                      });
+                      if (currentContext.current.threadId === threadId) setThread(current => {
+                        if (!current || current.id !== threadId) return current;
+                        const next = {...current,
+                          messages: current.messages.some(m => m.id === saved.id) ? current.messages : [...current.messages,{...saved,quotes:quotedMessages}],
+                          requests: !saved.request_status || current.requests.some(r => r.message_id === saved.id) ? current.requests : [...current.requests,{message_id:saved.id,status:saved.request_status,response_id:null,error:null}],
+                          replies: !saved.participation || current.replies.some(r => r.message_id === saved.id) ? current.replies : [...current.replies,{message_id:saved.id,status:'queued',participation:saved.participation,reply_id:null,parent_message_id:null,agent_slot:null,dispatch_ready:false,error:null,progress:null}],
+                        };
+                        return next;
                       });
                       sent = true;
                       setQuotedMessages([]);

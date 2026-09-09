@@ -59,6 +59,14 @@ export async function openAgentRuntime(
   context,
   { db, job, user, observe = true, autoCompact = true, createHarness },
 ) {
+  const runtimeStarted = performance.now();
+  let stageStarted = runtimeStarted;
+  const timed = (stage) => {
+    const now = performance.now();
+    console.log('Agent timing', { messageId:job.message_id, threadId:job.thread_id, stage,
+      durationMs:Math.round(now-stageStarted), elapsedMs:Math.round(now-runtimeStarted) });
+    stageStarted = now;
+  };
   // The hosted bundle hoists static external imports even out of lazy modules.
   // Load the DSH SDK only when a runtime is actually needed, so a missing SDK
   // dependency cannot prevent the Agent HTTP entry and coordinator from booting.
@@ -269,7 +277,10 @@ export async function openAgentRuntime(
   };
   let agentStage = "start";
   try {
+    timed('runtime_setup');
     await harness.start();
+    timed('harness_start');
+    await progress('正在准备上下文');
     agentStage = "restore";
     if (sharedHistory) await request("seed", { messages: sharedHistory });
     await request("observe", { messages: [] });
@@ -304,6 +315,7 @@ export async function openAgentRuntime(
     }
     agentStage = "meter";
     await sample();
+    timed('context_ready');
     return { harness, session, request, sample, close, progress, thinking };
   } catch (error) {
     error.agentStage = agentStage;

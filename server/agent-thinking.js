@@ -3,6 +3,7 @@ import { trackLiveOutput } from './agent-live-output.js';
 
 // All model phases share the same event sequence as actual tool calls.
 export function trackThinking(db,messageId,sessionId){
+ const started=performance.now();let firstChunk=false;
  let queue=Promise.resolve(),phase,lastPhase,timer,failure,closed=false;
  const enqueue=task=>{queue=queue.then(task).catch(error=>{failure ||= error;});};
  const flushText=()=>{
@@ -32,6 +33,7 @@ export function trackThinking(db,messageId,sessionId){
     const c=e.data?.chunk;
     const kind=c?.type==='reasoning-delta'?'thinking':c?.type==='text-delta'?'assistant_text':undefined;
     if(kind&&typeof c.text==='string'){
+     if(!firstChunk){firstChunk=true;console.log('Agent timing',{messageId,stage:'first_model_chunk',elapsedMs:Math.round(performance.now()-started)});}
      if(phase?.kind!==kind){begin(kind);live.beginPhase(kind);}
      phase.text=(phase.text+c.text).slice(0,kind==='thinking'?16000:32000);
      if(!timer){timer=setTimeout(flushText,300);timer.unref?.();}

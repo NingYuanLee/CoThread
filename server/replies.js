@@ -4,7 +4,7 @@ import { decideParticipation } from "./agent-participation.js";
 import { claimReply, MAX_THREAD_AGENTS } from "./reply-dispatch.js";
 import { pendingTaskUpdates } from "./agent-updates.js";
 import { setTimeout as delay } from "node:timers/promises";
-import { synchronizeNextDiscussion, synchronizeDiscussionContext } from "./context-sync.js";
+import { synchronizeNextDiscussion } from "./context-sync.js";
 import { processNextCoordinator } from "./coordinator.js";
 import { publishWork, subscribeWork, startWakeWorker } from "./work-events.js";
 import {
@@ -73,8 +73,13 @@ export async function processNextReply(
   const user = { id: job.author_id, kind: "session" };
   let runtime;
   try {
-    if (!generate) await synchronizeDiscussionContext(db, job.thread_id);
+    const claimedAt = performance.now();
+    console.log('Agent timing', {messageId:job.message_id,stage:'claimed'});
+    // The maintenance loop synchronizes the main context independently. A child
+    // seeds its latest checkpoint and appends missing messages in openAgentRuntime;
+    // starting another main DSH process here serially delays every child.
     const context = await service.context(user, job.thread_id);
+    console.log('Agent timing', {messageId:job.message_id,stage:'execution_context',durationMs:Math.round(performance.now()-claimedAt)});
     if (context.status !== "active") throw new HttpError(409, "迭代已归档");
     context.messages = context.messages.filter(
       (m) => BigInt(m.sequence) <= BigInt(job.sequence),

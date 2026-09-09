@@ -403,7 +403,7 @@ export class Service {
     );
     const repliesQuery = query(
       db,
-      `SELECT r.message_id,m.author_id,r.status,r.error,r.reply_id,r.progress,r.participation,r.parent_message_id,r.dispatch_ready,r.agent_slot FROM assistant_replies r
+      `SELECT r.message_id,m.author_id,m.created_at started_at,r.status,r.error,r.reply_id,r.progress,r.participation,r.parent_message_id,r.dispatch_ready,r.agent_slot,r.finished_at FROM assistant_replies r
       JOIN messages m ON m.id=r.message_id WHERE m.thread_id=? ORDER BY m.sequence`,
       [threadId],
     );
@@ -608,7 +608,13 @@ export class Service {
       return { ...message, refs, files };
     });
     publishWork(this.db, threadId);
-    return result;
+    // Return the committed chat row and receipt so the sender can render them
+    // immediately, without waiting for a separate workspace refresh.
+    const [saved] = await query(this.db, `SELECT m.sequence,m.body,m.source,m.created_at,u.name author,m.author_id,
+      q.status request_status,r.participation FROM messages m JOIN users u ON u.id=m.author_id
+      LEFT JOIN agent_requests q ON q.message_id=m.id LEFT JOIN assistant_replies r ON r.message_id=m.id
+      WHERE m.id=?`, [result.id]);
+    return { ...result, ...saved };
   }
   async submitVersion(
     user,

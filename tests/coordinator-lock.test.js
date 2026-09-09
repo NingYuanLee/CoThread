@@ -5,7 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { processNextCoordinator } from "../server/coordinator.js";
+import { processNextCoordinator, dispatchContext } from "../server/coordinator.js";
 
 test("coordinator waits for a concurrent claim instead of declaring a queued discussion idle", async () => {
   const database = await testDatabase(), db = database.db, service = new Service(db);
@@ -17,6 +17,15 @@ test("coordinator waits for a concurrent claim instead of declaring a queued dis
     const project = await service.createProject(user, { name: "并发接待" });
     const thread = await service.createThread(user, project.id, { title: "等待短事务" });
     const message = await service.postMessage(user, thread.id, { body: "@小祥 你在么？" });
+    assert.ok(message.sequence);
+    assert.equal(message.request_status,'queued');
+    assert.equal(message.participation,'reply');
+    const later=await service.postMessage(user,thread.id,{body:'这条在触发消息之后',quoteIds:[message.id]});
+    const context=await dispatchContext(db,thread,{thread_id:thread.id,sequence:message.sequence});
+    assert.deepEqual(context.messages.map(m=>m.id),[message.id]);
+    assert.equal('author_avatar' in context.messages[0],false);
+    const withQuote=await dispatchContext(db,thread,{thread_id:thread.id,sequence:later.sequence});
+    assert.equal(withQuote.messages.at(-1).quotes[0].id,message.id);
     await blocker.beginTransaction();
     await query(blocker, "SELECT id FROM threads WHERE id=? FOR UPDATE", [thread.id]);
     routing = processNextCoordinator(db, thread.id, async () => ({ action: "reply", reply: "我在。" }));

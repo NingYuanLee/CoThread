@@ -17,7 +17,9 @@ npm run db:seed
 npm run dev
 ```
 
-打开 <http://localhost:3100>。初始账号是 `.env` 中的 `ADMIN_EMAIL`，密码是 `ADMIN_PASSWORD`。首次启动会生成随机密码。可以在「账号设置」中修改；数据库中只保存加盐密码哈希。新增成员由项目负责人操作。
+打开 <http://localhost:3100>。`npm run setup` 将首次初始化的账号和随机密码保存在 `.local/initial-admin.json`，`npm run db:seed` 将账号及密码哈希写入数据库。可以在「账号设置」中修改；数据库中只保存加盐密码哈希。新增成员由项目负责人操作。
+
+本地 `.env` 仅保留数据库连接、ACS／模型连接与密钥，以及 `CREDENTIAL_ENCRYPTION_KEY`，共 6 项。普通参数使用代码默认值；部署差异仍可通过环境变量覆盖，详见 [云端配置](docs/cloud-environment.md)。
 
 `npm run setup` 不覆盖已有 `.env`。如果原项目的 `D:\work\dsh\.env` 存在，只复制 ACS 和 DeepSeek 必需的配置，MySQL 配置单独生成。不要提交 `.env` 或 `.local`。
 

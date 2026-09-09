@@ -16,9 +16,24 @@ try {
   }
   const databasePassword = randomBytes(24).toString("hex");
   const adminPassword = randomBytes(18).toString("base64url");
+  const keyPath = ".local/credential-encryption.key";
+  try {
+    await writeFile(keyPath, randomBytes(32), { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+  }
+  const key = await readFile(keyPath);
+  if (key.length !== 32) throw new Error("账号令牌加密密钥无效");
   const env = sample
     .replace("cothread:CHANGE_ME", "cothread:" + databasePassword)
-    .replace("ADMIN_PASSWORD=CHANGE_ME", "ADMIN_PASSWORD=" + adminPassword);
+    .replace("CREDENTIAL_ENCRYPTION_KEY=", "CREDENTIAL_ENCRYPTION_KEY=" + key.toString("base64"));
+  try {
+    await writeFile(".local/initial-admin.json", JSON.stringify({
+      email: "admin@cothread.local", password: adminPassword,
+    }, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+  }
   const keys = [
     "E2B_API_KEY",
     "E2B_DOMAIN",

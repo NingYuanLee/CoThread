@@ -48,7 +48,7 @@ export function createApp(db) {
       database: "mysql",
       sandbox: "acs",
       acsConfigured: !!(process.env.E2B_API_KEY && process.env.E2B_DOMAIN),
-      dshEnabled: process.env.DSH_ENABLED === "true",
+      dshEnabled: process.env.DSH_ENABLED !== "false",
     });
   });
   app.post("/api/login", async (req, res) => {

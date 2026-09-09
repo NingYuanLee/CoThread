@@ -68,7 +68,7 @@ export async function executeRun(
     process.env.SUMMARY_MODE !== "dsh" &&
     provider === Sandbox;
   const options = directSummary ? {} : acsOptions();
-  if (kind === "summary" && process.env.DSH_ENABLED !== "true")
+  if (kind === "summary" && process.env.DSH_ENABLED === "false")
     throw new HttpError(503, "DSH 助手尚未启用，请先准备带 DSH 的 ACS 模板");
   const runId = randomUUID();
   const context = await transaction(service.db, async (db) => {
@@ -181,7 +181,7 @@ export async function executeRun(
             "utf8",
           ),
         );
-        if (process.env.DSH_BOOTSTRAP === "true") {
+        if (process.env.DSH_BOOTSTRAP !== "false") {
           stage = "prepare-dsh";
           await progress("正在准备助手环境，首次可能需要几分钟");
           const prepared = await sandbox.commands.run(

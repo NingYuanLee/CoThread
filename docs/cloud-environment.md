@@ -17,8 +17,12 @@
 | `DATABASE_SSL` | 数据库启用 TLS 时设置为 `true` |
 | `ADMIN_EMAIL`、`ADMIN_PASSWORD` | 空库初始化账号时使用；密码至少 12 位，不能为 `CHANGE_ME` |
 
-迁移已有部署时，保留原有令牌加密密钥（原环境变量或 `.local/credential-encryption.key` 的内容），否则无法解密原来的账号令牌。空库首次部署才生成新密钥；不要提交密钥。
+迁移已有部署时，保留原有令牌加密密钥（原环境变量值，或将 `.local/credential-encryption.key` 的 32 字节二进制内容编码为 base64），否则无法解密原来的账号令牌。空库首次部署才生成新密钥；不要提交密钥。
 
 构建命令：`npm ci && npm run build`。发布前运行 `npm run db:migrate`；空库首次部署额外运行 `npm run db:seed`。启动命令：`npm start`。当前版本运行单个应用实例。
 
-Agent 的沙箱镜像、DSH 安装等配置见 `architecture.md` 和 `.env.example`，应按实际 ACS 模板设置。
+本地 `.env` 仅保留 `.env.example` 中的 6 项。其余参数无需重复填写默认值：监听 `127.0.0.1:3100`，站点地址 `http://localhost:3100`，Cookie Secure 和数据库 TLS 默认关闭；云端 HTTPS、监听地址和数据库 TLS 按上表覆盖。
+
+ACS 默认模板为 `code-interpreter`，任务超时为 300000 毫秒；模型为 `deepseek-v4-flash`，总结模式为 `direct`。`DSH_ENABLED` 和 `DSH_BOOTSTRAP` 默认启用，可显式设为 `false`：前者控制旧版 DSH 总结能力，后者控制 DSH 执行时自动安装运行环境。预装 DSH 的模板可关闭自动安装，详见 `architecture.md`。
+
+本地首次账号由 `npm run setup` 生成至 `.local/initial-admin.json`，不进入版本库；`npm run db:seed` 读取它完成数据库账号初始化。云端空库可临时设置 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD` 完成初始化，已有账号只依赖数据库。

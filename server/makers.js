@@ -14,7 +14,7 @@ export function makersDatabase() {
       throw new Error("请在 Makers 配置原有 CREDENTIAL_ENCRYPTION_KEY");
     const db = await createDatabase();
     try {
-      // Cold starts may overlap; migrate holds a database advisory lock.
+      // Cold starts may overlap; pending migrations use a database advisory lock.
       await migrate(db, assetPath("migrations"));
       return db;
     } catch (error) {
@@ -28,11 +28,17 @@ export function createMakersApp(getDatabase = makersDatabase) {
   const app = express();
   app.use(requestTiming);
   let api;
+  let initializing;
   app.use(async (req, res, next) => {
     try {
       if (!api) {
         const start = performance.now();
-        try { api = createApp(await getDatabase(), { makers: true }); }
+        try {
+          initializing ??= Promise.resolve().then(getDatabase)
+            .then((db) => createApp(db, { makers: true }))
+            .catch((error) => { initializing = undefined; throw error; });
+          api = await initializing;
+        }
         finally { currentTiming().init = performance.now() - start; }
       }
       return api(req, res, next);

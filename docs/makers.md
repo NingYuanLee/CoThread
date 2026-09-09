@@ -2,6 +2,10 @@
 
 仓库包含 `edgeone.json`，构建命令为 `npm run build`，静态产物为 `dist`。普通 API 由 `cloud-functions/[[default]].js` 导出 Express 实例，平台负责监听，不执行常驻 `npm start`。
 
+Makers 生成的 Node 入口会在请求处理器内重新执行应用模块（可在本地生成产物中看到 `mod_0` 的 IIFE）。因此普通 API 使用 `globalThis[Symbol.for("cothread.makers.http-app.v1")]` 保留整个 Express 实例，连同数据库连接池和耗时上下文一起在同一进程内复用；只缓存模块局部变量不能避免重复初始化。并发首次请求共享初始化 Promise，失败后允许重试。新进程仍会正常初始化和检查迁移，不跳过数据库版本校验。此缓存不存储请求用户、响应或会话数据。
+
+部署后连续读取 `/api/health`，同一实例的后续请求应显示 `init;dur=0.0`，数据库查询次数由首次的迁移检查加健康检查降为一次健康检查。不同实例的首次请求仍可能出现初始化耗时。
+
 ## 配置与数据库
 
 平台后端环境变量设置 `.env.example` 中的 6 项。`CREDENTIAL_ENCRYPTION_KEY` 沿用本地 `.env` 的原值，不能重新生成，否则旧账号令牌无法解密。真实 `.env`、`.local` 和 `.edgeone` 均不提交。已有账号沿用 MySQL，部署不会重置密码。

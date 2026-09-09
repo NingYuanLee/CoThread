@@ -31,4 +31,6 @@ Agent 启动器由 Makers 生成，目前引用 OpenTelemetry 1.x 的 `Resource`
 
 本地普通 `npm run dev` 仍运行原来的完整应用。Makers CLI 调试时会为前端追加 `--port` 参数，只启动 Vite；云函数及 Agent 由 CLI 单独托管。`edgeone makers link` 会同步平台环境变量到本地 `.env`，操作前注意保留本地配置。禁止本地常驻 worker 和 Makers 同时处理同一业务数据库，测试使用独立数据库。
 
+本地完整应用默认拒绝连接远端数据库启动后台执行器，防止旧进程抢占云端队列。只有明确停用云端执行器、改由本地单独承接任务时，才设置 `ALLOW_REMOTE_WORKER=true`。只更新工作区文件不会更新已运行的 Node 进程，需要停止旧服务。
+
 官方参考：[Node.js 云函数](https://pages.edgeone.ai/document/node-functions)、[Agents](https://pages.edgeone.ai/document/agents)、[Agents 配置](https://pages.edgeone.ai/document/agents-quick-start)。

@@ -181,6 +181,14 @@ test("the coordinator answers progress at full capacity and only forwards actual
   await processNextCoordinator(db, thread.id, decide);
   assert.equal((await query(db, "SELECT approved,task_message_id FROM agent_task_updates WHERE message_id=?", [update.id]))[0].task_message_id, jobs[0].message_id);
   assert.equal((await query(db, "SELECT approved FROM agent_task_updates WHERE message_id=?", [update.id]))[0].approved, 1);
+  const natural = await post(0, "另外，把输出改为表格");
+  await processNextCoordinator(db, thread.id, decide);
+  assert.equal((await query(db, "SELECT task_message_id FROM agent_task_updates WHERE message_id=? AND approved=TRUE", [natural.id]))[0].task_message_id, jobs[0].message_id);
+  assert.equal((await query(db, "SELECT status,dispatch_ready FROM assistant_replies WHERE message_id=?", [natural.id]))[0].status, "completed");
+  assert.equal(await claimReply(db, thread.id, { allowUnrouted: false }), undefined);
+  const naturalQuestion = await post(0, "现在进度如何？");
+  await processNextCoordinator(db, thread.id, decide);
+  assert.equal((await query(db, "SELECT message_id FROM agent_task_updates WHERE message_id=?", [naturalQuestion.id])).length, 0);
   const fourth = await post(3);
   await processNextCoordinator(db, thread.id, decide);
   assert.equal(await claimReply(db, thread.id, { allowUnrouted: false }), undefined);
@@ -188,4 +196,12 @@ test("the coordinator answers progress at full capacity and only forwards actual
   const replacement = await claimReply(db, thread.id, { allowUnrouted: false });
   assert.equal(replacement.message_id, fourth.id);
   assert.equal(replacement.agent_slot, 2);
+});
+
+test("routing reconciles replies completed by an older worker without invoking a model again", async () => {
+  const { thread, post } = await fixture();
+  const message = await post(0);
+  await query(db, "UPDATE assistant_replies SET status='completed' WHERE message_id=?", [message.id]);
+  await processNextCoordinator(db, thread.id, () => { throw new Error("Completed work must not be routed again"); });
+  assert.equal((await query(db, "SELECT status FROM agent_requests WHERE message_id=?", [message.id]))[0].status, "completed");
 });

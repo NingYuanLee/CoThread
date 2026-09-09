@@ -401,7 +401,7 @@ export class Service {
     );
     const repliesQuery = query(
       db,
-      `SELECT r.message_id,r.status,r.error,r.reply_id,r.progress,r.participation,r.parent_message_id,r.dispatch_ready,r.agent_slot FROM assistant_replies r
+      `SELECT r.message_id,m.author_id,r.status,r.error,r.reply_id,r.progress,r.participation,r.parent_message_id,r.dispatch_ready,r.agent_slot FROM assistant_replies r
       JOIN messages m ON m.id=r.message_id WHERE m.thread_id=? ORDER BY m.sequence`,
       [threadId],
     );

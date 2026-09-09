@@ -15,7 +15,7 @@ export async function invokeMakers(threadId: string, body: object = {}) {
   try { return await readJsonResponse(response, endpoint); }
   catch (error) {
     if ((error as Error & { transient?: boolean }).transient)
-      throw new Error("助手连接暂时中断，任务可能仍在后台运行，请查看会话中的进度。");
+      throw new Error(`助手服务暂时不可用（HTTP ${response.status}）。连接未能确认执行结果，请以会话中的任务状态为准；等待中的请求尚未开始执行。`);
     throw error;
   }
 }

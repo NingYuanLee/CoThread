@@ -392,6 +392,12 @@ function App() {
   const pendingNotification = useRef<{ projectId: string; threadId: string | null } | null>(null);
   const [loadedThread, setThread] = useState<Thread | null>(null);
   const thread = loadedThread?.id === threadId ? loadedThread : threadCache.current.get(threadId) || null;
+  const hasPendingWork = (value: Thread | null | undefined) => !!value && (
+    value.replies.some((r) => ["queued", "running"].includes(r.status)) ||
+    !!value.requests?.some((r) => ["queued", "running"].includes(r.status)) ||
+    ["queued", "running"].includes(value.contextUsage?.compactStatus));
+  const pendingWork = hasPendingWork(thread);
+  const wakeThreadPoll = useRef<(() => void) | null>(null);
   const [error, setError] = useState("");
   const [modal, setModal] = useState<Modal>(null);
   const [busy, setBusy] = useState(false);
@@ -624,20 +630,25 @@ function App() {
         }
       } finally {
         inFlight = false;
-        if (alive) { clearTimeout(timer); timer = setTimeout(load, active ? 2500 : Math.min(30000, 8000 * 2 ** Math.min(idlePolls, 2))); }
+        if (alive) { clearTimeout(timer); timer = setTimeout(load, active || hasPendingWork(threadCache.current.get(threadId)) ? 1000 : Math.min(30000, 8000 * 2 ** Math.min(idlePolls, 2))); }
       }
     };
+    wakeThreadPoll.current = () => { idlePolls = 0; void load(); };
     if (cached) timer = setTimeout(load, 2500);
     else void load();
     document.addEventListener("visibilitychange", load);
     return () => {
       alive = false;
       clearTimeout(timer);
+      wakeThreadPoll.current = null;
       threadCache.current.cancel(threadId);
       historyRequest.current?.abort();
       document.removeEventListener("visibilitychange", load);
     };
   }, [threadId, user?.id]);
+  useEffect(() => {
+    if (pendingWork) wakeThreadPoll.current?.();
+  }, [threadId, pendingWork]);
   useEffect(() => {
     const container = conversationRef.current;
     if (container && followConversation.current)
@@ -645,6 +656,7 @@ function App() {
   }, [
     threadId,
     thread?.messages.length,
+    thread?.events.length,
     thread?.replies.filter(
       (r) => r.status === "queued" || r.status === "running",
     ).length,

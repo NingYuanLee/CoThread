@@ -1,3 +1,4 @@
+import { streamLiveOutput } from "./agent-live-output.js";
 import { SUMMARY_REQUEST } from "../shared/agent-member.js";
 import { queueContextCompression } from "./queue-context.js";
 import express from "express";
@@ -285,6 +286,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     res.setHeader("Cache-Control", "private, max-age=86400");
     res.type(image[1]).send(Buffer.from(image[2], "base64"));
   });
+  app.get("/api/threads/:id/live", (req,res) => streamLiveOutput(service,req.user,req.params.id,req,res));
   app.get("/api/threads/:id/messages/:messageId", async (req, res) =>
     res.json(await service.readMessage(req.user, req.params.id, req.params.messageId)));
   app.post("/api/threads/:id/messages", async (req, res) =>

@@ -3408,3 +3408,7 @@ summary {
 .composer-quotes button { border: 0; background: transparent; padding: 2px 6px; }
 .quoted-message-dialog { width: min(640px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; padding: 24px; background: #fff; border-radius: 12px; overflow-wrap: anywhere; }
 .quoted-message-dialog > strong { display: block; margin: 12px 0; }
+.agent-reasoning { margin: 6px 0; color: #82907b; font-size: 12px; }
+.agent-reasoning summary { cursor: pointer; }
+.agent-reasoning > div { white-space: pre-wrap; max-height: 180px; overflow-y: auto; margin-top: 6px; line-height: 1.65; overflow-wrap: anywhere; }
+.agent-stream-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; margin: 6px 0; }

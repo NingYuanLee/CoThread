@@ -410,7 +410,7 @@ export class Service {
     const eventsQuery = query(
       db,
       `SELECT ${display ? `e.id,e.message_id,e.tool,e.status,e.created_at,e.finished_at,
-       CASE WHEN JSON_VALID(e.input) THEN JSON_OBJECT('threadId',JSON_EXTRACT(e.input,'$.threadId'),'versionId',JSON_EXTRACT(e.input,'$.versionId'),
+       CASE WHEN JSON_VALID(e.input) THEN JSON_OBJECT('action',JSON_EXTRACT(e.input,'$.action'),'scope',JSON_EXTRACT(e.input,'$.scope'),'name',JSON_EXTRACT(e.input,'$.name'),'artifactId',JSON_EXTRACT(e.input,'$.artifactId'),'folderId',JSON_EXTRACT(e.input,'$.folderId'),'threadId',JSON_EXTRACT(e.input,'$.threadId'),'versionId',JSON_EXTRACT(e.input,'$.versionId'),
        'path',JSON_EXTRACT(e.input,'$.path'),'title',JSON_EXTRACT(e.input,'$.title'),'command',LEFT(JSON_UNQUOTE(JSON_EXTRACT(e.input,'$.command')),300)) ELSE '{}' END input,
        NULL output` : "e.*"} FROM agent_events e JOIN messages m ON m.id=e.message_id WHERE m.thread_id=?${eventFilter} ORDER BY e.id`,
       [threadId, ...(display && !after ? selected.map((m) => m.id) : [])],

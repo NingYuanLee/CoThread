@@ -1,3 +1,4 @@
+import { documentTool } from "./document-tools.js";
 import { z } from "zod/v3";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { posix } from "node:path";
@@ -10,6 +11,7 @@ import { acquireSandbox, safeRemotePath, shellQuote } from "./agent-sandbox.js";
 import { bindMakersSandbox } from "./makers-sandbox.js";
 
 const titles = {
+  list_documents:"查看",manage_document:"整理",manage_folder:"整理",
   list_messages: "读取", read_message: "读取", list_members: "读取", read_member: "读取",
   project_context: "读取",
   read_document: "读取",
@@ -61,7 +63,9 @@ export function createAgentTools(
     await progress(label);
     try {
       let result;
-      if (name === "project_context") {
+      if (["list_documents","manage_document","manage_folder"].includes(name)) {
+        result = await documentTool(service,user,name,args,job);
+      } else if (name === "project_context") {
         result = modelProject(await service.project(user, thread.project_id));
         result.versions = result.versions.filter((v) => !v.deleted_at);
       } else if (["list_members", "read_member"].includes(name)) {

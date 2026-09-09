@@ -3,6 +3,9 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 export const inject = ["tools"];
 export function apply(ctx) {
   const definitions = [
+    ["list_documents","项目文档：分页查看当前项目文件夹和文档版本，含回收站状态；默认100项，limit最大200，offset继续读取。",{limit:{type:"number"},offset:{type:"number"}}],
+    ["manage_document","项目文档：按用户要求重命名、移动、删除或恢复文档。action=rename|move|delete|restore。scope=document以artifactId操作整份文档全部版本；scope=version以versionId仅删除/恢复指定版本。移动到根目录folderId填null。",{action:{type:"string",required:true},scope:{type:"string"},artifactId:{type:"string"},versionId:{type:"string"},name:{type:"string"},folderId:{oneOf:[{type:"string"},{type:"null"}]}}],
+    ["manage_folder","项目文档：按用户要求创建、重命名、移动、删除文件夹。action=create|rename|move|delete；删除前须清空；parentId为null表示根目录。",{action:{type:"string",required:true},folderId:{type:"string"},name:{type:"string"},parentId:{oneOf:[{type:"string"},{type:"null"}]}}],
     ["list_messages", "会话资料：读取本项目某会话消息列表，默认最近20条；beforeMessageId取该消息之前的消息，包含类型与引用预览。", {threadId:{type:"string",required:true},limit:{type:"number"},beforeMessageId:{type:"string"}}],
     ["read_message", "会话资料：读取指定消息，before可取之前0至20条；返回引用预览，可按引用ID再次读取原文。", {threadId:{type:"string",required:true},messageId:{type:"string",required:true},before:{type:"number"}}],
     ["list_members", "会话资料：读取当前项目成员列表，只含ID、名称、角色，不含头像。", {}],

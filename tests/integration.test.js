@@ -353,7 +353,7 @@ test("MCP initialize, list tools and context over authenticated Streamable HTTP"
     method: "tools/list",
     params: {},
   });
-  assert.equal(listed.result.tools.length, 11);
+  assert.equal(listed.result.tools.length, 14);
   assert.match(initialized.result.instructions, /get_connection_guide/);
   assert.match(initialized.result.instructions, /post_message/);
   const context = await call({

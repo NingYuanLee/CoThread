@@ -1,3 +1,4 @@
+import { documentTool, documentToolSchemas } from "./document-tools.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod/v3";
@@ -30,6 +31,11 @@ export function createMcpServer(service, user, afterMessage) {
         }
       },
     );
+  for (const [name,description] of [
+    ["list_documents","项目文档：分页查看文件夹和文档版本目录，包含回收站状态；默认100项，limit最大200，offset继续读取。"],
+    ["manage_document","项目文档：经用户同意后重命名、移动、删除或恢复。scope=document作用于整份文档全部版本；scope=version只删除/恢复指定版本。删除可恢复，历史引用保留。"],
+    ["manage_folder","项目文档：经用户同意后创建、重命名、移动或删除文件夹；删除前必须清空，系统文件夹不可修改。"]
+  ]) register(name,description,{...documentToolSchemas[name],projectId:z.string().uuid()},a=>documentTool(service,user,name,a));
   register("get_connection_guide", "首次使用先调用：读取会话定位、消息与多文件发送、引用、@助手、权限和错误处理说明，无需安装 SKILL。", {}, () => ({ instructions: MCP_INSTRUCTIONS }));
   register("list_projects", "列出当前成员可访问的项目，返回 projectId 对应的 id；选择后调用 get_project 查看迭代。", {}, () =>
     service.projects(user),

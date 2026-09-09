@@ -1,3 +1,4 @@
+import { useAgentLiveOutput } from "./useAgentLiveOutput";
 import { taskTimeline } from "./chat-timeline";
 import { apiFetch, fetchJson } from "./api-fetch";
 import {
@@ -401,6 +402,7 @@ function App() {
     !!value.requests?.some((r) => ["queued", "running"].includes(r.status)) ||
     ["queued", "running"].includes(value.contextUsage?.compactStatus));
   const pendingWork = hasPendingWork(thread);
+  const liveOutput = useAgentLiveOutput(threadId,pendingWork);
   const wakeThreadPoll = useRef<(() => void) | null>(null);
   const [error, setError] = useState("");
   const [modal, setModal] = useState<Modal>(null);
@@ -681,6 +683,7 @@ function App() {
     threadId,
     thread?.messages.length,
     thread?.events.length,
+    Object.values(liveOutput).map(o => `${o.message_id}:${o.revision}`).join(","),
     thread?.replies.filter(
       (r) => r.status === "queued" || r.status === "running",
     ).length,
@@ -938,6 +941,7 @@ function App() {
       minute: "2-digit",
     });
   const hasAgentActivity = (reply: Thread["replies"][number]) =>
+    !!liveOutput[reply.message_id]?.reasoning || (!!liveOutput[reply.message_id]?.content && !reply.reply_id) ||
     reply.status === "failed" ||
     (reply.status === "queued" && makersConnection === "unavailable") ||
     !!thread?.events.some((event) => event.message_id === reply.message_id &&
@@ -952,6 +956,7 @@ function App() {
       ? [...events].reverse().find((event) => event.status === "running") : undefined;
     const thinking = reply.status === "running" && !!thread?.events.some((event) =>
       event.message_id === reply.message_id && event.tool === "thinking" && event.status === "running");
+    const output = liveOutput[reply.message_id];
     const lastStep = events[events.length - 1];
     const stepLabel = (event: (typeof events)[number]) => {
       const label = agentLabel(event, detail?.versions, detail?.threads);
@@ -970,6 +975,8 @@ function App() {
     );
     return (
       <div className="agent-round" data-message-id={reply.message_id}>
+        {output?.reasoning && <details className="agent-reasoning"><summary>思考过程{reply.status === "running" ? " · 正在更新" : ""}</summary><div>{output.reasoning}</div>{output.truncated && <small>展示内容已达到长度上限。</small>}</details>}
+        {output?.content && !reply.reply_id && <div className="agent-stream-text">{output.content}</div>}
         {[reply]
           ?.filter((r) => !events.length && (r.status === "queued" || r.status === "running"))
           .map((r) => (

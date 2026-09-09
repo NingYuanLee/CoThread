@@ -17,8 +17,9 @@ export async function libraryChange(
   kind,
   target,
   input,
+  options = {},
 ) {
-  if (user.kind !== "session") throw new HttpError(403, "文档整理需要人工登录");
+  if (user.kind !== "session" && !options.tool) throw new HttpError(403, "文档整理需要人工登录");
   const data = z
     .object({
       name: name.optional(),
@@ -29,6 +30,7 @@ export async function libraryChange(
     .parse(input);
   return transaction(service.db, async (db) => {
     await service.member(user, projectId, true, db);
+    await options.authorize?.(db);
     await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [
       projectId,
     ]);

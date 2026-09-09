@@ -1,7 +1,9 @@
+import { trackLiveOutput } from "./agent-live-output.js";
 import { query } from "./db.js";
 
-// Observe lifecycle only; never store reasoning text in the public event log.
+// Lifecycle belongs to the activity log; bounded stream output has separate UI-only storage.
 export function trackThinking(db, messageId, sessionId) {
+  const live = trackLiveOutput(db,messageId,sessionId);
   let queue = Promise.resolve();
   let eventId;
   let active = false;
@@ -26,6 +28,7 @@ export function trackThinking(db, messageId, sessionId) {
   };
   return {
     notify(notification) {
+      live.notify(notification);
       if (
         notification.method !== "session.event" ||
         notification.params.sessionId !== sessionId
@@ -56,10 +59,12 @@ export function trackThinking(db, messageId, sessionId) {
         finish();
     },
     async flush() {
+      await live.flush();
       await queue;
       if (failure) throw failure;
     },
     async close(status) {
+      await live.close();
       finish(status);
       await queue;
       if (failure) throw failure;

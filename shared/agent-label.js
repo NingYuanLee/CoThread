@@ -54,6 +54,9 @@ export function describeAgentAction(tool, args = {}, result = {}) {
     isPath = false,
     full;
   switch (tool) {
+    case "list_documents": action="查看文档目录"; break;
+    case "manage_document": action=({rename:"重命名文档",move:"移动文档",delete:args.scope==='version'?"删除指定版本":"删除全部版本",restore:args.scope==='version'?"恢复指定版本":"恢复文档"})[args.action] || "整理文档";object=args.name||args.versionId||args.artifactId;break;
+    case "manage_folder": action=({create:"新建文件夹",rename:"重命名文件夹",move:"移动文件夹",delete:"删除文件夹"})[args.action] || "整理文件夹";object=args.name||args.folderId;break;
     case "list_messages": action = "读取消息列表"; object = args.threadId || "当前会话"; break;
     case "read_message": action = "读取消息原文"; object = args.messageId || "引用消息"; break;
     case "list_members": action = "查看成员列表"; break;

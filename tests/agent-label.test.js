@@ -71,7 +71,7 @@ test("thinking lifecycle records phases once, omits content, and closes interrup
   notify("assistant/chunk");
   notify("assistant/message");
   await tracker.flush();
-  assert.equal(writes.filter((x) => x.sql.startsWith("INSERT")).length, 1);
+  assert.equal(writes.filter((x) => x.sql.startsWith("INSERT INTO agent_events")).length, 1);
   assert.equal(
     writes.filter((x) => x.sql.startsWith("UPDATE agent_events"))[0].params[0],
     "completed",

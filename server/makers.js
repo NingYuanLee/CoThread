@@ -31,7 +31,8 @@ export function createMakersApp(getDatabase = makersDatabase) {
       api ??= createApp(await getDatabase(), { makers: true });
       return api(req, res, next);
     } catch (error) {
-      console.error("Makers initialization failed", { code: error.code || error.name });
+      console.error("Makers initialization failed", { code: error.code || error.name,
+        migration: error.migrationName, statement: error.statementNumber });
       res.status(503).json({ error: "云端初始化失败，请检查数据库网络、迁移权限及令牌加密密钥配置" });
     }
   });

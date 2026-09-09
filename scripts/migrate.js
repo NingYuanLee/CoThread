@@ -1,6 +1,28 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createDatabase, query } from "../server/db.js";
+
+// MySQL DDL commits independently of the file-level migration receipt. A cold
+// start can fail after ADD COLUMN succeeded, so retry only a verified match.
+async function matchingExistingColumn(conn, statement) {
+  const match = statement.match(/^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+`?(\w+)`?\s+(CHAR\(\d+\)|BOOLEAN|TINYINT\s+UNSIGNED)\s+(NULL|NOT\s+NULL)(?:\s+DEFAULT\s+(FALSE|TRUE|NULL|\d+))?$/i);
+  if (!match) return false;
+  const [, table, column, type, nullable, defaultValue] = match;
+  const [actual] = await query(conn,
+    `SELECT c.COLUMN_TYPE,c.IS_NULLABLE,c.COLUMN_DEFAULT,c.EXTRA,c.COLLATION_NAME,t.TABLE_COLLATION
+     FROM information_schema.COLUMNS c JOIN information_schema.TABLES t
+     ON t.TABLE_SCHEMA=c.TABLE_SCHEMA AND t.TABLE_NAME=c.TABLE_NAME
+     WHERE c.TABLE_SCHEMA=DATABASE() AND c.TABLE_NAME=? AND c.COLUMN_NAME=?`, [table, column]);
+  const expectedType = type.toLowerCase().replace(/\s+/g, " ").replace(/^boolean$/, "tinyint(1)");
+  const expectedDefault = !defaultValue || /^null$/i.test(defaultValue) ? null
+    : /^false$/i.test(defaultValue) ? "0" : /^true$/i.test(defaultValue) ? "1" : defaultValue;
+  return !!actual && actual.COLUMN_TYPE.toLowerCase() === expectedType
+    && actual.IS_NULLABLE === (/^null$/i.test(nullable) ? "YES" : "NO")
+    && (actual.COLUMN_DEFAULT === null ? null : String(actual.COLUMN_DEFAULT)) === expectedDefault
+    && !actual.EXTRA
+    && (!actual.COLLATION_NAME || actual.COLLATION_NAME === actual.TABLE_COLLATION);
+}
+
 export async function migrate(db, directory = new URL("../migrations/", import.meta.url)) {
   const conn = await db.getConnection();
   try {
@@ -30,11 +52,20 @@ export async function migrate(db, directory = new URL("../migrations/", import.m
         typeof directory === "string" ? join(directory, name) : new URL(name, directory),
         "utf8",
       );
-      for (const statement of sql
+      const statements = sql
         .split(";")
         .map((x) => x.trim())
-        .filter(Boolean))
-        await query(conn, statement);
+        .filter(Boolean);
+      for (const [index, statement] of statements.entries()) {
+        try {
+          await query(conn, statement);
+        } catch (error) {
+          if (error.code === "ER_DUP_FIELDNAME" && await matchingExistingColumn(conn, statement)) continue;
+          error.migrationName = name;
+          error.statementNumber = index + 1;
+          throw error;
+        }
+      }
       await query(conn, "INSERT INTO schema_migrations(name) VALUES(?)", [
         name,
       ]);

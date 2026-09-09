@@ -61,7 +61,7 @@ export async function processNextCoordinator(db, threadId, decide = decideDispat
   const service = new Service(db), user = { id: job.author_id, kind: "session" };
   try {
     await service.thread(user, job.thread_id, true);
-    const context = await service.context(user, job.thread_id);
+    const context = await service.context(user, job.thread_id, db, { display: true, limit: 50, before: String(BigInt(job.sequence) + 1n) });
     const decision = decisionSchema.parse(await decide(context, job));
     if (decision.action === "silent" && (mentionsAgent(job.body) || job.participation === "reply")) {
       decision.action = "reply";

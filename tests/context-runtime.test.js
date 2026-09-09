@@ -198,6 +198,18 @@ test(
       assert.ok(steeredRequest.includes("LATEST_REQUIREMENT_B"));
       assert.equal(steeredRequest.split("LATEST_REQUIREMENT_B").length - 1, 1);
       assert.deepEqual((await request("updates", { mode: "steer", messages: [{ id: "late-idle", text: "late" }] })).accepted, []);
+      const childId = randomUUID();
+      await harness.client.request("cothread/seed", {
+        sessionId: childId, messages: await request("history"),
+      });
+      const childHistory = await harness.client.request("cothread/history", { sessionId: childId });
+      assert.ok(JSON.stringify(childHistory).includes("ALPHA"), "child inherits the retained summary without rereading the discussion");
+      await request("observe", {
+        autoCompact: true,
+        messages: Array.from({ length: 21 }, () => "member discussion ".repeat(12000)),
+      });
+      assert.ok((await request("context")).used < AUTO_COMPACT_AT,
+        "observing new member messages triggers compaction before any reply is requested");
     } finally {
       await harness.close();
       await new Promise((done) => server.close(done));

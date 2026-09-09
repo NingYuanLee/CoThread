@@ -17,8 +17,8 @@ export function apply(ctx) {
     ],
     [
       "read_iteration",
-      "读取本项目内指定迭代的完整讨论、审核与归档，以及工具执行状态；省略头像和历史工具输入输出。附件保留版本引用，按需读取。",
-      { threadId: { type: "string", required: true } },
+      "读取本项目内指定迭代的近期讨论、审核与归档，以及工具执行状态。默认最近50条；limit可选1至200，before为向前翻页的消息sequence；省略头像和历史工具输入输出。附件保留版本引用，按需读取。",
+      { threadId: { type: "string", required: true }, limit: { type: "number" }, before: { type: "string" } },
     ],
     [
       "sandbox_command",

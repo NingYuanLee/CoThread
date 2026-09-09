@@ -105,11 +105,11 @@ export class Service {
       fail(403, "没有此项目的操作权限");
     return member;
   }
-  async thread(user, threadId, write = false, db = this.db) {
+  async thread(user, threadId, write = false, db = this.db, { display = false } = {}) {
     id.parse(threadId);
     const [thread] = await query(
       db,
-      `SELECT * FROM threads WHERE id=?${write ? " FOR UPDATE" : ""}`,
+      `SELECT ${display ? "id,project_id,title,status,created_by,created_at,archived_at,IF(archive_snapshot IS NULL,NULL,JSON_OBJECT('conclusion',JSON_EXTRACT(archive_snapshot,'$.conclusion'),'versions',JSON_EXTRACT(archive_snapshot,'$.versions'))) archive_snapshot" : "*"} FROM threads WHERE id=?${write ? " FOR UPDATE" : ""}`,
       [threadId],
     );
     if (!thread) fail(404, "迭代不存在");
@@ -208,14 +208,14 @@ export class Service {
     });
     return { id: projectId, ...data };
   }
-  async project(user, projectId) {
+  async project(user, projectId, { display = false } = {}) {
     await this.member(user, projectId);
-    const [project] = await query(
+    const projectQuery = query(
       this.db,
       "SELECT * FROM projects WHERE id=?",
       [projectId],
     );
-    const threads = await query(
+    const threadsQuery = query(
       this.db,
       `SELECT t.id,t.title,t.status,t.created_at,t.archived_at,t.created_by,u.name creator,
        GREATEST(t.created_at,COALESCE(t.archived_at,t.created_at),
@@ -226,23 +226,24 @@ export class Service {
        FROM threads t JOIN users u ON u.id=t.created_by WHERE t.project_id=? ORDER BY last_active_at DESC,t.created_at DESC`,
       [projectId],
     );
-    const members = await query(
+    const membersQuery = query(
       this.db,
-      "SELECT u.id,u.name,u.email,u.avatar,u.motto,u.identity_tags,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=?",
+      `SELECT u.id,u.name,u.email,${display ? "CONCAT('/api/projects/',m.project_id,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) avatar" : "u.avatar"},u.motto,u.identity_tags,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=?`,
       [projectId],
     );
-    const versions = await query(
+    const versionsQuery = query(
       this.db,
       `SELECT a.id artifact_id,a.title,a.folder_id,a.deleted_at,a.updated_at,v.id,v.version,v.filename,v.mime,v.byte_size,v.sha256,v.note,v.thread_id,v.created_at,u.name author,
       (SELECT r.decision FROM reviews r WHERE r.version_id=v.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1) review
       FROM artifacts a JOIN versions v ON v.artifact_id=a.id JOIN users u ON u.id=v.created_by WHERE a.project_id=? ORDER BY v.created_at DESC,v.version DESC`,
       [projectId],
     );
-    const folders = await query(
+    const foldersQuery = query(
       this.db,
       "SELECT id,parent_id,name,updated_at,system_key FROM document_folders WHERE project_id=? ORDER BY name",
       [projectId],
     );
+    const [[project], threads, members, versions, folders] = await Promise.all([projectQuery, threadsQuery, membersQuery, versionsQuery, foldersQuery]);
     return {
       ...project,
       threads,
@@ -369,63 +370,77 @@ export class Service {
     );
     return { id: threadId, ...data };
   }
-  async context(user, threadId, db = this.db) {
-    const thread = await this.thread(user, threadId, false, db);
-    const messages = await query(
+  async context(user, threadId, db = this.db, { display = false, limit = 50, before, after } = {}) {
+    const thread = await this.thread(user, threadId, false, db, { display });
+    const pageSize = z.coerce.number().int().min(1).max(200).parse(limit);
+    const cursor = before || after;
+    if (cursor) z.string().regex(/^\d+$/).parse(cursor);
+    const messagesQuery = query(
       db,
-      `SELECT m.id,m.sequence,m.body,m.refs,m.source,m.agent_task_id,m.created_at,u.name author,u.id author_id,u.avatar author_avatar,
+      `SELECT m.id,m.sequence,m.body,m.refs,m.source,m.agent_task_id,m.created_at,u.name author,u.id author_id,${display ? "CASE WHEN m.source='assistant' THEN NULL ELSE CONCAT('/api/projects/',?,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) END author_avatar" : "u.avatar author_avatar"},
       JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags, '$[0]')) author_role
-      FROM messages m JOIN users u ON u.id=m.author_id WHERE m.thread_id=? ORDER BY m.sequence`,
-      [threadId],
+      FROM messages m JOIN users u ON u.id=m.author_id WHERE m.thread_id=?${display && cursor ? ` AND m.sequence${before ? "<" : ">"}?` : ""} ORDER BY m.sequence${display && !after ? " DESC" : ""}${display ? ` LIMIT ${pageSize + 1}` : ""}`,
+      display ? [thread.project_id, threadId, ...(cursor ? [cursor] : [])] : [threadId],
     );
-    const reviews = await query(
+    const page = display ? await messagesQuery : null;
+    const hasMore = !!page && page.length > pageSize;
+    const selected = page?.slice(0, pageSize);
+    if (display && !after) selected.reverse();
+    const eventFilter = display && !after ? ` AND m.id IN (${selected.length ? selected.map(() => "?").join(",") : "NULL"})` : "";
+    const reviewsQuery = query(
       db,
       `SELECT r.*,u.name reviewer FROM reviews r JOIN versions v ON v.id=r.version_id
       JOIN users u ON u.id=r.reviewer_id WHERE v.thread_id=? ORDER BY r.created_at,r.id`,
       [threadId],
     );
-    const runs = await query(
+    const runsQuery = query(
       db,
       "SELECT id,kind,status,output,progress,created_at,finished_at FROM sandbox_runs WHERE thread_id=? ORDER BY created_at DESC LIMIT 20",
       [threadId],
     );
-    const replies = await query(
+    const repliesQuery = query(
       db,
       `SELECT r.message_id,r.status,r.error,r.reply_id,r.progress,r.participation,r.parent_message_id,r.dispatch_ready,r.agent_slot FROM assistant_replies r
       JOIN messages m ON m.id=r.message_id WHERE m.thread_id=? ORDER BY m.sequence`,
       [threadId],
     );
-    const events = await query(
+    const eventsQuery = query(
       db,
-      `SELECT e.* FROM agent_events e JOIN messages m ON m.id=e.message_id WHERE m.thread_id=? ORDER BY e.id`,
-      [threadId],
+      `SELECT ${display ? `e.id,e.message_id,e.tool,e.status,e.created_at,e.finished_at,
+       CASE WHEN JSON_VALID(e.input) THEN JSON_OBJECT('threadId',JSON_EXTRACT(e.input,'$.threadId'),'versionId',JSON_EXTRACT(e.input,'$.versionId'),
+       'path',JSON_EXTRACT(e.input,'$.path'),'title',JSON_EXTRACT(e.input,'$.title'),'command',LEFT(JSON_UNQUOTE(JSON_EXTRACT(e.input,'$.command')),300)) ELSE '{}' END input,
+       NULL output` : "e.*"} FROM agent_events e JOIN messages m ON m.id=e.message_id WHERE m.thread_id=?${eventFilter} ORDER BY e.id`,
+      [threadId, ...(display && !after ? selected.map((m) => m.id) : [])],
     );
-    const [agentContext] = await query(
+    const agentContextQuery = query(
       db,
       "SELECT context_stats,seen_sequence,compact_status,compact_error,compact_result FROM agent_sessions WHERE thread_id=?",
       [threadId],
     );
-    const updates = await query(db,
+    const updatesQuery = query(db,
       `SELECT u.message_id,u.task_message_id,u.delivered_at FROM agent_task_updates u
        JOIN messages m ON m.id=u.message_id WHERE m.thread_id=? ORDER BY m.sequence`, [threadId]);
-    const requests = await query(db,
+    const requestsQuery = query(db,
       `SELECT q.message_id,q.status,q.response_id,q.error FROM agent_requests q JOIN messages m ON m.id=q.message_id
        WHERE m.thread_id=? ORDER BY m.sequence`, [threadId]);
+    const pendingQuery = display ? query(db, `SELECT m.id,m.sequence,m.body,m.refs,m.source,u.name author,u.id author_id,JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags, '$[0]')) author_role FROM messages m JOIN users u ON u.id=m.author_id LEFT JOIN agent_sessions s ON s.thread_id=m.thread_id WHERE m.thread_id=? AND m.sequence>COALESCE(s.seen_sequence,0)`, [threadId]) : Promise.resolve(null);
+    const [messages, reviews, runs, replies, events, [agentContext], updates, requests, pending] = await Promise.all([display ? selected : messagesQuery, reviewsQuery, runsQuery, repliesQuery, eventsQuery, agentContextQuery, updatesQuery, requestsQuery, pendingQuery]);
     return {
       ...thread,
       contextUsage: contextUsage(
         agentContext,
-        messages.map((m) => ({ ...m, refs: json(m.refs) })),
+        (pending || messages).map((m) => ({ ...m, refs: json(m.refs) })),
         replies,
       ),
       archive_snapshot: thread.archive_snapshot
         ? json(thread.archive_snapshot)
         : null,
+      ...(display ? { page: { hasMore, before: messages[0]?.sequence || null, after: messages.at(-1)?.sequence || after || null } } : {}),
       messages: messages.map((m) => ({ ...m, refs: json(m.refs) })),
       reviews,
       runs,
       replies,
-      events,
+      events: events.map((event) => ({ ...event, input: typeof event.input === "string" ? event.input : JSON.stringify(event.input) })),
       updates,
       requests,
     };

@@ -4,6 +4,7 @@ import { decideParticipation } from "./agent-participation.js";
 import { claimReply, MAX_THREAD_AGENTS } from "./reply-dispatch.js";
 import { pendingTaskUpdates } from "./agent-updates.js";
 import { setTimeout as delay } from "node:timers/promises";
+import { synchronizeNextDiscussion, synchronizeDiscussionContext } from "./context-sync.js";
 import { processNextCoordinator } from "./coordinator.js";
 import {
   processNextContextCompression,
@@ -71,6 +72,7 @@ export async function processNextReply(
   const user = { id: job.author_id, kind: "session" };
   let runtime;
   try {
+    if (!generate) await synchronizeDiscussionContext(db, job.thread_id);
     const context = await service.context(user, job.thread_id);
     if (context.status !== "active") throw new HttpError(409, "迭代已归档");
     context.messages = context.messages.filter(
@@ -204,7 +206,13 @@ export async function startReplyWorker(db) {
   const active = new Set();
   let maintenance = false;
   let coordinating = false;
+  let synchronizing = false;
   const tick = () => {
+    if (!synchronizing) {
+      synchronizing = true;
+      void processNextContextCompression(db).then((worked) => worked || synchronizeNextDiscussion(db)).catch((error) => console.error("Context sync failed", { type: error.name }))
+        .finally(() => { synchronizing = false; });
+    }
     if (!coordinating) {
       coordinating = true;
       void processNextCoordinator(db).catch((error) => console.error("Coordinator failed", { type: error.name }))

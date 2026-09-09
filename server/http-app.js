@@ -91,7 +91,10 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     next();
   });
   registerRequestParts(app, db);
-  app.get("/api/me", (req, res) => res.json(personalProfile(req.user)));
+  app.get("/api/me", async (req, res) => {
+    const [profile] = await query(db, "SELECT id,name,email,avatar,motto,identity_tags FROM users WHERE id=?", [req.user.id]);
+    res.json(personalProfile(profile));
+  });
   app.get("/api/notifications", async (req, res) => res.json(await service.notifications(req.user, req.query.before, req.query)));
   app.post("/api/notifications/read-all", async (req, res) => res.json(await service.readNotification(req.user)));
   app.post("/api/notifications/:id/read", async (req, res) => res.json(await service.readNotification(req.user, req.params.id)));
@@ -160,7 +163,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     res.status(201).json(await service.createProject(req.user, req.body)),
   );
   app.get("/api/projects/:id", async (req, res) =>
-    res.json(await service.project(req.user, req.params.id)),
+    res.json(await service.project(req.user, req.params.id, { display: req.query.view === "chat" })),
   );
   app.patch("/api/projects/:id", async (req, res) =>
     res.json(await service.updateProject(req.user, req.params.id, req.body)),
@@ -232,8 +235,25 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       .json(await service.createThread(req.user, req.params.id, req.body)),
   );
   app.get("/api/threads/:id", async (req, res) =>
-    res.json(await service.context(req.user, req.params.id)),
+    res.json(await service.context(req.user, req.params.id, db, { display: req.query.view === "chat", limit: req.query.limit, before: req.query.before, after: req.query.after })),
   );
+  app.get("/api/threads/:id/events/:eventId", async (req, res) => {
+    await service.thread(req.user, req.params.id, false, db, { display: true });
+    const eventId = z.string().regex(/^\d+$/).parse(req.params.eventId);
+    const [event] = await query(db,
+      `SELECT e.* FROM agent_events e JOIN messages m ON m.id=e.message_id WHERE e.id=? AND m.thread_id=?`, [eventId, req.params.id]);
+    if (!event) throw new HttpError(404, "执行记录不存在");
+    res.json(event);
+  });
+  app.get("/api/projects/:id/members/:userId/avatar", async (req, res) => {
+    await service.member(req.user, req.params.id);
+    const [member] = await query(db,
+      "SELECT u.avatar FROM users u JOIN members m ON m.user_id=u.id WHERE m.project_id=? AND u.id=?", [req.params.id, req.params.userId]);
+    const image = member?.avatar?.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/);
+    if (!image) throw new HttpError(404, "头像不存在");
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.type(image[1]).send(Buffer.from(image[2], "base64"));
+  });
   app.post("/api/threads/:id/messages", async (req, res) =>
     res
       .status(201)

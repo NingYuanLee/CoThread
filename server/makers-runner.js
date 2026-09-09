@@ -4,6 +4,7 @@ import { processNextReply } from "./replies.js";
 import { processNextContextCompression } from "./context-compression.js";
 import { executeRun } from "./acs.js";
 import { drainReplies } from "./reply-dispatch.js";
+import { synchronizeNextDiscussion } from "./context-sync.js";
 import { processNextCoordinator } from "./coordinator.js";
 
 export async function runMakersThread(db, user, threadId, command, operations = {}) {
@@ -33,11 +34,15 @@ export async function runMakersThread(db, user, threadId, command, operations = 
     const reply = operations.reply || ((id) => processNextReply(db, undefined, undefined, id));
     const compress = operations.compress || ((id) => processNextContextCompression(db, undefined, id));
     const coordinate = operations.coordinate || (operations.reply ? async () => false : (id) => processNextCoordinator(db, id));
+    const maintain = operations.reply ? async () => false : async (id) => {
+      try { return await compress(id) || await synchronizeNextDiscussion(db, id); }
+      catch (error) { console.error("Context maintenance failed", { type: error.name }); return false; }
+    };
     const deadline = Date.now() + 15 * 60 * 1000;
     // Each task already has bounded model / sandbox timeouts. Leave later jobs queued.
     while (Date.now() < deadline) {
       await service.thread(user, threadId, true);
-      await drainReplies(reply, threadId, deadline, coordinate);
+      await drainReplies(reply, threadId, deadline, coordinate, maintain);
       if (Date.now() >= deadline) break;
       if (await compress(threadId)) continue;
       return { status: "idle" };

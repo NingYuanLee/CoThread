@@ -59,7 +59,8 @@ export function contextUsage(session, messages, replies) {
     measuredAt: stats?.measuredAt || null,
     compactions: stats?.compactions || 0,
     lastCompactedAt: stats?.lastCompactedAt || null,
-    automaticCompacting: stats?.compacting || false,
+    automaticCompacting: session?.compact_status !== "failed" && !!stats?.compacting &&
+      Date.now() - Date.parse(stats?.measuredAt || "") < 300000,
     compactStatus: session?.compact_status || "idle",
     compactError: session?.compact_error || null,
     compactResult:

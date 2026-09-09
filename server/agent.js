@@ -1,4 +1,4 @@
-import { discussionText, pendingMessages } from "../shared/context.js";
+import { discussionText, pendingMessages, AUTO_COMPACT_AT } from "../shared/context.js";
 import { trackThinking } from "./agent-thinking.js";
 import { DeepSeekHarness } from "@deepseek-ai/dsh-sdk-client";
 import { createServer } from "node:http";
@@ -27,7 +27,7 @@ export async function stopAgent(db, threadId, messageId) {
     ? releaseSandbox(db, { thread_id: threadId, message_id: messageId, parent_message_id: reply.parent_message_id })
     : undefined]);
 }
-async function checkpoint(db, scope, home, seenSequence) {
+async function checkpoint(db, scope, home, seenSequence, modelMessages) {
   const { table, key, id } = agentSession(scope);
   const dir = join(home, "sessions");
   const files = {};
@@ -45,6 +45,7 @@ async function checkpoint(db, scope, home, seenSequence) {
     }
   }
   await walk(dir);
+  if (modelMessages) files["_cothread_context.json"] = Buffer.from(JSON.stringify(modelMessages)).toString("base64");
   const data = gzipSync(JSON.stringify(files));
   if (data.length > 10 * 1024 * 1024)
     throw new Error("Agent 会话快照超过 10 MiB");
@@ -91,6 +92,7 @@ export async function openAgentRuntime(
       }).toString(),
     );
     for (const [path, bytes] of Object.entries(files)) {
+      if (path === "_cothread_context.json") continue;
       if (
         !/^[A-Za-z0-9_./-]+$/.test(path) ||
         path.startsWith("/") ||
@@ -188,6 +190,22 @@ export async function openAgentRuntime(
   });
   if (job.message_id) running.set(job.message_id, harness);
   let seenSequence = session.seen_sequence;
+  let modelMessages;
+  if (!job.parent_message_id && session.checkpoint) {
+    const saved = JSON.parse(gunzipSync(session.checkpoint, { maxOutputLength: 40 * 1024 * 1024 }).toString());
+    if (saved["_cothread_context.json"]) modelMessages = JSON.parse(Buffer.from(saved["_cothread_context.json"], "base64").toString());
+  }
+  let sharedHistory;
+  if (job.parent_message_id && !session.checkpoint) {
+    const [primary] = await query(db, "SELECT checkpoint,seen_sequence FROM agent_sessions WHERE thread_id=?", [job.thread_id]);
+    if (primary?.checkpoint) {
+      const files = JSON.parse(gunzipSync(primary.checkpoint, { maxOutputLength: 40 * 1024 * 1024 }).toString());
+      if (files["_cothread_context.json"]) {
+        sharedHistory = JSON.parse(Buffer.from(files["_cothread_context.json"], "base64").toString());
+        seenSequence = primary.seen_sequence;
+      }
+    }
+  }
   let sampling = Promise.resolve();
   let samplingNow = false;
   let interval;
@@ -220,18 +238,22 @@ export async function openAgentRuntime(
     accepting = false;
     running.delete(job.message_id);
     try {
-      await sampling.catch(() => {});
-      await sample();
+      if (completed) {
+        await sampling.catch(() => {});
+        await sample();
+        if (!job.parent_message_id) modelMessages = await request("history");
+      }
     } finally {
       closed = true;
       try {
         await harness.close();
+        await sampling.catch(() => {});
       } finally {
         await chain;
         await new Promise((resolve) => bridge.close(resolve));
         await thinking.close(completed ? "completed" : "failed");
         try {
-          if (!job.parent_message_id || !completed) await checkpoint(db, job, home, seenSequence);
+          if (!job.parent_message_id || !completed) await checkpoint(db, job, home, seenSequence, modelMessages);
           else await query(db, "UPDATE agent_child_sessions SET checkpoint=NULL,context_stats=NULL WHERE message_id=?", [job.message_id]);
         }
         finally {
@@ -246,17 +268,27 @@ export async function openAgentRuntime(
   };
   try {
     await harness.start();
+    if (sharedHistory) await request("seed", { messages: sharedHistory });
+    await request("observe", { messages: [] });
+    await sample();
+    interval = setInterval(() => void sample().catch(() => {}), 2000);
+    interval.unref();
     // Append only new discussion. Native assistant turns and compressed summaries
     // already live in this session and must never be re-sent as full transcripts.
     const fresh = observe
       ? pendingMessages(context.messages, seenSequence, job.parent_message_id ? [] : context.replies)
       : [];
-    await request("observe", { messages: fresh.map(discussionText) });
-    if (observe && context.messages.length)
+    for (const message of fresh) {
+      if (!job.parent_message_id) modelMessages = undefined;
+      const stats = await request("observe", { messages: [discussionText(message)] });
+      // Commit the observation cursor before a potentially failing model call.
+      // A timed-out compaction must not cause this message to be ingested twice.
+      seenSequence = message.sequence;
+      if (autoCompact && stats.used >= AUTO_COMPACT_AT) await request("compact", { automatic: true });
+    }
+    if (observe && context.messages.length && BigInt(context.messages.at(-1).sequence) > BigInt(seenSequence || 0))
       seenSequence = context.messages.at(-1).sequence;
     await sample();
-    interval = setInterval(() => void sample().catch(() => {}), 2000);
-    interval.unref();
     if (autoCompact) await request("compact", { automatic: true });
     await sample();
     return { harness, session, request, sample, close, progress, thinking };
@@ -277,7 +309,7 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
   try {
     const prompt = `你是共序项目中的助理，姓名是小祥。当前项目 ID：${context.project_id}。迭代 ID：${job.thread_id}。ACS 工作区 /home/user/cothread/${agentSession(job).id}。
 ${job.parent_message_id ? `你是主助手为本条请求分派的临时子 Agent。只负责下面指定的成员请求，不接管其他 Agent 的任务。使用独立工作区；通过项目文档库共享已保存的成果，不能声称知道其他 Agent 尚未发布的结果。` : ""}
-请回应当前上下文中 ID 为 ${job.message_id} 的成员消息，并结合该成员对当前任务的追加要求更新工作。追加要求属于同一任务，不应作为新任务排队，也不要重复已完成的操作。本轮已确定需要回复：明确 @小祥、项目中只有一名成员与助手，或模型判断应参与多人讨论。只有一名成员时，即使未 @ 也应作为直接对话正常回应。请简洁回应，不擅自扩展任务或把成员之间的分工当作对你的授权。若成员确实请求你实现、分析文件或产出内容，应实际调用工具完成并保存结果。`;
+请回应当前上下文中 ID 为 ${job.message_id} 的成员消息，并结合该成员对当前任务的追加要求更新工作。追加要求属于同一任务，不应作为新任务排队，也不要重复已完成的操作。本轮已确定需要回复：明确 @小祥、项目中只有一名成员与助手，或模型判断应参与多人讨论。只有一名成员时，即使未 @ 也应作为直接对话正常回应。梳理讨论时直接分析已有上下文（包括已保留的摘要和新消息），不要为了梳理再次调用 read_iteration 读取整个会话；只有用户明确要求核查缺失的原文时才按页读取。请简洁回应，不擅自扩展任务或把成员之间的分工当作对你的授权。若成员确实请求你实现、分析文件或产出内容，应实际调用工具完成并保存结果。`;
     await progress("Agent 正在分析请求");
     await deliverTaskUpdates(db, job, runtime, "observe");
     const result = await Promise.race([

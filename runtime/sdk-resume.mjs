@@ -7,6 +7,7 @@ import {
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { measureContext } from "./context-meter.mjs";
 import { AUTO_COMPACT_AT } from "../shared/context.js";
+import { repairContext, transcriptBlocks } from "./repair-context.mjs";
 export { Config, apply, name } from "@deepseek-ai/dsh-sdk-jsonrpc-server";
 export const inject = [...sdkInject, "tokenMeter", "compaction"];
 
@@ -18,6 +19,7 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
 ) {
   if (
     ![
+      "cothread/seed",
       "cothread/context",
       "cothread/observe",
       "cothread/compact",
@@ -28,6 +30,18 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
     return handleRequest.call(this, method, params);
   const record = await this.getOrCreateSession(params.sessionId);
   const agent = record.handle.agent;
+  if (!record.cothreadRepaired) {
+    repairContext(this.ctx, agent.session);
+    record.cothreadRepaired = true;
+  }
+  if (method === "cothread/seed") {
+    if (agent.session.surface.nodes.length) throw new Error("Only an empty child context may be seeded");
+    agent.session.append("user/message", createUserMessage({
+      content: transcriptBlocks(params.messages || []),
+      source: { kind: "plugin", plugin: "cothread-shared-context" },
+    }), { surfaceOp: "append" });
+    return measureContext(this.ctx, agent.session);
+  }
   if (method === "cothread/updates") {
     record.cothreadUpdates ||= new Set();
     const accepted = [];
@@ -52,7 +66,7 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
     return { accepted };
   }
   if (method === "cothread/observe") {
-    for (const text of params.messages || [])
+    for (const text of params.messages || []) {
       agent.session.append(
         "user/message",
         createUserMessage({
@@ -61,6 +75,9 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
         }),
         { surfaceOp: "append" },
       );
+      if (params.autoCompact && measureContext(this.ctx, agent.session).used >= AUTO_COMPACT_AT)
+        await this.ctx.compaction.compactNow(agent, AbortSignal.timeout(240000));
+    }
   }
   if (method === "cothread/compact") {
     const before = measureContext(this.ctx, agent.session);

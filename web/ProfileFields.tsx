@@ -37,7 +37,10 @@ export async function prepareAvatar(file: File): Promise<string> {
       256,
       256,
     );
-    return canvas.toDataURL("image/png");
+    let image = canvas.toDataURL("image/webp", 0.78);
+    if (!image.startsWith("data:image/webp")) image = canvas.toDataURL("image/jpeg", 0.78);
+    if (image.length > 44000) image = canvas.toDataURL("image/jpeg", 0.55);
+    return image;
   } finally {
     bitmap.close();
   }

@@ -73,7 +73,7 @@ export async function authenticate(db, req) {
   if (!token) return null;
   const [row] = await query(
     db,
-    `SELECT u.id,u.name,u.email,u.avatar,u.motto,u.identity_tags,c.id credential_id,c.kind,c.project_id scope
+    `SELECT u.id,u.name,u.email,u.motto,u.identity_tags,c.id credential_id,c.kind,c.project_id scope
     FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.token_hash=? AND c.expires_at>UTC_TIMESTAMP(3)`,
     [digest(token)],
   );

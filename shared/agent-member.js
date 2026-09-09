@@ -7,7 +7,7 @@ export const AGENT_MEMBER = Object.freeze({
   role: "agent",
 });
 export const SUMMARY_REQUEST =
-  "@小祥 请梳理当前讨论，按已确认事项、待决策问题、下一步与负责人整理，不虚构共识。";
+  "@小祥 请直接基于已有上下文梳理讨论，按已确认事项、待决策问题、下一步与负责人整理。不重新读取整个会话，不虚构共识。";
 export function mentionsAgent(text) {
   return /(?:^|[^\p{L}\p{N}_@])@(?:小祥|Agent\s*助手)(?=$|[\s\p{P}\p{S}])/iu.test(
     text,

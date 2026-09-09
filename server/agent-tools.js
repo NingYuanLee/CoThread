@@ -67,7 +67,7 @@ export function createAgentTools(
         if (target.project_id !== thread.project_id)
           throw new HttpError(403, "仅可读取当前项目");
         await progress(formatAgentAction(name, args, target));
-        result = modelDiscussion(await service.context(user, id));
+        result = modelDiscussion(await service.context(user, id, service.db, { display: true, limit: args.limit ?? 50, before: args.before }));
       } else if (name === "read_document") {
         const version = await service.version(
           user,

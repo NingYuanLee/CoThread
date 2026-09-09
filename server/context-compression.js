@@ -5,6 +5,22 @@ import { Service, HttpError } from "./service.js";
 export { queueContextCompression } from "./queue-context.js";
 
 export async function processNextContextCompression(db, openRuntime, threadId) {
+  const [candidate] = await query(db, `SELECT thread_id FROM agent_sessions WHERE compact_status='queued' ${threadId ? "AND thread_id=?" : ""} ORDER BY updated_at LIMIT 1`, threadId ? [threadId] : []);
+  if (!candidate) return false;
+  const connection = await db.getConnection(), key = `cothread-context:${candidate.thread_id}`;
+  let locked = false;
+  try {
+    const [lock] = await query(connection, "SELECT GET_LOCK(?,0) acquired", [key]);
+    if (Number(lock.acquired) !== 1) return false;
+    locked = true;
+    return await compressClaimedDiscussion(db, openRuntime, candidate.thread_id);
+  } finally {
+    if (locked) await query(connection, "SELECT RELEASE_LOCK(?)", [key]);
+    connection.release();
+  }
+}
+
+async function compressClaimedDiscussion(db, openRuntime, threadId) {
   const job = await transaction(db, async (conn) => {
     const [next] = await query(
       conn,
@@ -17,7 +33,7 @@ export async function processNextContextCompression(db, openRuntime, threadId) {
       if (!thread) return;
       const [active] = await query(conn,
         `SELECT r.message_id FROM assistant_replies r JOIN messages m ON m.id=r.message_id
-         WHERE m.thread_id=? AND (r.status='running' OR r.execution_active=TRUE) LIMIT 1`, [next.thread_id]);
+         WHERE m.thread_id=? AND r.parent_message_id IS NULL AND (r.status='running' OR r.execution_active=TRUE) LIMIT 1`, [next.thread_id]);
       if (active) return;
       await query(
         conn,
@@ -57,7 +73,9 @@ export async function processNextContextCompression(db, openRuntime, threadId) {
       [
         error instanceof HttpError
           ? error.message
-          : "上下文压缩未完成，请稍后重试。",
+          : /timeout|timed out|abort|cancel/i.test(`${error.name} ${error.message}`)
+            ? "上下文压缩超时，已停止。聊天记录和文件仍保留，可以重试。"
+            : "上下文压缩未完成，任务已退出。聊天记录和文件仍保留，可以重试。",
         job.thread_id,
       ],
     );
@@ -75,6 +93,9 @@ export async function refreshNextContextStats(db) {
     AND s.compact_status<>'failed' ORDER BY s.updated_at LIMIT 1`,
   );
   if (!stored) return false;
+  const connection = await db.getConnection(), key = `cothread-context:${stored.thread_id}`;
+  const [lock] = await query(connection, "SELECT GET_LOCK(?,0) acquired", [key]);
+  if (Number(lock.acquired) !== 1) { connection.release(); return false; }
   let runtime;
   try {
     const user = { id: stored.created_by, kind: "session" };
@@ -97,6 +118,9 @@ export async function refreshNextContextStats(db) {
       [stored.thread_id],
     );
     console.error("Context measurement failed", { type: error.name });
+  } finally {
+    await query(connection, "SELECT RELEASE_LOCK(?)", [key]);
+    connection.release();
   }
   return true;
 }

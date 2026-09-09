@@ -184,7 +184,7 @@ export function ContextMeter({
             }}
           >
             {usage.compactStatus === "queued"
-              ? "等待当前任务完成…"
+              ? "等待上下文处理…"
               : compacting
                 ? "正在压缩…"
                 : "立即压缩"}

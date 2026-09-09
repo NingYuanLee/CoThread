@@ -46,14 +46,22 @@ export async function claimReply(db, threadId, { allowUnrouted = true } = {}) {
 
 // The owner of the hosted iteration lock keeps polling while work is active.
 // New mentions can therefore start even if a second wakeup returns "running".
-export async function drainReplies(reply, threadId, deadline, coordinate = async () => false) {
+export async function drainReplies(reply, threadId, deadline, coordinate = async () => false, maintain = async () => false) {
   const active = new Set();
   let idle = false;
   let routing;
   let coordinatorIdle = false;
+  let maintaining;
+  let maintenanceIdle = false;
   let failure;
   try {
-    while ((Date.now() < deadline || active.size || routing) && !failure) {
+    while ((Date.now() < deadline || active.size || routing || maintaining) && !failure) {
+      if (!maintaining && !maintenanceIdle) {
+        maintaining = Promise.resolve().then(() => maintain(threadId))
+          .then((worked) => { maintenanceIdle = !worked; })
+          .catch((error) => { failure = error; })
+          .finally(() => { maintaining = undefined; });
+      }
       if (!routing && !coordinatorIdle) {
         routing = Promise.resolve().then(() => coordinate(threadId))
           .then((worked) => { coordinatorIdle = !worked; if (worked) idle = false; })
@@ -70,15 +78,16 @@ export async function drainReplies(reply, threadId, deadline, coordinate = async
         await Promise.race([task, delay(10)]);
         continue;
       }
-      if (!active.size && !routing && coordinatorIdle) break;
-      await Promise.race([...active, ...(routing ? [routing] : []), delay(250)]);
+      if (!active.size && !routing && !maintaining && coordinatorIdle && maintenanceIdle) break;
+      await Promise.race([...active, ...(routing ? [routing] : []), ...(maintaining ? [maintaining] : []), delay(250)]);
       if (active.size) await delay(100);
       idle = false;
       coordinatorIdle = false;
+      maintenanceIdle = false;
     }
   } finally {
     // Hosted requests must not return while children are still running.
-    await Promise.allSettled([...active, ...(routing ? [routing] : [])]);
+    await Promise.allSettled([...active, ...(routing ? [routing] : []), ...(maintaining ? [maintaining] : [])]);
   }
   if (failure) throw failure;
 }

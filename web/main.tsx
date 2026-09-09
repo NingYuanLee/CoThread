@@ -18,6 +18,8 @@ import { Notifications } from "./Notifications";
 import { ProjectSettings } from "./ProjectSettings";
 import type { ContextUsage } from "../shared/context.js";
 import { agentLabel } from "./agent-label";
+import { AgentEvent } from "./AgentEvent";
+import { createResourceCache } from "../shared/resource-cache.js";
 import { IdentityName, RoleBadge } from "./Identity";
 import {
   ProfileFields,
@@ -260,11 +262,13 @@ type Detail = Project & {
   versions: Version[];
 };
 type Thread = {
+  page?: { hasMore: boolean; before: string | null; after: string | null };
   contextUsage: ContextUsage;
   id: string;
   title: string;
   status: string;
   messages: {
+    sequence: string;
     id: string;
     body: string;
     source: string;
@@ -321,14 +325,15 @@ type Modal =
   | "password"
   | "run"
   | null;
-async function api(path: string, data?: unknown, method?: string) {
+async function api(path: string, data?: unknown, method?: string, signal?: AbortSignal) {
   const res = await apiFetch(`/api${path}`, {
     method: method || (data === undefined ? "GET" : "POST"),
     headers: { "Content-Type": "application/json" },
+    signal,
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
   const value = await res.json();
-  if (!res.ok) throw new Error(value.error || "请求失败");
+  if (!res.ok) throw Object.assign(new Error(value.error || "请求失败"), { status: res.status });
   return value;
 }
 function App() {
@@ -344,10 +349,43 @@ function App() {
     id: string;
     after: boolean;
   } | null>(null);
-  const [detail, setDetail] = useState<Detail | null>(null);
+  const projectCache = useRef(createResourceCache<Detail>());
+  const threadCache = useRef(createResourceCache<Thread>());
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const historyRequest = useRef<AbortController | null>(null);
+  const mergeThread = (previous: Thread | undefined, incoming: Thread, older = false): Thread => {
+    if (!previous) return incoming;
+    const messages = [...new Map([...previous.messages, ...incoming.messages].map((m) => [m.id, m])).values()]
+      .sort((a, b) => BigInt(a.sequence) < BigInt(b.sequence) ? -1 : 1);
+    return { ...(older ? previous : incoming), messages,
+      events: [...new Map([...previous.events, ...incoming.events].map((e) => [e.id, e])).values()],
+      page: older ? incoming.page : previous.page };
+  };
+  const messageAvatar = (m: Thread["messages"][number]) => {
+    const member = detail?.members.find((member) => member.id === m.author_id);
+    return member ? member.avatar : m.author_avatar;
+  };
+  const readThread = async (id: string, signal: AbortSignal): Promise<Thread> => {
+    const previous = threadCache.current.get(id);
+    const after = previous?.messages.at(-1)?.sequence;
+    const incoming = await api(`/threads/${id}?view=chat${after ? `&after=${after}` : ""}`, undefined, undefined, signal);
+    const merged = mergeThread(threadCache.current.get(id), incoming);
+    // Catch up in bounded pages if many messages arrived while away.
+    if (after && incoming.page?.hasMore) {
+      let page = incoming;
+      while (page.page?.hasMore) {
+        page = await api(`/threads/${id}?view=chat&after=${page.page.after}`, undefined, undefined, signal);
+        Object.assign(merged, mergeThread(merged, page));
+      }
+    }
+    return mergeThread(threadCache.current.get(id), merged);
+  };
+  const [loadedDetail, setDetail] = useState<Detail | null>(null);
+  const detail = loadedDetail?.id === projectId ? loadedDetail : projectCache.current.get(projectId) || null;
   const [threadId, setThreadId] = useState("");
   const pendingNotification = useRef<{ projectId: string; threadId: string | null } | null>(null);
-  const [thread, setThread] = useState<Thread | null>(null);
+  const [loadedThread, setThread] = useState<Thread | null>(null);
+  const thread = loadedThread?.id === threadId ? loadedThread : threadCache.current.get(threadId) || null;
   const [error, setError] = useState("");
   const [modal, setModal] = useState<Modal>(null);
   const [busy, setBusy] = useState(false);
@@ -452,71 +490,105 @@ function App() {
       setProjectId(projects.find((p) => p.tab_visible)?.id || "");
   }, [projects, projectId]);
   useEffect(() => {
+    projectCache.current.clear();
+    threadCache.current.clear();
     setDetail(null);
-    setThreadId("");
+    setThread(null);
+  }, [user?.id]);
+  useEffect(() => {
+    const cached = projectCache.current.get(projectId);
+    setDetail(cached || null);
+    setThreadId(cached?.threads.find((t) => t.status === "active")?.id || cached?.threads[0]?.id || "");
     setRefs([]);
     setMessage("");
-    if (!projectId) return;
+    if (!projectId || !user) return;
     let alive = true;
-    const load = () =>
-      api(`/projects/${projectId}`)
-        .then((d) => {
-          if (alive) {
-            setDetail(d);
-            const target = pendingNotification.current;
-            if (target?.projectId === projectId) {
-              pendingNotification.current = null;
-              setThreadId(target.threadId || d.threads[0]?.id || "");
-              setShowArchived(!!d.threads.find((t: { id: string; status: string }) => t.id === target.threadId && t.status === "archived"));
-              return;
-            }
-            setThreadId(
-              (t) =>
-                t ||
-                d.threads.find((x: { status: string }) => x.status === "active")
-                  ?.id ||
-                d.threads[0]?.id ||
-                "",
-            );
+    let timer: ReturnType<typeof setTimeout>;
+    const load = async () => {
+      clearTimeout(timer);
+      if (document.hidden) return;
+      try {
+        const d = await projectCache.current.read(projectId, (signal) => api(`/projects/${projectId}?view=chat`, undefined, undefined, signal));
+        if (!alive) return;
+        setDetail(d);
+        const target = pendingNotification.current;
+        if (target?.projectId === projectId) {
+          pendingNotification.current = null;
+          setThreadId(target.threadId || d.threads[0]?.id || "");
+          setShowArchived(!!d.threads.find((t) => t.id === target.threadId && t.status === "archived"));
+        } else {
+          setThreadId((t) => d.threads.some((x) => x.id === t) ? t : d.threads.find((x) => x.status === "active")?.id || d.threads[0]?.id || "");
+        }
+      } catch (e) {
+        const error = e as Error & { status?: number };
+        if (alive && error.name !== "AbortError") {
+          setError(error.message);
+          if ([401, 403, 404].includes(error.status || 0)) {
+            setDetail(null);
+            setThreadId("");
+            threadCache.current.clear();
           }
-        })
-        .catch((e) => {
-          if (alive) setError(e.message);
-        });
+        }
+      } finally {
+        if (alive) { clearTimeout(timer); timer = setTimeout(load, 8000); }
+      }
+    };
     void load();
-    const timer = setInterval(load, 4000);
+    document.addEventListener("visibilitychange", load);
     return () => {
       alive = false;
-      clearInterval(timer);
+      clearTimeout(timer);
+      projectCache.current.cancel(projectId);
+      document.removeEventListener("visibilitychange", load);
     };
-  }, [projectId]);
+  }, [projectId, user?.id]);
   useEffect(() => {
-    setThread(null);
+    historyRequest.current?.abort();
+    setHistoryLoading(false);
+    setThread(threadCache.current.get(threadId) || null);
     followConversation.current = true;
     setRefs([]);
     setMessage("");
-    if (!threadId) return;
+    if (!threadId || !user) return;
     let alive = true;
-    const load = () =>
-      api(`/threads/${threadId}`)
-        .then((t) => {
-          if (alive) setThread(t);
-        })
-        .catch((e) => {
-          if (alive) setError(e.message);
-        });
+    let timer: ReturnType<typeof setTimeout>;
+    const load = async () => {
+      clearTimeout(timer);
+      if (document.hidden) return;
+      let active = false;
+      try {
+        const t = await threadCache.current.read(threadId, (signal) => readThread(threadId, signal));
+        if (!alive) return;
+        setThread(t);
+        active = t.replies.some((r) => ["queued", "running"].includes(r.status)) ||
+          !!t.requests?.some((r) => ["queued", "running"].includes(r.status)) ||
+          ["queued", "running"].includes(t.contextUsage?.compactStatus);
+      } catch (e) {
+        const error = e as Error & { status?: number };
+        if (alive && error.name !== "AbortError") {
+          setError(error.message);
+          if ([401, 403, 404].includes(error.status || 0)) setThread(null);
+        }
+      } finally {
+        if (alive) { clearTimeout(timer); timer = setTimeout(load, active ? 2500 : 8000); }
+      }
+    };
     void load();
-    const timer = setInterval(load, 2500);
+    document.addEventListener("visibilitychange", load);
     return () => {
       alive = false;
-      clearInterval(timer);
+      clearTimeout(timer);
+      threadCache.current.cancel(threadId);
+      historyRequest.current?.abort();
+      document.removeEventListener("visibilitychange", load);
     };
-  }, [threadId]);
+  }, [threadId, user?.id]);
   useEffect(() => {
     const container = conversationRef.current;
     if (container && followConversation.current)
       container.scrollTop = container.scrollHeight;
   }, [
+    threadId,
     thread?.messages.length,
     thread?.replies.filter(
       (r) => r.status === "queued" || r.status === "running",
@@ -527,19 +599,39 @@ function App() {
     if (!health?.agentEndpoint || !thread || !writable || thread.status !== "active") return;
     if (thread.replies.some((r) => ["queued", "running"].includes(r.status)) ||
         thread.requests?.some((r) => ["queued", "running"].includes(r.status)) ||
-        ["queued", "running"].includes(thread.contextUsage?.compactStatus))
+        (["queued", "running"].includes(thread.contextUsage?.compactStatus) ||
+          (thread.contextUsage?.compactStatus !== "failed" && thread.contextUsage?.categories.some((c) => c.key === "pending" && c.tokens > 0))))
       wakeMakers(thread.id, setError);
   }, [health, thread, writable]);
   currentContext.current = { projectId, threadId };
   const refresh = async () => {
-    if (projectId) {
-      const value = await api(`/projects/${projectId}`);
-      if (currentContext.current.projectId === projectId) setDetail(value);
-    }
-    if (threadId) {
-      const value = await api(`/threads/${threadId}`);
-      if (currentContext.current.threadId === threadId) setThread(value);
-    }
+    await Promise.all([
+      projectId ? projectCache.current.read(projectId, (signal) => api(`/projects/${projectId}?view=chat`, undefined, undefined, signal), true)
+        .then((value) => { if (currentContext.current.projectId === projectId) setDetail(value); }) : null,
+      threadId ? threadCache.current.read(threadId, (signal) => readThread(threadId, signal), true)
+        .then((value) => { if (currentContext.current.threadId === threadId) setThread(value); }) : null,
+    ].map((request) => request?.catch((e) => { if (e.name !== "AbortError") throw e; })));
+  };
+  const loadHistory = async () => {
+    if (historyLoading || !thread?.page?.hasMore || !thread.page.before) return;
+    const id = threadId, controller = new AbortController();
+    historyRequest.current?.abort();
+    historyRequest.current = controller;
+    setHistoryLoading(true);
+    try {
+      const older = await api(`/threads/${id}?view=chat&before=${thread.page.before}`, undefined, undefined, controller.signal);
+      if (controller.signal.aborted || currentContext.current.threadId !== id) return;
+      const container = conversationRef.current;
+      const oldHeight = container?.scrollHeight || 0, oldTop = container?.scrollTop || 0;
+      const merged = threadCache.current.update(id, (previous) => mergeThread(previous, older, true));
+      followConversation.current = false;
+      setThread(merged);
+      requestAnimationFrame(() => {
+        if (container && currentContext.current.threadId === id) container.scrollTop = oldTop + container.scrollHeight - oldHeight;
+      });
+    } catch (cause) {
+      if (!controller.signal.aborted) setError((cause as Error).message);
+    } finally { if (!controller.signal.aborted) setHistoryLoading(false); }
   };
   const open = (value: Modal) => {
     if (value === "profile") setProfileAvatar(user?.avatar ?? null);
@@ -837,7 +929,7 @@ function App() {
                 ),
               );
               return (
-                <details key={e.id}>
+                <AgentEvent key={e.id} threadId={threadId} event={e}>
                   <summary>
                     <span className={`event-dot ${e.status}`} />
                     <span className="agent-action-label" title={label.full}>
@@ -859,15 +951,7 @@ function App() {
                       }
                     </small>
                   </summary>
-                  {e.tool === "thinking" ? (
-                    <p className="thinking-note">分析请求并准备下一步操作。</p>
-                  ) : (
-                    <>
-                      <pre>{e.input}</pre>
-                      {e.output && <pre>{e.output}</pre>}
-                    </>
-                  )}
-                </details>
+                </AgentEvent>
               );
             })}
           </details>
@@ -1288,7 +1372,7 @@ function App() {
             onClick={() => open("profile")}
           >
             <span className="avatar">
-              {user.avatar ? <img src={user.avatar} alt="" /> : user.name[0]}
+              {user.avatar ? <img loading="lazy" decoding="async" src={user.avatar} alt="" /> : user.name[0]}
             </span>
             <span className="sidebar-card-copy">
               {user.name}
@@ -1394,6 +1478,7 @@ function App() {
                 const el = e.currentTarget;
                 followConversation.current =
                   el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+                if (el.scrollTop < 80 && !followConversation.current) void loadHistory();
               }}
             >
               {thread.archive_snapshot && (
@@ -1404,6 +1489,7 @@ function App() {
                   <small>讨论、审核与引用的历史版本已固定保存。</small>
                 </div>
               )}
+              {thread.page?.hasMore && <button type="button" disabled={historyLoading} onClick={() => void loadHistory()}>{historyLoading ? "正在加载历史消息…" : "加载更早的消息"}</button>}
               <div className="timeline-start">
                 <span>一次迭代，一段共同的上下文</span>
               </div>
@@ -1423,9 +1509,9 @@ function App() {
                       className={`avatar ${m.source === "assistant" ? "ai" : ""}`}
                     >
                       {m.source === "assistant" ? (
-                        <img src={AGENT_MEMBER.avatar} alt="" />
-                      ) : m.author_avatar ? (
-                        <img src={m.author_avatar} alt="" />
+                        <img loading="lazy" decoding="async" src={AGENT_MEMBER.avatar} alt="" />
+                      ) : messageAvatar(m) ? (
+                        <img loading="lazy" decoding="async" src={messageAvatar(m) || undefined} alt="" />
                       ) : (
                         m.author[0]
                       )}
@@ -1499,7 +1585,7 @@ function App() {
                     .map((reply) => (
                       <article className="message" key={reply.message_id}>
                         <span className="avatar ai">
-                          <img src={AGENT_MEMBER.avatar} alt="" />
+                          <img loading="lazy" decoding="async" src={AGENT_MEMBER.avatar} alt="" />
                         </span>
                         <div className="message-content">
                           <div className="message-meta">
@@ -1577,25 +1663,8 @@ function App() {
                   {active && (
                     <button
                       disabled={!active || busy}
-                      title="在输入框中准备一条 @小祥 的梳理请求"
-                      onClick={() => {
-                        setMessage((draft) =>
-                          draft.trim()
-                            ? `${mentionsAgent(draft) ? "" : "@小祥 "}${draft}\n请梳理当前讨论，整理已确认事项、待决策问题、下一步与负责人。`
-                            : SUMMARY_REQUEST,
-                        );
-                        requestAnimationFrame(() => {
-                          const input =
-                            document.querySelector<HTMLTextAreaElement>(
-                              'textarea[aria-label="发送消息"]',
-                            );
-                          input?.focus();
-                          input?.setSelectionRange(
-                            input.value.length,
-                            input.value.length,
-                          );
-                        });
-                      }}
+                      title="基于助手已有上下文梳理讨论"
+                      onClick={() => { setMessage(SUMMARY_REQUEST); requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus()); }}
                     >
                       ✧ 梳理讨论
                     </button>
@@ -1780,7 +1849,7 @@ function App() {
                       {"avatar" in m &&
                       typeof m.avatar === "string" &&
                       m.avatar ? (
-                        <img src={m.avatar} alt="" />
+                        <img loading="lazy" decoding="async" src={m.avatar} alt="" />
                       ) : (
                         m.name[0]
                       )}

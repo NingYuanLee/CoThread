@@ -9,6 +9,7 @@ export async function invokeMakers(threadId: string, body: object = {}) {
     method: "POST",
     headers: { "Content-Type": "application/json", "Makers-Conversation-Id": threadId },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(16 * 60 * 1000),
   });
   const value = await response.json();
   if (!response.ok) throw new Error(value.error || "云端 Agent 请求失败，请稍后重试");

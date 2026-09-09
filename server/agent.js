@@ -1,6 +1,5 @@
 import { discussionText, pendingMessages, AUTO_COMPACT_AT } from "../shared/context.js";
 import { trackThinking } from "./agent-thinking.js";
-import { DeepSeekHarness } from "@deepseek-ai/dsh-sdk-client";
 import { createServer } from "node:http";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile, readdir, rm } from "node:fs/promises";
@@ -57,8 +56,15 @@ async function checkpoint(db, scope, home, seenSequence, modelMessages) {
 }
 export async function openAgentRuntime(
   context,
-  { db, job, user, observe = true, autoCompact = true, createHarness = (options) => new DeepSeekHarness(options) },
+  { db, job, user, observe = true, autoCompact = true, createHarness },
 ) {
+  // The hosted bundle hoists static external imports even out of lazy modules.
+  // Load the DSH SDK only when a runtime is actually needed, so a missing SDK
+  // dependency cannot prevent the Agent HTTP entry and coordinator from booting.
+  if (!createHarness) {
+    const { DeepSeekHarness } = await import("@deepseek-ai/dsh-sdk-client");
+    createHarness = (options) => new DeepSeekHarness(options);
+  }
   const service = new Service(db);
   const { table, key, id: workspaceId } = agentSession(job);
   const progress = (text) =>

@@ -1,5 +1,18 @@
 import { readJsonResponse } from "../shared/json-response.js";
 import { createWakeGate } from "../shared/wake-gate.js";
+import { useSyncExternalStore } from "react";
+type ConnectionState = "idle" | "connecting" | "connected" | "unavailable";
+const connections = new Map<string, ConnectionState>();
+const listeners = new Set<() => void>();
+const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
+function setConnection(id: string, value: ConnectionState) {
+  connections.set(id, value);
+  if (connections.size > 64) connections.delete(connections.keys().next().value!);
+  listeners.forEach((listener) => listener());
+}
+export function useMakersConnection(id: string) {
+  return useSyncExternalStore(subscribe, () => connections.get(id) || "idle");
+}
 let endpoint: string | undefined;
 let reportError: (message: string) => void = () => {};
 export function configureMakers(value: { agentEndpoint?: string }, onError?: (message: string) => void) {
@@ -8,15 +21,22 @@ export function configureMakers(value: { agentEndpoint?: string }, onError?: (me
 }
 export async function invokeMakers(threadId: string, body: object = {}) {
   if (!endpoint) throw new Error("云端 Agent 尚未就绪");
-  const response = await fetch(endpoint, {
+  setConnection(threadId, "connecting");
+  let response: Response | undefined;
+  try {
+  response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Makers-Conversation-Id": threadId },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(16 * 60 * 1000),
   });
-  try { return await readJsonResponse(response, endpoint); }
+    const value = await readJsonResponse(response, endpoint);
+    setConnection(threadId, "connected");
+    return value;
+  }
   catch (error) {
-    if ((error as Error & { transient?: boolean }).transient)
+    setConnection(threadId, "unavailable");
+    if (response && (error as Error & { transient?: boolean }).transient)
       throw new Error(`助手服务暂时不可用（HTTP ${response.status}）。连接未能确认执行结果，请以会话中的任务状态为准；等待中的请求尚未开始执行。`);
     throw error;
   }

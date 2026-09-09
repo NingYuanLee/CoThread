@@ -8,7 +8,7 @@ import React, { lazy, Suspense, useEffect, useRef, useState, useCallback } from 
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import { createMcpInstallGuide } from "../shared/mcp-guide.js";
-import { configureMakers, invokeMakers, wakeMakers } from "./makers";
+import { configureMakers, invokeMakers, wakeMakers, useMakersConnection } from "./makers";
 const Documents = lazy(() =>
   import("./Documents").then((module) => ({ default: module.Documents })),
 );
@@ -296,6 +296,7 @@ type Thread = {
     reply_id: string | null;
     parent_message_id: string | null;
     agent_slot: number | null;
+    dispatch_ready: boolean;
     participation: "pending" | "reply" | "silent";
     status: string;
     error: string | null;
@@ -387,6 +388,7 @@ function App() {
   const [loadedDetail, setDetail] = useState<Detail | null>(null);
   const detail = loadedDetail?.id === projectId ? loadedDetail : projectCache.current.get(projectId) || null;
   const [threadId, setThreadId] = useState("");
+  const makersConnection = useMakersConnection(threadId);
   const pendingNotification = useRef<{ projectId: string; threadId: string | null } | null>(null);
   const [loadedThread, setThread] = useState<Thread | null>(null);
   const thread = loadedThread?.id === threadId ? loadedThread : threadCache.current.get(threadId) || null;
@@ -920,7 +922,11 @@ function App() {
               <span>
                 ✧{" "}
                 {r.status === "queued"
-                  ? "主助手接待或等待执行名额"
+                  ? makersConnection === "unavailable"
+                    ? "助手服务不可用，消息已保存，等待恢复"
+                    : thread?.requests?.find((q) => q.message_id === r.message_id)?.status === "running"
+                      ? "主助手正在判断请求"
+                      : r.dispatch_ready ? "等待子 Agent 接手" : "等待主助手启动，尚未开始处理"
                   : r.progress || "DSH Agent 正在处理…"}
               </span>
               {active && (

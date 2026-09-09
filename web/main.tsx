@@ -1,3 +1,4 @@
+import { taskTimeline } from "./chat-timeline";
 import { apiFetch, fetchJson } from "./api-fetch";
 import {
   AGENT_MEMBER,
@@ -918,6 +919,7 @@ function App() {
     (reply.status === "queued" && makersConnection === "unavailable") ||
     !!thread?.events.some((event) => event.message_id === reply.message_id &&
       (event.tool !== "thinking" || (reply.status === "running" && event.status === "running")));
+  const timeline = thread ? taskTimeline(thread.messages, thread.replies, thread.requests || [], hasAgentActivity) : [];
   const renderAgentRound = (reply: Thread["replies"][number]) => {
     if (!hasAgentActivity(reply)) return null;
     const events =
@@ -1559,7 +1561,7 @@ function App() {
                   <p>分享背景、目标或一个还没有答案的问题。</p>
                 </div>
               )}
-              {thread.messages.map((m) => (
+              {timeline.map((m) => (
                 <React.Fragment key={m.id}>
                   <article
                     data-message-id={m.id}
@@ -1610,7 +1612,7 @@ function App() {
                       </div>
                       {m.source === "assistant" &&
                         thread.replies
-                          .filter((reply) => reply.reply_id === m.id)
+                          .filter((reply) => m.agent_task_id === reply.message_id || reply.reply_id === m.id)
                           .map((reply) => (
                             <React.Fragment key={reply.message_id}>
                               {renderAgentRound(reply)}
@@ -1636,33 +1638,6 @@ function App() {
                       )}
                     </div>
                   </article>
-                  {thread.replies
-                    .filter(
-                      (reply) =>
-                        reply.message_id === m.id &&
-                        !reply.reply_id &&
-                        reply.participation === "reply" &&
-                        hasAgentActivity(reply),
-                    )
-                    .map((reply) => (
-                      <article className="message" key={reply.message_id}>
-                        <span className="avatar ai">
-                          <img loading="lazy" decoding="async" src={AGENT_MEMBER.avatar} alt="" />
-                        </span>
-                        <div className="message-content">
-                          <div className="message-meta">
-                            <strong>
-                              <IdentityName
-                                role={AGENT_MEMBER.identity_tags[0]}
-                                name={AGENT_MEMBER.name}
-                              />
-                            </strong>
-                            <span className="agent-badge">{reply.agent_slot ? `子 Agent ${reply.agent_slot}` : "主助手"}</span>
-                          </div>
-                          {renderAgentRound(reply)}
-                        </div>
-                      </article>
-                    ))}
                 </React.Fragment>
               ))}
               {thread.runs

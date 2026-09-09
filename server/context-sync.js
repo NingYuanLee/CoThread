@@ -1,5 +1,6 @@
 import { query } from "./db.js";
 import { Service } from "./service.js";
+import { agentFailureCode } from "./agent-errors.js";
 
 // The main context observes every member message without generating a reply.
 // DSH updates metering and auto-compacts here, independently of child execution.
@@ -28,7 +29,8 @@ export async function synchronizeDiscussionContext(db, threadId, openRuntime) {
     return true;
   } catch (error) {
     if (runtime) await runtime.close().catch(() => {});
-    await query(db, "UPDATE agent_sessions SET compact_status='failed',compact_error='上下文同步或自动压缩未完成，可以重试；聊天记录仍完整保留。' WHERE thread_id=?", [threadId]);
+    await query(db, "UPDATE agent_sessions SET compact_status='failed',compact_error=?,updated_at=UTC_TIMESTAMP(3) WHERE thread_id=?",
+      [`上下文同步或自动压缩未完成，聊天记录仍完整保留。（${agentFailureCode(error)}）`, threadId]);
     throw error;
   } finally {
     if (locked) await query(connection, "SELECT RELEASE_LOCK(?)", [key]);

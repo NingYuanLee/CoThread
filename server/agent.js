@@ -272,8 +272,10 @@ export async function openAgentRuntime(
       }
     }
   };
+  let agentStage = "start";
   try {
     await harness.start();
+    agentStage = "restore";
     if (sharedHistory) await request("seed", { messages: sharedHistory });
     await request("observe", { messages: [] });
     await sample();
@@ -285,20 +287,30 @@ export async function openAgentRuntime(
       ? pendingMessages(context.messages, seenSequence, job.parent_message_id ? [] : context.replies)
       : [];
     for (const message of fresh) {
+      agentStage = "observe";
       if (!job.parent_message_id) modelMessages = undefined;
       const stats = await request("observe", { messages: [discussionText(message)] });
       // Commit the observation cursor before a potentially failing model call.
       // A timed-out compaction must not cause this message to be ingested twice.
       seenSequence = message.sequence;
-      if (autoCompact && stats.used >= AUTO_COMPACT_AT) await request("compact", { automatic: true });
+      if (autoCompact && stats.used >= AUTO_COMPACT_AT) {
+        agentStage = "compact";
+        await request("compact", { automatic: true });
+      }
     }
     if (observe && context.messages.length && BigInt(context.messages.at(-1).sequence) > BigInt(seenSequence || 0))
       seenSequence = context.messages.at(-1).sequence;
+    agentStage = "meter";
     await sample();
-    if (autoCompact) await request("compact", { automatic: true });
+    if (autoCompact) {
+      agentStage = "compact";
+      await request("compact", { automatic: true });
+    }
+    agentStage = "meter";
     await sample();
     return { harness, session, request, sample, close, progress, thinking };
   } catch (error) {
+    error.agentStage = agentStage;
     await close().catch(() => {});
     throw error;
   }

@@ -48,6 +48,8 @@ export type LibraryVersion = {
   artifact_id: string;
   folder_id?: string | null;
   deleted_at?: string | null;
+  artifact_deleted_at?: string | null;
+  version_deleted_at?: string | null;
   updated_at?: string;
   title: string;
   version: number;
@@ -288,6 +290,7 @@ export function Documents({
   const [error, setError] = useState("");
   const version = versions.find((v) => v.id === selected);
   const artifacts = versions
+    .filter((v) => Boolean(v.deleted_at) === trash)
     .filter(
       (v, i, list) =>
         list.findIndex((x) => x.artifact_id === v.artifact_id) === i,
@@ -727,7 +730,7 @@ export function Documents({
                         .sort((a, b) => b.version - a.version)
                         .map((v) => (
                           <option key={v.id} value={v.id}>
-                            v{v.version}
+                            v{v.version}{v.deleted_at ? " · 已删除" : ""}
                             {v.review === "approved"
                               ? " · 已审核"
                               : " · 待确认"}
@@ -758,11 +761,14 @@ export function Documents({
                         <button
                           disabled={pending}
                           onClick={() =>
-                            editArtifact({ deleted: !version.deleted_at })
+                            editArtifact({ deleted: !version.artifact_deleted_at })
                           }
                         >
-                          {version.deleted_at ? "恢复文档" : "删除"}
+                          {version.artifact_deleted_at ? "恢复整份文档" : "删除整份文档（全部版本）"}
                         </button>
+                        {!version.artifact_deleted_at && <button disabled={pending} onClick={() => act(async () => {
+                          await change(`/projects/${projectId}/versions/${version.id}`, {deleted:!version.version_deleted_at}, "PATCH");
+                        })}>{version.version_deleted_at ? "恢复当前版本" : `删除当前版本（v${version.version}）`}</button>}
                         {!version.deleted_at && (
                           <select
                             aria-label="移动文档到文件夹"

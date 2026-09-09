@@ -19,6 +19,7 @@ export function discussionText(message) {
     source: message.source,
     body: message.body,
     refs: message.refs || [],
+    quotes: message.quotes || [],
   });
 }
 

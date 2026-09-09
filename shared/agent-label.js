@@ -54,6 +54,10 @@ export function describeAgentAction(tool, args = {}, result = {}) {
     isPath = false,
     full;
   switch (tool) {
+    case "list_messages": action = "读取消息列表"; object = args.threadId || "当前会话"; break;
+    case "read_message": action = "读取消息原文"; object = args.messageId || "引用消息"; break;
+    case "list_members": action = "查看成员列表"; break;
+    case "read_member": action = "读取成员详情"; object = args.memberId || "成员"; break;
     case "thinking":
       action = "思考";
       break;

@@ -3,6 +3,10 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 export const inject = ["tools"];
 export function apply(ctx) {
   const definitions = [
+    ["list_messages", "会话资料：读取本项目某会话消息列表，默认最近20条；beforeMessageId取该消息之前的消息，包含类型与引用预览。", {threadId:{type:"string",required:true},limit:{type:"number"},beforeMessageId:{type:"string"}}],
+    ["read_message", "会话资料：读取指定消息，before可取之前0至20条；返回引用预览，可按引用ID再次读取原文。", {threadId:{type:"string",required:true},messageId:{type:"string",required:true},before:{type:"number"}}],
+    ["list_members", "会话资料：读取当前项目成员列表，只含ID、名称、角色，不含头像。", {}],
+    ["read_member", "会话资料：读取当前项目单个成员的名称、角色、简介、身份标签，不含头像或凭据。", {memberId:{type:"string",required:true}}],
     [
       "project_context",
       "读取本项目的成员、所有迭代和文档版本目录；返回 ID 供后续读取文档。",

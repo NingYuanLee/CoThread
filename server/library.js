@@ -42,7 +42,14 @@ export async function libraryChange(
       if (!row) throw new HttpError(404, "文件夹不存在");
       return row;
     }
-    if (kind === "artifact") {
+    if (kind === "version") {
+      const [row] = await query(db, "SELECT v.id,a.deleted_at FROM versions v JOIN artifacts a ON a.id=v.artifact_id WHERE v.id=? AND a.project_id=? FOR UPDATE", [id.parse(target),projectId]);
+      if (!row) throw new HttpError(404,"文档版本不存在");
+      if (row.deleted_at) throw new HttpError(409,"请先恢复整份文档，再操作其中的版本");
+      if (data.deleted === undefined) throw new HttpError(400,"请指定删除或恢复版本");
+      if (data.deleted) await query(db,"INSERT IGNORE INTO version_recycle(version_id) VALUES(?)",[target]);
+      else await query(db,"DELETE FROM version_recycle WHERE version_id=?",[target]);
+    } else if (kind === "artifact") {
       const [row] = await query(
         db,
         "SELECT id FROM artifacts WHERE id=? AND project_id=? FOR UPDATE",

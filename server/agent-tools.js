@@ -10,6 +10,7 @@ import { acquireSandbox, safeRemotePath, shellQuote } from "./agent-sandbox.js";
 import { bindMakersSandbox } from "./makers-sandbox.js";
 
 const titles = {
+  list_messages: "读取", read_message: "读取", list_members: "读取", read_member: "读取",
   project_context: "读取",
   read_document: "读取",
   read_iteration: "读取",
@@ -63,6 +64,14 @@ export function createAgentTools(
       if (name === "project_context") {
         result = modelProject(await service.project(user, thread.project_id));
         result.versions = result.versions.filter((v) => !v.deleted_at);
+      } else if (["list_members", "read_member"].includes(name)) {
+        result = await service.conversationMembers(user, thread.project_id, name === "read_member" ? z.string().min(1).parse(args.memberId) : undefined);
+      } else if (["list_messages", "read_message"].includes(name)) {
+        const targetId = z.string().uuid().parse(args.threadId);
+        const target = await service.thread(user, targetId);
+        if (target.project_id !== thread.project_id) throw new HttpError(403, "仅可读取当前项目");
+        result = name === "list_messages" ? await service.listMessages(user, targetId, args)
+          : await service.readMessage(user, targetId, z.string().uuid().parse(args.messageId), args.before);
       } else if (name === "read_iteration") {
         const id = z.string().uuid().parse(args.threadId);
         const target = await service.thread(user, id);

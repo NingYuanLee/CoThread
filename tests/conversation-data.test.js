@@ -1,0 +1,83 @@
+import {test,before,after} from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {testDatabase} from './database.js';
+import {query} from '../server/db.js';
+import {Service} from '../server/service.js';
+import {createAgentTools} from '../server/agent-tools.js';
+import {discussionText} from '../shared/context.js';
+let database,service,user,outsider,project,thread,other,a,b,c;
+before(async()=>{
+ database=await testDatabase();service=new Service(database.db);
+ user={id:randomUUID(),kind:'session'};outsider={id:randomUUID(),kind:'session'};
+ for(const u of [user,outsider]) await query(database.db,'INSERT INTO users(id,email,name,password_hash,avatar) VALUES(?,?,?,?,?)',[u.id,u.id+'@test.com','测试成员','unused','data:image/png;base64,'+'A'.repeat(5000)]);
+ project=await service.createProject(user,{name:'引用测试'});
+ thread=await service.createThread(user,project.id,{title:'消息引用'});
+ other=await service.createThread(user,project.id,{title:'其他会话'});
+ a=await service.postMessage(user,thread.id,{body:'原始消息'+ '文字'.repeat(350)});
+ b=await service.postMessage(user,thread.id,{body:'第二条'});
+ c=await service.postMessage(user,thread.id,{body:'引用第一条',quoteIds:[a.id,a.id]});
+});
+after(async()=>{await database?.close()});
+test('references persist once, show bounded previews and support full original retrieval',async()=>{
+ const result=await service.readMessage(user,thread.id,c.id,2);
+ assert.deepEqual(result.previous.map(m=>m.id),[a.id,b.id]);
+ assert.equal(result.message.quotes.length,1);assert.equal(result.message.quotes[0].id,a.id);
+ assert.equal(result.message.quotes[0].body.length,500);
+ const original=await service.readMessage(user,thread.id,a.id);
+ assert.ok(original.message.body.length>500);
+ const context=await service.context(user,thread.id,database.db,{display:true});
+ assert.equal(context.messages.find(m=>m.id===c.id).quotes[0].id,a.id);
+ assert.match(discussionText(context.messages.find(m=>m.id===c.id)),new RegExp(a.id));
+ assert.ok(!JSON.stringify(result).includes('base64'));
+});
+test('lists paginate before message IDs and enforce conversation/project access',async()=>{
+ const page=await service.listMessages(user,thread.id,{limit:1,beforeMessageId:c.id});
+ assert.equal(page.messages[0].id,b.id);assert.equal(page.page.hasMore,true);
+ await assert.rejects(service.readMessage(outsider,thread.id,a.id),e=>e.status===403);
+ await assert.rejects(service.postMessage(user,other.id,{body:'不能跨会话引用',quoteIds:[a.id]}),e=>e.status===400);
+ await assert.rejects(service.listMessages(user,other.id,{beforeMessageId:a.id}),e=>e.status===404);
+ await assert.rejects(service.listMessages(user,thread.id,{limit:101}));
+});
+test('member summaries and details omit avatars and secrets, including built-in assistant',async()=>{
+ const list=await service.conversationMembers(user,project.id);
+ assert.deepEqual(Object.keys(list[0]).sort(),['id','name','role']);
+ assert.ok(list.some(m=>m.id==='agent-assistant'));
+ const detail=await service.conversationMembers(user,project.id,user.id);
+ assert.equal(detail.id,user.id);assert.ok(!('avatar' in detail));assert.ok(!('password_hash' in detail));
+ await assert.rejects(service.conversationMembers(outsider,project.id),e=>e.status===403);
+ await assert.rejects(service.conversationMembers(user,project.id,outsider.id),e=>e.status===404);
+});
+test('built-in Agent tools execute message/member reads and reject another project',async()=>{
+ await query(database.db,"UPDATE assistant_replies SET status='running' WHERE message_id=?",[c.id]);
+ const execute=createAgentTools(service,user,{message_id:c.id,thread_id:thread.id});
+ assert.equal((await execute('read_message',{threadId:thread.id,messageId:a.id})).message.id,a.id);
+ assert.equal((await execute('list_messages',{threadId:thread.id,limit:1})).messages.length,1);
+ assert.ok((await execute('list_members',{})).length);
+ assert.equal((await execute('read_member',{memberId:user.id})).id,user.id);
+ const project2=await service.createProject(user,{name:'另一项目'});
+ const thread2=await service.createThread(user,project2.id,{title:'其他项目的会话'});
+ await assert.rejects(execute('list_messages',{threadId:thread2.id}),e=>e.status===403);
+});
+
+test('deleting one version preserves others and references; whole-document deletion is separate and recoverable',async()=>{
+ const {libraryChange}=await import('../server/library.js');
+ const data={title:'版本测试',filename:'version.txt',mime:'text/plain',contentBase64:Buffer.from('v1').toString('base64')};
+ const v1=await service.submitVersion(user,thread.id,data);
+ const v2=await service.submitVersion(user,thread.id,{...data,artifactId:v1.artifactId,contentBase64:Buffer.from('v2').toString('base64')});
+ await libraryChange(service,user,project.id,'version',v2.id,{deleted:true});
+ let versions=(await service.project(user,project.id)).versions;
+ assert.ok(versions.find(v=>v.id===v2.id).version_deleted_at);
+ assert.equal(versions.find(v=>v.id===v1.id).deleted_at,null);
+ assert.equal((await service.version(user,v2.id)).content.toString(),'v2');
+ await libraryChange(service,user,project.id,'artifact',v1.artifactId,{deleted:true});
+ versions=(await service.project(user,project.id)).versions;
+ assert.ok(versions.filter(v=>v.artifact_id===v1.artifactId).every(v=>v.artifact_deleted_at));
+ await libraryChange(service,user,project.id,'artifact',v1.artifactId,{deleted:false});
+ versions=(await service.project(user,project.id)).versions;
+ assert.equal(versions.find(v=>v.id===v1.id).deleted_at,null);
+ assert.ok(versions.find(v=>v.id===v2.id).deleted_at);
+ await libraryChange(service,user,project.id,'version',v2.id,{deleted:false});
+ assert.equal((await service.project(user,project.id)).versions.find(v=>v.id===v2.id).deleted_at,null);
+ await assert.rejects(libraryChange(service,outsider,project.id,'version',v1.id,{deleted:true}),e=>e.status===403);
+});

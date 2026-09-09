@@ -3396,3 +3396,15 @@ summary {
   }
 }
 
+.message-actions { display: flex; gap: 12px; margin-top: 6px; }
+.message-actions button { border: 0; background: transparent; padding: 2px 0; font-size: 11px; color: #83917d; }
+.message-actions button:hover { color: #3f5945; }
+.message-quotes { display: grid; gap: 5px; margin: 6px 0; }
+.message-quote { display: flex; flex-direction: column; text-align: left; gap: 3px; border: 0; border-left: 2px solid #b9c6ad; border-radius: 0; background: #f3f5f0; padding: 6px 10px; max-width: 100%; font-size: 11px; }
+.message-quote span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.composer-quotes { display: grid; gap: 4px; margin-bottom: 6px; font-size: 11px; color: #75836d; }
+.composer-quotes > div { display: flex; align-items: center; gap: 8px; }
+.composer-quotes span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.composer-quotes button { border: 0; background: transparent; padding: 2px 6px; }
+.quoted-message-dialog { width: min(640px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; padding: 24px; background: #fff; border-radius: 12px; overflow-wrap: anywhere; }
+.quoted-message-dialog > strong { display: block; margin: 12px 0; }

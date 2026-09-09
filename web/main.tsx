@@ -264,6 +264,7 @@ type Detail = Project & {
   folders: { id: string; parent_id: string | null; name: string }[];
   versions: Version[];
 };
+type MessageQuote = { id: string; thread_id?: string; author: string; body: string; source: string; refs: string[] };
 type Thread = {
   page?: { hasMore: boolean; before: string | null; after: string | null };
   contextUsage: ContextUsage;
@@ -281,6 +282,8 @@ type Thread = {
     author_avatar?: string | null;
     author_role?: string | null;
     agent_task_id?: string | null;
+    quoteTargetId?: string;
+    quotes?: MessageQuote[];
     created_at: string;
   }[];
   archive_snapshot: { conclusion: string; versions: Version[] } | null;
@@ -403,6 +406,24 @@ function App() {
   const [modal, setModal] = useState<Modal>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [quotedMessages, setQuotedMessages] = useState<MessageQuote[]>([]);
+  const [quotePreview, setQuotePreview] = useState<MessageQuote | null>(null);
+  const [copiedMessage, setCopiedMessage] = useState("");
+  const copyMessage = async (m: MessageQuote) => {
+    try {
+      const files = m.refs.map(id => {
+        const v = detail?.versions.find(v => v.id === id);
+        return `[${v?.title || id}](${location.origin}/api/versions/${id}/download)`;
+      });
+      await navigator.clipboard.writeText([m.body, ...files].filter(Boolean).join("\n\n"));
+      setCopiedMessage(m.id);
+    } catch { setError("复制失败，请检查剪贴板权限。"); }
+  };
+  useEffect(() => {
+    if (!copiedMessage) return;
+    const timer = setTimeout(() => setCopiedMessage(""), 2000);
+    return () => clearTimeout(timer);
+  }, [copiedMessage]);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [documentId, setDocumentId] = useState("");
   const showDocument = (id?: string) => {
@@ -548,6 +569,8 @@ function App() {
     setDetail(cached || null);
     setThreadId((current) => cached?.threads.some((t) => t.id === current) ? current : cached?.threads.find((t) => t.status === "active")?.id || cached?.threads[0]?.id || "");
     setRefs([]);
+    setQuotedMessages([]);
+    setQuotePreview(null);
     setMessage("");
     if (!projectId || !user) return;
     let alive = true;
@@ -1618,6 +1641,12 @@ function App() {
                               {renderAgentRound(reply)}
                             </React.Fragment>
                           ))}
+                      {!!m.quotes?.length && <div className="message-quotes">{m.quotes.map(q => (
+                        <button key={q.id} type="button" className="message-quote" onClick={() => void run(async () => {
+                          const result = await api(`/threads/${threadId}/messages/${q.id}`);
+                          setQuotePreview(result.message);
+                        })}><strong>{q.source === "assistant" ? AGENT_MEMBER.name : q.author}</strong><span>{q.body}</span></button>
+                      ))}</div>}
                       <div className="message-text">
                         {thread.updates?.filter((update) => update.message_id === m.id).map((update) => (
                           <p className="source-label" key={update.message_id}>
@@ -1643,6 +1672,15 @@ function App() {
                         >
                           {m.body}
                         </Markdown>
+                      </div>
+                      <div className="message-actions">
+                        <button type="button" onClick={() => void copyMessage(m)}>{copiedMessage === m.id ? "已复制" : "复制"}</button>
+                        <button type="button" disabled={!active || (m.id.startsWith("agent-task:") && !m.quoteTargetId)} onClick={() => {
+                          const id = m.quoteTargetId || m.id;
+                          const original = thread.messages.find(item => item.id === id) || m;
+                          setQuotedMessages(previous => previous.some(q => q.id === id) ? previous : [...previous, {...original, id}].slice(0,10));
+                          requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus());
+                        }}>引用</button>
                       </div>
                       {!!m.refs.length && (
                         <div className="references">
@@ -1727,6 +1765,10 @@ function App() {
               }
               {active ? (
                 <Suspense fallback={<div className="composer-loading" role="status">正在加载输入框…</div>}>
+                {!!quotedMessages.length && <div className="composer-quotes">{quotedMessages.map(q => <div key={q.id}>
+                  <span>引用 {q.source === "assistant" ? AGENT_MEMBER.name : q.author}：{q.body.slice(0,80)}</span>
+                  <button type="button" aria-label="取消引用" onClick={() => setQuotedMessages(items => items.filter(item => item.id !== q.id))}>×</button>
+                </div>)}</div>}
                 <ChatComposer
                   key={`${projectId}:${threadId}`}
                   projectId={projectId}
@@ -1746,8 +1788,10 @@ function App() {
                       await api(`/threads/${threadId}/messages`, {
                         body: message,
                         refs,
+                        quoteIds: quotedMessages.map(q => q.id),
                       });
                       sent = true;
+                      setQuotedMessages([]);
                       setMessage("");
                       setRefs([]);
                       followConversation.current = true;
@@ -1973,6 +2017,14 @@ function App() {
           </p>
         </div>
       </aside>
+      {quotePreview && <div className="modal-backdrop" onClick={() => setQuotePreview(null)}>
+        <section className="quoted-message-dialog" role="dialog" aria-modal="true" aria-label="引用消息原文" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === "Escape") setQuotePreview(null); }}>
+          <button autoFocus type="button" onClick={() => setQuotePreview(null)}>关闭原文</button>
+          <strong>{quotePreview.source === "assistant" ? AGENT_MEMBER.name : quotePreview.author}</strong>
+          <Markdown remarkPlugins={[remarkGfm]} components={{img: () => <span>（图片链接）</span>}}>{quotePreview.body}</Markdown>
+          <div className="references">{quotePreview.refs.map(renderRef)}</div>
+        </section>
+      </div>}
       {libraryOpen && (
         <Suspense
           fallback={

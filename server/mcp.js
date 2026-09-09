@@ -46,6 +46,16 @@ export function createMcpServer(service, user, afterMessage) {
     { threadId: z.string().uuid(), limit: z.number().int().min(1).max(200).optional(), before: z.string().regex(/^\d+$/).optional() },
     async (a) => modelDiscussion(await service.context(user, a.threadId, service.db, { display: true, limit: a.limit ?? 50, before: a.before })),
   );
+  register("list_messages", "会话资料：读取指定会话最近的消息列表；beforeMessageId 用于读取某条消息之前的消息。返回消息ID、类型、文件引用和被引用消息的预览，按时间升序。",
+    {threadId:z.string().uuid(),limit:z.number().int().min(1).max(100).optional(),beforeMessageId:z.string().uuid().optional()},
+    a=>service.listMessages(user,a.threadId,a));
+  register("read_message", "会话资料：读取指定消息及引用预览，可取它之前0至20条消息。引用消息的id可再次调用本工具读取完整内容，不递归展开。",
+    {threadId:z.string().uuid(),messageId:z.string().uuid(),before:z.number().int().min(0).max(20).optional()},
+    a=>service.readMessage(user,a.threadId,a.messageId,a.before));
+  register("list_members", "会话资料：列出项目成员，仅返回id、名称和角色，不含头像。",
+    {projectId:z.string().uuid()},a=>service.conversationMembers(user,a.projectId));
+  register("read_member", "会话资料：读取项目单个成员的名称、角色、简介和身份标签，不返回头像或账户凭据。",
+    {projectId:z.string().uuid(),memberId:z.string()},a=>service.conversationMembers(user,a.projectId,a.memberId));
   register(
     "get_document_version",
     "读取一个不可变文档版本，内容以 base64 返回。",
@@ -63,6 +73,7 @@ export function createMcpServer(service, user, afterMessage) {
       threadId: z.string().uuid(),
       body: z.string().min(1).max(20000),
       refs: z.array(z.string().uuid()).max(30).optional(),
+      quoteIds: z.array(z.string().uuid()).max(10).optional().describe("引用当前会话消息的ID，最多10条，与文档refs分开"),
       mentionAgent: z.boolean().optional(),
       files: z.array(z.object({
         title: z.string().min(1).max(160),

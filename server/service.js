@@ -1,3 +1,4 @@
+import { attachMessageQuotes } from "./message-quotes.js";
 import { contextUsage } from "../shared/context.js";
 import { AGENT_MEMBER, mentionsAgent } from "../shared/agent-member.js";
 import { randomUUID } from "node:crypto";
@@ -235,9 +236,9 @@ export class Service {
     );
     const versionsQuery = query(
       this.db,
-      `SELECT a.id artifact_id,a.title,a.folder_id,a.deleted_at,a.updated_at,v.id,v.version,v.filename,v.mime,v.byte_size,v.sha256,v.note,v.thread_id,v.created_at,u.name author,
+      `SELECT a.id artifact_id,a.title,a.folder_id,COALESCE(a.deleted_at,vr.deleted_at) deleted_at,a.deleted_at artifact_deleted_at,vr.deleted_at version_deleted_at,a.updated_at,v.id,v.version,v.filename,v.mime,v.byte_size,v.sha256,v.note,v.thread_id,v.created_at,u.name author,
       (SELECT r.decision FROM reviews r WHERE r.version_id=v.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1) review
-      FROM artifacts a JOIN versions v ON v.artifact_id=a.id JOIN users u ON u.id=v.created_by WHERE a.project_id=? ORDER BY v.created_at DESC,v.version DESC`,
+      FROM artifacts a JOIN versions v ON v.artifact_id=a.id LEFT JOIN version_recycle vr ON vr.version_id=v.id JOIN users u ON u.id=v.created_by WHERE a.project_id=? ORDER BY v.created_at DESC,v.version DESC`,
       [projectId],
     );
     const foldersQuery = query(
@@ -427,18 +428,20 @@ export class Service {
        WHERE m.thread_id=? ORDER BY m.sequence`, [threadId]);
     const pendingQuery = display ? query(db, `SELECT m.id,m.sequence,m.body,m.refs,m.source,u.name author,u.id author_id,JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags, '$[0]')) author_role FROM messages m JOIN users u ON u.id=m.author_id LEFT JOIN agent_sessions s ON s.thread_id=m.thread_id WHERE m.thread_id=? AND m.sequence>COALESCE(s.seen_sequence,0)`, [threadId]) : Promise.resolve(null);
     const [messages, reviews, runs, replies, events, [agentContext], updates, requests, pending] = await Promise.all([display ? selected : messagesQuery, reviewsQuery, runsQuery, repliesQuery, eventsQuery, agentContextQuery, updatesQuery, requestsQuery, pendingQuery]);
+    const withQuotes = await attachMessageQuotes(db, [...new Map([...(pending || []), ...messages].map(m => [m.id, { ...m, refs: json(m.refs) }])).values()]);
+    const quotedById = new Map(withQuotes.map(m => [m.id, m]));
     return {
       ...thread,
       contextUsage: contextUsage(
         agentContext,
-        (pending || messages).map((m) => ({ ...m, refs: json(m.refs) })),
+        (pending || messages).map(m => quotedById.get(m.id)),
         replies,
       ),
       archive_snapshot: thread.archive_snapshot
         ? json(thread.archive_snapshot)
         : null,
       ...(display ? { page: { hasMore, before: messages[0]?.sequence || null, after: messages.at(-1)?.sequence || after || null } } : {}),
-      messages: messages.map((m) => ({ ...m, refs: json(m.refs) })),
+      messages: messages.map(m => quotedById.get(m.id)),
       reviews,
       runs,
       replies,
@@ -489,11 +492,49 @@ export class Service {
     }
     return { id: messageId };
   }
+
+  async listMessages(user, threadId, input = {}) {
+    await this.thread(user, id.parse(threadId));
+    const args = z.object({ limit: z.number().int().min(1).max(100).default(20), beforeMessageId: id.optional() }).parse(input);
+    let sequence;
+    if (args.beforeMessageId) {
+      const [anchor] = await query(this.db, "SELECT sequence FROM messages WHERE id=? AND thread_id=?", [args.beforeMessageId, threadId]);
+      if (!anchor) fail(404, "消息不存在于当前会话");
+      sequence = anchor.sequence;
+    }
+    const rows = await query(this.db, `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.author_id,u.name author,m.created_at
+      FROM messages m JOIN users u ON u.id=m.author_id WHERE m.thread_id=?${sequence ? ' AND m.sequence<?' : ''}
+      ORDER BY m.sequence DESC LIMIT ?`, [threadId, ...(sequence ? [sequence] : []), args.limit + 1]);
+    const hasMore = rows.length > args.limit;
+    const messages = await attachMessageQuotes(this.db, rows.slice(0,args.limit).reverse().map(m => ({...m,refs:json(m.refs)})));
+    return { threadId, messages, page: { hasMore, beforeMessageId: messages[0]?.id || null } };
+  }
+  async readMessage(user, threadId, messageId, before = 0) {
+    await this.thread(user, id.parse(threadId));
+    id.parse(messageId);
+    z.number().int().min(0).max(20).parse(before);
+    const [row] = await query(this.db, `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.author_id,u.name author,m.created_at
+      FROM messages m JOIN users u ON u.id=m.author_id WHERE m.id=? AND m.thread_id=?`, [messageId, threadId]);
+    if (!row) fail(404, "消息不存在于当前会话");
+    const [message] = await attachMessageQuotes(this.db,[{...row,refs:json(row.refs)}]);
+    const previous = before ? (await this.listMessages(user, threadId, {beforeMessageId:messageId,limit:before})).messages : [];
+    return { message, previous };
+  }
+  async conversationMembers(user, projectId, memberId) {
+    await this.member(user, id.parse(projectId));
+    if (memberId === AGENT_MEMBER.id) return { id: AGENT_MEMBER.id, name: AGENT_MEMBER.name, role: AGENT_MEMBER.role, identity_tags: AGENT_MEMBER.identity_tags };
+    if (memberId) id.parse(memberId);
+    const rows = await query(this.db, `SELECT u.id,u.name,m.role${memberId ? ',u.motto,u.identity_tags' : ''}
+      FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=?${memberId ? ' AND u.id=?' : ''} ORDER BY u.name,u.id`, [projectId,...(memberId ? [memberId] : [])]);
+    if (memberId) { if (!rows.length) fail(404,"成员不属于当前项目"); return rows[0]; }
+    return [...rows, { id: AGENT_MEMBER.id, name: AGENT_MEMBER.name, role: AGENT_MEMBER.role }];
+  }
   async postMessage(user, threadId, input) {
     const data = z
       .object({
         body,
         refs: z.array(id).max(30).default([]),
+        quoteIds: z.array(id).max(10).default([]),
         mentionAgent: z.boolean().default(false),
         files: z.array(z.object({
           title,
@@ -514,6 +555,11 @@ export class Service {
     const result = await transaction(this.db, async (db) => {
       const thread = await this.thread(user, threadId, true, db);
       await this.refs(db, thread.project_id, data.refs);
+      const quoteIds = [...new Set(data.quoteIds)];
+      if (quoteIds.length) {
+        const quoted = await query(db, `SELECT id FROM messages WHERE thread_id=? AND id IN (${quoteIds.map(() => '?').join(',')})`, [threadId, ...quoteIds]);
+        if (quoted.length !== quoteIds.length) fail(400, "只能引用当前会话中存在的消息");
+      }
       const files = [];
       for (const file of data.files) {
         files.push(await this.submitVersion(user, threadId, file, undefined, undefined, false, { db, silent: true }));
@@ -526,6 +572,8 @@ export class Service {
         text,
         refs,
       );
+      for (const quotedId of quoteIds) await query(db,
+        "INSERT INTO message_quotes(message_id,quoted_message_id) VALUES(?,?)", [message.id, quotedId]);
       if (user.kind === "session" || (user.kind === "api" && mentionsAgent(text))) {
         await query(db, "INSERT INTO agent_requests(message_id) VALUES(?)", [message.id]);
         if (mentionsAgent(text)) {

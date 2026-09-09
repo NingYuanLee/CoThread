@@ -241,6 +241,8 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       ),
     ),
   );
+  app.patch("/api/projects/:id/versions/:versionId", async (req,res) =>
+    res.json(await libraryChange(service,req.user,req.params.id,"version",req.params.versionId,req.body)));
   app.patch("/api/projects/:id/artifacts/:artifactId", async (req, res) =>
     res.json(
       await libraryChange(
@@ -283,6 +285,8 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     res.setHeader("Cache-Control", "private, max-age=86400");
     res.type(image[1]).send(Buffer.from(image[2], "base64"));
   });
+  app.get("/api/threads/:id/messages/:messageId", async (req, res) =>
+    res.json(await service.readMessage(req.user, req.params.id, req.params.messageId)));
   app.post("/api/threads/:id/messages", async (req, res) =>
     res
       .status(201)

@@ -50,7 +50,7 @@ test("Makers Express adapter returns real API JSON, enforces origin, authenticat
       body: {jsonrpc:'2.0', id:1, method:'tools/list'},
     }});
     assert.equal(mcp.status, 200);
-    assert.equal((await mcp.json()).result.tools.length, 7);
+    assert.equal((await mcp.json()).result.tools.length, 11);
     const guide = createMcpInstallGuide({ url: "https://cothread.z2l.top/cothread-mcp", token: "test-token", conversationId: userId });
     assert.ok(guide.includes('"Makers-Conversation-Id": "' + userId + '"'));
     const user = { id: userId, kind: "session" };

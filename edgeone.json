@@ -1,0 +1,15 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "nodeVersion": "22.19.0",
+  "cloudFunctions": {
+    "maxDuration": 120,
+    "includeFiles": ["migrations/**"]
+  },
+  "agents": {
+    "dir": "agents",
+    "timeout": 1800,
+    "includeFiles": ["runtime/**", "shared/**", "migrations/**"],
+    "externalNodeModules": ["@deepseek-ai/dsh-sdk-client"]
+  }
+}

@@ -6,6 +6,8 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile, readdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { tmpdir } from "node:os";
+import { assetPath } from "./assets.js";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { query } from "./db.js";
 import { Service, HttpError } from "./service.js";
@@ -67,7 +69,9 @@ export async function openAgentRuntime(
     "SELECT * FROM agent_sessions WHERE thread_id=?",
     [job.thread_id],
   );
-  const home = resolve(".local/agents", job.thread_id);
+  const home = process.env.COTHREAD_MAKERS === "true"
+    ? resolve(tmpdir(), "cothread-agents", job.thread_id)
+    : resolve(".local/agents", job.thread_id);
   await mkdir(home, { recursive: true });
   // MySQL is authoritative. Restore only session records into a dedicated host orchestration directory.
   if (session.checkpoint) {
@@ -136,7 +140,7 @@ export async function openAgentRuntime(
   const patch = join(home, "tools.yml");
   await writeFile(
     patch,
-    `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n    - id: cothread-sdk-server\n      name: ${JSON.stringify(pathToFileURL(resolve("runtime/sdk-resume.mjs")).href)}\n      inject: [sdkAppStartup, loader]\n    - id: cothread-project-tools\n      name: ${JSON.stringify(pathToFileURL(resolve("runtime/cothread-tools.mjs")).href)}\n`,
+    `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n    - id: cothread-sdk-server\n      name: ${JSON.stringify(pathToFileURL(assetPath("runtime/sdk-resume.mjs")).href)}\n      inject: [sdkAppStartup, loader]\n    - id: cothread-project-tools\n      name: ${JSON.stringify(pathToFileURL(assetPath("runtime/cothread-tools.mjs")).href)}\n`,
   );
   // Never inherit database, ACS or unrelated application secrets into the Agent process.
   const env = {};
@@ -165,7 +169,7 @@ export async function openAgentRuntime(
     dshHome: home,
     processCwd: home,
     cwd: home,
-    patches: [resolve("runtime/agent-patch.yml"), patch],
+    patches: [assetPath("runtime/agent-patch.yml"), patch],
     env,
     model: process.env.CHAT_MODEL || "deepseek-v4-flash",
     initializeTimeoutMs: 30000,
@@ -247,12 +251,30 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
   runtime ||= await openAgentRuntime(context, { db, job, user });
   const { harness, session, progress, thinking } = runtime;
   let timer;
+  let cancellationTimer;
   let completed = false;
   try {
     const prompt = `你是共序项目中的助理，姓名是小祥。当前项目 ID：${context.project_id}。迭代 ID：${job.thread_id}。ACS 工作区 /home/user/cothread/${job.thread_id}。
 请回应当前上下文中 ID 为 ${job.message_id} 的成员消息。本轮已确定需要回复：明确 @小祥、项目中只有一名成员与助手，或模型判断应参与多人讨论。只有一名成员时，即使未 @ 也应作为直接对话正常回应。请简洁回应，不擅自扩展任务或把成员之间的分工当作对你的授权。若成员确实请求你实现、分析文件或产出内容，应实际调用工具完成并保存结果。`;
     await progress("Agent 正在分析请求");
     const result = await Promise.race([
+      new Promise((_, reject) => {
+        let checking = false;
+        cancellationTimer = setInterval(async () => {
+          if (checking) return;
+          checking = true;
+          try {
+            const [row] = await query(db, "SELECT status FROM assistant_replies WHERE message_id=?", [job.message_id]);
+            if (row?.status !== "running") {
+              clearInterval(cancellationTimer);
+              await releaseSandbox(db, job.thread_id).catch(() => {});
+              reject(new HttpError(409, "任务已停止"));
+            }
+          } catch (error) { reject(error); }
+          finally { checking = false; }
+        }, 1000);
+        cancellationTimer.unref();
+      }),
       harness.run(prompt, {
         sessionId: session.session_id,
         onNotification: thinking.notify,
@@ -272,6 +294,7 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
     return result.finalResponse.slice(0, 20000);
   } finally {
     clearTimeout(timer);
+    clearInterval(cancellationTimer);
     if (owned) await runtime.close(completed);
   }
 }

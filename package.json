@@ -7,7 +7,7 @@
     "node": ">=22.19"
   },
   "scripts": {
-    "dev": "node --env-file=.env server/index.js",
+    "dev": "node --env-file=.env scripts/dev.js",
     "build": "tsc --noEmit && vite build",
     "start": "node --env-file-if-exists=.env server/index.js --production",
     "db:migrate": "node --env-file-if-exists=.env scripts/migrate.js",

@@ -1,3 +1,4 @@
+import { apiFetch } from "./api-fetch";
 import {
   AGENT_MEMBER,
   SUMMARY_REQUEST,
@@ -7,6 +8,7 @@ import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import { createMcpInstallGuide } from "../shared/mcp-guide.js";
+import { configureMakers, invokeMakers, wakeMakers } from "./makers";
 const Documents = lazy(() =>
   import("./Documents").then((module) => ({ default: module.Documents })),
 );
@@ -315,7 +317,7 @@ type Modal =
   | "run"
   | null;
 async function api(path: string, data?: unknown, method?: string) {
-  const res = await fetch(`/api${path}`, {
+  const res = await apiFetch(`/api${path}`, {
     method: method || (data === undefined ? "GET" : "POST"),
     headers: { "Content-Type": "application/json" },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
@@ -389,6 +391,8 @@ function App() {
   const [health, setHealth] = useState<{
     acsConfigured: boolean;
     dshEnabled: boolean;
+    agentEndpoint?: string;
+    mcpEndpoint?: string;
   } | null>(null);
   const [selectedArtifact, setSelectedArtifact] = useState("");
   const [history, setHistory] = useState(false);
@@ -429,7 +433,7 @@ function App() {
       .catch(() => {})
       .finally(() => setLoading(false));
     api("/health")
-      .then(setHealth)
+      .then((value) => { configureMakers(value); setHealth(value); })
       .catch(() => {});
   }, []);
   useEffect(() => {
@@ -514,6 +518,12 @@ function App() {
     ).length,
   ]);
   const currentContext = useRef({ projectId, threadId });
+  useEffect(() => {
+    if (!health?.agentEndpoint || !thread || !writable || thread.status !== "active") return;
+    if (thread.replies.some((r) => ["queued", "running"].includes(r.status)) ||
+        ["queued", "running"].includes(thread.contextUsage?.compactStatus))
+      wakeMakers(thread.id, setError);
+  }, [health, thread, writable]);
   currentContext.current = { projectId, threadId };
   const refresh = async () => {
     if (projectId) {
@@ -542,7 +552,7 @@ function App() {
     if (!threadId || !projectId || thread?.id !== threadId || detail?.id !== projectId) return;
     const info = JSON.stringify(
       {
-        server: `${location.origin}/mcp`,
+        server: `${location.origin}${health?.mcpEndpoint || "/mcp"}`,
         project: detail?.name,
         projectId,
         iteration: thread?.title,
@@ -564,8 +574,9 @@ function App() {
     }
   };
   const installGuide = (currentToken: string) => createMcpInstallGuide({
-    url: `${location.origin}/mcp`,
+    url: `${location.origin}${health?.mcpEndpoint || "/mcp"}`,
     token: currentToken,
+    conversationId: health?.mcpEndpoint ? user?.id : undefined,
   });
   const copyInstallGuide = async () => {
     if (busy) return;
@@ -690,9 +701,10 @@ function App() {
           password: value("password"),
         });
       if (modal === "run") {
-        const result = await api(`/threads/${threadId}/runs`, {
-          command: value("command"),
-        });
+        const input = { command: value("command") };
+        const result = health?.agentEndpoint
+          ? await invokeMakers(threadId, input)
+          : await api(`/threads/${threadId}/runs`, input);
         await refresh();
         if (result.status !== "succeeded") throw new Error(result.output);
       }
@@ -966,7 +978,7 @@ function App() {
           <button className="primary" disabled={busy}>
             {busy ? "正在登录…" : "进入工作空间 →"}
           </button>
-          <small>首次登录信息保存在项目的 .env 文件中。</small>
+          <small>请使用已有账号登录；新账号请联系项目负责人。</small>
         </form>
       </div>
     );

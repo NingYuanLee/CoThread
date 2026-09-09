@@ -549,9 +549,8 @@ export class Service {
         contentBase64: z
           .string()
           .max(7_000_000)
-          .regex(
-            /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/,
-          ),
+          .refine((value) => Buffer.from(value, "base64").toString("base64") === value,
+            "文件内容必须为有效的 base64"),
         note: z.string().max(4000).default(""),
       })
       .parse(input);

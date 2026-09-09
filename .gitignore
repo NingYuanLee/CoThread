@@ -20,6 +20,7 @@ Desktop.ini
 # Temporary files and build caches
 .cache/
 .vite/
+.edgeone/
 *.tsbuildinfo
 tmp/
 temp/

@@ -1,3 +1,4 @@
+import { apiFetch } from "./api-fetch";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -186,7 +187,7 @@ export function Documents({
   const [actionError, setActionError] = useState("");
   const uploadRef = useRef<HTMLInputElement>(null);
   const change = async (path: string, data: unknown, method = "POST") => {
-    const res = await fetch(`/api${path}`, {
+    const res = await apiFetch(`/api${path}`, {
       method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -309,7 +310,7 @@ export function Documents({
     if (!selected || embedded) return;
     let alive = true;
     let objectUrl = "";
-    fetch(`/api/versions/${selected}`)
+    apiFetch(`/api/versions/${selected}`)
       .then(async (res) => {
         const result = await res.json();
         if (!res.ok) throw new Error(result.error);

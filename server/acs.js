@@ -1,6 +1,7 @@
 import { Sandbox, ConnectionConfig } from "e2b";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { assetPath } from "./assets.js";
 import { z } from "zod";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
@@ -170,14 +171,14 @@ export async function executeRun(
         await sandbox.files.write(
           `${cwd}/summary-patch.yml`,
           await readFile(
-            new URL("../runtime/summary-patch.yml", import.meta.url),
+            assetPath("runtime/summary-patch.yml"),
             "utf8",
           ),
         );
         await sandbox.files.write(
           `${cwd}/prepare-dsh.sh`,
           await readFile(
-            new URL("../runtime/prepare-dsh.sh", import.meta.url),
+            assetPath("runtime/prepare-dsh.sh"),
             "utf8",
           ),
         );

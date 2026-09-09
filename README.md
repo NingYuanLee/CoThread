@@ -83,7 +83,11 @@ npm run db:restore-check # Windows 本地：导入独立测试库，校验后删
 
 `post_message` 支持一次发送 `body` 文本、`files` 多个文件、`refs` 已有版本 ID（等同 `/关联文件`），以及 `mentionAgent: true`（也兼容正文 `@Agent助手`）触发内置助手回复。本地 Agent 不显式提及时不会触发自动回复。文件直接保存到项目文档库，消息和全部文件在同一事务内写入，任一失败全部回滚。最多 10 个文件，单文件 5 MiB、合计 20 MiB，文件与已有引用最多 30 个。`files` 每项包含 `title`、`filename`、`contentBase64`，可选 `mime` 与 `folderId`。`submit_document` 用于单独提交文件或新版本，可指定 `folderId`；审核、归档和成员管理仍由人工进行。完整配置和调用示例见界面的「连接本地Agent」。
 
-## 云端部署
+## EdgeOne Makers 部署
+
+本仓库已包含 Makers 的 Express 云函数入口和 Agents 长任务入口，详见 [Makers 部署说明](docs/makers.md)。仅上传 `dist` 不能运行后端；Git 构建需包含 `cloud-functions/`、`agents/` 和 `edgeone.json`。
+
+## 普通服务器／容器部署
 
 阿里云 RDS 默认 MySQL 端口为 `3306`，以下示例中的 `YOUR_RDS_HOST` 请替换为实际连接地址。在 `.env` 中将 `DATABASE_URL` 配置为 `mysql://RDS_USER:RDS_PASSWORD@YOUR_RDS_HOST:3306/cothread`，使用实际 RDS 账号、密码和库名（账号密码中的特殊字符须进行 URL 编码）。应用所在主机需要能访问该地址，并加入 RDS 访问白名单。已有应用需重启才能读取新配置；切换连接地址不会自动迁移本地数据。
 

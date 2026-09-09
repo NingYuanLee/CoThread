@@ -3,8 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { MCP_INSTRUCTIONS } from "../shared/mcp-guide.js";
 
-export async function handleMcp(req, res, service) {
-  const user = req.user;
+export function createMcpServer(service, user, afterMessage) {
   const server = new McpServer({ name: "cothread", version: "0.2.0" }, { instructions: MCP_INSTRUCTIONS });
   const register = (name, description, schema, fn) =>
     server.registerTool(
@@ -72,7 +71,16 @@ export async function handleMcp(req, res, service) {
         folderId: z.string().uuid().nullable().optional(),
       })).max(10).optional().describe("最多 10 个文件，单文件 5 MiB，合计 20 MiB；内容为 base64，不接受本地路径"),
     },
-    (a) => service.postMessage(user, a.threadId, a),
+    async (a) => {
+      const message = await service.postMessage(user, a.threadId, a);
+      // Hosted MCP requests own their Agent execution, even with no browser open.
+      // Publishing succeeded: a runner failure must not invite duplicate publication.
+      if (afterMessage) {
+        try { await afterMessage(user, a.threadId); }
+        catch { return { ...message, agentStatus: "queued_or_failed", agentNotice: "消息已保存；请读取会话检查助手进度，勿重复发送消息。" }; }
+      }
+      return message;
+    },
   );
   register(
     "submit_document",
@@ -89,6 +97,11 @@ export async function handleMcp(req, res, service) {
     },
     (a) => service.submitVersion(user, a.threadId, a),
   );
+  return server;
+}
+
+export async function handleMcp(req, res, service, afterMessage) {
+  const server = createMcpServer(service, req.user, afterMessage);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

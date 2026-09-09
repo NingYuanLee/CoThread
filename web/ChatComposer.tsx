@@ -1,3 +1,4 @@
+import { apiFetch } from "./api-fetch";
 import React, { useEffect, useRef, useState } from "react";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { FileIcon } from "@react-symbols/icons/utils";
@@ -45,7 +46,7 @@ function FilePreview({
     if (url || !id || !isImage(name)) return;
     let alive = true,
       local = "";
-    void fetch(`/api/versions/${id}`)
+    void apiFetch(`/api/versions/${id}`)
       .then(async (r) => {
         if (!r.ok) return;
         const v = await r.json();
@@ -168,45 +169,14 @@ export function ChatComposer({
           let binary = "";
           for (let i = 0; i < bytes.length; i += 8192)
             binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-          const result = await new Promise<{ id: string; artifactId: string }>(
-            (resolve, reject) => {
-              const xhr = new XMLHttpRequest();
-              xhr.open("POST", `/api/threads/${threadId}/attachments`);
-              xhr.setRequestHeader("Content-Type", "application/json");
-              xhr.timeout = 120000;
-              xhr.upload.onprogress = (e) => {
-                if (e.lengthComputable)
-                  update(key, {
-                    progress: Math.min(
-                      99,
-                      Math.round((e.loaded / e.total) * 100),
-                    ),
-                  });
-              };
-              xhr.onerror = () =>
-                reject(new Error("上传网络异常，请检查文档库后重试"));
-              xhr.ontimeout = () =>
-                reject(new Error("上传超时，请检查文档库后重试"));
-              xhr.onload = () => {
-                try {
-                  const data = JSON.parse(xhr.responseText);
-                  if (xhr.status < 200 || xhr.status >= 300)
-                    reject(new Error(data.error || "上传失败"));
-                  else resolve(data);
-                } catch {
-                  reject(new Error("上传响应异常"));
-                }
-              };
-              xhr.send(
-                JSON.stringify({
-                  title: file.name.slice(0, 160),
-                  filename: file.name,
-                  mime: file.type || "application/octet-stream",
-                  contentBase64: btoa(binary),
-                }),
-              );
-            },
-          );
+          const response = await apiFetch(`/api/threads/${threadId}/attachments`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(120000),
+            body: JSON.stringify({title: file.name, filename: file.name,
+              mime: file.type || "application/octet-stream", contentBase64: btoa(binary)}),
+          }, (progress) => update(key, {progress}));
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "上传失败");
           if (cancelled.current.has(key)) {
             update(key, { ...result, progress: 100 });
             await remove({

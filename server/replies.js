@@ -59,12 +59,14 @@ export async function processNextReply(
   db,
   generate,
   decide = decideParticipation,
+  threadId,
 ) {
   const job = await transaction(db, async (conn) => {
     const [job] = await query(
       conn,
       `SELECT r.message_id,r.participation,m.thread_id,m.author_id,m.sequence FROM assistant_replies r
-      JOIN messages m ON m.id=r.message_id WHERE r.status='queued' ORDER BY r.created_at,m.sequence LIMIT 1 FOR UPDATE SKIP LOCKED`,
+      JOIN messages m ON m.id=r.message_id WHERE r.status='queued' ${threadId ? "AND m.thread_id=?" : ""} ORDER BY r.created_at,m.sequence LIMIT 1 FOR UPDATE SKIP LOCKED`,
+      threadId ? [threadId] : [],
     );
     if (job)
       await query(
@@ -163,22 +165,7 @@ export async function processNextReply(
   return true;
 }
 
-export async function retryReply(service, user, threadId, messageId) {
-  if (user.kind !== "session") throw new HttpError(403, "需要人工登录");
-  return transaction(service.db, async (db) => {
-    await service.thread(user, threadId, true, db);
-    const result = await query(
-      db,
-      `UPDATE assistant_replies r JOIN messages m ON m.id=r.message_id
-      SET r.status='queued',r.error=NULL,r.finished_at=NULL
-      WHERE r.message_id=? AND m.thread_id=? AND r.status='failed'`,
-      [messageId, threadId],
-    );
-    if (!result.affectedRows)
-      throw new HttpError(409, "当前消息没有可重试的回复");
-    return { ok: true };
-  });
-}
+export { retryReply } from "./reply-actions.js";
 
 export async function startReplyWorker(db) {
   // A crash may leave live metering newer than the durable checkpoint.

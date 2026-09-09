@@ -2,36 +2,14 @@ import { randomUUID } from "node:crypto";
 import { query, transaction } from "./db.js";
 import { Service, HttpError } from "./service.js";
 
-export async function queueContextCompression(service, user, threadId) {
-  if (user.kind !== "session") throw new HttpError(403, "需要登录后操作");
-  return transaction(service.db, async (db) => {
-    await service.thread(user, threadId, true, db);
-    await query(
-      db,
-      "INSERT IGNORE INTO agent_sessions(thread_id,session_id) VALUES(?,?)",
-      [threadId, randomUUID()],
-    );
-    const [session] = await query(
-      db,
-      "SELECT compact_status FROM agent_sessions WHERE thread_id=? FOR UPDATE",
-      [threadId],
-    );
-    if (["queued", "running"].includes(session.compact_status))
-      return { status: session.compact_status };
-    await query(
-      db,
-      "UPDATE agent_sessions SET compact_status='queued',compact_requested_by=?,compact_error=NULL,compact_result=NULL WHERE thread_id=?",
-      [user.id, threadId],
-    );
-    return { status: "queued" };
-  });
-}
+export { queueContextCompression } from "./queue-context.js";
 
-export async function processNextContextCompression(db, openRuntime) {
+export async function processNextContextCompression(db, openRuntime, threadId) {
   const job = await transaction(db, async (conn) => {
     const [next] = await query(
       conn,
-      "SELECT thread_id,compact_requested_by FROM agent_sessions WHERE compact_status='queued' ORDER BY updated_at LIMIT 1 FOR UPDATE SKIP LOCKED",
+      `SELECT thread_id,compact_requested_by FROM agent_sessions WHERE compact_status='queued' ${threadId ? "AND thread_id=?" : ""} ORDER BY updated_at LIMIT 1 FOR UPDATE SKIP LOCKED`,
+      threadId ? [threadId] : [],
     );
     if (next)
       await query(

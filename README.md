@@ -26,7 +26,7 @@ npm run mysql:stop   # 优雅关闭本地数据库
 npm run build        # 类型检查及前端生产构建
 npm start            # 使用构建后的静态页面
 npm test             # 真实 MySQL 集成测试，独立随机测试数据库，结束后清理
-npm run app:start    # Windows：启动本地 MySQL，并将生产版应用放到后台运行
+npm run app:start    # Windows：后台启动生产版应用；仅连接本地 3307 时启动本地 MySQL
 npm run app:stop     # Windows：停止本项目的后台应用
 npm run db:backup    # 完整备份业务数据与文件内容
 npm run db:restore-check # Windows 本地：导入独立测试库，校验后删除测试库
@@ -82,6 +82,8 @@ npm run db:restore-check # Windows 本地：导入独立测试库，校验后删
 `post_message` 支持一次发送 `body` 文本、`files` 多个文件、`refs` 已有版本 ID（等同 `/关联文件`），以及 `mentionAgent: true`（也兼容正文 `@Agent助手`）触发内置助手回复。本地 Agent 不显式提及时不会触发自动回复。文件直接保存到项目文档库，消息和全部文件在同一事务内写入，任一失败全部回滚。最多 10 个文件，单文件 5 MiB、合计 20 MiB，文件与已有引用最多 30 个。`files` 每项包含 `title`、`filename`、`contentBase64`，可选 `mime` 与 `folderId`。`submit_document` 用于单独提交文件或新版本，可指定 `folderId`；审核、归档和成员管理仍由人工进行。完整配置和调用示例见界面的「连接本地Agent」。
 
 ## 云端部署
+
+阿里云 RDS 默认 MySQL 端口为 `3306`，以下示例中的 `YOUR_RDS_HOST` 请替换为实际连接地址。在 `.env` 中将 `DATABASE_URL` 配置为 `mysql://RDS_USER:RDS_PASSWORD@YOUR_RDS_HOST:3306/cothread`，使用实际 RDS 账号、密码和库名（账号密码中的特殊字符须进行 URL 编码）。应用所在主机需要能访问该地址，并加入 RDS 访问白名单。已有应用需重启才能读取新配置；切换连接地址不会自动迁移本地数据。
 
 1. 创建 MySQL 8.4 数据库，迁移本地完整备份（包含附件内容）。空库则运行迁移与初始账号创建。
 2. 修改 `DATABASE_URL`，需要 TLS 的云数据库设置 `DATABASE_SSL=true`；自签发 CA 通过 `DATABASE_SSL_CA` 指向证书文件。

@@ -36,6 +36,8 @@ Makers 按会话管理一个沙箱实例。三个临时子 Agent 在 `/home/user
 
 ## 验证
 
+DSH 的 SDK 和执行插件包含运行时 peer dependencies，Makers 的外部依赖打包不会自动补齐它们。`edgeone.json` 显式包含 SDK protocol、Cordis group 和 attachment/sandbox/shell/fs/jobs/session-persistence 接口包。生成 Agent 包后运行 `node scripts/check-agent-package.mjs`，它只验证 DSH 初始化，不调用模型或数据库，并阻止从仓库的 `node_modules` 偷用漏打包的依赖。
+
 Agent 启动器由 Makers 生成，目前引用 OpenTelemetry 1.x 的 `Resource` 等接口。仓库显式打包对应监控依赖，避免生产包启动时报缺少模块；不能直接单独升级至 2.x。该兼容版本存在上游安全公告，待 Makers 启动器支持新版后需要一起升级。依赖 Zod 4 自带的 `zod/v3` 保留业务校验行为，同时避免 DSH 重复安装多份 Zod 超过 Agent 250 MiB 包大小限制。
 
 `/api/health` 应返回 JSON：`status: ok`，并包含 `agentEndpoint` 和 `mcpEndpoint`；未登录访问 `/api/me` 应返回 401 JSON，不能是前端 HTML。随后验证登录、项目列表、文件上传下载及 Agent 回复。

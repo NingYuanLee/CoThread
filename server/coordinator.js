@@ -42,7 +42,9 @@ export async function processNextCoordinator(db, threadId, decide = decideDispat
   let job;
   for (const candidate of candidates) {
     job = await transaction(db, async (conn) => {
-      const [thread] = await query(conn, "SELECT id FROM threads WHERE id=? FOR UPDATE SKIP LOCKED", [candidate.thread_id]);
+      // A concurrent child claim holds this row briefly. Skipping it would
+      // report "idle" even with queued requests and let the hosted runner exit.
+      const [thread] = await query(conn, "SELECT id FROM threads WHERE id=? FOR UPDATE", [candidate.thread_id]);
       if (!thread) return;
       const [active] = await query(conn,
         `SELECT q.message_id FROM agent_requests q JOIN messages m ON m.id=q.message_id

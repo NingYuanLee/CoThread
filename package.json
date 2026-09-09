@@ -23,8 +23,18 @@
     "app:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 stop"
   },
   "dependencies": {
+    "@deepseek-ai/cordis-plugin-group": "1.0.2",
     "@deepseek-ai/dsh": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-anonymous-user-id": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-attachment": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-compaction": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-fs": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-jobs": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-sandbox": "0.1.2-rc.1",
     "@deepseek-ai/dsh-sdk-client": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-sdk-protocol": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-session-persistence": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-shell": "0.1.2-rc.1",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@opentelemetry/api": "1.9.0",
     "@opentelemetry/exporter-metrics-otlp-http": "0.57.2",

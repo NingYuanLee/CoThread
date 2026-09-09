@@ -10,7 +10,7 @@ export function apply(ctx) {
     ],
     [
       "read_document",
-      "读取指定文档版本。文本返回正文，也将原始文件复制到 ACS，二进制文档可用命令解析。",
+      "读取指定文档版本。文本返回正文，也将原始文件复制到沙箱，二进制文档可用命令解析。",
       {
         versionId: { type: "string", required: true },
       },
@@ -22,14 +22,14 @@ export function apply(ctx) {
     ],
     [
       "sandbox_command",
-      "在当前迭代的 ACS Linux 沙箱内执行命令。可运行 Python、测试、创建和编辑文件。不会在应用宿主机执行。命令超时 90 秒，cwd 为工作区根目录；该沙箱不含模型或数据库密钥。",
+      "在当前迭代的 Linux 沙箱内执行命令。可运行 Python、测试、创建和编辑文件。不会在应用宿主机执行。命令超时 90 秒，cwd 为工作区根目录；该沙箱不含模型或数据库密钥。",
       {
         command: { type: "string", required: true },
       },
     ],
     [
       "sandbox_read",
-      "读取 ACS 工作区相对路径的 UTF-8 文件，可按 offset 与 limit 分段读取。",
+      "读取沙箱工作区相对路径的 UTF-8 文件，可按 offset 与 limit 分段读取。",
       {
         path: { type: "string", required: true },
         offset: { type: "number" },
@@ -38,7 +38,7 @@ export function apply(ctx) {
     ],
     [
       "sandbox_write",
-      "在 ACS 工作区写入 UTF-8 文本文件。仅改变工作副本；完成后用 publish_artifact 保存到项目。",
+      "在沙箱工作区写入 UTF-8 文本文件。仅改变工作副本；完成后用 publish_artifact 保存到项目。",
       {
         path: { type: "string", required: true },
         content: { type: "string", required: true },
@@ -46,7 +46,7 @@ export function apply(ctx) {
     ],
     [
       "publish_artifact",
-      "将 ACS 工作区文件保存到 MySQL 文档库，生成待人工审核的新版本。已有文档需提供 artifactId。文件必须已实际生成，最多 5 MiB。",
+      "将沙箱工作区文件保存到 MySQL 文档库，生成待人工审核的新版本。已有文档需提供 artifactId。文件必须已实际生成，最多 5 MiB。",
       {
         path: { type: "string", required: true },
         title: { type: "string", required: true },

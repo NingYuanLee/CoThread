@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod/v3";
 import { IDENTITY_TAGS } from "../shared/profile.js";
 
 const avatar = z

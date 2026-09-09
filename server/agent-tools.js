@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod/v3";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { posix } from "node:path";
 import { query } from "./db.js";

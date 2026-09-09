@@ -2,7 +2,7 @@ import { Sandbox, ConnectionConfig } from "e2b";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { assetPath } from "./assets.js";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
 import { generateReply } from "./replies.js";

@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { MCP_INSTRUCTIONS } from "../shared/mcp-guide.js";
 
 export function createMcpServer(service, user, afterMessage) {

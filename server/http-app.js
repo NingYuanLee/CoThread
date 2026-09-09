@@ -2,7 +2,7 @@ import { SUMMARY_REQUEST } from "../shared/agent-member.js";
 import { queueContextCompression } from "./queue-context.js";
 import express from "express";
 import { libraryChange } from "./library.js";
-import { z, ZodError } from "zod";
+import { z, ZodError } from "zod/v3";
 import {
   authenticate,
   verifyPassword,

@@ -1,7 +1,7 @@
 import { contextUsage } from "../shared/context.js";
 import { AGENT_MEMBER, mentionsAgent } from "../shared/agent-member.js";
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { digest, hashPassword } from "./auth.js";
 

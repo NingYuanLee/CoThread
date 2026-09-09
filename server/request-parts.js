@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
 

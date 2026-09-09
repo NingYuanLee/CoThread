@@ -6,6 +6,7 @@ import { pendingTaskUpdates } from "./agent-updates.js";
 import { setTimeout as delay } from "node:timers/promises";
 import { synchronizeNextDiscussion, synchronizeDiscussionContext } from "./context-sync.js";
 import { processNextCoordinator } from "./coordinator.js";
+import { publishWork, subscribeWork, startWakeWorker } from "./work-events.js";
 import {
   processNextContextCompression,
   refreshNextContextStats,
@@ -203,36 +204,18 @@ export async function startReplyWorker(db) {
   );
   await query(db, "UPDATE assistant_replies SET execution_active=FALSE WHERE execution_active=TRUE");
   await query(db, "UPDATE agent_requests SET status='queued' WHERE status='running'");
-  const active = new Set();
-  let maintenance = false;
-  let coordinating = false;
-  let synchronizing = false;
-  const tick = () => {
-    if (!synchronizing) {
-      synchronizing = true;
-      void processNextContextCompression(db).then((worked) => worked || synchronizeNextDiscussion(db)).catch((error) => console.error("Context sync failed", { type: error.name }))
-        .finally(() => { synchronizing = false; });
-    }
-    if (!coordinating) {
-      coordinating = true;
-      void processNextCoordinator(db).catch((error) => console.error("Coordinator failed", { type: error.name }))
-        .finally(() => { coordinating = false; });
-    }
-    if (maintenance || active.size >= MAX_THREAD_AGENTS) return;
-    const task = processNextReply(db)
-      .then(async (worked) => {
-        if (worked || active.size !== 1) return;
-        maintenance = true;
-        try {
-          if (!(await processNextContextCompression(db))) await refreshNextContextStats(db);
-        } finally { maintenance = false; }
-      })
-      .catch((error) => console.error("Reply worker failed", { type: error.name }))
-      .finally(() => active.delete(task));
-    active.add(task);
-  };
-  const timer = setInterval(tick, 1000);
-  timer.unref();
-  void tick();
-  return () => clearInterval(timer);
+  const subscribe = (wake) => subscribeWork(db, wake);
+  const run = (work, concurrency = 1) => startWakeWorker(async () => {
+    const worked = await work();
+    if (worked) publishWork(db);
+    return worked;
+  }, { subscribe, concurrency, onError: (error) => console.error("Worker failed", { type: error.name }) });
+  // Independent lanes: a slow child or compression cannot hold up reception.
+  // Commits wake the lanes immediately; the minute sweep covers missed events.
+  const stops = [
+    run(() => processNextCoordinator(db)),
+    run(async () => await processNextContextCompression(db) || await synchronizeNextDiscussion(db) || await refreshNextContextStats(db)),
+    run(() => processNextReply(db), MAX_THREAD_AGENTS),
+  ];
+  return () => stops.forEach((stop) => stop());
 }

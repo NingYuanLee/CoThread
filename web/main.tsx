@@ -328,12 +328,15 @@ type Modal =
   | "run"
   | null;
 async function api(path: string, data?: unknown, method?: string, signal?: AbortSignal) {
-  return fetchJson(`/api${path}`, {
+  const result = await fetchJson(`/api${path}`, {
     method: method || (data === undefined ? "GET" : "POST"),
     headers: { "Content-Type": "application/json" },
     signal,
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
+  const work = path.match(/^\/threads\/([^/]+)\/(?:messages|summary|context\/compact|replies\/[^/]+\/retry)$/);
+  if (work && (method || (data === undefined ? "GET" : "POST")) === "POST") wakeMakers(work[1], undefined, true);
+  return result;
 }
 function App() {
   const [user, setUser] = useState<PersonalProfile | null>(null);
@@ -500,7 +503,7 @@ function App() {
       setShowArchived(workspace.thread?.status === "archived");
       setDetail(workspace.project);
       setThread(workspace.thread);
-      configureMakers(workspace.health);
+      configureMakers(workspace.health, setError);
       setHealth(workspace.health);
     } catch (cause) {
       if (signal?.aborted) return;
@@ -539,10 +542,12 @@ function App() {
     setMessage("");
     if (!projectId || !user) return;
     let alive = true;
+    let inFlight = false;
     let timer: ReturnType<typeof setTimeout>;
     const load = async () => {
       clearTimeout(timer);
-      if (document.hidden) return;
+      if (document.hidden || inFlight) return;
+      inFlight = true;
       try {
         const d = await projectCache.current.read(projectId, (signal) => api(`/projects/${projectId}?view=chat`, undefined, undefined, signal));
         if (!alive) return;
@@ -566,10 +571,11 @@ function App() {
           }
         }
       } finally {
-        if (alive) { clearTimeout(timer); timer = setTimeout(load, 8000); }
+        inFlight = false;
+        if (alive) { clearTimeout(timer); timer = setTimeout(load, 30000); }
       }
     };
-    if (cached) timer = setTimeout(load, 8000);
+    if (cached) timer = setTimeout(load, 30000);
     else void load();
     document.addEventListener("visibilitychange", load);
     return () => {
@@ -589,15 +595,22 @@ function App() {
     setMessage("");
     if (!threadId || !user) return;
     let alive = true;
+    let inFlight = false;
+    let idlePolls = 0;
+    let latestMessage = cached?.messages.at(-1)?.id;
     let timer: ReturnType<typeof setTimeout>;
     const load = async () => {
       clearTimeout(timer);
-      if (document.hidden) return;
+      if (document.hidden || inFlight) return;
+      inFlight = true;
       let active = false;
       try {
         const t = await threadCache.current.read(threadId, (signal) => readThread(threadId, signal));
         if (!alive) return;
         setThread(t);
+        const latest = t.messages.at(-1)?.id;
+        idlePolls = latest === latestMessage ? idlePolls + 1 : 0;
+        latestMessage = latest;
         active = t.replies.some((r) => ["queued", "running"].includes(r.status)) ||
           !!t.requests?.some((r) => ["queued", "running"].includes(r.status)) ||
           ["queued", "running"].includes(t.contextUsage?.compactStatus);
@@ -608,7 +621,8 @@ function App() {
           if ([401, 403, 404].includes(error.status || 0)) setThread(null);
         }
       } finally {
-        if (alive) { clearTimeout(timer); timer = setTimeout(load, active ? 2500 : 8000); }
+        inFlight = false;
+        if (alive) { clearTimeout(timer); timer = setTimeout(load, active ? 2500 : Math.min(30000, 8000 * 2 ** Math.min(idlePolls, 2))); }
       }
     };
     if (cached) timer = setTimeout(load, 2500);

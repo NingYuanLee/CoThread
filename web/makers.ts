@@ -1,8 +1,10 @@
 import { readJsonResponse } from "../shared/json-response.js";
+import { createWakeGate } from "../shared/wake-gate.js";
 let endpoint: string | undefined;
-const running = new Map<string, Promise<void>>();
-export function configureMakers(value: { agentEndpoint?: string }) {
+let reportError: (message: string) => void = () => {};
+export function configureMakers(value: { agentEndpoint?: string }, onError?: (message: string) => void) {
   endpoint = value.agentEndpoint;
+  if (onError) reportError = onError;
 }
 export async function invokeMakers(threadId: string, body: object = {}) {
   if (!endpoint) throw new Error("云端 Agent 尚未就绪");
@@ -19,10 +21,7 @@ export async function invokeMakers(threadId: string, body: object = {}) {
     throw error;
   }
 }
-export function wakeMakers(threadId: string, onError: (message: string) => void) {
-  if (!endpoint || running.has(threadId)) return;
-  const task = invokeMakers(threadId)
-    .catch((error) => onError(error.message))
-    .finally(() => running.delete(threadId));
-  running.set(threadId, task);
+const wake = createWakeGate((id) => invokeMakers(id));
+export function wakeMakers(threadId: string, onError = reportError, newWork = false) {
+  if (endpoint) void wake(threadId, onError, newWork);
 }

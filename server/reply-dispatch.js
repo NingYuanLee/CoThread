@@ -46,7 +46,7 @@ export async function claimReply(db, threadId, { allowUnrouted = true } = {}) {
 
 // The owner of the hosted iteration lock keeps polling while work is active.
 // New mentions can therefore start even if a second wakeup returns "running".
-export async function drainReplies(reply, threadId, deadline, coordinate = async () => false, maintain = async () => false) {
+export async function drainReplies(reply, threadId, deadline, coordinate = async () => false, maintain = async () => false, subscribe = () => () => {}) {
   const active = new Set();
   let idle = false;
   let routing;
@@ -54,23 +54,37 @@ export async function drainReplies(reply, threadId, deadline, coordinate = async
   let maintaining;
   let maintenanceIdle = false;
   let failure;
+  let replyCheck = 0, coordinatorCheck = 0, maintenanceCheck = 0;
+  const recheckMs = 1500;
+  let wake;
+  let workRevision = 0;
+  const unsubscribe = subscribe((id) => {
+    if (id && id !== threadId) return;
+    workRevision++;
+    idle = coordinatorIdle = maintenanceIdle = false;
+    replyCheck = coordinatorCheck = maintenanceCheck = 0;
+    wake?.();
+  });
   try {
     while ((Date.now() < deadline || active.size || routing || maintaining) && !failure) {
       if (!maintaining && !maintenanceIdle) {
+        const revision = workRevision;
         maintaining = Promise.resolve().then(() => maintain(threadId))
-          .then((worked) => { maintenanceIdle = !worked; })
+          .then((worked) => { maintenanceIdle = !worked && revision === workRevision; maintenanceCheck = Date.now() + recheckMs; })
           .catch((error) => { failure = error; })
           .finally(() => { maintaining = undefined; });
       }
       if (!routing && !coordinatorIdle) {
+        const revision = workRevision;
         routing = Promise.resolve().then(() => coordinate(threadId))
-          .then((worked) => { coordinatorIdle = !worked; if (worked) idle = false; })
+          .then((worked) => { coordinatorIdle = !worked && revision === workRevision; coordinatorCheck = Date.now() + recheckMs; if (worked) idle = false; })
           .catch((error) => { failure = error; })
           .finally(() => { routing = undefined; });
       }
       if (Date.now() < deadline && !idle && active.size < MAX_THREAD_AGENTS) {
+        const revision = workRevision;
         const task = Promise.resolve().then(() => reply(threadId))
-          .then((worked) => { if (!worked) idle = true; })
+          .then((worked) => { idle = !worked && revision === workRevision; replyCheck = Date.now() + recheckMs; })
           .catch((error) => { failure = error; })
           .finally(() => active.delete(task));
         active.add(task);
@@ -79,13 +93,16 @@ export async function drainReplies(reply, threadId, deadline, coordinate = async
         continue;
       }
       if (!active.size && !routing && !maintaining && coordinatorIdle && maintenanceIdle) break;
-      await Promise.race([...active, ...(routing ? [routing] : []), ...(maintaining ? [maintaining] : []), delay(250)]);
+      const notified = new Promise((resolve) => { wake = resolve; });
+      await Promise.race([...active, ...(routing ? [routing] : []), ...(maintaining ? [maintaining] : []), delay(250), notified]);
+      wake = undefined;
       if (active.size) await delay(100);
-      idle = false;
-      coordinatorIdle = false;
-      maintenanceIdle = false;
+      if (Date.now() >= replyCheck) idle = false;
+      if (Date.now() >= coordinatorCheck) coordinatorIdle = false;
+      if (Date.now() >= maintenanceCheck) maintenanceIdle = false;
     }
   } finally {
+    unsubscribe();
     // Hosted requests must not return while children are still running.
     await Promise.allSettled([...active, ...(routing ? [routing] : []), ...(maintaining ? [maintaining] : [])]);
   }

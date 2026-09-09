@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { digest, hashPassword } from "./auth.js";
+import { publishWork } from "./work-events.js";
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -510,7 +511,7 @@ export class Service {
     const text = data.mentionAgent && !mentionsAgent(data.body)
       ? `@${AGENT_MEMBER.name} ${data.body}` : data.body;
     body.parse(text);
-    return transaction(this.db, async (db) => {
+    const result = await transaction(this.db, async (db) => {
       const thread = await this.thread(user, threadId, true, db);
       await this.refs(db, thread.project_id, data.refs);
       const files = [];
@@ -558,6 +559,8 @@ export class Service {
       }
       return { ...message, refs, files };
     });
+    publishWork(this.db, threadId);
+    return result;
   }
   async submitVersion(
     user,

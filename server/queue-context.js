@@ -1,10 +1,11 @@
 import {randomUUID} from "node:crypto";
 import {transaction, query} from "./db.js";
 import {HttpError} from "./service.js";
+import {publishWork} from "./work-events.js";
 
 export async function queueContextCompression(service, user, threadId) {
   if (user.kind !== "session") throw new HttpError(403, "需要登录后操作");
-  return transaction(service.db, async (db) => {
+  const result = await transaction(service.db, async (db) => {
     await service.thread(user, threadId, true, db);
     await query(
       db,
@@ -25,4 +26,6 @@ export async function queueContextCompression(service, user, threadId) {
     );
     return { status: "queued" };
   });
+  publishWork(service.db, threadId);
+  return result;
 }

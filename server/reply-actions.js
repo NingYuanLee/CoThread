@@ -1,9 +1,10 @@
 import { transaction, query } from "./db.js";
 import { HttpError } from "./service.js";
+import { publishWork } from "./work-events.js";
 
 export async function retryReply(service, user, threadId, messageId) {
   if (user.kind !== "session") throw new HttpError(403, "需要人工登录");
-  return transaction(service.db, async (db) => {
+  const result = await transaction(service.db, async (db) => {
     await service.thread(user, threadId, true, db);
     const result = await query(
       db,
@@ -18,4 +19,6 @@ export async function retryReply(service, user, threadId, messageId) {
     await query(db, "UPDATE agent_requests SET status='queued',error=NULL WHERE message_id=? AND status='failed'", [messageId]);
     return { ok: true };
   });
+  publishWork(service.db, threadId);
+  return result;
 }

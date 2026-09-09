@@ -6,10 +6,12 @@ import { executeRun } from "./acs.js";
 import { drainReplies } from "./reply-dispatch.js";
 import { synchronizeNextDiscussion } from "./context-sync.js";
 import { processNextCoordinator } from "./coordinator.js";
+import { publishWork, subscribeWork } from "./work-events.js";
 
 export async function runMakersThread(db, user, threadId, command, operations = {}) {
   const service = new Service(db);
   await service.thread(user, threadId, true);
+  publishWork(db, threadId);
   const lockName = `cothread:${threadId}`;
   const connection = await db.getConnection();
   let locked = false;
@@ -42,7 +44,7 @@ export async function runMakersThread(db, user, threadId, command, operations = 
     // Each task already has bounded model / sandbox timeouts. Leave later jobs queued.
     while (Date.now() < deadline) {
       await service.thread(user, threadId, true);
-      await drainReplies(reply, threadId, deadline, coordinate, maintain);
+      await drainReplies(reply, threadId, deadline, coordinate, maintain, (wake) => subscribeWork(db, wake));
       if (Date.now() >= deadline) break;
       if (await compress(threadId)) continue;
       return { status: "idle" };

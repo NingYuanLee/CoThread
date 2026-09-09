@@ -13,6 +13,7 @@ import { agentSession } from "../server/agent-session.js";
 import { deliverTaskUpdates } from "../server/agent-updates.js";
 import { pendingMessages } from "../shared/context.js";
 import { processNextCoordinator } from "../server/coordinator.js";
+import { subscribeWork } from "../server/work-events.js";
 
 let database, db, service;
 before(async () => { database = await testDatabase(); db = database.db; service = new Service(db); });
@@ -28,6 +29,18 @@ async function fixture(count = 2) {
   const thread = await service.createThread(users[0], project.id, { title: "Parallel requests" });
   return { users, thread, post: (index, body = "@小祥 请处理") => service.postMessage(users[index], thread.id, { body }) };
 }
+
+test("committed member messages wake workers while rolled-back submissions do not", async () => {
+  const { users, thread, post } = await fixture();
+  const events = [];
+  const stop = subscribeWork(db, (id) => events.push(id));
+  try {
+    await post(0);
+    assert.deepEqual(events, [thread.id]);
+    await assert.rejects(service.postMessage(users[0], thread.id, { body: "invalid reference", refs: [randomUUID()] }));
+    assert.deepEqual(events, [thread.id]);
+  } finally { stop(); }
+});
 
 test("three child slots are atomic, same-member mentions update one task, and release admits waiting members", async () => {
   const { users, thread, post } = await fixture(10);

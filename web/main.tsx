@@ -1,3 +1,4 @@
+import { AgentActivity } from "./AgentActivity";
 import { useAgentLiveOutput } from "./useAgentLiveOutput";
 import { taskTimeline } from "./chat-timeline";
 import { apiFetch, fetchJson } from "./api-fetch";
@@ -21,8 +22,6 @@ import { ContextMeter } from "./ContextMeter";
 import { Notifications } from "./Notifications";
 import { ProjectSettings } from "./ProjectSettings";
 import type { ContextUsage } from "../shared/context.js";
-import { agentLabel } from "./agent-label";
-import { AgentEvent } from "./AgentEvent";
 import { createResourceCache } from "../shared/resource-cache.js";
 import { IdentityName, RoleBadge } from "./Identity";
 import {
@@ -949,24 +948,8 @@ function App() {
   const timeline = thread ? taskTimeline(thread.messages, thread.replies, thread.requests || [], hasAgentActivity) : [];
   const renderAgentRound = (reply: Thread["replies"][number]) => {
     if (!hasAgentActivity(reply)) return null;
-    const events =
-      thread?.events.filter((event) => event.message_id === reply.message_id && event.tool !== "thinking") ||
-      [];
-    const runningStep = reply.status === "running"
-      ? [...events].reverse().find((event) => event.status === "running") : undefined;
-    const thinking = reply.status === "running" && !!thread?.events.some((event) =>
-      event.message_id === reply.message_id && event.tool === "thinking" && event.status === "running");
+    const events = thread?.events.filter(e => e.message_id === reply.message_id) || [];
     const output = liveOutput[reply.message_id];
-    const lastStep = events[events.length - 1];
-    const stepLabel = (event: (typeof events)[number]) => {
-      const label = agentLabel(event, detail?.versions, detail?.threads);
-      return `${label.action}${label.target ? ` ${label.target}` : ""}`;
-    };
-    const currentLabel = runningStep ? stepLabel(runningStep)
-      : thinking ? "正在思考下一步…"
-        : reply.status === "running" && lastStep
-          ? `${stepLabel(lastStep)} · ${lastStep.status === "failed" ? "失败" : "完成"}`
-          : `${{ queued: "操作记录", running: "执行中", completed: "已完成", failed: "未完成", cancelled: "已停止" }[reply.status]} · ${events.length} 项操作`;
     const stopControl = active && (reply.status === "queued" || reply.status === "running") && (
       <button className="agent-stop" disabled={busy} onClick={() => void run(async () => {
         await api(`/threads/${threadId}/replies/${reply.message_id}/stop`, {});
@@ -975,69 +958,11 @@ function App() {
     );
     return (
       <div className="agent-round" data-message-id={reply.message_id}>
-        {output?.reasoning && <details className="agent-reasoning"><summary>思考过程{reply.status === "running" ? " · 正在更新" : ""}</summary><div>{output.reasoning}</div>{output.truncated && <small>展示内容已达到长度上限。</small>}</details>}
-        {output?.content && !reply.reply_id && <div className="agent-stream-text">{output.content}</div>}
-        {[reply]
-          ?.filter((r) => !events.length && (r.status === "queued" || r.status === "running"))
-          .map((r) => (
-            <div
-              className="reply-status agent-status"
-              role="status"
-              key={r.message_id}
-            >
-              <span className={thinking ? "agent-step-active" : undefined}>
-                {r.status === "queued"
-                  ? makersConnection === "unavailable"
-                    ? "助手暂时无法连接，消息已保存。"
-                    : "消息已收到。"
-                  : "正在思考…"}
-              </span>
-              {stopControl}
-            </div>
-          ))}
-        {events.length > 0 && (
-          <div className="agent-trace-row">
-          <details className="agent-trace">
-            <summary title={`${currentLabel}；点击展开或收起全部步骤`}>
-              <span className={`agent-current-step${runningStep || thinking ? " agent-step-active" : ""}`} aria-live="polite" aria-atomic="true">
-                {currentLabel}
-              </span>
-              <svg className="agent-trace-toggle" width="22" height="20" viewBox="0 0 22 20" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M6 3C2 6 2 14 6 17M16 3C20 6 20 14 16 17" />
-                <path className="agent-trace-chevron" d="m8 9 3 3 3-3" />
-              </svg>
-            </summary>
-            {events.map((e) => {
-              const label = agentLabel(e, detail?.versions, detail?.threads);
-              return (
-                <AgentEvent key={e.id} threadId={threadId} event={e}>
-                  <summary>
-                    <span className={`event-dot ${e.status}`} />
-                    <span className="agent-action-label" title={label.full}>
-                      <span className="agent-action-verb">{label.action}</span>
-                      {label.target && (
-                        <span className="agent-action-object">
-                          {label.target}
-                        </span>
-                      )}
-                    </span>
-                    <small>
-                      {
-                        {
-                          running: "进行中",
-                          completed: "完成",
-                          failed: "失败",
-                        }[e.status]
-                      }
-                    </small>
-                  </summary>
-                </AgentEvent>
-              );
-            })}
-          </details>
+        {events.length > 0 || output?.reasoning || output?.content ? <div className="agent-trace-row">
+          <AgentActivity threadId={threadId} messageId={reply.message_id} events={events} output={output} status={reply.status} hasFinal={!!reply.reply_id} versions={detail?.versions} threads={detail?.threads}/>
           {stopControl}
-          </div>
-        )}
+        </div> : <div className="reply-status agent-status"><span>{makersConnection === "unavailable" ? "助手暂时无法连接，消息已保存。" : "消息已收到。"}</span>{stopControl}</div>}
+        {!!reply.reply_id && <hr className="agent-result-divider"/>}
         {[reply]
           ?.filter((r) => r.status === "failed")
           .map((r) => (

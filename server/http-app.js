@@ -286,6 +286,13 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     res.setHeader("Cache-Control", "private, max-age=86400");
     res.type(image[1]).send(Buffer.from(image[2], "base64"));
   });
+  app.get("/api/threads/:id/replies/:messageId/activity", async (req,res) => {
+    await service.thread(req.user,req.params.id);
+    const rows=await query(db,`SELECT e.id,e.tool,LEFT(e.output,32000) output FROM agent_events e JOIN messages m ON m.id=e.message_id
+      WHERE m.thread_id=? AND e.message_id=? AND e.tool IN ('thinking','assistant_text','assistant_final') ORDER BY e.id LIMIT 200`,[req.params.id,req.params.messageId]);
+    let remaining=240000;
+    res.json(rows.map(row=>{const output=(row.output||'').slice(0,remaining);remaining-=output.length;return {...row,output};}));
+  });
   app.get("/api/threads/:id/live", (req,res) => streamLiveOutput(service,req.user,req.params.id,req,res));
   app.get("/api/threads/:id/messages/:messageId", async (req, res) =>
     res.json(await service.readMessage(req.user, req.params.id, req.params.messageId)));

@@ -16,7 +16,7 @@ export function agentLabel(
   const result =
     event.tool === "read_document"
       ? versions.find((v) => v.id === args.versionId)
-      : event.tool === "read_iteration"
+      : ["read_iteration", "list_messages"].includes(event.tool)
         ? threads.find((t) => t.id === args.threadId)
         : undefined;
   const resolved: Record<string, unknown> = {

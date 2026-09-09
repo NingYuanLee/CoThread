@@ -119,6 +119,9 @@
   background: #b6735d;
 }
 .message-text {
+  font-size: 13px;
+  line-height: 1.95;
+  color: #5e6c56;
   overflow-wrap: anywhere;
 }
 .message-text h1,
@@ -3412,3 +3415,9 @@ summary {
 .agent-reasoning summary { cursor: pointer; }
 .agent-reasoning > div { white-space: pre-wrap; max-height: 180px; overflow-y: auto; margin-top: 6px; line-height: 1.65; overflow-wrap: anywhere; }
 .agent-stream-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; margin: 6px 0; }
+.agent-activity-items { padding: 8px 0 2px; }
+.agent-phase { margin: 8px 0 12px; }
+.agent-phase > small { color: #899581; font-size: 11px; }
+.agent-phase > div { overflow-wrap: anywhere; }
+
+.agent-result-divider { border: 0; border-top: 1px solid #e4e9df; margin: 12px 0; }

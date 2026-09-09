@@ -14,7 +14,7 @@ test('task remains after reception as publication and final reply arrive; refs s
   const done=taskTimeline([...base,publication,message('followup'),final],[{...reply,reply_id:'result'}],request,()=>true);
   assert.deepEqual(during.map(m=>m.id),running.map(m=>m.id));
   assert.deepEqual(done.map(m=>m.id),['user','host','agent-task:user','followup']);
-  assert.equal(done[2].body,'file\n\nresult');
+  assert.equal(done[2].body,'result');
   assert.deepEqual(done[2].refs,['v1']);
 });
 test('partial history retains task results without the original user or reception',()=>{

@@ -56,7 +56,7 @@ test('live-output migration works when database defaults differ from existing ta
  try {
   const schema=new URL(separate.url).pathname.slice(1);assert.match(schema,/^cothread_test_[a-f0-9]+$/);
   await separate.db.query('DROP TABLE agent_live_output');
-  await separate.db.execute("DELETE FROM schema_migrations WHERE name='020_agent_live_output.sql'");
+  await separate.db.execute("DELETE FROM schema_migrations WHERE name IN ('020_agent_live_output.sql','021_live_event_cursor.sql')");
   await separate.db.query(`ALTER DATABASE \`${schema}\` CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci`);
   await migrate(separate.db);
   const [rows]=await separate.db.execute("SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='agent_live_output'");

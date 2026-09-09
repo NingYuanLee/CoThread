@@ -73,11 +73,11 @@ test("thinking lifecycle records phases once, omits content, and closes interrup
   await tracker.flush();
   assert.equal(writes.filter((x) => x.sql.startsWith("INSERT INTO agent_events")).length, 1);
   assert.equal(
-    writes.filter((x) => x.sql.startsWith("UPDATE agent_events"))[0].params[0],
+    writes.filter((x) => x.sql.startsWith("UPDATE agent_events SET status"))[0].params[0],
     "completed",
   );
   notify("step/start");
   await tracker.close("failed");
-  assert.equal(writes.at(-1).params[0], "failed");
+  assert.equal(writes.filter(x => x.sql.startsWith('UPDATE agent_events SET status')).at(-1).params[0], "failed");
   assert.ok(!JSON.stringify(writes).includes("private reasoning"));
 });

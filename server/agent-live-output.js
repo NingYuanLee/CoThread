@@ -6,27 +6,28 @@ function signal(db){caches.delete(db);for(const fn of observers.get(db)||[])fn()
 export function observeLiveOutput(db,fn){let set=observers.get(db);if(!set)observers.set(db,set=new Set());set.add(fn);return()=>set.delete(fn);}
 
 // UI telemetry only. This table is deliberately excluded from model context.
-export function trackLiveOutput(db,messageId,sessionId,{interval=300}={}){
+export function trackLiveOutput(db,messageId,sessionId,{interval=300,cursor=()=>Promise.resolve(null)}={}){
  const runId=randomUUID();let step=0,reasoning='',content='',truncated=false,dirty=false,timer,closed=false;
  let queue=Promise.resolve(),failure,writing=false,pending;
  const persist=()=>{
   clearTimeout(timer);timer=undefined;if(!dirty)return;dirty=false;
-  pending=[runId,step,reasoning,content,truncated,messageId];
+  pending={values:[runId,step,reasoning,content,truncated,messageId],event:cursor()};
   if(writing)return;
   writing=true;
   queue=(async()=>{
    while(pending){
-    const values=pending;pending=undefined;
+    const snapshot=pending;pending=undefined;
     try {
-     await query(db,`INSERT INTO agent_live_output(message_id,run_id,step,reasoning,content,truncated)
-       SELECT message_id,?,?,?,?,? FROM assistant_replies WHERE message_id=? AND status='running'
-       ON DUPLICATE KEY UPDATE run_id=VALUES(run_id),step=VALUES(step),reasoning=VALUES(reasoning),content=VALUES(content),truncated=VALUES(truncated),revision=revision+1,updated_at=UTC_TIMESTAMP(3)`,values);
+     await query(db,`INSERT INTO agent_live_output(message_id,run_id,step,reasoning,content,truncated,event_id)
+       SELECT message_id,?,?,?,?,?,? FROM assistant_replies WHERE message_id=? AND status='running'
+       ON DUPLICATE KEY UPDATE run_id=VALUES(run_id),step=VALUES(step),reasoning=VALUES(reasoning),content=VALUES(content),truncated=VALUES(truncated),event_id=VALUES(event_id),revision=revision+1,updated_at=UTC_TIMESTAMP(3)`,[...snapshot.values.slice(0,5),await snapshot.event,messageId]);
      signal(db);
     }catch(error){failure ||= error;}
    }
   })().finally(()=>{writing=false;});
  };
  return {
+  beginPhase(kind){if(kind==='thinking'){reasoning='';content='';}else content='';},
   notify(n){
    if(closed||!messageId||n.method!=='session.event'||n.params?.sessionId!==sessionId)return;
    const event=n.params.event;
@@ -50,7 +51,7 @@ export function trackLiveOutput(db,messageId,sessionId,{interval=300}={}){
 export async function liveOutputSnapshot(db,threadId){
  let cache=caches.get(db);if(!cache)caches.set(db,cache=new Map());
  const previous=cache.get(threadId);if(previous && Date.now()-previous.at<500)return previous.promise;
- const promise=query(db,`SELECT o.message_id,o.run_id,o.step,o.reasoning,o.content,o.truncated,o.revision,r.status
+ const promise=query(db,`SELECT o.message_id,o.event_id,o.run_id,o.step,o.reasoning,o.content,o.truncated,o.revision,r.status
    FROM agent_live_output o JOIN assistant_replies r ON r.message_id=o.message_id JOIN messages m ON m.id=o.message_id
    WHERE m.thread_id=? ORDER BY (r.status='running') DESC,m.sequence DESC LIMIT 3`,[threadId]);
  cache.set(threadId,{at:Date.now(),promise});if(cache.size>64)cache.delete(cache.keys().next().value);

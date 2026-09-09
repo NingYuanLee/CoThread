@@ -28,7 +28,7 @@ export function taskTimeline<M extends TimelineMessage, R extends Reply>(
     const base = fallback || anchor!;
     const row = { ...base, id: `agent-task:${reply.message_id}`, source: 'assistant',
       quoteTargetId: reply.reply_id || parts[0]?.id,
-      agent_task_id: reply.message_id, body: parts.map(m => m.body).filter(Boolean).join('\n\n'),
+      agent_task_id: reply.message_id, body: parts.filter(m => m.id === reply.reply_id).map(m => m.body).join('\n\n'),
       refs: [...new Set(parts.flatMap(m => m.refs))] };
     parts.forEach(m => consumed.add(m.id));
     const target = anchor ? after : before;

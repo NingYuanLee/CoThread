@@ -361,7 +361,7 @@ ${job.parent_message_id ? `你是主助手为本条请求分派的临时子 Agen
       }),
     ]);
     if (!result.finalResponse?.trim()) throw new Error("Agent 未返回最终结果");
-    await thinking.close("completed");
+    await thinking.close("completed", result.finalResponse);
     completed = true;
     await progress("正在保存 Agent 会话");
     await runtime.sample();

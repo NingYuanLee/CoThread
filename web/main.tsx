@@ -911,57 +911,57 @@ function App() {
     const events =
       thread?.events.filter((event) => event.message_id === reply.message_id && event.tool !== "thinking") ||
       [];
+    const runningStep = reply.status === "running"
+      ? [...events].reverse().find((event) => event.status === "running") : undefined;
+    const thinking = reply.status === "running" && !!thread?.events.some((event) =>
+      event.message_id === reply.message_id && event.tool === "thinking" && event.status === "running");
+    const lastStep = events[events.length - 1];
+    const stepLabel = (event: (typeof events)[number]) => {
+      const label = agentLabel(event, detail?.versions, detail?.threads);
+      return `${label.action}${label.target ? ` ${label.target}` : ""}`;
+    };
+    const currentLabel = runningStep ? stepLabel(runningStep)
+      : thinking ? "正在思考下一步…"
+        : reply.status === "running" && lastStep
+          ? `${stepLabel(lastStep)} · ${lastStep.status === "failed" ? "失败" : "完成"}`
+          : `${{ queued: "操作记录", running: "执行中", completed: "已完成", failed: "未完成", cancelled: "已停止" }[reply.status]} · ${events.length} 项操作`;
+    const stopControl = active && (reply.status === "queued" || reply.status === "running") && (
+      <button className="agent-stop" disabled={busy} onClick={() => void run(async () => {
+        await api(`/threads/${threadId}/replies/${reply.message_id}/stop`, {});
+        await refresh();
+      })}>停止</button>
+    );
     return (
       <div className="agent-round" data-message-id={reply.message_id}>
         {[reply]
-          ?.filter((r) => r.status === "queued" || r.status === "running")
+          ?.filter((r) => !events.length && (r.status === "queued" || r.status === "running"))
           .map((r) => (
             <div
               className="reply-status agent-status"
               role="status"
               key={r.message_id}
             >
-              <span>
+              <span className={thinking ? "agent-step-active" : undefined}>
                 {r.status === "queued"
                   ? makersConnection === "unavailable"
                     ? "助手暂时无法连接，消息已保存。"
                     : "消息已收到。"
-                  : events.length ? "正在处理…" : "正在思考…"}
+                  : "正在思考…"}
               </span>
-              {active && (
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    void run(async () => {
-                      await api(
-                        `/threads/${threadId}/replies/${r.message_id}/stop`,
-                        {},
-                      );
-                      await refresh();
-                    })
-                  }
-                >
-                  停止
-                </button>
-              )}
+              {stopControl}
             </div>
           ))}
         {events.length > 0 && (
-          <details
-            className="agent-trace"
-            open={reply.status === "running" || reply.status === "queued"}
-          >
-            <summary>
-              {events.length} 项操作 ·{" "}
-              {
-                {
-                  queued: "排队中",
-                  running: "执行中",
-                  completed: "已完成",
-                  failed: "失败",
-                  cancelled: "已停止",
-                }[reply.status]
-              }
+          <div className="agent-trace-row">
+          <details className="agent-trace">
+            <summary title={`${currentLabel}；点击展开或收起全部步骤`}>
+              <span className={`agent-current-step${runningStep || thinking ? " agent-step-active" : ""}`} aria-live="polite" aria-atomic="true">
+                {currentLabel}
+              </span>
+              <svg className="agent-trace-toggle" width="22" height="20" viewBox="0 0 22 20" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6 3C2 6 2 14 6 17M16 3C20 6 20 14 16 17" />
+                <path className="agent-trace-chevron" d="m8 9 3 3 3-3" />
+              </svg>
             </summary>
             {events.map((e) => {
               const label = agentLabel(e, detail?.versions, detail?.threads);
@@ -991,6 +991,8 @@ function App() {
               );
             })}
           </details>
+          {stopControl}
+          </div>
         )}
         {[reply]
           ?.filter((r) => r.status === "failed")

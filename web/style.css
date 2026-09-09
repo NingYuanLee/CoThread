@@ -27,12 +27,44 @@
   cursor: pointer;
   list-style: none;
 }
-.agent-trace > summary::before {
-  content: "›";
-  transition: transform 120ms ease;
+.agent-trace-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
 }
-.agent-trace[open] > summary::before {
-  transform: rotate(90deg);
+.agent-trace-row > .agent-trace {
+  flex: 1;
+  min-width: 0;
+  margin: 4px 0 8px;
+}
+.agent-current-step {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-trace-toggle {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: #8b9689;
+}
+.agent-trace-chevron {
+  transform-origin: 11px 10px;
+  transition: transform 160ms ease;
+}
+.agent-trace[open] > summary .agent-trace-chevron {
+  transform: rotate(180deg);
+}
+.agent-step-active {
+  animation: agent-step-color 2.2s ease-in-out infinite;
+}
+@keyframes agent-step-color {
+  0%, 100% { color: #3f5945; }
+  50% { color: #899687; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-step-active { animation: none; color: #3f5945; }
+  .agent-trace-chevron { transition: none; }
 }
 .agent-trace summary::-webkit-details-marker {
   display: none;
@@ -392,14 +424,21 @@
 .agent-round .reply-status.failed {
   color: #a16e49;
 }
-.agent-round .reply-status button {
+.agent-round .reply-status button,
+.agent-round .agent-stop {
   padding: 2px 5px;
   border: 0;
   background: transparent;
   color: inherit;
   flex-shrink: 0;
+  font-size: 11px;
 }
-.agent-round .reply-status button:hover:not(:disabled) {
+.agent-trace-row > .agent-stop {
+  margin-top: 7px;
+  color: #758073;
+}
+.agent-round .reply-status button:hover:not(:disabled),
+.agent-round .agent-stop:hover:not(:disabled) {
   text-decoration: underline;
 }
 label.reply-toggle {

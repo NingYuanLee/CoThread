@@ -454,6 +454,7 @@ export function ChatComposer({
           </div>
         )}
         <textarea
+          rows={2}
           ref={input}
           aria-label="发送消息"
           aria-controls={trigger ? "composer-picker" : undefined}

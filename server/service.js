@@ -373,7 +373,7 @@ export class Service {
     const thread = await this.thread(user, threadId, false, db);
     const messages = await query(
       db,
-      `SELECT m.id,m.sequence,m.body,m.refs,m.source,m.created_at,u.name author,u.id author_id,u.avatar author_avatar,
+      `SELECT m.id,m.sequence,m.body,m.refs,m.source,m.agent_task_id,m.created_at,u.name author,u.id author_id,u.avatar author_avatar,
       JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags, '$[0]')) author_role
       FROM messages m JOIN users u ON u.id=m.author_id WHERE m.thread_id=? ORDER BY m.sequence`,
       [threadId],
@@ -391,7 +391,7 @@ export class Service {
     );
     const replies = await query(
       db,
-      `SELECT r.message_id,r.status,r.error,r.reply_id,r.progress,r.participation FROM assistant_replies r
+      `SELECT r.message_id,r.status,r.error,r.reply_id,r.progress,r.participation,r.parent_message_id,r.dispatch_ready,r.agent_slot FROM assistant_replies r
       JOIN messages m ON m.id=r.message_id WHERE m.thread_id=? ORDER BY m.sequence`,
       [threadId],
     );
@@ -405,6 +405,12 @@ export class Service {
       "SELECT context_stats,seen_sequence,compact_status,compact_error,compact_result FROM agent_sessions WHERE thread_id=?",
       [threadId],
     );
+    const updates = await query(db,
+      `SELECT u.message_id,u.task_message_id,u.delivered_at FROM agent_task_updates u
+       JOIN messages m ON m.id=u.message_id WHERE m.thread_id=? ORDER BY m.sequence`, [threadId]);
+    const requests = await query(db,
+      `SELECT q.message_id,q.status,q.response_id,q.error FROM agent_requests q JOIN messages m ON m.id=q.message_id
+       WHERE m.thread_id=? ORDER BY m.sequence`, [threadId]);
     return {
       ...thread,
       contextUsage: contextUsage(
@@ -420,6 +426,8 @@ export class Service {
       runs,
       replies,
       events,
+      updates,
+      requests,
     };
   }
   async refs(db, projectId, refs) {
@@ -443,12 +451,13 @@ export class Service {
       : user.kind === "api"
         ? "local_ai"
         : "human",
+    agentTaskId = null,
   ) {
     const messageId = randomUUID();
     await query(
       db,
-      "INSERT INTO messages(id,thread_id,author_id,source,body,refs) VALUES(?,?,?,?,?,?)",
-      [messageId, threadId, user.id, source, text, JSON.stringify(refs)],
+      "INSERT INTO messages(id,thread_id,author_id,source,body,refs,agent_task_id) VALUES(?,?,?,?,?,?,?)",
+      [messageId, threadId, user.id, source, text, JSON.stringify(refs), agentTaskId],
     );
     if (source !== "system") {
       const [thread] = await query(db, "SELECT project_id,title FROM threads WHERE id=?", [threadId]);
@@ -501,6 +510,20 @@ export class Service {
         refs,
       );
       if (user.kind === "session" || (user.kind === "api" && mentionsAgent(text))) {
+        await query(db, "INSERT INTO agent_requests(message_id) VALUES(?)", [message.id]);
+        if (mentionsAgent(text)) {
+          // postMessage already holds the discussion row lock. Completion and
+          // dispatch use the same lock, so an update cannot fall between tasks.
+          const [existing] = await query(db,
+            `SELECT r.message_id FROM assistant_replies r JOIN messages m ON m.id=r.message_id
+             WHERE m.thread_id=? AND m.author_id=? AND r.status IN ('queued','running')
+             AND r.participation='reply' ORDER BY m.sequence LIMIT 1`, [threadId, user.id]);
+          if (existing) {
+            await query(db, "INSERT INTO agent_task_updates(message_id,task_message_id) VALUES(?,?)",
+              [message.id, existing.message_id]);
+            return { ...message, refs, files, updatedTaskId: existing.message_id };
+          }
+        }
         // Agent is a built-in member, so only real project memberships are
         // stored here. Other members count even when they have not spoken.
         const others = await query(
@@ -656,6 +679,8 @@ export class Service {
           threadId,
           `提交文档「${data.title}」v${version}${data.note ? `：${data.note}` : ""}`,
           [versionId],
+          undefined,
+          agentMessageId || null,
         );
       if (exportKey)
         await query(
@@ -719,7 +744,7 @@ export class Service {
       if (running) fail(409, "请等待执行结束后再归档");
       const [agent] = await query(
         db,
-        `SELECT r.message_id FROM assistant_replies r JOIN messages m ON m.id=r.message_id WHERE m.thread_id=? AND r.status='running' LIMIT 1`,
+        `SELECT r.message_id FROM assistant_replies r JOIN messages m ON m.id=r.message_id WHERE m.thread_id=? AND (r.status='running' OR r.execution_active=TRUE) LIMIT 1`,
         [threadId],
       );
       if (agent) fail(409, "请先停止 Agent，或等待任务完成后再归档");

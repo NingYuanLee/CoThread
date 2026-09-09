@@ -1116,6 +1116,18 @@ header h2 {
   padding: 2px 5px;
   border-radius: 3px;
 }
+.agent-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border: 1px solid #cbd8c4;
+  border-radius: 999px;
+  background: #eef3e9;
+  color: #48623e;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
 .message p {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

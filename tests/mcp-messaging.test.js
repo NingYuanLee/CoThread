@@ -164,7 +164,9 @@ test("only explicit local Agent mentions queue replies; read-only members cannot
   const plain = (await mcp("post_message", { threadId, body: "local update", files: [file()] })).data;
   assert.equal((await query(database.db, "SELECT message_id FROM assistant_replies WHERE message_id=?", [plain.id])).length, 0);
   const mention = (await mcp("post_message", { threadId, body: "@Agent助手 请检查" })).data;
-  assert.equal((await query(database.db, "SELECT message_id FROM assistant_replies WHERE message_id=?", [mention.id])).length, 1);
+  assert.ok(mention.updatedTaskId);
+  assert.equal((await query(database.db, "SELECT message_id FROM assistant_replies WHERE message_id=?", [mention.updatedTaskId])).length, 1);
+  assert.equal((await query(database.db, "SELECT task_message_id FROM agent_task_updates WHERE message_id=?", [mention.id]))[0].task_message_id, mention.updatedTaskId);
   await query(database.db, "UPDATE members SET role='viewer' WHERE project_id=? AND user_id=?", [projectId, userId]);
   assert.equal((await mcp("post_message", { threadId, body: "blocked", files: [file()] })).error, true);
   assert.equal((await mcp("submit_document", { threadId, ...file() })).error, true);

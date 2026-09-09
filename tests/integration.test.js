@@ -676,7 +676,7 @@ test("a human message queues exactly one durable assistant reply and AI messages
   );
 });
 
-test("summary shortcut uses a mentioned message and each reply retains its own execution events", async () => {
+test("summary shortcut and same-member additions share one task and execution record", async () => {
   const created = await request(
     `/projects/${project}/threads`,
     { title: "Separate Agent rounds" },
@@ -691,7 +691,8 @@ test("summary shortcut uses a mentioned message and each reply retains its own e
   );
   assert.equal(first.status, 202);
   assert.equal(first.body.status, "queued");
-  for (const trigger of [first.body.id, second.body.id]) {
+  assert.equal(second.body.updatedTaskId, first.body.id);
+  for (const trigger of [first.body.id]) {
     await processNextReply(db, async (context, { job }) => {
       assert.equal(job.message_id, trigger);
       assert.match(context.messages.at(-1).body, /^@(?:小祥|Agent助手) /);
@@ -705,7 +706,9 @@ test("summary shortcut uses a mentioned message and each reply retains its own e
   }
   const context = (await request(`/threads/${threadId}`, undefined, owner))
     .body;
-  assert.equal(context.replies.length, 2);
+  assert.equal(context.replies.length, 1);
+  assert.equal(context.updates[0].message_id, second.body.id);
+  assert.ok(context.updates[0].delivered_at);
   for (const reply of context.replies) {
     assert.equal(reply.status, "completed");
     assert.equal(

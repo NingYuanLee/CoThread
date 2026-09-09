@@ -14,6 +14,8 @@ export async function retryReply(service, user, threadId, messageId) {
     );
     if (!result.affectedRows)
       throw new HttpError(409, "当前消息没有可重试的回复");
+    await query(db, "UPDATE agent_task_updates SET delivered_at=NULL WHERE task_message_id=?", [messageId]);
+    await query(db, "UPDATE agent_requests SET status='queued',error=NULL WHERE message_id=? AND status='failed'", [messageId]);
     return { ok: true };
   });
 }

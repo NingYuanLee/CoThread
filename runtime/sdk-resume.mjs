@@ -22,11 +22,35 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
       "cothread/observe",
       "cothread/compact",
       "cothread/history",
+      "cothread/updates",
     ].includes(method)
   )
     return handleRequest.call(this, method, params);
   const record = await this.getOrCreateSession(params.sessionId);
   const agent = record.handle.agent;
+  if (method === "cothread/updates") {
+    record.cothreadUpdates ||= new Set();
+    const accepted = [];
+    for (const update of params.messages || []) {
+      if (!record.cothreadUpdates.has(update.id)) {
+        // Do not start an unobserved turn after run() has already returned.
+        // An update arriving at idle is picked up by the completion fence.
+        if (params.mode !== "observe" && agent.status !== "running") continue;
+        const message = createUserMessage({
+          content: [{ type: "text", text: `同一成员对当前任务的追加要求，请据此更新当前工作：\n${update.text}` }],
+          source: { kind: "plugin", plugin: "cothread-task-update" },
+        });
+        if (params.mode === "observe") {
+          agent.session.append("user/message", message, { surfaceOp: "append" });
+        } else {
+          agent.steer(message);
+        }
+        record.cothreadUpdates.add(update.id);
+      }
+      accepted.push(update.id);
+    }
+    return { accepted };
+  }
   if (method === "cothread/observe") {
     for (const text of params.messages || [])
       agent.session.append(

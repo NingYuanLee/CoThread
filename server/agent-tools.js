@@ -4,6 +4,8 @@ import { posix } from "node:path";
 import { query } from "./db.js";
 import { digest } from "./auth.js";
 import { HttpError } from "./service.js";
+import { modelDiscussion, modelProject } from "./model-context.js";
+import { agentSession } from "./agent-session.js";
 import { acquireSandbox, safeRemotePath, shellQuote } from "./agent-sandbox.js";
 
 const titles = {
@@ -40,7 +42,8 @@ export function createAgentTools(
       "UPDATE assistant_replies SET progress=? WHERE message_id=?",
       [text, job.message_id],
     );
-  const root = `/home/user/cothread/${job.thread_id}`;
+  const root = `/home/user/cothread/${agentSession(job).id}`;
+  const sandboxScope = job.parent_message_id ? job : job.thread_id;
   return async (name, args) => {
     const thread = await assertJob(service, user, job);
     if (!titles[name]) throw new HttpError(400, "未知工具");
@@ -56,7 +59,7 @@ export function createAgentTools(
     try {
       let result;
       if (name === "project_context") {
-        result = await service.project(user, thread.project_id);
+        result = modelProject(await service.project(user, thread.project_id));
         result.versions = result.versions.filter((v) => !v.deleted_at);
       } else if (name === "read_iteration") {
         const id = z.string().uuid().parse(args.threadId);
@@ -64,7 +67,7 @@ export function createAgentTools(
         if (target.project_id !== thread.project_id)
           throw new HttpError(403, "仅可读取当前项目");
         await progress(formatAgentAction(name, args, target));
-        result = await service.context(user, id);
+        result = modelDiscussion(await service.context(user, id));
       } else if (name === "read_document") {
         const version = await service.version(
           user,
@@ -72,7 +75,7 @@ export function createAgentTools(
         );
         if (version.project_id !== thread.project_id)
           throw new HttpError(403, "文档不属于当前项目");
-        const sandbox = await getSandbox(service.db, job.thread_id, progress);
+        const sandbox = await getSandbox(service.db, sandboxScope, progress);
         await progress(formatAgentAction(name, args, version));
         const path = `documents/${version.id}/${version.filename}`;
         await sandbox.files.makeDir(`${root}/documents/${version.id}`);
@@ -99,7 +102,7 @@ export function createAgentTools(
             : "二进制文件已复制到 ACS，可使用命令解析。",
         };
       } else {
-        const sandbox = await getSandbox(service.db, job.thread_id, progress);
+        const sandbox = await getSandbox(service.db, sandboxScope, progress);
         await progress(label);
         if (name === "sandbox_command") {
           const command = z.string().min(1).max(12000).parse(args.command);

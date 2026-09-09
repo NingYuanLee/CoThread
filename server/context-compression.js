@@ -11,12 +11,20 @@ export async function processNextContextCompression(db, openRuntime, threadId) {
       `SELECT thread_id,compact_requested_by FROM agent_sessions WHERE compact_status='queued' ${threadId ? "AND thread_id=?" : ""} ORDER BY updated_at LIMIT 1 FOR UPDATE SKIP LOCKED`,
       threadId ? [threadId] : [],
     );
-    if (next)
+    if (next) {
+      const [thread] = await query(conn,
+        "SELECT id FROM threads WHERE id=? FOR UPDATE SKIP LOCKED", [next.thread_id]);
+      if (!thread) return;
+      const [active] = await query(conn,
+        `SELECT r.message_id FROM assistant_replies r JOIN messages m ON m.id=r.message_id
+         WHERE m.thread_id=? AND (r.status='running' OR r.execution_active=TRUE) LIMIT 1`, [next.thread_id]);
+      if (active) return;
       await query(
         conn,
         "UPDATE agent_sessions SET compact_status='running' WHERE thread_id=?",
         [next.thread_id],
       );
+    }
     return next;
   });
   if (!job) return false;

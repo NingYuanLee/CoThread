@@ -1,6 +1,10 @@
 import { query, transaction } from "./db.js";
 import { Service, HttpError } from "./service.js";
 import { decideParticipation } from "./agent-participation.js";
+import { claimReply, MAX_THREAD_AGENTS } from "./reply-dispatch.js";
+import { pendingTaskUpdates } from "./agent-updates.js";
+import { setTimeout as delay } from "node:timers/promises";
+import { processNextCoordinator } from "./coordinator.js";
 import {
   processNextContextCompression,
   refreshNextContextStats,
@@ -61,21 +65,7 @@ export async function processNextReply(
   decide = decideParticipation,
   threadId,
 ) {
-  const job = await transaction(db, async (conn) => {
-    const [job] = await query(
-      conn,
-      `SELECT r.message_id,r.participation,m.thread_id,m.author_id,m.sequence FROM assistant_replies r
-      JOIN messages m ON m.id=r.message_id WHERE r.status='queued' ${threadId ? "AND m.thread_id=?" : ""} ORDER BY r.created_at,m.sequence LIMIT 1 FOR UPDATE SKIP LOCKED`,
-      threadId ? [threadId] : [],
-    );
-    if (job)
-      await query(
-        conn,
-        "UPDATE assistant_replies SET status='running',error=NULL WHERE message_id=?",
-        [job.message_id],
-      );
-    return job;
-  });
+  const job = await claimReply(db, threadId, { allowUnrouted: !!generate });
   if (!job) return false;
   const service = new Service(db);
   const user = { id: job.author_id, kind: "session" };
@@ -109,19 +99,30 @@ export async function processNextReply(
       if (!decision.affectedRows || !respond) return true;
     }
     const invoke = generate || (await import("./agent.js")).generateAgentReply;
-    const text = await invoke(context, { db, job, user, runtime });
-    if (runtime) {
-      await runtime.close(true);
-      runtime = undefined;
-    }
-    await transaction(db, async (conn) => {
+    while (true) {
+      // Injected generators receive the same member updates in their context;
+      // the DSH path delivers them live through its native steering inbox.
+      const updates = generate ? await pendingTaskUpdates(db, job, true) : [];
+      context.messages.push(...updates.filter((m) => !context.messages.some((existing) => existing.id === m.id)));
+      const text = await invoke(context, { db, job, user, runtime });
+      let finished;
+      do {
+      finished = await transaction(db, async (conn) => {
       await service.thread(user, job.thread_id, true, conn);
       const [current] = await query(
         conn,
         "SELECT status FROM assistant_replies WHERE message_id=? FOR UPDATE",
         [job.message_id],
       );
-      if (current?.status !== "running") return;
+      if (current?.status !== "running") return true;
+      for (const update of updates) await query(conn,
+        "UPDATE agent_task_updates SET delivered_at=UTC_TIMESTAMP(3) WHERE message_id=?", [update.id]);
+      const [pending] = await query(conn,
+        "SELECT message_id,approved FROM agent_task_updates WHERE task_message_id=? AND delivered_at IS NULL ORDER BY approved DESC LIMIT 1",
+        [job.message_id]);
+      // Updates at the exact idle boundary stay in this same task/runtime.
+      // Do not publish an obsolete result and leave the member's update lost.
+      if (pending) return pending.approved || generate ? false : "routing";
       const reply = await service.insertMessage(
         conn,
         user,
@@ -129,13 +130,23 @@ export async function processNextReply(
         text,
         [],
         "assistant",
+        job.message_id,
       );
       await query(
         conn,
         "UPDATE assistant_replies SET status='completed',progress='已完成',reply_id=?,finished_at=UTC_TIMESTAMP(3) WHERE message_id=?",
         [reply.id, job.message_id],
       );
-    });
+      return true;
+      });
+      if (finished === "routing") await delay(100);
+      } while (finished === "routing");
+      if (finished) break;
+    }
+    if (runtime) {
+      await runtime.close(true);
+      runtime = undefined;
+    }
   } catch (error) {
     await query(
       db,
@@ -161,6 +172,7 @@ export async function processNextReply(
         .catch((error) =>
           console.error("Agent context save failed", { type: error.name }),
         );
+    await query(db, "UPDATE assistant_replies SET execution_active=FALSE WHERE message_id=?", [job.message_id]);
   }
   return true;
 }
@@ -187,21 +199,29 @@ export async function startReplyWorker(db) {
     db,
     "UPDATE assistant_replies SET status='failed',error='服务重启，Agent 任务已中断。请检查已保存产物后重试。' WHERE status='running'",
   );
-  let busy = false;
-  const tick = async () => {
-    if (busy) return;
-    busy = true;
-    try {
-      if (
-        !(await processNextReply(db)) &&
-        !(await processNextContextCompression(db))
-      )
-        await refreshNextContextStats(db);
-    } catch (error) {
-      console.error("Reply worker failed", { type: error.name });
-    } finally {
-      busy = false;
+  await query(db, "UPDATE assistant_replies SET execution_active=FALSE WHERE execution_active=TRUE");
+  await query(db, "UPDATE agent_requests SET status='queued' WHERE status='running'");
+  const active = new Set();
+  let maintenance = false;
+  let coordinating = false;
+  const tick = () => {
+    if (!coordinating) {
+      coordinating = true;
+      void processNextCoordinator(db).catch((error) => console.error("Coordinator failed", { type: error.name }))
+        .finally(() => { coordinating = false; });
     }
+    if (maintenance || active.size >= MAX_THREAD_AGENTS) return;
+    const task = processNextReply(db)
+      .then(async (worked) => {
+        if (worked || active.size !== 1) return;
+        maintenance = true;
+        try {
+          if (!(await processNextContextCompression(db))) await refreshNextContextStats(db);
+        } finally { maintenance = false; }
+      })
+      .catch((error) => console.error("Reply worker failed", { type: error.name }))
+      .finally(() => active.delete(task));
+    active.add(task);
   };
   const timer = setInterval(tick, 1000);
   timer.unref();

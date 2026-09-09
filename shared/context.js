@@ -14,6 +14,8 @@ export function discussionText(message) {
   return JSON.stringify({
     id: message.id,
     author: message.author,
+    author_id: message.author_id,
+    author_role: message.author_role,
     source: message.source,
     body: message.body,
     refs: message.refs || [],
@@ -22,7 +24,7 @@ export function discussionText(message) {
 
 export function pendingMessages(messages, seenSequence, replies = []) {
   const nativeReplies = new Set(
-    replies.map((reply) => reply.reply_id).filter(Boolean),
+    replies.filter((reply) => !reply.parent_message_id).map((reply) => reply.reply_id).filter(Boolean),
   );
   return messages.filter(
     (message) =>

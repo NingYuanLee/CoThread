@@ -3,6 +3,8 @@ import { Service, HttpError } from "./service.js";
 import { processNextReply } from "./replies.js";
 import { processNextContextCompression } from "./context-compression.js";
 import { executeRun } from "./acs.js";
+import { drainReplies } from "./reply-dispatch.js";
+import { processNextCoordinator } from "./coordinator.js";
 
 export async function runMakersThread(db, user, threadId, command, operations = {}) {
   const service = new Service(db);
@@ -19,6 +21,10 @@ export async function runMakersThread(db, user, threadId, command, operations = 
     await query(db, `UPDATE assistant_replies r JOIN messages m ON m.id=r.message_id
       SET r.status='failed',r.error='上次运行已中断，请检查已保存产物后重试。',r.finished_at=UTC_TIMESTAMP(3)
       WHERE m.thread_id=? AND r.status='running'`, [threadId]);
+    await query(db, `UPDATE assistant_replies r JOIN messages m ON m.id=r.message_id
+      SET r.execution_active=FALSE WHERE m.thread_id=? AND r.execution_active=TRUE`, [threadId]);
+    await query(db, `UPDATE agent_requests q JOIN messages m ON m.id=q.message_id
+      SET q.status='queued' WHERE m.thread_id=? AND q.status='running'`, [threadId]);
     await query(db, `UPDATE agent_sessions SET compact_status='failed',compact_error='上次压缩已中断，请重试。'
       WHERE thread_id=? AND compact_status='running'`, [threadId]);
     await query(db, `UPDATE sandbox_runs SET status='interrupted',output='上次运行已中断，请检查结果后重试。',finished_at=UTC_TIMESTAMP(3)
@@ -26,11 +32,13 @@ export async function runMakersThread(db, user, threadId, command, operations = 
     if (command) return await executeRun(service, user, threadId, command);
     const reply = operations.reply || ((id) => processNextReply(db, undefined, undefined, id));
     const compress = operations.compress || ((id) => processNextContextCompression(db, undefined, id));
+    const coordinate = operations.coordinate || (operations.reply ? async () => false : (id) => processNextCoordinator(db, id));
     const deadline = Date.now() + 15 * 60 * 1000;
     // Each task already has bounded model / sandbox timeouts. Leave later jobs queued.
     while (Date.now() < deadline) {
       await service.thread(user, threadId, true);
-      if (await reply(threadId)) continue;
+      await drainReplies(reply, threadId, deadline, coordinate);
+      if (Date.now() >= deadline) break;
       if (await compress(threadId)) continue;
       return { status: "idle" };
     }

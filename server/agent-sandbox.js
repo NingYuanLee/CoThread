@@ -1,6 +1,7 @@
 import { Sandbox } from "e2b";
 import { acsOptions } from "./acs.js";
 import { query } from "./db.js";
+import { agentSession } from "./agent-session.js";
 
 export const shellQuote = (value) => `'${value.replace(/'/g, `'"'"'`)}'`;
 const handles = new Map();
@@ -10,8 +11,9 @@ export async function acquireSandbox(
   progress,
   provider = Sandbox,
 ) {
+  const { table, key, id: workspaceId } = agentSession(threadId);
   const options = { ...acsOptions(), timeoutMs: 900000 };
-  let sandbox = handles.get(threadId);
+  let sandbox = handles.get(workspaceId);
   if (sandbox) {
     try {
       await sandbox.setTimeout(900000);
@@ -19,13 +21,13 @@ export async function acquireSandbox(
     } catch (error) {
       if (!/not found|not running|expired|does not exist/i.test(error.message))
         throw error;
-      handles.delete(threadId);
+      handles.delete(workspaceId);
     }
   }
   const [record] = await query(
     db,
-    "SELECT sandbox_id FROM agent_sessions WHERE thread_id=?",
-    [threadId],
+    `SELECT sandbox_id FROM ${table} WHERE ${key}=?`,
+    [workspaceId],
   );
   if (record?.sandbox_id) {
     try {
@@ -42,22 +44,23 @@ export async function acquireSandbox(
       options,
     );
   }
-  await sandbox.files.makeDir(`/home/user/cothread/${threadId}`);
-  await query(db, "UPDATE agent_sessions SET sandbox_id=? WHERE thread_id=?", [
+  await sandbox.files.makeDir(`/home/user/cothread/${workspaceId}`);
+  await query(db, `UPDATE ${table} SET sandbox_id=? WHERE ${key}=?`, [
     sandbox.sandboxId,
-    threadId,
+    workspaceId,
   ]);
-  handles.set(threadId, sandbox);
+  handles.set(workspaceId, sandbox);
   return sandbox;
 }
 export async function releaseSandbox(db, threadId) {
-  let sandbox = handles.get(threadId);
-  handles.delete(threadId);
+  const { table, key, id: workspaceId } = agentSession(threadId);
+  let sandbox = handles.get(workspaceId);
+  handles.delete(workspaceId);
   if (!sandbox) {
     const [record] = await query(
       db,
-      "SELECT sandbox_id FROM agent_sessions WHERE thread_id=?",
-      [threadId],
+      `SELECT sandbox_id FROM ${table} WHERE ${key}=?`,
+      [workspaceId],
     );
     if (record?.sandbox_id) {
       try {
@@ -68,8 +71,8 @@ export async function releaseSandbox(db, threadId) {
   if (sandbox) await sandbox.kill();
   await query(
     db,
-    "UPDATE agent_sessions SET sandbox_id=NULL WHERE thread_id=?",
-    [threadId],
+    `UPDATE ${table} SET sandbox_id=NULL WHERE ${key}=?`,
+    [workspaceId],
   );
 }
 

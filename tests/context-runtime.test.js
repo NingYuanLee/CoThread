@@ -48,11 +48,18 @@ test(
   async () => {
     const home = await mkdtemp(join(tmpdir(), "cothread-context-test-"));
     const requests = [];
+    let holdNext;
     const server = createServer(async (req, res) => {
       let text = "";
       for await (const chunk of req) text += chunk;
       const body = JSON.parse(text);
       requests.push(body);
+      if (holdNext) {
+        const gate = holdNext;
+        holdNext = undefined;
+        gate.entered.resolve();
+        await gate.release.promise;
+      }
       const content = "已保留关键结论：项目代号 ALPHA，接下来验证方案。";
       res.writeHead(200, { "Content-Type": "text/event-stream" });
       res.write(
@@ -174,6 +181,23 @@ test(
         "native pre-step must also auto-compact after a request envelope exists",
       );
       assert.ok(next.used < AUTO_COMPACT_AT);
+      // Exercise the pinned DSH runtime itself: steering must be consumed before
+      // this run becomes idle, not queued as a second ordinary follow-up.
+      const gate = { entered: Promise.withResolvers(), release: Promise.withResolvers() };
+      holdNext = gate;
+      const running = harness.run("处理可更新的任务", { sessionId });
+      void running.catch(gate.entered.reject);
+      await gate.entered.promise;
+      try {
+        const payload = { mode: "steer", messages: [{ id: "correction-1", text: "LATEST_REQUIREMENT_B" }] };
+        assert.deepEqual((await request("updates", payload)).accepted, ["correction-1"]);
+        assert.deepEqual((await request("updates", payload)).accepted, ["correction-1"]);
+      } finally { gate.release.resolve(); }
+      await running;
+      const steeredRequest = JSON.stringify(requests.at(-1).messages);
+      assert.ok(steeredRequest.includes("LATEST_REQUIREMENT_B"));
+      assert.equal(steeredRequest.split("LATEST_REQUIREMENT_B").length - 1, 1);
+      assert.deepEqual((await request("updates", { mode: "steer", messages: [{ id: "late-idle", text: "late" }] })).accepted, []);
     } finally {
       await harness.close();
       await new Promise((done) => server.close(done));

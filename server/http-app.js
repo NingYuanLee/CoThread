@@ -335,6 +335,10 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
         [req.params.messageId, req.params.id],
       );
       if (!result.affectedRows) throw new HttpError(409, "任务已结束");
+      await query(conn,
+        `UPDATE agent_requests q LEFT JOIN agent_task_updates u ON u.message_id=q.message_id
+         SET q.status='completed' WHERE (q.message_id=? OR u.task_message_id=?) AND q.status IN ('queued','running')`,
+        [req.params.messageId, req.params.messageId]);
     });
     await stopAgent(db, req.params.id, req.params.messageId);
     res.json({ ok: true });

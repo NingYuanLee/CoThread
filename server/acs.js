@@ -6,6 +6,7 @@ import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
 import { generateReply } from "./replies.js";
+import { modelDiscussion } from "./model-context.js";
 
 // Adapted from D:\work\dsh runtime/_e2b-acs-compat.mjs (MIT; see THIRD_PARTY_NOTICES).
 const originalHost = ConnectionConfig.prototype.getHost;
@@ -80,7 +81,7 @@ export async function executeRun(
       [threadId],
     );
     if (active) throw new HttpError(409, "当前迭代已有执行任务");
-    const context = await service.context(user, threadId, db);
+    const context = modelDiscussion(await service.context(user, threadId, db));
     await query(
       db,
       "INSERT INTO sandbox_runs(id,thread_id,requested_by,kind,status,input) VALUES(?,?,?,?,'running',?)",

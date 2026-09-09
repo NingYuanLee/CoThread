@@ -3,8 +3,8 @@ import { trackThinking } from "./agent-thinking.js";
 import { DeepSeekHarness } from "@deepseek-ai/dsh-sdk-client";
 import { createServer } from "node:http";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, writeFile, readdir } from "node:fs/promises";
-import { resolve, join } from "node:path";
+import { mkdir, readFile, writeFile, readdir, rm } from "node:fs/promises";
+import { resolve, join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { assetPath } from "./assets.js";
@@ -13,13 +13,22 @@ import { query } from "./db.js";
 import { Service, HttpError } from "./service.js";
 import { createAgentTools } from "./agent-tools.js";
 import { releaseSandbox } from "./agent-sandbox.js";
+import { agentSession } from "./agent-session.js";
+import { deliverTaskUpdates } from "./agent-updates.js";
 
 const running = new Map();
 export async function stopAgent(db, threadId, messageId) {
   const task = running.get(messageId);
-  await Promise.allSettled([task?.close(), releaseSandbox(db, threadId)]);
+  const [reply] = await query(db,
+    "SELECT parent_message_id,execution_active FROM assistant_replies WHERE message_id=?", [messageId]);
+  // A cancelled queued request owns no runtime or sandbox. In particular, it
+  // must never stop the primary that is still serving another member.
+  await Promise.allSettled([task?.close(), reply?.execution_active
+    ? releaseSandbox(db, { thread_id: threadId, message_id: messageId, parent_message_id: reply.parent_message_id })
+    : undefined]);
 }
-async function checkpoint(db, threadId, home, seenSequence) {
+async function checkpoint(db, scope, home, seenSequence) {
+  const { table, key, id } = agentSession(scope);
   const dir = join(home, "sessions");
   const files = {};
   async function walk(path, prefix = "") {
@@ -41,15 +50,16 @@ async function checkpoint(db, threadId, home, seenSequence) {
     throw new Error("Agent 会话快照超过 10 MiB");
   await query(
     db,
-    "UPDATE agent_sessions SET checkpoint=?,seen_sequence=? WHERE thread_id=?",
-    [data, seenSequence, threadId],
+    `UPDATE ${table} SET checkpoint=?,seen_sequence=? WHERE ${key}=?`,
+    [data, seenSequence, id],
   );
 }
 export async function openAgentRuntime(
   context,
-  { db, job, user, observe = true, autoCompact = true },
+  { db, job, user, observe = true, autoCompact = true, createHarness = (options) => new DeepSeekHarness(options) },
 ) {
   const service = new Service(db);
+  const { table, key, id: workspaceId } = agentSession(job);
   const progress = (text) =>
     job.message_id
       ? query(
@@ -58,20 +68,20 @@ export async function openAgentRuntime(
           [text, job.message_id],
         )
       : Promise.resolve();
-  await progress("正在启动 DSH Agent");
+  await progress(job.parent_message_id ? "正在启动子 Agent" : "正在启动 DSH Agent");
   await query(
     db,
-    "INSERT IGNORE INTO agent_sessions(thread_id,session_id) VALUES(?,?)",
-    [job.thread_id, randomUUID()],
+    `INSERT IGNORE INTO ${table}(${key},session_id) VALUES(?,?)`,
+    [workspaceId, randomUUID()],
   );
   const [session] = await query(
     db,
-    "SELECT * FROM agent_sessions WHERE thread_id=?",
-    [job.thread_id],
+    `SELECT * FROM ${table} WHERE ${key}=?`,
+    [workspaceId],
   );
-  const home = process.env.COTHREAD_MAKERS === "true"
-    ? resolve(tmpdir(), "cothread-agents", job.thread_id)
-    : resolve(".local/agents", job.thread_id);
+  const runtimeRoot = process.env.COTHREAD_MAKERS === "true"
+    ? resolve(tmpdir(), "cothread-agents") : resolve(".local/agents");
+  const home = resolve(runtimeRoot, workspaceId);
   await mkdir(home, { recursive: true });
   // MySQL is authoritative. Restore only session records into a dedicated host orchestration directory.
   if (session.checkpoint) {
@@ -164,7 +174,7 @@ export async function openAgentRuntime(
     HOME: home,
     USERPROFILE: home,
   });
-  const harness = new DeepSeekHarness({
+  const harness = createHarness({
     profile: "sdk-minimal",
     dshHome: home,
     processCwd: home,
@@ -195,8 +205,8 @@ export async function openAgentRuntime(
       .then((stats) =>
         query(
           db,
-          "UPDATE agent_sessions SET context_stats=? WHERE thread_id=?",
-          [JSON.stringify({ ...stats, seenSequence }), job.thread_id],
+          `UPDATE ${table} SET context_stats=? WHERE ${key}=?`,
+          [JSON.stringify({ ...stats, seenSequence }), workspaceId],
         ),
       )
       .finally(() => {
@@ -220,7 +230,17 @@ export async function openAgentRuntime(
         await chain;
         await new Promise((resolve) => bridge.close(resolve));
         await thinking.close(completed ? "completed" : "failed");
-        await checkpoint(db, job.thread_id, home, seenSequence);
+        try {
+          if (!job.parent_message_id || !completed) await checkpoint(db, job, home, seenSequence);
+          else await query(db, "UPDATE agent_child_sessions SET checkpoint=NULL,context_stats=NULL WHERE message_id=?", [job.message_id]);
+        }
+        finally {
+          if (job.parent_message_id) await releaseSandbox(db, job);
+          if (job.parent_message_id && completed) {
+            if (dirname(home) !== runtimeRoot) throw new Error("Invalid child workspace");
+            await rm(home, { recursive: true, force: true });
+          }
+        }
       }
     }
   };
@@ -229,7 +249,7 @@ export async function openAgentRuntime(
     // Append only new discussion. Native assistant turns and compressed summaries
     // already live in this session and must never be re-sent as full transcripts.
     const fresh = observe
-      ? pendingMessages(context.messages, seenSequence, context.replies)
+      ? pendingMessages(context.messages, seenSequence, job.parent_message_id ? [] : context.replies)
       : [];
     await request("observe", { messages: fresh.map(discussionText) });
     if (observe && context.messages.length)
@@ -253,25 +273,32 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
   let timer;
   let cancellationTimer;
   let completed = false;
+  let polling = Promise.resolve();
   try {
-    const prompt = `你是共序项目中的助理，姓名是小祥。当前项目 ID：${context.project_id}。迭代 ID：${job.thread_id}。ACS 工作区 /home/user/cothread/${job.thread_id}。
-请回应当前上下文中 ID 为 ${job.message_id} 的成员消息。本轮已确定需要回复：明确 @小祥、项目中只有一名成员与助手，或模型判断应参与多人讨论。只有一名成员时，即使未 @ 也应作为直接对话正常回应。请简洁回应，不擅自扩展任务或把成员之间的分工当作对你的授权。若成员确实请求你实现、分析文件或产出内容，应实际调用工具完成并保存结果。`;
+    const prompt = `你是共序项目中的助理，姓名是小祥。当前项目 ID：${context.project_id}。迭代 ID：${job.thread_id}。ACS 工作区 /home/user/cothread/${agentSession(job).id}。
+${job.parent_message_id ? `你是主助手为本条请求分派的临时子 Agent。只负责下面指定的成员请求，不接管其他 Agent 的任务。使用独立工作区；通过项目文档库共享已保存的成果，不能声称知道其他 Agent 尚未发布的结果。` : ""}
+请回应当前上下文中 ID 为 ${job.message_id} 的成员消息，并结合该成员对当前任务的追加要求更新工作。追加要求属于同一任务，不应作为新任务排队，也不要重复已完成的操作。本轮已确定需要回复：明确 @小祥、项目中只有一名成员与助手，或模型判断应参与多人讨论。只有一名成员时，即使未 @ 也应作为直接对话正常回应。请简洁回应，不擅自扩展任务或把成员之间的分工当作对你的授权。若成员确实请求你实现、分析文件或产出内容，应实际调用工具完成并保存结果。`;
     await progress("Agent 正在分析请求");
+    await deliverTaskUpdates(db, job, runtime, "observe");
     const result = await Promise.race([
       new Promise((_, reject) => {
         let checking = false;
-        cancellationTimer = setInterval(async () => {
+        cancellationTimer = setInterval(() => {
           if (checking) return;
           checking = true;
+          polling = (async () => {
           try {
             const [row] = await query(db, "SELECT status FROM assistant_replies WHERE message_id=?", [job.message_id]);
             if (row?.status !== "running") {
               clearInterval(cancellationTimer);
-              await releaseSandbox(db, job.thread_id).catch(() => {});
+              await releaseSandbox(db, job).catch(() => {});
               reject(new HttpError(409, "任务已停止"));
+              return;
             }
+            await deliverTaskUpdates(db, job, runtime);
           } catch (error) { reject(error); }
           finally { checking = false; }
+          })();
         }, 1000);
         cancellationTimer.unref();
       }),
@@ -295,6 +322,7 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
   } finally {
     clearTimeout(timer);
     clearInterval(cancellationTimer);
+    await polling;
     if (owned) await runtime.close(completed);
   }
 }

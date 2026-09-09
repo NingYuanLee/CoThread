@@ -273,6 +273,7 @@ type Thread = {
     author_id: string;
     author_avatar?: string | null;
     author_role?: string | null;
+    agent_task_id?: string | null;
     created_at: string;
   }[];
   archive_snapshot: { conclusion: string; versions: Version[] } | null;
@@ -287,11 +288,15 @@ type Thread = {
   replies: {
     message_id: string;
     reply_id: string | null;
+    parent_message_id: string | null;
+    agent_slot: number | null;
     participation: "pending" | "reply" | "silent";
     status: string;
     error: string | null;
     progress: string | null;
   }[];
+  updates: { message_id: string; task_message_id: string; delivered_at: string | null }[];
+  requests: { message_id: string; status: string; response_id: string | null; error: string | null }[];
   events: {
     id: string;
     message_id: string;
@@ -521,6 +526,7 @@ function App() {
   useEffect(() => {
     if (!health?.agentEndpoint || !thread || !writable || thread.status !== "active") return;
     if (thread.replies.some((r) => ["queued", "running"].includes(r.status)) ||
+        thread.requests?.some((r) => ["queued", "running"].includes(r.status)) ||
         ["queued", "running"].includes(thread.contextUsage?.compactStatus))
       wakeMakers(thread.id, setError);
   }, [health, thread, writable]);
@@ -749,11 +755,15 @@ function App() {
       minute: "2-digit",
     });
   const renderAgentRound = (reply: Thread["replies"][number]) => {
+    const request = thread?.messages.find((message) => message.id === reply.message_id);
     const events =
       thread?.events.filter((event) => event.message_id === reply.message_id) ||
       [];
     return (
       <div className="agent-round" data-message-id={reply.message_id}>
+        <p className="source-label">
+          {reply.agent_slot ? `子 Agent ${reply.agent_slot}` : "主助手"} · 响应 {request?.author || "成员"}：{request?.body.slice(0, 80)}
+        </p>
         {[reply]
           ?.filter((r) => r.status === "queued" || r.status === "running")
           .map((r) => (
@@ -765,7 +775,7 @@ function App() {
               <span>
                 ✧{" "}
                 {r.status === "queued"
-                  ? "任务已排队"
+                  ? "主助手接待或等待执行名额"
                   : r.progress || "DSH Agent 正在处理…"}
               </span>
               {active && (
@@ -1436,6 +1446,13 @@ function App() {
                             }
                           />
                         </strong>
+                        {m.source === "assistant" && (
+                          <span className="agent-badge">
+                            {thread.replies.find((reply) => reply.message_id === m.agent_task_id || reply.reply_id === m.id)?.agent_slot
+                              ? `子 Agent ${thread.replies.find((reply) => reply.message_id === m.agent_task_id || reply.reply_id === m.id)?.agent_slot}`
+                              : "主助手"}
+                          </span>
+                        )}
                         {m.source === "local_ai" && (
                           <span className="source-label">通过本地 AI 提交</span>
                         )}
@@ -1453,6 +1470,11 @@ function App() {
                             </React.Fragment>
                           ))}
                       <div className="message-text">
+                        {thread.updates?.filter((update) => update.message_id === m.id).map((update) => (
+                          <p className="source-label" key={update.message_id}>
+                            {update.delivered_at ? "已更新当前任务" : "已关联到当前任务，等待助手接收"}
+                          </p>
+                        ))}
                         <Markdown
                           remarkPlugins={[remarkGfm]}
                           components={{ img: () => <span>（图片链接）</span> }}
@@ -1487,6 +1509,7 @@ function App() {
                                 name={AGENT_MEMBER.name}
                               />
                             </strong>
+                            <span className="agent-badge">{reply.agent_slot ? `子 Agent ${reply.agent_slot}` : "待分派"}</span>
                           </div>
                           {renderAgentRound(reply)}
                         </div>

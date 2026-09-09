@@ -17,7 +17,7 @@ export function apply(ctx) {
     ],
     [
       "read_iteration",
-      "读取本项目内指定迭代的完整讨论、审核与归档。",
+      "读取本项目内指定迭代的完整讨论、审核与归档，以及工具执行状态；省略头像和历史工具输入输出。附件保留版本引用，按需读取。",
       { threadId: { type: "string", required: true } },
     ],
     [

@@ -1,0 +1,46 @@
+{
+  "name": "cothread",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "dev": "node --env-file=.env server/index.js",
+    "build": "tsc --noEmit && vite build",
+    "start": "node --env-file=.env server/index.js --production",
+    "db:migrate": "node --env-file=.env scripts/migrate.js",
+    "db:seed": "node --env-file=.env scripts/seed.js",
+    "db:backup": "node --env-file=.env scripts/backup.js",
+    "db:restore-check": "node --env-file=.env scripts/restore-check.js",
+    "demo": "node --env-file=.env scripts/demo.js",
+    "setup": "node scripts/setup.js",
+    "mysql:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql.ps1 start",
+    "mysql:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql.ps1 stop",
+    "test": "node --env-file=.env --test tests/*.test.js",
+    "app:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 start",
+    "app:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 stop"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-sdk-client": "0.1.2-rc.1",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@react-symbols/icons": "1.4.1",
+    "e2b": "2.29.1",
+    "express": "^5.1.0",
+    "mysql2": "^3.14.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0"
+  }
+}

@@ -1,0 +1,107 @@
+# 共序 CoThread
+
+让每次讨论都有承接，让每个决定都有出处。
+
+这是独立于 `D:\work\dsh` 的协作应用。项目是长期工作空间，一次迭代对应一个群聊。成员用自己的本地 AI 读取上下文、提交产物，团队人工审核后归档。ACS 是唯一执行后端，MySQL 是业务数据和附件的持久化存储。
+
+## 本机启动
+
+需要 Node.js 22.19+（本机已具备 Node 24）。本地 MySQL 为 Oracle 官方 MySQL 8.4.9 Windows ZIP 版，不注册系统服务，监听 `127.0.0.1:3307`。
+
+```powershell
+npm install
+npm run setup
+npm run mysql:start
+npm run db:migrate
+npm run db:seed
+npm run dev
+```
+
+打开 <http://localhost:3100>。初始账号是 `.env` 中的 `ADMIN_EMAIL`，密码是 `ADMIN_PASSWORD`。首次启动会生成随机密码。可以在「账号设置」中修改；数据库中只保存加盐密码哈希。新增成员由项目负责人操作。
+
+`npm run setup` 不覆盖已有 `.env`。如果原项目的 `D:\work\dsh\.env` 存在，只复制 ACS 和 DeepSeek 必需的配置，MySQL 配置单独生成。不要提交 `.env` 或 `.local`。
+
+```powershell
+npm run mysql:stop   # 优雅关闭本地数据库
+npm run build        # 类型检查及前端生产构建
+npm start            # 使用构建后的静态页面
+npm test             # 真实 MySQL 集成测试，独立随机测试数据库，结束后清理
+npm run app:start    # Windows：启动本地 MySQL，并将生产版应用放到后台运行
+npm run app:stop     # Windows：停止本项目的后台应用
+npm run db:backup    # 完整备份业务数据与文件内容
+npm run db:restore-check # Windows 本地：导入独立测试库，校验后删除测试库
+```
+
+也提供 `compose.yaml`，安装 Docker 的机器可用官方 `mysql:8.4.9` 镜像。先设置 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`，并让 `DATABASE_URL` 中的用户密码与前者相同。不要同时启动 Docker 和便携版 MySQL 占用 3307。
+
+## 已实现
+
+- 登录、全局账号目录与项目成员分离；同一账号可加入多个项目，各项目分别分配负责人／成员／只读权限。负责人可新建通用账号，账号创建后不会自动获得任何项目权限。
+- 项目与迭代群聊，消息按数据库序号排序，多人页面定时刷新。
+- 文档二进制内容入库，5 MiB 单文件限制、SHA-256、不可覆盖的版本和并发版本编号。
+- 文档人工审核记录；上传不代表审批通过，本地 AI 令牌不能审批或归档。
+- 消息引用精确文档版本；归档事务保存结论、消息、审核、版本摘要和执行结果，归档后不可修改。
+- 下一次迭代可以继续引用旧版本。
+- 账号单令牌、30 天有效、可重置的本地 Agent 连接，使用哈希鉴权与 AES-256-GCM 加密保存，按项目成员权限访问。浏览器中默认遮罩，可点击眼睛查看。
+- 7 个 Streamable HTTP MCP 工具，自带使用说明，调用者身份由服务端凭据确定。
+- 内置 DSH Agent：读取项目资料、在 ACS 创建/编辑文件、执行命令与测试、将成果保存为文档版本。
+- 每个迭代独立 Agent 会话与 ACS 工作区；会话快照、工具过程与产物入 MySQL。沙箱按需创建，续期 15 分钟，过期后可从已保存文档恢复。
+- 聊天显示执行进度、工具输入与结果，支持停止、失败重试。服务重启后运行中任务标记中断，避免自动重复执行有副作用的操作。
+- 右侧项目文档与弹窗复用同一文件树，支持拖拽整理；顶部「文档库」与侧栏「项目文档库」入口，支持可折叠的多级文件树、新建文件夹/文档、上传、移动、重命名、回收站恢复、@ 引用、版本切换、预览和下载。默认文件夹优先，文件按类型与名称排序，也可切换最近修改。Markdown、文本/代码、图片、PDF 可预览，Office 等格式下载查看。
+- 输入框默认勾选「交给 Agent 处理」，取消则仅发送给团队。成员本地 AI 提交不会触发回复循环。
+- 「梳理讨论」默认直接调用模型整理最近最多 50 条消息，后台显示进度与错误；它与可调用工具的 Agent 对话是两个功能。`SUMMARY_MODE=dsh` 为可选旧总结模式。
+
+## 文档与文件存储
+
+打开项目后点击顶部「文档库」，即可查看该项目各迭代已提交的文件。Agent 必须调用保存产物工具，文件才会进入文档库；沙箱中的临时工作文件可能过期。
+
+当前文档原始字节和不可变版本保存在 MySQL，每个文件最多 5 MiB，沙箱回收不会删除已提交文档。**当前未接入对象存储。** 后续大型附件、压缩包、视频等应接入阿里云 OSS：MySQL 保留文档/版本/权限/校验值，OSS 保存文件本体，由服务端鉴权后提供访问。此迁移需要存储适配和旧文件搬迁，不能只改数据库连接。
+
+## 连接本地Agent
+
+在工作空间设置点击「连接本地Agent」，创建账号令牌，并按客户端要求配置 Streamable HTTP MCP。一个账号只需一个令牌，重置时旧令牌全部失效；旧版项目令牌在重置前仍保持原有项目范围。
+
+```json
+{
+  "mcpServers": {
+    "cothread": {
+      "type": "http",
+      "url": "http://localhost:3100/mcp",
+      "headers": { "Authorization": "Bearer <你的账号令牌>" }
+    }
+  }
+}
+```
+
+工具：`get_connection_guide`、`list_projects`、`get_project`、`get_iteration_context`、`get_document_version`、`post_message`、`submit_document`。点击「复制安装文档」自动获取当前令牌，缺失、过期或旧版仅保存哈希时自动创建或更新，完整文档已填入真实令牌，无需手工替换。多次复制复用同一有效令牌。直接粘贴给本地 Agent，它可据此配置客户端并只读验证连接。无需 SKILL：MCP initialize 的 instructions 与 `get_connection_guide` 内置完整使用协议。安装文档仅附带当前真实会话（如已选中），不包含示例消息或占位会话 ID。
+
+账号令牌加密密钥由 `CREDENTIAL_ENCRYPTION_KEY`（32 字节 base64）指定，未配置时自动保存在 `.local/credential-encryption.key`。部署迁移和备份时须保留这份密钥（与数据库备份分开保管），否则旧令牌无法再次解密查看；显式重置可重新建立令牌。密钥和令牌明文不应进入版本库。
+
+在迭代输入框上方点击「复制会话信息」获取 `projectId` 和 `threadId`，粘贴给本地 Agent。这是目标定位信息，不是额外的秘密令牌。也可依次调用 `list_projects` → `get_project` → `get_iteration_context` 找到并核对目标，同名目标需要用户确认。
+
+`post_message` 支持一次发送 `body` 文本、`files` 多个文件、`refs` 已有版本 ID（等同 `/关联文件`），以及 `mentionAgent: true`（也兼容正文 `@Agent助手`）触发内置助手回复。本地 Agent 不显式提及时不会触发自动回复。文件直接保存到项目文档库，消息和全部文件在同一事务内写入，任一失败全部回滚。最多 10 个文件，单文件 5 MiB、合计 20 MiB，文件与已有引用最多 30 个。`files` 每项包含 `title`、`filename`、`contentBase64`，可选 `mime` 与 `folderId`。`submit_document` 用于单独提交文件或新版本，可指定 `folderId`；审核、归档和成员管理仍由人工进行。完整配置和调用示例见界面的「连接本地Agent」。
+
+## 云端部署
+
+1. 创建 MySQL 8.4 数据库，迁移本地完整备份（包含附件内容）。空库则运行迁移与初始账号创建。
+2. 修改 `DATABASE_URL`，需要 TLS 的云数据库设置 `DATABASE_SSL=true`；自签发 CA 通过 `DATABASE_SSL_CA` 指向证书文件。
+3. 配置 `HOST=0.0.0.0`、实际 HTTPS `APP_ORIGIN`、`COOKIE_SECURE=true`，在应用前配置 HTTPS 反向代理。
+4. 复制 ACS／模型配置到云端密钥配置中。运行 `npm ci && npm run build`，然后启动单个 `npm start` 实例。
+5. MySQL 的 `max_allowed_packet` 建议至少 32 MiB。配置定期备份并演练恢复。
+6. DSH 与 SDK 已作为应用依赖安装，宿主机仅编排 Agent，执行工具走 ACS。应用需要可写 `.local/agents` 缓存目录，权威会话快照保存在 MySQL。升级 DSH 时需同步验证会话恢复适配器。
+
+仅迁移数据库时无需修改业务代码或搬运附件目录；部署主机、HTTPS、数据库网络访问与 ACS 网络连通性仍须正常配置。
+
+## 项目结构
+
+```text
+web/                 React 页面
+server/              HTTP API、权限、协作业务、MCP、ACS
+migrations/          版本化 MySQL 结构
+scripts/             安装初始化、迁移、示例、连接检查
+tests/               真实数据库集成测试
+docs/                架构与部署说明
+.local/              本机 MySQL 程序、数据、私有配置（不入库）
+```
+
+首版面向小团队单实例试用。暂不包含邮件邀请、SSO、密码找回、推送通知、全文搜索、文件在线编辑、对象存储和多实例作业调度。不要把当前版本当作完成全部生产加固的公共 SaaS。

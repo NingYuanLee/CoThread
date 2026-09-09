@@ -1,0 +1,1 @@
+ALTER TABLE sandbox_runs ADD COLUMN progress VARCHAR(255) NULL;

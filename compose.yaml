@@ -1,0 +1,17 @@
+services:
+  mysql:
+    image: mysql:8.4.9
+    environment:
+      MYSQL_DATABASE: cothread
+      MYSQL_USER: cothread
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+    ports: ["127.0.0.1:3307:3306"]
+    command: ["--max-allowed-packet=32M"]
+    volumes: ["mysql-data:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      retries: 20
+volumes:
+  mysql-data:

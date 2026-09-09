@@ -1,0 +1,35 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.local/
+*.log
+coverage/
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# Temporary files and build caches
+.cache/
+.vite/
+*.tsbuildinfo
+tmp/
+temp/
+
+# Local database files, backups, and private keys
+backups/
+*.sql.gz
+*.sql.zip
+*.dump
+*.key
+*.pem
+*.p12
+*.pfx

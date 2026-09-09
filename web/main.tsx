@@ -901,16 +901,18 @@ function App() {
       hour: "2-digit",
       minute: "2-digit",
     });
+  const hasAgentActivity = (reply: Thread["replies"][number]) =>
+    reply.status === "failed" ||
+    (reply.status === "queued" && makersConnection === "unavailable") ||
+    !!thread?.events.some((event) => event.message_id === reply.message_id &&
+      (event.tool !== "thinking" || (reply.status === "running" && event.status === "running")));
   const renderAgentRound = (reply: Thread["replies"][number]) => {
-    const request = thread?.messages.find((message) => message.id === reply.message_id);
+    if (!hasAgentActivity(reply)) return null;
     const events =
-      thread?.events.filter((event) => event.message_id === reply.message_id) ||
+      thread?.events.filter((event) => event.message_id === reply.message_id && event.tool !== "thinking") ||
       [];
     return (
       <div className="agent-round" data-message-id={reply.message_id}>
-        <p className="source-label">
-          {reply.agent_slot ? `子 Agent ${reply.agent_slot}` : "主助手"} · 响应 {request?.author || "成员"}：{request?.body.slice(0, 80)}
-        </p>
         {[reply]
           ?.filter((r) => r.status === "queued" || r.status === "running")
           .map((r) => (
@@ -920,14 +922,11 @@ function App() {
               key={r.message_id}
             >
               <span>
-                ✧{" "}
                 {r.status === "queued"
                   ? makersConnection === "unavailable"
-                    ? "助手服务不可用，消息已保存，等待恢复"
-                    : thread?.requests?.find((q) => q.message_id === r.message_id)?.status === "running"
-                      ? "主助手正在判断请求"
-                      : r.dispatch_ready ? "等待子 Agent 接手" : "等待主助手启动，尚未开始处理"
-                  : r.progress || "DSH Agent 正在处理…"}
+                    ? "助手暂时无法连接，消息已保存。"
+                    : "消息已收到。"
+                  : events.length ? "正在处理…" : "正在思考…"}
               </span>
               {active && (
                 <button
@@ -947,13 +946,13 @@ function App() {
               )}
             </div>
           ))}
-        {
+        {events.length > 0 && (
           <details
             className="agent-trace"
             open={reply.status === "running" || reply.status === "queued"}
           >
             <summary>
-              执行过程 · {events.length} 步 ·{" "}
+              {events.length} 项操作 ·{" "}
               {
                 {
                   queued: "排队中",
@@ -964,29 +963,8 @@ function App() {
                 }[reply.status]
               }
             </summary>
-            {!events.length && (
-              <p>
-                {reply.status === "completed"
-                  ? "本轮未记录执行步骤"
-                  : reply.status === "queued"
-                    ? "等待执行"
-                    : reply.status === "cancelled"
-                      ? "本轮已停止"
-                      : "暂无执行步骤"}
-              </p>
-            )}
             {events.map((e) => {
               const label = agentLabel(e, detail?.versions, detail?.threads);
-              const elapsed = Math.max(
-                0,
-                Math.floor(
-                  ((e.finished_at
-                    ? new Date(e.finished_at.replace(" ", "T") + "Z").getTime()
-                    : clock) -
-                    new Date(e.created_at.replace(" ", "T") + "Z").getTime()) /
-                    1000,
-                ),
-              );
               return (
                 <AgentEvent key={e.id} threadId={threadId} event={e}>
                   <summary>
@@ -1000,10 +978,9 @@ function App() {
                       )}
                     </span>
                     <small>
-                      {e.tool === "thinking" && `${elapsed} 秒 · `}
                       {
                         {
-                          running: e.tool === "thinking" ? "思考中" : "进行中",
+                          running: "进行中",
                           completed: "完成",
                           failed: "失败",
                         }[e.status]
@@ -1014,7 +991,7 @@ function App() {
               );
             })}
           </details>
-        }
+        )}
         {[reply]
           ?.filter((r) => r.status === "failed")
           .map((r) => (
@@ -1650,7 +1627,8 @@ function App() {
                       (reply) =>
                         reply.message_id === m.id &&
                         !reply.reply_id &&
-                        reply.participation === "reply",
+                        reply.participation === "reply" &&
+                        hasAgentActivity(reply),
                     )
                     .map((reply) => (
                       <article className="message" key={reply.message_id}>
@@ -1665,7 +1643,7 @@ function App() {
                                 name={AGENT_MEMBER.name}
                               />
                             </strong>
-                            <span className="agent-badge">{reply.agent_slot ? `子 Agent ${reply.agent_slot}` : "待分派"}</span>
+                            <span className="agent-badge">{reply.agent_slot ? `子 Agent ${reply.agent_slot}` : "主助手"}</span>
                           </div>
                           {renderAgentRound(reply)}
                         </div>

@@ -12,25 +12,55 @@
   align-items: center;
 }
 .agent-trace {
-  border: 1px solid #dce7d3;
-  border-radius: 8px;
-  padding: 12px;
-  margin: 18px 0;
-  font-size: 12px;
-  color: #66785b;
+  padding: 0;
+  margin: 6px 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #758073;
 }
 .agent-trace > summary {
-  font-weight: 600;
-  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 0;
+  font-weight: 400;
+  cursor: pointer;
+  list-style: none;
+}
+.agent-trace > summary::before {
+  content: "›";
+  transition: transform 120ms ease;
+}
+.agent-trace[open] > summary::before {
+  transform: rotate(90deg);
+}
+.agent-trace summary::-webkit-details-marker {
+  display: none;
 }
 .agent-trace details {
-  padding: 8px;
-  border-top: 1px solid #e9ede4;
+  padding: 3px 0;
+}
+.agent-trace details > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.agent-trace summary:hover {
+  color: #3f5945;
+}
+.agent-trace summary:focus-visible {
+  outline: 2px solid #90a17f;
+  outline-offset: 3px;
 }
 .agent-trace small {
-  float: right;
-  color: #859577;
-  font-size: 10px;
+  color: #98a093;
+  font-size: 11px;
+}
+.agent-trace .event-dot {
+  flex-shrink: 0;
+  margin-right: 0;
 }
 .agent-trace pre {
   white-space: pre-wrap;
@@ -297,7 +327,7 @@
 .message-content > .agent-round > .agent-trace {
   box-sizing: border-box;
   width: 100%;
-  margin: 10px 0 12px;
+  margin: 4px 0 8px;
 }
 .message.own .message-meta {
   flex-direction: row-reverse;
@@ -350,6 +380,27 @@
 }
 .reply-status button {
   font-size: 11px;
+}
+.agent-round .reply-status {
+  padding: 3px 0;
+  margin: 4px 0;
+  background: transparent;
+  border-radius: 0;
+  color: #758073;
+  font-size: 13px;
+}
+.agent-round .reply-status.failed {
+  color: #a16e49;
+}
+.agent-round .reply-status button {
+  padding: 2px 5px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  flex-shrink: 0;
+}
+.agent-round .reply-status button:hover:not(:disabled) {
+  text-decoration: underline;
 }
 label.reply-toggle {
   display: flex;

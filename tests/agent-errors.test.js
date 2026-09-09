@@ -7,4 +7,6 @@ test("runtime diagnostics identify missing dependencies without leaking raw erro
   assert.equal(agentFailureCode(Object.assign(new Error("password=secret; prompt=private"), { agentStage: "start" })), "DSH_START_FAILED");
   assert.equal(agentFailureCode(new Error("Cannot find module '/private/secret/key.js'")), "DSH_MISSING_DEPENDENCY");
   assert.equal(agentFailureCode(Object.assign(new Error("private"), { agentStage: "secret" })), "DSH_CONTEXT_FAILED");
+  assert.equal(agentFailureCode(Object.assign(new Error("private SQL"), { code: "ER_DATA_TOO_LONG" })), "DSH_DATABASE:ER_DATA_TOO_LONG");
+  assert.equal(agentFailureCode(Object.assign(new Error("private"), { code: -32601 })), "DSH_RPC:-32601");
 });

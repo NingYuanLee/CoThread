@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import { randomUUID } from "node:crypto";
 
 const bundle = resolve(process.argv[2] || ".edgeone/agent-node");
 process.env.COTHREAD_PACKAGE_CHECK_ROOT = pathToFileURL(bundle + sep).href;
@@ -26,6 +27,9 @@ const harness = new DeepSeekHarness({
 try {
   // Initialize only: no model prompt, production credentials or database access.
   await harness.start();
+  const sessionId = randomUUID();
+  await harness.client.request("cothread/observe", { sessionId, messages: [] });
+  await harness.client.request("cothread/context", { sessionId });
   console.log("Packaged DSH initialized successfully without repository dependencies.");
 } finally {
   await harness.close();

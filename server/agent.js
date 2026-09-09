@@ -278,6 +278,7 @@ export async function openAgentRuntime(
     agentStage = "restore";
     if (sharedHistory) await request("seed", { messages: sharedHistory });
     await request("observe", { messages: [] });
+    agentStage = "meter";
     await sample();
     interval = setInterval(() => void sample().catch(() => {}), 2000);
     interval.unref();

@@ -26,6 +26,7 @@ export async function synchronizeDiscussionContext(db, threadId, openRuntime) {
     runtime = await open(context, { db, user, job: { thread_id: threadId }, autoCompact: true });
     await runtime.close(true);
     runtime = undefined;
+    await query(db, "UPDATE agent_sessions SET compact_status='idle',compact_error=NULL WHERE thread_id=? AND compact_status='failed'", [threadId]);
     return true;
   } catch (error) {
     if (runtime) await runtime.close().catch(() => {});

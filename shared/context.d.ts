@@ -17,5 +17,5 @@ export type ContextUsage = {
   automaticCompacting: boolean;
   compactStatus: string;
   compactError: string | null;
-  compactResult: { before: number; after: number; changed: boolean } | null;
+  compactResult: { before: number; after: number; changed: boolean; reason?: "already_small" | "not_smaller" } | null;
 };

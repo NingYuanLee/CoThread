@@ -157,7 +157,9 @@ export function ContextMeter({
           <p className="context-result" role="status">
             {usage.compactResult.changed
               ? `压缩完成：${tokens(usage.compactResult.before)} → ${tokens(usage.compactResult.after)}`
-              : "当前上下文较短，暂无可进一步压缩的内容。"}
+              : usage.compactResult.reason === "not_smaller"
+                ? "本次摘要未减少用量，已保留原上下文。"
+                : "当前上下文较短，暂无可进一步压缩的内容。"}
           </p>
         )}
         {(error || usage.compactError) && (

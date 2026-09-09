@@ -116,6 +116,13 @@ test(
       );
     try {
       await harness.start();
+      await request("observe", { messages: ["短会话，不需要压缩。"] });
+      const shortHistory = await request("history");
+      const shortResult = await request("compact");
+      assert.equal(shortResult.reason, "already_small");
+      assert.equal(shortResult.changed, false);
+      assert.equal(requests.length, 0, "short contexts must not make a wasteful summary request");
+      assert.deepEqual(await request("history"), shortHistory);
       await request("observe", {
         messages: [
           "项目代号 ALPHA。" + "old discussion ".repeat(24000),

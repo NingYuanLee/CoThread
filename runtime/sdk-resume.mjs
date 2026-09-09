@@ -81,17 +81,26 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
   }
   if (method === "cothread/compact") {
     const before = measureContext(this.ctx, agent.session);
-    const result =
-      !params.automatic || before.used >= AUTO_COMPACT_AT
-        ? await this.ctx.compaction.compactNow(
-            agent,
-            AbortSignal.timeout(240000),
-          )
-        : null;
+    if (!params.automatic && before.used < 4096)
+      return { before: before.used, after: before.used, changed: false, reason: "already_small" };
+    let result, reason;
+    try {
+      result = !params.automatic || before.used >= AUTO_COMPACT_AT
+        ? await this.ctx.compaction.compactNow(agent, AbortSignal.timeout(240000)) : null;
+    } catch (error) {
+      // DSH leaves the original surface intact when its candidate summary grows.
+      // Report a no-op, while preserving real model, timeout and commit failures.
+      let cause = error, noReduction = false;
+      for (let depth = 0; cause && depth < 5; depth++, cause = cause.cause)
+        if (/^summary is not smaller than the shadowed content/.test(cause.message || "")) noReduction = true;
+      if (!noReduction) throw error;
+      reason = "not_smaller";
+    }
     return {
       before: before.used,
       after: measureContext(this.ctx, agent.session).used,
       changed: !!result,
+      ...(reason ? { reason } : {}),
     };
   }
   if (method === "cothread/history") return agent.session.deriveMessages();

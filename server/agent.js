@@ -238,6 +238,11 @@ export async function openAgentRuntime(
         await sampling.catch(() => {});
         await sample();
         if (!job.parent_message_id) modelMessages = await request("history");
+      } else if (interval) {
+        // A failed compaction has emitted its end marker. Persist that final
+        // meter state rather than leaving the UI stuck on "compacting".
+        await sampling.catch(() => {});
+        await sample().catch(() => {});
       }
     } finally {
       closed = true;

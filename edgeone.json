@@ -3,12 +3,29 @@
   "outputDirectory": "dist",
   "cloudFunctions": {
     "maxDuration": 120,
-    "includeFiles": ["migrations/**"]
+    "includeFiles": [
+      "migrations/**"
+    ]
   },
   "agents": {
     "dir": "agents",
     "timeout": 1800,
-    "includeFiles": ["runtime/**", "shared/**", "migrations/**"],
-    "externalNodeModules": ["@deepseek-ai/dsh-sdk-client"]
+    "includeFiles": [
+      "runtime/**",
+      "shared/**",
+      "migrations/**"
+    ],
+    "externalNodeModules": [
+      "@deepseek-ai/dsh-sdk-client",
+      "@opentelemetry/api",
+      "@opentelemetry/exporter-metrics-otlp-http",
+      "@opentelemetry/exporter-trace-otlp-http",
+      "@opentelemetry/instrumentation",
+      "@opentelemetry/resources",
+      "@opentelemetry/sdk-metrics",
+      "@opentelemetry/sdk-trace-base",
+      "@opentelemetry/sdk-trace-node",
+      "@opentelemetry/semantic-conventions"
+    ]
   }
 }

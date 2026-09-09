@@ -14,6 +14,7 @@ import { createAgentTools } from "./agent-tools.js";
 import { releaseSandbox } from "./agent-sandbox.js";
 import { agentSession } from "./agent-session.js";
 import { deliverTaskUpdates } from "./agent-updates.js";
+import { restoreSessionCheckpoint } from "./agent-checkpoint.js";
 
 const running = new Map();
 export async function stopAgent(db, threadId, messageId) {
@@ -97,18 +98,7 @@ export async function openAgentRuntime(
         maxOutputLength: 40 * 1024 * 1024,
       }).toString(),
     );
-    for (const [path, bytes] of Object.entries(files)) {
-      if (path === "_cothread_context.json") continue;
-      if (
-        !/^[A-Za-z0-9_./-]+$/.test(path) ||
-        path.startsWith("/") ||
-        path.split("/").includes("..")
-      )
-        throw new Error("无效会话快照路径");
-      const target = join(home, "sessions", path);
-      await mkdir(resolve(target, ".."), { recursive: true });
-      await writeFile(target, Buffer.from(bytes, "base64"));
-    }
+    await restoreSessionCheckpoint(files, home);
   }
   const token = randomBytes(32).toString("hex");
   const thinking = trackThinking(db, job.message_id, session.session_id);

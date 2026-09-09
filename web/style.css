@@ -1352,7 +1352,7 @@ header h2 {
   font-size: 10px;
   color: #7a8d6a;
 }
-.references button {
+.references button:not(.ref) {
   padding: 3px 5px;
   border: 0;
   background: none;

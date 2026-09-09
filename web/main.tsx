@@ -1041,9 +1041,9 @@ function App() {
   const renderRef = (ref: string) => {
     const v = detail?.versions.find((v) => v.id === ref);
     return (
-      <a key={ref} className="ref" href={`/api/versions/${ref}/download`}>
+      <button key={ref} type="button" className="ref" onClick={() => showDocument(ref)}>
         ↗ {v ? `${v.title} · v${v.version}` : ref}
-      </a>
+      </button>
     );
   };
   if (loading || startupError)
@@ -1626,7 +1626,20 @@ function App() {
                         ))}
                         <Markdown
                           remarkPlugins={[remarkGfm]}
-                          components={{ img: () => <span>（图片链接）</span> }}
+                          components={{
+                            img: () => <span>（图片链接）</span>,
+                            a: ({ href, children }) => {
+                              let versionId: string | undefined;
+                              try {
+                                const url = new URL(href || "", location.origin);
+                                if (url.origin === location.origin)
+                                  versionId = url.pathname.match(/^\/api\/versions\/([\da-f-]+)(?:\/download)?\/?$/i)?.[1];
+                              } catch {}
+                              return versionId
+                                ? <button type="button" className="ref" onClick={() => showDocument(versionId)}>{children}</button>
+                                : <a href={href}>{children}</a>;
+                            },
+                          }}
                         >
                           {m.body}
                         </Markdown>

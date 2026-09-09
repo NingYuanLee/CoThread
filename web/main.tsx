@@ -4,7 +4,7 @@ import {
   SUMMARY_REQUEST,
   mentionsAgent,
 } from "../shared/agent-member.js";
-import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import { createMcpInstallGuide } from "../shared/mcp-guide.js";
@@ -12,6 +12,7 @@ import { configureMakers, invokeMakers, wakeMakers } from "./makers";
 const Documents = lazy(() =>
   import("./Documents").then((module) => ({ default: module.Documents })),
 );
+import { MessageNavigator } from "./MessageNavigator";
 import { ChatComposer } from "./ChatComposer";
 import { ContextMeter } from "./ContextMeter";
 import { Notifications } from "./Notifications";
@@ -402,6 +403,11 @@ function App() {
     return () => clearInterval(timer);
   }, []);
   const conversationRef = useRef<HTMLDivElement>(null);
+  const navigationUntil = useRef(0);
+  const navigateMessage = useCallback(() => {
+    followConversation.current = false;
+    navigationUntil.current = Date.now() + 1500;
+  }, []);
   const followConversation = useRef(true);
   const [refs, setRefs] = useState<string[]>([]);
   const uploadTarget = useRef<((files: File[]) => void) | null>(null);
@@ -1470,6 +1476,8 @@ function App() {
           </div>
         ) : (
           <>
+            <div className="conversation-stage">
+            <MessageNavigator key={threadId} messages={thread.messages} container={conversationRef} onNavigate={navigateMessage} />
             <div
               className="conversation"
               aria-live="polite"
@@ -1478,7 +1486,7 @@ function App() {
                 const el = e.currentTarget;
                 followConversation.current =
                   el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-                if (el.scrollTop < 80 && !followConversation.current) void loadHistory();
+                if (el.scrollTop < 80 && !followConversation.current && Date.now() > navigationUntil.current) void loadHistory();
               }}
             >
               {thread.archive_snapshot && (
@@ -1502,6 +1510,7 @@ function App() {
               {thread.messages.map((m) => (
                 <React.Fragment key={m.id}>
                   <article
+                    data-message-id={m.id}
                     className={`message ${m.source === "system" ? "system" : ""} ${m.author_id === user.id && ["human", "local_ai"].includes(m.source) ? "own" : ""}`}
                     key={m.id}
                   >
@@ -1631,6 +1640,7 @@ function App() {
                     {thread.runs[0].output} 可重新发起任务。
                   </div>
                 )}
+            </div>
             </div>
             <div className="composer-area">
               {

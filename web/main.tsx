@@ -1526,7 +1526,7 @@ function App() {
                 <React.Fragment key={m.render_key || m.id}>
                   <article
                     data-message-id={m.id}
-                    className={`message ${m.source === "system" ? "system" : ""} ${m.author_id === user.id && ["human", "local_ai"].includes(m.source) ? "own" : ""}`}
+                    className={`message ${m.author_id === user.id && m.source !== "assistant" ? "own" : ""}`}
                     key={m.render_key || m.id}
                   >
                     <span
@@ -1613,6 +1613,11 @@ function App() {
                           {m.body}
                         </Markdown>
                       </div>
+                      {!!m.refs.length && (
+                        <div className="references">
+                          {m.refs.map(renderRef)}
+                        </div>
+                      )}
                       {!!m.body.trim() && !m.id.startsWith('agent-reception:') && <div className="message-actions">
                         <button type="button" title={copiedMessage === m.id ? "已复制" : "复制"} aria-label={copiedMessage === m.id ? "已复制" : "复制"} onClick={() => void copyMessage(m)}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedMessage === m.id ? <path d="m4 10 4 4 8-8"/> : <><rect x="3" y="7" width="11" height="11" rx="4"/><path d="M7 4a4 4 0 0 1 4-3h3a4 4 0 0 1 4 4v5a4 4 0 0 1-2 3.5"/></>}</svg></button>
                         <button type="button" title="引用" aria-label="引用" disabled={!active || (m.id.startsWith("agent-task:") && !m.quoteTargetId)} onClick={() => {
@@ -1623,11 +1628,6 @@ function App() {
                         }}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 5H3v6h5V5Zm9 0h-5v6h5V5ZM8 11c0 3-2 4-4 4m13-4c0 3-2 4-4 4"/></svg></button>
                         {m.source==='assistant'&&<MessageUsage record={m.agent_task_id?thread.replies.find(r=>r.message_id===m.agent_task_id):thread.requests.find(r=>r.response_id===m.id)} finishedAt={m.created_at} createdAt={thread.messages.find(item=>item.id===(m.agent_task_id||thread.requests.find(r=>r.response_id===m.id)?.message_id))?.created_at}/>}
                       </div>}
-                      {!!m.refs.length && (
-                        <div className="references">
-                          {m.refs.map(renderRef)}
-                        </div>
-                      )}
                     </div>
                   </article>
                 </React.Fragment>

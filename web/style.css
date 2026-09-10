@@ -1342,13 +1342,6 @@ header h2 {
 }
 .message .message-text > * { margin-block:0; }
 .message .message-text > * + * { margin-top:12px; }
-.message.system p {
-  padding: 11px 15px;
-  background: #f2f5ed;
-  border: 1px solid #e6ecdf;
-  border-radius: 6px;
-  font-size: 12px;
-}
 .references {
   display: flex;
   gap: 8px;

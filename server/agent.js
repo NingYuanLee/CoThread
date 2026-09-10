@@ -15,6 +15,7 @@ import { releaseSandbox } from "./agent-sandbox.js";
 import { agentSession } from "./agent-session.js";
 import { deliverTaskUpdates } from "./agent-updates.js";
 import { restoreSessionCheckpoint } from "./agent-checkpoint.js";
+import { createUsageMeter, saveReplyUsage } from './agent-usage.js';
 
 const running = new Map();
 export async function stopAgent(db, threadId, messageId) {
@@ -332,6 +333,7 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
   let cancellationTimer;
   let completed = false;
   let polling = Promise.resolve();
+  const usageMeter=createUsageMeter();let modelStarted,modelFinished;
   try {
     const prompt = `你是共序项目中的助理，姓名是小祥。当前项目 ID：${context.project_id}。迭代 ID：${job.thread_id}。沙箱工作区 /home/user/cothread/${agentSession(job).id}。
 ${job.parent_message_id ? `你是主助手为本条请求分派的临时子 Agent。只负责下面指定的成员请求，不接管其他 Agent 的任务。使用独立工作区；通过项目文档库共享已保存的成果，不能声称知道其他 Agent 尚未发布的结果。` : ""}
@@ -361,10 +363,10 @@ ${job.parent_message_id ? `你是主助手为本条请求分派的临时子 Agen
         }, 1000);
         cancellationTimer.unref();
       }),
-      harness.run(prompt, {
+      (modelStarted=performance.now(),harness.run(prompt, {
         sessionId: session.session_id,
-        onNotification: thinking.notify,
-      }),
+        onNotification: notification=>{if(notification.method==='session.event'&&notification.params?.sessionId===session.session_id)usageMeter.notify(notification.params.event);thinking.notify(notification);},
+      })),
       new Promise((_, reject) => {
         timer = setTimeout(
           () => reject(new Error("Agent 执行超过 10 分钟")),
@@ -372,6 +374,7 @@ ${job.parent_message_id ? `你是主助手为本条请求分派的临时子 Agen
         );
       }),
     ]);
+    modelFinished=performance.now();
     if (!result.finalResponse?.trim()) throw new Error("Agent 未返回最终结果");
     await thinking.close("completed", result.finalResponse);
     completed = true;
@@ -382,6 +385,7 @@ ${job.parent_message_id ? `你是主助手为本条请求分派的临时子 Agen
     clearTimeout(timer);
     clearInterval(cancellationTimer);
     await polling;
+    if(modelStarted!==undefined)await saveReplyUsage(db,job.message_id,{...usageMeter.result(),model:process.env.CHAT_MODEL||'deepseek-v4-flash',executionDurationMs:Math.round((modelFinished??performance.now())-modelStarted)}).catch(error=>console.error('Usage persistence failed',{type:error.name}));
     if (owned) await runtime.close(completed);
   }
 }

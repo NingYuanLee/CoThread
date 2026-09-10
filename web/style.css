@@ -3404,6 +3404,12 @@ summary {
 }
 
 .message-actions { display: flex; gap: 12px; margin-top: 6px; }
+.message-usage { position:relative; margin-left:auto; align-self:center; }
+.message-actions .message-usage-trigger { padding:4px 0; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.message-usage-popover { position:fixed; z-index:100; box-sizing:border-box; max-height:calc(100vh - 16px); overflow:auto; width:min(290px,70vw); padding:16px; border:1px solid #e0e7dc; border-radius:10px; background:#fff; box-shadow:0 5px 24px #27362f18; font-size:12px; color:#5e6c56; }
+.message-usage-popover dl { display:grid; grid-template-columns:1fr auto; gap:8px 12px; margin:12px 0; }
+.message-usage-popover dd { margin:0; text-align:right; overflow-wrap:anywhere; }
+.message-usage-popover p { font-size:11px; color:#83917d; margin:8px 0 0; }
 .message-actions button { border: 0; background: transparent; padding: 2px 0; font-size: 11px; color: #83917d; }
 .message-actions button:hover { color: #3f5945; }
 .message-quotes { display: grid; gap: 5px; margin: 6px 0; }

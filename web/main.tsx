@@ -1,4 +1,5 @@
 import { AgentActivity } from "./AgentActivity";
+import { MessageUsage, type UsageStats } from './MessageUsage';
 import { useAgentLiveOutput } from "./useAgentLiveOutput";
 import { taskTimeline } from "./chat-timeline";
 import { apiFetch, fetchJson } from "./api-fetch";
@@ -307,11 +308,12 @@ type Thread = {
     finished_at?: string | null;
     started_at?: string;
     first_response_at?: string | null;
+    usage_stats?: UsageStats | string | null;
     error: string | null;
     progress: string | null;
   }[];
   updates: { message_id: string; task_message_id: string; delivered_at: string | null }[];
-  requests: { first_response_at?: string | null; message_id: string; status: string; response_id: string | null; error: string | null }[];
+  requests: { usage_stats?: UsageStats | string | null; first_response_at?: string | null; message_id: string; status: string; response_id: string | null; error: string | null }[];
   events: {
     id: string;
     message_id: string;
@@ -1619,6 +1621,7 @@ function App() {
                           setQuotedMessages(previous => previous.some(q => q.id === id) ? previous : [...previous, {...original, id}].slice(0,10));
                           requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus());
                         }}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 5H3v6h5V5Zm9 0h-5v6h5V5ZM8 11c0 3-2 4-4 4m13-4c0 3-2 4-4 4"/></svg></button>
+                        {m.source==='assistant'&&<MessageUsage record={m.agent_task_id?thread.replies.find(r=>r.message_id===m.agent_task_id):thread.requests.find(r=>r.response_id===m.id)} finishedAt={m.created_at} createdAt={thread.messages.find(item=>item.id===(m.agent_task_id||thread.requests.find(r=>r.response_id===m.id)?.message_id))?.created_at}/>}
                       </div>}
                       {!!m.refs.length && (
                         <div className="references">

@@ -49,7 +49,9 @@ export async function decideDispatch(context, job, request = fetch) {
   });
   if (!response.ok) throw new Error(`Coordinator HTTP ${response.status}`);
   const data = await response.json();
-  return decisionSchema.parse(JSON.parse(data.choices?.[0]?.message?.content || "null"));
+  const decision=decisionSchema.parse(JSON.parse(data.choices?.[0]?.message?.content || "null"));
+  const u=data.usage;
+  return {...decision,usage:u?{inputTokens:Math.max(0,(u.prompt_tokens||0)-(u.prompt_cache_hit_tokens||0)),cacheReadTokens:u.prompt_cache_hit_tokens||0,cacheWriteTokens:0,outputTokens:u.completion_tokens||0,reasoningTokens:u.completion_tokens_details?.reasoning_tokens??null,totalTokens:(u.prompt_tokens||0)+(u.completion_tokens||0),calls:1}:null};
 }
 
 export async function processNextCoordinator(db, threadId, decide = decideDispatch) {
@@ -90,7 +92,9 @@ export async function processNextCoordinator(db, threadId, decide = decideDispat
     const thread = await service.thread(user, job.thread_id, true);
     const context = await dispatchContext(db, thread, job);
     const loaded = performance.now();
-    const decision = decisionSchema.parse(await decide(context, job));
+    const rawDecision=await decide(context, job);
+    const decision = decisionSchema.parse(rawDecision);
+    const usageStats={...rawDecision.usage,model:process.env.CHAT_MODEL||'deepseek-v4-flash',executionDurationMs:Math.round(performance.now()-loaded)};
     const firstResponseAt = new Date();
     console.log('Agent timing', { messageId:job.message_id, stage:'routing', contextMs:Math.round(loaded-started), modelMs:Math.round(performance.now()-loaded) });
     if (decision.action === "silent" && (mentionsAgent(job.body) || job.participation === "reply")) {
@@ -148,7 +152,7 @@ export async function processNextCoordinator(db, threadId, decide = decideDispat
           `UPDATE assistant_replies SET status='completed',participation=?,reply_id=?,progress='主助手已回应',finished_at=UTC_TIMESTAMP(3)
            WHERE message_id=?`, [decision.action === "silent" ? "silent" : "reply", responseId, job.message_id]);
       }
-      await query(conn, "UPDATE agent_requests SET status='completed',response_id=?,error=NULL,first_response_at=? WHERE message_id=?", [responseId, firstResponseAt, job.message_id]);
+      await query(conn, "UPDATE agent_requests SET status='completed',response_id=?,error=NULL,first_response_at=?,usage_stats=? WHERE message_id=?", [responseId, firstResponseAt, JSON.stringify(usageStats), job.message_id]);
     });
   } catch (error) {
     await transaction(db, async (conn) => {

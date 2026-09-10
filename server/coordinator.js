@@ -94,7 +94,7 @@ export async function processNextCoordinator(db, threadId, decide = decideDispat
     const loaded = performance.now();
     const rawDecision=await decide(context, job);
     const decision = decisionSchema.parse(rawDecision);
-    const usageStats={...rawDecision.usage,model:process.env.CHAT_MODEL||'deepseek-v4-flash',executionDurationMs:Math.round(performance.now()-loaded)};
+    const usageStats={...rawDecision.usage,provider:'deepseek-official',model:process.env.CHAT_MODEL||'deepseek-v4-flash',executionDurationMs:Math.round(performance.now()-loaded)};
     const firstResponseAt = new Date();
     console.log('Agent timing', { messageId:job.message_id, stage:'routing', contextMs:Math.round(loaded-started), modelMs:Math.round(performance.now()-loaded) });
     if (decision.action === "silent" && (mentionsAgent(job.body) || job.participation === "reply")) {

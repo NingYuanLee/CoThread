@@ -385,7 +385,7 @@ ${job.parent_message_id ? `你是主助手为本条请求分派的临时子 Agen
     clearTimeout(timer);
     clearInterval(cancellationTimer);
     await polling;
-    if(modelStarted!==undefined)await saveReplyUsage(db,job.message_id,{...usageMeter.result(),model:process.env.CHAT_MODEL||'deepseek-v4-flash',executionDurationMs:Math.round((modelFinished??performance.now())-modelStarted)}).catch(error=>console.error('Usage persistence failed',{type:error.name}));
+    if(modelStarted!==undefined)await saveReplyUsage(db,job.message_id,{...usageMeter.result(),provider:'deepseek-official',model:process.env.CHAT_MODEL||'deepseek-v4-flash',executionDurationMs:Math.round((modelFinished??performance.now())-modelStarted)}).catch(error=>console.error('Usage persistence failed',{type:error.name}));
     if (owned) await runtime.close(completed);
   }
 }

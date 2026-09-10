@@ -29,7 +29,7 @@
 }
 .agent-trace-row {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   gap: 12px;
 }
 .agent-trace-row > .agent-trace {
@@ -3403,15 +3403,21 @@ summary {
   }
 }
 
-.message-actions { display: flex; gap: 12px; margin-top: 6px; }
-.message-usage { position:relative; margin-left:auto; align-self:center; }
-.message-actions .message-usage-trigger { padding:4px 0; white-space:nowrap; font-variant-numeric:tabular-nums; }
-.message-usage-popover { position:fixed; z-index:100; box-sizing:border-box; max-height:calc(100vh - 16px); overflow:auto; width:min(290px,70vw); padding:16px; border:1px solid #e0e7dc; border-radius:10px; background:#fff; box-shadow:0 5px 24px #27362f18; font-size:12px; color:#5e6c56; }
-.message-usage-popover dl { display:grid; grid-template-columns:1fr auto; gap:8px 12px; margin:12px 0; }
+.message-actions { display: flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:10px; }
+.message-usage { display:flex; align-items:center; gap:4px; margin-left:auto; color:#858991; }
+.message-actions .message-usage-trigger { gap:6px; padding:6px 8px; border-radius:16px; white-space:nowrap; font-size:12px; font-variant-numeric:tabular-nums; }
+.message-actions .message-usage-trigger:hover,.message-actions .message-usage-trigger[aria-expanded="true"] { background:#f1f2f3; color:#646971; }
+.message-usage-time { font-size:12px; margin-left:6px; white-space:nowrap; }
+.message-usage svg { flex-shrink:0; }
+.message-usage-popover { position:fixed; z-index:100; box-sizing:border-box; max-height:calc(100vh - 16px); overflow:auto; width:min(450px,calc(100vw - 16px)); padding:18px 20px; border:1px solid #ececef; border-radius:14px; background:#fff; box-shadow:0 5px 24px #0000000d; font-size:13px; color:#6d7179; }
+.message-usage-popover.time { width:min(350px,calc(100vw - 16px)); }
+.message-usage-popover header { display:flex; align-items:center; gap:8px; padding-bottom:14px; border-bottom:1px solid #e4e4e7; color:#202327; font-size:14px; }
+.message-usage-popover header strong { margin-left:auto; font-weight:600; }
+.message-usage-popover dl { display:grid; grid-template-columns:auto minmax(0,1fr); gap:10px 20px; margin:14px 0 0; }
+.message-usage-popover dt { color:#898d96; }
 .message-usage-popover dd { margin:0; text-align:right; overflow-wrap:anywhere; }
-.message-usage-popover p { font-size:11px; color:#83917d; margin:8px 0 0; }
-.message-actions button { border: 0; background: transparent; padding: 2px 0; font-size: 11px; color: #83917d; }
-.message-actions button:hover { color: #3f5945; }
+.message-actions button { border:0; background:transparent; padding:2px 0; font-size:11px; color:#858991; }
+.message-actions button:hover { color:#646971; }
 .message-quotes { display: grid; gap: 5px; margin: 6px 0; }
 .message-quote { display: flex; flex-direction: column; text-align: left; gap: 3px; border: 0; border-left: 2px solid #b9c6ad; border-radius: 0; background: #f3f5f0; padding: 6px 10px; max-width: 100%; font-size: 11px; }
 .message-quote span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
@@ -3425,14 +3431,13 @@ summary {
 .agent-reasoning summary { cursor: pointer; }
 .agent-reasoning > div { white-space: pre-wrap; max-height: 180px; overflow-y: auto; margin-top: 6px; line-height: 1.65; overflow-wrap: anywhere; }
 .agent-stream-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; margin: 6px 0; }
-.agent-activity-items { display:flex; flex-direction:column; gap:12px; margin-top:12px; padding:0; }
+.agent-activity-items { display:flex; flex-direction:column; gap:12px; margin:0 0 4px; padding:0; }
 .agent-phase { margin:0; }
-.agent-first-response { margin-top:12px; }
 
 .agent-phase > div { overflow-wrap: anywhere; }
 
 .agent-trace > summary { border-bottom: 1px solid #e4e9df; padding-bottom: 8px; }
-.agent-status-line { display:flex; align-items:center; gap:7px; border-bottom:1px solid #e4e9df; padding:3px 0 8px; }
+.agent-status-line { display:flex; align-items:center; gap:7px; border-bottom:1px solid #e4e9df; padding:8px 0; }
 .agent-trace > button.agent-status-line { width:100%; border:0; border-bottom:1px solid #e4e9df; border-radius:0; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
 .message-actions button { display:inline-flex; align-items:center; justify-content:center; padding:4px; }
 .agent-elapsed { margin-left:auto; flex-shrink:0; color:#8b9689; font-size:12px; font-variant-numeric:tabular-nums; }

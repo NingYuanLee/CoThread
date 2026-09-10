@@ -1614,7 +1614,7 @@ function App() {
                         </Markdown>
                       </div>
                       {!!m.body.trim() && !m.id.startsWith('agent-reception:') && <div className="message-actions">
-                        <button type="button" title={copiedMessage === m.id ? "已复制" : "复制"} aria-label={copiedMessage === m.id ? "已复制" : "复制"} onClick={() => void copyMessage(m)}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedMessage === m.id ? <path d="m4 10 4 4 8-8"/> : <><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M12 4V3H3v9h1"/></>}</svg></button>
+                        <button type="button" title={copiedMessage === m.id ? "已复制" : "复制"} aria-label={copiedMessage === m.id ? "已复制" : "复制"} onClick={() => void copyMessage(m)}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedMessage === m.id ? <path d="m4 10 4 4 8-8"/> : <><rect x="3" y="7" width="11" height="11" rx="4"/><path d="M7 4a4 4 0 0 1 4-3h3a4 4 0 0 1 4 4v5a4 4 0 0 1-2 3.5"/></>}</svg></button>
                         <button type="button" title="引用" aria-label="引用" disabled={!active || (m.id.startsWith("agent-task:") && !m.quoteTargetId)} onClick={() => {
                           const id = m.quoteTargetId || m.id;
                           const original = thread.messages.find(item => item.id === id) || m;

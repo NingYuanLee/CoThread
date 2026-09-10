@@ -19,27 +19,16 @@ export function AgentActivity({threadId,messageId,events,output,status,hasFinal,
  const timestamp=(value?:string|null)=>value?Date.parse(value.replace(' ','T')+(/Z$|[+-]\d\d:\d\d$/.test(value)?'':'Z')):NaN;
  const seconds=Math.max(0,Math.floor(((running?now:timestamp(finishedAt))-timestamp(startedAt))/1000));
  const elapsed=Number.isFinite(seconds)?`${Math.floor(seconds/60)?`${Math.floor(seconds/60)}分`:''}${seconds%60}秒`:'';
- const [open,setOpen]=useState(false);
+ const [open,setOpen]=useState(()=>['queued','running'].includes(status));
  const [texts,setTexts]=useState<Record<string,string>>({});
- const [first,setFirst]=useState<{id:string;tool:string;output:string}>();
  const [error,setError]=useState('');
  const ordered=[...events].sort((a,b)=>BigInt(a.id)<BigInt(b.id)?-1:1);
  const revision=ordered.map(e=>`${e.id}:${e.tool}:${e.status}:${e.finished_at}`).join(',');
  useEffect(()=>{
-  if(!ordered.some(e=>modelPhase(e.tool)))return;
-  const controller=new AbortController();
-  fetchJson(`/api/threads/${threadId}/replies/${messageId}/activity?view=first`,{signal:controller.signal})
-   .then((rows:{id:string;tool:string;output:string}[])=>{if(!controller.signal.aborted&&rows[0])setFirst(previous=>!previous||BigInt(rows[0].id)<=BigInt(previous.id)?rows[0]:previous);})
-   .catch(()=>{});
-  return()=>controller.abort();
- },[threadId,messageId,revision]);
- useEffect(()=>{
-  if(!output?.event_id||!(output.reasoning||output.content))return;
-  const value={id:output.event_id,tool:output.reasoning?'thinking':'assistant_text',output:output.reasoning||output.content};
-  setFirst(previous=>!previous||BigInt(value.id)<=BigInt(previous.id)?value:previous);
+  if(output?.event_id&&(output.content||output.reasoning))setTexts(previous=>({...previous,[output.event_id!]:output.content||output.reasoning}));
  },[output]);
  useEffect(()=>{
-  if(!open)return;const controller=new AbortController();setError('');
+  if(!open||!events.length)return;const controller=new AbortController();setError('');
   fetchJson(`/api/threads/${threadId}/replies/${messageId}/activity`,{signal:controller.signal})
    .then((rows:{id:string;output:string}[])=>{if(!controller.signal.aborted)setTexts(Object.fromEntries(rows.map(r=>[r.id,r.output])));})
    .catch(e=>{if(!controller.signal.aborted)setError(e.message);});
@@ -54,18 +43,14 @@ export function AgentActivity({threadId,messageId,events,output,status,hasFinal,
    :last?.status==='running'?(last.tool==='thinking'?'正在思考':modelPhase(last.tool)?'正在回复':label(last))
     :last?`${modelPhase(last.tool)?'本步处理':label(last)} · ${last.status==='failed'?'失败':'完成'}`:progress||'正在处理';
  const changing=running&&(!startedAt||!!streaming||last?.status==='running');
- const firstTool=ordered.find(e=>String(e.id)===String(first?.id))?.tool||first?.tool;
- const firstVisible=first&&!(hasFinal&&firstTool==='assistant_final');
- const remaining=ordered.filter(e=>String(e.id)!==String(first?.id)&&!(hasFinal&&e.tool==='assistant_final'));
- const extraLive=output?.event_id&&!ordered.some(e=>String(e.id)===String(output.event_id))&&String(output.event_id)!==String(first?.id)&&active;
+ const remaining=ordered.filter(e=>!(hasFinal&&e.tool==='assistant_final'));
+ const extraLive=output?.event_id&&!ordered.some(e=>String(e.id)===String(output.event_id))&&active;
  const hasContent=remaining.some(e=>!modelPhase(e.tool)||e.status!=='running'||!!texts[e.id]||String(output?.event_id)===String(e.id)&&!!(output?.reasoning||output?.content))||!!extraLive;
  const statusLine=<>
    <span className={`agent-current-step${changing?' agent-step-active':''}`} aria-live="polite" aria-atomic="true">{current}</span>
    {elapsed&&<small className="agent-elapsed">{elapsed}</small>}
   </>;
  return <div className="agent-trace" data-open={open&&hasContent}>
-  {hasContent?<button className="agent-status-line" type="button" aria-expanded={open} title={`${current}；点击展开或收起后续过程`} onClick={()=>setOpen(!open)}>{statusLine}</button>:<div className="agent-status-line">{statusLine}</div>}
-  {firstVisible&&<div className="agent-phase agent-first-response" data-event-id={first.id}><div className="message-text"><Markdown remarkPlugins={[remarkGfm]} components={{img:()=> <span>（图片链接）</span>}}>{first.output}</Markdown></div></div>}
   {open&&hasContent&&<div className="agent-activity-items">
    {remaining.map(e=>{
     if(modelPhase(e.tool)){
@@ -81,5 +66,6 @@ export function AgentActivity({threadId,messageId,events,output,status,hasFinal,
    {!!output?.truncated&&<small>当前阶段的展示内容已达到长度上限。</small>}
    {error&&<p role="status">{error}</p>}
   </div>}
+  {hasContent?<button className="agent-status-line" type="button" aria-expanded={open} title={`${current}；点击展开或收起过程`} onClick={()=>setOpen(!open)}>{statusLine}</button>:<div className="agent-status-line">{statusLine}</div>}
  </div>;
 }

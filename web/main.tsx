@@ -49,7 +49,7 @@ function PanelIcon({ side }: { side: "left" | "right" }) {
     </svg>
   );
 }
-function SidebarIcon({ kind }: { kind: "plus" | "document" }) {
+function SidebarIcon({ kind }: { kind: "plus" | "document" | "info" }) {
   return (
     <svg
       width="18"
@@ -64,6 +64,11 @@ function SidebarIcon({ kind }: { kind: "plus" | "document" }) {
     >
       {kind === "plus" ? (
         <path d="M12 5v14M5 12h14" />
+      ) : kind === "info" ? (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v6M12 7h.01" />
+        </>
       ) : (
         <>
           <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
@@ -1362,6 +1367,24 @@ function App() {
           ▤ {showArchived ? "隐藏已归档" : "查看已归档"}
         </button>
         <div className="sidebar-bottom">
+          <a
+            className="sidebar-card sidebar-about"
+            href="/about_us.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="关于我们（在新标签页打开）"
+            aria-label="关于我们（在新标签页打开）"
+          >
+            <span className="sidebar-card-icon">
+              <SidebarIcon kind="info" />
+            </span>
+            <span className="sidebar-card-copy">
+              关于我们<small>了解共序 CoThread</small>
+            </span>
+            <span className="sidebar-card-action" aria-hidden="true">
+              ↗
+            </span>
+          </a>
           <button
             className="sidebar-card sidebar-library"
             title="项目文档库"

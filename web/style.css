@@ -3013,7 +3013,12 @@ summary {
 .sidebar-card:hover:not(:disabled) {
   background: #e9eee5;
 }
-.app-shell .sidebar-bottom > .sidebar-profile {
+.app-shell .sidebar-bottom > .sidebar-about {
+  color: inherit;
+  font-size: 12px;
+  text-decoration: none;
+}
+.app-shell .sidebar-bottom > .sidebar-card + .sidebar-card {
   margin-top: 12px;
 }
 .app-shell.left-closed .sidebar .section-label {

@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<script>document.documentElement.classList.add("js");</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>共序 CoThread · 让每次讨论都有承接，让每个决定都有出处</title>
+<meta name="description" content="共序 CoThread —— 面向小团队的协作工作台。项目是长期工作空间，一次迭代对应一个群聊：AI 执行、人工审核、版本留痕、归档不可改。">
+<style>
+  :root{
+    --bg:#070a12;
+    --bg-soft:#0c111d;
+    --card:rgba(255,255,255,.035);
+    --line:rgba(140,170,255,.16);
+    --line-strong:rgba(140,170,255,.34);
+    --txt:#e8eefc;
+    --txt-dim:#95a3c0;
+    --txt-mute:#6b7897;
+    --cyan:#48e5ff;
+    --blue:#6c8cff;
+    --violet:#a97bff;
+    --radius:16px;
+    --maxw:1140px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);
+    color:var(--txt);
+    font-family:"Inter","Segoe UI",system-ui,-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  /* 背景光晕 */
+  .glow{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+  .glow i{position:absolute;display:block;border-radius:50%;filter:blur(90px);opacity:.5}
+  .glow i:nth-child(1){width:520px;height:520px;left:-140px;top:-160px;background:radial-gradient(circle,rgba(72,229,255,.42),transparent 70%)}
+  .glow i:nth-child(2){width:600px;height:600px;right:-200px;top:60px;background:radial-gradient(circle,rgba(108,140,255,.32),transparent 70%)}
+  .glow i:nth-child(3){width:520px;height:520px;left:35%;bottom:-260px;background:radial-gradient(circle,rgba(169,123,255,.24),transparent 70%)}
+  .grid-bg{
+    position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(140,170,255,.055) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(140,170,255,.055) 1px,transparent 1px);
+    background-size:64px 64px;
+    mask-image:radial-gradient(ellipse 80% 60% at 50% 0%,#000 20%,transparent 75%);
+    -webkit-mask-image:radial-gradient(ellipse 80% 60% at 50% 0%,#000 20%,transparent 75%);
+  }
+  .wrap{position:relative;z-index:1;max-width:var(--maxw);margin:0 auto;padding:0 24px}
+
+  /* 导航 */
+  header{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);
+    background:rgba(7,10,18,.72);border-bottom:1px solid var(--line)}
+  .nav{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.02em}
+  .mark{width:26px;height:26px;border-radius:8px;position:relative;
+    background:linear-gradient(135deg,var(--cyan),var(--blue) 55%,var(--violet));
+    box-shadow:0 0 22px rgba(72,229,255,.35)}
+  .mark::after{content:"";position:absolute;inset:7px;border-radius:3px;background:var(--bg);opacity:.85}
+  .brand small{font-weight:500;color:var(--txt-mute);letter-spacing:.16em;font-size:11px;text-transform:uppercase}
+  .nav ul{display:flex;gap:26px;list-style:none}
+  .nav a{color:var(--txt-dim);text-decoration:none;font-size:14px;transition:color .2s}
+  .nav a:hover{color:var(--cyan)}
+  .nav .cta{color:var(--txt);border:1px solid var(--line-strong);padding:7px 14px;border-radius:999px}
+  .nav .cta:hover{border-color:var(--cyan);color:var(--cyan)}
+  @media(max-width:860px){.nav ul{display:none}}
+
+  /* Hero */
+  .hero{padding:104px 0 76px;text-align:center}
+  .pill{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--txt-dim);
+    border:1px solid var(--line);border-radius:999px;padding:6px 14px;background:var(--card)}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+  h1{font-size:clamp(32px,5.2vw,58px);line-height:1.2;letter-spacing:-.02em;margin:26px 0 0;font-weight:760}
+  h1 .grad{background:linear-gradient(100deg,var(--cyan),var(--blue) 48%,var(--violet));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .lead{max-width:720px;margin:24px auto 0;color:var(--txt-dim);font-size:clamp(15px,1.6vw,17.5px)}
+  .btns{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:38px}
+  .btn{display:inline-block;text-decoration:none;font-size:14.5px;font-weight:600;
+    padding:12px 24px;border-radius:12px;transition:.22s}
+  .btn.primary{color:#04121a;background:linear-gradient(120deg,var(--cyan),var(--blue));
+    box-shadow:0 10px 34px rgba(72,229,255,.22)}
+  .btn.primary:hover{transform:translateY(-2px);box-shadow:0 14px 40px rgba(72,229,255,.34)}
+  .btn.ghost{color:var(--txt);border:1px solid var(--line-strong)}
+  .btn.ghost:hover{border-color:var(--cyan);color:var(--cyan);transform:translateY(-2px)}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:64px}
+  .stat{border:1px solid var(--line);background:var(--card);border-radius:var(--radius);padding:18px 16px}
+  .stat b{display:block;font-size:22px;font-weight:700;
+    background:linear-gradient(120deg,var(--cyan),var(--blue));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .stat span{font-size:12.5px;color:var(--txt-mute)}
+  @media(max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}}
+
+  /* 通用 section */
+  section{padding:74px 0;position:relative}
+  .kicker{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--cyan);font-weight:600}
+  h2{font-size:clamp(24px,3.2vw,34px);letter-spacing:-.01em;margin:12px 0 14px;font-weight:720}
+  .sub{color:var(--txt-dim);max-width:760px;font-size:15.5px}
+  .cards{display:grid;gap:18px;margin-top:42px}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  @media(max-width:900px){.g3,.g2{grid-template-columns:1fr}}
+  .card{border:1px solid var(--line);background:var(--card);border-radius:var(--radius);
+    padding:24px;position:relative;overflow:hidden;transition:.25s}
+  .card::before{content:"";position:absolute;left:0;top:0;height:2px;width:0;
+    background:linear-gradient(90deg,var(--cyan),var(--violet));transition:width .35s}
+  .card:hover{transform:translateY(-3px);border-color:var(--line-strong);background:rgba(255,255,255,.055)}
+  .card:hover::before{width:100%}
+  .ico{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:18px;
+    background:rgba(72,229,255,.1);border:1px solid rgba(72,229,255,.24);margin-bottom:16px}
+  .card h3{font-size:16.5px;margin-bottom:8px;font-weight:660}
+  .card p{color:var(--txt-dim);font-size:14.2px}
+  .card .tag{display:inline-block;margin-top:14px;font-size:11.5px;color:var(--txt-mute);
+    border:1px solid var(--line);border-radius:999px;padding:3px 10px}
+
+  /* 流程 */
+  .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:42px;counter-reset:s}
+  .step{border:1px solid var(--line);border-radius:var(--radius);padding:22px;background:var(--card);position:relative}
+  .step .n{font-size:12px;font-weight:700;color:var(--cyan);letter-spacing:.14em}
+  .step h3{font-size:15.5px;margin:10px 0 8px}
+  .step p{color:var(--txt-dim);font-size:13.8px}
+  .step:not(:last-child)::after{content:"→";position:absolute;right:-13px;top:50%;transform:translateY(-50%);
+    color:var(--line-strong);font-size:15px}
+  @media(max-width:900px){.flow{grid-template-columns:1fr}.step:not(:last-child)::after{display:none}}
+
+  /* 架构 */
+  .arch{display:grid;grid-template-columns:1.05fr .95fr;gap:22px;margin-top:42px;align-items:start}
+  @media(max-width:900px){.arch{grid-template-columns:1fr}}
+  .layer{border:1px solid var(--line);border-radius:var(--radius);padding:20px;background:var(--card);margin-bottom:14px}
+  .layer .hd{display:flex;justify-content:space-between;align-items:center;gap:12px;font-weight:650;font-size:15px}
+  .layer .hd em{font-style:normal;font-size:11.5px;color:var(--txt-mute);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+  .layer p{color:var(--txt-dim);font-size:13.8px;margin-top:8px}
+  pre{background:#050810;border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow-x:auto;
+    font-family:"JetBrains Mono",Consolas,"Courier New",monospace;font-size:12.6px;color:#9fd7ff;line-height:1.85}
+  pre .c{color:#4d5b78}
+  .list{list-style:none;margin-top:16px}
+  .list li{color:var(--txt-dim);font-size:14.2px;padding-left:22px;position:relative;margin-bottom:9px}
+  .list li::before{content:"";position:absolute;left:2px;top:9px;width:7px;height:7px;border-radius:2px;
+    background:linear-gradient(135deg,var(--cyan),var(--blue))}
+  .list.ok li::before{background:linear-gradient(135deg,var(--cyan),var(--blue))}
+  .list.no li::before{background:#4a5570}
+
+  /* 边界 & 注释 */
+  .note{margin-top:22px;border-left:2px solid var(--line-strong);padding:2px 0 2px 16px;color:var(--txt-mute);font-size:13.4px}
+
+  footer{border-top:1px solid var(--line);padding:40px 0 56px;margin-top:24px;position:relative;z-index:1}
+  .foot{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;color:var(--txt-mute);font-size:13px}
+  .foot b{color:var(--txt-dim);font-weight:600}
+
+  /* 仅在 JS 可用时隐藏，避免脚本失效导致正文不可见 */
+  .js .reveal{opacity:0;transform:translateY(18px);transition:opacity .6s ease,transform .6s ease}
+  .js .reveal.in{opacity:1;transform:none}
+  @media(prefers-reduced-motion:reduce){.js .reveal{opacity:1;transform:none;transition:none}html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<div class="glow"><i></i><i></i><i></i></div>
+<div class="grid-bg"></div>
+
+<header>
+  <div class="wrap nav">
+    <div class="brand"><span class="mark"></span>共序 <small>CoThread</small></div>
+    <ul>
+      <li><a href="#about">产品</a></li>
+      <li><a href="#features">能力</a></li>
+      <li><a href="#flow">流程</a></li>
+      <li><a href="#arch">架构</a></li>
+      <li><a href="#start">快速开始</a></li>
+      <li><a class="cta" href="#boundary">实现边界</a></li>
+    </ul>
+  </div>
+</header>
+
+<main>
+  <!-- Hero -->
+  <div class="hero wrap">
+    <span class="pill"><i class="dot"></i>协作应用 · 单实例 · 小团队试用版</span>
+    <h1>让每次讨论都有承接<br><span class="grad">让每个决定都有出处</span></h1>
+    <p class="lead">
+      共序 CoThread 是一个以「项目—迭代—文档版本」为主线的团队协作工作台。
+      项目是长期工作空间，一次迭代对应一个群聊；成员用各自的本地 AI 读取上下文、提交产物，
+      团队人工审核之后归档，结论与出处一并留痕。
+    </p>
+    <div class="btns">
+      <a class="btn primary" href="#features">看核心能力</a>
+      <a class="btn ghost" href="#start">查看启动方式</a>
+    </div>
+    <div class="stats">
+      <div class="stat"><b>1 个</b><span>项目 = 长期工作空间</span></div>
+      <div class="stat"><b>1 个</b><span>迭代 = 一个群聊</span></div>
+      <div class="stat"><b>5 MiB</b><span>单文件上限，SHA-256 校验</span></div>
+      <div class="stat"><b>7 个</b><span>Streamable HTTP MCP 工具</span></div>
+    </div>
+  </div>
+
+  <!-- 产品 -->
+  <section id="about" class="wrap">
+    <div class="reveal">
+      <div class="kicker">Product</div>
+      <h2>共序是什么</h2>
+      <p class="sub">它不只是一个聊天窗口，而是把「讨论」和「交付物」绑在一起的工作台。聊天记录负责上下文，文档库负责成果，两者靠版本号精确关联。</p>
+    </div>
+    <div class="cards g3">
+      <div class="card reveal">
+        <div class="ico">🧭</div>
+        <h3>项目即长期空间</h3>
+        <p>一个账号可加入多个项目，各项目分别分配负责人 / 成员 / 只读权限。账号目录与项目成员分离，新账号不会自动获得任何项目权限。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico">💬</div>
+        <h3>迭代即群聊</h3>
+        <p>消息按数据库序号排序，多人页面定时刷新；聊天里直接显示 AI 执行进度、工具输入与结果，支持停止与失败重试。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico">🗂️</div>
+        <h3>成果即版本</h3>
+        <p>产物保存为不可覆盖的文档版本，带 SHA-256 校验与并发版本编号；上传 ≠ 审批通过，审核与归档由人工完成。</p>
+      </div>
+    </div>
+    <p class="note">本页为纯静态介绍页，内容取自项目文档库中的 README.md（v1），未接入后端接口，也不包含任何真实令牌或账号信息。</p>
+  </section>
+
+  <!-- 能力 -->
+  <section id="features" class="wrap">
+    <div class="reveal">
+      <div class="kicker">Capabilities</div>
+      <h2>已实现的核心能力</h2>
+      <p class="sub">以下能力均以当前版本实际实现的功能为准，按协作链路归类。</p>
+    </div>
+    <div class="cards g3">
+      <div class="card reveal">
+        <div class="ico">🔐</div>
+        <h3>账号与权限</h3>
+        <p>登录、全局账号目录与项目成员分离；同一账号可加入多个项目，负责人可新建通用账号，权限按项目粒度分配。</p>
+        <span class="tag">负责人 / 成员 / 只读</span>
+      </div>
+      <div class="card reveal">
+        <div class="ico">🧾</div>
+        <h3>文档版本与审核</h3>
+        <p>二进制内容入库，5 MiB 单文件限制、SHA-256、不可覆盖的版本与并发版本编号，并保留人工审核记录。</p>
+        <span class="tag">不可覆盖</span>
+      </div>
+      <div class="card reveal">
+        <div class="ico">🔗</div>
+        <h3>精确引用与归档</h3>
+        <p>消息引用精确到文档版本；归档事务一次保存结论、消息、审核、版本摘要与执行结果，归档后不可修改，下一迭代仍可继续引用旧版本。</p>
+        <span class="tag">可追溯</span>
+      </div>
+      <div class="card reveal">
+        <div class="ico">🤖</div>
+        <h3>内置 DSH Agent</h3>
+        <p>可读取项目资料、在 ACS 中创建与编辑文件、执行命令与测试，并把成果保存为文档版本。每个迭代独立会话与工作区。</p>
+        <span class="tag">会话快照入 MySQL</span>
+      </div>
+      <div class="card reveal">
+        <div class="ico">📦</div>
+        <h3>沙箱按需创建</h3>
+        <p>工作区按需创建，续期 15 分钟；过期后可从已保存文档恢复。沙箱临时文件可能过期，只有提交进文档库才算正式留存。</p>
+        <span class="tag">15 分钟续期</span>
+      </div>
+      <div class="card reveal">
+        <div class="ico">🧰</div>
+        <h3>MCP 工具集</h3>
+        <p>7 个 Streamable HTTP 工具自带使用说明：从连接指引、项目与迭代上下文、读取版本，到发消息与提交文档；调用者身份由服务端凭据确定。</p>
+        <span class="tag">Bearer 鉴权</span>
+      </div>
+      <div class="card reveal">
+        <div class="ico">🔑</div>
+        <h3>本地 Agent 连接</h3>
+        <p>账号单令牌、30 天有效、可重置；哈希鉴权 + AES-256-GCM 加密保存，按项目成员权限访问，浏览器中默认遮罩显示。</p>
+        <span class="tag">可重置</span>
+      </div>
+      <div class="card reveal">
+        <div class="ico">🌲</div>
+        <h3>文档库与文件树</h3>
+        <p>右侧项目文档与弹窗复用同一文件树，支持拖拽整理、多级折叠、新建文件夹/文档、上传、移动、重命名、回收站恢复、版本切换、预览与下载。</p>
+        <span class="tag">Markdown / 图片 / PDF 预览</span>
+      </div>
+      <div class="card reveal">
+        <div class="ico">✨</div>
+        <h3>梳理讨论</h3>
+        <p>默认直接调用模型整理最近最多 50 条消息，后台显示进度与错误；它与「可调用工具的 Agent 对话」是两个独立功能。</p>
+        <span class="tag">SUMMARY_MODE=dsh 为可选模式</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 流程 -->
+  <section id="flow" class="wrap">
+    <div class="reveal">
+      <div class="kicker">Workflow</div>
+      <h2>一次协作怎么走完</h2>
+      <p class="sub">从讨论到归档，每一步都留下可回溯的记录；AI 负责执行，人负责决策。</p>
+    </div>
+    <div class="flow">
+      <div class="step reveal"><div class="n">STEP 01</div><h3>讨论与澄清</h3><p>在迭代群聊里提出需求、补充要求与引用已有版本，上下文由消息序号与引用关系固定下来。</p></div>
+      <div class="step reveal"><div class="n">STEP 02</div><h3>Agent 执行</h3><p>勾选「交给 Agent 处理」，Agent 读取项目资料，在 ACS 独立工作区里创建与编辑文件、运行命令与测试。</p></div>
+      <div class="step reveal"><div class="n">STEP 03</div><h3>提交为版本</h3><p>成果保存为新的文档版本（含 SHA-256），进入文档库；本地 AI 令牌不能审批，也不能归档。</p></div>
+      <div class="step reveal"><div class="n">STEP 04</div><h3>人工审核归档</h3><p>人工审核通过后归档，事务保存结论、消息、审核与版本摘要；归档后不可修改，后续迭代可继续引用。</p></div>
+    </div>
+  </section>
+
+  <!-- 架构 -->
+  <section id="arch" class="wrap">
+    <div class="reveal">
+      <div class="kicker">Architecture</div>
+      <h2>架构与存储</h2>
+      <p class="sub">轻量但明确的分工：ACS 是唯一执行后端，MySQL 是业务数据与附件的持久化存储，宿主机只做编排。</p>
+    </div>
+    <div class="arch">
+      <div class="reveal">
+        <div class="layer">
+          <div class="hd"><span>前端 / 协作界面</span><em>web/</em></div>
+          <p>React 页面：迭代群聊、执行进度、文档库文件树、版本预览与下载。</p>
+        </div>
+        <div class="layer">
+          <div class="hd"><span>服务端</span><em>server/</em></div>
+          <p>HTTP API、权限校验、协作业务、MCP 工具与 ACS 接入；MCP 工具由服务端凭据确定调用者身份。</p>
+        </div>
+        <div class="layer">
+          <div class="hd"><span>执行后端</span><em>ACS</em></div>
+          <p>唯一执行后端，负责沙箱创建、命令执行与文件读写；宿主机仅编排 Agent，不直接执行工具。</p>
+        </div>
+        <div class="layer">
+          <div class="hd"><span>持久化</span><em>MySQL 8.4</em></div>
+          <p>业务数据、文档原始字节与不可变版本、会话快照与工具过程。每个文件最多 5 MiB，沙箱回收不会删除已提交文档。</p>
+        </div>
+      </div>
+      <div class="reveal">
+        <div class="kicker">Project layout</div>
+        <pre><span class="c"># 项目结构</span>
+web/          React 页面
+server/       HTTP API、权限、协作业务、MCP、ACS
+migrations/   版本化 MySQL 结构
+scripts/      安装初始化、迁移、示例、连接检查
+tests/        真实数据库集成测试
+docs/         架构与部署说明
+.local/       本机 MySQL 程序、数据、私有配置（不入库）</pre>
+        <ul class="list ok">
+          <li>文档版本不可覆盖，消息引用精确到具体版本号</li>
+          <li>归档事务一次落库：结论、消息、审核、版本摘要、执行结果</li>
+          <li>令牌以哈希鉴权 + AES-256-GCM 加密保存，重置即全部失效</li>
+          <li>当前未接入对象存储，附件本体保存在 MySQL</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 快速开始 -->
+  <section id="start" class="wrap">
+    <div class="reveal">
+      <div class="kicker">Get started</div>
+      <h2>本机启动</h2>
+      <p class="sub">需要 Node.js 22.19+（本机已具备 Node 24），本地 MySQL 8.4.9 便携版监听 127.0.0.1:3307，不注册系统服务。</p>
+    </div>
+    <div class="arch">
+      <div class="reveal">
+        <pre><span class="c"># 初始化与启动</span>
+npm install
+npm run setup
+npm run mysql:start
+npm run db:migrate
+npm run db:seed
+npm run dev
+
+<span class="c"># 打开 http://localhost:3100</span>
+<span class="c"># 初始账号取自 .env 的 ADMIN_EMAIL / ADMIN_PASSWORD</span></pre>
+      </div>
+      <div class="reveal">
+        <ul class="list">
+          <li><b>npm run build</b>：类型检查与前端生产构建</li>
+          <li><b>npm test</b>：真实 MySQL 集成测试，独立随机库、结束后清理</li>
+          <li><b>npm run db:backup</b>：完整备份业务数据与文件内容</li>
+          <li><b>npm run app:start / app:stop</b>：Windows 下启动本地库并后台运行生产版</li>
+          <li>安装 Docker 的机器可用 <b>compose.yaml</b>（mysql:8.4.9），但不要与便携版同时占用 3307</li>
+        </ul>
+        <p class="note">连接本地 Agent：在工作空间设置里创建账号令牌，按 Streamable HTTP 配置 MCP 客户端；令牌缺失或过期时，安装文档会自动创建或更新。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 边界 -->
+  <section id="boundary" class="wrap">
+    <div class="reveal">
+      <div class="kicker">Scope</div>
+      <h2>当前边界</h2>
+      <p class="sub">首版面向小团队单实例试用。以下能力尚未包含，请不要把当前版本当作完成全部生产加固的公共 SaaS。</p>
+    </div>
+    <div class="cards g2">
+      <div class="card reveal">
+        <div class="ico">🚧</div>
+        <h3>暂不包含</h3>
+        <ul class="list no" style="margin-top:6px">
+          <li>邮件邀请、SSO、密码找回</li>
+          <li>推送通知、全文搜索</li>
+          <li>文件在线编辑、对象存储</li>
+          <li>多实例作业调度</li>
+        </ul>
+      </div>
+      <div class="card reveal">
+        <div class="ico">🧭</div>
+        <h3>使用前提</h3>
+        <ul class="list" style="margin-top:6px">
+          <li>审核、归档与成员管理仍由人工进行</li>
+          <li>云端部署需配置 HTTPS 反向代理与数据库 TLS</li>
+          <li>MySQL max_allowed_packet 建议 ≥ 32 MiB</li>
+          <li>升级 DSH 时需同步验证会话恢复适配器</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div><b>共序 CoThread</b> · 让每次讨论都有承接，让每个决定都有出处</div>
+    <div>纯静态介绍页 · 单文件 HTML · 无外部依赖 · 内容依据项目文档库 README.md（v1）</div>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var items = document.querySelectorAll('.reveal');
+    function showAll() {
+      for (var i = 0; i < items.length; i++) items[i].classList.add('in');
+    }
+    // 兜底一：不支持 IntersectionObserver 时全部直接显示
+    if (!('IntersectionObserver' in window)) { showAll(); return; }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { rootMargin: '0px 0px -12% 0px', threshold: 0.08 });
+    for (var j = 0; j < items.length; j++) io.observe(items[j]);
+    // 兜底二：1.2s 内仍未显示的（长页/截图/异常滚动）统一显示，保证正文一定可见
+    window.setTimeout(showAll, 1200);
+    // 兜底三：脚本报错也不留下不可见内容
+    window.addEventListener('error', showAll);
+  })();
+</script>
+</body>
+</html>

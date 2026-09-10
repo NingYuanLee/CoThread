@@ -5,7 +5,7 @@ import { trackLiveOutput } from './agent-live-output.js';
 export function trackThinking(db,messageId,sessionId){
  const started=performance.now();let firstChunk=false;
  let queue=Promise.resolve(),phase,lastPhase,timer,failure,closed=false;
- const enqueue=task=>{queue=queue.then(task).catch(error=>{failure ||= error;});};
+ const enqueue=task=>{queue=queue.then(task).catch(error=>{failure ||= error;});return queue;};
  const received=()=>{if(firstChunk)return;firstChunk=true;const receivedAt=new Date();enqueue(()=>query(db,"UPDATE assistant_replies SET first_response_at=COALESCE(first_response_at,?) WHERE message_id=? AND status='running'",[receivedAt,messageId]));console.log('Agent timing',{messageId,stage:'first_model_chunk',elapsedMs:Math.round(performance.now()-started)});};
  const flushText=()=>{
   clearTimeout(timer);timer=undefined;if(!phase)return;
@@ -20,10 +20,10 @@ export function trackThinking(db,messageId,sessionId){
  };
  const begin=kind=>{
   finish();phase={kind,text:'',id:undefined};const current=phase;
-  enqueue(async()=>{const result=await query(db,"INSERT INTO agent_events(message_id,tool,status,input) SELECT message_id,?,'running','{}' FROM assistant_replies WHERE message_id=? AND status='running'",[kind,messageId]);current.id=result.affectedRows?result.insertId:undefined;
+  current.ready=enqueue(async()=>{const result=await query(db,"INSERT INTO agent_events(message_id,tool,status,input) SELECT message_id,?,'running','{}' FROM assistant_replies WHERE message_id=? AND status='running'",[kind,messageId]);current.id=result.affectedRows?result.insertId:undefined;
     if(current.id)await query(db,"UPDATE assistant_replies SET progress=? WHERE message_id=? AND status='running'",[kind==='thinking'?'正在思考':'正在回复',messageId]);});
  };
- const live=trackLiveOutput(db,messageId,sessionId,{cursor:()=>{const current=phase||lastPhase;return queue.then(()=>current?.id?String(current.id):null);}});
+ const live=trackLiveOutput(db,messageId,sessionId,{cursor:()=>{const current=phase||lastPhase;return (current?.id?Promise.resolve():current?.ready||Promise.resolve()).then(()=>current?.id?String(current.id):null);}});
  return {
   notify(n){
    if(closed||n.method!=='session.event'||n.params?.sessionId!==sessionId)return;

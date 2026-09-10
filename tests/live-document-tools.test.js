@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {testDatabase} from './database.js';
 import {query} from '../server/db.js';
 import {Service} from '../server/service.js';
-import {trackLiveOutput,liveOutputSnapshot} from '../server/agent-live-output.js';
+import {trackLiveOutput,liveOutputSnapshot,observeLiveOutput} from '../server/agent-live-output.js';
 import {documentTool} from '../server/document-tools.js';
 import {createAgentTools} from '../server/agent-tools.js';
 let database,service,user,project,thread,message,job;
@@ -28,6 +28,20 @@ test('real stream deltas are isolated, bounded, reset per step and excluded from
  [row]=await liveOutputSnapshot(database.db,thread.id);assert.equal(row.step,2);assert.equal(row.content,'');assert.equal(row.reasoning.length,16000);assert.equal(row.truncated,1);
  await tracker.close();
 });
+test('same-instance live output arrives before the batched database write and survives closing',async()=>{
+ const tracker=trackLiveOutput(database.db,message.id,'fast',{interval:10000});
+ const emit=(type,data)=>tracker.notify({method:'session.event',params:{sessionId:'fast',event:{type,data}}});
+ emit('step/start',{step:1});await tracker.flush();await liveOutputSnapshot(database.db,thread.id);
+ let cancelTimer;
+ const notified=new Promise((resolve,reject)=>{cancelTimer=setTimeout(()=>reject(new Error('No live notification')),2000);const stop=observeLiveOutput(database.db,()=>{stop();clearTimeout(cancelTimer);resolve();});});
+ try{
+  emit('assistant/chunk',{chunk:{type:'text-delta',text:'无需等待落库'}});await notified;
+  const [live]=await liveOutputSnapshot(database.db,thread.id);assert.equal(live.content,'无需等待落库');
+  const [stored]=await query(database.db,'SELECT content FROM agent_live_output WHERE message_id=?',[message.id]);assert.equal(stored.content,'');
+ }finally{clearTimeout(cancelTimer);await tracker.close();}
+ const [stored]=await query(database.db,'SELECT content FROM agent_live_output WHERE message_id=?',[message.id]);assert.equal(stored.content,'无需等待落库');
+});
+
 test('document tools create folders, rename/move/recycle files and enforce stopped-job guards',async()=>{
  const tools=createAgentTools(service,user,job);
  const folder=await tools('manage_folder',{action:'create',name:'输出'});

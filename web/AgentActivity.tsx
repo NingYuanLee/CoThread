@@ -1,5 +1,4 @@
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import {StreamingMarkdown} from './StreamingMarkdown';
 import React,{useEffect,useState} from 'react';
 import {AgentEvent} from './AgentEvent';
 import {AgentToolIcon} from './AgentToolIcon';
@@ -8,17 +7,12 @@ import {agentLabel} from './agent-label';
 import type {LiveOutput} from './useAgentLiveOutput';
 type Event={id:string;tool:string;status:string;input:string;finished_at:string|null};
 const modelPhase=(tool:string)=>['thinking','assistant_text','assistant_final'].includes(tool);
-export function AgentActivity({threadId,messageId,events,output,status,hasFinal,versions,threads,progress,startedAt,finishedAt}:{
+export function AgentActivity({threadId,messageId,events,output,status,hasFinal,versions,threads,progress}:{
  threadId:string;messageId:string;events:Event[];output?:LiveOutput;status:string;hasFinal:boolean;
  versions?:{id:string;filename:string;version:number}[];threads?:{id:string;title:string}[];
- progress?:string|null;startedAt?:string;finishedAt?:string|null;
+ progress?:string|null;
 }){
- const [now,setNow]=useState(Date.now());
  const running=['queued','running'].includes(status);
- useEffect(()=>{if(!running||!startedAt)return;setNow(Date.now());const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[running,startedAt]);
- const timestamp=(value?:string|null)=>value?Date.parse(value.replace(' ','T')+(/Z$|[+-]\d\d:\d\d$/.test(value)?'':'Z')):NaN;
- const seconds=Math.max(0,Math.floor(((running?now:timestamp(finishedAt))-timestamp(startedAt))/1000));
- const elapsed=Number.isFinite(seconds)?`${Math.floor(seconds/60)?`${Math.floor(seconds/60)}分`:''}${seconds%60}秒`:'';
  const [open,setOpen]=useState(()=>['queued','running'].includes(status));
  const [texts,setTexts]=useState<Record<string,string>>({});
  const [error,setError]=useState('');
@@ -42,13 +36,13 @@ export function AgentActivity({threadId,messageId,events,output,status,hasFinal,
   :streaming&&(output.content||output.reasoning)?(output.content?'正在回复':'正在思考')
    :last?.status==='running'?(last.tool==='thinking'?'正在思考':modelPhase(last.tool)?'正在回复':label(last))
     :last?`${modelPhase(last.tool)?'本步处理':label(last)} · ${last.status==='failed'?'失败':'完成'}`:progress||'正在处理';
- const changing=running&&(!startedAt||!!streaming||last?.status==='running');
+ const changing=running;
  const remaining=ordered.filter(e=>!(hasFinal&&e.tool==='assistant_final'));
  const extraLive=output?.event_id&&!ordered.some(e=>String(e.id)===String(output.event_id))&&active;
  const hasContent=remaining.some(e=>!modelPhase(e.tool)||e.status!=='running'||!!texts[e.id]||String(output?.event_id)===String(e.id)&&!!(output?.reasoning||output?.content))||!!extraLive;
  const statusLine=<>
    <span className={`agent-current-step${changing?' agent-step-active':''}`} aria-live="polite" aria-atomic="true">{current}</span>
-   {elapsed&&<small className="agent-elapsed">{elapsed}</small>}
+   {hasContent&&<svg className="agent-status-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={open?'m3 7 3-3 3 3':'m4.5 3 3 3-3 3'}/></svg>}
   </>;
  return <div className="agent-trace" data-open={open&&hasContent}>
   {open&&hasContent&&<div className="agent-activity-items">
@@ -56,13 +50,13 @@ export function AgentActivity({threadId,messageId,events,output,status,hasFinal,
     if(modelPhase(e.tool)){
      const live=String(output?.event_id)===String(e.id)?(e.tool==='thinking'?output?.reasoning:output?.content):undefined;
      return <div className={`agent-phase ${e.tool==='thinking'?'thinking':'text'}`} data-event-id={e.id} key={e.id}>
-      <div className="message-text"><Markdown remarkPlugins={[remarkGfm]} components={{img:()=> <span>（图片链接）</span>}}>{live||texts[e.id]||(e.status==='running'?'正在生成…':'')}</Markdown></div>
+      <div className="message-text"><StreamingMarkdown active={active&&e.status==='running'} text={live||texts[e.id]||''}/></div>
      </div>;
     }
     const l=agentLabel(e,versions,threads);
     return <AgentEvent key={e.id} threadId={threadId} event={e}><summary><AgentToolIcon category={l.category} status={e.status}/><span className="agent-action-label" title={l.full}>{label(e)}</span><small>{e.status==='running'?'进行中':e.status==='failed'?'失败':'完成'}</small></summary></AgentEvent>;
    })}
-   {extraLive&&<div className="agent-phase"><div className="message-text"><Markdown remarkPlugins={[remarkGfm]} components={{img:()=> <span>（图片链接）</span>}}>{output.content||output.reasoning}</Markdown></div></div>}
+   {extraLive&&<div className="agent-phase"><div className="message-text"><StreamingMarkdown active={active} text={output.content||output.reasoning}/></div></div>}
    {!!output?.truncated&&<small>当前阶段的展示内容已达到长度上限。</small>}
    {error&&<p role="status">{error}</p>}
   </div>}

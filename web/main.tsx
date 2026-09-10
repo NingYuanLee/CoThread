@@ -966,7 +966,7 @@ function App() {
     return (
       <div className="agent-round" data-message-id={reply.message_id}>
         <div className="agent-trace-row">
-          <AgentActivity threadId={threadId} messageId={reply.message_id} events={events} output={output} status={reply.status} progress={makersConnection==='unavailable'?'助手暂时无法连接，消息已保存。':reply.progress} startedAt={reply.status==='queued'?undefined:reply.first_response_at || (output?.status===reply.status?output.first_response_at:undefined) || undefined} finishedAt={reply.finished_at || thread?.messages.find(m=>m.id===reply.reply_id)?.created_at} hasFinal={!!reply.reply_id} versions={detail?.versions} threads={detail?.threads}/>
+          <AgentActivity threadId={threadId} messageId={reply.message_id} events={events} output={output} status={reply.status} progress={makersConnection==='unavailable'?'助手暂时无法连接，消息已保存。':reply.progress} hasFinal={!!reply.reply_id} versions={detail?.versions} threads={detail?.threads}/>
           {stopControl}
         </div>
         {[reply]
@@ -1572,7 +1572,7 @@ function App() {
                         <time>{time(m.created_at)}</time>
                       </div>
                       {m.id.startsWith('agent-reception:') && <AgentActivity threadId={threadId} messageId={m.id.slice('agent-reception:'.length)} events={[]} status="queued" hasFinal={false}/>}
-                      {m.source==='assistant' && thread.requests.filter(r=>r.response_id===m.id).map(r=><AgentActivity key={r.message_id} threadId={threadId} messageId={r.message_id} events={[]} status="completed" startedAt={r.first_response_at || undefined} finishedAt={m.created_at} hasFinal={true}/>)}
+                      {m.source==='assistant' && thread.requests.filter(r=>r.response_id===m.id).map(r=><AgentActivity key={r.message_id} threadId={threadId} messageId={r.message_id} events={[]} status="completed" hasFinal={true}/>)}
                       {m.source === "assistant" &&
                         thread.replies
                           .filter((reply) => m.agent_task_id === reply.message_id || reply.reply_id === m.id)

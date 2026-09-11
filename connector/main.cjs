@@ -359,7 +359,9 @@ async function authorizeInBrowser(config) {
     public: true, body: { name: "Windows 连接器", platform: "windows", version: VERSION },
   });
   log("已打开共序网页，请在浏览器中登录并确认授权。");
-  openBrowser(authorization.verificationUrl);
+  const verificationUrl = new URL("/", config.server);
+  verificationUrl.searchParams.set("connectorAuthorization", authorization.id);
+  openBrowser(verificationUrl.toString());
   const deadline = Date.now() + authorization.expiresIn * 1000;
   while (Date.now() < deadline) {
     await sleep(2000);

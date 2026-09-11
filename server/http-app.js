@@ -25,11 +25,11 @@ import { randomUUID } from "node:crypto";
 import { randomInt } from "node:crypto";
 import { digest } from "./auth.js";
 import { sendVerificationEmail as deliverVerificationEmail } from "./email-delivery.js";
-import svgCaptcha from "svg-captcha";
+import { createHumanChallenge as generateHumanChallenge } from "./human-challenge.js";
 
 export function createApp(db, { makers = false, afterMcpMessage, executeRun, stopAgent = async () => {},
   sendVerificationEmail = deliverVerificationEmail,
-  createHumanChallenge = () => svgCaptcha.create({ size: 5, noise: 3, color: true, background: "#f5f6f2", ignoreChars: "0oO1ilI" }) } = {}) {
+  createHumanChallenge = generateHumanChallenge } = {}) {
   const app = express();
   const service = new Service(db);
   app.disable("x-powered-by");

@@ -1670,8 +1670,6 @@ header h2 {
 .project-settings-value { margin: 10px 0 0; overflow-wrap: anywhere; line-height: 1.7; }
 .project-settings-archive { border-top: 1px solid #edf0e6; padding-top: 22px; display: grid; gap: 10px; }
 .project-settings-error { color: #b34839; }
-.project-settings-dialog { width: min(520px, calc(100vw - 32px)); }
-.project-settings-dialog > .project-settings { padding: 24px; }
 .panel-tabs button {
   border: 0;
   background: none;

@@ -58,7 +58,7 @@ function PanelIcon({ side }: { side: "left" | "right" }) {
     </svg>
   );
 }
-function SidebarIcon({ kind }: { kind: "plus" | "document" | "info" | "monitor" | "settings" }) {
+function SidebarIcon({ kind }: { kind: "plus" | "monitor" }) {
   return (
     <svg
       width="18"
@@ -71,30 +71,15 @@ function SidebarIcon({ kind }: { kind: "plus" | "document" | "info" | "monitor" 
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      {kind === "plus" ? (
-        <path d="M12 5v14M5 12h14" />
-      ) : kind === "monitor" ? (
+      {kind === "monitor" ? (
         <>
           <path d="M4 19V9M10 19V5M16 19v-7M22 19H2" />
           <circle cx="4" cy="7" r="1" />
           <circle cx="10" cy="3" r="1" />
           <circle cx="16" cy="10" r="1" />
         </>
-      ) : kind === "info" ? (
-        <>
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 11v6M12 7h.01" />
-        </>
-      ) : kind === "settings" ? (
-        <>
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.09A1.7 1.7 0 0 0 9 19.35a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.07 14H3v-4h.09A1.7 1.7 0 0 0 4.65 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63a1.7 1.7 0 0 0 1-1.56V3h4v.09A1.7 1.7 0 0 0 15 4.65a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.93 10H21v4h-.09A1.7 1.7 0 0 0 19.4 15Z" />
-        </>
       ) : (
-        <>
-          <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
-          <path d="M14 3v6h6M8 13h8M8 17h5" />
-        </>
+        <path d="M12 5v14M5 12h14" />
       )}
     </svg>
   );
@@ -491,7 +476,6 @@ function App() {
   }, [copiedMessage]);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
-  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [documentId, setDocumentId] = useState("");
   const showDocument = (id?: string) => {
     setDocumentId(id || detail?.versions.find((v) => !v.deleted_at)?.id || "");
@@ -518,7 +502,7 @@ function App() {
   );
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
   const [memberSearch, setMemberSearch] = useState("");
-  const [tab, setTab] = useState<"documents" | "members">("documents");
+  const [tab, setTab] = useState<"documents" | "members" | "info">("documents");
   const [showArchived, setShowArchived] = useState(false);
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
@@ -1411,38 +1395,6 @@ function App() {
             <span className="sidebar-card-action" aria-hidden="true">›</span>
           </button>
           <button
-            className="sidebar-card sidebar-library"
-            title="项目文档库"
-            aria-label="项目文档库"
-            disabled={!projectId}
-            onClick={() => showDocument()}
-          >
-            <span className="sidebar-card-icon">
-              <SidebarIcon kind="document" />
-            </span>
-            <span className="sidebar-card-copy">
-              项目文档库<small>文件与历史版本</small>
-            </span>
-            <span className="sidebar-card-action" aria-hidden="true">
-              ↗
-            </span>
-          </button>
-          <button
-            className="sidebar-card sidebar-project-settings"
-            title="项目设置"
-            aria-label="项目设置"
-            disabled={!projectId}
-            onClick={() => setProjectSettingsOpen(true)}
-          >
-            <span className="sidebar-card-icon">
-              <SidebarIcon kind="settings" />
-            </span>
-            <span className="sidebar-card-copy">
-              项目设置<small>名称与项目状态</small>
-            </span>
-            <span className="sidebar-card-action" aria-hidden="true">›</span>
-          </button>
-          <button
             className="sidebar-card sidebar-profile"
             title={`${user.name} · 设置`}
             aria-label={`${user.name} · 设置`}
@@ -1865,7 +1817,7 @@ function App() {
             className={tab === "documents" ? "active" : ""}
             onClick={() => setTab("documents")}
           >
-            项目文档{" "}
+            文档库{" "}
             <small>
               {
                 new Set(
@@ -1881,6 +1833,12 @@ function App() {
             onClick={() => setTab("members")}
           >
             成员 <small>{detail?.members.length || 0}</small>
+          </button>
+          <button
+            className={tab === "info" ? "active" : ""}
+            onClick={() => setTab("info")}
+          >
+            基本信息
           </button>
         </div>
         {tab === "documents" ? (
@@ -1912,7 +1870,7 @@ function App() {
               />
             </Suspense>
           )
-        ) : (
+        ) : tab === "members" ? (
           <>
             <input
               className="member-search"
@@ -1972,6 +1930,20 @@ function App() {
                 );
               })}
           </>
+        ) : detail?.id === projectId ? (
+          <ProjectSettings
+            key={projectId}
+            name={detail.name}
+            createdAt={localDate(detail.created_at)}
+            creator={creator}
+            onSave={async (name) => {
+              const updated = await api(`/projects/${projectId}`, { name }, "PATCH");
+              setProjects((rows) => rows.map((project) => project.id === updated.id ? { ...project, name: updated.name } : project));
+              setDetail((previous) => previous && previous.id === updated.id ? { ...previous, name: updated.name } : previous);
+            }}
+          />
+        ) : (
+          <p className="muted">正在加载基本信息…</p>
         )}
       </aside>
       {quotePreview && <div className="modal-backdrop" onClick={() => setQuotePreview(null)}>
@@ -2049,29 +2021,6 @@ function App() {
           api={api}
           onClose={() => setMonitorOpen(false)}
         />
-      )}
-      {projectSettingsOpen && projectId && (
-        <div className="modal-backdrop" onClick={() => setProjectSettingsOpen(false)}>
-          <section className="modal project-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="project-settings-title" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <h2 id="project-settings-title">项目设置</h2>
-              <button type="button" onClick={() => setProjectSettingsOpen(false)} aria-label="关闭">×</button>
-            </div>
-            {detail?.id === projectId ? (
-              <ProjectSettings
-                key={projectId}
-                name={detail.name}
-                createdAt={localDate(detail.created_at)}
-                creator={creator}
-                onSave={async (name) => {
-                  const updated = await api(`/projects/${projectId}`, { name }, "PATCH");
-                  setProjects((rows) => rows.map((project) => project.id === updated.id ? { ...project, name: updated.name } : project));
-                  setDetail((previous) => previous && previous.id === updated.id ? { ...previous, name: updated.name } : previous);
-                }}
-              />
-            ) : <p className="muted">正在加载项目设置…</p>}
-          </section>
-        </div>
       )}
       {projectPickerOpen && (
         <ProjectPicker

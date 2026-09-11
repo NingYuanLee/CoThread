@@ -26,6 +26,7 @@ import { randomInt } from "node:crypto";
 import { digest } from "./auth.js";
 import { sendVerificationEmail as deliverVerificationEmail } from "./email-delivery.js";
 import { createHumanChallenge as generateHumanChallenge } from "./human-challenge.js";
+import { registerConnectorBrowserRoutes, registerConnectorPublicRoutes } from "./connectors.js";
 
 export function createApp(db, { makers = false, afterMcpMessage, executeRun, stopAgent = async () => {},
   sendVerificationEmail = deliverVerificationEmail,
@@ -73,6 +74,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     next();
   });
   app.use(express.json({ limit: "32mb" }));
+  registerConnectorPublicRoutes(app, db, service);
   app.get("/api/health", async (req, res) => {
     await query(db, "SELECT 1");
     res.json({
@@ -300,6 +302,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       return res.status(401).json({ error: "请先登录，或使用有效的账号令牌" });
     next();
   });
+  registerConnectorBrowserRoutes(app, db, service);
   registerRequestParts(app, db);
   app.get("/api/workspace", async (req, res) => {
     const [[profile], projects] = await Promise.all([

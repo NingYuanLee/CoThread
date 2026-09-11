@@ -31,6 +31,19 @@ export function apply(ctx) {
       },
     ],
     [
+      "list_local_connectors",
+      "查看当前项目所有可执行成员已关联的本地连接器、设备所属成员、在线状态和是否允许 Git 推送。只有用户明确要求修改本地项目时使用。若消息明确 @ 其他成员，应选择该成员的在线设备；未允许 Git 推送时，整理的任务不得要求 commit 后推送。",
+      {},
+    ],
+    [
+      "prepare_local_codex",
+      "为选定成员电脑上的 Codex 整理一份待确认任务。调用前必须先用 project_context 查看项目资料目录，并按需读取相关文档。prompt 必须独立完整，写明背景、目标、任务边界、相关资料结论和可验证的验收标准；不要原样转发成员消息，不要包含密码或令牌。代码修改范围由任务正文决定，结果会以 Git Diff 交给成员人工审核。待确认任务由所选设备的成员确认，也可由该成员转交给其他在线成员；提出人不能代替被 @ 成员确认。确认后只有固定连接器能凭唯一租约领取。",
+      {
+        connectorId: { type: "string" },
+        prompt: { type: "string", required: true },
+      },
+    ],
+    [
       "read_iteration",
       "读取本项目内指定迭代的近期讨论、审核与归档，以及工具执行状态。默认最近50条；limit可选1至200，before为向前翻页的消息sequence；省略头像和历史工具输入输出。附件保留版本引用，按需读取。",
       { threadId: { type: "string", required: true }, limit: { type: "number" }, before: { type: "string" } },

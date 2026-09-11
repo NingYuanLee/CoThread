@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "node --env-file=.env scripts/dev.js",
     "build": "tsc --noEmit && vite build",
+    "connector:build": "node scripts/build-connector.mjs",
+    "connector:sign": "node scripts/sign-connector-release.mjs",
     "start": "node --env-file-if-exists=.env server/index.js --production",
     "db:migrate": "node --env-file-if-exists=.env scripts/migrate.js",
     "db:seed": "node --env-file-if-exists=.env scripts/seed.js",
@@ -60,7 +62,10 @@
   "devDependencies": {
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "postject": "^1.0.0-alpha.6",
     "prettier": "^3.9.6",
+    "rcedit": "^5.0.1",
+    "sharp": "^0.35.4",
     "typescript": "^5.9.0",
     "vite": "^7.0.0"
   }

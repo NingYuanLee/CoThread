@@ -12,6 +12,7 @@ import { acquireSandbox, safeRemotePath, shellQuote } from "./agent-sandbox.js";
 import { bindMakersSandbox } from "./makers-sandbox.js";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { loadMemberUnderstanding, loadProjectWikiIndexes, queueDocumentMemory } from "./project-memory.js";
+import { connectorTool } from "./connectors.js";
 
 const titles = {
   list_documents:"查看",manage_document:"整理",manage_folder:"整理",
@@ -19,6 +20,8 @@ const titles = {
   project_context: "读取",
   read_document: "读取",
   record_document_summary: "记录摘要",
+  list_local_connectors: "查看",
+  prepare_local_codex: "整理",
   read_iteration: "读取",
   sandbox_command: "执行",
   sandbox_read: "读取",
@@ -69,6 +72,8 @@ export function createAgentTools(
       let result;
       if (["list_documents","manage_document","manage_folder"].includes(name)) {
         result = await documentTool(service,user,name,args,job);
+      } else if (["list_local_connectors", "prepare_local_codex"].includes(name)) {
+        result = await connectorTool(service, user, name, args, job, thread);
       } else if (name === "project_context") {
         result = modelProject(await service.project(user, thread.project_id));
         result.versions = result.versions.filter((v) => !v.deleted_at);

@@ -22,6 +22,11 @@ const id = z.string().uuid();
 const title = z.string().trim().min(1).max(160);
 const body = z.string().trim().min(1).max(20000);
 const json = (value) => (typeof value === "string" ? JSON.parse(value) : value);
+const mentions = (text, value) => {
+  if (!value) return false;
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^\\p{L}\\p{N}_@])@${escaped}(?=$|[^\\p{L}\\p{N}_@])`, "u").test(text);
+};
 export class Service {
   constructor(db) {
     this.db = db;
@@ -558,7 +563,7 @@ export class Service {
     if (cursor) z.string().regex(/^\d+$/).parse(cursor);
     const messagesQuery = query(
       db,
-      `SELECT m.id,m.sequence,m.body,m.refs,m.source,m.agent_task_id,m.created_at,u.name author,u.id author_id,${display ? "CASE WHEN m.source='assistant' THEN NULL ELSE CONCAT('/api/projects/',?,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) END author_avatar" : "u.avatar author_avatar"},
+      `SELECT m.id,m.sequence,m.body,m.refs,m.source,m.execution_target,m.agent_task_id,m.created_at,u.name author,u.id author_id,${display ? "CASE WHEN m.source='assistant' THEN NULL ELSE CONCAT('/api/projects/',?,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) END author_avatar" : "u.avatar author_avatar"},
       JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags, '$[0]')) author_role
       FROM messages m JOIN users u ON u.id=m.author_id WHERE m.thread_id=?${display && cursor ? ` AND m.sequence${before ? "<" : ">"}?` : ""} ORDER BY m.sequence${display && !after ? " DESC" : ""}${display ? ` LIMIT ${pageSize + 1}` : ""}`,
       display ? [thread.project_id, threadId, ...(cursor ? [cursor] : [])] : [threadId],
@@ -604,8 +609,13 @@ export class Service {
     const requestsQuery = query(db,
       `SELECT q.message_id,q.status,q.response_id,q.error,q.first_response_at,q.usage_stats FROM agent_requests q JOIN messages m ON m.id=q.message_id
        WHERE m.thread_id=? ORDER BY m.sequence`, [threadId]);
+    const connectorTasksQuery = query(db, `SELECT t.id,t.message_id,t.requested_by,t.assigned_to,t.status,t.policy,t.allow_git_push allowGitPush,t.progress,t.error,t.output,t.diff,
+      CASE WHEN ? IN (t.requested_by,t.assigned_to) THEN t.instruction ELSE NULL END instruction,
+      t.created_at,t.started_at,t.finished_at,c.id connector_id,c.name connector_name,u.name connector_owner_name
+      FROM connector_tasks t JOIN connectors c ON c.id=t.connector_id JOIN users u ON u.id=c.user_id
+      WHERE t.thread_id=? ORDER BY t.created_at,t.id`, [user.id, threadId]);
     const pendingQuery = display ? query(db, `SELECT m.id,m.sequence,m.body,m.refs,m.source,u.name author,u.id author_id,JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags, '$[0]')) author_role FROM messages m JOIN users u ON u.id=m.author_id LEFT JOIN agent_sessions s ON s.thread_id=m.thread_id WHERE m.thread_id=? AND m.sequence>COALESCE(s.seen_sequence,0)`, [threadId]) : Promise.resolve(null);
-    const [messages, reviews, runs, replies, events, [agentContext], updates, requests, pending] = await Promise.all([display ? selected : messagesQuery, reviewsQuery, runsQuery, repliesQuery, eventsQuery, agentContextQuery, updatesQuery, requestsQuery, pendingQuery]);
+    const [messages, reviews, runs, replies, events, [agentContext], updates, requests, pending, connectorTasks] = await Promise.all([display ? selected : messagesQuery, reviewsQuery, runsQuery, repliesQuery, eventsQuery, agentContextQuery, updatesQuery, requestsQuery, pendingQuery, connectorTasksQuery]);
     const withQuotes = await attachMessageQuotes(db, [...new Map([...(pending || []), ...messages].map(m => [m.id, { ...m, refs: json(m.refs) }])).values()]);
     const quotedById = new Map(withQuotes.map(m => [m.id, m]));
     return {
@@ -626,6 +636,7 @@ export class Service {
       events: events.map((event) => ({ ...event, input: typeof event.input === "string" ? event.input : JSON.stringify(event.input) })),
       updates,
       requests,
+      connectorTasks,
     };
   }
   async refs(db, projectId, refs) {
@@ -651,11 +662,13 @@ export class Service {
         : "human",
     agentTaskId = null,
     messageId = randomUUID(),
+    executionTarget = "cloud",
+    executionTargetUserId = null,
   ) {
     const inserted = await query(
       db,
-      "INSERT INTO messages(id,thread_id,author_id,source,body,refs,agent_task_id) VALUES(?,?,?,?,?,?,?)",
-      [messageId, threadId, user.id, source, text, JSON.stringify(refs), agentTaskId],
+      "INSERT INTO messages(id,thread_id,author_id,source,body,refs,agent_task_id,execution_target,execution_target_user_id) VALUES(?,?,?,?,?,?,?,?,?)",
+      [messageId, threadId, user.id, source, text, JSON.stringify(refs), agentTaskId, executionTarget, executionTargetUserId],
     );
     if (source !== "system") {
       const [thread] = await query(db, "SELECT project_id,title FROM threads WHERE id=?", [threadId]);
@@ -719,6 +732,7 @@ export class Service {
         quoteIds: z.array(id).max(10).default([]),
         clientMessageId: id.optional(),
         mentionAgent: z.boolean().default(false),
+        executionTarget: z.enum(["cloud", "local"]).default("cloud"),
         files: z.array(z.object({
           title,
           filename: z.string().min(1).max(200),
@@ -728,6 +742,8 @@ export class Service {
         })).max(10).default([]),
       })
       .parse(input);
+    if (data.executionTarget === "local" && user.kind !== "session")
+      fail(403, "本机 Codex 任务需要成员从网页发起");
     if (data.refs.length + data.files.length > 30)
       fail(400, "一条消息最多关联 30 个文档版本（含上传文件）");
     if (data.files.reduce((sum, file) => sum + Buffer.from(file.contentBase64, "base64").length, 0) > 20 * 1024 * 1024)
@@ -745,6 +761,24 @@ export class Service {
             fail(409, "消息标识已被占用");
           return { id: existing.id, duplicate: true };
         }
+      }
+      let executionTargetUserId = null;
+      if (data.executionTarget === "local") {
+        const projectMembers = await query(db, `SELECT u.id,u.name,u.username,u.email FROM members m JOIN users u ON u.id=m.user_id
+          WHERE m.project_id=? AND m.role<>'viewer'`, [thread.project_id]);
+        const mentioned = projectMembers.filter((member) => [member.name, member.username, member.email].some((value) => mentions(text, value)));
+        if (mentioned.length > 1) fail(400, "本机 Codex 模式只能 @ 一名执行成员");
+        const eligible = await query(db, `SELECT DISTINCT c.user_id FROM connectors c
+          JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=?
+          JOIN members m ON m.project_id=cp.project_id AND m.user_id=c.user_id AND m.role<>'viewer'
+          WHERE c.revoked_at IS NULL AND c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND)`, [thread.project_id]);
+        const eligibleIds = new Set(eligible.map((row) => row.user_id));
+        const ownOnline = eligibleIds.has(user.id);
+        if (mentioned.length && !eligibleIds.has(mentioned[0].id))
+          fail(409, `@${mentioned[0].name} 的本地连接器当前未在线或未关联本项目`);
+        if (!ownOnline && mentioned.length !== 1)
+          fail(409, "你的连接器未在线，请且只能 @ 一名连接器在线的项目成员");
+        executionTargetUserId = mentioned[0]?.id || user.id;
       }
       await this.refs(db, thread.project_id, data.refs);
       const quoteIds = [...new Set(data.quoteIds)];
@@ -766,6 +800,8 @@ export class Service {
         undefined,
         null,
         data.clientMessageId,
+        data.executionTarget,
+        executionTargetUserId,
       );
       for (const quotedId of quoteIds) await query(db,
         "INSERT INTO message_quotes(message_id,quoted_message_id) VALUES(?,?)", [message.id, quotedId]);
@@ -805,7 +841,7 @@ export class Service {
     publishWork(this.db, threadId);
     // Return the committed chat row and receipt so the sender can render them
     // immediately, without waiting for a separate workspace refresh.
-    const [saved] = await query(this.db, `SELECT m.sequence,m.body,m.source,m.created_at,u.name author,m.author_id,
+    const [saved] = await query(this.db, `SELECT m.sequence,m.body,m.source,m.execution_target,m.created_at,u.name author,m.author_id,
       q.status request_status,r.participation FROM messages m JOIN users u ON u.id=m.author_id
       LEFT JOIN agent_requests q ON q.message_id=m.id LEFT JOIN assistant_replies r ON r.message_id=m.id
       WHERE m.id=?`, [result.id]);

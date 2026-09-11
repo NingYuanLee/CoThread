@@ -81,6 +81,13 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       action = "记录文档摘要";
       object = result.title || args.versionId || "项目文档";
       break;
+    case "list_local_connectors":
+      action = "查看本地连接器";
+      break;
+    case "prepare_local_codex":
+      action = "整理本机任务";
+      object = result.connector || "Codex";
+      break;
     case "sandbox_read":
       action = "读取文件";
       object = args.path || "工作区文件";

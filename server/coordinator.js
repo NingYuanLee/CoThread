@@ -31,6 +31,7 @@ function messageRecord(message, members, versions, quoteIds) {
       : { id: message.author_id, name: message.author, role: message.author_role },
     createdAt: message.created_at,
     source: message.source,
+    executionTarget: message.execution_target || "cloud",
     content: message.body,
     mentions: mentions.map(({ id, name }) => ({ id, name })),
     quotedMessageIds: quoteIds.get(message.id) || [],
@@ -42,7 +43,7 @@ function messageRecord(message, members, versions, quoteIds) {
 // document contents, tool transcripts, avatars or profile details.
 export async function dispatchContext(db, thread, job) {
   const [messages, replies, updates, memberRows, versionRows, quoteRows, documentSummaries] = await Promise.all([
-    query(db, `SELECT m.id,m.sequence,m.body,m.refs,m.source,m.created_at,u.name author,m.author_id,
+    query(db, `SELECT m.id,m.sequence,m.body,m.refs,m.source,m.execution_target,m.created_at,u.name author,m.author_id,
       JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags,'$[0]')) author_role
       FROM messages m JOIN users u ON u.id=m.author_id
       WHERE m.thread_id=? AND m.sequence<=? ORDER BY m.sequence`, [job.thread_id,job.sequence]),
@@ -292,7 +293,7 @@ export async function processNextCoordinator(db, threadId, decide = decideDispat
          WHERE m.thread_id=? AND q.status='running' LIMIT 1`, [thread.id]);
       if (active) return;
       const [next] = await query(conn,
-        `SELECT q.message_id,m.thread_id,m.author_id,m.sequence,m.body,r.participation,r.status reply_status,r.reply_id FROM agent_requests q
+         `SELECT q.message_id,m.thread_id,m.author_id,m.sequence,m.body,m.execution_target,r.participation,r.status reply_status,r.reply_id FROM agent_requests q
          JOIN messages m ON m.id=q.message_id LEFT JOIN assistant_replies r ON r.message_id=m.id
          WHERE m.thread_id=? AND q.status='queued' ORDER BY m.sequence LIMIT 1`, [thread.id]);
       if (next?.reply_status && !["queued", "running"].includes(next.reply_status)) {
@@ -314,7 +315,9 @@ export async function processNextCoordinator(db, threadId, decide = decideDispat
     const thread = await service.thread(user, job.thread_id, true);
     const context = await dispatchContext(db, thread, job);
     const loaded = performance.now();
-    const { rawDecision, routingFallback } = await resolveCoordinatorDecision(context, job, { decide });
+    const { rawDecision, routingFallback } = job.execution_target === "local"
+      ? { rawDecision: { action: "execute", reply: "", usage: {} }, routingFallback: false }
+      : await resolveCoordinatorDecision(context, job, { decide });
     const decision = decisionSchema.parse(rawDecision);
     const firstResponseAt = new Date();
     const streamingReply = decision.action === "reply" && !routingFallback && decide === decideDispatch;
@@ -402,7 +405,9 @@ export async function processNextCoordinator(db, threadId, decide = decideDispat
         const acknowledgement = updatesExistingTask
           ? "收到，我已经把补充要求加入正在处理的任务。"
           : atCapacity ? AGENT_CAPACITY_REPLY
-          : "收到，我开始处理；你可以继续补充要求或向我询问进度。";
+          : job.execution_target === "local"
+            ? "收到，我会先结合项目资料整理实施要求，再交给指定成员电脑上的 Codex 确认。"
+            : "收到，我开始处理；你可以继续补充要求或向我询问进度。";
         responseId = (await service.insertMessage(conn, user, job.thread_id, acknowledgement, [], "assistant")).id;
         if (atCapacity && own) await query(conn,
           `UPDATE assistant_replies SET status='completed',participation='reply',dispatch_ready=FALSE,reply_id=?,

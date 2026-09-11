@@ -31,6 +31,9 @@ import { EmailAuth } from "./EmailAuth";
 import { EmailBinding } from "./EmailBinding";
 import { PasswordField } from "./PasswordField";
 import { AuthParticleBackground } from "./AuthParticleBackground";
+import { ConnectorPanel, type ConnectorDevice } from "./ConnectorPanel";
+import { ConnectorAuthorization } from "./ConnectorAuthorization";
+import { LocalTasks, type AvailableConnector, type LocalTask } from "./LocalTasks";
 import type { ContextUsage } from "../shared/context.js";
 import { createResourceCache } from "../shared/resource-cache.js";
 import { IdentityName, RoleBadge } from "./Identity";
@@ -58,7 +61,7 @@ function PanelIcon({ side }: { side: "left" | "right" }) {
     </svg>
   );
 }
-function SidebarIcon({ kind }: { kind: "plus" | "monitor" }) {
+function SidebarIcon({ kind }: { kind: "plus" | "monitor" | "connector" }) {
   return (
     <svg
       width="18"
@@ -78,6 +81,8 @@ function SidebarIcon({ kind }: { kind: "plus" | "monitor" }) {
           <circle cx="10" cy="3" r="1" />
           <circle cx="16" cy="10" r="1" />
         </>
+      ) : kind === "connector" ? (
+        <><path d="M8 12h8M9 8V5m6 3V5M7 8h10v5a5 5 0 0 1-10 0V8Z"/><path d="M12 18v3"/></>
       ) : (
         <path d="M12 5v14M5 12h14" />
       )}
@@ -291,6 +296,7 @@ type Thread = {
     id: string;
     body: string;
     source: string;
+    execution_target?: "cloud" | "local";
     refs: string[];
     author: string;
     author_id: string;
@@ -330,6 +336,7 @@ type Thread = {
   }[];
   updates: { message_id: string; task_message_id: string; delivered_at: string | null }[];
   requests: { usage_stats?: UsageStats | string | null; first_response_at?: string | null; message_id: string; status: string; response_id: string | null; error: string | null }[];
+  connectorTasks: LocalTask[];
   events: {
     id: string;
     message_id: string;
@@ -448,7 +455,9 @@ function App() {
   const hasPendingWork = (value: Thread | null | undefined) => !!value && (
     value.replies.some((r) => ["queued", "running"].includes(r.status)) ||
     !!value.requests?.some((r) => ["queued", "running"].includes(r.status)) ||
-    ["queued", "running"].includes(value.contextUsage?.compactStatus));
+    ["queued", "running"].includes(value.contextUsage?.compactStatus) ||
+    value.connectorTasks?.some((task) => ["awaiting_approval", "queued", "running", "paused", "stopped_pending_approval",
+      "completed_pending_notification", "failed_pending_notification"].includes(task.status)));
   const pendingWork = hasPendingWork(thread);
   const liveOutput = useAgentLiveOutput(threadId,pendingWork);
   const wakeThreadPoll = useRef<(() => void) | null>(null);
@@ -476,6 +485,16 @@ function App() {
   }, [copiedMessage]);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
+  const [connectorOpen, setConnectorOpen] = useState(false);
+  const connectorAuthorizationId = new URLSearchParams(location.search).get("connectorAuthorization") || "";
+  const closeConnectorAuthorization = () => {
+    const url = new URL(location.href);
+    url.searchParams.delete("connectorAuthorization");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    setClock(Date.now());
+  };
+  const [connectors, setConnectors] = useState<ConnectorDevice[]>([]);
+  const [connectorAvailability, setConnectorAvailability] = useState<AvailableConnector[]>([]);
   const [documentId, setDocumentId] = useState("");
   const showDocument = (id?: string) => {
     setDocumentId(id || detail?.versions.find((v) => !v.deleted_at)?.id || "");
@@ -531,6 +550,12 @@ function App() {
   const creator = projects.find((p) => p.id === projectId)?.created_by === user?.id;
   const projectMember = projects.some((p) => p.id === projectId);
   const active = thread?.status === "active" && writable;
+  const localAvailable = connectorAvailability.some((item) => item.projectId === projectId);
+  const refreshConnectors = async () => {
+    const [devices, availability] = await Promise.all([api("/connectors"), api("/connectors/availability")]);
+    setConnectors(devices);
+    setConnectorAvailability(availability);
+  };
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
     setError("");
@@ -588,6 +613,17 @@ function App() {
       setDetail(null);
       setThread(null);
     }
+  }, [user?.id]);
+  useEffect(() => {
+    if (!user) { setConnectors([]); setConnectorAvailability([]); return; }
+    let alive = true;
+    const load = async () => { try {
+      const [devices, availability] = await Promise.all([api("/connectors"), api("/connectors/availability")]);
+      if (alive) { setConnectors(devices); setConnectorAvailability(availability); }
+    } catch {} };
+    void load();
+    const timer = setInterval(load, 15000);
+    return () => { alive = false; clearInterval(timer); };
   }, [user?.id]);
   useEffect(() => {
     if (!user || !projectId) return;
@@ -714,6 +750,7 @@ function App() {
     threadId,
     thread?.messages.length,
     thread?.events.length,
+    thread?.connectorTasks?.map((task) => `${task.id}:${task.status}`).join(","),
     Object.values(liveOutput).map(o => `${o.message_id}:${o.revision}`).join(","),
     thread?.replies.filter(
       (r) => r.status === "queued" || r.status === "running",
@@ -974,7 +1011,7 @@ function App() {
   const persistOptimisticMessage = async (
     targetThreadId: string,
     optimisticId: string,
-    payload: { body: string; refs: string[]; quoteIds: string[]; clientMessageId: string },
+    payload: { body: string; refs: string[]; quoteIds: string[]; clientMessageId: string; executionTarget?: "cloud" | "local" },
     quotes: MessageQuote[],
   ) => {
     updateThreadCache(targetThreadId, current => ({ ...current, messages: current.messages.map(item =>
@@ -1384,6 +1421,16 @@ function App() {
         </button>
         <div className="sidebar-bottom">
           <button
+            className="sidebar-card sidebar-connector"
+            title="下载、配对和查看本地连接器"
+            aria-label="本地连接器"
+            onClick={() => { setConnectorOpen(true); void refreshConnectors(); }}
+          >
+            <span className="sidebar-card-icon"><SidebarIcon kind="connector" /></span>
+            <span className="sidebar-card-copy">本地连接器<small>{localAvailable ? "项目有成员在线" : "下载或关联设备"}</small></span>
+            <span className="sidebar-card-action" aria-hidden="true">›</span>
+          </button>
+          <button
             className="sidebar-card sidebar-monitor"
             title="查看所有小祥的运行状态"
             aria-label="小祥监控"
@@ -1454,6 +1501,20 @@ function App() {
               {thread?.title || "未选择迭代"}
             </span>
           </nav>
+          {thread && <div className="breadcrumb-actions" role="group" aria-label="会话信息">
+            {threadId && <button type="button" onClick={() => void copyConversationInfo()}>
+              {copiedThreadId === threadId ? "已复制" : "复制会话"}
+            </button>}
+            {thread.contextUsage && <ContextMeter
+              key={threadId}
+              usage={thread.contextUsage}
+              writable={active}
+              onCompact={async () => {
+                await api(`/threads/${threadId}/context/compact`, {});
+                await refresh();
+              }}
+            />}
+          </div>}
         </header>
         {error && !modal && (
           <div className="error banner" role="alert">
@@ -1648,6 +1709,7 @@ function App() {
                     {m.delivery_status === "sending" && <span className="message-delivery-control sending" role="status" aria-label="正在发送" title="正在发送" />}
                     {m.delivery_status === "failed" && <button type="button" className="message-delivery-control failed" aria-label="重新发送" title={m.delivery_error || "重新发送"} onClick={() => void persistOptimisticMessage(threadId, m.id, {
                       body: m.body, refs: m.refs, quoteIds: (m.quotes || []).map(quote => quote.id), clientMessageId: m.id.slice("optimistic:".length),
+                      executionTarget: m.execution_target,
                     }, m.quotes || [])}>
                       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
                     </button>}
@@ -1691,27 +1753,6 @@ function App() {
                   role="group"
                   aria-label="迭代操作"
                 >
-                  {threadId && (
-                    <button
-                      type="button"
-                      onClick={() => void copyConversationInfo()}
-                    >
-                      {copiedThreadId === threadId
-                        ? "已复制会话信息"
-                        : "复制会话信息"}
-                    </button>
-                  )}
-                  {thread.contextUsage && (
-                    <ContextMeter
-                      key={threadId}
-                      usage={thread.contextUsage}
-                      writable={active}
-                      onCompact={async () => {
-                        await api(`/threads/${threadId}/context/compact`, {});
-                        await refresh();
-                      }}
-                    />
-                  )}
                   {active && (
                     <button
                       disabled={!active || busy}
@@ -1741,6 +1782,8 @@ function App() {
                   <span>引用 {q.source === "assistant" ? AGENT_MEMBER.name : q.author}：{q.body.slice(0,80)}</span>
                   <button type="button" aria-label="取消引用" onClick={() => setQuotedMessages(items => items.filter(item => item.id !== q.id))}>×</button>
                 </div>)}</div>}
+                <LocalTasks tasks={thread.connectorTasks || []} userId={user.id}
+                  availableConnectors={connectorAvailability.filter((item) => item.projectId === projectId)} api={api} onRefresh={refresh} />
                 <ChatComposer
                   key={`${projectId}:${threadId}`}
                   projectId={projectId}
@@ -1753,8 +1796,32 @@ function App() {
                   members={detail?.members || []}
                   busy={busy}
                   uploadTarget={uploadTarget}
+                  localAvailable={localAvailable}
                   onRefresh={refresh}
-                  onSend={async () => {
+                  onSend={async (executionTarget) => {
+                    if (executionTarget === "local") {
+                      const onlineMemberIds = new Set(connectorAvailability
+                        .filter((item) => item.projectId === projectId).map((item) => item.ownerId));
+                      const mentionedMembers = (detail?.members || []).filter((member) => {
+                        if (member.id === AGENT_MEMBER.id) return false;
+                        return [member.name, member.username, member.email].filter(Boolean).some((value) => {
+                          const escaped = value!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                          return new RegExp(`(^|[^\\p{L}\\p{N}_@])@${escaped}(?=$|[^\\p{L}\\p{N}_@])`, "u").test(message);
+                        });
+                      });
+                      if (mentionedMembers.length > 1) {
+                        setError("本机 Codex 模式只能 @ 一名执行成员。");
+                        return false;
+                      }
+                      if (mentionedMembers.length === 1 && !onlineMemberIds.has(mentionedMembers[0].id)) {
+                        setError(`@${mentionedMembers[0].name} 的连接器当前未在线或未关联本项目。`);
+                        return false;
+                      }
+                      if (!onlineMemberIds.has(user.id) && mentionedMembers.length !== 1) {
+                        setError("你的连接器未在线，请且只能 @ 一名连接器在线的项目成员。");
+                        return false;
+                      }
+                    }
                     const targetThreadId = threadId;
                     const body = message;
                     const selectedRefs = [...refs];
@@ -1775,6 +1842,7 @@ function App() {
                       author_role: user.identity_tags[0] || null,
                       quotes: selectedQuotes,
                       created_at: new Date().toISOString(),
+                      execution_target: executionTarget,
                       delivery_status: "sending" as const,
                     };
                     threadCache.current.cancel(targetThreadId);
@@ -1784,7 +1852,7 @@ function App() {
                     setRefs([]);
                     followConversation.current = true;
                     void persistOptimisticMessage(targetThreadId, optimisticId, {
-                      body, refs: selectedRefs, quoteIds: selectedQuotes.map(q => q.id), clientMessageId: optimisticId.slice("optimistic:".length),
+                      body, refs: selectedRefs, quoteIds: selectedQuotes.map(q => q.id), clientMessageId: optimisticId.slice("optimistic:".length), executionTarget,
                     }, selectedQuotes);
                     return true;
                   }}
@@ -2022,6 +2090,16 @@ function App() {
           onClose={() => setMonitorOpen(false)}
         />
       )}
+      {connectorOpen && <div className="modal-backdrop" onClick={() => setConnectorOpen(false)}>
+        <section className="connector-dialog" role="dialog" aria-modal="true" aria-label="本地连接器" onClick={(event) => event.stopPropagation()}>
+          <ConnectorPanel devices={connectors} api={api} onRefresh={refreshConnectors} onClose={() => setConnectorOpen(false)} />
+        </section>
+      </div>}
+      {connectorAuthorizationId && <ConnectorAuthorization
+        id={connectorAuthorizationId}
+        api={api}
+        onDone={closeConnectorAuthorization}
+      />}
       {projectPickerOpen && (
         <ProjectPicker
           projects={projects}

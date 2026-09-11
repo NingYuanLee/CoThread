@@ -10,6 +10,8 @@ Makers 生成的 Node 入口会在请求处理器内重新执行应用模块（�
 
 平台后端配置 `DATABASE_URL`，以及 `KNOWLEDGE_MODEL_*`、`COORDINATOR_MODEL_*`、`EXECUTOR_MODEL_*` 三套模型变量、`CREDENTIAL_ENCRYPTION_KEY` 和随机生成的 `MEMORY_MAINTENANCE_TOKEN`，按数据库要求设置 `DATABASE_SSL` 等连接选项；使用 Makers 原生沙箱不再需要 `E2B_API_KEY`、`E2B_DOMAIN` 和 `E2B_API_URL`。每套模型均包含厂商、请求地址、Key、模型名称和推理强度五项，使用 OpenAI Responses 兼容服务。`CREDENTIAL_ENCRYPTION_KEY` 沿用本地 `.env` 的原值，不能重新生成，否则旧账号令牌无法解密。真实 `.env`、`.local` 和 `.edgeone` 均不提交。已有账号沿用 MySQL，部署不会重置密码。
 
+发布本地连接器时还需配置 `CONNECTOR_DOWNLOAD_URL`、`CONNECTOR_RELEASE_VERSION`、`CONNECTOR_RELEASE_SHA256` 和 `CONNECTOR_RELEASE_SIGNATURE`。下载物是免安装的单文件 EXE，首次运行通过 Makers 网页登录授权，随后由连接器读取账号项目列表；本地仓库路径、项目开关、推送权限和开机启动设置不上传。下载地址应为 HTTPS；后三项由 `npm run connector:sign` 生成，客户端使用构建时写入的 Ed25519 公钥验签并再次校验文件 SHA-256。该更新签名不替代 Windows Authenticode 代码签名。Makers 只保存发布清单和项目级连接权限，不保存用户本机仓库或路径。
+
 后端首次启动会在数据库迁移锁保护下应用未执行的迁移。数据库账号需要相应建表权限，数据库网络也需允许平台访问。部署主域名默认接受 `http://cothread.z2l.top` 和 `https://cothread.z2l.top`；换域名或使用预览域名时，用 `APP_ORIGIN` 指定完整源地址。HTTPS 请求自动设置 Secure Cookie。
 
 迁移和运行时资源兼容当前工作目录及 Agent bundle 旁的 `included_files` 布局。初始化失败时，API、Agent 和 MCP 返回固定的 `INIT_*` 错误代号，用于区分密钥配置、资源缺失、数据库连接或迁移失败；不返回原始 SQL、环境变量、路径和异常堆栈。

@@ -28,6 +28,7 @@ export function taskTimeline<M extends TimelineMessage, R extends Reply>(
     if (!anchor && !fallback) continue;
     const base = fallback || anchor!;
     const row = { ...base, id: `agent-task:${reply.message_id}`, source: 'assistant',
+      ...(!reply.parent_message_id && !reply.agent_slot ? {render_key:`agent-reception:${reply.message_id}`} : {}),
       quoteTargetId: reply.reply_id || parts[0]?.id,
       agent_task_id: reply.message_id, body: parts.filter(m => m.id === reply.reply_id).map(m => m.body).join('\n\n'),
       refs: [...new Set(parts.flatMap(m => m.refs))] };
@@ -38,12 +39,7 @@ export function taskTimeline<M extends TimelineMessage, R extends Reply>(
   }
   return messages.flatMap(m => {
     const receipt = requests.find(r => r.response_id === m.id && r.status);
-    const pending = requests.find(r => r.message_id === m.id && !r.response_id && ['queued','running'].includes(r.status || ''));
-    const expected = replies.find(r => r.message_id === m.id);
-    const placeholder = pending && (!expected || expected.participation === 'reply') ? [{...m,
-      id:`agent-reception:${m.id}`, render_key:`agent-reception:${m.id}`, source:'assistant',
-      body:'',refs:[],quotes:[],agent_task_id:null,quoteTargetId:undefined}] : [];
     return [...(before.get(m.id) || []), ...(!consumed.has(m.id) ? [receipt ? {...m,render_key:`agent-reception:${receipt.message_id}`} : m] : []),
-      ...placeholder, ...(after.get(m.id) || [])];
+      ...(after.get(m.id) || [])];
   });
 }

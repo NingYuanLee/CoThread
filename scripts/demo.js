@@ -3,7 +3,7 @@ import { createDatabase, query } from "../server/db.js";
 import { Service } from "../server/service.js";
 const db = await createDatabase();
 try {
-  const [user] = await query(db, "SELECT id FROM users WHERE email=?", [
+  const [user] = await query(db, "SELECT id FROM users WHERE COALESCE(username,email)=?", [
     process.env.ADMIN_EMAIL,
   ]);
   if (!user) throw new Error("请先创建初始账号");

@@ -3,6 +3,7 @@ import { acsOptions } from "./acs.js";
 import { query } from "./db.js";
 import { agentSession } from "./agent-session.js";
 import { currentMakersSandbox, makersWorkspace } from "./makers-sandbox.js";
+import { LocalSandbox, localSandboxEnabled } from "./local-sandbox.js";
 
 export const shellQuote = (value) => `'${value.replace(/'/g, `'"'"'`)}'`;
 const handles = new Map();
@@ -17,7 +18,9 @@ export async function acquireSandbox(
     await progress("正在准备 Makers 沙箱工作区");
     return makersWorkspace(workspaceId);
   }
-  const options = { ...acsOptions(), timeoutMs: 900000 };
+  const selectedProvider = provider === Sandbox && localSandboxEnabled() ? LocalSandbox : provider;
+  const local = selectedProvider === LocalSandbox;
+  const options = local ? {} : { ...acsOptions(), timeoutMs: 900000 };
   let sandbox = handles.get(workspaceId);
   if (sandbox) {
     try {
@@ -36,15 +39,15 @@ export async function acquireSandbox(
   );
   if (record?.sandbox_id) {
     try {
-      sandbox = await provider.connect(record.sandbox_id, options);
+      sandbox = await selectedProvider.connect(record.sandbox_id, options);
     } catch (error) {
       if (!/not found|not running|expired|does not exist/i.test(error.message))
         throw error;
     }
   }
   if (!sandbox) {
-    await progress("正在创建 ACS 工作区");
-    sandbox = await provider.create(
+    await progress(local ? "正在创建本机工作区" : "正在创建 ACS 工作区");
+    sandbox = await selectedProvider.create(
       process.env.E2B_TEMPLATE || "code-interpreter",
       options,
     );
@@ -74,7 +77,9 @@ export async function releaseSandbox(db, threadId) {
     );
     if (record?.sandbox_id) {
       try {
-        sandbox = await Sandbox.connect(record.sandbox_id, acsOptions());
+        sandbox = localSandboxEnabled()
+          ? await LocalSandbox.connect(record.sandbox_id)
+          : await Sandbox.connect(record.sandbox_id, acsOptions());
       } catch {}
     }
   }
@@ -100,6 +105,7 @@ export function relativePath(value) {
 }
 export async function safeRemotePath(sandbox, root, value) {
   const path = `${root}/${relativePath(value)}`;
+  if (sandbox.virtualPath) return sandbox.virtualPath(path);
   const code = `import os; p=os.path.realpath(${JSON.stringify(path)}); root=${JSON.stringify(root)}; assert os.path.commonpath([p,root])==root, 'Path leaves workspace'; print(p)`;
   const result = await sandbox.commands.run(`python3 -c ${shellQuote(code)}`, {
     cwd: root,

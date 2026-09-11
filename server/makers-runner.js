@@ -7,10 +7,11 @@ import { drainReplies } from "./reply-dispatch.js";
 import { synchronizeNextDiscussion } from "./context-sync.js";
 import { processNextCoordinator } from "./coordinator.js";
 import { publishWork, subscribeWork } from "./work-events.js";
+import { processNextProjectMemory } from "./project-memory.js";
 
 export async function runMakersThread(db, user, threadId, command, operations = {}) {
   const service = new Service(db);
-  await service.thread(user, threadId, true);
+  const activeThread = await service.thread(user, threadId, true);
   publishWork(db, threadId);
   const lockName = `cothread:${threadId}`;
   const connection = await db.getConnection();
@@ -36,8 +37,9 @@ export async function runMakersThread(db, user, threadId, command, operations = 
     const reply = operations.reply || ((id) => processNextReply(db, undefined, undefined, id));
     const compress = operations.compress || ((id) => processNextContextCompression(db, undefined, id));
     const coordinate = operations.coordinate || (operations.reply ? async () => false : (id) => processNextCoordinator(db, id));
+    const remember = operations.remember || (() => processNextProjectMemory(db, { projectId: activeThread.project_id }));
     const maintain = operations.reply ? async () => false : async (id) => {
-      try { return await compress(id) || await synchronizeNextDiscussion(db, id); }
+      try { return await remember() || await compress(id) || await synchronizeNextDiscussion(db, id); }
       catch (error) { console.error("Context maintenance failed", { type: error.name }); return false; }
     };
     const deadline = Date.now() + 15 * 60 * 1000;

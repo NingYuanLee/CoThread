@@ -3,11 +3,14 @@ import { IDENTITY_TAGS } from "../shared/profile.js";
 
 export type PersonalProfile = {
   id: string;
+  user_number: number;
+  username: string;
   name: string;
-  email: string;
+  email: string | null;
   avatar: string | null;
   motto: string;
   identity_tags: string[];
+  is_super_admin?: boolean;
 };
 
 export async function prepareAvatar(file: File): Promise<string> {
@@ -103,9 +106,9 @@ export function ProfileFields({
         <textarea
           name="motto"
           defaultValue={user.motto}
-          maxLength={200}
+          maxLength={15}
           rows={2}
-          placeholder="一句话介绍你的态度（选填，最多 200 字）"
+          placeholder="一句话介绍你的态度（选填，最多 15 字）"
         />
       </label>
       <fieldset className="profile-tags">

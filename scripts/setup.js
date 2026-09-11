@@ -34,25 +34,23 @@ try {
   } catch (error) {
     if (error.code !== "EEXIST") throw error;
   }
-  const keys = [
-    "E2B_API_KEY",
-    "E2B_DOMAIN",
-    "E2B_API_URL",
-    "E2B_SANDBOX_URL",
-    "E2B_TEMPLATE",
-    "DEEPSEEK_API_KEY",
-  ];
+  const modelDefaults = {};
+  for (const prefix of ["KNOWLEDGE_MODEL", "COORDINATOR_MODEL", "EXECUTOR_MODEL"])
+    for (const field of ["PROVIDER", "BASE_URL", "API_KEY", "NAME", "REASONING_EFFORT"])
+      modelDefaults[`${prefix}_${field}`] = source[`${prefix}_${field}`]
+        || source[`MODEL_${field}`]
+        || (field === "REASONING_EFFORT" ? "medium" : "");
   const output = env
     .split("\n")
     .map((line) => {
       const key = line.split("=")[0];
-      return keys.includes(key) && source[key]
-        ? `${key}=${JSON.stringify(source[key])}`
+      return Object.hasOwn(modelDefaults, key) && modelDefaults[key]
+        ? `${key}=${JSON.stringify(modelDefaults[key])}`
         : line;
     })
     .join("\n");
   await writeFile(".env", output, { flag: "wx", mode: 0o600 });
   console.log(
-    "已生成本地配置与随机密码；可用的 ACS 配置已从原项目复制，未输出密钥。",
+    "已生成本地配置与随机密码；可用的模型配置已从原项目复制，未输出密钥。",
   );
 }

@@ -3,8 +3,14 @@ import assert from "node:assert/strict";
 import { decideParticipation } from "../server/agent-participation.js";
 
 test("unmentioned discussion reaches the model, which can choose silence or participation", async () => {
-  const previous = process.env.DEEPSEEK_API_KEY;
-  process.env.DEEPSEEK_API_KEY = "test-only";
+  const keys = ["COORDINATOR_MODEL_PROVIDER", "COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY", "COORDINATOR_MODEL_NAME", "COORDINATOR_MODEL_REASONING_EFFORT"];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  Object.assign(process.env, {
+    COORDINATOR_MODEL_PROVIDER: "Test Provider",
+    COORDINATOR_MODEL_BASE_URL: "https://model.test/v1",
+    COORDINATOR_MODEL_API_KEY: "test-only",
+    COORDINATOR_MODEL_NAME: "test-model",
+  });
   try {
     for (const respond of [false, true]) {
       let calls = 0;
@@ -18,14 +24,13 @@ test("unmentioned discussion reaches the model, which can choose silence or part
         async (url, options) => {
           calls++;
           const payload = JSON.parse(options.body);
-          assert.match(payload.messages[0].content, /没有明确 @/);
-          assert.match(payload.messages[1].content, /有人知道如何解决吗/);
+          assert.match(payload.input[0].content, /没有明确 @/);
+          assert.match(payload.input[1].content, /有人知道如何解决吗/);
           assert.equal(payload.tools, undefined);
           return {
             ok: true,
-            json: async () => ({
-              choices: [{ message: { content: JSON.stringify({ respond }) } }],
-            }),
+            headers: new Headers({ "content-type": "application/json" }),
+            text: async () => JSON.stringify({ output_text: JSON.stringify({ respond }) }),
           };
         },
       );
@@ -35,14 +40,15 @@ test("unmentioned discussion reaches the model, which can choose silence or part
     await assert.rejects(
       decideParticipation({ messages: [] }, async () => ({
         ok: true,
-        json: async () => ({
-          choices: [{ message: { content: '{"respond":"yes"}' } }],
-        }),
+        headers: new Headers({ "content-type": "application/json" }),
+        text: async () => JSON.stringify({ output_text: '{"respond":"yes"}' }),
       })),
       /Invalid participation/,
     );
   } finally {
-    if (previous === undefined) delete process.env.DEEPSEEK_API_KEY;
-    else process.env.DEEPSEEK_API_KEY = previous;
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 });

@@ -53,10 +53,7 @@
     background:rgba(7,10,18,.72);border-bottom:1px solid var(--line)}
   .nav{display:flex;align-items:center;justify-content:space-between;height:64px}
   .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.02em}
-  .mark{width:26px;height:26px;border-radius:8px;position:relative;
-    background:linear-gradient(135deg,var(--cyan),var(--blue) 55%,var(--violet));
-    box-shadow:0 0 22px rgba(72,229,255,.35)}
-  .mark::after{content:"";position:absolute;inset:7px;border-radius:3px;background:var(--bg);opacity:.85}
+  .brand-logo{display:block;width:30px;height:30px;filter:drop-shadow(0 0 12px rgba(183,210,149,.22))}
   .brand small{font-weight:500;color:var(--txt-mute);letter-spacing:.16em;font-size:11px;text-transform:uppercase}
   .nav ul{display:flex;gap:26px;list-style:none}
   .nav a{color:var(--txt-dim);text-decoration:none;font-size:14px;transition:color .2s}
@@ -157,7 +154,7 @@
 
 <header>
   <div class="wrap nav">
-    <div class="brand"><span class="mark"></span>共序 <small>CoThread</small></div>
+    <div class="brand"><img class="brand-logo" src="/cothread-logo.svg" alt="">共序 <small>CoThread</small></div>
     <ul>
       <li><a href="#about">产品</a></li>
       <li><a href="#features">能力</a></li>

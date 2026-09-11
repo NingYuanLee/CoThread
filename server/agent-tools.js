@@ -1,5 +1,6 @@
 import { documentTool } from "./document-tools.js";
 import { z } from "zod/v3";
+import { redactSecrets } from "./model-config.js";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { posix } from "node:path";
 import { query } from "./db.js";
@@ -9,12 +10,15 @@ import { modelDiscussion, modelProject } from "./model-context.js";
 import { agentSession } from "./agent-session.js";
 import { acquireSandbox, safeRemotePath, shellQuote } from "./agent-sandbox.js";
 import { bindMakersSandbox } from "./makers-sandbox.js";
+import { AGENT_MEMBER } from "../shared/agent-member.js";
+import { loadMemberUnderstanding, loadProjectWikiIndexes, queueDocumentMemory } from "./project-memory.js";
 
 const titles = {
   list_documents:"查看",manage_document:"整理",manage_folder:"整理",
   list_messages: "读取", read_message: "读取", list_members: "读取", read_member: "读取",
   project_context: "读取",
   read_document: "读取",
+  record_document_summary: "记录摘要",
   read_iteration: "读取",
   sandbox_command: "执行",
   sandbox_read: "读取",
@@ -68,8 +72,14 @@ export function createAgentTools(
       } else if (name === "project_context") {
         result = modelProject(await service.project(user, thread.project_id));
         result.versions = result.versions.filter((v) => !v.deleted_at);
+        Object.assign(result, await loadProjectWikiIndexes(service.db, thread.project_id));
       } else if (["list_members", "read_member"].includes(name)) {
         result = await service.conversationMembers(user, thread.project_id, name === "read_member" ? z.string().min(1).parse(args.memberId) : undefined);
+        if (name === "read_member" && result.id !== AGENT_MEMBER.id) {
+          const memory = await loadMemberUnderstanding(service.db, thread.project_id, result.id);
+          result = { ...result, understanding: memory?.understanding || null,
+            understandingUpdatedAt: memory?.understandingUpdatedAt || null };
+        }
       } else if (["list_messages", "read_message"].includes(name)) {
         const targetId = z.string().uuid().parse(args.threadId);
         const target = await service.thread(user, targetId);
@@ -103,12 +113,15 @@ export function createAgentTools(
           /\.(md|txt|json|csv|js|ts|py|html|css|yaml|yml|sql)$/i.test(
             version.filename,
           );
+        const [existing] = await query(service.db,
+          "SELECT summary,updated_at FROM agent_document_summaries WHERE version_id=?", [version.id]);
         result = {
           id: version.id,
           title: version.title,
           version: version.version,
           path,
           sha256: version.sha256,
+          existingSummary: existing?.summary || null,
           content: text
             ? version.content.toString("utf8").slice(0, 50000)
             : undefined,
@@ -116,6 +129,26 @@ export function createAgentTools(
             ? "正文最多返回 50000 字符，完整文件已复制到沙箱。"
             : "二进制文件已复制到沙箱，可使用命令解析。",
         };
+      } else if (name === "record_document_summary") {
+        const versionId = z.string().uuid().parse(args.versionId);
+        const summary = z.string().trim().min(1).max(4000).parse(args.summary);
+        const version = await service.version(user, versionId);
+        if (version.project_id !== thread.project_id)
+          throw new HttpError(403, "文档不属于当前项目");
+        const [sharedBefore] = await query(service.db,
+          "SELECT summary FROM agent_document_summaries WHERE version_id=?", [versionId]);
+        const [read] = await query(service.db,
+          `SELECT id FROM agent_events WHERE message_id=? AND tool='read_document' AND status='completed'
+           AND JSON_VALID(input) AND JSON_UNQUOTE(JSON_EXTRACT(input,'$.versionId'))=? LIMIT 1`,
+          [job.message_id, versionId]);
+        if (!sharedBefore && !read) throw new HttpError(409, "请先读取该文档版本，再记录摘要");
+        await query(service.db,
+          "INSERT IGNORE INTO agent_task_documents(message_id,version_id) VALUES(?,?)",
+          [job.message_id, versionId]);
+        if (!sharedBefore) await queueDocumentMemory(service.db, versionId, summary, job.message_id);
+        result = { versionId, title: version.title, version: version.version,
+          summaryRecorded: false, queued: !sharedBefore, reused: !!sharedBefore,
+          summary: sharedBefore?.summary || summary };
       } else {
         const sandbox = await getSandbox(service.db, sandboxScope, progress);
         await progress(label);
@@ -153,12 +186,13 @@ export function createAgentTools(
             };
           } else {
             // Bound before transfer, and recheck during read to avoid unbounded SDK downloads.
-            const code = `import pathlib,base64,json; p=pathlib.Path(${JSON.stringify(path)}); f=p.open('rb'); b=f.read(5242881); assert len(b)<=5242880, 'File exceeds 5 MiB'; print(base64.b64encode(b).decode())`;
-            const output = await sandbox.commands.run(
-              `python3 -c ${shellQuote(code)}`,
-              { cwd: root, timeoutMs: 20000 },
-            );
-            const content = Buffer.from(output.stdout.trim(), "base64");
+            const content = sandbox.readFile
+              ? await sandbox.readFile(path)
+              : Buffer.from((await sandbox.commands.run(
+                  `python3 -c ${shellQuote(`import pathlib,base64,json; p=pathlib.Path(${JSON.stringify(path)}); f=p.open('rb'); b=f.read(5242881); assert len(b)<=5242880, 'File exceeds 5 MiB'; print(base64.b64encode(b).decode())`)}`,
+                  { cwd: root, timeoutMs: 20000 },
+                )).stdout.trim(), "base64");
+            if (content.length > 5 * 1024 * 1024) throw new Error("文件超过 5 MiB");
             if (name === "sandbox_read") {
               const offset = z
                 .number()
@@ -230,9 +264,7 @@ export function createAgentTools(
         error instanceof HttpError || error instanceof z.ZodError
           ? error.message
           : String(error.stderr || error.message || "工具失败");
-      for (const key of ["DEEPSEEK_API_KEY", "E2B_API_KEY"])
-        if (process.env[key])
-          message = message.split(process.env[key]).join("[REDACTED]");
+      message = redactSecrets(message);
       message = message.slice(-2000);
       await query(
         service.db,

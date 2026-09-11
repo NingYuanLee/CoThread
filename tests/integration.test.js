@@ -68,6 +68,7 @@ before(async () => {
     return { ...result, id, email, kind: "session" };
   }
   owner = await user("Owner");
+  await query(db, "UPDATE users SET is_super_admin=TRUE WHERE id=?", [owner.id]);
   outsider = await user("Outsider");
   viewer = await user("Viewer");
 });
@@ -83,6 +84,7 @@ after(async () => {
   await new Promise((resolve) => server.close(resolve));
   await query(db, "DELETE FROM notifications");
   for (const projectId of projectIds) {
+    await query(db, "DELETE FROM project_change_logs WHERE project_id=?", [projectId]);
     await query(
       db,
       "DELETE r FROM reviews r JOIN versions v ON v.id=r.version_id JOIN artifacts a ON a.id=v.artifact_id WHERE a.project_id=?",
@@ -117,6 +119,8 @@ after(async () => {
     await query(db, "DELETE FROM projects WHERE id=?", [projectId]);
   }
   for (const id of userIds) {
+    await query(db, "DELETE FROM login_logs WHERE user_id=?", [id]);
+    await query(db, "DELETE FROM account_change_logs WHERE target_user_id=? OR actor_user_id=?", [id, id]);
     await query(db, "DELETE FROM credentials WHERE user_id=?", [id]);
     await query(db, "DELETE FROM users WHERE id=?", [id]);
   }
@@ -1363,7 +1367,7 @@ test("global accounts join multiple projects without resetting credentials or in
   assert.equal(directory.status, 200);
   assert.deepEqual(
     Object.keys(directory.body.find((u) => u.id === created.body.id)).sort(),
-    ["avatar", "email", "id", "identity_tags", "motto", "name"],
+    ["avatar", "email", "id", "identity_tags", "motto", "name", "username"],
   );
   assert.equal(
     (

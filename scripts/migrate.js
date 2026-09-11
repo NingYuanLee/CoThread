@@ -5,7 +5,7 @@ import { createDatabase, query } from "../server/db.js";
 // MySQL DDL commits independently of the file-level migration receipt. A cold
 // start can fail after ADD COLUMN succeeded, so retry only a verified match.
 async function matchingExistingColumn(conn, statement) {
-  const match = statement.match(/^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+`?(\w+)`?\s+(CHAR\(\d+\)|BOOLEAN|TINYINT\s+UNSIGNED)\s+(NULL|NOT\s+NULL)(?:\s+DEFAULT\s+(FALSE|TRUE|NULL|\d+))?$/i);
+  const match = statement.match(/^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+`?(\w+)`?\s+(CHAR\(\d+\)|VARCHAR\(\d+\)|BOOLEAN|TINYINT\s+UNSIGNED|INT\s+UNSIGNED|DATETIME(?:\(\d+\))?)\s+(NULL|NOT\s+NULL)(?:\s+DEFAULT\s+(FALSE|TRUE|NULL|\d+))?$/i);
   if (!match) return false;
   const [, table, column, type, nullable, defaultValue] = match;
   const [actual] = await query(conn,
@@ -21,6 +21,15 @@ async function matchingExistingColumn(conn, statement) {
     && (actual.COLUMN_DEFAULT === null ? null : String(actual.COLUMN_DEFAULT)) === expectedDefault
     && !actual.EXTRA
     && (!actual.COLLATION_NAME || actual.COLLATION_NAME === actual.TABLE_COLLATION);
+}
+
+async function matchingExistingIndex(conn, statement) {
+  const match = statement.match(/^CREATE\s+UNIQUE\s+INDEX\s+`?(\w+)`?\s+ON\s+`?(\w+)`?\s*\(\s*`?(\w+)`?\s*\)$/i);
+  if (!match) return false;
+  const [, indexName, table, column] = match;
+  const rows = await query(conn, `SELECT COLUMN_NAME,NON_UNIQUE FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND INDEX_NAME=? ORDER BY SEQ_IN_INDEX`, [table, indexName]);
+  return rows.length === 1 && rows[0].COLUMN_NAME === column && Number(rows[0].NON_UNIQUE) === 0;
 }
 
 export async function migrate(db, directory = new URL("../migrations/", import.meta.url)) {
@@ -60,6 +69,7 @@ export async function migrate(db, directory = new URL("../migrations/", import.m
           await query(conn, statement);
         } catch (error) {
           if (error.code === "ER_DUP_FIELDNAME" && await matchingExistingColumn(conn, statement)) continue;
+          if (error.code === "ER_DUP_KEYNAME" && await matchingExistingIndex(conn, statement)) continue;
           error.migrationName = name;
           error.statementNumber = index + 1;
           throw error;

@@ -27,7 +27,7 @@ const avatar = z
 export const profileSchema = z
   .object({
     name: z.string().trim().min(1, "姓名不能为空").max(80),
-    motto: z.string().trim().max(200),
+    motto: z.string().trim().max(15, "座右铭不能超过 15 个字符"),
     identity_tags: z
       .array(
         z.string().refine((tag) => IDENTITY_TAGS.includes(tag), "身份标签无效"),
@@ -40,13 +40,16 @@ export const profileSchema = z
 export function personalProfile(user) {
   return {
     id: user.id,
+    user_number: Number(user.user_number),
+    username: user.username ?? user.email,
     name: user.name,
-    email: user.email,
+    email: user.email ?? null,
     avatar: user.avatar ?? null,
     motto: user.motto ?? "",
     identity_tags:
       typeof user.identity_tags === "string"
         ? JSON.parse(user.identity_tags)
         : (user.identity_tags ?? []),
+    is_super_admin: Boolean(user.is_super_admin),
   };
 }

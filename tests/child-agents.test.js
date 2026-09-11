@@ -12,7 +12,7 @@ import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.js";
 import { agentSession } from "../server/agent-session.js";
 import { deliverTaskUpdates } from "../server/agent-updates.js";
 import { pendingMessages } from "../shared/context.js";
-import { processNextCoordinator } from "../server/coordinator.js";
+import { AGENT_CAPACITY_REPLY, processNextCoordinator } from "../server/coordinator.js";
 import { subscribeWork } from "../server/work-events.js";
 
 let database, db, service;
@@ -27,7 +27,7 @@ async function fixture(count = 2) {
   for (const user of users.slice(1)) await query(db,
     "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')", [project.id, user.id]);
   const thread = await service.createThread(users[0], project.id, { title: "Parallel requests" });
-  return { users, thread, post: (index, body = "@小祥 请处理") => service.postMessage(users[index], thread.id, { body }) };
+  return { users, project, thread, post: (index, body = "@小祥 请处理") => service.postMessage(users[index], thread.id, { body }) };
 }
 
 test("committed member messages wake workers while rolled-back submissions do not", async () => {
@@ -42,7 +42,7 @@ test("committed member messages wake workers while rolled-back submissions do no
   } finally { stop(); }
 });
 
-test("three child slots are atomic, same-member mentions update one task, and release admits waiting members", async () => {
+test("seven execution slots are atomic and same-member mentions update one task", async () => {
   const { users, thread, post } = await fixture(10);
   const first = await post(0);
   const addition = await post(0, "@小祥 改用方案 B");
@@ -61,7 +61,8 @@ test("three child slots are atomic, same-member mentions update one task, and re
   assert.equal(claimed.length, MAX_THREAD_AGENTS - 1);
   assert.ok(claimed.every((job) => job.parent_message_id === job.message_id));
   assert.equal(new Set(claimed.map((job) => job.author_id)).size, MAX_THREAD_AGENTS - 1);
-  assert.deepEqual([main, ...claimed].map((job) => job.agent_slot).sort(), [1, 2, 3]);
+  assert.deepEqual([main, ...claimed].map((job) => job.agent_slot).sort(),
+    Array.from({ length: MAX_THREAD_AGENTS }, (_, index) => index + 1));
   assert.equal(await claimReply(db, thread.id), undefined);
   const child = claimed[0];
   const childUpdate = await service.postMessage({ id: child.author_id, kind: "session" }, thread.id, { body: "@小祥 更新子任务" });
@@ -71,6 +72,21 @@ test("three child slots are atomic, same-member mentions update one task, and re
   await query(db, "UPDATE assistant_replies SET execution_active=FALSE WHERE message_id=?", [child.message_id]);
   assert.ok(await claimReply(db, thread.id));
   await assert.rejects(service.archive(users[0], thread.id, { conclusion: "still busy" }), { status: 409 });
+});
+
+test("project monitor reports knowledge, coordinators and isolated execution slots", async () => {
+  const { users, project, thread, post } = await fixture();
+  const task = await post(0, "@小祥 检查监控面板");
+  const claimed = await claimReply(db, thread.id);
+  assert.equal(claimed.message_id, task.id);
+
+  const monitor = await service.agentMonitor(users[0], project.id);
+  assert.ok(monitor.knowledge.memberPending >= 1);
+  assert.equal(monitor.coordinators.find((item) => item.id === thread.id).active_executors, 1);
+  assert.equal(monitor.executors.find((item) => item.task_id === task.id).agent_slot, 1);
+  assert.equal(monitor.executors.find((item) => item.task_id === task.id).execution_active, 1);
+
+  await assert.rejects(service.agentMonitor({ id: randomUUID(), kind: "session" }, project.id), { status: 403 });
 });
 
 test("a hosted owner picks up another member while the main request is still running", { timeout: 20000 }, async () => {
@@ -170,26 +186,28 @@ test("runtime checkpoints, sandboxes, steering and stop stay scoped to the child
   }
 });
 
-test("the coordinator answers progress at full capacity and only forwards actual work updates", async () => {
-  const { users, thread, post } = await fixture(4);
+test("the coordinator keeps chatting at full capacity and rejects an eighth execution request", async () => {
+  const { users, thread, post } = await fixture(MAX_THREAD_AGENTS + 1);
   const decide = async (context, job) => job.body.includes("进度")
-    ? { action: "reply", reply: `当前有 ${context.replies.filter((r) => r.status === "running").length} 个子 Agent 执行中。` }
-    : { action: "execute", reply: "交给子 Agent" };
+    ? { action: "reply", reply: `当前有 ${context.replies.filter((r) => r.status === "running").length} 项工作正在处理。` }
+    : { action: "execute", reply: "" };
   const jobs = [];
-  for (let index = 0; index < 3; index++) {
+  for (let index = 0; index < MAX_THREAD_AGENTS; index++) {
     await post(index);
     assert.equal(await claimReply(db, thread.id, { allowUnrouted: false }), undefined);
     await processNextCoordinator(db, thread.id, decide);
     jobs.push(await claimReply(db, thread.id, { allowUnrouted: false }));
   }
-  assert.deepEqual(jobs.map((job) => job.agent_slot), [1, 2, 3]);
+  assert.deepEqual(jobs.map((job) => job.agent_slot),
+    Array.from({ length: MAX_THREAD_AGENTS }, (_, index) => index + 1));
   const question = await post(0, "@小祥 当前进度怎样？");
   await processNextCoordinator(db, thread.id, decide);
   let context = await service.context(users[0], thread.id);
-  assert.equal(context.replies.filter((r) => r.status === "running").length, 3);
+  assert.equal(context.replies.filter((r) => r.status === "running").length, MAX_THREAD_AGENTS);
   assert.ok(!context.updates.some((update) => update.message_id === question.id));
   const request = context.requests.find((r) => r.message_id === question.id);
-  assert.equal(context.messages.find((m) => m.id === request.response_id).body, "当前有 3 个子 Agent 执行中。");
+  assert.equal(context.messages.find((m) => m.id === request.response_id).body,
+    `当前有 ${MAX_THREAD_AGENTS} 项工作正在处理。`);
   const update = await post(0, "@小祥 改成新的实现要求");
   await processNextCoordinator(db, thread.id, decide);
   assert.equal((await query(db, "SELECT approved,task_message_id FROM agent_task_updates WHERE message_id=?", [update.id]))[0].task_message_id, jobs[0].message_id);
@@ -202,12 +220,18 @@ test("the coordinator answers progress at full capacity and only forwards actual
   const naturalQuestion = await post(0, "现在进度如何？");
   await processNextCoordinator(db, thread.id, decide);
   assert.equal((await query(db, "SELECT message_id FROM agent_task_updates WHERE message_id=?", [naturalQuestion.id])).length, 0);
-  const fourth = await post(3);
+  const eighth = await post(MAX_THREAD_AGENTS);
   await processNextCoordinator(db, thread.id, decide);
+  context = await service.context(users[0], thread.id);
+  const capacityRequest = context.requests.find((r) => r.message_id === eighth.id);
+  assert.equal(context.messages.find((m) => m.id === capacityRequest.response_id).body, AGENT_CAPACITY_REPLY);
+  assert.equal(context.replies.find((r) => r.message_id === eighth.id).status, "completed");
   assert.equal(await claimReply(db, thread.id, { allowUnrouted: false }), undefined);
   await query(db, "UPDATE assistant_replies SET status='completed',execution_active=FALSE WHERE message_id=?", [jobs[1].message_id]);
+  const retry = await post(MAX_THREAD_AGENTS);
+  await processNextCoordinator(db, thread.id, decide);
   const replacement = await claimReply(db, thread.id, { allowUnrouted: false });
-  assert.equal(replacement.message_id, fourth.id);
+  assert.equal(replacement.message_id, retry.id);
   assert.equal(replacement.agent_slot, 2);
 });
 

@@ -8,6 +8,8 @@ import { HttpError } from "./service.js";
 import { generateReply } from "./replies.js";
 import { modelDiscussion } from "./model-context.js";
 import { currentMakersSandbox, makersWorkspace } from "./makers-sandbox.js";
+import { LocalSandbox, localSandboxEnabled } from "./local-sandbox.js";
+import { dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
 
 // Adapted from D:\work\dsh runtime/_e2b-acs-compat.mjs (MIT; see THIRD_PARTY_NOTICES).
 const originalHost = ConnectionConfig.prototype.getHost;
@@ -71,7 +73,9 @@ export async function executeRun(
     process.env.SUMMARY_MODE !== "dsh" &&
     provider === Sandbox;
   const managed = !!currentMakersSandbox();
-  const options = directSummary || managed ? {} : acsOptions();
+  const selectedProvider = !managed && provider === Sandbox && localSandboxEnabled() ? LocalSandbox : provider;
+  const local = selectedProvider === LocalSandbox;
+  const options = directSummary || managed || local ? {} : acsOptions();
   if (kind === "summary" && process.env.DSH_ENABLED === "false")
     throw new HttpError(503, "DSH 助手尚未启用，请先准备带 DSH 的 ACS 模板");
   const runId = randomUUID();
@@ -118,8 +122,8 @@ export async function executeRun(
       });
       status = "succeeded";
     } else {
-      await progress(managed ? "正在准备 Makers 沙箱" : "正在连接 ACS 沙箱");
-      sandbox = managed ? await makersWorkspace(threadId) : await provider.create(
+      await progress(managed ? "正在准备 Makers 沙箱" : local ? "正在准备本机工作区" : "正在连接 ACS 沙箱");
+      sandbox = managed ? await makersWorkspace(threadId) : await selectedProvider.create(
         process.env.E2B_TEMPLATE || "code-interpreter",
         { ...options, ...(kind === "summary" ? { timeoutMs: 600000 } : {}) },
       );
@@ -178,6 +182,7 @@ export async function executeRun(
             "utf8",
           ),
         );
+        await sandbox.files.write(`${cwd}/model-patch.yml`, dshModelPatch());
         await sandbox.files.write(
           `${cwd}/prepare-dsh.sh`,
           await readFile(
@@ -197,7 +202,7 @@ export async function executeRun(
           executable =
             "PATH=/home/user/.local/cothread-runtime/node/bin:$PATH /home/user/.local/cothread-runtime/dsh/node_modules/.bin/dsh";
         } else executable = "dsh";
-        executable += ` --profile headless --patch ${shellQuote(`${cwd}/summary-patch.yml`)} ${shellQuote(prompt)}`;
+        executable += ` --profile headless --patch ${shellQuote(`${cwd}/model-patch.yml`)} --patch ${shellQuote(`${cwd}/summary-patch.yml`)} ${shellQuote(prompt)}`;
       }
       stage = "execute";
       await progress(
@@ -206,8 +211,8 @@ export async function executeRun(
       const result = await sandbox.commands.run(executable, {
         cwd,
         timeoutMs: 120000,
-        ...(kind === "summary" && process.env.DEEPSEEK_API_KEY
-          ? { envs: { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY } }
+        ...(kind === "summary"
+          ? { envs: { MODEL_API_KEY: modelConfig("executor").apiKey } }
           : {}),
       });
       output = (
@@ -239,11 +244,8 @@ export async function executeRun(
     if (stage === "prepare-dsh")
       output =
         "助手环境准备失败或超时，尚未开始梳理讨论。请重试；群聊和文档均已保存。";
-    let diagnostic = String(error.stderr || error.message || "").slice(-2500);
-    for (const key of ["E2B_API_KEY", "DEEPSEEK_API_KEY"])
-      if (process.env[key])
-        diagnostic = diagnostic.split(process.env[key]).join("[REDACTED]");
-    console.error("ACS run failed", {
+    const diagnostic = redactSecrets(error.stderr || error.message || "").slice(-2500);
+    console.error("Sandbox run failed", {
       kind,
       stage,
       type: error.name,
@@ -256,7 +258,7 @@ export async function executeRun(
       try {
         await sandbox.kill();
       } catch {
-        output += "\n沙箱清理未确认，将由 ACS 超时回收。";
+        output += local ? "\n本机工作区清理未确认。" : "\n沙箱清理未确认，将由服务超时回收。";
       }
     }
     await query(

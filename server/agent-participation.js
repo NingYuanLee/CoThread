@@ -1,6 +1,7 @@
+import { modelResponse, responseText } from "./model-config.js";
+
 // Observe discussion without starting a sandbox or publishing a placeholder.
 export async function decideParticipation(context, request = fetch) {
-  if (!process.env.DEEPSEEK_API_KEY) throw new Error("Model is not configured");
   const messages =
     context.modelMessages ||
     context.messages.map(({ author, source, body }) => ({
@@ -8,19 +9,9 @@ export async function decideParticipation(context, request = fetch) {
       source,
       body,
     }));
-  const response = await request("https://api.deepseek.com/chat/completions", {
-    method: "POST",
-    signal: AbortSignal.timeout(60000),
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: process.env.CHAT_MODEL || "deepseek-v4-flash",
-      stream: false,
-      max_tokens: 128,
-      thinking: { type: "disabled" },
-      response_format: { type: "json_object" },
+  const data = await modelResponse({
+      scope: "coordinator",
+      maxTokens: 128,
       messages: [
         {
           role: "system",
@@ -32,12 +23,8 @@ export async function decideParticipation(context, request = fetch) {
           content: JSON.stringify({ title: context.title, messages }),
         },
       ],
-    }),
-  });
-  if (!response.ok)
-    throw new Error(`Participation model HTTP ${response.status}`);
-  const data = await response.json();
-  const decision = JSON.parse(data.choices?.[0]?.message?.content || "null");
+  }, request);
+  const decision = JSON.parse(responseText(data) || "null");
   if (typeof decision?.respond !== "boolean")
     throw new Error("Invalid participation decision");
   return decision.respond;

@@ -56,7 +56,7 @@ export function AgentActivity({threadId,messageId,events,output,status,hasFinal,
     const l=agentLabel(e,versions,threads);
     return <AgentEvent key={e.id} threadId={threadId} event={e}><summary><AgentToolIcon category={l.category} status={e.status}/><span className="agent-action-label" title={l.full}>{label(e)}</span><small>{e.status==='running'?'进行中':e.status==='failed'?'失败':'完成'}</small></summary></AgentEvent>;
    })}
-   {extraLive&&<div className="agent-phase"><div className="message-text"><StreamingMarkdown active={active} text={output.content||output.reasoning}/></div></div>}
+   {extraLive&&<div className={`agent-phase ${output.content?'text':'thinking'}`}><div className="message-text"><StreamingMarkdown active={active} text={output.content||output.reasoning}/></div></div>}
    {!!output?.truncated&&<small>当前阶段的展示内容已达到长度上限。</small>}
    {error&&<p role="status">{error}</p>}
   </div>}

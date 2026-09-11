@@ -1,4 +1,5 @@
 import { AgentActivity } from "./AgentActivity";
+import { StreamingMarkdown } from "./StreamingMarkdown";
 import { MessageUsage, type UsageStats } from './MessageUsage';
 import { useAgentLiveOutput } from "./useAgentLiveOutput";
 import { taskTimeline } from "./chat-timeline";
@@ -22,6 +23,13 @@ const ChatComposer = lazy(() => loadComposer().then((module) => ({ default: modu
 import { ContextMeter } from "./ContextMeter";
 import { Notifications } from "./Notifications";
 import { ProjectSettings } from "./ProjectSettings";
+import { AgentMonitor } from "./AgentMonitor";
+import { MemberPicker } from "./MemberPicker";
+import { SystemManagement } from "./SystemManagement";
+import { EmailAuth } from "./EmailAuth";
+import { EmailBinding } from "./EmailBinding";
+import { PasswordField } from "./PasswordField";
+import { AuthParticleBackground } from "./AuthParticleBackground";
 import type { ContextUsage } from "../shared/context.js";
 import { createResourceCache } from "../shared/resource-cache.js";
 import { IdentityName, RoleBadge } from "./Identity";
@@ -49,7 +57,7 @@ function PanelIcon({ side }: { side: "left" | "right" }) {
     </svg>
   );
 }
-function SidebarIcon({ kind }: { kind: "plus" | "document" | "info" }) {
+function SidebarIcon({ kind }: { kind: "plus" | "document" | "info" | "monitor" | "settings" }) {
   return (
     <svg
       width="18"
@@ -64,10 +72,22 @@ function SidebarIcon({ kind }: { kind: "plus" | "document" | "info" }) {
     >
       {kind === "plus" ? (
         <path d="M12 5v14M5 12h14" />
+      ) : kind === "monitor" ? (
+        <>
+          <path d="M4 19V9M10 19V5M16 19v-7M22 19H2" />
+          <circle cx="4" cy="7" r="1" />
+          <circle cx="10" cy="3" r="1" />
+          <circle cx="16" cy="10" r="1" />
+        </>
       ) : kind === "info" ? (
         <>
           <circle cx="12" cy="12" r="9" />
           <path d="M12 11v6M12 7h.01" />
+        </>
+      ) : kind === "settings" ? (
+        <>
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.09A1.7 1.7 0 0 0 9 19.35a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.07 14H3v-4h.09A1.7 1.7 0 0 0 4.65 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63a1.7 1.7 0 0 0 1-1.56V3h4v.09A1.7 1.7 0 0 0 15 4.65a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.93 10H21v4h-.09A1.7 1.7 0 0 0 19.4 15Z" />
         </>
       ) : (
         <>
@@ -260,8 +280,11 @@ type Detail = Project & {
   }[];
   members: {
     id: string;
+    user_number?: number;
+    username?: string;
     name: string;
     email: string;
+    bound_email?: string | null;
     role: string;
     avatar?: string | null;
     motto?: string;
@@ -290,6 +313,8 @@ type Thread = {
     agent_task_id?: string | null;
     quoteTargetId?: string;
     render_key?: string;
+    delivery_status?: "sending" | "failed";
+    delivery_error?: string;
     quotes?: MessageQuote[];
     created_at: string;
   }[];
@@ -336,11 +361,12 @@ type Modal =
   | "thread"
   | "document"
   | "settings"
-  | "account"
-  | "member"
+  | "admin-projects"
+  | "admin-accounts"
   | "archive"
   | "tokens"
   | "password"
+  | "email"
   | "run"
   | null;
 async function api(path: string, data?: unknown, method?: string, signal?: AbortSignal) {
@@ -375,7 +401,19 @@ function App() {
   const historyRequest = useRef<AbortController | null>(null);
   const mergeThread = (previous: Thread | undefined, incoming: Thread, older = false): Thread => {
     if (!previous) return incoming;
-    const messages = [...new Map([...previous.messages, ...incoming.messages].map((m) => [m.id, m])).values()]
+    const messageMap = new Map(previous.messages.map((item) => [item.id, item]));
+    for (const item of incoming.messages) {
+      const optimisticKey = `optimistic:${item.id}`;
+      const optimistic = messageMap.get(optimisticKey);
+      if (optimistic) {
+        messageMap.delete(optimisticKey);
+        messageMap.set(item.id, { ...item, render_key: optimisticKey });
+        continue;
+      }
+      const local = messageMap.get(item.id);
+      messageMap.set(item.id, local?.render_key ? { ...item, render_key: local.render_key } : item);
+    }
+    const messages = [...messageMap.values()]
       .sort((a, b) => BigInt(a.sequence) < BigInt(b.sequence) ? -1 : 1);
     return { ...(older ? previous : incoming), messages,
       events: [...new Map([...previous.events, ...incoming.events].map((e) => [e.id, e])).values()],
@@ -384,6 +422,20 @@ function App() {
   const messageAvatar = (m: Thread["messages"][number]) => {
     const member = detail?.members.find((member) => member.id === m.author_id);
     return member ? member.avatar : m.author_avatar;
+  };
+  const messageMotto = (m: Thread["messages"][number]) => {
+    if (m.source !== "assistant")
+      return detail?.members.find((member) => member.id === m.author_id)?.motto || "";
+    const record = m.agent_task_id
+      ? thread?.replies.find((reply) => reply.message_id === m.agent_task_id)
+      : thread?.replies.find((reply) => reply.reply_id === m.id)
+        || thread?.requests.find((request) => request.response_id === m.id);
+    let usage: UsageStats = {};
+    try { usage = typeof record?.usage_stats === "string"
+      ? JSON.parse(record.usage_stats) : record?.usage_stats || {}; } catch {}
+    return usage.model
+      ? `${usage.model} · ${usage.reasoningEffort || "medium"}`
+      : detail?.members.find((member) => member.id === AGENT_MEMBER.id)?.motto || AGENT_MEMBER.motto;
   };
   const readThread = async (id: string, signal: AbortSignal): Promise<Thread> => {
     const previous = threadCache.current.get(id);
@@ -437,6 +489,8 @@ function App() {
     return () => clearTimeout(timer);
   }, [copiedMessage]);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [monitorOpen, setMonitorOpen] = useState(false);
+  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [documentId, setDocumentId] = useState("");
   const showDocument = (id?: string) => {
     setDocumentId(id || detail?.versions.find((v) => !v.deleted_at)?.id || "");
@@ -461,12 +515,9 @@ function App() {
   const [contextOpen, setContextOpen] = useState(
     () => window.innerWidth > 1100,
   );
-  const [memberScope, setMemberScope] = useState<"project" | "all">("project");
-  const [accounts, setAccounts] = useState<
-    { id: string; name: string; email: string }[]
-  >([]);
+  const [memberPickerOpen, setMemberPickerOpen] = useState(false);
   const [memberSearch, setMemberSearch] = useState("");
-  const [tab, setTab] = useState<"documents" | "members" | "project-settings">("documents");
+  const [tab, setTab] = useState<"documents" | "members">("documents");
   const [showArchived, setShowArchived] = useState(false);
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
@@ -494,21 +545,6 @@ function App() {
   const owner = projects.find((p) => p.id === projectId)?.role === "owner";
   const creator = projects.find((p) => p.id === projectId)?.created_by === user?.id;
   const projectMember = projects.some((p) => p.id === projectId);
-  const canCreateAccount = projects.some((p) => p.role === "owner");
-  useEffect(() => {
-    if (tab !== "members" || memberScope !== "all") return;
-    let alive = true;
-    api("/users")
-      .then((rows) => {
-        if (alive) setAccounts(rows);
-      })
-      .catch((e) => {
-        if (alive) setError(e.message);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [tab, memberScope]);
   const active = thread?.status === "active" && writable;
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -839,6 +875,8 @@ function App() {
   };
   const submitModal = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (modal?.startsWith("admin-")) return;
+    if (modal === "email") return;
     const form = new FormData(event.currentTarget);
     const value = (key: string) => String(form.get(key) || "");
     void run(async () => {
@@ -856,8 +894,6 @@ function App() {
           ),
         );
         await refresh();
-        if (tab === "members" && memberScope === "all")
-          setAccounts(await api("/users"));
       }
       if (modal === "project") {
         const p = await api("/projects", {
@@ -873,23 +909,6 @@ function App() {
         });
         setThreadId(t.id);
         setDetail(await api(`/projects/${projectId}?view=chat`));
-      }
-      if (modal === "account") {
-        await api("/users", {
-          name: value("name"),
-          email: value("email"),
-          password: value("password"),
-        });
-        setAccounts(await api("/users"));
-      }
-      if (modal === "member") {
-        await api(`/projects/${projectId}/members`, {
-          name: value("name"),
-          email: value("email"),
-          password: value("password") || undefined,
-          role: "member",
-        });
-        await refresh();
       }
       if (modal === "archive") {
         await api(`/threads/${threadId}/archive`, {
@@ -941,22 +960,73 @@ function App() {
       setModal(null);
     });
   };
-  const time = (text: string) =>
-    new Date(
-      text.replace(" ", "T") + (text.endsWith("Z") ? "" : "Z"),
-    ).toLocaleString("zh-CN", {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+  const time = (text: string) => {
+    const value = new Date(text.replace(" ", "T") + (text.endsWith("Z") ? "" : "Z"));
+    const today = new Date();
+    const calendarDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const daysAgo = Math.round((calendarDay(today) - calendarDay(value)) / 86400000);
+    const clock = value.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    if (daysAgo === 0) {
+      const secondOfDay = value.getHours() * 3600 + value.getMinutes() * 60 + value.getSeconds();
+      const period = secondOfDay < 5 * 3600 ? "凌晨"
+        : secondOfDay < 8 * 3600 ? "早上"
+          : secondOfDay < 11 * 3600 ? "上午"
+            : secondOfDay < 14 * 3600 ? "中午"
+              : secondOfDay < 18 * 3600 ? "下午"
+                : secondOfDay < 23 * 3600 ? "晚上" : "深夜";
+      return `${period} ${clock}`;
+    }
+    if (daysAgo === 1) return `昨天 ${clock}`;
+    if (daysAgo === 2) return `前天 ${clock}`;
+    const date = value.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+    return `${date} ${clock}`;
+  };
+  const updateThreadCache = (targetThreadId: string, transform: (current: Thread) => Thread) => {
+    const next = threadCache.current.update(targetThreadId, current =>
+      transform(current || (loadedThread?.id === targetThreadId ? loadedThread : thread)!));
+    if (currentContext.current.threadId === targetThreadId) setThread(next);
+  };
+  const persistOptimisticMessage = async (
+    targetThreadId: string,
+    optimisticId: string,
+    payload: { body: string; refs: string[]; quoteIds: string[]; clientMessageId: string },
+    quotes: MessageQuote[],
+  ) => {
+    updateThreadCache(targetThreadId, current => ({ ...current, messages: current.messages.map(item =>
+      item.id === optimisticId ? { ...item, delivery_status: "sending", delivery_error: undefined } : item) }));
+    try {
+      const saved = await api(`/threads/${targetThreadId}/messages`, payload, undefined, AbortSignal.timeout(10000));
+      updateThreadCache(targetThreadId, current => {
+        const withoutDuplicate = current.messages.filter(item => item.id !== saved.id);
+        const found = withoutDuplicate.some(item => item.id === optimisticId);
+        const committed = { ...saved, quotes, render_key: optimisticId };
+        return { ...current,
+          messages: found ? withoutDuplicate.map(item => item.id === optimisticId ? committed : item) : [...withoutDuplicate, committed],
+          requests: !saved.request_status || current.requests.some(r => r.message_id === saved.id) ? current.requests : [...current.requests,{message_id:saved.id,status:saved.request_status,response_id:null,error:null}],
+          replies: !saved.participation || current.replies.some(r => r.message_id === saved.id) ? current.replies : [...current.replies,{message_id:saved.id,status:'queued',participation:saved.participation,reply_id:null,parent_message_id:null,agent_slot:null,dispatch_ready:false,error:null,progress:null}],
+        };
+      });
+      await refresh();
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : "消息发送失败";
+      updateThreadCache(targetThreadId, current => ({ ...current, messages: current.messages.map(item =>
+        item.id === optimisticId ? { ...item, delivery_status: "failed", delivery_error: detail } : item) }));
+    }
+  };
   const hasAgentActivity = (reply: Thread["replies"][number]) =>
     !!reply.parent_message_id || !!reply.agent_slot ||
     (!!reply.dispatch_ready && ['queued','running'].includes(reply.status)) ||
+    (reply.status === "running" && !!reply.first_response_at) ||
     !!liveOutput[reply.message_id]?.reasoning || (!!liveOutput[reply.message_id]?.content && !reply.reply_id) ||
     reply.status === "failed" ||
     !!thread?.events.some((event) => event.message_id === reply.message_id &&
       (event.tool !== "thinking" || (reply.status === "running" && event.status === "running")));
+  const directStreamingReply = (message: Thread["messages"][number]) => {
+    if (!message.agent_task_id) return undefined;
+    const reply = thread?.replies.find((item) => item.message_id === message.agent_task_id);
+    return reply && !reply.parent_message_id && !reply.agent_slot && !reply.dispatch_ready
+      && reply.status === "running" && !reply.reply_id ? reply : undefined;
+  };
   const timeline = thread ? taskTimeline(thread.messages, thread.replies, thread.requests || [], hasAgentActivity) : [];
   const renderAgentRound = (reply: Thread["replies"][number]) => {
     if (!hasAgentActivity(reply)) return null;
@@ -1016,7 +1086,8 @@ function App() {
     return (
       <div className="login">
         <div className="brand">
-          共序 <small>CoThread</small>
+          <img className="brand-logo" src="/cothread-logo.svg" alt="" />
+          <span>共序 <small>CoThread</small></span>
         </div>
         <p role="status">{startupError || "正在加载工作空间…"}</p>
         {startupError && <button onClick={() => void loadWorkspace()}>重新加载</button>}
@@ -1025,9 +1096,15 @@ function App() {
   if (!user)
     return (
       <div className="login">
-        <div className="login-story">
+        <AuthParticleBackground />
+        <div className="login-story" onPointerMove={(event) => {
+          const bounds = event.currentTarget.getBoundingClientRect();
+          event.currentTarget.style.setProperty("--spot-x", `${event.clientX - bounds.left}px`);
+          event.currentTarget.style.setProperty("--spot-y", `${event.clientY - bounds.top}px`);
+        }}>
           <div className="brand">
-            ◈ 共序 <small>CoThread</small>
+            <img className="brand-logo" src="/cothread-logo.svg" alt="" />
+            <span>共序 <small>CoThread</small></span>
           </div>
           <span className="eyebrow">A SHARED THREAD OF WORK</span>
           <h1>
@@ -1046,53 +1123,7 @@ function App() {
             <span>协作交付</span>
           </div>
         </div>
-        <form
-          className="login-card"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const f = new FormData(e.currentTarget);
-            void run(async () =>
-              setUser(
-                await api("/login", {
-                  email: f.get("email"),
-                  password: f.get("password"),
-                }),
-              ),
-            );
-          }}
-        >
-          <span className="eyebrow">WORKSPACE</span>
-          <h2>回到共同的上下文</h2>
-          <p>登录你的共序工作空间</p>
-          <label>
-            邮箱
-            <input
-              name="email"
-              type="email"
-              defaultValue="admin@cothread.local"
-              autoComplete="username"
-              required
-            />
-          </label>
-          <label>
-            密码
-            <input
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-            />
-          </label>
-          {error && (
-            <div className="error" role="alert">
-              {error}
-            </div>
-          )}
-          <button className="primary" disabled={busy}>
-            {busy ? "正在登录…" : "进入工作空间 →"}
-          </button>
-          <small>请使用已有账号登录；新账号请联系项目负责人。</small>
-        </form>
+        <EmailAuth api={api} onLogin={setUser} />
       </div>
     );
   const versions =
@@ -1367,24 +1398,17 @@ function App() {
           ▤ {showArchived ? "隐藏已归档" : "查看已归档"}
         </button>
         <div className="sidebar-bottom">
-          <a
-            className="sidebar-card sidebar-about"
-            href="/about_us.html"
-            target="_blank"
-            rel="noopener noreferrer"
-            title="关于我们（在新标签页打开）"
-            aria-label="关于我们（在新标签页打开）"
+          <button
+            className="sidebar-card sidebar-monitor"
+            title="查看所有小祥的运行状态"
+            aria-label="小祥监控"
+            disabled={!projectId}
+            onClick={() => setMonitorOpen(true)}
           >
-            <span className="sidebar-card-icon">
-              <SidebarIcon kind="info" />
-            </span>
-            <span className="sidebar-card-copy">
-              关于我们<small>了解共序 CoThread</small>
-            </span>
-            <span className="sidebar-card-action" aria-hidden="true">
-              ↗
-            </span>
-          </a>
+            <span className="sidebar-card-icon"><SidebarIcon kind="monitor" /></span>
+            <span className="sidebar-card-copy">小祥监控<small>调度、执行与知识整理</small></span>
+            <span className="sidebar-card-action" aria-hidden="true">›</span>
+          </button>
           <button
             className="sidebar-card sidebar-library"
             title="项目文档库"
@@ -1403,9 +1427,24 @@ function App() {
             </span>
           </button>
           <button
+            className="sidebar-card sidebar-project-settings"
+            title="项目设置"
+            aria-label="项目设置"
+            disabled={!projectId}
+            onClick={() => setProjectSettingsOpen(true)}
+          >
+            <span className="sidebar-card-icon">
+              <SidebarIcon kind="settings" />
+            </span>
+            <span className="sidebar-card-copy">
+              项目设置<small>名称与项目状态</small>
+            </span>
+            <span className="sidebar-card-action" aria-hidden="true">›</span>
+          </button>
+          <button
             className="sidebar-card sidebar-profile"
-            title={`${user.name} · 个人设置`}
-            aria-label={`${user.name} · 个人设置`}
+            title={`${user.name} · 设置`}
+            aria-label={`${user.name} · 设置`}
             onClick={() => open("profile")}
           >
             <span className="avatar">
@@ -1413,7 +1452,7 @@ function App() {
             </span>
             <span className="sidebar-card-copy">
               {user.name}
-              <small>{user.motto || user.email}</small>
+              <small>{user.motto || user.username}</small>
             </span>
             <span className="sidebar-card-action" aria-hidden="true">
               ⚙
@@ -1478,7 +1517,7 @@ function App() {
           </div>
         ) : !thread ? (
           <div className="welcome">
-            <div className="welcome-icon">◈</div>
+            <img className="welcome-logo" src="/cothread-logo.svg" alt="共序" />
             <span className="eyebrow">BUILD CONTEXT TOGETHER</span>
             <h1>把工作，接在同一条线上。</h1>
             <p>
@@ -1565,43 +1604,39 @@ function App() {
                     </span>
                     <div className="message-content">
                       <div className="message-meta">
-                        <strong>
-                          <IdentityName
-                            role={
-                              m.source === "assistant"
-                                ? AGENT_MEMBER.identity_tags[0]
-                                : m.author_role
-                            }
-                            name={
-                              m.source === "assistant"
-                                ? AGENT_MEMBER.name
-                                : m.author
-                            }
-                          />
-                        </strong>
-                        {m.source === "assistant" && (
-                          <span className="agent-badge">
-                            {thread.replies.find((reply) => reply.message_id === m.agent_task_id || reply.reply_id === m.id)?.agent_slot
-                              ? `子 Agent ${thread.replies.find((reply) => reply.message_id === m.agent_task_id || reply.reply_id === m.id)?.agent_slot}`
-                              : "主助手"}
-                          </span>
-                        )}
+                        <span className="message-author">
+                          <strong>
+                            <IdentityName
+                              role={
+                                m.source === "assistant"
+                                  ? AGENT_MEMBER.identity_tags[0]
+                                  : m.author_role
+                              }
+                              name={
+                                m.source === "assistant"
+                                  ? AGENT_MEMBER.name
+                                  : m.author
+                              }
+                            />
+                          </strong>
+                          {messageMotto(m) && <small>{m.source === "assistant"
+                            ? messageMotto(m)
+                            : Array.from(messageMotto(m)).slice(0, 15).join("")}</small>}
+                        </span>
                         {m.source === "local_ai" && (
                           <span className="source-label">通过本地 AI 提交</span>
                         )}
                         {m.source === "system" && (
                           <span className="source-label">协作记录</span>
                         )}
-                        <time>{time(m.created_at)}</time>
                       </div>
                       {m.id.startsWith('agent-reception:') && <AgentActivity threadId={threadId} messageId={m.id.slice('agent-reception:'.length)} events={[]} status="queued" hasFinal={false}/>}
-                      {m.source==='assistant' && thread.requests.filter(r=>r.response_id===m.id).map(r=><AgentActivity key={r.message_id} threadId={threadId} messageId={r.message_id} events={[]} status="completed" hasFinal={true}/>)}
                       {m.source === "assistant" &&
                         thread.replies
                           .filter((reply) => m.agent_task_id === reply.message_id || reply.reply_id === m.id)
                           .map((reply) => (
                             <React.Fragment key={reply.message_id}>
-                              {renderAgentRound(reply)}
+                              {directStreamingReply(m) ? null : renderAgentRound(reply)}
                             </React.Fragment>
                           ))}
                       {!!m.quotes?.length && <div className="message-quotes">{m.quotes.map(q => (
@@ -1616,7 +1651,10 @@ function App() {
                             {update.delivered_at ? "已更新当前任务" : "已关联到当前任务，等待助手接收"}
                           </p>
                         ))}
-                        <Markdown
+                        {directStreamingReply(m) ? <StreamingMarkdown
+                          active
+                          text={liveOutput[directStreamingReply(m)!.message_id]?.content || ""}
+                        /> : <Markdown
                           remarkPlugins={[remarkGfm]}
                           components={{
                             img: () => <span>（图片链接）</span>,
@@ -1634,7 +1672,7 @@ function App() {
                           }}
                         >
                           {m.body}
-                        </Markdown>
+                        </Markdown>}
                       </div>
                       {!!m.refs.length && (
                         <div className="references">
@@ -1642,16 +1680,24 @@ function App() {
                         </div>
                       )}
                       {!!m.body.trim() && !m.id.startsWith('agent-reception:') && <div className="message-actions">
+                        {m.author_id === user.id && m.source !== "assistant" && <time className="message-action-time">{time(m.created_at)}</time>}
                         <button type="button" title={copiedMessage === m.id ? "已复制" : "复制"} aria-label={copiedMessage === m.id ? "已复制" : "复制"} onClick={() => void copyMessage(m)}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedMessage === m.id ? <path d="m4 10 4 4 8-8"/> : <><rect x="3" y="7" width="11" height="11" rx="4"/><path d="M7 4a4 4 0 0 1 4-3h3a4 4 0 0 1 4 4v5a4 4 0 0 1-2 3.5"/></>}</svg></button>
-                        <button type="button" title="引用" aria-label="引用" disabled={!active || (m.id.startsWith("agent-task:") && !m.quoteTargetId)} onClick={() => {
+                        <button type="button" title="引用" aria-label="引用" disabled={!active || m.id.startsWith("optimistic:") || (m.id.startsWith("agent-task:") && !m.quoteTargetId)} onClick={() => {
                           const id = m.quoteTargetId || m.id;
                           const original = thread.messages.find(item => item.id === id) || m;
                           setQuotedMessages(previous => previous.some(q => q.id === id) ? previous : [...previous, {...original, id}].slice(0,10));
                           requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus());
                         }}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 5H3v6h5V5Zm9 0h-5v6h5V5ZM8 11c0 3-2 4-4 4m13-4c0 3-2 4-4 4"/></svg></button>
                         {m.source==='assistant'&&<MessageUsage record={m.agent_task_id?thread.replies.find(r=>r.message_id===m.agent_task_id):thread.requests.find(r=>r.response_id===m.id)} finishedAt={m.created_at} createdAt={thread.messages.find(item=>item.id===(m.agent_task_id||thread.requests.find(r=>r.response_id===m.id)?.message_id))?.created_at}/>}
+                        {(m.author_id !== user.id || m.source === "assistant") && <time className="message-action-time">{time(m.created_at)}</time>}
                       </div>}
                     </div>
+                    {m.delivery_status === "sending" && <span className="message-delivery-control sending" role="status" aria-label="正在发送" title="正在发送" />}
+                    {m.delivery_status === "failed" && <button type="button" className="message-delivery-control failed" aria-label="重新发送" title={m.delivery_error || "重新发送"} onClick={() => void persistOptimisticMessage(threadId, m.id, {
+                      body: m.body, refs: m.refs, quoteIds: (m.quotes || []).map(quote => quote.id), clientMessageId: m.id.slice("optimistic:".length),
+                    }, m.quotes || [])}>
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+                    </button>}
                   </article>
                 </React.Fragment>
               ))}
@@ -1747,30 +1793,38 @@ function App() {
                   uploadTarget={uploadTarget}
                   onRefresh={refresh}
                   onSend={async () => {
-                    let sent = false;
-                    await run(async () => {
-                      const saved = await api(`/threads/${threadId}/messages`, {
-                        body: message,
-                        refs,
-                        quoteIds: quotedMessages.map(q => q.id),
-                      });
-                      if (currentContext.current.threadId === threadId) setThread(current => {
-                        if (!current || current.id !== threadId) return current;
-                        const next = {...current,
-                          messages: current.messages.some(m => m.id === saved.id) ? current.messages : [...current.messages,{...saved,quotes:quotedMessages}],
-                          requests: !saved.request_status || current.requests.some(r => r.message_id === saved.id) ? current.requests : [...current.requests,{message_id:saved.id,status:saved.request_status,response_id:null,error:null}],
-                          replies: !saved.participation || current.replies.some(r => r.message_id === saved.id) ? current.replies : [...current.replies,{message_id:saved.id,status:'queued',participation:saved.participation,reply_id:null,parent_message_id:null,agent_slot:null,dispatch_ready:false,error:null,progress:null}],
-                        };
-                        return next;
-                      });
-                      sent = true;
-                      setQuotedMessages([]);
-                      setMessage("");
-                      setRefs([]);
-                      followConversation.current = true;
-                      await refresh();
-                    });
-                    return sent;
+                    const targetThreadId = threadId;
+                    const body = message;
+                    const selectedRefs = [...refs];
+                    const selectedQuotes = [...quotedMessages];
+                    const optimisticId = `optimistic:${crypto.randomUUID()}`;
+                    const optimistic = {
+                      id: optimisticId,
+                      sequence: ((thread?.messages.reduce((latest, item) => {
+                        try { return BigInt(item.sequence) > latest ? BigInt(item.sequence) : latest; }
+                        catch { return latest; }
+                      }, 0n) || 0n) + 1n).toString(),
+                      body,
+                      source: "web",
+                      refs: selectedRefs,
+                      author: user.name,
+                      author_id: user.id,
+                      author_avatar: user.avatar,
+                      author_role: user.identity_tags[0] || null,
+                      quotes: selectedQuotes,
+                      created_at: new Date().toISOString(),
+                      delivery_status: "sending" as const,
+                    };
+                    threadCache.current.cancel(targetThreadId);
+                    updateThreadCache(targetThreadId, current => ({ ...current, messages: [...current.messages, optimistic] }));
+                    setQuotedMessages([]);
+                    setMessage("");
+                    setRefs([]);
+                    followConversation.current = true;
+                    void persistOptimisticMessage(targetThreadId, optimisticId, {
+                      body, refs: selectedRefs, quoteIds: selectedQuotes.map(q => q.id), clientMessageId: optimisticId.slice("optimistic:".length),
+                    }, selectedQuotes);
+                    return true;
                   }}
                 />
                 </Suspense>
@@ -1782,7 +1836,7 @@ function App() {
                 </div>
               )}
               <small className="composer-note">
-                共同事实由团队确认 · AI 提交有身份，文档修改留版本
+                共同事实由团队确认 · AI 提交有身份，文档修改留版本 · <a href="/about_us.html" target="_blank" rel="noopener noreferrer">关于我们</a>
               </small>
             </div>
           </>
@@ -1816,13 +1870,7 @@ function App() {
             className={tab === "members" ? "active" : ""}
             onClick={() => setTab("members")}
           >
-            成员
-          </button>
-          <button
-            className={tab === "project-settings" ? "active" : ""}
-            onClick={() => setTab("project-settings")}
-          >
-            项目设置
+            成员 <small>{detail?.members.length || 0}</small>
           </button>
         </div>
         {tab === "documents" ? (
@@ -1854,60 +1902,22 @@ function App() {
               />
             </Suspense>
           )
-        ) : tab === "project-settings" ? (
-          detail?.id === projectId ? (
-            <ProjectSettings
-              key={projectId}
-              name={detail.name}
-              createdAt={localDate(detail.created_at)}
-              creator={creator}
-              onSave={async (name) => {
-                const updated = await api(`/projects/${projectId}`, { name }, "PATCH");
-                setProjects((rows) => rows.map((p) => p.id === updated.id ? { ...p, name: updated.name } : p));
-                setDetail((previous) => previous && previous.id === updated.id ? { ...previous, name: updated.name } : previous);
-              }}
-            />
-          ) : <p className="muted">{projectId ? "正在加载项目设置…" : "请先选择项目"}</p>
         ) : (
           <>
-            <div className="member-scope">
-              <button
-                className={memberScope === "project" ? "active" : ""}
-                onClick={() => setMemberScope("project")}
-              >
-                项目成员 <small>{detail?.members.length || 0}</small>
-              </button>
-              <button
-                className={memberScope === "all" ? "active" : ""}
-                onClick={() => setMemberScope("all")}
-              >
-                全部成员
-              </button>
-            </div>
             <input
               className="member-search"
               aria-label="搜索成员"
-              placeholder="搜索姓名或邮箱"
+              placeholder="搜索成员"
               value={memberSearch}
               onChange={(e) => setMemberSearch(e.target.value)}
             />
             <div className="panel-heading">
-              <span>
-                {memberScope === "all" ? "账号全局通用" : "参与此项目的成员"}
-              </span>
-              {memberScope === "project" && projectMember && (
-                <button onClick={() => setMemberScope("all")}>＋ 添加</button>
-              )}
-              {memberScope === "all" && canCreateAccount && (
-                <button onClick={() => open("account")}>＋ 新建账号</button>
-              )}
+              <span>参与此项目的成员</span>
+              {projectMember && <button onClick={() => setMemberPickerOpen(true)}>＋ 添加</button>}
             </div>
-            {(memberScope === "all"
-              ? [...accounts, AGENT_MEMBER]
-              : detail?.members || []
-            )
+            {(detail?.members || [])
               .filter((m) =>
-                `${m.name} ${m.email}`
+                `${m.name} ${m.username || ""} ${m.email} ${m.bound_email || ""}`
                   .toLowerCase()
                   .includes(memberSearch.toLowerCase()),
               )
@@ -1924,20 +1934,21 @@ function App() {
                         m.name[0]
                       )}
                     </span>
-                    <div>
-                      <strong>{m.name}</strong>
-                      <small>{m.email}</small>
+                    <div className="member-copy">
+                      <div className="member-name-row">
+                        <strong>{m.name}</strong>
+                        {"identity_tags" in m &&
+                          Array.isArray(m.identity_tags) &&
+                          m.identity_tags.map((tag: string) => (
+                            <RoleBadge key={tag} role={tag} />
+                          ))}
+                        {m.id === detail?.created_by && <RoleBadge role="创建人" />}
+                        {membership?.role === "viewer" && <RoleBadge role="只读" />}
+                      </div>
+                      <small className="member-user-id">用户ID：{m.user_number ?? m.id}</small>
                       {"motto" in m &&
                         typeof m.motto === "string" &&
-                        m.motto && <small>{m.motto}</small>}
-                      {"identity_tags" in m &&
-                        Array.isArray(m.identity_tags) && (
-                          <div className="member-identity-tags">
-                            {m.identity_tags.map((tag: string) => (
-                              <RoleBadge key={tag} role={tag} />
-                            ))}
-                          </div>
-                        )}
+                        m.motto && <small className="member-motto">{m.motto}</small>}
                     </div>
                     {membership && creator && m.id !== detail?.created_by && m.id !== AGENT_MEMBER.id && (
                       <button disabled={busy} onClick={() => {
@@ -1947,48 +1958,11 @@ function App() {
                         });
                       }}>移出项目</button>
                     )}
-                    {membership ? (
-                      <span className="role">
-                        {
-                          {
-                            owner: "创建人",
-                            member: "成员",
-                            viewer: "只读",
-                            agent: "助理",
-                          }[membership.role]
-                        }
-                      </span>
-                    ) : projectMember && m.id !== AGENT_MEMBER.id ? (
-                      <button
-                        disabled={busy}
-                        onClick={() =>
-                          run(async () => {
-                            await api(`/projects/${projectId}/members`, {
-                              userId: m.id,
-                              role: "member",
-                            });
-                            await refresh();
-                          })
-                        }
-                      >
-                        加入项目
-                      </button>
-                    ) : (
-                      <span className="role">未加入</span>
-                    )}
                   </div>
                 );
               })}
           </>
         )}
-        <div className="panel-tip">
-          <span>↗</span>
-          <p>
-            下一次迭代，也能引用今天的版本。
-            <br />
-            <strong>资料属于项目，不随沙箱消失。</strong>
-          </p>
-        </div>
       </aside>
       {quotePreview && <div className="modal-backdrop" onClick={() => setQuotePreview(null)}>
         <section className="quoted-message-dialog" role="dialog" aria-modal="true" aria-label="引用消息原文" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === "Escape") setQuotePreview(null); }}>
@@ -2058,6 +2032,37 @@ function App() {
           />
         </Suspense>
       )}
+      {monitorOpen && projectId && (
+        <AgentMonitor
+          projectId={projectId}
+          projectName={detail?.name || "当前项目"}
+          api={api}
+          onClose={() => setMonitorOpen(false)}
+        />
+      )}
+      {projectSettingsOpen && projectId && (
+        <div className="modal-backdrop" onClick={() => setProjectSettingsOpen(false)}>
+          <section className="modal project-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="project-settings-title" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2 id="project-settings-title">项目设置</h2>
+              <button type="button" onClick={() => setProjectSettingsOpen(false)} aria-label="关闭">×</button>
+            </div>
+            {detail?.id === projectId ? (
+              <ProjectSettings
+                key={projectId}
+                name={detail.name}
+                createdAt={localDate(detail.created_at)}
+                creator={creator}
+                onSave={async (name) => {
+                  const updated = await api(`/projects/${projectId}`, { name }, "PATCH");
+                  setProjects((rows) => rows.map((project) => project.id === updated.id ? { ...project, name: updated.name } : project));
+                  setDetail((previous) => previous && previous.id === updated.id ? { ...previous, name: updated.name } : previous);
+                }}
+              />
+            ) : <p className="muted">正在加载项目设置…</p>}
+          </section>
+        </div>
+      )}
       {projectPickerOpen && (
         <ProjectPicker
           projects={projects}
@@ -2071,10 +2076,13 @@ function App() {
           }}
         />
       )}
+      {memberPickerOpen && projectId && (
+        <MemberPicker projectId={projectId} api={api} onClose={() => setMemberPickerOpen(false)} onAdded={refresh} />
+      )}
       {modal && (
         <div className="modal-backdrop">
           <section
-            className={`modal ${["profile", "settings", "tokens", "password"].includes(modal) ? "workspace-settings" : ""}`}
+            className={`modal ${["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts"].includes(modal) ? "workspace-settings" : ""}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-title"
@@ -2086,13 +2094,14 @@ function App() {
                     project: "创建项目",
                     thread: "发起迭代",
                     document: "提交文档版本",
-                    member: "添加项目成员",
-                    account: "新建通用账号",
                     profile: "个人设置",
                     settings: "个人设置",
                     archive: "归档本次迭代",
                     tokens: "个人设置",
                     password: "个人设置",
+                    email: "个人设置",
+                    "admin-projects": "系统管理",
+                    "admin-accounts": "系统管理",
                     run: "在沙箱中执行",
                   }[modal]
                 }
@@ -2107,29 +2116,35 @@ function App() {
             </div>
             <div
               className={
-                ["profile", "settings", "tokens", "password"].includes(modal)
+                ["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts"].includes(modal)
                   ? "settings-layout"
                   : undefined
               }
             >
-              {["profile", "settings", "tokens", "password"].includes(
+              {["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts"].includes(
                 modal,
               ) && (
                 <nav className="settings-nav" aria-label="设置项目">
-                  {(
-                    [
+                  {user.is_super_admin && <div className="settings-mode" aria-label="设置模式">
+                    <button type="button" className={!modal.startsWith("admin-") ? "active" : ""} onClick={() => open("profile")}>个人设置</button>
+                    <button type="button" className={modal.startsWith("admin-") ? "active" : ""} onClick={() => open("admin-projects")}>系统管理</button>
+                  </div>}
+                  {(modal.startsWith("admin-") ? [
+                      ["admin-projects", "项目管理"],
+                      ["admin-accounts", "账号管理"],
+                    ] : [
                       ["profile", "个人资料"],
-                      ["password", "账号设置"],
+                      ["password", "修改密码"],
+                      ["email", "绑定邮箱"],
                       ["tokens", "连接本地Agent"],
                       ["settings", "退出登录"],
-                    ] as const
-                  ).map(([value, label]) => (
+                    ] as const).map(([value, label]) => (
                     <button
                       key={value}
                       type="button"
                       aria-current={modal === value ? "page" : undefined}
                       disabled={busy}
-                      onClick={() => open(value)}
+                      onClick={() => open(value as Modal)}
                     >
                       {label}
                     </button>
@@ -2137,7 +2152,15 @@ function App() {
                 </nav>
               )}
               <form key={modal} onSubmit={submitModal}>
-                {["profile", "settings", "tokens", "password"].includes(
+                {(modal === "admin-projects" || modal === "admin-accounts") && (
+                  <SystemManagement
+                    section={modal === "admin-projects" ? "projects" : "accounts"}
+                    api={api}
+                    currentUserId={user.id}
+                    onProjectsChanged={async () => { setProjects(await api("/projects")); }}
+                  />
+                )}
+                {["profile", "settings", "tokens", "password", "email"].includes(
                   modal,
                 ) && (
                   <div className="settings-content-heading">
@@ -2147,13 +2170,17 @@ function App() {
                         : modal === "tokens"
                           ? "连接本地Agent"
                           : modal === "password"
-                            ? "账号设置"
+                            ? "修改密码"
+                            : modal === "email"
+                              ? "绑定邮箱"
                             : "退出登录"}
                     </h3>
                     <p>
                       {modal === "tokens"
                         ? "复制安装文档，交给本地 Agent 完成连接。"
-                        : "管理你的通用账号"}
+                        : modal === "email"
+                          ? "验证邮箱后，可使用邮箱登录和找回密码。"
+                          : "管理你的通用账号"}
                     </p>
                   </div>
                 )}
@@ -2174,7 +2201,7 @@ function App() {
                   <div className="settings-logout-panel">
                     <div className="settings-identity">
                       <strong>{user.name}</strong>
-                      <small>{user.email}</small>
+                      <small>账号：{user.username}{user.email ? ` · ${user.email}` : " · 未绑定邮箱"}</small>
                     </div>
                     <p className="muted">
                       退出当前账号后，可重新登录继续访问你的项目。
@@ -2286,36 +2313,6 @@ function App() {
                     </p>
                   </>
                 )}
-                {(modal === "member" || modal === "account") && (
-                  <>
-                    <label>
-                      姓名
-                      <input name="name" maxLength={80} required />
-                    </label>
-                    <label>
-                      邮箱
-                      <input name="email" type="email" required />
-                    </label>
-                    <label>
-                      {modal === "account"
-                        ? "初始密码"
-                        : "初始密码（已有账号可留空）"}
-                      <input
-                        name="password"
-                        type="password"
-                        required={modal === "account"}
-                        minLength={12}
-                        maxLength={200}
-                        autoComplete="new-password"
-                      />
-                    </label>
-                    <p className="muted">
-                      {modal === "account" &&
-                        "账号可用于所有项目；创建后需从全部成员中加入指定项目。"}
-                      将初始登录信息交给成员；成员可在账号设置中修改密码。
-                    </p>
-                  </>
-                )}
                 {modal === "archive" && (
                   <>
                     <p>
@@ -2337,7 +2334,7 @@ function App() {
                   <>
                     <div className="settings-identity">
                       <strong>{user.name}</strong>
-                      <small>{user.email}</small>
+                      <small>账号：{user.username}{user.email ? ` · ${user.email}` : " · 未绑定邮箱"}</small>
                     </div>
                     <label>
                       当前密码
@@ -2348,22 +2345,13 @@ function App() {
                         autoComplete="current-password"
                       />
                     </label>
-                    <label>
-                      新密码
-                      <input
-                        name="password"
-                        type="password"
-                        required
-                        minLength={12}
-                        maxLength={200}
-                        autoComplete="new-password"
-                      />
-                    </label>
+                    <PasswordField label="新密码" autoComplete="new-password" required />
                     <p className="muted">
                       修改后，其他登录会话和 AI 令牌会失效。
                     </p>
                   </>
                 )}
+                {modal === "email" && <EmailBinding email={user.email} api={api} onBound={(profile) => { setUser(profile); setModal(null); }} />}
                 {modal === "run" && (
                   <>
                     <p>
@@ -2442,7 +2430,7 @@ function App() {
                   >
                     关闭
                   </button>
-                  {modal !== "settings" && modal !== "tokens" && (
+                  {modal !== "settings" && modal !== "tokens" && modal !== "email" && !modal.startsWith("admin-") && (
                     <button className="primary" disabled={busy}>
                       {busy
                         ? "正在处理…"

@@ -26,6 +26,8 @@ function TreeIcon({ kind }: { kind: string }) {
     trash: "M4 6h16 M9 6V3h6v3 M6 6l1 15h10l1-15 M10 10v7 M14 10v7",
     back: "m9 5-6 7 6 7 M3 12h18",
     rename: "m14 4 6 6 M4 20l4-1L21 6a2 2 0 0 0-3-3L5 16Z",
+    sortType: "M4 6h10 M4 12h7 M4 18h4 M17 5v14 M14 16l3 3 3-3",
+    sortModified: "M12 8v5l3 2 M21 12a9 9 0 1 1-2.6-6.35 M21 4v6h-6",
   };
   return (
     <svg
@@ -544,7 +546,6 @@ export function Documents({
         <div className="library-body">
           <aside className="file-explorer">
             <div className="explorer-heading">
-              <strong>{trash ? "回收站" : "文件"}</strong>
               <div className="tree-actions">
                 {writable && !trash && (
                   <>
@@ -609,27 +610,39 @@ export function Documents({
                 </button>
               </div>
             </div>
-            <input
-              aria-label="搜索文档"
-              placeholder="搜索文档…"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-            />
-            <select
-              className="tree-sort"
-              aria-label="文件树排序"
-              value={sort}
-              onChange={(e) => setSort(e.target.value as "type" | "modified")}
-            >
-              <option value="type">文件夹优先 · 类型 / 名称</option>
-              <option value="modified">文件夹优先 · 最近修改</option>
-            </select>
+            <div className="tree-filter-bar">
+              <input
+                aria-label="搜索文档"
+                placeholder="搜索文档…"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+              />
+              <button
+                type="button"
+                className="tree-sort"
+                title={
+                  sort === "type"
+                    ? "当前：类型 / 名称；切换为最近修改"
+                    : "当前：最近修改；切换为类型 / 名称"
+                }
+                aria-label={
+                  sort === "type"
+                    ? "当前按类型和名称排序，切换为最近修改"
+                    : "当前按最近修改排序，切换为类型和名称"
+                }
+                onClick={() => setSort(sort === "type" ? "modified" : "type")}
+              >
+                <TreeIcon
+                  kind={sort === "type" ? "sortType" : "sortModified"}
+                />
+              </button>
+            </div>
             {!threadId && writable && (
               <small className="muted">
                 选择进行中的迭代后可新建或上传文档。
               </small>
             )}
-            {!trash && (
+            {!trash && draggingId && (
               <button
                 className={`tree-root ${folderId === null ? "selected" : ""} ${dropTarget === "root" ? "drop-target" : ""}`}
                 {...dropProps(null)}
@@ -638,7 +651,7 @@ export function Documents({
                   setOperation(null);
                 }}
               >
-                {draggingId ? "项目文件 · 拖到此处移出文件夹" : "项目文件"}
+                拖到此处移出文件夹
               </button>
             )}
             <div role="tree" aria-label="项目文件树">

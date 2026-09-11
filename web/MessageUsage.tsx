@@ -1,6 +1,6 @@
 import React,{useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
-export type UsageStats={provider?:string;model?:string;inputTokens?:number;outputTokens?:number;cacheReadTokens?:number;cacheWriteTokens?:number;reasoningTokens?:number|null;totalTokens?:number;calls?:number;executionDurationMs?:number;ttftMs?:number;ttftSteps?:number;decodeMs?:number;decodeTokens?:number};
+export type UsageStats={provider?:string;model?:string;reasoningEffort?:string;inputTokens?:number;outputTokens?:number;cacheReadTokens?:number;cacheWriteTokens?:number;reasoningTokens?:number|null;totalTokens?:number;calls?:number;executionDurationMs?:number;ttftMs?:number;ttftSteps?:number;decodeMs?:number;decodeTokens?:number};
 type Record={usage_stats?:UsageStats|string|null;first_response_at?:string|null;finished_at?:string|null};
 const timestamp=(value?:string|null)=>value?Date.parse(value.replace(' ','T')+(/Z$|[+-]\d\d:\d\d$/.test(value)?'':'Z')):NaN;
 const duration=(ms:number)=>Number.isFinite(ms)?`${Number((Math.max(0,ms)/1000).toFixed(1))}秒`:'未记录';
@@ -17,11 +17,10 @@ export function MessageUsage({record,finishedAt}:{record?:Record;finishedAt?:str
  const cacheHit=prompt>0?`${((usage.cacheReadTokens||0)/prompt*100).toFixed(1)}%`:'未记录';
  const speed=usage.decodeMs&&usage.decodeTokens!=null?`${Math.round(usage.decodeTokens/(usage.decodeMs/1000))} tok/s`:'未记录';
  const ttft=usage.ttftSteps?duration((usage.ttftMs||0)/usage.ttftSteps):'未记录';
- const rows=open==='usage'?[['提供方 / 模型',[usage.provider,usage.model].filter(Boolean).join('/')||'未记录'],['缓存命中',cacheHit],['未缓存输入',tokens(usage.inputTokens)],['缓存读取',tokens(usage.cacheReadTokens)],...(usage.cacheWriteTokens?[['缓存写入',tokens(usage.cacheWriteTokens)]]:[]),['输出',tokens(usage.outputTokens)]]:[['本轮总用时',duration(elapsed)],['输出速度（TPS）',speed],['首 token 用时（TTFT）',ttft]];
+ const rows=open==='usage'?[['模型',usage.model||'未记录'],['缓存命中',cacheHit],['未缓存输入',tokens(usage.inputTokens)],['缓存读取',tokens(usage.cacheReadTokens)],...(usage.cacheWriteTokens?[['缓存写入',tokens(usage.cacheWriteTokens)]]:[]),['输出',tokens(usage.outputTokens)]]:[['本轮总用时',duration(elapsed)],['输出速度（TPS）',speed],['首 token 用时（TTFT）',ttft]];
  const compact=usage.totalTokens==null?'未记录':usage.totalTokens>=1000?`${(usage.totalTokens/1000).toFixed(1)}K tok`:tokens(usage.totalTokens);
  return <div className="message-usage" ref={root}>
   {(['usage','time'] as const).map(kind=><button key={kind} type="button" className="message-usage-trigger" aria-expanded={open===kind} aria-label={kind==='usage'?'查看本轮用量':'查看本轮用时和速度'} onClick={e=>{anchor.current=e.currentTarget;setOpen(open===kind?null:kind);}}><MetricIcon kind={kind}/><span>{kind==='usage'?`用量 ${compact}`:`用时 ${duration(elapsed)}`}</span></button>)}
-  {Number.isFinite(end)&&<time className="message-usage-time">{new Date(end).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}</time>}
   {open&&createPortal(<div ref={panel} style={position} className={`message-usage-popover ${open}`} role="dialog" aria-label={open==='usage'?'本轮用量':'本轮用时和速度'}><header><MetricIcon kind={open}/><span>{open==='usage'?'本轮用量':'本轮用时和速度'}</span>{open==='usage'&&<strong>{tokens(usage.totalTokens)}</strong>}</header><dl>{rows.map(([label,value])=><React.Fragment key={label}><dt>{label}</dt><dd>{value}</dd></React.Fragment>)}</dl></div>,document.body)}
  </div>;
 }

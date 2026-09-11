@@ -2,7 +2,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { query, transaction } from "./db.js";
 import { mentionsAgent } from "../shared/agent-member.js";
 
-export const MAX_THREAD_AGENTS = 3;
+// One visible assistant coordinates up to seven concurrent execution contexts.
+export const MAX_THREAD_AGENTS = 7;
 
 export async function claimReply(db, threadId, { allowUnrouted = true } = {}) {
   const candidates = threadId ? [{ thread_id: threadId }] : await query(db,
@@ -36,7 +37,7 @@ export async function claimReply(db, threadId, { allowUnrouted = true } = {}) {
       await query(conn,
         `UPDATE assistant_replies SET status='running',execution_active=TRUE,parent_message_id=?,agent_slot=?,error=NULL,
          progress=? WHERE message_id=? AND status='queued'`,
-        [parent, slot, `子 Agent ${slot} 正在接手请求`, next.message_id]);
+        [parent, slot, "小祥正在处理请求", next.message_id]);
       const { body, ...result } = next;
       return { ...result, parent_message_id: parent, agent_slot: slot };
     });

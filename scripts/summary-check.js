@@ -3,7 +3,7 @@ import { Service } from "../server/service.js";
 import { executeRun } from "../server/acs.js";
 const db = await createDatabase();
 try {
-  const [user] = await query(db, "SELECT id FROM users WHERE email=?", [
+  const [user] = await query(db, "SELECT id FROM users WHERE COALESCE(username,email)=?", [
     process.env.ADMIN_EMAIL,
   ]);
   const [thread] = await query(

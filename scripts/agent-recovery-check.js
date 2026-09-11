@@ -7,7 +7,7 @@ const db = await createDatabase();
 try {
   const [thread] = await query(
     db,
-    "SELECT t.id FROM threads t JOIN users u ON u.id=t.created_by WHERE t.title='Agent 能力验收' AND u.email=? AND t.status='active' LIMIT 1",
+    "SELECT t.id FROM threads t JOIN users u ON u.id=t.created_by WHERE t.title='Agent 能力验收' AND COALESCE(u.username,u.email)=? AND t.status='active' LIMIT 1",
     [process.env.ADMIN_EMAIL],
   );
   if (!thread) throw new Error("缺少专用验收迭代");

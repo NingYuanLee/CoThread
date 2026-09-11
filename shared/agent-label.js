@@ -77,6 +77,10 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       object = file || "项目文档";
       isPath = true;
       break;
+    case "record_document_summary":
+      action = "记录文档摘要";
+      object = result.title || args.versionId || "项目文档";
+      break;
     case "sandbox_read":
       action = "读取文件";
       object = args.path || "工作区文件";

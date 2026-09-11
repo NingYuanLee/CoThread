@@ -1,7 +1,9 @@
 export const AGENT_MEMBER = Object.freeze({
   id: "agent-assistant",
+  user_number: 100000,
   name: "小祥",
-  avatar: "/cothread-logo.svg",
+  avatar: "/agent-avatars/xiaojingang.jpg",
+  motto: "单人项目直接回复，多人讨论按需参与",
   identity_tags: Object.freeze(["助理"]),
   email: "单人项目直接回复，多人讨论按需参与",
   role: "agent",

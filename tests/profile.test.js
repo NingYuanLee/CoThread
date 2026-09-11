@@ -80,7 +80,7 @@ test("personal profiles persist, validate input, and only allow the current brow
     for (const invalid of [
       { name: "  " },
       { name: "a".repeat(81) },
-      { motto: "a".repeat(201) },
+      { motto: "a".repeat(16) },
       { identity_tags: ["管理员"] },
       { identity_tags: ["设计", "产品"] },
       { avatar: "data:image/svg+xml;base64,PHN2Zz4=" },

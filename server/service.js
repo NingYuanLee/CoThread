@@ -1,11 +1,13 @@
 import { attachMessageQuotes } from "./message-quotes.js";
 import { contextUsage } from "../shared/context.js";
 import { AGENT_MEMBER, mentionsAgent } from "../shared/agent-member.js";
-import { randomUUID } from "node:crypto";
+import { modelConfig } from "./model-config.js";
+import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { digest, hashPassword } from "./auth.js";
 import { publishWork } from "./work-events.js";
+import { queueDocumentMemory, queueMemberMemory } from "./project-memory.js";
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -23,6 +25,14 @@ const json = (value) => (typeof value === "string" ? JSON.parse(value) : value);
 export class Service {
   constructor(db) {
     this.db = db;
+  }
+  async accountChange(db, targetUserId, actorUserId, action, details = {}) {
+    await query(db, "INSERT INTO account_change_logs(id,target_user_id,actor_user_id,action,details) VALUES(?,?,?,?,?)",
+      [randomUUID(), targetUserId, actorUserId, action, JSON.stringify(details)]);
+  }
+  async projectChange(db, projectId, actorUserId, action, details = {}) {
+    await query(db, "INSERT INTO project_change_logs(id,project_id,actor_user_id,action,details) VALUES(?,?,?,?,?)",
+      [randomUUID(), projectId, actorUserId, action, JSON.stringify(details)]);
   }
   async notify(db, userId, projectId, kind, text, threadId = null, messageId = null, senderName = "系统通知") {
     await query(db, "INSERT INTO notifications(id,user_id,project_id,kind,body,thread_id,message_id,sender_name) VALUES(?,?,?,?,?,?,?,?)",
@@ -75,6 +85,7 @@ export class Service {
       if (!result.affectedRows) fail(409, "成员不存在或不能移除项目负责人");
       const [sender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
       await this.notify(db, userId, projectId, "member_removed", "你已被移出该项目", null, null, sender.name);
+      await this.projectChange(db, projectId, user.id, "member_removed", { userId });
       return { ok: true };
     });
   }
@@ -88,8 +99,17 @@ export class Service {
     if (user.kind !== "session") fail(403, "项目设置需要人工登录");
     await this.projectCreator(user, projectId);
     const data = z.object({ name: title.max(120) }).parse(input);
-    await query(this.db, "UPDATE projects SET name=? WHERE id=?", [data.name, projectId]);
+    await transaction(this.db, async (db) => {
+      const [previous] = await query(db, "SELECT name FROM projects WHERE id=? FOR UPDATE", [projectId]);
+      await query(db, "UPDATE projects SET name=? WHERE id=?", [data.name, projectId]);
+      await this.projectChange(db, projectId, user.id, "profile_updated", { before: { name: previous.name }, after: { name: data.name } });
+    });
     return { id: projectId, ...data };
+  }
+  async systemAdmin(user, db = this.db) {
+    if (user.kind !== "session") fail(403, "系统管理需要人工登录");
+    const [account] = await query(db, "SELECT is_super_admin FROM users WHERE id=? AND disabled_at IS NULL", [user.id]);
+    if (!account || !Number(account.is_super_admin)) fail(403, "仅超级管理员可执行此操作");
   }
   async member(user, projectId, write = false, db = this.db, owner = false) {
     id.parse(projectId);
@@ -97,7 +117,8 @@ export class Service {
       fail(403, "令牌仅可访问指定项目");
     const [member] = await query(
       db,
-      "SELECT role FROM members WHERE project_id=? AND user_id=?",
+      `SELECT m.role FROM members m JOIN projects p ON p.id=m.project_id
+       WHERE m.project_id=? AND m.user_id=? AND p.archived_at IS NULL`,
       [projectId, user.id],
     );
     if (
@@ -125,7 +146,7 @@ export class Service {
     return query(
       this.db,
       `SELECT p.*,m.role,m.tab_visible,m.tab_opened_at,m.tab_pinned_at,(SELECT COUNT(*) FROM threads t WHERE t.project_id=p.id AND t.status='active') active_threads
-      FROM projects p JOIN members m ON m.project_id=p.id WHERE m.user_id=?${user.scope ? " AND p.id=?" : ""}
+      FROM projects p JOIN members m ON m.project_id=p.id WHERE m.user_id=? AND p.archived_at IS NULL${user.scope ? " AND p.id=?" : ""}
       ORDER BY m.tab_pinned_at DESC,m.tab_opened_at DESC,p.created_at DESC,p.id`,
       user.scope ? [user.id, user.scope] : [user.id],
     );
@@ -208,6 +229,7 @@ export class Service {
         "INSERT INTO members(project_id,user_id,role,tab_visible,tab_opened_at) VALUES(?,?,?,TRUE,UTC_TIMESTAMP(6))",
         [projectId, user.id, "owner"],
       );
+      await this.projectChange(db, projectId, user.id, "created", { name: data.name, description: data.description });
     });
     return { id: projectId, ...data };
   }
@@ -231,7 +253,7 @@ export class Service {
     );
     const membersQuery = query(
       this.db,
-      `SELECT u.id,u.name,u.email,${display ? "CONCAT('/api/projects/',m.project_id,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) avatar" : "u.avatar"},u.motto,u.identity_tags,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=?`,
+      `SELECT u.id,u.user_number,u.username,u.name,COALESCE(u.username,u.email) email,u.email bound_email,${display ? "CONCAT('/api/projects/',m.project_id,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) avatar" : "u.avatar"},u.motto,u.identity_tags,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=?`,
       [projectId],
     );
     const versionsQuery = query(
@@ -247,53 +269,208 @@ export class Service {
       [projectId],
     );
     const [[project], threads, members, versions, folders] = await Promise.all([projectQuery, threadsQuery, membersQuery, versionsQuery, foldersQuery]);
+    const coordinatorModel = modelConfig("coordinator");
     return {
       ...project,
       threads,
-      members: [...members, AGENT_MEMBER],
+      members: [...members, {
+        ...AGENT_MEMBER,
+        motto: `${coordinatorModel.model} · ${coordinatorModel.reasoningEffort}`,
+      }],
       versions,
       folders,
     };
   }
-  async users(user) {
+  async agentMonitor(user, projectId) {
+    await this.member(user, projectId);
+    const modelSummary = (scope) => {
+      const config = modelConfig(scope);
+      return { provider: config.provider, model: config.model, reasoningEffort: config.reasoningEffort };
+    };
+    const [memberQueue, documentQueue, memberSummary, documentSummary, coordinators, executors] =
+      await Promise.all([
+        query(this.db, `SELECT COUNT(*) pending,
+          COALESCE(SUM(available_at<=UTC_TIMESTAMP(3)),0) ready,
+          MIN(available_at) next_at FROM agent_member_memory_queue WHERE project_id=?`, [projectId]),
+        query(this.db, `SELECT COUNT(*) pending,
+          COALESCE(SUM(q.available_at<=UTC_TIMESTAMP(3)),0) ready,
+          MIN(q.available_at) next_at FROM agent_document_memory_queue q
+          JOIN versions v ON v.id=q.version_id JOIN artifacts a ON a.id=v.artifact_id
+          WHERE a.project_id=?`, [projectId]),
+        query(this.db, "SELECT MAX(updated_at) updated_at FROM agent_member_summaries WHERE project_id=?", [projectId]),
+        query(this.db, `SELECT MAX(s.updated_at) updated_at FROM agent_document_summaries s
+          JOIN versions v ON v.id=s.version_id JOIN artifacts a ON a.id=v.artifact_id
+          WHERE a.project_id=?`, [projectId]),
+        query(this.db, `SELECT t.id,t.title,t.status,t.created_at,t.archived_at,
+          COALESCE(SUM(q.status='queued'),0) queued_requests,
+          COALESCE(SUM(q.status='running'),0) running_requests,
+          (SELECT COUNT(*) FROM assistant_replies ar JOIN messages am ON am.id=ar.message_id
+            WHERE am.thread_id=t.id AND ar.execution_active=TRUE) active_executors,
+          MAX(COALESCE(q.first_response_at,m.created_at,t.created_at)) last_activity_at
+          FROM threads t LEFT JOIN messages m ON m.thread_id=t.id
+          LEFT JOIN agent_requests q ON q.message_id=m.id
+          WHERE t.project_id=? GROUP BY t.id,t.title,t.status,t.created_at,t.archived_at
+          ORDER BY t.status='active' DESC,last_activity_at DESC`, [projectId]),
+        query(this.db, `SELECT r.message_id task_id,t.id thread_id,t.title thread_title,
+          m.author_id,u.name requested_by,LEFT(m.body,280) goal,r.status,r.progress,
+          r.agent_slot,r.execution_active,m.created_at started_at,r.finished_at,
+          e.tool last_action,e.status last_action_status,e.created_at last_action_at,
+          (SELECT COUNT(*) FROM agent_task_updates tu WHERE tu.task_message_id=r.message_id) update_count
+          FROM assistant_replies r JOIN messages m ON m.id=r.message_id
+          JOIN threads t ON t.id=m.thread_id JOIN users u ON u.id=m.author_id
+          LEFT JOIN agent_events e ON e.id=(SELECT MAX(ae.id) FROM agent_events ae WHERE ae.message_id=r.message_id)
+          WHERE t.project_id=? AND (r.agent_slot IS NOT NULL OR r.execution_active=TRUE)
+          ORDER BY r.execution_active DESC,m.created_at DESC LIMIT 100`, [projectId]),
+      ]);
+    const memberMemory = memberQueue[0] || {};
+    const documentMemory = documentQueue[0] || {};
+    return {
+      generatedAt: new Date().toISOString(),
+      models: {
+        knowledge: modelSummary("knowledge"),
+        coordinator: modelSummary("coordinator"),
+        executor: modelSummary("executor"),
+      },
+      knowledge: {
+        memberPending: Number(memberMemory.pending || 0),
+        documentPending: Number(documentMemory.pending || 0),
+        ready: Number(memberMemory.ready || 0) + Number(documentMemory.ready || 0),
+        nextAt: [memberMemory.next_at, documentMemory.next_at].filter(Boolean)
+          .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0] || null,
+        lastUpdatedAt: [memberSummary[0]?.updated_at, documentSummary[0]?.updated_at].filter(Boolean)
+          .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || null,
+      },
+      coordinators: coordinators.map((row) => ({
+        ...row,
+        queued_requests: Number(row.queued_requests),
+        running_requests: Number(row.running_requests),
+        active_executors: Number(row.active_executors),
+      })),
+      executors: executors.map((row) => ({ ...row, update_count: Number(row.update_count) })),
+    };
+  }
+  async users(user, projectId) {
     if (user.kind !== "session") fail(403, "成员目录需要人工登录");
+    if (projectId) await this.member(user, projectId);
     return query(
       this.db,
-      "SELECT id,name,email,avatar,motto,identity_tags FROM users ORDER BY name,email",
+      `SELECT id,user_number,COALESCE(username,email) username,name,email,avatar,motto,identity_tags FROM users
+       WHERE disabled_at IS NULL${projectId ? " AND id NOT IN (SELECT user_id FROM members WHERE project_id=?)" : ""}
+       ORDER BY name,username,email`,
+      projectId ? [projectId] : [],
     );
   }
   async createUser(user, input) {
-    if (user.kind !== "session") fail(403, "账号管理需要人工登录");
-    const [owner] = await query(
-      this.db,
-      "SELECT project_id FROM members WHERE user_id=? AND role='owner' LIMIT 1",
-      [user.id],
-    );
-    if (!owner) fail(403, "仅项目负责人可创建账号");
+    await this.systemAdmin(user);
     const data = z
       .object({
         name: title.max(80),
-        email: z
-          .string()
-          .email()
-          .max(191)
-          .transform((x) => x.toLowerCase()),
-        password: z.string().min(12).max(200),
+        username: z.string().trim().min(3).max(80).optional(),
+        email: z.string().trim().min(3).max(191).optional(),
       })
+      .transform((value) => ({ ...value, username: value.username || value.email || "" }))
       .parse(input);
+    if (data.username.length < 3) fail(400, "账号名至少需要 3 位");
     const userId = randomUUID();
+    const password = randomBytes(15).toString("base64url");
+    let created;
     try {
-      await query(
-        this.db,
-        "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-        [userId, data.email, data.name, await hashPassword(data.password)],
-      );
+      created = await transaction(this.db, async (db) => {
+        await query(db, "INSERT INTO users(id,username,email,name,password_hash) VALUES(?,?,NULL,?,?)",
+          [userId, data.username, data.name, await hashPassword(password)]);
+        await this.accountChange(db, userId, user.id, "created", { name: data.name, username: data.username });
+        const row = (await query(db, "SELECT user_number FROM users WHERE id=?", [userId]))[0];
+        if (Number(row.user_number) > 999999) fail(409, "六位用户ID已用完");
+        return row;
+      });
     } catch (error) {
       if (error.code === "ER_DUP_ENTRY")
-        fail(409, "该邮箱已有账号，请直接加入项目");
+        fail(409, "该账号名已被使用");
       throw error;
     }
-    return { id: userId, name: data.name, email: data.email };
+    return { id: userId, user_number: Number(created.user_number), name: data.name, username: data.username, email: null, password };
+  }
+  async adminProjects(user) {
+    await this.systemAdmin(user);
+    const [projects, memberships, changes] = await Promise.all([
+      query(this.db, `SELECT p.id,p.name,p.description,p.created_at,p.archived_at,p.created_by,u.name creator
+        FROM projects p JOIN users u ON u.id=p.created_by ORDER BY p.archived_at IS NOT NULL,p.created_at DESC,p.id`),
+      query(this.db, `SELECT m.project_id,u.id,u.user_number,COALESCE(u.username,u.email) username,u.name,u.email,m.role FROM members m JOIN users u ON u.id=m.user_id
+        ORDER BY u.name,u.username,u.email`),
+      query(this.db, `SELECT l.project_id,l.action,l.details,l.created_at,u.name actor FROM
+        (SELECT project_id,actor_user_id,action,details,created_at,id,
+          ROW_NUMBER() OVER(PARTITION BY project_id ORDER BY created_at DESC,id DESC) audit_rank
+         FROM project_change_logs) l JOIN users u ON u.id=l.actor_user_id
+        WHERE l.audit_rank<=50 ORDER BY l.created_at DESC,l.id DESC`),
+    ]);
+    return projects.map((project) => ({ ...project,
+      members: memberships.filter((member) => member.project_id === project.id),
+      changes: changes.filter((change) => change.project_id === project.id).slice(0, 50),
+    }));
+  }
+  async adminCreateProject(user, input) {
+    await this.systemAdmin(user);
+    return this.createProject(user, input);
+  }
+  async setProjectArchived(user, projectId, archived) {
+    await this.systemAdmin(user);
+    id.parse(projectId);
+    const result = await transaction(this.db, async (db) => {
+      const changed = await query(db, `UPDATE projects SET archived_at=${archived ? "UTC_TIMESTAMP(3)" : "NULL"} WHERE id=?`, [projectId]);
+      if (changed.affectedRows) await this.projectChange(db, projectId, user.id, archived ? "archived" : "restored");
+      return changed;
+    });
+    if (!result.affectedRows) fail(404, "项目不存在");
+    return { id: projectId, archived };
+  }
+  async adminAccounts(user) {
+    await this.systemAdmin(user);
+    const [accounts, memberships, changes, logins] = await Promise.all([
+      query(this.db, "SELECT id,user_number,COALESCE(username,email) username,name,email,email_verified_at,is_super_admin,disabled_at,created_at FROM users ORDER BY disabled_at IS NOT NULL,user_number"),
+      query(this.db, `SELECT m.user_id,p.id,p.name,m.role,p.archived_at FROM members m JOIN projects p ON p.id=m.project_id
+        ORDER BY p.archived_at IS NOT NULL,p.name,p.id`),
+      query(this.db, `SELECT l.target_user_id,l.action,l.details,l.created_at,u.name actor FROM
+        (SELECT target_user_id,actor_user_id,action,details,created_at,id,
+          ROW_NUMBER() OVER(PARTITION BY target_user_id ORDER BY created_at DESC,id DESC) audit_rank
+         FROM account_change_logs) l JOIN users u ON u.id=l.actor_user_id
+        WHERE l.audit_rank<=50 ORDER BY l.created_at DESC,l.id DESC`),
+      query(this.db, `SELECT user_id,email identifier,ip,country,province,city,district,success,failure_reason,created_at FROM
+        (SELECT user_id,email,ip,country,province,city,district,success,failure_reason,created_at,id,
+          ROW_NUMBER() OVER(PARTITION BY COALESCE(user_id,email) ORDER BY created_at DESC,id DESC) audit_rank
+         FROM login_logs) l WHERE audit_rank<=50 ORDER BY created_at DESC,id DESC`),
+    ]);
+    return accounts.map((account) => ({ ...account,
+      projects: memberships.filter((project) => project.user_id === account.id),
+      changes: changes.filter((change) => change.target_user_id === account.id).slice(0, 50),
+      logins: logins.filter((login) => login.user_id === account.id || (!login.user_id && [account.username, account.email].includes(login.identifier))).slice(0, 50),
+    }));
+  }
+  async setAccountDisabled(user, userId, input) {
+    await this.systemAdmin(user);
+    id.parse(userId);
+    const { disabled } = z.object({ disabled: z.boolean() }).parse(input);
+    if (userId === user.id && disabled) fail(409, "不能停用当前登录账号");
+    const result = await transaction(this.db, async (db) => {
+      const changed = await query(db, `UPDATE users SET disabled_at=${disabled ? "UTC_TIMESTAMP(3)" : "NULL"} WHERE id=?`, [userId]);
+      if (disabled) await query(db, "DELETE FROM credentials WHERE user_id=?", [userId]);
+      if (changed.affectedRows) await this.accountChange(db, userId, user.id, disabled ? "disabled" : "enabled");
+      return changed;
+    });
+    if (!result.affectedRows) fail(404, "账号不存在");
+    return { id: userId, disabled };
+  }
+  async resetAccountPassword(user, userId) {
+    await this.systemAdmin(user);
+    id.parse(userId);
+    const password = randomBytes(15).toString("base64url");
+    const result = await transaction(this.db, async (db) => {
+      const changed = await query(db, "UPDATE users SET password_hash=? WHERE id=?", [await hashPassword(password), userId]);
+      await query(db, "DELETE FROM credentials WHERE user_id=?", [userId]);
+      if (changed.affectedRows) await this.accountChange(db, userId, user.id, "password_reset");
+      return changed;
+    });
+    if (!result.affectedRows) fail(404, "账号不存在");
+    return { password };
   }
   async addMember(user, projectId, input) {
     await this.member(user, projectId);
@@ -307,7 +484,7 @@ export class Service {
         .parse(input);
       const [account] = await query(
         this.db,
-        "SELECT id FROM users WHERE id=?",
+        "SELECT id FROM users WHERE id=? AND disabled_at IS NULL",
         [data.userId],
       );
       if (!account) fail(404, "账号不存在");
@@ -320,6 +497,7 @@ export class Service {
         );
         const [sender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
         await this.notify(db, data.userId, projectId, "member_added", "你已被加入该项目", null, null, sender.name);
+        await this.projectChange(db, projectId, user.id, "member_added", { userId: data.userId, role: data.role });
         });
       } catch (error) {
         if (error.code === "ER_DUP_ENTRY") fail(409, "该账号已经是项目成员");
@@ -329,28 +507,27 @@ export class Service {
     }
     const data = z
       .object({
-        email: z
-          .string()
-          .email()
-          .max(191)
-          .transform((x) => x.toLowerCase()),
+        username: z.string().trim().min(3).max(80).optional(),
+        email: z.string().trim().min(3).max(191).optional(),
         name: title.max(80),
-        password: z.string().min(12).max(200).optional(),
+        password: z.string().min(8).max(200).optional(),
         role: z.enum(["member", "viewer"]).default("member"),
       })
+      .transform((value) => ({ ...value, username: value.username || value.email || "" }))
       .parse(input);
     return transaction(this.db, async (db) => {
-      const [existing] = await query(db, "SELECT id FROM users WHERE email=?", [
-        data.email,
+      const [existing] = await query(db, "SELECT id FROM users WHERE username=? OR email=?", [
+        data.username, data.username,
       ]);
       const userId = existing?.id || randomUUID();
       if (!existing) {
-        if (!data.password) fail(400, "新成员需设置至少 12 位初始密码");
+        if (!data.password) fail(400, "新成员需设置至少 8 位初始密码");
         await query(
           db,
-          "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-          [userId, data.email, data.name, await hashPassword(data.password)],
+          "INSERT INTO users(id,username,email,name,password_hash) VALUES(?,?,NULL,?,?)",
+          [userId, data.username, data.name, await hashPassword(data.password)],
         );
+        await this.accountChange(db, userId, user.id, "created", { name: data.name, username: data.username });
       }
       await query(
         db,
@@ -359,7 +536,8 @@ export class Service {
       );
       const [sender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
       await this.notify(db, userId, projectId, "member_added", "你已被加入该项目", null, null, sender.name);
-      return { id: userId, email: data.email, role: data.role };
+      await this.projectChange(db, projectId, user.id, "member_added", { userId, role: data.role });
+      return { id: userId, username: data.username, role: data.role };
     });
   }
   async createThread(user, projectId, input) {
@@ -472,23 +650,27 @@ export class Service {
         ? "local_ai"
         : "human",
     agentTaskId = null,
+    messageId = randomUUID(),
   ) {
-    const messageId = randomUUID();
-    await query(
+    const inserted = await query(
       db,
       "INSERT INTO messages(id,thread_id,author_id,source,body,refs,agent_task_id) VALUES(?,?,?,?,?,?,?)",
       [messageId, threadId, user.id, source, text, JSON.stringify(refs), agentTaskId],
     );
     if (source !== "system") {
       const [thread] = await query(db, "SELECT project_id,title FROM threads WHERE id=?", [threadId]);
-      const members = await query(db, "SELECT u.id,u.name,u.email FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=? AND (?='assistant' OR u.id<>?)", [thread.project_id, source, user.id]);
+      const members = await query(db, "SELECT u.id,u.name,COALESCE(u.username,u.email) email FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=? AND (?='assistant' OR u.id<>?)", [thread.project_id, source, user.id]);
       const [author] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
+      const memoryMembers = new Set([...(source === "human" || source === "local_ai" ? [user.id] : [])]);
       for (const member of members) {
         const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         if ([member.name, member.email].some((value) => new RegExp(`(^|[^\\p{L}\\p{N}_@])@${escape(value)}(?=$|[^\\p{L}\\p{N}_@])`, "u").test(text))) {
+          memoryMembers.add(member.id);
           await this.notify(db, member.id, thread.project_id, "mention", `${source === "assistant" ? AGENT_MEMBER.name : author.name} 在「${thread.title}」中 @了你：${text.slice(0, 500)}`, threadId, messageId, source === "assistant" ? AGENT_MEMBER.name : author.name);
         }
       }
+      if (memoryMembers.size) await queueMemberMemory(db, thread.project_id,
+        [...memoryMembers], String(inserted.insertId));
     }
     return { id: messageId };
   }
@@ -535,6 +717,7 @@ export class Service {
         body,
         refs: z.array(id).max(30).default([]),
         quoteIds: z.array(id).max(10).default([]),
+        clientMessageId: id.optional(),
         mentionAgent: z.boolean().default(false),
         files: z.array(z.object({
           title,
@@ -554,6 +737,15 @@ export class Service {
     body.parse(text);
     const result = await transaction(this.db, async (db) => {
       const thread = await this.thread(user, threadId, true, db);
+      if (data.clientMessageId) {
+        const [existing] = await query(db,
+          "SELECT id,thread_id,author_id,source FROM messages WHERE id=?", [data.clientMessageId]);
+        if (existing) {
+          if (existing.thread_id !== threadId || existing.author_id !== user.id || existing.source !== "human")
+            fail(409, "消息标识已被占用");
+          return { id: existing.id, duplicate: true };
+        }
+      }
       await this.refs(db, thread.project_id, data.refs);
       const quoteIds = [...new Set(data.quoteIds)];
       if (quoteIds.length) {
@@ -571,6 +763,9 @@ export class Service {
         threadId,
         text,
         refs,
+        undefined,
+        null,
+        data.clientMessageId,
       );
       for (const quotedId of quoteIds) await query(db,
         "INSERT INTO message_quotes(message_id,quoted_message_id) VALUES(?,?)", [message.id, quotedId]);
@@ -740,6 +935,7 @@ export class Service {
           user.id,
         ],
       );
+      if (!chatUpload) await queueDocumentMemory(db, versionId);
       await query(
         db,
         "UPDATE artifacts SET updated_at=UTC_TIMESTAMP(3) WHERE id=?",

@@ -1,0 +1,19 @@
+CREATE TABLE IF NOT EXISTS agent_document_summaries (
+ version_id CHAR(36) PRIMARY KEY,
+ created_by_message_id CHAR(36) NULL,
+ summary TEXT NOT NULL,
+ created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+ updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+ FOREIGN KEY(version_id) REFERENCES versions(id) ON DELETE CASCADE,
+ FOREIGN KEY(created_by_message_id) REFERENCES messages(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS agent_task_documents (
+ message_id CHAR(36) NOT NULL,
+ version_id CHAR(36) NOT NULL,
+ created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+ PRIMARY KEY(message_id,version_id),
+ FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+ FOREIGN KEY(version_id) REFERENCES versions(id) ON DELETE CASCADE,
+ INDEX(version_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

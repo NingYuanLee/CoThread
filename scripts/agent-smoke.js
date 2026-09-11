@@ -3,7 +3,7 @@ import { Service } from "../server/service.js";
 import { generateAgentReply } from "../server/agent.js";
 const db = await createDatabase();
 try {
-  const [record] = await query(db, "SELECT id FROM users WHERE email=?", [
+  const [record] = await query(db, "SELECT id FROM users WHERE COALESCE(username,email)=?", [
     process.env.ADMIN_EMAIL,
   ]);
   const user = { ...record, kind: "session" };
@@ -60,7 +60,7 @@ try {
       [message.id],
     );
     let detail = String(error.stack || error);
-    for (const key of ["DEEPSEEK_API_KEY", "E2B_API_KEY"])
+    for (const key of ["MODEL_API_KEY", "E2B_API_KEY"])
       if (process.env[key])
         detail = detail.split(process.env[key]).join("[REDACTED]");
     console.error(detail);

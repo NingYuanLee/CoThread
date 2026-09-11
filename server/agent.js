@@ -16,6 +16,7 @@ import { agentSession } from "./agent-session.js";
 import { deliverTaskUpdates } from "./agent-updates.js";
 import { restoreSessionCheckpoint } from "./agent-checkpoint.js";
 import { createUsageMeter, saveReplyUsage } from './agent-usage.js';
+import { dshModelPatch, modelConfig, modelOutputLimit } from "./model-config.js";
 
 const running = new Map();
 export async function stopAgent(db, threadId, messageId) {
@@ -85,7 +86,7 @@ export async function openAgentRuntime(
           [text, job.message_id],
         )
       : Promise.resolve();
-  await progress(job.parent_message_id ? "正在启动子 Agent" : "正在启动 DSH Agent");
+  await progress(job.parent_message_id ? "小祥正在准备处理" : "正在启动 DSH Agent");
   await query(
     db,
     `INSERT IGNORE INTO ${table}(${key},session_id) VALUES(?,?)`,
@@ -155,10 +156,13 @@ export async function openAgentRuntime(
   });
   await new Promise((resolve) => bridge.listen(0, "127.0.0.1", resolve));
   const patch = join(home, "tools.yml");
+  const modelPatch = join(home, "model.yml");
   await writeFile(
     patch,
     `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n    - id: cothread-sdk-server\n      name: ${JSON.stringify(pathToFileURL(assetPath("runtime/sdk-resume.mjs")).href)}\n      inject: [sdkAppStartup, loader]\n    - id: cothread-project-tools\n      name: ${JSON.stringify(pathToFileURL(assetPath("runtime/cothread-tools.mjs")).href)}\n`,
   );
+  const configuredModel = modelConfig("executor");
+  await writeFile(modelPatch, dshModelPatch(configuredModel));
   // Never inherit database, ACS or unrelated application secrets into the Agent process.
   const env = {};
   for (const key of [
@@ -174,7 +178,7 @@ export async function openAgentRuntime(
   ])
     if (process.env[key]) env[key] = process.env[key];
   Object.assign(env, {
-    DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY || "",
+    MODEL_API_KEY: configuredModel.apiKey,
     COTHREAD_BRIDGE_URL: `http://127.0.0.1:${bridge.address().port}`,
     COTHREAD_BRIDGE_TOKEN: token,
     COTHREAD_RESUME_SESSION: session.checkpoint ? session.session_id : "",
@@ -186,12 +190,13 @@ export async function openAgentRuntime(
     dshHome: home,
     processCwd: home,
     cwd: home,
-    patches: [assetPath("runtime/agent-patch.yml"), patch],
+    patches: [modelPatch, assetPath("runtime/agent-patch.yml"), patch],
     env,
-    model: process.env.CHAT_MODEL || "deepseek-v4-flash",
+    provider: "cothread-compatible",
+    model: configuredModel.model,
     initializeTimeoutMs: 30000,
     requestTimeoutMs: 600000,
-    maxTokens: 8192,
+    maxTokens: modelOutputLimit(configuredModel),
   });
   if (job.message_id) running.set(job.message_id, harness);
   let seenSequence = session.seen_sequence;
@@ -335,9 +340,9 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
   let polling = Promise.resolve();
   const usageMeter=createUsageMeter();let modelStarted,modelFinished;
   try {
-    const prompt = `你是共序项目中的助理，姓名是小祥。当前项目 ID：${context.project_id}。迭代 ID：${job.thread_id}。沙箱工作区 /home/user/cothread/${agentSession(job).id}。
-${job.parent_message_id ? `你是主助手为本条请求分派的临时子 Agent。只负责下面指定的成员请求，不接管其他 Agent 的任务。使用独立工作区；通过项目文档库共享已保存的成果，不能声称知道其他 Agent 尚未发布的结果。` : ""}
-普通聊天由主助手接待，明确的执行任务才分派临时子 Agent。同一成员对正在执行任务的补充会更新原任务，完成后释放执行名额。DSH 执行进程的启动不等于新建讨论或丢失历史上下文，已有上下文可以从持久化状态恢复。你无法从本轮被调用推断平台是否冷启动、每条消息是否新建实例或其他任务的运行状况；未经日志或代码核实，不得将推测描述为实际调度事实。
+    const prompt = `你是共序项目中的助理，姓名是小祥。所有会展示给成员的推理摘要、计划说明、工具调用前后的思考说明和最终回复都使用简体中文；代码、命令、文件名及专有名词除外。当前项目 ID：${context.project_id}。迭代 ID：${job.thread_id}。沙箱工作区 /home/user/cothread/${agentSession(job).id}。
+${job.parent_message_id ? `你是三级小祥，是本条请求的任务执行者。对成员始终以小祥的统一身份回应，不得提及分身层级、执行槽位或内部调度。只负责下面指定的成员请求，不接管其他任务。使用独立工作区；通过项目文档库共享已保存的成果，不能声称知道其他执行任务尚未发布的结果。` : ""}
+普通聊天由接待流程回应，明确的执行任务才进入独立执行上下文。同一成员对正在执行任务的补充会更新原任务，完成后释放执行名额。DSH 执行进程的启动不等于新建讨论或丢失历史上下文，已有上下文可以从持久化状态恢复。你无法从本轮被调用推断平台是否冷启动、每条消息是否新建实例或其他任务的运行状况；未经日志或代码核实，不得将推测描述为实际调度事实。
 请回应当前上下文中 ID 为 ${job.message_id} 的成员消息，并结合该成员对当前任务的追加要求更新工作。追加要求属于同一任务，不应作为新任务排队，也不要重复已完成的操作。本轮已确定需要回复：明确 @小祥、项目中只有一名成员与助手，或模型判断应参与多人讨论。只有一名成员时，即使未 @ 也应作为直接对话正常回应。梳理讨论时直接分析已有上下文（包括已保留的摘要和新消息），不要为了梳理再次调用 read_iteration 读取整个会话；只有用户明确要求核查缺失的原文时才按页读取。请简洁回应，不擅自扩展任务或把成员之间的分工当作对你的授权。若成员确实请求你实现、分析文件或产出内容，应实际调用工具完成并保存结果。`;
     await progress("Agent 正在分析请求");
     await deliverTaskUpdates(db, job, runtime, "observe");
@@ -375,7 +380,16 @@ ${job.parent_message_id ? `你是主助手为本条请求分派的临时子 Agen
       }),
     ]);
     modelFinished=performance.now();
-    if (!result.finalResponse?.trim()) throw new Error("Agent 未返回最终结果");
+    if (!result.finalResponse?.trim()) {
+      const turnEnd = result.events?.findLast((event) => event?.type === "turn/end");
+      const providerError = turnEnd?.data?.reason?.error;
+      if (providerError?.message) {
+        const error = new Error(providerError.message);
+        error.code = providerError.code;
+        throw error;
+      }
+      throw new Error("Agent 未返回最终结果");
+    }
     await thinking.close("completed", result.finalResponse);
     completed = true;
     await progress("正在保存 Agent 会话");
@@ -385,7 +399,7 @@ ${job.parent_message_id ? `你是主助手为本条请求分派的临时子 Agen
     clearTimeout(timer);
     clearInterval(cancellationTimer);
     await polling;
-    if(modelStarted!==undefined)await saveReplyUsage(db,job.message_id,{...usageMeter.result(),provider:'deepseek-official',model:process.env.CHAT_MODEL||'deepseek-v4-flash',executionDurationMs:Math.round((modelFinished??performance.now())-modelStarted)}).catch(error=>console.error('Usage persistence failed',{type:error.name}));
+    if(modelStarted!==undefined){const configuredModel=modelConfig("executor");await saveReplyUsage(db,job.message_id,{...usageMeter.result(),provider:configuredModel.provider,model:configuredModel.model,reasoningEffort:configuredModel.reasoningEffort,executionDurationMs:Math.round((modelFinished??performance.now())-modelStarted)}).catch(error=>console.error('Usage persistence failed',{type:error.name}));}
     if (owned) await runtime.close(completed);
   }
 }

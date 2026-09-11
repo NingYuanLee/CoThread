@@ -6,6 +6,7 @@ import { taskTimeline } from "./chat-timeline";
 import { apiFetch, fetchJson } from "./api-fetch";
 import {
   AGENT_MEMBER,
+  ORGANIZE_DOCUMENTS_REQUEST,
   SUMMARY_REQUEST,
   mentionsAgent,
 } from "../shared/agent-member.js";
@@ -1766,6 +1767,15 @@ function App() {
                       onClick={() => { setMessage(SUMMARY_REQUEST); requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus()); }}
                     >
                       ✧ 梳理讨论
+                    </button>
+                  )}
+                  {active && (
+                    <button
+                      disabled={!active || busy}
+                      title="检查、分类并整理项目文档库"
+                      onClick={() => { setMessage(ORGANIZE_DOCUMENTS_REQUEST); requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus()); }}
+                    >
+                      整理文档
                     </button>
                   )}
                   {active && (

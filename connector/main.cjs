@@ -364,10 +364,17 @@ function openBrowser(url) {
 async function authorizeInBrowser(config) {
   const conversationId = crypto.randomUUID();
   const conversationHeaders = { "Makers-Conversation-Id": conversationId };
-  const authorization = await request(config, "/api/connector/authorizations", {
-    public: true, headers: conversationHeaders,
-    body: { name: "Windows 连接器", platform: "windows", version: VERSION },
-  });
+  let authorization;
+  for (let attempt = 0; attempt < 15; attempt++) {
+    const candidate = await request(config, "/api/connector/authorizations", {
+      public: true, headers: conversationHeaders,
+      body: { name: "Windows 连接器", platform: "windows", version: VERSION },
+    });
+    if (candidate.protocol === 2) { authorization = candidate; break; }
+    if (attempt === 0) log("正在等待新版授权服务…");
+    await sleep(2000);
+  }
+  if (!authorization) throw new Error("线上授权服务尚未更新完成，请稍后重试");
   log("已打开共序网页，请在浏览器中登录并确认授权。");
   const verificationUrl = new URL("/", config.server);
   verificationUrl.searchParams.set("connectorAuthorization", authorization.id);
@@ -388,7 +395,7 @@ async function authorizeInBrowser(config) {
         public: true, headers: conversationHeaders, body: { pollToken: authorization.pollToken },
       });
     } catch (error) {
-      if ((error.status === 404 || error.status === 410) && Date.now() - createdAt < 15000) {
+      if ((error.status === 404 || error.status === 410) && Date.now() < deadline) {
         if (!waitingForSync) log("正在等待服务同步授权请求…");
         waitingForSync = true;
         continue;

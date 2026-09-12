@@ -92,21 +92,21 @@ export function registerConnectorPublicRoutes(app, db, service) {
     }).parse(req.body);
     const id = randomUUID();
     const pollToken = randomBytes(32).toString("base64url");
-    await query(db, "DELETE FROM connector_authorizations WHERE expires_at<CURRENT_TIMESTAMP(3)");
+    await query(db, "DELETE FROM connector_authorizations WHERE UNIX_TIMESTAMP(expires_at)<UNIX_TIMESTAMP()");
     await query(db, `INSERT INTO connector_authorizations(id,poll_token_hash,name,platform,version,expires_at)
-      VALUES(?,?,?,?,?,DATE_ADD(CURRENT_TIMESTAMP(3),INTERVAL 10 MINUTE))`,
+      VALUES(?,?,?,?,?,FROM_UNIXTIME(UNIX_TIMESTAMP()+600))`,
     [id, digest(pollToken), data.name, data.platform, data.version]);
     const origin = process.env.APP_ORIGIN || `${req.protocol}://${req.get("host")}`;
     const verificationUrl = new URL("/", origin);
     verificationUrl.searchParams.set("connectorAuthorization", id);
-    res.status(201).json({ id, pollToken, verificationUrl: verificationUrl.toString(), expiresIn: 600 });
+    res.status(201).json({ protocol: 2, id, pollToken, verificationUrl: verificationUrl.toString(), expiresIn: 600 });
   });
 
   app.post("/api/connector/authorizations/:id/poll", async (req, res) => {
     const authorizationId = z.string().uuid().parse(req.params.id);
     const data = z.object({ pollToken: z.string().min(30).max(100) }).parse(req.body);
     const result = await transaction(db, async (conn) => {
-      const [authorization] = await query(conn, `SELECT *,expires_at>CURRENT_TIMESTAMP(3) valid
+      const [authorization] = await query(conn, `SELECT *,UNIX_TIMESTAMP(expires_at)>UNIX_TIMESTAMP() valid
         FROM connector_authorizations WHERE id=? FOR UPDATE`, [authorizationId]);
       if (!authorization) throw new HttpError(404, "授权请求尚未同步或不存在");
       if (authorization.poll_token_hash !== digest(data.pollToken))
@@ -355,7 +355,7 @@ export function registerConnectorBrowserRoutes(app, db, service) {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const authorizationId = z.string().uuid().parse(req.params.id);
     const [authorization] = await query(db, `SELECT id,name,platform,version,expires_at,approved_at,denied_at,consumed_at
-      FROM connector_authorizations WHERE id=? AND expires_at>CURRENT_TIMESTAMP(3)`, [authorizationId]);
+      FROM connector_authorizations WHERE id=? AND UNIX_TIMESTAMP(expires_at)>UNIX_TIMESTAMP()`, [authorizationId]);
     if (!authorization) throw new HttpError(404, "连接器授权请求不存在或已过期");
     res.json(authorization);
   });
@@ -365,7 +365,8 @@ export function registerConnectorBrowserRoutes(app, db, service) {
     const authorizationId = z.string().uuid().parse(req.params.id);
     const data = z.object({ approved: z.boolean() }).parse(req.body);
     const result = await query(db, `UPDATE connector_authorizations SET user_id=?,approved_at=?,denied_at=?
-      WHERE id=? AND expires_at>CURRENT_TIMESTAMP(3) AND approved_at IS NULL AND denied_at IS NULL AND consumed_at IS NULL`,
+      WHERE id=? AND UNIX_TIMESTAMP(expires_at)>UNIX_TIMESTAMP()
+      AND approved_at IS NULL AND denied_at IS NULL AND consumed_at IS NULL`,
     [data.approved ? req.user.id : null, data.approved ? new Date() : null, data.approved ? null : new Date(), authorizationId]);
     if (!result.affectedRows) throw new HttpError(409, "授权请求已处理或已过期");
     res.json({ status: data.approved ? "approved" : "denied" });

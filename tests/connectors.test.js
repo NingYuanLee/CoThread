@@ -90,6 +90,7 @@ test("group local tasks target one online member and require that member's appro
     name: "网页登录电脑", platform: "windows", version: "0.1.0",
   });
   assert.equal(authorization.status, 201);
+  assert.equal(authorization.body.protocol, 2);
   assert.match(authorization.body.verificationUrl, /connectorAuthorization=/);
   assert.equal((await request(`/connector/authorizations/${randomUUID()}/poll`, {
     pollToken: authorization.body.pollToken,

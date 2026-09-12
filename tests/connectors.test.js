@@ -86,26 +86,26 @@ test("group local tasks target one online member and require that member's appro
   for (const member of [requester, assignee, fallback])
     await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')", [projectId, member.id]);
   await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)", [threadId, projectId, "群聊迭代", requester.id]);
-  const authorization = await request("/connector/authorizations", {
+  const authorization = await request("/connector/v2/authorizations", {
     name: "网页登录电脑", platform: "windows", version: "0.1.0",
   });
   assert.equal(authorization.status, 201);
   assert.equal(authorization.body.protocol, 2);
   assert.match(authorization.body.verificationUrl, /connectorAuthorization=/);
-  assert.equal((await request(`/connector/authorizations/${randomUUID()}/poll`, {
+  assert.equal((await request(`/connector/v2/authorizations/${randomUUID()}/poll`, {
     pollToken: authorization.body.pollToken,
   })).status, 404);
-  assert.equal((await request(`/connector/authorizations/${authorization.body.id}/poll`, {
+  assert.equal((await request(`/connector/v2/authorizations/${authorization.body.id}/poll`, {
     pollToken: "x".repeat(32),
   })).status, 401);
   assert.equal((await request(`/connector-authorizations/${authorization.body.id}`, undefined, assignee)).status, 200);
   assert.equal((await request(`/connector-authorizations/${authorization.body.id}/decision`, { approved: true }, assignee)).status, 200);
-  const authorized = await request(`/connector/authorizations/${authorization.body.id}/poll`, {
+  const authorized = await request(`/connector/v2/authorizations/${authorization.body.id}/poll`, {
     pollToken: authorization.body.pollToken,
   });
   assert.equal(authorized.status, 200);
   assert.match(authorized.body.token, /^ctc_/);
-  const consumed = await request(`/connector/authorizations/${authorization.body.id}/poll`, {
+  const consumed = await request(`/connector/v2/authorizations/${authorization.body.id}/poll`, {
     pollToken: authorization.body.pollToken,
   });
   assert.equal(consumed.status, 409);

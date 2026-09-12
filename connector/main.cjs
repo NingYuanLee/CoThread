@@ -366,11 +366,15 @@ async function authorizeInBrowser(config) {
   const conversationHeaders = { "Makers-Conversation-Id": conversationId };
   let authorization;
   for (let attempt = 0; attempt < 15; attempt++) {
-    const candidate = await request(config, "/api/connector/authorizations", {
-      public: true, headers: conversationHeaders,
-      body: { name: "Windows 连接器", platform: "windows", version: VERSION },
-    });
-    if (candidate.protocol === 2) { authorization = candidate; break; }
+    try {
+      const candidate = await request(config, "/api/connector/v2/authorizations", {
+        public: true, headers: conversationHeaders,
+        body: { name: "Windows 连接器", platform: "windows", version: VERSION },
+      });
+      if (candidate.protocol === 2) { authorization = candidate; break; }
+    } catch (error) {
+      if (error.status !== 404 || attempt === 14) throw error;
+    }
     if (attempt === 0) log("正在等待新版授权服务…");
     await sleep(2000);
   }
@@ -391,7 +395,7 @@ async function authorizeInBrowser(config) {
     await sleep(2000);
     let result;
     try {
-      result = await request(config, `/api/connector/authorizations/${authorization.id}/poll`, {
+      result = await request(config, `/api/connector/v2/authorizations/${authorization.id}/poll`, {
         public: true, headers: conversationHeaders, body: { pollToken: authorization.pollToken },
       });
     } catch (error) {

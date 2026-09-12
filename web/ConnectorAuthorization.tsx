@@ -16,12 +16,12 @@ export function ConnectorAuthorization({ id, api, onDone }: {
   const [error, setError] = useState("");
   useEffect(() => {
     dialog.current?.showModal();
-    void api(`/connector-authorizations/${id}`).then(setAuthorization).catch((cause) => setError((cause as Error).message));
+    void api(`/connector-authorizations-v2/${id}`).then(setAuthorization).catch((cause) => setError((cause as Error).message));
   }, [id, api]);
   const decide = async (approved: boolean) => {
     setBusy(true); setError("");
     try {
-      await api(`/connector-authorizations/${id}/decision`, { approved });
+      await api(`/connector-authorizations-v2/${id}/decision`, { approved });
       if (approved) setAuthorization((current) => current && ({ ...current, approved_at: new Date().toISOString() }));
       else onDone();
     } catch (cause) { setError((cause as Error).message); }

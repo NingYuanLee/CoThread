@@ -84,7 +84,7 @@ export async function connectorTool(service, user, name, input, job, thread) {
 }
 
 export function registerConnectorPublicRoutes(app, db, service) {
-  app.post("/api/connector/authorizations", async (req, res) => {
+  app.post(["/api/connector/authorizations", "/api/connector/v2/authorizations"], async (req, res) => {
     const data = z.object({
       name: z.string().trim().min(1).max(100),
       platform: z.string().trim().min(1).max(40).default("windows"),
@@ -102,7 +102,7 @@ export function registerConnectorPublicRoutes(app, db, service) {
     res.status(201).json({ protocol: 2, id, pollToken, verificationUrl: verificationUrl.toString(), expiresIn: 600 });
   });
 
-  app.post("/api/connector/authorizations/:id/poll", async (req, res) => {
+  app.post(["/api/connector/authorizations/:id/poll", "/api/connector/v2/authorizations/:id/poll"], async (req, res) => {
     const authorizationId = z.string().uuid().parse(req.params.id);
     const data = z.object({ pollToken: z.string().min(30).max(100) }).parse(req.body);
     const result = await transaction(db, async (conn) => {
@@ -351,7 +351,7 @@ export function registerConnectorBrowserRoutes(app, db, service) {
       WHERE m.user_id=? ORDER BY m.project_id,u.name,c.last_seen_at DESC,c.id`, [req.user.id]));
   });
 
-  app.get("/api/connector-authorizations/:id", async (req, res) => {
+  app.get(["/api/connector-authorizations/:id", "/api/connector-authorizations-v2/:id"], async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const authorizationId = z.string().uuid().parse(req.params.id);
     const [authorization] = await query(db, `SELECT id,name,platform,version,expires_at,approved_at,denied_at,consumed_at
@@ -360,7 +360,7 @@ export function registerConnectorBrowserRoutes(app, db, service) {
     res.json(authorization);
   });
 
-  app.post("/api/connector-authorizations/:id/decision", async (req, res) => {
+  app.post(["/api/connector-authorizations/:id/decision", "/api/connector-authorizations-v2/:id/decision"], async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const authorizationId = z.string().uuid().parse(req.params.id);
     const data = z.object({ approved: z.boolean() }).parse(req.body);

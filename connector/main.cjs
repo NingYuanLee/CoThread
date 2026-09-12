@@ -350,7 +350,14 @@ async function launchPendingUpdate() {
 }
 
 function openBrowser(url) {
-  spawn("explorer.exe", [url], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+  const environment = { ...process.env, COTHREAD_BROWSER_URL: url };
+  const primary = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+    "Start-Process -FilePath $env:COTHREAD_BROWSER_URL"], { env: environment, encoding: "utf8", windowsHide: true, timeout: 10000 });
+  if (primary.status === 0) return;
+  const fallback = spawnSync("rundll32.exe", ["url.dll,FileProtocolHandler", url],
+    { encoding: "utf8", windowsHide: true, timeout: 10000 });
+  if (fallback.status !== 0)
+    throw new Error((primary.stderr || fallback.stderr || "无法打开默认浏览器，请检查 Windows 默认浏览器设置").trim());
 }
 
 async function authorizeInBrowser(config) {
@@ -362,12 +369,27 @@ async function authorizeInBrowser(config) {
   const verificationUrl = new URL("/", config.server);
   verificationUrl.searchParams.set("connectorAuthorization", authorization.id);
   openBrowser(verificationUrl.toString());
-  const deadline = Date.now() + authorization.expiresIn * 1000;
+  const advertisedTtl = Number(authorization.expiresIn);
+  const expiresIn = Number.isFinite(advertisedTtl) && advertisedTtl >= 30 ? advertisedTtl : 600;
+  log(`授权请求已创建：${authorization.id}（有效期 ${expiresIn} 秒）`);
+  const createdAt = Date.now();
+  const deadline = createdAt + expiresIn * 1000;
+  let waitingForSync = false;
   while (Date.now() < deadline) {
     await sleep(2000);
-    const result = await request(config, `/api/connector/authorizations/${authorization.id}/poll`, {
-      public: true, body: { pollToken: authorization.pollToken },
-    });
+    let result;
+    try {
+      result = await request(config, `/api/connector/authorizations/${authorization.id}/poll`, {
+        public: true, body: { pollToken: authorization.pollToken },
+      });
+    } catch (error) {
+      if (error.status === 410 && Date.now() - createdAt < 30000) {
+        if (!waitingForSync) log("正在等待服务同步授权请求…");
+        waitingForSync = true;
+        continue;
+      }
+      throw new Error(`${error.message}${error.status ? `（HTTP ${error.status}）` : ""}`);
+    }
     if (result.status === "pending") continue;
     await storeToken(result.token);
     config.deviceId = result.id;
@@ -462,6 +484,7 @@ async function guiMain() {
   let errorText = "";
   let updateStatus = "";
   let autoStart = autoStartEnabled();
+  let authorizing = false;
   let quitting = false;
   let commandBusy = false;
   let token = await loadToken();
@@ -486,7 +509,7 @@ async function guiMain() {
     await atomicJson(statePath, {
       version: VERSION, server: config.server,
       paired: !!token, online: !!token && prerequisites.gitInstalled && prerequisites.codexInstalled && !errorText,
-      status, error: errorText, prerequisites, projects: projectRows(), tasks: remoteTasks.map((task) =>
+      status, error: errorText, authorizing, prerequisites, projects: projectRows(), tasks: remoteTasks.map((task) =>
         task.id === activeTask?.id ? { ...task, status: activePaused ? "paused" : "running",
           progress: activePaused ? "本机执行已暂停" : "本地 Codex 正在执行" } : task),
       task: activeTask ? { id: activeTask.id, projectName: activeTask.project_name,
@@ -511,13 +534,18 @@ async function guiMain() {
     const payload = command.payload || {};
     errorText = "";
     if (command.type === "authorize") {
-      if (payload.server) config.server = new URL(payload.server).origin;
-      await writeConfig(config);
-      status = "等待网页授权";
-      await authorizeInBrowser(config);
-      token = await loadToken();
-      await refreshProjects();
-      status = "连接器已就绪";
+      authorizing = true;
+      try {
+        if (payload.server) config.server = new URL(payload.server).origin;
+        await writeConfig(config);
+        status = "等待网页授权";
+        await authorizeInBrowser(config);
+        token = await loadToken();
+        await refreshProjects();
+        status = "连接器已就绪";
+      } finally {
+        authorizing = false;
+      }
     } else if (command.type === "refreshProjects") {
       prerequisites = checkPrerequisites();
       await refreshProjects();

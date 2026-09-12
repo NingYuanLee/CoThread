@@ -116,6 +116,7 @@ $script:projectSignature = ''
 $script:projectRows = @()
 $script:lastLogs = ''
 $script:taskSignature = ''
+$script:authorizationRequested = $false
 
 function Send-Command([string]$type, $payload = @{}) {
   $command = @{ id = [guid]::NewGuid().ToString(); type = $type; payload = $payload } | ConvertTo-Json -Depth 5
@@ -124,7 +125,11 @@ function Send-Command([string]$type, $payload = @{}) {
   Move-Item -LiteralPath $temporary -Destination $CommandPath -Force
 }
 
-$PairButton.Add_Click({ Send-Command 'authorize' @{ server=$ServerInput.Text } })
+$PairButton.Add_Click({
+  $script:authorizationRequested = $true
+  $PairButton.IsEnabled = $false
+  Send-Command 'authorize' @{ server=$ServerInput.Text }
+})
 $RefreshButton.Add_Click({ Send-Command 'refreshProjects' })
 $CheckButton.Add_Click({ Send-Command 'refreshProjects' })
 $CodexLoginButton.Add_Click({ Send-Command 'codexLogin' })
@@ -192,6 +197,8 @@ $timer.Add_Tick({
   try { $state = Get-Content -LiteralPath $StatePath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return }
   $VersionText.Text = "版本 $($state.version)"
   $StatusText.Text = [string]$state.status
+  if ($state.paired -or $state.error) { $script:authorizationRequested = $false }
+  $PairButton.IsEnabled = -not ($script:authorizationRequested -or [bool]$state.authorizing)
   $StatusDot.Fill = if ($state.online) { '#4D8C58' } elseif ($state.error) { '#B46A58' } else { '#A7ADA5' }
   $PairPanel.Visibility = if ($state.paired) { 'Collapsed' } else { 'Visible' }
   $ProjectPanel.IsEnabled = [bool]$state.paired

@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 
 const require = createRequire(import.meta.url);
-const { createAuthorizationCallback, newer, protectToken, taskPrompt, unprotectToken, verifyManifest } = require("../connector/main.cjs");
+const { codexExecArgs, createAuthorizationCallback, newer, protectToken, taskPrompt, unprotectToken, verifyManifest } = require("../connector/main.cjs");
 
 test("connector protects tokens with Windows DPAPI without inherited PowerShell modules", { skip: process.platform !== "win32" }, () => {
   const token = `connector-token-${randomUUID()}`;
@@ -62,4 +62,10 @@ test("confirmed prompt allows repository changes and honors project push permiss
   assert.match(prompt, /调整首页布局/);
   const blocked = taskPrompt({ policy: "unrestricted", instruction: "修改样式并推送", allow_git_push: false });
   assert.match(blocked, /严禁.*git push/i);
+});
+
+test("connector places the global approval policy before the Codex exec command", () => {
+  const args = codexExecArgs("C:\\repo", { instruction: "创建 test.txt", allow_git_push: false }, "C:\\final.txt");
+  assert.deepEqual(args.slice(0, 3), ["--ask-for-approval", "never", "exec"]);
+  assert.ok(args.indexOf("--sandbox") > args.indexOf("exec"));
 });

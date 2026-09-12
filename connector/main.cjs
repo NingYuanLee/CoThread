@@ -219,6 +219,12 @@ function taskPrompt(task) {
   return `你正在执行一项已经由需求提出人确认的共序本机任务。\n\n可以按任务需要修改仓库内的任意文件，最终修改会回传 Git Diff 供人工审核。不要扩大任务范围。${gitRule}完成前运行与本次修改直接相关的检查。\n\n任务正文：\n${task.instruction}`;
 }
 
+function codexExecArgs(root, task, finalPath) {
+  return ["--ask-for-approval", "never", "exec", "-C", root, "--sandbox", "workspace-write",
+    ...(task.allow_git_push ? ["-c", "sandbox_workspace_write.network_access=true"] : []),
+    "--json", "-o", finalPath, taskPrompt(task)];
+}
+
 async function runTask(config, task) {
   const project = config.projects[task.project_id];
   if (!project) throw new Error("当前设备尚未关联该项目目录");
@@ -230,9 +236,7 @@ async function runTask(config, task) {
   const prerequisites = checkPrerequisites();
   if (!prerequisites.codexInstalled) throw new Error("未找到已安装的 Codex CLI");
   const finalPath = path.join(os.tmpdir(), `cothread-${task.id}-final.txt`);
-  const args = ["exec", "-C", root, "--sandbox", "workspace-write",
-    ...(task.allow_git_push ? ["-c", "sandbox_workspace_write.network_access=true"] : []),
-    "--ask-for-approval", "never", "--json", "-o", finalPath, taskPrompt(task)];
+  const args = codexExecArgs(root, task, finalPath);
   log(`开始执行：${task.project_name}`);
   const command = codexCommand();
   const child = command.toLowerCase().endsWith(".cmd")
@@ -801,5 +805,5 @@ async function main() {
   return guiMain();
 }
 
-module.exports = { checkPrerequisites, createAuthorizationCallback, newer, protectToken, unprotectToken, validatePolicy, taskPrompt, verifyManifest };
+module.exports = { checkPrerequisites, codexExecArgs, createAuthorizationCallback, newer, protectToken, unprotectToken, validatePolicy, taskPrompt, verifyManifest };
 if (require.main === module || require("node:sea").isSea()) main().catch((error) => { log(`连接器已停止：${error.message}`); process.exitCode = 1; });

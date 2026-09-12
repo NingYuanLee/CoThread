@@ -98,11 +98,10 @@ test("group local tasks target one online member and require that member's appro
   assert.equal((await request(`/connector/v2/authorizations/${authorization.body.id}/poll`, {
     pollToken: "x".repeat(32),
   })).status, 401);
-  assert.equal((await request(`/connector-authorizations/${authorization.body.id}`, undefined, assignee)).status, 200);
-  assert.equal((await request(`/connector-authorizations/${authorization.body.id}/decision`, { approved: true }, assignee)).status, 200);
-  const authorized = await request(`/connector/v2/authorizations/${authorization.body.id}/poll`, {
-    pollToken: authorization.body.pollToken,
-  });
+  assert.equal((await request(`/connector-authorizations-v2/${authorization.body.id}`, undefined, assignee)).status, 200);
+  const authorized = await request(`/connector-authorizations-v2/${authorization.body.id}/decision`, {
+    approved: true, callbackSecret: authorization.body.pollToken,
+  }, assignee);
   assert.equal(authorized.status, 200);
   assert.match(authorized.body.token, /^ctc_/);
   const consumed = await request(`/connector/v2/authorizations/${authorization.body.id}/poll`, {
@@ -110,10 +109,12 @@ test("group local tasks target one online member and require that member's appro
   });
   assert.equal(consumed.status, 409);
 
-  const deniedAuthorization = await request("/connector/authorizations", {
+  const deniedAuthorization = await request("/connector/v2/authorizations", {
     name: "拒绝授权电脑", platform: "windows", version: "0.1.0",
   });
-  await request(`/connector-authorizations/${deniedAuthorization.body.id}/decision`, { approved: false }, assignee);
+  await request(`/connector-authorizations-v2/${deniedAuthorization.body.id}/decision`, {
+    approved: false, callbackSecret: deniedAuthorization.body.pollToken,
+  }, assignee);
   assert.equal((await request(`/connector/authorizations/${deniedAuthorization.body.id}/poll`, {
     pollToken: deniedAuthorization.body.pollToken,
   })).status, 403);

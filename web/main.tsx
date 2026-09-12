@@ -491,6 +491,8 @@ function App() {
   const connectorAuthorizationParams = new URLSearchParams(location.search);
   const connectorAuthorizationId = connectorAuthorizationParams.get("connectorAuthorization") || "";
   const requestedConnectorConversation = connectorAuthorizationParams.get("connectorConversation") || "";
+  const connectorCallbackPort = connectorAuthorizationParams.get("connectorCallbackPort") || "";
+  const connectorCallbackSecret = new URLSearchParams(location.hash.slice(1)).get("connectorCallbackSecret") || "";
   const connectorConversationId = /^[0-9a-f-]{36}$/i.test(requestedConnectorConversation)
     ? requestedConnectorConversation : connectorAuthorizationId;
   const connectorAuthorizationApi = useCallback((path: string, data?: unknown, method?: string) =>
@@ -2106,6 +2108,8 @@ function App() {
       </div>}
       {connectorAuthorizationId && <ConnectorAuthorization
         id={connectorAuthorizationId}
+        callbackPort={connectorCallbackPort}
+        callbackSecret={connectorCallbackSecret}
         api={connectorAuthorizationApi}
         onDone={closeConnectorAuthorization}
       />}

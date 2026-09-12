@@ -5,6 +5,7 @@ const fsp = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const http = require("node:http");
 const { spawn, spawnSync } = require("node:child_process");
 const readline = require("node:readline/promises");
 const { stdin, stdout } = require("node:process");
@@ -361,6 +362,56 @@ function openBrowser(url) {
     throw new Error((primary.stderr || fallback.stderr || "无法打开默认浏览器，请检查 Windows 默认浏览器设置").trim());
 }
 
+async function createAuthorizationCallback(config, authorization) {
+  let settle;
+  const decision = new Promise((resolve) => { settle = resolve; });
+  const allowedOrigin = new URL(config.server).origin;
+  const server = http.createServer(async (req, res) => {
+    const origin = req.headers.origin || "";
+    const cors = origin === allowedOrigin ? {
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Private-Network": "true",
+      Vary: "Origin",
+    } : {};
+    if (req.method === "OPTIONS") {
+      res.writeHead(origin === allowedOrigin ? 204 : 403, cors); return res.end();
+    }
+    if (req.method !== "POST" || req.url !== "/connector-authorization" || origin !== allowedOrigin) {
+      res.writeHead(404, cors); return res.end();
+    }
+    try {
+      const chunks = [];
+      let size = 0;
+      for await (const chunk of req) {
+        size += chunk.length;
+        if (size > 16384) throw new Error("请求过大");
+        chunks.push(chunk);
+      }
+      const data = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (data.authorizationId !== authorization.id || data.callbackSecret !== authorization.pollToken)
+        throw new Error("本机授权回调凭证无效");
+      if (data.status === "approved" && (!data.id || !data.token)) throw new Error("授权结果不完整");
+      if (!["approved", "denied"].includes(data.status)) throw new Error("授权结果无效");
+      res.writeHead(204, cors); res.end();
+      settle(data);
+    } catch (error) {
+      res.writeHead(400, { ...cors, "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  return {
+    port: server.address().port,
+    decision,
+    close: () => new Promise((resolve) => server.close(resolve)),
+  };
+}
+
 async function authorizeInBrowser(config) {
   const conversationId = crypto.randomUUID();
   const conversationHeaders = { "Makers-Conversation-Id": conversationId };
@@ -381,10 +432,13 @@ async function authorizeInBrowser(config) {
     await sleep(2000);
   }
   if (!authorization) throw new Error("线上授权服务尚未更新完成，请稍后重试");
+  const callback = await createAuthorizationCallback(config, authorization);
   log("已打开共序网页，请在浏览器中登录并确认授权。");
   const verificationUrl = new URL("/", config.server);
   verificationUrl.searchParams.set("connectorAuthorization", authorization.id);
   verificationUrl.searchParams.set("connectorConversation", conversationId);
+  verificationUrl.searchParams.set("connectorCallbackPort", String(callback.port));
+  verificationUrl.hash = new URLSearchParams({ connectorCallbackSecret: authorization.pollToken }).toString();
   openBrowser(verificationUrl.toString());
   const advertisedTtl = Number(authorization.expiresIn);
   const expiresIn = Number.isFinite(advertisedTtl) && advertisedTtl >= 30 ? advertisedTtl : 600;
@@ -393,15 +447,24 @@ async function authorizeInBrowser(config) {
   const deadline = createdAt + expiresIn * 1000;
   let waitingForSync = false;
   let pendingLogged = false;
+  try {
   while (Date.now() < deadline) {
-    await sleep(2000);
+    const direct = await Promise.race([callback.decision, sleep(2000).then(() => null)]);
+    if (direct?.status === "denied") throw new Error("用户已拒绝连接器授权");
+    if (direct?.status === "approved") {
+      await storeToken(direct.token);
+      config.deviceId = direct.id;
+      await writeConfig(config);
+      log("账号授权完成");
+      return;
+    }
     let result;
     try {
       result = await request(config, `/api/connector/v2/authorizations/${authorization.id}/poll`, {
         public: true, headers: conversationHeaders, body: { pollToken: authorization.pollToken },
       });
     } catch (error) {
-      const staleRoute = error.status === 404 || error.status === 410 ||
+      const staleRoute = error.status === 404 || error.status === 409 || error.status === 410 ||
         (error.status === 401 && /请先登录|账号令牌/.test(error.message));
       if (staleRoute && Date.now() < deadline) {
         if (!waitingForSync) log("正在等待服务同步授权请求…");
@@ -423,6 +486,9 @@ async function authorizeInBrowser(config) {
     return;
   }
   throw new Error("网页登录授权已过期，请重新发起");
+  } finally {
+    await callback.close();
+  }
 }
 
 function autoStartEnabled() {
@@ -719,5 +785,5 @@ async function main() {
   return guiMain();
 }
 
-module.exports = { checkPrerequisites, newer, validatePolicy, taskPrompt, verifyManifest };
+module.exports = { checkPrerequisites, createAuthorizationCallback, newer, validatePolicy, taskPrompt, verifyManifest };
 if (require.main === module || require("node:sea").isSea()) main().catch((error) => { log(`连接器已停止：${error.message}`); process.exitCode = 1; });

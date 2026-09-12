@@ -360,7 +360,7 @@ export function registerConnectorBrowserRoutes(app, db, service) {
     res.json(authorization);
   });
 
-  app.post(["/api/connector-authorizations/:id/decision", "/api/connector-authorizations-v2/:id/decision"], async (req, res) => {
+  app.post("/api/connector-authorizations/:id/decision", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const authorizationId = z.string().uuid().parse(req.params.id);
     const data = z.object({ approved: z.boolean() }).parse(req.body);
@@ -370,6 +370,30 @@ export function registerConnectorBrowserRoutes(app, db, service) {
     [data.approved ? req.user.id : null, data.approved ? new Date() : null, data.approved ? null : new Date(), authorizationId]);
     if (!result.affectedRows) throw new HttpError(409, "授权请求已处理或已过期");
     res.json({ status: data.approved ? "approved" : "denied" });
+  });
+
+  app.post("/api/connector-authorizations-v2/:id/decision", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const authorizationId = z.string().uuid().parse(req.params.id);
+    const data = z.object({ approved: z.boolean(), callbackSecret: z.string().min(30).max(100) }).parse(req.body);
+    const result = await transaction(db, async (conn) => {
+      const [authorization] = await query(conn, `SELECT *,UNIX_TIMESTAMP(expires_at)>UNIX_TIMESTAMP() valid
+        FROM connector_authorizations WHERE id=? FOR UPDATE`, [authorizationId]);
+      if (!authorization || Number(authorization.valid) !== 1) throw new HttpError(404, "连接器授权请求不存在或已过期");
+      if (authorization.poll_token_hash !== digest(data.callbackSecret)) throw new HttpError(401, "授权回调凭证不匹配");
+      if (authorization.approved_at || authorization.denied_at || authorization.consumed_at)
+        throw new HttpError(409, "授权请求已处理或已过期");
+      if (!data.approved) {
+        await query(conn, "UPDATE connector_authorizations SET denied_at=CURRENT_TIMESTAMP(3) WHERE id=?", [authorizationId]);
+        return { status: "denied" };
+      }
+      const token = connectorToken();
+      const connectorId = await replaceAccountConnector(conn, req.user.id, authorization, token);
+      await query(conn, `UPDATE connector_authorizations SET user_id=?,approved_at=CURRENT_TIMESTAMP(3),consumed_at=CURRENT_TIMESTAMP(3)
+        WHERE id=?`, [req.user.id, authorizationId]);
+      return { status: "approved", id: connectorId, token };
+    });
+    res.json(result);
   });
 
   app.post("/api/connectors/pairings", async (req, res) => {

@@ -1,10 +1,26 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 
 const require = createRequire(import.meta.url);
-const { newer, taskPrompt, verifyManifest } = require("../connector/main.cjs");
+const { createAuthorizationCallback, newer, taskPrompt, verifyManifest } = require("../connector/main.cjs");
+
+test("browser decisions are delivered directly to the matching local connector", async () => {
+  const authorization = { id: randomUUID(), pollToken: randomBytes(32).toString("base64url") };
+  const callback = await createAuthorizationCallback({ server: "https://cothread.z2l.top" }, authorization);
+  try {
+    const response = await fetch(`http://127.0.0.1:${callback.port}/connector-authorization`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "https://cothread.z2l.top" },
+      body: JSON.stringify({ authorizationId: authorization.id, callbackSecret: authorization.pollToken, status: "denied" }),
+    });
+    assert.equal(response.status, 204);
+    assert.equal((await callback.decision).status, "denied");
+  } finally {
+    await callback.close();
+  }
+});
 
 test("connector compares release and prerelease versions deterministically", () => {
   assert.equal(newer("0.1.1", "0.1.0"), true);

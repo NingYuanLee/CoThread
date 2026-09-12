@@ -5,8 +5,10 @@ type Authorization = {
   approved_at: string | null; denied_at: string | null; consumed_at: string | null;
 };
 
-export function ConnectorAuthorization({ id, api, onDone }: {
+export function ConnectorAuthorization({ id, callbackPort, callbackSecret, api, onDone }: {
   id: string;
+  callbackPort: string;
+  callbackSecret: string;
   api: (path: string, data?: unknown, method?: string) => Promise<any>;
   onDone: () => void;
 }) {
@@ -21,7 +23,19 @@ export function ConnectorAuthorization({ id, api, onDone }: {
   const decide = async (approved: boolean) => {
     setBusy(true); setError("");
     try {
-      await api(`/connector-authorizations-v2/${id}/decision`, { approved });
+      const result = await api(`/connector-authorizations-v2/${id}/decision`, { approved, callbackSecret });
+      let delivered = false;
+      for (let attempt = 0; attempt < 10 && !delivered; attempt++) {
+        try {
+          const response = await fetch(`http://127.0.0.1:${callbackPort}/connector-authorization`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ authorizationId: id, callbackSecret, ...result }),
+          });
+          delivered = response.ok;
+        } catch {}
+        if (!delivered) await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      if (!delivered) throw new Error("未能通知本地连接器，请保持连接器开启后重试授权");
       if (approved) setAuthorization((current) => current && ({ ...current, approved_at: new Date().toISOString() }));
       else onDone();
     } catch (cause) { setError((cause as Error).message); }

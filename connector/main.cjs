@@ -361,7 +361,6 @@ function openBrowser(url) {
 }
 
 async function authorizeInBrowser(config) {
-  openBrowser(config.server);
   const authorization = await request(config, "/api/connector/authorizations", {
     public: true, body: { name: "Windows 连接器", platform: "windows", version: VERSION },
   });

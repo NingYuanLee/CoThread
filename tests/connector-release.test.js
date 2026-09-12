@@ -33,3 +33,15 @@ test("super-administrator UI publishes chunked connector releases", async () => 
   assert.ok(httpApp.indexOf("registerRequestParts(app, db)") < httpApp.indexOf("registerConnectorBrowserRoutes(app, db, service)"),
     "large request parts must be reassembled before connector administration routes run");
 });
+
+test("connector download action is hidden when no release file exists", async () => {
+  const [panel, server] = await Promise.all([
+    readFile(new URL("../web/ConnectorPanel.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../server/connectors.js", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(panel, /api\("\/connectors\/download-availability"\)/);
+  assert.match(panel, /downloadAvailable && <div className="connector-actions">/);
+  assert.match(server, /\/api\/connectors\/download-availability/);
+  assert.match(server, /SUM\(OCTET_LENGTH\(c\.content\)\)/);
+});

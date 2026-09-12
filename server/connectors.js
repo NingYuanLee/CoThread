@@ -424,6 +424,21 @@ export function registerConnectorBrowserRoutes(app, db, service) {
       WHERE m.user_id=? ORDER BY m.project_id,u.name,c.last_seen_at DESC,c.id`, [req.user.id]));
   });
 
+  app.get("/api/connectors/download-availability", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const [release] = await query(db, `SELECT r.id FROM connector_releases r
+      WHERE (SELECT COALESCE(SUM(OCTET_LENGTH(c.content)),0) FROM connector_release_chunks c WHERE c.release_id=r.id)=r.size_bytes
+      ORDER BY r.created_at DESC,r.id DESC LIMIT 1`);
+    let legacyAvailable = false;
+    if (!release && process.env.CONNECTOR_DOWNLOAD_URL) {
+      try {
+        const response = await fetch(process.env.CONNECTOR_DOWNLOAD_URL, { method: "HEAD", signal: AbortSignal.timeout(5000) });
+        legacyAvailable = response.ok;
+      } catch { /* A configured URL is not downloadable until it responds successfully. */ }
+    }
+    res.json({ available: !!release || legacyAvailable });
+  });
+
   app.get(["/api/connector-authorizations/:id", "/api/connector-authorizations-v2/:id"], async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const authorizationId = z.string().uuid().parse(req.params.id);

@@ -45,3 +45,12 @@ test("connector download action is hidden when no release file exists", async ()
   assert.match(server, /\/api\/connectors\/download-availability/);
   assert.match(server, /SUM\(OCTET_LENGTH\(c\.content\)\)/);
 });
+
+test("starting a new chunked upload clears abandoned parts and applies a per-upload limit", async () => {
+  const requestParts = await readFile(new URL("../server/request-parts.js", import.meta.url), "utf8");
+
+  assert.match(requestParts, /if \(part === 0\)[\s\S]+DELETE FROM request_parts WHERE user_id=\? AND upload_id<>\?/);
+  assert.match(requestParts, /WHERE user_id=\? AND upload_id=\? AND part_number<>\?/);
+  assert.match(requestParts, /单次上传内容超过 160 MB/);
+  assert.doesNotMatch(requestParts, /临时上传空间已满/);
+});

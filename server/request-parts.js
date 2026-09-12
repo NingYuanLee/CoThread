@@ -11,9 +11,12 @@ export function registerRequestParts(app, db) {
     await transaction(db, async (conn) => {
       await query(conn, "SELECT id FROM users WHERE id=? FOR UPDATE", [req.user.id]);
       await query(conn, "DELETE FROM request_parts WHERE created_at < UTC_TIMESTAMP() - INTERVAL 1 HOUR");
-      const [usage] = await query(conn, "SELECT COALESCE(SUM(OCTET_LENGTH(content)),0) bytes FROM request_parts WHERE user_id=?", [req.user.id]);
+      if (part === 0)
+        await query(conn, "DELETE FROM request_parts WHERE user_id=? AND upload_id<>?", [req.user.id, id]);
+      const [usage] = await query(conn, `SELECT COALESCE(SUM(OCTET_LENGTH(content)),0) bytes FROM request_parts
+        WHERE user_id=? AND upload_id=? AND part_number<>?`, [req.user.id, id, part]);
       if (Number(usage.bytes) + Buffer.byteLength(data.content) > 160 * 1024 * 1024)
-        throw new HttpError(413, "临时上传空间已满，请稍后重试");
+        throw new HttpError(413, "单次上传内容超过 160 MB");
       await query(conn, `INSERT INTO request_parts(user_id,upload_id,part_number,total_parts,content) VALUES(?,?,?,?,?)
         ON DUPLICATE KEY UPDATE content=VALUES(content),total_parts=VALUES(total_parts)`,
       [req.user.id, id, part, data.total, Buffer.from(data.content)]);

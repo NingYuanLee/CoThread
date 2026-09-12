@@ -1,4 +1,5 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, sign } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { z } from "zod/v3";
 import { digest } from "./auth.js";
 import { query, transaction } from "./db.js";
@@ -7,6 +8,25 @@ import { HttpError } from "./service.js";
 const pairingCode = () => randomBytes(9).toString("base64url").toUpperCase();
 const bearer = (req) => req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
 const connectorToken = () => `ctc_${randomBytes(32).toString("base64url")}`;
+const releaseOrigin = (req) => process.env.APP_ORIGIN || `${req.protocol}://${req.get("host")}`;
+const releaseUrl = (req, id) => new URL(`/api/connector/releases/${id}/download`, releaseOrigin(req)).toString();
+
+export function createReleaseManifest(bytes, version, url, privateKey) {
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const signature = sign(null, Buffer.from(`${version}\n${url}\n${sha256}`), privateKey).toString("base64");
+  return { version, url, sha256, signature };
+}
+
+function updatePrivateKey() {
+  if (process.env.CONNECTOR_UPDATE_PRIVATE_KEY) {
+    const value = process.env.CONNECTOR_UPDATE_PRIVATE_KEY;
+    if (value.startsWith("base64:")) return Buffer.from(value.slice(7), "base64").toString("utf8");
+    return value.replace(/\\n/g, "\n");
+  }
+  if (!process.env.CONNECTOR_UPDATE_PRIVATE_KEY_FILE) return "";
+  try { return readFileSync(process.env.CONNECTOR_UPDATE_PRIVATE_KEY_FILE, "utf8"); }
+  catch { return ""; }
+}
 
 async function device(db, req) {
   const token = bearer(req);
@@ -145,7 +165,10 @@ export function registerConnectorPublicRoutes(app, db, service) {
     res.status(201).json(result);
   });
 
-  app.get("/api/connector/releases/latest", (req, res) => {
+  app.get("/api/connector/releases/latest", async (req, res) => {
+    const [release] = await query(db, `SELECT version,download_url url,sha256,signature
+      FROM connector_releases ORDER BY created_at DESC,id DESC LIMIT 1`);
+    if (release) return res.json(release);
     const version = process.env.CONNECTOR_RELEASE_VERSION;
     const url = process.env.CONNECTOR_DOWNLOAD_URL;
     const sha256 = process.env.CONNECTOR_RELEASE_SHA256;
@@ -153,6 +176,18 @@ export function registerConnectorPublicRoutes(app, db, service) {
     if (!version || !url || !sha256 || !signature)
       throw new HttpError(404, "连接器更新尚未发布");
     res.json({ version, url, sha256, signature });
+  });
+
+  app.get("/api/connector/releases/:id/download", async (req, res) => {
+    const id = z.string().uuid().parse(req.params.id);
+    const [release] = await query(db, "SELECT filename,size_bytes FROM connector_releases WHERE id=?", [id]);
+    if (!release) throw new HttpError(404, "连接器版本不存在");
+    const chunks = await query(db, "SELECT content FROM connector_release_chunks WHERE release_id=? ORDER BY part_number", [id]);
+    res.setHeader("Content-Type", "application/vnd.microsoft.portable-executable");
+    res.setHeader("Content-Length", String(release.size_bytes));
+    res.setHeader("Content-Disposition", `attachment; filename="CoThreadConnector.exe"`);
+    for (const chunk of chunks) res.write(chunk.content);
+    res.end();
   });
 
   app.get("/api/connector/projects", async (req, res) => {
@@ -331,6 +366,43 @@ export function registerConnectorPublicRoutes(app, db, service) {
 }
 
 export function registerConnectorBrowserRoutes(app, db, service) {
+  app.get("/api/admin/connector-release", async (req, res) => {
+    await service.systemAdmin(req.user);
+    const [release] = await query(db, `SELECT id,version,filename,size_bytes sizeBytes,sha256,created_at createdAt
+      FROM connector_releases ORDER BY created_at DESC,id DESC LIMIT 1`);
+    res.json({ release: release || null, signingConfigured: !!updatePrivateKey() });
+  });
+
+  app.post("/api/admin/connector-release", async (req, res) => {
+    await service.systemAdmin(req.user);
+    const data = z.object({
+      version: z.string().trim().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, "版本号格式应为 1.2.3"),
+      filename: z.string().trim().min(1).max(160),
+      contentBase64: z.string().min(100),
+    }).parse(req.body);
+    if (!data.filename.toLowerCase().endsWith(".exe")) throw new HttpError(400, "只允许上传 EXE 文件");
+    const bytes = Buffer.from(data.contentBase64, "base64");
+    if (!bytes.length || bytes.length > 120 * 1024 * 1024 || bytes.subarray(0, 2).toString("ascii") !== "MZ")
+      throw new HttpError(400, "连接器文件无效或超过 120 MB");
+    const privateKey = updatePrivateKey();
+    if (!privateKey) throw new HttpError(503, "服务器尚未配置连接器更新签名私钥");
+    const id = randomUUID();
+    const downloadUrl = releaseUrl(req, id);
+    let manifest;
+    try { manifest = createReleaseManifest(bytes, data.version, downloadUrl, privateKey); }
+    catch { throw new HttpError(503, "连接器更新签名私钥无效"); }
+    await transaction(db, async (conn) => {
+      const [duplicate] = await query(conn, "SELECT id FROM connector_releases WHERE version=? FOR UPDATE", [data.version]);
+      if (duplicate) throw new HttpError(409, "该版本号已经发布");
+      await query(conn, `INSERT INTO connector_releases(id,version,filename,size_bytes,sha256,signature,download_url,created_by)
+        VALUES(?,?,?,?,?,?,?,?)`, [id, data.version, data.filename, bytes.length, manifest.sha256, manifest.signature, downloadUrl, req.user.id]);
+      for (let offset = 0, part = 0; offset < bytes.length; offset += 1024 * 1024, part++)
+        await query(conn, "INSERT INTO connector_release_chunks(release_id,part_number,content) VALUES(?,?,?)",
+          [id, part, bytes.subarray(offset, offset + 1024 * 1024)]);
+    });
+    res.status(201).json({ id, version: data.version, filename: data.filename, sizeBytes: bytes.length, sha256: manifest.sha256 });
+  });
+
   app.get("/api/connectors", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const rows = await query(db, `SELECT c.id,c.name,c.platform,c.version,c.last_seen_at,c.created_at,
@@ -417,8 +489,10 @@ export function registerConnectorBrowserRoutes(app, db, service) {
     res.json({ ok: true });
   });
 
-  app.get("/api/connectors/download", (req, res) => {
+  app.get("/api/connectors/download", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const [release] = await query(db, "SELECT download_url FROM connector_releases ORDER BY created_at DESC,id DESC LIMIT 1");
+    if (release) return res.redirect(302, release.download_url);
     const url = process.env.CONNECTOR_DOWNLOAD_URL;
     if (!url) throw new HttpError(503, "Windows 连接器安装包尚未发布");
     res.redirect(302, url);

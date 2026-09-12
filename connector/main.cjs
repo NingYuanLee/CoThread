@@ -22,6 +22,7 @@ const pendingUpdatePath = path.join(appDir, "pending-update.json");
 const statePath = path.join(appDir, "ui-state.json");
 const commandPath = path.join(appDir, "ui-command.json");
 const lockPath = path.join(appDir, "connector.lock");
+const logPath = path.join(appDir, "connector.log");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const logs = [];
 let activeChild = null;
@@ -33,7 +34,35 @@ function log(message) {
   const line = `[${new Date().toLocaleTimeString("zh-CN", { hour12: false })}] ${message}`;
   logs.push(line);
   if (logs.length > 200) logs.splice(0, logs.length - 200);
-  stdout.write(`${line}\n`);
+  try {
+    fs.mkdirSync(appDir, { recursive: true });
+    if (fs.existsSync(logPath) && fs.statSync(logPath).size > 1024 * 1024) {
+      fs.rmSync(`${logPath}.old`, { force: true });
+      fs.renameSync(logPath, `${logPath}.old`);
+    }
+    fs.appendFileSync(logPath, `${new Date().toISOString()} ${message}\r\n`, "utf8");
+  } catch {}
+  try { stdout.write(`${line}\n`); } catch {}
+}
+
+function showFatalError(error) {
+  const detail = String(error?.message || error || "未知错误").slice(0, 2000);
+  log(`连接器已停止：${detail}`);
+  const message = `CoThread Connector 无法启动。\r\n\r\n${detail}\r\n\r\n诊断日志：${logPath}`;
+  const script = "Add-Type -AssemblyName PresentationFramework;[void][System.Windows.MessageBox]::Show([Console]::In.ReadToEnd(),'CoThread Connector','OK','Error')";
+  try {
+    spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Sta", "-Command", script], {
+      input: message, encoding: "utf8", windowsHide: true, timeout: 30000,
+    });
+  } catch {}
+}
+
+function windowsVersionLabel(release = os.release()) {
+  const parts = String(release).split(".").map(Number);
+  const build = parts[2] || 0;
+  if (parts[0] === 10 && build >= 22000) return `Windows 11（${release}）`;
+  if (parts[0] === 10) return `Windows 10（${release}）`;
+  return `Windows ${release}`;
 }
 
 function codexCommand() {
@@ -146,16 +175,11 @@ async function pair(config, prompt) {
 function checkPrerequisites() {
   const gitResult = spawnSync("git", ["--version"], { encoding: "utf8", windowsHide: true, timeout: 10000 });
   const codexResult = runCodex(["--version"], { encoding: "utf8", windowsHide: true, timeout: 10000 });
-  const loginResult = codexResult.status === 0
-    ? runCodex(["login", "status"], { encoding: "utf8", windowsHide: true, timeout: 15000 })
-    : { status: 1, stdout: "", stderr: "" };
   return {
     gitInstalled: gitResult.status === 0,
     gitVersion: gitResult.status === 0 ? gitResult.stdout.trim() : "",
     codexInstalled: codexResult.status === 0,
     codexVersion: codexResult.status === 0 ? codexResult.stdout.trim() : "",
-    codexLoggedIn: loginResult.status === 0,
-    codexLoginStatus: (loginResult.stdout || loginResult.stderr || "").trim(),
   };
 }
 
@@ -530,10 +554,8 @@ function setAutoStart(enabled) {
 async function atomicJson(file, value) {
   const temporary = `${file}.${process.pid}.tmp`;
   await fsp.writeFile(temporary, JSON.stringify(value), "utf8");
-  await fsp.rename(temporary, file).catch(async () => {
-    await fsp.rm(file, { force: true });
-    await fsp.rename(temporary, file);
-  });
+  try { await fsp.copyFile(temporary, file); }
+  finally { await fsp.rm(temporary, { force: true }); }
 }
 
 async function acquireInstanceLock() {
@@ -585,6 +607,7 @@ async function consoleMain(args) {
 
 async function guiMain() {
   const lock = await acquireInstanceLock();
+  log(`连接器 v${VERSION} 正在启动（${windowsVersionLabel()}，${process.arch}）`);
   let config = await readConfig();
   config.server ||= DEFAULT_SERVER;
   config.projects ||= {};
@@ -598,6 +621,8 @@ async function guiMain() {
   let authorizing = false;
   let quitting = false;
   let commandBusy = false;
+  let projectRefreshRevision = 0;
+  let taskRefreshRevision = 0;
   let token = await loadToken();
 
   const refreshProjects = async () => {
@@ -625,7 +650,7 @@ async function guiMain() {
           progress: activePaused ? "本机执行已暂停" : "本地 Codex 正在执行" } : task),
       task: activeTask ? { id: activeTask.id, projectName: activeTask.project_name,
         progress: activePaused ? "本机执行已暂停" : "本地 Codex 正在执行" } : null,
-      updateStatus, autoStart, logs,
+      updateStatus, autoStart, logs, projectRefreshRevision, taskRefreshRevision,
     });
   };
   const executeTask = (task) => {
@@ -658,13 +683,55 @@ async function guiMain() {
         authorizing = false;
       }
     } else if (command.type === "refreshProjects") {
+      status = "正在刷新项目";
+      await publish();
+      try {
+        prerequisites = checkPrerequisites();
+        await refreshProjects();
+        const refreshedAt = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+        status = `项目已刷新（${refreshedAt}）`;
+        log(`项目列表已刷新，共 ${remoteProjects.length} 个项目`);
+      } finally {
+        projectRefreshRevision += 1;
+      }
+    } else if (command.type === "refreshTasks") {
+      status = "正在刷新任务";
+      await publish();
+      try {
+        await refreshTasks();
+        const refreshedAt = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+        status = `任务已刷新（${refreshedAt}）`;
+        log(`任务列表已刷新，共 ${remoteTasks.length} 个任务`);
+      } finally {
+        taskRefreshRevision += 1;
+      }
+    } else if (command.type === "checkPrerequisites") {
+      status = "正在检测本机环境";
+      await publish();
       prerequisites = checkPrerequisites();
-      await refreshProjects();
-      status = "项目已刷新";
-    } else if (command.type === "codexLogin") {
-      spawn("powershell.exe", ["-NoExit", "-Command", `& '${codexCommand().replace(/'/g, "''")}' login; Write-Host ''; Write-Host '登录完成后可关闭此窗口，并在连接器中点击重新检测。'`],
-        { detached: true, stdio: "ignore", windowsHide: false }).unref();
-      status = "等待 Codex CLI 登录";
+      const gitStatus = prerequisites.gitInstalled ? prerequisites.gitVersion : "未安装";
+      const codexStatus = prerequisites.codexInstalled ? prerequisites.codexVersion : "未安装";
+      const checkedAt = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+      status = `本机环境已重新检测（${checkedAt}）`;
+      log(`本机环境检测完成：Git ${gitStatus}；Codex CLI ${codexStatus}`);
+    } else if (command.type === "installPrerequisite") {
+      const name = String(payload.name || "");
+      if (name === "git") {
+        const winget = spawnSync("winget.exe", ["--version"], { encoding: "utf8", windowsHide: true, timeout: 10000 });
+        if (winget.status === 0) {
+          spawn("winget.exe", ["install", "--id", "Git.Git", "-e", "--accept-package-agreements", "--accept-source-agreements"],
+            { detached: true, stdio: "ignore", windowsHide: false }).unref();
+          status = "Git 安装程序已启动，完成后请重新检测";
+        } else {
+          spawn("explorer.exe", ["https://git-scm.com/download/win"], { detached: true, stdio: "ignore" }).unref();
+          status = "已打开 Git 官方下载页面";
+        }
+      } else if (name === "codex") {
+        spawn("explorer.exe", ["https://chatgpt.com/download/"], { detached: true, stdio: "ignore" }).unref();
+        status = "已打开 Codex 官方下载页面，安装后请重新检测";
+      } else {
+        throw new Error("未知的安装项");
+      }
     } else if (command.type === "bind") {
       prerequisites = checkPrerequisites();
       if (!prerequisites.gitInstalled) throw new Error("未检测到 Git，请先安装 Git");
@@ -751,7 +818,12 @@ async function guiMain() {
     "-StatePath", statePath, "-CommandPath", commandPath, "-IconPath", iconPath, "-ParentPid", String(process.pid)],
   { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
   gui.stderr.on("data", (chunk) => log(`界面错误：${chunk.toString().trim()}`));
-  gui.once("exit", () => { if (!quitting) { status = "界面意外关闭"; quitting = true; } });
+  gui.once("error", (error) => {
+    if (!quitting) { status = "界面启动失败"; showFatalError(error); quitting = true; }
+  });
+  gui.once("exit", (code) => {
+    if (!quitting) { status = "界面意外关闭"; log(`界面进程意外退出（代码 ${code ?? "未知"}）`); quitting = true; }
+  });
 
   const commandTimer = setInterval(async () => {
     if (commandBusy) return;
@@ -787,7 +859,7 @@ async function guiMain() {
     clearInterval(commandTimer);
     clearInterval(stateTimer);
     if (activeChild?.pid) spawnSync("taskkill.exe", ["/PID", String(activeChild.pid), "/T", "/F"], { windowsHide: true, timeout: 10000 });
-    gui.kill();
+    try { if (gui.pid && !gui.killed) gui.kill(); } catch {}
     await lock.close().catch(() => {});
     await fsp.rm(lockPath, { force: true }).catch(() => {});
   }
@@ -805,5 +877,5 @@ async function main() {
   return guiMain();
 }
 
-module.exports = { checkPrerequisites, codexExecArgs, createAuthorizationCallback, newer, protectToken, unprotectToken, validatePolicy, taskPrompt, verifyManifest };
-if (require.main === module || require("node:sea").isSea()) main().catch((error) => { log(`连接器已停止：${error.message}`); process.exitCode = 1; });
+module.exports = { checkPrerequisites, codexExecArgs, createAuthorizationCallback, newer, protectToken, unprotectToken, validatePolicy, taskPrompt, verifyManifest, windowsVersionLabel };
+if (require.main === module || require("node:sea").isSea()) main().catch((error) => { showFatalError(error); process.exitCode = 1; });

@@ -3483,6 +3483,18 @@ summary {
 .admin-row-detail > span { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
 .admin-row-detail small { color: #8b9683; }
 .admin-row-detail p { margin: 0; color: #8b9683; font-size: 12px; }
+.connector-release-current { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0 18px; border-top: 1px solid #e5e9e2; border-bottom: 1px solid #e5e9e2; }
+.connector-release-current > div { display: grid; min-width: 0; gap: 5px; }
+.connector-release-current strong { font-size: 14px; color: #33432f; }
+.connector-release-current small { color: #7d8977; }
+.connector-release-current code { overflow: hidden; color: #788274; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.connector-release-form { display: grid; grid-template-columns: minmax(150px, .45fr) minmax(240px, 1fr); gap: 12px 16px; margin-top: 18px; padding: 16px; border: 1px solid #dfe7dc; border-radius: 7px; background: #f8faf6; }
+.connector-release-form label { display: grid; gap: 6px; color: #596653; font-size: 12px; font-weight: 600; }
+.connector-release-form input { width: 100%; }
+.connector-release-form > small, .connector-release-form .warning { grid-column: 1 / -1; color: #7d8977; }
+.connector-release-form .warning { padding: 9px 10px; border: 1px solid #ead8aa; border-radius: 5px; background: #fff8e5; color: #80641e; }
+.connector-release-form > button { grid-column: 2; justify-self: end; min-width: 120px; }
+.connector-release-note { margin: 12px 0 0; color: #7d8977; font-size: 11px; }
 .admin-row-detail .audit-heading { margin-top: 8px; padding-top: 10px; border-top: 1px solid #e7ebe5; }
 .admin-row-detail .audit-entry { align-items: flex-start; }
 .audit-entry > span { min-width: 0; }
@@ -3532,6 +3544,8 @@ summary {
   .admin-row-main { flex-wrap: wrap; }
   .admin-row-title { flex-basis: calc(100% - 70px); }
   .admin-row-main > button:not(.admin-row-title) { flex: 1; }
+  .connector-release-form { grid-template-columns: minmax(0, 1fr); padding: 12px; }
+  .connector-release-form > button { grid-column: 1; width: 100%; }
 }
 @media (min-width: 701px) and (max-width: 1100px) {
   .app-shell {

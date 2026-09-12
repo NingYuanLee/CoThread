@@ -1,4 +1,5 @@
-import { access, copyFile, mkdir, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,11 +8,39 @@ import { rcedit } from "rcedit";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const out = join(root, "dist-connector");
+const compatibilityNodeVersion = "v22.23.2";
+const compatibilityNodeSha256 = "0d0f5e39f9f3d9587bc19f73eab3c2c9c4903fd02d6dbf9c853dd81b3d95fad4";
 const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
 const version = process.env.CONNECTOR_BUILD_VERSION || pkg.version;
 const server = process.env.CONNECTOR_SERVER_URL || "https://cothread.z2l.top";
-const publicKey = (process.env.CONNECTOR_UPDATE_PUBLIC_KEY || "").replace(/\r?\n/g, "\\n");
+const publicKeyFile = process.env.CONNECTOR_UPDATE_PUBLIC_KEY_FILE || join(root, ".local", "connector-update-public.pem");
+const publicKey = (process.env.CONNECTOR_UPDATE_PUBLIC_KEY || await readFile(publicKeyFile, "utf8").catch(() => ""))
+  .replace(/\r?\n/g, "\\n");
 const guiScript = (await readFile(join(root, "connector", "gui.ps1"))).toString("base64");
+const hashFile = async (file) => createHash("sha256").update(await readFile(file)).digest("hex");
+async function compatibilityNode() {
+  if (process.env.CONNECTOR_NODE_EXE) {
+    const explicit = resolve(process.env.CONNECTOR_NODE_EXE);
+    await access(explicit);
+    return explicit;
+  }
+  const cache = join(root, ".local", "connector-runtime");
+  const target = join(cache, `node-${compatibilityNodeVersion}-win-x64.exe`);
+  await mkdir(cache, { recursive: true });
+  if (await hashFile(target).catch(() => "") === compatibilityNodeSha256) return target;
+  const response = await fetch(`https://nodejs.org/dist/${compatibilityNodeVersion}/win-x64/node.exe`);
+  if (!response.ok) throw new Error(`兼容运行时下载失败 (${response.status})`);
+  const temporary = `${target}.${process.pid}.tmp`;
+  await writeFile(temporary, Buffer.from(await response.arrayBuffer()));
+  const actual = await hashFile(temporary);
+  if (actual !== compatibilityNodeSha256) {
+    await rm(temporary, { force: true });
+    throw new Error("兼容运行时 SHA-256 校验失败");
+  }
+  await rename(temporary, target);
+  return target;
+}
+const nodeExecutable = await compatibilityNode();
 await rm(out, { recursive: true, force: true });
 await mkdir(out, { recursive: true });
 const iconSizes = [16, 20, 24, 32, 40, 48, 64, 128, 256];
@@ -69,18 +98,26 @@ async function findSignTool() {
   } catch {}
   return null;
 }
-run(process.execPath, ["--experimental-sea-config", join(out, "sea-config.json")]);
-await copyFile(process.execPath, exe);
+run(nodeExecutable, ["--experimental-sea-config", join(out, "sea-config.json")]);
+await copyFile(nodeExecutable, exe);
 const signTool = await findSignTool();
 if (!signTool) throw new Error("未找到 Windows SDK signtool.exe，无法在 SEA 注入前移除 Node 原始签名");
 await runWithRetry(signTool, ["remove", "/s", exe]);
-await rcedit(exe, {
-  icon: iconPath,
-  "file-version": version,
-  "product-version": version,
-  "version-string": { ProductName: "CoThread Connector", FileDescription: "共序本地连接器", CompanyName: "CoThread" },
-  "requested-execution-level": "asInvoker",
-});
+for (let attempt = 1; attempt <= 5; attempt++) {
+  try {
+    await rcedit(exe, {
+      icon: iconPath,
+      "file-version": version,
+      "product-version": version,
+      "version-string": { ProductName: "CoThread Connector", FileDescription: "共序本地连接器", CompanyName: "CoThread" },
+      "requested-execution-level": "asInvoker",
+    });
+    break;
+  } catch (error) {
+    if (attempt === 5) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+  }
+}
 const postject = join(root, "node_modules", "postject", "dist", "cli.js");
 run(process.execPath, [postject, exe, "NODE_SEA_BLOB", blob, "--sentinel-fuse", "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2"]);
 // Node ships as a console executable. Switch only the PE subsystem field so a
@@ -102,4 +139,4 @@ if (process.env.CONNECTOR_CODESIGN_CERT_SHA1) {
   run(signTool, ["verify", "/pa", "/v", exe]);
 }
 await Promise.all([entry, blob, join(out, "sea-config.json"), iconPath].map((file) => rm(file, { force: true })));
-console.log(`Built ${exe} (v${version})`);
+console.log(`Built ${exe} (v${version}, runtime ${compatibilityNodeVersion} x64)`);

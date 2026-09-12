@@ -14,9 +14,11 @@ type AdminAccount = {
 };
 type ChangeLog = { action: string; actor: string; details: unknown; created_at: string };
 type LoginLog = { ip: string; country: string | null; province: string | null; city: string | null; district: string | null; success: number; failure_reason: string | null; created_at: string };
+type ConnectorRelease = { id: string; version: string; filename: string; sizeBytes: number; sha256: string; createdAt: string };
 
-const date = (value: string) => new Date(value.replace(" ", "T") + "Z").toLocaleDateString("zh-CN");
-const dateTime = (value: string) => new Date(value.replace(" ", "T") + "Z").toLocaleString("zh-CN");
+const utcDate = (value: string) => new Date(value.includes("T") ? value : value.replace(" ", "T") + "Z");
+const date = (value: string) => utcDate(value).toLocaleDateString("zh-CN");
+const dateTime = (value: string) => utcDate(value).toLocaleString("zh-CN");
 const actionNames: Record<string, string> = {
   created: "新建", archived: "归档", restored: "恢复", profile_updated: "变更资料",
   member_added: "添加成员", member_removed: "移出成员", password_changed: "修改密码",
@@ -25,7 +27,7 @@ const actionNames: Record<string, string> = {
 };
 
 export function SystemManagement({ section, api, currentUserId, onProjectsChanged }: {
-  section: "projects" | "accounts";
+  section: "projects" | "accounts" | "connector";
   api: Api;
   currentUserId: string;
   onProjectsChanged: () => Promise<void>;
@@ -37,9 +39,17 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [password, setPassword] = useState<{ name: string; username: string; value: string; copied?: boolean; initial?: boolean } | null>(null);
+  const [release, setRelease] = useState<ConnectorRelease | null>(null);
+  const [signingConfigured, setSigningConfigured] = useState(false);
+  const [releaseVersion, setReleaseVersion] = useState("");
+  const [releaseFile, setReleaseFile] = useState<File | null>(null);
   const load = async () => {
     if (section === "projects") setProjects(await api("/admin/projects"));
-    else setAccounts(await api("/admin/accounts"));
+    else if (section === "accounts") setAccounts(await api("/admin/accounts"));
+    else {
+      const result = await api("/admin/connector-release");
+      setRelease(result.release); setSigningConfigured(result.signingConfigured);
+    }
   };
   useEffect(() => { setError(""); setExpanded(""); setCreating(false); setPassword(null); void load().catch((e) => setError(e.message)); }, [section]);
   const action = async (work: () => Promise<void>) => {
@@ -50,6 +60,39 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
   };
   const loginDetails = (value: { username: string; value: string }) =>
     `网站：${document.title}\n访问地址：${window.location.origin}\n账号：${value.username}\n密码：${value.value}`;
+  if (section === "connector") return (
+    <div className="admin-manager connector-release-manager">
+      <div className="admin-manager-toolbar">
+        <div><h3>连接器管理</h3><p>发布 Windows 连接器，新版本会由已安装的连接器自动检测并下载。</p></div>
+      </div>
+      {error && <div className="error" role="alert">{error}</div>}
+      <div className="connector-release-current">
+        <span className={`status-badge ${release ? "" : "inactive"}`}>{release ? "已发布" : "未发布"}</span>
+        {release ? <div><strong>当前版本 {release.version}</strong><small>{release.filename} · {(release.sizeBytes / 1024 / 1024).toFixed(1)} MB · {dateTime(release.createdAt)}</small><code>SHA-256 {release.sha256}</code></div>
+          : <div><strong>还没有连接器版本</strong><small>上传首个 EXE 文件后，下载入口和自动更新才会生效。</small></div>}
+      </div>
+      <div className="connector-release-form">
+        <label>新版本号<input value={releaseVersion} onChange={(event) => setReleaseVersion(event.target.value)} placeholder="例如 0.2.0" inputMode="text" /></label>
+        <label>Windows 连接器文件<input type="file" accept=".exe,application/vnd.microsoft.portable-executable" onChange={(event) => setReleaseFile(event.target.files?.[0] || null)} /></label>
+        <small>{releaseFile ? `${releaseFile.name} · ${(releaseFile.size / 1024 / 1024).toFixed(1)} MB` : "请选择打包后的 CoThreadConnector.exe，最大 120 MB。"}</small>
+        {!signingConfigured && <div className="warning">服务器未配置 <code>CONNECTOR_UPDATE_PRIVATE_KEY</code>，暂时不能发布。</div>}
+        <button type="button" className="primary" disabled={busy || !signingConfigured || !releaseFile || !releaseVersion.trim()} onClick={() => void action(async () => {
+          if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(releaseVersion.trim())) throw new Error("版本号格式应为 1.2.3");
+          if (!releaseFile || !releaseFile.name.toLowerCase().endsWith(".exe")) throw new Error("请选择 EXE 文件");
+          if (releaseFile.size > 120 * 1024 * 1024) throw new Error("连接器文件不能超过 120 MB");
+          const contentBase64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error("无法读取连接器文件"));
+            reader.onload = () => resolve(String(reader.result).split(",", 2)[1] || "");
+            reader.readAsDataURL(releaseFile);
+          });
+          await api("/admin/connector-release", { version: releaseVersion.trim(), filename: releaseFile.name, contentBase64 });
+          setReleaseVersion(""); setReleaseFile(null); await load();
+        })}>{busy ? "正在上传并发布..." : "上传并发布"}</button>
+      </div>
+      <p className="connector-release-note">发布后，连接器启动时会检查新版本并下载；下载完成后，下次启动自动替换当前程序。</p>
+    </div>
+  );
   return (
     <div className="admin-manager">
       <div className="admin-manager-toolbar">

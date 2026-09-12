@@ -356,6 +356,7 @@ type Modal =
   | "settings"
   | "admin-projects"
   | "admin-accounts"
+  | "admin-connector"
   | "archive"
   | "tokens"
   | "password"
@@ -2132,7 +2133,7 @@ function App() {
       {modal && (
         <div className="modal-backdrop">
           <section
-            className={`modal ${["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts"].includes(modal) ? "workspace-settings" : ""}`}
+            className={`modal ${["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts", "admin-connector"].includes(modal) ? "workspace-settings" : ""}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-title"
@@ -2152,6 +2153,7 @@ function App() {
                     email: "个人设置",
                     "admin-projects": "系统管理",
                     "admin-accounts": "系统管理",
+                    "admin-connector": "系统管理",
                     run: "在沙箱中执行",
                   }[modal]
                 }
@@ -2166,12 +2168,12 @@ function App() {
             </div>
             <div
               className={
-                ["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts"].includes(modal)
+                ["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts", "admin-connector"].includes(modal)
                   ? "settings-layout"
                   : undefined
               }
             >
-              {["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts"].includes(
+              {["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts", "admin-connector"].includes(
                 modal,
               ) && (
                 <nav className="settings-nav" aria-label="设置项目">
@@ -2182,6 +2184,7 @@ function App() {
                   {(modal.startsWith("admin-") ? [
                       ["admin-projects", "项目管理"],
                       ["admin-accounts", "账号管理"],
+                      ["admin-connector", "连接器管理"],
                     ] : [
                       ["profile", "个人资料"],
                       ["password", "修改密码"],
@@ -2202,9 +2205,9 @@ function App() {
                 </nav>
               )}
               <form key={modal} onSubmit={submitModal}>
-                {(modal === "admin-projects" || modal === "admin-accounts") && (
+                {(modal === "admin-projects" || modal === "admin-accounts" || modal === "admin-connector") && (
                   <SystemManagement
-                    section={modal === "admin-projects" ? "projects" : "accounts"}
+                    section={modal === "admin-projects" ? "projects" : modal === "admin-accounts" ? "accounts" : "connector"}
                     api={api}
                     currentUserId={user.id}
                     onProjectsChanged={async () => { setProjects(await api("/projects")); }}

@@ -383,7 +383,7 @@ async function authorizeInBrowser(config) {
         public: true, body: { pollToken: authorization.pollToken },
       });
     } catch (error) {
-      if (error.status === 410 && Date.now() - createdAt < 30000) {
+      if (error.status === 410 && Date.now() < deadline) {
         if (!waitingForSync) log("正在等待服务同步授权请求…");
         waitingForSync = true;
         continue;

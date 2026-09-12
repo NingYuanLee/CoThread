@@ -91,6 +91,12 @@ test("group local tasks target one online member and require that member's appro
   });
   assert.equal(authorization.status, 201);
   assert.match(authorization.body.verificationUrl, /connectorAuthorization=/);
+  assert.equal((await request(`/connector/authorizations/${randomUUID()}/poll`, {
+    pollToken: authorization.body.pollToken,
+  })).status, 404);
+  assert.equal((await request(`/connector/authorizations/${authorization.body.id}/poll`, {
+    pollToken: "x".repeat(32),
+  })).status, 401);
   assert.equal((await request(`/connector-authorizations/${authorization.body.id}`, undefined, assignee)).status, 200);
   assert.equal((await request(`/connector-authorizations/${authorization.body.id}/decision`, { approved: true }, assignee)).status, 200);
   const authorized = await request(`/connector/authorizations/${authorization.body.id}/poll`, {

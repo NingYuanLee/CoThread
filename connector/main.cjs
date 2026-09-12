@@ -374,6 +374,7 @@ async function authorizeInBrowser(config) {
   const createdAt = Date.now();
   const deadline = createdAt + expiresIn * 1000;
   let waitingForSync = false;
+  let pendingLogged = false;
   while (Date.now() < deadline) {
     await sleep(2000);
     let result;
@@ -382,14 +383,19 @@ async function authorizeInBrowser(config) {
         public: true, body: { pollToken: authorization.pollToken },
       });
     } catch (error) {
-      if (error.status === 410 && Date.now() < deadline) {
+      if (error.status === 404 && Date.now() - createdAt < 15000) {
         if (!waitingForSync) log("正在等待服务同步授权请求…");
         waitingForSync = true;
         continue;
       }
       throw new Error(`${error.message}${error.status ? `（HTTP ${error.status}）` : ""}`);
     }
-    if (result.status === "pending") continue;
+    if (result.status === "pending") {
+      if (!pendingLogged) log(waitingForSync ? "授权请求已同步，请在网页中确认授权。" : "等待网页确认授权…");
+      pendingLogged = true;
+      waitingForSync = false;
+      continue;
+    }
     await storeToken(result.token);
     config.deviceId = result.id;
     await writeConfig(config);

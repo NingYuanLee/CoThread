@@ -108,11 +108,14 @@ export function registerConnectorPublicRoutes(app, db, service) {
     const result = await transaction(db, async (conn) => {
       const [authorization] = await query(conn, `SELECT *,expires_at>CURRENT_TIMESTAMP(3) valid
         FROM connector_authorizations WHERE id=? FOR UPDATE`, [authorizationId]);
-      if (!authorization || authorization.poll_token_hash !== digest(data.pollToken) || Number(authorization.valid) !== 1)
+      if (!authorization) throw new HttpError(404, "授权请求尚未同步或不存在");
+      if (authorization.poll_token_hash !== digest(data.pollToken))
+        throw new HttpError(401, "授权请求凭证不匹配");
+      if (Number(authorization.valid) !== 1)
         throw new HttpError(410, "网页登录授权已过期，请重新发起");
       if (authorization.denied_at) throw new HttpError(403, "用户已拒绝连接器授权");
-      if (!authorization.approved_at || !authorization.user_id) return { status: "pending" };
       if (authorization.consumed_at) throw new HttpError(409, "授权结果已经领取");
+      if (!authorization.approved_at || !authorization.user_id) return { status: "pending" };
       const token = connectorToken();
       const connectorId = await replaceAccountConnector(conn, authorization.user_id, authorization, token);
       await query(conn, "UPDATE connector_authorizations SET consumed_at=CURRENT_TIMESTAMP(3) WHERE id=?", [authorization.id]);

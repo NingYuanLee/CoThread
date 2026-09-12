@@ -362,10 +362,12 @@ type Modal =
   | "email"
   | "run"
   | null;
-async function api(path: string, data?: unknown, method?: string, signal?: AbortSignal) {
+async function api(path: string, data?: unknown, method?: string, signal?: AbortSignal, extraHeaders?: HeadersInit) {
+  const headers = new Headers(extraHeaders);
+  headers.set("Content-Type", "application/json");
   const result = await fetchJson(`/api${path}`, {
     method: method || (data === undefined ? "GET" : "POST"),
-    headers: { "Content-Type": "application/json" },
+    headers,
     signal,
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
@@ -486,10 +488,17 @@ function App() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [connectorOpen, setConnectorOpen] = useState(false);
-  const connectorAuthorizationId = new URLSearchParams(location.search).get("connectorAuthorization") || "";
+  const connectorAuthorizationParams = new URLSearchParams(location.search);
+  const connectorAuthorizationId = connectorAuthorizationParams.get("connectorAuthorization") || "";
+  const requestedConnectorConversation = connectorAuthorizationParams.get("connectorConversation") || "";
+  const connectorConversationId = /^[0-9a-f-]{36}$/i.test(requestedConnectorConversation)
+    ? requestedConnectorConversation : connectorAuthorizationId;
+  const connectorAuthorizationApi = useCallback((path: string, data?: unknown, method?: string) =>
+    api(path, data, method, undefined, { "Makers-Conversation-Id": connectorConversationId }), [connectorConversationId]);
   const closeConnectorAuthorization = () => {
     const url = new URL(location.href);
     url.searchParams.delete("connectorAuthorization");
+    url.searchParams.delete("connectorConversation");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
     setClock(Date.now());
   };
@@ -2097,7 +2106,7 @@ function App() {
       </div>}
       {connectorAuthorizationId && <ConnectorAuthorization
         id={connectorAuthorizationId}
-        api={api}
+        api={connectorAuthorizationApi}
         onDone={closeConnectorAuthorization}
       />}
       {projectPickerOpen && (

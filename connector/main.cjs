@@ -102,7 +102,8 @@ async function request(config, route, options = {}) {
   const token = options.public ? "" : await loadToken();
   const response = await fetch(new URL(route, config.server), {
     method: options.method || (options.body === undefined ? "GET" : "POST"),
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { "Content-Type": "application/json", ...options.headers,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
     signal: AbortSignal.timeout(options.timeout || 30000),
   });
@@ -361,12 +362,16 @@ function openBrowser(url) {
 }
 
 async function authorizeInBrowser(config) {
+  const conversationId = crypto.randomUUID();
+  const conversationHeaders = { "Makers-Conversation-Id": conversationId };
   const authorization = await request(config, "/api/connector/authorizations", {
-    public: true, body: { name: "Windows 连接器", platform: "windows", version: VERSION },
+    public: true, headers: conversationHeaders,
+    body: { name: "Windows 连接器", platform: "windows", version: VERSION },
   });
   log("已打开共序网页，请在浏览器中登录并确认授权。");
   const verificationUrl = new URL("/", config.server);
   verificationUrl.searchParams.set("connectorAuthorization", authorization.id);
+  verificationUrl.searchParams.set("connectorConversation", conversationId);
   openBrowser(verificationUrl.toString());
   const advertisedTtl = Number(authorization.expiresIn);
   const expiresIn = Number.isFinite(advertisedTtl) && advertisedTtl >= 30 ? advertisedTtl : 600;
@@ -380,7 +385,7 @@ async function authorizeInBrowser(config) {
     let result;
     try {
       result = await request(config, `/api/connector/authorizations/${authorization.id}/poll`, {
-        public: true, body: { pollToken: authorization.pollToken },
+        public: true, headers: conversationHeaders, body: { pollToken: authorization.pollToken },
       });
     } catch (error) {
       if ((error.status === 404 || error.status === 410) && Date.now() - createdAt < 15000) {

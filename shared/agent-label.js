@@ -61,6 +61,7 @@ export function describeAgentAction(tool, args = {}, result = {}) {
     case "read_message": action = "读取消息原文"; object = "指定消息"; break;
     case "list_members": action = "查看成员列表"; break;
     case "read_member": action = "读取成员详情"; object = result.name || "项目成员"; break;
+    case "web_fetch": action = "读取网页"; object = args.url || result.url || "公开网页"; break;
     case "thinking":
       action = "思考";
       break;

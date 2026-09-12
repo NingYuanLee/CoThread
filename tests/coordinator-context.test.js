@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canFinalizeCoordinatorReply, decideDispatch, fallbackDispatch, resolveCoordinatorDecision } from "../server/coordinator.js";
+import { asksAgentCapabilities, canFinalizeCoordinatorReply, decideDispatch, fallbackDispatch, webpageRequestUrls, resolveCoordinatorDecision } from "../server/coordinator.js";
 
 test("a direct streaming reply can be finalized after entering running state", () => {
   assert.equal(canFinalizeCoordinatorReply("queued", false), true);
@@ -34,6 +34,62 @@ test("coordinator receives useful activity for work it is already handling", asy
     members: context.members }, promptContext);
   assert.match(payload.input[0].content, /根据这些记录用第一人称回答/);
   assert.match(payload.input[0].content, /普通聊天不要主动播报任务/);
+  assert.match(payload.input[0].content, /“小祥”代表完整的协作助手体系/);
+  assert.match(payload.input[0].content, /负责接待的二级小祥/);
+  assert.match(payload.input[0].content, /它安排的执行小祥/);
+});
+
+test("coordinator is explicitly told to read webpages itself", async () => {
+  let payload;
+  const request = async (_url, options) => {
+    payload = JSON.parse(options.body);
+    return { ok: true, headers: new Headers({ "content-type": "application/json" }),
+      text: async () => JSON.stringify({ output_text: '{"action":"execute","reply":""}' }) };
+  };
+  const job = { message_id: "web", sequence: "1", body: "@小祥 读取 https://example.com 并总结", participation: "reply" };
+  const decision = await decideDispatch({ title: "网页任务", promptContext: {
+    history: { messages: [], omittedOldest: 0 }, tasks: [], documentSummaries: [],
+    latestMessage: { messageId: "web", content: job.body, directlyAddressed: true }, members: [],
+  } }, job, request);
+  assert.equal(decision.action, "execute");
+  assert.match(payload.input[0].content, /由你亲自读取后回答，不派后台任务/);
+  assert.match(payload.input[0].content, /不能声称自己没有网页读取能力/);
+});
+
+test("explicit webpage requests stay with the coordinator when model routing is wrong", async () => {
+  for (const body of [
+    "@小祥 读取 https://example.com 并总结",
+    "Please read this page https://example.com",
+  ]) {
+    assert.deepEqual(webpageRequestUrls(body), ["https://example.com"], body);
+    const result = await resolveCoordinatorDecision({}, { body }, {
+      decide: async () => ({ action: "execute", reply: "" }),
+      logger: { error() {} },
+    });
+    assert.deepEqual(result.rawDecision, { action: "fetch", urls: ["https://example.com"], reply: "" });
+  }
+  assert.deepEqual(webpageRequestUrls("@小祥 你能读取网页吗？"), []);
+  assert.deepEqual(webpageRequestUrls("这个网站看起来不错"), []);
+  const combined = await resolveCoordinatorDecision({}, {
+    body: "@小祥 读取 https://example.com 后修改代码并运行测试",
+  }, {
+    decide: async () => ({ action: "execute", reply: "" }),
+    logger: { error() {} },
+  });
+  assert.equal(combined.rawDecision.action, "execute");
+});
+
+test("capability questions answer for the whole assistant rather than one process", async () => {
+  const body = "@小祥 你有什么能力，分别负责什么？";
+  assert.equal(asksAgentCapabilities(body), true);
+  const result = await resolveCoordinatorDecision({}, { body }, {
+    decide: async () => ({ action: "execute", reply: "" }),
+    logger: { error() {} },
+  });
+  assert.equal(result.rawDecision.action, "reply");
+  assert.match(result.rawDecision.reply, /作为一个整体协作/);
+  assert.match(result.rawDecision.reply, /负责接待的我/);
+  assert.match(result.rawDecision.reply, /安排执行任务/);
 });
 
 test("coordinator failures always fall back to a reply without starting execution", () => {

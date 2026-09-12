@@ -83,7 +83,13 @@ export function apply(ctx) {
       },
     ],
   ];
-  const allowed = new Set(definitions.map((d) => d[0]));
+  // Public URL fetching is provided by DSH's SSRF-protected HTTP provider
+  // rather than the CoThread bridge. Keep it available while blocking every
+  // other installed tool that is outside this execution profile.
+  const allowed = new Set([
+    ...definitions.map((d) => d[0]),
+    "web_fetch",
+  ]);
   // Defence in depth: no other installed DSH tool may execute in this profile.
   ctx.tools.guard((call) =>
     allowed.has(call.name ?? call.tool?.name ?? "")

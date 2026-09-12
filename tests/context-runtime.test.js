@@ -170,6 +170,7 @@ test(
       assert.ok(after.categories.tools > 0);
       assert.ok(after.categories.assistant > 0);
       const lastRequest = JSON.stringify(requests.at(-1).messages);
+      assert.ok(lastRequest.includes("web_fetch"), "executor exposes the public webpage reader");
       assert.ok(lastRequest.includes("ALPHA"));
       assert.ok(
         lastRequest.length < 1_000_000,

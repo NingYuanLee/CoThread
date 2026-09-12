@@ -45,6 +45,11 @@ test("action labels distinguish scripts from shell commands without inventing we
     label("read_document", {}, { filename: "README.md", version: 2 }).target,
     "README.md · v2",
   );
+  assert.deepEqual(label("web_fetch", { url: "https://example.com/page" }), {
+    action: "读取网页",
+    target: "https://example.com/page",
+    full: "https://example.com/page",
+  });
 });
 
 test("thinking lifecycle records phases once, omits content, and closes interruptions", async () => {

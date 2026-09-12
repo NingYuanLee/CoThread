@@ -4,7 +4,21 @@ import { createRequire } from "node:module";
 import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 
 const require = createRequire(import.meta.url);
-const { createAuthorizationCallback, newer, taskPrompt, verifyManifest } = require("../connector/main.cjs");
+const { createAuthorizationCallback, newer, protectToken, taskPrompt, unprotectToken, verifyManifest } = require("../connector/main.cjs");
+
+test("connector protects tokens with Windows DPAPI without inherited PowerShell modules", { skip: process.platform !== "win32" }, () => {
+  const token = `connector-token-${randomUUID()}`;
+  const savedModulePath = process.env.PSModulePath;
+  process.env.PSModulePath = "C:\\invalid-powershell-modules";
+  try {
+    const encrypted = protectToken(token);
+    assert.notEqual(encrypted, token);
+    assert.equal(unprotectToken(encrypted), token);
+  } finally {
+    if (savedModulePath === undefined) delete process.env.PSModulePath;
+    else process.env.PSModulePath = savedModulePath;
+  }
+});
 
 test("browser decisions are delivered directly to the matching local connector", async () => {
   const authorization = { id: randomUUID(), pollToken: randomBytes(32).toString("base64url") };

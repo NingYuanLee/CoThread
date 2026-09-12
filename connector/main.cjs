@@ -65,8 +65,10 @@ async function writeConfig(config) {
 }
 
 function powershell(script, input = "") {
+  const environment = { ...process.env };
+  delete environment.PSModulePath;
   const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
-    input, encoding: "utf8", windowsHide: true, timeout: 15000,
+    input, env: environment, encoding: "utf8", windowsHide: true, timeout: 15000,
   });
   if (result.status !== 0) throw new Error((result.stderr || "Windows 凭据加密失败").trim());
   return result.stdout.trim();
@@ -86,16 +88,30 @@ public static class CoThreadProcessControl {
 '@;$all=@(Get-CimInstance Win32_Process);$ids=New-Object System.Collections.Generic.List[int];function Add-Children([int]$parent){foreach($child in @($all|Where-Object ParentProcessId -eq $parent)){Add-Children $child.ProcessId;$ids.Add([int]$child.ProcessId)}};Add-Children ${Number(pid)};$ids.Add(${Number(pid)});${paused ? "$ids=@($ids)" : "$ids=@($ids);[array]::Reverse($ids)"};foreach($id in $ids){$h=[CoThreadProcessControl]::OpenProcess(0x0800,$false,$id);if($h -eq [IntPtr]::Zero){continue};try{[void][CoThreadProcessControl]::${method}($h)}finally{[void][CoThreadProcessControl]::CloseHandle($h)}}`);
 }
 
+function protectToken(token) {
+  return powershell(`$ErrorActionPreference="Stop";$null=[Reflection.Assembly]::LoadWithPartialName("System.Security");
+    $v=[Console]::In.ReadToEnd();$b=[Text.Encoding]::UTF8.GetBytes($v);
+    $p=[Security.Cryptography.ProtectedData]::Protect($b,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);
+    [Convert]::ToBase64String($p)`, token);
+}
+
+function unprotectToken(encrypted) {
+  return powershell(`$ErrorActionPreference="Stop";$null=[Reflection.Assembly]::LoadWithPartialName("System.Security");
+    $v=[Console]::In.ReadToEnd();$p=[Convert]::FromBase64String($v);
+    $b=[Security.Cryptography.ProtectedData]::Unprotect($p,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);
+    [Text.Encoding]::UTF8.GetString($b)`, encrypted);
+}
+
 async function storeToken(token) {
   await fsp.mkdir(appDir, { recursive: true });
-  const encrypted = powershell("$v=[Console]::In.ReadToEnd();$s=ConvertTo-SecureString $v -AsPlainText -Force;$s|ConvertFrom-SecureString", token);
+  const encrypted = protectToken(token);
   await fsp.writeFile(secretPath, encrypted, { encoding: "utf8", mode: 0o600 });
 }
 
 async function loadToken() {
   try {
     const encrypted = await fsp.readFile(secretPath, "utf8");
-    return powershell("$v=[Console]::In.ReadToEnd();$s=ConvertTo-SecureString $v;$p=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s);try{[Runtime.InteropServices.Marshal]::PtrToStringBSTR($p)}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($p)}", encrypted);
+    return unprotectToken(encrypted);
   } catch { return ""; }
 }
 
@@ -785,5 +801,5 @@ async function main() {
   return guiMain();
 }
 
-module.exports = { checkPrerequisites, createAuthorizationCallback, newer, validatePolicy, taskPrompt, verifyManifest };
+module.exports = { checkPrerequisites, createAuthorizationCallback, newer, protectToken, unprotectToken, validatePolicy, taskPrompt, verifyManifest };
 if (require.main === module || require("node:sea").isSea()) main().catch((error) => { log(`连接器已停止：${error.message}`); process.exitCode = 1; });

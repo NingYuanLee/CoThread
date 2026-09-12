@@ -1,6 +1,6 @@
 {
   "name": "cothread",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "engines": {
@@ -32,6 +32,7 @@
     "@deepseek-ai/dsh-compaction": "0.1.2-rc.1",
     "@deepseek-ai/dsh-fs": "0.1.2-rc.1",
     "@deepseek-ai/dsh-jobs": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-llm": "0.1.2-rc.1",
     "@deepseek-ai/dsh-sandbox": "0.1.2-rc.1",
     "@deepseek-ai/dsh-sdk-client": "0.1.2-rc.1",
     "@deepseek-ai/dsh-sdk-protocol": "0.1.2-rc.1",

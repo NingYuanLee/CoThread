@@ -15,10 +15,11 @@ test("connector release manifests hash and sign the uploaded executable", () => 
 });
 
 test("super-administrator UI publishes chunked connector releases", async () => {
-  const [ui, main, server, migration] = await Promise.all([
+  const [ui, main, server, httpApp, migration] = await Promise.all([
     readFile(new URL("../web/SystemManagement.tsx", import.meta.url), "utf8"),
     readFile(new URL("../web/main.tsx", import.meta.url), "utf8"),
     readFile(new URL("../server/connectors.js", import.meta.url), "utf8"),
+    readFile(new URL("../server/http-app.js", import.meta.url), "utf8"),
     readFile(new URL("../migrations/036_connector_releases.sql", import.meta.url), "utf8"),
   ]);
 
@@ -29,4 +30,6 @@ test("super-administrator UI publishes chunked connector releases", async () => 
   assert.match(server, /\/api\/admin\/connector-release/);
   assert.match(server, /connector_release_chunks/);
   assert.match(migration, /CREATE TABLE connector_releases/);
+  assert.ok(httpApp.indexOf("registerRequestParts(app, db)") < httpApp.indexOf("registerConnectorBrowserRoutes(app, db, service)"),
+    "large request parts must be reassembled before connector administration routes run");
 });

@@ -302,8 +302,8 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       return res.status(401).json({ error: "请先登录，或使用有效的账号令牌" });
     next();
   });
-  registerConnectorBrowserRoutes(app, db, service);
   registerRequestParts(app, db);
+  registerConnectorBrowserRoutes(app, db, service);
   app.get("/api/workspace", async (req, res) => {
     const [[profile], projects] = await Promise.all([
       query(db, "SELECT id,user_number,username,name,email,avatar,motto,identity_tags,is_super_admin FROM users WHERE id=?", [req.user.id]),

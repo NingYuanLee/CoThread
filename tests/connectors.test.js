@@ -1,6 +1,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { createApp } from "../server/app.js";
 import { hashPassword } from "../server/auth.js";
 import { connectorTool } from "../server/connectors.js";
@@ -242,10 +243,17 @@ test("group local tasks target one online member and require that member's appro
   assert.equal((await request(`/connector/tasks/${directTask.id}`, {
     leaseToken: directClaim.body.task.leaseToken, status: "completed", output: "直接回传完成",
   }, fallbackConnector, "PATCH")).status, 200);
-  const [directCompletion] = await query(db, `SELECT m.author_id,m.source FROM connector_tasks t
+  const [directCompletion] = await query(db, `SELECT m.id,m.author_id,m.source FROM connector_tasks t
     JOIN messages m ON m.id=t.response_message_id WHERE t.id=?`, [directTask.id]);
   assert.equal(directCompletion.author_id, fallback.id);
   assert.equal(directCompletion.source, "local_ai");
+
+  await query(db, "UPDATE messages SET author_id=? WHERE id IN (?,?)",
+    [requester.id, notifiedTask.response_message_id, directCompletion.id]);
+  await db.query(await readFile(new URL("../migrations/035_connector_result_author.sql", import.meta.url), "utf8"));
+  const correctedMessages = await query(db, "SELECT author_id FROM messages WHERE id IN (?,?)",
+    [notifiedTask.response_message_id, directCompletion.id]);
+  assert.deepEqual(correctedMessages.map((message) => message.author_id), [fallback.id, fallback.id]);
 
   await pair(requester, "提出人电脑");
   const selfPosted = await request(`/threads/${threadId}/messages`, {

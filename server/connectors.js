@@ -246,7 +246,7 @@ export function registerConnectorPublicRoutes(app, db, service) {
           const body = stopped ? "本机任务已由执行成员终止。" : success
             ? (task.output || "本地 Codex 已完成修改，请查看代码差异。")
             : `本地 Codex 执行失败：${task.error || "未知错误"}`;
-          const response = await service.insertMessage(conn, { id: task.requested_by, kind: "api" },
+          const response = await service.insertMessage(conn, { id: task.assigned_to, kind: "api" },
             task.thread_id, body.slice(0, 20000), [], "local_ai", task.message_id);
           await query(conn, "UPDATE connector_tasks SET response_message_id=? WHERE id=?", [response.id, taskId]);
         }
@@ -315,7 +315,7 @@ export function registerConnectorPublicRoutes(app, db, service) {
       let responseMessageId = task.response_message_id;
       if (data.status === "completed" && !responseMessageId) {
         const text = (data.output || "本地 Codex 已完成修改，请查看代码差异。").trim();
-        const response = await service.insertMessage(conn, { id: task.requested_by, kind: "api" },
+        const response = await service.insertMessage(conn, { id: task.assigned_to, kind: "api" },
           task.thread_id, text.slice(0, 20000), [], "local_ai", task.message_id);
         responseMessageId = response.id;
       }

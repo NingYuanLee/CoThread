@@ -224,6 +224,28 @@ test("group local tasks target one online member and require that member's appro
   const [notifiedTask] = await query(db, "SELECT status,response_message_id FROM connector_tasks WHERE id=?", [task.id]);
   assert.equal(notifiedTask.status, "completed");
   assert.ok(notifiedTask.response_message_id);
+  const [completionMessage] = await query(db, "SELECT author_id,source FROM messages WHERE id=?", [notifiedTask.response_message_id]);
+  assert.equal(completionMessage.author_id, fallback.id);
+  assert.equal(completionMessage.source, "local_ai");
+
+  const directPosted = await request(`/threads/${threadId}/messages`, {
+    body: "@接替者 请直接完成另一个页面的样式调整", executionTarget: "local",
+  }, requester);
+  assert.equal(directPosted.status, 201);
+  const directPending = await prepare(directPosted.body.id, requester, fallbackConnector.id);
+  const [directTask] = await query(db, "SELECT * FROM connector_tasks WHERE id=?", [directPending.id]);
+  assert.equal((await request(`/connector-tasks/${directTask.id}/decision`, {
+    approved: true, prompt: directTask.instruction,
+  }, fallback)).status, 200);
+  const directClaim = await request(`/connector/tasks/${directTask.id}/claim`, {}, fallbackConnector);
+  assert.equal(directClaim.status, 200);
+  assert.equal((await request(`/connector/tasks/${directTask.id}`, {
+    leaseToken: directClaim.body.task.leaseToken, status: "completed", output: "直接回传完成",
+  }, fallbackConnector, "PATCH")).status, 200);
+  const [directCompletion] = await query(db, `SELECT m.author_id,m.source FROM connector_tasks t
+    JOIN messages m ON m.id=t.response_message_id WHERE t.id=?`, [directTask.id]);
+  assert.equal(directCompletion.author_id, fallback.id);
+  assert.equal(directCompletion.source, "local_ai");
 
   await pair(requester, "提出人电脑");
   const selfPosted = await request(`/threads/${threadId}/messages`, {

@@ -101,4 +101,5 @@ if (process.env.CONNECTOR_CODESIGN_CERT_SHA1) {
   run(signTool, ["sign", "/sha1", process.env.CONNECTOR_CODESIGN_CERT_SHA1, "/fd", "SHA256", "/tr", timestamp, "/td", "SHA256", exe]);
   run(signTool, ["verify", "/pa", "/v", exe]);
 }
+await Promise.all([entry, blob, join(out, "sea-config.json"), iconPath].map((file) => rm(file, { force: true })));
 console.log(`Built ${exe} (v${version})`);

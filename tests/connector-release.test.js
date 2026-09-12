@@ -44,6 +44,9 @@ test("connector download action is hidden when no release file exists", async ()
   assert.match(panel, /downloadAvailable && <div className="connector-actions">/);
   assert.match(server, /\/api\/connectors\/download-availability/);
   assert.match(server, /SUM\(OCTET_LENGTH\(c\.content\)\)/);
+  assert.match(panel, /\/connectors\/download-info/);
+  assert.match(panel, /download\/chunks\/\$\{part\}/);
+  assert.match(server, /\/download\/chunks\/:part/);
 });
 
 test("starting a new chunked upload clears abandoned parts and applies a per-upload limit", async () => {

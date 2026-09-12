@@ -361,11 +361,22 @@ async function checkUpdate(config) {
   if (!newer(manifest.version, VERSION)) return;
   if (!verifyManifest(manifest, UPDATE_PUBLIC_KEY))
     throw new Error("更新签名无效，已拒绝下载");
-  const response = await fetch(manifest.url, { signal: AbortSignal.timeout(120000) });
-  if (!response.ok) throw new Error(`更新下载失败 (${response.status})`);
-  const length = Number(response.headers.get("content-length") || 0);
-  if (length > 150 * 1024 * 1024) throw new Error("更新文件异常过大");
-  const bytes = Buffer.from(await response.arrayBuffer());
+  let bytes;
+  if (Number.isInteger(manifest.chunks) && manifest.chunks > 0 && manifest.chunks <= 320) {
+    const parts = [];
+    for (let part = 0; part < manifest.chunks; part++) {
+      const response = await fetch(`${manifest.url}/chunks/${part}`, { signal: AbortSignal.timeout(30000) });
+      if (!response.ok) throw new Error(`更新分片 ${part + 1}/${manifest.chunks} 下载失败 (${response.status})`);
+      parts.push(Buffer.from(await response.arrayBuffer()));
+    }
+    bytes = Buffer.concat(parts);
+  } else {
+    const response = await fetch(manifest.url, { signal: AbortSignal.timeout(120000) });
+    if (!response.ok) throw new Error(`更新下载失败 (${response.status})`);
+    const length = Number(response.headers.get("content-length") || 0);
+    if (length > 150 * 1024 * 1024) throw new Error("更新文件异常过大");
+    bytes = Buffer.from(await response.arrayBuffer());
+  }
   if (bytes.length > 150 * 1024 * 1024 || crypto.createHash("sha256").update(bytes).digest("hex") !== manifest.sha256.toLowerCase())
     throw new Error("更新文件校验失败");
   const file = path.join(appDir, `CoThreadConnector-${manifest.version}.exe`);

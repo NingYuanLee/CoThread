@@ -28,6 +28,29 @@ function updatePrivateKey() {
   catch { return ""; }
 }
 
+function newerReleaseVersion(candidate, current) {
+  const parse = (value) => String(value || "").split("-", 1)[0].split(".").map(Number);
+  const a = parse(candidate), b = parse(current);
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    if ((a[index] || 0) !== (b[index] || 0)) return (a[index] || 0) > (b[index] || 0);
+  }
+  return false;
+}
+
+async function latestRelease(db) {
+  const [stored] = await query(db, `SELECT r.id,r.version,r.filename,r.size_bytes sizeBytes,r.download_url url,r.sha256,r.signature,
+    COUNT(c.part_number) chunks FROM connector_releases r JOIN connector_release_chunks c ON c.release_id=r.id
+    GROUP BY r.id HAVING SUM(OCTET_LENGTH(c.content))=r.size_bytes ORDER BY r.created_at DESC,r.id DESC LIMIT 1`);
+  const legacy = process.env.CONNECTOR_RELEASE_VERSION && process.env.CONNECTOR_DOWNLOAD_URL &&
+    process.env.CONNECTOR_RELEASE_SHA256 && process.env.CONNECTOR_RELEASE_SIGNATURE ? {
+      version: process.env.CONNECTOR_RELEASE_VERSION, url: process.env.CONNECTOR_DOWNLOAD_URL,
+      sha256: process.env.CONNECTOR_RELEASE_SHA256, signature: process.env.CONNECTOR_RELEASE_SIGNATURE,
+      external: true,
+    } : null;
+  if (legacy && (!stored || !newerReleaseVersion(stored.version, legacy.version))) return legacy;
+  return stored ? { ...stored, chunks: Number(stored.chunks), external: false } : null;
+}
+
 async function device(db, req) {
   const token = bearer(req);
   if (!token?.startsWith("ctc_")) throw new HttpError(401, "连接器凭证无效");
@@ -166,16 +189,20 @@ export function registerConnectorPublicRoutes(app, db, service) {
   });
 
   app.get("/api/connector/releases/latest", async (req, res) => {
-    const [release] = await query(db, `SELECT version,download_url url,sha256,signature
-      FROM connector_releases ORDER BY created_at DESC,id DESC LIMIT 1`);
-    if (release) return res.json(release);
-    const version = process.env.CONNECTOR_RELEASE_VERSION;
-    const url = process.env.CONNECTOR_DOWNLOAD_URL;
-    const sha256 = process.env.CONNECTOR_RELEASE_SHA256;
-    const signature = process.env.CONNECTOR_RELEASE_SIGNATURE;
-    if (!version || !url || !sha256 || !signature)
-      throw new HttpError(404, "连接器更新尚未发布");
-    res.json({ version, url, sha256, signature });
+    const release = await latestRelease(db);
+    if (!release) throw new HttpError(404, "连接器更新尚未发布");
+    res.json({ version: release.version, url: release.url, sha256: release.sha256,
+      signature: release.signature, ...(release.external ? {} : { chunks: release.chunks }) });
+  });
+
+  app.get("/api/connector/releases/:id/download/chunks/:part", async (req, res) => {
+    const id = z.string().uuid().parse(req.params.id);
+    const part = z.coerce.number().int().min(0).max(319).parse(req.params.part);
+    const [chunk] = await query(db, "SELECT content FROM connector_release_chunks WHERE release_id=? AND part_number=?", [id, part]);
+    if (!chunk) throw new HttpError(404, "连接器文件分片不存在");
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Length", String(chunk.content.length));
+    res.end(chunk.content);
   });
 
   app.get("/api/connector/releases/:id/download", async (req, res) => {
@@ -426,17 +453,24 @@ export function registerConnectorBrowserRoutes(app, db, service) {
 
   app.get("/api/connectors/download-availability", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
-    const [release] = await query(db, `SELECT r.id FROM connector_releases r
-      WHERE (SELECT COALESCE(SUM(OCTET_LENGTH(c.content)),0) FROM connector_release_chunks c WHERE c.release_id=r.id)=r.size_bytes
-      ORDER BY r.created_at DESC,r.id DESC LIMIT 1`);
+    const release = await latestRelease(db);
     let legacyAvailable = false;
-    if (!release && process.env.CONNECTOR_DOWNLOAD_URL) {
+    if (release?.external) {
       try {
-        const response = await fetch(process.env.CONNECTOR_DOWNLOAD_URL, { method: "HEAD", signal: AbortSignal.timeout(5000) });
+        const response = await fetch(release.url, { method: "HEAD", signal: AbortSignal.timeout(5000) });
         legacyAvailable = response.ok;
       } catch { /* A configured URL is not downloadable until it responds successfully. */ }
     }
-    res.json({ available: !!release || legacyAvailable });
+    res.json({ available: !!release && (!release.external || legacyAvailable) });
+  });
+
+  app.get("/api/connectors/download-info", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const release = await latestRelease(db);
+    if (!release) throw new HttpError(404, "Windows 连接器安装包尚未发布");
+    res.json(release.external ? { type: "external", url: release.url } : {
+      type: "chunks", id: release.id, filename: release.filename, sizeBytes: Number(release.sizeBytes), chunks: release.chunks,
+    });
   });
 
   app.get(["/api/connector-authorizations/:id", "/api/connector-authorizations-v2/:id"], async (req, res) => {
@@ -506,11 +540,10 @@ export function registerConnectorBrowserRoutes(app, db, service) {
 
   app.get("/api/connectors/download", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
-    const [release] = await query(db, "SELECT download_url FROM connector_releases ORDER BY created_at DESC,id DESC LIMIT 1");
-    if (release) return res.redirect(302, release.download_url);
-    const url = process.env.CONNECTOR_DOWNLOAD_URL;
-    if (!url) throw new HttpError(503, "Windows 连接器安装包尚未发布");
-    res.redirect(302, url);
+    const release = await latestRelease(db);
+    if (!release) throw new HttpError(503, "Windows 连接器安装包尚未发布");
+    if (!release.external) throw new HttpError(409, "请通过网页分片下载连接器");
+    res.redirect(302, release.url);
   });
 
   app.post("/api/connector-tasks/:id/cancel", async (req, res) => {

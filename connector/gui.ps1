@@ -212,7 +212,7 @@ $timer.Add_Tick({
   $signature = ($state.projects | ConvertTo-Json -Depth 4 -Compress)
   if ($signature -ne $script:projectSignature) {
     $script:projectSignature = $signature
-    $script:projectRows = @($state.projects | ForEach-Object {
+    $script:projectRows = @($state.projects | Where-Object { $null -ne $_ } | ForEach-Object {
       $_ | Add-Member -NotePropertyName actionText -NotePropertyValue $(if($_.bound){'关闭'}else{'开启'}) -Force -PassThru
     })
     $ProjectGrid.ItemsSource = $script:projectRows
@@ -221,7 +221,7 @@ $timer.Add_Tick({
   if ($taskSignature -ne $script:taskSignature) {
     $script:taskSignature = $taskSignature
     $labels = @{ awaiting_approval='待确认'; queued='待开始'; running='执行中'; paused='暂停'; stopped_pending_approval='终止待通过'; failed_pending_notification='失败待通知'; completed_pending_notification='成功待通知'; cancelled='终止'; completed='成功'; failed='失败'; interrupted='终止' }
-    $TaskGrid.ItemsSource = @($state.tasks | ForEach-Object {
+    $TaskGrid.ItemsSource = @($state.tasks | Where-Object { $null -ne $_ } | ForEach-Object {
       $status = [string]$_.status
       $_ | Add-Member -NotePropertyMembers @{
         statusText=$labels[$status]

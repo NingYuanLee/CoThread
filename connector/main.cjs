@@ -373,7 +373,9 @@ async function authorizeInBrowser(config) {
       });
       if (candidate.protocol === 2) { authorization = candidate; break; }
     } catch (error) {
-      if (error.status !== 404 || attempt === 14) throw error;
+      const staleRoute = error.status === 404 ||
+        (error.status === 401 && /请先登录|账号令牌/.test(error.message));
+      if (!staleRoute || attempt === 14) throw error;
     }
     if (attempt === 0) log("正在等待新版授权服务…");
     await sleep(2000);
@@ -399,7 +401,9 @@ async function authorizeInBrowser(config) {
         public: true, headers: conversationHeaders, body: { pollToken: authorization.pollToken },
       });
     } catch (error) {
-      if ((error.status === 404 || error.status === 410) && Date.now() < deadline) {
+      const staleRoute = error.status === 404 || error.status === 410 ||
+        (error.status === 401 && /请先登录|账号令牌/.test(error.message));
+      if (staleRoute && Date.now() < deadline) {
         if (!waitingForSync) log("正在等待服务同步授权请求…");
         waitingForSync = true;
         continue;

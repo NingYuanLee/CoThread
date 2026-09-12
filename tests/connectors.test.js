@@ -91,6 +91,7 @@ test("group local tasks target one online member and require that member's appro
   });
   assert.equal(authorization.status, 201);
   assert.equal(authorization.body.protocol, 2);
+  assert.equal(authorization.body.delivery, "localhost");
   assert.match(authorization.body.verificationUrl, /connectorAuthorization=/);
   assert.equal((await request(`/connector/v2/authorizations/${randomUUID()}/poll`, {
     pollToken: authorization.body.pollToken,

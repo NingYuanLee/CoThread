@@ -422,7 +422,7 @@ async function authorizeInBrowser(config) {
         public: true, headers: conversationHeaders,
         body: { name: "Windows 连接器", platform: "windows", version: VERSION },
       });
-      if (candidate.protocol === 2) { authorization = candidate; break; }
+      if (candidate.protocol === 2 && candidate.delivery === "localhost") { authorization = candidate; break; }
     } catch (error) {
       const staleRoute = error.status === 404 ||
         (error.status === 401 && /请先登录|账号令牌/.test(error.message));

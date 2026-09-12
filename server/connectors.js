@@ -99,7 +99,8 @@ export function registerConnectorPublicRoutes(app, db, service) {
     const origin = process.env.APP_ORIGIN || `${req.protocol}://${req.get("host")}`;
     const verificationUrl = new URL("/", origin);
     verificationUrl.searchParams.set("connectorAuthorization", id);
-    res.status(201).json({ protocol: 2, id, pollToken, verificationUrl: verificationUrl.toString(), expiresIn: 600 });
+    res.status(201).json({ protocol: 2, delivery: "localhost", id, pollToken,
+      verificationUrl: verificationUrl.toString(), expiresIn: 600 });
   });
 
   app.post(["/api/connector/authorizations/:id/poll", "/api/connector/v2/authorizations/:id/poll"], async (req, res) => {

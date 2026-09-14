@@ -52,11 +52,12 @@ export function labelReasoningEffort(value?: string | null): string {
   return REASONING_EFFORT[value] ?? value;
 }
 
-export function labelActorType(value: string): string {
+export function labelActorType(value?: string | null): string {
+  if (!value) return "-";
   return ACTOR_TYPE[value] ?? value;
 }
 
-export function labelExecutorType(value: string): string {
+export function labelExecutorType(value?: string | null): string {
   return labelActorType(value);
 }
 

@@ -1,9 +1,7 @@
-import { Sandbox } from "e2b";
-import { acsOptions } from "./acs.js";
 import { query } from "./db.js";
 import { agentSession } from "./agent-session.js";
 import { currentMakersSandbox, makersWorkspace } from "./makers-sandbox.js";
-import { LocalSandbox, localSandboxEnabled } from "./local-sandbox.js";
+import { LocalSandbox } from "./local-sandbox.js";
 
 export const shellQuote = (value) => `'${value.replace(/'/g, `'"'"'`)}'`;
 const handles = new Map();
@@ -11,16 +9,13 @@ export async function acquireSandbox(
   db,
   threadId,
   progress,
-  provider = Sandbox,
+  provider = LocalSandbox,
 ) {
   const { table, key, id: workspaceId } = agentSession(threadId);
-  if (currentMakersSandbox() || (provider === Sandbox && process.env.COTHREAD_MAKERS === "true")) {
+  if (currentMakersSandbox() || process.env.COTHREAD_MAKERS === "true") {
     await progress("正在准备 Makers 沙箱工作区");
     return makersWorkspace(workspaceId);
   }
-  const selectedProvider = provider === Sandbox && localSandboxEnabled() ? LocalSandbox : provider;
-  const local = selectedProvider === LocalSandbox;
-  const options = local ? {} : { ...acsOptions(), timeoutMs: 900000 };
   let sandbox = handles.get(workspaceId);
   if (sandbox) {
     try {
@@ -39,18 +34,15 @@ export async function acquireSandbox(
   );
   if (record?.sandbox_id) {
     try {
-      sandbox = await selectedProvider.connect(record.sandbox_id, options);
+      sandbox = await provider.connect(record.sandbox_id);
     } catch (error) {
       if (!/not found|not running|expired|does not exist/i.test(error.message))
         throw error;
     }
   }
   if (!sandbox) {
-    await progress(local ? "正在创建本机工作区" : "正在创建 ACS 工作区");
-    sandbox = await selectedProvider.create(
-      process.env.E2B_TEMPLATE || "code-interpreter",
-      options,
-    );
+    await progress("正在创建本机工作区");
+    sandbox = await provider.create();
   }
   await sandbox.files.makeDir(`/home/user/cothread/${workspaceId}`);
   await query(db, `UPDATE ${table} SET sandbox_id=? WHERE ${key}=?`, [
@@ -63,7 +55,7 @@ export async function acquireSandbox(
 export async function releaseSandbox(db, threadId) {
   const { table, key, id: workspaceId } = agentSession(threadId);
   if (currentMakersSandbox() || process.env.COTHREAD_MAKERS === "true") {
-    // Ignore legacy ACS IDs; the managed instance is shared by active children.
+    // The managed instance is shared by active children and owned by Makers.
     handles.delete(workspaceId);
     return;
   }
@@ -77,9 +69,7 @@ export async function releaseSandbox(db, threadId) {
     );
     if (record?.sandbox_id) {
       try {
-        sandbox = localSandboxEnabled()
-          ? await LocalSandbox.connect(record.sandbox_id)
-          : await Sandbox.connect(record.sandbox_id, acsOptions());
+        sandbox = await LocalSandbox.connect(record.sandbox_id);
       } catch {}
     }
   }

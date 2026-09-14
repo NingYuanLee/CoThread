@@ -12,13 +12,11 @@ const { stdin, stdout } = require("node:process");
 
 const VERSION = "__CONNECTOR_VERSION__";
 const DEFAULT_SERVER = "__CONNECTOR_SERVER__";
-const UPDATE_PUBLIC_KEY = "__UPDATE_PUBLIC_KEY__";
 const GUI_SCRIPT_BASE64 = "__GUI_SCRIPT_BASE64__";
 const CONNECTOR_ICON_BASE64 = "__CONNECTOR_ICON_BASE64__";
 const appDir = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "CoThreadConnector");
 const configPath = path.join(appDir, "config.json");
 const secretPath = path.join(appDir, "device-token.dat");
-const pendingUpdatePath = path.join(appDir, "pending-update.json");
 const statePath = path.join(appDir, "ui-state.json");
 const commandPath = path.join(appDir, "ui-command.json");
 const lockPath = path.join(appDir, "connector.lock");
@@ -321,91 +319,6 @@ async function runTask(config, task) {
   log("任务已完成，等待通知到迭代。");
 }
 
-function newer(version, current) {
-  const parse = (value) => {
-    const match = String(value).trim().match(/^v?(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/);
-    if (!match) return null;
-    return { main: match[1].split(".").map(Number), pre: match[2]?.split(".") || [] };
-  };
-  const a = parse(version), b = parse(current);
-  if (!a || !b) return false;
-  for (let index = 0; index < Math.max(a.main.length, b.main.length); index++) {
-    const difference = (a.main[index] || 0) - (b.main[index] || 0);
-    if (difference) return difference > 0;
-  }
-  if (!a.pre.length || !b.pre.length) return !a.pre.length && !!b.pre.length;
-  for (let index = 0; index < Math.max(a.pre.length, b.pre.length); index++) {
-    if (a.pre[index] === undefined || b.pre[index] === undefined) return b.pre[index] === undefined;
-    if (a.pre[index] === b.pre[index]) continue;
-    const an = /^\d+$/.test(a.pre[index]), bn = /^\d+$/.test(b.pre[index]);
-    if (an && bn) return Number(a.pre[index]) > Number(b.pre[index]);
-    if (an !== bn) return !an;
-    return a.pre[index] > b.pre[index];
-  }
-  return false;
-}
-
-function verifyManifest(manifest, publicKey) {
-  if (!manifest || typeof manifest.version !== "string" || typeof manifest.url !== "string" ||
-      !/^[a-f0-9]{64}$/i.test(manifest.sha256 || "") || typeof manifest.signature !== "string") return false;
-  const signed = `${manifest.version}\n${manifest.url}\n${manifest.sha256.toLowerCase()}`;
-  try { return crypto.verify(null, Buffer.from(signed), publicKey, Buffer.from(manifest.signature, "base64")); }
-  catch { return false; }
-}
-
-async function checkUpdate(config) {
-  if (!UPDATE_PUBLIC_KEY.includes("BEGIN PUBLIC KEY")) return;
-  let manifest;
-  try { manifest = await request(config, "/api/connector/releases/latest", { public: true }); }
-  catch (error) { if (error.status !== 404) log(`更新检查失败：${error.message}`); return; }
-  if (!newer(manifest.version, VERSION)) return;
-  if (!verifyManifest(manifest, UPDATE_PUBLIC_KEY))
-    throw new Error("更新签名无效，已拒绝下载");
-  let bytes;
-  if (Number.isInteger(manifest.chunks) && manifest.chunks > 0 && manifest.chunks <= 320) {
-    const parts = [];
-    for (let part = 0; part < manifest.chunks; part++) {
-      const response = await fetch(`${manifest.url}/chunks/${part}`, { signal: AbortSignal.timeout(30000) });
-      if (!response.ok) throw new Error(`更新分片 ${part + 1}/${manifest.chunks} 下载失败 (${response.status})`);
-      parts.push(Buffer.from(await response.arrayBuffer()));
-    }
-    bytes = Buffer.concat(parts);
-  } else {
-    const response = await fetch(manifest.url, { signal: AbortSignal.timeout(120000) });
-    if (!response.ok) throw new Error(`更新下载失败 (${response.status})`);
-    const length = Number(response.headers.get("content-length") || 0);
-    if (length > 150 * 1024 * 1024) throw new Error("更新文件异常过大");
-    bytes = Buffer.from(await response.arrayBuffer());
-  }
-  if (bytes.length > 150 * 1024 * 1024 || crypto.createHash("sha256").update(bytes).digest("hex") !== manifest.sha256.toLowerCase())
-    throw new Error("更新文件校验失败");
-  const file = path.join(appDir, `CoThreadConnector-${manifest.version}.exe`);
-  await fsp.writeFile(file, bytes);
-  await fsp.writeFile(pendingUpdatePath, JSON.stringify({ file, version: manifest.version }));
-  log(`新版本 ${manifest.version} 已下载，将在下次启动时安装。`);
-}
-
-async function applyUpdate(args) {
-  const [pid, target, pending, updater] = args;
-  for (let i = 0; i < 100 && (() => { try { process.kill(Number(pid), 0); return true; } catch { return false; } })(); i++) await sleep(100);
-  const backup = `${target}.old`;
-  await fsp.rm(backup, { force: true }).catch(() => {});
-  await fsp.rename(target, backup);
-  await fsp.rename(pending, target);
-  spawn(target, [`--cleanup-updater=${updater}`], { detached: true, stdio: "ignore", windowsHide: true }).unref();
-}
-
-async function launchPendingUpdate() {
-  let pending;
-  try { pending = JSON.parse(await fsp.readFile(pendingUpdatePath, "utf8")); } catch { return false; }
-  if (!fs.existsSync(pending.file) || !process.execPath.toLowerCase().endsWith(".exe")) return false;
-  const updater = path.join(os.tmpdir(), `CoThreadConnector-updater-${crypto.randomUUID()}.exe`);
-  await fsp.copyFile(process.execPath, updater);
-  spawn(updater, ["--apply-update", String(process.pid), process.execPath, pending.file, updater], { detached: true, stdio: "ignore", windowsHide: true }).unref();
-  await fsp.rm(pendingUpdatePath, { force: true });
-  return true;
-}
-
 function openBrowser(url) {
   const environment = { ...process.env, COTHREAD_BROWSER_URL: url };
   const primary = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
@@ -569,19 +482,63 @@ async function atomicJson(file, value) {
   finally { await fsp.rm(temporary, { force: true }); }
 }
 
+function inspectProcess(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  if (process.platform !== "win32") {
+    try { process.kill(pid, 0); return { pid, executable: pid === process.pid ? process.execPath : "", startedAt: "" }; }
+    catch { return null; }
+  }
+  const script = `$p=Get-Process -Id ${pid} -ErrorAction SilentlyContinue;if($null -ne $p){[Console]::Write(([pscustomobject]@{pid=$p.Id;executable=$p.Path;startedAt=$p.StartTime.ToUniversalTime().ToString('o')}|ConvertTo-Json -Compress))}`;
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+    encoding: "utf8", windowsHide: true, timeout: 10000,
+  });
+  if (result.status !== 0 || !result.stdout.trim()) return null;
+  try { return JSON.parse(result.stdout.trim()); } catch { return null; }
+}
+
+function parseInstanceLock(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  if (/^\d+$/.test(text)) return { pid: Number(text), legacy: true };
+  try {
+    const lock = JSON.parse(text);
+    return Number.isInteger(lock?.pid) && lock.pid > 0 ? lock : null;
+  } catch { return null; }
+}
+
+function normalizedExecutable(value) {
+  try { return path.resolve(String(value || "")).toLowerCase(); } catch { return ""; }
+}
+
+function instanceLockIsActive(lock, owner, currentExecutable = process.execPath) {
+  if (!lock || !owner || Number(lock.pid) !== Number(owner.pid)) return false;
+  const ownerExecutable = normalizedExecutable(owner.executable);
+  if (lock.legacy) {
+    const currentName = path.basename(normalizedExecutable(currentExecutable));
+    return !!ownerExecutable && !!currentName && path.basename(ownerExecutable) === currentName;
+  }
+  const lockedExecutable = normalizedExecutable(lock.executable);
+  if (!lockedExecutable || !ownerExecutable || lockedExecutable !== ownerExecutable) return false;
+  return !lock.startedAt || !owner.startedAt || lock.startedAt === owner.startedAt;
+}
+
 async function acquireInstanceLock() {
   await fsp.mkdir(appDir, { recursive: true });
   try {
     const handle = await fsp.open(lockPath, "wx");
-    await handle.writeFile(String(process.pid));
+    const owner = inspectProcess(process.pid) || { pid: process.pid, executable: process.execPath, startedAt: "" };
+    await handle.writeFile(JSON.stringify(owner));
     return handle;
   } catch (error) {
-    let pid = 0;
-    try { pid = Number(await fsp.readFile(lockPath, "utf8")); process.kill(pid, 0); } catch { pid = 0; }
-    if (pid) throw new Error("连接器已经在运行，可从系统托盘打开");
+    if (error.code !== "EEXIST") throw error;
+    let lock = null;
+    try { lock = parseInstanceLock(await fsp.readFile(lockPath, "utf8")); } catch {}
+    if (instanceLockIsActive(lock, inspectProcess(lock?.pid)))
+      throw new Error("连接器已经在运行，可从系统托盘打开");
     await fsp.rm(lockPath, { force: true });
     const handle = await fsp.open(lockPath, "wx");
-    await handle.writeFile(String(process.pid));
+    const owner = inspectProcess(process.pid) || { pid: process.pid, executable: process.execPath, startedAt: "" };
+    await handle.writeFile(JSON.stringify(owner));
     return handle;
   }
 }
@@ -593,7 +550,6 @@ async function consoleMain(args) {
     if (!(await loadToken())) await pair(config, prompt);
     if (args.includes("--configure") || !Object.keys(config.projects || {}).length) await configureProjects(config, prompt);
     const once = args.includes("--once");
-    void checkUpdate(config).catch((error) => log(error.message));
     log(`连接器 v${VERSION} 已在线，等待已确认任务。按 Ctrl+C 退出。`);
     do {
       try {
@@ -627,7 +583,6 @@ async function guiMain() {
   let prerequisites = checkPrerequisites();
   let status = "正在准备";
   let errorText = "";
-  let updateStatus = "";
   let autoStart = autoStartEnabled();
   let authorizing = false;
   let quitting = false;
@@ -661,7 +616,7 @@ async function guiMain() {
           progress: activePaused ? "本机执行已暂停" : "本地 Codex 正在执行" } : task),
       task: activeTask ? { id: activeTask.id, projectName: activeTask.project_name,
         progress: activePaused ? "本机执行已暂停" : "本地 Codex 正在执行" } : null,
-      updateStatus, autoStart, logs, projectRefreshRevision, taskRefreshRevision,
+      autoStart, logs, projectRefreshRevision, taskRefreshRevision,
     });
   };
   const executeTask = (task) => {
@@ -852,7 +807,6 @@ async function guiMain() {
     await Promise.all([refreshProjects(), refreshTasks()]).catch((error) => { errorText = error.message; });
     status = token ? "连接器已就绪" : "请登录并授权账号";
     await publish();
-    void checkUpdate(config).then(() => { updateStatus = "已检查更新"; }).catch((error) => { updateStatus = error.message; });
     while (!quitting) {
       prerequisites = checkPrerequisites();
       token = await loadToken();
@@ -878,15 +832,10 @@ async function guiMain() {
 
 async function main() {
   const args = process.argv.slice(1);
-  const apply = args.indexOf("--apply-update");
-  if (apply >= 0) return applyUpdate(args.slice(apply + 1));
-  const cleanup = args.find((arg) => arg.startsWith("--cleanup-updater="));
-  if (cleanup) await fsp.rm(cleanup.slice("--cleanup-updater=".length), { force: true }).catch(() => {});
   if (args.includes("--version")) { stdout.write(`${VERSION}\n`); return; }
-  if (await launchPendingUpdate()) return;
   if (args.includes("--console") || args.includes("--once") || args.includes("--configure")) return consoleMain(args);
   return guiMain();
 }
 
-module.exports = { checkPrerequisites, codexExecArgs, createAuthorizationCallback, newer, protectToken, unprotectToken, validatePolicy, taskPrompt, verifyManifest, windowsVersionLabel };
+module.exports = { checkPrerequisites, codexExecArgs, createAuthorizationCallback, instanceLockIsActive, parseInstanceLock, protectToken, unprotectToken, validatePolicy, taskPrompt, windowsVersionLabel };
 if (require.main === module || require("node:sea").isSea()) main().catch((error) => { showFatalError(error); process.exitCode = 1; });

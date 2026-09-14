@@ -35,11 +35,13 @@ try {
     if (error.code !== "EEXIST") throw error;
   }
   const modelDefaults = {};
-  for (const prefix of ["KNOWLEDGE_MODEL", "COORDINATOR_MODEL", "EXECUTOR_MODEL"])
-    for (const field of ["PROVIDER", "BASE_URL", "API_KEY", "NAME", "REASONING_EFFORT"])
+  for (const prefix of ["KNOWLEDGE_MODEL", "COORDINATOR_MODEL", "EXECUTOR_MODEL"]) {
+    for (const field of ["BASE_URL", "API_KEY"])
       modelDefaults[`${prefix}_${field}`] = source[`${prefix}_${field}`]
         || source[`MODEL_${field}`]
-        || (field === "REASONING_EFFORT" ? "medium" : "");
+        || "";
+    modelDefaults[prefix] = source[prefix] || "";
+  }
   const output = env
     .split("\n")
     .map((line) => {

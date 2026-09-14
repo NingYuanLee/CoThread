@@ -11,7 +11,7 @@ import {
   responseText,
 } from "../server/model-config.js";
 
-const keys = ["COORDINATOR_MODEL_PROVIDER", "COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY", "COORDINATOR_MODEL_NAME", "COORDINATOR_MODEL_REASONING_EFFORT"];
+const keys = ["COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY", "COORDINATOR_MODEL"];
 
 async function withModelEnv(values, run) {
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
@@ -36,19 +36,16 @@ test("model URL accepts a root or complete OpenAI endpoint", () => {
   assert.throws(() => normalizeModelBaseUrl("file:///tmp/model"), /HTTP\(S\)/);
 });
 
-test("all four model settings are required", () => withModelEnv({
-  COORDINATOR_MODEL_PROVIDER: "Example",
+test("the model endpoint, API key, and name are required", () => withModelEnv({
   COORDINATOR_MODEL_BASE_URL: "https://example.test/v1",
   COORDINATOR_MODEL_API_KEY: "",
-  COORDINATOR_MODEL_NAME: "example-model",
+  COORDINATOR_MODEL: "example-model",
 }, () => assert.throws(() => modelConfig(), /MODEL_API_KEY/)));
 
-test("compatible request and DSH route use the configured provider", () => withModelEnv({
-  COORDINATOR_MODEL_PROVIDER: "Example Cloud",
+test("compatible request and DSH route use the configured model", () => withModelEnv({
   COORDINATOR_MODEL_BASE_URL: "https://example.test/v1/chat/completions",
   COORDINATOR_MODEL_API_KEY: "secret-value",
-  COORDINATOR_MODEL_NAME: "example-model",
-  COORDINATOR_MODEL_REASONING_EFFORT: "high",
+  COORDINATOR_MODEL: "example-model@high",
 }, async () => {
   let captured;
   const data = await modelResponse({ messages: [{ role: "user", content: "hello" }], maxTokens: 64 },
@@ -68,9 +65,11 @@ test("compatible request and DSH route use the configured provider", () => withM
   assert.deepEqual(captured.body.input, [{ role: "user", content: "hello" }]);
   assert.deepEqual(captured.body.reasoning, { effort: "high" });
   assert.equal(captured.body.store, false);
-  const patch = dshModelPatch(modelConfig());
+  const config = modelConfig();
+  assert.equal("provider" in config, false);
+  const patch = dshModelPatch(config);
   assert.match(patch, /llm-pi-ai/);
-  assert.match(patch, /displayName: "Example Cloud"/);
+  assert.match(patch, /displayName: CoThread/);
   assert.match(patch, /api: openai-responses/);
   assert.match(patch, /reasoning: high/);
   assert.match(patch, /baseURL: "https:\/\/example\.test\/v1"/);
@@ -82,13 +81,13 @@ test("compatible request and DSH route use the configured provider", () => withM
   assert.equal(redactSecrets("failed secret-value"), "failed [REDACTED]");
 }));
 
-test("model capacity uses a 1M context and provider-specific output limits", () => {
-  assert.equal(modelOutputLimit({ provider: "Deepseek", model: "deepseek-flash" }), 393216);
-  assert.equal(modelOutputLimit({ provider: "Taoxiang", model: "gpt-6-astra" }), 131072);
+test("model capacity uses a 1M context and model-specific output limits", () => {
+  assert.equal(modelOutputLimit({ model: "deepseek-flash" }), 393216);
+  assert.equal(modelOutputLimit({ model: "gpt-6-astra" }), 131072);
 });
 
 test("DSH maps none and ultra onto its supported reasoning selector keys", () => {
-  const base = { provider: "Compatible", baseUrl: "https://example.test", apiKey: "secret", model: "custom" };
+  const base = { baseUrl: "https://example.test", apiKey: "secret", model: "custom" };
   const none = dshModelPatch({ ...base, reasoningEffort: "none" });
   assert.match(none, /reasoning: off/);
   assert.match(none, /off: none/);
@@ -99,10 +98,9 @@ test("DSH maps none and ultra onto its supported reasoning selector keys", () =>
 });
 
 test("compatible request reports an invalid non-JSON response", () => withModelEnv({
-  COORDINATOR_MODEL_PROVIDER: "Example Cloud",
   COORDINATOR_MODEL_BASE_URL: "https://example.test/v1",
   COORDINATOR_MODEL_API_KEY: "secret-value",
-  COORDINATOR_MODEL_NAME: "example-model",
+  COORDINATOR_MODEL: "example-model",
 }, async () => {
   await assert.rejects(
     modelResponse({ messages: [], maxTokens: 64 }, async () => ({
@@ -115,10 +113,9 @@ test("compatible request reports an invalid non-JSON response", () => withModelE
 }));
 
 test("compatible request reports an incomplete Responses result", () => withModelEnv({
-  COORDINATOR_MODEL_PROVIDER: "Example Cloud",
   COORDINATOR_MODEL_BASE_URL: "https://example.test/v1",
   COORDINATOR_MODEL_API_KEY: "secret-value",
-  COORDINATOR_MODEL_NAME: "example-model",
+  COORDINATOR_MODEL: "example-model",
 }, async () => {
   await assert.rejects(
     modelResponse({ messages: [], maxTokens: 64 }, async () => ({
@@ -131,11 +128,9 @@ test("compatible request reports an incomplete Responses result", () => withMode
 }));
 
 test("Responses streaming forwards text deltas and returns final usage", () => withModelEnv({
-  COORDINATOR_MODEL_PROVIDER: "Example Cloud",
   COORDINATOR_MODEL_BASE_URL: "https://example.test/v1",
   COORDINATOR_MODEL_API_KEY: "secret-value",
-  COORDINATOR_MODEL_NAME: "example-model",
-  COORDINATOR_MODEL_REASONING_EFFORT: "off",
+  COORDINATOR_MODEL: "example-model@off",
 }, async () => {
   const encoder = new TextEncoder();
   const chunks = [
@@ -161,16 +156,14 @@ test("Responses streaming forwards text deltas and returns final usage", () => w
   assert.deepEqual(body.reasoning, { effort: "none" });
 }));
 
-test("reasoning effort defaults to medium and rejects unknown values", () => withModelEnv({
-  COORDINATOR_MODEL_PROVIDER: "Example",
+test("combined model field defaults to medium and rejects unknown efforts", () => withModelEnv({
   COORDINATOR_MODEL_BASE_URL: "https://example.test",
   COORDINATOR_MODEL_API_KEY: "secret-value",
-  COORDINATOR_MODEL_NAME: "example-model",
-  COORDINATOR_MODEL_REASONING_EFFORT: undefined,
+  COORDINATOR_MODEL: "example-model",
 }, () => {
   assert.equal(modelConfig().reasoningEffort, "medium");
-  process.env.COORDINATOR_MODEL_REASONING_EFFORT = "off";
+  process.env.COORDINATOR_MODEL = "example-model@off";
   assert.equal(modelConfig().reasoningEffort, "off");
-  process.env.COORDINATOR_MODEL_REASONING_EFFORT = "extreme";
-  assert.throws(() => modelConfig(), /MODEL_REASONING_EFFORT/);
+  process.env.COORDINATOR_MODEL = "example-model@extreme";
+  assert.throws(() => modelConfig(), /reasoning effort/);
 }));

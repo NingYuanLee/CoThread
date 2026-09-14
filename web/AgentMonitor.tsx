@@ -3,11 +3,16 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 type MonitorData = {
   generatedAt: string;
   models: Record<"knowledge" | "coordinator" | "executor", {
-    provider: string;
     model: string;
     reasoningEffort: string;
   }>;
   knowledge: {
+    sessionId: string | null;
+    sessionStatus: "idle" | "running" | "failed";
+    lastTask: string | null;
+    lastError: string | null;
+    lastStartedAt: string | null;
+    lastFinishedAt: string | null;
     memberPending: number;
     documentPending: number;
     ready: number;
@@ -21,6 +26,12 @@ type MonitorData = {
     queued_requests: number;
     running_requests: number;
     active_executors: number;
+    convergence_state: string;
+    steering_epoch: number;
+    wait_reason: string | null;
+    current_action: string | null;
+    react_phase: string | null;
+    recent_message: string | null;
     last_activity_at: string;
   }[];
   executors: {
@@ -39,6 +50,54 @@ type MonitorData = {
     last_action_status: string | null;
     last_action_at: string | null;
     update_count: number;
+    executor_type?: "dsh_l3" | "human_self" | "human_connector";
+    executor_id?: string | null;
+    target_type?: string | null;
+    target_id?: string | null;
+    task_type?: "assist_l2" | "formal";
+    source_type?: string;
+    created_by_type?: string;
+    created_by_id?: string;
+    claimed_by_type?: string | null;
+    claimed_by_id?: string | null;
+    result_summary?: string | null;
+    artifact_refs?: unknown[] | string | null;
+  }[];
+  humanAgents: { member_id: string; name: string; nodes: { executor_type: "human_self" | "human_connector"; executor_id: string | null; online: boolean; configured?: boolean }[] }[];
+  taskPool: {
+    task_id: string;
+    title: string;
+    goal: string;
+    task_type: "assist_l2" | "formal";
+    task_status: string;
+    run_status: string | null;
+    source_type: string;
+    source_user_id: string | null;
+    target_type: string | null;
+    target_id: string | null;
+    claimed_by_type: string | null;
+    claimed_by_id: string | null;
+    created_by_type: string;
+    created_by_id: string;
+    executor_type: "dsh_l3" | "human_self" | "human_connector" | null;
+    executor_id: string | null;
+    progress: string | null;
+    result_summary: string | null;
+    artifact_refs: unknown[] | string | null;
+  }[];
+  eventLog: {
+    id: string;
+    message_id: string;
+    thread_id: string;
+    thread_title: string;
+    agent_session_id: string | null;
+    agent_type: "l2" | "dsh_l3";
+    tool: string;
+    action: string;
+    status: "running" | "completed" | "failed";
+    created_at: string;
+    finished_at: string | null;
+    duration_ms: number | null;
   }[];
 };
 
@@ -60,6 +119,15 @@ function date(value: string | null | undefined) {
 function time(value: string | null | undefined) {
   const parsed = date(value);
   return parsed?.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) || "暂无";
+}
+
+function artifactCount(value: unknown[] | string | null | undefined) {
+  if (Array.isArray(value)) return value.length;
+  if (typeof value === "string") {
+    try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.length : 0; }
+    catch { return 0; }
+  }
+  return 0;
 }
 
 function State({ tone, children }: { tone: "idle" | "running" | "waiting" | "failed"; children: React.ReactNode }) {
@@ -89,12 +157,16 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [selectedThreadId, setSelectedThreadId] = useState("");
+  const [view, setView] = useState<"status" | "logs">("status");
   const activeTasks = useMemo(() => data?.executors.filter((task) => task.execution_active || task.status === "running").length || 0, [data]);
   const selectedCoordinator = data?.coordinators.find((item) => item.id === selectedThreadId);
-  const selectedTasks = useMemo(() => data?.executors.filter((task) => task.thread_id === selectedThreadId) || [], [data, selectedThreadId]);
+  const selectedTasks = useMemo(() => data?.executors.filter((task) => task.thread_id === selectedThreadId && task.executor_type === "dsh_l3") || [], [data, selectedThreadId]);
   const slots = useMemo(() => Array.from({ length: 7 }, (_, index) => {
     const slot = index + 1;
-    return { slot, agent: EXECUTORS[index], task: selectedTasks.find((item) => item.agent_slot === slot) || null };
+    const explicit = selectedTasks.find((item) => item.agent_slot === slot);
+    const unassigned = selectedTasks.filter((item) => item.agent_slot == null && !selectedTasks.some((candidate) => candidate.agent_slot != null && candidate.task_id === item.task_id));
+    const occupiedBefore = Array.from({ length: index }, (_, previous) => selectedTasks.find((item) => item.agent_slot === previous + 1)).filter(Boolean).length;
+    return { slot, agent: EXECUTORS[index], task: explicit || unassigned[index - occupiedBefore] || null };
   }), [selectedTasks]);
 
   useEffect(() => {
@@ -122,7 +194,9 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   }, [projectId]);
 
   const knowledge = data?.knowledge;
-  const knowledgeState = !knowledge || knowledge.ready > 0
+  const knowledgeState = knowledge?.sessionStatus === "failed"
+    ? { label: "运行失败", tone: "failed" as const }
+    : knowledge?.sessionStatus === "running" || !knowledge || knowledge.ready > 0
     ? { label: "正在整理", tone: "running" as const }
     : knowledge.memberPending + knowledge.documentPending > 0
       ? { label: "等待定时整理", tone: "waiting" as const }
@@ -146,6 +220,13 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
         <time dateTime={data?.generatedAt}>更新于 {time(data?.generatedAt)}</time>
       </div>
 
+      <div className="monitor-view-tabs" role="tablist" aria-label="监控内容">
+        <button type="button" role="tab" aria-selected={view === "status"} onClick={() => setView("status")}>AgentTeam 状态</button>
+        <button type="button" role="tab" aria-selected={view === "logs"} onClick={() => setView("logs")}>运行日志</button>
+      </div>
+
+      {view === "status" ? <>
+
       <section className="monitor-section">
         <div className="monitor-section-heading">
           <div><span className="monitor-level">一级</span><img className="monitor-avatar" src="/agent-avatars/grandpa.jpg" alt="" /><span className="monitor-agent-name"><strong>老翁</strong><small>项目知识库管理员</small><ModelLabel model={data?.models.knowledge} /></span></div>
@@ -153,7 +234,20 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
         </div>
         <div className="knowledge-status">
           <dl><div><dt>成员认识</dt><dd>{knowledge?.memberPending || 0} 项待整理</dd></div><i className="knowledge-divider" aria-hidden="true" /><div><dt>文档摘要</dt><dd>{knowledge?.documentPending || 0} 项待整理</dd></div></dl>
-          <p>最近整理：{time(knowledge?.lastUpdatedAt)}{knowledge?.nextAt ? ` · 下次可处理：${time(knowledge.nextAt)}` : ""}</p>
+          <p>DSH 会话：{knowledge?.sessionId ? "已建立" : "尚未启动"}{knowledge?.lastTask ? ` · 最近任务：${knowledge.lastTask}` : ""}</p>
+          <p>最近整理：{time(knowledge?.lastUpdatedAt)}{knowledge?.nextAt ? ` · 下次可处理：${time(knowledge.nextAt)}` : ""}{knowledge?.lastError ? ` · ${knowledge.lastError}` : ""}</p>
+        </div>
+      </section>
+
+      <section className="monitor-section monitor-task-pool">
+        <div className="monitor-section-heading"><div><span className="monitor-level">项目级</span><h3>任务池</h3></div><span className="monitor-count">{data?.taskPool.length || 0} 项</span></div>
+        <div className="executor-list">
+          {data?.taskPool.map((task) => <article className="executor-row" key={task.task_id}>
+            <div className="executor-title"><span className="executor-name"><strong>{task.title}</strong><small>{task.task_type === "assist_l2" ? "辅助 L2" : "正式任务"} · 来源 {task.source_user_id || task.source_type}</small></span><State tone={task.run_status === "failed" ? "failed" : ["running", "queued"].includes(task.run_status || task.task_status) ? "running" : task.run_status === "waiting" ? "waiting" : "idle"}>{task.run_status || task.task_status}</State></div>
+            <p>{task.progress || task.goal}</p>
+            <footer><span>创建 {task.created_by_type}:{task.created_by_id} · 责任 {task.target_type || "未指派"}:{task.target_id || "-"}</span><span>认领 {task.claimed_by_type || "无"}:{task.claimed_by_id || "-"} · 执行 {task.executor_type || "未选择"}:{task.executor_id || "-"}</span>{task.result_summary ? <span>结果：{task.result_summary.slice(0, 180)}</span> : null}{artifactCount(task.artifact_refs) ? <span>产物 {artifactCount(task.artifact_refs)} 项</span> : null}</footer>
+          </article>)}
+          {!data?.taskPool.length && <p className="monitor-empty">当前没有项目任务。</p>}
         </div>
       </section>
 
@@ -168,7 +262,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
               const busy = item.running_requests + item.queued_requests > 0;
               return <button type="button" className={`coordinator-row ${selectedThreadId === item.id ? "selected" : ""}`} key={item.id} aria-pressed={selectedThreadId === item.id} onClick={() => setSelectedThreadId(item.id)}>
                 <img className="monitor-avatar" src="/agent-avatars/xiaojingang.jpg" alt="" />
-                <span className="coordinator-copy"><strong>小祥</strong><ModelLabel model={data?.models.coordinator} /><small>{item.title} · {item.status === "archived" ? "已归档" : `${item.active_executors}/7 工作中`} · {time(item.last_activity_at)}</small></span>
+                <span className="coordinator-copy"><strong>小祥</strong><ModelLabel model={data?.models.coordinator} /><small>{item.title} · {item.status === "archived" ? "已归档" : `${item.active_executors}/7 工作中 · ${item.convergence_state === "waiting" ? "等待中" : item.convergence_state === "stable" ? "已收敛" : "调整第 " + item.steering_epoch + " 轮"}`} · {time(item.last_activity_at)}</small>{item.react_phase || item.current_action ? <small>阶段 {item.react_phase || "准备"} · {item.current_action || "继续评估"}</small> : null}{item.wait_reason ? <small>等待：{item.wait_reason}</small> : null}{item.recent_message ? <small title={item.recent_message}>最近发言：{item.recent_message}</small> : null}</span>
                 <State tone={item.status === "archived" ? "idle" : busy ? "running" : "idle"}>{item.status === "archived" ? "归档" : busy ? "调度中" : "待命"}</State>
               </button>;
             })}
@@ -176,6 +270,25 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
           </div>
         </section>
 
+        <section className="monitor-section monitor-humans">
+          <div className="monitor-section-heading"><div><span className="monitor-level">三级</span><h3>人类成员子 Agent</h3></div><span className="monitor-count">{data?.humanAgents.length || 0} 人</span></div>
+          <div className="executor-list">
+            {data?.humanAgents.map((member) => <article className="executor-row human-agent-tree" key={member.member_id}>
+              <div className="executor-title"><span className="monitor-avatar" aria-hidden="true" /><span className="executor-name"><strong>{member.name}</strong><small>任务责任主体</small></span><State tone="idle">成员账号</State></div>
+              <div className="human-agent-nodes">
+                {member.nodes.map((node) => {
+                  const task = data?.taskPool.find((item) => item.executor_type === node.executor_type && item.executor_id === node.executor_id && ["queued", "running", "waiting"].includes(item.run_status || item.task_status))
+                    || data?.taskPool.find((item) => item.target_type === "human_member" && item.target_id === member.member_id && !item.executor_type && !["completed", "failed", "cancelled", "superseded"].includes(item.task_status));
+                  return <div key={node.executor_type}>
+                    <span><strong>{node.executor_type === "human_self" ? "成员本人" : "本地 Codex"}</strong><small>{node.executor_type}{task ? ` · ${task.title} · 来源 ${task.source_user_id || task.source_type}` : ""}</small></span>
+                    <State tone={!node.online ? "waiting" : task ? "running" : "idle"}>{node.executor_type === "human_connector" && !node.configured ? "未关联" : !node.online ? "离线" : task ? "执行中" : "在线"}</State>
+                  </div>;
+                })}
+              </div>
+            </article>)}
+            {!data?.humanAgents.length && <p className="monitor-empty">暂无人类成员。</p>}
+          </div>
+        </section>
         <section className="monitor-section monitor-executors">
           <div className="monitor-section-heading">
             <div><span className="monitor-level">三级</span><h3>{selectedCoordinator?.title || "任务执行者"}</h3></div>
@@ -186,16 +299,38 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
               const state = task ? taskState(task) : { label: "空闲", tone: "idle" as const };
               const active = !!task && (task.execution_active || task.status === "running" || task.status === "queued");
               return <article className={`executor-row ${active ? "active" : ""}`} key={slot} style={{ "--agent-color": agent.color, "--agent-tint": agent.tint } as React.CSSProperties}>
-                <div className="executor-title"><img className="monitor-avatar" src={`/agent-avatars/${agent.avatar}`} alt="" /><span className="executor-name"><strong>{agent.name}</strong><ModelLabel model={data?.models.executor} /><small>{slot} 号执行者 · {task ? task.progress || task.goal : "等待任务"}</small></span><State tone={state.tone}>{state.label}</State></div>
+                <div className="executor-title"><img className="monitor-avatar" src={`/agent-avatars/${agent.avatar}`} alt="" /><span className="executor-name"><strong>{agent.name}</strong><ModelLabel model={data?.models.executor} /><small>{slot} 号 DSH L3 · {task ? task.progress || task.goal : "等待任务"}</small></span><State tone={state.tone}>{state.label}</State></div>
                 {task ? <>
                   <p>{active ? task.goal : `上次任务：${task.goal}`}</p>
-                  <footer><span>{task.requested_by} 发起{task.update_count ? ` · ${task.update_count} 次补充` : ""}</span><time>{time(task.last_action_at || task.finished_at || task.started_at)}</time></footer>
+                  <footer><span>来源 {task.requested_by || task.source_type} · 责任 {task.target_type}:{task.target_id || "-"}</span><span>执行 {task.executor_type}:{task.executor_id || "待绑定"}{task.progress ? ` · ${task.progress}` : ""}</span>{task.result_summary ? <span>结果：{task.result_summary.slice(0, 160)}</span> : null}{artifactCount(task.artifact_refs) ? <span>产物 {artifactCount(task.artifact_refs)} 项</span> : null}<time>{time(task.last_action_at || task.finished_at || task.started_at)}</time></footer>
                 </> : <p className="executor-idle-copy">当前没有任务</p>}
               </article>;
             })}
           </div>
         </section>
       </div>
+      </> : <section className="monitor-section monitor-log-section">
+        <div className="monitor-section-heading">
+          <div><span className="monitor-level">DSH</span><h3>事件摘要</h3></div>
+          <span className="monitor-count">最近 {data?.eventLog.length || 0} 条</span>
+        </div>
+        <div className="monitor-log-list">
+          {data?.eventLog.map((event) => <article className="monitor-log-row" key={event.id}>
+            <span className={`monitor-log-icon ${event.status}`} aria-hidden="true" />
+            <span className="monitor-log-main">
+              <strong>{event.action}</strong>
+              <small>{event.agent_type === "l2" ? "二级小祥" : "三级小祥"} · {event.thread_title} · {event.tool}</small>
+            </span>
+            <span className="monitor-log-meta">
+              <State tone={event.status === "failed" ? "failed" : event.status === "running" ? "running" : "idle"}>{event.status}</State>
+              <time>{time(event.created_at)}</time>
+              {event.duration_ms != null ? <small>{event.duration_ms < 1000 ? `${event.duration_ms} ms` : `${(event.duration_ms / 1000).toFixed(1)} s`}</small> : null}
+            </span>
+          </article>)}
+          {!data?.eventLog.length && <p className="monitor-empty">暂无 DSH 运行事件。</p>}
+        </div>
+        <p className="monitor-log-note">日志展示步骤、工具、Agent 层级、状态和耗时。隐藏思考正文、完整工具参数与敏感输出不会在监控器中公开。</p>
+      </section>}
     </>}
     {error && <p className="monitor-error" role="alert">{error}</p>}
   </dialog>;

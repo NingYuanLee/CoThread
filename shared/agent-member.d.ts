@@ -9,5 +9,4 @@ export const AGENT_MEMBER: {
   readonly role: string;
 };
 export const SUMMARY_REQUEST: string;
-export const ORGANIZE_DOCUMENTS_REQUEST: string;
 export function mentionsAgent(text: string): boolean;

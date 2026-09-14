@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { SYSTEM_PROMPTS } from "../runtime/cothread-plugin-registry.mjs";
 
 test("executor profile retains the guarded DSH web tools", async () => {
   const [tools, prompt] = await Promise.all([
@@ -8,6 +9,9 @@ test("executor profile retains the guarded DSH web tools", async () => {
     readFile(new URL("../runtime/agent-patch.yml", import.meta.url), "utf8"),
   ]);
   assert.match(tools, /"web_fetch"/);
-  assert.match(prompt, /使用 web_fetch/);
-  assert.match(prompt, /不要因为当前对话接待层本身不能调用工具/);
+  assert.match(prompt, /persona: ''/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /web_fetch/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /不能直接使用沙箱/);
+  assert.match(SYSTEM_PROMPTS.l3.prompt, /publish_artifact/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /葫芦小金刚/);
 });

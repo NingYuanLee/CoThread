@@ -1,6 +1,7 @@
 import { streamLiveOutput } from "./agent-live-output.js";
 import { SUMMARY_REQUEST } from "../shared/agent-member.js";
 import { queueContextCompression } from "./queue-context.js";
+import { queueDocumentOrganization } from "./document-organization.js";
 import express from "express";
 import { libraryChange } from "./library.js";
 import { z, ZodError } from "zod/v3";
@@ -19,7 +20,6 @@ import { retryReply } from "./reply-actions.js";
 import { personalProfile, profileSchema } from "./profile.js";
 import { registerRequestParts } from "./request-parts.js";
 import { requestTiming } from "./request-timing.js";
-import { localSandboxEnabled } from "./local-sandbox.js";
 import { resolveIpLocation } from "./ip-location.js";
 import { randomUUID } from "node:crypto";
 import { randomInt } from "node:crypto";
@@ -27,6 +27,8 @@ import { digest } from "./auth.js";
 import { sendVerificationEmail as deliverVerificationEmail } from "./email-delivery.js";
 import { createHumanChallenge as generateHumanChallenge } from "./human-challenge.js";
 import { registerConnectorBrowserRoutes, registerConnectorPublicRoutes } from "./connectors.js";
+import { acceptTask, acknowledgeTaskRejection, createTask, getTask, listAssignmentEvents, answerTaskQuestion, listTaskExecutionRuns, listTaskQuestions, listTaskUpdates, listTasks, reassignTask, rejectTask, reopenRejectedTask, taskExecutionSnapshot, taskRejectionReview, updateTask } from "./task-pool.js";
+import { adminPluginManagement, archivePromptSkill, createPromptSkill, updatePromptSkill } from "./agent-capabilities.js";
 
 export function createApp(db, { makers = false, afterMcpMessage, executeRun, stopAgent = async () => {},
   sendVerificationEmail = deliverVerificationEmail,
@@ -80,9 +82,8 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     res.json({
       status: "ok",
       database: "mysql",
-      sandbox: makers ? "makers" : localSandboxEnabled() ? "local" : "acs",
-      sandboxConfigured: makers || localSandboxEnabled() || !!(process.env.E2B_API_KEY && process.env.E2B_DOMAIN),
-      acsConfigured: !!(process.env.E2B_API_KEY && process.env.E2B_DOMAIN),
+      sandbox: makers ? "makers" : "local",
+      sandboxConfigured: true,
       dshEnabled: process.env.DSH_ENABLED !== "false",
       ...(makers ? { agentEndpoint: "/cothread-agent", mcpEndpoint: "/cothread-mcp" } : {}),
     });
@@ -324,9 +325,8 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       ]);
     }
     res.json({ user: personalProfile(profile), projects, project, thread,
-      health: { status: "ok", database: "mysql", sandbox: makers ? "makers" : localSandboxEnabled() ? "local" : "acs",
-        sandboxConfigured: makers || localSandboxEnabled() || !!(process.env.E2B_API_KEY && process.env.E2B_DOMAIN),
-        acsConfigured: !!(process.env.E2B_API_KEY && process.env.E2B_DOMAIN), dshEnabled: process.env.DSH_ENABLED !== "false",
+      health: { status: "ok", database: "mysql", sandbox: makers ? "makers" : "local",
+        sandboxConfigured: true, dshEnabled: process.env.DSH_ENABLED !== "false",
         ...(makers ? { agentEndpoint: "/cothread-agent", mcpEndpoint: "/cothread-mcp" } : {}) },
     });
   });
@@ -449,6 +449,18 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   app.post("/api/admin/accounts/:id/reset-password", async (req, res) =>
     res.json(await service.resetAccountPassword(req.user, req.params.id)),
   );
+  app.get("/api/admin/plugins", async (req, res) =>
+    res.json(await adminPluginManagement(service, req.user)),
+  );
+  app.post("/api/admin/plugins/skills", async (req, res) =>
+    res.status(201).json(await createPromptSkill(service, req.user, req.body)),
+  );
+  app.patch("/api/admin/plugins/skills/:id", async (req, res) =>
+    res.json(await updatePromptSkill(service, req.user, req.params.id, req.body)),
+  );
+  app.delete("/api/admin/plugins/skills/:id", async (req, res) =>
+    res.json(await archivePromptSkill(service, req.user, req.params.id)),
+  );
   app.get("/api/projects", async (req, res) =>
     res.json(await service.projects(req.user)),
   );
@@ -461,6 +473,122 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   app.get("/api/projects/:id/agent-monitor", async (req, res) =>
     res.json(await service.agentMonitor(req.user, req.params.id)),
   );
+  app.get("/api/projects/:id/agent-logs", async (req, res) =>
+    res.json(await service.agentLogs(req.user, "project", req.params.id)),
+  );
+  app.get("/api/projects/:id/tasks", async (req, res) => {
+    await service.member(req.user, req.params.id);
+    res.json(await listTasks(db, req.params.id, { status: req.query.status, targetId: req.query.targetId, limit: req.query.limit }));
+  });
+  app.get("/api/tasks/:id", async (req, res) => {
+    const task = await getTask(db, req.params.id);
+    if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const [assignmentHistory, questions, executionRuns, updates, rejectionReview] = await Promise.all([
+      listAssignmentEvents(db, task.id), listTaskQuestions(db, task.id), listTaskExecutionRuns(db, task.id), listTaskUpdates(db, task.id), taskRejectionReview(db, task.id),
+    ]);
+    res.json({ ...task, assignmentHistory, questions, executionRuns, updates, rejectionReview });
+  });
+  app.get("/api/tasks/:id/agent-logs", async (req, res) =>
+    res.json(await service.agentLogs(req.user, "task", req.params.id)),
+  );
+  app.post("/api/projects/:id/tasks", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    await service.member(req.user, req.params.id);
+    const data = z.object({ title: z.string().trim().min(1).max(240), goal: z.string().trim().min(1).max(20000),
+      constraints: z.string().max(20000).optional(), targetType: z.enum(["human_member", "l2_session"]).optional(),
+      targetUserId: z.string().uuid().optional(), threadId: z.string().uuid().optional() }).parse(req.body);
+    if (data.threadId) { const thread = await service.thread(req.user, data.threadId); if (thread.project_id !== req.params.id) throw new HttpError(403, "迭代不属于当前项目"); }
+    let targetType = data.targetType || (data.targetUserId ? "human_member" : null);
+    let targetId = data.targetUserId || null;
+    if (targetType === "l2_session") {
+      if (!data.threadId) throw new HttpError(400, "指派给 L2 的任务必须属于一个迭代");
+      await query(db, "INSERT IGNORE INTO agent_sessions(thread_id,session_id) VALUES(?,UUID())", [data.threadId]);
+      targetId = (await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [data.threadId]))[0]?.session_id;
+    }
+    const task = await createTask(db, { projectId: req.params.id, originThreadId: data.threadId,
+      sourceType: "human_member", sourceUserId: req.user.id, sourceMessageId: null, createdByType: "human_member",
+      createdById: req.user.id, taskType: "formal", title: data.title, goal: data.goal, constraints: data.constraints,
+      targetType, targetId });
+    if (targetType === "l2_session") await service.postMessage(req.user, data.threadId, {
+      body: `@小祥 我在任务池创建了正式任务「${data.title}」，请接手并根据任务详情继续处理。`,
+    });
+    res.status(201).json(task);
+  });
+  app.post("/api/task-questions/:id/answer", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const data = z.object({ answer: z.string().trim().min(1).max(20000), messageId: z.string().uuid().optional() }).parse(req.body);
+    const [question] = await query(db, "SELECT source_user_id,task_id FROM agent_task_questions WHERE id=?", [req.params.id]);
+    if (!question) throw new HttpError(404, "任务问题不存在");
+    const task = await getTask(db, question.task_id); await service.member(req.user, task.project_id);
+    const answered = await answerTaskQuestion(db, req.params.id, { type: "human_member", id: req.user.id }, data.answer, data.messageId);
+    if (task.origin_thread_id) await service.postMessage(req.user, task.origin_thread_id, {
+      body: `@小祥 我已回答任务「${task.title}」的问题：${data.answer}`.slice(0, 20000),
+    });
+    res.json(answered);
+  });
+  app.post("/api/tasks/:id/accept", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id); if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const data = z.object({ mode: z.enum(["auto", "human_direct", "member_connector"]).default("auto") }).parse(req.body);
+    res.json(await acceptTask(db, task.id, { type: "human_member", id: req.user.id }, data.mode));
+  });
+  app.post("/api/tasks/:id/reject", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id); if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const data = z.object({ reason: z.string().trim().max(1000).optional() }).parse(req.body);
+    const rejected = await rejectTask(db, task.id, { type: "human_member", id: req.user.id }, data.reason);
+    if (task.origin_thread_id) await service.insertMessage(db, req.user, task.origin_thread_id,
+      `任务事件：${req.user.name || "当前成员"}拒绝了任务「${task.title}」${data.reason ? `，原因：${data.reason}` : ""}。`, [], "system");
+    res.json(rejected);
+  });
+  app.post("/api/tasks/:id/acknowledge-rejection", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id); if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    res.json(await acknowledgeTaskRejection(db, task.id, { type: "human_member", id: req.user.id }));
+  });
+  app.post("/api/tasks/:id/reopen", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id); if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const data = z.object({ title: z.string().trim().min(1).max(240).optional(), goal: z.string().trim().min(1).max(20000).optional(),
+      constraints: z.string().max(20000).optional(), reason: z.string().trim().max(1000).optional() }).parse(req.body);
+    const reopened = await reopenRejectedTask(db, task.id, { type: "human_member", id: req.user.id }, data);
+    if (task.origin_thread_id) await service.insertMessage(db, req.user, task.origin_thread_id,
+      `任务事件：${req.user.name || "当前成员"}修改并重新发起了任务「${data.title || task.title}」。`, [], "system");
+    res.json(reopened);
+  });
+  app.patch("/api/tasks/:id", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id); if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const data = z.object({ status: z.enum(["queued","running","waiting","blocked","completed","failed","cancelled"]).optional(), progress: z.string().max(500).optional(), resultSummary: z.string().max(20000).optional(), artifactRefs: z.array(z.unknown()).optional(), body: z.string().max(20000).optional(), messageId: z.string().uuid().optional() }).parse(req.body);
+    res.json(await updateTask(db, task.id, { type: "human_member", id: req.user.id }, data));
+  });
+  app.post("/api/tasks/:id/reassign", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id); if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const data = z.object({ targetType: z.enum(["human_member", "l2_session"]).default("human_member"), targetUserId: z.string().uuid().optional(), reason: z.string().trim().max(1000).optional(), messageId: z.string().uuid().optional() }).parse(req.body);
+    let targetId = data.targetUserId;
+    if (data.targetType === "l2_session") {
+      if (!task.origin_thread_id) throw new HttpError(409, "项目级任务需要先关联迭代才能转给 L2");
+      await query(db, "INSERT IGNORE INTO agent_sessions(thread_id,session_id) VALUES(?,UUID())", [task.origin_thread_id]);
+      targetId = (await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [task.origin_thread_id]))[0]?.session_id;
+    }
+    if (!targetId) throw new HttpError(400, "请选择任务目标");
+    const reassigned = await reassignTask(db, task.id, { type: "human_member", id: req.user.id }, { type: data.targetType, id: targetId }, data.reason, data.messageId);
+    if (task.origin_thread_id) {
+      const targetName = data.targetType === "l2_session" ? "小祥" : (await query(db, "SELECT name FROM users WHERE id=?", [targetId]))[0]?.name || "另一位成员";
+      const body = `任务事件：${req.user.name || "当前成员"}将任务「${task.title}」转交给${targetName}${data.reason ? `，原因：${data.reason}` : ""}。`;
+      if (data.targetType === "l2_session") await service.postMessage(req.user, task.origin_thread_id, { body: `@小祥 ${body}` });
+      else await service.insertMessage(db, req.user, task.origin_thread_id, body, [], "system");
+    }
+    res.json(reassigned);
+  });
   app.patch("/api/projects/:id", async (req, res) =>
     res.json(await service.updateProject(req.user, req.params.id, req.body)),
   );
@@ -469,44 +597,6 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   );
   app.patch("/api/project-tabs/order", async (req, res) =>
     res.json(await service.reorderProjectTabs(req.user, req.body)),
-  );
-  app.post("/api/projects/:id/folders", async (req, res) =>
-    res
-      .status(201)
-      .json(
-        await libraryChange(
-          service,
-          req.user,
-          req.params.id,
-          "folder",
-          null,
-          req.body,
-        ),
-      ),
-  );
-  app.patch("/api/projects/:id/folders/:folderId", async (req, res) =>
-    res.json(
-      await libraryChange(
-        service,
-        req.user,
-        req.params.id,
-        "folder",
-        req.params.folderId,
-        req.body,
-      ),
-    ),
-  );
-  app.delete("/api/projects/:id/folders/:folderId", async (req, res) =>
-    res.json(
-      await libraryChange(
-        service,
-        req.user,
-        req.params.id,
-        "remove-folder",
-        req.params.folderId,
-        {},
-      ),
-    ),
   );
   app.patch("/api/projects/:id/versions/:versionId", async (req,res) =>
     res.json(await libraryChange(service,req.user,req.params.id,"version",req.params.versionId,req.body)));
@@ -522,6 +612,8 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       ),
     ),
   );
+  app.post("/api/projects/:id/documents/organize", async (req, res) =>
+    res.status(202).json(await queueDocumentOrganization(service, req.user, { projectId: req.params.id })));
   app.post("/api/projects/:id/members", async (req, res) =>
     res
       .status(201)
@@ -534,6 +626,9 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   );
   app.get("/api/threads/:id", async (req, res) =>
     res.json(await service.context(req.user, req.params.id, db, { display: req.query.view === "chat", limit: req.query.limit, before: req.query.before, after: req.query.after })),
+  );
+  app.get("/api/threads/:id/agent-logs", async (req, res) =>
+    res.json(await service.agentLogs(req.user, "thread", req.params.id)),
   );
   app.get("/api/threads/:id/events/:eventId", async (req, res) => {
     await service.thread(req.user, req.params.id, false, db, { display: true });
@@ -568,11 +663,6 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       .status(201)
       .json(await service.postMessage(req.user, req.params.id, req.body)),
   );
-  app.post("/api/threads/:id/versions", async (req, res) =>
-    res
-      .status(201)
-      .json(await service.submitVersion(req.user, req.params.id, req.body)),
-  );
   app.post("/api/threads/:id/attachments", async (req, res) =>
     res
       .status(201)
@@ -587,6 +677,10 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
         ),
       ),
   );
+  app.post("/api/threads/:id/documents/organize", async (req, res) =>
+    res.status(202).json(await queueDocumentOrganization(service, req.user, { threadId: req.params.id })));
+  app.post("/api/threads/:id/versions/:versionId/save-to-project", async (req, res) =>
+    res.status(201).json(await service.copyVersionToOfficial(req.user, req.params.id, req.params.versionId)));
   app.post("/api/threads/:id/archive", async (req, res) =>
     res.json(await service.archive(req.user, req.params.id, req.body)),
   );

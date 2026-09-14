@@ -1,4 +1,3 @@
-import { Sandbox, ConnectionConfig } from "e2b";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { assetPath } from "./assets.js";
@@ -8,52 +7,8 @@ import { HttpError } from "./service.js";
 import { generateReply } from "./replies.js";
 import { modelDiscussion } from "./model-context.js";
 import { currentMakersSandbox, makersWorkspace } from "./makers-sandbox.js";
-import { LocalSandbox, localSandboxEnabled } from "./local-sandbox.js";
+import { LocalSandbox } from "./local-sandbox.js";
 import { dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
-
-// Adapted from D:\work\dsh runtime/_e2b-acs-compat.mjs (MIT; see THIRD_PARTY_NOTICES).
-const originalHost = ConnectionConfig.prototype.getHost;
-const originalUrl = ConnectionConfig.prototype.getSandboxUrl;
-const originalDirectUrl = ConnectionConfig.prototype.getSandboxDirectUrl;
-const kruise = (url) => /\/kruise\/api\/?$/i.test(url || "");
-ConnectionConfig.prototype.getHost = function (sandboxId, port, domain) {
-  return kruise(this.apiUrl)
-    ? `${domain || this.domain}/kruise/${sandboxId}/${port}`
-    : originalHost.call(this, sandboxId, port, domain);
-};
-ConnectionConfig.prototype.getSandboxUrl = function (sandboxId, options) {
-  if (this.sandboxUrl || !kruise(this.apiUrl))
-    return originalUrl.call(this, sandboxId, options);
-  return `${new URL(this.apiUrl).protocol}//${this.getHost(sandboxId, options.envdPort || ConnectionConfig.envdPort, options.sandboxDomain)}`;
-};
-ConnectionConfig.prototype.getSandboxDirectUrl = function (sandboxId, options) {
-  return !this.sandboxUrl && kruise(this.apiUrl)
-    ? this.getSandboxUrl(sandboxId, options)
-    : originalDirectUrl.call(this, sandboxId, options);
-};
-export function acsOptions() {
-  const {
-    E2B_API_KEY: apiKey,
-    E2B_DOMAIN: domain,
-    E2B_API_URL: apiUrl,
-    E2B_SANDBOX_URL: sandboxUrl,
-  } = process.env;
-  if (!apiKey || !domain)
-    throw new HttpError(503, "ACS 尚未配置，请设置 E2B_API_KEY 和 E2B_DOMAIN");
-  if (!/^[a-zA-Z0-9.-]+(?::\d+)?$/.test(domain))
-    throw new HttpError(503, "ACS 域名格式不正确");
-  return {
-    apiKey,
-    domain,
-    apiUrl: apiUrl || `https://api.${domain}`,
-    ...(sandboxUrl ? { sandboxUrl } : {}),
-    timeoutMs: Math.min(
-      Math.max(Number(process.env.E2B_TIMEOUT_MS) || 300000, 60000),
-      900000,
-    ),
-    requestTimeoutMs: 20000,
-  };
-}
 const shellQuote = (text) => `'${text.replace(/'/g, `'"'"'`)}'`;
 export async function executeRun(
   service,
@@ -61,7 +16,7 @@ export async function executeRun(
   threadId,
   input,
   kind = "command",
-  provider = Sandbox,
+  provider = LocalSandbox,
   onStarted,
 ) {
   const command =
@@ -71,13 +26,10 @@ export async function executeRun(
   const directSummary =
     kind === "summary" &&
     process.env.SUMMARY_MODE !== "dsh" &&
-    provider === Sandbox;
+    provider === LocalSandbox;
   const managed = !!currentMakersSandbox();
-  const selectedProvider = !managed && provider === Sandbox && localSandboxEnabled() ? LocalSandbox : provider;
-  const local = selectedProvider === LocalSandbox;
-  const options = directSummary || managed || local ? {} : acsOptions();
-  if (kind === "summary" && process.env.DSH_ENABLED === "false")
-    throw new HttpError(503, "DSH 助手尚未启用，请先准备带 DSH 的 ACS 模板");
+  if (kind === "summary" && !directSummary && process.env.DSH_ENABLED === "false")
+    throw new HttpError(503, "DSH 助手尚未启用，请安装本地 DSH 或使用 Makers 运行环境");
   const runId = randomUUID();
   const context = await transaction(service.db, async (db) => {
     await service.thread(user, threadId, true, db);
@@ -122,11 +74,8 @@ export async function executeRun(
       });
       status = "succeeded";
     } else {
-      await progress(managed ? "正在准备 Makers 沙箱" : local ? "正在准备本机工作区" : "正在连接 ACS 沙箱");
-      sandbox = managed ? await makersWorkspace(threadId) : await selectedProvider.create(
-        process.env.E2B_TEMPLATE || "code-interpreter",
-        { ...options, ...(kind === "summary" ? { timeoutMs: 600000 } : {}) },
-      );
+      await progress(managed ? "正在准备 Makers 沙箱" : "正在准备本机工作区");
+      sandbox = managed ? await makersWorkspace(threadId) : await provider.create();
       await query(
         service.db,
         "UPDATE sandbox_runs SET sandbox_id=? WHERE id=?",
@@ -258,7 +207,7 @@ export async function executeRun(
       try {
         await sandbox.kill();
       } catch {
-        output += local ? "\n本机工作区清理未确认。" : "\n沙箱清理未确认，将由服务超时回收。";
+        output += managed ? "\nMakers 沙箱清理由平台继续管理。" : "\n本机工作区清理未确认。";
       }
     }
     await query(

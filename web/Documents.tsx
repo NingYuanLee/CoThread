@@ -1,6 +1,6 @@
 import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FileIcon, FolderIcon } from "@react-symbols/icons/utils";
@@ -49,6 +49,8 @@ export type LibraryVersion = {
   id: string;
   artifact_id: string;
   folder_id?: string | null;
+  folder_thread_id?: string | null;
+  folder_kind?: string | null;
   deleted_at?: string | null;
   artifact_deleted_at?: string | null;
   version_deleted_at?: string | null;
@@ -72,12 +74,12 @@ function fileLabel(version: LibraryVersion) {
 }
 export function Documents({
   embedded = false,
-  onNewVersion,
   onOpen,
   onReview,
   projectId,
   threadId,
   writable,
+  iterationWritable = false,
   folders,
   onRefresh,
   versions,
@@ -85,21 +87,24 @@ export function Documents({
   onSelect,
   onClose,
   onReference,
-  onUpload,
+  organizationJobs = [],
+  canOrganizeProject = false,
 }: {
   embedded?: boolean;
   onOpen?: (versionId: string) => void;
-  onNewVersion?: (artifactId: string) => void;
   onReview?: (versionId: string, decision: string) => Promise<void>;
   projectId: string;
   threadId?: string;
   writable: boolean;
+  iterationWritable?: boolean;
   folders: {
     id: string;
     parent_id: string | null;
     name: string;
     updated_at?: string;
     system_key?: string | null;
+    thread_id?: string | null;
+    folder_kind?: string | null;
   }[];
   onRefresh: () => Promise<void>;
   versions: LibraryVersion[];
@@ -107,70 +112,29 @@ export function Documents({
   onSelect: (id: string) => void;
   onClose: () => void;
   onReference?: (id: string) => void;
-  onUpload?: () => void;
+  organizationJobs?: { thread_id?: string | null; scope: "iteration" | "project"; status: string; error?: string | null }[];
+  canOrganizeProject?: boolean;
 }) {
+  const [scope, setScope] = useState<"iteration" | "project">(threadId ? "iteration" : "project");
+  const scopeRoot = folders.find((folder) => scope === "iteration"
+    ? folder.thread_id === threadId && folder.folder_kind === "iteration_root"
+    : folder.folder_kind === "project_official");
+  const defaultFolder = folders.find((folder) => scope === "iteration"
+    ? folder.thread_id === threadId && folder.folder_kind === "iteration_outputs"
+    : folder.folder_kind === "project_official");
+  const scopedFolders = folders.filter((folder) => scope === "iteration"
+    ? folder.thread_id === threadId
+    : !folder.thread_id);
+  const scopedVersions = versions.filter((item) => scope === "iteration"
+    ? item.folder_thread_id === threadId
+    : !item.folder_thread_id);
+  const organization = organizationJobs.find((job) => job.scope === scope
+    && (scope === "project" || job.thread_id === threadId));
+  const organizing = organization && ["queued", "running"].includes(organization.status);
+  const scopeWritable = (scope === "iteration" ? iterationWritable : writable) && !organizing;
   const [folderId, setFolderId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [trash, setTrash] = useState(false);
-  const draggedFile = useRef<LibraryVersion | null>(null);
-  const moveLock = useRef(false);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
-  const clearDrag = () => {
-    draggedFile.current = null;
-    setDraggingId(null);
-    setDropTarget(null);
-  };
-  const canDrop = (target: string | null) =>
-    writable &&
-    !folders.find((f) => f.id === target)?.system_key &&
-    !trash &&
-    !pending &&
-    !moveLock.current &&
-    draggedFile.current &&
-    (draggedFile.current.folder_id || null) !== target;
-  const dropProps = (target: string | null) => ({
-    onDragOver: (event: React.DragEvent<HTMLElement>) => {
-      if (!canDrop(target)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.dataTransfer.dropEffect = "move";
-      setDropTarget(target || "root");
-    },
-    onDragLeave: (event: React.DragEvent<HTMLElement>) => {
-      if (!event.currentTarget.contains(event.relatedTarget as Node | null))
-        setDropTarget(null);
-    },
-    onDrop: (event: React.DragEvent<HTMLElement>) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const file = draggedFile.current;
-      if (!file || !canDrop(target)) {
-        clearDrag();
-        return;
-      }
-      clearDrag();
-      moveLock.current = true;
-      void act(async () => {
-        await change(
-          `/projects/${projectId}/artifacts/${file.artifact_id}`,
-          { folderId: target },
-          "PATCH",
-        );
-        setFolderId(target);
-        onSelect(file.id);
-        setFilter("");
-        if (target)
-          setCollapsed((previous) => {
-            const next = new Set(previous);
-            next.delete(target);
-            return next;
-          });
-      }).finally(() => {
-        moveLock.current = false;
-      });
-    },
-  });
   const [sort, setSort] = useState<"type" | "modified">("type");
   const collator = new Intl.Collator("zh-CN", {
     numeric: true,
@@ -184,18 +148,17 @@ export function Documents({
       : "";
 
   const [pending, setPending] = useState(false);
-  const [operation, setOperation] = useState<
-    "folder" | "document" | "rename-folder" | "rename-document" | null
-  >(null);
-  const [name, setName] = useState("");
-  const [content, setContent] = useState("");
   const [actionError, setActionError] = useState("");
-  const uploadRef = useRef<HTMLInputElement>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [renameName, setRenameName] = useState("");
   const change = async (path: string, data: unknown, method = "POST") => {
+    const payload = data && typeof data === "object" && !Array.isArray(data)
+      ? { ...(data as Record<string, unknown>), ...(threadId ? { threadId } : {}) }
+      : data;
     const res = await apiFetch(`/api${path}`, {
       method,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
     const result = await readJsonResponse(res, `/api${path}`);
     return result;
@@ -212,76 +175,6 @@ export function Documents({
       setPending(false);
     }
   };
-  const editArtifact = (data: unknown) =>
-    act(async () => {
-      if (!version) return;
-      await change(
-        `/projects/${projectId}/artifacts/${version.artifact_id}`,
-        data,
-        "PATCH",
-      );
-    });
-  const begin = (kind: typeof operation, value = "") => {
-    setOperation(kind);
-    setName(value);
-    setContent("");
-    setActionError("");
-  };
-  const save = () =>
-    act(async () => {
-      if (operation === "folder") {
-        const created = await change(`/projects/${projectId}/folders`, {
-          name,
-          parentId: folderId,
-        });
-        setCollapsed(new Set());
-        setFolderId(created.id);
-      }
-      if (operation === "rename-folder")
-        await change(
-          `/projects/${projectId}/folders/${folderId}`,
-          { name },
-          "PATCH",
-        );
-      if (operation === "rename-document" && version)
-        await change(
-          `/projects/${projectId}/artifacts/${version.artifact_id}`,
-          { name },
-          "PATCH",
-        );
-      if (operation === "document") {
-        const filename = /\.(md|txt)$/i.test(name) ? name : name + ".md";
-        const bytes = new TextEncoder().encode(content);
-        if (bytes.length > 5 * 1024 * 1024) throw new Error("单文件上限 5 MiB");
-        const result = await change(`/threads/${threadId}/versions`, {
-          title: name,
-          filename,
-          mime: "text/markdown",
-          contentBase64: encode(bytes),
-          folderId,
-        });
-        onSelect(result.id);
-      }
-      setOperation(null);
-    });
-  const encode = (bytes: Uint8Array) => {
-    let binary = "";
-    for (let i = 0; i < bytes.length; i += 8192)
-      binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-    return btoa(binary);
-  };
-  const upload = (file: File) =>
-    act(async () => {
-      if (file.size > 5 * 1024 * 1024) throw new Error("单文件上限 5 MiB");
-      const result = await change(`/threads/${threadId}/versions`, {
-        title: file.name,
-        filename: file.name,
-        mime: file.type || "application/octet-stream",
-        contentBase64: encode(new Uint8Array(await file.arrayBuffer())),
-        folderId,
-      });
-      onSelect(result.id);
-    });
   const [filter, setFilter] = useState("");
   const [view, setView] = useState<{
     text?: string;
@@ -290,8 +183,8 @@ export function Documents({
     mime: string;
   } | null>(null);
   const [error, setError] = useState("");
-  const version = versions.find((v) => v.id === selected);
-  const artifacts = versions
+  const version = scopedVersions.find((v) => v.id === selected);
+  const artifacts = scopedVersions
     .filter((v) => Boolean(v.deleted_at) === trash)
     .filter(
       (v, i, list) =>
@@ -369,31 +262,15 @@ export function Documents({
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [selected, embedded]);
-  const folderPath = (id: string): string => {
-    const folder = folders.find((f) => f.id === id);
-    return folder
-      ? (folder.parent_id ? folderPath(folder.parent_id) + " / " : "") +
-          folder.name
-      : "";
-  };
+  useEffect(() => {
+    setFolderId(defaultFolder?.id || scopeRoot?.id || null);
+    onSelect("");
+    setRenaming(false);
+    setTrash(false);
+  }, [scope, threadId]);
   const fileRow = (v: LibraryVersion, depth: number) => (
     <div
-      className={`tree-file ${version?.artifact_id === v.artifact_id ? "selected" : ""} ${draggingId === v.artifact_id ? "dragging" : ""}`}
-      draggable={writable && !trash && !pending}
-      onDragStart={(event) => {
-        if (!writable || trash || pending || moveLock.current) {
-          event.preventDefault();
-          return;
-        }
-        draggedFile.current = v;
-        setDraggingId(v.artifact_id);
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData(
-          "application/x-cothread-document",
-          v.artifact_id,
-        );
-      }}
-      onDragEnd={clearDrag}
+      className={`tree-file ${version?.artifact_id === v.artifact_id ? "selected" : ""}`}
       key={v.artifact_id}
       style={{ paddingLeft: depth * 14 }}
       role="treeitem"
@@ -401,11 +278,11 @@ export function Documents({
     >
       <button
         className="tree-name"
+        disabled={!!organizing}
         onClick={() => {
           onSelect(v.id);
           if (embedded) onOpen?.(v.id);
           setFolderId(v.folder_id || null);
-          setOperation(null);
         }}
         title={`${v.title} · ${v.filename} · v${v.version}`}
       >
@@ -435,7 +312,7 @@ export function Documents({
   );
   const tree = (parent: string | null, depth = 0): React.ReactNode => (
     <>
-      {folders
+      {scopedFolders
         .filter((f) => f.parent_id === parent)
         .sort(
           (a, b) =>
@@ -446,12 +323,12 @@ export function Documents({
         .map((f) => (
           <div key={f.id} role="treeitem" aria-expanded={!collapsed.has(f.id)}>
             <div
-              className={`tree-folder ${folderId === f.id ? "selected" : ""} ${dropTarget === f.id ? "drop-target" : ""}`}
-              {...dropProps(f.id)}
+              className={`tree-folder ${folderId === f.id ? "selected" : ""}`}
               style={{ paddingLeft: depth * 14 }}
             >
               <button
                 className={`tree-toggle ${collapsed.has(f.id) ? "" : "expanded"}`}
+                disabled={!!organizing}
                 aria-label={`${collapsed.has(f.id) ? "展开" : "折叠"} ${f.name}`}
                 onClick={() =>
                   setCollapsed((previous) => {
@@ -465,9 +342,9 @@ export function Documents({
               </button>
               <button
                 className="tree-name"
+                disabled={!!organizing}
                 onClick={() => {
                   setFolderId(f.id);
-                  setOperation(null);
                 }}
               >
                 <FolderIcon
@@ -479,42 +356,6 @@ export function Documents({
                 />
                 <span>{f.name}</span>
               </button>
-              {writable && !f.system_key && folderId === f.id && (
-                <span className="tree-folder-actions">
-                  <button
-                    title="重命名文件夹"
-                    aria-label={`重命名文件夹 ${f.name}`}
-                    disabled={
-                      pending ||
-                      !!folders.find((f) => f.id === folderId)?.system_key
-                    }
-                    onClick={() => begin("rename-folder", f.name)}
-                  >
-                    <TreeIcon kind="rename" />
-                  </button>
-                  <button
-                    title="删除空文件夹"
-                    aria-label={`删除空文件夹 ${f.name}`}
-                    disabled={
-                      pending ||
-                      !!folders.find((f) => f.id === folderId)?.system_key
-                    }
-                    onClick={() =>
-                      act(async () => {
-                        await change(
-                          `/projects/${projectId}/folders/${f.id}`,
-                          {},
-                          "DELETE",
-                        );
-                        setFolderId(null);
-                        setOperation(null);
-                      })
-                    }
-                  >
-                    <TreeIcon kind="trash" />
-                  </button>
-                </span>
-              )}
             </div>
             {!collapsed.has(f.id) && (
               <div role="group">{tree(f.id, depth + 1)}</div>
@@ -537,65 +378,31 @@ export function Documents({
         <header>
           <div>
             <h2>项目文档库</h2>
-            <p>已保存到项目的文件 · 独立于沙箱保留</p>
+            <p>{scope === "iteration" ? "当前迭代隔离文件 · 缓存与产物分开保存" : "项目正式文件 · 所有迭代均可引用和操作"}</p>
           </div>
           <button onClick={onClose} aria-label="关闭文档库">
             ×
           </button>
         </header>
+        <div className="library-scope-tabs" role="tablist" aria-label="文档范围">
+          {threadId && <button role="tab" aria-selected={scope === "iteration"} className={scope === "iteration" ? "active" : ""} onClick={() => setScope("iteration")}>本迭代</button>}
+          <button role="tab" aria-selected={scope === "project"} className={scope === "project" ? "active" : ""} onClick={() => setScope("project")}>项目正式文件</button>
+          <button
+            className="organize-documents"
+            disabled={!scopeWritable || (scope === "project" && !canOrganizeProject)}
+            title={scope === "project" && !canOrganizeProject ? "全部迭代归档后可整理项目正式文件" : "由一级小祥在后台整理当前范围"}
+            onClick={() => void act(async () => {
+              await change(scope === "iteration" ? `/threads/${threadId}/documents/organize` : `/projects/${projectId}/documents/organize`, {});
+              onSelect("");
+            })}
+          >
+            {organizing ? "整理中…" : "整理文档"}
+          </button>
+        </div>
         <div className="library-body">
           <aside className="file-explorer">
             <div className="explorer-heading">
               <div className="tree-actions">
-                {writable && !trash && (
-                  <>
-                    <button
-                      title="新建文件夹"
-                      aria-label="新建文件夹"
-                      disabled={
-                        pending ||
-                        !!folders.find((f) => f.id === folderId)?.system_key
-                      }
-                      onClick={() => begin("folder")}
-                    >
-                      <TreeIcon kind="newFolder" />
-                    </button>
-                    <button
-                      disabled={
-                        pending ||
-                        !threadId ||
-                        !!folders.find((f) => f.id === folderId)?.system_key
-                      }
-                      title="新建文档"
-                      aria-label="新建文档"
-                      onClick={() => begin("document")}
-                    >
-                      <TreeIcon kind="newFile" />
-                    </button>
-                    <button
-                      disabled={
-                        pending ||
-                        !threadId ||
-                        !!folders.find((f) => f.id === folderId)?.system_key
-                      }
-                      title="上传文件"
-                      aria-label="上传文件"
-                      onClick={() => uploadRef.current?.click()}
-                    >
-                      <TreeIcon kind="upload" />
-                    </button>
-                    <input
-                      ref={uploadRef}
-                      type="file"
-                      hidden
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) void upload(file);
-                        e.target.value = "";
-                      }}
-                    />
-                  </>
-                )}
                 <button
                   title={trash ? "返回文件树" : "回收站"}
                   aria-label={trash ? "返回文件树" : "回收站"}
@@ -603,7 +410,6 @@ export function Documents({
                   onClick={() => {
                     setTrash(!trash);
                     onSelect("");
-                    setOperation(null);
                   }}
                 >
                   <TreeIcon kind={trash ? "back" : "trash"} />
@@ -637,92 +443,36 @@ export function Documents({
                 />
               </button>
             </div>
-            {!threadId && writable && (
-              <small className="muted">
-                选择进行中的迭代后可新建或上传文档。
-              </small>
-            )}
-            {!trash && draggingId && (
-              <button
-                className={`tree-root ${folderId === null ? "selected" : ""} ${dropTarget === "root" ? "drop-target" : ""}`}
-                {...dropProps(null)}
-                onClick={() => {
-                  setFolderId(null);
-                  setOperation(null);
-                }}
-              >
-                拖到此处移出文件夹
-              </button>
-            )}
-            <div role="tree" aria-label="项目文件树">
-              {trash || filter
+            <div role="tree" aria-label={scope === "iteration" ? "迭代文件树" : "项目正式文件树"}>
+              {organizing ? <p className="muted">一级小祥正在后台整理，当前范围暂时禁用。</p> : trash || filter
                 ? artifacts.map((v) => fileRow(v, 0))
-                : tree(null)}
+                : tree(scopeRoot?.id || null)}
             </div>
-            {!artifacts.length && !folders.length && (
-              <p className="muted">尚无文档，可以新建或上传。</p>
+            {!artifacts.length && !scopedFolders.length && (
+              <p className="muted">当前范围尚无文档。</p>
             )}
+            {organization?.status === "failed" && <div className="error" role="alert">{organization.error || "文档整理未完成，可以重试。"}</div>}
             {actionError && (
               <div className="error" role="alert">
                 {actionError}
               </div>
             )}
           </aside>
-          <main className={operation ? "library-operation" : ""}>
-            {operation && (
-              <form
-                className="library-form"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void save();
-                }}
-              >
-                <h3>
-                  {
-                    {
-                      folder: "新建文件夹",
-                      document: "新建文档",
-                      "rename-folder": "重命名文件夹",
-                      "rename-document": "重命名文档",
-                    }[operation]
-                  }
-                </h3>
-                <label>
-                  名称
-                  <input
-                    autoFocus
-                    required
-                    maxLength={160}
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                  />
-                </label>
-                {operation === "document" && (
-                  <label>
-                    内容（支持 Markdown）
-                    <textarea
-                      rows={12}
-                      value={content}
-                      onChange={(e) => setContent(e.target.value)}
-                    />
-                  </label>
-                )}
-                <div>
-                  <button type="submit" className="primary" disabled={pending}>
-                    {pending ? "保存中…" : "保存"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={() => setOperation(null)}
-                  >
-                    取消
-                  </button>
-                </div>
+          <main className={renaming ? "library-operation" : ""}>
+            {renaming && version && (
+              <form className="library-form" onSubmit={(event) => {
+                event.preventDefault();
+                void act(async () => {
+                  await change(`/projects/${projectId}/artifacts/${version.artifact_id}`, { name: renameName }, "PATCH");
+                  setRenaming(false);
+                });
+              }}>
+                <h3>重命名文档</h3>
+                <label>名称<input autoFocus required maxLength={160} value={renameName} onChange={(event) => setRenameName(event.target.value)} /></label>
+                <div><button type="submit" className="primary" disabled={pending}>{pending ? "保存中…" : "保存"}</button><button type="button" disabled={pending} onClick={() => setRenaming(false)}>取消</button></div>
               </form>
             )}
-            {!operation &&
-              (version ? (
+            {!renaming && (version ? (
                 <>
                   <div className="document-toolbar">
                     <div>
@@ -761,60 +511,27 @@ export function Documents({
                         / 引用到讨论
                       </button>
                     )}
-                    {writable && (
+                    {scopeWritable && (
                       <>
-                        <button
-                          disabled={pending || !!version.deleted_at}
-                          onClick={() =>
-                            begin("rename-document", version.title)
-                          }
-                        >
-                          重命名
-                        </button>
+                        <button disabled={pending || !!version.deleted_at} onClick={() => { setRenameName(version.title); setRenaming(true); }}>重命名</button>
                         <button
                           disabled={pending}
-                          onClick={() =>
-                            editArtifact({ deleted: !version.artifact_deleted_at })
-                          }
+                          onClick={() => act(async () => { await change(`/projects/${projectId}/artifacts/${version.artifact_id}`, { deleted: !version.artifact_deleted_at }, "PATCH"); })}
                         >
                           {version.artifact_deleted_at ? "恢复整份文档" : "删除整份文档（全部版本）"}
                         </button>
                         {!version.artifact_deleted_at && <button disabled={pending} onClick={() => act(async () => {
                           await change(`/projects/${projectId}/versions/${version.id}`, {deleted:!version.version_deleted_at}, "PATCH");
                         })}>{version.version_deleted_at ? "恢复当前版本" : `删除当前版本（v${version.version}）`}</button>}
-                        {!version.deleted_at && (
-                          <select
-                            aria-label="移动文档到文件夹"
-                            disabled={pending}
-                            value={version.folder_id || ""}
-                            onChange={(e) =>
-                              editArtifact({ folderId: e.target.value || null })
-                            }
-                          >
-                            <option value="">项目根目录</option>
-                            {folders
-                              .filter(
-                                (f) =>
-                                  !f.system_key || f.id === version.folder_id,
-                              )
-                              .map((f) => (
-                                <option key={f.id} value={f.id}>
-                                  {folderPath(f.id)}
-                                </option>
-                              ))}
-                          </select>
-                        )}
                       </>
                     )}
                   </div>
                   {!version.deleted_at && (
-                    <div className="library-review-actions">
-                      {onNewVersion && (
-                        <button
-                          onClick={() => onNewVersion(version.artifact_id)}
-                        >
-                          提交新版本
-                        </button>
+                  <div className="library-review-actions">
+                      {scope === "iteration" && threadId && !version.deleted_at && (
+                        <button disabled={pending || !scopeWritable} onClick={() => act(async () => {
+                          await change(`/threads/${threadId}/versions/${version.id}/save-to-project`, {});
+                        })}>另存至项目正式文件</button>
                       )}
                       <span>
                         {version.review === "approved"

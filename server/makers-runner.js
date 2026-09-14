@@ -1,13 +1,13 @@
 import { query } from "./db.js";
 import { Service, HttpError } from "./service.js";
-import { processNextReply } from "./replies.js";
 import { processNextContextCompression } from "./context-compression.js";
-import { executeRun } from "./acs.js";
+import { executeRun } from "./sandbox-run.js";
 import { drainReplies } from "./reply-dispatch.js";
 import { synchronizeNextDiscussion } from "./context-sync.js";
 import { processNextCoordinator } from "./coordinator.js";
 import { publishWork, subscribeWork } from "./work-events.js";
 import { processNextProjectMemory } from "./project-memory.js";
+import { processNextDocumentOrganization } from "./document-organization.js";
 
 export async function runMakersThread(db, user, threadId, command, operations = {}) {
   const service = new Service(db);
@@ -34,10 +34,11 @@ export async function runMakersThread(db, user, threadId, command, operations = 
     await query(db, `UPDATE sandbox_runs SET status='interrupted',output='上次运行已中断，请检查结果后重试。',finished_at=UTC_TIMESTAMP(3)
       WHERE thread_id=? AND status='running'`, [threadId]);
     if (command) return await executeRun(service, user, threadId, command);
-    const reply = operations.reply || ((id) => processNextReply(db, undefined, undefined, id));
+    const reply = operations.reply || (async () => false);
     const compress = operations.compress || ((id) => processNextContextCompression(db, undefined, id));
-    const coordinate = operations.coordinate || (operations.reply ? async () => false : (id) => processNextCoordinator(db, id));
+    const coordinate = operations.coordinate || ((id) => processNextCoordinator(db, id));
     const remember = operations.remember || (() => processNextProjectMemory(db, { projectId: activeThread.project_id }));
+    const organize = operations.organize || ((id) => processNextDocumentOrganization(db, { threadId: id }));
     const maintain = operations.reply ? async () => false : async (id) => {
       try { return await remember() || await compress(id) || await synchronizeNextDiscussion(db, id); }
       catch (error) { console.error("Context maintenance failed", { type: error.name }); return false; }
@@ -48,7 +49,7 @@ export async function runMakersThread(db, user, threadId, command, operations = 
       await service.thread(user, threadId, true);
       await drainReplies(reply, threadId, deadline, coordinate, maintain, (wake) => subscribeWork(db, wake));
       if (Date.now() >= deadline) break;
-      if (await compress(threadId)) continue;
+      if (await organize(threadId) || await compress(threadId)) continue;
       return { status: "idle" };
     }
     return { status: "queued" };

@@ -28,7 +28,7 @@ test("project-level member understanding persists across iterations and refreshe
       assert.equal(member.signature, "让复杂产品变简单");
       assert.equal(member.understandingRefreshPending, true);
       assert.equal(member.understanding, null);
-      return { action: "silent", reply: "" };
+      return { finalResponse: "NO_VISIBLE_MESSAGE", mergedMessageIds: [] };
     });
     assert.equal(Number((await query(db,
       "SELECT COUNT(*) count FROM agent_member_summaries WHERE project_id=? AND user_id=?",
@@ -55,7 +55,7 @@ test("project-level member understanding persists across iterations and refreshe
     assert.equal(known.understanding, "小林负责交互设计，承诺周五前给出原型。");
     assert.equal(known.understandingRefreshPending, true);
     assert.equal(known.messageCount, 1);
-    await processNextCoordinator(db, second.id, async () => ({ action: "reply", reply: "记住了。" }));
+    await processNextCoordinator(db, second.id, async () => ({ finalResponse: "记住了。", mergedMessageIds: [] }));
     await query(db, "UPDATE agent_member_memory_queue SET available_at=UTC_TIMESTAMP(3) WHERE project_id=?", [project.id]);
     await processNextProjectMemory(db, { projectId: project.id, summarizeMembers: async (context) =>
       context.members.map((member) => ({ memberId: member.id,

@@ -244,7 +244,7 @@
       <div class="card reveal">
         <div class="ico">🤖</div>
         <h3>内置 DSH Agent</h3>
-        <p>可读取项目资料、在 ACS 中创建与编辑文件、执行命令与测试，并把成果保存为文档版本。每个迭代独立会话与工作区。</p>
+        <p>可读取项目资料、在当前运行环境的沙箱中创建与编辑文件、执行命令与测试，并把成果保存为文档版本。每个迭代独立会话与工作区。</p>
         <span class="tag">会话快照入 MySQL</span>
       </div>
       <div class="card reveal">
@@ -289,7 +289,7 @@
     </div>
     <div class="flow">
       <div class="step reveal"><div class="n">STEP 01</div><h3>讨论与澄清</h3><p>在迭代群聊里提出需求、补充要求与引用已有版本，上下文由消息序号与引用关系固定下来。</p></div>
-      <div class="step reveal"><div class="n">STEP 02</div><h3>Agent 执行</h3><p>勾选「交给 Agent 处理」，Agent 读取项目资料，在 ACS 独立工作区里创建与编辑文件、运行命令与测试。</p></div>
+      <div class="step reveal"><div class="n">STEP 02</div><h3>Agent 执行</h3><p>勾选「交给 Agent 处理」，Agent 读取项目资料，在本地或 Makers 原生沙箱里创建与编辑文件、运行命令与测试。</p></div>
       <div class="step reveal"><div class="n">STEP 03</div><h3>提交为版本</h3><p>成果保存为新的文档版本（含 SHA-256），进入文档库；本地 AI 令牌不能审批，也不能归档。</p></div>
       <div class="step reveal"><div class="n">STEP 04</div><h3>人工审核归档</h3><p>人工审核通过后归档，事务保存结论、消息、审核与版本摘要；归档后不可修改，后续迭代可继续引用。</p></div>
     </div>
@@ -300,7 +300,7 @@
     <div class="reveal">
       <div class="kicker">Architecture</div>
       <h2>架构与存储</h2>
-      <p class="sub">轻量但明确的分工：ACS 是唯一执行后端，MySQL 是业务数据与附件的持久化存储，宿主机只做编排。</p>
+      <p class="sub">轻量但明确的分工：本地服务使用本地沙箱，Makers 使用平台原生沙箱，MySQL 负责业务数据与附件持久化。</p>
     </div>
     <div class="arch">
       <div class="reveal">
@@ -310,10 +310,10 @@
         </div>
         <div class="layer">
           <div class="hd"><span>服务端</span><em>server/</em></div>
-          <p>HTTP API、权限校验、协作业务、MCP 工具与 ACS 接入；MCP 工具由服务端凭据确定调用者身份。</p>
+          <p>HTTP API、权限校验、协作业务、MCP 工具与沙箱路由；MCP 工具由服务端凭据确定调用者身份。</p>
         </div>
         <div class="layer">
-          <div class="hd"><span>执行后端</span><em>ACS</em></div>
+          <div class="hd"><span>执行后端</span><em>Local / Makers</em></div>
           <p>唯一执行后端，负责沙箱创建、命令执行与文件读写；宿主机仅编排 Agent，不直接执行工具。</p>
         </div>
         <div class="layer">
@@ -325,7 +325,7 @@
         <div class="kicker">Project layout</div>
         <pre><span class="c"># 项目结构</span>
 web/          React 页面
-server/       HTTP API、权限、协作业务、MCP、ACS
+server/       HTTP API、权限、协作业务、MCP、沙箱路由
 migrations/   版本化 MySQL 结构
 scripts/      安装初始化、迁移、示例、连接检查
 tests/        真实数据库集成测试

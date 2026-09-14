@@ -5,10 +5,21 @@ import { z } from "zod/v3";
 import { MCP_INSTRUCTIONS } from "../shared/mcp-guide.js";
 import { modelDiscussion, modelProject } from "./model-context.js";
 
+export const MCP_TOOL_NAMES = Object.freeze([
+  "list_documents", "manage_document", "manage_folder", "get_connection_guide",
+  "list_projects", "get_project", "get_iteration_context", "list_messages",
+  "read_message", "list_members", "read_member", "get_document_version",
+  "post_message", "submit_document",
+]);
+
 export function createMcpServer(service, user, afterMessage) {
   const server = new McpServer({ name: "cothread", version: "0.2.0" }, { instructions: MCP_INSTRUCTIONS });
-  const register = (name, description, schema, fn) =>
-    server.registerTool(
+  const registered = new Set();
+  const register = (name, description, schema, fn) => {
+    if (!MCP_TOOL_NAMES.includes(name) || registered.has(name))
+      throw new Error(`MCP tool is not declared by the CoThread build: ${name}`);
+    registered.add(name);
+    return server.registerTool(
       name,
       { description, inputSchema: schema },
       async (args) => {
@@ -31,6 +42,7 @@ export function createMcpServer(service, user, afterMessage) {
         }
       },
     );
+  };
   for (const [name,description] of [
     ["list_documents","项目文档：分页查看文件夹和文档版本目录，包含回收站状态；默认100项，limit最大200，offset继续读取。"],
     ["manage_document","项目文档：经用户同意后重命名、移动、删除或恢复。scope=document作用于整份文档全部版本；scope=version只删除/恢复指定版本。删除可恢复，历史引用保留。"],
@@ -74,7 +86,7 @@ export function createMcpServer(service, user, afterMessage) {
   );
   register(
     "post_message",
-    "经用户同意后向指定迭代发一条消息，可同时包含文字、多个文件和已有文档版本引用。文件直接保存到项目文档库，并和消息原子提交；refs 是 /关联文件对应的 versionId。mentionAgent=true 或正文 @小祥 可请求内置助手回复。作者由账号令牌确定。先用 list_projects 和 get_project 确定 threadId，不要猜测。",
+    "经用户同意后向指定迭代发一条消息，可同时包含文字、多个来源文件和已有文档版本引用。文件自动保存到本迭代按自然日期创建的缓存目录，并和消息原子提交；refs 只能引用本迭代或项目正式文件。mentionAgent=true 或正文 @小祥 可请求内置助手回复。",
     {
       threadId: z.string().uuid(),
       body: z.string().min(1).max(20000),
@@ -86,7 +98,6 @@ export function createMcpServer(service, user, afterMessage) {
         filename: z.string().min(1).max(200),
         mime: z.string().optional(),
         contentBase64: z.string().max(7_000_000),
-        folderId: z.string().uuid().nullable().optional(),
       })).max(10).optional().describe("最多 10 个文件，单文件 5 MiB，合计 20 MiB；内容为 base64，不接受本地路径"),
     },
     async (a) => {
@@ -102,7 +113,7 @@ export function createMcpServer(service, user, afterMessage) {
   );
   register(
     "submit_document",
-    "经用户同意后提交文档新版本，默认待审核，不能代替人工审批。",
+    "经用户同意后提交任务产物新版本；新文件默认进入当前迭代产物目录，缓存文件只读。默认待审核，不能代替人工审批。",
     {
       threadId: z.string().uuid(),
       artifactId: z.string().uuid().optional(),
@@ -115,6 +126,8 @@ export function createMcpServer(service, user, afterMessage) {
     },
     (a) => service.submitVersion(user, a.threadId, a),
   );
+  if (registered.size !== MCP_TOOL_NAMES.length)
+    throw new Error("CoThread MCP tool manifest is incomplete");
   return server;
 }
 

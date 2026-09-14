@@ -1,15 +1,23 @@
 import nodemailer from "nodemailer";
 
 let transport;
+export function smtpTransportUrl(value = process.env.SMTP_URL) {
+  const raw = String(value || "").trim();
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("SMTP_URL 必须是有效的 SMTP 连接地址");
+  }
+  if (!["smtp:", "smtps:"].includes(url.protocol) || !url.hostname || !url.username || !url.password)
+    throw new Error("SMTP_URL 必须包含协议、服务器、账号和授权码");
+  return raw;
+}
+
 function mailTransport() {
   if (transport) return transport;
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT || 587);
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASSWORD;
-  if (!host || !user || !pass || !process.env.EMAIL_FROM)
-    throw new Error("邮件服务尚未配置");
-  transport = nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass } });
+  if (!process.env.EMAIL_FROM) throw new Error("邮件服务尚未配置");
+  transport = nodemailer.createTransport(smtpTransportUrl());
   return transport;
 }
 

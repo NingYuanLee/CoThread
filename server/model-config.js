@@ -3,12 +3,11 @@ const MODEL_SCOPES = Object.freeze({
   coordinator: "COORDINATOR_MODEL",
   executor: "EXECUTOR_MODEL",
 });
-const REQUIRED_MODEL_FIELDS = ["PROVIDER", "BASE_URL", "API_KEY", "NAME"];
 const REASONING_EFFORTS = new Set(["off", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 const MODEL_CONTEXT_WINDOW = 1024 * 1024;
 
 export function modelOutputLimit(config) {
-  return /deepseek/iu.test(`${config?.provider || ""} ${config?.model || ""}`)
+  return /deepseek/iu.test(config?.model || "")
     ? 384 * 1024
     : 128 * 1024;
 }
@@ -38,20 +37,23 @@ export function modelConfig(scope = "coordinator", env = process.env) {
   const prefix = MODEL_SCOPES[scope];
   if (!prefix) throw new Error(`Unknown model scope: ${scope}`);
   const key = (field) => `${prefix}_${field}`;
-  const missing = REQUIRED_MODEL_FIELDS.map(key).filter((name) => !env[name]?.trim());
+  const missing = [key("BASE_URL"), key("API_KEY"), prefix].filter((name) => !env[name]?.trim());
   if (missing.length)
     throw new Error(`Model is not configured: missing ${missing.join(", ")}`);
   const baseUrl = normalizeModelBaseUrl(env[key("BASE_URL")]);
-  const reasoningEffort = (env[key("REASONING_EFFORT")] || "medium").trim().toLowerCase();
+  const configuredModel = env[prefix].trim();
+  const separator = configuredModel.lastIndexOf("@");
+  const hasEffort = separator > 0;
+  const model = (hasEffort ? configuredModel.slice(0, separator) : configuredModel).trim();
+  const reasoningEffort = (hasEffort ? configuredModel.slice(separator + 1) : "medium").trim().toLowerCase();
+  if (!model) throw new Error(`${prefix} must include a model name`);
   if (!REASONING_EFFORTS.has(reasoningEffort))
-    throw new Error(`${key("REASONING_EFFORT")} must be one of: none, minimal, low, medium, high, xhigh`);
+    throw new Error(`${prefix} reasoning effort must be one of: off, none, minimal, low, medium, high, xhigh, max, ultra`);
   return {
-    scope,
-    provider: env[key("PROVIDER")].trim(),
     baseUrl,
     responsesUrl: `${baseUrl}/responses`,
     apiKey: env[key("API_KEY")].trim(),
-    model: env[key("NAME")].trim(),
+    model,
     reasoningEffort,
   };
 }
@@ -177,12 +179,12 @@ export function dshModelPatch(config = modelConfig("executor")) {
   const reasoning = ["off", "none"].includes(configuredEffort)
     ? "off" : configuredEffort === "ultra" ? "max" : configuredEffort;
   const maxReasoning = configuredEffort === "ultra" ? "ultra" : "max";
-  return `- id: llm-deepseek\n  disabled: true\n- insert:\n    - id: llm-cothread-compatible\n      name: '@deepseek-ai/dsh-llm-pi-ai'\n      config:\n        providers:\n          cothread-compatible:\n            displayName: ${JSON.stringify(config.provider)}\n            apiKeyEnv: MODEL_API_KEY\n            api: openai-responses\n            baseURL: ${JSON.stringify(config.baseUrl)}\n            reasoning: ${reasoning}\n            models:\n              - id: ${JSON.stringify(config.model)}\n                name: ${JSON.stringify(config.model)}\n                contextWindow: ${MODEL_CONTEXT_WINDOW}\n                maxTokens: ${modelOutputLimit(config)}\n                reasoningEfforts:\n                  off: none\n                  minimal: minimal\n                  low: low\n                  medium: medium\n                  high: high\n                  xhigh: xhigh\n                  max: ${maxReasoning}\n`;
+  return `- id: llm-deepseek\n  disabled: true\n- insert:\n    - id: llm-cothread-compatible\n      name: '@deepseek-ai/dsh-llm-pi-ai'\n      config:\n        providers:\n          cothread-compatible:\n            displayName: CoThread\n            apiKeyEnv: MODEL_API_KEY\n            api: openai-responses\n            baseURL: ${JSON.stringify(config.baseUrl)}\n            reasoning: ${reasoning}\n            models:\n              - id: ${JSON.stringify(config.model)}\n                name: ${JSON.stringify(config.model)}\n                contextWindow: ${MODEL_CONTEXT_WINDOW}\n                maxTokens: ${modelOutputLimit(config)}\n                reasoningEfforts:\n                  off: none\n                  minimal: minimal\n                  low: low\n                  medium: medium\n                  high: high\n                  xhigh: xhigh\n                  max: ${maxReasoning}\n`;
 }
 
 export function redactSecrets(value, env = process.env) {
   let result = String(value || "");
-  for (const key of ["KNOWLEDGE_MODEL_API_KEY", "COORDINATOR_MODEL_API_KEY", "EXECUTOR_MODEL_API_KEY", "MODEL_API_KEY", "E2B_API_KEY"])
+  for (const key of ["KNOWLEDGE_MODEL_API_KEY", "COORDINATOR_MODEL_API_KEY", "EXECUTOR_MODEL_API_KEY", "MODEL_API_KEY"])
     if (env[key]) result = result.split(env[key]).join("[REDACTED]");
   return result;
 }

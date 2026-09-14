@@ -12,7 +12,7 @@ import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.js";
 import { agentSession } from "../server/agent-session.js";
 import { deliverTaskUpdates } from "../server/agent-updates.js";
 import { pendingMessages } from "../shared/context.js";
-import { AGENT_CAPACITY_REPLY, processNextCoordinator } from "../server/coordinator.js";
+import { processNextCoordinator } from "../server/coordinator.js";
 import { subscribeWork } from "../server/work-events.js";
 
 let database, db, service;
@@ -85,6 +85,24 @@ test("project monitor reports knowledge, coordinators and isolated execution slo
   assert.equal(monitor.coordinators.find((item) => item.id === thread.id).active_executors, 1);
   assert.equal(monitor.executors.find((item) => item.task_id === task.id).agent_slot, 1);
   assert.equal(monitor.executors.find((item) => item.task_id === task.id).execution_active, 1);
+
+  const l2SessionId = randomUUID();
+  const childSessionId = randomUUID();
+  await query(db, "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?) ON DUPLICATE KEY UPDATE session_id=VALUES(session_id)", [thread.id, l2SessionId]);
+  await query(db, `INSERT INTO agent_events(message_id,agent_session_id,tool,status,input,output,finished_at)
+    VALUES(?,?,'list_agents','completed','{\"scope\":\"children\"}','private raw output',UTC_TIMESTAMP(3)),
+      (?,?,'sandbox_command','failed','{\"command\":\"contains a secret\"}','secret output',UTC_TIMESTAMP(3))`,
+  [task.id, l2SessionId, task.id, childSessionId]);
+  const logged = await service.agentMonitor(users[0], project.id);
+  const l2Log = logged.eventLog.find((event) => event.tool === "list_agents");
+  const l3Log = logged.eventLog.find((event) => event.tool === "sandbox_command" && event.agent_session_id === childSessionId);
+  assert.equal(l2Log.agent_type, "l2");
+  assert.equal(l2Log.action, "查看 AgentTeam children");
+  assert.equal(l3Log.agent_type, "dsh_l3");
+  assert.equal(l3Log.status, "failed");
+  assert.ok(l3Log.duration_ms >= 0);
+  assert.equal("input" in l3Log, false);
+  assert.equal("output" in l3Log, false);
 
   await assert.rejects(service.agentMonitor({ id: randomUUID(), kind: "session" }, project.id), { status: 403 });
 });
@@ -184,55 +202,6 @@ test("runtime checkpoints, sandboxes, steering and stop stay scoped to the child
   } finally {
     await childRuntime.close(); await rootRuntime.close(); await releaseSandbox(db, main);
   }
-});
-
-test("the coordinator keeps chatting at full capacity and rejects an eighth execution request", async () => {
-  const { users, thread, post } = await fixture(MAX_THREAD_AGENTS + 1);
-  const decide = async (context, job) => job.body.includes("进度")
-    ? { action: "reply", reply: `当前有 ${context.replies.filter((r) => r.status === "running").length} 项工作正在处理。` }
-    : { action: "execute", reply: "" };
-  const jobs = [];
-  for (let index = 0; index < MAX_THREAD_AGENTS; index++) {
-    await post(index);
-    assert.equal(await claimReply(db, thread.id, { allowUnrouted: false }), undefined);
-    await processNextCoordinator(db, thread.id, decide);
-    jobs.push(await claimReply(db, thread.id, { allowUnrouted: false }));
-  }
-  assert.deepEqual(jobs.map((job) => job.agent_slot),
-    Array.from({ length: MAX_THREAD_AGENTS }, (_, index) => index + 1));
-  const question = await post(0, "@小祥 当前进度怎样？");
-  await processNextCoordinator(db, thread.id, decide);
-  let context = await service.context(users[0], thread.id);
-  assert.equal(context.replies.filter((r) => r.status === "running").length, MAX_THREAD_AGENTS);
-  assert.ok(!context.updates.some((update) => update.message_id === question.id));
-  const request = context.requests.find((r) => r.message_id === question.id);
-  assert.equal(context.messages.find((m) => m.id === request.response_id).body,
-    `当前有 ${MAX_THREAD_AGENTS} 项工作正在处理。`);
-  const update = await post(0, "@小祥 改成新的实现要求");
-  await processNextCoordinator(db, thread.id, decide);
-  assert.equal((await query(db, "SELECT approved,task_message_id FROM agent_task_updates WHERE message_id=?", [update.id]))[0].task_message_id, jobs[0].message_id);
-  assert.equal((await query(db, "SELECT approved FROM agent_task_updates WHERE message_id=?", [update.id]))[0].approved, 1);
-  const natural = await post(0, "另外，把输出改为表格");
-  await processNextCoordinator(db, thread.id, decide);
-  assert.equal((await query(db, "SELECT task_message_id FROM agent_task_updates WHERE message_id=? AND approved=TRUE", [natural.id]))[0].task_message_id, jobs[0].message_id);
-  assert.equal((await query(db, "SELECT status,dispatch_ready FROM assistant_replies WHERE message_id=?", [natural.id]))[0].status, "completed");
-  assert.equal(await claimReply(db, thread.id, { allowUnrouted: false }), undefined);
-  const naturalQuestion = await post(0, "现在进度如何？");
-  await processNextCoordinator(db, thread.id, decide);
-  assert.equal((await query(db, "SELECT message_id FROM agent_task_updates WHERE message_id=?", [naturalQuestion.id])).length, 0);
-  const eighth = await post(MAX_THREAD_AGENTS);
-  await processNextCoordinator(db, thread.id, decide);
-  context = await service.context(users[0], thread.id);
-  const capacityRequest = context.requests.find((r) => r.message_id === eighth.id);
-  assert.equal(context.messages.find((m) => m.id === capacityRequest.response_id).body, AGENT_CAPACITY_REPLY);
-  assert.equal(context.replies.find((r) => r.message_id === eighth.id).status, "completed");
-  assert.equal(await claimReply(db, thread.id, { allowUnrouted: false }), undefined);
-  await query(db, "UPDATE assistant_replies SET status='completed',execution_active=FALSE WHERE message_id=?", [jobs[1].message_id]);
-  const retry = await post(MAX_THREAD_AGENTS);
-  await processNextCoordinator(db, thread.id, decide);
-  const replacement = await claimReply(db, thread.id, { allowUnrouted: false });
-  assert.equal(replacement.message_id, retry.id);
-  assert.equal(replacement.agent_slot, 2);
 });
 
 test("routing reconciles replies completed by an older worker without invoking a model again", async () => {

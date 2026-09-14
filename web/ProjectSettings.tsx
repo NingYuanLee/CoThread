@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 
-export function ProjectSettings({ name, createdAt, creator, onSave }: {
+export function ProjectSettings({ name, createdAt, creator, onSave, onOpenL1Logs }: {
   name: string;
   createdAt: string;
   creator: boolean;
   onSave: (name: string) => Promise<void>;
+  onOpenL1Logs: () => void;
 }) {
   const [draft, setDraft] = useState(name);
   const [saving, setSaving] = useState(false);
@@ -37,6 +38,11 @@ export function ProjectSettings({ name, createdAt, creator, onSave }: {
       <div>
         <span className="project-settings-label">创建时间</span>
         <p className="project-settings-value">{createdAt}</p>
+      </div>
+      <div className="project-settings-agent">
+        <span className="project-settings-label">一级小祥</span>
+        <p className="project-settings-value">项目知识整理与维护会话</p>
+        <button type="button" onClick={onOpenL1Logs}>维护日志</button>
       </div>
       <div className="project-settings-archive">
         <button type="button" disabled>归档项目</button>

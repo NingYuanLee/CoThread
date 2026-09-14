@@ -1,138 +1,77 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { asksAgentCapabilities, canFinalizeCoordinatorReply, decideDispatch, fallbackDispatch, webpageRequestUrls, resolveCoordinatorDecision } from "../server/coordinator.js";
+import { readFile } from "node:fs/promises";
 
-test("a direct streaming reply can be finalized after entering running state", () => {
-  assert.equal(canFinalizeCoordinatorReply("queued", false), true);
-  assert.equal(canFinalizeCoordinatorReply("running", true), true);
-  assert.equal(canFinalizeCoordinatorReply("running", false), false);
-  assert.equal(canFinalizeCoordinatorReply("completed", true), false);
-  assert.equal(canFinalizeCoordinatorReply("failed", true), false);
+test("the L2 runtime is composed from DSH AgentTeam plugins", async () => {
+  const patch = await readFile(new URL("../runtime/agent-patch.yml", import.meta.url), "utf8");
+  const tools = await readFile(new URL("../runtime/cothread-tools.mjs", import.meta.url), "utf8");
+  const skills = await readFile(new URL("../runtime/cothread-skills.mjs", import.meta.url), "utf8");
+  const systemPrompt = await readFile(new URL("../runtime/cothread-system-prompt.mjs", import.meta.url), "utf8");
+  const agent = await readFile(new URL("../server/agent.js", import.meta.url), "utf8");
+  for (const plugin of [
+    "@deepseek-ai/dsh-subagent",
+    "@deepseek-ai/dsh-subagent-spawn-in-process",
+    "@deepseek-ai/dsh-tool-subagent",
+    "@deepseek-ai/dsh-compaction-basic",
+    "@deepseek-ai/dsh-token-meter",
+  ]) assert.ok(patch.includes(plugin), plugin);
+  for (const plugin of ["@deepseek-ai/dsh-tool-subagent-control", "@deepseek-ai/dsh-tool-subagent-control/list-agents"])
+    assert.ok(patch.includes(plugin), plugin);
+  for (const tool of ["post_message", "create_task", "update_task", "ask_task_question", "wait_for_updates", "finish_turn"])
+    assert.ok(tools.includes(`["${tool}"`), tool);
+  assert.doesNotMatch(tools, /prepare_local_codex/);
+  assert.match(tools, /ctx\.tools\.guard/);
+  assert.match(tools, /agent\.ctx\.tools\.restrict/);
+  assert.match(tools, /Accounts and project data cannot extend it at runtime/);
+  assert.match(skills, /systemPrompt\.section/);
+  assert.doesNotMatch(skills, /cothread:agent-role|COTHREAD_SYSTEM_PROMPTS_BY_LEVEL/);
+  assert.match(systemPrompt, /cothread:agent-role/);
+  assert.match(systemPrompt, /COTHREAD_SYSTEM_PROMPTS_BY_LEVEL/);
+  assert.match(agent, /COTHREAD_ALLOWED_TOOLS_BY_LEVEL/);
+  assert.match(skills, /context\.agent\?\.id/);
 });
 
-test("coordinator receives useful activity for work it is already handling", async () => {
-  let payload;
-  const request = async (_url, options) => {
-    payload = JSON.parse(options.body);
-    return { ok: true, headers: new Headers({ "content-type": "application/json" }),
-      text: async () => JSON.stringify({ output_text: '{"action":"reply","reply":"我正在验证结果。"}' }) };
-  };
-  const job = { message_id: "question", sequence: "2", body: "@小祥 你在做什么？", participation: "reply" };
-  const promptContext = {
-    history: { messages: [{ messageId: "task", content: "修复构建" }], omittedOldest: 0 },
-    tasks: [{ taskId: "task", relatedMessageIds: ["task", "update"], status: "running",
-      goal: "修复构建", goalUpdates: [{ messageId: "update", summary: "补充运行测试" }],
-      progress: "正在验证结果", lastAction: "运行命令 npm test", resultSummary: null }],
-    documentSummaries: [],
-    latestMessage: { messageId: "question", content: job.body, directlyAddressed: true },
-    members: [{ id: "member-a", name: "甲", projectRole: "member", identityTag: "开发" }],
-  };
-  await decideDispatch({ title: "进度", promptContext }, job, request);
-  const context = JSON.parse(payload.input[1].content);
-  assert.deepEqual({ history: context.history, tasks: context.tasks,
-    documentSummaries: context.documentSummaries, latestMessage: context.latestMessage,
-    members: context.members }, promptContext);
-  assert.match(payload.input[0].content, /根据这些记录用第一人称回答/);
-  assert.match(payload.input[0].content, /普通聊天不要主动播报任务/);
-  assert.match(payload.input[0].content, /“小祥”代表完整的协作助手体系/);
-  assert.match(payload.input[0].content, /负责接待的二级小祥/);
-  assert.match(payload.input[0].content, /它安排的执行小祥/);
+test("L1 denies every installed tool and MCP tools are a build-time manifest", async () => {
+  const l1Tools = await readFile(new URL("../runtime/l1-tools.mjs", import.meta.url), "utf8");
+  const l1Agent = await readFile(new URL("../server/l1-agent.js", import.meta.url), "utf8");
+  const runtimeConfig = await readFile(new URL("../server/dsh-runtime-config.js", import.meta.url), "utf8");
+  const mcp = await import("../server/mcp.js");
+  assert.match(l1Tools, /ctx\.tools\.guard\(\(\) =>/);
+  assert.match(l1Agent, /l1RuntimePatch/);
+  assert.match(runtimeConfig, /runtime\/l1-tools\.mjs/);
+  assert.ok(Object.isFrozen(mcp.MCP_TOOL_NAMES));
+  assert.deepEqual(mcp.MCP_TOOL_NAMES, [
+    "list_documents", "manage_document", "manage_folder", "get_connection_guide",
+    "list_projects", "get_project", "get_iteration_context", "list_messages",
+    "read_message", "list_members", "read_member", "get_document_version",
+    "post_message", "submit_document",
+  ]);
 });
 
-test("coordinator is explicitly told to read webpages itself", async () => {
-  let payload;
-  const request = async (_url, options) => {
-    payload = JSON.parse(options.body);
-    return { ok: true, headers: new Headers({ "content-type": "application/json" }),
-      text: async () => JSON.stringify({ output_text: '{"action":"execute","reply":""}' }) };
-  };
-  const job = { message_id: "web", sequence: "1", body: "@小祥 读取 https://example.com 并总结", participation: "reply" };
-  const decision = await decideDispatch({ title: "网页任务", promptContext: {
-    history: { messages: [], omittedOldest: 0 }, tasks: [], documentSummaries: [],
-    latestMessage: { messageId: "web", content: job.body, directlyAddressed: true }, members: [],
-  } }, job, request);
-  assert.equal(decision.action, "execute");
-  assert.match(payload.input[0].content, /由你亲自读取后回答，不派后台任务/);
-  assert.match(payload.input[0].content, /不能声称自己没有网页读取能力/);
+test("the coordinator has no one-shot reply or execute decision route", async () => {
+  const source = await readFile(new URL("../server/coordinator.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /decideDispatch|resolveCoordinatorDecision|decisionSchema/);
+  assert.match(source, /runCoordinatorAgent/);
+  assert.match(source, /runtime\.harness\.run/);
+  assert.match(source, /mode: "steer"/);
+  assert.match(source, /nativeTools = new Set\(\["dsh_l3", "send_message", "interrupt_agent", "list_agents"\]\)/);
+  assert.match(source, /至少一个 DSH L3 已返回/);
+  assert.match(source, /childWaitDeadline/);
 });
 
-test("explicit webpage requests stay with the coordinator when model routing is wrong", async () => {
-  for (const body of [
-    "@小祥 读取 https://example.com 并总结",
-    "Please read this page https://example.com",
-  ]) {
-    assert.deepEqual(webpageRequestUrls(body), ["https://example.com"], body);
-    const result = await resolveCoordinatorDecision({}, { body }, {
-      decide: async () => ({ action: "execute", reply: "" }),
-      logger: { error() {} },
-    });
-    assert.deepEqual(result.rawDecision, { action: "fetch", urls: ["https://example.com"], reply: "" });
-  }
-  assert.deepEqual(webpageRequestUrls("@小祥 你能读取网页吗？"), []);
-  assert.deepEqual(webpageRequestUrls("这个网站看起来不错"), []);
-  const combined = await resolveCoordinatorDecision({}, {
-    body: "@小祥 读取 https://example.com 后修改代码并运行测试",
-  }, {
-    decide: async () => ({ action: "execute", reply: "" }),
-    logger: { error() {} },
-  });
-  assert.equal(combined.rawDecision.action, "execute");
-});
-
-test("capability questions answer for the whole assistant rather than one process", async () => {
-  const body = "@小祥 你有什么能力，分别负责什么？";
-  assert.equal(asksAgentCapabilities(body), true);
-  const result = await resolveCoordinatorDecision({}, { body }, {
-    decide: async () => ({ action: "execute", reply: "" }),
-    logger: { error() {} },
-  });
-  assert.equal(result.rawDecision.action, "reply");
-  assert.match(result.rawDecision.reply, /作为一个整体协作/);
-  assert.match(result.rawDecision.reply, /负责接待的我/);
-  assert.match(result.rawDecision.reply, /安排执行任务/);
-});
-
-test("coordinator failures always fall back to a reply without starting execution", () => {
-  assert.deepEqual(fallbackDispatch({ body: "@小祥 帮我检查文档", participation: "pending" }),
-    { action: "reply", reply: "" });
-  assert.deepEqual(fallbackDispatch({ body: "帮我检查文档", participation: "reply" }),
-    { action: "reply", reply: "" });
-  assert.deepEqual(fallbackDispatch({ body: "大家下午好", participation: "pending" }),
-    { action: "reply", reply: "" });
-});
-
-test("failed recognition calls the judge once and remains a coordinator reply", async () => {
-  let judgeCalls = 0, replyCalls = 0;
-  const result = await resolveCoordinatorDecision({ title: "测试" }, { body: "执行任务" }, {
-    decide: async () => { judgeCalls++; throw new Error("invalid decision"); },
-    fallbackReply: async () => { replyCalls++; return { reply: "请再补充一下具体要求。", usage: { calls: 1 } }; },
-    logger: { error() {} },
-  });
-  assert.equal(judgeCalls, 1);
-  assert.equal(replyCalls, 1);
-  assert.equal(result.routingFallback, true);
-  assert.equal(result.rawDecision.action, "reply");
-  assert.equal(result.rawDecision.reply, "请再补充一下具体要求。");
-});
-
-test("failed recognition and failed reply use a local reply", async () => {
-  const result = await resolveCoordinatorDecision({}, {}, {
-    decide: async () => { throw new Error("offline"); },
-    fallbackReply: async () => { throw new Error("offline"); },
-    logger: { error() {} },
-  });
-  assert.deepEqual(result, {
-    rawDecision: { action: "reply", reply: "收到，我在。" },
-    routingFallback: true,
-  });
-});
-
-test("an empty model reply is treated as failed recognition", async () => {
-  const result = await resolveCoordinatorDecision({}, {}, {
-    decide: async () => ({ action: "reply", reply: "" }),
-    fallbackReply: async () => ({ reply: "我在，请继续。" }),
-    logger: { error() {} },
-  });
-  assert.equal(result.routingFallback, true);
-  assert.deepEqual(result.rawDecision, { action: "reply", reply: "我在，请继续。", usage: undefined });
+test("stable L2 and L3 roles live only in the system prompt plugin", async () => {
+  const [{ SYSTEM_PROMPTS }, coordinator, agent] = await Promise.all([
+    import("../runtime/cothread-plugin-registry.mjs"),
+    readFile(new URL("../server/coordinator.js", import.meta.url), "utf8"),
+    readFile(new URL("../server/agent.js", import.meta.url), "utf8"),
+  ]);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /二级小祥/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /葫芦小金刚/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /不能直接使用沙箱/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /TASK_ID/);
+  assert.match(SYSTEM_PROMPTS.l3.prompt, /三级小祥/);
+  assert.match(SYSTEM_PROMPTS.l3.prompt, /不得提及分身层级/);
+  assert.match(SYSTEM_PROMPTS.l3.prompt, /publish_artifact/);
+  assert.doesNotMatch(coordinator, /COORDINATOR_PERSONA|你是当前迭代会话的二级小祥|葫芦小金刚/);
+  assert.doesNotMatch(agent, /你是共序项目中的助理|你是三级小祥|不得提及分身层级/);
 });

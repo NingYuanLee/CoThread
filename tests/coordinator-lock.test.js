@@ -45,7 +45,7 @@ test("coordinator waits for a concurrent claim instead of declaring a queued dis
     assert.deepEqual(active.promptContext.tasks[0].relatedMessageIds,[message.id]);
     await blocker.beginTransaction();
     await query(blocker, "SELECT id FROM threads WHERE id=? FOR UPDATE", [thread.id]);
-    routing = processNextCoordinator(db, thread.id, async () => ({ action: "reply", reply: "我在。" }));
+    routing = processNextCoordinator(db, thread.id, async () => ({ finalResponse: "我在。", mergedMessageIds: [] }));
     assert.equal(await Promise.race([routing.then(() => "finished"), delay(100, "waiting")]), "waiting");
     await blocker.commit();
     assert.equal(await routing, true);

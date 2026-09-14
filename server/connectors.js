@@ -1,56 +1,13 @@
-import { createHash, randomBytes, randomUUID, sign } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { digest } from "./auth.js";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
+import { syncConnectorTaskById } from "./agent-task-sync.js";
 
 const pairingCode = () => randomBytes(9).toString("base64url").toUpperCase();
 const bearer = (req) => req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
 const connectorToken = () => `ctc_${randomBytes(32).toString("base64url")}`;
-const releaseOrigin = (req) => process.env.APP_ORIGIN || `${req.protocol}://${req.get("host")}`;
-const releaseUrl = (req, id) => new URL(`/api/connector/releases/${id}/download`, releaseOrigin(req)).toString();
-
-export function createReleaseManifest(bytes, version, url, privateKey) {
-  const sha256 = createHash("sha256").update(bytes).digest("hex");
-  const signature = sign(null, Buffer.from(`${version}\n${url}\n${sha256}`), privateKey).toString("base64");
-  return { version, url, sha256, signature };
-}
-
-function updatePrivateKey() {
-  if (process.env.CONNECTOR_UPDATE_PRIVATE_KEY) {
-    const value = process.env.CONNECTOR_UPDATE_PRIVATE_KEY;
-    if (value.startsWith("base64:")) return Buffer.from(value.slice(7), "base64").toString("utf8");
-    return value.replace(/\\n/g, "\n");
-  }
-  if (!process.env.CONNECTOR_UPDATE_PRIVATE_KEY_FILE) return "";
-  try { return readFileSync(process.env.CONNECTOR_UPDATE_PRIVATE_KEY_FILE, "utf8"); }
-  catch { return ""; }
-}
-
-function newerReleaseVersion(candidate, current) {
-  const parse = (value) => String(value || "").split("-", 1)[0].split(".").map(Number);
-  const a = parse(candidate), b = parse(current);
-  for (let index = 0; index < Math.max(a.length, b.length); index++) {
-    if ((a[index] || 0) !== (b[index] || 0)) return (a[index] || 0) > (b[index] || 0);
-  }
-  return false;
-}
-
-async function latestRelease(db) {
-  const [stored] = await query(db, `SELECT r.id,r.version,r.filename,r.size_bytes sizeBytes,r.download_url url,r.sha256,r.signature,
-    COUNT(c.part_number) chunks FROM connector_releases r JOIN connector_release_chunks c ON c.release_id=r.id
-    GROUP BY r.id HAVING SUM(OCTET_LENGTH(c.content))=r.size_bytes ORDER BY r.created_at DESC,r.id DESC LIMIT 1`);
-  const legacy = process.env.CONNECTOR_RELEASE_VERSION && process.env.CONNECTOR_DOWNLOAD_URL &&
-    process.env.CONNECTOR_RELEASE_SHA256 && process.env.CONNECTOR_RELEASE_SIGNATURE ? {
-      version: process.env.CONNECTOR_RELEASE_VERSION, url: process.env.CONNECTOR_DOWNLOAD_URL,
-      sha256: process.env.CONNECTOR_RELEASE_SHA256, signature: process.env.CONNECTOR_RELEASE_SIGNATURE,
-      external: true,
-    } : null;
-  if (legacy && (!stored || !newerReleaseVersion(stored.version, legacy.version))) return legacy;
-  return stored ? { ...stored, chunks: Number(stored.chunks), external: false } : null;
-}
-
 async function device(db, req) {
   const token = bearer(req);
   if (!token?.startsWith("ctc_")) throw new HttpError(401, "连接器凭证无效");
@@ -66,6 +23,8 @@ async function replaceAccountConnector(conn, userId, data, token) {
   if (existing) {
     await query(conn, `UPDATE connector_tasks SET status='cancelled',error='账号已在另一台电脑重新连接',finished_at=UTC_TIMESTAMP(3)
       WHERE connector_id=? AND status IN ('awaiting_approval','queued','running','paused')`, [existing.id]);
+    const cancelled = await query(conn, "SELECT id FROM connector_tasks WHERE connector_id=? AND status='cancelled' AND error=?", [existing.id, "账号已在另一台电脑重新连接"]);
+    for (const task of cancelled) await syncConnectorTaskById(conn, task.id);
     await query(conn, "DELETE FROM connector_projects WHERE connector_id=?", [existing.id]);
     await query(conn, `UPDATE connectors SET name=?,platform=?,version=?,token_hash=?,last_seen_at=UTC_TIMESTAMP(3),revoked_at=NULL
       WHERE id=?`, [data.name, data.platform, data.version, digest(token), existing.id]);
@@ -78,52 +37,14 @@ async function replaceAccountConnector(conn, userId, data, token) {
 }
 
 export async function connectorTool(service, user, name, input, job, thread) {
-  if (name === "list_local_connectors") {
-    return query(service.db, `SELECT c.id,c.name,c.platform,c.version,cp.policy,cp.allow_git_push allowGitPush,u.id owner_id,u.name owner_name,
-      c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND) online
-      FROM connectors c JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=?
-      JOIN members m ON m.project_id=cp.project_id AND m.user_id=c.user_id
-      JOIN users u ON u.id=c.user_id
-      WHERE m.role<>'viewer' AND c.revoked_at IS NULL
-      ORDER BY online DESC,u.name,c.last_seen_at DESC,c.created_at DESC`, [thread.project_id]);
-  }
-  const data = z.object({
-    connectorId: z.string().uuid().optional(),
-    prompt: z.string().trim().min(80).max(20000),
-  }).parse(input);
-  const [read] = await query(service.db, `SELECT id FROM agent_events WHERE message_id=? AND tool IN ('project_context','read_document')
-    AND status='completed' LIMIT 1`, [job.message_id]);
-  if (!read) throw new HttpError(409, "请先读取项目资料目录和相关文档，再整理本地 Codex 任务");
-  const [targetMessage] = await query(service.db, "SELECT execution_target_user_id FROM messages WHERE id=?", [job.message_id]);
-  if (!targetMessage?.execution_target_user_id) throw new HttpError(409, "本机任务缺少已确认的执行成员");
-  const params = [thread.project_id, targetMessage.execution_target_user_id];
-  const connectors = await query(service.db, `SELECT c.id,c.name,cp.policy,cp.allow_git_push allow_git_push,c.user_id assigned_to,u.name owner_name FROM connectors c
-    JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=?
+  if (name !== "list_local_connectors") throw new HttpError(400, "未知连接器工具");
+  return query(service.db, `SELECT c.id,c.name,c.platform,c.version,cp.policy,cp.allow_git_push allowGitPush,u.id owner_id,u.name owner_name,
+    c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND) online
+    FROM connectors c JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=?
     JOIN members m ON m.project_id=cp.project_id AND m.user_id=c.user_id
     JOIN users u ON u.id=c.user_id
-    WHERE c.user_id=? AND m.role<>'viewer' AND c.revoked_at IS NULL AND c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND)
-    ${data.connectorId ? "AND c.id=?" : ""} ORDER BY c.last_seen_at DESC LIMIT 1`,
-  data.connectorId ? [...params, data.connectorId] : params);
-  const connector = connectors[0];
-  if (!connector) throw new HttpError(409, "没有已关联当前项目的在线连接器，请让成员打开本地连接器");
-  if (!data.connectorId) {
-    const [count] = await query(service.db, `SELECT COUNT(*) total FROM connectors c
-      JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=?
-      JOIN members m ON m.project_id=cp.project_id AND m.user_id=c.user_id
-      WHERE c.user_id=? AND m.role<>'viewer' AND c.revoked_at IS NULL
-      AND c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND)`, params);
-    if (Number(count.total) > 1)
-      throw new HttpError(409, "当前项目有多台在线连接器，请先查看列表，并按被 @ 成员明确指定 connectorId");
-  }
-  const existing = (await query(service.db, "SELECT id,status FROM connector_tasks WHERE message_id=?", [job.message_id]))[0];
-  if (existing) return { ...existing, reused: true, connector: connector.name };
-  const id = randomUUID();
-  await query(service.db, `INSERT INTO connector_tasks(id,connector_id,project_id,thread_id,message_id,requested_by,assigned_to,instruction,policy,allow_git_push)
-    VALUES(?,?,?,?,?,?,?,?,?,?)`, [id, connector.id, thread.project_id, job.thread_id, job.message_id, user.id,
-    connector.assigned_to, data.prompt, connector.policy, connector.allow_git_push]);
-  return { id, status: "awaiting_approval", connector: connector.name, connectorOwner: connector.owner_name, policy: connector.policy,
-    allowGitPush: !!connector.allow_git_push,
-    note: "任务说明已发送给执行成员确认；确认前不会访问本地项目，执行成员也可以转交给其他在线成员。" };
+    WHERE m.role<>'viewer' AND c.revoked_at IS NULL
+    ORDER BY online DESC,u.name,c.last_seen_at DESC,c.created_at DESC`, [thread.project_id]);
 }
 
 export function registerConnectorPublicRoutes(app, db, service) {
@@ -188,35 +109,6 @@ export function registerConnectorPublicRoutes(app, db, service) {
     res.status(201).json(result);
   });
 
-  app.get("/api/connector/releases/latest", async (req, res) => {
-    const release = await latestRelease(db);
-    if (!release) throw new HttpError(404, "连接器更新尚未发布");
-    res.json({ version: release.version, url: release.url, sha256: release.sha256,
-      signature: release.signature, ...(release.external ? {} : { chunks: release.chunks }) });
-  });
-
-  app.get("/api/connector/releases/:id/download/chunks/:part", async (req, res) => {
-    const id = z.string().uuid().parse(req.params.id);
-    const part = z.coerce.number().int().min(0).max(319).parse(req.params.part);
-    const [chunk] = await query(db, "SELECT content FROM connector_release_chunks WHERE release_id=? AND part_number=?", [id, part]);
-    if (!chunk) throw new HttpError(404, "连接器文件分片不存在");
-    res.setHeader("Content-Type", "application/octet-stream");
-    res.setHeader("Content-Length", String(chunk.content.length));
-    res.end(chunk.content);
-  });
-
-  app.get("/api/connector/releases/:id/download", async (req, res) => {
-    const id = z.string().uuid().parse(req.params.id);
-    const [release] = await query(db, "SELECT filename,size_bytes FROM connector_releases WHERE id=?", [id]);
-    if (!release) throw new HttpError(404, "连接器版本不存在");
-    const chunks = await query(db, "SELECT content FROM connector_release_chunks WHERE release_id=? ORDER BY part_number", [id]);
-    res.setHeader("Content-Type", "application/vnd.microsoft.portable-executable");
-    res.setHeader("Content-Length", String(release.size_bytes));
-    res.setHeader("Content-Disposition", `attachment; filename="CoThreadConnector.exe"`);
-    for (const chunk of chunks) res.write(chunk.content);
-    res.end();
-  });
-
   app.get("/api/connector/projects", async (req, res) => {
     const current = await device(db, req);
     await query(db, "UPDATE connectors SET last_seen_at=UTC_TIMESTAMP(3),version=COALESCE(?,version) WHERE id=?",
@@ -268,6 +160,7 @@ export function registerConnectorPublicRoutes(app, db, service) {
       if (!candidate) throw new HttpError(409, "任务已被处理或当前连接器没有执行权限");
       await query(conn, `UPDATE connector_tasks SET status='running',lease_token_hash=?,lease_expires_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 2 MINUTE),
         started_at=COALESCE(started_at,UTC_TIMESTAMP(3)),progress='正在本机准备项目' WHERE id=?`, [digest(lease), taskId]);
+      await syncConnectorTaskById(conn, taskId, { publish: true });
       return { ...candidate, leaseToken: lease };
     });
     res.json({ task });
@@ -282,23 +175,28 @@ export function registerConnectorPublicRoutes(app, db, service) {
       if (!task) throw new HttpError(404, "任务不存在");
       if (action === "abandon" && task.status === "queued") {
         await query(conn, "UPDATE connector_tasks SET status='cancelled',progress='已放弃',finished_at=UTC_TIMESTAMP(3),lease_expires_at=NULL WHERE id=?", [taskId]);
+        await syncConnectorTaskById(conn, taskId, { publish: true });
         return { status: "cancelled" };
       }
       if (action === "pause" && task.status === "running") {
         await query(conn, "UPDATE connector_tasks SET status='paused',progress='本机执行已暂停',lease_expires_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 30 MINUTE) WHERE id=?", [taskId]);
+        await syncConnectorTaskById(conn, taskId, { publish: true });
         return { status: "paused" };
       }
       if (action === "resume" && task.status === "paused") {
         await query(conn, "UPDATE connector_tasks SET status='running',progress='本机 Codex 正在执行',lease_expires_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 2 MINUTE) WHERE id=?", [taskId]);
+        await syncConnectorTaskById(conn, taskId, { publish: true });
         return { status: "running" };
       }
       if (action === "end" && ["running", "paused"].includes(task.status)) {
         await query(conn, "UPDATE connector_tasks SET status='stopped_pending_approval',progress='终止待通过',finished_at=UTC_TIMESTAMP(3),lease_expires_at=NULL WHERE id=?", [taskId]);
+        await syncConnectorTaskById(conn, taskId, { publish: true });
         return { status: "stopped_pending_approval" };
       }
       if (action === "retry" && ["failed", "failed_pending_notification", "cancelled", "interrupted", "stopped_pending_approval"].includes(task.status)) {
         await query(conn, `UPDATE connector_tasks SET status='queued',progress='等待本机开始',output=NULL,diff=NULL,error=NULL,
           lease_token_hash=NULL,lease_expires_at=NULL,finished_at=NULL WHERE id=?`, [taskId]);
+        await syncConnectorTaskById(conn, taskId, { publish: true });
         return { status: "queued" };
       }
       if (action === "notify" && ["completed_pending_notification", "failed_pending_notification", "stopped_pending_approval"].includes(task.status)) {
@@ -315,6 +213,7 @@ export function registerConnectorPublicRoutes(app, db, service) {
         const status = stopped ? "cancelled" : success ? "completed" : "failed";
         await query(conn, "UPDATE connector_tasks SET status=?,progress=?,finished_at=COALESCE(finished_at,UTC_TIMESTAMP(3)) WHERE id=?",
           [status, stopped ? "终止" : success ? "成功" : "失败", taskId]);
+        await syncConnectorTaskById(conn, taskId, { publish: true });
         return { status };
       }
       throw new HttpError(409, "当前状态不能执行这个操作");
@@ -329,6 +228,8 @@ export function registerConnectorPublicRoutes(app, db, service) {
       await query(conn, "DELETE FROM connector_projects WHERE connector_id=? AND project_id=?", [current.id, projectId]);
       await query(conn, `UPDATE connector_tasks SET status='cancelled',error='连接器已解除项目关联',finished_at=UTC_TIMESTAMP(3)
         WHERE connector_id=? AND project_id=? AND status IN ('queued','running','paused')`, [current.id, projectId]);
+      const cancelled = await query(conn, "SELECT id FROM connector_tasks WHERE connector_id=? AND project_id=? AND status='cancelled' AND error=?", [current.id, projectId, "连接器已解除项目关联"]);
+      for (const task of cancelled) await syncConnectorTaskById(conn, task.id, { publish: true });
     });
     res.json({ ok: true });
   });
@@ -340,12 +241,16 @@ export function registerConnectorPublicRoutes(app, db, service) {
       await query(conn, "UPDATE connectors SET last_seen_at=UTC_TIMESTAMP(3),version=? WHERE id=?", [data.version, current.id]);
       await query(conn, `UPDATE connector_tasks SET status='interrupted',error='本地连接中断，可在网页重新发起',finished_at=UTC_TIMESTAMP(3)
         WHERE connector_id=? AND status='running' AND lease_expires_at<UTC_TIMESTAMP(3)`, [current.id]);
+      const expired = await query(conn, "SELECT id FROM connector_tasks WHERE connector_id=? AND status='interrupted' AND error=?", [current.id, "本地连接中断，可在网页重新发起"]);
+      for (const task of expired) await syncConnectorTaskById(conn, task.id, { publish: true });
       await query(conn, `UPDATE connector_tasks t LEFT JOIN connector_projects cp
         ON cp.connector_id=t.connector_id AND cp.project_id=t.project_id
         LEFT JOIN members m ON m.project_id=t.project_id AND m.user_id=?
         SET t.status='interrupted',t.error='连接器已失去项目执行权限',t.finished_at=UTC_TIMESTAMP(3)
         WHERE t.connector_id=? AND t.status='queued' AND (cp.connector_id IS NULL OR m.user_id IS NULL OR m.role='viewer')`,
       [current.user_id, current.id]);
+      const unauthorized = await query(conn, "SELECT id FROM connector_tasks WHERE connector_id=? AND status='interrupted' AND error=?", [current.id, "连接器已失去项目执行权限"]);
+      for (const task of unauthorized) await syncConnectorTaskById(conn, task.id, { publish: true });
     });
     res.json({ task: null });
   });
@@ -372,6 +277,7 @@ export function registerConnectorPublicRoutes(app, db, service) {
       if (["running", "paused"].includes(data.status)) {
         await query(conn, `UPDATE connector_tasks SET status=?,progress=?,lease_expires_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL ? MINUTE) WHERE id=?`,
           [data.status, data.progress || task.progress || "正在本机执行", data.status === "paused" ? 30 : 2, taskId]);
+        await syncConnectorTaskById(conn, taskId, { publish: true });
         return { status: data.status };
       }
       let responseMessageId = task.response_message_id;
@@ -386,6 +292,7 @@ export function registerConnectorPublicRoutes(app, db, service) {
         ["completed", "completed_pending_notification"].includes(data.status) ? (data.status === "completed" ? "成功" : "成功待通知") : (data.status === "failed" ? "失败" : "失败待通知"),
         data.output || null, data.diff || null,
         ["failed", "failed_pending_notification"].includes(data.status) ? data.error || "本机执行失败" : null, responseMessageId, taskId]);
+      await syncConnectorTaskById(conn, taskId, { publish: true });
       return { status: data.status };
     });
     res.json(result);
@@ -393,43 +300,6 @@ export function registerConnectorPublicRoutes(app, db, service) {
 }
 
 export function registerConnectorBrowserRoutes(app, db, service) {
-  app.get("/api/admin/connector-release", async (req, res) => {
-    await service.systemAdmin(req.user);
-    const [release] = await query(db, `SELECT id,version,filename,size_bytes sizeBytes,sha256,created_at createdAt
-      FROM connector_releases ORDER BY created_at DESC,id DESC LIMIT 1`);
-    res.json({ release: release || null, signingConfigured: !!updatePrivateKey() });
-  });
-
-  app.post("/api/admin/connector-release", async (req, res) => {
-    await service.systemAdmin(req.user);
-    const data = z.object({
-      version: z.string().trim().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, "版本号格式应为 1.2.3"),
-      filename: z.string().trim().min(1).max(160),
-      contentBase64: z.string().min(100),
-    }).parse(req.body);
-    if (!data.filename.toLowerCase().endsWith(".exe")) throw new HttpError(400, "只允许上传 EXE 文件");
-    const bytes = Buffer.from(data.contentBase64, "base64");
-    if (!bytes.length || bytes.length > 120 * 1024 * 1024 || bytes.subarray(0, 2).toString("ascii") !== "MZ")
-      throw new HttpError(400, "连接器文件无效或超过 120 MB");
-    const privateKey = updatePrivateKey();
-    if (!privateKey) throw new HttpError(503, "服务器尚未配置连接器更新签名私钥");
-    const id = randomUUID();
-    const downloadUrl = releaseUrl(req, id);
-    let manifest;
-    try { manifest = createReleaseManifest(bytes, data.version, downloadUrl, privateKey); }
-    catch { throw new HttpError(503, "连接器更新签名私钥无效"); }
-    await transaction(db, async (conn) => {
-      const [duplicate] = await query(conn, "SELECT id FROM connector_releases WHERE version=? FOR UPDATE", [data.version]);
-      if (duplicate) throw new HttpError(409, "该版本号已经发布");
-      await query(conn, `INSERT INTO connector_releases(id,version,filename,size_bytes,sha256,signature,download_url,created_by)
-        VALUES(?,?,?,?,?,?,?,?)`, [id, data.version, data.filename, bytes.length, manifest.sha256, manifest.signature, downloadUrl, req.user.id]);
-      for (let offset = 0, part = 0; offset < bytes.length; offset += 1024 * 1024, part++)
-        await query(conn, "INSERT INTO connector_release_chunks(release_id,part_number,content) VALUES(?,?,?)",
-          [id, part, bytes.subarray(offset, offset + 1024 * 1024)]);
-    });
-    res.status(201).json({ id, version: data.version, filename: data.filename, sizeBytes: bytes.length, sha256: manifest.sha256 });
-  });
-
   app.get("/api/connectors", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const rows = await query(db, `SELECT c.id,c.name,c.platform,c.version,c.last_seen_at,c.created_at,
@@ -449,28 +319,6 @@ export function registerConnectorBrowserRoutes(app, db, service) {
       JOIN users u ON u.id=c.user_id
       JOIN members cm ON cm.project_id=m.project_id AND cm.user_id=c.user_id AND cm.role<>'viewer'
       WHERE m.user_id=? ORDER BY m.project_id,u.name,c.last_seen_at DESC,c.id`, [req.user.id]));
-  });
-
-  app.get("/api/connectors/download-availability", async (req, res) => {
-    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
-    const release = await latestRelease(db);
-    let legacyAvailable = false;
-    if (release?.external) {
-      try {
-        const response = await fetch(release.url, { method: "HEAD", signal: AbortSignal.timeout(5000) });
-        legacyAvailable = response.ok;
-      } catch { /* A configured URL is not downloadable until it responds successfully. */ }
-    }
-    res.json({ available: !!release && (!release.external || legacyAvailable) });
-  });
-
-  app.get("/api/connectors/download-info", async (req, res) => {
-    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
-    const release = await latestRelease(db);
-    if (!release) throw new HttpError(404, "Windows 连接器安装包尚未发布");
-    res.json(release.external ? { type: "external", url: release.url } : {
-      type: "chunks", id: release.id, filename: release.filename, sizeBytes: Number(release.sizeBytes), chunks: release.chunks,
-    });
   });
 
   app.get(["/api/connector-authorizations/:id", "/api/connector-authorizations-v2/:id"], async (req, res) => {
@@ -535,73 +383,19 @@ export function registerConnectorBrowserRoutes(app, db, service) {
     if (!result.affectedRows) throw new HttpError(404, "连接器不存在");
     await query(db, `UPDATE connector_tasks SET status='cancelled',error='连接器已解除绑定',finished_at=UTC_TIMESTAMP(3)
       WHERE connector_id=? AND status IN ('queued','running')`, [connectorId]);
+    const cancelled = await query(db, "SELECT id FROM connector_tasks WHERE connector_id=? AND status='cancelled' AND error=?", [connectorId, "连接器已解除绑定"]);
+    for (const task of cancelled) await syncConnectorTaskById(db, task.id, { publish: true });
     res.json({ ok: true });
-  });
-
-  app.get("/api/connectors/download", async (req, res) => {
-    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
-    const release = await latestRelease(db);
-    if (!release) throw new HttpError(503, "Windows 连接器安装包尚未发布");
-    if (!release.external) throw new HttpError(409, "请通过网页分片下载连接器");
-    res.redirect(302, release.url);
   });
 
   app.post("/api/connector-tasks/:id/cancel", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const taskId = z.string().uuid().parse(req.params.id);
     const result = await query(db, `UPDATE connector_tasks SET status='cancelled',error='已停止',finished_at=UTC_TIMESTAMP(3)
-      WHERE id=? AND (requested_by=? OR assigned_to=?) AND status IN ('awaiting_approval','queued','running','paused')`,
-    [taskId, req.user.id, req.user.id]);
+      WHERE id=? AND assigned_to=? AND status IN ('queued','running','paused')`,
+    [taskId, req.user.id]);
     if (!result.affectedRows) throw new HttpError(409, "任务已结束或不存在");
+    await syncConnectorTaskById(db, taskId, { publish: true });
     res.json({ ok: true });
-  });
-
-  app.post("/api/connector-tasks/:id/decision", async (req, res) => {
-    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
-    const taskId = z.string().uuid().parse(req.params.id);
-    const data = z.object({ approved: z.boolean(), prompt: z.string().trim().min(80).max(20000).optional() }).parse(req.body);
-    const result = await transaction(db, async (conn) => {
-      const [task] = await query(conn, `SELECT t.*,c.revoked_at,cp.connector_id binding_id,m.role connector_role FROM connector_tasks t
-        JOIN connectors c ON c.id=t.connector_id LEFT JOIN connector_projects cp ON cp.connector_id=t.connector_id AND cp.project_id=t.project_id
-        LEFT JOIN members m ON m.project_id=t.project_id AND m.user_id=c.user_id
-        WHERE t.id=? AND t.assigned_to=? FOR UPDATE`, [taskId, req.user.id]);
-      if (!task) throw new HttpError(404, "待确认任务不存在");
-      if (task.status !== "awaiting_approval") throw new HttpError(409, "任务已经确认或结束");
-      if (data.approved && (task.revoked_at || !task.binding_id || !task.connector_role || task.connector_role === "viewer"))
-        throw new HttpError(409, "连接器已失去项目执行权限，请转交给其他在线成员");
-      const status = data.approved ? "queued" : "cancelled";
-      await query(conn, `UPDATE connector_tasks SET status=?,instruction=?,progress=?,error=?,finished_at=? WHERE id=?`,
-        [status, data.prompt || task.instruction, data.approved ? "等待本机连接器领取" : "已取消",
-          data.approved ? null : "执行成员取消了任务", data.approved ? null : new Date(), taskId]);
-      return { id: taskId, status };
-    });
-    res.json(result);
-  });
-
-  app.post("/api/connector-tasks/:id/reassign", async (req, res) => {
-    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
-    const taskId = z.string().uuid().parse(req.params.id);
-    const data = z.object({ connectorId: z.string().uuid() }).parse(req.body);
-    const result = await transaction(db, async (conn) => {
-      const [task] = await query(conn, "SELECT * FROM connector_tasks WHERE id=? AND assigned_to=? FOR UPDATE", [taskId, req.user.id]);
-      if (!task) throw new HttpError(404, "待确认任务不存在或不属于你");
-      if (task.status !== "awaiting_approval") throw new HttpError(409, "只有未确认任务可以转交");
-      const [target] = await query(conn, `SELECT c.id,c.user_id,cp.policy,cp.allow_git_push,u.name owner_name,c.name connector_name FROM connectors c
-        JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=?
-        JOIN members m ON m.project_id=cp.project_id AND m.user_id=c.user_id AND m.role<>'viewer'
-        JOIN users u ON u.id=c.user_id
-        WHERE c.id=? AND c.revoked_at IS NULL
-        AND c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND) FOR UPDATE`, [task.project_id, data.connectorId]);
-      if (!target) throw new HttpError(409, "目标成员没有关联当前项目的在线连接器");
-      if (target.user_id === task.assigned_to) throw new HttpError(409, "请选择其他在线成员");
-      await query(conn, `UPDATE connector_tasks SET connector_id=?,assigned_to=?,policy=?,allow_git_push=?,progress=? WHERE id=?`,
-        [target.id, target.user_id, target.policy, target.allow_git_push, `等待 ${target.owner_name} 确认`, taskId]);
-      await service.notify(conn, target.user_id, task.project_id, "mention",
-        `${req.user.name || "项目成员"} 将一项本机 Codex 待确认任务转交给你`, task.thread_id, task.message_id,
-        req.user.name || "项目成员");
-      return { id: taskId, status: "awaiting_approval", assignedTo: target.user_id,
-        connector: target.connector_name, connectorOwner: target.owner_name };
-    });
-    res.json(result);
   });
 }

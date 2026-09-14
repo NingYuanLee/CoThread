@@ -92,6 +92,13 @@ test("connector build pins a verified Windows-compatible runtime", async () => {
   assert.match(build, /for \(let attempt = 1; attempt <= 5; attempt\+\+\)/);
 });
 
+test("connector has no built-in application distribution path", async () => {
+  const [gui, main] = await Promise.all([readFile(guiPath, "utf8"), readFile(mainPath, "utf8")]);
+
+  assert.doesNotMatch(gui, /UpdateText/);
+  assert.doesNotMatch(main, /connector\/releases|pending-update|checkUpdate|apply-update|verifyManifest/);
+});
+
 test("connector persists startup diagnostics and surfaces fatal errors", async () => {
   const main = await readFile(mainPath, "utf8");
 

@@ -1,6 +1,6 @@
 import React,{useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
-export type UsageStats={provider?:string;model?:string;reasoningEffort?:string;inputTokens?:number;outputTokens?:number;cacheReadTokens?:number;cacheWriteTokens?:number;reasoningTokens?:number|null;totalTokens?:number;calls?:number;executionDurationMs?:number;ttftMs?:number;ttftSteps?:number;decodeMs?:number;decodeTokens?:number};
+export type UsageStats={model?:string;reasoningEffort?:string;inputTokens?:number;outputTokens?:number;cacheReadTokens?:number;cacheWriteTokens?:number;reasoningTokens?:number|null;totalTokens?:number;calls?:number;executionDurationMs?:number;ttftMs?:number;ttftSteps?:number;decodeMs?:number;decodeTokens?:number};
 type Record={usage_stats?:UsageStats|string|null;first_response_at?:string|null;finished_at?:string|null};
 const timestamp=(value?:string|null)=>value?Date.parse(value.replace(' ','T')+(/Z$|[+-]\d\d:\d\d$/.test(value)?'':'Z')):NaN;
 const duration=(ms:number)=>Number.isFinite(ms)?`${Number((Math.max(0,ms)/1000).toFixed(1))}秒`:'未记录';

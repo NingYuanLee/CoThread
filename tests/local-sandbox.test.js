@@ -4,7 +4,7 @@ import { LocalSandbox } from "../server/local-sandbox.js";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { executeRun } from "../server/acs.js";
+import { executeRun } from "../server/sandbox-run.js";
 import { randomUUID } from "node:crypto";
 
 test("local runner scopes files and scrubs service credentials", async () => {
@@ -31,10 +31,8 @@ test("local runner scopes files and scrubs service credentials", async () => {
   }
 });
 
-test("default run route uses the local runner when enabled", async () => {
+test("default run route always uses the local runner outside Makers", async () => {
   const database = await testDatabase();
-  const previous = process.env.LOCAL_SANDBOX_ENABLED;
-  process.env.LOCAL_SANDBOX_ENABLED = "true";
   try {
     const user = { id: randomUUID(), kind: "session" };
     await query(database.db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
@@ -47,8 +45,6 @@ test("default run route uses the local runner when enabled", async () => {
     assert.equal(result.status, "succeeded", result.output);
     assert.equal(result.output, "local-route-ok");
   } finally {
-    if (previous === undefined) delete process.env.LOCAL_SANDBOX_ENABLED;
-    else process.env.LOCAL_SANDBOX_ENABLED = previous;
     await database.close();
   }
 });

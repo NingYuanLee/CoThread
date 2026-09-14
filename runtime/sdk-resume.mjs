@@ -8,7 +8,8 @@ import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { measureContext } from "./context-meter.mjs";
 import { AUTO_COMPACT_AT } from "../shared/context.js";
 import { repairContext, transcriptBlocks } from "./repair-context.mjs";
-export { Config, apply, name } from "@deepseek-ai/dsh-sdk-jsonrpc-server";
+export { Config, apply } from "@deepseek-ai/dsh-sdk-jsonrpc-server";
+export const name = "cothread-sdk-server";
 export const inject = [...sdkInject, "tokenMeter", "compaction"];
 
 const createSession = HarnessSdkJsonRpcServer.prototype.createSession;

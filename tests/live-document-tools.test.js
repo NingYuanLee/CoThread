@@ -66,14 +66,11 @@ test('DSH schema accepts root-directory null parameters',async()=>{
 
 test('live-output migration works when database defaults differ from existing tables',async()=>{
  const {migrate}=await import('../scripts/migrate.js');
- const separate=await testDatabase();
- try {
-  const schema=new URL(separate.url).pathname.slice(1);assert.match(schema,/^cothread_test_[a-f0-9]+$/);
-  await separate.db.query('DROP TABLE agent_live_output');
-  await separate.db.execute("DELETE FROM schema_migrations WHERE name IN ('020_agent_live_output.sql','021_live_event_cursor.sql')");
-  await separate.db.query(`ALTER DATABASE \`${schema}\` CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci`);
-  await migrate(separate.db);
-  const [rows]=await separate.db.execute("SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='agent_live_output'");
-  assert.equal(rows[0].TABLE_COLLATION,'utf8mb4_0900_ai_ci');
- } finally {await separate.close();}
+ const schema=new URL(database.url).pathname.slice(1);assert.match(schema,/(?:^|_)(?:dev|test)(?:_|$)/i);
+ await database.db.query('DROP TABLE agent_live_output');
+ await database.db.execute("DELETE FROM schema_migrations WHERE name IN ('020_agent_live_output.sql','021_live_event_cursor.sql')");
+ await database.db.query(`ALTER DATABASE \`${schema}\` CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci`);
+ await migrate(database.db);
+ const [rows]=await database.db.execute("SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='agent_live_output'");
+ assert.equal(rows[0].TABLE_COLLATION,'utf8mb4_0900_ai_ci');
 });

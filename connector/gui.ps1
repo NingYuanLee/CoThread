@@ -102,7 +102,7 @@ public static class CoThreadWindowIcon {
       </TabItem>
       <TabItem Header="记录">
         <Grid Margin="16"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-          <DockPanel Margin="0,0,0,12"><StackPanel><TextBlock Text="运行记录" FontSize="15" FontWeight="SemiBold" Foreground="#303B30"/><TextBlock Text="连接、更新和任务执行日志" Margin="0,3,0,0" Foreground="#849083"/></StackPanel><TextBlock x:Name="UpdateText" DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#849083"/></DockPanel>
+          <DockPanel Margin="0,0,0,12"><StackPanel><TextBlock Text="运行记录" FontSize="15" FontWeight="SemiBold" Foreground="#303B30"/><TextBlock Text="连接和任务执行日志" Margin="0,3,0,0" Foreground="#849083"/></StackPanel></DockPanel>
           <TextBox x:Name="LogText" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="#FBFCFA" BorderBrush="#E1E6DE" FontFamily="Consolas" FontSize="11" Padding="12"/>
         </Grid>
       </TabItem>
@@ -122,7 +122,7 @@ $window.Add_SourceInitialized({
   [void][CoThreadWindowIcon]::SendMessage($handle, 0x0080, [IntPtr]1, $bigWindowIcon.Handle)
   [void][CoThreadWindowIcon]::SendMessage($handle, 0x0080, [IntPtr]0, $smallWindowIcon.Handle)
 })
-$names = @('VersionText','StatusDot','StatusText','ReauthorizeButton','PairPanel','ServerInput','PairButton','PrerequisitePanel','CheckButton','GitStatusText','GitHintText','InstallGitButton','CodexStatusText','InstallCodexButton','ProjectPanel','RefreshButton','ProjectGrid','AutoStartCheck','RefreshTaskButton','TaskGrid','UpdateText','LogText','HideButton','ExitButton')
+$names = @('VersionText','StatusDot','StatusText','ReauthorizeButton','PairPanel','ServerInput','PairButton','PrerequisitePanel','CheckButton','GitStatusText','GitHintText','InstallGitButton','CodexStatusText','InstallCodexButton','ProjectPanel','RefreshButton','ProjectGrid','AutoStartCheck','RefreshTaskButton','TaskGrid','LogText','HideButton','ExitButton')
 foreach ($name in $names) { Set-Variable -Name $name -Value $window.FindName($name) }
 $script:allowExit = $false
 $script:projectSignature = ''
@@ -365,7 +365,6 @@ $timer.Add_Tick({
       } -Force -PassThru
     })
   }
-  $UpdateText.Text = [string]$state.updateStatus
   $logs = [string]::Join("`r`n", @($state.logs))
   if ($logs -ne $script:lastLogs) { $script:lastLogs=$logs; $LogText.Text=$logs; $LogText.ScrollToEnd() }
 })

@@ -11,11 +11,8 @@ const out = join(root, "dist-connector");
 const compatibilityNodeVersion = "v22.23.2";
 const compatibilityNodeSha256 = "0d0f5e39f9f3d9587bc19f73eab3c2c9c4903fd02d6dbf9c853dd81b3d95fad4";
 const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-const version = process.env.CONNECTOR_BUILD_VERSION || pkg.version;
+const version = pkg.version;
 const server = process.env.CONNECTOR_SERVER_URL || "https://cothread.z2l.top";
-const publicKeyFile = process.env.CONNECTOR_UPDATE_PUBLIC_KEY_FILE || join(root, ".local", "connector-update-public.pem");
-const publicKey = (process.env.CONNECTOR_UPDATE_PUBLIC_KEY || await readFile(publicKeyFile, "utf8").catch(() => ""))
-  .replace(/\r?\n/g, "\\n");
 const guiScript = (await readFile(join(root, "connector", "gui.ps1"))).toString("base64");
 const hashFile = async (file) => createHash("sha256").update(await readFile(file)).digest("hex");
 async function compatibilityNode() {
@@ -67,7 +64,6 @@ await writeFile(iconPath, icon);
 const source = (await readFile(join(root, "connector", "main.cjs"), "utf8"))
   .replace("__CONNECTOR_VERSION__", version)
   .replace("__CONNECTOR_SERVER__", server)
-  .replace("__UPDATE_PUBLIC_KEY__", publicKey)
   .replace("__GUI_SCRIPT_BASE64__", guiScript)
   .replace("__CONNECTOR_ICON_BASE64__", icon.toString("base64"));
 const entry = join(out, "connector.cjs"), blob = join(out, "sea-prep.blob"), exe = join(out, "CoThreadConnector.exe");

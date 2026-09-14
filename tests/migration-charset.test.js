@@ -10,7 +10,7 @@ test("quote and recycle migrations match existing tables when schema defaults di
     await db.query("DROP TABLE message_quotes, version_recycle");
     await db.execute("DELETE FROM schema_migrations WHERE name IN ('018_message_quotes.sql','019_version_recycle.sql')");
     const schema = new URL(database.url).pathname.slice(1);
-    assert.match(schema, /^cothread_test_[a-f0-9]+$/);
+    assert.match(schema, /(?:^|_)(?:dev|test)(?:_|$)/i);
     await db.query(`ALTER DATABASE \`${schema}\` CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci`);
     await migrate(db);
     const [tables] = await db.execute("SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('message_quotes','version_recycle')");

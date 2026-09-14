@@ -100,7 +100,6 @@ export function ChatComposer({
   onSend,
   onRefresh,
   uploadTarget,
-  localAvailable,
 }: {
   projectId: string;
   threadId: string;
@@ -111,14 +110,12 @@ export function ChatComposer({
   versions: FileVersion[];
   members: { id: string; name: string; email: string }[];
   busy: boolean;
-  onSend: (executionTarget: "cloud" | "local") => Promise<boolean>;
+  onSend: () => Promise<boolean>;
   onRefresh: () => Promise<void>;
   uploadTarget: React.MutableRefObject<((files: File[]) => void) | null>;
-  localAvailable: boolean;
 }) {
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [error, setError] = useState("");
-  const [executionTarget, setExecutionTarget] = useState<"cloud" | "local">("cloud");
   const [trigger, setTrigger] = useState<{
     symbol: string;
     query: string;
@@ -233,7 +230,7 @@ export function ChatComposer({
           {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ deleted: true }),
+            body: JSON.stringify({ deleted: true, threadId }),
           },
         );
         if (!response.ok)
@@ -328,7 +325,7 @@ export function ChatComposer({
           return;
         sending.current = true;
         try {
-          if (await onSend(executionTarget)) {
+          if (await onSend()) {
             setUploads([]);
             urls.current.forEach(URL.revokeObjectURL);
             urls.current = [];
@@ -519,14 +516,6 @@ export function ChatComposer({
         </div>
       )}
       <div className="composer-footer">
-        <div className="execution-target" role="group" aria-label="执行位置">
-          <button type="button" className={executionTarget === "cloud" ? "active" : ""}
-            aria-pressed={executionTarget === "cloud"} onClick={() => setExecutionTarget("cloud")}>云端处理</button>
-          <button type="button" className={executionTarget === "local" ? "active" : ""}
-            aria-pressed={executionTarget === "local"} disabled={!localAvailable}
-            title={localAvailable ? "小祥整理任务后，由指定成员确认并交给其本机 Codex" : "当前项目没有在线连接器"}
-            onClick={() => setExecutionTarget("local")}>本机 Codex</button>
-        </div>
         <button
           className="primary"
           disabled={busy || pending || !message.trim()}

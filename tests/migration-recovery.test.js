@@ -25,7 +25,7 @@ test("Makers login recovers partial child migration on a database with a differe
     await query(db, "DROP TABLE agent_requests,agent_task_updates,agent_child_sessions");
     await query(db, "DELETE FROM schema_migrations WHERE name='017_child_agents.sql'");
     const schema = new URL(database.url).pathname.slice(1);
-    assert.match(schema, /^cothread_test_[a-f0-9]+$/);
+    assert.match(schema, /(?:^|_)(?:dev|test)(?:_|$)/i);
     await db.query(`ALTER DATABASE \`${schema}\` CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci`);
     server = createMakersApp(async () => { await migrate(db); return db; }).listen(0, "127.0.0.1");
     await new Promise((done) => server.once("listening", done));

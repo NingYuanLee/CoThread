@@ -8,6 +8,8 @@ import { query, transaction } from "./db.js";
 import { digest, hashPassword } from "./auth.js";
 import { publishWork } from "./work-events.js";
 import { queueDocumentMemory, queueMemberMemory } from "./project-memory.js";
+import { taskExecutionSnapshot } from "./task-pool.js";
+import { formatAgentAction } from "../shared/agent-label.js";
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -30,6 +32,46 @@ const mentions = (text, value) => {
 export class Service {
   constructor(db) {
     this.db = db;
+  }
+  async createIterationFolders(db, projectId, threadId, threadTitle) {
+    const rootId = randomUUID();
+    await query(db,
+      "INSERT INTO document_folders(id,project_id,thread_id,name,system_key,folder_kind) VALUES(?,?,?,?,?,?)",
+      [rootId, projectId, threadId, threadTitle, `iteration:${threadId}`, "iteration_root"]);
+    await query(db,
+      "INSERT INTO document_folders(id,project_id,thread_id,parent_id,name,system_key,folder_kind) VALUES(?,?,?,?,?,?,?),(?,?,?,?,?,?,?)",
+      [randomUUID(), projectId, threadId, rootId, "缓存文件", `iteration:${threadId}:cache`, "iteration_cache",
+       randomUUID(), projectId, threadId, rootId, "产物文件", `iteration:${threadId}:outputs`, "iteration_outputs"]);
+  }
+  async documentFolder(db, projectId, kind, threadId = null) {
+    const [folder] = await query(db,
+      `SELECT id,project_id,thread_id,parent_id,name,system_key,folder_kind FROM document_folders
+       WHERE project_id=? AND folder_kind=? AND thread_id <=> ?`, [projectId, kind, threadId]);
+    if (!folder) fail(500, "项目文档目录尚未初始化");
+    return folder;
+  }
+  async dailyCacheFolder(db, projectId, threadId, now = new Date()) {
+    const cache = await this.documentFolder(db, projectId, "iteration_cache", threadId);
+    const date = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(now);
+    let [folder] = await query(db, `SELECT id FROM document_folders
+      WHERE project_id=? AND thread_id=? AND parent_id=? AND name=? LIMIT 1`,
+    [projectId, threadId, cache.id, date]);
+    if (!folder) {
+      folder = { id: randomUUID() };
+      await query(db, `INSERT INTO document_folders(id,project_id,thread_id,parent_id,name,system_key,folder_kind)
+        VALUES(?,?,?,?,?,?,?)`, [folder.id, projectId, threadId, cache.id, date,
+        `iteration:${threadId}:cache:${date}`, "iteration_cache"]);
+    }
+    return folder;
+  }
+  async assertDocumentScopeAvailable(db, projectId, threadId = null) {
+    const [job] = await query(db, `SELECT id FROM document_organization_jobs
+      WHERE project_id=? AND status IN ('queued','running')
+      AND ((scope='project' AND ? IS NULL) OR (scope='iteration' AND thread_id=?)) LIMIT 1`,
+    [projectId, threadId, threadId]);
+    if (job) fail(409, threadId ? "一级小祥正在整理本迭代文档，文件夹暂时不可操作" : "一级小祥正在整理项目正式文件，文件夹暂时不可操作");
   }
   async accountChange(db, targetUserId, actorUserId, action, details = {}) {
     await query(db, "INSERT INTO account_change_logs(id,target_user_id,actor_user_id,action,details) VALUES(?,?,?,?,?)",
@@ -224,11 +266,9 @@ export class Service {
         "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)",
         [projectId, data.name, data.description, user.id],
       );
-      await query(
-        db,
-        "INSERT INTO document_folders(id,project_id,name,system_key) VALUES(?,?,?,?)",
-        [randomUUID(), projectId, "对话临时文件", "chat_uploads"],
-      );
+      await query(db,
+        "INSERT INTO document_folders(id,project_id,name,system_key,folder_kind) VALUES(?,?,?,?,?)",
+        [randomUUID(), projectId, "项目正式文件", "project_official", "project_official"]);
       await query(
         db,
         "INSERT INTO members(project_id,user_id,role,tab_visible,tab_opened_at) VALUES(?,?,?,TRUE,UTC_TIMESTAMP(6))",
@@ -263,17 +303,19 @@ export class Service {
     );
     const versionsQuery = query(
       this.db,
-      `SELECT a.id artifact_id,a.title,a.folder_id,COALESCE(a.deleted_at,vr.deleted_at) deleted_at,a.deleted_at artifact_deleted_at,vr.deleted_at version_deleted_at,a.updated_at,v.id,v.version,v.filename,v.mime,v.byte_size,v.sha256,v.note,v.thread_id,v.created_at,u.name author,
+      `SELECT a.id artifact_id,a.title,a.folder_id,f.thread_id folder_thread_id,f.folder_kind,COALESCE(a.deleted_at,vr.deleted_at) deleted_at,a.deleted_at artifact_deleted_at,vr.deleted_at version_deleted_at,a.updated_at,v.id,v.version,v.filename,v.mime,v.byte_size,v.sha256,v.note,v.thread_id,v.created_at,u.name author,
       (SELECT r.decision FROM reviews r WHERE r.version_id=v.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1) review
-      FROM artifacts a JOIN versions v ON v.artifact_id=a.id LEFT JOIN version_recycle vr ON vr.version_id=v.id JOIN users u ON u.id=v.created_by WHERE a.project_id=? ORDER BY v.created_at DESC,v.version DESC`,
+      FROM artifacts a JOIN versions v ON v.artifact_id=a.id LEFT JOIN document_folders f ON f.id=a.folder_id LEFT JOIN version_recycle vr ON vr.version_id=v.id JOIN users u ON u.id=v.created_by WHERE a.project_id=? ORDER BY v.created_at DESC,v.version DESC`,
       [projectId],
     );
     const foldersQuery = query(
       this.db,
-      "SELECT id,parent_id,name,updated_at,system_key FROM document_folders WHERE project_id=? ORDER BY name",
+      "SELECT id,parent_id,thread_id,name,updated_at,system_key,folder_kind FROM document_folders WHERE project_id=? ORDER BY name",
       [projectId],
     );
-    const [[project], threads, members, versions, folders] = await Promise.all([projectQuery, threadsQuery, membersQuery, versionsQuery, foldersQuery]);
+    const organizationQuery = query(this.db, `SELECT id,thread_id,scope,status,result,error,created_at,started_at,finished_at
+      FROM document_organization_jobs WHERE project_id=? ORDER BY created_at DESC LIMIT 20`, [projectId]);
+    const [[project], threads, members, versions, folders, documentOrganizationJobs] = await Promise.all([projectQuery, threadsQuery, membersQuery, versionsQuery, foldersQuery, organizationQuery]);
     const coordinatorModel = modelConfig("coordinator");
     return {
       ...project,
@@ -284,15 +326,16 @@ export class Service {
       }],
       versions,
       folders,
+      documentOrganizationJobs,
     };
   }
   async agentMonitor(user, projectId) {
     await this.member(user, projectId);
     const modelSummary = (scope) => {
       const config = modelConfig(scope);
-      return { provider: config.provider, model: config.model, reasoningEffort: config.reasoningEffort };
+      return { model: config.model, reasoningEffort: config.reasoningEffort };
     };
-    const [memberQueue, documentQueue, memberSummary, documentSummary, coordinators, executors] =
+    const [memberQueue, documentQueue, memberSummary, documentSummary, l1Sessions, coordinators, executors, taskExecutions, eventLog] =
       await Promise.all([
         query(this.db, `SELECT COUNT(*) pending,
           COALESCE(SUM(available_at<=UTC_TIMESTAMP(3)),0) ready,
@@ -306,11 +349,24 @@ export class Service {
         query(this.db, `SELECT MAX(s.updated_at) updated_at FROM agent_document_summaries s
           JOIN versions v ON v.id=s.version_id JOIN artifacts a ON a.id=v.artifact_id
           WHERE a.project_id=?`, [projectId]),
+        query(this.db, `SELECT session_id,status,last_task,last_error,last_started_at,last_finished_at,updated_at
+          FROM agent_project_sessions WHERE project_id=?`, [projectId]),
         query(this.db, `SELECT t.id,t.title,t.status,t.created_at,t.archived_at,
+          COALESCE((SELECT s.convergence_state FROM agent_sessions s WHERE s.thread_id=t.id),'active') convergence_state,
+          COALESCE((SELECT s.steering_epoch FROM agent_sessions s WHERE s.thread_id=t.id),0) steering_epoch,
+          (SELECT s.wait_reason FROM agent_sessions s WHERE s.thread_id=t.id) wait_reason,
+          (SELECT ar.progress FROM assistant_replies ar JOIN messages arm ON arm.id=ar.message_id
+            WHERE arm.thread_id=t.id AND ar.status IN ('queued','running') ORDER BY arm.sequence DESC LIMIT 1) current_action,
+          (SELECT ae.tool FROM agent_events ae JOIN messages aem ON aem.id=ae.message_id
+            WHERE aem.thread_id=t.id ORDER BY ae.id DESC LIMIT 1) react_phase,
+          (SELECT LEFT(rm.body,500) FROM messages rm WHERE rm.thread_id=t.id AND rm.source='assistant'
+            ORDER BY rm.sequence DESC LIMIT 1) recent_message,
           COALESCE(SUM(q.status='queued'),0) queued_requests,
           COALESCE(SUM(q.status='running'),0) running_requests,
-          (SELECT COUNT(*) FROM assistant_replies ar JOIN messages am ON am.id=ar.message_id
-            WHERE am.thread_id=t.id AND ar.execution_active=TRUE) active_executors,
+          ((SELECT COUNT(*) FROM agent_task_execution_runs er JOIN agent_tasks et ON et.id=er.task_id
+            WHERE et.origin_thread_id=t.id AND er.executor_type='dsh_l3' AND er.status IN ('running','waiting'))
+          +(SELECT COUNT(*) FROM assistant_replies ar JOIN messages am ON am.id=ar.message_id
+            WHERE am.thread_id=t.id AND ar.execution_active=TRUE)) active_executors,
           MAX(COALESCE(q.first_response_at,m.created_at,t.created_at)) last_activity_at
           FROM threads t LEFT JOIN messages m ON m.thread_id=t.id
           LEFT JOIN agent_requests q ON q.message_id=m.id
@@ -326,7 +382,14 @@ export class Service {
           LEFT JOIN agent_events e ON e.id=(SELECT MAX(ae.id) FROM agent_events ae WHERE ae.message_id=r.message_id)
           WHERE t.project_id=? AND (r.agent_slot IS NOT NULL OR r.execution_active=TRUE)
           ORDER BY r.execution_active DESC,m.created_at DESC LIMIT 100`, [projectId]),
+        taskExecutionSnapshot(this.db, projectId),
+        query(this.db, `SELECT e.id,e.message_id,e.agent_session_id,e.tool,e.status,e.created_at,e.finished_at,
+          m.thread_id,t.title thread_title,s.session_id l2_session_id,LEFT(e.input,16000) input
+          FROM agent_events e JOIN messages m ON m.id=e.message_id
+          JOIN threads t ON t.id=m.thread_id LEFT JOIN agent_sessions s ON s.thread_id=m.thread_id
+          WHERE t.project_id=? ORDER BY e.id DESC LIMIT 300`, [projectId]),
       ]);
+    const humanAgents = await query(this.db, `SELECT u.id member_id,u.name,CASE WHEN c.id IS NULL THEN 0 ELSE 1 END connector_configured,CASE WHEN c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND) THEN 1 ELSE 0 END connector_online,c.id connector_id FROM members m JOIN users u ON u.id=m.user_id LEFT JOIN connectors c ON c.user_id=u.id AND c.revoked_at IS NULL WHERE m.project_id=? GROUP BY u.id,u.name,c.id,c.last_seen_at`, [projectId]);
     const memberMemory = memberQueue[0] || {};
     const documentMemory = documentQueue[0] || {};
     return {
@@ -337,6 +400,12 @@ export class Service {
         executor: modelSummary("executor"),
       },
       knowledge: {
+        sessionId: l1Sessions[0]?.session_id || null,
+        sessionStatus: l1Sessions[0]?.status || "idle",
+        lastTask: l1Sessions[0]?.last_task || null,
+        lastError: l1Sessions[0]?.last_error || null,
+        lastStartedAt: l1Sessions[0]?.last_started_at || null,
+        lastFinishedAt: l1Sessions[0]?.last_finished_at || null,
         memberPending: Number(memberMemory.pending || 0),
         documentPending: Number(documentMemory.pending || 0),
         ready: Number(memberMemory.ready || 0) + Number(documentMemory.ready || 0),
@@ -351,7 +420,101 @@ export class Service {
         running_requests: Number(row.running_requests),
         active_executors: Number(row.active_executors),
       })),
-      executors: executors.map((row) => ({ ...row, update_count: Number(row.update_count) })),
+      humanAgents: humanAgents.map((row) => ({ member_id: row.member_id, name: row.name, nodes: [{ executor_type: "human_self", executor_id: row.member_id, online: true }, { executor_type: "human_connector", executor_id: row.connector_id, online: !!Number(row.connector_online), configured: !!Number(row.connector_configured) }] })),
+      taskPool: taskExecutions,
+      eventLog: eventLog.map((row) => {
+        let args = {};
+        try { args = typeof row.input === "string" ? JSON.parse(row.input) : row.input || {}; }
+        catch {}
+        const action = ["thinking", "assistant_text", "assistant_final"].includes(row.tool)
+          ? row.tool === "thinking" ? "思考" : row.tool === "assistant_final" ? "完成回复" : "组织回复"
+          : formatAgentAction(row.tool, args);
+        return {
+          id: String(row.id), message_id: row.message_id, thread_id: row.thread_id,
+          thread_title: row.thread_title, agent_session_id: row.agent_session_id,
+          agent_type: row.agent_session_id && row.agent_session_id !== row.l2_session_id ? "dsh_l3" : "l2",
+          tool: row.tool, action, status: row.status, created_at: row.created_at,
+          finished_at: row.finished_at,
+          duration_ms: row.finished_at ? Math.max(0, new Date(row.finished_at).getTime() - new Date(row.created_at).getTime()) : null,
+        };
+      }),
+      executors: [
+        ...executors.map((row) => ({ ...row, executor_type: "dsh_l3", update_count: Number(row.update_count) })),
+        ...taskExecutions.map((row) => ({
+          task_id: row.task_id, thread_id: row.origin_thread_id || null, thread_title: null,
+          requested_by: row.source_user_id, goal: row.goal, status: row.run_status || row.task_status,
+          progress: row.progress, agent_slot: null, execution_active: ["queued", "running"].includes(row.run_status),
+          started_at: row.started_at, finished_at: row.finished_at, last_action: null, last_action_status: null,
+          last_action_at: null, update_count: 0, executor_type: row.executor_type,
+          executor_id: row.executor_id, target_type: row.target_type, target_id: row.target_id,
+          task_type: row.task_type, source_type: row.source_type, created_by_type: row.created_by_type,
+          created_by_id: row.created_by_id, claimed_by_type: row.claimed_by_type, claimed_by_id: row.claimed_by_id,
+          result_summary: row.result_summary, artifact_refs: row.artifact_refs,
+        })),
+      ],
+    };
+  }
+  async agentLogs(user, scopeType, scopeId) {
+    const duration = (row) => row.finished_at
+      ? Math.max(0, new Date(row.finished_at).getTime() - new Date(row.created_at).getTime()) : null;
+    const actionFor = (row) => {
+      if (row.agent_type === "l1") return ({
+        prepare_context: "准备项目上下文",
+        start_harness: "启动 DSH 会话",
+        model_run: "执行维护任务",
+        validate_result: "校验结构化结果",
+        save_checkpoint: "保存会话检查点",
+      })[row.tool] || row.tool;
+      let args = {};
+      try { args = typeof row.input === "string" ? JSON.parse(row.input) : row.input || {}; }
+      catch {}
+      return ["thinking", "assistant_text", "assistant_final"].includes(row.tool)
+        ? row.tool === "thinking" ? "思考" : row.tool === "assistant_final" ? "完成回复" : "组织回复"
+        : formatAgentAction(row.tool, args);
+    };
+    let titleText;
+    let rows;
+    if (scopeType === "project") {
+      const project = await this.project(user, scopeId);
+      titleText = `${project.name} · 一级小祥维护日志`;
+      rows = await query(this.db, `SELECT id,agent_session_id,phase tool,status,created_at,finished_at,error
+        FROM agent_project_events WHERE project_id=? ORDER BY id DESC LIMIT 300`, [scopeId]);
+      rows = rows.map((row) => ({ ...row, agent_type: "l1", task_id: null }));
+    } else if (scopeType === "thread") {
+      const thread = await this.thread(user, scopeId);
+      const [session] = await query(this.db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [scopeId]);
+      titleText = `${thread.title} · 二级小祥运行日志`;
+      rows = session ? await query(this.db, `SELECT e.id,e.agent_session_id,e.agent_task_id task_id,e.tool,e.status,
+        e.created_at,e.finished_at,e.input FROM agent_events e JOIN messages m ON m.id=e.message_id
+        WHERE m.thread_id=? AND e.agent_session_id=? ORDER BY e.id DESC LIMIT 300`,
+      [scopeId, session.session_id]) : [];
+      rows = rows.map((row) => ({ ...row, agent_type: "l2" }));
+    } else if (scopeType === "task") {
+      const [task] = await query(this.db, "SELECT id,project_id,title FROM agent_tasks WHERE id=?", [scopeId]);
+      if (!task) fail(404, "任务不存在");
+      await this.member(user, task.project_id);
+      titleText = `${task.title} · 三级小祥执行日志`;
+      rows = await query(this.db, `SELECT DISTINCT e.id,e.agent_session_id,? task_id,e.tool,e.status,
+        e.created_at,e.finished_at,e.input FROM agent_events e
+        WHERE EXISTS (SELECT 1 FROM agent_task_execution_runs owner_run
+          WHERE owner_run.task_id=? AND owner_run.executor_type='dsh_l3'
+            AND owner_run.executor_id=e.agent_session_id)
+          AND (e.agent_task_id=? OR (e.agent_task_id IS NULL AND EXISTS (
+            SELECT 1 FROM agent_task_execution_runs timed_run WHERE timed_run.task_id=?
+              AND timed_run.executor_type='dsh_l3' AND timed_run.executor_id=e.agent_session_id
+              AND e.created_at>=COALESCE(timed_run.started_at,timed_run.created_at)
+              AND e.created_at<=COALESCE(timed_run.finished_at,UTC_TIMESTAMP(3)))))
+        ORDER BY e.id DESC LIMIT 300`, [scopeId, scopeId, scopeId, scopeId]);
+      rows = rows.map((row) => ({ ...row, agent_type: "dsh_l3" }));
+    } else fail(400, "未知日志作用域");
+    return {
+      scopeType, scopeId, title: titleText,
+      events: rows.map((row) => ({
+        id: String(row.id), agentType: row.agent_type, agentSessionId: row.agent_session_id,
+        taskId: row.task_id || null, tool: row.tool, action: actionFor(row), status: row.status,
+        createdAt: row.created_at, finishedAt: row.finished_at, durationMs: duration(row),
+        ...(row.agent_type === "l1" && row.error ? { error: row.error } : {}),
+      })),
     };
   }
   async users(user, projectId) {
@@ -549,11 +712,13 @@ export class Service {
     await this.member(user, projectId, true);
     const data = z.object({ title }).parse(input);
     const threadId = randomUUID();
-    await query(
-      this.db,
-      "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)",
-      [threadId, projectId, data.title, user.id],
-    );
+    await transaction(this.db, async (db) => {
+      await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);
+      await this.assertDocumentScopeAvailable(db, projectId, null);
+      await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)",
+        [threadId, projectId, data.title, user.id]);
+      await this.createIterationFolders(db, projectId, threadId, data.title);
+    });
     return { id: threadId, ...data };
   }
   async context(user, threadId, db = this.db, { display = false, limit = 50, before, after } = {}) {
@@ -639,14 +804,16 @@ export class Service {
       connectorTasks,
     };
   }
-  async refs(db, projectId, refs) {
+  async refs(db, projectId, refs, threadId) {
     for (const ref of refs) {
       const [version] = await query(
         db,
-        "SELECT v.id FROM versions v JOIN artifacts a ON a.id=v.artifact_id WHERE v.id=? AND a.project_id=?",
-        [ref, projectId],
+        `SELECT v.id FROM versions v JOIN artifacts a ON a.id=v.artifact_id
+         LEFT JOIN document_folders f ON f.id=a.folder_id
+         WHERE v.id=? AND a.project_id=? AND (f.folder_kind='project_official' OR f.thread_id=?)`,
+        [ref, projectId, threadId],
       );
-      if (!version) fail(400, "引用的文档版本不属于当前项目");
+      if (!version) fail(400, "只能引用本迭代或项目正式文件中的文档版本");
     }
   }
   async insertMessage(
@@ -732,7 +899,6 @@ export class Service {
         quoteIds: z.array(id).max(10).default([]),
         clientMessageId: id.optional(),
         mentionAgent: z.boolean().default(false),
-        executionTarget: z.enum(["cloud", "local"]).default("cloud"),
         files: z.array(z.object({
           title,
           filename: z.string().min(1).max(200),
@@ -742,8 +908,6 @@ export class Service {
         })).max(10).default([]),
       })
       .parse(input);
-    if (data.executionTarget === "local" && user.kind !== "session")
-      fail(403, "本机 Codex 任务需要成员从网页发起");
     if (data.refs.length + data.files.length > 30)
       fail(400, "一条消息最多关联 30 个文档版本（含上传文件）");
     if (data.files.reduce((sum, file) => sum + Buffer.from(file.contentBase64, "base64").length, 0) > 20 * 1024 * 1024)
@@ -762,25 +926,7 @@ export class Service {
           return { id: existing.id, duplicate: true };
         }
       }
-      let executionTargetUserId = null;
-      if (data.executionTarget === "local") {
-        const projectMembers = await query(db, `SELECT u.id,u.name,u.username,u.email FROM members m JOIN users u ON u.id=m.user_id
-          WHERE m.project_id=? AND m.role<>'viewer'`, [thread.project_id]);
-        const mentioned = projectMembers.filter((member) => [member.name, member.username, member.email].some((value) => mentions(text, value)));
-        if (mentioned.length > 1) fail(400, "本机 Codex 模式只能 @ 一名执行成员");
-        const eligible = await query(db, `SELECT DISTINCT c.user_id FROM connectors c
-          JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=?
-          JOIN members m ON m.project_id=cp.project_id AND m.user_id=c.user_id AND m.role<>'viewer'
-          WHERE c.revoked_at IS NULL AND c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND)`, [thread.project_id]);
-        const eligibleIds = new Set(eligible.map((row) => row.user_id));
-        const ownOnline = eligibleIds.has(user.id);
-        if (mentioned.length && !eligibleIds.has(mentioned[0].id))
-          fail(409, `@${mentioned[0].name} 的本地连接器当前未在线或未关联本项目`);
-        if (!ownOnline && mentioned.length !== 1)
-          fail(409, "你的连接器未在线，请且只能 @ 一名连接器在线的项目成员");
-        executionTargetUserId = mentioned[0]?.id || user.id;
-      }
-      await this.refs(db, thread.project_id, data.refs);
+      await this.refs(db, thread.project_id, data.refs, threadId);
       const quoteIds = [...new Set(data.quoteIds)];
       if (quoteIds.length) {
         const quoted = await query(db, `SELECT id FROM messages WHERE thread_id=? AND id IN (${quoteIds.map(() => '?').join(',')})`, [threadId, ...quoteIds]);
@@ -800,8 +946,8 @@ export class Service {
         undefined,
         null,
         data.clientMessageId,
-        data.executionTarget,
-        executionTargetUserId,
+        "cloud",
+        null,
       );
       for (const quotedId of quoteIds) await query(db,
         "INSERT INTO message_quotes(message_id,quoted_message_id) VALUES(?,?)", [message.id, quotedId]);
@@ -858,6 +1004,8 @@ export class Service {
   ) {
     if (chatUpload && user.kind !== "session")
       fail(403, "对话上传需要人工登录");
+    if (user.kind === "session" && !chatUpload && !options.silent)
+      fail(403, "人工文件只能通过对话框上传");
     const data = z
       .object({
         artifactId: id.optional(),
@@ -905,33 +1053,46 @@ export class Service {
       await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [
         thread.project_id,
       ]);
-      if (chatUpload) {
+      const sourceFile = chatUpload || options.silent;
+      if (sourceFile) {
         if (data.artifactId) fail(400, "对话上传必须创建新文件");
-        const [temporary] = await query(
-          db,
-          "SELECT id FROM document_folders WHERE project_id=? AND system_key='chat_uploads'",
-          [thread.project_id],
-        );
-        data.folderId = temporary.id;
+        data.folderId = (await this.dailyCacheFolder(db, thread.project_id, threadId)).id;
+      } else if (!data.artifactId && data.folderId === undefined) {
+        const generatedByTask = user.kind === "agent" || !!agentMessageId || (user.kind === "api" && !options.silent);
+        data.folderId = (await this.documentFolder(db, thread.project_id,
+          generatedByTask ? "iteration_outputs" : "iteration_cache", threadId)).id;
       }
       if (data.folderId) {
         const [folder] = await query(
           db,
-          "SELECT id,system_key FROM document_folders WHERE id=? AND project_id=?",
+          "SELECT id,thread_id,folder_kind FROM document_folders WHERE id=? AND project_id=?",
           [data.folderId, thread.project_id],
         );
         if (!folder) fail(404, "文件夹不存在");
-        if (folder.system_key && !chatUpload)
-          fail(403, "该文件夹仅接收对话上传");
+        if (folder.thread_id && folder.thread_id !== threadId)
+          fail(403, "不能写入其他迭代的文件夹");
+        if (["iteration_root"].includes(folder.folder_kind))
+          fail(403, "请选择缓存文件、产物文件或其子文件夹");
+        if (chatUpload && folder.folder_kind !== "iteration_cache")
+          fail(403, "对话上传只能保存到本迭代缓存文件");
+        if (folder.folder_kind === "iteration_cache" && !sourceFile)
+          fail(403, "缓存文件只能由对话上传产生，Agent 不能新增");
+        await this.assertDocumentScopeAvailable(db, thread.project_id, folder.thread_id || null);
       }
       let artifactId = data.artifactId;
       if (artifactId) {
         const [artifact] = await query(
           db,
-          "SELECT id FROM artifacts WHERE id=? AND project_id=? AND deleted_at IS NULL FOR UPDATE",
+          `SELECT a.id,f.thread_id,f.folder_kind FROM artifacts a LEFT JOIN document_folders f ON f.id=a.folder_id
+           WHERE a.id=? AND a.project_id=? AND a.deleted_at IS NULL FOR UPDATE`,
           [artifactId, thread.project_id],
         );
         if (!artifact) fail(404, "文档不存在");
+        if (artifact.thread_id && artifact.thread_id !== threadId)
+          fail(403, "不能修改其他迭代的文档");
+        if (artifact.folder_kind === "iteration_cache")
+          fail(403, "缓存文件是只读来源，不能提交新版本");
+        await this.assertDocumentScopeAvailable(db, thread.project_id, artifact.thread_id || null);
       } else {
         artifactId = randomUUID();
         await query(
@@ -1001,12 +1162,39 @@ export class Service {
     id.parse(versionId);
     const [version] = await query(
       this.db,
-      "SELECT v.*,a.project_id,a.title FROM versions v JOIN artifacts a ON a.id=v.artifact_id WHERE v.id=?",
+      `SELECT v.*,a.project_id,a.title,f.thread_id folder_thread_id,f.folder_kind
+       FROM versions v JOIN artifacts a ON a.id=v.artifact_id LEFT JOIN document_folders f ON f.id=a.folder_id WHERE v.id=?`,
       [versionId],
     );
     if (!version) fail(404, "文档版本不存在");
     await this.member(user, version.project_id);
     return version;
+  }
+  async copyVersionToOfficial(user, threadId, versionId, options = {}) {
+    if (user.kind !== "session" && !options.agent) fail(403, "另存项目正式文件需要人工登录");
+    id.parse(versionId);
+    const save = async (db) => {
+      const thread = await this.thread(user, threadId, !options.archive, db);
+      await this.assertDocumentScopeAvailable(db, thread.project_id, null);
+      const [source] = await query(db, `SELECT v.*,a.title,a.project_id,f.thread_id folder_thread_id
+        FROM versions v JOIN artifacts a ON a.id=v.artifact_id LEFT JOIN document_folders f ON f.id=a.folder_id
+        WHERE v.id=? AND a.project_id=?`, [versionId, thread.project_id]);
+      if (!source) fail(404, "文档版本不存在");
+      if (source.folder_thread_id && source.folder_thread_id !== threadId)
+        fail(403, "不能另存其他迭代的文件");
+      if (!source.folder_thread_id)
+        return { id: source.id, artifactId: source.artifact_id, reused: true };
+      const official = await this.documentFolder(db, thread.project_id, "project_official");
+      const artifactId = randomUUID(), copiedVersionId = randomUUID();
+      await query(db, "INSERT INTO artifacts(id,project_id,title,created_by,folder_id) VALUES(?,?,?,?,?)",
+        [artifactId, thread.project_id, source.title, user.id, official.id]);
+      await query(db, `INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?)`, [copiedVersionId, artifactId, threadId, 1, source.filename, source.mime,
+        source.content, source.sha256, source.byte_size, options.archive ? "迭代归档自动另存" : "另存至项目正式文件", user.id]);
+      await queueDocumentMemory(db, copiedVersionId);
+      return { id: copiedVersionId, artifactId, version: 1 };
+    };
+    return options.db ? save(options.db) : transaction(this.db, save);
   }
   async review(user, versionId, input) {
     if (user.kind !== "session") fail(403, "文档审核需要人工登录");
@@ -1067,6 +1255,13 @@ export class Service {
         [],
         "system",
       );
+      const outputVersions = await query(db, `SELECT v.id FROM versions v
+        JOIN artifacts a ON a.id=v.artifact_id JOIN document_folders f ON f.id=a.folder_id
+        WHERE f.thread_id=? AND f.folder_kind='iteration_outputs' AND a.deleted_at IS NULL
+        AND v.version=(SELECT MAX(latest.version) FROM versions latest WHERE latest.artifact_id=v.artifact_id)`, [threadId]);
+      const archivedOutputs = [];
+      for (const output of outputVersions)
+        archivedOutputs.push(await this.copyVersionToOfficial(user, threadId, output.id, { db, archive: true }));
       const context = await this.context(user, threadId, db);
       const versionIds = [...new Set(context.messages.flatMap((m) => m.refs))];
       const versions = [];
@@ -1094,6 +1289,7 @@ export class Service {
         versions,
         reviews: context.reviews,
         runs: context.runs,
+        archivedOutputs,
       };
       await query(
         db,

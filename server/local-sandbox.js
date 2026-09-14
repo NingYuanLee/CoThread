@@ -9,7 +9,7 @@ const execute = promisify(execFile);
 const virtualPrefix = "/home/user/";
 
 function sandboxBase() {
-  return resolve(process.env.LOCAL_SANDBOX_ROOT || ".local/sandboxes");
+  return resolve(".local/sandboxes");
 }
 
 function bashExecutable() {
@@ -115,5 +115,3 @@ export const LocalSandbox = {
     return instance;
   },
 };
-
-export const localSandboxEnabled = () => process.env.LOCAL_SANDBOX_ENABLED === "true";

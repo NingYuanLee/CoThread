@@ -11,7 +11,7 @@ if [ ! -x "$RUNTIME/node/bin/node" ]; then
   curl --fail --location --silent --show-error --max-time 30 "https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt" -o SHASUMS256.txt
   grep " $NODE_ARCHIVE\$" SHASUMS256.txt | sha256sum -c -
   mkdir -p node
-  # ACS's virtual filesystem rejects GNU tar's delayed directory timestamp restoration.
+  # Some managed virtual filesystems reject GNU tar's delayed directory timestamp restoration.
   # Extract verified bytes without rewriting directory metadata.
   python3 - "$RUNTIME/$NODE_ARCHIVE" "$RUNTIME/node" <<'PY'
 import os, pathlib, shutil, sys, tarfile

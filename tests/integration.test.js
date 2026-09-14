@@ -8,7 +8,7 @@ import { createDatabase, query } from "../server/db.js";
 import { createApp } from "../server/app.js";
 import { hashPassword } from "../server/auth.js";
 import { Service } from "../server/service.js";
-import { executeRun } from "../server/acs.js";
+import { executeRun } from "../server/sandbox-run.js";
 import { testDatabase } from "./database.js";
 import { createAgentTools } from "../server/agent-tools.js";
 import { relativePath } from "../server/agent-sandbox.js";
@@ -371,41 +371,25 @@ test("MCP initialize, list tools and context over authenticated Streamable HTTP"
   });
   assert.equal(JSON.parse(context.result.content[0].text).id, iteration);
 });
-test("failed ACS execution retains team data and records failure without exposing provider credentials", async () => {
-  const saved = {
-    key: process.env.E2B_API_KEY,
-    domain: process.env.E2B_DOMAIN,
-  };
-  process.env.E2B_API_KEY = "test-secret";
-  process.env.E2B_DOMAIN = "test.example";
-  try {
-    const result = await executeRun(
-      new Service(db),
-      owner,
-      iteration,
-      { command: "pwd" },
-      "command",
-      {
-        create: async () => {
-          throw new Error("url?apiKey=test-secret");
-        },
+test("failed sandbox execution retains team data and does not expose provider diagnostics", async () => {
+  const result = await executeRun(
+    new Service(db),
+    owner,
+    iteration,
+    { command: "pwd" },
+    "command",
+    {
+      create: async () => {
+        throw new Error("url?apiKey=test-secret");
       },
-    );
-    assert.equal(result.status, "failed");
-    assert.ok(!result.output.includes("test-secret"));
-    assert.equal(
-      (await request(`/versions/${version1.id}`, undefined, owner)).status,
-      200,
-    );
-  } finally {
-    for (const [key, value] of [
-      ["E2B_API_KEY", saved.key],
-      ["E2B_DOMAIN", saved.domain],
-    ]) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  }
+    },
+  );
+  assert.equal(result.status, "failed");
+  assert.ok(!result.output.includes("test-secret"));
+  assert.equal(
+    (await request(`/versions/${version1.id}`, undefined, owner)).status,
+    200,
+  );
 });
 test("archival is immutable, includes exact reviewed versions, and survives a fresh database connection", async () => {
   const archived = await request(
@@ -539,14 +523,12 @@ test("a summary that cannot be committed is never marked successful", async () =
     throw new Error("Injected persistence failure");
   };
   const saved = Object.fromEntries(
-    ["E2B_API_KEY", "E2B_DOMAIN", "DSH_ENABLED", "DSH_BOOTSTRAP"].map((key) => [
+    ["DSH_ENABLED", "DSH_BOOTSTRAP"].map((key) => [
       key,
       process.env[key],
     ]),
   );
   Object.assign(process.env, {
-    E2B_API_KEY: "test-key",
-    E2B_DOMAIN: "test.example",
     DSH_ENABLED: "true",
     DSH_BOOTSTRAP: "false",
   });

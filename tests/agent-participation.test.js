@@ -3,13 +3,12 @@ import assert from "node:assert/strict";
 import { decideParticipation } from "../server/agent-participation.js";
 
 test("unmentioned discussion reaches the model, which can choose silence or participation", async () => {
-  const keys = ["COORDINATOR_MODEL_PROVIDER", "COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY", "COORDINATOR_MODEL_NAME", "COORDINATOR_MODEL_REASONING_EFFORT"];
+  const keys = ["COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY", "COORDINATOR_MODEL"];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   Object.assign(process.env, {
-    COORDINATOR_MODEL_PROVIDER: "Test Provider",
     COORDINATOR_MODEL_BASE_URL: "https://model.test/v1",
     COORDINATOR_MODEL_API_KEY: "test-only",
-    COORDINATOR_MODEL_NAME: "test-model",
+    COORDINATOR_MODEL: "test-model",
   });
   try {
     for (const respond of [false, true]) {

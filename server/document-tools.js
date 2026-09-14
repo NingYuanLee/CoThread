@@ -14,9 +14,12 @@ export async function documentTool(service,user,name,input,job) {
   if(job){const thread=await service.thread(user,job.thread_id);if(projectId && projectId!==thread.project_id)throw new HttpError(403,'仅可操作当前项目');projectId=thread.project_id;}
   id.parse(projectId);
   if(name==='list_documents'){
+    if(job)await service.assertDocumentScopeAvailable(service.db,projectId,job.thread_id);
     const p=await service.project(user,projectId,{display:true});
+    const folders=job?p.folders.filter(folder=>!folder.thread_id||folder.thread_id===job.thread_id):p.folders;
+    const versions=job?p.versions.filter(version=>!version.folder_thread_id||version.folder_thread_id===job.thread_id):p.versions;
     const end=args.offset+args.limit;
-    return {projectId,folders:p.folders.slice(args.offset,end),versions:p.versions.slice(args.offset,end),page:{nextOffset:end,hasMore:p.folders.length>end||p.versions.length>end}};
+    return {projectId,folders:folders.slice(args.offset,end),versions:versions.slice(args.offset,end),page:{nextOffset:end,hasMore:folders.length>end||versions.length>end}};
   }
   const options={tool:true,authorize:job ? async db=>{
     await service.thread(user,job.thread_id,true,db);
@@ -28,10 +31,10 @@ export async function documentTool(service,user,name,input,job) {
     const version=args.scope==='version';
     if(version && !['delete','restore'].includes(args.action))throw new HttpError(400,'版本仅支持删除或恢复；重命名和移动作用于整份文档');
     const target=id.parse(version?args.versionId:args.artifactId);
-    const data=args.action==='rename'?{name:z.string().min(1).parse(args.name)}:args.action==='move'?{folderId:id.nullable().parse(args.folderId)}:{deleted:args.action==='delete'};
+    const data={...(job?{threadId:job.thread_id}:{}),...(args.action==='rename'?{name:z.string().min(1).parse(args.name)}:args.action==='move'?{folderId:id.nullable().parse(args.folderId)}:{deleted:args.action==='delete'})};
     return {...await libraryChange(service,user,projectId,version?'version':'artifact',target,data,options),action:args.action,scope:args.scope||'document'};
   }
   const target=args.action==='create'?null:id.parse(args.folderId);
-  const data=args.action==='create'||args.action==='rename'?{name:z.string().min(1).parse(args.name),...(args.action==='create'?{parentId:args.parentId||null}:{})}:args.action==='move'?{parentId:id.nullable().parse(args.parentId)}:{};
+  const data={...(job?{threadId:job.thread_id}:{}),...(args.action==='create'||args.action==='rename'?{name:z.string().min(1).parse(args.name),...(args.action==='create'?{parentId:args.parentId||null}:{})}:args.action==='move'?{parentId:id.nullable().parse(args.parentId)}:{})};
   return {...await libraryChange(service,user,projectId,args.action==='delete'?'remove-folder':'folder',target,data,options),action:args.action};
 }

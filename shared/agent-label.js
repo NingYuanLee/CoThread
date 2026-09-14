@@ -85,9 +85,28 @@ export function describeAgentAction(tool, args = {}, result = {}) {
     case "list_local_connectors":
       action = "查看本地连接器";
       break;
-    case "prepare_local_codex":
-      action = "整理本机任务";
-      object = result.connector || "Codex";
+    case "dsh_l3":
+      action = "启动三级小祥";
+      object = args.taskId || "DSH L3";
+      break;
+    case "send_message":
+      action = "续接三级小祥";
+      object = args.agentId || "DSH L3";
+      break;
+    case "interrupt_agent":
+      action = "中断三级小祥";
+      object = args.agentId || "DSH L3";
+      break;
+    case "list_agents":
+      action = "查看 AgentTeam";
+      object = args.scope || "children";
+      break;
+    case "agent_run":
+      action = "运行三级小祥";
+      break;
+    case "resolve_task_rejection":
+      action = args.action === "reopen" ? "重新发起任务" : "确认任务拒绝";
+      object = args.taskId || "任务";
       break;
     case "sandbox_read":
       action = "读取文件";

@@ -5,7 +5,7 @@ import { AsyncResource } from "node:async_hooks";
 import { withMakersSandbox, makersWorkspace, bindMakersSandbox } from "../server/makers-sandbox.js";
 import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.js";
 
-test("native Makers workspaces bypass ACS, share instance lifetime and preserve binary bytes", async () => {
+test("native Makers workspaces bypass local sandboxes, share instance lifetime and preserve binary bytes", async () => {
   const files = new Map(), commands = [], directories = [];
   let restored = 0, persisted = 0, killed = 0, transferred;
   const native = {
@@ -26,7 +26,7 @@ test("native Makers workspaces bypass ACS, share instance lifetime and preserve 
       return { exitCode: 0, stdout: "done", stderr: "" };
     } },
   };
-  const randomId = randomUUID(), db = { execute: () => { throw new Error("Native tasks must not reconnect legacy ACS IDs"); } };
+  const randomId = randomUUID(), db = { execute: () => { throw new Error("Native tasks must not reconnect local sandbox IDs"); } };
   const thread = randomUUID(), firstId = randomUUID(), secondId = randomUUID();
   const outside = new AsyncResource("outside-makers-request");
   await withMakersSandbox(native, async () => {
@@ -53,7 +53,7 @@ test("native Makers workspaces bypass ACS, share instance lifetime and preserve 
   assert.equal(restored, 1, "a reused live instance must not overwrite files with an older checkpoint");
 });
 
-test("missing native context fails explicitly instead of falling back to deleted ACS", async () => {
+test("missing native context fails explicitly instead of falling back to a local sandbox", async () => {
   let called = false;
   await assert.rejects(withMakersSandbox(undefined, () => acquireSandbox({}, randomUUID(), async () => {}, {
     connect: () => { called = true; }, create: () => { called = true; },

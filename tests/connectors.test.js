@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createApp } from "../server/app.js";
 import { hashPassword } from "../server/auth.js";
-import { connectorTool } from "../server/connectors.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { testDatabase } from "./database.js";
@@ -54,14 +53,6 @@ async function pair(user, name, allowGitPush = false) {
   const bound = await request(`/connector/projects/${projectId}`, { allowGitPush }, connector, "PUT");
   assert.equal(bound.status, 200);
   return connector;
-}
-
-async function prepare(messageId, requester, connectorId) {
-  await query(db, `INSERT INTO agent_events(message_id,tool,status,input,output,finished_at)
-    VALUES(?,'project_context','completed','{}','{}',UTC_TIMESTAMP(3))`, [messageId]);
-  return connectorTool(new Service(db), { id: requester.id }, "prepare_local_codex",
-    { connectorId, prompt: "请严格按项目资料完成已确认的页面样式调整，不修改任何函数、接口或业务逻辑，并运行相关检查后回传完整差异。".repeat(2) },
-    { message_id: messageId, thread_id: threadId }, { project_id: projectId });
 }
 
 before(async () => {
@@ -148,42 +139,28 @@ test("group local tasks target one online member and require that member's appro
   assert.equal(availability.status, 200);
   assert.deepEqual(new Set(availability.body.map((item) => item.ownerId)), new Set([assignee.id, fallback.id]));
 
-  const missingMention = await request(`/threads/${threadId}/messages`, {
-    body: "请调整页面样式", executionTarget: "local",
+  const created = await request(`/projects/${projectId}/tasks`, {
+    title: "调整页面样式",
+    goal: "严格按项目资料完成页面样式调整，不修改接口或业务逻辑，并运行相关检查后回传完整差异。",
+    targetUserId: assignee.id,
+    threadId,
   }, requester);
-  assert.equal(missingMention.status, 409);
-  assert.match(missingMention.body.error, /且只能 @ 一名/);
+  assert.equal(created.status, 201);
+  assert.equal(created.body.status, "awaiting_acceptance");
+  assert.equal(created.body.target_id, assignee.id);
+  assert.equal((await request(`/tasks/${created.body.id}/accept`, { mode: "member_connector" }, requester)).status, 403);
 
-  const tooMany = await request(`/threads/${threadId}/messages`, {
-    body: "@执行者 @接替者 请调整页面样式", executionTarget: "local",
-  }, requester);
-  assert.equal(tooMany.status, 400);
-
-  const posted = await request(`/threads/${threadId}/messages`, {
-    body: "@执行者 请调整页面样式", executionTarget: "local",
-  }, requester);
-  assert.equal(posted.status, 201);
-  const [message] = await query(db, "SELECT execution_target_user_id FROM messages WHERE id=?", [posted.body.id]);
-  assert.equal(message.execution_target_user_id, assignee.id);
-
-  const pending = await prepare(posted.body.id, requester, assigneeConnector.id);
-  assert.equal(pending.status, "awaiting_approval");
-  const [task] = await query(db, "SELECT * FROM connector_tasks WHERE id=?", [pending.id]);
-  assert.equal(task.assigned_to, assignee.id);
-  assert.equal(task.policy, "unrestricted");
-  assert.equal(!!task.allow_git_push, true);
-  const requesterApproval = await request(`/connector-tasks/${task.id}/decision`, { approved: true, prompt: task.instruction }, requester);
-  assert.equal(requesterApproval.status, 404);
-  const beforeApproval = await request("/connector/poll", { version: "0.1.0" }, assigneeConnector);
-  assert.equal(beforeApproval.body.task, null);
-
-  const reassigned = await request(`/connector-tasks/${task.id}/reassign`, { connectorId: fallbackConnector.id }, assignee);
+  const reassigned = await request(`/tasks/${created.body.id}/reassign`, {
+    targetType: "human_member", targetUserId: fallback.id, reason: "由接替者完成",
+  }, assignee);
   assert.equal(reassigned.status, 200);
-  assert.equal(reassigned.body.assignedTo, fallback.id);
-  const oldOwnerApproval = await request(`/connector-tasks/${task.id}/decision`, { approved: true, prompt: task.instruction }, assignee);
-  assert.equal(oldOwnerApproval.status, 404);
-  const approved = await request(`/connector-tasks/${task.id}/decision`, { approved: true, prompt: task.instruction }, fallback);
+  assert.equal(reassigned.body.target_id, fallback.id);
+  const approved = await request(`/tasks/${created.body.id}/accept`, { mode: "member_connector" }, fallback);
   assert.equal(approved.status, 200);
+  assert.equal(approved.body.execution_agent_type, "human_connector");
+  const [task] = await query(db, "SELECT * FROM connector_tasks WHERE agent_task_id=?", [created.body.id]);
+  assert.equal(task.assigned_to, fallback.id);
+  assert.equal(task.status, "queued");
   const connectorTasks = await request("/connector/tasks", undefined, fallbackConnector);
   assert.equal(connectorTasks.status, 200);
   assert.equal(connectorTasks.body[0].id, task.id);
@@ -229,15 +206,15 @@ test("group local tasks target one online member and require that member's appro
   assert.equal(completionMessage.author_id, fallback.id);
   assert.equal(completionMessage.source, "local_ai");
 
-  const directPosted = await request(`/threads/${threadId}/messages`, {
-    body: "@接替者 请直接完成另一个页面的样式调整", executionTarget: "local",
+  const directCreated = await request(`/projects/${projectId}/tasks`, {
+    title: "调整另一个页面",
+    goal: "完成另一个页面的样式调整并回传验证结果。",
+    targetUserId: fallback.id,
+    threadId,
   }, requester);
-  assert.equal(directPosted.status, 201);
-  const directPending = await prepare(directPosted.body.id, requester, fallbackConnector.id);
-  const [directTask] = await query(db, "SELECT * FROM connector_tasks WHERE id=?", [directPending.id]);
-  assert.equal((await request(`/connector-tasks/${directTask.id}/decision`, {
-    approved: true, prompt: directTask.instruction,
-  }, fallback)).status, 200);
+  assert.equal(directCreated.status, 201);
+  assert.equal((await request(`/tasks/${directCreated.body.id}/accept`, { mode: "member_connector" }, fallback)).status, 200);
+  const [directTask] = await query(db, "SELECT * FROM connector_tasks WHERE agent_task_id=?", [directCreated.body.id]);
   const directClaim = await request(`/connector/tasks/${directTask.id}/claim`, {}, fallbackConnector);
   assert.equal(directClaim.status, 200);
   assert.equal((await request(`/connector/tasks/${directTask.id}`, {
@@ -255,11 +232,13 @@ test("group local tasks target one online member and require that member's appro
     [notifiedTask.response_message_id, directCompletion.id]);
   assert.deepEqual(correctedMessages.map((message) => message.author_id), [fallback.id, fallback.id]);
 
-  await pair(requester, "提出人电脑");
-  const selfPosted = await request(`/threads/${threadId}/messages`, {
-    body: "请调整另一个页面的样式", executionTarget: "local",
+  const requesterConnector = await pair(requester, "提出人电脑");
+  const selfCreated = await request(`/projects/${projectId}/tasks`, {
+    title: "提出人自己的任务", goal: "由提出人选择自己的连接器执行。", targetUserId: requester.id, threadId,
   }, requester);
-  assert.equal(selfPosted.status, 201);
-  const [selfMessage] = await query(db, "SELECT execution_target_user_id FROM messages WHERE id=?", [selfPosted.body.id]);
-  assert.equal(selfMessage.execution_target_user_id, requester.id);
+  assert.equal(selfCreated.status, 201);
+  const selfAccepted = await request(`/tasks/${selfCreated.body.id}/accept`, { mode: "auto" }, requester);
+  assert.equal(selfAccepted.status, 200);
+  assert.equal(selfAccepted.body.execution_agent_type, "human_connector");
+  assert.equal(selfAccepted.body.execution_agent_id, requesterConnector.id);
 });

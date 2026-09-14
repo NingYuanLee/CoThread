@@ -6,7 +6,6 @@ import { taskTimeline } from "./chat-timeline";
 import { apiFetch, fetchJson } from "./api-fetch";
 import {
   AGENT_MEMBER,
-  ORGANIZE_DOCUMENTS_REQUEST,
   SUMMARY_REQUEST,
   mentionsAgent,
 } from "../shared/agent-member.js";
@@ -25,6 +24,7 @@ import { ContextMeter } from "./ContextMeter";
 import { Notifications } from "./Notifications";
 import { ProjectSettings } from "./ProjectSettings";
 import { AgentMonitor } from "./AgentMonitor";
+import { AgentLogDialog } from "./AgentLogDialog";
 import { MemberPicker } from "./MemberPicker";
 import { SystemManagement } from "./SystemManagement";
 import { EmailAuth } from "./EmailAuth";
@@ -33,7 +33,6 @@ import { PasswordField } from "./PasswordField";
 import { AuthParticleBackground } from "./AuthParticleBackground";
 import { ConnectorPanel, type ConnectorDevice } from "./ConnectorPanel";
 import { ConnectorAuthorization } from "./ConnectorAuthorization";
-import { LocalTasks, type AvailableConnector, type LocalTask } from "./LocalTasks";
 import type { ContextUsage } from "../shared/context.js";
 import { createResourceCache } from "../shared/resource-cache.js";
 import { IdentityName, RoleBadge } from "./Identity";
@@ -251,6 +250,8 @@ type Version = {
   id: string;
   artifact_id: string;
   folder_id?: string | null;
+  folder_thread_id?: string | null;
+  folder_kind?: string | null;
   deleted_at?: string | null;
   title: string;
   version: number;
@@ -281,10 +282,55 @@ type Detail = Project & {
     motto?: string;
     identity_tags?: string[];
   }[];
-  folders: { id: string; parent_id: string | null; name: string }[];
+  folders: { id: string; parent_id: string | null; thread_id?: string | null; folder_kind?: string | null; system_key?: string | null; name: string }[];
   versions: Version[];
+  documentOrganizationJobs: { id: string; thread_id?: string | null; scope: "iteration" | "project"; status: string; error?: string | null }[];
 };
 type MessageQuote = { id: string; thread_id?: string; author: string; body: string; source: string; refs: string[] };
+type LocalTask = {
+  id: string;
+  status: "awaiting_approval" | "queued" | "running" | "paused" | "stopped_pending_approval" |
+    "completed_pending_notification" | "failed_pending_notification" | "completed" | "failed" | "cancelled" | "interrupted";
+};
+type AvailableConnector = {
+  projectId: string;
+  id: string;
+  name: string;
+  ownerId: string;
+  ownerName: string;
+  policy: "unrestricted" | "style_only" | "layout_style";
+  allowGitPush: boolean;
+};
+type AgentTask = {
+  id: string;
+  origin_thread_id: string | null;
+  title: string;
+  goal: string;
+  task_type: "assist_l2" | "formal";
+  status: string;
+  source_type: string;
+  source_user_id: string | null;
+  created_by_type: string;
+  created_by_id: string;
+  target_type: string | null;
+  target_id: string | null;
+  claimed_by_type: string | null;
+  claimed_by_id: string | null;
+  execution_agent_type: string | null;
+  execution_agent_id: string | null;
+  progress: string | null;
+  result_summary: string | null;
+  updated_at: string;
+};
+type AgentTaskDetail = AgentTask & {
+  constraints: string | null;
+  artifact_refs: unknown[] | string | null;
+  assignmentHistory: { id: number; event_type: "assigned" | "transferred" | "rejected" | "acknowledged" | "reopened"; from_target_type: string | null; from_target_id: string | null; to_target_type: string | null; to_target_id: string | null; reason: string | null; created_at: string }[];
+  questions: { id: string; source_user_id: string | null; question: string; answer: string | null; status: string; created_at: string }[];
+  executionRuns: { id: string; executor_type: string; executor_id: string | null; status: string; progress: string | null; result_summary: string | null; error: string | null; created_at: string }[];
+  updates: { id: string; body: string; source_type: string; source_id: string; created_at: string }[];
+  rejectionReview: { rejected: boolean; resolved: boolean; reviewer_type: string | null; reviewer_id: string | null };
+};
 type Thread = {
   page?: { hasMore: boolean; before: string | null; after: string | null };
   contextUsage: ContextUsage;
@@ -352,11 +398,10 @@ type Modal =
   | "profile"
   | "project"
   | "thread"
-  | "document"
   | "settings"
   | "admin-projects"
   | "admin-accounts"
-  | "admin-connector"
+  | "admin-plugins"
   | "archive"
   | "tokens"
   | "password"
@@ -372,7 +417,7 @@ async function api(path: string, data?: unknown, method?: string, signal?: Abort
     signal,
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
-  const work = path.match(/^\/threads\/([^/]+)\/(?:messages|summary|context\/compact|replies\/[^/]+\/retry)$/);
+  const work = path.match(/^\/threads\/([^/]+)\/(?:messages|summary|context\/compact|documents\/organize|replies\/[^/]+\/retry)$/);
   if (work && (method || (data === undefined ? "GET" : "POST")) === "POST") wakeMakers(work[1], undefined, true);
   return result;
 }
@@ -488,6 +533,7 @@ function App() {
   }, [copiedMessage]);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
+  const [agentLogScope, setAgentLogScope] = useState<{ type: "project" | "thread" | "task"; id: string } | null>(null);
   const [connectorOpen, setConnectorOpen] = useState(false);
   const connectorAuthorizationParams = new URLSearchParams(location.search);
   const connectorAuthorizationId = connectorAuthorizationParams.get("connectorAuthorization") || "";
@@ -533,7 +579,26 @@ function App() {
   );
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
   const [memberSearch, setMemberSearch] = useState("");
-  const [tab, setTab] = useState<"documents" | "members" | "info">("documents");
+  const [tab, setTab] = useState<"documents" | "members" | "tasks" | "info">("documents");
+  const [taskPool, setTaskPool] = useState<AgentTask[]>([]);
+  const [taskScope, setTaskScope] = useState<"current" | "all">("current");
+  const [taskMine, setTaskMine] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState("");
+  const [taskDetail, setTaskDetail] = useState<AgentTaskDetail | null>(null);
+  const [taskActionBusy, setTaskActionBusy] = useState(false);
+  const [taskActionError, setTaskActionError] = useState("");
+  const [taskExecutionMode, setTaskExecutionMode] = useState<"auto" | "human_direct" | "member_connector">("auto");
+  const [taskTransferTarget, setTaskTransferTarget] = useState("");
+  const [taskProgress, setTaskProgress] = useState("");
+  const [taskResult, setTaskResult] = useState("");
+  const [taskAnswer, setTaskAnswer] = useState("");
+  const [taskReopenGoal, setTaskReopenGoal] = useState("");
+  const [taskReopenConstraints, setTaskReopenConstraints] = useState("");
+  const [taskCreateOpen, setTaskCreateOpen] = useState(false);
+  const [taskCreateTitle, setTaskCreateTitle] = useState("");
+  const [taskCreateGoal, setTaskCreateGoal] = useState("");
+  const [taskCreateConstraints, setTaskCreateConstraints] = useState("");
+  const [taskCreateTarget, setTaskCreateTarget] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
@@ -550,12 +615,10 @@ function App() {
     { id: string; label: string; project_id: string | null; expires_at: string; token: string | null }[]
   >([]);
   const [health, setHealth] = useState<{
-    acsConfigured: boolean;
     dshEnabled: boolean;
     agentEndpoint?: string;
     mcpEndpoint?: string;
   } | null>(null);
-  const [selectedArtifact, setSelectedArtifact] = useState("");
   const [history, setHistory] = useState(false);
   const writable = projects.find((p) => p.id === projectId)?.role !== "viewer";
   const owner = projects.find((p) => p.id === projectId)?.role === "owner";
@@ -563,6 +626,16 @@ function App() {
   const projectMember = projects.some((p) => p.id === projectId);
   const active = thread?.status === "active" && writable;
   const localAvailable = connectorAvailability.some((item) => item.projectId === projectId);
+  const isMyTask = (task: AgentTask) => task.source_user_id === user?.id || task.created_by_id === user?.id ||
+    task.target_id === user?.id || task.claimed_by_id === user?.id || task.execution_agent_id === user?.id;
+  const myTasks = taskPool.filter(isMyTask);
+  const currentMyTasks = myTasks.filter((task) => task.origin_thread_id === threadId);
+  const visibleTasks = taskPool.filter((task) => (taskScope === "all" || task.origin_thread_id === threadId) && (!taskMine || isMyTask(task)));
+  const openTask = (taskId: string) => {
+    setSelectedTaskId(taskId);
+    setTab("tasks");
+    setContextOpen(true);
+  };
   const refreshConnectors = async () => {
     const [devices, availability] = await Promise.all([api("/connectors"), api("/connectors/availability")]);
     setConnectors(devices);
@@ -755,6 +828,57 @@ function App() {
     if (pendingWork) wakeThreadPoll.current?.();
   }, [threadId, pendingWork]);
   useEffect(() => {
+    if (!projectId || !user) { setTaskPool([]); return; }
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const load = async () => {
+      try {
+        const tasks = await api(`/projects/${projectId}/tasks?limit=200`);
+        if (alive) setTaskPool(tasks);
+      } catch (e) {
+        if (alive && (e as Error).name !== "AbortError") setError((e as Error).message);
+      } finally {
+        if (alive) timer = setTimeout(load, tab === "tasks" ? 5000 : 15000);
+      }
+    };
+    void load();
+    return () => { alive = false; clearTimeout(timer); };
+  }, [projectId, user?.id, tab]);
+  useEffect(() => {
+    if (!selectedTaskId) { setTaskDetail(null); return; }
+    let alive = true;
+    void api(`/tasks/${selectedTaskId}`).then((value) => {
+      if (!alive) return;
+      setTaskDetail(value);
+      setTaskProgress(value.progress || "");
+      setTaskResult(value.result_summary || "");
+      setTaskReopenGoal(value.goal || "");
+      setTaskReopenConstraints(value.constraints || "");
+      setTaskActionError("");
+    }).catch((cause) => { if (alive) setTaskActionError(cause.message); });
+    return () => { alive = false; };
+  }, [selectedTaskId]);
+  const performTaskAction = async (action: () => Promise<unknown>) => {
+    setTaskActionBusy(true);
+    setTaskActionError("");
+    try {
+      await action();
+      const [tasks, nextDetail] = await Promise.all([
+        api(`/projects/${projectId}/tasks?limit=200`),
+        selectedTaskId ? api(`/tasks/${selectedTaskId}`) : Promise.resolve(null),
+      ]);
+      setTaskPool(tasks);
+      setTaskDetail(nextDetail);
+      if (nextDetail) {
+        setTaskProgress(nextDetail.progress || "");
+        setTaskResult(nextDetail.result_summary || "");
+        setTaskReopenGoal(nextDetail.goal || "");
+        setTaskReopenConstraints(nextDetail.constraints || "");
+      }
+    } catch (cause) { setTaskActionError((cause as Error).message); }
+    finally { setTaskActionBusy(false); }
+  };
+  useEffect(() => {
     const container = conversationRef.current;
     if (container && followConversation.current)
       container.scrollTop = container.scrollHeight;
@@ -784,6 +908,7 @@ function App() {
         .then((value) => { if (currentContext.current.projectId === projectId) setDetail(value); }) : null,
       threadId ? threadCache.current.read(threadId, (signal) => readThread(threadId, signal), true)
         .then((value) => { if (currentContext.current.threadId === threadId) setThread(value); }) : null,
+      projectId ? api(`/projects/${projectId}/tasks?limit=200`).then((value) => { if (currentContext.current.projectId === projectId) setTaskPool(value); }) : null,
     ].map((request) => request?.catch((e) => { if (e.name !== "AbortError") throw e; })));
   };
   const loadHistory = async () => {
@@ -971,26 +1096,6 @@ function App() {
         setTokens(await api("/tokens"));
         return;
       }
-      if (modal === "document") {
-        const file = form.get("file") as File;
-        if (!file?.size) throw new Error("请选择一个非空文件");
-        if (file.size > 5 * 1024 * 1024) throw new Error("文件不能超过 5 MiB");
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result).split(",")[1]);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        await api(`/threads/${threadId}/versions`, {
-          title: value("title"),
-          artifactId: value("artifactId") || undefined,
-          filename: file.name,
-          mime: file.type || "application/octet-stream",
-          contentBase64: base64,
-          note: value("note"),
-        });
-        await refresh();
-      }
       setModal(null);
     });
   };
@@ -1023,7 +1128,7 @@ function App() {
   const persistOptimisticMessage = async (
     targetThreadId: string,
     optimisticId: string,
-    payload: { body: string; refs: string[]; quoteIds: string[]; clientMessageId: string; executionTarget?: "cloud" | "local" },
+    payload: { body: string; refs: string[]; quoteIds: string[]; clientMessageId: string },
     quotes: MessageQuote[],
   ) => {
     updateThreadCache(targetThreadId, current => ({ ...current, messages: current.messages.map(item =>
@@ -1434,12 +1539,12 @@ function App() {
         <div className="sidebar-bottom">
           <button
             className="sidebar-card sidebar-connector"
-            title="下载、配对和查看本地连接器"
+            title="查看已关联的本地连接器"
             aria-label="本地连接器"
             onClick={() => { setConnectorOpen(true); void refreshConnectors(); }}
           >
             <span className="sidebar-card-icon"><SidebarIcon kind="connector" /></span>
-            <span className="sidebar-card-copy">本地连接器<small>{localAvailable ? "项目有成员在线" : "下载或关联设备"}</small></span>
+            <span className="sidebar-card-copy">本地连接器<small>{localAvailable ? "项目有成员在线" : "运行连接器后在此授权"}</small></span>
             <span className="sidebar-card-action" aria-hidden="true">›</span>
           </button>
           <button
@@ -1501,7 +1606,7 @@ function App() {
         }}
       >
         {fileDragOver && (
-          <div className="chat-drop-hint">松开以上传至对话临时文件</div>
+          <div className="chat-drop-hint">松开以上传至本迭代今日缓存</div>
         )}
         <header>
           <nav className="breadcrumb" aria-label="当前位置">
@@ -1526,6 +1631,7 @@ function App() {
                 await refresh();
               }}
             />}
+            <button type="button" onClick={() => setAgentLogScope({ type: "thread", id: threadId })}>运行日志</button>
           </div>}
         </header>
         {error && !modal && (
@@ -1721,7 +1827,6 @@ function App() {
                     {m.delivery_status === "sending" && <span className="message-delivery-control sending" role="status" aria-label="正在发送" title="正在发送" />}
                     {m.delivery_status === "failed" && <button type="button" className="message-delivery-control failed" aria-label="重新发送" title={m.delivery_error || "重新发送"} onClick={() => void persistOptimisticMessage(threadId, m.id, {
                       body: m.body, refs: m.refs, quoteIds: (m.quotes || []).map(quote => quote.id), clientMessageId: m.id.slice("optimistic:".length),
-                      executionTarget: m.execution_target,
                     }, m.quotes || [])}>
                       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
                     </button>}
@@ -1759,12 +1864,20 @@ function App() {
             </div>
             </div>
             <div className="composer-area">
-              {
-                <div
-                  className="composer-actions"
-                  role="group"
-                  aria-label="迭代操作"
-                >
+              <div className="composer-toolbar">
+                <div className="conversation-task-pool" aria-label="本迭代与我有关的任务">
+                  <button type="button" className="conversation-task-pool-label" onClick={() => {
+                    setTaskScope("current"); setTaskMine(true); setSelectedTaskId(""); setTaskDetail(null); setTab("tasks"); setContextOpen(true);
+                  }}>本迭代任务</button>
+                  <div className="conversation-task-list">
+                    {currentMyTasks.map((task) => <button type="button" className="conversation-task-item" data-status={task.status} key={task.id}
+                      title={task.goal} onClick={() => { setTaskScope("current"); setTaskMine(true); openTask(task.id); }}>
+                      <i aria-hidden="true" /><strong>{task.title}</strong><span>{task.progress || task.status}</span>
+                    </button>)}
+                    {!currentMyTasks.length && <span className="conversation-task-empty">暂无与我有关的任务</span>}
+                  </div>
+                </div>
+                <div className="composer-actions" role="group" aria-label="迭代操作">
                   {active && (
                     <button
                       disabled={!active || busy}
@@ -1776,26 +1889,24 @@ function App() {
                   )}
                   {active && (
                     <button
-                      disabled={!active || busy}
-                      title="检查、分类并整理项目文档库"
-                      onClick={() => { setMessage(ORGANIZE_DOCUMENTS_REQUEST); requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus()); }}
+                      disabled={!active || busy || detail?.documentOrganizationJobs?.some((job) => job.scope === "iteration" && job.thread_id === threadId && ["queued", "running"].includes(job.status))}
+                      title="由一级小祥在后台整理本迭代文件"
+                      onClick={() => void api(`/threads/${threadId}/documents/organize`, {}).then(refresh).catch((cause) => setError(cause.message))}
                     >
-                      整理文档
+                      {detail?.documentOrganizationJobs?.some((job) => job.scope === "iteration" && job.thread_id === threadId && ["queued", "running"].includes(job.status)) ? "整理中…" : "整理文档"}
                     </button>
                   )}
                   {active && (
                     <button onClick={() => open("archive")}>归档迭代 ↗</button>
                   )}
                 </div>
-              }
+              </div>
               {active ? (
                 <Suspense fallback={<div className="composer-loading" role="status">正在加载输入框…</div>}>
                 {!!quotedMessages.length && <div className="composer-quotes">{quotedMessages.map(q => <div key={q.id}>
                   <span>引用 {q.source === "assistant" ? AGENT_MEMBER.name : q.author}：{q.body.slice(0,80)}</span>
                   <button type="button" aria-label="取消引用" onClick={() => setQuotedMessages(items => items.filter(item => item.id !== q.id))}>×</button>
                 </div>)}</div>}
-                <LocalTasks tasks={thread.connectorTasks || []} userId={user.id}
-                  availableConnectors={connectorAvailability.filter((item) => item.projectId === projectId)} api={api} onRefresh={refresh} />
                 <ChatComposer
                   key={`${projectId}:${threadId}`}
                   projectId={projectId}
@@ -1808,32 +1919,8 @@ function App() {
                   members={detail?.members || []}
                   busy={busy}
                   uploadTarget={uploadTarget}
-                  localAvailable={localAvailable}
                   onRefresh={refresh}
-                  onSend={async (executionTarget) => {
-                    if (executionTarget === "local") {
-                      const onlineMemberIds = new Set(connectorAvailability
-                        .filter((item) => item.projectId === projectId).map((item) => item.ownerId));
-                      const mentionedMembers = (detail?.members || []).filter((member) => {
-                        if (member.id === AGENT_MEMBER.id) return false;
-                        return [member.name, member.username, member.email].filter(Boolean).some((value) => {
-                          const escaped = value!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                          return new RegExp(`(^|[^\\p{L}\\p{N}_@])@${escaped}(?=$|[^\\p{L}\\p{N}_@])`, "u").test(message);
-                        });
-                      });
-                      if (mentionedMembers.length > 1) {
-                        setError("本机 Codex 模式只能 @ 一名执行成员。");
-                        return false;
-                      }
-                      if (mentionedMembers.length === 1 && !onlineMemberIds.has(mentionedMembers[0].id)) {
-                        setError(`@${mentionedMembers[0].name} 的连接器当前未在线或未关联本项目。`);
-                        return false;
-                      }
-                      if (!onlineMemberIds.has(user.id) && mentionedMembers.length !== 1) {
-                        setError("你的连接器未在线，请且只能 @ 一名连接器在线的项目成员。");
-                        return false;
-                      }
-                    }
+                  onSend={async () => {
                     const targetThreadId = threadId;
                     const body = message;
                     const selectedRefs = [...refs];
@@ -1854,7 +1941,7 @@ function App() {
                       author_role: user.identity_tags[0] || null,
                       quotes: selectedQuotes,
                       created_at: new Date().toISOString(),
-                      execution_target: executionTarget,
+                      execution_target: "cloud" as const,
                       delivery_status: "sending" as const,
                     };
                     threadCache.current.cancel(targetThreadId);
@@ -1864,7 +1951,7 @@ function App() {
                     setRefs([]);
                     followConversation.current = true;
                     void persistOptimisticMessage(targetThreadId, optimisticId, {
-                      body, refs: selectedRefs, quoteIds: selectedQuotes.map(q => q.id), clientMessageId: optimisticId.slice("optimistic:".length), executionTarget,
+                      body, refs: selectedRefs, quoteIds: selectedQuotes.map(q => q.id), clientMessageId: optimisticId.slice("optimistic:".length),
                     }, selectedQuotes);
                     return true;
                   }}
@@ -1915,6 +2002,12 @@ function App() {
             成员 <small>{detail?.members.length || 0}</small>
           </button>
           <button
+            className={tab === "tasks" ? "active" : ""}
+            onClick={() => { setTab("tasks"); setTaskScope("current"); setTaskMine(false); }}
+          >
+            任务池 <small>{taskPool.length}</small>
+          </button>
+          <button
             className={tab === "info" ? "active" : ""}
             onClick={() => setTab("info")}
           >
@@ -1926,12 +2019,15 @@ function App() {
             <Suspense fallback={<p className="muted">正在加载文件树…</p>}>
               <Documents
                 embedded
-                key={projectId}
+                key={`${projectId}:${threadId}`}
                 projectId={projectId}
-                threadId={active ? threadId : undefined}
+                threadId={threadId || undefined}
                 writable={writable}
+                iterationWritable={active}
                 folders={detail?.folders || []}
                 versions={detail?.versions || []}
+                organizationJobs={detail?.documentOrganizationJobs || []}
+                canOrganizeProject={!!detail && detail.threads.every((item) => item.status === "archived")}
                 selected={documentId}
                 onSelect={setDocumentId}
                 onOpen={showDocument}
@@ -2010,12 +2106,88 @@ function App() {
                 );
               })}
           </>
+        ) : tab === "tasks" ? (
+          <div className="task-pool-panel">
+            {selectedTaskId ? (() => {
+              const task = taskDetail;
+              const isTarget = task?.target_type === "human_member" && task.target_id === user.id;
+              const canTransfer = !!task && isTarget && ["awaiting_acceptance", "assigned", "queued", "waiting", "blocked"].includes(task.status);
+              const openQuestion = task?.questions.find((question) => question.status === "open" && question.source_user_id === user.id);
+              const canReviewRejection = !!task && task.status === "cancelled" && task.rejectionReview.rejected && !task.rejectionReview.resolved &&
+                task.rejectionReview.reviewer_type === "human_member" && task.rejectionReview.reviewer_id === user.id;
+              const targetName = detail?.members.find((member) => member.id === task?.target_id)?.name || (task?.target_type === "l2_session" ? "小祥" : "未指派");
+              return <div className="task-detail">
+                <button type="button" className="task-detail-back" onClick={() => { setSelectedTaskId(""); setTaskDetail(null); }}>← 返回任务列表</button>
+                {!task ? <p className="muted">正在读取任务详情…</p> : <>
+                  <header><div><small>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small><h3>{task.title}</h3></div><div className="task-detail-header-actions"><button type="button" onClick={() => setAgentLogScope({ type: "task", id: task.id })}>执行日志</button><span data-status={task.status}>{task.status}</span></div></header>
+                  <dl className="task-detail-meta"><div><dt>责任主体</dt><dd>{targetName}</dd></div><div><dt>执行 Agent</dt><dd>{task.execution_agent_type || "待选择"}</dd></div></dl>
+                  <section><h4>任务目标</h4><p>{task.goal}</p>{task.constraints && <><h4>约束</h4><p>{task.constraints}</p></>}</section>
+                  {openQuestion && <section className="task-question"><h4>需要你回答</h4><p>{openQuestion.question}</p><textarea value={taskAnswer} onChange={(event) => setTaskAnswer(event.target.value)} placeholder="输入回答" /><button type="button" className="primary" disabled={taskActionBusy || !taskAnswer.trim()} onClick={() => void performTaskAction(async () => { await api(`/task-questions/${openQuestion.id}/answer`, { answer: taskAnswer }); setTaskAnswer(""); })}>提交回答</button></section>}
+                  {isTarget && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>确认任务</h4><select value={taskExecutionMode} onChange={(event) => setTaskExecutionMode(event.target.value as typeof taskExecutionMode)}><option value="auto">自动选择执行方式</option><option value="human_direct">由我直接完成</option><option value="member_connector">交给本地 Codex</option></select><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reject`, {}, "POST"))}>拒绝</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/accept`, { mode: taskExecutionMode }, "POST"))}>接受任务</button></div></section>}
+                  {canReviewRejection && <section className="task-actions-section task-rejection-review"><h4>任务已被拒绝</h4><p>{[...task.assignmentHistory].reverse().find((event) => event.event_type === "rejected")?.reason || "目标成员拒绝了这个任务。"}</p><textarea value={taskReopenGoal} onChange={(event) => setTaskReopenGoal(event.target.value)} placeholder="修改任务目标与验收标准" /><textarea value={taskReopenConstraints} onChange={(event) => setTaskReopenConstraints(event.target.value)} placeholder="修改约束（可选）" /><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"))}>知道了</button><button type="button" className="primary" disabled={taskActionBusy || !taskReopenGoal.trim()} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reopen`, { goal: taskReopenGoal.trim(), constraints: taskReopenConstraints }, "POST"))}>修改后重新发起</button></div></section>}
+                  {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}>确认转交</button></section>}
+                  {isTarget && task.status !== "awaiting_acceptance" && !["completed", "failed", "cancelled", "superseded"].includes(task.status) && <section className="task-actions-section"><h4>进度与结果</h4><input value={taskProgress} onChange={(event) => setTaskProgress(event.target.value)} placeholder="当前进度" /><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要或阻塞原因" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "running", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>开始</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "waiting", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>等待</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "failed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>失败</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>完成</button></div></section>}
+                  {!!task.executionRuns.length && <section><h4>执行记录</h4><div className="task-history">{task.executionRuns.map((run) => <div key={run.id}><strong>{run.executor_type}</strong><span>{run.status}</span><small>{run.progress || run.result_summary || run.error || time(run.created_at)}</small></div>)}</div></section>}
+                  {!!task.assignmentHistory.length && <section><h4>指派与审计记录</h4><div className="task-history">{task.assignmentHistory.map((event) => <div key={event.id}><strong>{({ assigned: "创建并指派", transferred: "转交", rejected: "拒绝", acknowledged: "已知晓", reopened: "重新发起" } as const)[event.event_type] || event.event_type}</strong><span>{time(event.created_at)}</span>{event.reason && <small>{event.reason}</small>}</div>)}</div></section>}
+                </>}
+                {taskActionError && <p className="project-settings-error" role="alert">{taskActionError}</p>}
+              </div>;
+            })() : <>
+              <div className="task-pool-heading">
+                <div className="task-scope-tabs" role="tablist" aria-label="任务范围">
+                  <button type="button" role="tab" aria-selected={taskScope === "current"} onClick={() => setTaskScope("current")}>当前迭代</button>
+                  <button type="button" role="tab" aria-selected={taskScope === "all"} onClick={() => setTaskScope("all")}>全部迭代</button>
+                </div>
+                {writable && <button type="button" className="task-create-toggle" onClick={() => setTaskCreateOpen((open) => !open)}>{taskCreateOpen ? "取消" : "＋ 新建任务"}</button>}
+              </div>
+              {taskCreateOpen && <form className="task-create-form" onSubmit={(event) => {
+                event.preventDefault();
+                if (!taskCreateTitle.trim() || !taskCreateGoal.trim()) return;
+                void performTaskAction(async () => {
+                  const created = await api(`/projects/${projectId}/tasks`, {
+                    title: taskCreateTitle.trim(), goal: taskCreateGoal.trim(),
+                    constraints: taskCreateConstraints.trim() || undefined,
+                    targetType: taskCreateTarget === "l2_session" ? "l2_session" : taskCreateTarget ? "human_member" : undefined,
+                    targetUserId: taskCreateTarget && taskCreateTarget !== "l2_session" ? taskCreateTarget : undefined,
+                    threadId: taskScope === "current" ? threadId : undefined,
+                  });
+                  setTaskCreateTitle(""); setTaskCreateGoal(""); setTaskCreateConstraints(""); setTaskCreateTarget(""); setTaskCreateOpen(false);
+                  setSelectedTaskId(created.id);
+                });
+              }}>
+                <input value={taskCreateTitle} onChange={(event) => setTaskCreateTitle(event.target.value)} placeholder="任务标题" maxLength={240} />
+                <textarea value={taskCreateGoal} onChange={(event) => setTaskCreateGoal(event.target.value)} placeholder="任务目标与验收标准" maxLength={20000} />
+                <textarea value={taskCreateConstraints} onChange={(event) => setTaskCreateConstraints(event.target.value)} placeholder="约束（可选）" maxLength={20000} />
+                <select value={taskCreateTarget} onChange={(event) => setTaskCreateTarget(event.target.value)}>
+                  <option value="">暂不指派</option>
+                  {taskScope === "current" && threadId && <option value="l2_session">当前迭代小祥</option>}
+                  {detail?.members.filter((member) => member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                </select>
+                <button type="submit" className="primary" disabled={taskActionBusy || !taskCreateTitle.trim() || !taskCreateGoal.trim()}>创建正式任务</button>
+              </form>}
+              <label className="task-mine-filter"><input type="checkbox" checked={taskMine} onChange={(event) => setTaskMine(event.target.checked)} />只看与我有关</label>
+              <div className="task-pool-list">
+                {visibleTasks.map((task) => {
+                  const target = detail?.members.find((member) => member.id === task.target_id)?.name || (task.target_type === "l2_session" ? "小祥" : "未指派");
+                  const iteration = detail?.threads.find((item) => item.id === task.origin_thread_id)?.title || "项目任务";
+                  return <button type="button" className="task-pool-item" key={task.id} onClick={() => openTask(task.id)}>
+                    <span className="task-pool-item-heading"><span><strong>{task.title}</strong><small>{iteration} · {task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small></span><i data-status={task.status}>{task.status}</i></span>
+                    <span className="task-pool-item-goal">{task.progress || task.goal}</span>
+                    <span className="task-pool-item-footer"><span>责任主体：{target}</span><span>执行：{task.execution_agent_type || "待选择"}</span></span>
+                    {task.result_summary && <small className="task-result">{task.result_summary}</small>}
+                  </button>;
+                })}
+                {!visibleTasks.length && <p className="panel-empty">此范围内暂无任务。</p>}
+              </div>
+            </>}
+          </div>
         ) : detail?.id === projectId ? (
           <ProjectSettings
-            key={projectId}
+            key={`${projectId}:${threadId}`}
             name={detail.name}
             createdAt={localDate(detail.created_at)}
             creator={creator}
+            onOpenL1Logs={() => setAgentLogScope({ type: "project", id: projectId })}
             onSave={async (name) => {
               const updated = await api(`/projects/${projectId}`, { name }, "PATCH");
               setProjects((rows) => rows.map((project) => project.id === updated.id ? { ...project, name: updated.name } : project));
@@ -2047,13 +2219,16 @@ function App() {
           <Documents
             key={projectId}
             projectId={projectId}
-            threadId={active ? threadId : undefined}
+            threadId={threadId || undefined}
             writable={writable}
+            iterationWritable={active}
             folders={detail?.folders || []}
             onRefresh={async () => {
               setDetail(await api(`/projects/${projectId}?view=chat`));
             }}
             versions={detail?.versions || []}
+            organizationJobs={detail?.documentOrganizationJobs || []}
+            canOrganizeProject={!!detail && detail.threads.every((item) => item.status === "archived")}
             selected={documentId}
             onSelect={setDocumentId}
             onClose={() => setLibraryOpen(false)}
@@ -2065,29 +2240,11 @@ function App() {
                   }
                 : undefined
             }
-            onNewVersion={
-              active
-                ? (artifactId) => {
-                    setLibraryOpen(false);
-                    setSelectedArtifact(artifactId);
-                    open("document");
-                  }
-                : undefined
-            }
             onReview={
               active
                 ? async (id, decision) => {
                     await api(`/versions/${id}/reviews`, { decision });
                     await refresh();
-                  }
-                : undefined
-            }
-            onUpload={
-              active
-                ? () => {
-                    setLibraryOpen(false);
-                    setSelectedArtifact("");
-                    open("document");
                   }
                 : undefined
             }
@@ -2102,6 +2259,7 @@ function App() {
           onClose={() => setMonitorOpen(false)}
         />
       )}
+      {agentLogScope && <AgentLogDialog scope={agentLogScope} api={api} onClose={() => setAgentLogScope(null)} />}
       {connectorOpen && <div className="modal-backdrop" onClick={() => setConnectorOpen(false)}>
         <section className="connector-dialog" role="dialog" aria-modal="true" aria-label="本地连接器" onClick={(event) => event.stopPropagation()}>
           <ConnectorPanel devices={connectors} api={api} onRefresh={refreshConnectors} onClose={() => setConnectorOpen(false)} />
@@ -2133,7 +2291,7 @@ function App() {
       {modal && (
         <div className="modal-backdrop">
           <section
-            className={`modal ${["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts", "admin-connector"].includes(modal) ? "workspace-settings" : ""}`}
+            className={`modal ${["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts", "admin-plugins"].includes(modal) ? "workspace-settings" : ""}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-title"
@@ -2144,7 +2302,6 @@ function App() {
                   {
                     project: "创建项目",
                     thread: "发起迭代",
-                    document: "提交文档版本",
                     profile: "个人设置",
                     settings: "个人设置",
                     archive: "归档本次迭代",
@@ -2153,7 +2310,7 @@ function App() {
                     email: "个人设置",
                     "admin-projects": "系统管理",
                     "admin-accounts": "系统管理",
-                    "admin-connector": "系统管理",
+                    "admin-plugins": "系统管理",
                     run: "在沙箱中执行",
                   }[modal]
                 }
@@ -2168,12 +2325,12 @@ function App() {
             </div>
             <div
               className={
-                ["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts", "admin-connector"].includes(modal)
+                ["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts", "admin-plugins"].includes(modal)
                   ? "settings-layout"
                   : undefined
               }
             >
-              {["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts", "admin-connector"].includes(
+              {["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts", "admin-plugins"].includes(
                 modal,
               ) && (
                 <nav className="settings-nav" aria-label="设置项目">
@@ -2184,7 +2341,7 @@ function App() {
                   {(modal.startsWith("admin-") ? [
                       ["admin-projects", "项目管理"],
                       ["admin-accounts", "账号管理"],
-                      ["admin-connector", "连接器管理"],
+                      ["admin-plugins", "插件管理"],
                     ] : [
                       ["profile", "个人资料"],
                       ["password", "修改密码"],
@@ -2205,9 +2362,9 @@ function App() {
                 </nav>
               )}
               <form key={modal} onSubmit={submitModal}>
-                {(modal === "admin-projects" || modal === "admin-accounts" || modal === "admin-connector") && (
+                {(modal === "admin-projects" || modal === "admin-accounts" || modal === "admin-plugins") && (
                   <SystemManagement
-                    section={modal === "admin-projects" ? "projects" : modal === "admin-accounts" ? "accounts" : "connector"}
+                    section={modal === "admin-projects" ? "projects" : modal === "admin-accounts" ? "accounts" : "plugins"}
                     api={api}
                     currentUserId={user.id}
                     onProjectsChanged={async () => { setProjects(await api("/projects")); }}
@@ -2313,58 +2470,6 @@ function App() {
                       placeholder="例如：v0.1 · 协作闭环"
                     />
                   </label>
-                )}
-                {modal === "document" && (
-                  <>
-                    <label>
-                      所属文档
-                      <select
-                        name="artifactId"
-                        value={selectedArtifact}
-                        onChange={(e) => setSelectedArtifact(e.target.value)}
-                      >
-                        <option value="">创建新文档</option>
-                        {detail?.versions
-                          .filter((v) => !v.deleted_at)
-                          .filter(
-                            (v, i, a) =>
-                              a.findIndex(
-                                (x) => x.artifact_id === v.artifact_id,
-                              ) === i,
-                          )
-                          .map((v) => (
-                            <option key={v.artifact_id} value={v.artifact_id}>
-                              {v.title}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                    <label>
-                      文档标题
-                      <input
-                        key={selectedArtifact}
-                        name="title"
-                        maxLength={160}
-                        defaultValue={
-                          detail?.versions.find(
-                            (v) => v.artifact_id === selectedArtifact,
-                          )?.title || ""
-                        }
-                        required
-                      />
-                    </label>
-                    <label>
-                      选择文件（不超过 5 MiB）
-                      <input name="file" type="file" required />
-                    </label>
-                    <label>
-                      本次提交说明
-                      <textarea name="note" maxLength={4000} />
-                    </label>
-                    <p className="muted">
-                      提交后会生成不可覆盖的新版本，等待人工审核。
-                    </p>
-                  </>
                 )}
                 {modal === "archive" && (
                   <>

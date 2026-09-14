@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { dshComposition } from "../server/dsh-runtime-config.js";
 import { DSH_PLUGINS, COTHREAD_VERSION, DSH_VERSION, capabilityProfile, packageVersion,
-  pluginManagementLevel } from "../runtime/cothread-plugin-registry.mjs";
+  pluginManagementLevel, readNearbyPackageVersion } from "../runtime/cothread-plugin-registry.mjs";
 import { apply as applyTools } from "../runtime/cothread-tools.mjs";
 import { readFileSync } from "node:fs";
 
@@ -40,6 +40,12 @@ test("plugin registry versions follow package metadata", () => {
   assert.equal(DSH_VERSION, packageVersion("@deepseek-ai/dsh"));
   for (const plugin of DSH_PLUGINS)
     assert.equal(plugin.version, packageVersion(plugin.packageName), plugin.pluginId);
+});
+
+test("plugin registry version reads survive a Makers bundled module URL", () => {
+  const missing = () => { throw Object.assign(new Error("ENOENT: no such file or directory, open '/var/package.json'"), { code: "ENOENT" }); };
+  assert.equal(readNearbyPackageVersion(missing, "file:///var/user/index.mjs", missing), "");
+  assert.equal(readNearbyPackageVersion(() => ({ version: "9.9.9" }), "file:///var/user/index.mjs", missing), "9.9.9");
 });
 
 test("L2 and L3 receive different model-facing tool schemas", () => {

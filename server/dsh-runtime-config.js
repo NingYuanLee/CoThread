@@ -7,7 +7,6 @@ import { assetPath } from "./assets.js";
 import { dshModelPatch } from "./model-config.js";
 
 const require = createRequire(import.meta.url);
-const dshManifest = require.resolve("@deepseek-ai/dsh/package.json");
 const inspectionHome = resolve(".local/dsh-composition");
 const inspectionModel = {
   baseUrl: "https://example.invalid/v1", model: "composition-check",
@@ -25,6 +24,7 @@ export function l1RuntimePatch() {
 }
 
 export function dshComposition(level) {
+  const dshManifest = require.resolve("@deepseek-ai/dsh/package.json");
   const profile = loadProfile("cothread", "sdk-minimal", dshManifest, inspectionHome, { userLayer: false });
   const staticPatch = level === "l1" ? "runtime/l1-agent-patch.yml" : "runtime/agent-patch.yml";
   const dynamicPatch = level === "l1" ? l1RuntimePatch() : agentRuntimePatch();

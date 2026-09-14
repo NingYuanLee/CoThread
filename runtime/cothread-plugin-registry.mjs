@@ -3,8 +3,21 @@ import { readFileSync } from "node:fs";
 import { COORDINATOR_PERSONA } from "../server/coordinator-persona.js";
 
 const require = createRequire(import.meta.url);
-export const COTHREAD_VERSION = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
-export const DSH_VERSION = require("@deepseek-ai/dsh/package.json").version;
+
+// Makers bundles this module into /var/user/index.mjs. Reading package.json
+// relative to import.meta.url then becomes /var/package.json and must not crash.
+export function readNearbyPackageVersion(requireImpl, moduleUrl, readFile = readFileSync) {
+  try { return requireImpl("../package.json").version; } catch {}
+  try { return JSON.parse(readFile(new URL("../package.json", moduleUrl), "utf8")).version; } catch {}
+  return "";
+}
+
+function installedPackageVersion(specifier) {
+  try { return require(specifier).version; } catch { return ""; }
+}
+
+export const COTHREAD_VERSION = readNearbyPackageVersion(require, import.meta.url);
+export const DSH_VERSION = installedPackageVersion("@deepseek-ai/dsh/package.json");
 
 export function packageVersion(packageName) {
   if (packageName.startsWith("runtime/")) return COTHREAD_VERSION;
@@ -12,8 +25,8 @@ export function packageVersion(packageName) {
     ? [packageName, packageName.split("/").slice(0, 2).join("/")]
     : [packageName, packageName.split("/")[0]];
   for (const name of [...new Set(candidates)]) {
-    try { return require(`${name}/package.json`).version; }
-    catch {}
+    const version = installedPackageVersion(`${name}/package.json`);
+    if (version) return version;
   }
   return DSH_VERSION;
 }

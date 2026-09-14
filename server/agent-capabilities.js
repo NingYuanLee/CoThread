@@ -3,7 +3,6 @@ import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
 import { capabilityProfile, pluginManagementLevel } from "../runtime/cothread-plugin-registry.mjs";
-import { dshComposition } from "./dsh-runtime-config.js";
 
 const levels = ["l1", "l2", "l3"];
 const levelSchema = z.enum(levels);
@@ -28,8 +27,14 @@ const skillView = (row) => ({
 
 export async function adminPluginManagement(service, user) {
   await requireAdmin(service, user);
-  const assembledByLevel = Object.fromEntries(levels.map((level) => [level,
-    new Set(dshComposition(level).filter((entry) => entry.assembled).map((entry) => entry.id))]));
+  let assembledByLevel = Object.fromEntries(levels.map((level) => [level, null]));
+  try {
+    const { dshComposition } = await import("./dsh-runtime-config.js");
+    assembledByLevel = Object.fromEntries(levels.map((level) => [level,
+      new Set(dshComposition(level).filter((entry) => entry.assembled).map((entry) => entry.id))]));
+  } catch (error) {
+    console.error("DSH composition unavailable", { type: error.name });
+  }
   const skills = await query(service.db, `SELECT s.*,creator.name created_by_name,editor.name updated_by_name
     FROM agent_prompt_skills s LEFT JOIN users creator ON creator.id=s.created_by LEFT JOIN users editor ON editor.id=s.updated_by
     WHERE s.archived_at IS NULL AND s.source='custom'

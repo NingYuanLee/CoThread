@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
-import { runL1Task } from "./l1-agent.js";
 import { publishWork } from "./work-events.js";
 
 const planSchema = z.object({
@@ -40,6 +39,7 @@ export async function queueDocumentOrganization(service, user, { projectId, thre
 }
 
 async function createPlan(db, job, documents, options = {}) {
+  const { runL1Task } = await import("./l1-agent.js");
   return runL1Task(db, job.project_id, "document_organization", {
     instructions: "返回 {documents:[{artifactId,title?,folder?}]}。只根据清单整理，名称清楚简短；分类层级只允许一层；不要删除文件；不确定时保持原名称且 folder 为 null。",
     scope: job.scope,

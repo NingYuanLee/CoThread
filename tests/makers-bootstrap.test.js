@@ -31,3 +31,17 @@ test("Agent entry can boot without loading the DSH execution SDK", () => {
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 15000 });
   assert.equal(result.status, 0, result.stderr);
 });
+
+test("ordinary HTTP app can load without DSH packages", () => {
+  const httpApp = new URL("../server/http-app.js", import.meta.url).href;
+  const script = `
+    import { registerHooks } from 'node:module';
+    registerHooks({ resolve(specifier, context, next) {
+      if (specifier.startsWith('@deepseek-ai/dsh')) throw new Error('HTTP must not load DSH: ' + specifier);
+      return next(specifier, context);
+    }});
+    await import(${JSON.stringify(httpApp)});
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 20000 });
+  assert.equal(result.status, 0, result.stderr);
+});

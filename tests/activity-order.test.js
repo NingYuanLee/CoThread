@@ -33,6 +33,14 @@ test('thinking, intermediate text and tools retain actual order; final text is m
   assert.ok(rows.every(e=>e.status==='completed'));
   assert.equal((await query(db,'SELECT first_response_at FROM assistant_replies WHERE message_id=?',[message.id]))[0].first_response_at,firstResponse);
   const [live]=await query(db,'SELECT event_id FROM agent_live_output WHERE message_id=?',[message.id]);assert.equal(String(live.event_id),String(rows[4].id));
+  const published=[];
+  const visible=trackThinking(db,message.id,'visible',{onVisibleText:async(text)=>published.push(text)});
+  const say=(type,data={})=>visible.notify({method:'session.event',params:{sessionId:'visible',event:{type,data}}});
+  const sayChunk=(type,text)=>say('assistant/chunk',{chunk:{type,text}});
+  say('step/start');sayChunk('reasoning-delta','内部思考');sayChunk('text-delta','第一句给成员看。');say('tool/call');
+  say('step/start');sayChunk('text-delta','第二句给成员看。');say('assistant/message');
+  await visible.close('completed','第二句给成员看。');
+  assert.deepEqual(published,['第一句给成员看。','第二句给成员看。']);
   const direct=await service.postMessage(user,thread.id,{body:'直接调用工具'});
   await query(db,"UPDATE assistant_replies SET status='running' WHERE message_id=?",[direct.id]);
   const toolOnly=trackThinking(db,direct.id,'tool-only');

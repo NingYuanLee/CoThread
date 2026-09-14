@@ -1,4 +1,5 @@
 import { describeAgentAction } from "../shared/agent-label.js";
+export const COORDINATOR_LOG_IDLE_LABEL = "轨迹";
 const MODEL_PHASE = new Set(["thinking", "assistant_text", "assistant_final"]);
 function object(text?: string | null): Record<string, unknown> {
   try {
@@ -48,7 +49,7 @@ export function coordinatorLogButtonLabel(input: {
     !reply.parent_message_id && ["queued", "running"].includes(reply.status));
   if (!busy) {
     if (["queued", "running"].includes(input.compactStatus || "")) return "正在整理上下文";
-    return "运行日志";
+    return COORDINATOR_LOG_IDLE_LABEL;
   }
   const live = input.liveOutput?.[busy.message_id];
   if (live?.content) return "正在回复";

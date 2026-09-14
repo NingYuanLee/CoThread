@@ -492,6 +492,12 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   app.get("/api/tasks/:id/agent-logs", async (req, res) =>
     res.json(await service.agentLogs(req.user, "task", req.params.id)),
   );
+  app.get("/api/tasks/:id/events/:eventId", async (req, res) =>
+    res.json(await service.agentLogEvent(req.user, "task", req.params.id, req.params.eventId)),
+  );
+  app.get("/api/projects/:id/events/:eventId", async (req, res) =>
+    res.json(await service.agentLogEvent(req.user, "project", req.params.id, req.params.eventId)),
+  );
   app.post("/api/projects/:id/tasks", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     await service.member(req.user, req.params.id);

@@ -15,6 +15,7 @@ import { agentSession } from "./agent-session.js";
 import { deliverTaskUpdates } from "./agent-updates.js";
 import { restoreSessionCheckpoint } from "./agent-checkpoint.js";
 import { createUsageMeter, saveReplyUsage } from './agent-usage.js';
+import { publishWork } from "./work-events.js";
 import { dshModelPatch, modelConfig, modelOutputLimit, redactSecrets } from "./model-config.js";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { agentRuntimePatch } from "./dsh-runtime-config.js";
@@ -128,7 +129,18 @@ export async function openAgentRuntime(
     await restoreSessionCheckpoint(files, home);
   }
   const token = randomBytes(32).toString("hex");
-  const thinking = trackThinking(db, job.message_id, session.session_id);
+  const thinking = trackThinking(db, job.message_id, session.session_id, role === "coordinator" ? {
+    async onVisibleText(text) {
+      const body = String(text || "").trim().slice(0, 4000);
+      if (!body) return;
+      const [existing] = await query(db,
+        "SELECT id FROM messages WHERE agent_task_id=? AND body=? ORDER BY sequence DESC LIMIT 1",
+        [job.message_id, body]);
+      if (existing) return;
+      await service.insertMessage(db, user, job.thread_id, body, [], "assistant", job.message_id);
+      publishWork(db, job.thread_id);
+    },
+  } : {});
   const executeTool = createAgentTools(
     service,
     { ...user, scope: context.project_id },

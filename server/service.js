@@ -9,7 +9,7 @@ import { digest, hashPassword } from "./auth.js";
 import { publishWork } from "./work-events.js";
 import { queueDocumentMemory, queueMemberMemory } from "./project-memory.js";
 import { taskExecutionSnapshot } from "./task-pool.js";
-import { formatAgentAction } from "../shared/agent-label.js";
+import { describeAgentAction, formatAgentAction } from "../shared/agent-label.js";
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -427,7 +427,7 @@ export class Service {
         try { args = typeof row.input === "string" ? JSON.parse(row.input) : row.input || {}; }
         catch {}
         const action = ["thinking", "assistant_text", "assistant_final"].includes(row.tool)
-          ? row.tool === "thinking" ? "思考" : row.tool === "assistant_final" ? "完成回复" : "组织回复"
+          ? row.tool === "thinking" ? "思考" : "正文"
           : formatAgentAction(row.tool, args);
         return {
           id: String(row.id), message_id: row.message_id, thread_id: row.thread_id,
@@ -457,35 +457,67 @@ export class Service {
   async agentLogs(user, scopeType, scopeId) {
     const duration = (row) => row.finished_at
       ? Math.max(0, new Date(row.finished_at).getTime() - new Date(row.created_at).getTime()) : null;
-    const actionFor = (row) => {
-      if (row.agent_type === "l1") return ({
-        prepare_context: "准备项目上下文",
-        start_harness: "启动 DSH 会话",
-        model_run: "执行维护任务",
-        validate_result: "校验结构化结果",
-        save_checkpoint: "保存会话检查点",
-      })[row.tool] || row.tool;
+    const labelFor = (row) => {
+      if (row.agent_type === "l1") return {
+        action: ({
+          prepare_context: "准备项目上下文",
+          start_harness: "启动 DSH 会话",
+          model_run: "执行维护任务",
+          validate_result: "校验结构化结果",
+          save_checkpoint: "保存会话检查点",
+        })[row.tool] || row.tool,
+        target: "",
+      };
       let args = {};
       try { args = typeof row.input === "string" ? JSON.parse(row.input) : row.input || {}; }
       catch {}
-      return ["thinking", "assistant_text", "assistant_final"].includes(row.tool)
-        ? row.tool === "thinking" ? "思考" : row.tool === "assistant_final" ? "完成回复" : "组织回复"
-        : formatAgentAction(row.tool, args);
+      if (["thinking", "assistant_text", "assistant_final"].includes(row.tool))
+        return {
+          action: row.tool === "thinking" ? "思考" : "正文",
+          target: "",
+        };
+      const label = describeAgentAction(row.tool, args);
+      return { action: formatAgentAction(row.tool, args), target: label.target || "" };
     };
+    const collectInputs = (rows) => {
+      const seen = new Set();
+      const inputs = [];
+      for (const row of [...rows].reverse()) {
+        if (!row.message_id || !row.user_created_at || seen.has(row.message_id)) continue;
+        seen.add(row.message_id);
+        inputs.push({
+          id: `user:${row.message_id}`,
+          messageId: row.message_id,
+          createdAt: row.user_created_at,
+          preview: String(row.user_preview || "").replace(/\s+/g, " ").trim(),
+        });
+      }
+      return inputs;
+    };
+    const taskEventScope = `EXISTS (SELECT 1 FROM agent_task_execution_runs owner_run
+          WHERE owner_run.task_id=? AND owner_run.executor_type='dsh_l3'
+            AND owner_run.executor_id=e.agent_session_id)
+          AND (e.agent_task_id=? OR (e.agent_task_id IS NULL AND EXISTS (
+            SELECT 1 FROM agent_task_execution_runs timed_run WHERE timed_run.task_id=?
+              AND timed_run.executor_type='dsh_l3' AND timed_run.executor_id=e.agent_session_id
+              AND e.created_at>=COALESCE(timed_run.started_at,timed_run.created_at)
+              AND e.created_at<=COALESCE(timed_run.finished_at,UTC_TIMESTAMP(3)))))`;
     let titleText;
     let rows;
     if (scopeType === "project") {
       const project = await this.project(user, scopeId);
-      titleText = `${project.name} · 一级小祥维护日志`;
+      titleText = `${project.name} · 一级小祥轨迹`;
       rows = await query(this.db, `SELECT id,agent_session_id,phase tool,status,created_at,finished_at,error
         FROM agent_project_events WHERE project_id=? ORDER BY id DESC LIMIT 300`, [scopeId]);
-      rows = rows.map((row) => ({ ...row, agent_type: "l1", task_id: null }));
+      rows = rows.map((row) => ({ ...row, agent_type: "l1", task_id: null, message_id: null, thread_id: null }));
     } else if (scopeType === "thread") {
       const thread = await this.thread(user, scopeId);
       const [session] = await query(this.db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [scopeId]);
-      titleText = `${thread.title} · 二级小祥运行日志`;
+      titleText = `${thread.title} · 二级小祥轨迹`;
       rows = session ? await query(this.db, `SELECT e.id,e.agent_session_id,e.agent_task_id task_id,e.tool,e.status,
-        e.created_at,e.finished_at,e.input FROM agent_events e JOIN messages m ON m.id=e.message_id
+        e.created_at,e.finished_at,e.input,e.message_id,m.thread_id,LEFT(m.body,240) user_preview,m.created_at user_created_at,
+        CASE WHEN e.tool IN ('assistant_text','assistant_final') THEN LEFT(e.output,240) END output_preview
+        FROM agent_events e JOIN messages m ON m.id=e.message_id
         WHERE m.thread_id=? AND e.agent_session_id=? ORDER BY e.id DESC LIMIT 300`,
       [scopeId, session.session_id]) : [];
       rows = rows.map((row) => ({ ...row, agent_type: "l2" }));
@@ -493,29 +525,68 @@ export class Service {
       const [task] = await query(this.db, "SELECT id,project_id,title FROM agent_tasks WHERE id=?", [scopeId]);
       if (!task) fail(404, "任务不存在");
       await this.member(user, task.project_id);
-      titleText = `${task.title} · 三级小祥执行日志`;
+      titleText = `${task.title} · 三级小祥轨迹`;
       rows = await query(this.db, `SELECT DISTINCT e.id,e.agent_session_id,? task_id,e.tool,e.status,
-        e.created_at,e.finished_at,e.input FROM agent_events e
-        WHERE EXISTS (SELECT 1 FROM agent_task_execution_runs owner_run
+        e.created_at,e.finished_at,e.input,e.message_id,m.thread_id,LEFT(m.body,240) user_preview,m.created_at user_created_at,
+        CASE WHEN e.tool IN ('assistant_text','assistant_final') THEN LEFT(e.output,240) END output_preview
+        FROM agent_events e JOIN messages m ON m.id=e.message_id
+        WHERE ${taskEventScope}
+        ORDER BY e.id DESC LIMIT 300`, [scopeId, scopeId, scopeId, scopeId]);
+      rows = rows.map((row) => ({ ...row, agent_type: "dsh_l3" }));
+    } else fail(400, "未知日志作用域");
+    return {
+      scopeType, scopeId, title: titleText,
+      inputs: collectInputs(rows),
+      events: rows.map((row) => {
+        const label = labelFor(row);
+        const preview = ["assistant_text", "assistant_final"].includes(row.tool)
+          ? String(row.output_preview || "").replace(/\s+/g, " ").trim() : "";
+        return {
+          id: String(row.id), agentType: row.agent_type, agentSessionId: row.agent_session_id,
+          taskId: row.task_id || null, messageId: row.message_id || null, threadId: row.thread_id || null,
+          tool: row.tool, action: label.action, target: label.target || undefined, status: row.status,
+          createdAt: row.created_at, finishedAt: row.finished_at, durationMs: duration(row),
+          ...(preview ? { preview } : {}),
+          ...(row.agent_type === "l1" && row.error ? { error: row.error } : {}),
+        };
+      }),
+    };
+  }
+  async agentLogEvent(user, scopeType, scopeId, eventId) {
+    const id = z.string().regex(/^\d+$/).parse(String(eventId));
+    if (scopeType === "project") {
+      await this.project(user, scopeId);
+      const [event] = await query(this.db,
+        "SELECT id,phase tool,status,error,created_at,finished_at FROM agent_project_events WHERE id=? AND project_id=?",
+        [id, scopeId]);
+      if (!event) fail(404, "执行记录不存在");
+      return event;
+    }
+    if (scopeType === "thread") {
+      await this.thread(user, scopeId, false, this.db, { display: true });
+      const [event] = await query(this.db,
+        `SELECT e.* FROM agent_events e JOIN messages m ON m.id=e.message_id WHERE e.id=? AND m.thread_id=?`,
+        [id, scopeId]);
+      if (!event) fail(404, "执行记录不存在");
+      return event;
+    }
+    if (scopeType === "task") {
+      const [task] = await query(this.db, "SELECT id,project_id FROM agent_tasks WHERE id=?", [scopeId]);
+      if (!task) fail(404, "任务不存在");
+      await this.member(user, task.project_id);
+      const [event] = await query(this.db, `SELECT e.* FROM agent_events e WHERE e.id=? AND EXISTS (SELECT 1 FROM agent_task_execution_runs owner_run
           WHERE owner_run.task_id=? AND owner_run.executor_type='dsh_l3'
             AND owner_run.executor_id=e.agent_session_id)
           AND (e.agent_task_id=? OR (e.agent_task_id IS NULL AND EXISTS (
             SELECT 1 FROM agent_task_execution_runs timed_run WHERE timed_run.task_id=?
               AND timed_run.executor_type='dsh_l3' AND timed_run.executor_id=e.agent_session_id
               AND e.created_at>=COALESCE(timed_run.started_at,timed_run.created_at)
-              AND e.created_at<=COALESCE(timed_run.finished_at,UTC_TIMESTAMP(3)))))
-        ORDER BY e.id DESC LIMIT 300`, [scopeId, scopeId, scopeId, scopeId]);
-      rows = rows.map((row) => ({ ...row, agent_type: "dsh_l3" }));
-    } else fail(400, "未知日志作用域");
-    return {
-      scopeType, scopeId, title: titleText,
-      events: rows.map((row) => ({
-        id: String(row.id), agentType: row.agent_type, agentSessionId: row.agent_session_id,
-        taskId: row.task_id || null, tool: row.tool, action: actionFor(row), status: row.status,
-        createdAt: row.created_at, finishedAt: row.finished_at, durationMs: duration(row),
-        ...(row.agent_type === "l1" && row.error ? { error: row.error } : {}),
-      })),
-    };
+              AND e.created_at<=COALESCE(timed_run.finished_at,UTC_TIMESTAMP(3)))))`,
+      [id, scopeId, scopeId, scopeId]);
+      if (!event) fail(404, "执行记录不存在");
+      return event;
+    }
+    fail(400, "未知日志作用域");
   }
   async users(user, projectId) {
     if (user.kind !== "session") fail(403, "成员目录需要人工登录");

@@ -2,7 +2,7 @@ import { query } from './db.js';
 import { trackLiveOutput } from './agent-live-output.js';
 
 // All model phases share the same event sequence as actual tool calls.
-export function trackThinking(db,messageId,sessionId){
+export function trackThinking(db,messageId,sessionId,options={}){
  const started=performance.now();let firstChunk=false;
  let queue=Promise.resolve(),phase,lastPhase,timer,failure,closed=false;
  const enqueue=task=>{queue=queue.then(task).catch(error=>{failure ||= error;});return queue;};
@@ -12,11 +12,20 @@ export function trackThinking(db,messageId,sessionId){
   const current=phase,text=current.text;
   enqueue(async()=>{if(current.id)await query(db,"UPDATE agent_events SET output=? WHERE id=? AND status='running'",[text,current.id]);});
  };
+ const publishVisible=async(text)=>{
+  const visible=String(text||'').trim();
+  if(!visible||visible==='NO_VISIBLE_MESSAGE'||!options.onVisibleText)return;
+  await options.onVisibleText(visible);
+ };
  const finish=(status='completed',finalText)=>{
   clearTimeout(timer);timer=undefined;if(!phase)return;
   const current=phase;lastPhase=current;phase=undefined;
   const final=current.kind==='assistant_text'&&typeof finalText==='string'&&current.text.trim()===finalText.trim();
-  enqueue(async()=>{if(current.id)await query(db,`UPDATE agent_events SET status=?,output=?,tool=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?`,[status,current.text,final?'assistant_final':current.kind,current.id]);});
+  enqueue(async()=>{
+   if(current.id)await query(db,`UPDATE agent_events SET status=?,output=?,tool=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?`,[status,current.text,final?'assistant_final':current.kind,current.id]);
+   if(status==='completed'&&current.kind==='assistant_text')
+    await publishVisible(typeof finalText==='string'&&finalText.trim()?finalText:current.text);
+  });
  };
  const begin=kind=>{
   finish();phase={kind,text:'',id:undefined};const current=phase;

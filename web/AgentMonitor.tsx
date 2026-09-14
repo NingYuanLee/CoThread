@@ -230,7 +230,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
 
       <div className="monitor-view-tabs" role="tablist" aria-label="监控内容">
         <button type="button" role="tab" aria-selected={view === "status"} onClick={() => setView("status")}>AgentTeam 状态</button>
-        <button type="button" role="tab" aria-selected={view === "logs"} onClick={() => setView("logs")}>运行日志</button>
+        <button type="button" role="tab" aria-selected={view === "logs"} onClick={() => setView("logs")}>轨迹</button>
       </div>
 
       {view === "status" ? <>
@@ -337,7 +337,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
           </article>)}
           {!data?.eventLog.length && <p className="monitor-empty">暂无 DSH 运行事件。</p>}
         </div>
-        <p className="monitor-log-note">日志展示步骤、工具、Agent 层级、状态和耗时。隐藏思考正文、完整工具参数与敏感输出不会在监控器中公开。</p>
+        <p className="monitor-log-note">轨迹摘要展示步骤、工具、Agent 层级、状态和耗时。思考正文、完整工具参数与敏感输出在监控器中保持折叠，点开对应轨迹可查看详情。</p>
       </section>}
     </>}
     {error && <p className="monitor-error" role="alert">{error}</p>}

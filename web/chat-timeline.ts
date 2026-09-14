@@ -5,6 +5,10 @@ export type TimelineMessage = {
 };
 type Reply = { message_id: string; reply_id: string | null; participation: string; parent_message_id: string | null; agent_slot: number | null };
 
+export function isExecutorReply(reply: Pick<Reply, "parent_message_id" | "agent_slot">) {
+  return !!reply.parent_message_id || !!reply.agent_slot;
+}
+
 // A task owns one stable chat row, from its first activity through its result.
 // Keep the underlying messages intact; document references remain independently usable.
 export function taskTimeline<M extends TimelineMessage, R extends Reply>(
@@ -18,9 +22,9 @@ export function taskTimeline<M extends TimelineMessage, R extends Reply>(
   for (const reply of replies) {
     const parts = messages.filter(m => m.source === 'assistant' &&
       (m.agent_task_id === reply.message_id || m.id === reply.reply_id));
-    // Ordinary main-assistant replies retain their chronological message position.
-    if (!reply.parent_message_id && !reply.agent_slot && !hasActivity(reply) &&
-        !parts.some(m => m.agent_task_id)) continue;
+    const executor = isExecutorReply(reply);
+    // L2 model returns are group-facing messages. Do not fold them into a process row.
+    if (!executor && (parts.length || !hasActivity(reply))) continue;
     if (!parts.length && !hasActivity(reply)) continue;
     const receptionId = requests.find(r => r.message_id === reply.message_id)?.response_id;
     const anchor = (receptionId && byId.get(receptionId)) || byId.get(reply.message_id);
@@ -28,11 +32,10 @@ export function taskTimeline<M extends TimelineMessage, R extends Reply>(
     if (!anchor && !fallback) continue;
     const base = fallback || anchor!;
     const row = { ...base, id: `agent-task:${reply.message_id}`, source: 'assistant',
-      ...(!reply.parent_message_id && !reply.agent_slot ? {render_key:`agent-reception:${reply.message_id}`} : {}),
       quoteTargetId: reply.reply_id || parts[0]?.id,
       agent_task_id: reply.message_id, body: parts.filter(m => m.id === reply.reply_id).map(m => m.body).join('\n\n'),
       refs: [...new Set(parts.flatMap(m => m.refs))] };
-    parts.forEach(m => consumed.add(m.id));
+    if (executor) parts.forEach(m => consumed.add(m.id));
     const target = anchor ? after : before;
     const key = (anchor || fallback).id;
     target.set(key, [...(target.get(key) || []), row]);

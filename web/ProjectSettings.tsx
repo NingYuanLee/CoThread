@@ -42,7 +42,7 @@ export function ProjectSettings({ name, createdAt, creator, onSave, onOpenL1Logs
       <div className="project-settings-agent">
         <span className="project-settings-label">一级小祥</span>
         <p className="project-settings-value">项目知识整理与维护会话</p>
-        <button type="button" onClick={onOpenL1Logs}>维护日志</button>
+        <button type="button" onClick={onOpenL1Logs}>轨迹</button>
       </div>
       <div className="project-settings-archive">
         <button type="button" disabled>归档项目</button>

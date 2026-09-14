@@ -100,6 +100,10 @@ export function ChatComposer({
   onSend,
   onRefresh,
   uploadTarget,
+  onOpenConnector,
+  onCopyConversation,
+  connectorAvailable,
+  copyLabel,
 }: {
   projectId: string;
   threadId: string;
@@ -113,6 +117,10 @@ export function ChatComposer({
   onSend: () => Promise<boolean>;
   onRefresh: () => Promise<void>;
   uploadTarget: React.MutableRefObject<((files: File[]) => void) | null>;
+  onOpenConnector: () => void;
+  onCopyConversation: () => void;
+  connectorAvailable: boolean;
+  copyLabel: string;
 }) {
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [error, setError] = useState("");
@@ -516,6 +524,25 @@ export function ChatComposer({
         </div>
       )}
       <div className="composer-footer">
+        <div className="composer-tools">
+          <button
+            type="button"
+            className="composer-connector"
+            title={connectorAvailable ? "项目有成员在线" : "运行连接器后在此授权"}
+            onClick={onOpenConnector}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M8 12h8M9 8V5m6 3V5M7 8h10v5a5 5 0 0 1-10 0V8Z" />
+              <path d="M12 18v3" />
+            </svg>
+            本地连接器
+            {connectorAvailable && <i className="composer-connector-dot" aria-hidden="true" />}
+          </button>
+          <span className="composer-tools-split" aria-hidden="true" />
+          <button type="button" className="composer-connector" onClick={onCopyConversation}>
+            {copyLabel}
+          </button>
+        </div>
         <button
           className="primary"
           disabled={busy || pending || !message.trim()}

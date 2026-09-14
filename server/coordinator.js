@@ -166,7 +166,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
   try {
     const prompt = `当前项目：${context.project_id}；当前迭代：${job.thread_id}；触发消息：${job.message_id}。
 本次触发消息及其上下文如下：${JSON.stringify(context.promptContext || context)}
-请先理解并按需调用工具。需要对群里说话时调用 post_message。若本次无需新的可见发言，最终只返回 NO_VISIBLE_MESSAGE；否则最终返回已发布消息的简短内部确认。结束前必须根据状态调用 finish_turn 或 wait_for_updates。`;
+请先理解并按需调用工具。你每次模型回复里的可见正文会进入群聊给成员看，不要把思考、工具过程或内部确认写进正文。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。post_message 只用于额外插入一条与当前模型回复不同的独立消息。结束前必须根据状态调用 finish_turn 或 wait_for_updates。`;
     const steeredMessageIds = new Set();
     const mergedMessageIds = new Set();
     let steeringBusy = false;

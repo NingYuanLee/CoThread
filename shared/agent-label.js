@@ -129,10 +129,10 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       action = "查看任务";
       break;
     case "assistant_text":
-      action = "组织回复";
+      action = "正文";
       break;
     case "assistant_final":
-      action = "完成回复";
+      action = "正文";
       break;
     case "agent_run":
       action = "运行三级小祥";

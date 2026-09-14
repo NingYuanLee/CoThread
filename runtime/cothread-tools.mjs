@@ -6,7 +6,7 @@ export function apply(ctx) {
   // This build-time manifest is the only source of model-facing project tools.
   // Accounts and project data cannot extend it at runtime.
   const definitions = [
-    ["post_message", "向当前迭代群聊发布一条独立协作消息。发布后继续工作，不代表当前任务结束。", { text: { type: "string", required: true } }],
+    ["post_message", "向当前迭代群聊额外发布一条独立消息。模型回复正文会自动进入群聊，不必把同一段话再发一遍。", { text: { type: "string", required: true } }],
     ["list_project_tasks", "读取当前项目任务池中的正式任务和内部辅助任务。", { status: { type: "string" }, targetId: { type: "string" }, limit: { type: "number" } }],
     ["update_task", "更新当前负责任务的状态、进度、结果摘要或产物。", { taskId:{type:"string",required:true}, status:{type:"string"}, progress:{type:"string"}, resultSummary:{type:"string"}, artifactRefs:{type:"array"}, body:{type:"string"} }],
     ["reassign_task", "把当前 L2 负责的正式任务转交给项目人类成员或当前迭代 L2，并记录转交历史。", { taskId:{type:"string",required:true}, targetType:{type:"string",required:true}, targetId:{type:"string",required:true}, reason:{type:"string"} }],

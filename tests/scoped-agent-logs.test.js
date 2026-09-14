@@ -40,10 +40,11 @@ test("agent logs are isolated by project, iteration, and task without exposing r
     await query(database.db, `INSERT INTO agent_events
       (message_id,agent_session_id,agent_task_id,tool,status,input,output,created_at,finished_at) VALUES
       (?,?,?,'list_agents','completed','{"scope":"children"}','private',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),
+      (?,?,NULL,'assistant_text','completed','{}','你好小祥',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),
       (?,?,?,'sandbox_read','completed','{"path":"a.txt"}','private',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),
       (?,?,?,'sandbox_write','completed','{"path":"b.txt"}','private',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),
       (?,?,NULL,'list_documents','completed','{}','private',DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 7 SECOND),DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 6 SECOND))`,
-    [message.id, l2SessionId, taskA.id, message.id, childSessionId, taskA.id,
+    [message.id, l2SessionId, taskA.id, message.id, l2SessionId, message.id, childSessionId, taskA.id,
       message.id, childSessionId, taskB.id, message.id, childSessionId]);
     await query(database.db, `INSERT INTO agent_project_events
       (project_id,agent_session_id,task,phase,status,finished_at) VALUES(?,?,?,'prepare_context','completed',UTC_TIMESTAMP(3))`,
@@ -53,7 +54,10 @@ test("agent logs are isolated by project, iteration, and task without exposing r
     const l2 = await service.agentLogs(user, "thread", thread.id);
     const l3 = await service.agentLogs(user, "task", taskA.id);
     assert.deepEqual(l1.events.map((event) => event.agentType), ["l1"]);
-    assert.deepEqual(l2.events.map((event) => event.tool), ["list_agents"]);
+    assert.deepEqual(l2.events.map((event) => event.tool), ["assistant_text", "list_agents"]);
+    const reply = l2.events.find((event) => event.tool === "assistant_text");
+    assert.equal(reply.preview, "你好小祥");
+    assert.equal("preview" in l2.events.find((event) => event.tool === "list_agents"), false);
     assert.deepEqual(new Set(l3.events.map((event) => event.tool)), new Set(["sandbox_read", "list_documents"]));
     assert.ok(l3.events.every((event) => event.taskId === taskA.id));
     for (const result of [l1, l2, l3]) for (const event of result.events) {
@@ -61,6 +65,10 @@ test("agent logs are isolated by project, iteration, and task without exposing r
       assert.equal("output" in event, false);
       assert.equal("reasoning" in event, false);
     }
+    assert.equal(l2.inputs.length, 1);
+    assert.equal(l2.inputs[0].messageId, message.id);
+    assert.equal(l2.inputs[0].preview, "记录运行过程");
+    assert.ok(l2.events.every((event) => event.messageId === message.id));
     await assert.rejects(service.agentLogs(outsider, "project", project.id), { status: 403 });
     await assert.rejects(service.agentLogs(outsider, "thread", thread.id), { status: 403 });
     await assert.rejects(service.agentLogs(outsider, "task", taskA.id), { status: 403 });

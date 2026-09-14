@@ -92,9 +92,33 @@ test("thinking lifecycle records phases once, omits content, and closes interrup
   assert.ok(!JSON.stringify(writes).includes("private reasoning"));
 });
 
+test("each completed assistant text return is published, thinking is not", async () => {
+  const db = {
+    async execute() {
+      return [{ affectedRows: 1, insertId: 1 }];
+    },
+  };
+  const published = [];
+  const tracker = trackThinking(db, "message", "session", { onVisibleText: async (text) => published.push(text) });
+  const notify = (type, data = {}) => tracker.notify({
+    method: "session.event",
+    params: { sessionId: "session", event: { type, data } },
+  });
+  const chunk = (type, text) => notify("assistant/chunk", { chunk: { type, text } });
+  notify("step/start");
+  chunk("reasoning-delta", "内部思考");
+  chunk("text-delta", "第一句给成员看。");
+  notify("tool/call");
+  notify("step/start");
+  chunk("text-delta", "第二句给成员看。");
+  notify("assistant/message");
+  await tracker.close("completed", "第二句给成员看。");
+  assert.deepEqual(published, ["第一句给成员看。", "第二句给成员看。"]);
+});
+
 test("conversation log button follows the live L2 event name", () => {
   const replies = [{ message_id: "m1", parent_message_id: null, status: "completed", progress: null }];
-  assert.equal(coordinatorLogButtonLabel({ replies, events: [] }), "运行日志");
+  assert.equal(coordinatorLogButtonLabel({ replies, events: [] }), "轨迹");
   replies[0].status = "running";
   replies[0].progress = "正在准备上下文";
   assert.equal(coordinatorLogButtonLabel({ replies, events: [] }), "正在准备上下文");

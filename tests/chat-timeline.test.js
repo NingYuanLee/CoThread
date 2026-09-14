@@ -43,6 +43,14 @@ test('ordinary main replies and empty queued tasks remain unchanged',()=>{
   assert.deepEqual(taskTimeline(base,[normal],request,()=>false),base);
   assert.deepEqual(taskTimeline(base,[reply],request,()=>false),base);
 });
+test('L2 group posts stay as ordinary messages without a process row',()=>{
+  const coordinator={message_id:'user',reply_id:'post2',participation:'reply',parent_message_id:null,agent_slot:null};
+  const first=message('post1','assistant',{agent_task_id:'user',body:'先看一下任务'});
+  const second=message('post2','assistant',{agent_task_id:'user',body:'再把结果告诉大家'});
+  const rows=taskTimeline([base[0],first,second],[coordinator],[{message_id:'user',response_id:null,status:'completed'}],()=>false);
+  assert.deepEqual(rows.map(m=>m.id),['user','post1','post2']);
+  assert.deepEqual(rows.slice(1).map(m=>m.body),['先看一下任务','再把结果告诉大家']);
+});
 test('concurrent child tasks keep their own reception anchors and results',()=>{
   const second={...reply,message_id:'user2',parent_message_id:'user2',agent_slot:2,reply_id:'result2'};
   const rows=taskTimeline([...base,message('user2'),message('host2','assistant'),message('result2','assistant',{agent_task_id:'user2'})],[reply,second],[...request,{message_id:'user2',response_id:'host2'}],()=>true);

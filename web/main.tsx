@@ -1,8 +1,7 @@
 import { AgentActivity } from "./AgentActivity";
-import { StreamingMarkdown } from "./StreamingMarkdown";
 import { MessageUsage, type UsageStats } from './MessageUsage';
 import { useAgentLiveOutput } from "./useAgentLiveOutput";
-import { taskTimeline } from "./chat-timeline";
+import { isExecutorReply, taskTimeline } from "./chat-timeline";
 import { apiFetch, fetchJson } from "./api-fetch";
 import {
   AGENT_MEMBER,
@@ -14,7 +13,7 @@ import { createRoot } from "react-dom/client";
 import "./style.css";
 import { createMcpInstallGuide } from "../shared/mcp-guide.js";
 import { configureMakers, invokeMakers, wakeMakers, useMakersConnection } from "./makers";
-import { coordinatorLogButtonLabel } from "./agent-label";
+import { coordinatorLogButtonLabel, COORDINATOR_LOG_IDLE_LABEL } from "./agent-label";
 const Documents = lazy(() =>
   import("./Documents").then((module) => ({ default: module.Documents })),
 );
@@ -25,7 +24,7 @@ import { ContextMeter } from "./ContextMeter";
 import { Notifications } from "./Notifications";
 import { ProjectSettings } from "./ProjectSettings";
 import { AgentMonitor } from "./AgentMonitor";
-import { AgentLogDialog } from "./AgentLogDialog";
+import { AgentLogDialog, AgentTrajectory } from "./AgentLogDialog";
 import { MemberPicker } from "./MemberPicker";
 import { SystemManagement } from "./SystemManagement";
 import { EmailAuth } from "./EmailAuth";
@@ -62,7 +61,7 @@ function PanelIcon({ side }: { side: "left" | "right" }) {
     </svg>
   );
 }
-function SidebarIcon({ kind }: { kind: "plus" | "monitor" | "connector" }) {
+function SidebarIcon({ kind }: { kind: "plus" | "monitor" }) {
   return (
     <svg
       width="18"
@@ -82,8 +81,6 @@ function SidebarIcon({ kind }: { kind: "plus" | "monitor" | "connector" }) {
           <circle cx="10" cy="3" r="1" />
           <circle cx="16" cy="10" r="1" />
         </>
-      ) : kind === "connector" ? (
-        <><path d="M8 12h8M9 8V5m6 3V5M7 8h10v5a5 5 0 0 1-10 0V8Z"/><path d="M12 18v3"/></>
       ) : (
         <path d="M12 5v14M5 12h14" />
       )}
@@ -498,7 +495,9 @@ function App() {
   const [loadedDetail, setDetail] = useState<Detail | null>(null);
   const detail = loadedDetail?.id === projectId ? loadedDetail : projectCache.current.get(projectId) || null;
   const [threadId, setThreadId] = useState("");
+  const [threadView, setThreadView] = useState<"chat" | "trajectory">("chat");
   const makersConnection = useMakersConnection(threadId);
+  useEffect(() => { setThreadView("chat"); }, [threadId]);
   const pendingNotification = useRef<{ projectId: string; threadId: string | null } | null>(null);
   const [loadedThread, setThread] = useState<Thread | null>(null);
   const thread = loadedThread?.id === threadId ? loadedThread : threadCache.current.get(threadId) || null;
@@ -1154,70 +1153,55 @@ function App() {
         item.id === optimisticId ? { ...item, delivery_status: "failed", delivery_error: detail } : item) }));
     }
   };
-  const hasAgentActivity = (reply: Thread["replies"][number]) =>
-    !!reply.parent_message_id || !!reply.agent_slot ||
-    (!!reply.dispatch_ready && ['queued','running'].includes(reply.status)) ||
-    reply.status === "running" ||
-    !!liveOutput[reply.message_id]?.reasoning || (!!liveOutput[reply.message_id]?.content && !reply.reply_id) ||
-    reply.status === "failed" ||
-    !!thread?.events.some((event) => event.message_id === reply.message_id &&
-      (event.tool !== "thinking" || (reply.status === "running" && event.status === "running")));
-  const directStreamingReply = (message: Thread["messages"][number]) => {
-    if (!message.agent_task_id) return undefined;
-    const reply = thread?.replies.find((item) => item.message_id === message.agent_task_id);
-    return reply && !reply.parent_message_id && !reply.agent_slot && !reply.dispatch_ready
-      && reply.status === "running" && !reply.reply_id ? reply : undefined;
+  const hasAgentActivity = (reply: Thread["replies"][number]) => {
+    if (!isExecutorReply(reply)) return reply.status === "failed";
+    return (!!reply.dispatch_ready && ["queued", "running"].includes(reply.status)) ||
+      reply.status === "running" ||
+      !!liveOutput[reply.message_id]?.reasoning || (!!liveOutput[reply.message_id]?.content && !reply.reply_id) ||
+      reply.status === "failed" ||
+      !!thread?.events.some((event) => event.message_id === reply.message_id &&
+        (event.tool !== "thinking" || (reply.status === "running" && event.status === "running")));
   };
+  const liveCoordinator = thread?.replies.find((reply) =>
+    !isExecutorReply(reply) && ["queued", "running"].includes(reply.status));
   const timeline = thread ? taskTimeline(thread.messages, thread.replies, thread.requests || [], hasAgentActivity) : [];
   const coordinatorLogLabel = thread ? coordinatorLogButtonLabel({
     replies: thread.replies,
     events: thread.events,
     liveOutput,
     compactStatus: thread.contextUsage?.compactStatus,
-  }) : "运行日志";
+  }) : COORDINATOR_LOG_IDLE_LABEL;
   const renderAgentRound = (reply: Thread["replies"][number]) => {
     if (!hasAgentActivity(reply)) return null;
-    const events = thread?.events.filter(e => e.message_id === reply.message_id) || [];
-    const output = liveOutput[reply.message_id];
     const stopControl = active && (reply.status === "queued" || reply.status === "running") && (
       <button className="agent-stop" disabled={busy} onClick={() => void run(async () => {
         await api(`/threads/${threadId}/replies/${reply.message_id}/stop`, {});
         await refresh();
       })}>停止</button>
     );
+    const failed = reply.status === "failed" && (
+      <div className="reply-status failed" role="status">
+        <span>{reply.error}</span>
+        {active && (
+          <button disabled={busy} onClick={() => void run(async () => {
+            await api(`/threads/${threadId}/replies/${reply.message_id}/retry`, {});
+            await refresh();
+          })}>重试回复</button>
+        )}
+      </div>
+    );
+    if (!isExecutorReply(reply)) {
+      return failed ? <div className="agent-round" data-message-id={reply.message_id}>{failed}</div> : null;
+    }
+    const events = thread?.events.filter(e => e.message_id === reply.message_id) || [];
+    const output = liveOutput[reply.message_id];
     return (
       <div className="agent-round" data-message-id={reply.message_id}>
         <div className="agent-trace-row">
           <AgentActivity threadId={threadId} messageId={reply.message_id} events={events} output={output} status={reply.status} progress={makersConnection==='unavailable'?'助手暂时无法连接，消息已保存。':reply.progress} hasFinal={!!reply.reply_id} versions={detail?.versions} threads={detail?.threads}/>
           {stopControl}
         </div>
-        {[reply]
-          ?.filter((r) => r.status === "failed")
-          .map((r) => (
-            <div
-              className="reply-status failed"
-              key={r.message_id}
-              role="status"
-            >
-              <span>{r.error}</span>
-              {active && (
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    void run(async () => {
-                      await api(
-                        `/threads/${threadId}/replies/${r.message_id}/retry`,
-                        {},
-                      );
-                      await refresh();
-                    })
-                  }
-                >
-                  重试回复
-                </button>
-              )}
-            </div>
-          ))}
+        {failed}
       </div>
     );
   };
@@ -1546,16 +1530,6 @@ function App() {
         </button>
         <div className="sidebar-bottom">
           <button
-            className="sidebar-card sidebar-connector"
-            title="查看已关联的本地连接器"
-            aria-label="本地连接器"
-            onClick={() => { setConnectorOpen(true); void refreshConnectors(); }}
-          >
-            <span className="sidebar-card-icon"><SidebarIcon kind="connector" /></span>
-            <span className="sidebar-card-copy">本地连接器<small>{localAvailable ? "项目有成员在线" : "运行连接器后在此授权"}</small></span>
-            <span className="sidebar-card-action" aria-hidden="true">›</span>
-          </button>
-          <button
             className="sidebar-card sidebar-monitor"
             title="查看所有小祥的运行状态"
             aria-label="小祥监控"
@@ -1618,31 +1592,41 @@ function App() {
         )}
         <header>
           <div className="conversation-heading">
-            <nav className="breadcrumb" aria-label="当前位置">
-              <span className="breadcrumb-project" title={detail?.name}>
-                {detail?.name || "工作空间"}
-              </span>
-              <span className="breadcrumb-separator">/</span>
-              <span className="breadcrumb-thread" title={thread?.title}>
-                {thread?.title || "未选择迭代"}
-              </span>
-              {threadId && <button type="button" className="breadcrumb-copy" onClick={() => void copyConversationInfo()}>
-                {copiedThreadId === threadId ? "已复制" : "复制会话"}
-              </button>}
-            </nav>
-            {thread && <button
-              type="button"
-              className="conversation-log"
-              data-live={coordinatorLogLabel !== "运行日志" || undefined}
-              aria-live="polite"
-              title={coordinatorLogLabel === "运行日志" ? "查看运行日志" : `${coordinatorLogLabel}；点击查看运行日志`}
-              onClick={() => setAgentLogScope({ type: "thread", id: threadId })}
-            >
-              {coordinatorLogLabel !== "运行日志" && <span className="conversation-log-pulse" aria-hidden="true" />}
-              <span className="conversation-log-text">{coordinatorLogLabel}</span>
-            </button>}
+            {thread && <span className="conversation-log-group">
+              <div className="conversation-views" role="tablist" aria-label="会话视图">
+                <button
+                  type="button"
+                  role="tab"
+                  className="conversation-view"
+                  aria-selected={threadView === "chat"}
+                  onClick={() => setThreadView("chat")}
+                >对话</button>
+                <button
+                  type="button"
+                  role="tab"
+                  className="conversation-view"
+                  aria-selected={threadView === "trajectory"}
+                  data-live={coordinatorLogLabel !== COORDINATOR_LOG_IDLE_LABEL || undefined}
+                  title={coordinatorLogLabel === COORDINATOR_LOG_IDLE_LABEL ? "查看轨迹" : coordinatorLogLabel}
+                  onClick={() => setThreadView("trajectory")}
+                >
+                  {coordinatorLogLabel !== COORDINATOR_LOG_IDLE_LABEL && <span className="conversation-log-pulse" aria-hidden="true" />}
+                  轨迹
+                </button>
+              </div>
+              {coordinatorLogLabel !== COORDINATOR_LOG_IDLE_LABEL && <span className="conversation-view-status" aria-live="polite">{coordinatorLogLabel}</span>}
+              {liveCoordinator && active && <button
+                type="button"
+                className="conversation-log-stop"
+                disabled={busy}
+                onClick={() => void run(async () => {
+                  await api(`/threads/${threadId}/replies/${liveCoordinator.message_id}/stop`, {});
+                  await refresh();
+                })}
+              >停止</button>}
+            </span>}
           </div>
-          {thread?.contextUsage && <div className="breadcrumb-actions" role="group" aria-label="会话信息">
+          {thread?.contextUsage && <div className="conversation-header-actions" role="group" aria-label="会话信息">
             <ContextMeter
               key={threadId}
               usage={thread.contextUsage}
@@ -1705,7 +1689,7 @@ function App() {
           </div>
         ) : (
           <>
-            <div className="conversation-stage">
+            <div className="conversation-stage" hidden={threadView !== "chat"}>
             <MessageNavigator key={threadId} messages={thread.messages} container={conversationRef} onNavigate={navigateMessage} />
             <div
               className="conversation"
@@ -1782,13 +1766,15 @@ function App() {
                           <span className="source-label">协作记录</span>
                         )}
                       </div>
-                      {m.id.startsWith('agent-reception:') && <AgentActivity threadId={threadId} messageId={m.id.slice('agent-reception:'.length)} events={[]} status="queued" hasFinal={false}/>}
                       {m.source === "assistant" &&
                         thread.replies
-                          .filter((reply) => m.agent_task_id === reply.message_id || reply.reply_id === m.id)
+                          .filter((reply) => {
+                            if (isExecutorReply(reply)) return m.agent_task_id === reply.message_id || reply.reply_id === m.id;
+                            return reply.status === "failed" && m.id === `agent-task:${reply.message_id}`;
+                          })
                           .map((reply) => (
                             <React.Fragment key={reply.message_id}>
-                              {directStreamingReply(m) ? null : renderAgentRound(reply)}
+                              {renderAgentRound(reply)}
                             </React.Fragment>
                           ))}
                       {!!m.quotes?.length && <div className="message-quotes">{m.quotes.map(q => (
@@ -1803,10 +1789,7 @@ function App() {
                             {update.delivered_at ? "已更新当前任务" : "已关联到当前任务，等待助手接收"}
                           </p>
                         ))}
-                        {directStreamingReply(m) ? <StreamingMarkdown
-                          active
-                          text={liveOutput[directStreamingReply(m)!.message_id]?.content || ""}
-                        /> : <Markdown
+                        <Markdown
                           remarkPlugins={[remarkGfm]}
                           components={{
                             img: () => <span>（图片链接）</span>,
@@ -1824,7 +1807,7 @@ function App() {
                           }}
                         >
                           {m.body}
-                        </Markdown>}
+                        </Markdown>
                       </div>
                       {!!m.refs.length && (
                         <div className="references">
@@ -1840,7 +1823,11 @@ function App() {
                           setQuotedMessages(previous => previous.some(q => q.id === id) ? previous : [...previous, {...original, id}].slice(0,10));
                           requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus());
                         }}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 5H3v6h5V5Zm9 0h-5v6h5V5ZM8 11c0 3-2 4-4 4m13-4c0 3-2 4-4 4"/></svg></button>
-                        {m.source==='assistant'&&<MessageUsage record={m.agent_task_id?thread.replies.find(r=>r.message_id===m.agent_task_id):thread.requests.find(r=>r.response_id===m.id)} finishedAt={m.created_at} createdAt={thread.messages.find(item=>item.id===(m.agent_task_id||thread.requests.find(r=>r.response_id===m.id)?.message_id))?.created_at}/>}
+                        {m.source==='assistant' && (() => {
+                          const reply = m.agent_task_id ? thread.replies.find((item) => item.message_id === m.agent_task_id) : undefined;
+                          if (reply && !isExecutorReply(reply)) return null;
+                          return <MessageUsage record={reply || thread.requests.find(r=>r.response_id===m.id)} finishedAt={m.created_at} createdAt={thread.messages.find(item=>item.id===(m.agent_task_id||thread.requests.find(r=>r.response_id===m.id)?.message_id))?.created_at}/>;
+                        })()}
                         {(m.author_id !== user.id || m.source === "assistant") && <time className="message-action-time">{time(m.created_at)}</time>}
                       </div>}
                     </div>
@@ -1883,7 +1870,12 @@ function App() {
                 )}
             </div>
             </div>
-            <div className="composer-area">
+            {threadView === "trajectory" && threadId && (
+              <div className="conversation-stage conversation-stage-trajectory">
+                <AgentTrajectory key={threadId} scope={{ type: "thread", id: threadId }} api={api} />
+              </div>
+            )}
+            <div className="composer-area" hidden={threadView !== "chat"}>
               <div className="composer-toolbar">
                 <div className="conversation-task-pool" role="group" aria-label="本迭代与我有关的任务" onClick={() => {
                   setTaskScope("current"); setTaskMine(true); setSelectedTaskId(""); setTaskDetail(null); setTab("tasks"); setContextOpen(true);
@@ -1939,6 +1931,10 @@ function App() {
                   members={detail?.members || []}
                   busy={busy}
                   uploadTarget={uploadTarget}
+                  connectorAvailable={localAvailable}
+                  copyLabel={copiedThreadId === threadId ? "已复制" : "复制会话"}
+                  onOpenConnector={() => { setConnectorOpen(true); void refreshConnectors(); }}
+                  onCopyConversation={() => void copyConversationInfo()}
                   onRefresh={refresh}
                   onSend={async () => {
                     const targetThreadId = threadId;
@@ -1982,6 +1978,24 @@ function App() {
                   {thread.status === "archived"
                     ? "此迭代已归档。历史讨论与文档可以继续查阅，也可以引用到新的迭代。"
                     : "你正在以只读成员身份查看此迭代。"}
+                  <div className="composer-tools">
+                    <button
+                      type="button"
+                      className="composer-connector"
+                      title={localAvailable ? "项目有成员在线" : "运行连接器后在此授权"}
+                      onClick={() => { setConnectorOpen(true); void refreshConnectors(); }}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M8 12h8M9 8V5m6 3V5M7 8h10v5a5 5 0 0 1-10 0V8Z" />
+                        <path d="M12 18v3" />
+                      </svg>
+                      本地连接器
+                    </button>
+                    <span className="composer-tools-split" aria-hidden="true" />
+                    <button type="button" className="composer-connector" onClick={() => void copyConversationInfo()}>
+                      {copiedThreadId === threadId ? "已复制" : "复制会话"}
+                    </button>
+                  </div>
                 </div>
               )}
               <small className="composer-note">
@@ -2139,7 +2153,7 @@ function App() {
               return <div className="task-detail">
                 <button type="button" className="task-detail-back" onClick={() => { setSelectedTaskId(""); setTaskDetail(null); }}>← 返回任务列表</button>
                 {!task ? <p className="muted">正在读取任务详情…</p> : <>
-                  <header><div><small>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small><h3>{task.title}</h3></div><div className="task-detail-header-actions"><button type="button" onClick={() => setAgentLogScope({ type: "task", id: task.id })}>执行日志</button><span data-status={task.status}>{labelWorkflowStatus(task.status)}</span></div></header>
+                  <header><div><small>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small><h3>{task.title}</h3></div><div className="task-detail-header-actions"><button type="button" onClick={() => setAgentLogScope({ type: "task", id: task.id })}>轨迹</button><span data-status={task.status}>{labelWorkflowStatus(task.status)}</span></div></header>
                   <dl className="task-detail-meta"><div><dt>责任主体</dt><dd>{targetName}</dd></div><div><dt>执行 Agent</dt><dd>{task.execution_agent_type || "待选择"}</dd></div></dl>
                   <section><h4>任务目标</h4><p>{task.goal}</p>{task.constraints && <><h4>约束</h4><p>{task.constraints}</p></>}</section>
                   {openQuestion && <section className="task-question"><h4>需要你回答</h4><p>{openQuestion.question}</p><textarea value={taskAnswer} onChange={(event) => setTaskAnswer(event.target.value)} placeholder="输入回答" /><button type="button" className="primary" disabled={taskActionBusy || !taskAnswer.trim()} onClick={() => void performTaskAction(async () => { await api(`/task-questions/${openQuestion.id}/answer`, { answer: taskAnswer }); setTaskAnswer(""); })}>提交回答</button></section>}

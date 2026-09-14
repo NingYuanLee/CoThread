@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { query, transaction } from "./db.js";
 import { Service, HttpError } from "./service.js";
+import { discussionHasActiveCoordinator, sessionLockName } from "./session-lock.js";
 
 export { queueContextCompression } from "./queue-context.js";
 
 export async function processNextContextCompression(db, openRuntime, threadId) {
   const [candidate] = await query(db, `SELECT thread_id FROM agent_sessions WHERE compact_status='queued' ${threadId ? "AND thread_id=?" : ""} ORDER BY updated_at LIMIT 1`, threadId ? [threadId] : []);
   if (!candidate) return false;
-  const connection = await db.getConnection(), key = `cothread-context:${candidate.thread_id}`;
+  const connection = await db.getConnection(), key = sessionLockName(candidate.thread_id);
   let locked = false;
   try {
     const [lock] = await query(connection, "SELECT GET_LOCK(?,0) acquired", [key]);
@@ -35,6 +36,7 @@ async function compressClaimedDiscussion(db, openRuntime, threadId) {
         `SELECT r.message_id FROM assistant_replies r JOIN messages m ON m.id=r.message_id
          WHERE m.thread_id=? AND r.parent_message_id IS NULL AND (r.status='running' OR r.execution_active=TRUE) LIMIT 1`, [next.thread_id]);
       if (active) return;
+      if (await discussionHasActiveCoordinator(conn, next.thread_id)) return;
       await query(
         conn,
         "UPDATE agent_sessions SET compact_status='running' WHERE thread_id=?",
@@ -56,6 +58,7 @@ async function compressClaimedDiscussion(db, openRuntime, threadId) {
       user,
       job: { thread_id: job.thread_id },
       autoCompact: false,
+      sessionLockHeld: true,
     });
     const result = await runtime.request("compact");
     await runtime.close(true);
@@ -93,7 +96,7 @@ export async function refreshNextContextStats(db) {
     AND s.compact_status<>'failed' ORDER BY s.updated_at LIMIT 1`,
   );
   if (!stored) return false;
-  const connection = await db.getConnection(), key = `cothread-context:${stored.thread_id}`;
+  const connection = await db.getConnection(), key = sessionLockName(stored.thread_id);
   const [lock] = await query(connection, "SELECT GET_LOCK(?,0) acquired", [key]);
   if (Number(lock.acquired) !== 1) { connection.release(); return false; }
   let runtime;
@@ -108,6 +111,7 @@ export async function refreshNextContextStats(db) {
       job: { thread_id: stored.thread_id },
       observe: false,
       autoCompact: false,
+      sessionLockHeld: true,
     });
     await runtime.close(true);
   } catch (error) {

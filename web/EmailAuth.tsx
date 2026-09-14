@@ -65,7 +65,7 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
     event.currentTarget.style.setProperty("--spot-x", `${event.clientX - bounds.left}px`);
     event.currentTarget.style.setProperty("--spot-y", `${event.clientY - bounds.top}px`);
   }}>
-    <span className="eyebrow">WORKSPACE</span>
+    <span className="eyebrow">工作空间</span>
     <div className="auth-mode-tabs" role="tablist" aria-label="账号入口">
       {(["login", "register", "recover"] as Mode[]).map((value) => <button key={value} type="button" role="tab"
         aria-selected={mode === value} className={mode === value ? "active" : ""} onClick={() => switchMode(value)}>

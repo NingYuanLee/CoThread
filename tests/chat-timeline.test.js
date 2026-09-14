@@ -31,6 +31,13 @@ test('partial history retains task results without the original user or receptio
   const rows=taskTimeline(parts,[{...reply,reply_id:'result'}],request,()=>true);
   assert.equal(rows.length,1);assert.deepEqual(rows[0].refs,['v1']);
 });
+test('failed pending coordinator replies stay visible',()=>{
+  const failed={message_id:'user',reply_id:null,participation:'pending',parent_message_id:null,agent_slot:null};
+  const rows=taskTimeline([base[0]],[failed],[{message_id:'user',response_id:null,status:'failed'}],()=>true);
+  assert.equal(rows.length,2);
+  assert.equal(rows[1].id,'agent-task:user');
+  assert.equal(rows[1].source,'assistant');
+});
 test('ordinary main replies and empty queued tasks remain unchanged',()=>{
   const normal={...reply,parent_message_id:null,agent_slot:null,reply_id:'host'};
   assert.deepEqual(taskTimeline(base,[normal],request,()=>false),base);

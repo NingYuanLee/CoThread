@@ -13,7 +13,7 @@ export function AgentActivity({threadId,messageId,events,output,status,hasFinal,
  progress?:string|null;
 }){
  const running=['queued','running'].includes(status);
- const [open,setOpen]=useState(()=>['queued','running'].includes(status));
+ const [open,setOpen]=useState(false);
  const [texts,setTexts]=useState<Record<string,string>>({});
  const [error,setError]=useState('');
  const ordered=[...events].sort((a,b)=>BigInt(a.id)<BigInt(b.id)?-1:1);

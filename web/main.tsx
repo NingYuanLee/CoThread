@@ -14,6 +14,7 @@ import { createRoot } from "react-dom/client";
 import "./style.css";
 import { createMcpInstallGuide } from "../shared/mcp-guide.js";
 import { configureMakers, invokeMakers, wakeMakers, useMakersConnection } from "./makers";
+import { coordinatorLogButtonLabel } from "./agent-label";
 const Documents = lazy(() =>
   import("./Documents").then((module) => ({ default: module.Documents })),
 );
@@ -43,6 +44,7 @@ import {
 } from "./ProfileFields";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { labelReasoningEffort, labelWorkflowStatus, labelExecutorType } from "./ui-labels";
 
 function PanelIcon({ side }: { side: "left" | "right" }) {
   return (
@@ -475,7 +477,7 @@ function App() {
     try { usage = typeof record?.usage_stats === "string"
       ? JSON.parse(record.usage_stats) : record?.usage_stats || {}; } catch {}
     return usage.model
-      ? `${usage.model} · ${usage.reasoningEffort || "medium"}`
+      ? `${usage.model} · ${labelReasoningEffort(usage.reasoningEffort)}`
       : detail?.members.find((member) => member.id === AGENT_MEMBER.id)?.motto || AGENT_MEMBER.motto;
   };
   const readThread = async (id: string, signal: AbortSignal): Promise<Thread> => {
@@ -1155,7 +1157,7 @@ function App() {
   const hasAgentActivity = (reply: Thread["replies"][number]) =>
     !!reply.parent_message_id || !!reply.agent_slot ||
     (!!reply.dispatch_ready && ['queued','running'].includes(reply.status)) ||
-    (reply.status === "running" && !!reply.first_response_at) ||
+    reply.status === "running" ||
     !!liveOutput[reply.message_id]?.reasoning || (!!liveOutput[reply.message_id]?.content && !reply.reply_id) ||
     reply.status === "failed" ||
     !!thread?.events.some((event) => event.message_id === reply.message_id &&
@@ -1167,6 +1169,12 @@ function App() {
       && reply.status === "running" && !reply.reply_id ? reply : undefined;
   };
   const timeline = thread ? taskTimeline(thread.messages, thread.replies, thread.requests || [], hasAgentActivity) : [];
+  const coordinatorLogLabel = thread ? coordinatorLogButtonLabel({
+    replies: thread.replies,
+    events: thread.events,
+    liveOutput,
+    compactStatus: thread.contextUsage?.compactStatus,
+  }) : "运行日志";
   const renderAgentRound = (reply: Thread["replies"][number]) => {
     if (!hasAgentActivity(reply)) return null;
     const events = thread?.events.filter(e => e.message_id === reply.message_id) || [];
@@ -1245,7 +1253,7 @@ function App() {
             <img className="brand-logo" src="/cothread-logo.svg" alt="" />
             <span>共序 <small>CoThread</small></span>
           </div>
-          <span className="eyebrow">A SHARED THREAD OF WORK</span>
+          <span className="eyebrow">共同的工作脉络</span>
           <h1>
             讨论有承接。
             <br />
@@ -1609,20 +1617,33 @@ function App() {
           <div className="chat-drop-hint">松开以上传至本迭代今日缓存</div>
         )}
         <header>
-          <nav className="breadcrumb" aria-label="当前位置">
-            <span className="breadcrumb-project" title={detail?.name}>
-              {detail?.name || "工作空间"}
-            </span>
-            <span className="breadcrumb-separator">/</span>
-            <span className="breadcrumb-thread" title={thread?.title}>
-              {thread?.title || "未选择迭代"}
-            </span>
-          </nav>
-          {thread && <div className="breadcrumb-actions" role="group" aria-label="会话信息">
-            {threadId && <button type="button" onClick={() => void copyConversationInfo()}>
-              {copiedThreadId === threadId ? "已复制" : "复制会话"}
+          <div className="conversation-heading">
+            <nav className="breadcrumb" aria-label="当前位置">
+              <span className="breadcrumb-project" title={detail?.name}>
+                {detail?.name || "工作空间"}
+              </span>
+              <span className="breadcrumb-separator">/</span>
+              <span className="breadcrumb-thread" title={thread?.title}>
+                {thread?.title || "未选择迭代"}
+              </span>
+              {threadId && <button type="button" className="breadcrumb-copy" onClick={() => void copyConversationInfo()}>
+                {copiedThreadId === threadId ? "已复制" : "复制会话"}
+              </button>}
+            </nav>
+            {thread && <button
+              type="button"
+              className="conversation-log"
+              data-live={coordinatorLogLabel !== "运行日志" || undefined}
+              aria-live="polite"
+              title={coordinatorLogLabel === "运行日志" ? "查看运行日志" : `${coordinatorLogLabel}；点击查看运行日志`}
+              onClick={() => setAgentLogScope({ type: "thread", id: threadId })}
+            >
+              {coordinatorLogLabel !== "运行日志" && <span className="conversation-log-pulse" aria-hidden="true" />}
+              <span className="conversation-log-text">{coordinatorLogLabel}</span>
             </button>}
-            {thread.contextUsage && <ContextMeter
+          </div>
+          {thread?.contextUsage && <div className="breadcrumb-actions" role="group" aria-label="会话信息">
+            <ContextMeter
               key={threadId}
               usage={thread.contextUsage}
               writable={active}
@@ -1630,8 +1651,7 @@ function App() {
                 await api(`/threads/${threadId}/context/compact`, {});
                 await refresh();
               }}
-            />}
-            <button type="button" onClick={() => setAgentLogScope({ type: "thread", id: threadId })}>运行日志</button>
+            />
           </div>}
         </header>
         {error && !modal && (
@@ -1650,7 +1670,7 @@ function App() {
         ) : !thread ? (
           <div className="welcome">
             <img className="welcome-logo" src="/cothread-logo.svg" alt="共序" />
-            <span className="eyebrow">BUILD CONTEXT TOGETHER</span>
+            <span className="eyebrow">一起构建上下文</span>
             <h1>把工作，接在同一条线上。</h1>
             <p>
               {projectId
@@ -1700,7 +1720,7 @@ function App() {
             >
               {thread.archive_snapshot && (
                 <div className="archive-card">
-                  <span className="eyebrow">ITERATION ARCHIVE</span>
+                  <span className="eyebrow">迭代归档</span>
                   <h3>这一轮，已有结论</h3>
                   <p>{thread.archive_snapshot.conclusion}</p>
                   <small>讨论、审核与引用的历史版本已固定保存。</small>
@@ -1865,14 +1885,14 @@ function App() {
             </div>
             <div className="composer-area">
               <div className="composer-toolbar">
-                <div className="conversation-task-pool" aria-label="本迭代与我有关的任务">
-                  <button type="button" className="conversation-task-pool-label" onClick={() => {
-                    setTaskScope("current"); setTaskMine(true); setSelectedTaskId(""); setTaskDetail(null); setTab("tasks"); setContextOpen(true);
-                  }}>本迭代任务</button>
+                <div className="conversation-task-pool" role="group" aria-label="本迭代与我有关的任务" onClick={() => {
+                  setTaskScope("current"); setTaskMine(true); setSelectedTaskId(""); setTaskDetail(null); setTab("tasks"); setContextOpen(true);
+                }}>
+                  <button type="button" className="conversation-task-pool-label">本迭代任务</button>
                   <div className="conversation-task-list">
                     {currentMyTasks.map((task) => <button type="button" className="conversation-task-item" data-status={task.status} key={task.id}
-                      title={task.goal} onClick={() => { setTaskScope("current"); setTaskMine(true); openTask(task.id); }}>
-                      <i aria-hidden="true" /><strong>{task.title}</strong><span>{task.progress || task.status}</span>
+                      title={task.goal} onClick={(event) => { event.stopPropagation(); setTaskScope("current"); setTaskMine(true); openTask(task.id); }}>
+                      <i aria-hidden="true" /><strong>{task.title}</strong><span>{task.progress || labelWorkflowStatus(task.status)}</span>
                     </button>)}
                     {!currentMyTasks.length && <span className="conversation-task-empty">暂无与我有关的任务</span>}
                   </div>
@@ -2119,7 +2139,7 @@ function App() {
               return <div className="task-detail">
                 <button type="button" className="task-detail-back" onClick={() => { setSelectedTaskId(""); setTaskDetail(null); }}>← 返回任务列表</button>
                 {!task ? <p className="muted">正在读取任务详情…</p> : <>
-                  <header><div><small>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small><h3>{task.title}</h3></div><div className="task-detail-header-actions"><button type="button" onClick={() => setAgentLogScope({ type: "task", id: task.id })}>执行日志</button><span data-status={task.status}>{task.status}</span></div></header>
+                  <header><div><small>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small><h3>{task.title}</h3></div><div className="task-detail-header-actions"><button type="button" onClick={() => setAgentLogScope({ type: "task", id: task.id })}>执行日志</button><span data-status={task.status}>{labelWorkflowStatus(task.status)}</span></div></header>
                   <dl className="task-detail-meta"><div><dt>责任主体</dt><dd>{targetName}</dd></div><div><dt>执行 Agent</dt><dd>{task.execution_agent_type || "待选择"}</dd></div></dl>
                   <section><h4>任务目标</h4><p>{task.goal}</p>{task.constraints && <><h4>约束</h4><p>{task.constraints}</p></>}</section>
                   {openQuestion && <section className="task-question"><h4>需要你回答</h4><p>{openQuestion.question}</p><textarea value={taskAnswer} onChange={(event) => setTaskAnswer(event.target.value)} placeholder="输入回答" /><button type="button" className="primary" disabled={taskActionBusy || !taskAnswer.trim()} onClick={() => void performTaskAction(async () => { await api(`/task-questions/${openQuestion.id}/answer`, { answer: taskAnswer }); setTaskAnswer(""); })}>提交回答</button></section>}
@@ -2127,7 +2147,7 @@ function App() {
                   {canReviewRejection && <section className="task-actions-section task-rejection-review"><h4>任务已被拒绝</h4><p>{[...task.assignmentHistory].reverse().find((event) => event.event_type === "rejected")?.reason || "目标成员拒绝了这个任务。"}</p><textarea value={taskReopenGoal} onChange={(event) => setTaskReopenGoal(event.target.value)} placeholder="修改任务目标与验收标准" /><textarea value={taskReopenConstraints} onChange={(event) => setTaskReopenConstraints(event.target.value)} placeholder="修改约束（可选）" /><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"))}>知道了</button><button type="button" className="primary" disabled={taskActionBusy || !taskReopenGoal.trim()} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reopen`, { goal: taskReopenGoal.trim(), constraints: taskReopenConstraints }, "POST"))}>修改后重新发起</button></div></section>}
                   {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}>确认转交</button></section>}
                   {isTarget && task.status !== "awaiting_acceptance" && !["completed", "failed", "cancelled", "superseded"].includes(task.status) && <section className="task-actions-section"><h4>进度与结果</h4><input value={taskProgress} onChange={(event) => setTaskProgress(event.target.value)} placeholder="当前进度" /><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要或阻塞原因" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "running", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>开始</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "waiting", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>等待</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "failed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>失败</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>完成</button></div></section>}
-                  {!!task.executionRuns.length && <section><h4>执行记录</h4><div className="task-history">{task.executionRuns.map((run) => <div key={run.id}><strong>{run.executor_type}</strong><span>{run.status}</span><small>{run.progress || run.result_summary || run.error || time(run.created_at)}</small></div>)}</div></section>}
+                  {!!task.executionRuns.length && <section><h4>执行记录</h4><div className="task-history">{task.executionRuns.map((run) => <div key={run.id}><strong>{labelExecutorType(run.executor_type)}</strong><span>{labelWorkflowStatus(run.status)}</span><small>{run.progress || run.result_summary || run.error || time(run.created_at)}</small></div>)}</div></section>}
                   {!!task.assignmentHistory.length && <section><h4>指派与审计记录</h4><div className="task-history">{task.assignmentHistory.map((event) => <div key={event.id}><strong>{({ assigned: "创建并指派", transferred: "转交", rejected: "拒绝", acknowledged: "已知晓", reopened: "重新发起" } as const)[event.event_type] || event.event_type}</strong><span>{time(event.created_at)}</span>{event.reason && <small>{event.reason}</small>}</div>)}</div></section>}
                 </>}
                 {taskActionError && <p className="project-settings-error" role="alert">{taskActionError}</p>}
@@ -2171,7 +2191,7 @@ function App() {
                   const target = detail?.members.find((member) => member.id === task.target_id)?.name || (task.target_type === "l2_session" ? "小祥" : "未指派");
                   const iteration = detail?.threads.find((item) => item.id === task.origin_thread_id)?.title || "项目任务";
                   return <button type="button" className="task-pool-item" key={task.id} onClick={() => openTask(task.id)}>
-                    <span className="task-pool-item-heading"><span><strong>{task.title}</strong><small>{iteration} · {task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small></span><i data-status={task.status}>{task.status}</i></span>
+                    <span className="task-pool-item-heading"><span><strong>{task.title}</strong><small>{iteration} · {task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small></span><i data-status={task.status}>{labelWorkflowStatus(task.status)}</i></span>
                     <span className="task-pool-item-goal">{task.progress || task.goal}</span>
                     <span className="task-pool-item-footer"><span>责任主体：{target}</span><span>执行：{task.execution_agent_type || "待选择"}</span></span>
                     {task.result_summary && <small className="task-result">{task.result_summary}</small>}

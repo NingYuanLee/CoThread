@@ -15,9 +15,10 @@ import { agentSession } from "./agent-session.js";
 import { deliverTaskUpdates } from "./agent-updates.js";
 import { restoreSessionCheckpoint } from "./agent-checkpoint.js";
 import { createUsageMeter, saveReplyUsage } from './agent-usage.js';
-import { dshModelPatch, modelConfig, modelOutputLimit } from "./model-config.js";
+import { dshModelPatch, modelConfig, modelOutputLimit, redactSecrets } from "./model-config.js";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { agentRuntimePatch } from "./dsh-runtime-config.js";
+import { acquireSessionLock } from "./session-lock.js";
 
 const running = new Map();
 export async function stopAgent(db, threadId, messageId) {
@@ -60,9 +61,10 @@ async function checkpoint(db, scope, home, seenSequence, modelMessages) {
 }
 export async function openAgentRuntime(
   context,
-  { db, job, user, observe = true, autoCompact = true, createHarness, role = job.parent_message_id ? "executor" : "coordinator" },
+  { db, job, user, observe = true, autoCompact = true, createHarness, role = job.parent_message_id ? "executor" : "coordinator", sessionLockHeld = false },
 ) {
   const runtimeStarted = performance.now();
+  let sessionLock;
   let stageStarted = runtimeStarted;
   const timed = (stage) => {
     const now = performance.now();
@@ -98,6 +100,16 @@ export async function openAgentRuntime(
     `SELECT * FROM ${table} WHERE ${key}=?`,
     [workspaceId],
   );
+  if (!job.parent_message_id && !sessionLockHeld && job.thread_id) {
+    sessionLock = await acquireSessionLock(db, job.thread_id, 30);
+    if (!sessionLock) {
+      const error = new Error("L2 session is busy");
+      error.agentStage = "start";
+      throw error;
+    }
+  }
+  let handedOff = false;
+  try {
   const capabilityProfiles = role === "coordinator"
     ? { l2: await loadAgentCapabilityProfile(db, "l2"), l3: await loadAgentCapabilityProfile(db, "l3") }
     : { l3: await loadAgentCapabilityProfile(db, "l3") };
@@ -266,6 +278,17 @@ export async function openAgentRuntime(
       { sessionId: session.session_id, ...params },
       250000,
     );
+  const compactSafely = async () => {
+    try {
+      await request("compact", { automatic: true });
+    } catch (error) {
+      console.error("Automatic compaction skipped", {
+        threadId: job.thread_id,
+        type: error?.name || "Error",
+        diagnostic: redactSecrets(error?.message || error).slice(-1000),
+      });
+    }
+  };
   const sample = () => {
     if (samplingNow || closed) return sampling;
     samplingNow = true;
@@ -318,6 +341,11 @@ export async function openAgentRuntime(
             if (dirname(home) !== runtimeRoot) throw new Error("Invalid child workspace");
             await rm(home, { recursive: true, force: true });
           }
+          if (sessionLock) {
+            const lock = sessionLock;
+            sessionLock = undefined;
+            await lock.release();
+          }
         }
       }
     }
@@ -349,25 +377,27 @@ export async function openAgentRuntime(
       seenSequence = message.sequence;
       if (autoCompact && stats.used >= AUTO_COMPACT_AT) {
         agentStage = "compact";
-        await request("compact", { automatic: true });
+        await compactSafely();
       }
     }
     if (observe && context.messages.length && BigInt(context.messages.at(-1).sequence) > BigInt(seenSequence || 0))
       seenSequence = context.messages.at(-1).sequence;
     agentStage = "meter";
     await sample();
-    if (autoCompact) {
-      agentStage = "compact";
-      await request("compact", { automatic: true });
-    }
-    agentStage = "meter";
-    await sample();
     timed('context_ready');
+    handedOff = true;
     return { harness, session, request, sample, close, progress, thinking, forgetSession, capabilityProfile };
   } catch (error) {
     error.agentStage = agentStage;
     await close().catch(() => {});
     throw error;
+  }
+  } finally {
+    if (!handedOff && sessionLock) {
+      const lock = sessionLock;
+      sessionLock = undefined;
+      await lock.release().catch(() => {});
+    }
   }
 }
 

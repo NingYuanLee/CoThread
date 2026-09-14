@@ -21,7 +21,7 @@ export function taskTimeline<M extends TimelineMessage, R extends Reply>(
     // Ordinary main-assistant replies retain their chronological message position.
     if (!reply.parent_message_id && !reply.agent_slot && !hasActivity(reply) &&
         !parts.some(m => m.agent_task_id)) continue;
-    if (!parts.length && (reply.participation !== 'reply' || !hasActivity(reply))) continue;
+    if (!parts.length && !hasActivity(reply)) continue;
     const receptionId = requests.find(r => r.message_id === reply.message_id)?.response_id;
     const anchor = (receptionId && byId.get(receptionId)) || byId.get(reply.message_id);
     const fallback = parts[0];

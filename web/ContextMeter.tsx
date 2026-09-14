@@ -95,7 +95,7 @@ export function ContextMeter({
             {usage.estimated && "≈ "}
             {tokens(usage.used)}
           </strong>
-          <span>/ {tokens(usage.limit)} tokens</span>
+          <span>/ {tokens(usage.limit)} 词元</span>
           <small>{((usage.used / usage.limit) * 100).toFixed(1)}% 已使用</small>
         </div>
         <div

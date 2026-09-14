@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { describeAgentAction as label } from "../shared/agent-label.js";
+import { coordinatorLogButtonLabel } from "../web/agent-label.ts";
 import { trackThinking } from "../server/agent-thinking.js";
 
 test("action labels distinguish scripts from shell commands without inventing web tools", () => {
@@ -50,6 +51,10 @@ test("action labels distinguish scripts from shell commands without inventing we
     target: "https://example.com/page",
     full: "https://example.com/page",
   });
+  assert.equal(label("post_message").action, "发言");
+  assert.equal(label("list_project_tasks").action, "查看任务");
+  assert.equal(label("finish_turn").action, "结束本轮");
+  assert.equal(label("thinking").action, "思考");
 });
 
 test("thinking lifecycle records phases once, omits content, and closes interruptions", async () => {
@@ -85,4 +90,31 @@ test("thinking lifecycle records phases once, omits content, and closes interrup
   await tracker.close("failed");
   assert.equal(writes.filter(x => x.sql.startsWith('UPDATE agent_events SET status')).at(-1).params[0], "failed");
   assert.ok(!JSON.stringify(writes).includes("private reasoning"));
+});
+
+test("conversation log button follows the live L2 event name", () => {
+  const replies = [{ message_id: "m1", parent_message_id: null, status: "completed", progress: null }];
+  assert.equal(coordinatorLogButtonLabel({ replies, events: [] }), "运行日志");
+  replies[0].status = "running";
+  replies[0].progress = "正在准备上下文";
+  assert.equal(coordinatorLogButtonLabel({ replies, events: [] }), "正在准备上下文");
+  assert.equal(coordinatorLogButtonLabel({
+    replies, events: [{ id: "1", message_id: "m1", tool: "thinking", status: "running" }],
+  }), "正在思考");
+  assert.equal(coordinatorLogButtonLabel({
+    replies, events: [
+      { id: "1", message_id: "m1", tool: "thinking", status: "completed" },
+      { id: "2", message_id: "m1", tool: "list_project_tasks", status: "running" },
+    ],
+  }), "查看任务");
+  assert.equal(coordinatorLogButtonLabel({
+    replies, events: [{ id: "2", message_id: "m1", tool: "post_message", status: "running" }],
+  }), "发言");
+  assert.equal(coordinatorLogButtonLabel({
+    replies, events: [], liveOutput: { m1: { reasoning: "…" } },
+  }), "正在思考");
+  assert.equal(coordinatorLogButtonLabel({
+    replies: [{ message_id: "m1", parent_message_id: null, status: "completed", progress: null }],
+    events: [], compactStatus: "running",
+  }), "正在整理上下文");
 });

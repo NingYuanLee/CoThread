@@ -42,7 +42,7 @@ export function ConnectorAuthorization({ id, callbackPort, callbackSecret, api, 
     finally { setBusy(false); }
   };
   return <dialog ref={dialog} className="connector-authorization-dialog" onCancel={(event) => event.preventDefault()}>
-    <header><div><small>LOCAL CONNECTOR</small><h2>授权本地连接器</h2></div></header>
+    <header><div><small>本地连接器</small><h2>授权本地连接器</h2></div></header>
     {authorization?.approved_at ? <section className="connector-authorization-result">
       <strong>授权完成</strong><p>可以返回连接器选择项目和本地目录。</p>
       <button type="button" className="primary" onClick={onDone}>完成</button>

@@ -1,17 +1,20 @@
 import { query } from "./db.js";
 import { Service } from "./service.js";
 import { agentFailureCode } from "./agent-errors.js";
+import { discussionHasActiveCoordinator, sessionLockName } from "./session-lock.js";
 
 // The main context observes every member message without generating a reply.
-// DSH updates metering and auto-compacts here, independently of child execution.
+// DSH updates metering here; compaction stays on the idle compression lane so
+// L2 can take the session lock without waiting out a 240s compact.
 export async function synchronizeDiscussionContext(db, threadId, openRuntime) {
   const connection = await db.getConnection();
-  const key = `cothread-context:${threadId}`;
+  const key = sessionLockName(threadId);
   let locked = false, runtime;
   try {
     const [lock] = await query(connection, "SELECT GET_LOCK(?,0) acquired", [key]);
     if (Number(lock.acquired) !== 1) return false;
     locked = true;
+    if (await discussionHasActiveCoordinator(db, threadId)) return false;
     const [pending] = await query(db,
       `SELECT t.created_by,s.seen_sequence FROM threads t LEFT JOIN agent_sessions s ON s.thread_id=t.id
        WHERE t.id=? AND t.status='active' AND COALESCE(s.compact_status,'idle')<>'running'
@@ -23,7 +26,7 @@ export async function synchronizeDiscussionContext(db, threadId, openRuntime) {
     // Coordinator acknowledgements are not native DSH turns: observe them too.
     context.replies = [];
     const open = openRuntime || (await import("./agent.js")).openAgentRuntime;
-    runtime = await open(context, { db, user, job: { thread_id: threadId }, autoCompact: true });
+    runtime = await open(context, { db, user, job: { thread_id: threadId }, autoCompact: false, sessionLockHeld: true });
     await runtime.close(true);
     runtime = undefined;
     await query(db, "UPDATE agent_sessions SET compact_status='idle',compact_error=NULL WHERE thread_id=? AND compact_status='failed'", [threadId]);
@@ -31,7 +34,7 @@ export async function synchronizeDiscussionContext(db, threadId, openRuntime) {
   } catch (error) {
     if (runtime) await runtime.close().catch(() => {});
     await query(db, "UPDATE agent_sessions SET compact_status='failed',compact_error=?,updated_at=UTC_TIMESTAMP(3) WHERE thread_id=?",
-      [`上下文同步或自动压缩未完成，聊天记录仍完整保留。（${agentFailureCode(error)}）`, threadId]);
+      [`上下文同步未完成，聊天记录仍完整保留。（${agentFailureCode(error)}）`, threadId]);
     throw error;
   } finally {
     if (locked) await query(connection, "SELECT RELEASE_LOCK(?)", [key]);

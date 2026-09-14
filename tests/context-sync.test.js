@@ -37,7 +37,8 @@ test("every member message enters shared context incrementally, with compaction 
     await service.postMessage(users[1], thread.id, { body: "普通成员发言，不需要 @" });
     const batches = [];
     const open = async (context, options) => {
-      assert.equal(options.autoCompact, true);
+      assert.equal(options.autoCompact, false);
+      assert.equal(options.sessionLockHeld, true);
       assert.deepEqual(context.replies, []);
       batches.push(context.messages.map((m) => m.body));
       return { close: async (completed) => {
@@ -59,5 +60,10 @@ test("every member message enters shared context incrementally, with compaction 
     }
     assert.equal(await synchronizeDiscussionContext(db, thread.id, open), true);
     assert.deepEqual(batches, [["普通成员发言，不需要 @"], ["主助手接待回复", "另一名成员补充"]]);
+    const running = await service.postMessage(users[0], thread.id, { body: "@小祥 正在接待时不要抢会话" });
+    await query(db, "UPDATE agent_requests SET status='running' WHERE message_id=?", [running.id]);
+    assert.equal(await synchronizeDiscussionContext(db, thread.id, open), false);
+    await query(db, "UPDATE agent_requests SET status='completed' WHERE message_id=?", [running.id]);
+    assert.equal(await synchronizeDiscussionContext(db, thread.id, open), true);
   } finally { await database.close(); }
 });

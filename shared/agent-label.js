@@ -101,6 +101,39 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       action = "查看 AgentTeam";
       object = args.scope || "children";
       break;
+    case "post_message":
+      action = "发言";
+      break;
+    case "create_task":
+      action = "创建任务";
+      object = args.title || args.taskId || "任务";
+      break;
+    case "update_task":
+      action = "更新任务";
+      object = args.taskId || "任务";
+      break;
+    case "reassign_task":
+      action = "转交任务";
+      object = args.taskId || "任务";
+      break;
+    case "ask_task_question":
+      action = "提出问题";
+      break;
+    case "wait_for_updates":
+      action = "等待更新";
+      break;
+    case "finish_turn":
+      action = "结束本轮";
+      break;
+    case "list_project_tasks":
+      action = "查看任务";
+      break;
+    case "assistant_text":
+      action = "组织回复";
+      break;
+    case "assistant_final":
+      action = "完成回复";
+      break;
     case "agent_run":
       action = "运行三级小祥";
       break;

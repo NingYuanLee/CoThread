@@ -1,4 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  formatActorRef,
+  formatDurationMs,
+  labelAgentEventStatus,
+  labelExecutorType,
+  labelReasoningEffort,
+  labelWorkflowStatus,
+} from "./ui-labels";
 
 type MonitorData = {
   generatedAt: string;
@@ -135,7 +143,7 @@ function State({ tone, children }: { tone: "idle" | "running" | "waiting" | "fai
 }
 
 function ModelLabel({ model }: { model: MonitorData["models"][keyof MonitorData["models"]] | undefined }) {
-  return model ? <small className="monitor-model">{model.model} · {model.reasoningEffort}</small> : null;
+  return model ? <small className="monitor-model">{model.model} · {labelReasoningEffort(model.reasoningEffort)}</small> : null;
 }
 
 const taskState = (task: MonitorData["executors"][number]) => {
@@ -243,9 +251,9 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
         <div className="monitor-section-heading"><div><span className="monitor-level">项目级</span><h3>任务池</h3></div><span className="monitor-count">{data?.taskPool.length || 0} 项</span></div>
         <div className="executor-list">
           {data?.taskPool.map((task) => <article className="executor-row" key={task.task_id}>
-            <div className="executor-title"><span className="executor-name"><strong>{task.title}</strong><small>{task.task_type === "assist_l2" ? "辅助 L2" : "正式任务"} · 来源 {task.source_user_id || task.source_type}</small></span><State tone={task.run_status === "failed" ? "failed" : ["running", "queued"].includes(task.run_status || task.task_status) ? "running" : task.run_status === "waiting" ? "waiting" : "idle"}>{task.run_status || task.task_status}</State></div>
+            <div className="executor-title"><span className="executor-name"><strong>{task.title}</strong><small>{task.task_type === "assist_l2" ? "辅助 L2" : "正式任务"} · 来源 {task.source_user_id || labelExecutorType(task.source_type)}</small></span><State tone={task.run_status === "failed" ? "failed" : ["running", "queued"].includes(task.run_status || task.task_status) ? "running" : task.run_status === "waiting" ? "waiting" : "idle"}>{labelWorkflowStatus(task.run_status || task.task_status)}</State></div>
             <p>{task.progress || task.goal}</p>
-            <footer><span>创建 {task.created_by_type}:{task.created_by_id} · 责任 {task.target_type || "未指派"}:{task.target_id || "-"}</span><span>认领 {task.claimed_by_type || "无"}:{task.claimed_by_id || "-"} · 执行 {task.executor_type || "未选择"}:{task.executor_id || "-"}</span>{task.result_summary ? <span>结果：{task.result_summary.slice(0, 180)}</span> : null}{artifactCount(task.artifact_refs) ? <span>产物 {artifactCount(task.artifact_refs)} 项</span> : null}</footer>
+            <footer><span>创建 {formatActorRef(task.created_by_type, task.created_by_id)} · 责任 {task.target_type ? formatActorRef(task.target_type, task.target_id) : "未指派"}</span><span>认领 {task.claimed_by_type ? formatActorRef(task.claimed_by_type, task.claimed_by_id) : "无"} · 执行 {task.executor_type ? formatActorRef(task.executor_type, task.executor_id) : "未选择"}</span>{task.result_summary ? <span>结果：{task.result_summary.slice(0, 180)}</span> : null}{artifactCount(task.artifact_refs) ? <span>产物 {artifactCount(task.artifact_refs)} 项</span> : null}</footer>
           </article>)}
           {!data?.taskPool.length && <p className="monitor-empty">当前没有项目任务。</p>}
         </div>
@@ -280,7 +288,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
                   const task = data?.taskPool.find((item) => item.executor_type === node.executor_type && item.executor_id === node.executor_id && ["queued", "running", "waiting"].includes(item.run_status || item.task_status))
                     || data?.taskPool.find((item) => item.target_type === "human_member" && item.target_id === member.member_id && !item.executor_type && !["completed", "failed", "cancelled", "superseded"].includes(item.task_status));
                   return <div key={node.executor_type}>
-                    <span><strong>{node.executor_type === "human_self" ? "成员本人" : "本地 Codex"}</strong><small>{node.executor_type}{task ? ` · ${task.title} · 来源 ${task.source_user_id || task.source_type}` : ""}</small></span>
+                    <span><strong>{node.executor_type === "human_self" ? "成员本人" : "本地 Codex"}</strong><small>{labelExecutorType(node.executor_type)}{task ? ` · ${task.title} · 来源 ${task.source_user_id || labelExecutorType(task.source_type)}` : ""}</small></span>
                     <State tone={!node.online ? "waiting" : task ? "running" : "idle"}>{node.executor_type === "human_connector" && !node.configured ? "未关联" : !node.online ? "离线" : task ? "执行中" : "在线"}</State>
                   </div>;
                 })}
@@ -302,7 +310,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
                 <div className="executor-title"><img className="monitor-avatar" src={`/agent-avatars/${agent.avatar}`} alt="" /><span className="executor-name"><strong>{agent.name}</strong><ModelLabel model={data?.models.executor} /><small>{slot} 号 DSH L3 · {task ? task.progress || task.goal : "等待任务"}</small></span><State tone={state.tone}>{state.label}</State></div>
                 {task ? <>
                   <p>{active ? task.goal : `上次任务：${task.goal}`}</p>
-                  <footer><span>来源 {task.requested_by || task.source_type} · 责任 {task.target_type}:{task.target_id || "-"}</span><span>执行 {task.executor_type}:{task.executor_id || "待绑定"}{task.progress ? ` · ${task.progress}` : ""}</span>{task.result_summary ? <span>结果：{task.result_summary.slice(0, 160)}</span> : null}{artifactCount(task.artifact_refs) ? <span>产物 {artifactCount(task.artifact_refs)} 项</span> : null}<time>{time(task.last_action_at || task.finished_at || task.started_at)}</time></footer>
+                  <footer><span>来源 {task.requested_by || labelExecutorType(task.source_type)} · 责任 {formatActorRef(task.target_type, task.target_id)}</span><span>执行 {task.executor_type ? formatActorRef(task.executor_type, task.executor_id || "待绑定") : "未选择"}{task.progress ? ` · ${task.progress}` : ""}</span>{task.result_summary ? <span>结果：{task.result_summary.slice(0, 160)}</span> : null}{artifactCount(task.artifact_refs) ? <span>产物 {artifactCount(task.artifact_refs)} 项</span> : null}<time>{time(task.last_action_at || task.finished_at || task.started_at)}</time></footer>
                 </> : <p className="executor-idle-copy">当前没有任务</p>}
               </article>;
             })}
@@ -322,9 +330,9 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
               <small>{event.agent_type === "l2" ? "二级小祥" : "三级小祥"} · {event.thread_title} · {event.tool}</small>
             </span>
             <span className="monitor-log-meta">
-              <State tone={event.status === "failed" ? "failed" : event.status === "running" ? "running" : "idle"}>{event.status}</State>
+              <State tone={event.status === "failed" ? "failed" : event.status === "running" ? "running" : "idle"}>{labelAgentEventStatus(event.status)}</State>
               <time>{time(event.created_at)}</time>
-              {event.duration_ms != null ? <small>{event.duration_ms < 1000 ? `${event.duration_ms} ms` : `${(event.duration_ms / 1000).toFixed(1)} s`}</small> : null}
+              {event.duration_ms != null ? <small>{formatDurationMs(event.duration_ms)}</small> : null}
             </span>
           </article>)}
           {!data?.eventLog.length && <p className="monitor-empty">暂无 DSH 运行事件。</p>}

@@ -8,6 +8,7 @@ import { processNextCoordinator } from "./coordinator.js";
 import { publishWork, subscribeWork } from "./work-events.js";
 import { processNextProjectMemory } from "./project-memory.js";
 import { processNextDocumentOrganization } from "./document-organization.js";
+import { discussionHasActiveCoordinator } from "./session-lock.js";
 
 export async function runMakersThread(db, user, threadId, command, operations = {}) {
   const service = new Service(db);
@@ -40,7 +41,10 @@ export async function runMakersThread(db, user, threadId, command, operations = 
     const remember = operations.remember || (() => processNextProjectMemory(db, { projectId: activeThread.project_id }));
     const organize = operations.organize || ((id) => processNextDocumentOrganization(db, { threadId: id }));
     const maintain = operations.reply ? async () => false : async (id) => {
-      try { return await remember() || await compress(id) || await synchronizeNextDiscussion(db, id); }
+      try {
+        if (await discussionHasActiveCoordinator(db, id)) return false;
+        return await remember() || await compress(id) || await synchronizeNextDiscussion(db, id);
+      }
       catch (error) { console.error("Context maintenance failed", { type: error.name }); return false; }
     };
     const deadline = Date.now() + 15 * 60 * 1000;

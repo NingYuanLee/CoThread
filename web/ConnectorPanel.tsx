@@ -15,7 +15,7 @@ export function ConnectorPanel({ devices, api, onRefresh, onClose }: {
   const [error, setError] = useState("");
   const act = async (fn: () => Promise<void>) => { setBusy(true); setError(""); try { await fn(); } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); } };
   return <div className="connector-panel">
-    <header><div><small>LOCAL CONNECTOR</small><h2>本地连接器</h2><p>本机 Codex 执行通道</p></div><button type="button" aria-label="关闭" title="关闭" onClick={onClose}>×</button></header>
+    <header><div><small>本地连接器</small><h2>本地连接器</h2><p>本机 Codex 执行通道</p></div><button type="button" aria-label="关闭" title="关闭" onClick={onClose}>×</button></header>
     <p className="muted">连接器应用程序由独立渠道分发。运行后会检测 Git 和 Codex CLI，并打开本页完成账号授权。</p>
     <section><h3>已连接设备</h3>
       {!devices.length && <p className="muted">暂无设备</p>}

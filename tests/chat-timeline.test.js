@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { taskTimeline } from '../web/chat-timeline.ts';
+import { liveCoordinatorDraft, omitInternalCoordinatorPosts, taskTimeline, usageReplyForMessage } from '../web/chat-timeline.ts';
 const message = (id, source='human', extra={}) => ({id,sequence:'1',source,body:id,refs:[],...extra});
 const reply = {message_id:'user',reply_id:null,participation:'reply',parent_message_id:'user',agent_slot:1};
 const request = [{message_id:'user',response_id:'host'}];
@@ -50,6 +50,32 @@ test('L2 group posts stay as ordinary messages without a process row',()=>{
   const rows=taskTimeline([base[0],first,second],[coordinator],[{message_id:'user',response_id:null,status:'completed'}],()=>false);
   assert.deepEqual(rows.map(m=>m.id),['user','post1','post2']);
   assert.deepEqual(rows.slice(1).map(m=>m.body),['先看一下任务','再把结果告诉大家']);
+});
+test('usage chips attach to every L2 post of the same turn, plus executor rows',()=>{
+  const coordinator={message_id:'user',reply_id:'post2',participation:'reply',parent_message_id:null,agent_slot:null,usage_stats:{totalTokens:1200,executionDurationMs:1800}};
+  const empty={...coordinator,usage_stats:null};
+  const executor={message_id:'task',reply_id:'result',participation:'reply',parent_message_id:'task',agent_slot:1};
+  assert.equal(usageReplyForMessage({id:'post2',agent_task_id:'user'},[coordinator])?.message_id,'user');
+  assert.equal(usageReplyForMessage({id:'post1',agent_task_id:'user'},[coordinator])?.message_id,'user');
+  assert.equal(usageReplyForMessage({id:'post2',agent_task_id:'user'},[empty]),null);
+  assert.equal(usageReplyForMessage({id:'host'},[coordinator]),null);
+  assert.equal(usageReplyForMessage({id:'result',agent_task_id:'task'},[executor])?.message_id,'task');
+});
+test('wait/finish companion posts stay out of the group timeline',()=>{
+  const coordinator={message_id:'user',reply_id:'wrap',participation:'reply',parent_message_id:null,agent_slot:null};
+  const rows=[message('user'),message('talk','assistant',{agent_task_id:'user',body:'给成员看'}),message('wrap','assistant',{agent_task_id:'user',body:'已进入等待'})];
+  const hidden=omitInternalCoordinatorPosts(rows,[coordinator],[{message_id:'user',tool:'wait_for_updates'}]);
+  assert.deepEqual(hidden.map(m=>m.id),['user','talk']);
+  assert.deepEqual(omitInternalCoordinatorPosts(rows,[coordinator],[]).map(m=>m.id),['user','talk','wrap']);
+});
+test('live L2 draft streams until the same body is committed',()=>{
+  const running={message_id:'user',status:'running'};
+  const posts=[message('post1','assistant',{agent_task_id:'user',body:'先看一下任务'})];
+  assert.equal(liveCoordinatorDraft(running,{content:'再把结果告诉大家'},posts),'再把结果告诉大家');
+  assert.equal(liveCoordinatorDraft(running,{content:'先看一下任务'},posts),null);
+  assert.equal(liveCoordinatorDraft({...running,status:'completed'},{content:'再把结果告诉大家'},posts),null);
+  assert.equal(liveCoordinatorDraft(running,{content:'NO_VISIBLE_MESSAGE'},posts),null);
+  assert.equal(liveCoordinatorDraft(running,{content:'已进入等待'},posts,[{message_id:'user',tool:'wait_for_updates'}]),null);
 });
 test('concurrent child tasks keep their own reception anchors and results',()=>{
   const second={...reply,message_id:'user2',parent_message_id:'user2',agent_slot:2,reply_id:'result2'};

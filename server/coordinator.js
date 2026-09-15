@@ -3,7 +3,8 @@ import { Service } from "./service.js";
 import { AGENT_MEMBER, mentionsAgent } from "../shared/agent-member.js";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { loadProjectMembers } from "./project-memory.js";
-import { redactSecrets } from "./model-config.js";
+import { modelConfig, redactSecrets } from "./model-config.js";
+import { createUsageMeter, saveReplyUsage } from "./agent-usage.js";
 import { openAgentRuntime } from "./agent.js";
 import { discussionText } from "../shared/context.js";
 import { bindDshL3Execution, settleDshL3Execution } from "./task-pool.js";
@@ -89,12 +90,13 @@ export async function dispatchContext(db, thread, job) {
         projectRole: member.project_role, identityTag: member.identity_tag,
         signature: member.motto || "", messageCount: Number(member.message_count),
         understanding: member.member_understanding || null,
+        statementSummary: member.statement_summary || null,
         understandingThroughSequence: String(member.through_sequence || 0),
         understandingRefreshPending: BigInt(member.pending_through_sequence || 0)
           > BigInt(member.through_sequence || 0) })),
     { id: AGENT_MEMBER.id, name: AGENT_MEMBER.name,
       projectRole: AGENT_MEMBER.role, identityTag: AGENT_MEMBER.identity_tags[0],
-      signature: "", messageCount: 0, understanding: null,
+      signature: "", messageCount: 0, understanding: null, statementSummary: null,
       understandingThroughSequence: "0", understandingRefreshPending: false },
   ];
   const updateGroups = new Map();
@@ -166,7 +168,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
   try {
     const prompt = `当前项目：${context.project_id}；当前迭代：${job.thread_id}；触发消息：${job.message_id}。
 本次触发消息及其上下文如下：${JSON.stringify(context.promptContext || context)}
-请先理解并按需调用工具。你每次模型回复里的可见正文会进入群聊给成员看，不要把思考、工具过程或内部确认写进正文。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。post_message 只用于额外插入一条与当前模型回复不同的独立消息。结束前必须根据状态调用 finish_turn 或 wait_for_updates。`;
+请先理解并按需调用工具。你每次模型回复里的可见正文会进入群聊给成员看，不要把思考、工具过程或内部确认写进正文。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。调用 wait_for_updates 或 finish_turn 时正文必须是 NO_VISIBLE_MESSAGE，不要写「已回复」「进入等待」这类收尾说明。post_message 只用于额外插入一条与当前模型回复不同的独立消息。结束前必须根据状态调用 finish_turn 或 wait_for_updates。`;
     const steeredMessageIds = new Set();
     const mergedMessageIds = new Set();
     let steeringBusy = false;
@@ -235,6 +237,38 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         : name === "interrupt_agent"
           ? { agentId: args.agent_id || null }
           : { scope: args.scope || "children" };
+    const usageMeter = createUsageMeter();
+    let modelDurationMs = 0;
+    const trackCoordinatorUsage = (notification) => {
+      if (notification.method === "session.event" && notification.params?.sessionId === runtime.session.session_id)
+        usageMeter.notify(notification.params.event);
+      handleAgentTeamNotification(notification);
+    };
+    const runCoordinatorTurn = async (promptText) => {
+      const started = performance.now();
+      try {
+        return await runtime.harness.run(promptText, {
+          sessionId: runtime.session.session_id,
+          onNotification: trackCoordinatorUsage,
+        });
+      } finally {
+        modelDurationMs += performance.now() - started;
+      }
+    };
+    const persistCoordinatorUsage = async () => {
+      try {
+        const usage = usageMeter.result() || {};
+        const configuredModel = modelConfig("coordinator");
+        await saveReplyUsage(db, job.message_id, {
+          ...usage,
+          model: configuredModel.model,
+          reasoningEffort: configuredModel.reasoningEffort,
+          executionDurationMs: Math.round(modelDurationMs),
+        });
+      } catch (error) {
+        console.error("Usage persistence failed", { type: error?.name || "Error" });
+      }
+    };
     const handleAgentTeamNotification = (notification) => {
       runtime.thinking.notify(notification);
       lifecycle = lifecycle.then(async () => {
@@ -320,10 +354,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
     };
     let result;
     try {
-      result = await runtime.harness.run(prompt, {
-        sessionId: runtime.session.session_id,
-        onNotification: handleAgentTeamNotification,
-      });
+      result = await runCoordinatorTurn(prompt);
       await lifecycle;
       let followups = 0;
       const childWaitDeadline = Date.now() + 9 * 60 * 1000;
@@ -336,15 +367,13 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         childSettled = undefined;
         await lifecycle;
         if (!childReturned) break;
-        result = await runtime.harness.run(`至少一个 DSH L3 已返回，当前仍有 ${activeChildren.size} 个 L3 在运行。请立即读取任务池中的新结果并继续当前 ReAct 循环；可以发言、调整其他任务或继续等待，不必等全部 L3 完成。收敛后调用 finish_turn 或 wait_for_updates。`, {
-          sessionId: runtime.session.session_id,
-          onNotification: handleAgentTeamNotification,
-        });
+        result = await runCoordinatorTurn(`至少一个 DSH L3 已返回，当前仍有 ${activeChildren.size} 个 L3 在运行。请立即读取任务池中的新结果并继续当前 ReAct 循环；可以发言、调整其他任务或继续等待，不必等全部 L3 完成。收敛后调用 finish_turn 或 wait_for_updates。`);
         followups++;
       }
       await lifecycle;
       await steerNewMessages();
       completed = true;
+      await persistCoordinatorUsage();
       return { ...result, steeredMessageIds: [...steeredMessageIds], mergedMessageIds: [...mergedMessageIds], runtime };
     } finally {
       clearInterval(steeringTimer);
@@ -398,12 +427,13 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
     const result = await runAgent(context, { db, job, user });
     const visible = result?.finalResponse?.trim() && result.finalResponse.trim() !== "NO_VISIBLE_MESSAGE"
       ? result.finalResponse.trim().slice(0, 4000) : null;
-    const [posted] = await query(db, "SELECT id FROM messages WHERE agent_task_id=? ORDER BY sequence DESC LIMIT 1", [job.message_id]);
-    let responseId = posted?.id || null;
+    const posts = await query(db, "SELECT id FROM messages WHERE agent_task_id=? ORDER BY sequence", [job.message_id]);
+    const [control] = await query(db, "SELECT 1 AS ok FROM agent_events WHERE message_id=? AND tool IN ('wait_for_updates','finish_turn') LIMIT 1", [job.message_id]);
+    let responseId = control && posts.length >= 2 ? posts[posts.length - 2].id : posts.at(-1)?.id || null;
     await transaction(db, async (conn) => {
       const [request] = await query(conn, "SELECT status FROM agent_requests WHERE message_id=? FOR UPDATE", [job.message_id]);
       if (request?.status !== "running") return;
-      if (!responseId && visible) responseId = (await service.insertMessage(conn, user, job.thread_id, visible, [], "assistant", job.message_id)).id;
+      if (!responseId && visible && !control) responseId = (await service.insertMessage(conn, user, job.thread_id, visible, [], "assistant", job.message_id)).id;
       await query(conn, `UPDATE assistant_replies SET status='completed',participation=?,reply_id=?,progress='小祥已完成本轮处理',finished_at=UTC_TIMESTAMP(3) WHERE message_id=? AND status IN ('queued','running')`, [responseId ? "reply" : "silent", responseId, job.message_id]);
       await query(conn, "UPDATE agent_requests SET status='completed',response_id=?,error=NULL,first_response_at=COALESCE(first_response_at,UTC_TIMESTAMP(3)) WHERE message_id=?", [responseId, job.message_id]);
       for (const messageId of result?.mergedMessageIds || []) {

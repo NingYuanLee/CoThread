@@ -9,7 +9,7 @@ import { digest, hashPassword } from "./auth.js";
 import { publishWork } from "./work-events.js";
 import { queueDocumentMemory, queueMemberMemory } from "./project-memory.js";
 import { taskExecutionSnapshot } from "./task-pool.js";
-import { describeAgentAction, formatAgentAction } from "../shared/agent-label.js";
+import { describeAgentAction, formatAgentAction, l1TaskLabel } from "../shared/agent-label.js";
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -335,20 +335,26 @@ export class Service {
       const config = modelConfig(scope);
       return { model: config.model, reasoningEffort: config.reasoningEffort };
     };
-    const [memberQueue, documentQueue, memberSummary, documentSummary, l1Sessions, coordinators, executors, taskExecutions, eventLog] =
+    const [memberQueue, documentQueue, memberSummary, documentSummary, l1Sessions, coordinators, executors, taskExecutions, eventLog, organizationJobs, organizationLast, archives, archiveLast, l1Runs, l1RunLast] =
       await Promise.all([
         query(this.db, `SELECT COUNT(*) pending,
           COALESCE(SUM(available_at<=UTC_TIMESTAMP(3)),0) ready,
           MIN(available_at) next_at FROM agent_member_memory_queue WHERE project_id=?`, [projectId]),
-        query(this.db, `SELECT COUNT(*) pending,
+        query(this.db, `SELECT CASE WHEN f.thread_id IS NULL THEN 'project' ELSE 'iteration' END scope,
+          COUNT(*) pending,
           COALESCE(SUM(q.available_at<=UTC_TIMESTAMP(3)),0) ready,
           MIN(q.available_at) next_at FROM agent_document_memory_queue q
           JOIN versions v ON v.id=q.version_id JOIN artifacts a ON a.id=v.artifact_id
-          WHERE a.project_id=?`, [projectId]),
+          LEFT JOIN document_folders f ON f.id=a.folder_id
+          WHERE a.project_id=?
+          GROUP BY CASE WHEN f.thread_id IS NULL THEN 'project' ELSE 'iteration' END`, [projectId]),
         query(this.db, "SELECT MAX(updated_at) updated_at FROM agent_member_summaries WHERE project_id=?", [projectId]),
-        query(this.db, `SELECT MAX(s.updated_at) updated_at FROM agent_document_summaries s
+        query(this.db, `SELECT CASE WHEN f.thread_id IS NULL THEN 'project' ELSE 'iteration' END scope,
+          MAX(s.updated_at) updated_at FROM agent_document_summaries s
           JOIN versions v ON v.id=s.version_id JOIN artifacts a ON a.id=v.artifact_id
-          WHERE a.project_id=?`, [projectId]),
+          LEFT JOIN document_folders f ON f.id=a.folder_id
+          WHERE a.project_id=?
+          GROUP BY CASE WHEN f.thread_id IS NULL THEN 'project' ELSE 'iteration' END`, [projectId]),
         query(this.db, `SELECT session_id,status,last_task,last_error,last_started_at,last_finished_at,updated_at
           FROM agent_project_sessions WHERE project_id=?`, [projectId]),
         query(this.db, `SELECT t.id,t.title,t.status,t.created_at,t.archived_at,
@@ -388,10 +394,52 @@ export class Service {
           FROM agent_events e JOIN messages m ON m.id=e.message_id
           JOIN threads t ON t.id=m.thread_id LEFT JOIN agent_sessions s ON s.thread_id=m.thread_id
           WHERE t.project_id=? ORDER BY e.id DESC LIMIT 300`, [projectId]),
+        query(this.db, `SELECT j.id,j.thread_id,j.scope,j.status,j.error,j.created_at,j.started_at,j.finished_at,
+          t.title thread_title, JSON_LENGTH(JSON_EXTRACT(j.result,'$.documents')) document_count
+          FROM document_organization_jobs j LEFT JOIN threads t ON t.id=j.thread_id
+          WHERE j.project_id=? ORDER BY j.created_at DESC LIMIT 20`, [projectId]),
+        query(this.db, `SELECT MAX(finished_at) last_at FROM document_organization_jobs
+          WHERE project_id=? AND status='completed'`, [projectId]),
+        query(this.db, `SELECT id,title,archived_at,JSON_UNQUOTE(JSON_EXTRACT(archive_snapshot,'$.conclusion')) conclusion
+          FROM threads WHERE project_id=? AND status='archived' ORDER BY archived_at DESC LIMIT 20`, [projectId]),
+        query(this.db, `SELECT MAX(archived_at) last_at FROM threads WHERE project_id=? AND status='archived'`, [projectId]),
+        query(this.db, `SELECT id,task,trigger_source,status,agent_called,had_updates,item_count,error,created_at,started_at,finished_at
+          FROM agent_l1_runs WHERE project_id=? ORDER BY created_at DESC LIMIT 50`, [projectId]),
+        query(this.db, `SELECT task,MAX(finished_at) last_at FROM agent_l1_runs
+          WHERE project_id=? AND status='completed' GROUP BY task`, [projectId]),
       ]);
     const humanAgents = await query(this.db, `SELECT u.id member_id,u.name,CASE WHEN c.id IS NULL THEN 0 ELSE 1 END connector_configured,CASE WHEN c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND) THEN 1 ELSE 0 END connector_online,c.id connector_id FROM members m JOIN users u ON u.id=m.user_id LEFT JOIN connectors c ON c.user_id=u.id AND c.revoked_at IS NULL WHERE m.project_id=? GROUP BY u.id,u.name,c.id,c.last_seen_at`, [projectId]);
     const memberMemory = memberQueue[0] || {};
-    const documentMemory = documentQueue[0] || {};
+    const documentByScope = (scope) => documentQueue.find((row) => row.scope === scope) || {};
+    const summaryByScope = (scope) => documentSummary.find((row) => row.scope === scope) || {};
+    const projectDocumentMemory = documentByScope("project");
+    const iterationDocumentMemory = documentByScope("iteration");
+    const documentMemory = {
+      pending: Number(projectDocumentMemory.pending || 0) + Number(iterationDocumentMemory.pending || 0),
+      ready: Number(projectDocumentMemory.ready || 0) + Number(iterationDocumentMemory.ready || 0),
+      next_at: [projectDocumentMemory.next_at, iterationDocumentMemory.next_at].filter(Boolean)
+        .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0] || null,
+    };
+    const latest = (...values) => values.filter(Boolean)
+      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || null;
+    const memberRunLast = l1RunLast.find((row) => row.task === "member_memory")?.last_at || null;
+    const projectDocumentRunLast = l1RunLast.find((row) => row.task === "project_document_memory")?.last_at || null;
+    const iterationDocumentRunLast = l1RunLast.find((row) => row.task === "iteration_document_memory")?.last_at || null;
+    const documentRunLast = latest(projectDocumentRunLast, iterationDocumentRunLast,
+      l1RunLast.find((row) => row.task === "document_memory")?.last_at);
+    const mapL1Run = (row) => ({
+      id: row.id,
+      task: row.task,
+      trigger_source: row.trigger_source,
+      status: row.status,
+      agent_called: !!Number(row.agent_called),
+      had_updates: !!Number(row.had_updates),
+      item_count: row.item_count == null ? null : Number(row.item_count),
+      error: row.error || null,
+      created_at: row.created_at,
+      started_at: row.started_at,
+      finished_at: row.finished_at,
+    });
     return {
       generatedAt: new Date().toISOString(),
       models: {
@@ -411,8 +459,44 @@ export class Service {
         ready: Number(memberMemory.ready || 0) + Number(documentMemory.ready || 0),
         nextAt: [memberMemory.next_at, documentMemory.next_at].filter(Boolean)
           .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0] || null,
-        lastUpdatedAt: [memberSummary[0]?.updated_at, documentSummary[0]?.updated_at].filter(Boolean)
-          .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || null,
+        lastUpdatedAt: latest(memberSummary[0]?.updated_at, summaryByScope("project").updated_at,
+          summaryByScope("iteration").updated_at, memberRunLast, documentRunLast),
+        memberLastAt: latest(memberSummary[0]?.updated_at, memberRunLast),
+        memberNextAt: memberMemory.next_at || null,
+        documentLastAt: latest(summaryByScope("project").updated_at, summaryByScope("iteration").updated_at, documentRunLast),
+        documentNextAt: documentMemory.next_at || null,
+        projectDocumentPending: Number(projectDocumentMemory.pending || 0),
+        projectDocumentLastAt: latest(summaryByScope("project").updated_at, projectDocumentRunLast),
+        projectDocumentNextAt: projectDocumentMemory.next_at || null,
+        iterationDocumentPending: Number(iterationDocumentMemory.pending || 0),
+        iterationDocumentLastAt: latest(summaryByScope("iteration").updated_at, iterationDocumentRunLast),
+        iterationDocumentNextAt: iterationDocumentMemory.next_at || null,
+        memberRuns: l1Runs.filter((row) => row.task === "member_memory").map(mapL1Run),
+        projectDocumentRuns: l1Runs.filter((row) => row.task === "project_document_memory").map(mapL1Run),
+        iterationDocumentRuns: l1Runs.filter((row) => row.task === "iteration_document_memory").map(mapL1Run),
+        documentRuns: l1Runs.filter((row) => row.task === "document_memory"
+          || row.task === "project_document_memory"
+          || row.task === "iteration_document_memory").map(mapL1Run),
+        organizationLastAt: organizationLast[0]?.last_at || null,
+        organizationJobs: organizationJobs.map((row) => ({
+          id: row.id,
+          thread_id: row.thread_id,
+          thread_title: row.thread_title || null,
+          scope: row.scope,
+          status: row.status,
+          error: row.error || null,
+          document_count: row.document_count == null ? null : Number(row.document_count),
+          created_at: row.created_at,
+          started_at: row.started_at,
+          finished_at: row.finished_at,
+        })),
+        archiveLastAt: archiveLast[0]?.last_at || null,
+        archives: archives.map((row) => ({
+          id: row.id,
+          title: row.title,
+          archived_at: row.archived_at,
+          conclusion: row.conclusion || "",
+        })),
       },
       coordinators: coordinators.map((row) => ({
         ...row,
@@ -507,9 +591,33 @@ export class Service {
     if (scopeType === "project") {
       const project = await this.project(user, scopeId);
       titleText = `${project.name} · 一级小祥轨迹`;
-      rows = await query(this.db, `SELECT id,agent_session_id,phase tool,status,created_at,finished_at,error
+      rows = await query(this.db, `SELECT id,agent_session_id,task,phase tool,status,created_at,finished_at,error
         FROM agent_project_events WHERE project_id=? ORDER BY id DESC LIMIT 300`, [scopeId]);
-      rows = rows.map((row) => ({ ...row, agent_type: "l1", task_id: null, message_id: null, thread_id: null }));
+      const l1RunOf = new Map();
+      const l1FirstIds = new Set();
+      const l1SeenRuns = new Set();
+      let l1Run = 0;
+      for (const row of [...rows].sort((left, right) => Number(left.id) - Number(right.id))) {
+        if (row.tool === "prepare_context") l1Run += 1;
+        const runId = String(Math.max(l1Run, 1));
+        l1RunOf.set(String(row.id), runId);
+        if (!l1SeenRuns.has(runId)) {
+          l1SeenRuns.add(runId);
+          l1FirstIds.add(String(row.id));
+        }
+      }
+      rows = rows.map((row) => {
+        const messageId = `l1:${l1RunOf.get(String(row.id))}`;
+        return {
+          ...row,
+          agent_type: "l1",
+          task_id: null,
+          message_id: messageId,
+          thread_id: null,
+          user_preview: l1TaskLabel(row.task),
+          user_created_at: l1FirstIds.has(String(row.id)) ? row.created_at : null,
+        };
+      });
     } else if (scopeType === "thread") {
       const thread = await this.thread(user, scopeId);
       const [session] = await query(this.db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [scopeId]);
@@ -547,6 +655,7 @@ export class Service {
           tool: row.tool, action: label.action, target: label.target || undefined, status: row.status,
           createdAt: row.created_at, finishedAt: row.finished_at, durationMs: duration(row),
           ...(preview ? { preview } : {}),
+          ...(row.agent_type === "l1" && row.task ? { task: row.task } : {}),
           ...(row.agent_type === "l1" && row.error ? { error: row.error } : {}),
         };
       }),

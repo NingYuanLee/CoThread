@@ -5,7 +5,7 @@ import { createDatabase, query } from "../server/db.js";
 // MySQL DDL commits independently of the file-level migration receipt. A cold
 // start can fail after ADD COLUMN succeeded, so retry only a verified match.
 async function matchingExistingColumn(conn, statement) {
-  const match = statement.match(/^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+`?(\w+)`?\s+(CHAR\(\d+\)|VARCHAR\(\d+\)|BOOLEAN|TINYINT\s+UNSIGNED|INT\s+UNSIGNED|DATETIME(?:\(\d+\))?)\s+(NULL|NOT\s+NULL)(?:\s+DEFAULT\s+(FALSE|TRUE|NULL|\d+))?$/i);
+  const match = statement.match(/^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+`?(\w+)`?\s+(CHAR\(\d+\)|VARCHAR\(\d+\)|TEXT|BOOLEAN|TINYINT\s+UNSIGNED|INT\s+UNSIGNED|DATETIME(?:\(\d+\))?)\s+(NULL|NOT\s+NULL)(?:\s+DEFAULT\s+(FALSE|TRUE|NULL|\d+))?$/i);
   if (!match) return false;
   const [, table, column, type, nullable, defaultValue] = match;
   const [actual] = await query(conn,

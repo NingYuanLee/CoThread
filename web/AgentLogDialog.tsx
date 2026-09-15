@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { formatDurationMs, labelAgentEventStatus } from "./ui-labels";
+import { l1TaskLabel } from "../shared/agent-label.js";
 import {
   type AgentLogData,
   type AgentLogEvent,
@@ -13,6 +14,7 @@ import {
   kindLabel,
   ledgerSummary,
   prettyPayload,
+  TIMELINE_LANES,
 } from "./agent-trajectory";
 
 function levelName(type: AgentLogEvent["agentType"]) {
@@ -194,25 +196,30 @@ export function AgentTrajectory({ scope, api }: {
     || prettyPayload(detail?.input)
     || selectedRow?.inputText
     || "";
-  const outputText = selectedRow?.event?.tool === "thinking"
+  const outputText = selectedRow?.kind === "message"
     ? ""
     : prettyPayload(detail?.output) || selectedRow?.outputText || "";
-  const thinkText = selectedRow?.event?.tool === "thinking"
-    ? (prettyPayload(detail?.output) || "分析请求并准备下一步操作。")
+  const thinkText = selectedRow?.kind === "message"
+    ? (prettyPayload(detail?.output) || selectedRow?.thinkText || "分析请求并准备下一步操作。")
     : "";
+
+  const resetView = () => setView(null);
 
   return <div className="agent-log-panel">
     <section className="agent-log-timeline" aria-label="时间概览">
+      {view && <button type="button" className="agent-log-reset" onClick={resetView}>还原</button>}
       <div className="agent-log-plot">
-        <div className="agent-log-labels" aria-hidden="true"><span>输入</span><span>思考</span><span>正文</span><span>工具</span></div>
+        <div className="agent-log-labels" aria-hidden="true">{TIMELINE_LANES.map((kind) => <span key={kind}>{kindLabel(kind)}</span>)}</div>
         <div
           ref={track}
           className="agent-log-track"
+          title="框选放大，滚轮缩放；点还原或双击看全部"
           onPointerDown={onTrackPointerDown}
           onPointerMove={onTrackPointerMove}
           onPointerUp={onTrackPointerUp}
           onPointerCancel={() => { drag.current = null; setMarquee(null); }}
-          onContextMenu={(event) => { event.preventDefault(); setView(null); }}
+          onDoubleClick={resetView}
+          onContextMenu={(event) => { event.preventDefault(); resetView(); }}
         >
           {!data && !error && <span className="agent-log-empty">正在加载轨迹…</span>}
           {data && !timeline && <span className="agent-log-empty">无计时数据</span>}
@@ -244,19 +251,20 @@ export function AgentTrajectory({ scope, api }: {
     <div className="agent-log-body">
       <div className="agent-log-ledger" role="table" aria-label="轨迹账本">
         <div className="agent-log-ledger-head" role="row">
-          <span>类型</span><span>内容</span><span>时间</span>
+          <span>类型</span><span>内容</span><span>状态</span><span>时间</span>
         </div>
         {ledger.map((turn) => <div className="agent-log-turn" key={turn.turn}>
           <div className="agent-log-turn-label">{turn.label}</div>
           {turn.rows.map((row, index) => {
             const stepChanged = index === 0 || row.step !== turn.rows[index - 1].step;
             return <React.Fragment key={row.id}>
-              {stepChanged && row.step != null && <div className="agent-log-step">{row.kind === "message" || row.kind === "reply" ? "消息" : `步骤 ${row.step}`}</div>}
+              {stepChanged && row.step != null && <div className="agent-log-step">步骤 {row.step}</div>}
               <button
                 type="button"
                 role="row"
                 className="agent-log-row"
                 data-kind={row.kind}
+                data-status={row.event?.status || undefined}
                 data-error={row.isError || undefined}
                 data-current={row.id === selectedRow?.id || undefined}
                 ref={(node) => { if (node) rowRefs.current.set(row.id, node); else rowRefs.current.delete(row.id); }}
@@ -264,6 +272,7 @@ export function AgentTrajectory({ scope, api }: {
               >
                 <span data-kind={row.kind}>{row.label}</span>
                 <span title={ledgerSummary(row)}>{clip(ledgerSummary(row))}</span>
+                <span data-status={row.event?.status || undefined}>{row.event ? labelAgentEventStatus(row.event.status) : "—"}</span>
                 <span>{row.durationMs != null ? formatDurationMs(row.durationMs) : formatClock(row.createdAt)}</span>
               </button>
             </React.Fragment>;
@@ -283,10 +292,12 @@ export function AgentTrajectory({ scope, api }: {
           <div className="agent-log-inspector-body">
             {tab === "概述" && <dl>
               <div><dt>类型</dt><dd>{selectedRow.input ? "输入" : kindLabel(selectedRow.kind === "header" ? "tool" : selectedRow.kind)}</dd></div>
+              {selectedRow.event && <div><dt>状态</dt><dd>{labelAgentEventStatus(selectedRow.event.status)}</dd></div>}
               {selectedRow.event && <div><dt>工具</dt><dd>{selectedRow.event.tool}</dd></div>}
               {selectedRow.event && <div><dt>执行者</dt><dd>{levelName(selectedRow.event.agentType)}</dd></div>}
               <div><dt>开始时间</dt><dd>{formatClock(selectedRow.createdAt)}</dd></div>
               <div><dt>总时长</dt><dd>{selectedRow.durationMs != null ? formatDurationMs(selectedRow.durationMs) : selectedRow.event?.status === "running" ? "进行中" : "未记录"}</dd></div>
+              {selectedRow.event?.task && <div><dt>维护任务</dt><dd>{l1TaskLabel(selectedRow.event.task)}</dd></div>}
               {selectedRow.event?.taskId && <div><dt>任务</dt><dd>{selectedRow.event.taskId}</dd></div>}
               {(detail?.error || selectedRow.event?.error) && <div className="agent-log-detail-error"><dt>错误</dt><dd>{detail?.error || selectedRow.event?.error}</dd></div>}
             </dl>}

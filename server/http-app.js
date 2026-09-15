@@ -2,6 +2,7 @@ import { streamLiveOutput } from "./agent-live-output.js";
 import { SUMMARY_REQUEST } from "../shared/agent-member.js";
 import { queueContextCompression } from "./queue-context.js";
 import { queueDocumentOrganization } from "./document-organization.js";
+import { queueL1MemoryRun } from "./project-memory.js";
 import express from "express";
 import { libraryChange } from "./library.js";
 import { z, ZodError } from "zod/v3";
@@ -620,6 +621,14 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   );
   app.post("/api/projects/:id/documents/organize", async (req, res) =>
     res.status(202).json(await queueDocumentOrganization(service, req.user, { projectId: req.params.id })));
+  app.post("/api/projects/:id/member-memory", async (req, res) =>
+    res.status(202).json(await queueL1MemoryRun(service, req.user, { projectId: req.params.id, task: "member_memory" })));
+  app.post("/api/projects/:id/document-memory", async (req, res) =>
+    res.status(202).json(await queueL1MemoryRun(service, req.user, { projectId: req.params.id, task: "document_memory" })));
+  app.post("/api/projects/:id/project-document-memory", async (req, res) =>
+    res.status(202).json(await queueL1MemoryRun(service, req.user, { projectId: req.params.id, task: "project_document_memory" })));
+  app.post("/api/projects/:id/iteration-document-memory", async (req, res) =>
+    res.status(202).json(await queueL1MemoryRun(service, req.user, { projectId: req.params.id, task: "iteration_document_memory" })));
   app.post("/api/projects/:id/members", async (req, res) =>
     res
       .status(201)

@@ -1,5 +1,5 @@
 import express from "express";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { createDatabase, query } from "./db.js";
 import { createApp } from "./app.js";
 import { startReplyWorker } from "./replies.js";
@@ -19,8 +19,18 @@ const app = createApp(db);
 const stopReplyWorker = await startReplyWorker(db);
 let vite;
 if (process.argv.includes("--production")) {
-  app.use(express.static(resolve("dist")));
-  app.get("/{*path}", (req, res) => res.sendFile(resolve("dist/index.html")));
+  const dist = resolve("dist");
+  app.use(express.static(dist, {
+    index: false,
+    setHeaders(res, filePath) {
+      if (filePath.endsWith(`${sep}index.html`)) res.setHeader("Cache-Control", "no-store");
+      else if (filePath.includes(`${sep}assets${sep}`)) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    },
+  }));
+  app.get("/{*path}", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.sendFile(resolve(dist, "index.html"));
+  });
 } else {
   vite = await (
     await import("vite")

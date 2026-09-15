@@ -17,13 +17,14 @@ export function trackThinking(db,messageId,sessionId,options={}){
   if(!visible||visible==='NO_VISIBLE_MESSAGE'||!options.onVisibleText)return;
   await options.onVisibleText(visible);
  };
- const finish=(status='completed',finalText)=>{
+ const CONTROL_TOOLS = new Set(["wait_for_updates", "finish_turn"]);
+ const finish = (status = "completed", finalText, { visible = true } = {}) => {
   clearTimeout(timer);timer=undefined;if(!phase)return;
   const current=phase;lastPhase=current;phase=undefined;
-  const final=current.kind==='assistant_text'&&typeof finalText==='string'&&current.text.trim()===finalText.trim();
+  const final=visible&&current.kind==='assistant_text'&&typeof finalText==='string'&&current.text.trim()===finalText.trim();
   enqueue(async()=>{
    if(current.id)await query(db,`UPDATE agent_events SET status=?,output=?,tool=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?`,[status,current.text,final?'assistant_final':current.kind,current.id]);
-   if(status==='completed'&&current.kind==='assistant_text')
+   if(status==='completed'&&current.kind==='assistant_text'&&visible)
     await publishVisible(typeof finalText==='string'&&finalText.trim()?finalText:current.text);
   });
  };
@@ -50,8 +51,11 @@ export function trackThinking(db,messageId,sessionId,options={}){
     }
    }else if(['assistant/message','tool/call','step/end','turn/end'].includes(e?.type)){
     if(e.type==='tool/call')received();
-    // Keep the last phase until close so a completed final answer can be marked.
-    finish();
+    const toolName=e.data?.name;
+    const hide=e.type==='tool/call'&&CONTROL_TOOLS.has(toolName);
+    if(hide&&phase?.kind==='assistant_text')phase.kind='thinking';
+    finish('completed',undefined,{visible:!hide});
+    if(hide)live.beginPhase('thinking');
    }
    live.notify(n);
   },

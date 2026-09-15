@@ -181,3 +181,15 @@ export function formatAgentAction(tool, args = {}, result = {}) {
   const label = describeAgentAction(tool, args, result);
   return label.action + (label.target ? " " + label.target : "");
 }
+
+export const L1_TASK_LABELS = {
+  member_memory: "成员认识与发言摘要",
+  document_memory: "文档摘要",
+  project_document_memory: "项目文档摘要",
+  iteration_document_memory: "迭代文档摘要",
+  document_organization: "整理文档",
+};
+
+export function l1TaskLabel(task) {
+  return L1_TASK_LABELS[task] || (task ? String(task) : "");
+}

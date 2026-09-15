@@ -1,5 +1,6 @@
 import { z } from 'zod/v3';
 import { libraryChange } from './library.js';
+import { filterProjectLibraryFolders, filterProjectLibraryVersions } from './project-library.js';
 import { query } from './db.js';
 import { HttpError } from './service.js';
 const id=z.string().uuid();
@@ -16,8 +17,8 @@ export async function documentTool(service,user,name,input,job) {
   if(name==='list_documents'){
     if(job)await service.assertDocumentScopeAvailable(service.db,projectId,job.thread_id);
     const p=await service.project(user,projectId,{display:true});
-    const folders=job?p.folders.filter(folder=>!folder.thread_id||folder.thread_id===job.thread_id):p.folders;
-    const versions=job?p.versions.filter(version=>!version.folder_thread_id||version.folder_thread_id===job.thread_id):p.versions;
+    const folders=job?filterProjectLibraryFolders(p.folders):p.folders;
+    const versions=job?filterProjectLibraryVersions(p.versions):p.versions;
     const end=args.offset+args.limit;
     return {projectId,folders:folders.slice(args.offset,end),versions:versions.slice(args.offset,end),page:{nextOffset:end,hasMore:folders.length>end||versions.length>end}};
   }

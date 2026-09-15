@@ -1,6 +1,8 @@
 import { l1TaskLabel } from "../shared/agent-label.js";
 
-export type AgentLogScope = { type: "project" | "thread" | "task"; id: string };
+export type AgentLogScope =
+  | { type: "project"; id: string; task: string }
+  | { type: "thread" | "task"; id: string };
 export type AgentLogEvent = {
   id: string;
   agentType: "l1" | "l2" | "dsh_l3";

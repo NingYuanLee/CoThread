@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createDatabase, query } from "../server/db.js";
+import { seedInitialAdmin } from "./seed.js";
 
 // MySQL DDL commits independently of the file-level migration receipt. A cold
 // start can fail after ADD COLUMN succeeded, so retry only a verified match.
@@ -32,63 +33,71 @@ async function matchingExistingIndex(conn, statement) {
   return rows.length === 1 && rows[0].COLUMN_NAME === column && Number(rows[0].NON_UNIQUE) === 0;
 }
 
-export async function migrate(db, directory = new URL("../migrations/", import.meta.url)) {
+export async function migrate(
+  db,
+  directory = new URL("../migrations/", import.meta.url),
+  { seedAdmin = false } = {},
+) {
   const names = (await readdir(directory)).filter((name) => name.endsWith(".sql")).sort();
   // Warm schemas need one read, not one database round trip per migration.
   // Recheck under the lock when work remains, so overlapping cold starts are safe.
+  let schemaUpToDate = false;
   try {
     const applied = new Set((await query(db, "SELECT name FROM schema_migrations")).map((row) => row.name));
-    if (names.every((name) => applied.has(name))) return;
+    schemaUpToDate = names.every((name) => applied.has(name));
   } catch (error) { if (error.code !== "ER_NO_SUCH_TABLE") throw error; }
-  const conn = await db.getConnection();
-  let locked = false;
-  try {
-    const [lock] = await query(
-      conn,
-      "SELECT GET_LOCK('cothread_migrate',30) acquired",
-    );
-    if (Number(lock.acquired) !== 1) throw new Error("数据库迁移锁超时");
-    locked = true;
-    await query(
-      conn,
-      "CREATE TABLE IF NOT EXISTS schema_migrations (name VARCHAR(191) PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
-    );
-    const applied = new Set((await query(conn, "SELECT name FROM schema_migrations")).map((row) => row.name));
-    for (const name of names) {
-      if (applied.has(name)) continue;
-      const sql = await readFile(
-        typeof directory === "string" ? join(directory, name) : new URL(name, directory),
-        "utf8",
+  if (!schemaUpToDate) {
+    const conn = await db.getConnection();
+    let locked = false;
+    try {
+      const [lock] = await query(
+        conn,
+        "SELECT GET_LOCK('cothread_migrate',30) acquired",
       );
-      const statements = sql
-        .split(";")
-        .map((x) => x.trim())
-        .filter(Boolean);
-      for (const [index, statement] of statements.entries()) {
-        try {
-          await query(conn, statement);
-        } catch (error) {
-          if (error.code === "ER_DUP_FIELDNAME" && await matchingExistingColumn(conn, statement)) continue;
-          if (error.code === "ER_DUP_KEYNAME" && await matchingExistingIndex(conn, statement)) continue;
-          error.migrationName = name;
-          error.statementNumber = index + 1;
-          throw error;
+      if (Number(lock.acquired) !== 1) throw new Error("数据库迁移锁超时");
+      locked = true;
+      await query(
+        conn,
+        "CREATE TABLE IF NOT EXISTS schema_migrations (name VARCHAR(191) PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+      );
+      const applied = new Set((await query(conn, "SELECT name FROM schema_migrations")).map((row) => row.name));
+      for (const name of names) {
+        if (applied.has(name)) continue;
+        const sql = await readFile(
+          typeof directory === "string" ? join(directory, name) : new URL(name, directory),
+          "utf8",
+        );
+        const statements = sql
+          .split(";")
+          .map((x) => x.trim())
+          .filter(Boolean);
+        for (const [index, statement] of statements.entries()) {
+          try {
+            await query(conn, statement);
+          } catch (error) {
+            if (error.code === "ER_DUP_FIELDNAME" && await matchingExistingColumn(conn, statement)) continue;
+            if (error.code === "ER_DUP_KEYNAME" && await matchingExistingIndex(conn, statement)) continue;
+            error.migrationName = name;
+            error.statementNumber = index + 1;
+            throw error;
+          }
         }
+        await query(conn, "INSERT INTO schema_migrations(name) VALUES(?)", [
+          name,
+        ]);
+        console.log(`Applied ${name}`);
       }
-      await query(conn, "INSERT INTO schema_migrations(name) VALUES(?)", [
-        name,
-      ]);
-      console.log(`Applied ${name}`);
+    } finally {
+      try { if (locked) await query(conn, "SELECT RELEASE_LOCK('cothread_migrate')"); }
+      finally { conn.release(); }
     }
-  } finally {
-    try { if (locked) await query(conn, "SELECT RELEASE_LOCK('cothread_migrate')"); }
-    finally { conn.release(); }
   }
+  if (seedAdmin) await seedInitialAdmin(db);
 }
 if (process.argv[1]?.endsWith("migrate.js")) {
   void (async () => {
     const db = await createDatabase();
-    try { await migrate(db); }
+    try { await migrate(db, undefined, { seedAdmin: true }); }
     finally { await db.end(); }
   })().catch((error) => { console.error("Migration failed", { code: error.code || error.name }); process.exitCode = 1; });
 }

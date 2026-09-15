@@ -19,3 +19,6 @@ export type ContextUsage = {
   compactError: string | null;
   compactResult: { before: number; after: number; changed: boolean; reason?: "already_small" | "not_smaller" } | null;
 };
+export function contextUsage(session: unknown, messages: unknown[], replies?: unknown[]): ContextUsage;
+export function discussionText(message: unknown): string;
+export function pendingMessages(messages: unknown[], seenSequence: unknown, replies?: unknown[]): unknown[];

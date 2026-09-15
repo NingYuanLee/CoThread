@@ -11,7 +11,10 @@ export async function acquireSandbox(
   progress,
   provider = LocalSandbox,
 ) {
-  const { table, key, id: workspaceId } = agentSession(threadId);
+  const spec = agentSession(threadId);
+  const table = spec.sandboxTable || spec.table;
+  const key = spec.sandboxKey || spec.key;
+  const workspaceId = spec.sandboxRowId || spec.id;
   if (currentMakersSandbox() || process.env.COTHREAD_MAKERS === "true") {
     await progress("正在准备 Makers 沙箱工作区");
     return makersWorkspace(workspaceId);
@@ -53,7 +56,10 @@ export async function acquireSandbox(
   return sandbox;
 }
 export async function releaseSandbox(db, threadId) {
-  const { table, key, id: workspaceId } = agentSession(threadId);
+  const spec = agentSession(threadId);
+  const table = spec.sandboxTable || spec.table;
+  const key = spec.sandboxKey || spec.key;
+  const workspaceId = spec.sandboxRowId || spec.id;
   if (currentMakersSandbox() || process.env.COTHREAD_MAKERS === "true") {
     // The managed instance is shared by active children and owned by Makers.
     handles.delete(workspaceId);

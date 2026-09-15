@@ -1,6 +1,7 @@
 import { query } from "./db.js";
 import { Service, HttpError } from "./service.js";
 import { processNextContextCompression } from "./context-compression.js";
+import { processNextL3ContextCompression } from "./l3-context.js";
 import { executeRun } from "./sandbox-run.js";
 import { drainReplies } from "./reply-dispatch.js";
 import { synchronizeNextDiscussion } from "./context-sync.js";
@@ -32,11 +33,16 @@ export async function runMakersThread(db, user, threadId, command, operations = 
       SET q.status='queued' WHERE m.thread_id=? AND q.status='running'`, [threadId]);
     await query(db, `UPDATE agent_sessions SET compact_status='failed',compact_error='上次压缩已中断，请重试。'
       WHERE thread_id=? AND compact_status='running'`, [threadId]);
+    await query(db, `UPDATE agent_child_sessions s JOIN messages m ON m.id=s.message_id
+      SET s.compact_status='failed',s.compact_error='上次压缩已中断，请重试。'
+      WHERE m.thread_id=? AND s.compact_status='running'`, [threadId]);
     await query(db, `UPDATE sandbox_runs SET status='interrupted',output='上次运行已中断，请检查结果后重试。',finished_at=UTC_TIMESTAMP(3)
       WHERE thread_id=? AND status='running'`, [threadId]);
     if (command) return await executeRun(service, user, threadId, command);
     const reply = operations.reply || (async () => false);
-    const compress = operations.compress || ((id) => processNextContextCompression(db, undefined, id));
+    const compress = operations.compress || (async (id) =>
+      await processNextContextCompression(db, undefined, id)
+      || await processNextL3ContextCompression(db, { threadId: id }));
     const coordinate = operations.coordinate || ((id) => processNextCoordinator(db, id));
     const remember = operations.remember || (() => processNextProjectMemory(db, { projectId: activeThread.project_id }));
     const organize = operations.organize || ((id) => processNextDocumentOrganization(db, { threadId: id }));

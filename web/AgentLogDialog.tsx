@@ -51,9 +51,12 @@ export function AgentTrajectory({ scope, api }: {
     let timer: ReturnType<typeof setTimeout>;
     const base = scope.type === "project" ? `/projects/${scope.id}`
       : scope.type === "thread" ? `/threads/${scope.id}` : `/tasks/${scope.id}`;
+    const query = new URLSearchParams();
+    if (scope.type === "project") query.set("task", scope.task);
+    const suffix = query.toString() ? `?${query}` : "";
     const load = async () => {
       try {
-        setData(await api(`${base}/agent-logs`, undefined, undefined, controller.signal));
+        setData(await api(`${base}/agent-logs${suffix}`, undefined, undefined, controller.signal));
         setNow(Date.now());
         setError("");
       } catch (cause) {
@@ -64,7 +67,7 @@ export function AgentTrajectory({ scope, api }: {
     };
     void load();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [scope.type, scope.id]);
+  }, [scope.type, scope.id, scope.type === "project" ? scope.task : ""]);
 
   const inputs = data?.inputs || [];
   const timeline = useMemo(() => buildTimeline(data?.events || [], inputs, now), [data, inputs, now]);

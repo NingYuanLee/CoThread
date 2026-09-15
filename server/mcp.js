@@ -86,7 +86,7 @@ export function createMcpServer(service, user, afterMessage) {
   );
   register(
     "post_message",
-    "经用户同意后向指定迭代发一条消息，可同时包含文字、多个来源文件和已有文档版本引用。文件自动保存到本迭代按自然日期创建的缓存目录，并和消息原子提交；refs 只能引用本迭代或项目正式文件。mentionAgent=true 或正文 @小祥 可请求内置助手回复。",
+    "经用户同意后向指定迭代发一条消息，可同时包含文字、多个来源文件和已有文档版本引用。文件自动保存到项目文档库按 UTC 日期创建的缓存目录，并和消息原子提交；refs 只能引用本项目文档库中的有效文档版本。mentionAgent=true 或正文 @小祥 可请求内置助手回复。",
     {
       threadId: z.string().uuid(),
       body: z.string().min(1).max(20000),

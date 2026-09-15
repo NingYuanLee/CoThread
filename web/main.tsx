@@ -26,6 +26,7 @@ import { Notifications } from "./Notifications";
 import { ProjectSettings } from "./ProjectSettings";
 import { AgentMonitor } from "./AgentMonitor";
 import { AgentLogDialog, AgentTrajectory } from "./AgentLogDialog";
+import type { AgentLogScope } from "./agent-trajectory";
 import { MemberPicker } from "./MemberPicker";
 import { SystemManagement } from "./SystemManagement";
 import { EmailAuth } from "./EmailAuth";
@@ -285,6 +286,7 @@ type Detail = Project & {
   folders: { id: string; parent_id: string | null; thread_id?: string | null; folder_kind?: string | null; system_key?: string | null; name: string }[];
   versions: Version[];
   documentOrganizationJobs: { id: string; thread_id?: string | null; scope: "iteration" | "project"; status: string; error?: string | null }[];
+  longTermSummary?: { summary: string; updatedAt: string | null; lastThreadTitle: string | null } | null;
 };
 type MessageQuote = { id: string; thread_id?: string; author: string; body: string; source: string; refs: string[] };
 function clipQuote(text: string, max = 72) {
@@ -421,7 +423,7 @@ async function api(path: string, data?: unknown, method?: string, signal?: Abort
     signal,
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
-  const work = path.match(/^\/threads\/([^/]+)\/(?:messages|summary|context\/compact|documents\/organize|replies\/[^/]+\/retry)$/);
+  const work = path.match(/^\/threads\/([^/]+)\/(?:messages|summary|context\/compact|replies\/[^/]+\/retry)$/);
   if (work && (method || (data === undefined ? "GET" : "POST")) === "POST") wakeMakers(work[1], undefined, true);
   return result;
 }
@@ -539,7 +541,7 @@ function App() {
   }, [copiedMessage]);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
-  const [agentLogScope, setAgentLogScope] = useState<{ type: "project" | "thread" | "task"; id: string } | null>(null);
+  const [agentLogScope, setAgentLogScope] = useState<AgentLogScope | null>(null);
   const [connectorOpen, setConnectorOpen] = useState(false);
   const connectorAuthorizationParams = new URLSearchParams(location.search);
   const connectorAuthorizationId = connectorAuthorizationParams.get("connectorAuthorization") || "";
@@ -1276,7 +1278,6 @@ function App() {
         (history ||
           all.findIndex((x) => x.artifact_id === v.artifact_id) === i),
     ) || [];
-  const hasIterationOutputs = versions.some((v) => v.folder_thread_id === threadId && v.folder_kind === "iteration_outputs");
   const visibleThreads =
     detail?.threads.filter((t) => showArchived || t.status === "active") || [];
   return (
@@ -1601,7 +1602,7 @@ function App() {
         }}
       >
         {fileDragOver && (
-          <div className="chat-drop-hint">松开以上传至本迭代今日缓存</div>
+          <div className="chat-drop-hint">松开以上传至项目缓存（今日日期文件夹）</div>
         )}
         <header>
           <div className="conversation-heading">
@@ -1931,15 +1932,6 @@ function App() {
                     </button>
                   )}
                   {active && (
-                    <button
-                      disabled={!active || busy || !hasIterationOutputs || detail?.documentOrganizationJobs?.some((job) => job.scope === "iteration" && job.thread_id === threadId && ["queued", "running"].includes(job.status))}
-                      title={hasIterationOutputs ? "由一级小祥在后台整理本迭代文件" : "当前迭代没有可整理的文档"}
-                      onClick={() => void api(`/threads/${threadId}/documents/organize`, {}).then(refresh).catch((cause) => setError(cause.message))}
-                    >
-                      {detail?.documentOrganizationJobs?.some((job) => job.scope === "iteration" && job.thread_id === threadId && ["queued", "running"].includes(job.status)) ? "整理中…" : "整理文档"}
-                    </button>
-                  )}
-                  {active && (
                     <button onClick={() => open("archive")}>归档迭代 ↗</button>
                   )}
                 </div>
@@ -2086,7 +2078,6 @@ function App() {
                 folders={detail?.folders || []}
                 versions={detail?.versions || []}
                 organizationJobs={detail?.documentOrganizationJobs || []}
-                canOrganizeProject={!!detail && detail.threads.every((item) => item.status === "archived")}
                 selected={documentId}
                 onSelect={setDocumentId}
                 onOpen={showDocument}
@@ -2171,7 +2162,7 @@ function App() {
             name={detail.name}
             createdAt={localDate(detail.created_at)}
             creator={creator}
-            onOpenL1Logs={() => setAgentLogScope({ type: "project", id: projectId })}
+            longTermSummary={detail.longTermSummary}
             onSave={async (name) => {
               const updated = await api(`/projects/${projectId}`, { name }, "PATCH");
               setProjects((rows) => rows.map((project) => project.id === updated.id ? { ...project, name: updated.name } : project));
@@ -2292,7 +2283,6 @@ function App() {
             }}
             versions={detail?.versions || []}
             organizationJobs={detail?.documentOrganizationJobs || []}
-            canOrganizeProject={!!detail && detail.threads.every((item) => item.status === "archived")}
             selected={documentId}
             onSelect={setDocumentId}
             onClose={() => setLibraryOpen(false)}
@@ -2538,7 +2528,7 @@ function App() {
                 {modal === "archive" && (
                   <>
                     <p>
-                      保存这一轮的结论、完整讨论、审核记录和引用版本。归档后不可继续修改。
+                      保存这一轮的结论、完整讨论、审核记录和引用版本；本迭代产物文件的最新版将自动另存至正式文件（不含缓存文件）。归档后不可继续修改。
                     </p>
                     <label>
                       验收与归档结论

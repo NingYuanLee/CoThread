@@ -1,6 +1,9 @@
 import { streamLiveOutput } from "./agent-live-output.js";
 import { SUMMARY_REQUEST } from "../shared/agent-member.js";
 import { queueContextCompression } from "./queue-context.js";
+import { queueL1ContextCompression, readL1TaskSession } from "./l1-context.js";
+import { queueL3ContextCompression } from "./l3-context.js";
+import { appendL3TaskSession, readL3TaskSession } from "./l3-session.js";
 import { queueDocumentOrganization } from "./document-organization.js";
 import { queueL1MemoryRun } from "./project-memory.js";
 import express from "express";
@@ -38,9 +41,20 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   const service = new Service(db);
   app.disable("x-powered-by");
   app.use(requestTiming);
-  const origins = process.env.APP_ORIGIN
-    ? [process.env.APP_ORIGIN]
-    : makers ? ["http://cothread.z2l.top", "https://cothread.z2l.top"] : ["http://localhost:3100"];
+  const origins = (() => {
+    if (process.env.APP_ORIGIN) {
+      const list = [process.env.APP_ORIGIN];
+      if (!makers) {
+        for (const local of ["http://127.0.0.1:3100", "http://localhost:3100"]) {
+          if (!list.includes(local)) list.push(local);
+        }
+      }
+      return list;
+    }
+    return makers
+      ? ["http://cothread.z2l.top", "https://cothread.z2l.top"]
+      : ["http://127.0.0.1:3100", "http://localhost:3100"];
+  })();
   if (makers) app.set("trust proxy", 1);
   const attempts = new Map();
   const emailAttempts = new Map();
@@ -475,7 +489,9 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     res.json(await service.agentMonitor(req.user, req.params.id)),
   );
   app.get("/api/projects/:id/agent-logs", async (req, res) =>
-    res.json(await service.agentLogs(req.user, "project", req.params.id)),
+    res.json(await service.agentLogs(req.user, "project", req.params.id, {
+      task: req.query.task,
+    })),
   );
   app.get("/api/projects/:id/tasks", async (req, res) => {
     await service.member(req.user, req.params.id);
@@ -619,6 +635,14 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       ),
     ),
   );
+  app.post("/api/projects/:id/documents/upload", async (req, res) =>
+    res.status(201).json(await service.uploadOfficialDocument(req.user, req.params.id, req.body)));
+  app.post("/api/projects/:id/folders", async (req, res) =>
+    res.status(201).json(await libraryChange(service, req.user, req.params.id, "folder", null, req.body)));
+  app.patch("/api/projects/:id/folders/:folderId", async (req, res) =>
+    res.json(await libraryChange(service, req.user, req.params.id, "folder", req.params.folderId, req.body)));
+  app.delete("/api/projects/:id/folders/:folderId", async (req, res) =>
+    res.json(await libraryChange(service, req.user, req.params.id, "remove-folder", req.params.folderId, {})));
   app.post("/api/projects/:id/documents/organize", async (req, res) =>
     res.status(202).json(await queueDocumentOrganization(service, req.user, { projectId: req.params.id })));
   app.post("/api/projects/:id/member-memory", async (req, res) =>
@@ -626,9 +650,17 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   app.post("/api/projects/:id/document-memory", async (req, res) =>
     res.status(202).json(await queueL1MemoryRun(service, req.user, { projectId: req.params.id, task: "document_memory" })));
   app.post("/api/projects/:id/project-document-memory", async (req, res) =>
-    res.status(202).json(await queueL1MemoryRun(service, req.user, { projectId: req.params.id, task: "project_document_memory" })));
+    res.status(202).json(await queueL1MemoryRun(service, req.user, { projectId: req.params.id, task: "document_memory" })));
   app.post("/api/projects/:id/iteration-document-memory", async (req, res) =>
-    res.status(202).json(await queueL1MemoryRun(service, req.user, { projectId: req.params.id, task: "iteration_document_memory" })));
+    res.status(202).json(await queueL1MemoryRun(service, req.user, { projectId: req.params.id, task: "document_memory" })));
+  app.post("/api/projects/:id/iteration-archive", async (req, res) =>
+    res.status(202).json(await queueL1MemoryRun(service, req.user, {
+      projectId: req.params.id, task: "iteration_archive", threadId: req.body?.threadId,
+    })));
+  app.get("/api/projects/:id/l1-sessions/:task", async (req, res) =>
+    res.json(await readL1TaskSession(service, req.user, req.params.id, req.params.task)));
+  app.post("/api/projects/:id/l1-context/compact", async (req, res) =>
+    res.status(202).json(await queueL1ContextCompression(service, req.user, req.params.id, req.body?.task)));
   app.post("/api/projects/:id/members", async (req, res) =>
     res
       .status(201)
@@ -692,10 +724,10 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
         ),
       ),
   );
-  app.post("/api/threads/:id/documents/organize", async (req, res) =>
-    res.status(202).json(await queueDocumentOrganization(service, req.user, { threadId: req.params.id })));
   app.post("/api/threads/:id/versions/:versionId/save-to-project", async (req, res) =>
     res.status(201).json(await service.copyVersionToOfficial(req.user, req.params.id, req.params.versionId)));
+  app.post("/api/projects/:id/versions/:versionId/save-to-official", async (req, res) =>
+    res.status(201).json(await service.saveVersionToOfficial(req.user, req.params.id, req.params.versionId)));
   app.post("/api/threads/:id/archive", async (req, res) =>
     res.json(await service.archive(req.user, req.params.id, req.body)),
   );
@@ -758,6 +790,12 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       .status(202)
       .json(await queueContextCompression(service, req.user, req.params.id));
   });
+  app.get("/api/threads/:id/replies/:messageId/session", async (req, res) =>
+    res.json(await readL3TaskSession(service, req.user, req.params.id, req.params.messageId)));
+  app.post("/api/threads/:id/replies/:messageId/session", async (req, res) =>
+    res.status(202).json(await appendL3TaskSession(service, req.user, req.params.id, req.params.messageId, req.body?.body)));
+  app.post("/api/threads/:id/replies/:messageId/context/compact", async (req, res) =>
+    res.status(202).json(await queueL3ContextCompression(service, req.user, req.params.id, req.params.messageId)));
   app.post("/api/threads/:id/replies/:messageId/retry", async (req, res) =>
     res.json(
       await retryReply(service, req.user, req.params.id, req.params.messageId),

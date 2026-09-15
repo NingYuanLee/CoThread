@@ -2,6 +2,13 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
+import {
+  folderRootKind,
+  isCacheFolderKind,
+  isOfficialLibraryFolder,
+  isOutputFolderKind,
+  LIBRARY_DATE_FOLDER_NAME,
+} from "./project-library.js";
 
 const id = z.string().uuid();
 const name = z
@@ -10,6 +17,64 @@ const name = z
   .min(1)
   .max(160)
   .refine((x) => !/[\\/\x00-\x1f]/.test(x), "名称不可包含路径");
+
+function parseRecyclePath(value) {
+  if (!value) return null;
+  const rows = typeof value === "string" ? JSON.parse(value) : value;
+  return Array.isArray(rows) && rows.length ? rows : null;
+}
+
+async function folderAncestry(db, folderId) {
+  const chain = [];
+  let current = folderId;
+  while (current) {
+    const [row] = await query(db,
+      "SELECT id,parent_id,name,folder_kind,system_key,thread_id FROM document_folders WHERE id=?",
+      [current]);
+    if (!row) break;
+    chain.unshift({
+      id: row.id,
+      parent_id: row.parent_id,
+      name: row.name,
+      folder_kind: row.folder_kind,
+      system_key: row.system_key,
+      thread_id: row.thread_id,
+    });
+    current = row.parent_id;
+  }
+  return chain.length ? chain : null;
+}
+
+async function restoreFolderAncestry(db, projectId, chain) {
+  let parentId = null;
+  let lastId = null;
+  for (const node of chain || []) {
+    const [byId] = await query(db,
+      "SELECT id FROM document_folders WHERE id=? AND project_id=?", [node.id, projectId]);
+    if (byId) {
+      parentId = byId.id;
+      lastId = byId.id;
+      continue;
+    }
+    if (node.system_key || (node.folder_kind && !node.parent_id)) {
+      const [root] = await query(db,
+        "SELECT id FROM document_folders WHERE project_id=? AND folder_kind=? AND parent_id IS NULL LIMIT 1",
+        [projectId, node.folder_kind]);
+      if (root) {
+        parentId = root.id;
+        lastId = root.id;
+        continue;
+      }
+    }
+    await query(db,
+      "INSERT INTO document_folders(id,project_id,thread_id,parent_id,name,folder_kind,system_key) VALUES(?,?,?,?,?,?,?)",
+      [node.id, projectId, node.thread_id, parentId, node.name, node.folder_kind || null, node.system_key || null]);
+    parentId = node.id;
+    lastId = node.id;
+  }
+  return lastId;
+}
+
 export async function libraryChange(
   service,
   user,
@@ -47,14 +112,14 @@ export async function libraryChange(
     }
     const requireScope = async (row) => {
       if (!row) throw new HttpError(400, "请选择文档文件夹");
-      if (row.thread_id && row.thread_id !== data.threadId)
-        throw new HttpError(403, "不能操作其他迭代的文件");
-      await service.assertDocumentScopeAvailable(db, projectId, row.thread_id || null);
+      const folderId = row.folder_id || row.id;
+      if (folderId && await isOfficialLibraryFolder(db, folderId))
+        await service.assertOfficialOrganizing(db, projectId);
       return row;
     };
     const human = user.kind === "session" && !options.tool;
     if (kind === "version") {
-      const [row] = await query(db, `SELECT v.id,a.deleted_at,f.thread_id,f.folder_kind FROM versions v
+      const [row] = await query(db, `SELECT v.id,a.deleted_at,a.folder_id,f.thread_id,f.folder_kind FROM versions v
         JOIN artifacts a ON a.id=v.artifact_id LEFT JOIN document_folders f ON f.id=a.folder_id
         WHERE v.id=? AND a.project_id=? FOR UPDATE`, [id.parse(target),projectId]);
       if (!row) throw new HttpError(404,"文档版本不存在");
@@ -66,21 +131,29 @@ export async function libraryChange(
     } else if (kind === "artifact") {
       const [row] = await query(
         db,
-        `SELECT a.id,f.thread_id,f.folder_kind FROM artifacts a LEFT JOIN document_folders f ON f.id=a.folder_id
+        `SELECT a.id,a.folder_id,a.recycle_path,a.deleted_at,f.thread_id,f.folder_kind FROM artifacts a
+         LEFT JOIN document_folders f ON f.id=a.folder_id
          WHERE a.id=? AND a.project_id=? FOR UPDATE`,
         [id.parse(target), projectId],
       );
       if (!row) throw new HttpError(404, "文档不存在");
-      await requireScope(row);
-      if (human && data.folderId !== undefined)
-        throw new HttpError(403, "人工成员不能移动文档");
-      if (!human && row.folder_kind === "iteration_cache" && data.folderId !== undefined)
+      if (data.deleted !== false || row.folder_id) await requireScope(row);
+      const rowRoot = await folderRootKind(db, row.folder_id);
+      if (!human && isCacheFolderKind(rowRoot) && data.folderId !== undefined)
         throw new HttpError(403, "缓存文件是来源资料，Agent 不能移动");
+      if ((isCacheFolderKind(rowRoot) || isOutputFolderKind(rowRoot)) && data.folderId !== undefined)
+        throw new HttpError(403, "缓存文件与产物文件不可移动");
       const destination = data.folderId !== undefined ? await requireScope(await folder(data.folderId)) : null;
-      if (destination && (destination.thread_id || null) !== (row.thread_id || null))
-        throw new HttpError(409, "跨范围保存请使用“另存至项目正式文件”，不能直接移动");
+      if (destination) {
+        const destRoot = await folderRootKind(db, destination.id);
+        if (human) {
+          if (rowRoot !== "project_official" || destRoot !== "project_official")
+            throw new HttpError(403, "人工只能在正式文件区内移动文档");
+        } else if (destRoot !== rowRoot)
+          throw new HttpError(409, "不能跨文档区移动，请使用“另存为正式文件”");
+      }
       if (destination?.folder_kind === "iteration_root")
-        throw new HttpError(403, "请选择缓存文件、产物文件或其子文件夹");
+        throw new HttpError(403, "请选择正式文件子文件夹");
       if (data.name !== undefined)
         await query(db, "UPDATE artifacts SET title=? WHERE id=?", [
           data.name,
@@ -91,36 +164,83 @@ export async function libraryChange(
           data.folderId,
           target,
         ]);
-      if (data.deleted !== undefined)
-        await query(
-          db,
-          `UPDATE artifacts SET deleted_at=${data.deleted ? "UTC_TIMESTAMP(3)" : "NULL"} WHERE id=?`,
-          [target],
-        );
+      if (data.deleted === true) {
+        const path = parseRecyclePath(row.recycle_path) || await folderAncestry(db, row.folder_id);
+        await query(db,
+          "UPDATE artifacts SET deleted_at=UTC_TIMESTAMP(3),recycle_path=? WHERE id=?",
+          [path ? JSON.stringify(path) : null, target]);
+      } else if (data.deleted === false) {
+        let folderId = row.folder_id;
+        if (folderId) {
+          const [exists] = await query(db,
+            "SELECT id FROM document_folders WHERE id=? AND project_id=?", [folderId, projectId]);
+          if (!exists) folderId = null;
+        }
+        if (!folderId)
+          folderId = await restoreFolderAncestry(db, projectId, parseRecyclePath(row.recycle_path));
+        if (!folderId) {
+          const [official] = await query(db,
+            "SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_official' AND parent_id IS NULL LIMIT 1",
+            [projectId]);
+          folderId = official?.id || null;
+        }
+        if (folderId) await requireScope({ folder_id: folderId });
+        await query(db,
+          "UPDATE artifacts SET deleted_at=NULL,recycle_path=NULL,folder_id=? WHERE id=?",
+          [folderId, target]);
+      }
     } else {
-      if (human) throw new HttpError(403, "人工成员不能直接修改文档目录");
       const current = target ? await requireScope(await folder(target)) : null;
       if (target && current?.system_key)
         throw new HttpError(403, "系统文件夹不能重命名、移动或删除");
       const destination = data.parentId !== undefined ? await requireScope(await folder(data.parentId)) : null;
-      if (current?.folder_kind === "iteration_cache" || destination?.folder_kind === "iteration_cache")
-        throw new HttpError(403, "缓存文件目录只读，不能由 Agent 修改");
-      if (destination && (destination.thread_id || null) !== (current?.thread_id || destination.thread_id || null))
-        throw new HttpError(409, "文件夹不能跨项目正式目录和迭代目录移动");
+      const currentRoot = current ? await folderRootKind(db, current.id) : null;
+      const destinationRoot = destination ? await folderRootKind(db, destination.id) : null;
+      if (human) {
+        const areaRoot = destinationRoot || currentRoot;
+        if (areaRoot !== "project_official")
+          throw new HttpError(403, "人工只能在正式文件区管理子文件夹");
+      } else if (isCacheFolderKind(currentRoot) || isCacheFolderKind(destinationRoot)
+        || isOutputFolderKind(currentRoot) || isOutputFolderKind(destinationRoot))
+        throw new HttpError(403, "缓存文件与产物文件目录不可由 Agent 修改");
+      else if (destinationRoot && destinationRoot !== "project_official")
+        throw new HttpError(403, "只能在正式文件区内创建子文件夹");
       if (kind === "remove-folder") {
-        const [children] = await query(
-          db,
-          "SELECT (SELECT COUNT(*) FROM document_folders WHERE parent_id=?)+(SELECT COUNT(*) FROM artifacts WHERE folder_id=? AND deleted_at IS NULL) count",
-          [target, target],
-        );
-        if (Number(children.count))
-          throw new HttpError(409, "请先移出或删除文件夹中的内容");
-        await query(
-          db,
-          "UPDATE artifacts SET folder_id=NULL WHERE folder_id=?",
-          [target],
-        );
-        await query(db, "DELETE FROM document_folders WHERE id=?", [target]);
+        if (human && currentRoot === "project_official") {
+          const subtree = await query(db, `WITH RECURSIVE subtree AS (
+              SELECT id, 0 depth FROM document_folders WHERE id=?
+              UNION ALL
+              SELECT f.id, s.depth + 1 FROM document_folders f JOIN subtree s ON f.parent_id = s.id
+            )
+            SELECT id FROM subtree ORDER BY depth DESC`, [target]);
+          const ids = subtree.map((row) => row.id);
+          if (ids.length) {
+            const placeholders = ids.map(() => "?").join(",");
+            const artifacts = await query(db,
+              `SELECT id,folder_id,recycle_path FROM artifacts WHERE folder_id IN (${placeholders})`, ids);
+            for (const artifact of artifacts) {
+              const path = parseRecyclePath(artifact.recycle_path) || await folderAncestry(db, artifact.folder_id);
+              await query(db,
+                `UPDATE artifacts SET deleted_at=UTC_TIMESTAMP(3),recycle_path=?,folder_id=NULL WHERE id=?`,
+                [path ? JSON.stringify(path) : null, artifact.id]);
+            }
+            await query(db, `DELETE FROM document_folders WHERE id IN (${placeholders})`, ids);
+          }
+        } else {
+          const [children] = await query(
+            db,
+            "SELECT (SELECT COUNT(*) FROM document_folders WHERE parent_id=?)+(SELECT COUNT(*) FROM artifacts WHERE folder_id=? AND deleted_at IS NULL) count",
+            [target, target],
+          );
+          if (Number(children.count))
+            throw new HttpError(409, "请先移出或删除文件夹中的内容");
+          await query(
+            db,
+            "UPDATE artifacts SET folder_id=NULL WHERE folder_id=?",
+            [target],
+          );
+          await query(db, "DELETE FROM document_folders WHERE id=?", [target]);
+        }
       } else {
         if (data.parentId !== undefined && target) {
           let ancestor = data.parentId;
@@ -130,18 +250,21 @@ export async function libraryChange(
             ancestor = (await folder(ancestor)).parent_id;
           }
         }
-        const parent =
+        let parent =
           data.parentId === undefined
             ? current?.parent_id || null
             : data.parentId;
+        if (!target && parent === null) {
+          const [official] = await query(db,
+            "SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_official' AND thread_id IS NULL LIMIT 1",
+            [projectId]);
+          parent = official?.id ?? null;
+        }
         const folderName = data.name || current?.name;
         if (!folderName) throw new HttpError(400, "请输入文件夹名称");
-        const [duplicate] = await query(
-          db,
-          "SELECT id FROM document_folders WHERE project_id=? AND parent_id <=> ? AND name=? AND id<>?",
-          [projectId, parent, folderName, target || ""],
-        );
-        if (duplicate) throw new HttpError(409, "同级已有同名文件夹");
+        const officialArea = destinationRoot === "project_official" || currentRoot === "project_official";
+        if (officialArea && LIBRARY_DATE_FOLDER_NAME.test(folderName))
+          throw new HttpError(400, "日期文件夹属于缓存/产物区，正式文件请使用主题名称");
         if (target)
           await query(
             db,
@@ -153,9 +276,7 @@ export async function libraryChange(
           await query(
             db,
             "INSERT INTO document_folders(id,project_id,thread_id,parent_id,name,folder_kind) VALUES(?,?,?,?,?,?)",
-            [target, projectId, destination?.thread_id || null, parent, folderName,
-              destination?.folder_kind === "iteration_cache" || destination?.folder_kind === "iteration_outputs"
-                ? destination.folder_kind : null],
+            [target, projectId, null, parent, folderName, null],
           );
         }
       }

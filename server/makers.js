@@ -16,7 +16,7 @@ export function makersDatabase() {
     try {
       db = await createDatabase();
       // Cold starts may overlap; pending migrations use a database advisory lock.
-      await migrate(db, assetPath("migrations"));
+      await migrate(db, assetPath("migrations"), { seedAdmin: true });
       return db;
     } catch (error) {
       error.initializationCode = error.code === "ENOENT" ? "INIT_ASSETS_MISSING"

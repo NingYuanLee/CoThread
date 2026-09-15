@@ -14,6 +14,7 @@ import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { loadMemberUnderstanding, loadProjectWikiIndexes, queueDocumentMemory } from "./project-memory.js";
 import { connectorTool } from "./connectors.js";
 import { acknowledgeTaskRejection, askTaskQuestion, createTask, listTasks, reassignTask, reopenRejectedTask, updateTask } from "./task-pool.js";
+import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./project-library.js";
 
 const titles = {
   list_documents:"查看",manage_document:"整理",manage_folder:"整理",
@@ -55,7 +56,7 @@ export function createAgentTools(
       "UPDATE assistant_replies SET progress=? WHERE message_id=?",
       [text, job.message_id],
     );
-  const root = `/home/user/cothread/${agentSession(job).id}`;
+  const root = `/home/user/cothread/${agentSession(job).workspaceId}`;
   const sandboxScope = job.parent_message_id ? job : job.thread_id;
   return async (name, args, caller = {}) => {
     const effectiveRole = role === "coordinator" && caller.sessionId && caller.sessionId !== l2SessionId
@@ -149,8 +150,8 @@ export function createAgentTools(
         result = await connectorTool(service, user, name, args, job, thread);
       } else if (name === "project_context") {
         result = modelProject(await service.project(user, thread.project_id));
-        result.versions = (result.versions || []).filter((v) => !v.deleted_at && (!v.folder_thread_id || v.folder_thread_id === job.thread_id));
-        result.folders = (result.folders || []).filter((folder) => !folder.thread_id || folder.thread_id === job.thread_id);
+        result.versions = filterProjectLibraryVersions(result.versions || []);
+        result.folders = filterProjectLibraryFolders(result.folders || []);
         const allowedVersions = new Set(result.versions.map((version) => version.id));
         const wiki = await loadProjectWikiIndexes(service.db, thread.project_id);
         wiki.documentSummaries = (wiki.documentSummaries || []).filter((item) => allowedVersions.has(item.versionId));
@@ -185,8 +186,6 @@ export function createAgentTools(
         );
         if (version.project_id !== thread.project_id)
           throw new HttpError(403, "文档不属于当前项目");
-        if (version.folder_thread_id && version.folder_thread_id !== job.thread_id)
-          throw new HttpError(403, "不能读取其他迭代的文件");
         const sandbox = await getSandbox(service.db, sandboxScope, progress);
         await progress(formatAgentAction(name, args, version));
         const path = `documents/${version.id}/${version.filename}`;
@@ -223,8 +222,6 @@ export function createAgentTools(
         const version = await service.version(user, versionId);
         if (version.project_id !== thread.project_id)
           throw new HttpError(403, "文档不属于当前项目");
-        if (version.folder_thread_id && version.folder_thread_id !== job.thread_id)
-          throw new HttpError(403, "不能读取其他迭代的文件");
         const [sharedBefore] = await query(service.db,
           "SELECT summary FROM agent_document_summaries WHERE version_id=?", [versionId]);
         const [read] = await query(service.db,

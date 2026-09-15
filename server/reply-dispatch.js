@@ -24,15 +24,17 @@ export async function claimReply(db, threadId, { allowUnrouted = true } = {}) {
          WHERE m.thread_id=? AND (r.status='running' OR r.execution_active=TRUE)`, [thread.id]);
       if (active.length >= MAX_THREAD_AGENTS) return;
       const queued = await query(conn,
-        `SELECT r.message_id,r.participation,m.thread_id,m.author_id,m.sequence,m.body
+        `SELECT r.message_id,r.participation,r.parent_message_id,r.agent_slot,m.thread_id,m.author_id,m.sequence,m.body
          FROM assistant_replies r JOIN messages m ON m.id=r.message_id
          WHERE m.thread_id=? AND r.status='queued' ${allowUnrouted ? "" : "AND r.dispatch_ready=TRUE"} ORDER BY m.sequence`, [thread.id]);
-      const next = queued.find((r) => !active.some((task) => task.author_id === r.author_id)
-        && (!active.length || mentionsAgent(r.body)));
+      const next = queued.find((row) => {
+        if (active.some((task) => task.author_id === row.author_id)) return false;
+        if (row.agent_slot && active.some((task) => task.agent_slot === row.agent_slot)) return false;
+        return row.parent_message_id || !active.length || mentionsAgent(row.body);
+      });
       if (!next) return;
-      // Every execution is temporary. No workload occupies the coordinator.
-      const parent = next.message_id;
-      const slot = Array.from({ length: MAX_THREAD_AGENTS }, (_, index) => index + 1)
+      const parent = next.parent_message_id || next.message_id;
+      const slot = next.agent_slot || Array.from({ length: MAX_THREAD_AGENTS }, (_, index) => index + 1)
         .find((number) => !active.some((task) => task.agent_slot === number));
       await query(conn,
         `UPDATE assistant_replies SET status='running',execution_active=TRUE,parent_message_id=?,agent_slot=?,error=NULL,

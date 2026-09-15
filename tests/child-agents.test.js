@@ -10,6 +10,7 @@ import { runMakersThread } from "../server/makers-runner.js";
 import { openAgentRuntime, stopAgent } from "../server/agent.js";
 import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.js";
 import { agentSession } from "../server/agent-session.js";
+import { processNextL3ContextCompression, queueL3ContextCompression } from "../server/l3-context.js";
 import { deliverTaskUpdates } from "../server/agent-updates.js";
 import { pendingMessages } from "../shared/context.js";
 import { processNextCoordinator } from "../server/coordinator.js";
@@ -29,6 +30,24 @@ async function fixture(count = 2) {
   const thread = await service.createThread(users[0], project.id, { title: "Parallel requests" });
   return { users, project, thread, post: (index, body = "@小祥 请处理") => service.postMessage(users[index], thread.id, { body }) };
 }
+
+test("L3 DSH context is keyed by task while the sandbox stays per task", () => {
+  const threadId = "thread-a";
+  const l2 = agentSession({ thread_id: threadId });
+  assert.equal(l2.kind, "l2");
+  assert.equal(l2.id, threadId);
+  const first = agentSession({
+    thread_id: threadId, parent_message_id: "task-1", agent_slot: 3, message_id: "task-1",
+  });
+  const second = agentSession({
+    thread_id: threadId, parent_message_id: "task-2", agent_slot: 3, message_id: "task-2",
+  });
+  assert.equal(first.kind, "l3");
+  assert.equal(first.homeId, "task-1");
+  assert.notEqual(first.homeId, second.homeId);
+  assert.equal(first.workspaceId, "task-1");
+  assert.equal(second.workspaceId, "task-2");
+});
 
 test("committed member messages wake workers while rolled-back submissions do not", async () => {
   const { users, thread, post } = await fixture();
@@ -85,6 +104,7 @@ test("project monitor reports knowledge, coordinators and isolated execution slo
   assert.ok(Array.isArray(monitor.knowledge.organizationJobs));
   assert.ok(Array.isArray(monitor.knowledge.archives));
   assert.equal(monitor.coordinators.find((item) => item.id === thread.id).active_executors, 1);
+  assert.ok(monitor.coordinators.find((item) => item.id === thread.id).contextUsage);
   assert.equal(monitor.executors.find((item) => item.task_id === task.id).agent_slot, 1);
   assert.equal(monitor.executors.find((item) => item.task_id === task.id).execution_active, 1);
 
@@ -163,7 +183,7 @@ test("runtime checkpoints, sandboxes, steering and stop stay scoped to the child
   const { users, thread, post } = await fixture();
   await post(0);
   const main = await claimReply(db, thread.id);
-  // Legacy discussion sessions remain isolated from temporary execution sessions.
+  // Force the first claimed job onto the L2 discussion session for this isolation check.
   main.parent_message_id = null;
   await post(1);
   const child = await claimReply(db, thread.id);
@@ -176,11 +196,14 @@ test("runtime checkpoints, sandboxes, steering and stop stay scoped to the child
   const context = await service.context(users[0], thread.id);
   const rootRuntime = await openAgentRuntime(context, { db, job: main, user: users[0], createHarness });
   const childRuntime = await openAgentRuntime(context, { db, job: child, user: users[1], createHarness });
+  let resumed;
   const provider = { create: async () => {
     const sandboxId = randomUUID();
     return { sandboxId, files: { makeDir: async () => {} }, setTimeout: async () => {}, kill: async () => { killed.push(sandboxId); } };
   } };
   try {
+    assert.equal(child.agent_slot, 2);
+    assert.equal(agentSession(child).homeId, child.message_id);
     assert.notEqual(made[0].dshHome, made[1].dshHome);
     assert.notEqual(rootRuntime.session.session_id, childRuntime.session.session_id);
     const rootSandbox = await acquireSandbox(db, main, async () => {}, provider);
@@ -199,11 +222,60 @@ test("runtime checkpoints, sandboxes, steering and stop stay scoped to the child
     assert.deepEqual(killed, [childSandbox.sandboxId]);
     assert.ok(!closed.includes(made[0].dshHome));
     await childRuntime.close(true);
-    assert.equal((await query(db, "SELECT checkpoint,sandbox_id FROM agent_child_sessions WHERE message_id=?", [child.message_id]))[0].checkpoint, null);
+    const childRow = (await query(db, "SELECT checkpoint,sandbox_id FROM agent_child_sessions WHERE message_id=?", [child.message_id]))[0];
+    assert.ok(childRow.checkpoint);
+    assert.equal(childRow.sandbox_id, null);
+    resumed = await openAgentRuntime(context, { db, job: child, user: users[1], createHarness });
+    assert.equal(resumed.session.session_id, childRuntime.session.session_id);
+    assert.equal(made[1].dshHome, made[2].dshHome);
     assert.equal(agentSession(main).id, thread.id);
   } finally {
-    await childRuntime.close(); await rootRuntime.close(); await releaseSandbox(db, main);
+    await resumed?.close(); await childRuntime.close(); await rootRuntime.close(); await releaseSandbox(db, main);
   }
+});
+
+test("L3 task context is reported on the monitor and accepts a manual compact", async () => {
+  const { users, project, thread, post } = await fixture();
+  await post(0);
+  await claimReply(db, thread.id);
+  await post(1);
+  const child = await claimReply(db, thread.id);
+  const compactCalls = [];
+  const createHarness = () => ({
+    start: async () => {},
+    close: async () => {},
+    client: {
+      async request(method, params) {
+        if (method === "cothread/history")
+          return [{ role: "user", content: [{ type: "text", text: "isolated task" }] }];
+        if (method === "cothread/context")
+          return { used: 910000, estimated: false, categories: {}, measuredAt: new Date().toISOString() };
+        if (method === "cothread/compact") {
+          compactCalls.push(params);
+          return { before: 910000, after: 12000, changed: true };
+        }
+        return {};
+      },
+    },
+  });
+  const context = await service.context(users[0], thread.id);
+  const runtime = await openAgentRuntime(context, {
+    db, job: child, user: users[1], createHarness, observe: false,
+  });
+  await runtime.sample();
+  await runtime.close(true);
+  await query(db, "UPDATE assistant_replies SET status='completed',execution_active=FALSE WHERE message_id=?",
+    [child.message_id]);
+  const monitor = await service.agentMonitor(users[0], project.id);
+  const usage = monitor.executors.find((item) => item.task_id === child.message_id);
+  assert.equal(usage.contextUsage.used, 910000);
+  const queued = await queueL3ContextCompression(service, users[0], thread.id, child.message_id);
+  assert.equal(queued.status, "queued");
+  assert.equal(await processNextL3ContextCompression(db, { threadId: thread.id, createHarness }), true);
+  assert.equal(compactCalls.at(-1).automatic, undefined);
+  const [session] = await query(db, "SELECT compact_status FROM agent_child_sessions WHERE message_id=?",
+    [child.message_id]);
+  assert.equal(session.compact_status, "completed");
 });
 
 test("routing reconciles replies completed by an older worker without invoking a model again", async () => {

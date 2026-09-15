@@ -13,6 +13,8 @@ import {
   processNextContextCompression,
   refreshNextContextStats,
 } from "./context-compression.js";
+import { processNextL1ContextCompression } from "./l1-context.js";
+import { processNextL3ContextCompression } from "./l3-context.js";
 import { modelResponse, redactSecrets, responseText } from "./model-config.js";
 import { COORDINATOR_PERSONA } from "./coordinator-persona.js";
 import { recoverInterruptedDshL3Executions } from "./task-pool.js";
@@ -190,6 +192,23 @@ export async function startReplyWorker(db) {
   );
   await query(
     db,
+    `UPDATE agent_child_sessions s SET context_stats=NULL WHERE compact_status='running'
+    OR EXISTS (SELECT 1 FROM assistant_replies r WHERE r.message_id=s.message_id AND r.status='running')`,
+  );
+  await query(
+    db,
+    "UPDATE agent_project_sessions SET compact_status='failed',compact_error='服务重启，压缩已中断，可重新发起。' WHERE compact_status='running'",
+  );
+  await query(
+    db,
+    "UPDATE agent_child_sessions SET compact_status='failed',compact_error='服务重启，压缩已中断，可重新发起。' WHERE compact_status='running'",
+  );
+  await query(
+    db,
+    "UPDATE agent_l3_sessions SET compact_status='failed',compact_error='服务重启，压缩已中断，可重新发起。' WHERE compact_status='running'",
+  );
+  await query(
+    db,
     "UPDATE agent_events SET status='failed',finished_at=UTC_TIMESTAMP(3) WHERE status='running'",
   );
   // A single process owns sandbox runs. Committed replies are never enqueued again.
@@ -209,9 +228,13 @@ export async function startReplyWorker(db) {
   // Commits wake the lanes immediately; the minute sweep covers missed events.
   const stops = [
     run(() => processNextCoordinator(db)),
-    run(() => processNextProjectMemory(db)),
+    run(() => processNextProjectMemory(db, { task: "member_memory" })),
+    run(() => processNextProjectMemory(db, { task: "document_memory" })),
+    run(() => processNextProjectMemory(db, { task: "iteration_archive" })),
     run(() => processNextDocumentOrganization(db)),
-    run(async () => await processNextContextCompression(db) || await synchronizeNextDiscussion(db) || await refreshNextContextStats(db)),
+    run(async () => await processNextContextCompression(db) || await processNextL1ContextCompression(db)
+      || await processNextL3ContextCompression(db)
+      || await synchronizeNextDiscussion(db) || await refreshNextContextStats(db)),
   ];
   return () => stops.forEach((stop) => stop());
 }

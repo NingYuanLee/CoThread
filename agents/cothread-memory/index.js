@@ -2,6 +2,8 @@ import { makersDatabase, makersErrorDetails } from "../../server/makers.js";
 import { makersWebRequest } from "../../server/makers-request.js";
 import { processNextProjectMemory } from "../../server/project-memory.js";
 import { processNextDocumentOrganization } from "../../server/document-organization.js";
+import { processNextL1ContextCompression } from "../../server/l1-context.js";
+import { processNextL3ContextCompression } from "../../server/l3-context.js";
 
 export async function handleRequest({ request }) {
   try {
@@ -13,7 +15,10 @@ export async function handleRequest({ request }) {
       return Response.json({ error: "知识库维护凭据无效" }, { status: 401 });
     const db = await makersDatabase();
     let processed = 0;
-    while (processed < 25 && (await processNextDocumentOrganization(db) || await processNextProjectMemory(db))) processed++;
+    while (processed < 25 && (await processNextDocumentOrganization(db)
+      || await processNextProjectMemory(db)
+      || await processNextL1ContextCompression(db)
+      || await processNextL3ContextCompression(db))) processed++;
     return Response.json({ status: "ok", processed },
       { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

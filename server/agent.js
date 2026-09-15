@@ -25,15 +25,19 @@ const running = new Map();
 export async function stopAgent(db, threadId, messageId) {
   const task = running.get(messageId);
   const [reply] = await query(db,
-    "SELECT parent_message_id,execution_active FROM assistant_replies WHERE message_id=?", [messageId]);
+    "SELECT parent_message_id,agent_slot,execution_active FROM assistant_replies WHERE message_id=?", [messageId]);
   // A cancelled queued request owns no runtime or sandbox. In particular, it
   // must never stop the primary that is still serving another member.
   await Promise.allSettled([task?.close(), reply?.execution_active
-    ? releaseSandbox(db, { thread_id: threadId, message_id: messageId, parent_message_id: reply.parent_message_id })
+    ? releaseSandbox(db, {
+      thread_id: threadId,
+      message_id: messageId,
+      parent_message_id: reply.parent_message_id,
+      agent_slot: reply.agent_slot,
+    })
     : undefined]);
 }
-async function checkpoint(db, scope, home, seenSequence, modelMessages) {
-  const { table, key, id } = agentSession(scope);
+async function checkpoint(db, { table, key, id }, home, seenSequence, modelMessages) {
   const dir = join(home, "sessions");
   const files = {};
   async function walk(path, prefix = "") {
@@ -81,7 +85,7 @@ export async function openAgentRuntime(
     createHarness = (options) => new DeepSeekHarness(options);
   }
   const service = new Service(db);
-  const { table, key, id: workspaceId } = agentSession(job);
+  const spec = agentSession(job);
   const progress = (text) =>
     job.message_id
       ? query(
@@ -91,20 +95,23 @@ export async function openAgentRuntime(
         )
       : Promise.resolve();
   await progress(job.parent_message_id ? "小祥正在准备处理" : "正在启动 DSH Agent");
-  await query(
-    db,
-    `INSERT IGNORE INTO ${table}(${key},session_id) VALUES(?,?)`,
-    [workspaceId, randomUUID()],
-  );
-  const [session] = await query(
-    db,
-    `SELECT * FROM ${table} WHERE ${key}=?`,
-    [workspaceId],
-  );
+  let session;
+  await query(db, `INSERT IGNORE INTO ${spec.table}(${spec.key},session_id) VALUES(?,?)`,
+    [spec.id, randomUUID()]);
+  [session] = await query(db, `SELECT * FROM ${spec.table} WHERE ${spec.key}=?`, [spec.id]);
+  const sessionRow = { table: spec.table, key: spec.key, id: spec.id };
   if (!job.parent_message_id && !sessionLockHeld && job.thread_id) {
     sessionLock = await acquireSessionLock(db, job.thread_id, 30);
     if (!sessionLock) {
       const error = new Error("L2 session is busy");
+      error.agentStage = "start";
+      throw error;
+    }
+  }
+  if (spec.kind === "l3" && spec.id && !sessionLockHeld) {
+    sessionLock = await acquireSessionLock(db, spec.homeId, 30);
+    if (!sessionLock) {
+      const error = new Error("L3 session is busy");
       error.agentStage = "start";
       throw error;
     }
@@ -117,7 +124,7 @@ export async function openAgentRuntime(
   const capabilityProfile = role === "coordinator" ? capabilityProfiles.l2 : capabilityProfiles.l3;
   const runtimeRoot = process.env.COTHREAD_MAKERS === "true"
     ? resolve(tmpdir(), "cothread-agents") : resolve(".local/agents");
-  const home = resolve(runtimeRoot, workspaceId);
+  const home = resolve(runtimeRoot, spec.homeId);
   await mkdir(home, { recursive: true });
   // MySQL is authoritative. Restore only session records into a dedicated host orchestration directory.
   if (session.checkpoint) {
@@ -308,8 +315,8 @@ export async function openAgentRuntime(
       .then((stats) =>
         query(
           db,
-          `UPDATE ${table} SET context_stats=? WHERE ${key}=?`,
-          [JSON.stringify({ ...stats, seenSequence }), workspaceId],
+          `UPDATE ${sessionRow.table} SET context_stats=? WHERE ${sessionRow.key}=?`,
+          [JSON.stringify({ ...stats, seenSequence }), sessionRow.id],
         ),
       )
       .finally(() => {
@@ -326,7 +333,7 @@ export async function openAgentRuntime(
       if (completed) {
         await sampling.catch(() => {});
         await sample();
-        if (!job.parent_message_id) modelMessages = await request("history");
+        if (completed) modelMessages = await request("history");
       } else if (interval) {
         // A failed compaction has emitted its end marker. Persist that final
         // meter state rather than leaving the UI stuck on "compacting".
@@ -344,11 +351,10 @@ export async function openAgentRuntime(
         await new Promise((resolve) => bridge.close(resolve));
         await thinking.close(completed ? "completed" : "failed");
         try {
-          if (!job.parent_message_id || !completed) await checkpoint(db, job, home, seenSequence, modelMessages);
-          else await query(db, "UPDATE agent_child_sessions SET checkpoint=NULL,context_stats=NULL WHERE message_id=?", [job.message_id]);
+          await checkpoint(db, sessionRow, home, seenSequence, modelMessages);
         }
         finally {
-          if (job.parent_message_id) await releaseSandbox(db, job);
+          if (job.parent_message_id && job.message_id) await releaseSandbox(db, job);
           if (job.parent_message_id && completed) {
             if (dirname(home) !== runtimeRoot) throw new Error("Invalid child workspace");
             await rm(home, { recursive: true, force: true });
@@ -377,8 +383,8 @@ export async function openAgentRuntime(
     interval.unref();
     // Append only new discussion. Native assistant turns and compressed summaries
     // already live in this session and must never be re-sent as full transcripts.
-    const fresh = observe
-      ? pendingMessages(context.messages, seenSequence, job.parent_message_id ? [] : context.replies)
+    const fresh = observe && !job.parent_message_id
+      ? pendingMessages(context.messages, seenSequence, context.replies)
       : [];
     for (const message of fresh) {
       agentStage = "observe";
@@ -423,7 +429,7 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
   let polling = Promise.resolve();
   const usageMeter=createUsageMeter();let modelStarted,modelFinished;
   try {
-    const prompt = `当前项目 ID：${context.project_id}。迭代 ID：${job.thread_id}。沙箱工作区 /home/user/cothread/${agentSession(job).id}。
+    const prompt = `当前项目 ID：${context.project_id}。迭代 ID：${job.thread_id}。沙箱工作区 /home/user/cothread/${agentSession(job).workspaceId}。
 请回应当前上下文中 ID 为 ${job.message_id} 的成员消息，并结合该成员对当前任务的追加要求更新工作。追加要求属于同一任务，不应作为新任务排队，也不要重复已完成的操作。请简洁回应，不擅自扩展任务。梳理讨论时直接分析已有上下文，不要为了梳理再次调用 read_iteration 读取整个会话；只有用户明确要求核查缺失的原文时才按页读取。其他实现、分析文件或产出内容，应实际调用工具完成并保存结果。`;
     await progress("Agent 正在分析请求");
     await deliverTaskUpdates(db, job, runtime, "observe");

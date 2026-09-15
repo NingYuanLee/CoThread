@@ -30,7 +30,7 @@
 
 迁移已有部署时，保留原有令牌加密密钥（原环境变量值，或将 `.local/credential-encryption.key` 的 32 字节二进制内容编码为 base64），否则无法解密原来的账号令牌。空库首次部署才生成新密钥；不要提交密钥。
 
-构建命令：`npm ci && npm run build`。发布前运行 `npm run db:migrate`；空库首次部署额外运行 `npm run db:seed`。启动命令：`npm start`。当前版本运行单个应用实例。
+构建命令：`npm ci && npm run build`。发布前运行 `npm run db:migrate`（会尝试写入超级管理员，需配置 `ADMIN_EMAIL`/`ADMIN_PASSWORD` 或已有账号）。启动命令：`npm start`。当前版本运行单个应用实例。
 
 本地 `.env` 仅保留 `.env.example` 中列出的必要项。其余参数无需重复填写默认值：监听 `127.0.0.1:3100`，站点地址 `http://localhost:3100`，Cookie Secure 和数据库 TLS 默认关闭；云端 HTTPS、监听地址和数据库 TLS 按上表覆盖。
 

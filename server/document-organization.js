@@ -13,14 +13,19 @@ const planSchema = z.object({
 });
 
 export async function listOrganizationDocuments(db, job) {
-  return query(db, `SELECT a.id artifactId,a.title,a.folder_id folderId,v.filename,v.version,
-    f.thread_id folderThreadId,f.folder_kind folderKind,f.parent_id parentId
+  return query(db, `WITH RECURSIVE official_tree AS (
+      SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_official'
+      UNION ALL
+      SELECT f.id FROM document_folders f JOIN official_tree o ON f.parent_id=o.id
+    )
+    SELECT a.id artifactId,a.title,a.folder_id folderId,v.filename,v.version,
+      f.thread_id folderThreadId,f.folder_kind folderKind,f.parent_id parentId
     FROM artifacts a JOIN document_folders f ON f.id=a.folder_id
+    JOIN official_tree t ON t.id=a.folder_id
     JOIN versions v ON v.artifact_id=a.id
     WHERE a.project_id=? AND a.deleted_at IS NULL
     AND v.version=(SELECT MAX(v2.version) FROM versions v2 WHERE v2.artifact_id=a.id)
-    AND ${job.scope === "project" ? "f.thread_id IS NULL" : "f.thread_id=? AND f.folder_kind='iteration_outputs'"}
-    ORDER BY a.updated_at DESC`, job.scope === "project" ? [job.project_id] : [job.project_id, job.thread_id]);
+    ORDER BY a.updated_at DESC`, [job.project_id, job.project_id]);
 }
 
 export async function queueDocumentOrganization(service, user, { projectId, threadId = null }) {
@@ -32,19 +37,17 @@ export async function queueDocumentOrganization(service, user, { projectId, thre
     } else {
       await service.member(user, projectId, true, db);
       await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);
-      const [active] = await query(db, "SELECT id FROM threads WHERE project_id=? AND status='active' LIMIT 1 FOR UPDATE", [projectId]);
-      if (active) throw new HttpError(409, "全部迭代归档后才能整理项目正式文件");
     }
-    const scope = threadId ? "iteration" : "project";
-    const documents = await listOrganizationDocuments(db, { project_id: projectId, thread_id: threadId, scope });
-    if (!documents.length) throw new HttpError(409, "当前范围没有可整理的文档");
+    const scope = "project";
+    const documents = await listOrganizationDocuments(db, { project_id: projectId, scope });
+    if (!documents.length) throw new HttpError(409, "正式文件区没有可整理的文档");
     const [existing] = await query(db, `SELECT id,status FROM document_organization_jobs
-      WHERE project_id=? AND scope=? AND thread_id <=> ? AND status IN ('queued','running') LIMIT 1`,
-    [projectId, scope, threadId]);
+      WHERE project_id=? AND scope=? AND thread_id IS NULL AND status IN ('queued','running') LIMIT 1`,
+    [projectId, scope]);
     if (existing) return existing;
     const id = randomUUID();
     await query(db, `INSERT INTO document_organization_jobs(id,project_id,thread_id,scope,requested_by)
-      VALUES(?,?,?,?,?)`, [id, projectId, threadId, scope, user.id]);
+      VALUES(?,?,?,?,?)`, [id, projectId, null, scope, user.id]);
     return { id, status: "queued" };
   });
   publishWork(service.db, threadId || undefined);
@@ -54,7 +57,7 @@ export async function queueDocumentOrganization(service, user, { projectId, thre
 async function createPlan(db, job, documents, options = {}) {
   const { runL1Task } = await import("./l1-agent.js");
   return runL1Task(db, job.project_id, "document_organization", {
-    instructions: "返回 {documents:[{artifactId,title?,folder?}]}。只根据清单整理，名称清楚简短；分类层级只允许一层；不要删除文件；不确定时保持原名称且 folder 为 null。",
+    instructions: "返回 {documents:[{artifactId,title?,folder?}]}。只根据清单整理，名称清楚简短；分类层级只允许一层；folder 使用主题名称，禁止使用 YYYY-MM-DD 日期作为文件夹名；不要删除文件；不确定时保持原名称且 folder 为 null。",
     scope: job.scope,
     documents,
   }, planSchema, options);
@@ -88,17 +91,15 @@ export async function processNextDocumentOrganization(db, options = {}) {
           const source = allowed.get(item.artifactId);
           if (!source) continue;
           let folderId = source.folderId;
-          if (item.folder && source.folderKind !== "iteration_cache") {
-            const baseKind = job.scope === "project" ? "project_official" : source.folderKind;
-            const [base] = await query(conn, `SELECT id FROM document_folders WHERE project_id=? AND thread_id <=> ? AND folder_kind=? LIMIT 1`,
-              [job.project_id, job.thread_id, baseKind]);
+          if (item.folder) {
+            const [base] = await query(conn, `SELECT id FROM document_folders WHERE project_id=? AND thread_id IS NULL AND folder_kind='project_official' LIMIT 1`,
+              [job.project_id]);
             if (base) {
               let [folder] = await query(conn, "SELECT id FROM document_folders WHERE project_id=? AND parent_id=? AND name=?", [job.project_id, base.id, item.folder]);
               if (!folder) {
                 folder = { id: randomUUID() };
                 await query(conn, `INSERT INTO document_folders(id,project_id,thread_id,parent_id,name,folder_kind)
-                  VALUES(?,?,?,?,?,?)`, [folder.id, job.project_id, job.thread_id, base.id, item.folder,
-                  job.scope === "project" ? null : baseKind]);
+                  VALUES(?,?,?,?,?,?)`, [folder.id, job.project_id, null, base.id, item.folder, null]);
               }
               folderId = folder.id;
             }

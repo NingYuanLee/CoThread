@@ -1,7 +1,13 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AgentActivity } from "./AgentActivity";
 import { AgentLogDialog } from "./AgentLogDialog";
 import type { AgentLogScope } from "./agent-trajectory";
 import { l1TaskLabel } from "../shared/agent-label.js";
+import type { ContextUsage } from "../shared/context.js";
+import { contextUsage } from "../shared/context.js";
+import { ContextMeter } from "./ContextMeter";
+import { StreamingMarkdown } from "./StreamingMarkdown";
+import { useAgentLiveOutput } from "./useAgentLiveOutput";
 import {
   formatActorRef,
   formatDurationMs,
@@ -13,6 +19,7 @@ import {
 type L1Run = {
   id: string;
   task: string;
+  thread_id?: string | null;
   trigger_source: "schedule" | "user";
   status: string;
   agent_called: boolean;
@@ -24,11 +31,25 @@ type L1Run = {
   finished_at: string | null;
 };
 
+type L1Session = {
+  id: string;
+  task: string;
+  threadId: string | null;
+  threadTitle: string | null;
+  sessionId: string | null;
+  sessionStatus: "idle" | "running" | "failed";
+  lastError: string | null;
+  lastStartedAt: string | null;
+  lastFinishedAt: string | null;
+  contextUsage: ContextUsage;
+};
+
 type HistoryColumn = { key: string; label: string };
 type HistoryRow = {
   id: string;
   tone?: "idle" | "running" | "waiting" | "failed";
   cells: Record<string, string>;
+  actions?: React.ReactNode;
 };
 
 type MonitorData = {
@@ -63,6 +84,7 @@ type MonitorData = {
     projectDocumentRuns: L1Run[];
     iterationDocumentRuns: L1Run[];
     documentRuns: L1Run[];
+    sessions: L1Session[];
     organizationLastAt: string | null;
     organizationJobs: {
       id: string;
@@ -82,6 +104,9 @@ type MonitorData = {
       title: string;
       archived_at: string;
       conclusion: string;
+      contextUsage?: ContextUsage;
+      sessionStatus?: string;
+      runs?: L1Run[];
     }[];
   };
   coordinators: {
@@ -98,6 +123,7 @@ type MonitorData = {
     react_phase: string | null;
     recent_message: string | null;
     last_activity_at: string;
+    contextUsage?: ContextUsage;
   }[];
   executors: {
     task_id: string;
@@ -115,6 +141,7 @@ type MonitorData = {
     last_action_status: string | null;
     last_action_at: string | null;
     update_count: number;
+    contextUsage?: ContextUsage;
     executor_type?: "dsh_l3" | "human_self" | "human_connector";
     executor_id?: string | null;
     target_type?: string | null;
@@ -288,7 +315,7 @@ type L3Detail = {
   time: string;
 };
 
-function L3TaskCard({ title, meta, tone, status, style, onDetail, onTrace }: {
+function L3TaskCard({ title, meta, tone, status, style, onDetail, onTrace, onSession }: {
   title: string;
   meta: string;
   tone: "idle" | "running" | "waiting" | "failed";
@@ -296,6 +323,7 @@ function L3TaskCard({ title, meta, tone, status, style, onDetail, onTrace }: {
   style?: React.CSSProperties;
   onDetail: () => void;
   onTrace: () => void;
+  onSession?: () => void;
 }) {
   return <article className="executor-row l3-task-card" style={style}>
     <div className="executor-title">
@@ -305,6 +333,7 @@ function L3TaskCard({ title, meta, tone, status, style, onDetail, onTrace }: {
     <div className="l3-task-actions">
       <button type="button" onClick={onDetail}>详情</button>
       <button type="button" onClick={onTrace}>轨迹</button>
+      {onSession ? <button type="button" onClick={onSession}>会话</button> : null}
     </div>
   </article>;
 }
@@ -416,6 +445,7 @@ function L1HistoryDialog({ title, columns, rows, empty, onClose }: {
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const hasActions = rows.some((row) => row.actions);
   useEffect(() => { dialog.current?.showModal(); }, []);
   return <dialog ref={dialog} className="l3-task-detail-dialog l1-history-dialog" aria-labelledby="l1-history-title" onCancel={onClose}>
     <header className="agent-monitor-header">
@@ -428,7 +458,10 @@ function L1HistoryDialog({ title, columns, rows, empty, onClose }: {
     <div className="l1-history-body">
       <table className="l1-history-table">
         <thead>
-          <tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}</tr>
+          <tr>
+            {columns.map((column) => <th key={column.key}>{column.label}</th>)}
+            {hasActions ? <th>操作</th> : null}
+          </tr>
         </thead>
         <tbody>
           {rows.map((row) => <tr key={row.id}>
@@ -437,10 +470,139 @@ function L1HistoryDialog({ title, columns, rows, empty, onClose }: {
                 ? <State tone={row.tone}>{row.cells[column.key]}</State>
                 : row.cells[column.key] || ""}
             </td>)}
+            {hasActions ? <td className="l1-history-actions">{row.actions}</td> : null}
           </tr>)}
-          {!rows.length && <tr><td className="monitor-empty" colSpan={columns.length}>{empty}</td></tr>}
+          {!rows.length && <tr><td className="monitor-empty" colSpan={columns.length + (hasActions ? 1 : 0)}>{empty}</td></tr>}
         </tbody>
       </table>
+    </div>
+  </dialog>;
+}
+
+type TaskSessionData = {
+  status?: string;
+  progress?: string | null;
+  running?: boolean;
+  error?: string | null;
+  contextUsage: ContextUsage;
+  messages: { id: string; role: string; source: string | null; text: string }[];
+  events?: { id: string; tool: string; status: string; input: string; finished_at: string | null }[];
+  pending?: { id: string; author: string; body: string; createdAt: string }[];
+};
+
+type SessionTarget =
+  | { kind: "l1"; task: string }
+  | { kind: "l3"; title: string; threadId: string; messageId: string };
+
+function TaskSessionDialog({
+  kicker,
+  title,
+  emptyIdle,
+  roleLabel,
+  path,
+  compactPath,
+  compactBody,
+  live,
+  api,
+  onClose,
+}: {
+  kicker: string;
+  title: string;
+  emptyIdle: string;
+  roleLabel: (role: string) => string;
+  path: string;
+  compactPath: string;
+  compactBody?: Record<string, string>;
+  live?: { threadId: string; messageId: string };
+  api: (path: string, data?: unknown, method?: string, signal?: AbortSignal) => Promise<any>;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const [data, setData] = useState<TaskSessionData | null>(null);
+  const [error, setError] = useState("");
+  const liveRows = useAgentLiveOutput(live?.threadId || "", !!live);
+  const liveOutput = live ? liveRows[live.messageId] : undefined;
+  useEffect(() => { dialog.current?.showModal(); }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        setData(await api(path, undefined, undefined, controller.signal));
+        setError("");
+      } catch (cause) {
+        if (!controller.signal.aborted) setError((cause as Error).message);
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(poll, 4000);
+      }
+    };
+    void poll();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [path]);
+  useEffect(() => {
+    const box = list.current;
+    if (box) box.scrollTop = box.scrollHeight;
+  }, [data?.messages.length, data?.pending?.length, data?.events?.length, liveOutput?.revision]);
+  const usage = data?.contextUsage || contextUsage(null, [], []);
+  const pending = data?.pending || [];
+  const events = data?.events || [];
+  return <dialog
+    ref={dialog}
+    className="l3-task-detail-dialog l3-task-session-dialog"
+    aria-labelledby="l3-task-session-title"
+    onCancel={(event) => {
+      if (event.target !== event.currentTarget) {
+        event.preventDefault();
+        return;
+      }
+      onClose();
+    }}
+  >
+    <header className="agent-monitor-header l3-task-session-header">
+      <div>
+        <span>{kicker}</span>
+        <h2 id="l3-task-session-title">{title}</h2>
+        {data?.progress ? <small>{data.progress}</small> : null}
+      </div>
+      <div className="l3-task-session-tools">
+        <ContextMeter
+          usage={usage}
+          writable={!data?.running}
+          onCompact={async () => {
+            await api(compactPath, compactBody || {});
+            setData(await api(path));
+          }}
+        />
+        <button type="button" onClick={onClose} aria-label="关闭任务会话" title="关闭">×</button>
+      </div>
+    </header>
+    <div className="l3-task-session-body" ref={list}>
+      {!data?.messages.length && !pending.length && !events.length && !liveOutput?.content && !liveOutput?.reasoning &&
+        <p className="monitor-empty">{data?.running ? "正在写入原生会话…" : emptyIdle}</p>}
+      {data?.messages.map((message) => <article key={message.id} className={`l3-task-session-msg ${message.role}`}>
+        <small>{roleLabel(message.role)}</small>
+        <div className="message-text">
+          <StreamingMarkdown active={false} text={message.text} />
+        </div>
+      </article>)}
+      {pending.map((item) => <article key={item.id} className="l3-task-session-msg pending">
+        <small>{item.author} · 待纳入</small>
+        <pre>{item.body}</pre>
+      </article>)}
+      {data && (events.length || liveOutput?.content || liveOutput?.reasoning) ? <div className="l3-task-session-live">
+        <AgentActivity
+          threadId={live?.threadId || ""}
+          messageId={live?.messageId || ""}
+          events={events}
+          output={liveOutput}
+          status={data.status}
+          progress={data.progress}
+          hasFinal={data.status === "completed"}
+        />
+      </div> : null}
+      {data?.error && <p className="error" role="alert">{data.error}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
     </div>
   </dialog>;
 }
@@ -489,8 +651,9 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   const [taskDetail, setTaskDetail] = useState<L3Detail | null>(null);
   const [logScope, setLogScope] = useState<AgentLogScope | null>(null);
   const [eventLogs, setEventLogs] = useState<MonitorData["eventLog"] | null>(null);
-  const [historyKind, setHistoryKind] = useState<"member" | "projectDocument" | "iterationDocument" | "organization" | "archive" | null>(null);
-  const [refreshing, setRefreshing] = useState<"member" | "projectDocument" | "iterationDocument" | "organization" | null>(null);
+  const [historyKind, setHistoryKind] = useState<"member" | "document" | "organization" | "archive" | null>(null);
+  const [sessionTarget, setSessionTarget] = useState<SessionTarget | null>(null);
+  const [refreshing, setRefreshing] = useState<"member" | "document" | "organization" | "archive" | null>(null);
   const activeTasks = useMemo(() => data?.executors.filter((task) => task.execution_active || task.status === "running").length || 0, [data]);
   const selectedCoordinator = data?.coordinators.find((item) => item.id === selectedThreadId);
   const threadPool = useMemo(() => (data?.taskPool || []).filter((task) =>
@@ -549,12 +712,10 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
     setError("");
   };
 
-  const triggerMemory = async (kind: "member" | "projectDocument" | "iterationDocument") => {
+  const triggerMemory = async (kind: "member" | "document") => {
     setRefreshing(kind);
     try {
-      const path = kind === "member" ? "member-memory"
-        : kind === "projectDocument" ? "project-document-memory"
-        : "iteration-document-memory";
+      const path = kind === "member" ? "member-memory" : "project-document-memory";
       await api(`/projects/${projectId}/${path}`, {});
       await reloadMonitor();
     } catch (cause) {
@@ -568,6 +729,18 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
     setRefreshing("organization");
     try {
       await api(`/projects/${projectId}/documents/organize`, {});
+      await reloadMonitor();
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally {
+      setRefreshing(null);
+    }
+  };
+
+  const triggerArchive = async (threadId?: string) => {
+    setRefreshing("archive");
+    try {
+      await api(`/projects/${projectId}/iteration-archive`, threadId ? { threadId } : {});
       await reloadMonitor();
     } catch (cause) {
       setError((cause as Error).message);
@@ -606,6 +779,12 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   }, [selectedThreadId]);
 
   const knowledge = data?.knowledge;
+  const openL1Logs = (task: string) =>
+    setLogScope({ type: "project", id: projectId, task });
+  const sessionButton = (task: string) => (
+    <button type="button" className="monitor-trace-btn" onClick={() => setSessionTarget({ kind: "l1", task })}>会话</button>
+  );
+  const latestArchive = knowledge?.archives?.[0];
   const activeIterations = (data?.coordinators || []).filter((item) => item.status === "active").length;
   const projectOrgJobs = (knowledge?.organizationJobs || []).filter((job) => job.scope === "project");
   const projectOrgBusy = projectOrgJobs.some((job) => ["queued", "running"].includes(job.status));
@@ -613,7 +792,6 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
     .map((job) => job.finished_at || job.started_at || job.created_at)
     .filter(Boolean)
     .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || knowledge?.organizationLastAt || null;
-  const organizeBlocked = activeIterations > 0;
   const knowledgeLast = (() => {
     if (!knowledge) return { label: "暂无", tone: "idle" as const };
     if (knowledge.sessionStatus === "running") {
@@ -651,25 +829,24 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
       <section className="monitor-section">
         <div className="monitor-section-heading">
           <div>
-            <span className="monitor-level">项目级Agent</span>
+            <span className="monitor-level">项目级Agents</span>
             <img className="monitor-avatar" src="/agent-avatars/grandpa.jpg" alt="" />
             <span className="monitor-agent-copy">
               <span className="monitor-agent-title">老翁（项目知识库管理员）</span>
               <small className={knowledgeLast.tone}>{knowledgeLast.label}</small>
             </span>
           </div>
-          <div className="monitor-section-heading-actions">
-            <button type="button" className="monitor-trace-btn" onClick={() => setLogScope({ type: "project", id: projectId })}>轨迹</button>
-          </div>
         </div>
         <div className="l1-task-grid">
           <article className="l1-task-card">
-            <h4>成员认识</h4>
-            <p>说话风格、习惯与喜好</p>
+            <h4>成员发言</h4>
+            <p>说话风格、习惯与本人发言浓缩；同项目多次整理共用一套上下文</p>
             <p>{pendingLine("member", knowledge?.memberPending || 0)}</p>
             <p>最近整理：{time(knowledge?.memberLastAt)}</p>
             <p>预计下次：{nextTime(knowledge?.memberNextAt, knowledge?.memberPending || 0)}</p>
             <div className="l1-task-actions">
+              {sessionButton("member_memory")}
+              <button type="button" className="monitor-trace-btn" onClick={() => openL1Logs("member_memory")}>轨迹</button>
               <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("member")}>历史记录</button>
               <button type="button" className="monitor-trace-btn" disabled={refreshing === "member"} onClick={() => void triggerMemory("member")}>
                 {refreshing === "member" ? "排队中…" : "立即整理"}
@@ -677,55 +854,32 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
             </div>
           </article>
           <article className="l1-task-card">
-            <h4>成员发言摘要</h4>
-            <p>浓缩本人发言，供二级省 token</p>
-            <p>{pendingLine("member", knowledge?.memberPending || 0)}</p>
-            <p>最近整理：{time(knowledge?.memberLastAt)}</p>
-            <p>预计下次：{nextTime(knowledge?.memberNextAt, knowledge?.memberPending || 0)}</p>
+            <h4>文档摘要</h4>
+            <p>正式、产物与缓存文件的事实摘要；同项目多次整理共用一套上下文</p>
+            <p>{pendingLine("document", knowledge?.documentPending ?? knowledge?.projectDocumentPending ?? 0)}</p>
+            <p>最近整理：{time(knowledge?.documentLastAt ?? knowledge?.projectDocumentLastAt)}</p>
+            <p>预计下次：{nextTime(knowledge?.documentNextAt ?? knowledge?.projectDocumentNextAt, knowledge?.documentPending ?? knowledge?.projectDocumentPending ?? 0)}</p>
             <div className="l1-task-actions">
-              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("member")}>历史记录</button>
-              <button type="button" className="monitor-trace-btn" disabled={refreshing === "member"} onClick={() => void triggerMemory("member")}>
-                {refreshing === "member" ? "排队中…" : "立即整理"}
+              {sessionButton("document_memory")}
+              <button type="button" className="monitor-trace-btn" onClick={() => openL1Logs("document_memory")}>轨迹</button>
+              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("document")}>历史记录</button>
+              <button type="button" className="monitor-trace-btn" disabled={refreshing === "document"} onClick={() => void triggerMemory("document")}>
+                {refreshing === "document" ? "排队中…" : "立即整理"}
               </button>
             </div>
           </article>
           <article className="l1-task-card">
-            <h4>项目文档摘要</h4>
-            <p>项目正式文件的事实摘要</p>
-            <p>{pendingLine("document", knowledge?.projectDocumentPending || 0)}</p>
-            <p>最近整理：{time(knowledge?.projectDocumentLastAt)}</p>
-            <p>预计下次：{nextTime(knowledge?.projectDocumentNextAt, knowledge?.projectDocumentPending || 0)}</p>
-            <div className="l1-task-actions">
-              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("projectDocument")}>历史记录</button>
-              <button type="button" className="monitor-trace-btn" disabled={refreshing === "projectDocument"} onClick={() => void triggerMemory("projectDocument")}>
-                {refreshing === "projectDocument" ? "排队中…" : "立即整理"}
-              </button>
-            </div>
-          </article>
-          <article className="l1-task-card">
-            <h4>迭代文档摘要</h4>
-            <p>各迭代产物与缓存的事实摘要</p>
-            <p>{pendingLine("document", knowledge?.iterationDocumentPending || 0)}</p>
-            <p>最近整理：{time(knowledge?.iterationDocumentLastAt)}</p>
-            <p>预计下次：{nextTime(knowledge?.iterationDocumentNextAt, knowledge?.iterationDocumentPending || 0)}</p>
-            <div className="l1-task-actions">
-              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("iterationDocument")}>历史记录</button>
-              <button type="button" className="monitor-trace-btn" disabled={refreshing === "iterationDocument"} onClick={() => void triggerMemory("iterationDocument")}>
-                {refreshing === "iterationDocument" ? "排队中…" : "立即整理"}
-              </button>
-            </div>
-          </article>
-          <article className="l1-task-card">
-            <h4>项目文档整理</h4>
-            <p>{organizeBlocked ? `有 ${activeIterations} 个未归档迭代，归档后可整理` : "全部迭代已归档，可整理项目正式文件"}</p>
+            <h4>文档整理</h4>
+            <p>归类与命名正式文件区文档；同项目多次整理共用一套上下文</p>
             <p>最近整理：{time(projectOrgLastAt)}</p>
             <div className="l1-task-actions">
+              {sessionButton("document_organization")}
+              <button type="button" className="monitor-trace-btn" onClick={() => openL1Logs("document_organization")}>轨迹</button>
               <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("organization")}>历史记录</button>
               <button
                 type="button"
                 className="monitor-trace-btn"
-                disabled={organizeBlocked || projectOrgBusy || refreshing === "organization"}
-                title={organizeBlocked ? "全部迭代归档后才能整理项目正式文件" : undefined}
+                disabled={projectOrgBusy || refreshing === "organization"}
                 onClick={() => void triggerOrganization()}
               >
                 {refreshing === "organization" || projectOrgBusy ? "排队中…" : "立即整理"}
@@ -734,9 +888,15 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
           </article>
           <article className="l1-task-card">
             <h4>迭代归档</h4>
+            <p>总结本次迭代并更新项目长期记忆；同项目多次归档共用一套上下文</p>
             <p>最近整理：{time(knowledge?.archiveLastAt)}</p>
             <div className="l1-task-actions">
+              {sessionButton("iteration_archive")}
+              <button type="button" className="monitor-trace-btn" onClick={() => openL1Logs("iteration_archive")}>轨迹</button>
               <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("archive")}>历史记录</button>
+              <button type="button" className="monitor-trace-btn" disabled={!latestArchive || refreshing === "archive"} onClick={() => void triggerArchive(latestArchive?.id)}>
+                {refreshing === "archive" ? "排队中…" : "立即整理"}
+              </button>
             </div>
           </article>
         </div>
@@ -755,12 +915,14 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
           {data?.coordinators.map((item) => {
             const busy = item.running_requests + item.queued_requests > 0;
             const status = item.status === "archived" ? "已归档" : busy ? "调度中" : "待命";
-            return <button type="button" className={`coordinator-row ${selectedThreadId === item.id ? "selected" : ""}`} key={item.id} aria-label={`${item.title} ${status}`} aria-pressed={selectedThreadId === item.id} onClick={() => setSelectedThreadId(item.id)}>
-              <span className="coordinator-copy">
-                <OverflowTitle text={item.title} />
-                <small>{status}</small>
-              </span>
-            </button>;
+            return <article className={`coordinator-row ${selectedThreadId === item.id ? "selected" : ""}`} key={item.id}>
+              <button type="button" className="coordinator-select" aria-label={`${item.title} ${status}`} aria-pressed={selectedThreadId === item.id} onClick={() => setSelectedThreadId(item.id)}>
+                <span className="coordinator-copy">
+                  <OverflowTitle text={item.title} />
+                  <small>{status}</small>
+                </span>
+              </button>
+            </article>;
           })}
           {!data?.coordinators.length && <p className="monitor-empty">项目还没有迭代。</p>}
         </div>
@@ -787,6 +949,9 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
             })}
           </div>
           <div className="l3-agent-pane">
+            <div className="l3-agent-pane-head">
+              <p>{selectedAgent ? `${selectedAgent.agent.name} 的每个任务使用独立 DSH 会话。打开会话可查看原生上下文。` : "选择一个执行 Agent 查看任务。"}</p>
+            </div>
             <div className="l3-agent-pane-body">
               <div className="l3-task-group">
                 <h4>待处理 {pendingTasks.length} 项</h4>
@@ -821,6 +986,12 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
                       style={{ "--agent-color": selectedAgent?.agent.color, "--agent-tint": selectedAgent?.agent.tint } as React.CSSProperties}
                       onDetail={() => setTaskDetail(claimedDetail(task, threadPool.find((item) => item.task_id === task.task_id)?.title))}
                       onTrace={() => openTaskTrace(task.task_id)}
+                      onSession={() => setSessionTarget({
+                        kind: "l3",
+                        threadId: selectedThreadId,
+                        messageId: task.task_id,
+                        title,
+                      })}
                     />;
                   })}
                   {!claimedTasks.length && <p className="monitor-empty">还没有接过任务。</p>}
@@ -835,31 +1006,44 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   </dialog>
   {taskDetail ? <L3TaskDetailDialog detail={taskDetail} onClose={() => setTaskDetail(null)} /> : null}
   {logScope ? <AgentLogDialog scope={logScope} api={api} onClose={() => setLogScope(null)} /> : null}
+  {sessionTarget ? <TaskSessionDialog
+    kicker={sessionTarget.kind === "l1" ? "维护会话" : "任务会话"}
+    title={sessionTarget.kind === "l1" ? l1TaskLabel(sessionTarget.task) : sessionTarget.title}
+    emptyIdle={sessionTarget.kind === "l1" ? "这个维护 Agent 还没有会话内容。" : "这个任务还没有会话内容。"}
+    roleLabel={(role) => role === "assistant"
+      ? (sessionTarget.kind === "l1" ? "维护 Agent" : "执行 Agent")
+      : role === "system" ? "系统" : sessionTarget.kind === "l1" ? "任务输入" : "成员 / 上下文"}
+    path={sessionTarget.kind === "l1"
+      ? `/projects/${projectId}/l1-sessions/${sessionTarget.task}`
+      : `/threads/${sessionTarget.threadId}/replies/${sessionTarget.messageId}/session`}
+    compactPath={sessionTarget.kind === "l1"
+      ? `/projects/${projectId}/l1-context/compact`
+      : `/threads/${sessionTarget.threadId}/replies/${sessionTarget.messageId}/context/compact`}
+    compactBody={sessionTarget.kind === "l1" ? { task: sessionTarget.task } : undefined}
+    live={sessionTarget.kind === "l3"
+      ? { threadId: sessionTarget.threadId, messageId: sessionTarget.messageId }
+      : undefined}
+    api={api}
+    onClose={() => setSessionTarget(null)}
+  /> : null}
   {eventLogs ? <EventLogDialog events={eventLogs} onClose={() => setEventLogs(null)} /> : null}
   {historyKind === "member" ? <L1HistoryDialog
-    title="成员认识与发言摘要"
+    title="成员发言"
     empty="还没有成员整理记录。"
     columns={L1_RUN_COLUMNS}
     rows={l1RunRows(knowledge?.memberRuns, " 人")}
     onClose={() => setHistoryKind(null)}
   /> : null}
-  {historyKind === "projectDocument" ? <L1HistoryDialog
-    title="项目文档摘要"
-    empty="还没有项目文档摘要记录。"
+  {historyKind === "document" ? <L1HistoryDialog
+    title="文档摘要"
+    empty="还没有文档摘要记录。"
     columns={L1_RUN_COLUMNS}
-    rows={l1RunRows(knowledge?.projectDocumentRuns, " 份")}
-    onClose={() => setHistoryKind(null)}
-  /> : null}
-  {historyKind === "iterationDocument" ? <L1HistoryDialog
-    title="迭代文档摘要"
-    empty="还没有迭代文档摘要记录。"
-    columns={L1_RUN_COLUMNS}
-    rows={l1RunRows(knowledge?.iterationDocumentRuns, " 份")}
+    rows={l1RunRows(knowledge?.documentRuns?.length ? knowledge.documentRuns : knowledge?.projectDocumentRuns, " 份")}
     onClose={() => setHistoryKind(null)}
   /> : null}
   {historyKind === "organization" ? <L1HistoryDialog
-    title="项目文档整理"
-    empty="还没有项目文档整理记录。"
+    title="文档整理"
+    empty="还没有文档整理记录。"
     onClose={() => setHistoryKind(null)}
     columns={[
       { key: "time", label: "时间" },
@@ -876,7 +1060,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
         : "idle" as const,
       cells: {
         time: time(job.finished_at || job.started_at || job.created_at),
-        scope: job.scope === "project" ? "项目正式文件" : (job.thread_title || "迭代文档"),
+        scope: job.scope === "project" ? "正式文件" : (job.thread_title || "迭代文档"),
         count: job.document_count != null ? `${job.document_count} 份` : "—",
         status: runStatusLabel(job.status),
         note: job.error || "",
@@ -893,16 +1077,19 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
       { key: "note", label: "结论" },
       { key: "status", label: "状态" },
     ]}
-    rows={(knowledge?.archives || []).map((item) => ({
-      id: item.id,
-      tone: "idle" as const,
-      cells: {
-        time: time(item.archived_at),
-        title: item.title,
-        note: item.conclusion || "无结论",
-        status: "已完成",
-      },
-    }))}
+    rows={(knowledge?.archives || []).map((item) => {
+      const latestRun = item.runs?.[0];
+      return {
+        id: item.id,
+        tone: latestRun ? runTone(latestRun.status) : "idle" as const,
+        cells: {
+          time: time(latestRun?.finished_at || latestRun?.started_at || item.archived_at),
+          title: item.title,
+          note: item.conclusion || "无结论",
+          status: latestRun ? runStatusLabel(latestRun.status) : "已归档",
+        },
+      };
+    })}
   /> : null}
   </>;
 }

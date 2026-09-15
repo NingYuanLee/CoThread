@@ -183,12 +183,28 @@ export function formatAgentAction(tool, args = {}, result = {}) {
 }
 
 export const L1_TASK_LABELS = {
-  member_memory: "成员认识与发言摘要",
+  member_memory: "成员发言",
   document_memory: "文档摘要",
-  project_document_memory: "项目文档摘要",
-  iteration_document_memory: "迭代文档摘要",
-  document_organization: "整理文档",
+  project_document_memory: "文档摘要",
+  iteration_document_memory: "文档摘要",
+  document_organization: "文档整理",
+  iteration_archive: "迭代归档",
+  thread_archive: "迭代归档",
 };
+
+export const L1_MAINTENANCE_TASKS = [
+  "member_memory",
+  "document_memory",
+  "document_organization",
+  "iteration_archive",
+];
+
+export function normalizeL1Task(task) {
+  if (["document_memory", "project_document_memory", "iteration_document_memory"].includes(task))
+    return "document_memory";
+  if (task === "thread_archive") return "iteration_archive";
+  return task || "";
+}
 
 export function l1TaskLabel(task) {
   return L1_TASK_LABELS[task] || (task ? String(task) : "");

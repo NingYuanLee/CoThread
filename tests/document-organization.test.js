@@ -6,7 +6,7 @@ import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { processNextDocumentOrganization, queueDocumentOrganization } from "../server/document-organization.js";
 
-test("document organization is blocked before L1 when the scope has no documents", async () => {
+test("formal file organization is blocked before L1 when the official area has no documents", async () => {
   const database = await testDatabase();
   const db = database.db;
   try {
@@ -15,14 +15,13 @@ test("document organization is blocked before L1 when the scope has no documents
       [user.id, `${user.id}@test.com`, "负责人"]);
     const service = new Service(db);
     const project = await service.createProject(user, { name: "空文档库" });
-    const thread = await service.createThread(user, project.id, { title: "空迭代" });
-    await assert.rejects(queueDocumentOrganization(service, user, { threadId: thread.id }),
+    await assert.rejects(queueDocumentOrganization(service, user, { projectId: project.id }),
       (error) => error.status === 409 && /没有可整理的文档/.test(error.message));
     const jobId = randomUUID();
     await query(db, `INSERT INTO document_organization_jobs(id,project_id,thread_id,scope,requested_by)
-      VALUES(?,?,?,'iteration',?)`, [jobId, project.id, thread.id, user.id]);
+      VALUES(?,?,NULL,'project',?)`, [jobId, project.id, user.id]);
     let planned = 0;
-    assert.equal(await processNextDocumentOrganization(db, { threadId: thread.id, createPlan: async () => {
+    assert.equal(await processNextDocumentOrganization(db, { createPlan: async () => {
       planned += 1;
       return { documents: [] };
     } }), true);

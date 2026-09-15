@@ -54,16 +54,20 @@ test("agent logs are isolated by project, iteration, and task without exposing r
     [project.id, randomUUID(), "document_memory", project.id, randomUUID(), "document_memory",
       project.id, randomUUID(), "member_memory"]);
 
-    const l1 = await service.agentLogs(user, "project", project.id);
+    await assert.rejects(service.agentLogs(user, "project", project.id), { status: 400 });
+    const l1 = await service.agentLogs(user, "project", project.id, { task: "document_memory" });
+    const l1Member = await service.agentLogs(user, "project", project.id, { task: "member_memory" });
     const l2 = await service.agentLogs(user, "thread", thread.id);
     const l3 = await service.agentLogs(user, "task", taskA.id);
-    assert.deepEqual(l1.events.map((event) => event.agentType), ["l1", "l1", "l1"]);
-    assert.deepEqual(l1.events.map((event) => event.task), ["member_memory", "document_memory", "document_memory"]);
-    assert.deepEqual(l1.events.map((event) => event.messageId), ["l1:2", "l1:1", "l1:1"]);
-    assert.equal(l1.inputs.length, 2);
+    assert.deepEqual(l1.events.map((event) => event.agentType), ["l1", "l1"]);
+    assert.deepEqual(l1.events.map((event) => event.task), ["document_memory", "document_memory"]);
+    assert.deepEqual(l1.events.map((event) => event.messageId), ["l1:1", "l1:1"]);
+    assert.equal(l1.inputs.length, 1);
     assert.equal(l1.inputs[0].messageId, "l1:1");
-    assert.equal(l1.inputs[0].preview, "文档记忆");
-    assert.equal(l1.inputs[1].preview, "成员认识与发言摘要");
+    assert.equal(l1.inputs[0].preview, "文档摘要");
+    assert.equal(l1Member.inputs.length, 1);
+    assert.equal(l1Member.inputs[0].preview, "成员发言");
+    assert.ok(l1Member.events.every((event) => event.task === "member_memory"));
     assert.deepEqual(l2.events.map((event) => event.tool), ["assistant_text", "list_agents"]);
     const reply = l2.events.find((event) => event.tool === "assistant_text");
     assert.equal(reply.preview, "你好小祥");

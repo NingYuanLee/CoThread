@@ -89,8 +89,8 @@ test("L1 maintenance runs become separate turns with process lanes", () => {
   assert.equal(timeline.spans.find((span) => span.id === "4")?.lane, 3);
   const ledger = buildLedger(events, inputs);
   assert.equal(ledger.length, 2);
-  assert.equal(ledger[0].label, "成员认识与发言摘要");
-  assert.equal(ledger[1].label, "整理文档");
+  assert.equal(ledger[0].label, "成员发言");
+  assert.equal(ledger[1].label, "文档整理");
   assert.deepEqual(ledger[0].rows.map((row) => row.label), ["输入", "工具", "工具", "思考", "正文"]);
   assert.equal(ledgerSummary(ledger[0].rows[0]), "成员认识与发言摘要");
   assert.equal(ledgerSummary(ledger[0].rows.find((row) => row.event?.tool === "validate_result")), "校验通过");

@@ -40,7 +40,7 @@ function messageRecord(message, members, versions, quoteIds) {
 // Build the coordinator's five-part projection without quoted-message bodies,
 // document contents, tool transcripts, avatars or profile details.
 export async function dispatchContext(db, thread, job) {
-  const [messages, replies, updates, memberRows, versionRows, quoteRows, documentSummaries] = await Promise.all([
+  const [messages, replies, updates, memberRows, versionRows, quoteRows, documentSummaries, projectSummaryRows] = await Promise.all([
     query(db, `SELECT m.id,m.sequence,m.body,m.refs,m.source,m.execution_target,m.created_at,u.name author,m.author_id,
       JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags,'$[0]')) author_role
       FROM messages m JOIN users u ON u.id=m.author_id
@@ -69,6 +69,7 @@ export async function dispatchContext(db, thread, job) {
       JOIN agent_document_summaries s ON s.version_id=d.version_id
       JOIN versions v ON v.id=s.version_id JOIN artifacts a ON a.id=v.artifact_id
       WHERE m.thread_id=? ORDER BY m.sequence,s.updated_at`, [job.thread_id]),
+    query(db, "SELECT summary FROM agent_project_summaries WHERE project_id=?", [thread.project_id]),
   ]);
   const members = [
     ...memberRows.map((member) => ({ id: member.id, name: member.name,
@@ -152,6 +153,7 @@ export async function dispatchContext(db, thread, job) {
     messages: routedMessages,
     replies,
     promptContext: {
+      projectSummary: projectSummaryRows[0]?.summary || null,
       history: { messages: historyMessages, omittedOldest },
       tasks,
       documentSummaries: summaries,

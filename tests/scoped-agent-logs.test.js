@@ -47,13 +47,23 @@ test("agent logs are isolated by project, iteration, and task without exposing r
     [message.id, l2SessionId, taskA.id, message.id, l2SessionId, message.id, childSessionId, taskA.id,
       message.id, childSessionId, taskB.id, message.id, childSessionId]);
     await query(database.db, `INSERT INTO agent_project_events
-      (project_id,agent_session_id,task,phase,status,finished_at) VALUES(?,?,?,'prepare_context','completed',UTC_TIMESTAMP(3))`,
-    [project.id, randomUUID(), "document_memory"]);
+      (project_id,agent_session_id,task,phase,status,finished_at) VALUES
+      (?,?,?,'prepare_context','completed',UTC_TIMESTAMP(3)),
+      (?,?,?,'model_run','completed',UTC_TIMESTAMP(3)),
+      (?,?,?,'prepare_context','completed',DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 1 SECOND))`,
+    [project.id, randomUUID(), "document_memory", project.id, randomUUID(), "document_memory",
+      project.id, randomUUID(), "member_memory"]);
 
     const l1 = await service.agentLogs(user, "project", project.id);
     const l2 = await service.agentLogs(user, "thread", thread.id);
     const l3 = await service.agentLogs(user, "task", taskA.id);
-    assert.deepEqual(l1.events.map((event) => event.agentType), ["l1"]);
+    assert.deepEqual(l1.events.map((event) => event.agentType), ["l1", "l1", "l1"]);
+    assert.deepEqual(l1.events.map((event) => event.task), ["member_memory", "document_memory", "document_memory"]);
+    assert.deepEqual(l1.events.map((event) => event.messageId), ["l1:2", "l1:1", "l1:1"]);
+    assert.equal(l1.inputs.length, 2);
+    assert.equal(l1.inputs[0].messageId, "l1:1");
+    assert.equal(l1.inputs[0].preview, "文档记忆");
+    assert.equal(l1.inputs[1].preview, "成员认识与发言摘要");
     assert.deepEqual(l2.events.map((event) => event.tool), ["assistant_text", "list_agents"]);
     const reply = l2.events.find((event) => event.tool === "assistant_text");
     assert.equal(reply.preview, "你好小祥");

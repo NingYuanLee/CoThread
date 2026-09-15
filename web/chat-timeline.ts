@@ -9,6 +9,61 @@ export function isExecutorReply(reply: Pick<Reply, "parent_message_id" | "agent_
   return !!reply.parent_message_id || !!reply.agent_slot;
 }
 
+function parseUsageStats(record?: { usage_stats?: unknown }) {
+  try {
+    return typeof record?.usage_stats === "string"
+      ? JSON.parse(record.usage_stats)
+      : record?.usage_stats || {};
+  } catch {
+    return {};
+  }
+}
+
+export function usageReplyForMessage<R extends Reply & { usage_stats?: unknown }>(
+  message: Pick<TimelineMessage, "id" | "agent_task_id">,
+  replies: R[],
+) {
+  const reply = (message.agent_task_id && replies.find((item) => item.message_id === message.agent_task_id))
+    || replies.find((item) => item.reply_id === message.id);
+  if (!reply) return null;
+  if (isExecutorReply(reply)) return reply;
+  const usage = parseUsageStats(reply);
+  return usage.totalTokens != null || Number.isFinite(usage.executionDurationMs) ? reply : null;
+}
+
+export function liveCoordinatorDraft(
+  reply: { message_id: string; status: string } | undefined,
+  live: { content?: string } | undefined,
+  messages: Pick<TimelineMessage, "source" | "body" | "agent_task_id">[],
+  events: { message_id: string; tool: string }[] = [],
+) {
+  if (!reply || !["queued", "running"].includes(reply.status)) return null;
+  if (events.some((event) => event.message_id === reply.message_id && (event.tool === "wait_for_updates" || event.tool === "finish_turn")))
+    return null;
+  const content = String(live?.content || "").trim();
+  if (!content || content === "NO_VISIBLE_MESSAGE") return null;
+  const posted = messages.some((message) =>
+    message.source === "assistant" && message.agent_task_id === reply.message_id && message.body.trim() === content);
+  return posted ? null : content;
+}
+
+export function omitInternalCoordinatorPosts<M extends TimelineMessage, R extends Reply>(
+  messages: M[],
+  replies: R[],
+  events: { message_id: string; tool: string }[],
+) {
+  const hide = new Set<string>();
+  for (const reply of replies) {
+    if (isExecutorReply(reply)) continue;
+    if (!events.some((event) => event.message_id === reply.message_id && (event.tool === "wait_for_updates" || event.tool === "finish_turn")))
+      continue;
+    const parts = messages.filter((message) =>
+      message.source === "assistant" && (message.agent_task_id === reply.message_id || message.id === reply.reply_id));
+    if (parts.length >= 2) hide.add(parts.at(-1)!.id);
+  }
+  return messages.filter((message) => !hide.has(message.id));
+}
+
 // A task owns one stable chat row, from its first activity through its result.
 // Keep the underlying messages intact; document references remain independently usable.
 export function taskTimeline<M extends TimelineMessage, R extends Reply>(

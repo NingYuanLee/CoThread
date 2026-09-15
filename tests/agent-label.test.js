@@ -116,6 +116,32 @@ test("each completed assistant text return is published, thinking is not", async
   assert.deepEqual(published, ["第一句给成员看。", "第二句给成员看。"]);
 });
 
+test("wait/finish companion text is thinking, not a group post", async () => {
+  const writes = [];
+  const db = {
+    async execute(sql, params) {
+      writes.push({ sql, params });
+      return [{ affectedRows: 1, insertId: writes.length }];
+    },
+  };
+  const published = [];
+  const tracker = trackThinking(db, "message", "session", { onVisibleText: async (text) => published.push(text) });
+  const notify = (type, data = {}) => tracker.notify({
+    method: "session.event",
+    params: { sessionId: "session", event: { type, data } },
+  });
+  const chunk = (type, text) => notify("assistant/chunk", { chunk: { type, text } });
+  notify("step/start");
+  chunk("text-delta", "给成员看。");
+  notify("assistant/message");
+  notify("step/start");
+  chunk("text-delta", "已进入等待。");
+  notify("tool/call", { name: "wait_for_updates" });
+  await tracker.close("completed");
+  assert.deepEqual(published, ["给成员看。"]);
+  assert.ok(writes.some((write) => write.params?.[2] === "thinking" && write.params?.[1] === "已进入等待。"));
+});
+
 test("conversation log button follows the live L2 event name", () => {
   const replies = [{ message_id: "m1", parent_message_id: null, status: "completed", progress: null }];
   assert.equal(coordinatorLogButtonLabel({ replies, events: [] }), "轨迹");

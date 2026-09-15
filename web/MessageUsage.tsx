@@ -6,13 +6,14 @@ const timestamp=(value?:string|null)=>value?Date.parse(value.replace(' ','T')+(/
 const duration=(ms:number)=>Number.isFinite(ms)?`${Number((Math.max(0,ms)/1000).toFixed(1))}秒`:'未记录';
 const tokens=(n?:number)=>n==null?'未记录':`${n.toLocaleString('zh-CN')} 词元`;
 function MetricIcon({kind}:{kind:'usage'|'time'}){return <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{kind==='usage'?<><ellipse cx="10" cy="4" rx="6" ry="2.5"/><path d="M4 4v6c0 3.3 12 3.3 12 0V4M4 10v6c0 3.3 12 3.3 12 0v-6"/></>:<><circle cx="10" cy="10" r="8"/><path d="M10 5v5l3 2"/></>}</svg>;}
-export function MessageUsage({record,finishedAt}:{record?:Record;finishedAt?:string;createdAt?:string}){
+export function MessageUsage({record,finishedAt,allowClockFallback=true}:{record?:Record;finishedAt?:string;createdAt?:string;allowClockFallback?:boolean}){
  const [open,setOpen]=useState<'usage'|'time'|null>(null),root=useRef<HTMLDivElement>(null),panel=useRef<HTMLDivElement>(null),anchor=useRef<HTMLButtonElement|null>(null);
  const [position,setPosition]=useState({top:0,left:0});
  useLayoutEffect(()=>{if(!open||!panel.current||!anchor.current)return;const a=anchor.current.getBoundingClientRect(),p=panel.current.getBoundingClientRect();setPosition({left:Math.max(8,Math.min(a.left,window.innerWidth-p.width-8)),top:a.top>=p.height+16?a.top-p.height-8:Math.max(8,Math.min(a.bottom+8,window.innerHeight-p.height-8))});},[open]);
  useEffect(()=>{if(!open)return;const close=(e:PointerEvent)=>{if(!root.current?.contains(e.target as Node)&&!panel.current?.contains(e.target as Node))setOpen(null);};const key=(e:KeyboardEvent)=>{if(e.key==='Escape'){setOpen(null);anchor.current?.focus();}};const scroll=(e:Event)=>{if(!panel.current?.contains(e.target as Node))setOpen(null);};document.addEventListener('pointerdown',close);document.addEventListener('keydown',key);window.addEventListener('scroll',scroll,true);window.addEventListener('resize',scroll);return()=>{document.removeEventListener('pointerdown',close);document.removeEventListener('keydown',key);window.removeEventListener('scroll',scroll,true);window.removeEventListener('resize',scroll);};},[open]);
  let usage:UsageStats={};try{usage=typeof record?.usage_stats==='string'?JSON.parse(record.usage_stats):record?.usage_stats||{};}catch{}
- const end=timestamp(record?.finished_at||finishedAt),elapsed=usage.executionDurationMs??(end-timestamp(record?.first_response_at));
+ const end=timestamp(record?.finished_at||finishedAt);
+ const elapsed=Number.isFinite(usage.executionDurationMs)?usage.executionDurationMs as number:(allowClockFallback?end-timestamp(record?.first_response_at):NaN);
  const prompt=usage.inputTokens==null?NaN:usage.inputTokens+(usage.cacheReadTokens||0)+(usage.cacheWriteTokens||0);
  const cacheHit=prompt>0?`${((usage.cacheReadTokens||0)/prompt*100).toFixed(1)}%`:'未记录';
  const speed=usage.decodeMs&&usage.decodeTokens!=null?`${Math.round(usage.decodeTokens/(usage.decodeMs/1000))} 词元/秒`:'未记录';

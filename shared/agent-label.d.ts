@@ -8,3 +8,5 @@ export function formatAgentAction(
   args?: Record<string, unknown>,
   result?: Record<string, unknown>,
 ): string;
+export const L1_TASK_LABELS: Record<string, string>;
+export function l1TaskLabel(task?: string | null): string;

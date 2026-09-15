@@ -161,6 +161,7 @@ export function createAgentTools(
         if (name === "read_member" && result.id !== AGENT_MEMBER.id) {
           const memory = await loadMemberUnderstanding(service.db, thread.project_id, result.id);
           result = { ...result, understanding: memory?.understanding || null,
+            statementSummary: memory?.statementSummary || null,
             understandingUpdatedAt: memory?.understandingUpdatedAt || null };
         }
       } else if (["list_messages", "read_message"].includes(name)) {

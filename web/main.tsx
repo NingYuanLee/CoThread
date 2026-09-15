@@ -1,7 +1,8 @@
 import { AgentActivity } from "./AgentActivity";
 import { MessageUsage, type UsageStats } from './MessageUsage';
 import { useAgentLiveOutput } from "./useAgentLiveOutput";
-import { isExecutorReply, taskTimeline } from "./chat-timeline";
+import { isExecutorReply, liveCoordinatorDraft, omitInternalCoordinatorPosts, taskTimeline, usageReplyForMessage } from "./chat-timeline";
+import { StreamingMarkdown } from "./StreamingMarkdown";
 import { apiFetch, fetchJson } from "./api-fetch";
 import {
   AGENT_MEMBER,
@@ -286,6 +287,10 @@ type Detail = Project & {
   documentOrganizationJobs: { id: string; thread_id?: string | null; scope: "iteration" | "project"; status: string; error?: string | null }[];
 };
 type MessageQuote = { id: string; thread_id?: string; author: string; body: string; source: string; refs: string[] };
+function clipQuote(text: string, max = 72) {
+  const value = Array.from(String(text || "").replace(/\s+/g, " ").trim());
+  return value.length > max ? `${value.slice(0, max).join("")}…` : value.join("");
+}
 type LocalTask = {
   id: string;
   status: "awaiting_approval" | "queued" | "running" | "paused" | "stopped_pending_approval" |
@@ -580,10 +585,10 @@ function App() {
   );
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
   const [memberSearch, setMemberSearch] = useState("");
-  const [tab, setTab] = useState<"documents" | "members" | "tasks" | "info">("documents");
+  const [tab, setTab] = useState<"documents" | "members" | "info">("documents");
   const [taskPool, setTaskPool] = useState<AgentTask[]>([]);
-  const [taskScope, setTaskScope] = useState<"current" | "all">("current");
-  const [taskMine, setTaskMine] = useState(false);
+  const [taskMine, setTaskMine] = useState(true);
+  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [taskDetail, setTaskDetail] = useState<AgentTaskDetail | null>(null);
   const [taskActionBusy, setTaskActionBusy] = useState(false);
@@ -631,12 +636,17 @@ function App() {
     task.target_id === user?.id || task.claimed_by_id === user?.id || task.execution_agent_id === user?.id;
   const myTasks = taskPool.filter(isMyTask);
   const currentMyTasks = myTasks.filter((task) => task.origin_thread_id === threadId);
-  const visibleTasks = taskPool.filter((task) => (taskScope === "all" || task.origin_thread_id === threadId) && (!taskMine || isMyTask(task)));
-  const openTask = (taskId: string) => {
+  const visibleTasks = taskPool.filter((task) => task.origin_thread_id === threadId && (!taskMine || isMyTask(task)));
+  const openTaskDialog = (taskId = "") => {
     setSelectedTaskId(taskId);
-    setTab("tasks");
-    setContextOpen(true);
+    if (!taskId) setTaskDetail(null);
+    setTaskDialogOpen(true);
   };
+  const openTask = (taskId: string) => openTaskDialog(taskId);
+  useEffect(() => {
+    setSelectedTaskId("");
+    setTaskDetail(null);
+  }, [threadId]);
   const refreshConnectors = async () => {
     const [devices, availability] = await Promise.all([api("/connectors"), api("/connectors/availability")]);
     setConnectors(devices);
@@ -839,12 +849,12 @@ function App() {
       } catch (e) {
         if (alive && (e as Error).name !== "AbortError") setError((e as Error).message);
       } finally {
-        if (alive) timer = setTimeout(load, tab === "tasks" ? 5000 : 15000);
+        if (alive) timer = setTimeout(load, taskDialogOpen ? 5000 : 15000);
       }
     };
     void load();
     return () => { alive = false; clearTimeout(timer); };
-  }, [projectId, user?.id, tab]);
+  }, [projectId, user?.id, taskDialogOpen]);
   useEffect(() => {
     if (!selectedTaskId) { setTaskDetail(null); return; }
     let alive = true;
@@ -1162,9 +1172,11 @@ function App() {
       !!thread?.events.some((event) => event.message_id === reply.message_id &&
         (event.tool !== "thinking" || (reply.status === "running" && event.status === "running")));
   };
+  const chatMessages = thread ? omitInternalCoordinatorPosts(thread.messages, thread.replies, thread.events) : [];
   const liveCoordinator = thread?.replies.find((reply) =>
     !isExecutorReply(reply) && ["queued", "running"].includes(reply.status));
-  const timeline = thread ? taskTimeline(thread.messages, thread.replies, thread.requests || [], hasAgentActivity) : [];
+  const coordinatorDraft = liveCoordinatorDraft(liveCoordinator, liveCoordinator ? liveOutput[liveCoordinator.message_id] : undefined, chatMessages, thread?.events);
+  const timeline = thread ? taskTimeline(chatMessages, thread.replies, thread.requests || [], hasAgentActivity) : [];
   const coordinatorLogLabel = thread ? coordinatorLogButtonLabel({
     replies: thread.replies,
     events: thread.events,
@@ -1264,6 +1276,7 @@ function App() {
         (history ||
           all.findIndex((x) => x.artifact_id === v.artifact_id) === i),
     ) || [];
+  const hasIterationOutputs = versions.some((v) => v.folder_thread_id === threadId && v.folder_kind === "iteration_outputs");
   const visibleThreads =
     detail?.threads.filter((t) => showArchived || t.status === "active") || [];
   return (
@@ -1690,7 +1703,7 @@ function App() {
         ) : (
           <>
             <div className="conversation-stage" hidden={threadView !== "chat"}>
-            <MessageNavigator key={threadId} messages={thread.messages} container={conversationRef} onNavigate={navigateMessage} />
+            <MessageNavigator key={threadId} messages={chatMessages} container={conversationRef} onNavigate={navigateMessage} />
             <div
               className="conversation"
               aria-live="polite"
@@ -1781,7 +1794,7 @@ function App() {
                         <button key={q.id} type="button" className="message-quote" onClick={() => void run(async () => {
                           const result = await api(`/threads/${threadId}/messages/${q.id}`);
                           setQuotePreview(result.message);
-                        })}><strong>{q.source === "assistant" ? AGENT_MEMBER.name : q.author}</strong><span>{q.body}</span></button>
+                        })}><strong>{q.source === "assistant" ? AGENT_MEMBER.name : q.author}</strong><span title={clipQuote(q.body, 240)}>{clipQuote(q.body)}</span></button>
                       ))}</div>}
                       <div className="message-text">
                         {thread.updates?.filter((update) => update.message_id === m.id).map((update) => (
@@ -1824,9 +1837,8 @@ function App() {
                           requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus());
                         }}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 5H3v6h5V5Zm9 0h-5v6h5V5ZM8 11c0 3-2 4-4 4m13-4c0 3-2 4-4 4"/></svg></button>
                         {m.source==='assistant' && (() => {
-                          const reply = m.agent_task_id ? thread.replies.find((item) => item.message_id === m.agent_task_id) : undefined;
-                          if (reply && !isExecutorReply(reply)) return null;
-                          return <MessageUsage record={reply || thread.requests.find(r=>r.response_id===m.id)} finishedAt={m.created_at} createdAt={thread.messages.find(item=>item.id===(m.agent_task_id||thread.requests.find(r=>r.response_id===m.id)?.message_id))?.created_at}/>;
+                          const reply = usageReplyForMessage(m, thread.replies);
+                          return reply ? <MessageUsage record={reply} finishedAt={reply.finished_at || m.created_at} allowClockFallback={isExecutorReply(reply)}/> : null;
                         })()}
                         {(m.author_id !== user.id || m.source === "assistant") && <time className="message-action-time">{time(m.created_at)}</time>}
                       </div>}
@@ -1840,6 +1852,25 @@ function App() {
                   </article>
                 </React.Fragment>
               ))}
+              {coordinatorDraft && (
+                <article className="message" data-message-id={`live-coordinator:${liveCoordinator?.message_id}`} aria-live="polite">
+                  <span className="avatar ai">
+                    <img loading="lazy" decoding="async" src={AGENT_MEMBER.avatar} alt="" />
+                  </span>
+                  <div className="message-content">
+                    <div className="message-meta">
+                      <span className="message-author">
+                        <strong>
+                          <IdentityName role={AGENT_MEMBER.identity_tags[0]} name={AGENT_MEMBER.name} />
+                        </strong>
+                      </span>
+                    </div>
+                    <div className="message-text">
+                      <StreamingMarkdown active text={coordinatorDraft} />
+                    </div>
+                  </div>
+                </article>
+              )}
               {thread.runs
                 .filter((r) => r.status === "running")
                 .map((r) => (
@@ -1878,12 +1909,12 @@ function App() {
             <div className="composer-area" hidden={threadView !== "chat"}>
               <div className="composer-toolbar">
                 <div className="conversation-task-pool" role="group" aria-label="本迭代与我有关的任务" onClick={() => {
-                  setTaskScope("current"); setTaskMine(true); setSelectedTaskId(""); setTaskDetail(null); setTab("tasks"); setContextOpen(true);
+                  setTaskMine(true); setSelectedTaskId(""); setTaskDetail(null); openTaskDialog();
                 }}>
                   <button type="button" className="conversation-task-pool-label">本迭代任务</button>
                   <div className="conversation-task-list">
                     {currentMyTasks.map((task) => <button type="button" className="conversation-task-item" data-status={task.status} key={task.id}
-                      title={task.goal} onClick={(event) => { event.stopPropagation(); setTaskScope("current"); setTaskMine(true); openTask(task.id); }}>
+                      title={task.goal} onClick={(event) => { event.stopPropagation(); setTaskMine(true); openTask(task.id); }}>
                       <i aria-hidden="true" /><strong>{task.title}</strong><span>{task.progress || labelWorkflowStatus(task.status)}</span>
                     </button>)}
                     {!currentMyTasks.length && <span className="conversation-task-empty">暂无与我有关的任务</span>}
@@ -1901,8 +1932,8 @@ function App() {
                   )}
                   {active && (
                     <button
-                      disabled={!active || busy || detail?.documentOrganizationJobs?.some((job) => job.scope === "iteration" && job.thread_id === threadId && ["queued", "running"].includes(job.status))}
-                      title="由一级小祥在后台整理本迭代文件"
+                      disabled={!active || busy || !hasIterationOutputs || detail?.documentOrganizationJobs?.some((job) => job.scope === "iteration" && job.thread_id === threadId && ["queued", "running"].includes(job.status))}
+                      title={hasIterationOutputs ? "由一级小祥在后台整理本迭代文件" : "当前迭代没有可整理的文档"}
                       onClick={() => void api(`/threads/${threadId}/documents/organize`, {}).then(refresh).catch((cause) => setError(cause.message))}
                     >
                       {detail?.documentOrganizationJobs?.some((job) => job.scope === "iteration" && job.thread_id === threadId && ["queued", "running"].includes(job.status)) ? "整理中…" : "整理文档"}
@@ -1916,7 +1947,7 @@ function App() {
               {active ? (
                 <Suspense fallback={<div className="composer-loading" role="status">正在加载输入框…</div>}>
                 {!!quotedMessages.length && <div className="composer-quotes">{quotedMessages.map(q => <div key={q.id}>
-                  <span>引用 {q.source === "assistant" ? AGENT_MEMBER.name : q.author}：{q.body.slice(0,80)}</span>
+                  <span title={clipQuote(q.body, 240)}>引用 {q.source === "assistant" ? AGENT_MEMBER.name : q.author}：{clipQuote(q.body)}</span>
                   <button type="button" aria-label="取消引用" onClick={() => setQuotedMessages(items => items.filter(item => item.id !== q.id))}>×</button>
                 </div>)}</div>}
                 <ChatComposer
@@ -2036,12 +2067,6 @@ function App() {
             成员 <small>{detail?.members.length || 0}</small>
           </button>
           <button
-            className={tab === "tasks" ? "active" : ""}
-            onClick={() => { setTab("tasks"); setTaskScope("current"); setTaskMine(false); }}
-          >
-            任务池 <small>{taskPool.length}</small>
-          </button>
-          <button
             className={tab === "info" ? "active" : ""}
             onClick={() => setTab("info")}
           >
@@ -2140,81 +2165,6 @@ function App() {
                 );
               })}
           </>
-        ) : tab === "tasks" ? (
-          <div className="task-pool-panel">
-            {selectedTaskId ? (() => {
-              const task = taskDetail;
-              const isTarget = task?.target_type === "human_member" && task.target_id === user.id;
-              const canTransfer = !!task && isTarget && ["awaiting_acceptance", "assigned", "queued", "waiting", "blocked"].includes(task.status);
-              const openQuestion = task?.questions.find((question) => question.status === "open" && question.source_user_id === user.id);
-              const canReviewRejection = !!task && task.status === "cancelled" && task.rejectionReview.rejected && !task.rejectionReview.resolved &&
-                task.rejectionReview.reviewer_type === "human_member" && task.rejectionReview.reviewer_id === user.id;
-              const targetName = detail?.members.find((member) => member.id === task?.target_id)?.name || (task?.target_type === "l2_session" ? "小祥" : "未指派");
-              return <div className="task-detail">
-                <button type="button" className="task-detail-back" onClick={() => { setSelectedTaskId(""); setTaskDetail(null); }}>← 返回任务列表</button>
-                {!task ? <p className="muted">正在读取任务详情…</p> : <>
-                  <header><div><small>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small><h3>{task.title}</h3></div><div className="task-detail-header-actions"><button type="button" onClick={() => setAgentLogScope({ type: "task", id: task.id })}>轨迹</button><span data-status={task.status}>{labelWorkflowStatus(task.status)}</span></div></header>
-                  <dl className="task-detail-meta"><div><dt>责任主体</dt><dd>{targetName}</dd></div><div><dt>执行 Agent</dt><dd>{task.execution_agent_type || "待选择"}</dd></div></dl>
-                  <section><h4>任务目标</h4><p>{task.goal}</p>{task.constraints && <><h4>约束</h4><p>{task.constraints}</p></>}</section>
-                  {openQuestion && <section className="task-question"><h4>需要你回答</h4><p>{openQuestion.question}</p><textarea value={taskAnswer} onChange={(event) => setTaskAnswer(event.target.value)} placeholder="输入回答" /><button type="button" className="primary" disabled={taskActionBusy || !taskAnswer.trim()} onClick={() => void performTaskAction(async () => { await api(`/task-questions/${openQuestion.id}/answer`, { answer: taskAnswer }); setTaskAnswer(""); })}>提交回答</button></section>}
-                  {isTarget && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>确认任务</h4><select value={taskExecutionMode} onChange={(event) => setTaskExecutionMode(event.target.value as typeof taskExecutionMode)}><option value="auto">自动选择执行方式</option><option value="human_direct">由我直接完成</option><option value="member_connector">交给本地 Codex</option></select><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reject`, {}, "POST"))}>拒绝</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/accept`, { mode: taskExecutionMode }, "POST"))}>接受任务</button></div></section>}
-                  {canReviewRejection && <section className="task-actions-section task-rejection-review"><h4>任务已被拒绝</h4><p>{[...task.assignmentHistory].reverse().find((event) => event.event_type === "rejected")?.reason || "目标成员拒绝了这个任务。"}</p><textarea value={taskReopenGoal} onChange={(event) => setTaskReopenGoal(event.target.value)} placeholder="修改任务目标与验收标准" /><textarea value={taskReopenConstraints} onChange={(event) => setTaskReopenConstraints(event.target.value)} placeholder="修改约束（可选）" /><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"))}>知道了</button><button type="button" className="primary" disabled={taskActionBusy || !taskReopenGoal.trim()} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reopen`, { goal: taskReopenGoal.trim(), constraints: taskReopenConstraints }, "POST"))}>修改后重新发起</button></div></section>}
-                  {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}>确认转交</button></section>}
-                  {isTarget && task.status !== "awaiting_acceptance" && !["completed", "failed", "cancelled", "superseded"].includes(task.status) && <section className="task-actions-section"><h4>进度与结果</h4><input value={taskProgress} onChange={(event) => setTaskProgress(event.target.value)} placeholder="当前进度" /><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要或阻塞原因" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "running", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>开始</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "waiting", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>等待</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "failed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>失败</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>完成</button></div></section>}
-                  {!!task.executionRuns.length && <section><h4>执行记录</h4><div className="task-history">{task.executionRuns.map((run) => <div key={run.id}><strong>{labelExecutorType(run.executor_type)}</strong><span>{labelWorkflowStatus(run.status)}</span><small>{run.progress || run.result_summary || run.error || time(run.created_at)}</small></div>)}</div></section>}
-                  {!!task.assignmentHistory.length && <section><h4>指派与审计记录</h4><div className="task-history">{task.assignmentHistory.map((event) => <div key={event.id}><strong>{({ assigned: "创建并指派", transferred: "转交", rejected: "拒绝", acknowledged: "已知晓", reopened: "重新发起" } as const)[event.event_type] || event.event_type}</strong><span>{time(event.created_at)}</span>{event.reason && <small>{event.reason}</small>}</div>)}</div></section>}
-                </>}
-                {taskActionError && <p className="project-settings-error" role="alert">{taskActionError}</p>}
-              </div>;
-            })() : <>
-              <div className="task-pool-heading">
-                <div className="task-scope-tabs" role="tablist" aria-label="任务范围">
-                  <button type="button" role="tab" aria-selected={taskScope === "current"} onClick={() => setTaskScope("current")}>当前迭代</button>
-                  <button type="button" role="tab" aria-selected={taskScope === "all"} onClick={() => setTaskScope("all")}>全部迭代</button>
-                </div>
-                {writable && <button type="button" className="task-create-toggle" onClick={() => setTaskCreateOpen((open) => !open)}>{taskCreateOpen ? "取消" : "＋ 新建任务"}</button>}
-              </div>
-              {taskCreateOpen && <form className="task-create-form" onSubmit={(event) => {
-                event.preventDefault();
-                if (!taskCreateTitle.trim() || !taskCreateGoal.trim()) return;
-                void performTaskAction(async () => {
-                  const created = await api(`/projects/${projectId}/tasks`, {
-                    title: taskCreateTitle.trim(), goal: taskCreateGoal.trim(),
-                    constraints: taskCreateConstraints.trim() || undefined,
-                    targetType: taskCreateTarget === "l2_session" ? "l2_session" : taskCreateTarget ? "human_member" : undefined,
-                    targetUserId: taskCreateTarget && taskCreateTarget !== "l2_session" ? taskCreateTarget : undefined,
-                    threadId: taskScope === "current" ? threadId : undefined,
-                  });
-                  setTaskCreateTitle(""); setTaskCreateGoal(""); setTaskCreateConstraints(""); setTaskCreateTarget(""); setTaskCreateOpen(false);
-                  setSelectedTaskId(created.id);
-                });
-              }}>
-                <input value={taskCreateTitle} onChange={(event) => setTaskCreateTitle(event.target.value)} placeholder="任务标题" maxLength={240} />
-                <textarea value={taskCreateGoal} onChange={(event) => setTaskCreateGoal(event.target.value)} placeholder="任务目标与验收标准" maxLength={20000} />
-                <textarea value={taskCreateConstraints} onChange={(event) => setTaskCreateConstraints(event.target.value)} placeholder="约束（可选）" maxLength={20000} />
-                <select value={taskCreateTarget} onChange={(event) => setTaskCreateTarget(event.target.value)}>
-                  <option value="">暂不指派</option>
-                  {taskScope === "current" && threadId && <option value="l2_session">当前迭代小祥</option>}
-                  {detail?.members.filter((member) => member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
-                </select>
-                <button type="submit" className="primary" disabled={taskActionBusy || !taskCreateTitle.trim() || !taskCreateGoal.trim()}>创建正式任务</button>
-              </form>}
-              <label className="task-mine-filter"><input type="checkbox" checked={taskMine} onChange={(event) => setTaskMine(event.target.checked)} />只看与我有关</label>
-              <div className="task-pool-list">
-                {visibleTasks.map((task) => {
-                  const target = detail?.members.find((member) => member.id === task.target_id)?.name || (task.target_type === "l2_session" ? "小祥" : "未指派");
-                  const iteration = detail?.threads.find((item) => item.id === task.origin_thread_id)?.title || "项目任务";
-                  return <button type="button" className="task-pool-item" key={task.id} onClick={() => openTask(task.id)}>
-                    <span className="task-pool-item-heading"><span><strong>{task.title}</strong><small>{iteration} · {task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small></span><i data-status={task.status}>{labelWorkflowStatus(task.status)}</i></span>
-                    <span className="task-pool-item-goal">{task.progress || task.goal}</span>
-                    <span className="task-pool-item-footer"><span>责任主体：{target}</span><span>执行：{task.execution_agent_type || "待选择"}</span></span>
-                    {task.result_summary && <small className="task-result">{task.result_summary}</small>}
-                  </button>;
-                })}
-                {!visibleTasks.length && <p className="panel-empty">此范围内暂无任务。</p>}
-              </div>
-            </>}
-          </div>
         ) : detail?.id === projectId ? (
           <ProjectSettings
             key={`${projectId}:${threadId}`}
@@ -2232,6 +2182,86 @@ function App() {
           <p className="muted">正在加载基本信息…</p>
         )}
       </aside>
+      {taskDialogOpen && <div className="modal-backdrop" onClick={() => setTaskDialogOpen(false)}>
+        <section className="task-pool-dialog" role="dialog" aria-modal="true" aria-labelledby="task-pool-dialog-title" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") setTaskDialogOpen(false); }}>
+          <header className="task-pool-dialog-header">
+            <div>
+              <span>当前迭代</span>
+              <h2 id="task-pool-dialog-title">本迭代任务</h2>
+              <p>{detail?.threads.find((item) => item.id === threadId)?.title || "未选择迭代"}</p>
+            </div>
+            <button type="button" autoFocus onClick={() => setTaskDialogOpen(false)} aria-label="关闭本迭代任务" title="关闭">×</button>
+          </header>
+          <div className="task-pool-dialog-body">
+            <aside className="task-pool-dialog-list">
+              <div className="task-pool-heading">
+                <label className="task-mine-filter"><input type="checkbox" checked={taskMine} onChange={(event) => setTaskMine(event.target.checked)} />只看我的任务</label>
+                {writable && <button type="button" className="task-create-toggle" onClick={() => setTaskCreateOpen((open) => !open)}>{taskCreateOpen ? "取消" : "＋ 新建任务"}</button>}
+              </div>
+              {taskCreateOpen && <form className="task-create-form" onSubmit={(event) => {
+                event.preventDefault();
+                if (!taskCreateTitle.trim() || !taskCreateGoal.trim()) return;
+                void performTaskAction(async () => {
+                  const created = await api(`/projects/${projectId}/tasks`, {
+                    title: taskCreateTitle.trim(), goal: taskCreateGoal.trim(),
+                    constraints: taskCreateConstraints.trim() || undefined,
+                    targetType: taskCreateTarget === "l2_session" ? "l2_session" : taskCreateTarget ? "human_member" : undefined,
+                    targetUserId: taskCreateTarget && taskCreateTarget !== "l2_session" ? taskCreateTarget : undefined,
+                    threadId,
+                  });
+                  setTaskCreateTitle(""); setTaskCreateGoal(""); setTaskCreateConstraints(""); setTaskCreateTarget(""); setTaskCreateOpen(false);
+                  setSelectedTaskId(created.id);
+                });
+              }}>
+                <input value={taskCreateTitle} onChange={(event) => setTaskCreateTitle(event.target.value)} placeholder="任务标题" maxLength={240} />
+                <textarea value={taskCreateGoal} onChange={(event) => setTaskCreateGoal(event.target.value)} placeholder="任务目标与验收标准" maxLength={20000} />
+                <textarea value={taskCreateConstraints} onChange={(event) => setTaskCreateConstraints(event.target.value)} placeholder="约束（可选）" maxLength={20000} />
+                <select value={taskCreateTarget} onChange={(event) => setTaskCreateTarget(event.target.value)}>
+                  <option value="">暂不指派</option>
+                  {threadId && <option value="l2_session">当前迭代小祥</option>}
+                  {detail?.members.filter((member) => member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                </select>
+                <button type="submit" className="primary" disabled={taskActionBusy || !taskCreateTitle.trim() || !taskCreateGoal.trim()}>创建正式任务</button>
+              </form>}
+              <div className="task-pool-list">
+                {visibleTasks.map((task) => {
+                  const target = detail?.members.find((member) => member.id === task.target_id)?.name || (task.target_type === "l2_session" ? "小祥" : "未指派");
+                  return <button type="button" className="task-pool-item" aria-current={selectedTaskId === task.id ? "true" : undefined} key={task.id} onClick={() => openTask(task.id)}>
+                    <span className="task-pool-item-heading"><span><strong>{task.title}</strong><small>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"} · {target}</small></span><i data-status={task.status}>{labelWorkflowStatus(task.status)}</i></span>
+                  </button>;
+                })}
+                {!visibleTasks.length && <p className="panel-empty">{taskMine ? "暂无与我有关的任务。" : "当前迭代暂无任务。"}</p>}
+              </div>
+            </aside>
+            <div className="task-pool-dialog-detail">
+              {selectedTaskId ? (() => {
+                const task = taskDetail;
+                const isTarget = task?.target_type === "human_member" && task.target_id === user.id;
+                const canTransfer = !!task && isTarget && ["awaiting_acceptance", "assigned", "queued", "waiting", "blocked"].includes(task.status);
+                const openQuestion = task?.questions.find((question) => question.status === "open" && question.source_user_id === user.id);
+                const canReviewRejection = !!task && task.status === "cancelled" && task.rejectionReview.rejected && !task.rejectionReview.resolved &&
+                  task.rejectionReview.reviewer_type === "human_member" && task.rejectionReview.reviewer_id === user.id;
+                const targetName = detail?.members.find((member) => member.id === task?.target_id)?.name || (task?.target_type === "l2_session" ? "小祥" : "未指派");
+                return <div className="task-detail">
+                  {!task || task.id !== selectedTaskId ? <p className="muted">正在读取任务详情…</p> : <>
+                    <header><div><small>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small><h3>{task.title}</h3></div><div className="task-detail-header-actions"><button type="button" onClick={() => setAgentLogScope({ type: "task", id: task.id })}>轨迹</button><span data-status={task.status}>{labelWorkflowStatus(task.status)}</span></div></header>
+                    <dl className="task-detail-meta"><div><dt>责任主体</dt><dd>{targetName}</dd></div><div><dt>执行 Agent</dt><dd>{task.execution_agent_type || "待选择"}</dd></div></dl>
+                    <section><h4>任务目标</h4><p>{task.goal}</p>{task.constraints && <><h4>约束</h4><p>{task.constraints}</p></>}</section>
+                    {openQuestion && <section className="task-question"><h4>需要你回答</h4><p>{openQuestion.question}</p><textarea value={taskAnswer} onChange={(event) => setTaskAnswer(event.target.value)} placeholder="输入回答" /><button type="button" className="primary" disabled={taskActionBusy || !taskAnswer.trim()} onClick={() => void performTaskAction(async () => { await api(`/task-questions/${openQuestion.id}/answer`, { answer: taskAnswer }); setTaskAnswer(""); })}>提交回答</button></section>}
+                    {isTarget && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>确认任务</h4><select value={taskExecutionMode} onChange={(event) => setTaskExecutionMode(event.target.value as typeof taskExecutionMode)}><option value="auto">自动选择执行方式</option><option value="human_direct">由我直接完成</option><option value="member_connector">交给本地 Codex</option></select><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reject`, {}, "POST"))}>拒绝</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/accept`, { mode: taskExecutionMode }, "POST"))}>接受任务</button></div></section>}
+                    {canReviewRejection && <section className="task-actions-section task-rejection-review"><h4>任务已被拒绝</h4><p>{[...task.assignmentHistory].reverse().find((event) => event.event_type === "rejected")?.reason || "目标成员拒绝了这个任务。"}</p><textarea value={taskReopenGoal} onChange={(event) => setTaskReopenGoal(event.target.value)} placeholder="修改任务目标与验收标准" /><textarea value={taskReopenConstraints} onChange={(event) => setTaskReopenConstraints(event.target.value)} placeholder="修改约束（可选）" /><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"))}>知道了</button><button type="button" className="primary" disabled={taskActionBusy || !taskReopenGoal.trim()} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reopen`, { goal: taskReopenGoal.trim(), constraints: taskReopenConstraints }, "POST"))}>修改后重新发起</button></div></section>}
+                    {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}>确认转交</button></section>}
+                    {isTarget && task.status !== "awaiting_acceptance" && !["completed", "failed", "cancelled", "superseded"].includes(task.status) && <section className="task-actions-section"><h4>进度与结果</h4><input value={taskProgress} onChange={(event) => setTaskProgress(event.target.value)} placeholder="当前进度" /><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要或阻塞原因" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "running", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>开始</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "waiting", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>等待</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "failed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>失败</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>完成</button></div></section>}
+                    {!!task.executionRuns.length && <section><h4>执行记录</h4><div className="task-history">{task.executionRuns.map((run) => <div key={run.id}><strong>{labelExecutorType(run.executor_type)}</strong><span>{labelWorkflowStatus(run.status)}</span><small>{run.progress || run.result_summary || run.error || time(run.created_at)}</small></div>)}</div></section>}
+                    {!!task.assignmentHistory.length && <section><h4>指派与审计记录</h4><div className="task-history">{task.assignmentHistory.map((event) => <div key={event.id}><strong>{({ assigned: "创建并指派", transferred: "转交", rejected: "拒绝", acknowledged: "已知晓", reopened: "重新发起" } as const)[event.event_type] || event.event_type}</strong><span>{time(event.created_at)}</span>{event.reason && <small>{event.reason}</small>}</div>)}</div></section>}
+                  </>}
+                  {taskActionError && <p className="project-settings-error" role="alert">{taskActionError}</p>}
+                </div>;
+              })() : <p className="panel-empty">选择左侧任务，查看详情和操作。</p>}
+            </div>
+          </div>
+        </section>
+      </div>}
       {quotePreview && <div className="modal-backdrop" onClick={() => setQuotePreview(null)}>
         <section className="quoted-message-dialog" role="dialog" aria-modal="true" aria-label="引用消息原文" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === "Escape") setQuotePreview(null); }}>
           <button autoFocus type="button" onClick={() => setQuotePreview(null)}>关闭原文</button>

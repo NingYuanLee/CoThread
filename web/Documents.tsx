@@ -72,6 +72,14 @@ function fileLabel(version: LibraryVersion) {
     ? `${version.title}${suffix}`
     : version.title;
 }
+
+export function organizableDocuments(versions: LibraryVersion[], scope: "iteration" | "project", threadId?: string) {
+  return versions.filter((item) => !item.deleted_at && (
+    scope === "project"
+      ? !item.folder_thread_id
+      : item.folder_thread_id === threadId && item.folder_kind === "iteration_outputs"
+  ));
+}
 export function Documents({
   embedded = false,
   onOpen,
@@ -132,6 +140,7 @@ export function Documents({
     && (scope === "project" || job.thread_id === threadId));
   const organizing = organization && ["queued", "running"].includes(organization.status);
   const scopeWritable = (scope === "iteration" ? iterationWritable : writable) && !organizing;
+  const canOrganizeScope = organizableDocuments(versions, scope, threadId).length > 0;
   const [folderId, setFolderId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [trash, setTrash] = useState(false);
@@ -389,8 +398,10 @@ export function Documents({
           <button role="tab" aria-selected={scope === "project"} className={scope === "project" ? "active" : ""} onClick={() => setScope("project")}>项目正式文件</button>
           <button
             className="organize-documents"
-            disabled={!scopeWritable || (scope === "project" && !canOrganizeProject)}
-            title={scope === "project" && !canOrganizeProject ? "全部迭代归档后可整理项目正式文件" : "由一级小祥在后台整理当前范围"}
+            disabled={!scopeWritable || (scope === "project" && !canOrganizeProject) || !canOrganizeScope}
+            title={!canOrganizeScope ? "当前范围没有可整理的文档"
+              : scope === "project" && !canOrganizeProject ? "全部迭代归档后可整理项目正式文件"
+              : "由一级小祥在后台整理当前范围"}
             onClick={() => void act(async () => {
               await change(scope === "iteration" ? `/threads/${threadId}/documents/organize` : `/projects/${projectId}/documents/organize`, {});
               onSelect("");

@@ -1,9 +1,12 @@
+import { l1TaskLabel } from "../shared/agent-label.js";
+
 export type AgentLogScope = { type: "project" | "thread" | "task"; id: string };
 export type AgentLogEvent = {
   id: string;
   agentType: "l1" | "l2" | "dsh_l3";
   agentSessionId: string | null;
   taskId: string | null;
+  task?: string;
   messageId: string | null;
   threadId: string | null;
   tool: string;
@@ -75,11 +78,14 @@ export function eventKind(event: AgentLogEvent): TimelineKind {
   if (event.tool === "user_input") return "user";
   if (REPLY_PHASE.has(event.tool)) return "reply";
   if (event.agentType === "l1") {
-    if (event.tool === "prepare_context") return "user";
-    return event.tool === "model_run" ? "message" : "tool";
+    if (event.tool === "model_run") return "message";
+    if (event.tool === "validate_result") return "reply";
+    return "tool";
   }
   return MODEL_PHASE.has(event.tool) ? "message" : "tool";
 }
+
+export const TIMELINE_LANES: TimelineKind[] = ["user", "message", "tool", "reply"];
 
 export function kindLabel(kind: TimelineKind) {
   return kind === "user" ? "输入" : kind === "message" ? "思考" : kind === "reply" ? "正文" : "工具";
@@ -88,22 +94,19 @@ export function kindLabel(kind: TimelineKind) {
 export function rowKindLabel(event: AgentLogEvent | null, input: AgentLogInput | null) {
   if (input) return "输入";
   if (!event) return "";
+  if (event.agentType === "l1") return kindLabel(eventKind(event));
   if (event.tool === "thinking") return "思考";
   if (REPLY_PHASE.has(event.tool)) return "正文";
-  if (event.agentType === "l1" && event.tool === "prepare_context") return "输入";
   return event.action.split(" ")[0] || "工具";
 }
 
 function laneFor(kind: TimelineKind): 0 | 1 | 2 | 3 {
-  if (kind === "user") return 0;
-  if (kind === "message") return 1;
-  if (kind === "reply") return 2;
-  return 3;
+  return TIMELINE_LANES.indexOf(kind) as 0 | 1 | 2 | 3;
 }
 
 function isModelTurn(event: AgentLogEvent) {
   return MODEL_PHASE.has(event.tool) || REPLY_PHASE.has(event.tool)
-    || (event.agentType === "l1" && event.tool === "model_run");
+    || (event.agentType === "l1" && (event.tool === "model_run" || event.tool === "validate_result"));
 }
 
 export function buildTimeline(events: AgentLogEvent[], inputs: AgentLogInput[], now: number): TimelineModel | null {
@@ -173,14 +176,17 @@ function ledgerInputText(event: AgentLogEvent | null, input: AgentLogInput | nul
 
 function ledgerOutputText(event: AgentLogEvent | null) {
   if (!event) return "";
-  if (event.tool === "thinking") return "";
+  if (event.tool === "thinking" || (event.agentType === "l1" && event.tool === "model_run")) return "";
   if (event.status === "failed") return event.error || "失败";
+  if (event.agentType === "l1" && event.tool === "validate_result") return "校验通过";
   if (REPLY_PHASE.has(event.tool)) return event.preview || "";
   return event.status === "running" ? "进行中" : "已完成";
 }
 
 function ledgerThinkText(event: AgentLogEvent | null) {
-  return event?.tool === "thinking" ? "思考" : "";
+  if (event?.tool === "thinking") return "思考";
+  if (event?.agentType === "l1" && event.tool === "model_run") return "思考";
+  return "";
 }
 
 export function ledgerSummary(row: LedgerRow) {
@@ -197,8 +203,14 @@ export function buildLedger(events: AgentLogEvent[], inputs: AgentLogInput[]): L
   });
   const groups = new Map<string, AgentLogEvent[]>();
   const order: string[] = [];
+  let l1Run = 0;
   for (const event of chronological) {
-    const key = event.messageId || (event.agentType === "l1" ? "l1" : event.id);
+    let key = event.messageId;
+    if (!key && event.agentType === "l1") {
+      if (event.tool === "prepare_context") l1Run += 1;
+      key = `l1:${Math.max(l1Run, 1)}`;
+    }
+    key = key || event.id;
     if (!groups.has(key)) {
       groups.set(key, []);
       order.push(key);
@@ -257,7 +269,11 @@ export function buildLedger(events: AgentLogEvent[], inputs: AgentLogInput[]): L
         isError: event.status === "failed",
       });
     }
-    return { turn: index + 1, label: `第 ${index + 1} 轮`, rows };
+    return {
+      turn: index + 1,
+      label: l1TaskLabel(group.find((event) => event.task)?.task) || `第 ${index + 1} 轮`,
+      rows,
+    };
   });
 }
 
@@ -272,7 +288,7 @@ export function prettyPayload(value: string | null | undefined) {
 
 export function inspectorTabsFor(kind: TimelineKind, tool?: string): string[] {
   if (kind === "user") return ["概述", "输入", "计时"];
-  if (tool === "thinking") return ["概述", "思考", "计时"];
-  if (tool === "assistant_text" || tool === "assistant_final") return ["概述", "输出", "计时"];
+  if (tool === "thinking" || tool === "model_run") return ["概述", "思考", "计时"];
+  if (tool === "assistant_text" || tool === "assistant_final" || tool === "validate_result") return ["概述", "输出", "计时"];
   return ["概述", "参数", "结果", "计时"];
 }

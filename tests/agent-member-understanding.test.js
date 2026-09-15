@@ -102,3 +102,34 @@ test("project memory gathers cross-iteration statements and rejects stale overwr
     await database.close();
   }
 });
+
+test("member memory does not call the model when nobody said anything new", async () => {
+  const database = await testDatabase();
+  const db = database.db;
+  try {
+    const owner = { id: randomUUID(), kind: "session" };
+    const mentioned = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [owner.id, `${owner.id}@test.com`, "负责人"]);
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [mentioned.id, `${mentioned.id}@test.com`, "小林"]);
+    const service = new Service(db);
+    const project = await service.createProject(owner, { name: "无新发言" });
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')", [project.id, mentioned.id]);
+    const thread = await service.createThread(owner, project.id, { title: "点名" });
+    await service.postMessage(owner, thread.id, { body: "@小林 请稍后参加。" });
+    await query(db, "UPDATE agent_member_memory_queue SET available_at=UTC_TIMESTAMP(3) WHERE project_id=? AND user_id=?",
+      [project.id, mentioned.id]);
+    let called = 0;
+    assert.equal(await processNextProjectMemory(db, { projectId: project.id, summarizeMembers: async () => {
+      called += 1;
+      return [];
+    } }), true);
+    assert.equal(called, 0);
+    assert.equal(Number((await query(db,
+      "SELECT COUNT(*) count FROM agent_member_memory_queue WHERE project_id=? AND user_id=?",
+      [project.id, mentioned.id]))[0].count), 0);
+  } finally {
+    await database.close();
+  }
+});

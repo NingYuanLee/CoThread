@@ -1,12 +1,35 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AgentLogDialog } from "./AgentLogDialog";
+import type { AgentLogScope } from "./agent-trajectory";
+import { l1TaskLabel } from "../shared/agent-label.js";
 import {
   formatActorRef,
   formatDurationMs,
   labelAgentEventStatus,
   labelExecutorType,
-  labelReasoningEffort,
   labelWorkflowStatus,
 } from "./ui-labels";
+
+type L1Run = {
+  id: string;
+  task: string;
+  trigger_source: "schedule" | "user";
+  status: string;
+  agent_called: boolean;
+  had_updates: boolean;
+  item_count: number | null;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
+type HistoryColumn = { key: string; label: string };
+type HistoryRow = {
+  id: string;
+  tone?: "idle" | "running" | "waiting" | "failed";
+  cells: Record<string, string>;
+};
 
 type MonitorData = {
   generatedAt: string;
@@ -26,6 +49,40 @@ type MonitorData = {
     ready: number;
     nextAt: string | null;
     lastUpdatedAt: string | null;
+    memberLastAt: string | null;
+    memberNextAt: string | null;
+    documentLastAt: string | null;
+    documentNextAt: string | null;
+    projectDocumentPending: number;
+    projectDocumentLastAt: string | null;
+    projectDocumentNextAt: string | null;
+    iterationDocumentPending: number;
+    iterationDocumentLastAt: string | null;
+    iterationDocumentNextAt: string | null;
+    memberRuns: L1Run[];
+    projectDocumentRuns: L1Run[];
+    iterationDocumentRuns: L1Run[];
+    documentRuns: L1Run[];
+    organizationLastAt: string | null;
+    organizationJobs: {
+      id: string;
+      thread_id: string | null;
+      thread_title: string | null;
+      scope: "iteration" | "project";
+      status: string;
+      error: string | null;
+      document_count: number | null;
+      created_at: string;
+      started_at: string | null;
+      finished_at: string | null;
+    }[];
+    archiveLastAt: string | null;
+    archives: {
+      id: string;
+      title: string;
+      archived_at: string;
+      conclusion: string;
+    }[];
   };
   coordinators: {
     id: string;
@@ -71,9 +128,9 @@ type MonitorData = {
     result_summary?: string | null;
     artifact_refs?: unknown[] | string | null;
   }[];
-  humanAgents: { member_id: string; name: string; nodes: { executor_type: "human_self" | "human_connector"; executor_id: string | null; online: boolean; configured?: boolean }[] }[];
   taskPool: {
     task_id: string;
+    origin_thread_id?: string | null;
     title: string;
     goal: string;
     task_type: "assist_l2" | "formal";
@@ -92,6 +149,8 @@ type MonitorData = {
     progress: string | null;
     result_summary: string | null;
     artifact_refs: unknown[] | string | null;
+    started_at?: string | null;
+    finished_at?: string | null;
   }[];
   eventLog: {
     id: string;
@@ -129,6 +188,59 @@ function time(value: string | null | undefined) {
   return parsed?.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) || "暂无";
 }
 
+function nextTime(value: string | null | undefined, pending: number) {
+  if (!pending) return "无待处理";
+  const parsed = date(value);
+  if (!parsed || parsed.getTime() <= Date.now()) return "现在可处理";
+  return time(value);
+}
+
+function pendingLine(kind: "member" | "document", pending: number) {
+  if (!pending) return kind === "member" ? "新发言：暂无" : "新文档：暂无";
+  return kind === "member" ? `新发言：有（${pending} 人待整理）` : `新文档：有（${pending} 份待整理）`;
+}
+
+function runTone(status: string): "idle" | "running" | "waiting" | "failed" {
+  if (status === "failed") return "failed";
+  if (status === "running") return "running";
+  if (status === "queued") return "waiting";
+  return "idle";
+}
+
+function runStatusLabel(status: string) {
+  if (status === "failed") return "失败";
+  if (status === "running") return "进行中";
+  if (status === "queued") return "排队中";
+  return "已完成";
+}
+
+const L1_RUN_COLUMNS: HistoryColumn[] = [
+  { key: "time", label: "时间" },
+  { key: "trigger", label: "触发" },
+  { key: "updates", label: "新内容" },
+  { key: "agent", label: "调用Agent" },
+  { key: "status", label: "状态" },
+  { key: "note", label: "说明" },
+];
+
+function l1RunRows(runs: L1Run[] | undefined, unit: string): HistoryRow[] {
+  return (runs || []).map((run) => {
+    const pending = run.status === "queued" || run.status === "running";
+    return {
+      id: run.id,
+      tone: runTone(run.status),
+      cells: {
+        time: time(run.finished_at || run.started_at || run.created_at),
+        trigger: run.trigger_source === "user" ? "手动" : "定时",
+        updates: pending ? "—" : run.had_updates ? (run.item_count ? `有（${run.item_count}${unit}）` : "有") : "暂无",
+        agent: pending ? "—" : run.agent_called ? "是" : "否",
+        status: runStatusLabel(run.status),
+        note: run.error || (run.status === "queued" ? "已排队" : run.status === "running" ? "整理中" : ""),
+      },
+    };
+  });
+}
+
 function artifactCount(value: unknown[] | string | null | undefined) {
   if (Array.isArray(value)) return value.length;
   if (typeof value === "string") {
@@ -142,9 +254,7 @@ function State({ tone, children }: { tone: "idle" | "running" | "waiting" | "fai
   return <span className={`monitor-state ${tone}`}><i aria-hidden="true" />{children}</span>;
 }
 
-function ModelLabel({ model }: { model: MonitorData["models"][keyof MonitorData["models"]] | undefined }) {
-  return model ? <small className="monitor-model">{model.model} · {labelReasoningEffort(model.reasoningEffort)}</small> : null;
-}
+const ENDED = new Set(["completed", "failed", "cancelled", "superseded"]);
 
 const taskState = (task: MonitorData["executors"][number]) => {
   if (task.execution_active || task.status === "running") return { label: "执行中", tone: "running" as const };
@@ -153,6 +263,216 @@ const taskState = (task: MonitorData["executors"][number]) => {
   if (task.status === "cancelled") return { label: "空闲", tone: "idle" as const };
   return { label: "执行失败", tone: "failed" as const };
 };
+
+function poolTone(task: MonitorData["taskPool"][number]) {
+  const status = task.run_status || task.task_status;
+  if (status === "failed") return "failed" as const;
+  if (["running", "queued"].includes(status)) return "running" as const;
+  if (status === "waiting") return "waiting" as const;
+  return "idle" as const;
+}
+
+type L3Detail = {
+  id: string;
+  title: string;
+  typeLabel: string;
+  statusLabel: string;
+  tone: "idle" | "running" | "waiting" | "failed";
+  goal: string;
+  progress: string | null;
+  result: string | null;
+  artifacts: number;
+  source: string;
+  target: string;
+  executor: string;
+  time: string;
+};
+
+function L3TaskCard({ title, meta, tone, status, style, onDetail, onTrace }: {
+  title: string;
+  meta: string;
+  tone: "idle" | "running" | "waiting" | "failed";
+  status: string;
+  style?: React.CSSProperties;
+  onDetail: () => void;
+  onTrace: () => void;
+}) {
+  return <article className="executor-row l3-task-card" style={style}>
+    <div className="executor-title">
+      <span className="executor-name"><strong title={title}>{title}</strong><small>{meta}</small></span>
+      <State tone={tone}>{status}</State>
+    </div>
+    <div className="l3-task-actions">
+      <button type="button" onClick={onDetail}>详情</button>
+      <button type="button" onClick={onTrace}>轨迹</button>
+    </div>
+  </article>;
+}
+
+function OverflowTitle({ text }: { text: string }) {
+  const wrap = useRef<HTMLSpanElement>(null);
+  const inner = useRef<HTMLSpanElement>(null);
+  const [overflow, setOverflow] = useState(0);
+  const measure = () => {
+    const box = wrap.current;
+    const label = inner.current;
+    if (!box || !label) return;
+    const maxWidth = label.style.maxWidth;
+    label.style.maxWidth = "none";
+    const extra = Math.ceil(label.scrollWidth - box.clientWidth);
+    label.style.maxWidth = maxWidth;
+    setOverflow(extra > 1 ? extra : 0);
+  };
+  useLayoutEffect(measure, [text]);
+  return <strong
+    ref={wrap}
+    className={`coordinator-title${overflow ? " is-overflow" : ""}`}
+    style={overflow ? {
+      "--scroll-distance": `-${overflow}px`,
+      "--scroll-duration": `${Math.min(8, Math.max(1.2, overflow / 42))}s`,
+    } as React.CSSProperties : undefined}
+    onMouseEnter={measure}
+  >
+    <span ref={inner}>{text}</span>
+  </strong>;
+}
+
+function pendingDetail(task: MonitorData["taskPool"][number]): L3Detail {
+  return {
+    id: task.task_id,
+    title: task.title,
+    typeLabel: task.task_type === "assist_l2" ? "辅助 L2" : "正式任务",
+    statusLabel: labelWorkflowStatus(task.run_status || task.task_status),
+    tone: poolTone(task),
+    goal: task.goal,
+    progress: task.progress,
+    result: task.result_summary,
+    artifacts: artifactCount(task.artifact_refs),
+    source: task.source_user_id || labelExecutorType(task.source_type),
+    target: formatActorRef(task.target_type, task.target_id),
+    executor: task.executor_type ? formatActorRef(task.executor_type, task.executor_id || "待绑定") : "未选择",
+    time: time(task.started_at),
+  };
+}
+
+function claimedDetail(task: MonitorData["executors"][number], poolTitle?: string): L3Detail {
+  const state = taskState(task);
+  const active = !!task.execution_active || task.status === "running" || task.status === "queued";
+  return {
+    id: task.task_id,
+    title: poolTitle || task.progress || (task.task_type === "assist_l2" ? "辅助任务" : "执行任务"),
+    typeLabel: active ? "正在执行" : "已接过",
+    statusLabel: state.label,
+    tone: state.tone,
+    goal: task.goal,
+    progress: task.progress,
+    result: task.result_summary || null,
+    artifacts: artifactCount(task.artifact_refs),
+    source: task.requested_by || labelExecutorType(task.source_type),
+    target: formatActorRef(task.target_type, task.target_id),
+    executor: task.executor_type ? formatActorRef(task.executor_type, task.executor_id || "待绑定") : "未选择",
+    time: time(task.last_action_at || task.finished_at || task.started_at),
+  };
+}
+
+function L3TaskDetailDialog({ detail, onClose }: { detail: L3Detail; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { dialog.current?.showModal(); }, []);
+  return <dialog ref={dialog} className="l3-task-detail-dialog" aria-labelledby="l3-task-detail-title" onCancel={onClose}>
+    <header className="agent-monitor-header">
+      <div>
+        <span>任务详情</span>
+        <h2 id="l3-task-detail-title">{detail.title}</h2>
+      </div>
+      <button type="button" onClick={onClose} aria-label="关闭详情" title="关闭">×</button>
+    </header>
+    <div className="l3-task-detail-body task-detail">
+      <header>
+        <div>
+          <small>{detail.typeLabel}</small>
+          <h3>{detail.title}</h3>
+        </div>
+        <State tone={detail.tone}>{detail.statusLabel}</State>
+      </header>
+      <dl className="task-detail-meta">
+        <div><dt>来源</dt><dd>{detail.source}</dd></div>
+        <div><dt>责任</dt><dd>{detail.target}</dd></div>
+        <div><dt>执行</dt><dd>{detail.executor}</dd></div>
+        <div><dt>时间</dt><dd>{detail.time}</dd></div>
+        {detail.artifacts ? <div><dt>产物</dt><dd>{detail.artifacts} 项</dd></div> : null}
+      </dl>
+      <section><h4>目标</h4><p>{detail.goal || "暂无"}</p></section>
+      {detail.progress ? <section><h4>进展</h4><p>{detail.progress}</p></section> : null}
+      {detail.result ? <section><h4>结果</h4><p>{detail.result}</p></section> : null}
+    </div>
+  </dialog>;
+}
+
+function L1HistoryDialog({ title, columns, rows, empty, onClose }: {
+  title: string;
+  columns: HistoryColumn[];
+  rows: HistoryRow[];
+  empty: string;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { dialog.current?.showModal(); }, []);
+  return <dialog ref={dialog} className="l3-task-detail-dialog l1-history-dialog" aria-labelledby="l1-history-title" onCancel={onClose}>
+    <header className="agent-monitor-header">
+      <div>
+        <span>历史记录</span>
+        <h2 id="l1-history-title">{title}</h2>
+      </div>
+      <button type="button" onClick={onClose} aria-label="关闭历史记录" title="关闭">×</button>
+    </header>
+    <div className="l1-history-body">
+      <table className="l1-history-table">
+        <thead>
+          <tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}</tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => <tr key={row.id}>
+            {columns.map((column) => <td key={column.key}>
+              {column.key === "status" && row.tone
+                ? <State tone={row.tone}>{row.cells[column.key]}</State>
+                : row.cells[column.key] || ""}
+            </td>)}
+          </tr>)}
+          {!rows.length && <tr><td className="monitor-empty" colSpan={columns.length}>{empty}</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  </dialog>;
+}
+
+function EventLogDialog({ events, onClose }: { events: MonitorData["eventLog"]; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { dialog.current?.showModal(); }, []);
+  return <dialog ref={dialog} className="agent-log-dialog l3-event-log-dialog" aria-labelledby="l3-event-log-title" onCancel={onClose}>
+    <header className="agent-monitor-header">
+      <div>
+        <span>DSH 轨迹</span>
+        <h2 id="l3-event-log-title">轨迹</h2>
+      </div>
+      <button type="button" onClick={onClose} aria-label="关闭轨迹" title="关闭">×</button>
+    </header>
+    <div className="monitor-log-list l3-event-log-body">
+      {events.map((event) => <article className="monitor-log-row" key={event.id}>
+        <span className={`monitor-log-icon ${event.status}`} aria-hidden="true" />
+        <span className="monitor-log-main">
+          <strong>{event.action}</strong>
+          <small>{event.thread_title} · {event.tool}</small>
+        </span>
+        <span className="monitor-log-meta">
+          <State tone={event.status === "failed" ? "failed" : event.status === "running" ? "running" : "idle"}>{labelAgentEventStatus(event.status)}</State>
+          <time>{time(event.created_at)}</time>
+          {event.duration_ms != null ? <small>{formatDurationMs(event.duration_ms)}</small> : null}
+        </span>
+      </article>)}
+      {!events.length && <p className="monitor-empty">这个任务还没有轨迹。</p>}
+    </div>
+  </dialog>;
+}
 
 export function AgentMonitor({ projectId, projectName, api, onClose }: {
   projectId: string;
@@ -165,9 +485,16 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [selectedThreadId, setSelectedThreadId] = useState("");
-  const [view, setView] = useState<"status" | "logs">("status");
+  const [selectedSlot, setSelectedSlot] = useState(1);
+  const [taskDetail, setTaskDetail] = useState<L3Detail | null>(null);
+  const [logScope, setLogScope] = useState<AgentLogScope | null>(null);
+  const [eventLogs, setEventLogs] = useState<MonitorData["eventLog"] | null>(null);
+  const [historyKind, setHistoryKind] = useState<"member" | "projectDocument" | "iterationDocument" | "organization" | "archive" | null>(null);
+  const [refreshing, setRefreshing] = useState<"member" | "projectDocument" | "iterationDocument" | "organization" | null>(null);
   const activeTasks = useMemo(() => data?.executors.filter((task) => task.execution_active || task.status === "running").length || 0, [data]);
   const selectedCoordinator = data?.coordinators.find((item) => item.id === selectedThreadId);
+  const threadPool = useMemo(() => (data?.taskPool || []).filter((task) =>
+    task.origin_thread_id === selectedThreadId && (!task.executor_type || task.executor_type === "dsh_l3")), [data, selectedThreadId]);
   const selectedTasks = useMemo(() => data?.executors.filter((task) => task.thread_id === selectedThreadId && task.executor_type === "dsh_l3") || [], [data, selectedThreadId]);
   const slots = useMemo(() => Array.from({ length: 7 }, (_, index) => {
     const slot = index + 1;
@@ -176,6 +503,78 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
     const occupiedBefore = Array.from({ length: index }, (_, previous) => selectedTasks.find((item) => item.agent_slot === previous + 1)).filter(Boolean).length;
     return { slot, agent: EXECUTORS[index], task: explicit || unassigned[index - occupiedBefore] || null };
   }), [selectedTasks]);
+  const selectedAgent = slots.find((item) => item.slot === selectedSlot) || slots[0];
+  const pendingTasks = useMemo(() => threadPool.filter((task) => !task.executor_id && !ENDED.has(task.task_status)), [threadPool]);
+  const claimedTasks = useMemo(() => {
+    const current = selectedAgent?.task || null;
+    const listed = selectedTasks.filter((task) => task.agent_slot === selectedSlot || (current && task.task_id === current.task_id));
+    const unique: MonitorData["executors"] = [];
+    const seen = new Set<string>();
+    for (const task of [current, ...listed]) {
+      if (!task || seen.has(task.task_id)) continue;
+      seen.add(task.task_id);
+      unique.push(task);
+    }
+    for (const task of threadPool) {
+      if (!task.executor_id || seen.has(task.task_id)) continue;
+      if (task.executor_id !== current?.executor_id && current?.task_id !== task.task_id) continue;
+      seen.add(task.task_id);
+      unique.push({
+        task_id: task.task_id, thread_id: selectedThreadId, thread_title: selectedCoordinator?.title || "",
+        requested_by: task.source_user_id || "", goal: task.goal, status: task.run_status || task.task_status,
+        progress: task.progress, agent_slot: selectedSlot, execution_active: ["queued", "running"].includes(task.run_status || "") ? 1 : 0,
+        started_at: task.started_at || "", finished_at: task.finished_at || null, last_action: null, last_action_status: null,
+        last_action_at: null, update_count: 0, executor_type: "dsh_l3", executor_id: task.executor_id,
+        target_type: task.target_type, target_id: task.target_id, task_type: task.task_type, source_type: task.source_type,
+        created_by_type: task.created_by_type, created_by_id: task.created_by_id, claimed_by_type: task.claimed_by_type,
+        claimed_by_id: task.claimed_by_id, result_summary: task.result_summary, artifact_refs: task.artifact_refs,
+      });
+    }
+    return unique;
+  }, [selectedAgent, selectedSlot, selectedTasks, threadPool, selectedThreadId, selectedCoordinator]);
+
+  const openTaskTrace = (taskId: string) => {
+    if ((data?.taskPool || []).some((task) => task.task_id === taskId)) {
+      setEventLogs(null);
+      setLogScope({ type: "task", id: taskId });
+      return;
+    }
+    setLogScope(null);
+    setEventLogs((data?.eventLog || []).filter((event) => event.agent_type === "dsh_l3" && event.message_id === taskId));
+  };
+
+  const reloadMonitor = async () => {
+    const next = await api(`/projects/${projectId}/agent-monitor`);
+    setData(next);
+    setError("");
+  };
+
+  const triggerMemory = async (kind: "member" | "projectDocument" | "iterationDocument") => {
+    setRefreshing(kind);
+    try {
+      const path = kind === "member" ? "member-memory"
+        : kind === "projectDocument" ? "project-document-memory"
+        : "iteration-document-memory";
+      await api(`/projects/${projectId}/${path}`, {});
+      await reloadMonitor();
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally {
+      setRefreshing(null);
+    }
+  };
+
+  const triggerOrganization = async () => {
+    setRefreshing("organization");
+    try {
+      await api(`/projects/${projectId}/documents/organize`, {});
+      await reloadMonitor();
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally {
+      setRefreshing(null);
+    }
+  };
 
   useEffect(() => {
     dialog.current?.showModal();
@@ -201,16 +600,37 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
     return () => { alive = false; clearTimeout(timer); };
   }, [projectId]);
 
-  const knowledge = data?.knowledge;
-  const knowledgeState = knowledge?.sessionStatus === "failed"
-    ? { label: "运行失败", tone: "failed" as const }
-    : knowledge?.sessionStatus === "running" || !knowledge || knowledge.ready > 0
-    ? { label: "正在整理", tone: "running" as const }
-    : knowledge.memberPending + knowledge.documentPending > 0
-      ? { label: "等待定时整理", tone: "waiting" as const }
-      : { label: "空闲", tone: "idle" as const };
+  useEffect(() => {
+    const busy = slots.find((item) => item.task && (item.task.execution_active || item.task.status === "running" || item.task.status === "queued"));
+    setSelectedSlot(busy?.slot || 1);
+  }, [selectedThreadId]);
 
-  return <dialog ref={dialog} className="agent-monitor" aria-labelledby="agent-monitor-title" onCancel={onClose}>
+  const knowledge = data?.knowledge;
+  const activeIterations = (data?.coordinators || []).filter((item) => item.status === "active").length;
+  const projectOrgJobs = (knowledge?.organizationJobs || []).filter((job) => job.scope === "project");
+  const projectOrgBusy = projectOrgJobs.some((job) => ["queued", "running"].includes(job.status));
+  const projectOrgLastAt = projectOrgJobs
+    .map((job) => job.finished_at || job.started_at || job.created_at)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || knowledge?.organizationLastAt || null;
+  const organizeBlocked = activeIterations > 0;
+  const knowledgeLast = (() => {
+    if (!knowledge) return { label: "暂无", tone: "idle" as const };
+    if (knowledge.sessionStatus === "running") {
+      const started = time(knowledge.lastStartedAt);
+      return { label: started === "暂无" ? "正在整理" : `正在整理 · ${started}`, tone: "running" as const };
+    }
+    const at = time(knowledge.lastFinishedAt || knowledge.lastUpdatedAt);
+    const failed = knowledge.sessionStatus === "failed" || !!knowledge.lastError;
+    const task = l1TaskLabel(knowledge.lastTask);
+    if (at === "暂无" && !task) return { label: "暂无", tone: "idle" as const };
+    const outcome = failed ? "上次失败" : "上次成功";
+    const label = [task, outcome, at === "暂无" ? "" : at].filter(Boolean).join(" · ");
+    return { label, tone: failed ? "failed" as const : "idle" as const };
+  })();
+
+  return <>
+  <dialog ref={dialog} className="agent-monitor" aria-labelledby="agent-monitor-title" onCancel={onClose}>
     <header className="agent-monitor-header">
       <div>
         <span>项目运行状态</span>
@@ -228,118 +648,261 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
         <time dateTime={data?.generatedAt}>更新于 {time(data?.generatedAt)}</time>
       </div>
 
-      <div className="monitor-view-tabs" role="tablist" aria-label="监控内容">
-        <button type="button" role="tab" aria-selected={view === "status"} onClick={() => setView("status")}>AgentTeam 状态</button>
-        <button type="button" role="tab" aria-selected={view === "logs"} onClick={() => setView("logs")}>轨迹</button>
-      </div>
-
-      {view === "status" ? <>
-
       <section className="monitor-section">
         <div className="monitor-section-heading">
-          <div><span className="monitor-level">一级</span><img className="monitor-avatar" src="/agent-avatars/grandpa.jpg" alt="" /><span className="monitor-agent-name"><strong>老翁</strong><small>项目知识库管理员</small><ModelLabel model={data?.models.knowledge} /></span></div>
-          <State tone={knowledgeState.tone}>{knowledgeState.label}</State>
+          <div>
+            <span className="monitor-level">项目级Agent</span>
+            <img className="monitor-avatar" src="/agent-avatars/grandpa.jpg" alt="" />
+            <span className="monitor-agent-copy">
+              <span className="monitor-agent-title">老翁（项目知识库管理员）</span>
+              <small className={knowledgeLast.tone}>{knowledgeLast.label}</small>
+            </span>
+          </div>
+          <div className="monitor-section-heading-actions">
+            <button type="button" className="monitor-trace-btn" onClick={() => setLogScope({ type: "project", id: projectId })}>轨迹</button>
+          </div>
         </div>
-        <div className="knowledge-status">
-          <dl><div><dt>成员认识</dt><dd>{knowledge?.memberPending || 0} 项待整理</dd></div><i className="knowledge-divider" aria-hidden="true" /><div><dt>文档摘要</dt><dd>{knowledge?.documentPending || 0} 项待整理</dd></div></dl>
-          <p>DSH 会话：{knowledge?.sessionId ? "已建立" : "尚未启动"}{knowledge?.lastTask ? ` · 最近任务：${knowledge.lastTask}` : ""}</p>
-          <p>最近整理：{time(knowledge?.lastUpdatedAt)}{knowledge?.nextAt ? ` · 下次可处理：${time(knowledge.nextAt)}` : ""}{knowledge?.lastError ? ` · ${knowledge.lastError}` : ""}</p>
+        <div className="l1-task-grid">
+          <article className="l1-task-card">
+            <h4>成员认识</h4>
+            <p>说话风格、习惯与喜好</p>
+            <p>{pendingLine("member", knowledge?.memberPending || 0)}</p>
+            <p>最近整理：{time(knowledge?.memberLastAt)}</p>
+            <p>预计下次：{nextTime(knowledge?.memberNextAt, knowledge?.memberPending || 0)}</p>
+            <div className="l1-task-actions">
+              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("member")}>历史记录</button>
+              <button type="button" className="monitor-trace-btn" disabled={refreshing === "member"} onClick={() => void triggerMemory("member")}>
+                {refreshing === "member" ? "排队中…" : "立即整理"}
+              </button>
+            </div>
+          </article>
+          <article className="l1-task-card">
+            <h4>成员发言摘要</h4>
+            <p>浓缩本人发言，供二级省 token</p>
+            <p>{pendingLine("member", knowledge?.memberPending || 0)}</p>
+            <p>最近整理：{time(knowledge?.memberLastAt)}</p>
+            <p>预计下次：{nextTime(knowledge?.memberNextAt, knowledge?.memberPending || 0)}</p>
+            <div className="l1-task-actions">
+              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("member")}>历史记录</button>
+              <button type="button" className="monitor-trace-btn" disabled={refreshing === "member"} onClick={() => void triggerMemory("member")}>
+                {refreshing === "member" ? "排队中…" : "立即整理"}
+              </button>
+            </div>
+          </article>
+          <article className="l1-task-card">
+            <h4>项目文档摘要</h4>
+            <p>项目正式文件的事实摘要</p>
+            <p>{pendingLine("document", knowledge?.projectDocumentPending || 0)}</p>
+            <p>最近整理：{time(knowledge?.projectDocumentLastAt)}</p>
+            <p>预计下次：{nextTime(knowledge?.projectDocumentNextAt, knowledge?.projectDocumentPending || 0)}</p>
+            <div className="l1-task-actions">
+              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("projectDocument")}>历史记录</button>
+              <button type="button" className="monitor-trace-btn" disabled={refreshing === "projectDocument"} onClick={() => void triggerMemory("projectDocument")}>
+                {refreshing === "projectDocument" ? "排队中…" : "立即整理"}
+              </button>
+            </div>
+          </article>
+          <article className="l1-task-card">
+            <h4>迭代文档摘要</h4>
+            <p>各迭代产物与缓存的事实摘要</p>
+            <p>{pendingLine("document", knowledge?.iterationDocumentPending || 0)}</p>
+            <p>最近整理：{time(knowledge?.iterationDocumentLastAt)}</p>
+            <p>预计下次：{nextTime(knowledge?.iterationDocumentNextAt, knowledge?.iterationDocumentPending || 0)}</p>
+            <div className="l1-task-actions">
+              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("iterationDocument")}>历史记录</button>
+              <button type="button" className="monitor-trace-btn" disabled={refreshing === "iterationDocument"} onClick={() => void triggerMemory("iterationDocument")}>
+                {refreshing === "iterationDocument" ? "排队中…" : "立即整理"}
+              </button>
+            </div>
+          </article>
+          <article className="l1-task-card">
+            <h4>项目文档整理</h4>
+            <p>{organizeBlocked ? `有 ${activeIterations} 个未归档迭代，归档后可整理` : "全部迭代已归档，可整理项目正式文件"}</p>
+            <p>最近整理：{time(projectOrgLastAt)}</p>
+            <div className="l1-task-actions">
+              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("organization")}>历史记录</button>
+              <button
+                type="button"
+                className="monitor-trace-btn"
+                disabled={organizeBlocked || projectOrgBusy || refreshing === "organization"}
+                title={organizeBlocked ? "全部迭代归档后才能整理项目正式文件" : undefined}
+                onClick={() => void triggerOrganization()}
+              >
+                {refreshing === "organization" || projectOrgBusy ? "排队中…" : "立即整理"}
+              </button>
+            </div>
+          </article>
+          <article className="l1-task-card">
+            <h4>迭代归档</h4>
+            <p>最近整理：{time(knowledge?.archiveLastAt)}</p>
+            <div className="l1-task-actions">
+              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("archive")}>历史记录</button>
+            </div>
+          </article>
         </div>
       </section>
 
-      <section className="monitor-section monitor-task-pool">
-        <div className="monitor-section-heading"><div><span className="monitor-level">项目级</span><h3>任务池</h3></div><span className="monitor-count">{data?.taskPool.length || 0} 项</span></div>
-        <div className="executor-list">
-          {data?.taskPool.map((task) => <article className="executor-row" key={task.task_id}>
-            <div className="executor-title"><span className="executor-name"><strong>{task.title}</strong><small>{task.task_type === "assist_l2" ? "辅助 L2" : "正式任务"} · 来源 {task.source_user_id || labelExecutorType(task.source_type)}</small></span><State tone={task.run_status === "failed" ? "failed" : ["running", "queued"].includes(task.run_status || task.task_status) ? "running" : task.run_status === "waiting" ? "waiting" : "idle"}>{labelWorkflowStatus(task.run_status || task.task_status)}</State></div>
-            <p>{task.progress || task.goal}</p>
-            <footer><span>创建 {formatActorRef(task.created_by_type, task.created_by_id)} · 责任 {task.target_type ? formatActorRef(task.target_type, task.target_id) : "未指派"}</span><span>认领 {task.claimed_by_type ? formatActorRef(task.claimed_by_type, task.claimed_by_id) : "无"} · 执行 {task.executor_type ? formatActorRef(task.executor_type, task.executor_id) : "未选择"}</span>{task.result_summary ? <span>结果：{task.result_summary.slice(0, 180)}</span> : null}{artifactCount(task.artifact_refs) ? <span>产物 {artifactCount(task.artifact_refs)} 项</span> : null}</footer>
-          </article>)}
-          {!data?.taskPool.length && <p className="monitor-empty">当前没有项目任务。</p>}
+      <section className="monitor-section monitor-coordinators">
+        <div className="monitor-section-heading">
+          <div>
+            <span className="monitor-level">迭代级Agents</span>
+            <img className="monitor-avatar" src="/agent-avatars/xiaojingang.jpg" alt="" />
+            <span className="monitor-agent-title">小祥（任务调度员）</span>
+          </div>
+          <span className="monitor-count">{data?.coordinators.length || 0} 个</span>
+        </div>
+        <div className="coordinator-list">
+          {data?.coordinators.map((item) => {
+            const busy = item.running_requests + item.queued_requests > 0;
+            const status = item.status === "archived" ? "已归档" : busy ? "调度中" : "待命";
+            return <button type="button" className={`coordinator-row ${selectedThreadId === item.id ? "selected" : ""}`} key={item.id} aria-label={`${item.title} ${status}`} aria-pressed={selectedThreadId === item.id} onClick={() => setSelectedThreadId(item.id)}>
+              <span className="coordinator-copy">
+                <OverflowTitle text={item.title} />
+                <small>{status}</small>
+              </span>
+            </button>;
+          })}
+          {!data?.coordinators.length && <p className="monitor-empty">项目还没有迭代。</p>}
         </div>
       </section>
 
-      <div className="monitor-workspace">
-        <section className="monitor-section monitor-coordinators">
-          <div className="monitor-section-heading">
-            <div><span className="monitor-level">二级</span><h3>任务调度员</h3></div>
-            <span className="monitor-count">{data?.coordinators.length || 0} 个</span>
+      <section className="monitor-section monitor-executors">
+        <div className="monitor-section-heading">
+          <div>
+            <span className="monitor-level">任务级Agents</span>
+            {selectedAgent ? <img className="monitor-avatar" src={`/agent-avatars/${selectedAgent.agent.avatar}`} alt="" /> : null}
+            <span className="monitor-agent-title">{selectedAgent ? `${selectedAgent.agent.name}（任务执行者）` : "任务执行者"}</span>
           </div>
-          <div className="coordinator-list">
-            {data?.coordinators.map((item) => {
-              const busy = item.running_requests + item.queued_requests > 0;
-              return <button type="button" className={`coordinator-row ${selectedThreadId === item.id ? "selected" : ""}`} key={item.id} aria-pressed={selectedThreadId === item.id} onClick={() => setSelectedThreadId(item.id)}>
-                <img className="monitor-avatar" src="/agent-avatars/xiaojingang.jpg" alt="" />
-                <span className="coordinator-copy"><strong>小祥</strong><ModelLabel model={data?.models.coordinator} /><small>{item.title} · {item.status === "archived" ? "已归档" : `${item.active_executors}/7 工作中 · ${item.convergence_state === "waiting" ? "等待中" : item.convergence_state === "stable" ? "已收敛" : "调整第 " + item.steering_epoch + " 轮"}`} · {time(item.last_activity_at)}</small>{item.react_phase || item.current_action ? <small>阶段 {item.react_phase || "准备"} · {item.current_action || "继续评估"}</small> : null}{item.wait_reason ? <small>等待：{item.wait_reason}</small> : null}{item.recent_message ? <small title={item.recent_message}>最近发言：{item.recent_message}</small> : null}</span>
-                <State tone={item.status === "archived" ? "idle" : busy ? "running" : "idle"}>{item.status === "archived" ? "归档" : busy ? "调度中" : "待命"}</State>
-              </button>;
-            })}
-            {!data?.coordinators.length && <p className="monitor-empty">项目还没有迭代。</p>}
-          </div>
-        </section>
-
-        <section className="monitor-section monitor-humans">
-          <div className="monitor-section-heading"><div><span className="monitor-level">三级</span><h3>人类成员子 Agent</h3></div><span className="monitor-count">{data?.humanAgents.length || 0} 人</span></div>
-          <div className="executor-list">
-            {data?.humanAgents.map((member) => <article className="executor-row human-agent-tree" key={member.member_id}>
-              <div className="executor-title"><span className="monitor-avatar" aria-hidden="true" /><span className="executor-name"><strong>{member.name}</strong><small>任务责任主体</small></span><State tone="idle">成员账号</State></div>
-              <div className="human-agent-nodes">
-                {member.nodes.map((node) => {
-                  const task = data?.taskPool.find((item) => item.executor_type === node.executor_type && item.executor_id === node.executor_id && ["queued", "running", "waiting"].includes(item.run_status || item.task_status))
-                    || data?.taskPool.find((item) => item.target_type === "human_member" && item.target_id === member.member_id && !item.executor_type && !["completed", "failed", "cancelled", "superseded"].includes(item.task_status));
-                  return <div key={node.executor_type}>
-                    <span><strong>{node.executor_type === "human_self" ? "成员本人" : "本地 Codex"}</strong><small>{labelExecutorType(node.executor_type)}{task ? ` · ${task.title} · 来源 ${task.source_user_id || labelExecutorType(task.source_type)}` : ""}</small></span>
-                    <State tone={!node.online ? "waiting" : task ? "running" : "idle"}>{node.executor_type === "human_connector" && !node.configured ? "未关联" : !node.online ? "离线" : task ? "执行中" : "在线"}</State>
-                  </div>;
-                })}
-              </div>
-            </article>)}
-            {!data?.humanAgents.length && <p className="monitor-empty">暂无人类成员。</p>}
-          </div>
-        </section>
-        <section className="monitor-section monitor-executors">
-          <div className="monitor-section-heading">
-            <div><span className="monitor-level">三级</span><h3>{selectedCoordinator?.title || "任务执行者"}</h3></div>
-            <span className="monitor-count">{selectedCoordinator?.active_executors || 0}/7 工作中</span>
-          </div>
-          <div className="executor-list">
+          <span className="monitor-count">{selectedCoordinator?.active_executors || 0}/7 工作中</span>
+        </div>
+        <div className="l3-workspace">
+          <div className="l3-agent-list" role="listbox" aria-label="任务级Agents">
             {slots.map(({ slot, agent, task }) => {
               const state = task ? taskState(task) : { label: "空闲", tone: "idle" as const };
-              const active = !!task && (task.execution_active || task.status === "running" || task.status === "queued");
-              return <article className={`executor-row ${active ? "active" : ""}`} key={slot} style={{ "--agent-color": agent.color, "--agent-tint": agent.tint } as React.CSSProperties}>
-                <div className="executor-title"><img className="monitor-avatar" src={`/agent-avatars/${agent.avatar}`} alt="" /><span className="executor-name"><strong>{agent.name}</strong><ModelLabel model={data?.models.executor} /><small>{slot} 号 DSH L3 · {task ? task.progress || task.goal : "等待任务"}</small></span><State tone={state.tone}>{state.label}</State></div>
-                {task ? <>
-                  <p>{active ? task.goal : `上次任务：${task.goal}`}</p>
-                  <footer><span>来源 {task.requested_by || labelExecutorType(task.source_type)} · 责任 {formatActorRef(task.target_type, task.target_id)}</span><span>执行 {task.executor_type ? formatActorRef(task.executor_type, task.executor_id || "待绑定") : "未选择"}{task.progress ? ` · ${task.progress}` : ""}</span>{task.result_summary ? <span>结果：{task.result_summary.slice(0, 160)}</span> : null}{artifactCount(task.artifact_refs) ? <span>产物 {artifactCount(task.artifact_refs)} 项</span> : null}<time>{time(task.last_action_at || task.finished_at || task.started_at)}</time></footer>
-                </> : <p className="executor-idle-copy">当前没有任务</p>}
-              </article>;
+              const activeAt = time(task?.last_action_at || task?.finished_at || task?.started_at);
+              return <button type="button" role="option" aria-selected={selectedSlot === slot} aria-label={`${agent.name} ${state.label} ${activeAt}`} className={selectedSlot === slot ? "selected" : ""} key={slot} style={{ "--agent-color": agent.color } as React.CSSProperties} onClick={() => setSelectedSlot(slot)}>
+                <img className="monitor-avatar" src={`/agent-avatars/${agent.avatar}`} alt="" />
+                <span className="l3-agent-copy"><strong>{agent.name}</strong><small>{activeAt}</small></span>
+              </button>;
             })}
           </div>
-        </section>
-      </div>
-      </> : <section className="monitor-section monitor-log-section">
-        <div className="monitor-section-heading">
-          <div><span className="monitor-level">DSH</span><h3>事件摘要</h3></div>
-          <span className="monitor-count">最近 {data?.eventLog.length || 0} 条</span>
+          <div className="l3-agent-pane">
+            <div className="l3-agent-pane-body">
+              <div className="l3-task-group">
+                <h4>待处理 {pendingTasks.length} 项</h4>
+                <div className="executor-list">
+                  {pendingTasks.map((task) => <L3TaskCard
+                    key={task.task_id}
+                    title={task.title}
+                    meta={`${task.task_type === "assist_l2" ? "辅助 L2" : "正式任务"} · 来源 ${task.source_user_id || labelExecutorType(task.source_type)}`}
+                    tone={poolTone(task)}
+                    status={labelWorkflowStatus(task.run_status || task.task_status)}
+                    onDetail={() => setTaskDetail(pendingDetail(task))}
+                    onTrace={() => openTaskTrace(task.task_id)}
+                  />)}
+                  {!pendingTasks.length && <p className="monitor-empty">没有待处理任务。</p>}
+                </div>
+              </div>
+              <div className="l3-task-group">
+                <h4>已接过 {claimedTasks.length} 项</h4>
+                <div className="executor-list">
+                  {claimedTasks.map((task) => {
+                    const state = taskState(task);
+                    const active = !!task.execution_active || task.status === "running" || task.status === "queued";
+                    const title = threadPool.find((item) => item.task_id === task.task_id)?.title
+                      || task.progress
+                      || (task.task_type === "assist_l2" ? "辅助任务" : "执行任务");
+                    return <L3TaskCard
+                      key={task.task_id}
+                      title={title}
+                      meta={`${active ? "正在执行" : "已接过"} · ${task.requested_by || labelExecutorType(task.source_type)}`}
+                      tone={state.tone}
+                      status={state.label}
+                      style={{ "--agent-color": selectedAgent?.agent.color, "--agent-tint": selectedAgent?.agent.tint } as React.CSSProperties}
+                      onDetail={() => setTaskDetail(claimedDetail(task, threadPool.find((item) => item.task_id === task.task_id)?.title))}
+                      onTrace={() => openTaskTrace(task.task_id)}
+                    />;
+                  })}
+                  {!claimedTasks.length && <p className="monitor-empty">还没有接过任务。</p>}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="monitor-log-list">
-          {data?.eventLog.map((event) => <article className="monitor-log-row" key={event.id}>
-            <span className={`monitor-log-icon ${event.status}`} aria-hidden="true" />
-            <span className="monitor-log-main">
-              <strong>{event.action}</strong>
-              <small>{event.agent_type === "l2" ? "二级小祥" : "三级小祥"} · {event.thread_title} · {event.tool}</small>
-            </span>
-            <span className="monitor-log-meta">
-              <State tone={event.status === "failed" ? "failed" : event.status === "running" ? "running" : "idle"}>{labelAgentEventStatus(event.status)}</State>
-              <time>{time(event.created_at)}</time>
-              {event.duration_ms != null ? <small>{formatDurationMs(event.duration_ms)}</small> : null}
-            </span>
-          </article>)}
-          {!data?.eventLog.length && <p className="monitor-empty">暂无 DSH 运行事件。</p>}
-        </div>
-        <p className="monitor-log-note">轨迹摘要展示步骤、工具、Agent 层级、状态和耗时。思考正文、完整工具参数与敏感输出在监控器中保持折叠，点开对应轨迹可查看详情。</p>
-      </section>}
+      </section>
     </>}
     {error && <p className="monitor-error" role="alert">{error}</p>}
-  </dialog>;
+  </dialog>
+  {taskDetail ? <L3TaskDetailDialog detail={taskDetail} onClose={() => setTaskDetail(null)} /> : null}
+  {logScope ? <AgentLogDialog scope={logScope} api={api} onClose={() => setLogScope(null)} /> : null}
+  {eventLogs ? <EventLogDialog events={eventLogs} onClose={() => setEventLogs(null)} /> : null}
+  {historyKind === "member" ? <L1HistoryDialog
+    title="成员认识与发言摘要"
+    empty="还没有成员整理记录。"
+    columns={L1_RUN_COLUMNS}
+    rows={l1RunRows(knowledge?.memberRuns, " 人")}
+    onClose={() => setHistoryKind(null)}
+  /> : null}
+  {historyKind === "projectDocument" ? <L1HistoryDialog
+    title="项目文档摘要"
+    empty="还没有项目文档摘要记录。"
+    columns={L1_RUN_COLUMNS}
+    rows={l1RunRows(knowledge?.projectDocumentRuns, " 份")}
+    onClose={() => setHistoryKind(null)}
+  /> : null}
+  {historyKind === "iterationDocument" ? <L1HistoryDialog
+    title="迭代文档摘要"
+    empty="还没有迭代文档摘要记录。"
+    columns={L1_RUN_COLUMNS}
+    rows={l1RunRows(knowledge?.iterationDocumentRuns, " 份")}
+    onClose={() => setHistoryKind(null)}
+  /> : null}
+  {historyKind === "organization" ? <L1HistoryDialog
+    title="项目文档整理"
+    empty="还没有项目文档整理记录。"
+    onClose={() => setHistoryKind(null)}
+    columns={[
+      { key: "time", label: "时间" },
+      { key: "scope", label: "范围" },
+      { key: "count", label: "文档数" },
+      { key: "status", label: "状态" },
+      { key: "note", label: "说明" },
+    ]}
+    rows={projectOrgJobs.map((job) => ({
+      id: job.id,
+      tone: job.status === "failed" ? "failed" as const
+        : job.status === "running" ? "running" as const
+        : job.status === "queued" ? "waiting" as const
+        : "idle" as const,
+      cells: {
+        time: time(job.finished_at || job.started_at || job.created_at),
+        scope: job.scope === "project" ? "项目正式文件" : (job.thread_title || "迭代文档"),
+        count: job.document_count != null ? `${job.document_count} 份` : "—",
+        status: runStatusLabel(job.status),
+        note: job.error || "",
+      },
+    }))}
+  /> : null}
+  {historyKind === "archive" ? <L1HistoryDialog
+    title="迭代归档"
+    empty="还没有迭代归档记录。"
+    onClose={() => setHistoryKind(null)}
+    columns={[
+      { key: "time", label: "时间" },
+      { key: "title", label: "迭代" },
+      { key: "note", label: "结论" },
+      { key: "status", label: "状态" },
+    ]}
+    rows={(knowledge?.archives || []).map((item) => ({
+      id: item.id,
+      tone: "idle" as const,
+      cells: {
+        time: time(item.archived_at),
+        title: item.title,
+        note: item.conclusion || "无结论",
+        status: "已完成",
+      },
+    }))}
+  /> : null}
+  </>;
 }

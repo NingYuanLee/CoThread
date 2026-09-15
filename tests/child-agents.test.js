@@ -82,6 +82,8 @@ test("project monitor reports knowledge, coordinators and isolated execution slo
 
   const monitor = await service.agentMonitor(users[0], project.id);
   assert.ok(monitor.knowledge.memberPending >= 1);
+  assert.ok(Array.isArray(monitor.knowledge.organizationJobs));
+  assert.ok(Array.isArray(monitor.knowledge.archives));
   assert.equal(monitor.coordinators.find((item) => item.id === thread.id).active_executors, 1);
   assert.equal(monitor.executors.find((item) => item.task_id === task.id).agent_slot, 1);
   assert.equal(monitor.executors.find((item) => item.task_id === task.id).execution_active, 1);

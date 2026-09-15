@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS agent_l1_runs (
+ id CHAR(36) PRIMARY KEY,
+ project_id CHAR(36) NOT NULL,
+ task VARCHAR(40) NOT NULL,
+ trigger_source ENUM('schedule','user') NOT NULL,
+ status ENUM('queued','running','completed','failed') NOT NULL DEFAULT 'queued',
+ agent_called BOOLEAN NOT NULL DEFAULT FALSE,
+ had_updates BOOLEAN NOT NULL DEFAULT FALSE,
+ item_count INT NULL,
+ requested_by CHAR(36) NULL,
+ error VARCHAR(255) NULL,
+ result JSON NULL,
+ created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+ started_at DATETIME(3) NULL,
+ finished_at DATETIME(3) NULL,
+ INDEX l1_runs_project_task(project_id,task,created_at),
+ INDEX l1_runs_status(status,created_at),
+ FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+ FOREIGN KEY(requested_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

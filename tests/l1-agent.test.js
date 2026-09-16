@@ -91,6 +91,19 @@ test("L1 session view projects native DSH history and stays empty without a chec
     const view = await readL1TaskSession(service, user, project.id, "member_memory");
     assert.deepEqual(view.messages.map((row) => row.text), ["整理成员发言", "已更新认识"]);
     assert.equal(view.running, false);
+    const jsonlId = randomUUID();
+    const jsonl = [
+      JSON.stringify({ type: "session", version: 0, id: jsonlId, createdAt: 1, cwd: "/tmp", delegationDepth: 0 }),
+      JSON.stringify({ type: "user/message", seq: 0, data: { role: "user", content: [{ type: "text", text: "文档摘要任务" }] } }),
+      JSON.stringify({ type: "assistant/message", seq: 1, data: { message: { content: [{ type: "text", text: "已生成摘要" }] } } }),
+    ].join("\n");
+    await query(database.db, `INSERT INTO agent_project_sessions
+      (id,project_id,task,thread_id,scope_id,session_id,checkpoint) VALUES(?,?,?,?,?,?,?)`,
+      [randomUUID(), project.id, "document_memory", null, project.id, jsonlId, gzipSync(JSON.stringify({
+        [`--tmp--/${jsonlId}/session.jsonl`]: Buffer.from(jsonl).toString("base64"),
+      }))]);
+    const fromLog = await readL1TaskSession(service, user, project.id, "document_memory");
+    assert.deepEqual(fromLog.messages.map((row) => row.text), ["文档摘要任务", "已生成摘要"]);
   } finally {
     await database.close();
   }

@@ -596,7 +596,7 @@ function TaskSessionDialog({
           messageId={live?.messageId || ""}
           events={events}
           output={liveOutput}
-          status={data.status}
+          status={data.status || "running"}
           progress={data.progress}
           hasFinal={data.status === "completed"}
         />

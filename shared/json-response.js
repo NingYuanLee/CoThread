@@ -21,7 +21,7 @@ export async function readJsonResponse(response, path = "接口") {
 export async function requestJson(path, options = {}, fetcher = fetch) {
   const attempts = (!options.method || options.method === "GET") ? 2 : 1;
   for (let attempt = 0; attempt < attempts; attempt++) {
-    const signal = AbortSignal.any([AbortSignal.timeout(attempts === 2 ? 20000 : 120000), ...(options.signal ? [options.signal] : [])]);
+    const signal = AbortSignal.any([AbortSignal.timeout(attempts === 2 ? 40000 : 120000), ...(options.signal ? [options.signal] : [])]);
     try { return await readJsonResponse(await fetcher(path, { ...options, signal }), path); }
     catch (error) {
       if (options.signal?.aborted) throw error;

@@ -1,24 +1,25 @@
 import express from "express";
+import { createServer as createHttpServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { createDatabase, query } from "./db.js";
 import { createApp } from "./app.js";
 import { startReplyWorker } from "./replies.js";
+
+const production = process.argv.includes("--production");
+const apiOnly = process.argv.includes("--api-only");
 const databaseHost = new URL(process.env.DATABASE_URL).hostname;
 if (!["127.0.0.1", "localhost", "[::1]"].includes(databaseHost))
   console.warn(
     `警告：本地后台执行器将连接远端数据库 ${databaseHost}，请确认不会与其他执行器重复处理任务。`,
   );
-const db = await createDatabase();
+const db = await createDatabase(undefined, { connectionLimit: 8 });
+const workDb = await createDatabase(undefined, { connectionLimit: 16 });
 await query(db, "SELECT 1");
-// A single application process owns runs in this first release. Crashed runs are never reported as successful.
-await query(
-  db,
-  "UPDATE sandbox_runs SET status='interrupted',output='服务重启，执行结果未确认；沙箱按超时回收。',finished_at=UTC_TIMESTAMP(3) WHERE status='running'",
-);
 const app = createApp(db);
-const stopReplyWorker = await startReplyWorker(db);
 let vite;
-if (process.argv.includes("--production")) {
+let server;
+if (production) {
   const dist = resolve("dist");
   app.use(express.static(dist, {
     index: false,
@@ -31,26 +32,76 @@ if (process.argv.includes("--production")) {
     res.setHeader("Cache-Control", "no-store");
     res.sendFile(resolve(dist, "index.html"));
   });
-} else {
+  server = createHttpServer(app);
+} else if (!apiOnly) {
+  const httpServer = createHttpServer(app);
   vite = await (
     await import("vite")
-  ).createServer({ server: { middlewareMode: true }, appType: "spa" });
+  ).createServer({
+    configFile: resolve("vite.config.mjs"),
+    server: {
+      middlewareMode: true,
+      hmr: { server: httpServer },
+      watch: { ignored: ["**/.git/**", "**/.local/**", "**/dist/**", "**/node_modules/**"] },
+    },
+    appType: "spa",
+  });
+  const indexPath = resolve("index.html");
+  let indexTemplate = readFileSync(indexPath, "utf8");
+  app.use(async (req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD") return next();
+    const path = req.path;
+    if (path.startsWith("/api") || path === "/mcp" || path.startsWith("/mcp/")) return next();
+    if (/\.[a-zA-Z0-9]+($|\?)/.test(path)) return next();
+    try {
+      const html = await vite.transformIndexHtml(req.originalUrl, indexTemplate);
+      res.status(200).set("Content-Type", "text/html").end(html);
+    } catch (err) {
+      vite.ssrFixStacktrace(err);
+      next(err);
+    }
+  });
   app.use(vite.middlewares);
+  server = httpServer;
+} else {
+  server = createHttpServer(app);
 }
-const server = app.listen(
-  Number(process.env.PORT || 3100),
-  process.env.HOST || "127.0.0.1",
-  () =>
-    console.log(
-      `共序已启动：${process.env.APP_ORIGIN || "http://localhost:3100"}`,
-    ),
+const port = Number(process.env.PORT || 3100);
+const host = process.env.HOST || "127.0.0.1";
+server.listen(port, host);
+await new Promise((resolve, reject) => {
+  server.once("listening", resolve);
+  server.once("error", reject);
+});
+console.log(
+  apiOnly
+    ? `共序接口已启动：http://${host}:${port}`
+    : `共序已启动：${process.env.APP_ORIGIN || `http://${host}:${port}`}`,
 );
+if (vite) {
+  void (async () => {
+    try {
+      console.log("正在预热前端入口…");
+      for (const url of ["/@vite/client", "/web/main.tsx"]) {
+        await vite.warmupRequest(url);
+      }
+      console.log("前端入口已预热。");
+    } catch (err) {
+      console.warn("前端预热失败（可忽略，首屏可能稍慢）:", err?.message || err);
+    }
+  })();
+}
+await query(
+  workDb,
+  "UPDATE sandbox_runs SET status='interrupted',output='服务重启，执行结果未确认；沙箱按超时回收。',finished_at=UTC_TIMESTAMP(3) WHERE status='running'",
+);
+const stopReplyWorker = await startReplyWorker(workDb);
 for (const signal of ["SIGINT", "SIGTERM"])
   process.on(signal, () => {
     stopReplyWorker();
     server.close(async () => {
       await vite?.close();
-      await db.end();
+      await Promise.all([db.end(), workDb.end()]);
       process.exit(0);
     });
   });

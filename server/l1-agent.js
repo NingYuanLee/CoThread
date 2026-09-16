@@ -21,7 +21,7 @@ export function l1SessionScope(task, { projectId } = {}) {
   return { task: normalized, scopeId: projectId };
 }
 
-async function saveCheckpoint(db, sessionRowId, home) {
+async function saveCheckpoint(db, sessionRowId, home, modelMessages) {
   const files = {};
   async function walk(path, prefix = "") {
     for (const entry of await readdir(path, { withFileTypes: true }).catch(
@@ -33,9 +33,20 @@ async function saveCheckpoint(db, sessionRowId, home) {
     }
   }
   await walk(join(home, "sessions"));
+  if (modelMessages) files["_cothread_context.json"] = Buffer.from(JSON.stringify(modelMessages)).toString("base64");
   const checkpoint = gzipSync(JSON.stringify(files));
   if (checkpoint.length > 10 * 1024 * 1024) throw new Error("L1 会话快照超过 10 MiB");
   await query(db, "UPDATE agent_project_sessions SET checkpoint=? WHERE id=?", [checkpoint, sessionRowId]);
+}
+
+async function sampleHistory(harness, sessionId) {
+  if (!harness?.client?.request) return null;
+  try {
+    const history = await harness.client.request("cothread/history", { sessionId });
+    return Array.isArray(history) && history.length ? history : null;
+  } catch {
+    return null;
+  }
 }
 
 function parseJsonResponse(text) {
@@ -173,10 +184,11 @@ export async function runL1Task(db, projectId, task, input, schema, options = {}
       await beginPhase("validate_result");
       const parsed = schema.parse(parseJsonResponse(result.finalResponse));
       const contextStats = await sampleContextStats(harness, session.session_id);
+      const history = await sampleHistory(harness, session.session_id);
       await harness.close();
       harness = null;
       await beginPhase("save_checkpoint");
-      await saveCheckpoint(db, sessionRowId, opened.home);
+      await saveCheckpoint(db, sessionRowId, opened.home, history);
       await query(db, `UPDATE agent_project_sessions SET status='idle',last_finished_at=UTC_TIMESTAMP(3),
         last_error=NULL,context_stats=COALESCE(?,context_stats) WHERE id=?`,
       [contextStats ? JSON.stringify(contextStats) : null, sessionRowId]);
@@ -214,7 +226,8 @@ export async function compactL1Session(db, projectId, task, options = {}) {
         ? await requestCompact(harness, session.session_id, !!options.automatic)
         : { before: used, after: used, changed: false };
       const after = await sampleContextStats(harness, session.session_id);
-      await saveCheckpoint(db, session.id, opened.home);
+      const history = await sampleHistory(harness, session.session_id);
+      await saveCheckpoint(db, session.id, opened.home, history);
       await query(db, `UPDATE agent_project_sessions SET context_stats=COALESCE(?,context_stats) WHERE id=?`,
         [after ? JSON.stringify(after) : null, session.id]);
       await harness.close();

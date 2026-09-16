@@ -23,11 +23,10 @@ const loadComposer = () => import("./ChatComposer");
 const ChatComposer = lazy(() => loadComposer().then((module) => ({ default: module.ChatComposer })));
 import { ContextMeter } from "./ContextMeter";
 import { Notifications } from "./Notifications";
-import { ProjectSettings } from "./ProjectSettings";
+import { ProjectManagement } from "./ProjectManagement";
 import { AgentMonitor } from "./AgentMonitor";
 import { AgentLogDialog, AgentTrajectory } from "./AgentLogDialog";
 import type { AgentLogScope } from "./agent-trajectory";
-import { MemberPicker } from "./MemberPicker";
 import { SystemManagement } from "./SystemManagement";
 import { EmailAuth } from "./EmailAuth";
 import { EmailBinding } from "./EmailBinding";
@@ -37,7 +36,7 @@ import { ConnectorPanel, type ConnectorDevice } from "./ConnectorPanel";
 import { ConnectorAuthorization } from "./ConnectorAuthorization";
 import type { ContextUsage } from "../shared/context.js";
 import { createResourceCache } from "../shared/resource-cache.js";
-import { IdentityName, RoleBadge } from "./Identity";
+import { IdentityName } from "./Identity";
 import {
   ProfileFields,
   prepareAvatar,
@@ -63,7 +62,7 @@ function PanelIcon({ side }: { side: "left" | "right" }) {
     </svg>
   );
 }
-function SidebarIcon({ kind }: { kind: "plus" | "monitor" }) {
+function SidebarIcon({ kind }: { kind: "plus" | "monitor" | "project" }) {
   return (
     <svg
       width="18"
@@ -82,6 +81,11 @@ function SidebarIcon({ kind }: { kind: "plus" | "monitor" }) {
           <circle cx="4" cy="7" r="1" />
           <circle cx="10" cy="3" r="1" />
           <circle cx="16" cy="10" r="1" />
+        </>
+      ) : kind === "project" ? (
+        <>
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+          <path d="M3 11h18" />
         </>
       ) : (
         <path d="M12 5v14M5 12h14" />
@@ -541,6 +545,7 @@ function App() {
   }, [copiedMessage]);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
+  const [projectManagementOpen, setProjectManagementOpen] = useState(false);
   const [agentLogScope, setAgentLogScope] = useState<AgentLogScope | null>(null);
   const [connectorOpen, setConnectorOpen] = useState(false);
   const connectorAuthorizationParams = new URLSearchParams(location.search);
@@ -562,6 +567,7 @@ function App() {
   const [connectors, setConnectors] = useState<ConnectorDevice[]>([]);
   const [connectorAvailability, setConnectorAvailability] = useState<AvailableConnector[]>([]);
   const [documentId, setDocumentId] = useState("");
+  const [rightPanelWidth, setRightPanelWidth] = useState<number | null>(null);
   const showDocument = (id?: string) => {
     setDocumentId(id || detail?.versions.find((v) => !v.deleted_at)?.id || "");
     setLibraryOpen(true);
@@ -585,9 +591,6 @@ function App() {
   const [contextOpen, setContextOpen] = useState(
     () => window.innerWidth > 1100,
   );
-  const [memberPickerOpen, setMemberPickerOpen] = useState(false);
-  const [memberSearch, setMemberSearch] = useState("");
-  const [tab, setTab] = useState<"documents" | "members" | "info">("documents");
   const [taskPool, setTaskPool] = useState<AgentTask[]>([]);
   const [taskMine, setTaskMine] = useState(true);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
@@ -668,14 +671,16 @@ function App() {
   const loadWorkspace = async (signal?: AbortSignal) => {
     setLoading(true);
     setStartupError("");
-    void loadComposer().catch(() => {});
     let selection: { projectId?: string; threadId?: string } = {};
     try { const saved = JSON.parse(sessionStorage.getItem("cothread-selection") || "{}"); if (saved && typeof saved === "object") selection = saved; } catch {}
+    const workspaceSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(45000)])
+      : AbortSignal.timeout(45000);
     try {
       const params = new URLSearchParams();
       if (typeof selection.projectId === "string") params.set("projectId", selection.projectId);
       if (typeof selection.threadId === "string") params.set("threadId", selection.threadId);
-      const workspace = await api(`/workspace?${params}`, undefined, undefined, signal);
+      const workspace = await api(`/workspace?${params}`, undefined, undefined, workspaceSignal);
       if (signal?.aborted) return;
       projectCache.current.clear();
       threadCache.current.clear();
@@ -1223,7 +1228,14 @@ function App() {
     const v = detail?.versions.find((v) => v.id === ref);
     return (
       <button key={ref} type="button" className="ref" onClick={() => showDocument(ref)}>
-        ↗ {v ? `${v.title} · v${v.version}` : ref}
+        ↗ {v ? (
+          (v.review === "confirmed"
+            || v.review === "draft"
+            || v.folder_kind === "project_cache"
+            || v.folder_kind === "iteration_cache")
+            ? v.title
+            : `${v.title} · v${v.version}`
+        ) : ref}
       </button>
     );
   };
@@ -1280,9 +1292,31 @@ function App() {
     ) || [];
   const visibleThreads =
     detail?.threads.filter((t) => showArchived || t.status === "active") || [];
+  const startPanelDrag = (event: React.PointerEvent) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth =
+      rightPanelWidth ??
+      document.querySelector(".context-panel")?.getBoundingClientRect().width ??
+      380;
+    const onMove = (move: PointerEvent) => {
+      const max = Math.max(320, Math.round(window.innerWidth * 0.6));
+      const next = Math.min(Math.max(startWidth + (startX - move.clientX), 220), max);
+      setRightPanelWidth(next);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.classList.remove("col-resizing");
+    };
+    document.body.classList.add("col-resizing");
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
   return (
     <div
       className={`app-shell ${leftOpen ? "" : "left-closed"} ${contextOpen ? "" : "right-closed"}`}
+      style={rightPanelWidth ? ({ "--right-panel": `${rightPanelWidth}px` } as React.CSSProperties) : undefined}
     >
       <header className="workspace-topbar">
         <nav className="project-tabs" aria-label="项目页签">
@@ -1544,14 +1578,25 @@ function App() {
         </button>
         <div className="sidebar-bottom">
           <button
+            className="sidebar-card sidebar-project-management"
+            title="项目基础信息与成员管理"
+            aria-label="项目管理"
+            disabled={!projectId}
+            onClick={() => setProjectManagementOpen(true)}
+          >
+            <span className="sidebar-card-icon"><SidebarIcon kind="project" /></span>
+            <span className="sidebar-card-copy">项目管理<small>基础信息与成员管理</small></span>
+            <span className="sidebar-card-action" aria-hidden="true">›</span>
+          </button>
+          <button
             className="sidebar-card sidebar-monitor"
             title="查看所有小祥的运行状态"
-            aria-label="小祥监控"
+            aria-label="小祥Agent监控"
             disabled={!projectId}
             onClick={() => setMonitorOpen(true)}
           >
             <span className="sidebar-card-icon"><SidebarIcon kind="monitor" /></span>
-            <span className="sidebar-card-copy">小祥监控<small>调度、执行与知识整理</small></span>
+            <span className="sidebar-card-copy">小祥Agent监控<small>调度、执行与知识整理</small></span>
             <span className="sidebar-card-action" aria-hidden="true">›</span>
           </button>
           <button
@@ -2028,7 +2073,15 @@ function App() {
           </>
         )}
       </main>
-      <aside className={`context-panel ${contextOpen ? "context-open" : ""}`}>
+      <aside className={`context-panel context-doc-browser ${contextOpen ? "context-open" : ""}`}>
+        <div
+          className="panel-resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="拖拽调整对话区与右侧栏宽度"
+          title="拖拽调整宽度"
+          onPointerDown={startPanelDrag}
+        />
         <button
           className="panel-close"
           aria-label="关闭项目侧栏"
@@ -2036,141 +2089,43 @@ function App() {
         >
           ×
         </button>
-        <div className="panel-tabs">
-          <button
-            className={tab === "documents" ? "active" : ""}
-            onClick={() => setTab("documents")}
-          >
-            文档库{" "}
-            <small>
-              {
-                new Set(
-                  detail?.versions
-                    .filter((v) => !v.deleted_at)
-                    .map((v) => v.artifact_id),
-                ).size
+        {projectId && (
+          <Suspense fallback={<p className="muted">正在加载文件树…</p>}>
+            <Documents
+              embedded
+              browser
+              key={projectId}
+              projectId={projectId}
+              threadId={threadId || undefined}
+              writable={writable}
+              iterationWritable={active}
+              folders={detail?.folders || []}
+              versions={detail?.versions || []}
+              organizationJobs={detail?.documentOrganizationJobs || []}
+              selected={documentId}
+              onSelect={setDocumentId}
+              onClose={() => {}}
+              onRefresh={async () =>
+                setDetail(await api(`/projects/${projectId}?view=chat`))
               }
-            </small>
-          </button>
-          <button
-            className={tab === "members" ? "active" : ""}
-            onClick={() => setTab("members")}
-          >
-            成员 <small>{detail?.members.length || 0}</small>
-          </button>
-          <button
-            className={tab === "info" ? "active" : ""}
-            onClick={() => setTab("info")}
-          >
-            基本信息
-          </button>
-        </div>
-        {tab === "documents" ? (
-          projectId && (
-            <Suspense fallback={<p className="muted">正在加载文件树…</p>}>
-              <Documents
-                embedded
-                key={`${projectId}:${threadId}`}
-                projectId={projectId}
-                threadId={threadId || undefined}
-                writable={writable}
-                iterationWritable={active}
-                folders={detail?.folders || []}
-                versions={detail?.versions || []}
-                organizationJobs={detail?.documentOrganizationJobs || []}
-                selected={documentId}
-                onSelect={setDocumentId}
-                onOpen={showDocument}
-                onClose={() => {}}
-                onRefresh={async () =>
-                  setDetail(await api(`/projects/${projectId}?view=chat`))
-                }
-                onReference={
-                  active
-                    ? (id) =>
-                        setRefs((previous) =>
-                          [...new Set([...previous, id])].slice(0, 30),
-                        )
-                    : undefined
-                }
-              />
-            </Suspense>
-          )
-        ) : tab === "members" ? (
-          <>
-            <input
-              className="member-search"
-              aria-label="搜索成员"
-              placeholder="搜索成员"
-              value={memberSearch}
-              onChange={(e) => setMemberSearch(e.target.value)}
+              onReference={
+                active
+                  ? (id) =>
+                      setRefs((previous) =>
+                        [...new Set([...previous, id])].slice(0, 30),
+                      )
+                  : undefined
+              }
+              onReview={
+                active
+                  ? async (id, decision) => {
+                      await api(`/versions/${id}/reviews`, { decision });
+                      await refresh();
+                    }
+                  : undefined
+              }
             />
-            <div className="panel-heading">
-              <span>参与此项目的成员</span>
-              {projectMember && <button onClick={() => setMemberPickerOpen(true)}>＋ 添加</button>}
-            </div>
-            {(detail?.members || [])
-              .filter((m) =>
-                `${m.name} ${m.username || ""} ${m.email} ${m.bound_email || ""}`
-                  .toLowerCase()
-                  .includes(memberSearch.toLowerCase()),
-              )
-              .map((m) => {
-                const membership = detail?.members.find((p) => p.id === m.id);
-                return (
-                  <div className="member" key={m.id}>
-                    <span className="avatar">
-                      {"avatar" in m &&
-                      typeof m.avatar === "string" &&
-                      m.avatar ? (
-                        <img loading="lazy" decoding="async" src={m.avatar} alt="" />
-                      ) : (
-                        m.name[0]
-                      )}
-                    </span>
-                    <div className="member-copy">
-                      <div className="member-name-row">
-                        <strong>{m.name}</strong>
-                        {"identity_tags" in m &&
-                          Array.isArray(m.identity_tags) &&
-                          m.identity_tags.map((tag: string) => (
-                            <RoleBadge key={tag} role={tag} />
-                          ))}
-                        {m.id === detail?.created_by && <RoleBadge role="创建人" />}
-                        {membership?.role === "viewer" && <RoleBadge role="只读" />}
-                      </div>
-                      <small className="member-user-id">用户ID：{m.user_number ?? m.id}</small>
-                      {"motto" in m &&
-                        typeof m.motto === "string" &&
-                        m.motto && <small className="member-motto">{m.motto}</small>}
-                    </div>
-                    {membership && creator && m.id !== detail?.created_by && m.id !== AGENT_MEMBER.id && (
-                      <button disabled={busy} onClick={() => {
-                        if (window.confirm(`确定将 ${m.name} 移出该项目？`)) void run(async () => {
-                          await api(`/projects/${projectId}/members/${m.id}`, undefined, "DELETE");
-                          await refresh();
-                        });
-                      }}>移出项目</button>
-                    )}
-                  </div>
-                );
-              })}
-          </>
-        ) : detail?.id === projectId ? (
-          <ProjectSettings
-            key={`${projectId}:${threadId}`}
-            name={detail.name}
-            createdAt={localDate(detail.created_at)}
-            creator={creator}
-            longTermSummary={detail.longTermSummary}
-            onSave={async (name) => {
-              const updated = await api(`/projects/${projectId}`, { name }, "PATCH");
-              setProjects((rows) => rows.map((project) => project.id === updated.id ? { ...project, name: updated.name } : project));
-              setDetail((previous) => previous && previous.id === updated.id ? { ...previous, name: updated.name } : previous);
-            }}
-          />
-        ) : (
-          <p className="muted">正在加载基本信息…</p>
+          </Suspense>
         )}
       </aside>
       {taskDialogOpen && <div className="modal-backdrop" onClick={() => setTaskDialogOpen(false)}>
@@ -2305,6 +2260,22 @@ function App() {
           />
         </Suspense>
       )}
+      {projectManagementOpen && projectId && (
+        <ProjectManagement
+          detail={detail?.id === projectId ? detail : null}
+          busy={busy}
+          creator={creator}
+          projectMember={projectMember}
+          api={api}
+          localDate={localDate}
+          refresh={refresh}
+          onProjectRenamed={(updated) => {
+            setProjects((rows) => rows.map((project) => project.id === updated.id ? { ...project, name: updated.name } : project));
+            setDetail((previous) => previous && previous.id === updated.id ? { ...previous, name: updated.name } : previous);
+          }}
+          onClose={() => setProjectManagementOpen(false)}
+        />
+      )}
       {monitorOpen && projectId && (
         <AgentMonitor
           projectId={projectId}
@@ -2338,9 +2309,6 @@ function App() {
             open("project");
           }}
         />
-      )}
-      {memberPickerOpen && projectId && (
-        <MemberPicker projectId={projectId} api={api} onClose={() => setMemberPickerOpen(false)} onAdded={refresh} />
       )}
       {modal && (
         <div className="modal-backdrop">
@@ -2528,7 +2496,7 @@ function App() {
                 {modal === "archive" && (
                   <>
                     <p>
-                      保存这一轮的结论、完整讨论、审核记录和引用版本；本迭代产物文件的最新版将自动另存至正式文件（不含缓存文件）。归档后不可继续修改。
+                      保存这一轮的结论、完整讨论、审核记录和引用版本；本迭代产物文件中已确认的最新版本将自动另存至正式文件（名称后带版本号，不含缓存文件）。归档后不可继续修改。
                     </p>
                     <label>
                       验收与归档结论

@@ -1,1 +1,25 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><link rel="icon" href="/cothread-logo.svg" type="image/svg+xml"/><title>共序 CoThread</title></head><body><div id="root"></div><script type="module" src="/web/main.tsx"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" href="/cothread-logo.svg" type="image/svg+xml"/>
+  <title>共序 CoThread</title>
+  <style>
+    html, body, #root { margin: 0; min-height: 100%; background: #f8faf8; color: #27362f; font-family: system-ui, sans-serif; }
+    #root:empty { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    #root:empty::after { content: "正在加载工作空间…"; }
+    #root:empty.boot-slow::after { content: "仍在加载前端模块…若超过 1 分钟，请用 http://127.0.0.1:3100 打开并关闭系统代理，或执行 npm run build && npm run dev:static"; white-space: normal; max-width: 22rem; text-align: center; line-height: 1.5; padding: 0 1rem; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    setTimeout(function () {
+      var root = document.getElementById("root");
+      if (root && !root.childNodes.length) root.classList.add("boot-slow");
+    }, 12000);
+  </script>
+  <script type="module" src="/web/main.tsx"></script>
+</body>
+</html>

@@ -124,6 +124,11 @@ export async function libraryChange(
         WHERE v.id=? AND a.project_id=? FOR UPDATE`, [id.parse(target),projectId]);
       if (!row) throw new HttpError(404,"文档版本不存在");
       await requireScope(row);
+      const versionRoot = await folderRootKind(db, row.folder_id);
+      if (versionRoot === "project_official" || isCacheFolderKind(versionRoot))
+        throw new HttpError(403, versionRoot === "project_official"
+          ? "正式文件只有一个版本，请删除整份文档"
+          : "缓存文件只有一个版本，请删除整份文档");
       if (row.deleted_at) throw new HttpError(409,"请先恢复整份文档，再操作其中的版本");
       if (data.deleted === undefined) throw new HttpError(400,"请指定删除或恢复版本");
       if (data.deleted) await query(db,"INSERT IGNORE INTO version_recycle(version_id) VALUES(?)",[target]);

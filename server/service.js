@@ -3,6 +3,7 @@ import { contextUsage } from "../shared/context.js";
 import { AGENT_MEMBER, mentionsAgent } from "../shared/agent-member.js";
 import { modelConfig } from "./model-config.js";
 import { randomBytes, randomUUID } from "node:crypto";
+import { posix as pathPosix } from "node:path";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { digest, hashPassword } from "./auth.js";
@@ -13,6 +14,7 @@ import { describeAgentAction, formatAgentAction, L1_MAINTENANCE_TASKS, l1TaskLab
 import {
   ensureProjectLibraryRoots,
   folderRootKind,
+  folderRootKindInList,
   isCacheFolderKind,
   isOfficialLibraryFolder,
   isOutputFolderKind,
@@ -20,6 +22,62 @@ import {
   OUTPUT_LIBRARY_FOLDER_SQL,
   utcDateKey,
 } from "./project-library.js";
+
+const PREVIEW_MIME_BY_EXT = {
+  html: "text/html; charset=utf-8",
+  htm: "text/html; charset=utf-8",
+  css: "text/css; charset=utf-8",
+  js: "text/javascript; charset=utf-8",
+  mjs: "text/javascript; charset=utf-8",
+  json: "application/json; charset=utf-8",
+  svg: "image/svg+xml",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  woff: "font/woff",
+  woff2: "font/woff2",
+};
+
+function previewContentType(mime, filename) {
+  const normalized = String(mime || "").trim();
+  if (normalized && normalized !== "application/octet-stream") {
+    return /charset=/i.test(normalized)
+      ? normalized
+      : `${normalized}; charset=utf-8`;
+  }
+  const ext = filename.split(".").pop()?.toLowerCase() || "";
+  return PREVIEW_MIME_BY_EXT[ext] || "application/octet-stream";
+}
+
+function rewriteRootRelativeAssetUrls(html) {
+  return html.replace(
+    /(\s(?:href|src)=["'])\/([^"']+)(["'])/gi,
+    (_, prefix, path, suffix) => `${prefix}${path}${suffix}`,
+  );
+}
+
+function injectPreviewBase(html, baseHref) {
+  let document = rewriteRootRelativeAssetUrls(html);
+  if (/<base\s/i.test(document)) {
+    return document.replace(
+      /<base\s[^>]*>/i,
+      `<base href="${baseHref}">`,
+    );
+  }
+  const baseTag = `<base href="${baseHref}">`;
+  if (/<head[\s>]/i.test(document)) {
+    return document.replace(/<head(\s[^>]*)?>/i, `<head$1>${baseTag}`);
+  }
+  if (/<html[\s>]/i.test(document)) {
+    return document.replace(
+      /<html(\s[^>]*)?>/i,
+      `<html$1><head>${baseTag}</head>`,
+    );
+  }
+  return `<!DOCTYPE html><html><head>${baseTag}</head><body>${document}</body></html>`;
+}
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -33,6 +91,12 @@ const fail = (status, message) => {
 const id = z.string().uuid();
 const title = z.string().trim().min(1).max(160);
 const body = z.string().trim().min(1).max(20000);
+
+export function officialTitleWithVersion(name, versionNumber) {
+  const raw = String(name || "").trim() || "文档";
+  const base = raw.replace(/\s+v\d+$/i, "").trim() || raw;
+  return `${base} v${versionNumber}`.slice(0, 160);
+}
 const json = (value) => (typeof value === "string" ? JSON.parse(value) : value);
 const mentions = (text, value) => {
   if (!value) return false;
@@ -94,6 +158,7 @@ export class Service {
     );
     if (!folder) fail(404, "文件夹不存在");
     if (isProjectLibraryAreaRoot(folder)) {
+      if (folder.folder_kind === "project_official") return folder.id;
       if (folder.folder_kind === "project_outputs")
         return (await this.dailyProjectFolder(db, projectId, "outputs")).id;
       return (await this.dailyProjectFolder(db, projectId, "cache")).id;
@@ -358,6 +423,12 @@ export class Service {
     const organizationQuery = query(this.db, `SELECT id,thread_id,scope,status,result,error,created_at,started_at,finished_at
       FROM document_organization_jobs WHERE project_id=? ORDER BY created_at DESC LIMIT 20`, [projectId]);
     const [[project], threads, members, versions, folders, documentOrganizationJobs] = await Promise.all([projectQuery, threadsQuery, membersQuery, versionsQuery, foldersQuery, organizationQuery]);
+    const libraryVersions = versions.map((version) => {
+      const root = folderRootKindInList(version.folder_id, folders);
+      if (root === "project_official") return { ...version, review: "confirmed" };
+      if (root === "project_cache" && !version.review) return { ...version, review: "draft" };
+      return version;
+    });
     const coordinatorModel = modelConfig("coordinator");
     const [projectSummary] = await query(this.db, `SELECT s.summary,s.updated_at,t.title last_thread_title
       FROM agent_project_summaries s LEFT JOIN threads t ON t.id=s.last_thread_id WHERE s.project_id=?`, [projectId]);
@@ -373,7 +444,7 @@ export class Service {
         ...AGENT_MEMBER,
         motto: `${coordinatorModel.model} · ${coordinatorModel.reasoningEffort}`,
       }],
-      versions,
+      versions: libraryVersions,
       folders,
       documentOrganizationJobs,
     };
@@ -1423,6 +1494,8 @@ export class Service {
         );
         if (!folder) fail(404, "文件夹不存在");
         const rootKind = await folderRootKind(db, folder.id);
+        if (rootKind === "project_official")
+          fail(403, "正式文件不分版本，请通过上传或另存创建");
         if (chatUpload && !isCacheFolderKind(rootKind))
           fail(403, "对话上传只能保存到缓存文件");
         if (isCacheFolderKind(rootKind) && !sourceFile)
@@ -1435,12 +1508,14 @@ export class Service {
       if (artifactId) {
         const [artifact] = await query(
           db,
-          `SELECT a.id,f.thread_id,f.folder_kind FROM artifacts a LEFT JOIN document_folders f ON f.id=a.folder_id
+          `SELECT a.id,a.folder_id,f.thread_id,f.folder_kind FROM artifacts a LEFT JOIN document_folders f ON f.id=a.folder_id
            WHERE a.id=? AND a.project_id=? AND a.deleted_at IS NULL FOR UPDATE`,
           [artifactId, thread.project_id],
         );
         if (!artifact) fail(404, "文档不存在");
         const artifactRoot = await folderRootKind(db, artifact.folder_id);
+        if (artifactRoot === "project_official")
+          fail(403, "正式文件不分版本，不能提交新版本");
         if (isCacheFolderKind(artifactRoot))
           fail(403, "缓存文件是只读来源，不能提交新版本");
         await this.assertDocumentScopeAvailable(db, thread.project_id, artifact.folder_id);
@@ -1513,7 +1588,7 @@ export class Service {
     id.parse(versionId);
     const [version] = await query(
       this.db,
-      `SELECT v.*,a.project_id,a.title,f.thread_id folder_thread_id,f.folder_kind
+      `SELECT v.*,a.project_id,a.title,a.folder_id,f.thread_id folder_thread_id,f.folder_kind
        FROM versions v JOIN artifacts a ON a.id=v.artifact_id LEFT JOIN document_folders f ON f.id=a.folder_id WHERE v.id=?`,
       [versionId],
     );
@@ -1521,10 +1596,79 @@ export class Service {
     await this.member(user, version.project_id);
     return version;
   }
+  async versionSource(user, versionId) {
+    const version = await this.version(user, versionId);
+    const filename = String(version.filename || "");
+    const mime = /\.(html?|md|markdown|txt|css|js|json|xml|ya?ml|csv|sql|log)$/i.test(
+      filename,
+    )
+      ? "text/plain; charset=utf-8"
+      : previewContentType(version.mime, filename);
+    return {
+      content: version.content,
+      mime,
+      filename,
+    };
+  }
+  async versionPreview(user, versionId, assetPath = "") {
+    const root = await this.version(user, versionId);
+    const rootName = String(root.filename || "").replace(/\\/g, "/");
+    if (!/\.html?$/i.test(rootName)) fail(404, "该版本不是 HTML 文档");
+    if (!assetPath) {
+      const baseHref = `/api/versions/${versionId}/preview/`;
+      let html = Buffer.isBuffer(root.content)
+        ? root.content.toString("utf8")
+        : String(root.content ?? "");
+      html = injectPreviewBase(html, baseHref);
+      return {
+        content: Buffer.from(html, "utf8"),
+        mime: previewContentType(root.mime, rootName),
+        filename: rootName,
+      };
+    }
+    const relative = String(assetPath).replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!relative || relative.includes("..")) {
+      fail(403, "资源路径无效");
+    }
+    const dir = pathPosix.dirname(rootName);
+    const resolved = pathPosix.normalize(
+      pathPosix.join(dir === "." ? "" : dir, relative),
+    );
+    if (resolved.startsWith("..") || resolved.includes("/../")) {
+      fail(403, "资源路径无效");
+    }
+    const target = resolved || pathPosix.basename(rootName);
+    const basename = pathPosix.basename(target);
+    if (!root.folder_id) fail(404, "资源不存在");
+    const lookupNames = [...new Set([target, basename].filter(Boolean))];
+    let row = null;
+    for (const name of lookupNames) {
+      [row] = await query(
+        this.db,
+        `SELECT v.content, v.mime, v.filename FROM versions v
+         JOIN artifacts a ON a.id = v.artifact_id
+         WHERE a.folder_id = ? AND a.deleted_at IS NULL
+           AND (v.filename = ? OR v.filename LIKE CONCAT('%/', ?))
+         ORDER BY
+           CASE WHEN v.filename = ? THEN 0 WHEN v.filename LIKE CONCAT('%/', ?) THEN 1 ELSE 2 END,
+           v.version DESC
+         LIMIT 1`,
+        [root.folder_id, name, name, name, name],
+      );
+      if (row) break;
+    }
+    if (!row) fail(404, "资源不存在");
+    return {
+      content: row.content,
+      mime: previewContentType(row.mime, row.filename),
+      filename: row.filename,
+    };
+  }
   async duplicateVersionToOfficial(db, user, projectId, versionId, {
     threadId = null,
     note = "另存至项目正式文件",
     skipOrganizeCheck = false,
+    title: givenTitle,
   } = {}) {
     id.parse(versionId);
     id.parse(projectId);
@@ -1538,20 +1682,32 @@ export class Service {
       return { id: source.id, artifactId: source.artifact_id, reused: true };
     if (!isCacheFolderKind(sourceRoot) && !isOutputFolderKind(sourceRoot))
       fail(403, "只能从缓存文件或产物文件另存为正式文件");
+    if (isCacheFolderKind(sourceRoot) || isOutputFolderKind(sourceRoot)) {
+      const [review] = await query(db,
+        "SELECT decision FROM reviews WHERE version_id=? ORDER BY created_at DESC,id DESC LIMIT 1",
+        [versionId]);
+      if (review?.decision !== "approved")
+        fail(409, isCacheFolderKind(sourceRoot)
+          ? "只有已确认的缓存文件可以另存为正式文件"
+          : "只有已确认的产物文件版本可以另存为正式文件");
+    }
+    const copiedTitle = givenTitle
+      || (isOutputFolderKind(sourceRoot) ? officialTitleWithVersion(source.title, source.version) : source.title);
     const official = await this.documentFolder(db, projectId, "project_official");
     const artifactId = randomUUID(), copiedVersionId = randomUUID();
     await query(db, "INSERT INTO artifacts(id,project_id,title,created_by,folder_id) VALUES(?,?,?,?,?)",
-      [artifactId, projectId, source.title, user.id, official.id]);
+      [artifactId, projectId, copiedTitle, user.id, official.id]);
     await query(db, `INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by)
       VALUES(?,?,?,?,?,?,?,?,?,?,?)`, [copiedVersionId, artifactId, threadId || source.thread_id || null, 1, source.filename, source.mime,
       source.content, source.sha256, source.byte_size, note, user.id]);
     await queueDocumentMemory(db, copiedVersionId);
-    return { id: copiedVersionId, artifactId, version: 1 };
+    return { id: copiedVersionId, artifactId, version: 1, title: copiedTitle };
   }
-  async saveVersionToOfficial(user, projectId, versionId) {
+  async saveVersionToOfficial(user, projectId, versionId, input = {}) {
     if (user.kind !== "session") fail(403, "另存项目正式文件需要人工登录");
+    const data = z.object({ title: title.optional() }).parse(input || {});
     return transaction(this.db, (db) =>
-      this.duplicateVersionToOfficial(db, user, projectId, versionId));
+      this.duplicateVersionToOfficial(db, user, projectId, versionId, { title: data.title }));
   }
   async copyVersionToOfficial(user, threadId, versionId, options = {}) {
     if (user.kind !== "session" && !options.agent) fail(403, "另存项目正式文件需要人工登录");
@@ -1575,6 +1731,9 @@ export class Service {
       })
       .parse(input);
     const version = await this.version(user, versionId);
+    const rootKind = await folderRootKind(this.db, version.folder_id);
+    if (rootKind === "project_official")
+      fail(403, "正式文件已确认，不需要审核");
     return transaction(this.db, async (db) => {
       await this.thread(user, version.thread_id, true, db);
       const reviewId = randomUUID();
@@ -1583,11 +1742,13 @@ export class Service {
         "INSERT INTO reviews(id,version_id,reviewer_id,decision,comment) VALUES(?,?,?,?,?)",
         [reviewId, versionId, user.id, data.decision, data.comment],
       );
+      const cache = isCacheFolderKind(rootKind);
+      const action = data.decision === "approved" ? (cache ? "确认" : "审核通过") : "要求修改";
       await this.insertMessage(
         db,
         user,
         version.thread_id,
-        `${data.decision === "approved" ? "审核通过" : "要求修改"}「${version.title}」v${version.version}${data.comment ? `：${data.comment}` : ""}`,
+        `${action}「${version.title}」${cache ? "" : `v${version.version}`}${data.comment ? `：${data.comment}` : ""}`,
         [versionId],
         "system",
       );
@@ -1625,12 +1786,19 @@ export class Service {
         [],
         "system",
       );
-      const outputVersions = await query(db, `SELECT v.id FROM versions v
+      const outputVersions = await query(db, `SELECT v.id,v.artifact_id,v.version,
+        (SELECT r.decision FROM reviews r WHERE r.version_id=v.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1) review
+        FROM versions v
         JOIN artifacts a ON a.id=v.artifact_id JOIN document_folders f ON f.id=a.folder_id
-        WHERE v.thread_id=? AND a.deleted_at IS NULL ${OUTPUT_LIBRARY_FOLDER_SQL}
-        AND v.version=(SELECT MAX(latest.version) FROM versions latest WHERE latest.artifact_id=v.artifact_id)`, [threadId]);
+        WHERE v.thread_id=? AND a.deleted_at IS NULL ${OUTPUT_LIBRARY_FOLDER_SQL}`, [threadId]);
+      const latestConfirmed = new Map();
+      for (const row of outputVersions) {
+        if (row.review !== "approved") continue;
+        const previous = latestConfirmed.get(row.artifact_id);
+        if (!previous || row.version > previous.version) latestConfirmed.set(row.artifact_id, row);
+      }
       const archivedOutputs = [];
-      for (const output of outputVersions)
+      for (const output of latestConfirmed.values())
         archivedOutputs.push(await this.copyVersionToOfficial(user, threadId, output.id, { db, archive: true }));
       const context = await this.context(user, threadId, db);
       const versionIds = [...new Set(context.messages.flatMap((m) => m.refs))];

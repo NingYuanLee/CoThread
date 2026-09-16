@@ -8,6 +8,7 @@ import { createUsageMeter, saveReplyUsage } from "./agent-usage.js";
 import { openAgentRuntime } from "./agent.js";
 import { discussionText } from "../shared/context.js";
 import { bindDshL3Execution, settleDshL3Execution } from "./task-pool.js";
+import { persistL3RunCheckpoint } from "./l3-session.js";
 
 const brief = (value, limit = 1200) =>
   typeof value === "string" ? value.slice(0, limit) : null;
@@ -225,6 +226,14 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
     const notificationText = (blocks = []) => blocks.filter((block) => block?.type === "text")
       .map((block) => block.text || "").join("\n");
     const retainOrForgetChild = async (childId, task) => {
+      try {
+        await persistL3RunCheckpoint(db, childId, await runtime.request("history", { sessionId: childId }));
+      } catch (error) {
+        console.error("L3 session snapshot skipped", {
+          type: error?.name || "Error",
+          diagnostic: redactSecrets(error?.message || error).slice(-1000),
+        });
+      }
       if (task?.task_type === "formal") {
         await runtime.request("compact", { sessionId: childId, automatic: false }).catch(() => {});
       } else {

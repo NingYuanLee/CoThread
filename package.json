@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "node --env-file=.env scripts/dev.js",
+    "dev:static": "node --env-file=.env server/index.js --production",
     "build": "tsc --noEmit && vite build",
     "connector:build": "node scripts/build-connector.mjs",
     "start": "node --env-file-if-exists=.env server/index.js --production",
@@ -51,8 +52,10 @@
     "@opentelemetry/sdk-trace-node": "1.30.1",
     "@opentelemetry/semantic-conventions": "1.28.0",
     "@react-symbols/icons": "1.4.1",
+    "docx-preview": "^0.4.0",
     "express": "^5.1.0",
     "js-yaml": "^4.3.2",
+    "jszip": "^3.10.2",
     "mysql2": "^3.14.0",
     "nodemailer": "^7.0.13",
     "react": "^19.1.0",
@@ -60,12 +63,14 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "supports-color": "10.2.2",
+    "xlsx": "^0.18.5",
     "zod": "4.5.4"
   },
   "devDependencies": {
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "postject": "^1.0.0-alpha.6",
+    "pptxgenjs": "^4.0.1",
     "prettier": "^3.9.6",
     "rcedit": "^5.0.1",
     "sharp": "^0.35.4",

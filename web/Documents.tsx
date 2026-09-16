@@ -5,6 +5,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FileIcon, FolderIcon } from "@react-symbols/icons/utils";
 import { Document, Notebook } from "@react-symbols/icons/files";
+import { DocxPreview, PptxPreview, XlsxPreview } from "./office-preview";
 const officeIcons = {
   doc: Document,
   docx: Document,
@@ -23,6 +24,8 @@ function LibraryFileMenu({
   canRename,
   canDelete,
   canSaveToOfficial,
+  saveToOfficialDisabled,
+  saveToOfficialTitle,
   onDownload,
   onRename,
   onDelete,
@@ -35,6 +38,8 @@ function LibraryFileMenu({
   canRename?: boolean;
   canDelete?: boolean;
   canSaveToOfficial?: boolean;
+  saveToOfficialDisabled?: boolean;
+  saveToOfficialTitle?: string;
   onDownload: () => void;
   onRename?: () => void;
   onDelete?: () => void;
@@ -81,7 +86,18 @@ function LibraryFileMenu({
             </button>
           ) : null}
           {canSaveToOfficial && onSaveToOfficial ? (
-            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onSaveToOfficial(); close(); }}>
+            <button
+              type="button"
+              role="menuitem"
+              className="library-folder-menu-item"
+              disabled={saveToOfficialDisabled}
+              title={saveToOfficialTitle}
+              onClick={() => {
+                if (saveToOfficialDisabled) return;
+                onSaveToOfficial();
+                close();
+              }}
+            >
               <TreeIcon kind="saveOfficial" />
               <span>另存至正式文件</span>
             </button>
@@ -248,6 +264,28 @@ function fileLabel(version: LibraryVersion) {
     : version.title;
 }
 
+function isUnversionedArea(kind: string | null) {
+  return kind === "project_official" || kind === "project_cache";
+}
+
+function documentStatusLabel(version: LibraryVersion, area: string | null) {
+  if (area === "project_official" || version.review === "confirmed") return "已确认";
+  if (area === "project_cache" || version.review === "draft") {
+    if (version.review === "approved") return "已确认";
+    if (version.review === "changes_requested") return "需要修改";
+    return "草稿";
+  }
+  if (version.review === "approved") return "已确认";
+  if (version.review === "changes_requested") return "需要修改";
+  return "待人工审核";
+}
+
+function officialTitleWithVersion(name: string, versionNumber: number) {
+  const raw = name.trim() || "文档";
+  const base = raw.replace(/\s+v\d+$/i, "").trim() || raw;
+  return `${base} v${versionNumber}`.slice(0, 160);
+}
+
 function recyclePathNodes(item: LibraryVersion) {
   const value = item.recycle_path;
   const rows = typeof value === "string" ? (() => { try { return JSON.parse(value); } catch { return []; } })() : value;
@@ -274,9 +312,49 @@ const ROOT_LABELS: Record<(typeof LIBRARY_ROOT_KINDS)[number], string> = {
   project_cache: "缓存文件",
 };
 
+function documentSourceLabel(item: LibraryVersion, folders: LibraryFolder[]) {
+  const kind = folderRootKind(item.folder_id, folders);
+  const area =
+    kind && kind in ROOT_LABELS
+      ? ROOT_LABELS[kind as (typeof LIBRARY_ROOT_KINDS)[number]]
+      : "文档库";
+  const path = recyclePathLabel(item, folders);
+  if (!path) return area;
+  if (path === area || path.startsWith(`${area} /`)) return path;
+  return `${area} / ${path}`;
+}
+
+function formatLibraryDateTime(value?: string) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function latestArtifactUpdatedAt(
+  item: LibraryVersion,
+  rows: LibraryVersion[],
+) {
+  const stamps = rows
+    .filter((row) => row.artifact_id === item.artifact_id)
+    .map((row) => row.updated_at || "")
+    .filter(Boolean);
+  if (!stamps.length) return item.updated_at || "";
+  return stamps.sort().at(-1) || item.updated_at || "";
+}
+
 const DEFAULT_OFFICIAL_FOLDER_NAME = "新建文件夹";
 
-export function suggestOfficialFolderName() {
+export function suggestOfficialFolderName(
+  _parentId?: string,
+  _folders?: LibraryFolder[],
+) {
   return DEFAULT_OFFICIAL_FOLDER_NAME;
 }
 
@@ -353,6 +431,7 @@ export function organizableDocuments(
 }
 export function Documents({
   embedded = false,
+  browser = false,
   onOpen,
   onReview,
   projectId,
@@ -369,6 +448,7 @@ export function Documents({
   organizationJobs = [],
 }: {
   embedded?: boolean;
+  browser?: boolean;
   onOpen?: (versionId: string) => void;
   onReview?: (versionId: string, decision: string) => Promise<void>;
   projectId: string;
@@ -442,6 +522,9 @@ export function Documents({
   const [newFolderName, setNewFolderName] = useState("");
   const [renamingFolder, setRenamingFolder] = useState(false);
   const [renameFolderName, setRenameFolderName] = useState("");
+  const [savingOfficial, setSavingOfficial] = useState<LibraryVersion | null>(null);
+  const [saveOfficialVersionId, setSaveOfficialVersionId] = useState("");
+  const [saveOfficialTitle, setSaveOfficialTitle] = useState("");
   const [draggedArtifactId, setDraggedArtifactId] = useState<string | null>(null);
   const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
@@ -537,10 +620,34 @@ export function Documents({
   const [view, setView] = useState<{
     text?: string;
     url?: string;
+    bytes?: Uint8Array;
     kind: string;
     mime: string;
   } | null>(null);
   const [error, setError] = useState("");
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [treeOpen, setTreeOpen] = useState(true);
+  const [previewModeByVersion, setPreviewModeByVersion] = useState<
+    Record<string, "preview" | "text">
+  >({});
+  const previewMode = selected
+    ? previewModeByVersion[selected] ?? "preview"
+    : "preview";
+  const setPreviewMode = (mode: "preview" | "text") => {
+    if (!selected) return;
+    setPreviewModeByVersion((previous) => ({ ...previous, [selected]: mode }));
+  };
+  useEffect(() => {
+    if (!browser || !selected) return;
+    setOpenTabs((previous) => (previous.includes(selected) ? previous : [...previous, selected]));
+  }, [browser, selected]);
+  const closeTab = (id: string) => {
+    setOpenTabs((previous) => {
+      const next = previous.filter((tabId) => tabId !== id);
+      if (selected === id) onSelect(next[next.length - 1] || "");
+      return next;
+    });
+  };
   const version = libraryVersions.find((v) => v.id === selected);
   const artifacts = libraryVersions
     .filter((v) => Boolean(v.deleted_at) === trash)
@@ -563,7 +670,7 @@ export function Documents({
   useEffect(() => {
     setView(null);
     setError("");
-    if (!selected || embedded) return;
+    if (!selected || (embedded && !browser)) return;
     let alive = true;
     let objectUrl = "";
     apiFetch(`/api/versions/${selected}`)
@@ -599,6 +706,15 @@ export function Documents({
             new Blob([bytes], { type: "application/pdf" }),
           );
           setView({ kind: "pdf", url: objectUrl, mime: "application/pdf" });
+        } else if (name.endsWith(".docx")) {
+          setView({ kind: "docx", bytes, mime: v.mime });
+        } else if (name.endsWith(".xlsx")) {
+          setView({ kind: "xlsx", bytes, mime: v.mime });
+        } else if (name.endsWith(".pptx")) {
+          setView({ kind: "pptx", bytes, mime: v.mime });
+        } else if (name.endsWith(".html") || name.endsWith(".htm")) {
+          const text = new TextDecoder().decode(bytes).slice(0, 500000);
+          setView({ kind: "html", text, mime: v.mime });
         } else if (
           v.mime.startsWith("text/") ||
           /\.(md|txt|csv|json|py|js|ts|tsx|jsx|html|css|sql|xml|yaml|yml|sh|log)$/.test(
@@ -619,10 +735,10 @@ export function Documents({
       alive = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [selected, embedded]);
+  }, [selected, embedded, browser]);
   useEffect(() => {
     setFolderId(libraryRoots[0]?.id || null);
-    onSelect("");
+    if (!browser) onSelect("");
     setRenaming(false);
     setTrash(false);
   }, [threadId, projectId]);
@@ -634,8 +750,25 @@ export function Documents({
     writable && !item.deleted_at && fileAreaKind(item) !== null;
   const isCacheVersion = (item: LibraryVersion) => fileAreaKind(item) === "project_cache";
   const isOutputVersion = (item: LibraryVersion) => fileAreaKind(item) === "project_outputs";
-  const canSaveToOfficial = (item: LibraryVersion) =>
+  const showSaveToOfficial = (item: LibraryVersion) =>
     writable && !organizing && !item.deleted_at && (isCacheVersion(item) || isOutputVersion(item));
+  const cacheConfirmed = (item: LibraryVersion) => item.review === "approved";
+  const confirmedOutputVersions = (item: LibraryVersion) =>
+    libraryVersions
+      .filter((row) => row.artifact_id === item.artifact_id && !row.deleted_at && row.review === "approved")
+      .sort((a, b) => b.version - a.version);
+  const canSaveToOfficial = (item: LibraryVersion) => {
+    if (!showSaveToOfficial(item)) return false;
+    if (isCacheVersion(item)) return cacheConfirmed(item);
+    if (isOutputVersion(item)) return confirmedOutputVersions(item).length > 0;
+    return false;
+  };
+  const saveToOfficialHint = (item: LibraryVersion) => {
+    if (canSaveToOfficial(item)) return undefined;
+    if (isCacheVersion(item)) return "仅已确认的缓存文件可另存为正式文件";
+    if (isOutputVersion(item)) return "仅已确认的产物文件版本可另存为正式文件";
+    return undefined;
+  };
   const canDragOfficialFolder = (folder: LibraryFolder) =>
     canManageOfficialFolders
     && folderRootKind(folder.id, libraryFolders) === "project_official"
@@ -647,9 +780,13 @@ export function Documents({
     setRenaming(true);
     setNewFolder(false);
     setRenamingFolder(false);
+    setSavingOfficial(null);
   };
   const deleteFile = (item: LibraryVersion) => {
-    if (!window.confirm(`删除「${item.title}」及其全部版本？将移入回收站。`)) return;
+    const unversioned = isUnversionedArea(fileAreaKind(item));
+    if (!window.confirm(unversioned
+      ? `删除「${item.title}」？将移入回收站。`
+      : `删除「${item.title}」及其全部版本？将移入回收站。`)) return;
     void act(async () => {
       await change(
         `/projects/${projectId}/artifacts/${item.artifact_id}`,
@@ -679,6 +816,19 @@ export function Documents({
     });
   };
   const saveFileToOfficial = (item: LibraryVersion) => {
+    if (isOutputVersion(item)) {
+      const confirmed = confirmedOutputVersions(item);
+      const pick = confirmed.find((row) => row.id === item.id) || confirmed[0];
+      if (!pick) return;
+      onSelect(pick.id);
+      setSavingOfficial(item);
+      setSaveOfficialVersionId(pick.id);
+      setSaveOfficialTitle(officialTitleWithVersion(item.title, pick.version));
+      setRenaming(false);
+      setNewFolder(false);
+      setRenamingFolder(false);
+      return;
+    }
     void act(async () => {
       await change(
         `/projects/${projectId}/versions/${item.id}/save-to-official`,
@@ -743,12 +893,14 @@ export function Documents({
     setNewFolder(true);
     setNewFolderName(suggestOfficialFolderName(targetId, libraryFolders));
     setRenamingFolder(false);
+    setSavingOfficial(null);
   };
   const openRenameFolder = (target: LibraryFolder) => {
     selectFolder(target.id);
     setRenameFolderName(target.name);
     setRenamingFolder(true);
     setNewFolder(false);
+    setSavingOfficial(null);
   };
   const deleteFolder = (target: LibraryFolder) => {
     if (!window.confirm(`删除文件夹「${target.name}」？其中文档将移入回收站。`)) return;
@@ -786,7 +938,7 @@ export function Documents({
           if (embedded) onOpen?.(v.id);
           setFolderId(v.folder_id || null);
         }}
-        title={`${v.title} · ${v.filename} · v${v.version}${trash && recyclePathLabel(v, libraryFolders) ? ` · ${recyclePathLabel(v, libraryFolders)}` : ""}`}
+        title={`${v.title} · ${v.filename}${isUnversionedArea(fileAreaKind(v)) ? "" : ` · v${v.version}`}${trash && recyclePathLabel(v, libraryFolders) ? ` · ${recyclePathLabel(v, libraryFolders)}` : ""}`}
       >
         <span className="tree-file-indent" />
         <FileIcon
@@ -835,7 +987,9 @@ export function Documents({
           disabled={pending}
           canRename={canManageFile(v)}
           canDelete={canManageFile(v)}
-          canSaveToOfficial={canSaveToOfficial(v)}
+          canSaveToOfficial={showSaveToOfficial(v)}
+          saveToOfficialDisabled={!canSaveToOfficial(v)}
+          saveToOfficialTitle={saveToOfficialHint(v)}
           onDownload={() => {
             window.open(`/api/versions/${v.id}/download`, "_blank", "noopener,noreferrer");
           }}
@@ -859,7 +1013,7 @@ export function Documents({
         .map((f) => (
           <div key={f.id} role="treeitem" aria-expanded={!collapsed.has(f.id)}>
             <div
-              className={`tree-folder ${folderId === f.id ? "selected" : ""}${dropTargetFolderId === f.id ? " drop-target" : ""}${draggedFolderId === f.id ? " dragging" : ""}`}
+              className={`tree-folder ${!browser && folderId === f.id ? "selected" : ""}${dropTargetFolderId === f.id ? " drop-target" : ""}${draggedFolderId === f.id ? " dragging" : ""}`}
               style={{ paddingLeft: depth * 14 }}
               draggable={canDragOfficialFolder(f) && !pending}
               onDragStart={(event) => {
@@ -895,9 +1049,13 @@ export function Documents({
                 <TreeIcon kind="chevron" />
               </button>
               <button
+                type="button"
                 className="tree-name"
                 disabled={organizing && folderRootKind(f.id, libraryFolders) === "project_official"}
-                onClick={() => selectFolder(f.id)}
+                onClick={() => {
+                  if (browser) return;
+                  selectFolder(f.id);
+                }}
               >
                 <FolderIcon
                   folderName={f.name}
@@ -940,7 +1098,7 @@ export function Documents({
   const renderLibraryRoot = (root: LibraryFolder) => (
     <div key={root.id} role="treeitem" aria-expanded={!collapsed.has(root.id)}>
       <div
-        className={`tree-folder tree-library-root ${folderId === root.id ? "selected" : ""}${dropTargetFolderId === root.id ? " drop-target" : ""}`}
+        className={`tree-folder tree-library-root ${!browser && folderId === root.id ? "selected" : ""}${dropTargetFolderId === root.id ? " drop-target" : ""}`}
         {...(root.folder_kind === "project_official" && canManageOfficialFolders
           ? folderDropHandlers(root.id)
           : {})}
@@ -960,9 +1118,13 @@ export function Documents({
           <TreeIcon kind="chevron" />
         </button>
         <button
+          type="button"
           className="tree-name"
           disabled={root.folder_kind === "project_official" && organizing}
-          onClick={() => selectFolder(root.id)}
+          onClick={() => {
+            if (browser) return;
+            selectFolder(root.id);
+          }}
         >
           <FolderIcon
             folderName={root.name}
@@ -1007,35 +1169,20 @@ export function Documents({
       {!collapsed.has(root.id) ? <div role="group">{tree(root.id, 1)}</div> : null}
     </div>
   );
-  return (
-    <div className={embedded ? "library-embedded" : "modal-backdrop"}>
-      <section
-        className="library"
-        role={embedded ? undefined : "dialog"}
-        aria-modal={embedded ? undefined : true}
-        aria-label="项目文档库"
-      >
-        <header>
-          <div>
-            <h2>项目文档库</h2>
-            <p>正式文件、产物文件与缓存文件 · 全项目单树浏览</p>
-          </div>
-          <button onClick={onClose} aria-label="关闭文档库">
-            ×
-          </button>
-        </header>
-        <input
-          ref={uploadInputRef}
-          type="file"
-          multiple
-          hidden
-          onChange={(event) => {
-            if (event.target.files?.length) uploadOfficialFiles(event.target.files);
-            event.target.value = "";
-          }}
-        />
-        <div className="library-body">
-          <aside className="file-explorer">
+  const uploadInput = (
+    <input
+      ref={uploadInputRef}
+      type="file"
+      multiple
+      hidden
+      onChange={(event) => {
+        if (event.target.files?.length) uploadOfficialFiles(event.target.files);
+        event.target.value = "";
+      }}
+    />
+  );
+  const explorer = (
+    <aside className={`file-explorer${browser ? " doc-browser-tree" : ""}`}>
             <div className="file-explorer-top">
               <div className="tree-filter-bar">
                 <input
@@ -1100,7 +1247,203 @@ export function Documents({
               </button>
             </footer>
           </aside>
-          <main className={renaming || newFolder || renamingFolder ? "library-operation" : ""}>
+  );
+  const viewModeToggle = view?.kind === "markdown" || view?.kind === "html" ? (
+    <span className="doc-view-mode" role="group" aria-label="预览方式">
+      <button
+        type="button"
+        className={previewMode === "preview" ? "active" : ""}
+        aria-pressed={previewMode === "preview"}
+        onClick={() => setPreviewMode("preview")}
+      >
+        预览
+      </button>
+      <button
+        type="button"
+        className={previewMode === "text" ? "active" : ""}
+        aria-pressed={previewMode === "text"}
+        onClick={() => setPreviewMode("text")}
+      >
+        源码
+      </button>
+    </span>
+  ) : null;
+  const versionOptionDetail = (v: LibraryVersion) =>
+    `v${v.version}${v.deleted_at ? " · 已删除" : ""}${
+      v.review === "approved" ? " · 已确认" : " · 待确认"
+    }`;
+  const artifactVersionRows =
+    version
+      ? versions
+          .filter((v) => v.artifact_id === version.artifact_id)
+          .sort((a, b) => b.version - a.version)
+      : [];
+  const renderVersionHistorySelect = (compact: boolean) =>
+    version && !isUnversionedArea(fileAreaKind(version)) ? (
+      <select
+        className={compact ? "doc-browser-version-select" : undefined}
+        aria-label="文档历史版本"
+        title={
+          compact
+            ? versionOptionDetail(
+                artifactVersionRows.find((v) => v.id === selected) || version,
+              )
+            : undefined
+        }
+        value={selected}
+        onChange={(e) => onSelect(e.target.value)}
+      >
+        {artifactVersionRows.map((v) => (
+          <option key={v.id} value={v.id} title={compact ? versionOptionDetail(v) : undefined}>
+            {compact ? `v${v.version}` : versionOptionDetail(v)}
+          </option>
+        ))}
+      </select>
+    ) : null;
+  const versionHistorySelect = renderVersionHistorySelect(false);
+  const browserVersionHistorySelect = renderVersionHistorySelect(true);
+  const browserFileMeta = version ? (
+    <small
+      className="doc-browser-meta doc-browser-bottombar-meta"
+      title={`${documentSourceLabel(version, libraryFolders)} · ${formatLibraryDateTime(latestArtifactUpdatedAt(version, libraryVersions))}`}
+    >
+      来源 {documentSourceLabel(version, libraryFolders)} · 修改{" "}
+      {formatLibraryDateTime(latestArtifactUpdatedAt(version, libraryVersions))}
+    </small>
+  ) : null;
+  const documentControls = version ? (
+    <>
+      {versionHistorySelect}
+      <a
+        className="download-button"
+        href={`/api/versions/${selected}/download`}
+      >
+        下载原文件
+      </a>
+      {onReference && (
+        <button onClick={() => onReference(selected)}>
+          / 引用到讨论
+        </button>
+      )}
+      {canManageFile(version) && (
+        <>
+          <button disabled={pending || !!version.deleted_at} onClick={() => startRenameFile(version)}>重命名</button>
+          <button
+            disabled={pending}
+            onClick={() => act(async () => { await change(`/projects/${projectId}/artifacts/${version.artifact_id}`, { deleted: !version.artifact_deleted_at }, "PATCH"); })}
+          >
+            {version.artifact_deleted_at
+              ? "恢复整份文档"
+              : isUnversionedArea(fileAreaKind(version))
+                ? "删除"
+                : "删除整份文档（全部版本）"}
+          </button>
+        </>
+      )}
+      {showSaveToOfficial(version) ? (
+        <button
+          disabled={pending || organizing || !canSaveToOfficial(version)}
+          title={saveToOfficialHint(version)}
+          onClick={() => saveFileToOfficial(version)}
+        >
+          另存至正式文件
+        </button>
+      ) : null}
+      {writable && version.deleted_at ? (
+        <button disabled={pending} onClick={() => restoreFile(version)}>
+          原路恢复
+        </button>
+      ) : null}
+    </>
+  ) : null;
+  const reviewActions = version && !version.deleted_at ? (
+    <div className="library-review-actions">
+      {fileAreaKind(version) === "project_official" || version.review === "confirmed" ? (
+        <span>已确认</span>
+      ) : (
+        <>
+          <span>{documentStatusLabel(version, fileAreaKind(version))}</span>
+          {onReview && (fileAreaKind(version) === "project_cache" || version.thread_id === threadId) && (
+            <>
+              <button
+                disabled={pending}
+                onClick={() =>
+                  act(() => onReview(selected, "approved"))
+                }
+              >
+                {fileAreaKind(version) === "project_cache" ? "确认" : "确认通过"}
+              </button>
+              <button
+                disabled={pending}
+                onClick={() =>
+                  act(() => onReview(selected, "changes_requested"))
+                }
+              >
+                要求修改
+              </button>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  ) : null;
+  const sourceFrameSrc = selected ? `/api/versions/${selected}/source` : undefined;
+  const previewContent = (
+    <>
+      {view?.kind === "markdown" && previewMode === "preview" && (
+        <Markdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            img: () => <span>（外部图片请在原文件中查看）</span>,
+          }}
+        >
+          {view.text}
+        </Markdown>
+      )}
+      {view?.kind === "markdown" && previewMode === "text" && (
+        <iframe
+          key={`${selected}-source`}
+          className="doc-file-source-frame"
+          title={`${version?.filename ?? "文档"} 源码`}
+          src={sourceFrameSrc}
+          sandbox=""
+          referrerPolicy="no-referrer"
+        />
+      )}
+      {view?.kind === "html" && previewMode === "preview" && (
+        <iframe
+          key={`${selected}-preview`}
+          className="doc-html-preview-frame"
+          title={version?.filename ?? "HTML"}
+          src={selected ? `/api/versions/${selected}/preview/` : undefined}
+          sandbox="allow-scripts allow-same-origin"
+          referrerPolicy="no-referrer"
+        />
+      )}
+      {view?.kind === "html" && previewMode === "text" && (
+        <pre className="doc-file-source-pre" key={`${selected}-source`}>
+          {view.text}
+        </pre>
+      )}
+      {view?.kind === "text" && <pre>{view.text}</pre>}
+      {view?.kind === "docx" && view.bytes && <DocxPreview bytes={view.bytes} />}
+      {view?.kind === "xlsx" && view.bytes && <XlsxPreview bytes={view.bytes} />}
+      {view?.kind === "pptx" && view.bytes && <PptxPreview bytes={view.bytes} />}
+      {view?.kind === "image" && version && (
+        <img src={view.url} alt={version.filename} />
+      )}{" "}
+      {view?.kind === "pdf" && version && (
+        <iframe title={version.filename} src={view.url} />
+      )}{" "}
+      {view?.kind === "download" && (
+        <p>
+          文件已安全保存在项目中。此格式暂不支持在线预览，请下载原文件查看。
+        </p>
+      )}
+    </>
+  );
+  const mainPanel = (
+    <main className={`${renaming || newFolder || renamingFolder || savingOfficial ? "library-operation" : ""}${browser ? " doc-browser-main" : ""}`}>
             {newFolder && (
               <form className="library-form" onSubmit={(event) => {
                 event.preventDefault();
@@ -1158,7 +1501,83 @@ export function Documents({
                 <div><button type="submit" className="primary" disabled={pending}>{pending ? "保存中…" : "保存"}</button><button type="button" disabled={pending} onClick={() => setRenaming(false)}>取消</button></div>
               </form>
             )}
-            {!renaming && !newFolder && !renamingFolder && (version ? (
+            {savingOfficial && (
+              <form className="library-form" onSubmit={(event) => {
+                event.preventDefault();
+                const picked = confirmedOutputVersions(savingOfficial).find((row) => row.id === saveOfficialVersionId);
+                if (!picked || !saveOfficialTitle.trim()) return;
+                void act(async () => {
+                  await change(
+                    `/projects/${projectId}/versions/${picked.id}/save-to-official`,
+                    { title: saveOfficialTitle.trim() },
+                  );
+                  setSavingOfficial(null);
+                });
+              }}>
+                <h3>另存至正式文件</h3>
+                <p className="muted">只能另存已确认的产物版本；存入后名称默认带版本号，可再修改。</p>
+                <label>
+                  选择版本
+                  <select
+                    aria-label="另存的产物版本"
+                    value={saveOfficialVersionId}
+                    onChange={(event) => {
+                      const nextId = event.target.value;
+                      setSaveOfficialVersionId(nextId);
+                      const picked = confirmedOutputVersions(savingOfficial).find((row) => row.id === nextId);
+                      if (picked) setSaveOfficialTitle(officialTitleWithVersion(savingOfficial.title, picked.version));
+                    }}
+                  >
+                    {confirmedOutputVersions(savingOfficial).map((row) => (
+                      <option key={row.id} value={row.id}>
+                        v{row.version} · 已确认
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  正式文件名称
+                  <input
+                    autoFocus
+                    required
+                    maxLength={160}
+                    value={saveOfficialTitle}
+                    onChange={(event) => setSaveOfficialTitle(event.target.value)}
+                  />
+                </label>
+                <div>
+                  <button type="submit" className="primary" disabled={pending || !saveOfficialVersionId || !saveOfficialTitle.trim()}>
+                    {pending ? "另存中…" : "另存"}
+                  </button>
+                  <button type="button" disabled={pending} onClick={() => setSavingOfficial(null)}>取消</button>
+                </div>
+              </form>
+            )}
+            {!renaming && !newFolder && !renamingFolder && !savingOfficial && (version ? (
+              browser ? (
+                <>
+                  {version.deleted_at && (
+                    <p className="muted doc-browser-notice">
+                      已移入回收站{recyclePathLabel(version, libraryFolders) ? `，原路径：${recyclePathLabel(version, libraryFolders)}` : ""}。历史引用仍可查看，原路恢复后回到原来的文件夹。
+                    </p>
+                  )}
+                  {error && <div className="error doc-browser-error">{error}</div>}
+                  <div className="doc-browser-view">
+                    {viewModeToggle ? (
+                      <div className="doc-browser-preview-chrome">{viewModeToggle}</div>
+                    ) : null}
+                    <div className="document-preview doc-browser-preview">
+                      {!view && !error && <p className="muted doc-browser-loading">正在读取文档…</p>}
+                      {previewContent}
+                    </div>
+                  </div>
+                  <footer className="doc-browser-bottombar">
+                    {browserFileMeta}
+                    {browserVersionHistorySelect}
+                    {reviewActions}
+                  </footer>
+                </>
+              ) : (
                 <>
                   <div className="document-toolbar">
                     <div>
@@ -1169,92 +1588,10 @@ export function Documents({
                         {version.filename}
                       </small>
                     </div>
-                    <select
-                      aria-label="文档历史版本"
-                      value={selected}
-                      onChange={(e) => onSelect(e.target.value)}
-                    >
-                      {versions
-                        .filter((v) => v.artifact_id === version.artifact_id)
-                        .sort((a, b) => b.version - a.version)
-                        .map((v) => (
-                          <option key={v.id} value={v.id}>
-                            v{v.version}{v.deleted_at ? " · 已删除" : ""}
-                            {v.review === "approved"
-                              ? " · 已审核"
-                              : " · 待确认"}
-                          </option>
-                        ))}
-                    </select>
-                    <a
-                      className="download-button"
-                      href={`/api/versions/${selected}/download`}
-                    >
-                      下载原文件
-                    </a>
-                    {onReference && (
-                      <button onClick={() => onReference(selected)}>
-                        / 引用到讨论
-                      </button>
-                    )}
-                    {canManageFile(version) && (
-                      <>
-                        <button disabled={pending || !!version.deleted_at} onClick={() => startRenameFile(version)}>重命名</button>
-                        <button
-                          disabled={pending}
-                          onClick={() => act(async () => { await change(`/projects/${projectId}/artifacts/${version.artifact_id}`, { deleted: !version.artifact_deleted_at }, "PATCH"); })}
-                        >
-                          {version.artifact_deleted_at ? "恢复整份文档" : "删除整份文档（全部版本）"}
-                        </button>
-                        {canEditOfficial(version) && !version.artifact_deleted_at ? (
-                          <button disabled={pending} onClick={() => act(async () => {
-                            await change(`/projects/${projectId}/versions/${version.id}`, {deleted:!version.version_deleted_at}, "PATCH");
-                          })}>{version.version_deleted_at ? "恢复当前版本" : `删除当前版本（v${version.version}）`}</button>
-                        ) : null}
-                      </>
-                    )}
-                    {canSaveToOfficial(version) ? (
-                      <button disabled={pending || organizing} onClick={() => saveFileToOfficial(version)}>
-                        另存至正式文件
-                      </button>
-                    ) : null}
-                    {writable && version.deleted_at ? (
-                      <button disabled={pending} onClick={() => restoreFile(version)}>
-                        原路恢复
-                      </button>
-                    ) : null}
+                    {viewModeToggle}
+                    {documentControls}
                   </div>
-                  {!version.deleted_at && (
-                  <div className="library-review-actions">
-                      <span>
-                        {version.review === "approved"
-                          ? "已审核"
-                          : version.review === "changes_requested"
-                            ? "需要修改"
-                            : "待人工审核"}
-                      </span>
-                      {onReview && version.thread_id === threadId && (
-                        <>
-                          <button
-                            disabled={pending}
-                            onClick={() =>
-                              act(() => onReview(selected, "approved"))
-                            }
-                          >
-                            确认通过
-                          </button>
-                          <button
-                            disabled={pending}
-                            onClick={() =>
-                              act(() => onReview(selected, "changes_requested"))
-                            }
-                          >
-                            要求修改
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
+                  {reviewActions}
                   {version.deleted_at && (
                     <p className="muted">
                       已移入回收站{recyclePathLabel(version, libraryFolders) ? `，原路径：${recyclePathLabel(version, libraryFolders)}` : ""}。历史引用仍可查看，原路恢复后回到原来的文件夹。
@@ -1263,31 +1600,11 @@ export function Documents({
                   {error && <div className="error">{error}</div>}
                   {!view && !error && <p className="muted">正在读取文档…</p>}
                   <div className="document-preview">
-                    {view?.kind === "markdown" && (
-                      <Markdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          img: () => <span>（外部图片请在原文件中查看）</span>,
-                        }}
-                      >
-                        {view.text}
-                      </Markdown>
-                    )}
-                    {view?.kind === "text" && <pre>{view.text}</pre>}
-                    {view?.kind === "image" && (
-                      <img src={view.url} alt={version.filename} />
-                    )}{" "}
-                    {view?.kind === "pdf" && (
-                      <iframe title={version.filename} src={view.url} />
-                    )}{" "}
-                    {view?.kind === "download" && (
-                      <p>
-                        文件已安全保存在项目中。此格式暂不支持在线预览，请下载原文件查看。
-                      </p>
-                    )}
+                    {previewContent}
                   </div>
                 </>
-              ) : showOfficialFolderPanel && selectedLibraryFolder ? (
+              )
+            ) : !browser && showOfficialFolderPanel && selectedLibraryFolder ? (
                 <div className="library-folder-panel">
                   <h3>{selectedLibraryFolder.name}</h3>
                   <p className="muted">
@@ -1311,6 +1628,7 @@ export function Documents({
                         setNewFolderName("");
                         setRenaming(false);
                         setRenamingFolder(false);
+                        setSavingOfficial(null);
                       }}
                     >
                       新建子文件夹
@@ -1324,6 +1642,7 @@ export function Documents({
                             setRenameFolderName(selectedLibraryFolder.name);
                             setRenamingFolder(true);
                             setNewFolder(false);
+                            setSavingOfficial(null);
                           }}
                         >
                           重命名文件夹
@@ -1355,8 +1674,8 @@ export function Documents({
                 </div>
               ))}
           </main>
-        </div>
-        {organizeOpen ? (
+  );
+  const organizeDialog = organizeOpen ? (
           <div className="modal-backdrop library-organize-backdrop" onClick={() => setOrganizeOpen(false)}>
             <section
               className="library-organize-dialog"
@@ -1388,7 +1707,103 @@ export function Documents({
               </div>
             </section>
           </div>
-        ) : null}
+        ) : null;
+
+  if (browser) {
+    const tabVersion = (id: string) => libraryVersions.find((item) => item.id === id)
+      || versions.find((item) => item.id === id);
+    return (
+      <div className="library-embedded doc-browser">
+        <section className="library doc-browser-shell" aria-label="项目文档库">
+          {uploadInput}
+          <div className="doc-browser-tabbar">
+            <div className="doc-browser-tabs" role="tablist" aria-label="打开的文档">
+              {openTabs.map((id) => {
+                const item = tabVersion(id);
+                return (
+                  <span
+                    key={id}
+                    className={`doc-browser-tab${selected === id ? " active" : ""}`}
+                    role="presentation"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={selected === id}
+                      className="doc-browser-tab-open"
+                      title={item ? `${item.title} · ${item.filename}` : "文档"}
+                      onClick={() => onSelect(id)}
+                    >
+                      {item ? (
+                        <FileIcon
+                          fileName={item.filename}
+                          editFileExtensionData={officeIcons}
+                          autoAssign
+                          className="tree-icon file-type-icon"
+                          aria-hidden="true"
+                          width={14}
+                          height={14}
+                        />
+                      ) : null}
+                      <span className="doc-browser-tab-label">{item ? fileLabel(item) : "文档"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="doc-browser-tab-close"
+                      aria-label={`关闭 ${item ? fileLabel(item) : "文档"}`}
+                      title="关闭"
+                      onClick={() => closeTab(id)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })}
+              {!openTabs.length && <span className="doc-browser-tabs-empty">从文件树选择文档</span>}
+            </div>
+            <button
+              type="button"
+              className={`doc-browser-tree-toggle${treeOpen ? " active" : ""}`}
+              title={treeOpen ? "隐藏文件树" : "显示文件树"}
+              aria-label={treeOpen ? "隐藏文件树" : "显示文件树"}
+              aria-pressed={treeOpen}
+              onClick={() => setTreeOpen(!treeOpen)}
+            >
+              <TreeIcon kind="folder" />
+            </button>
+          </div>
+          <div className="library-body doc-browser-body">
+            {treeOpen ? explorer : null}
+            {mainPanel}
+          </div>
+          {organizeDialog}
+        </section>
+      </div>
+    );
+  }
+  return (
+    <div className={embedded ? "library-embedded" : "modal-backdrop"}>
+      <section
+        className="library"
+        role={embedded ? undefined : "dialog"}
+        aria-modal={embedded ? undefined : true}
+        aria-label="项目文档库"
+      >
+        <header>
+          <div>
+            <h2>项目文档库</h2>
+            <p>正式文件、产物文件与缓存文件 · 全项目单树浏览</p>
+          </div>
+          <button onClick={onClose} aria-label="关闭文档库">
+            ×
+          </button>
+        </header>
+        {uploadInput}
+        <div className="library-body">
+          {explorer}
+          {mainPanel}
+        </div>
+        {organizeDialog}
       </section>
     </div>
   );

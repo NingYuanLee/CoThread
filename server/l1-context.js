@@ -4,7 +4,7 @@ import { publishWork } from "./work-events.js";
 import { contextUsage } from "../shared/context.js";
 import { L1_MAINTENANCE_TASKS, normalizeL1Task } from "../shared/agent-label.js";
 import { compactL1Session, l1SessionScope } from "./l1-agent.js";
-import { nativeHistoryFromCheckpoint } from "./l3-session.js";
+import { nativeHistoryFromCheckpoint, nativeHistoryFromLiveHome } from "./l3-session.js";
 
 export async function readL1TaskSession(service, user, projectId, task) {
   const scopedTask = normalizeL1Task(task);
@@ -14,6 +14,8 @@ export async function readL1TaskSession(service, user, projectId, task) {
     `SELECT status,last_error,checkpoint,context_stats,compact_status,compact_error,compact_result
      FROM agent_project_sessions WHERE project_id=? AND task=? AND scope_id=?`,
     [projectId, scopedTask, projectId]);
+  let messages = nativeHistoryFromCheckpoint(row?.checkpoint);
+  if (!messages.length) messages = await nativeHistoryFromLiveHome(`l1-${scopedTask}-${projectId}`);
   return {
     task: scopedTask,
     status: row?.status || "idle",
@@ -21,7 +23,7 @@ export async function readL1TaskSession(service, user, projectId, task) {
     running: row?.status === "running",
     error: row?.last_error || null,
     contextUsage: contextUsage(row || null, [], []),
-    messages: nativeHistoryFromCheckpoint(row?.checkpoint),
+    messages,
     events: [],
     pending: [],
   };

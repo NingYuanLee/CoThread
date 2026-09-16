@@ -727,7 +727,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   app.post("/api/threads/:id/versions/:versionId/save-to-project", async (req, res) =>
     res.status(201).json(await service.copyVersionToOfficial(req.user, req.params.id, req.params.versionId)));
   app.post("/api/projects/:id/versions/:versionId/save-to-official", async (req, res) =>
-    res.status(201).json(await service.saveVersionToOfficial(req.user, req.params.id, req.params.versionId)));
+    res.status(201).json(await service.saveVersionToOfficial(req.user, req.params.id, req.params.versionId, req.body)));
   app.post("/api/threads/:id/archive", async (req, res) =>
     res.json(await service.archive(req.user, req.params.id, req.body)),
   );
@@ -745,6 +745,31 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     res.setHeader("Content-Type", "application/octet-stream");
     res.send(version.content);
   });
+  const sendVersionPreview = async (req, res) => {
+    let assetPath = req.params.assetPath || "";
+    if (Array.isArray(assetPath)) assetPath = assetPath.join("/");
+    assetPath = decodeURIComponent(String(assetPath));
+    const file = await service.versionPreview(
+      req.user,
+      req.params.id,
+      assetPath,
+    );
+    res.setHeader("Content-Type", file.mime);
+    res.setHeader("Content-Disposition", "inline");
+    res.setHeader("Cache-Control", "private, max-age=60");
+    res.send(file.content);
+  };
+  app.get("/api/versions/:id/source", async (req, res) => {
+    const file = await service.versionSource(req.user, req.params.id);
+    res.setHeader("Content-Type", file.mime);
+    res.setHeader("Content-Disposition", "inline");
+    res.setHeader("Cache-Control", "private, max-age=60");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.send(file.content);
+  });
+  app.get("/api/versions/:id/preview", sendVersionPreview);
+  app.get("/api/versions/:id/preview/", sendVersionPreview);
+  app.get("/api/versions/:id/preview/*assetPath", sendVersionPreview);
   app.get("/api/versions/:id", async (req, res) => {
     const { content, ...meta } = await service.version(req.user, req.params.id);
     res.json(req.query.metadata === "1" ? meta : { ...meta, contentBase64: content.toString("base64") });

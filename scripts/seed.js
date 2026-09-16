@@ -54,10 +54,15 @@ export async function seedInitialAdmin(db, { strict = false } = {}) {
 }
 
 if (process.argv[1]?.endsWith("seed.js")) {
-  const db = await createDatabase();
-  try {
-    await seedInitialAdmin(db, { strict: true });
-  } finally {
-    await db.end();
-  }
+  void (async () => {
+    const db = await createDatabase();
+    try {
+      await seedInitialAdmin(db, { strict: true });
+    } finally {
+      await db.end();
+    }
+  })().catch((error) => {
+    console.error("Seed failed", { code: error.code || error.name });
+    process.exitCode = 1;
+  });
 }

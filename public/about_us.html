@@ -5,7 +5,7 @@
 <script>document.documentElement.classList.add("js");</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>共序 CoThread · 让每次讨论都有承接，让每个决定都有出处</title>
-<meta name="description" content="共序 CoThread —— 面向小团队的协作工作台。项目是长期工作空间，一次迭代对应一个群聊：AI 执行、人工审核、版本留痕、归档不可改。">
+<meta name="description" content="共序 CoThread —— 面向小团队的协作工作台。项目是长期工作空间，一次迭代对应一个群聊；文档浏览器管成果，小祥执行任务，人工审核后归档。">
 <style>
   :root{
     --bg:#070a12;
@@ -157,11 +157,12 @@
     <div class="brand"><img class="brand-logo" src="/cothread-logo.svg" alt="">共序 <small>CoThread</small></div>
     <ul>
       <li><a href="#about">产品</a></li>
+      <li><a href="#workspace">工作台</a></li>
       <li><a href="#features">能力</a></li>
       <li><a href="#flow">流程</a></li>
       <li><a href="#arch">架构</a></li>
       <li><a href="#start">快速开始</a></li>
-      <li><a class="cta" href="#boundary">实现边界</a></li>
+      <li><a class="cta" href="https://cothread.z2l.top">打开共序</a></li>
     </ul>
   </div>
 </header>
@@ -169,22 +170,22 @@
 <main>
   <!-- Hero -->
   <div class="hero wrap">
-    <span class="pill"><i class="dot"></i>协作应用 · 单实例 · 小团队试用版</span>
+    <span class="pill"><i class="dot"></i>协作工作台 · 当前版本 0.1.11 · 小团队试用</span>
     <h1>让每次讨论都有承接<br><span class="grad">让每个决定都有出处</span></h1>
     <p class="lead">
-      共序 CoThread 是一个以「项目—迭代—文档版本」为主线的团队协作工作台。
-      项目是长期工作空间，一次迭代对应一个群聊；成员用各自的本地 AI 读取上下文、提交产物，
-      团队人工审核之后归档，结论与出处一并留痕。
+      共序把讨论、执行和文档版本绑在同一条时间线上。
+      项目是长期工作空间，一次迭代就是一个群聊；右侧文档浏览器管正式文件、缓存与产物，
+      内置助手「小祥」在沙箱里干活，人工审核之后归档——结论和出处一起留下。
     </p>
     <div class="btns">
-      <a class="btn primary" href="#features">看核心能力</a>
-      <a class="btn ghost" href="#start">查看启动方式</a>
+      <a class="btn primary" href="https://cothread.z2l.top">打开线上工作台</a>
+      <a class="btn ghost" href="#workspace">看工作台怎么摆</a>
     </div>
     <div class="stats">
-      <div class="stat"><b>1 个</b><span>项目 = 长期工作空间</span></div>
-      <div class="stat"><b>1 个</b><span>迭代 = 一个群聊</span></div>
+      <div class="stat"><b>三栏</b><span>迭代列表 · 群聊 · 文档浏览器</span></div>
+      <div class="stat"><b>7+1</b><span>同时执行槽 + 接待名额</span></div>
       <div class="stat"><b>5 MiB</b><span>单文件上限，SHA-256 校验</span></div>
-      <div class="stat"><b>7 个</b><span>Streamable HTTP MCP 工具</span></div>
+      <div class="stat"><b>Office</b><span>Word / Excel / PPT 可预览</span></div>
     </div>
   </div>
 
@@ -193,26 +194,40 @@
     <div class="reveal">
       <div class="kicker">Product</div>
       <h2>共序是什么</h2>
-      <p class="sub">它不只是一个聊天窗口，而是把「讨论」和「交付物」绑在一起的工作台。聊天记录负责上下文，文档库负责成果，两者靠版本号精确关联。</p>
+      <p class="sub">它不只是一个聊天窗口，而是把「讨论」和「交付物」绑在一起的工作台。群聊负责上下文，文档浏览器负责成果，两者靠不可覆盖的版本号精确关联。</p>
     </div>
     <div class="cards g3">
       <div class="card reveal">
         <div class="ico">🧭</div>
         <h3>项目即长期空间</h3>
-        <p>一个账号可加入多个项目，各项目分别分配负责人 / 成员 / 只读权限。账号目录与项目成员分离，新账号不会自动获得任何项目权限。</p>
+        <p>一个账号可加入多个项目，各项目分别分配负责人 / 成员 / 只读。账号目录与项目成员分离，新账号不会自动获得任何项目权限。左侧「项目管理」管理基础信息与成员。</p>
       </div>
       <div class="card reveal">
         <div class="ico">💬</div>
         <h3>迭代即群聊</h3>
-        <p>消息按数据库序号排序，多人页面定时刷新；聊天里直接显示 AI 执行进度、工具输入与结果，支持停止与失败重试。</p>
+        <p>一次迭代对应一个群聊。消息按数据库序号排序；聊天里显示小祥的执行进度、工具输入与结果，支持停止、失败重试，以及基于已有上下文的「梳理讨论」。</p>
       </div>
       <div class="card reveal">
         <div class="ico">🗂️</div>
         <h3>成果即版本</h3>
-        <p>产物保存为不可覆盖的文档版本，带 SHA-256 校验与并发版本编号；上传 ≠ 审批通过，审核与归档由人工完成。</p>
+        <p>正式文件、对话缓存、任务产物分开放。产物保存为不可覆盖版本（SHA-256）；上传和 Agent 发布都不等于审批通过，审核与归档由人完成。</p>
       </div>
     </div>
-    <p class="note">本页为纯静态介绍页，内容取自项目文档库中的 README.md（v1），未接入后端接口，也不包含任何真实令牌或账号信息。</p>
+    <p class="note">本页为纯静态介绍页，与仓库 README 同步，不接入后端，也不包含任何真实令牌或账号信息。</p>
+  </section>
+
+  <section id="workspace" class="wrap">
+    <div class="reveal">
+      <div class="kicker">Workspace</div>
+      <h2>打开项目以后</h2>
+      <p class="sub">三栏各司其职：左侧收纳项目与人，中间把事聊清楚，右侧永远是文件而不是成员面板。侧栏可以收缩，把宽度留给讨论和预览。</p>
+    </div>
+    <div class="flow">
+      <div class="step reveal"><div class="n">左侧</div><h3>迭代与项目管理</h3><p>列出当前项目的迭代讨论，可查看已归档。底部打开「项目管理」（基础信息、长期总结、成员）和「小祥 Agent 监控」。</p></div>
+      <div class="step reveal"><div class="n">中间</div><h3>迭代群聊</h3><p>默认勾选「交给 Agent 处理」。可引用精确文档版本、把附件丢进当天缓存目录，看执行过程并停止或重试。</p></div>
+      <div class="step reveal"><div class="n">右侧</div><h3>文档浏览器</h3><p>一棵树看正式文件、缓存文件与产物文件。点选即可预览 Markdown、代码、图片、PDF 以及 Word / Excel / PowerPoint。</p></div>
+      <div class="step reveal"><div class="n">边界</div><h3>谁能改什么</h3><p>缓存和产物不能由人直接新建或改内容；可查看、引用、下载、审核、重命名、回收。正式文件区负责整理与另存。</p></div>
+    </div>
   </section>
 
   <!-- 能力 -->
@@ -220,62 +235,62 @@
     <div class="reveal">
       <div class="kicker">Capabilities</div>
       <h2>已实现的核心能力</h2>
-      <p class="sub">以下能力均以当前版本实际实现的功能为准，按协作链路归类。</p>
+      <p class="sub">以下均以当前仓库实际功能为准，不是路线图。</p>
     </div>
     <div class="cards g3">
       <div class="card reveal">
         <div class="ico">🔐</div>
         <h3>账号与权限</h3>
-        <p>登录、全局账号目录与项目成员分离；同一账号可加入多个项目，负责人可新建通用账号，权限按项目粒度分配。</p>
-        <span class="tag">负责人 / 成员 / 只读</span>
+        <p>账号名或已绑定邮箱登录；支持邮箱注册与验证码重置密码。全局账号与项目成员分离，权限按项目分配负责人 / 成员 / 只读。</p>
+        <span class="tag">可绑定邮箱</span>
       </div>
       <div class="card reveal">
         <div class="ico">🧾</div>
         <h3>文档版本与审核</h3>
-        <p>二进制内容入库，5 MiB 单文件限制、SHA-256、不可覆盖的版本与并发版本编号，并保留人工审核记录。</p>
+        <p>二进制入库，单文件 5 MiB、SHA-256、不可覆盖版本。对话进缓存目录，任务进产物目录；人工审核记录与软删除回收站。</p>
         <span class="tag">不可覆盖</span>
       </div>
       <div class="card reveal">
         <div class="ico">🔗</div>
         <h3>精确引用与归档</h3>
-        <p>消息引用精确到文档版本；归档事务一次保存结论、消息、审核、版本摘要与执行结果，归档后不可修改，下一迭代仍可继续引用旧版本。</p>
+        <p>消息引用精确到版本号。归档一次保存结论、讨论、审核与版本摘要，已确认产物另存到正式文件；归档后本迭代不可改，后续仍可引用。</p>
         <span class="tag">可追溯</span>
       </div>
       <div class="card reveal">
         <div class="ico">🤖</div>
-        <h3>内置 DSH Agent</h3>
-        <p>可读取项目资料、在当前运行环境的沙箱中创建与编辑文件、执行命令与测试，并把成果保存为文档版本。每个迭代独立会话与工作区。</p>
-        <span class="tag">会话快照入 MySQL</span>
+        <h3>小祥：一个身份，三层干活</h3>
+        <p>对用户始终是「小祥」。对内：一级老翁维护项目知识库，二级调度本轮讨论，三级在独立会话里执行。同时最多 7 个执行任务加 1 个接待名额。</p>
+        <span class="tag">监控页可看内部职责</span>
       </div>
       <div class="card reveal">
         <div class="ico">📦</div>
-        <h3>沙箱按需创建</h3>
-        <p>工作区按需创建，续期 15 分钟；过期后可从已保存文档恢复。沙箱临时文件可能过期，只有提交进文档库才算正式留存。</p>
-        <span class="tag">15 分钟续期</span>
+        <h3>沙箱与会话快照</h3>
+        <p>本机走本地沙箱，云端走 Makers 原生沙箱。临时文件可能过期；正式留存必须发布进文档库。会话快照写入 MySQL，重启不自动重放副作用操作。</p>
+        <span class="tag">长期成果必须入库</span>
       </div>
       <div class="card reveal">
         <div class="ico">🧰</div>
-        <h3>MCP 工具集</h3>
-        <p>7 个 Streamable HTTP 工具自带使用说明：从连接指引、项目与迭代上下文、读取版本，到发消息与提交文档；调用者身份由服务端凭据确定。</p>
-        <span class="tag">Bearer 鉴权</span>
-      </div>
-      <div class="card reveal">
-        <div class="ico">🔑</div>
-        <h3>本地 Agent 连接</h3>
-        <p>账号单令牌、30 天有效、可重置；哈希鉴权 + AES-256-GCM 加密保存，按项目成员权限访问，浏览器中默认遮罩显示。</p>
-        <span class="tag">可重置</span>
+        <h3>MCP 与本机 Codex</h3>
+        <p>7 个 Streamable HTTP 工具让成员本地 AI 读上下文、发消息、提交产物。另有 Windows 连接器把确认后的任务交给本机 Codex 与 Git。</p>
+        <span class="tag">Bearer 账号令牌</span>
       </div>
       <div class="card reveal">
         <div class="ico">🌲</div>
-        <h3>文档库与文件树</h3>
-        <p>右侧项目文档与弹窗复用同一文件树，支持拖拽整理、多级折叠、新建文件夹/文档、上传、移动、重命名、回收站恢复、版本切换、预览与下载。</p>
-        <span class="tag">Markdown / 图片 / PDF 预览</span>
+        <h3>文档浏览器</h3>
+        <p>右侧固定文件树：正式 / 缓存 / 产物。预览 Markdown、文本代码、图片、PDF 以及 Word / Excel / PowerPoint；其余格式请下载原件。</p>
+        <span class="tag">Office 预览</span>
       </div>
       <div class="card reveal">
         <div class="ico">✨</div>
         <h3>梳理讨论</h3>
-        <p>默认直接调用模型整理最近最多 50 条消息，后台显示进度与错误；它与「可调用工具的 Agent 对话」是两个独立功能。</p>
-        <span class="tag">SUMMARY_MODE=dsh 为可选模式</span>
+        <p>在输入框预填一条基于助手已有上下文的请求，成员发送后按普通 @ 小祥处理，不再弹出消息条数选择，也不要求重新读完整会话。</p>
+        <span class="tag">走群聊，不另开通道</span>
+      </div>
+      <div class="card reveal">
+        <div class="ico">🖥️</div>
+        <h3>云端与本机</h3>
+        <p>Git 推送 main 后由 EdgeOne Makers 构建。生产站点 cothread.z2l.top。本机 Node 22.19+ 与便携 MySQL 8.4 即可开发。</p>
+        <span class="tag">单实例试用</span>
       </div>
     </div>
   </section>
@@ -288,10 +303,10 @@
       <p class="sub">从讨论到归档，每一步都留下可回溯的记录；AI 负责执行，人负责决策。</p>
     </div>
     <div class="flow">
-      <div class="step reveal"><div class="n">STEP 01</div><h3>讨论与澄清</h3><p>在迭代群聊里提出需求、补充要求与引用已有版本，上下文由消息序号与引用关系固定下来。</p></div>
-      <div class="step reveal"><div class="n">STEP 02</div><h3>Agent 执行</h3><p>勾选「交给 Agent 处理」，Agent 读取项目资料，在本地或 Makers 原生沙箱里创建与编辑文件、运行命令与测试。</p></div>
-      <div class="step reveal"><div class="n">STEP 03</div><h3>提交为版本</h3><p>成果保存为新的文档版本（含 SHA-256），进入文档库；本地 AI 令牌不能审批，也不能归档。</p></div>
-      <div class="step reveal"><div class="n">STEP 04</div><h3>人工审核归档</h3><p>人工审核通过后归档，事务保存结论、消息、审核与版本摘要；归档后不可修改，后续迭代可继续引用。</p></div>
+      <div class="step reveal"><div class="n">STEP 01</div><h3>讨论与澄清</h3><p>在迭代群聊里提出需求、@ 小祥或打开本机 Codex，引用已有版本。上下文由消息序号和引用关系固定下来。</p></div>
+      <div class="step reveal"><div class="n">STEP 02</div><h3>小祥执行</h3><p>二级判断是否开跑；三级在独立沙箱里改文件、跑命令。忙时会明说暂时只陪聊，不会把请求悄悄排队。</p></div>
+      <div class="step reveal"><div class="n">STEP 03</div><h3>提交为版本</h3><p>成果进入产物目录的新版本（含 SHA-256）。本地 AI 令牌不能审批，也不能归档；缓存文件仍只是对话附件。</p></div>
+      <div class="step reveal"><div class="n">STEP 04</div><h3>人工审核归档</h3><p>审核通过后归档：结论、讨论、审核与版本一次落库，已确认产物另存到正式文件。归档后本迭代锁定，下一轮仍可引用。</p></div>
     </div>
   </section>
 
@@ -306,7 +321,7 @@
       <div class="reveal">
         <div class="layer">
           <div class="hd"><span>前端 / 协作界面</span><em>web/</em></div>
-          <p>React 页面：迭代群聊、执行进度、文档库文件树、版本预览与下载。</p>
+          <p>React 工作台：可收缩侧栏、迭代群聊、文档浏览器、项目管理弹窗、小祥监控与 Office 预览。</p>
         </div>
         <div class="layer">
           <div class="hd"><span>服务端</span><em>server/</em></div>
@@ -314,7 +329,7 @@
         </div>
         <div class="layer">
           <div class="hd"><span>执行后端</span><em>Local / Makers</em></div>
-          <p>唯一执行后端，负责沙箱创建、命令执行与文件读写；宿主机仅编排 Agent，不直接执行工具。</p>
+          <p>本机固定本地沙箱；Makers 使用请求注入的原生沙箱。检查点有配额，长期成果必须发布到文档库。</p>
         </div>
         <div class="layer">
           <div class="hd"><span>持久化</span><em>MySQL 8.4</em></div>
@@ -324,13 +339,13 @@
       <div class="reveal">
         <div class="kicker">Project layout</div>
         <pre><span class="c"># 项目结构</span>
-web/          React 页面
-server/       HTTP API、权限、协作业务、MCP、沙箱路由
-migrations/   版本化 MySQL 结构
-scripts/      安装初始化、迁移、示例、连接检查
-tests/        真实数据库集成测试
-docs/         架构与部署说明
-.local/       本机 MySQL 程序、数据、私有配置（不入库）</pre>
+web/               React 工作台
+public/            静态页（含本页）
+server/            HTTP API、权限、MCP、沙箱路由
+cloud-functions/   EdgeOne 云函数
+agents/            Makers 长任务
+migrations/        版本化 MySQL 结构
+.local/            本机数据与密钥（不入库）</pre>
         <ul class="list ok">
           <li>文档版本不可覆盖，消息引用精确到具体版本号</li>
           <li>归档事务一次落库：结论、消息、审核、版本摘要、执行结果</li>
@@ -355,16 +370,15 @@ npm install
 npm run setup
 npm run mysql:start
 npm run db:migrate
-npm run db:seed
 npm run dev
 
 <span class="c"># 打开 http://localhost:3100</span>
-<span class="c"># 初始账号取自 .env 的 ADMIN_EMAIL / ADMIN_PASSWORD</span></pre>
+<span class="c"># 初始账号见 .local/initial-admin.json</span></pre>
       </div>
       <div class="reveal">
         <ul class="list">
           <li><b>npm run build</b>：类型检查与前端生产构建</li>
-          <li><b>npm test</b>：真实 MySQL 集成测试，独立随机库、结束后清理</li>
+          <li><b>npm test</b>：真实 MySQL 集成测试；须独立 TEST_DATABASE_URL，禁止清库开发库</li>
           <li><b>npm run db:backup</b>：完整备份业务数据与文件内容</li>
           <li><b>npm run app:start / app:stop</b>：Windows 下启动本地库并后台运行生产版</li>
           <li>安装 Docker 的机器可用 <b>compose.yaml</b>（mysql:8.4.9），但不要与便携版同时占用 3307</li>
@@ -386,9 +400,9 @@ npm run dev
         <div class="ico">🚧</div>
         <h3>暂不包含</h3>
         <ul class="list no" style="margin-top:6px">
-          <li>邮件邀请、SSO、密码找回</li>
+          <li>SSO、邮件邀请入项目</li>
           <li>推送通知、全文搜索</li>
-          <li>文件在线编辑、对象存储</li>
+          <li>文件在线编辑（可预览）、对象存储</li>
           <li>多实例作业调度</li>
         </ul>
       </div>
@@ -409,7 +423,7 @@ npm run dev
 <footer>
   <div class="wrap foot">
     <div><b>共序 CoThread</b> · 让每次讨论都有承接，让每个决定都有出处</div>
-    <div>纯静态介绍页 · 单文件 HTML · 无外部依赖 · 内容依据项目文档库 README.md（v1）</div>
+    <div>纯静态介绍页 · 与 README 同步 · <a href="https://cothread.z2l.top" style="color:inherit">cothread.z2l.top</a></div>
   </div>
 </footer>
 

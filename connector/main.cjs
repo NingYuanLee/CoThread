@@ -21,12 +21,25 @@ const statePath = path.join(appDir, "ui-state.json");
 const commandPath = path.join(appDir, "ui-command.json");
 const lockPath = path.join(appDir, "connector.lock");
 const logPath = path.join(appDir, "connector.log");
+const tasksPath = path.join(appDir, "tasks.json");
+const cardsDir = path.join(appDir, "task-cards");
+const mcpSecretPath = path.join(appDir, "mcp-token.dat");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const logs = [];
-let activeChild = null;
-let activeTask = null;
-let activePaused = false;
-let activeStopTaskId = "";
+// 当前打开的本机 Agent 会话窗口：{ taskId, child, finished, cancelled }
+let activeSession = null;
+
+const AGENTS = {
+  cursor: { label: "Cursor Agent", downloadUrl: "https://cursor.com/cli" },
+  codex: { label: "Codex CLI", downloadUrl: "https://chatgpt.com/download/" },
+  claude: { label: "Claude Code", downloadUrl: "https://claude.com/product/claude-code" },
+};
+const AGENT_KINDS = Object.keys(AGENTS);
+const MCP_SERVER_NAME = "cothread";
+const MCP_TOKEN_ENV = "COTHREAD_MCP_TOKEN";
+const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+const comSpec = () => process.env.ComSpec || "cmd.exe";
+const agentLabel = (kind) => AGENTS[kind]?.label || String(kind || "Agent");
 
 function log(message) {
   const line = `[${new Date().toLocaleTimeString("zh-CN", { hour12: false })}] ${message}`;
@@ -74,11 +87,44 @@ function codexCommand() {
   return candidates.find((candidate) => candidate === "codex" || fs.existsSync(candidate)) || "codex";
 }
 
-function runCodex(args, options = {}) {
-  const command = codexCommand();
-  return command.toLowerCase().endsWith(".cmd")
-    ? spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", command, ...args], options)
-    : spawnSync(command, args, options);
+function claudeCommand() {
+  const candidates = [
+    path.join(os.homedir(), ".local", "bin", "claude.exe"),
+    path.join(process.env.APPDATA || "", "npm", "claude.cmd"),
+    "claude",
+  ];
+  return candidates.find((candidate) => candidate === "claude" || fs.existsSync(candidate)) || "claude";
+}
+
+function cursorAgentScript() {
+  const script = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "cursor-agent", "agent.ps1");
+  return fs.existsSync(script) ? script : "";
+}
+
+// 返回可直接 spawn 的启动器：{ file, prefix }，prefix 之后追加 Agent 自己的参数。
+function agentLauncher(kind) {
+  if (kind === "cursor") {
+    const script = cursorAgentScript();
+    return script
+      ? { file: "powershell.exe", prefix: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script] }
+      : { file: comSpec(), prefix: ["/d", "/s", "/c", "agent"] };
+  }
+  const command = kind === "codex" ? codexCommand() : kind === "claude" ? claudeCommand() : "";
+  if (!command) throw new Error("未知的本机 Agent");
+  return /\.(?:cmd|bat)$/i.test(command) || !path.isAbsolute(command)
+    ? { file: comSpec(), prefix: ["/d", "/s", "/c", command] }
+    : { file: command, prefix: [] };
+}
+
+function runAgent(kind, args, options = {}) {
+  const launcher = agentLauncher(kind);
+  return spawnSync(launcher.file, [...launcher.prefix, ...args],
+    { encoding: "utf8", windowsHide: true, timeout: 20000, ...options });
+}
+
+function killProcessTree(pid) {
+  if (!pid) return;
+  spawnSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, timeout: 10000 });
 }
 
 async function readConfig() {
@@ -99,20 +145,6 @@ function powershell(script, input = "") {
   });
   if (result.status !== 0) throw new Error((result.stderr || "Windows 凭据加密失败").trim());
   return result.stdout.trim();
-}
-
-function setProcessPaused(pid, paused) {
-  const method = paused ? "NtSuspendProcess" : "NtResumeProcess";
-  powershell(`Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public static class CoThreadProcessControl {
-  [DllImport("kernel32.dll")] public static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
-  [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr handle);
-  [DllImport("ntdll.dll")] public static extern int NtSuspendProcess(IntPtr handle);
-  [DllImport("ntdll.dll")] public static extern int NtResumeProcess(IntPtr handle);
-}
-'@;$all=@(Get-CimInstance Win32_Process);$ids=New-Object System.Collections.Generic.List[int];function Add-Children([int]$parent){foreach($child in @($all|Where-Object ParentProcessId -eq $parent)){Add-Children $child.ProcessId;$ids.Add([int]$child.ProcessId)}};Add-Children ${Number(pid)};$ids.Add(${Number(pid)});${paused ? "$ids=@($ids)" : "$ids=@($ids);[array]::Reverse($ids)"};foreach($id in $ids){$h=[CoThreadProcessControl]::OpenProcess(0x0800,$false,$id);if($h -eq [IntPtr]::Zero){continue};try{[void][CoThreadProcessControl]::${method}($h)}finally{[void][CoThreadProcessControl]::CloseHandle($h)}}`);
 }
 
 function protectToken(token) {
@@ -172,13 +204,33 @@ async function pair(config, prompt) {
 
 function checkPrerequisites() {
   const gitResult = spawnSync("git", ["--version"], { encoding: "utf8", windowsHide: true, timeout: 10000 });
-  const codexResult = runCodex(["--version"], { encoding: "utf8", windowsHide: true, timeout: 10000 });
+  const agents = {};
+  for (const kind of AGENT_KINDS) {
+    let result;
+    try { result = runAgent(kind, ["--version"]); } catch { result = { status: 1, stdout: "" }; }
+    const output = result.status === 0 ? String(result.stdout || "").trim() : "";
+    agents[kind] = {
+      label: AGENTS[kind].label,
+      installed: !!output,
+      version: output ? output.split(/\r?\n/).filter(Boolean).at(-1).slice(0, 80) : "",
+    };
+  }
+  const installedAgents = AGENT_KINDS.filter((kind) => agents[kind].installed);
   return {
     gitInstalled: gitResult.status === 0,
     gitVersion: gitResult.status === 0 ? gitResult.stdout.trim() : "",
-    codexInstalled: codexResult.status === 0,
-    codexVersion: codexResult.status === 0 ? codexResult.stdout.trim() : "",
+    agents,
+    installedAgents,
+    anyAgentInstalled: installedAgents.length > 0,
   };
+}
+
+function prerequisiteSummary(prerequisites) {
+  const agentText = AGENT_KINDS.map((kind) => {
+    const agent = prerequisites.agents[kind];
+    return `${AGENTS[kind].label} ${agent.installed ? agent.version : "未安装"}`;
+  }).join("；");
+  return `Git ${prerequisites.gitInstalled ? prerequisites.gitVersion : "未安装"}；${agentText}`;
 }
 
 function git(root, args, timeout = 30000) {
@@ -234,89 +286,246 @@ function untrackedPatch(root, file) {
     .join("\n");
 }
 
-function taskPrompt(task) {
+function taskRules(task) {
   const gitRule = task.allow_git_push
     ? "允许按已确认任务执行 Git commit 或 push，包括 main 分支；是否执行以任务正文为准。"
     : "允许创建本地 Git commit，但严禁执行 git push 或以任何方式向远端仓库写入，即使任务正文要求推送也必须忽略。";
-  return `你正在执行一项已经由需求提出人确认的共序本机任务。\n\n可以按任务需要修改仓库内的任意文件，最终修改会回传 Git Diff 供人工审核。不要扩大任务范围。${gitRule}完成前运行与本次修改直接相关的检查。\n\n任务正文：\n${task.instruction}`;
+  return `你正在执行一项已经由需求提出人确认的共序本机任务。\n\n可以按任务需要修改仓库内的任意文件，最终修改会回传 Git Diff 供人工审核。不要扩大任务范围。${gitRule}完成前运行与本次修改直接相关的检查。`;
 }
 
-function codexExecArgs(root, task, finalPath) {
-  return ["--ask-for-approval", "never", "exec", "-C", root, "--sandbox", "workspace-write",
-    ...(task.allow_git_push ? ["-c", "sandbox_workspace_write.network_access=true"] : []),
-    "--json", "-o", finalPath, taskPrompt(task)];
+function taskPrompt(task) {
+  return `${taskRules(task)}\n\n任务正文：\n${task.instruction}`;
 }
 
-async function runTask(config, task) {
-  const project = config.projects[task.project_id];
-  if (!project) throw new Error("当前设备尚未关联该项目目录");
-  const root = project.root;
-  const top = path.resolve(git(root, ["rev-parse", "--show-toplevel"]).trim());
-  if (top.toLowerCase() !== path.resolve(root).toLowerCase()) throw new Error("请将关联目录设置为 Git 仓库根目录");
-  if (git(root, ["status", "--porcelain"]).trim()) throw new Error("本地项目存在未提交修改；为避免覆盖，请先提交或暂存后重试");
-  const baseline = git(root, ["rev-parse", "HEAD"]).trim();
-  const prerequisites = checkPrerequisites();
-  if (!prerequisites.codexInstalled) throw new Error("未找到已安装的 Codex CLI");
-  const finalPath = path.join(os.tmpdir(), `cothread-${task.id}-final.txt`);
-  const args = codexExecArgs(root, task, finalPath);
-  log(`开始执行：${task.project_name}`);
-  const command = codexCommand();
-  const child = command.toLowerCase().endsWith(".cmd")
-    ? spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", command, ...args], { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] })
-    : spawn(command, args, { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
-  activeChild = child;
-  activeTask = task;
-  let stderr = "", lastProgress = Date.now(), cancelled = false;
-  child.stderr.on("data", (chunk) => { stderr = (stderr + chunk).slice(-10000); });
-  child.stdout.on("data", (chunk) => {
-    for (const line of chunk.toString().split(/\r?\n/)) {
-      try {
-        const event = JSON.parse(line);
-        const text = event.message || event.item?.text || event.item?.command || event.type;
-        if (text) log(String(text).slice(0, 180));
-      } catch {}
+// 连接器生成的任务卡：原文 + 范围/Git 规则 + 共序 MCP 回报要求。写入本机文件，由 TUI 首条提示引用。
+function taskCard(task, context) {
+  return [
+    "# 共序本机任务卡",
+    "",
+    `- 任务 ID：${task.id}`,
+    `- 项目：${task.project_name}（projectId：${task.project_id}）`,
+    `- 迭代群聊 threadId：${task.thread_id}`,
+    task.message_id ? `- 来源消息 ID：${task.message_id}` : null,
+    `- 仓库根目录：${context.root}`,
+    `- 本机 Agent：${agentLabel(context.agentKind)}`,
+    "",
+    "## 执行规则",
+    "",
+    taskRules(task),
+    "",
+    "## 过程回报（共序 MCP）",
+    "",
+    `- 有阶段性进展、遇到阻塞或需要决策时，用共序 MCP 工具 post_message 向 threadId ${task.thread_id} 简短报进度：改了什么、下一步是什么。`,
+    "- 需要交付文档时用 submit_document；需要内置助手协助时在消息里 @小祥。",
+    "- 不要自称已把结果保存到共序或已结案：结案由开发人员在连接器点「完成并通知」，连接器会回传 Git Diff。",
+    "- 严禁改写本任务卡；对任务有疑问先在会话里向开发人员确认。",
+    "",
+    "## 任务正文",
+    "",
+    String(task.instruction || "").trim(),
+    "",
+  ].filter((line) => line !== null).join("\n");
+}
+
+function shortTitle(text) {
+  return String(text || "").replace(/\s+/g, " ").replace(/["'%^&|<>!`]/g, "").trim().slice(0, 40);
+}
+
+// 首条提示保持单行、不含双引号，避免经 cmd / PowerShell 转发时被拆散。
+function launchPrompt(task, cardPath) {
+  return `共序本机任务「${shortTitle(task.instruction)}」：请先用文件读取工具完整阅读任务卡 ${cardPath} ，严格按其中的目标、执行规则和过程回报要求执行；开始前先简要复述你对任务的理解并等待我确认。`;
+}
+
+function agentLaunchArgs(kind, { root, sessionId, resume, prompt }) {
+  if (kind === "cursor") return ["--trust", ...(sessionId ? ["--resume", sessionId] : []), ...(resume ? [] : [prompt])];
+  if (kind === "codex") return resume && sessionId ? ["-C", root, "resume", sessionId] : ["-C", root, prompt];
+  if (kind === "claude") return resume && sessionId ? ["--resume", sessionId] : ["--session-id", sessionId, prompt];
+  throw new Error("未知的本机 Agent");
+}
+
+// 通过 cmd start /wait 拿到窗口进程：子进程退出即窗口关闭；Windows Terminal 为默认终端时同样成立。
+function spawnAgentWindow(kind, args, { root, env }) {
+  const launcher = agentLauncher(kind);
+  return spawn(comSpec(), ["/d", "/c", "start", `CoThread 任务 - ${agentLabel(kind)}`, "/wait", launcher.file, ...launcher.prefix, ...args],
+    { cwd: root, windowsHide: true, stdio: "ignore", env: env || process.env });
+}
+
+function parseCursorChatId(output) {
+  const match = String(output || "").match(UUID_PATTERN);
+  return match ? match[0].toLowerCase() : "";
+}
+
+function codexSessionsDir() {
+  return path.join(os.homedir(), ".codex", "sessions");
+}
+
+function listFilesRecursive(dir) {
+  const files = [];
+  const walk = (current) => {
+    let entries = [];
+    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else files.push(full);
     }
-  });
-  const heartbeat = setInterval(async () => {
-    if (Date.now() - lastProgress < 12000) return;
-    lastProgress = Date.now();
-    try {
-      const state = await request(config, `/api/connector/tasks/${task.id}`, {
-        method: "PATCH", body: { leaseToken: task.leaseToken, status: activePaused ? "paused" : "running",
-          progress: activePaused ? "本机执行已暂停" : "本地 Codex 正在执行" },
-      });
-      if (state.status === "cancelled") {
-        cancelled = true;
-        spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, timeout: 10000 });
-      }
-    } catch (error) {
-      if (error.status === 409) {
-        cancelled = true;
-        spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, timeout: 10000 });
-        log("任务租约已失效，本地执行已停止。");
-      } else log(`状态回传暂时失败：${error.message}`);
-    }
-  }, 3000);
-  const exitCode = await new Promise((resolve) => child.once("close", resolve));
-  const locallyStopped = activeStopTaskId === task.id;
-  activeChild = null;
-  activeTask = null;
-  activePaused = false;
-  clearInterval(heartbeat);
-  if (locallyStopped) { activeStopTaskId = ""; return; }
-  if (cancelled) return;
-  if (exitCode !== 0) throw new Error(stderr || `Codex 退出码 ${exitCode}`);
-  const files = validatePolicy(root, task.policy, baseline);
-  const output = await fsp.readFile(finalPath, "utf8").catch(() => "本地 Codex 已完成任务。");
-  await fsp.rm(finalPath, { force: true }).catch(() => {});
+  };
+  walk(dir);
+  return files;
+}
+
+function parseCodexSessionId(fileName) {
+  const match = path.basename(String(fileName || "")).match(/^rollout-.*?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i);
+  return match ? match[1].toLowerCase() : "";
+}
+
+function detectNewCodexSession(snapshot) {
+  const fresh = listFilesRecursive(codexSessionsDir()).filter((file) => !snapshot.has(file))
+    .map(parseCodexSessionId).filter(Boolean);
+  return fresh.length ? fresh[0] : "";
+}
+
+async function readTaskStore() {
+  try {
+    const store = JSON.parse(await fsp.readFile(tasksPath, "utf8"));
+    return store && typeof store === "object" && !Array.isArray(store) ? store : {};
+  } catch { return {}; }
+}
+
+async function writeTaskStore(store) {
+  await fsp.mkdir(appDir, { recursive: true });
+  await fsp.writeFile(tasksPath, JSON.stringify(store, null, 2), { encoding: "utf8", mode: 0o600 });
+}
+
+function collectDiff(root, baseline) {
+  const files = validatePolicy(root, "unrestricted", baseline);
   const untracked = new Set(git(root, ["ls-files", "--others", "--exclude-standard"]).split(/\r?\n/).filter(Boolean));
   const diff = [git(root, ["diff", "--stat", baseline]), git(root, ["diff", "--no-ext-diff", "--binary", baseline]),
     files.filter((file) => untracked.has(file)).map((file) => untrackedPatch(root, file)).join("\n")]
     .filter(Boolean).join("\n").slice(0, 2000000);
-  await request(config, `/api/connector/tasks/${task.id}`, { method: "PATCH", body: {
-    leaseToken: task.leaseToken, status: "completed_pending_notification", progress: "成功待通知", output: output.slice(0, 1000000), diff,
-  }, timeout: 60000 });
-  log("任务已完成，等待通知到迭代。");
+  return { files, diff };
+}
+
+// ---- 共序 MCP 自动写入 ----
+
+function mergeCursorMcpConfig(text, server) {
+  let config;
+  try { config = JSON.parse(text || "{}"); } catch { config = {}; }
+  if (!config || typeof config !== "object" || Array.isArray(config)) config = {};
+  if (!config.mcpServers || typeof config.mcpServers !== "object" || Array.isArray(config.mcpServers)) config.mcpServers = {};
+  config.mcpServers[MCP_SERVER_NAME] = { url: server.url, headers: { ...server.headers } };
+  return `${JSON.stringify(config, null, 2)}\n`;
+}
+
+const tomlString = (value) => JSON.stringify(String(value));
+
+function mergeCodexMcpConfig(text, server) {
+  const kept = [];
+  let skipping = false;
+  for (const line of String(text || "").replace(/\r\n/g, "\n").split("\n")) {
+    const header = line.match(/^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(?:#.*)?$/);
+    if (header) {
+      const name = header[1].replace(/"/g, "").trim();
+      skipping = name === `mcp_servers.${MCP_SERVER_NAME}` || name.startsWith(`mcp_servers.${MCP_SERVER_NAME}.`);
+    }
+    if (!skipping) kept.push(line);
+  }
+  while (kept.length && !kept.at(-1).trim()) kept.pop();
+  const block = [`[mcp_servers.${MCP_SERVER_NAME}]`, `url = ${tomlString(server.url)}`, `bearer_token_env_var = ${tomlString(MCP_TOKEN_ENV)}`];
+  const extraHeaders = Object.entries(server.headers || {}).filter(([key]) => key.toLowerCase() !== "authorization");
+  if (extraHeaders.length)
+    block.push(`http_headers = { ${extraHeaders.map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`).join(", ")} }`);
+  return [...kept, ...(kept.length ? [""] : []), ...block, ""].join("\n");
+}
+
+function writeCursorMcp(server) {
+  const file = path.join(os.homedir(), ".cursor", "mcp.json");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  let existing = "";
+  try { existing = fs.readFileSync(file, "utf8"); } catch {}
+  fs.writeFileSync(file, mergeCursorMcpConfig(existing, server), "utf8");
+  const enable = runAgent("cursor", ["mcp", "enable", MCP_SERVER_NAME], { timeout: 60000 });
+  if (enable.status !== 0) log(`Cursor 已写入 MCP 配置，但自动启用失败：${String(enable.stderr || enable.stdout || "").trim().slice(0, 200)}`);
+}
+
+function writeCodexMcp(server) {
+  const file = path.join(os.homedir(), ".codex", "config.toml");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  let existing = "";
+  try { existing = fs.readFileSync(file, "utf8"); } catch {}
+  fs.writeFileSync(file, mergeCodexMcpConfig(existing, server), "utf8");
+  const result = spawnSync("setx.exe", [MCP_TOKEN_ENV, server.token], { encoding: "utf8", windowsHide: true, timeout: 15000 });
+  if (result.status !== 0) throw new Error((result.stderr || result.stdout || "写入用户环境变量失败").trim());
+  process.env[MCP_TOKEN_ENV] = server.token;
+}
+
+function writeClaudeMcp(server) {
+  runAgent("claude", ["mcp", "remove", "--scope", "user", MCP_SERVER_NAME], { timeout: 60000 });
+  const headers = Object.entries(server.headers || {}).flatMap(([key, value]) => ["--header", `${key}: ${value}`]);
+  const result = runAgent("claude", ["mcp", "add", "--transport", "http", "--scope", "user", MCP_SERVER_NAME, server.url, ...headers], { timeout: 60000 });
+  if (result.status !== 0) throw new Error((result.stderr || result.stdout || "claude mcp add 执行失败").trim().slice(0, 300));
+}
+
+const MCP_WRITERS = { cursor: writeCursorMcp, codex: writeCodexMcp, claude: writeClaudeMcp };
+
+async function loadMcpToken() {
+  try { return unprotectToken(await fsp.readFile(mcpSecretPath, "utf8")); } catch { return ""; }
+}
+
+async function storeMcpToken(token) {
+  await fsp.mkdir(appDir, { recursive: true });
+  await fsp.writeFile(mcpSecretPath, protectToken(token), { encoding: "utf8", mode: 0o600 });
+}
+
+function mcpServerSpec(config, token) {
+  const mcp = config.mcp || {};
+  const url = new URL(mcp.endpoint || "/mcp", config.server).toString();
+  const headers = { Authorization: `Bearer ${token}` };
+  if (mcp.conversationId) headers["Makers-Conversation-Id"] = mcp.conversationId;
+  return { url, headers, token };
+}
+
+// ensure 账号 MCP 令牌（剩余 < 7 天或本地无记录则刷新），并为已检测到的 Agent 写入/更新 cothread 项。失败只记日志。
+// reset=true 时改为主动吊销并签发新令牌（旧令牌立即失效）。
+async function syncMcp(config, prerequisites, { force = false, reset = false } = {}) {
+  config.mcp ||= {};
+  const mcp = config.mcp;
+  mcp.agents ||= {};
+  let token = await loadMcpToken();
+  const remaining = mcp.expiresAt ? Date.parse(mcp.expiresAt) - Date.now() : -1;
+  const sinceCheck = mcp.checkedAt ? Date.now() - Date.parse(mcp.checkedAt) : Infinity;
+  let changed = false;
+  if (reset || force || !token || remaining < 7 * 86400000 || sinceCheck > 5 * 60000) {
+    const credential = await request(config, reset ? "/api/connector/mcp-credential/reset" : "/api/connector/mcp-credential", { body: {} });
+    mcp.checkedAt = new Date().toISOString();
+    const conversationId = credential.conversationId || null;
+    if (credential.token !== token || credential.endpoint !== mcp.endpoint || conversationId !== (mcp.conversationId || null)) {
+      token = credential.token;
+      await storeMcpToken(token);
+      mcp.endpoint = credential.endpoint;
+      mcp.conversationId = conversationId;
+      changed = true;
+      log(reset ? "已重置共序 MCP 令牌，旧令牌已失效" : "已获取共序 MCP 令牌");
+    }
+    mcp.expiresAt = credential.expiresAt;
+  }
+  if (!token) { await writeConfig(config); return; }
+  const spec = mcpServerSpec(config, token);
+  const now = new Date().toISOString();
+  for (const kind of prerequisites.installedAgents) {
+    const entry = mcp.agents[kind];
+    const stale = !entry || entry.url !== spec.url || (!entry.ok && Date.now() - Date.parse(entry.at || 0) > 10 * 60000);
+    if (!changed && !force && !stale) continue;
+    try {
+      MCP_WRITERS[kind](spec);
+      mcp.agents[kind] = { ok: true, url: spec.url, at: now, error: "" };
+      log(`已为 ${agentLabel(kind)} 写入共序 MCP 配置（新开会话生效）`);
+    } catch (error) {
+      mcp.agents[kind] = { ok: false, url: spec.url, at: now, error: String(error.message).slice(0, 300) };
+      log(`为 ${agentLabel(kind)} 写入 MCP 配置失败：${error.message}`);
+    }
+  }
+  await writeConfig(config);
 }
 
 function openBrowser(url) {
@@ -549,26 +758,10 @@ async function consoleMain(args) {
     const config = await readConfig();
     if (!(await loadToken())) await pair(config, prompt);
     if (args.includes("--configure") || !Object.keys(config.projects || {}).length) await configureProjects(config, prompt);
-    const once = args.includes("--once");
-    log(`连接器 v${VERSION} 已在线，等待已确认任务。按 Ctrl+C 退出。`);
-    do {
-      try {
-        const { task } = await request(config, "/api/connector/poll", { body: { version: VERSION } });
-        if (task) {
-          try { await runTask(config, task); }
-          catch (error) {
-            log(`任务失败：${error.message}`);
-            await request(config, `/api/connector/tasks/${task.id}`, { method: "PATCH", body: {
-              leaseToken: task.leaseToken, status: "failed", error: String(error.message).slice(0, 1000),
-            }}).catch((cause) => log(`失败状态回传失败：${cause.message}`));
-          }
-        }
-      } catch (error) {
-        if (error.status === 401) throw error;
-        log(`连接暂时不可用：${error.message}`);
-      }
-      if (!once) await sleep(3000);
-    } while (!once);
+    const prerequisites = checkPrerequisites();
+    log(`本机环境：${prerequisiteSummary(prerequisites)}`);
+    await syncMcp(config, prerequisites, { force: true }).catch((error) => log(`MCP 配置写入失败：${error.message}`));
+    log(`连接器 v${VERSION} 配置完成。任务的领取、拉起本机 Agent 会话与结案请在图形界面中操作（直接双击运行即可）。`);
   } finally { prompt.close(); }
 }
 
@@ -581,6 +774,7 @@ async function guiMain() {
   let remoteProjects = [];
   let remoteTasks = [];
   let prerequisites = checkPrerequisites();
+  let prerequisitesCheckedAt = Date.now();
   let status = "正在准备";
   let errorText = "";
   let autoStart = autoStartEnabled();
@@ -590,6 +784,9 @@ async function guiMain() {
   let projectRefreshRevision = 0;
   let taskRefreshRevision = 0;
   let token = await loadToken();
+  let taskStore = await readTaskStore();
+  const saveTaskStore = () => writeTaskStore(taskStore);
+  const environmentReady = () => prerequisites.gitInstalled && prerequisites.anyAgentInstalled;
 
   const refreshProjects = async () => {
     token = await loadToken();
@@ -607,44 +804,247 @@ async function guiMain() {
     allowGitPush: config.projects[row.id]?.allowGitPush ?? !!row.allowGitPush,
     bound: !!config.projects[row.id] && !!row.bound,
   }));
+  const sessionProgress = (kind) => `本机 ${agentLabel(kind)} 会话进行中`;
+  const PAUSED_PROGRESS = "本机会话已关闭，可继续或结案";
+  const taskRows = () => remoteTasks.map((task) => {
+    const local = taskStore[task.id];
+    const windowOpen = activeSession?.taskId === task.id;
+    const row = { ...task, localAgentKind: local?.agentKind || task.agentKind || "", localSession: !!local?.sessionId,
+      hasLocalRecord: !!local, windowOpen };
+    if (windowOpen) return { ...row, status: "running", progress: sessionProgress(local?.agentKind) };
+    if (local?.state === "paused" && ["running", "paused"].includes(task.status)) return { ...row, status: "paused", progress: PAUSED_PROGRESS };
+    return row;
+  });
+  const mcpState = () => ({
+    expiresAt: config.mcp?.expiresAt || "",
+    configured: !!config.mcp?.expiresAt,
+    agents: Object.fromEntries(AGENT_KINDS.map((kind) => [kind, {
+      installed: !!prerequisites.agents[kind]?.installed,
+      ok: !!config.mcp?.agents?.[kind]?.ok,
+      error: config.mcp?.agents?.[kind]?.error || "",
+    }])),
+  });
   const publish = async () => {
     await atomicJson(statePath, {
       version: VERSION, server: config.server,
-      paired: !!token, online: !!token && prerequisites.gitInstalled && prerequisites.codexInstalled && !errorText,
-      status, error: errorText, authorizing, prerequisites, projects: projectRows(), tasks: remoteTasks.map((task) =>
-        task.id === activeTask?.id ? { ...task, status: activePaused ? "paused" : "running",
-          progress: activePaused ? "本机执行已暂停" : "本地 Codex 正在执行" } : task),
-      task: activeTask ? { id: activeTask.id, projectName: activeTask.project_name,
-        progress: activePaused ? "本机执行已暂停" : "本地 Codex 正在执行" } : null,
+      paired: !!token, online: !!token && environmentReady() && !errorText,
+      status, error: errorText, authorizing, prerequisites, mcp: mcpState(), defaultAgent: config.defaultAgent || "",
+      projects: projectRows(), tasks: taskRows(), activeTaskId: activeSession?.taskId || "",
       autoStart, logs, projectRefreshRevision, taskRefreshRevision,
     });
   };
-  const executeTask = (task) => {
-    void runTask(config, task).catch(async (error) => {
-      if (activeStopTaskId === task.id) return;
-      log(`任务失败：${error.message}`);
-      await request(config, `/api/connector/tasks/${task.id}`, { method: "PATCH", body: {
-        leaseToken: task.leaseToken, status: "failed_pending_notification", error: String(error.message).slice(0, 1000),
-      }}).catch((cause) => log(`失败状态回传失败：${cause.message}`));
-      activeChild = null;
-      activeTask = null;
-      activePaused = false;
-      await refreshTasks().catch(() => {});
-    });
+
+  const patchTask = (entry, body, timeout) => request(config, `/api/connector/tasks/${entry.taskId}`, {
+    method: "PATCH", body: { leaseToken: entry.leaseToken, agentKind: entry.agentKind, ...body }, timeout,
+  });
+  // 租约失效时用 claim 重领（服务端允许同一连接器重领租约已过期的 paused 任务）后重试。
+  const patchWithLease = async (entry, body, timeout) => {
+    try { return await patchTask(entry, body, timeout); }
+    catch (error) {
+      if (error.status !== 409) throw error;
+      const { task } = await request(config, `/api/connector/tasks/${entry.taskId}/claim`, { body: {} });
+      entry.leaseToken = task.leaseToken;
+      await saveTaskStore();
+      return patchTask(entry, body, timeout);
+    }
+  };
+  const dropLocalTask = async (taskId) => {
+    const entry = taskStore[taskId];
+    delete taskStore[taskId];
+    await saveTaskStore();
+    if (entry?.cardPath) await fsp.rm(entry.cardPath, { force: true }).catch(() => {});
+  };
+  // 窗口关闭后的 paused 续租：每 5 分钟一次，也用于连接器重启后的恢复。
+  const renewPaused = async (entry) => {
+    entry.pausedHeartbeatAt = Date.now();
+    try {
+      const state = await patchWithLease(entry, { status: "paused", progress: PAUSED_PROGRESS });
+      if (state.status === "cancelled") {
+        log(`任务已在网页取消：${entry.projectName}`);
+        await dropLocalTask(entry.taskId);
+        return;
+      }
+    } catch (error) {
+      if (error.status === 409) {
+        log(`任务 ${entry.projectName} 已无法续租（${error.message}），本机会话记录已清理`);
+        await dropLocalTask(entry.taskId);
+        return;
+      }
+      log(`续租暂时失败：${error.message}`);
+    }
+    await saveTaskStore();
+  };
+  const superviseSession = async (session, entry, codexSnapshot) => {
+    const { taskId, child } = session;
+    const label = agentLabel(entry.agentKind);
+    const startedAt = Date.now();
+    let lastBeat = Date.now();
+    const heartbeat = setInterval(async () => {
+      if (codexSnapshot && !entry.sessionId && Date.now() - startedAt < 180000) {
+        const sessionId = detectNewCodexSession(codexSnapshot);
+        if (sessionId) {
+          entry.sessionId = sessionId;
+          await saveTaskStore().catch(() => {});
+          log(`已识别 Codex 会话 ${sessionId}，关闭窗口后可继续`);
+        }
+      }
+      if (Date.now() - lastBeat < 12000 || session.finished) return;
+      lastBeat = Date.now();
+      try {
+        const state = await patchTask(entry, { status: "running", progress: sessionProgress(entry.agentKind) });
+        if (state.status === "cancelled") {
+          session.cancelled = true;
+          killProcessTree(child.pid);
+          log("任务已在网页取消，本机会话窗口已关闭。");
+        }
+      } catch (error) {
+        if (error.status === 409) {
+          session.cancelled = true;
+          killProcessTree(child.pid);
+          log(`任务租约已失效，本机会话窗口已关闭：${error.message}`);
+        } else log(`状态回传暂时失败：${error.message}`);
+      }
+    }, 3000);
+    const exitCode = await new Promise((resolve) => child.once("close", resolve));
+    clearInterval(heartbeat);
+    if (activeSession === session) activeSession = null;
+    if (codexSnapshot && !entry.sessionId) {
+      const sessionId = detectNewCodexSession(codexSnapshot);
+      if (sessionId) entry.sessionId = sessionId;
+    }
+    if (session.finished) return;
+    if (session.cancelled) { await dropLocalTask(taskId); await refreshTasks().catch(() => {}); return; }
+    if (exitCode !== 0 && Date.now() - startedAt < 5000)
+      log(`${label} 会话疑似启动失败（退出码 ${exitCode}），请确认该 Agent 已安装并登录`);
+    entry.state = "paused";
+    entry.pausedAt = new Date().toISOString();
+    await saveTaskStore();
+    await renewPaused(entry);
+    if (taskStore[taskId]) log(`本机会话已关闭：${entry.projectName}。可在任务列表「继续」或「完成并通知」`);
+    await refreshTasks().catch(() => {});
+  };
+  const startLocalTask = async ({ taskId, agentKind, retry }) => {
+    if (activeSession) throw new Error("已有本机 Agent 会话进行中，请先结案或关闭该窗口");
+    if (retry) {
+      await request(config, `/api/connector/tasks/${taskId}/control`, { body: { action: "retry" } });
+      await dropLocalTask(taskId);
+    }
+    let entry = taskStore[taskId];
+    const chosen = entry?.agentKind || String(agentKind || "") ||
+      (prerequisites.installedAgents.length === 1 ? prerequisites.installedAgents[0] : "");
+    if (!chosen) throw new Error(prerequisites.anyAgentInstalled ? "请选择本次使用的本机 Agent" : "未检测到 Cursor / Codex / Claude Code，请先安装");
+    if (!prerequisites.agents[chosen]?.installed) throw new Error(`${agentLabel(chosen)} 未安装或不可用，请重新检测本机环境`);
+    const remote = remoteTasks.find((task) => task.id === taskId);
+    const projectId = entry?.projectId || remote?.projectId;
+    const continuing = !!entry?.baselineCommit;
+    const root = entry?.root || (projectId ? config.projects[projectId]?.root : "") || "";
+    if (!root) throw new Error("当前设备尚未关联该项目目录");
+    const top = path.resolve(git(root, ["rev-parse", "--show-toplevel"]).trim());
+    if (top.toLowerCase() !== path.resolve(root).toLowerCase()) throw new Error("请将关联目录设置为 Git 仓库根目录");
+    if (!continuing && git(root, ["status", "--porcelain"]).trim())
+      throw new Error("本地项目存在未提交修改；首次开始前请先提交或暂存（继续已开始的任务不受此限制）");
+    let task;
+    if (continuing && entry.leaseToken) {
+      // 继续：沿用本机持有的租约（失效时 patchWithLease 会向服务端重领），不再 claim。
+      task = { id: taskId, project_id: entry.projectId, project_name: entry.projectName, thread_id: entry.threadId,
+        message_id: entry.messageId || null, instruction: remote?.target || entry.instruction || "", allow_git_push: !!entry.allowGitPush };
+    } else {
+      ({ task } = await request(config, `/api/connector/tasks/${taskId}/claim`, { body: {} }));
+    }
+    const baseline = continuing ? entry.baselineCommit : git(root, ["rev-parse", "HEAD"]).trim();
+    entry = taskStore[taskId] = {
+      ...(entry || {}), taskId, projectId: task.project_id, projectName: task.project_name, threadId: task.thread_id,
+      messageId: task.message_id || null, instruction: task.instruction, root, agentKind: chosen, baselineCommit: baseline,
+      leaseToken: task.leaseToken || entry?.leaseToken, allowGitPush: !!task.allow_git_push,
+      state: "running", updatedAt: new Date().toISOString(),
+    };
+    await saveTaskStore();
+    try {
+      await fsp.mkdir(cardsDir, { recursive: true });
+      const cardPath = path.join(cardsDir, `${taskId}.md`);
+      await fsp.writeFile(cardPath, taskCard(task, { root, agentKind: chosen }), "utf8");
+      entry.cardPath = cardPath;
+      let sessionId = entry.sessionId || "";
+      const resume = continuing && !!sessionId;
+      if (continuing && !sessionId) log("该任务没有可续接的会话记录，将新建会话（对话历史不会恢复）");
+      let codexSnapshot = null;
+      if (!resume) {
+        if (chosen === "cursor") {
+          const created = runAgent("cursor", ["create-chat"], { cwd: root, timeout: 60000 });
+          sessionId = created.status === 0 ? parseCursorChatId(created.stdout) : "";
+          if (!sessionId) log("未能预创建 Cursor 会话，本次关闭窗口后将无法自动续接");
+        } else if (chosen === "claude") {
+          sessionId = crypto.randomUUID();
+        } else {
+          codexSnapshot = new Set(listFilesRecursive(codexSessionsDir()));
+        }
+      }
+      entry.sessionId = sessionId;
+      await saveTaskStore();
+      const args = agentLaunchArgs(chosen, { root, sessionId, resume, prompt: launchPrompt(task, cardPath) });
+      const mcpToken = await loadMcpToken();
+      const env = { ...process.env, ...(mcpToken ? { [MCP_TOKEN_ENV]: mcpToken } : {}) };
+      await patchWithLease(entry, { status: "running", progress: sessionProgress(chosen) });
+      const child = spawnAgentWindow(chosen, args, { root, env });
+      const session = { taskId, child, finished: false, cancelled: false };
+      activeSession = session;
+      config.defaultAgent = chosen;
+      await writeConfig(config);
+      log(`${resume ? "已续接" : "已打开"} ${agentLabel(chosen)} 会话：${task.project_name}`);
+      void superviseSession(session, entry, codexSnapshot);
+    } catch (error) {
+      // 已领取但未能拉起会话：按“会话已关闭”保留本机记录，可稍后继续或重试，避免服务端任务被孤立。
+      if (taskStore[taskId]) {
+        entry.state = "paused";
+        entry.pausedAt = new Date().toISOString();
+        await saveTaskStore().catch(() => {});
+        await renewPaused(entry).catch(() => {});
+      }
+      throw error;
+    }
+    return task;
+  };
+  const finishLocalTask = async (taskId, summary) => {
+    const entry = taskStore[taskId];
+    if (!entry) throw new Error("本机没有该任务的会话记录，无法回传 Diff");
+    const { files, diff } = collectDiff(entry.root, entry.baselineCommit);
+    const output = String(summary || "").trim() || `本机 ${agentLabel(entry.agentKind)} 会话已结案，共修改 ${files.length} 个文件，请查看代码差异。`;
+    await patchWithLease(entry, { status: "completed", output: output.slice(0, 1000000), diff }, 60000);
+    if (activeSession?.taskId === taskId) activeSession.finished = true;
+    await dropLocalTask(taskId);
+    log(`任务已完成并通知：${entry.projectName}（${files.length} 个文件）`);
+  };
+  const failLocalTask = async (taskId, reason) => {
+    const entry = taskStore[taskId];
+    if (!entry) throw new Error("本机没有该任务的会话记录");
+    await patchWithLease(entry, { status: "failed", error: String(reason || "本机执行未完成").trim().slice(0, 1000) });
+    if (activeSession?.taskId === taskId) activeSession.finished = true;
+    await dropLocalTask(taskId);
+    log(`任务已标记失败：${entry.projectName}`);
   };
   const handleCommand = async (command) => {
     const payload = command.payload || {};
     errorText = "";
     if (command.type === "authorize") {
       authorizing = true;
+      const previousServer = config.server;
       try {
-        if (payload.server) config.server = new URL(payload.server).origin;
+        // 服务地址可在连接器里修改；授权成功后才生效，失败则回退，避免旧令牌对着新地址。
+        if (payload.server) config.server = new URL(String(payload.server).trim()).origin;
+        if (config.server !== previousServer) log(`服务地址改为 ${config.server}，需重新授权`);
         await writeConfig(config);
         status = "等待网页授权";
         await authorizeInBrowser(config);
         token = await loadToken();
         await refreshProjects();
+        await syncMcp(config, prerequisites, { force: true }).catch((error) => log(`MCP 配置写入失败：${error.message}`));
         status = "连接器已就绪";
+      } catch (error) {
+        if (config.server !== previousServer && previousServer) {
+          config.server = previousServer;
+          await writeConfig(config);
+        }
+        throw error;
       } finally {
         authorizing = false;
       }
@@ -675,11 +1075,23 @@ async function guiMain() {
       status = "正在检测本机环境";
       await publish();
       prerequisites = checkPrerequisites();
-      const gitStatus = prerequisites.gitInstalled ? prerequisites.gitVersion : "未安装";
-      const codexStatus = prerequisites.codexInstalled ? prerequisites.codexVersion : "未安装";
+      prerequisitesCheckedAt = Date.now();
       const checkedAt = new Date().toLocaleTimeString("zh-CN", { hour12: false });
       status = `本机环境已重新检测（${checkedAt}）`;
-      log(`本机环境检测完成：Git ${gitStatus}；Codex CLI ${codexStatus}`);
+      log(`本机环境检测完成：${prerequisiteSummary(prerequisites)}`);
+      if (token) await syncMcp(config, prerequisites).catch((error) => log(`MCP 配置写入失败：${error.message}`));
+    } else if (command.type === "refreshMcp") {
+      if (!token) throw new Error("请先登录并授权账号");
+      status = "正在写入共序 MCP 配置";
+      await publish();
+      await syncMcp(config, prerequisites, { force: true });
+      status = "共序 MCP 配置已更新（新开的 Agent 会话生效）";
+    } else if (command.type === "resetMcp") {
+      if (!token) throw new Error("请先登录并授权账号");
+      status = "正在重置共序 MCP 令牌";
+      await publish();
+      await syncMcp(config, prerequisites, { force: true, reset: true });
+      status = "共序 MCP 令牌已重置并重写配置（旧令牌已失效，新开的 Agent 会话生效）";
     } else if (command.type === "installPrerequisite") {
       const name = String(payload.name || "");
       if (name === "git") {
@@ -692,16 +1104,17 @@ async function guiMain() {
           spawn("explorer.exe", ["https://git-scm.com/download/win"], { detached: true, stdio: "ignore" }).unref();
           status = "已打开 Git 官方下载页面";
         }
-      } else if (name === "codex") {
-        spawn("explorer.exe", ["https://chatgpt.com/download/"], { detached: true, stdio: "ignore" }).unref();
-        status = "已打开 Codex 官方下载页面，安装后请重新检测";
+      } else if (AGENTS[name]) {
+        spawn("explorer.exe", [AGENTS[name].downloadUrl], { detached: true, stdio: "ignore" }).unref();
+        status = `已打开 ${agentLabel(name)} 官方页面，安装后请重新检测`;
       } else {
         throw new Error("未知的安装项");
       }
     } else if (command.type === "bind") {
       prerequisites = checkPrerequisites();
+      prerequisitesCheckedAt = Date.now();
       if (!prerequisites.gitInstalled) throw new Error("未检测到 Git，请先安装 Git");
-      if (!prerequisites.codexInstalled) throw new Error("未检测到 Codex CLI，请先安装");
+      if (!prerequisites.anyAgentInstalled) throw new Error("未检测到 Cursor / Codex / Claude Code，请至少安装一个");
       const root = path.resolve(String(payload.root || "").replace(/^\"|\"$/g, ""));
       if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw new Error("本地目录不存在");
       const top = path.resolve(git(root, ["rev-parse", "--show-toplevel"]).trim());
@@ -738,36 +1151,24 @@ async function guiMain() {
       autoStart = !!payload.enabled;
       status = payload.enabled ? "已开启开机自动启动" : "已关闭开机自动启动";
     } else if (command.type === "startTask") {
-      if (activeTask) throw new Error("已有任务正在执行或暂停");
-      const { task } = await request(config, `/api/connector/tasks/${payload.taskId}/claim`, { body: {} });
-      status = `正在执行 ${task.project_name}`;
-      executeTask(task);
+      const task = await startLocalTask({ taskId: String(payload.taskId || ""), agentKind: payload.agentKind, retry: !!payload.retry });
+      await refreshTasks().catch(() => {});
+      status = `本机 Agent 会话进行中：${task.project_name}`;
+    } else if (command.type === "finishTask") {
+      await finishLocalTask(String(payload.taskId || ""), payload.summary);
+      await refreshTasks().catch(() => {});
+      status = "任务已完成并通知到迭代群聊";
+    } else if (command.type === "failTask") {
+      await failLocalTask(String(payload.taskId || ""), payload.reason);
+      await refreshTasks().catch(() => {});
+      status = "任务已标记失败";
     } else if (command.type === "taskAction") {
-      const action = payload.action;
-      if (action === "pause") {
-        if (activeTask?.id !== payload.taskId || !activeChild?.pid) throw new Error("任务当前不在本机执行");
-        setProcessPaused(activeChild.pid, true);
-        try { await request(config, `/api/connector/tasks/${payload.taskId}/control`, { body: { action } }); }
-        catch (error) { setProcessPaused(activeChild.pid, false); throw error; }
-        activePaused = true;
-      } else if (action === "resume") {
-        if (activeTask?.id !== payload.taskId || !activeChild?.pid) throw new Error("暂停的进程已经不存在，请重试任务");
-        await request(config, `/api/connector/tasks/${payload.taskId}/control`, { body: { action } });
-        setProcessPaused(activeChild.pid, false);
-        activePaused = false;
-      } else if (action === "end") {
-        if (activeTask?.id !== payload.taskId || !activeChild?.pid) throw new Error("任务当前不在本机执行");
-        await request(config, `/api/connector/tasks/${payload.taskId}/control`, { body: { action } });
-        activeStopTaskId = payload.taskId;
-        if (activePaused) setProcessPaused(activeChild.pid, false);
-        spawnSync("taskkill.exe", ["/PID", String(activeChild.pid), "/T", "/F"], { windowsHide: true, timeout: 10000 });
-      } else {
-        await request(config, `/api/connector/tasks/${payload.taskId}/control`, { body: { action } });
-      }
+      const action = String(payload.action || "");
+      if (!["abandon", "retry", "notify"].includes(action)) throw new Error("不支持的任务操作");
+      await request(config, `/api/connector/tasks/${payload.taskId}/control`, { body: { action } });
+      if (action === "retry") await dropLocalTask(payload.taskId);
       await refreshTasks();
       status = "任务状态已更新";
-    } else if (command.type === "stopTask") {
-      if (activeTask) await handleCommand({ type: "taskAction", payload: { taskId: activeTask.id, action: "end" } });
     } else if (command.type === "quit") {
       quitting = true;
     }
@@ -806,16 +1207,33 @@ async function guiMain() {
   try {
     await Promise.all([refreshProjects(), refreshTasks()]).catch((error) => { errorText = error.message; });
     status = token ? "连接器已就绪" : "请登录并授权账号";
+    log(`本机环境：${prerequisiteSummary(prerequisites)}`);
+    // 连接器重启后：上次仍在 running 的本机记录说明窗口句柄已丢失，一律按“会话已关闭”续租。
+    for (const entry of Object.values(taskStore)) {
+      if (entry.state === "running") { entry.state = "paused"; entry.pausedAt = new Date().toISOString(); }
+      entry.pausedHeartbeatAt = 0;
+    }
+    await saveTaskStore();
     await publish();
     while (!quitting) {
-      prerequisites = checkPrerequisites();
+      if (Date.now() - prerequisitesCheckedAt > 60000) {
+        prerequisites = checkPrerequisites();
+        prerequisitesCheckedAt = Date.now();
+      }
       token = await loadToken();
-      if (token && prerequisites.gitInstalled && prerequisites.codexInstalled) {
+      if (token && environmentReady()) {
         try {
           await refreshTasks();
           errorText = "";
         } catch (error) {
           errorText = error.status === 401 ? "账号授权已失效，请重新授权" : error.message;
+        }
+        if (!errorText) {
+          for (const entry of Object.values(taskStore)) {
+            if (entry.state === "paused" && activeSession?.taskId !== entry.taskId && Date.now() - (entry.pausedHeartbeatAt || 0) >= 5 * 60000)
+              await renewPaused(entry);
+          }
+          await syncMcp(config, prerequisites).catch((error) => log(`MCP 配置检查失败：${error.message}`));
         }
       }
       await sleep(3000);
@@ -823,7 +1241,11 @@ async function guiMain() {
   } finally {
     clearInterval(commandTimer);
     clearInterval(stateTimer);
-    if (activeChild?.pid) spawnSync("taskkill.exe", ["/PID", String(activeChild.pid), "/T", "/F"], { windowsHide: true, timeout: 10000 });
+    // 退出连接器不关闭开发人员的 Agent 窗口；任务记录保留，下次启动按 paused 续租。
+    if (activeSession) {
+      const entry = taskStore[activeSession.taskId];
+      if (entry) { entry.state = "paused"; entry.pausedAt = new Date().toISOString(); await saveTaskStore().catch(() => {}); }
+    }
     try { if (gui.pid && !gui.killed) gui.kill(); } catch {}
     await lock.close().catch(() => {});
     await fsp.rm(lockPath, { force: true }).catch(() => {});
@@ -837,5 +1259,9 @@ async function main() {
   return guiMain();
 }
 
-module.exports = { checkPrerequisites, codexExecArgs, createAuthorizationCallback, instanceLockIsActive, parseInstanceLock, protectToken, unprotectToken, validatePolicy, taskPrompt, windowsVersionLabel };
+module.exports = {
+  AGENTS, agentLaunchArgs, checkPrerequisites, createAuthorizationCallback, instanceLockIsActive, launchPrompt,
+  mergeCodexMcpConfig, mergeCursorMcpConfig, parseCodexSessionId, parseCursorChatId, parseInstanceLock, protectToken,
+  taskCard, taskPrompt, unprotectToken, validatePolicy, windowsVersionLabel,
+};
 if (require.main === module || require("node:sea").isSea()) main().catch((error) => { showFatalError(error); process.exitCode = 1; });

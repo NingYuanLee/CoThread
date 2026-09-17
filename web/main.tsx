@@ -12,7 +12,6 @@ import {
 import React, { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { createMcpInstallGuide } from "../shared/mcp-guide.js";
 import { configureMakers, invokeMakers, wakeMakers, useMakersConnection } from "./makers";
 import { coordinatorLogButtonLabel, COORDINATOR_LOG_IDLE_LABEL } from "./agent-label";
 const Documents = lazy(() =>
@@ -413,7 +412,6 @@ type Modal =
   | "admin-accounts"
   | "admin-plugins"
   | "archive"
-  | "tokens"
   | "password"
   | "email"
   | "run"
@@ -611,20 +609,11 @@ function App() {
   const [taskCreateConstraints, setTaskCreateConstraints] = useState("");
   const [taskCreateTarget, setTaskCreateTarget] = useState("");
   const [showArchived, setShowArchived] = useState(false);
-  const [token, setToken] = useState("");
-  const [showToken, setShowToken] = useState(false);
   const [copiedThreadId, setCopiedThreadId] = useState("");
-  const [installGuideCopied, setInstallGuideCopied] = useState(false);
-  const [installGuideOpen, setInstallGuideOpen] = useState(false);
   const conversationCopyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const installCopyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => {
     clearTimeout(conversationCopyTimer.current);
-    clearTimeout(installCopyTimer.current);
   }, []);
-  const [tokens, setTokens] = useState<
-    { id: string; label: string; project_id: string | null; expires_at: string; token: string | null }[]
-  >([]);
   const [health, setHealth] = useState<{
     dshEnabled: boolean;
     agentEndpoint?: string;
@@ -953,15 +942,7 @@ function App() {
   const open = (value: Modal) => {
     if (value === "profile") setProfileAvatar(user?.avatar ?? null);
     setError("");
-    setToken("");
-    setShowToken(false);
-    setInstallGuideCopied(false);
-    setInstallGuideOpen(false);
     setModal(value);
-    if (value === "tokens")
-      void api("/tokens")
-        .then((rows) => { setTokens(rows); setToken(rows[0]?.token || ""); })
-        .catch((e) => setError(e.message));
   };
   const copyConversationInfo = async () => {
     if (!threadId || !projectId || thread?.id !== threadId || detail?.id !== projectId) return;
@@ -985,30 +966,6 @@ function App() {
       conversationCopyTimer.current = setTimeout(() => setCopiedThreadId(""), 3000);
     } catch {
       setError("无法自动复制会话信息，请检查剪贴板权限后重试。");
-      setModal("tokens");
-    }
-  };
-  const installGuide = (currentToken: string) => createMcpInstallGuide({
-    url: `${location.origin}${health?.mcpEndpoint || "/mcp"}`,
-    token: currentToken,
-    conversationId: health?.mcpEndpoint ? user?.id : undefined,
-  });
-  const copyInstallGuide = async () => {
-    if (busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      const result = await api("/tokens/ensure", {});
-      setToken(result.token);
-      setTokens(await api("/tokens"));
-      await navigator.clipboard.writeText(installGuide(result.token));
-      setInstallGuideCopied(true);
-      clearTimeout(installCopyTimer.current);
-      installCopyTimer.current = setTimeout(() => setInstallGuideCopied(false), 3000);
-    } catch (error) {
-      setError(error instanceof Error ? `${error.message}。如令牌已就绪，可点击小眼睛后展开文档手动复制。` : "复制失败，请重试。");
-    } finally {
-      setBusy(false);
     }
   };
   const updateProjectTab = (
@@ -1105,14 +1062,6 @@ function App() {
           : await api(`/threads/${threadId}/runs`, input);
         await refresh();
         if (result.status !== "succeeded") throw new Error(result.output);
-      }
-      if (modal === "tokens") {
-        const result = await api("/tokens", {});
-        setToken(result.token);
-        setShowToken(false);
-        setInstallGuideCopied(false);
-        setTokens(await api("/tokens"));
-        return;
       }
       setModal(null);
     });
@@ -2194,7 +2143,7 @@ function App() {
                     <dl className="task-detail-meta"><div><dt>责任主体</dt><dd>{targetName}</dd></div><div><dt>执行 Agent</dt><dd>{task.execution_agent_type || "待选择"}</dd></div></dl>
                     <section><h4>任务目标</h4><p>{task.goal}</p>{task.constraints && <><h4>约束</h4><p>{task.constraints}</p></>}</section>
                     {openQuestion && <section className="task-question"><h4>需要你回答</h4><p>{openQuestion.question}</p><textarea value={taskAnswer} onChange={(event) => setTaskAnswer(event.target.value)} placeholder="输入回答" /><button type="button" className="primary" disabled={taskActionBusy || !taskAnswer.trim()} onClick={() => void performTaskAction(async () => { await api(`/task-questions/${openQuestion.id}/answer`, { answer: taskAnswer }); setTaskAnswer(""); })}>提交回答</button></section>}
-                    {isTarget && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>确认任务</h4><select value={taskExecutionMode} onChange={(event) => setTaskExecutionMode(event.target.value as typeof taskExecutionMode)}><option value="auto">自动选择执行方式</option><option value="human_direct">由我直接完成</option><option value="member_connector">交给本地 Codex</option></select><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reject`, {}, "POST"))}>拒绝</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/accept`, { mode: taskExecutionMode }, "POST"))}>接受任务</button></div></section>}
+                    {isTarget && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>确认任务</h4><select value={taskExecutionMode} onChange={(event) => setTaskExecutionMode(event.target.value as typeof taskExecutionMode)}><option value="auto">自动选择执行方式</option><option value="human_direct">由我直接完成</option><option value="member_connector">交给本机 Agent</option></select><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reject`, {}, "POST"))}>拒绝</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/accept`, { mode: taskExecutionMode }, "POST"))}>接受任务</button></div></section>}
                     {canReviewRejection && <section className="task-actions-section task-rejection-review"><h4>任务已被拒绝</h4><p>{[...task.assignmentHistory].reverse().find((event) => event.event_type === "rejected")?.reason || "目标成员拒绝了这个任务。"}</p><textarea value={taskReopenGoal} onChange={(event) => setTaskReopenGoal(event.target.value)} placeholder="修改任务目标与验收标准" /><textarea value={taskReopenConstraints} onChange={(event) => setTaskReopenConstraints(event.target.value)} placeholder="修改约束（可选）" /><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"))}>知道了</button><button type="button" className="primary" disabled={taskActionBusy || !taskReopenGoal.trim()} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reopen`, { goal: taskReopenGoal.trim(), constraints: taskReopenConstraints }, "POST"))}>修改后重新发起</button></div></section>}
                     {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}>确认转交</button></section>}
                     {isTarget && task.status !== "awaiting_acceptance" && !["completed", "failed", "cancelled", "superseded"].includes(task.status) && <section className="task-actions-section"><h4>进度与结果</h4><input value={taskProgress} onChange={(event) => setTaskProgress(event.target.value)} placeholder="当前进度" /><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要或阻塞原因" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "running", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>开始</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "waiting", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>等待</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "failed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>失败</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>完成</button></div></section>}
@@ -2313,7 +2262,7 @@ function App() {
       {modal && (
         <div className="modal-backdrop">
           <section
-            className={`modal ${["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts", "admin-plugins"].includes(modal) ? "workspace-settings" : ""}`}
+            className={`modal ${["profile", "settings", "password", "email", "admin-projects", "admin-accounts", "admin-plugins"].includes(modal) ? "workspace-settings" : ""}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-title"
@@ -2327,7 +2276,6 @@ function App() {
                     profile: "个人设置",
                     settings: "个人设置",
                     archive: "归档本次迭代",
-                    tokens: "个人设置",
                     password: "个人设置",
                     email: "个人设置",
                     "admin-projects": "系统管理",
@@ -2347,12 +2295,12 @@ function App() {
             </div>
             <div
               className={
-                ["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts", "admin-plugins"].includes(modal)
+                ["profile", "settings", "password", "email", "admin-projects", "admin-accounts", "admin-plugins"].includes(modal)
                   ? "settings-layout"
                   : undefined
               }
             >
-              {["profile", "settings", "tokens", "password", "email", "admin-projects", "admin-accounts", "admin-plugins"].includes(
+              {["profile", "settings", "password", "email", "admin-projects", "admin-accounts", "admin-plugins"].includes(
                 modal,
               ) && (
                 <nav className="settings-nav" aria-label="设置项目">
@@ -2368,7 +2316,6 @@ function App() {
                       ["profile", "个人资料"],
                       ["password", "修改密码"],
                       ["email", "绑定邮箱"],
-                      ["tokens", "连接本地Agent"],
                       ["settings", "退出登录"],
                     ] as const).map(([value, label]) => (
                     <button
@@ -2392,27 +2339,23 @@ function App() {
                     onProjectsChanged={async () => { setProjects(await api("/projects")); }}
                   />
                 )}
-                {["profile", "settings", "tokens", "password", "email"].includes(
+                {["profile", "settings", "password", "email"].includes(
                   modal,
                 ) && (
                   <div className="settings-content-heading">
                     <h3>
                       {modal === "profile"
                         ? "个人资料"
-                        : modal === "tokens"
-                          ? "连接本地Agent"
-                          : modal === "password"
-                            ? "修改密码"
-                            : modal === "email"
-                              ? "绑定邮箱"
+                        : modal === "password"
+                          ? "修改密码"
+                          : modal === "email"
+                            ? "绑定邮箱"
                             : "退出登录"}
                     </h3>
                     <p>
-                      {modal === "tokens"
-                        ? "复制安装文档，交给本地 Agent 完成连接。"
-                        : modal === "email"
-                          ? "验证邮箱后，可使用邮箱登录和找回密码。"
-                          : "管理你的通用账号"}
+                      {modal === "email"
+                        ? "验证邮箱后，可使用邮箱登录和找回密码。"
+                        : "管理你的通用账号"}
                     </p>
                   </div>
                 )}
@@ -2553,50 +2496,6 @@ function App() {
                     </p>
                   </>
                 )}
-                {modal === "tokens" && (
-                  <>
-                      <div className="token-result">
-                        <strong>账号令牌</strong>
-                        <div className="token-field">
-                        <button className="token-eye" type="button" disabled={!token} aria-label={showToken ? "隐藏令牌" : "显示令牌"} aria-pressed={showToken} title={showToken ? "隐藏令牌" : "显示令牌"} onClick={() => setShowToken(!showToken)}>
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
-                            <circle cx="12" cy="12" r="3" />
-                            {showToken && <path d="m3 3 18 18" />}
-                          </svg>
-                        </button>
-                        <input
-                          aria-label="账号令牌"
-                          type={showToken ? "text" : "password"}
-                          autoComplete="off"
-                          readOnly
-                          value={token}
-                          placeholder={tokens.length ? "旧版令牌，复制文档时自动更新" : "复制安装文档时自动创建"}
-                        />
-                        <button className="token-action" disabled={busy}>
-                          {busy ? "处理中…" : tokens.length ? "重置" : "创建"}
-                        </button>
-                        </div>
-                        <p className="token-caption">
-                          {tokens.length ? `有效期至 ${tokens[0].expires_at.slice(0, 10)} · 重置后旧令牌失效` : "复制文档时自动创建，有效期 30 天"}
-                        </p>
-                      </div>
-                    <div className="agent-connection-guide">
-                      <p>已自动填入令牌，无需手动配置。仅分享给可信的 Agent。</p>
-                      <div className="agent-connection-actions">
-                        <button className="primary" type="button" disabled={busy} onClick={() => void copyInstallGuide()}>
-                          {installGuideCopied ? "已复制安装文档" : "复制安装文档"}
-                        </button>
-                        <button type="button" aria-expanded={installGuideOpen} aria-controls="mcp-install-guide" onClick={() => setInstallGuideOpen(!installGuideOpen)}>
-                          {installGuideOpen ? "收起安装文档" : "查看安装文档"}
-                        </button>
-                      </div>
-                      <div id="mcp-install-guide" hidden={!installGuideOpen}>
-                        {token ? <textarea aria-label="MCP 安装文档" readOnly value={installGuide(showToken ? token : "••••••••（复制按钮会自动填入真实令牌）")} /> : <p>点击“复制安装文档”后生成完整配置。</p>}
-                      </div>
-                    </div>
-                  </>
-                )}
                 {error && (
                   <div className="error" role="alert">
                     {error}
@@ -2610,7 +2509,7 @@ function App() {
                   >
                     关闭
                   </button>
-                  {modal !== "settings" && modal !== "tokens" && modal !== "email" && !modal.startsWith("admin-") && (
+                  {modal !== "settings" && modal !== "email" && !modal.startsWith("admin-") && (
                     <button className="primary" disabled={busy}>
                       {busy
                         ? "正在处理…"

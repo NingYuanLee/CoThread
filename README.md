@@ -2,7 +2,7 @@
 
 让每次讨论都有承接，让每个决定都有出处。
 
-共序是面向小团队的协作工作台：一个项目是长期工作空间，一次迭代对应一个群聊。成员在群聊里讨论、引用精确文档版本、把任务交给内置助手「小祥」或本机 Codex；成果进入不可覆盖的文档版本，人工审核后归档。线上试用：[https://cothread.z2l.top](https://cothread.z2l.top)。
+共序是面向小团队的协作工作台：一个项目是长期工作空间，一次迭代对应一个群聊。成员在群聊里讨论、引用精确文档版本、把任务交给内置助手「小祥」或成员本机的 Agent（Cursor / Codex / Claude Code）；成果进入不可覆盖的文档版本，人工审核后归档。线上试用：[https://cothread.z2l.top](https://cothread.z2l.top)。
 
 本地服务使用 `.local/sandboxes`，EdgeOne Makers 部署使用平台原生沙箱。MySQL 保存业务数据、附件字节与 Agent 会话快照。当前版本 `0.1.11`。
 
@@ -88,13 +88,13 @@ npm run db:restore-check # Windows 本地：导入独立测试库，校验后删
 - 聊天显示执行进度、工具输入与结果，支持停止、失败重试。服务重启后运行中任务标中断，避免自动重放有副作用的操作。
 - 会话快照、工具过程入 MySQL。二级上下文增量纳入成员发言，约 900K token 自动压缩。
 
-### 连接本地 Agent（MCP）
+### 共序 MCP
 
-账号单令牌、30 天有效、可重置；哈希鉴权，明文用 AES-256-GCM 保存。7 个 Streamable HTTP 工具，调用者身份由服务端凭据确定。详见下文。
+账号单令牌、30 天有效；哈希鉴权，明文用 AES-256-GCM 保存。7 个 Streamable HTTP 工具，调用者身份由服务端凭据确定。令牌由本机 Agent 连接器在授权后自动申领并写入 Cursor / Codex / Claude Code 的 MCP 配置，网页不再提供手动配置入口。详见下文。
 
-### 本机 Codex 连接器
+### 本机 Agent 连接器
 
-Windows 单文件程序（`npm run connector:build`），由系统外部渠道分发，网页不提供安装包。授权后按项目绑定本地 Git 根目录；「本机 Codex」开关在有在线连接器的项目上可用。任务需被分配成员确认后锁定到一台设备。详见下文。
+Windows 单文件程序（`npm run connector:build`），由系统外部渠道分发，网页不提供安装包。授权后按项目绑定本地 Git 根目录；「交给本机 Agent」在有在线连接器的项目上可用。任务需被分配成员确认后锁定到一台设备，在本机以 Cursor / Codex / Claude Code 的交互式会话执行。详见下文。
 
 ## 文档与文件存储
 
@@ -102,9 +102,9 @@ Windows 单文件程序（`npm run connector:build`），由系统外部渠道�
 
 当前文档原始字节和不可变版本保存在 MySQL。**未接入对象存储。** 后续大型附件应接入对象存储：MySQL 保留文档/版本/权限/校验值，对象存储保存本体，由服务端鉴权后提供访问。此迁移需要存储适配和旧文件搬迁，不能只改数据库连接。
 
-## 连接本地 Agent
+## 共序 MCP
 
-在工作空间设置点击「连接本地 Agent」，创建账号令牌，并按客户端要求配置 Streamable HTTP MCP。一个账号只需一个令牌，重置时旧令牌全部失效。
+MCP 通过本机 Agent 连接器接入：连接器授权后调用 `POST /api/connector/mcp-credential` 为当前账号申领（或沿用）账号令牌，并写入已检测到的 Agent 配置（Cursor `~/.cursor/mcp.json`、Codex `~/.codex/config.toml` + `COTHREAD_MCP_TOKEN` 环境变量、Claude Code user-scope），剩余有效期不足 7 天时自动续期。一个账号只需一个令牌，个人设置里不再有「连接本地 Agent」页面；令牌疑似泄露时在连接器点「重置 MCP 令牌」（`POST /api/connector/mcp-credential/reset`），旧令牌立即失效并自动重写本机配置。写入的配置等价于：
 
 ```json
 {
@@ -118,23 +118,32 @@ Windows 单文件程序（`npm run connector:build`），由系统外部渠道�
 }
 ```
 
-工具：`get_connection_guide`、`list_projects`、`get_project`、`get_iteration_context`、`get_document_version`、`post_message`、`submit_document`。点击「复制安装文档」会填入当前真实令牌。无需 SKILL：MCP initialize 的 instructions 与 `get_connection_guide` 内置完整使用协议。
+工具：`get_connection_guide`、`list_projects`、`get_project`、`get_iteration_context`、`get_document_version`、`post_message`、`submit_document`。无需 SKILL：MCP initialize 的 instructions 与 `get_connection_guide` 内置完整使用协议。`/api/tokens` 系列接口保留给服务端与测试使用，不在界面暴露。
 
 账号令牌加密密钥由 `CREDENTIAL_ENCRYPTION_KEY`（32 字节 base64）指定，未配置时自动保存在 `.local/credential-encryption.key`。部署迁移和备份时须保留这份密钥（与数据库备份分开保管）。密钥和令牌明文不应进入版本库。
 
-在迭代输入框上方点击「复制会话信息」获取 `projectId` 和 `threadId`。`post_message` 可一次发送正文、多个 `files` 和已有版本 `refs`；来源文件进入当天缓存目录。`submit_document` 提交任务产物，默认进入产物目录。完整说明见界面「连接本地 Agent」。
+在迭代输入框上方点击「复制会话信息」获取 `projectId` 和 `threadId`。`post_message` 可一次发送正文、多个 `files` 和已有版本 `refs`；来源文件进入当天缓存目录。`submit_document` 提交任务产物，默认进入产物目录。完整说明见 MCP `get_connection_guide`。
 
 ## EdgeOne Makers 部署
 
 本仓库包含 Makers 的 Express 云函数入口和 Agents 长任务入口，详见 [Makers 部署说明](docs/makers.md)。仅上传 `dist` 不能运行后端；Git 构建需包含 `cloud-functions/`、`agents/` 和 `edgeone.json`。`main` 推送后由平台自动构建部署。生产站点默认 `https://cothread.z2l.top`。
 
-## 本机 Codex 连接器
+## 本机 Agent 连接器
 
-左侧「本地连接器」查看自己已授权的设备。程序已内置 Node 运行时；首次运行检测 Git 和 Codex CLI。授权后列出该账号加入的项目。一个账号同一时间只保留一台连接器；这一台可同时绑定多个项目。本地路径只保存在电脑上。
+左侧「本地连接器」查看自己已授权的设备。程序已内置 Node 运行时；首次运行检测 Git 与三种本机 Agent（Cursor Agent CLI、Codex CLI、Claude Code），至少装有一种即可在线。授权后列出该账号加入的项目。一个账号同一时间只保留一台连接器；这一台可同时绑定多个项目。本地路径只保存在电脑上。
 
-「本机 Codex」：项目内任意可编辑成员的连接器在线即可开启。发起人自己的连接器在线时可不 @；离线时必须 @ 一名连接器在线的成员。小祥生成待确认任务，确认后锁定到一台设备。是否推送 Git 以该项目在连接器上的开关为准。完成后通过任务结果和 Git Diff 人工审核。
+「交给本机 Agent」：项目内任意可编辑成员的连接器在线即可开启。发起人自己的连接器在线时可不 @；离线时必须 @ 一名连接器在线的成员。小祥生成待确认任务，确认后锁定到一台设备。是否推送 Git 以该项目在连接器上的开关为准。
 
-构建使用 `npm run connector:build`，固定校验 Node 22 LTS x64。运行数据写入 `%LOCALAPPDATA%\CoThreadConnector`。共序不存储安装包、不提供下载入口，也不执行自动更新。
+执行闭环：连接器投递任务 → 在本机拉起交互式 TUI → 过程用共序 MCP 回群 → 人在连接器结案。
+
+- **开始**：连接器在仓库根目录以新窗口打开 Agent 会话（Cursor `agent --trust --resume <chatId>`、`codex`、`claude --session-id`），首条提示引用连接器生成的任务卡（任务原文、范围/Git 规则、共序 MCP 回报要求）。装有多个 Agent 时首次开始选一次，之后同一任务沿用。首次开始要求工作区干净，并记录 Git 基线。
+- **会话中**：开发人员在窗口里直接打字、追问、审批工具。Agent 通过共序 MCP `post_message` / `submit_document` 报进度、交文件。关闭窗口不算完成：任务转为 `paused`（「会话已关闭」），连接器每 5 分钟续租；连接器重启后仍可续租。
+- **继续**：按记录的会话 ID 恢复原对话（`agent --resume` / `codex resume` / `claude --resume`），允许未提交改动。**重试**则新建会话。
+- **完成并通知 / 失败**：由人在连接器点击。完成时可填写摘要，连接器按开始时的基线计算 Git Diff 一并回传，迭代群聊出现以执行成员身份发出的结案消息；任务详情可查看 Diff。
+
+两套令牌：`ctc_` 设备令牌只用于连接器与共序通讯；账号 MCP 令牌供 Agent 以开发人员身份读写共序。安装合并、秘密不合并：连接器授权后调用 `POST /api/connector/mcp-credential`（仅 ensure、仅本账号）取得 MCP 令牌，写入 Cursor `~/.cursor/mcp.json`（并执行 `agent mcp enable cothread`）、Codex `~/.codex/config.toml`（令牌放用户环境变量 `COTHREAD_MCP_TOKEN`）、Claude Code 用户级 MCP（`claude mcp add --transport http --scope user`），令牌剩余不足 7 天或在网页重置后自动回写。写入失败只记录日志，不影响收任务；已打开的会话需新开才生效。
+
+构建使用 `npm run connector:build`，固定校验 Node 22 LTS x64。运行数据写入 `%LOCALAPPDATA%\CoThreadConnector`（`tasks.json` 保存任务与会话绑定、`task-cards/` 为任务卡）。共序不存储安装包、不提供下载入口，也不执行自动更新。Windows 原生终端下 Cursor TUI 在信任提示后可能不响应键盘，连接器已固定传 `--trust`；如仍无响应，关闭窗口后点「继续」重开即可。
 
 ## 普通服务器／容器部署
 

@@ -1120,7 +1120,7 @@ export class Service {
     const requestsQuery = query(db,
       `SELECT q.message_id,q.status,q.response_id,q.error,q.first_response_at,q.usage_stats FROM agent_requests q JOIN messages m ON m.id=q.message_id
        WHERE m.thread_id=? ORDER BY m.sequence`, [threadId]);
-    const connectorTasksQuery = query(db, `SELECT t.id,t.message_id,t.requested_by,t.assigned_to,t.status,t.policy,t.allow_git_push allowGitPush,t.progress,t.error,t.output,t.diff,
+    const connectorTasksQuery = query(db, `SELECT t.id,t.message_id,t.requested_by,t.assigned_to,t.status,t.policy,t.allow_git_push allowGitPush,t.progress,t.agent_kind agentKind,t.error,t.output,t.diff,
       CASE WHEN ? IN (t.requested_by,t.assigned_to) THEN t.instruction ELSE NULL END instruction,
       t.created_at,t.started_at,t.finished_at,c.id connector_id,c.name connector_name,u.name connector_owner_name
       FROM connector_tasks t JOIN connectors c ON c.id=t.connector_id JOIN users u ON u.id=c.user_id

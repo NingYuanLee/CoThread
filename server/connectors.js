@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod/v3";
-import { digest } from "./auth.js";
+import { accountCredential, digest } from "./auth.js";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
 import { syncConnectorTaskById } from "./agent-task-sync.js";
@@ -47,7 +47,7 @@ export async function connectorTool(service, user, name, input, job, thread) {
     ORDER BY online DESC,u.name,c.last_seen_at DESC,c.created_at DESC`, [thread.project_id]);
 }
 
-export function registerConnectorPublicRoutes(app, db, service) {
+export function registerConnectorPublicRoutes(app, db, service, { makers = false } = {}) {
   app.post(["/api/connector/authorizations", "/api/connector/v2/authorizations"], async (req, res) => {
     const data = z.object({
       name: z.string().trim().min(1).max(100),
@@ -136,8 +136,8 @@ export function registerConnectorPublicRoutes(app, db, service) {
   app.get("/api/connector/tasks", async (req, res) => {
     const current = await device(db, req);
     await query(db, "UPDATE connectors SET last_seen_at=UTC_TIMESTAMP(3) WHERE id=?", [current.id]);
-    res.json(await query(db, `SELECT t.id,p.name projectName,th.title threadTitle,u.name requestedByName,t.instruction target,
-      t.status,t.progress,t.created_at receivedAt,t.started_at firstStartedAt,t.updated_at latestAt,t.finished_at finishedAt
+    res.json(await query(db, `SELECT t.id,t.project_id projectId,p.name projectName,th.title threadTitle,u.name requestedByName,t.instruction target,
+      t.status,t.progress,t.agent_kind agentKind,t.created_at receivedAt,t.started_at firstStartedAt,t.updated_at latestAt,t.finished_at finishedAt
       FROM connector_tasks t JOIN projects p ON p.id=t.project_id JOIN threads th ON th.id=t.thread_id
       JOIN users u ON u.id=t.requested_by
       WHERE t.connector_id=? AND t.status<>'awaiting_approval' ORDER BY t.created_at DESC,t.id DESC LIMIT 20`, [current.id]));
@@ -149,9 +149,20 @@ export function registerConnectorPublicRoutes(app, db, service) {
     const lease = randomBytes(32).toString("base64url");
     const task = await transaction(db, async (conn) => {
       await query(conn, "SELECT id FROM connectors WHERE id=? FOR UPDATE", [current.id]);
+      const taskColumns = `t.id,t.project_id,t.thread_id,t.message_id,t.instruction,t.policy,t.allow_git_push,t.status,t.agent_kind,p.name project_name`;
+      // 同一连接器可重新领取租约已过期的 paused 任务（本机会话已关闭、连接器重启后继续）。
+      const [resumable] = await query(conn, `SELECT ${taskColumns} FROM connector_tasks t JOIN projects p ON p.id=t.project_id
+        WHERE t.id=? AND t.connector_id=? AND t.assigned_to=? AND t.status='paused'
+          AND (t.lease_expires_at IS NULL OR t.lease_expires_at<=UTC_TIMESTAMP(3)) FOR UPDATE`,
+      [taskId, current.id, current.user_id]);
+      if (resumable) {
+        await query(conn, `UPDATE connector_tasks SET lease_token_hash=?,lease_expires_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 30 MINUTE) WHERE id=?`,
+          [digest(lease), taskId]);
+        return { ...resumable, leaseToken: lease, resumed: true };
+      }
       const [active] = await query(conn, "SELECT id FROM connector_tasks WHERE connector_id=? AND status IN ('running','paused') LIMIT 1", [current.id]);
       if (active) throw new HttpError(409, "当前连接器已有正在执行或暂停的任务");
-      const [candidate] = await query(conn, `SELECT t.id,t.project_id,t.thread_id,t.message_id,t.instruction,t.policy,t.allow_git_push,p.name project_name
+      const [candidate] = await query(conn, `SELECT ${taskColumns}
         FROM connector_tasks t JOIN projects p ON p.id=t.project_id
         JOIN connector_projects cp ON cp.connector_id=t.connector_id AND cp.project_id=t.project_id
         JOIN members m ON m.project_id=t.project_id AND m.user_id=? AND m.role<>'viewer'
@@ -161,9 +172,26 @@ export function registerConnectorPublicRoutes(app, db, service) {
       await query(conn, `UPDATE connector_tasks SET status='running',lease_token_hash=?,lease_expires_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 2 MINUTE),
         started_at=COALESCE(started_at,UTC_TIMESTAMP(3)),progress='正在本机准备项目' WHERE id=?`, [digest(lease), taskId]);
       await syncConnectorTaskById(conn, taskId, { publish: true });
-      return { ...candidate, leaseToken: lease };
+      return { ...candidate, status: "running", leaseToken: lease, resumed: false };
     });
     res.json({ task });
+  });
+
+  const mcpCredentialResponse = (current, credential) => ({
+    token: credential.token,
+    expiresAt: credential.expiresAt,
+    endpoint: makers ? "/cothread-mcp" : "/mcp",
+    conversationId: makers ? current.user_id : null,
+  });
+  app.post("/api/connector/mcp-credential", async (req, res) => {
+    const current = await device(db, req);
+    // 仅 ensure（不重置）当前设备所属账号的 MCP 令牌，供连接器自动写入本机 Agent 的 MCP 配置。
+    res.json(mcpCredentialResponse(current, await accountCredential(db, current.user_id)));
+  });
+  app.post("/api/connector/mcp-credential/reset", async (req, res) => {
+    const current = await device(db, req);
+    // 主动吊销：账号旧 MCP 令牌全部失效并签发新令牌；连接器随后重写本机 Agent 配置。
+    res.json(mcpCredentialResponse(current, await accountCredential(db, current.user_id, true)));
   });
 
   app.post("/api/connector/tasks/:id/control", async (req, res) => {
@@ -184,7 +212,7 @@ export function registerConnectorPublicRoutes(app, db, service) {
         return { status: "paused" };
       }
       if (action === "resume" && task.status === "paused") {
-        await query(conn, "UPDATE connector_tasks SET status='running',progress='本机 Codex 正在执行',lease_expires_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 2 MINUTE) WHERE id=?", [taskId]);
+        await query(conn, "UPDATE connector_tasks SET status='running',progress='本机 Agent 会话进行中',lease_expires_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 2 MINUTE) WHERE id=?", [taskId]);
         await syncConnectorTaskById(conn, taskId, { publish: true });
         return { status: "running" };
       }
@@ -204,8 +232,8 @@ export function registerConnectorPublicRoutes(app, db, service) {
         const success = task.status === "completed_pending_notification";
         if (!task.response_message_id) {
           const body = stopped ? "本机任务已由执行成员终止。" : success
-            ? (task.output || "本地 Codex 已完成修改，请查看代码差异。")
-            : `本地 Codex 执行失败：${task.error || "未知错误"}`;
+            ? (task.output || "本机 Agent 已完成修改，请查看代码差异。")
+            : `本机 Agent 执行失败：${task.error || "未知错误"}`;
           const response = await service.insertMessage(conn, { id: task.assigned_to, kind: "api" },
             task.thread_id, body.slice(0, 20000), [], "local_ai", task.message_id);
           await query(conn, "UPDATE connector_tasks SET response_message_id=? WHERE id=?", [response.id, taskId]);
@@ -265,6 +293,7 @@ export function registerConnectorPublicRoutes(app, db, service) {
       output: z.string().max(1000000).optional(),
       diff: z.string().max(2000000).optional(),
       error: z.string().max(1000).optional(),
+      agentKind: z.enum(["cursor", "codex", "claude"]).optional(),
     }).parse(req.body);
     const result = await transaction(db, async (conn) => {
       const [task] = await query(conn, `SELECT *,lease_expires_at>UTC_TIMESTAMP(3) lease_valid
@@ -274,23 +303,24 @@ export function registerConnectorPublicRoutes(app, db, service) {
       if (task.lease_token_hash !== digest(data.leaseToken) || Number(task.lease_valid) !== 1)
         throw new HttpError(409, "任务租约无效或已过期");
       if (!["running", "paused"].includes(task.status)) throw new HttpError(409, "任务已结束");
+      const agentKind = data.agentKind || task.agent_kind || null;
       if (["running", "paused"].includes(data.status)) {
-        await query(conn, `UPDATE connector_tasks SET status=?,progress=?,lease_expires_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL ? MINUTE) WHERE id=?`,
-          [data.status, data.progress || task.progress || "正在本机执行", data.status === "paused" ? 30 : 2, taskId]);
+        await query(conn, `UPDATE connector_tasks SET status=?,progress=?,agent_kind=?,lease_expires_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL ? MINUTE) WHERE id=?`,
+          [data.status, data.progress || task.progress || "正在本机执行", agentKind, data.status === "paused" ? 30 : 2, taskId]);
         await syncConnectorTaskById(conn, taskId, { publish: true });
         return { status: data.status };
       }
       let responseMessageId = task.response_message_id;
       if (data.status === "completed" && !responseMessageId) {
-        const text = (data.output || "本地 Codex 已完成修改，请查看代码差异。").trim();
+        const text = (data.output || "本机 Agent 已完成修改，请查看代码差异。").trim();
         const response = await service.insertMessage(conn, { id: task.assigned_to, kind: "api" },
           task.thread_id, text.slice(0, 20000), [], "local_ai", task.message_id);
         responseMessageId = response.id;
       }
-      await query(conn, `UPDATE connector_tasks SET status=?,progress=?,output=?,diff=?,error=?,response_message_id=?,
+      await query(conn, `UPDATE connector_tasks SET status=?,progress=?,agent_kind=?,output=?,diff=?,error=?,response_message_id=?,
         lease_expires_at=NULL,finished_at=UTC_TIMESTAMP(3) WHERE id=?`, [data.status,
         ["completed", "completed_pending_notification"].includes(data.status) ? (data.status === "completed" ? "成功" : "成功待通知") : (data.status === "failed" ? "失败" : "失败待通知"),
-        data.output || null, data.diff || null,
+        agentKind, data.output || null, data.diff || null,
         ["failed", "failed_pending_notification"].includes(data.status) ? data.error || "本机执行失败" : null, responseMessageId, taskId]);
       await syncConnectorTaskById(conn, taskId, { publish: true });
       return { status: data.status };

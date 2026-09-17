@@ -65,7 +65,7 @@ test("only the current target can accept, update or reassign", async () => {
 test("online connector is the automatic executor and creates an adapter", async () => {
   const connectorId = randomUUID();
   await query(db, `INSERT INTO connectors(id,user_id,name,platform,version,token_hash,last_seen_at)
-    VALUES(?,?,?,'windows','1.0.0',?,UTC_TIMESTAMP(3))`, [connectorId, users[1].id, "本地 Codex", randomUUID()]);
+    VALUES(?,?,?,'windows','1.0.0',?,UTC_TIMESTAMP(3))`, [connectorId, users[1].id, "本机 Agent", randomUUID()]);
   await query(db, "INSERT INTO connector_projects(connector_id,project_id,policy,allow_git_push) VALUES(?,?,'unrestricted',FALSE)", [connectorId, project.id]);
   const task = await formalTask(users[1].id, { title: "连接器任务" });
   const accepted = await acceptTask(db, task.id, { type: "human_member", id: users[1].id }, "auto");
@@ -85,6 +85,24 @@ test("offline connector falls back to human self", async () => {
   const accepted = await acceptTask(db, task.id, { type: "human_member", id: users[1].id }, "auto");
   assert.equal(accepted.execution_agent_type, "human_self");
   assert.equal(accepted.execution_agent_id, users[1].id);
+});
+
+test("explicit connector mode explains what blocks it", async () => {
+  const actor = { type: "human_member", id: users[2].id };
+  const unpaired = await formalTask(users[2].id, { title: "无连接器" });
+  await assert.rejects(acceptTask(db, unpaired.id, actor, "member_connector"), { status: 409, message: /没有已授权的本机连接器/ });
+  const connectorId = randomUUID();
+  await query(db, `INSERT INTO connectors(id,user_id,name,platform,version,token_hash,last_seen_at)
+    VALUES(?,?,?,'windows','1.0.0',?,DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 2 MINUTE))`, [connectorId, users[2].id, "本机 Agent", randomUUID()]);
+  await assert.rejects(acceptTask(db, unpaired.id, actor, "member_connector"), { status: 409, message: /连接器当前离线/ });
+  await query(db, "UPDATE connectors SET last_seen_at=UTC_TIMESTAMP(3) WHERE id=?", [connectorId]);
+  await assert.rejects(acceptTask(db, unpaired.id, actor, "member_connector"), { status: 409, message: /尚未绑定当前项目/ });
+  await query(db, "INSERT INTO connector_projects(connector_id,project_id,policy,allow_git_push) VALUES(?,?,'unrestricted',FALSE)", [connectorId, project.id]);
+  const accepted = await acceptTask(db, unpaired.id, actor, "member_connector");
+  assert.equal(accepted.execution_agent_type, "human_connector");
+  assert.equal(accepted.execution_agent_id, connectorId);
+  await query(db, "DELETE FROM connector_projects WHERE connector_id=?", [connectorId]);
+  await query(db, "DELETE FROM connectors WHERE id=?", [connectorId]);
 });
 
 test("current human target can transfer a task to the iteration L2", async () => {

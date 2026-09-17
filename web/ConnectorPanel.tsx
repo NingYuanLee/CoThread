@@ -15,8 +15,8 @@ export function ConnectorPanel({ devices, api, onRefresh, onClose }: {
   const [error, setError] = useState("");
   const act = async (fn: () => Promise<void>) => { setBusy(true); setError(""); try { await fn(); } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); } };
   return <div className="connector-panel">
-    <header><div><small>本地连接器</small><h2>本地连接器</h2><p>本机 Codex 执行通道</p></div><button type="button" aria-label="关闭" title="关闭" onClick={onClose}>×</button></header>
-    <p className="muted">连接器应用程序由独立渠道分发。运行后会检测 Git 和 Codex CLI，并打开本页完成账号授权。</p>
+    <header><div><small>本地连接器</small><h2>本地连接器</h2><p>本机 Agent 执行通道</p></div><button type="button" aria-label="关闭" title="关闭" onClick={onClose}>×</button></header>
+    <p className="muted">连接器应用程序由独立渠道分发。运行后会检测 Git 与 Cursor Agent / Codex CLI / Claude Code，并打开本页完成账号授权。任务在本机以交互式 Agent 会话执行，可随时追问与打断；授权后连接器会自动为已检测到的 Agent 写入共序 MCP 配置，无需手抄令牌。</p>
     <section><h3>已连接设备</h3>
       {!devices.length && <p className="muted">暂无设备</p>}
       {devices.map((device) => <div className="connector-device" key={device.id}>

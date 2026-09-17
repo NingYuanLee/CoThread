@@ -91,7 +91,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     next();
   });
   app.use(express.json({ limit: "32mb" }));
-  registerConnectorPublicRoutes(app, db, service);
+  registerConnectorPublicRoutes(app, db, service, { makers });
   app.get("/api/health", async (req, res) => {
     await query(db, "SELECT 1");
     res.json({

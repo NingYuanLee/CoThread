@@ -270,8 +270,8 @@
       </div>
       <div class="card reveal">
         <div class="ico">🧰</div>
-        <h3>MCP 与本机 Codex</h3>
-        <p>7 个 Streamable HTTP 工具让成员本地 AI 读上下文、发消息、提交产物。另有 Windows 连接器把确认后的任务交给本机 Codex 与 Git。</p>
+        <h3>MCP 与本机 Agent</h3>
+        <p>7 个 Streamable HTTP 工具让成员本地 AI 读上下文、发消息、提交产物。另有 Windows 连接器把确认后的任务交给本机 Cursor / Codex / Claude Code 会话与 Git。</p>
         <span class="tag">Bearer 账号令牌</span>
       </div>
       <div class="card reveal">
@@ -303,7 +303,7 @@
       <p class="sub">从讨论到归档，每一步都留下可回溯的记录；AI 负责执行，人负责决策。</p>
     </div>
     <div class="flow">
-      <div class="step reveal"><div class="n">STEP 01</div><h3>讨论与澄清</h3><p>在迭代群聊里提出需求、@ 小祥或打开本机 Codex，引用已有版本。上下文由消息序号和引用关系固定下来。</p></div>
+      <div class="step reveal"><div class="n">STEP 01</div><h3>讨论与澄清</h3><p>在迭代群聊里提出需求、@ 小祥或交给本机 Agent，引用已有版本。上下文由消息序号和引用关系固定下来。</p></div>
       <div class="step reveal"><div class="n">STEP 02</div><h3>小祥执行</h3><p>二级判断是否开跑；三级在独立沙箱里改文件、跑命令。忙时会明说暂时只陪聊，不会把请求悄悄排队。</p></div>
       <div class="step reveal"><div class="n">STEP 03</div><h3>提交为版本</h3><p>成果进入产物目录的新版本（含 SHA-256）。本地 AI 令牌不能审批，也不能归档；缓存文件仍只是对话附件。</p></div>
       <div class="step reveal"><div class="n">STEP 04</div><h3>人工审核归档</h3><p>审核通过后归档：结论、讨论、审核与版本一次落库，已确认产物另存到正式文件。归档后本迭代锁定，下一轮仍可引用。</p></div>
@@ -383,7 +383,7 @@ npm run dev
           <li><b>npm run app:start / app:stop</b>：Windows 下启动本地库并后台运行生产版</li>
           <li>安装 Docker 的机器可用 <b>compose.yaml</b>（mysql:8.4.9），但不要与便携版同时占用 3307</li>
         </ul>
-        <p class="note">连接本地 Agent：在工作空间设置里创建账号令牌，按 Streamable HTTP 配置 MCP 客户端；令牌缺失或过期时，安装文档会自动创建或更新。</p>
+        <p class="note">共序 MCP：由本机 Agent 连接器在授权后自动申领账号令牌，并写入 Cursor / Codex / Claude Code 的 Streamable HTTP MCP 配置；令牌临近过期时连接器自动续期，无需手抄。</p>
       </div>
     </div>
   </section>

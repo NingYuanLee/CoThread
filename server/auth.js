@@ -32,6 +32,7 @@ export async function issueCredential(
 ) {
   const token = randomBytes(32).toString("base64url");
   const id = randomUUID();
+  const expiresAt = new Date(Date.now() + (kind === "session" ? 7 : 30) * 86400000);
   await query(
     db,
     "INSERT INTO credentials(id,user_id,token_hash,kind,label,project_id,expires_at,token_ciphertext) VALUES(?,?,?,?,?,?,?,?)",
@@ -42,11 +43,18 @@ export async function issueCredential(
       kind,
       label,
       projectId,
-      new Date(Date.now() + (kind === "session" ? 7 : 30) * 86400000),
+      expiresAt,
       kind === "api" ? await encryptToken(token, userId) : null,
     ],
   );
-  return { id, token };
+  return { id, token, expiresAt: expiresAt.toISOString() };
+}
+// 连接池使用 dateStrings + timezone "Z"：DATETIME 以 "YYYY-MM-DD HH:MM:SS[.fff]" 的 UTC 字符串返回。
+function utcTimestampToIso(value) {
+  if (value instanceof Date) return value.toISOString();
+  const text = String(value || "").trim();
+  if (!text) return null;
+  return new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(text) ? text : `${text.replace(" ", "T")}Z`).toISOString();
 }
 export async function accountCredential(db, userId, reset = false) {
   return transaction(db, async (conn) => {
@@ -54,7 +62,8 @@ export async function accountCredential(db, userId, reset = false) {
     const rows = await query(conn, "SELECT *,expires_at>UTC_TIMESTAMP(3) valid FROM credentials WHERE user_id=? AND kind='api'", [userId]);
     const current = rows[0];
     if (!reset && rows.length === 1 && Number(current.valid) === 1 && !current.project_id && current.token_ciphertext) {
-      return { id: current.id, token: await decryptToken(current.token_ciphertext, userId) };
+      return { id: current.id, token: await decryptToken(current.token_ciphertext, userId),
+        expiresAt: utcTimestampToIso(current.expires_at) };
     }
     await query(conn, "DELETE FROM credentials WHERE user_id=? AND kind='api'", [userId]);
     return issueCredential(conn, userId, "api", "本地 Agent");

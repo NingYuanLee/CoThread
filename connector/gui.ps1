@@ -44,14 +44,19 @@ public static class CoThreadWindowIcon {
     <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#E1E6DE" BorderThickness="0,0,0,1" Padding="20,14">
       <StackPanel>
         <StackPanel x:Name="PairPanel">
-          <Grid Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="连接账号" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBox x:Name="ServerInput" Grid.Column="1" Margin="0,0,10,0"/><Button x:Name="PairButton" Grid.Column="2" Content="网页登录并授权" Background="#536F49" Foreground="White" Margin="0"/></Grid>
+          <Grid Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="服务地址" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBox x:Name="ServerInput" Grid.Column="1" Margin="0,0,10,0" ToolTip="共序服务地址，默认为线上地址；本地验证可改为 http://localhost:3100。修改后需重新授权，已绑定项目按新服务重新绑定"/><Button x:Name="PairButton" Grid.Column="2" Content="网页登录并授权" Background="#536F49" Foreground="White" Margin="0"/></Grid>
         </StackPanel>
-        <Grid x:Name="PrerequisitePanel"><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="18"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-          <TextBlock Text="本机环境" FontWeight="SemiBold" VerticalAlignment="Center"/>
-          <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="Git  " Foreground="#849083"/><TextBlock x:Name="GitStatusText"/><TextBlock x:Name="GitHintText" Foreground="#A45D4A" Margin="6,0,0,0"/><Button x:Name="InstallGitButton" Content="安装 Git" MinHeight="26" Padding="9,3" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/></StackPanel>
-          <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="Codex CLI  " Foreground="#849083"/><TextBlock x:Name="CodexStatusText"/><Button x:Name="InstallCodexButton" Content="安装 Codex" MinHeight="26" Padding="9,3" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/></StackPanel>
-          <CheckBox x:Name="AutoStartCheck" Grid.Column="5" Content="开机自动启动" VerticalAlignment="Center" Margin="0,0,16,0"/>
-          <Button x:Name="CheckButton" Grid.Column="6" Content="重新检测" Margin="0"/>
+        <Grid x:Name="PrerequisitePanel"><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock Text="本机环境" FontWeight="SemiBold" VerticalAlignment="Top" Margin="0,6,0,0"/>
+          <WrapPanel Grid.Column="1" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,18,4"><TextBlock Text="Git  " Foreground="#849083"/><TextBlock x:Name="GitStatusText"/><TextBlock x:Name="GitHintText" Foreground="#A45D4A" Margin="6,0,0,0"/><Button x:Name="InstallGitButton" Content="安装 Git" MinHeight="26" Padding="9,3" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/></StackPanel>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,18,4"><TextBlock Text="Cursor Agent  " Foreground="#849083"/><TextBlock x:Name="CursorStatusText"/><Button x:Name="InstallCursorButton" Content="安装 Cursor CLI" MinHeight="26" Padding="9,3" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/></StackPanel>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,18,4"><TextBlock Text="Codex CLI  " Foreground="#849083"/><TextBlock x:Name="CodexStatusText"/><Button x:Name="InstallCodexButton" Content="安装 Codex" MinHeight="26" Padding="9,3" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/></StackPanel>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,18,4"><TextBlock Text="Claude Code  " Foreground="#849083"/><TextBlock x:Name="ClaudeStatusText"/><Button x:Name="InstallClaudeButton" Content="安装 Claude Code" MinHeight="26" Padding="9,3" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/></StackPanel>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,0,4"><TextBlock Text="共序 MCP  " Foreground="#849083"/><TextBlock x:Name="McpStatusText" ToolTip="连接器会为已检测到的 Agent 自动写入共序 MCP 令牌并按到期续期；已打开的会话需新开才生效"/><Button x:Name="RefreshMcpButton" Content="重写 MCP 配置" MinHeight="26" Padding="9,3" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/><Button x:Name="ResetMcpButton" Content="重置 MCP 令牌" ToolTip="账号旧令牌立即失效并签发新令牌；令牌疑似泄露时使用" MinHeight="26" Padding="9,3" Margin="6,0,0,0" Background="#F8F1EE" BorderBrush="#E0C9C1" Foreground="#A45D4A"/></StackPanel>
+          </WrapPanel>
+          <CheckBox x:Name="AutoStartCheck" Grid.Column="2" Content="开机自动启动" VerticalAlignment="Center" Margin="0,0,16,0"/>
+          <Button x:Name="CheckButton" Grid.Column="3" Content="重新检测" Margin="0" VerticalAlignment="Center"/>
         </Grid>
       </StackPanel>
     </Border>
@@ -81,7 +86,7 @@ public static class CoThreadWindowIcon {
       </TabItem>
       <TabItem Header="任务">
         <Grid Margin="16"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="本机任务" FontSize="15" FontWeight="SemiBold" Foreground="#303B30"/><TextBlock Text="查看任务状态并控制本机执行" Margin="0,3,0,0" Foreground="#849083"/></StackPanel><Button x:Name="RefreshTaskButton" Grid.Column="1" Content="↻  刷新任务" Style="{StaticResource RefreshActionButton}" ToolTip="立即获取最新任务和状态" Margin="0"/></Grid>
+        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="本机任务" FontSize="15" FontWeight="SemiBold" Foreground="#303B30"/><TextBlock Text="「开始」会在新窗口打开本机 Agent 会话（点窗口直接打字）；关闭窗口后可「继续」原对话；完成后点「完成并通知」回传 Diff" Margin="0,3,0,0" Foreground="#849083"/></StackPanel><Button x:Name="RefreshTaskButton" Grid.Column="1" Content="↻  刷新任务" Style="{StaticResource RefreshActionButton}" ToolTip="立即获取最新任务和状态" Margin="0"/></Grid>
         <DataGrid x:Name="TaskGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" HorizontalScrollBarVisibility="Auto">
           <DataGrid.Columns>
             <DataGridTemplateColumn Header="项目" Width="120"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding projectName}" ToolTip="{Binding projectName}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" Foreground="#2E4631"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn><DataGridTemplateColumn Header="迭代" Width="140"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding threadTitle}" ToolTip="{Binding threadTitle}" TextTrimming="CharacterEllipsis"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn><DataGridTemplateColumn Header="提出人" Width="85"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding requestedByName}" ToolTip="{Binding requestedByName}" TextTrimming="CharacterEllipsis" Foreground="#657064"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
@@ -90,10 +95,12 @@ public static class CoThreadWindowIcon {
             <DataGridTemplateColumn Header="状态" Width="105"><DataGridTemplateColumn.CellTemplate><DataTemplate>
               <Border Background="{Binding statusBackground}" CornerRadius="3" Padding="8,4" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock Text="{Binding statusText}" Foreground="{Binding statusForeground}" FontWeight="SemiBold"/></Border>
             </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-            <DataGridTemplateColumn Header="控制" Width="260"><DataGridTemplateColumn.CellTemplate><DataTemplate><StackPanel Orientation="Horizontal">
-              <Button x:Name="AbandonTaskButton" Content="放弃" Visibility="{Binding abandonVisibility}" Margin="2" Background="#F8F2EF" BorderBrush="#E7CFC6" Foreground="#935743"/><Button x:Name="StartTaskButton" Content="立即开始" Visibility="{Binding startVisibility}" Margin="2" Background="#527A55" BorderBrush="#527A55" Foreground="#FFFFFF"/>
-              <Button x:Name="PauseTaskButton" Content="暂停" Visibility="{Binding pauseVisibility}" Margin="2" Background="#FFF6DF" BorderBrush="#E7CE8C" Foreground="#8A681A"/><Button x:Name="ResumeTaskButton" Content="继续" Visibility="{Binding resumeVisibility}" Margin="2" Background="#527A55" BorderBrush="#527A55" Foreground="#FFFFFF"/>
-              <Button x:Name="EndTaskButton" Content="结束" Visibility="{Binding endVisibility}" Margin="2" Background="#A85B50" BorderBrush="#A85B50" Foreground="#FFFFFF"/><Button x:Name="RetryTaskButton" Content="重试" Visibility="{Binding retryVisibility}" Margin="2" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/>
+            <DataGridTextColumn Header="Agent" Binding="{Binding agentText}" Width="96" Foreground="#657064"/>
+            <DataGridTemplateColumn Header="控制" Width="300"><DataGridTemplateColumn.CellTemplate><DataTemplate><StackPanel Orientation="Horizontal">
+              <Button x:Name="AbandonTaskButton" Content="放弃" Visibility="{Binding abandonVisibility}" Margin="2" Background="#F8F2EF" BorderBrush="#E7CFC6" Foreground="#935743"/><Button x:Name="StartTaskButton" Content="开始" Visibility="{Binding startVisibility}" Margin="2" Background="#527A55" BorderBrush="#527A55" Foreground="#FFFFFF" ToolTip="在新窗口打开本机 Agent 会话"/>
+              <Button x:Name="ContinueTaskButton" Content="继续" Visibility="{Binding continueVisibility}" Margin="2" Background="#527A55" BorderBrush="#527A55" Foreground="#FFFFFF" ToolTip="续接原会话，保留未提交改动"/>
+              <Button x:Name="FinishTaskButton" Content="完成并通知" Visibility="{Binding finishVisibility}" Margin="2" Background="#EAF5F2" BorderBrush="#BFDDD5" Foreground="#397466" ToolTip="按开始时的基线计算 Diff 并通知迭代群聊"/>
+              <Button x:Name="FailTaskButton" Content="失败" Visibility="{Binding failVisibility}" Margin="2" Background="#A85B50" BorderBrush="#A85B50" Foreground="#FFFFFF"/><Button x:Name="RetryTaskButton" Content="重试" Visibility="{Binding retryVisibility}" Margin="2" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84" ToolTip="新建会话重新开始"/>
               <Button x:Name="NotifyTaskButton" Content="通知" Visibility="{Binding notifyVisibility}" Margin="2" Background="#EAF5F2" BorderBrush="#BFDDD5" Foreground="#397466"/>
             </StackPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
           </DataGrid.Columns>
@@ -122,7 +129,7 @@ $window.Add_SourceInitialized({
   [void][CoThreadWindowIcon]::SendMessage($handle, 0x0080, [IntPtr]1, $bigWindowIcon.Handle)
   [void][CoThreadWindowIcon]::SendMessage($handle, 0x0080, [IntPtr]0, $smallWindowIcon.Handle)
 })
-$names = @('VersionText','StatusDot','StatusText','ReauthorizeButton','PairPanel','ServerInput','PairButton','PrerequisitePanel','CheckButton','GitStatusText','GitHintText','InstallGitButton','CodexStatusText','InstallCodexButton','ProjectPanel','RefreshButton','ProjectGrid','AutoStartCheck','RefreshTaskButton','TaskGrid','LogText','HideButton','ExitButton')
+$names = @('VersionText','StatusDot','StatusText','ReauthorizeButton','PairPanel','ServerInput','PairButton','PrerequisitePanel','CheckButton','GitStatusText','GitHintText','InstallGitButton','CursorStatusText','InstallCursorButton','CodexStatusText','InstallCodexButton','ClaudeStatusText','InstallClaudeButton','McpStatusText','RefreshMcpButton','ResetMcpButton','ProjectPanel','RefreshButton','ProjectGrid','AutoStartCheck','RefreshTaskButton','TaskGrid','LogText','HideButton','ExitButton')
 foreach ($name in $names) { Set-Variable -Name $name -Value $window.FindName($name) }
 $script:allowExit = $false
 $script:projectSignature = ''
@@ -136,12 +143,87 @@ $script:projectRefreshRequested = $false
 $script:taskRefreshRequested = $false
 $script:projectRefreshRevision = 0
 $script:taskRefreshRevision = 0
+$script:agentOptions = @()
+$script:defaultAgent = ''
+$script:agentLabels = @{ cursor='Cursor Agent'; codex='Codex CLI'; claude='Claude Code' }
 
 function Send-Command([string]$type, $payload = @{}) {
   $command = @{ id = [guid]::NewGuid().ToString(); type = $type; payload = $payload } | ConvertTo-Json -Depth 5
   $temporary = "$CommandPath.$PID.tmp"
   [IO.File]::WriteAllText($temporary, $command, [Text.UTF8Encoding]::new($false))
   Move-Item -LiteralPath $temporary -Destination $CommandPath -Force
+}
+
+function New-Dialog([string]$title, [int]$width, [int]$height) {
+  $dialog = New-Object System.Windows.Window
+  $dialog.Title = $title
+  $dialog.Owner = $window
+  $dialog.Width = $width
+  $dialog.Height = $height
+  $dialog.MinWidth = 420
+  $dialog.MinHeight = 220
+  $dialog.WindowStartupLocation = 'CenterOwner'
+  $dialog.Background = '#F7F8F5'
+  $dialog.FontFamily = $window.FontFamily
+  $dialog.ResizeMode = 'CanResizeWithGrip'
+  return $dialog
+}
+
+function New-DialogButtons($dialog, [string]$okText) {
+  $panel = New-Object System.Windows.Controls.StackPanel -Property @{ Orientation='Horizontal'; HorizontalAlignment='Right'; Margin='0,14,0,0' }
+  $cancel = New-Object System.Windows.Controls.Button -Property @{ Content='取消'; Width=84; IsCancel=$true }
+  $ok = New-Object System.Windows.Controls.Button -Property @{ Content=$okText; MinWidth=110; Margin='0'; IsDefault=$true; Background='#527A55'; BorderBrush='#527A55'; Foreground='#FFFFFF' }
+  $ok.Add_Click({ $dialog.DialogResult = $true; $dialog.Close() }.GetNewClosure())
+  [void]$panel.Children.Add($cancel); [void]$panel.Children.Add($ok)
+  return $panel
+}
+
+# 首次开始且检测到多个 Agent 时弹出选择；只有一个直接返回；没有则提示。返回 $null 表示取消。
+function Select-AgentKind($row) {
+  if ($row.localAgentKind) { return [string]$row.localAgentKind }
+  $options = @($script:agentOptions)
+  if ($options.Count -eq 0) {
+    [void][System.Windows.MessageBox]::Show('未检测到 Cursor Agent / Codex CLI / Claude Code，请先安装其中一个并点击「重新检测」。', 'CoThread Connector', 'OK', 'Warning')
+    return $null
+  }
+  if ($options.Count -eq 1) { return [string]$options[0].kind }
+  $dialog = New-Dialog '选择本机 Agent' 520 280
+  $layout = New-Object System.Windows.Controls.StackPanel -Property @{ Margin=20 }
+  $heading = New-Object System.Windows.Controls.TextBlock -Property @{ Text='这个任务用哪个本机 Agent 执行？'; FontSize=16; FontWeight='SemiBold'; Foreground='#303B30'; Margin='0,0,0,6' }
+  $hint = New-Object System.Windows.Controls.TextBlock -Property @{ Text='只在首次开始时选择一次；同一任务「继续」时沿用，「重试」会新建会话。'; Foreground='#849083'; TextWrapping='Wrap'; Margin='0,0,0,14' }
+  $combo = New-Object System.Windows.Controls.ComboBox
+  $combo.DisplayMemberPath = 'text'
+  $combo.SelectedValuePath = 'kind'
+  foreach ($option in $options) { [void]$combo.Items.Add([pscustomobject]@{ kind=[string]$option.kind; text="$($option.label)  $($option.version)" }) }
+  $combo.SelectedIndex = 0
+  if ($script:defaultAgent) { for ($i = 0; $i -lt $combo.Items.Count; $i++) { if ($combo.Items[$i].kind -eq $script:defaultAgent) { $combo.SelectedIndex = $i } } }
+  [void]$layout.Children.Add($heading); [void]$layout.Children.Add($hint); [void]$layout.Children.Add($combo)
+  [void]$layout.Children.Add((New-DialogButtons $dialog '开始'))
+  $dialog.Content = $layout
+  if ($dialog.ShowDialog() -eq $true -and $null -ne $combo.SelectedValue) { return [string]$combo.SelectedValue }
+  return $null
+}
+
+# 结案/失败说明输入框。返回 $null 表示取消，返回空串表示未填写。
+function Show-TextDialog([string]$title, [string]$heading, [string]$hint, [string]$okText, [string]$watermark) {
+  $dialog = New-Dialog $title 620 380
+  $layout = New-Object System.Windows.Controls.Grid -Property @{ Margin=20 }
+  $layout.RowDefinitions.Add((New-Object System.Windows.Controls.RowDefinition -Property @{ Height='Auto' }))
+  $layout.RowDefinitions.Add((New-Object System.Windows.Controls.RowDefinition -Property @{ Height='Auto' }))
+  $layout.RowDefinitions.Add((New-Object System.Windows.Controls.RowDefinition -Property @{ Height='*' }))
+  $layout.RowDefinitions.Add((New-Object System.Windows.Controls.RowDefinition -Property @{ Height='Auto' }))
+  $head = New-Object System.Windows.Controls.TextBlock -Property @{ Text=$heading; FontSize=16; FontWeight='SemiBold'; Foreground='#303B30'; Margin='0,0,0,6' }
+  $tip = New-Object System.Windows.Controls.TextBlock -Property @{ Text=$hint; Foreground='#849083'; TextWrapping='Wrap'; Margin='0,0,0,12' }
+  [System.Windows.Controls.Grid]::SetRow($tip, 1)
+  $input = New-Object System.Windows.Controls.TextBox -Property @{ AcceptsReturn=$true; TextWrapping='Wrap'; VerticalScrollBarVisibility='Auto'; Padding=10; Background='#FFFFFF'; BorderBrush='#DDE3DA'; ToolTip=$watermark; MinHeight=120 }
+  [System.Windows.Controls.Grid]::SetRow($input, 2)
+  $buttons = New-DialogButtons $dialog $okText
+  [System.Windows.Controls.Grid]::SetRow($buttons, 3)
+  [void]$layout.Children.Add($head); [void]$layout.Children.Add($tip); [void]$layout.Children.Add($input); [void]$layout.Children.Add($buttons)
+  $dialog.Content = $layout
+  $input.Focus() | Out-Null
+  if ($dialog.ShowDialog() -eq $true) { return [string]$input.Text }
+  return $null
 }
 
 $PairButton.Add_Click({
@@ -178,7 +260,14 @@ $CheckButton.Add_Click({
   Send-Command 'checkPrerequisites'
 })
 $InstallGitButton.Add_Click({ Send-Command 'installPrerequisite' @{ name='git' } })
+$InstallCursorButton.Add_Click({ Send-Command 'installPrerequisite' @{ name='cursor' } })
 $InstallCodexButton.Add_Click({ Send-Command 'installPrerequisite' @{ name='codex' } })
+$InstallClaudeButton.Add_Click({ Send-Command 'installPrerequisite' @{ name='claude' } })
+$RefreshMcpButton.Add_Click({ Send-Command 'refreshMcp' })
+$ResetMcpButton.Add_Click({
+  $answer = [System.Windows.MessageBox]::Show("重置后本账号的旧 MCP 令牌立即失效，其他设备上手动配置的 MCP 也会断开；本机已检测到的 Agent 会自动重写配置，已打开的会话需新开才生效。`n`n确定重置？", 'CoThread Connector', 'YesNo', 'Warning')
+  if ($answer -eq 'Yes') { Send-Command 'resetMcp' }
+})
 $ProjectGrid.AddHandler([System.Windows.Controls.Button]::ClickEvent, [System.Windows.RoutedEventHandler]{
   param($sender,$eventArgs)
   $button = $eventArgs.OriginalSource
@@ -247,9 +336,24 @@ $TaskGrid.AddHandler([System.Windows.Controls.Button]::ClickEvent, [System.Windo
     [void]$detail.ShowDialog()
     return
   }
-  $actions = @{ AbandonTaskButton='abandon'; PauseTaskButton='pause'; ResumeTaskButton='resume'; EndTaskButton='end'; RetryTaskButton='retry'; NotifyTaskButton='notify' }
-  if ($button.Name -eq 'StartTaskButton') { Send-Command 'startTask' @{ taskId=$button.DataContext.id } }
-  elseif ($actions.ContainsKey($button.Name)) { Send-Command 'taskAction' @{ taskId=$button.DataContext.id; action=$actions[$button.Name] } }
+  $row = $button.DataContext
+  $actions = @{ AbandonTaskButton='abandon'; NotifyTaskButton='notify' }
+  if ($button.Name -eq 'StartTaskButton') {
+    $kind = Select-AgentKind $row
+    if ($null -ne $kind) { Send-Command 'startTask' @{ taskId=$row.id; agentKind=$kind } }
+  } elseif ($button.Name -eq 'ContinueTaskButton') {
+    $kind = Select-AgentKind $row
+    if ($null -ne $kind) { Send-Command 'startTask' @{ taskId=$row.id; agentKind=$kind } }
+  } elseif ($button.Name -eq 'RetryTaskButton') {
+    $kind = Select-AgentKind ([pscustomobject]@{ localAgentKind='' })
+    if ($null -ne $kind) { Send-Command 'startTask' @{ taskId=$row.id; agentKind=$kind; retry=$true } }
+  } elseif ($button.Name -eq 'FinishTaskButton') {
+    $summary = Show-TextDialog '完成并通知' '确认结案并通知迭代群聊' '请先确认 Agent 会话里的修改已停止。连接器会按开始时的 Git 基线计算 Diff 一并回传；下面的摘要可选，留空则使用默认结案说明。' '完成并通知' '例如：已完成登录页样式调整，未改接口。'
+    if ($null -ne $summary) { Send-Command 'finishTask' @{ taskId=$row.id; summary=$summary } }
+  } elseif ($button.Name -eq 'FailTaskButton') {
+    $reason = Show-TextDialog '标记失败' '将此任务标记为失败' '任务会以失败状态回到迭代群聊，本机会话记录随之清理；可填写原因，留空则记为「本机执行未完成」。' '标记失败' '例如：需求与现有实现冲突，需要提出人确认。'
+    if ($null -ne $reason) { Send-Command 'failTask' @{ taskId=$row.id; reason=$reason } }
+  } elseif ($actions.ContainsKey($button.Name)) { Send-Command 'taskAction' @{ taskId=$row.id; action=$actions[$button.Name] } }
 })
 $AutoStartCheck.Add_Click({ Send-Command 'autoStart' @{ enabled=[bool]$AutoStartCheck.IsChecked } })
 $HideButton.Add_Click({ $window.Hide() })
@@ -301,18 +405,33 @@ $timer.Add_Tick({
     $script:authorizationStarted = $false
   }
   $PairButton.IsEnabled = -not ($script:authorizationRequested -or [bool]$state.authorizing)
+  $PairButton.Content = if ($state.paired) { '切换服务并重新授权' } else { '网页登录并授权' }
   $ReauthorizeButton.Visibility = if ($state.paired) { 'Visible' } else { 'Collapsed' }
   $ReauthorizeButton.IsEnabled = -not ($script:authorizationRequested -or [bool]$state.authorizing)
   if ($ReauthorizeButton.IsEnabled) { $ReauthorizeButton.Content = '切换账号' }
   $StatusDot.Fill = if ($state.online) { '#4D8C58' } elseif ($state.error) { '#B46A58' } else { '#A7ADA5' }
-  $PairPanel.Visibility = if ($state.paired) { 'Collapsed' } else { 'Visible' }
+  # 服务地址始终可见可改（默认线上地址），已授权时改地址需重新授权。
+  $PairPanel.Visibility = 'Visible'
   $ProjectPanel.IsEnabled = [bool]$state.paired
   $GitStatusText.Text = if ($state.prerequisites.gitInstalled) { [string]$state.prerequisites.gitVersion } else { '未安装' }
   $GitHintText.Text = if ($state.prerequisites.gitInstalled) { '' } else { '请先安装 Git' }
   $InstallGitButton.Visibility = if ($state.prerequisites.gitInstalled) { 'Collapsed' } else { 'Visible' }
-  $CodexStatusText.Text = if ($state.prerequisites.codexInstalled) { [string]$state.prerequisites.codexVersion } else { '未安装' }
-  $InstallCodexButton.Visibility = if ($state.prerequisites.codexInstalled) { 'Collapsed' } else { 'Visible' }
-  $ProjectPanel.IsEnabled = [bool]($state.paired -and $state.prerequisites.gitInstalled -and $state.prerequisites.codexInstalled)
+  $agents = $state.prerequisites.agents
+  $CursorStatusText.Text = if ($agents.cursor.installed) { [string]$agents.cursor.version } else { '未安装' }
+  $InstallCursorButton.Visibility = if ($agents.cursor.installed) { 'Collapsed' } else { 'Visible' }
+  $CodexStatusText.Text = if ($agents.codex.installed) { [string]$agents.codex.version } else { '未安装' }
+  $InstallCodexButton.Visibility = if ($agents.codex.installed) { 'Collapsed' } else { 'Visible' }
+  $ClaudeStatusText.Text = if ($agents.claude.installed) { [string]$agents.claude.version } else { '未安装' }
+  $InstallClaudeButton.Visibility = if ($agents.claude.installed) { 'Collapsed' } else { 'Visible' }
+  $script:agentOptions = @(foreach ($kind in @('cursor','codex','claude')) { if ($agents.$kind.installed) { [pscustomobject]@{ kind=$kind; label=$script:agentLabels[$kind]; version=[string]$agents.$kind.version } } })
+  $script:defaultAgent = [string]$state.defaultAgent
+  $anyAgent = $script:agentOptions.Count -gt 0
+  $mcpParts = @(foreach ($option in $script:agentOptions) { $entry = $state.mcp.agents.($option.kind); if ($entry.ok) { "$($option.label) 已写入" } elseif ($entry.error) { "$($option.label) 失败" } else { "$($option.label) 待写入" } })
+  $McpStatusText.Text = if (-not $state.paired) { '授权后自动写入' } elseif (-not $anyAgent) { '未检测到 Agent' } elseif (-not $state.mcp.configured) { '待获取令牌' } else { ([string]::Join(' · ', $mcpParts)) + $(if ($state.mcp.expiresAt) { " · 到期 $(([datetime]$state.mcp.expiresAt).ToLocalTime().ToString('MM-dd'))" } else { '' }) }
+  $McpStatusText.Foreground = if ($mcpParts -match '失败') { '#A45D4A' } else { '#3D473C' }
+  $RefreshMcpButton.Visibility = if ($state.paired -and $anyAgent) { 'Visible' } else { 'Collapsed' }
+  $ResetMcpButton.Visibility = if ($state.paired) { 'Visible' } else { 'Collapsed' }
+  $ProjectPanel.IsEnabled = [bool]($state.paired -and $state.prerequisites.gitInstalled -and $anyAgent)
   if ($AutoStartCheck.IsChecked -ne [bool]$state.autoStart) { $AutoStartCheck.IsChecked = [bool]$state.autoStart }
   if (-not $ServerInput.Text) { $ServerInput.Text = [string]$state.server }
   $signature = ($state.projects | ConvertTo-Json -Depth 4 -Compress)
@@ -335,7 +454,7 @@ $timer.Add_Tick({
   $taskSignature = ($state.tasks | ConvertTo-Json -Depth 4 -Compress)
   if ($taskSignature -ne $script:taskSignature) {
     $script:taskSignature = $taskSignature
-    $labels = @{ awaiting_approval='待确认'; queued='待开始'; running='执行中'; paused='暂停'; stopped_pending_approval='终止待通过'; failed_pending_notification='失败待通知'; completed_pending_notification='成功待通知'; cancelled='终止'; completed='成功'; failed='失败'; interrupted='终止' }
+    $labels = @{ awaiting_approval='待确认'; queued='待开始'; running='会话进行中'; paused='会话已关闭'; stopped_pending_approval='终止待通过'; failed_pending_notification='失败待通知'; completed_pending_notification='成功待通知'; cancelled='终止'; completed='成功'; failed='失败'; interrupted='终止' }
     $TaskGrid.ItemsSource = @($state.tasks | Where-Object { $null -ne $_ } | ForEach-Object {
       $status = [string]$_.status
       $statusColors = switch ($status) {
@@ -355,11 +474,12 @@ $timer.Add_Tick({
         receivedText=$(if($_.receivedAt){([datetime]$_.receivedAt).ToLocalTime().ToString('MM-dd HH:mm')}else{'-'})
         firstStartedText=$(if($_.firstStartedAt){([datetime]$_.firstStartedAt).ToLocalTime().ToString('MM-dd HH:mm')}else{'-'})
         latestText=$(if($_.latestAt){([datetime]$_.latestAt).ToLocalTime().ToString('MM-dd HH:mm')}else{'-'})
+        agentText=$(if($_.localAgentKind -and $script:agentLabels.ContainsKey([string]$_.localAgentKind)){$script:agentLabels[[string]$_.localAgentKind]}elseif($_.localAgentKind){[string]$_.localAgentKind}else{'-'})
         abandonVisibility=$(if($status -eq 'queued'){'Visible'}else{'Collapsed'})
         startVisibility=$(if($status -eq 'queued'){'Visible'}else{'Collapsed'})
-        pauseVisibility=$(if($status -eq 'running'){'Visible'}else{'Collapsed'})
-        resumeVisibility=$(if($status -eq 'paused'){'Visible'}else{'Collapsed'})
-        endVisibility=$(if($status -in @('running','paused')){'Visible'}else{'Collapsed'})
+        continueVisibility=$(if($status -eq 'paused' -and -not [bool]$_.windowOpen){'Visible'}else{'Collapsed'})
+        finishVisibility=$(if($status -in @('running','paused') -and [bool]$_.hasLocalRecord){'Visible'}else{'Collapsed'})
+        failVisibility=$(if($status -in @('running','paused') -and [bool]$_.hasLocalRecord){'Visible'}else{'Collapsed'})
         retryVisibility=$(if($status -in @('failed','failed_pending_notification','cancelled','interrupted','stopped_pending_approval')){'Visible'}else{'Collapsed'})
         notifyVisibility=$(if($status -in @('failed_pending_notification','completed_pending_notification','stopped_pending_approval')){'Visible'}else{'Collapsed'})
       } -Force -PassThru

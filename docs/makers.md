@@ -25,7 +25,7 @@ Makers 生成的 Node 入口会在请求处理器内重新执行应用模块（�
 - Makers Agents 的 `context.request` 包含普通请求头对象和已解析的 `body`，不是 Fetch `Request`。两个入口先统一转换为标准请求，再执行来源检查、鉴权和 MCP 传输；本地测试同时覆盖平台格式。
 - `/cothread-agent` 为长任务入口，使用 `Makers-Conversation-Id` 传迭代 UUID。仍按账号令牌/登录 Cookie 和项目成员权限鉴权，不能凭迭代 ID 获得权限。
 - 浏览器在出现排队任务时调用 Agent 入口，并持续读取原 API 中的进度；闲置实例回收后可从 MySQL 快照恢复。已中断的执行标记失败并供人工重试，避免自动重放有副作用的工具。
-- `/cothread-mcp` 使用 Makers Agents 托管，调用方需携带账号 UUID 对应的 `Makers-Conversation-Id`。从界面重新复制 MCP 安装文档即可获得正确配置。MCP 显式提及助手时，该请求负责执行对应迭代的排队任务，即使没有浏览器打开也可执行；调用端应允许足够的工具超时时间。
+- `/cothread-mcp` 使用 Makers Agents 托管，调用方需携带账号 UUID 对应的 `Makers-Conversation-Id`。本机 Agent 连接器写入 MCP 配置时会自动带上该请求头。MCP 显式提及助手时，该请求负责执行对应迭代的排队任务，即使没有浏览器打开也可执行；调用端应允许足够的工具超时时间。
 - MySQL 命名锁保证同一迭代不会被两个 Makers 实例同时执行；冷启动不会全局清空其他实例的任务。
 - 恢复 DSH 检查点时，运行目录与 JSONL 存储目录统一迁移到当前实例；保留会话 ID 和历史事件，避免 Windows 路径在 Linux 云端被拒绝。数据库快照是恢复来源，不混入旧实例残留的重复日志。
 - DSH 与会话编排位于 Agent 运行时；代码执行和文件操作通过 `context.sandbox` 使用 Makers 原生沙箱，不连接本地沙箱。业务文件和 DSH 会话快照仍保存在 MySQL。

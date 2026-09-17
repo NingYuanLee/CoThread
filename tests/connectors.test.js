@@ -242,3 +242,123 @@ test("group local tasks target one online member and require that member's appro
   assert.equal(selfAccepted.body.execution_agent_type, "human_connector");
   assert.equal(selfAccepted.body.execution_agent_id, requesterConnector.id);
 });
+
+test("connectors renew expired paused leases for interactive sessions and fetch the account MCP credential", async () => {
+  const requester = await loginUser(await makeUser("会话提出人"));
+  const developer = await loginUser(await makeUser("会话开发者"));
+  const bystander = await loginUser(await makeUser("旁观开发者"));
+  for (const member of [requester, developer, bystander])
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')", [projectId, member.id]);
+  const developerConnector = await pair(developer, "开发者电脑");
+  const bystanderConnector = await pair(bystander, "旁观者电脑");
+
+  const created = await request(`/projects/${projectId}/tasks`, {
+    title: "交互式会话任务", goal: "在本机 Agent 会话中完成并回传 Diff。", targetUserId: developer.id, threadId,
+  }, requester);
+  assert.equal(created.status, 201);
+  assert.equal((await request(`/tasks/${created.body.id}/accept`, { mode: "member_connector" }, developer)).status, 200);
+  const [task] = await query(db, "SELECT id FROM connector_tasks WHERE agent_task_id=?", [created.body.id]);
+  const listed = await request("/connector/tasks", undefined, developerConnector);
+  assert.equal(listed.status, 200);
+  assert.equal(listed.body[0].projectId, projectId);
+  assert.equal(listed.body[0].agentKind, null);
+
+  const claimed = await request(`/connector/tasks/${task.id}/claim`, {}, developerConnector);
+  assert.equal(claimed.status, 200);
+  assert.equal(claimed.body.task.status, "running");
+  assert.equal(claimed.body.task.resumed, false);
+  const firstLease = claimed.body.task.leaseToken;
+  const running = await request(`/connector/tasks/${task.id}`, {
+    leaseToken: firstLease, status: "running", progress: "本机 Cursor Agent 会话进行中", agentKind: "cursor",
+  }, developerConnector, "PATCH");
+  assert.equal(running.status, 200);
+  // 窗口关闭：连接器回写 paused，服务端保留 agentKind。
+  const paused = await request(`/connector/tasks/${task.id}`, {
+    leaseToken: firstLease, status: "paused", progress: "本机会话已关闭，可继续或结案",
+  }, developerConnector, "PATCH");
+  assert.equal(paused.body.status, "paused");
+  const [pausedRow] = await query(db, "SELECT status,agent_kind,progress FROM connector_tasks WHERE id=?", [task.id]);
+  assert.equal(pausedRow.agent_kind, "cursor");
+  assert.equal(pausedRow.progress, "本机会话已关闭，可继续或结案");
+  assert.equal((await request("/connector/tasks", undefined, developerConnector)).body[0].agentKind, "cursor");
+
+  // 租约仍有效时不能重领；过期后同一连接器可重领，其他连接器不可。
+  assert.equal((await request(`/connector/tasks/${task.id}/claim`, {}, developerConnector)).status, 409);
+  await query(db, "UPDATE connector_tasks SET lease_expires_at='2000-01-01 00:00:00' WHERE id=?", [task.id]);
+  assert.equal((await request(`/connector/tasks/${task.id}/claim`, {}, bystanderConnector)).status, 409);
+  const reclaimed = await request(`/connector/tasks/${task.id}/claim`, {}, developerConnector);
+  assert.equal(reclaimed.status, 200);
+  assert.equal(reclaimed.body.task.status, "paused");
+  assert.equal(reclaimed.body.task.resumed, true);
+  assert.equal(reclaimed.body.task.agent_kind, "cursor");
+  assert.notEqual(reclaimed.body.task.leaseToken, firstLease);
+  assert.equal((await query(db, "SELECT status FROM connector_tasks WHERE id=?", [task.id]))[0].status, "paused");
+  assert.equal((await request(`/connector/tasks/${task.id}`, {
+    leaseToken: firstLease, status: "paused",
+  }, developerConnector, "PATCH")).status, 409);
+
+  // 「继续」后回到 running，「完成并通知」直接 completed 并发出结案消息。
+  const resumed = await request(`/connector/tasks/${task.id}`, {
+    leaseToken: reclaimed.body.task.leaseToken, status: "running", progress: "本机 Cursor Agent 会话进行中",
+  }, developerConnector, "PATCH");
+  assert.equal(resumed.body.status, "running");
+  const completed = await request(`/connector/tasks/${task.id}`, {
+    leaseToken: reclaimed.body.task.leaseToken, status: "completed", output: "已完成登录页样式调整", diff: "diff --git a/x b/x",
+  }, developerConnector, "PATCH");
+  assert.equal(completed.status, 200);
+  const [finished] = await query(db, `SELECT t.status,t.agent_kind,t.diff,m.author_id,m.source,m.body FROM connector_tasks t
+    JOIN messages m ON m.id=t.response_message_id WHERE t.id=?`, [task.id]);
+  assert.equal(finished.status, "completed");
+  assert.equal(finished.agent_kind, "cursor");
+  assert.equal(finished.diff, "diff --git a/x b/x");
+  assert.equal(finished.author_id, developer.id);
+  assert.equal(finished.source, "local_ai");
+  assert.equal(finished.body, "已完成登录页样式调整");
+
+  // 连接器只能 ensure 本账号的 MCP 令牌，不会重置；与网页看到的令牌一致。
+  assert.equal((await request("/connector/mcp-credential", {})).status, 401);
+  const credential = await request("/connector/mcp-credential", {}, developerConnector);
+  assert.equal(credential.status, 200);
+  assert.match(credential.body.token, /^[A-Za-z0-9_-]{40,}$/);
+  assert.ok(Date.parse(credential.body.expiresAt) > Date.now() + 20 * 86400000);
+  assert.equal(credential.body.endpoint, "/mcp");
+  assert.equal(credential.body.conversationId, null);
+  const browserToken = await request("/tokens/ensure", {}, developer);
+  assert.equal(browserToken.status, 200);
+  assert.equal(browserToken.body.token, credential.body.token);
+  assert.equal(browserToken.body.expiresAt, credential.body.expiresAt);
+  const listedTokens = await request("/tokens", undefined, developer);
+  assert.equal(listedTokens.body.length, 1);
+  assert.equal(listedTokens.body[0].token, credential.body.token);
+  const again = await request("/connector/mcp-credential", {}, developerConnector);
+  assert.equal(again.body.token, credential.body.token);
+  const reset = await request("/tokens", {}, developer);
+  assert.equal(reset.status, 201);
+  assert.notEqual(reset.body.token, credential.body.token);
+  assert.equal((await request("/connector/mcp-credential", {}, developerConnector)).body.token, reset.body.token);
+  const mcpAsDeveloper = await fetch(`${base}/mcp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${reset.body.token}` },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "1" } } }),
+  });
+  assert.equal(mcpAsDeveloper.status, 200);
+
+  // 连接器可主动重置本账号 MCP 令牌：旧令牌立即失效，新令牌可用，且仍是账号唯一令牌。
+  assert.equal((await request("/connector/mcp-credential/reset", {})).status, 401);
+  const rotated = await request("/connector/mcp-credential/reset", {}, developerConnector);
+  assert.equal(rotated.status, 200);
+  assert.match(rotated.body.token, /^[A-Za-z0-9_-]{40,}$/);
+  assert.notEqual(rotated.body.token, reset.body.token);
+  assert.equal(rotated.body.endpoint, "/mcp");
+  assert.equal((await request("/connector/mcp-credential", {}, developerConnector)).body.token, rotated.body.token);
+  const afterReset = await request("/tokens", undefined, developer);
+  assert.equal(afterReset.body.length, 1);
+  assert.equal(afterReset.body[0].token, rotated.body.token);
+  const mcpInit = (bearerToken) => fetch(`${base}/mcp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${bearerToken}` },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "1" } } }),
+  });
+  assert.equal((await mcpInit(reset.body.token)).status, 401);
+  assert.equal((await mcpInit(rotated.body.token)).status, 200);
+});

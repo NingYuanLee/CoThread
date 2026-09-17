@@ -208,7 +208,15 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
     const [connector] = actor.type === "human_member" && mode === "member_connector" ? await query(conn, `SELECT c.id FROM connectors c
       JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=?
       WHERE c.user_id=? AND c.revoked_at IS NULL ORDER BY c.last_seen_at DESC LIMIT 1`, [task.project_id, actor.id]) : [];
-    if (actor.type === "human_member" && mode === "member_connector" && !connector) throw new HttpError(409, "连接器当前不可用");
+    if (actor.type === "human_member" && mode === "member_connector" && !connector) {
+      // 区分「没有连接器 / 连接器离线 / 在线但未绑定当前项目」，提示成员该去做什么。
+      const [state] = await query(conn, `SELECT COUNT(*) total,
+        SUM(c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND)) online
+        FROM connectors c WHERE c.user_id=? AND c.revoked_at IS NULL`, [actor.id]);
+      if (!Number(state?.total)) throw new HttpError(409, "你还没有已授权的本机连接器：请先运行连接器并在网页完成授权，或改为「由我直接完成」");
+      if (!Number(state?.online)) throw new HttpError(409, "本机连接器当前离线：请确认连接器正在运行并已登录，或改为「由我直接完成」");
+      throw new HttpError(409, "本机连接器在线，但尚未绑定当前项目：请在连接器的项目列表中为该项目选择 Git 根目录并绑定，再重新接受任务");
+    }
     const executionType = actor.type === "human_member" ? (mode === "member_connector" ? "human_connector" : "human_self") : "dsh_l3";
     await query(conn, `UPDATE agent_tasks SET status='queued',claimed_by_type=?,claimed_by_id=?,accepted_by_type=?,accepted_by_id=?,accepted_at=UTC_TIMESTAMP(3),
       execution_mode=?,execution_agent_type=?,execution_agent_id=? WHERE id=?`,

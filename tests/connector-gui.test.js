@@ -55,9 +55,68 @@ test("task statuses and controls use distinct semantic colors", async () => {
   assert.match(gui, /Background="\{Binding statusBackground\}"/);
   assert.match(gui, /statusForeground=\$statusColors\[1\]/);
   assert.match(gui, /StartTaskButton[^>]+Background="#527A55"/);
-  assert.match(gui, /PauseTaskButton[^>]+Background="#FFF6DF"/);
-  assert.match(gui, /EndTaskButton[^>]+Background="#A85B50"/);
+  assert.match(gui, /ContinueTaskButton[^>]+Background="#527A55"/);
+  assert.match(gui, /FinishTaskButton[^>]+Background="#EAF5F2"/);
+  assert.match(gui, /FailTaskButton[^>]+Background="#A85B50"/);
   assert.match(gui, /RetryTaskButton[^>]+Background="#EEF4F8"/);
+});
+
+test("task controls follow the interactive session lifecycle instead of process pause/end", async () => {
+  const [gui, main] = await Promise.all([readFile(guiPath, "utf8"), readFile(mainPath, "utf8")]);
+
+  for (const name of ["StartTaskButton", "ContinueTaskButton", "RetryTaskButton", "FinishTaskButton", "FailTaskButton", "AbandonTaskButton"])
+    assert.match(gui, new RegExp(`x:Name="${name}"`));
+  assert.doesNotMatch(gui, /PauseTaskButton|EndTaskButton|ResumeTaskButton/);
+  assert.match(gui, /Content="开始"/);
+  assert.match(gui, /Content="完成并通知"/);
+  assert.match(gui, /continueVisibility=\$\(if\(\$status -eq 'paused'/);
+  assert.match(gui, /finishVisibility=\$\(if\(\$status -in @\('running','paused'\) -and \[bool\]\$_\.hasLocalRecord\)/);
+  assert.match(gui, /paused='会话已关闭'/);
+  assert.match(gui, /function Select-AgentKind/);
+  assert.match(gui, /function Show-TextDialog/);
+  assert.match(gui, /Send-Command 'startTask' @\{ taskId=\$row\.id; agentKind=\$kind \}/);
+  assert.match(gui, /Send-Command 'startTask' @\{ taskId=\$row\.id; agentKind=\$kind; retry=\$true \}/);
+  assert.match(gui, /Send-Command 'finishTask' @\{ taskId=\$row\.id; summary=\$summary \}/);
+  assert.match(gui, /Send-Command 'failTask' @\{ taskId=\$row\.id; reason=\$reason \}/);
+
+  assert.match(main, /command\.type === "startTask"/);
+  assert.match(main, /command\.type === "finishTask"/);
+  assert.match(main, /command\.type === "failTask"/);
+  assert.match(main, /status: "completed", output: output\.slice\(0, 1000000\), diff/);
+  assert.match(main, /"start", `CoThread 任务 - \$\{agentLabel\(kind\)\}`, "\/wait"/);
+  assert.match(main, /entry\.state = "paused";/);
+  assert.match(main, /const PAUSED_PROGRESS = "本机会话已关闭，可继续或结案"/);
+  assert.match(main, /Date\.now\(\) - \(entry\.pausedHeartbeatAt \|\| 0\) >= 5 \* 60000/);
+  assert.match(main, /const tasksPath = path\.join\(appDir, "tasks\.json"\)/);
+  assert.doesNotMatch(main, /codexExecArgs|completed_pending_notification|NtSuspendProcess/);
+});
+
+test("connector detects three agents and writes their MCP configuration", async () => {
+  const [gui, main] = await Promise.all([readFile(guiPath, "utf8"), readFile(mainPath, "utf8")]);
+
+  for (const name of ["CursorStatusText", "CodexStatusText", "ClaudeStatusText", "McpStatusText", "RefreshMcpButton", "ResetMcpButton"])
+    assert.match(gui, new RegExp(`x:Name="${name}"`));
+  assert.match(gui, /Send-Command 'installPrerequisite' @\{ name='cursor' \}/);
+  assert.match(gui, /Send-Command 'installPrerequisite' @\{ name='claude' \}/);
+  assert.match(gui, /Send-Command 'refreshMcp'/);
+  // 重置令牌会让旧令牌立即失效，必须先经 MessageBox 确认。
+  assert.match(gui, /MessageBox\]::Show\("重置后本账号的旧 MCP 令牌立即失效[\s\S]*?'YesNo', 'Warning'\)\s*\n\s*if \(\$answer -eq 'Yes'\) \{ Send-Command 'resetMcp' \}/);
+  assert.match(main, /"\/api\/connector\/mcp-credential\/reset"/);
+  assert.match(main, /command\.type === "resetMcp"/);
+  assert.match(gui, /\$ProjectPanel\.IsEnabled = \[bool\]\(\$state\.paired -and \$state\.prerequisites\.gitInstalled -and \$anyAgent\)/);
+
+  assert.match(main, /cursor-agent", "agent\.ps1"/);
+  assert.match(main, /const AGENT_KINDS = Object\.keys\(AGENTS\)/);
+  assert.match(main, /anyAgentInstalled: installedAgents\.length > 0/);
+  assert.match(main, /online: !!token && environmentReady\(\) && !errorText/);
+  assert.match(main, /"\/api\/connector\/mcp-credential"/);
+  assert.match(main, /remaining < 7 \* 86400000/);
+  assert.match(main, /\.cursor", "mcp\.json"/);
+  assert.match(main, /\["mcp", "enable", MCP_SERVER_NAME\]/);
+  assert.match(main, /\.codex", "config\.toml"/);
+  assert.match(main, /"setx\.exe", \[MCP_TOKEN_ENV, server\.token\]/);
+  assert.match(main, /\["mcp", "add", "--transport", "http", "--scope", "user", MCP_SERVER_NAME, server\.url/);
+  assert.doesNotMatch(main, /--approve-mcps/);
 });
 
 test("project connection state and action are visually distinct", async () => {
@@ -117,10 +176,13 @@ test("missing prerequisites offer guided installation without requiring Node", a
 
   assert.match(gui, /x:Name="InstallGitButton" Content="安装 Git"/);
   assert.match(gui, /x:Name="InstallCodexButton" Content="安装 Codex"/);
+  assert.match(gui, /x:Name="InstallCursorButton" Content="安装 Cursor CLI"/);
+  assert.match(gui, /x:Name="InstallClaudeButton" Content="安装 Claude Code"/);
   assert.match(gui, /Send-Command 'installPrerequisite' @\{ name='git' \}/);
   assert.match(main, /winget\.exe.*Git\.Git/);
   assert.match(main, /https:\/\/git-scm\.com\/download\/win/);
   assert.match(main, /https:\/\/chatgpt\.com\/download\//);
+  assert.match(main, /https:\/\/cursor\.com\/cli/);
 });
 
 test("manual environment checks and project refreshes produce records", async () => {
@@ -133,7 +195,7 @@ test("manual environment checks and project refreshes produce records", async ()
   assert.match(gui, /\$CheckButton\.Content = '检测中\.\.\.'/);
   assert.match(main, /command\.type === "checkPrerequisites"/);
   assert.match(main, /status = `本机环境已重新检测（\$\{checkedAt\}）`/);
-  assert.match(main, /本机环境检测完成：Git \$\{gitStatus\}；Codex CLI \$\{codexStatus\}/);
+  assert.match(main, /本机环境检测完成：\$\{prerequisiteSummary\(prerequisites\)\}/);
   assert.match(main, /项目列表已刷新，共 \$\{remoteProjects\.length\} 个项目/);
 });
 

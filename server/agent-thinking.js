@@ -17,7 +17,6 @@ export function trackThinking(db,messageId,sessionId,options={}){
   if(!visible||visible==='NO_VISIBLE_MESSAGE'||!options.onVisibleText)return;
   await options.onVisibleText(visible);
  };
- const CONTROL_TOOLS = new Set(["wait_for_updates", "finish_turn"]);
  const finish = (status = "completed", finalText, { visible = true } = {}) => {
   clearTimeout(timer);timer=undefined;if(!phase)return;
   const current=phase;lastPhase=current;phase=undefined;
@@ -30,8 +29,12 @@ export function trackThinking(db,messageId,sessionId,options={}){
  };
  const begin=kind=>{
   finish();phase={kind,text:'',id:undefined};const current=phase;
-  current.ready=enqueue(async()=>{const result=await query(db,"INSERT INTO agent_events(message_id,agent_session_id,tool,status,input) SELECT message_id,?,?,'running','{}' FROM assistant_replies WHERE message_id=? AND status='running'",[sessionId,kind,messageId]);current.id=result.affectedRows?result.insertId:undefined;
-    if(current.id)await query(db,"UPDATE assistant_replies SET progress=? WHERE message_id=? AND status='running'",[kind==='thinking'?'正在思考':'正在回复',messageId]);});
+  current.ready=enqueue(async()=>{
+    if(!messageId)return;
+    const result=await query(db,"INSERT INTO agent_events(message_id,agent_session_id,tool,status,input) VALUES(?,?,?,'running','{}')",[messageId,sessionId,kind]);
+    current.id=result.insertId;
+    await query(db,"UPDATE assistant_replies SET progress=? WHERE message_id=? AND status='running'",[kind==='thinking'?'正在思考':'正在回复',messageId]);
+  });
  };
  const live=trackLiveOutput(db,messageId,sessionId,{cursor:()=>{const current=phase||lastPhase;return (current?.id?Promise.resolve():current?.ready||Promise.resolve()).then(()=>current?.id?String(current.id):null);}});
  return {
@@ -51,11 +54,7 @@ export function trackThinking(db,messageId,sessionId,options={}){
     }
    }else if(['assistant/message','tool/call','step/end','turn/end'].includes(e?.type)){
     if(e.type==='tool/call')received();
-    const toolName=e.data?.name;
-    const hide=e.type==='tool/call'&&CONTROL_TOOLS.has(toolName);
-    if(hide&&phase?.kind==='assistant_text')phase.kind='thinking';
-    finish('completed',undefined,{visible:!hide});
-    if(hide)live.beginPhase('thinking');
+    finish('completed');
    }
    live.notify(n);
   },

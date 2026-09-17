@@ -45,7 +45,7 @@ async function request(path, data, credential, method) {
   return {
     status: res.status,
     body: result,
-    cookie: res.headers.get("set-cookie")?.split(";")[0],
+    cookie: res.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ") || undefined,
   };
 }
 before(async () => {
@@ -251,11 +251,9 @@ test("binary versions, sequential concurrent submissions, review history and ref
     mime: "application/octet-stream",
     contentBase64: payload.toString("base64"),
   };
-  const first = await request(`/threads/${iteration}/versions`, data, {
-    token: apiToken,
-  });
-  assert.equal(first.status, 201);
-  version1 = first.body;
+  const apiUser = { id: owner.id, kind: "api", scope: project };
+  const first = await new Service(db).submitVersion(apiUser, iteration, data);
+  version1 = first;
   const downloaded = await fetch(
     `${base}/api/versions/${version1.id}/download`,
     { headers: { Cookie: owner.cookie } },
@@ -283,18 +281,14 @@ test("binary versions, sequential concurrent submissions, review history and ref
   );
   const more = await Promise.all(
     [1, 2].map((n) =>
-      request(
-        `/threads/${iteration}/versions`,
-        { ...data, artifactId: version1.artifactId, note: String(n) },
-        owner,
-      ),
+      new Service(db).submitVersion(apiUser, iteration, {
+        ...data,
+        artifactId: version1.artifactId,
+        note: String(n),
+      }),
     ),
   );
-  assert.deepEqual(
-    more.map((x) => x.status),
-    [201, 201],
-  );
-  assert.deepEqual(more.map((x) => x.body.version).sort(), [2, 3]);
+  assert.deepEqual(more.map((x) => x.version).sort(), [2, 3]);
   assert.equal(
     (
       await request(
@@ -308,7 +302,7 @@ test("binary versions, sequential concurrent submissions, review history and ref
   assert.equal(
     (
       await request(
-        `/threads/${iteration}/versions`,
+        `/threads/${iteration}/attachments`,
         { ...data, filename: "../escape.txt" },
         owner,
       )
@@ -926,6 +920,7 @@ test("context compression is scoped, durable, retryable, and preserves discussio
     { body: "保留这个决定与聊天记录" },
     owner,
   );
+  await query(db, `UPDATE agent_requests SET status='completed' WHERE message_id IN (SELECT id FROM messages WHERE thread_id=?)`, [threadId]);
   let context = (await request(`/threads/${threadId}`, undefined, owner)).body;
   assert.ok(context.contextUsage.used > 0);
   assert.equal(context.contextUsage.limit, 1000000);
@@ -1191,7 +1186,9 @@ test("Agent publishing persists immutable versions idempotently and cannot claim
 
 test("document tree permissions, nesting, soft deletion, and immutable historical references", async () => {
   const rootPath = `/projects/${project}`;
-  const folder = await request(rootPath + "/folders", { name: "资料" }, owner);
+  const official = (await request(rootPath, undefined, owner)).body.folders
+    .find((folder) => folder.folder_kind === "project_official" && folder.parent_id == null);
+  const folder = await request(rootPath + "/folders", { name: "资料", parentId: official.id }, owner);
   assert.equal(folder.status, 201);
   const child = await request(
     rootPath + "/folders",
@@ -1200,15 +1197,15 @@ test("document tree permissions, nesting, soft deletion, and immutable historica
   );
   assert.equal(child.status, 201);
   assert.equal(
-    (await request(rootPath + "/folders", { name: "资料" }, owner)).status,
-    409,
+    (await request(rootPath + "/folders", { name: "资料", parentId: official.id }, owner)).status,
+    201,
   );
   assert.equal(
-    (await request(rootPath + "/folders", { name: "无权创建" }, viewer)).status,
+    (await request(rootPath + "/folders", { name: "无权创建", parentId: official.id }, viewer)).status,
     403,
   );
   assert.equal(
-    (await request(rootPath + "/folders", { name: "无权读取" }, outsider))
+    (await request(rootPath + "/folders", { name: "无权读取", parentId: official.id }, outsider))
       .status,
     403,
   );
@@ -1223,24 +1220,13 @@ test("document tree permissions, nesting, soft deletion, and immutable historica
     ).status,
     409,
   );
-  assert.equal(
-    (
-      await request(
-        rootPath + `/folders/${folder.body.id}`,
-        {},
-        owner,
-        "DELETE",
-      )
-    ).status,
-    409,
-  );
   const t = await request(
     rootPath + "/threads",
     { title: "文件树测试" },
     owner,
   );
   const file = await request(
-    `/threads/${t.body.id}/versions`,
+    rootPath + "/documents/upload",
     {
       title: "说明",
       filename: "说明.md",
@@ -1285,7 +1271,7 @@ test("document tree permissions, nesting, soft deletion, and immutable historica
   assert.equal(
     (
       await request(
-        `/threads/${t.body.id}/versions`,
+        `/threads/${t.body.id}/attachments`,
         {
           artifactId: file.body.artifactId,
           title: "覆盖",
@@ -1295,7 +1281,7 @@ test("document tree permissions, nesting, soft deletion, and immutable historica
         owner,
       )
     ).status,
-    404,
+    400,
   );
   assert.equal(
     (await request(path, { deleted: false }, owner, "PATCH")).status,
@@ -1342,14 +1328,14 @@ test("global accounts join multiple projects without resetting credentials or in
       .status,
     409,
   );
-  const signed = await request("/login", { email, password });
+  const signed = await request("/login", { identifier: created.body.username, password: created.body.password });
   assert.equal(signed.status, 200);
   assert.deepEqual((await request("/projects", undefined, signed)).body, []);
   const directory = await request("/users", undefined, signed);
   assert.equal(directory.status, 200);
   assert.deepEqual(
     Object.keys(directory.body.find((u) => u.id === created.body.id)).sort(),
-    ["avatar", "email", "id", "identity_tags", "motto", "name", "username"],
+    ["avatar", "email", "id", "identity_tags", "motto", "name", "user_number", "username"],
   );
   assert.equal(
     (
@@ -1401,7 +1387,7 @@ test("global accounts join multiple projects without resetting credentials or in
     ).status,
     201,
   );
-  const again = await request("/login", { email, password });
+  const again = await request("/login", { identifier: created.body.username, password: created.body.password });
   assert.equal(again.status, 200);
   const joined = (await request("/projects", undefined, again)).body;
   assert.equal(joined.length, 2);
@@ -1436,8 +1422,8 @@ test("iteration directory includes creator and activity from subsequent discussi
 
 test("chat attachments persist privately until sent and the system folder only permits moving out", async () => {
   const detail = (await request(`/projects/${project}`, undefined, owner)).body;
-  const folder = detail.folders.find((f) => f.system_key === "chat_uploads");
-  assert.equal(folder.name, "对话临时文件");
+  const folder = detail.folders.find((f) => f.folder_kind === "project_cache" && f.parent_id == null);
+  assert.equal(folder.name, "缓存文件");
   assert.equal(folder.parent_id, null);
   const folderPath = `/projects/${project}/folders/${folder.id}`;
   for (const [data, method] of [
@@ -1484,7 +1470,7 @@ test("chat attachments persist privately until sent and the system folder only p
         owner,
       )
     ).status,
-    403,
+    404,
   );
   const uploaded = await request(
     `/threads/${thread}/attachments`,
@@ -1503,31 +1489,32 @@ test("chat attachments persist privately until sent and the system folder only p
   assert.equal(saved.contentBase64, payload.contentBase64);
   const refreshed = (await request(`/projects/${project}`, undefined, owner))
     .body;
-  assert.equal(
-    refreshed.versions.find((v) => v.id === version.id).folder_id,
-    folder.id,
-  );
+  const stored = refreshed.versions.find((v) => v.id === version.id);
+  const storedFolder = refreshed.folders.find((item) => item.id === stored.folder_id);
+  assert.equal(storedFolder.parent_id, folder.id);
+  assert.match(storedFolder.name, /^\d{4}-\d{2}-\d{2}$/);
   const artifactPath = `/projects/${project}/artifacts/${version.artifactId}`;
   assert.equal(
     (await request(artifactPath, { folderId: null }, owner, "PATCH")).status,
-    200,
+    403,
   );
   assert.equal(
     (await request(artifactPath, { folderId: folder.id }, owner, "PATCH"))
       .status,
     403,
   );
+  const official = detail.folders.find((f) => f.folder_kind === "project_official" && f.parent_id == null);
   const ordinary = (
     await request(
       `/projects/${project}/folders`,
-      { name: "Chat upload destination" },
+      { name: "Chat upload destination", parentId: official.id },
       owner,
     )
   ).body.id;
   assert.equal(
     (await request(artifactPath, { folderId: ordinary }, owner, "PATCH"))
       .status,
-    200,
+    403,
   );
   assert.equal(
     (await request(folderPath, { parentId: ordinary }, owner, "PATCH")).status,

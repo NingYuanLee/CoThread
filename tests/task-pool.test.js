@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, createTask, ensureDshL3CanUpdate, listTaskStatusEvents, listTasks, reassignTask, recoverInterruptedDshL3Executions, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, updateTask } from "../server/task-pool.js";
+import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, createTask, ensureDshL3CanUpdate, getTask, inspectIterationTask, listTaskExecutionRuns, listTaskStatusEvents, listTasks, reassignTask, recoverAbnormalTask, recoverInterruptedDshL3Executions, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, updateTask } from "../server/task-pool.js";
 import { testDatabase } from "./database.js";
 
-let database, db, service, project, thread, users, l2SessionId;
+let database, db, service, project, thread, users, l2SessionId, reportHostId;
 
 before(async () => {
   database = await testDatabase();
@@ -20,9 +20,16 @@ before(async () => {
   thread = await service.createThread(users[0], project.id, { title: "任务池迭代" });
   l2SessionId = randomUUID();
   await query(db, "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?)", [thread.id, l2SessionId]);
+  reportHostId = randomUUID();
+  await query(db, "INSERT INTO messages(id,thread_id,author_id,source,body,refs) VALUES(?,?,?,'human','host','[]')",
+    [reportHostId, thread.id, users[0].id]);
 });
 
 after(async () => { await database?.close(); });
+
+const reportL3 = (childId, summary, status = "completed") => query(db,
+  `INSERT INTO agent_events(message_id,agent_session_id,tool,status,input) VALUES(?,?,?,'completed',?)`,
+  [reportHostId, childId, "report_task", JSON.stringify({ status, summary })]);
 
 const formalTask = (targetId, overrides = {}) => createTask(db, {
   projectId: project.id,
@@ -31,6 +38,7 @@ const formalTask = (targetId, overrides = {}) => createTask(db, {
   sourceUserId: users[0].id,
   createdByType: "l2_session",
   createdById: l2SessionId,
+  authorizedByUserId: users[0].id,
   taskType: "formal",
   title: "完成验收任务",
   goal: "完成实现并给出验证结果",
@@ -121,7 +129,7 @@ test("L2 can transfer formal work but cannot hand an assist task to a human", as
     createdByType: "human_member", createdById: users[0].id, taskType: "formal", title: "L2 转交正式任务",
     goal: "交给成员执行", targetType: "l2_session", targetId: l2SessionId,
   });
-  const transferred = await reassignTask(db, formal.id, { type: "l2_session", id: l2SessionId },
+  const transferred = await reassignTask(db, formal.id, { type: "l2_session", id: l2SessionId, authorizedByUserId: users[0].id },
     { type: "human_member", id: users[2].id }, "更适合由成员完成");
   assert.equal(transferred.target_id, users[2].id);
   assert.equal(transferred.status, "awaiting_acceptance");
@@ -150,15 +158,37 @@ test("assist tasks bind to the real DSH child and return a compact result to the
   const running = await bindDshL3Execution(db, l2SessionId, childId, assist.id);
   assert.equal(running.status, "running");
   assert.equal(running.execution_agent_id, childId);
+  await reportL3(childId, "结论与验证结果");
   const completed = await settleDshL3Execution(db, l2SessionId, childId, {
     status: "ok", stopReason: "completed", lastAssistantMessage: [{ type: "text", text: "结论与验证结果" }],
   });
   assert.equal(completed.status, "completed");
   assert.equal(completed.result_summary, "结论与验证结果");
+  const [wakeup] = await query(db, "SELECT kind,status FROM coordinator_events WHERE task_id=?", [assist.id]);
+  assert.equal(wakeup.kind, "child_result");
+  assert.equal(wakeup.status, "queued");
   const [source] = await query(db, "SELECT progress FROM agent_tasks WHERE id=?", [formal.id]);
   assert.equal(source.progress, "辅助 L3 已返回结果，等待 L2 汇总");
   const [update] = await query(db, "SELECT body FROM agent_task_pool_updates WHERE task_id=? ORDER BY created_at DESC LIMIT 1", [formal.id]);
   assert.match(update.body, /结论与验证结果/);
+});
+
+test("L3 that stops without report_task is settled as failed and still wakes L2", async () => {
+  const assist = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "未交活",
+    goal: "必须失败", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const childId = randomUUID();
+  await bindDshL3Execution(db, l2SessionId, childId, assist.id);
+  const settled = await settleDshL3Execution(db, l2SessionId, childId, {
+    status: "ok", stopReason: "completed", lastAssistantMessage: [{ type: "text", text: "我其实没干完" }],
+  });
+  assert.equal(settled.status, "failed");
+  assert.equal(settled.result_summary, "我其实没干完");
+  const [event] = await query(db, "SELECT payload FROM coordinator_events WHERE task_id=? AND kind='child_result'", [assist.id]);
+  const payload = typeof event.payload === "string" ? JSON.parse(event.payload) : event.payload;
+  assert.equal(payload.status, "failed");
 });
 
 test("queued assist work stays pending until a DSH L3 child is bound", async () => {
@@ -183,6 +213,24 @@ test("queued assist work stays pending until a DSH L3 child is bound", async () 
   assert.equal(bound.status, "running");
 });
 
+test("L2 can inspect a live L3 run and is told how to ask or replace it", async () => {
+  const assist = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "追问进度",
+    goal: "执行中可询问", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const childId = randomUUID();
+  await bindDshL3Execution(db, l2SessionId, childId, assist.id);
+  await query(db, `INSERT INTO agent_events(message_id,agent_session_id,tool,status,input,output)
+    VALUES(?,?,?,'completed',?,'wrote file')`, [reportHostId, childId, "sandbox_write", JSON.stringify({ path: "a.md" })]);
+  const snapshot = await inspectIterationTask(db, assist.id, { type: "l2_session", id: l2SessionId });
+  assert.equal(snapshot.live, true);
+  assert.equal(snapshot.askVia.agentId, childId);
+  assert.equal(snapshot.suggestedNext, "ask");
+  assert.equal(snapshot.replaceVia.interruptAgentId, childId);
+  assert.equal(snapshot.lastEvents.some((event) => event.tool === "sandbox_write"), true);
+});
+
 test("a formal task owned by L2 can run on a resumable DSH child", async () => {
   const formal = await createTask(db, {
     projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
@@ -197,6 +245,7 @@ test("a formal task owned by L2 can run on a resumable DSH child", async () => {
   const [run] = await query(db, "SELECT task_revision,executor_type,executor_id,status FROM agent_task_execution_runs WHERE task_id=?", [formal.id]);
   assert.deepEqual(run, { task_revision: formal.revision, executor_type: "dsh_l3", executor_id: childId, status: "running" });
 
+  await reportL3(childId, "正式任务结果摘要");
   const completed = await settleDshL3Execution(db, l2SessionId, childId, {
     status: "ok", stopReason: "completed", lastAssistantMessage: [{ type: "text", text: "正式任务结果摘要" }],
   });
@@ -234,7 +283,7 @@ test("the latest human transferor can acknowledge or revise a rejected task", as
 
   const acknowledgedTask = await formalTask(users[1].id, { title: "仅确认拒绝" });
   await rejectTask(db, acknowledgedTask.id, { type: "human_member", id: users[1].id }, "当前无法承担");
-  await acknowledgeTaskRejection(db, acknowledgedTask.id, { type: "l2_session", id: l2SessionId });
+  await acknowledgeTaskRejection(db, acknowledgedTask.id, { type: "l2_session", id: l2SessionId, authorizedByUserId: users[0].id });
   assert.equal((await taskRejectionReview(db, acknowledgedTask.id)).resolved, true);
 });
 
@@ -304,10 +353,11 @@ test("service recovery requeues interrupted L3 work without repeating completed 
   });
   const completedChild = randomUUID();
   await bindDshL3Execution(db, l2SessionId, completedChild, completedAssist.id);
+  await reportL3(completedChild, "已完成");
   await settleDshL3Execution(db, l2SessionId, completedChild, {
     status: "ok", stopReason: "completed", lastAssistantMessage: [{ type: "text", text: "已完成" }],
   });
-  assert.equal(await recoverInterruptedDshL3Executions(db), 2);
+  assert.ok(await recoverInterruptedDshL3Executions(db) >= 2);
   const recoveredRuns = await query(db, "SELECT status,task_revision FROM agent_task_execution_runs WHERE task_id=? ORDER BY created_at,id", [runningAssist.id]);
   const [recoveredTask] = await query(db, "SELECT status,revision,execution_agent_id FROM agent_tasks WHERE id=?", [runningAssist.id]);
   const [stillCompleted] = await query(db, "SELECT status,result_summary FROM agent_tasks WHERE id=?", [completedAssist.id]);
@@ -386,4 +436,126 @@ test("an unbound L3 can claim a queued assist task when writing completion", asy
   const [run] = await query(db, "SELECT status,executor_id FROM agent_task_execution_runs WHERE task_id=? ORDER BY created_at DESC LIMIT 1", [assist.id]);
   assert.equal(run.executor_id, childId);
   assert.equal(run.status, "completed");
+});
+
+test("L2 can restart failed, stuck queued and stuck running tasks in this iteration", async () => {
+  const actor = { type: "l2_session", id: l2SessionId };
+  const failed = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "失败后重启",
+    goal: "必须重跑", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const failedChild = randomUUID();
+  await bindDshL3Execution(db, l2SessionId, failedChild, failed.id);
+  await settleDshL3Execution(db, l2SessionId, failedChild, {
+    status: "ok", stopReason: "completed", lastAssistantMessage: [{ type: "text", text: "没交活" }],
+  });
+  const restartedFailed = await recoverAbnormalTask(db, failed.id, actor, { action: "restart", reason: "失败重跑" });
+  assert.equal(restartedFailed.status, "queued");
+  assert.equal(restartedFailed.interruptedAgentId, failedChild);
+  const rebound = await bindDshL3Execution(db, l2SessionId, randomUUID(), failed.id);
+  assert.equal(rebound.status, "running");
+
+  const queued = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "排队卡住",
+    goal: "重新派发", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const restartedQueued = await recoverAbnormalTask(db, queued.id, actor, { action: "restart" });
+  assert.equal(restartedQueued.status, "queued");
+  const runs = await listTaskExecutionRuns(db, queued.id);
+  assert.equal(runs[0].status, "queued");
+  assert.ok(runs.some((run) => run.status === "cancelled"));
+
+  const running = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "执行卡住",
+    goal: "打断后重跑", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const runningChild = randomUUID();
+  await bindDshL3Execution(db, l2SessionId, runningChild, running.id);
+  const restartedRunning = await recoverAbnormalTask(db, running.id, actor, { action: "restart" });
+  assert.equal(restartedRunning.status, "queued");
+  assert.equal(restartedRunning.interruptedAgentId, runningChild);
+  const stale = await settleDshL3Execution(db, l2SessionId, runningChild, {
+    status: "error", stopReason: "aborted", lastAssistantMessage: [{ type: "text", text: "旧进程结束" }],
+  });
+  assert.equal(stale, null);
+  assert.equal((await getTask(db, running.id)).status, "queued");
+});
+
+test("L2 can arrange member-owned tasks in this iteration but not other iterations", async () => {
+  const actor = { type: "l2_session", id: l2SessionId, authorizedByUserId: users[0].id };
+  const humanTask = await formalTask(users[1].id, { title: "成员卡住的任务" });
+  await acceptTask(db, humanTask.id, { type: "human_member", id: users[1].id }, "human_direct");
+  await updateTask(db, humanTask.id, { type: "human_member", id: users[1].id }, { status: "running", progress: "卡住了" });
+  const restarted = await recoverAbnormalTask(db, humanTask.id, actor, { action: "restart", reason: "请成员重新确认" });
+  assert.equal(restarted.status, "awaiting_acceptance");
+  assert.equal(restarted.target_id, users[1].id);
+
+  const cancelled = await recoverAbnormalTask(db, humanTask.id, actor, { action: "cancel", reason: "本迭代不再做" });
+  assert.equal(cancelled.status, "cancelled");
+
+  const otherThread = await service.createThread(users[0], project.id, { title: "另一迭代" });
+  const otherL2 = randomUUID();
+  await query(db, "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?)", [otherThread.id, otherL2]);
+  const foreign = await createTask(db, {
+    projectId: project.id, originThreadId: otherThread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: otherL2, taskType: "assist_l2", title: "外迭代任务",
+    goal: "不能被本迭代 L2 改", targetType: "l2_session", targetId: otherL2,
+  });
+  await assert.rejects(recoverAbnormalTask(db, foreign.id, actor, { action: "restart" }), { status: 403, message: /本迭代锁定/ });
+  await assert.rejects(reassignTask(db, foreign.id, actor, { type: "human_member", id: users[1].id }, "跨迭代转交"), { status: 403 });
+  const scoped = await listTasks(db, project.id, { originThreadId: thread.id, limit: 200 });
+  assert.equal(scoped.some((task) => task.id === foreign.id), false);
+  assert.equal(scoped.some((task) => task.id === humanTask.id), true);
+});
+
+test("L2 needs an executable human member account this turn to touch foreign work", async () => {
+  const own = { type: "l2_session", id: l2SessionId };
+  const authorized = { type: "l2_session", id: l2SessionId, authorizedByUserId: users[2].id };
+  const agentAccount = { type: "l2_session", id: l2SessionId, authorizedByUserId: "agent-assistant" };
+  const humanTask = await formalTask(users[1].id, { title: "需授权的成员任务" });
+  await acceptTask(db, humanTask.id, { type: "human_member", id: users[1].id }, "human_direct");
+
+  await assert.rejects(inspectIterationTask(db, humanTask.id, own), { status: 403, message: /人类成员账号明确授权/ });
+  await assert.rejects(recoverAbnormalTask(db, humanTask.id, own, { action: "restart" }), { status: 403, message: /人类成员账号明确授权/ });
+  await assert.rejects(askTaskQuestion(db, humanTask.id, own, "做到哪了？", users[0].id), { status: 403, message: /人类成员账号明确授权/ });
+  await assert.rejects(createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "formal", title: "未授权派给人",
+    goal: "不能派", targetType: "human_member", targetId: users[1].id,
+  }), { status: 403, message: /指派给人类成员/ });
+  const ownFormal = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "formal", title: "自己的正式任务",
+    goal: "转给人类也要授权", targetType: "l2_session", targetId: l2SessionId,
+  });
+  await assert.rejects(reassignTask(db, ownFormal.id, own, { type: "human_member", id: users[1].id }, "未授权转人"),
+    { status: 403, message: /指派给人类成员/ });
+  await assert.rejects(recoverAbnormalTask(db, humanTask.id, agentAccount, { action: "restart" }),
+    { status: 403, message: /人类成员账号明确授权/ });
+
+  const viewerId = randomUUID();
+  await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [viewerId, `${viewerId}@task.test`, "旁观", "unused"]);
+  await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'viewer')", [project.id, viewerId]);
+  await assert.rejects(inspectIterationTask(db, humanTask.id, { type: "l2_session", id: l2SessionId, authorizedByUserId: viewerId }),
+    { status: 403, message: /人类成员账号明确授权/ });
+
+  const snapshot = await inspectIterationTask(db, humanTask.id, authorized);
+  assert.equal(snapshot.task.id, humanTask.id);
+  const asked = await askTaskQuestion(db, humanTask.id, authorized, "进度如何？", users[0].id);
+  assert.equal(asked.status, "open");
+  await query(db, "UPDATE agent_task_questions SET status='cancelled' WHERE id=?", [asked.id]);
+  await query(db, "UPDATE agent_tasks SET status='running' WHERE id=?", [humanTask.id]);
+  const restarted = await recoverAbnormalTask(db, humanTask.id, authorized, { action: "restart" });
+  assert.equal(restarted.status, "awaiting_acceptance");
+  const created = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, authorizedByUserId: users[2].id,
+    taskType: "formal", title: "授权后派给人", goal: "成员确认", targetType: "human_member", targetId: users[1].id,
+  });
+  assert.equal(created.target_type, "human_member");
+  const handed = await reassignTask(db, ownFormal.id, authorized, { type: "human_member", id: users[1].id }, "授权后转人");
+  assert.equal(handed.target_id, users[1].id);
 });

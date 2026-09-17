@@ -10,8 +10,7 @@ test("executor profile retains the guarded DSH web tools", async () => {
   ]);
   assert.match(tools, /"web_fetch"/);
   assert.match(prompt, /persona: ''/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /web_fetch/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /不能直接使用沙箱/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /不能使用沙箱/);
   assert.match(SYSTEM_PROMPTS.l3.prompt, /publish_artifact/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /葫芦小金刚/);
 });

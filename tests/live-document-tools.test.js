@@ -45,18 +45,26 @@ test('same-instance live output arrives before the batched database write and su
 test('document tools create folders, rename/move/recycle files and enforce stopped-job guards',async()=>{
  const tools=createAgentTools(service,user,job);
  const folder=await tools('manage_folder',{action:'create',name:'输出'});
- const v=await service.submitVersion(user,thread.id,{title:'初稿',filename:'a.txt',mime:'text/plain',contentBase64:Buffer.from('a').toString('base64')});
- await tools('manage_document',{action:'rename',artifactId:v.artifactId,name:'定稿'});
- await tools('manage_document',{action:'move',artifactId:v.artifactId,folderId:folder.id});
- assert.ok((await tools('list_documents',{})).versions.some(x=>x.id===v.id&&x.title==='定稿'&&x.folder_id===folder.id));
+ const official=await service.uploadOfficialDocument(user,project.id,{
+  folderId:folder.id,title:'初稿',filename:'a.txt',mime:'text/plain',
+  contentBase64:Buffer.from('a').toString('base64'),
+ });
+ await tools('manage_document',{action:'rename',artifactId:official.artifactId,name:'定稿'});
+ const [root]=await query(database.db,"SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_official' AND parent_id IS NULL LIMIT 1",[project.id]);
+ await tools('manage_document',{action:'move',artifactId:official.artifactId,folderId:root.id});
+ await tools('manage_document',{action:'move',artifactId:official.artifactId,folderId:folder.id});
+ assert.ok((await tools('list_documents',{})).versions.some(x=>x.id===official.id&&x.title==='定稿'&&x.folder_id===folder.id));
  await assert.rejects(tools('manage_folder',{action:'delete',folderId:folder.id}),e=>e.status===409);
- await tools('manage_document',{action:'delete',scope:'version',versionId:v.id});
- await tools('manage_document',{action:'restore',scope:'version',versionId:v.id});
- await tools('manage_document',{action:'move',artifactId:v.artifactId,folderId:null});
+ await tools('manage_document',{action:'delete',scope:'document',artifactId:official.artifactId});
  await tools('manage_folder',{action:'delete',folderId:folder.id});
- await assert.rejects(documentTool(service,user,'manage_document',{action:'delete',scope:'version',artifactId:v.artifactId},job));
+ await tools('manage_document',{action:'restore',scope:'document',artifactId:official.artifactId});
+ const agent={...user,kind:'agent'};
+ const output=await service.submitVersion(agent,thread.id,{title:'产物',filename:'out.txt',mime:'text/plain',contentBase64:Buffer.from('b').toString('base64')});
+ await tools('manage_document',{action:'delete',scope:'version',versionId:output.id});
+ await tools('manage_document',{action:'restore',scope:'version',versionId:output.id});
+ await assert.rejects(documentTool(service,user,'manage_document',{action:'delete',scope:'version',artifactId:output.artifactId},job));
  await query(database.db,"UPDATE assistant_replies SET status='cancelled' WHERE message_id=?",[message.id]);
- await assert.rejects(documentTool(service,user,'manage_document',{action:'delete',scope:'document',artifactId:v.artifactId},job),e=>e.status===409);
+ await assert.rejects(documentTool(service,user,'manage_document',{action:'delete',scope:'document',artifactId:output.artifactId},job),e=>e.status===409);
 });
 test('DSH schema accepts root-directory null parameters',async()=>{
  const {apply}=await import('../runtime/cothread-tools.mjs');

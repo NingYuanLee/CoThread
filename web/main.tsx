@@ -1,7 +1,7 @@
 import { AgentActivity } from "./AgentActivity";
 import { MessageUsage, type UsageStats } from './MessageUsage';
 import { useAgentLiveOutput } from "./useAgentLiveOutput";
-import { isExecutorReply, liveCoordinatorDraft, omitInternalCoordinatorPosts, taskTimeline, usageReplyForMessage } from "./chat-timeline";
+import { isExecutorReply, liveCoordinatorDraft, taskTimeline, usageReplyForMessage } from "./chat-timeline";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { apiFetch, fetchJson } from "./api-fetch";
 import {
@@ -542,7 +542,6 @@ function App() {
     const timer = setTimeout(() => setCopiedMessage(""), 2000);
     return () => clearTimeout(timer);
   }, [copiedMessage]);
-  const [libraryOpen, setLibraryOpen] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [projectManagementOpen, setProjectManagementOpen] = useState(false);
   const [agentLogScope, setAgentLogScope] = useState<AgentLogScope | null>(null);
@@ -567,10 +566,6 @@ function App() {
   const [connectorAvailability, setConnectorAvailability] = useState<AvailableConnector[]>([]);
   const [documentId, setDocumentId] = useState("");
   const [rightPanelWidth, setRightPanelWidth] = useState<number | null>(null);
-  const showDocument = (id?: string) => {
-    setDocumentId(id || detail?.versions.find((v) => !v.deleted_at)?.id || "");
-    setLibraryOpen(true);
-  };
   const [clock, setClock] = useState(Date.now());
   useEffect(() => {
     const timer = setInterval(() => setClock(Date.now()), 1000);
@@ -590,6 +585,11 @@ function App() {
   const [contextOpen, setContextOpen] = useState(
     () => window.innerWidth > 1100,
   );
+  const showDocument = (id?: string) => {
+    setQuotePreview(null);
+    setDocumentId(id || detail?.versions.find((v) => !v.deleted_at)?.id || "");
+    setContextOpen(true);
+  };
   const [taskPool, setTaskPool] = useState<AgentTask[]>([]);
   const [taskMine, setTaskMine] = useState(true);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
@@ -1141,6 +1141,16 @@ function App() {
       transform(current || (loadedThread?.id === targetThreadId ? loadedThread : thread)!));
     if (currentContext.current.threadId === targetThreadId) setThread(next);
   };
+  const addVersionToConversation = (id: string) => {
+    const name = (detail?.versions || []).find(version => version.id === id)?.filename;
+    setRefs(previous => [...new Set([...previous, id])].slice(0, 30));
+    if (name) {
+      setMessage(text => text.includes(`/${name}`)
+        ? text
+        : `${text}${text && !/\s$/.test(text) ? " " : ""}/${name} `);
+    }
+    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus());
+  };
   const persistOptimisticMessage = async (
     targetThreadId: string,
     optimisticId: string,
@@ -1177,10 +1187,10 @@ function App() {
       !!thread?.events.some((event) => event.message_id === reply.message_id &&
         (event.tool !== "thinking" || (reply.status === "running" && event.status === "running")));
   };
-  const chatMessages = thread ? omitInternalCoordinatorPosts(thread.messages, thread.replies, thread.events) : [];
+  const chatMessages = thread?.messages || [];
   const liveCoordinator = thread?.replies.find((reply) =>
     !isExecutorReply(reply) && ["queued", "running"].includes(reply.status));
-  const coordinatorDraft = liveCoordinatorDraft(liveCoordinator, liveCoordinator ? liveOutput[liveCoordinator.message_id] : undefined, chatMessages, thread?.events);
+  const coordinatorDraft = liveCoordinatorDraft(liveCoordinator, liveCoordinator ? liveOutput[liveCoordinator.message_id] : undefined, chatMessages);
   const timeline = thread ? taskTimeline(chatMessages, thread.replies, thread.requests || [], hasAgentActivity) : [];
   const coordinatorLogLabel = thread ? coordinatorLogButtonLabel({
     replies: thread.replies,
@@ -1476,7 +1486,6 @@ function App() {
         </nav>
         <Notifications key={user.id} api={api} onOpen={(target) => {
           setProjects(target.projects);
-          setLibraryOpen(false);
           setProjectPickerOpen(false);
           if (target.projectId === projectId) {
             if (target.threadId) { setThreadId(target.threadId); setShowArchived(true); }
@@ -2091,8 +2100,6 @@ function App() {
         {projectId && (
           <Suspense fallback={<p className="muted">正在加载文件树…</p>}>
             <Documents
-              embedded
-              browser
               key={projectId}
               projectId={projectId}
               threadId={threadId || undefined}
@@ -2103,16 +2110,12 @@ function App() {
               organizationJobs={detail?.documentOrganizationJobs || []}
               selected={documentId}
               onSelect={setDocumentId}
-              onClose={() => {}}
               onRefresh={async () =>
                 setDetail(await api(`/projects/${projectId}?view=chat`))
               }
               onReference={
                 active
-                  ? (id) =>
-                      setRefs((previous) =>
-                        [...new Set([...previous, id])].slice(0, 30),
-                      )
+                  ? addVersionToConversation
                   : undefined
               }
               onReview={
@@ -2214,50 +2217,6 @@ function App() {
           <div className="references">{quotePreview.refs.map(renderRef)}</div>
         </section>
       </div>}
-      {libraryOpen && (
-        <Suspense
-          fallback={
-            <div className="modal-backdrop">
-              <div className="library-loading" role="status">
-                正在打开文档库…
-              </div>
-            </div>
-          }
-        >
-          <Documents
-            key={projectId}
-            projectId={projectId}
-            threadId={threadId || undefined}
-            writable={writable}
-            iterationWritable={active}
-            folders={detail?.folders || []}
-            onRefresh={async () => {
-              setDetail(await api(`/projects/${projectId}?view=chat`));
-            }}
-            versions={detail?.versions || []}
-            organizationJobs={detail?.documentOrganizationJobs || []}
-            selected={documentId}
-            onSelect={setDocumentId}
-            onClose={() => setLibraryOpen(false)}
-            onReference={
-              active
-                ? (id) => {
-                    setRefs([...new Set([...refs, id])].slice(0, 30));
-                    setLibraryOpen(false);
-                  }
-                : undefined
-            }
-            onReview={
-              active
-                ? async (id, decision) => {
-                    await api(`/versions/${id}/reviews`, { decision });
-                    await refresh();
-                  }
-                : undefined
-            }
-          />
-        </Suspense>
-      )}
       {projectManagementOpen && projectId && (
         <ProjectManagement
           detail={detail?.id === projectId ? detail : null}

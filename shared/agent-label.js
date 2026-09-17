@@ -119,6 +119,10 @@ export function describeAgentAction(tool, args = {}, result = {}) {
     case "ask_task_question":
       action = "提出问题";
       break;
+    case "report_task":
+      action = "交活";
+      object = args.taskId || "任务";
+      break;
     case "wait_for_updates":
       action = "等待更新";
       break;
@@ -127,6 +131,10 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       break;
     case "list_project_tasks":
       action = "查看任务";
+      break;
+    case "inspect_task":
+      action = "询问任务进度";
+      object = args.taskId || "任务";
       break;
     case "assistant_text":
       action = "正文";
@@ -139,6 +147,10 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       break;
     case "resolve_task_rejection":
       action = args.action === "reopen" ? "重新发起任务" : "确认任务拒绝";
+      object = args.taskId || "任务";
+      break;
+    case "recover_task":
+      action = args.action === "cancel" ? "取消任务" : "重新安排任务";
       object = args.taskId || "任务";
       break;
     case "sandbox_read":

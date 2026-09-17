@@ -3,7 +3,7 @@ import { apiFetch } from "./api-fetch";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { FileIcon, FolderIcon } from "@react-symbols/icons/utils";
+import { FileIcon } from "@react-symbols/icons/utils";
 import { Document, Notebook } from "@react-symbols/icons/files";
 import { DocxPreview, PptxPreview, XlsxPreview } from "./office-preview";
 import { inlineHtmlPreviewAssets } from "../shared/html-preview.mjs";
@@ -78,6 +78,7 @@ function LibraryFileMenu({
   canSaveToOfficial,
   saveToOfficialDisabled,
   saveToOfficialTitle,
+  onAddToConversation,
   onDownload,
   onRename,
   onDelete,
@@ -92,6 +93,7 @@ function LibraryFileMenu({
   canSaveToOfficial?: boolean;
   saveToOfficialDisabled?: boolean;
   saveToOfficialTitle?: string;
+  onAddToConversation?: () => void;
   onDownload: () => void;
   onRename?: () => void;
   onDelete?: () => void;
@@ -127,6 +129,12 @@ function LibraryFileMenu({
       </button>
       {open ? (
         <div className="library-folder-menu" role="menu" onClick={(event) => event.stopPropagation()}>
+          {onAddToConversation ? (
+            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onAddToConversation(); close(); }}>
+              <TreeIcon kind="addToChat" />
+              <span>添加到会话</span>
+            </button>
+          ) : null}
           <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onDownload(); close(); }}>
             <TreeIcon kind="download" />
             <span>下载</span>
@@ -243,27 +251,35 @@ function OfficialFolderMenu({
   );
 }
 
-function TreeIcon({ kind }: { kind: string }) {
-  const paths: Record<string, string> = {
-    folder: "M3 6h6l2 2h10v11H3Z",
+function TreeIcon({ kind, className }: { kind: string; className?: string }) {
+  const paths: Record<string, string | string[]> = {
+    folder: "M3 7h6.5l2 2H21v11H3Z",
     file: "M6 3h8l4 4v14H6Z M14 3v5h5",
-    chevron: "m9 5 6 7-6 7",
-    newFolder: "M3 6h6l2 2h10v11H3Z M12 11v5 M9.5 13.5h5",
+    expand: "m9 6 6 6-6 6",
+    collapse: "m6 9 6 6 6-6",
+    newFolder: "M3 7h6.5l2 2H21v11H3Z M12 12.5v5 M9.5 15h5",
     newFile: "M6 3h8l4 4v14H6Z M9 14h6 M12 11v6",
     upload: "M12 16V3 M7 8l5-5 5 5 M4 15v6h16v-6",
     trash: "M4 6h16 M9 6V3h6v3 M6 6l1 15h10l1-15 M10 10v7 M14 10v7",
     back: "m9 5-6 7 6 7 M3 12h18",
-    rename: "m14 4 6 6 M4 20l4-1L21 6a2 2 0 0 0-3-3L5 16Z",
+    rename: "M4 20h8 M15.2 4.8 19.2 8.8 8.5 19.5 4.5 20.5 5.5 16.5Z M13.8 6.2 17.8 10.2",
     sortType: "M4 6h10 M4 12h7 M4 18h4 M17 5v14 M14 16l3 3 3-3",
     sortModified: "M12 8v5l3 2 M21 12a9 9 0 1 1-2.6-6.35 M21 4v6h-6",
+    organize: [
+      "M12 3.2 13.6 8.4 18.8 10 13.6 11.6 12 16.8 10.4 11.6 5.2 10 10.4 8.4Z",
+      "M18.4 14.6 19.2 16.7 21.3 17.5 19.2 18.3 18.4 20.4 17.6 18.3 15.5 17.5 17.6 16.7Z",
+    ],
     actions: "M5 7h14M5 12h14M5 17h14",
-    download: "M12 3v10 M8 9l4-4 4 4 M5 19h14",
+    download: "M12 3v12 M8 11l4 4 4-4 M4 21h16",
     restore: "M4 12a8 8 0 1 0 2.3-5.7 M4 4v6h6",
+    addToChat: "M4 5h16v10H8l-4 4Z M8 10h8",
   };
+  const glyph = paths[kind] || paths.file;
+  const d = Array.isArray(glyph) ? glyph : [glyph];
   return (
     <svg
       aria-hidden="true"
-      className="tree-icon"
+      className={className ? `tree-icon ${className}` : "tree-icon"}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -271,8 +287,86 @@ function TreeIcon({ kind }: { kind: string }) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d={paths[kind] || paths.file} />
+      {d.map((path) => (
+        <path key={path} d={path} />
+      ))}
     </svg>
+  );
+}
+
+function TreeDepth({ depth }: { depth: number }) {
+  return <span className="tree-depth" style={{ width: depth * 14 }} aria-hidden="true" />;
+}
+
+function ClosedFolderIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="tree-icon"
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3.4 19.6V6.9c0-.9.7-1.6 1.6-1.6h4c.4 0 .8.16 1.05.44L11.6 7.5h7.4c.9 0 1.6.7 1.6 1.6v10.5c0 .9-.7 1.6-1.6 1.6H5c-.9 0-1.6-.7-1.6-1.6Z" />
+    </svg>
+  );
+}
+
+function OpenFolderIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="tree-icon"
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3.2 9.2V7.1c0-.9.7-1.6 1.6-1.6h3.5c.4 0 .8.15 1.05.42L10.7 7.4h8.1c.9 0 1.6.7 1.6 1.6v1.1" />
+      <path d="M3.15 10.7h17.7c.8 0 1.4.74 1.23 1.52l-1.58 7.05A1.7 1.7 0 0 1 18.85 20.8H5.15a1.7 1.7 0 0 1-1.65-1.53l-1.58-7.05A1.26 1.26 0 0 1 3.15 10.7Z" />
+    </svg>
+  );
+}
+
+function FolderToggle({
+  name,
+  expanded,
+  disabled,
+  onToggle,
+}: {
+  name: string;
+  expanded: boolean;
+  disabled?: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`tree-toggle tree-folder-toggle${expanded ? " expanded" : ""}`}
+      disabled={disabled}
+      aria-label={`${expanded ? "折叠" : "展开"} ${name}`}
+      onClick={onToggle}
+    >
+      <span className="folder-toggle-icon icon-idle">
+        {expanded ? (
+          <OpenFolderIcon />
+        ) : (
+          <ClosedFolderIcon />
+        )}
+      </span>
+      <span className="folder-toggle-icon icon-hover">
+        <TreeIcon kind={expanded ? "collapse" : "expand"} />
+      </span>
+    </button>
   );
 }
 
@@ -457,6 +551,14 @@ export function isInProjectLibrary(
   return folderRootKind(folderId, folders) !== null;
 }
 
+export function isLibraryTreeVersion(
+  item: LibraryVersion,
+  folders: LibraryFolder[],
+) {
+  if (isInProjectLibrary(item.folder_id, folders)) return true;
+  return Boolean(item.deleted_at && (item.recycle_path || !item.folder_id));
+}
+
 export function organizableDocuments(
   versions: LibraryVersion[],
   folders: LibraryFolder[],
@@ -482,9 +584,6 @@ export function organizableDocuments(
   return [...latest.values()];
 }
 export function Documents({
-  embedded = false,
-  browser = false,
-  onOpen,
   onReview,
   projectId,
   threadId,
@@ -495,13 +594,9 @@ export function Documents({
   versions,
   selected,
   onSelect,
-  onClose,
   onReference,
   organizationJobs = [],
 }: {
-  embedded?: boolean;
-  browser?: boolean;
-  onOpen?: (versionId: string) => void;
   onReview?: (versionId: string, decision: string) => Promise<void>;
   projectId: string;
   threadId?: string;
@@ -512,7 +607,6 @@ export function Documents({
   versions: LibraryVersion[];
   selected: string;
   onSelect: (id: string) => void;
-  onClose: () => void;
   onReference?: (id: string) => void;
   organizationJobs?: { thread_id?: string | null; scope: "iteration" | "project"; status: string; error?: string | null }[];
 }) {
@@ -531,7 +625,7 @@ export function Documents({
   const libraryRoots = ROOT_DISPLAY_ORDER
     .map((kind) => resolveLibraryRoot(kind, folders))
     .filter(Boolean) as LibraryFolder[];
-  const libraryVersions = versions.filter((item) => isInProjectLibrary(item.folder_id, folders));
+  const libraryVersions = versions.filter((item) => isLibraryTreeVersion(item, folders));
   const organization = organizationJobs.find(
     (job) => job.scope === "project" && !job.thread_id,
   );
@@ -541,6 +635,13 @@ export function Documents({
   const [organizeOpen, setOrganizeOpen] = useState(false);
   const [folderId, setFolderId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggleFolder = (id: string) => {
+    setCollapsed((previous) => {
+      const next = new Set(previous);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
   useEffect(() => {
     setCollapsed((previous) => {
       const next = new Set(previous);
@@ -582,6 +683,11 @@ export function Documents({
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
   const [openFolderMenuId, setOpenFolderMenuId] = useState<string | null>(null);
   const [openFileMenuId, setOpenFileMenuId] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<
+    | { type: "file"; item: LibraryVersion }
+    | { type: "folder"; item: LibraryFolder }
+    | null
+  >(null);
   const officialRoot = libraryRoots.find((f) => f.folder_kind === "project_official");
   const officialFolderParentId = (() => {
     if (!folderId) return officialRoot?.id || null;
@@ -592,16 +698,6 @@ export function Documents({
   const selectedLibraryFolder = folderId
     ? libraryFolders.find((f) => f.id === folderId)
     : undefined;
-  const showOfficialFolderPanel = !!(
-    canManageOfficialFolders
-    && selectedLibraryFolder
-    && folderRootKind(selectedLibraryFolder.id, libraryFolders) === "project_official"
-    && !selectedLibraryFolder.system_key
-  );
-  const canRenameDeleteOfficialFolder = !!(
-    showOfficialFolderPanel
-    && selectedLibraryFolder?.folder_kind !== "project_official"
-  );
   const selectFolder = (id: string | null) => {
     setFolderId(id);
     onSelect("");
@@ -690,9 +786,9 @@ export function Documents({
     setPreviewModeByVersion((previous) => ({ ...previous, [selected]: mode }));
   };
   useEffect(() => {
-    if (!browser || !selected) return;
+    if (!selected) return;
     setOpenTabs((previous) => (previous.includes(selected) ? previous : [...previous, selected]));
-  }, [browser, selected]);
+  }, [selected]);
   const closeTab = (id: string) => {
     setOpenTabs((previous) => {
       const next = previous.filter((tabId) => tabId !== id);
@@ -722,7 +818,7 @@ export function Documents({
   useEffect(() => {
     setView(null);
     setError("");
-    if (!selected || (embedded && !browser)) return;
+    if (!selected) return;
     let alive = true;
     let objectUrl = "";
     apiFetch(`/api/versions/${selected}`)
@@ -787,10 +883,9 @@ export function Documents({
       alive = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [selected, embedded, browser]);
+  }, [selected]);
   useEffect(() => {
     setFolderId(libraryRoots[0]?.id || null);
-    if (!browser) onSelect("");
     setRenaming(false);
     setTrash(false);
   }, [threadId, projectId]);
@@ -834,19 +929,24 @@ export function Documents({
     setRenamingFolder(false);
     setSavingOfficial(null);
   };
+  const subtreeStats = (folderId: string) => {
+    const ids = new Set<string>();
+    const walk = (id: string) => {
+      ids.add(id);
+      for (const folder of libraryFolders) {
+        if (folder.parent_id === id) walk(folder.id);
+      }
+    };
+    walk(folderId);
+    const files = new Set(
+      versions
+        .filter((item) => !item.deleted_at && item.folder_id && ids.has(item.folder_id))
+        .map((item) => item.artifact_id),
+    );
+    return { folderCount: ids.size - 1, fileCount: files.size };
+  };
   const deleteFile = (item: LibraryVersion) => {
-    const unversioned = isUnversionedArea(fileAreaKind(item));
-    if (!window.confirm(unversioned
-      ? `删除「${item.title}」？将移入回收站。`
-      : `删除「${item.title}」及其全部版本？将移入回收站。`)) return;
-    void act(async () => {
-      await change(
-        `/projects/${projectId}/artifacts/${item.artifact_id}`,
-        { deleted: true },
-        "PATCH",
-      );
-      if (selected === item.id) onSelect("");
-    });
+    setDeleteConfirm({ type: "file", item });
   };
   const restoreFile = (item: LibraryVersion) => {
     void act(async () => {
@@ -955,17 +1055,33 @@ export function Documents({
     setSavingOfficial(null);
   };
   const deleteFolder = (target: LibraryFolder) => {
-    if (!window.confirm(`删除文件夹「${target.name}」？其中文档将移入回收站。`)) return;
+    setDeleteConfirm({ type: "folder", item: target });
+  };
+  const confirmDelete = () => {
+    if (!deleteConfirm) return;
+    const target = deleteConfirm;
+    setDeleteConfirm(null);
+    if (target.type === "file") {
+      const item = target.item;
+      void act(async () => {
+        await change(
+          `/projects/${projectId}/artifacts/${item.artifact_id}`,
+          { deleted: true },
+          "PATCH",
+        );
+        if (selected === item.id) onSelect("");
+      });
+      return;
+    }
     void act(async () => {
-      await change(`/projects/${projectId}/folders/${target.id}`, undefined, "DELETE");
-      selectFolder(target.parent_id || officialRoot?.id || null);
+      await change(`/projects/${projectId}/folders/${target.item.id}`, undefined, "DELETE");
+      selectFolder(target.item.parent_id || officialRoot?.id || null);
     });
   };
   const fileRow = (v: LibraryVersion, depth: number) => (
     <div
       className={`tree-file ${version?.artifact_id === v.artifact_id ? "selected" : ""}${draggedArtifactId === v.artifact_id ? " dragging" : ""}`}
       key={v.artifact_id}
-      style={{ paddingLeft: depth * 14 }}
       role="treeitem"
       aria-selected={version?.artifact_id === v.artifact_id}
       draggable={canEditOfficial(v) && !pending}
@@ -982,12 +1098,12 @@ export function Documents({
         setDropTargetFolderId(null);
       }}
     >
+      <TreeDepth depth={depth} />
       <button
         className="tree-name"
         disabled={organizing && folderRootKind(v.folder_id, libraryFolders) === "project_official"}
         onClick={() => {
           onSelect(v.id);
-          if (embedded) onOpen?.(v.id);
           setFolderId(v.folder_id || null);
         }}
         title={`${v.title} · ${v.filename}${isUnversionedArea(fileAreaKind(v)) ? "" : ` · v${v.version}`}${trash && recyclePathLabel(v, libraryFolders) ? ` · ${recyclePathLabel(v, libraryFolders)}` : ""}`}
@@ -1007,16 +1123,6 @@ export function Documents({
           {trash && recyclePathLabel(v, libraryFolders) ? <small>{recyclePathLabel(v, libraryFolders)}</small> : null}
         </span>
       </button>
-      {onReference && !trash && (
-        <button
-          className="tree-quick"
-          title="/ 引用文档"
-          aria-label={`引用 ${v.title}`}
-          onClick={() => onReference(v.id)}
-        >
-          /
-        </button>
-      )}
       {trash && writable ? (
         <button
           type="button"
@@ -1029,6 +1135,7 @@ export function Documents({
           <TreeIcon kind="restore" />
         </button>
       ) : !trash ? (
+        <span className="tree-row-actions">
         <LibraryFileMenu
           menuId={v.artifact_id}
           openMenuId={openFileMenuId}
@@ -1042,6 +1149,7 @@ export function Documents({
           canSaveToOfficial={showSaveToOfficial(v)}
           saveToOfficialDisabled={!canSaveToOfficial(v)}
           saveToOfficialTitle={saveToOfficialHint(v)}
+          onAddToConversation={onReference ? () => onReference(v.id) : undefined}
           onDownload={() => {
             window.open(`/api/versions/${v.id}/download`, "_blank", "noopener,noreferrer");
           }}
@@ -1049,6 +1157,7 @@ export function Documents({
           onDelete={() => deleteFile(v)}
           onSaveToOfficial={() => saveFileToOfficial(v)}
         />
+        </span>
       ) : null}
     </div>
   );
@@ -1065,8 +1174,7 @@ export function Documents({
         .map((f) => (
           <div key={f.id} role="treeitem" aria-expanded={!collapsed.has(f.id)}>
             <div
-              className={`tree-folder ${!browser && folderId === f.id ? "selected" : ""}${dropTargetFolderId === f.id ? " drop-target" : ""}${draggedFolderId === f.id ? " dragging" : ""}`}
-              style={{ paddingLeft: depth * 14 }}
+              className={`tree-folder${dropTargetFolderId === f.id ? " drop-target" : ""}${draggedFolderId === f.id ? " dragging" : ""}`}
               draggable={canDragOfficialFolder(f) && !pending}
               onDragStart={(event) => {
                 if (!canDragOfficialFolder(f)) return;
@@ -1086,42 +1194,26 @@ export function Documents({
                 ? folderDropHandlers(f.id)
                 : {})}
             >
-              <button
-                className={`tree-toggle ${collapsed.has(f.id) ? "" : "expanded"}`}
+              <TreeDepth depth={depth} />
+              <FolderToggle
+                name={f.name}
+                expanded={!collapsed.has(f.id)}
                 disabled={organizing && folderRootKind(f.id, libraryFolders) === "project_official"}
-                aria-label={`${collapsed.has(f.id) ? "展开" : "折叠"} ${f.name}`}
-                onClick={() =>
-                  setCollapsed((previous) => {
-                    const next = new Set(previous);
-                    next.has(f.id) ? next.delete(f.id) : next.add(f.id);
-                    return next;
-                  })
-                }
-              >
-                <TreeIcon kind="chevron" />
-              </button>
+                onToggle={() => toggleFolder(f.id)}
+              />
               <button
                 type="button"
                 className="tree-name"
                 disabled={organizing && folderRootKind(f.id, libraryFolders) === "project_official"}
-                onClick={() => {
-                  if (browser) return;
-                  selectFolder(f.id);
-                }}
+                onClick={() => toggleFolder(f.id)}
               >
-                <FolderIcon
-                  folderName={f.name}
-                  className="tree-icon file-type-icon"
-                  aria-hidden="true"
-                  width={16}
-                  height={16}
-                />
                 <span>{f.name}</span>
               </button>
               {canManageOfficialFolders
                 && folderRootKind(f.id, libraryFolders) === "project_official"
                 && !f.system_key
                 && f.folder_kind !== "project_official" ? (
+                <span className="tree-row-actions">
                 <OfficialFolderMenu
                   menuId={f.id}
                   openMenuId={openFolderMenuId}
@@ -1135,6 +1227,7 @@ export function Documents({
                   onRename={() => openRenameFolder(f)}
                   onDelete={() => deleteFolder(f)}
                 />
+                </span>
               ) : null}
             </div>
             {!collapsed.has(f.id) && (
@@ -1150,45 +1243,27 @@ export function Documents({
   const renderLibraryRoot = (root: LibraryFolder) => (
     <div key={root.id} role="treeitem" aria-expanded={!collapsed.has(root.id)}>
       <div
-        className={`tree-folder tree-library-root ${!browser && folderId === root.id ? "selected" : ""}${dropTargetFolderId === root.id ? " drop-target" : ""}`}
+        className={`tree-folder tree-library-root${dropTargetFolderId === root.id ? " drop-target" : ""}`}
         {...(root.folder_kind === "project_official" && canManageOfficialFolders
           ? folderDropHandlers(root.id)
           : {})}
       >
-        <button
-          className={`tree-toggle ${collapsed.has(root.id) ? "" : "expanded"}`}
+        <FolderToggle
+          name={ROOT_LABELS[root.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number]] || root.name}
+          expanded={!collapsed.has(root.id)}
           disabled={root.folder_kind === "project_official" && organizing}
-          aria-label={`${collapsed.has(root.id) ? "展开" : "折叠"} ${root.name}`}
-          onClick={() =>
-            setCollapsed((previous) => {
-              const next = new Set(previous);
-              next.has(root.id) ? next.delete(root.id) : next.add(root.id);
-              return next;
-            })
-          }
-        >
-          <TreeIcon kind="chevron" />
-        </button>
+          onToggle={() => toggleFolder(root.id)}
+        />
         <button
           type="button"
           className="tree-name"
           disabled={root.folder_kind === "project_official" && organizing}
-          onClick={() => {
-            if (browser) return;
-            selectFolder(root.id);
-          }}
+          onClick={() => toggleFolder(root.id)}
         >
-          <FolderIcon
-            folderName={root.name}
-            className="tree-icon file-type-icon"
-            aria-hidden="true"
-            width={16}
-            height={16}
-          />
           <span>{ROOT_LABELS[root.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number]] || root.name}</span>
         </button>
         {root.folder_kind === "project_official" ? (
-          <span className="tree-root-actions">
+          <span className="tree-root-actions tree-row-actions">
             {writable ? (
               <button
                 type="button"
@@ -1198,7 +1273,7 @@ export function Documents({
                 disabled={organizing || pending}
                 onClick={() => setOrganizeOpen(true)}
               >
-                <TreeIcon kind="sortType" />
+                <TreeIcon kind="organize" />
               </button>
             ) : null}
             {canManageOfficialFolders ? (
@@ -1234,7 +1309,7 @@ export function Documents({
     />
   );
   const explorer = (
-    <aside className={`file-explorer${browser ? " doc-browser-tree" : ""}`}>
+    <aside className="file-explorer doc-browser-tree">
             <div className="file-explorer-top">
               <div className="tree-filter-bar">
                 <input
@@ -1264,7 +1339,13 @@ export function Documents({
                 </button>
               </div>
             </div>
-            <div className="file-explorer-scroll">
+            <div className="file-explorer-scroll" aria-busy={pending}>
+            {pending ? (
+              <div className="tree-loading" role="status">
+                <span className="tree-loading-spinner" aria-hidden="true" />
+                <span>正在更新文档树…</span>
+              </div>
+            ) : null}
             <div role="tree" aria-label="项目文档库">
               {organizing ? <p className="muted">一级小祥正在整理正式文件，正式文件区暂时不可操作。</p> : null}
               {trash || filter
@@ -1330,30 +1411,24 @@ export function Documents({
           .filter((v) => v.artifact_id === version.artifact_id)
           .sort((a, b) => b.version - a.version)
       : [];
-  const renderVersionHistorySelect = (compact: boolean) =>
+  const browserVersionHistorySelect =
     version && !isUnversionedArea(fileAreaKind(version)) ? (
       <select
-        className={compact ? "doc-browser-version-select" : undefined}
+        className="doc-browser-version-select"
         aria-label="文档历史版本"
-        title={
-          compact
-            ? versionOptionDetail(
-                artifactVersionRows.find((v) => v.id === selected) || version,
-              )
-            : undefined
-        }
+        title={versionOptionDetail(
+          artifactVersionRows.find((v) => v.id === selected) || version,
+        )}
         value={selected}
         onChange={(e) => onSelect(e.target.value)}
       >
         {artifactVersionRows.map((v) => (
-          <option key={v.id} value={v.id} title={compact ? versionOptionDetail(v) : undefined}>
-            {compact ? `v${v.version}` : versionOptionDetail(v)}
+          <option key={v.id} value={v.id} title={versionOptionDetail(v)}>
+            {`v${v.version}`}
           </option>
         ))}
       </select>
     ) : null;
-  const versionHistorySelect = renderVersionHistorySelect(false);
-  const browserVersionHistorySelect = renderVersionHistorySelect(true);
   const browserFileMeta = version ? (
     <small
       className="doc-browser-meta doc-browser-bottombar-meta"
@@ -1362,51 +1437,6 @@ export function Documents({
       来源 {documentSourceLabel(version, libraryFolders)} · 修改{" "}
       {formatLibraryDateTime(latestArtifactUpdatedAt(version, libraryVersions))}
     </small>
-  ) : null;
-  const documentControls = version ? (
-    <>
-      {versionHistorySelect}
-      <a
-        className="download-button"
-        href={`/api/versions/${selected}/download`}
-      >
-        下载原文件
-      </a>
-      {onReference && (
-        <button onClick={() => onReference(selected)}>
-          / 引用到讨论
-        </button>
-      )}
-      {canManageFile(version) && (
-        <>
-          <button disabled={pending || !!version.deleted_at} onClick={() => startRenameFile(version)}>重命名</button>
-          <button
-            disabled={pending}
-            onClick={() => act(async () => { await change(`/projects/${projectId}/artifacts/${version.artifact_id}`, { deleted: !version.artifact_deleted_at }, "PATCH"); })}
-          >
-            {version.artifact_deleted_at
-              ? "恢复整份文档"
-              : isUnversionedArea(fileAreaKind(version))
-                ? "删除"
-                : "删除整份文档（全部版本）"}
-          </button>
-        </>
-      )}
-      {showSaveToOfficial(version) ? (
-        <button
-          disabled={pending || organizing || !canSaveToOfficial(version)}
-          title={saveToOfficialHint(version)}
-          onClick={() => saveFileToOfficial(version)}
-        >
-          另存至正式文件
-        </button>
-      ) : null}
-      {writable && version.deleted_at ? (
-        <button disabled={pending} onClick={() => restoreFile(version)}>
-          原路恢复
-        </button>
-      ) : null}
-    </>
   ) : null;
   const reviewActions = version && !version.deleted_at ? (
     <div className="library-review-actions">
@@ -1492,7 +1522,7 @@ export function Documents({
     </>
   );
   const mainPanel = (
-    <main className={`${renaming || newFolder || renamingFolder || savingOfficial ? "library-operation" : ""}${browser ? " doc-browser-main" : ""}`}>
+    <main className={`${renaming || newFolder || renamingFolder || savingOfficial ? "library-operation" : ""} doc-browser-main`}>
             {newFolder && (
               <form className="library-form" onSubmit={(event) => {
                 event.preventDefault();
@@ -1603,7 +1633,6 @@ export function Documents({
               </form>
             )}
             {!renaming && !newFolder && !renamingFolder && !savingOfficial && (version ? (
-              browser ? (
                 <>
                   {version.deleted_at && (
                     <p className="muted doc-browser-notice">
@@ -1627,100 +1656,7 @@ export function Documents({
                   </footer>
                 </>
               ) : (
-                <>
-                  <div className="document-toolbar">
-                    <div>
-                      <h3>{version.title}</h3>
-                      <small>
-                        {version.author} ·{" "}
-                        {Math.max(1, Math.round(version.byte_size / 1024))} KB ·{" "}
-                        {version.filename}
-                      </small>
-                    </div>
-                    {viewModeToggle}
-                    {documentControls}
-                  </div>
-                  {reviewActions}
-                  {version.deleted_at && (
-                    <p className="muted">
-                      已移入回收站{recyclePathLabel(version, libraryFolders) ? `，原路径：${recyclePathLabel(version, libraryFolders)}` : ""}。历史引用仍可查看，原路恢复后回到原来的文件夹。
-                    </p>
-                  )}
-                  {error && <div className="error">{error}</div>}
-                  {!view && !error && <p className="muted">正在读取文档…</p>}
-                  <div className="document-preview">
-                    {previewContent}
-                  </div>
-                </>
-              )
-            ) : !browser && showOfficialFolderPanel && selectedLibraryFolder ? (
-                <div className="library-folder-panel">
-                  <h3>{selectedLibraryFolder.name}</h3>
-                  <p className="muted">
-                    {selectedLibraryFolder.folder_kind === "project_official"
-                      ? "正式文件根目录 · 可上传文件或新建主题子文件夹。"
-                      : "正式文件区文件夹 · 可嵌套、上传；删除时其中文档会移入回收站。"}
-                  </p>
-                  <div className="document-toolbar">
-                    <button
-                      type="button"
-                      disabled={pending || !officialUploadFolderId}
-                      onClick={() => uploadInputRef.current?.click()}
-                    >
-                      上传文件
-                    </button>
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() => {
-                        setNewFolder(true);
-                        setNewFolderName("");
-                        setRenaming(false);
-                        setRenamingFolder(false);
-                        setSavingOfficial(null);
-                      }}
-                    >
-                      新建子文件夹
-                    </button>
-                    {canRenameDeleteOfficialFolder ? (
-                      <>
-                        <button
-                          type="button"
-                          disabled={pending}
-                          onClick={() => {
-                            setRenameFolderName(selectedLibraryFolder.name);
-                            setRenamingFolder(true);
-                            setNewFolder(false);
-                            setSavingOfficial(null);
-                          }}
-                        >
-                          重命名文件夹
-                        </button>
-                        <button
-                          type="button"
-                          disabled={pending}
-                          onClick={() => {
-                            if (!window.confirm(`删除文件夹「${selectedLibraryFolder.name}」？其中文档将移入回收站。`)) return;
-                            void act(async () => {
-                              await change(
-                                `/projects/${projectId}/folders/${selectedLibraryFolder.id}`,
-                                undefined,
-                                "DELETE",
-                              );
-                              selectFolder(selectedLibraryFolder.parent_id || officialRoot?.id || null);
-                            });
-                          }}
-                        >
-                          删除文件夹
-                        </button>
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-              ) : (
-                <div className="library-empty">
-                  选择一份文档或正式文件区文件夹。
-                </div>
+                <div className="library-empty">从文件树选择文档。</div>
               ))}
           </main>
   );
@@ -1757,102 +1693,120 @@ export function Documents({
             </section>
           </div>
         ) : null;
-
-  if (browser) {
-    const tabVersion = (id: string) => libraryVersions.find((item) => item.id === id)
-      || versions.find((item) => item.id === id);
-    return (
-      <div className="library-embedded doc-browser">
-        <section className="library doc-browser-shell" aria-label="项目文档库">
-          {uploadInput}
-          <div className="doc-browser-tabbar">
-            <div className="doc-browser-tabs" role="tablist" aria-label="打开的文档">
-              {openTabs.map((id) => {
-                const item = tabVersion(id);
-                return (
-                  <span
-                    key={id}
-                    className={`doc-browser-tab${selected === id ? " active" : ""}`}
-                    role="presentation"
-                  >
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={selected === id}
-                      className="doc-browser-tab-open"
-                      title={item ? `${item.title} · ${item.filename}` : "文档"}
-                      onClick={() => onSelect(id)}
-                    >
-                      {item ? (
-                        <FileIcon
-                          fileName={item.filename}
-                          editFileExtensionData={officeIcons}
-                          autoAssign
-                          className="tree-icon file-type-icon"
-                          aria-hidden="true"
-                          width={14}
-                          height={14}
-                        />
-                      ) : null}
-                      <span className="doc-browser-tab-label">{item ? fileLabel(item) : "文档"}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="doc-browser-tab-close"
-                      aria-label={`关闭 ${item ? fileLabel(item) : "文档"}`}
-                      title="关闭"
-                      onClick={() => closeTab(id)}
-                    >
-                      ×
-                    </button>
-                  </span>
-                );
-              })}
-              {!openTabs.length && <span className="doc-browser-tabs-empty">从文件树选择文档</span>}
-            </div>
-            <button
-              type="button"
-              className={`doc-browser-tree-toggle${treeOpen ? " active" : ""}`}
-              title={treeOpen ? "隐藏文件树" : "显示文件树"}
-              aria-label={treeOpen ? "隐藏文件树" : "显示文件树"}
-              aria-pressed={treeOpen}
-              onClick={() => setTreeOpen(!treeOpen)}
+  const deleteConfirmCopy = (() => {
+    if (!deleteConfirm) return null;
+    if (deleteConfirm.type === "file") {
+      const item = deleteConfirm.item;
+      const unversioned = isUnversionedArea(fileAreaKind(item));
+      return {
+        title: "确认删除文件",
+        body: unversioned
+          ? `删除「${item.title}」后将移入回收站，可从回收站原路恢复。`
+          : `删除「${item.title}」及其全部版本后将移入回收站，可从回收站原路恢复。`,
+      };
+    }
+    const stats = subtreeStats(deleteConfirm.item.id);
+    const parts = [
+      stats.fileCount ? `${stats.fileCount} 个文件` : "",
+      stats.folderCount ? `${stats.folderCount} 个子文件夹` : "",
+    ].filter(Boolean);
+    return {
+      title: "确认删除文件夹",
+      body: parts.length
+        ? `「${deleteConfirm.item.name}」内含 ${parts.join("、")}。删除后其中文档会移入回收站，文件夹将被移除。`
+        : `将删除空文件夹「${deleteConfirm.item.name}」。`,
+    };
+  })();
+  const deleteConfirmDialog = deleteConfirm && deleteConfirmCopy ? (
+          <div className="modal-backdrop library-organize-backdrop" onClick={() => setDeleteConfirm(null)}>
+            <section
+              className="library-organize-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="library-delete-title"
+              onClick={(event) => event.stopPropagation()}
             >
-              <TreeIcon kind="folder" />
-            </button>
+              <header>
+                <h3 id="library-delete-title">{deleteConfirmCopy.title}</h3>
+                <button type="button" aria-label="关闭" onClick={() => setDeleteConfirm(null)}>×</button>
+              </header>
+              <p>{deleteConfirmCopy.body}</p>
+              <div className="library-organize-actions">
+                <button type="button" onClick={() => setDeleteConfirm(null)}>取消</button>
+                <button type="button" className="primary" onClick={confirmDelete}>确认删除</button>
+              </div>
+            </section>
           </div>
-          <div className="library-body doc-browser-body">
-            {treeOpen ? explorer : null}
-            {mainPanel}
-          </div>
-          {organizeDialog}
-        </section>
-      </div>
-    );
-  }
+        ) : null;
+
+  const tabVersion = (id: string) => libraryVersions.find((item) => item.id === id)
+    || versions.find((item) => item.id === id);
   return (
-    <div className={embedded ? "library-embedded" : "modal-backdrop"}>
-      <section
-        className="library"
-        role={embedded ? undefined : "dialog"}
-        aria-modal={embedded ? undefined : true}
-        aria-label="项目文档库"
-      >
-        <header>
-          <div>
-            <h2>项目文档库</h2>
-            <p>正式文件、产物文件与缓存文件 · 全项目单树浏览</p>
-          </div>
-          <button onClick={onClose} aria-label="关闭文档库">
-            ×
-          </button>
-        </header>
+    <div className="library-embedded doc-browser">
+      <section className="library doc-browser-shell" aria-label="项目文档库">
         {uploadInput}
-        <div className="library-body">
-          {explorer}
+        <div className="doc-browser-tabbar">
+          <div className="doc-browser-tabs" role="tablist" aria-label="打开的文档">
+            {openTabs.map((id) => {
+              const item = tabVersion(id);
+              return (
+                <span
+                  key={id}
+                  className={`doc-browser-tab${selected === id ? " active" : ""}`}
+                  role="presentation"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={selected === id}
+                    className="doc-browser-tab-open"
+                    title={item ? `${item.title} · ${item.filename}` : "文档"}
+                    onClick={() => onSelect(id)}
+                  >
+                    {item ? (
+                      <FileIcon
+                        fileName={item.filename}
+                        editFileExtensionData={officeIcons}
+                        autoAssign
+                        className="tree-icon file-type-icon"
+                        aria-hidden="true"
+                        width={14}
+                        height={14}
+                      />
+                    ) : null}
+                    <span className="doc-browser-tab-label">{item ? fileLabel(item) : "文档"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="doc-browser-tab-close"
+                    aria-label={`关闭 ${item ? fileLabel(item) : "文档"}`}
+                    title="关闭"
+                    onClick={() => closeTab(id)}
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
+            {!openTabs.length && <span className="doc-browser-tabs-empty">从文件树选择文档</span>}
+          </div>
+          <button
+            type="button"
+            className={`doc-browser-tree-toggle${treeOpen ? " active" : ""}`}
+            title={treeOpen ? "隐藏文件树" : "显示文件树"}
+            aria-label={treeOpen ? "隐藏文件树" : "显示文件树"}
+            aria-pressed={treeOpen}
+            onClick={() => setTreeOpen(!treeOpen)}
+          >
+            <TreeIcon kind="folder" />
+          </button>
+        </div>
+        <div className="library-body doc-browser-body">
+          {treeOpen ? explorer : null}
           {mainPanel}
         </div>
         {organizeDialog}
+        {deleteConfirmDialog}
       </section>
     </div>
   );

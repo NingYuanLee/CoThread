@@ -314,10 +314,6 @@ export function ChatComposer({
     });
   };
   const pending = uploads.some((u) => (!u.id && !u.error) || u.removing);
-  const selected = refs
-    .filter((id) => !uploads.some((u) => u.id === id))
-    .map((id) => versions.find((v) => v.id === id))
-    .filter((v): v is FileVersion => !!v);
   return (
     <form
       className="composer chat-composer"
@@ -344,7 +340,7 @@ export function ChatComposer({
         }
       }}
     >
-      {(uploads.length > 0 || selected.length > 0) && (
+      {uploads.length > 0 && (
         <div className="chat-attachments" aria-label="消息附件">
           {uploads.map((item) => (
             <div
@@ -389,26 +385,6 @@ export function ChatComposer({
               {item.error && (
                 <span className="attachment-error">{item.error}</span>
               )}
-            </div>
-          ))}
-          {selected.map((v) => (
-            <div className="chat-attachment" key={v.id} title={v.filename}>
-              <div className="attachment-preview">
-                <FilePreview name={v.filename} id={v.id} />
-              </div>
-              <small>{v.filename}</small>
-              <button
-                type="button"
-                className="attachment-remove"
-                aria-label={`取消引用 ${v.filename}`}
-                disabled={busy}
-                onClick={() => {
-                  setRefs((rows) => rows.filter((id) => id !== v.id));
-                  setMessage((text) => text.replace(`/${v.filename}`, ""));
-                }}
-              >
-                ×
-              </button>
             </div>
           ))}
         </div>

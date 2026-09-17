@@ -178,7 +178,7 @@ export async function processNextReply(
 
 export { retryReply } from "./reply-actions.js";
 
-export async function startReplyWorker(db) {
+export async function startReplyWorker(db, listenDb = db) {
   await recoverInterruptedDshL3Executions(db);
   // A crash may leave live metering newer than the durable checkpoint.
   await query(
@@ -218,7 +218,11 @@ export async function startReplyWorker(db) {
   );
   await query(db, "UPDATE assistant_replies SET execution_active=FALSE WHERE execution_active=TRUE");
   await query(db, "UPDATE agent_requests SET status='queued' WHERE status='running'");
-  const subscribe = (wake) => subscribeWork(db, wake);
+  const subscribe = (wake) => {
+    const unsubWorker = subscribeWork(db, wake);
+    const unsubHttp = listenDb && listenDb !== db ? subscribeWork(listenDb, wake) : () => {};
+    return () => { unsubWorker(); unsubHttp(); };
+  };
   const run = (work, concurrency = 1) => startWakeWorker(async () => {
     const worked = await work();
     if (worked) publishWork(db);

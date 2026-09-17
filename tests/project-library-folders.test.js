@@ -88,8 +88,8 @@ test("official subfolder delete moves contained artifacts to recycle", async () 
         [project.id]))[0].id,
     });
     const artifactId = randomUUID();
-    await query(db, "INSERT INTO artifacts(id,project_id,folder_id,title) VALUES(?,?,?,?)",
-      [artifactId, project.id, created.id, "说明"]);
+    await query(db, "INSERT INTO artifacts(id,project_id,folder_id,title,created_by) VALUES(?,?,?,?,?)",
+      [artifactId, project.id, created.id, "说明", user.id]);
     await libraryChange(service, user, project.id, "remove-folder", created.id, {});
     const [artifact] = await query(db, "SELECT deleted_at,folder_id,recycle_path FROM artifacts WHERE id=?", [artifactId]);
     assert.ok(artifact.deleted_at);
@@ -101,6 +101,40 @@ test("official subfolder delete moves contained artifacts to recycle", async () 
     assert.equal(restored.folder_id, created.id);
     const [folder] = await query(db, "SELECT name FROM document_folders WHERE id=?", [created.id]);
     assert.equal(folder.name, "主题目录");
+  } finally {
+    await database.close();
+  }
+});
+
+test("folder-deleted documents remain in project versions for recycle", async () => {
+  const database = await testDatabase();
+  const db = database.db;
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [user.id, `${user.id}@test.com`, "负责人"]);
+    const service = new Service(db);
+    const project = await service.createProject(user, { name: "库" });
+    const [official] = await query(db,
+      "SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_official' AND parent_id IS NULL LIMIT 1",
+      [project.id]);
+    const folder = await libraryChange(service, user, project.id, "folder", null, {
+      name: "待删目录",
+      parentId: official.id,
+    });
+    const uploaded = await service.uploadOfficialDocument(user, project.id, {
+      folderId: folder.id,
+      title: "带版本",
+      filename: "note.txt",
+      mime: "text/plain",
+      contentBase64: Buffer.from("note").toString("base64"),
+    });
+    await libraryChange(service, user, project.id, "remove-folder", folder.id, {});
+    const detail = await service.project(user, project.id);
+    const recycled = detail.versions.find((row) => row.artifact_id === uploaded.artifactId);
+    assert.ok(recycled?.deleted_at);
+    assert.equal(recycled.folder_id, null);
+    assert.ok(recycled.recycle_path);
   } finally {
     await database.close();
   }
@@ -248,7 +282,7 @@ test("save to official copies cache files into the official root", async () => {
         contentBase64: Buffer.from("v2").toString("base64"),
         artifactId: uploaded.artifactId,
       }, undefined, undefined, false, { silent: true }),
-      (error) => error.status === 403 && /只读来源/.test(error.message),
+      (error) => error.status === 400 && /必须创建新文件/.test(error.message),
     );
     await assert.rejects(
       () => libraryChange(service, user, project.id, "version", uploaded.id, { deleted: true }),
@@ -315,7 +349,7 @@ test("official documents stay single-version, confirmed, and unreviewable", asyn
         contentBase64: Buffer.from("# v2").toString("base64"),
         artifactId: uploaded.artifactId,
       }, undefined, undefined, false, { silent: true }),
-      (error) => error.status === 403 && /不分版本/.test(error.message),
+      (error) => error.status === 400 && /必须创建新文件/.test(error.message),
     );
     const topic = await libraryChange(service, user, project.id, "folder", null, {
       name: "主题",

@@ -53,7 +53,9 @@ test("action labels distinguish scripts from shell commands without inventing we
   });
   assert.equal(label("post_message").action, "发言");
   assert.equal(label("list_project_tasks").action, "查看任务");
-  assert.equal(label("finish_turn").action, "结束本轮");
+  assert.equal(label("recover_task", { action: "restart" }).action, "重新安排任务");
+  assert.equal(label("inspect_task").action, "询问任务进度");
+  assert.equal(label("report_task").action, "交活");
   assert.equal(label("thinking").action, "思考");
 });
 
@@ -116,7 +118,7 @@ test("each completed assistant text return is published, thinking is not", async
   assert.deepEqual(published, ["第一句给成员看。", "第二句给成员看。"]);
 });
 
-test("wait/finish companion text is thinking, not a group post", async () => {
+test("ordinary tool calls do not hide already streamed group text", async () => {
   const writes = [];
   const db = {
     async execute(sql, params) {
@@ -136,15 +138,16 @@ test("wait/finish companion text is thinking, not a group post", async () => {
   notify("assistant/message");
   notify("step/start");
   chunk("text-delta", "已进入等待。");
-  notify("tool/call", { name: "wait_for_updates" });
+  notify("tool/call", { name: "list_project_tasks" });
   await tracker.close("completed");
-  assert.deepEqual(published, ["给成员看。"]);
-  assert.ok(writes.some((write) => write.params?.[2] === "thinking" && write.params?.[1] === "已进入等待。"));
+  assert.deepEqual(published, ["给成员看。", "已进入等待。"]);
 });
 
 test("conversation log button follows the live L2 event name", () => {
   const replies = [{ message_id: "m1", parent_message_id: null, status: "completed", progress: null }];
   assert.equal(coordinatorLogButtonLabel({ replies, events: [] }), "轨迹");
+  replies[0].status = "queued";
+  assert.equal(coordinatorLogButtonLabel({ replies, events: [] }), "等待处理");
   replies[0].status = "running";
   replies[0].progress = "正在准备上下文";
   assert.equal(coordinatorLogButtonLabel({ replies, events: [] }), "正在准备上下文");

@@ -35,6 +35,25 @@ test("idle workers stop querying, wake on commits and retain notifications recei
   assert.equal(calls, 5);
 });
 
+test("http commits wake the worker even when they use a different connection pool", async () => {
+  const workerDb = {}, httpDb = {};
+  let calls = 0;
+  const stop = startWakeWorker(async () => { calls++; return false; }, {
+    subscribe: (wake) => {
+      const unsubWorker = subscribeWork(workerDb, wake);
+      const unsubHttp = subscribeWork(httpDb, wake);
+      return () => { unsubWorker(); unsubHttp(); };
+    },
+  });
+  try {
+    await turn();
+    const before = calls;
+    publishWork(httpDb, "discussion");
+    for (let i = 0; i < 5; i++) await turn();
+    assert.ok(calls > before);
+  } finally { stop(); }
+});
+
 test("wake pool bounds simultaneous work and drains newly available jobs after a sibling sees idle", async () => {
   const gates = [Promise.withResolvers(), Promise.withResolvers()];
   let calls = 0, active = 0, peak = 0;

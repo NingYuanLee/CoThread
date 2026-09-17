@@ -30,10 +30,13 @@ export async function acquireSessionLock(db, threadId, waitSeconds = 0) {
 export async function discussionHasActiveCoordinator(db, threadId) {
   const [busy] = await query(db,
     `SELECT 1 AS busy FROM agent_requests q JOIN messages m ON m.id=q.message_id
-     WHERE m.thread_id=? AND q.status='running'
+     WHERE m.thread_id=? AND q.status IN ('queued','running')
      UNION ALL
      SELECT 1 FROM assistant_replies r JOIN messages m ON m.id=r.message_id
      WHERE m.thread_id=? AND r.parent_message_id IS NULL AND (r.status='running' OR r.execution_active=TRUE)
-     LIMIT 1`, [threadId, threadId]);
+     UNION ALL
+     SELECT 1 FROM coordinator_events e
+     WHERE e.thread_id=? AND e.status IN ('queued','running')
+     LIMIT 1`, [threadId, threadId, threadId]);
   return Boolean(busy);
 }

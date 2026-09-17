@@ -18,7 +18,7 @@ export async function synchronizeDiscussionContext(db, threadId, openRuntime) {
     const [pending] = await query(db,
       `SELECT t.created_by,s.seen_sequence FROM threads t LEFT JOIN agent_sessions s ON s.thread_id=t.id
        WHERE t.id=? AND t.status='active' AND COALESCE(s.compact_status,'idle')<>'running'
-       AND (COALESCE(s.compact_status,'idle')<>'failed' OR s.updated_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 30 SECOND))
+       AND (COALESCE(s.compact_status,'idle')<>'failed' OR s.updated_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 5 MINUTE))
        AND EXISTS(SELECT 1 FROM messages m WHERE m.thread_id=t.id AND m.sequence>COALESCE(s.seen_sequence,0))`, [threadId]);
     if (!pending) return false;
     const user = { id: pending.created_by, kind: "session" };
@@ -35,7 +35,8 @@ export async function synchronizeDiscussionContext(db, threadId, openRuntime) {
     if (runtime) await runtime.close().catch(() => {});
     await query(db, "UPDATE agent_sessions SET compact_status='failed',compact_error=?,updated_at=UTC_TIMESTAMP(3) WHERE thread_id=?",
       [`上下文同步未完成，聊天记录仍完整保留。（${agentFailureCode(error)}）`, threadId]);
-    throw error;
+    console.error("Discussion context sync failed", { type: error?.name || "Error" });
+    return false;
   } finally {
     if (locked) await query(connection, "SELECT RELEASE_LOCK(?)", [key]);
     connection.release();
@@ -46,7 +47,7 @@ export async function synchronizeNextDiscussion(db, threadId, openRuntime) {
   const candidates = threadId ? [{ id: threadId }] : await query(db,
     `SELECT t.id FROM threads t LEFT JOIN agent_sessions s ON s.thread_id=t.id
      WHERE t.status='active' AND COALESCE(s.compact_status,'idle')<>'running'
-     AND (COALESCE(s.compact_status,'idle')<>'failed' OR s.updated_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 30 SECOND))
+     AND (COALESCE(s.compact_status,'idle')<>'failed' OR s.updated_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 5 MINUTE))
      AND EXISTS(SELECT 1 FROM messages m WHERE m.thread_id=t.id AND m.sequence>COALESCE(s.seen_sequence,0))
      ORDER BY COALESCE(s.updated_at,t.created_at) LIMIT 10`);
   for (const candidate of candidates) if (await synchronizeDiscussionContext(db, candidate.id, openRuntime)) return true;

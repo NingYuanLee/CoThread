@@ -54,8 +54,8 @@ test("built-in read_iteration and project_context return compact results and log
   const service = {
     db: { execute: async (sql, args) => {
       if (sql.startsWith("SELECT status")) return [[{ status: "running" }]];
-      if (sql.startsWith("UPDATE agent_events SET status='completed'")) outputs.push(args[0]);
-      return [{ insertId: 1 }];
+      if (sql.startsWith("UPDATE agent_events SET status='completed'")) { outputs.push(args[0]); return [{}]; }
+      return [[]];
     } },
     thread: async () => context, member: async () => ({}),
     context: async () => context, project: async () => project,

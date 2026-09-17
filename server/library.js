@@ -198,7 +198,7 @@ export async function libraryChange(
       const current = target ? await requireScope(await folder(target)) : null;
       if (target && current?.system_key)
         throw new HttpError(403, "系统文件夹不能重命名、移动或删除");
-      const destination = data.parentId !== undefined ? await requireScope(await folder(data.parentId)) : null;
+      const destination = data.parentId ? await requireScope(await folder(data.parentId)) : null;
       const currentRoot = current ? await folderRootKind(db, current.id) : null;
       const destinationRoot = destination ? await folderRootKind(db, destination.id) : null;
       if (human) {

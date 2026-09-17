@@ -58,3 +58,37 @@ test("coordinator waits for a concurrent claim instead of declaring a queued dis
     await database.close();
   }
 });
+
+test("child_result events wake L2 and post the visible follow-up", async () => {
+  const database = await testDatabase(), db = database.db, service = new Service(db);
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [user.id, `${user.id}@test.com`, "成员"]);
+    const project = await service.createProject(user, { name: "交活唤醒" });
+    const created = await service.createThread(user, project.id, { title: "任务" });
+    const thread = await service.thread(user, created.id);
+    const trigger = await service.postMessage(user, thread.id, { body: "@小祥 做个文件" });
+    await query(db, "UPDATE agent_requests SET status='completed' WHERE message_id=?", [trigger.id]);
+    await query(db, "UPDATE assistant_replies SET status='completed',participation='reply' WHERE message_id=?", [trigger.id]);
+    await query(db, `INSERT INTO coordinator_events(id,thread_id,kind,status,message_id,task_id,payload)
+      VALUES(UUID(),?,'child_result','queued',?,?,?)`,
+      [thread.id, trigger.id, randomUUID(), JSON.stringify({
+        status: "failed", title: "制作测试文档.md", resultSummary: "任务未完成",
+        failureReason: "任务已停止或迭代已归档", sourceMessageId: trigger.id, sourceUserId: user.id,
+      })]);
+    let seen;
+    assert.equal(await processNextCoordinator(db, thread.id, async (context, { job }) => {
+      seen = { kind: job.kind, title: context.promptContext.event.title };
+      return { finalResponse: "文档没做成，沙箱在交活前被停了。要不要我再派一次？", mergedMessageIds: [] };
+    }), true);
+    assert.equal(seen.kind, "child_result");
+    assert.equal(seen.title, "制作测试文档.md");
+    const posts = await query(db, "SELECT body FROM messages WHERE agent_task_id=? AND source='assistant' ORDER BY sequence", [trigger.id]);
+    assert.equal(posts.at(-1).body, "文档没做成，沙箱在交活前被停了。要不要我再派一次？");
+    const [event] = await query(db, "SELECT status FROM coordinator_events WHERE thread_id=?", [thread.id]);
+    assert.equal(event.status, "completed");
+  } finally {
+    await database.close();
+  }
+});
+

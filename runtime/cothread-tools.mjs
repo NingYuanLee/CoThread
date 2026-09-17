@@ -6,15 +6,15 @@ export function apply(ctx) {
   // This build-time manifest is the only source of model-facing project tools.
   // Accounts and project data cannot extend it at runtime.
   const definitions = [
-    ["post_message", "向当前迭代群聊额外发布一条独立消息。模型回复正文会自动进入群聊，不必把同一段话再发一遍。", { text: { type: "string", required: true } }],
-    ["list_project_tasks", "读取当前项目任务池中的正式任务和内部辅助任务。", { status: { type: "string" }, targetId: { type: "string" }, limit: { type: "number" } }],
-    ["update_task", "更新当前负责任务的状态、进度、结果摘要或产物。", { taskId:{type:"string",required:true}, status:{type:"string"}, progress:{type:"string"}, resultSummary:{type:"string"}, artifactRefs:{type:"array"}, body:{type:"string"} }],
-    ["reassign_task", "把当前 L2 负责的正式任务转交给项目人类成员或当前迭代 L2，并记录转交历史。", { taskId:{type:"string",required:true}, targetType:{type:"string",required:true}, targetId:{type:"string",required:true}, reason:{type:"string"} }],
-    ["resolve_task_rejection", "处理由当前 L2 创建或最近转发、随后被目标成员拒绝的任务。可确认已知晓，或修改后按原目标重新发起。", { taskId:{type:"string",required:true}, action:{type:"string",required:true}, title:{type:"string"}, goal:{type:"string"}, constraints:{type:"string"}, reason:{type:"string"} }],
-    ["ask_task_question", "向任务的最新来源人提问。问题会作为群聊事件发布，提问后继续等待，不结束 L2。", { taskId:{type:"string",required:true}, question:{type:"string",required:true} }],
-    ["wait_for_updates", "把当前 L2 标记为等待任务、消息或成员确认。", { reason:{type:"string"} }],
-    ["finish_turn", "在当前上下文已经稳定时结束本次 L2 工作周期，但不销毁迭代 session。", { state:{type:"string"} }],
-    ["create_task", "创建项目任务。assist_l2 只用于即将调度的 DSH L3 执行工作，不要为小祥自己就能完成的回复或协调建任务；formal 可指派给人类成员或当前 L2。", {
+    ["list_project_tasks", "读取当前迭代锁定的任务池。每条含状态、进度、当前执行心跳和已运行秒数。不含其他迭代的任务。", { status: { type: "string" }, targetId: { type: "string" }, limit: { type: "number" } }],
+    ["inspect_task", "查看当前迭代某任务的执行快照：状态、心跳、最近工具，以及建议下一步。自己责任（L2/L3）随时可看；成员名下任务须本轮人类成员账号授权。活着的 L3 会给出 send_message 的 agentId；要当面问进度请再 send_message，根据回复决定补充帮助还是 interrupt 后换 L3。", { taskId:{type:"string",required:true} }],
+    ["update_task", "更新当前负责任务的状态、进度、结果摘要或产物。L3 日常进度用本工具；结束必须改用 report_task。", { taskId:{type:"string",required:true}, status:{type:"string"}, progress:{type:"string"}, resultSummary:{type:"string"}, artifactRefs:{type:"array"}, body:{type:"string"} }],
+    ["report_task", "L3 结束前必须调用：向 L2 交活。status=completed|failed|blocked。无论成败都要交一份真实摘要；调用后不要再继续干活。", { taskId:{type:"string"}, status:{type:"string",required:true}, summary:{type:"string",required:true}, reason:{type:"string"}, artifactRefs:{type:"array"} }],
+    ["reassign_task", "把任务转交给项目人类成员或当前迭代 L2。自己责任的任务可在 L2/L3 之间转交；转给人类或转交成员名下任务须本轮人类成员账号授权。assist_l2 不能转给人类。", { taskId:{type:"string",required:true}, targetType:{type:"string",required:true}, targetId:{type:"string",required:true}, reason:{type:"string"} }],
+    ["resolve_task_rejection", "处理被目标成员拒绝的任务。成员名下拒绝结果须本轮人类成员账号授权后，才可确认已知晓或修改后按原目标重新发起。", { taskId:{type:"string",required:true}, action:{type:"string",required:true}, title:{type:"string"}, goal:{type:"string"}, constraints:{type:"string"}, reason:{type:"string"} }],
+    ["recover_task", "安排异常任务。自己责任的 L3 任务随时可处理；成员名下任务须本轮人类成员账号授权。失败、排队、执行中、等待、阻塞、已取消或已完成都可处理。action=restart 结束当前执行并重新排队；对人的任务会回到待确认（含连接器执行中），对 L3 任务会重新派发。返回 interruptedAgentId 时先 interrupt_agent 再立刻 dsh_l3。action=cancel 放弃该任务（已完成除外）。不要声称只能由平台恢复，也不要在沙箱里直连数据库。", { taskId:{type:"string",required:true}, action:{type:"string",required:true}, title:{type:"string"}, goal:{type:"string"}, constraints:{type:"string"}, reason:{type:"string"} }],
+    ["ask_task_question", "向当前迭代某任务的最新来源人提问。问题会作为群聊事件发布。自己责任的任务随时可问；成员名下任务须本轮人类成员账号授权。", { taskId:{type:"string",required:true}, question:{type:"string",required:true} }],
+    ["create_task", "创建项目任务。日常只派给 L3：assist_l2 或目标为本 L2 的 formal。不要为小祥自己就能完成的回复或协调建任务。把 formal 指派给人类成员须本轮人类成员账号授权。", {
       taskType: { type: "string", required: true }, title: { type: "string", required: true }, goal: { type: "string", required: true },
       constraints: { type: "string" }, sourceType:{type:"string"}, sourceUserId:{type:"string"}, sourceMessageId:{type:"string"}, sourceTaskId:{type:"string"}, targetType: { type: "string" }, targetId: { type: "string" },
     }],
@@ -146,7 +146,7 @@ export function apply(ctx) {
         },
       }),
     );
-  ctx.on("agent/created", ({ agent }) => {
+  ctx.on?.("agent/created", ({ agent }) => {
     const primaryLevel = process.env.COTHREAD_PRIMARY_AGENT_LEVEL || "l3";
     const primaryId = process.env.COTHREAD_PRIMARY_AGENT_ID || "";
     const level = primaryLevel === "l2" && primaryId && agent.id !== primaryId ? "l3" : primaryLevel;

@@ -76,7 +76,7 @@ export function startDevGateway({ host = "127.0.0.1", uiPort, apiPort, vitePort 
     forwardHttp(req, res, {
       port: api ? apiPort : vitePort,
       hostHeader: api ? (req.headers.host || publicHost) : publicHost,
-      timeoutMs: api ? 120_000 : 20_000,
+      timeoutMs: api ? 120_000 : 120_000,
     });
   });
   server.on("upgrade", (req, socket, head) => {

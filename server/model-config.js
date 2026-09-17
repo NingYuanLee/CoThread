@@ -45,7 +45,7 @@ export function modelConfig(scope = "coordinator", env = process.env) {
   const separator = configuredModel.lastIndexOf("@");
   const hasEffort = separator > 0;
   const model = (hasEffort ? configuredModel.slice(0, separator) : configuredModel).trim();
-  const reasoningEffort = (hasEffort ? configuredModel.slice(separator + 1) : "medium").trim().toLowerCase();
+  const reasoningEffort = (hasEffort ? configuredModel.slice(separator + 1) : (scope === "coordinator" ? "low" : "medium")).trim().toLowerCase();
   if (!model) throw new Error(`${prefix} must include a model name`);
   if (!REASONING_EFFORTS.has(reasoningEffort))
     throw new Error(`${prefix} reasoning effort must be one of: off, none, minimal, low, medium, high, xhigh, max, ultra`);
@@ -59,10 +59,11 @@ export function modelConfig(scope = "coordinator", env = process.env) {
 }
 
 export async function modelResponse(
-  { messages, maxTokens, scope = "coordinator", signal = AbortSignal.timeout(60000) },
+  { messages, maxTokens, scope = "coordinator", reasoningEffort, signal = AbortSignal.timeout(60000) },
   request = fetch,
 ) {
   const config = modelConfig(scope);
+  const effort = reasoningEffort || config.reasoningEffort;
   const response = await request(config.responsesUrl, {
     method: "POST",
     signal,
@@ -76,7 +77,7 @@ export async function modelResponse(
       store: false,
       max_output_tokens: maxTokens,
       input: messages,
-      ...reasoningOptions(config),
+      ...reasoningOptions({ reasoningEffort: effort }),
     }),
   });
   if (!response.ok) throw new Error(`Model HTTP ${response.status}`);

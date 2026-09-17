@@ -72,11 +72,13 @@ test("L2 and L3 receive different model-facing tool schemas", () => {
     } } } });
     assert.ok(!restrictions.primary.includes("sandbox_command"));
     assert.ok(!restrictions.primary.includes("publish_artifact"));
-    for (const name of ["create_task", "reassign_task", "resolve_task_rejection", "ask_task_question",
-      "wait_for_updates", "finish_turn", "dsh_l3", "send_message", "interrupt_agent", "list_agents"])
+    for (const name of ["create_task", "reassign_task", "resolve_task_rejection", "recover_task", "inspect_task", "ask_task_question",
+      "dsh_l3", "send_message", "interrupt_agent", "list_agents"])
       assert.ok(!restrictions.child.includes(name), name);
     assert.ok(restrictions.child.includes("sandbox_command"));
     assert.ok(restrictions.child.includes("publish_artifact"));
+    assert.ok(restrictions.child.includes("report_task"));
+    assert.ok(!restrictions.primary.includes("report_task"));
   } finally {
     for (const [key, value] of Object.entries(previous)) {
       const envKey = { all:"COTHREAD_ALLOWED_TOOLS", levels:"COTHREAD_ALLOWED_TOOLS_BY_LEVEL",

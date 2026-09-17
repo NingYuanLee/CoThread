@@ -56,6 +56,43 @@ test("L2 runtime does not compact below 900K, and a compact RPC failure does not
   }
 });
 
+test("a corrupt L2 session log is discarded and the runtime starts fresh", async () => {
+  const database = await testDatabase(), db = database.db, service = new Service(db);
+  let runtime;
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [user.id, `${user.id}@test.com`, "成员"]);
+    const project = await service.createProject(user, { name: "损坏会话" });
+    const thread = await service.createThread(user, project.id, { title: "L2" });
+    const context = await service.context(user, thread.id);
+    await query(db, "UPDATE agent_sessions SET checkpoint=? WHERE thread_id=?", [Buffer.from("stale"), thread.id]);
+    let starts = 0;
+    const createHarness = () => ({
+      start: async () => {
+        starts += 1;
+        if (starts === 1) {
+          const error = new Error("corrupt session log: seq gap in committed region at line 1474");
+          error.name = "JsonRpcResponseError";
+          throw error;
+        }
+      },
+      close: async () => {},
+      client: { request: async () => ({ used: 0, categories: {} }) },
+    });
+    runtime = await openAgentRuntime(context, {
+      db, user, job: { thread_id: thread.id }, autoCompact: false, createHarness,
+    });
+    assert.equal(starts, 2);
+    const [row] = await query(db, "SELECT checkpoint FROM agent_sessions WHERE thread_id=?", [thread.id]);
+    assert.equal(row.checkpoint, null);
+    await runtime.close(true);
+    runtime = undefined;
+  } finally {
+    if (runtime) await runtime.close().catch(() => {});
+    await database.close();
+  }
+});
+
 test("context sync yields while the coordinator holds the L2 session", async () => {
   const database = await testDatabase(), db = database.db, service = new Service(db);
   try {
@@ -64,8 +101,14 @@ test("context sync yields while the coordinator holds the L2 session", async () 
     const project = await service.createProject(user, { name: "会话互斥" });
     const thread = await service.createThread(user, project.id, { title: "锁" });
     const message = await service.postMessage(user, thread.id, { body: "@小祥 开始" });
-    assert.equal(await discussionHasActiveCoordinator(db, thread.id), false);
+    assert.equal(await discussionHasActiveCoordinator(db, thread.id), true);
     await query(db, "UPDATE agent_requests SET status='running' WHERE message_id=?", [message.id]);
+    assert.equal(await discussionHasActiveCoordinator(db, thread.id), true);
+    await query(db, "UPDATE agent_requests SET status='completed' WHERE message_id=?", [message.id]);
+    await query(db, "UPDATE assistant_replies SET status='completed' WHERE message_id=?", [message.id]);
+    assert.equal(await discussionHasActiveCoordinator(db, thread.id), false);
+    await query(db, `INSERT INTO coordinator_events(id,thread_id,kind,status)
+      VALUES(UUID(),?,'child_result','queued')`, [thread.id]);
     assert.equal(await discussionHasActiveCoordinator(db, thread.id), true);
     const held = await acquireSessionLock(db, thread.id, 0);
     assert.ok(held);

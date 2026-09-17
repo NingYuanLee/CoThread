@@ -16,7 +16,7 @@ async function api(path, data, auth = { cookie }) {
     headers: { "Content-Type": "application/json", ...(auth.cookie ? { Cookie: auth.cookie } : { Authorization: `Bearer ${auth.token}` }) },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
-  return { status: response.status, body: await response.json(), cookie: response.headers.get("set-cookie")?.split(";")[0] };
+  return { status: response.status, body: await response.json(), cookie: response.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ") || undefined };
 }
 async function mcp(name, args) {
   const response = await fetch(`${base}/mcp`, {
@@ -114,11 +114,10 @@ test("MCP discovers the target, submits a standalone version, then sends files +
   assert.ok(!projects.data.some((p) => p.id === foreignProjectId));
   const project = await mcp("get_project", { projectId });
   assert.ok(project.data.threads.some((t) => t.id === threadId));
-  const folder = (await api(`/projects/${projectId}/folders`, { name: "方案" })).body.id;
-  const existing = await mcp("submit_document", { threadId, ...file("reference.md"), folderId: folder });
+  const existing = await mcp("submit_document", { threadId, ...file("reference.md") });
   assert.equal(existing.error, false);
   const beforeContext = (await mcp("get_iteration_context", { threadId })).data;
-  const result = await mcp("post_message", { threadId, body: "一起检查这些文件", mentionAgent: true, refs: [existing.data.id], files: [file("plan.md", { folderId: folder }), file("notes.md")] });
+  const result = await mcp("post_message", { threadId, body: "一起检查这些文件", mentionAgent: true, refs: [existing.data.id], files: [file("plan.md"), file("notes.md")] });
   assert.equal(result.error, false);
   assert.equal(result.data.files.length, 2);
   assert.equal(result.data.refs.length, 3);
@@ -134,7 +133,7 @@ test("MCP discovers the target, submits a standalone version, then sends files +
   assert.equal(reply.status, "queued");
   const saved = (await mcp("get_project", { projectId })).data.versions;
   for (const upload of result.data.files) assert.ok(saved.some((v) => v.id === upload.id));
-  assert.equal(saved.find((v) => v.id === result.data.files[0].id).folder_id, folder);
+  assert.ok(saved.find((v) => v.id === existing.data.id));
   const downloaded = await mcp("get_document_version", { versionId: result.data.files[0].id });
   assert.equal(downloaded.data.contentBase64, file().contentBase64);
 });

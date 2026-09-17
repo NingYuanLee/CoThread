@@ -138,7 +138,7 @@ test("a hosted owner picks up another member while the main request is still run
       if (job.message_id === first.id) { entered.resolve(); await release.promise; }
       else { assert.equal(job.parent_message_id, job.message_id); childDone.resolve(); }
       return "finished " + job.message_id;
-    }, undefined, id), compress: async () => false,
+    }, undefined, id), compress: async () => false, coordinate: async () => false,
   };
   const running = runMakersThread(db, users[0], thread.id, undefined, operations);
   void running.catch(entered.reject);

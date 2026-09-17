@@ -14,8 +14,14 @@ import { bindMakersSandbox } from "./makers-sandbox.js";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { loadMemberUnderstanding, loadProjectWikiIndexes, queueDocumentMemory } from "./project-memory.js";
 import { connectorTool } from "./connectors.js";
-import { acknowledgeTaskRejection, askTaskQuestion, createTask, ensureDshL3CanUpdate, listTasks, reassignTask, reopenRejectedTask, updateTask } from "./task-pool.js";
+import { acknowledgeTaskRejection, askTaskQuestion, createTask, ensureDshL3CanUpdate, inspectIterationTask, listTasks, reassignTask, recoverAbnormalTask, reopenRejectedTask, updateTask } from "./task-pool.js";
 import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./project-library.js";
+
+function l2Actor(job, l2SessionId) {
+  const authorizedByUserId = job.kind !== "child_result" && job.author_id && job.author_id !== AGENT_MEMBER.id
+    ? job.author_id : null;
+  return { type: "l2_session", id: l2SessionId, authorizedByUserId };
+}
 
 const titles = {
   list_documents:"查看",manage_document:"整理",manage_folder:"整理",
@@ -29,18 +35,26 @@ const titles = {
   sandbox_read: "读取",
   sandbox_write: "写入",
   publish_artifact: "保存",
-  post_message: "发言", create_task: "创建任务", update_task: "更新任务", reassign_task: "转交任务", resolve_task_rejection: "处理任务拒绝", ask_task_question: "提出问题", wait_for_updates: "等待更新", finish_turn: "结束本轮", list_project_tasks: "查看任务",
+  post_message: "发言", create_task: "创建任务", update_task: "更新任务", report_task: "交活",
+  reassign_task: "转交任务", resolve_task_rejection: "处理任务拒绝", recover_task: "安排任务", ask_task_question: "提出问题",
+  list_project_tasks: "查看任务", inspect_task: "询问任务进度",
 };
-export async function assertJob(service, user, job) {
+export async function assertJob(service, user, job, { role, sessionId } = {}) {
   const thread = await service.thread(user, job.thread_id);
   await service.member(user, thread.project_id, true);
-  const [record] = await query(
-    service.db,
-    "SELECT status FROM assistant_replies WHERE message_id=?",
-    [job.message_id],
-  );
-  if (thread.status !== "active" || record?.status !== "running")
-    throw new HttpError(409, "任务已停止或迭代已归档");
+  if (thread.status !== "active") throw new HttpError(409, "任务已停止或迭代已归档");
+  if (role === "executor" && sessionId) {
+    const [run] = await query(service.db, `SELECT 1 AS ok FROM agent_task_execution_runs
+      WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting') LIMIT 1`, [sessionId]);
+    if (!run) throw new HttpError(409, "任务已停止或迭代已归档");
+    return thread;
+  }
+  if (job.kind === "child_result") return thread;
+  const [record] = await query(service.db, "SELECT status FROM assistant_replies WHERE message_id=?", [job.message_id]);
+  if (record && !["queued", "running"].includes(record.status)) {
+    const [request] = await query(service.db, "SELECT status FROM agent_requests WHERE message_id=?", [job.message_id]);
+    if (request?.status !== "running") throw new HttpError(409, "任务已停止或迭代已归档");
+  }
   return thread;
 }
 export function createAgentTools(
@@ -50,11 +64,10 @@ export function createAgentTools(
   { getSandbox, role = "executor", l2SessionId } = {},
 ) {
   getSandbox ||= bindMakersSandbox(acquireSandbox);
-  let calls = 0;
   const progress = (text) =>
     query(
       service.db,
-      "UPDATE assistant_replies SET progress=? WHERE message_id=?",
+      "UPDATE assistant_replies SET progress=? WHERE message_id=? AND status='running'",
       [text, job.message_id],
     );
   const root = `/home/user/cothread/${agentSession(job).workspaceId}`;
@@ -63,14 +76,12 @@ export function createAgentTools(
     const effectiveRole = role === "coordinator" && caller.sessionId && caller.sessionId !== l2SessionId
       ? "executor"
       : role;
-    const thread = await assertJob(service, user, job);
+    const thread = await assertJob(service, user, job, { role: effectiveRole, sessionId: caller.sessionId });
     if (!titles[name]) throw new HttpError(400, "未知工具");
-    if (effectiveRole === "coordinator" && !["list_documents", "list_messages", "read_message", "list_members", "read_member", "project_context", "read_document", "record_document_summary", "read_iteration", "list_project_tasks", "create_task", "update_task", "reassign_task", "resolve_task_rejection", "ask_task_question", "wait_for_updates", "finish_turn", "post_message"].includes(name))
+    if (effectiveRole === "coordinator" && !["list_documents", "list_messages", "read_message", "list_members", "read_member", "project_context", "read_document", "record_document_summary", "read_iteration", "list_project_tasks", "inspect_task", "create_task", "update_task", "reassign_task", "resolve_task_rejection", "recover_task", "ask_task_question"].includes(name))
       throw new HttpError(403, "L2 当前不能直接执行该工具");
-    if (effectiveRole === "executor" && ["create_task", "reassign_task", "resolve_task_rejection", "ask_task_question", "wait_for_updates", "finish_turn"].includes(name))
+    if (effectiveRole === "executor" && ["create_task", "reassign_task", "resolve_task_rejection", "recover_task", "inspect_task", "ask_task_question"].includes(name))
       throw new HttpError(403, "L3 只能执行已分派的工作，不能管理 L2 生命周期或创建新任务");
-    if (++calls > 40)
-      throw new HttpError(429, "本次工具调用已达 40 次，请分步继续");
     let agentTaskId = null;
     if (effectiveRole === "executor" && caller.sessionId) {
       const [activeRun] = await query(service.db, `SELECT task_id FROM agent_task_execution_runs
@@ -91,26 +102,36 @@ export function createAgentTools(
       [label, caller.sessionId]);
     try {
       let result;
-      if (name === "post_message") {
-        const text = z.string().trim().min(1).max(4000).parse(args.text);
-        const message = await service.insertMessage(service.db, user, job.thread_id, text, [], "assistant", job.message_id);
-        result = { messageId: message.id, posted: true };
-      } else if (name === "list_project_tasks") {
-        result = await listTasks(service.db, thread.project_id, args);
+      if (name === "list_project_tasks") {
+        result = await listTasks(service.db, thread.project_id, { ...args, originThreadId: thread.id });
+      } else if (name === "inspect_task") {
+        result = await inspectIterationTask(service.db, z.string().uuid().parse(args.taskId),
+          l2Actor(job, l2SessionId));
       } else if (name === "update_task") {
         const taskId = z.string().uuid().parse(args.taskId);
         if (effectiveRole === "executor") {
           await ensureDshL3CanUpdate(service.db, l2SessionId, caller.sessionId, taskId);
         }
-        result = await updateTask(service.db, taskId, { type: "l2_session", id: l2SessionId }, args);
+        result = await updateTask(service.db, taskId, l2Actor(job, l2SessionId), args);
+      } else if (name === "report_task") {
+        if (effectiveRole !== "executor") throw new HttpError(403, "只有执行中的 L3 可以交活");
+        const taskId = z.string().uuid().parse(args.taskId || agentTaskId);
+        await ensureDshL3CanUpdate(service.db, l2SessionId, caller.sessionId, taskId);
+        const status = z.enum(["completed", "failed", "blocked"]).parse(args.status);
+        result = await updateTask(service.db, taskId, l2Actor(job, l2SessionId), {
+          status,
+          resultSummary: z.string().trim().min(1).max(20000).parse(args.summary),
+          artifactRefs: args.artifactRefs,
+          progress: status === "completed" ? "L3 已交活" : z.string().max(500).optional().parse(args.reason) || "L3 已交活",
+        });
       } else if (name === "reassign_task") {
         result = await reassignTask(service.db, z.string().uuid().parse(args.taskId),
-          { type: "l2_session", id: l2SessionId },
+          l2Actor(job, l2SessionId),
           { type: z.enum(["human_member", "l2_session"]).parse(args.targetType), id: z.string().uuid().parse(args.targetId) },
           z.string().trim().max(1000).optional().parse(args.reason));
       } else if (name === "resolve_task_rejection") {
         const taskId = z.string().uuid().parse(args.taskId);
-        const actor = { type: "l2_session", id: l2SessionId };
+        const actor = l2Actor(job, l2SessionId);
         const action = z.enum(["acknowledge", "reopen"]).parse(args.action);
         result = action === "acknowledge"
           ? await acknowledgeTaskRejection(service.db, taskId, actor)
@@ -120,20 +141,21 @@ export function createAgentTools(
               constraints: z.string().max(20000).optional().parse(args.constraints),
               reason: z.string().trim().max(1000).optional().parse(args.reason),
             });
+      } else if (name === "recover_task") {
+        result = await recoverAbnormalTask(service.db, z.string().uuid().parse(args.taskId),
+          l2Actor(job, l2SessionId), {
+            action: z.enum(["restart", "cancel"]).parse(args.action),
+            title: z.string().trim().min(1).max(240).optional().parse(args.title),
+            goal: z.string().trim().min(1).max(20000).optional().parse(args.goal),
+            constraints: args.constraints !== undefined ? z.string().max(20000).optional().parse(args.constraints) : undefined,
+            reason: z.string().trim().max(1000).optional().parse(args.reason),
+          });
       } else if (name === "ask_task_question") {
         const taskId = z.string().uuid().parse(args.taskId);
         const target = (await listTasks(service.db, thread.project_id, { limit: 200 })).find((item) => item.id === taskId);
-        if (!target || target.target_type !== "l2_session" || target.target_id !== l2SessionId) throw new HttpError(403, "任务不属于当前 L2");
-        result = await askTaskQuestion(service.db, taskId, { type: "l2_session", id: l2SessionId }, z.string().trim().min(1).max(4000).parse(args.question), target.source_user_id, job.message_id);
+        if (!target) throw new HttpError(404, "任务不存在");
+        result = await askTaskQuestion(service.db, taskId, l2Actor(job, l2SessionId), z.string().trim().min(1).max(4000).parse(args.question), target.source_user_id, job.message_id);
         await service.insertMessage(service.db, user, job.thread_id, "任务问题：" + result.question, [], "assistant", job.message_id);
-      } else if (name === "wait_for_updates") {
-        const reason = z.string().max(500).optional().parse(args.reason) || "等待更新";
-        await query(service.db, "UPDATE agent_sessions SET convergence_state='waiting',wait_reason=?,updated_at=UTC_TIMESTAMP(3) WHERE thread_id=?", [reason, job.thread_id]);
-        result = { waiting: true, reason };
-      } else if (name === "finish_turn") {
-        const state = z.enum(["stable", "completed", "stopped"]).default("stable").parse(args.state);
-        await query(service.db, "UPDATE agent_sessions SET convergence_state=?,wait_reason=NULL,convergence_until=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 30 SECOND),updated_at=UTC_TIMESTAMP(3) WHERE thread_id=?", [state, job.thread_id]);
-        result = { finished: true, state };
       } else if (name === "create_task") {
         const taskType = z.enum(["assist_l2", "formal"]).parse(args.taskType);
         const targetType = taskType === "assist_l2" ? "l2_session" : z.enum(["human_member", "l2_session"]).parse(args.targetType);
@@ -141,6 +163,7 @@ export function createAgentTools(
         result = await createTask(service.db, { projectId: thread.project_id, originThreadId: job.thread_id,
           sourceType: args.sourceType || "human_member", sourceUserId: args.sourceUserId || job.author_id, sourceMessageId: args.sourceMessageId || job.message_id, sourceTaskId: args.sourceTaskId || null,
           createdByType: effectiveRole === "coordinator" ? "l2_session" : "system", createdById: l2SessionId || job.message_id,
+          authorizedByUserId: l2Actor(job, l2SessionId).authorizedByUserId,
           taskType, title: z.string().trim().min(1).max(240).parse(args.title), goal: z.string().trim().min(1).max(20000).parse(args.goal),
           constraints: args.constraints, targetType, targetId });
       } else if (["list_documents","manage_document","manage_folder"].includes(name)) {
@@ -338,7 +361,8 @@ export function createAgentTools(
         "UPDATE agent_events SET status='completed',output=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?",
         [JSON.stringify(result).slice(0, 30000), event.insertId],
       );
-      await progress("工具已完成，Agent 正在继续处理");
+      if (name !== "report_task")
+        await progress("工具已完成，Agent 正在继续处理");
       if (effectiveRole === "executor" && caller.sessionId) await query(service.db,
         `UPDATE agent_task_execution_runs SET progress=?,heartbeat_at=UTC_TIMESTAMP(3)
          WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting')`,

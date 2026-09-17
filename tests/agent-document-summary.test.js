@@ -71,6 +71,10 @@ test("tasks reuse one version-bound summary across the project and coordinator c
       relatedTaskIds: [firstTask.id, secondTask.id] }]);
     assert.deepEqual(context.promptContext.tasks.map((task) => task.documentVersionIds),
       [[version.id], [version.id]]);
+    assert.equal(context.promptContext.tasks[0].closed, true);
+    assert.equal(context.promptContext.tasks[0].noBackfill, true);
+    assert.equal("resultSummary" in context.promptContext.tasks[0], false);
+    assert.equal("closed" in context.promptContext.tasks[1], false);
     const [count] = await query(db, "SELECT COUNT(*) count FROM agent_document_summaries WHERE version_id=?", [version.id]);
     assert.equal(Number(count.count), 1);
     assert.equal(Number((await query(db, "SELECT COUNT(*) count FROM agent_document_memory_queue WHERE version_id=?", [version.id]))[0].count), 0);

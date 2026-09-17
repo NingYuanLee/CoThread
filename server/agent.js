@@ -22,6 +22,91 @@ import { agentRuntimePatch } from "./dsh-runtime-config.js";
 import { acquireSessionLock } from "./session-lock.js";
 
 const running = new Map();
+const coordinatorRuntimes = new Map();
+const COORDINATOR_IDLE_MS = 5 * 60 * 1000;
+
+function agentRuntimeRoot() {
+  return process.env.COTHREAD_MAKERS === "true"
+    ? resolve(tmpdir(), "cothread-agents") : resolve(".local/agents");
+}
+
+export function isCorruptSessionLog(error) {
+  return /corrupt session log/i.test(String(error?.message || error || ""));
+}
+
+export async function resetAgentSessionStore(db, job) {
+  const spec = agentSession(job);
+  await query(
+    db,
+    `UPDATE ${spec.table} SET checkpoint=NULL,session_id=?,context_stats=NULL WHERE ${spec.key}=?`,
+    [randomUUID(), spec.id],
+  );
+  await rm(join(agentRuntimeRoot(), spec.homeId, "sessions"), { recursive: true, force: true });
+}
+
+async function discardCoordinatorRuntime(threadId, runtime) {
+  const entry = coordinatorRuntimes.get(threadId);
+  if (entry?.runtime === runtime) {
+    clearTimeout(entry.idleTimer);
+    coordinatorRuntimes.delete(threadId);
+  }
+  if (runtime) await runtime.close(false).catch(() => {});
+}
+
+export async function acquireCoordinatorRuntime(context, { db, job, user }) {
+  const key = job.thread_id;
+  const existing = coordinatorRuntimes.get(key);
+  if (existing?.runtime) {
+    clearTimeout(existing.idleTimer);
+    existing.idleTimer = undefined;
+    try {
+      await existing.runtime.bindTurn({ job, user, context });
+      existing.db = db;
+      return existing.runtime;
+    } catch (error) {
+      coordinatorRuntimes.delete(key);
+      await existing.runtime.close().catch(() => {});
+      console.error("Coordinator runtime rebind failed", { type: error?.name || "Error" });
+    }
+  }
+  const runtime = await openAgentRuntime(context, { db, job, user, role: "coordinator", keepalive: true });
+  coordinatorRuntimes.set(key, { runtime, db });
+  return runtime;
+}
+
+export async function parkCoordinatorRuntime(threadId, runtime, completed = true) {
+  const entry = coordinatorRuntimes.get(threadId);
+  if (!entry || entry.runtime !== runtime) {
+    await runtime.close(completed);
+    return;
+  }
+  try {
+    await runtime.park(completed);
+  } catch (error) {
+    coordinatorRuntimes.delete(threadId);
+    clearTimeout(entry.idleTimer);
+    await runtime.close(false).catch(() => {});
+    throw error;
+  }
+  const scheduleIdleClose = () => {
+    clearTimeout(entry.idleTimer);
+    entry.idleTimer = setTimeout(() => {
+      const parked = coordinatorRuntimes.get(threadId);
+      if (parked?.runtime !== runtime) return;
+      if (runtime.hasActiveChildren?.()) {
+        scheduleIdleClose();
+        return;
+      }
+      coordinatorRuntimes.delete(threadId);
+      void runtime.close(true).catch(() => {});
+    }, COORDINATOR_IDLE_MS);
+    entry.idleTimer.unref?.();
+  };
+  scheduleIdleClose();
+}
+
+export { discardCoordinatorRuntime };
+
 export async function stopAgent(db, threadId, messageId) {
   const task = running.get(messageId);
   const [reply] = await query(db,
@@ -66,8 +151,14 @@ async function checkpoint(db, { table, key, id }, home, seenSequence, modelMessa
 }
 export async function openAgentRuntime(
   context,
-  { db, job, user, observe = true, autoCompact = true, createHarness, role = job.parent_message_id ? "executor" : "coordinator", sessionLockHeld = false },
+  options,
 ) {
+  const {
+    db, job, user, observe = true, autoCompact = true, createHarness: createHarnessOption,
+    role = job.parent_message_id ? "executor" : "coordinator",
+    sessionLockHeld = false, keepalive = false, sessionReset = false,
+  } = options;
+  let createHarness = createHarnessOption;
   const runtimeStarted = performance.now();
   let sessionLock;
   let stageStarted = runtimeStarted;
@@ -85,16 +176,17 @@ export async function openAgentRuntime(
     createHarness = (options) => new DeepSeekHarness(options);
   }
   const service = new Service(db);
+  const actor = { ...user, scope: context.project_id };
   const spec = agentSession(job);
   const progress = (text) =>
     job.message_id
       ? query(
           db,
-          "UPDATE assistant_replies SET progress=? WHERE message_id=?",
+          "UPDATE assistant_replies SET progress=? WHERE message_id=? AND status='running'",
           [text, job.message_id],
         )
       : Promise.resolve();
-  await progress(job.parent_message_id ? "小祥正在准备处理" : "正在启动 DSH Agent");
+  await progress(job.parent_message_id ? "小祥正在准备处理" : "正在启动运行时");
   let session;
   await query(db, `INSERT IGNORE INTO ${spec.table}(${spec.key},session_id) VALUES(?,?)`,
     [spec.id, randomUUID()]);
@@ -122,8 +214,7 @@ export async function openAgentRuntime(
     ? { l2: await loadAgentCapabilityProfile(db, "l2"), l3: await loadAgentCapabilityProfile(db, "l3") }
     : { l3: await loadAgentCapabilityProfile(db, "l3") };
   const capabilityProfile = role === "coordinator" ? capabilityProfiles.l2 : capabilityProfiles.l3;
-  const runtimeRoot = process.env.COTHREAD_MAKERS === "true"
-    ? resolve(tmpdir(), "cothread-agents") : resolve(".local/agents");
+  const runtimeRoot = agentRuntimeRoot();
   const home = resolve(runtimeRoot, spec.homeId);
   await mkdir(home, { recursive: true });
   // MySQL is authoritative. Restore only session records into a dedicated host orchestration directory.
@@ -136,7 +227,7 @@ export async function openAgentRuntime(
     await restoreSessionCheckpoint(files, home);
   }
   const token = randomBytes(32).toString("hex");
-  const thinking = trackThinking(db, job.message_id, session.session_id, role === "coordinator" ? {
+  const thinkingOptions = role === "coordinator" ? {
     async onVisibleText(text) {
       const body = String(text || "").trim().slice(0, 4000);
       if (!body) return;
@@ -144,13 +235,14 @@ export async function openAgentRuntime(
         "SELECT id FROM messages WHERE agent_task_id=? AND body=? ORDER BY sequence DESC LIMIT 1",
         [job.message_id, body]);
       if (existing) return;
-      await service.insertMessage(db, user, job.thread_id, body, [], "assistant", job.message_id);
+      await service.insertMessage(db, actor, job.thread_id, body, [], "assistant", job.message_id);
       publishWork(db, job.thread_id);
     },
-  } : {});
+  } : {};
+  let thinking = trackThinking(db, job.message_id, session.session_id, thinkingOptions);
   const executeTool = createAgentTools(
     service,
-    { ...user, scope: context.project_id },
+    actor,
     job,
     { role, l2SessionId: session.session_id },
   );
@@ -274,6 +366,8 @@ export async function openAgentRuntime(
   let interval;
   let closed = false;
   const forgottenSessions = new Set();
+  const activeChildren = new Set();
+  let childWatch;
   const forgetSession = (sessionId) => { if (sessionId && sessionId !== session.session_id) forgottenSessions.add(sessionId); };
   const pruneForgottenSessions = async () => {
     const sessionsRoot = resolve(home, "sessions");
@@ -324,9 +418,64 @@ export async function openAgentRuntime(
       });
     return sampling;
   };
+  const ingest = async (messages, replies) => {
+    const fresh = observe && !job.parent_message_id
+      ? pendingMessages(messages, seenSequence, replies)
+      : [];
+    for (const message of fresh) {
+      agentStage = "observe";
+      if (!job.parent_message_id) modelMessages = undefined;
+      const stats = await request("observe", { messages: [discussionText(message)] });
+      seenSequence = message.sequence;
+      if (autoCompact && stats.used >= AUTO_COMPACT_AT) {
+        agentStage = "compact";
+        await compactSafely();
+      }
+    }
+    if (observe && messages.length && BigInt(messages.at(-1).sequence) > BigInt(seenSequence || 0))
+      seenSequence = messages.at(-1).sequence;
+    agentStage = "meter";
+    await sample();
+  };
+  const park = async (completed = true) => {
+    running.delete(job.message_id);
+    await thinking.close(completed ? "completed" : "failed");
+    await sampling.catch(() => {});
+    await sample().catch(() => {});
+    try { modelMessages = await request("history"); } catch {}
+    await checkpoint(db, sessionRow, home, seenSequence, modelMessages);
+    if (sessionLock) {
+      const lock = sessionLock;
+      sessionLock = undefined;
+      await lock.release();
+    }
+  };
+  const bindTurn = async ({ job: nextJob, user: nextUser, context: nextContext } = {}) => {
+    if (closed) throw new Error("runtime closed");
+    if (nextJob) Object.assign(job, nextJob);
+    if (nextUser) Object.assign(actor, nextUser, { scope: context.project_id });
+    if (!job.parent_message_id && !sessionLock && job.thread_id) {
+      sessionLock = await acquireSessionLock(db, job.thread_id, 30);
+      if (!sessionLock) {
+        const error = new Error("L2 session is busy");
+        error.agentStage = "start";
+        throw error;
+      }
+    }
+    thinking = trackThinking(db, job.message_id, session.session_id, thinkingOptions);
+    if (job.message_id) running.set(job.message_id, harness);
+    await progress("正在接入运行时");
+    await progress("正在准备上下文");
+    await ingest(nextContext?.messages || [], nextContext?.replies || []);
+    timed("context_ready");
+  };
   const close = async (completed = false) => {
     if (closed) return;
     clearInterval(interval);
+    if (childWatch) {
+      try { childWatch.close(); } catch {}
+      childWatch = undefined;
+    }
     accepting = false;
     running.delete(job.message_id);
     try {
@@ -351,7 +500,7 @@ export async function openAgentRuntime(
         await new Promise((resolve) => bridge.close(resolve));
         await thinking.close(completed ? "completed" : "failed");
         try {
-          await checkpoint(db, sessionRow, home, seenSequence, modelMessages);
+          if (handedOff) await checkpoint(db, sessionRow, home, seenSequence, modelMessages);
         }
         finally {
           if (job.parent_message_id && job.message_id) await releaseSandbox(db, job);
@@ -383,31 +532,46 @@ export async function openAgentRuntime(
     interval.unref();
     // Append only new discussion. Native assistant turns and compressed summaries
     // already live in this session and must never be re-sent as full transcripts.
-    const fresh = observe && !job.parent_message_id
-      ? pendingMessages(context.messages, seenSequence, context.replies)
-      : [];
-    for (const message of fresh) {
-      agentStage = "observe";
-      if (!job.parent_message_id) modelMessages = undefined;
-      const stats = await request("observe", { messages: [discussionText(message)] });
-      // Commit the observation cursor before a potentially failing model call.
-      // A timed-out compaction must not cause this message to be ingested twice.
-      seenSequence = message.sequence;
-      if (autoCompact && stats.used >= AUTO_COMPACT_AT) {
-        agentStage = "compact";
-        await compactSafely();
-      }
-    }
-    if (observe && context.messages.length && BigInt(context.messages.at(-1).sequence) > BigInt(seenSequence || 0))
-      seenSequence = context.messages.at(-1).sequence;
-    agentStage = "meter";
-    await sample();
+    await ingest(context.messages, context.replies);
     timed('context_ready');
     handedOff = true;
-    return { harness, session, request, sample, close, progress, thinking, forgetSession, capabilityProfile };
+    const watchChildren = (onNotification, after = async () => {}) => {
+      if (childWatch || !harness?.client?.subscribeSessionTree) return;
+      const sub = harness.client.subscribeSessionTree(session.session_id);
+      childWatch = sub;
+      void (async () => {
+        try {
+          while (activeChildren.size) {
+            onNotification(await sub.next());
+            await after();
+          }
+        } catch (error) {
+          console.error("Coordinator child watch ended", {
+            type: error?.name || "Error",
+            diagnostic: redactSecrets(error?.message || error).slice(-1000),
+          });
+        } finally {
+          if (childWatch === sub) childWatch = undefined;
+          try { sub.close(); } catch {}
+        }
+      })();
+    };
+    return {
+      harness, session, request, sample, close, progress, bindTurn, park,
+      get thinking() { return thinking; },
+      forgetSession, capabilityProfile,
+      activeChildren, watchChildren, hasActiveChildren: () => activeChildren.size > 0,
+    };
   } catch (error) {
     error.agentStage = agentStage;
     await close().catch(() => {});
+    if (!sessionReset && isCorruptSessionLog(error)) {
+      console.error("Agent session log corrupt, resetting", {
+        threadId: job.thread_id, messageId: job.message_id, type: error?.name || "Error",
+      });
+      await resetAgentSessionStore(db, job);
+      return openAgentRuntime(context, { ...options, sessionReset: true });
+    }
     throw error;
   }
   } finally {
@@ -423,7 +587,6 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
   const owned = !runtime;
   runtime ||= await openAgentRuntime(context, { db, job, user });
   const { harness, session, progress, thinking, capabilityProfile } = runtime;
-  let timer;
   let cancellationTimer;
   let completed = false;
   let polling = Promise.resolve();
@@ -459,12 +622,6 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
         sessionId: session.session_id,
         onNotification: notification=>{if(notification.method==='session.event'&&notification.params?.sessionId===session.session_id)usageMeter.notify(notification.params.event);thinking.notify(notification);},
       })),
-      new Promise((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error("Agent 执行超过 10 分钟")),
-          600000,
-        );
-      }),
     ]);
     modelFinished=performance.now();
     if (!result.finalResponse?.trim()) {
@@ -483,7 +640,6 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
     await runtime.sample();
     return result.finalResponse.slice(0, 20000);
   } finally {
-    clearTimeout(timer);
     clearInterval(cancellationTimer);
     await polling;
     if(modelStarted!==undefined){const configuredModel=modelConfig("executor");await saveReplyUsage(db,job.message_id,{...usageMeter.result(),model:configuredModel.model,reasoningEffort:configuredModel.reasoningEffort,executionDurationMs:Math.round((modelFinished??performance.now())-modelStarted)}).catch(error=>console.error('Usage persistence failed',{type:error.name}));}

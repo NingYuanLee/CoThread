@@ -59,5 +59,5 @@ export function coordinatorLogButtonLabel(input: {
     .sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
     .at(-1);
   if (last) return eventActionName(last);
-  return busy.progress?.replace(/[。．]$/, "") || (busy.status === "queued" ? "正在排队" : "正在处理");
+  return busy.progress?.replace(/[。．]$/, "") || (busy.status === "queued" ? "等待处理" : "正在处理");
 }

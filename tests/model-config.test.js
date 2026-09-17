@@ -64,6 +64,17 @@ test("compatible request and DSH route use the configured model", () => withMode
   assert.equal(captured.body.max_output_tokens, 64);
   assert.deepEqual(captured.body.input, [{ role: "user", content: "hello" }]);
   assert.deepEqual(captured.body.reasoning, { effort: "high" });
+  const none = await modelResponse({ messages: [{ role: "user", content: "hi" }], maxTokens: 16, reasoningEffort: "none" },
+    async (_url, options) => {
+      captured = { body: JSON.parse(options.body) };
+      return {
+        ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
+        text: async () => JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }] }),
+      };
+    });
+  assert.equal(responseText(none), "ok");
+  assert.deepEqual(captured.body.reasoning, { effort: "none" });
   assert.equal(captured.body.store, false);
   const config = modelConfig();
   assert.equal("provider" in config, false);
@@ -156,12 +167,12 @@ test("Responses streaming forwards text deltas and returns final usage", () => w
   assert.deepEqual(body.reasoning, { effort: "none" });
 }));
 
-test("combined model field defaults to medium and rejects unknown efforts", () => withModelEnv({
+test("combined model field defaults coordinator to low and rejects unknown efforts", () => withModelEnv({
   COORDINATOR_MODEL_BASE_URL: "https://example.test",
   COORDINATOR_MODEL_API_KEY: "secret-value",
   COORDINATOR_MODEL: "example-model",
 }, () => {
-  assert.equal(modelConfig().reasoningEffort, "medium");
+  assert.equal(modelConfig().reasoningEffort, "low");
   process.env.COORDINATOR_MODEL = "example-model@off";
   assert.equal(modelConfig().reasoningEffort, "off");
   process.env.COORDINATOR_MODEL = "example-model@extreme";

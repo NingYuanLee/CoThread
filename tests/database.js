@@ -27,22 +27,20 @@ async function resetSchema(connection, name) {
   }
 }
 
-const PROTECTED_TEST_DATABASES = new Set(["cothread_dev"]);
+const PROTECTED_TEST_DATABASES = new Set(["cothread", "cothread_dev"]);
 
 export async function testDatabase() {
   const configured = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
   if (!configured)
-    throw new Error("集成测试需要 TEST_DATABASE_URL（推荐）或 DATABASE_URL 指向云端测试库");
+    throw new Error("集成测试需要 TEST_DATABASE_URL（推荐）或 DATABASE_URL 指向独立测试库");
   const source = new URL(configured);
   const sourceDatabase = source.pathname.slice(1);
   if (PROTECTED_TEST_DATABASES.has(sourceDatabase.toLowerCase()))
     throw new Error(
-      `集成测试不能清库 ${sourceDatabase}（日常开发库）。请配置 TEST_DATABASE_URL 指向独立测试库，例如 cothread_test。`,
+      `集成测试不能清库 ${sourceDatabase}（日常开发库）。请配置 TEST_DATABASE_URL 指向独立测试库，例如 127.0.0.1:3307/cothread_test。`,
     );
   if (!/(?:^|_)(?:dev|test)(?:_|$)/i.test(sourceDatabase))
     throw new Error("集成测试数据库名称必须包含独立单词 dev 或 test");
-  if (["127.0.0.1", "localhost", "::1"].includes(source.hostname.toLowerCase()))
-    throw new Error("集成测试数据库必须位于云端");
   const password = decodeURIComponent(source.password);
   const ssl = process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: true,
     ...(process.env.DATABASE_SSL_CA ? { ca: await readFile(process.env.DATABASE_SSL_CA, "utf8") } : {}) } : undefined;
@@ -59,7 +57,7 @@ export async function testDatabase() {
   let db;
   try {
     const [[lock]] = await control.query("SELECT GET_LOCK(?,120) acquired", [lockName]);
-    if (Number(lock.acquired) !== 1) throw new Error("等待云端测试库锁超时");
+    if (Number(lock.acquired) !== 1) throw new Error("等待测试库锁超时");
     locked = true;
     await resetSchema(control, sourceDatabase);
     db = await createDatabase(configured);

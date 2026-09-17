@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { relocateSessionFiles } from "../server/agent-checkpoint.js";
+import { isCorruptSessionLog } from "../server/agent.js";
 
 test("Windows checkpoints move to Linux workspace without changing identity or historical bytes", () => {
   const id = randomUUID();
@@ -16,4 +17,9 @@ test("Windows checkpoints move to Linux workspace without changing identity or h
   assert.deepEqual(content.subarray(end + 1), events);
   assert.throws(() => relocateSessionFiles({ "../outside": "" }, "/tmp/current"), /无效/);
   assert.throws(() => relocateSessionFiles({ ...files, [`--duplicate--/${id}/session.jsonl`]: Object.values(files)[0] }, "/tmp/current"), /重复/);
+});
+
+test("corrupt DSH session logs are recognized for a one-shot reset", () => {
+  assert.equal(isCorruptSessionLog({ message: "corrupt session log: seq gap in committed region at line 1474" }), true);
+  assert.equal(isCorruptSessionLog(new Error("Internal error")), false);
 });

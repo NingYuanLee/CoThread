@@ -2,11 +2,42 @@ import { randomUUID } from "node:crypto";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";
+import { enqueueCoordinatorEvent } from "./coordinator-events.js";
+import { AGENT_MEMBER } from "../shared/agent-member.js";
 
 const targetTypes = new Set(["human_member", "l2_session"]);
+const FOREIGN_TASK_AUTH = "非本 L2 责任的任务需要人类成员账号明确授权";
+const ASSIGN_HUMAN_AUTH = "把任务指派给人类成员需要人类成员账号明确授权";
 
 function assertTarget(type, id) {
   if (!targetTypes.has(type) || typeof id !== "string" || !id) throw new HttpError(400, "任务目标无效");
+}
+
+function isL2OwnResponsibility(task) {
+  return task.task_type === "assist_l2" || task.target_type === "l2_session" || task.execution_agent_type === "dsh_l3";
+}
+
+async function hasHumanMemberAuthorization(conn, projectId, actor) {
+  const userId = actor?.authorizedByUserId;
+  if (!userId || userId === AGENT_MEMBER.id) return false;
+  const [member] = await query(conn, `SELECT user_id FROM members WHERE project_id=? AND user_id=? AND role<>'viewer'`,
+    [projectId, userId]);
+  return !!member;
+}
+
+async function assertHumanMemberAuthorization(conn, projectId, actor, message = FOREIGN_TASK_AUTH) {
+  if (await hasHumanMemberAuthorization(conn, projectId, actor)) return;
+  throw new HttpError(403, message);
+}
+
+async function assertL2CanOperateTask(conn, actor, task) {
+  if (actor?.type !== "l2_session") throw new HttpError(403, "只有当前迭代的 L2 可以跨任务安排");
+  const [session] = await query(conn, `SELECT s.thread_id, t.project_id FROM agent_sessions s JOIN threads t ON t.id=s.thread_id
+    WHERE s.session_id=?`, [actor.id]);
+  if (!session || session.project_id !== task.project_id) throw new HttpError(403, "当前 L2 不能操作其他项目的任务");
+  if (!task.origin_thread_id || task.origin_thread_id !== session.thread_id)
+    throw new HttpError(403, "当前 L2 只能安排本迭代锁定的任务");
+  if (!isL2OwnResponsibility(task)) await assertHumanMemberAuthorization(conn, task.project_id, actor);
 }
 
 // 状态变更记录：与写状态的语句放在同一事务里；status 未变化则不写。actor 为 { type, id }，type 取
@@ -33,6 +64,8 @@ export async function createTask(db, input) {
   if (!new Set(["human_member","l2_session","task"]).has(input.sourceType)) throw new HttpError(400, "任务来源无效");
   if (!new Set(["human_member","l2_session","system"]).has(input.createdByType)) throw new HttpError(400, "任务创建者无效");
   if (input.targetType) assertTarget(input.targetType, input.targetId);
+  if (input.createdByType === "l2_session" && input.targetType === "human_member")
+    await assertHumanMemberAuthorization(db, input.projectId, input, ASSIGN_HUMAN_AUTH);
   const acceptance = input.taskType === "formal" && input.targetType === "human_member";
   await transaction(db, async (conn) => {
     if (input.sourceUserId) {
@@ -89,13 +122,16 @@ export async function getTask(db, id) {
   return task || null;
 }
 
-export async function listTasks(db, projectId, { status, targetId, limit = 100 } = {}) {
+export async function listTasks(db, projectId, { status, targetId, originThreadId, limit = 100 } = {}) {
   const values = [projectId];
   const filters = ["project_id=?"];
   if (status) { filters.push("status=?"); values.push(status); }
   if (targetId) { filters.push("target_id=?"); values.push(targetId); }
+  if (originThreadId) { filters.push("origin_thread_id=?"); values.push(originThreadId); }
   values.push(Math.min(Math.max(Number(limit) || 100, 1), 200));
   return query(db, `SELECT t.*,
+    r.status run_status, r.progress run_progress, r.executor_id, r.heartbeat_at, r.started_at run_started_at,
+    TIMESTAMPDIFF(SECOND, r.started_at, UTC_TIMESTAMP(3)) run_elapsed_seconds,
     COALESCE(IF(t.task_type='formal',t.execution_agent_id,NULL),
     (SELECT previous.execution_agent_id FROM agent_tasks previous
       WHERE previous.id<>t.id AND previous.target_type='l2_session' AND previous.target_id=t.target_id
@@ -104,7 +140,10 @@ export async function listTasks(db, projectId, { status, targetId, limit = 100 }
         AND ((t.source_user_id IS NOT NULL AND previous.source_user_id=t.source_user_id)
           OR (t.source_task_id IS NOT NULL AND previous.source_task_id=t.source_task_id))
       ORDER BY previous.finished_at DESC,previous.updated_at DESC LIMIT 1)) preferred_execution_agent_id
-    FROM agent_tasks t WHERE ${filters.map((filter) => `t.${filter}`).join(" AND ")} ORDER BY t.updated_at DESC LIMIT ?`, values);
+    FROM agent_tasks t
+    LEFT JOIN agent_task_execution_runs r ON r.id=(
+      SELECT r2.id FROM agent_task_execution_runs r2 WHERE r2.task_id=t.id ORDER BY r2.created_at DESC LIMIT 1)
+    WHERE ${filters.map((filter) => `t.${filter}`).join(" AND ")} ORDER BY t.updated_at DESC LIMIT ?`, values);
 }
 
 export async function updateTask(db, taskId, actor, update) {
@@ -151,7 +190,7 @@ export async function appendTaskUpdate(db, taskId, actor, body, messageId=null) 
 
 export async function askTaskQuestion(db, taskId, actor, question, sourceUserId, messageId=null) {
   const task=await getTask(db,taskId); if(!task) throw new HttpError(404,"任务不存在");
-  if(actor.type!=="l2_session"||task.target_type!=="l2_session"||task.target_id!==actor.id) throw new HttpError(403,"只有负责该任务的 L2 可以提问");
+  await assertL2CanOperateTask(db, actor, task);
   const [open]=await query(db,"SELECT id FROM agent_task_questions WHERE task_id=? AND status='open' LIMIT 1",[taskId]); if(open) throw new HttpError(409,"该任务已有待回答问题");
   const [latestHumanSource] = await query(db, `SELECT changed_by_id FROM agent_task_assignment_events
     WHERE task_id=? AND changed_by_type='human_member' ORDER BY id DESC LIMIT 1`, [taskId]);
@@ -186,12 +225,22 @@ export async function reassignTask(db, taskId, actor, target, reason, messageId)
   const result = await transaction(db, async (conn) => {
     const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
     if (!task) throw new HttpError(404, "任务不存在");
-    if (task.target_type !== actor.type || task.target_id !== actor.id)
+    const l2Operator = actor.type === "l2_session";
+    if (l2Operator) await assertL2CanOperateTask(conn, actor, task);
+    else if (task.target_type !== actor.type || task.target_id !== actor.id)
       throw new HttpError(403, "只有当前任务目标可以转交任务");
-    if (task.task_type === "assist_l2" && (target.type !== "l2_session" || target.id !== task.target_id))
+    if (task.task_type === "assist_l2" && target.type !== "l2_session")
       throw new HttpError(403, "L2 辅助任务不能转交给其他责任主体");
-    if (!["awaiting_acceptance", "assigned", "queued", "waiting", "blocked"].includes(task.status))
-      throw new HttpError(409, "当前任务状态不能转交");
+    if (l2Operator && target.type === "human_member")
+      await assertHumanMemberAuthorization(conn, task.project_id, actor, ASSIGN_HUMAN_AUTH);
+    const reassignable = new Set(["awaiting_acceptance", "assigned", "queued", "waiting", "blocked"]);
+    if (l2Operator) ["running", "failed", "cancelled"].forEach((status) => reassignable.add(status));
+    if (!reassignable.has(task.status)) throw new HttpError(409, "当前任务状态不能转交");
+    if (l2Operator) {
+      await query(conn, `UPDATE agent_task_questions SET status='cancelled' WHERE task_id=? AND status='open'`, [taskId]);
+      await query(conn, `UPDATE agent_task_execution_runs SET status='cancelled',error='任务转交，结束当前执行',
+        finished_at=UTC_TIMESTAMP(3) WHERE task_id=? AND status IN ('queued','running','waiting')`, [taskId]);
+    }
     if (target.type === "human_member") {
       const [member] = await query(conn, "SELECT user_id FROM members WHERE project_id=? AND user_id=? AND role<>'viewer'", [task.project_id, target.id]);
       if (!member) throw new HttpError(400, "任务目标不是当前项目的可执行成员");
@@ -326,9 +375,13 @@ export async function taskRejectionReview(db, taskId) {
     reviewer_type: review.reviewer?.type || null, reviewer_id: review.reviewer?.id || null };
 }
 
-function assertRejectionReviewer(review, actor) {
+async function assertRejectionReviewer(review, actor, conn) {
   if (!review.rejected || review.task.status !== "cancelled") throw new HttpError(409, "任务没有待处理的拒绝结果");
   if (review.resolved) throw new HttpError(409, "拒绝结果已经处理");
+  if (actor.type === "l2_session") {
+    await assertL2CanOperateTask(conn, actor, review.task);
+    return;
+  }
   if (!review.reviewer || review.reviewer.type !== actor.type || review.reviewer.id !== actor.id)
     throw new HttpError(403, "只有任务创建者或最近转发者可以处理拒绝结果");
 }
@@ -336,7 +389,7 @@ function assertRejectionReviewer(review, actor) {
 export async function acknowledgeTaskRejection(db, taskId, actor) {
   return transaction(db, async (conn) => {
     const review = await rejectionReviewActor(db, taskId, conn);
-    assertRejectionReviewer(review, actor);
+    await assertRejectionReviewer(review, actor, conn);
     await query(conn, `INSERT INTO agent_task_assignment_events
       (task_id,event_type,from_target_type,from_target_id,changed_by_type,changed_by_id,reason)
       VALUES(?,'acknowledged',?,?,?,?,?)`, [taskId, review.task.target_type, review.task.target_id,
@@ -350,7 +403,7 @@ export async function reopenRejectedTask(db, taskId, actor, update = {}) {
     const [locked] = await query(conn, "SELECT id FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
     if (!locked) throw new HttpError(404, "任务不存在");
     const review = await rejectionReviewActor(db, taskId, conn);
-    assertRejectionReviewer(review, actor);
+    await assertRejectionReviewer(review, actor, conn);
     const nextStatus = review.task.target_type === "human_member" ? "awaiting_acceptance" : "queued";
     await query(conn, `UPDATE agent_tasks SET title=COALESCE(?,title),goal=COALESCE(?,goal),constraints=IF(?,?,constraints),
       status=?,claimed_by_type=IF(target_type='l2_session','l2_session',NULL),
@@ -369,6 +422,84 @@ export async function reopenRejectedTask(db, taskId, actor, update = {}) {
   });
   if (result.origin_thread_id) publishWork(db, result.origin_thread_id);
   return result;
+}
+
+const arrangeableStatuses = new Set(["draft", "awaiting_acceptance", "assigned", "queued", "running", "waiting", "blocked", "failed", "cancelled", "completed"]);
+
+export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
+  const action = update.action === "cancel" ? "cancel" : "restart";
+  const result = await transaction(db, async (conn) => {
+    const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
+    if (!task) throw new HttpError(404, "任务不存在");
+    await assertL2CanOperateTask(conn, actor, task);
+    if (task.status === "superseded" || !arrangeableStatuses.has(task.status))
+      throw new HttpError(409, "当前任务不能再安排");
+    if (action === "cancel" && ["cancelled", "completed"].includes(task.status))
+      throw new HttpError(409, "已结束任务不能取消");
+    const interruptedAgentId = task.execution_agent_id || null;
+    const reason = update.reason || (action === "cancel" ? "L2 取消任务" : "L2 重新安排任务");
+    const dispatchL3 = task.target_type === "l2_session" || task.execution_agent_type === "dsh_l3" || task.task_type === "assist_l2";
+    await query(conn, `UPDATE agent_task_questions SET status='cancelled' WHERE task_id=? AND status='open'`, [taskId]);
+    await query(conn, `UPDATE agent_task_execution_runs SET status='cancelled',error=?,
+      finished_at=UTC_TIMESTAMP(3) WHERE task_id=? AND status IN ('queued','running','waiting')`,
+    [action === "cancel" ? "任务被 L2 取消" : "任务由 L2 重新安排", taskId]);
+    if (action === "cancel") {
+      await query(conn, `UPDATE agent_tasks SET status='cancelled',progress=?,result_summary=COALESCE(?,result_summary),
+        execution_agent_id=NULL,finished_at=UTC_TIMESTAMP(3),revision=revision+1 WHERE id=?`,
+      [reason, update.resultSummary || reason, taskId]);
+    } else if (dispatchL3) {
+      await query(conn, `UPDATE agent_tasks SET title=COALESCE(?,title),goal=COALESCE(?,goal),constraints=IF(?,?,constraints),
+        status='queued',progress='L2 已重新安排，等待任务级 Agent',result_summary=NULL,
+        execution_mode=COALESCE(execution_mode,'dsh_l3'),execution_agent_type=COALESCE(execution_agent_type,'dsh_l3'),
+        execution_agent_id=NULL,finished_at=NULL,revision=revision+1 WHERE id=?`,
+      [update.title || null, update.goal || null, update.constraints !== undefined, update.constraints ?? null, taskId]);
+      await query(conn, `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,status)
+        SELECT UUID(),id,revision,'dsh_l3','queued' FROM agent_tasks WHERE id=?`, [taskId]);
+    } else {
+      await query(conn, `UPDATE agent_tasks SET title=COALESCE(?,title),goal=COALESCE(?,goal),constraints=IF(?,?,constraints),
+        status='awaiting_acceptance',progress='L2 已重新安排，等待目标成员确认',result_summary=NULL,
+        claimed_by_type=NULL,claimed_by_id=NULL,accepted_by_type=NULL,accepted_by_id=NULL,accepted_at=NULL,
+        execution_mode=NULL,execution_agent_type=NULL,execution_agent_id=NULL,finished_at=NULL,revision=revision+1 WHERE id=?`,
+      [update.title || null, update.goal || null, update.constraints !== undefined, update.constraints ?? null, taskId]);
+    }
+    await recordTaskStatusChange(conn, taskId, task.status, actor, reason);
+    return { ...await getTask(conn, taskId), action, interruptedAgentId };
+  });
+  if (result.origin_thread_id) publishWork(db, result.origin_thread_id);
+  return result;
+}
+
+export async function inspectIterationTask(db, taskId, actor) {
+  const task = await getTask(db, taskId);
+  if (!task) throw new HttpError(404, "任务不存在");
+  await assertL2CanOperateTask(db, actor, task);
+  const [run] = await query(db, `SELECT id,status,progress,result_summary,error,executor_type,executor_id,
+    started_at,heartbeat_at,finished_at,TIMESTAMPDIFF(SECOND, started_at, UTC_TIMESTAMP(3)) elapsed_seconds,
+    TIMESTAMPDIFF(SECOND, COALESCE(heartbeat_at, started_at), UTC_TIMESTAMP(3)) heartbeat_age_seconds
+    FROM agent_task_execution_runs WHERE task_id=? ORDER BY created_at DESC LIMIT 1`, [taskId]);
+  const events = run?.executor_id ? await query(db, `SELECT tool,status,LEFT(input,240) input,LEFT(output,240) output,created_at,finished_at
+    FROM agent_events WHERE agent_session_id=? ORDER BY id DESC LIMIT 8`, [run.executor_id]) : [];
+  const live = ["running", "waiting"].includes(run?.status);
+  const stale = live && Number(run.heartbeat_age_seconds || 0) >= 180;
+  let suggestedNext = "keep";
+  if (task.status === "failed" || run?.status === "failed") suggestedNext = "replace";
+  else if (!run || ["queued", "cancelled", "interrupted"].includes(run.status)) suggestedNext = "dispatch";
+  else if (stale) suggestedNext = "ask_or_replace";
+  else if (live) suggestedNext = "ask";
+  return {
+    task: {
+      id: task.id, title: task.title, status: task.status, progress: task.progress,
+      result_summary: task.result_summary, target_type: task.target_type, target_id: task.target_id,
+      execution_agent_id: task.execution_agent_id,
+    },
+    run: run || null,
+    live,
+    stale,
+    lastEvents: events.reverse(),
+    suggestedNext,
+    askVia: live && run.executor_id ? { tool: "send_message", agentId: run.executor_id } : null,
+    replaceVia: run?.executor_id ? { interruptAgentId: run.executor_id, recover: "restart" } : { recover: "restart" },
+  };
 }
 
 export async function taskExecutionSnapshot(db, projectId) {
@@ -460,45 +591,105 @@ export async function ensureDshL3CanUpdate(db, l2SessionId, childSessionId, task
 
 export async function settleDshL3Execution(db, l2SessionId, childSessionId, notification) {
   const result = await transaction(db, async (conn) => {
-    const [run] = await query(conn, `SELECT r.id run_id,t.* FROM agent_task_execution_runs r
+    const [run] = await query(conn, `SELECT r.id run_id,r.status run_status,r.result_summary run_result,t.* FROM agent_task_execution_runs r
       JOIN agent_tasks t ON t.id=r.task_id
       WHERE t.target_type='l2_session' AND t.target_id=? AND r.executor_type='dsh_l3'
-        AND r.executor_id=? AND r.status IN ('running','waiting')
+        AND r.executor_id=? AND r.status IN ('running','waiting','completed','failed','interrupted')
       ORDER BY r.created_at DESC LIMIT 1 FOR UPDATE`, [l2SessionId, childSessionId]);
     if (!run) return null;
     const output = assistantText(notification.lastAssistantMessage);
-    const completed = notification.status === "ok" && notification.stopReason === "completed";
-    const runStatus = completed ? "completed" : notification.stopReason === "aborted" ? "interrupted" : "failed";
-    const taskStatus = completed ? "completed" : runStatus === "interrupted" ? "queued" : "failed";
-    const error = completed ? null : `DSH L3 ${notification.stopReason || "error"}`;
-    await query(conn, `UPDATE agent_task_execution_runs SET status=?,result_summary=?,error=?,
-      heartbeat_at=UTC_TIMESTAMP(3),finished_at=UTC_TIMESTAMP(3) WHERE id=?`,
-    [runStatus, output || null, error, run.run_id]);
-    await query(conn, `UPDATE agent_tasks SET status=?,progress=?,result_summary=COALESCE(?,result_summary),
-      execution_agent_id=?,finished_at=IF(? IN ('completed','failed'),UTC_TIMESTAMP(3),NULL),revision=revision+1 WHERE id=?`,
-    [taskStatus, completed ? "DSH L3 已完成" : error, output || null, childSessionId, taskStatus, run.id]);
-    await recordTaskStatusChange(conn, run.id, run.status, { type: "dsh_l3", id: childSessionId },
-      completed ? "任务级 Agent 已完成" : runStatus === "interrupted" ? "任务级 Agent 被中止，重新排队" : `任务级 Agent 失败：${error}`);
-    if (run.source_task_id) {
+    let reportedStatus = null;
+    let reportedSummary = null;
+    for (const event of await query(conn, `SELECT tool,input FROM agent_events
+      WHERE agent_session_id=? AND status='completed' AND tool IN ('report_task','update_task')
+      ORDER BY id DESC LIMIT 8`, [childSessionId])) {
+      let args = {};
+      try { args = typeof event.input === "string" ? JSON.parse(event.input) : event.input || {}; } catch {}
+      const status = String(args.status || "");
+      if (event.tool === "report_task" || ["completed", "failed", "blocked"].includes(status)) {
+        reportedStatus = event.tool === "report_task" ? (status || "completed") : status;
+        reportedSummary = args.summary || args.resultSummary || null;
+        break;
+      }
+    }
+    const taskAlreadyEnded = ["completed", "failed", "cancelled"].includes(run.status);
+    const stoppedCleanly = notification.status === "ok" && notification.stopReason === "completed";
+    let taskStatus;
+    let runStatus;
+    let error = null;
+    let summary = reportedSummary || run.result_summary || output || null;
+    if (taskAlreadyEnded) {
+      taskStatus = run.status;
+      runStatus = ["completed", "failed"].includes(run.run_status) ? run.run_status
+        : taskStatus === "failed" ? "failed" : "completed";
+    } else if (reportedStatus) {
+      taskStatus = reportedStatus === "blocked" ? "blocked" : reportedStatus;
+      runStatus = taskStatus === "blocked" ? "completed" : taskStatus;
+    } else if (notification.stopReason === "aborted") {
+      taskStatus = "queued";
+      runStatus = "interrupted";
+      error = "DSH L3 aborted";
+      summary = output || summary;
+    } else {
+      taskStatus = "failed";
+      runStatus = "failed";
+      error = stoppedCleanly ? "未回报结果" : `DSH L3 ${notification.stopReason || "error"}`;
+      summary = output || summary || "未回报结果";
+    }
+    if (["running", "waiting"].includes(run.run_status)) {
+      await query(conn, `UPDATE agent_task_execution_runs SET status=?,result_summary=?,error=?,
+        heartbeat_at=UTC_TIMESTAMP(3),finished_at=UTC_TIMESTAMP(3) WHERE id=?`,
+      [runStatus, summary, error, run.run_id]);
+    }
+    if (!taskAlreadyEnded) {
+      await query(conn, `UPDATE agent_tasks SET status=?,progress=?,result_summary=COALESCE(?,result_summary),
+        execution_agent_id=?,finished_at=IF(? IN ('completed','failed'),UTC_TIMESTAMP(3),NULL),revision=revision+1 WHERE id=?`,
+      [taskStatus, taskStatus === "completed" ? "DSH L3 已交活" : error || "DSH L3 已返回",
+        summary, childSessionId, taskStatus, run.id]);
+      await recordTaskStatusChange(conn, run.id, run.status, { type: "dsh_l3", id: childSessionId },
+        taskStatus === "completed" ? "任务级 Agent 已交活"
+          : runStatus === "interrupted" ? "任务级 Agent 被中止，重新排队"
+          : `任务级 Agent 失败：${error}`);
+    }
+    if (run.source_task_id && !taskAlreadyEnded) {
       await query(conn, `INSERT INTO agent_task_pool_updates(id,task_id,source_type,source_id,body,revision)
         SELECT UUID(),?,'l2_session',?,CONCAT('辅助任务「',?, '」',?,IF(?='', '', CONCAT('\n',?))),revision
         FROM agent_tasks WHERE id=?`, [run.source_task_id, l2SessionId, run.title,
-        completed ? "已完成。" : "未完成。", output, output, run.source_task_id]);
+        taskStatus === "completed" ? "已完成。" : "未完成。", summary, summary, run.source_task_id]);
       await query(conn, `UPDATE agent_tasks SET progress=?,revision=revision+1 WHERE id=?
         AND status NOT IN ('completed','failed','cancelled','superseded')`,
-      [completed ? "辅助 L3 已返回结果，等待 L2 汇总" : "辅助 L3 执行失败，等待 L2 处理", run.source_task_id]);
+      [taskStatus === "completed" ? "辅助 L3 已返回结果，等待 L2 汇总" : "辅助 L3 执行失败，等待 L2 处理", run.source_task_id]);
     }
-    return getTask(conn, run.id);
+    return { ...await getTask(conn, run.id), run_id: run.run_id };
   });
-  if (result?.origin_thread_id) publishWork(db, result.origin_thread_id);
+  if (result?.origin_thread_id) {
+    await enqueueCoordinatorEvent(db, {
+      threadId: result.origin_thread_id,
+      kind: "child_result",
+      messageId: result.source_message_id || null,
+      taskId: result.id,
+      payload: {
+        runId: result.run_id,
+        taskId: result.id,
+        title: result.title,
+        status: result.status,
+        resultSummary: result.result_summary,
+        artifactRefs: result.artifact_refs || null,
+        failureReason: result.status === "completed" ? null : (result.progress || result.result_summary || "未回报结果"),
+        sourceMessageId: result.source_message_id || null,
+        sourceUserId: result.source_user_id || null,
+      },
+    });
+    publishWork(db, result.origin_thread_id);
+  }
   return result;
 }
 
 function closeEndedTaskRuns(conn, taskId, taskStatus) {
   const activeStatus = taskStatus === "completed" ? "completed" : taskStatus === "failed" ? "failed" : "interrupted";
   return query(conn, `UPDATE agent_task_execution_runs SET
-    status=IF(status='queued','cancelled',?),
     error=IF(status='queued',COALESCE(error,'任务已结束，L3 未启动'),error),
+    status=IF(status='queued','cancelled',?),
     finished_at=COALESCE(finished_at,UTC_TIMESTAMP(3))
     WHERE task_id=? AND status IN ('queued','running','waiting')`, [activeStatus, taskId]);
 }
@@ -538,7 +729,8 @@ export async function voidSelfHandledAssistTasks(db) {
 export async function recoverInterruptedDshL3Executions(db) {
   await voidSelfHandledAssistTasks(db);
   await reconcileEndedTaskRuns(db);
-  const runs = await query(db, `SELECT r.id,r.task_id,t.origin_thread_id FROM agent_task_execution_runs r
+  const runs = await query(db, `SELECT r.id,r.task_id,t.origin_thread_id,t.source_message_id,t.source_user_id,t.title
+    FROM agent_task_execution_runs r
     JOIN agent_tasks t ON t.id=r.task_id WHERE r.executor_type='dsh_l3' AND r.status IN ('running','waiting')`);
   if (!runs.length) return 0;
   await transaction(db, async (conn) => {
@@ -559,5 +751,23 @@ export async function recoverInterruptedDshL3Executions(db) {
         AND NOT EXISTS (SELECT 1 FROM agent_task_execution_runs active WHERE active.task_id=t.id AND active.status IN ('queued','running','waiting'))`);
   });
   for (const threadId of new Set(runs.map((row) => row.origin_thread_id).filter(Boolean))) publishWork(db, threadId);
+  for (const run of runs) {
+    if (!run.origin_thread_id) continue;
+    await enqueueCoordinatorEvent(db, {
+      threadId: run.origin_thread_id,
+      kind: "child_result",
+      messageId: run.source_message_id || null,
+      taskId: run.task_id,
+      payload: {
+        runId: run.id,
+        taskId: run.task_id,
+        title: run.title,
+        status: "interrupted",
+        failureReason: "服务重启，任务级 Agent 中断，等待 L2 重新评估",
+        sourceMessageId: run.source_message_id || null,
+        sourceUserId: run.source_user_id || null,
+      },
+    });
+  }
   return runs.length;
 }

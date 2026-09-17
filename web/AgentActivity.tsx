@@ -32,7 +32,7 @@ export function AgentActivity({threadId,messageId,events,output,status,hasFinal,
  const streaming=output?.event_id && (!last||BigInt(output.event_id)>=BigInt(last.id));
  const active=status==='running';
  const label=(e:Event)=>{const l=agentLabel(e,versions,threads);return `${l.action}${l.target?' '+l.target:''}`;};
- const current=!active?({completed:'已完成',failed:'未完成',cancelled:'已停止',queued:'正在思考'}[status]||'执行过程')
+ const current=!active?({completed:'已完成',failed:'未完成',cancelled:'已停止',queued:'等待处理'}[status]||'执行过程')
   :streaming&&(output.content||output.reasoning)?(output.content?'正在回复':'正在思考')
    :last?.status==='running'?(last.tool==='thinking'?'正在思考':modelPhase(last.tool)?'正在回复':label(last))
     :last?`${modelPhase(last.tool)?'本步处理':label(last)} · ${last.status==='failed'?'失败':'完成'}`:progress||'正在处理';

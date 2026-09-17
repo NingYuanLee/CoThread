@@ -22,7 +22,12 @@ test("Makers Express adapter returns real API JSON, enforces origin, authenticat
       headers: { 'Content-Type': 'application/json', ...headers },
       ...(body === undefined ? {} : {body: JSON.stringify(body)}),
     });
-    return {statusCode: response.status, body: await response.text(), headers: Object.fromEntries(response.headers)};
+    return {
+      statusCode: response.status,
+      body: await response.text(),
+      headers: Object.fromEntries(response.headers),
+      cookies: response.headers.getSetCookie(),
+    };
   };
   try {
     const userId = randomUUID();
@@ -38,8 +43,8 @@ test("Makers Express adapter returns real API JSON, enforces origin, authenticat
       Origin: "https://cothread.z2l.top", "X-Forwarded-Proto": "https",
     });
     assert.equal(login.statusCode, 200, login.body);
-    const cookie = login.headers["set-cookie"];
-    assert.match(cookie, /Secure/);
+    const cookie = login.cookies.map((value) => value.split(";")[0]).join("; ");
+    assert.ok(login.cookies.some((value) => /cothread_session=/.test(value) && /Secure/.test(value)));
     assert.equal((await request("/api/me", undefined, { Cookie: cookie })).statusCode, 200);
     const token = await issueCredential(database.db, userId, "api", "test");
     const handler = createMakersMcpHandler(async () => database.db);
@@ -96,6 +101,7 @@ test("Makers jobs are isolated by iteration and simultaneous requests cannot dup
     const operations = {
       reply: (threadId) => processNextReply(db, async () => { invocations++; entered(); await gate; return "A completed"; }, async () => true, threadId),
       compress: async () => false,
+      coordinate: async () => false,
     };
     const first = runMakersThread(db, user, a.id, undefined, operations);
     void first.catch(() => entered());

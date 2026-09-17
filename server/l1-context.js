@@ -3,7 +3,6 @@ import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";
 import { contextUsage } from "../shared/context.js";
 import { L1_MAINTENANCE_TASKS, normalizeL1Task } from "../shared/agent-label.js";
-import { compactL1Session, l1SessionScope } from "./l1-agent.js";
 import { nativeHistoryFromCheckpoint, nativeHistoryFromLiveHome } from "./l3-session.js";
 
 export async function readL1TaskSession(service, user, projectId, task) {
@@ -58,7 +57,8 @@ export async function processNextL1ContextCompression(db, options = {}) {
   const [candidate] = await query(db,
     `SELECT id,project_id,task FROM agent_project_sessions WHERE ${filters.join(" AND ")}
      ORDER BY updated_at LIMIT 1`, params);
-  if (!candidate) return false;
+    if (!candidate) return false;
+  const { compactL1Session, l1SessionScope } = await import("./l1-agent.js");
   const scope = l1SessionScope(candidate.task, { projectId: candidate.project_id });
   const connection = await db.getConnection();
   const lockName = `cothread-l1:${scope.task}:${scope.scopeId}`.slice(0, 64);

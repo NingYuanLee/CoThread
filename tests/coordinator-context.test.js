@@ -17,8 +17,9 @@ test("the L2 runtime is composed from DSH AgentTeam plugins", async () => {
   ]) assert.ok(patch.includes(plugin), plugin);
   for (const plugin of ["@deepseek-ai/dsh-tool-subagent-control", "@deepseek-ai/dsh-tool-subagent-control/list-agents"])
     assert.ok(patch.includes(plugin), plugin);
-  for (const tool of ["post_message", "create_task", "update_task", "ask_task_question", "wait_for_updates", "finish_turn"])
+  for (const tool of ["create_task", "update_task", "ask_task_question", "report_task", "recover_task", "inspect_task"])
     assert.ok(tools.includes(`["${tool}"`), tool);
+  assert.doesNotMatch(tools, /wait_for_updates|finish_turn|post_message/);
   assert.doesNotMatch(tools, /prepare_local_codex/);
   assert.match(tools, /ctx\.tools\.guard/);
   assert.match(tools, /agent\.ctx\.tools\.restrict/);
@@ -50,13 +51,15 @@ test("L1 denies every installed tool and MCP tools are a build-time manifest", a
 
 test("the coordinator has no one-shot reply or execute decision route", async () => {
   const source = await readFile(new URL("../server/coordinator.js", import.meta.url), "utf8");
+  const tools = await readFile(new URL("../runtime/cothread-tools.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(source, /decideDispatch|resolveCoordinatorDecision|decisionSchema/);
   assert.match(source, /runCoordinatorAgent/);
   assert.match(source, /runtime\.harness\.run/);
   assert.match(source, /mode: "steer"/);
   assert.match(source, /nativeTools = new Set\(\["dsh_l3", "send_message", "interrupt_agent", "list_agents"\]\)/);
-  assert.match(source, /至少一个 DSH L3 已返回/);
-  assert.match(source, /childWaitDeadline/);
+  assert.match(source, /child_result/);
+  assert.doesNotMatch(source, /wait_for_updates|isLightCoordinatorTurn|finish_turn/);
+  assert.doesNotMatch(tools, /exec\.concludeTurn\(\)/);
 });
 
 test("stable L2 and L3 roles live only in the system prompt plugin", async () => {
@@ -67,13 +70,21 @@ test("stable L2 and L3 roles live only in the system prompt plugin", async () =>
   ]);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /二级小祥/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /葫芦小金刚/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /不能直接使用沙箱/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /自己就能完成的回复/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /不能使用沙箱/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /自己能答的短问题/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /本迭代锁定/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /自己责任/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /人类成员账号/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /send_message 当面问/);
+  assert.match(SYSTEM_PROMPTS.l3.prompt, /上级追问进度/);
   assert.doesNotMatch(SYSTEM_PROMPTS.l2.prompt, /辅助工作必须先创建/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /TASK_ID/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /寒暄只回一句/);
+  assert.doesNotMatch(SYSTEM_PROMPTS.l2.prompt, /wait_for_updates|finish_turn|post_message/);
   assert.match(SYSTEM_PROMPTS.l3.prompt, /三级小祥/);
   assert.match(SYSTEM_PROMPTS.l3.prompt, /不得提及分身层级/);
   assert.match(SYSTEM_PROMPTS.l3.prompt, /publish_artifact/);
+  assert.match(SYSTEM_PROMPTS.l3.prompt, /report_task/);
+  assert.doesNotMatch(SYSTEM_PROMPTS.l3.prompt, /40 次工具调用/);
   assert.doesNotMatch(coordinator, /COORDINATOR_PERSONA|你是当前迭代会话的二级小祥|葫芦小金刚/);
   assert.doesNotMatch(agent, /你是共序项目中的助理|你是三级小祥|不得提及分身层级/);
 });

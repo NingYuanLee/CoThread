@@ -119,7 +119,7 @@ await query(
   workDb,
   "UPDATE sandbox_runs SET status='interrupted',output='服务重启，执行结果未确认；沙箱按超时回收。',finished_at=UTC_TIMESTAMP(3) WHERE status='running'",
 );
-const stopReplyWorker = await startReplyWorker(workDb);
+const stopReplyWorker = await startReplyWorker(workDb, db);
 for (const signal of ["SIGINT", "SIGTERM"])
   process.on(signal, () => {
     stopReplyWorker();

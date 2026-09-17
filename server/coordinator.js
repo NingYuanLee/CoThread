@@ -5,7 +5,7 @@ import { formatAgentAction } from "../shared/agent-label.js";
 import { loadProjectMembers } from "./project-memory.js";
 import { modelConfig, redactSecrets } from "./model-config.js";
 import { createUsageMeter, saveReplyUsage } from "./agent-usage.js";
-import { openAgentRuntime } from "./agent.js";
+import { acquireCoordinatorRuntime, discardCoordinatorRuntime, parkCoordinatorRuntime } from "./agent.js";
 import { discussionText } from "../shared/context.js";
 import { bindDshL3Execution, settleDshL3Execution } from "./task-pool.js";
 import { persistL3RunCheckpoint } from "./l3-session.js";
@@ -119,11 +119,25 @@ export async function dispatchContext(db, thread, job) {
         filename: summary.filename, version: summary.version, summary: brief(summary.summary, 4000),
         updatedAt: summary.updated_at, relatedTaskIds: [summary.message_id] });
   }
+  const closedStatuses = new Set(["completed", "failed", "cancelled"]);
   const tasks = replies.map((reply) => {
     let args = {};
     try { args = typeof reply.last_tool_input === "string" ? JSON.parse(reply.last_tool_input) : reply.last_tool_input || {}; }
     catch {}
     const goalUpdates = updateGroups.get(reply.message_id) || [];
+    const documentVersionIds = documentVersionsByTask.get(reply.message_id) || [];
+    if (closedStatuses.has(reply.status)) {
+      return {
+        taskId: reply.message_id,
+        status: reply.status,
+        closed: true,
+        noBackfill: true,
+        finishedAt: reply.finished_at,
+        title: brief(reply.request_body, 80),
+        goal: brief(reply.request_body, 80),
+        documentVersionIds,
+      };
+    }
     return {
       taskId: reply.message_id,
       relatedMessageIds: [reply.message_id, ...goalUpdates.map((update) => update.messageId)],
@@ -132,7 +146,7 @@ export async function dispatchContext(db, thread, job) {
       status: reply.status,
       goal: brief(reply.request_body, 800),
       goalUpdates,
-      documentVersionIds: documentVersionsByTask.get(reply.message_id) || [],
+      documentVersionIds,
       progress: brief(reply.progress, 240),
       lastAction: reply.last_tool ? formatAgentAction(reply.last_tool, args) : null,
       lastActionStatus: reply.last_tool_status,
@@ -140,38 +154,55 @@ export async function dispatchContext(db, thread, job) {
       finishedAt: reply.finished_at,
     };
   });
+  const openTaskIds = new Set(tasks.filter((task) => !task.closed).map((task) => task.taskId));
   const latestMessage = records.find((message) => message.messageId === job.message_id)
     || records.find((message) => message.sequence === String(job.sequence));
   const historyMessages = records.filter((message) => message.messageId !== latestMessage?.messageId);
-  let omittedOldest = 0;
-  const summaries = [...sharedSummaries.values()];
-  while (historyMessages.length && JSON.stringify({ historyMessages, tasks, summaries, latestMessage, memberContext }).length > 700000) {
-    historyMessages.shift();
-    omittedOldest++;
-  }
+  const omittedOldest = Math.max(0, historyMessages.length - 15);
+  if (historyMessages.length > 15) historyMessages.splice(0, historyMessages.length - 15);
+  const summaries = [...sharedSummaries.values()].map((item) => {
+    const live = item.relatedTaskIds.some((id) => openTaskIds.has(id));
+    return live ? item : {
+      versionId: item.versionId, artifactId: item.artifactId, title: item.title,
+      filename: item.filename, version: item.version, status: "indexed",
+      relatedTaskIds: item.relatedTaskIds,
+    };
+  }).filter((item) => item.status !== "indexed" || item.relatedTaskIds.some((id) => openTaskIds.has(id)));
+  const promptTasks = [
+    ...tasks.filter((task) => task.closed).slice(-8),
+    ...tasks.filter((task) => !task.closed),
+  ];
   return {
     title: thread.title,
     messages: routedMessages,
     replies,
     promptContext: {
+      event: job.kind === "child_result"
+        ? { kind: "child_result", ...job.payload }
+        : { kind: "member_message", messageId: job.message_id },
       projectSummary: projectSummaryRows[0]?.summary || null,
       history: { messages: historyMessages, omittedOldest },
-      tasks,
+      tasks: promptTasks,
       documentSummaries: summaries,
-      latestMessage: { ...latestMessage,
-        directlyAddressed: mentionsAgent(job.body) || job.participation === "reply" },
+      latestMessage: latestMessage ? { ...latestMessage,
+        directlyAddressed: mentionsAgent(job.body || "") || job.participation === "reply" } : null,
       members: memberContext,
     },
   };
 }
 
 export async function runCoordinatorAgent(context, { db, job, user }) {
-  const runtime = await openAgentRuntime(context, { db, job, user, role: "coordinator" });
+  const runtime = await acquireCoordinatorRuntime(context, { db, job, user });
   let completed = false;
   try {
-    const prompt = `当前项目：${context.project_id}；当前迭代：${job.thread_id}；触发消息：${job.message_id}。
-本次触发消息及其上下文如下：${JSON.stringify(context.promptContext || context)}
-请先理解并按需调用工具。你每次模型回复里的可见正文会进入群聊给成员看，不要把思考、工具过程或内部确认写进正文。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。调用 wait_for_updates 或 finish_turn 时正文必须是 NO_VISIBLE_MESSAGE，不要写「已回复」「进入等待」这类收尾说明。post_message 只用于额外插入一条与当前模型回复不同的独立消息。结束前必须根据状态调用 finish_turn 或 wait_for_updates。`;
+    const prompt = job.kind === "child_result"
+      ? `当前项目：${context.project_id}；当前迭代：${job.thread_id}。
+本次唤醒：下属交活。${JSON.stringify(job.payload || {})}
+当前上下文：${JSON.stringify(context.promptContext || context)}
+请根据结果向成员回报；也可 inspect_task 或 send_message 追问仍在跑的 L3，拿到回复后决定帮一把还是换人。不要推给平台，不要在沙箱写 SQL。先说话再行动。做完就停。`
+      : `当前项目：${context.project_id}；当前迭代：${job.thread_id}；触发消息：${job.message_id}。
+本次唤醒：成员消息。上下文：${JSON.stringify(context.promptContext || context)}
+先用可见正文回应理解或答复；催进度时 inspect_task 或 send_message 问 L3，拿到回复再决定帮一把还是换人；需要干活再 create_task 并 dsh_l3。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。做完就停。`;
     const steeredMessageIds = new Set();
     const mergedMessageIds = new Set();
     let steeringBusy = false;
@@ -219,7 +250,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
     const nativeToolEvents = new Map();
     const childRunEvents = new Map();
     const finishedChildren = new Map();
-    const activeChildren = new Set();
+    const activeChildren = runtime.activeChildren;
     let lifecycle = Promise.resolve();
     let childSettled;
     const taskIdFromPrompt = (value) => String(value || "").match(
@@ -296,6 +327,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
     };
     const runCoordinatorTurn = async (promptText) => {
       const started = performance.now();
+      await runtime.progress("正在调用模型");
       try {
         return await runtime.harness.run(promptText, {
           sessionId: runtime.session.session_id,
@@ -306,6 +338,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       }
     };
     const persistCoordinatorUsage = async () => {
+      if (!job.message_id) return;
       try {
         const usage = usageMeter.result() || {};
         const configuredModel = modelConfig("coordinator");
@@ -399,84 +432,125 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
     try {
       result = await runCoordinatorTurn(prompt);
       await lifecycle;
-      let followups = 0;
-      const childWaitDeadline = Date.now() + 9 * 60 * 1000;
-      while (activeChildren.size && followups < 7 && Date.now() < childWaitDeadline) {
-        let childReturned = false;
-        await Promise.race([
-          new Promise((resolve) => { childSettled = () => { childReturned = true; resolve(); }; }),
-          new Promise((resolve) => setTimeout(resolve, Math.max(1, childWaitDeadline - Date.now()))),
-        ]);
-        childSettled = undefined;
-        await lifecycle;
-        if (!childReturned) break;
-        result = await runCoordinatorTurn(`至少一个 DSH L3 已返回，当前仍有 ${activeChildren.size} 个 L3 在运行。请立即读取任务池中的新结果并继续当前 ReAct 循环；可以发言、调整其他任务或继续等待，不必等全部 L3 完成。收敛后调用 finish_turn 或 wait_for_updates。`);
-        followups++;
-      }
+      if (activeChildren.size) runtime.watchChildren?.(handleAgentTeamNotification, () => lifecycle);
       await lifecycle;
       await steerNewMessages();
-      completed = true;
       await persistCoordinatorUsage();
-      return { ...result, steeredMessageIds: [...steeredMessageIds], mergedMessageIds: [...mergedMessageIds], runtime };
+      completed = true;
+      return { ...result, steeredMessageIds: [...steeredMessageIds], mergedMessageIds: [...mergedMessageIds],
+        waiting: activeChildren.size > 0, runtime };
     } finally {
       clearInterval(steeringTimer);
       await steerNewMessages().catch(() => {});
     }
+  } catch (error) {
+    if (!completed) await discardCoordinatorRuntime(job.thread_id, runtime);
+    throw error;
   } finally {
-    await runtime.close(completed);
+    if (completed) await parkCoordinatorRuntime(job.thread_id, runtime, true).catch((error) => {
+      console.error("Coordinator runtime park failed", { type: error?.name || "Error" });
+      return discardCoordinatorRuntime(job.thread_id, runtime);
+    });
   }
 }
 
 export async function processNextCoordinator(db, threadId, runAgent = runCoordinatorAgent) {
   const candidates = threadId ? [{ thread_id: threadId }] : await query(db,
-    `SELECT m.thread_id FROM agent_requests q JOIN messages m ON m.id=q.message_id
-     WHERE q.status='queued' GROUP BY m.thread_id ORDER BY MIN(m.sequence)`);
+    `SELECT thread_id FROM (
+       SELECT m.thread_id FROM agent_requests q JOIN messages m ON m.id=q.message_id WHERE q.status='queued'
+       UNION
+       SELECT thread_id FROM coordinator_events WHERE status='queued'
+     ) queued`);
   let job;
   for (const candidate of candidates) {
     job = await transaction(db, async (conn) => {
-      // A concurrent child claim holds this row briefly. Skipping it would
-      // report "idle" even with queued requests and let the hosted runner exit.
       const [thread] = await query(conn, "SELECT id FROM threads WHERE id=? FOR UPDATE", [candidate.thread_id]);
       if (!thread) return;
-      const [active] = await query(conn,
+      const [activeRequest] = await query(conn,
         `SELECT q.message_id FROM agent_requests q JOIN messages m ON m.id=q.message_id
          WHERE m.thread_id=? AND q.status='running' LIMIT 1`, [thread.id]);
-      if (active) return;
-      const [next] = await query(conn,
-         `SELECT q.message_id,m.thread_id,m.author_id,m.sequence,m.body,m.execution_target,r.participation,r.status reply_status,r.reply_id FROM agent_requests q
-         JOIN messages m ON m.id=q.message_id LEFT JOIN assistant_replies r ON r.message_id=m.id
-         WHERE m.thread_id=? AND q.status='queued' ORDER BY m.sequence LIMIT 1`, [thread.id]);
-      if (next?.reply_status && !["queued", "running"].includes(next.reply_status)) {
-        // Older workers may have finished the reply without consuming routing.
-        // Reconcile the receipt without calling a model or repeating the work.
-        await query(conn, "UPDATE agent_requests SET status='completed',response_id=? WHERE message_id=?", [next.reply_id, next.message_id]);
+      const [activeEvent] = await query(conn,
+        "SELECT id FROM coordinator_events WHERE thread_id=? AND status='running' LIMIT 1", [thread.id]);
+      if (activeRequest || activeEvent) return;
+      const [nextMessage] = await query(conn,
+         `SELECT q.message_id,m.thread_id,m.author_id,m.sequence,m.body,m.refs,m.execution_target,m.created_at,
+          r.participation,r.status reply_status,r.reply_id FROM agent_requests q
+          JOIN messages m ON m.id=q.message_id LEFT JOIN assistant_replies r ON r.message_id=m.id
+          WHERE m.thread_id=? AND q.status='queued' ORDER BY m.sequence LIMIT 1`, [thread.id]);
+      const [nextEvent] = await query(conn,
+        `SELECT id,thread_id,kind,message_id,task_id,payload,created_at FROM coordinator_events
+         WHERE thread_id=? AND status='queued' ORDER BY created_at LIMIT 1`, [thread.id]);
+      const takeEvent = nextEvent && (!nextMessage || new Date(nextEvent.created_at) <= new Date(nextMessage.created_at));
+      if (takeEvent) {
+        await query(conn, "UPDATE coordinator_events SET status='running',claimed_at=UTC_TIMESTAMP(3) WHERE id=?", [nextEvent.id]);
+        const payload = typeof nextEvent.payload === "string" ? JSON.parse(nextEvent.payload) : nextEvent.payload || {};
+        const [latest] = await query(conn, "SELECT sequence FROM messages WHERE thread_id=? ORDER BY sequence DESC LIMIT 1", [thread.id]);
+        return {
+          kind: nextEvent.kind,
+          event_id: nextEvent.id,
+          thread_id: nextEvent.thread_id,
+          message_id: nextEvent.message_id || payload.sourceMessageId || null,
+          author_id: payload.sourceUserId || null,
+          sequence: latest?.sequence || 0,
+          body: "",
+          payload,
+          task_id: nextEvent.task_id,
+        };
+      }
+      if (nextMessage?.reply_status && !["queued", "running"].includes(nextMessage.reply_status)) {
+        await query(conn, "UPDATE agent_requests SET status='completed',response_id=? WHERE message_id=?", [nextMessage.reply_id, nextMessage.message_id]);
         return { alreadyHandled: true };
       }
-      if (next) await query(conn, "UPDATE agent_requests SET status='running' WHERE message_id=?", [next.message_id]);
-      return next;
+      if (nextMessage) {
+        await query(conn, "UPDATE agent_requests SET status='running' WHERE message_id=?", [nextMessage.message_id]);
+        return { kind: "member_message", ...nextMessage };
+      }
     });
     if (job) break;
   }
   if (!job) return false;
   if (job.alreadyHandled) return true;
+  if (job.kind === "child_result" && !job.author_id) {
+    const [member] = await query(db, `SELECT u.id FROM members m JOIN users u ON u.id=m.user_id
+      JOIN threads t ON t.project_id=m.project_id WHERE t.id=? LIMIT 1`, [job.thread_id]);
+    job.author_id = member?.id;
+  }
   const service = new Service(db), user = { id: job.author_id, kind: "session" };
   try {
     const started = performance.now();
     const thread = await service.thread(user, job.thread_id, true);
+    if (job.kind !== "child_result") {
+      await query(db, "UPDATE assistant_replies SET status='running',progress=? WHERE message_id=? AND status='queued'",
+        ["小祥正在理解请求", job.message_id]);
+    }
+    await query(db, "UPDATE agent_sessions SET steering_epoch=steering_epoch+1,task_revision=task_revision+1,last_processed_sequence=?,convergence_state='active',replanning_count=0,wait_reason=NULL,convergence_until=NULL WHERE thread_id=?", [job.sequence, job.thread_id]);
     const context = await dispatchContext(db, thread, job);
     const loaded = performance.now();
-    await query(db, "UPDATE assistant_replies SET status='running',progress='小祥正在持续分析' WHERE message_id=? AND status='queued'", [job.message_id]);
-    await query(db, "UPDATE agent_sessions SET steering_epoch=steering_epoch+1,task_revision=task_revision+1,last_processed_sequence=?,convergence_state='active',replanning_count=0,wait_reason=NULL,convergence_until=NULL WHERE thread_id=?", [job.sequence, job.thread_id]);
     const result = await runAgent(context, { db, job, user });
+    console.log("Agent timing", { messageId: job.message_id, stage: job.kind === "child_result" ? "coordinator_child_result" : "coordinator_agent",
+      contextMs: Math.round(loaded - started), modelMs: Math.round(performance.now() - loaded) });
     const visible = result?.finalResponse?.trim() && result.finalResponse.trim() !== "NO_VISIBLE_MESSAGE"
       ? result.finalResponse.trim().slice(0, 4000) : null;
-    const posts = await query(db, "SELECT id FROM messages WHERE agent_task_id=? ORDER BY sequence", [job.message_id]);
-    const [control] = await query(db, "SELECT 1 AS ok FROM agent_events WHERE message_id=? AND tool IN ('wait_for_updates','finish_turn') LIMIT 1", [job.message_id]);
-    let responseId = control && posts.length >= 2 ? posts[posts.length - 2].id : posts.at(-1)?.id || null;
+    const posts = job.message_id
+      ? await query(db, "SELECT id FROM messages WHERE agent_task_id=? ORDER BY sequence", [job.message_id])
+      : [];
+    const [liveChild] = await query(db, `SELECT r.id FROM agent_task_execution_runs r JOIN agent_tasks t ON t.id=r.task_id
+      WHERE t.origin_thread_id=? AND r.status IN ('queued','running','waiting') LIMIT 1`, [job.thread_id]);
+    const waiting = !!(result?.waiting || liveChild);
+    await query(db, "UPDATE agent_sessions SET convergence_state=?,wait_reason=?,updated_at=UTC_TIMESTAMP(3) WHERE thread_id=?",
+      [waiting ? "waiting" : "stable", waiting ? "等待执行结果" : null, job.thread_id]);
+    let responseId = posts[0]?.id || null;
     await transaction(db, async (conn) => {
+      if (job.kind === "child_result") {
+        if (!responseId && visible) {
+          responseId = (await service.insertMessage(conn, user, job.thread_id, visible, [], "assistant", job.message_id)).id;
+        }
+        await query(conn, "UPDATE coordinator_events SET status='completed',finished_at=UTC_TIMESTAMP(3) WHERE id=?", [job.event_id]);
+        return;
+      }
       const [request] = await query(conn, "SELECT status FROM agent_requests WHERE message_id=? FOR UPDATE", [job.message_id]);
       if (request?.status !== "running") return;
-      if (!responseId && visible && !control) responseId = (await service.insertMessage(conn, user, job.thread_id, visible, [], "assistant", job.message_id)).id;
+      if (!responseId && visible) responseId = (await service.insertMessage(conn, user, job.thread_id, visible, [], "assistant", job.message_id)).id;
       await query(conn, `UPDATE assistant_replies SET status='completed',participation=?,reply_id=?,progress='小祥已完成本轮处理',finished_at=UTC_TIMESTAMP(3) WHERE message_id=? AND status IN ('queued','running')`, [responseId ? "reply" : "silent", responseId, job.message_id]);
       await query(conn, "UPDATE agent_requests SET status='completed',response_id=?,error=NULL,first_response_at=COALESCE(first_response_at,UTC_TIMESTAMP(3)) WHERE message_id=?", [responseId, job.message_id]);
       for (const messageId of result?.mergedMessageIds || []) {
@@ -484,13 +558,14 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
         await query(conn, "UPDATE agent_requests SET status='completed',response_id=?,error=NULL,first_response_at=COALESCE(first_response_at,UTC_TIMESTAMP(3)) WHERE message_id=? AND status='queued'", [responseId, messageId]);
       }
     });
-    console.log("Agent timing", { messageId: job.message_id, stage: "coordinator_agent", contextMs: Math.round(loaded - started), modelMs: Math.round(performance.now() - loaded) });
   } catch (error) {
     await transaction(db, async (conn) => {
+      if (job.kind === "child_result") {
+        await query(conn, "UPDATE coordinator_events SET status='failed',error='小祥暂未响应，请重试。',finished_at=UTC_TIMESTAMP(3) WHERE id=?", [job.event_id]);
+        return;
+      }
       await query(conn, "UPDATE agent_requests SET status='failed',error='小祥暂未响应，请重试。' WHERE message_id=?", [job.message_id]);
       await query(conn, "UPDATE assistant_replies SET status='failed',error='小祥暂未响应，请重试。' WHERE message_id=? AND status IN ('queued','running')", [job.message_id]);
-      // A correction must not leave its running task stuck behind a failed
-      // routing request. The original child can interpret the member's text.
       await query(conn, "UPDATE agent_task_updates SET approved=TRUE WHERE message_id=?", [job.message_id]);
     });
     console.error("Coordinator request failed", {
@@ -501,3 +576,4 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
   }
   return true;
 }
+

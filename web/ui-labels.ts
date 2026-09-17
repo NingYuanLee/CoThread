@@ -74,3 +74,20 @@ export function formatActorRef(type: string | null | undefined, id: string | nul
   const label = labelActorType(type);
   return id ? `${label}：${id}` : label;
 }
+
+export const L3_EXECUTOR_NAMES = ["大娃", "二娃", "三娃", "四娃", "五娃", "六娃", "七娃"] as const;
+
+export function uniqueActorIds(values: Array<string | null | undefined>): string[] {
+  const ids: string[] = [];
+  for (const value of values) {
+    if (value && !ids.includes(value)) ids.push(value);
+  }
+  return ids;
+}
+
+export function l3ExecutorName(executorId: string | null | undefined, knownIds: Array<string | null | undefined>): string | null {
+  if (!executorId) return null;
+  const index = uniqueActorIds(knownIds).indexOf(executorId);
+  if (index >= 0 && index < L3_EXECUTOR_NAMES.length) return L3_EXECUTOR_NAMES[index];
+  return "任务级 Agent";
+}

@@ -222,7 +222,46 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
     const activeChildren = new Set();
     let lifecycle = Promise.resolve();
     let childSettled;
-    const taskIdFromPrompt = (value) => String(value || "").match(/(?:TASK_ID\s*[:=]|\[task:)\s*([0-9a-f]{8}-[0-9a-f-]{27,36})/i)?.[1] || null;
+    const taskIdFromPrompt = (value) => String(value || "").match(
+      /(?:TASK_ID\s*[:=]|任务ID\s*[:：]|\[task:)\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
+    )?.[1] || null;
+    const attachChildTask = async (childId, taskId, parentEventId) => {
+      let bindId = taskId || null;
+      if (!bindId) {
+        const queued = await query(db, `SELECT t.id FROM agent_task_execution_runs r
+          JOIN agent_tasks t ON t.id=r.task_id
+          WHERE t.target_type='l2_session' AND t.target_id=? AND r.executor_type='dsh_l3'
+            AND r.status='queued' AND r.executor_id IS NULL AND r.task_revision=t.revision
+          ORDER BY r.created_at`, [runtime.session.session_id]);
+        if (queued.length !== 1) return null;
+        bindId = queued[0].id;
+      }
+      let task = null;
+      try {
+        task = await bindDshL3Execution(db, runtime.session.session_id, childId, bindId);
+      } catch (error) {
+        if (error?.status === 409 || error?.status === 404) return null;
+        throw error;
+      }
+      if (task) {
+        if (parentEventId) {
+          await query(db, `UPDATE agent_events SET agent_task_id=?
+            WHERE agent_session_id=? AND agent_task_id IS NULL
+              AND created_at>=(SELECT created_at FROM (SELECT created_at FROM agent_events WHERE id=?) parent_event)`,
+          [task.id, childId, parentEventId]);
+        } else {
+          await query(db, "UPDATE agent_events SET agent_task_id=? WHERE agent_session_id=? AND agent_task_id IS NULL",
+            [task.id, childId]);
+        }
+        const finished = finishedChildren.get(childId);
+        if (finished) {
+          finishedChildren.delete(childId);
+          const settled = await settleDshL3Execution(db, runtime.session.session_id, childId, finished);
+          await retainOrForgetChild(childId, settled);
+        }
+      }
+      return task;
+    };
     const notificationText = (blocks = []) => blocks.filter((block) => block?.type === "text")
       .map((block) => block.text || "").join("\n");
     const retainOrForgetChild = async (childId, task) => {
@@ -322,19 +361,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
             if (!toolTasks.has(callId)) return;
             const pending = toolTasks.get(callId);
             const childId = pending.childId || output.match(/started subagent\s+([^\s]+)/i)?.[1];
-            if (childId && pending.taskId) {
-              const task = await bindDshL3Execution(db, runtime.session.session_id, childId, pending.taskId);
-              if (task) await query(db, `UPDATE agent_events SET agent_task_id=?
-                WHERE agent_session_id=? AND agent_task_id IS NULL
-                  AND created_at>=(SELECT created_at FROM (SELECT created_at FROM agent_events WHERE id=?) parent_event)`,
-              [task.id, childId, pending.parentEventId]);
-              const finished = finishedChildren.get(childId);
-              if (task && finished) {
-                finishedChildren.delete(childId);
-                const settled = await settleDshL3Execution(db, runtime.session.session_id, childId, finished);
-                await retainOrForgetChild(childId, settled);
-              }
-            }
+            if (childId) await attachChildTask(childId, pending.taskId, pending.parentEventId);
             toolTasks.delete(callId);
           }
         } else if (notification.method === "subagent.started" && notification.params?.parentSessionId === runtime.session.session_id) {
@@ -344,6 +371,11 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
             (message_id,agent_session_id,tool,status,input) VALUES(?,?,'agent_run','running','{}')`,
           [job.message_id, childId]);
           childRunEvents.set(childId, inserted.insertId);
+          let pendingTask = null;
+          for (const pending of toolTasks.values()) {
+            if (!pending.childId) { pending.childId = childId; pendingTask = pending; break; }
+          }
+          await attachChildTask(childId, pendingTask?.taskId, pendingTask?.parentEventId);
         } else if (notification.method === "subagent.finished" && notification.params?.parentSessionId === runtime.session.session_id) {
           const childId = notification.params.childSessionId;
           const runEventId = childRunEvents.get(childId);

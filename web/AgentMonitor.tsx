@@ -11,9 +11,12 @@ import { useAgentLiveOutput } from "./useAgentLiveOutput";
 import {
   formatActorRef,
   formatDurationMs,
+  l3ExecutorName,
+  L3_EXECUTOR_NAMES,
   labelAgentEventStatus,
   labelExecutorType,
   labelWorkflowStatus,
+  uniqueActorIds,
 } from "./ui-labels";
 
 type L1Run = {
@@ -195,15 +198,16 @@ type MonitorData = {
   }[];
 };
 
-const EXECUTORS = [
-  { name: "大娃", avatar: "dawa.png", color: "#b83f3a", tint: "#f8e8e6" },
-  { name: "二娃", avatar: "erwa.png", color: "#d97828", tint: "#fbefe2" },
-  { name: "三娃", avatar: "sanwa.png", color: "#b88a18", tint: "#faf4dc" },
-  { name: "四娃", avatar: "siwa.png", color: "#39804a", tint: "#e7f3e9" },
-  { name: "五娃", avatar: "wuwa.png", color: "#278b94", tint: "#e3f3f4" },
-  { name: "六娃", avatar: "liuwa.png", color: "#4168ad", tint: "#e8edf7" },
-  { name: "七娃", avatar: "qiwa.png", color: "#7652a0", tint: "#eee8f5" },
+const EXECUTOR_STYLES = [
+  { avatar: "dawa.png", color: "#b83f3a", tint: "#f8e8e6" },
+  { avatar: "erwa.png", color: "#d97828", tint: "#fbefe2" },
+  { avatar: "sanwa.png", color: "#b88a18", tint: "#faf4dc" },
+  { avatar: "siwa.png", color: "#39804a", tint: "#e7f3e9" },
+  { avatar: "wuwa.png", color: "#278b94", tint: "#e3f3f4" },
+  { avatar: "liuwa.png", color: "#4168ad", tint: "#e8edf7" },
+  { avatar: "qiwa.png", color: "#7652a0", tint: "#eee8f5" },
 ];
+const EXECUTORS = L3_EXECUTOR_NAMES.map((name, index) => ({ name, ...EXECUTOR_STYLES[index] }));
 
 function date(value: string | null | undefined) {
   if (!value) return null;
@@ -283,19 +287,31 @@ function State({ tone, children }: { tone: "idle" | "running" | "waiting" | "fai
 
 const ENDED = new Set(["completed", "failed", "cancelled", "superseded"]);
 
-const taskState = (task: MonitorData["executors"][number]) => {
-  if (task.execution_active || task.status === "running") return { label: "执行中", tone: "running" as const };
-  if (task.status === "queued") return { label: "等待开始", tone: "waiting" as const };
-  if (task.status === "completed") return { label: "空闲", tone: "idle" as const };
-  if (task.status === "cancelled") return { label: "空闲", tone: "idle" as const };
-  return { label: "执行失败", tone: "failed" as const };
+const liveExecutor = (task: { execution_active?: number | boolean | null; status?: string | null; executor_id?: string | null; agent_slot?: number | null; }) =>
+  (!!task.executor_id && (!!task.execution_active || task.status === "running" || task.status === "waiting"))
+  || (!!task.agent_slot && (!!task.execution_active || task.status === "running"));
+
+const agentState = (task: MonitorData["executors"][number] | null) => {
+  if (task && liveExecutor(task)) return { label: "执行中", tone: "running" as const };
+  return { label: "空闲", tone: "idle" as const };
 };
+
+function claimedWorkflow(task: MonitorData["executors"][number], pool?: MonitorData["taskPool"][number]) {
+  const status = pool?.run_status || pool?.task_status || task.status || "";
+  return {
+    label: labelWorkflowStatus(status),
+    tone: pool ? poolTone(pool) : status === "failed" ? "failed" as const
+      : liveExecutor(task) ? "running" as const
+      : ["queued", "waiting"].includes(status) ? "waiting" as const
+      : "idle" as const,
+  };
+}
 
 function poolTone(task: MonitorData["taskPool"][number]) {
   const status = task.run_status || task.task_status;
   if (status === "failed") return "failed" as const;
-  if (["running", "queued"].includes(status)) return "running" as const;
-  if (status === "waiting") return "waiting" as const;
+  if (status === "running" && task.executor_id) return "running" as const;
+  if (["queued", "waiting"].includes(status)) return "waiting" as const;
   return "idle" as const;
 }
 
@@ -366,7 +382,46 @@ function OverflowTitle({ text }: { text: string }) {
   </strong>;
 }
 
-function pendingDetail(task: MonitorData["taskPool"][number]): L3Detail {
+function memberDisplayName(id: string | null | undefined, people: { member_id: string; name: string }[]) {
+  if (!id) return "";
+  return people.find((item) => item.member_id === id)?.name || "";
+}
+
+function taskSourceName(
+  task: { source_user_id?: string | null; source_type?: string; requested_by?: string },
+  people: { member_id: string; name: string }[],
+) {
+  const userId = task.source_user_id || task.requested_by || "";
+  return memberDisplayName(userId, people)
+    || (task.source_type === "l2_session" ? "小祥" : labelExecutorType(task.source_type));
+}
+
+function taskExecutorName(
+  task: {
+    executor_id?: string | null;
+    executor_type?: string | null;
+    created_by_type?: string;
+    target_type?: string | null;
+    task_status?: string;
+    run_status?: string;
+    status?: string;
+  },
+  l3Ids: string[],
+) {
+  if (task.executor_id && (!task.executor_type || task.executor_type === "dsh_l3")) {
+    return l3ExecutorName(task.executor_id, l3Ids) || "任务级 Agent";
+  }
+  if (task.executor_type === "human_self") return "成员本人";
+  if (task.executor_type === "human_connector") return "本地连接器";
+  if (task.created_by_type === "l2_session" || task.target_type === "l2_session") {
+    const status = task.run_status || task.task_status || task.status || "";
+    if (ENDED.has(status)) return "小祥（未交给任务级 Agent）";
+    return "待任务级 Agent 接单";
+  }
+  return "未选择";
+}
+
+function pendingDetail(task: MonitorData["taskPool"][number], people: { member_id: string; name: string }[], l3Ids: string[]): L3Detail {
   return {
     id: task.task_id,
     title: task.title,
@@ -377,19 +432,24 @@ function pendingDetail(task: MonitorData["taskPool"][number]): L3Detail {
     progress: task.progress,
     result: task.result_summary,
     artifacts: artifactCount(task.artifact_refs),
-    source: task.source_user_id || labelExecutorType(task.source_type),
-    target: formatActorRef(task.target_type, task.target_id),
-    executor: task.executor_type ? formatActorRef(task.executor_type, task.executor_id || "待绑定") : "未选择",
+    source: taskSourceName(task, people),
+    target: task.target_type === "l2_session" ? "小祥" : formatActorRef(task.target_type, task.target_id),
+    executor: taskExecutorName(task, l3Ids),
     time: time(task.started_at),
   };
 }
 
-function claimedDetail(task: MonitorData["executors"][number], poolTitle?: string): L3Detail {
-  const state = taskState(task);
-  const active = !!task.execution_active || task.status === "running" || task.status === "queued";
+function claimedDetail(
+  task: MonitorData["executors"][number],
+  pool: MonitorData["taskPool"][number] | undefined,
+  people: { member_id: string; name: string }[],
+  l3Ids: string[],
+): L3Detail {
+  const state = claimedWorkflow(task, pool);
+  const active = liveExecutor(task);
   return {
     id: task.task_id,
-    title: poolTitle || task.progress || (task.task_type === "assist_l2" ? "辅助任务" : "执行任务"),
+    title: pool?.title || task.progress || (task.task_type === "assist_l2" ? "辅助任务" : "执行任务"),
     typeLabel: active ? "正在执行" : "已接过",
     statusLabel: state.label,
     tone: state.tone,
@@ -397,9 +457,9 @@ function claimedDetail(task: MonitorData["executors"][number], poolTitle?: strin
     progress: task.progress,
     result: task.result_summary || null,
     artifacts: artifactCount(task.artifact_refs),
-    source: task.requested_by || labelExecutorType(task.source_type),
-    target: formatActorRef(task.target_type, task.target_id),
-    executor: task.executor_type ? formatActorRef(task.executor_type, task.executor_id || "待绑定") : "未选择",
+    source: taskSourceName({ ...task, source_user_id: task.requested_by }, people),
+    target: task.target_type === "l2_session" ? "小祥" : formatActorRef(task.target_type, task.target_id),
+    executor: taskExecutorName({ ...task, ...pool, executor_id: task.executor_id, executor_type: task.executor_type }, l3Ids),
     time: time(task.last_action_at || task.finished_at || task.started_at),
   };
 }
@@ -424,9 +484,9 @@ function L3TaskDetailDialog({ detail, onClose }: { detail: L3Detail; onClose: ()
         <State tone={detail.tone}>{detail.statusLabel}</State>
       </header>
       <dl className="task-detail-meta">
-        <div><dt>来源</dt><dd>{detail.source}</dd></div>
-        <div><dt>责任</dt><dd>{detail.target}</dd></div>
-        <div><dt>执行</dt><dd>{detail.executor}</dd></div>
+        <div><dt>任务来源</dt><dd>{detail.source}</dd></div>
+        <div><dt>责任主体</dt><dd>{detail.target}</dd></div>
+        <div><dt>任务执行</dt><dd>{detail.executor}</dd></div>
         <div><dt>时间</dt><dd>{detail.time}</dd></div>
         {detail.artifacts ? <div><dt>产物</dt><dd>{detail.artifacts} 项</dd></div> : null}
       </dl>
@@ -654,19 +714,37 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   const [historyKind, setHistoryKind] = useState<"member" | "document" | "organization" | "archive" | null>(null);
   const [sessionTarget, setSessionTarget] = useState<SessionTarget | null>(null);
   const [refreshing, setRefreshing] = useState<"member" | "document" | "organization" | "archive" | null>(null);
-  const activeTasks = useMemo(() => data?.executors.filter((task) => task.execution_active || task.status === "running").length || 0, [data]);
+  const activeTasks = useMemo(() => data?.executors.filter((task) => liveExecutor(task)).length || 0, [data]);
   const selectedCoordinator = data?.coordinators.find((item) => item.id === selectedThreadId);
+  const people = data?.humanAgents || [];
   const threadPool = useMemo(() => (data?.taskPool || []).filter((task) =>
     task.origin_thread_id === selectedThreadId && (!task.executor_type || task.executor_type === "dsh_l3")), [data, selectedThreadId]);
-  const selectedTasks = useMemo(() => data?.executors.filter((task) => task.thread_id === selectedThreadId && task.executor_type === "dsh_l3") || [], [data, selectedThreadId]);
-  const slots = useMemo(() => Array.from({ length: 7 }, (_, index) => {
-    const slot = index + 1;
-    const explicit = selectedTasks.find((item) => item.agent_slot === slot);
-    const unassigned = selectedTasks.filter((item) => item.agent_slot == null && !selectedTasks.some((candidate) => candidate.agent_slot != null && candidate.task_id === item.task_id));
-    const occupiedBefore = Array.from({ length: index }, (_, previous) => selectedTasks.find((item) => item.agent_slot === previous + 1)).filter(Boolean).length;
-    return { slot, agent: EXECUTORS[index], task: explicit || unassigned[index - occupiedBefore] || null };
-  }), [selectedTasks]);
+  const selectedTasks = useMemo(() => data?.executors.filter((task) =>
+    task.thread_id === selectedThreadId && task.executor_type === "dsh_l3"
+    && (liveExecutor(task) || !!task.executor_id)) || [], [data, selectedThreadId]);
+  const l3Ids = useMemo(() => uniqueActorIds([
+    ...selectedTasks.map((task) => task.executor_id),
+    ...threadPool.map((task) => task.executor_id),
+  ]), [selectedTasks, threadPool]);
+  const slots = useMemo(() => {
+    const byExecutor: MonitorData["executors"] = [];
+    const seen = new Set<string>();
+    for (const item of selectedTasks) {
+      if (!item.executor_id || seen.has(item.executor_id)) continue;
+      if (item.agent_slot != null) continue;
+      if (selectedTasks.some((candidate) => candidate.agent_slot != null && candidate.executor_id === item.executor_id)) continue;
+      seen.add(item.executor_id);
+      byExecutor.push(item);
+    }
+    return Array.from({ length: 7 }, (_, index) => {
+      const slot = index + 1;
+      const explicit = selectedTasks.find((item) => item.agent_slot === slot);
+      const occupiedBefore = Array.from({ length: index }, (_, previous) => selectedTasks.find((item) => item.agent_slot === previous + 1)).filter(Boolean).length;
+      return { slot, agent: EXECUTORS[index], task: explicit || byExecutor[index - occupiedBefore] || null };
+    });
+  }, [selectedTasks]);
   const selectedAgent = slots.find((item) => item.slot === selectedSlot) || slots[0];
+  const selectedAgentState = agentState(selectedAgent?.task || null);
   const pendingTasks = useMemo(() => threadPool.filter((task) => !task.executor_id && !ENDED.has(task.task_status)), [threadPool]);
   const claimedTasks = useMemo(() => {
     const current = selectedAgent?.task || null;
@@ -685,7 +763,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
       unique.push({
         task_id: task.task_id, thread_id: selectedThreadId, thread_title: selectedCoordinator?.title || "",
         requested_by: task.source_user_id || "", goal: task.goal, status: task.run_status || task.task_status,
-        progress: task.progress, agent_slot: selectedSlot, execution_active: ["queued", "running"].includes(task.run_status || "") ? 1 : 0,
+        progress: task.progress, agent_slot: selectedSlot, execution_active: task.executor_id && ["running", "waiting"].includes(task.run_status || "") ? 1 : 0,
         started_at: task.started_at || "", finished_at: task.finished_at || null, last_action: null, last_action_status: null,
         last_action_at: null, update_count: 0, executor_type: "dsh_l3", executor_id: task.executor_id,
         target_type: task.target_type, target_id: task.target_id, task_type: task.task_type, source_type: task.source_type,
@@ -774,7 +852,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   }, [projectId]);
 
   useEffect(() => {
-    const busy = slots.find((item) => item.task && (item.task.execution_active || item.task.status === "running" || item.task.status === "queued"));
+    const busy = slots.find((item) => item.task && liveExecutor(item.task));
     setSelectedSlot(busy?.slot || 1);
   }, [selectedThreadId]);
 
@@ -934,13 +1012,14 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
             <span className="monitor-level">任务级Agents</span>
             {selectedAgent ? <img className="monitor-avatar" src={`/agent-avatars/${selectedAgent.agent.avatar}`} alt="" /> : null}
             <span className="monitor-agent-title">{selectedAgent ? `${selectedAgent.agent.name}（任务执行者）` : "任务执行者"}</span>
+            {selectedAgent ? <State tone={selectedAgentState.tone}>{selectedAgentState.label}</State> : null}
           </div>
           <span className="monitor-count">{selectedCoordinator?.active_executors || 0}/7 工作中</span>
         </div>
         <div className="l3-workspace">
           <div className="l3-agent-list" role="listbox" aria-label="任务级Agents">
             {slots.map(({ slot, agent, task }) => {
-              const state = task ? taskState(task) : { label: "空闲", tone: "idle" as const };
+              const state = agentState(task);
               const activeAt = time(task?.last_action_at || task?.finished_at || task?.started_at);
               return <button type="button" role="option" aria-selected={selectedSlot === slot} aria-label={`${agent.name} ${state.label} ${activeAt}`} className={selectedSlot === slot ? "selected" : ""} key={slot} style={{ "--agent-color": agent.color } as React.CSSProperties} onClick={() => setSelectedSlot(slot)}>
                 <img className="monitor-avatar" src={`/agent-avatars/${agent.avatar}`} alt="" />
@@ -959,10 +1038,10 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
                   {pendingTasks.map((task) => <L3TaskCard
                     key={task.task_id}
                     title={task.title}
-                    meta={`${task.task_type === "assist_l2" ? "辅助 L2" : "正式任务"} · 来源 ${task.source_user_id || labelExecutorType(task.source_type)}`}
+                    meta={`来源 ${taskSourceName(task, people)} · 执行 ${taskExecutorName(task, l3Ids)}`}
                     tone={poolTone(task)}
                     status={labelWorkflowStatus(task.run_status || task.task_status)}
-                    onDetail={() => setTaskDetail(pendingDetail(task))}
+                    onDetail={() => setTaskDetail(pendingDetail(task, people, l3Ids))}
                     onTrace={() => openTaskTrace(task.task_id)}
                   />)}
                   {!pendingTasks.length && <p className="monitor-empty">没有待处理任务。</p>}
@@ -972,19 +1051,20 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
                 <h4>已接过 {claimedTasks.length} 项</h4>
                 <div className="executor-list">
                   {claimedTasks.map((task) => {
-                    const state = taskState(task);
-                    const active = !!task.execution_active || task.status === "running" || task.status === "queued";
-                    const title = threadPool.find((item) => item.task_id === task.task_id)?.title
+                    const pool = threadPool.find((item) => item.task_id === task.task_id);
+                    const state = claimedWorkflow(task, pool);
+                    const active = liveExecutor(task);
+                    const title = pool?.title
                       || task.progress
                       || (task.task_type === "assist_l2" ? "辅助任务" : "执行任务");
                     return <L3TaskCard
                       key={task.task_id}
                       title={title}
-                      meta={`${active ? "正在执行" : "已接过"} · ${task.requested_by || labelExecutorType(task.source_type)}`}
+                      meta={`来源 ${taskSourceName({ ...task, source_user_id: task.requested_by }, people)} · 执行 ${taskExecutorName({ ...task, ...pool, executor_id: task.executor_id, executor_type: task.executor_type }, l3Ids)}`}
                       tone={state.tone}
                       status={state.label}
                       style={{ "--agent-color": selectedAgent?.agent.color, "--agent-tint": selectedAgent?.agent.tint } as React.CSSProperties}
-                      onDetail={() => setTaskDetail(claimedDetail(task, threadPool.find((item) => item.task_id === task.task_id)?.title))}
+                      onDetail={() => setTaskDetail(claimedDetail(task, pool, people, l3Ids))}
                       onTrace={() => openTaskTrace(task.task_id)}
                       onSession={() => setSessionTarget({
                         kind: "l3",

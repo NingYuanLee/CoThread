@@ -137,7 +137,12 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       await query(db, "DELETE FROM email_challenges WHERE id=?", [challengeId]);
       throw new HttpError(503, error instanceof Error ? error.message : "验证码发送失败");
     }
-    return { challengeId, expiresIn: 600, resendAfter: 60, deliveryStatus: "accepted" };
+    const localDev = !makers && ["127.0.0.1", "localhost", "::1"].includes(process.env.HOST || "127.0.0.1");
+    if (localDev) console.log(`本机验证码 [${purpose}] ${address}: ${code}`);
+    return {
+      challengeId, expiresIn: 600, resendAfter: 60, deliveryStatus: "accepted",
+      ...(localDev ? { devCode: code } : {}),
+    };
   };
   const recentActivityCount = async (browserHash, kind) => {
     const [row] = await query(db, `SELECT COUNT(*) count FROM human_verification_activity

@@ -5,6 +5,7 @@ import { formatAgentAction } from "../shared/agent-label.js";
 import { posix } from "node:path";
 import { query } from "./db.js";
 import { digest } from "./auth.js";
+import { storedContentType } from "./preview-mime.js";
 import { HttpError } from "./service.js";
 import { modelDiscussion, modelProject } from "./model-context.js";
 import { agentSession } from "./agent-session.js";
@@ -13,7 +14,7 @@ import { bindMakersSandbox } from "./makers-sandbox.js";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { loadMemberUnderstanding, loadProjectWikiIndexes, queueDocumentMemory } from "./project-memory.js";
 import { connectorTool } from "./connectors.js";
-import { acknowledgeTaskRejection, askTaskQuestion, createTask, listTasks, reassignTask, reopenRejectedTask, updateTask } from "./task-pool.js";
+import { acknowledgeTaskRejection, askTaskQuestion, createTask, ensureDshL3CanUpdate, listTasks, reassignTask, reopenRejectedTask, updateTask } from "./task-pool.js";
 import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./project-library.js";
 
 const titles = {
@@ -99,9 +100,7 @@ export function createAgentTools(
       } else if (name === "update_task") {
         const taskId = z.string().uuid().parse(args.taskId);
         if (effectiveRole === "executor") {
-          const [assigned] = await query(service.db, `SELECT id FROM agent_tasks
-            WHERE id=? AND execution_agent_type='dsh_l3' AND execution_agent_id=?`, [taskId, caller.sessionId]);
-          if (!assigned) throw new HttpError(403, "L3 只能更新分派给自己的任务");
+          await ensureDshL3CanUpdate(service.db, l2SessionId, caller.sessionId, taskId);
         }
         result = await updateTask(service.db, taskId, { type: "l2_session", id: l2SessionId }, args);
       } else if (name === "reassign_task") {
@@ -308,12 +307,7 @@ export function createAgentTools(
                 .optional()
                 .parse(args.artifactId);
               const filename = posix.basename(path);
-              const mime =
-                /\.(md|txt|py|js|ts|css|html|csv|json|sql|yaml|yml)$/i.test(
-                  filename,
-                )
-                  ? "text/plain"
-                  : "application/octet-stream";
+              const mime = storedContentType(filename);
               result = await service.submitVersion(
                 { ...user, kind: "agent" },
                 job.thread_id,

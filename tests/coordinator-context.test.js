@@ -68,6 +68,8 @@ test("stable L2 and L3 roles live only in the system prompt plugin", async () =>
   assert.match(SYSTEM_PROMPTS.l2.prompt, /二级小祥/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /葫芦小金刚/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /不能直接使用沙箱/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /自己就能完成的回复/);
+  assert.doesNotMatch(SYSTEM_PROMPTS.l2.prompt, /辅助工作必须先创建/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /TASK_ID/);
   assert.match(SYSTEM_PROMPTS.l3.prompt, /三级小祥/);
   assert.match(SYSTEM_PROMPTS.l3.prompt, /不得提及分身层级/);

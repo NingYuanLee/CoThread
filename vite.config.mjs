@@ -6,7 +6,10 @@ export default defineConfig({
     preTransformRequests: false,
     fs: { deny: [".local"] },
     watch: {
-      ignored: ["**/.git/**", "**/.local/**", "**/dist/**", "**/node_modules/**"],
+      ignored(path) {
+        const normalized = path.replaceAll("\\", "/").toLowerCase();
+        return ["/.git/", "/.local/", "/dist/", "/node_modules/"].some((part) => normalized.includes(part));
+      },
     },
   },
   optimizeDeps: {

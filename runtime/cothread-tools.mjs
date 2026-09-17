@@ -14,7 +14,7 @@ export function apply(ctx) {
     ["ask_task_question", "向任务的最新来源人提问。问题会作为群聊事件发布，提问后继续等待，不结束 L2。", { taskId:{type:"string",required:true}, question:{type:"string",required:true} }],
     ["wait_for_updates", "把当前 L2 标记为等待任务、消息或成员确认。", { reason:{type:"string"} }],
     ["finish_turn", "在当前上下文已经稳定时结束本次 L2 工作周期，但不销毁迭代 session。", { state:{type:"string"} }],
-    ["create_task", "创建项目任务。assist_l2 只能创建给自己的 DSH L3；formal 可指派给人类成员或当前 L2。", {
+    ["create_task", "创建项目任务。assist_l2 只用于即将调度的 DSH L3 执行工作，不要为小祥自己就能完成的回复或协调建任务；formal 可指派给人类成员或当前 L2。", {
       taskType: { type: "string", required: true }, title: { type: "string", required: true }, goal: { type: "string", required: true },
       constraints: { type: "string" }, sourceType:{type:"string"}, sourceUserId:{type:"string"}, sourceMessageId:{type:"string"}, sourceTaskId:{type:"string"}, targetType: { type: "string" }, targetId: { type: "string" },
     }],

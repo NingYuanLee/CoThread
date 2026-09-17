@@ -18,17 +18,19 @@
 
 ## 本机启动
 
-需要 Node.js 22.19+。本地 MySQL 为 Oracle 官方 MySQL 8.4.9 Windows ZIP 版，不注册系统服务，监听 `127.0.0.1:3307`。
+需要 Node.js 22.19+。本地 MySQL 为 Oracle 官方 MySQL 8.4.9 Windows ZIP 版，不注册系统服务，监听 `127.0.0.1:3307`。Agent 命令依赖 Git Bash。
+
+首次：
 
 ```powershell
 npm install
 npm run setup
-npm run mysql:start
-npm run db:migrate
 npm run dev
 ```
 
-打开 <http://localhost:3100>。`npm run setup` 将首次初始化的账号和随机密码保存在 `.local/initial-admin.json`；`npm run db:migrate` 在迁移后会自动写入超级管理员（也可单独运行 `npm run db:seed`）。可在账号设置中改密码；数据库只保存加盐哈希。新增项目成员由项目负责人操作。
+之后日常只需 `npm run dev`。它会在 `DATABASE_URL` 指向 `127.0.0.1:3307` 时拉起便携版 MySQL，应用未执行的迁移、写入超级管理员（若尚未存在），再启动 API（默认 `3101`）、Vite（默认 `3102`）和 `3100` 上的开发网关（把 `/api`、`/mcp` 转到 API，其余转到 Vite）。再次执行会先停止占用这些端口的本项目旧进程再拉起；也可用 `npm run dev:stop`。本机进程默认拒绝连接 RDS 等远端库，避免与线上执行器抢任务；确需连接时设置 `COTHREAD_ALLOW_REMOTE_DB=1`。
+
+打开 <http://localhost:3100>。首次 `npm run setup` 把初始账号写进 `.local/initial-admin.json` 和 `.local/登录信息.txt`，之后不再改这两个文件，启动时也不会改库里已有超级管理员的密码。可在账号设置中自行改密。
 
 登录可用账号名或已绑定邮箱。邮箱注册与「重置密码」走验证码（10 分钟有效）；公开入口可启用人机验证。工作空间设置里可绑定邮箱。
 
@@ -40,6 +42,7 @@ npm run dev
 
 ```powershell
 npm run mysql:stop   # 优雅关闭本地数据库
+npm run dev:stop     # 停止本项目开发用的 Vite 与 API；MySQL 保持运行
 npm run build        # 类型检查及前端生产构建
 npm start            # 使用构建后的静态页面
 npm test             # 真实 MySQL 集成测试；必须配置独立 TEST_DATABASE_URL，禁止清库 cothread_dev

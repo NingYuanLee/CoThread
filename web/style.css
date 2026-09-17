@@ -1056,11 +1056,11 @@ label select {
 }
 .conversation-log-stop:hover:not(:disabled) { background: transparent; color: #7a4f45; }
 .conversation-log-pulse {
-  position: absolute;
-  right: -2px;
-  top: -2px;
+  position: relative;
+  flex-shrink: 0;
   width: 6px;
   height: 6px;
+  margin-right: 5px;
   border-radius: 50%;
   background: #62855a;
   box-shadow: 0 0 0 2px #fcfdfb;
@@ -1107,6 +1107,7 @@ label select {
 .conversation-task-pool:hover { background:#f1f5eb; border-color:#c3d0b6; }
 .conversation-task-pool-label {
   flex:0 0 auto;
+  flex-shrink:0;
   margin:0;
   padding:0 8px 0 0;
   border:0;
@@ -1120,18 +1121,18 @@ label select {
   white-space:nowrap;
 }
 .conversation-task-pool-label:hover { color:#4a5f44; background:transparent; }
-.conversation-task-list { display:flex; align-items:center; gap:6px; flex:1 1 auto; min-width:0; overflow-x:auto; padding:0; scrollbar-width:thin; }
 .conversation-task-item {
   display:flex;
   align-items:center;
   gap:6px;
-  flex:0 0 auto;
-  max-width:220px;
+  flex:1 1 auto;
+  min-width:0;
   min-height:24px;
-  padding:3px 10px;
-  border:1px solid #e1e7da;
-  border-radius:12px;
-  background:#f7f9f5;
+  padding:0 8px 0 0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
   color:#6c7e5d;
   text-align:left;
 }
@@ -1142,7 +1143,7 @@ label select {
 .conversation-task-item[data-status="running"] i { background:#4c8b55; box-shadow:0 0 0 3px #dfeee0; }
 .conversation-task-item[data-status="waiting"] i,.conversation-task-item[data-status="awaiting_acceptance"] i { background:#bd9441; }
 .conversation-task-item[data-status="failed"] i,.conversation-task-item[data-status="blocked"] i { background:#b75b4d; }
-.conversation-task-item:hover { background:#eef3ea; border-color:#c3d0b6; }
+.conversation-task-item:hover { color:#4a5f44; background:transparent; }
 .conversation-task-empty { min-width:0; color:#9aa394; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .composer-actions button {
   background: #fff;
@@ -1932,7 +1933,6 @@ header h2 {
 @media (max-width:700px) {
   .composer-toolbar { align-items:center; flex-direction:row; }
   .conversation-task-pool { min-width:0; box-sizing:border-box; padding-left:8px; }
-  .conversation-task-pool-label { display:none; }
   .composer-actions { width:auto; flex-wrap:nowrap; justify-content:flex-end; overflow-x:auto; }
   .composer-actions button { padding-inline:9px; white-space:nowrap; }
 }
@@ -3026,6 +3026,9 @@ summary {
 .library-embedded .library-body > main {
   display: none;
 }
+.library-embedded .doc-browser-body > main.doc-browser-main {
+  display: flex;
+}
 .library-embedded .library-body > main.library-operation {
   display: flex;
   position: fixed;
@@ -3214,7 +3217,7 @@ summary {
 .doc-browser-preview iframe.doc-html-preview-frame,
 .doc-browser-preview iframe.doc-file-source-frame {
   flex: 1;
-  min-height: 0;
+  min-height: min(360px, 50vh);
   height: 100%;
   border: 0;
   border-radius: 0;
@@ -3573,6 +3576,7 @@ summary {
 }
 .app-shell.right-closed {
   --right-panel: 0px;
+  grid-template-columns: var(--left-panel) minmax(0, 1fr) 0px;
 }
 .workspace-topbar {
   grid-column: 2/-1;
@@ -4583,6 +4587,7 @@ body.col-resizing iframe {
   }
   .app-shell.right-closed {
     --right-panel: 0px;
+    grid-template-columns: var(--left-panel) minmax(0, 1fr) 0px;
   }
 }
 @media (max-width: 700px) {
@@ -4944,6 +4949,7 @@ body.col-resizing iframe {
 .monitor-section:last-of-type { border-bottom: 0; }
 .monitor-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
 .monitor-section-heading > div { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.monitor-section-heading .monitor-state { flex-shrink: 0; }
 .monitor-section-heading h3 { margin: 0; font-size: 15px; letter-spacing: 0; }
 .monitor-avatar { width: 38px; height: 38px; flex: 0 0 38px; border: 2px solid #fff; border-radius: 50%; background: #edf0ec; object-fit: cover; box-shadow: 0 0 0 1px #d8ddd8; }
 .monitor-section-heading .monitor-avatar {

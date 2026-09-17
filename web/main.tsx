@@ -43,7 +43,7 @@ import {
 } from "./ProfileFields";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { labelReasoningEffort, labelWorkflowStatus, labelExecutorType } from "./ui-labels";
+import { labelReasoningEffort, labelWorkflowStatus, labelExecutorType, l3ExecutorName, uniqueActorIds } from "./ui-labels";
 
 function PanelIcon({ side }: { side: "left" | "right" }) {
   return (
@@ -628,9 +628,32 @@ function App() {
   const localAvailable = connectorAvailability.some((item) => item.projectId === projectId);
   const isMyTask = (task: AgentTask) => task.source_user_id === user?.id || task.created_by_id === user?.id ||
     task.target_id === user?.id || task.claimed_by_id === user?.id || task.execution_agent_id === user?.id;
-  const myTasks = taskPool.filter(isMyTask);
+  const isTrackedTask = (task: AgentTask) => task.task_type !== "assist_l2"
+    || !!task.execution_agent_id
+    || !["completed", "failed", "cancelled", "superseded"].includes(task.status);
+  const myTasks = taskPool.filter((task) => isMyTask(task) && isTrackedTask(task));
   const currentMyTasks = myTasks.filter((task) => task.origin_thread_id === threadId);
-  const visibleTasks = taskPool.filter((task) => task.origin_thread_id === threadId && (!taskMine || isMyTask(task)));
+  const latestMyTask = [...currentMyTasks].sort((left, right) =>
+    new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())[0] || null;
+  const visibleTasks = taskPool.filter((task) => task.origin_thread_id === threadId && isTrackedTask(task) && (!taskMine || isMyTask(task)));
+  const threadExecutorIds = uniqueActorIds(taskPool.filter((task) => task.origin_thread_id === threadId).map((task) => task.execution_agent_id));
+  const memberName = (id: string | null | undefined) => detail?.members.find((member) => member.id === id)?.name
+    || (id && id === user?.id ? user.name : "");
+  const taskSourceLabel = (task: AgentTask) => memberName(task.source_user_id)
+    || (task.source_type === "l2_session" ? "小祥" : labelExecutorType(task.source_type));
+  const taskExecutorLabel = (task: AgentTask) => {
+    if (task.execution_agent_id && (!task.execution_agent_type || task.execution_agent_type === "dsh_l3")) {
+      return l3ExecutorName(task.execution_agent_id, threadExecutorIds) || "任务级 Agent";
+    }
+    if (task.execution_agent_type === "human_self") return memberName(task.claimed_by_id || task.target_id) || "成员本人";
+    if (task.execution_agent_type === "human_connector") return "本地连接器";
+    if (task.created_by_type === "l2_session" || task.target_type === "l2_session") {
+      return ["completed", "failed", "cancelled", "superseded"].includes(task.status)
+        ? "小祥（未交给任务级 Agent）"
+        : "待任务级 Agent 接单";
+    }
+    return "待选择";
+  };
   const openTaskDialog = (taskId = "") => {
     setSelectedTaskId(taskId);
     if (!taskId) setTaskDetail(null);
@@ -1265,7 +1288,11 @@ function App() {
   return (
     <div
       className={`app-shell ${leftOpen ? "" : "left-closed"} ${contextOpen ? "" : "right-closed"}`}
-      style={rightPanelWidth ? ({ "--right-panel": `${rightPanelWidth}px` } as React.CSSProperties) : undefined}
+      style={
+        contextOpen && rightPanelWidth
+          ? ({ "--right-panel": `${rightPanelWidth}px` } as React.CSSProperties)
+          : undefined
+      }
     >
       <header className="workspace-topbar">
         <nav className="project-tabs" aria-label="项目页签">
@@ -1907,13 +1934,10 @@ function App() {
                   setTaskMine(true); setSelectedTaskId(""); setTaskDetail(null); openTaskDialog();
                 }}>
                   <button type="button" className="conversation-task-pool-label">本迭代任务</button>
-                  <div className="conversation-task-list">
-                    {currentMyTasks.map((task) => <button type="button" className="conversation-task-item" data-status={task.status} key={task.id}
-                      title={task.goal} onClick={(event) => { event.stopPropagation(); setTaskMine(true); openTask(task.id); }}>
-                      <i aria-hidden="true" /><strong>{task.title}</strong><span>{task.progress || labelWorkflowStatus(task.status)}</span>
-                    </button>)}
-                    {!currentMyTasks.length && <span className="conversation-task-empty">暂无与我有关的任务</span>}
-                  </div>
+                  {latestMyTask ? <button type="button" className="conversation-task-item" data-status={latestMyTask.status}
+                    title={latestMyTask.title} onClick={(event) => { event.stopPropagation(); setTaskMine(true); openTask(latestMyTask.id); }}>
+                    <i aria-hidden="true" /><strong>{latestMyTask.title}</strong>
+                  </button> : <span className="conversation-task-empty">暂无与我有关的任务</span>}
                 </div>
                 <div className="composer-actions" role="group" aria-label="迭代操作">
                   {active && (
@@ -2120,9 +2144,8 @@ function App() {
               </form>}
               <div className="task-pool-list">
                 {visibleTasks.map((task) => {
-                  const target = detail?.members.find((member) => member.id === task.target_id)?.name || (task.target_type === "l2_session" ? "小祥" : "未指派");
                   return <button type="button" className="task-pool-item" aria-current={selectedTaskId === task.id ? "true" : undefined} key={task.id} onClick={() => openTask(task.id)}>
-                    <span className="task-pool-item-heading"><span><strong>{task.title}</strong><small>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"} · {target}</small></span><i data-status={task.status}>{labelWorkflowStatus(task.status)}</i></span>
+                    <span className="task-pool-item-heading"><span><strong>{task.title}</strong><small>来源 {taskSourceLabel(task)} · 执行 {taskExecutorLabel(task)}</small></span><i data-status={task.status}>{labelWorkflowStatus(task.status)}</i></span>
                   </button>;
                 })}
                 {!visibleTasks.length && <p className="panel-empty">{taskMine ? "暂无与我有关的任务。" : "当前迭代暂无任务。"}</p>}
@@ -2140,14 +2163,14 @@ function App() {
                 return <div className="task-detail">
                   {!task || task.id !== selectedTaskId ? <p className="muted">正在读取任务详情…</p> : <>
                     <header><div><small>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small><h3>{task.title}</h3></div><div className="task-detail-header-actions"><button type="button" onClick={() => setAgentLogScope({ type: "task", id: task.id })}>轨迹</button><span data-status={task.status}>{labelWorkflowStatus(task.status)}</span></div></header>
-                    <dl className="task-detail-meta"><div><dt>责任主体</dt><dd>{targetName}</dd></div><div><dt>执行 Agent</dt><dd>{task.execution_agent_type || "待选择"}</dd></div></dl>
+                    <dl className="task-detail-meta"><div><dt>任务来源</dt><dd>{taskSourceLabel(task)}</dd></div><div><dt>任务执行</dt><dd>{taskExecutorLabel(task)}</dd></div><div><dt>责任主体</dt><dd>{targetName}</dd></div><div><dt>任务类型</dt><dd>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</dd></div></dl>
                     <section><h4>任务目标</h4><p>{task.goal}</p>{task.constraints && <><h4>约束</h4><p>{task.constraints}</p></>}</section>
                     {openQuestion && <section className="task-question"><h4>需要你回答</h4><p>{openQuestion.question}</p><textarea value={taskAnswer} onChange={(event) => setTaskAnswer(event.target.value)} placeholder="输入回答" /><button type="button" className="primary" disabled={taskActionBusy || !taskAnswer.trim()} onClick={() => void performTaskAction(async () => { await api(`/task-questions/${openQuestion.id}/answer`, { answer: taskAnswer }); setTaskAnswer(""); })}>提交回答</button></section>}
                     {isTarget && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>确认任务</h4><select value={taskExecutionMode} onChange={(event) => setTaskExecutionMode(event.target.value as typeof taskExecutionMode)}><option value="auto">自动选择执行方式</option><option value="human_direct">由我直接完成</option><option value="member_connector">交给本机 Agent</option></select><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reject`, {}, "POST"))}>拒绝</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/accept`, { mode: taskExecutionMode }, "POST"))}>接受任务</button></div></section>}
                     {canReviewRejection && <section className="task-actions-section task-rejection-review"><h4>任务已被拒绝</h4><p>{[...task.assignmentHistory].reverse().find((event) => event.event_type === "rejected")?.reason || "目标成员拒绝了这个任务。"}</p><textarea value={taskReopenGoal} onChange={(event) => setTaskReopenGoal(event.target.value)} placeholder="修改任务目标与验收标准" /><textarea value={taskReopenConstraints} onChange={(event) => setTaskReopenConstraints(event.target.value)} placeholder="修改约束（可选）" /><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"))}>知道了</button><button type="button" className="primary" disabled={taskActionBusy || !taskReopenGoal.trim()} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reopen`, { goal: taskReopenGoal.trim(), constraints: taskReopenConstraints }, "POST"))}>修改后重新发起</button></div></section>}
                     {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}>确认转交</button></section>}
                     {isTarget && task.status !== "awaiting_acceptance" && !["completed", "failed", "cancelled", "superseded"].includes(task.status) && <section className="task-actions-section"><h4>进度与结果</h4><input value={taskProgress} onChange={(event) => setTaskProgress(event.target.value)} placeholder="当前进度" /><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要或阻塞原因" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "running", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>开始</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "waiting", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>等待</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "failed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>失败</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>完成</button></div></section>}
-                    {!!task.executionRuns.length && <section><h4>执行记录</h4><div className="task-history">{task.executionRuns.map((run) => <div key={run.id}><strong>{labelExecutorType(run.executor_type)}</strong><span>{labelWorkflowStatus(run.status)}</span><small>{run.progress || run.result_summary || run.error || time(run.created_at)}</small></div>)}</div></section>}
+                    {!!task.executionRuns.length && <section><h4>执行记录</h4><div className="task-history">{task.executionRuns.map((run) => <div key={run.id}><strong>{run.executor_type === "dsh_l3" ? (l3ExecutorName(run.executor_id, threadExecutorIds) || (run.executor_id ? "任务级 Agent" : "任务级 Agent（未绑定）")) : labelExecutorType(run.executor_type)}</strong><span>{labelWorkflowStatus(run.status)}</span><small>{run.progress || run.result_summary || run.error || time(run.created_at)}</small></div>)}</div></section>}
                     {!!task.assignmentHistory.length && <section><h4>指派与审计记录</h4><div className="task-history">{task.assignmentHistory.map((event) => <div key={event.id}><strong>{({ assigned: "创建并指派", transferred: "转交", rejected: "拒绝", acknowledged: "已知晓", reopened: "重新发起" } as const)[event.event_type] || event.event_type}</strong><span>{time(event.created_at)}</span>{event.reason && <small>{event.reason}</small>}</div>)}</div></section>}
                   </>}
                   {taskActionError && <p className="project-settings-error" role="alert">{taskActionError}</p>}

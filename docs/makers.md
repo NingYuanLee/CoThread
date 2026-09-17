@@ -49,9 +49,9 @@ Agent 启动器由 Makers 生成，目前引用 OpenTelemetry 1.x 的 `Resource`
 
 `/api/health` 应返回 JSON：`status: ok`，并包含 `agentEndpoint` 和 `mcpEndpoint`；未登录访问 `/api/me` 应返回 401 JSON，不能是前端 HTML。随后验证登录、项目列表、文件上传下载及 Agent 回复。
 
-本地普通 `npm run dev` 仍运行原来的完整应用。Makers CLI 调试时会为前端追加 `--port` 参数，只启动 Vite；云函数及 Agent 由 CLI 单独托管。`edgeone makers link` 会同步平台环境变量到本地 `.env`，操作前注意保留本地配置。禁止本地常驻 worker 和 Makers 同时处理同一业务数据库，测试使用独立数据库。
+本地普通 `npm run dev` 拆成三个内部端口：浏览器仍打开 `PORT`（默认 3100）上的开发网关；API 与后台执行器在 `API_PORT`（默认 3101）；Vite/HMR 在 `VITE_PORT`（默认 3102）。网关把 `/api`、`/mcp` 转到 API，其余转到 Vite。再次启动会先停止占用这些端口的本项目旧进程。`DATABASE_URL` 指向 `127.0.0.1:3307` 时会拉起便携版 MySQL，API 启动时迁移数据库（与 Makers 冷启动相同）。Makers CLI 调试时会为前端追加 `--port` 参数，只启动 Vite；云函数及 Agent 由 CLI 单独托管。`edgeone makers link` 会同步平台环境变量到本地 `.env`，操作前注意保留本地配置。禁止本地常驻 worker 和 Makers 同时处理同一业务数据库，测试使用独立数据库。
 
-本地完整应用连接远端数据库启动后台执行器时会输出警告，但不会阻止启动。操作前需要确认没有其他执行器同时处理同一业务数据库，避免重复抢占任务。只更新工作区文件不会更新已运行的 Node 进程，需要停止旧服务。
+本机 `npm run dev` / 监听 `127.0.0.1` 的 `npm start` 默认拒绝连接远端数据库。`edgeone makers link` 若把生产 `DATABASE_URL` 写入本地 `.env`，启动会失败而不是迁生产库。确需本机连接远端时设置 `COTHREAD_ALLOW_REMOTE_DB=1`，并确认没有其他执行器同时处理该库。云端常驻部署设置 `HOST=0.0.0.0` 后使用 `npm start` 可连接 RDS。只更新工作区文件不会更新已运行的 Node 进程，需要停止旧服务。
 
 ## 任务唤醒与轮询
 

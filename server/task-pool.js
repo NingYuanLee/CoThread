@@ -97,9 +97,13 @@ export async function updateTask(db, taskId, actor, update) {
     const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
     if (!task) throw new HttpError(404, "任务不存在");
     if (task.target_type !== actor.type || task.target_id !== actor.id) throw new HttpError(403, "只有当前任务目标可以更新任务");
-    const nextStatus = update.status || task.status;
+    let nextStatus = update.status || task.status;
     if (!["queued","running","waiting","blocked","completed","failed","cancelled"].includes(nextStatus)) throw new HttpError(400, "任务状态无效");
     if (["completed","failed","cancelled"].includes(task.status)) throw new HttpError(409, "任务已经结束");
+    if (task.task_type === "assist_l2" && ["completed", "failed"].includes(nextStatus) && !task.execution_agent_id) {
+      nextStatus = "cancelled";
+      if (!update.resultSummary) update = { ...update, resultSummary: "小祥自行处理，未调度任务级 Agent，已从任务池撤销。" };
+    }
     const redispatchDsh = nextStatus === "queued" && task.target_type === "l2_session"
       && (task.task_type === "assist_l2" || task.execution_agent_type === "dsh_l3");
     await query(conn, `UPDATE agent_tasks SET status=?,progress=COALESCE(?,progress),result_summary=COALESCE(?,result_summary),
@@ -113,6 +117,7 @@ export async function updateTask(db, taskId, actor, update) {
       await query(conn, `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,status)
         SELECT UUID(),id,revision,'dsh_l3','queued' FROM agent_tasks WHERE id=?`, [taskId]);
     }
+    if (["completed", "failed", "cancelled"].includes(nextStatus)) await closeEndedTaskRuns(conn, taskId, nextStatus);
     if (update.body) await query(conn, "INSERT INTO agent_task_pool_updates(id,task_id,source_type,source_id,message_id,body,revision) SELECT UUID(),?,?,?,?,?,revision FROM agent_tasks WHERE id=?", [taskId,actor.type,actor.id,update.messageId||null,update.body,taskId]);
     return getTask(conn, taskId);
   });
@@ -406,6 +411,20 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
   });
 }
 
+export async function ensureDshL3CanUpdate(db, l2SessionId, childSessionId, taskId) {
+  const [assigned] = await query(db, `SELECT id FROM agent_tasks
+    WHERE id=? AND target_type='l2_session' AND target_id=?
+      AND execution_agent_type='dsh_l3' AND execution_agent_id=?`, [taskId, l2SessionId, childSessionId]);
+  if (assigned) return;
+  try {
+    const bound = await bindDshL3Execution(db, l2SessionId, childSessionId, taskId);
+    if (bound?.execution_agent_id === childSessionId) return;
+  } catch (error) {
+    if (error?.status !== 409 && error?.status !== 404) throw error;
+  }
+  throw new HttpError(403, "L3 只能更新分派给自己的任务");
+}
+
 export async function settleDshL3Execution(db, l2SessionId, childSessionId, notification) {
   const result = await transaction(db, async (conn) => {
     const [run] = await query(conn, `SELECT r.id run_id,t.* FROM agent_task_execution_runs r
@@ -440,7 +459,47 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
   return result;
 }
 
+function closeEndedTaskRuns(conn, taskId, taskStatus) {
+  const activeStatus = taskStatus === "completed" ? "completed" : taskStatus === "failed" ? "failed" : "interrupted";
+  return query(conn, `UPDATE agent_task_execution_runs SET
+    status=IF(status='queued','cancelled',?),
+    error=IF(status='queued',COALESCE(error,'任务已结束，L3 未启动'),error),
+    finished_at=COALESCE(finished_at,UTC_TIMESTAMP(3))
+    WHERE task_id=? AND status IN ('queued','running','waiting')`, [activeStatus, taskId]);
+}
+
+export async function reconcileEndedTaskRuns(db) {
+  const rows = await query(db, `SELECT r.id,t.id task_id,t.status FROM agent_task_execution_runs r
+    JOIN agent_tasks t ON t.id=r.task_id
+    WHERE r.status IN ('queued','running','waiting') AND t.status IN ('completed','failed','cancelled','superseded')`);
+  if (!rows.length) return 0;
+  await transaction(db, async (conn) => {
+    for (const row of [...new Map(rows.map((item) => [item.task_id, item])).values()])
+      await closeEndedTaskRuns(conn, row.task_id, row.status);
+  });
+  return rows.length;
+}
+
+export async function voidSelfHandledAssistTasks(db) {
+  const tasks = await query(db, `SELECT id FROM agent_tasks
+    WHERE task_type='assist_l2' AND status IN ('completed','failed')
+      AND (execution_agent_id IS NULL OR execution_agent_id='')`);
+  if (!tasks.length) return 0;
+  await transaction(db, async (conn) => {
+    await query(conn, `UPDATE agent_tasks SET status='cancelled',
+      result_summary=TRIM(BOTH CHAR(10) FROM CONCAT(IFNULL(result_summary,''), IF(IFNULL(result_summary,'')='','',CHAR(10)),
+        '小祥自行处理，未调度任务级 Agent，已从任务池撤销。')),
+      finished_at=COALESCE(finished_at,UTC_TIMESTAMP(3)), revision=revision+1
+      WHERE task_type='assist_l2' AND status IN ('completed','failed')
+        AND (execution_agent_id IS NULL OR execution_agent_id='')`);
+    for (const task of tasks) await closeEndedTaskRuns(conn, task.id, "cancelled");
+  });
+  return tasks.length;
+}
+
 export async function recoverInterruptedDshL3Executions(db) {
+  await voidSelfHandledAssistTasks(db);
+  await reconcileEndedTaskRuns(db);
   const runs = await query(db, `SELECT r.id,r.task_id,t.origin_thread_id FROM agent_task_execution_runs r
     JOIN agent_tasks t ON t.id=r.task_id WHERE r.executor_type='dsh_l3' AND r.status IN ('running','waiting')`);
   if (!runs.length) return 0;

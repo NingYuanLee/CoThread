@@ -17,7 +17,8 @@
 | `EXECUTOR_MODEL_BASE_URL` | 三级任务执行模型的 OpenAI Responses 兼容接口根地址 |
 | `EXECUTOR_MODEL_API_KEY` | 三级任务执行模型的 API 密钥，属于敏感信息 |
 | `EXECUTOR_MODEL` | 三级任务执行模型，格式为 `模型名` 或 `模型名@推理强度` |
-| `HOST` | `0.0.0.0` |
+| `HOST` | 常驻 Node 部署设为 `0.0.0.0`（本机默认 `127.0.0.1`，此时拒绝连接远端数据库） |
+| `COTHREAD_ALLOW_REMOTE_DB` | 仅本机监听 loopback 却仍要连 RDS 时设为 `1`；Makers 与 `HOST=0.0.0.0` 的常驻部署不需要 |
 | `PORT` | 使用平台要求的监听端口；未设置时为 `3100` |
 | `APP_ORIGIN` | 用户实际访问的 HTTPS 域名，包含 `https://`，不带末尾斜杠 |
 | `COOKIE_SECURE` | HTTPS 部署设置为 `true` |
@@ -30,7 +31,7 @@
 
 迁移已有部署时，保留原有令牌加密密钥（原环境变量值，或将 `.local/credential-encryption.key` 的 32 字节二进制内容编码为 base64），否则无法解密原来的账号令牌。空库首次部署才生成新密钥；不要提交密钥。
 
-构建命令：`npm ci && npm run build`。发布前运行 `npm run db:migrate`（会尝试写入超级管理员，需配置 `ADMIN_EMAIL`/`ADMIN_PASSWORD` 或已有账号）。启动命令：`npm start`。当前版本运行单个应用实例。
+构建命令：`npm ci && npm run build`。常驻 `npm start` 与本地 `npm run dev` 启动时会应用未执行的迁移并尝试写入超级管理员（需 `.local/initial-admin.json` 或 `ADMIN_EMAIL`/`ADMIN_PASSWORD`）。也可单独运行 `npm run db:migrate`。当前版本运行单个应用实例。
 
 本地 `.env` 仅保留 `.env.example` 中列出的必要项。其余参数无需重复填写默认值：监听 `127.0.0.1:3100`，站点地址 `http://localhost:3100`，Cookie Secure 和数据库 TLS 默认关闭；云端 HTTPS、监听地址和数据库 TLS 按上表覆盖。
 

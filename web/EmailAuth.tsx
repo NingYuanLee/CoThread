@@ -43,10 +43,12 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
         const result = await api(`/email/${mode}/request`, requestData);
         setChallengeId(result.challengeId); setSentAt(Date.now());
         await refreshHumanStatus();
-        setNotice(result.deliveryStatus === "accepted"
-          ? "收件服务器已接受验证码邮件，请在 10 分钟内完成验证。"
-          : "如果该邮箱已绑定账号，验证码邮件将会发送，请检查收件箱和垃圾邮件。"
-        );
+        setNotice([
+          result.deliveryStatus === "accepted"
+            ? "收件服务器已接受验证码邮件，请在 10 分钟内完成验证。"
+            : "如果该邮箱已绑定账号，验证码邮件将会发送，请检查收件箱和垃圾邮件。",
+          result.devCode ? `本机验证码：${result.devCode}` : "",
+        ].filter(Boolean).join(" "));
       } else {
         const result = await api(`/email/${mode}/confirm`, { challengeId, code: value("code") });
         onLogin(result);

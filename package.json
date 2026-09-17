@@ -7,7 +7,8 @@
     "node": ">=22.19"
   },
   "scripts": {
-    "dev": "node --env-file=.env scripts/dev.js",
+    "dev": "node --env-file-if-exists=.env scripts/dev.js",
+    "dev:stop": "node --env-file-if-exists=.env scripts/dev.js --stop",
     "dev:static": "node --env-file=.env server/index.js --production",
     "build": "tsc --noEmit && vite build",
     "connector:build": "node --env-file-if-exists=.env scripts/build-connector.mjs",

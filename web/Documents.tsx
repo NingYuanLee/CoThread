@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { FileIcon, FolderIcon } from "@react-symbols/icons/utils";
 import { Document, Notebook } from "@react-symbols/icons/files";
 import { DocxPreview, PptxPreview, XlsxPreview } from "./office-preview";
+import { inlineHtmlPreviewAssets } from "../shared/html-preview.mjs";
 const officeIcons = {
   doc: Document,
   docx: Document,
@@ -15,6 +16,57 @@ const officeIcons = {
   pptx: Notebook,
   odp: Notebook,
 };
+
+function HtmlPreviewFrame({
+  versionId,
+  filename,
+}: {
+  versionId: string;
+  filename: string;
+}) {
+  const [srcDoc, setSrcDoc] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    setSrcDoc("");
+    setError("");
+    (async () => {
+      const response = await apiFetch(`/api/versions/${versionId}/preview/`);
+      if (!response.ok) {
+        const body = await readJsonResponse(
+          response,
+          `/api/versions/${versionId}/preview/`,
+        ).catch(() => ({ error: `预览失败 ${response.status}` }));
+        throw new Error(body.error || `预览失败 ${response.status}`);
+      }
+      const html = await response.text();
+      const inlined = await inlineHtmlPreviewAssets(html, async (path) => {
+        const asset = await apiFetch(
+          `/api/versions/${versionId}/preview/${encodeURI(path)}`,
+        );
+        if (!asset.ok) throw new Error(`无法加载 ${path}`);
+        return asset.text();
+      });
+      if (alive) setSrcDoc(inlined);
+    })().catch((cause) => {
+      if (alive) setError(cause instanceof Error ? cause.message : String(cause));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [versionId]);
+  if (error) return <p className="error">{error}</p>;
+  if (!srcDoc) return <p className="muted doc-browser-loading">正在准备 HTML 预览…</p>;
+  return (
+    <iframe
+      className="doc-html-preview-frame"
+      title={filename}
+      srcDoc={srcDoc}
+      sandbox="allow-scripts"
+      referrerPolicy="no-referrer"
+    />
+  );
+}
 
 function LibraryFileMenu({
   menuId,
@@ -1410,14 +1462,11 @@ export function Documents({
           referrerPolicy="no-referrer"
         />
       )}
-      {view?.kind === "html" && previewMode === "preview" && (
-        <iframe
+      {view?.kind === "html" && previewMode === "preview" && selected && (
+        <HtmlPreviewFrame
           key={`${selected}-preview`}
-          className="doc-html-preview-frame"
-          title={version?.filename ?? "HTML"}
-          src={selected ? `/api/versions/${selected}/preview/` : undefined}
-          sandbox="allow-scripts allow-same-origin"
-          referrerPolicy="no-referrer"
+          versionId={selected}
+          filename={version?.filename ?? "HTML"}
         />
       )}
       {view?.kind === "html" && previewMode === "text" && (

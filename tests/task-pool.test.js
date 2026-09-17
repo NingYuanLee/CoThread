@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, createTask, listTasks, reassignTask, recoverInterruptedDshL3Executions, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, updateTask } from "../server/task-pool.js";
+import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, createTask, ensureDshL3CanUpdate, listTasks, reassignTask, recoverInterruptedDshL3Executions, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, updateTask } from "../server/task-pool.js";
 import { testDatabase } from "./database.js";
 
 let database, db, service, project, thread, users, l2SessionId;
@@ -161,6 +161,28 @@ test("assist tasks bind to the real DSH child and return a compact result to the
   assert.match(update.body, /结论与验证结果/);
 });
 
+test("queued assist work stays pending until a DSH L3 child is bound", async () => {
+  const assist = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "尚未启动的辅助任务",
+    goal: "创建后仍在排队", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const queuedMonitor = await service.agentMonitor(users[0], project.id);
+  const pool = queuedMonitor.taskPool.find((row) => row.task_id === assist.id);
+  assert.equal(pool.task_status, "queued");
+  assert.equal(pool.run_status, "queued");
+  assert.equal(pool.executor_id, null);
+  assert.equal(queuedMonitor.executors.some((row) => row.task_id === assist.id && row.execution_active), false);
+
+  const childId = randomUUID();
+  await bindDshL3Execution(db, l2SessionId, childId, assist.id);
+  const live = await service.agentMonitor(users[0], project.id);
+  const bound = live.executors.find((row) => row.task_id === assist.id);
+  assert.equal(bound.executor_id, childId);
+  assert.equal(!!bound.execution_active, true);
+  assert.equal(bound.status, "running");
+});
+
 test("a formal task owned by L2 can run on a resumable DSH child", async () => {
   const formal = await createTask(db, {
     projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
@@ -310,4 +332,38 @@ test("updating a queued assist task cancels stale revisions and only binds the c
     id: oldRun.id, status: "cancelled", executor_id: null,
   });
   assert.equal(refreshedRuns.find((run) => run.id === current.id).executor_id, childId);
+});
+
+test("completing an assist task without an L3 voids the task instead of keeping it completed", async () => {
+  const assist = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "L2 直接完成",
+    goal: "不启动 L3", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const closed = await updateTask(db, assist.id, { type: "l2_session", id: l2SessionId }, {
+    status: "completed", progress: "已由 L2 关闭", resultSummary: "无需 L3",
+  });
+  assert.equal(closed.status, "cancelled");
+  const [run] = await query(db, "SELECT status,error,executor_id FROM agent_task_execution_runs WHERE task_id=?", [assist.id]);
+  assert.equal(run.status, "cancelled");
+  assert.equal(run.executor_id, null);
+  assert.match(run.error, /L3 未启动/);
+});
+
+test("an unbound L3 can claim a queued assist task when writing completion", async () => {
+  const assist = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "完成后补绑定",
+    goal: "L3 先干活再回写", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const childId = randomUUID();
+  await ensureDshL3CanUpdate(db, l2SessionId, childId, assist.id);
+  const completed = await updateTask(db, assist.id, { type: "l2_session", id: l2SessionId }, {
+    status: "completed", progress: "产物已提交", resultSummary: "文档已入库",
+  });
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.execution_agent_id, childId);
+  const [run] = await query(db, "SELECT status,executor_id FROM agent_task_execution_runs WHERE task_id=? ORDER BY created_at DESC LIMIT 1", [assist.id]);
+  assert.equal(run.executor_id, childId);
+  assert.equal(run.status, "completed");
 });

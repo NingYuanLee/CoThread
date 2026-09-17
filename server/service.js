@@ -22,34 +22,7 @@ import {
   OUTPUT_LIBRARY_FOLDER_SQL,
   utcDateKey,
 } from "./project-library.js";
-
-const PREVIEW_MIME_BY_EXT = {
-  html: "text/html; charset=utf-8",
-  htm: "text/html; charset=utf-8",
-  css: "text/css; charset=utf-8",
-  js: "text/javascript; charset=utf-8",
-  mjs: "text/javascript; charset=utf-8",
-  json: "application/json; charset=utf-8",
-  svg: "image/svg+xml",
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  woff: "font/woff",
-  woff2: "font/woff2",
-};
-
-function previewContentType(mime, filename) {
-  const normalized = String(mime || "").trim();
-  if (normalized && normalized !== "application/octet-stream") {
-    return /charset=/i.test(normalized)
-      ? normalized
-      : `${normalized}; charset=utf-8`;
-  }
-  const ext = filename.split(".").pop()?.toLowerCase() || "";
-  return PREVIEW_MIME_BY_EXT[ext] || "application/octet-stream";
-}
+import { previewContentType, resolveStoredMime } from "./preview-mime.js";
 
 function rewriteRootRelativeAssetUrls(html) {
   return html.replace(
@@ -688,7 +661,8 @@ export class Service {
         ...taskExecutions.map((row) => ({
           task_id: row.task_id, thread_id: row.origin_thread_id || null, thread_title: null,
           requested_by: row.source_user_id, goal: row.goal, status: row.run_status || row.task_status,
-          progress: row.progress, agent_slot: null, execution_active: ["queued", "running"].includes(row.run_status),
+          progress: row.progress, agent_slot: null,
+          execution_active: !!row.executor_id && ["running", "waiting"].includes(row.run_status),
           started_at: row.started_at, finished_at: row.finished_at, last_action: null, last_action_status: null,
           last_action_at: null, update_count: 0, executor_type: row.executor_type,
           executor_id: row.executor_id, target_type: row.target_type, target_id: row.target_id,
@@ -1357,7 +1331,7 @@ export class Service {
           .string()
           .max(150)
           .regex(/^[\w.+-]+\/[\w.+-]+$/)
-          .default("application/octet-stream"),
+          .optional(),
         contentBase64: z
           .string()
           .max(7_000_000)
@@ -1366,6 +1340,7 @@ export class Service {
         note: z.string().max(4000).default(""),
       })
       .parse(input);
+    data.mime = resolveStoredMime(data.filename, data.mime);
     const bytes = Buffer.from(data.contentBase64, "base64");
     if (bytes.length > 5 * 1024 * 1024) fail(413, "单个文件上限为 5 MiB");
     return transaction(this.db, async (db) => {
@@ -1437,7 +1412,7 @@ export class Service {
           .string()
           .max(150)
           .regex(/^[\w.+-]+\/[\w.+-]+$/)
-          .default("text/plain"),
+          .optional(),
         contentBase64: z
           .string()
           .max(7_000_000)
@@ -1446,6 +1421,7 @@ export class Service {
         note: z.string().max(4000).default(""),
       })
       .parse(input);
+    data.mime = resolveStoredMime(data.filename, data.mime);
     const bytes = Buffer.from(data.contentBase64, "base64");
     if (bytes.length > 5 * 1024 * 1024) fail(413, "首版单个文件上限为 5 MiB");
     const save = async (db) => {
@@ -1599,6 +1575,8 @@ export class Service {
   async versionSource(user, versionId) {
     const version = await this.version(user, versionId);
     const filename = String(version.filename || "");
+    // /source is the code view: force text/plain for markup so the browser does not render HTML.
+    // HTML/CSS/JS preview uses versionPreview + /preview/, which prefers filename over stored mime.
     const mime = /\.(html?|md|markdown|txt|css|js|json|xml|ya?ml|csv|sql|log)$/i.test(
       filename,
     )

@@ -3,7 +3,7 @@ import { z } from "zod/v3";
 import { accountCredential, digest } from "./auth.js";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
-import { syncConnectorTaskById } from "./agent-task-sync.js";
+import { reopenConnectorTask, syncConnectorTaskById } from "./agent-task-sync.js";
 
 const pairingCode = () => randomBytes(9).toString("base64url").toUpperCase();
 const bearer = (req) => req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
@@ -224,7 +224,8 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
       if (action === "retry" && ["failed", "failed_pending_notification", "cancelled", "interrupted", "stopped_pending_approval"].includes(task.status)) {
         await query(conn, `UPDATE connector_tasks SET status='queued',progress='等待本机开始',output=NULL,diff=NULL,error=NULL,
           lease_token_hash=NULL,lease_expires_at=NULL,finished_at=NULL WHERE id=?`, [taskId]);
-        await syncConnectorTaskById(conn, taskId, { publish: true });
+        // 放弃/失败后重试：任务池任务已是终态，普通同步不会改动它，这里显式重新打开并新开执行记录。
+        await reopenConnectorTask(conn, taskId, { publish: true });
         return { status: "queued" };
       }
       if (action === "notify" && ["completed_pending_notification", "failed_pending_notification", "stopped_pending_approval"].includes(task.status)) {

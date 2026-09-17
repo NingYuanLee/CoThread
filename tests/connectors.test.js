@@ -362,3 +362,51 @@ test("connectors renew expired paused leases for interactive sessions and fetch 
   assert.equal((await mcpInit(reset.body.token)).status, 401);
   assert.equal((await mcpInit(rotated.body.token)).status, 200);
 });
+
+test("abandoning then retrying on the connector reopens the pool task and every step is in the status log", async () => {
+  const requester = await loginUser(await makeUser("重试提出人"));
+  const developer = await loginUser(await makeUser("重试开发者"));
+  for (const member of [requester, developer])
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')", [projectId, member.id]);
+  const connector = await pair(developer, "重试电脑");
+  const created = await request(`/projects/${projectId}/tasks`, {
+    title: "放弃后重试", goal: "先放弃再重试，最终完成。", targetUserId: developer.id, threadId,
+  }, requester);
+  assert.equal(created.status, 201);
+  assert.equal((await request(`/tasks/${created.body.id}/accept`, { mode: "member_connector" }, developer)).status, 200);
+  const [task] = await query(db, "SELECT id FROM connector_tasks WHERE agent_task_id=?", [created.body.id]);
+
+  // 本机放弃：连接器记录与任务池任务都取消。
+  assert.equal((await request(`/connector/tasks/${task.id}/control`, { action: "abandon" }, connector)).body.status, "cancelled");
+  assert.equal((await request(`/tasks/${created.body.id}`, undefined, requester)).body.status, "cancelled");
+  // 重试：任务池任务重新排队并新开执行记录，而不是停留在已取消。
+  assert.equal((await request(`/connector/tasks/${task.id}/control`, { action: "retry" }, connector)).body.status, "queued");
+  const reopened = await request(`/tasks/${created.body.id}`, undefined, requester);
+  assert.equal(reopened.body.status, "queued");
+  assert.equal(reopened.body.finished_at, null);
+  assert.equal(reopened.body.executionRuns.length, 2);
+  assert.equal(reopened.body.executionRuns[0].status, "queued");
+  assert.equal(reopened.body.executionRuns[1].status, "cancelled");
+
+  const claimed = await request(`/connector/tasks/${task.id}/claim`, {}, connector);
+  assert.equal(claimed.status, 200);
+  const completed = await request(`/connector/tasks/${task.id}`, {
+    leaseToken: claimed.body.task.leaseToken, status: "completed", output: "第二次完成", agentKind: "codex",
+  }, connector, "PATCH");
+  assert.equal(completed.status, 200);
+  const detail = await request(`/tasks/${created.body.id}`, undefined, requester);
+  assert.equal(detail.body.status, "completed");
+  assert.equal(detail.body.result_summary, "第二次完成");
+  assert.equal(detail.body.executionRuns[0].status, "completed");
+  assert.deepEqual(detail.body.statusHistory.map((event) => [event.from_status, event.to_status, event.actor_type]), [
+    [null, "awaiting_acceptance", "human_member"],
+    ["awaiting_acceptance", "queued", "human_member"],
+    ["queued", "cancelled", "connector"],
+    ["cancelled", "queued", "connector"],
+    ["queued", "running", "connector"],
+    ["running", "completed", "connector"],
+  ]);
+  assert.equal(detail.body.statusHistory[1].actor_id, developer.id);
+  assert.equal(detail.body.statusHistory[2].actor_id, connector.id);
+  assert.match(detail.body.statusHistory[3].reason, /重试/);
+});

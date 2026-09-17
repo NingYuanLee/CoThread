@@ -64,12 +64,15 @@ public static class CoThreadWindowIcon {
     <TabControl Grid.Row="2" Margin="20,16,20,14" Background="#FFFFFF" BorderBrush="#DDE3DA">
       <TabItem Header="项目">
         <Grid x:Name="ProjectPanel" Margin="16"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-          <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="项目与本地仓库" FontSize="15" FontWeight="SemiBold" Foreground="#303B30"/><TextBlock Text="关联本地 Git 仓库并配置任务推送权限" Margin="0,3,0,0" Foreground="#849083"/></StackPanel><Button x:Name="RefreshButton" Grid.Column="1" Content="↻  刷新项目" Style="{StaticResource RefreshActionButton}" ToolTip="重新从 CoThread 获取项目列表" Margin="0"/></Grid>
-          <DataGrid x:Name="ProjectGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="False">
+          <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="项目与本地仓库" FontSize="15" FontWeight="SemiBold" Foreground="#303B30"/><TextBlock Text="先选 Git 仓库，再按需填写仓库内项目路径（留空则与仓库相同）。任务在独立 worktree 中执行，不检查主仓库未提交改动。" Margin="0,3,0,0" Foreground="#849083"/></StackPanel><Button x:Name="RefreshButton" Grid.Column="1" Content="↻  刷新项目" Style="{StaticResource RefreshActionButton}" ToolTip="重新从 CoThread 获取项目列表" Margin="0"/></Grid>
+          <DataGrid x:Name="ProjectGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="False" HorizontalScrollBarVisibility="Auto">
             <DataGrid.Columns>
               <DataGridTemplateColumn Header="项目" IsReadOnly="True" Width="1.1*"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding name}" ToolTip="{Binding name}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" Foreground="#2E4631" VerticalAlignment="Center"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-              <DataGridTemplateColumn Header="本地 Git 仓库" Width="2*"><DataGridTemplateColumn.CellTemplate><DataTemplate>
-                <DockPanel><Button x:Name="BrowseProjectButton" Content="浏览..." DockPanel.Dock="Right" Tag="{Binding id}" Margin="6,1,0,1"/><TextBox x:Name="ProjectRootInput" Text="{Binding root, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="可直接输入或粘贴 Git 仓库根目录" VerticalContentAlignment="Center" Margin="0,1,0,1"/></DockPanel>
+              <DataGridTemplateColumn Header="Git 仓库" Width="1.8*"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+                <DockPanel><Button x:Name="BrowseRepoButton" Content="浏览..." DockPanel.Dock="Right" Tag="{Binding id}" Margin="6,1,0,1"/><TextBox x:Name="ProjectRepoInput" Text="{Binding repo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="Git 仓库根目录，可直接输入或粘贴" VerticalContentAlignment="Center" Margin="0,1,0,1"/></DockPanel>
+              </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+              <DataGridTemplateColumn Header="项目路径" Width="1.5*"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+                <DockPanel><Button x:Name="BrowsePathButton" Content="浏览..." DockPanel.Dock="Right" Tag="{Binding id}" Margin="6,1,0,1"/><TextBox x:Name="ProjectPathInput" Text="{Binding projectPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="可选。仓库内子目录，留空则与 Git 仓库相同" VerticalContentAlignment="Center" Margin="0,1,0,1"/></DockPanel>
               </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
               <DataGridTemplateColumn Header="推送" Width="54"><DataGridTemplateColumn.CellTemplate><DataTemplate>
                 <CheckBox x:Name="GitPushCheckBox" IsChecked="{Binding allowGitPush, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTip="允许任务执行 Git 推送"/>
@@ -86,7 +89,7 @@ public static class CoThreadWindowIcon {
       </TabItem>
       <TabItem Header="任务">
         <Grid Margin="16"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="本机任务" FontSize="15" FontWeight="SemiBold" Foreground="#303B30"/><TextBlock Text="「开始」会在新窗口打开本机 Agent 会话（点窗口直接打字）；关闭窗口后可「继续」原对话；完成后点「完成并通知」回传 Diff" Margin="0,3,0,0" Foreground="#849083"/></StackPanel><Button x:Name="RefreshTaskButton" Grid.Column="1" Content="↻  刷新任务" Style="{StaticResource RefreshActionButton}" ToolTip="立即获取最新任务和状态" Margin="0"/></Grid>
+        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="本机任务" FontSize="15" FontWeight="SemiBold" Foreground="#303B30"/><TextBlock Text="「开始」会在独立 Git worktree 中打开本机 Agent 会话，不检查主仓库未提交改动；关闭窗口后可「继续」原对话；完成后点「完成并通知」回传 Diff" Margin="0,3,0,0" Foreground="#849083"/></StackPanel><Button x:Name="RefreshTaskButton" Grid.Column="1" Content="↻  刷新任务" Style="{StaticResource RefreshActionButton}" ToolTip="立即获取最新任务和状态" Margin="0"/></Grid>
         <DataGrid x:Name="TaskGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" HorizontalScrollBarVisibility="Auto">
           <DataGrid.Columns>
             <DataGridTemplateColumn Header="项目" Width="120"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding projectName}" ToolTip="{Binding projectName}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" Foreground="#2E4631"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn><DataGridTemplateColumn Header="迭代" Width="140"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding threadTitle}" ToolTip="{Binding threadTitle}" TextTrimming="CharacterEllipsis"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn><DataGridTemplateColumn Header="提出人" Width="85"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding requestedByName}" ToolTip="{Binding requestedByName}" TextTrimming="CharacterEllipsis" Foreground="#657064"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
@@ -277,21 +280,27 @@ $ProjectGrid.AddHandler([System.Windows.Controls.Button]::ClickEvent, [System.Wi
   if ($null -eq $button) { return }
   $row = $button.DataContext
   if ($null -eq $row) { return }
-  if ($button.Name -eq 'BrowseProjectButton') {
+  if ($button.Name -eq 'BrowseRepoButton' -or $button.Name -eq 'BrowsePathButton') {
     $picker = New-Object Microsoft.Win32.OpenFileDialog
-    $picker.Title = "为 $($row.name) 选择 Git 仓库根目录"
+    $isRepo = $button.Name -eq 'BrowseRepoButton'
+    $picker.Title = if ($isRepo) { "为 $($row.name) 选择 Git 仓库根目录" } else { "为 $($row.name) 选择项目路径（仓库内子目录，可与仓库相同）" }
     $picker.CheckFileExists = $false
     $picker.CheckPathExists = $true
     $picker.ValidateNames = $false
     $picker.FileName = '选择当前文件夹'
-    if ($row.root -and [IO.Directory]::Exists([string]$row.root)) { $picker.InitialDirectory = [string]$row.root }
+    $startDir = if ($isRepo) { [string]$row.repo } else { if ($row.projectPath -and [IO.Path]::IsPathRooted([string]$row.projectPath)) { [string]$row.projectPath } elseif ($row.repo -and $row.projectPath) { [IO.Path]::Combine([string]$row.repo, [string]$row.projectPath) } else { [string]$row.repo } }
+    if ($startDir -and [IO.Directory]::Exists($startDir)) { $picker.InitialDirectory = $startDir }
     if ($picker.ShowDialog($window) -eq $true) {
       $selectedPath = [IO.Path]::GetDirectoryName($picker.FileName)
-      if ($selectedPath) { $row.root = $selectedPath; $ProjectGrid.Items.Refresh() }
+      if ($selectedPath) {
+        if ($isRepo) { $row.repo = $selectedPath }
+        else { $row.projectPath = $selectedPath }
+        $ProjectGrid.Items.Refresh()
+      }
     }
   } elseif ($button.Name -eq 'ToggleProjectButton') {
     if ([bool]$row.bound) { Send-Command 'unbind' @{ projectId=$row.id } }
-    else { Send-Command 'bind' @{ projectId=$row.id; root=$row.root; allowGitPush=[bool]$row.allowGitPush } }
+    else { Send-Command 'bind' @{ projectId=$row.id; repo=$row.repo; projectPath=$row.projectPath; allowGitPush=[bool]$row.allowGitPush } }
   }
 })
 $ProjectGrid.AddHandler([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent, [System.Windows.RoutedEventHandler]{

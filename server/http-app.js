@@ -31,7 +31,7 @@ import { digest } from "./auth.js";
 import { sendVerificationEmail as deliverVerificationEmail } from "./email-delivery.js";
 import { createHumanChallenge as generateHumanChallenge } from "./human-challenge.js";
 import { registerConnectorBrowserRoutes, registerConnectorPublicRoutes } from "./connectors.js";
-import { acceptTask, acknowledgeTaskRejection, createTask, getTask, listAssignmentEvents, answerTaskQuestion, listTaskExecutionRuns, listTaskQuestions, listTaskUpdates, listTasks, reassignTask, rejectTask, reopenRejectedTask, taskExecutionSnapshot, taskRejectionReview, updateTask } from "./task-pool.js";
+import { acceptTask, acknowledgeTaskRejection, createTask, getTask, listAssignmentEvents, answerTaskQuestion, listTaskExecutionRuns, listTaskQuestions, listTaskStatusEvents, listTaskUpdates, listTasks, reassignTask, rejectTask, reopenRejectedTask, taskExecutionSnapshot, taskRejectionReview, updateTask } from "./task-pool.js";
 import { adminPluginManagement, archivePromptSkill, createPromptSkill, updatePromptSkill } from "./agent-capabilities.js";
 
 export function createApp(db, { makers = false, afterMcpMessage, executeRun, stopAgent = async () => {},
@@ -506,10 +506,11 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     const task = await getTask(db, req.params.id);
     if (!task) throw new HttpError(404, "任务不存在");
     await service.member(req.user, task.project_id);
-    const [assignmentHistory, questions, executionRuns, updates, rejectionReview] = await Promise.all([
+    const [assignmentHistory, questions, executionRuns, updates, rejectionReview, statusHistory] = await Promise.all([
       listAssignmentEvents(db, task.id), listTaskQuestions(db, task.id), listTaskExecutionRuns(db, task.id), listTaskUpdates(db, task.id), taskRejectionReview(db, task.id),
+      listTaskStatusEvents(db, task.id),
     ]);
-    res.json({ ...task, assignmentHistory, questions, executionRuns, updates, rejectionReview });
+    res.json({ ...task, assignmentHistory, questions, executionRuns, updates, rejectionReview, statusHistory });
   });
   app.get("/api/tasks/:id/agent-logs", async (req, res) =>
     res.json(await service.agentLogs(req.user, "task", req.params.id)),

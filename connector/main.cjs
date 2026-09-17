@@ -23,6 +23,7 @@ const lockPath = path.join(appDir, "connector.lock");
 const logPath = path.join(appDir, "connector.log");
 const tasksPath = path.join(appDir, "tasks.json");
 const cardsDir = path.join(appDir, "task-cards");
+const worktreesDir = path.join(appDir, "worktrees");
 const mcpSecretPath = path.join(appDir, "mcp-token.dat");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const logs = [];
@@ -239,6 +240,83 @@ function git(root, args, timeout = 30000) {
   return result.stdout;
 }
 
+function stripPathQuotes(value) {
+  return String(value || "").trim().replace(/^["']|["']$/g, "");
+}
+
+function samePath(left, right) {
+  return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
+}
+
+function pathInside(root, target) {
+  const relative = path.relative(path.resolve(root), path.resolve(target));
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+// 未填或等于仓库根时视为空：项目路径默认等价于 Git 仓库。
+function relativeProjectPath(repo, projectPath) {
+  const trimmed = stripPathQuotes(projectPath);
+  if (!trimmed) return "";
+  const resolvedRepo = path.resolve(repo);
+  const absolute = path.isAbsolute(trimmed) ? path.resolve(trimmed) : path.resolve(resolvedRepo, trimmed);
+  if (samePath(absolute, resolvedRepo)) return "";
+  if (!pathInside(resolvedRepo, absolute)) throw new Error("项目路径必须位于 Git 仓库内");
+  return path.relative(resolvedRepo, absolute);
+}
+
+function projectWorkDir(repo, projectPath) {
+  const relative = relativeProjectPath(repo, projectPath);
+  return relative ? path.join(path.resolve(repo), relative) : path.resolve(repo);
+}
+
+function projectBinding(local = {}) {
+  const repo = local.repo || local.root || "";
+  const projectPath = local.projectPath || "";
+  return { repo, projectPath, workDir: repo ? projectWorkDir(repo, projectPath) : "" };
+}
+
+function resolveRepoDir(input) {
+  const root = path.resolve(stripPathQuotes(input));
+  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw new Error("本地目录不存在");
+  const top = path.resolve(git(root, ["rev-parse", "--show-toplevel"]).trim());
+  if (!samePath(top, root)) throw new Error("请选择 Git 仓库根目录");
+  return top;
+}
+
+function resolveProjectDir(repo, projectPath) {
+  const relative = relativeProjectPath(repo, projectPath);
+  const workDir = projectWorkDir(repo, relative);
+  if (!fs.existsSync(workDir) || !fs.statSync(workDir).isDirectory()) throw new Error("项目路径不存在");
+  return { repo, projectPath: relative, workDir };
+}
+
+function worktreePathFor(taskId) {
+  return path.join(worktreesDir, taskId);
+}
+
+function removeWorktree(repo, dest) {
+  if (!dest) return;
+  const candidates = [repo, dest].filter(Boolean);
+  for (const root of candidates) {
+    try {
+      git(root, ["worktree", "remove", "--force", dest], 60000);
+      return;
+    } catch {}
+  }
+  try { fs.rmSync(dest, { recursive: true, force: true }); } catch {}
+  for (const root of candidates) {
+    try { git(root, ["worktree", "prune"]); return; } catch {}
+  }
+}
+
+function addDetachedWorktree(repo, dest) {
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  removeWorktree(repo, dest);
+  try { fs.rmSync(dest, { recursive: true, force: true }); } catch {}
+  git(repo, ["worktree", "add", "--detach", dest, "HEAD"], 120000);
+  return dest;
+}
+
 async function configureProjects(config, prompt) {
   const { projects } = await request(config, `/api/connector/projects?version=${encodeURIComponent(VERSION)}`)
     .then((rows) => ({ projects: rows }));
@@ -249,15 +327,14 @@ async function configureProjects(config, prompt) {
   if (!answer) return;
   const project = projects[Number(answer) - 1];
   if (!project) throw new Error("项目序号无效");
-  const root = path.resolve((await prompt.question("本地 Git 项目目录：")).trim().replace(/^"|"$/g, ""));
-  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw new Error("目录不存在");
-  git(root, ["rev-parse", "--show-toplevel"]);
+  const repo = resolveRepoDir(await prompt.question("本地 Git 仓库目录："));
+  const { projectPath, workDir } = resolveProjectDir(repo, await prompt.question("项目路径（可选，留空则与仓库相同）："));
   const policy = "unrestricted";
   const allowGitPush = /^(?:y|yes|1)$/i.test((await prompt.question("允许任务执行 Git 推送？y/N：")).trim());
-  config.projects[project.id] = { root, name: project.name, policy, allowGitPush };
+  config.projects[project.id] = { repo, projectPath, name: project.name, policy, allowGitPush };
   await writeConfig(config);
   await request(config, `/api/connector/projects/${project.id}`, { method: "PUT", body: { policy, allowGitPush } });
-  log(`已关联 ${project.name} → ${root}`);
+  log(`已关联 ${project.name} → ${workDir}`);
 }
 
 function changedFiles(root, baseline) {
@@ -306,7 +383,10 @@ function taskCard(task, context) {
     `- 项目：${task.project_name}（projectId：${task.project_id}）`,
     `- 迭代群聊 threadId：${task.thread_id}`,
     task.message_id ? `- 来源消息 ID：${task.message_id}` : null,
-    `- 仓库根目录：${context.root}`,
+    `- 工作目录：${context.root}`,
+    context.repo ? `- Git 仓库：${context.repo}` : null,
+    context.projectPath ? `- 项目路径：${context.projectPath}` : null,
+    context.worktree ? `- Git 工作副本：${context.worktree}` : null,
     `- 本机 Agent：${agentLabel(context.agentKind)}`,
     "",
     "## 执行规则",
@@ -798,12 +878,17 @@ async function guiMain() {
     if (!token) { remoteTasks = []; return; }
     remoteTasks = await request(config, "/api/connector/tasks");
   };
-  const projectRows = () => remoteProjects.map((row) => ({
-    ...row,
-    root: config.projects[row.id]?.root || "",
-    allowGitPush: config.projects[row.id]?.allowGitPush ?? !!row.allowGitPush,
-    bound: !!config.projects[row.id] && !!row.bound,
-  }));
+  const projectRows = () => remoteProjects.map((row) => {
+    const local = config.projects[row.id] || {};
+    const binding = projectBinding(local);
+    return {
+      ...row,
+      repo: binding.repo,
+      projectPath: binding.projectPath,
+      allowGitPush: local.allowGitPush ?? !!row.allowGitPush,
+      bound: !!config.projects[row.id] && !!row.bound,
+    };
+  });
   const sessionProgress = (kind) => `本机 ${agentLabel(kind)} 会话进行中`;
   const PAUSED_PROGRESS = "本机会话已关闭，可继续或结案";
   const taskRows = () => remoteTasks.map((task) => {
@@ -853,6 +938,7 @@ async function guiMain() {
     delete taskStore[taskId];
     await saveTaskStore();
     if (entry?.cardPath) await fsp.rm(entry.cardPath, { force: true }).catch(() => {});
+    if (entry?.worktree) removeWorktree(entry.repo || entry.root, entry.worktree);
   };
   // 窗口关闭后的 paused 续租：每 5 分钟一次，也用于连接器重启后的恢复。
   const renewPaused = async (entry) => {
@@ -937,24 +1023,43 @@ async function guiMain() {
     const remote = remoteTasks.find((task) => task.id === taskId);
     const projectId = entry?.projectId || remote?.projectId;
     const continuing = !!entry?.baselineCommit;
-    const root = entry?.root || (projectId ? config.projects[projectId]?.root : "") || "";
-    if (!root) throw new Error("当前设备尚未关联该项目目录");
-    const top = path.resolve(git(root, ["rev-parse", "--show-toplevel"]).trim());
-    if (top.toLowerCase() !== path.resolve(root).toLowerCase()) throw new Error("请将关联目录设置为 Git 仓库根目录");
-    if (!continuing && git(root, ["status", "--porcelain"]).trim())
-      throw new Error("本地项目存在未提交修改；首次开始前请先提交或暂存（继续已开始的任务不受此限制）");
-    let task;
-    if (continuing && entry.leaseToken) {
-      // 继续：沿用本机持有的租约（失效时 patchWithLease 会向服务端重领），不再 claim。
-      task = { id: taskId, project_id: entry.projectId, project_name: entry.projectName, thread_id: entry.threadId,
-        message_id: entry.messageId || null, instruction: remote?.target || entry.instruction || "", allow_git_push: !!entry.allowGitPush };
-    } else {
-      ({ task } = await request(config, `/api/connector/tasks/${taskId}/claim`, { body: {} }));
+    const binding = projectBinding(projectId ? config.projects[projectId] : {});
+    const repo = entry?.repo || binding.repo;
+    const projectPath = continuing ? (entry?.projectPath || binding.projectPath) : binding.projectPath;
+    if (!repo) throw new Error("当前设备尚未关联该项目目录");
+    resolveRepoDir(repo);
+    if (projectPath) resolveProjectDir(repo, projectPath);
+    const reuseWorktree = continuing && entry.worktree && fs.existsSync(path.join(entry.worktree, ".git"));
+    const reuseLegacyRoot = continuing && !entry.worktree && entry.root && fs.existsSync(entry.root);
+    let worktree = reuseWorktree ? entry.worktree : "";
+    if (!reuseWorktree && !reuseLegacyRoot) {
+      if (continuing && entry.worktree) log("任务工作副本已丢失，将按当前仓库 HEAD 重建（未提交改动无法恢复）");
+      worktree = addDetachedWorktree(repo, worktreePathFor(taskId));
     }
-    const baseline = continuing ? entry.baselineCommit : git(root, ["rev-parse", "HEAD"]).trim();
+    const root = worktree ? projectWorkDir(worktree, projectPath) : (entry.root || projectWorkDir(repo, projectPath));
+    if (projectPath && !fs.existsSync(root)) {
+      if (worktree && !reuseWorktree) removeWorktree(repo, worktree);
+      throw new Error("独立工作副本中找不到该项目路径，请确认该目录已提交到 Git");
+    }
+    let task;
+    try {
+      if (continuing && entry.leaseToken) {
+        // 继续：沿用本机持有的租约（失效时 patchWithLease 会向服务端重领），不再 claim。
+        task = { id: taskId, project_id: entry.projectId, project_name: entry.projectName, thread_id: entry.threadId,
+          message_id: entry.messageId || null, instruction: remote?.target || entry.instruction || "", allow_git_push: !!entry.allowGitPush };
+      } else {
+        ({ task } = await request(config, `/api/connector/tasks/${taskId}/claim`, { body: {} }));
+      }
+    } catch (error) {
+      if (worktree && !reuseWorktree && !continuing) removeWorktree(repo, worktree);
+      throw error;
+    }
+    const gitRoot = worktree || path.resolve(git(root, ["rev-parse", "--show-toplevel"]).trim());
+    const baseline = continuing ? entry.baselineCommit : git(gitRoot, ["rev-parse", "HEAD"]).trim();
     entry = taskStore[taskId] = {
       ...(entry || {}), taskId, projectId: task.project_id, projectName: task.project_name, threadId: task.thread_id,
-      messageId: task.message_id || null, instruction: task.instruction, root, agentKind: chosen, baselineCommit: baseline,
+      messageId: task.message_id || null, instruction: task.instruction, repo, projectPath, worktree, root,
+      agentKind: chosen, baselineCommit: baseline, gitRoot,
       leaseToken: task.leaseToken || entry?.leaseToken, allowGitPush: !!task.allow_git_push,
       state: "running", updatedAt: new Date().toISOString(),
     };
@@ -962,7 +1067,7 @@ async function guiMain() {
     try {
       await fsp.mkdir(cardsDir, { recursive: true });
       const cardPath = path.join(cardsDir, `${taskId}.md`);
-      await fsp.writeFile(cardPath, taskCard(task, { root, agentKind: chosen }), "utf8");
+      await fsp.writeFile(cardPath, taskCard(task, { root, repo, projectPath, worktree, agentKind: chosen }), "utf8");
       entry.cardPath = cardPath;
       let sessionId = entry.sessionId || "";
       const resume = continuing && !!sessionId;
@@ -990,7 +1095,7 @@ async function guiMain() {
       activeSession = session;
       config.defaultAgent = chosen;
       await writeConfig(config);
-      log(`${resume ? "已续接" : "已打开"} ${agentLabel(chosen)} 会话：${task.project_name}`);
+      log(`${resume ? "已续接" : "已打开"} ${agentLabel(chosen)} 会话：${task.project_name}${worktree ? "（独立工作副本）" : ""}`);
       void superviseSession(session, entry, codexSnapshot);
     } catch (error) {
       // 已领取但未能拉起会话：按“会话已关闭”保留本机记录，可稍后继续或重试，避免服务端任务被孤立。
@@ -1007,7 +1112,7 @@ async function guiMain() {
   const finishLocalTask = async (taskId, summary) => {
     const entry = taskStore[taskId];
     if (!entry) throw new Error("本机没有该任务的会话记录，无法回传 Diff");
-    const { files, diff } = collectDiff(entry.root, entry.baselineCommit);
+    const { files, diff } = collectDiff(entry.worktree || entry.gitRoot || entry.root, entry.baselineCommit);
     const output = String(summary || "").trim() || `本机 ${agentLabel(entry.agentKind)} 会话已结案，共修改 ${files.length} 个文件，请查看代码差异。`;
     await patchWithLease(entry, { status: "completed", output: output.slice(0, 1000000), diff }, 60000);
     if (activeSession?.taskId === taskId) activeSession.finished = true;
@@ -1115,20 +1220,18 @@ async function guiMain() {
       prerequisitesCheckedAt = Date.now();
       if (!prerequisites.gitInstalled) throw new Error("未检测到 Git，请先安装 Git");
       if (!prerequisites.anyAgentInstalled) throw new Error("未检测到 Cursor / Codex / Claude Code，请至少安装一个");
-      const root = path.resolve(String(payload.root || "").replace(/^\"|\"$/g, ""));
-      if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw new Error("本地目录不存在");
-      const top = path.resolve(git(root, ["rev-parse", "--show-toplevel"]).trim());
-      if (top.toLowerCase() !== root.toLowerCase()) throw new Error("请选择 Git 仓库根目录");
+      const repo = resolveRepoDir(payload.repo || payload.root);
+      const { projectPath, workDir } = resolveProjectDir(repo, payload.projectPath);
       const row = remoteProjects.find((item) => item.id === payload.projectId);
       if (!row) throw new Error("项目不存在或账号已失去权限");
-      config.projects[row.id] = { root, name: row.name, policy: "unrestricted", allowGitPush: !!payload.allowGitPush };
+      config.projects[row.id] = { repo, projectPath, name: row.name, policy: "unrestricted", allowGitPush: !!payload.allowGitPush };
       await writeConfig(config);
       await request(config, `/api/connector/projects/${row.id}`, { method: "PUT", body: {
         allowGitPush: !!payload.allowGitPush,
       }});
       await refreshProjects();
       status = `${row.name} 已开启连接`;
-      log(`${row.name} 已开启连接：${root}`);
+      log(`${row.name} 已开启连接：${workDir}`);
     } else if (command.type === "unbind") {
       await request(config, `/api/connector/projects/${payload.projectId}`, { method: "DELETE" });
       delete config.projects[payload.projectId];
@@ -1260,8 +1363,9 @@ async function main() {
 }
 
 module.exports = {
-  AGENTS, agentLaunchArgs, checkPrerequisites, createAuthorizationCallback, instanceLockIsActive, launchPrompt,
-  mergeCodexMcpConfig, mergeCursorMcpConfig, parseCodexSessionId, parseCursorChatId, parseInstanceLock, protectToken,
+  AGENTS, addDetachedWorktree, agentLaunchArgs, checkPrerequisites, createAuthorizationCallback, instanceLockIsActive,
+  launchPrompt, mergeCodexMcpConfig, mergeCursorMcpConfig, parseCodexSessionId, parseCursorChatId, parseInstanceLock,
+  projectBinding, projectWorkDir, protectToken, relativeProjectPath, removeWorktree, resolveProjectDir, resolveRepoDir,
   taskCard, taskPrompt, unprotectToken, validatePolicy, windowsVersionLabel,
 };
 if (require.main === module || require("node:sea").isSea()) main().catch((error) => { showFatalError(error); process.exitCode = 1; });

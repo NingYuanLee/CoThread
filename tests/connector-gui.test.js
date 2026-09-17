@@ -88,6 +88,8 @@ test("task controls follow the interactive session lifecycle instead of process 
   assert.match(main, /const PAUSED_PROGRESS = "本机会话已关闭，可继续或结案"/);
   assert.match(main, /Date\.now\(\) - \(entry\.pausedHeartbeatAt \|\| 0\) >= 5 \* 60000/);
   assert.match(main, /const tasksPath = path\.join\(appDir, "tasks\.json"\)/);
+  assert.match(main, /\["worktree", "add", "--detach"/);
+  assert.doesNotMatch(main, /status", "--porcelain"|未提交修改/);
   assert.doesNotMatch(main, /codexExecArgs|completed_pending_notification|NtSuspendProcess/);
 });
 
@@ -129,15 +131,22 @@ test("project connection state and action are visually distinct", async () => {
   assert.match(gui, /ToggleProjectButton[^>]+Background="\{Binding actionBackground\}"/);
 });
 
-test("project folders support direct paths and Explorer search", async () => {
+test("project folders support git repo and optional in-repo path", async () => {
   const gui = await readFile(guiPath, "utf8");
 
-  assert.match(gui, /x:Name="ProjectRootInput"/);
-  assert.match(gui, /Text="\{Binding root, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged\}"/);
+  assert.match(gui, /x:Name="ProjectRepoInput"/);
+  assert.match(gui, /Text="\{Binding repo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged\}"/);
+  assert.match(gui, /x:Name="ProjectPathInput"/);
+  assert.match(gui, /Text="\{Binding projectPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged\}"/);
+  assert.match(gui, /x:Name="BrowseRepoButton"/);
+  assert.match(gui, /x:Name="BrowsePathButton"/);
+  assert.match(gui, /Send-Command 'bind' @\{ projectId=\$row\.id; repo=\$row\.repo; projectPath=\$row\.projectPath; allowGitPush=\[bool\]\$row\.allowGitPush \}/);
+  assert.match(gui, /独立 Git worktree/);
   assert.match(gui, /New-Object Microsoft\.Win32\.OpenFileDialog/);
   assert.match(gui, /\$picker\.ValidateNames = \$false/);
   assert.match(gui, /\$picker\.ShowDialog\(\$window\)/);
   assert.doesNotMatch(gui, /System\.Windows\.Forms\.FolderBrowserDialog/);
+  assert.doesNotMatch(gui, /BrowseProjectButton|ProjectRootInput/);
 });
 
 test("connector build pins a verified Windows-compatible runtime", async () => {

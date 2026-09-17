@@ -2,12 +2,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { randomBytes, randomUUID } from "node:crypto";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 
 const require = createRequire(import.meta.url);
 const {
-  AGENTS, agentLaunchArgs, createAuthorizationCallback, instanceLockIsActive, launchPrompt, mergeCodexMcpConfig, mergeCursorMcpConfig,
-  parseCodexSessionId, parseCursorChatId, parseInstanceLock, protectToken, taskCard, taskPrompt, unprotectToken,
+  AGENTS, addDetachedWorktree, agentLaunchArgs, createAuthorizationCallback, instanceLockIsActive, launchPrompt,
+  mergeCodexMcpConfig, mergeCursorMcpConfig, parseCodexSessionId, parseCursorChatId, parseInstanceLock,
+  projectBinding, projectWorkDir, protectToken, relativeProjectPath, removeWorktree, taskCard, taskPrompt, unprotectToken,
 } = require("../connector/main.cjs");
 
 test("connector rejects a stale lock whose PID was reused by another executable", () => {
@@ -101,6 +106,7 @@ test("task card keeps the original instruction and asks for MCP progress reports
   assert.match(card, /submit_document/);
   assert.match(card, /不要自称已把结果保存到共序/);
   assert.match(card, /严禁执行 git push/);
+  assert.match(card, /工作目录：D:\\repo/);
   assert.ok(card.endsWith("调整登录页样式\n不要改接口\n"));
   const prompt = launchPrompt({ instruction: 'Fix "login" & <b>x</b>' }, "C:\\cards\\task-1.md");
   assert.doesNotMatch(prompt, /["&<>]/);
@@ -135,4 +141,49 @@ test("MCP config writers keep other servers and only replace the cothread entry"
   assert.match(codex, /bearer_token_env_var = "COTHREAD_MCP_TOKEN"/);
   assert.match(codex, /http_headers = \{ "Makers-Conversation-Id" = "u-1" \}/);
   assert.doesNotMatch(codex, /Bearer abc/);
+});
+
+test("project path defaults to the git repository and must stay inside it", () => {
+  const repo = resolve("repo-root");
+  assert.equal(relativeProjectPath(repo, ""), "");
+  assert.equal(relativeProjectPath(repo, repo), "");
+  assert.equal(relativeProjectPath(repo, "apps/web"), join("apps", "web"));
+  assert.equal(projectWorkDir(repo, ""), repo);
+  assert.equal(projectWorkDir(repo, "apps/web"), join(repo, "apps", "web"));
+  assert.equal(projectBinding({ root: repo }).repo, repo);
+  assert.equal(projectBinding({ root: repo }).projectPath, "");
+  assert.equal(projectBinding({ repo, projectPath: "pkg" }).workDir, join(repo, "pkg"));
+  assert.throws(() => relativeProjectPath(repo, resolve("other-root")), /仓库内/);
+});
+
+test("detached worktrees ignore uncommitted files in the main checkout", async (t) => {
+  const gitVersion = spawnSync("git", ["--version"], { encoding: "utf8", windowsHide: true, timeout: 10000 });
+  if (gitVersion.status !== 0) { t.skip("git is not installed"); return; }
+  const repo = await mkdtemp(join(tmpdir(), "cothread-wt-"));
+  const worktree = join(tmpdir(), `cothread-wt-${randomUUID()}`);
+  const runGit = (cwd, args) => {
+    const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8", windowsHide: true, timeout: 30000 });
+    if (result.status !== 0) throw new Error((result.stderr || result.stdout || "git failed").trim());
+    return result.stdout;
+  };
+  try {
+    runGit(repo, ["init", "-b", "main"]);
+    runGit(repo, ["config", "user.email", "connector@test"]);
+    runGit(repo, ["config", "user.name", "connector"]);
+    await mkdir(join(repo, "apps", "web"), { recursive: true });
+    await writeFile(join(repo, "apps", "web", "index.js"), "ok\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["-c", "commit.gpgsign=false", "commit", "-m", "init"]);
+    await writeFile(join(repo, "dirty.txt"), "uncommitted\n", "utf8");
+    assert.ok(runGit(repo, ["status", "--porcelain"]).trim());
+    addDetachedWorktree(repo, worktree);
+    assert.equal(runGit(worktree, ["status", "--porcelain"]).trim(), "");
+    assert.equal(existsSync(join(worktree, "dirty.txt")), false);
+    assert.equal(existsSync(join(worktree, "apps", "web", "index.js")), true);
+    assert.equal(relativeProjectPath(repo, join(repo, "apps", "web")), join("apps", "web"));
+  } finally {
+    removeWorktree(repo, worktree);
+    await rm(worktree, { recursive: true, force: true });
+    await rm(repo, { recursive: true, force: true });
+  }
 });

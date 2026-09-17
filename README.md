@@ -133,20 +133,23 @@ MCP 通过本机 Agent 连接器接入：连接器授权后调用 `POST /api/con
 
 ## 本机 Agent 连接器
 
-左侧「本地连接器」查看自己已授权的设备。程序已内置 Node 运行时；首次运行检测 Git 与三种本机 Agent（Cursor Agent CLI、Codex CLI、Claude Code），至少装有一种即可在线。授权后列出该账号加入的项目。一个账号同一时间只保留一台连接器；这一台可同时绑定多个项目。本地路径只保存在电脑上。
+左侧「本地连接器」查看自己已授权的设备。程序已内置 Node 运行时；首次运行检测 Git 与三种本机 Agent（Cursor Agent CLI、Codex CLI、Claude Code），至少装有一种即可在线。授权后列出该账号加入的项目。一个账号同一时间只保留一台连接器；这一台可同时绑定多个项目。每个项目先选 Git 仓库，可选再填仓库内路径（留空则与仓库相同）。本地路径只保存在电脑上。
 
 「交给本机 Agent」：项目内任意可编辑成员的连接器在线即可开启。发起人自己的连接器在线时可不 @；离线时必须 @ 一名连接器在线的成员。小祥生成待确认任务，确认后锁定到一台设备。是否推送 Git 以该项目在连接器上的开关为准。
 
 执行闭环：连接器投递任务 → 在本机拉起交互式 TUI → 过程用共序 MCP 回群 → 人在连接器结案。
 
-- **开始**：连接器在仓库根目录以新窗口打开 Agent 会话（Cursor `agent --trust --resume <chatId>`、`codex`、`claude --session-id`），首条提示引用连接器生成的任务卡（任务原文、范围/Git 规则、共序 MCP 回报要求）。装有多个 Agent 时首次开始选一次，之后同一任务沿用。首次开始要求工作区干净，并记录 Git 基线。
+- **开始**：连接器按当前 HEAD 创建独立 Git worktree，并在项目路径（未配置则等同仓库根）打开 Agent 会话（Cursor `agent --trust --resume <chatId>`、`codex`、`claude --session-id`），首条提示引用连接器生成的任务卡（任务原文、范围/Git 规则、共序 MCP 回报要求）。装有多个 Agent 时首次开始选一次，之后同一任务沿用。主仓库未提交改动不会阻止开始。
 - **会话中**：开发人员在窗口里直接打字、追问、审批工具。Agent 通过共序 MCP `post_message` / `submit_document` 报进度、交文件。关闭窗口不算完成：任务转为 `paused`（「会话已关闭」），连接器每 5 分钟续租；连接器重启后仍可续租。
 - **继续**：按记录的会话 ID 恢复原对话（`agent --resume` / `codex resume` / `claude --resume`），允许未提交改动。**重试**则新建会话。
 - **完成并通知 / 失败**：由人在连接器点击。完成时可填写摘要，连接器按开始时的基线计算 Git Diff 一并回传，迭代群聊出现以执行成员身份发出的结案消息；任务详情可查看 Diff。
+- **放弃 / 重试**：在连接器放弃会把任务池任务标为已取消；之后重试会重新排队并新开一条执行记录，不会停留在已取消。
+
+任务每次状态变化都会记录（从什么状态到什么状态、由谁——成员 / 小祥 / 任务级 Agent / 本机连接器 / 系统——以及原因），与指派、转交、拒绝等事件合成任务详情里的「变更记录」；「执行轮次」单独列出每一轮由谁执行及其结果。
 
 两套令牌：`ctc_` 设备令牌只用于连接器与共序通讯；账号 MCP 令牌供 Agent 以开发人员身份读写共序。安装合并、秘密不合并：连接器授权后调用 `POST /api/connector/mcp-credential`（仅 ensure、仅本账号）取得 MCP 令牌，写入 Cursor `~/.cursor/mcp.json`（并执行 `agent mcp enable cothread`）、Codex `~/.codex/config.toml`（令牌放用户环境变量 `COTHREAD_MCP_TOKEN`）、Claude Code 用户级 MCP（`claude mcp add --transport http --scope user`），令牌剩余不足 7 天或在网页重置后自动回写。写入失败只记录日志，不影响收任务；已打开的会话需新开才生效。
 
-构建使用 `npm run connector:build`，固定校验 Node 22 LTS x64。运行数据写入 `%LOCALAPPDATA%\CoThreadConnector`（`tasks.json` 保存任务与会话绑定、`task-cards/` 为任务卡）。共序不存储安装包、不提供下载入口，也不执行自动更新。Windows 原生终端下 Cursor TUI 在信任提示后可能不响应键盘，连接器已固定传 `--trust`；如仍无响应，关闭窗口后点「继续」重开即可。
+构建使用 `npm run connector:build`，固定校验 Node 22 LTS x64。运行数据写入 `%LOCALAPPDATA%\CoThreadConnector`（`tasks.json` 保存任务与会话绑定、`task-cards/` 为任务卡、`worktrees/` 为任务独立工作副本）。共序不存储安装包、不提供下载入口，也不执行自动更新。Windows 原生终端下 Cursor TUI 在信任提示后可能不响应键盘，连接器已固定传 `--trust`；如仍无响应，关闭窗口后点「继续」重开即可。
 
 ## 普通服务器／容器部署
 

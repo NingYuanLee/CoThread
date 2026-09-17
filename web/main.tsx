@@ -334,11 +334,12 @@ type AgentTask = {
 type AgentTaskDetail = AgentTask & {
   constraints: string | null;
   artifact_refs: unknown[] | string | null;
-  assignmentHistory: { id: number; event_type: "assigned" | "transferred" | "rejected" | "acknowledged" | "reopened"; from_target_type: string | null; from_target_id: string | null; to_target_type: string | null; to_target_id: string | null; reason: string | null; created_at: string }[];
+  assignmentHistory: { id: number; event_type: "assigned" | "transferred" | "rejected" | "acknowledged" | "reopened"; from_target_type: string | null; from_target_id: string | null; to_target_type: string | null; to_target_id: string | null; changed_by_type: string; changed_by_id: string | null; reason: string | null; created_at: string }[];
   questions: { id: string; source_user_id: string | null; question: string; answer: string | null; status: string; created_at: string }[];
   executionRuns: { id: string; executor_type: string; executor_id: string | null; status: string; progress: string | null; result_summary: string | null; error: string | null; created_at: string }[];
   updates: { id: string; body: string; source_type: string; source_id: string; created_at: string }[];
   rejectionReview: { rejected: boolean; resolved: boolean; reviewer_type: string | null; reviewer_id: string | null };
+  statusHistory: { id: number; from_status: string | null; to_status: string; actor_type: string; actor_id: string | null; reason: string | null; created_at: string }[];
 };
 type Thread = {
   page?: { hasMore: boolean; before: string | null; after: string | null };
@@ -653,6 +654,31 @@ function App() {
         : "待任务级 Agent 接单";
     }
     return "待选择";
+  };
+  const statusActorLabel = (event: { actor_type: string; actor_id: string | null }) => {
+    if (event.actor_type === "human_member") return memberName(event.actor_id) || "成员";
+    if (event.actor_type === "l2_session") return "小祥";
+    if (event.actor_type === "dsh_l3") return l3ExecutorName(event.actor_id, threadExecutorIds) || "任务级 Agent";
+    if (event.actor_type === "connector") return "本机连接器";
+    return "系统";
+  };
+  // 指派事件与状态变更合成一条时间线：同一操作（创建 / 拒绝 / 重新发起）两边各有一条时，合并显示，不重复。
+  const taskChangeLog = (task: AgentTaskDetail) => {
+    const actionLabels: Record<string, string> = { assigned: "创建并指派", transferred: "转交", rejected: "拒绝", acknowledged: "已知晓", reopened: "重新发起" };
+    const targetLabel = (type: string | null, id: string | null) => type === "l2_session" ? "小祥" : type === "human_member" ? (memberName(id) || "成员") : "";
+    const items = task.assignmentHistory.map((event) => ({
+      key: `assignment-${event.id}`, at: event.created_at, actorType: event.changed_by_type, actorId: event.changed_by_id,
+      title: `${actionLabels[event.event_type] || event.event_type}${["assigned", "transferred"].includes(event.event_type) && event.to_target_type ? ` → ${targetLabel(event.to_target_type, event.to_target_id)}` : ""}`,
+      transition: "", reason: event.reason,
+    }));
+    for (const event of task.statusHistory || []) {
+      const transition = `${event.from_status ? `${labelWorkflowStatus(event.from_status)} → ` : ""}${labelWorkflowStatus(event.to_status)}`;
+      const twin = items.find((item) => !item.transition && item.actorType === event.actor_type && item.actorId === event.actor_id
+        && Math.abs(Date.parse(item.at) - Date.parse(event.created_at)) < 2000);
+      if (twin) twin.transition = transition;
+      else items.push({ key: `status-${event.id}`, at: event.created_at, actorType: event.actor_type, actorId: event.actor_id, title: transition, transition: "", reason: event.reason });
+    }
+    return items.sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
   };
   const openTaskDialog = (taskId = "") => {
     setSelectedTaskId(taskId);
@@ -2170,8 +2196,8 @@ function App() {
                     {canReviewRejection && <section className="task-actions-section task-rejection-review"><h4>任务已被拒绝</h4><p>{[...task.assignmentHistory].reverse().find((event) => event.event_type === "rejected")?.reason || "目标成员拒绝了这个任务。"}</p><textarea value={taskReopenGoal} onChange={(event) => setTaskReopenGoal(event.target.value)} placeholder="修改任务目标与验收标准" /><textarea value={taskReopenConstraints} onChange={(event) => setTaskReopenConstraints(event.target.value)} placeholder="修改约束（可选）" /><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"))}>知道了</button><button type="button" className="primary" disabled={taskActionBusy || !taskReopenGoal.trim()} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reopen`, { goal: taskReopenGoal.trim(), constraints: taskReopenConstraints }, "POST"))}>修改后重新发起</button></div></section>}
                     {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}>确认转交</button></section>}
                     {isTarget && task.status !== "awaiting_acceptance" && !["completed", "failed", "cancelled", "superseded"].includes(task.status) && <section className="task-actions-section"><h4>进度与结果</h4><input value={taskProgress} onChange={(event) => setTaskProgress(event.target.value)} placeholder="当前进度" /><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要或阻塞原因" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "running", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>开始</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "waiting", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>等待</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "failed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>失败</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>完成</button></div></section>}
-                    {!!task.executionRuns.length && <section><h4>执行记录</h4><div className="task-history">{task.executionRuns.map((run) => <div key={run.id}><strong>{run.executor_type === "dsh_l3" ? (l3ExecutorName(run.executor_id, threadExecutorIds) || (run.executor_id ? "任务级 Agent" : "任务级 Agent（未绑定）")) : labelExecutorType(run.executor_type)}</strong><span>{labelWorkflowStatus(run.status)}</span><small>{run.progress || run.result_summary || run.error || time(run.created_at)}</small></div>)}</div></section>}
-                    {!!task.assignmentHistory.length && <section><h4>指派与审计记录</h4><div className="task-history">{task.assignmentHistory.map((event) => <div key={event.id}><strong>{({ assigned: "创建并指派", transferred: "转交", rejected: "拒绝", acknowledged: "已知晓", reopened: "重新发起" } as const)[event.event_type] || event.event_type}</strong><span>{time(event.created_at)}</span>{event.reason && <small>{event.reason}</small>}</div>)}</div></section>}
+                    {!!task.executionRuns.length && <section><h4>执行轮次</h4><div className="task-history">{task.executionRuns.map((run) => <div key={run.id}><strong>{run.executor_type === "dsh_l3" ? (l3ExecutorName(run.executor_id, threadExecutorIds) || (run.executor_id ? "任务级 Agent" : "任务级 Agent（未绑定）")) : labelExecutorType(run.executor_type)}</strong><span>{labelWorkflowStatus(run.status)}</span><small>{run.progress || run.result_summary || run.error || time(run.created_at)}</small></div>)}</div></section>}
+                    {(!!task.assignmentHistory.length || !!task.statusHistory?.length) && <section><h4>变更记录</h4><div className="task-history">{taskChangeLog(task).map((item) => <div key={item.key}><strong>{item.title}{item.transition && `（${item.transition}）`}</strong><span>{statusActorLabel({ actor_type: item.actorType, actor_id: item.actorId })} · {time(item.at)}</span>{item.reason && <small>{item.reason}</small>}</div>)}</div></section>}
                   </>}
                   {taskActionError && <p className="project-settings-error" role="alert">{taskActionError}</p>}
                 </div>;

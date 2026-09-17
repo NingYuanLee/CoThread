@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, createTask, ensureDshL3CanUpdate, listTasks, reassignTask, recoverInterruptedDshL3Executions, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, updateTask } from "../server/task-pool.js";
+import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, createTask, ensureDshL3CanUpdate, listTaskStatusEvents, listTasks, reassignTask, recoverInterruptedDshL3Executions, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, updateTask } from "../server/task-pool.js";
 import { testDatabase } from "./database.js";
 
 let database, db, service, project, thread, users, l2SessionId;
@@ -236,6 +236,26 @@ test("the latest human transferor can acknowledge or revise a rejected task", as
   await rejectTask(db, acknowledgedTask.id, { type: "human_member", id: users[1].id }, "当前无法承担");
   await acknowledgeTaskRejection(db, acknowledgedTask.id, { type: "l2_session", id: l2SessionId });
   assert.equal((await taskRejectionReview(db, acknowledgedTask.id)).resolved, true);
+});
+
+test("every status transition is logged with who changed it and why", async () => {
+  const task = await formalTask(users[1].id, { title: "状态轨迹" });
+  await reassignTask(db, task.id, { type: "human_member", id: users[1].id }, { type: "human_member", id: users[2].id }, "请成员三处理");
+  await rejectTask(db, task.id, { type: "human_member", id: users[2].id }, "验收目标不够明确");
+  await reopenRejectedTask(db, task.id, { type: "human_member", id: users[1].id }, { goal: "补充验收标准", reason: "已补充验收标准" });
+  await acceptTask(db, task.id, { type: "human_member", id: users[2].id }, "human_direct");
+  await updateTask(db, task.id, { type: "human_member", id: users[2].id }, { status: "running", progress: "开始处理" });
+  await updateTask(db, task.id, { type: "human_member", id: users[2].id }, { progress: "仍在处理" });
+  await updateTask(db, task.id, { type: "human_member", id: users[2].id }, { status: "completed", resultSummary: "已完成" });
+  const events = await listTaskStatusEvents(db, task.id);
+  assert.deepEqual(events.map((event) => [event.from_status, event.to_status, event.actor_type, event.actor_id, event.reason]), [
+    [null, "awaiting_acceptance", "l2_session", l2SessionId, "任务创建"],
+    ["awaiting_acceptance", "cancelled", "human_member", users[2].id, "验收目标不够明确"],
+    ["cancelled", "awaiting_acceptance", "human_member", users[1].id, "已补充验收标准"],
+    ["awaiting_acceptance", "queued", "human_member", users[2].id, "成员接受任务，由本人完成"],
+    ["queued", "running", "human_member", users[2].id, "开始处理"],
+    ["running", "completed", "human_member", users[2].id, "已完成"],
+  ]);
 });
 
 test("only the latest source member can answer an L2 task question", async () => {

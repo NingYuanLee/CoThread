@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { UiIcon } from "./ui-icon";
 
 type Api = (path: string, data?: unknown, method?: string) => Promise<any>;
 type AdminProject = {
@@ -38,12 +39,12 @@ const pluginViews: { id: PluginView; label: string }[] = [
 const policyName = { required: "必需", optional: "可选·默认启用", forbidden: "禁止" } as const;
 
 function PolicyBadge({ policy }: { policy: "required" | "optional" | "forbidden" }) {
-  return <span className={`capability-policy ${policy}`}>{policyName[policy]}</span>;
+  return <span className={`capability-policy ${policy}`}><UiIcon name={policy === "required" ? "checkCircle" : policy === "forbidden" ? "blocked" : "info"} size={10} />{policyName[policy]}</span>;
 }
 
 function SystemPromptDetails({ level, agentLevel }: { level: PluginLevel; agentLevel: AgentLevel }) {
   return <details className="system-prompt-plugin">
-    <summary><span><strong>{level.systemPrompt?.name || `${agentLevel.toUpperCase()} 系统提示词`}</strong><small>查看只读提示词正文、注入来源和变量注释</small></span><span className="status-badge">开发者只读</span></summary>
+    <summary><span><strong>{level.systemPrompt?.name || `${agentLevel.toUpperCase()} 系统提示词`}</strong><small>查看只读提示词正文、注入来源和变量注释</small></span><span className="status-badge"><UiIcon name="lock" size={10} />开发者只读</span></summary>
     <div className="system-prompt-panel">
       <p>{level.systemPrompt?.description || "当前层级尚未登记系统提示词。"}</p>
       {level.systemPrompt && <><pre>{level.systemPrompt.prompt}</pre><div className="system-prompt-sources"><strong>注入来源</strong>{level.systemPrompt.sourceFiles.map((source) => <code key={source}>{source}</code>)}</div></>}
@@ -68,9 +69,9 @@ function PluginInventory({ level, agentLevel, origin }: {
         <div className="plugin-copy"><strong>{plugin.name}</strong><small>{plugin.kind.toUpperCase()} · {plugin.pluginId}</small><code>{plugin.packageName} · v{plugin.version}</code></div>
         <PolicyBadge policy={plugin.policy} />
         <div className="plugin-runtime-states">
-          <span className={`status-badge ${plugin.assembled ? "" : "inactive"}`}>{plugin.assembled ? "配置已装配" : "未装配"}</span>
-          <span className={`status-badge ${plugin.exposed ? "" : "inactive"}`}>{plugin.exposed ? "本层已暴露" : "本层未暴露"}</span>
-          <span className={`status-badge ${plugin.callable ? "" : "inactive"}`}>{plugin.callable ? "可调用" : "不可调用"}</span>
+          <span className={`status-badge ${plugin.assembled ? "" : "inactive"}`}><UiIcon name={plugin.assembled ? "checkCircle" : "clock"} size={10} />{plugin.assembled ? "配置已装配" : "未装配"}</span>
+          <span className={`status-badge ${plugin.exposed ? "" : "inactive"}`}><UiIcon name={plugin.exposed ? "eye" : "blocked"} size={10} />{plugin.exposed ? "本层已暴露" : "本层未暴露"}</span>
+          <span className={`status-badge ${plugin.callable ? "" : "inactive"}`}><UiIcon name={plugin.callable ? "play" : "pause"} size={10} />{plugin.callable ? "可调用" : "不可调用"}</span>
         </div>
         {!!plugin.capabilities.length && <div className="plugin-provided-capabilities">{plugin.capabilities.map((capability) => <span key={capability.key}><b>{capability.type.toUpperCase()}</b>{capability.name}<small>{policyName[capability.policy]}</small></span>)}</div>}
       </article>{plugin.pluginId === "system-prompt" && level && <SystemPromptDetails level={level} agentLevel={agentLevel} />}</React.Fragment>;
@@ -133,30 +134,30 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
     };
     return <div className="admin-manager plugin-manager">
       <div className="admin-manager-toolbar"><div><h3>插件管理</h3><p>查看各层只读运行时插件，并维护按层注入的纯提示词自定义 Skills。</p></div>
-        {pluginType === "skill" && <button type="button" className="primary" onClick={() => setSkillDraft({ name: "", description: "", prompt: "", enabled: false })}>新增 Skill</button>}
+        {pluginType === "skill" && <button type="button" className="primary" onClick={() => setSkillDraft({ name: "", description: "", prompt: "", enabled: false })}><UiIcon name="plus" size={13} />新增 Skill</button>}
       </div>
       {error && <div className="error" role="alert">{error}</div>}
       <div className="plugin-level-tabs" role="tablist" aria-label="Agent 层级">
-        {(["l1", "l2", "l3"] as const).map((value) => <button type="button" role="tab" aria-selected={agentLevel === value} key={value} onClick={() => { setAgentLevel(value); setSkillDraft(null); }}>{value.toUpperCase()}</button>)}
+        {(["l1", "l2", "l3"] as const).map((value) => <button type="button" role="tab" aria-selected={agentLevel === value} key={value} onClick={() => { setAgentLevel(value); setSkillDraft(null); }}><UiIcon name={value === "l1" ? "book" : value === "l2" ? "task" : "play"} size={12} />{value.toUpperCase()}</button>)}
       </div>
       <div className="plugin-type-tabs" role="tablist" aria-label="插件类型">
-        {pluginViews.map((view) => <button type="button" role="tab" aria-selected={pluginType === view.id} key={view.id} onClick={() => { setPluginType(view.id); setSkillDraft(null); }}>{view.label}</button>)}
+        {pluginViews.map((view) => <button type="button" role="tab" aria-selected={pluginType === view.id} key={view.id} onClick={() => { setPluginType(view.id); setSkillDraft(null); }}><UiIcon name={view.id === "skill" ? "skill" : "plugin"} size={12} />{view.label}</button>)}
       </div>
       {pluginType === "dsh" || pluginType === "cothread-dsh-plugins" ? <PluginInventory level={level} agentLevel={agentLevel} origin={pluginType === "dsh" ? "dsh" : "cothread"} /> : <>
         {skillDraft && <div className="skill-editor">
-          <div className="skill-editor-heading"><strong>{skillDraft.id ? "编辑 Skill" : "新增 Skill"}</strong><button type="button" onClick={() => setSkillDraft(null)}>取消</button></div>
+          <div className="skill-editor-heading"><strong>{skillDraft.id ? "编辑 Skill" : "新增 Skill"}</strong><button type="button" onClick={() => setSkillDraft(null)}><UiIcon name="close" size={12} />取消</button></div>
           <label>名称<input value={skillDraft.name} maxLength={120} onChange={(event) => setSkillDraft({ ...skillDraft, name: event.target.value })} /></label>
           <label>说明<input value={skillDraft.description} maxLength={500} onChange={(event) => setSkillDraft({ ...skillDraft, description: event.target.value })} /></label>
           <label>提示词<textarea value={skillDraft.prompt} maxLength={30000} onChange={(event) => setSkillDraft({ ...skillDraft, prompt: event.target.value })} /></label>
           <label className="skill-enabled"><input type="checkbox" checked={skillDraft.enabled} onChange={(event) => setSkillDraft({ ...skillDraft, enabled: event.target.checked })} />启用此 Skill</label>
-          <button type="button" className="primary" disabled={busy} onClick={() => void action(saveSkill)}>保存 Skill</button>
+          <button type="button" className="primary" disabled={busy} onClick={() => void action(saveSkill)}><UiIcon name="save" size={13} />保存 Skill</button>
         </div>}
         <div className="plugin-list">
           {level?.skills.map((skill) => <article className="plugin-row skill-row" key={skill.id}>
             <div className="plugin-copy"><strong>{skill.name}</strong><small>{skill.description || skill.prompt.slice(0, 100)}</small><code>纯提示词 · v{skill.version}</code></div>
-            <span className={`status-badge ${skill.enabled ? "" : "inactive"}`}>{skill.enabled ? "已启用" : "已停用"}</span>
-            <button type="button" onClick={() => setSkillDraft({ id: skill.id, name: skill.name, description: skill.description, prompt: skill.prompt, enabled: skill.enabled })}>编辑</button>
-            <button type="button" disabled={busy} onClick={() => { if (!window.confirm(`确定归档 Skill「${skill.name}」？`)) return; void action(async () => { await api(`/admin/plugins/skills/${skill.id}`, {}, "DELETE"); await load(); }); }}>归档</button>
+            <span className={`status-badge ${skill.enabled ? "" : "inactive"}`}><UiIcon name={skill.enabled ? "checkCircle" : "pause"} size={10} />{skill.enabled ? "已启用" : "已停用"}</span>
+            <button type="button" onClick={() => setSkillDraft({ id: skill.id, name: skill.name, description: skill.description, prompt: skill.prompt, enabled: skill.enabled })}><UiIcon name="edit" size={12} />编辑</button>
+            <button type="button" disabled={busy} onClick={() => { if (!window.confirm(`确定归档 Skill「${skill.name}」？`)) return; void action(async () => { await api(`/admin/plugins/skills/${skill.id}`, {}, "DELETE"); await load(); }); }}><UiIcon name="archive" size={12} />归档</button>
           </article>)}
           {!level?.skills.length && !skillDraft && <p className="monitor-empty">当前层级还没有自定义 Skills。</p>}
         </div>
@@ -166,9 +167,9 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
   return (
     <div className="admin-manager">
       <div className="admin-manager-toolbar">
-        <div><h3>{section === "projects" ? "项目管理" : "账号管理"}</h3>
-          <p>{section === "projects" ? "新建、归档或恢复项目，并查看项目成员。" : "维护系统账号及其项目权限。"}</p></div>
-        <button type="button" className="primary" onClick={() => setCreating(!creating)}>{creating ? "取消" : section === "projects" ? "新增项目" : "新增账号"}</button>
+        <div><h3>{section === "projects" ? "项目管理" : "成员管理"}</h3>
+          <p>{section === "projects" ? "本公司内的项目：新建、归档或恢复，并查看各项目人类成员。" : "仅人类成员（含超级管理员）。Agent 与连接器不属于公司目录。"}</p></div>
+        <button type="button" className="primary" onClick={() => setCreating(!creating)}>{creating ? <><UiIcon name="close" size={13} />取消</> : <><UiIcon name="plus" size={13} />{section === "projects" ? "新增项目" : "新增成员"}</>}</button>
       </div>
       {creating && (section === "projects" ? (
         <div className="admin-create-form">
@@ -179,7 +180,7 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
             const description = (document.getElementById("admin-project-description") as HTMLTextAreaElement).value.trim();
             if (!name) throw new Error("请输入项目名称");
             await api("/admin/projects", { name, description }); setCreating(false); await load(); await onProjectsChanged();
-          })}>确认新增</button>
+          })}><UiIcon name="plus" size={13} />确认新增</button>
         </div>
       ) : (
         <div className="admin-create-form">
@@ -193,7 +194,7 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
             try { await navigator.clipboard.writeText(loginDetails({ username: result.username, value: result.password })); copied = true; } catch { /* Keep the one-time display available. */ }
             setPassword({ name: result.name, username: result.username, value: result.password, copied, initial: true });
             setCreating(false); await load();
-          })}>确认新增</button>
+          })}><UiIcon name="plus" size={13} />确认新增</button>
         </div>
       ))}
       {password && <div className="one-time-password" role="status">
@@ -203,7 +204,7 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
         {password.initial && <button type="button" onClick={() => void (async () => {
           try { await navigator.clipboard.writeText(loginDetails(password)); setPassword({ ...password, copied: true }); }
           catch { setError("浏览器未允许写入剪贴板，请手动选择上方账号和密码。"); }
-        })()}>{password.copied ? "再次复制登录信息" : "复制登录信息"}</button>}
+        })()}>{password.copied ? <><UiIcon name="copy" size={12} />再次复制登录信息</> : <><UiIcon name="copy" size={12} />复制登录信息</>}</button>}
       </div>}
       {error && <div className="error" role="alert">{error}</div>}
       <div className="admin-list">
@@ -216,16 +217,16 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
               <button type="button" className="admin-row-title" onClick={() => setExpanded(expanded === item.id ? "" : item.id)} aria-expanded={expanded === item.id}>
                 <strong>{item.name}</strong><small>{isProject ? `${project.creator} · ${date(project.created_at)}` : `用户ID：${account.user_number} · 账号：${account.username}${account.email ? ` · ${account.email}` : " · 未绑定邮箱"}`}</small>
               </button>
-              <span className={`status-badge ${inactive ? "inactive" : ""}`}>{inactive ? (isProject ? "已归档" : "已停用") : "正常"}</span>
+              <span className={`status-badge ${inactive ? "inactive" : ""}`}><UiIcon name={inactive ? (isProject ? "archive" : "pause") : "checkCircle"} size={10} />{inactive ? (isProject ? "已归档" : "已停用") : "正常"}</span>
               <button type="button" disabled={busy || (!isProject && account.id === currentUserId)} onClick={() => void action(async () => {
                 if (isProject) { await api(`/admin/projects/${item.id}/${inactive ? "restore" : "archive"}`, {}, "PATCH"); await onProjectsChanged(); }
                 else await api(`/admin/accounts/${item.id}/status`, { disabled: !inactive }, "PATCH");
                 await load();
-              })}>{inactive ? "恢复" : isProject ? "归档" : "停用"}</button>
+              })}><UiIcon name={inactive ? "restore" : isProject ? "archive" : "pause"} size={12} />{inactive ? "恢复" : isProject ? "归档" : "停用"}</button>
               {!isProject && <button type="button" disabled={busy} onClick={() => {
                 if (!window.confirm(`确定重置 ${account.name} 的密码？该账号当前登录将失效。`)) return;
                 void action(async () => { const result = await api(`/admin/accounts/${item.id}/reset-password`, {}); setPassword({ name: account.name, username: account.username, value: result.password }); });
-              }}>重置密码</button>}
+              }}><UiIcon name="key" size={12} />重置密码</button>}
             </div>
             {expanded === item.id && <div className="admin-row-detail">
               <strong>{isProject ? "项目成员" : "加入的项目"}</strong>

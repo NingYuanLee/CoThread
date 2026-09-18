@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { UiIcon } from "./ui-icon";
 
 type Authorization = {
   id: string; name: string; platform: string; version: string;
@@ -45,16 +46,16 @@ export function ConnectorAuthorization({ id, callbackPort, callbackSecret, api, 
     <header><div><small>本地连接器</small><h2>授权本地连接器</h2></div></header>
     {authorization?.approved_at ? <section className="connector-authorization-result">
       <strong>授权完成</strong><p>可以返回连接器选择项目和本地目录。</p>
-      <button type="button" className="primary" onClick={onDone}>完成</button>
+      <button type="button" className="primary" onClick={onDone}><UiIcon name="check" size={13} />完成</button>
     </section> : <>
       <dl>
-        <div><dt>应用</dt><dd>Windows 连接器</dd></div>
-        <div><dt>平台</dt><dd>{authorization ? `${authorization.platform} · v${authorization.version}` : "-"}</dd></div>
+        <div><dt>电脑</dt><dd>{authorization?.name || "-"}</dd></div>
+        <div><dt>系统</dt><dd>{authorization ? `${authorization.platform} · v${authorization.version}` : "-"}</dd></div>
         <div><dt>权限</dt><dd>查看账号项目；仅在你为项目选择本地目录后领取任务</dd></div>
       </dl>
       {error && <p className="project-settings-error" role="alert">{error}</p>}
-      <footer><button type="button" disabled={busy} onClick={() => void decide(false)}>拒绝</button>
-        <button type="button" className="primary" disabled={busy || !authorization} onClick={() => void decide(true)}>{busy ? "正在授权…" : "确认授权"}</button></footer>
+      <footer><button type="button" disabled={busy} onClick={() => void decide(false)}><UiIcon name="reject" size={13} />拒绝</button>
+        <button type="button" className="primary" disabled={busy || !authorization} onClick={() => void decide(true)}><UiIcon name="check" size={13} />{busy ? "正在授权…" : "确认授权"}</button></footer>
     </>}
   </dialog>;
 }

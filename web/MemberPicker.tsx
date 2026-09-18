@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import { UiIcon } from "./ui-icon";
+import { DialogClose, ModalBackdrop } from "./dialog-fx";
 
 export function MemberPicker({ projectId, api, onClose, onAdded }: {
   projectId: string;
@@ -13,9 +15,9 @@ export function MemberPicker({ projectId, api, onClose, onAdded }: {
   const load = () => api(`/users?projectId=${encodeURIComponent(projectId)}`).then(setAccounts);
   useEffect(() => { void load().catch((e) => setError(e.message)); }, [projectId]);
   const visible = accounts.filter((account) => `${account.name} ${account.username} ${account.email || ""}`.toLowerCase().includes(search.toLowerCase()));
-  return <div className="modal-backdrop" onClick={onClose}>
-    <section className="modal member-picker" role="dialog" aria-modal="true" aria-labelledby="member-picker-title" onClick={(event) => event.stopPropagation()}>
-      <div className="modal-header"><h2 id="member-picker-title">添加项目成员</h2><button type="button" onClick={onClose} aria-label="关闭">×</button></div>
+  return <ModalBackdrop onClose={onClose}>
+    {(close) => <section className="modal member-picker" role="dialog" aria-modal="true" aria-labelledby="member-picker-title">
+      <div className="modal-header"><h2 id="member-picker-title">添加项目成员</h2><DialogClose onClick={close} label="关闭" /></div>
       <input autoFocus className="member-search" aria-label="搜索系统账号" placeholder="搜索姓名或邮箱" value={search} onChange={(event) => setSearch(event.target.value)} />
       {error && <div className="error" role="alert">{error}</div>}
       <div className="member-picker-list">
@@ -27,10 +29,10 @@ export function MemberPicker({ projectId, api, onClose, onAdded }: {
             void api(`/projects/${projectId}/members`, { userId: account.id, role: "member" })
               .then(async () => { await onAdded(); await load(); })
               .catch((e) => setError(e.message)).finally(() => setBusy(""));
-          }}>{busy === account.id ? "添加中…" : "添加"}</button>
+          }}>{busy === account.id ? "添加中…" : <><UiIcon name="userPlus" size={13} />添加</>}</button>
         </div>)}
         {!visible.length && <p className="empty-state">没有可添加的系统账号</p>}
       </div>
-    </section>
-  </div>;
+    </section>}
+  </ModalBackdrop>;
 }

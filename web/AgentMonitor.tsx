@@ -12,12 +12,15 @@ import {
   formatActorRef,
   formatDurationMs,
   l3ExecutorName,
+  AGENT_LEVEL_LABELS,
   L3_EXECUTOR_NAMES,
   labelAgentEventStatus,
   labelExecutorType,
   labelWorkflowStatus,
   uniqueActorIds,
 } from "./ui-labels";
+import { UiIcon } from "./ui-icon";
+import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
 
 type L1Run = {
   id: string;
@@ -127,6 +130,16 @@ type MonitorData = {
     recent_message: string | null;
     last_activity_at: string;
     contextUsage?: ContextUsage;
+  }[];
+  humanAgents: {
+    member_id: string;
+    name: string;
+    nodes: {
+      executor_type: "human_self" | "human_connector";
+      executor_id: string | null;
+      online: boolean;
+      configured?: boolean;
+    }[];
   }[];
   executors: {
     task_id: string;
@@ -282,10 +295,10 @@ function artifactCount(value: unknown[] | string | null | undefined) {
 }
 
 function State({ tone, children }: { tone: "idle" | "running" | "waiting" | "failed"; children: React.ReactNode }) {
-  return <span className={`monitor-state ${tone}`}><i aria-hidden="true" />{children}</span>;
+  return <span className={`monitor-state ${tone}`}><UiIcon name={tone === "running" ? "running" : tone === "waiting" ? "pause" : tone === "failed" ? "failed" : "clock"} size={12} />{children}</span>;
 }
 
-const ENDED = new Set(["completed", "failed", "cancelled", "superseded"]);
+const ENDED = new Set(["completed", "failed", "cancelled", "rejected", "abandoned", "superseded"]);
 
 const liveExecutor = (task: { execution_active?: number | boolean | null; status?: string | null; executor_id?: string | null; agent_slot?: number | null; }) =>
   (!!task.executor_id && (!!task.execution_active || task.status === "running" || task.status === "waiting"))
@@ -311,7 +324,7 @@ function poolTone(task: MonitorData["taskPool"][number]) {
   const status = task.run_status || task.task_status;
   if (status === "failed") return "failed" as const;
   if (status === "running" && task.executor_id) return "running" as const;
-  if (["queued", "waiting"].includes(status)) return "waiting" as const;
+  if (["queued", "pending_assignment", "pending_start", "waiting"].includes(status)) return "waiting" as const;
   return "idle" as const;
 }
 
@@ -331,27 +344,49 @@ type L3Detail = {
   time: string;
 };
 
-function L3TaskCard({ title, meta, tone, status, style, onDetail, onTrace, onSession }: {
+function L3TaskCard({ title, meta, tone, status, settled, style, onDetail, onTrace, onSession }: {
   title: string;
   meta: string;
   tone: "idle" | "running" | "waiting" | "failed";
   status: string;
+  settled?: boolean;
   style?: React.CSSProperties;
   onDetail: () => void;
   onTrace: () => void;
   onSession?: () => void;
 }) {
-  return <article className="executor-row l3-task-card" style={style}>
+  return <article className={`executor-row l3-task-card${settled ? " is-settled" : ""}`} style={style}>
     <div className="executor-title">
       <span className="executor-name"><strong title={title}>{title}</strong><small>{meta}</small></span>
       <State tone={tone}>{status}</State>
     </div>
     <div className="l3-task-actions">
-      <button type="button" onClick={onDetail}>详情</button>
-      <button type="button" onClick={onTrace}>轨迹</button>
-      {onSession ? <button type="button" onClick={onSession}>会话</button> : null}
+      <button type="button" onClick={onDetail}><UiIcon name="detail" size={12} />详情</button>
+      <button type="button" onClick={onTrace}><UiIcon name="trajectory" size={12} />轨迹</button>
+      {onSession ? <button type="button" onClick={onSession}><UiIcon name="session" size={12} />会话</button> : null}
     </div>
   </article>;
+}
+
+function CoordinatorStatusIcon({ busy, archived }: { busy: boolean; archived: boolean }) {
+  const label = archived ? "已归档" : busy ? "工作中" : "空闲";
+  return <svg
+    className={`coordinator-status${archived ? " is-archived" : busy ? " is-busy" : " is-idle"}`}
+    width="14"
+    height="14"
+    viewBox="0 0 14 14"
+    fill="none"
+    aria-hidden="true"
+  >
+    {archived ? <>
+      <rect x="3" y="5" width="8" height="6.5" rx="1.2" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M5 5V4.2A2 2 0 0 1 7 2.2 2 2 0 0 1 9 4.2V5" stroke="currentColor" strokeWidth="1.3" />
+    </> : busy ? <>
+      <circle cx="7" cy="7" r="5" stroke="currentColor" strokeOpacity="0.22" strokeWidth="1.6" />
+      <path d="M7 2a5 5 0 0 1 5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </> : <circle cx="7" cy="7" r="4.2" stroke="currentColor" strokeWidth="1.4" />}
+    <title>{label}</title>
+  </svg>;
 }
 
 function OverflowTitle({ text }: { text: string }) {
@@ -403,20 +438,20 @@ function taskExecutorName(
     created_by_type?: string;
     target_type?: string | null;
     task_status?: string;
-    run_status?: string;
+    run_status?: string | null;
     status?: string;
   },
   l3Ids: string[],
 ) {
   if (task.executor_id && (!task.executor_type || task.executor_type === "dsh_l3")) {
-    return l3ExecutorName(task.executor_id, l3Ids) || "任务级 Agent";
+    return l3ExecutorName(task.executor_id, l3Ids) || AGENT_LEVEL_LABELS.l3;
   }
   if (task.executor_type === "human_self") return "成员本人";
   if (task.executor_type === "human_connector") return "本地连接器";
   if (task.created_by_type === "l2_session" || task.target_type === "l2_session") {
     const status = task.run_status || task.task_status || task.status || "";
-    if (ENDED.has(status)) return "小祥（未交给任务级 Agent）";
-    return "待任务级 Agent 接单";
+    if (ENDED.has(status)) return "小祥（未交给任务级Agent（L3））";
+    return "待任务级Agent（L3）接单";
   }
   return "未选择";
 }
@@ -467,13 +502,13 @@ function claimedDetail(
 function L3TaskDetailDialog({ detail, onClose }: { detail: L3Detail; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { dialog.current?.showModal(); }, []);
-  return <dialog ref={dialog} className="l3-task-detail-dialog" aria-labelledby="l3-task-detail-title" onCancel={onClose}>
+  return <dialog ref={dialog} className="l3-task-detail-dialog" aria-labelledby="l3-task-detail-title" onCancel={onDialogCancel(onClose)} onClick={onDialogBackdropClick(onClose)}>
     <header className="agent-monitor-header">
       <div>
         <span>任务详情</span>
         <h2 id="l3-task-detail-title">{detail.title}</h2>
       </div>
-      <button type="button" onClick={onClose} aria-label="关闭详情" title="关闭">×</button>
+      <DialogClose onClick={() => animateDialogClose(dialog.current, onClose)} label="关闭详情" />
     </header>
     <div className="l3-task-detail-body task-detail">
       <header>
@@ -507,13 +542,13 @@ function L1HistoryDialog({ title, columns, rows, empty, onClose }: {
   const dialog = useRef<HTMLDialogElement>(null);
   const hasActions = rows.some((row) => row.actions);
   useEffect(() => { dialog.current?.showModal(); }, []);
-  return <dialog ref={dialog} className="l3-task-detail-dialog l1-history-dialog" aria-labelledby="l1-history-title" onCancel={onClose}>
+  return <dialog ref={dialog} className="l3-task-detail-dialog l1-history-dialog" aria-labelledby="l1-history-title" onCancel={onDialogCancel(onClose)} onClick={onDialogBackdropClick(onClose)}>
     <header className="agent-monitor-header">
       <div>
         <span>历史记录</span>
         <h2 id="l1-history-title">{title}</h2>
       </div>
-      <button type="button" onClick={onClose} aria-label="关闭历史记录" title="关闭">×</button>
+      <DialogClose onClick={() => animateDialogClose(dialog.current, onClose)} label="关闭历史记录" />
     </header>
     <div className="l1-history-body">
       <table className="l1-history-table">
@@ -611,13 +646,8 @@ function TaskSessionDialog({
     ref={dialog}
     className="l3-task-detail-dialog l3-task-session-dialog"
     aria-labelledby="l3-task-session-title"
-    onCancel={(event) => {
-      if (event.target !== event.currentTarget) {
-        event.preventDefault();
-        return;
-      }
-      onClose();
-    }}
+    onCancel={onDialogCancel(onClose)}
+    onClick={onDialogBackdropClick(onClose)}
   >
     <header className="agent-monitor-header l3-task-session-header">
       <div>
@@ -634,7 +664,7 @@ function TaskSessionDialog({
             setData(await api(path));
           }}
         />
-        <button type="button" onClick={onClose} aria-label="关闭任务会话" title="关闭">×</button>
+        <DialogClose onClick={() => animateDialogClose(dialog.current, onClose)} label="关闭任务会话" />
       </div>
     </header>
     <div className="l3-task-session-body" ref={list}>
@@ -670,13 +700,13 @@ function TaskSessionDialog({
 function EventLogDialog({ events, onClose }: { events: MonitorData["eventLog"]; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { dialog.current?.showModal(); }, []);
-  return <dialog ref={dialog} className="agent-log-dialog l3-event-log-dialog" aria-labelledby="l3-event-log-title" onCancel={onClose}>
+  return <dialog ref={dialog} className="agent-log-dialog l3-event-log-dialog" aria-labelledby="l3-event-log-title" onCancel={onDialogCancel(onClose)} onClick={onDialogBackdropClick(onClose)}>
     <header className="agent-monitor-header">
       <div>
         <span>DSH 轨迹</span>
         <h2 id="l3-event-log-title">轨迹</h2>
       </div>
-      <button type="button" onClick={onClose} aria-label="关闭轨迹" title="关闭">×</button>
+      <DialogClose onClick={() => animateDialogClose(dialog.current, onClose)} label="关闭轨迹" />
     </header>
     <div className="monitor-log-list l3-event-log-body">
       {events.map((event) => <article className="monitor-log-row" key={event.id}>
@@ -714,7 +744,9 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   const [historyKind, setHistoryKind] = useState<"member" | "document" | "organization" | "archive" | null>(null);
   const [sessionTarget, setSessionTarget] = useState<SessionTarget | null>(null);
   const [refreshing, setRefreshing] = useState<"member" | "document" | "organization" | "archive" | null>(null);
-  const activeTasks = useMemo(() => data?.executors.filter((task) => liveExecutor(task)).length || 0, [data]);
+  const [l1Open, setL1Open] = useState(false);
+  const [reloading, setReloading] = useState(false);
+  const reloadNow = useRef<(() => Promise<void>) | null>(null);
   const selectedCoordinator = data?.coordinators.find((item) => item.id === selectedThreadId);
   const people = data?.humanAgents || [];
   const threadPool = useMemo(() => (data?.taskPool || []).filter((task) =>
@@ -831,10 +863,12 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
     dialog.current?.showModal();
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
-    const load = async () => {
+    const load = async (manual = false) => {
+      if (manual) setReloading(true);
+      let next: MonitorData | null = null;
       try {
-        const next = await api(`/projects/${projectId}/agent-monitor`);
-        if (alive) {
+        next = await api(`/projects/${projectId}/agent-monitor`);
+        if (alive && next) {
           setData(next);
           setSelectedThreadId((current) => next.coordinators.some((item: MonitorData["coordinators"][number]) => item.id === current)
             ? current
@@ -844,11 +878,22 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
       } catch (cause) {
         if (alive) setError((cause as Error).message);
       } finally {
-        if (alive) { setLoading(false); timer = setTimeout(load, 5000); }
+        if (alive) {
+          setLoading(false);
+          setReloading(false);
+          clearTimeout(timer);
+          const busy = !!next && (
+            (next.executors || []).some((task) => liveExecutor(task))
+            || next.knowledge?.sessionStatus === "running"
+            || (next.knowledge?.organizationJobs || []).some((job) => job.status === "running" || job.status === "queued")
+          );
+          timer = setTimeout(() => void load(), busy ? 1500 : 2500);
+        }
       }
     };
+    reloadNow.current = () => load(true);
     void load();
-    return () => { alive = false; clearTimeout(timer); };
+    return () => { alive = false; clearTimeout(timer); reloadNow.current = null; };
   }, [projectId]);
 
   useEffect(() => {
@@ -860,10 +905,9 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   const openL1Logs = (task: string) =>
     setLogScope({ type: "project", id: projectId, task });
   const sessionButton = (task: string) => (
-    <button type="button" className="monitor-trace-btn" onClick={() => setSessionTarget({ kind: "l1", task })}>会话</button>
+    <button type="button" className="monitor-trace-btn" onClick={() => setSessionTarget({ kind: "l1", task })}><UiIcon name="session" size={12} />会话</button>
   );
   const latestArchive = knowledge?.archives?.[0];
-  const activeIterations = (data?.coordinators || []).filter((item) => item.status === "active").length;
   const projectOrgJobs = (knowledge?.organizationJobs || []).filter((job) => job.scope === "project");
   const projectOrgBusy = projectOrgJobs.some((job) => ["queued", "running"].includes(job.status));
   const projectOrgLastAt = projectOrgJobs
@@ -886,36 +930,53 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   })();
 
   return <>
-  <dialog ref={dialog} className="agent-monitor" aria-labelledby="agent-monitor-title" onCancel={onClose}>
+  <dialog ref={dialog} className="agent-monitor" aria-labelledby="agent-monitor-title" onCancel={onDialogCancel(onClose)} onClick={onDialogBackdropClick(onClose)}>
     <header className="agent-monitor-header">
       <div>
         <span>项目运行状态</span>
         <h2 id="agent-monitor-title">小祥监控</h2>
         <p>{projectName}</p>
       </div>
-      <button type="button" onClick={onClose} aria-label="关闭小祥监控" title="关闭">×</button>
+      <div className="agent-monitor-header-actions">
+        <button
+          type="button"
+          className="monitor-refresh-btn"
+          onClick={() => void reloadNow.current?.()}
+          disabled={reloading || (loading && !data)}
+          aria-label="刷新小祥监控"
+          title="刷新"
+        >
+          {reloading ? <><UiIcon name="refresh" size={13} />刷新中…</> : <><UiIcon name="refresh" size={13} />刷新</>}
+        </button>
+        <DialogClose onClick={() => animateDialogClose(dialog.current, onClose)} label="关闭小祥监控" />
+      </div>
     </header>
 
     {loading && !data ? <div className="monitor-loading" role="status">正在读取运行状态…</div> : <>
-      <div className="monitor-overview" aria-label="运行概览">
-        <div><strong>{data?.coordinators.filter((item) => item.status === "active").length || 0}</strong><span>活跃迭代</span></div>
-        <div><strong>{activeTasks}</strong><span>执行中</span></div>
-        <div><strong>{(knowledge?.memberPending || 0) + (knowledge?.documentPending || 0)}</strong><span>待整理知识</span></div>
-        <time dateTime={data?.generatedAt}>更新于 {time(data?.generatedAt)}</time>
-      </div>
-
-      <section className="monitor-section">
-        <div className="monitor-section-heading">
-          <div>
-            <span className="monitor-level">项目级Agents</span>
+      <section className={`monitor-section${l1Open ? "" : " is-collapsed"}`}>
+        <span className="monitor-level">{AGENT_LEVEL_LABELS.l1}</span>
+        <button
+          type="button"
+          className="monitor-section-heading monitor-section-toggle"
+          aria-expanded={l1Open}
+          title={l1Open ? "收起知识整理任务" : "展开知识整理任务"}
+          onClick={() => setL1Open((open) => !open)}
+        >
+          <div className="monitor-section-identity">
             <img className="monitor-avatar" src="/agent-avatars/grandpa.jpg" alt="" />
             <span className="monitor-agent-copy">
               <span className="monitor-agent-title">老翁（项目知识库管理员）</span>
               <small className={knowledgeLast.tone}>{knowledgeLast.label}</small>
             </span>
           </div>
-        </div>
-        <div className="l1-task-grid">
+          <span className="monitor-section-toggle-meta">
+            <span className="monitor-count">4 项能力</span>
+            <svg className="monitor-section-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d={l1Open ? "m3 7 3-3 3 3" : "m4.5 3 3 3-3 3"} />
+            </svg>
+          </span>
+        </button>
+        {l1Open ? <div className="l1-task-grid">
           <article className="l1-task-card">
             <h4>成员发言</h4>
             <p>说话风格、习惯与本人发言浓缩；同项目多次整理共用一套上下文</p>
@@ -924,10 +985,10 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
             <p>预计下次：{nextTime(knowledge?.memberNextAt, knowledge?.memberPending || 0)}</p>
             <div className="l1-task-actions">
               {sessionButton("member_memory")}
-              <button type="button" className="monitor-trace-btn" onClick={() => openL1Logs("member_memory")}>轨迹</button>
-              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("member")}>历史记录</button>
+              <button type="button" className="monitor-trace-btn" onClick={() => openL1Logs("member_memory")}><UiIcon name="trajectory" size={12} />轨迹</button>
+              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("member")}><UiIcon name="history" size={12} />历史记录</button>
               <button type="button" className="monitor-trace-btn" disabled={refreshing === "member"} onClick={() => void triggerMemory("member")}>
-                {refreshing === "member" ? "排队中…" : "立即整理"}
+                {refreshing === "member" ? <><UiIcon name="clock" size={12} />排队中…</> : <><UiIcon name="organize" size={12} />立即整理</>}
               </button>
             </div>
           </article>
@@ -939,10 +1000,10 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
             <p>预计下次：{nextTime(knowledge?.documentNextAt ?? knowledge?.projectDocumentNextAt, knowledge?.documentPending ?? knowledge?.projectDocumentPending ?? 0)}</p>
             <div className="l1-task-actions">
               {sessionButton("document_memory")}
-              <button type="button" className="monitor-trace-btn" onClick={() => openL1Logs("document_memory")}>轨迹</button>
-              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("document")}>历史记录</button>
+              <button type="button" className="monitor-trace-btn" onClick={() => openL1Logs("document_memory")}><UiIcon name="trajectory" size={12} />轨迹</button>
+              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("document")}><UiIcon name="history" size={12} />历史记录</button>
               <button type="button" className="monitor-trace-btn" disabled={refreshing === "document"} onClick={() => void triggerMemory("document")}>
-                {refreshing === "document" ? "排队中…" : "立即整理"}
+                {refreshing === "document" ? <><UiIcon name="clock" size={12} />排队中…</> : <><UiIcon name="organize" size={12} />立即整理</>}
               </button>
             </div>
           </article>
@@ -952,15 +1013,15 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
             <p>最近整理：{time(projectOrgLastAt)}</p>
             <div className="l1-task-actions">
               {sessionButton("document_organization")}
-              <button type="button" className="monitor-trace-btn" onClick={() => openL1Logs("document_organization")}>轨迹</button>
-              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("organization")}>历史记录</button>
+              <button type="button" className="monitor-trace-btn" onClick={() => openL1Logs("document_organization")}><UiIcon name="trajectory" size={12} />轨迹</button>
+              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("organization")}><UiIcon name="history" size={12} />历史记录</button>
               <button
                 type="button"
                 className="monitor-trace-btn"
                 disabled={projectOrgBusy || refreshing === "organization"}
                 onClick={() => void triggerOrganization()}
               >
-                {refreshing === "organization" || projectOrgBusy ? "排队中…" : "立即整理"}
+                {refreshing === "organization" || projectOrgBusy ? <><UiIcon name="clock" size={12} />排队中…</> : <><UiIcon name="organize" size={12} />立即整理</>}
               </button>
             </div>
           </article>
@@ -970,20 +1031,20 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
             <p>最近整理：{time(knowledge?.archiveLastAt)}</p>
             <div className="l1-task-actions">
               {sessionButton("iteration_archive")}
-              <button type="button" className="monitor-trace-btn" onClick={() => openL1Logs("iteration_archive")}>轨迹</button>
-              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("archive")}>历史记录</button>
+              <button type="button" className="monitor-trace-btn" onClick={() => openL1Logs("iteration_archive")}><UiIcon name="trajectory" size={12} />轨迹</button>
+              <button type="button" className="monitor-trace-btn" onClick={() => setHistoryKind("archive")}><UiIcon name="history" size={12} />历史记录</button>
               <button type="button" className="monitor-trace-btn" disabled={!latestArchive || refreshing === "archive"} onClick={() => void triggerArchive(latestArchive?.id)}>
-                {refreshing === "archive" ? "排队中…" : "立即整理"}
+                {refreshing === "archive" ? <><UiIcon name="clock" size={12} />排队中…</> : <><UiIcon name="organize" size={12} />立即整理</>}
               </button>
             </div>
           </article>
-        </div>
+        </div> : null}
       </section>
 
       <section className="monitor-section monitor-coordinators">
+        <span className="monitor-level">{AGENT_LEVEL_LABELS.l2}</span>
         <div className="monitor-section-heading">
-          <div>
-            <span className="monitor-level">迭代级Agents</span>
+          <div className="monitor-section-identity">
             <img className="monitor-avatar" src="/agent-avatars/xiaojingang.jpg" alt="" />
             <span className="monitor-agent-title">小祥（任务调度员）</span>
           </div>
@@ -991,13 +1052,14 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
         </div>
         <div className="coordinator-list">
           {data?.coordinators.map((item) => {
-            const busy = item.running_requests + item.queued_requests > 0;
-            const status = item.status === "archived" ? "已归档" : busy ? "调度中" : "待命";
+            const busy = item.status !== "archived" && item.running_requests + item.queued_requests > 0;
+            const archived = item.status === "archived";
+            const status = archived ? "已归档" : busy ? "工作中" : "空闲";
             return <article className={`coordinator-row ${selectedThreadId === item.id ? "selected" : ""}`} key={item.id}>
               <button type="button" className="coordinator-select" aria-label={`${item.title} ${status}`} aria-pressed={selectedThreadId === item.id} onClick={() => setSelectedThreadId(item.id)}>
+                <CoordinatorStatusIcon busy={busy} archived={archived} />
                 <span className="coordinator-copy">
                   <OverflowTitle text={item.title} />
-                  <small>{status}</small>
                 </span>
               </button>
             </article>;
@@ -1007,9 +1069,23 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
       </section>
 
       <section className="monitor-section monitor-executors">
+        <span className="monitor-level">{AGENT_LEVEL_LABELS.l3}</span>
+        {pendingTasks.length ? <div className="monitor-unassigned">
+          <h4>待指派 {pendingTasks.length} 项</h4>
+          <div className="executor-list">
+            {pendingTasks.map((task) => <L3TaskCard
+              key={task.task_id}
+              title={task.title}
+              meta={`来源 ${taskSourceName(task, people)} · 执行 ${taskExecutorName(task, l3Ids)}`}
+              tone={poolTone(task)}
+              status={labelWorkflowStatus(task.run_status || task.task_status)}
+              onDetail={() => setTaskDetail(pendingDetail(task, people, l3Ids))}
+              onTrace={() => openTaskTrace(task.task_id)}
+            />)}
+          </div>
+        </div> : null}
         <div className="monitor-section-heading">
-          <div>
-            <span className="monitor-level">任务级Agents</span>
+          <div className="monitor-section-identity">
             {selectedAgent ? <img className="monitor-avatar" src={`/agent-avatars/${selectedAgent.agent.avatar}`} alt="" /> : null}
             <span className="monitor-agent-title">{selectedAgent ? `${selectedAgent.agent.name}（任务执行者）` : "任务执行者"}</span>
             {selectedAgent ? <State tone={selectedAgentState.tone}>{selectedAgentState.label}</State> : null}
@@ -1020,50 +1096,35 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
           <div className="l3-agent-list" role="listbox" aria-label="任务级Agents">
             {slots.map(({ slot, agent, task }) => {
               const state = agentState(task);
+              const busy = state.tone === "running";
               const activeAt = time(task?.last_action_at || task?.finished_at || task?.started_at);
-              return <button type="button" role="option" aria-selected={selectedSlot === slot} aria-label={`${agent.name} ${state.label} ${activeAt}`} className={selectedSlot === slot ? "selected" : ""} key={slot} style={{ "--agent-color": agent.color } as React.CSSProperties} onClick={() => setSelectedSlot(slot)}>
+              return <button type="button" role="option" aria-selected={selectedSlot === slot} aria-label={`${agent.name} ${busy ? "工作中" : "空闲"} ${activeAt}`} className={selectedSlot === slot ? "selected" : ""} key={slot} style={{ "--agent-color": agent.color } as React.CSSProperties} onClick={() => setSelectedSlot(slot)}>
+                <CoordinatorStatusIcon busy={busy} archived={false} />
                 <img className="monitor-avatar" src={`/agent-avatars/${agent.avatar}`} alt="" />
                 <span className="l3-agent-copy"><strong>{agent.name}</strong><small>{activeAt}</small></span>
               </button>;
             })}
           </div>
           <div className="l3-agent-pane">
-            <div className="l3-agent-pane-head">
-              <p>{selectedAgent ? `${selectedAgent.agent.name} 的每个任务使用独立 DSH 会话。打开会话可查看原生上下文。` : "选择一个执行 Agent 查看任务。"}</p>
-            </div>
             <div className="l3-agent-pane-body">
-              <div className="l3-task-group">
-                <h4>待处理 {pendingTasks.length} 项</h4>
-                <div className="executor-list">
-                  {pendingTasks.map((task) => <L3TaskCard
-                    key={task.task_id}
-                    title={task.title}
-                    meta={`来源 ${taskSourceName(task, people)} · 执行 ${taskExecutorName(task, l3Ids)}`}
-                    tone={poolTone(task)}
-                    status={labelWorkflowStatus(task.run_status || task.task_status)}
-                    onDetail={() => setTaskDetail(pendingDetail(task, people, l3Ids))}
-                    onTrace={() => openTaskTrace(task.task_id)}
-                  />)}
-                  {!pendingTasks.length && <p className="monitor-empty">没有待处理任务。</p>}
-                </div>
-              </div>
               <div className="l3-task-group">
                 <h4>已接过 {claimedTasks.length} 项</h4>
                 <div className="executor-list">
                   {claimedTasks.map((task) => {
                     const pool = threadPool.find((item) => item.task_id === task.task_id);
                     const state = claimedWorkflow(task, pool);
-                    const active = liveExecutor(task);
                     const title = pool?.title
                       || task.progress
                       || (task.task_type === "assist_l2" ? "辅助任务" : "执行任务");
+                    const ended = ENDED.has(pool?.run_status || pool?.task_status || task.status || "");
                     return <L3TaskCard
                       key={task.task_id}
                       title={title}
                       meta={`来源 ${taskSourceName({ ...task, source_user_id: task.requested_by }, people)} · 执行 ${taskExecutorName({ ...task, ...pool, executor_id: task.executor_id, executor_type: task.executor_type }, l3Ids)}`}
                       tone={state.tone}
                       status={state.label}
-                      style={{ "--agent-color": selectedAgent?.agent.color, "--agent-tint": selectedAgent?.agent.tint } as React.CSSProperties}
+                      settled={ended}
+                      style={ended ? undefined : { "--agent-color": selectedAgent?.agent.color, "--agent-tint": selectedAgent?.agent.tint } as React.CSSProperties}
                       onDetail={() => setTaskDetail(claimedDetail(task, pool, people, l3Ids))}
                       onTrace={() => openTaskTrace(task.task_id)}
                       onSession={() => setSessionTarget({

@@ -22,6 +22,7 @@ import { Service, HttpError } from "./service.js";
 import { handleMcp } from "./mcp.js";
 import { retryReply } from "./reply-actions.js";
 import { personalProfile, profileSchema } from "./profile.js";
+import { UI_THEMES, normalizeUiTheme } from "../shared/ui-theme.js";
 import { registerRequestParts } from "./request-parts.js";
 import { requestTiming } from "./request-timing.js";
 import { resolveIpLocation } from "./ip-location.js";
@@ -31,7 +32,7 @@ import { digest } from "./auth.js";
 import { sendVerificationEmail as deliverVerificationEmail } from "./email-delivery.js";
 import { createHumanChallenge as generateHumanChallenge } from "./human-challenge.js";
 import { registerConnectorBrowserRoutes, registerConnectorPublicRoutes } from "./connectors.js";
-import { acceptTask, acknowledgeTaskRejection, createTask, getTask, listAssignmentEvents, answerTaskQuestion, listTaskExecutionRuns, listTaskQuestions, listTaskStatusEvents, listTaskUpdates, listTasks, reassignTask, rejectTask, reopenRejectedTask, taskExecutionSnapshot, taskRejectionReview, updateTask } from "./task-pool.js";
+import { acceptTask, acknowledgeTaskRejection, cancelTask, createTask, getTask, listAssignmentEvents, answerTaskQuestion, listTaskExecutionRuns, listTaskQuestions, listTaskStatusEvents, listTaskUpdates, listTasks, reassignTask, rejectTask, reopenRejectedTask, taskExecutionSnapshot, taskRejectionReview, updateTask } from "./task-pool.js";
 import { adminPluginManagement, archivePromptSkill, createPromptSkill, updatePromptSkill } from "./agent-capabilities.js";
 
 export function createApp(db, { makers = false, afterMcpMessage, executeRun, stopAgent = async () => {},
@@ -327,7 +328,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   registerConnectorBrowserRoutes(app, db, service);
   app.get("/api/workspace", async (req, res) => {
     const [[profile], projects] = await Promise.all([
-      query(db, "SELECT id,user_number,username,name,email,avatar,motto,identity_tags,is_super_admin FROM users WHERE id=?", [req.user.id]),
+      query(db, "SELECT id,user_number,username,name,email,avatar,motto,identity_tags,is_super_admin,ui_theme FROM users WHERE id=?", [req.user.id]),
       service.projects(req.user),
     ]);
     const selected = projects.find((p) => p.id === req.query.projectId && p.tab_visible)
@@ -351,7 +352,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     });
   });
   app.get("/api/me", async (req, res) => {
-    const [profile] = await query(db, "SELECT id,user_number,username,name,email,avatar,motto,identity_tags,is_super_admin FROM users WHERE id=?", [req.user.id]);
+    const [profile] = await query(db, "SELECT id,user_number,username,name,email,avatar,motto,identity_tags,is_super_admin,ui_theme FROM users WHERE id=?", [req.user.id]);
     res.json(personalProfile(profile));
   });
   app.post("/api/email/bind/request", async (req, res) => {
@@ -377,7 +378,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
         await service.accountChange(conn, req.user.id, req.user.id, "email_bound", { before: payload.previousEmail, after: challenge.email });
       });
     } catch (error) { if (error.code === "ER_DUP_ENTRY") throw new HttpError(409, "该邮箱已绑定其他账号"); throw error; }
-    const [profile] = await query(db, "SELECT id,user_number,username,name,email,avatar,motto,identity_tags,is_super_admin FROM users WHERE id=?", [req.user.id]);
+    const [profile] = await query(db, "SELECT id,user_number,username,name,email,avatar,motto,identity_tags,is_super_admin,ui_theme FROM users WHERE id=?", [req.user.id]);
     res.json(personalProfile(profile));
   });
   app.get("/api/notifications", async (req, res) => res.json(await service.notifications(req.user, req.query.before, req.query)));
@@ -403,6 +404,16 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     await query(db, "INSERT INTO account_change_logs(id,target_user_id,actor_user_id,action,details) VALUES(?,?,?,?,?)",
       [randomUUID(), req.user.id, req.user.id, "profile_updated", JSON.stringify({ name: data.name, motto: data.motto, identity_tags: data.identity_tags })]);
     res.json(personalProfile({ ...req.user, ...data }));
+  });
+  app.patch("/api/me/theme", async (req, res) => {
+    if (req.user.kind !== "session")
+      throw new HttpError(403, "请在浏览器中修改主题");
+    const theme = normalizeUiTheme(z.object({
+      theme: z.string().refine((value) => UI_THEMES.some((item) => item.id === value), "主题无效"),
+    }).parse(req.body).theme);
+    await query(db, "UPDATE users SET ui_theme=? WHERE id=?", [theme, req.user.id]);
+    const [profile] = await query(db, "SELECT id,user_number,username,name,email,avatar,motto,identity_tags,is_super_admin,ui_theme FROM users WHERE id=?", [req.user.id]);
+    res.json(personalProfile(profile));
   });
   app.post("/api/logout", async (req, res) => {
     await query(db, "DELETE FROM credentials WHERE id=?", [
@@ -525,23 +536,13 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     await service.member(req.user, req.params.id);
     const data = z.object({ title: z.string().trim().min(1).max(240), goal: z.string().trim().min(1).max(20000),
-      constraints: z.string().max(20000).optional(), targetType: z.enum(["human_member", "l2_session"]).optional(),
-      targetUserId: z.string().uuid().optional(), threadId: z.string().uuid().optional() }).parse(req.body);
+      constraints: z.string().max(20000).optional(), targetType: z.enum(["human_member"]).optional(),
+      targetUserId: z.string().uuid(), threadId: z.string().uuid().optional() }).parse(req.body);
     if (data.threadId) { const thread = await service.thread(req.user, data.threadId); if (thread.project_id !== req.params.id) throw new HttpError(403, "迭代不属于当前项目"); }
-    let targetType = data.targetType || (data.targetUserId ? "human_member" : null);
-    let targetId = data.targetUserId || null;
-    if (targetType === "l2_session") {
-      if (!data.threadId) throw new HttpError(400, "指派给 L2 的任务必须属于一个迭代");
-      await query(db, "INSERT IGNORE INTO agent_sessions(thread_id,session_id) VALUES(?,UUID())", [data.threadId]);
-      targetId = (await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [data.threadId]))[0]?.session_id;
-    }
     const task = await createTask(db, { projectId: req.params.id, originThreadId: data.threadId,
       sourceType: "human_member", sourceUserId: req.user.id, sourceMessageId: null, createdByType: "human_member",
       createdById: req.user.id, taskType: "formal", title: data.title, goal: data.goal, constraints: data.constraints,
-      targetType, targetId });
-    if (targetType === "l2_session") await service.postMessage(req.user, data.threadId, {
-      body: `@小祥 我在任务池创建了正式任务「${data.title}」，请接手并根据任务详情继续处理。`,
-    });
+      targetType: "human_member", targetId: data.targetUserId });
     res.status(201).json(task);
   });
   app.post("/api/task-questions/:id/answer", async (req, res) => {
@@ -573,6 +574,16 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       `任务事件：${req.user.name || "当前成员"}拒绝了任务「${task.title}」${data.reason ? `，原因：${data.reason}` : ""}。`, [], "system");
     res.json(rejected);
   });
+  app.post("/api/tasks/:id/cancel", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id); if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const data = z.object({ reason: z.string().trim().max(1000).optional() }).parse(req.body || {});
+    const cancelled = await cancelTask(db, task.id, { type: "human_member", id: req.user.id }, data.reason);
+    if (task.origin_thread_id) await service.insertMessage(db, req.user, task.origin_thread_id,
+      `任务事件：${req.user.name || "当前成员"}取消了任务「${task.title}」。`, [], "system");
+    res.json(cancelled);
+  });
   app.post("/api/tasks/:id/acknowledge-rejection", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const task = await getTask(db, req.params.id); if (!task) throw new HttpError(404, "任务不存在");
@@ -594,7 +605,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const task = await getTask(db, req.params.id); if (!task) throw new HttpError(404, "任务不存在");
     await service.member(req.user, task.project_id);
-    const data = z.object({ status: z.enum(["queued","running","waiting","blocked","completed","failed","cancelled"]).optional(), progress: z.string().max(500).optional(), resultSummary: z.string().max(20000).optional(), artifactRefs: z.array(z.unknown()).optional(), body: z.string().max(20000).optional(), messageId: z.string().uuid().optional() }).parse(req.body);
+    const data = z.object({ status: z.enum(["pending_start","running","waiting","blocked","completed","failed","cancelled","abandoned"]).optional(), progress: z.string().max(500).optional(), resultSummary: z.string().max(20000).optional(), artifactRefs: z.array(z.unknown()).optional(), body: z.string().max(20000).optional(), messageId: z.string().uuid().optional() }).parse(req.body);
     res.json(await updateTask(db, task.id, { type: "human_member", id: req.user.id }, data));
   });
   app.post("/api/tasks/:id/reassign", async (req, res) => {

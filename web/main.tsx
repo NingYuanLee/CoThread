@@ -9,8 +9,9 @@ import {
   SUMMARY_REQUEST,
   mentionsAgent,
 } from "../shared/agent-member.js";
-import React, { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
+import React, { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
+import "./theme.css";
 import "./style.css";
 import { configureMakers, invokeMakers, wakeMakers, useMakersConnection } from "./makers";
 import { coordinatorLogButtonLabel, COORDINATOR_LOG_IDLE_LABEL } from "./agent-label";
@@ -22,6 +23,9 @@ const loadComposer = () => import("./ChatComposer");
 const ChatComposer = lazy(() => loadComposer().then((module) => ({ default: module.ChatComposer })));
 import { ContextMeter } from "./ContextMeter";
 import { Notifications } from "./Notifications";
+import { ThemePicker } from "./ThemePicker";
+import { applyUiTheme } from "./apply-ui-theme";
+import { DEFAULT_UI_THEME } from "../shared/ui-theme.js";
 import { ProjectManagement } from "./ProjectManagement";
 import { AgentMonitor } from "./AgentMonitor";
 import { AgentLogDialog, AgentTrajectory } from "./AgentLogDialog";
@@ -43,7 +47,28 @@ import {
 } from "./ProfileFields";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { labelReasoningEffort, labelWorkflowStatus, labelExecutorType, l3ExecutorName, uniqueActorIds } from "./ui-labels";
+import { labelReasoningEffort, labelWorkflowStatus, labelExecutorType, l3ExecutorName, uniqueActorIds, AGENT_LEVEL_LABELS } from "./ui-labels";
+import { UiIcon, workflowIcon, type UiIconName } from "./ui-icon";
+import { DialogClose, ModalBackdrop, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
+
+function CoThreadLogo({
+  className,
+  title,
+}: {
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <svg className={className} viewBox="0 0 64 64" fill="none" aria-hidden={title ? undefined : true} role={title ? "img" : "presentation"}>
+      {title ? <title>{title}</title> : null}
+      <rect width="64" height="64" rx="13" fill="currentColor" />
+      <path d="M44 19H29C20.7 19 14 25.7 14 34s6.7 15 15 15h15" stroke="var(--logo-ink, #F3F6EC)" strokeWidth="6" strokeLinecap="round" />
+      <path d="M22 15v17c0 7.2 5.8 13 13 13s13-5.8 13-13V22" stroke="var(--logo-accent, #B7D295)" strokeWidth="6" strokeLinecap="round" />
+      <path d="M18.5 23.3A15 15 0 0 1 29 19h8" stroke="var(--logo-ink, #F3F6EC)" strokeWidth="6" strokeLinecap="round" />
+      <circle cx="48" cy="16" r="3" fill="var(--logo-accent, #B7D295)" />
+    </svg>
+  );
+}
 
 function PanelIcon({ side }: { side: "left" | "right" }) {
   return (
@@ -75,16 +100,13 @@ function SidebarIcon({ kind }: { kind: "plus" | "monitor" | "project" }) {
       aria-hidden="true"
     >
       {kind === "monitor" ? (
-        <>
-          <path d="M4 19V9M10 19V5M16 19v-7M22 19H2" />
-          <circle cx="4" cy="7" r="1" />
-          <circle cx="10" cy="3" r="1" />
-          <circle cx="16" cy="10" r="1" />
-        </>
+        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
       ) : kind === "project" ? (
         <>
-          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
-          <path d="M3 11h18" />
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
         </>
       ) : (
         <path d="M12 5v14M5 12h14" />
@@ -191,16 +213,12 @@ function ProjectPicker({
       ref={dialog}
       className="project-picker"
       aria-labelledby="project-picker-title"
-      onCancel={onClose}
-      onClick={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose();
-      }}
+      onCancel={onDialogCancel(onClose)}
+      onClick={onDialogBackdropClick(onClose, () => !busy)}
     >
       <div className="modal-header">
         <h2 id="project-picker-title">添加项目</h2>
-        <button disabled={busy} onClick={onClose} aria-label="关闭项目列表">
-          ×
-        </button>
+        <DialogClose disabled={busy} onClick={() => animateDialogClose(dialog.current, onClose)} label="关闭项目列表" />
       </div>
       <input
         ref={searchInput}
@@ -305,6 +323,7 @@ type AvailableConnector = {
   projectId: string;
   id: string;
   name: string;
+  platform?: string;
   ownerId: string;
   ownerName: string;
   policy: "unrestricted" | "style_only" | "layout_style";
@@ -545,7 +564,6 @@ function App() {
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [projectManagementOpen, setProjectManagementOpen] = useState(false);
   const [agentLogScope, setAgentLogScope] = useState<AgentLogScope | null>(null);
-  const [connectorOpen, setConnectorOpen] = useState(false);
   const connectorAuthorizationParams = new URLSearchParams(location.search);
   const connectorAuthorizationId = connectorAuthorizationParams.get("connectorAuthorization") || "";
   const requestedConnectorConversation = connectorAuthorizationParams.get("connectorConversation") || "";
@@ -610,11 +628,28 @@ function App() {
   const [taskCreateConstraints, setTaskCreateConstraints] = useState("");
   const [taskCreateTarget, setTaskCreateTarget] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const threadViewportRef = useRef<HTMLDivElement>(null);
+  const archiveToggleRef = useRef<HTMLButtonElement>(null);
+  const [threadPaneHeight, setThreadPaneHeight] = useState(0);
   const [copiedThreadId, setCopiedThreadId] = useState("");
   const conversationCopyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => {
     clearTimeout(conversationCopyTimer.current);
   }, []);
+  useLayoutEffect(() => {
+    const viewport = threadViewportRef.current;
+    if (!viewport) return;
+    const update = () => {
+      const toggle = archiveToggleRef.current;
+      if (!toggle) return;
+      setThreadPaneHeight(Math.max(0, viewport.clientHeight - toggle.offsetHeight));
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(viewport);
+    observer.observe(archiveToggleRef.current || viewport);
+    return () => observer.disconnect();
+  }, [user?.id, leftOpen, loading, showArchived]);
   const [health, setHealth] = useState<{
     dshEnabled: boolean;
     agentEndpoint?: string;
@@ -627,11 +662,13 @@ function App() {
   const projectMember = projects.some((p) => p.id === projectId);
   const active = thread?.status === "active" && writable;
   const localAvailable = connectorAvailability.some((item) => item.projectId === projectId);
+  const projectConnectorBound = connectors.some((device) => device.projects?.some((item) => item.projectId === projectId));
+  const endedTask = (status: string) => ["completed", "failed", "cancelled", "rejected", "abandoned", "superseded"].includes(status);
   const isMyTask = (task: AgentTask) => task.source_user_id === user?.id || task.created_by_id === user?.id ||
     task.target_id === user?.id || task.claimed_by_id === user?.id || task.execution_agent_id === user?.id;
   const isTrackedTask = (task: AgentTask) => task.task_type !== "assist_l2"
     || !!task.execution_agent_id
-    || !["completed", "failed", "cancelled", "superseded"].includes(task.status);
+    || !endedTask(task.status);
   const myTasks = taskPool.filter((task) => isMyTask(task) && isTrackedTask(task));
   const currentMyTasks = myTasks.filter((task) => task.origin_thread_id === threadId);
   const latestMyTask = [...currentMyTasks].sort((left, right) =>
@@ -644,21 +681,21 @@ function App() {
     || (task.source_type === "l2_session" ? "小祥" : labelExecutorType(task.source_type));
   const taskExecutorLabel = (task: AgentTask) => {
     if (task.execution_agent_id && (!task.execution_agent_type || task.execution_agent_type === "dsh_l3")) {
-      return l3ExecutorName(task.execution_agent_id, threadExecutorIds) || "任务级 Agent";
+      return l3ExecutorName(task.execution_agent_id, threadExecutorIds) || AGENT_LEVEL_LABELS.l3;
     }
     if (task.execution_agent_type === "human_self") return memberName(task.claimed_by_id || task.target_id) || "成员本人";
     if (task.execution_agent_type === "human_connector") return "本地连接器";
     if (task.created_by_type === "l2_session" || task.target_type === "l2_session") {
-      return ["completed", "failed", "cancelled", "superseded"].includes(task.status)
-        ? "小祥（未交给任务级 Agent）"
-        : "待任务级 Agent 接单";
+      return endedTask(task.status)
+        ? "小祥（未交给任务级Agent（L3））"
+        : "待任务级Agent（L3）接单";
     }
     return "待选择";
   };
   const statusActorLabel = (event: { actor_type: string; actor_id: string | null }) => {
     if (event.actor_type === "human_member") return memberName(event.actor_id) || "成员";
     if (event.actor_type === "l2_session") return "小祥";
-    if (event.actor_type === "dsh_l3") return l3ExecutorName(event.actor_id, threadExecutorIds) || "任务级 Agent";
+    if (event.actor_type === "dsh_l3") return l3ExecutorName(event.actor_id, threadExecutorIds) || AGENT_LEVEL_LABELS.l3;
     if (event.actor_type === "connector") return "本机连接器";
     return "系统";
   };
@@ -757,6 +794,10 @@ function App() {
       setThread(null);
     }
   }, [user?.id]);
+  useEffect(() => {
+    if (loading) return;
+    applyUiTheme(user?.ui_theme || DEFAULT_UI_THEME);
+  }, [loading, user?.id, user?.ui_theme]);
   useEffect(() => {
     if (!user) { setConnectors([]); setConnectorAvailability([]); return; }
     let alive = true;
@@ -1114,7 +1155,7 @@ function App() {
         await refresh();
         if (result.status !== "succeeded") throw new Error(result.output);
       }
-      setModal(null);
+      if (modal !== "profile" && modal !== "password") setModal(null);
     });
   };
   const time = (text: string) => {
@@ -1253,11 +1294,11 @@ function App() {
     return (
       <div className="login">
         <div className="brand">
-          <img className="brand-logo" src="/cothread-logo.svg" alt="" />
+          <CoThreadLogo className="brand-logo" />
           <span>共序 <small>CoThread</small></span>
         </div>
         <p role="status">{startupError || "正在加载工作空间…"}</p>
-        {startupError && <button onClick={() => void loadWorkspace()}>重新加载</button>}
+        {startupError && <button onClick={() => void loadWorkspace()}><UiIcon name="refresh" size={13} />重新加载</button>}
       </div>
     );
   if (!user)
@@ -1270,10 +1311,9 @@ function App() {
           event.currentTarget.style.setProperty("--spot-y", `${event.clientY - bounds.top}px`);
         }}>
           <div className="brand">
-            <img className="brand-logo" src="/cothread-logo.svg" alt="" />
+            <CoThreadLogo className="brand-logo" />
             <span>共序 <small>CoThread</small></span>
           </div>
-          <span className="eyebrow">共同的工作脉络</span>
           <h1>
             讨论有承接。
             <br />
@@ -1285,12 +1325,13 @@ function App() {
             从一条消息，到一个被确认的版本。
           </p>
           <div className="story-tags">
-            <span>团队讨论</span>
-            <span>版本沉淀</span>
-            <span>协作交付</span>
+            <span><UiIcon name="chat" size={13} />团队讨论</span>
+            <span><UiIcon name="layers" size={13} />版本沉淀</span>
+            <span><UiIcon name="checkCircle" size={13} />协作交付</span>
           </div>
         </div>
         <EmailAuth api={api} onLogin={setUser} />
+        <a className="login-about" href="/about_us.html" target="_blank" rel="noopener noreferrer">关于我们</a>
       </div>
     );
   const versions =
@@ -1300,8 +1341,31 @@ function App() {
         (history ||
           all.findIndex((x) => x.artifact_id === v.artifact_id) === i),
     ) || [];
-  const visibleThreads =
-    detail?.threads.filter((t) => showArchived || t.status === "active") || [];
+  const threads = detail?.threads || [];
+  const activeThreads = threads.filter((t) => t.status === "active");
+  const archivedThreads = threads.filter((t) => t.status === "archived");
+  const renderThreadLink = (t: (typeof threads)[number]) => (
+    <button
+      key={t.id}
+      className={`thread-link ${threadId === t.id ? "selected" : ""}`}
+      onClick={() => setThreadId(t.id)}
+    >
+      <span>{t.status === "archived" ? <UiIcon name="archive" size={14} /> : <UiIcon name="chat" size={14} />}</span>
+      <span className="thread-card-body">
+        <strong>{t.title}</strong>
+        <span className="thread-card-meta">
+          <span>{t.creator}</span>
+          <time
+            dateTime={t.last_active_at?.replace(" ", "T") + "Z"}
+            title={localDate(t.last_active_at)}
+          >
+            活跃于 {relativeActivity(t.last_active_at, clock)}
+          </time>
+        </span>
+      </span>
+      {t.status === "archived" && <small className="ui-icon-text"><UiIcon name="archive" size={10} />归档</small>}
+    </button>
+  );
   const startPanelDrag = (event: React.PointerEvent) => {
     event.preventDefault();
     const startX = event.clientX;
@@ -1327,7 +1391,7 @@ function App() {
     <div
       className={`app-shell ${leftOpen ? "" : "left-closed"} ${contextOpen ? "" : "right-closed"}`}
       style={
-        contextOpen && rightPanelWidth
+        rightPanelWidth
           ? ({ "--right-panel": `${rightPanelWidth}px` } as React.CSSProperties)
           : undefined
       }
@@ -1486,6 +1550,7 @@ function App() {
             ＋
           </button>
         </nav>
+        <ThemePicker theme={user.ui_theme || DEFAULT_UI_THEME} api={api} onChange={setUser} />
         <Notifications key={user.id} api={api} onOpen={(target) => {
           setProjects(target.projects);
           setProjectPickerOpen(false);
@@ -1508,18 +1573,10 @@ function App() {
       </header>
       <aside className="sidebar">
         <div className="sidebar-brand">
-          {leftOpen ? (
-            <>
-              <img
-                className="sidebar-logo"
-                src="/cothread-logo.svg"
-                alt="共序 LOGO"
-              />
-              <span className="sidebar-brand-name">
-                共序 <small>CoThread</small>
-              </span>
-            </>
-          ) : null}
+          <CoThreadLogo className="sidebar-logo sidebar-brand-mark" title="共序 LOGO" />
+          <span className="sidebar-brand-name">
+            共序 <small>CoThread</small>
+          </span>
           <button
             className={`sidebar-toggle ${leftOpen ? "sidebar-collapse-toggle" : "sidebar-brand-toggle"}`}
             aria-label={leftOpen ? "收起左侧栏" : "展开左侧栏"}
@@ -1527,9 +1584,7 @@ function App() {
             aria-expanded={leftOpen}
             onClick={() => setLeftOpen(!leftOpen)}
           >
-            {!leftOpen && (
-              <img className="sidebar-logo" src="/cothread-logo.svg" alt="" />
-            )}
+            <CoThreadLogo className="sidebar-logo sidebar-rail-logo" aria-hidden="true" />
             <span
               className={
                 leftOpen ? "sidebar-collapse-control" : "sidebar-brand-control"
@@ -1544,72 +1599,94 @@ function App() {
           <span className="sidebar-label">迭代讨论</span>
           <button
             className="sidebar-create"
-            title="创建迭代"
-            aria-label="创建迭代"
+            title="新迭代"
+            aria-label="新迭代"
             disabled={!projectId || !writable}
             onClick={() => open("thread")}
           >
-            <SidebarIcon kind="plus" />
+            <UiIcon name="send" size={18} />
+            <span className="sidebar-create-label">新迭代</span>
           </button>
         </div>
-        <nav>
-          {visibleThreads.map((t) => (
-            <button
-              key={t.id}
-              className={`thread-link ${threadId === t.id ? "selected" : ""}`}
-              onClick={() => setThreadId(t.id)}
-            >
-              <span>{t.status === "archived" ? "▤" : "◌"}</span>
-              <span className="thread-card-body">
-                <strong>{t.title}</strong>
-                <span className="thread-card-meta">
-                  <span>{t.creator}</span>
-                  <time
-                    dateTime={t.last_active_at?.replace(" ", "T") + "Z"}
-                    title={localDate(t.last_active_at)}
-                  >
-                    活跃于 {relativeActivity(t.last_active_at, clock)}
-                  </time>
-                </span>
-              </span>
-              {t.status === "archived" && <small>归档</small>}
-            </button>
-          ))}
-          {!visibleThreads.length && (
-            <p className="muted side-empty">
-              还没有迭代讨论
-              <br />
-              从一次新的需求开始。
-            </p>
-          )}
-        </nav>
-        <button
-          className="archive-toggle"
-          onClick={() => setShowArchived(!showArchived)}
+        <div
+          ref={threadViewportRef}
+          className={`thread-viewport${showArchived ? " is-archived-open" : ""}`}
         >
-          ▤ {showArchived ? "隐藏已归档" : "查看已归档"}
-        </button>
+          <div
+            className="thread-track"
+            style={{
+              transform:
+                showArchived && threadPaneHeight
+                  ? `translateY(-${threadPaneHeight}px)`
+                  : "translateY(0)",
+            }}
+          >
+            <div
+              className="thread-pane thread-pane-active"
+              style={threadPaneHeight ? { height: threadPaneHeight } : undefined}
+              aria-hidden={showArchived}
+              inert={showArchived ? true : undefined}
+            >
+              <nav aria-label="活跃迭代">
+                {activeThreads.map(renderThreadLink)}
+                {!activeThreads.length && (
+                  <p className="muted side-empty">
+                    还没有迭代讨论
+                    <br />
+                    从一次新的需求开始。
+                  </p>
+                )}
+              </nav>
+            </div>
+            <button
+              ref={archiveToggleRef}
+              className="archive-toggle"
+              type="button"
+              aria-expanded={showArchived}
+              aria-controls="archived-thread-list"
+              onClick={() => setShowArchived(!showArchived)}
+            >
+              <UiIcon name="archive" size={13} /> {showArchived ? "隐藏已归档" : "查看已归档"}
+            </button>
+            <div
+              className="thread-pane thread-pane-archived"
+              id="archived-thread-list"
+              style={threadPaneHeight ? { height: threadPaneHeight } : undefined}
+              aria-hidden={!showArchived}
+              inert={showArchived ? undefined : true}
+            >
+              <nav aria-label="已归档迭代">
+                {archivedThreads.map(renderThreadLink)}
+                {!archivedThreads.length && (
+                  <p className="muted side-empty">
+                    还没有已归档的迭代
+                  </p>
+                )}
+              </nav>
+            </div>
+          </div>
+        </div>
         <div className="sidebar-bottom">
           <button
             className="sidebar-card sidebar-project-management"
-            title="项目基础信息与成员管理"
+            title={`项目基础信息、人类成员、连接器与${AGENT_LEVEL_LABELS.l1}`}
             aria-label="项目管理"
             disabled={!projectId}
             onClick={() => setProjectManagementOpen(true)}
           >
             <span className="sidebar-card-icon"><SidebarIcon kind="project" /></span>
-            <span className="sidebar-card-copy">项目管理<small>基础信息与成员管理</small></span>
+            <span className="sidebar-card-copy">项目管理<small>人类成员、连接器与{AGENT_LEVEL_LABELS.l1}</small></span>
             <span className="sidebar-card-action" aria-hidden="true">›</span>
           </button>
           <button
             className="sidebar-card sidebar-monitor"
             title="查看所有小祥的运行状态"
-            aria-label="小祥Agent监控"
+            aria-label="小祥监控"
             disabled={!projectId}
             onClick={() => setMonitorOpen(true)}
           >
             <span className="sidebar-card-icon"><SidebarIcon kind="monitor" /></span>
-            <span className="sidebar-card-copy">小祥Agent监控<small>调度、执行与知识整理</small></span>
+            <span className="sidebar-card-copy">小祥监控<small>调度、执行与知识整理</small></span>
             <span className="sidebar-card-action" aria-hidden="true">›</span>
           </button>
           <button
@@ -1626,7 +1703,7 @@ function App() {
               <small>{user.motto || user.username}</small>
             </span>
             <span className="sidebar-card-action" aria-hidden="true">
-              ⚙
+              <UiIcon name="settings" size={14} />
             </span>
           </button>
         </div>
@@ -1672,7 +1749,7 @@ function App() {
                   className="conversation-view"
                   aria-selected={threadView === "chat"}
                   onClick={() => setThreadView("chat")}
-                >对话</button>
+                ><UiIcon name="chat" size={13} />对话</button>
                 <button
                   type="button"
                   role="tab"
@@ -1683,6 +1760,7 @@ function App() {
                   onClick={() => setThreadView("trajectory")}
                 >
                   {coordinatorLogLabel !== COORDINATOR_LOG_IDLE_LABEL && <span className="conversation-log-pulse" aria-hidden="true" />}
+                  <UiIcon name="trajectory" size={13} />
                   轨迹
                 </button>
               </div>
@@ -1695,7 +1773,7 @@ function App() {
                   await api(`/threads/${threadId}/replies/${liveCoordinator.message_id}/stop`, {});
                   await refresh();
                 })}
-              >停止</button>}
+              ><UiIcon name="stop" size={12} />停止</button>}
             </span>}
           </div>
           {thread?.contextUsage && <div className="conversation-header-actions" role="group" aria-label="会话信息">
@@ -1725,7 +1803,7 @@ function App() {
           </div>
         ) : !thread ? (
           <div className="welcome">
-            <img className="welcome-logo" src="/cothread-logo.svg" alt="共序" />
+            <CoThreadLogo className="welcome-logo" title="共序" />
             <span className="eyebrow">一起构建上下文</span>
             <h1>把工作，接在同一条线上。</h1>
             <p>
@@ -1739,7 +1817,8 @@ function App() {
               className="primary"
               onClick={() => (projectId ? open("thread") : showProjectPicker())}
             >
-              {projectId ? "发起第一次迭代" : "添加项目"} ＋
+              <UiIcon name="plus" size={14} />
+              {projectId ? "发起第一次迭代" : "添加项目"}
             </button>
             <div className="welcome-steps">
               <div>
@@ -1782,7 +1861,7 @@ function App() {
                   <small>讨论、审核与引用的历史版本已固定保存。</small>
                 </div>
               )}
-              {thread.page?.hasMore && <button type="button" disabled={historyLoading} onClick={() => void loadHistory()}>{historyLoading ? "正在加载历史消息…" : "加载更早的消息"}</button>}
+              {thread.page?.hasMore && <button type="button" disabled={historyLoading} onClick={() => void loadHistory()}><UiIcon name="history" size={13} />{historyLoading ? "正在加载历史消息…" : "加载更早的消息"}</button>}
               <div className="timeline-start">
                 <span>一次迭代，一段共同的上下文</span>
               </div>
@@ -1837,10 +1916,10 @@ function App() {
                             : Array.from(messageMotto(m)).slice(0, 15).join("")}</small>}
                         </span>
                         {m.source === "local_ai" && (
-                          <span className="source-label">通过本地 AI 提交</span>
+                          <span className="source-label"><UiIcon name="connector" size={11} />通过本地 AI 提交</span>
                         )}
                         {m.source === "system" && (
-                          <span className="source-label">协作记录</span>
+                          <span className="source-label"><UiIcon name="list" size={11} />协作记录</span>
                         )}
                       </div>}
                       {m.source === "assistant" &&
@@ -1975,7 +2054,7 @@ function App() {
                 <div className="conversation-task-pool" role="group" aria-label="本迭代与我有关的任务" onClick={() => {
                   setTaskMine(true); setSelectedTaskId(""); setTaskDetail(null); openTaskDialog();
                 }}>
-                  <button type="button" className="conversation-task-pool-label">本迭代任务</button>
+                  <button type="button" className="conversation-task-pool-label"><UiIcon name="task" size={13} />任务</button>
                   {latestMyTask ? <button type="button" className="conversation-task-item" data-status={latestMyTask.status}
                     title={latestMyTask.title} onClick={(event) => { event.stopPropagation(); setTaskMine(true); openTask(latestMyTask.id); }}>
                     <i aria-hidden="true" /><strong>{latestMyTask.title}</strong>
@@ -1988,11 +2067,11 @@ function App() {
                       title="基于助手已有上下文梳理讨论"
                       onClick={() => { setMessage(SUMMARY_REQUEST); requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus()); }}
                     >
-                      ✧ 梳理讨论
+                      <UiIcon name="sparkle" size={13} /> 梳理讨论
                     </button>
                   )}
                   {active && (
-                    <button onClick={() => open("archive")}>归档迭代 ↗</button>
+                    <button onClick={() => open("archive")}><UiIcon name="archive" size={13} />归档迭代</button>
                   )}
                 </div>
               </div>
@@ -2014,9 +2093,16 @@ function App() {
                   members={detail?.members || []}
                   busy={busy}
                   uploadTarget={uploadTarget}
-                  connectorAvailable={localAvailable}
                   copyLabel={copiedThreadId === threadId ? "已复制" : "复制会话"}
-                  onOpenConnector={() => { setConnectorOpen(true); void refreshConnectors(); }}
+                  connectorControl={<ConnectorPanel
+                    devices={connectors}
+                    availability={connectorAvailability}
+                    projectId={projectId}
+                    currentUserId={user.id}
+                    available={localAvailable}
+                    api={api}
+                    onRefresh={refreshConnectors}
+                  />}
                   onCopyConversation={() => void copyConversationInfo()}
                   onRefresh={refresh}
                   onSend={async () => {
@@ -2062,33 +2148,32 @@ function App() {
                     ? "此迭代已归档。历史讨论与文档可以继续查阅，也可以引用到新的迭代。"
                     : "你正在以只读成员身份查看此迭代。"}
                   <div className="composer-tools">
-                    <button
-                      type="button"
-                      className="composer-connector"
-                      title={localAvailable ? "项目有成员在线" : "运行连接器后在此授权"}
-                      onClick={() => { setConnectorOpen(true); void refreshConnectors(); }}
-                    >
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M8 12h8M9 8V5m6 3V5M7 8h10v5a5 5 0 0 1-10 0V8Z" />
-                        <path d="M12 18v3" />
-                      </svg>
-                      本地连接器
-                    </button>
+                    <ConnectorPanel
+                      devices={connectors}
+                      availability={connectorAvailability}
+                      projectId={projectId}
+                      currentUserId={user.id}
+                      available={localAvailable}
+                      api={api}
+                      onRefresh={refreshConnectors}
+                    />
                     <span className="composer-tools-split" aria-hidden="true" />
                     <button type="button" className="composer-connector" onClick={() => void copyConversationInfo()}>
+                      <UiIcon name="copy" size={15} />
                       {copiedThreadId === threadId ? "已复制" : "复制会话"}
                     </button>
                   </div>
                 </div>
               )}
-              <small className="composer-note">
-                共同事实由团队确认 · AI 提交有身份，文档修改留版本 · <a href="/about_us.html" target="_blank" rel="noopener noreferrer">关于我们</a>
-              </small>
             </div>
           </>
         )}
       </main>
-      <aside className={`context-panel context-doc-browser ${contextOpen ? "context-open" : ""}`}>
+      <aside
+        className={`context-panel context-doc-browser ${contextOpen ? "context-open" : ""}`}
+        aria-hidden={!contextOpen}
+        inert={!contextOpen}
+      >
         <div
           className="panel-resize-handle"
           role="separator"
@@ -2102,7 +2187,7 @@ function App() {
           aria-label="关闭项目侧栏"
           onClick={() => setContextOpen(false)}
         >
-          ×
+          <UiIcon name="close" size={12} />
         </button>
         {projectId && (
           <Suspense fallback={<p className="muted">正在加载文件树…</p>}>
@@ -2127,8 +2212,8 @@ function App() {
               }
               onReview={
                 active
-                  ? async (id, decision) => {
-                      await api(`/versions/${id}/reviews`, { decision });
+                  ? async (id, decision, comment) => {
+                      await api(`/versions/${id}/reviews`, { decision, comment, threadId }, "POST");
                       await refresh();
                     }
                   : undefined
@@ -2137,34 +2222,34 @@ function App() {
           </Suspense>
         )}
       </aside>
-      {taskDialogOpen && <div className="modal-backdrop" onClick={() => setTaskDialogOpen(false)}>
-        <section className="task-pool-dialog" role="dialog" aria-modal="true" aria-labelledby="task-pool-dialog-title" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") setTaskDialogOpen(false); }}>
+      {taskDialogOpen && <ModalBackdrop onClose={() => setTaskDialogOpen(false)}>
+        {(close) => <section className="task-pool-dialog" role="dialog" aria-modal="true" aria-labelledby="task-pool-dialog-title" onClick={(event) => event.stopPropagation()}>
           <header className="task-pool-dialog-header">
             <div>
               <span>当前迭代</span>
               <h2 id="task-pool-dialog-title">本迭代任务</h2>
               <p>{detail?.threads.find((item) => item.id === threadId)?.title || "未选择迭代"}</p>
             </div>
-            <button type="button" autoFocus onClick={() => setTaskDialogOpen(false)} aria-label="关闭本迭代任务" title="关闭">×</button>
+            <DialogClose autoFocus onClick={close} label="关闭本迭代任务" />
           </header>
           <div className="task-pool-dialog-body">
             <aside className="task-pool-dialog-list">
               <div className="task-pool-heading">
                 <label className="task-mine-filter"><input type="checkbox" checked={taskMine} onChange={(event) => setTaskMine(event.target.checked)} />只看我的任务</label>
-                {writable && <button type="button" className="task-create-toggle" onClick={() => setTaskCreateOpen((open) => !open)}>{taskCreateOpen ? "取消" : "＋ 新建任务"}</button>}
+                {writable && <button type="button" className="task-create-toggle" onClick={() => setTaskCreateOpen((open) => !open)}>{taskCreateOpen ? <><UiIcon name="close" size={12} />取消</> : <><UiIcon name="plus" size={12} />新建任务</>}</button>}
               </div>
               {taskCreateOpen && <form className="task-create-form" onSubmit={(event) => {
                 event.preventDefault();
-                if (!taskCreateTitle.trim() || !taskCreateGoal.trim()) return;
+                if (!taskCreateTitle.trim() || !taskCreateGoal.trim() || !taskCreateTarget) return;
                 void performTaskAction(async () => {
                   const created = await api(`/projects/${projectId}/tasks`, {
                     title: taskCreateTitle.trim(), goal: taskCreateGoal.trim(),
                     constraints: taskCreateConstraints.trim() || undefined,
-                    targetType: taskCreateTarget === "l2_session" ? "l2_session" : taskCreateTarget ? "human_member" : undefined,
-                    targetUserId: taskCreateTarget && taskCreateTarget !== "l2_session" ? taskCreateTarget : undefined,
+                    targetType: "human_member",
+                    targetUserId: taskCreateTarget,
                     threadId,
                   });
-                  setTaskCreateTitle(""); setTaskCreateGoal(""); setTaskCreateConstraints(""); setTaskCreateTarget(""); setTaskCreateOpen(false);
+                  setTaskCreateTitle(""); setTaskCreateGoal(""); setTaskCreateConstraints(""); setTaskCreateTarget(user?.id || ""); setTaskCreateOpen(false);
                   setSelectedTaskId(created.id);
                 });
               }}>
@@ -2172,16 +2257,15 @@ function App() {
                 <textarea value={taskCreateGoal} onChange={(event) => setTaskCreateGoal(event.target.value)} placeholder="任务目标与验收标准" maxLength={20000} />
                 <textarea value={taskCreateConstraints} onChange={(event) => setTaskCreateConstraints(event.target.value)} placeholder="约束（可选）" maxLength={20000} />
                 <select value={taskCreateTarget} onChange={(event) => setTaskCreateTarget(event.target.value)}>
-                  <option value="">暂不指派</option>
-                  {threadId && <option value="l2_session">当前迭代小祥</option>}
-                  {detail?.members.filter((member) => member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                  <option value="">选择指派成员</option>
+                  {detail?.members.filter((member) => member.kind !== "l1" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}{member.id === user?.id ? "（我）" : ""}</option>)}
                 </select>
-                <button type="submit" className="primary" disabled={taskActionBusy || !taskCreateTitle.trim() || !taskCreateGoal.trim()}>创建正式任务</button>
+                <button type="submit" className="primary" disabled={taskActionBusy || !taskCreateTitle.trim() || !taskCreateGoal.trim() || !taskCreateTarget}><UiIcon name="plus" size={13} />创建正式任务</button>
               </form>}
               <div className="task-pool-list">
                 {visibleTasks.map((task) => {
                   return <button type="button" className="task-pool-item" aria-current={selectedTaskId === task.id ? "true" : undefined} key={task.id} onClick={() => openTask(task.id)}>
-                    <span className="task-pool-item-heading"><span><strong>{task.title}</strong><small>来源 {taskSourceLabel(task)} · 执行 {taskExecutorLabel(task)}</small></span><i data-status={task.status}>{labelWorkflowStatus(task.status)}</i></span>
+                    <span className="task-pool-item-heading"><span><strong>{task.title}</strong><small>来源 {taskSourceLabel(task)} · 执行 {taskExecutorLabel(task)}</small></span><i data-status={task.status}><UiIcon name={workflowIcon(task.status)} size={10} />{labelWorkflowStatus(task.status)}</i></span>
                   </button>;
                 })}
                 {!visibleTasks.length && <p className="panel-empty">{taskMine ? "暂无与我有关的任务。" : "当前迭代暂无任务。"}</p>}
@@ -2191,22 +2275,27 @@ function App() {
               {selectedTaskId ? (() => {
                 const task = taskDetail;
                 const isTarget = task?.target_type === "human_member" && task.target_id === user.id;
-                const canTransfer = !!task && isTarget && ["awaiting_acceptance", "assigned", "queued", "waiting", "blocked"].includes(task.status);
+                const isSource = !!task && ((task.source_user_id === user.id) || (task.created_by_type === "human_member" && task.created_by_id === user.id));
+                const canTransfer = !!task && isTarget && ["awaiting_acceptance", "assigned", "pending_assignment", "pending_start", "queued", "waiting", "blocked"].includes(task.status);
                 const openQuestion = task?.questions.find((question) => question.status === "open" && question.source_user_id === user.id);
-                const canReviewRejection = !!task && task.status === "cancelled" && task.rejectionReview.rejected && !task.rejectionReview.resolved &&
+                const canReviewRejection = !!task && task.status === "rejected" && task.rejectionReview.rejected && !task.rejectionReview.resolved &&
                   task.rejectionReview.reviewer_type === "human_member" && task.rejectionReview.reviewer_id === user.id;
                 const targetName = detail?.members.find((member) => member.id === task?.target_id)?.name || (task?.target_type === "l2_session" ? "小祥" : "未指派");
                 return <div className="task-detail">
                   {!task || task.id !== selectedTaskId ? <p className="muted">正在读取任务详情…</p> : <>
-                    <header><div><small>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small><h3>{task.title}</h3></div><div className="task-detail-header-actions"><button type="button" onClick={() => setAgentLogScope({ type: "task", id: task.id })}>轨迹</button><span data-status={task.status}>{labelWorkflowStatus(task.status)}</span></div></header>
+                    <header><div><small>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small><h3>{task.title}</h3></div><div className="task-detail-header-actions"><button type="button" onClick={() => setAgentLogScope({ type: "task", id: task.id })}><UiIcon name="trajectory" size={11} />轨迹</button><span data-status={task.status}><UiIcon name={workflowIcon(task.status)} size={10} />{labelWorkflowStatus(task.status)}</span></div></header>
                     <dl className="task-detail-meta"><div><dt>任务来源</dt><dd>{taskSourceLabel(task)}</dd></div><div><dt>任务执行</dt><dd>{taskExecutorLabel(task)}</dd></div><div><dt>责任主体</dt><dd>{targetName}</dd></div><div><dt>任务类型</dt><dd>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</dd></div></dl>
                     <section><h4>任务目标</h4><p>{task.goal}</p>{task.constraints && <><h4>约束</h4><p>{task.constraints}</p></>}</section>
                     {openQuestion && <section className="task-question"><h4>需要你回答</h4><p>{openQuestion.question}</p><textarea value={taskAnswer} onChange={(event) => setTaskAnswer(event.target.value)} placeholder="输入回答" /><button type="button" className="primary" disabled={taskActionBusy || !taskAnswer.trim()} onClick={() => void performTaskAction(async () => { await api(`/task-questions/${openQuestion.id}/answer`, { answer: taskAnswer }); setTaskAnswer(""); })}>提交回答</button></section>}
-                    {isTarget && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>确认任务</h4><select value={taskExecutionMode} onChange={(event) => setTaskExecutionMode(event.target.value as typeof taskExecutionMode)}><option value="auto">自动选择执行方式</option><option value="human_direct">由我直接完成</option><option value="member_connector">交给本机 Agent</option></select><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reject`, {}, "POST"))}>拒绝</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/accept`, { mode: taskExecutionMode }, "POST"))}>接受任务</button></div></section>}
+                    {isTarget && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>确认任务</h4>{projectConnectorBound
+                      ? <select value={taskExecutionMode === "auto" ? "member_connector" : taskExecutionMode} onChange={(event) => setTaskExecutionMode(event.target.value as typeof taskExecutionMode)}><option value="member_connector">下发连接器</option><option value="human_direct">由本人执行</option></select>
+                      : <p className="muted">当前账号未连接本项目连接器，确认后由本人执行。</p>}
+                    <div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reject`, {}, "POST"))}><UiIcon name="reject" size={13} />拒绝</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/accept`, { mode: projectConnectorBound ? (taskExecutionMode === "human_direct" ? "human_direct" : "member_connector") : "human_direct" }, "POST"))}><UiIcon name="check" size={13} />确认</button></div></section>}
+                    {isSource && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>来源操作</h4><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/cancel`, {}, "POST"))}><UiIcon name="close" size={13} />取消</button></section>}
                     {canReviewRejection && <section className="task-actions-section task-rejection-review"><h4>任务已被拒绝</h4><p>{[...task.assignmentHistory].reverse().find((event) => event.event_type === "rejected")?.reason || "目标成员拒绝了这个任务。"}</p><textarea value={taskReopenGoal} onChange={(event) => setTaskReopenGoal(event.target.value)} placeholder="修改任务目标与验收标准" /><textarea value={taskReopenConstraints} onChange={(event) => setTaskReopenConstraints(event.target.value)} placeholder="修改约束（可选）" /><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"))}>知道了</button><button type="button" className="primary" disabled={taskActionBusy || !taskReopenGoal.trim()} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reopen`, { goal: taskReopenGoal.trim(), constraints: taskReopenConstraints }, "POST"))}>修改后重新发起</button></div></section>}
-                    {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}>确认转交</button></section>}
-                    {isTarget && task.status !== "awaiting_acceptance" && !["completed", "failed", "cancelled", "superseded"].includes(task.status) && <section className="task-actions-section"><h4>进度与结果</h4><input value={taskProgress} onChange={(event) => setTaskProgress(event.target.value)} placeholder="当前进度" /><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要或阻塞原因" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "running", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>开始</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "waiting", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>等待</button><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "failed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>失败</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", progress: taskProgress, resultSummary: taskResult || undefined }, "PATCH"))}>完成</button></div></section>}
-                    {!!task.executionRuns.length && <section><h4>执行轮次</h4><div className="task-history">{task.executionRuns.map((run) => <div key={run.id}><strong>{run.executor_type === "dsh_l3" ? (l3ExecutorName(run.executor_id, threadExecutorIds) || (run.executor_id ? "任务级 Agent" : "任务级 Agent（未绑定）")) : labelExecutorType(run.executor_type)}</strong><span>{labelWorkflowStatus(run.status)}</span><small>{run.progress || run.result_summary || run.error || time(run.created_at)}</small></div>)}</div></section>}
+                    {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.kind !== "l1" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}><UiIcon name="transfer" size={13} />确认转交</button></section>}
+                    {isTarget && task.execution_agent_type === "human_self" && !endedTask(task.status) && task.status !== "awaiting_acceptance" && <section className="task-actions-section"><h4>进度与结果</h4><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "abandoned", resultSummary: taskResult || "已放弃" }, "PATCH"))}><UiIcon name="abandon" size={13} />放弃</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", resultSummary: taskResult || "已完成" }, "PATCH"))}><UiIcon name="complete" size={13} />完成</button></div></section>}
+                    {!!task.executionRuns.length && <section><h4>执行轮次</h4><div className="task-history">{task.executionRuns.map((run) => <div key={run.id}><strong>{run.executor_type === "dsh_l3" ? (l3ExecutorName(run.executor_id, threadExecutorIds) || (run.executor_id ? AGENT_LEVEL_LABELS.l3 : `${AGENT_LEVEL_LABELS.l3}（未绑定）`)) : run.executor_type === "human_self" ? (memberName(run.executor_id) || "成员本人") : labelExecutorType(run.executor_type)}</strong><span>{labelWorkflowStatus(run.status)}</span><small>{run.progress || run.result_summary || run.error || time(run.created_at)}</small></div>)}</div></section>}
                     {(!!task.assignmentHistory.length || !!task.statusHistory?.length) && <section><h4>变更记录</h4><div className="task-history">{taskChangeLog(task).map((item) => <div key={item.key}><strong>{item.title}{item.transition && `（${item.transition}）`}</strong><span>{statusActorLabel({ actor_type: item.actorType, actor_id: item.actorId })} · {time(item.at)}</span>{item.reason && <small>{item.reason}</small>}</div>)}</div></section>}
                   </>}
                   {taskActionError && <p className="project-settings-error" role="alert">{taskActionError}</p>}
@@ -2214,16 +2303,16 @@ function App() {
               })() : <p className="panel-empty">选择左侧任务，查看详情和操作。</p>}
             </div>
           </div>
-        </section>
-      </div>}
-      {quotePreview && <div className="modal-backdrop" onClick={() => setQuotePreview(null)}>
-        <section className="quoted-message-dialog" role="dialog" aria-modal="true" aria-label="引用消息原文" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === "Escape") setQuotePreview(null); }}>
-          <button autoFocus type="button" onClick={() => setQuotePreview(null)}>关闭原文</button>
+        </section>}
+      </ModalBackdrop>}
+      {quotePreview && <ModalBackdrop onClose={() => setQuotePreview(null)}>
+        {(close) => <section className="quoted-message-dialog" role="dialog" aria-modal="true" aria-label="引用消息原文" onClick={e => e.stopPropagation()}>
+          <div className="quoted-message-dialog-header"><DialogClose autoFocus onClick={close} label="关闭原文" /></div>
           <strong>{quotePreview.source === "assistant" ? AGENT_MEMBER.name : quotePreview.author}</strong>
           <Markdown remarkPlugins={[remarkGfm]} components={{img: () => <span>（图片链接）</span>}}>{quotePreview.body}</Markdown>
           <div className="references">{quotePreview.refs.map(renderRef)}</div>
-        </section>
-      </div>}
+        </section>}
+      </ModalBackdrop>}
       {projectManagementOpen && projectId && (
         <ProjectManagement
           detail={detail?.id === projectId ? detail : null}
@@ -2234,8 +2323,16 @@ function App() {
           localDate={localDate}
           refresh={refresh}
           onProjectRenamed={(updated) => {
-            setProjects((rows) => rows.map((project) => project.id === updated.id ? { ...project, name: updated.name } : project));
-            setDetail((previous) => previous && previous.id === updated.id ? { ...previous, name: updated.name } : previous);
+            setProjects((rows) => rows.map((project) => project.id === updated.id ? {
+              ...project,
+              name: updated.name,
+              description: updated.description ?? project.description,
+            } : project));
+            setDetail((previous) => previous && previous.id === updated.id ? {
+              ...previous,
+              name: updated.name,
+              description: updated.description ?? previous.description,
+            } : previous);
           }}
           onClose={() => setProjectManagementOpen(false)}
         />
@@ -2249,11 +2346,6 @@ function App() {
         />
       )}
       {agentLogScope && <AgentLogDialog scope={agentLogScope} api={api} onClose={() => setAgentLogScope(null)} />}
-      {connectorOpen && <div className="modal-backdrop" onClick={() => setConnectorOpen(false)}>
-        <section className="connector-dialog" role="dialog" aria-modal="true" aria-label="本地连接器" onClick={(event) => event.stopPropagation()}>
-          <ConnectorPanel devices={connectors} api={api} onRefresh={refreshConnectors} onClose={() => setConnectorOpen(false)} />
-        </section>
-      </div>}
       {connectorAuthorizationId && <ConnectorAuthorization
         id={connectorAuthorizationId}
         callbackPort={connectorCallbackPort}
@@ -2275,8 +2367,8 @@ function App() {
         />
       )}
       {modal && (
-        <div className="modal-backdrop">
-          <section
+        <ModalBackdrop onClose={() => setModal(null)} enabled={!busy}>
+          {(close) => <section
             className={`modal ${["profile", "settings", "password", "email", "admin-projects", "admin-accounts", "admin-plugins"].includes(modal) ? "workspace-settings" : ""}`}
             role="dialog"
             aria-modal="true"
@@ -2300,13 +2392,7 @@ function App() {
                   }[modal]
                 }
               </h2>
-              <button
-                disabled={busy}
-                onClick={() => setModal(null)}
-                aria-label="关闭"
-              >
-                ×
-              </button>
+              <DialogClose disabled={busy} onClick={close} label="关闭" />
             </div>
             <div
               className={
@@ -2320,19 +2406,19 @@ function App() {
               ) && (
                 <nav className="settings-nav" aria-label="设置项目">
                   {user.is_super_admin && <div className="settings-mode" aria-label="设置模式">
-                    <button type="button" className={!modal.startsWith("admin-") ? "active" : ""} onClick={() => open("profile")}>个人设置</button>
-                    <button type="button" className={modal.startsWith("admin-") ? "active" : ""} onClick={() => open("admin-projects")}>系统管理</button>
+                    <button type="button" className={!modal.startsWith("admin-") ? "active" : ""} onClick={() => open("profile")}><UiIcon name="human" size={12} />个人设置</button>
+                    <button type="button" className={modal.startsWith("admin-") ? "active" : ""} onClick={() => open("admin-projects")}><UiIcon name="settings" size={12} />系统管理</button>
                   </div>}
                   {(modal.startsWith("admin-") ? [
-                      ["admin-projects", "项目管理"],
-                      ["admin-accounts", "账号管理"],
-                      ["admin-plugins", "插件管理"],
+                      ["admin-projects", "项目管理", "project"],
+                      ["admin-accounts", "成员管理", "members"],
+                      ["admin-plugins", "插件管理", "plugin"],
                     ] : [
-                      ["profile", "个人资料"],
-                      ["password", "修改密码"],
-                      ["email", "绑定邮箱"],
-                      ["settings", "退出登录"],
-                    ] as const).map(([value, label]) => (
+                      ["profile", "个人资料", "human"],
+                      ["password", "修改密码", "lock"],
+                      ["email", "绑定邮箱", "email"],
+                      ["settings", "退出登录", "logout"],
+                    ] as const).map(([value, label, icon]) => (
                     <button
                       key={value}
                       type="button"
@@ -2340,6 +2426,7 @@ function App() {
                       disabled={busy}
                       onClick={() => open(value as Modal)}
                     >
+                      <UiIcon name={icon as UiIconName} size={14} />
                       {label}
                     </button>
                   ))}
@@ -2412,7 +2499,7 @@ function App() {
                         })
                       }
                     >
-                      <span>↪</span>
+                      <span><UiIcon name="logout" size={14} /></span>
                       <span>退出登录</span>
                     </button>
                   </div>
@@ -2489,7 +2576,7 @@ function App() {
                     </p>
                   </>
                 )}
-                {modal === "email" && <EmailBinding email={user.email} api={api} onBound={(profile) => { setUser(profile); setModal(null); }} />}
+                {modal === "email" && <EmailBinding email={user.email} api={api} onBound={(profile) => { setUser(profile); }} />}
                 {modal === "run" && (
                   <>
                     <p>
@@ -2516,30 +2603,34 @@ function App() {
                     {error}
                   </div>
                 )}
+                {(modal === "profile" || modal === "password" || modal === "project" || modal === "thread" || modal === "archive" || modal === "run") && (
                 <div className="modal-footer">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setModal(null)}
-                  >
-                    关闭
-                  </button>
-                  {modal !== "settings" && modal !== "email" && !modal.startsWith("admin-") && (
-                    <button className="primary" disabled={busy}>
-                      {busy
-                        ? "正在处理…"
-                        : modal === "profile"
-                          ? "保存资料"
-                          : modal === "archive"
-                            ? "确认归档"
-                            : "确认"}
+                  {!["profile", "password"].includes(modal) && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={close}
+                    >
+                      <UiIcon name="close" size={13} />
+                      关闭
                     </button>
                   )}
+                  <button className="primary" disabled={busy}>
+                    <UiIcon name={busy ? "running" : modal === "archive" ? "archive" : "save"} size={13} />
+                    {busy
+                      ? "正在处理…"
+                      : modal === "profile"
+                        ? "保存资料"
+                        : modal === "archive"
+                          ? "确认归档"
+                          : "确认"}
+                  </button>
                 </div>
+                )}
               </form>
             </div>
-          </section>
-        </div>
+          </section>}
+        </ModalBackdrop>
       )}
     </div>
   );

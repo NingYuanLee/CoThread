@@ -1,59 +1,111 @@
 import React, { useEffect, useRef, useState } from "react";
+import { UiIcon } from "./ui-icon";
+import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
 
-export function ProjectSettings({ name, createdAt, creator, longTermSummary, onSave }: {
+export function ProjectSettings({ name, description, createdAt, creator, longTermSummary, onSave }: {
   name: string;
+  description: string;
   createdAt: string;
   creator: boolean;
   longTermSummary?: { summary: string; updatedAt: string | null; lastThreadTitle: string | null } | null;
-  onSave: (name: string) => Promise<void>;
+  onSave: (input: { name: string; description: string }) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState(name);
+  const [draftName, setDraftName] = useState(name);
+  const [draftDescription, setDraftDescription] = useState(description);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
-  useEffect(() => { setDraft(name); }, [name]);
+  useEffect(() => { setDraftName(name); setDraftDescription(description); }, [name, description]);
+  const nextName = draftName.trim();
+  const nextDescription = draftDescription.trim();
+  const dirty = creator && nextName !== "" && (nextName !== name || nextDescription !== (description || "").trim());
+  const summaryHint = longTermSummary?.summary
+    ? (longTermSummary.lastThreadTitle
+      ? `最近由「${longTermSummary.lastThreadTitle}」归档更新`
+      : "已有项目级长期记忆")
+    : "归档迭代后，会把该轮结论沉淀到这里供后续沿用";
+
   return (
     <section className="project-settings">
-      <form onSubmit={async (event) => {
+      <form className="project-settings-block" onSubmit={async (event) => {
         event.preventDefault();
-        if (saving || !creator || !draft.trim() || draft.trim() === name) return;
+        if (saving || !dirty) return;
         setSaving(true);
         setError("");
         setSaved(false);
-        try { await onSave(draft.trim()); setSaved(true); }
+        try {
+          await onSave({ name: nextName, description: nextDescription });
+          setSaved(true);
+        }
         catch (error) { setError((error as Error).message); }
         finally { setSaving(false); }
       }}>
-        <label htmlFor="project-settings-name">项目名称</label>
-        {creator ? <input id="project-settings-name" value={draft} required maxLength={120}
-          disabled={saving} onChange={(event) => { setDraft(event.target.value); setSaved(false); }} />
-          : <p className="project-settings-value">{name}</p>}
-        <small>仅项目创建人可修改项目名称</small>
-        {creator && <button type="submit" disabled={saving || !draft.trim() || draft.trim() === name}>
-          {saving ? "保存中…" : "保存名称"}
-        </button>}
+        <div className="project-settings-head">
+          <label htmlFor="project-settings-name">项目名称</label>
+          <small>{creator ? "仅创建人可改" : "仅项目创建人可修改"}</small>
+        </div>
+        {creator ? (
+          <input
+            id="project-settings-name"
+            value={draftName}
+            required
+            maxLength={120}
+            disabled={saving}
+            onChange={(event) => { setDraftName(event.target.value); setSaved(false); }}
+          />
+        ) : (
+          <p className="project-settings-value">{name}</p>
+        )}
+        <label htmlFor="project-settings-description">项目简介</label>
+        {creator ? (
+          <textarea
+            id="project-settings-description"
+            value={draftDescription}
+            maxLength={4000}
+            disabled={saving}
+            rows={4}
+            placeholder="这个项目要达成什么目标？"
+            onChange={(event) => { setDraftDescription(event.target.value); setSaved(false); }}
+          />
+        ) : (
+          <p className="project-settings-value muted">{description.trim() || "暂无项目简介"}</p>
+        )}
+        {creator && (
+          <div className="project-settings-actions">
+            <button type="submit" className={dirty ? "primary" : undefined} disabled={saving || !dirty}>
+              <UiIcon name="save" size={13} />
+              {saving ? "保存中…" : "保存"}
+            </button>
+          </div>
+        )}
         {error && <p role="alert" className="project-settings-error">{error}</p>}
-        {saved && <p role="status">项目名称已保存</p>}
+        {saved && <p role="status" className="project-settings-ok">项目信息已保存</p>}
       </form>
-      <div>
+
+      <div className="project-settings-block">
+        <div className="project-settings-head">
+          <span className="project-settings-label">项目长期总结</span>
+          <button type="button" className="project-settings-ghost" onClick={() => setSummaryOpen(true)}>
+            <UiIcon name="eye" size={13} />查看
+          </button>
+        </div>
+        <p className="project-settings-value muted">{summaryHint}</p>
+      </div>
+
+      <div className="project-settings-block project-settings-meta">
         <span className="project-settings-label">创建时间</span>
         <p className="project-settings-value">{createdAt}</p>
       </div>
-      <div className="project-settings-agent">
-        <span className="project-settings-label">项目长期总结</span>
-        <p className="project-settings-value">
-          {longTermSummary?.summary
-            ? (longTermSummary.lastThreadTitle
-              ? `最近由「${longTermSummary.lastThreadTitle}」归档更新`
-              : "已有项目级长期记忆")
-            : "归档迭代后，会把该轮结论沉淀到这里供后续沿用"}
-        </p>
-        <button type="button" onClick={() => setSummaryOpen(true)}>查看</button>
-      </div>
-      <div className="project-settings-archive">
-        <button type="button" disabled>归档项目</button>
-        <small>暂未开放</small>
+
+      <div className="project-settings-footer">
+        <div>
+          <span className="project-settings-label">归档项目</span>
+          <small>暂未开放</small>
+        </div>
+        <button type="button" disabled>
+          <UiIcon name="archive" size={13} />归档
+        </button>
       </div>
       {summaryOpen ? <ProjectSummaryDialog summary={longTermSummary} onClose={() => setSummaryOpen(false)} /> : null}
     </section>
@@ -66,20 +118,20 @@ function ProjectSummaryDialog({ summary, onClose }: {
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { dialog.current?.showModal(); }, []);
-  return <dialog ref={dialog} className="l3-task-detail-dialog project-summary-dialog" aria-labelledby="project-summary-title" onCancel={onClose}>
+  return <dialog ref={dialog} className="l3-task-detail-dialog project-summary-dialog" aria-labelledby="project-summary-title" onCancel={onDialogCancel(onClose)} onClick={onDialogBackdropClick(onClose)}>
     <header className="agent-monitor-header">
       <div>
         <span>项目记忆</span>
         <h2 id="project-summary-title">项目长期总结</h2>
       </div>
-      <button type="button" onClick={onClose} aria-label="关闭项目长期总结" title="关闭">×</button>
+      <DialogClose onClick={() => animateDialogClose(dialog.current, onClose)} label="关闭项目长期总结" />
     </header>
     <div className="project-summary-body">
       {summary?.lastThreadTitle ? <p className="project-summary-meta">最近更新来源：{summary.lastThreadTitle}</p> : null}
       {summary?.updatedAt ? <p className="project-summary-meta">更新于 {new Date(summary.updatedAt).toLocaleString("zh-CN")}</p> : null}
       {summary?.summary
         ? <p className="project-summary-text">{summary.summary}</p>
-        : <p className="monitor-empty">还没有项目长期总结。归档迭代后，一级小祥会把该轮结论沉淀到这里。</p>}
+        : <p className="monitor-empty">还没有项目长期总结。归档迭代后，项目级Agent（L1）会把该轮结论沉淀到这里。</p>}
     </div>
   </dialog>;
 }

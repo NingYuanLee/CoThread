@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { HumanVerification } from "./HumanVerification";
 import { ResendCountdown } from "./ResendCountdown";
 import { PasswordField } from "./PasswordField";
+import { UiIcon } from "./ui-icon";
 
 type Api = (path: string, data?: unknown, method?: string) => Promise<any>;
 type Mode = "login" | "register" | "recover";
@@ -71,7 +72,7 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
     <div className="auth-mode-tabs" role="tablist" aria-label="账号入口">
       {(["login", "register", "recover"] as Mode[]).map((value) => <button key={value} type="button" role="tab"
         aria-selected={mode === value} className={mode === value ? "active" : ""} onClick={() => switchMode(value)}>
-        {value === "login" ? "登录" : value === "register" ? "注册" : "重置密码"}
+        {value === "login" ? <><UiIcon name="login" size={13} />登录</> : value === "register" ? <><UiIcon name="userPlus" size={13} />注册</> : <><UiIcon name="key" size={13} />重置密码</>}
       </button>)}
     </div>
     <h2>{mode === "login" ? "回到共同的上下文" : mode === "register" ? "创建共序账号" : "重置密码"}</h2>
@@ -93,6 +94,9 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
     </>}
     {notice && <div className="auth-notice" role="status">{notice}</div>}
     {error && <div className="error" role="alert">{error}</div>}
-    <button className="primary" disabled={busy || (humanRequired && !challengeId && (!humanProof.humanChallengeId || !humanProof.humanAnswer))}>{busy ? "正在处理…" : mode === "login" ? "进入工作空间 →" : challengeId ? "确认" : "发送验证码"}</button>
+    <button className="primary" disabled={busy || (humanRequired && !challengeId && (!humanProof.humanChallengeId || !humanProof.humanAnswer))}>
+      <UiIcon name={busy ? "running" : mode === "login" ? "login" : challengeId ? "check" : "email"} size={14} />
+      {busy ? "正在处理…" : mode === "login" ? "进入工作空间" : challengeId ? "确认" : "发送验证码"}
+    </button>
   </form>;
 }

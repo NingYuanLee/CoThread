@@ -19,6 +19,8 @@ test("connector application distribution stays outside CoThread", async () => {
   assert.doesNotMatch(server, /connector_releases|connector-release|download-info|download-availability|latestRelease|\/api\/connectors\/download/);
   assert.doesNotMatch(management, /ConnectorRelease|section === "connector"/);
   assert.doesNotMatch(panel, /download-info|download-availability|连接器\/releases/);
+  assert.doesNotMatch(panel, /本机 Agent 执行通道|connector-dialog/);
+  assert.match(panel, /connector-popover/);
   assert.doesNotMatch(main, /下载免安装|下载或关联设备|下载、配对/);
   assert.doesNotMatch(readme, /可下载免安装/);
   assert.doesNotMatch(client, /pending-update|checkUpdate|verifyManifest|apply-update/);

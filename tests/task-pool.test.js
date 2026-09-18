@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, createTask, ensureDshL3CanUpdate, getTask, inspectIterationTask, listTaskExecutionRuns, listTaskStatusEvents, listTasks, reassignTask, recoverAbnormalTask, recoverInterruptedDshL3Executions, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, updateTask } from "../server/task-pool.js";
+import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, cancelTask, createTask, ensureDshL3CanUpdate, getTask, inspectIterationTask, listTaskExecutionRuns, listTaskStatusEvents, listTasks, reassignTask, recoverAbnormalTask, recoverInterruptedDshL3Executions, reconcileEndedTaskRuns, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, updateTask } from "../server/task-pool.js";
 import { testDatabase } from "./database.js";
 
 let database, db, service, project, thread, users, l2SessionId, reportHostId;
@@ -66,8 +66,8 @@ test("only the current target can accept, update or reassign", async () => {
   const task = await formalTask(users[1].id);
   await assert.rejects(acceptTask(db, task.id, { type: "human_member", id: users[2].id }, "human_direct"), { status: 403 });
   await assert.rejects(reassignTask(db, task.id, { type: "human_member", id: users[2].id }, { type: "human_member", id: users[0].id }), { status: 403 });
-  await acceptTask(db, task.id, { type: "human_member", id: users[1].id }, "human_direct");
-  await assert.rejects(updateTask(db, task.id, { type: "human_member", id: users[2].id }, { status: "running" }), { status: 403 });
+  const accepted = await acceptTask(db, task.id, { type: "human_member", id: users[1].id }, "human_direct");
+  await assert.rejects(updateTask(db, task.id, { type: "human_member", id: users[2].id }, { status: "completed" }), { status: 403 });
 });
 
 test("online connector is the automatic executor and creates an adapter", async () => {
@@ -87,12 +87,60 @@ test("online connector is the automatic executor and creates an adapter", async 
   assert.equal(adapter.status, "queued");
 });
 
-test("offline connector falls back to human self", async () => {
+test("human self execution follows the task instead of cancelling as an unbound L3", async () => {
+  const direct = await formalTask(users[1].id, { title: "本人直接完成" });
+  const accepted = await acceptTask(db, direct.id, { type: "human_member", id: users[1].id }, "human_direct");
+  assert.equal(accepted.status, "running");
+  const finished = await updateTask(db, direct.id, { type: "human_member", id: users[1].id }, {
+    status: "completed", resultSummary: "验收材料已提交",
+  });
+  assert.equal(finished.status, "completed");
+  const [directRun] = await query(db, "SELECT executor_type,executor_id,status,error,result_summary FROM agent_task_execution_runs WHERE task_id=?", [direct.id]);
+  assert.equal(directRun.executor_type, "human_self");
+  assert.equal(directRun.executor_id, users[1].id);
+  assert.equal(directRun.status, "completed");
+  assert.equal(directRun.error, null);
+  assert.equal(directRun.result_summary, "验收材料已提交");
+
+  const started = await formalTask(users[1].id, { title: "本人先开始再完成" });
+  await acceptTask(db, started.id, { type: "human_member", id: users[1].id }, "human_direct");
+  const [liveRun] = await query(db, "SELECT status FROM agent_task_execution_runs WHERE task_id=?", [started.id]);
+  assert.equal(liveRun.status, "running");
+  await updateTask(db, started.id, { type: "human_member", id: users[1].id }, { status: "completed", resultSummary: "已交付" });
+  const [doneRun] = await query(db, "SELECT status,error,result_summary FROM agent_task_execution_runs WHERE task_id=?", [started.id]);
+  assert.equal(doneRun.status, "completed");
+  assert.equal(doneRun.error, null);
+  assert.equal(doneRun.result_summary, "已交付");
+});
+
+test("historical human runs cancelled as unbound L3 are repaired to the task outcome", async () => {
+  const completed = await formalTask(users[1].id, { title: "历史误标完成" });
+  await acceptTask(db, completed.id, { type: "human_member", id: users[1].id }, "human_direct");
+  await query(db, `UPDATE agent_tasks SET status='completed',result_summary='本人已交付',
+    finished_at=UTC_TIMESTAMP(3) WHERE id=?`, [completed.id]);
+  await query(db, `UPDATE agent_task_execution_runs SET status='cancelled',error='任务已结束，L3 未启动',
+    result_summary=NULL WHERE task_id=?`, [completed.id]);
+  const cancelled = await formalTask(users[1].id, { title: "历史误标取消" });
+  await acceptTask(db, cancelled.id, { type: "human_member", id: users[1].id }, "human_direct");
+  await query(db, `UPDATE agent_tasks SET status='cancelled',finished_at=UTC_TIMESTAMP(3) WHERE id=?`, [cancelled.id]);
+  await query(db, `UPDATE agent_task_execution_runs SET status='cancelled',error='任务已结束，L3 未启动' WHERE task_id=?`,
+    [cancelled.id]);
+  assert.ok(await reconcileEndedTaskRuns(db));
+  const [fixedCompleted] = await query(db, "SELECT status,error,result_summary FROM agent_task_execution_runs WHERE task_id=?", [completed.id]);
+  assert.equal(fixedCompleted.status, "completed");
+  assert.equal(fixedCompleted.error, null);
+  assert.equal(fixedCompleted.result_summary, "本人已交付");
+  const [fixedCancelled] = await query(db, "SELECT status,error FROM agent_task_execution_runs WHERE task_id=?", [cancelled.id]);
+  assert.equal(fixedCancelled.status, "cancelled");
+  assert.equal(fixedCancelled.error, null);
+});
+
+test("bound connector is the automatic executor even if recently seen stale", async () => {
   await query(db, "UPDATE connectors SET last_seen_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 2 MINUTE) WHERE user_id=?", [users[1].id]);
   const task = await formalTask(users[1].id, { title: "离线任务" });
   const accepted = await acceptTask(db, task.id, { type: "human_member", id: users[1].id }, "auto");
-  assert.equal(accepted.execution_agent_type, "human_self");
-  assert.equal(accepted.execution_agent_id, users[1].id);
+  assert.equal(accepted.execution_agent_type, "human_connector");
+  assert.equal(accepted.status, "pending_start");
 });
 
 test("explicit connector mode explains what blocks it", async () => {
@@ -119,14 +167,17 @@ test("current human target can transfer a task to the iteration L2", async () =>
   assert.equal(reassigned.target_type, "l2_session");
   assert.equal(reassigned.target_id, l2SessionId);
   assert.equal(reassigned.claimed_by_id, l2SessionId);
-  const runs = await query(db, "SELECT id FROM agent_task_execution_runs WHERE task_id=?", [task.id]);
-  assert.equal(runs.length, 0, "L2 owns the task before it decides whether an L3 is needed");
+  assert.equal(reassigned.status, "running");
+  const runs = await query(db, "SELECT status,executor_id FROM agent_task_execution_runs WHERE task_id=?", [task.id]);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].status, "queued");
+  assert.equal(runs[0].executor_id, null);
 });
 
 test("L2 can transfer formal work but cannot hand an assist task to a human", async () => {
   const formal = await createTask(db, {
     projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
-    createdByType: "human_member", createdById: users[0].id, taskType: "formal", title: "L2 转交正式任务",
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "formal", title: "L2 转交正式任务",
     goal: "交给成员执行", targetType: "l2_session", targetId: l2SessionId,
   });
   const transferred = await reassignTask(db, formal.id, { type: "l2_session", id: l2SessionId, authorizedByUserId: users[0].id },
@@ -143,7 +194,7 @@ test("L2 can transfer formal work but cannot hand an assist task to a human", as
     { type: "human_member", id: users[1].id }), { status: 403 });
 });
 
-test("assist tasks bind to the real DSH child and return a compact result to their source task", async () => {
+test("assist tasks start running and return a compact result to their source task", async () => {
   const formal = await createTask(db, {
     projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
     createdByType: "l2_session", createdById: l2SessionId, taskType: "formal", title: "L2 正式任务",
@@ -191,15 +242,15 @@ test("L3 that stops without report_task is settled as failed and still wakes L2"
   assert.equal(payload.status, "failed");
 });
 
-test("queued assist work stays pending until a DSH L3 child is bound", async () => {
+test("assist work is running before a DSH L3 child is bound", async () => {
   const assist = await createTask(db, {
     projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
     createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "尚未启动的辅助任务",
-    goal: "创建后仍在排队", targetType: "l2_session", targetId: l2SessionId,
+    goal: "创建后即为执行中", targetType: "l2_session", targetId: l2SessionId,
   });
   const queuedMonitor = await service.agentMonitor(users[0], project.id);
   const pool = queuedMonitor.taskPool.find((row) => row.task_id === assist.id);
-  assert.equal(pool.task_status, "queued");
+  assert.equal(pool.task_status, "running");
   assert.equal(pool.run_status, "queued");
   assert.equal(pool.executor_id, null);
   assert.equal(queuedMonitor.executors.some((row) => row.task_id === assist.id && row.execution_active), false);
@@ -234,7 +285,7 @@ test("L2 can inspect a live L3 run and is told how to ask or replace it", async 
 test("a formal task owned by L2 can run on a resumable DSH child", async () => {
   const formal = await createTask(db, {
     projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
-    createdByType: "human_member", createdById: users[0].id, taskType: "formal", title: "正式云端执行",
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "formal", title: "正式云端执行",
     goal: "由 L2 的 DSH L3 完成", targetType: "l2_session", targetId: l2SessionId,
   });
   const childId = randomUUID();
@@ -293,16 +344,13 @@ test("every status transition is logged with who changed it and why", async () =
   await rejectTask(db, task.id, { type: "human_member", id: users[2].id }, "验收目标不够明确");
   await reopenRejectedTask(db, task.id, { type: "human_member", id: users[1].id }, { goal: "补充验收标准", reason: "已补充验收标准" });
   await acceptTask(db, task.id, { type: "human_member", id: users[2].id }, "human_direct");
-  await updateTask(db, task.id, { type: "human_member", id: users[2].id }, { status: "running", progress: "开始处理" });
-  await updateTask(db, task.id, { type: "human_member", id: users[2].id }, { progress: "仍在处理" });
   await updateTask(db, task.id, { type: "human_member", id: users[2].id }, { status: "completed", resultSummary: "已完成" });
   const events = await listTaskStatusEvents(db, task.id);
   assert.deepEqual(events.map((event) => [event.from_status, event.to_status, event.actor_type, event.actor_id, event.reason]), [
     [null, "awaiting_acceptance", "l2_session", l2SessionId, "任务创建"],
-    ["awaiting_acceptance", "cancelled", "human_member", users[2].id, "验收目标不够明确"],
-    ["cancelled", "awaiting_acceptance", "human_member", users[1].id, "已补充验收标准"],
-    ["awaiting_acceptance", "queued", "human_member", users[2].id, "成员接受任务，由本人完成"],
-    ["queued", "running", "human_member", users[2].id, "开始处理"],
+    ["awaiting_acceptance", "rejected", "human_member", users[2].id, "验收目标不够明确"],
+    ["rejected", "awaiting_acceptance", "human_member", users[1].id, "已补充验收标准"],
+    ["awaiting_acceptance", "running", "human_member", users[2].id, "成员接受任务，由本人完成"],
     ["running", "completed", "human_member", users[2].id, "已完成"],
   ]);
 });
@@ -362,15 +410,14 @@ test("service recovery requeues interrupted L3 work without repeating completed 
   const [recoveredTask] = await query(db, "SELECT status,revision,execution_agent_id FROM agent_tasks WHERE id=?", [runningAssist.id]);
   const [stillCompleted] = await query(db, "SELECT status,result_summary FROM agent_tasks WHERE id=?", [completedAssist.id]);
   assert.equal(recoveredRuns.filter((run) => run.status === "interrupted").length, 1);
-  assert.equal(recoveredRuns.filter((run) => run.status === "queued").length, 1);
-  assert.equal(recoveredRuns.find((run) => run.status === "queued").task_revision, recoveredTask.revision);
-  assert.equal(recoveredTask.status, "queued");
+  assert.equal(recoveredRuns.filter((run) => run.status === "queued").length, 0);
+  assert.equal(recoveredTask.status, "pending_assignment");
   assert.equal(recoveredTask.execution_agent_id, null);
   const [recoveredFormal] = await query(db, "SELECT status,execution_agent_id FROM agent_tasks WHERE id=?", [runningFormal.id]);
   const formalRuns = await query(db, "SELECT status,executor_id FROM agent_task_execution_runs WHERE task_id=? ORDER BY created_at,id", [runningFormal.id]);
-  assert.deepEqual(recoveredFormal, { status: "queued", execution_agent_id: formalChild });
+  assert.deepEqual(recoveredFormal, { status: "pending_assignment", execution_agent_id: formalChild });
   assert.equal(formalRuns.filter((run) => run.status === "interrupted").length, 1);
-  assert.equal(formalRuns.filter((run) => run.status === "queued" && run.executor_id === null).length, 1);
+  assert.equal(formalRuns.filter((run) => run.status === "queued" && run.executor_id === null).length, 0);
   const recoveredListing = await listTasks(db, project.id, { limit: 200 });
   assert.equal(recoveredListing.find((task) => task.id === runningFormal.id).preferred_execution_agent_id, formalChild);
   assert.deepEqual(stillCompleted, { status: "completed", result_summary: "已完成" });
@@ -451,7 +498,7 @@ test("L2 can restart failed, stuck queued and stuck running tasks in this iterat
     status: "ok", stopReason: "completed", lastAssistantMessage: [{ type: "text", text: "没交活" }],
   });
   const restartedFailed = await recoverAbnormalTask(db, failed.id, actor, { action: "restart", reason: "失败重跑" });
-  assert.equal(restartedFailed.status, "queued");
+  assert.equal(restartedFailed.status, "running");
   assert.equal(restartedFailed.interruptedAgentId, failedChild);
   const rebound = await bindDshL3Execution(db, l2SessionId, randomUUID(), failed.id);
   assert.equal(rebound.status, "running");
@@ -462,7 +509,7 @@ test("L2 can restart failed, stuck queued and stuck running tasks in this iterat
     goal: "重新派发", targetType: "l2_session", targetId: l2SessionId,
   });
   const restartedQueued = await recoverAbnormalTask(db, queued.id, actor, { action: "restart" });
-  assert.equal(restartedQueued.status, "queued");
+  assert.equal(restartedQueued.status, "running");
   const runs = await listTaskExecutionRuns(db, queued.id);
   assert.equal(runs[0].status, "queued");
   assert.ok(runs.some((run) => run.status === "cancelled"));
@@ -475,13 +522,13 @@ test("L2 can restart failed, stuck queued and stuck running tasks in this iterat
   const runningChild = randomUUID();
   await bindDshL3Execution(db, l2SessionId, runningChild, running.id);
   const restartedRunning = await recoverAbnormalTask(db, running.id, actor, { action: "restart" });
-  assert.equal(restartedRunning.status, "queued");
+  assert.equal(restartedRunning.status, "running");
   assert.equal(restartedRunning.interruptedAgentId, runningChild);
   const stale = await settleDshL3Execution(db, l2SessionId, runningChild, {
     status: "error", stopReason: "aborted", lastAssistantMessage: [{ type: "text", text: "旧进程结束" }],
   });
   assert.equal(stale, null);
-  assert.equal((await getTask(db, running.id)).status, "queued");
+  assert.equal((await getTask(db, running.id)).status, "running");
 });
 
 test("a rotated L2 session recasts queued assist work so dsh_l3 can bind", async () => {
@@ -503,11 +550,11 @@ test("a rotated L2 session recasts queued assist work so dsh_l3 can bind", async
   assert.equal(created.started, false);
 
   const recovered = await recoverAbnormalTask(db, assist.id, { type: "l2_session", id: l2SessionId }, { action: "restart" });
-  assert.equal(recovered.status, "queued");
+  assert.equal(recovered.status, "running");
   assert.equal(recovered.target_id, l2SessionId);
   assert.equal(recovered.claimed_by_id, l2SessionId);
   assert.equal(recovered.needsDispatch, true);
-  assert.match(recovered.progress, /尚未派 L3/);
+  assert.match(recovered.progress, /尚未绑定 L3/);
 
   const childId = randomUUID();
   const bound = await bindDshL3Execution(db, l2SessionId, childId, assist.id);
@@ -528,7 +575,7 @@ test("L2 can arrange member-owned tasks in this iteration but not other iteratio
   const actor = { type: "l2_session", id: l2SessionId, authorizedByUserId: users[0].id };
   const humanTask = await formalTask(users[1].id, { title: "成员卡住的任务" });
   await acceptTask(db, humanTask.id, { type: "human_member", id: users[1].id }, "human_direct");
-  await updateTask(db, humanTask.id, { type: "human_member", id: users[1].id }, { status: "running", progress: "卡住了" });
+  await updateTask(db, humanTask.id, { type: "human_member", id: users[1].id }, { progress: "卡住了" });
   const restarted = await recoverAbnormalTask(db, humanTask.id, actor, { action: "restart", reason: "请成员重新确认" });
   assert.equal(restarted.status, "awaiting_acceptance");
   assert.equal(restarted.target_id, users[1].id);
@@ -598,4 +645,58 @@ test("L2 needs an executable human member account this turn to touch foreign wor
   assert.equal(created.target_type, "human_member");
   const handed = await reassignTask(db, ownFormal.id, authorized, { type: "human_member", id: users[1].id }, "授权后转人");
   assert.equal(handed.target_id, users[1].id);
+});
+
+test("assist tasks cannot be created when every L3 is busy", async () => {
+  const occupy = async () => {
+    const task = await createTask(db, {
+      projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+      createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "占住 L3",
+      goal: "占槽", targetType: "l2_session", targetId: l2SessionId,
+    });
+    await bindDshL3Execution(db, l2SessionId, randomUUID(), task.id);
+    return task;
+  };
+  const busy = [];
+  for (;;) {
+    try { busy.push(await occupy()); }
+    catch (error) { if (error.status === 409) break; throw error; }
+  }
+  await assert.rejects(createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "第 8 个辅助",
+    goal: "应当失败", targetType: "l2_session", targetId: l2SessionId,
+  }), { status: 409, message: /没有空闲 L3/ });
+  const pending = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "formal", title: "沙箱待指派",
+    goal: "没有空闲也可以创建", targetType: "l2_session", targetId: l2SessionId,
+  });
+  assert.equal(pending.status, "pending_assignment");
+  assert.equal(pending.needsDispatch, true);
+  const [live] = await query(db, `SELECT r.executor_id FROM agent_task_execution_runs r
+    JOIN agent_tasks t ON t.id=r.task_id
+    WHERE t.target_id=? AND r.executor_type='dsh_l3' AND r.status IN ('running','waiting')
+    ORDER BY r.created_at LIMIT 1`, [l2SessionId]);
+  await settleDshL3Execution(db, l2SessionId, live.executor_id, {
+    status: "ok", stopReason: "completed", lastAssistantMessage: [{ type: "text", text: "让出槽位" }],
+  });
+  const [idleEvent] = await query(db, "SELECT kind,payload FROM coordinator_events WHERE kind='l3_idle' AND thread_id=? ORDER BY created_at DESC LIMIT 1", [thread.id]);
+  assert.equal(idleEvent.kind, "l3_idle");
+  const payload = typeof idleEvent.payload === "string" ? JSON.parse(idleEvent.payload) : idleEvent.payload;
+  assert.ok(payload.pendingAssignment >= 1);
+  const bound = await bindDshL3Execution(db, l2SessionId, randomUUID(), pending.id);
+  assert.equal(bound.status, "running");
+});
+
+test("the source member can cancel a waiting confirmation and the target can reject it", async () => {
+  const cancellable = await formalTask(users[1].id, { title: "来源取消" });
+  const cancelled = await cancelTask(db, cancellable.id, { type: "human_member", id: users[0].id });
+  assert.equal(cancelled.status, "cancelled");
+  await assert.rejects(cancelTask(db, cancellable.id, { type: "human_member", id: users[0].id }), { status: 409 });
+
+  const rejectable = await formalTask(users[1].id, { title: "目标拒绝" });
+  await assert.rejects(cancelTask(db, rejectable.id, { type: "human_member", id: users[1].id }), { status: 403 });
+  const rejected = await rejectTask(db, rejectable.id, { type: "human_member", id: users[1].id }, "现在做不了");
+  assert.equal(rejected.status, "rejected");
 });

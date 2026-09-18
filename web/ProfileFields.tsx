@@ -1,5 +1,6 @@
 import React from "react";
 import { IDENTITY_TAGS } from "../shared/profile.js";
+import { roleIcon, UiIcon } from "./ui-icon";
 
 export type PersonalProfile = {
   id: string;
@@ -11,6 +12,7 @@ export type PersonalProfile = {
   motto: string;
   identity_tags: string[];
   is_super_admin?: boolean;
+  ui_theme?: string;
 };
 
 export async function prepareAvatar(file: File): Promise<string> {
@@ -70,6 +72,7 @@ export function ProfileFields({
         </span>
         <div className="profile-avatar-controls">
           <label className="profile-upload-button">
+            <UiIcon name="upload" size={13} />
             {avatar ? "更换头像" : "上传头像"}
             <input
               type="file"
@@ -84,6 +87,7 @@ export function ProfileFields({
           </label>
           {avatar && (
             <button type="button" onClick={onRemove}>
+              <UiIcon name="trash" size={13} />
               移除头像
             </button>
           )}
@@ -124,7 +128,7 @@ export function ProfileFields({
                 value={tag}
                 defaultChecked={(user.identity_tags[0] || "") === tag}
               />
-              <span data-role={tag}>{tag || "暂不设置"}</span>
+              <span data-role={tag}>{(() => { const icon = roleIcon(tag); return icon ? <UiIcon name={icon} size={11} /> : null; })()}{tag || "暂不设置"}</span>
             </label>
           ))}
         </div>

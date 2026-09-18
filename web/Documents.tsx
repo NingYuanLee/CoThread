@@ -7,6 +7,9 @@ import { FileIcon } from "@react-symbols/icons/utils";
 import { Document, Notebook } from "@react-symbols/icons/files";
 import { DocxPreview, PptxPreview, XlsxPreview } from "./office-preview";
 import { inlineHtmlPreviewAssets } from "../shared/html-preview.mjs";
+import { fileDisplayName } from "../shared/document-name.js";
+import { UiIcon } from "./ui-icon";
+import { DialogClose, ModalBackdrop } from "./dialog-fx";
 const officeIcons = {
   doc: Document,
   docx: Document,
@@ -401,13 +404,17 @@ type LibraryFolder = {
 };
 
 function fileLabel(version: LibraryVersion) {
-  const dot = version.filename.lastIndexOf(".");
-  const suffix = dot > 0 && dot < version.filename.length - 1
-    ? version.filename.slice(dot)
-    : "";
-  return suffix && !version.title.toLowerCase().endsWith(suffix.toLowerCase())
-    ? `${version.title}${suffix}`
-    : version.title;
+  return fileDisplayName(version);
+}
+
+const EMPTY_CHANGE_REQUEST_ITEMS = ["", "", ""];
+
+function formatChangeRequestItems(items: string[]) {
+  return items
+    .map((item) => item.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .map((item, index) => `${index + 1}. ${item}`)
+    .join("\n");
 }
 
 function isUnversionedArea(kind: string | null) {
@@ -597,7 +604,7 @@ export function Documents({
   onReference,
   organizationJobs = [],
 }: {
-  onReview?: (versionId: string, decision: string) => Promise<void>;
+  onReview?: (versionId: string, decision: string, comment?: string) => Promise<void>;
   projectId: string;
   threadId?: string;
   writable: boolean;
@@ -688,6 +695,9 @@ export function Documents({
     | { type: "folder"; item: LibraryFolder }
     | null
   >(null);
+  const [changeRequest, setChangeRequest] = useState<{ versionId: string; title: string } | null>(null);
+  const [changeRequestItems, setChangeRequestItems] = useState<string[]>(EMPTY_CHANGE_REQUEST_ITEMS);
+  const changeRequestInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const officialRoot = libraryRoots.find((f) => f.folder_kind === "project_official");
   const officialFolderParentId = (() => {
     if (!folderId) return officialRoot?.id || null;
@@ -1347,7 +1357,7 @@ export function Documents({
               </div>
             ) : null}
             <div role="tree" aria-label="项目文档库">
-              {organizing ? <p className="muted">一级小祥正在整理正式文件，正式文件区暂时不可操作。</p> : null}
+              {organizing ? <p className="muted">项目级Agent（L1）正在整理正式文件，正式文件区暂时不可操作。</p> : null}
               {trash || filter
                 ? artifacts.map((v) => fileRow(v, 0))
                 : libraryRoots.map((root) => renderLibraryRoot(root))}
@@ -1389,6 +1399,7 @@ export function Documents({
         aria-pressed={previewMode === "preview"}
         onClick={() => setPreviewMode("preview")}
       >
+        <UiIcon name="preview" size={12} />
         预览
       </button>
       <button
@@ -1397,6 +1408,7 @@ export function Documents({
         aria-pressed={previewMode === "text"}
         onClick={() => setPreviewMode("text")}
       >
+        <UiIcon name="code" size={12} />
         源码
       </button>
     </span>
@@ -1445,7 +1457,7 @@ export function Documents({
       ) : (
         <>
           <span>{documentStatusLabel(version, fileAreaKind(version))}</span>
-          {onReview && (fileAreaKind(version) === "project_cache" || version.thread_id === threadId) && (
+          {onReview && (fileAreaKind(version) === "project_cache" || fileAreaKind(version) === "project_outputs") && (
             <>
               <button
                 disabled={pending}
@@ -1453,15 +1465,19 @@ export function Documents({
                   act(() => onReview(selected, "approved"))
                 }
               >
+                <UiIcon name="check" size={12} />
                 {fileAreaKind(version) === "project_cache" ? "确认" : "确认通过"}
               </button>
               <button
                 disabled={pending}
-                onClick={() =>
-                  act(() => onReview(selected, "changes_requested"))
-                }
+                onClick={() => {
+                  setChangeRequest({ versionId: selected, title: version.title });
+                  setChangeRequestItems([...EMPTY_CHANGE_REQUEST_ITEMS]);
+                  setActionError("");
+                }}
               >
-                要求修改
+                <UiIcon name="edit" size={12} />
+                需要修改
               </button>
             </>
           )}
@@ -1661,25 +1677,24 @@ export function Documents({
           </main>
   );
   const organizeDialog = organizeOpen ? (
-          <div className="modal-backdrop library-organize-backdrop" onClick={() => setOrganizeOpen(false)}>
-            <section
+          <ModalBackdrop className="library-organize-backdrop" onClose={() => setOrganizeOpen(false)}>
+            {(close) => <section
               className="library-organize-dialog"
               role="dialog"
               aria-modal="true"
               aria-labelledby="library-organize-title"
-              onClick={(event) => event.stopPropagation()}
             >
               <header>
                 <h3 id="library-organize-title">正式文件整理</h3>
-                <button type="button" aria-label="关闭" onClick={() => setOrganizeOpen(false)}>×</button>
+                <DialogClose onClick={close} label="关闭" />
               </header>
-              <p>由一级小祥在后台归类与命名正式文件；整理期间正式文件区不可上传、另存或修改。</p>
+              <p>由项目级Agent（L1）在后台归类与命名正式文件；整理期间正式文件区不可上传、另存或修改。</p>
               {organizing ? <p className="muted">正在排队或执行中…</p> : null}
               {organization?.status === "failed" ? (
                 <div className="error" role="alert">{organization.error || "上次整理失败，可重试。"}</div>
               ) : null}
               <div className="library-organize-actions">
-                <button type="button" disabled={pending} onClick={() => setOrganizeOpen(false)}>关闭</button>
+                <button type="button" disabled={pending} onClick={close}>关闭</button>
                 <button
                   type="button"
                   className="primary"
@@ -1690,8 +1705,8 @@ export function Documents({
                   {organizing ? "整理中…" : pending ? "提交中…" : "立即整理"}
                 </button>
               </div>
-            </section>
-          </div>
+            </section>}
+          </ModalBackdrop>
         ) : null;
   const deleteConfirmCopy = (() => {
     if (!deleteConfirm) return null;
@@ -1718,25 +1733,131 @@ export function Documents({
     };
   })();
   const deleteConfirmDialog = deleteConfirm && deleteConfirmCopy ? (
-          <div className="modal-backdrop library-organize-backdrop" onClick={() => setDeleteConfirm(null)}>
-            <section
+          <ModalBackdrop className="library-organize-backdrop" onClose={() => setDeleteConfirm(null)}>
+            {(close) => <section
               className="library-organize-dialog"
               role="dialog"
               aria-modal="true"
               aria-labelledby="library-delete-title"
-              onClick={(event) => event.stopPropagation()}
             >
               <header>
                 <h3 id="library-delete-title">{deleteConfirmCopy.title}</h3>
-                <button type="button" aria-label="关闭" onClick={() => setDeleteConfirm(null)}>×</button>
+                <DialogClose onClick={close} label="关闭" />
               </header>
               <p>{deleteConfirmCopy.body}</p>
               <div className="library-organize-actions">
-                <button type="button" onClick={() => setDeleteConfirm(null)}>取消</button>
-                <button type="button" className="primary" onClick={confirmDelete}>确认删除</button>
+                <button type="button" onClick={close}>取消</button>
+                <button type="button" className="primary" onClick={confirmDelete}><UiIcon name="trash" size={13} />确认删除</button>
               </div>
-            </section>
-          </div>
+            </section>}
+          </ModalBackdrop>
+        ) : null;
+
+  const changeRequestDialog = changeRequest ? (
+          <ModalBackdrop className="library-organize-backdrop" onClose={() => setChangeRequest(null)} enabled={!pending}>
+            {(close) => <section
+              className="library-organize-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="library-change-request-title"
+            >
+              <header>
+                <h3 id="library-change-request-title">需要修改</h3>
+                <DialogClose disabled={pending} onClick={close} label="关闭" />
+              </header>
+              <p>按条填写要对「{changeRequest.title}」修改什么。确认后会自动发到当前迭代群聊并 @ 对方：产物文件会 @小祥；缓存文件若来自别人则 @来源人，本人上传的缓存则 @小祥。被 @ 的人请让小祥改并保存为产物文件，或自己改完后在对话框重新上传新的缓存文件。</p>
+              <ol className="change-request-list" aria-label="需要修改的内容">
+                {changeRequestItems.map((item, index) => (
+                  <li key={index}>
+                    <input
+                      ref={(el) => { changeRequestInputRefs.current[index] = el; }}
+                      autoFocus={index === 0}
+                      aria-label={`第 ${index + 1} 条`}
+                      placeholder="这一条要改什么"
+                      value={item}
+                      maxLength={800}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setChangeRequestItems((rows) => rows.map((row, rowIndex) => (rowIndex === index ? value : row)));
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          setChangeRequestItems((rows) => {
+                            if (rows.length >= 20) return rows;
+                            const next = [...rows];
+                            next.splice(index + 1, 0, "");
+                            queueMicrotask(() => changeRequestInputRefs.current[index + 1]?.focus());
+                            return next;
+                          });
+                          return;
+                        }
+                        if (event.key === "Backspace" && !item && changeRequestItems.length > 1) {
+                          event.preventDefault();
+                          setChangeRequestItems((rows) => {
+                            const next = rows.filter((_, rowIndex) => rowIndex !== index);
+                            const focusAt = Math.max(0, index - 1);
+                            queueMicrotask(() => changeRequestInputRefs.current[focusAt]?.focus());
+                            return next.length ? next : [...EMPTY_CHANGE_REQUEST_ITEMS];
+                          });
+                        }
+                      }}
+                    />
+                    {changeRequestItems.length > 1 ? (
+                      <button
+                        type="button"
+                        className="change-request-remove"
+                        aria-label={`删除第 ${index + 1} 条`}
+                        disabled={pending}
+                        onClick={() => {
+                          setChangeRequestItems((rows) => {
+                            const next = rows.filter((_, rowIndex) => rowIndex !== index);
+                            return next.length ? next : [...EMPTY_CHANGE_REQUEST_ITEMS];
+                          });
+                        }}
+                      >
+                        ×
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+              <button
+                type="button"
+                className="change-request-add"
+                disabled={pending || changeRequestItems.length >= 20}
+                onClick={() => {
+                  setChangeRequestItems((rows) => {
+                    if (rows.length >= 20) return rows;
+                    queueMicrotask(() => changeRequestInputRefs.current[rows.length]?.focus());
+                    return [...rows, ""];
+                  });
+                }}
+              >
+                添加一条
+              </button>
+              {actionError ? <p className="error" role="alert">{actionError}</p> : null}
+              <div className="library-organize-actions">
+                <button type="button" disabled={pending} onClick={close}>取消</button>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={pending || !formatChangeRequestItems(changeRequestItems)}
+                  onClick={() => {
+                    const comment = formatChangeRequestItems(changeRequestItems);
+                    const versionId = changeRequest.versionId;
+                    void act(async () => {
+                      await onReview?.(versionId, "changes_requested", comment);
+                      setChangeRequest(null);
+                      setChangeRequestItems([...EMPTY_CHANGE_REQUEST_ITEMS]);
+                    });
+                  }}
+                >
+                  确认发送
+                </button>
+              </div>
+            </section>}
+          </ModalBackdrop>
         ) : null;
 
   const tabVersion = (id: string) => libraryVersions.find((item) => item.id === id)
@@ -1807,6 +1928,7 @@ export function Documents({
         </div>
         {organizeDialog}
         {deleteConfirmDialog}
+        {changeRequestDialog}
       </section>
     </div>
   );

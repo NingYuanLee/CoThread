@@ -20,6 +20,8 @@ import {
   isOutputFolderKind,
   isProjectLibraryAreaRoot,
   OUTPUT_LIBRARY_FOLDER_SQL,
+  uniqueArtifactTitle,
+  uniqueVersionFilename,
   utcDateKey,
 } from "./project-library.js";
 import { previewContentType, resolveStoredMime } from "./preview-mime.js";
@@ -226,13 +228,26 @@ export class Service {
   async updateProject(user, projectId, input) {
     if (user.kind !== "session") fail(403, "项目设置需要人工登录");
     await this.projectCreator(user, projectId);
-    const data = z.object({ name: title.max(120) }).parse(input);
+    const data = z.object({
+      name: title.max(120).optional(),
+      description: z.string().max(4000).optional(),
+    }).refine((value) => value.name !== undefined || value.description !== undefined).parse(input);
+    const next = {
+      ...data,
+      description: data.description === undefined ? undefined : data.description.trim(),
+    };
     await transaction(this.db, async (db) => {
-      const [previous] = await query(db, "SELECT name FROM projects WHERE id=? FOR UPDATE", [projectId]);
-      await query(db, "UPDATE projects SET name=? WHERE id=?", [data.name, projectId]);
-      await this.projectChange(db, projectId, user.id, "profile_updated", { before: { name: previous.name }, after: { name: data.name } });
+      const [previous] = await query(db, "SELECT name,description FROM projects WHERE id=? FOR UPDATE", [projectId]);
+      const name = next.name ?? previous.name;
+      const description = next.description ?? previous.description;
+      await query(db, "UPDATE projects SET name=?,description=? WHERE id=?", [name, description, projectId]);
+      await this.projectChange(db, projectId, user.id, "profile_updated", {
+        before: { name: previous.name, description: previous.description },
+        after: { name, description },
+      });
     });
-    return { id: projectId, ...data };
+    const [updated] = await query(this.db, "SELECT id,name,description FROM projects WHERE id=?", [projectId]);
+    return updated;
   }
   async systemAdmin(user, db = this.db) {
     if (user.kind !== "session") fail(403, "系统管理需要人工登录");
@@ -378,12 +393,19 @@ export class Service {
     );
     const membersQuery = query(
       this.db,
-      `SELECT u.id,u.user_number,u.username,u.name,COALESCE(u.username,u.email) email,u.email bound_email,${display ? "CONCAT('/api/projects/',m.project_id,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) avatar" : "u.avatar"},u.motto,u.identity_tags,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=?`,
+      `SELECT u.id,u.user_number,u.username,u.name,COALESCE(u.username,u.email) email,u.email bound_email,${display ? "CONCAT('/api/projects/',m.project_id,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) avatar" : "u.avatar"},u.motto,u.identity_tags,m.role,
+        c.id connector_id,c.name connector_name,c.platform connector_platform,c.version connector_version,c.last_seen_at connector_last_seen_at,
+        CASE WHEN c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND) THEN 1 ELSE 0 END connector_online,
+        CASE WHEN cp.connector_id IS NULL THEN 0 ELSE 1 END connector_bound
+       FROM members m JOIN users u ON u.id=m.user_id
+       LEFT JOIN connectors c ON c.user_id=u.id AND c.revoked_at IS NULL
+       LEFT JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=m.project_id
+       WHERE m.project_id=?`,
       [projectId],
     );
     const versionsQuery = query(
       this.db,
-      `SELECT a.id artifact_id,a.title,a.folder_id,a.recycle_path,f.thread_id folder_thread_id,f.folder_kind,COALESCE(a.deleted_at,vr.deleted_at) deleted_at,a.deleted_at artifact_deleted_at,vr.deleted_at version_deleted_at,a.updated_at,v.id,v.version,v.filename,v.mime,v.byte_size,v.sha256,v.note,v.thread_id,v.created_at,u.name author,
+      `SELECT a.id artifact_id,a.title,a.folder_id,a.recycle_path,f.thread_id folder_thread_id,f.folder_kind,COALESCE(a.deleted_at,vr.deleted_at) deleted_at,a.deleted_at artifact_deleted_at,vr.deleted_at version_deleted_at,a.updated_at,v.id,v.version,v.filename,v.mime,v.byte_size,v.sha256,v.note,v.thread_id,v.created_by author_id,v.created_at,u.name author,
       (SELECT r.decision FROM reviews r WHERE r.version_id=v.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1) review
       FROM artifacts a JOIN versions v ON v.artifact_id=a.id LEFT JOIN document_folders f ON f.id=a.folder_id LEFT JOIN version_recycle vr ON vr.version_id=v.id JOIN users u ON u.id=v.created_by WHERE a.project_id=? ORDER BY v.created_at DESC,v.version DESC`,
       [projectId],
@@ -413,10 +435,32 @@ export class Service {
         lastThreadTitle: projectSummary.last_thread_title || null,
       } : null,
       threads,
-      members: [...members, {
-        ...AGENT_MEMBER,
-        motto: `${coordinatorModel.model} · ${coordinatorModel.reasoningEffort}`,
-      }],
+      members: [
+        ...members.map((row) => {
+          const {
+            connector_id, connector_name, connector_platform, connector_version,
+            connector_last_seen_at, connector_online, connector_bound, ...member
+          } = row;
+          return {
+            ...member,
+            kind: "human",
+            connector: connector_id ? {
+              id: connector_id,
+              name: connector_name,
+              platform: connector_platform,
+              version: connector_version,
+              online: !!Number(connector_online),
+              bound: !!Number(connector_bound),
+              lastSeenAt: connector_last_seen_at,
+            } : null,
+          };
+        }),
+        {
+          ...AGENT_MEMBER,
+          kind: "l1",
+          motto: `${coordinatorModel.model} · ${coordinatorModel.reasoningEffort}`,
+        },
+      ],
       versions: libraryVersions,
       folders,
       documentOrganizationJobs,
@@ -1206,12 +1250,12 @@ export class Service {
   }
   async conversationMembers(user, projectId, memberId) {
     await this.member(user, id.parse(projectId));
-    if (memberId === AGENT_MEMBER.id) return { id: AGENT_MEMBER.id, name: AGENT_MEMBER.name, role: AGENT_MEMBER.role, identity_tags: AGENT_MEMBER.identity_tags };
+    if (memberId === AGENT_MEMBER.id) return { id: AGENT_MEMBER.id, name: AGENT_MEMBER.name, role: AGENT_MEMBER.role, kind: "l1", identity_tags: AGENT_MEMBER.identity_tags };
     if (memberId) id.parse(memberId);
     const rows = await query(this.db, `SELECT u.id,u.name,m.role${memberId ? ',u.motto,u.identity_tags' : ''}
       FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=?${memberId ? ' AND u.id=?' : ''} ORDER BY u.name,u.id`, [projectId,...(memberId ? [memberId] : [])]);
-    if (memberId) { if (!rows.length) fail(404,"成员不属于当前项目"); return rows[0]; }
-    return [...rows, { id: AGENT_MEMBER.id, name: AGENT_MEMBER.name, role: AGENT_MEMBER.role }];
+    if (memberId) { if (!rows.length) fail(404,"成员不属于当前项目"); return { ...rows[0], kind: "human" }; }
+    return [...rows.map((row) => ({ ...row, kind: "human" })), { id: AGENT_MEMBER.id, name: AGENT_MEMBER.name, role: AGENT_MEMBER.role, kind: "l1" }];
   }
   async postMessage(user, threadId, input) {
     const data = z
@@ -1355,6 +1399,8 @@ export class Service {
       if (!folder) fail(404, "文件夹不存在");
       if (!(await isOfficialLibraryFolder(db, folder.id)))
         fail(403, "只能上传到正式文件区");
+      data.title = await uniqueArtifactTitle(db, projectId, data.folderId, data.title);
+      data.filename = await uniqueVersionFilename(db, projectId, data.folderId, data.filename);
       const artifactId = randomUUID();
       await query(
         db,
@@ -1482,8 +1528,11 @@ export class Service {
           fail(403, "正式文件不分版本，请通过上传或另存创建");
         if (chatUpload && !isCacheFolderKind(rootKind))
           fail(403, "对话上传只能保存到缓存文件");
-        if (isCacheFolderKind(rootKind) && !sourceFile)
-          fail(403, "缓存文件只能由对话上传产生，Agent 不能新增");
+        if (isCacheFolderKind(rootKind) && !sourceFile) {
+          if (!generatedByTask)
+            fail(403, "缓存文件只能由对话上传产生，Agent 不能新增");
+          data.folderId = (await this.dailyProjectFolder(db, thread.project_id, "outputs")).id;
+        }
         if (isOutputFolderKind(rootKind) && sourceFile)
           fail(403, "产物文件只能由智能体构建");
         await this.assertDocumentScopeAvailable(db, thread.project_id, folder.id);
@@ -1492,7 +1541,7 @@ export class Service {
       if (artifactId) {
         const [artifact] = await query(
           db,
-          `SELECT a.id,a.folder_id,f.thread_id,f.folder_kind FROM artifacts a LEFT JOIN document_folders f ON f.id=a.folder_id
+          `SELECT a.id,a.title,a.folder_id,f.thread_id,f.folder_kind FROM artifacts a LEFT JOIN document_folders f ON f.id=a.folder_id
            WHERE a.id=? AND a.project_id=? AND a.deleted_at IS NULL FOR UPDATE`,
           [artifactId, thread.project_id],
         );
@@ -1500,11 +1549,26 @@ export class Service {
         const artifactRoot = await folderRootKind(db, artifact.folder_id);
         if (artifactRoot === "project_official")
           fail(403, "正式文件不分版本，不能提交新版本");
-        if (isCacheFolderKind(artifactRoot))
-          fail(403, "缓存文件是只读来源，不能提交新版本");
-        await this.assertDocumentScopeAvailable(db, thread.project_id, artifact.folder_id);
+        if (isCacheFolderKind(artifactRoot)) {
+          if (!generatedByTask)
+            fail(403, "缓存文件是只读来源，不能提交新版本");
+          artifactId = randomUUID();
+          data.folderId = (await this.dailyProjectFolder(db, thread.project_id, "outputs")).id;
+          if (!data.note) data.note = `基于缓存文件「${artifact.title}」修改`;
+          data.title = await uniqueArtifactTitle(db, thread.project_id, data.folderId, data.title);
+          data.filename = await uniqueVersionFilename(db, thread.project_id, data.folderId, data.filename);
+          await query(
+            db,
+            "INSERT INTO artifacts(id,project_id,title,created_by,folder_id) VALUES(?,?,?,?,?)",
+            [artifactId, thread.project_id, data.title, user.id, data.folderId],
+          );
+        } else {
+          await this.assertDocumentScopeAvailable(db, thread.project_id, artifact.folder_id);
+        }
       } else {
         artifactId = randomUUID();
+        data.title = await uniqueArtifactTitle(db, thread.project_id, data.folderId || null, data.title);
+        data.filename = await uniqueVersionFilename(db, thread.project_id, data.folderId || null, data.filename);
         await query(
           db,
           "INSERT INTO artifacts(id,project_id,title,created_by,folder_id) VALUES(?,?,?,?,?)",
@@ -1677,14 +1741,15 @@ export class Service {
           ? "只有已确认的缓存文件可以另存为正式文件"
           : "只有已确认的产物文件版本可以另存为正式文件");
     }
-    const copiedTitle = givenTitle
-      || (isOutputFolderKind(sourceRoot) ? officialTitleWithVersion(source.title, source.version) : source.title);
     const official = await this.documentFolder(db, projectId, "project_official");
+    const copiedTitle = await uniqueArtifactTitle(db, projectId, official.id, givenTitle
+      || (isOutputFolderKind(sourceRoot) ? officialTitleWithVersion(source.title, source.version) : source.title));
+    const copiedFilename = await uniqueVersionFilename(db, projectId, official.id, source.filename);
     const artifactId = randomUUID(), copiedVersionId = randomUUID();
     await query(db, "INSERT INTO artifacts(id,project_id,title,created_by,folder_id) VALUES(?,?,?,?,?)",
       [artifactId, projectId, copiedTitle, user.id, official.id]);
     await query(db, `INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?)`, [copiedVersionId, artifactId, threadId || source.thread_id || null, 1, source.filename, source.mime,
+      VALUES(?,?,?,?,?,?,?,?,?,?,?)`, [copiedVersionId, artifactId, threadId || source.thread_id || null, 1, copiedFilename, source.mime,
       source.content, source.sha256, source.byte_size, note, user.id]);
     await queueDocumentMemory(db, copiedVersionId);
     return { id: copiedVersionId, artifactId, version: 1, title: copiedTitle };
@@ -1714,32 +1779,69 @@ export class Service {
       .object({
         decision: z.enum(["approved", "changes_requested"]),
         comment: z.string().max(4000).default(""),
+        threadId: id.optional(),
       })
       .parse(input);
     const version = await this.version(user, versionId);
     const rootKind = await folderRootKind(this.db, version.folder_id);
     if (rootKind === "project_official")
       fail(403, "正式文件已确认，不需要审核");
-    return transaction(this.db, async (db) => {
-      await this.thread(user, version.thread_id, true, db);
-      const reviewId = randomUUID();
+    if (!isCacheFolderKind(rootKind) && !isOutputFolderKind(rootKind))
+      fail(400, "只能审核缓存文件或产物文件");
+    const comment = data.comment.trim();
+    if (data.decision === "changes_requested" && !comment)
+      fail(400, "请填写需要修改的内容");
+    const threadId = data.threadId || version.thread_id;
+    if (!threadId) fail(400, "请在当前迭代中审核文档");
+    const thread = await this.thread(user, threadId, true);
+    if (thread.project_id !== version.project_id)
+      fail(400, "只能在本项目的迭代中发送审核意见");
+    const reviewId = randomUUID();
+    await transaction(this.db, async (db) => {
+      await this.thread(user, threadId, true, db);
       await query(
         db,
         "INSERT INTO reviews(id,version_id,reviewer_id,decision,comment) VALUES(?,?,?,?,?)",
-        [reviewId, versionId, user.id, data.decision, data.comment],
+        [reviewId, versionId, user.id, data.decision, comment],
       );
-      const cache = isCacheFolderKind(rootKind);
-      const action = data.decision === "approved" ? (cache ? "确认" : "审核通过") : "要求修改";
-      await this.insertMessage(
-        db,
-        user,
-        version.thread_id,
-        `${action}「${version.title}」${cache ? "" : `v${version.version}`}${data.comment ? `：${data.comment}` : ""}`,
-        [versionId],
-        "system",
-      );
-      return { id: reviewId };
+      if (data.decision === "approved") {
+        const cache = isCacheFolderKind(rootKind);
+        const action = cache ? "确认" : "审核通过";
+        await this.insertMessage(
+          db,
+          user,
+          threadId,
+          `${action}「${version.title}」${cache ? "" : `v${version.version}`}`,
+          [versionId],
+          "system",
+        );
+      }
     });
+    if (data.decision !== "changes_requested") return { id: reviewId };
+    const mentionAgent = isOutputFolderKind(rootKind)
+      || !version.created_by
+      || version.created_by === user.id
+      || version.created_by === AGENT_MEMBER.id;
+    let mentionName = AGENT_MEMBER.name;
+    if (!mentionAgent) {
+      const [author] = await query(this.db, "SELECT name FROM users WHERE id=?", [version.created_by]);
+      mentionName = author?.name || AGENT_MEMBER.name;
+    }
+    const label = isCacheFolderKind(rootKind) ? "" : `v${version.version}`;
+    const numbered = /(?:^|\n)\d+\.\s/.test(comment) || comment.includes("\n");
+    const commentBlock = numbered ? `\n${comment}` : comment;
+    const saveHint = isCacheFolderKind(rootKind)
+      ? (mentionAgent
+        ? `${numbered ? "\n" : "。"}修改后请保存为产物文件，不要改缓存原件`
+        : `${numbered ? "\n" : "。"}请让小祥帮忙改并保存为产物文件，或自己改完后在对话框重新上传新的缓存文件`)
+      : "";
+    const body = `@${mentionName} 需要修改「${version.title}」${label}：${commentBlock}${saveHint}`;
+    const message = await this.postMessage(user, threadId, {
+      body,
+      refs: [versionId],
+      mentionAgent: mentionAgent || mentionName === AGENT_MEMBER.name,
+    });
+    return { id: reviewId, messageId: message.id };
   }
   async archive(user, threadId, input) {
     if (user.kind !== "session") fail(403, "归档需要人工登录");

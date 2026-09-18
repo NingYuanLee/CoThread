@@ -6,6 +6,7 @@ import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { libraryChange } from "../server/library.js";
 import { folderRootKind, isVisibleLibraryTreeFolder } from "../server/project-library.js";
+import { AGENT_MEMBER } from "../shared/agent-member.js";
 
 test("cache date subfolders stay visible when folder_kind matches area root", () => {
   const cacheRoot = { id: "root", parent_id: null, thread_id: null, folder_kind: "project_cache", name: "缓存文件" };
@@ -292,7 +293,7 @@ test("save to official copies cache files into the official root", async () => {
       () => service.saveVersionToOfficial(user, project.id, uploaded.id),
       (error) => error.status === 409 && /已确认/.test(error.message),
     );
-    await service.review(user, uploaded.id, { decision: "changes_requested" });
+    await service.review(user, uploaded.id, { decision: "changes_requested", comment: "改一下标题", threadId: thread.id });
     await assert.rejects(
       () => service.saveVersionToOfficial(user, project.id, uploaded.id),
       (error) => error.status === 409 && /已确认/.test(error.message),
@@ -415,6 +416,141 @@ test("confirmed output versions save to official with a versioned title", async 
     const renamed = await service.saveVersionToOfficial(user, project.id, second.id, { title: "规格定稿" });
     const [named] = await query(db, "SELECT title FROM artifacts WHERE id=?", [renamed.artifactId]);
     assert.equal(named.title, "规格定稿");
+  } finally {
+    await database.close();
+  }
+});
+
+test("requesting changes posts to the current iteration with the right mention", async () => {
+  const database = await testDatabase();
+  const db = database.db;
+  try {
+    const owner = { id: randomUUID(), kind: "session" };
+    const other = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [owner.id, `${owner.id}@test.com`, "负责人"]);
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [other.id, `${other.id}@test.com`, "来源人"]);
+    const service = new Service(db);
+    const project = await service.createProject(owner, { name: "库" });
+    await service.addMember(owner, project.id, { userId: other.id });
+    const thread = await service.createThread(owner, project.id, { title: "迭代" });
+    const ownCache = await service.submitVersion(owner, thread.id, {
+      title: "我的缓存",
+      filename: "mine.txt",
+      mime: "text/plain",
+      contentBase64: Buffer.from("mine").toString("base64"),
+    }, undefined, undefined, true);
+    const otherCache = await service.submitVersion(other, thread.id, {
+      title: "他人缓存",
+      filename: "other.txt",
+      mime: "text/plain",
+      contentBase64: Buffer.from("other").toString("base64"),
+    }, undefined, undefined, true);
+    const output = await service.submitVersion({ ...owner, kind: "api" }, thread.id, {
+      title: "产物",
+      filename: "out.md",
+      mime: "text/markdown",
+      contentBase64: Buffer.from("# out").toString("base64"),
+    });
+    await assert.rejects(
+      () => service.review(owner, ownCache.id, { decision: "changes_requested", threadId: thread.id }),
+      (error) => error.status === 400 && /填写/.test(error.message),
+    );
+    const own = await service.review(owner, ownCache.id, {
+      decision: "changes_requested", comment: "补一句说明", threadId: thread.id,
+    });
+    const theirs = await service.review(owner, otherCache.id, {
+      decision: "changes_requested", comment: "请改文件名", threadId: thread.id,
+    });
+    const product = await service.review(other, output.id, {
+      decision: "changes_requested", comment: "按规范重写", threadId: thread.id,
+    });
+    const messages = await query(db, "SELECT id,body,source FROM messages WHERE thread_id=? ORDER BY sequence", [thread.id]);
+    const ownMessage = messages.find((row) => row.id === own.messageId);
+    const theirsMessage = messages.find((row) => row.id === theirs.messageId);
+    const productMessage = messages.find((row) => row.id === product.messageId);
+    assert.equal(ownMessage.source, "human");
+    assert.match(ownMessage.body, new RegExp(`@${AGENT_MEMBER.name} 需要修改「我的缓存」：补一句说明。修改后请保存为产物文件`));
+    assert.match(theirsMessage.body, /@来源人 需要修改「他人缓存」：请改文件名。请让小祥帮忙改并保存为产物文件，或自己改完后在对话框重新上传新的缓存文件/);
+    assert.match(productMessage.body, new RegExp(`@${AGENT_MEMBER.name} 需要修改「产物」v1：按规范重写`));
+    const replies = await query(db, "SELECT message_id,participation FROM assistant_replies WHERE message_id IN (?,?,?)",
+      [own.messageId, theirs.messageId, product.messageId]);
+    assert.equal(replies.find((row) => row.message_id === own.messageId)?.participation, "reply");
+    assert.equal(replies.find((row) => row.message_id === product.messageId)?.participation, "reply");
+    assert.equal(replies.find((row) => row.message_id === theirs.messageId)?.participation, "pending");
+    const revised = await service.submitVersion({ ...owner, kind: "api" }, thread.id, {
+      title: "我的缓存改稿",
+      filename: "mine.txt",
+      mime: "text/plain",
+      contentBase64: Buffer.from("revised").toString("base64"),
+      artifactId: ownCache.artifactId,
+    });
+    assert.notEqual(revised.artifactId, ownCache.artifactId);
+    assert.equal(revised.version, 1);
+    const [revisedFolder] = await query(db, `SELECT f.folder_kind FROM artifacts a JOIN document_folders f ON f.id=a.folder_id WHERE a.id=?`, [revised.artifactId]);
+    assert.equal(revisedFolder.folder_kind, "project_outputs");
+    const [cacheFolder] = await query(db, `SELECT f.folder_kind FROM artifacts a JOIN document_folders f ON f.id=a.folder_id WHERE a.id=?`, [ownCache.artifactId]);
+    assert.equal(cacheFolder.folder_kind, "project_cache");
+  } finally {
+    await database.close();
+  }
+});
+
+test("same-folder duplicate names are auto-renamed instead of rejected", async () => {
+  const database = await testDatabase();
+  const db = database.db;
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [user.id, `${user.id}@test.com`, "成员"]);
+    const service = new Service(db);
+    const project = await service.createProject(user, { name: "库" });
+    const thread = await service.createThread(user, project.id, { title: "迭代" });
+    const first = await service.submitVersion(user, thread.id, {
+      title: "纪要",
+      filename: "notes.md",
+      mime: "text/markdown",
+      contentBase64: Buffer.from("a").toString("base64"),
+    }, undefined, undefined, true);
+    const second = await service.submitVersion(user, thread.id, {
+      title: "纪要",
+      filename: "notes.md",
+      mime: "text/markdown",
+      contentBase64: Buffer.from("b").toString("base64"),
+    }, undefined, undefined, true);
+    const [firstRow] = await query(db, "SELECT title FROM artifacts WHERE id=?", [first.artifactId]);
+    const [secondRow] = await query(db, "SELECT title,folder_id FROM artifacts WHERE id=?", [second.artifactId]);
+    const [firstFile] = await query(db, "SELECT filename FROM versions WHERE id=?", [first.id]);
+    const [secondFile] = await query(db, "SELECT filename FROM versions WHERE id=?", [second.id]);
+    assert.equal(firstRow.title, "纪要");
+    assert.equal(secondRow.title, "纪要 (2)");
+    assert.equal(firstFile.filename, "notes.md");
+    assert.equal(secondFile.filename, "notes (2).md");
+    const [official] = await query(db,
+      "SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_official' AND parent_id IS NULL LIMIT 1",
+      [project.id]);
+    const officialA = await service.uploadOfficialDocument(user, project.id, {
+      folderId: official.id,
+      title: "规范",
+      filename: "spec.md",
+      mime: "text/markdown",
+      contentBase64: Buffer.from("a").toString("base64"),
+    });
+    const officialB = await service.uploadOfficialDocument(user, project.id, {
+      folderId: official.id,
+      title: "规范",
+      filename: "spec.md",
+      mime: "text/markdown",
+      contentBase64: Buffer.from("b").toString("base64"),
+    });
+    const [oa] = await query(db, "SELECT title FROM artifacts WHERE id=?", [officialA.artifactId]);
+    const [ob] = await query(db, "SELECT title FROM artifacts WHERE id=?", [officialB.artifactId]);
+    assert.equal(oa.title, "规范");
+    assert.equal(ob.title, "规范 (2)");
+    await libraryChange(service, user, project.id, "artifact", officialB.artifactId, { name: "规范" });
+    const [renamed] = await query(db, "SELECT title FROM artifacts WHERE id=?", [officialB.artifactId]);
+    assert.equal(renamed.title, "规范 (2)");
   } finally {
     await database.close();
   }

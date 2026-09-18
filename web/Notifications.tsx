@@ -1,9 +1,16 @@
 import React, { useEffect, useRef, useState } from "react";
+import { UiIcon } from "./ui-icon";
+import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
 
 type Kind = "all" | "mention" | "member_added" | "member_removed";
 type Notice = { id: string; kind: Exclude<Kind, "all">; title: string; sender_name: string; body: string; project_name: string; read_at: string | null; created_at: string; can_open: boolean; thread_id: string | null };
 type Page = { items: Notice[]; unread: number; counts: Partial<Record<Kind, { total: number; unread: number }>>; next: string | null };
-const tabs: { id: Kind; label: string }[] = [{ id: "all", label: "全部" }, { id: "mention", label: "@我的" }, { id: "member_added", label: "加入项目" }, { id: "member_removed", label: "移出项目" }];
+const tabs: { id: Kind; label: string; icon: "inbox" | "mention" | "userPlus" | "trash" }[] = [
+  { id: "all", label: "全部", icon: "inbox" },
+  { id: "mention", label: "@我的", icon: "mention" },
+  { id: "member_added", label: "加入项目", icon: "userPlus" },
+  { id: "member_removed", label: "移出项目", icon: "trash" },
+];
 const empty: Page = { items: [], unread: 0, counts: {}, next: null };
 const time = (value: string, compact = false) => new Date(value.includes("T") ? value : value.replace(" ", "T") + "Z").toLocaleString("zh-CN", compact ? { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false } : { hour12: false });
 export function Notifications({ api, onOpen }: {
@@ -69,8 +76,8 @@ export function Notifications({ api, onOpen }: {
   }, [open, kind, cursor, reload]);
   useEffect(() => {
     if (open) dialog.current?.showModal();
-    else dialog.current?.close();
   }, [open]);
+  const close = () => animateDialogClose(dialog.current, () => setOpen(false));
   const act = async (action: () => Promise<void>) => {
     setBusy(true); setError(""); pages.current.clear();
     try { await action(); } catch (e) { setError((e as Error).message); }
@@ -89,8 +96,8 @@ export function Notifications({ api, onOpen }: {
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
       {page.unread > 0 && <span className="notification-count">{page.unread > 99 ? "99+" : page.unread}</span>}
     </button>
-    <dialog ref={dialog} className="notification-dialog" aria-labelledby="notification-title" onCancel={() => setOpen(false)} onClose={() => { setOpen(false); bell.current?.focus(); }}>
-      <div className="notification-heading"><h2 id="notification-title">站内信 <small>{page.unread} 条未读</small></h2><button aria-label="关闭站内信" onClick={() => setOpen(false)}>×</button></div>
+    <dialog ref={dialog} className="notification-dialog" aria-labelledby="notification-title" onCancel={onDialogCancel(() => setOpen(false))} onClick={onDialogBackdropClick(() => setOpen(false))} onClose={() => { setOpen(false); bell.current?.focus(); }}>
+      <div className="notification-heading"><h2 id="notification-title">站内信 <small>{page.unread} 条未读</small></h2><DialogClose onClick={close} label="关闭站内信" /></div>
       <div className="notification-toolbar">
         <div className="notification-tabs" role="tablist" aria-label="站内信类型">{tabs.map((item, index) => <button key={item.id} role="tab" id={`notice-tab-${item.id}`} aria-controls="notice-panel" aria-selected={kind === item.id} tabIndex={kind === item.id ? 0 : -1} disabled={busy} onClick={() => changeTab(item.id)} onKeyDown={(event) => {
           if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -98,8 +105,8 @@ export function Notifications({ api, onOpen }: {
           const target = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
           changeTab(tabs[target].id);
           document.getElementById(`notice-tab-${tabs[target].id}`)?.focus();
-        }}>{item.label}{(item.id === "all" ? page.unread : page.counts[item.id]?.unread || 0) > 0 && <span>{item.id === "all" ? page.unread : page.counts[item.id]?.unread}</span>}</button>)}</div>
-        <div className="notification-tools"><button disabled={busy || loading} onClick={() => { setCursors([null]); setSelectedId(""); setReload((v) => v + 1); }}>刷新</button><button disabled={busy || !page.unread} onClick={() => void act(async () => { await api("/notifications/read-all", {}); setReload((v) => v + 1); })}>全部已读</button></div>
+        }}><UiIcon name={item.icon} size={13} />{item.label}{(item.id === "all" ? page.unread : page.counts[item.id]?.unread || 0) > 0 && <span>{item.id === "all" ? page.unread : page.counts[item.id]?.unread}</span>}</button>)}</div>
+        <div className="notification-tools"><button disabled={busy || loading} onClick={() => { setCursors([null]); setSelectedId(""); setReload((v) => v + 1); }}><UiIcon name="refresh" size={12} />刷新</button><button disabled={busy || !page.unread} onClick={() => void act(async () => { await api("/notifications/read-all", {}); setReload((v) => v + 1); })}><UiIcon name="check" size={12} />全部已读</button></div>
       </div>
       {error && <p role="alert" className="notification-error">{error}</p>}
       <div id="notice-panel" role="tabpanel" aria-labelledby={`notice-tab-${kind}`} className="notification-split">
@@ -110,18 +117,18 @@ export function Notifications({ api, onOpen }: {
               <span title={notice.title}>{notice.title}</span><span title={notice.sender_name}>{notice.sender_name}</span><time title={time(notice.created_at)} dateTime={notice.created_at}>{time(notice.created_at, true)}</time>
             </button>)}
           </div>
-          <div className="notification-pagination"><small>共 {total} 条 · 第 {cursors.length} 页</small><div><button disabled={busy || loading || cursors.length === 1} onClick={() => { setCursors((old) => old.slice(0, -1)); setSelectedId(""); }}>上一页</button><button disabled={busy || loading || !page.next} onClick={() => { setCursors((old) => [...old, page.next]); setSelectedId(""); }}>下一页</button></div></div>
+          <div className="notification-pagination"><small>共 {total} 条 · 第 {cursors.length} 页</small><div><button disabled={busy || loading || cursors.length === 1} onClick={() => { setCursors((old) => old.slice(0, -1)); setSelectedId(""); }}><UiIcon name="prev" size={12} />上一页</button><button disabled={busy || loading || !page.next} onClick={() => { setCursors((old) => [...old, page.next]); setSelectedId(""); }}>下一页<UiIcon name="next" size={12} /></button></div></div>
         </section>
         <section className="notification-detail" aria-label="消息详情" aria-live="polite">
-          {!selected || loading ? <div className="notification-detail-empty"><span>✉</span><p>选择左侧消息，查看详情</p></div> : <>
-            <span className="notification-kind">{tabs.find((item) => item.id === selected.kind)?.label}</span>
+          {!selected || loading ? <div className="notification-detail-empty"><UiIcon name="inbox" size={28} /><p>选择左侧消息，查看详情</p></div> : <>
+            <span className="notification-kind"><UiIcon name={tabs.find((item) => item.id === selected.kind)?.icon || "inbox"} size={12} />{tabs.find((item) => item.id === selected.kind)?.label}</span>
             <h3>{selected.title}</h3>
             <div className="notification-meta"><span>发送人：{selected.sender_name}</span><time>{time(selected.created_at)}</time><span>项目：{selected.project_name}</span></div>
             <p className="notification-body">{selected.body}</p>
             <div className="notification-actions">
-              {!!selected.can_open && <button disabled={busy} onClick={() => void act(async () => { const target = await api(`/notifications/${selected.id}/open`, {}); onOpen(target); setOpen(false); })}>{selected.thread_id ? "打开迭代会话" : "进入项目"}</button>}
+              {!!selected.can_open && <button disabled={busy} onClick={() => void act(async () => { const target = await api(`/notifications/${selected.id}/open`, {}); onOpen(target); setOpen(false); })}><UiIcon name={selected.thread_id ? "chat" : "project"} size={13} />{selected.thread_id ? "打开迭代会话" : "进入项目"}</button>}
               {!selected.can_open && selected.kind !== "member_removed" && <small>已无该项目的访问权限</small>}
-              {!selected.read_at && <button disabled={busy} onClick={() => select(selected)}>标为已读</button>}
+              {!selected.read_at && <button disabled={busy} onClick={() => select(selected)}><UiIcon name="check" size={13} />标为已读</button>}
             </div>
           </>}
         </section>

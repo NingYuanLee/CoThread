@@ -1,0 +1,24 @@
+export function fileDisplayName({ title, filename } = {}) {
+  const name = String(title || "").trim() || String(filename || "").trim() || "文档";
+  const file = String(filename || "").trim();
+  const dot = file.lastIndexOf(".");
+  const suffix = dot > 0 && dot < file.length - 1 ? file.slice(dot) : "";
+  return suffix && !name.toLowerCase().endsWith(suffix.toLowerCase())
+    ? `${name}${suffix}`
+    : name;
+}
+
+export function nextDuplicateName(desired, taken) {
+  const name = String(desired || "").trim().slice(0, 160) || "文档";
+  const used = new Set([...taken].map((item) => String(item || "").trim().toLowerCase()).filter(Boolean));
+  if (!used.has(name.toLowerCase())) return name;
+  const dot = name.lastIndexOf(".");
+  const hasExt = dot > 0 && !name.slice(dot + 1).includes(" ");
+  const stem = hasExt ? name.slice(0, dot) : name;
+  const ext = hasExt ? name.slice(dot) : "";
+  for (let n = 2; n < 10000; n++) {
+    const candidate = `${stem} (${n})${ext}`.slice(0, 160);
+    if (!used.has(candidate.toLowerCase())) return candidate;
+  }
+  return `${stem} (${Date.now()})${ext}`.slice(0, 160);
+}

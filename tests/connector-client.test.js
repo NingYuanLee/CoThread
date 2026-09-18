@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, hostname, release } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -13,6 +13,7 @@ const {
   AGENTS, addDetachedWorktree, agentLaunchArgs, createAuthorizationCallback, instanceLockIsActive, launchPrompt,
   mergeCodexMcpConfig, mergeCursorMcpConfig, parseCodexSessionId, parseCursorChatId, parseInstanceLock,
   projectBinding, projectWorkDir, protectToken, relativeProjectPath, removeWorktree, taskCard, taskPrompt, unprotectToken,
+  deviceIdentity, windowsVersionLabel,
 } = require("../connector/main.cjs");
 
 test("connector rejects a stale lock whose PID was reused by another executable", () => {
@@ -185,5 +186,17 @@ test("detached worktrees ignore uncommitted files in the main checkout", async (
     removeWorktree(repo, worktree);
     await rm(worktree, { recursive: true, force: true });
     await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test("connector identity uses computer name and OS version", () => {
+  const device = deviceIdentity();
+  assert.equal(device.name, String(process.env.COMPUTERNAME || hostname() || "未知电脑").trim().slice(0, 100) || "未知电脑");
+  if (process.platform === "win32") {
+    assert.equal(device.platform, windowsVersionLabel(release()).slice(0, 40));
+    assert.match(device.platform, /^Windows /);
+    assert.ok(device.platform.includes(release()));
+  } else {
+    assert.ok(device.platform.includes(release()));
   }
 });

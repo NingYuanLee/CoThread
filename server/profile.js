@@ -1,5 +1,6 @@
 import { z } from "zod/v3";
 import { IDENTITY_TAGS } from "../shared/profile.js";
+import { normalizeUiTheme } from "../shared/ui-theme.js";
 
 const avatar = z
   .string()
@@ -51,5 +52,6 @@ export function personalProfile(user) {
         ? JSON.parse(user.identity_tags)
         : (user.identity_tags ?? []),
     is_super_admin: Boolean(user.is_super_admin),
+    ui_theme: normalizeUiTheme(user.ui_theme),
   };
 }

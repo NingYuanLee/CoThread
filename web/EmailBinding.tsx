@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { HumanVerification } from "./HumanVerification";
 import { ResendCountdown } from "./ResendCountdown";
+import { UiIcon } from "./ui-icon";
 
 export function EmailBinding({ email, api, onBound }: {
   email: string | null;
@@ -50,10 +51,10 @@ export function EmailBinding({ email, api, onBound }: {
       : <div className="email-code-step">
         <p className="auth-notice">收件服务器已接受发往 {address} 的验证码邮件，请在 10 分钟内输入。</p>
         <label>邮箱验证码<input value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" pattern="[0-9]{6}" maxLength={6} autoComplete="one-time-code" autoFocus /></label>
-        <button type="button" className="text-action" onClick={() => { setChallengeId(""); setCode(""); setAddress(""); void refreshHumanStatus(true); }}>更换邮箱</button>
+        <button type="button" className="text-action" onClick={() => { setChallengeId(""); setCode(""); setAddress(""); void refreshHumanStatus(true); }}><UiIcon name="email" size={12} />更换邮箱</button>
         <ResendCountdown sentAt={sentAt} onResend={() => { setChallengeId(""); setCode(""); void refreshHumanStatus(true); }} />
       </div>}
     {error && <div className="error" role="alert">{error}</div>}
-    <button type="button" disabled={busy || (!challengeId ? !address || (humanRequired && (!humanProof.humanChallengeId || !humanProof.humanAnswer)) : !/^\d{6}$/.test(code))} onClick={() => void act()}>{busy ? "处理中…" : challengeId ? "确认绑定" : "发送邮箱验证码"}</button>
+    <button type="button" disabled={busy || (!challengeId ? !address || (humanRequired && (!humanProof.humanChallengeId || !humanProof.humanAnswer)) : !/^\d{6}$/.test(code))} onClick={() => void act()}><UiIcon name={challengeId ? "check" : "email"} size={13} />{busy ? "处理中…" : challengeId ? "确认绑定" : "发送邮箱验证码"}</button>
   </section>;
 }

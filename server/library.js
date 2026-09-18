@@ -8,6 +8,7 @@ import {
   isOfficialLibraryFolder,
   isOutputFolderKind,
   LIBRARY_DATE_FOLDER_NAME,
+  uniqueArtifactTitle,
 } from "./project-library.js";
 
 const id = z.string().uuid();
@@ -136,7 +137,7 @@ export async function libraryChange(
     } else if (kind === "artifact") {
       const [row] = await query(
         db,
-        `SELECT a.id,a.folder_id,a.recycle_path,a.deleted_at,f.thread_id,f.folder_kind FROM artifacts a
+        `SELECT a.id,a.title,a.folder_id,a.recycle_path,a.deleted_at,f.thread_id,f.folder_kind FROM artifacts a
          LEFT JOIN document_folders f ON f.id=a.folder_id
          WHERE a.id=? AND a.project_id=? FOR UPDATE`,
         [id.parse(target), projectId],
@@ -159,16 +160,23 @@ export async function libraryChange(
       }
       if (destination?.folder_kind === "iteration_root")
         throw new HttpError(403, "请选择正式文件子文件夹");
-      if (data.name !== undefined)
+      if (data.name !== undefined) {
+        const uniqueName = await uniqueArtifactTitle(db, projectId, destination?.id || row.folder_id, data.name, target);
         await query(db, "UPDATE artifacts SET title=? WHERE id=?", [
-          data.name,
+          uniqueName,
           target,
         ]);
-      if (data.folderId !== undefined)
+      }
+      if (data.folderId !== undefined) {
+        if (data.name === undefined && destination) {
+          const uniqueName = await uniqueArtifactTitle(db, projectId, destination.id, row.title, target);
+          await query(db, "UPDATE artifacts SET title=? WHERE id=?", [uniqueName, target]);
+        }
         await query(db, "UPDATE artifacts SET folder_id=? WHERE id=?", [
           data.folderId,
           target,
         ]);
+      }
       if (data.deleted === true) {
         const path = parseRecyclePath(row.recycle_path) || await folderAncestry(db, row.folder_id);
         await query(db,
@@ -190,9 +198,10 @@ export async function libraryChange(
           folderId = official?.id || null;
         }
         if (folderId) await requireScope({ folder_id: folderId });
+        const restoredTitle = await uniqueArtifactTitle(db, projectId, folderId, row.title, target);
         await query(db,
-          "UPDATE artifacts SET deleted_at=NULL,recycle_path=NULL,folder_id=? WHERE id=?",
-          [folderId, target]);
+          "UPDATE artifacts SET deleted_at=NULL,recycle_path=NULL,folder_id=?,title=? WHERE id=?",
+          [folderId, restoredTitle, target]);
       }
     } else {
       const current = target ? await requireScope(await folder(target)) : null;

@@ -174,7 +174,8 @@
     <h1>让每次讨论都有承接<br><span class="grad">让每个决定都有出处</span></h1>
     <p class="lead">
       共序把讨论、执行和文档版本绑在同一条时间线上。
-      项目是长期工作空间，一次迭代就是一个群聊；右侧文档浏览器管正式文件、缓存与产物，
+      一次部署就是一家公司（服务独立、数据库隔离）；公司下管项目，项目下管迭代，迭代下管任务。
+      一次迭代就是一个群聊；右侧文档浏览器管正式文件、缓存与产物。
       内置助手「小祥」在沙箱里干活，人工审核之后归档——结论和出处一起留下。
     </p>
     <div class="btns">
@@ -200,7 +201,7 @@
       <div class="card reveal">
         <div class="ico">🧭</div>
         <h3>项目即长期空间</h3>
-        <p>一个账号可加入多个项目，各项目分别分配负责人 / 成员 / 只读。账号目录与项目成员分离，新账号不会自动获得任何项目权限。左侧「项目管理」管理基础信息与成员。</p>
+        <p>一次独立部署对应一家公司。一个账号可加入多个项目，各项目分别分配负责人 / 成员 / 只读。公司目录只有人类成员（含超管）；新账号不会自动获得任何项目权限。左侧「项目管理」维护本项目人类成员、连接器与项目级 Agent。</p>
       </div>
       <div class="card reveal">
         <div class="ico">💬</div>
@@ -210,7 +211,7 @@
       <div class="card reveal">
         <div class="ico">🗂️</div>
         <h3>成果即版本</h3>
-        <p>正式文件、对话缓存、任务产物分开放。产物保存为不可覆盖版本（SHA-256）；上传和 Agent 发布都不等于审批通过，审核与归档由人完成。</p>
+        <p>项目下全迭代共享文档库。正式文件、对话缓存、任务产物分开放。产物保存为不可覆盖版本（SHA-256）；上传和 Agent 发布都不等于审批通过，审核与归档由人完成。</p>
       </div>
     </div>
     <p class="note">本页为纯静态介绍页，与仓库 README 同步，不接入后端，也不包含任何真实令牌或账号信息。</p>
@@ -223,10 +224,10 @@
       <p class="sub">三栏各司其职：左侧收纳项目与人，中间把事聊清楚，右侧永远是文件而不是成员面板。侧栏可以收缩，把宽度留给讨论和预览。</p>
     </div>
     <div class="flow">
-      <div class="step reveal"><div class="n">左侧</div><h3>迭代与项目管理</h3><p>列出当前项目的迭代讨论，可查看已归档。底部打开「项目管理」（基础信息、长期总结、成员）和「小祥 Agent 监控」。</p></div>
+      <div class="step reveal"><div class="n">左侧</div><h3>迭代与项目管理</h3><p>列出当前项目的迭代讨论，可查看已归档。底部打开「项目管理」（人类成员、连接器、项目级 Agent）和「小祥 Agent 监控」（L1 / L2 / L3）。</p></div>
       <div class="step reveal"><div class="n">中间</div><h3>迭代群聊</h3><p>默认勾选「交给 Agent 处理」。可引用精确文档版本、把附件丢进当天缓存目录，看执行过程并停止或重试。</p></div>
-      <div class="step reveal"><div class="n">右侧</div><h3>文档浏览器</h3><p>一棵树看正式文件、缓存文件与产物文件。点选即可预览 Markdown、代码、图片、PDF 以及 Word / Excel / PowerPoint。</p></div>
-      <div class="step reveal"><div class="n">边界</div><h3>谁能改什么</h3><p>缓存和产物不能由人直接新建或改内容；可查看、引用、下载、审核、重命名、回收。正式文件区负责整理与另存。</p></div>
+      <div class="step reveal"><div class="n">右侧</div><h3>文档浏览器</h3><p>一棵树看本项目共享的正式文件、缓存文件与产物文件。点选即可预览 Markdown、代码、图片、PDF 以及 Word / Excel / PowerPoint。</p></div>
+      <div class="step reveal"><div class="n">边界</div><h3>谁能改什么</h3><p>缓存只来自对话框或 MCP 上传；产物只由 Agent 生成（含按缓存修改后的结果）。人不能在这两区直接改内容，可查看、引用、下载、审核、重命名、回收。「需要修改」会弹窗填意见后发到当前群聊。</p></div>
     </div>
   </section>
 
@@ -240,26 +241,26 @@
     <div class="cards g3">
       <div class="card reveal">
         <div class="ico">🔐</div>
-        <h3>账号与权限</h3>
-        <p>账号名或已绑定邮箱登录；支持邮箱注册与验证码重置密码。全局账号与项目成员分离，权限按项目分配负责人 / 成员 / 只读。</p>
-        <span class="tag">可绑定邮箱</span>
+        <h3>成员与权限</h3>
+        <p>账号名或已绑定邮箱登录。公司级成员管理只有人类（含超管）。项目成员是本项目人类及其连接器，加上项目级 Agent（L1）；权限按项目分配负责人 / 成员 / 只读。</p>
+        <span class="tag">Agent 不进公司目录</span>
       </div>
       <div class="card reveal">
         <div class="ico">🧾</div>
         <h3>文档版本与审核</h3>
-        <p>二进制入库，单文件 5 MiB、SHA-256、不可覆盖版本。对话进缓存目录，任务进产物目录；人工审核记录与软删除回收站。</p>
+        <p>二进制入库，单文件 5 MiB、SHA-256。缓存仅对话/MCP 上传，产物仅 Agent 生成，正式文件来自确认另存或人工上传。点「需要修改」须说明内容并发到当前迭代。</p>
         <span class="tag">不可覆盖</span>
       </div>
       <div class="card reveal">
         <div class="ico">🔗</div>
         <h3>精确引用与归档</h3>
-        <p>消息引用精确到版本号。归档一次保存结论、讨论、审核与版本摘要，已确认产物另存到正式文件；归档后本迭代不可改，后续仍可引用。</p>
+        <p>消息引用精确到版本号，且可引用本项目文档库任意有效版本。归档一次保存结论、讨论、审核与版本摘要，已确认产物另存到正式文件；归档后本迭代不可改，文档库仍共享给后续迭代。</p>
         <span class="tag">可追溯</span>
       </div>
       <div class="card reveal">
         <div class="ico">🤖</div>
         <h3>小祥：一个身份，三层干活</h3>
-        <p>对用户始终是「小祥」。对内：一级老翁维护项目知识库，二级调度本轮讨论，三级在独立会话里执行。同时最多 7 个执行任务加 1 个接待名额。</p>
+        <p>对用户始终是「小祥」。L1 挂在项目（知识库），L2 挂在迭代（调度），L3 挂在任务（执行槽）。同时最多 7 个执行任务加 1 个接待名额。</p>
         <span class="tag">监控页可看内部职责</span>
       </div>
       <div class="card reveal">
@@ -271,7 +272,7 @@
       <div class="card reveal">
         <div class="ico">🧰</div>
         <h3>MCP 与本机 Agent</h3>
-        <p>7 个 Streamable HTTP 工具让成员本地 AI 读上下文、发消息、提交产物。另有 Windows 连接器把确认后的任务交给本机 Cursor / Codex / Claude Code 会话与 Git。</p>
+        <p>7 个 Streamable HTTP 工具让成员本地 AI 读上下文、发消息、提交产物。Windows 连接器属于项目人类成员，把确认后的任务交给本机 Cursor / Codex / Claude Code 会话与 Git。</p>
         <span class="tag">Bearer 账号令牌</span>
       </div>
       <div class="card reveal">
@@ -305,8 +306,8 @@
     <div class="flow">
       <div class="step reveal"><div class="n">STEP 01</div><h3>讨论与澄清</h3><p>在迭代群聊里提出需求、@ 小祥或交给本机 Agent，引用已有版本。上下文由消息序号和引用关系固定下来。</p></div>
       <div class="step reveal"><div class="n">STEP 02</div><h3>小祥执行</h3><p>二级判断是否开跑；三级在独立沙箱里改文件、跑命令。忙时会明说暂时只陪聊，不会把请求悄悄排队。</p></div>
-      <div class="step reveal"><div class="n">STEP 03</div><h3>提交为版本</h3><p>成果进入产物目录的新版本（含 SHA-256）。本地 AI 令牌不能审批，也不能归档；缓存文件仍只是对话附件。</p></div>
-      <div class="step reveal"><div class="n">STEP 04</div><h3>人工审核归档</h3><p>审核通过后归档：结论、讨论、审核与版本一次落库，已确认产物另存到正式文件。归档后本迭代锁定，下一轮仍可引用。</p></div>
+      <div class="step reveal"><div class="n">STEP 03</div><h3>提交为版本</h3><p>Agent 成果进入项目产物文件（含 SHA-256）。对话附件只进缓存。本地 AI 令牌不能审批，也不能归档。</p></div>
+      <div class="step reveal"><div class="n">STEP 04</div><h3>人工审核归档</h3><p>确认或「需要修改」（弹窗说明后发到当前群聊）。归档后本迭代锁定，已确认产物另存正式文件；文档库仍给后续迭代共用。</p></div>
     </div>
   </section>
 
@@ -315,7 +316,19 @@
     <div class="reveal">
       <div class="kicker">Architecture</div>
       <h2>架构与存储</h2>
-      <p class="sub">轻量但明确的分工：本地服务使用本地沙箱，Makers 使用平台原生沙箱，MySQL 负责业务数据与附件持久化。</p>
+      <p class="sub">一家公司对应一次独立部署和一套数据库。项目、迭代、任务层层收纳；人类成员、连接器与三级 Agent 挂在不同层，互不混进公司目录。</p>
+    </div>
+    <div class="cards g2" style="margin-bottom:28px">
+      <div class="card reveal">
+        <div class="ico">🏢</div>
+        <h3>协作层级</h3>
+        <p>公司（独立服务与库）→ 项目（长期空间与共享文档库）→ 迭代（群聊与本轮任务）→ 任务（可指派、确认、执行的工作项）。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico">👥</div>
+        <h3>角色层级</h3>
+        <p>成员管理仅人类（含超管）。项目成员：本项目人类、其连接器、L1。迭代成员：本项目人类、本迭代 L2、任务级 L3。聊天里对外仍是小祥。</p>
+      </div>
     </div>
     <div class="arch">
       <div class="reveal">
@@ -410,7 +423,7 @@ npm run dev
         <div class="ico">🧭</div>
         <h3>使用前提</h3>
         <ul class="list" style="margin-top:6px">
-          <li>审核、归档与成员管理仍由人工进行</li>
+          <li>审核、归档与公司级成员管理仍由人工进行</li>
           <li>云端部署需配置 HTTPS 反向代理与数据库 TLS</li>
           <li>MySQL max_allowed_packet 建议 ≥ 32 MiB</li>
           <li>升级 DSH 时需同步验证会话恢复适配器</li>

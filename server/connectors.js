@@ -8,6 +8,12 @@ import { reopenConnectorTask, syncConnectorTaskById } from "./agent-task-sync.js
 const pairingCode = () => randomBytes(9).toString("base64url").toUpperCase();
 const bearer = (req) => req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
 const connectorToken = () => `ctc_${randomBytes(32).toString("base64url")}`;
+const queryText = (value, max) => {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string") return null;
+  const text = raw.trim();
+  return text ? text.slice(0, max) : null;
+};
 async function device(db, req) {
   const token = bearer(req);
   if (!token?.startsWith("ctc_")) throw new HttpError(401, "连接器凭证无效");
@@ -111,8 +117,9 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
 
   app.get("/api/connector/projects", async (req, res) => {
     const current = await device(db, req);
-    await query(db, "UPDATE connectors SET last_seen_at=UTC_TIMESTAMP(3),version=COALESCE(?,version) WHERE id=?",
-      [typeof req.query.version === "string" ? req.query.version.slice(0, 40) : null, current.id]);
+    await query(db, `UPDATE connectors SET last_seen_at=UTC_TIMESTAMP(3),
+      version=COALESCE(?,version),name=COALESCE(?,name),platform=COALESCE(?,platform) WHERE id=?`,
+      [queryText(req.query.version, 40), queryText(req.query.name, 100), queryText(req.query.platform, 40), current.id]);
     res.json(await query(db, `SELECT p.id,p.name,m.role,cp.policy,cp.allow_git_push allowGitPush,cp.connector_id IS NOT NULL bound
       FROM members m JOIN projects p ON p.id=m.project_id
       LEFT JOIN connector_projects cp ON cp.project_id=p.id AND cp.connector_id=?
@@ -343,7 +350,7 @@ export function registerConnectorBrowserRoutes(app, db, service) {
 
   app.get("/api/connectors/availability", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
-    res.json(await query(db, `SELECT m.project_id projectId,c.id,c.name,c.user_id ownerId,u.name ownerName,cp.policy,cp.allow_git_push allowGitPush
+    res.json(await query(db, `SELECT m.project_id projectId,c.id,c.name,c.platform,c.user_id ownerId,u.name ownerName,cp.policy,cp.allow_git_push allowGitPush
       FROM members m JOIN connector_projects cp ON cp.project_id=m.project_id
       JOIN connectors c ON c.id=cp.connector_id AND c.revoked_at IS NULL
         AND c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND)

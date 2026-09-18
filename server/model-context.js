@@ -8,7 +8,7 @@ function minimalMemberContext(value) {
       .filter(([key]) => !["avatar", "author_avatar"].includes(key))
       .map(([key, item]) => [key,
         key === "members" && Array.isArray(item)
-          ? item.map(({ id, name, role }) => ({ id, name, role }))
+          ? item.map(({ id, name, role, kind }) => ({ id, name, role, ...(kind ? { kind } : {}) }))
           : minimalMemberContext(item),
       ]),
   );

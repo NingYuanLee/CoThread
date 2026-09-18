@@ -2,8 +2,10 @@ import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
 import React, { useEffect, useRef, useState } from "react";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
+import { fileDisplayName } from "../shared/document-name.js";
 import { FileIcon } from "@react-symbols/icons/utils";
 import { Document, Notebook } from "@react-symbols/icons/files";
+import { UiIcon } from "./ui-icon";
 
 type FileVersion = {
   id: string;
@@ -100,9 +102,8 @@ export function ChatComposer({
   onSend,
   onRefresh,
   uploadTarget,
-  onOpenConnector,
+  connectorControl,
   onCopyConversation,
-  connectorAvailable,
   copyLabel,
 }: {
   projectId: string;
@@ -117,9 +118,8 @@ export function ChatComposer({
   onSend: () => Promise<boolean>;
   onRefresh: () => Promise<void>;
   uploadTarget: React.MutableRefObject<((files: File[]) => void) | null>;
-  onOpenConnector: () => void;
+  connectorControl: React.ReactNode;
   onCopyConversation: () => void;
-  connectorAvailable: boolean;
   copyLabel: string;
 }) {
   const [uploads, setUploads] = useState<Upload[]>([]);
@@ -276,7 +276,10 @@ export function ChatComposer({
   );
   const options = (
     trigger?.symbol === "/"
-      ? available.map((v) => ({ id: v.id, label: v.filename, detail: v.title }))
+      ? available.map((v) => {
+          const label = fileDisplayName(v);
+          return { id: v.id, label, detail: v.title !== label ? v.title : v.filename };
+        })
       : members.map((m) => ({
           id: m.id,
           label: m.name,
@@ -501,21 +504,10 @@ export function ChatComposer({
       )}
       <div className="composer-footer">
         <div className="composer-tools">
-          <button
-            type="button"
-            className="composer-connector"
-            title={connectorAvailable ? "项目有成员在线" : "运行连接器后在此授权"}
-            onClick={onOpenConnector}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M8 12h8M9 8V5m6 3V5M7 8h10v5a5 5 0 0 1-10 0V8Z" />
-              <path d="M12 18v3" />
-            </svg>
-            本地连接器
-            {connectorAvailable && <i className="composer-connector-dot" aria-hidden="true" />}
-          </button>
+          {connectorControl}
           <span className="composer-tools-split" aria-hidden="true" />
           <button type="button" className="composer-connector" onClick={onCopyConversation}>
+            <UiIcon name="copy" size={15} />
             {copyLabel}
           </button>
         </div>
@@ -523,7 +515,8 @@ export function ChatComposer({
           className="primary"
           disabled={busy || pending || !message.trim()}
         >
-          {pending ? "上传中…" : busy ? "处理中…" : "发送 ↑"}
+          <UiIcon name="send" size={14} />
+          {pending ? "上传中…" : busy ? "处理中…" : "发送"}
         </button>
       </div>
     </form>

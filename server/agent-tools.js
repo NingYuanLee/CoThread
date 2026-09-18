@@ -14,7 +14,7 @@ import { bindMakersSandbox } from "./makers-sandbox.js";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { loadMemberUnderstanding, loadProjectWikiIndexes, queueDocumentMemory } from "./project-memory.js";
 import { connectorTool } from "./connectors.js";
-import { acknowledgeTaskRejection, askTaskQuestion, createTask, ensureDshL3CanUpdate, inspectIterationTask, listTasks, reassignTask, recoverAbnormalTask, reopenRejectedTask, updateTask } from "./task-pool.js";
+import { acknowledgeTaskRejection, askTaskQuestion, createTask, ensureDshL3CanUpdate, idleL3Count, inspectIterationTask, listTasks, reassignTask, recoverAbnormalTask, reopenRejectedTask, updateTask } from "./task-pool.js";
 import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./project-library.js";
 
 function l2Actor(job, l2SessionId) {
@@ -128,7 +128,10 @@ export function createAgentTools(
     try {
       let result;
       if (name === "list_project_tasks") {
-        result = await listTasks(service.db, thread.project_id, { ...args, originThreadId: thread.id });
+        result = {
+          idleL3Count: await idleL3Count(service.db, l2SessionId),
+          tasks: await listTasks(service.db, thread.project_id, { ...args, originThreadId: thread.id }),
+        };
       } else if (name === "inspect_task") {
         result = await inspectIterationTask(service.db, z.string().uuid().parse(args.taskId),
           l2Actor(job, l2SessionId));

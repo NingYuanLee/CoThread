@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { ContextUsage } from "../shared/context.js";
+import { UiIcon } from "./ui-icon";
+import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
 
 const tokens = (value: number) =>
   value >= 1_000_000
@@ -32,8 +34,8 @@ export function ContextMeter({
     ["queued", "running"].includes(usage.compactStatus);
   useEffect(() => {
     if (open) dialog.current?.showModal();
-    else dialog.current?.close();
   }, [open]);
+  const close = () => animateDialogClose(dialog.current, () => setOpen(false));
   return (
     <>
       <button
@@ -47,7 +49,7 @@ export function ContextMeter({
           className="context-meter-icon"
           aria-hidden="true"
           style={{
-            background: `conic-gradient(currentColor ${progress}%, #e1e8db 0)`,
+            background: `conic-gradient(currentColor ${progress}%, var(--c-e1e7da, #e1e7da) 0)`,
           }}
         >
           <span />
@@ -62,33 +64,16 @@ export function ContextMeter({
         ref={dialog}
         className="context-usage-dialog"
         aria-labelledby="context-usage-title"
-        onCancel={() => setOpen(false)}
+        onCancel={onDialogCancel(() => setOpen(false))}
         onClose={() => setOpen(false)}
-        onClick={(event) => {
-          if (event.target === event.currentTarget) {
-            const rect = event.currentTarget.getBoundingClientRect();
-            if (
-              event.clientX < rect.left ||
-              event.clientX > rect.right ||
-              event.clientY < rect.top ||
-              event.clientY > rect.bottom
-            )
-              setOpen(false);
-          }
-        }}
+        onClick={onDialogBackdropClick(() => setOpen(false))}
       >
         <div className="context-dialog-heading">
           <div>
             <h2 id="context-usage-title">会话上下文</h2>
             <p>此会话独立使用一套上下文</p>
           </div>
-          <button
-            type="button"
-            aria-label="关闭上下文详情"
-            onClick={() => setOpen(false)}
-          >
-            ×
-          </button>
+          <DialogClose onClick={close} label="关闭上下文详情" />
         </div>
         <div className="context-total">
           <strong>
@@ -185,6 +170,7 @@ export function ContextMeter({
               }
             }}
           >
+            <UiIcon name="compress" size={13} />
             {usage.compactStatus === "queued"
               ? "等待上下文处理…"
               : compacting

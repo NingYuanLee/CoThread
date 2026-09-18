@@ -35,11 +35,25 @@ test("all members can add members; only the creator can rename and remove unprot
     await service.updateProject(creator, project.id, { name: "  新名称  " });
     const after = await service.project(member, project.id);
     assert.equal(after.name, "新名称");
+    assert.equal(after.description, "");
     assert.equal(after.created_at, before.created_at);
     assert.equal(after.created_by, creator.id);
-    assert.equal((await service.projects(viewer))[0].name, "新名称");
+    for (const actor of [member, viewer, outsider, otherOwner]) {
+      await assert.rejects(service.updateProject(actor, project.id, { description: "非法简介" }), { status: 403 });
+    }
+    await assert.rejects(service.updateProject(creator, project.id, { description: "字".repeat(4001) }));
+    await service.updateProject(creator, project.id, { description: "  项目要跑通协作闭环  " });
+    assert.equal((await service.project(member, project.id)).description, "项目要跑通协作闭环");
+    await service.updateProject(creator, project.id, { name: "最终名称", description: "" });
+    const cleared = await service.project(member, project.id);
+    assert.equal(cleared.name, "最终名称");
+    assert.equal(cleared.description, "");
+    assert.equal((await service.projects(viewer))[0].name, "最终名称");
     await service.removeMember(creator, project.id, added.id);
     await assert.rejects(service.project(added, project.id), { status: 403 });
-    assert.ok((await service.project(creator, project.id)).members.some((m) => m.id === AGENT_MEMBER.id));
+    const roster = await service.project(creator, project.id);
+    const agent = roster.members.find((m) => m.id === AGENT_MEMBER.id);
+    assert.equal(agent?.kind, "l1");
+    assert.ok(roster.members.some((m) => m.id === creator.id && m.kind === "human"));
   } finally { await database.close(); }
 });

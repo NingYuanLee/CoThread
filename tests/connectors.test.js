@@ -138,6 +138,7 @@ test("group local tasks target one online member and require that member's appro
   const availability = await request("/connectors/availability", undefined, requester);
   assert.equal(availability.status, 200);
   assert.deepEqual(new Set(availability.body.map((item) => item.ownerId)), new Set([assignee.id, fallback.id]));
+  assert.ok(availability.body.every((item) => item.platform));
 
   const created = await request(`/projects/${projectId}/tasks`, {
     title: "调整页面样式",
@@ -376,13 +377,13 @@ test("abandoning then retrying on the connector reopens the pool task and every 
   assert.equal((await request(`/tasks/${created.body.id}/accept`, { mode: "member_connector" }, developer)).status, 200);
   const [task] = await query(db, "SELECT id FROM connector_tasks WHERE agent_task_id=?", [created.body.id]);
 
-  // 本机放弃：连接器记录与任务池任务都取消。
+  // 本机放弃：连接器记录取消，任务池进入已放弃。
   assert.equal((await request(`/connector/tasks/${task.id}/control`, { action: "abandon" }, connector)).body.status, "cancelled");
-  assert.equal((await request(`/tasks/${created.body.id}`, undefined, requester)).body.status, "cancelled");
-  // 重试：任务池任务重新排队并新开执行记录，而不是停留在已取消。
+  assert.equal((await request(`/tasks/${created.body.id}`, undefined, requester)).body.status, "abandoned");
+  // 重试：任务池任务重新待开始并新开执行记录。
   assert.equal((await request(`/connector/tasks/${task.id}/control`, { action: "retry" }, connector)).body.status, "queued");
   const reopened = await request(`/tasks/${created.body.id}`, undefined, requester);
-  assert.equal(reopened.body.status, "queued");
+  assert.equal(reopened.body.status, "pending_start");
   assert.equal(reopened.body.finished_at, null);
   assert.equal(reopened.body.executionRuns.length, 2);
   assert.equal(reopened.body.executionRuns[0].status, "queued");
@@ -400,13 +401,34 @@ test("abandoning then retrying on the connector reopens the pool task and every 
   assert.equal(detail.body.executionRuns[0].status, "completed");
   assert.deepEqual(detail.body.statusHistory.map((event) => [event.from_status, event.to_status, event.actor_type]), [
     [null, "awaiting_acceptance", "human_member"],
-    ["awaiting_acceptance", "queued", "human_member"],
-    ["queued", "cancelled", "connector"],
-    ["cancelled", "queued", "connector"],
-    ["queued", "running", "connector"],
+    ["awaiting_acceptance", "pending_start", "human_member"],
+    ["pending_start", "abandoned", "connector"],
+    ["abandoned", "pending_start", "connector"],
+    ["pending_start", "running", "connector"],
     ["running", "completed", "connector"],
   ]);
   assert.equal(detail.body.statusHistory[1].actor_id, developer.id);
   assert.equal(detail.body.statusHistory[2].actor_id, connector.id);
   assert.match(detail.body.statusHistory[3].reason, /重试/);
+});
+
+test("connector heartbeat stores computer name and OS version", async () => {
+  const owner = await loginUser(await makeUser("心跳电脑用户"));
+  await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')", [projectId, owner.id]);
+  const connector = await pair(owner, "旧电脑名");
+  const heartbeat = await request(
+    `/connector/projects?version=0.2.0&name=${encodeURIComponent("DESKTOP-ABC")}&platform=${encodeURIComponent("Windows 11（10.0.26200）")}`,
+    undefined,
+    connector,
+  );
+  assert.equal(heartbeat.status, 200);
+  const listed = await request("/connectors", undefined, owner);
+  assert.equal(listed.status, 200);
+  assert.equal(listed.body[0].name, "DESKTOP-ABC");
+  assert.equal(listed.body[0].platform, "Windows 11（10.0.26200）");
+  assert.equal(listed.body[0].version, "0.2.0");
+  const availability = await request("/connectors/availability", undefined, owner);
+  const mine = availability.body.find((item) => item.id === connector.id);
+  assert.equal(mine?.name, "DESKTOP-ABC");
+  assert.equal(mine?.platform, "Windows 11（10.0.26200）");
 });

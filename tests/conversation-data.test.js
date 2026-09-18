@@ -41,8 +41,9 @@ test('lists paginate before message IDs and enforce conversation/project access'
 });
 test('member summaries and details omit avatars and secrets, including built-in assistant',async()=>{
  const list=await service.conversationMembers(user,project.id);
- assert.deepEqual(Object.keys(list[0]).sort(),['id','name','role']);
- assert.ok(list.some(m=>m.id==='agent-assistant'));
+ assert.deepEqual(Object.keys(list[0]).sort(),['id','kind','name','role']);
+ assert.ok(list.some(m=>m.id==='agent-assistant' && m.kind==='l1'));
+ assert.ok(list.some(m=>m.id===user.id && m.kind==='human'));
  const detail=await service.conversationMembers(user,project.id,user.id);
  assert.equal(detail.id,user.id);assert.ok(!('avatar' in detail));assert.ok(!('password_hash' in detail));
  await assert.rejects(service.conversationMembers(outsider,project.id),e=>e.status===403);

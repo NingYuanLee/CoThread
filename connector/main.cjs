@@ -77,6 +77,16 @@ function windowsVersionLabel(release = os.release()) {
   return `Windows ${release}`;
 }
 
+function deviceIdentity() {
+  const name = String(process.env.COMPUTERNAME || os.hostname() || "未知电脑").trim().slice(0, 100) || "未知电脑";
+  const platform = (process.platform === "win32" ? windowsVersionLabel() : `${os.type()} ${os.release()}`).slice(0, 40);
+  return { name, platform, version: VERSION };
+}
+
+function deviceQuery() {
+  return new URLSearchParams(deviceIdentity()).toString();
+}
+
 function codexCommand() {
   const candidates = [];
   const desktopBins = path.join(process.env.LOCALAPPDATA || "", "OpenAI", "Codex", "bin");
@@ -195,7 +205,7 @@ async function pair(config, prompt) {
   if (server) config.server = new URL(server).origin;
   const code = (await prompt.question("网页中显示的配对码：")).trim();
   const result = await request(config, "/api/connector/pair", {
-    public: true, body: { code, name: "Windows 连接器", platform: "windows", version: VERSION },
+    public: true, body: { code, ...deviceIdentity() },
   });
   await storeToken(result.token);
   config.deviceId = result.id;
@@ -318,7 +328,7 @@ function addDetachedWorktree(repo, dest) {
 }
 
 async function configureProjects(config, prompt) {
-  const { projects } = await request(config, `/api/connector/projects?version=${encodeURIComponent(VERSION)}`)
+  const { projects } = await request(config, `/api/connector/projects?${deviceQuery()}`)
     .then((rows) => ({ projects: rows }));
   if (!projects.length) { log("当前账号没有可修改的项目。"); return; }
   stdout.write("\n可关联项目：\n");
@@ -677,7 +687,7 @@ async function authorizeInBrowser(config) {
     try {
       const candidate = await request(config, "/api/connector/v2/authorizations", {
         public: true, headers: conversationHeaders,
-        body: { name: "Windows 连接器", platform: "windows", version: VERSION },
+        body: deviceIdentity(),
       });
       if (candidate.protocol === 2 && candidate.delivery === "localhost") { authorization = candidate; break; }
     } catch (error) {
@@ -871,7 +881,7 @@ async function guiMain() {
   const refreshProjects = async () => {
     token = await loadToken();
     if (!token) { remoteProjects = []; return; }
-    remoteProjects = await request(config, `/api/connector/projects?version=${encodeURIComponent(VERSION)}`);
+    remoteProjects = await request(config, `/api/connector/projects?${deviceQuery()}`);
   };
   const refreshTasks = async () => {
     token = await loadToken();
@@ -1366,6 +1376,6 @@ module.exports = {
   AGENTS, addDetachedWorktree, agentLaunchArgs, checkPrerequisites, createAuthorizationCallback, instanceLockIsActive,
   launchPrompt, mergeCodexMcpConfig, mergeCursorMcpConfig, parseCodexSessionId, parseCursorChatId, parseInstanceLock,
   projectBinding, projectWorkDir, protectToken, relativeProjectPath, removeWorktree, resolveProjectDir, resolveRepoDir,
-  taskCard, taskPrompt, unprotectToken, validatePolicy, windowsVersionLabel,
+  taskCard, taskPrompt, unprotectToken, validatePolicy, windowsVersionLabel, deviceIdentity,
 };
 if (require.main === module || require("node:sea").isSea()) main().catch((error) => { showFatalError(error); process.exitCode = 1; });

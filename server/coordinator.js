@@ -177,8 +177,8 @@ export async function dispatchContext(db, thread, job) {
     messages: routedMessages,
     replies,
     promptContext: {
-      event: job.kind === "child_result"
-        ? { kind: "child_result", ...job.payload }
+      event: job.kind === "child_result" || job.kind === "l3_idle"
+        ? { kind: job.kind, ...job.payload }
         : { kind: "member_message", messageId: job.message_id },
       projectSummary: projectSummaryRows[0]?.summary || null,
       history: { messages: historyMessages, omittedOldest },
@@ -195,14 +195,18 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
   const runtime = await acquireCoordinatorRuntime(context, { db, job, user });
   let completed = false;
   try {
-    const prompt = job.kind === "child_result"
+    const prompt = job.kind === "l3_idle"
+      ? `当前项目：${context.project_id}；当前迭代：${job.thread_id}。
+本次唤醒：L3 由工作中变为空闲。${JSON.stringify(job.payload || {})}
+请 list_project_tasks 查看是否有 pending_assignment（待指派）的沙箱任务；若有且仍有空闲 L3，立刻 dsh_l3 指派，prompt 第一行写 TASK_ID。没有待指派任务就停。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。`
+      : job.kind === "child_result"
       ? `当前项目：${context.project_id}；当前迭代：${job.thread_id}。
 本次唤醒：下属交活。${JSON.stringify(job.payload || {})}
 当前上下文：${JSON.stringify(context.promptContext || context)}
-请根据结果向成员回报；也可 inspect_task 或 send_message 追问仍在跑的 L3，拿到回复后决定帮一把还是换人。不要推给平台，不要在沙箱写 SQL。先说话再行动。做完就停。`
+请根据结果向成员回报；也可 inspect_task 或 send_message 追问仍在跑的 L3，拿到回复后决定帮一把还是换人。交活后 L3 已空闲时，若任务池有 pending_assignment，立刻 dsh_l3 指派。不要推给平台，不要在沙箱写 SQL。先说话再行动。做完就停。`
       : `当前项目：${context.project_id}；当前迭代：${job.thread_id}；触发消息：${job.message_id}。
 本次唤醒：成员消息。上下文：${JSON.stringify(context.promptContext || context)}
-先用可见正文回应理解或答复；催进度时 inspect_task 或 send_message 问 L3，拿到回复再决定帮一把还是换人；需要干活再 create_task 并立刻 dsh_l3。create_task/recover_task 只是排队，见到 execution_agent_id 且 status=running 之前不要说已经派人。dsh_l3 失败就报绑定原因。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。做完就停。`;
+先用可见正文回应理解或答复；催进度时 inspect_task 或 send_message 问 L3，拿到回复再决定帮一把还是换人。Ask 辅助任务没有空闲 L3 就不要 create_task，自己处理。沙箱 formal 无空闲 L3 可先建成 pending_assignment；有空闲则创建后立刻 dsh_l3。成员要求时也可 list_project_tasks 查看待指派与空闲 L3 并指派。见到 execution_agent_id 之前不要说已经派人。dsh_l3 失败就报绑定原因。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。做完就停。`;
     const steeredMessageIds = new Set();
     const mergedMessageIds = new Set();
     let steeringBusy = false;
@@ -271,12 +275,15 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           WHERE t.target_type='l2_session' AND t.target_id=? AND r.executor_type='dsh_l3'
             AND r.status='queued' AND r.executor_id IS NULL AND r.task_revision=t.revision
           ORDER BY r.created_at`, [runtime.session.session_id]);
-        if (queued.length !== 1) {
-          return failBind(queued.length
-            ? "dsh_l3 prompt 缺少 TASK_ID，当前有多条排队任务，无法自动绑定"
-            : "没有可绑定的排队任务。create_task/recover_task 之后必须带 TASK_ID 调用 dsh_l3。");
+        const pending = queued.length ? queued : await query(db, `SELECT t.id FROM agent_tasks t
+          WHERE t.target_type='l2_session' AND t.target_id=? AND t.status='pending_assignment'
+          ORDER BY t.created_at`, [runtime.session.session_id]);
+        if (pending.length !== 1) {
+          return failBind(pending.length
+            ? "dsh_l3 prompt 缺少 TASK_ID，当前有多条待指派任务，无法自动绑定"
+            : "没有可绑定的任务。有空闲 L3 时 create_task 后必须带 TASK_ID 调用 dsh_l3；待指派任务也要带 TASK_ID。");
         }
-        bindId = queued[0].id;
+        bindId = pending[0].id;
       }
       let task = null;
       try {
@@ -524,7 +531,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
   }
   if (!job) return false;
   if (job.alreadyHandled) return true;
-  if (job.kind === "child_result" && !job.author_id) {
+  if ((job.kind === "child_result" || job.kind === "l3_idle") && !job.author_id) {
     const [member] = await query(db, `SELECT u.id FROM members m JOIN users u ON u.id=m.user_id
       JOIN threads t ON t.project_id=m.project_id WHERE t.id=? LIMIT 1`, [job.thread_id]);
     job.author_id = member?.id;
@@ -533,7 +540,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
   try {
     const started = performance.now();
     const thread = await service.thread(user, job.thread_id, true);
-    if (job.kind !== "child_result") {
+    if (job.kind !== "child_result" && job.kind !== "l3_idle") {
       await query(db, "UPDATE assistant_replies SET status='running',progress=? WHERE message_id=? AND status='queued'",
         ["小祥正在理解请求", job.message_id]);
     }
@@ -541,7 +548,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
     const context = await dispatchContext(db, thread, job);
     const loaded = performance.now();
     const result = await runAgent(context, { db, job, user });
-    console.log("Agent timing", { messageId: job.message_id, stage: job.kind === "child_result" ? "coordinator_child_result" : "coordinator_agent",
+    console.log("Agent timing", { messageId: job.message_id, stage: job.kind === "member_message" ? "coordinator_agent" : `coordinator_${job.kind}`,
       contextMs: Math.round(loaded - started), modelMs: Math.round(performance.now() - loaded) });
     const visible = result?.finalResponse?.trim() && result.finalResponse.trim() !== "NO_VISIBLE_MESSAGE"
       ? result.finalResponse.trim().slice(0, 4000) : null;
@@ -555,7 +562,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
       [waiting ? "waiting" : "stable", waiting ? "等待执行结果" : null, job.thread_id]);
     let responseId = posts[0]?.id || null;
     await transaction(db, async (conn) => {
-      if (job.kind === "child_result") {
+      if (job.kind === "child_result" || job.kind === "l3_idle") {
         if (!responseId && visible) {
           responseId = (await service.insertMessage(conn, user, job.thread_id, visible, [], "assistant", job.message_id)).id;
         }
@@ -575,7 +582,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
     });
   } catch (error) {
     await transaction(db, async (conn) => {
-      if (job.kind === "child_result") {
+      if (job.kind === "child_result" || job.kind === "l3_idle") {
         await query(conn, "UPDATE coordinator_events SET status='failed',error='小祥暂未响应，请重试。',finished_at=UTC_TIMESTAMP(3) WHERE id=?", [job.event_id]);
         return;
       }

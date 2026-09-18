@@ -1,13 +1,17 @@
 const WORKFLOW_STATUS: Record<string, string> = {
+  pending_assignment: "待指派",
   awaiting_acceptance: "待确认",
+  pending_start: "待开始",
   assigned: "已指派",
-  queued: "排队中",
+  queued: "待指派",
   waiting: "等待中",
-  blocked: "阻塞",
-  running: "进行中",
+  blocked: "阻塞暂停",
+  running: "执行中",
   completed: "已完成",
-  failed: "失败",
+  failed: "已失败",
   cancelled: "已取消",
+  rejected: "已拒绝",
+  abandoned: "已放弃",
   superseded: "已取代",
   awaiting_approval: "待批准",
   paused: "已暂停",
@@ -31,11 +35,17 @@ const REASONING_EFFORT: Record<string, string> = {
 
 const ACTOR_TYPE: Record<string, string> = {
   human_member: "人类成员",
-  l2_session: "二级小祥",
-  dsh_l3: "DSH 三级",
+  l2_session: "迭代级Agent（L2）",
+  dsh_l3: "任务级Agent（L3）",
   human_self: "成员本人",
   human_connector: "本地连接器",
 };
+
+export const AGENT_LEVEL_LABELS = {
+  l1: "项目级Agent（L1）",
+  l2: "迭代级Agent（L2）",
+  l3: "任务级Agent（L3）",
+} as const;
 
 const AGENT_EVENT_STATUS: Record<string, string> = {
   running: "进行中",
@@ -89,5 +99,5 @@ export function l3ExecutorName(executorId: string | null | undefined, knownIds: 
   if (!executorId) return null;
   const index = uniqueActorIds(knownIds).indexOf(executorId);
   if (index >= 0 && index < L3_EXECUTOR_NAMES.length) return L3_EXECUTOR_NAMES[index];
-  return "任务级 Agent";
+  return "任务级Agent（L3）";
 }

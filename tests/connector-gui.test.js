@@ -69,6 +69,8 @@ test("task controls follow the interactive session lifecycle instead of process 
   assert.doesNotMatch(gui, /PauseTaskButton|EndTaskButton|ResumeTaskButton/);
   assert.match(gui, /Content="开始"/);
   assert.match(gui, /Content="完成并通知"/);
+  assert.match(gui, /Content="失败并通知"/);
+  assert.match(gui, /Content="放弃并通知"/);
   assert.match(gui, /continueVisibility=\$\(if\(\$status -eq 'paused'/);
   assert.match(gui, /finishVisibility=\$\(if\(\$status -in @\('running','paused'\) -and \[bool\]\$_\.hasLocalRecord\)/);
   assert.match(gui, /paused='会话已关闭'/);

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { formatDurationMs, labelAgentEventStatus } from "./ui-labels";
+import { AGENT_LEVEL_LABELS, formatDurationMs, labelAgentEventStatus } from "./ui-labels";
+import { UiIcon } from "./ui-icon";
+import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
 import { l1TaskLabel } from "../shared/agent-label.js";
 import {
   type AgentLogData,
@@ -18,7 +20,7 @@ import {
 } from "./agent-trajectory";
 
 function levelName(type: AgentLogEvent["agentType"]) {
-  return type === "l1" ? "一级小祥" : type === "l2" ? "二级小祥" : "三级小祥";
+  return type === "l1" ? AGENT_LEVEL_LABELS.l1 : type === "l2" ? AGENT_LEVEL_LABELS.l2 : AGENT_LEVEL_LABELS.l3;
 }
 
 function clip(text: string, max = 140) {
@@ -334,13 +336,13 @@ export function AgentLogDialog({ scope, api, onClose }: {
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { dialog.current?.showModal(); }, []);
-  return <dialog ref={dialog} className="agent-log-dialog" aria-labelledby="agent-log-dialog-title" onCancel={onClose}>
+  return <dialog ref={dialog} className="agent-log-dialog" aria-labelledby="agent-log-dialog-title" onCancel={onDialogCancel(onClose)} onClick={onDialogBackdropClick(onClose)}>
     <header className="agent-monitor-header">
       <div>
         <span>DSH 轨迹</span>
         <h2 id="agent-log-dialog-title">轨迹</h2>
       </div>
-      <button type="button" onClick={onClose} aria-label="关闭轨迹" title="关闭">×</button>
+      <DialogClose onClick={() => animateDialogClose(dialog.current, onClose)} label="关闭轨迹" />
     </header>
     <AgentTrajectory scope={scope} api={api} />
   </dialog>;

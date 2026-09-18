@@ -73,7 +73,7 @@ test("stable L2 and L3 roles live only in the system prompt plugin", async () =>
   assert.match(SYSTEM_PROMPTS.l2.prompt, /不能使用沙箱/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /自己能答的短问题/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /本迭代锁定/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /create_task 和 recover_task 只会把任务排进队列/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /没有空闲 L3 时禁止创建/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /不要对成员说已经派人干活/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /自己责任/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /人类成员账号/);

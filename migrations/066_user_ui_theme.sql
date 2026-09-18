@@ -1,0 +1,2 @@
+ALTER TABLE users
+  ADD COLUMN ui_theme VARCHAR(32) NOT NULL DEFAULT 'forest';

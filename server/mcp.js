@@ -70,9 +70,9 @@ export function createMcpServer(service, user, afterMessage) {
   register("read_message", "会话资料：读取指定消息及引用预览，可取它之前0至20条消息。引用消息的id可再次调用本工具读取完整内容，不递归展开。",
     {threadId:z.string().uuid(),messageId:z.string().uuid(),before:z.number().int().min(0).max(20).optional()},
     a=>service.readMessage(user,a.threadId,a.messageId,a.before));
-  register("list_members", "会话资料：列出项目成员，仅返回id、名称和角色，不含头像。",
+  register("list_members", "会话资料：列出本项目人类成员与项目级 Agent（L1 小祥），返回 id、名称、角色和 kind（human / l1），不含头像或连接器。",
     {projectId:z.string().uuid()},a=>service.conversationMembers(user,a.projectId));
-  register("read_member", "会话资料：读取项目单个成员的名称、角色、简介和身份标签，不返回头像或账户凭据。",
+  register("read_member", "会话资料：读取项目单个成员的名称、角色、kind、简介和身份标签，不返回头像或账户凭据。L1 小祥的 memberId 为 agent-assistant。",
     {projectId:z.string().uuid(),memberId:z.string()},a=>service.conversationMembers(user,a.projectId,a.memberId));
   register(
     "get_document_version",
@@ -113,7 +113,7 @@ export function createMcpServer(service, user, afterMessage) {
   );
   register(
     "submit_document",
-    "经用户同意后提交任务产物新版本；新文件默认进入当前迭代产物目录，缓存文件只读。默认待审核，不能代替人工审批。",
+    "经用户同意后提交任务产物新版本；新文件默认进入产物文件，缓存文件只读。基于缓存的修改会另存为新的产物文件。默认待审核，不能代替人工审批。",
     {
       threadId: z.string().uuid(),
       artifactId: z.string().uuid().optional(),

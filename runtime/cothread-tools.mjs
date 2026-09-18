@@ -6,15 +6,15 @@ export function apply(ctx) {
   // This build-time manifest is the only source of model-facing project tools.
   // Accounts and project data cannot extend it at runtime.
   const definitions = [
-    ["list_project_tasks", "读取当前迭代锁定的任务池。每条含状态、进度、当前执行心跳和已运行秒数。不含其他迭代的任务。", { status: { type: "string" }, targetId: { type: "string" }, limit: { type: "number" } }],
+    ["list_project_tasks", "读取当前迭代锁定的任务池。返回 idleL3Count（空闲 L3 数）和 tasks。待指派是 pending_assignment。不含其他迭代的任务。", { status: { type: "string" }, targetId: { type: "string" }, limit: { type: "number" } }],
     ["inspect_task", "查看当前迭代某任务的执行快照：状态、心跳、最近工具，以及建议下一步。自己责任（L2/L3）随时可看；成员名下任务须本轮人类成员账号授权。活着的 L3 会给出 send_message 的 agentId；要当面问进度请再 send_message，根据回复决定补充帮助还是 interrupt 后换 L3。", { taskId:{type:"string",required:true} }],
     ["update_task", "更新当前负责任务的状态、进度、结果摘要或产物。L3 日常进度用本工具；结束必须改用 report_task。", { taskId:{type:"string",required:true}, status:{type:"string"}, progress:{type:"string"}, resultSummary:{type:"string"}, artifactRefs:{type:"array"}, body:{type:"string"} }],
     ["report_task", "L3 结束前必须调用：向 L2 交活。status=completed|failed|blocked。无论成败都要交一份真实摘要；调用后不要再继续干活。", { taskId:{type:"string"}, status:{type:"string",required:true}, summary:{type:"string",required:true}, reason:{type:"string"}, artifactRefs:{type:"array"} }],
     ["reassign_task", "把任务转交给项目人类成员或当前迭代 L2。自己责任的任务可在 L2/L3 之间转交；转给人类或转交成员名下任务须本轮人类成员账号授权。assist_l2 不能转给人类。", { taskId:{type:"string",required:true}, targetType:{type:"string",required:true}, targetId:{type:"string",required:true}, reason:{type:"string"} }],
     ["resolve_task_rejection", "处理被目标成员拒绝的任务。成员名下拒绝结果须本轮人类成员账号授权后，才可确认已知晓或修改后按原目标重新发起。", { taskId:{type:"string",required:true}, action:{type:"string",required:true}, title:{type:"string"}, goal:{type:"string"}, constraints:{type:"string"}, reason:{type:"string"} }],
-    ["recover_task", "安排异常任务。自己责任的 L3 任务随时可处理；成员名下任务须本轮人类成员账号授权。失败、排队、执行中、等待、阻塞、已取消或已完成都可处理。action=restart 结束当前执行并重新排队，不算开工，返回 needsDispatch=true；对人的任务会回到待确认（含连接器执行中），对 L3 任务必须立刻 dsh_l3 才会变成 running。见到 execution_agent_id 之前不要声称已派人。返回 interruptedAgentId 时先 interrupt_agent 再立刻 dsh_l3。action=cancel 放弃该任务（已完成除外）。不要声称只能由平台恢复，也不要在沙箱里直连数据库。", { taskId:{type:"string",required:true}, action:{type:"string",required:true}, title:{type:"string"}, goal:{type:"string"}, constraints:{type:"string"}, reason:{type:"string"} }],
+    ["recover_task", "安排异常任务。自己责任的 L3 任务随时可处理；成员名下任务须本轮人类成员账号授权。失败、待指派、执行中、等待、阻塞、已取消或已完成都可处理。action=restart：有空闲 L3 则为执行中并立刻 dsh_l3，否则待指派。对人的任务会回到待确认。见到 execution_agent_id 之前不要声称已派人。返回 interruptedAgentId 时先 interrupt_agent 再立刻 dsh_l3。action=cancel 取消该任务。不要声称只能由平台恢复，也不要在沙箱里直连数据库。", { taskId:{type:"string",required:true}, action:{type:"string",required:true}, title:{type:"string"}, goal:{type:"string"}, constraints:{type:"string"}, reason:{type:"string"} }],
     ["ask_task_question", "向当前迭代某任务的最新来源人提问。问题会作为群聊事件发布。自己责任的任务随时可问；成员名下任务须本轮人类成员账号授权。", { taskId:{type:"string",required:true}, question:{type:"string",required:true} }],
-    ["create_task", "创建项目任务。日常只派给 L3：assist_l2 或目标为本 L2 的 formal。创建后仍是排队，必须立刻 dsh_l3 才会开工。不要为小祥自己就能完成的回复或协调建任务。把 formal 指派给人类成员须本轮人类成员账号授权。", {
+    ["create_task", "创建项目任务。assist_l2 为 Ask 只读辅助：必须有空闲 L3，创建即执行中，立刻 dsh_l3；没有空闲 L3 时不要创建。目标为本 L2 的 formal 为沙箱任务：有空闲则执行中并立刻 dsh_l3，否则 pending_assignment。给人的 formal 只能指派人类成员，须本轮授权，状态待确认。不要为小祥自己就能完成的回复建任务。", {
       taskType: { type: "string", required: true }, title: { type: "string", required: true }, goal: { type: "string", required: true },
       constraints: { type: "string" }, sourceType:{type:"string"}, sourceUserId:{type:"string"}, sourceMessageId:{type:"string"}, sourceTaskId:{type:"string"}, targetType: { type: "string" }, targetId: { type: "string" },
     }],
@@ -81,7 +81,7 @@ export function apply(ctx) {
     ],
     [
       "publish_artifact",
-      "将任务生成的沙箱文件保存到当前迭代产物目录，生成待人工审核的新版本。默认使用任务名称或实际语义命名；已有产物或项目正式文档需提供 artifactId。缓存文件只读。",
+      "将任务生成的沙箱文件保存到产物文件，生成待人工审核的新版本。默认使用任务名称或实际语义命名；更新已有产物时传 artifactId。不要把结果写回缓存文件；若任务来自缓存修改，即使传入缓存 artifactId 也会另存为新的产物文件。",
       {
         path: { type: "string", required: true },
         title: { type: "string", required: true },

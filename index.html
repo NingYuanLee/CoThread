@@ -5,8 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <link rel="icon" href="/cothread-logo.svg" type="image/svg+xml"/>
   <title>共序 CoThread</title>
+  <script>
+    try {
+      var theme = localStorage.getItem("cothread-ui-theme");
+      if (theme) document.documentElement.setAttribute("data-theme", theme);
+    } catch (e) {}
+  </script>
   <style>
     html, body, #root { margin: 0; min-height: 100%; background: #f8faf8; color: #27362f; font-family: system-ui, sans-serif; }
+    html[data-theme="ink"], html[data-theme="ink"] body, html[data-theme="ink"] #root { background: #1b231c; color: #d1d9d2; }
+    html[data-theme="night"], html[data-theme="night"] body, html[data-theme="night"] #root { background: #0e0f10; color: #e6e6e7; }
     #root:empty { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
     #root:empty::after { content: "正在加载工作空间…"; }
     #root:empty.boot-slow::after { content: "仍在加载前端模块…若超过 1 分钟，请用 http://127.0.0.1:3100 打开并关闭系统代理，或执行 npm run build && npm run dev:static"; white-space: normal; max-width: 22rem; text-align: center; line-height: 1.5; padding: 0 1rem; }

@@ -1,5 +1,6 @@
 import { query } from "./db.js";
 import { randomUUID } from "node:crypto";
+import { nextDuplicateName } from "../shared/document-name.js";
 
 export const PROJECT_LIBRARY_ROOT_KINDS = [
   "project_official",
@@ -8,7 +9,12 @@ export const PROJECT_LIBRARY_ROOT_KINDS = [
 ];
 
 export function utcDateKey(date = new Date()) {
-  return date.toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
 }
 
 export function isCacheFolderKind(kind) {
@@ -17,6 +23,26 @@ export function isCacheFolderKind(kind) {
 
 export function isOutputFolderKind(kind) {
   return kind === "project_outputs" || kind === "iteration_outputs";
+}
+
+export async function uniqueArtifactTitle(db, projectId, folderId, desired, excludeId = null) {
+  const rows = await query(db,
+    `SELECT title FROM artifacts WHERE project_id=? AND deleted_at IS NULL AND folder_id <=> ?
+     ${excludeId ? "AND id<>?" : ""}`,
+    [projectId, folderId, ...(excludeId ? [excludeId] : [])]);
+  return nextDuplicateName(desired, rows.map((row) => row.title));
+}
+
+export async function uniqueVersionFilename(db, projectId, folderId, desired, excludeArtifactId = null) {
+  const rows = await query(db,
+    `SELECT v.filename FROM versions v
+     JOIN artifacts a ON a.id=v.artifact_id
+     LEFT JOIN version_recycle vr ON vr.version_id=v.id
+     WHERE a.project_id=? AND a.deleted_at IS NULL AND vr.version_id IS NULL AND a.folder_id <=> ?
+       AND v.id=(SELECT v2.id FROM versions v2 WHERE v2.artifact_id=a.id ORDER BY v2.version DESC, v2.created_at DESC, v2.id DESC LIMIT 1)
+       ${excludeArtifactId ? "AND a.id<>?" : ""}`,
+    [projectId, folderId, ...(excludeArtifactId ? [excludeArtifactId] : [])]);
+  return nextDuplicateName(desired, rows.map((row) => row.filename));
 }
 
 /** SQL fragment (leading AND) for artifacts in cache/output library areas. */

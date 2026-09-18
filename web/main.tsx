@@ -947,17 +947,30 @@ function App() {
   useEffect(() => {
     if (!selectedTaskId) { setTaskDetail(null); return; }
     let alive = true;
-    void api(`/tasks/${selectedTaskId}`).then((value) => {
-      if (!alive) return;
-      setTaskDetail(value);
-      setTaskProgress(value.progress || "");
-      setTaskResult(value.result_summary || "");
-      setTaskReopenGoal(value.goal || "");
-      setTaskReopenConstraints(value.constraints || "");
-      setTaskActionError("");
-    }).catch((cause) => { if (alive) setTaskActionError(cause.message); });
-    return () => { alive = false; };
-  }, [selectedTaskId]);
+    let timer: ReturnType<typeof setTimeout>;
+    let primed = false;
+    const load = async () => {
+      try {
+        const value = await api(`/tasks/${selectedTaskId}`);
+        if (!alive) return;
+        setTaskDetail(value);
+        if (!primed) {
+          primed = true;
+          setTaskProgress(value.progress || "");
+          setTaskResult(value.result_summary || "");
+          setTaskReopenGoal(value.goal || "");
+          setTaskReopenConstraints(value.constraints || "");
+          setTaskActionError("");
+        }
+      } catch (cause) {
+        if (alive) setTaskActionError((cause as Error).message);
+      } finally {
+        if (alive && taskDialogOpen) timer = setTimeout(() => { void load(); }, 5000);
+      }
+    };
+    void load();
+    return () => { alive = false; clearTimeout(timer); };
+  }, [selectedTaskId, taskDialogOpen]);
   const performTaskAction = async (action: () => Promise<unknown>) => {
     setTaskActionBusy(true);
     setTaskActionError("");
@@ -2297,7 +2310,7 @@ function App() {
                     {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.kind !== "l1" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}><UiIcon name="transfer" size={13} />确认转交</button></section>}
                     {isTarget && task.execution_agent_type === "human_self" && !endedTask(task.status) && task.status !== "awaiting_acceptance" && <section className="task-actions-section"><h4>进度与结果</h4><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "abandoned", resultSummary: taskResult || "已放弃" }, "PATCH"))}><UiIcon name="abandon" size={13} />放弃</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", resultSummary: taskResult || "已完成" }, "PATCH"))}><UiIcon name="complete" size={13} />完成</button></div></section>}
                     {!!task.executionRuns.length && <section><h4>执行轮次</h4><div className="task-history">{task.executionRuns.map((run) => <div key={run.id}><strong>{run.executor_type === "dsh_l3" ? (l3ExecutorName(run.executor_id, threadExecutorIds) || (run.executor_id ? AGENT_LEVEL_LABELS.l3 : `${AGENT_LEVEL_LABELS.l3}（未绑定）`)) : run.executor_type === "human_self" ? (memberName(run.executor_id) || "成员本人") : labelExecutorType(run.executor_type)}</strong><span>{labelWorkflowStatus(run.status)}</span><small>{run.progress || run.result_summary || run.error || time(run.created_at)}</small></div>)}</div></section>}
-                    {(!!task.assignmentHistory.length || !!task.statusHistory?.length) && <section><h4>变更记录</h4><div className="task-history">{taskChangeLog(task).map((item) => <div key={item.key}><strong>{item.title}{item.transition && `（${item.transition}）`}</strong><span>{statusActorLabel({ actor_type: item.actorType, actor_id: item.actorId })} · {time(item.at)}</span>{item.reason && <small>{item.reason}</small>}</div>)}</div></section>}
+                    {(!!task.assignmentHistory.length || !!task.statusHistory?.length) && <section><h4>变更记录</h4><div className="task-history">{taskChangeLog(task).map((item) => <div key={item.key}><strong>{item.title}</strong><span>{statusActorLabel({ actor_type: item.actorType, actor_id: item.actorId })} · {time(item.at)}</span>{item.transition && <small>当时任务状态：{item.transition}</small>}{item.reason && <small>{item.reason}</small>}</div>)}</div></section>}
                   </>}
                   {taskActionError && <p className="project-settings-error" role="alert">{taskActionError}</p>}
                 </div>;

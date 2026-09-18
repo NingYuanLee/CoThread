@@ -284,7 +284,7 @@ export async function updateTask(db, taskId, actor, update) {
         WHERE task_id=? AND executor_type<>'dsh_l3' AND status IN ('queued','running','waiting')`,
       [nextStatus, update.progress || null, update.resultSummary || null, taskId]);
     }
-    if (TASK_ENDED.includes(nextStatus)) await closeEndedTaskRuns(conn, taskId, nextStatus);
+    if (TASK_ENDED.includes(nextStatus) || nextStatus === "blocked") await closeEndedTaskRuns(conn, taskId, nextStatus);
     if (update.body) await query(conn, "INSERT INTO agent_task_pool_updates(id,task_id,source_type,source_id,message_id,body,revision) SELECT UUID(),?,?,?,?,?,revision FROM agent_tasks WHERE id=?", [taskId,actor.type,actor.id,update.messageId||null,update.body,taskId]);
     await recordTaskStatusChange(conn, taskId, task.status, actor,
       nextStatus !== (update.status || task.status) ? update.resultSummary : (update.progress || update.resultSummary || null));
@@ -805,10 +805,13 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
     if (!taskAlreadyEnded) {
       await query(conn, `UPDATE agent_tasks SET status=?,progress=?,result_summary=COALESCE(?,result_summary),
         execution_agent_id=?,finished_at=IF(? IN ('completed','failed','cancelled','rejected','abandoned'),UTC_TIMESTAMP(3),NULL),revision=revision+1 WHERE id=?`,
-      [taskStatus, taskStatus === "completed" ? "DSH L3 已交活" : error || "DSH L3 已返回",
+      [taskStatus, taskStatus === "completed" ? "DSH L3 已交活"
+        : taskStatus === "blocked" ? (run.progress || "DSH L3 已阻塞")
+        : error || "DSH L3 已返回",
         summary, childSessionId, taskStatus, run.id]);
       await recordTaskStatusChange(conn, run.id, run.status, { type: "dsh_l3", id: childSessionId },
         taskStatus === "completed" ? "任务级 Agent 已交活"
+          : taskStatus === "blocked" ? "任务级 Agent 阻塞暂停"
           : runStatus === "interrupted" ? "任务级 Agent 被中止，重新排队"
           : `任务级 Agent 失败：${error}`);
     }
@@ -816,10 +819,12 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
       await query(conn, `INSERT INTO agent_task_pool_updates(id,task_id,source_type,source_id,body,revision)
         SELECT UUID(),?,'l2_session',?,CONCAT('辅助任务「',?, '」',?,IF(?='', '', CONCAT('\n',?))),revision
         FROM agent_tasks WHERE id=?`, [run.source_task_id, l2SessionId, run.title,
-        taskStatus === "completed" ? "已完成。" : "未完成。", summary, summary, run.source_task_id]);
+        taskStatus === "completed" ? "已完成。" : taskStatus === "blocked" ? "阻塞暂停。" : "未完成。", summary, summary, run.source_task_id]);
       await query(conn, `UPDATE agent_tasks SET progress=?,revision=revision+1 WHERE id=?
         AND status NOT IN ('completed','failed','cancelled','rejected','abandoned','superseded')`,
-      [taskStatus === "completed" ? "辅助 L3 已返回结果，等待 L2 汇总" : "辅助 L3 执行失败，等待 L2 处理", run.source_task_id]);
+      [taskStatus === "completed" ? "辅助 L3 已返回结果，等待 L2 汇总"
+        : taskStatus === "blocked" ? "辅助 L3 阻塞暂停，等待处理"
+        : "辅助 L3 执行失败，等待 L2 处理", run.source_task_id]);
     }
     return { ...await getTask(conn, run.id), run_id: run.run_id };
   });
@@ -848,7 +853,8 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
 }
 
 function closeEndedTaskRuns(conn, taskId, taskStatus) {
-  const endedRunStatus = taskStatus === "completed" ? "completed" : taskStatus === "failed" ? "failed"
+  const endedRunStatus = taskStatus === "completed" || taskStatus === "blocked" ? "completed"
+    : taskStatus === "failed" ? "failed"
     : taskStatus === "abandoned" ? "cancelled" : "cancelled";
   return query(conn, `UPDATE agent_task_execution_runs r
     JOIN agent_tasks t ON t.id=r.task_id

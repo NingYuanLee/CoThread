@@ -264,6 +264,34 @@ test("assist work is running before a DSH L3 child is bound", async () => {
   assert.equal(bound.status, "running");
 });
 
+test("blocked L3 report keeps task blocked and does not mark the workflow completed", async () => {
+  const formal = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "formal", title: "等待源码",
+    goal: "没有仓库则阻塞", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const childId = randomUUID();
+  await bindDshL3Execution(db, l2SessionId, childId, formal.id);
+  await updateTask(db, formal.id, { type: "dsh_l3", id: childId }, {
+    status: "blocked", resultSummary: "等源码", progress: "L3 已阻塞",
+  });
+  const [closedRun] = await query(db, "SELECT status FROM agent_task_execution_runs WHERE task_id=? ORDER BY created_at DESC LIMIT 1", [formal.id]);
+  assert.equal(closedRun.status, "completed");
+  await reportL3(childId, "等源码", "blocked");
+  const blocked = await settleDshL3Execution(db, l2SessionId, childId, {
+    status: "ok", stopReason: "completed", lastAssistantMessage: [{ type: "text", text: "等源码" }],
+  });
+  assert.equal(blocked.status, "blocked");
+  assert.equal(blocked.result_summary, "等源码");
+  const monitor = await service.agentMonitor(users[0], project.id);
+  const pool = monitor.taskPool.find((row) => row.task_id === formal.id);
+  const executor = monitor.executors.find((row) => row.task_id === formal.id);
+  assert.equal(pool.task_status, "blocked");
+  assert.equal(pool.run_status, "completed");
+  assert.equal(executor.status, "blocked");
+  assert.equal(!!executor.execution_active, false);
+});
+
 test("L2 can inspect a live L3 run and is told how to ask or replace it", async () => {
   const assist = await createTask(db, {
     projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,

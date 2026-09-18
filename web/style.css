@@ -5660,10 +5660,10 @@ body.col-resizing .app-shell > .context-panel {
 .monitor-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--c-9ba29d, #9ba29d); }
 .monitor-state.running i { background: var(--c-3d8a5b, #3d8a5b); box-shadow: 0 0 0 3px var(--c-dcece1, #dcece1); }
 .monitor-state.waiting i { background: var(--c-b78b3f, #b78b3f); }
-.monitor-state.failed i { background: var(--c-bd594f, #bd594f); }
+.monitor-state.failed i,.monitor-state.blocked i { background: var(--c-bd594f, #bd594f); }
 .monitor-state.running { color: var(--c-3d8a5b, #3d8a5b); }
 .monitor-state.waiting { color: var(--c-b78b3f, #b78b3f); }
-.monitor-state.failed { color: var(--c-bd594f, #bd594f); }
+.monitor-state.failed,.monitor-state.blocked { color: var(--c-bd594f, #bd594f); }
 .l1-task-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

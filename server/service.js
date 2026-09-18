@@ -704,7 +704,8 @@ export class Service {
         })),
         ...taskExecutions.map((row) => ({
           task_id: row.task_id, thread_id: row.origin_thread_id || null, thread_title: null,
-          requested_by: row.source_user_id, goal: row.goal, status: row.run_status || row.task_status,
+          requested_by: row.source_user_id, goal: row.goal, status: row.task_status,
+          task_status: row.task_status, run_status: row.run_status,
           progress: row.progress, agent_slot: null,
           execution_active: !!row.executor_id && ["running", "waiting"].includes(row.run_status),
           started_at: row.started_at, finished_at: row.finished_at, last_action: null, last_action_status: null,

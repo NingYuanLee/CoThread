@@ -294,8 +294,25 @@ function artifactCount(value: unknown[] | string | null | undefined) {
   return 0;
 }
 
-function State({ tone, children }: { tone: "idle" | "running" | "waiting" | "failed"; children: React.ReactNode }) {
-  return <span className={`monitor-state ${tone}`}><UiIcon name={tone === "running" ? "running" : tone === "waiting" ? "pause" : tone === "failed" ? "failed" : "clock"} size={12} />{children}</span>;
+type WorkflowTone = "idle" | "running" | "waiting" | "failed" | "blocked";
+
+function workflowTone(status: string, live = false): WorkflowTone {
+  if (status === "failed") return "failed";
+  if (status === "blocked") return "blocked";
+  if (live || status === "running") return "running";
+  if (["queued", "pending_assignment", "pending_start", "waiting"].includes(status)) return "waiting";
+  return "idle";
+}
+
+function taskWorkflowStatus(
+  pool?: { task_status?: string | null; run_status?: string | null },
+  task?: { status?: string | null },
+) {
+  return pool?.task_status || task?.status || "";
+}
+
+function State({ tone, children }: { tone: WorkflowTone; children: React.ReactNode }) {
+  return <span className={`monitor-state ${tone}`}><UiIcon name={tone === "running" ? "running" : tone === "waiting" ? "pause" : tone === "failed" ? "failed" : tone === "blocked" ? "blocked" : "clock"} size={12} />{children}</span>;
 }
 
 const ENDED = new Set(["completed", "failed", "cancelled", "rejected", "abandoned", "superseded"]);
@@ -310,22 +327,15 @@ const agentState = (task: MonitorData["executors"][number] | null) => {
 };
 
 function claimedWorkflow(task: MonitorData["executors"][number], pool?: MonitorData["taskPool"][number]) {
-  const status = pool?.run_status || pool?.task_status || task.status || "";
+  const status = taskWorkflowStatus(pool, task);
   return {
     label: labelWorkflowStatus(status),
-    tone: pool ? poolTone(pool) : status === "failed" ? "failed" as const
-      : liveExecutor(task) ? "running" as const
-      : ["queued", "waiting"].includes(status) ? "waiting" as const
-      : "idle" as const,
+    tone: workflowTone(status, liveExecutor(task)),
   };
 }
 
 function poolTone(task: MonitorData["taskPool"][number]) {
-  const status = task.run_status || task.task_status;
-  if (status === "failed") return "failed" as const;
-  if (status === "running" && task.executor_id) return "running" as const;
-  if (["queued", "pending_assignment", "pending_start", "waiting"].includes(status)) return "waiting" as const;
-  return "idle" as const;
+  return workflowTone(task.task_status, task.task_status === "running" && !!task.executor_id);
 }
 
 type L3Detail = {
@@ -333,7 +343,7 @@ type L3Detail = {
   title: string;
   typeLabel: string;
   statusLabel: string;
-  tone: "idle" | "running" | "waiting" | "failed";
+  tone: WorkflowTone;
   goal: string;
   progress: string | null;
   result: string | null;
@@ -347,7 +357,7 @@ type L3Detail = {
 function L3TaskCard({ title, meta, tone, status, settled, style, onDetail, onTrace, onSession }: {
   title: string;
   meta: string;
-  tone: "idle" | "running" | "waiting" | "failed";
+  tone: WorkflowTone;
   status: string;
   settled?: boolean;
   style?: React.CSSProperties;
@@ -449,7 +459,7 @@ function taskExecutorName(
   if (task.executor_type === "human_self") return "成员本人";
   if (task.executor_type === "human_connector") return "本地连接器";
   if (task.created_by_type === "l2_session" || task.target_type === "l2_session") {
-    const status = task.run_status || task.task_status || task.status || "";
+    const status = task.task_status || task.status || "";
     if (ENDED.has(status)) return "小祥（未交给任务级Agent（L3））";
     return "待任务级Agent（L3）接单";
   }
@@ -461,7 +471,7 @@ function pendingDetail(task: MonitorData["taskPool"][number], people: { member_i
     id: task.task_id,
     title: task.title,
     typeLabel: task.task_type === "assist_l2" ? "辅助 L2" : "正式任务",
-    statusLabel: labelWorkflowStatus(task.run_status || task.task_status),
+    statusLabel: labelWorkflowStatus(task.task_status),
     tone: poolTone(task),
     goal: task.goal,
     progress: task.progress,
@@ -794,7 +804,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
       seen.add(task.task_id);
       unique.push({
         task_id: task.task_id, thread_id: selectedThreadId, thread_title: selectedCoordinator?.title || "",
-        requested_by: task.source_user_id || "", goal: task.goal, status: task.run_status || task.task_status,
+        requested_by: task.source_user_id || "", goal: task.goal, status: task.task_status,
         progress: task.progress, agent_slot: selectedSlot, execution_active: task.executor_id && ["running", "waiting"].includes(task.run_status || "") ? 1 : 0,
         started_at: task.started_at || "", finished_at: task.finished_at || null, last_action: null, last_action_status: null,
         last_action_at: null, update_count: 0, executor_type: "dsh_l3", executor_id: task.executor_id,
@@ -1079,7 +1089,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
               title={task.title}
               meta={`来源 ${taskSourceName(task, people)} · 执行 ${taskExecutorName(task, l3Ids)}`}
               tone={poolTone(task)}
-              status={labelWorkflowStatus(task.run_status || task.task_status)}
+              status={labelWorkflowStatus(task.task_status)}
               onDetail={() => setTaskDetail(pendingDetail(task, people, l3Ids))}
               onTrace={() => openTaskTrace(task.task_id)}
             />)}
@@ -1117,7 +1127,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
                     const title = pool?.title
                       || task.progress
                       || (task.task_type === "assist_l2" ? "辅助任务" : "执行任务");
-                    const ended = ENDED.has(pool?.run_status || pool?.task_status || task.status || "");
+                    const ended = ENDED.has(pool?.task_status || task.status || "");
                     return <L3TaskCard
                       key={task.task_id}
                       title={title}

@@ -484,6 +484,46 @@ test("L2 can restart failed, stuck queued and stuck running tasks in this iterat
   assert.equal((await getTask(db, running.id)).status, "queued");
 });
 
+test("a rotated L2 session recasts queued assist work so dsh_l3 can bind", async () => {
+  const staleSession = randomUUID();
+  const assist = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: staleSession, taskType: "assist_l2", title: "旧会话排队",
+    goal: "会话轮换后仍能开工", targetType: "l2_session", targetId: l2SessionId,
+  });
+  await query(db, "UPDATE agent_tasks SET target_id=?,claimed_by_id=?,created_by_id=? WHERE id=?",
+    [staleSession, staleSession, staleSession, assist.id]);
+  const created = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "创建时写了旧目标",
+    goal: "应落到当前 L2", targetType: "l2_session", targetId: staleSession,
+  });
+  assert.equal(created.target_id, l2SessionId);
+  assert.equal(created.needsDispatch, true);
+  assert.equal(created.started, false);
+
+  const recovered = await recoverAbnormalTask(db, assist.id, { type: "l2_session", id: l2SessionId }, { action: "restart" });
+  assert.equal(recovered.status, "queued");
+  assert.equal(recovered.target_id, l2SessionId);
+  assert.equal(recovered.claimed_by_id, l2SessionId);
+  assert.equal(recovered.needsDispatch, true);
+  assert.match(recovered.progress, /尚未派 L3/);
+
+  const childId = randomUUID();
+  const bound = await bindDshL3Execution(db, l2SessionId, childId, assist.id);
+  assert.equal(bound.status, "running");
+  assert.equal(bound.target_id, l2SessionId);
+  assert.equal(bound.execution_agent_id, childId);
+  const assignment = await query(db, "SELECT event_type,reason FROM agent_task_assignment_events WHERE task_id=? ORDER BY id", [assist.id]);
+  assert.equal(assignment.every((event) => event.event_type !== "transferred"), true);
+  await updateTask(db, assist.id, { type: "dsh_l3", id: childId }, { status: "failed", progress: "L3 交活失败", resultSummary: "提交被拒" });
+  const status = await listTaskStatusEvents(db, assist.id);
+  assert.equal(status.at(-1).actor_type, "dsh_l3");
+  assert.equal(status.at(-1).actor_id, childId);
+  assert.equal(status.at(-1).to_status, "failed");
+  assert.match(status.at(-1).reason, /交活失败|提交被拒/);
+});
+
 test("L2 can arrange member-owned tasks in this iteration but not other iterations", async () => {
   const actor = { type: "l2_session", id: l2SessionId, authorizedByUserId: users[0].id };
   const humanTask = await formalTask(users[1].id, { title: "成员卡住的任务" });

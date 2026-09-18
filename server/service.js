@@ -1427,12 +1427,20 @@ export class Service {
     const save = async (db) => {
       const thread = await this.thread(user, threadId, true, db);
       if (agentMessageId) {
-        const [job] = await query(
+        const [reply] = await query(
           db,
           "SELECT status FROM assistant_replies WHERE message_id=? FOR UPDATE",
           [agentMessageId],
         );
-        if (job?.status !== "running")
+        const liveReply = ["queued", "running"].includes(reply?.status);
+        let liveL3 = false;
+        if (!liveReply && options.executorSessionId) {
+          const [run] = await query(db, `SELECT id FROM agent_task_execution_runs
+            WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting') LIMIT 1`,
+            [options.executorSessionId]);
+          liveL3 = !!run;
+        }
+        if (!liveReply && !liveL3)
           fail(409, "Agent 任务已停止，不能继续提交");
       }
       if (exportKey) {

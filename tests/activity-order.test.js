@@ -38,6 +38,8 @@ test('thinking, intermediate text and tools retain actual order; final text is m
   const say=(type,data={})=>visible.notify({method:'session.event',params:{sessionId:'visible',event:{type,data}}});
   const sayChunk=(type,text)=>say('assistant/chunk',{chunk:{type,text}});
   say('step/start');sayChunk('reasoning-delta','内部思考');sayChunk('text-delta','第一句给成员看。');say('tool/call');
+  await visible.flush();
+  assert.deepEqual(published,['第一句给成员看。']);
   say('step/start');sayChunk('text-delta','第二句给成员看。');say('assistant/message');
   await visible.close('completed','第二句给成员看。');
   assert.deepEqual(published,['第一句给成员看。','第二句给成员看。']);

@@ -1529,6 +1529,15 @@ header h2 {
   gap: 12px;
   margin-bottom: 28px;
 }
+.message.turn-continue {
+  margin-bottom: 12px;
+}
+.message:has(+ .message.turn-continue) {
+  margin-bottom: 12px;
+}
+.message.turn-continue > .avatar {
+  visibility: hidden;
+}
 .message .avatar {
   background: #e5eddf;
 }

@@ -542,7 +542,14 @@ export async function openAgentRuntime(
       void (async () => {
         try {
           while (activeChildren.size) {
-            onNotification(await sub.next());
+            const notification = await sub.next();
+            // Parent L2 chunks already arrive via harness.run. Replaying the
+            // session tree would duplicate every visible character.
+            if (notification?.method === "session.event" && notification.params?.sessionId === session.session_id) {
+              await after();
+              continue;
+            }
+            onNotification(notification);
             await after();
           }
         } catch (error) {

@@ -7,6 +7,7 @@ import {Service} from '../server/service.js';
 import {trackLiveOutput,liveOutputSnapshot,observeLiveOutput} from '../server/agent-live-output.js';
 import {documentTool} from '../server/document-tools.js';
 import {createAgentTools} from '../server/agent-tools.js';
+import {bindDshL3Execution, createTask} from '../server/task-pool.js';
 let database,service,user,project,thread,message,job;
 before(async()=>{
  database=await testDatabase();service=new Service(database.db);user={id:randomUUID(),kind:'session'};
@@ -65,6 +66,41 @@ test('document tools create folders, rename/move/recycle files and enforce stopp
  await assert.rejects(documentTool(service,user,'manage_document',{action:'delete',scope:'version',artifactId:output.artifactId},job));
  await query(database.db,"UPDATE assistant_replies SET status='cancelled' WHERE message_id=?",[message.id]);
  await assert.rejects(documentTool(service,user,'manage_document',{action:'delete',scope:'document',artifactId:output.artifactId},job),e=>e.status===409);
+});
+
+test('L3 can publish after the parent L2 reply has already finished', async () => {
+  const db = database.db;
+  const l2SessionId = randomUUID();
+  const childId = randomUUID();
+  await query(db, "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?)", [thread.id, l2SessionId]);
+  const assist = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: user.id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "L2 结束后仍可提交",
+    goal: "发布不依赖父回复 running", targetType: "l2_session", targetId: l2SessionId,
+  });
+  await bindDshL3Execution(db, l2SessionId, childId, assist.id);
+  await query(db, "UPDATE assistant_replies SET status='completed' WHERE message_id=?", [message.id]);
+  const data = { title: "L3 产物", filename: "l3.txt", mime: "text/plain",
+    contentBase64: Buffer.from("from-l3").toString("base64") };
+  await assert.rejects(service.submitVersion({ ...user, kind: "agent" }, thread.id, data, undefined, message.id),
+    (error) => error.status === 409);
+  const published = await service.submitVersion({ ...user, kind: "agent" }, thread.id, data, undefined, message.id, false,
+    { executorSessionId: childId });
+  assert.ok(published.id);
+  const tools = createAgentTools(service, user, job, {
+    role: "coordinator",
+    l2SessionId,
+    getSandbox: async () => ({
+      virtualPath: (path) => path,
+      files: { makeDir: async () => {}, write: async () => {} },
+      readFile: async () => Buffer.from("from-l3-tool"),
+      commands: { run: async () => ({ stdout: "", stderr: "", exitCode: 0 }) },
+    }),
+  });
+  const viaTool = await tools("publish_artifact", { path: "out.txt", title: "工具提交" }, { sessionId: childId });
+  assert.equal(viaTool.savedToProject, true);
+  const viaLiveRun = await tools("publish_artifact", { path: "out2.txt", title: "无 session 也提交" }, {});
+  assert.equal(viaLiveRun.savedToProject, true);
 });
 test('DSH schema accepts root-directory null parameters',async()=>{
  const {apply}=await import('../runtime/cothread-tools.mjs');

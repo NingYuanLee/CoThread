@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { liveCoordinatorDraft, taskTimeline, usageReplyForMessage } from '../web/chat-timeline.ts';
+import { continuesCoordinatorTurn, liveCoordinatorDraft, taskTimeline, usageReplyForMessage } from '../web/chat-timeline.ts';
 const message = (id, source='human', extra={}) => ({id,sequence:'1',source,body:id,refs:[],...extra});
 const reply = {message_id:'user',reply_id:null,participation:'reply',parent_message_id:'user',agent_slot:1};
 const request = [{message_id:'user',response_id:'host'}];
@@ -51,21 +51,30 @@ test('L2 group posts stay as ordinary messages without a process row',()=>{
   assert.deepEqual(rows.map(m=>m.id),['user','post1','post2']);
   assert.deepEqual(rows.slice(1).map(m=>m.body),['先看一下任务','再把结果告诉大家']);
 });
-test('usage chips attach to every L2 post of the same turn, plus executor rows',()=>{
+test('usage chips attach only to the last L2 post of a finished turn, plus executor rows',()=>{
   const coordinator={message_id:'user',reply_id:'post2',participation:'reply',parent_message_id:null,agent_slot:null,usage_stats:{totalTokens:1200,executionDurationMs:1800}};
   const empty={...coordinator,usage_stats:null};
   const executor={message_id:'task',reply_id:'result',participation:'reply',parent_message_id:'task',agent_slot:1};
-  assert.equal(usageReplyForMessage({id:'post2',agent_task_id:'user'},[coordinator])?.message_id,'user');
-  assert.equal(usageReplyForMessage({id:'post1',agent_task_id:'user'},[coordinator])?.message_id,'user');
-  assert.equal(usageReplyForMessage({id:'post2',agent_task_id:'user'},[empty]),null);
+  const posts=[message('post1','assistant',{agent_task_id:'user'}),message('post2','assistant',{agent_task_id:'user'})];
+  assert.equal(usageReplyForMessage(posts[1],[coordinator],posts)?.message_id,'user');
+  assert.equal(usageReplyForMessage(posts[0],[coordinator],posts),null);
+  assert.equal(usageReplyForMessage(posts[1],[{...coordinator,status:'running'}],posts),null);
+  assert.equal(usageReplyForMessage(posts[1],[empty],posts),null);
   assert.equal(usageReplyForMessage({id:'host'},[coordinator]),null);
   assert.equal(usageReplyForMessage({id:'result',agent_task_id:'task'},[executor])?.message_id,'task');
   const greeting={message_id:'hi',reply_id:'ack',participation:'reply',parent_message_id:null,agent_slot:null,usage_stats:{executionDurationMs:820,totalTokens:18}};
-  assert.equal(usageReplyForMessage({id:'ack',agent_task_id:'hi'},[greeting])?.message_id,'hi');
+  const ack=message('ack','assistant',{agent_task_id:'hi'});
+  assert.equal(usageReplyForMessage(ack,[greeting],[ack])?.message_id,'hi');
+  assert.equal(continuesCoordinatorTurn(posts[1],posts[0],[coordinator]),true);
+  assert.equal(continuesCoordinatorTurn(posts[0],message('user'),[coordinator]),false);
 });
 test('live L2 draft streams until the same body is committed',()=>{
   const running={message_id:'user',status:'running'};
+  const coordinator={message_id:'user',reply_id:null,participation:'reply',parent_message_id:null,agent_slot:null};
   const posts=[message('post1','assistant',{agent_task_id:'user',body:'先看一下任务'})];
+  const rows=taskTimeline([base[0],...posts],[coordinator],[{message_id:'user',response_id:null,status:'running'}],()=>false);
+  assert.deepEqual(rows.map(m=>m.id),['user','post1']);
+  assert.equal(liveCoordinatorDraft(running,{content:'再'},posts),'再');
   assert.equal(liveCoordinatorDraft(running,{content:'再把结果告诉大家'},posts),'再把结果告诉大家');
   assert.equal(liveCoordinatorDraft(running,{content:'先看一下任务'},posts),null);
   assert.equal(liveCoordinatorDraft({...running,status:'completed'},{content:'再把结果告诉大家'},posts),null);

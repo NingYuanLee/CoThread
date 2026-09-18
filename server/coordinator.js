@@ -202,7 +202,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
 请根据结果向成员回报；也可 inspect_task 或 send_message 追问仍在跑的 L3，拿到回复后决定帮一把还是换人。不要推给平台，不要在沙箱写 SQL。先说话再行动。做完就停。`
       : `当前项目：${context.project_id}；当前迭代：${job.thread_id}；触发消息：${job.message_id}。
 本次唤醒：成员消息。上下文：${JSON.stringify(context.promptContext || context)}
-先用可见正文回应理解或答复；催进度时 inspect_task 或 send_message 问 L3，拿到回复再决定帮一把还是换人；需要干活再 create_task 并 dsh_l3。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。做完就停。`;
+先用可见正文回应理解或答复；催进度时 inspect_task 或 send_message 问 L3，拿到回复再决定帮一把还是换人；需要干活再 create_task 并立刻 dsh_l3。create_task/recover_task 只是排队，见到 execution_agent_id 且 status=running 之前不要说已经派人。dsh_l3 失败就报绑定原因。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。做完就停。`;
     const steeredMessageIds = new Set();
     const mergedMessageIds = new Set();
     let steeringBusy = false;
@@ -257,6 +257,13 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       /(?:TASK_ID\s*[:=]|任务ID\s*[:：]|\[task:)\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
     )?.[1] || null;
     const attachChildTask = async (childId, taskId, parentEventId) => {
+      const failBind = async (message) => {
+        if (parentEventId) {
+          await query(db, `UPDATE agent_events SET status='failed',output=?,finished_at=UTC_TIMESTAMP(3)
+            WHERE id=? AND status IN ('running','completed')`, [String(message || "未能绑定 L3").slice(0, 1000), parentEventId]);
+        }
+        return null;
+      };
       let bindId = taskId || null;
       if (!bindId) {
         const queued = await query(db, `SELECT t.id FROM agent_task_execution_runs r
@@ -264,32 +271,35 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           WHERE t.target_type='l2_session' AND t.target_id=? AND r.executor_type='dsh_l3'
             AND r.status='queued' AND r.executor_id IS NULL AND r.task_revision=t.revision
           ORDER BY r.created_at`, [runtime.session.session_id]);
-        if (queued.length !== 1) return null;
+        if (queued.length !== 1) {
+          return failBind(queued.length
+            ? "dsh_l3 prompt 缺少 TASK_ID，当前有多条排队任务，无法自动绑定"
+            : "没有可绑定的排队任务。create_task/recover_task 之后必须带 TASK_ID 调用 dsh_l3。");
+        }
         bindId = queued[0].id;
       }
       let task = null;
       try {
         task = await bindDshL3Execution(db, runtime.session.session_id, childId, bindId);
       } catch (error) {
-        if (error?.status === 409 || error?.status === 404) return null;
+        if (error?.status === 409 || error?.status === 404) return failBind(error.message);
         throw error;
       }
-      if (task) {
-        if (parentEventId) {
-          await query(db, `UPDATE agent_events SET agent_task_id=?
-            WHERE agent_session_id=? AND agent_task_id IS NULL
-              AND created_at>=(SELECT created_at FROM (SELECT created_at FROM agent_events WHERE id=?) parent_event)`,
-          [task.id, childId, parentEventId]);
-        } else {
-          await query(db, "UPDATE agent_events SET agent_task_id=? WHERE agent_session_id=? AND agent_task_id IS NULL",
-            [task.id, childId]);
-        }
-        const finished = finishedChildren.get(childId);
-        if (finished) {
-          finishedChildren.delete(childId);
-          const settled = await settleDshL3Execution(db, runtime.session.session_id, childId, finished);
-          await retainOrForgetChild(childId, settled);
-        }
+      if (!task) return failBind("排队任务未能绑定到本次 L3");
+      if (parentEventId) {
+        await query(db, `UPDATE agent_events SET agent_task_id=?
+          WHERE agent_session_id=? AND agent_task_id IS NULL
+            AND created_at>=(SELECT created_at FROM (SELECT created_at FROM agent_events WHERE id=?) parent_event)`,
+        [task.id, childId, parentEventId]);
+      } else {
+        await query(db, "UPDATE agent_events SET agent_task_id=? WHERE agent_session_id=? AND agent_task_id IS NULL",
+          [task.id, childId]);
+      }
+      const finished = finishedChildren.get(childId);
+      if (finished) {
+        finishedChildren.delete(childId);
+        const settled = await settleDshL3Execution(db, runtime.session.session_id, childId, finished);
+        await retainOrForgetChild(childId, settled);
       }
       return task;
     };
@@ -387,7 +397,8 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
             const output = notificationText(event.data.message?.content);
             if (nativeEvent) {
               const failed = !!(event.data?.isError || event.data?.message?.source?.isError);
-              await query(db, "UPDATE agent_events SET status=?,output=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?",
+              await query(db, `UPDATE agent_events SET status=?,output=?,finished_at=UTC_TIMESTAMP(3)
+                WHERE id=? AND status='running'`,
                 [failed ? "failed" : "completed", output.slice(0, 1000), nativeEvent.id]);
               nativeToolEvents.delete(callId);
             }
@@ -423,6 +434,9 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           else await retainOrForgetChild(childId, settled);
           activeChildren.delete(childId);
           childSettled?.();
+          if (!activeChildren.size && job.message_id)
+            await query(db, "UPDATE assistant_replies SET execution_active=FALSE WHERE message_id=? AND execution_active=TRUE",
+              [job.message_id]);
         }
       }).catch((error) => console.error("AgentTeam task lifecycle sync failed", {
         type: error?.name || "Error", diagnostic: redactSecrets(error?.message || error).slice(-1000),
@@ -551,7 +565,8 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
       const [request] = await query(conn, "SELECT status FROM agent_requests WHERE message_id=? FOR UPDATE", [job.message_id]);
       if (request?.status !== "running") return;
       if (!responseId && visible) responseId = (await service.insertMessage(conn, user, job.thread_id, visible, [], "assistant", job.message_id)).id;
-      await query(conn, `UPDATE assistant_replies SET status='completed',participation=?,reply_id=?,progress='小祥已完成本轮处理',finished_at=UTC_TIMESTAMP(3) WHERE message_id=? AND status IN ('queued','running')`, [responseId ? "reply" : "silent", responseId, job.message_id]);
+      await query(conn, `UPDATE assistant_replies SET status='completed',execution_active=?,participation=?,reply_id=?,progress=?,finished_at=UTC_TIMESTAMP(3) WHERE message_id=? AND status IN ('queued','running')`,
+        [waiting, responseId ? "reply" : "silent", responseId, waiting ? "等待任务级 Agent" : "小祥已完成本轮处理", job.message_id]);
       await query(conn, "UPDATE agent_requests SET status='completed',response_id=?,error=NULL,first_response_at=COALESCE(first_response_at,UTC_TIMESTAMP(3)) WHERE message_id=?", [responseId, job.message_id]);
       for (const messageId of result?.mergedMessageIds || []) {
         await query(conn, "UPDATE assistant_replies SET status='completed',participation='reply',reply_id=?,progress='已并入当前 L2 处理周期',finished_at=UTC_TIMESTAMP(3) WHERE message_id=? AND status='queued'", [responseId, messageId]);

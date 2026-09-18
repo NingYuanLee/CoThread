@@ -13,8 +13,48 @@ function assertTarget(type, id) {
   if (!targetTypes.has(type) || typeof id !== "string" || !id) throw new HttpError(400, "任务目标无效");
 }
 
+function assertActorCanUpdateTask(task, actor) {
+  if (actor?.type === "dsh_l3") {
+    if (task.execution_agent_type !== "dsh_l3" || task.execution_agent_id !== actor.id)
+      throw new HttpError(403, "只有当前任务目标可以更新任务");
+    return;
+  }
+  if (task.target_type !== actor.type || task.target_id !== actor.id)
+    throw new HttpError(403, "只有当前任务目标可以更新任务");
+}
+
 function isL2OwnResponsibility(task) {
   return task.task_type === "assist_l2" || task.target_type === "l2_session" || task.execution_agent_type === "dsh_l3";
+}
+
+const L3_DISPATCH_HINT = "任务仍在排队，尚未开工。立刻 dsh_l3，prompt 第一行写 TASK_ID: <任务ID>。list_project_tasks 见到 execution_agent_id 且 status=running 之前，不要对成员说已经派人干活。";
+
+export function withL3DispatchGate(task, extra = {}) {
+  if (!task) return extra;
+  const needsDispatch = ["queued", "waiting"].includes(task.status)
+    && isL2OwnResponsibility(task)
+    && !task.execution_agent_id;
+  return needsDispatch
+    ? { ...task, ...extra, needsDispatch: true, started: false, dispatchHint: L3_DISPATCH_HINT }
+    : { ...task, ...extra };
+}
+
+async function currentThreadL2Session(conn, threadId, projectId) {
+  if (!threadId) return null;
+  const [row] = await query(conn, `SELECT s.session_id FROM agent_sessions s JOIN threads t ON t.id=s.thread_id
+    WHERE t.id=? AND (? IS NULL OR t.project_id=?)`, [threadId, projectId || null, projectId || null]);
+  return row || null;
+}
+
+async function adoptCurrentIterationL2(conn, task, l2SessionId) {
+  if (!task || task.target_type !== "l2_session") return task;
+  if (task.target_id === l2SessionId) return task;
+  const [session] = await query(conn, "SELECT thread_id FROM agent_sessions WHERE session_id=?", [l2SessionId]);
+  if (!session || !task.origin_thread_id || task.origin_thread_id !== session.thread_id)
+    throw new HttpError(404, "当前 L2 没有这个可委派任务");
+  await query(conn, "UPDATE agent_tasks SET target_id=?,claimed_by_type='l2_session',claimed_by_id=? WHERE id=?",
+    [l2SessionId, l2SessionId, task.id]);
+  return { ...task, target_id: l2SessionId, claimed_by_type: "l2_session", claimed_by_id: l2SessionId };
 }
 
 async function hasHumanMemberAuthorization(conn, projectId, actor) {
@@ -84,11 +124,17 @@ export async function createTask(db, input) {
       const [target] = await query(conn, "SELECT user_id FROM members WHERE project_id=? AND user_id=? AND role<>'viewer'", [input.projectId, input.targetId]);
       if (!target) throw new HttpError(400, "任务目标不是当前项目的可执行成员");
     }
+    let targetId = input.targetId || null;
     if (input.targetType === "l2_session") {
-      const [target] = await query(conn, `SELECT s.session_id FROM agent_sessions s JOIN threads t ON t.id=s.thread_id
-        WHERE s.session_id=? AND t.project_id=? AND (? IS NULL OR t.id=?)`,
-      [input.targetId, input.projectId, input.originThreadId || null, input.originThreadId || null]);
-      if (!target) throw new HttpError(400, "任务目标不是当前项目迭代的 L2");
+      if (input.originThreadId) {
+        const current = await currentThreadL2Session(conn, input.originThreadId, input.projectId);
+        if (!current) throw new HttpError(400, "任务目标不是当前项目迭代的 L2");
+        targetId = current.session_id;
+      } else {
+        const [target] = await query(conn, `SELECT s.session_id FROM agent_sessions s JOIN threads t ON t.id=s.thread_id
+          WHERE s.session_id=? AND t.project_id=?`, [input.targetId, input.projectId]);
+        if (!target) throw new HttpError(400, "任务目标不是当前项目迭代的 L2");
+      }
     }
     await query(conn, `INSERT INTO agent_tasks
       (id,project_id,origin_thread_id,source_type,source_user_id,source_agent_session_id,source_message_id,source_task_id,
@@ -97,10 +143,10 @@ export async function createTask(db, input) {
       id, input.projectId, input.originThreadId || null, input.sourceType, input.sourceUserId || null,
       input.sourceAgentSessionId || null, input.sourceMessageId || null, input.sourceTaskId || null,
       input.createdByType, input.createdById, input.taskType, input.title, input.goal, input.constraints || null,
-      input.targetType || null, input.targetId || null, acceptance ? "awaiting_acceptance" : input.targetType ? "queued" : "draft",
+      input.targetType || null, targetId, acceptance ? "awaiting_acceptance" : input.targetType ? "queued" : "draft",
     ]);
     if (input.targetType === "l2_session") {
-      await query(conn, "UPDATE agent_tasks SET claimed_by_type='l2_session',claimed_by_id=? WHERE id=?", [input.targetId,id]);
+      await query(conn, "UPDATE agent_tasks SET claimed_by_type='l2_session',claimed_by_id=? WHERE id=?", [targetId,id]);
       if (input.taskType === "assist_l2") {
         await query(conn, "UPDATE agent_tasks SET execution_mode='dsh_l3',execution_agent_type='dsh_l3' WHERE id=?", [id]);
         await query(conn, `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,status)
@@ -109,12 +155,12 @@ export async function createTask(db, input) {
     }
     await query(conn, `INSERT INTO agent_task_assignment_events
       (task_id,to_target_type,to_target_id,changed_by_type,changed_by_id,reason,message_id)
-      VALUES(?,?,?,?,?,?,?)`, [id, input.targetType || null, input.targetId || null, input.createdByType,
+      VALUES(?,?,?,?,?,?,?)`, [id, input.targetType || null, targetId, input.createdByType,
       input.createdById, input.reason || null, input.sourceMessageId || null]);
     await recordTaskStatusChange(conn, id, null, { type: input.createdByType, id: input.createdById }, input.reason || "任务创建");
   });
   if (input.originThreadId) publishWork(db, input.originThreadId);
-  return getTask(db, id);
+  return withL3DispatchGate(await getTask(db, id));
 }
 
 export async function getTask(db, id) {
@@ -150,7 +196,7 @@ export async function updateTask(db, taskId, actor, update) {
   const result = await transaction(db, async (conn) => {
     const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
     if (!task) throw new HttpError(404, "任务不存在");
-    if (task.target_type !== actor.type || task.target_id !== actor.id) throw new HttpError(403, "只有当前任务目标可以更新任务");
+    assertActorCanUpdateTask(task, actor);
     let nextStatus = update.status || task.status;
     if (!["queued","running","waiting","blocked","completed","failed","cancelled"].includes(nextStatus)) throw new HttpError(400, "任务状态无效");
     if (["completed","failed","cancelled"].includes(task.status)) throw new HttpError(409, "任务已经结束");
@@ -244,10 +290,13 @@ export async function reassignTask(db, taskId, actor, target, reason, messageId)
     if (target.type === "human_member") {
       const [member] = await query(conn, "SELECT user_id FROM members WHERE project_id=? AND user_id=? AND role<>'viewer'", [task.project_id, target.id]);
       if (!member) throw new HttpError(400, "任务目标不是当前项目的可执行成员");
+    } else if (task.origin_thread_id) {
+      const current = await currentThreadL2Session(conn, task.origin_thread_id, task.project_id);
+      if (!current) throw new HttpError(400, "任务目标不是当前项目迭代的 L2");
+      target = { ...target, id: current.session_id };
     } else {
       const [session] = await query(conn, `SELECT s.session_id FROM agent_sessions s JOIN threads t ON t.id=s.thread_id
-        WHERE s.session_id=? AND t.project_id=? AND (? IS NULL OR t.id=?)`,
-      [target.id, task.project_id, task.origin_thread_id, task.origin_thread_id]);
+        WHERE s.session_id=? AND t.project_id=?`, [target.id, task.project_id]);
       if (!session) throw new HttpError(400, "任务目标不是当前项目迭代的 L2");
     }
     const status = target.type === "human_member" ? "awaiting_acceptance" : "queued";
@@ -448,8 +497,9 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
         execution_agent_id=NULL,finished_at=UTC_TIMESTAMP(3),revision=revision+1 WHERE id=?`,
       [reason, update.resultSummary || reason, taskId]);
     } else if (dispatchL3) {
+      await adoptCurrentIterationL2(conn, task, actor.id);
       await query(conn, `UPDATE agent_tasks SET title=COALESCE(?,title),goal=COALESCE(?,goal),constraints=IF(?,?,constraints),
-        status='queued',progress='L2 已重新安排，等待任务级 Agent',result_summary=NULL,
+        status='queued',progress='已重新排队，尚未派 L3',result_summary=NULL,
         execution_mode=COALESCE(execution_mode,'dsh_l3'),execution_agent_type=COALESCE(execution_agent_type,'dsh_l3'),
         execution_agent_id=NULL,finished_at=NULL,revision=revision+1 WHERE id=?`,
       [update.title || null, update.goal || null, update.constraints !== undefined, update.constraints ?? null, taskId]);
@@ -463,7 +513,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       [update.title || null, update.goal || null, update.constraints !== undefined, update.constraints ?? null, taskId]);
     }
     await recordTaskStatusChange(conn, taskId, task.status, actor, reason);
-    return { ...await getTask(conn, taskId), action, interruptedAgentId };
+    return withL3DispatchGate(await getTask(conn, taskId), { action, interruptedAgentId });
   });
   if (result.origin_thread_id) publishWork(db, result.origin_thread_id);
   return result;
@@ -538,8 +588,9 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
     if (Number(capacity.active) >= 7) throw new HttpError(409, "当前 L2 已有 7 个运行中的 DSH L3");
     if (taskId) {
       const [task] = await query(conn, `SELECT * FROM agent_tasks WHERE id=? AND target_type='l2_session'
-        AND target_id=? AND task_type IN ('assist_l2','formal') FOR UPDATE`, [taskId, l2SessionId]);
+        AND task_type IN ('assist_l2','formal') FOR UPDATE`, [taskId]);
       if (!task) throw new HttpError(404, "当前 L2 没有这个可委派任务");
+      await adoptCurrentIterationL2(conn, task, l2SessionId);
       if (task.status !== "queued") throw new HttpError(409, "任务当前不可启动 DSH L3");
       if (task.task_type === "formal") {
         await query(conn, `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,status)
@@ -743,6 +794,11 @@ export async function recoverInterruptedDshL3Executions(db) {
     await query(conn, `UPDATE agent_tasks t SET t.status='queued',t.execution_agent_id=IF(t.task_type='assist_l2',NULL,t.execution_agent_id),
       t.progress='服务重启，等待 L2 重新评估',t.finished_at=NULL,t.revision=t.revision+1
       WHERE t.task_type IN ('assist_l2','formal') AND t.status='running'
+        AND EXISTS (SELECT 1 FROM agent_task_execution_runs r WHERE r.task_id=t.id AND r.status='interrupted')`);
+    await query(conn, `UPDATE agent_tasks t JOIN agent_sessions s ON s.thread_id=t.origin_thread_id
+      SET t.target_id=s.session_id,t.claimed_by_type='l2_session',t.claimed_by_id=s.session_id
+      WHERE t.target_type='l2_session' AND t.task_type IN ('assist_l2','formal') AND t.status='queued'
+        AND t.origin_thread_id IS NOT NULL AND t.target_id<>s.session_id
         AND EXISTS (SELECT 1 FROM agent_task_execution_runs r WHERE r.task_id=t.id AND r.status='interrupted')`);
     await query(conn, `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,status)
       SELECT UUID(),t.id,t.revision,'dsh_l3','queued' FROM agent_tasks t

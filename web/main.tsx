@@ -1,7 +1,7 @@
 import { AgentActivity } from "./AgentActivity";
 import { MessageUsage, type UsageStats } from './MessageUsage';
 import { useAgentLiveOutput } from "./useAgentLiveOutput";
-import { isExecutorReply, liveCoordinatorDraft, taskTimeline, usageReplyForMessage } from "./chat-timeline";
+import { continuesCoordinatorTurn, coordinatorTurnId, isExecutorReply, isLastCoordinatorTurnPost, liveCoordinatorDraft, taskTimeline, usageReplyForMessage } from "./chat-timeline";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { apiFetch, fetchJson } from "./api-fetch";
 import {
@@ -666,7 +666,9 @@ function App() {
   const taskChangeLog = (task: AgentTaskDetail) => {
     const actionLabels: Record<string, string> = { assigned: "创建并指派", transferred: "转交", rejected: "拒绝", acknowledged: "已知晓", reopened: "重新发起" };
     const targetLabel = (type: string | null, id: string | null) => type === "l2_session" ? "小祥" : type === "human_member" ? (memberName(id) || "成员") : "";
-    const items = task.assignmentHistory.map((event) => ({
+    const items = task.assignmentHistory.filter((event) => !(event.event_type === "transferred"
+      && event.from_target_type === "l2_session" && event.to_target_type === "l2_session"
+      && /L2 会话已更新/.test(event.reason || ""))).map((event) => ({
       key: `assignment-${event.id}`, at: event.created_at, actorType: event.changed_by_type, actorId: event.changed_by_id,
       title: `${actionLabels[event.event_type] || event.event_type}${["assigned", "transferred"].includes(event.event_type) && event.to_target_type ? ` → ${targetLabel(event.to_target_type, event.to_target_id)}` : ""}`,
       transition: "", reason: event.reason,
@@ -1790,26 +1792,31 @@ function App() {
                   <p>分享背景、目标或一个还没有答案的问题。</p>
                 </div>
               )}
-              {timeline.map((m) => (
+              {timeline.map((m, index) => {
+                const continuesTurn = continuesCoordinatorTurn(m, timeline[index - 1], thread.replies);
+                const lastOfTurn = isLastCoordinatorTurnPost(m, timeline, thread.replies);
+                const usageReply = m.source === "assistant" ? usageReplyForMessage(m, thread.replies, timeline) : null;
+                return (
                 <React.Fragment key={m.render_key || m.id}>
                   <article
                     data-message-id={m.id}
-                    className={`message ${m.author_id === user.id && m.source !== "assistant" ? "own" : ""}`}
+                    className={`message ${m.author_id === user.id && m.source !== "assistant" ? "own" : ""} ${continuesTurn ? "turn-continue" : ""}`}
                     key={m.render_key || m.id}
                   >
                     <span
                       className={`avatar ${m.source === "assistant" ? "ai" : ""}`}
+                      aria-hidden={continuesTurn || undefined}
                     >
-                      {m.source === "assistant" ? (
+                      {!continuesTurn && (m.source === "assistant" ? (
                         <img loading="lazy" decoding="async" src={AGENT_MEMBER.avatar} alt="" />
                       ) : messageAvatar(m) ? (
                         <img loading="lazy" decoding="async" src={messageAvatar(m) || undefined} alt="" />
                       ) : (
                         m.author[0]
-                      )}
+                      ))}
                     </span>
                     <div className="message-content">
-                      <div className="message-meta">
+                      {!continuesTurn && <div className="message-meta">
                         <span className="message-author">
                           <strong>
                             <IdentityName
@@ -1835,7 +1842,7 @@ function App() {
                         {m.source === "system" && (
                           <span className="source-label">协作记录</span>
                         )}
-                      </div>
+                      </div>}
                       {m.source === "assistant" &&
                         thread.replies
                           .filter((reply) => {
@@ -1893,11 +1900,8 @@ function App() {
                           setQuotedMessages(previous => previous.some(q => q.id === id) ? previous : [...previous, {...original, id}].slice(0,10));
                           requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus());
                         }}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 5H3v6h5V5Zm9 0h-5v6h5V5ZM8 11c0 3-2 4-4 4m13-4c0 3-2 4-4 4"/></svg></button>
-                        {m.source==='assistant' && (() => {
-                          const reply = usageReplyForMessage(m, thread.replies);
-                          return reply ? <MessageUsage record={reply} finishedAt={reply.finished_at || m.created_at} allowClockFallback={isExecutorReply(reply)}/> : null;
-                        })()}
-                        {(m.author_id !== user.id || m.source === "assistant") && <time className="message-action-time">{time(m.created_at)}</time>}
+                        {usageReply && <MessageUsage record={usageReply} finishedAt={usageReply.finished_at || m.created_at} allowClockFallback={isExecutorReply(usageReply)}/>}
+                        {(m.author_id !== user.id || m.source === "assistant") && (!coordinatorTurnId(m, thread.replies) || (lastOfTurn && !continuesCoordinatorTurn({ source: "assistant", agent_task_id: liveCoordinator?.message_id }, m, thread.replies))) && <time className="message-action-time">{time(m.created_at)}</time>}
                       </div>}
                     </div>
                     {m.delivery_status === "sending" && <span className="message-delivery-control sending" role="status" aria-label="正在发送" title="正在发送" />}
@@ -1908,26 +1912,29 @@ function App() {
                     </button>}
                   </article>
                 </React.Fragment>
-              ))}
-              {coordinatorDraft && (
-                <article className="message" data-message-id={`live-coordinator:${liveCoordinator?.message_id}`} aria-live="polite">
-                  <span className="avatar ai">
-                    <img loading="lazy" decoding="async" src={AGENT_MEMBER.avatar} alt="" />
+              );})}
+              {coordinatorDraft && (() => {
+                const draftContinues = continuesCoordinatorTurn({ source: "assistant", agent_task_id: liveCoordinator?.message_id }, timeline[timeline.length - 1], thread.replies);
+                return (
+                <article className={`message${draftContinues ? " turn-continue" : ""}`} data-message-id={`live-coordinator:${liveCoordinator?.message_id}`} aria-live="polite">
+                  <span className="avatar ai" aria-hidden={draftContinues || undefined}>
+                    {!draftContinues && <img loading="lazy" decoding="async" src={AGENT_MEMBER.avatar} alt="" />}
                   </span>
                   <div className="message-content">
-                    <div className="message-meta">
+                    {!draftContinues && <div className="message-meta">
                       <span className="message-author">
                         <strong>
                           <IdentityName role={AGENT_MEMBER.identity_tags[0]} name={AGENT_MEMBER.name} />
                         </strong>
                       </span>
-                    </div>
+                    </div>}
                     <div className="message-text">
                       <StreamingMarkdown active text={coordinatorDraft} />
                     </div>
                   </div>
                 </article>
-              )}
+                );
+              })()}
               {thread.runs
                 .filter((r) => r.status === "running")
                 .map((r) => (

@@ -111,6 +111,8 @@ test("each completed assistant text return is published, thinking is not", async
   chunk("reasoning-delta", "内部思考");
   chunk("text-delta", "第一句给成员看。");
   notify("tool/call");
+  await tracker.flush();
+  assert.deepEqual(published, ["第一句给成员看。"]);
   notify("step/start");
   chunk("text-delta", "第二句给成员看。");
   notify("assistant/message");

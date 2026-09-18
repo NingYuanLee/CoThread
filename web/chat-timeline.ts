@@ -3,7 +3,10 @@ export type TimelineMessage = {
   agent_task_id?: string | null;
   render_key?: string;
 };
-type Reply = { message_id: string; reply_id: string | null; participation: string; parent_message_id: string | null; agent_slot: number | null };
+type Reply = {
+  message_id: string; reply_id: string | null; participation: string;
+  parent_message_id: string | null; agent_slot: number | null; status?: string;
+};
 
 export function isExecutorReply(reply: Pick<Reply, "parent_message_id" | "agent_slot">) {
   return !!reply.parent_message_id || !!reply.agent_slot;
@@ -19,14 +22,48 @@ function parseUsageStats(record?: { usage_stats?: unknown }) {
   }
 }
 
-export function usageReplyForMessage<R extends Reply & { usage_stats?: unknown }>(
-  message: Pick<TimelineMessage, "id" | "agent_task_id">,
+export function coordinatorTurnId<R extends Reply>(
+  message: Pick<TimelineMessage, "source" | "agent_task_id"> | undefined,
   replies: R[],
+) {
+  if (!message || !message.agent_task_id || (message.source && message.source !== "assistant")) return null;
+  const reply = replies.find((item) => item.message_id === message.agent_task_id);
+  return reply && !isExecutorReply(reply) ? message.agent_task_id : null;
+}
+
+export function continuesCoordinatorTurn<R extends Reply>(
+  message: Pick<TimelineMessage, "source" | "agent_task_id">,
+  previous: Pick<TimelineMessage, "source" | "agent_task_id"> | undefined,
+  replies: R[],
+) {
+  const turnId = coordinatorTurnId(message, replies);
+  return !!turnId && coordinatorTurnId(previous, replies) === turnId;
+}
+
+export function isLastCoordinatorTurnPost<M extends Pick<TimelineMessage, "id" | "source" | "agent_task_id">, R extends Reply>(
+  message: M,
+  timeline: M[],
+  replies: R[],
+) {
+  const turnId = coordinatorTurnId(message, replies);
+  if (!turnId) return false;
+  for (let index = timeline.length - 1; index >= 0; index -= 1) {
+    if (coordinatorTurnId(timeline[index], replies) === turnId) return timeline[index].id === message.id;
+  }
+  return false;
+}
+
+export function usageReplyForMessage<R extends Reply & { usage_stats?: unknown }>(
+  message: Pick<TimelineMessage, "id" | "source" | "agent_task_id">,
+  replies: R[],
+  timeline: Pick<TimelineMessage, "id" | "source" | "agent_task_id">[] = [],
 ) {
   const reply = (message.agent_task_id && replies.find((item) => item.message_id === message.agent_task_id))
     || replies.find((item) => item.reply_id === message.id);
   if (!reply) return null;
   if (isExecutorReply(reply)) return reply;
+  if (["queued", "running"].includes(String(reply.status || ""))) return null;
+  if (timeline.length && !isLastCoordinatorTurnPost(message, timeline, replies)) return null;
   const usage = parseUsageStats(reply);
   return usage.totalTokens != null || Number.isFinite(usage.executionDurationMs) ? reply : null;
 }
@@ -41,6 +78,7 @@ export function liveCoordinatorDraft(
   if (!content || content === "NO_VISIBLE_MESSAGE") return null;
   const posted = messages.some((message) =>
     message.source === "assistant" && message.agent_task_id === reply.message_id && message.body.trim() === content);
+  // Earlier posts of this turn stay in the timeline; only the current speech streams here.
   return posted ? null : content;
 }
 

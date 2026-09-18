@@ -2293,7 +2293,7 @@ function App() {
             <aside className="task-pool-dialog-list">
               <div className="task-pool-heading">
                 <label className="task-mine-filter"><input type="checkbox" checked={taskMine} onChange={(event) => setTaskMine(event.target.checked)} />只看我的任务</label>
-                {writable && <button type="button" className="task-create-toggle" onClick={openTaskCreate}><UiIcon name="plus" size={12} />新建任务</button>}
+                {writable && <button type="button" className="task-create-toggle" onClick={() => openTaskCreate()}><UiIcon name="plus" size={12} />新建任务</button>}
               </div>
               <div className="task-pool-list">
                 {visibleTasks.map((task) => {

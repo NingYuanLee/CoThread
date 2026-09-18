@@ -300,6 +300,7 @@ type Detail = Project & {
     email: string;
     bound_email?: string | null;
     role: string;
+    kind?: "human" | "l1";
     avatar?: string | null;
     motto?: string;
     identity_tags?: string[];

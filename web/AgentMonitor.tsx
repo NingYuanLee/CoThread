@@ -869,10 +869,11 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
       try {
         next = await api(`/projects/${projectId}/agent-monitor`);
         if (alive && next) {
-          setData(next);
-          setSelectedThreadId((current) => next.coordinators.some((item: MonitorData["coordinators"][number]) => item.id === current)
+          const snapshot = next;
+          setData(snapshot);
+          setSelectedThreadId((current) => snapshot.coordinators.some((item: MonitorData["coordinators"][number]) => item.id === current)
             ? current
-            : next.coordinators.find((item: MonitorData["coordinators"][number]) => item.status === "active")?.id || next.coordinators[0]?.id || "");
+            : snapshot.coordinators.find((item: MonitorData["coordinators"][number]) => item.status === "active")?.id || snapshot.coordinators[0]?.id || "");
           setError("");
         }
       } catch (cause) {

@@ -2,7 +2,7 @@ import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
 import React, { useEffect, useRef, useState } from "react";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
-import { fileDisplayName } from "../shared/document-name.js";
+import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { FileIcon } from "@react-symbols/icons/utils";
 import { Document, Notebook } from "@react-symbols/icons/files";
 import { UiIcon } from "./ui-icon";
@@ -33,8 +33,6 @@ const officeIcons = {
   pptx: Notebook,
   odp: Notebook,
 };
-const isImage = (name: string) =>
-  /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(name);
 function FilePreview({
   name,
   url,
@@ -46,7 +44,7 @@ function FilePreview({
 }) {
   const [preview, setPreview] = useState("");
   useEffect(() => {
-    if (url || !id || !isImage(name)) return;
+    if (url || !id || !isImageFile(name)) return;
     let alive = true,
       local = "";
     void apiFetch(`/api/versions/${id}`)
@@ -75,7 +73,7 @@ function FilePreview({
       if (local) URL.revokeObjectURL(local);
     };
   }, [id, name, url]);
-  return isImage(name) && (url || preview) ? (
+  return isImageFile(name) && (url || preview) ? (
     <img src={url || preview} alt={name} />
   ) : (
     <FileIcon
@@ -166,7 +164,7 @@ export function ChatComposer({
       }
       slots.current++;
       const key = crypto.randomUUID();
-      const url = isImage(file.name) ? URL.createObjectURL(file) : undefined;
+      const url = isImageFile(file.name) ? URL.createObjectURL(file) : undefined;
       if (url) urls.current.push(url);
       setUploads((rows) => [
         ...rows,
@@ -196,25 +194,40 @@ export function ChatComposer({
             });
             return;
           }
+          try {
+            await onRefresh();
+          } catch {
+            setError("文件已保存，文档列表刷新失败，请稍后刷新");
+          }
           if (!alive.current) return;
+          if (cancelled.current.has(key)) {
+            await remove({
+              key,
+              name: file.name,
+              url,
+              progress: 100,
+              ...result,
+            });
+            return;
+          }
+          const savedName = fileDisplayName({
+            title: result.title,
+            filename: result.filename || file.name,
+          });
           currentRefs.current = [
             ...new Set([...currentRefs.current, result.id]),
           ];
           setRefs(currentRefs.current);
           setMessage(
             (text) =>
-              `${text}${text && !/\s$/.test(text) ? " " : ""}/${file.name} `,
+              `${text}${text && !/\s$/.test(text) ? " " : ""}/${savedName} `,
           );
           update(key, {
             id: result.id,
             artifactId: result.artifactId,
+            name: savedName,
             progress: 100,
           });
-          try {
-            await onRefresh();
-          } catch {
-            setError("文件已保存，文档列表刷新失败，请稍后刷新");
-          }
         } catch (e) {
           update(key, { error: (e as Error).message, removing: false });
         } finally {

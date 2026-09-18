@@ -33,6 +33,7 @@ import { sendVerificationEmail as deliverVerificationEmail } from "./email-deliv
 import { createHumanChallenge as generateHumanChallenge } from "./human-challenge.js";
 import { registerConnectorBrowserRoutes, registerConnectorPublicRoutes } from "./connectors.js";
 import { acceptTask, acknowledgeTaskRejection, cancelTask, createTask, getTask, listAssignmentEvents, answerTaskQuestion, listTaskExecutionRuns, listTaskQuestions, listTaskStatusEvents, listTaskUpdates, listTasks, reassignTask, rejectTask, reopenRejectedTask, taskExecutionSnapshot, taskRejectionReview, updateTask } from "./task-pool.js";
+import { mentionTaskSourceNotice, taskSourceMentionToken, taskStatusLabel, withTaskSourceMention } from "./task-source-notice.js";
 import { adminPluginManagement, archivePromptSkill, createPromptSkill, updatePromptSkill } from "./agent-capabilities.js";
 
 export function createApp(db, { makers = false, afterMcpMessage, executeRun, stopAgent = async () => {},
@@ -536,13 +537,14 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     await service.member(req.user, req.params.id);
     const data = z.object({ title: z.string().trim().min(1).max(240), goal: z.string().trim().min(1).max(20000),
-      constraints: z.string().max(20000).optional(), targetType: z.enum(["human_member"]).optional(),
+      constraints: z.string().max(20000).optional(), refs: z.array(z.string().uuid()).max(30).default([]),
+      targetType: z.enum(["human_member"]).optional(),
       targetUserId: z.string().uuid(), threadId: z.string().uuid().optional() }).parse(req.body);
     if (data.threadId) { const thread = await service.thread(req.user, data.threadId); if (thread.project_id !== req.params.id) throw new HttpError(403, "迭代不属于当前项目"); }
     const task = await createTask(db, { projectId: req.params.id, originThreadId: data.threadId,
       sourceType: "human_member", sourceUserId: req.user.id, sourceMessageId: null, createdByType: "human_member",
       createdById: req.user.id, taskType: "formal", title: data.title, goal: data.goal, constraints: data.constraints,
-      targetType: "human_member", targetId: data.targetUserId });
+      documentRefs: data.refs, targetType: "human_member", targetId: data.targetUserId });
     res.status(201).json(task);
   });
   app.post("/api/task-questions/:id/answer", async (req, res) => {
@@ -562,7 +564,10 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     const task = await getTask(db, req.params.id); if (!task) throw new HttpError(404, "任务不存在");
     await service.member(req.user, task.project_id);
     const data = z.object({ mode: z.enum(["auto", "human_direct", "member_connector"]).default("auto") }).parse(req.body);
-    res.json(await acceptTask(db, task.id, { type: "human_member", id: req.user.id }, data.mode));
+    const accepted = await acceptTask(db, task.id, { type: "human_member", id: req.user.id }, data.mode);
+    await mentionTaskSourceNotice(service, db, req.user, task,
+      `任务事件：${req.user.name || "当前成员"}已确认任务「${task.title}」。`);
+    res.json(accepted);
   });
   app.post("/api/tasks/:id/reject", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
@@ -570,8 +575,8 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     await service.member(req.user, task.project_id);
     const data = z.object({ reason: z.string().trim().max(1000).optional() }).parse(req.body);
     const rejected = await rejectTask(db, task.id, { type: "human_member", id: req.user.id }, data.reason);
-    if (task.origin_thread_id) await service.insertMessage(db, req.user, task.origin_thread_id,
-      `任务事件：${req.user.name || "当前成员"}拒绝了任务「${task.title}」${data.reason ? `，原因：${data.reason}` : ""}。`, [], "system");
+    await mentionTaskSourceNotice(service, db, req.user, task,
+      `任务事件：${req.user.name || "当前成员"}拒绝了任务「${task.title}」${data.reason ? `，原因：${data.reason}` : ""}。`);
     res.json(rejected);
   });
   app.post("/api/tasks/:id/cancel", async (req, res) => {
@@ -580,8 +585,8 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     await service.member(req.user, task.project_id);
     const data = z.object({ reason: z.string().trim().max(1000).optional() }).parse(req.body || {});
     const cancelled = await cancelTask(db, task.id, { type: "human_member", id: req.user.id }, data.reason);
-    if (task.origin_thread_id) await service.insertMessage(db, req.user, task.origin_thread_id,
-      `任务事件：${req.user.name || "当前成员"}取消了任务「${task.title}」。`, [], "system");
+    await mentionTaskSourceNotice(service, db, req.user, task,
+      `任务事件：${req.user.name || "当前成员"}取消了任务「${task.title}」。`);
     res.json(cancelled);
   });
   app.post("/api/tasks/:id/acknowledge-rejection", async (req, res) => {
@@ -597,8 +602,8 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     const data = z.object({ title: z.string().trim().min(1).max(240).optional(), goal: z.string().trim().min(1).max(20000).optional(),
       constraints: z.string().max(20000).optional(), reason: z.string().trim().max(1000).optional() }).parse(req.body);
     const reopened = await reopenRejectedTask(db, task.id, { type: "human_member", id: req.user.id }, data);
-    if (task.origin_thread_id) await service.insertMessage(db, req.user, task.origin_thread_id,
-      `任务事件：${req.user.name || "当前成员"}修改并重新发起了任务「${data.title || task.title}」。`, [], "system");
+    await mentionTaskSourceNotice(service, db, req.user, task,
+      `任务事件：${req.user.name || "当前成员"}修改并重新发起了任务「${data.title || task.title}」。`);
     res.json(reopened);
   });
   app.patch("/api/tasks/:id", async (req, res) => {
@@ -606,7 +611,11 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     const task = await getTask(db, req.params.id); if (!task) throw new HttpError(404, "任务不存在");
     await service.member(req.user, task.project_id);
     const data = z.object({ status: z.enum(["pending_start","running","waiting","blocked","completed","failed","cancelled","abandoned"]).optional(), progress: z.string().max(500).optional(), resultSummary: z.string().max(20000).optional(), artifactRefs: z.array(z.unknown()).optional(), body: z.string().max(20000).optional(), messageId: z.string().uuid().optional() }).parse(req.body);
-    res.json(await updateTask(db, task.id, { type: "human_member", id: req.user.id }, data));
+    const updated = await updateTask(db, task.id, { type: "human_member", id: req.user.id }, data);
+    if (data.status && data.status !== task.status)
+      await mentionTaskSourceNotice(service, db, req.user, task,
+        `任务事件：${req.user.name || "当前成员"}将任务「${task.title}」更新为${taskStatusLabel(data.status)}。${data.resultSummary || data.progress || ""}`.trim());
+    res.json(updated);
   });
   app.post("/api/tasks/:id/reassign", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
@@ -624,8 +633,9 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     if (task.origin_thread_id) {
       const targetName = data.targetType === "l2_session" ? "小祥" : (await query(db, "SELECT name FROM users WHERE id=?", [targetId]))[0]?.name || "另一位成员";
       const body = `任务事件：${req.user.name || "当前成员"}将任务「${task.title}」转交给${targetName}${data.reason ? `，原因：${data.reason}` : ""}。`;
-      if (data.targetType === "l2_session") await service.postMessage(req.user, task.origin_thread_id, { body: `@小祥 ${body}` });
-      else await service.insertMessage(db, req.user, task.origin_thread_id, body, [], "system");
+      const mentioned = withTaskSourceMention(await taskSourceMentionToken(db, task), body);
+      if (data.targetType === "l2_session") await service.postMessage(req.user, task.origin_thread_id, { body: `@小祥 ${mentioned}` });
+      else await mentionTaskSourceNotice(service, db, req.user, task, body);
     }
     res.json(reassigned);
   });

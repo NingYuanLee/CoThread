@@ -82,6 +82,7 @@ test("task controls follow the interactive session lifecycle instead of process 
   assert.match(gui, /Send-Command 'failTask' @\{ taskId=\$row\.id; reason=\$reason \}/);
 
   assert.match(main, /command\.type === "startTask"/);
+  assert.match(main, /已恢复「\$\{row\.name\}」的项目连接/);
   assert.match(main, /command\.type === "finishTask"/);
   assert.match(main, /command\.type === "failTask"/);
   assert.match(main, /status: "completed", output: output\.slice\(0, 1000000\), diff/);
@@ -176,6 +177,9 @@ test("connector persists startup diagnostics and surfaces fatal errors", async (
   assert.match(main, /fs\.appendFileSync\(logPath/);
   assert.match(main, /function showFatalError\(error\)/);
   assert.match(main, /gui\.once\("error"/);
+  assert.match(main, /gui\.once\("exit"/);
+  assert.match(main, /writeFile\(guiPath, withUtf8Bom\(/);
+  assert.match(main, /界面进程意外退出[\s\S]{0,200}showFatalError/);
   assert.match(main, /main\(\)\.catch\(\(error\) => \{ showFatalError\(error\)/);
 });
 

@@ -203,9 +203,12 @@ test("group local tasks target one online member and require that member's appro
   const [notifiedTask] = await query(db, "SELECT status,response_message_id FROM connector_tasks WHERE id=?", [task.id]);
   assert.equal(notifiedTask.status, "completed");
   assert.ok(notifiedTask.response_message_id);
-  const [completionMessage] = await query(db, "SELECT author_id,source FROM messages WHERE id=?", [notifiedTask.response_message_id]);
+  const [completionMessage] = await query(db, "SELECT author_id,source,body FROM messages WHERE id=?", [notifiedTask.response_message_id]);
   assert.equal(completionMessage.author_id, fallback.id);
   assert.equal(completionMessage.source, "local_ai");
+  assert.match(completionMessage.body, /^@提出人 /);
+  const [mention] = await query(db, "SELECT kind FROM notifications WHERE user_id=? AND kind='mention' ORDER BY created_at DESC LIMIT 1", [requester.id]);
+  assert.equal(mention?.kind, "mention");
 
   const directCreated = await request(`/projects/${projectId}/tasks`, {
     title: "调整另一个页面",
@@ -221,10 +224,11 @@ test("group local tasks target one online member and require that member's appro
   assert.equal((await request(`/connector/tasks/${directTask.id}`, {
     leaseToken: directClaim.body.task.leaseToken, status: "completed", output: "直接回传完成",
   }, fallbackConnector, "PATCH")).status, 200);
-  const [directCompletion] = await query(db, `SELECT m.id,m.author_id,m.source FROM connector_tasks t
+  const [directCompletion] = await query(db, `SELECT m.id,m.author_id,m.source,m.body FROM connector_tasks t
     JOIN messages m ON m.id=t.response_message_id WHERE t.id=?`, [directTask.id]);
   assert.equal(directCompletion.author_id, fallback.id);
   assert.equal(directCompletion.source, "local_ai");
+  assert.match(directCompletion.body, /^@提出人 /);
 
   await query(db, "UPDATE messages SET author_id=? WHERE id IN (?,?)",
     [requester.id, notifiedTask.response_message_id, directCompletion.id]);
@@ -314,7 +318,7 @@ test("connectors renew expired paused leases for interactive sessions and fetch 
   assert.equal(finished.diff, "diff --git a/x b/x");
   assert.equal(finished.author_id, developer.id);
   assert.equal(finished.source, "local_ai");
-  assert.equal(finished.body, "已完成登录页样式调整");
+  assert.match(finished.body, /^@会话提出人 已完成登录页样式调整$/);
 
   // 连接器只能 ensure 本账号的 MCP 令牌，不会重置；与网页看到的令牌一致。
   assert.equal((await request("/connector/mcp-credential", {})).status, 401);
@@ -410,6 +414,49 @@ test("abandoning then retrying on the connector reopens the pool task and every 
   assert.equal(detail.body.statusHistory[1].actor_id, developer.id);
   assert.equal(detail.body.statusHistory[2].actor_id, connector.id);
   assert.match(detail.body.statusHistory[3].reason, /重试/);
+});
+
+test("reconnecting the same account keeps project bindings so a retried task can be claimed", async () => {
+  const requester = await loginUser(await makeUser("换机提出人"));
+  const developer = await loginUser(await makeUser("换机开发者"));
+  for (const member of [requester, developer])
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')", [projectId, member.id]);
+  const connector = await pair(developer, "第一台电脑");
+  const created = await request(`/projects/${projectId}/tasks`, {
+    title: "换机后重开", goal: "重新授权后仍能在连接器开始。", targetUserId: developer.id, threadId,
+  }, requester);
+  assert.equal((await request(`/tasks/${created.body.id}/accept`, { mode: "member_connector" }, developer)).status, 200);
+  const [task] = await query(db, "SELECT id FROM connector_tasks WHERE agent_task_id=?", [created.body.id]);
+  const claimed = await request(`/connector/tasks/${task.id}/claim`, {}, connector);
+  assert.equal(claimed.status, 200);
+
+  const pairing = await request("/connectors/pairings", {}, developer);
+  const paired = await request("/connector/pair", {
+    code: pairing.body.code, name: "第二台电脑", platform: "windows", version: "0.1.0",
+  });
+  assert.equal(paired.status, 201);
+  const reconnected = { id: paired.body.id, token: paired.body.token };
+  assert.equal(reconnected.id, connector.id);
+  assert.notEqual(reconnected.token, connector.token);
+  const projects = await request("/connector/projects", undefined, reconnected);
+  assert.equal(!!projects.body.find((item) => item.id === projectId)?.bound, true);
+  assert.equal((await query(db, "SELECT status,error FROM connector_tasks WHERE id=?", [task.id]))[0].status, "cancelled");
+
+  const retry = await request(`/connector/tasks/${task.id}/control`, { action: "retry" }, reconnected);
+  assert.equal(retry.status, 200);
+  assert.equal(retry.body.status, "queued");
+  const poll = await request("/connector/poll", { version: "0.1.0" }, reconnected);
+  assert.equal(poll.status, 200);
+  assert.equal((await query(db, "SELECT status FROM connector_tasks WHERE id=?", [task.id]))[0].status, "queued");
+
+  await query(db, "DELETE FROM connector_projects WHERE connector_id=?", [reconnected.id]);
+  const unbound = await request(`/connector/tasks/${task.id}/claim`, {}, reconnected);
+  assert.equal(unbound.status, 409);
+  assert.match(unbound.body.error, /尚未绑定该项目/);
+  assert.equal((await request(`/connector/projects/${projectId}`, { allowGitPush: false }, reconnected, "PUT")).status, 200);
+  const reclaimed = await request(`/connector/tasks/${task.id}/claim`, {}, reconnected);
+  assert.equal(reclaimed.status, 200);
+  assert.equal(reclaimed.body.task.resumed, false);
 });
 
 test("connector heartbeat stores computer name and OS version", async () => {

@@ -27,6 +27,13 @@ const worktreesDir = path.join(appDir, "worktrees");
 const mcpSecretPath = path.join(appDir, "mcp-token.dat");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const logs = [];
+const UTF8_BOM = Buffer.from([0xEF, 0xBB, 0xBF]);
+
+function withUtf8Bom(bytes) {
+  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(String(bytes || ""), "utf8");
+  if (buffer.length >= 3 && buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) return buffer;
+  return Buffer.concat([UTF8_BOM, buffer]);
+}
 // 当前打开的本机 Agent 会话窗口：{ taskId, child, finished, cancelled }
 let activeSession = null;
 
@@ -882,6 +889,24 @@ async function guiMain() {
     token = await loadToken();
     if (!token) { remoteProjects = []; return; }
     remoteProjects = await request(config, `/api/connector/projects?${deviceQuery()}`);
+    // 重新授权会换令牌，但本机仍记得仓库路径；若服务端绑定被清掉，自动重新开启连接，避免任务无法领取。
+    const unbound = Object.entries(config.projects || {}).filter(([projectId, local]) => {
+      const row = remoteProjects.find((item) => item.id === projectId);
+      return row && !row.bound && row.role !== "viewer" && !!(local?.repo || local?.root);
+    });
+    if (!unbound.length) return;
+    for (const [projectId, local] of unbound) {
+      const row = remoteProjects.find((item) => item.id === projectId);
+      try {
+        await request(config, `/api/connector/projects/${projectId}`, { method: "PUT", body: {
+          allowGitPush: !!local.allowGitPush,
+        }});
+        log(`已恢复「${row.name}」的项目连接`);
+      } catch (error) {
+        log(`未能恢复「${row.name}」的项目连接：${error.message}`);
+      }
+    }
+    remoteProjects = await request(config, `/api/connector/projects?${deviceQuery()}`);
   };
   const refreshTasks = async () => {
     token = await loadToken();
@@ -1290,7 +1315,7 @@ async function guiMain() {
   await fsp.mkdir(appDir, { recursive: true });
   const guiPath = path.join(appDir, `gui-${VERSION}.ps1`);
   const iconPath = path.join(appDir, "cothread.ico");
-  await fsp.writeFile(guiPath, Buffer.from(GUI_SCRIPT_BASE64, "base64"));
+  await fsp.writeFile(guiPath, withUtf8Bom(Buffer.from(GUI_SCRIPT_BASE64, "base64")));
   await fsp.writeFile(iconPath, Buffer.from(CONNECTOR_ICON_BASE64, "base64"));
   await fsp.rm(commandPath, { force: true });
   await publish();
@@ -1302,7 +1327,13 @@ async function guiMain() {
     if (!quitting) { status = "界面启动失败"; showFatalError(error); quitting = true; }
   });
   gui.once("exit", (code) => {
-    if (!quitting) { status = "界面意外关闭"; log(`界面进程意外退出（代码 ${code ?? "未知"}）`); quitting = true; }
+    if (!quitting) {
+      const detail = `界面进程意外退出（代码 ${code ?? "未知"}）`;
+      status = "界面意外关闭";
+      log(detail);
+      showFatalError(detail);
+      quitting = true;
+    }
   });
 
   const commandTimer = setInterval(async () => {
@@ -1374,6 +1405,7 @@ async function main() {
 
 module.exports = {
   AGENTS, addDetachedWorktree, agentLaunchArgs, checkPrerequisites, createAuthorizationCallback, instanceLockIsActive,
+  withUtf8Bom,
   launchPrompt, mergeCodexMcpConfig, mergeCursorMcpConfig, parseCodexSessionId, parseCursorChatId, parseInstanceLock,
   projectBinding, projectWorkDir, protectToken, relativeProjectPath, removeWorktree, resolveProjectDir, resolveRepoDir,
   taskCard, taskPrompt, unprotectToken, validatePolicy, windowsVersionLabel, deviceIdentity,

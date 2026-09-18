@@ -527,6 +527,10 @@ test("same-folder duplicate names are auto-renamed instead of rejected", async (
     assert.equal(secondRow.title, "纪要 (2)");
     assert.equal(firstFile.filename, "notes.md");
     assert.equal(secondFile.filename, "notes (2).md");
+    assert.equal(first.title, "纪要");
+    assert.equal(first.filename, "notes.md");
+    assert.equal(second.title, "纪要 (2)");
+    assert.equal(second.filename, "notes (2).md");
     const [official] = await query(db,
       "SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_official' AND parent_id IS NULL LIMIT 1",
       [project.id]);

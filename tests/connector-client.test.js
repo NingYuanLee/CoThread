@@ -13,8 +13,18 @@ const {
   AGENTS, addDetachedWorktree, agentLaunchArgs, createAuthorizationCallback, instanceLockIsActive, launchPrompt,
   mergeCodexMcpConfig, mergeCursorMcpConfig, parseCodexSessionId, parseCursorChatId, parseInstanceLock,
   projectBinding, projectWorkDir, protectToken, relativeProjectPath, removeWorktree, taskCard, taskPrompt, unprotectToken,
-  deviceIdentity, windowsVersionLabel,
+  deviceIdentity, windowsVersionLabel, withUtf8Bom,
 } = require("../connector/main.cjs");
+
+test("GUI scripts written for Windows PowerShell 5.1 include a UTF-8 BOM", () => {
+  const raw = Buffer.from("$VersionText.Text = \"版本 $($state.version)\"", "utf8");
+  const bom = withUtf8Bom(raw);
+  assert.equal(bom[0], 0xEF);
+  assert.equal(bom[1], 0xBB);
+  assert.equal(bom[2], 0xBF);
+  assert.equal(withUtf8Bom(bom).equals(bom), true);
+  assert.equal(bom.subarray(3).equals(raw), true);
+});
 
 test("connector rejects a stale lock whose PID was reused by another executable", () => {
   const legacy = parseInstanceLock("12204");

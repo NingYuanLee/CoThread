@@ -4,6 +4,7 @@ import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";
 import { enqueueCoordinatorEvent } from "./coordinator-events.js";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
+import { folderRootKind } from "./project-library.js";
 
 const targetTypes = new Set(["human_member", "l2_session"]);
 const FOREIGN_TASK_AUTH = "非本 L2 责任的任务需要人类成员账号明确授权";
@@ -57,6 +58,55 @@ async function enqueueL3Idle(db, task) {
 
 function assertTarget(type, id) {
   if (!targetTypes.has(type) || typeof id !== "string" || !id) throw new HttpError(400, "任务目标无效");
+}
+
+export function parseDocumentRefs(value) {
+  if (value == null || value === "") return [];
+  let parsed = value;
+  if (typeof value === "string") {
+    try { parsed = JSON.parse(value); } catch { return []; }
+  }
+  return Array.isArray(parsed) ? [...new Set(parsed.filter((id) => typeof id === "string" && id))] : [];
+}
+
+async function assertDocumentRefs(conn, projectId, refs) {
+  const ids = parseDocumentRefs(refs);
+  if (ids.length > 30) throw new HttpError(400, "任务最多引用 30 个文档版本");
+  for (const ref of ids) {
+    const [version] = await query(conn, `SELECT v.id,a.folder_id FROM versions v JOIN artifacts a ON a.id=v.artifact_id
+         LEFT JOIN version_recycle vr ON vr.version_id=v.id
+         WHERE v.id=? AND a.project_id=? AND a.deleted_at IS NULL AND vr.version_id IS NULL`, [ref, projectId]);
+    if (!version || (await folderRootKind(conn, version.folder_id)) !== "project_official")
+      throw new HttpError(400, "任务只能引用本项目正式文件中的有效文档版本");
+  }
+  return ids;
+}
+
+async function documentRefLabels(conn, refs) {
+  const ids = parseDocumentRefs(refs);
+  if (!ids.length) return [];
+  const rows = await query(conn, `SELECT v.id,a.title,v.version,v.filename FROM versions v
+    JOIN artifacts a ON a.id=v.artifact_id WHERE v.id IN (${ids.map(() => "?").join(",")})`, ids);
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  return ids.map((id) => byId.get(id) || { id, title: id });
+}
+
+export function composeTaskInstruction(task, documents = []) {
+  const parts = [task.title, "", task.goal];
+  if (task.constraints) parts.push("", `约束：${task.constraints}`);
+  if (documents.length) {
+    parts.push("", "引用文档：");
+    for (const doc of documents) {
+      const name = doc.title || doc.filename || doc.id;
+      parts.push(`- ${name}${doc.version ? ` · v${doc.version}` : ""}`);
+    }
+  }
+  return parts.join("\n");
+}
+
+function withParsedTask(task) {
+  if (!task) return task;
+  return { ...task, document_refs: parseDocumentRefs(task.document_refs) };
 }
 
 function assertActorCanUpdateTask(task, actor) {
@@ -171,6 +221,7 @@ export async function createTask(db, input) {
       const [target] = await query(conn, "SELECT user_id FROM members WHERE project_id=? AND user_id=? AND role<>'viewer'", [input.projectId, input.targetId]);
       if (!target) throw new HttpError(400, "任务目标不是当前项目的可执行成员");
     }
+    const documentRefs = await assertDocumentRefs(conn, input.projectId, input.documentRefs ?? input.refs);
     let targetId = input.targetId || null;
     if (input.targetType === "l2_session") {
       if (input.originThreadId) {
@@ -194,12 +245,12 @@ export async function createTask(db, input) {
       : "draft";
     await query(conn, `INSERT INTO agent_tasks
       (id,project_id,origin_thread_id,source_type,source_user_id,source_agent_session_id,source_message_id,source_task_id,
-       created_by_type,created_by_id,task_type,title,goal,constraints,target_type,target_id,status)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+       created_by_type,created_by_id,task_type,title,goal,constraints,document_refs,target_type,target_id,status)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
       id, input.projectId, input.originThreadId || null, input.sourceType, input.sourceUserId || null,
       input.sourceAgentSessionId || null, input.sourceMessageId || null, input.sourceTaskId || null,
       input.createdByType, input.createdById, input.taskType, input.title, input.goal, input.constraints || null,
-      input.targetType || null, targetId, initialStatus,
+      JSON.stringify(documentRefs), input.targetType || null, targetId, initialStatus,
     ]);
     if (input.targetType === "l2_session") {
       await query(conn, "UPDATE agent_tasks SET claimed_by_type='l2_session',claimed_by_id=?,execution_mode='dsh_l3',execution_agent_type='dsh_l3' WHERE id=?",
@@ -221,7 +272,7 @@ export async function createTask(db, input) {
 
 export async function getTask(db, id) {
   const [task] = await query(db, "SELECT * FROM agent_tasks WHERE id=?", [id]);
-  return task || null;
+  return task ? withParsedTask(task) : null;
 }
 
 export async function listTasks(db, projectId, { status, targetId, originThreadId, limit = 100 } = {}) {
@@ -433,11 +484,12 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
         const [binding] = await query(conn, `SELECT cp.policy,cp.allow_git_push FROM connector_projects cp
           WHERE cp.connector_id=? AND cp.project_id=?`, [connector.id, task.project_id]);
         if (!binding) throw new HttpError(409, "连接器未关联当前项目");
+        const documents = await documentRefLabels(conn, task.document_refs);
         await query(conn, `INSERT INTO connector_tasks
           (id,agent_task_id,connector_id,project_id,thread_id,message_id,requested_by,assigned_to,instruction,policy,allow_git_push,status,progress)
           VALUES(UUID(),?,?,?,?,?,?,?,?,?,?, 'queued','等待本机连接器领取')`, [taskId, connector.id, task.project_id,
-          task.origin_thread_id, task.source_message_id, task.source_user_id || actor.id, actor.id, `${task.title}\n\n${task.goal}${task.constraints ? `\n\n约束：${task.constraints}` : ""}`,
-          binding.policy, binding.allow_git_push]);
+          task.origin_thread_id, task.source_message_id, task.source_user_id || actor.id, actor.id,
+          composeTaskInstruction(task, documents), binding.policy, binding.allow_git_push]);
       }
     }
     await recordTaskStatusChange(conn, taskId, task.status, actor,
@@ -649,7 +701,7 @@ export async function inspectIterationTask(db, taskId, actor) {
     task: {
       id: task.id, title: task.title, status: task.status, progress: task.progress,
       result_summary: task.result_summary, target_type: task.target_type, target_id: task.target_id,
-      execution_agent_id: task.execution_agent_id,
+      execution_agent_id: task.execution_agent_id, document_refs: parseDocumentRefs(task.document_refs),
     },
     run: run || null,
     live,

@@ -72,6 +72,17 @@ export function officialTitleWithVersion(name, versionNumber) {
   const base = raw.replace(/\s+v\d+$/i, "").trim() || raw;
   return `${base} v${versionNumber}`.slice(0, 160);
 }
+function submittedVersion(id, artifactId, version, sha256, data) {
+  return {
+    id,
+    artifactId,
+    version,
+    sha256,
+    title: data.title,
+    filename: data.filename,
+    mime: data.mime,
+  };
+}
 const json = (value) => (typeof value === "string" ? JSON.parse(value) : value);
 const mentions = (text, value) => {
   if (!value) return false;
@@ -1429,7 +1440,7 @@ export class Service {
       );
       await queueDocumentMemory(db, versionId);
       await query(db, "UPDATE artifacts SET updated_at=UTC_TIMESTAMP(3) WHERE id=?", [artifactId]);
-      return { id: versionId, artifactId, version: 1, sha256: digest(bytes) };
+      return submittedVersion(versionId, artifactId, 1, digest(bytes), data);
     });
   }
   async submitVersion(
@@ -1629,7 +1640,7 @@ export class Service {
           "INSERT INTO agent_exports(export_key,version_id) VALUES(?,?)",
           [exportKey, versionId],
         );
-      return { id: versionId, artifactId, version, sha256: digest(bytes) };
+      return submittedVersion(versionId, artifactId, version, digest(bytes), data);
     };
     return options.db ? save(options.db) : transaction(this.db, save);
   }

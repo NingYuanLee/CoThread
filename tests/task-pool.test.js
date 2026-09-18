@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, cancelTask, createTask, ensureDshL3CanUpdate, getTask, inspectIterationTask, listTaskExecutionRuns, listTaskStatusEvents, listTasks, reassignTask, recoverAbnormalTask, recoverInterruptedDshL3Executions, reconcileEndedTaskRuns, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, updateTask } from "../server/task-pool.js";
+import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, cancelTask, composeTaskInstruction, createTask, ensureDshL3CanUpdate, getTask, inspectIterationTask, listTaskExecutionRuns, listTaskStatusEvents, listTasks, reassignTask, recoverAbnormalTask, recoverInterruptedDshL3Executions, reconcileEndedTaskRuns, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, updateTask } from "../server/task-pool.js";
 import { testDatabase } from "./database.js";
 
 let database, db, service, project, thread, users, l2SessionId, reportHostId;
@@ -727,4 +727,32 @@ test("the source member can cancel a waiting confirmation and the target can rej
   await assert.rejects(cancelTask(db, rejectable.id, { type: "human_member", id: users[1].id }), { status: 403 });
   const rejected = await rejectTask(db, rejectable.id, { type: "human_member", id: users[1].id }, "现在做不了");
   assert.equal(rejected.status, "rejected");
+});
+
+test("human tasks can only reference official document versions", async () => {
+  const cache = await service.submitVersion(users[0], thread.id, {
+    title: "缓存说明",
+    filename: "cache.md",
+    mime: "text/markdown",
+    contentBase64: Buffer.from("# 缓存", "utf8").toString("base64"),
+  }, undefined, undefined, true);
+  await assert.rejects(formalTask(users[1].id, { title: "无效引用", documentRefs: [randomUUID()] }),
+    { status: 400, message: /正式文件/ });
+  await assert.rejects(formalTask(users[1].id, { title: "缓存不可引用", documentRefs: [cache.id] }),
+    { status: 400, message: /正式文件/ });
+  const [officialRoot] = await query(db,
+    "SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_official' AND parent_id IS NULL LIMIT 1",
+    [project.id]);
+  const uploaded = await service.uploadOfficialDocument(users[0], project.id, {
+    folderId: officialRoot.id,
+    title: "验收说明",
+    filename: "spec.md",
+    mime: "text/markdown",
+    contentBase64: Buffer.from("# 验收", "utf8").toString("base64"),
+  });
+  const created = await formalTask(users[1].id, { title: "按文档验收", documentRefs: [uploaded.id, uploaded.id] });
+  assert.deepEqual(created.document_refs, [uploaded.id]);
+  const snapshot = await inspectIterationTask(db, created.id, { type: "l2_session", id: l2SessionId, authorizedByUserId: users[0].id });
+  assert.deepEqual(snapshot.task.document_refs, [uploaded.id]);
+  assert.match(composeTaskInstruction(created, [{ title: "验收说明", version: 1 }]), /引用文档：\n- 验收说明 · v1/);
 });

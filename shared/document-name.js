@@ -8,6 +8,13 @@ export function fileDisplayName({ title, filename } = {}) {
     : name;
 }
 
+export function isImageFile(version) {
+  const mime = String(version?.mime || "").toLowerCase();
+  if (mime.startsWith("image/")) return true;
+  const name = typeof version === "string" ? version : String(version?.filename || version?.title || "");
+  return /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(name);
+}
+
 export function nextDuplicateName(desired, taken) {
   const name = String(desired || "").trim().slice(0, 160) || "文档";
   const used = new Set([...taken].map((item) => String(item || "").trim().toLowerCase()).filter(Boolean));

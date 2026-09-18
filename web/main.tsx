@@ -50,6 +50,8 @@ import remarkGfm from "remark-gfm";
 import { labelReasoningEffort, labelWorkflowStatus, labelExecutorType, l3ExecutorName, uniqueActorIds, AGENT_LEVEL_LABELS } from "./ui-labels";
 import { UiIcon, workflowIcon, type UiIconName } from "./ui-icon";
 import { DialogClose, ModalBackdrop, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
+import { fileDisplayName, isImageFile } from "../shared/document-name.js";
+import { folderRootKind } from "./Documents";
 
 function CoThreadLogo({
   className,
@@ -278,6 +280,7 @@ type Version = {
   title: string;
   version: number;
   filename: string;
+  mime?: string | null;
   byte_size: number;
   author: string;
   review: string | null;
@@ -353,6 +356,7 @@ type AgentTask = {
 };
 type AgentTaskDetail = AgentTask & {
   constraints: string | null;
+  document_refs?: string[] | string | null;
   artifact_refs: unknown[] | string | null;
   assignmentHistory: { id: number; event_type: "assigned" | "transferred" | "rejected" | "acknowledged" | "reopened"; from_target_type: string | null; from_target_id: string | null; to_target_type: string | null; to_target_id: string | null; changed_by_type: string; changed_by_id: string | null; reason: string | null; created_at: string }[];
   questions: { id: string; source_user_id: string | null; question: string; answer: string | null; status: string; created_at: string }[];
@@ -628,6 +632,7 @@ function App() {
   const [taskCreateGoal, setTaskCreateGoal] = useState("");
   const [taskCreateConstraints, setTaskCreateConstraints] = useState("");
   const [taskCreateTarget, setTaskCreateTarget] = useState("");
+  const [taskCreateRefs, setTaskCreateRefs] = useState<string[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const threadViewportRef = useRef<HTMLDivElement>(null);
   const archiveToggleRef = useRef<HTMLButtonElement>(null);
@@ -726,9 +731,27 @@ function App() {
     setTaskDialogOpen(true);
   };
   const openTask = (taskId: string) => openTaskDialog(taskId);
+  const resetTaskCreate = () => {
+    setTaskCreateTitle("");
+    setTaskCreateGoal("");
+    setTaskCreateConstraints("");
+    setTaskCreateRefs([]);
+    setTaskCreateTarget(user?.id || "");
+  };
+  const openTaskCreate = (seed?: { refId?: string }) => {
+    setTaskActionError("");
+    resetTaskCreate();
+    if (seed?.refId) setTaskCreateRefs([seed.refId]);
+    setTaskCreateOpen(true);
+  };
+  const closeTaskCreate = () => {
+    setTaskCreateOpen(false);
+    resetTaskCreate();
+  };
   useEffect(() => {
     setSelectedTaskId("");
     setTaskDetail(null);
+    setTaskCreateOpen(false);
   }, [threadId]);
   const refreshConnectors = async () => {
     const [devices, availability] = await Promise.all([api("/connectors"), api("/connectors/availability")]);
@@ -1199,7 +1222,8 @@ function App() {
     if (currentContext.current.threadId === targetThreadId) setThread(next);
   };
   const addVersionToConversation = (id: string) => {
-    const name = (detail?.versions || []).find(version => version.id === id)?.filename;
+    const version = (detail?.versions || []).find(item => item.id === id);
+    const name = version ? fileDisplayName(version) : undefined;
     setRefs(previous => [...new Set([...previous, id])].slice(0, 30));
     if (name) {
       setMessage(text => text.includes(`/${name}`)
@@ -1291,16 +1315,25 @@ function App() {
   };
   const renderRef = (ref: string) => {
     const v = detail?.versions.find((v) => v.id === ref);
+    const label = v ? (
+      (v.review === "confirmed"
+        || v.review === "draft"
+        || v.folder_kind === "project_cache"
+        || v.folder_kind === "iteration_cache")
+        ? v.title
+        : `${v.title} · v${v.version}`
+    ) : ref;
+    if (v && isImageFile(v)) {
+      return (
+        <button key={ref} type="button" className="ref ref-thumb" title={label} onClick={() => showDocument(ref)}>
+          <img src={`/api/versions/${ref}/source`} alt={label} />
+          <span>{label}</span>
+        </button>
+      );
+    }
     return (
       <button key={ref} type="button" className="ref" onClick={() => showDocument(ref)}>
-        ↗ {v ? (
-          (v.review === "confirmed"
-            || v.review === "draft"
-            || v.folder_kind === "project_cache"
-            || v.folder_kind === "iteration_cache")
-            ? v.title
-            : `${v.title} · v${v.version}`
-        ) : ref}
+        ↗ {label}
       </button>
     );
   };
@@ -1947,12 +1980,21 @@ function App() {
                               {renderAgentRound(reply)}
                             </React.Fragment>
                           ))}
-                      {!!m.quotes?.length && <div className="message-quotes">{m.quotes.map(q => (
-                        <button key={q.id} type="button" className="message-quote" onClick={() => void run(async () => {
-                          const result = await api(`/threads/${threadId}/messages/${q.id}`);
-                          setQuotePreview(result.message);
-                        })}><strong>{q.source === "assistant" ? AGENT_MEMBER.name : q.author}</strong><span title={clipQuote(q.body, 240)}>{clipQuote(q.body)}</span></button>
-                      ))}</div>}
+                      {!!m.quotes?.length && <div className="message-quotes">{m.quotes.map(q => {
+                        const imageRefs = (q.refs || []).filter((id) => {
+                          const version = detail?.versions.find((item) => item.id === id);
+                          return version && isImageFile(version);
+                        });
+                        return (
+                        <div key={q.id} className="message-quote">
+                          <button type="button" onClick={() => void run(async () => {
+                            const result = await api(`/threads/${threadId}/messages/${q.id}`);
+                            setQuotePreview(result.message);
+                          })}><strong>{q.source === "assistant" ? AGENT_MEMBER.name : q.author}</strong><span title={clipQuote(q.body, 240)}>{clipQuote(q.body) || (imageRefs.length ? "图片" : "")}</span></button>
+                          {!!imageRefs.length && <div className="message-quote-thumbs">{imageRefs.map(renderRef)}</div>}
+                        </div>
+                        );
+                      })}</div>}
                       <div className="message-text">
                         {thread.updates?.filter((update) => update.message_id === m.id).map((update) => (
                           <p className="source-label" key={update.message_id}>
@@ -2224,6 +2266,7 @@ function App() {
                   ? addVersionToConversation
                   : undefined
               }
+              onAddToTask={writable ? (id) => openTaskCreate({ refId: id }) : undefined}
               onReview={
                 active
                   ? async (id, decision, comment) => {
@@ -2236,7 +2279,7 @@ function App() {
           </Suspense>
         )}
       </aside>
-      {taskDialogOpen && <ModalBackdrop onClose={() => setTaskDialogOpen(false)}>
+      {taskDialogOpen && <ModalBackdrop onClose={() => { closeTaskCreate(); setTaskDialogOpen(false); }} enabled={!taskCreateOpen}>
         {(close) => <section className="task-pool-dialog" role="dialog" aria-modal="true" aria-labelledby="task-pool-dialog-title" onClick={(event) => event.stopPropagation()}>
           <header className="task-pool-dialog-header">
             <div>
@@ -2250,32 +2293,8 @@ function App() {
             <aside className="task-pool-dialog-list">
               <div className="task-pool-heading">
                 <label className="task-mine-filter"><input type="checkbox" checked={taskMine} onChange={(event) => setTaskMine(event.target.checked)} />只看我的任务</label>
-                {writable && <button type="button" className="task-create-toggle" onClick={() => setTaskCreateOpen((open) => !open)}>{taskCreateOpen ? <><UiIcon name="close" size={12} />取消</> : <><UiIcon name="plus" size={12} />新建任务</>}</button>}
+                {writable && <button type="button" className="task-create-toggle" onClick={openTaskCreate}><UiIcon name="plus" size={12} />新建任务</button>}
               </div>
-              {taskCreateOpen && <form className="task-create-form" onSubmit={(event) => {
-                event.preventDefault();
-                if (!taskCreateTitle.trim() || !taskCreateGoal.trim() || !taskCreateTarget) return;
-                void performTaskAction(async () => {
-                  const created = await api(`/projects/${projectId}/tasks`, {
-                    title: taskCreateTitle.trim(), goal: taskCreateGoal.trim(),
-                    constraints: taskCreateConstraints.trim() || undefined,
-                    targetType: "human_member",
-                    targetUserId: taskCreateTarget,
-                    threadId,
-                  });
-                  setTaskCreateTitle(""); setTaskCreateGoal(""); setTaskCreateConstraints(""); setTaskCreateTarget(user?.id || ""); setTaskCreateOpen(false);
-                  setSelectedTaskId(created.id);
-                });
-              }}>
-                <input value={taskCreateTitle} onChange={(event) => setTaskCreateTitle(event.target.value)} placeholder="任务标题" maxLength={240} />
-                <textarea value={taskCreateGoal} onChange={(event) => setTaskCreateGoal(event.target.value)} placeholder="任务目标与验收标准" maxLength={20000} />
-                <textarea value={taskCreateConstraints} onChange={(event) => setTaskCreateConstraints(event.target.value)} placeholder="约束（可选）" maxLength={20000} />
-                <select value={taskCreateTarget} onChange={(event) => setTaskCreateTarget(event.target.value)}>
-                  <option value="">选择指派成员</option>
-                  {detail?.members.filter((member) => member.kind !== "l1" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}{member.id === user?.id ? "（我）" : ""}</option>)}
-                </select>
-                <button type="submit" className="primary" disabled={taskActionBusy || !taskCreateTitle.trim() || !taskCreateGoal.trim() || !taskCreateTarget}><UiIcon name="plus" size={13} />创建正式任务</button>
-              </form>}
               <div className="task-pool-list">
                 {visibleTasks.map((task) => {
                   return <button type="button" className="task-pool-item" aria-current={selectedTaskId === task.id ? "true" : undefined} key={task.id} onClick={() => openTask(task.id)}>
@@ -2299,7 +2318,13 @@ function App() {
                   {!task || task.id !== selectedTaskId ? <p className="muted">正在读取任务详情…</p> : <>
                     <header><div><small>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small><h3>{task.title}</h3></div><div className="task-detail-header-actions"><button type="button" onClick={() => setAgentLogScope({ type: "task", id: task.id })}><UiIcon name="trajectory" size={11} />轨迹</button><span data-status={task.status}><UiIcon name={workflowIcon(task.status)} size={10} />{labelWorkflowStatus(task.status)}</span></div></header>
                     <dl className="task-detail-meta"><div><dt>任务来源</dt><dd>{taskSourceLabel(task)}</dd></div><div><dt>任务执行</dt><dd>{taskExecutorLabel(task)}</dd></div><div><dt>责任主体</dt><dd>{targetName}</dd></div><div><dt>任务类型</dt><dd>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</dd></div></dl>
-                    <section><h4>任务目标</h4><p>{task.goal}</p>{task.constraints && <><h4>约束</h4><p>{task.constraints}</p></>}</section>
+                    <section><h4>任务目标</h4><p>{task.goal}</p>{task.constraints && <><h4>约束</h4><p>{task.constraints}</p></>}
+                    {(() => {
+                      const refs = Array.isArray(task.document_refs) ? task.document_refs
+                        : typeof task.document_refs === "string" ? (() => { try { const parsed = JSON.parse(task.document_refs as string); return Array.isArray(parsed) ? parsed : []; } catch { return []; } })() : [];
+                      return refs.length ? <><h4>引用文档</h4><div className="references">{refs.map(renderRef)}</div></> : null;
+                    })()}
+                    </section>
                     {openQuestion && <section className="task-question"><h4>需要你回答</h4><p>{openQuestion.question}</p><textarea value={taskAnswer} onChange={(event) => setTaskAnswer(event.target.value)} placeholder="输入回答" /><button type="button" className="primary" disabled={taskActionBusy || !taskAnswer.trim()} onClick={() => void performTaskAction(async () => { await api(`/task-questions/${openQuestion.id}/answer`, { answer: taskAnswer }); setTaskAnswer(""); })}>提交回答</button></section>}
                     {isTarget && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>确认任务</h4>{projectConnectorBound
                       ? <select value={taskExecutionMode === "auto" ? "member_connector" : taskExecutionMode} onChange={(event) => setTaskExecutionMode(event.target.value as typeof taskExecutionMode)}><option value="member_connector">下发连接器</option><option value="human_direct">由本人执行</option></select>
@@ -2312,12 +2337,90 @@ function App() {
                     {!!task.executionRuns.length && <section><h4>执行轮次</h4><div className="task-history">{task.executionRuns.map((run) => <div key={run.id}><strong>{run.executor_type === "dsh_l3" ? (l3ExecutorName(run.executor_id, threadExecutorIds) || (run.executor_id ? AGENT_LEVEL_LABELS.l3 : `${AGENT_LEVEL_LABELS.l3}（未绑定）`)) : run.executor_type === "human_self" ? (memberName(run.executor_id) || "成员本人") : labelExecutorType(run.executor_type)}</strong><span>{labelWorkflowStatus(run.status)}</span><small>{run.progress || run.result_summary || run.error || time(run.created_at)}</small></div>)}</div></section>}
                     {(!!task.assignmentHistory.length || !!task.statusHistory?.length) && <section><h4>变更记录</h4><div className="task-history">{taskChangeLog(task).map((item) => <div key={item.key}><strong>{item.title}</strong><span>{statusActorLabel({ actor_type: item.actorType, actor_id: item.actorId })} · {time(item.at)}</span>{item.transition && <small>当时任务状态：{item.transition}</small>}{item.reason && <small>{item.reason}</small>}</div>)}</div></section>}
                   </>}
-                  {taskActionError && <p className="project-settings-error" role="alert">{taskActionError}</p>}
+                  {taskActionError && !taskCreateOpen && <p className="project-settings-error" role="alert">{taskActionError}</p>}
                 </div>;
               })() : <p className="panel-empty">选择左侧任务，查看详情和操作。</p>}
             </div>
           </div>
         </section>}
+      </ModalBackdrop>}
+      {taskCreateOpen && <ModalBackdrop className="task-create-backdrop" onClose={closeTaskCreate} enabled={!taskActionBusy}>
+        {(close) => {
+          const availableDocs = (detail?.versions || []).filter((version, index, all) =>
+            !version.deleted_at
+            && folderRootKind(version.folder_id, detail?.folders || []) === "project_official"
+            && all.findIndex((item) => item.artifact_id === version.artifact_id) === index);
+          const unusedDocs = availableDocs.filter((version) => !taskCreateRefs.includes(version.id));
+          return <section className="task-create-dialog" role="dialog" aria-modal="true" aria-labelledby="task-create-dialog-title" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <div>
+                <span>当前迭代</span>
+                <h2 id="task-create-dialog-title">新建人类任务</h2>
+                <p>{detail?.threads.find((item) => item.id === threadId)?.title || "未选择迭代"}</p>
+              </div>
+              <DialogClose onClick={close} disabled={taskActionBusy} label="关闭新建任务" />
+            </header>
+            <form className="task-create-form" onSubmit={(event) => {
+              event.preventDefault();
+              if (!taskCreateTitle.trim() || !taskCreateGoal.trim() || !taskCreateTarget) return;
+              void performTaskAction(async () => {
+                const created = await api(`/projects/${projectId}/tasks`, {
+                  title: taskCreateTitle.trim(), goal: taskCreateGoal.trim(),
+                  constraints: taskCreateConstraints.trim() || undefined,
+                  refs: taskCreateRefs,
+                  targetType: "human_member",
+                  targetUserId: taskCreateTarget,
+                  threadId,
+                });
+                closeTaskCreate();
+                setSelectedTaskId(created.id);
+              });
+            }}>
+              <div className="task-create-fields">
+              <label>标题
+                <input autoFocus value={taskCreateTitle} onChange={(event) => setTaskCreateTitle(event.target.value)} placeholder="任务标题" maxLength={240} />
+              </label>
+              <label>任务目标与验收标准
+                <textarea value={taskCreateGoal} onChange={(event) => setTaskCreateGoal(event.target.value)} placeholder="说明要完成什么、怎样算完成" maxLength={20000} />
+              </label>
+              <label>约束（可选）
+                <textarea value={taskCreateConstraints} onChange={(event) => setTaskCreateConstraints(event.target.value)} placeholder="范围、禁止事项或依赖" maxLength={20000} />
+              </label>
+              <label>引用正式文件
+                <select value="" onChange={(event) => {
+                  const id = event.target.value;
+                  if (!id) return;
+                  setTaskCreateRefs((previous) => [...new Set([...previous, id])].slice(0, 30));
+                }}>
+                  <option value="">{availableDocs.length ? "选择要附带的正式文件" : "暂无可引用的正式文件"}</option>
+                  {unusedDocs.map((version) => <option key={version.id} value={version.id}>{fileDisplayName(version)}</option>)}
+                </select>
+              </label>
+              {!!taskCreateRefs.length && <div className="task-create-refs">
+                {taskCreateRefs.map((id) => {
+                  const version = detail?.versions.find((item) => item.id === id);
+                  return <span className="ref" key={id}>
+                    {version ? fileDisplayName(version) : id}
+                    <button type="button" className="ref-remove" aria-label={`取消引用 ${version ? fileDisplayName(version) : id}`}
+                      onClick={() => setTaskCreateRefs((previous) => previous.filter((item) => item !== id))}>×</button>
+                  </span>;
+                })}
+              </div>}
+              <label>指派成员
+                <select value={taskCreateTarget} onChange={(event) => setTaskCreateTarget(event.target.value)}>
+                  <option value="">选择指派成员</option>
+                  {detail?.members.filter((member) => member.kind !== "l1" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}{member.id === user?.id ? "（我）" : ""}</option>)}
+                </select>
+              </label>
+              {taskActionError && <p className="project-settings-error" role="alert">{taskActionError}</p>}
+              </div>
+              <div className="task-create-actions">
+                <button type="button" disabled={taskActionBusy} onClick={close}>取消</button>
+                <button type="submit" className="primary" disabled={taskActionBusy || !taskCreateTitle.trim() || !taskCreateGoal.trim() || !taskCreateTarget}><UiIcon name="plus" size={13} />创建正式任务</button>
+              </div>
+            </form>
+          </section>;
+        }}
       </ModalBackdrop>}
       {quotePreview && <ModalBackdrop onClose={() => setQuotePreview(null)}>
         {(close) => <section className="quoted-message-dialog" role="dialog" aria-modal="true" aria-label="引用消息原文" onClick={e => e.stopPropagation()}>

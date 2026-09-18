@@ -200,7 +200,9 @@ export function createAgentTools(
           createdByType: effectiveRole === "coordinator" ? "l2_session" : "system", createdById: l2SessionId || job.message_id,
           authorizedByUserId: l2Actor(job, l2SessionId).authorizedByUserId,
           taskType, title: z.string().trim().min(1).max(240).parse(args.title), goal: z.string().trim().min(1).max(20000).parse(args.goal),
-          constraints: args.constraints, targetType, targetId });
+          constraints: args.constraints, documentRefs: args.documentRefs == null && args.refs == null ? []
+            : z.array(z.string().uuid()).max(30).parse(args.documentRefs || args.refs),
+          targetType, targetId });
       } else if (["list_documents","manage_document","manage_folder"].includes(name)) {
         result = await documentTool(service,user,name,args,job);
       } else if (name === "list_local_connectors") {

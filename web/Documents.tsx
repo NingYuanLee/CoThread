@@ -82,6 +82,7 @@ function LibraryFileMenu({
   saveToOfficialDisabled,
   saveToOfficialTitle,
   onAddToConversation,
+  onAddToTask,
   onDownload,
   onRename,
   onDelete,
@@ -97,6 +98,7 @@ function LibraryFileMenu({
   saveToOfficialDisabled?: boolean;
   saveToOfficialTitle?: string;
   onAddToConversation?: () => void;
+  onAddToTask?: () => void;
   onDownload: () => void;
   onRename?: () => void;
   onDelete?: () => void;
@@ -136,6 +138,12 @@ function LibraryFileMenu({
             <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onAddToConversation(); close(); }}>
               <TreeIcon kind="addToChat" />
               <span>添加到会话</span>
+            </button>
+          ) : null}
+          {onAddToTask ? (
+            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onAddToTask(); close(); }}>
+              <TreeIcon kind="addToTask" />
+              <span>添加到任务</span>
             </button>
           ) : null}
           <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onDownload(); close(); }}>
@@ -276,6 +284,7 @@ function TreeIcon({ kind, className }: { kind: string; className?: string }) {
     download: "M12 3v12 M8 11l4 4 4-4 M4 21h16",
     restore: "M4 12a8 8 0 1 0 2.3-5.7 M4 4v6h6",
     addToChat: "M4 5h16v10H8l-4 4Z M8 10h8",
+    addToTask: "M9 5H4v14h16V9 M14 4h6v6 M17 4v6 M14 7h6 M8 13h8 M8 17h5",
   };
   const glyph = paths[kind] || paths.file;
   const d = Array.isArray(glyph) ? glyph : [glyph];
@@ -602,6 +611,7 @@ export function Documents({
   selected,
   onSelect,
   onReference,
+  onAddToTask,
   organizationJobs = [],
 }: {
   onReview?: (versionId: string, decision: string, comment?: string) => Promise<void>;
@@ -615,6 +625,7 @@ export function Documents({
   selected: string;
   onSelect: (id: string) => void;
   onReference?: (id: string) => void;
+  onAddToTask?: (id: string) => void;
   organizationJobs?: { thread_id?: string | null; scope: "iteration" | "project"; status: string; error?: string | null }[];
 }) {
   const libraryFolders = folders.filter((folder) => {
@@ -1160,6 +1171,8 @@ export function Documents({
           saveToOfficialDisabled={!canSaveToOfficial(v)}
           saveToOfficialTitle={saveToOfficialHint(v)}
           onAddToConversation={onReference ? () => onReference(v.id) : undefined}
+          onAddToTask={onAddToTask && fileAreaKind(v) === "project_official" && !v.deleted_at
+            ? () => onAddToTask(v.id) : undefined}
           onDownload={() => {
             window.open(`/api/versions/${v.id}/download`, "_blank", "noopener,noreferrer");
           }}

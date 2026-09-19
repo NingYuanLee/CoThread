@@ -2,17 +2,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir, hostname, release } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const require = createRequire(import.meta.url);
 const {
-  AGENTS, addDetachedWorktree, agentLaunchArgs, createAuthorizationCallback, instanceLockIsActive, launchPrompt,
+  AGENTS, addDetachedWorktree, agentLaunchArgs, applyWorktreeToRepo, createAuthorizationCallback, instanceLockIsActive, launchPrompt,
   mergeCodexMcpConfig, mergeCursorMcpConfig, parseCodexSessionId, parseCursorChatId, parseInstanceLock,
-  projectBinding, projectWorkDir, protectToken, relativeProjectPath, removeWorktree, taskCard, taskPrompt, unprotectToken,
+  projectBinding, projectWorkDir, protectToken, relativeProjectPath, removeWorktree, taskCard, taskPrompt, taskWorktreeBranch, unprotectToken,
   deviceIdentity, windowsVersionLabel, withUtf8Bom,
 } = require("../connector/main.cjs");
 
@@ -192,6 +192,14 @@ test("detached worktrees ignore uncommitted files in the main checkout", async (
     assert.equal(existsSync(join(worktree, "dirty.txt")), false);
     assert.equal(existsSync(join(worktree, "apps", "web", "index.js")), true);
     assert.equal(relativeProjectPath(repo, join(repo, "apps", "web")), join("apps", "web"));
+    const branch = taskWorktreeBranch(basename(worktree));
+    assert.match(runGit(repo, ["branch", "--list", branch]), new RegExp(branch.replace("/", "\\/")));
+    await writeFile(join(worktree, "apps", "web", "index.js"), "changed\n", "utf8");
+    await writeFile(join(worktree, "apps", "web", "extra.js"), "new\n", "utf8");
+    applyWorktreeToRepo(repo, worktree, "HEAD");
+    assert.equal((await readFile(join(repo, "apps", "web", "index.js"), "utf8")).replace(/\r\n/g, "\n"), "changed\n");
+    assert.equal(existsSync(join(repo, "apps", "web", "extra.js")), true);
+    assert.equal(existsSync(join(repo, "dirty.txt")), true);
   } finally {
     removeWorktree(repo, worktree);
     await rm(worktree, { recursive: true, force: true });

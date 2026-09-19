@@ -14,7 +14,11 @@ function taskStatus(status) {
   return "pending_start";
 }
 
-const connectorActor = (connectorTask) => ({ type: "connector", id: connectorTask.connector_id });
+const connectorActor = (connectorTask) => ({
+  type: "human_member_connector",
+  id: connectorTask.member_id_snapshot || connectorTask.assigned_to,
+  connectorId: connectorTask.connector_id,
+});
 
 export async function syncConnectorTask(conn, connectorTask, { publish = false } = {}) {
   if (!connectorTask?.agent_task_id) return null;
@@ -22,11 +26,13 @@ export async function syncConnectorTask(conn, connectorTask, { publish = false }
   const runStatus = next === "completed" ? "completed" : next === "failed" ? "failed"
     : next === "abandoned" || next === "cancelled" ? "cancelled" : next;
   await query(conn, `UPDATE agent_task_execution_runs
-    SET status=?,progress=?,result_summary=?,error=?,finished_at=IF(? IN ('completed','failed','cancelled','abandoned'),COALESCE(finished_at,UTC_TIMESTAMP(3)),finished_at),
+    SET status=?,progress=?,result_summary=?,error=?,connector_id=?,executor_member_id=COALESCE(executor_member_id,?),
+        finished_at=IF(? IN ('completed','failed','cancelled','abandoned'),COALESCE(finished_at,UTC_TIMESTAMP(3)),finished_at),
         started_at=IF(?='running',COALESCE(started_at,UTC_TIMESTAMP(3)),started_at)
     WHERE task_id=? AND executor_type='human_connector' AND executor_id=? AND status NOT IN ('completed','failed','cancelled')
     ORDER BY created_at DESC LIMIT 1`, [runStatus, connectorTask.progress || null,
-    connectorTask.output || null, connectorTask.error || null, runStatus, runStatus,
+    connectorTask.output || null, connectorTask.error || null, connectorTask.connector_id,
+    connectorTask.member_id_snapshot || connectorTask.assigned_to || null, runStatus, runStatus,
     connectorTask.agent_task_id, connectorTask.connector_id]);
   const [before] = await query(conn, "SELECT status FROM agent_tasks WHERE id=?", [connectorTask.agent_task_id]);
   await query(conn, `UPDATE agent_tasks SET status=?,progress=?,result_summary=?,finished_at=IF(? IN ('completed','failed','cancelled','abandoned','rejected'),COALESCE(finished_at,UTC_TIMESTAMP(3)),finished_at),
@@ -40,14 +46,14 @@ export async function syncConnectorTask(conn, connectorTask, { publish = false }
 }
 
 export async function syncConnectorTaskById(conn, connectorTaskId, options) {
-  const [task] = await query(conn, "SELECT * FROM connector_tasks WHERE id=?", [connectorTaskId]);
+  const [task] = await query(conn, "SELECT t.*,COALESCE(t.member_id_snapshot,t.assigned_to) member_id_snapshot FROM connector_tasks t WHERE t.id=?", [connectorTaskId]);
   return syncConnectorTask(conn, task, options);
 }
 
 // 连接器「重试」：连接器侧记录回到 queued 后，把因本机放弃/失败/中断而结束的任务池任务重新打开，
 // 并为同一连接器新开一条执行记录；不会复活网页侧取消或已被取代的任务。
 export async function reopenConnectorTask(conn, connectorTaskId, { publish = false } = {}) {
-  const [connectorTask] = await query(conn, "SELECT * FROM connector_tasks WHERE id=?", [connectorTaskId]);
+  const [connectorTask] = await query(conn, "SELECT t.*,COALESCE(t.member_id_snapshot,t.assigned_to) member_id_snapshot FROM connector_tasks t WHERE t.id=?", [connectorTaskId]);
   if (!connectorTask?.agent_task_id) return null;
   const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [connectorTask.agent_task_id]);
   if (!task) return null;

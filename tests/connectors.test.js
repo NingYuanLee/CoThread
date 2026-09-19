@@ -406,13 +406,14 @@ test("abandoning then retrying on the connector reopens the pool task and every 
   assert.deepEqual(detail.body.statusHistory.map((event) => [event.from_status, event.to_status, event.actor_type]), [
     [null, "awaiting_acceptance", "human_member"],
     ["awaiting_acceptance", "pending_start", "human_member"],
-    ["pending_start", "abandoned", "connector"],
-    ["abandoned", "pending_start", "connector"],
-    ["pending_start", "running", "connector"],
-    ["running", "completed", "connector"],
+    ["pending_start", "abandoned", "human_member_connector"],
+    ["abandoned", "pending_start", "human_member_connector"],
+    ["pending_start", "running", "human_member_connector"],
+    ["running", "completed", "human_member_connector"],
   ]);
   assert.equal(detail.body.statusHistory[1].actor_id, developer.id);
-  assert.equal(detail.body.statusHistory[2].actor_id, connector.id);
+  assert.equal(detail.body.statusHistory[2].actor_id, developer.id);
+  assert.equal(detail.body.statusHistory[2].actor_connector_id, connector.id);
   assert.match(detail.body.statusHistory[3].reason, /重试/);
 });
 

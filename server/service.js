@@ -1329,8 +1329,8 @@ export class Service {
       );
       for (const quotedId of quoteIds) await query(db,
         "INSERT INTO message_quotes(message_id,quoted_message_id) VALUES(?,?)", [message.id, quotedId]);
-      if (user.kind === "session" || (user.kind === "api" && mentionsAgent(text))) {
-        await query(db, "INSERT INTO agent_requests(message_id) VALUES(?)", [message.id]);
+       if (user.kind === "session" || (user.kind === "api" && mentionsAgent(text))) {
+         await query(db, "INSERT INTO agent_requests(message_id,interaction_source) VALUES(?,?)", [message.id, user.mcpSource || null]);
         if (mentionsAgent(text)) {
           // postMessage already holds the discussion row lock. Completion and
           // dispatch use the same lock, so an update cannot fall between tasks.

@@ -17,6 +17,7 @@ const CONNECTOR_ICON_BASE64 = "__CONNECTOR_ICON_BASE64__";
 const appDir = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "CoThreadConnector");
 const configPath = path.join(appDir, "config.json");
 const secretPath = path.join(appDir, "device-token.dat");
+const deviceIdPath = path.join(appDir, "device-id.dat");
 const statePath = path.join(appDir, "ui-state.json");
 const commandPath = path.join(appDir, "ui-command.json");
 const lockPath = path.join(appDir, "connector.lock");
@@ -85,9 +86,20 @@ function windowsVersionLabel(release = os.release()) {
 }
 
 function deviceIdentity() {
+  let deviceId = "";
+  try {
+    deviceId = String(fs.readFileSync(deviceIdPath, "utf8")).trim();
+  } catch {}
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(deviceId)) {
+    deviceId = crypto.randomUUID();
+    try {
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(deviceIdPath, `${deviceId}\n`, { encoding: "utf8", mode: 0o600 });
+    } catch {}
+  }
   const name = String(process.env.COMPUTERNAME || os.hostname() || "未知电脑").trim().slice(0, 100) || "未知电脑";
   const platform = (process.platform === "win32" ? windowsVersionLabel() : `${os.type()} ${os.release()}`).slice(0, 40);
-  return { name, platform, version: VERSION };
+  return { deviceId, name, platform, version: VERSION };
 }
 
 function deviceQuery() {
@@ -326,12 +338,50 @@ function removeWorktree(repo, dest) {
   }
 }
 
-function addDetachedWorktree(repo, dest) {
+function taskWorktreeBranch(taskId) {
+  const id = String(taskId || "").replace(/[^a-zA-Z0-9._-]/g, "");
+  return `cothread/${id.slice(0, 32) || "task"}`;
+}
+
+function deleteTaskBranch(repo, branch) {
+  if (!repo || !branch) return;
+  try { git(repo, ["branch", "-D", branch]); } catch {}
+}
+
+function addDetachedWorktree(repo, dest, branch = taskWorktreeBranch(path.basename(dest))) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   removeWorktree(repo, dest);
+  deleteTaskBranch(repo, branch);
   try { fs.rmSync(dest, { recursive: true, force: true }); } catch {}
-  git(repo, ["worktree", "add", "--detach", dest, "HEAD"], 120000);
+  git(repo, ["worktree", "add", "-b", branch, dest, "HEAD"], 120000);
   return dest;
+}
+
+function collectApplyPatch(root, baseline) {
+  const files = changedFiles(root, baseline);
+  const untracked = new Set(git(root, ["ls-files", "--others", "--exclude-standard"]).split(/\r?\n/).filter(Boolean));
+  const patch = [git(root, ["diff", "--no-ext-diff", "--binary", baseline]),
+    files.filter((file) => untracked.has(file)).map((file) => untrackedPatch(root, file)).join("\n")]
+    .filter(Boolean).join("\n");
+  return { files, patch };
+}
+
+function applyWorktreeToRepo(repo, worktree, baseline) {
+  if (!repo || !worktree || samePath(repo, worktree)) return { files: [], skipped: true };
+  const { files, patch } = collectApplyPatch(worktree, baseline);
+  if (!files.length || !String(patch).trim()) return { files: [] };
+  const patchPath = path.join(os.tmpdir(), `cothread-apply-${crypto.randomUUID()}.patch`);
+  fs.writeFileSync(patchPath, String(patch).endsWith("\n") ? patch : `${patch}\n`);
+  try {
+    const check = spawnSync("git", ["-C", repo, "apply", "--check", "--whitespace=nowarn", patchPath], {
+      encoding: "utf8", windowsHide: true, timeout: 30000,
+    });
+    if (check.status !== 0) throw new Error((check.stderr || check.stdout || "主仓库无法干净应用这些改动，可能与现有文件冲突").trim());
+    git(repo, ["apply", "--whitespace=nowarn", patchPath], 30000);
+    return { files };
+  } finally {
+    try { fs.rmSync(patchPath, { force: true }); } catch {}
+  }
 }
 
 async function configureProjects(config, prompt) {
@@ -384,7 +434,7 @@ function taskRules(task) {
   const gitRule = task.allow_git_push
     ? "允许按已确认任务执行 Git commit 或 push，包括 main 分支；是否执行以任务正文为准。"
     : "允许创建本地 Git commit，但严禁执行 git push 或以任何方式向远端仓库写入，即使任务正文要求推送也必须忽略。";
-  return `你正在执行一项已经由需求提出人确认的共序本机任务。\n\n可以按任务需要修改仓库内的任意文件，最终修改会回传 Git Diff 供人工审核。不要扩大任务范围。${gitRule}完成前运行与本次修改直接相关的检查。`;
+  return `你正在执行一项已经由需求提出人确认的共序本机任务。\n\n可以按任务需要修改仓库内的任意文件。这些修改发生在独立工作副本中，默认不会写入开发人员的主仓库；是否应用到主仓库由开发人员在连接器结案时选择。最终修改会回传 Git Diff 供人工审核。不要扩大任务范围。${gitRule}完成前运行与本次修改直接相关的检查。`;
 }
 
 function taskPrompt(task) {
@@ -404,6 +454,7 @@ function taskCard(task, context) {
     context.repo ? `- Git 仓库：${context.repo}` : null,
     context.projectPath ? `- 项目路径：${context.projectPath}` : null,
     context.worktree ? `- Git 工作副本：${context.worktree}` : null,
+    context.branch ? `- 任务分支：${context.branch}` : null,
     `- 本机 Agent：${agentLabel(context.agentKind)}`,
     "",
     "## 执行规则",
@@ -414,7 +465,7 @@ function taskCard(task, context) {
     "",
     `- 有阶段性进展、遇到阻塞或需要决策时，用共序 MCP 工具 post_message 向 threadId ${task.thread_id} 简短报进度：改了什么、下一步是什么。`,
     "- 需要交付文档时用 submit_document；需要内置助手协助时在消息里 @小祥。",
-    "- 不要自称已把结果保存到共序或已结案：结案由开发人员在连接器点「完成并通知」，连接器会回传 Git Diff。",
+    "- 不要自称已把结果保存到共序、已写入主仓库或已结案：结案由开发人员在连接器点「完成并通知」，连接器会回传 Git Diff；是否写入主仓库也由开发人员勾选。",
     "- 严禁改写本任务卡；对任务有疑问先在会话里向开发人员确认。",
     "",
     "## 任务正文",
@@ -577,7 +628,7 @@ async function storeMcpToken(token) {
 function mcpServerSpec(config, token) {
   const mcp = config.mcp || {};
   const url = new URL(mcp.endpoint || "/mcp", config.server).toString();
-  const headers = { Authorization: `Bearer ${token}` };
+  const headers = { Authorization: `Bearer ${token}`, "X-CoThread-MCP-Source": "local-connector" };
   if (mcp.conversationId) headers["Makers-Conversation-Id"] = mcp.conversationId;
   return { url, headers, token };
 }
@@ -616,13 +667,15 @@ async function syncMcp(config, prerequisites, { force = false, reset = false } =
     try {
       MCP_WRITERS[kind](spec);
       mcp.agents[kind] = { ok: true, url: spec.url, at: now, error: "" };
+      changed = true;
       log(`已为 ${agentLabel(kind)} 写入共序 MCP 配置（新开会话生效）`);
     } catch (error) {
       mcp.agents[kind] = { ok: false, url: spec.url, at: now, error: String(error.message).slice(0, 300) };
+      changed = true;
       log(`为 ${agentLabel(kind)} 写入 MCP 配置失败：${error.message}`);
     }
   }
-  await writeConfig(config);
+  if (changed || reset || force) await writeConfig(config);
 }
 
 function openBrowser(url) {
@@ -883,7 +936,7 @@ async function guiMain() {
   let token = await loadToken();
   let taskStore = await readTaskStore();
   const saveTaskStore = () => writeTaskStore(taskStore);
-  const environmentReady = () => prerequisites.gitInstalled && prerequisites.anyAgentInstalled;
+  const environmentReady = () => prerequisites.gitInstalled;
 
   const refreshProjects = async () => {
     token = await loadToken();
@@ -930,8 +983,9 @@ async function guiMain() {
     const local = taskStore[task.id];
     const windowOpen = activeSession?.taskId === task.id;
     const row = { ...task, localAgentKind: local?.agentKind || task.agentKind || "", localSession: !!local?.sessionId,
-      hasLocalRecord: !!local, windowOpen };
+      hasLocalRecord: !!local && local.state !== "kept", hasKeptWorktree: local?.state === "kept" && !!local.worktree, windowOpen };
     if (windowOpen) return { ...row, status: "running", progress: sessionProgress(local?.agentKind) };
+    if (local?.state === "kept") return { ...row, progress: "工作副本仍保留，可应用到主仓库或丢弃" };
     if (local?.state === "paused" && ["running", "paused"].includes(task.status)) return { ...row, status: "paused", progress: PAUSED_PROGRESS };
     return row;
   });
@@ -944,14 +998,19 @@ async function guiMain() {
       error: config.mcp?.agents?.[kind]?.error || "",
     }])),
   });
+  let lastPublished = "";
   const publish = async () => {
-    await atomicJson(statePath, {
+    const payload = {
       version: VERSION, server: config.server,
       paired: !!token, online: !!token && environmentReady() && !errorText,
       status, error: errorText, authorizing, prerequisites, mcp: mcpState(), defaultAgent: config.defaultAgent || "",
       projects: projectRows(), tasks: taskRows(), activeTaskId: activeSession?.taskId || "",
       autoStart, logs, projectRefreshRevision, taskRefreshRevision,
-    });
+    };
+    const text = JSON.stringify(payload);
+    if (text === lastPublished) return;
+    lastPublished = text;
+    await atomicJson(statePath, payload);
   };
 
   const patchTask = (entry, body, timeout) => request(config, `/api/connector/tasks/${entry.taskId}`, {
@@ -968,12 +1027,24 @@ async function guiMain() {
       return patchTask(entry, body, timeout);
     }
   };
-  const dropLocalTask = async (taskId) => {
+  const dropLocalTask = async (taskId, { keepWorktree = false } = {}) => {
     const entry = taskStore[taskId];
+    if (keepWorktree && entry?.worktree) {
+      if (entry.cardPath) await fsp.rm(entry.cardPath, { force: true }).catch(() => {});
+      taskStore[taskId] = {
+        taskId: entry.taskId, projectId: entry.projectId, projectName: entry.projectName,
+        repo: entry.repo, projectPath: entry.projectPath, worktree: entry.worktree, branch: entry.branch,
+        baselineCommit: entry.baselineCommit, gitRoot: entry.gitRoot, agentKind: entry.agentKind,
+        state: "kept", keptAt: new Date().toISOString(),
+      };
+      await saveTaskStore();
+      return;
+    }
     delete taskStore[taskId];
     await saveTaskStore();
     if (entry?.cardPath) await fsp.rm(entry.cardPath, { force: true }).catch(() => {});
     if (entry?.worktree) removeWorktree(entry.repo || entry.root, entry.worktree);
+    deleteTaskBranch(entry?.repo || entry?.root, entry?.branch);
   };
   // 窗口关闭后的 paused 续租：每 5 分钟一次，也用于连接器重启后的恢复。
   const renewPaused = async (entry) => {
@@ -1051,10 +1122,11 @@ async function guiMain() {
       await dropLocalTask(taskId);
     }
     let entry = taskStore[taskId];
+    if (!retry && entry?.state === "kept") throw new Error("该任务还有未应用的工作副本，请先应用到主仓库或丢弃");
     const chosen = entry?.agentKind || String(agentKind || "") ||
       (prerequisites.installedAgents.length === 1 ? prerequisites.installedAgents[0] : "");
-    if (!chosen) throw new Error(prerequisites.anyAgentInstalled ? "请选择本次使用的本机 Agent" : "未检测到 Cursor TUI / Codex TUI / Claude Code TUI，请先安装");
-    if (!prerequisites.agents[chosen]?.installed) throw new Error(`${agentLabel(chosen)} 未安装或不可用，请重新检测本机环境`);
+    if (!chosen) throw new Error(prerequisites.anyAgentInstalled ? "请选择本次使用的本机 Agent" : "未检测到 Cursor TUI / Codex TUI / Claude Code TUI，请先安装其中一个再开始任务");
+    if (!prerequisites.agents[chosen]?.installed) throw new Error(`${agentLabel(chosen)} 未安装或不可用，请安装后重新检测`);
     const remote = remoteTasks.find((task) => task.id === taskId);
     const projectId = entry?.projectId || remote?.projectId;
     const continuing = !!entry?.baselineCommit;
@@ -1073,9 +1145,10 @@ async function guiMain() {
     const reuseWorktree = continuing && entry.worktree && fs.existsSync(path.join(entry.worktree, ".git"));
     const reuseLegacyRoot = continuing && !entry.worktree && entry.root && fs.existsSync(entry.root);
     let worktree = reuseWorktree ? entry.worktree : "";
+    const branch = entry?.branch || taskWorktreeBranch(taskId);
     if (!reuseWorktree && !reuseLegacyRoot) {
       if (continuing && entry.worktree) log("任务工作副本已丢失，将按当前仓库 HEAD 重建（未提交改动无法恢复）");
-      worktree = addDetachedWorktree(repo, worktreePathFor(taskId));
+      worktree = addDetachedWorktree(repo, worktreePathFor(taskId), branch);
     }
     const root = worktree ? projectWorkDir(worktree, projectPath) : (entry.root || projectWorkDir(repo, projectPath));
     if (projectPath && !fs.existsSync(root)) {
@@ -1099,7 +1172,7 @@ async function guiMain() {
     const baseline = continuing ? entry.baselineCommit : git(gitRoot, ["rev-parse", "HEAD"]).trim();
     entry = taskStore[taskId] = {
       ...(entry || {}), taskId, projectId: task.project_id, projectName: task.project_name, threadId: task.thread_id,
-      messageId: task.message_id || null, instruction: task.instruction, repo, projectPath, worktree, root,
+      messageId: task.message_id || null, instruction: task.instruction, repo, projectPath, worktree, branch, root,
       agentKind: chosen, baselineCommit: baseline, gitRoot,
       leaseToken: task.leaseToken || entry?.leaseToken, allowGitPush: !!task.allow_git_push,
       state: "running", updatedAt: new Date().toISOString(),
@@ -1108,7 +1181,7 @@ async function guiMain() {
     try {
       await fsp.mkdir(cardsDir, { recursive: true });
       const cardPath = path.join(cardsDir, `${taskId}.md`);
-      await fsp.writeFile(cardPath, taskCard(task, { root, repo, projectPath, worktree, agentKind: chosen }), "utf8");
+      await fsp.writeFile(cardPath, taskCard(task, { root, repo, projectPath, worktree, branch, agentKind: chosen }), "utf8");
       entry.cardPath = cardPath;
       let sessionId = entry.sessionId || "";
       const resume = continuing && !!sessionId;
@@ -1150,15 +1223,35 @@ async function guiMain() {
     }
     return task;
   };
-  const finishLocalTask = async (taskId, summary) => {
+  const finishLocalTask = async (taskId, summary, { applyToMain = false } = {}) => {
     const entry = taskStore[taskId];
     if (!entry) throw new Error("本机没有该任务的会话记录，无法回传 Diff");
-    const { files, diff } = collectDiff(entry.worktree || entry.gitRoot || entry.root, entry.baselineCommit);
+    const source = entry.worktree || entry.gitRoot || entry.root;
+    const { files, diff } = collectDiff(source, entry.baselineCommit);
     const output = String(summary || "").trim() || `本机 ${agentLabel(entry.agentKind)} 会话已结案，共修改 ${files.length} 个文件，请查看代码差异。`;
     await patchWithLease(entry, { status: "completed", output: output.slice(0, 1000000), diff }, 60000);
     if (activeSession?.taskId === taskId) activeSession.finished = true;
+    if (applyToMain) {
+      try {
+        const applied = applyWorktreeToRepo(entry.repo, entry.worktree || entry.gitRoot, entry.baselineCommit);
+        await dropLocalTask(taskId);
+        log(`任务已完成并通知，且已应用到主仓库：${entry.projectName}（${(applied.files || files).length} 个文件）`);
+      } catch (error) {
+        await dropLocalTask(taskId, { keepWorktree: true });
+        log(`任务已完成并通知，但未能应用到主仓库：${error.message}。工作副本仍保留，可稍后应用或丢弃`);
+        throw new Error(`已通知群聊，但未能写入主仓库：${error.message}`);
+      }
+      return;
+    }
+    await dropLocalTask(taskId, { keepWorktree: true });
+    log(`任务已完成并通知：${entry.projectName}（${files.length} 个文件）。工作副本仍保留，未写入主仓库`);
+  };
+  const applyKeptWorktree = async (taskId) => {
+    const entry = taskStore[taskId];
+    if (!entry?.worktree || entry.state !== "kept") throw new Error("没有可应用的工作副本");
+    const applied = applyWorktreeToRepo(entry.repo, entry.worktree, entry.baselineCommit);
     await dropLocalTask(taskId);
-    log(`任务已完成并通知：${entry.projectName}（${files.length} 个文件）`);
+    log(`已将工作副本应用到主仓库：${entry.projectName}（${applied.files.length} 个文件）`);
   };
   const failLocalTask = async (taskId, reason) => {
     const entry = taskStore[taskId];
@@ -1198,7 +1291,6 @@ async function guiMain() {
       status = "正在刷新项目";
       await publish();
       try {
-        prerequisites = checkPrerequisites();
         await refreshProjects();
         const refreshedAt = new Date().toLocaleTimeString("zh-CN", { hour12: false });
         status = `项目已刷新（${refreshedAt}）`;
@@ -1260,7 +1352,6 @@ async function guiMain() {
       prerequisites = checkPrerequisites();
       prerequisitesCheckedAt = Date.now();
       if (!prerequisites.gitInstalled) throw new Error("未检测到 Git CLI，请先安装 Git CLI");
-      if (!prerequisites.anyAgentInstalled) throw new Error("未检测到 Cursor TUI / Codex TUI / Claude Code TUI，请至少安装一个");
       const repo = resolveRepoDir(payload.repo || payload.root);
       const { projectPath, workDir } = resolveProjectDir(repo, payload.projectPath);
       const row = remoteProjects.find((item) => item.id === payload.projectId);
@@ -1299,9 +1390,16 @@ async function guiMain() {
       await refreshTasks().catch(() => {});
       status = `本机 Agent 会话进行中：${task.project_name}`;
     } else if (command.type === "finishTask") {
-      await finishLocalTask(String(payload.taskId || ""), payload.summary);
+      await finishLocalTask(String(payload.taskId || ""), payload.summary, { applyToMain: !!payload.applyToMain });
       await refreshTasks().catch(() => {});
-      status = "任务已完成并通知到迭代群聊";
+      status = payload.applyToMain ? "任务已完成并已尝试写入主仓库" : "任务已完成并通知到迭代群聊（工作副本已保留）";
+    } else if (command.type === "applyTask") {
+      await applyKeptWorktree(String(payload.taskId || ""));
+      await refreshTasks().catch(() => {});
+      status = "工作副本已应用到主仓库";
+    } else if (command.type === "discardWorktree") {
+      await dropLocalTask(String(payload.taskId || ""));
+      status = "已丢弃任务工作副本";
     } else if (command.type === "failTask") {
       await failLocalTask(String(payload.taskId || ""), payload.reason);
       await refreshTasks().catch(() => {});
@@ -1333,25 +1431,27 @@ async function guiMain() {
     if (!quitting) { status = "界面启动失败"; showFatalError(error); quitting = true; }
   });
   gui.once("exit", (code) => {
-    if (!quitting) {
-      const detail = `界面进程意外退出（代码 ${code ?? "未知"}）`;
-      status = "界面意外关闭";
-      log(detail);
-      showFatalError(detail);
-      quitting = true;
-    }
+    if (quitting) return;
+    if (code === 0) { quitting = true; return; }
+    const detail = `界面进程意外退出（代码 ${code ?? "未知"}）`;
+    status = "界面意外关闭";
+    log(detail);
+    showFatalError(detail);
+    quitting = true;
   });
 
   const commandTimer = setInterval(async () => {
     if (commandBusy) return;
     commandBusy = true;
+    let publishState = false;
     try {
       const raw = await fsp.readFile(commandPath, "utf8");
       await fsp.rm(commandPath, { force: true });
       await handleCommand(JSON.parse(raw));
+      publishState = true;
     } catch (error) {
-      if (error.code !== "ENOENT") { errorText = error.message; status = "需要处理"; log(error.message); }
-    } finally { commandBusy = false; await publish().catch(() => {}); }
+      if (error.code !== "ENOENT") { errorText = error.message; status = "需要处理"; log(error.message); publishState = true; }
+    } finally { commandBusy = false; if (publishState) await publish().catch(() => {}); }
   }, 500);
   const stateTimer = setInterval(() => void publish().catch(() => {}), 700);
   try {
@@ -1360,15 +1460,17 @@ async function guiMain() {
     log(`本机环境：${prerequisiteSummary(prerequisites)}`);
     // 连接器重启后：上次仍在 running 的本机记录说明窗口句柄已丢失，一律按“会话已关闭”续租。
     for (const entry of Object.values(taskStore)) {
+      if (entry.state === "kept") continue;
       if (entry.state === "running") { entry.state = "paused"; entry.pausedAt = new Date().toISOString(); }
       entry.pausedHeartbeatAt = 0;
     }
     await saveTaskStore();
     await publish();
     while (!quitting) {
-      if (Date.now() - prerequisitesCheckedAt > 60000) {
-        prerequisites = checkPrerequisites();
+      if (Date.now() - prerequisitesCheckedAt > 5 * 60000) {
+        const next = checkPrerequisites();
         prerequisitesCheckedAt = Date.now();
+        if (JSON.stringify(next) !== JSON.stringify(prerequisites)) prerequisites = next;
       }
       token = await loadToken();
       if (token && environmentReady()) {
@@ -1380,7 +1482,7 @@ async function guiMain() {
         }
         if (!errorText) {
           for (const entry of Object.values(taskStore)) {
-            if (entry.state === "paused" && activeSession?.taskId !== entry.taskId && Date.now() - (entry.pausedHeartbeatAt || 0) >= 5 * 60000)
+            if (entry.state === "paused" && entry.state !== "kept" && activeSession?.taskId !== entry.taskId && Date.now() - (entry.pausedHeartbeatAt || 0) >= 5 * 60000)
               await renewPaused(entry);
           }
           await syncMcp(config, prerequisites).catch((error) => log(`MCP 配置检查失败：${error.message}`));
@@ -1410,10 +1512,10 @@ async function main() {
 }
 
 module.exports = {
-  AGENTS, addDetachedWorktree, agentLaunchArgs, checkPrerequisites, createAuthorizationCallback, instanceLockIsActive,
+  AGENTS, addDetachedWorktree, agentLaunchArgs, applyWorktreeToRepo, checkPrerequisites, createAuthorizationCallback, instanceLockIsActive,
   withUtf8Bom,
   launchPrompt, mergeCodexMcpConfig, mergeCursorMcpConfig, parseCodexSessionId, parseCursorChatId, parseInstanceLock,
   projectBinding, projectWorkDir, protectToken, relativeProjectPath, removeWorktree, resolveProjectDir, resolveRepoDir,
-  taskCard, taskPrompt, unprotectToken, validatePolicy, windowsVersionLabel, deviceIdentity,
+  taskCard, taskPrompt, taskWorktreeBranch, unprotectToken, validatePolicy, windowsVersionLabel, deviceIdentity,
 };
 if (require.main === module || require("node:sea").isSea()) main().catch((error) => { showFatalError(error); process.exitCode = 1; });

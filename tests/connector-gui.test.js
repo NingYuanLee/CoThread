@@ -17,6 +17,10 @@ test("connector GUI uses project and task tabs with a persistent log pane", asyn
   assert.doesNotMatch(gui, /<ScrollViewer\b/);
   assert.match(gui, /x:Name="ProjectGrid"[^>]*Grid\.Row="1"/);
   assert.match(gui, /x:Name="TaskGrid"[^>]*Grid\.Row="1"/);
+  assert.match(gui, /x:Name="BoundProjectsOnlyCheck"[^>]*IsChecked="True"/);
+  assert.match(gui, /x:Name="OpenTasksOnlyCheck"[^>]*IsChecked="True"/);
+  assert.match(gui, /function Show-FilteredProjects/);
+  assert.match(gui, /function Show-FilteredTasks/);
   assert.match(gui, /x:Name="LogText"/);
   assert.match(gui, /<GridSplitter\b/);
   assert.match(gui, /ScrollToVerticalOffset/);
@@ -82,13 +86,20 @@ test("task controls follow the interactive session lifecycle instead of process 
   assert.match(gui, /function Show-TextDialog/);
   assert.match(gui, /Send-Command 'startTask' @\{ taskId=\$row\.id; agentKind=\$kind \}/);
   assert.match(gui, /Send-Command 'startTask' @\{ taskId=\$row\.id; agentKind=\$kind; retry=\$true \}/);
-  assert.match(gui, /Send-Command 'finishTask' @\{ taskId=\$row\.id; summary=\$summary \}/);
+  assert.match(gui, /Send-Command 'finishTask' @\{ taskId=\$row\.id; summary=\[string\]\$result\.Text; applyToMain=\[bool\]\$result\.Checked \}/);
+  assert.match(gui, /同时应用到主仓库/);
+  assert.match(gui, /x:Name="ApplyTaskButton"/);
+  assert.match(gui, /x:Name="DiscardWorktreeButton"/);
+  assert.match(gui, /Send-Command 'applyTask'/);
+  assert.match(gui, /Send-Command 'discardWorktree'/);
   assert.match(gui, /Send-Command 'failTask' @\{ taskId=\$row\.id; reason=\$reason \}/);
 
   assert.match(main, /command\.type === "startTask"/);
   assert.match(main, /已恢复「\$\{row\.name\}」的项目连接/);
   assert.match(main, /开始前先把服务端项目绑定写上/);
   assert.match(main, /command\.type === "finishTask"/);
+  assert.match(main, /command\.type === "applyTask"/);
+  assert.match(main, /command\.type === "discardWorktree"/);
   assert.match(main, /command\.type === "failTask"/);
   assert.match(main, /status: "completed", output: output\.slice\(0, 1000000\), diff/);
   assert.match(main, /"start", `CoThread 任务 - \$\{agentLabel\(kind\)\}`, "\/wait"/);
@@ -96,7 +107,7 @@ test("task controls follow the interactive session lifecycle instead of process 
   assert.match(main, /const PAUSED_PROGRESS = "本机会话已关闭，可继续或结案"/);
   assert.match(main, /Date\.now\(\) - \(entry\.pausedHeartbeatAt \|\| 0\) >= 5 \* 60000/);
   assert.match(main, /const tasksPath = path\.join\(appDir, "tasks\.json"\)/);
-  assert.match(main, /\["worktree", "add", "--detach"/);
+  assert.match(main, /\["worktree", "add", "-b", branch, dest, "HEAD"\]/);
   assert.doesNotMatch(main, /status", "--porcelain"|未提交修改/);
   assert.doesNotMatch(main, /codexExecArgs|completed_pending_notification|NtSuspendProcess/);
 });
@@ -107,7 +118,9 @@ test("connector detects three agents and writes their MCP configuration", async 
   for (const name of ["CursorStatusText", "CodexStatusText", "ClaudeStatusText", "CursorMcpText", "CodexMcpText", "ClaudeMcpText", "RefreshMcpButton", "ResetMcpButton"])
     assert.match(gui, new RegExp(`x:Name="${name}"`));
   assert.doesNotMatch(gui, /Text="共序 MCP"/);
-  assert.match(gui, /x:Key="EnvActionButton"/);
+  assert.match(gui, /x:Name="AgentPanel"/);
+  assert.match(gui, /Text="本机 Agent"/);
+  assert.match(gui, /开始任务时从已安装的 TUI 中选一个即可/);
   assert.match(gui, /Grid\.Row="1" Grid\.Column="1" Orientation="Horizontal"/);
   assert.match(gui, /function Set-AgentMcpText/);
   assert.match(gui, /MCP 已写入/);
@@ -118,11 +131,13 @@ test("connector detects three agents and writes their MCP configuration", async 
   assert.match(gui, /MessageBox\]::Show\("重置后本账号的旧 MCP 令牌立即失效[\s\S]*?'YesNo', 'Warning'\)\s*\n\s*if \(\$answer -eq 'Yes'\) \{ Send-Command 'resetMcp' \}/);
   assert.match(main, /"\/api\/connector\/mcp-credential\/reset"/);
   assert.match(main, /command\.type === "resetMcp"/);
-  assert.match(gui, /\$ProjectPanel\.IsEnabled = \[bool\]\(\$state\.paired -and \$state\.prerequisites\.gitInstalled -and \$anyAgent\)/);
+  assert.match(gui, /\$ProjectPanel\.IsEnabled = \[bool\]\(\$state\.paired -and \$state\.prerequisites\.gitInstalled\)/);
+  assert.doesNotMatch(gui, /gitInstalled -and \$anyAgent/);
 
   assert.match(main, /cursor-agent", "agent\.ps1"/);
   assert.match(main, /const AGENT_KINDS = Object\.keys\(AGENTS\)/);
   assert.match(main, /anyAgentInstalled: installedAgents\.length > 0/);
+  assert.match(main, /const environmentReady = \(\) => prerequisites\.gitInstalled;/);
   assert.match(main, /online: !!token && environmentReady\(\) && !errorText/);
   assert.match(main, /"\/api\/connector\/mcp-credential"/);
   assert.match(main, /remaining < 7 \* 86400000/);
@@ -171,6 +186,8 @@ test("connector build pins a verified Windows-compatible runtime", async () => {
   assert.match(build, /run\(nodeExecutable, \["--experimental-sea-config"/);
   assert.match(build, /copyFile\(nodeExecutable, exe\)/);
   assert.match(build, /for \(let attempt = 1; attempt <= 5; attempt\+\+\)/);
+  assert.match(build, /async function emptyOutDir/);
+  assert.match(build, /请先在托盘退出正在运行的 CoThread Connector/);
 });
 
 test("connector has no built-in application distribution path", async () => {
@@ -188,6 +205,7 @@ test("connector persists startup diagnostics and surfaces fatal errors", async (
   assert.match(main, /function showFatalError\(error\)/);
   assert.match(main, /gui\.once\("error"/);
   assert.match(main, /gui\.once\("exit"/);
+  assert.match(main, /if \(code === 0\) \{ quitting = true; return; \}/);
   assert.match(main, /writeFile\(guiPath, withUtf8Bom\(/);
   assert.match(main, /界面进程意外退出[\s\S]{0,200}showFatalError/);
   assert.match(main, /main\(\)\.catch\(\(error\) => \{ showFatalError\(error\)/);
@@ -204,6 +222,8 @@ test("missing prerequisites offer guided installation without requiring Node", a
   assert.match(gui, /x:Name="InstallCursorButton" Content="安装 Cursor TUI"/);
   assert.match(gui, /x:Name="InstallClaudeButton" Content="安装 Claude Code TUI"/);
   assert.match(gui, /Text="Git CLI"/);
+  assert.match(gui, /Text="本机环境"/);
+  assert.match(gui, /Text="本机 Agent"/);
   assert.match(gui, /Text="Cursor TUI"/);
   assert.match(gui, /Text="Codex TUI"/);
   assert.match(gui, /Text="Claude Code TUI"/);
@@ -228,16 +248,22 @@ test("manual environment checks and project refreshes produce records", async ()
   assert.match(main, /项目列表已刷新，共 \$\{remoteProjects\.length\} 个项目/);
 });
 
-test("state refresh races stay silent and Windows 11 is labeled correctly", async () => {
-  const [gui, main] = await Promise.all([
-    readFile(guiPath, "utf8"),
-    readFile(mainPath, "utf8"),
-  ]);
+test("idle connector skips unchanged UI reloads", async () => {
+  const [gui, main] = await Promise.all([readFile(guiPath, "utf8"), readFile(mainPath, "utf8")]);
 
   assert.match(gui, /Get-Content[^\r\n]+-ErrorAction Stop \| ConvertFrom-Json -ErrorAction Stop/);
   assert.match(main, /fsp\.copyFile\(temporary, file\)/);
   assert.doesNotMatch(main, /fsp\.rm\(file, \{ force: true \}\)/);
   assert.match(main, /build >= 22000\) return `Windows 11/);
+  assert.match(main, /if \(text === lastPublished\) return/);
+  assert.match(main, /if \(publishState\) await publish\(\)/);
+  assert.match(main, /if \(changed \|\| reset \|\| force\) await writeConfig\(config\)/);
+  assert.match(main, /Date\.now\(\) - prerequisitesCheckedAt > 5 \* 60000/);
+  assert.doesNotMatch(main, /command\.type === "refreshProjects"[\s\S]{0,280}prerequisites = checkPrerequisites\(\)/);
+  assert.match(gui, /if \(\$stamp -eq \$script:stateStamp\) \{ return \}/);
+  assert.match(gui, /function Set-ControlText/);
+  assert.match(gui, /if \(\$view -eq \$script:projectViewSignature\) \{ return \}/);
+  assert.match(gui, /if \(\$view -eq \$script:taskViewSignature\) \{ return \}/);
 });
 
 test("project and task refresh actions show progress and completion records", async () => {
@@ -256,15 +282,15 @@ test("project and task refresh actions show progress and completion records", as
 test("paired users can reopen browser authorization to switch accounts", async () => {
   const gui = await readFile(guiPath, "utf8");
 
-  assert.match(gui, /x:Name="ReauthorizeButton"[^>]*Content="切换账号"/);
+  assert.match(gui, /x:Name="ReauthorizeButton" Content="切换账号"/);
   assert.match(gui, /\$ReauthorizeButton\.Add_Click/);
-  assert.match(gui, /\$ReauthorizeButton\.Visibility = if \(\$state\.paired\)/);
+  assert.match(gui, /Set-ControlVisible \$ReauthorizeButton \(\[bool\]\$state\.paired\)/);
   assert.doesNotMatch(gui, /Text="CoThread 本地连接器"/);
-  assert.match(gui, /x:Name="PairButton"[^>]*Grid\.Column="2"/);
+  assert.match(gui, /x:Name="PairButton"[^>]*Content="网页登录并授权"/);
   assert.match(gui, /x:Name="ReauthorizeButton"[^>]*Content="切换账号"/);
   assert.match(gui, /x:Name="StatusText"[^>]*TextTrimming="CharacterEllipsis"/);
+  assert.doesNotMatch(gui, /隐藏到托盘|退出连接器|HideButton|ExitButton/);
   assert.match(gui, /Grid\.Row="4"[\s\S]*x:Name="StatusDot"[\s\S]*x:Name="StatusText"/);
-  assert.doesNotMatch(gui, /x:Name="HideButton"|x:Name="ExitButton"|隐藏到托盘|退出连接器/);
 });
 
 test("project and task grids use polished fixed-height rows", async () => {
@@ -279,12 +305,14 @@ test("project and task grids use polished fixed-height rows", async () => {
   assert.match(gui, /function Sync-RefreshButtons/);
 });
 
-test("taskbar uses stable WPF and Win32 icon paths", async () => {
+test("taskbar detaches from powershell.exe with AppUserModelID and window icons", async () => {
   const gui = await readFile(guiPath, "utf8");
 
+  assert.match(gui, /SetCurrentProcessExplicitAppUserModelID/);
+  assert.match(gui, /BindProcess\('CoThread\.Connector'\)/);
+  assert.match(gui, /SHGetPropertyStoreForWindow/);
   assert.match(gui, /\$window\.Icon = \[Windows\.Media\.Imaging\.BitmapFrame\]::Create/);
-  assert.match(gui, /New-Object System\.Drawing\.Icon\(\$IconPath, 32, 32\)/);
-  assert.match(gui, /New-Object System\.Drawing\.Icon\(\$IconPath, 16, 16\)/);
-  assert.match(gui, /SendMessage\(\$handle, 0x0080, \[IntPtr\]1, \$bigWindowIcon\.Handle\)/);
-  assert.doesNotMatch(gui, /SetCurrentProcessExplicitAppUserModelID|LoadImage/);
+  assert.match(gui, /New-Object System\.Drawing\.Icon\(\$IconPath, 256, 256\)/);
+  assert.match(gui, /BindWindow\(\$handle, \$bigWindowIcon\.Handle, \$smallWindowIcon\.Handle/);
+  assert.match(gui, /\$IconPath \+ ',0'/);
 });

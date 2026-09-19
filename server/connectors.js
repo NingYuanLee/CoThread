@@ -47,7 +47,18 @@ async function reportConnectorToSource(service, conn, connectorTask, body) {
 
 async function replaceAccountConnector(conn, userId, data, token) {
   await query(conn, "SELECT id FROM users WHERE id=? FOR UPDATE", [userId]);
-  const [existing] = await query(conn, "SELECT id FROM connectors WHERE user_id=? FOR UPDATE", [userId]);
+  const deviceId = data.deviceId || data.device_id || null;
+  const [existing] = await query(conn, `SELECT id,user_id FROM connectors
+    WHERE (? IS NOT NULL AND device_id=?) OR (? IS NULL AND user_id=?)
+    ORDER BY CASE WHEN device_id=? THEN 0 ELSE 1 END,created_at LIMIT 1 FOR UPDATE`,
+  [deviceId, deviceId, deviceId, userId, deviceId]);
+  const [memberConnector] = await query(conn, "SELECT id FROM connectors WHERE user_id=? AND revoked_at IS NULL FOR UPDATE", [userId]);
+  if (memberConnector && (!existing || memberConnector.id !== existing.id)) {
+    await query(conn, `UPDATE connectors SET revoked_at=UTC_TIMESTAMP(3),token_hash=SHA2(CONCAT(token_hash,UUID()),256)
+      WHERE id=?`, [memberConnector.id]);
+    await query(conn, `UPDATE connector_bindings SET active=NULL,unbound_at=UTC_TIMESTAMP(3)
+      WHERE connector_id=? AND active=1`, [memberConnector.id]);
+  }
   if (existing) {
     await query(conn, `UPDATE connector_tasks SET status='cancelled',error='账号已在另一台电脑重新连接',finished_at=UTC_TIMESTAMP(3)
       WHERE connector_id=? AND status IN ('awaiting_approval','queued','running','paused')`, [existing.id]);
@@ -55,13 +66,18 @@ async function replaceAccountConnector(conn, userId, data, token) {
     for (const task of cancelled) await syncConnectorTaskById(conn, task.id);
     // 账号仍是同一连接器身份：保留已绑定项目，否则重试后领取会因缺少 connector_projects 失败，
     // 轮询还会把刚重新排队的任务标成「失去项目执行权限」。本机目录仍由连接器本地配置决定。
-    await query(conn, `UPDATE connectors SET name=?,platform=?,version=?,token_hash=?,last_seen_at=UTC_TIMESTAMP(3),revoked_at=NULL
-      WHERE id=?`, [data.name, data.platform, data.version, digest(token), existing.id]);
+    await query(conn, `UPDATE connectors SET user_id=?,device_id=COALESCE(?,device_id),name=?,platform=?,version=?,token_hash=?,last_seen_at=UTC_TIMESTAMP(3),revoked_at=NULL
+      WHERE id=?`, [userId, deviceId, data.name, data.platform, data.version, digest(token), existing.id]);
+    await query(conn, `UPDATE connector_bindings SET active=NULL,unbound_at=UTC_TIMESTAMP(3)
+      WHERE connector_id=? AND active=1`, [existing.id]);
+    await query(conn, `INSERT INTO connector_bindings(id,connector_id,member_id,active)
+      VALUES(UUID(),?,?,1)`, [existing.id, userId]);
     return existing.id;
   }
   const id = randomUUID();
-  await query(conn, `INSERT INTO connectors(id,user_id,name,platform,version,token_hash,last_seen_at)
-    VALUES(?,?,?,?,?,?,UTC_TIMESTAMP(3))`, [id, userId, data.name, data.platform, data.version, digest(token)]);
+  await query(conn, `INSERT INTO connectors(id,user_id,device_id,name,platform,version,token_hash,last_seen_at)
+    VALUES(?,?,?,?,?,?,?,UTC_TIMESTAMP(3))`, [id, userId, deviceId || id, data.name, data.platform, data.version, digest(token)]);
+  await query(conn, `INSERT INTO connector_bindings(id,connector_id,member_id,active) VALUES(UUID(),?,?,1)`, [id, userId]);
   return id;
 }
 
@@ -80,15 +96,16 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
   app.post(["/api/connector/authorizations", "/api/connector/v2/authorizations"], async (req, res) => {
     const data = z.object({
       name: z.string().trim().min(1).max(100),
+      deviceId: z.string().uuid().optional(),
       platform: z.string().trim().min(1).max(40).default("windows"),
       version: z.string().trim().min(1).max(40),
     }).parse(req.body);
     const id = randomUUID();
     const pollToken = randomBytes(32).toString("base64url");
     await query(db, "DELETE FROM connector_authorizations WHERE UNIX_TIMESTAMP(expires_at)<UNIX_TIMESTAMP()");
-    await query(db, `INSERT INTO connector_authorizations(id,poll_token_hash,name,platform,version,expires_at)
-      VALUES(?,?,?,?,?,FROM_UNIXTIME(UNIX_TIMESTAMP()+600))`,
-    [id, digest(pollToken), data.name, data.platform, data.version]);
+    await query(db, `INSERT INTO connector_authorizations(id,poll_token_hash,device_id,name,platform,version,expires_at)
+      VALUES(?,?,?,?,?,?,FROM_UNIXTIME(UNIX_TIMESTAMP()+600))`,
+    [id, digest(pollToken), data.deviceId || null, data.name, data.platform, data.version]);
     const origin = process.env.APP_ORIGIN || `${req.protocol}://${req.get("host")}`;
     const verificationUrl = new URL("/", origin);
     verificationUrl.searchParams.set("connectorAuthorization", id);
@@ -121,6 +138,7 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
   app.post("/api/connector/pair", async (req, res) => {
     const data = z.object({
       code: z.string().trim().min(10).max(32).transform((value) => value.toUpperCase()),
+      deviceId: z.string().uuid().optional(),
       name: z.string().trim().min(1).max(100),
       platform: z.string().trim().min(1).max(40).default("windows"),
       version: z.string().trim().min(1).max(40),

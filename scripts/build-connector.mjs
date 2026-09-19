@@ -38,8 +38,35 @@ async function compatibilityNode() {
   return target;
 }
 const nodeExecutable = await compatibilityNode();
-await rm(out, { recursive: true, force: true });
-await mkdir(out, { recursive: true });
+const locked = (error) => ["EBUSY", "EPERM", "EACCES", "ENOTEMPTY"].includes(error?.code);
+async function emptyOutDir() {
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      await rm(out, { recursive: true, force: true });
+      await mkdir(out, { recursive: true });
+      return;
+    } catch (error) {
+      if (!locked(error)) throw error;
+      if (attempt < 5) await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
+    }
+  }
+  await mkdir(out, { recursive: true });
+  for (const name of await readdir(out)) {
+    const file = join(out, name);
+    try {
+      await rm(file, { recursive: true, force: true });
+    } catch (error) {
+      if (!locked(error)) throw error;
+      const stale = join(out, `${name}.old-${process.pid}-${Date.now()}`);
+      try { await rename(file, stale); }
+      catch {
+        throw new Error(`无法覆盖 ${file}。请先在托盘退出正在运行的 CoThread Connector，再重新构建。`);
+      }
+      await rm(stale, { force: true }).catch(() => {});
+    }
+  }
+}
+await emptyOutDir();
 const iconSizes = [16, 20, 24, 32, 40, 48, 64, 128, 256];
 const iconFrames = await Promise.all(iconSizes.map((size) =>
   sharp(join(root, "public", "cothread-logo.svg")).resize(size, size).png().toBuffer()));

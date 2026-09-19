@@ -494,7 +494,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
         "SELECT id FROM coordinator_events WHERE thread_id=? AND status='running' LIMIT 1", [thread.id]);
       if (activeRequest || activeEvent) return;
       const [nextMessage] = await query(conn,
-         `SELECT q.message_id,m.thread_id,m.author_id,m.sequence,m.body,m.refs,m.execution_target,m.created_at,
+         `SELECT q.message_id,q.interaction_source,m.thread_id,m.author_id,m.sequence,m.body,m.refs,m.execution_target,m.created_at,
           r.participation,r.status reply_status,r.reply_id FROM agent_requests q
           JOIN messages m ON m.id=q.message_id LEFT JOIN assistant_replies r ON r.message_id=m.id
           WHERE m.thread_id=? AND q.status='queued' ORDER BY m.sequence LIMIT 1`, [thread.id]);
@@ -598,4 +598,3 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
   }
   return true;
 }
-

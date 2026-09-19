@@ -132,7 +132,8 @@ export function createMcpServer(service, user, afterMessage) {
 }
 
 export async function handleMcp(req, res, service, afterMessage) {
-  const server = createMcpServer(service, req.user, afterMessage);
+  const mcpSource = req.headers["x-cothread-mcp-source"] === "local-connector" ? "connector_mcp" : "mcp";
+  const server = createMcpServer(service, { ...req.user, mcpSource }, afterMessage);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

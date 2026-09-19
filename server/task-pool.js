@@ -12,6 +12,7 @@ const ASSIGN_HUMAN_AUTH = "把任务指派给人类成员需要人类成员账�
 export const MAX_L3 = 7;
 export const L3_LIVE_RUN = ["queued", "running", "waiting"];
 export const TASK_ENDED = ["completed", "failed", "cancelled", "rejected", "abandoned", "superseded"];
+const L3_NAMES = ["大娃", "二娃", "三娃", "四娃", "五娃", "六娃", "七娃"];
 const TASK_UPDATE_STATUSES = ["pending_assignment", "pending_start", "queued", "running", "waiting", "blocked",
   "completed", "failed", "cancelled", "abandoned"];
 const L3_DISPATCH_STATUSES = ["pending_assignment", "queued", "running", "waiting"];
@@ -181,13 +182,41 @@ async function assertL2CanOperateTask(conn, actor, task) {
 export async function recordTaskStatusChange(conn, taskId, fromStatus, actor, reason = null) {
   const [row] = await query(conn, "SELECT status FROM agent_tasks WHERE id=?", [taskId]);
   if (!row || row.status === (fromStatus ?? null)) return null;
-  await query(conn, `INSERT INTO agent_task_status_events(task_id,from_status,to_status,actor_type,actor_id,reason) VALUES(?,?,?,?,?,?)`,
-    [taskId, fromStatus ?? null, row.status, actor?.type || "system", actor?.id || null, reason ? String(reason).slice(0, 500) : null]);
+  const actorType = actor?.statusActorType || actor?.type || "system";
+  const actorId = actor?.statusActorId || actor?.id || null;
+  if (actorType !== "system" && !actorId) throw new Error(`任务状态变更缺少操作者 ID：${actorType}`);
+  const connectorId = actor?.connectorId || actor?.statusConnectorId || null;
+  let actorName = null;
+  if (["human_member_connector", "human_member", "human_member_mcp", "human_member_connector_mcp"].includes(actorType)) {
+    const [user] = await query(conn, "SELECT name FROM users WHERE id=?", [actorId]);
+    actorName = user?.name || null;
+  }
+  if (actorType === "dsh_l3") {
+    const prior = await query(conn, `SELECT actor_id FROM agent_task_status_events
+      WHERE task_id=? AND actor_type='dsh_l3' AND actor_id IS NOT NULL GROUP BY actor_id ORDER BY MIN(id)`, [taskId]);
+    const ids = [...prior.map((item) => item.actor_id), actorId].filter((id, index, all) => id && all.indexOf(id) === index);
+    const index = ids.indexOf(actorId);
+    actorName = `L3-${L3_NAMES[index] || actorId.slice(0, 8)}`;
+  }
+  await query(conn, `INSERT INTO agent_task_status_events(task_id,from_status,to_status,actor_type,actor_id,actor_connector_id,actor_name_snapshot,reason)
+    VALUES(?,?,?,?,?,?,?,?)`,
+    [taskId, fromStatus ?? null, row.status, actorType, actorId, connectorId, actorName, reason ? String(reason).slice(0, 500) : null]);
   return row.status;
 }
 
 export async function listTaskStatusEvents(db, taskId) {
-  return query(db, "SELECT * FROM agent_task_status_events WHERE task_id=? ORDER BY id", [taskId]);
+  const rows = await query(db, `SELECT e.*,COALESCE(e.actor_name_snapshot,member_user.name,connector_user.name) actor_name
+    FROM agent_task_status_events e
+    LEFT JOIN users member_user ON e.actor_type IN ('human_member','human_member_connector','human_member_mcp','human_member_connector_mcp') AND member_user.id=e.actor_id
+    LEFT JOIN connectors connector ON connector.id=COALESCE(e.actor_connector_id,IF(e.actor_type='connector',e.actor_id,NULL))
+    LEFT JOIN users connector_user ON connector_user.id=connector.user_id
+    WHERE e.task_id=? ORDER BY e.id`, [taskId]);
+  const l3Ids = rows.filter((row) => row.actor_type === "dsh_l3" && row.actor_id)
+    .map((row) => row.actor_id).filter((id, index, all) => all.indexOf(id) === index);
+  return rows.map((row) => ({ ...row,
+    actor_name_snapshot: row.actor_name_snapshot || (row.actor_type === "dsh_l3" && row.actor_id
+      ? `L3-${L3_NAMES[l3Ids.indexOf(row.actor_id)] || row.actor_id.slice(0, 8)}` : null),
+  }));
 }
 
 export async function createTask(db, input) {
@@ -475,9 +504,11 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
     await query(conn, `UPDATE agent_tasks SET status=?,claimed_by_type=?,claimed_by_id=?,accepted_by_type=?,accepted_by_id=?,accepted_at=UTC_TIMESTAMP(3),
       execution_mode=?,execution_agent_type=?,execution_agent_id=? WHERE id=?`,
     [nextStatus, actor.type, actor.id, actor.type, actor.id, mode, executionType, executionType === "human_connector" ? connector.id : actor.id, taskId]);
-    await query(conn, `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,executor_id,status,started_at)
-      SELECT UUID(),id,revision,?,?,?,IF(?='running',UTC_TIMESTAMP(3),NULL) FROM agent_tasks WHERE id=?`,
-    [executionType, executionType === "human_connector" ? connector.id : actor.id, runStatus, runStatus, taskId]);
+    await query(conn, `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,executor_id,executor_member_id,connector_id,status,started_at)
+      SELECT UUID(),id,revision,?,?,?,?,?,IF(?='running',UTC_TIMESTAMP(3),NULL) FROM agent_tasks WHERE id=?`,
+    [executionType, executionType === "human_connector" ? connector.id : actor.id,
+      executionType === "human_connector" ? actor.id : null,
+      executionType === "human_connector" ? connector.id : null, runStatus, runStatus, taskId]);
     if (executionType === "human_connector") {
       const [existingAdapter] = await query(conn, "SELECT id FROM connector_tasks WHERE agent_task_id=? FOR UPDATE", [taskId]);
       if (!existingAdapter) {
@@ -486,9 +517,9 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
         if (!binding) throw new HttpError(409, "连接器未关联当前项目");
         const documents = await documentRefLabels(conn, task.document_refs);
         await query(conn, `INSERT INTO connector_tasks
-          (id,agent_task_id,connector_id,project_id,thread_id,message_id,requested_by,assigned_to,instruction,policy,allow_git_push,status,progress)
-          VALUES(UUID(),?,?,?,?,?,?,?,?,?,?, 'queued','等待本机连接器领取')`, [taskId, connector.id, task.project_id,
-          task.origin_thread_id, task.source_message_id, task.source_user_id || actor.id, actor.id,
+          (id,agent_task_id,connector_id,project_id,thread_id,message_id,requested_by,assigned_to,member_id_snapshot,instruction,policy,allow_git_push,status,progress)
+          VALUES(UUID(),?,?,?,?,?,?,?,?,?,?,?, 'queued','等待本机连接器领取')`, [taskId, connector.id, task.project_id,
+          task.origin_thread_id, task.source_message_id, task.source_user_id || actor.id, actor.id, actor.id,
           composeTaskInstruction(task, documents), binding.policy, binding.allow_git_push]);
       }
     }
@@ -722,11 +753,26 @@ export async function taskExecutionSnapshot(db, projectId) {
 }
 
 export async function listAssignmentEvents(db, taskId) {
-  return query(db, "SELECT * FROM agent_task_assignment_events WHERE task_id=? ORDER BY id", [taskId]);
+  return query(db, `SELECT e.*,COALESCE(member_user.name,connector_user.name) actor_name
+    FROM agent_task_assignment_events e
+    LEFT JOIN users member_user ON e.changed_by_type='human_member' AND member_user.id=e.changed_by_id
+    LEFT JOIN connectors connector ON e.changed_by_type='connector' AND connector.id=e.changed_by_id
+    LEFT JOIN users connector_user ON connector_user.id=connector.user_id
+    WHERE e.task_id=? ORDER BY e.id`, [taskId]);
 }
 
 export async function listTaskExecutionRuns(db, taskId) {
-  return query(db, "SELECT * FROM agent_task_execution_runs WHERE task_id=? ORDER BY created_at DESC", [taskId]);
+  const rows = await query(db, `SELECT r.*,owner.name executor_owner_name,member.name executor_member_name
+    FROM agent_task_execution_runs r
+    LEFT JOIN connectors connector ON r.executor_type='human_connector' AND connector.id=r.executor_id
+    LEFT JOIN users owner ON owner.id=COALESCE(r.executor_member_id,connector.user_id)
+    LEFT JOIN users member ON member.id=r.executor_member_id
+    WHERE r.task_id=? ORDER BY r.created_at DESC`, [taskId]);
+  const ids = [...rows].reverse().map((row) => row.executor_id).filter((id, index, all) => id && all.indexOf(id) === index);
+  return rows.map((row) => ({ ...row,
+    executor_label: row.executor_label || (row.executor_type === "dsh_l3" && row.executor_id
+      ? `L3-${L3_NAMES[ids.indexOf(row.executor_id)] || row.executor_id.slice(0, 8)}` : null),
+  }));
 }
 
 export async function listTaskUpdates(db, taskId) {
@@ -770,8 +816,13 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
         AND r.executor_type='dsh_l3' AND r.status='queued' AND r.executor_id IS NULL AND r.task_revision=t.revision ${taskFilter}
       ORDER BY r.created_at LIMIT 1 FOR UPDATE`, values);
     if (!run) return null;
+    const previousExecutors = await query(conn, `SELECT executor_id FROM agent_task_execution_runs
+      WHERE task_id=? AND executor_type='dsh_l3' AND executor_id IS NOT NULL ORDER BY created_at`, [run.id]);
+    const executorIds = [...previousExecutors.map((item) => item.executor_id), childSessionId]
+      .filter((id, index, all) => id && all.indexOf(id) === index);
+    const executorLabel = `L3-${L3_NAMES[executorIds.indexOf(childSessionId)] || childSessionId.slice(0, 8)}`;
     await query(conn, `UPDATE agent_task_execution_runs SET executor_id=?,status='running',
-      started_at=COALESCE(started_at,UTC_TIMESTAMP(3)),heartbeat_at=UTC_TIMESTAMP(3) WHERE id=?`, [childSessionId, run.run_id]);
+      executor_label=?,started_at=COALESCE(started_at,UTC_TIMESTAMP(3)),heartbeat_at=UTC_TIMESTAMP(3) WHERE id=?`, [childSessionId, executorLabel, run.run_id]);
     await query(conn, `UPDATE agent_tasks SET status='running',execution_mode='dsh_l3',
       execution_agent_type='dsh_l3',execution_agent_id=?,progress='DSH L3 正在执行' WHERE id=?`,
     [childSessionId, run.id]);

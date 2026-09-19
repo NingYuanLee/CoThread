@@ -359,12 +359,12 @@ type AgentTaskDetail = AgentTask & {
   constraints: string | null;
   document_refs?: string[] | string | null;
   artifact_refs: unknown[] | string | null;
-  assignmentHistory: { id: number; event_type: "assigned" | "transferred" | "rejected" | "acknowledged" | "reopened"; from_target_type: string | null; from_target_id: string | null; to_target_type: string | null; to_target_id: string | null; changed_by_type: string; changed_by_id: string | null; reason: string | null; created_at: string }[];
+  assignmentHistory: { id: number; event_type: "assigned" | "transferred" | "rejected" | "acknowledged" | "reopened"; from_target_type: string | null; from_target_id: string | null; to_target_type: string | null; to_target_id: string | null; changed_by_type: string; changed_by_id: string | null; actor_name?: string | null; reason: string | null; created_at: string }[];
   questions: { id: string; source_user_id: string | null; question: string; answer: string | null; status: string; created_at: string }[];
-  executionRuns: { id: string; executor_type: string; executor_id: string | null; status: string; progress: string | null; result_summary: string | null; error: string | null; created_at: string }[];
+  executionRuns: { id: string; executor_type: string; executor_id: string | null; executor_label?: string | null; executor_member_name?: string | null; executor_owner_name?: string | null; status: string; progress: string | null; result_summary: string | null; error: string | null; created_at: string }[];
   updates: { id: string; body: string; source_type: string; source_id: string; created_at: string }[];
   rejectionReview: { rejected: boolean; resolved: boolean; reviewer_type: string | null; reviewer_id: string | null };
-  statusHistory: { id: number; from_status: string | null; to_status: string; actor_type: string; actor_id: string | null; reason: string | null; created_at: string }[];
+  statusHistory: { id: number; from_status: string | null; to_status: string; actor_type: string; actor_id: string | null; actor_name?: string | null; actor_name_snapshot?: string | null; reason: string | null; created_at: string }[];
 };
 type Thread = {
   page?: { hasMore: boolean; before: string | null; after: string | null };
@@ -639,6 +639,7 @@ function App() {
   const [taskDetail, setTaskDetail] = useState<AgentTaskDetail | null>(null);
   const [taskActionBusy, setTaskActionBusy] = useState(false);
   const [taskActionError, setTaskActionError] = useState("");
+  const [copiedTaskId, setCopiedTaskId] = useState("");
   const [taskExecutionMode, setTaskExecutionMode] = useState<"auto" | "human_direct" | "member_connector">("auto");
   const [taskTransferTarget, setTaskTransferTarget] = useState("");
   const [taskProgress, setTaskProgress] = useState("");
@@ -717,11 +718,36 @@ function App() {
     }
     return "待选择";
   };
-  const statusActorLabel = (event: { actor_type: string; actor_id: string | null }) => {
-    if (event.actor_type === "human_member") return memberName(event.actor_id) || "成员";
-    if (event.actor_type === "l2_session") return "小祥";
-    if (event.actor_type === "dsh_l3") return l3ExecutorName(event.actor_id, threadExecutorIds) || AGENT_LEVEL_LABELS.l3;
-    if (event.actor_type === "connector") return "本机连接器";
+  const executionRunLabel = (run: AgentTaskDetail["executionRuns"][number], task: AgentTaskDetail) => {
+    if (run.executor_type === "dsh_l3") {
+      if (!run.executor_id) return run.status === "queued" ? "L3-待分配" : "L3-未绑定";
+      if (run.executor_label) return run.executor_label;
+      // Execution-run labels must be scoped to this task. Mixing IDs from the
+      // task pool makes a historical run's name depend on unrelated tasks.
+      const runExecutorIds = uniqueActorIds([...task.executionRuns]
+        .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
+        .map((item) => item.executor_id));
+      const knownName = l3ExecutorName(run.executor_id, runExecutorIds);
+      return knownName && knownName !== AGENT_LEVEL_LABELS.l3
+        ? `L3-${knownName}`
+        : `L3-${run.executor_id.slice(0, 8)}`;
+    }
+    if (run.executor_type === "human_self") return memberName(run.executor_id) || "成员本人";
+    if (run.executor_type === "human_connector") {
+      const ownerName = run.executor_member_name || run.executor_owner_name;
+      return ownerName ? `${ownerName}（连接器）` : "连接器成员";
+    }
+    return labelExecutorType(run.executor_type);
+  };
+  const statusActorLabel = (event: { actor_type: string; actor_id: string | null; actor_name?: string | null; actor_name_snapshot?: string | null }) => {
+    if (event.actor_type === "human_member") return event.actor_name || memberName(event.actor_id) || "成员";
+    if (event.actor_type === "human_member_mcp") return `${memberName(event.actor_id) || "成员"}（MCP）`;
+    if (event.actor_type === "human_member_connector_mcp" || event.actor_type === "human_member_connector") return `${event.actor_name || memberName(event.actor_id) || "成员"}（连接器）`;
+    if (event.actor_type === "l2_session") return "L2-小祥";
+    if (event.actor_type === "dsh_l3") {
+      return event.actor_name_snapshot || "L3-未知";
+    }
+    if (event.actor_type === "connector") return event.actor_name || "连接器成员";
     return "系统";
   };
   // 指派事件与状态变更合成一条时间线：同一操作（创建 / 拒绝 / 重新发起）两边各有一条时，合并显示，不重复。
@@ -731,7 +757,7 @@ function App() {
     const items = task.assignmentHistory.filter((event) => !(event.event_type === "transferred"
       && event.from_target_type === "l2_session" && event.to_target_type === "l2_session"
       && /L2 会话已更新/.test(event.reason || ""))).map((event) => ({
-      key: `assignment-${event.id}`, at: event.created_at, actorType: event.changed_by_type, actorId: event.changed_by_id,
+      key: `assignment-${event.id}`, at: event.created_at, actorType: event.changed_by_type, actorId: event.changed_by_id, actorName: event.actor_name,
       title: `${actionLabels[event.event_type] || event.event_type}${["assigned", "transferred"].includes(event.event_type) && event.to_target_type ? ` → ${targetLabel(event.to_target_type, event.to_target_id)}` : ""}`,
       transition: "", reason: event.reason,
     }));
@@ -740,9 +766,9 @@ function App() {
       const twin = items.find((item) => !item.transition && item.actorType === event.actor_type && item.actorId === event.actor_id
         && Math.abs(Date.parse(item.at) - Date.parse(event.created_at)) < 2000);
       if (twin) twin.transition = transition;
-      else items.push({ key: `status-${event.id}`, at: event.created_at, actorType: event.actor_type, actorId: event.actor_id, title: transition, transition: "", reason: event.reason });
+      else items.push({ key: `status-${event.id}`, at: event.created_at, actorType: event.actor_type, actorId: event.actor_id, actorName: event.actor_name || event.actor_name_snapshot, title: transition, transition: "", reason: event.reason });
     }
-    return items.sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
+    return items.sort((left, right) => Date.parse(right.at) - Date.parse(left.at));
   };
   const openTaskDialog = (taskId = "") => {
     setSelectedTaskId(taskId);
@@ -750,6 +776,19 @@ function App() {
     setTaskDialogOpen(true);
   };
   const openTask = (taskId: string) => openTaskDialog(taskId);
+  const copyTaskId = async (taskId: string) => {
+    try {
+      await navigator.clipboard.writeText(taskId);
+      setCopiedTaskId(taskId);
+    } catch {
+      setTaskActionError("无法自动复制任务 ID，请检查剪贴板权限后重试。");
+    }
+  };
+  useEffect(() => {
+    if (!copiedTaskId) return;
+    const timer = setTimeout(() => setCopiedTaskId(""), 2000);
+    return () => clearTimeout(timer);
+  }, [copiedTaskId]);
   const resetTaskCreate = () => {
     setTaskCreateTitle("");
     setTaskCreateGoal("");
@@ -2328,8 +2367,8 @@ function App() {
                 const targetName = detail?.members.find((member) => member.id === task?.target_id)?.name || (task?.target_type === "l2_session" ? "小祥" : "未指派");
                 return <div className="task-detail">
                   {!task || task.id !== selectedTaskId ? <p className="muted">正在读取任务详情…</p> : <>
-                    <header><div><small>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</small><h3>{task.title}</h3></div><div className="task-detail-header-actions"><button type="button" onClick={() => setAgentLogScope({ type: "task", id: task.id })}><UiIcon name="trajectory" size={11} />轨迹</button><span data-status={task.status}><UiIcon name={workflowIcon(task.status)} size={10} />{labelWorkflowStatus(task.status)}</span></div></header>
-                    <dl className="task-detail-meta"><div><dt>任务来源</dt><dd>{taskSourceLabel(task)}</dd></div><div><dt>任务执行</dt><dd>{taskExecutorLabel(task)}</dd></div><div><dt>责任主体</dt><dd>{targetName}</dd></div><div><dt>任务类型</dt><dd>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</dd></div></dl>
+                    <header><div className="task-detail-title"><h3>{task.title}</h3><div className="task-detail-id"><span>任务 ID：<code>{task.id}</code></span><button type="button" title={copiedTaskId === task.id ? "已复制" : "复制任务 ID"} aria-label={copiedTaskId === task.id ? "已复制任务 ID" : "复制任务 ID"} onClick={() => void copyTaskId(task.id)}><UiIcon name={copiedTaskId === task.id ? "check" : "copy"} size={12} /></button></div></div><div className="task-detail-header-actions"><span data-status={task.status}><UiIcon name={workflowIcon(task.status)} size={10} />{labelWorkflowStatus(task.status)}</span></div></header>
+                    <dl className="task-detail-meta"><div><dt>任务来源</dt><dd>{taskSourceLabel(task)}</dd></div><div><dt>任务类型</dt><dd>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</dd></div><div><dt>责任主体</dt><dd>{targetName}</dd></div><div><dt>任务执行</dt><dd>{taskExecutorLabel(task)}</dd></div></dl>
                     <section><h4>任务目标</h4><p>{task.goal}</p>{task.constraints && <><h4>约束</h4><p>{task.constraints}</p></>}
                     {(() => {
                       const refs = Array.isArray(task.document_refs) ? task.document_refs
@@ -2346,8 +2385,8 @@ function App() {
                     {canReviewRejection && <section className="task-actions-section task-rejection-review"><h4>任务已被拒绝</h4><p>{[...task.assignmentHistory].reverse().find((event) => event.event_type === "rejected")?.reason || "目标成员拒绝了这个任务。"}</p><textarea value={taskReopenGoal} onChange={(event) => setTaskReopenGoal(event.target.value)} placeholder="修改任务目标与验收标准" /><textarea value={taskReopenConstraints} onChange={(event) => setTaskReopenConstraints(event.target.value)} placeholder="修改约束（可选）" /><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"))}>知道了</button><button type="button" className="primary" disabled={taskActionBusy || !taskReopenGoal.trim()} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reopen`, { goal: taskReopenGoal.trim(), constraints: taskReopenConstraints }, "POST"))}>修改后重新发起</button></div></section>}
                     {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.kind !== "l1" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}><UiIcon name="transfer" size={13} />确认转交</button></section>}
                     {isTarget && task.execution_agent_type === "human_self" && !endedTask(task.status) && task.status !== "awaiting_acceptance" && <section className="task-actions-section"><h4>进度与结果</h4><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "abandoned", resultSummary: taskResult || "已放弃" }, "PATCH"))}><UiIcon name="abandon" size={13} />放弃</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", resultSummary: taskResult || "已完成" }, "PATCH"))}><UiIcon name="complete" size={13} />完成</button></div></section>}
-                    {!!task.executionRuns.length && <section><h4>执行轮次</h4><div className="task-history">{task.executionRuns.map((run) => <div key={run.id}><strong>{run.executor_type === "dsh_l3" ? (l3ExecutorName(run.executor_id, threadExecutorIds) || (run.executor_id ? AGENT_LEVEL_LABELS.l3 : `${AGENT_LEVEL_LABELS.l3}（未绑定）`)) : run.executor_type === "human_self" ? (memberName(run.executor_id) || "成员本人") : labelExecutorType(run.executor_type)}</strong><span>{labelWorkflowStatus(run.status)}</span><small>{run.progress || run.result_summary || run.error || time(run.created_at)}</small></div>)}</div></section>}
-                    {(!!task.assignmentHistory.length || !!task.statusHistory?.length) && <section><h4>变更记录</h4><div className="task-history">{taskChangeLog(task).map((item) => <div key={item.key}><strong>{item.title}</strong><span>{statusActorLabel({ actor_type: item.actorType, actor_id: item.actorId })} · {time(item.at)}</span>{item.transition && <small>当时任务状态：{item.transition}</small>}{item.reason && <small>{item.reason}</small>}</div>)}</div></section>}
+                    {!!task.executionRuns.length && <section><h4>执行轮次</h4><div className="task-execution-flow">{[...task.executionRuns].sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at)).map((run, index, runs) => <div className={`task-execution-step${index === runs.length - 1 ? " is-latest" : ""}`} key={run.id}><div className="task-execution-node"><div className="task-execution-heading"><strong>{executionRunLabel(run, task)}</strong></div><div className="task-execution-meta"><span>{labelWorkflowStatus(run.status)}</span><small>{time(run.created_at)}</small></div></div>{index < runs.length - 1 && <i className="task-execution-connector" aria-hidden="true" />}</div>)}</div></section>}
+                    {(!!task.assignmentHistory.length || !!task.statusHistory?.length) && <section><h4>变更记录</h4><div className="task-history task-change-log">{taskChangeLog(task).map((item, index) => <div className={`task-change-item${index === 0 ? " is-latest" : ""}`} key={item.key}><i className="task-change-marker" aria-hidden="true" /><div className="task-change-content"><div className="task-change-heading"><strong>{item.title}</strong><span>{statusActorLabel({ actor_type: item.actorType, actor_id: item.actorId, actor_name: item.actorName })} · {time(item.at)}</span></div>{item.transition && <small>当时任务状态：{item.transition}</small>}{item.reason && <small>{item.reason}</small>}</div></div>)}</div></section>}
                   </>}
                   {taskActionError && !taskCreateOpen && <p className="project-settings-error" role="alert">{taskActionError}</p>}
                 </div>;

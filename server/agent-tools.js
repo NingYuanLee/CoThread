@@ -20,7 +20,12 @@ import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./pro
 function l2Actor(job, l2SessionId) {
   const authorizedByUserId = job.kind !== "child_result" && job.author_id && job.author_id !== AGENT_MEMBER.id
     ? job.author_id : null;
-  return { type: "l2_session", id: l2SessionId, authorizedByUserId };
+  const statusActorType = authorizedByUserId && job.interaction_source === "connector_mcp"
+    ? "human_member_connector_mcp"
+    : authorizedByUserId && job.interaction_source === "mcp"
+      ? "human_member_mcp" : undefined;
+  return { type: "l2_session", id: l2SessionId, authorizedByUserId,
+    statusActorType, statusActorId: statusActorType ? authorizedByUserId : undefined };
 }
 
 const titles = {

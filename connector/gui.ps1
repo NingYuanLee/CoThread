@@ -26,6 +26,8 @@ public static class CoThreadWindowIcon {
     <Style TargetType="Button"><Setter Property="MinHeight" Value="32"/><Setter Property="Padding" Value="12,5"/><Setter Property="Margin" Value="0,0,8,0"/><Setter Property="Background" Value="#FFFFFF"/><Setter Property="BorderBrush" Value="#D9E0D5"/><Setter Property="Foreground" Value="#394438"/><Setter Property="Cursor" Value="Hand"/></Style>
     <Style x:Key="RefreshActionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="MinHeight" Value="28"/><Setter Property="MinWidth" Value="96"/><Setter Property="Padding" Value="10,3"/><Setter Property="Background" Value="#EEF5EF"/><Setter Property="BorderBrush" Value="#BFD3C1"/><Setter Property="Foreground" Value="#37653D"/><Setter Property="FontWeight" Value="SemiBold"/><Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#E1EEE3"/><Setter Property="BorderBrush" Value="#94B499"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Background" Value="#F2F4F1"/><Setter Property="BorderBrush" Value="#DDE2DB"/><Setter Property="Foreground" Value="#8C958A"/></Trigger></Style.Triggers></Style>
     <Style x:Key="CompactButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="MinHeight" Value="22"/><Setter Property="Padding" Value="7,1"/><Setter Property="Margin" Value="0,0,4,0"/><Setter Property="FontSize" Value="11"/></Style>
+    <Style x:Key="EnvActionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="MinHeight" Value="28"/><Setter Property="Height" Value="28"/><Setter Property="MinWidth" Value="108"/><Setter Property="Padding" Value="10,0"/><Setter Property="Margin" Value="0,0,8,0"/><Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Background" Value="#EEF4F8"/><Setter Property="BorderBrush" Value="#C6D9E5"/><Setter Property="Foreground" Value="#426C84"/></Style>
+    <Style x:Key="EnvDangerButton" TargetType="Button" BasedOn="{StaticResource EnvActionButton}"><Setter Property="Background" Value="#F8F1EE"/><Setter Property="BorderBrush" Value="#E0C9C1"/><Setter Property="Foreground" Value="#A45D4A"/><Setter Property="Margin" Value="0"/></Style>
     <Style TargetType="TextBox"><Setter Property="MinHeight" Value="32"/><Setter Property="Padding" Value="8,5"/><Setter Property="BorderBrush" Value="#D9E0D5"/></Style>
     <Style x:Key="GridTextBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}"><Setter Property="MinHeight" Value="22"/><Setter Property="Padding" Value="6,1"/><Setter Property="FontSize" Value="11"/></Style>
     <Style TargetType="ComboBox"><Setter Property="MinHeight" Value="32"/><Setter Property="Padding" Value="6,3"/><Setter Property="BorderBrush" Value="#D9E0D5"/></Style>
@@ -44,12 +46,12 @@ public static class CoThreadWindowIcon {
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#E1E6DE" BorderThickness="0,0,0,1" Padding="20,14">
-      <StackPanel>
+      <StackPanel Grid.IsSharedSizeScope="True">
         <StackPanel x:Name="PairPanel">
-          <Grid Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="服务地址" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBox x:Name="ServerInput" Grid.Column="1" Margin="0,0,10,0" ToolTip="共序服务地址，默认为线上地址；本地验证可改为 http://localhost:3100。修改后需重新授权，已绑定项目按新服务重新绑定"/><Button x:Name="PairButton" Grid.Column="2" Content="网页登录并授权" Background="#536F49" Foreground="White" Margin="0,0,10,0"/><StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center"><Button x:Name="ReauthorizeButton" Content="切换账号" MinHeight="28" Padding="10,3" Margin="0,0,14,0" Background="#F7F9F6" Foreground="#526451" ToolTip="重新打开网页授权，可切换登录账号"/><Ellipse x:Name="StatusDot" Width="9" Height="9" Fill="#A7ADA5" Margin="0,0,7,0"/><TextBlock x:Name="StatusText" MaxWidth="360" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="#657064"/></StackPanel></Grid>
+          <Grid Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="EnvLabel"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="服务地址" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0"/><TextBox x:Name="ServerInput" Grid.Column="1" Margin="0,0,10,0" ToolTip="共序服务地址，默认为线上地址；本地验证可改为 http://localhost:3100。修改后需重新授权，已绑定项目按新服务重新绑定"/><Button x:Name="PairButton" Grid.Column="2" Content="网页登录并授权" Background="#536F49" Foreground="White" Margin="0,0,10,0"/><Button x:Name="ReauthorizeButton" Grid.Column="3" Content="切换账号" MinHeight="28" Padding="10,3" Margin="0,0,16,0" Background="#F7F9F6" Foreground="#526451" ToolTip="重新打开网页授权，可切换登录账号"/><CheckBox x:Name="AutoStartCheck" Grid.Column="4" Content="开机自动启动" Height="28" VerticalAlignment="Center" VerticalContentAlignment="Center"/></Grid>
         </StackPanel>
-        <Grid x:Name="PrerequisitePanel"><Grid.ColumnDefinitions><ColumnDefinition Width="72"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-          <TextBlock Text="本机环境" FontWeight="SemiBold" VerticalAlignment="Top" Margin="0,8,8,0"/>
+        <Grid x:Name="PrerequisitePanel"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="EnvLabel"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+          <TextBlock Text="本机环境" FontWeight="SemiBold" VerticalAlignment="Top" Margin="0,8,12,0"/>
           <Grid Grid.Column="1">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*"/>
@@ -98,11 +100,10 @@ public static class CoThreadWindowIcon {
               </StackPanel>
             </Border>
           </Grid>
-          <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="12,0,0,0">
-            <CheckBox x:Name="AutoStartCheck" Content="开机自动启动" Margin="0,0,0,8"/>
-            <Button x:Name="RefreshMcpButton" Content="重写 MCP 配置" MinHeight="24" Padding="8,2" Margin="0,0,0,6" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/>
-            <Button x:Name="ResetMcpButton" Content="重置 MCP 令牌" ToolTip="账号旧令牌立即失效并签发新令牌；令牌疑似泄露时使用" MinHeight="24" Padding="8,2" Margin="0,0,0,6" Background="#F8F1EE" BorderBrush="#E0C9C1" Foreground="#A45D4A"/>
-            <Button x:Name="CheckButton" Content="重新检测" Margin="0"/>
+          <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,10,0,0">
+            <Button x:Name="CheckButton" Content="重新检测" Style="{StaticResource EnvActionButton}"/>
+            <Button x:Name="RefreshMcpButton" Content="重写 MCP 配置" Style="{StaticResource EnvActionButton}"/>
+            <Button x:Name="ResetMcpButton" Content="重置 MCP 令牌" Style="{StaticResource EnvDangerButton}" ToolTip="账号旧令牌立即失效并签发新令牌；令牌疑似泄露时使用"/>
           </StackPanel>
         </Grid>
       </StackPanel>
@@ -176,7 +177,12 @@ public static class CoThreadWindowIcon {
         <TextBox x:Name="LogText" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="#FBFCFA" BorderBrush="#E1E6DE" FontFamily="Consolas" FontSize="11" Padding="10,8"/>
       </DockPanel>
     </Border>
-    <Border Grid.Row="4" Background="#FFFFFF" BorderBrush="#E1E6DE" BorderThickness="0,0,0,0" Padding="20,10"><DockPanel><TextBlock Text="关闭窗口后仍会在系统托盘运行" Foreground="#8A9488" VerticalAlignment="Center"/><StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right"><Button x:Name="HideButton" Content="隐藏到托盘"/><Button x:Name="ExitButton" Content="退出连接器" Margin="0"/></StackPanel></DockPanel></Border>
+    <Border Grid.Row="4" Background="#FFFFFF" BorderBrush="#E1E6DE" BorderThickness="0,0,0,0" Padding="20,10">
+      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+        <Ellipse x:Name="StatusDot" Width="9" Height="9" Fill="#A7ADA5" Margin="0,0,7,0" VerticalAlignment="Center"/>
+        <TextBlock x:Name="StatusText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="#657064" ToolTip="关闭窗口后仍会在系统托盘运行"/>
+      </StackPanel>
+    </Border>
   </Grid>
 </Window>
 '@
@@ -191,7 +197,7 @@ $window.Add_SourceInitialized({
   [void][CoThreadWindowIcon]::SendMessage($handle, 0x0080, [IntPtr]1, $bigWindowIcon.Handle)
   [void][CoThreadWindowIcon]::SendMessage($handle, 0x0080, [IntPtr]0, $smallWindowIcon.Handle)
 })
-$names = @('StatusDot','StatusText','ReauthorizeButton','PairPanel','ServerInput','PairButton','PrerequisitePanel','CheckButton','GitStatusText','GitHintText','InstallGitButton','CursorStatusText','InstallCursorButton','CodexStatusText','InstallCodexButton','ClaudeStatusText','InstallClaudeButton','McpStatusText','RefreshMcpButton','ResetMcpButton','ProjectPanel','MainTabs','RefreshButton','ProjectGrid','AutoStartCheck','RefreshTaskButton','TaskGrid','LogText','HideButton','ExitButton')
+$names = @('StatusDot','StatusText','ReauthorizeButton','PairPanel','ServerInput','PairButton','PrerequisitePanel','CheckButton','GitStatusText','GitHintText','InstallGitButton','CursorStatusText','InstallCursorButton','CodexStatusText','InstallCodexButton','ClaudeStatusText','InstallClaudeButton','CursorMcpText','CodexMcpText','ClaudeMcpText','RefreshMcpButton','ResetMcpButton','ProjectPanel','MainTabs','RefreshButton','ProjectGrid','AutoStartCheck','RefreshTaskButton','TaskGrid','LogText')
 foreach ($name in $names) { Set-Variable -Name $name -Value $window.FindName($name) }
 $script:allowExit = $false
 $script:projectSignature = ''
@@ -208,6 +214,39 @@ $script:taskRefreshRevision = 0
 $script:agentOptions = @()
 $script:defaultAgent = ''
 $script:agentLabels = @{ cursor='Cursor TUI'; codex='Codex TUI'; claude='Claude Code TUI' }
+$script:mcpHint = '连接器会为已检测到的 TUI 自动写入共序 MCP 令牌并按到期续期；已打开的会话需新开才生效'
+
+function Set-AgentMcpText($block, $installed, $paired, $configured, $entry, $expiresAt) {
+  if (-not $installed) {
+    $block.Text = ''
+    $block.Visibility = 'Collapsed'
+    $block.ToolTip = $script:mcpHint
+    return
+  }
+  $block.Visibility = 'Visible'
+  $expire = if ($expiresAt) { " · 到期 $(([datetime]$expiresAt).ToLocalTime().ToString('MM-dd'))" } else { '' }
+  if (-not $paired) {
+    $block.Text = 'MCP 授权后写入'
+    $block.Foreground = '#849083'
+    $block.ToolTip = $script:mcpHint
+  } elseif (-not $configured) {
+    $block.Text = 'MCP 待获取令牌'
+    $block.Foreground = '#8A681A'
+    $block.ToolTip = $script:mcpHint
+  } elseif ($entry.ok) {
+    $block.Text = "MCP 已写入$expire"
+    $block.Foreground = '#3F7047'
+    $block.ToolTip = $script:mcpHint
+  } elseif ($entry.error) {
+    $block.Text = 'MCP 写入失败'
+    $block.Foreground = '#A45D4A'
+    $block.ToolTip = [string]$entry.error
+  } else {
+    $block.Text = 'MCP 待写入'
+    $block.Foreground = '#8A681A'
+    $block.ToolTip = $script:mcpHint
+  }
+}
 
 function Send-Command([string]$type, $payload = @{}) {
   $command = @{ id = [guid]::NewGuid().ToString(); type = $type; payload = $payload } | ConvertTo-Json -Depth 5
@@ -431,8 +470,6 @@ $TaskGrid.AddHandler([System.Windows.Controls.Button]::ClickEvent, [System.Windo
   } elseif ($actions.ContainsKey($button.Name)) { Send-Command 'taskAction' @{ taskId=$row.id; action=$actions[$button.Name] } }
 })
 $AutoStartCheck.Add_Click({ Send-Command 'autoStart' @{ enabled=[bool]$AutoStartCheck.IsChecked } })
-$HideButton.Add_Click({ $window.Hide() })
-$ExitButton.Add_Click({ $script:allowExit=$true; Send-Command 'quit'; $window.Close(); $window.Dispatcher.InvokeShutdown() })
 
 $tray = New-Object System.Windows.Forms.NotifyIcon
 $tray.Icon = New-Object System.Drawing.Icon($IconPath)
@@ -501,9 +538,9 @@ $timer.Add_Tick({
   $script:agentOptions = @(foreach ($kind in @('cursor','codex','claude')) { if ($agents.$kind.installed) { [pscustomobject]@{ kind=$kind; label=$script:agentLabels[$kind]; version=[string]$agents.$kind.version } } })
   $script:defaultAgent = [string]$state.defaultAgent
   $anyAgent = $script:agentOptions.Count -gt 0
-  $mcpParts = @(foreach ($option in $script:agentOptions) { $entry = $state.mcp.agents.($option.kind); if ($entry.ok) { "$($option.label) 已写入" } elseif ($entry.error) { "$($option.label) 失败" } else { "$($option.label) 待写入" } })
-  $McpStatusText.Text = if (-not $state.paired) { '授权后自动写入' } elseif (-not $anyAgent) { '未检测到 Agent' } elseif (-not $state.mcp.configured) { '待获取令牌' } else { ([string]::Join(' · ', $mcpParts)) + $(if ($state.mcp.expiresAt) { " · 到期 $(([datetime]$state.mcp.expiresAt).ToLocalTime().ToString('MM-dd'))" } else { '' }) }
-  $McpStatusText.Foreground = if ($mcpParts -match '失败') { '#A45D4A' } else { '#3D473C' }
+  Set-AgentMcpText $CursorMcpText ([bool]$agents.cursor.installed) ([bool]$state.paired) ([bool]$state.mcp.configured) $state.mcp.agents.cursor $state.mcp.expiresAt
+  Set-AgentMcpText $CodexMcpText ([bool]$agents.codex.installed) ([bool]$state.paired) ([bool]$state.mcp.configured) $state.mcp.agents.codex $state.mcp.expiresAt
+  Set-AgentMcpText $ClaudeMcpText ([bool]$agents.claude.installed) ([bool]$state.paired) ([bool]$state.mcp.configured) $state.mcp.agents.claude $state.mcp.expiresAt
   $RefreshMcpButton.Visibility = if ($state.paired -and $anyAgent) { 'Visible' } else { 'Collapsed' }
   $ResetMcpButton.Visibility = if ($state.paired) { 'Visible' } else { 'Collapsed' }
   $ProjectPanel.IsEnabled = [bool]($state.paired -and $state.prerequisites.gitInstalled -and $anyAgent)

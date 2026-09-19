@@ -16,6 +16,7 @@ export type UiIconName =
   | "connector"
   | "copy"
   | "detail"
+  | "download"
   | "edit"
   | "email"
   | "eye"
@@ -73,7 +74,9 @@ export type UiIconName =
   | "upload"
   | "userPlus"
   | "waiting"
-  | "warning";
+  | "warning"
+  | "zoomIn"
+  | "zoomOut";
 
 const GLYPHS: Record<UiIconName, string[]> = {
   abandon: ["M5 4v16", "M5 5h9l-1.5 4L14 13H5"],
@@ -91,6 +94,7 @@ const GLYPHS: Record<UiIconName, string[]> = {
   connector: ["M8 12h8M9 8V5m6 3V5M7 8h10v5a5 5 0 0 1-10 0V8Z", "M12 18v3"],
   copy: ["M8 8h11v11H8z", "M5 16V5h11"],
   detail: ["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z", "M14 3v6h6", "M9 13h6M9 17h4"],
+  download: ["M12 4v12", "m7 12 5 5 5-5", "M5 20h14"],
   edit: ["M4 20h7", "M14.5 5.5 18.5 9.5 8 20H4v-4Z"],
   email: ["M4 6h16v12H4z", "m4 7 8 6 8-6"],
   eye: ["M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z", "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"],
@@ -149,6 +153,8 @@ const GLYPHS: Record<UiIconName, string[]> = {
   userPlus: ["M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z", "M4 20a8 8 0 0 1 10-7.7", "M17 14v6M14 17h6"],
   waiting: ["M8 6h3v12H8zM13 6h3v12h-3z"],
   warning: ["M12 4 3 20h18L12 4Z", "M12 10v5M12 17h.01"],
+  zoomIn: ["M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z", "m21 21-4.35-4.35", "M10.5 7.5v6M7.5 10.5h6"],
+  zoomOut: ["M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z", "m21 21-4.35-4.35", "M7.5 10.5h6"],
 };
 
 const ROLE_ICONS: Record<string, UiIconName> = {

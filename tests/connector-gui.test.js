@@ -104,8 +104,13 @@ test("task controls follow the interactive session lifecycle instead of process 
 test("connector detects three agents and writes their MCP configuration", async () => {
   const [gui, main] = await Promise.all([readFile(guiPath, "utf8"), readFile(mainPath, "utf8")]);
 
-  for (const name of ["CursorStatusText", "CodexStatusText", "ClaudeStatusText", "McpStatusText", "RefreshMcpButton", "ResetMcpButton"])
+  for (const name of ["CursorStatusText", "CodexStatusText", "ClaudeStatusText", "CursorMcpText", "CodexMcpText", "ClaudeMcpText", "RefreshMcpButton", "ResetMcpButton"])
     assert.match(gui, new RegExp(`x:Name="${name}"`));
+  assert.doesNotMatch(gui, /Text="共序 MCP"/);
+  assert.match(gui, /x:Key="EnvActionButton"/);
+  assert.match(gui, /Grid\.Row="1" Grid\.Column="1" Orientation="Horizontal"/);
+  assert.match(gui, /function Set-AgentMcpText/);
+  assert.match(gui, /MCP 已写入/);
   assert.match(gui, /Send-Command 'installPrerequisite' @\{ name='cursor' \}/);
   assert.match(gui, /Send-Command 'installPrerequisite' @\{ name='claude' \}/);
   assert.match(gui, /Send-Command 'refreshMcp'/);
@@ -251,13 +256,15 @@ test("project and task refresh actions show progress and completion records", as
 test("paired users can reopen browser authorization to switch accounts", async () => {
   const gui = await readFile(guiPath, "utf8");
 
-  assert.match(gui, /x:Name="ReauthorizeButton" Content="切换账号"/);
+  assert.match(gui, /x:Name="ReauthorizeButton"[^>]*Content="切换账号"/);
   assert.match(gui, /\$ReauthorizeButton\.Add_Click/);
   assert.match(gui, /\$ReauthorizeButton\.Visibility = if \(\$state\.paired\)/);
   assert.doesNotMatch(gui, /Text="CoThread 本地连接器"/);
   assert.match(gui, /x:Name="PairButton"[^>]*Grid\.Column="2"/);
   assert.match(gui, /x:Name="ReauthorizeButton"[^>]*Content="切换账号"/);
   assert.match(gui, /x:Name="StatusText"[^>]*TextTrimming="CharacterEllipsis"/);
+  assert.match(gui, /Grid\.Row="4"[\s\S]*x:Name="StatusDot"[\s\S]*x:Name="StatusText"/);
+  assert.doesNotMatch(gui, /x:Name="HideButton"|x:Name="ExitButton"|隐藏到托盘|退出连接器/);
 });
 
 test("project and task grids use polished fixed-height rows", async () => {

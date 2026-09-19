@@ -50,6 +50,7 @@ import remarkGfm from "remark-gfm";
 import { labelReasoningEffort, labelWorkflowStatus, labelExecutorType, l3ExecutorName, uniqueActorIds, AGENT_LEVEL_LABELS } from "./ui-labels";
 import { UiIcon, workflowIcon, type UiIconName } from "./ui-icon";
 import { DialogClose, ModalBackdrop, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
+import { ImagePreviewDialog } from "./ImagePreview";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { folderRootKind } from "./Documents";
 
@@ -608,7 +609,7 @@ function App() {
   const [contextOpen, setContextOpen] = useState(
     () => window.innerWidth > 1100,
   );
-  const [imagePreview, setImagePreview] = useState<{ id: string; title: string } | null>(null);
+  const [imagePreview, setImagePreview] = useState<{ id: string; title: string; filename?: string } | null>(null);
   const showDocument = (id?: string) => {
     setQuotePreview(null);
     setDocumentId(id || detail?.versions.find((v) => !v.deleted_at)?.id || "");
@@ -626,7 +627,7 @@ function App() {
   const openConversationFile = (id: string) => {
     const version = detail?.versions.find((item) => item.id === id);
     if (version && isImageFile(version)) {
-      setImagePreview({ id, title: versionRefLabel(id, version) });
+      setImagePreview({ id, title: versionRefLabel(id, version), filename: version.filename });
       return;
     }
     showDocument(id);
@@ -2441,15 +2442,14 @@ function App() {
           <div className="references">{quotePreview.refs.map(renderRef)}</div>
         </section>}
       </ModalBackdrop>}
-      {imagePreview && <ModalBackdrop className="image-preview-backdrop" onClose={() => setImagePreview(null)}>
-        {(close) => <section className="image-preview-dialog" role="dialog" aria-modal="true" aria-label={imagePreview.title} onClick={e => e.stopPropagation()}>
-          <header className="image-preview-dialog-header">
-            <strong>{imagePreview.title}</strong>
-            <DialogClose autoFocus onClick={close} label="关闭预览" />
-          </header>
-          <img src={`/api/versions/${imagePreview.id}/source`} alt={imagePreview.title} />
-        </section>}
-      </ModalBackdrop>}
+      {imagePreview && (
+        <ImagePreviewDialog
+          id={imagePreview.id}
+          title={imagePreview.title}
+          filename={imagePreview.filename}
+          onClose={() => setImagePreview(null)}
+        />
+      )}
       {projectManagementOpen && projectId && (
         <ProjectManagement
           detail={detail?.id === projectId ? detail : null}

@@ -38,9 +38,9 @@ function withUtf8Bom(bytes) {
 let activeSession = null;
 
 const AGENTS = {
-  cursor: { label: "Cursor Agent", downloadUrl: "https://cursor.com/cli" },
-  codex: { label: "Codex CLI", downloadUrl: "https://chatgpt.com/download/" },
-  claude: { label: "Claude Code", downloadUrl: "https://claude.com/product/claude-code" },
+  cursor: { label: "Cursor TUI", downloadUrl: "https://cursor.com/cli" },
+  codex: { label: "Codex TUI", downloadUrl: "https://chatgpt.com/download/" },
+  claude: { label: "Claude Code TUI", downloadUrl: "https://claude.com/product/claude-code" },
 };
 const AGENT_KINDS = Object.keys(AGENTS);
 const MCP_SERVER_NAME = "cothread";
@@ -1053,7 +1053,7 @@ async function guiMain() {
     let entry = taskStore[taskId];
     const chosen = entry?.agentKind || String(agentKind || "") ||
       (prerequisites.installedAgents.length === 1 ? prerequisites.installedAgents[0] : "");
-    if (!chosen) throw new Error(prerequisites.anyAgentInstalled ? "请选择本次使用的本机 Agent" : "未检测到 Cursor / Codex / Claude Code，请先安装");
+    if (!chosen) throw new Error(prerequisites.anyAgentInstalled ? "请选择本次使用的本机 Agent" : "未检测到 Cursor TUI / Codex TUI / Claude Code TUI，请先安装");
     if (!prerequisites.agents[chosen]?.installed) throw new Error(`${agentLabel(chosen)} 未安装或不可用，请重新检测本机环境`);
     const remote = remoteTasks.find((task) => task.id === taskId);
     const projectId = entry?.projectId || remote?.projectId;
@@ -1245,10 +1245,10 @@ async function guiMain() {
         if (winget.status === 0) {
           spawn("winget.exe", ["install", "--id", "Git.Git", "-e", "--accept-package-agreements", "--accept-source-agreements"],
             { detached: true, stdio: "ignore", windowsHide: false }).unref();
-          status = "Git 安装程序已启动，完成后请重新检测";
+          status = "Git CLI 安装程序已启动，完成后请重新检测";
         } else {
           spawn("explorer.exe", ["https://git-scm.com/download/win"], { detached: true, stdio: "ignore" }).unref();
-          status = "已打开 Git 官方下载页面";
+          status = "已打开 Git CLI 官方下载页面";
         }
       } else if (AGENTS[name]) {
         spawn("explorer.exe", [AGENTS[name].downloadUrl], { detached: true, stdio: "ignore" }).unref();
@@ -1259,8 +1259,8 @@ async function guiMain() {
     } else if (command.type === "bind") {
       prerequisites = checkPrerequisites();
       prerequisitesCheckedAt = Date.now();
-      if (!prerequisites.gitInstalled) throw new Error("未检测到 Git，请先安装 Git");
-      if (!prerequisites.anyAgentInstalled) throw new Error("未检测到 Cursor / Codex / Claude Code，请至少安装一个");
+      if (!prerequisites.gitInstalled) throw new Error("未检测到 Git CLI，请先安装 Git CLI");
+      if (!prerequisites.anyAgentInstalled) throw new Error("未检测到 Cursor TUI / Codex TUI / Claude Code TUI，请至少安装一个");
       const repo = resolveRepoDir(payload.repo || payload.root);
       const { projectPath, workDir } = resolveProjectDir(repo, payload.projectPath);
       const row = remoteProjects.find((item) => item.id === payload.projectId);

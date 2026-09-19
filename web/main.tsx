@@ -608,10 +608,28 @@ function App() {
   const [contextOpen, setContextOpen] = useState(
     () => window.innerWidth > 1100,
   );
+  const [imagePreview, setImagePreview] = useState<{ id: string; title: string } | null>(null);
   const showDocument = (id?: string) => {
     setQuotePreview(null);
     setDocumentId(id || detail?.versions.find((v) => !v.deleted_at)?.id || "");
     setContextOpen(true);
+  };
+  const versionRefLabel = (ref: string, version?: Version) => {
+    if (!version) return ref;
+    return (version.review === "confirmed"
+      || version.review === "draft"
+      || version.folder_kind === "project_cache"
+      || version.folder_kind === "iteration_cache")
+      ? version.title
+      : `${version.title} · v${version.version}`;
+  };
+  const openConversationFile = (id: string) => {
+    const version = detail?.versions.find((item) => item.id === id);
+    if (version && isImageFile(version)) {
+      setImagePreview({ id, title: versionRefLabel(id, version) });
+      return;
+    }
+    showDocument(id);
   };
   const [taskPool, setTaskPool] = useState<AgentTask[]>([]);
   const [taskMine, setTaskMine] = useState(true);
@@ -1315,24 +1333,17 @@ function App() {
   };
   const renderRef = (ref: string) => {
     const v = detail?.versions.find((v) => v.id === ref);
-    const label = v ? (
-      (v.review === "confirmed"
-        || v.review === "draft"
-        || v.folder_kind === "project_cache"
-        || v.folder_kind === "iteration_cache")
-        ? v.title
-        : `${v.title} · v${v.version}`
-    ) : ref;
+    const label = versionRefLabel(ref, v);
     if (v && isImageFile(v)) {
       return (
-        <button key={ref} type="button" className="ref ref-thumb" title={label} onClick={() => showDocument(ref)}>
+        <button key={ref} type="button" className="ref ref-thumb" title={label} onClick={() => openConversationFile(ref)}>
           <img src={`/api/versions/${ref}/source`} alt={label} />
           <span>{label}</span>
         </button>
       );
     }
     return (
-      <button key={ref} type="button" className="ref" onClick={() => showDocument(ref)}>
+      <button key={ref} type="button" className="ref" onClick={() => openConversationFile(ref)}>
         ↗ {label}
       </button>
     );
@@ -2013,7 +2024,7 @@ function App() {
                                   versionId = url.pathname.match(/^\/api\/versions\/([\da-f-]+)(?:\/download)?\/?$/i)?.[1];
                               } catch {}
                               return versionId
-                                ? <button type="button" className="ref" onClick={() => showDocument(versionId)}>{children}</button>
+                                ? <button type="button" className="ref" onClick={() => openConversationFile(versionId)}>{children}</button>
                                 : <a href={href}>{children}</a>;
                             },
                           }}
@@ -2422,12 +2433,21 @@ function App() {
           </section>;
         }}
       </ModalBackdrop>}
-      {quotePreview && <ModalBackdrop onClose={() => setQuotePreview(null)}>
+      {quotePreview && <ModalBackdrop onClose={() => setQuotePreview(null)} enabled={!imagePreview}>
         {(close) => <section className="quoted-message-dialog" role="dialog" aria-modal="true" aria-label="引用消息原文" onClick={e => e.stopPropagation()}>
           <div className="quoted-message-dialog-header"><DialogClose autoFocus onClick={close} label="关闭原文" /></div>
           <strong>{quotePreview.source === "assistant" ? AGENT_MEMBER.name : quotePreview.author}</strong>
           <Markdown remarkPlugins={[remarkGfm]} components={{img: () => <span>（图片链接）</span>}}>{quotePreview.body}</Markdown>
           <div className="references">{quotePreview.refs.map(renderRef)}</div>
+        </section>}
+      </ModalBackdrop>}
+      {imagePreview && <ModalBackdrop className="image-preview-backdrop" onClose={() => setImagePreview(null)}>
+        {(close) => <section className="image-preview-dialog" role="dialog" aria-modal="true" aria-label={imagePreview.title} onClick={e => e.stopPropagation()}>
+          <header className="image-preview-dialog-header">
+            <strong>{imagePreview.title}</strong>
+            <DialogClose autoFocus onClick={close} label="关闭预览" />
+          </header>
+          <img src={`/api/versions/${imagePreview.id}/source`} alt={imagePreview.title} />
         </section>}
       </ModalBackdrop>}
       {projectManagementOpen && projectId && (

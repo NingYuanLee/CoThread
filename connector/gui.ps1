@@ -24,100 +24,159 @@ public static class CoThreadWindowIcon {
   WindowStartupLocation="CenterScreen" Background="#F7F8F5" FontFamily="Microsoft YaHei UI" FontSize="12">
   <Window.Resources>
     <Style TargetType="Button"><Setter Property="MinHeight" Value="32"/><Setter Property="Padding" Value="12,5"/><Setter Property="Margin" Value="0,0,8,0"/><Setter Property="Background" Value="#FFFFFF"/><Setter Property="BorderBrush" Value="#D9E0D5"/><Setter Property="Foreground" Value="#394438"/><Setter Property="Cursor" Value="Hand"/></Style>
-    <Style x:Key="RefreshActionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="MinWidth" Value="112"/><Setter Property="Background" Value="#EEF5EF"/><Setter Property="BorderBrush" Value="#BFD3C1"/><Setter Property="Foreground" Value="#37653D"/><Setter Property="FontWeight" Value="SemiBold"/><Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#E1EEE3"/><Setter Property="BorderBrush" Value="#94B499"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Background" Value="#F2F4F1"/><Setter Property="BorderBrush" Value="#DDE2DB"/><Setter Property="Foreground" Value="#8C958A"/></Trigger></Style.Triggers></Style>
+    <Style x:Key="RefreshActionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="MinHeight" Value="28"/><Setter Property="MinWidth" Value="96"/><Setter Property="Padding" Value="10,3"/><Setter Property="Background" Value="#EEF5EF"/><Setter Property="BorderBrush" Value="#BFD3C1"/><Setter Property="Foreground" Value="#37653D"/><Setter Property="FontWeight" Value="SemiBold"/><Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#E1EEE3"/><Setter Property="BorderBrush" Value="#94B499"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Background" Value="#F2F4F1"/><Setter Property="BorderBrush" Value="#DDE2DB"/><Setter Property="Foreground" Value="#8C958A"/></Trigger></Style.Triggers></Style>
+    <Style x:Key="CompactButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="MinHeight" Value="22"/><Setter Property="Padding" Value="7,1"/><Setter Property="Margin" Value="0,0,4,0"/><Setter Property="FontSize" Value="11"/></Style>
     <Style TargetType="TextBox"><Setter Property="MinHeight" Value="32"/><Setter Property="Padding" Value="8,5"/><Setter Property="BorderBrush" Value="#D9E0D5"/></Style>
+    <Style x:Key="GridTextBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}"><Setter Property="MinHeight" Value="22"/><Setter Property="Padding" Value="6,1"/><Setter Property="FontSize" Value="11"/></Style>
     <Style TargetType="ComboBox"><Setter Property="MinHeight" Value="32"/><Setter Property="Padding" Value="6,3"/><Setter Property="BorderBrush" Value="#D9E0D5"/></Style>
-    <Style TargetType="DataGrid"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="BorderBrush" Value="#DDE3DA"/><Setter Property="RowBackground" Value="#FFFFFF"/><Setter Property="AlternatingRowBackground" Value="#FAFBF9"/><Setter Property="AlternationCount" Value="2"/><Setter Property="HorizontalGridLinesBrush" Value="#E9EEE7"/><Setter Property="VerticalGridLinesBrush" Value="Transparent"/><Setter Property="RowHeight" Value="44"/><Setter Property="ColumnHeaderHeight" Value="40"/><Setter Property="HeadersVisibility" Value="Column"/><Setter Property="RowHeaderWidth" Value="0"/><Setter Property="GridLinesVisibility" Value="Horizontal"/><Setter Property="SelectionUnit" Value="FullRow"/><Setter Property="CanUserAddRows" Value="False"/><Setter Property="CanUserDeleteRows" Value="False"/><Setter Property="CanUserResizeRows" Value="False"/><Setter Property="CanUserReorderColumns" Value="False"/></Style>
-    <Style TargetType="DataGridColumnHeader"><Setter Property="Background" Value="#F3F6F1"/><Setter Property="Foreground" Value="#596458"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Padding" Value="12,0"/><Setter Property="BorderBrush" Value="#DDE3DA"/><Setter Property="BorderThickness" Value="0,0,0,1"/></Style>
-    <Style TargetType="DataGridCell"><Setter Property="Padding" Value="10,0"/><Setter Property="BorderThickness" Value="0"/><Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/></Style>
+    <Style TargetType="DataGrid"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="BorderBrush" Value="#DDE3DA"/><Setter Property="RowBackground" Value="#FFFFFF"/><Setter Property="AlternatingRowBackground" Value="#FAFBF9"/><Setter Property="AlternationCount" Value="2"/><Setter Property="HorizontalGridLinesBrush" Value="#E9EEE7"/><Setter Property="VerticalGridLinesBrush" Value="Transparent"/><Setter Property="RowHeight" Value="30"/><Setter Property="ColumnHeaderHeight" Value="28"/><Setter Property="HeadersVisibility" Value="Column"/><Setter Property="RowHeaderWidth" Value="0"/><Setter Property="GridLinesVisibility" Value="Horizontal"/><Setter Property="SelectionUnit" Value="FullRow"/><Setter Property="CanUserAddRows" Value="False"/><Setter Property="CanUserDeleteRows" Value="False"/><Setter Property="CanUserResizeRows" Value="False"/><Setter Property="CanUserReorderColumns" Value="False"/><Setter Property="CanUserResizeColumns" Value="True"/><Setter Property="HorizontalScrollBarVisibility" Value="Auto"/><Setter Property="VerticalScrollBarVisibility" Value="Auto"/></Style>
+    <Style TargetType="DataGridColumnHeader"><Setter Property="Background" Value="#F3F6F1"/><Setter Property="Foreground" Value="#596458"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Padding" Value="8,0"/><Setter Property="BorderBrush" Value="#DDE3DA"/><Setter Property="BorderThickness" Value="0,0,0,1"/></Style>
+    <Style TargetType="DataGridCell"><Setter Property="Padding" Value="8,0"/><Setter Property="BorderThickness" Value="0"/><Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/></Style>
     <Style TargetType="DataGridRow"><Setter Property="BorderThickness" Value="0"/><Setter Property="Foreground" Value="#3D473C"/><Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#F0F6F0"/></Trigger><Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#E5F0E6"/><Setter Property="Foreground" Value="#283E2B"/></Trigger></Style.Triggers></Style>
-    <Style TargetType="TabItem"><Setter Property="MinWidth" Value="104"/><Setter Property="Padding" Value="18,9"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Foreground" Value="#657064"/></Style>
+    <Style TargetType="TabItem"><Setter Property="MinWidth" Value="88"/><Setter Property="Padding" Value="16,7"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Foreground" Value="#657064"/></Style>
   </Window.Resources>
   <Grid>
-    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#E1E6DE" BorderThickness="0,0,0,1" Padding="20,16">
-      <DockPanel>
-        <StackPanel DockPanel.Dock="Left"><TextBlock Text="CoThread 本地连接器" FontSize="18" FontWeight="SemiBold" Foreground="#283329"/><TextBlock x:Name="VersionText" Margin="0,4,0,0" Foreground="#849083"/></StackPanel>
-        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"><Button x:Name="ReauthorizeButton" Content="切换账号" MinHeight="28" Padding="10,3" Margin="0,0,14,0" Background="#F7F9F6" Foreground="#526451" ToolTip="重新打开网页授权，可切换登录账号"/><Ellipse x:Name="StatusDot" Width="9" Height="9" Fill="#A7ADA5" Margin="0,0,7,0"/><TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="#657064"/></StackPanel>
-      </DockPanel>
-    </Border>
-    <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#E1E6DE" BorderThickness="0,0,0,1" Padding="20,14">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*" MinHeight="180"/>
+      <RowDefinition Height="5"/>
+      <RowDefinition Height="148" MinHeight="72"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+    <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#E1E6DE" BorderThickness="0,0,0,1" Padding="20,14">
       <StackPanel>
         <StackPanel x:Name="PairPanel">
-          <Grid Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="服务地址" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBox x:Name="ServerInput" Grid.Column="1" Margin="0,0,10,0" ToolTip="共序服务地址，默认为线上地址；本地验证可改为 http://localhost:3100。修改后需重新授权，已绑定项目按新服务重新绑定"/><Button x:Name="PairButton" Grid.Column="2" Content="网页登录并授权" Background="#536F49" Foreground="White" Margin="0"/></Grid>
+          <Grid Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="服务地址" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBox x:Name="ServerInput" Grid.Column="1" Margin="0,0,10,0" ToolTip="共序服务地址，默认为线上地址；本地验证可改为 http://localhost:3100。修改后需重新授权，已绑定项目按新服务重新绑定"/><Button x:Name="PairButton" Grid.Column="2" Content="网页登录并授权" Background="#536F49" Foreground="White" Margin="0,0,10,0"/><StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center"><Button x:Name="ReauthorizeButton" Content="切换账号" MinHeight="28" Padding="10,3" Margin="0,0,14,0" Background="#F7F9F6" Foreground="#526451" ToolTip="重新打开网页授权，可切换登录账号"/><Ellipse x:Name="StatusDot" Width="9" Height="9" Fill="#A7ADA5" Margin="0,0,7,0"/><TextBlock x:Name="StatusText" MaxWidth="360" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="#657064"/></StackPanel></Grid>
         </StackPanel>
-        <Grid x:Name="PrerequisitePanel"><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-          <TextBlock Text="本机环境" FontWeight="SemiBold" VerticalAlignment="Top" Margin="0,6,0,0"/>
-          <WrapPanel Grid.Column="1" VerticalAlignment="Center">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,18,4"><TextBlock Text="Git  " Foreground="#849083"/><TextBlock x:Name="GitStatusText"/><TextBlock x:Name="GitHintText" Foreground="#A45D4A" Margin="6,0,0,0"/><Button x:Name="InstallGitButton" Content="安装 Git" MinHeight="26" Padding="9,3" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/></StackPanel>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,18,4"><TextBlock Text="Cursor Agent  " Foreground="#849083"/><TextBlock x:Name="CursorStatusText"/><Button x:Name="InstallCursorButton" Content="安装 Cursor CLI" MinHeight="26" Padding="9,3" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/></StackPanel>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,18,4"><TextBlock Text="Codex CLI  " Foreground="#849083"/><TextBlock x:Name="CodexStatusText"/><Button x:Name="InstallCodexButton" Content="安装 Codex" MinHeight="26" Padding="9,3" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/></StackPanel>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,18,4"><TextBlock Text="Claude Code  " Foreground="#849083"/><TextBlock x:Name="ClaudeStatusText"/><Button x:Name="InstallClaudeButton" Content="安装 Claude Code" MinHeight="26" Padding="9,3" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/></StackPanel>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,0,4"><TextBlock Text="共序 MCP  " Foreground="#849083"/><TextBlock x:Name="McpStatusText" ToolTip="连接器会为已检测到的 Agent 自动写入共序 MCP 令牌并按到期续期；已打开的会话需新开才生效"/><Button x:Name="RefreshMcpButton" Content="重写 MCP 配置" MinHeight="26" Padding="9,3" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/><Button x:Name="ResetMcpButton" Content="重置 MCP 令牌" ToolTip="账号旧令牌立即失效并签发新令牌；令牌疑似泄露时使用" MinHeight="26" Padding="9,3" Margin="6,0,0,0" Background="#F8F1EE" BorderBrush="#E0C9C1" Foreground="#A45D4A"/></StackPanel>
-          </WrapPanel>
-          <CheckBox x:Name="AutoStartCheck" Grid.Column="2" Content="开机自动启动" VerticalAlignment="Center" Margin="0,0,16,0"/>
-          <Button x:Name="CheckButton" Grid.Column="3" Content="重新检测" Margin="0" VerticalAlignment="Center"/>
+        <Grid x:Name="PrerequisitePanel"><Grid.ColumnDefinitions><ColumnDefinition Width="72"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock Text="本机环境" FontWeight="SemiBold" VerticalAlignment="Top" Margin="0,8,8,0"/>
+          <Grid Grid.Column="1">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Background="#F7FAF6" BorderBrush="#E4EBE1" BorderThickness="1" CornerRadius="4" Padding="10,8" Margin="0,0,8,0">
+              <StackPanel>
+                <TextBlock Text="Git CLI" FontWeight="SemiBold" Foreground="#657064" ToolTip="检测本机 git 命令，用于任务 worktree 和 Diff"/>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                  <TextBlock x:Name="GitStatusText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock x:Name="GitHintText" Foreground="#A45D4A" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                  <Button x:Name="InstallGitButton" Content="安装 Git CLI" MinHeight="24" Padding="8,2" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+            <Border Grid.Column="1" Background="#F7FAF6" BorderBrush="#E4EBE1" BorderThickness="1" CornerRadius="4" Padding="10,8" Margin="0,0,8,0">
+              <StackPanel>
+                <TextBlock Text="Cursor TUI" FontWeight="SemiBold" Foreground="#657064" ToolTip="检测 Cursor Agent CLI（agent），不是 Cursor 编辑器"/>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                  <TextBlock x:Name="CursorStatusText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                  <Button x:Name="InstallCursorButton" Content="安装 Cursor TUI" MinHeight="24" Padding="8,2" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/>
+                </StackPanel>
+                <TextBlock x:Name="CursorMcpText" Margin="0,6,0,0" FontSize="11" TextTrimming="CharacterEllipsis"/>
+              </StackPanel>
+            </Border>
+            <Border Grid.Column="2" Background="#F7FAF6" BorderBrush="#E4EBE1" BorderThickness="1" CornerRadius="4" Padding="10,8" Margin="0,0,8,0">
+              <StackPanel>
+                <TextBlock Text="Codex TUI" FontWeight="SemiBold" Foreground="#657064" ToolTip="检测本机 codex 命令，不是 ChatGPT 桌面版"/>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                  <TextBlock x:Name="CodexStatusText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                  <Button x:Name="InstallCodexButton" Content="安装 Codex TUI" MinHeight="24" Padding="8,2" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/>
+                </StackPanel>
+                <TextBlock x:Name="CodexMcpText" Margin="0,6,0,0" FontSize="11" TextTrimming="CharacterEllipsis"/>
+              </StackPanel>
+            </Border>
+            <Border Grid.Column="3" Background="#F7FAF6" BorderBrush="#E4EBE1" BorderThickness="1" CornerRadius="4" Padding="10,8">
+              <StackPanel>
+                <TextBlock Text="Claude Code TUI" FontWeight="SemiBold" Foreground="#657064" ToolTip="检测本机 claude 命令，不是 Claude 网页或桌面版"/>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                  <TextBlock x:Name="ClaudeStatusText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                  <Button x:Name="InstallClaudeButton" Content="安装 Claude Code TUI" MinHeight="24" Padding="8,2" Margin="8,0,0,0" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/>
+                </StackPanel>
+                <TextBlock x:Name="ClaudeMcpText" Margin="0,6,0,0" FontSize="11" TextTrimming="CharacterEllipsis"/>
+              </StackPanel>
+            </Border>
+          </Grid>
+          <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="12,0,0,0">
+            <CheckBox x:Name="AutoStartCheck" Content="开机自动启动" Margin="0,0,0,8"/>
+            <Button x:Name="RefreshMcpButton" Content="重写 MCP 配置" MinHeight="24" Padding="8,2" Margin="0,0,0,6" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84"/>
+            <Button x:Name="ResetMcpButton" Content="重置 MCP 令牌" ToolTip="账号旧令牌立即失效并签发新令牌；令牌疑似泄露时使用" MinHeight="24" Padding="8,2" Margin="0,0,0,6" Background="#F8F1EE" BorderBrush="#E0C9C1" Foreground="#A45D4A"/>
+            <Button x:Name="CheckButton" Content="重新检测" Margin="0"/>
+          </StackPanel>
         </Grid>
       </StackPanel>
     </Border>
 
-    <TabControl Grid.Row="2" Margin="20,16,20,14" Background="#FFFFFF" BorderBrush="#DDE3DA">
-      <TabItem Header="项目">
-        <Grid x:Name="ProjectPanel" Margin="16"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-          <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="项目与本地仓库" FontSize="15" FontWeight="SemiBold" Foreground="#303B30"/><TextBlock Text="先选 Git 仓库，再按需填写仓库内项目路径（留空则与仓库相同）。任务在独立 worktree 中执行，不检查主仓库未提交改动。" Margin="0,3,0,0" Foreground="#849083"/></StackPanel><Button x:Name="RefreshButton" Grid.Column="1" Content="↻  刷新项目" Style="{StaticResource RefreshActionButton}" ToolTip="重新从 CoThread 获取项目列表" Margin="0"/></Grid>
-          <DataGrid x:Name="ProjectGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="False" HorizontalScrollBarVisibility="Auto">
+    <Grid Grid.Row="1" Margin="20,12,20,0">
+      <TabControl x:Name="MainTabs" Background="#FFFFFF" BorderBrush="#DDE3DA">
+        <TabItem Header="项目">
+          <Grid x:Name="ProjectPanel" Margin="12,10,12,12"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <TextBlock Text="先选 Git 仓库，再按需填写仓库内项目路径（留空则与仓库相同）。任务在独立 worktree 中执行，不检查主仓库未提交改动。" Margin="0,0,0,8" Foreground="#849083" TextWrapping="Wrap"/>
+            <DataGrid x:Name="ProjectGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="False">
+              <DataGrid.Columns>
+                <DataGridTemplateColumn Header="项目" IsReadOnly="True" Width="140" MinWidth="88"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding name}" ToolTip="{Binding name}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" Foreground="#2E4631" VerticalAlignment="Center"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Git 仓库" Width="260" MinWidth="160"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+                  <DockPanel><Button x:Name="BrowseRepoButton" Content="浏览..." Style="{StaticResource CompactButton}" DockPanel.Dock="Right" Tag="{Binding id}" Margin="6,1,0,1"/><TextBox x:Name="ProjectRepoInput" Style="{StaticResource GridTextBox}" Text="{Binding repo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="Git 仓库根目录，可直接输入或粘贴" VerticalContentAlignment="Center" Margin="0,1,0,1"/></DockPanel>
+                </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="项目路径" Width="220" MinWidth="140"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+                  <DockPanel><Button x:Name="BrowsePathButton" Content="浏览..." Style="{StaticResource CompactButton}" DockPanel.Dock="Right" Tag="{Binding id}" Margin="6,1,0,1"/><TextBox x:Name="ProjectPathInput" Style="{StaticResource GridTextBox}" Text="{Binding projectPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="可选。仓库内子目录，留空则与 Git 仓库相同" VerticalContentAlignment="Center" Margin="0,1,0,1"/></DockPanel>
+                </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="推送" Width="48" MinWidth="44"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+                  <CheckBox x:Name="GitPushCheckBox" IsChecked="{Binding allowGitPush, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTip="允许任务执行 Git 推送"/>
+                </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="状态" Width="76" MinWidth="64"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+                  <Border Background="{Binding connectionBackground}" CornerRadius="3" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock Text="{Binding connectionText}" Foreground="{Binding connectionForeground}" FontWeight="SemiBold"/></Border>
+                </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="操作" Width="92" MinWidth="80"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+                  <Button x:Name="ToggleProjectButton" Content="{Binding actionText}" Style="{StaticResource CompactButton}" Tag="{Binding id}" Margin="0" Background="{Binding actionBackground}" BorderBrush="{Binding actionBorder}" Foreground="{Binding actionForeground}"/>
+                </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+              </DataGrid.Columns>
+            </DataGrid>
+          </Grid>
+        </TabItem>
+        <TabItem Header="任务">
+          <Grid Margin="12,10,12,12"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+          <TextBlock Text="「开始」会在独立 Git worktree 中打开本机 Agent 会话，不检查主仓库未提交改动；关闭窗口后可「继续」原对话；完成后点「完成并通知」回传 Diff" Margin="0,0,0,8" Foreground="#849083" TextWrapping="Wrap"/>
+          <DataGrid x:Name="TaskGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True">
             <DataGrid.Columns>
-              <DataGridTemplateColumn Header="项目" IsReadOnly="True" Width="1.1*"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding name}" ToolTip="{Binding name}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" Foreground="#2E4631" VerticalAlignment="Center"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-              <DataGridTemplateColumn Header="Git 仓库" Width="1.8*"><DataGridTemplateColumn.CellTemplate><DataTemplate>
-                <DockPanel><Button x:Name="BrowseRepoButton" Content="浏览..." DockPanel.Dock="Right" Tag="{Binding id}" Margin="6,1,0,1"/><TextBox x:Name="ProjectRepoInput" Text="{Binding repo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="Git 仓库根目录，可直接输入或粘贴" VerticalContentAlignment="Center" Margin="0,1,0,1"/></DockPanel>
+              <DataGridTemplateColumn Header="项目" Width="96" MinWidth="72"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding projectName}" ToolTip="{Binding projectName}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" Foreground="#2E4631"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+              <DataGridTemplateColumn Header="迭代" Width="110" MinWidth="80"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding threadTitle}" ToolTip="{Binding threadTitle}" TextTrimming="CharacterEllipsis"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+              <DataGridTemplateColumn Header="提出人" Width="72" MinWidth="56"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding requestedByName}" ToolTip="{Binding requestedByName}" TextTrimming="CharacterEllipsis" Foreground="#657064"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+              <DataGridTextColumn Header="接收时间" Binding="{Binding receivedText}" Width="96" MinWidth="88" Foreground="#657064"/><DataGridTextColumn Header="首开时间" Binding="{Binding firstStartedText}" Width="96" MinWidth="88" Foreground="#657064"/><DataGridTextColumn Header="最新时间" Binding="{Binding latestText}" Width="96" MinWidth="88" Foreground="#657064"/>
+              <DataGridTemplateColumn Header="目标" Width="200" MinWidth="140"><DataGridTemplateColumn.CellTemplate><DataTemplate><Button x:Name="TaskTargetButton" Padding="0" Margin="0" MinHeight="22" Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch" ToolTip="点击查看完整目标"><TextBlock Text="{Binding target}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" Foreground="#486D4B" FontWeight="SemiBold"/></Button></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+              <DataGridTemplateColumn Header="状态" Width="88" MinWidth="72"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+                <Border Background="{Binding statusBackground}" CornerRadius="3" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock Text="{Binding statusText}" Foreground="{Binding statusForeground}" FontWeight="SemiBold"/></Border>
               </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-              <DataGridTemplateColumn Header="项目路径" Width="1.5*"><DataGridTemplateColumn.CellTemplate><DataTemplate>
-                <DockPanel><Button x:Name="BrowsePathButton" Content="浏览..." DockPanel.Dock="Right" Tag="{Binding id}" Margin="6,1,0,1"/><TextBox x:Name="ProjectPathInput" Text="{Binding projectPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="可选。仓库内子目录，留空则与 Git 仓库相同" VerticalContentAlignment="Center" Margin="0,1,0,1"/></DockPanel>
-              </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-              <DataGridTemplateColumn Header="推送" Width="54"><DataGridTemplateColumn.CellTemplate><DataTemplate>
-                <CheckBox x:Name="GitPushCheckBox" IsChecked="{Binding allowGitPush, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTip="允许任务执行 Git 推送"/>
-              </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-              <DataGridTemplateColumn Header="状态" Width="92"><DataGridTemplateColumn.CellTemplate><DataTemplate>
-                <Border Background="{Binding connectionBackground}" CornerRadius="3" Padding="8,4" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock Text="{Binding connectionText}" Foreground="{Binding connectionForeground}" FontWeight="SemiBold"/></Border>
-              </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-              <DataGridTemplateColumn Header="操作" Width="108"><DataGridTemplateColumn.CellTemplate><DataTemplate>
-                <Button x:Name="ToggleProjectButton" Content="{Binding actionText}" Tag="{Binding id}" Margin="2" Background="{Binding actionBackground}" BorderBrush="{Binding actionBorder}" Foreground="{Binding actionForeground}"/>
-              </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+              <DataGridTextColumn Header="Agent" Binding="{Binding agentText}" Width="88" MinWidth="72" Foreground="#657064"/>
+              <DataGridTemplateColumn Header="控制" Width="268" MinWidth="200"><DataGridTemplateColumn.CellTemplate><DataTemplate><StackPanel Orientation="Horizontal">
+                <Button x:Name="AbandonTaskButton" Content="放弃并通知" Style="{StaticResource CompactButton}" Visibility="{Binding abandonVisibility}" Background="#F8F2EF" BorderBrush="#E7CFC6" Foreground="#935743"/><Button x:Name="StartTaskButton" Content="开始" Style="{StaticResource CompactButton}" Visibility="{Binding startVisibility}" Background="#527A55" BorderBrush="#527A55" Foreground="#FFFFFF" ToolTip="在新窗口打开本机 Agent 会话"/>
+                <Button x:Name="ContinueTaskButton" Content="继续" Style="{StaticResource CompactButton}" Visibility="{Binding continueVisibility}" Background="#527A55" BorderBrush="#527A55" Foreground="#FFFFFF" ToolTip="续接原会话，保留未提交改动"/>
+                <Button x:Name="FinishTaskButton" Content="完成并通知" Style="{StaticResource CompactButton}" Visibility="{Binding finishVisibility}" Background="#EAF5F2" BorderBrush="#BFDDD5" Foreground="#397466" ToolTip="按开始时的基线计算 Diff 并通知迭代群聊"/>
+                <Button x:Name="FailTaskButton" Content="失败并通知" Style="{StaticResource CompactButton}" Visibility="{Binding failVisibility}" Background="#A85B50" BorderBrush="#A85B50" Foreground="#FFFFFF"/><Button x:Name="RetryTaskButton" Content="重试" Style="{StaticResource CompactButton}" Visibility="{Binding retryVisibility}" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84" ToolTip="新建会话重新开始"/>
+                <Button x:Name="NotifyTaskButton" Content="通知" Style="{StaticResource CompactButton}" Visibility="{Binding notifyVisibility}" Background="#EAF5F2" BorderBrush="#BFDDD5" Foreground="#397466"/>
+              </StackPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
             </DataGrid.Columns>
           </DataGrid>
-        </Grid>
-      </TabItem>
-      <TabItem Header="任务">
-        <Grid Margin="16"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="本机任务" FontSize="15" FontWeight="SemiBold" Foreground="#303B30"/><TextBlock Text="「开始」会在独立 Git worktree 中打开本机 Agent 会话，不检查主仓库未提交改动；关闭窗口后可「继续」原对话；完成后点「完成并通知」回传 Diff" Margin="0,3,0,0" Foreground="#849083"/></StackPanel><Button x:Name="RefreshTaskButton" Grid.Column="1" Content="↻  刷新任务" Style="{StaticResource RefreshActionButton}" ToolTip="立即获取最新任务和状态" Margin="0"/></Grid>
-        <DataGrid x:Name="TaskGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" HorizontalScrollBarVisibility="Auto">
-          <DataGrid.Columns>
-            <DataGridTemplateColumn Header="项目" Width="120"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding projectName}" ToolTip="{Binding projectName}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" Foreground="#2E4631"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn><DataGridTemplateColumn Header="迭代" Width="140"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding threadTitle}" ToolTip="{Binding threadTitle}" TextTrimming="CharacterEllipsis"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn><DataGridTemplateColumn Header="提出人" Width="85"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding requestedByName}" ToolTip="{Binding requestedByName}" TextTrimming="CharacterEllipsis" Foreground="#657064"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-            <DataGridTextColumn Header="接收时间" Binding="{Binding receivedText}" Width="112" Foreground="#657064"/><DataGridTextColumn Header="首开时间" Binding="{Binding firstStartedText}" Width="112" Foreground="#657064"/><DataGridTextColumn Header="最新时间" Binding="{Binding latestText}" Width="112" Foreground="#657064"/>
-            <DataGridTemplateColumn Header="目标" Width="*"><DataGridTemplateColumn.CellTemplate><DataTemplate><Button x:Name="TaskTargetButton" Padding="0" Margin="0" Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch" ToolTip="点击查看完整目标"><TextBlock Text="{Binding target}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" Foreground="#486D4B" FontWeight="SemiBold"/></Button></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-            <DataGridTemplateColumn Header="状态" Width="105"><DataGridTemplateColumn.CellTemplate><DataTemplate>
-              <Border Background="{Binding statusBackground}" CornerRadius="3" Padding="8,4" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock Text="{Binding statusText}" Foreground="{Binding statusForeground}" FontWeight="SemiBold"/></Border>
-            </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-            <DataGridTextColumn Header="Agent" Binding="{Binding agentText}" Width="96" Foreground="#657064"/>
-            <DataGridTemplateColumn Header="控制" Width="300"><DataGridTemplateColumn.CellTemplate><DataTemplate><StackPanel Orientation="Horizontal">
-              <Button x:Name="AbandonTaskButton" Content="放弃并通知" Visibility="{Binding abandonVisibility}" Margin="2" Background="#F8F2EF" BorderBrush="#E7CFC6" Foreground="#935743"/><Button x:Name="StartTaskButton" Content="开始" Visibility="{Binding startVisibility}" Margin="2" Background="#527A55" BorderBrush="#527A55" Foreground="#FFFFFF" ToolTip="在新窗口打开本机 Agent 会话"/>
-              <Button x:Name="ContinueTaskButton" Content="继续" Visibility="{Binding continueVisibility}" Margin="2" Background="#527A55" BorderBrush="#527A55" Foreground="#FFFFFF" ToolTip="续接原会话，保留未提交改动"/>
-              <Button x:Name="FinishTaskButton" Content="完成并通知" Visibility="{Binding finishVisibility}" Margin="2" Background="#EAF5F2" BorderBrush="#BFDDD5" Foreground="#397466" ToolTip="按开始时的基线计算 Diff 并通知迭代群聊"/>
-              <Button x:Name="FailTaskButton" Content="失败并通知" Visibility="{Binding failVisibility}" Margin="2" Background="#A85B50" BorderBrush="#A85B50" Foreground="#FFFFFF"/><Button x:Name="RetryTaskButton" Content="重试" Visibility="{Binding retryVisibility}" Margin="2" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84" ToolTip="新建会话重新开始"/>
-              <Button x:Name="NotifyTaskButton" Content="通知" Visibility="{Binding notifyVisibility}" Margin="2" Background="#EAF5F2" BorderBrush="#BFDDD5" Foreground="#397466"/>
-            </StackPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-          </DataGrid.Columns>
-        </DataGrid>
-        </Grid>
-      </TabItem>
-      <TabItem Header="记录">
-        <Grid Margin="16"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-          <DockPanel Margin="0,0,0,12"><StackPanel><TextBlock Text="运行记录" FontSize="15" FontWeight="SemiBold" Foreground="#303B30"/><TextBlock Text="连接和任务执行日志" Margin="0,3,0,0" Foreground="#849083"/></StackPanel></DockPanel>
-          <TextBox x:Name="LogText" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="#FBFCFA" BorderBrush="#E1E6DE" FontFamily="Consolas" FontSize="11" Padding="12"/>
-        </Grid>
-      </TabItem>
-    </TabControl>
-    <Border Grid.Row="3" Background="#FFFFFF" BorderBrush="#E1E6DE" BorderThickness="0,1,0,0" Padding="20,12"><DockPanel><TextBlock Text="关闭窗口后仍会在系统托盘运行" Foreground="#8A9488" VerticalAlignment="Center"/><StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right"><Button x:Name="HideButton" Content="隐藏到托盘"/><Button x:Name="ExitButton" Content="退出连接器" Margin="0"/></StackPanel></DockPanel></Border>
+          </Grid>
+        </TabItem>
+      </TabControl>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,10,0">
+        <Button x:Name="RefreshButton" Content="↻  刷新项目" Style="{StaticResource RefreshActionButton}" ToolTip="重新从 CoThread 获取项目列表" Margin="0,0,0,0"/>
+        <Button x:Name="RefreshTaskButton" Content="↻  刷新任务" Style="{StaticResource RefreshActionButton}" ToolTip="立即获取最新任务和状态" Margin="0" Visibility="Collapsed"/>
+      </StackPanel>
+    </Grid>
+    <GridSplitter Grid.Row="2" Height="5" HorizontalAlignment="Stretch" Background="#E1E6DE" BorderBrush="#D5DCD0" BorderThickness="0,1,0,1" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext"/>
+    <Border Grid.Row="3" Background="#FFFFFF" BorderBrush="#E1E6DE" BorderThickness="0,0,0,1" Padding="20,8,20,8">
+      <DockPanel>
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+          <TextBlock Text="运行记录" FontWeight="SemiBold" Foreground="#303B30"/>
+          <TextBlock Text="连接和任务执行日志" Margin="10,0,0,0" Foreground="#849083" VerticalAlignment="Center"/>
+        </DockPanel>
+        <TextBox x:Name="LogText" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="#FBFCFA" BorderBrush="#E1E6DE" FontFamily="Consolas" FontSize="11" Padding="10,8"/>
+      </DockPanel>
+    </Border>
+    <Border Grid.Row="4" Background="#FFFFFF" BorderBrush="#E1E6DE" BorderThickness="0,0,0,0" Padding="20,10"><DockPanel><TextBlock Text="关闭窗口后仍会在系统托盘运行" Foreground="#8A9488" VerticalAlignment="Center"/><StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right"><Button x:Name="HideButton" Content="隐藏到托盘"/><Button x:Name="ExitButton" Content="退出连接器" Margin="0"/></StackPanel></DockPanel></Border>
   </Grid>
 </Window>
 '@
@@ -132,7 +191,7 @@ $window.Add_SourceInitialized({
   [void][CoThreadWindowIcon]::SendMessage($handle, 0x0080, [IntPtr]1, $bigWindowIcon.Handle)
   [void][CoThreadWindowIcon]::SendMessage($handle, 0x0080, [IntPtr]0, $smallWindowIcon.Handle)
 })
-$names = @('VersionText','StatusDot','StatusText','ReauthorizeButton','PairPanel','ServerInput','PairButton','PrerequisitePanel','CheckButton','GitStatusText','GitHintText','InstallGitButton','CursorStatusText','InstallCursorButton','CodexStatusText','InstallCodexButton','ClaudeStatusText','InstallClaudeButton','McpStatusText','RefreshMcpButton','ResetMcpButton','ProjectPanel','RefreshButton','ProjectGrid','AutoStartCheck','RefreshTaskButton','TaskGrid','LogText','HideButton','ExitButton')
+$names = @('StatusDot','StatusText','ReauthorizeButton','PairPanel','ServerInput','PairButton','PrerequisitePanel','CheckButton','GitStatusText','GitHintText','InstallGitButton','CursorStatusText','InstallCursorButton','CodexStatusText','InstallCodexButton','ClaudeStatusText','InstallClaudeButton','McpStatusText','RefreshMcpButton','ResetMcpButton','ProjectPanel','MainTabs','RefreshButton','ProjectGrid','AutoStartCheck','RefreshTaskButton','TaskGrid','LogText','HideButton','ExitButton')
 foreach ($name in $names) { Set-Variable -Name $name -Value $window.FindName($name) }
 $script:allowExit = $false
 $script:projectSignature = ''
@@ -148,7 +207,7 @@ $script:projectRefreshRevision = 0
 $script:taskRefreshRevision = 0
 $script:agentOptions = @()
 $script:defaultAgent = ''
-$script:agentLabels = @{ cursor='Cursor Agent'; codex='Codex CLI'; claude='Claude Code' }
+$script:agentLabels = @{ cursor='Cursor TUI'; codex='Codex TUI'; claude='Claude Code TUI' }
 
 function Send-Command([string]$type, $payload = @{}) {
   $command = @{ id = [guid]::NewGuid().ToString(); type = $type; payload = $payload } | ConvertTo-Json -Depth 5
@@ -186,7 +245,7 @@ function Select-AgentKind($row) {
   if ($row.localAgentKind) { return [string]$row.localAgentKind }
   $options = @($script:agentOptions)
   if ($options.Count -eq 0) {
-    [void][System.Windows.MessageBox]::Show('未检测到 Cursor Agent / Codex CLI / Claude Code，请先安装其中一个并点击「重新检测」。', 'CoThread Connector', 'OK', 'Warning')
+    [void][System.Windows.MessageBox]::Show('未检测到 Cursor TUI / Codex TUI / Claude Code TUI，请先安装其中一个并点击「重新检测」。', 'CoThread Connector', 'OK', 'Warning')
     return $null
   }
   if ($options.Count -eq 1) { return [string]$options[0].kind }
@@ -249,6 +308,13 @@ $RefreshTaskButton.Add_Click({
   $RefreshTaskButton.Content = '刷新中...'
   Send-Command 'refreshTasks'
 })
+function Sync-RefreshButtons {
+  $onProjects = $MainTabs.SelectedIndex -ne 1
+  $RefreshButton.Visibility = if ($onProjects) { 'Visible' } else { 'Collapsed' }
+  $RefreshTaskButton.Visibility = if ($onProjects) { 'Collapsed' } else { 'Visible' }
+}
+$MainTabs.Add_SelectionChanged({ Sync-RefreshButtons })
+Sync-RefreshButtons
 $ReauthorizeButton.Add_Click({
   $script:authorizationRequested = $true
   $script:authorizationStarted = $false
@@ -387,7 +453,7 @@ $timer.Add_Tick({
   try { Get-Process -Id $ParentPid -ErrorAction Stop | Out-Null } catch { $script:allowExit=$true; $window.Close(); $window.Dispatcher.InvokeShutdown(); return }
   if (-not (Test-Path -LiteralPath $StatePath)) { return }
   try { $state = Get-Content -LiteralPath $StatePath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { return }
-  $VersionText.Text = "版本 $($state.version)"
+  $window.Title = "CoThread Connector $($state.version)"
   $StatusText.Text = [string]$state.status
   $newProjectRefreshRevision = [int]$state.projectRefreshRevision
   $newTaskRefreshRevision = [int]$state.taskRefreshRevision
@@ -423,7 +489,7 @@ $timer.Add_Tick({
   $PairPanel.Visibility = 'Visible'
   $ProjectPanel.IsEnabled = [bool]$state.paired
   $GitStatusText.Text = if ($state.prerequisites.gitInstalled) { [string]$state.prerequisites.gitVersion } else { '未安装' }
-  $GitHintText.Text = if ($state.prerequisites.gitInstalled) { '' } else { '请先安装 Git' }
+  $GitHintText.Text = if ($state.prerequisites.gitInstalled) { '' } else { '请先安装 Git CLI' }
   $InstallGitButton.Visibility = if ($state.prerequisites.gitInstalled) { 'Collapsed' } else { 'Visible' }
   $agents = $state.prerequisites.agents
   $CursorStatusText.Text = if ($agents.cursor.installed) { [string]$agents.cursor.version } else { '未安装' }
@@ -495,7 +561,14 @@ $timer.Add_Tick({
     })
   }
   $logs = [string]::Join("`r`n", @($state.logs))
-  if ($logs -ne $script:lastLogs) { $script:lastLogs=$logs; $LogText.Text=$logs; $LogText.ScrollToEnd() }
+  if ($logs -ne $script:lastLogs) {
+    $offset = $LogText.VerticalOffset
+    $script:lastLogs = $logs
+    $LogText.Text = $logs
+    $LogText.UpdateLayout()
+    $max = [Math]::Max(0.0, $LogText.ExtentHeight - $LogText.ViewportHeight)
+    $LogText.ScrollToVerticalOffset([Math]::Min($offset, $max))
+  }
 })
 $timer.Start()
 try { $window.Show(); [System.Windows.Threading.Dispatcher]::Run() } finally {

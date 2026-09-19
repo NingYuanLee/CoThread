@@ -5301,6 +5301,42 @@ body.col-resizing .app-shell > .context-panel {
 .quoted-message-dialog { width: min(640px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; padding: 24px; background: var(--c-fff, #fff); border-radius: 8px; overflow-wrap: anywhere; }
 .quoted-message-dialog-header { display: flex; align-items: center; justify-content: flex-end; margin: -8px -8px 4px 0; }
 .quoted-message-dialog > strong { display: block; margin: 12px 0; }
+.image-preview-backdrop {
+  z-index: 110;
+}
+.image-preview-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(960px, calc(100vw - 32px));
+  max-height: 90vh;
+  padding: 16px 18px 18px;
+  background: var(--c-fff, #fff);
+  border-radius: 8px;
+}
+.image-preview-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.image-preview-dialog-header strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.image-preview-dialog img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(90vh - 88px);
+  margin: 0 auto;
+  object-fit: contain;
+  border-radius: 4px;
+  background: var(--c-f2f5ec, #f2f5ec);
+}
 .agent-reasoning { margin: 6px 0; color: var(--c-82907b, #82907b); font-size: 12px; }
 .agent-reasoning summary { cursor: pointer; }
 .agent-reasoning > div { white-space: pre-wrap; max-height: 180px; overflow-y: auto; margin-top: 6px; line-height: 1.65; overflow-wrap: anywhere; }

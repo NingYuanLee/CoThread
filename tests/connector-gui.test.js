@@ -6,23 +6,27 @@ const guiPath = new URL("../connector/gui.ps1", import.meta.url);
 const mainPath = new URL("../connector/main.cjs", import.meta.url);
 const buildPath = new URL("../scripts/build-connector.mjs", import.meta.url);
 
-test("connector GUI uses independent project, task, and log tabs", async () => {
+test("connector GUI uses project and task tabs with a persistent log pane", async () => {
   const gui = await readFile(guiPath, "utf8");
 
   assert.deepEqual(
     [...gui.matchAll(/<TabItem Header="([^"]+)"/g)].map((match) => match[1]),
-    ["项目", "任务", "记录"],
+    ["项目", "任务"],
   );
+  assert.doesNotMatch(gui, /<TabItem Header="记录"/);
   assert.doesNotMatch(gui, /<ScrollViewer\b/);
   assert.match(gui, /x:Name="ProjectGrid"[^>]*Grid\.Row="1"/);
   assert.match(gui, /x:Name="TaskGrid"[^>]*Grid\.Row="1"/);
-  assert.match(gui, /x:Name="LogText"[^>]*Grid\.Row="1"/);
+  assert.match(gui, /x:Name="LogText"/);
+  assert.match(gui, /<GridSplitter\b/);
+  assert.match(gui, /ScrollToVerticalOffset/);
+  assert.doesNotMatch(gui, /ScrollToEnd\(\)/);
 });
 
 test("connector task target stays on one row and opens a detail dialog", async () => {
   const gui = await readFile(guiPath, "utf8");
 
-  assert.match(gui, /<Setter Property="RowHeight" Value="44"\/>/);
+  assert.match(gui, /<Setter Property="RowHeight" Value="30"\/>/);
   assert.match(gui, /x:Name="TaskTargetButton"/);
   assert.match(gui, /TextWrapping="NoWrap"/);
   assert.match(gui, /TextTrimming="CharacterEllipsis"/);
@@ -190,10 +194,14 @@ test("missing prerequisites offer guided installation without requiring Node", a
     readFile(mainPath, "utf8"),
   ]);
 
-  assert.match(gui, /x:Name="InstallGitButton" Content="安装 Git"/);
-  assert.match(gui, /x:Name="InstallCodexButton" Content="安装 Codex"/);
-  assert.match(gui, /x:Name="InstallCursorButton" Content="安装 Cursor CLI"/);
-  assert.match(gui, /x:Name="InstallClaudeButton" Content="安装 Claude Code"/);
+  assert.match(gui, /x:Name="InstallGitButton" Content="安装 Git CLI"/);
+  assert.match(gui, /x:Name="InstallCodexButton" Content="安装 Codex TUI"/);
+  assert.match(gui, /x:Name="InstallCursorButton" Content="安装 Cursor TUI"/);
+  assert.match(gui, /x:Name="InstallClaudeButton" Content="安装 Claude Code TUI"/);
+  assert.match(gui, /Text="Git CLI"/);
+  assert.match(gui, /Text="Cursor TUI"/);
+  assert.match(gui, /Text="Codex TUI"/);
+  assert.match(gui, /Text="Claude Code TUI"/);
   assert.match(gui, /Send-Command 'installPrerequisite' @\{ name='git' \}/);
   assert.match(main, /winget\.exe.*Git\.Git/);
   assert.match(main, /https:\/\/git-scm\.com\/download\/win/);
@@ -246,6 +254,10 @@ test("paired users can reopen browser authorization to switch accounts", async (
   assert.match(gui, /x:Name="ReauthorizeButton" Content="切换账号"/);
   assert.match(gui, /\$ReauthorizeButton\.Add_Click/);
   assert.match(gui, /\$ReauthorizeButton\.Visibility = if \(\$state\.paired\)/);
+  assert.doesNotMatch(gui, /Text="CoThread 本地连接器"/);
+  assert.match(gui, /x:Name="PairButton"[^>]*Grid\.Column="2"/);
+  assert.match(gui, /x:Name="ReauthorizeButton"[^>]*Content="切换账号"/);
+  assert.match(gui, /x:Name="StatusText"[^>]*TextTrimming="CharacterEllipsis"/);
 });
 
 test("project and task grids use polished fixed-height rows", async () => {
@@ -254,7 +266,10 @@ test("project and task grids use polished fixed-height rows", async () => {
   assert.match(gui, /<Style TargetType="DataGridColumnHeader">/);
   assert.match(gui, /<Style TargetType="DataGridRow">/);
   assert.match(gui, /Property="IsMouseOver" Value="True"/);
-  assert.match(gui, /Header="目标" Width="\*"/);
+  assert.match(gui, /Header="目标" Width="200"/);
+  assert.match(gui, /HorizontalScrollBarVisibility" Value="Auto"/);
+  assert.match(gui, /x:Name="MainTabs"/);
+  assert.match(gui, /function Sync-RefreshButtons/);
 });
 
 test("taskbar uses stable WPF and Win32 icon paths", async () => {

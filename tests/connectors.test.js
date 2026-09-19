@@ -274,7 +274,7 @@ test("connectors renew expired paused leases for interactive sessions and fetch 
   assert.equal(claimed.body.task.resumed, false);
   const firstLease = claimed.body.task.leaseToken;
   const running = await request(`/connector/tasks/${task.id}`, {
-    leaseToken: firstLease, status: "running", progress: "本机 Cursor Agent 会话进行中", agentKind: "cursor",
+    leaseToken: firstLease, status: "running", progress: "本机 Cursor TUI 会话进行中", agentKind: "cursor",
   }, developerConnector, "PATCH");
   assert.equal(running.status, 200);
   // 窗口关闭：连接器回写 paused，服务端保留 agentKind。
@@ -304,7 +304,7 @@ test("connectors renew expired paused leases for interactive sessions and fetch 
 
   // 「继续」后回到 running，「完成并通知」直接 completed 并发出结案消息。
   const resumed = await request(`/connector/tasks/${task.id}`, {
-    leaseToken: reclaimed.body.task.leaseToken, status: "running", progress: "本机 Cursor Agent 会话进行中",
+    leaseToken: reclaimed.body.task.leaseToken, status: "running", progress: "本机 Cursor TUI 会话进行中",
   }, developerConnector, "PATCH");
   assert.equal(resumed.body.status, "running");
   const completed = await request(`/connector/tasks/${task.id}`, {

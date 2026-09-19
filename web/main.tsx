@@ -2625,17 +2625,6 @@ function App() {
                   modal,
                 ) && (
                   <div className="settings-content-heading">
-                    <h3>
-                      {modal === "profile"
-                        ? "个人资料"
-                        : modal === "password"
-                          ? "修改密码"
-                          : modal === "email"
-                            ? "绑定邮箱"
-                            : modal === "mcp"
-                              ? "MCP 配置"
-                              : "退出登录"}
-                    </h3>
                     <p>
                       {modal === "email"
                         ? "验证邮箱后，可使用邮箱登录和找回密码。"

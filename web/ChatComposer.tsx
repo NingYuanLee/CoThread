@@ -6,6 +6,7 @@ import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { FileIcon } from "@react-symbols/icons/utils";
 import { Document, Notebook } from "@react-symbols/icons/files";
 import { UiIcon } from "./ui-icon";
+import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
 
 type FileVersion = {
   id: string;
@@ -121,6 +122,7 @@ export function ChatComposer({
   copyLabel: string;
 }) {
   const [uploads, setUploads] = useState<Upload[]>([]);
+  const [imagePreview, setImagePreview] = useState<ImagePreviewSource | null>(null);
   const [error, setError] = useState("");
   const [trigger, setTrigger] = useState<{
     symbol: string;
@@ -330,7 +332,17 @@ export function ChatComposer({
     });
   };
   const pending = uploads.some((u) => (!u.id && !u.error) || u.removing);
+  const openUploadPreview = (item: Upload) => {
+    if (item.error || !isImageFile(item.name) || (!item.url && !item.id)) return;
+    setImagePreview({
+      title: item.name,
+      filename: item.name,
+      id: item.id,
+      src: item.id ? undefined : item.url,
+    });
+  };
   return (
+    <>
     <form
       className="composer chat-composer"
       onSubmit={async (e) => {
@@ -347,6 +359,7 @@ export function ChatComposer({
         try {
           if (await onSend()) {
             setUploads([]);
+            setImagePreview(null);
             urls.current.forEach(URL.revokeObjectURL);
             urls.current = [];
             setTrigger(null);
@@ -364,8 +377,19 @@ export function ChatComposer({
               key={item.key}
               title={item.error || item.name}
             >
-              <div className="attachment-preview">
-                <FilePreview name={item.name} url={item.url} />
+              <div
+                className={`attachment-preview${isImageFile(item.name) && (item.url || item.id) && !item.error ? " is-image" : ""}`}
+                role={isImageFile(item.name) && (item.url || item.id) && !item.error ? "button" : undefined}
+                tabIndex={isImageFile(item.name) && (item.url || item.id) && !item.error ? 0 : undefined}
+                title={isImageFile(item.name) && (item.url || item.id) && !item.error ? `预览 ${item.name}` : undefined}
+                onClick={() => openUploadPreview(item)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  openUploadPreview(item);
+                }}
+              >
+                <FilePreview name={item.name} url={item.url} id={item.id} />
                 {!item.id && !item.error && (
                   <div
                     className="upload-overlay"
@@ -533,5 +557,15 @@ export function ChatComposer({
         </button>
       </div>
     </form>
+    {imagePreview && (
+      <ImagePreviewDialog
+        id={imagePreview.id}
+        title={imagePreview.title}
+        filename={imagePreview.filename}
+        src={imagePreview.src}
+        onClose={() => setImagePreview(null)}
+      />
+    )}
+    </>
   );
 }

@@ -23,15 +23,20 @@ async function blobToPng(blob: Blob) {
   });
 }
 
+export type ImagePreviewSource = {
+  title: string;
+  filename?: string;
+  id?: string;
+  src?: string;
+};
+
 export function ImagePreviewDialog({
   id,
   title,
   filename,
+  src: srcOverride,
   onClose,
-}: {
-  id: string;
-  title: string;
-  filename?: string;
+}: ImagePreviewSource & {
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
@@ -43,8 +48,9 @@ export function ImagePreviewDialog({
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [status, setStatus] = useState("");
-  const src = `/api/versions/${id}/source`;
+  const src = srcOverride || (id ? `/api/versions/${id}/source` : "");
   const downloadName = filename || title || "image";
+  const downloadHref = id ? `/api/versions/${id}/download` : src;
 
   const applyFit = useCallback((width = natural.width, height = natural.height) => {
     const view = viewportRef.current;
@@ -81,7 +87,7 @@ export function ImagePreviewDialog({
     setOffset({ x: 0, y: 0 });
     setStatus("");
     dialogRef.current?.focus();
-  }, [id]);
+  }, [id, src]);
 
   useEffect(() => {
     const view = viewportRef.current;
@@ -111,7 +117,7 @@ export function ImagePreviewDialog({
   const copyImage = async () => {
     setStatus("");
     try {
-      const response = await fetch(`/api/versions/${id}/download`);
+      const response = await fetch(downloadHref);
       if (!response.ok) throw new Error("无法读取图片");
       const blob = await blobToPng(await response.blob());
       if (!navigator.clipboard?.write) throw new Error("当前环境不支持复制图片");
@@ -124,7 +130,7 @@ export function ImagePreviewDialog({
 
   const downloadImage = () => {
     const link = document.createElement("a");
-    link.href = `/api/versions/${id}/download`;
+    link.href = downloadHref;
     link.download = downloadName;
     link.rel = "noopener";
     document.body.appendChild(link);
@@ -222,6 +228,7 @@ export function ImagePreviewDialog({
               style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}
             >
               <img
+                key={src}
                 src={src}
                 alt={title}
                 draggable={false}

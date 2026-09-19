@@ -10,6 +10,7 @@ import { inlineHtmlPreviewAssets } from "../shared/html-preview.mjs";
 import { fileDisplayName } from "../shared/document-name.js";
 import { UiIcon } from "./ui-icon";
 import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
 const officeIcons = {
   doc: Document,
   docx: Document,
@@ -793,6 +794,7 @@ export function Documents({
     kind: string;
     mime: string;
   } | null>(null);
+  const [imagePreview, setImagePreview] = useState<ImagePreviewSource | null>(null);
   const [error, setError] = useState("");
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [treeOpen, setTreeOpen] = useState(true);
@@ -839,6 +841,7 @@ export function Documents({
   useEffect(() => {
     setView(null);
     setError("");
+    setImagePreview(null);
     if (!selected) return;
     let alive = true;
     let objectUrl = "";
@@ -1538,7 +1541,19 @@ export function Documents({
       {view?.kind === "xlsx" && view.bytes && <XlsxPreview bytes={view.bytes} />}
       {view?.kind === "pptx" && view.bytes && <PptxPreview bytes={view.bytes} />}
       {view?.kind === "image" && version && (
-        <img src={view.url} alt={version.filename} />
+        <button
+          type="button"
+          className="doc-image-open"
+          title="打开预览"
+          onClick={() => setImagePreview({
+            id: version.id,
+            title: fileLabel(version),
+            filename: version.filename,
+            src: view.url,
+          })}
+        >
+          <img src={view.url} alt={version.filename} />
+        </button>
       )}{" "}
       {view?.kind === "pdf" && version && (
         <iframe title={version.filename} src={view.url} />
@@ -1942,6 +1957,15 @@ export function Documents({
         {organizeDialog}
         {deleteConfirmDialog}
         {changeRequestDialog}
+        {imagePreview && (
+          <ImagePreviewDialog
+            id={imagePreview.id}
+            title={imagePreview.title}
+            filename={imagePreview.filename}
+            src={imagePreview.src}
+            onClose={() => setImagePreview(null)}
+          />
+        )}
       </section>
     </div>
   );

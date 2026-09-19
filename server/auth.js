@@ -47,7 +47,7 @@ export async function issueCredential(
       kind === "api" ? await encryptToken(token, userId) : null,
     ],
   );
-  return { id, token, expiresAt: expiresAt.toISOString() };
+  return { id, token, expiresAt: expiresAt.toISOString(), version: 1 };
 }
 // 连接池使用 dateStrings + timezone "Z"：DATETIME 以 "YYYY-MM-DD HH:MM:SS[.fff]" 的 UTC 字符串返回。
 function utcTimestampToIso(value) {
@@ -63,11 +63,26 @@ export async function accountCredential(db, userId, reset = false) {
     const current = rows[0];
     if (!reset && rows.length === 1 && Number(current.valid) === 1 && !current.project_id && current.token_ciphertext) {
       return { id: current.id, token: await decryptToken(current.token_ciphertext, userId),
-        expiresAt: utcTimestampToIso(current.expires_at) };
+        expiresAt: utcTimestampToIso(current.expires_at), version: Number(current.version || 1) };
+    }
+    const token = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + 30 * 86400000);
+    const ciphertext = await encryptToken(token, userId);
+    if (current && !current.project_id) {
+      await query(conn, `UPDATE credentials SET token_hash=?,label='本地 Agent',expires_at=?,token_ciphertext=?,version=version+1
+        WHERE id=?`, [digest(token), expiresAt, ciphertext, current.id]);
+      await query(conn, "DELETE FROM credentials WHERE user_id=? AND kind='api' AND id<>?", [userId, current.id]);
+      return { id: current.id, token, expiresAt: expiresAt.toISOString(), version: Number(current.version || 1) + 1 };
     }
     await query(conn, "DELETE FROM credentials WHERE user_id=? AND kind='api'", [userId]);
     return issueCredential(conn, userId, "api", "本地 Agent");
   });
+}
+
+export async function accountCredentialVersion(db, userId) {
+  const [row] = await query(db, `SELECT version,expires_at FROM credentials
+    WHERE user_id=? AND kind='api' AND project_id IS NULL ORDER BY created_at DESC LIMIT 1`, [userId]);
+  return { version: Number(row?.version || 0), expiresAt: row ? utcTimestampToIso(row.expires_at) : null };
 }
 export async function authenticate(db, req) {
   const bearer = req.headers.authorization?.match(

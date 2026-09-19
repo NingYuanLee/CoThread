@@ -807,6 +807,22 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     const rows = await query(db, "SELECT id,label,project_id,expires_at,token_ciphertext FROM credentials WHERE user_id=? AND kind='api' ORDER BY created_at DESC", [req.user.id]);
     res.json(await Promise.all(rows.map(async ({ token_ciphertext, ...row }) => ({ ...row, token: token_ciphertext ? await decryptToken(token_ciphertext, req.user.id) : null }))));
   });
+  const mcpCredentialResponse = (credential) => ({
+    token: credential.token,
+    expiresAt: credential.expiresAt,
+    version: credential.version,
+    endpoint: makers ? "/cothread-mcp" : "/mcp",
+  });
+  app.get("/api/mcp/credential", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    res.setHeader("Cache-Control", "no-store");
+    res.json(mcpCredentialResponse(await accountCredential(db, req.user.id)));
+  });
+  app.post("/api/mcp/credential/reset", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    res.setHeader("Cache-Control", "no-store");
+    res.json(mcpCredentialResponse(await accountCredential(db, req.user.id, true)));
+  });
   app.post("/api/tokens/ensure", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     res.setHeader("Cache-Control", "no-store");

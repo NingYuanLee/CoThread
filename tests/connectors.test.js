@@ -320,7 +320,7 @@ test("connectors renew expired paused leases for interactive sessions and fetch 
   assert.equal(finished.source, "local_ai");
   assert.match(finished.body, /^@会话提出人 已完成登录页样式调整$/);
 
-  // 连接器只能 ensure 本账号的 MCP 令牌，不会重置；与网页看到的令牌一致。
+  // 连接器只能读取令牌版本并按需获取本账号 MCP 令牌，不会重置。
   assert.equal((await request("/connector/mcp-credential", {})).status, 401);
   const credential = await request("/connector/mcp-credential", {}, developerConnector);
   assert.equal(credential.status, 200);
@@ -337,9 +337,14 @@ test("connectors renew expired paused leases for interactive sessions and fetch 
   assert.equal(listedTokens.body[0].token, credential.body.token);
   const again = await request("/connector/mcp-credential", {}, developerConnector);
   assert.equal(again.body.token, credential.body.token);
+  const version = await request("/connector/mcp-credential/version", undefined, developerConnector, "GET");
+  assert.equal(version.status, 200);
+  assert.equal(version.body.version, credential.body.version);
   const reset = await request("/tokens", {}, developer);
   assert.equal(reset.status, 201);
   assert.notEqual(reset.body.token, credential.body.token);
+  const nextVersion = await request("/connector/mcp-credential/version", undefined, developerConnector, "GET");
+  assert.equal(nextVersion.body.version, version.body.version + 1);
   assert.equal((await request("/connector/mcp-credential", {}, developerConnector)).body.token, reset.body.token);
   const mcpAsDeveloper = await fetch(`${base}/mcp`, {
     method: "POST",
@@ -348,24 +353,16 @@ test("connectors renew expired paused leases for interactive sessions and fetch 
   });
   assert.equal(mcpAsDeveloper.status, 200);
 
-  // 连接器可主动重置本账号 MCP 令牌：旧令牌立即失效，新令牌可用，且仍是账号唯一令牌。
+  // 令牌重置只能通过个人设置；连接器重置路径不存在。
   assert.equal((await request("/connector/mcp-credential/reset", {})).status, 401);
-  const rotated = await request("/connector/mcp-credential/reset", {}, developerConnector);
-  assert.equal(rotated.status, 200);
-  assert.match(rotated.body.token, /^[A-Za-z0-9_-]{40,}$/);
-  assert.notEqual(rotated.body.token, reset.body.token);
-  assert.equal(rotated.body.endpoint, "/mcp");
-  assert.equal((await request("/connector/mcp-credential", {}, developerConnector)).body.token, rotated.body.token);
-  const afterReset = await request("/tokens", undefined, developer);
-  assert.equal(afterReset.body.length, 1);
-  assert.equal(afterReset.body[0].token, rotated.body.token);
+  assert.equal((await request("/connector/mcp-credential/reset", {}, developerConnector)).status, 401);
   const mcpInit = (bearerToken) => fetch(`${base}/mcp`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${bearerToken}` },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "1" } } }),
   });
-  assert.equal((await mcpInit(reset.body.token)).status, 401);
-  assert.equal((await mcpInit(rotated.body.token)).status, 200);
+  assert.equal((await mcpInit(credential.body.token)).status, 401);
+  assert.equal((await mcpInit(reset.body.token)).status, 200);
 });
 
 test("abandoning then retrying on the connector reopens the pool task and every step is in the status log", async () => {

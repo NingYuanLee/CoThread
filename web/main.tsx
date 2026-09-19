@@ -53,6 +53,7 @@ import { DialogClose, ModalBackdrop, animateDialogClose, onDialogBackdropClick, 
 import { ImagePreviewDialog } from "./ImagePreview";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { folderRootKind } from "./Documents";
+import { McpSettings } from "./McpSettings";
 
 function CoThreadLogo({
   className,
@@ -440,6 +441,7 @@ type Modal =
   | "archive"
   | "password"
   | "email"
+  | "mcp"
   | "run"
   | null;
 async function api(path: string, data?: unknown, method?: string, signal?: AbortSignal, extraHeaders?: HeadersInit) {
@@ -734,20 +736,20 @@ function App() {
     }
     if (run.executor_type === "human_self") return memberName(run.executor_id) || "成员本人";
     if (run.executor_type === "human_connector") {
-      const ownerName = run.executor_member_name || run.executor_owner_name;
+      const ownerName = run.executor_member_name || run.executor_owner_name || memberName(task.target_id);
       return ownerName ? `${ownerName}（连接器）` : "连接器成员";
     }
     return labelExecutorType(run.executor_type);
   };
-  const statusActorLabel = (event: { actor_type: string; actor_id: string | null; actor_name?: string | null; actor_name_snapshot?: string | null }) => {
+  const statusActorLabel = (event: { actor_type: string; actor_id: string | null; actor_name?: string | null; actor_name_snapshot?: string | null }, task?: AgentTaskDetail) => {
     if (event.actor_type === "human_member") return event.actor_name || memberName(event.actor_id) || "成员";
     if (event.actor_type === "human_member_mcp") return `${memberName(event.actor_id) || "成员"}（MCP）`;
-    if (event.actor_type === "human_member_connector_mcp" || event.actor_type === "human_member_connector") return `${event.actor_name || memberName(event.actor_id) || "成员"}（连接器）`;
+    if (event.actor_type === "human_member_connector_mcp" || event.actor_type === "human_member_connector") return `${event.actor_name || memberName(event.actor_id) || memberName(task?.target_id) || "成员"}（连接器）`;
     if (event.actor_type === "l2_session") return "L2-小祥";
     if (event.actor_type === "dsh_l3") {
       return event.actor_name_snapshot || "L3-未知";
     }
-    if (event.actor_type === "connector") return event.actor_name || "连接器成员";
+    if (event.actor_type === "connector") return `${event.actor_name || memberName(task?.target_id) || "成员"}（连接器）`;
     return "系统";
   };
   // 指派事件与状态变更合成一条时间线：同一操作（创建 / 拒绝 / 重新发起）两边各有一条时，合并显示，不重复。
@@ -2386,7 +2388,7 @@ function App() {
                     {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.kind !== "l1" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}><UiIcon name="transfer" size={13} />确认转交</button></section>}
                     {isTarget && task.execution_agent_type === "human_self" && !endedTask(task.status) && task.status !== "awaiting_acceptance" && <section className="task-actions-section"><h4>进度与结果</h4><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "abandoned", resultSummary: taskResult || "已放弃" }, "PATCH"))}><UiIcon name="abandon" size={13} />放弃</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", resultSummary: taskResult || "已完成" }, "PATCH"))}><UiIcon name="complete" size={13} />完成</button></div></section>}
                     {!!task.executionRuns.length && <section><h4>执行轮次</h4><div className="task-execution-flow">{[...task.executionRuns].sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at)).map((run, index, runs) => <div className={`task-execution-step${index === runs.length - 1 ? " is-latest" : ""}`} key={run.id}><div className="task-execution-node"><div className="task-execution-heading"><strong>{executionRunLabel(run, task)}</strong></div><div className="task-execution-meta"><span>{labelWorkflowStatus(run.status)}</span><small>{time(run.created_at)}</small></div></div>{index < runs.length - 1 && <i className="task-execution-connector" aria-hidden="true" />}</div>)}</div></section>}
-                    {(!!task.assignmentHistory.length || !!task.statusHistory?.length) && <section><h4>变更记录</h4><div className="task-history task-change-log">{taskChangeLog(task).map((item, index) => <div className={`task-change-item${index === 0 ? " is-latest" : ""}`} key={item.key}><i className="task-change-marker" aria-hidden="true" /><div className="task-change-content"><div className="task-change-heading"><strong>{item.title}</strong><span>{statusActorLabel({ actor_type: item.actorType, actor_id: item.actorId, actor_name: item.actorName })} · {time(item.at)}</span></div>{item.transition && <small>当时任务状态：{item.transition}</small>}{item.reason && <small>{item.reason}</small>}</div></div>)}</div></section>}
+                    {(!!task.assignmentHistory.length || !!task.statusHistory?.length) && <section><h4>变更记录</h4><div className="task-history task-change-log">{taskChangeLog(task).map((item, index) => <div className={`task-change-item${index === 0 ? " is-latest" : ""}`} key={item.key}><i className="task-change-marker" aria-hidden="true" /><div className="task-change-content"><div className="task-change-heading"><strong>{item.title}</strong><span>{statusActorLabel({ actor_type: item.actorType, actor_id: item.actorId, actor_name: item.actorName }, task)} · {time(item.at)}</span></div>{item.transition && <small>当时任务状态：{item.transition}</small>}{item.reason && <small>{item.reason}</small>}</div></div>)}</div></section>}
                   </>}
                   {taskActionError && !taskCreateOpen && <p className="project-settings-error" role="alert">{taskActionError}</p>}
                 </div>;
@@ -2545,7 +2547,7 @@ function App() {
       {modal && (
         <ModalBackdrop onClose={() => setModal(null)} enabled={!busy}>
           {(close) => <section
-            className={`modal ${["profile", "settings", "password", "email", "admin-projects", "admin-accounts", "admin-plugins"].includes(modal) ? "workspace-settings" : ""}`}
+            className={`modal ${["profile", "settings", "password", "email", "mcp", "admin-projects", "admin-accounts", "admin-plugins"].includes(modal) ? "workspace-settings" : ""}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-title"
@@ -2561,6 +2563,7 @@ function App() {
                     archive: "归档本次迭代",
                     password: "个人设置",
                     email: "个人设置",
+                    mcp: "个人设置",
                     "admin-projects": "系统管理",
                     "admin-accounts": "系统管理",
                     "admin-plugins": "系统管理",
@@ -2572,12 +2575,12 @@ function App() {
             </div>
             <div
               className={
-                ["profile", "settings", "password", "email", "admin-projects", "admin-accounts", "admin-plugins"].includes(modal)
+                ["profile", "settings", "password", "email", "mcp", "admin-projects", "admin-accounts", "admin-plugins"].includes(modal)
                   ? "settings-layout"
                   : undefined
               }
             >
-              {["profile", "settings", "password", "email", "admin-projects", "admin-accounts", "admin-plugins"].includes(
+              {["profile", "settings", "password", "email", "mcp", "admin-projects", "admin-accounts", "admin-plugins"].includes(
                 modal,
               ) && (
                 <nav className="settings-nav" aria-label="设置项目">
@@ -2593,6 +2596,7 @@ function App() {
                       ["profile", "个人资料", "human"],
                       ["password", "修改密码", "lock"],
                       ["email", "绑定邮箱", "email"],
+                      ["mcp", "MCP 配置", "key"],
                       ["settings", "退出登录", "logout"],
                     ] as const).map(([value, label, icon]) => (
                     <button
@@ -2617,7 +2621,7 @@ function App() {
                     onProjectsChanged={async () => { setProjects(await api("/projects")); }}
                   />
                 )}
-                {["profile", "settings", "password", "email"].includes(
+                {["profile", "settings", "password", "email", "mcp"].includes(
                   modal,
                 ) && (
                   <div className="settings-content-heading">
@@ -2628,12 +2632,16 @@ function App() {
                           ? "修改密码"
                           : modal === "email"
                             ? "绑定邮箱"
-                            : "退出登录"}
+                            : modal === "mcp"
+                              ? "MCP 配置"
+                              : "退出登录"}
                     </h3>
                     <p>
                       {modal === "email"
                         ? "验证邮箱后，可使用邮箱登录和找回密码。"
-                        : "管理你的通用账号"}
+                        : modal === "mcp"
+                          ? "跨 Windows、macOS 和 Linux 使用共序 MCP。"
+                          : "管理你的通用账号"}
                     </p>
                   </div>
                 )}
@@ -2753,6 +2761,7 @@ function App() {
                   </>
                 )}
                 {modal === "email" && <EmailBinding email={user.email} api={api} onBound={(profile) => { setUser(profile); }} />}
+                {modal === "mcp" && <McpSettings api={api} endpoint={health?.mcpEndpoint || "/mcp"} />}
                 {modal === "run" && (
                   <>
                     <p>

@@ -1443,6 +1443,9 @@ export class Service {
       return submittedVersion(versionId, artifactId, 1, digest(bytes), data);
     });
   }
+  async uploadSourceFile(user, threadId, input) {
+    return this.submitVersion(user, threadId, input, undefined, undefined, false, { silent: true });
+  }
   async submitVersion(
     user,
     threadId,

@@ -105,6 +105,13 @@ test("task controls follow the interactive session lifecycle instead of process 
   assert.match(main, /"start", `CoThread 任务 - \$\{agentLabel\(kind\)\}`, "\/wait"/);
   assert.match(main, /entry\.state = "paused";/);
   assert.match(main, /const PAUSED_PROGRESS = "本机会话已关闭，可继续或结案"/);
+  assert.match(main, /currentOperation = \{ type: command\.type, taskId: String\(payload\.taskId\)/);
+  assert.match(main, /已点击「\$\{taskActionLabels\[command\.type\]\}」：任务/);
+  assert.match(main, /operation: currentOperation/);
+  assert.match(gui, /pendingTaskActions/);
+  assert.match(gui, /Set-TaskPending \$row '处理中…'/);
+  assert.match(gui, /IsEnabled="\{Binding controlsEnabled\}"/);
+  assert.match(gui, /statusText=\$\(if\(\$pending\)\{\[string\]\$pending\.label\}/);
   assert.match(main, /Date\.now\(\) - \(entry\.pausedHeartbeatAt \|\| 0\) >= 5 \* 60000/);
   assert.match(main, /const tasksPath = path\.join\(appDir, "tasks\.json"\)/);
   assert.match(main, /\["worktree", "add", "-b", branch, dest, "HEAD"\]/);
@@ -115,7 +122,7 @@ test("task controls follow the interactive session lifecycle instead of process 
 test("connector detects three agents and writes their MCP configuration", async () => {
   const [gui, main] = await Promise.all([readFile(guiPath, "utf8"), readFile(mainPath, "utf8")]);
 
-  for (const name of ["CursorStatusText", "CodexStatusText", "ClaudeStatusText", "CursorMcpText", "CodexMcpText", "ClaudeMcpText", "RefreshMcpButton", "ResetMcpButton"])
+  for (const name of ["CursorStatusText", "CodexStatusText", "ClaudeStatusText", "CursorMcpText", "CodexMcpText", "ClaudeMcpText", "RefreshMcpButton"])
     assert.match(gui, new RegExp(`x:Name="${name}"`));
   assert.doesNotMatch(gui, /Text="共序 MCP"/);
   assert.match(gui, /x:Name="AgentPanel"/);
@@ -127,10 +134,9 @@ test("connector detects three agents and writes their MCP configuration", async 
   assert.match(gui, /Send-Command 'installPrerequisite' @\{ name='cursor' \}/);
   assert.match(gui, /Send-Command 'installPrerequisite' @\{ name='claude' \}/);
   assert.match(gui, /Send-Command 'refreshMcp'/);
-  // 重置令牌会让旧令牌立即失效，必须先经 MessageBox 确认。
-  assert.match(gui, /MessageBox\]::Show\("重置后本账号的旧 MCP 令牌立即失效[\s\S]*?'YesNo', 'Warning'\)\s*\n\s*if \(\$answer -eq 'Yes'\) \{ Send-Command 'resetMcp' \}/);
-  assert.match(main, /"\/api\/connector\/mcp-credential\/reset"/);
-  assert.match(main, /command\.type === "resetMcp"/);
+  assert.match(gui, /检查并更新 MCP 配置/);
+  assert.doesNotMatch(gui, /ResetMcpButton|resetMcp/);
+  assert.doesNotMatch(main, /mcp-credential\/reset|resetMcp|mcp-token\.dat|loadMcpToken|storeMcpToken/);
   assert.match(gui, /\$ProjectPanel\.IsEnabled = \[bool\]\(\$state\.paired -and \$state\.prerequisites\.gitInstalled\)/);
   assert.doesNotMatch(gui, /gitInstalled -and \$anyAgent/);
 
@@ -140,7 +146,8 @@ test("connector detects three agents and writes their MCP configuration", async 
   assert.match(main, /const environmentReady = \(\) => prerequisites\.gitInstalled;/);
   assert.match(main, /online: !!token && environmentReady\(\) && !errorText/);
   assert.match(main, /"\/api\/connector\/mcp-credential"/);
-  assert.match(main, /remaining < 7 \* 86400000/);
+  assert.match(main, /"\/api\/connector\/mcp-credential\/version"/);
+  assert.match(main, /sinceCheck >= 60 \* 1000/);
   assert.match(main, /\.cursor", "mcp\.json"/);
   assert.match(main, /\["mcp", "enable", MCP_SERVER_NAME\]/);
   assert.match(main, /\.codex", "config\.toml"/);
@@ -257,7 +264,7 @@ test("idle connector skips unchanged UI reloads", async () => {
   assert.match(main, /build >= 22000\) return `Windows 11/);
   assert.match(main, /if \(text === lastPublished\) return/);
   assert.match(main, /if \(publishState\) await publish\(\)/);
-  assert.match(main, /if \(changed \|\| reset \|\| force\) await writeConfig\(config\)/);
+  assert.match(main, /if \(changed \|\| force\) await writeConfig\(config\)/);
   assert.match(main, /Date\.now\(\) - prerequisitesCheckedAt > 5 \* 60000/);
   assert.doesNotMatch(main, /command\.type === "refreshProjects"[\s\S]{0,280}prerequisites = checkPrerequisites\(\)/);
   assert.match(gui, /if \(\$stamp -eq \$script:stateStamp\) \{ return \}/);

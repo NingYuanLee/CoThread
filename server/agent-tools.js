@@ -182,13 +182,14 @@ export function createAgentTools(
               reason: z.string().trim().max(1000).optional().parse(args.reason),
             });
       } else if (name === "recover_task") {
-        result = await recoverAbnormalTask(service.db, z.string().uuid().parse(args.taskId),
+          result = await recoverAbnormalTask(service.db, z.string().uuid().parse(args.taskId),
           l2Actor(job, l2SessionId), {
             action: z.enum(["restart", "cancel"]).parse(args.action),
             title: z.string().trim().min(1).max(240).optional().parse(args.title),
             goal: z.string().trim().min(1).max(20000).optional().parse(args.goal),
             constraints: args.constraints !== undefined ? z.string().max(20000).optional().parse(args.constraints) : undefined,
             reason: z.string().trim().max(1000).optional().parse(args.reason),
+            environmentChanged: args.environmentChanged === true,
           });
       } else if (name === "ask_task_question") {
         const taskId = z.string().uuid().parse(args.taskId);

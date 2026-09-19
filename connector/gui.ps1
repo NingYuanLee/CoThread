@@ -156,8 +156,7 @@ try {
             </Grid>
             <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,10,0,0">
               <TextBlock Text="开始任务时从已安装的 TUI 中选一个即可。" Foreground="#849083" VerticalAlignment="Center" Margin="0,0,16,0"/>
-              <Button x:Name="RefreshMcpButton" Content="重写 MCP 配置" Style="{StaticResource EnvActionButton}"/>
-              <Button x:Name="ResetMcpButton" Content="重置 MCP 令牌" Style="{StaticResource EnvDangerButton}" ToolTip="账号旧令牌立即失效并签发新令牌；令牌疑似泄露时使用"/>
+              <Button x:Name="RefreshMcpButton" Content="检查并更新 MCP 配置" Style="{StaticResource EnvActionButton}" ToolTip="检查账号 MCP 令牌版本，变化时更新本机 Agent 配置"/>
             </StackPanel>
           </Grid>
         </StackPanel>
@@ -212,13 +211,13 @@ try {
               </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
               <DataGridTextColumn Header="Agent" Binding="{Binding agentText}" Width="88" MinWidth="72" Foreground="#657064"/>
               <DataGridTemplateColumn Header="控制" Width="340" MinWidth="220"><DataGridTemplateColumn.CellTemplate><DataTemplate><StackPanel Orientation="Horizontal">
-                <Button x:Name="AbandonTaskButton" Content="放弃并通知" Style="{StaticResource CompactButton}" Visibility="{Binding abandonVisibility}" Background="#F8F2EF" BorderBrush="#E7CFC6" Foreground="#935743"/><Button x:Name="StartTaskButton" Content="开始" Style="{StaticResource CompactButton}" Visibility="{Binding startVisibility}" Background="#527A55" BorderBrush="#527A55" Foreground="#FFFFFF" ToolTip="在新窗口打开本机 Agent 会话"/>
-                <Button x:Name="ContinueTaskButton" Content="继续" Style="{StaticResource CompactButton}" Visibility="{Binding continueVisibility}" Background="#527A55" BorderBrush="#527A55" Foreground="#FFFFFF" ToolTip="续接原会话，保留未提交改动"/>
-                <Button x:Name="FinishTaskButton" Content="完成并通知" Style="{StaticResource CompactButton}" Visibility="{Binding finishVisibility}" Background="#EAF5F2" BorderBrush="#BFDDD5" Foreground="#397466" ToolTip="按开始时的基线计算 Diff 并通知迭代群聊；默认不写入主仓库"/>
-                <Button x:Name="FailTaskButton" Content="失败并通知" Style="{StaticResource CompactButton}" Visibility="{Binding failVisibility}" Background="#A85B50" BorderBrush="#A85B50" Foreground="#FFFFFF"/><Button x:Name="RetryTaskButton" Content="重试" Style="{StaticResource CompactButton}" Visibility="{Binding retryVisibility}" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84" ToolTip="新建会话重新开始"/>
-                <Button x:Name="NotifyTaskButton" Content="通知" Style="{StaticResource CompactButton}" Visibility="{Binding notifyVisibility}" Background="#EAF5F2" BorderBrush="#BFDDD5" Foreground="#397466"/>
-                <Button x:Name="ApplyTaskButton" Content="应用到主仓库" Style="{StaticResource CompactButton}" Visibility="{Binding applyVisibility}" Background="#527A55" BorderBrush="#527A55" Foreground="#FFFFFF" ToolTip="把独立工作副本中的改动写入主仓库"/>
-                <Button x:Name="DiscardWorktreeButton" Content="丢弃副本" Style="{StaticResource CompactButton}" Visibility="{Binding discardVisibility}" Background="#F8F2EF" BorderBrush="#E7CFC6" Foreground="#935743" ToolTip="删除未写入主仓库的工作副本，无法恢复"/>
+                <Button x:Name="AbandonTaskButton" Content="放弃并通知" IsEnabled="{Binding controlsEnabled}" Style="{StaticResource CompactButton}" Visibility="{Binding abandonVisibility}" Background="#F8F2EF" BorderBrush="#E7CFC6" Foreground="#935743"/><Button x:Name="StartTaskButton" Content="开始" IsEnabled="{Binding controlsEnabled}" Style="{StaticResource CompactButton}" Visibility="{Binding startVisibility}" Background="#527A55" BorderBrush="#527A55" Foreground="#FFFFFF" ToolTip="在新窗口打开本机 Agent 会话"/>
+                <Button x:Name="ContinueTaskButton" Content="继续" IsEnabled="{Binding controlsEnabled}" Style="{StaticResource CompactButton}" Visibility="{Binding continueVisibility}" Background="#527A55" BorderBrush="#527A55" Foreground="#FFFFFF" ToolTip="续接原会话，保留未提交改动"/>
+                <Button x:Name="FinishTaskButton" Content="完成并通知" IsEnabled="{Binding controlsEnabled}" Style="{StaticResource CompactButton}" Visibility="{Binding finishVisibility}" Background="#EAF5F2" BorderBrush="#BFDDD5" Foreground="#397466" ToolTip="按开始时的基线计算 Diff 并通知迭代群聊；默认不写入主仓库"/>
+                <Button x:Name="FailTaskButton" Content="失败并通知" IsEnabled="{Binding controlsEnabled}" Style="{StaticResource CompactButton}" Visibility="{Binding failVisibility}" Background="#A85B50" BorderBrush="#A85B50" Foreground="#FFFFFF"/><Button x:Name="RetryTaskButton" Content="重试" IsEnabled="{Binding controlsEnabled}" Style="{StaticResource CompactButton}" Visibility="{Binding retryVisibility}" Background="#EEF4F8" BorderBrush="#C6D9E5" Foreground="#426C84" ToolTip="新建会话重新开始"/>
+                <Button x:Name="NotifyTaskButton" Content="通知" IsEnabled="{Binding controlsEnabled}" Style="{StaticResource CompactButton}" Visibility="{Binding notifyVisibility}" Background="#EAF5F2" BorderBrush="#BFDDD5" Foreground="#397466"/>
+                <Button x:Name="ApplyTaskButton" Content="应用到主仓库" IsEnabled="{Binding controlsEnabled}" Style="{StaticResource CompactButton}" Visibility="{Binding applyVisibility}" Background="#527A55" BorderBrush="#527A55" Foreground="#FFFFFF" ToolTip="把独立工作副本中的改动写入主仓库"/>
+                <Button x:Name="DiscardWorktreeButton" Content="丢弃副本" IsEnabled="{Binding controlsEnabled}" Style="{StaticResource CompactButton}" Visibility="{Binding discardVisibility}" Background="#F8F2EF" BorderBrush="#E7CFC6" Foreground="#935743" ToolTip="删除未写入主仓库的工作副本，无法恢复"/>
               </StackPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
             </DataGrid.Columns>
           </DataGrid>
@@ -259,7 +258,7 @@ $window.Add_SourceInitialized({
   $handle = (New-Object System.Windows.Interop.WindowInteropHelper($window)).EnsureHandle()
   [CoThreadWindowIcon]::BindWindow($handle, $bigWindowIcon.Handle, $smallWindowIcon.Handle, 'CoThread.Connector', ($IconPath + ',0'), 'CoThread Connector', $relaunchCommand)
 })
-$names = @('StatusDot','StatusText','ReauthorizeButton','PairPanel','ServerInput','PairButton','PrerequisitePanel','CheckButton','GitStatusText','GitHintText','InstallGitButton','CursorStatusText','InstallCursorButton','CodexStatusText','InstallCodexButton','ClaudeStatusText','InstallClaudeButton','CursorMcpText','CodexMcpText','ClaudeMcpText','RefreshMcpButton','ResetMcpButton','ProjectPanel','MainTabs','RefreshButton','ProjectGrid','BoundProjectsOnlyCheck','AutoStartCheck','RefreshTaskButton','TaskGrid','OpenTasksOnlyCheck','LogText')
+$names = @('StatusDot','StatusText','ReauthorizeButton','PairPanel','ServerInput','PairButton','PrerequisitePanel','CheckButton','GitStatusText','GitHintText','InstallGitButton','CursorStatusText','InstallCursorButton','CodexStatusText','InstallCodexButton','ClaudeStatusText','InstallClaudeButton','CursorMcpText','CodexMcpText','ClaudeMcpText','RefreshMcpButton','ProjectPanel','MainTabs','RefreshButton','ProjectGrid','BoundProjectsOnlyCheck','AutoStartCheck','RefreshTaskButton','TaskGrid','OpenTasksOnlyCheck','LogText')
 foreach ($name in $names) { Set-Variable -Name $name -Value $window.FindName($name) }
 $script:allowExit = $false
 $script:projectSignature = ''
@@ -269,6 +268,7 @@ $script:lastLogs = ''
 $script:taskSignature = ''
 $script:projectViewSignature = ''
 $script:taskViewSignature = ''
+$script:pendingTaskActions = @{}
 $script:stateStamp = ''
 $script:authorizationRequested = $false
 $script:authorizationStarted = $false
@@ -335,6 +335,26 @@ function Show-FilteredTasks {
   if ($view -eq $script:taskViewSignature) { return }
   $script:taskViewSignature = $view
   $TaskGrid.ItemsSource = $rows
+}
+
+function Set-TaskPending($row, [string]$label) {
+  $taskId = [string]$row.id
+  $script:pendingTaskActions[$taskId] = [pscustomobject]@{ label=$label; observed=$false; startedAt=[DateTime]::UtcNow }
+  $script:taskViewSignature = ''
+  Show-FilteredTasks
+}
+
+function Clear-ObservedTaskActions($operation) {
+  $operationTaskId = if ($null -ne $operation) { [string]$operation.taskId } else { '' }
+  if ($operationTaskId -and $script:pendingTaskActions.ContainsKey($operationTaskId)) {
+    $script:pendingTaskActions[$operationTaskId].observed = $true
+  }
+  if ($null -eq $operation) {
+    foreach ($taskId in @($script:pendingTaskActions.Keys)) {
+      $pending = $script:pendingTaskActions[$taskId]
+      if ($pending.observed -or ([DateTime]::UtcNow - $pending.startedAt).TotalSeconds -ge 2) { $script:pendingTaskActions.Remove($taskId) }
+    }
+  }
 }
 
 function Send-Command([string]$type, $payload = @{}) {
@@ -472,10 +492,6 @@ $InstallCursorButton.Add_Click({ Send-Command 'installPrerequisite' @{ name='cur
 $InstallCodexButton.Add_Click({ Send-Command 'installPrerequisite' @{ name='codex' } })
 $InstallClaudeButton.Add_Click({ Send-Command 'installPrerequisite' @{ name='claude' } })
 $RefreshMcpButton.Add_Click({ Send-Command 'refreshMcp' })
-$ResetMcpButton.Add_Click({
-  $answer = [System.Windows.MessageBox]::Show("重置后本账号的旧 MCP 令牌立即失效，其他设备上手动配置的 MCP 也会断开；本机已检测到的 Agent 会自动重写配置，已打开的会话需新开才生效。`n`n确定重置？", 'CoThread Connector', 'YesNo', 'Warning')
-  if ($answer -eq 'Yes') { Send-Command 'resetMcp' }
-})
 $ProjectGrid.AddHandler([System.Windows.Controls.Button]::ClickEvent, [System.Windows.RoutedEventHandler]{
   param($sender,$eventArgs)
   $button = $eventArgs.OriginalSource
@@ -554,25 +570,25 @@ $TaskGrid.AddHandler([System.Windows.Controls.Button]::ClickEvent, [System.Windo
   $actions = @{ AbandonTaskButton='abandon'; NotifyTaskButton='notify' }
   if ($button.Name -eq 'StartTaskButton') {
     $kind = Select-AgentKind $row
-    if ($null -ne $kind) { Send-Command 'startTask' @{ taskId=$row.id; agentKind=$kind } }
+    if ($null -ne $kind) { Set-TaskPending $row '处理中…'; Send-Command 'startTask' @{ taskId=$row.id; agentKind=$kind } }
   } elseif ($button.Name -eq 'ContinueTaskButton') {
     $kind = Select-AgentKind $row
-    if ($null -ne $kind) { Send-Command 'startTask' @{ taskId=$row.id; agentKind=$kind } }
+    if ($null -ne $kind) { Set-TaskPending $row '处理中…'; Send-Command 'startTask' @{ taskId=$row.id; agentKind=$kind } }
   } elseif ($button.Name -eq 'RetryTaskButton') {
     $kind = Select-AgentKind ([pscustomobject]@{ localAgentKind='' })
-    if ($null -ne $kind) { Send-Command 'startTask' @{ taskId=$row.id; agentKind=$kind; retry=$true } }
+    if ($null -ne $kind) { Set-TaskPending $row '处理中…'; Send-Command 'startTask' @{ taskId=$row.id; agentKind=$kind; retry=$true } }
   } elseif ($button.Name -eq 'FinishTaskButton') {
     $result = Show-TextDialog '完成并通知' '确认结案并通知迭代群聊' '改动目前只在独立工作副本中，默认不会写入你的主仓库。连接器会按开始时的 Git 基线计算 Diff 回传到迭代群聊；摘要可选，留空则使用默认结案说明。' '完成并通知' '例如：已完成登录页样式调整，未改接口。' '同时应用到主仓库'
-    if ($null -ne $result) { Send-Command 'finishTask' @{ taskId=$row.id; summary=[string]$result.Text; applyToMain=[bool]$result.Checked } }
+    if ($null -ne $result) { Set-TaskPending $row '处理中…'; Send-Command 'finishTask' @{ taskId=$row.id; summary=[string]$result.Text; applyToMain=[bool]$result.Checked } }
   } elseif ($button.Name -eq 'FailTaskButton') {
     $reason = Show-TextDialog '标记失败' '将此任务标记为失败' '任务会以失败状态回到迭代群聊，本机会话记录随之清理；可填写原因，留空则记为「本机执行未完成」。' '标记失败' '例如：需求与现有实现冲突，需要提出人确认。'
-    if ($null -ne $reason) { Send-Command 'failTask' @{ taskId=$row.id; reason=$reason } }
+    if ($null -ne $reason) { Set-TaskPending $row '处理中…'; Send-Command 'failTask' @{ taskId=$row.id; reason=$reason } }
   } elseif ($button.Name -eq 'ApplyTaskButton') {
-    Send-Command 'applyTask' @{ taskId=$row.id }
+    Set-TaskPending $row '处理中…'; Send-Command 'applyTask' @{ taskId=$row.id }
   } elseif ($button.Name -eq 'DiscardWorktreeButton') {
     $answer = [System.Windows.MessageBox]::Show("丢弃后独立工作副本无法恢复，主仓库也不会写入这些改动。`n`n确定丢弃？", 'CoThread Connector', 'YesNo', 'Warning')
-    if ($answer -eq 'Yes') { Send-Command 'discardWorktree' @{ taskId=$row.id } }
-  } elseif ($actions.ContainsKey($button.Name)) { Send-Command 'taskAction' @{ taskId=$row.id; action=$actions[$button.Name] } }
+    if ($answer -eq 'Yes') { Set-TaskPending $row '处理中…'; Send-Command 'discardWorktree' @{ taskId=$row.id } }
+  } elseif ($actions.ContainsKey($button.Name)) { Set-TaskPending $row '处理中…'; Send-Command 'taskAction' @{ taskId=$row.id; action=$actions[$button.Name] } }
 })
 $AutoStartCheck.Add_Click({ Send-Command 'autoStart' @{ enabled=[bool]$AutoStartCheck.IsChecked } })
 $BoundProjectsOnlyCheck.Add_Click({ Show-FilteredProjects })
@@ -605,7 +621,8 @@ $timer.Add_Tick({
   } catch { return }
   $title = "CoThread Connector $($state.version)"
   if ($window.Title -ne $title) { $window.Title = $title }
-  Set-ControlText $StatusText $state.status
+  Clear-ObservedTaskActions $state.operation
+  Set-ControlText $StatusText $(if ($state.operation) { [string]$state.operation.label } else { [string]$state.status })
   $newProjectRefreshRevision = [int]$state.projectRefreshRevision
   $newTaskRefreshRevision = [int]$state.taskRefreshRevision
   if ($script:projectRefreshRequested -and $newProjectRefreshRevision -gt $script:projectRefreshBaseline) {
@@ -655,7 +672,6 @@ $timer.Add_Tick({
   Set-AgentMcpText $CodexMcpText ([bool]$agents.codex.installed) ([bool]$state.paired) ([bool]$state.mcp.configured) $state.mcp.agents.codex $state.mcp.expiresAt
   Set-AgentMcpText $ClaudeMcpText ([bool]$agents.claude.installed) ([bool]$state.paired) ([bool]$state.mcp.configured) $state.mcp.agents.claude $state.mcp.expiresAt
   Set-ControlVisible $RefreshMcpButton ([bool]($state.paired -and $anyAgent))
-  Set-ControlVisible $ResetMcpButton ([bool]$state.paired)
   $ProjectPanel.IsEnabled = [bool]($state.paired -and $state.prerequisites.gitInstalled)
   if ($AutoStartCheck.IsChecked -ne [bool]$state.autoStart) { $AutoStartCheck.IsChecked = [bool]$state.autoStart }
   if (-not $ServerInput.Text) { $ServerInput.Text = [string]$state.server }
@@ -678,14 +694,16 @@ $timer.Add_Tick({
   }
   $taskSignature = (@($state.tasks) | Where-Object { $null -ne $_ } | ForEach-Object {
     $latest = if ($_.latestAt) { ([datetime]$_.latestAt).ToLocalTime().ToString('MM-dd HH:mm') } else { '' }
-    '{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}' -f [string]$_.id, [string]$_.status, [string]$_.target, [string]$_.projectName, [string]$_.threadTitle, [string]$_.requestedByName, [string]$_.localAgentKind, [int][bool]$_.windowOpen, [int][bool]$_.hasLocalRecord, $latest
+    $pending = if ($script:pendingTaskActions.ContainsKey([string]$_.id)) { $script:pendingTaskActions[[string]$_.id] } else { $null }
+    '{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}' -f [string]$_.id, [string]$_.status, [string]$_.target, [string]$_.projectName, [string]$_.threadTitle, [string]$_.requestedByName, [string]$_.localAgentKind, [int][bool]$_.windowOpen, [int][bool]$_.hasLocalRecord, $latest, [string]$pending.label
   }) -join "`n"
   if ($taskSignature -ne $script:taskSignature) {
     $script:taskSignature = $taskSignature
     $labels = @{ awaiting_approval='待确认'; queued='待开始'; running='会话进行中'; paused='会话已关闭'; stopped_pending_approval='终止待通过'; failed_pending_notification='失败待通知'; completed_pending_notification='成功待通知'; cancelled='终止'; completed='成功'; failed='失败'; interrupted='终止' }
     $script:taskRows = @($state.tasks | Where-Object { $null -ne $_ } | ForEach-Object {
       $status = [string]$_.status
-      $statusColors = switch ($status) {
+      $pending = if ($script:pendingTaskActions.ContainsKey([string]$_.id)) { $script:pendingTaskActions[[string]$_.id] } else { $null }
+      $statusColors = if ($pending) { @('#FFF6DF','#8A681A') } else { switch ($status) {
         'queued' { @('#EEF4F8','#426C84') }
         'running' { @('#EAF5EC','#3F7047') }
         'paused' { @('#FFF6DF','#8A681A') }
@@ -694,9 +712,9 @@ $timer.Add_Tick({
         'awaiting_approval' { @('#F1EFF8','#66578A') }
         { $_ -in @('failed','failed_pending_notification','cancelled','interrupted','stopped_pending_approval') } { @('#F8ECE9','#985347') }
         default { @('#F0F2EF','#687168') }
-      }
+      } }
       $_ | Add-Member -NotePropertyMembers @{
-        statusText=$labels[$status]
+        statusText=$(if($pending){[string]$pending.label}else{$labels[$status]})
         statusBackground=$statusColors[0]
         statusForeground=$statusColors[1]
         receivedText=$(if($_.receivedAt){([datetime]$_.receivedAt).ToLocalTime().ToString('MM-dd HH:mm')}else{'-'})
@@ -712,6 +730,7 @@ $timer.Add_Tick({
         notifyVisibility=$(if($status -in @('failed_pending_notification','completed_pending_notification','stopped_pending_approval')){'Visible'}else{'Collapsed'})
         applyVisibility=$(if([bool]$_.hasKeptWorktree){'Visible'}else{'Collapsed'})
         discardVisibility=$(if([bool]$_.hasKeptWorktree){'Visible'}else{'Collapsed'})
+        controlsEnabled=($null -eq $pending)
       } -Force -PassThru
     })
     Show-FilteredTasks

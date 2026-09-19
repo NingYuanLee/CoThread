@@ -45,7 +45,7 @@ test("L1 denies every installed tool and MCP tools are a build-time manifest", a
     "list_documents", "manage_document", "manage_folder", "get_connection_guide",
     "list_projects", "get_project", "get_iteration_context", "list_messages",
     "read_message", "list_members", "read_member", "get_document_version",
-    "post_message", "submit_document",
+    "upload_source_file", "post_message", "submit_document",
   ]);
 });
 

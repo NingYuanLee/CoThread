@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod/v3";
-import { accountCredential, digest } from "./auth.js";
+import { accountCredential, accountCredentialVersion, digest } from "./auth.js";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
 import { reopenConnectorTask, syncConnectorTaskById } from "./agent-task-sync.js";
@@ -237,6 +237,7 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
   const mcpCredentialResponse = (current, credential) => ({
     token: credential.token,
     expiresAt: credential.expiresAt,
+    version: credential.version,
     endpoint: makers ? "/cothread-mcp" : "/mcp",
     conversationId: makers ? current.user_id : null,
   });
@@ -245,10 +246,10 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
     // 仅 ensure（不重置）当前设备所属账号的 MCP 令牌，供连接器自动写入本机 Agent 的 MCP 配置。
     res.json(mcpCredentialResponse(current, await accountCredential(db, current.user_id)));
   });
-  app.post("/api/connector/mcp-credential/reset", async (req, res) => {
+  app.get("/api/connector/mcp-credential/version", async (req, res) => {
     const current = await device(db, req);
-    // 主动吊销：账号旧 MCP 令牌全部失效并签发新令牌；连接器随后重写本机 Agent 配置。
-    res.json(mcpCredentialResponse(current, await accountCredential(db, current.user_id, true)));
+    // 轮询只返回版本元数据；只有版本变化时才下发秘密令牌。
+    res.json(await accountCredentialVersion(db, current.user_id));
   });
 
   app.post("/api/connector/tasks/:id/control", async (req, res) => {

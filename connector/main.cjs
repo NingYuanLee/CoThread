@@ -25,7 +25,6 @@ const logPath = path.join(appDir, "connector.log");
 const tasksPath = path.join(appDir, "tasks.json");
 const cardsDir = path.join(appDir, "task-cards");
 const worktreesDir = path.join(appDir, "worktrees");
-const mcpSecretPath = path.join(appDir, "mcp-token.dat");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const logs = [];
 const UTF8_BOM = Buffer.from([0xEF, 0xBB, 0xBF]);
@@ -616,15 +615,6 @@ function writeClaudeMcp(server) {
 
 const MCP_WRITERS = { cursor: writeCursorMcp, codex: writeCodexMcp, claude: writeClaudeMcp };
 
-async function loadMcpToken() {
-  try { return unprotectToken(await fsp.readFile(mcpSecretPath, "utf8")); } catch { return ""; }
-}
-
-async function storeMcpToken(token) {
-  await fsp.mkdir(appDir, { recursive: true });
-  await fsp.writeFile(mcpSecretPath, protectToken(token), { encoding: "utf8", mode: 0o600 });
-}
-
 function mcpServerSpec(config, token) {
   const mcp = config.mcp || {};
   const url = new URL(mcp.endpoint || "/mcp", config.server).toString();
@@ -633,31 +623,36 @@ function mcpServerSpec(config, token) {
   return { url, headers, token };
 }
 
-// ensure 账号 MCP 令牌（剩余 < 7 天或本地无记录则刷新），并为已检测到的 Agent 写入/更新 cothread 项。失败只记日志。
-// reset=true 时改为主动吊销并签发新令牌（旧令牌立即失效）。
-async function syncMcp(config, prerequisites, { force = false, reset = false } = {}) {
+// 连接器只轮询账号 MCP 令牌版本；令牌本身只在内存中短暂存在，并直接写入
+// Agent 的 MCP 配置。连接器配置只保存版本、检查时间和写入状态。
+async function syncMcp(config, prerequisites, { force = false } = {}) {
   config.mcp ||= {};
   const mcp = config.mcp;
   mcp.agents ||= {};
-  let token = await loadMcpToken();
-  const remaining = mcp.expiresAt ? Date.parse(mcp.expiresAt) - Date.now() : -1;
+  let token = "";
   const sinceCheck = mcp.checkedAt ? Date.now() - Date.parse(mcp.checkedAt) : Infinity;
   let changed = false;
-  if (reset || force || !token || remaining < 7 * 86400000 || sinceCheck > 5 * 60000) {
-    const credential = await request(config, reset ? "/api/connector/mcp-credential/reset" : "/api/connector/mcp-credential", { body: {} });
+  if (force || sinceCheck >= 60 * 1000 || !Number.isInteger(mcp.version)) {
+    const version = await request(config, "/api/connector/mcp-credential/version");
     mcp.checkedAt = new Date().toISOString();
-    const conversationId = credential.conversationId || null;
-    if (credential.token !== token || credential.endpoint !== mcp.endpoint || conversationId !== (mcp.conversationId || null)) {
+    if (version.version !== mcp.version || force) {
+      const credential = await request(config, "/api/connector/mcp-credential", { body: {} });
       token = credential.token;
-      await storeMcpToken(token);
       mcp.endpoint = credential.endpoint;
-      mcp.conversationId = conversationId;
+      mcp.conversationId = credential.conversationId || null;
+      mcp.version = credential.version ?? version.version;
+      mcp.expiresAt = credential.expiresAt;
       changed = true;
-      log(reset ? "已重置共序 MCP 令牌，旧令牌已失效" : "已获取共序 MCP 令牌");
+      log("已获取最新共序 MCP 令牌并准备更新本机 Agent 配置");
+    } else {
+      mcp.version = version.version;
+      if (version.expiresAt) mcp.expiresAt = version.expiresAt;
     }
-    mcp.expiresAt = credential.expiresAt;
   }
-  if (!token) { await writeConfig(config); return; }
+  if (!token) {
+    if (changed || force) await writeConfig(config);
+    return;
+  }
   const spec = mcpServerSpec(config, token);
   const now = new Date().toISOString();
   for (const kind of prerequisites.installedAgents) {
@@ -675,7 +670,7 @@ async function syncMcp(config, prerequisites, { force = false, reset = false } =
       log(`为 ${agentLabel(kind)} 写入 MCP 配置失败：${error.message}`);
     }
   }
-  if (changed || reset || force) await writeConfig(config);
+  if (changed || force) await writeConfig(config);
 }
 
 function openBrowser(url) {
@@ -931,6 +926,7 @@ async function guiMain() {
   let authorizing = false;
   let quitting = false;
   let commandBusy = false;
+  let currentOperation = null;
   let projectRefreshRevision = 0;
   let taskRefreshRevision = 0;
   let token = await loadToken();
@@ -1006,6 +1002,7 @@ async function guiMain() {
       status, error: errorText, authorizing, prerequisites, mcp: mcpState(), defaultAgent: config.defaultAgent || "",
       projects: projectRows(), tasks: taskRows(), activeTaskId: activeSession?.taskId || "",
       autoStart, logs, projectRefreshRevision, taskRefreshRevision,
+      operation: currentOperation,
     };
     const text = JSON.stringify(payload);
     if (text === lastPublished) return;
@@ -1201,10 +1198,8 @@ async function guiMain() {
       entry.sessionId = sessionId;
       await saveTaskStore();
       const args = agentLaunchArgs(chosen, { root, sessionId, resume, prompt: launchPrompt(task, cardPath) });
-      const mcpToken = await loadMcpToken();
-      const env = { ...process.env, ...(mcpToken ? { [MCP_TOKEN_ENV]: mcpToken } : {}) };
       await patchWithLease(entry, { status: "running", progress: sessionProgress(chosen) });
-      const child = spawnAgentWindow(chosen, args, { root, env });
+      const child = spawnAgentWindow(chosen, args, { root });
       const session = { taskId, child, finished: false, cancelled: false };
       activeSession = session;
       config.defaultAgent = chosen;
@@ -1324,12 +1319,6 @@ async function guiMain() {
       await publish();
       await syncMcp(config, prerequisites, { force: true });
       status = "共序 MCP 配置已更新（新开的 Agent 会话生效）";
-    } else if (command.type === "resetMcp") {
-      if (!token) throw new Error("请先登录并授权账号");
-      status = "正在重置共序 MCP 令牌";
-      await publish();
-      await syncMcp(config, prerequisites, { force: true, reset: true });
-      status = "共序 MCP 令牌已重置并重写配置（旧令牌已失效，新开的 Agent 会话生效）";
     } else if (command.type === "installPrerequisite") {
       const name = String(payload.name || "");
       if (name === "git") {
@@ -1447,7 +1436,27 @@ async function guiMain() {
     try {
       const raw = await fsp.readFile(commandPath, "utf8");
       await fsp.rm(commandPath, { force: true });
-      await handleCommand(JSON.parse(raw));
+      const command = JSON.parse(raw);
+      const payload = command.payload || {};
+      const taskActionLabels = {
+        startTask: payload.retry ? "重试任务" : "开始任务",
+        finishTask: "完成并通知任务",
+        failTask: "标记任务失败",
+        applyTask: "应用任务工作副本",
+        discardWorktree: "丢弃任务工作副本",
+        taskAction: ({ abandon: "放弃任务", retry: "重试任务", notify: "通知任务" })[String(payload.action || "")] || "处理任务",
+      };
+      if (taskActionLabels[command.type] && payload.taskId) {
+        currentOperation = { type: command.type, taskId: String(payload.taskId), label: `正在${taskActionLabels[command.type]}，等待外部处理` };
+        status = currentOperation.label;
+        log(`已点击「${taskActionLabels[command.type]}」：任务 ${payload.taskId}，正在等待外部处理`);
+        await publish();
+      }
+      try {
+        await handleCommand(command);
+      } finally {
+        currentOperation = null;
+      }
       publishState = true;
     } catch (error) {
       if (error.code !== "ENOENT") { errorText = error.message; status = "需要处理"; log(error.message); publishState = true; }

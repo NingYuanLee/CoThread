@@ -559,6 +559,79 @@ test("L2 can restart failed, stuck queued and stuck running tasks in this iterat
   assert.equal((await getTask(db, running.id)).status, "running");
 });
 
+test("repeated platform failures block before another executor is dispatched", async () => {
+  const task = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "平台错误恢复",
+    goal: "验证同一执行者恢复与平台错误阻塞", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const childId = randomUUID();
+  await bindDshL3Execution(db, l2SessionId, childId, task.id);
+  const platformEvent = () => query(db,
+    `INSERT INTO agent_events(message_id,agent_session_id,agent_task_id,tool,status,input,output)
+     VALUES(?,?,?,'publish_artifact','failed','{}','任务已停止或迭代已归档')`,
+    [reportHostId, childId, task.id]);
+
+  await platformEvent();
+  const first = await settleDshL3Execution(db, l2SessionId, childId, {
+    status: "error", stopReason: "error", lastAssistantMessage: [{ type: "text", text: "发布失败" }],
+  });
+  assert.equal(first.status, "failed");
+  assert.equal(first.failure_class, "platform_blocked");
+  assert.equal(first.retry_count, 1);
+
+  const blocked = await recoverAbnormalTask(db, task.id, { type: "l2_session", id: l2SessionId }, {
+    action: "restart", reason: "平台错误再次出现",
+  });
+  assert.equal(blocked.status, "blocked");
+  assert.equal(blocked.interruptedAgentId, childId);
+  assert.equal((await listTaskExecutionRuns(db, task.id)).filter((run) => run.executor_id).length, 1);
+
+  await assert.rejects(
+    recoverAbnormalTask(db, task.id, { type: "l2_session", id: l2SessionId }, { action: "restart" }),
+    { status: 409, message: /外部条件恢复|environmentChanged/ },
+  );
+});
+
+test("an executor failure resumes the same L3 before replacement is considered", async () => {
+  const task = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "同执行者恢复",
+    goal: "验证先恢复原 L3", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const childId = randomUUID();
+  await bindDshL3Execution(db, l2SessionId, childId, task.id);
+  await settleDshL3Execution(db, l2SessionId, childId, {
+    status: "error", stopReason: "error", lastAssistantMessage: [{ type: "text", text: "执行失败" }],
+  });
+  const recovered = await recoverAbnormalTask(db, task.id, { type: "l2_session", id: l2SessionId }, { action: "restart" });
+  assert.equal(recovered.recovery.strategy, "resume_same_executor_first");
+  assert.equal(recovered.recovery.executorId, childId);
+  const rebound = await bindDshL3Execution(db, l2SessionId, childId, task.id);
+  assert.equal(rebound.execution_agent_id, childId);
+  assert.equal(rebound.executor_switch_count, 0);
+});
+
+test("retry budget exhaustion blocks before another executor can be dispatched", async () => {
+  const task = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "预算耗尽",
+    goal: "达到预算后停止调度", targetType: "l2_session", targetId: l2SessionId,
+  });
+  await query(db, "UPDATE agent_tasks SET max_retry_count=1 WHERE id=?", [task.id]);
+  const childId = randomUUID();
+  await bindDshL3Execution(db, l2SessionId, childId, task.id);
+  const failed = await settleDshL3Execution(db, l2SessionId, childId, {
+    status: "error", stopReason: "error", lastAssistantMessage: [{ type: "text", text: "执行失败" }],
+  });
+  assert.equal(failed.status, "blocked");
+  assert.match(failed.resume_condition, /外部条件恢复|人工确认/);
+  await assert.rejects(
+    recoverAbnormalTask(db, task.id, { type: "l2_session", id: l2SessionId }, { action: "restart" }),
+    { status: 409, message: /外部条件恢复|重试预算/ },
+  );
+});
+
 test("a rotated L2 session recasts queued assist work so dsh_l3 can bind", async () => {
   const staleSession = randomUUID();
   const assist = await createTask(db, {

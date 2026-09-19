@@ -321,11 +321,9 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           diagnostic: redactSecrets(error?.message || error).slice(-1000),
         });
       }
-      if (task?.task_type === "formal") {
-        await runtime.request("compact", { sessionId: childId, automatic: false }).catch(() => {});
-      } else {
-        runtime.forgetSession(childId);
-      }
+      // Keep task children in the durable session tree so a later
+      // send_message can cold-resume the same continuable child.
+      await runtime.request("compact", { sessionId: childId, automatic: false }).catch(() => {});
     };
     const nativeTools = new Set(["dsh_l3", "send_message", "interrupt_agent", "list_agents"]);
     const nativeEventInput = (name, args) => name === "dsh_l3"

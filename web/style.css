@@ -5215,6 +5215,23 @@ body.col-resizing .app-shell > .context-panel {
   margin-bottom: 20px;
   overflow-wrap: anywhere;
 }
+.mcp-settings { display: grid; gap: 14px; }
+.mcp-settings .settings-content-heading { margin-bottom: 0; }
+.mcp-settings-section { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--c-dfe7dc, #dfe7dc); border-radius: 5px; background: var(--c-f8faf6, #f8faf6); }
+.mcp-settings-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; color: var(--c-405432, #405432); }
+.mcp-settings-heading > div { display: grid; gap: 3px; }
+.mcp-settings-heading small, .mcp-expiry { color: var(--c-7d8977, #7d8977); font-size: 11px; }
+.mcp-token-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.mcp-token-row code { flex: 1; min-width: 0; padding: 9px 10px; overflow: hidden; text-overflow: ellipsis; border: 1px solid var(--c-dfe5dc, #dfe5dc); border-radius: 4px; background: var(--c-fff, #fff); color: var(--c-455140, #455140); font-size: 11px; }
+.mcp-token-row button, .mcp-actions button { flex-shrink: 0; padding: 7px 9px; font-size: 11px; }
+.mcp-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.mcp-warning { display: flex; align-items: flex-start; gap: 6px; margin: 2px 0 0; color: var(--c-81764f, #81764f); font-size: 11px; line-height: 1.5; }
+.mcp-warning .ui-icon { flex-shrink: 0; margin-top: 1px; }
+.mcp-settings > .success { margin: 0; color: var(--c-4d7642, #4d7642); font-size: 12px; }
+@media (max-width: 560px) {
+  .mcp-token-row { align-items: stretch; flex-wrap: wrap; }
+  .mcp-token-row code { flex-basis: 100%; }
+}
 @media (max-width: 560px) {
   .settings-layout {
     grid-template-columns: 114px minmax(0, 1fr);

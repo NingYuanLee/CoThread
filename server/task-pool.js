@@ -16,6 +16,50 @@ const L3_NAMES = ["大娃", "二娃", "三娃", "四娃", "五娃", "六娃", "�
 const TASK_UPDATE_STATUSES = ["pending_assignment", "pending_start", "queued", "running", "waiting", "blocked",
   "completed", "failed", "cancelled", "abandoned"];
 const L3_DISPATCH_STATUSES = ["pending_assignment", "queued", "running", "waiting"];
+export const MAX_TASK_RETRIES = 5;
+export const MAX_EXECUTOR_ATTEMPTS = 2;
+export const MAX_DISTINCT_EXECUTORS = 3;
+
+const FAILURE_CLASSES = new Set(["interrupted", "transient", "agent_error", "platform_blocked", "external_unknown", "blocked"]);
+const PLATFORM_FAILURE = /任务已停止|迭代已归档|权限不足|没有权限|限流|too many requests|rate limit|service unavailable|temporarily unavailable|timeout|timed out|\b5\d\d\b|econnreset|econnrefused|网络错误|网络中断|服务不可用/i;
+
+function failureSignature(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  return text.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, "<id>")
+    .replace(/\b\d{2,}\b/g, "<n>").replace(/\s+/g, " ").slice(0, 255);
+}
+
+export function classifyTaskFailure({ status, error, summary, stopReason, toolError } = {}) {
+  if (status === "blocked") return "blocked";
+  if (stopReason === "aborted") return "interrupted";
+  const text = [error, summary, toolError].filter(Boolean).join(" ");
+  if (PLATFORM_FAILURE.test(text)) return "platform_blocked";
+  if (/未回报结果|没有结果|未完成|无法继续|失败/i.test(text)) return "agent_error";
+  if (/timeout|timed out|暂时|重试|retry|429|408/i.test(text)) return "transient";
+  return "agent_error";
+}
+
+function failureText({ error, summary, toolError, stopReason } = {}) {
+  return error || toolError || summary || stopReason || null;
+}
+
+async function latestToolFailure(conn, childSessionId) {
+  if (!childSessionId) return null;
+  const [row] = await query(conn, `SELECT tool,output FROM agent_events
+    WHERE agent_session_id=? AND status='failed' ORDER BY id DESC LIMIT 1`, [childSessionId]);
+  return row ? `${row.tool || "tool"}: ${row.output || "工具失败"}` : null;
+}
+
+async function taskRetryStats(conn, taskId, signature, executorId) {
+  const [same] = await query(conn, `SELECT COUNT(*) count FROM agent_task_execution_runs
+    WHERE task_id=? AND failure_signature=?`, [taskId, signature]);
+  const [executor] = await query(conn, `SELECT COUNT(*) count FROM agent_task_execution_runs
+    WHERE task_id=? AND executor_id=? AND status IN ('failed','interrupted','completed')`, [taskId, executorId]);
+  const [distinct] = await query(conn, `SELECT COUNT(DISTINCT executor_id) count FROM agent_task_execution_runs
+    WHERE task_id=? AND executor_type='dsh_l3' AND executor_id IS NOT NULL`, [taskId]);
+  return { sameSignature: Number(same?.count || 0), executorAttempts: Number(executor?.count || 0), distinctExecutors: Number(distinct?.count || 0) };
+}
 
 async function busyL3Count(conn, l2SessionId) {
   const [row] = await query(conn, `SELECT COUNT(*) active FROM agent_task_execution_runs r
@@ -673,6 +717,26 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
     const interruptedAgentId = task.execution_agent_id || null;
     const reason = update.reason || (action === "cancel" ? "L2 取消任务" : "L2 重新安排任务");
     const dispatchL3 = task.target_type === "l2_session" || task.execution_agent_type === "dsh_l3" || task.task_type === "assist_l2";
+    const environmentChanged = update.environmentChanged === true;
+    if (action === "restart" && task.status === "blocked" && !environmentChanged) {
+      throw new HttpError(409, task.resume_condition || "任务已阻塞；请先改变外部条件并明确标记 environmentChanged=true");
+    }
+    if (action === "restart" && task.status === "failed"
+      && task.failure_class === "platform_blocked" && task.failure_signature
+      && Number(task.failure_environment_revision || 0) === Number(task.environment_revision || 0)
+      && !environmentChanged) {
+      await query(conn, `UPDATE agent_tasks SET status='blocked',blocked_reason=?,resume_condition=?
+        WHERE id=?`, [task.failure_signature, "外部条件恢复或人工确认后再重试", taskId]);
+      await recordTaskStatusChange(conn, taskId, task.status, actor,
+        `检测到相同平台错误，停止换执行者并阻塞：${task.failure_signature}`);
+      return withL3DispatchGate(await getTask(conn, taskId), { action: "blocked", interruptedAgentId });
+    }
+    if (action === "restart" && Number(task.retry_count || 0) >= Number(task.max_retry_count || MAX_TASK_RETRIES)) {
+      await query(conn, `UPDATE agent_tasks SET status='blocked',blocked_reason=?,resume_condition=?
+        WHERE id=?`, ["已达到任务自动重试预算", "人工调整任务或明确增加重试预算后再重试", taskId]);
+      await recordTaskStatusChange(conn, taskId, task.status, actor, "达到任务自动重试预算，停止自动调度");
+      return withL3DispatchGate(await getTask(conn, taskId), { action: "blocked", interruptedAgentId });
+    }
     await query(conn, `UPDATE agent_task_questions SET status='cancelled' WHERE task_id=? AND status='open'`, [taskId]);
     await query(conn, `UPDATE agent_task_execution_runs SET status='cancelled',error=?,
       finished_at=UTC_TIMESTAMP(3) WHERE task_id=? AND status IN ('queued','running','waiting')`,
@@ -690,9 +754,11 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       await query(conn, `UPDATE agent_tasks SET title=COALESCE(?,title),goal=COALESCE(?,goal),constraints=IF(?,?,constraints),
         status=?,progress=?,result_summary=NULL,
         execution_mode=COALESCE(execution_mode,'dsh_l3'),execution_agent_type=COALESCE(execution_agent_type,'dsh_l3'),
-        execution_agent_id=NULL,finished_at=NULL,revision=revision+1 WHERE id=?`,
+        execution_agent_id=NULL,preferred_executor_id=COALESCE(preferred_executor_id,?),
+        environment_revision=environment_revision+IF(?,1,0),finished_at=NULL,revision=revision+1 WHERE id=?`,
       [update.title || null, update.goal || null, update.constraints !== undefined, update.constraints ?? null,
-        nextStatus, nextStatus === "running" ? "已指派，尚未绑定 L3" : "待指派空闲 L3", taskId]);
+        nextStatus, nextStatus === "running" ? "已指派，尚未绑定 L3" : "待指派空闲 L3",
+        task.execution_agent_id || null, environmentChanged, taskId]);
       if (nextStatus === "running") {
         await query(conn, `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,status)
           SELECT UUID(),id,revision,'dsh_l3','queued' FROM agent_tasks WHERE id=?`, [taskId]);
@@ -705,7 +771,14 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       [update.title || null, update.goal || null, update.constraints !== undefined, update.constraints ?? null, taskId]);
     }
     await recordTaskStatusChange(conn, taskId, task.status, actor, reason);
-    return withL3DispatchGate(await getTask(conn, taskId), { action, interruptedAgentId });
+    return withL3DispatchGate(await getTask(conn, taskId), {
+      action,
+      interruptedAgentId,
+      recovery: interruptedAgentId
+        ? { strategy: "resume_same_executor_first", executorId: interruptedAgentId,
+            fallback: "replace_only_after_resume_failure" }
+        : { strategy: "dispatch_new_executor" },
+    });
   });
   if (result.origin_thread_id) publishWork(db, result.origin_thread_id);
   return result;
@@ -724,7 +797,8 @@ export async function inspectIterationTask(db, taskId, actor) {
   const live = ["running", "waiting"].includes(run?.status);
   const stale = live && Number(run.heartbeat_age_seconds || 0) >= 180;
   let suggestedNext = "keep";
-  if (task.status === "failed" || run?.status === "failed") suggestedNext = "replace";
+  if (task.status === "blocked") suggestedNext = "wait_for_condition";
+  else if (task.status === "failed" || run?.status === "failed") suggestedNext = task.failure_class === "platform_blocked" ? "block_or_wait" : "retry_same_or_replace";
   else if (!run || ["queued", "cancelled", "interrupted"].includes(run.status) || task.status === "pending_assignment") suggestedNext = "dispatch";
   else if (stale) suggestedNext = "ask_or_replace";
   else if (live) suggestedNext = "ask";
@@ -732,7 +806,11 @@ export async function inspectIterationTask(db, taskId, actor) {
     task: {
       id: task.id, title: task.title, status: task.status, progress: task.progress,
       result_summary: task.result_summary, target_type: task.target_type, target_id: task.target_id,
-      execution_agent_id: task.execution_agent_id, document_refs: parseDocumentRefs(task.document_refs),
+      execution_agent_id: task.execution_agent_id, preferred_executor_id: task.preferred_executor_id,
+      retry_count: Number(task.retry_count || 0), max_retry_count: Number(task.max_retry_count || MAX_TASK_RETRIES),
+      executor_switch_count: Number(task.executor_switch_count || 0), failure_class: task.failure_class,
+      failure_signature: task.failure_signature, blocked_reason: task.blocked_reason,
+      resume_condition: task.resume_condition, document_refs: parseDocumentRefs(task.document_refs),
     },
     run: run || null,
     live,
@@ -741,6 +819,13 @@ export async function inspectIterationTask(db, taskId, actor) {
     suggestedNext,
     askVia: live && run.executor_id ? { tool: "send_message", agentId: run.executor_id } : null,
     replaceVia: run?.executor_id ? { interruptAgentId: run.executor_id, recover: "restart" } : { recover: "restart" },
+    retryPolicy: {
+      sameExecutorAttempts: MAX_EXECUTOR_ATTEMPTS,
+      maxTaskRetries: Number(task.max_retry_count || MAX_TASK_RETRIES),
+      maxDistinctExecutors: MAX_DISTINCT_EXECUTORS,
+      failureClass: task.failure_class || null,
+      failureSignature: task.failure_signature || null,
+    },
   };
 }
 
@@ -824,8 +909,10 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
     await query(conn, `UPDATE agent_task_execution_runs SET executor_id=?,status='running',
       executor_label=?,started_at=COALESCE(started_at,UTC_TIMESTAMP(3)),heartbeat_at=UTC_TIMESTAMP(3) WHERE id=?`, [childSessionId, executorLabel, run.run_id]);
     await query(conn, `UPDATE agent_tasks SET status='running',execution_mode='dsh_l3',
-      execution_agent_type='dsh_l3',execution_agent_id=?,progress='DSH L3 正在执行' WHERE id=?`,
-    [childSessionId, run.id]);
+      execution_agent_type='dsh_l3',execution_agent_id=?,
+      executor_switch_count=executor_switch_count+IF(preferred_executor_id IS NOT NULL AND preferred_executor_id<>?,1,0),
+      preferred_executor_id=NULL,progress=IF(preferred_executor_id IS NULL,'DSH L3 正在执行','DSH L3 正在执行（原执行者不可恢复，已接续）') WHERE id=?`,
+    [childSessionId, childSessionId, run.id]);
     const l3Actor = { type: "dsh_l3", id: childSessionId };
     await recordTaskStatusChange(conn, run.id, run.status, l3Actor, "任务级 Agent 开始执行");
     if (run.source_task_id) {
@@ -862,6 +949,7 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
       ORDER BY r.created_at DESC LIMIT 1 FOR UPDATE`, [l2SessionId, childSessionId]);
     if (!run) return null;
     const output = assistantText(notification.lastAssistantMessage);
+    const toolError = await latestToolFailure(conn, childSessionId);
     let reportedStatus = null;
     let reportedSummary = null;
     for (const event of await query(conn, `SELECT tool,input FROM agent_events
@@ -882,6 +970,8 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
     let runStatus;
     let error = null;
     let summary = reportedSummary || run.result_summary || output || null;
+    let failureClass = null;
+    let signature = null;
     if (taskAlreadyEnded) {
       taskStatus = run.status;
       runStatus = ["completed", "failed"].includes(run.run_status) ? run.run_status
@@ -900,18 +990,40 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
       error = stoppedCleanly ? "未回报结果" : `DSH L3 ${notification.stopReason || "error"}`;
       summary = output || summary || "未回报结果";
     }
+    if (taskStatus === "failed" || taskStatus === "blocked") {
+      failureClass = classifyTaskFailure({ status: taskStatus, error, summary, stopReason: notification.stopReason, toolError });
+      signature = failureSignature(failureText({ error, summary, toolError, stopReason: notification.stopReason }));
+      const stats = await taskRetryStats(conn, run.id, signature, childSessionId);
+      const repeatedPlatformFailure = failureClass === "platform_blocked"
+        && run.failure_signature === signature
+        && Number(run.failure_environment_revision || 0) === Number(run.environment_revision || 0);
+      const exhausted = Number(run.retry_count || 0) + 1 >= Number(run.max_retry_count || MAX_TASK_RETRIES)
+        || stats.executorAttempts >= MAX_EXECUTOR_ATTEMPTS
+        || stats.distinctExecutors >= MAX_DISTINCT_EXECUTORS;
+      if (taskStatus === "failed" && (repeatedPlatformFailure || exhausted)) {
+        taskStatus = "blocked";
+        runStatus = "completed";
+        error = repeatedPlatformFailure
+          ? `同一平台错误重复出现：${signature}`
+          : "任务达到自动重试预算，等待人工处理";
+      }
+    }
     if (["running", "waiting"].includes(run.run_status)) {
-      await query(conn, `UPDATE agent_task_execution_runs SET status=?,result_summary=?,error=?,
+      await query(conn, `UPDATE agent_task_execution_runs SET status=?,result_summary=?,error=?,failure_class=?,failure_signature=?,
         heartbeat_at=UTC_TIMESTAMP(3),finished_at=UTC_TIMESTAMP(3) WHERE id=?`,
-      [runStatus, summary, error, run.run_id]);
+      [runStatus, summary, error, failureClass, signature, run.run_id]);
     }
     if (!taskAlreadyEnded) {
       await query(conn, `UPDATE agent_tasks SET status=?,progress=?,result_summary=COALESCE(?,result_summary),
+        retry_count=retry_count+IF(? IN ('failed','blocked'),1,0),failure_class=?,failure_signature=?,
+        failure_environment_revision=IF(? IN ('failed','blocked'),environment_revision,NULL),
+        blocked_reason=IF(?='blocked',COALESCE(?,failure_signature),NULL),
+        resume_condition=IF(?='blocked',COALESCE(resume_condition,'外部条件恢复或人工确认后再重试'),NULL),
         execution_agent_id=?,finished_at=IF(? IN ('completed','failed','cancelled','rejected','abandoned'),UTC_TIMESTAMP(3),NULL),revision=revision+1 WHERE id=?`,
       [taskStatus, taskStatus === "completed" ? "DSH L3 已交活"
         : taskStatus === "blocked" ? (run.progress || "DSH L3 已阻塞")
         : error || "DSH L3 已返回",
-        summary, childSessionId, taskStatus, run.id]);
+        summary, taskStatus, failureClass, signature, taskStatus, taskStatus, error, taskStatus, childSessionId, taskStatus, run.id]);
       await recordTaskStatusChange(conn, run.id, run.status, { type: "dsh_l3", id: childSessionId },
         taskStatus === "completed" ? "任务级 Agent 已交活"
           : taskStatus === "blocked" ? "任务级 Agent 阻塞暂停"

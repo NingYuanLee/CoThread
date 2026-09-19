@@ -18,10 +18,11 @@ async function api(path, data, auth = { cookie }) {
   });
   return { status: response.status, body: await response.json(), cookie: response.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ") || undefined };
 }
-async function mcp(name, args) {
+async function mcp(name, args, source) {
   const response = await fetch(`${base}/mcp`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${token}` },
+    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${token}`,
+      ...(source ? { "X-CoThread-MCP-Source": source } : {}) },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
   });
   assert.equal(response.status, 200);
@@ -52,6 +53,11 @@ after(async () => {
 });
 
 test("ensure reuses an encrypted recoverable token and concurrent first copies create only one", async () => {
+  const browserCredential = await api("/mcp/credential");
+  assert.equal(browserCredential.status, 200);
+  assert.equal(browserCredential.body.token, token);
+  assert.equal(browserCredential.body.endpoint, "/mcp");
+  assert.equal((await api("/mcp/credential", undefined, { token })).status, 403);
   const listed = (await api("/tokens")).body;
   assert.equal(listed[0].token, token);
   const [stored] = await query(database.db, "SELECT token_hash,token_ciphertext FROM credentials WHERE id=?", [listed[0].id]);
@@ -78,6 +84,18 @@ test("ensure reuses an encrypted recoverable token and concurrent first copies c
   token = renewed;
 });
 
+test("browser MCP reset shares the account slot with connector credentials", async () => {
+  const old = token;
+  const reset = await api("/mcp/credential/reset", {});
+  assert.equal(reset.status, 200);
+  assert.match(reset.body.token, /^[A-Za-z0-9_-]{40,}$/);
+  assert.notEqual(reset.body.token, old);
+  assert.equal((await api("/mcp/credential")).body.token, reset.body.token);
+  assert.equal((await api("/projects", undefined, { token: old })).status, 401);
+  assert.equal((await api("/tokens")).body.length, 1);
+  token = reset.body.token;
+});
+
 test("account reset is serialized, leaves one token, revokes old tokens and preserves membership boundaries", async () => {
   const old = token;
   const resets = await Promise.all([api("/tokens", {}), api("/tokens", {})]);
@@ -85,22 +103,25 @@ test("account reset is serialized, leaves one token, revokes old tokens and pres
   const credentials = (await api("/tokens")).body;
   assert.equal(credentials.length, 1);
   assert.equal(credentials[0].project_id, null);
-  token = resets.find((r) => r.body.id === credentials[0].id).body.token;
+  assert.ok(resets.every((r) => r.body.id === credentials[0].id));
   assert.equal((await api("/projects", undefined, { token: old })).status, 401);
-  const replaced = resets.find((r) => r.body.id !== credentials[0].id).body.token;
-  assert.equal((await api("/projects", undefined, { token: replaced })).status, 401);
+  const resetStatuses = await Promise.all(resets.map((r) => api("/projects", undefined, { token: r.body.token })));
+  assert.deepEqual(resetStatuses.map((r) => r.status).sort(), [200, 401]);
+  token = resets[resetStatuses.findIndex((r) => r.status === 200)].body.token;
   const second = (await api("/projects", { name: "Second joined project" })).body.id;
   assert.equal((await api(`/projects/${second}`, undefined, { token })).status, 200);
   assert.equal((await api(`/projects/${foreignProjectId}`, undefined, { token })).status, 403);
   assert.equal((await api("/tokens", {}, { token })).status, 403);
 });
 
-test("MCP discovers the target, submits a standalone version, then sends files + text + reference + mention atomically", async () => {
+test("MCP discovers the target, uploads source files first, then sends refs + text + mention", async () => {
   const guide = await mcp("get_connection_guide", {});
   assert.equal(guide.error, false);
   assert.match(guide.data.instructions, /无需安装任何 SKILL/);
   assert.match(guide.data.instructions, /get_iteration_context/);
   assert.ok(!guide.data.instructions.includes(token));
+  const connectorGuide = await mcp("get_connection_guide", {}, "local-connector");
+  assert.match(connectorGuide.data.instructions, /本机连接器启动/);
   const installation = createMcpInstallGuide({ url: `${base}/mcp`, token, context: { projectId, threadId } });
   assert.ok(installation.includes(`Bearer ${token}`));
   assert.ok(installation.includes(threadId));
@@ -117,9 +138,14 @@ test("MCP discovers the target, submits a standalone version, then sends files +
   const existing = await mcp("submit_document", { threadId, ...file("reference.md") });
   assert.equal(existing.error, false);
   const beforeContext = (await mcp("get_iteration_context", { threadId })).data;
-  const result = await mcp("post_message", { threadId, body: "一起检查这些文件", mentionAgent: true, refs: [existing.data.id], files: [file("plan.md"), file("notes.md")] });
+  const plan = await mcp("upload_source_file", { threadId, ...file("plan.md") });
+  const notes = await mcp("upload_source_file", { threadId, ...file("notes.md") });
+  assert.equal(plan.error, false);
+  assert.equal(notes.error, false);
+  assert.equal((await mcp("get_iteration_context", { threadId })).data.messages.length, beforeContext.messages.length);
+  const result = await mcp("post_message", { threadId, body: "一起检查这些文件", mentionAgent: true, refs: [existing.data.id, plan.data.id, notes.data.id] });
   assert.equal(result.error, false);
-  assert.equal(result.data.files.length, 2);
+  assert.deepEqual(result.data.files, []);
   assert.equal(result.data.refs.length, 3);
   const context = (await mcp("get_iteration_context", { threadId })).data;
   assert.equal(context.messages.length, beforeContext.messages.length + 1);
@@ -132,9 +158,9 @@ test("MCP discovers the target, submits a standalone version, then sends files +
   assert.equal(reply.participation, "reply");
   assert.equal(reply.status, "queued");
   const saved = (await mcp("get_project", { projectId })).data.versions;
-  for (const upload of result.data.files) assert.ok(saved.some((v) => v.id === upload.id));
+  for (const upload of [plan.data, notes.data]) assert.ok(saved.some((v) => v.id === upload.id));
   assert.ok(saved.find((v) => v.id === existing.data.id));
-  const downloaded = await mcp("get_document_version", { versionId: result.data.files[0].id });
+  const downloaded = await mcp("get_document_version", { versionId: plan.data.id });
   assert.equal(downloaded.data.contentBase64, file().contentBase64);
 });
 

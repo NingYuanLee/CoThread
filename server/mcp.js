@@ -2,18 +2,19 @@ import { documentTool, documentToolSchemas } from "./document-tools.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod/v3";
-import { MCP_INSTRUCTIONS } from "../shared/mcp-guide.js";
+import { mcpInstructionsForSource } from "../shared/mcp-guide.js";
 import { modelDiscussion, modelProject } from "./model-context.js";
 
 export const MCP_TOOL_NAMES = Object.freeze([
   "list_documents", "manage_document", "manage_folder", "get_connection_guide",
   "list_projects", "get_project", "get_iteration_context", "list_messages",
   "read_message", "list_members", "read_member", "get_document_version",
-  "post_message", "submit_document",
+  "upload_source_file", "post_message", "submit_document",
 ]);
 
 export function createMcpServer(service, user, afterMessage) {
-  const server = new McpServer({ name: "cothread", version: "0.2.0" }, { instructions: MCP_INSTRUCTIONS });
+  const instructions = mcpInstructionsForSource(user.mcpSource);
+  const server = new McpServer({ name: "cothread", version: "0.2.0" }, { instructions });
   const registered = new Set();
   const register = (name, description, schema, fn) => {
     if (!MCP_TOOL_NAMES.includes(name) || registered.has(name))
@@ -48,7 +49,7 @@ export function createMcpServer(service, user, afterMessage) {
     ["manage_document","项目文档：经用户同意后重命名、移动、删除或恢复。scope=document作用于整份文档全部版本；scope=version只删除/恢复指定版本。删除可恢复，历史引用保留。"],
     ["manage_folder","项目文档：经用户同意后创建、重命名、移动或删除文件夹；删除前必须清空，系统文件夹不可修改。"]
   ]) register(name,description,{...documentToolSchemas[name],projectId:z.string().uuid()},a=>documentTool(service,user,name,a));
-  register("get_connection_guide", "首次使用先调用：读取会话定位、消息与多文件发送、引用、@助手、权限和错误处理说明，无需安装 SKILL。", {}, () => ({ instructions: MCP_INSTRUCTIONS }));
+  register("get_connection_guide", "首次使用先调用：读取会话定位、消息与多文件发送、引用、@助手、权限和错误处理说明，无需安装 SKILL。", {}, () => ({ instructions }));
   register("list_projects", "列出当前成员可访问的项目，返回 projectId 对应的 id；选择后调用 get_project 查看迭代。", {}, () =>
     service.projects(user),
   );
@@ -85,8 +86,20 @@ export function createMcpServer(service, user, afterMessage) {
     },
   );
   register(
+    "upload_source_file",
+    "先上传消息要引用的来源文件，返回不可变版本 ID；随后调用 post_message 并把该 ID 放入 refs。不要把大文件 Base64 和消息一起发送。",
+    {
+      threadId: z.string().uuid(),
+      title: z.string().min(1).max(160),
+      filename: z.string().min(1).max(200),
+      mime: z.string().optional(),
+      contentBase64: z.string().max(7_000_000),
+    },
+    (a) => service.uploadSourceFile(user, a.threadId, a),
+  );
+  register(
     "post_message",
-    "经用户同意后向指定迭代发一条消息，可同时包含文字、多个来源文件和已有文档版本引用。文件自动保存到项目文档库按 UTC 日期创建的缓存目录，并和消息原子提交；refs 只能引用本项目文档库中的有效文档版本。mentionAgent=true 或正文 @小祥 可请求内置助手回复。",
+    "经用户同意后向指定迭代发一条消息。新客户端应先用 upload_source_file 上传文件，再通过 refs 引用版本 ID；files 仅为旧客户端兼容字段。mentionAgent=true 或正文 @小祥 可请求内置助手回复。",
     {
       threadId: z.string().uuid(),
       body: z.string().min(1).max(20000),
@@ -98,7 +111,7 @@ export function createMcpServer(service, user, afterMessage) {
         filename: z.string().min(1).max(200),
         mime: z.string().optional(),
         contentBase64: z.string().max(7_000_000),
-      })).max(10).optional().describe("最多 10 个文件，单文件 5 MiB，合计 20 MiB；内容为 base64，不接受本地路径"),
+      })).max(10).optional().describe("旧客户端兼容字段；新客户端请使用 upload_source_file，避免与消息一起提交 Base64"),
     },
     async (a) => {
       const message = await service.postMessage(user, a.threadId, a);

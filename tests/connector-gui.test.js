@@ -83,6 +83,7 @@ test("task controls follow the interactive session lifecycle instead of process 
 
   assert.match(main, /command\.type === "startTask"/);
   assert.match(main, /已恢复「\$\{row\.name\}」的项目连接/);
+  assert.match(main, /开始前先把服务端项目绑定写上/);
   assert.match(main, /command\.type === "finishTask"/);
   assert.match(main, /command\.type === "failTask"/);
   assert.match(main, /status: "completed", output: output\.slice\(0, 1000000\), diff/);

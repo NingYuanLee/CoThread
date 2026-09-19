@@ -143,10 +143,12 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
     await query(db, `UPDATE connectors SET last_seen_at=UTC_TIMESTAMP(3),
       version=COALESCE(?,version),name=COALESCE(?,name),platform=COALESCE(?,platform) WHERE id=?`,
       [queryText(req.query.version, 40), queryText(req.query.name, 100), queryText(req.query.platform, 40), current.id]);
-    res.json(await query(db, `SELECT p.id,p.name,m.role,cp.policy,cp.allow_git_push allowGitPush,cp.connector_id IS NOT NULL bound
+    const rows = await query(db, `SELECT p.id,p.name,m.role,cp.policy,cp.allow_git_push allowGitPush,
+      CASE WHEN cp.connector_id IS NULL THEN 0 ELSE 1 END bound
       FROM members m JOIN projects p ON p.id=m.project_id
       LEFT JOIN connector_projects cp ON cp.project_id=p.id AND cp.connector_id=?
-      WHERE m.user_id=? AND p.archived_at IS NULL ORDER BY p.name,p.id`, [current.id, current.user_id]));
+      WHERE m.user_id=? AND p.archived_at IS NULL ORDER BY p.name,p.id`, [current.id, current.user_id]);
+    res.json(rows.map((row) => ({ ...row, bound: Number(row.bound) === 1, allowGitPush: Number(row.allowGitPush) === 1 })));
   });
 
   app.put("/api/connector/projects/:id", async (req, res) => {
@@ -202,9 +204,10 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
       const [membership] = await query(conn, "SELECT role FROM members WHERE project_id=? AND user_id=?",
         [candidate.project_id, current.user_id]);
       if (!membership || membership.role === "viewer") throw new HttpError(409, "当前账号没有该项目的执行权限");
-      const [binding] = await query(conn, "SELECT connector_id FROM connector_projects WHERE connector_id=? AND project_id=?",
-        [current.id, candidate.project_id]);
-      if (!binding) throw new HttpError(409, "当前连接器尚未绑定该项目，请先在连接器中开启连接后再开始任务");
+      // 任务已派给当前连接器时补齐绑定：本机「已连接」只表示记得仓库路径，重新授权后服务端绑定可能已空。
+      await query(conn, `INSERT INTO connector_projects(connector_id,project_id,policy,allow_git_push) VALUES(?,?,?,?)
+        ON DUPLICATE KEY UPDATE policy=VALUES(policy)`,
+        [current.id, candidate.project_id, candidate.policy || "unrestricted", Number(candidate.allow_git_push) ? 1 : 0]);
       await query(conn, `UPDATE connector_tasks SET status='running',lease_token_hash=?,lease_expires_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 2 MINUTE),
         started_at=COALESCE(started_at,UTC_TIMESTAMP(3)),progress='正在本机准备项目' WHERE id=?`, [digest(lease), taskId]);
       await syncConnectorTaskById(conn, taskId, { publish: true });

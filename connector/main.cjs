@@ -892,7 +892,7 @@ async function guiMain() {
     // 重新授权会换令牌，但本机仍记得仓库路径；若服务端绑定被清掉，自动重新开启连接，避免任务无法领取。
     const unbound = Object.entries(config.projects || {}).filter(([projectId, local]) => {
       const row = remoteProjects.find((item) => item.id === projectId);
-      return row && !row.bound && row.role !== "viewer" && !!(local?.repo || local?.root);
+      return row && Number(row.bound) !== 1 && row.role !== "viewer" && !!(local?.repo || local?.root);
     });
     if (!unbound.length) return;
     for (const [projectId, local] of unbound) {
@@ -921,7 +921,7 @@ async function guiMain() {
       repo: binding.repo,
       projectPath: binding.projectPath,
       allowGitPush: local.allowGitPush ?? !!row.allowGitPush,
-      bound: !!config.projects[row.id] && !!row.bound,
+      bound: !!config.projects[row.id] && Number(row.bound) === 1,
     };
   });
   const sessionProgress = (kind) => `本机 ${agentLabel(kind)} 会话进行中`;
@@ -1062,6 +1062,12 @@ async function guiMain() {
     const repo = entry?.repo || binding.repo;
     const projectPath = continuing ? (entry?.projectPath || binding.projectPath) : binding.projectPath;
     if (!repo) throw new Error("当前设备尚未关联该项目目录");
+    // 本机有仓库路径时，开始前先把服务端项目绑定写上，避免界面显示已连接但领取仍失败。
+    if (projectId && config.projects[projectId]) {
+      await request(config, `/api/connector/projects/${projectId}`, { method: "PUT", body: {
+        allowGitPush: !!config.projects[projectId].allowGitPush,
+      }});
+    }
     resolveRepoDir(repo);
     if (projectPath) resolveProjectDir(repo, projectPath);
     const reuseWorktree = continuing && entry.worktree && fs.existsSync(path.join(entry.worktree, ".git"));

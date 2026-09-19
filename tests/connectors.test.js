@@ -450,13 +450,12 @@ test("reconnecting the same account keeps project bindings so a retried task can
   assert.equal((await query(db, "SELECT status FROM connector_tasks WHERE id=?", [task.id]))[0].status, "queued");
 
   await query(db, "DELETE FROM connector_projects WHERE connector_id=?", [reconnected.id]);
-  const unbound = await request(`/connector/tasks/${task.id}/claim`, {}, reconnected);
-  assert.equal(unbound.status, 409);
-  assert.match(unbound.body.error, /尚未绑定该项目/);
-  assert.equal((await request(`/connector/projects/${projectId}`, { allowGitPush: false }, reconnected, "PUT")).status, 200);
   const reclaimed = await request(`/connector/tasks/${task.id}/claim`, {}, reconnected);
   assert.equal(reclaimed.status, 200);
   assert.equal(reclaimed.body.task.resumed, false);
+  const rebound = await request("/connector/projects", undefined, reconnected);
+  assert.equal(rebound.body.find((item) => item.id === projectId)?.bound, true);
+  assert.equal(typeof rebound.body.find((item) => item.id === projectId)?.bound, "boolean");
 });
 
 test("connector heartbeat stores computer name and OS version", async () => {

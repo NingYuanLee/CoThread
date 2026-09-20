@@ -591,7 +591,7 @@ type TaskSessionData = {
   error?: string | null;
   contextUsage: ContextUsage;
   messages: { id: string; role: string; source: string | null; text: string }[];
-  events?: { id: string; tool: string; status: string; input: string; finished_at: string | null }[];
+  events?: { id: string; tool: string; status: string; input: string; finished_at: string | null; screenshotUrl?: string | null }[];
   pending?: { id: string; author: string; body: string; createdAt: string }[];
 };
 
@@ -685,6 +685,10 @@ function TaskSessionDialog({
         <div className="message-text">
           <StreamingMarkdown active={false} text={message.text} />
         </div>
+      </article>)}
+      {(data?.events || []).filter((event) => event.screenshotUrl).map((event) => <article key={`screenshot-${event.id}`} className="l3-task-session-msg assistant">
+        <small>视觉验收 · {event.tool}</small>
+        <img className="agent-screenshot-preview" src={event.screenshotUrl || undefined} alt="Agent 视觉验收截图" loading="lazy" />
       </article>)}
       {pending.map((item) => <article key={item.id} className="l3-task-session-msg pending">
         <small>{item.author} · 待纳入</small>
@@ -1005,7 +1009,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
           </article>
           <article className="l1-task-card">
             <h4>文档摘要</h4>
-            <p>正式、产物与缓存文件的事实摘要；同项目多次整理共用一套上下文</p>
+            <p>正式文件、沙箱产物与对话缓存的事实摘要；同项目多次整理共用一套上下文</p>
             <p>{pendingLine("document", knowledge?.documentPending ?? knowledge?.projectDocumentPending ?? 0)}</p>
             <p>最近整理：{time(knowledge?.documentLastAt ?? knowledge?.projectDocumentLastAt)}</p>
             <p>预计下次：{nextTime(knowledge?.documentNextAt ?? knowledge?.projectDocumentNextAt, knowledge?.documentPending ?? knowledge?.projectDocumentPending ?? 0)}</p>

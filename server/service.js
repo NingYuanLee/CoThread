@@ -25,6 +25,8 @@ import {
   utcDateKey,
 } from "./project-library.js";
 import { previewContentType, resolveStoredMime } from "./preview-mime.js";
+import { recordDocumentChange } from "./document-audit.js";
+import JSZip from "jszip";
 
 function rewriteRootRelativeAssetUrls(html) {
   return html.replace(
@@ -299,7 +301,7 @@ export class Service {
   async projects(user) {
     return query(
       this.db,
-      `SELECT p.*,m.role,m.tab_visible,m.tab_opened_at,m.tab_pinned_at,(SELECT COUNT(*) FROM threads t WHERE t.project_id=p.id AND t.status='active') active_threads
+      `SELECT p.*,m.role,m.joined_at,m.tab_visible,m.tab_opened_at,m.tab_pinned_at,(SELECT COUNT(*) FROM threads t WHERE t.project_id=p.id AND t.status='active') active_threads
       FROM projects p JOIN members m ON m.project_id=p.id WHERE m.user_id=? AND p.archived_at IS NULL${user.scope ? " AND p.id=?" : ""}
       ORDER BY m.tab_pinned_at DESC,m.tab_opened_at DESC,p.created_at DESC,p.id`,
       user.scope ? [user.id, user.scope] : [user.id],
@@ -786,8 +788,10 @@ export class Service {
       if (!L1_MAINTENANCE_TASKS.includes(scopedTask))
         fail(400, "请指定维护任务");
       titleText = `${project.name} · ${l1TaskLabel(scopedTask)}`;
-      rows = await query(this.db, `SELECT id,agent_session_id,task,thread_id,phase tool,status,created_at,finished_at,error
-        FROM agent_project_events WHERE project_id=? AND task=? ORDER BY id DESC LIMIT 300`,
+      rows = await query(this.db, `SELECT e.id,e.agent_session_id,e.task,e.thread_id,e.phase tool,e.status,e.created_at,e.finished_at,e.error,
+        a.id visual_artifact_id
+        FROM agent_project_events e LEFT JOIN agent_visual_artifacts a ON a.agent_project_event_id=e.id
+        WHERE e.project_id=? AND e.task=? ORDER BY e.id DESC LIMIT 300`,
       [scopeId, scopedTask]);
       const l1RunOf = new Map();
       const l1FirstIds = new Set();
@@ -820,8 +824,10 @@ export class Service {
       titleText = `${thread.title} · 二级小祥轨迹`;
       rows = session ? await query(this.db, `SELECT e.id,e.agent_session_id,e.agent_task_id task_id,e.tool,e.status,
         e.created_at,e.finished_at,e.input,e.message_id,m.thread_id,LEFT(m.body,240) user_preview,m.created_at user_created_at,
+        a.id visual_artifact_id,
         CASE WHEN e.tool IN ('assistant_text','assistant_final') THEN LEFT(e.output,240) END output_preview
         FROM agent_events e JOIN messages m ON m.id=e.message_id
+        LEFT JOIN agent_visual_artifacts a ON a.agent_event_id=e.id
         WHERE m.thread_id=? AND e.agent_session_id=? ORDER BY e.id DESC LIMIT 300`,
       [scopeId, session.session_id]) : [];
       rows = rows.map((row) => ({ ...row, agent_type: "l2" }));
@@ -832,8 +838,10 @@ export class Service {
       titleText = `${task.title} · 三级小祥轨迹`;
       rows = await query(this.db, `SELECT DISTINCT e.id,e.agent_session_id,? task_id,e.tool,e.status,
         e.created_at,e.finished_at,e.input,e.message_id,m.thread_id,LEFT(m.body,240) user_preview,m.created_at user_created_at,
+        a.id visual_artifact_id,
         CASE WHEN e.tool IN ('assistant_text','assistant_final') THEN LEFT(e.output,240) END output_preview
         FROM agent_events e JOIN messages m ON m.id=e.message_id
+        LEFT JOIN agent_visual_artifacts a ON a.agent_event_id=e.id
         WHERE ${taskEventScope}
         ORDER BY e.id DESC LIMIT 300`, [scopeId, scopeId, scopeId, scopeId]);
       rows = rows.map((row) => ({ ...row, agent_type: "dsh_l3" }));
@@ -851,6 +859,7 @@ export class Service {
           tool: row.tool, action: label.action, target: label.target || undefined, status: row.status,
           createdAt: row.created_at, finishedAt: row.finished_at, durationMs: duration(row),
           ...(preview ? { preview } : {}),
+          ...(row.visual_artifact_id ? { screenshotUrl: `/api/agent-visual-artifacts/${row.visual_artifact_id}` } : {}),
           ...(row.agent_type === "l1" && row.task ? { task: row.task } : {}),
           ...(row.agent_type === "l1" && row.error ? { error: row.error } : {}),
         };
@@ -862,24 +871,28 @@ export class Service {
     if (scopeType === "project") {
       await this.project(user, scopeId);
       const [event] = await query(this.db,
-        "SELECT id,phase tool,status,error,created_at,finished_at FROM agent_project_events WHERE id=? AND project_id=?",
+        `SELECT e.id,e.phase tool,e.status,e.error,e.created_at,e.finished_at,a.id visual_artifact_id
+         FROM agent_project_events e LEFT JOIN agent_visual_artifacts a ON a.agent_project_event_id=e.id
+         WHERE e.id=? AND e.project_id=?`,
         [id, scopeId]);
       if (!event) fail(404, "执行记录不存在");
-      return event;
+      return { ...event, ...(event.visual_artifact_id ? { screenshotUrl: `/api/agent-visual-artifacts/${event.visual_artifact_id}` } : {}) };
     }
     if (scopeType === "thread") {
       await this.thread(user, scopeId, false, this.db, { display: true });
       const [event] = await query(this.db,
-        `SELECT e.* FROM agent_events e JOIN messages m ON m.id=e.message_id WHERE e.id=? AND m.thread_id=?`,
+        `SELECT e.*,a.id visual_artifact_id FROM agent_events e JOIN messages m ON m.id=e.message_id
+         LEFT JOIN agent_visual_artifacts a ON a.agent_event_id=e.id WHERE e.id=? AND m.thread_id=?`,
         [id, scopeId]);
       if (!event) fail(404, "执行记录不存在");
-      return event;
+      return { ...event, ...(event.visual_artifact_id ? { screenshotUrl: `/api/agent-visual-artifacts/${event.visual_artifact_id}` } : {}) };
     }
     if (scopeType === "task") {
       const [task] = await query(this.db, "SELECT id,project_id FROM agent_tasks WHERE id=?", [scopeId]);
       if (!task) fail(404, "任务不存在");
       await this.member(user, task.project_id);
-      const [event] = await query(this.db, `SELECT e.* FROM agent_events e WHERE e.id=? AND EXISTS (SELECT 1 FROM agent_task_execution_runs owner_run
+      const [event] = await query(this.db, `SELECT e.*,a.id visual_artifact_id FROM agent_events e
+        LEFT JOIN agent_visual_artifacts a ON a.agent_event_id=e.id WHERE e.id=? AND EXISTS (SELECT 1 FROM agent_task_execution_runs owner_run
           WHERE owner_run.task_id=? AND owner_run.executor_type='dsh_l3'
             AND owner_run.executor_id=e.agent_session_id)
           AND (e.agent_task_id=? OR (e.agent_task_id IS NULL AND EXISTS (
@@ -889,7 +902,7 @@ export class Service {
               AND e.created_at<=COALESCE(timed_run.finished_at,UTC_TIMESTAMP(3)))))`,
       [id, scopeId, scopeId, scopeId]);
       if (!event) fail(404, "执行记录不存在");
-      return event;
+      return { ...event, ...(event.visual_artifact_id ? { screenshotUrl: `/api/agent-visual-artifacts/${event.visual_artifact_id}` } : {}) };
     }
     fail(400, "未知日志作用域");
   }
@@ -1036,7 +1049,7 @@ export class Service {
         await transaction(this.db, async (db) => {
         await query(
           db,
-          "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)",
+          "INSERT INTO members(project_id,user_id,role,joined_at) VALUES(?,?,?,UTC_TIMESTAMP(6))",
           [projectId, data.userId, data.role],
         );
         const [sender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
@@ -1075,7 +1088,7 @@ export class Service {
       }
       await query(
         db,
-        "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)",
+        "INSERT INTO members(project_id,user_id,role,joined_at) VALUES(?,?,?,UTC_TIMESTAMP(6))",
         [projectId, userId, data.role],
       );
       const [sender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
@@ -1330,7 +1343,19 @@ export class Service {
       for (const quotedId of quoteIds) await query(db,
         "INSERT INTO message_quotes(message_id,quoted_message_id) VALUES(?,?)", [message.id, quotedId]);
        if (user.kind === "session" || (user.kind === "api" && mentionsAgent(text))) {
-         await query(db, "INSERT INTO agent_requests(message_id,interaction_source) VALUES(?,?)", [message.id, user.mcpSource || null]);
+        // MCP is one account capability regardless of which client wrote the config.
+        // For audit and task attribution, an online connector bound to this project
+        // makes the current API message connector-originated automatically.
+        let interactionSource = user.kind === "api" ? "mcp" : null;
+        if (user.kind === "api") {
+          const [onlineConnector] = await query(db, `SELECT c.id FROM connectors c
+            JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=?
+            WHERE c.user_id=? AND c.revoked_at IS NULL
+              AND c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND) LIMIT 1`,
+          [thread.project_id, user.id]);
+          if (onlineConnector) interactionSource = "connector_mcp";
+        }
+        await query(db, "INSERT INTO agent_requests(message_id,interaction_source) VALUES(?,?)", [message.id, interactionSource]);
         if (mentionsAgent(text)) {
           // postMessage already holds the discussion row lock. Completion and
           // dispatch use the same lock, so an update cannot fall between tasks.
@@ -1372,11 +1397,11 @@ export class Service {
     return { ...result, ...saved };
   }
   async uploadOfficialDocument(user, projectId, input) {
-    if (user.kind !== "session") fail(403, "上传正式文件需要人工登录");
+    if (!["session", "api"].includes(user.kind)) fail(403, "上传正式文件需要人工或已授权的 MCP 账号");
     id.parse(projectId);
     const data = z
       .object({
-        folderId: id,
+        folderId: id.optional(),
         title,
         filename: z
           .string()
@@ -1403,6 +1428,8 @@ export class Service {
       await this.member(user, projectId, true, db);
       await this.assertOfficialOrganizing(db, projectId);
       await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);
+      if (!data.folderId)
+        data.folderId = (await this.documentFolder(db, projectId, "project_official", null)).id;
       const [folder] = await query(
         db,
         "SELECT id FROM document_folders WHERE id=? AND project_id=?",
@@ -1440,10 +1467,15 @@ export class Service {
       );
       await queueDocumentMemory(db, versionId);
       await query(db, "UPDATE artifacts SET updated_at=UTC_TIMESTAMP(3) WHERE id=?", [artifactId]);
+      await recordDocumentChange(db, {
+        projectId, artifactId, versionId, folderId: data.folderId, action: "document_uploaded",
+        source: user.kind === "api" ? "mcp" : "ui", actorType: user.kind, actorId: user.id,
+        details: { title: data.title, filename: data.filename, version: 1 },
+      });
       return submittedVersion(versionId, artifactId, 1, digest(bytes), data);
     });
   }
-  async uploadSourceFile(user, threadId, input) {
+  async uploadCacheDraft(user, threadId, input) {
     return this.submitVersion(user, threadId, input, undefined, undefined, false, { silent: true });
   }
   async submitVersion(
@@ -1542,14 +1574,14 @@ export class Service {
         if (rootKind === "project_official")
           fail(403, "正式文件不分版本，请通过上传或另存创建");
         if (chatUpload && !isCacheFolderKind(rootKind))
-          fail(403, "对话上传只能保存到缓存文件");
+          fail(403, "对话上传只能保存到对话缓存");
         if (isCacheFolderKind(rootKind) && !sourceFile) {
           if (!generatedByTask)
-            fail(403, "缓存文件只能由对话上传产生，Agent 不能新增");
+            fail(403, "对话缓存只能由对话上传产生，Agent 不能新增");
           data.folderId = (await this.dailyProjectFolder(db, thread.project_id, "outputs")).id;
         }
         if (isOutputFolderKind(rootKind) && sourceFile)
-          fail(403, "产物文件只能由智能体构建");
+          fail(403, "沙箱产物只能由云端 Agent 构建");
         await this.assertDocumentScopeAvailable(db, thread.project_id, folder.id);
       }
       let artifactId = data.artifactId;
@@ -1566,10 +1598,10 @@ export class Service {
           fail(403, "正式文件不分版本，不能提交新版本");
         if (isCacheFolderKind(artifactRoot)) {
           if (!generatedByTask)
-            fail(403, "缓存文件是只读来源，不能提交新版本");
+            fail(403, "对话缓存是只读来源，不能提交新版本");
           artifactId = randomUUID();
           data.folderId = (await this.dailyProjectFolder(db, thread.project_id, "outputs")).id;
-          if (!data.note) data.note = `基于缓存文件「${artifact.title}」修改`;
+          if (!data.note) data.note = `基于对话缓存「${artifact.title}」修改`;
           data.title = await uniqueArtifactTitle(db, thread.project_id, data.folderId, data.title);
           data.filename = await uniqueVersionFilename(db, thread.project_id, data.folderId, data.filename);
           await query(
@@ -1627,6 +1659,14 @@ export class Service {
         "UPDATE artifacts SET updated_at=UTC_TIMESTAMP(3) WHERE id=?",
         [artifactId],
       );
+      await recordDocumentChange(db, {
+        projectId: thread.project_id, artifactId, versionId, folderId: data.folderId,
+        action: sourceFile ? "cache_uploaded" : "artifact_published",
+        source: user.kind === "agent" ? "agent" : user.kind === "api" ? "mcp" : "ui",
+        actorType: user.kind, actorId: user.id, threadId,
+        messageId: agentMessageId || null,
+        details: { title: data.title, filename: data.filename, version },
+      });
       if (!chatUpload && !options.silent)
         await this.insertMessage(
           db,
@@ -1658,6 +1698,70 @@ export class Service {
     if (!version) fail(404, "文档版本不存在");
     await this.member(user, version.project_id);
     return version;
+  }
+  async folderArchive(user, projectId, folderId) {
+    id.parse(projectId);
+    id.parse(folderId);
+    await this.member(user, projectId);
+    const folders = await query(
+      this.db,
+      "SELECT id,parent_id,name,folder_kind FROM document_folders WHERE project_id=?",
+      [projectId],
+    );
+    const root = folders.find((folder) => folder.id === folderId);
+    if (!root) fail(404, "文件夹不存在");
+    if (root.folder_kind === "project_official") fail(404, "正式文件根目录不可直接下载");
+    const folderById = new Map(folders.map((folder) => [folder.id, folder]));
+    const folderIds = new Set([folderId]);
+    const relativeFolders = new Map([[folderId, ""]]);
+    const pending = [folderId];
+    while (pending.length) {
+      const parentId = pending.shift();
+      for (const folder of folders) {
+        if (folder.parent_id !== parentId) continue;
+        folderIds.add(folder.id);
+        relativeFolders.set(folder.id, `${relativeFolders.get(parentId)}${folder.name}/`);
+        pending.push(folder.id);
+      }
+    }
+    const placeholders = [...folderIds].map(() => "?").join(",");
+    const versions = await query(
+      this.db,
+      `SELECT v.id,v.artifact_id,v.version,v.filename,v.content,a.title,a.folder_id
+       FROM versions v JOIN artifacts a ON a.id=v.artifact_id
+       LEFT JOIN version_recycle vr ON vr.version_id=v.id
+       WHERE a.project_id=? AND a.deleted_at IS NULL AND vr.version_id IS NULL
+         AND a.folder_id IN (${placeholders})
+         AND NOT EXISTS (
+           SELECT 1 FROM versions newer
+           LEFT JOIN version_recycle newer_vr ON newer_vr.version_id=newer.id
+           WHERE newer.artifact_id=v.artifact_id AND newer.version>v.version
+             AND newer_vr.version_id IS NULL
+         )
+       ORDER BY a.folder_id,v.filename,v.id`,
+      [projectId, ...folderIds],
+    );
+    if (!versions.length) fail(404, "文件夹内没有可下载的文件");
+    const zip = new JSZip();
+    const usedNames = new Map();
+    for (const version of versions) {
+      const prefix = relativeFolders.get(version.folder_id) || "";
+      const originalName = String(version.filename || "文档").replace(/[\\/\x00-\x1f]/g, "_");
+      const key = `${prefix}${originalName}`;
+      const count = usedNames.get(key) || 0;
+      usedNames.set(key, count + 1);
+      const dot = originalName.lastIndexOf(".");
+      const suffix = dot > 0 ? originalName.slice(dot) : "";
+      const stem = suffix ? originalName.slice(0, -suffix.length) : originalName;
+      const filename = count ? `${prefix}${stem} (${count + 1})${suffix}` : key;
+      zip.file(filename, version.content);
+    }
+    return {
+      content: await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }),
+      filename: `${String(root.name || "文件夹").replace(/[\\/\x00-\x1f]/g, "_") || "文件夹"}.zip`,
+      fileCount: versions.length,
+      folder: folderById.get(folderId),
+    };
   }
   async versionSource(user, versionId) {
     const version = await this.version(user, versionId);
@@ -1746,15 +1850,15 @@ export class Service {
     if (sourceRoot === "project_official")
       return { id: source.id, artifactId: source.artifact_id, reused: true };
     if (!isCacheFolderKind(sourceRoot) && !isOutputFolderKind(sourceRoot))
-      fail(403, "只能从缓存文件或产物文件另存为正式文件");
+      fail(403, "只能从对话缓存或沙箱产物另存为正式文件");
     if (isCacheFolderKind(sourceRoot) || isOutputFolderKind(sourceRoot)) {
       const [review] = await query(db,
         "SELECT decision FROM reviews WHERE version_id=? ORDER BY created_at DESC,id DESC LIMIT 1",
         [versionId]);
       if (review?.decision !== "approved")
         fail(409, isCacheFolderKind(sourceRoot)
-          ? "只有已确认的缓存文件可以另存为正式文件"
-          : "只有已确认的产物文件版本可以另存为正式文件");
+          ? "只有已确认的对话缓存可以另存为正式文件"
+          : "只有已确认的沙箱产物版本可以另存为正式文件");
     }
     const official = await this.documentFolder(db, projectId, "project_official");
     const copiedTitle = await uniqueArtifactTitle(db, projectId, official.id, givenTitle
@@ -1767,6 +1871,12 @@ export class Service {
       VALUES(?,?,?,?,?,?,?,?,?,?,?)`, [copiedVersionId, artifactId, threadId || source.thread_id || null, 1, copiedFilename, source.mime,
       source.content, source.sha256, source.byte_size, note, user.id]);
     await queueDocumentMemory(db, copiedVersionId);
+    await recordDocumentChange(db, {
+      projectId, artifactId, versionId: copiedVersionId, folderId: official.id,
+      action: "document_saved_to_official", source: user.kind === "agent" ? "agent" : "ui",
+      actorType: user.kind, actorId: user.id, threadId,
+      details: { sourceVersionId: versionId, title: copiedTitle, filename: copiedFilename, version: 1 },
+    });
     return { id: copiedVersionId, artifactId, version: 1, title: copiedTitle };
   }
   async saveVersionToOfficial(user, projectId, versionId, input = {}) {
@@ -1802,7 +1912,7 @@ export class Service {
     if (rootKind === "project_official")
       fail(403, "正式文件已确认，不需要审核");
     if (!isCacheFolderKind(rootKind) && !isOutputFolderKind(rootKind))
-      fail(400, "只能审核缓存文件或产物文件");
+      fail(400, "只能审核对话缓存或沙箱产物");
     const comment = data.comment.trim();
     if (data.decision === "changes_requested" && !comment)
       fail(400, "请填写需要修改的内容");
@@ -1847,8 +1957,8 @@ export class Service {
     const commentBlock = numbered ? `\n${comment}` : comment;
     const saveHint = isCacheFolderKind(rootKind)
       ? (mentionAgent
-        ? `${numbered ? "\n" : "。"}修改后请保存为产物文件，不要改缓存原件`
-        : `${numbered ? "\n" : "。"}请让小祥帮忙改并保存为产物文件，或自己改完后在对话框重新上传新的缓存文件`)
+        ? `${numbered ? "\n" : "。"}修改后请保存为沙箱产物，不要改对话缓存原件`
+        : `${numbered ? "\n" : "。"}请让小祥帮忙改并保存为沙箱产物，或自己改完后在对话框重新上传新的对话缓存`)
       : "";
     const body = `@${mentionName} 需要修改「${version.title}」${label}：${commentBlock}${saveHint}`;
     const message = await this.postMessage(user, threadId, {

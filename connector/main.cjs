@@ -463,7 +463,7 @@ function taskCard(task, context) {
     "## 过程回报（共序 MCP）",
     "",
     `- 有阶段性进展、遇到阻塞或需要决策时，用共序 MCP 工具 post_message 向 threadId ${task.thread_id} 简短报进度：改了什么、下一步是什么。`,
-    "- 需要交付文档时用 submit_document；需要内置助手协助时在消息里 @小祥。",
+    "- 需要在消息中添加新附件时，先用 upload_cache_draft 上传对话缓存，再用 post_message 引用版本；正式文件可独立用 upload_official_file 上传，返回版本也能被后续消息引用；需要内置助手协助时在消息里 @小祥。",
     "- 不要自称已把结果保存到共序、已写入主仓库或已结案：结案由开发人员在连接器点「完成并通知」，连接器会回传 Git Diff；是否写入主仓库也由开发人员勾选。",
     "- 严禁改写本任务卡；对任务有疑问先在会话里向开发人员确认。",
     "",
@@ -490,10 +490,17 @@ function agentLaunchArgs(kind, { root, sessionId, resume, prompt }) {
   throw new Error("未知的本机 Agent");
 }
 
+function projectTuiArgs(kind, root) {
+  if (kind === "cursor") return ["--trust"];
+  if (kind === "codex") return ["-C", root];
+  if (kind === "claude") return [];
+  throw new Error("未知的本机 Agent");
+}
+
 // 通过 cmd start /wait 拿到窗口进程：子进程退出即窗口关闭；Windows Terminal 为默认终端时同样成立。
-function spawnAgentWindow(kind, args, { root, env }) {
+function spawnAgentWindow(kind, args, { root, env, title = `CoThread 任务 - ${agentLabel(kind)}` }) {
   const launcher = agentLauncher(kind);
-  return spawn(comSpec(), ["/d", "/c", "start", `CoThread 任务 - ${agentLabel(kind)}`, "/wait", launcher.file, ...launcher.prefix, ...args],
+  return spawn(comSpec(), ["/d", "/c", "start", title, "/wait", launcher.file, ...launcher.prefix, ...args],
     { cwd: root, windowsHide: true, stdio: "ignore", env: env || process.env });
 }
 
@@ -618,7 +625,7 @@ const MCP_WRITERS = { cursor: writeCursorMcp, codex: writeCodexMcp, claude: writ
 function mcpServerSpec(config, token) {
   const mcp = config.mcp || {};
   const url = new URL(mcp.endpoint || "/mcp", config.server).toString();
-  const headers = { Authorization: `Bearer ${token}`, "X-CoThread-MCP-Source": "local-connector" };
+  const headers = { Authorization: `Bearer ${token}` };
   if (mcp.conversationId) headers["Makers-Conversation-Id"] = mcp.conversationId;
   return { url, headers, token };
 }
@@ -1374,6 +1381,33 @@ async function guiMain() {
       setAutoStart(!!payload.enabled);
       autoStart = !!payload.enabled;
       status = payload.enabled ? "已开启开机自动启动" : "已关闭开机自动启动";
+    } else if (command.type === "launchProjectTui") {
+      if (!token) throw new Error("请先登录并授权账号");
+      const row = remoteProjects.find((item) => item.id === payload.projectId);
+      const local = row && config.projects[row.id];
+      if (!local || Number(row.bound) !== 1) throw new Error("项目未连接或账号已失去权限，请刷新项目列表");
+      const chosen = String(payload.agentKind || "") ||
+        (prerequisites.installedAgents.length === 1 ? prerequisites.installedAgents[0] : "");
+      if (!chosen || !prerequisites.agents[chosen]?.installed)
+        throw new Error(chosen ? `${agentLabel(chosen)} 未安装或不可用，请重新检测本机环境` : "请选择已安装的本机 Agent");
+      const binding = projectBinding(local);
+      if (!binding.repo) throw new Error("当前设备尚未关联该项目目录");
+      const repo = resolveRepoDir(binding.repo);
+      const { workDir } = resolveProjectDir(repo, binding.projectPath);
+      const child = spawnAgentWindow(chosen, projectTuiArgs(chosen, workDir),
+        { root: workDir, title: `CoThread 项目 - ${agentLabel(chosen)}` });
+      await new Promise((resolve, reject) => {
+        child.once("spawn", resolve);
+        child.once("error", reject);
+      });
+      child.on("error", (error) => log(`${row.name} 的 ${agentLabel(chosen)} 会话出错：${error.message}`));
+      child.once("exit", (code) => {
+        if (code !== 0) log(`${row.name} 的 ${agentLabel(chosen)} 会话已退出（代码 ${code ?? "未知"}）`);
+      });
+      config.defaultAgent = chosen;
+      await writeConfig(config);
+      status = `已打开 ${row.name} 的 ${agentLabel(chosen)} TUI`;
+      log(`${status}：${workDir}（无关联任务）`);
     } else if (command.type === "startTask") {
       const task = await startLocalTask({ taskId: String(payload.taskId || ""), agentKind: payload.agentKind, retry: !!payload.retry });
       await refreshTasks().catch(() => {});
@@ -1521,7 +1555,7 @@ async function main() {
 }
 
 module.exports = {
-  AGENTS, addDetachedWorktree, agentLaunchArgs, applyWorktreeToRepo, checkPrerequisites, createAuthorizationCallback, instanceLockIsActive,
+  AGENTS, addDetachedWorktree, agentLaunchArgs, projectTuiArgs, applyWorktreeToRepo, checkPrerequisites, createAuthorizationCallback, instanceLockIsActive,
   withUtf8Bom,
   launchPrompt, mergeCodexMcpConfig, mergeCursorMcpConfig, parseCodexSessionId, parseCursorChatId, parseInstanceLock,
   projectBinding, projectWorkDir, protectToken, relativeProjectPath, removeWorktree, resolveProjectDir, resolveRepoDir,

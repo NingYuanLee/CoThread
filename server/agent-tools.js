@@ -16,6 +16,9 @@ import { loadMemberUnderstanding, loadProjectWikiIndexes, queueDocumentMemory } 
 import { connectorTool } from "./connectors.js";
 import { acknowledgeTaskRejection, askTaskQuestion, createTask, ensureDshL3CanUpdate, idleL3Count, inspectIterationTask, listTasks, reassignTask, recoverAbnormalTask, reopenRejectedTask, updateTask } from "./task-pool.js";
 import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./project-library.js";
+import { captureDocumentPreview, captureDocumentTree, captureSandboxPreview } from "./preview-screenshot.js";
+import { saveVisualArtifact } from "./visual-artifacts.js";
+import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.js";
 
 function l2Actor(job, l2SessionId) {
   const authorizedByUserId = job.kind !== "child_result" && job.author_id && job.author_id !== AGENT_MEMBER.id
@@ -35,7 +38,7 @@ const titles = {
   read_document: "读取",
   record_document_summary: "记录摘要",
   list_local_connectors: "查看",
-  read_iteration: "读取",
+  read_iteration: "读取", capture_preview_screenshot: "截图验收",
   sandbox_command: "执行",
   sandbox_read: "读取",
   sandbox_write: "写入",
@@ -45,7 +48,7 @@ const titles = {
   list_project_tasks: "查看任务", inspect_task: "询问任务进度",
 };
 const L3_EXECUTION_TOOLS = new Set([
-  "sandbox_command", "sandbox_read", "sandbox_write", "publish_artifact", "report_task",
+  "sandbox_command", "sandbox_read", "sandbox_write", "publish_artifact", "capture_preview_screenshot", "report_task",
 ]);
 
 export async function liveDshL3Run(db, { sessionId, threadId } = {}) {
@@ -108,7 +111,7 @@ export function createAgentTools(
     }
     const thread = await assertJob(service, user, job, { role: effectiveRole, sessionId: callerSessionId });
     if (!titles[name]) throw new HttpError(400, "未知工具");
-    if (effectiveRole === "coordinator" && !["list_documents", "list_messages", "read_message", "list_members", "read_member", "project_context", "read_document", "record_document_summary", "read_iteration", "list_project_tasks", "inspect_task", "create_task", "update_task", "reassign_task", "resolve_task_rejection", "recover_task", "ask_task_question"].includes(name))
+    if (effectiveRole === "coordinator" && !["list_documents", "list_messages", "read_message", "list_members", "read_member", "project_context", "read_document", "record_document_summary", "read_iteration", "list_project_tasks", "inspect_task", "create_task", "update_task", "reassign_task", "resolve_task_rejection", "recover_task", "ask_task_question", "capture_preview_screenshot"].includes(name))
       throw new HttpError(403, "L2 当前不能直接执行该工具");
     if (effectiveRole === "executor" && ["create_task", "reassign_task", "resolve_task_rejection", "recover_task", "inspect_task", "ask_task_question"].includes(name))
       throw new HttpError(403, "L3 只能执行已分派的工作，不能管理 L2 生命周期或创建新任务");
@@ -243,6 +246,37 @@ export function createAgentTools(
           throw new HttpError(403, "仅可读取当前项目");
         await progress(formatAgentAction(name, args, target));
         result = modelDiscussion(await service.context(user, id, service.db, { display: true, limit: args.limit ?? 50, before: args.before }));
+      } else if (name === "capture_preview_screenshot") {
+        if (!visualVerificationEnabled(effectiveRole === "executor" ? "executor" : "coordinator")) {
+          result = visualVerificationSkip(effectiveRole === "executor" ? "l3" : "l2");
+        } else {
+        const source = z.enum(["document_tree", "document_preview", "sandbox_html"]).parse(args.source);
+        if (source === "document_tree") {
+          result = await captureDocumentTree(service, user, thread.project_id);
+        } else if (source === "document_preview") {
+          const versionId = z.string().uuid().parse(args.versionId);
+          const version = await service.version(user, versionId);
+          if (version.project_id !== thread.project_id) throw new HttpError(403, "文档不属于当前项目");
+          result = await captureDocumentPreview(service, user, versionId);
+        } else {
+          if (effectiveRole !== "executor") throw new HttpError(403, "只有 L3 可以截图沙箱 HTML");
+          const sandbox = await getSandbox(service.db, sandboxScope, progress);
+          const relative = z.string().min(1).max(240).parse(args.path);
+          await safeRemotePath(sandbox, root, relative);
+          result = await captureSandboxPreview(sandbox, root, relative);
+        }
+        const visual = await saveVisualArtifact(service.db, {
+          projectId: thread.project_id,
+          agentEventId: event.insertId,
+          content: result.content,
+          mime: result.mimeType,
+          source,
+        });
+        result = { ...result, contentBase64: result.content.toString("base64") };
+        delete result.content;
+        result.screenshotUrl = visual.url;
+        result.screenshotArtifactId = visual.id;
+        }
       } else if (name === "read_document") {
         await service.assertDocumentScopeAvailable(service.db, thread.project_id, job.thread_id);
         const version = await service.version(
@@ -400,10 +434,13 @@ export function createAgentTools(
           }
         }
       }
+      const eventOutput = name === "capture_preview_screenshot" && result.screenshotArtifactId
+        ? { ...result, contentBase64: undefined }
+        : result;
       await query(
         service.db,
         "UPDATE agent_events SET status='completed',output=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?",
-        [JSON.stringify(result).slice(0, 30000), event.insertId],
+        [JSON.stringify(eventOutput).slice(0, 30000), event.insertId],
       );
       if (name !== "report_task")
         await progress("工具已完成，Agent 正在继续处理");

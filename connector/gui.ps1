@@ -156,7 +156,7 @@ try {
             </Grid>
             <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,10,0,0">
               <TextBlock Text="开始任务时从已安装的 TUI 中选一个即可。" Foreground="#849083" VerticalAlignment="Center" Margin="0,0,16,0"/>
-              <Button x:Name="RefreshMcpButton" Content="检查并更新 MCP 配置" Style="{StaticResource EnvActionButton}" ToolTip="检查账号 MCP 令牌版本，变化时更新本机 Agent 配置"/>
+              <Button x:Name="RefreshMcpButton" Content="检查并更新 MCP 配置" Style="{StaticResource EnvActionButton}" ToolTip="重新获取账号 MCP 凭据，并重写已安装 Agent 的完整共序 MCP 配置（服务地址、认证头等）"/>
             </StackPanel>
           </Grid>
         </StackPanel>
@@ -186,8 +186,11 @@ try {
                 <DataGridTemplateColumn Header="状态" Width="76" MinWidth="64"><DataGridTemplateColumn.CellTemplate><DataTemplate>
                   <Border Background="{Binding connectionBackground}" CornerRadius="3" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock Text="{Binding connectionText}" Foreground="{Binding connectionForeground}" FontWeight="SemiBold"/></Border>
                 </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-                <DataGridTemplateColumn Header="操作" Width="92" MinWidth="80"><DataGridTemplateColumn.CellTemplate><DataTemplate>
-                  <Button x:Name="ToggleProjectButton" Content="{Binding actionText}" Style="{StaticResource CompactButton}" Tag="{Binding id}" Margin="0" Background="{Binding actionBackground}" BorderBrush="{Binding actionBorder}" Foreground="{Binding actionForeground}"/>
+                <DataGridTemplateColumn Header="操作" Width="170" MinWidth="150"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+                  <StackPanel Orientation="Horizontal">
+                    <Button x:Name="LaunchProjectTuiButton" Content="启动 TUI" Visibility="{Binding launchVisibility}" Style="{StaticResource CompactButton}" Tag="{Binding id}" ToolTip="在已连接项目目录中启动普通交互 TUI，不创建任务或 worktree" Background="#EEF5EF" BorderBrush="#BFD3C1" Foreground="#37653D"/>
+                    <Button x:Name="ToggleProjectButton" Content="{Binding actionText}" Style="{StaticResource CompactButton}" Tag="{Binding id}" Margin="0" Background="{Binding actionBackground}" BorderBrush="{Binding actionBorder}" Foreground="{Binding actionForeground}"/>
+                  </StackPanel>
                 </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
               </DataGrid.Columns>
             </DataGrid>
@@ -321,7 +324,7 @@ function Set-AgentMcpText($block, $installed, $paired, $configured, $entry, $exp
 function Show-FilteredProjects {
   $onlyBound = [bool]$BoundProjectsOnlyCheck.IsChecked
   $rows = @($script:projectRows | Where-Object { -not $onlyBound -or [bool]$_.bound })
-  $view = "$( [int]$onlyBound )|" + (($rows | ForEach-Object { '{0}|{1}|{2}|{3}|{4}|{5}' -f [string]$_.id, [string]$_.name, [string]$_.repo, [string]$_.projectPath, [int][bool]$_.bound, [int][bool]$_.allowGitPush }) -join ';')
+  $view = "$( [int]$onlyBound )|" + (($rows | ForEach-Object { '{0}|{1}|{2}|{3}|{4}|{5}|{6}' -f [string]$_.id, [string]$_.name, [string]$_.repo, [string]$_.projectPath, [int][bool]$_.bound, [int][bool]$_.allowGitPush, [string]$_.launchVisibility }) -join ';')
   if ($view -eq $script:projectViewSignature) { return }
   $script:projectViewSignature = $view
   $ProjectGrid.ItemsSource = $rows
@@ -519,6 +522,9 @@ $ProjectGrid.AddHandler([System.Windows.Controls.Button]::ClickEvent, [System.Wi
         $ProjectGrid.Items.Refresh()
       }
     }
+  } elseif ($button.Name -eq 'LaunchProjectTuiButton') {
+    $kind = Select-AgentKind $row
+    if ($null -ne $kind) { Send-Command 'launchProjectTui' @{ projectId=$row.id; agentKind=$kind } }
   } elseif ($button.Name -eq 'ToggleProjectButton') {
     if ([bool]$row.bound) { Send-Command 'unbind' @{ projectId=$row.id } }
     else { Send-Command 'bind' @{ projectId=$row.id; repo=$row.repo; projectPath=$row.projectPath; allowGitPush=[bool]$row.allowGitPush } }
@@ -688,6 +694,7 @@ $timer.Add_Tick({
         actionBackground=$(if($bound){'#F8ECE9'}else{'#527A55'})
         actionBorder=$(if($bound){'#E4C5BE'}else{'#527A55'})
         actionForeground=$(if($bound){'#985347'}else{'#FFFFFF'})
+        launchVisibility=$(if($bound){[Windows.Visibility]::Visible}else{[Windows.Visibility]::Collapsed})
       } -Force -PassThru
     })
     Show-FilteredProjects

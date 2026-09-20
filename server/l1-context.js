@@ -15,6 +15,9 @@ export async function readL1TaskSession(service, user, projectId, task) {
     [projectId, scopedTask, projectId]);
   let messages = nativeHistoryFromCheckpoint(row?.checkpoint);
   if (!messages.length) messages = await nativeHistoryFromLiveHome(`l1-${scopedTask}-${projectId}`);
+  const events = await query(service.db, `SELECT e.id,e.phase tool,e.status,e.created_at,e.finished_at,a.id visual_artifact_id
+    FROM agent_project_events e LEFT JOIN agent_visual_artifacts a ON a.agent_project_event_id=e.id
+    WHERE e.project_id=? AND e.task=? ORDER BY e.id LIMIT 300`, [projectId, scopedTask]);
   return {
     task: scopedTask,
     status: row?.status || "idle",
@@ -23,7 +26,11 @@ export async function readL1TaskSession(service, user, projectId, task) {
     error: row?.last_error || null,
     contextUsage: contextUsage(row || null, [], []),
     messages,
-    events: [],
+    events: events.map((event) => ({
+      id: String(event.id), tool: event.tool, status: event.status,
+      created_at: event.created_at, finished_at: event.finished_at,
+      screenshotUrl: event.visual_artifact_id ? `/api/agent-visual-artifacts/${event.visual_artifact_id}` : null,
+    })),
     pending: [],
   };
 }

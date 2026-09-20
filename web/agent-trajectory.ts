@@ -20,6 +20,7 @@ export type AgentLogEvent = {
   durationMs: number | null;
   preview?: string;
   error?: string;
+  screenshotUrl?: string;
 };
 export type AgentLogInput = {
   id: string;

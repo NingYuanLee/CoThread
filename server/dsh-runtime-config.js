@@ -16,11 +16,11 @@ const inspectionModel = {
 const pluginRow = (id, file, inject = "") => `    - id: ${id}\n      name: ${JSON.stringify(pathToFileURL(assetPath(file)).href)}${inject ? `\n      inject: ${inject}` : ""}\n`;
 
 export function agentRuntimePatch() {
-  return `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n${pluginRow("cothread-sdk-server", "runtime/sdk-resume.mjs", "[sdkAppStartup, loader]")}${pluginRow("cothread-project-tools", "runtime/cothread-tools.mjs")}${pluginRow("cothread-system-prompt", "runtime/cothread-system-prompt.mjs")}${pluginRow("cothread-db-skills", "runtime/cothread-skills.mjs")}`;
+  return `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n${pluginRow("cothread-sdk-server", "runtime/sdk-resume.mjs", "[sdkAppStartup, loader]")}${pluginRow("cothread-project-tools", "runtime/cothread-tools.mjs")}${pluginRow("cothread-system-prompt", "runtime/cothread-system-prompt.mjs")}${pluginRow("cothread-visual-verification", "runtime/cothread-visual-verification.mjs")}${pluginRow("cothread-db-skills", "runtime/cothread-skills.mjs")}`;
 }
 
 export function l1RuntimePatch() {
-  return `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n${pluginRow("cothread-sdk-server", "runtime/sdk-resume.mjs", "[sdkAppStartup, loader]")}${pluginRow("cothread-l1-tool-policy", "runtime/l1-tools.mjs")}${pluginRow("cothread-system-prompt", "runtime/cothread-system-prompt.mjs")}${pluginRow("cothread-db-skills", "runtime/cothread-skills.mjs")}`;
+  return `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n${pluginRow("cothread-sdk-server", "runtime/sdk-resume.mjs", "[sdkAppStartup, loader]")}${pluginRow("cothread-l1-tool-policy", "runtime/l1-tools.mjs")}${pluginRow("cothread-system-prompt", "runtime/cothread-system-prompt.mjs")}${pluginRow("cothread-visual-verification", "runtime/cothread-visual-verification.mjs")}${pluginRow("cothread-db-skills", "runtime/cothread-skills.mjs")}`;
 }
 
 export function dshComposition(level) {

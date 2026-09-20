@@ -864,6 +864,14 @@ export async function listTaskUpdates(db, taskId) {
   return query(db, "SELECT * FROM agent_task_pool_updates WHERE task_id=? ORDER BY created_at", [taskId]);
 }
 
+export function mergeTaskActivity({ updates = [], statusHistory = [], executionRuns = [] } = {}) {
+  return [
+    ...updates.map((item) => ({ ...item, kind: "member_update", at: item.created_at })),
+    ...statusHistory.map((item) => ({ ...item, kind: "status_change", at: item.created_at })),
+    ...executionRuns.map((item) => ({ ...item, kind: "l3_execution", at: item.created_at })),
+  ].sort((left, right) => String(left.at || "").localeCompare(String(right.at || "")));
+}
+
 function assistantText(blocks = []) {
   return blocks.filter((block) => block?.type === "text" && typeof block.text === "string")
     .map((block) => block.text).join("\n").trim();

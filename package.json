@@ -23,7 +23,9 @@
     "mysql:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql.ps1 stop",
     "test": "node --env-file=.env --test --test-concurrency=1 tests/*.test.js",
     "app:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 start",
-    "app:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 stop"
+    "app:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 stop",
+    "seed:preview-fixtures": "node --env-file-if-exists=.env scripts/seed-document-preview-fixtures.mjs",
+    "setup:preview-browser": "playwright install chromium"
   },
   "dependencies": {
     "@deepseek-ai/cordis-plugin-group": "1.0.2",
@@ -57,8 +59,10 @@
     "express": "^5.1.0",
     "js-yaml": "^4.3.2",
     "jszip": "^3.10.2",
+    "mermaid": "^12.0.0",
     "mysql2": "^3.14.0",
     "nodemailer": "^7.0.13",
+    "playwright": "^1.63.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",

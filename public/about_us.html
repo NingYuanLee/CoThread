@@ -225,8 +225,8 @@
     </div>
     <div class="flow">
       <div class="step reveal"><div class="n">左侧</div><h3>迭代与项目管理</h3><p>列出当前项目的迭代讨论，可查看已归档。底部打开「项目管理」（人类成员、连接器、项目级 Agent）和「小祥 Agent 监控」（L1 / L2 / L3）。</p></div>
-      <div class="step reveal"><div class="n">中间</div><h3>迭代群聊</h3><p>默认勾选「交给 Agent 处理」。可引用精确文档版本、把附件丢进当天缓存目录，看执行过程并停止或重试。</p></div>
-      <div class="step reveal"><div class="n">右侧</div><h3>文档浏览器</h3><p>一棵树看本项目共享的正式文件、缓存文件与产物文件。点选即可预览 Markdown、代码、图片、PDF 以及 Word / Excel / PowerPoint。</p></div>
+      <div class="step reveal"><div class="n">中间</div><h3>迭代群聊</h3><p>默认勾选「交给 Agent 处理」。可引用精确文档版本、把附件丢进当天对话缓存目录，看执行过程并停止或重试。</p></div>
+      <div class="step reveal"><div class="n">右侧</div><h3>文档浏览器</h3><p>一棵树看本项目共享的正式文件、对话缓存与沙箱产物。点选即可预览 Markdown、代码、图片、PDF 以及 Word / Excel / PowerPoint。</p></div>
       <div class="step reveal"><div class="n">边界</div><h3>谁能改什么</h3><p>缓存只来自对话框或 MCP 上传；产物只由 Agent 生成（含按缓存修改后的结果）。人不能在这两区直接改内容，可查看、引用、下载、审核、重命名、回收。「需要修改」会弹窗填意见后发到当前群聊。</p></div>
     </div>
   </section>
@@ -306,7 +306,7 @@
     <div class="flow">
       <div class="step reveal"><div class="n">STEP 01</div><h3>讨论与澄清</h3><p>在迭代群聊里提出需求、@ 小祥或交给本机 Agent，引用已有版本。上下文由消息序号和引用关系固定下来。</p></div>
       <div class="step reveal"><div class="n">STEP 02</div><h3>小祥执行</h3><p>二级判断是否开跑；三级在独立沙箱里改文件、跑命令。忙时会明说暂时只陪聊，不会把请求悄悄排队。</p></div>
-      <div class="step reveal"><div class="n">STEP 03</div><h3>提交为版本</h3><p>Agent 成果进入项目产物文件（含 SHA-256）。对话附件只进缓存。本地 AI 令牌不能审批，也不能归档。</p></div>
+      <div class="step reveal"><div class="n">STEP 03</div><h3>发布沙箱产物</h3><p>云端 Agent 成果进入项目沙箱产物（含 SHA-256）。对话附件只进缓存，正式文件独立上传。本地 AI 令牌不能审批，也不能归档。</p></div>
       <div class="step reveal"><div class="n">STEP 04</div><h3>人工审核归档</h3><p>确认或「需要修改」（弹窗说明后发到当前群聊）。归档后本迭代锁定，已确认产物另存正式文件；文档库仍给后续迭代共用。</p></div>
     </div>
   </section>

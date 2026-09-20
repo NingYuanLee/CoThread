@@ -4,7 +4,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { FileIcon } from "@react-symbols/icons/utils";
-import { Document, Notebook } from "@react-symbols/icons/files";
+import {
+  Document,
+  Markdown as MarkdownFile,
+  Notebook,
+  Python,
+  Text,
+} from "@react-symbols/icons/files";
 import { UiIcon } from "./ui-icon";
 import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
 
@@ -33,6 +39,12 @@ const officeIcons = {
   ppt: Notebook,
   pptx: Notebook,
   odp: Notebook,
+  md: MarkdownFile,
+  markdown: MarkdownFile,
+  txt: Text,
+  log: Text,
+  env: Text,
+  py: Python,
 };
 function FilePreview({
   name,
@@ -569,3 +581,5 @@ export function ChatComposer({
     </>
   );
 }
+
+

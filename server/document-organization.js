@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
-import { HttpError } from "./service.js";
+import { HttpError, Service } from "./service.js";
 import { publishWork } from "./work-events.js";
+import { captureProjectTree } from "./preview-screenshot.js";
+import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.js";
 
 const planSchema = z.object({
   documents: z.array(z.object({
@@ -10,6 +12,10 @@ const planSchema = z.object({
     title: z.string().trim().min(1).max(160).optional(),
     folder: z.string().trim().min(1).max(80).nullable().optional(),
   })).max(500),
+});
+const visualVerificationSchema = z.object({
+  ok: z.boolean(),
+  issues: z.string().max(4000).default(""),
 });
 
 export async function listOrganizationDocuments(db, job) {
@@ -63,6 +69,18 @@ async function createPlan(db, job, documents, options = {}) {
   }, planSchema, options);
 }
 
+async function verifyOrganization(db, job, documents, screenshot, options = {}) {
+  const { runL1Task } = await import("./l1-agent.js");
+  return runL1Task(db, job.project_id, "document_organization", {
+    instructions: "这是数据库整理完成后的真实文档树截图。只做视觉复核，返回 {ok:boolean,issues:string}。检查文件是否出现在合理文件夹、树结构是否清晰、是否存在明显缺失或显示异常。数据库清单不能替代截图。",
+    scope: job.scope,
+    documents,
+  }, visualVerificationSchema, {
+    ...(options || {}),
+    image: { data: screenshot.toString("base64"), mimeType: "image/png" },
+  });
+}
+
 export async function processNextDocumentOrganization(db, options = {}) {
   const job = await transaction(db, async (conn) => {
     const [next] = await query(conn, `SELECT * FROM document_organization_jobs
@@ -108,9 +126,18 @@ export async function processNextDocumentOrganization(db, options = {}) {
             [item.title || source.title, folderId, item.artifactId]);
           changed.push(item.artifactId);
         }
-        await query(conn, `UPDATE document_organization_jobs SET status='completed',result=?,finished_at=UTC_TIMESTAMP(3)
-          WHERE id=?`, [JSON.stringify({ checked: rows.length, changed: changed.length }), job.id]);
       });
+      let visual;
+      if (!visualVerificationEnabled("knowledge")) {
+        visual = visualVerificationSkip("l1");
+      } else {
+        const project = await new Service(db).project({ id: job.requested_by, kind: "session" }, job.project_id);
+        const screenshot = await captureProjectTree(project);
+        visual = await verifyOrganization(db, job, rows, screenshot, options.l1Options);
+        if (!visual.ok) throw new Error(`文档整理视觉复核未通过：${visual.issues || "请人工检查文档树"}`);
+      }
+      await query(db, `UPDATE document_organization_jobs SET status='completed',result=?,finished_at=UTC_TIMESTAMP(3)
+        WHERE id=?`, [JSON.stringify({ checked: rows.length, changed: changed.length, visualVerification: visual }), job.id]);
     }
   } catch (error) {
     await query(db, `UPDATE document_organization_jobs SET status='failed',error=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?`,

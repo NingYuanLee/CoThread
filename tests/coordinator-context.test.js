@@ -42,11 +42,14 @@ test("L1 denies every installed tool and MCP tools are a build-time manifest", a
   assert.match(runtimeConfig, /runtime\/l1-tools\.mjs/);
   assert.ok(Object.isFrozen(mcp.MCP_TOOL_NAMES));
   assert.deepEqual(mcp.MCP_TOOL_NAMES, [
-    "list_documents", "manage_document", "manage_folder", "get_connection_guide",
-    "list_projects", "get_project", "get_iteration_context", "list_messages",
-    "read_message", "list_members", "read_member", "get_document_version",
-    "upload_source_file", "post_message", "submit_document",
+    "get_connection_guide", "list_projects", "get_project_context", "get_member",
+    "list_documents", "list_document_changes", "get_document_version", "manage_document", "manage_folder", "upload_official_file",
+    "get_iteration_context", "list_messages", "read_message",
+    "upload_cache_draft", "post_message",
+    "list_tasks", "get_task", "accept_task", "reject_task", "update_task",
   ]);
+  for (const hidden of ["create_task", "reassign_task", "list_task_questions", "answer_task_question", "list_task_agent_logs", "get_task_log_event"])
+    assert.ok(!mcp.MCP_TOOL_NAMES.includes(hidden), hidden);
 });
 
 test("the coordinator has no one-shot reply or execute decision route", async () => {

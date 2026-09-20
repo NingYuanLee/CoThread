@@ -121,7 +121,7 @@ test("MCP discovers the target, uploads source files first, then sends refs + te
   assert.match(guide.data.instructions, /get_iteration_context/);
   assert.ok(!guide.data.instructions.includes(token));
   const connectorGuide = await mcp("get_connection_guide", {}, "local-connector");
-  assert.match(connectorGuide.data.instructions, /本机连接器启动/);
+  assert.equal(connectorGuide.data.instructions, guide.data.instructions);
   const installation = createMcpInstallGuide({ url: `${base}/mcp`, token, context: { projectId, threadId } });
   assert.ok(installation.includes(`Bearer ${token}`));
   assert.ok(installation.includes(threadId));
@@ -133,15 +133,28 @@ test("MCP discovers the target, uploads source files first, then sends refs + te
   const projects = await mcp("list_projects", {});
   assert.ok(projects.data.some((p) => p.id === projectId));
   assert.ok(!projects.data.some((p) => p.id === foreignProjectId));
-  const project = await mcp("get_project", { projectId });
+  const project = await mcp("get_project_context", { projectId });
   assert.ok(project.data.threads.some((t) => t.id === threadId));
-  const existing = await mcp("submit_document", { threadId, ...file("reference.md") });
+  assert.ok(project.data.members.some((member) => member.id === userId));
+  assert.equal("knowledge" in project.data, false);
+  assert.equal("folders" in project.data, false);
+  assert.equal("versions" in project.data, false);
+  const memberLookup = await mcp("get_member", { projectId, memberId: userId });
+  assert.equal(memberLookup.data.id, userId);
+  const existing = await mcp("upload_cache_draft", { threadId, ...file("reference.md") });
   assert.equal(existing.error, false);
   const beforeContext = (await mcp("get_iteration_context", { threadId })).data;
-  const plan = await mcp("upload_source_file", { threadId, ...file("plan.md") });
-  const notes = await mcp("upload_source_file", { threadId, ...file("notes.md") });
+  const plan = await mcp("upload_cache_draft", { threadId, ...file("plan.md") });
+  const notes = await mcp("upload_cache_draft", { threadId, ...file("notes.md") });
   assert.equal(plan.error, false);
   assert.equal(notes.error, false);
+  const beforeOfficialContext = (await mcp("get_iteration_context", { threadId })).data;
+  const official = await mcp("upload_official_file", { projectId, ...file("official.md") });
+  assert.equal(official.error, false);
+  const documentChanges = await mcp("list_document_changes", { projectId });
+  assert.equal(documentChanges.error, false);
+  assert.ok(documentChanges.data.items.some((item) => item.action === "document_uploaded"));
+  assert.equal((await mcp("get_iteration_context", { threadId })).data.messages.length, beforeOfficialContext.messages.length);
   assert.equal((await mcp("get_iteration_context", { threadId })).data.messages.length, beforeContext.messages.length);
   const result = await mcp("post_message", { threadId, body: "一起检查这些文件", mentionAgent: true, refs: [existing.data.id, plan.data.id, notes.data.id] });
   assert.equal(result.error, false);
@@ -157,19 +170,19 @@ test("MCP discovers the target, uploads source files first, then sends refs + te
   const [reply] = await query(database.db, "SELECT participation,status FROM assistant_replies WHERE message_id=?", [message.id]);
   assert.equal(reply.participation, "reply");
   assert.equal(reply.status, "queued");
-  const saved = (await mcp("get_project", { projectId })).data.versions;
-  for (const upload of [plan.data, notes.data]) assert.ok(saved.some((v) => v.id === upload.id));
+  const saved = (await mcp("list_documents", { projectId })).data.versions;
+  for (const upload of [plan.data, notes.data, official.data]) assert.ok(saved.some((v) => v.id === upload.id));
   assert.ok(saved.find((v) => v.id === existing.data.id));
   const downloaded = await mcp("get_document_version", { versionId: plan.data.id });
   assert.equal(downloaded.data.contentBase64, file().contentBase64);
 });
 
 test("bad second file, wrong-project reference, oversize file and archived thread never leave partial uploads", async () => {
-  const beforeProject = (await mcp("get_project", { projectId })).data;
+  const beforeProject = (await mcp("list_documents", { projectId })).data;
   const beforeContext = (await mcp("get_iteration_context", { threadId })).data;
   const other = (await api("/projects", { name: "Different refs" })).body.id;
   const otherThread = (await api(`/projects/${other}/threads`, { title: "other" })).body.id;
-  const otherFile = (await mcp("submit_document", { threadId: otherThread, ...file() })).data;
+  const otherFile = (await mcp("upload_cache_draft", { threadId: otherThread, ...file() })).data;
   for (const extra of [
     { files: [file(), file("bad/path.md")] },
     { files: [file(), file("invalid.md", { contentBase64: "not base64!" })] },
@@ -178,7 +191,7 @@ test("bad second file, wrong-project reference, oversize file and archived threa
   ]) {
     assert.equal((await mcp("post_message", { threadId, body: "should fail", ...extra })).error, true);
   }
-  assert.equal((await mcp("get_project", { projectId })).data.versions.length, beforeProject.versions.length);
+  assert.equal((await mcp("list_documents", { projectId })).data.versions.length, beforeProject.versions.length);
   assert.equal((await mcp("get_iteration_context", { threadId })).data.messages.length, beforeContext.messages.length);
   const archived = (await api(`/projects/${projectId}/threads`, { title: "archived" })).body.id;
   assert.equal((await api(`/threads/${archived}/archive`, { conclusion: "done" })).status, 200);
@@ -194,5 +207,5 @@ test("only explicit local Agent mentions queue replies; read-only members cannot
   assert.equal((await query(database.db, "SELECT task_message_id FROM agent_task_updates WHERE message_id=?", [mention.id]))[0].task_message_id, mention.updatedTaskId);
   await query(database.db, "UPDATE members SET role='viewer' WHERE project_id=? AND user_id=?", [projectId, userId]);
   assert.equal((await mcp("post_message", { threadId, body: "blocked", files: [file()] })).error, true);
-  assert.equal((await mcp("submit_document", { threadId, ...file() })).error, true);
+  assert.equal((await mcp("upload_cache_draft", { threadId, ...file() })).error, true);
 });

@@ -19,7 +19,7 @@ export function apply(ctx) {
       constraints: { type: "string" }, documentRefs: { type: "array" }, sourceType:{type:"string"}, sourceUserId:{type:"string"}, sourceMessageId:{type:"string"}, sourceTaskId:{type:"string"}, targetType: { type: "string" }, targetId: { type: "string" },
     }],
     ["list_documents","项目文档：分页查看当前迭代文件和项目正式文件，其他迭代文件不可见；含回收站状态，默认100项。",{limit:{type:"number"},offset:{type:"number"}}],
-    ["manage_document","项目文档：按用户要求重命名、移动、删除或恢复文档。缓存文件只允许重命名、删除和恢复，不能移动或新增版本；产物和项目正式文件可管理。跨范围保存必须另存副本。",{action:{type:"string",required:true},scope:{type:"string"},artifactId:{type:"string"},versionId:{type:"string"},name:{type:"string"},folderId:{oneOf:[{type:"string"},{type:"null"}]}}],
+    ["manage_document","项目文档：按用户要求重命名、移动、删除或恢复文档。对话缓存只允许重命名、删除和恢复，不能移动或新增版本；产物和项目正式文件可管理。跨范围保存必须另存副本。",{action:{type:"string",required:true},scope:{type:"string"},artifactId:{type:"string"},versionId:{type:"string"},name:{type:"string"},folderId:{oneOf:[{type:"string"},{type:"null"}]}}],
     ["manage_folder","项目文档：按用户要求创建、重命名、移动、删除文件夹。action=create|rename|move|delete；删除前须清空；parentId为null表示根目录。",{action:{type:"string",required:true},folderId:{type:"string"},name:{type:"string"},parentId:{oneOf:[{type:"string"},{type:"null"}]}}],
     ["list_messages", "会话资料：读取本项目某会话消息列表，默认最近20条；beforeMessageId取该消息之前的消息，包含类型与引用预览。", {threadId:{type:"string",required:true},limit:{type:"number"},beforeMessageId:{type:"string"}}],
     ["read_message", "会话资料：读取指定消息，before可取之前0至20条；返回引用预览，可按引用ID再次读取原文。", {threadId:{type:"string",required:true},messageId:{type:"string",required:true},before:{type:"number"}}],
@@ -56,6 +56,11 @@ export function apply(ctx) {
       { threadId: { type: "string", required: true }, limit: { type: "number" }, before: { type: "string" } },
     ],
     [
+      "capture_preview_screenshot",
+      "视觉验收：截图当前项目文档树、指定项目文档版本预览，或当前任务沙箱中的 HTML 文件。写入或整理完成后必须用它做视觉复核；只能访问当前项目和当前任务范围，不能访问外部网页或宿主机屏幕。",
+      { source: { type: "string", required: true }, versionId: { type: "string" }, path: { type: "string" } },
+    ],
+    [
       "sandbox_command",
       "在当前迭代的 Linux 沙箱内执行命令。可运行 Python、测试、创建和编辑文件。不会在应用宿主机执行。命令超时 90 秒，cwd 为工作区根目录；该沙箱不含模型或数据库密钥。",
       {
@@ -81,7 +86,7 @@ export function apply(ctx) {
     ],
     [
       "publish_artifact",
-      "将任务生成的沙箱文件保存到产物文件，生成待人工审核的新版本。默认使用任务名称或实际语义命名；更新已有产物时传 artifactId。不要把结果写回缓存文件；若任务来自缓存修改，即使传入缓存 artifactId 也会另存为新的产物文件。",
+      "将任务生成的沙箱文件保存到沙箱产物，生成待人工审核的新版本。默认使用任务名称或实际语义命名；更新已有产物时传 artifactId。不要把结果写回对话缓存；若任务来自对话缓存修改，即使传入对话缓存 artifactId 也会另存为新的沙箱产物。",
       {
         path: { type: "string", required: true },
         title: { type: "string", required: true },
@@ -123,10 +128,25 @@ export function apply(ctx) {
         name,
         description,
         parameters,
-        output: {
-          schema: { type: "string" },
-          render: (_args, value) => [{ type: "text", text: value }],
-        },
+        output: name === "capture_preview_screenshot"
+          ? {
+              schema: {
+                type: "object", additionalProperties: false,
+                properties: {
+                  source: { type: "string", required: true }, filename: { type: "string", required: true },
+                  mime: { type: "string", required: true }, contentBase64: { type: "string", required: true },
+                  path: { type: "string" }, versionId: { type: "string" },
+                },
+              },
+              render: (_args, value) => [
+                { type: "text", text: `已生成视觉验收截图：${value.filename}（来源：${value.source}）` },
+                { type: "image", data: value.contentBase64, mimeType: value.mime },
+              ],
+            }
+          : {
+              schema: { type: "string" },
+              render: (_args, value) => [{ type: "text", text: value }],
+            },
         async execute(args, exec) {
           const response = await fetch(
             `${process.env.COTHREAD_BRIDGE_URL}/tool`,
@@ -142,7 +162,7 @@ export function apply(ctx) {
           );
           const result = await response.json();
           if (!response.ok) throw new Error(result.error || "工具执行失败");
-          return JSON.stringify(result);
+          return name === "capture_preview_screenshot" ? result : JSON.stringify(result);
         },
       }),
     );

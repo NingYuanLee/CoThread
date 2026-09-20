@@ -1,25 +1,73 @@
 import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type SVGProps } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FileIcon } from "@react-symbols/icons/utils";
-import { Document, Notebook } from "@react-symbols/icons/files";
-import { DocxPreview, PptxPreview, XlsxPreview } from "./office-preview";
-import { inlineHtmlPreviewAssets } from "../shared/html-preview.mjs";
+import {
+  Document,
+  Markdown as MarkdownFile,
+  Notebook,
+  Python,
+  Text,
+} from "@react-symbols/icons/files";
+import { CodePreview, DocxPreview, formatHtmlSource, MermaidPreview, PptxPreview, XlsxPreview } from "./office-preview";
+import { resolvePreviewAssetPath } from "../shared/html-preview.mjs";
 import { fileDisplayName } from "../shared/document-name.js";
 import { UiIcon } from "./ui-icon";
 import { DialogClose, ModalBackdrop } from "./dialog-fx";
 import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
+import { PdfPreview } from "./PdfPreview";
 const officeIcons = {
-  doc: Document,
-  docx: Document,
   odt: Document,
   rtf: Document,
-  ppt: Notebook,
-  pptx: Notebook,
   odp: Notebook,
+  md: MarkdownFile,
+  markdown: MarkdownFile,
+  txt: Text,
+  log: Text,
+  env: Text,
+  ini: Text,
+  conf: Text,
+  toml: Text,
+  py: Python,
 };
+
+function OfficeFileIcon({ fileName, ...props }: { fileName: string } & SVGProps<SVGSVGElement>) {
+  const extension = fileName.toLowerCase().split(".").pop() || "";
+  const isPresentation = extension === "ppt" || extension === "pptx";
+  const isDocument = extension === "doc" || extension === "docx";
+  if (!isPresentation && !isDocument) {
+    return (
+      <FileIcon
+        fileName={fileName}
+        editFileExtensionData={officeIcons}
+        autoAssign
+        {...props}
+      />
+    );
+  }
+
+  const accent = isPresentation ? "#d24726" : "#185abd";
+  const mark = isPresentation ? "P" : "W";
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+      aria-hidden={props["aria-hidden"] ?? true}
+    >
+      <path d="M5 2.75h8.7L19 8.05v13.2H5z" fill="#fff" stroke={accent} strokeWidth="1.4" />
+      <path d="M13.7 2.75v5.3H19" fill={accent} opacity=".18" />
+      <path d="M13.7 2.75v5.3H19" stroke={accent} strokeWidth="1.4" strokeLinejoin="round" />
+      <rect x="3" y="10.2" width="9.2" height="9.2" rx="1.5" fill={accent} />
+      <text x="7.6" y="17.05" fill="#fff" fontFamily="Arial, sans-serif" fontSize="6.8" fontWeight="700" textAnchor="middle">
+        {mark}
+      </text>
+    </svg>
+  );
+}
 
 function HtmlPreviewFrame({
   versionId,
@@ -28,50 +76,17 @@ function HtmlPreviewFrame({
   versionId: string;
   filename: string;
 }) {
-  const [srcDoc, setSrcDoc] = useState("");
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let alive = true;
-    setSrcDoc("");
-    setError("");
-    (async () => {
-      const response = await apiFetch(`/api/versions/${versionId}/preview/`);
-      if (!response.ok) {
-        const body = await readJsonResponse(
-          response,
-          `/api/versions/${versionId}/preview/`,
-        ).catch(() => ({ error: `预览失败 ${response.status}` }));
-        throw new Error(body.error || `预览失败 ${response.status}`);
-      }
-      const html = await response.text();
-      const inlined = await inlineHtmlPreviewAssets(html, async (path) => {
-        const asset = await apiFetch(
-          `/api/versions/${versionId}/preview/${encodeURI(path)}`,
-        );
-        if (!asset.ok) throw new Error(`无法加载 ${path}`);
-        return asset.text();
-      });
-      if (alive) setSrcDoc(inlined);
-    })().catch((cause) => {
-      if (alive) setError(cause instanceof Error ? cause.message : String(cause));
-    });
-    return () => {
-      alive = false;
-    };
-  }, [versionId]);
-  if (error) return <p className="error">{error}</p>;
-  if (!srcDoc) return <p className="muted doc-browser-loading">正在准备 HTML 预览…</p>;
+  const src = `/api/versions/${versionId}/preview/`;
   return (
     <iframe
       className="doc-html-preview-frame"
       title={filename}
-      srcDoc={srcDoc}
-      sandbox="allow-scripts"
+      src={src}
+      sandbox="allow-scripts allow-forms allow-modals"
       referrerPolicy="no-referrer"
     />
   );
 }
-
 function LibraryFileMenu({
   menuId,
   openMenuId,
@@ -193,6 +208,9 @@ function OfficialFolderMenu({
   disabled,
   isRoot,
   onUpload,
+  onDownload,
+  canDownload,
+  downloadProgress,
   onNewFolder,
   onRename,
   onDelete,
@@ -202,8 +220,11 @@ function OfficialFolderMenu({
   onOpenMenuChange: (id: string | null) => void;
   disabled?: boolean;
   isRoot?: boolean;
-  onUpload: () => void;
-  onNewFolder: () => void;
+  onUpload?: () => void;
+  onDownload?: () => void;
+  canDownload?: boolean;
+  downloadProgress?: number | null;
+  onNewFolder?: () => void;
   onRename?: () => void;
   onDelete?: () => void;
 }) {
@@ -237,14 +258,41 @@ function OfficialFolderMenu({
       </button>
       {open ? (
         <div className="library-folder-menu" role="menu" onClick={(event) => event.stopPropagation()}>
-          <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onUpload(); close(); }}>
-            <TreeIcon kind="upload" />
-            <span>上传文件</span>
-          </button>
-          <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onNewFolder(); close(); }}>
-            <TreeIcon kind="newFolder" />
-            <span>新建文件夹</span>
-          </button>
+          {onDownload ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="library-folder-menu-item"
+              disabled={!canDownload || downloadProgress !== undefined && downloadProgress !== null}
+              title={canDownload ? "下载文件夹内文件" : "文件夹内没有文件"}
+              aria-busy={downloadProgress !== undefined && downloadProgress !== null}
+              onClick={() => {
+                if (canDownload && (downloadProgress === undefined || downloadProgress === null)) {
+                  onDownload();
+                  close();
+                }
+              }}
+            >
+              <TreeIcon kind="download" />
+              <span>
+                {downloadProgress !== undefined && downloadProgress !== null
+                  ? downloadProgress > 0 ? `下载压缩包 ${downloadProgress}%` : "正在准备压缩包…"
+                  : "下载压缩包"}
+              </span>
+            </button>
+          ) : null}
+          {onUpload ? (
+            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onUpload(); close(); }}>
+              <TreeIcon kind="upload" />
+              <span>上传文件</span>
+            </button>
+          ) : null}
+          {onNewFolder ? (
+            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onNewFolder(); close(); }}>
+              <TreeIcon kind="newFolder" />
+              <span>新建文件夹</span>
+            </button>
+          ) : null}
           {!isRoot && onRename ? (
             <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onRename(); close(); }}>
               <TreeIcon kind="rename" />
@@ -412,6 +460,29 @@ type LibraryFolder = {
   thread_id?: string | null;
   folder_kind?: string | null;
 };
+type DocumentChange = {
+  id: string;
+  action: string;
+  source: string;
+  actor_type?: string;
+  actor_name?: string | null;
+  artifact_title?: string | null;
+  version_filename?: string | null;
+  folder_name?: string | null;
+  details?: Record<string, unknown>;
+  created_at: string;
+};
+
+const documentChangeLabels: Record<string, string> = {
+  document_uploaded: "上传正式文件", cache_uploaded: "上传对话缓存",
+  artifact_published: "发布沙箱产物", document_saved_to_official: "另存为正式文件",
+  document_renamed: "重命名文档", document_moved: "移动文档",
+  document_deleted: "删除文档", document_restored: "恢复文档",
+  version_deleted: "删除版本", version_restored: "恢复版本",
+  folder_created: "创建文件夹", folder_renamed: "重命名文件夹",
+  folder_moved: "移动文件夹", folder_deleted: "删除文件夹",
+};
+const documentChangeSources: Record<string, string> = { ui: "界面", mcp: "MCP", agent: "Agent", system: "系统" };
 
 function fileLabel(version: LibraryVersion) {
   return fileDisplayName(version);
@@ -471,8 +542,8 @@ const LIBRARY_ROOT_KINDS = ["project_official", "project_outputs", "project_cach
 const ROOT_DISPLAY_ORDER = [...LIBRARY_ROOT_KINDS];
 const ROOT_LABELS: Record<(typeof LIBRARY_ROOT_KINDS)[number], string> = {
   project_official: "正式文件",
-  project_outputs: "产物文件",
-  project_cache: "缓存文件",
+  project_outputs: "沙箱产物",
+  project_cache: "对话缓存",
 };
 
 function documentSourceLabel(item: LibraryVersion, folders: LibraryFolder[]) {
@@ -510,6 +581,17 @@ function latestArtifactUpdatedAt(
     .filter(Boolean);
   if (!stamps.length) return item.updated_at || "";
   return stamps.sort().at(-1) || item.updated_at || "";
+}
+
+const DOCUMENT_TREE_STATE_KEY = "cothread-document-tree-open";
+
+function readStoredBoolean(key: string, fallback: boolean) {
+  try {
+    const value = localStorage.getItem(key);
+    return value === null ? fallback : value === "true";
+  } catch {
+    return fallback;
+  }
 }
 
 const DEFAULT_OFFICIAL_FOLDER_NAME = "新建文件夹";
@@ -701,7 +783,13 @@ export function Documents({
   const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
   const [openFolderMenuId, setOpenFolderMenuId] = useState<string | null>(null);
+  const [changesOpen, setChangesOpen] = useState(false);
+  const [changes, setChanges] = useState<DocumentChange[]>([]);
+  const [changesLoading, setChangesLoading] = useState(false);
+  const [changesError, setChangesError] = useState("");
   const [openFileMenuId, setOpenFileMenuId] = useState<string | null>(null);
+  const [downloadingFolderId, setDownloadingFolderId] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<
     | { type: "file"; item: LibraryVersion }
     | { type: "folder"; item: LibraryFolder }
@@ -787,6 +875,7 @@ export function Documents({
     }
   };
   const [filter, setFilter] = useState("");
+  const fileSearchRef = useRef<HTMLInputElement>(null);
   const [view, setView] = useState<{
     text?: string;
     url?: string;
@@ -797,7 +886,22 @@ export function Documents({
   const [imagePreview, setImagePreview] = useState<ImagePreviewSource | null>(null);
   const [error, setError] = useState("");
   const [openTabs, setOpenTabs] = useState<string[]>([]);
-  const [treeOpen, setTreeOpen] = useState(true);
+  const [treeOpen, setTreeOpen] = useState(() => readStoredBoolean(DOCUMENT_TREE_STATE_KEY, false));
+  useEffect(() => {
+    if (!changesOpen) return;
+    let alive = true;
+    setChangesLoading(true);
+    setChangesError("");
+    void apiFetch(`/api/projects/${projectId}/document-changes?limit=100`)
+      .then((response) => readJsonResponse(response, "文档操作日志"))
+      .then((value) => { if (alive) setChanges(value.items || []); })
+      .catch((cause) => { if (alive) { setChanges([]); setChangesError(cause instanceof Error ? cause.message : "日志读取失败"); } })
+      .finally(() => { if (alive) setChangesLoading(false); });
+    return () => { alive = false; };
+  }, [changesOpen, projectId]);
+  useEffect(() => {
+    try { localStorage.setItem(DOCUMENT_TREE_STATE_KEY, String(treeOpen)); } catch {}
+  }, [treeOpen]);
   const [previewModeByVersion, setPreviewModeByVersion] = useState<
     Record<string, "preview" | "text">
   >({});
@@ -808,6 +912,19 @@ export function Documents({
     if (!selected) return;
     setPreviewModeByVersion((previous) => ({ ...previous, [selected]: mode }));
   };
+  useEffect(() => {
+    const preventPageFind = (event: KeyboardEvent) => {
+      if (document.activeElement !== fileSearchRef.current) return;
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "f") return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      fileSearchRef.current?.focus();
+      fileSearchRef.current?.select();
+    };
+    window.addEventListener("keydown", preventPageFind, true);
+    return () => window.removeEventListener("keydown", preventPageFind, true);
+  }, []);
   useEffect(() => {
     if (!selected) return;
     setOpenTabs((previous) => (previous.includes(selected) ? previous : [...previous, selected]));
@@ -845,68 +962,36 @@ export function Documents({
     if (!selected) return;
     let alive = true;
     let objectUrl = "";
-    apiFetch(`/api/versions/${selected}`)
-      .then(async (res) => {
-        const result = await readJsonResponse(res, `/api/versions/${selected}`);
-        return result;
-      })
-      .then((v) => {
-        if (!alive) return;
-        const bytes = Uint8Array.from(atob(v.contentBase64), (c) =>
-          c.charCodeAt(0),
-        );
-        const name = v.filename.toLowerCase();
-        const imageMime: Record<string, string> = {
-          png: "image/png",
-          jpg: "image/jpeg",
-          jpeg: "image/jpeg",
-          gif: "image/gif",
-          webp: "image/webp",
-        };
-        const extension = name.split(".").pop();
-        if (imageMime[extension]) {
-          objectUrl = URL.createObjectURL(
-            new Blob([bytes], { type: imageMime[extension] }),
-          );
-          setView({
-            kind: "image",
-            url: objectUrl,
-            mime: imageMime[extension],
-          });
-        } else if (name.endsWith(".pdf")) {
-          objectUrl = URL.createObjectURL(
-            new Blob([bytes], { type: "application/pdf" }),
-          );
-          setView({ kind: "pdf", url: objectUrl, mime: "application/pdf" });
-        } else if (name.endsWith(".docx")) {
-          setView({ kind: "docx", bytes, mime: v.mime });
-        } else if (name.endsWith(".xlsx")) {
-          setView({ kind: "xlsx", bytes, mime: v.mime });
-        } else if (name.endsWith(".pptx")) {
-          setView({ kind: "pptx", bytes, mime: v.mime });
-        } else if (name.endsWith(".html") || name.endsWith(".htm")) {
-          const text = new TextDecoder().decode(bytes).slice(0, 500000);
-          setView({ kind: "html", text, mime: v.mime });
-        } else if (
-          v.mime.startsWith("text/") ||
-          /\.(md|txt|csv|json|py|js|ts|tsx|jsx|html|css|sql|xml|yaml|yml|sh|log)$/.test(
-            name,
-          )
-        )
-          setView({
-            kind: name.endsWith(".md") ? "markdown" : "text",
-            text: new TextDecoder().decode(bytes).slice(0, 200000),
-            mime: v.mime,
-          });
-        else setView({ kind: "download", mime: v.mime });
-      })
-      .catch((e) => {
-        if (alive) setError(e.message);
-      });
-    return () => {
-      alive = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    const load = async () => {
+      const metadataResponse = await apiFetch(`/api/versions/${selected}?metadata=1`);
+      const metadata = await readJsonResponse(metadataResponse, `/api/versions/${selected}?metadata=1`);
+      const name = String(metadata.filename || "").toLowerCase();
+      if (!alive) return;
+      if (name.endsWith(".pdf")) {
+        const response = await apiFetch(`/api/versions/${selected}/preview-data`);
+        const value = await readJsonResponse(response, `/api/versions/${selected}/preview-data`);
+        const bytes = Uint8Array.from(atob(value.contentBase64), (c) => c.charCodeAt(0));
+        setView({ kind: "pdf", bytes, mime: "application/pdf" });
+        return;
+      }
+      const response = await apiFetch(`/api/versions/${selected}`);
+      const v = await readJsonResponse(response, `/api/versions/${selected}`);
+      if (!alive) return;
+      const bytes = Uint8Array.from(atob(v.contentBase64), (c) => c.charCodeAt(0));
+      const imageMime: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
+      const extension = name.split(".").pop() || "";
+      if (imageMime[extension]) {
+        objectUrl = URL.createObjectURL(new Blob([bytes], { type: imageMime[extension] }));
+        setView({ kind: "image", url: objectUrl, mime: imageMime[extension] });
+      } else if (name.endsWith(".docx")) setView({ kind: "docx", bytes, mime: v.mime });
+      else if (name.endsWith(".xlsx") || name.endsWith(".csv")) setView({ kind: "xlsx", bytes, mime: v.mime });
+      else if (name.endsWith(".pptx")) setView({ kind: "pptx", bytes, mime: v.mime });
+      else if (name.endsWith(".html") || name.endsWith(".htm")) setView({ kind: "html", text: new TextDecoder().decode(bytes).slice(0, 500000), mime: v.mime });
+      else if (v.mime.startsWith("text/") || /\.(md|markdown|txt|csv|json|py|js|mjs|ts|tsx|jsx|html|css|sql|xml|yaml|yml|sh|bash|log|env|ini|conf|toml|properties|gitignore)$/.test(name)) setView({ kind: name.endsWith(".md") || name.endsWith(".markdown") ? "markdown" : "text", text: new TextDecoder().decode(bytes).slice(0, 200000), mime: v.mime });
+      else setView({ kind: "download", mime: v.mime });
     };
+    load().catch((e) => { if (alive) setError(e.message); });
+    return () => { alive = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [selected]);
   useEffect(() => {
     setFolderId(libraryRoots[0]?.id || null);
@@ -936,8 +1021,8 @@ export function Documents({
   };
   const saveToOfficialHint = (item: LibraryVersion) => {
     if (canSaveToOfficial(item)) return undefined;
-    if (isCacheVersion(item)) return "仅已确认的缓存文件可另存为正式文件";
-    if (isOutputVersion(item)) return "仅已确认的产物文件版本可另存为正式文件";
+    if (isCacheVersion(item)) return "仅已确认的对话缓存可另存为正式文件";
+    if (isOutputVersion(item)) return "仅已确认的沙箱产物版本可另存为正式文件";
     return undefined;
   };
   const canDragOfficialFolder = (folder: LibraryFolder) =>
@@ -968,6 +1053,50 @@ export function Documents({
         .map((item) => item.artifact_id),
     );
     return { folderCount: ids.size - 1, fileCount: files.size };
+  };
+  const downloadFolder = async (folder: LibraryFolder) => {
+    if (downloadingFolderId) return;
+    setDownloadingFolderId(folder.id);
+    setDownloadProgress(0);
+    setActionError("");
+    try {
+      const response = await apiFetch(`/api/projects/${projectId}/folders/${folder.id}/download`);
+      if (!response.ok) {
+        const body = await readJsonResponse(response, "文件夹压缩包下载").catch(() => null);
+        throw new Error(body?.error || `下载失败（${response.status}）`);
+      }
+      if (!response.body) throw new Error("下载失败：浏览器不支持读取下载进度");
+      const total = Number(response.headers.get("Content-Length")) || 0;
+      const reader = response.body.getReader();
+      const chunks: ArrayBuffer[] = [];
+      let received = 0;
+      while (true) {
+        const part = await reader.read();
+        if (part.done) break;
+        if (!part.value) continue;
+        const chunk = part.value.slice();
+        chunks.push(chunk.buffer as ArrayBuffer);
+        received += part.value.length;
+        if (total) setDownloadProgress(Math.min(99, Math.round(received / total * 100)));
+      }
+      const blob = new Blob(chunks, { type: "application/zip" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${folder.name || "文件夹"}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setDownloadProgress(100);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "压缩包下载失败");
+    } finally {
+      window.setTimeout(() => {
+        setDownloadingFolderId(null);
+        setDownloadProgress(null);
+      }, 400);
+    }
   };
   const deleteFile = (item: LibraryVersion) => {
     setDeleteConfirm({ type: "file", item });
@@ -1133,10 +1262,8 @@ export function Documents({
         title={`${v.title} · ${v.filename}${isUnversionedArea(fileAreaKind(v)) ? "" : ` · v${v.version}`}${trash && recyclePathLabel(v, libraryFolders) ? ` · ${recyclePathLabel(v, libraryFolders)}` : ""}`}
       >
         <span className="tree-file-indent" />
-        <FileIcon
+        <OfficeFileIcon
           fileName={v.filename}
-          editFileExtensionData={officeIcons}
-          autoAssign
           className="tree-icon file-type-icon"
           aria-hidden="true"
           width={16}
@@ -1235,23 +1362,31 @@ export function Documents({
               >
                 <span>{f.name}</span>
               </button>
-              {canManageOfficialFolders
+              {((canManageOfficialFolders
                 && folderRootKind(f.id, libraryFolders) === "project_official"
                 && !f.system_key
-                && f.folder_kind !== "project_official" ? (
+                && f.folder_kind !== "project_official")
+                || subtreeStats(f.id).fileCount > 0) ? (
                 <span className="tree-row-actions">
                 <OfficialFolderMenu
                   menuId={f.id}
                   openMenuId={openFolderMenuId}
                   onOpenMenuChange={setOpenFolderMenuId}
                   disabled={pending}
-                  onUpload={() => {
-                    selectFolder(f.id);
-                    uploadInputRef.current?.click();
-                  }}
-                  onNewFolder={() => openNewFolder(f.id)}
-                  onRename={() => openRenameFolder(f)}
-                  onDelete={() => deleteFolder(f)}
+                  onDownload={() => downloadFolder(f)}
+                  canDownload={subtreeStats(f.id).fileCount > 0}
+                  downloadProgress={downloadingFolderId === f.id ? downloadProgress : null}
+                  onUpload={canManageOfficialFolders && folderRootKind(f.id, libraryFolders) === "project_official" && !f.system_key
+                    ? () => {
+                      selectFolder(f.id);
+                      uploadInputRef.current?.click();
+                    } : undefined}
+                  onNewFolder={canManageOfficialFolders && folderRootKind(f.id, libraryFolders) === "project_official" && !f.system_key
+                    ? () => openNewFolder(f.id) : undefined}
+                  onRename={canManageOfficialFolders && folderRootKind(f.id, libraryFolders) === "project_official" && !f.system_key
+                    ? () => openRenameFolder(f) : undefined}
+                  onDelete={canManageOfficialFolders && folderRootKind(f.id, libraryFolders) === "project_official" && !f.system_key
+                    ? () => deleteFolder(f) : undefined}
                 />
                 </span>
               ) : null}
@@ -1288,9 +1423,9 @@ export function Documents({
         >
           <span>{ROOT_LABELS[root.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number]] || root.name}</span>
         </button>
-        {root.folder_kind === "project_official" ? (
+        {root.folder_kind === "project_official" || subtreeStats(root.id).fileCount > 0 ? (
           <span className="tree-root-actions tree-row-actions">
-            {writable ? (
+            {root.folder_kind === "project_official" && writable ? (
               <button
                 type="button"
                 className="tree-organize"
@@ -1302,18 +1437,22 @@ export function Documents({
                 <TreeIcon kind="organize" />
               </button>
             ) : null}
-            {canManageOfficialFolders ? (
+            {root.folder_kind === "project_official" || subtreeStats(root.id).fileCount > 0 ? (
               <OfficialFolderMenu
                 menuId={root.id}
                 openMenuId={openFolderMenuId}
                 onOpenMenuChange={setOpenFolderMenuId}
                 disabled={pending}
                 isRoot
-                onUpload={() => {
+                onDownload={() => downloadFolder(root)}
+                canDownload={subtreeStats(root.id).fileCount > 0}
+                downloadProgress={downloadingFolderId === root.id ? downloadProgress : null}
+                onUpload={root.folder_kind === "project_official" && canManageOfficialFolders ? () => {
                   selectFolder(root.id);
                   uploadInputRef.current?.click();
-                }}
-                onNewFolder={() => openNewFolder(root.id)}
+                } : undefined}
+                onNewFolder={root.folder_kind === "project_official" && canManageOfficialFolders
+                  ? () => openNewFolder(root.id) : undefined}
               />
             ) : null}
           </span>
@@ -1339,10 +1478,22 @@ export function Documents({
             <div className="file-explorer-top">
               <div className="tree-filter-bar">
                 <input
+                  ref={fileSearchRef}
                   aria-label="搜索文档"
                   placeholder="搜索文档…"
                   value={filter}
                   onChange={(e) => setFilter(e.target.value)}
+                  onKeyDown={(event) => {
+                    // Keep browser/app-level find shortcuts from taking over the file tree search.
+                    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+                      event.preventDefault();
+                      event.nativeEvent.stopImmediatePropagation();
+                      event.currentTarget.select();
+                    }
+                    event.stopPropagation();
+                  }}
+                  onKeyUp={(event) => event.stopPropagation()}
+                  onKeyPress={(event) => event.stopPropagation()}
                 />
                 <button
                   type="button"
@@ -1457,6 +1608,13 @@ export function Documents({
         ))}
       </select>
     ) : null;
+  const browserFileBreadcrumb = version ? (
+    <nav className="doc-browser-preview-header" aria-label="文档路径">
+      <span className="doc-browser-preview-path">{documentSourceLabel(version, libraryFolders)}</span>
+      <span className="doc-browser-preview-separator" aria-hidden="true">/</span>
+      <strong className="doc-browser-preview-name" title={version.filename}>{fileLabel(version)}</strong>
+    </nav>
+  ) : null;
   const browserFileMeta = version ? (
     <small
       className="doc-browser-meta doc-browser-bottombar-meta"
@@ -1501,27 +1659,42 @@ export function Documents({
       )}
     </div>
   ) : null;
-  const sourceFrameSrc = selected ? `/api/versions/${selected}/source` : undefined;
   const previewContent = (
     <>
       {view?.kind === "markdown" && previewMode === "preview" && (
-        <Markdown
-          remarkPlugins={[remarkGfm]}
-          components={{
-            img: () => <span>（外部图片请在原文件中查看）</span>,
-          }}
-        >
-          {view.text}
-        </Markdown>
+        <div className="markdown-preview">
+          <Markdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              img: ({ src, alt }) => {
+                const path = resolvePreviewAssetPath(src || "");
+                const assetSrc = selected && path
+                  ? `/api/versions/${selected}/preview/${encodeURI(path)}`
+                  : src;
+                return assetSrc ? <img src={assetSrc} alt={alt || ""} loading="lazy" /> : null;
+              },
+              code: ({ className, children, ...props }) => {
+                const language = className?.match(/language-([\w-]+)/)?.[1]?.toLowerCase();
+                if (language === "mermaid") {
+                  const chart = String(children).replace(/\n$/, "");
+                  return <MermaidPreview key={chart} chart={chart} />;
+                }
+                return className ? (
+                  <pre className="markdown-code-block"><code className={className} {...props}>{children}</code></pre>
+                ) : (
+                  <code className="markdown-inline-code" {...props}>{children}</code>
+                );
+              },
+            }}
+          >
+            {view.text}
+          </Markdown>
+        </div>
       )}
       {view?.kind === "markdown" && previewMode === "text" && (
-        <iframe
-          key={`${selected}-source`}
-          className="doc-file-source-frame"
-          title={`${version?.filename ?? "文档"} 源码`}
-          src={sourceFrameSrc}
-          sandbox=""
-          referrerPolicy="no-referrer"
+        <CodePreview
+          text={view.text || ""}
+          filename={version?.filename}
         />
       )}
       {view?.kind === "html" && previewMode === "preview" && selected && (
@@ -1532,13 +1705,14 @@ export function Documents({
         />
       )}
       {view?.kind === "html" && previewMode === "text" && (
-        <pre className="doc-file-source-pre" key={`${selected}-source`}>
-          {view.text}
-        </pre>
+        <CodePreview
+          text={formatHtmlSource(view.text || "")}
+          filename={version?.filename}
+        />
       )}
-      {view?.kind === "text" && <pre>{view.text}</pre>}
+      {view?.kind === "text" && <CodePreview text={view.text || ""} filename={version?.filename} />}
       {view?.kind === "docx" && view.bytes && <DocxPreview bytes={view.bytes} />}
-      {view?.kind === "xlsx" && view.bytes && <XlsxPreview bytes={view.bytes} />}
+      {view?.kind === "xlsx" && view.bytes && <XlsxPreview bytes={view.bytes} filename={version?.filename} />}
       {view?.kind === "pptx" && view.bytes && <PptxPreview bytes={view.bytes} />}
       {view?.kind === "image" && version && (
         <button
@@ -1555,8 +1729,11 @@ export function Documents({
           <img src={view.url} alt={version.filename} />
         </button>
       )}{" "}
-      {view?.kind === "pdf" && version && (
-        <iframe title={version.filename} src={view.url} />
+      {view?.kind === "pdf" && version && view.bytes && (
+        <PdfPreview
+          bytes={view.bytes}
+          filename={version.filename}
+        />
       )}{" "}
       {view?.kind === "download" && (
         <p>
@@ -1685,6 +1862,7 @@ export function Documents({
                   )}
                   {error && <div className="error doc-browser-error">{error}</div>}
                   <div className="doc-browser-view">
+                    {browserFileBreadcrumb}
                     {viewModeToggle ? (
                       <div className="doc-browser-preview-chrome">{viewModeToggle}</div>
                     ) : null}
@@ -1700,7 +1878,17 @@ export function Documents({
                   </footer>
                 </>
               ) : (
-                <div className="library-empty">从文件树选择文档。</div>
+                <div className="library-empty">
+                  <p>从文件树选择文档。</p>
+                  <button
+                    type="button"
+                    className="doc-browser-open-tree"
+                    onClick={() => setTreeOpen(true)}
+                  >
+                    <TreeIcon kind="folder" />
+                    打开文件树
+                  </button>
+                </div>
               ))}
           </main>
   );
@@ -1793,7 +1981,7 @@ export function Documents({
                 <h3 id="library-change-request-title">需要修改</h3>
                 <DialogClose disabled={pending} onClick={close} label="关闭" />
               </header>
-              <p>按条填写要对「{changeRequest.title}」修改什么。确认后会自动发到当前迭代群聊并 @ 对方：产物文件会 @小祥；缓存文件若来自别人则 @来源人，本人上传的缓存则 @小祥。被 @ 的人请让小祥改并保存为产物文件，或自己改完后在对话框重新上传新的缓存文件。</p>
+              <p>按条填写要对「{changeRequest.title}」修改什么。确认后会自动发到当前迭代群聊并 @ 对方：沙箱产物会 @小祥；对话缓存若来自别人则 @来源人，本人上传的对话缓存则 @小祥。被 @ 的人请让小祥改并保存为沙箱产物，或自己改完后在对话框重新上传新的对话缓存。</p>
               <ol className="change-request-list" aria-label="需要修改的内容">
                 {changeRequestItems.map((item, index) => (
                   <li key={index}>
@@ -1913,10 +2101,8 @@ export function Documents({
                     onClick={() => onSelect(id)}
                   >
                     {item ? (
-                      <FileIcon
+                      <OfficeFileIcon
                         fileName={item.filename}
-                        editFileExtensionData={officeIcons}
-                        autoAssign
                         className="tree-icon file-type-icon"
                         aria-hidden="true"
                         width={14}
@@ -1939,6 +2125,9 @@ export function Documents({
             })}
             {!openTabs.length && <span className="doc-browser-tabs-empty">从文件树选择文档</span>}
           </div>
+          <button type="button" className="doc-browser-tree-toggle" title="文档操作日志" aria-label="查看文档操作日志" onClick={() => setChangesOpen(true)}>
+            <UiIcon name="history" size={15} />
+          </button>
           <button
             type="button"
             className={`doc-browser-tree-toggle${treeOpen ? " active" : ""}`}
@@ -1957,6 +2146,20 @@ export function Documents({
         {organizeDialog}
         {deleteConfirmDialog}
         {changeRequestDialog}
+        {changesOpen ? (
+          <ModalBackdrop className="library-organize-backdrop" onClose={() => setChangesOpen(false)}>
+            {(close) => <section className="library-organize-dialog document-change-log-dialog" role="dialog" aria-modal="true" aria-labelledby="document-change-log-title">
+              <header className="library-organize-header"><div><span>项目文档库</span><h3 id="document-change-log-title">文档操作日志</h3></div><DialogClose onClick={close} label="关闭文档操作日志" /></header>
+              <div className="document-change-log-list">
+                {changesLoading ? <p className="muted">正在读取操作日志…</p> : changesError ? <p className="error" role="alert">{changesError}</p> : changes.length ? changes.map((item) => <article className="document-change-log-item" key={item.id}>
+                  <div><strong>{documentChangeLabels[item.action] || item.action}</strong><span>{item.actor_name || (item.actor_type === "agent" ? "Agent" : "系统")} · {documentChangeSources[item.source] || item.source}</span></div>
+                  <p>{item.artifact_title || item.version_filename || item.folder_name || String(item.details?.title || item.details?.filename || item.details?.affectedFolderName || "文档库")}</p>
+                  <time>{new Date(item.created_at).toLocaleString("zh-CN")}</time>
+                </article>) : <p className="muted">暂无文档操作记录。</p>}
+              </div>
+            </section>}
+          </ModalBackdrop>
+        ) : null}
         {imagePreview && (
           <ImagePreviewDialog
             id={imagePreview.id}

@@ -122,8 +122,8 @@ export function filterProjectLibraryVersions(versions) {
 export async function ensureProjectLibraryRoots(db, projectId) {
   const specs = [
     ["正式文件", "project_official", "project_official"],
-    ["缓存文件", "project_cache", "project_cache"],
-    ["产物文件", "project_outputs", "project_outputs"],
+    ["对话缓存", "project_cache", "project_cache"],
+    ["沙箱产物", "project_outputs", "project_outputs"],
   ];
   for (const [name, systemKey, kind] of specs) {
     const [existing] = await query(db,

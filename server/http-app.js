@@ -4,10 +4,12 @@ import { queueContextCompression } from "./queue-context.js";
 import { queueL1ContextCompression, readL1TaskSession } from "./l1-context.js";
 import { queueL3ContextCompression } from "./l3-context.js";
 import { appendL3TaskSession, readL3TaskSession } from "./l3-session.js";
+import { readVisualArtifact } from "./visual-artifacts.js";
 import { queueDocumentOrganization } from "./document-organization.js";
 import { queueL1MemoryRun } from "./project-memory.js";
 import express from "express";
 import { libraryChange } from "./library.js";
+import { listDocumentChanges } from "./document-audit.js";
 import { z, ZodError } from "zod/v3";
 import {
   authenticate,
@@ -32,9 +34,10 @@ import { digest } from "./auth.js";
 import { sendVerificationEmail as deliverVerificationEmail } from "./email-delivery.js";
 import { createHumanChallenge as generateHumanChallenge } from "./human-challenge.js";
 import { registerConnectorBrowserRoutes, registerConnectorPublicRoutes } from "./connectors.js";
-import { acceptTask, acknowledgeTaskRejection, cancelTask, createTask, getTask, listAssignmentEvents, answerTaskQuestion, listTaskExecutionRuns, listTaskQuestions, listTaskStatusEvents, listTaskUpdates, listTasks, reassignTask, rejectTask, reopenRejectedTask, taskExecutionSnapshot, taskRejectionReview, updateTask } from "./task-pool.js";
+import { acceptTask, acknowledgeTaskRejection, cancelTask, createTask, getTask, listAssignmentEvents, answerTaskQuestion, listTaskExecutionRuns, listTaskQuestions, listTaskStatusEvents, listTaskUpdates, listTasks, mergeTaskActivity, reassignTask, rejectTask, reopenRejectedTask, taskExecutionSnapshot, taskRejectionReview, updateTask } from "./task-pool.js";
 import { mentionTaskSourceNotice, taskSourceMentionToken, taskStatusLabel, withTaskSourceMention } from "./task-source-notice.js";
 import { adminPluginManagement, archivePromptSkill, createPromptSkill, updatePromptSkill } from "./agent-capabilities.js";
+import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";
 
 export function createApp(db, { makers = false, afterMcpMessage, executeRun, stopAgent = async () => {},
   sendVerificationEmail = deliverVerificationEmail,
@@ -514,6 +517,14 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     await service.member(req.user, req.params.id);
     res.json(await listTasks(db, req.params.id, { status: req.query.status, targetId: req.query.targetId, limit: req.query.limit }));
   });
+  app.get("/api/projects/:id/document-changes", async (req, res) => {
+    await service.member(req.user, req.params.id);
+    res.json(await listDocumentChanges(db, req.params.id, {
+      artifactId: req.query.artifactId, folderId: req.query.folderId,
+      action: req.query.action, source: req.query.source,
+      limit: req.query.limit, before: req.query.before,
+    }));
+  });
   app.get("/api/tasks/:id", async (req, res) => {
     const task = await getTask(db, req.params.id);
     if (!task) throw new HttpError(404, "任务不存在");
@@ -522,7 +533,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       listAssignmentEvents(db, task.id), listTaskQuestions(db, task.id), listTaskExecutionRuns(db, task.id), listTaskUpdates(db, task.id), taskRejectionReview(db, task.id),
       listTaskStatusEvents(db, task.id),
     ]);
-    res.json({ ...task, assignmentHistory, questions, executionRuns, updates, rejectionReview, statusHistory });
+    res.json({ ...task, assignmentHistory, questions, executionRuns, updates, rejectionReview, statusHistory, activity: mergeTaskActivity({ updates, statusHistory, executionRuns }) });
   });
   app.get("/api/tasks/:id/agent-logs", async (req, res) =>
     res.json(await service.agentLogs(req.user, "task", req.params.id)),
@@ -533,6 +544,15 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   app.get("/api/projects/:id/events/:eventId", async (req, res) =>
     res.json(await service.agentLogEvent(req.user, "project", req.params.id, req.params.eventId)),
   );
+  app.get("/api/agent-visual-artifacts/:id", async (req, res) => {
+    const [artifact] = await query(db, "SELECT project_id FROM agent_visual_artifacts WHERE id=?", [req.params.id]);
+    if (!artifact) throw new HttpError(404, "截图不存在");
+    await service.member(req.user, artifact.project_id);
+    const image = await readVisualArtifact(db, req.params.id, artifact.project_id);
+    if (!image) throw new HttpError(404, "截图不存在");
+    res.setHeader("Cache-Control", "private, max-age=300");
+    res.type(image.mime).send(image.content);
+  });
   app.post("/api/projects/:id/tasks", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     await service.member(req.user, req.params.id);
@@ -763,6 +783,11 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       .status(201)
       .json(await service.review(req.user, req.params.id, req.body)),
   );
+  app.get("/api/versions/:id/preview-data", async (req, res) => {
+    const version = await service.version(req.user, req.params.id);
+    res.setHeader("Cache-Control", "private, max-age=60");
+    res.json({ filename: version.filename, mime: version.mime, contentBase64: version.content.toString("base64") });
+  });
   app.get("/api/versions/:id/download", async (req, res) => {
     const version = await service.version(req.user, req.params.id);
     res.setHeader(
@@ -771,6 +796,16 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     );
     res.setHeader("Content-Type", "application/octet-stream");
     res.send(version.content);
+  });
+  app.get("/api/projects/:id/folders/:folderId/download", async (req, res) => {
+    const archive = await service.folderArchive(req.user, req.params.id, req.params.folderId);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename*=UTF-8''${encodeURIComponent(archive.filename)}`,
+    );
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Length", String(archive.content.length));
+    res.send(archive.content);
   });
   const sendVersionPreview = async (req, res) => {
     let assetPath = req.params.assetPath || "";
@@ -812,6 +847,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     expiresAt: credential.expiresAt,
     version: credential.version,
     endpoint: makers ? "/cothread-mcp" : "/mcp",
+    capabilities: MCP_CAPABILITIES,
   });
   app.get("/api/mcp/credential", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");

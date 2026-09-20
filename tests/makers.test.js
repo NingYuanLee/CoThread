@@ -10,6 +10,7 @@ import { createMakersApp } from "../server/makers.js";
 import { runMakersThread } from "../server/makers-runner.js";
 import { processNextReply } from "../server/replies.js";
 import { createMcpInstallGuide } from "../shared/mcp-guide.js";
+import { MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js";
 
 test("Makers Express adapter returns real API JSON, enforces origin, authenticates and supports MCP", async () => {
   const database = await testDatabase();
@@ -55,7 +56,7 @@ test("Makers Express adapter returns real API JSON, enforces origin, authenticat
       body: {jsonrpc:'2.0', id:1, method:'tools/list'},
     }});
     assert.equal(mcp.status, 200);
-    assert.equal((await mcp.json()).result.tools.length, 14);
+    assert.equal((await mcp.json()).result.tools.length, MCP_TOOL_NAMES.length);
     const guide = createMcpInstallGuide({ url: "https://cothread.z2l.top/cothread-mcp", token: "test-token", conversationId: userId });
     assert.ok(guide.includes('"Makers-Conversation-Id": "' + userId + '"'));
     const user = { id: userId, kind: "session" };

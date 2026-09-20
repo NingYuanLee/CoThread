@@ -32,10 +32,10 @@
 打开项目后是三栏布局：
 
 - **左侧**：可收缩。列出当前项目的迭代；底部打开「项目管理」（基础信息、人类成员、连接器、项目级 Agent）和「小祥 Agent 监控」（L1 / L2 / L3）。
-- **中间**：迭代群聊。默认勾选「交给 Agent 处理」；可引用文档版本、上传附件（进入当天缓存目录）、梳理讨论、停止或重试执行。
-- **右侧**：**文档浏览器**，不是成员面板。一棵树浏览**本项目共享**的正式文件、缓存文件与产物文件；可选中预览 Markdown / 文本代码 / 图片 / PDF / Word / Excel / PowerPoint。所有迭代看到同一套项目文档库。
+- **中间**：迭代群聊。默认勾选「交给 Agent 处理」；可引用文档版本、上传附件（进入当天对话缓存目录）、梳理讨论、停止或重试执行。
+- **右侧**：**文档浏览器**，不是成员面板。一棵树浏览**本项目共享**的正式文件、对话缓存与沙箱产物；可选中预览 Markdown / 文本代码 / 图片 / PDF / Word / Excel / PowerPoint。所有迭代看到同一套项目文档库。
 
-人工不能在缓存或产物目录里直接新建、移动或改内容；可查看、引用、下载、审核、重命名、软删除。点「需要修改」会弹出说明框，确认后发到当前迭代群聊：产物文件 @小祥；缓存文件若不是本人上传则 @来源人，本人上传的缓存则 @小祥。小祥按缓存意见改出的文件保存到产物文件，不覆盖缓存原件。正式文件区可由负责人整理文件夹、上传与另存。
+人工不能在对话缓存或沙箱产物目录里直接新建、移动或改内容；可查看、引用、下载、审核、重命名、软删除。点「需要修改」会弹出说明框，确认后发到当前迭代群聊：沙箱产物 @小祥；对话缓存若不是本人上传则 @来源人，本人上传的对话缓存则 @小祥。小祥按对话缓存意见改出的文件保存到沙箱产物，不覆盖对话缓存原件。正式文件区可由负责人整理文件夹、上传与另存。
 
 ## 本机启动
 
@@ -88,8 +88,8 @@ npm run db:restore-check # Windows 本地：导入独立测试库，校验后删
 ### 文档与归档
 
 - 文档绑定在项目下，**全部迭代共享同一套项目文档库**，分三个区：
-  - **缓存文件**：只来自对话框上传或 MCP `post_message` 的 files；按 Asia/Shanghai 自然日进日期文件夹。内容不可由人在库里直接改，Agent 也不能往这里新增。
-  - **产物文件**：只由 Agent 生成（含从别处下载后保存，以及按缓存文件修改后的结果）；人工不能当附件丢进这一区。
+  - **对话缓存**：来自对话框上传或 MCP `upload_cache_draft`；需要发送消息时再用 `post_message.refs` 引用，按 Asia/Shanghai 自然日进日期文件夹。内容不可由人在库里直接改，Agent 也不能往这里新增。
+  - **沙箱产物**：主要由云端 Agent 在沙箱中生成、编辑并发布；人工不能当附件丢进这一区。
   - **正式文件**：已确认的缓存/产物可另存至此，或人类在正式文件区手动上传。正式文件不分版本叠加。
 - 文档二进制入库，单文件 5 MiB、SHA-256、不可覆盖版本。上传和 Agent 发布都不等于审批通过；本地 AI 令牌不能审批或归档。
 - 消息可引用本项目文档库中的有效版本。点「需要修改」须填写意见并发到当前迭代；产物 @小祥，缓存非本人 @来源人，缓存本人 @小祥。
@@ -120,7 +120,7 @@ npm run db:restore-check # Windows 本地：导入独立测试库，校验后删
 
 ### 共序 MCP
 
-账号单令牌、30 天有效；哈希鉴权，明文用 AES-256-GCM 保存。7 个 Streamable HTTP 工具，调用者身份由服务端凭据确定。令牌由本机 Agent 连接器在授权后自动申领并写入 Cursor / Codex / Claude Code 的 MCP 配置，网页不再提供手动配置入口。详见下文。
+账号单令牌、30 天有效；哈希鉴权，明文用 AES-256-GCM 保存。当前 Streamable HTTP MCP 工具由共享能力清单统一注册，调用者身份由服务端凭据确定。令牌由本机 Agent 连接器在授权后自动申领并写入 Cursor / Codex / Claude Code 的 MCP 配置，网页不再提供手动配置入口。详见下文。
 
 ### 本机 Agent 连接器
 
@@ -148,11 +148,11 @@ MCP 通过本机 Agent 连接器接入：连接器授权后调用 `POST /api/con
 }
 ```
 
-工具：`get_connection_guide`、`list_projects`、`get_project`、`get_iteration_context`、`get_document_version`、`post_message`、`submit_document`。无需 SKILL：MCP initialize 的 instructions 与 `get_connection_guide` 内置完整使用协议。`/api/tokens` 系列接口保留给服务端与测试使用，不在界面暴露。
+工具：`get_connection_guide`、`list_projects`、`get_project_context`、`get_member`、`get_iteration_context`、`get_document_version`、`list_document_changes`、`upload_cache_draft`、`post_message`、`upload_official_file`、`list_tasks`、`get_task`、`accept_task`、`reject_task`、`update_task`。无需 SKILL：MCP initialize 的 instructions 与 `get_connection_guide` 内置完整使用协议。`/api/tokens` 系列接口保留给服务端与测试使用，不在界面暴露。
 
 账号令牌加密密钥由 `CREDENTIAL_ENCRYPTION_KEY`（32 字节 base64）指定，未配置时自动保存在 `.local/credential-encryption.key`。部署迁移和备份时须保留这份密钥（与数据库备份分开保管）。密钥和令牌明文不应进入版本库。
 
-在迭代输入框上方点击「复制会话信息」获取 `projectId` 和 `threadId`。`post_message` 可一次发送正文、多个 `files` 和已有版本 `refs`；来源文件进入当天缓存目录。`submit_document` 提交任务产物，默认进入产物目录。完整说明见 MCP `get_connection_guide`。
+在迭代输入框上方点击「复制会话信息」获取 `projectId` 和 `threadId`。需要在消息中添加新附件时，先调用 `upload_cache_draft` 再用 `post_message.refs` 引用；需要独立入库时调用 `upload_official_file`，文件直接进入项目正式文档目录，返回版本也可在后续消息中引用；`get_document_version` 用于下载版本内容。沙箱产物由云端 Agent 的 `publish_artifact` 写入。完整说明见 MCP `get_connection_guide`。
 
 ## EdgeOne Makers 部署
 
@@ -167,7 +167,7 @@ MCP 通过本机 Agent 连接器接入：连接器授权后调用 `POST /api/con
 执行闭环：连接器投递任务 → 在本机拉起交互式 TUI → 过程用共序 MCP 回群 → 人在连接器结案。
 
 - **开始**：连接器按当前 HEAD 创建独立 Git worktree，并在项目路径（未配置则等同仓库根）打开 Agent 会话（Cursor `agent --trust --resume <chatId>`、`codex`、`claude --session-id`），首条提示引用连接器生成的任务卡（任务原文、范围/Git 规则、共序 MCP 回报要求）。装有多个 Agent 时首次开始选一次，之后同一任务沿用。主仓库未提交改动不会阻止开始。
-- **会话中**：开发人员在窗口里直接打字、追问、审批工具。Agent 通过共序 MCP `post_message` / `submit_document` 报进度、交文件。关闭窗口不算完成：任务转为 `paused`（「会话已关闭」），连接器每 5 分钟续租；连接器重启后仍可续租。
+- **会话中**：开发人员在窗口里直接打字、追问、审批工具。Agent 通过共序 MCP `post_message` / `upload_cache_draft` 报进度、交随消息文件；正式文件独立使用 `upload_official_file`。关闭窗口不算完成：任务转为 `paused`（「会话已关闭」），连接器每 5 分钟续租；连接器重启后仍可续租。
 - **继续**：按记录的会话 ID 恢复原对话（`agent --resume` / `codex resume` / `claude --resume`），允许未提交改动。**重试**则新建会话。
 - **完成并通知 / 失败**：由人在连接器点击。完成时可填写摘要，连接器按开始时的基线计算 Git Diff 一并回传，迭代群聊出现以执行成员身份发出的结案消息；任务详情可查看 Diff。
 - **放弃 / 重试**：在连接器放弃会把任务池任务标为已放弃；之后重试会重新排队并新开一条执行记录，不会停留在已放弃。

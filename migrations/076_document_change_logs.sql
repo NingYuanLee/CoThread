@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS document_change_logs (
+ id CHAR(36) PRIMARY KEY,
+ project_id CHAR(36) NOT NULL,
+ artifact_id CHAR(36) NULL,
+ version_id CHAR(36) NULL,
+ folder_id CHAR(36) NULL,
+ action VARCHAR(40) NOT NULL,
+ source VARCHAR(24) NOT NULL DEFAULT 'system',
+ actor_type VARCHAR(32) NOT NULL DEFAULT 'system',
+ actor_id CHAR(36) NULL,
+ thread_id CHAR(36) NULL,
+ task_id CHAR(36) NULL,
+ message_id CHAR(36) NULL,
+ details JSON NOT NULL,
+ created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+ INDEX(project_id,created_at),
+ INDEX(artifact_id,created_at),
+ INDEX(folder_id,created_at),
+ FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+ FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE SET NULL,
+ FOREIGN KEY(version_id) REFERENCES versions(id) ON DELETE SET NULL,
+ FOREIGN KEY(folder_id) REFERENCES document_folders(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

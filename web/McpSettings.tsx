@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createMcpInstallGuide } from "../shared/mcp-guide.js";
-import { UiIcon } from "./ui-icon";
+import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";
+import { UiIcon, type UiIconName } from "./ui-icon";
 
 type Api = (path: string, data?: unknown, method?: string) => Promise<any>;
-
 export function McpSettings({ api, endpoint }: { api: Api; endpoint: string }) {
   const [credential, setCredential] = useState<{ token: string; expiresAt: string } | null>(null);
   const [revealed, setRevealed] = useState(false);
@@ -24,6 +24,14 @@ export function McpSettings({ api, endpoint }: { api: Api; endpoint: string }) {
     ? createMcpInstallGuide({ url: `${location.origin}${endpoint}`, token: credential.token })
     : "", [credential, endpoint]);
   const expires = credential?.expiresAt ? new Date(credential.expiresAt).toLocaleString("zh-CN") : "";
+  // The UI manifest is the current build's source of truth. Do not let a stale
+  // credential response from an older server process overwrite the labels.
+  const capabilities = MCP_CAPABILITIES;
+  const groups = [...new Set(capabilities.map(({ group }) => group))];
+  const groupStats = (group: string) => {
+    const items = capabilities.filter((capability) => capability.group === group);
+    return `${items.length} 项 · ${items.filter((item) => item.access === "read").length} 只读 · ${items.filter((item) => item.access === "write").length} 写入`;
+  };
   const copy = async (value: string, message: string) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -62,6 +70,21 @@ export function McpSettings({ api, endpoint }: { api: Api; endpoint: string }) {
         </div>
       </>}
       <p className="mcp-warning"><UiIcon name="info" size={13} />重置会让所有旧配置立即失效；连接器会在下一次同步时自动写入新令牌，手动配置的客户端请重新加载安装文档。</p>
+    </section>
+    <section className="mcp-settings-section mcp-capabilities-section">
+      <div className="mcp-settings-heading"><div><strong>MCP 能力清单</strong><small>{capabilities.length} 项工具，权限仍受账号和项目成员身份限制</small></div><UiIcon name="plugin" size={18} /></div>
+      <div className="mcp-capability-groups">
+        {groups.map((group) => <div className="mcp-capability-group" key={group}>
+          <h4>{group}<small>{groupStats(group)}</small></h4>
+          <div className="mcp-capability-list">
+            {capabilities.filter((capability) => capability.group === group).map((capability) => <div className="mcp-capability" key={capability.name}>
+              <span className="mcp-capability-icon"><UiIcon name={capability.icon as UiIconName} size={14} /></span>
+              <span className="mcp-capability-copy"><strong>{capability.title}</strong><small>{capability.description}</small><code>{capability.name}</code></span>
+              <span className={`mcp-access mcp-access-${capability.access}`}>{capability.access === "read" ? "只读" : "写入"}</span>
+            </div>)}
+          </div>
+        </div>)}
+      </div>
     </section>
     {notice && <p className="success" role="status">{notice}</p>}
     {error && <p className="error" role="alert">{error}</p>}

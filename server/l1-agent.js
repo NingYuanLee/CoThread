@@ -11,6 +11,7 @@ import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { l1RuntimePatch } from "./dsh-runtime-config.js";
 import { L1_MAINTENANCE_TASKS, normalizeL1Task } from "../shared/agent-label.js";
 import { AUTO_COMPACT_AT } from "../shared/context.js";
+import { saveVisualArtifact } from "./visual-artifacts.js";
 
 export { L1_MAINTENANCE_TASKS, normalizeL1Task };
 
@@ -179,8 +180,21 @@ export async function runL1Task(db, projectId, task, input, schema, options = {}
         }
       }
       await beginPhase("model_run");
+      if (options.image?.data) {
+        const image = Buffer.from(options.image.data, "base64");
+        await saveVisualArtifact(db, {
+          projectId,
+          agentProjectEventId: activeEventId,
+          content: image,
+          mime: options.image.mimeType || "image/png",
+          source: "l1_visual_verification",
+        });
+      }
       const prompt = `维护任务类型：${scope.task}\n项目 ID：${projectId}${eventThreadId ? `\n迭代 ID：${eventThreadId}` : ""}\n任务输入：${JSON.stringify(input)}\n严格返回任务要求的 JSON。`;
-      const result = await harness.run(prompt, { sessionId: session.session_id });
+      const promptInput = options.image
+        ? [{ type: "text", text: prompt }, { type: "image", data: options.image.data, mimeType: options.image.mimeType || "image/png" }]
+        : prompt;
+      const result = await harness.run(promptInput, { sessionId: session.session_id });
       await beginPhase("validate_result");
       const parsed = schema.parse(parseJsonResponse(result.finalResponse));
       const contextStats = await sampleContextStats(harness, session.session_id);

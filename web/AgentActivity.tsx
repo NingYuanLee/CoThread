@@ -5,7 +5,7 @@ import {AgentToolIcon} from './AgentToolIcon';
 import {fetchJson} from './api-fetch';
 import {agentLabel} from './agent-label';
 import type {LiveOutput} from './useAgentLiveOutput';
-type Event={id:string;tool:string;status:string;input:string;finished_at:string|null};
+type Event={id:string;tool:string;status:string;input:string;finished_at:string|null;screenshotUrl?:string|null};
 const modelPhase=(tool:string)=>['thinking','assistant_text','assistant_final'].includes(tool);
 export function AgentActivity({threadId,messageId,events,output,status,hasFinal,versions,threads,progress}:{
  threadId:string;messageId:string;events:Event[];output?:LiveOutput;status:string;hasFinal:boolean;
@@ -54,7 +54,7 @@ export function AgentActivity({threadId,messageId,events,output,status,hasFinal,
      </div>;
     }
     const l=agentLabel(e,versions,threads);
-    return <AgentEvent key={e.id} threadId={threadId} event={e}><summary><AgentToolIcon category={l.category} status={e.status}/><span className="agent-action-label" title={l.full}>{label(e)}</span><small>{e.status==='running'?'进行中':e.status==='failed'?'失败':'完成'}</small></summary></AgentEvent>;
+    return <AgentEvent key={e.id} threadId={threadId} event={e}><summary><AgentToolIcon category={l.category} status={e.status}/><span className="agent-action-label" title={l.full}>{label(e)}</span><small>{e.status==='running'?'进行中':e.status==='failed'?'失败':'完成'}</small></summary>{e.screenshotUrl && <img className="agent-screenshot-preview" src={e.screenshotUrl} alt="Agent 视觉验收截图" loading="lazy" />}</AgentEvent>;
    })}
    {extraLive&&<div className={`agent-phase ${output.content?'text':'thinking'}`}><div className="message-text"><StreamingMarkdown active={active} text={output.content||output.reasoning}/></div></div>}
    {!!output?.truncated&&<small>当前阶段的展示内容已达到长度上限。</small>}

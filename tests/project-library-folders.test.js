@@ -7,9 +7,10 @@ import { Service } from "../server/service.js";
 import { libraryChange } from "../server/library.js";
 import { folderRootKind, isVisibleLibraryTreeFolder } from "../server/project-library.js";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
+import JSZip from "jszip";
 
 test("cache date subfolders stay visible when folder_kind matches area root", () => {
-  const cacheRoot = { id: "root", parent_id: null, thread_id: null, folder_kind: "project_cache", name: "缓存文件" };
+  const cacheRoot = { id: "root", parent_id: null, thread_id: null, folder_kind: "project_cache", name: "对话缓存" };
   const dateFolder = {
     id: "day",
     parent_id: "root",
@@ -163,6 +164,52 @@ test("official library upload creates artifact under chosen folder", async () =>
     const [artifact] = await query(db, "SELECT folder_id,title FROM artifacts WHERE id=?", [uploaded.artifactId]);
     assert.equal(artifact.folder_id, official.id);
     assert.equal(artifact.title, "说明");
+  } finally {
+    await database.close();
+  }
+});
+
+test("folder archive includes active files recursively", async () => {
+  const database = await testDatabase();
+  const db = database.db;
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [user.id, `${user.id}@test.com`, "负责人"]);
+    const service = new Service(db);
+    const project = await service.createProject(user, { name: "压缩包" });
+    const [official] = await query(db,
+      "SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_official' AND parent_id IS NULL LIMIT 1",
+      [project.id]);
+    const folder = await libraryChange(service, user, project.id, "folder", null, {
+      name: "资料", parentId: official.id,
+    });
+    const nested = await libraryChange(service, user, project.id, "folder", null, {
+      name: "子目录", parentId: folder.id,
+    });
+    await service.uploadOfficialDocument(user, project.id, {
+      folderId: folder.id,
+      title: "根文件",
+      filename: "root.txt",
+      mime: "text/plain",
+      contentBase64: Buffer.from("root").toString("base64"),
+    });
+    await service.uploadOfficialDocument(user, project.id, {
+      folderId: nested.id,
+      title: "子文件",
+      filename: "nested.txt",
+      mime: "text/plain",
+      contentBase64: Buffer.from("nested").toString("base64"),
+    });
+    const archive = await service.folderArchive(user, project.id, folder.id);
+    assert.equal(archive.filename, "资料.zip");
+    const zip = await JSZip.loadAsync(archive.content);
+    assert.equal(await zip.file("root.txt").async("string"), "root");
+    assert.equal(await zip.file("子目录/nested.txt").async("string"), "nested");
+    await assert.rejects(
+      () => service.folderArchive(user, project.id, official.id),
+      (error) => error.status === 404,
+    );
   } finally {
     await database.close();
   }
@@ -471,8 +518,8 @@ test("requesting changes posts to the current iteration with the right mention",
     const theirsMessage = messages.find((row) => row.id === theirs.messageId);
     const productMessage = messages.find((row) => row.id === product.messageId);
     assert.equal(ownMessage.source, "human");
-    assert.match(ownMessage.body, new RegExp(`@${AGENT_MEMBER.name} 需要修改「我的缓存」：补一句说明。修改后请保存为产物文件`));
-    assert.match(theirsMessage.body, /@来源人 需要修改「他人缓存」：请改文件名。请让小祥帮忙改并保存为产物文件，或自己改完后在对话框重新上传新的缓存文件/);
+    assert.match(ownMessage.body, new RegExp(`@${AGENT_MEMBER.name} 需要修改「我的缓存」：补一句说明。修改后请保存为沙箱产物`));
+    assert.match(theirsMessage.body, /@来源人 需要修改「他人缓存」：请改文件名。请让小祥帮忙改并保存为沙箱产物，或自己改完后在对话框重新上传新的对话缓存/);
     assert.match(productMessage.body, new RegExp(`@${AGENT_MEMBER.name} 需要修改「产物」v1：按规范重写`));
     const replies = await query(db, "SELECT message_id,participation FROM assistant_replies WHERE message_id IN (?,?,?)",
       [own.messageId, theirs.messageId, product.messageId]);

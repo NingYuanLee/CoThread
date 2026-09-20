@@ -44,7 +44,7 @@ export function AgentTrajectory({ scope, api }: {
   const drag = useRef<{ x: number; start: number; picking: boolean } | null>(null);
   const [marquee, setMarquee] = useState<{ left: number; width: number } | null>(null);
   const [tab, setTab] = useState("概述");
-  const [detail, setDetail] = useState<{ input?: string; output?: string | null; error?: string } | null>(null);
+  const [detail, setDetail] = useState<{ input?: string; output?: string | null; error?: string; screenshotUrl?: string } | null>(null);
   const [detailError, setDetailError] = useState("");
   const [detailLoading, setDetailLoading] = useState(false);
 
@@ -102,7 +102,7 @@ export function AgentTrajectory({ scope, api }: {
   }, [selectedRow?.id]);
 
   useEffect(() => {
-    if (!selectedRow?.event || selectedRow.event.agentType === "l1") {
+    if (!selectedRow?.event) {
       setDetail(selectedRow?.event?.error ? { error: selectedRow.event.error } : null);
       setDetailError("");
       setDetailLoading(false);
@@ -110,7 +110,9 @@ export function AgentTrajectory({ scope, api }: {
     }
     const event = selectedRow.event;
     const threadId = event.threadId || (scope.type === "thread" ? scope.id : "");
-    const path = threadId
+    const path = event.agentType === "l1"
+      ? `/projects/${scope.id}/events/${event.id}`
+      : threadId
       ? `/threads/${threadId}/events/${event.id}`
       : `/tasks/${scope.id}/events/${event.id}`;
     const controller = new AbortController();
@@ -119,7 +121,7 @@ export function AgentTrajectory({ scope, api }: {
     setDetailLoading(true);
     api(path, undefined, undefined, controller.signal).then((value) => {
       if (!controller.signal.aborted) {
-        setDetail({ input: value.input, output: value.output, error: value.error });
+        setDetail({ input: value.input, output: value.output, error: value.error, screenshotUrl: value.screenshotUrl });
         setDetailLoading(false);
       }
     }).catch((cause) => {
@@ -308,7 +310,7 @@ export function AgentTrajectory({ scope, api }: {
             </dl>}
             {tab === "输入" && <pre>{inputText || "无内容"}</pre>}
             {tab === "参数" && <pre>{detailLoading ? "正在读取参数…" : detailError || prettyPayload(detail?.input) || selectedRow.inputText || "未捕获参数"}</pre>}
-            {tab === "结果" && <pre>{detailLoading ? "正在读取结果…" : detailError || prettyPayload(detail?.output) || (selectedRow.event?.status === "running" ? "进行中" : "未捕获结果")}</pre>}
+            {tab === "结果" && <>{detail?.screenshotUrl && <img className="agent-screenshot-preview" src={detail.screenshotUrl} alt="Agent 视觉验收截图" />}<pre>{detailLoading ? "正在读取结果…" : detailError || prettyPayload(detail?.output) || (selectedRow.event?.status === "running" ? "进行中" : "未捕获结果")}</pre></>}
             {tab === "输出" && <pre>{detailLoading ? "正在读取输出…" : detailError || outputText || "无输出"}</pre>}
             {tab === "思考" && <pre>{detailLoading ? "正在读取思考…" : thinkText || "无内容"}</pre>}
             {tab === "计时" && <dl>

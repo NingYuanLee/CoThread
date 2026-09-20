@@ -10,6 +10,7 @@ import {
   LIBRARY_DATE_FOLDER_NAME,
   uniqueArtifactTitle,
 } from "./project-library.js";
+import { recordDocumentChange } from "./document-audit.js";
 
 const id = z.string().uuid();
 const name = z
@@ -119,6 +120,8 @@ export async function libraryChange(
       return row;
     };
     const human = user.kind === "session" && !options.tool;
+    const creatingFolder = kind === "folder" && !target;
+    let removedFolderName = null;
     if (kind === "version") {
       const [row] = await query(db, `SELECT v.id,a.deleted_at,a.folder_id,f.thread_id,f.folder_kind FROM versions v
         JOIN artifacts a ON a.id=v.artifact_id LEFT JOIN document_folders f ON f.id=a.folder_id
@@ -129,7 +132,7 @@ export async function libraryChange(
       if (versionRoot === "project_official" || isCacheFolderKind(versionRoot))
         throw new HttpError(403, versionRoot === "project_official"
           ? "正式文件只有一个版本，请删除整份文档"
-          : "缓存文件只有一个版本，请删除整份文档");
+          : "对话缓存只有一个版本，请删除整份文档");
       if (row.deleted_at) throw new HttpError(409,"请先恢复整份文档，再操作其中的版本");
       if (data.deleted === undefined) throw new HttpError(400,"请指定删除或恢复版本");
       if (data.deleted) await query(db,"INSERT IGNORE INTO version_recycle(version_id) VALUES(?)",[target]);
@@ -146,9 +149,9 @@ export async function libraryChange(
       if (data.deleted !== false || row.folder_id) await requireScope(row);
       const rowRoot = await folderRootKind(db, row.folder_id);
       if (!human && isCacheFolderKind(rowRoot) && data.folderId !== undefined)
-        throw new HttpError(403, "缓存文件是来源资料，Agent 不能移动");
+        throw new HttpError(403, "对话缓存是来源资料，Agent 不能移动");
       if ((isCacheFolderKind(rowRoot) || isOutputFolderKind(rowRoot)) && data.folderId !== undefined)
-        throw new HttpError(403, "缓存文件与产物文件不可移动");
+        throw new HttpError(403, "对话缓存与沙箱产物不可移动");
       const destination = data.folderId !== undefined ? await requireScope(await folder(data.folderId)) : null;
       if (destination) {
         const destRoot = await folderRootKind(db, destination.id);
@@ -205,6 +208,7 @@ export async function libraryChange(
       }
     } else {
       const current = target ? await requireScope(await folder(target)) : null;
+      if (kind === "remove-folder") removedFolderName = current?.name || null;
       if (target && current?.system_key)
         throw new HttpError(403, "系统文件夹不能重命名、移动或删除");
       const destination = data.parentId ? await requireScope(await folder(data.parentId)) : null;
@@ -216,7 +220,7 @@ export async function libraryChange(
           throw new HttpError(403, "人工只能在正式文件区管理子文件夹");
       } else if (isCacheFolderKind(currentRoot) || isCacheFolderKind(destinationRoot)
         || isOutputFolderKind(currentRoot) || isOutputFolderKind(destinationRoot))
-        throw new HttpError(403, "缓存文件与产物文件目录不可由 Agent 修改");
+        throw new HttpError(403, "对话缓存与沙箱产物目录不可由 Agent 修改");
       else if (destinationRoot && destinationRoot !== "project_official")
         throw new HttpError(403, "只能在正式文件区内创建子文件夹");
       if (kind === "remove-folder") {
@@ -295,6 +299,18 @@ export async function libraryChange(
         }
       }
     }
+    const source = options.source || (user.kind === "api" ? "mcp" : user.kind === "agent" ? "agent" : "ui");
+    const action = kind === "version"
+      ? (data.deleted ? "version_deleted" : "version_restored")
+      : kind === "artifact"
+        ? (data.deleted === true ? "document_deleted" : data.deleted === false ? "document_restored" : data.name !== undefined ? "document_renamed" : "document_moved")
+        : kind === "remove-folder" ? "folder_deleted" : creatingFolder ? "folder_created" : data.name !== undefined ? "folder_renamed" : "folder_moved";
+    await recordDocumentChange(db, {
+      projectId, artifactId: kind === "artifact" ? target : null, versionId: kind === "version" ? target : null,
+      folderId: kind === "folder" ? target : null,
+      action, source, actorType: user.kind, actorId: user.id, threadId: data.threadId,
+      details: { kind, action, input: data, affectedFolderId: kind === "remove-folder" ? target : null, affectedFolderName: removedFolderName },
+    });
     return { id: target, ok: true };
   });
 }

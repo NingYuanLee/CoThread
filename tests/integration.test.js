@@ -1423,7 +1423,7 @@ test("iteration directory includes creator and activity from subsequent discussi
 test("chat attachments persist privately until sent and the system folder only permits moving out", async () => {
   const detail = (await request(`/projects/${project}`, undefined, owner)).body;
   const folder = detail.folders.find((f) => f.folder_kind === "project_cache" && f.parent_id == null);
-  assert.equal(folder.name, "缓存文件");
+  assert.equal(folder.name, "对话缓存");
   assert.equal(folder.parent_id, null);
   const folderPath = `/projects/${project}/folders/${folder.id}`;
   for (const [data, method] of [

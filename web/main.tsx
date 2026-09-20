@@ -55,6 +55,18 @@ import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { folderRootKind } from "./Documents";
 import { McpSettings } from "./McpSettings";
 
+const LEFT_SIDEBAR_STATE_KEY = "cothread-left-sidebar-open";
+const RIGHT_SIDEBAR_STATE_KEY = "cothread-right-sidebar-open";
+
+function readStoredBoolean(key: string, fallback: boolean) {
+  try {
+    const value = localStorage.getItem(key);
+    return value === null ? fallback : value === "true";
+  } catch {
+    return fallback;
+  }
+}
+
 function CoThreadLogo({
   className,
   title,
@@ -123,6 +135,15 @@ function localDate(value?: string) {
     ? new Date(value.replace(" ", "T") + "Z").toLocaleString("zh-CN")
     : "";
 }
+
+function actionTooltipLabel(element: HTMLElement) {
+  const explicit = element.getAttribute("aria-label")?.trim()
+    || element.getAttribute("data-tooltip")?.trim();
+  if (explicit) return explicit;
+  const text = element.textContent?.replace(/\s+/g, " ").trim() || "";
+  return text && text.length <= 80 ? text : "";
+}
+
 function relativeActivity(value: string | undefined, now: number) {
   if (!value) return "暂无";
   const elapsed = Math.max(
@@ -146,6 +167,7 @@ type Project = {
   name: string;
   description: string;
   role: string;
+  joined_at: string;
   active_threads: string;
   tab_visible: number;
   tab_pinned_at: string | null;
@@ -233,9 +255,7 @@ function ProjectPicker({
         value={search}
         onChange={(event) => setSearch(event.target.value)}
       />
-      <p className="project-picker-hint">
-        选择有权限访问的项目，导入到你的页签区。
-      </p>
+      <p className="project-picker-hint">选择项目导入到你的页签区。</p>
       <div className="project-picker-list">
         {results.map((p) => (
           <article className="project-picker-card" key={p.id}>
@@ -265,8 +285,9 @@ function ProjectPicker({
         </p>
       )}
       <div className="project-picker-footer">
-        <button className="primary" disabled={busy} onClick={onCreate}>
-          ＋ 新增项目
+        <button className="project-picker-create" disabled={busy} onClick={onCreate}>
+          <UiIcon name="plus" size={14} />
+          新建我的项目
         </button>
       </div>
     </dialog>
@@ -366,6 +387,7 @@ type AgentTaskDetail = AgentTask & {
   updates: { id: string; body: string; source_type: string; source_id: string; created_at: string }[];
   rejectionReview: { rejected: boolean; resolved: boolean; reviewer_type: string | null; reviewer_id: string | null };
   statusHistory: { id: number; from_status: string | null; to_status: string; actor_type: string; actor_id: string | null; actor_name?: string | null; actor_name_snapshot?: string | null; reason: string | null; created_at: string }[];
+  activity?: { kind: "member_update" | "status_change" | "l3_execution"; at: string; body?: string; source_type?: string; actor_name?: string | null; to_status?: string; reason?: string | null; progress?: string | null; result_summary?: string | null }[];
 };
 type Thread = {
   page?: { hasMore: boolean; before: string | null; after: string | null };
@@ -458,6 +480,30 @@ async function api(path: string, data?: unknown, method?: string, signal?: Abort
   return result;
 }
 function App() {
+  useEffect(() => {
+    const selector = "button, [role=button], a";
+    const apply = (root: ParentNode) => {
+      const elements: HTMLElement[] = [];
+      if (root instanceof HTMLElement && root.matches(selector)) elements.push(root);
+      root.querySelectorAll<HTMLElement>(selector).forEach((element) => elements.push(element));
+      elements.forEach((element) => {
+        if (element.hasAttribute("title") || element.dataset.tooltip === "false") return;
+        const label = actionTooltipLabel(element);
+        if (label) element.setAttribute("title", label);
+      });
+    };
+    apply(document);
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        record.addedNodes.forEach((node) => {
+          if (node instanceof HTMLElement) apply(node);
+        });
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
   const [user, setUser] = useState<PersonalProfile | null>(null);
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -467,6 +513,9 @@ function App() {
   const [projectId, setProjectId] = useState("");
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const visibleProjects = projects.filter((p) => p.tab_visible);
+  const availableProjects = projects
+    .filter((p) => !p.tab_visible)
+    .sort((left, right) => Date.parse(right.joined_at || right.created_at) - Date.parse(left.joined_at || left.created_at));
   const [draggedProject, setDraggedProject] = useState("");
   const [projectDrop, setProjectDrop] = useState<{
     id: string;
@@ -607,10 +656,15 @@ function App() {
   const [refs, setRefs] = useState<string[]>([]);
   const uploadTarget = useRef<((files: File[]) => void) | null>(null);
   const [fileDragOver, setFileDragOver] = useState(false);
-  const [leftOpen, setLeftOpen] = useState(() => window.innerWidth > 700);
-  const [contextOpen, setContextOpen] = useState(
-    () => window.innerWidth > 1100,
-  );
+  const [leftOpen, setLeftOpen] = useState(() => readStoredBoolean(LEFT_SIDEBAR_STATE_KEY, false));
+  const [contextOpen, setContextOpen] = useState(() => readStoredBoolean(RIGHT_SIDEBAR_STATE_KEY, false));
+  useEffect(() => {
+    try { localStorage.setItem(LEFT_SIDEBAR_STATE_KEY, String(leftOpen)); } catch {}
+  }, [leftOpen]);
+  useEffect(() => {
+    try { localStorage.setItem(RIGHT_SIDEBAR_STATE_KEY, String(contextOpen)); } catch {}
+  }, [contextOpen]);
+
   const [imagePreview, setImagePreview] = useState<{ id: string; title: string; filename?: string } | null>(null);
   const showDocument = (id?: string) => {
     setQuotePreview(null);
@@ -904,7 +958,9 @@ function App() {
   useEffect(() => {
     const cached = projectCache.current.get(projectId);
     setDetail(cached || null);
-    setThreadId((current) => cached?.threads.some((t) => t.id === current) ? current : cached?.threads.find((t) => t.status === "active")?.id || cached?.threads[0]?.id || "");
+    setThreadId((current) => cached?.threads.some((t) => t.id === current && t.status === "active")
+      ? current
+      : cached?.threads.find((t) => t.status === "active")?.id || "");
     setRefs([]);
     setQuotedMessages([]);
     setQuotePreview(null);
@@ -927,7 +983,9 @@ function App() {
           setThreadId(target.threadId || d.threads[0]?.id || "");
           setShowArchived(!!d.threads.find((t) => t.id === target.threadId && t.status === "archived"));
         } else {
-          setThreadId((t) => d.threads.some((x) => x.id === t) ? t : d.threads.find((x) => x.status === "active")?.id || d.threads[0]?.id || "");
+          setThreadId((t) => d.threads.some((x) => x.id === t && x.status === "active")
+            ? t
+            : d.threads.find((x) => x.status === "active")?.id || "");
         }
       } catch (e) {
         const error = e as Error & { status?: number };
@@ -1143,7 +1201,7 @@ function App() {
         iteration: thread?.title,
         threadId,
         instruction:
-          "先调用 get_iteration_context 确认此迭代，再按我的要求调用 post_message 或 submit_document。",
+          "先调用 get_iteration_context 确认此迭代，再按我的要求调用 post_message、upload_cache_draft 或 upload_official_file。",
       },
       null,
       2,
@@ -1472,7 +1530,7 @@ function App() {
     const startWidth =
       rightPanelWidth ??
       document.querySelector(".context-panel")?.getBoundingClientRect().width ??
-      380;
+      420;
     const onMove = (move: PointerEvent) => {
       const max = Math.max(320, Math.round(window.innerWidth * 0.6));
       const next = Math.min(Math.max(startWidth + (startX - move.clientX), 220), max);
@@ -1663,9 +1721,10 @@ function App() {
         }} />
         <button
           className="sidebar-toggle"
-          aria-label={contextOpen ? "收起右侧栏" : "展开右侧栏"}
-          title={contextOpen ? "收起右侧栏" : "展开右侧栏"}
+          aria-label={!projectId ? "暂无项目，右侧栏不可用" : contextOpen ? "收起右侧栏" : "展开右侧栏"}
+          title={!projectId ? "导入项目后可使用右侧栏" : contextOpen ? "收起右侧栏" : "展开右侧栏"}
           aria-expanded={contextOpen}
+          disabled={!projectId}
           onClick={() => setContextOpen(!contextOpen)}
         >
           <PanelIcon side="right" />
@@ -1894,7 +1953,7 @@ function App() {
             <button onClick={() => setError("")}>×</button>
           </div>
         )}
-        {!thread && projectId && (!detail || threadId || detail.threads.length > 0) ? (
+        {!thread && projectId && (!detail || threadId) ? (
           <div className="conversation-loading" role="status" aria-live="polite" aria-busy="true">
             <p>{threadId ? "正在加载会话…" : "正在加载项目…"}</p>
             <div className="conversation-skeleton"><i /><span /><span /></div>
@@ -1903,40 +1962,68 @@ function App() {
           </div>
         ) : !thread ? (
           <div className="welcome">
-            <CoThreadLogo className="welcome-logo" title="共序" />
-            <span className="eyebrow">一起构建上下文</span>
-            <h1>把工作，接在同一条线上。</h1>
-            <p>
-              {projectId
-                ? "为这个项目发起第一次讨论。"
-                : "添加已有项目，或新建项目开始讨论。"}
-              <br />
-              每个人的想法、AI 的产物和最后的决定，都有自己的位置。
-            </p>
-            <button
-              className="primary"
-              onClick={() => (projectId ? open("thread") : showProjectPicker())}
-            >
-              <UiIcon name="plus" size={14} />
-              {projectId ? "发起第一次迭代" : "添加项目"}
-            </button>
-            <div className="welcome-steps">
-              <div>
-                <b>01</b>
-                <strong>一起讨论</strong>
-                <span>按迭代组织团队上下文</span>
-              </div>
-              <div>
-                <b>02</b>
-                <strong>提交与确认</strong>
-                <span>保留每一份文档的版本</span>
-              </div>
-              <div>
-                <b>03</b>
-                <strong>归档与接力</strong>
-                <span>让下一次迭代有据可循</span>
-              </div>
-            </div>
+            {projectId ? (
+              <>
+                <div className="welcome-heading">
+                  <CoThreadLogo className="welcome-logo" title="共序" />
+                  <h1>先从一轮讨论开始吧</h1>
+                </div>
+                <p>为这个项目发起一次新的讨论。</p>
+                <button className="primary" onClick={() => open("thread")}>
+                  <UiIcon name="plus" size={14} />发起新迭代
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="welcome-heading">
+                  <CoThreadLogo className="welcome-logo" title="共序" />
+                  <h1>先选个项目吧</h1>
+                </div>
+                {availableProjects.length ? (
+                  <>
+                    <p>最近加入的项目</p>
+                    <div className="welcome-projects">
+                      {availableProjects.slice(0, 3).map((project) => (
+                        <button
+                          type="button"
+                          className="welcome-project-card"
+                          key={project.id}
+                          onClick={() => updateProjectTab(project.id, "open")}
+                          disabled={busy}
+                        >
+                          <strong>{project.name}</strong>
+                          <span>{project.description || "暂无项目简介"}</span>
+                          <small>加入于 {localDate(project.joined_at)}</small>
+                        </button>
+                      ))}
+                      {availableProjects.length > 3 && (
+                        <button type="button" className="welcome-more-card" onClick={showProjectPicker} disabled={busy}>
+                          <span>更多<br />项目</span>
+                        </button>
+                      )}
+                    </div>
+                    <div className="welcome-create-row">
+                      <button type="button" className="welcome-create" onClick={() => open("project")} disabled={busy}>
+                        <UiIcon name="plus" size={14} />新建我的项目
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="welcome-actions welcome-actions-empty">
+                    <button type="button" onClick={showProjectPicker} disabled={busy}>
+                      <UiIcon name="inbox" size={14} />导入项目
+                    </button>
+                    </div>
+                    <div className="welcome-create-row">
+                      <button type="button" className="welcome-create" onClick={() => open("project")} disabled={busy}>
+                        <UiIcon name="plus" size={14} />新建我的项目
+                      </button>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
           </div>
         ) : (
           <>
@@ -2388,6 +2475,7 @@ function App() {
                     {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.kind !== "l1" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}><UiIcon name="transfer" size={13} />确认转交</button></section>}
                     {isTarget && task.execution_agent_type === "human_self" && !endedTask(task.status) && task.status !== "awaiting_acceptance" && <section className="task-actions-section"><h4>进度与结果</h4><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "abandoned", resultSummary: taskResult || "已放弃" }, "PATCH"))}><UiIcon name="abandon" size={13} />放弃</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", resultSummary: taskResult || "已完成" }, "PATCH"))}><UiIcon name="complete" size={13} />完成</button></div></section>}
                     {!!task.executionRuns.length && <section><h4>执行轮次</h4><div className="task-execution-flow">{[...task.executionRuns].sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at)).map((run, index, runs) => <div className={`task-execution-step${index === runs.length - 1 ? " is-latest" : ""}`} key={run.id}><div className="task-execution-node"><div className="task-execution-heading"><strong>{executionRunLabel(run, task)}</strong></div><div className="task-execution-meta"><span>{labelWorkflowStatus(run.status)}</span><small>{time(run.created_at)}</small></div></div>{index < runs.length - 1 && <i className="task-execution-connector" aria-hidden="true" />}</div>)}</div></section>}
+                    {!!task.activity?.length && <section><h4>任务动态</h4><div className="task-activity-list">{[...task.activity].reverse().map((item, index) => <article className="task-activity-item" key={`${item.kind}-${item.at}-${index}`}><div className="task-activity-heading"><strong>{item.kind === "l3_execution" ? "L3 执行" : item.kind === "member_update" ? "成员更新" : "状态变更"}</strong><small>{time(item.at)}</small></div><p>{item.kind === "member_update" ? item.body : item.kind === "status_change" ? `${item.to_status || "状态已更新"}${item.reason ? `：${item.reason}` : ""}` : `${item.progress || item.result_summary || "执行轮次已更新"}`}</p></article>)}</div></section>}
                     {(!!task.assignmentHistory.length || !!task.statusHistory?.length) && <section><h4>变更记录</h4><div className="task-history task-change-log">{taskChangeLog(task).map((item, index) => <div className={`task-change-item${index === 0 ? " is-latest" : ""}`} key={item.key}><i className="task-change-marker" aria-hidden="true" /><div className="task-change-content"><div className="task-change-heading"><strong>{item.title}</strong><span>{statusActorLabel({ actor_type: item.actorType, actor_id: item.actorId, actor_name: item.actorName }, task)} · {time(item.at)}</span></div>{item.transition && <small>当时任务状态：{item.transition}</small>}{item.reason && <small>{item.reason}</small>}</div></div>)}</div></section>}
                   </>}
                   {taskActionError && !taskCreateOpen && <p className="project-settings-error" role="alert">{taskActionError}</p>}
@@ -2714,7 +2802,7 @@ function App() {
                 {modal === "archive" && (
                   <>
                     <p>
-                      保存这一轮的结论、完整讨论、审核记录和引用版本；本迭代产物文件中已确认的最新版本将自动另存至正式文件（名称后带版本号，不含缓存文件）。归档后不可继续修改。
+                      保存这一轮的结论、完整讨论、审核记录和引用版本；本迭代沙箱产物中已确认的最新版本将自动另存至正式文件（名称后带版本号，不含对话缓存）。归档后不可继续修改。
                     </p>
                     <label>
                       验收与归档结论

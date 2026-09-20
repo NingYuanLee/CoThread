@@ -174,6 +174,7 @@ function mapEvents(events) {
     status: event.status,
     input: event.input || "",
     finished_at: event.finished_at,
+    screenshotUrl: event.visual_artifact_id ? `/api/agent-visual-artifacts/${event.visual_artifact_id}` : null,
   }));
 }
 
@@ -193,8 +194,9 @@ export async function readL3TaskSession(service, user, threadId, messageId) {
     const pending = await query(service.db, `SELECT m.id,m.body,m.created_at,u.name author
       FROM agent_task_updates t JOIN messages m ON m.id=t.message_id JOIN users u ON u.id=m.author_id
       WHERE t.task_message_id=? AND t.delivered_at IS NULL ORDER BY m.sequence`, [messageId]);
-    const events = await query(service.db, `SELECT e.id,e.tool,e.status,LEFT(e.input,2000) input,e.finished_at
-      FROM agent_events e WHERE e.message_id=? ORDER BY e.id LIMIT 200`, [messageId]);
+    const events = await query(service.db, `SELECT e.id,e.tool,e.status,LEFT(e.input,2000) input,e.finished_at,a.id visual_artifact_id
+      FROM agent_events e LEFT JOIN agent_visual_artifacts a ON a.agent_event_id=e.id
+      WHERE e.message_id=? ORDER BY e.id LIMIT 200`, [messageId]);
     let messages = nativeHistoryFromCheckpoint(row.checkpoint);
     if (!messages.length) messages = await nativeHistoryFromLiveHome(messageId);
     return {
@@ -233,8 +235,9 @@ export async function readL3TaskSession(service, user, threadId, messageId) {
   const executorId = task.executor_id || task.execution_agent_id;
   const running = ["queued", "running", "waiting"].includes(task.run_status || task.status);
   const events = executorId
-    ? await query(service.db, `SELECT e.id,e.tool,e.status,LEFT(e.input,2000) input,e.finished_at
-        FROM agent_events e WHERE e.agent_task_id=? OR e.agent_session_id=? ORDER BY e.id LIMIT 200`,
+    ? await query(service.db, `SELECT e.id,e.tool,e.status,LEFT(e.input,2000) input,e.finished_at,a.id visual_artifact_id
+        FROM agent_events e LEFT JOIN agent_visual_artifacts a ON a.agent_event_id=e.id
+        WHERE e.agent_task_id=? OR e.agent_session_id=? ORDER BY e.id LIMIT 200`,
       [task.task_id, executorId])
     : [];
   const pending = await query(service.db, `SELECT id,body,created_at,source_type FROM agent_task_pool_updates

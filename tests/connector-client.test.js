@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 
 const require = createRequire(import.meta.url);
 const {
-  AGENTS, addDetachedWorktree, agentLaunchArgs, applyWorktreeToRepo, createAuthorizationCallback, instanceLockIsActive, launchPrompt,
+  AGENTS, addDetachedWorktree, agentLaunchArgs, projectTuiArgs, applyWorktreeToRepo, createAuthorizationCallback, instanceLockIsActive, launchPrompt,
   mergeCodexMcpConfig, mergeCursorMcpConfig, parseCodexSessionId, parseCursorChatId, parseInstanceLock,
   projectBinding, projectWorkDir, protectToken, relativeProjectPath, removeWorktree, taskCard, taskPrompt, taskWorktreeBranch, unprotectToken,
   deviceIdentity, windowsVersionLabel, withUtf8Bom,
@@ -107,6 +107,12 @@ test("connector launches interactive TUIs instead of headless codex exec", () =>
   }
 });
 
+test("project TUI launch stays outside task session arguments", () => {
+  assert.deepEqual(projectTuiArgs("cursor", "C:\\repo"), ["--trust"]);
+  assert.deepEqual(projectTuiArgs("codex", "C:\\repo"), ["-C", "C:\\repo"]);
+  assert.deepEqual(projectTuiArgs("claude", "C:\\repo"), []);
+});
+
 test("task card keeps the original instruction and asks for MCP progress reports", () => {
   const task = { id: "task-1", project_id: "p-1", project_name: "共序", thread_id: "th-1", message_id: "m-1",
     instruction: "调整登录页样式\n不要改接口", allow_git_push: false };
@@ -114,7 +120,7 @@ test("task card keeps the original instruction and asks for MCP progress reports
   assert.match(card, /任务 ID：task-1/);
   assert.match(card, /threadId：th-1/);
   assert.match(card, /post_message/);
-  assert.match(card, /submit_document/);
+  assert.match(card, /upload_cache_draft/);
   assert.match(card, /不要自称已把结果保存到共序/);
   assert.match(card, /严禁执行 git push/);
   assert.match(card, /工作目录：D:\\repo/);

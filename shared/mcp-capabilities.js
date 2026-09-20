@@ -1,0 +1,24 @@
+export const MCP_CAPABILITIES = Object.freeze([
+  { name: "get_connection_guide", group: "连接与发现", title: "连接指引", description: "读取 MCP 使用协议、权限边界和错误处理说明。", access: "read", icon: "book" },
+  { name: "list_projects", group: "项目与成员", title: "项目列表", description: "列出当前账号有权访问的项目。", access: "read", icon: "project" },
+  { name: "get_project_context", group: "项目与成员", title: "项目上下文", description: "读取项目基本信息、迭代清单和成员清单。", access: "read", icon: "project" },
+  { name: "get_member", group: "项目与成员", title: "成员详情", description: "读取单个项目成员资料和成员认识。", access: "read", icon: "human" },
+  { name: "list_documents", group: "文档与目录", title: "文档目录", description: "分页查看项目文件夹、文档版本和回收站状态。", access: "read", icon: "folder" },
+  { name: "list_document_changes", group: "文档与目录", title: "文档操作日志", description: "查询上传、移动、重命名、删除、恢复和另存正式文件等文档操作记录。", access: "read", icon: "list" },
+  { name: "get_document_version", group: "文档与目录", title: "下载文档版本", description: "下载不可变文档版本的原始内容及元数据。", access: "read", icon: "download" },
+  { name: "manage_document", group: "文档与目录", title: "管理文档", description: "重命名、移动、删除或恢复文档及其版本；只改变文档库，不自动发群聊消息。", access: "write", icon: "edit" },
+  { name: "manage_folder", group: "文档与目录", title: "管理文件夹", description: "创建、重命名、移动或删除项目文件夹；只改变文档库，不自动发群聊消息。", access: "write", icon: "folder" },
+  { name: "upload_official_file", group: "文档与目录", title: "上传正式文件", description: "直接保存到项目正式文档目录；上传动作不发消息，但返回的版本可在后续 post_message.refs 中引用。", access: "write", icon: "upload" },
+  { name: "get_iteration_context", group: "迭代与消息", title: "迭代与会话上下文", description: "读取迭代元数据、讨论、消息、引用、审核和归档信息；不是 Agent 内部 prompt/context。", access: "read", icon: "chat" },
+  { name: "list_messages", group: "迭代与消息", title: "消息列表", description: "读取指定会话的消息和引用预览。", access: "read", icon: "list" },
+  { name: "read_message", group: "迭代与消息", title: "读取消息", description: "读取单条消息及其引用消息预览。", access: "read", icon: "detail" },
+  { name: "upload_cache_draft", group: "群聊发言", title: "上传对话缓存", description: "用于随后发送消息时添加附件；上传后把版本 ID 放入 post_message.refs。", access: "write", icon: "upload" },
+  { name: "post_message", group: "群聊发言", title: "发送消息", description: "向指定迭代发送消息；refs 可引用对话缓存或正式文件版本，并可请求 Agent 回复。", access: "write", icon: "send" },
+  { name: "list_tasks", group: "任务执行", title: "任务列表", description: "按项目、状态、目标成员或迭代查询任务。", access: "read", icon: "list" },
+  { name: "get_task", group: "任务执行", title: "任务详情", description: "读取任务详情、分派记录、执行记录、进度更新和状态历史。", access: "read", icon: "detail" },
+  { name: "accept_task", group: "任务执行", title: "接受任务", description: "以当前账号身份接受分派给自己的任务；只更新任务状态，不自动发群聊消息。", access: "write", icon: "check" },
+  { name: "reject_task", group: "任务执行", title: "拒绝任务", description: "拒绝当前账号待确认的任务并记录原因；只更新任务状态，不自动发群聊消息。", access: "write", icon: "close" },
+  { name: "update_task", group: "任务执行", title: "更新任务", description: "由当前任务目标更新状态、进度、结果和产物引用；任务说明写入任务更新记录，不自动发群聊消息。", access: "write", icon: "edit" },
+]);
+
+export const MCP_TOOL_NAMES = Object.freeze(MCP_CAPABILITIES.map(({ name }) => name));

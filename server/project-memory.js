@@ -179,7 +179,7 @@ export async function loadProjectSummary(db, projectId) {
 
 export async function loadProjectWikiIndexes(db, projectId) {
   const [documentSummaries, memberUnderstandings, pendingDocuments, projectSummary] = await Promise.all([
-    query(db, `SELECT s.version_id versionId,s.summary,s.updated_at updatedAt
+    query(db, `SELECT s.version_id versionId,a.title,v.filename,v.version,v.mime,s.summary,s.updated_at updatedAt
       FROM agent_document_summaries s JOIN versions v ON v.id=s.version_id
       JOIN artifacts a ON a.id=v.artifact_id WHERE a.project_id=? ORDER BY s.updated_at DESC`,
     [projectId]),

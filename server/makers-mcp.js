@@ -18,7 +18,7 @@ export function createMakersMcpHandler(getDatabase = makersDatabase) {
       if (user.kind !== "api") throw new HttpError(403, "MCP 需要账号令牌");
       if (request.headers.get("Makers-Conversation-Id") !== user.id)
         throw new HttpError(400, "请重新复制本站 MCP 安装文档，使用账号对应的 Makers-Conversation-Id");
-       const mcpSource = request.headers.get("X-CoThread-MCP-Source") === "local-connector" ? "connector_mcp" : "mcp";
+       const mcpSource = "mcp";
        server = createMcpServer(new Service(db), { ...user, mcpSource },
          (actor, threadId) => runMakersThread(db, actor, threadId));
       const transport = new WebStandardStreamableHTTPServerTransport({

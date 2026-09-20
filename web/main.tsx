@@ -389,6 +389,17 @@ type AgentTaskDetail = AgentTask & {
   statusHistory: { id: number; from_status: string | null; to_status: string; actor_type: string; actor_id: string | null; actor_name?: string | null; actor_name_snapshot?: string | null; reason: string | null; created_at: string }[];
   activity?: { kind: "member_update" | "status_change" | "l3_execution"; at: string; body?: string; source_type?: string; actor_name?: string | null; to_status?: string; reason?: string | null; progress?: string | null; result_summary?: string | null }[];
 };
+type TaskTimelineKind = "member_update" | "status_change" | "assignment" | "execution";
+type TaskTimelineItem = {
+  key: string;
+  kind: TaskTimelineKind;
+  at: string;
+  title: string;
+  actorType: string;
+  actorId: string | null;
+  actorName?: string | null;
+  body?: string | null;
+};
 type Thread = {
   page?: { hasMore: boolean; before: string | null; after: string | null };
   contextUsage: ContextUsage;
@@ -690,6 +701,13 @@ function App() {
   };
   const [taskPool, setTaskPool] = useState<AgentTask[]>([]);
   const [taskMine, setTaskMine] = useState(true);
+  const [taskTimelineFilters, setTaskTimelineFilters] = useState<Record<TaskTimelineKind, boolean>>({
+    member_update: true,
+    status_change: true,
+    assignment: true,
+    execution: true,
+  });
+  const [taskTimelinePage, setTaskTimelinePage] = useState(0);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [taskDetail, setTaskDetail] = useState<AgentTaskDetail | null>(null);
@@ -807,27 +825,37 @@ function App() {
     return "系统";
   };
   // 指派事件与状态变更合成一条时间线：同一操作（创建 / 拒绝 / 重新发起）两边各有一条时，合并显示，不重复。
-  const taskChangeLog = (task: AgentTaskDetail) => {
+  const taskDetailTimeline = (task: AgentTaskDetail): TaskTimelineItem[] => {
     const actionLabels: Record<string, string> = { assigned: "创建并指派", transferred: "转交", rejected: "拒绝", acknowledged: "已知晓", reopened: "重新发起" };
     const targetLabel = (type: string | null, id: string | null) => type === "l2_session" ? "小祥" : type === "human_member" ? (memberName(id) || "成员") : "";
-    const items = task.assignmentHistory.filter((event) => !(event.event_type === "transferred"
+    const items: (TaskTimelineItem & { transition?: string })[] = task.assignmentHistory.filter((event) => !(event.event_type === "transferred"
       && event.from_target_type === "l2_session" && event.to_target_type === "l2_session"
       && /L2 会话已更新/.test(event.reason || ""))).map((event) => ({
-      key: `assignment-${event.id}`, at: event.created_at, actorType: event.changed_by_type, actorId: event.changed_by_id, actorName: event.actor_name,
+      key: `assignment-${event.id}`, kind: "assignment", at: event.created_at, actorType: event.changed_by_type, actorId: event.changed_by_id, actorName: event.actor_name,
       title: `${actionLabels[event.event_type] || event.event_type}${["assigned", "transferred"].includes(event.event_type) && event.to_target_type ? ` → ${targetLabel(event.to_target_type, event.to_target_id)}` : ""}`,
-      transition: "", reason: event.reason,
+      body: event.reason,
     }));
     for (const event of task.statusHistory || []) {
       const transition = `${event.from_status ? `${labelWorkflowStatus(event.from_status)} → ` : ""}${labelWorkflowStatus(event.to_status)}`;
       const twin = items.find((item) => !item.transition && item.actorType === event.actor_type && item.actorId === event.actor_id
         && Math.abs(Date.parse(item.at) - Date.parse(event.created_at)) < 2000);
-      if (twin) twin.transition = transition;
-      else items.push({ key: `status-${event.id}`, at: event.created_at, actorType: event.actor_type, actorId: event.actor_id, actorName: event.actor_name || event.actor_name_snapshot, title: transition, transition: "", reason: event.reason });
+      if (twin) {
+        twin.transition = transition;
+        twin.body = [twin.body, `当时任务状态：${transition}`, event.reason].filter(Boolean).join("\n");
+      } else items.push({ key: `status-${event.id}`, kind: "status_change", at: event.created_at, actorType: event.actor_type, actorId: event.actor_id, actorName: event.actor_name || event.actor_name_snapshot, title: transition, body: event.reason });
     }
-    return items.sort((left, right) => Date.parse(right.at) - Date.parse(left.at));
+    const updates: TaskTimelineItem[] = task.updates.map((item) => ({
+      key: `update-${item.id}`, kind: "member_update", at: item.created_at, actorType: item.source_type, actorId: item.source_id, title: "成员动态", body: item.body,
+    }));
+    const executions: TaskTimelineItem[] = task.executionRuns.map((run) => ({
+      key: `execution-${run.id}`, kind: "execution", at: run.created_at, actorType: run.executor_type, actorId: run.executor_id, actorName: run.executor_label, title: "执行轮次",
+      body: [labelWorkflowStatus(run.status), run.progress || run.result_summary || run.error].filter(Boolean).join("："),
+    }));
+    return [...items, ...updates, ...executions].sort((left, right) => Date.parse(right.at) - Date.parse(left.at));
   };
   const openTaskDialog = (taskId = "") => {
     setSelectedTaskId(taskId);
+    setTaskTimelinePage(0);
     if (!taskId) setTaskDetail(null);
     setTaskDialogOpen(true);
   };
@@ -2474,9 +2502,21 @@ function App() {
                     {canReviewRejection && <section className="task-actions-section task-rejection-review"><h4>任务已被拒绝</h4><p>{[...task.assignmentHistory].reverse().find((event) => event.event_type === "rejected")?.reason || "目标成员拒绝了这个任务。"}</p><textarea value={taskReopenGoal} onChange={(event) => setTaskReopenGoal(event.target.value)} placeholder="修改任务目标与验收标准" /><textarea value={taskReopenConstraints} onChange={(event) => setTaskReopenConstraints(event.target.value)} placeholder="修改约束（可选）" /><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"))}>知道了</button><button type="button" className="primary" disabled={taskActionBusy || !taskReopenGoal.trim()} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reopen`, { goal: taskReopenGoal.trim(), constraints: taskReopenConstraints }, "POST"))}>修改后重新发起</button></div></section>}
                     {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.kind !== "l1" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}><UiIcon name="transfer" size={13} />确认转交</button></section>}
                     {isTarget && task.execution_agent_type === "human_self" && !endedTask(task.status) && task.status !== "awaiting_acceptance" && <section className="task-actions-section"><h4>进度与结果</h4><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "abandoned", resultSummary: taskResult || "已放弃" }, "PATCH"))}><UiIcon name="abandon" size={13} />放弃</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", resultSummary: taskResult || "已完成" }, "PATCH"))}><UiIcon name="complete" size={13} />完成</button></div></section>}
-                    {!!task.executionRuns.length && <section><h4>执行轮次</h4><div className="task-execution-flow">{[...task.executionRuns].sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at)).map((run, index, runs) => <div className={`task-execution-step${index === runs.length - 1 ? " is-latest" : ""}`} key={run.id}><div className="task-execution-node"><div className="task-execution-heading"><strong>{executionRunLabel(run, task)}</strong></div><div className="task-execution-meta"><span>{labelWorkflowStatus(run.status)}</span><small>{time(run.created_at)}</small></div></div>{index < runs.length - 1 && <i className="task-execution-connector" aria-hidden="true" />}</div>)}</div></section>}
-                    {!!task.activity?.length && <section><h4>任务动态</h4><div className="task-activity-list">{[...task.activity].reverse().map((item, index) => <article className="task-activity-item" key={`${item.kind}-${item.at}-${index}`}><div className="task-activity-heading"><strong>{item.kind === "l3_execution" ? "L3 执行" : item.kind === "member_update" ? "成员更新" : "状态变更"}</strong><small>{time(item.at)}</small></div><p>{item.kind === "member_update" ? item.body : item.kind === "status_change" ? `${item.to_status || "状态已更新"}${item.reason ? `：${item.reason}` : ""}` : `${item.progress || item.result_summary || "执行轮次已更新"}`}</p></article>)}</div></section>}
-                    {(!!task.assignmentHistory.length || !!task.statusHistory?.length) && <section><h4>变更记录</h4><div className="task-history task-change-log">{taskChangeLog(task).map((item, index) => <div className={`task-change-item${index === 0 ? " is-latest" : ""}`} key={item.key}><i className="task-change-marker" aria-hidden="true" /><div className="task-change-content"><div className="task-change-heading"><strong>{item.title}</strong><span>{statusActorLabel({ actor_type: item.actorType, actor_id: item.actorId, actor_name: item.actorName }, task)} · {time(item.at)}</span></div>{item.transition && <small>当时任务状态：{item.transition}</small>}{item.reason && <small>{item.reason}</small>}</div></div>)}</div></section>}
+                    {(() => {
+                      const timeline = taskDetailTimeline(task);
+                      const visibleTimeline = timeline.filter((item) => taskTimelineFilters[item.kind]);
+                      const pageSize = 12;
+                      const pageCount = Math.max(1, Math.ceil(visibleTimeline.length / pageSize));
+                      const page = Math.min(taskTimelinePage, pageCount - 1);
+                      const pageItems = visibleTimeline.slice(page * pageSize, (page + 1) * pageSize);
+                      const filterLabels: { kind: TaskTimelineKind; label: string }[] = [
+                        { kind: "member_update", label: "成员动态" },
+                        { kind: "status_change", label: "状态变化" },
+                        { kind: "assignment", label: "指派变更" },
+                        { kind: "execution", label: "执行轮次" },
+                      ];
+                      return timeline.length ? <section className="task-timeline-section"><div className="task-timeline-header"><h4>任务时间线</h4><div className="task-timeline-filters" aria-label="任务时间线筛选">{filterLabels.map(({ kind, label }) => <label key={kind}><input type="checkbox" checked={taskTimelineFilters[kind]} onChange={(event) => { setTaskTimelineFilters((current) => ({ ...current, [kind]: event.target.checked })); setTaskTimelinePage(0); }} />{label}</label>)}</div></div>{pageItems.length ? <div className="task-history task-change-log task-timeline-list">{pageItems.map((item, index) => <div className={`task-change-item task-timeline-item-${item.kind}${index === 0 && page === 0 ? " is-latest" : ""}`} key={item.key}><i className="task-change-marker" aria-hidden="true" /><div className="task-change-content"><div className="task-change-heading"><strong>{item.title}</strong><span>{item.kind === "execution" ? executionRunLabel({ executor_type: item.actorType, executor_id: item.actorId, executor_label: item.actorName, status: "", progress: null, result_summary: null, error: null, created_at: item.at, id: item.key }, task) : statusActorLabel({ actor_type: item.actorType, actor_id: item.actorId, actor_name: item.actorName }, task)} · {time(item.at)}</span></div>{item.body && <small className="task-timeline-body">{item.body}</small>}</div></div>)}</div> : <p className="muted task-timeline-empty">当前筛选条件下暂无记录。</p>}{pageCount > 1 && <div className="task-timeline-pagination"><small>第 {page + 1} / {pageCount} 页 · 共 {visibleTimeline.length} 条</small><div><button type="button" disabled={page === 0} onClick={() => setTaskTimelinePage((current) => Math.max(0, current - 1))}>上一页</button><button type="button" disabled={page >= pageCount - 1} onClick={() => setTaskTimelinePage((current) => Math.min(pageCount - 1, current + 1))}>下一页</button></div></div>}</section> : null;
+                    })()}
                   </>}
                   {taskActionError && !taskCreateOpen && <p className="project-settings-error" role="alert">{taskActionError}</p>}
                 </div>;

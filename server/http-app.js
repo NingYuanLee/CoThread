@@ -9,7 +9,7 @@ import { queueDocumentOrganization } from "./document-organization.js";
 import { queueL1MemoryRun } from "./project-memory.js";
 import express from "express";
 import { libraryChange } from "./library.js";
-import { listDocumentChanges } from "./document-audit.js";
+import { countDocumentChanges, listDocumentChanges } from "./document-audit.js";
 import { z, ZodError } from "zod/v3";
 import {
   authenticate,
@@ -522,8 +522,20 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     res.json(await listDocumentChanges(db, req.params.id, {
       artifactId: req.query.artifactId, folderId: req.query.folderId,
       action: req.query.action, source: req.query.source,
-      limit: req.query.limit, before: req.query.before,
+      fileName: req.query.fileName, from: req.query.from, to: req.query.to,
+      limit: req.query.limit, page: req.query.page,
+      before: req.query.before, beforeId: req.query.beforeId,
     }));
+  });
+  app.get("/api/projects/:id/document-changes/count", async (req, res) => {
+    await service.member(req.user, req.params.id);
+    const total = await countDocumentChanges(db, req.params.id, {
+      artifactId: req.query.artifactId, folderId: req.query.folderId,
+      action: req.query.action, source: req.query.source,
+      fileName: req.query.fileName, from: req.query.from, to: req.query.to,
+      before: req.query.before, beforeId: req.query.beforeId,
+    });
+    res.json({ total });
   });
   app.get("/api/tasks/:id", async (req, res) => {
     const task = await getTask(db, req.params.id);
@@ -954,3 +966,4 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   });
   return app;
 }
+

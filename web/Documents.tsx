@@ -472,6 +472,16 @@ type DocumentChange = {
   details?: Record<string, unknown>;
   created_at: string;
 };
+type DocumentChangePage = {
+  hasMore: boolean;
+  total: number;
+  totalPages: number;
+  currentPage: number;
+  pageSize: number;
+  before: string | null;
+  beforeId: string | null;
+};
+type DocumentChangeFilters = { from: string; to: string; fileName: string; action: string; limit: string };
 
 const documentChangeLabels: Record<string, string> = {
   document_uploaded: "上传正式文件", cache_uploaded: "上传对话缓存",
@@ -483,6 +493,89 @@ const documentChangeLabels: Record<string, string> = {
   folder_moved: "移动文件夹", folder_deleted: "删除文件夹",
 };
 const documentChangeSources: Record<string, string> = { ui: "界面", mcp: "MCP", agent: "Agent", system: "系统" };
+const documentChangeActions = Object.entries(documentChangeLabels);
+
+function documentChangePageNumbers(current: number, totalPages: number) {
+  const start = Math.max(1, current - 2);
+  const end = Math.min(totalPages, current + 2);
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
+
+type DocumentChangeDateRange = { from: string; to: string };
+
+function dateKey(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function parseDateKey(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return year && month && day ? new Date(year, month - 1, day) : null;
+}
+
+function dateRangeLabel({ from, to }: DocumentChangeDateRange) {
+  if (!from && !to) return "选择日期范围";
+  return `${from || "开始日期"} 至 ${to || "结束日期"}`;
+}
+
+function DocumentChangeDateRangePicker({ value, onChange }: { value: DocumentChangeDateRange; onChange: (next: DocumentChangeDateRange) => void }) {
+  const [open, setOpen] = useState(false);
+  const [hovered, setHovered] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [viewMonth, setViewMonth] = useState(() => {
+    const initial = parseDateKey(value.from) || parseDateKey(value.to) || new Date();
+    return new Date(initial.getFullYear(), initial.getMonth(), 1);
+  });
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open]);
+
+  const monthStart = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
+  const firstCell = new Date(monthStart);
+  firstCell.setDate(1 - monthStart.getDay());
+  const days = Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(firstCell);
+    day.setDate(firstCell.getDate() + index);
+    return day;
+  });
+  const rangeEnd = value.to || (value.from && hovered ? hovered : "");
+  const rangeStart = value.from && rangeEnd && rangeEnd < value.from ? rangeEnd : value.from;
+  const normalizedEnd = value.from && rangeEnd && rangeEnd < value.from ? value.from : rangeEnd;
+
+  const selectDate = (selected: string) => {
+    if (!value.from || value.to) {
+      onChange({ from: selected, to: "" });
+      setHovered("");
+      return;
+    }
+    onChange(selected < value.from ? { from: selected, to: value.from } : { from: value.from, to: selected });
+    setHovered("");
+    setOpen(false);
+  };
+
+  return <div className="document-change-log-date-range-picker" ref={rootRef}>
+    <button type="button" className={`document-change-log-date-range-trigger${open ? " is-open" : ""}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+      <span>{dateRangeLabel(value)}</span><UiIcon name="layout" size={14} />
+    </button>
+    {open ? <div className="document-change-log-date-range-popover" role="dialog" aria-label="选择日期范围">
+      <div className="document-change-log-date-range-toolbar"><button type="button" aria-label="上个月" onClick={() => setViewMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}>‹</button><strong>{`${viewMonth.getFullYear()}年${viewMonth.getMonth() + 1}月`}</strong><button type="button" aria-label="下个月" onClick={() => setViewMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}>›</button></div>
+      <div className="document-change-log-date-range-weekdays">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <span key={day}>{day}</span>)}</div>
+      <div className="document-change-log-date-range-calendar">{days.map((day) => {
+        const key = dateKey(day);
+        const inMonth = day.getMonth() === viewMonth.getMonth();
+        const inRange = Boolean(rangeStart && normalizedEnd && key >= rangeStart && key <= normalizedEnd);
+        const selected = key === value.from || key === value.to;
+        return <button key={key} type="button" className={`${inMonth ? "" : "is-outside"}${inRange ? " is-in-range" : ""}${selected ? " is-selected" : ""}`} onMouseEnter={() => value.from && !value.to && setHovered(key)} onClick={() => selectDate(key)}>{day.getDate()}</button>;
+      })}</div>
+      <div className="document-change-log-date-range-footer"><span>{value.from && !value.to ? "请选择结束日期" : dateRangeLabel(value)}</span>{(value.from || value.to) && <button type="button" onClick={() => { onChange({ from: "", to: "" }); setHovered(""); }}>清空</button>}</div>
+    </div> : null}
+  </div>;
+}
 
 function fileLabel(version: LibraryVersion) {
   return fileDisplayName(version);
@@ -787,6 +880,11 @@ export function Documents({
   const [changes, setChanges] = useState<DocumentChange[]>([]);
   const [changesLoading, setChangesLoading] = useState(false);
   const [changesError, setChangesError] = useState("");
+  const [changePageNumber, setChangePageNumber] = useState(1);
+  const [changePage, setChangePage] = useState<DocumentChangePage>({ hasMore: false, total: 0, totalPages: 1, currentPage: 1, pageSize: 20, before: null, beforeId: null });
+  const [changePageInput, setChangePageInput] = useState("1");
+  const [changeFilterDraft, setChangeFilterDraft] = useState<DocumentChangeFilters>({ from: "", to: "", fileName: "", action: "", limit: "20" });
+  const [changeFilters, setChangeFilters] = useState<DocumentChangeFilters>({ from: "", to: "", fileName: "", action: "", limit: "20" });
   const [openFileMenuId, setOpenFileMenuId] = useState<string | null>(null);
   const [downloadingFolderId, setDownloadingFolderId] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
@@ -890,15 +988,36 @@ export function Documents({
   useEffect(() => {
     if (!changesOpen) return;
     let alive = true;
+    const params = new URLSearchParams({ limit: changeFilters.limit, page: String(changePageNumber) });
+    if (changeFilters.from) params.set("from", changeFilters.from);
+    if (changeFilters.to) params.set("to", changeFilters.to);
+    if (changeFilters.fileName.trim()) params.set("fileName", changeFilters.fileName.trim());
+    if (changeFilters.action) params.set("action", changeFilters.action);
     setChangesLoading(true);
     setChangesError("");
-    void apiFetch(`/api/projects/${projectId}/document-changes?limit=100`)
-      .then((response) => readJsonResponse(response, "文档操作日志"))
-      .then((value) => { if (alive) setChanges(value.items || []); })
+    const countParams = new URLSearchParams(params);
+    countParams.delete("limit");
+    countParams.delete("page");
+    void Promise.all([
+      apiFetch(`/api/projects/${projectId}/document-changes?${params}`).then((response) => readJsonResponse(response, "文档操作日志")),
+      apiFetch(`/api/projects/${projectId}/document-changes/count?${countParams}`).then((response) => readJsonResponse(response, "文档操作日志总数")),
+    ])
+      .then(([value, count]) => {
+        if (!alive) return;
+        setChanges(value.items || []);
+        const total = Number(count.total || 0);
+        const pageSize = Number(changeFilters.limit) || 20;
+        const totalPages = Math.max(Math.ceil(total / pageSize), 1);
+        const currentPage = Math.min(Number(value.page?.currentPage || changePageNumber), totalPages);
+        const nextPage = { ...(value.page || {}), total, totalPages, currentPage, pageSize, hasMore: currentPage < totalPages };
+        setChangePage(nextPage);
+        setChangePageInput(String(currentPage));
+        if (currentPage !== changePageNumber) setChangePageNumber(currentPage);
+      })
       .catch((cause) => { if (alive) { setChanges([]); setChangesError(cause instanceof Error ? cause.message : "日志读取失败"); } })
       .finally(() => { if (alive) setChangesLoading(false); });
     return () => { alive = false; };
-  }, [changesOpen, projectId]);
+  }, [changesOpen, projectId, changePageNumber, changeFilters]);
   useEffect(() => {
     try { localStorage.setItem(DOCUMENT_TREE_STATE_KEY, String(treeOpen)); } catch {}
   }, [treeOpen]);
@@ -2078,6 +2197,12 @@ export function Documents({
 
   const tabVersion = (id: string) => libraryVersions.find((item) => item.id === id)
     || versions.find((item) => item.id === id);
+  const visibleChangePages = documentChangePageNumbers(changePage.currentPage, changePage.totalPages);
+  const goToChangePage = (target: number) => {
+    const next = Math.min(Math.max(Math.trunc(target) || 1, 1), changePage.totalPages);
+    setChangePageInput(String(next));
+    setChangePageNumber(next);
+  };
   return (
     <div className="library-embedded doc-browser">
       <section className="library doc-browser-shell" aria-label="项目文档库">
@@ -2125,7 +2250,7 @@ export function Documents({
             })}
             {!openTabs.length && <span className="doc-browser-tabs-empty">从文件树选择文档</span>}
           </div>
-          <button type="button" className="doc-browser-tree-toggle" title="文档操作日志" aria-label="查看文档操作日志" onClick={() => setChangesOpen(true)}>
+          <button type="button" className="doc-browser-tree-toggle" title="文档操作日志" aria-label="查看文档操作日志" onClick={() => { setChangePageNumber(1); setChangePageInput("1"); setChangesOpen(true); }}>
             <UiIcon name="history" size={15} />
           </button>
           <button
@@ -2150,13 +2275,44 @@ export function Documents({
           <ModalBackdrop className="library-organize-backdrop" onClose={() => setChangesOpen(false)}>
             {(close) => <section className="library-organize-dialog document-change-log-dialog" role="dialog" aria-modal="true" aria-labelledby="document-change-log-title">
               <header className="library-organize-header"><div><span>项目文档库</span><h3 id="document-change-log-title">文档操作日志</h3></div><DialogClose onClick={close} label="关闭文档操作日志" /></header>
+              <form
+                className="document-change-log-filters"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setChangePageNumber(1);
+                  setChangePageInput("1");
+                  setChangeFilters({ ...changeFilterDraft, fileName: changeFilterDraft.fileName.trim() });
+                }}
+              >
+                <label><span>操作类型</span><select value={changeFilterDraft.action} onChange={(event) => setChangeFilterDraft((current) => ({ ...current, action: event.target.value }))}><option value="">全部操作</option>{documentChangeActions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                <label className="document-change-log-date-range"><span>日期范围</span><DocumentChangeDateRangePicker value={changeFilterDraft} onChange={(range) => setChangeFilterDraft((current) => ({ ...current, ...range }))} /></label>
+                <label className="document-change-log-file-filter"><span>文件名</span><input type="search" value={changeFilterDraft.fileName} placeholder="搜索文档标题或文件名" onChange={(event) => setChangeFilterDraft((current) => ({ ...current, fileName: event.target.value }))} /></label>
+                <div className="document-change-log-filter-actions"><button type="submit">应用筛选</button><button type="button" className="secondary" onClick={() => { const empty = { from: "", to: "", fileName: "", action: "", limit: "20" }; setChangeFilterDraft(empty); setChangeFilters(empty); setChangePageNumber(1); setChangePageInput("1"); }}>重置</button></div>
+              </form>
               <div className="document-change-log-list">
-                {changesLoading ? <p className="muted">正在读取操作日志…</p> : changesError ? <p className="error" role="alert">{changesError}</p> : changes.length ? changes.map((item) => <article className="document-change-log-item" key={item.id}>
-                  <div><strong>{documentChangeLabels[item.action] || item.action}</strong><span>{item.actor_name || (item.actor_type === "agent" ? "Agent" : "系统")} · {documentChangeSources[item.source] || item.source}</span></div>
-                  <p>{item.artifact_title || item.version_filename || item.folder_name || String(item.details?.title || item.details?.filename || item.details?.affectedFolderName || "文档库")}</p>
-                  <time>{new Date(item.created_at).toLocaleString("zh-CN")}</time>
-                </article>) : <p className="muted">暂无文档操作记录。</p>}
+                <div className="document-change-log-list-head" aria-hidden="true"><span>操作</span><span>文档 / 文件夹</span><span>操作人 / 来源</span><span>时间</span></div>
+                <div className="document-change-log-rows">
+                  {changesLoading ? <p className="muted">正在读取操作日志…</p> : changesError ? <p className="error" role="alert">{changesError}</p> : changes.length ? changes.map((item) => <article className="document-change-log-item" key={item.id}>
+                    <strong>{documentChangeLabels[item.action] || item.action}</strong>
+                    <span className="document-change-log-target">{item.artifact_title || item.version_filename || item.folder_name || String(item.details?.title || item.details?.filename || item.details?.affectedFolderName || "文档库")}</span>
+                    <span className="document-change-log-actor">{item.actor_name || (item.actor_type === "agent" ? "Agent" : "系统")} · {documentChangeSources[item.source] || item.source}</span>
+                    <time>{new Date(item.created_at).toLocaleString("zh-CN")}</time>
+                  </article>) : <p className="muted">暂无文档操作记录。</p>}
+                </div>
               </div>
+              {!changesLoading && !changesError && changes.length ? (
+                <footer className="document-change-log-pagination">
+                  <small>共 {changePage.total} 条 · 第 {changePage.currentPage} / {changePage.totalPages} 页</small>
+                  <div>
+                    <label className="document-change-log-page-size"><span>每页</span><select value={changeFilters.limit} onChange={(event) => { const limit = event.target.value; setChangeFilterDraft((current) => ({ ...current, limit })); setChangeFilters((current) => ({ ...current, limit })); setChangePageNumber(1); setChangePageInput("1"); }}><option value="20">20 条</option><option value="50">50 条</option><option value="100">100 条</option></select></label>
+                    <button type="button" disabled={changesLoading || changePage.currentPage <= 1} onClick={() => goToChangePage(changePage.currentPage - 1)}>上一页</button>
+                    {visibleChangePages.map((page) => <button key={page} type="button" className={page === changePage.currentPage ? "active" : ""} aria-current={page === changePage.currentPage ? "page" : undefined} disabled={changesLoading || page === changePage.currentPage} onClick={() => goToChangePage(page)}>{page}</button>)}
+                    <label className="document-change-log-page-jump"><span>跳至</span><input type="number" min="1" max={changePage.totalPages} value={changePageInput} onChange={(event) => setChangePageInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); goToChangePage(Number(changePageInput)); } }} /></label>
+                    <button type="button" disabled={changesLoading} onClick={() => goToChangePage(Number(changePageInput))}>跳转</button>
+                    <button type="button" disabled={changesLoading || changePage.currentPage >= changePage.totalPages} onClick={() => goToChangePage(changePage.currentPage + 1)}>下一页</button>
+                  </div>
+                </footer>
+              ) : null}
             </section>}
           </ModalBackdrop>
         ) : null}
@@ -2173,3 +2329,6 @@ export function Documents({
     </div>
   );
 }
+
+
+

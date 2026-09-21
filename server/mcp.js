@@ -137,11 +137,12 @@ export function createMcpServer(service, user, afterMessage) {
   );
   register(
     "post_message",
-    "经用户同意后向指定迭代发一条消息。新附件必须先 upload_cache_draft 或分片上传，再把版本 ID 放入 refs。不要用 files 传 Base64。mentionAgent=true 或正文 @小祥 可请求内置助手回复。",
+    "经用户同意后向指定迭代发一条消息。新附件必须先 upload_cache_draft 或分片上传，再把版本 ID 放入 refs。引用文件夹时用 folderRefs，不要把文件夹展开成文件列表。不要用 files 传 Base64。mentionAgent=true 或正文 @小祥 可请求内置助手回复。",
     {
       threadId: z.string().uuid(),
       body: z.string().min(1).max(20000),
       refs: z.array(z.string().uuid()).max(30).optional(),
+      folderRefs: z.array(z.string().uuid()).max(30).optional().describe("引用当前项目中的文件夹，群聊展示文件夹本身，不要展开成文件列表"),
       quoteIds: z.array(z.string().uuid()).max(10).optional().describe("引用当前会话消息的ID，最多10条，与文档refs分开"),
       mentionAgent: z.boolean().optional(),
       files: z.array(z.object({
@@ -220,12 +221,22 @@ export function createMcpServer(service, user, afterMessage) {
     projectId: z.string().uuid(), status: z.string().max(40).optional(), targetId: z.string().uuid().optional(),
     originThreadId: z.string().uuid().optional(), limit: z.number().int().min(1).max(200).optional(),
   }, async (a) => { await service.member(user, a.projectId); return listTasks(service.db, a.projectId, a); });
-  register("get_task", "读取任务详情、分派记录、执行 runs、进度更新和状态历史。", { taskId: z.string().uuid() }, async ({ taskId }) => {
+  register("get_task", "读取任务详情、分派记录、执行 runs、进度更新和状态历史。folder_refs 是文件夹 ID；返回 folder_contents，其中含该文件夹的子目录和文件。也可再对每个 folderId 调用 list_documents({projectId, folderId, recursive:true})。", { taskId: z.string().uuid() }, async ({ taskId }) => {
     const task = await taskFor(taskId);
     const [updates, statusHistory, executionRuns] = await Promise.all([
       listTaskUpdates(service.db, taskId), listTaskStatusEvents(service.db, taskId), listTaskExecutionRuns(service.db, taskId),
     ]);
-    return { ...task, updates, statusHistory, executionRuns, activity: mergeTaskActivity({ updates, statusHistory, executionRuns }) };
+    const folderContents = [];
+    for (const folderId of task.folder_refs || []) {
+      try {
+        folderContents.push(await documentTool(service, user, "list_documents", {
+          projectId: task.project_id, folderId, recursive: true, limit: 200, offset: 0,
+        }));
+      } catch (error) {
+        folderContents.push({ folderId, error: error instanceof Error ? error.message : "无法读取该文件夹" });
+      }
+    }
+    return { ...task, updates, statusHistory, executionRuns, activity: mergeTaskActivity({ updates, statusHistory, executionRuns }), folder_contents: folderContents };
   });
   register("accept_task", "接受当前账号被指派的任务，并选择本人或本机连接器执行。", { taskId: z.string().uuid(), mode: z.enum(["auto", "human_direct", "member_connector"]).optional() }, async ({ taskId, mode }) => { const task = await taskFor(taskId, true); return acceptTask(service.db, task.id, taskActor(), mode || "auto"); });
   register("reject_task", "拒绝当前账号待确认的任务并记录原因。", { taskId: z.string().uuid(), reason: z.string().trim().max(1000).optional() }, async ({ taskId, reason }) => { const task = await taskFor(taskId, true); return rejectTask(service.db, task.id, taskActor(), reason); });

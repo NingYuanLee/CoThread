@@ -845,6 +845,7 @@ test("human tasks can only reference official document versions", async () => {
   assert.deepEqual(withFolder.folder_refs, [folderId]);
   const folderSnapshot = await inspectIterationTask(db, withFolder.id, { type: "l2_session", id: l2SessionId, authorizedByUserId: users[0].id });
   assert.deepEqual(folderSnapshot.task.folder_refs, [folderId]);
-  assert.match(composeTaskInstruction(withFolder, [{ title: "清单", version: 1 }], [{ title: "正式文件 / 验收资料" }]),
-    /引用文件夹：\n- 正式文件 \/ 验收资料\n\n引用文档：\n- 清单 · v1/);
+  assert.match(composeTaskInstruction(withFolder, [], [{ title: "正式文件 / 验收资料" }]),
+    /引用文件夹：\n- 正式文件 \/ 验收资料[\s\S]*子目录和文件/);
+  assert.doesNotMatch(composeTaskInstruction(withFolder, [], [{ title: "正式文件 / 验收资料" }]), /引用文档/);
 });

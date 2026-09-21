@@ -21,6 +21,7 @@ import {
   isOfficialLibraryFolder,
   isOutputFolderKind,
   isProjectLibraryAreaRoot,
+  latestVersionsByFolderRoots,
   OUTPUT_LIBRARY_FOLDER_SQL,
   uniqueArtifactTitle,
   uniqueVersionFilename,
@@ -89,6 +90,7 @@ function submittedVersion(id, artifactId, version, sha256, data, byteSize) {
   };
 }
 const json = (value) => (typeof value === "string" ? JSON.parse(value) : value);
+const parseMessageRow = (m) => ({ ...m, refs: json(m.refs) || [], folder_refs: json(m.folder_refs) || [] });
 const mentions = (text, value) => {
   if (!value) return false;
   const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1120,7 +1122,7 @@ export class Service {
     if (cursor) z.string().regex(/^\d+$/).parse(cursor);
     const messagesQuery = query(
       db,
-      `SELECT m.id,m.sequence,m.body,m.refs,m.source,m.execution_target,m.agent_task_id,m.created_at,u.name author,u.id author_id,${display ? "CASE WHEN m.source='assistant' THEN NULL ELSE CONCAT('/api/projects/',?,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) END author_avatar" : "u.avatar author_avatar"},
+      `SELECT m.id,m.sequence,m.body,m.refs,m.folder_refs,m.source,m.execution_target,m.agent_task_id,m.created_at,u.name author,u.id author_id,${display ? "CASE WHEN m.source='assistant' THEN NULL ELSE CONCAT('/api/projects/',?,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) END author_avatar" : "u.avatar author_avatar"},
       JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags, '$[0]')) author_role
       FROM messages m JOIN users u ON u.id=m.author_id WHERE m.thread_id=? AND NOT (m.source='human' AND m.agent_task_id IS NOT NULL)${display && cursor ? ` AND m.sequence${before ? "<" : ">"}?` : ""} ORDER BY m.sequence${display && !after ? " DESC" : ""}${display ? ` LIMIT ${pageSize + 1}` : ""}`,
       display ? [thread.project_id, threadId, ...(cursor ? [cursor] : [])] : [threadId],
@@ -1171,9 +1173,9 @@ export class Service {
       t.created_at,t.started_at,t.finished_at,c.id connector_id,c.name connector_name,u.name connector_owner_name
       FROM connector_tasks t JOIN connectors c ON c.id=t.connector_id JOIN users u ON u.id=c.user_id
       WHERE t.thread_id=? ORDER BY t.created_at,t.id`, [user.id, threadId]);
-    const pendingQuery = display ? query(db, `SELECT m.id,m.sequence,m.body,m.refs,m.source,u.name author,u.id author_id,JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags, '$[0]')) author_role FROM messages m JOIN users u ON u.id=m.author_id LEFT JOIN agent_sessions s ON s.thread_id=m.thread_id WHERE m.thread_id=? AND m.sequence>COALESCE(s.seen_sequence,0)`, [threadId]) : Promise.resolve(null);
+    const pendingQuery = display ? query(db, `SELECT m.id,m.sequence,m.body,m.refs,m.folder_refs,m.source,u.name author,u.id author_id,JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags, '$[0]')) author_role FROM messages m JOIN users u ON u.id=m.author_id LEFT JOIN agent_sessions s ON s.thread_id=m.thread_id WHERE m.thread_id=? AND m.sequence>COALESCE(s.seen_sequence,0)`, [threadId]) : Promise.resolve(null);
     const [messages, reviews, runs, replies, events, [agentContext], updates, requests, pending, connectorTasks] = await Promise.all([display ? selected : messagesQuery, reviewsQuery, runsQuery, repliesQuery, eventsQuery, agentContextQuery, updatesQuery, requestsQuery, pendingQuery, connectorTasksQuery]);
-    const withQuotes = await attachMessageQuotes(db, [...new Map([...(pending || []), ...messages].map(m => [m.id, { ...m, refs: json(m.refs) }])).values()]);
+    const withQuotes = await attachMessageQuotes(db, [...new Map([...(pending || []), ...messages].map(m => [m.id, parseMessageRow(m)])).values()]);
     const quotedById = new Map(withQuotes.map(m => [m.id, m]));
     return {
       ...thread,
@@ -1210,6 +1212,16 @@ export class Service {
       if (!version) fail(400, "只能引用本项目文档库中的有效文档版本");
     }
   }
+  async folderRefs(db, projectId, folderIds) {
+    for (const folderId of folderIds) {
+      const [folder] = await query(
+        db,
+        "SELECT id,folder_kind FROM document_folders WHERE id=? AND project_id=?",
+        [folderId, projectId],
+      );
+      if (!folder || folder.folder_kind === "iteration_root") fail(400, "只能引用本项目文档库中的文件夹");
+    }
+  }
   async insertMessage(
     db,
     user,
@@ -1225,11 +1237,12 @@ export class Service {
     messageId = randomUUID(),
     executionTarget = "cloud",
     executionTargetUserId = null,
+    folderRefs = [],
   ) {
     const inserted = await query(
       db,
-      "INSERT INTO messages(id,thread_id,author_id,source,body,refs,agent_task_id,execution_target,execution_target_user_id) VALUES(?,?,?,?,?,?,?,?,?)",
-      [messageId, threadId, user.id, source, text, JSON.stringify(refs), agentTaskId, executionTarget, executionTargetUserId],
+      "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs,agent_task_id,execution_target,execution_target_user_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
+      [messageId, threadId, user.id, source, text, JSON.stringify(refs), JSON.stringify(folderRefs), agentTaskId, executionTarget, executionTargetUserId],
     );
     if (source !== "system") {
       const [thread] = await query(db, "SELECT project_id,title FROM threads WHERE id=?", [threadId]);
@@ -1258,21 +1271,21 @@ export class Service {
       if (!anchor) fail(404, "消息不存在于当前会话");
       sequence = anchor.sequence;
     }
-    const rows = await query(this.db, `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.author_id,u.name author,m.created_at
+    const rows = await query(this.db, `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.folder_refs,m.author_id,u.name author,m.created_at
       FROM messages m JOIN users u ON u.id=m.author_id WHERE m.thread_id=? AND NOT (m.source='human' AND m.agent_task_id IS NOT NULL)${sequence ? ' AND m.sequence<?' : ''}
       ORDER BY m.sequence DESC LIMIT ?`, [threadId, ...(sequence ? [sequence] : []), args.limit + 1]);
     const hasMore = rows.length > args.limit;
-    const messages = await attachMessageQuotes(this.db, rows.slice(0,args.limit).reverse().map(m => ({...m,refs:json(m.refs)})));
+    const messages = await attachMessageQuotes(this.db, rows.slice(0,args.limit).reverse().map(parseMessageRow));
     return { threadId, messages, page: { hasMore, beforeMessageId: messages[0]?.id || null } };
   }
   async readMessage(user, threadId, messageId, before = 0) {
     await this.thread(user, id.parse(threadId));
     id.parse(messageId);
     z.number().int().min(0).max(20).parse(before);
-    const [row] = await query(this.db, `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.author_id,u.name author,m.created_at
+    const [row] = await query(this.db, `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.folder_refs,m.author_id,u.name author,m.created_at
       FROM messages m JOIN users u ON u.id=m.author_id WHERE m.id=? AND m.thread_id=?`, [messageId, threadId]);
     if (!row) fail(404, "消息不存在于当前会话");
-    const [message] = await attachMessageQuotes(this.db,[{...row,refs:json(row.refs)}]);
+    const [message] = await attachMessageQuotes(this.db,[parseMessageRow(row)]);
     const previous = before ? (await this.listMessages(user, threadId, {beforeMessageId:messageId,limit:before})).messages : [];
     return { message, previous };
   }
@@ -1290,6 +1303,7 @@ export class Service {
       .object({
         body,
         refs: z.array(id).max(30).default([]),
+        folderRefs: z.array(id).max(30).default([]),
         quoteIds: z.array(id).max(10).default([]),
         clientMessageId: id.optional(),
         mentionAgent: z.boolean().default(false),
@@ -1322,6 +1336,8 @@ export class Service {
         }
       }
       await this.refs(db, thread.project_id, data.refs);
+      const folderRefs = [...new Set(data.folderRefs)];
+      await this.folderRefs(db, thread.project_id, folderRefs);
       const quoteIds = [...new Set(data.quoteIds)];
       if (quoteIds.length) {
         const quoted = await query(db, `SELECT id FROM messages WHERE thread_id=? AND id IN (${quoteIds.map(() => '?').join(',')})`, [threadId, ...quoteIds]);
@@ -1343,6 +1359,7 @@ export class Service {
         data.clientMessageId,
         "cloud",
         null,
+        folderRefs,
       );
       for (const quotedId of quoteIds) await query(db,
         "INSERT INTO message_quotes(message_id,quoted_message_id) VALUES(?,?)", [message.id, quotedId]);
@@ -1370,7 +1387,7 @@ export class Service {
           if (existing) {
             await query(db, "INSERT INTO agent_task_updates(message_id,task_message_id) VALUES(?,?)",
               [message.id, existing.message_id]);
-            return { ...message, refs, files, updatedTaskId: existing.message_id };
+            return { ...message, refs, folder_refs: folderRefs, files, updatedTaskId: existing.message_id };
           }
         }
         // Agent is a built-in member, so only real project memberships are
@@ -1389,7 +1406,7 @@ export class Service {
           ],
         );
       }
-      return { ...message, refs, files };
+      return { ...message, refs, folder_refs: folderRefs, files };
     });
     publishWork(this.db, threadId);
     // Return the committed chat row and receipt so the sender can render them
@@ -2007,7 +2024,12 @@ export class Service {
       for (const output of latestConfirmed.values())
         archivedOutputs.push(await this.copyVersionToOfficial(user, threadId, output.id, { db, archive: true }));
       const context = await this.context(user, threadId, db);
-      const versionIds = [...new Set(context.messages.flatMap((m) => m.refs))];
+      const folderIds = [...new Set(context.messages.flatMap((m) => m.folder_refs || []))];
+      const folderVersions = await latestVersionsByFolderRoots(db, thread.project_id, folderIds);
+      const versionIds = [...new Set([
+        ...context.messages.flatMap((m) => m.refs),
+        ...[...folderVersions.values()].flatMap((rows) => rows.map((row) => row.version_id)),
+      ])];
       const versions = [];
       for (const versionId of versionIds) {
         const [v] = await query(

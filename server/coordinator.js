@@ -9,6 +9,7 @@ import { acquireCoordinatorRuntime, discardCoordinatorRuntime, parkCoordinatorRu
 import { discussionText } from "../shared/context.js";
 import { bindDshL3Execution, settleDshL3Execution } from "./task-pool.js";
 import { persistL3RunCheckpoint } from "./l3-session.js";
+import { latestVersionsByFolderRoots } from "./project-library.js";
 
 const brief = (value, limit = 1200) =>
   typeof value === "string" ? value.slice(0, limit) : null;
@@ -18,10 +19,17 @@ const isMentioned = (body, value) => new RegExp(
   `(^|[^\\p{L}\\p{N}_@])@${escapePattern(value)}(?=$|[^\\p{L}\\p{N}_@])`, "u",
 ).test(body);
 
-function messageRecord(message, members, versions, quoteIds) {
+function messageRecord(message, members, versions, quoteIds, folders, folderFiles) {
   const assistant = message.source === "assistant";
   const mentions = members.filter((member) =>
     member.aliases.some((alias) => isMentioned(message.body, alias)));
+  const seen = new Set();
+  const files = [];
+  for (const id of [...parseRefs(message.refs), ...folderFiles]) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    files.push(versions.get(id) || { versionId: id });
+  }
   return {
     messageId: message.id,
     sequence: String(message.sequence),
@@ -34,7 +42,8 @@ function messageRecord(message, members, versions, quoteIds) {
     content: message.body,
     mentions: mentions.map(({ id, name }) => ({ id, name })),
     quotedMessageIds: quoteIds.get(message.id) || [],
-    files: parseRefs(message.refs).map((id) => versions.get(id) || { versionId: id }),
+    folders: parseRefs(message.folder_refs).map((id) => folders.get(id) || { folderId: id }),
+    files,
   };
 }
 
@@ -42,7 +51,7 @@ function messageRecord(message, members, versions, quoteIds) {
 // document contents, tool transcripts, avatars or profile details.
 export async function dispatchContext(db, thread, job) {
   const [messages, replies, updates, memberRows, versionRows, quoteRows, documentSummaries, projectSummaryRows] = await Promise.all([
-    query(db, `SELECT m.id,m.sequence,m.body,m.refs,m.source,m.execution_target,m.created_at,u.name author,m.author_id,
+    query(db, `SELECT m.id,m.sequence,m.body,m.refs,m.folder_refs,m.source,m.execution_target,m.created_at,u.name author,m.author_id,
       JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags,'$[0]')) author_role
       FROM messages m JOIN users u ON u.id=m.author_id
       WHERE m.thread_id=? AND m.sequence<=? ORDER BY m.sequence`, [job.thread_id,job.sequence]),
@@ -84,9 +93,27 @@ export async function dispatchContext(db, thread, job) {
   const quoteIds = new Map();
   for (const row of quoteRows) quoteIds.set(row.message_id,
     [...(quoteIds.get(row.message_id) || []), row.quoted_message_id]);
-  const routedMessages = messages.map((message) => ({ ...message, refs: parseRefs(message.refs),
-    quotes: (quoteIds.get(message.id) || []).map((id) => ({ id })) }));
-  const records = routedMessages.map((message) => messageRecord(message, members, versions, quoteIds));
+  const routedMessages = messages.map((message) => ({
+    ...message,
+    refs: parseRefs(message.refs),
+    folder_refs: parseRefs(message.folder_refs),
+    quotes: (quoteIds.get(message.id) || []).map((id) => ({ id })),
+  }));
+  const folderIds = [...new Set(routedMessages.flatMap((message) => message.folder_refs))];
+  const folderRows = folderIds.length
+    ? await query(db, `SELECT id,name FROM document_folders WHERE project_id=? AND id IN (${folderIds.map(() => "?").join(",")})`,
+      [thread.project_id, ...folderIds])
+    : [];
+  const folders = new Map(folderRows.map((folder) => [folder.id, { folderId: folder.id, name: folder.name }]));
+  const versionsByFolder = await latestVersionsByFolderRoots(db, thread.project_id, folderIds);
+  const records = routedMessages.map((message) => messageRecord(
+    message,
+    members,
+    versions,
+    quoteIds,
+    folders,
+    message.folder_refs.flatMap((id) => (versionsByFolder.get(id) || []).map((row) => row.version_id)),
+  ));
   const memberContext = [
     ...memberRows.map((member) => ({ id: member.id, name: member.name,
         projectRole: member.project_role, identityTag: member.identity_tag,
@@ -228,7 +255,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       }
       steeringBusy = true;
       try {
-        const rows = await query(db, "SELECT m.id,m.sequence,m.author_id,m.body,m.refs,m.source,u.name author FROM messages m JOIN users u ON u.id=m.author_id LEFT JOIN agent_requests q ON q.message_id=m.id WHERE m.thread_id=? AND m.source='human' AND m.sequence>? AND (q.status='queued' OR q.status IS NULL) ORDER BY m.sequence LIMIT 20", [job.thread_id, lastSteeredSequence.toString()]);
+        const rows = await query(db, "SELECT m.id,m.sequence,m.author_id,m.body,m.refs,m.folder_refs,m.source,u.name author FROM messages m JOIN users u ON u.id=m.author_id LEFT JOIN agent_requests q ON q.message_id=m.id WHERE m.thread_id=? AND m.source='human' AND m.sequence>? AND (q.status='queued' OR q.status IS NULL) ORDER BY m.sequence LIMIT 20", [job.thread_id, lastSteeredSequence.toString()]);
         if (!rows.length) return;
         const meaningful = rows.filter(isMeaningfulUpdate);
         if (!meaningful.length) {
@@ -236,7 +263,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           lastSteeredSequence = BigInt(rows.at(-1).sequence);
           return;
         }
-        const accepted = await runtime.request("updates", { mode: "steer", messages: meaningful.map((row) => ({ id: row.id, text: discussionText({ ...row, refs: typeof row.refs === "string" ? JSON.parse(row.refs) : row.refs }) })) });
+        const accepted = await runtime.request("updates", { mode: "steer", messages: meaningful.map((row) => ({ id: row.id, text: discussionText({ ...row, refs: typeof row.refs === "string" ? JSON.parse(row.refs) : row.refs, folder_refs: typeof row.folder_refs === "string" ? JSON.parse(row.folder_refs) : row.folder_refs }) })) });
         const acceptedIds = new Set(accepted.accepted || []);
         for (const row of rows) {
           if (meaningful.includes(row) && !acceptedIds.has(row.id)) break;

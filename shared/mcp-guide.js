@@ -21,7 +21,8 @@ export const MCP_INSTRUCTIONS = `你已连接共序 CoThread，一个按账号�
    c. 全部片成功后 complete_file_upload(uploadId, sha256=整文件哈希)。用返回的 id 作为版本 ID；再核对返回的 sha256 与 byteSize。哈希不一致或分片不完整会失败，不会留下半截文件。
 4. 不要把文件放进 post_message.files。需要随消息带附件时：先上传拿到版本 ID，再 post_message(refs:[版本 ID])。
 5. zip、application/octet-stream、带 charset 的 MIME 都可以传，按文件名推断类型，不会因此拒绝。同文件夹同名不会覆盖，会改成「名称 (2)」。
-6. 分片合并后单文件上限 ${FILE_MAX_MIB} MiB。消息最多关联 30 个版本，body 最多 20000 字符。get_document_version 可下载并核对 sha256 / byte_size。
+6. 分片合并后单文件上限 ${FILE_MAX_MIB} MiB。消息最多关联 30 个版本，另可引用最多 30 个文件夹，body 最多 20000 字符。get_document_version 可下载并核对 sha256 / byte_size。
+7. 引用文件夹用 folderRefs，不要把文件夹展开成文件列表。读取文件夹内容用 list_documents({projectId, folderId})；recursive=true 可包含全部子目录和文件。任务 folder_refs 同样是文件夹 ID，get_task 会附带 folder_contents，也可再按 folderId 列出。
 mentionAgent=true 自动 @${AGENT_MEMBER.name}；正文 @${AGENT_MEMBER.name} 或旧名 @Agent助手 也支持。不显式提及时本地 Agent 消息不触发内置助手回复。不要自动提及或自动接力回复，以免循环。
 沙箱产物主要由云端 Agent 通过内部 publish_artifact 写入，不通过上述 MCP 上传。
 写入不等于发言：只有 post_message 会向迭代群聊发布消息。upload_cache_draft 与 kind=cache_draft 的分片只准备对话缓存；upload_official_file 与 kind=official_file 的分片、文档及文件夹管理只改变文档库。accept_task、reject_task、update_task 只改变任务状态。这些操作默认不会自动发送群聊消息。只读成员不能发消息或上传；归档迭代不能修改；不能访问未加入的项目。任务 MCP 只暴露执行闭环。创建、取消、转交、拒绝处理、重新发起、Agent 轨迹和内部调度不通过普通 MCP 开放。人工审批、归档、成员与令牌管理不通过 MCP 执行。
@@ -34,13 +35,13 @@ export function mcpInstructionsForSource() {
 }
 
 export const MCP_CONVERSATION_COPY_INSTRUCTION =
-  `先调用 get_iteration_context 确认此迭代。大于 ${FILE_CHUNK_SIZE} 字节的文件必须 start_file_upload → upload_file_chunk → complete_file_upload，并带原始字节 SHA-256；不要一次提交整包 Base64。小文件才可用 upload_cache_draft 或 upload_official_file。发消息用 post_message.refs 引用版本 ID。`;
+  `先调用 get_iteration_context 确认此迭代。大于 ${FILE_CHUNK_SIZE} 字节的文件必须 start_file_upload → upload_file_chunk → complete_file_upload，并带原始字节 SHA-256；不要一次提交整包 Base64。小文件才可用 upload_cache_draft 或 upload_official_file。发消息用 post_message.refs 引用版本 ID，用 folderRefs 引用文件夹。`;
 
 export const MCP_OFFICIAL_LIBRARY_COPY_INSTRUCTION =
   `先调用 get_project_context 确认此项目。上传正式文件：大于 ${FILE_CHUNK_SIZE} 字节必须 start_file_upload（kind=official_file）→ upload_file_chunk → complete_file_upload，并带原始字节 SHA-256；不要一次提交整包 Base64。小文件才可用 upload_official_file。folderId 用下面给出的正式文件目录，省略则进根目录。同名不覆盖。上传不发群聊消息。`;
 
 export const MCP_TASK_COPY_INSTRUCTION =
-  `先调用 get_task 确认此任务。只通过 get_task / list_tasks 读取；执行闭环用 accept_task、reject_task、update_task，只改变任务状态，不自动发群聊。创建、取消、转交、拒绝处理、重新发起不通过普通 MCP。`;
+  `先调用 get_task 确认此任务。folder_refs 是文件夹 ID，用返回的 folder_contents 或 list_documents({projectId, folderId, recursive:true}) 读取其下子目录和文件，不要把文件夹当成单个文件。只通过 get_task / list_tasks 读取；执行闭环用 accept_task、reject_task、update_task，只改变任务状态，不自动发群聊。创建、取消、转交、拒绝处理、重新发起不通过普通 MCP。`;
 
 export function formatMcpCopyPayload(payload) {
   return JSON.stringify(payload, null, 2);

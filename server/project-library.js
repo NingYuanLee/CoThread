@@ -163,3 +163,28 @@ export const DOCUMENT_LIBRARY_FOLDER_SQL = `
     f.folder_kind IN ('project_official','project_cache','project_outputs')
     OR f.folder_kind IN ('iteration_cache','iteration_outputs')
   )`;
+
+export async function latestVersionsByFolderRoots(db, projectId, folderIds) {
+  const ids = [...new Set((folderIds || []).filter((id) => typeof id === "string" && id))];
+  const grouped = new Map(ids.map((id) => [id, []]));
+  if (!ids.length) return grouped;
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = await query(db, `WITH RECURSIVE tree AS (
+      SELECT id, id AS root_id FROM document_folders WHERE project_id=? AND id IN (${placeholders})
+      UNION ALL
+      SELECT f.id, t.root_id FROM document_folders f JOIN tree t ON f.parent_id=t.id WHERE f.project_id=?
+    )
+    SELECT t.root_id, v.id version_id, a.id artifact_id, a.title, v.filename, v.version
+    FROM tree t
+    JOIN artifacts a ON a.folder_id=t.id AND a.project_id=?
+    JOIN versions v ON v.id=(SELECT v2.id FROM versions v2 WHERE v2.artifact_id=a.id
+      ORDER BY v2.version DESC, v2.created_at DESC, v2.id DESC LIMIT 1)
+    LEFT JOIN version_recycle vr ON vr.version_id=v.id
+    WHERE a.deleted_at IS NULL AND vr.version_id IS NULL`,
+  [projectId, ...ids, projectId, projectId]);
+  for (const row of rows) {
+    const list = grouped.get(row.root_id);
+    if (list) list.push(row);
+  }
+  return grouped;
+}

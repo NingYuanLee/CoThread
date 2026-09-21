@@ -1,7 +1,7 @@
 import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { folderDisplayName, folderRootKind, latestVersionsInFolderTree, libraryFolderPath } from "./document-library";
+import { folderDisplayName, folderRootKind, libraryFolderPath } from "./document-library";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { FileIcon } from "@react-symbols/icons/utils";
@@ -118,6 +118,8 @@ export function ChatComposer({
   setMessage,
   refs,
   setRefs,
+  folderRefs = [],
+  setFolderRefs,
   versions,
   folders = [],
   members,
@@ -135,6 +137,8 @@ export function ChatComposer({
   setMessage: React.Dispatch<React.SetStateAction<string>>;
   refs: string[];
   setRefs: React.Dispatch<React.SetStateAction<string[]>>;
+  folderRefs?: string[];
+  setFolderRefs?: React.Dispatch<React.SetStateAction<string[]>>;
   versions: FileVersion[];
   folders?: FolderRef[];
   members: { id: string; name: string; email: string }[];
@@ -355,16 +359,11 @@ export function ChatComposer({
     if (!trigger) return;
     if (trigger.symbol === "/") {
       if (option.kind === "folder") {
-        const ids = latestVersionsInFolderTree(option.id, folders, versions).map((item) => item.id);
-        if (!ids.length) {
-          setError("文件夹内没有可引用的文件");
+        if (!folderRefs.includes(option.id) && folderRefs.length >= 30) {
+          setError("每条消息最多引用 30 个文件夹");
           return;
         }
-        setRefs((rows) => {
-          const next = [...new Set([...rows, ...ids])];
-          if (next.length > 30) setError("每条消息最多引用 30 个文件，已尽量加入该文件夹中的文件");
-          return next.slice(0, 30);
-        });
+        setFolderRefs?.((rows) => [...new Set([...rows, option.id])]);
       } else {
         if (!refs.includes(option.id) && refs.length + slots.current >= 30) {
           setError("每条消息最多引用 30 个文件");
@@ -438,6 +437,27 @@ export function ChatComposer({
           <UiIcon name={expanded ? "compress" : "expand"} size={14} />
         </button>
       </div>
+      {folderRefs.length > 0 && (
+        <div className="references composer-folder-refs" aria-label="引用文件夹">
+          {folderRefs.map((id) => {
+            const folder = folders.find((item) => item.id === id);
+            const label = folder ? libraryFolderPath(id, folders) || folderDisplayName(folder) : id;
+            return (
+              <span className="ref ref-folder" key={id}>
+                <UiIcon name="folder" size={12} /> {label}
+                <button
+                  type="button"
+                  className="ref-remove"
+                  aria-label={`移除文件夹 ${label}`}
+                  onClick={() => setFolderRefs?.((rows) => rows.filter((item) => item !== id))}
+                >
+                  ×
+                </button>
+              </span>
+            );
+          })}
+        </div>
+      )}
       {uploads.length > 0 && (
         <div className="chat-attachments" aria-label="消息附件">
           {uploads.map((item) => (

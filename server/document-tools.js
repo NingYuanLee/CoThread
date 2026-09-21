@@ -5,10 +5,79 @@ import { query } from './db.js';
 import { HttpError } from './service.js';
 const id=z.string().uuid();
 export const documentToolSchemas = {
-  list_documents:{ projectId:id.optional(),limit:z.number().int().min(1).max(200).default(100),offset:z.number().int().min(0).max(100000).default(0) },
+  list_documents:{
+    projectId:id.optional(),
+    folderId:id.optional(),
+    recursive:z.boolean().optional(),
+    limit:z.number().int().min(1).max(200).default(100),
+    offset:z.number().int().min(0).max(100000).default(0),
+  },
   manage_document:{ projectId:id.optional(),action:z.enum(['rename','move','delete','restore']),artifactId:id.optional(),versionId:id.optional(),scope:z.enum(['document','version']).optional(),name:z.string().min(1).max(160).optional(),folderId:id.nullable().optional() },
   manage_folder:{ projectId:id.optional(),action:z.enum(['create','rename','move','delete']),folderId:id.optional(),name:z.string().min(1).max(160).optional(),parentId:id.nullable().optional() },
 };
+
+function folderDescendantIds(rootId, folders) {
+  const children = new Map();
+  for (const folder of folders) {
+    if (!folder.parent_id) continue;
+    const list = children.get(folder.parent_id) || [];
+    list.push(folder.id);
+    children.set(folder.parent_id, list);
+  }
+  const ids = new Set([rootId]);
+  const stack = [rootId];
+  while (stack.length) {
+    const current = stack.pop();
+    for (const child of children.get(current) || []) {
+      if (ids.has(child)) continue;
+      ids.add(child);
+      stack.push(child);
+    }
+  }
+  return ids;
+}
+
+function latestVersions(versions) {
+  const latest = new Map();
+  for (const item of versions) {
+    if (item.deleted_at) continue;
+    const prev = latest.get(item.artifact_id);
+    if (!prev || (item.version || 0) > (prev.version || 0)) latest.set(item.artifact_id, item);
+  }
+  return [...latest.values()];
+}
+
+export function listDocumentScope(folders, versions, { folderId, recursive = false, limit = 100, offset = 0 } = {}) {
+  if (!folderId) {
+    const end = offset + limit;
+    return {
+      folders: folders.slice(offset, end),
+      versions: versions.slice(offset, end),
+      page: { nextOffset: end, hasMore: folders.length > end || versions.length > end },
+    };
+  }
+  const folder = folders.find((item) => item.id === folderId);
+  if (!folder) throw new HttpError(404, '文件夹不存在');
+  const scopeIds = recursive ? folderDescendantIds(folderId, folders) : new Set([folderId]);
+  const childFolders = folders.filter((item) => recursive
+    ? item.id !== folderId && scopeIds.has(item.id)
+    : item.parent_id === folderId);
+  const childVersions = latestVersions(versions).filter((item) => item.folder_id && (
+    recursive ? scopeIds.has(item.folder_id) : item.folder_id === folderId
+  ));
+  const end = offset + limit;
+  return {
+    folder,
+    recursive: !!recursive,
+    folders: childFolders.slice(offset, end),
+    versions: childVersions.slice(offset, end),
+    page: {
+      nextOffset: end,
+      hasMore: childFolders.length > end || childVersions.length > end,
+    },
+  };
+}
+
 export async function documentTool(service,user,name,input,job) {
   const args=z.object(documentToolSchemas[name]).parse(input);
   let projectId=args.projectId;
@@ -19,8 +88,7 @@ export async function documentTool(service,user,name,input,job) {
     const p=await service.project(user,projectId,{display:true});
     const folders=job?filterProjectLibraryFolders(p.folders):p.folders;
     const versions=job?filterProjectLibraryVersions(p.versions):p.versions;
-    const end=args.offset+args.limit;
-    return {projectId,folders:folders.slice(args.offset,end),versions:versions.slice(args.offset,end),page:{nextOffset:end,hasMore:folders.length>end||versions.length>end}};
+    return {projectId, ...listDocumentScope(folders, versions, args)};
   }
   const options={tool:true,authorize:job ? async db=>{
     await service.thread(user,job.thread_id,true,db);

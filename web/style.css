@@ -1949,6 +1949,22 @@ header h2 {
   font-size: 10px;
   color: var(--c-7a8d6a, #7a8d6a);
 }
+.ref.ref-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.composer-folder-refs {
+  margin: 0 0 8px;
+}
+.composer-folder-refs .ref-remove {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-7a8d6a, #7a8d6a);
+  font-size: 12px;
+  line-height: 1;
+}
 .ref.ref-thumb {
   display: flex;
   flex-direction: column;
@@ -2459,7 +2475,10 @@ header h2 {
 .document-change-log-filter-actions { display:flex; align-self:start; align-items:flex-end; justify-content:flex-end; gap:6px; width:118px; height:47px; padding-top:17px; box-sizing:border-box; }
 .document-change-log-filter-actions button { height:30px; padding:0 9px; border:1px solid var(--c-67835b, #67835b); border-radius:4px; background:var(--c-67835b, #67835b); color:#fff; font-size:11px; line-height:28px; white-space:nowrap; }
 .document-change-log-filter-actions button.secondary { border-color:var(--c-d8e1d3, #d8e1d3); background:var(--c-f8faf6, #f8faf6); color:var(--c-61765a, #61765a); }
-.document-change-log-list { display:grid; flex:1 1 auto; min-height:0; gap:5px; overflow:auto; padding:4px 0; }
+.document-change-log-list { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; gap:0; overflow:hidden; padding:4px 0; }
+.document-change-log-list-head { flex:0 0 auto; }
+.document-change-log-rows { flex:1 1 auto; min-height:0; overflow:auto; }
+.document-change-log-pagination { flex:0 0 auto; }
 .document-change-log-item { display:grid; grid-template-columns:minmax(0, 1fr) auto; align-items:center; gap:16px; min-height:32px; padding:4px 10px; border:1px solid var(--c-e7eae7, #e7eae7); background:var(--c-fafbfa, #fafbfa); }
 .document-change-log-main, .document-change-log-meta { min-width:0; display:flex; align-items:center; gap:8px; }
 .document-change-log-main strong { flex:0 0 auto; color:var(--c-46534a, #46534a); font-size:12px; font-weight:600; }
@@ -7151,9 +7170,12 @@ body.col-resizing .app-shell > .context-panel {
   line-height: 34px;
 }
 .document-change-log-list {
+  display: flex;
+  flex-direction: column;
   gap: 0;
   padding: 0 20px;
   background: #fff;
+  overflow: hidden;
 }
 .document-change-log-list::before {
   content: "操作  ·  文档 / 文件夹  ·  操作人 / 来源  ·  时间";
@@ -7206,6 +7228,7 @@ body.col-resizing .app-shell > .context-panel {
   overflow: hidden;
 }
 .document-change-log-pagination {
+  flex: 0 0 auto;
   grid-template-columns: 1fr auto 1fr;
   min-height: 62px;
   margin: 0;
@@ -7305,7 +7328,8 @@ body.col-resizing .app-shell > .context-panel {
   box-sizing: border-box;
 }
 .document-change-log-list-head span { min-width: 0; }
-.document-change-log-rows { min-height: 0; overflow: auto; }
+.document-change-log-rows { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.document-change-log-rows.is-refreshing { opacity: .58; }
 .document-change-log-item { margin: 0; }
 @media (max-width: 820px) {
   .document-change-log-list-head,

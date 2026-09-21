@@ -7,6 +7,7 @@ import {
   isCacheFolderKind,
   isOfficialLibraryFolder,
   isOutputFolderKind,
+  latestVersionsByFolderRoots,
   LIBRARY_DATE_FOLDER_NAME,
   uniqueArtifactTitle,
 } from "./project-library.js";
@@ -342,9 +343,18 @@ function parseJsonColumn(value) {
 async function referencedVersionIds(db, projectId) {
   const ids = new Set();
   const messages = await query(db,
-    `SELECT m.refs FROM messages m JOIN threads t ON t.id=m.thread_id
-     WHERE t.project_id=? AND m.refs IS NOT NULL`, [projectId]);
-  for (const row of messages) collectUuids(parseJsonColumn(row.refs), ids);
+    `SELECT m.refs,m.folder_refs FROM messages m JOIN threads t ON t.id=m.thread_id
+     WHERE t.project_id=? AND (m.refs IS NOT NULL OR m.folder_refs IS NOT NULL)`, [projectId]);
+  const folderIds = [];
+  for (const row of messages) {
+    collectUuids(parseJsonColumn(row.refs), ids);
+    const folders = parseJsonColumn(row.folder_refs);
+    if (Array.isArray(folders)) folderIds.push(...folders);
+  }
+  const byFolder = await latestVersionsByFolderRoots(db, projectId, folderIds);
+  for (const versions of byFolder.values()) {
+    for (const version of versions) if (version.version_id) ids.add(version.version_id);
+  }
   const tasks = await query(db,
     "SELECT artifact_refs,document_refs FROM agent_tasks WHERE project_id=?", [projectId]);
   for (const row of tasks) {

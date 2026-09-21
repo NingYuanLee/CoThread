@@ -55,7 +55,22 @@ test('document tools create folders, rename/move/recycle files and enforce stopp
  await tools('manage_document',{action:'move',artifactId:official.artifactId,folderId:root.id});
  await tools('manage_document',{action:'move',artifactId:official.artifactId,folderId:folder.id});
  assert.ok((await tools('list_documents',{})).versions.some(x=>x.id===official.id&&x.title==='定稿'&&x.folder_id===folder.id));
+ const nested=await tools('manage_folder',{action:'create',name:'子目录',parentId:folder.id});
+ const child=await service.uploadOfficialDocument(user,project.id,{
+  folderId:nested.id,title:'子文件',filename:'child.txt',mime:'text/plain',
+  contentBase64:Buffer.from('c').toString('base64'),
+ });
+ const listed=await tools('list_documents',{folderId:folder.id});
+ assert.equal(listed.folder.id,folder.id);
+ assert.equal(listed.recursive,false);
+ assert.ok(listed.folders.some(item=>item.id===nested.id));
+ assert.equal(listed.versions.some(item=>item.id===official.id),true);
+ const tree=await tools('list_documents',{folderId:folder.id,recursive:true});
+ assert.ok(tree.folders.some(item=>item.id===nested.id));
+ assert.ok(tree.versions.some(item=>item.id===child.id&&item.folder_id===nested.id));
  await assert.rejects(tools('manage_folder',{action:'delete',folderId:folder.id}),e=>e.status===409);
+ await tools('manage_document',{action:'delete',scope:'document',artifactId:child.artifactId});
+ await tools('manage_folder',{action:'delete',folderId:nested.id});
  await tools('manage_document',{action:'delete',scope:'document',artifactId:official.artifactId});
  await tools('manage_folder',{action:'delete',folderId:folder.id});
  await tools('manage_document',{action:'restore',scope:'document',artifactId:official.artifactId});

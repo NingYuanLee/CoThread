@@ -889,7 +889,10 @@ export function Documents({
   const officialWritable = writable && !organizing;
   const [organizeOpen, setOrganizeOpen] = useState(false);
   const [folderId, setFolderId] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const knownFolderIds = useRef(new Set(folders.filter((folder) => folder.parent_id).map((folder) => folder.id)));
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => new Set(folders.filter((folder) => folder.parent_id).map((folder) => folder.id)),
+  );
   const toggleFolder = (id: string) => {
     setCollapsed((previous) => {
       const next = new Set(previous);
@@ -900,12 +903,12 @@ export function Documents({
   useEffect(() => {
     setCollapsed((previous) => {
       const next = new Set(previous);
-      for (const kind of LIBRARY_ROOT_KINDS) {
-        if (kind === "project_official") continue;
-        const root = resolveLibraryRoot(kind, folders);
-        if (!root) continue;
-        if (folders.some((f) => f.parent_id === root.id)) next.delete(root.id);
+      const known = knownFolderIds.current;
+      for (const folder of folders) {
+        if (known.has(folder.id)) continue;
+        if (folder.parent_id) next.add(folder.id);
       }
+      knownFolderIds.current = new Set(folders.map((folder) => folder.id));
       return next;
     });
   }, [folders]);
@@ -968,6 +971,7 @@ export function Documents({
   const [changePageInput, setChangePageInput] = useState("1");
   const [changeFilterDraft, setChangeFilterDraft] = useState<DocumentChangeFilters>({ from: "", to: "", fileName: "", action: "", limit: "20" });
   const [changeFilters, setChangeFilters] = useState<DocumentChangeFilters>({ from: "", to: "", fileName: "", action: "", limit: "20" });
+  const changeCountCacheRef = useRef({ key: "", total: 0 });
   const [openFileMenuId, setOpenFileMenuId] = useState<string | null>(null);
   const [downloadingFolderId, setDownloadingFolderId] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
@@ -1073,26 +1077,30 @@ export function Documents({
     if (changeFilters.action) params.set("action", changeFilters.action);
     setChangesLoading(true);
     setChangesError("");
+    const countKey = `${projectId}|${params.get("from") || ""}|${params.get("to") || ""}|${params.get("fileName") || ""}|${params.get("action") || ""}|${changeFilters.limit}`;
+    const cachedTotal = changeCountCacheRef.current.key === countKey ? changeCountCacheRef.current.total : null;
     const countParams = new URLSearchParams(params);
     countParams.delete("limit");
     countParams.delete("page");
     void Promise.all([
       apiFetch(`/api/projects/${projectId}/document-changes?${params}`).then((response) => readJsonResponse(response, "文档操作日志")),
-      apiFetch(`/api/projects/${projectId}/document-changes/count?${countParams}`).then((response) => readJsonResponse(response, "文档操作日志总数")),
+      cachedTotal == null
+        ? apiFetch(`/api/projects/${projectId}/document-changes/count?${countParams}`).then((response) => readJsonResponse(response, "文档操作日志总数"))
+        : Promise.resolve({ total: cachedTotal }),
     ])
       .then(([value, count]) => {
         if (!alive) return;
         setChanges(value.items || []);
         const total = Number(count.total || 0);
+        changeCountCacheRef.current = { key: countKey, total };
         const pageSize = Number(changeFilters.limit) || 20;
         const totalPages = Math.max(Math.ceil(total / pageSize), 1);
         const currentPage = Math.min(Number(value.page?.currentPage || changePageNumber), totalPages);
-        const nextPage = { ...(value.page || {}), total, totalPages, currentPage, pageSize, hasMore: currentPage < totalPages };
-        setChangePage(nextPage);
+        setChangePage({ ...(value.page || {}), total, totalPages, currentPage, pageSize, hasMore: currentPage < totalPages });
         setChangePageInput(String(currentPage));
         if (currentPage !== changePageNumber) setChangePageNumber(currentPage);
       })
-      .catch((cause) => { if (alive) { setChanges([]); setChangesError(cause instanceof Error ? cause.message : "日志读取失败"); } })
+      .catch((cause) => { if (alive) setChangesError(cause instanceof Error ? cause.message : "日志读取失败"); })
       .finally(() => { if (alive) setChangesLoading(false); });
     return () => { alive = false; };
   }, [changesOpen, projectId, changePageNumber, changeFilters]);
@@ -2379,8 +2387,10 @@ export function Documents({
   const visibleChangePages = documentChangePageNumbers(changePage.currentPage, changePage.totalPages);
   const goToChangePage = (target: number) => {
     const next = Math.min(Math.max(Math.trunc(target) || 1, 1), changePage.totalPages);
+    if (next === changePageNumber) return;
     setChangePageInput(String(next));
     setChangePageNumber(next);
+    setChangePage((current) => ({ ...current, currentPage: next, hasMore: next < current.totalPages }));
   };
   return (
     <div className="library-embedded doc-browser">
@@ -2470,28 +2480,26 @@ export function Documents({
               </form>
               <div className="document-change-log-list">
                 <div className="document-change-log-list-head" aria-hidden="true"><span>操作</span><span>文档 / 文件夹</span><span>操作人 / 来源</span><span>时间</span></div>
-                <div className="document-change-log-rows">
-                  {changesLoading ? <p className="muted">正在读取操作日志…</p> : changesError ? <p className="error" role="alert">{changesError}</p> : changes.length ? changes.map((item) => <article className="document-change-log-item" key={item.id}>
+                <div className={`document-change-log-rows${changesLoading && changes.length && !changesError ? " is-refreshing" : ""}`} aria-busy={changesLoading}>
+                  {changesError ? <p className="error document-change-log-state" role="alert">{changesError}</p> : changes.length ? changes.map((item) => <article className="document-change-log-item" key={item.id}>
                     <strong>{documentChangeLabels[item.action] || item.action}</strong>
                     <span className="document-change-log-target">{item.artifact_title || item.version_filename || item.folder_name || String(item.details?.title || item.details?.filename || item.details?.affectedFolderName || "文档库")}</span>
                     <span className="document-change-log-actor">{item.actor_name || (item.actor_type === "agent" ? "Agent" : "系统")} · {documentChangeSources[item.source] || item.source}</span>
                     <time>{new Date(item.created_at).toLocaleString("zh-CN")}</time>
-                  </article>) : <p className="muted">暂无文档操作记录。</p>}
+                  </article>) : <p className="muted document-change-log-state">{changesLoading ? "正在读取操作日志…" : "暂无文档操作记录。"}</p>}
                 </div>
               </div>
-              {!changesLoading && !changesError && changes.length ? (
-                <footer className="document-change-log-pagination">
-                  <small>共 {changePage.total} 条 · 第 {changePage.currentPage} / {changePage.totalPages} 页</small>
-                  <div>
-                    <label className="document-change-log-page-size"><span>每页</span><select value={changeFilters.limit} onChange={(event) => { const limit = event.target.value; setChangeFilterDraft((current) => ({ ...current, limit })); setChangeFilters((current) => ({ ...current, limit })); setChangePageNumber(1); setChangePageInput("1"); }}><option value="20">20 条</option><option value="50">50 条</option><option value="100">100 条</option></select></label>
-                    <button type="button" disabled={changesLoading || changePage.currentPage <= 1} onClick={() => goToChangePage(changePage.currentPage - 1)}>上一页</button>
-                    {visibleChangePages.map((page) => <button key={page} type="button" className={page === changePage.currentPage ? "active" : ""} aria-current={page === changePage.currentPage ? "page" : undefined} disabled={changesLoading || page === changePage.currentPage} onClick={() => goToChangePage(page)}>{page}</button>)}
-                    <label className="document-change-log-page-jump"><span>跳至</span><input type="number" min="1" max={changePage.totalPages} value={changePageInput} onChange={(event) => setChangePageInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); goToChangePage(Number(changePageInput)); } }} /></label>
-                    <button type="button" disabled={changesLoading} onClick={() => goToChangePage(Number(changePageInput))}>跳转</button>
-                    <button type="button" disabled={changesLoading || changePage.currentPage >= changePage.totalPages} onClick={() => goToChangePage(changePage.currentPage + 1)}>下一页</button>
-                  </div>
-                </footer>
-              ) : null}
+              <footer className="document-change-log-pagination">
+                <small>共 {changePage.total} 条 · 第 {changePage.currentPage} / {changePage.totalPages} 页</small>
+                <div>
+                  <label className="document-change-log-page-size"><span>每页</span><select value={changeFilters.limit} onChange={(event) => { const limit = event.target.value; setChangeFilterDraft((current) => ({ ...current, limit })); setChangeFilters((current) => ({ ...current, limit })); setChangePageNumber(1); setChangePageInput("1"); setChangePage((current) => ({ ...current, currentPage: 1 })); }}><option value="20">20 条</option><option value="50">50 条</option><option value="100">100 条</option></select></label>
+                  <button type="button" disabled={changePage.currentPage <= 1} onClick={() => goToChangePage(changePage.currentPage - 1)}>上一页</button>
+                  {visibleChangePages.map((page) => <button key={page} type="button" className={page === changePage.currentPage ? "active" : ""} aria-current={page === changePage.currentPage ? "page" : undefined} disabled={page === changePage.currentPage} onClick={() => goToChangePage(page)}>{page}</button>)}
+                  <label className="document-change-log-page-jump"><span>跳至</span><input type="number" min="1" max={changePage.totalPages} value={changePageInput} onChange={(event) => setChangePageInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); goToChangePage(Number(changePageInput)); } }} /></label>
+                  <button type="button" onClick={() => goToChangePage(Number(changePageInput))}>跳转</button>
+                  <button type="button" disabled={changePage.currentPage >= changePage.totalPages} onClick={() => goToChangePage(changePage.currentPage + 1)}>下一页</button>
+                </div>
+              </footer>
             </section>}
           </ModalBackdrop>
         ) : null}

@@ -18,7 +18,7 @@ export function apply(ctx) {
       taskType: { type: "string", required: true }, title: { type: "string", required: true }, goal: { type: "string", required: true },
       constraints: { type: "string" }, documentRefs: { type: "array" }, folderRefs: { type: "array" }, sourceType:{type:"string"}, sourceUserId:{type:"string"}, sourceMessageId:{type:"string"}, sourceTaskId:{type:"string"}, targetType: { type: "string" }, targetId: { type: "string" },
     }],
-    ["list_documents","项目文档：分页查看当前迭代文件和项目正式文件，其他迭代文件不可见；含回收站状态，默认100项。",{limit:{type:"number"},offset:{type:"number"}}],
+    ["list_documents","项目文档：分页查看当前迭代文件和项目正式文件，其他迭代文件不可见；含回收站状态，默认100项。传入 folderId 只列出该文件夹的子目录和文件；recursive=true 时包含全部子孙目录与其中文件。任务或消息里的 folderRefs 是文件夹 ID，不要当成文件列表，应再用本工具按目录读取。",{folderId:{type:"string"},recursive:{type:"boolean"},limit:{type:"number"},offset:{type:"number"}}],
     ["manage_document","项目文档：按用户要求重命名、移动、删除或恢复文档。对话缓存只允许重命名、删除和恢复，不能移动或新增版本；产物和项目正式文件可管理。跨范围保存必须另存副本。",{action:{type:"string",required:true},scope:{type:"string"},artifactId:{type:"string"},versionId:{type:"string"},name:{type:"string"},folderId:{oneOf:[{type:"string"},{type:"null"}]}}],
     ["manage_folder","项目文档：按用户要求创建、重命名、移动、删除文件夹。action=create|rename|move|delete；删除前须清空；parentId为null表示根目录。",{action:{type:"string",required:true},folderId:{type:"string"},name:{type:"string"},parentId:{oneOf:[{type:"string"},{type:"null"}]}}],
     ["list_messages", "会话资料：读取本项目某会话消息列表，默认最近20条；beforeMessageId取该消息之前的消息，包含类型与引用预览。", {threadId:{type:"string",required:true},limit:{type:"number"},beforeMessageId:{type:"string"}}],

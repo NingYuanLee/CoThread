@@ -19,6 +19,26 @@ before(async()=>{
  c=await service.postMessage(user,thread.id,{body:'引用第一条',quoteIds:[a.id,a.id]});
 });
 after(async()=>{await database?.close()});
+test('folder references stay as folders in chat and can be listed later',async()=>{
+ const [officialRoot]=await query(database.db,"SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_official' AND parent_id IS NULL LIMIT 1",[project.id]);
+ const folderId=randomUUID();
+ await query(database.db,"INSERT INTO document_folders(id,project_id,parent_id,name,folder_kind) VALUES(?,?,?,?,'project_official')",[folderId,project.id,officialRoot.id,'资料夹']);
+ const nestedId=randomUUID();
+ await query(database.db,"INSERT INTO document_folders(id,project_id,parent_id,name,folder_kind) VALUES(?,?,?,?,'project_official')",[nestedId,project.id,folderId,'子目录']);
+ await service.uploadOfficialDocument(user,project.id,{
+  folderId:nestedId,title:'清单',filename:'list.md',mime:'text/markdown',
+  contentBase64:Buffer.from('# 清单').toString('base64'),
+ });
+ const posted=await service.postMessage(user,thread.id,{body:'看这个目录',folderRefs:[folderId]});
+ assert.deepEqual(posted.folder_refs,[folderId]);
+ assert.deepEqual(posted.refs,[]);
+ const context=await service.context(user,thread.id,database.db,{display:true});
+ const saved=context.messages.find(m=>m.id===posted.id);
+ assert.deepEqual(saved.folder_refs,[folderId]);
+ assert.deepEqual(saved.refs,[]);
+ assert.match(discussionText(saved),new RegExp(folderId));
+ await assert.rejects(service.postMessage(user,thread.id,{body:'外项目',folderRefs:[randomUUID()]}),e=>e.status===400);
+});
 test('references persist once, show bounded previews and support full original retrieval',async()=>{
  const result=await service.readMessage(user,thread.id,c.id,2);
  assert.deepEqual(result.previous.map(m=>m.id),[a.id,b.id]);

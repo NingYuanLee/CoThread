@@ -54,7 +54,7 @@ import { DialogClose, ModalBackdrop, animateDialogClose, onDialogBackdropClick, 
 import { TipHost, showTip } from "./Tip";
 import { ImagePreviewDialog } from "./ImagePreview";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
-import { libraryFolderPath, folderDisplayName, latestVersionsInFolderTree } from "./document-library";
+import { libraryFolderPath, folderDisplayName } from "./document-library";
 import { LibraryPickerField } from "./LibraryPicker";
 import { McpSettings } from "./McpSettings";
 
@@ -339,7 +339,7 @@ type Detail = Project & {
   documentOrganizationJobs: { id: string; thread_id?: string | null; scope: "iteration" | "project"; status: string; error?: string | null }[];
   longTermSummary?: { summary: string; updatedAt: string | null; lastThreadTitle: string | null } | null;
 };
-type MessageQuote = { id: string; thread_id?: string; author: string; body: string; source: string; refs: string[] };
+type MessageQuote = { id: string; thread_id?: string; author: string; body: string; source: string; refs: string[]; folder_refs?: string[] };
 function clipQuote(text: string, max = 72) {
   const value = Array.from(String(text || "").replace(/\s+/g, " ").trim());
   return value.length > max ? `${value.slice(0, max).join("")}…` : value.join("");
@@ -417,6 +417,7 @@ type Thread = {
     source: string;
     execution_target?: "cloud" | "local";
     refs: string[];
+    folder_refs?: string[];
     author: string;
     author_id: string;
     author_avatar?: string | null;
@@ -624,7 +625,11 @@ function App() {
         const v = detail?.versions.find(v => v.id === id);
         return `[${v?.title || id}](${location.origin}/api/versions/${id}/download)`;
       });
-      await navigator.clipboard.writeText([m.body, ...files].filter(Boolean).join("\n\n"));
+      const folders = (m.folder_refs || []).map((id) => {
+        const folder = detail?.folders.find((item) => item.id === id);
+        return folder ? `📁 ${libraryFolderPath(id, detail?.folders || []) || folderDisplayName(folder)}` : `📁 ${id}`;
+      });
+      await navigator.clipboard.writeText([m.body, ...folders, ...files].filter(Boolean).join("\n\n"));
       setCopiedMessage(m.id);
       showTip("消息已复制");
     } catch {
@@ -704,6 +709,7 @@ function App() {
   }, []);
   const followConversation = useRef(true);
   const [refs, setRefs] = useState<string[]>([]);
+  const [folderRefs, setFolderRefs] = useState<string[]>([]);
   const uploadTarget = useRef<((files: File[]) => void) | null>(null);
   const [fileDragOver, setFileDragOver] = useState(false);
   const [leftOpen, setLeftOpen] = useState(() => readStoredBoolean(LEFT_SIDEBAR_STATE_KEY, false));
@@ -1048,6 +1054,7 @@ function App() {
       ? current
       : cached?.threads.find((t) => t.status === "active")?.id || "");
     setRefs([]);
+    setFolderRefs([]);
     setQuotedMessages([]);
     setQuotePreview(null);
     setMessage("");
@@ -1105,6 +1112,7 @@ function App() {
     setThread(cached || null);
     followConversation.current = true;
     setRefs([]);
+    setFolderRefs([]);
     setMessage("");
     if (!threadId || !user) return;
     let alive = true;
@@ -1447,18 +1455,19 @@ function App() {
   const addFolderToConversation = (folderId: string) => {
     const folders = detail?.folders || [];
     const folder = folders.find((item) => item.id === folderId);
-    const files = latestVersionsInFolderTree(folderId, folders, detail?.versions || []);
-    if (!files.length) {
-      showTip("文件夹内没有可引用的文件", "info");
+    if (!folder) {
+      showTip("文件夹不存在", "info");
       return;
     }
-    const ids = files.map((item) => item.id);
-    setRefs((previous) => {
-      const next = [...new Set([...previous, ...ids])];
-      if (next.length > 30) showTip("每条消息最多引用 30 个文件，已尽量加入该文件夹中的文件", "info");
-      return next.slice(0, 30);
+    setFolderRefs((previous) => {
+      if (previous.includes(folderId)) return previous;
+      if (previous.length >= 30) {
+        showTip("每条消息最多引用 30 个文件夹", "info");
+        return previous;
+      }
+      return [...previous, folderId];
     });
-    const name = folder ? folderDisplayName(folder) : undefined;
+    const name = folderDisplayName(folder);
     if (name) {
       setMessage((text) => text.includes(`/${name}`)
         ? text
@@ -1469,7 +1478,7 @@ function App() {
   const persistOptimisticMessage = async (
     targetThreadId: string,
     optimisticId: string,
-    payload: { body: string; refs: string[]; quoteIds: string[]; clientMessageId: string },
+    payload: { body: string; refs: string[]; folderRefs?: string[]; quoteIds: string[]; clientMessageId: string },
     quotes: MessageQuote[],
   ) => {
     updateThreadCache(targetThreadId, current => ({ ...current, messages: current.messages.map(item =>
@@ -1544,6 +1553,26 @@ function App() {
           {stopControl}
         </div>
         {failed}
+      </div>
+    );
+  };
+  const renderFolderRef = (folderId: string) => {
+    const folder = detail?.folders.find((item) => item.id === folderId);
+    const label = folder ? libraryFolderPath(folderId, detail?.folders || []) || folderDisplayName(folder) : folderId;
+    return (
+      <button key={`folder:${folderId}`} type="button" className="ref ref-folder" title={label} onClick={() => setContextOpen(true)}>
+        <UiIcon name="folder" size={12} /> {label}
+      </button>
+    );
+  };
+  const renderMessageAttachments = (message: { refs?: string[]; folder_refs?: string[] }) => {
+    const folders = message.folder_refs || [];
+    const files = message.refs || [];
+    if (!folders.length && !files.length) return null;
+    return (
+      <div className="references">
+        {folders.map(renderFolderRef)}
+        {files.map(renderRef)}
       </div>
     );
   };
@@ -2301,11 +2330,7 @@ function App() {
                           {m.body}
                         </Markdown>
                       </div>
-                      {!!m.refs.length && (
-                        <div className="references">
-                          {m.refs.map(renderRef)}
-                        </div>
-                      )}
+                      {renderMessageAttachments(m)}
                       {!!m.body.trim() && !m.id.startsWith('agent-reception:') && <div className="message-actions">
                         {m.author_id === user.id && m.source !== "assistant" && <time className="message-action-time">{time(m.created_at)}</time>}
                         <button type="button" title={copiedMessage === m.id ? "已复制" : "复制"} aria-label={copiedMessage === m.id ? "已复制" : "复制"} onClick={() => void copyMessage(m)}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedMessage === m.id ? <path d="m4 10 4 4 8-8"/> : <><rect x="3" y="7" width="11" height="11" rx="4"/><path d="M7 4a4 4 0 0 1 4-3h3a4 4 0 0 1 4 4v5a4 4 0 0 1-2 3.5"/></>}</svg></button>
@@ -2321,7 +2346,7 @@ function App() {
                     </div>
                     {m.delivery_status === "sending" && <span className="message-delivery-control sending" role="status" aria-label="正在发送" title="正在发送" />}
                     {m.delivery_status === "failed" && <button type="button" className="message-delivery-control failed" aria-label="重新发送" title={m.delivery_error || "重新发送"} onClick={() => void persistOptimisticMessage(threadId, m.id, {
-                      body: m.body, refs: m.refs, quoteIds: (m.quotes || []).map(quote => quote.id), clientMessageId: m.id.slice("optimistic:".length),
+                      body: m.body, refs: m.refs, folderRefs: m.folder_refs || [], quoteIds: (m.quotes || []).map(quote => quote.id), clientMessageId: m.id.slice("optimistic:".length),
                     }, m.quotes || [])}>
                       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
                     </button>}
@@ -2419,6 +2444,8 @@ function App() {
                   setMessage={setMessage}
                   refs={refs}
                   setRefs={setRefs}
+                  folderRefs={folderRefs}
+                  setFolderRefs={setFolderRefs}
                   versions={detail?.versions || []}
                   folders={detail?.folders || []}
                   members={detail?.members || []}
@@ -2440,6 +2467,7 @@ function App() {
                     const targetThreadId = threadId;
                     const body = message;
                     const selectedRefs = [...refs];
+                    const selectedFolderRefs = [...folderRefs];
                     const selectedQuotes = [...quotedMessages];
                     const optimisticId = `optimistic:${crypto.randomUUID()}`;
                     const optimistic = {
@@ -2451,6 +2479,7 @@ function App() {
                       body,
                       source: "web",
                       refs: selectedRefs,
+                      folder_refs: selectedFolderRefs,
                       author: user.name,
                       author_id: user.id,
                       author_avatar: user.avatar,
@@ -2465,9 +2494,10 @@ function App() {
                     setQuotedMessages([]);
                     setMessage("");
                     setRefs([]);
+                    setFolderRefs([]);
                     followConversation.current = true;
                     void persistOptimisticMessage(targetThreadId, optimisticId, {
-                      body, refs: selectedRefs, quoteIds: selectedQuotes.map(q => q.id), clientMessageId: optimisticId.slice("optimistic:".length),
+                      body, refs: selectedRefs, folderRefs: selectedFolderRefs, quoteIds: selectedQuotes.map(q => q.id), clientMessageId: optimisticId.slice("optimistic:".length),
                     }, selectedQuotes);
                     return true;
                   }}
@@ -2739,7 +2769,7 @@ function App() {
           <div className="quoted-message-dialog-header"><DialogClose autoFocus onClick={close} label="关闭原文" /></div>
           <strong>{quotePreview.source === "assistant" ? AGENT_MEMBER.name : quotePreview.author}</strong>
           <Markdown remarkPlugins={[remarkGfm]} components={{img: () => <span>（图片链接）</span>}}>{quotePreview.body}</Markdown>
-          <div className="references">{quotePreview.refs.map(renderRef)}</div>
+          {renderMessageAttachments(quotePreview)}
         </section>}
       </ModalBackdrop>}
       {imagePreview && (

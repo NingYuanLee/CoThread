@@ -166,33 +166,11 @@ async function folderRefLabels(conn, projectId, refs) {
   return ids.map((id) => ({ id, title: byId.has(id) ? pathOf(id) : id }));
 }
 
-async function latestOfficialVersionsInFolders(conn, projectId, refs) {
-  const ids = parseDocumentRefs(refs);
-  if (!ids.length) return [];
-  return query(conn, `WITH RECURSIVE tree AS (
-      SELECT id FROM document_folders WHERE project_id=? AND id IN (${ids.map(() => "?").join(",")})
-      UNION ALL
-      SELECT f.id FROM document_folders f JOIN tree t ON f.parent_id=t.id WHERE f.project_id=?
-    )
-    SELECT v.id,a.title,v.version,v.filename FROM artifacts a
-    JOIN versions v ON v.id=(SELECT v2.id FROM versions v2 WHERE v2.artifact_id=a.id
-      ORDER BY v2.version DESC, v2.created_at DESC, v2.id DESC LIMIT 1)
-    LEFT JOIN version_recycle vr ON vr.version_id=v.id
-    WHERE a.project_id=? AND a.deleted_at IS NULL AND vr.version_id IS NULL
-      AND a.folder_id IN (SELECT id FROM tree)
-    ORDER BY a.title, v.version`, [projectId, ...ids, projectId, projectId]);
-}
-
 async function documentsForTaskInstruction(conn, projectId, documentRefs, folderRefs) {
-  const documents = await documentRefLabels(conn, documentRefs);
-  const folders = await folderRefLabels(conn, projectId, folderRefs);
-  const seen = new Set(documents.map((doc) => doc.id));
-  for (const doc of await latestOfficialVersionsInFolders(conn, projectId, folderRefs)) {
-    if (seen.has(doc.id)) continue;
-    seen.add(doc.id);
-    documents.push(doc);
-  }
-  return { documents, folders };
+  return {
+    documents: await documentRefLabels(conn, documentRefs),
+    folders: await folderRefLabels(conn, projectId, folderRefs),
+  };
 }
 
 export function composeTaskInstruction(task, documents = [], folders = []) {
@@ -201,6 +179,7 @@ export function composeTaskInstruction(task, documents = [], folders = []) {
   if (folders.length) {
     parts.push("", "引用文件夹：");
     for (const folder of folders) parts.push(`- ${folder.title || folder.name || folder.id}`);
+    parts.push("这些是文件夹。读取时请列出其下全部子目录和文件，不要把文件夹展开成有限个文件引用。");
   }
   if (documents.length) {
     parts.push("", "引用文档：");

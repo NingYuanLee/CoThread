@@ -162,6 +162,7 @@
       <li><a href="#flow">流程</a></li>
       <li><a href="#arch">架构</a></li>
       <li><a href="#start">快速开始</a></li>
+      <li><a href="/docs.html">文档</a></li>
       <li><a class="cta" href="https://cothread.z2l.top">打开共序</a></li>
     </ul>
   </div>
@@ -180,12 +181,12 @@
     </p>
     <div class="btns">
       <a class="btn primary" href="https://cothread.z2l.top">打开线上工作台</a>
-      <a class="btn ghost" href="#workspace">看工作台怎么摆</a>
+      <a class="btn ghost" href="/docs.html">阅读文档</a>
     </div>
     <div class="stats">
       <div class="stat"><b>三栏</b><span>迭代列表 · 群聊 · 文档浏览器</span></div>
       <div class="stat"><b>7+1</b><span>同时执行槽 + 接待名额</span></div>
-      <div class="stat"><b>5 MiB</b><span>单文件上限，SHA-256 校验</span></div>
+      <div class="stat"><b>20 MiB</b><span>单文件上限，SHA-256 校验</span></div>
       <div class="stat"><b>Office</b><span>Word / Excel / PPT 可预览</span></div>
     </div>
   </div>
@@ -214,7 +215,7 @@
         <p>项目下全迭代共享文档库。正式文件、对话缓存、任务产物分开放。产物保存为不可覆盖版本（SHA-256）；上传和 Agent 发布都不等于审批通过，审核与归档由人完成。</p>
       </div>
     </div>
-    <p class="note">本页为纯静态介绍页，与仓库 README 同步，不接入后端，也不包含任何真实令牌或账号信息。</p>
+    <p class="note">本页是价值宣传。克隆仓库后的命令看 README；概念、工作台、MCP 与部署细则看 <a href="/docs.html">文档</a>。本页不接入后端，也不包含任何真实令牌或账号信息。</p>
   </section>
 
   <section id="workspace" class="wrap">
@@ -248,7 +249,7 @@
       <div class="card reveal">
         <div class="ico">🧾</div>
         <h3>文档版本与审核</h3>
-        <p>二进制入库，单文件 5 MiB、SHA-256。缓存仅对话/MCP 上传，产物仅 Agent 生成，正式文件来自确认另存或人工上传。点「需要修改」须说明内容并发到当前迭代。</p>
+        <p>二进制入库，单文件 20 MiB、SHA-256。缓存仅对话/MCP 上传，产物仅 Agent 生成，正式文件来自确认另存或人工上传。点「需要修改」须说明内容并发到当前迭代。</p>
         <span class="tag">不可覆盖</span>
       </div>
       <div class="card reveal">
@@ -346,14 +347,14 @@
         </div>
         <div class="layer">
           <div class="hd"><span>持久化</span><em>MySQL 8.4</em></div>
-          <p>业务数据、文档原始字节与不可变版本、会话快照与工具过程。每个文件最多 5 MiB，沙箱回收不会删除已提交文档。</p>
+          <p>业务数据、文档原始字节与不可变版本、会话快照与工具过程。每个文件最多 20 MiB，沙箱回收不会删除已提交文档。</p>
         </div>
       </div>
       <div class="reveal">
         <div class="kicker">Project layout</div>
         <pre><span class="c"># 项目结构</span>
 web/               React 工作台
-public/            静态页（含本页）
+public/            静态页（关于我们、文档）
 server/            HTTP API、权限、MCP、沙箱路由
 cloud-functions/   EdgeOne 云函数
 agents/            Makers 长任务
@@ -396,7 +397,7 @@ npm run dev
           <li><b>npm run app:start / app:stop</b>：Windows 下启动本地库并后台运行生产版</li>
           <li>安装 Docker 的机器可用 <b>compose.yaml</b>（mysql:8.4.9），但不要与便携版同时占用 3307</li>
         </ul>
-        <p class="note">共序 MCP：由本机 Agent 连接器在授权后自动申领账号令牌，并写入 Cursor / Codex / Claude Code 的 Streamable HTTP MCP 配置；令牌临近过期时连接器自动续期，无需手抄。</p>
+        <p class="note">细则、MCP 分片上传与部署步骤见 <a href="/docs.html">文档</a>。共序 MCP 由本机连接器在授权后写入 Cursor / Codex / Claude Code，无需手抄令牌。</p>
       </div>
     </div>
   </section>
@@ -436,7 +437,7 @@ npm run dev
 <footer>
   <div class="wrap foot">
     <div><b>共序 CoThread</b> · 让每次讨论都有承接，让每个决定都有出处</div>
-    <div>纯静态介绍页 · 与 README 同步 · <a href="https://cothread.z2l.top" style="color:inherit">cothread.z2l.top</a></div>
+    <div>价值宣传 · <a href="/docs.html" style="color:inherit">文档</a> · README 快捷使用 · <a href="https://cothread.z2l.top" style="color:inherit">cothread.z2l.top</a></div>
   </div>
 </footer>
 

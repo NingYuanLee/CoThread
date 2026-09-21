@@ -11,8 +11,23 @@ import {
   listTasks, mergeTaskActivity, rejectTask, updateTask,
 } from "./task-pool.js";
 import { MCP_CAPABILITIES, MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js";
+import { MCP_INLINE_BASE64_MAX } from "../shared/upload-limits.js";
+import { completeFileUpload, putFileUploadChunk, startFileUpload } from "./file-upload.js";
 
 export { MCP_TOOL_NAMES };
+
+const mcpInlineBase64 = z.string().max(
+  MCP_INLINE_BASE64_MAX,
+  "单次 contentBase64 超过 MCP 安全上限（约 10KB），请改用 start_file_upload 分片",
+);
+const mcpSha256 = z.string().regex(/^[0-9a-fA-F]{64}$/, "sha256 必须是 64 位十六进制");
+
+function mcpErrorText(error) {
+  if (error instanceof z.ZodError)
+    return error.issues.map((item) => `${item.path.join(".") || "参数"}: ${item.message}`).join("；");
+  if (error.status) return error.message;
+  return "请求失败，请检查输入与权限";
+}
 
 export function createMcpServer(service, user, afterMessage) {
   const instructions = mcpInstructionsForSource(user.mcpSource);
@@ -36,9 +51,7 @@ export function createMcpServer(service, user, afterMessage) {
             content: [
               {
                 type: "text",
-                text: error.status
-                  ? error.message
-                  : "请求失败，请检查输入与权限",
+                text: mcpErrorText(error),
               },
             ],
           };
@@ -55,7 +68,7 @@ export function createMcpServer(service, user, afterMessage) {
   const taskActor = () => ({ type: "human_member", id: user.id });
   for (const { name, description } of MCP_CAPABILITIES.filter(({ name }) => ["list_documents", "manage_document", "manage_folder"].includes(name)))
     register(name, description, { ...documentToolSchemas[name], projectId: z.string().uuid() }, a => documentTool(service, user, name, a));
-  register("get_connection_guide", "首次使用先调用：读取会话定位、消息与多文件发送、引用、@助手、权限和错误处理说明，无需安装 SKILL。", {}, () => ({ instructions }));
+  register("get_connection_guide", "首次使用先调用：读取会话定位、上传分片与 SHA-256 校验、发消息、引用、@助手、权限和错误处理。超过 6144 字节的文件必须走 start_file_upload。无需安装 SKILL。", {}, () => ({ instructions }));
   register("list_projects", "列出当前成员可访问的项目，返回 projectId 对应的 id；选择后调用 get_project_context 获取轻量项目、迭代和成员信息。", {}, () =>
     service.projects(user),
   );
@@ -111,19 +124,20 @@ export function createMcpServer(service, user, afterMessage) {
   );
   register(
     "upload_cache_draft",
-    "用于随后发送消息时添加附件，等同于在对话中粘贴文件。返回不可变版本 ID；随后调用 post_message 并把该 ID 放入 refs。不要把大文件 Base64 和消息一起发送。",
+    "仅当原始文件 ≤6144 字节时上传对话缓存。必须带完整文件 sha256（对原始字节哈希，不是对 Base64）。更大文件禁止用本工具，改走 start_file_upload（kind=cache_draft）→ upload_file_chunk → complete_file_upload。返回的 id 供 post_message.refs 使用。不要用 post_message.files。",
     {
-      threadId: z.string().uuid(),
-      title: z.string().min(1).max(160),
-      filename: z.string().min(1).max(200),
-      mime: z.string().optional(),
-      contentBase64: z.string().max(7_000_000),
+      threadId: z.string().uuid().describe("目标迭代"),
+      title: z.string().min(1).max(160).describe("文档标题"),
+      filename: z.string().min(1).max(200).describe("文件名，含扩展名"),
+      mime: z.string().max(200).optional().describe("可省略；zip/octet-stream/带 charset 均可，按文件名推断"),
+      contentBase64: mcpInlineBase64.describe("整文件 Base64，不得超过约 10KB"),
+      sha256: mcpSha256.describe("完整原始字节的 SHA-256，64 位十六进制"),
     },
     (a) => service.uploadCacheDraft(user, a.threadId, a),
   );
   register(
     "post_message",
-    "经用户同意后向指定迭代发一条消息。refs 可引用对话缓存或正式文件版本；需要添加新附件时先用 upload_cache_draft。files 仅为旧客户端兼容字段。mentionAgent=true 或正文 @小祥 可请求内置助手回复。",
+    "经用户同意后向指定迭代发一条消息。新附件必须先 upload_cache_draft 或分片上传，再把版本 ID 放入 refs。不要用 files 传 Base64。mentionAgent=true 或正文 @小祥 可请求内置助手回复。",
     {
       threadId: z.string().uuid(),
       body: z.string().min(1).max(20000),
@@ -133,9 +147,10 @@ export function createMcpServer(service, user, afterMessage) {
       files: z.array(z.object({
         title: z.string().min(1).max(160),
         filename: z.string().min(1).max(200),
-        mime: z.string().optional(),
-        contentBase64: z.string().max(7_000_000),
-      })).max(10).optional().describe("旧客户端兼容字段；新客户端请使用 upload_cache_draft，避免与消息一起提交 Base64"),
+        mime: z.string().max(200).optional(),
+        contentBase64: mcpInlineBase64,
+        sha256: mcpSha256.optional(),
+      })).max(10).optional().describe("旧客户端兼容字段；新客户端请使用 upload_cache_draft 或分片上传"),
     },
     async (a) => {
       const message = await service.postMessage(user, a.threadId, a);
@@ -150,17 +165,56 @@ export function createMcpServer(service, user, afterMessage) {
   );
   register(
     "upload_official_file",
-    "经用户同意后独立上传正式文件，直接保存到项目正式文档目录。上传动作不发送消息，也不进入对话缓存或沙箱产物；返回的版本 ID 仍可在后续 post_message.refs 中引用。folderId 省略时保存到正式文件根目录。",
+    "仅当原始文件 ≤6144 字节时上传正式文件。必须带完整文件 sha256。更大文件禁止用本工具，改走 start_file_upload（kind=official_file）→ upload_file_chunk → complete_file_upload。同目录同名会改成「名称 (2)」，不覆盖。folderId 省略则进正式文件根目录。上传不发群聊消息。",
     {
-      projectId: z.string().uuid(),
-      folderId: z.string().uuid().optional(),
+      projectId: z.string().uuid().describe("目标项目"),
+      folderId: z.string().uuid().optional().describe("正式文件区文件夹；省略则根目录"),
       title: z.string().min(1).max(160),
       filename: z.string().min(1).max(200),
-      mime: z.string().optional(),
-      contentBase64: z.string().max(7_000_000),
+      mime: z.string().max(200).optional().describe("可省略；zip/octet-stream/带 charset 均可"),
+      contentBase64: mcpInlineBase64.describe("整文件 Base64，不得超过约 10KB"),
+      sha256: mcpSha256.describe("完整原始字节的 SHA-256"),
       note: z.string().optional(),
     },
     (a) => service.uploadOfficialDocument(user, a.projectId, a),
+  );
+  register(
+    "start_file_upload",
+    "开始分片上传。原始文件 >6144 字节（含 md/zip）必须先调本工具。对完整原始字节计算 sha256 和 byteSize。不要修改默认 chunkSize=6144。返回 uploadId、chunkSize、chunkCount 后，按原始字节切片调用 upload_file_chunk，全部成功后再 complete_file_upload。",
+    {
+      kind: z.enum(["cache_draft", "official_file"]).describe("cache_draft=对话缓存，需 threadId；official_file=正式文件，需 projectId"),
+      threadId: z.string().uuid().optional().describe("kind=cache_draft 时必填"),
+      projectId: z.string().uuid().optional().describe("kind=official_file 时必填"),
+      folderId: z.string().uuid().optional().describe("仅正式文件；省略则根目录"),
+      title: z.string().min(1).max(160),
+      filename: z.string().min(1).max(200),
+      mime: z.string().max(200).optional(),
+      note: z.string().optional(),
+      byteSize: z.number().int().min(1).describe("完整原始字节数，不是 Base64 长度"),
+      sha256: mcpSha256.describe("完整原始字节的 SHA-256"),
+      chunkSize: z.number().int().min(4096).max(524288).optional().describe("不要改；默认 6144"),
+    },
+    (a) => startFileUpload(service, user, a),
+  );
+  register(
+    "upload_file_chunk",
+    "上传一片。按 start_file_upload 返回的 chunkSize 切原始字节，不要切 Base64。index 从 0 到 chunkCount-1；最后一片可短于 chunkSize。contentBase64 与 sha256 都针对这一片原始字节。",
+    {
+      uploadId: z.string().uuid().describe("start_file_upload 返回的 uploadId"),
+      index: z.number().int().min(0).describe("分片序号，从 0 开始"),
+      contentBase64: z.string().min(1).max(700000).describe("这一片原始字节的 Base64"),
+      sha256: mcpSha256.describe("这一片原始字节的 SHA-256，不是整文件哈希"),
+    },
+    (a) => putFileUploadChunk(service, user, a.uploadId, a),
+  );
+  register(
+    "complete_file_upload",
+    "全部分片上传成功后调用。传入与 start 时相同的整文件 sha256。服务端合并并校验大小与哈希，失败不入库。成功返回版本 id，可供 post_message.refs 引用。",
+    {
+      uploadId: z.string().uuid(),
+      sha256: mcpSha256.optional().describe("整文件 SHA-256，应与 start_file_upload 时相同"),
+    },
+    (a) => completeFileUpload(service, user, a.uploadId, a),
   );
   register("list_tasks", "列出当前账号有权访问项目中的任务，可按状态、目标成员或迭代筛选。", {
     projectId: z.string().uuid(), status: z.string().max(40).optional(), targetId: z.string().uuid().optional(),

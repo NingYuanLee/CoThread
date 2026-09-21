@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { UiIcon } from "./ui-icon";
+import { showTip } from "./Tip";
 
 export type ConnectorDevice = {
   id: string; name: string; platform: string; version: string; online: number;
@@ -125,10 +126,17 @@ export function ConnectorPanel({
       window.removeEventListener("resize", dismiss);
     };
   }, [open, confirmId]);
-  const act = async (fn: () => Promise<void>) => {
+  const act = async (fn: () => Promise<void>, success?: string) => {
     setBusy(true);
     setError("");
-    try { await fn(); } catch (cause) { setError((cause as Error).message); }
+    try {
+      await fn();
+      if (success) showTip(success);
+    } catch (cause) {
+      const detail = (cause as Error).message;
+      setError(detail);
+      showTip(detail, "error");
+    }
     finally { setBusy(false); }
   };
   return (
@@ -196,7 +204,7 @@ export function ConnectorPanel({
                         await api(`/connectors/${row.id}`, undefined, "DELETE");
                         setConfirmId("");
                         await onRefresh();
-                      })}
+                      }, "已解除连接器绑定")}
                     >{busy ? "解除中…" : "确认解除"}</button>
                   </div>
                 </div>

@@ -211,6 +211,7 @@ export function createAgentTools(
           taskType, title: z.string().trim().min(1).max(240).parse(args.title), goal: z.string().trim().min(1).max(20000).parse(args.goal),
           constraints: args.constraints, documentRefs: args.documentRefs == null && args.refs == null ? []
             : z.array(z.string().uuid()).max(30).parse(args.documentRefs || args.refs),
+          folderRefs: args.folderRefs == null ? [] : z.array(z.string().uuid()).max(30).parse(args.folderRefs),
           targetType, targetId });
       } else if (["list_documents","manage_document","manage_folder"].includes(name)) {
         result = await documentTool(service,user,name,args,job);

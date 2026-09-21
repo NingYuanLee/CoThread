@@ -13,6 +13,8 @@ import {
 } from "@react-symbols/icons/files";
 import { UiIcon } from "./ui-icon";
 import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
+import { FILE_MAX_BYTES } from "../shared/upload-limits.js";
+import { uploadFileWithIntegrity } from "./file-upload";
 
 type FileVersion = {
   id: string;
@@ -143,6 +145,7 @@ export function ChatComposer({
     end: number;
   } | null>(null);
   const [index, setIndex] = useState(0);
+  const [expanded, setExpanded] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const alive = useRef(true);
   const urls = useRef<string[]>([]);
@@ -172,8 +175,8 @@ export function ChatComposer({
         setError("每条消息最多引用 30 个文件");
         break;
       }
-      if (file.size > 5 * 1024 * 1024) {
-        setError(`${file.name} 超过单文件 5 MiB 上限`);
+      if (file.size > FILE_MAX_BYTES) {
+        setError(`${file.name} 超过单文件 ${FILE_MAX_BYTES / 1024 / 1024} MiB 上限`);
         continue;
       }
       slots.current++;
@@ -186,17 +189,11 @@ export function ChatComposer({
       ]);
       void (async () => {
         try {
-          const bytes = new Uint8Array(await file.arrayBuffer());
-          let binary = "";
-          for (let i = 0; i < bytes.length; i += 8192)
-            binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-          const response = await apiFetch(`/api/threads/${threadId}/attachments`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            signal: AbortSignal.timeout(120000),
-            body: JSON.stringify({title: file.name, filename: file.name,
-              mime: file.type || "application/octet-stream", contentBase64: btoa(binary)}),
-          }, (progress) => update(key, {progress}));
-          const result = await readJsonResponse(response, `/api/threads/${threadId}/attachments`);
+          const result = await uploadFileWithIntegrity({
+            kind: "cache_draft",
+            threadId,
+            title: file.name,
+          }, file, (progress) => update(key, { progress }));
           if (cancelled.current.has(key)) {
             update(key, { ...result, progress: 100 });
             await remove({
@@ -356,7 +353,7 @@ export function ChatComposer({
   return (
     <>
     <form
-      className="composer chat-composer"
+      className={`composer chat-composer${expanded ? " is-expanded" : ""}`}
       onSubmit={async (e) => {
         e.preventDefault();
         if (
@@ -381,6 +378,18 @@ export function ChatComposer({
         }
       }}
     >
+      <div className="composer-resize">
+        <button
+          type="button"
+          className="composer-resize-btn"
+          aria-label={expanded ? "缩小输入框" : "放大输入框"}
+          aria-pressed={expanded}
+          title={expanded ? "缩小" : "放大"}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <UiIcon name={expanded ? "compress" : "expand"} size={14} />
+        </button>
+      </div>
       {uploads.length > 0 && (
         <div className="chat-attachments" aria-label="消息附件">
           {uploads.map((item) => (

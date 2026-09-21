@@ -7,6 +7,8 @@ import { posix as pathPosix } from "node:path";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { digest, hashPassword } from "./auth.js";
+import { decodeUploadedBytes, verifyBytes } from "./file-bytes.js";
+import { INLINE_FILE_MAX_BYTES } from "../shared/upload-limits.js";
 import { publishWork } from "./work-events.js";
 import { queueDocumentMemory, queueMemberMemory } from "./project-memory.js";
 import { taskExecutionSnapshot } from "./task-pool.js";
@@ -74,12 +76,13 @@ export function officialTitleWithVersion(name, versionNumber) {
   const base = raw.replace(/\s+v\d+$/i, "").trim() || raw;
   return `${base} v${versionNumber}`.slice(0, 160);
 }
-function submittedVersion(id, artifactId, version, sha256, data) {
+function submittedVersion(id, artifactId, version, sha256, data, byteSize) {
   return {
     id,
     artifactId,
     version,
     sha256,
+    byteSize,
     title: data.title,
     filename: data.filename,
     mime: data.mime,
@@ -1293,8 +1296,9 @@ export class Service {
         files: z.array(z.object({
           title,
           filename: z.string().min(1).max(200),
-          mime: z.string().optional(),
+          mime: z.string().max(200).optional(),
           contentBase64: z.string().max(7_000_000),
+          sha256: z.string().optional(),
           folderId: id.nullable().optional(),
         })).max(10).default([]),
       })
@@ -1396,7 +1400,7 @@ export class Service {
       WHERE m.id=?`, [result.id]);
     return { ...result, ...saved };
   }
-  async uploadOfficialDocument(user, projectId, input) {
+  async uploadOfficialDocument(user, projectId, input, options = {}) {
     if (!["session", "api"].includes(user.kind)) fail(403, "上传正式文件需要人工或已授权的 MCP 账号");
     id.parse(projectId);
     const data = z
@@ -1408,23 +1412,17 @@ export class Service {
           .min(1)
           .max(200)
           .refine((x) => !/[\\/\x00-\x1f]/.test(x), "文件名不可包含路径"),
-        mime: z
-          .string()
-          .max(150)
-          .regex(/^[\w.+-]+\/[\w.+-]+$/)
-          .optional(),
-        contentBase64: z
-          .string()
-          .max(7_000_000)
-          .refine((value) => Buffer.from(value, "base64").toString("base64") === value,
-            "文件内容必须为有效的 base64"),
+        mime: z.string().max(200).optional(),
+        contentBase64: z.string().max(7_000_000).optional(),
+        sha256: z.string().optional(),
         note: z.string().max(4000).default(""),
       })
       .parse(input);
     data.mime = resolveStoredMime(data.filename, data.mime);
-    const bytes = Buffer.from(data.contentBase64, "base64");
-    if (bytes.length > 5 * 1024 * 1024) fail(413, "单个文件上限为 5 MiB");
-    return transaction(this.db, async (db) => {
+    const { bytes, sha256 } = options.bytes
+      ? verifyBytes(options.bytes, data.sha256, options.bytes.length)
+      : decodeUploadedBytes(data.contentBase64, { sha256: data.sha256, maxBytes: INLINE_FILE_MAX_BYTES });
+    const save = async (db) => {
       await this.member(user, projectId, true, db);
       await this.assertOfficialOrganizing(db, projectId);
       await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);
@@ -1459,7 +1457,7 @@ export class Service {
           data.filename,
           data.mime,
           bytes,
-          digest(bytes),
+          sha256,
           bytes.length,
           data.note,
           user.id,
@@ -1472,11 +1470,12 @@ export class Service {
         source: user.kind === "api" ? "mcp" : "ui", actorType: user.kind, actorId: user.id,
         details: { title: data.title, filename: data.filename, version: 1 },
       });
-      return submittedVersion(versionId, artifactId, 1, digest(bytes), data);
-    });
+      return submittedVersion(versionId, artifactId, 1, sha256, data, bytes.length);
+    };
+    return options.db ? save(options.db) : transaction(this.db, save);
   }
-  async uploadCacheDraft(user, threadId, input) {
-    return this.submitVersion(user, threadId, input, undefined, undefined, false, { silent: true });
+  async uploadCacheDraft(user, threadId, input, options = {}) {
+    return this.submitVersion(user, threadId, input, undefined, undefined, false, { ...options, silent: true });
   }
   async submitVersion(
     user,
@@ -1501,22 +1500,16 @@ export class Service {
           .min(1)
           .max(200)
           .refine((x) => !/[\\/\x00-\x1f]/.test(x), "文件名不可包含路径"),
-        mime: z
-          .string()
-          .max(150)
-          .regex(/^[\w.+-]+\/[\w.+-]+$/)
-          .optional(),
-        contentBase64: z
-          .string()
-          .max(7_000_000)
-          .refine((value) => Buffer.from(value, "base64").toString("base64") === value,
-            "文件内容必须为有效的 base64"),
+        mime: z.string().max(200).optional(),
+        contentBase64: z.string().max(7_000_000).optional(),
+        sha256: z.string().optional(),
         note: z.string().max(4000).default(""),
       })
       .parse(input);
     data.mime = resolveStoredMime(data.filename, data.mime);
-    const bytes = Buffer.from(data.contentBase64, "base64");
-    if (bytes.length > 5 * 1024 * 1024) fail(413, "首版单个文件上限为 5 MiB");
+    const { bytes, sha256 } = options.bytes
+      ? verifyBytes(options.bytes, data.sha256, options.bytes.length)
+      : decodeUploadedBytes(data.contentBase64, { sha256: data.sha256, maxBytes: INLINE_FILE_MAX_BYTES });
     const save = async (db) => {
       const thread = await this.thread(user, threadId, true, db);
       if (agentMessageId) {
@@ -1647,7 +1640,7 @@ export class Service {
           data.filename,
           data.mime,
           bytes,
-          digest(bytes),
+          sha256,
           bytes.length,
           data.note,
           user.id,
@@ -1683,7 +1676,7 @@ export class Service {
           "INSERT INTO agent_exports(export_key,version_id) VALUES(?,?)",
           [exportKey, versionId],
         );
-      return submittedVersion(versionId, artifactId, version, digest(bytes), data);
+      return submittedVersion(versionId, artifactId, version, sha256, data, bytes.length);
     };
     return options.db ? save(options.db) : transaction(this.db, save);
   }

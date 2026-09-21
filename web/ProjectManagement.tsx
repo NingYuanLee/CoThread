@@ -6,6 +6,7 @@ import { MemberPicker } from "./MemberPicker";
 import { ProjectSettings } from "./ProjectSettings";
 import { UiIcon } from "./ui-icon";
 import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
+import { showTip } from "./Tip";
 import { connectorHostLabel, connectorOsLabel } from "./ConnectorPanel";
 
 type ProjectConnector = {
@@ -129,6 +130,7 @@ export function ProjectManagement({
             detail ? (
               <ProjectSettings
                 key={detail.id}
+                projectId={detail.id}
                 name={detail.name}
                 description={detail.description || ""}
                 createdAt={localDate(detail.created_at)}
@@ -311,7 +313,9 @@ function HumanMemberRow({
           disabled={busy}
           onClick={() => {
             if (window.confirm(`确定将 ${member.name} 移出该项目？`))
-              void api(`/projects/${detail.id}/members/${member.id}`, undefined, "DELETE").then(refresh);
+              void api(`/projects/${detail.id}/members/${member.id}`, undefined, "DELETE")
+                .then(async () => { await refresh(); showTip("已移出项目成员"); })
+                .catch((cause) => showTip((cause as Error).message, "error"));
           }}
         >
           <UiIcon name="trash" size={13} />

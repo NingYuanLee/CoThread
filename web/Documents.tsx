@@ -1,6 +1,6 @@
 import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
-import { useEffect, useRef, useState, type SVGProps } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type SVGProps } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FileIcon } from "@react-symbols/icons/utils";
@@ -18,6 +18,9 @@ import { LIBRARY_ROOT_KINDS, folderRootKind } from "./document-library";
 import { UiIcon } from "./ui-icon";
 import { DialogClose, ModalBackdrop } from "./dialog-fx";
 import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
+import { showTip } from "./Tip";
+import { MCP_OFFICIAL_LIBRARY_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
+import { uploadFileWithIntegrity } from "./file-upload";
 import { PdfPreview } from "./PdfPreview";
 const officeIcons = {
   odt: Document,
@@ -215,6 +218,7 @@ function OfficialFolderMenu({
   onNewFolder,
   onRename,
   onDelete,
+  onCopyProjectInfo,
 }: {
   menuId: string;
   openMenuId: string | null;
@@ -228,6 +232,7 @@ function OfficialFolderMenu({
   onNewFolder?: () => void;
   onRename?: () => void;
   onDelete?: () => void;
+  onCopyProjectInfo?: () => void;
 }) {
   const open = openMenuId === menuId;
   const anchorRef = useRef<HTMLSpanElement>(null);
@@ -288,6 +293,12 @@ function OfficialFolderMenu({
               <span>上传文件</span>
             </button>
           ) : null}
+          {onCopyProjectInfo ? (
+            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onCopyProjectInfo(); close(); }}>
+              <TreeIcon kind="copy" />
+              <span>复制项目信息</span>
+            </button>
+          ) : null}
           {onNewFolder ? (
             <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onNewFolder(); close(); }}>
               <TreeIcon kind="newFolder" />
@@ -335,6 +346,7 @@ function TreeIcon({ kind, className }: { kind: string; className?: string }) {
     restore: "M4 12a8 8 0 1 0 2.3-5.7 M4 4v6h6",
     addToChat: "M4 5h16v10H8l-4 4Z M8 10h8",
     addToTask: "M9 5H4v14h16V9 M14 4h6v6 M17 4v6 M14 7h6 M8 13h8 M8 17h5",
+    copy: ["M8 8h11v11H8z", "M5 16V5h11"],
   };
   const glyph = paths[kind] || paths.file;
   const d = Array.isArray(glyph) ? glyph : [glyph];
@@ -582,6 +594,43 @@ function fileLabel(version: LibraryVersion) {
   return fileDisplayName(version);
 }
 
+function TreeOverflowLabel({ text }: { text: string }) {
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [distance, setDistance] = useState(0);
+  const measure = () => {
+    const wrap = wrapRef.current;
+    const node = textRef.current;
+    if (!wrap || !node) return;
+    setDistance(Math.max(0, Math.ceil(node.scrollWidth - wrap.clientWidth)));
+  };
+  useLayoutEffect(() => {
+    measure();
+  }, [text]);
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(wrap);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <span
+      ref={wrapRef}
+      className={`tree-overflow${distance > 0 ? " is-overflow" : ""}`}
+      style={distance > 0
+        ? {
+            "--tree-overflow": `${distance}px`,
+            "--tree-overflow-ms": `${Math.min(8000, Math.max(1600, distance * 18))}ms`,
+          } as CSSProperties
+        : undefined}
+      onMouseEnter={measure}
+    >
+      <span ref={textRef} className="tree-overflow-text">{text}</span>
+    </span>
+  );
+}
+
 const EMPTY_CHANGE_REQUEST_ITEMS = ["", "", ""];
 
 function formatChangeRequestItems(items: string[]) {
@@ -677,6 +726,10 @@ function latestArtifactUpdatedAt(
 }
 
 const DOCUMENT_TREE_STATE_KEY = "cothread-document-tree-open";
+const DOCUMENT_TREE_WIDTH_KEY = "cothread-document-tree-width";
+const TREE_WIDTH_DEFAULT = 240;
+const TREE_WIDTH_MIN = 220;
+const TREE_WIDTH_MAX = 560;
 
 function readStoredBoolean(key: string, fallback: boolean) {
   try {
@@ -684,6 +737,16 @@ function readStoredBoolean(key: string, fallback: boolean) {
     return value === null ? fallback : value === "true";
   } catch {
     return fallback;
+  }
+}
+
+function readStoredTreeWidth() {
+  try {
+    const value = Number(localStorage.getItem(DOCUMENT_TREE_WIDTH_KEY));
+    if (!Number.isFinite(value)) return TREE_WIDTH_DEFAULT;
+    return Math.min(Math.max(Math.round(value), TREE_WIDTH_MIN), TREE_WIDTH_MAX);
+  } catch {
+    return TREE_WIDTH_DEFAULT;
   }
 }
 
@@ -751,6 +814,8 @@ export function organizableDocuments(
 export function Documents({
   onReview,
   projectId,
+  projectName,
+  mcpEndpoint,
   threadId,
   writable,
   iterationWritable = false,
@@ -765,6 +830,8 @@ export function Documents({
 }: {
   onReview?: (versionId: string, decision: string, comment?: string) => Promise<void>;
   projectId: string;
+  projectName?: string;
+  mcpEndpoint?: string;
   threadId?: string;
   writable: boolean;
   iterationWritable?: boolean;
@@ -836,6 +903,28 @@ export function Documents({
 
   const [pending, setPending] = useState(false);
   const [actionError, setActionError] = useState("");
+  const copyProjectInfo = async () => {
+    const official = libraryRoots.find((f) => f.folder_kind === "project_official");
+    const targetFolderId = official && folderId && folderRootKind(folderId, libraryFolders) === "project_official"
+      ? folderId
+      : official?.id;
+    const targetFolder = libraryFolders.find((f) => f.id === targetFolderId);
+    try {
+      await navigator.clipboard.writeText(formatMcpCopyPayload({
+        server: `${location.origin}${mcpEndpoint || "/mcp"}`,
+        project: projectName,
+        projectId,
+        folder: targetFolder?.name || "正式文件",
+        folderId: targetFolderId,
+        instruction: MCP_OFFICIAL_LIBRARY_COPY_INSTRUCTION,
+      }));
+      setActionError("");
+      showTip("项目信息已复制");
+    } catch {
+      setActionError("无法自动复制项目信息，请检查剪贴板权限后重试。");
+      showTip("无法自动复制项目信息，请检查剪贴板权限后重试。", "error");
+    }
+  };
   const [renaming, setRenaming] = useState(false);
   const [renameName, setRenameName] = useState("");
   const [newFolder, setNewFolder] = useState(false);
@@ -911,36 +1000,29 @@ export function Documents({
   };
   const uploadOfficialFiles = (files: FileList | File[]) => {
     if (!officialUploadFolderId) return;
+    const list = Array.from(files);
     void act(async () => {
-      for (const file of Array.from(files)) {
-        if (file.size > 5 * 1024 * 1024) throw new Error(`${file.name} 超过单文件 5 MiB 上限`);
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        let binary = "";
-        for (let i = 0; i < bytes.length; i += 8192)
-          binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-        const title = file.name.replace(/\.[^.]+$/, "") || file.name;
-        const created = await change(
-          `/projects/${projectId}/documents/upload`,
-          {
-            folderId: officialUploadFolderId,
-            title,
-            filename: file.name,
-            mime: file.type || "application/octet-stream",
-            contentBase64: btoa(binary),
-          },
-        ) as { id: string };
+      for (const file of list) {
+        const created = await uploadFileWithIntegrity({
+          kind: "official_file",
+          projectId,
+          folderId: officialUploadFolderId,
+        }, file) as { id: string };
         onSelect(created.id);
       }
-    });
+    }, list.length > 1 ? `已上传 ${list.length} 个文件` : "文件已上传");
   };
-  const act = async (fn: () => Promise<void>) => {
+  const act = async (fn: () => Promise<void>, success?: string) => {
     setPending(true);
     setActionError("");
     try {
       await fn();
       await onRefresh();
+      if (success) showTip(success);
     } catch (e) {
-      setActionError((e as Error).message);
+      const detail = (e as Error).message;
+      setActionError(detail);
+      showTip(detail, "error");
     } finally {
       setPending(false);
     }
@@ -958,6 +1040,7 @@ export function Documents({
   const [error, setError] = useState("");
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [treeOpen, setTreeOpen] = useState(() => readStoredBoolean(DOCUMENT_TREE_STATE_KEY, false));
+  const [treeWidth, setTreeWidth] = useState(readStoredTreeWidth);
   useEffect(() => {
     if (!changesOpen) return;
     let alive = true;
@@ -994,6 +1077,29 @@ export function Documents({
   useEffect(() => {
     try { localStorage.setItem(DOCUMENT_TREE_STATE_KEY, String(treeOpen)); } catch {}
   }, [treeOpen]);
+  useEffect(() => {
+    try { localStorage.setItem(DOCUMENT_TREE_WIDTH_KEY, String(treeWidth)); } catch {}
+  }, [treeWidth]);
+  const startTreeResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = treeWidth;
+    const parentWidth = event.currentTarget.parentElement?.parentElement?.getBoundingClientRect().width
+      || window.innerWidth;
+    const onMove = (move: PointerEvent) => {
+      const max = Math.min(TREE_WIDTH_MAX, Math.max(TREE_WIDTH_MIN, Math.round(parentWidth - 72)));
+      setTreeWidth(Math.min(Math.max(startWidth + (startX - move.clientX), TREE_WIDTH_MIN), max));
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.classList.remove("col-resizing");
+    };
+    document.body.classList.add("col-resizing");
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
   const [previewModeByVersion, setPreviewModeByVersion] = useState<
     Record<string, "preview" | "text">
   >({});
@@ -1181,8 +1287,11 @@ export function Documents({
       link.remove();
       URL.revokeObjectURL(url);
       setDownloadProgress(100);
+      showTip("压缩包已开始下载");
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "压缩包下载失败");
+      const detail = error instanceof Error ? error.message : "压缩包下载失败";
+      setActionError(detail);
+      showTip(detail, "error");
     } finally {
       window.setTimeout(() => {
         setDownloadingFolderId(null);
@@ -1210,7 +1319,7 @@ export function Documents({
       }
       onSelect(item.id);
       setTrash(false);
-    });
+    }, "文件已恢复");
   };
   const saveFileToOfficial = (item: LibraryVersion) => {
     if (isOutputVersion(item)) {
@@ -1231,13 +1340,13 @@ export function Documents({
         `/projects/${projectId}/versions/${item.id}/save-to-official`,
         {},
       );
-    });
+    }, "已另存至正式文件");
   };
   const triggerOrganize = () => act(async () => {
     await change(`/projects/${projectId}/documents/organize`, {});
     onSelect("");
     setOrganizeOpen(false);
-  });
+  }, "已提交正式文件整理");
   const isOfficialDropFolder = (targetFolderId: string) =>
     folderRootKind(targetFolderId, libraryFolders) === "project_official";
   const moveArtifactToFolder = (artifactId: string, targetFolderId: string) => {
@@ -1248,7 +1357,7 @@ export function Documents({
         { folderId: targetFolderId },
         "PATCH",
       );
-    });
+    }, "文件已移动");
   };
   const moveFolderToParent = (folderId: string, parentId: string) => {
     if (!isOfficialDropFolder(parentId) || folderId === parentId) return;
@@ -1258,7 +1367,7 @@ export function Documents({
         { parentId },
         "PATCH",
       );
-    });
+    }, "文件夹已移动");
   };
   const folderDropHandlers = (targetFolderId: string) => ({
     onDragOver: (event: React.DragEvent) => {
@@ -1315,13 +1424,13 @@ export function Documents({
           "PATCH",
         );
         if (selected === item.id) onSelect("");
-      });
+      }, "文件已删除");
       return;
     }
     void act(async () => {
       await change(`/projects/${projectId}/folders/${target.item.id}`, undefined, "DELETE");
       selectFolder(target.item.parent_id || officialRoot?.id || null);
-    });
+    }, "文件夹已删除");
   };
   const fileRow = (v: LibraryVersion, depth: number) => (
     <div
@@ -1346,12 +1455,13 @@ export function Documents({
       <TreeDepth depth={depth} />
       <button
         className="tree-name"
+        data-tooltip="false"
+        aria-label={fileLabel(v)}
         disabled={organizing && folderRootKind(v.folder_id, libraryFolders) === "project_official"}
         onClick={() => {
           onSelect(v.id);
           setFolderId(v.folder_id || null);
         }}
-        title={`${v.title} · ${v.filename}${isUnversionedArea(fileAreaKind(v)) ? "" : ` · v${v.version}`}${trash && recyclePathLabel(v, libraryFolders) ? ` · ${recyclePathLabel(v, libraryFolders)}` : ""}`}
       >
         <span className="tree-file-indent" />
         <OfficeFileIcon
@@ -1362,7 +1472,7 @@ export function Documents({
           height={16}
         />
         <span className="tree-file-copy">
-          <span>{fileLabel(v)}</span>
+          <TreeOverflowLabel text={fileLabel(v)} />
           {trash && recyclePathLabel(v, libraryFolders) ? <small>{recyclePathLabel(v, libraryFolders)}</small> : null}
         </span>
       </button>
@@ -1449,10 +1559,12 @@ export function Documents({
               <button
                 type="button"
                 className="tree-name"
+                data-tooltip="false"
+                aria-label={f.name}
                 disabled={organizing && folderRootKind(f.id, libraryFolders) === "project_official"}
                 onClick={() => toggleFolder(f.id)}
               >
-                <span>{f.name}</span>
+                <TreeOverflowLabel text={f.name} />
               </button>
               {((canManageOfficialFolders
                 && folderRootKind(f.id, libraryFolders) === "project_official"
@@ -1510,10 +1622,12 @@ export function Documents({
         <button
           type="button"
           className="tree-name"
+          data-tooltip="false"
+          aria-label={ROOT_LABELS[root.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number]] || root.name}
           disabled={root.folder_kind === "project_official" && organizing}
           onClick={() => toggleFolder(root.id)}
         >
-          <span>{ROOT_LABELS[root.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number]] || root.name}</span>
+          <TreeOverflowLabel text={ROOT_LABELS[root.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number]] || root.name} />
         </button>
         {root.folder_kind === "project_official" || subtreeStats(root.id).fileCount > 0 ? (
           <span className="tree-root-actions tree-row-actions">
@@ -1545,6 +1659,7 @@ export function Documents({
                 } : undefined}
                 onNewFolder={root.folder_kind === "project_official" && canManageOfficialFolders
                   ? () => openNewFolder(root.id) : undefined}
+                onCopyProjectInfo={root.folder_kind === "project_official" ? () => void copyProjectInfo() : undefined}
               />
             ) : null}
           </span>
@@ -1566,7 +1681,21 @@ export function Documents({
     />
   );
   const explorer = (
-    <aside className="file-explorer doc-browser-tree">
+    <aside
+      className="file-explorer doc-browser-tree"
+      style={{ "--doc-tree-width": `${treeWidth}px` } as CSSProperties}
+    >
+            <div
+              className="doc-browser-tree-resize"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="拖拽调整文件树宽度"
+              title="拖拽调整宽度"
+              aria-valuemin={TREE_WIDTH_MIN}
+              aria-valuemax={TREE_WIDTH_MAX}
+              aria-valuenow={treeWidth}
+              onPointerDown={startTreeResize}
+            />
             <div className="file-explorer-top">
               <div className="tree-filter-bar">
                 <input
@@ -1855,7 +1984,7 @@ export function Documents({
                     next.delete(officialFolderParentId);
                     return next;
                   });
-                });
+                }, "文件夹已创建");
               }}>
                 <h3>新建子文件夹</h3>
                 <p className="muted">将创建在正式文件区内（当前选中的文件夹下）。</p>
@@ -1873,7 +2002,7 @@ export function Documents({
                     "PATCH",
                   );
                   setRenamingFolder(false);
-                });
+                }, "文件夹已重命名");
               }}>
                 <h3>重命名文件夹</h3>
                 <label>名称<input autoFocus required maxLength={160} value={renameFolderName} onChange={(event) => setRenameFolderName(event.target.value)} /></label>
@@ -1886,7 +2015,7 @@ export function Documents({
                 void act(async () => {
                   await change(`/projects/${projectId}/artifacts/${version.artifact_id}`, { name: renameName }, "PATCH");
                   setRenaming(false);
-                });
+                }, "文档已重命名");
               }}>
                 <h3>重命名文档</h3>
                 <label>名称<input autoFocus required maxLength={160} value={renameName} onChange={(event) => setRenameName(event.target.value)} /></label>
@@ -1904,7 +2033,7 @@ export function Documents({
                     { title: saveOfficialTitle.trim() },
                   );
                   setSavingOfficial(null);
-                });
+                }, "已另存至正式文件");
               }}>
                 <h3>另存至正式文件</h3>
                 <p className="muted">只能另存已确认的产物版本；存入后名称默认带版本号，可再修改。</p>
@@ -2195,7 +2324,7 @@ export function Documents({
                     role="tab"
                     aria-selected={selected === id}
                     className="doc-browser-tab-open"
-                    title={item ? `${item.title} · ${item.filename}` : "文档"}
+                    title={item ? fileLabel(item) : "文档"}
                     onClick={() => onSelect(id)}
                   >
                     {item ? (

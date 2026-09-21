@@ -1,0 +1,12 @@
+export const INLINE_FILE_MAX_BYTES: number;
+export const MCP_INLINE_BASE64_MAX: number;
+export const FILE_MAX_BYTES: number;
+export const FILE_CHUNK_SIZE: number;
+export const FILE_CHUNK_MIN: number;
+export const FILE_CHUNK_MAX: number;
+export const FILE_UPLOAD_TTL_MS: number;
+export const FILE_UPLOAD_MAX_SESSIONS: number;
+export const FILE_UPLOAD_MAX_PENDING_BYTES: number;
+export const sha256HexPattern: RegExp;
+export function fileChunkCount(byteSize: number, chunkSize: number): number;
+export function lastChunkSize(byteSize: number, chunkSize: number): number;

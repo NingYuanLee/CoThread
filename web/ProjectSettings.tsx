@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { UiIcon } from "./ui-icon";
 import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
+import { showTip } from "./Tip";
 
-export function ProjectSettings({ name, description, createdAt, creator, longTermSummary, onSave }: {
+export function ProjectSettings({ projectId, name, description, createdAt, creator, longTermSummary, onSave }: {
+  projectId: string;
   name: string;
   description: string;
   createdAt: string;
@@ -15,7 +17,24 @@ export function ProjectSettings({ name, description, createdAt, creator, longTer
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [copiedId, setCopiedId] = useState(false);
+  const [copyError, setCopyError] = useState("");
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const copyTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(copyTimer.current), []);
+  const copyProjectId = async () => {
+    setCopyError("");
+    try {
+      await navigator.clipboard.writeText(projectId);
+      setCopiedId(true);
+      window.clearTimeout(copyTimer.current);
+      copyTimer.current = window.setTimeout(() => setCopiedId(false), 2000);
+      showTip("项目 ID 已复制");
+    } catch {
+      setCopyError("无法自动复制项目 ID，请检查剪贴板权限后重试。");
+      showTip("无法自动复制项目 ID，请检查剪贴板权限后重试。", "error");
+    }
+  };
   useEffect(() => { setDraftName(name); setDraftDescription(description); }, [name, description]);
   const nextName = draftName.trim();
   const nextDescription = draftDescription.trim();
@@ -37,8 +56,13 @@ export function ProjectSettings({ name, description, createdAt, creator, longTer
         try {
           await onSave({ name: nextName, description: nextDescription });
           setSaved(true);
+          showTip("项目信息已保存");
         }
-        catch (error) { setError((error as Error).message); }
+        catch (error) {
+          const detail = (error as Error).message;
+          setError(detail);
+          showTip(detail, "error");
+        }
         finally { setSaving(false); }
       }}>
         <div className="project-settings-head">
@@ -82,6 +106,25 @@ export function ProjectSettings({ name, description, createdAt, creator, longTer
         {error && <p role="alert" className="project-settings-error">{error}</p>}
         {saved && <p role="status" className="project-settings-ok">项目信息已保存</p>}
       </form>
+
+      <div className="project-settings-block">
+        <div className="project-settings-head">
+          <span className="project-settings-label">项目 ID</span>
+          <button
+            type="button"
+            className="project-settings-ghost"
+            title={copiedId ? "项目 ID 已复制" : "复制项目 ID"}
+            aria-label={copiedId ? "项目 ID 已复制" : "复制项目 ID"}
+            onClick={() => void copyProjectId()}
+          >
+            <UiIcon name={copiedId ? "check" : "copy"} size={13} />
+            {copiedId ? "已复制" : "复制"}
+          </button>
+        </div>
+        <p className="project-settings-value"><code className="project-settings-id">{projectId}</code></p>
+        <small>MCP 上传正式文件时使用此 ID</small>
+        {copyError && <p role="alert" className="project-settings-error">{copyError}</p>}
+      </div>
 
       <div className="project-settings-block">
         <div className="project-settings-head">

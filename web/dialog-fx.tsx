@@ -123,9 +123,12 @@ export function ModalBackdrop({
     closingRef.current = true;
     setClosing(true);
   };
+  const nodeRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      const layers = Array.from(document.querySelectorAll(".modal-backdrop:not(.is-closing)"));
+      if (layers.at(-1) !== nodeRef.current) return;
       event.preventDefault();
       event.stopPropagation();
       requestClose();
@@ -140,6 +143,7 @@ export function ModalBackdrop({
   }, [closing]);
   return (
     <div
+      ref={nodeRef}
       className={`modal-backdrop ${className} ${closing ? "is-closing" : ""}`.trim()}
       onClick={closeOnBackdrop ? (event) => {
         if (event.target === event.currentTarget) requestClose();

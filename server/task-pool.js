@@ -127,6 +127,17 @@ async function assertDocumentRefs(conn, projectId, refs) {
   return ids;
 }
 
+async function assertFolderRefs(conn, projectId, refs) {
+  const ids = parseDocumentRefs(refs);
+  if (ids.length > 30) throw new HttpError(400, "任务最多引用 30 个文件夹");
+  for (const ref of ids) {
+    const [folder] = await query(conn, "SELECT id FROM document_folders WHERE id=? AND project_id=?", [ref, projectId]);
+    if (!folder || (await folderRootKind(conn, ref)) !== "project_official")
+      throw new HttpError(400, "任务只能引用本项目正式文件中的文件夹");
+  }
+  return ids;
+}
+
 async function documentRefLabels(conn, refs) {
   const ids = parseDocumentRefs(refs);
   if (!ids.length) return [];
@@ -136,9 +147,61 @@ async function documentRefLabels(conn, refs) {
   return ids.map((id) => byId.get(id) || { id, title: id });
 }
 
-export function composeTaskInstruction(task, documents = []) {
+async function folderRefLabels(conn, projectId, refs) {
+  const ids = parseDocumentRefs(refs);
+  if (!ids.length) return [];
+  const folders = await query(conn, "SELECT id,parent_id,name,folder_kind FROM document_folders WHERE project_id=?", [projectId]);
+  const byId = new Map(folders.map((row) => [row.id, row]));
+  const pathOf = (id) => {
+    const names = [];
+    let current = byId.get(id);
+    const seen = new Set();
+    while (current && !seen.has(current.id)) {
+      seen.add(current.id);
+      names.unshift(!current.parent_id && current.folder_kind === "project_official" ? "正式文件" : current.name || current.id);
+      current = current.parent_id ? byId.get(current.parent_id) : null;
+    }
+    return names.join(" / ");
+  };
+  return ids.map((id) => ({ id, title: byId.has(id) ? pathOf(id) : id }));
+}
+
+async function latestOfficialVersionsInFolders(conn, projectId, refs) {
+  const ids = parseDocumentRefs(refs);
+  if (!ids.length) return [];
+  return query(conn, `WITH RECURSIVE tree AS (
+      SELECT id FROM document_folders WHERE project_id=? AND id IN (${ids.map(() => "?").join(",")})
+      UNION ALL
+      SELECT f.id FROM document_folders f JOIN tree t ON f.parent_id=t.id WHERE f.project_id=?
+    )
+    SELECT v.id,a.title,v.version,v.filename FROM artifacts a
+    JOIN versions v ON v.id=(SELECT v2.id FROM versions v2 WHERE v2.artifact_id=a.id
+      ORDER BY v2.version DESC, v2.created_at DESC, v2.id DESC LIMIT 1)
+    LEFT JOIN version_recycle vr ON vr.version_id=v.id
+    WHERE a.project_id=? AND a.deleted_at IS NULL AND vr.version_id IS NULL
+      AND a.folder_id IN (SELECT id FROM tree)
+    ORDER BY a.title, v.version`, [projectId, ...ids, projectId, projectId]);
+}
+
+async function documentsForTaskInstruction(conn, projectId, documentRefs, folderRefs) {
+  const documents = await documentRefLabels(conn, documentRefs);
+  const folders = await folderRefLabels(conn, projectId, folderRefs);
+  const seen = new Set(documents.map((doc) => doc.id));
+  for (const doc of await latestOfficialVersionsInFolders(conn, projectId, folderRefs)) {
+    if (seen.has(doc.id)) continue;
+    seen.add(doc.id);
+    documents.push(doc);
+  }
+  return { documents, folders };
+}
+
+export function composeTaskInstruction(task, documents = [], folders = []) {
   const parts = [task.title, "", task.goal];
   if (task.constraints) parts.push("", `约束：${task.constraints}`);
+  if (folders.length) {
+    parts.push("", "引用文件夹：");
+    for (const folder of folders) parts.push(`- ${folder.title || folder.name || folder.id}`);
+  }
   if (documents.length) {
     parts.push("", "引用文档：");
     for (const doc of documents) {
@@ -151,7 +214,11 @@ export function composeTaskInstruction(task, documents = []) {
 
 function withParsedTask(task) {
   if (!task) return task;
-  return { ...task, document_refs: parseDocumentRefs(task.document_refs) };
+  return {
+    ...task,
+    document_refs: parseDocumentRefs(task.document_refs),
+    folder_refs: parseDocumentRefs(task.folder_refs),
+  };
 }
 
 function assertActorCanUpdateTask(task, actor) {
@@ -295,6 +362,7 @@ export async function createTask(db, input) {
       if (!target) throw new HttpError(400, "任务目标不是当前项目的可执行成员");
     }
     const documentRefs = await assertDocumentRefs(conn, input.projectId, input.documentRefs ?? input.refs);
+    const folderRefs = await assertFolderRefs(conn, input.projectId, input.folderRefs);
     let targetId = input.targetId || null;
     if (input.targetType === "l2_session") {
       if (input.originThreadId) {
@@ -318,12 +386,12 @@ export async function createTask(db, input) {
       : "draft";
     await query(conn, `INSERT INTO agent_tasks
       (id,project_id,origin_thread_id,source_type,source_user_id,source_agent_session_id,source_message_id,source_task_id,
-       created_by_type,created_by_id,task_type,title,goal,constraints,document_refs,target_type,target_id,status)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+       created_by_type,created_by_id,task_type,title,goal,constraints,document_refs,folder_refs,target_type,target_id,status)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
       id, input.projectId, input.originThreadId || null, input.sourceType, input.sourceUserId || null,
       input.sourceAgentSessionId || null, input.sourceMessageId || null, input.sourceTaskId || null,
       input.createdByType, input.createdById, input.taskType, input.title, input.goal, input.constraints || null,
-      JSON.stringify(documentRefs), input.targetType || null, targetId, initialStatus,
+      JSON.stringify(documentRefs), JSON.stringify(folderRefs), input.targetType || null, targetId, initialStatus,
     ]);
     if (input.targetType === "l2_session") {
       await query(conn, "UPDATE agent_tasks SET claimed_by_type='l2_session',claimed_by_id=?,execution_mode='dsh_l3',execution_agent_type='dsh_l3' WHERE id=?",
@@ -559,12 +627,12 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
         const [binding] = await query(conn, `SELECT cp.policy,cp.allow_git_push FROM connector_projects cp
           WHERE cp.connector_id=? AND cp.project_id=?`, [connector.id, task.project_id]);
         if (!binding) throw new HttpError(409, "连接器未关联当前项目");
-        const documents = await documentRefLabels(conn, task.document_refs);
+        const instructionRefs = await documentsForTaskInstruction(conn, task.project_id, task.document_refs, task.folder_refs);
         await query(conn, `INSERT INTO connector_tasks
           (id,agent_task_id,connector_id,project_id,thread_id,message_id,requested_by,assigned_to,member_id_snapshot,instruction,policy,allow_git_push,status,progress)
           VALUES(UUID(),?,?,?,?,?,?,?,?,?,?,?, 'queued','等待本机连接器领取')`, [taskId, connector.id, task.project_id,
           task.origin_thread_id, task.source_message_id, task.source_user_id || actor.id, actor.id, actor.id,
-          composeTaskInstruction(task, documents), binding.policy, binding.allow_git_push]);
+          composeTaskInstruction(task, instructionRefs.documents, instructionRefs.folders), binding.policy, binding.allow_git_push]);
       }
     }
     await recordTaskStatusChange(conn, taskId, task.status, actor,
@@ -811,6 +879,7 @@ export async function inspectIterationTask(db, taskId, actor) {
       executor_switch_count: Number(task.executor_switch_count || 0), failure_class: task.failure_class,
       failure_signature: task.failure_signature, blocked_reason: task.blocked_reason,
       resume_condition: task.resume_condition, document_refs: parseDocumentRefs(task.document_refs),
+      folder_refs: parseDocumentRefs(task.folder_refs),
     },
     run: run || null,
     live,

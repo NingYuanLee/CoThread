@@ -44,6 +44,7 @@ test("L1 denies every installed tool and MCP tools are a build-time manifest", a
   assert.deepEqual(mcp.MCP_TOOL_NAMES, [
     "get_connection_guide", "list_projects", "get_project_context", "get_member",
     "list_documents", "list_document_changes", "get_document_version", "manage_document", "manage_folder", "upload_official_file",
+    "start_file_upload", "upload_file_chunk", "complete_file_upload",
     "get_iteration_context", "list_messages", "read_message",
     "upload_cache_draft", "post_message",
     "list_tasks", "get_task", "accept_task", "reject_task", "update_task",

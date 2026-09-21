@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { HumanVerification } from "./HumanVerification";
 import { ResendCountdown } from "./ResendCountdown";
 import { UiIcon } from "./ui-icon";
+import { showTip } from "./Tip";
 
 export function EmailBinding({ email, api, onBound }: {
   email: string | null;
@@ -32,12 +33,15 @@ export function EmailBinding({ email, api, onBound }: {
         setChallengeId(result.challengeId);
         setSentAt(Date.now());
         await refreshHumanStatus();
+        showTip("验证码已发送", "info");
       } else {
         onBound(await api("/email/bind/confirm", { challengeId, code }));
         setChallengeId(""); setAddress(""); setCode("");
+        showTip("邮箱已绑定");
       }
     } catch (cause) {
       setError((cause as Error).message);
+      showTip((cause as Error).message, "error");
       if (!challengeId) {
         try { await refreshHumanStatus(humanRequired); } catch { /* Keep the original action error visible. */ }
       }

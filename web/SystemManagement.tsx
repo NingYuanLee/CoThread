@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { UiIcon } from "./ui-icon";
+import { showTip } from "./Tip";
 
 type Api = (path: string, data?: unknown, method?: string) => Promise<any>;
 type AdminProject = {
@@ -113,10 +114,17 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
     else setPlugins(await api("/admin/plugins"));
   };
   useEffect(() => { setError(""); setExpanded(""); setCreating(false); setPassword(null); setSkillDraft(null); void load().catch((e) => setError(e.message)); }, [section]);
-  const action = async (work: () => Promise<void>) => {
+  const action = async (work: () => Promise<void>, success?: string) => {
     setBusy(true); setError("");
-    try { await work(); }
-    catch (e) { setError((e as Error).message); }
+    try {
+      await work();
+      if (success) showTip(success);
+    }
+    catch (e) {
+      const detail = (e as Error).message;
+      setError(detail);
+      showTip(detail, "error");
+    }
     finally { setBusy(false); }
   };
   const loginDetails = (value: { username: string; value: string }) =>
@@ -150,14 +158,14 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
           <label>说明<input value={skillDraft.description} maxLength={500} onChange={(event) => setSkillDraft({ ...skillDraft, description: event.target.value })} /></label>
           <label>提示词<textarea value={skillDraft.prompt} maxLength={30000} onChange={(event) => setSkillDraft({ ...skillDraft, prompt: event.target.value })} /></label>
           <label className="skill-enabled"><input type="checkbox" checked={skillDraft.enabled} onChange={(event) => setSkillDraft({ ...skillDraft, enabled: event.target.checked })} />启用此 Skill</label>
-          <button type="button" className="primary" disabled={busy} onClick={() => void action(saveSkill)}><UiIcon name="save" size={13} />保存 Skill</button>
+          <button type="button" className="primary" disabled={busy} onClick={() => void action(saveSkill, skillDraft.id ? "Skill 已保存" : "Skill 已创建")}><UiIcon name="save" size={13} />保存 Skill</button>
         </div>}
         <div className="plugin-list">
           {level?.skills.map((skill) => <article className="plugin-row skill-row" key={skill.id}>
             <div className="plugin-copy"><strong>{skill.name}</strong><small>{skill.description || skill.prompt.slice(0, 100)}</small><code>纯提示词 · v{skill.version}</code></div>
             <span className={`status-badge ${skill.enabled ? "" : "inactive"}`}><UiIcon name={skill.enabled ? "checkCircle" : "pause"} size={10} />{skill.enabled ? "已启用" : "已停用"}</span>
             <button type="button" onClick={() => setSkillDraft({ id: skill.id, name: skill.name, description: skill.description, prompt: skill.prompt, enabled: skill.enabled })}><UiIcon name="edit" size={12} />编辑</button>
-            <button type="button" disabled={busy} onClick={() => { if (!window.confirm(`确定归档 Skill「${skill.name}」？`)) return; void action(async () => { await api(`/admin/plugins/skills/${skill.id}`, {}, "DELETE"); await load(); }); }}><UiIcon name="archive" size={12} />归档</button>
+            <button type="button" disabled={busy} onClick={() => { if (!window.confirm(`确定归档 Skill「${skill.name}」？`)) return; void action(async () => { await api(`/admin/plugins/skills/${skill.id}`, {}, "DELETE"); await load(); }, "Skill 已归档"); }}><UiIcon name="archive" size={12} />归档</button>
           </article>)}
           {!level?.skills.length && !skillDraft && <p className="monitor-empty">当前层级还没有自定义 Skills。</p>}
         </div>
@@ -180,7 +188,7 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
             const description = (document.getElementById("admin-project-description") as HTMLTextAreaElement).value.trim();
             if (!name) throw new Error("请输入项目名称");
             await api("/admin/projects", { name, description }); setCreating(false); await load(); await onProjectsChanged();
-          })}><UiIcon name="plus" size={13} />确认新增</button>
+          }, "项目已创建")}><UiIcon name="plus" size={13} />确认新增</button>
         </div>
       ) : (
         <div className="admin-create-form">
@@ -194,7 +202,7 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
             try { await navigator.clipboard.writeText(loginDetails({ username: result.username, value: result.password })); copied = true; } catch { /* Keep the one-time display available. */ }
             setPassword({ name: result.name, username: result.username, value: result.password, copied, initial: true });
             setCreating(false); await load();
-          })}><UiIcon name="plus" size={13} />确认新增</button>
+          }, "成员已创建")}><UiIcon name="plus" size={13} />确认新增</button>
         </div>
       ))}
       {password && <div className="one-time-password" role="status">
@@ -202,8 +210,8 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
         <span>账号：{password.username}</span><code>{password.value}</code>
         <small>{password.initial && password.copied ? "网站、访问地址、账号和密码已自动复制。" : "请立即交给账号本人。关闭后无法再次查看。"}</small>
         {password.initial && <button type="button" onClick={() => void (async () => {
-          try { await navigator.clipboard.writeText(loginDetails(password)); setPassword({ ...password, copied: true }); }
-          catch { setError("浏览器未允许写入剪贴板，请手动选择上方账号和密码。"); }
+          try { await navigator.clipboard.writeText(loginDetails(password)); setPassword({ ...password, copied: true }); showTip("登录信息已复制"); }
+          catch { setError("浏览器未允许写入剪贴板，请手动选择上方账号和密码。"); showTip("浏览器未允许写入剪贴板，请手动选择上方账号和密码。", "error"); }
         })()}>{password.copied ? <><UiIcon name="copy" size={12} />再次复制登录信息</> : <><UiIcon name="copy" size={12} />复制登录信息</>}</button>}
       </div>}
       {error && <div className="error" role="alert">{error}</div>}
@@ -222,10 +230,10 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
                 if (isProject) { await api(`/admin/projects/${item.id}/${inactive ? "restore" : "archive"}`, {}, "PATCH"); await onProjectsChanged(); }
                 else await api(`/admin/accounts/${item.id}/status`, { disabled: !inactive }, "PATCH");
                 await load();
-              })}><UiIcon name={inactive ? "restore" : isProject ? "archive" : "pause"} size={12} />{inactive ? "恢复" : isProject ? "归档" : "停用"}</button>
+              }, isProject ? (inactive ? "项目已恢复" : "项目已归档") : (inactive ? "成员已恢复" : "成员已停用"))}><UiIcon name={inactive ? "restore" : isProject ? "archive" : "pause"} size={12} />{inactive ? "恢复" : isProject ? "归档" : "停用"}</button>
               {!isProject && <button type="button" disabled={busy} onClick={() => {
                 if (!window.confirm(`确定重置 ${account.name} 的密码？该账号当前登录将失效。`)) return;
-                void action(async () => { const result = await api(`/admin/accounts/${item.id}/reset-password`, {}); setPassword({ name: account.name, username: account.username, value: result.password }); });
+                void action(async () => { const result = await api(`/admin/accounts/${item.id}/reset-password`, {}); setPassword({ name: account.name, username: account.username, value: result.password }); }, "密码已重置");
               }}><UiIcon name="key" size={12} />重置密码</button>}
             </div>
             {expanded === item.id && <div className="admin-row-detail">

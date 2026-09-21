@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { createApp } from "../server/app.js";
 import { hashPassword } from "../server/auth.js";
 import { query } from "../server/db.js";
@@ -29,7 +29,12 @@ async function mcp(name, args, source) {
   const result = (await response.json()).result;
   return { error: !!result.isError, data: result.isError ? result.content[0].text : JSON.parse(result.content[0].text) };
 }
-const file = (name = "plan.md", extra = {}) => ({ title: name, filename: name, mime: "text/markdown", contentBase64: Buffer.from("方案内容").toString("base64"), ...extra });
+const file = (name = "plan.md", extra = {}) => {
+  const { sha256: givenSha, contentBase64: givenBase64, ...rest } = extra;
+  const contentBase64 = givenBase64 ?? Buffer.from("方案内容").toString("base64");
+  const sha256 = givenSha ?? createHash("sha256").update(Buffer.from(contentBase64, "base64")).digest("hex");
+  return { title: name, filename: name, mime: "text/markdown", contentBase64, sha256, ...rest };
+};
 
 before(async () => {
   database = await testDatabase();
@@ -119,6 +124,8 @@ test("MCP discovers the target, uploads source files first, then sends refs + te
   assert.equal(guide.error, false);
   assert.match(guide.data.instructions, /无需安装任何 SKILL/);
   assert.match(guide.data.instructions, /get_iteration_context/);
+  assert.match(guide.data.instructions, /start_file_upload/);
+  assert.match(guide.data.instructions, /SHA-256/);
   assert.ok(!guide.data.instructions.includes(token));
   const connectorGuide = await mcp("get_connection_guide", {}, "local-connector");
   assert.equal(connectorGuide.data.instructions, guide.data.instructions);

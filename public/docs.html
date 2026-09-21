@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>共序文档 · CoThread Docs</title>
+<meta name="description" content="共序 CoThread 详细文档：概念、工作台、文档上传、MCP、连接器与部署。">
+<style>
+  :root{
+    --bg:#070a12; --bg-soft:#0a0e18; --card:rgba(255,255,255,.035);
+    --line:rgba(140,170,255,.16); --line-strong:rgba(140,170,255,.34);
+    --txt:#e8eefc; --txt-dim:#95a3c0; --txt-mute:#6b7897;
+    --cyan:#48e5ff; --tocw:272px; --radius:14px; --header-h:58px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-padding-top:calc(var(--header-h) + 16px)}
+  body{
+    background:var(--bg);color:var(--txt);
+    font-family:"Inter","Segoe UI",system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    line-height:1.7;-webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--cyan);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code,pre{font-family:"JetBrains Mono",Consolas,"Courier New",monospace}
+  code{font-size:.9em;color:#9fd7ff;background:rgba(72,229,255,.08);padding:.1em .4em;border-radius:5px}
+  pre{background:#050810;border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow-x:auto;
+    font-size:12.5px;color:#9fd7ff;line-height:1.8;margin:14px 0 18px}
+  table{width:100%;border-collapse:collapse;font-size:13.8px;margin:14px 0 22px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:rgba(255,255,255,.04);color:var(--txt-dim);font-weight:650}
+  header{position:sticky;top:0;z-index:60;backdrop-filter:blur(14px);
+    background:rgba(7,10,18,.88);border-bottom:1px solid var(--line)}
+  .nav{padding:0 22px;height:var(--header-h);display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--txt);text-decoration:none}
+  .brand:hover{text-decoration:none}
+  .brand img{width:28px;height:28px}
+  .brand small{font-weight:500;color:var(--txt-mute);letter-spacing:.14em;font-size:11px;text-transform:uppercase}
+  .nav-links{display:flex;align-items:center;gap:18px;list-style:none;font-size:13.5px}
+  .nav-links a{color:var(--txt-dim);text-decoration:none}
+  .nav-links a:hover,.nav-links a.here{color:var(--cyan);text-decoration:none}
+  .nav-links .cta{color:var(--txt);border:1px solid var(--line-strong);padding:6px 12px;border-radius:999px}
+  .layout{display:grid;grid-template-columns:var(--tocw) minmax(0,1fr);align-items:start;min-height:calc(100vh - var(--header-h))}
+  .toc{
+    position:sticky;top:var(--header-h);height:calc(100vh - var(--header-h));
+    overflow:auto;padding:18px 12px 36px 16px;
+    background:var(--bg-soft);border-right:1px solid var(--line);
+    scrollbar-width:thin;scrollbar-color:rgba(140,170,255,.25) transparent;
+  }
+  .toc-title{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt-mute);margin:2px 8px 14px;font-weight:650}
+  .toc-group + .toc-group{margin-top:4px;padding-top:10px;border-top:1px solid rgba(140,170,255,.08)}
+  .toc-group > summary{
+    list-style:none;cursor:pointer;user-select:none;
+    display:flex;align-items:center;justify-content:flex-start;gap:8px;
+    margin:0 4px 6px;padding:4px 8px;border-radius:8px;
+    color:var(--txt-mute);font-size:11.5px;letter-spacing:.08em;font-weight:700;
+  }
+  .toc-group > summary::-webkit-details-marker{display:none}
+  .toc-group > summary:hover{color:var(--txt);background:rgba(255,255,255,.04)}
+  .toc-group > summary::after{
+    content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;
+    transform:rotate(45deg);opacity:.7;transition:transform .15s ease;
+  }
+  .toc-group:not([open]) > summary::after{transform:rotate(-45deg);margin-top:3px}
+  .toc-group.on > summary{color:var(--cyan)}
+  .toc ul{list-style:none;margin:0;padding:0}
+  .toc li{margin:0}
+  .toc a{
+    display:block;color:var(--txt-dim);text-decoration:none;font-size:13.4px;line-height:1.35;
+    padding:7px 10px 7px 12px;border-radius:8px;border-left:2px solid transparent;
+  }
+  .toc a:hover{color:var(--txt);background:rgba(255,255,255,.045);text-decoration:none}
+  .toc a.active{
+    color:#d9fbff;border-left-color:var(--cyan);
+    background:linear-gradient(90deg,rgba(72,229,255,.16),rgba(72,229,255,.04));
+    font-weight:650;
+  }
+  .toc a.ancestor{color:var(--txt);background:rgba(255,255,255,.03)}
+  .toc li ul{
+    margin:2px 0 6px 12px;padding-left:10px;
+    border-left:1px solid rgba(140,170,255,.18);
+  }
+  .toc li ul a{font-size:12.7px;padding:5px 10px 5px 10px;color:#7f8eab}
+  .main{min-width:0}
+  .article{max-width:820px;padding:32px 48px 40px;min-width:0}
+  .kicker{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--cyan);font-weight:600}
+  h1{font-size:clamp(26px,3.2vw,36px);letter-spacing:-.02em;margin:8px 0 12px;font-weight:740}
+  h2{font-size:22px;margin:42px 0 12px;padding-top:8px;font-weight:700;letter-spacing:-.01em}
+  h3{font-size:16.5px;margin:26px 0 8px;font-weight:650}
+  .article p, .article li{color:var(--txt-dim);font-size:15px}
+  .article p{margin-bottom:12px}
+  .article ul,.article ol{margin:0 0 16px 1.2em}
+  .article li{margin-bottom:6px}
+  .lead{font-size:16.5px;max-width:720px}
+  .note{margin:16px 0 22px;border-left:2px solid var(--line-strong);padding:4px 0 4px 14px;color:var(--txt-mute);font-size:13.4px}
+  .card{border:1px solid var(--line);background:var(--card);border-radius:var(--radius);padding:16px 18px;margin:14px 0 20px}
+  .toc-toggle{display:none}
+  footer{border-top:1px solid var(--line);padding:22px 48px 48px;color:var(--txt-mute);font-size:13px;max-width:820px}
+  footer .inner{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  @media(max-width:960px){
+    .layout{display:block}
+    .toc-toggle{
+      display:flex;align-items:center;justify-content:space-between;width:100%;
+      position:sticky;top:var(--header-h);z-index:55;
+      border:0;border-bottom:1px solid var(--line);background:var(--bg-soft);color:var(--txt);
+      padding:12px 18px;font-size:13px;cursor:pointer;
+    }
+    .toc{
+      display:none;position:fixed;top:calc(var(--header-h) + 46px);left:0;bottom:0;
+      width:min(86vw,300px);height:auto;z-index:70;
+      box-shadow:16px 0 40px rgba(0,0,0,.45);
+    }
+    .toc.open{display:block}
+    .article,footer{padding-left:20px;padding-right:20px;max-width:none}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="nav">
+    <a class="brand" href="/about_us.html"><img src="/cothread-logo.svg" alt="">共序 <small>Docs</small></a>
+    <ul class="nav-links">
+      <li><a href="/about_us.html">关于我们</a></li>
+      <li><a class="here" href="/docs.html">文档</a></li>
+      <li><a class="cta" href="/">进入工作台</a></li>
+    </ul>
+  </div>
+</header>
+
+<button class="toc-toggle" type="button" id="tocToggle">目录</button>
+<div class="layout">
+  <nav class="toc" id="toc" aria-label="文档目录">
+    <p class="toc-title">目录</p>
+    <details class="toc-group" open>
+      <summary>入门</summary>
+      <ul>
+        <li>
+          <a href="#how-to-read">三份材料怎么读</a>
+          <ul><li><a href="#quick-start">本机启动</a></li></ul>
+        </li>
+      </ul>
+    </details>
+    <details class="toc-group" open>
+      <summary>概念</summary>
+      <ul>
+        <li>
+          <a href="#model">公司 · 项目 · 迭代 · 任务</a>
+          <ul><li><a href="#roles">角色与小祥</a></li></ul>
+        </li>
+      </ul>
+    </details>
+    <details class="toc-group" open>
+      <summary>工作台</summary>
+      <ul>
+        <li>
+          <a href="#workspace">三栏布局</a>
+          <ul>
+            <li><a href="#library">文档库三区</a></li>
+            <li><a href="#tasks">任务池</a></li>
+          </ul>
+        </li>
+      </ul>
+    </details>
+    <details class="toc-group" open>
+      <summary>上传</summary>
+      <ul>
+        <li>
+          <a href="#upload-web">网页上传</a>
+          <ul><li><a href="#upload-mcp">MCP 分片与校验</a></li></ul>
+        </li>
+      </ul>
+    </details>
+    <details class="toc-group" open>
+      <summary>集成</summary>
+      <ul>
+        <li>
+          <a href="#mcp">共序 MCP</a>
+          <ul><li><a href="#mcp-tools">工具清单</a></li></ul>
+        </li>
+        <li><a href="#connector">本机连接器</a></li>
+      </ul>
+    </details>
+    <details class="toc-group" open>
+      <summary>运维</summary>
+      <ul>
+        <li>
+          <a href="#deploy-local">本机与命令</a>
+          <ul>
+            <li><a href="#deploy-server">服务器 / 容器</a></li>
+            <li><a href="#deploy-makers">EdgeOne Makers</a></li>
+          </ul>
+        </li>
+        <li><a href="#limits">边界</a></li>
+      </ul>
+    </details>
+  </nav>
+  <div class="main">
+  <article class="article">
+    <div class="kicker">Documentation</div>
+    <h1>共序详细文档</h1>
+    <p class="lead">这里写清楚怎么用、怎么接、怎么部署。价值叙事在<a href="/about_us.html">关于我们</a>；命令和最短路径在仓库 <code>README.md</code>。</p>
+    <p class="note">当前面向小团队单实例试用。不包含 SSO、推送、全文搜索、文件在线编辑、对象存储和多实例作业调度。</p>
+
+    <h2 id="how-to-read">三份材料怎么读</h2>
+    <table>
+      <thead><tr><th>入口</th><th>定位</th><th>打开方式</th></tr></thead>
+      <tbody>
+        <tr><td>关于我们</td><td>价值与产品介绍，给第一次听说共序的人</td><td><a href="/about_us.html">/about_us.html</a></td></tr>
+        <tr><td>README</td><td>克隆仓库后的快捷使用：安装、启动、常用命令</td><td>仓库根目录</td></tr>
+        <tr><td>本文档</td><td>概念、工作台、上传、MCP、连接器、部署细则</td><td><a href="/docs.html">/docs.html</a></td></tr>
+      </tbody>
+    </table>
+    <p>工程师向的架构备忘仍在仓库 <code>docs/architecture.md</code>、<code>docs/makers.md</code>，不替代本页给使用者看的说明。</p>
+
+    <h3 id="quick-start">本机启动</h3>
+    <p>需要 Node.js 22.19+。本地 MySQL 为官方 8.4.9 Windows ZIP 版，不注册系统服务，监听 <code>127.0.0.1:3307</code>。Agent 命令依赖 Git Bash。</p>
+<pre>npm install
+npm run setup
+npm run dev</pre>
+    <p>之后日常只需 <code>npm run dev</code>。打开 <a href="http://localhost:3100">http://localhost:3100</a>。首次 setup 把初始账号写进 <code>.local/initial-admin.json</code> 和 <code>.local/登录信息.txt</code>。登录可用账号名或已绑定邮箱。</p>
+    <p>开发网关默认在 <code>3100</code>：<code>/api</code> 与 <code>/mcp</code> 转到 API（<code>3101</code>），其余转到 Vite（<code>3102</code>）。本机默认拒绝连接远端数据库；确需连接时设 <code>COTHREAD_ALLOW_REMOTE_DB=1</code>。</p>
+
+    <h2 id="model">公司 · 项目 · 迭代 · 任务</h2>
+    <p>一次部署对应一家公司：服务独立、MySQL 隔离。公司之内是项目管理，项目之内是迭代，迭代之内是任务。</p>
+    <table>
+      <thead><tr><th>层级</th><th>含义</th></tr></thead>
+      <tbody>
+        <tr><td>公司</td><td>单次独立部署。账号、项目、文件都在本实例 MySQL，与其他部署互不影响</td></tr>
+        <tr><td>项目</td><td>长期工作空间：共享文档库、长期记忆、项目成员</td></tr>
+        <tr><td>迭代</td><td>一次讨论群聊：消息、本轮 L2；文档仍用项目文档库</td></tr>
+        <tr><td>任务</td><td>可指派、确认、执行的工作项：L3 槽或人类 / 连接器执行</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="roles">角色与小祥</h3>
+    <p>公司目录只有人类成员（含超级管理员）。Agent 不写入 <code>users</code> 表。聊天里 @ 的始终是「小祥」；L1 / L2 / L3 是同一对外身份的内部职责。</p>
+    <table>
+      <thead><tr><th>层级</th><th>谁在这里</th></tr></thead>
+      <tbody>
+        <tr><td>成员管理</td><td>仅人类，含超级管理员。系统管理里的「成员管理」</td></tr>
+        <tr><td>项目成员</td><td>本项目人类、其连接器、项目级 Agent（L1）</td></tr>
+        <tr><td>迭代成员</td><td>本项目人类、本迭代 L2、任务级 L3 槽</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>层级</th><th>对内</th><th>挂载</th><th>职责</th></tr></thead>
+      <tbody>
+        <tr><td>L1</td><td>老翁 · 知识库管理员</td><td>项目</td><td>成员认识、文档摘要、正式文件整理、归档总结与长期记忆</td></tr>
+        <tr><td>L2</td><td>任务调度员</td><td>迭代</td><td>快速回应，重活派 L3，交活后再向群回报</td></tr>
+        <tr><td>L3</td><td>任务执行者</td><td>任务槽</td><td>独立执行；结束前必须向 L2 交活</td></tr>
+      </tbody>
+    </table>
+    <p>单个迭代最多同时 7 个 L3，加上 L2 接待共 8 个名额。多人项目未明确 @ 时 L2 可沉默；仅成员与助手两人时默认回复。本地 AI 提交不会触发回复循环。</p>
+
+    <h2 id="workspace">三栏布局</h2>
+    <ul>
+      <li><strong>左侧</strong>：当前项目的迭代列表；底部打开「项目管理」和「小祥 Agent 监控」。</li>
+      <li><strong>中间</strong>：迭代群聊。可引用文档版本、上传附件、梳理讨论、停止或重试执行。</li>
+      <li><strong>右侧</strong>：文档浏览器，不是成员面板。一棵树浏览本项目共享的正式文件、对话缓存与沙箱产物。</li>
+    </ul>
+
+    <h3 id="library">文档库三区</h3>
+    <p>全部迭代共享同一套项目文档库。</p>
+    <ul>
+      <li><strong>对话缓存</strong>：对话框上传或 MCP <code>upload_cache_draft</code> / <code>kind=cache_draft</code> 分片。按 Asia/Shanghai 自然日进日期文件夹。内容对人可引用、下载、审核、软删除；不可在库里直接改正文。Agent 不能往这里新增。</li>
+      <li><strong>沙箱产物</strong>：主要由云端 Agent 在沙箱中生成并发布。人工不能把对话附件丢进这一区。</li>
+      <li><strong>正式文件</strong>：已确认的缓存/产物可另存至此，或人类（及 MCP <code>kind=official_file</code>）上传。正式文件不分版本叠加。同目录同名会改成「名称 (2)」，不覆盖。</li>
+    </ul>
+    <p>点「需要修改」必须填写意见，确认后发到<strong>当前迭代</strong>：沙箱产物 @小祥；对话缓存若不是本人上传则 @来源人，本人上传则 @小祥。上传和发布都不等于审批通过。</p>
+    <p>归档固定本轮讨论与引用版本；已确认产物最新版另存到正式文件。归档后本迭代不可改，文档库留给后续迭代。删除为可恢复软删除。</p>
+
+    <h3 id="tasks">任务池</h3>
+    <p>迭代内可创建辅助任务（L2 Ask）、沙箱正式任务、人类任务（本人执行或下发连接器）。人类任务创建时可引用正式文件版本（最多 30 个）。状态含待指派、待确认、待开始、执行中、等待中、阻塞，以及已拒绝 / 已放弃 / 已完成 / 已取消 / 已失败。状态变更和连接器汇报会 @ 任务来源人。</p>
+
+    <h2 id="upload-web">网页上传</h2>
+    <p>对话框附件进入当天对话缓存；文档树正式文件菜单可上传到正式文件区（含子文件夹）。网页走带 SHA-256 的分片会话，单文件上限 <strong>20 MiB</strong>。服务端合并后再验整文件哈希，截断不会入库。</p>
+    <p>MySQL <code>max_allowed_packet</code> 建议至少 32 MiB。头像仍单独限制 5 MiB。</p>
+
+    <h3 id="upload-mcp">MCP 分片与校验</h3>
+    <p>许多 MCP 宿主会把<strong>单次工具参数</strong>截在约 10KB。整包 Base64 被砍断后，文件会前半中文正常、末尾乱码——这是截断，不是 GBK。共序侧表现为：</p>
+    <ul>
+      <li><code>upload_cache_draft</code> / <code>upload_official_file</code> 的 <code>contentBase64</code> 上限约 10000 字符，且必须带<strong>完整原始字节</strong>的 SHA-256。</li>
+      <li>原始文件 <strong>&gt; 6144 字节</strong>（含大多数 md、zip）禁止一次提交，必须分片。</li>
+    </ul>
+    <div class="card">
+      <p><strong>步骤</strong></p>
+      <ol>
+        <li>对完整原始字节算 SHA-256（64 位十六进制），不要对 Base64 字符串哈希。</li>
+        <li><code>start_file_upload</code>：对话缓存 <code>kind=cache_draft</code> + <code>threadId</code>；正式文件 <code>kind=official_file</code> + <code>projectId</code>（<code>folderId</code> 可省略）。填 <code>byteSize</code>、<code>sha256</code>。不要改默认 <code>chunkSize=6144</code>。</li>
+        <li>按<strong>原始字节</strong>切片，不要切 Base64。第 <code>i</code> 片是 <code>bytes[i*chunkSize:(i+1)*chunkSize]</code>，最后一片可更短。每片单独 Base64、单独 sha256，调用 <code>upload_file_chunk</code>。</li>
+        <li><code>complete_file_upload</code> 再交整文件 sha256。核对返回的 <code>id</code>、<code>sha256</code>、<code>byteSize</code>。</li>
+      </ol>
+    </div>
+    <p>工作台「复制会话信息」和正式文件树「复制项目信息」会带上这段规则以及 ID。zip / <code>application/octet-stream</code> / 带 charset 的 MIME 按文件名推断，不会因此拒绝。</p>
+
+    <h2 id="mcp">共序 MCP</h2>
+    <p>账号一个令牌、30 天有效。由本机连接器在授权后申领并写入 Cursor / Codex / Claude Code。网页个人设置不再作为日常配令牌入口。疑似泄露时在连接器重置 MCP 令牌，旧令牌立即失效。</p>
+    <p>写入的配置等价于：</p>
+<pre>{
+  "mcpServers": {
+    "cothread-mcp": {
+      "type": "http",
+      "url": "https://你的站点/mcp",
+      "headers": { "Authorization": "Bearer &lt;账号令牌&gt;" }
+    }
+  }
+}</pre>
+    <p>首次连接先调用 <code>get_connection_guide</code>。无需安装 SKILL。完整协议在 initialize instructions 与该工具返回中。</p>
+
+    <h3 id="mcp-tools">工具清单</h3>
+    <p>只读：<code>get_connection_guide</code>、<code>list_projects</code>、<code>get_project_context</code>、<code>get_member</code>、<code>list_documents</code>、<code>list_document_changes</code>、<code>get_document_version</code>、<code>get_iteration_context</code>、<code>list_messages</code>、<code>read_message</code>、<code>list_tasks</code>、<code>get_task</code>。</p>
+    <p>写入：<code>manage_document</code>、<code>manage_folder</code>、<code>upload_official_file</code>、<code>start_file_upload</code>、<code>upload_file_chunk</code>、<code>complete_file_upload</code>、<code>upload_cache_draft</code>、<code>post_message</code>、<code>accept_task</code>、<code>reject_task</code>、<code>update_task</code>。</p>
+    <p>只有 <code>post_message</code> 会发群聊。上传、改文档、改任务默认不自动发言。创建任务、转交、审批、归档不通过普通 MCP。只读成员不能上传或发言；归档迭代不能改。</p>
+
+    <h2 id="connector">本机连接器</h2>
+    <p>Windows 单文件程序（<code>npm run connector:build</code>），由系统外部渠道分发，网页不提供安装包。一个账号同一时间只保留一台连接器，可绑多个项目。每个项目选 Git 仓库，可选仓库内路径。本地路径只保存在电脑上。</p>
+    <p>「交给本机 Agent」：项目内任意可编辑成员的连接器在线即可。任务需被指派成员确认后锁定到一台设备，在本机以 Cursor / Codex / Claude Code 的交互式会话执行。</p>
+    <ul>
+      <li><strong>开始</strong>：按当前 HEAD 建独立 Git worktree，打开 Agent，首条提示引用任务卡。</li>
+      <li><strong>会话中</strong>：人在窗口里打字和审批工具；Agent 用共序 MCP 回报。关窗不算完成，任务变为暂停，连接器可续租。</li>
+      <li><strong>完成 / 失败</strong>：由人在连接器点击。完成可带 Git Diff 回群。</li>
+    </ul>
+    <p>两套令牌：<code>ctc_</code> 设备令牌只用于连接器通讯；账号 MCP 令牌供 Agent 以该成员身份读写共序。</p>
+
+    <h2 id="deploy-local">本机与命令</h2>
+<pre>npm run mysql:stop    # 关闭本地数据库
+npm run dev:stop      # 停开发网关 / API / Vite；MySQL 保持运行
+npm run build
+npm start             # 生产静态页 + API
+npm test              # 必须独立 TEST_DATABASE_URL，禁止清日常库
+npm run db:backup
+npm run db:restore-check</pre>
+    <p><code>npm test</code> 会清空目标库全部表后重新迁移，绝不能指向生产库或正在用的开发库 <code>cothread</code> / <code>cothread_dev</code>。</p>
+    <p>也可用 <code>compose.yaml</code> 跑官方 <code>mysql:8.4.9</code>。不要同时让 Docker 与便携版 MySQL 占用 3307。</p>
+
+    <h3 id="deploy-server">服务器 / 容器</h3>
+    <ol>
+      <li>MySQL 8.4，导入完整备份（含附件）或空库迁移。</li>
+      <li><code>DATABASE_URL</code>；TLS 时 <code>DATABASE_SSL=true</code>。</li>
+      <li><code>HOST=0.0.0.0</code>、HTTPS <code>APP_ORIGIN</code>、<code>COOKIE_SECURE=true</code>。</li>
+      <li>保留 <code>CREDENTIAL_ENCRYPTION_KEY</code>，与库备份分开保管。</li>
+      <li><code>npm ci && npm run build</code>，单实例 <code>npm start</code>。</li>
+    </ol>
+    <p>当前仅支持单服务实例。权威会话快照在 MySQL；<code>.local/agents</code> 需可写缓存。</p>
+
+    <h3 id="deploy-makers">EdgeOne Makers</h3>
+    <p>仓库含云函数与 Agents 入口。仅上传前端 <code>dist</code> 不能跑后端。构建需包含 <code>cloud-functions/</code>、<code>agents/</code>、<code>edgeone.json</code>。细则见仓库 <code>docs/makers.md</code>。生产默认 <a href="https://cothread.z2l.top">https://cothread.z2l.top</a>。</p>
+
+    <h2 id="limits">边界</h2>
+    <ul>
+      <li>文档字节目前存在 MySQL，未接对象存储。单文件 20 MiB。</li>
+      <li>Markdown 预览不渲染原始 HTML、不加载外部图。可预览文本/代码、图片、PDF、Office；不能在线编辑 Office。</li>
+      <li>本机沙箱以当前 OS 账号跑命令，不是容器级隔离，只适合可信任务。</li>
+      <li>停止 Agent 不能撤销已完成的外部操作或已保存版本。</li>
+    </ul>
+  </article>
+  <footer>
+    <div class="inner">
+      <div>共序 CoThread · 文档</div>
+      <div><a href="/about_us.html">关于我们</a> · <a href="/">工作台</a></div>
+    </div>
+  </footer>
+  </div>
+</div>
+
+<script>
+(function () {
+  var toc = document.getElementById("toc");
+  var toggle = document.getElementById("tocToggle");
+  var links = toc.querySelectorAll("a[href^='#']");
+  var groups = toc.querySelectorAll(".toc-group");
+  var pinUntil = 0;
+  var sections = [];
+  if (toggle) toggle.addEventListener("click", function () {
+    toc.classList.toggle("open");
+    toggle.textContent = toc.classList.contains("open") ? "收起目录" : "目录";
+  });
+  for (var i = 0; i < links.length; i++) {
+    var id = links[i].getAttribute("href").slice(1);
+    var el = document.getElementById(id);
+    if (el) sections.push({ id: id, el: el, link: links[i] });
+    links[i].addEventListener("click", function (e) {
+      var hid = this.getAttribute("href").slice(1);
+      var target = document.getElementById(hid);
+      if (!target) return;
+      e.preventDefault();
+      history.replaceState(null, "", "#" + hid);
+      pinUntil = Date.now() + 700;
+      setActive(hid);
+      toc.classList.remove("open");
+      if (toggle) toggle.textContent = "目录";
+      var top = target.getBoundingClientRect().top + window.scrollY - 74;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    });
+  }
+  function setActive(id) {
+    var active = null;
+    for (var j = 0; j < links.length; j++) {
+      var on = links[j].getAttribute("href") === "#" + id;
+      links[j].classList.toggle("active", on);
+      links[j].classList.remove("ancestor");
+      if (on) active = links[j];
+    }
+    if (active) {
+      var parent = active.parentElement && active.parentElement.parentElement;
+      if (parent && parent.previousElementSibling && parent.previousElementSibling.tagName === "A") {
+        parent.previousElementSibling.classList.add("ancestor");
+      }
+      var group = active.closest(".toc-group");
+      for (var g = 0; g < groups.length; g++) {
+        groups[g].classList.toggle("on", groups[g] === group);
+        if (groups[g] === group) groups[g].open = true;
+      }
+      var box = toc.getBoundingClientRect();
+      var row = active.getBoundingClientRect();
+      if (row.top < box.top + 24 || row.bottom > box.bottom - 24) {
+        active.scrollIntoView({ block: "nearest" });
+      }
+    }
+  }
+  function onScroll() {
+    if (Date.now() < pinUntil) return;
+    var marker = 88;
+    var current = sections[0] && sections[0].id;
+    for (var k = 0; k < sections.length; k++) {
+      if (sections[k].el.getBoundingClientRect().top <= marker) current = sections[k].id;
+    }
+    if (current) setActive(current);
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+  if (location.hash) {
+    var start = document.getElementById(location.hash.slice(1));
+    if (start) {
+      setActive(location.hash.slice(1));
+      var y = start.getBoundingClientRect().top + window.scrollY - 74;
+      window.scrollTo(0, Math.max(0, y));
+    }
+  }
+})();
+</script>
+</body>
+</html>

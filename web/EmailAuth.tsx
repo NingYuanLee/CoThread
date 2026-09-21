@@ -3,6 +3,7 @@ import { HumanVerification } from "./HumanVerification";
 import { ResendCountdown } from "./ResendCountdown";
 import { PasswordField } from "./PasswordField";
 import { UiIcon } from "./ui-icon";
+import { showTip } from "./Tip";
 
 type Api = (path: string, data?: unknown, method?: string) => Promise<any>;
 type Mode = "login" | "register" | "recover";
@@ -50,6 +51,7 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
             : "如果该邮箱已绑定账号，验证码邮件将会发送，请检查收件箱和垃圾邮件。",
           result.devCode ? `本机验证码：${result.devCode}` : "",
         ].filter(Boolean).join(" "));
+        showTip("验证码已发送", "info");
       } else {
         const result = await api(`/email/${mode}/confirm`, { challengeId, code: value("code") });
         onLogin(result);
@@ -57,6 +59,7 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
       }
     } catch (cause) {
       setError((cause as Error).message);
+      showTip((cause as Error).message, "error");
       if (!challengeId) {
         try { await refreshHumanStatus(humanRequired); } catch { /* Keep the original action error visible. */ }
       }

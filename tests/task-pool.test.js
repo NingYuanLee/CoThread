@@ -828,4 +828,23 @@ test("human tasks can only reference official document versions", async () => {
   const snapshot = await inspectIterationTask(db, created.id, { type: "l2_session", id: l2SessionId, authorizedByUserId: users[0].id });
   assert.deepEqual(snapshot.task.document_refs, [uploaded.id]);
   assert.match(composeTaskInstruction(created, [{ title: "验收说明", version: 1 }]), /引用文档：\n- 验收说明 · v1/);
+
+  const folderId = randomUUID();
+  await query(db, "INSERT INTO document_folders(id,project_id,parent_id,name,folder_kind) VALUES(?,?,?,?,'project_official')",
+    [folderId, project.id, officialRoot.id, "验收资料"]);
+  await service.uploadOfficialDocument(users[0], project.id, {
+    folderId, title: "清单", filename: "list.md", mime: "text/markdown",
+    contentBase64: Buffer.from("# 清单", "utf8").toString("base64"),
+  });
+  const [cacheRoot] = await query(db,
+    "SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_cache' AND parent_id IS NULL LIMIT 1",
+    [project.id]);
+  await assert.rejects(formalTask(users[1].id, { title: "缓存文件夹", folderRefs: [cacheRoot.id] }),
+    { status: 400, message: /文件夹/ });
+  const withFolder = await formalTask(users[1].id, { title: "按目录验收", folderRefs: [folderId, folderId] });
+  assert.deepEqual(withFolder.folder_refs, [folderId]);
+  const folderSnapshot = await inspectIterationTask(db, withFolder.id, { type: "l2_session", id: l2SessionId, authorizedByUserId: users[0].id });
+  assert.deepEqual(folderSnapshot.task.folder_refs, [folderId]);
+  assert.match(composeTaskInstruction(withFolder, [{ title: "清单", version: 1 }], [{ title: "正式文件 / 验收资料" }]),
+    /引用文件夹：\n- 正式文件 \/ 验收资料\n\n引用文档：\n- 清单 · v1/);
 });

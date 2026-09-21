@@ -9,6 +9,7 @@ import {
   SUMMARY_REQUEST,
   mentionsAgent,
 } from "../shared/agent-member.js";
+import { MCP_CONVERSATION_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
 import React, { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import "./theme.css";
@@ -50,9 +51,11 @@ import remarkGfm from "remark-gfm";
 import { labelReasoningEffort, labelWorkflowStatus, labelExecutorType, l3ExecutorName, uniqueActorIds, AGENT_LEVEL_LABELS } from "./ui-labels";
 import { UiIcon, workflowIcon, type UiIconName } from "./ui-icon";
 import { DialogClose, ModalBackdrop, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
+import { TipHost, showTip } from "./Tip";
 import { ImagePreviewDialog } from "./ImagePreview";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
-import { folderRootKind } from "./document-library";
+import { libraryFolderPath } from "./document-library";
+import { LibraryPickerField } from "./LibraryPicker";
 import { McpSettings } from "./McpSettings";
 
 const LEFT_SIDEBAR_STATE_KEY = "cothread-left-sidebar-open";
@@ -380,6 +383,7 @@ type AgentTask = {
 type AgentTaskDetail = AgentTask & {
   constraints: string | null;
   document_refs?: string[] | string | null;
+  folder_refs?: string[] | string | null;
   artifact_refs: unknown[] | string | null;
   assignmentHistory: { id: number; event_type: "assigned" | "transferred" | "rejected" | "acknowledged" | "reopened"; from_target_type: string | null; from_target_id: string | null; to_target_type: string | null; to_target_id: string | null; changed_by_type: string; changed_by_id: string | null; actor_name?: string | null; reason: string | null; created_at: string }[];
   questions: { id: string; source_user_id: string | null; question: string; answer: string | null; status: string; created_at: string }[];
@@ -622,7 +626,11 @@ function App() {
       });
       await navigator.clipboard.writeText([m.body, ...files].filter(Boolean).join("\n\n"));
       setCopiedMessage(m.id);
-    } catch { setError("复制失败，请检查剪贴板权限。"); }
+      showTip("消息已复制");
+    } catch {
+      setError("复制失败，请检查剪贴板权限。");
+      showTip("复制失败，请检查剪贴板权限。", "error");
+    }
   };
   useEffect(() => {
     if (!copiedMessage) return;
@@ -658,6 +666,37 @@ function App() {
     return () => clearInterval(timer);
   }, []);
   const conversationRef = useRef<HTMLDivElement>(null);
+  const composerAreaRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const composer = composerAreaRef.current;
+    const conversation = conversationRef.current;
+    const stage = composer?.closest(".conversation-stage");
+    if (!(composer instanceof HTMLElement) || !(stage instanceof HTMLElement)) return;
+    const sync = () => {
+      const hidden = composer.hidden || !composer.offsetParent;
+      stage.style.setProperty("--composer-height", `${hidden ? 0 : composer.offsetHeight}px`);
+      let gutter = 0;
+      if (conversation) {
+        gutter = Math.max(0, conversation.offsetWidth - conversation.clientWidth);
+        if (!gutter && conversation.scrollHeight > conversation.clientHeight) gutter = 12;
+      }
+      stage.style.setProperty("--chat-scrollbar", `${gutter}px`);
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(composer);
+    const mutations = new MutationObserver(sync);
+    if (conversation) {
+      observer.observe(conversation);
+      mutations.observe(conversation, { childList: true });
+    }
+    return () => {
+      observer.disconnect();
+      mutations.disconnect();
+      stage.style.removeProperty("--composer-height");
+      stage.style.removeProperty("--chat-scrollbar");
+    };
+  }, [threadId, threadView, Boolean(thread)]);
   const navigationUntil = useRef(0);
   const navigateMessage = useCallback(() => {
     followConversation.current = false;
@@ -727,6 +766,7 @@ function App() {
   const [taskCreateConstraints, setTaskCreateConstraints] = useState("");
   const [taskCreateTarget, setTaskCreateTarget] = useState("");
   const [taskCreateRefs, setTaskCreateRefs] = useState<string[]>([]);
+  const [taskCreateFolderRefs, setTaskCreateFolderRefs] = useState<string[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const threadViewportRef = useRef<HTMLDivElement>(null);
   const archiveToggleRef = useRef<HTMLButtonElement>(null);
@@ -864,8 +904,10 @@ function App() {
     try {
       await navigator.clipboard.writeText(taskId);
       setCopiedTaskId(taskId);
+      showTip("任务 ID 已复制");
     } catch {
       setTaskActionError("无法自动复制任务 ID，请检查剪贴板权限后重试。");
+      showTip("无法自动复制任务 ID，请检查剪贴板权限后重试。", "error");
     }
   };
   useEffect(() => {
@@ -878,6 +920,7 @@ function App() {
     setTaskCreateGoal("");
     setTaskCreateConstraints("");
     setTaskCreateRefs([]);
+    setTaskCreateFolderRefs([]);
     setTaskCreateTarget(user?.id || "");
   };
   const openTaskCreate = (seed?: { refId?: string }) => {
@@ -1140,7 +1183,7 @@ function App() {
     void load();
     return () => { alive = false; clearTimeout(timer); };
   }, [selectedTaskId, taskDialogOpen]);
-  const performTaskAction = async (action: () => Promise<unknown>) => {
+  const performTaskAction = async (action: () => Promise<unknown>, success = "操作成功") => {
     setTaskActionBusy(true);
     setTaskActionError("");
     try {
@@ -1157,7 +1200,12 @@ function App() {
         setTaskReopenGoal(nextDetail.goal || "");
         setTaskReopenConstraints(nextDetail.constraints || "");
       }
-    } catch (cause) { setTaskActionError((cause as Error).message); }
+      if (success) showTip(success);
+    } catch (cause) {
+      const detail = (cause as Error).message;
+      setTaskActionError(detail);
+      showTip(detail, "error");
+    }
     finally { setTaskActionBusy(false); }
   };
   useEffect(() => {
@@ -1221,26 +1269,23 @@ function App() {
   };
   const copyConversationInfo = async () => {
     if (!threadId || !projectId || thread?.id !== threadId || detail?.id !== projectId) return;
-    const info = JSON.stringify(
-      {
+    const info = formatMcpCopyPayload({
         server: `${location.origin}${health?.mcpEndpoint || "/mcp"}`,
         project: detail?.name,
         projectId,
         iteration: thread?.title,
         threadId,
-        instruction:
-          "先调用 get_iteration_context 确认此迭代，再按我的要求调用 post_message、upload_cache_draft 或 upload_official_file。",
-      },
-      null,
-      2,
-    );
+        instruction: MCP_CONVERSATION_COPY_INSTRUCTION,
+      });
     try {
       await navigator.clipboard.writeText(info);
       setCopiedThreadId(threadId);
       clearTimeout(conversationCopyTimer.current);
       conversationCopyTimer.current = setTimeout(() => setCopiedThreadId(""), 3000);
+      showTip("会话信息已复制");
     } catch {
       setError("无法自动复制会话信息，请检查剪贴板权限后重试。");
+      showTip("无法自动复制会话信息，请检查剪贴板权限后重试。", "error");
     }
   };
   const updateProjectTab = (
@@ -1303,6 +1348,7 @@ function App() {
           ),
         );
         await refresh();
+        showTip("个人资料已保存");
       }
       if (modal === "project") {
         const p = await api("/projects", {
@@ -1311,6 +1357,7 @@ function App() {
         });
         setProjects(await api("/projects"));
         setProjectId(p.id);
+        showTip("项目已创建");
       }
       if (modal === "thread") {
         const t = await api(`/projects/${projectId}/threads`, {
@@ -1318,18 +1365,22 @@ function App() {
         });
         setThreadId(t.id);
         setDetail(await api(`/projects/${projectId}?view=chat`));
+        showTip("迭代已创建");
       }
       if (modal === "archive") {
         await api(`/threads/${threadId}/archive`, {
           conclusion: value("conclusion"),
         });
         await refresh();
+        showTip("迭代已归档");
       }
-      if (modal === "password")
+      if (modal === "password") {
         await api("/password", {
           currentPassword: value("currentPassword"),
           password: value("password"),
         });
+        showTip("密码已更新");
+      }
       if (modal === "run") {
         const input = { command: value("command") };
         const result = health?.agentEndpoint
@@ -1517,7 +1568,10 @@ function App() {
           </div>
         </div>
         <EmailAuth api={api} onLogin={setUser} />
-        <a className="login-about" href="/about_us.html" target="_blank" rel="noopener noreferrer">关于我们</a>
+        <nav className="login-links">
+          <a href="/docs.html" target="_blank" rel="noopener noreferrer">文档</a>
+          <a href="/about_us.html" target="_blank" rel="noopener noreferrer">关于我们</a>
+        </nav>
       </div>
     );
   const versions =
@@ -1736,6 +1790,26 @@ function App() {
             ＋
           </button>
         </nav>
+        <a
+          className="sidebar-toggle workspace-help-link"
+          href="/about_us.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="关于我们"
+          aria-label="关于我们"
+        >
+          <UiIcon name="info" size={20} />
+        </a>
+        <a
+          className="sidebar-toggle workspace-help-link"
+          href="/docs.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="共序文档"
+          aria-label="共序文档"
+        >
+          <UiIcon name="book" size={20} />
+        </a>
         <ThemePicker theme={user.ui_theme || DEFAULT_UI_THEME} api={api} onChange={setUser} />
         <Notifications key={user.id} api={api} onOpen={(target) => {
           setProjects(target.projects);
@@ -1971,6 +2045,7 @@ function App() {
               onCompact={async () => {
                 await api(`/threads/${threadId}/context/compact`, {});
                 await refresh();
+                showTip("已提交上下文压缩");
               }}
             />
           </div>}
@@ -2267,13 +2342,7 @@ function App() {
                   </div>
                 )}
             </div>
-            </div>
-            {threadView === "trajectory" && threadId && (
-              <div className="conversation-stage conversation-stage-trajectory">
-                <AgentTrajectory key={threadId} scope={{ type: "thread", id: threadId }} api={api} />
-              </div>
-            )}
-            <div className="composer-area" hidden={threadView !== "chat"}>
+            <div className="composer-area" ref={composerAreaRef}>
               <div className="composer-toolbar">
                 <div className="conversation-task-pool" role="group" aria-label="本迭代与我有关的任务" onClick={() => {
                   setTaskMine(true); setSelectedTaskId(""); setTaskDetail(null); openTaskDialog();
@@ -2390,6 +2459,12 @@ function App() {
                 </div>
               )}
             </div>
+            </div>
+            {threadView === "trajectory" && threadId && (
+              <div className="conversation-stage conversation-stage-trajectory">
+                <AgentTrajectory key={threadId} scope={{ type: "thread", id: threadId }} api={api} />
+              </div>
+            )}
           </>
         )}
       </main>
@@ -2418,6 +2493,8 @@ function App() {
             <Documents
               key={projectId}
               projectId={projectId}
+              projectName={detail?.name}
+              mcpEndpoint={health?.mcpEndpoint || "/mcp"}
               threadId={threadId || undefined}
               writable={writable}
               iterationWritable={active}
@@ -2440,6 +2517,7 @@ function App() {
                   ? async (id, decision, comment) => {
                       await api(`/versions/${id}/reviews`, { decision, comment, threadId }, "POST");
                       await refresh();
+                      showTip(decision === "changes_requested" ? "已发送修改意见" : "已确认该版本");
                     }
                   : undefined
               }
@@ -2488,20 +2566,34 @@ function App() {
                     <dl className="task-detail-meta"><div><dt>任务来源</dt><dd>{taskSourceLabel(task)}</dd></div><div><dt>任务类型</dt><dd>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</dd></div><div><dt>责任主体</dt><dd>{targetName}</dd></div><div><dt>任务执行</dt><dd>{taskExecutorLabel(task)}</dd></div></dl>
                     <section><h4>任务目标</h4><p>{task.goal}</p>{task.constraints && <><h4>约束</h4><p>{task.constraints}</p></>}
                     {(() => {
-                      const refs = Array.isArray(task.document_refs) ? task.document_refs
-                        : typeof task.document_refs === "string" ? (() => { try { const parsed = JSON.parse(task.document_refs as string); return Array.isArray(parsed) ? parsed : []; } catch { return []; } })() : [];
-                      return refs.length ? <><h4>引用文档</h4><div className="references">{refs.map(renderRef)}</div></> : null;
+                      const parseIds = (value: string[] | string | null | undefined) => {
+                        if (Array.isArray(value)) return value.filter((id) => typeof id === "string" && id);
+                        if (typeof value === "string") {
+                          try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string" && id) : []; }
+                          catch { return []; }
+                        }
+                        return [];
+                      };
+                      const refs = parseIds(task.document_refs);
+                      const folderRefs = parseIds(task.folder_refs);
+                      return (refs.length || folderRefs.length) ? <>
+                        {folderRefs.length ? <><h4>引用文件夹</h4><div className="references">{folderRefs.map((id) => {
+                          const folder = detail?.folders.find((item) => item.id === id);
+                          return <span className="ref" key={id}>{folder ? libraryFolderPath(id, detail?.folders || []) || folder.name : id}</span>;
+                        })}</div></> : null}
+                        {refs.length ? <><h4>引用文档</h4><div className="references">{refs.map(renderRef)}</div></> : null}
+                      </> : null;
                     })()}
                     </section>
-                    {openQuestion && <section className="task-question"><h4>需要你回答</h4><p>{openQuestion.question}</p><textarea value={taskAnswer} onChange={(event) => setTaskAnswer(event.target.value)} placeholder="输入回答" /><button type="button" className="primary" disabled={taskActionBusy || !taskAnswer.trim()} onClick={() => void performTaskAction(async () => { await api(`/task-questions/${openQuestion.id}/answer`, { answer: taskAnswer }); setTaskAnswer(""); })}>提交回答</button></section>}
+                    {openQuestion && <section className="task-question"><h4>需要你回答</h4><p>{openQuestion.question}</p><textarea value={taskAnswer} onChange={(event) => setTaskAnswer(event.target.value)} placeholder="输入回答" /><button type="button" className="primary" disabled={taskActionBusy || !taskAnswer.trim()} onClick={() => void performTaskAction(async () => { await api(`/task-questions/${openQuestion.id}/answer`, { answer: taskAnswer }); setTaskAnswer(""); }, "回答已提交")}>提交回答</button></section>}
                     {isTarget && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>确认任务</h4>{projectConnectorBound
                       ? <select value={taskExecutionMode === "auto" ? "member_connector" : taskExecutionMode} onChange={(event) => setTaskExecutionMode(event.target.value as typeof taskExecutionMode)}><option value="member_connector">下发连接器</option><option value="human_direct">由本人执行</option></select>
                       : <p className="muted">当前账号未连接本项目连接器，确认后由本人执行。</p>}
-                    <div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reject`, {}, "POST"))}><UiIcon name="reject" size={13} />拒绝</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/accept`, { mode: projectConnectorBound ? (taskExecutionMode === "human_direct" ? "human_direct" : "member_connector") : "human_direct" }, "POST"))}><UiIcon name="check" size={13} />确认</button></div></section>}
-                    {isSource && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>来源操作</h4><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/cancel`, {}, "POST"))}><UiIcon name="close" size={13} />取消</button></section>}
-                    {canReviewRejection && <section className="task-actions-section task-rejection-review"><h4>任务已被拒绝</h4><p>{[...task.assignmentHistory].reverse().find((event) => event.event_type === "rejected")?.reason || "目标成员拒绝了这个任务。"}</p><textarea value={taskReopenGoal} onChange={(event) => setTaskReopenGoal(event.target.value)} placeholder="修改任务目标与验收标准" /><textarea value={taskReopenConstraints} onChange={(event) => setTaskReopenConstraints(event.target.value)} placeholder="修改约束（可选）" /><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"))}>知道了</button><button type="button" className="primary" disabled={taskActionBusy || !taskReopenGoal.trim()} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reopen`, { goal: taskReopenGoal.trim(), constraints: taskReopenConstraints }, "POST"))}>修改后重新发起</button></div></section>}
-                    {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.kind !== "l1" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"))}><UiIcon name="transfer" size={13} />确认转交</button></section>}
-                    {isTarget && task.execution_agent_type === "human_self" && !endedTask(task.status) && task.status !== "awaiting_acceptance" && <section className="task-actions-section"><h4>进度与结果</h4><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "abandoned", resultSummary: taskResult || "已放弃" }, "PATCH"))}><UiIcon name="abandon" size={13} />放弃</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", resultSummary: taskResult || "已完成" }, "PATCH"))}><UiIcon name="complete" size={13} />完成</button></div></section>}
+                    <div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reject`, {}, "POST"), "已拒绝任务")}><UiIcon name="reject" size={13} />拒绝</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/accept`, { mode: projectConnectorBound ? (taskExecutionMode === "human_direct" ? "human_direct" : "member_connector") : "human_direct" }, "POST"), "已确认任务")}><UiIcon name="check" size={13} />确认</button></div></section>}
+                    {isSource && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>来源操作</h4><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/cancel`, {}, "POST"), "任务已取消")}><UiIcon name="close" size={13} />取消</button></section>}
+                    {canReviewRejection && <section className="task-actions-section task-rejection-review"><h4>任务已被拒绝</h4><p>{[...task.assignmentHistory].reverse().find((event) => event.event_type === "rejected")?.reason || "目标成员拒绝了这个任务。"}</p><textarea value={taskReopenGoal} onChange={(event) => setTaskReopenGoal(event.target.value)} placeholder="修改任务目标与验收标准" /><textarea value={taskReopenConstraints} onChange={(event) => setTaskReopenConstraints(event.target.value)} placeholder="修改约束（可选）" /><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"), "已确认拒绝结果")}>知道了</button><button type="button" className="primary" disabled={taskActionBusy || !taskReopenGoal.trim()} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reopen`, { goal: taskReopenGoal.trim(), constraints: taskReopenConstraints }, "POST"), "任务已重新发起")}>修改后重新发起</button></div></section>}
+                    {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.kind !== "l1" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"), "任务已转交")}><UiIcon name="transfer" size={13} />确认转交</button></section>}
+                    {isTarget && task.execution_agent_type === "human_self" && !endedTask(task.status) && task.status !== "awaiting_acceptance" && <section className="task-actions-section"><h4>进度与结果</h4><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "abandoned", resultSummary: taskResult || "已放弃" }, "PATCH"), "任务已放弃")}><UiIcon name="abandon" size={13} />放弃</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", resultSummary: taskResult || "已完成" }, "PATCH"), "任务已完成")}><UiIcon name="complete" size={13} />完成</button></div></section>}
                     {(() => {
                       const timeline = taskDetailTimeline(task);
                       const visibleTimeline = timeline.filter((item) => taskTimelineFilters[item.kind]);
@@ -2526,13 +2618,7 @@ function App() {
         </section>}
       </ModalBackdrop>}
       {taskCreateOpen && <ModalBackdrop className="task-create-backdrop" onClose={closeTaskCreate} enabled={!taskActionBusy}>
-        {(close) => {
-          const availableDocs = (detail?.versions || []).filter((version, index, all) =>
-            !version.deleted_at
-            && folderRootKind(version.folder_id, detail?.folders || []) === "project_official"
-            && all.findIndex((item) => item.artifact_id === version.artifact_id) === index);
-          const unusedDocs = availableDocs.filter((version) => !taskCreateRefs.includes(version.id));
-          return <section className="task-create-dialog" role="dialog" aria-modal="true" aria-labelledby="task-create-dialog-title" onClick={(event) => event.stopPropagation()}>
+        {(close) => <section className="task-create-dialog" role="dialog" aria-modal="true" aria-labelledby="task-create-dialog-title" onClick={(event) => event.stopPropagation()}>
             <header>
               <div>
                 <span>当前迭代</span>
@@ -2549,13 +2635,14 @@ function App() {
                   title: taskCreateTitle.trim(), goal: taskCreateGoal.trim(),
                   constraints: taskCreateConstraints.trim() || undefined,
                   refs: taskCreateRefs,
+                  folderRefs: taskCreateFolderRefs,
                   targetType: "human_member",
                   targetUserId: taskCreateTarget,
                   threadId,
                 });
                 closeTaskCreate();
                 setSelectedTaskId(created.id);
-              });
+              }, "任务已创建");
             }}>
               <div className="task-create-fields">
               <label>标题
@@ -2567,26 +2654,27 @@ function App() {
               <label>约束（可选）
                 <textarea value={taskCreateConstraints} onChange={(event) => setTaskCreateConstraints(event.target.value)} placeholder="范围、禁止事项或依赖" maxLength={20000} />
               </label>
-              <label>引用正式文件
-                <select value="" onChange={(event) => {
-                  const id = event.target.value;
-                  if (!id) return;
-                  setTaskCreateRefs((previous) => [...new Set([...previous, id])].slice(0, 30));
-                }}>
-                  <option value="">{availableDocs.length ? "选择要附带的正式文件" : "暂无可引用的正式文件"}</option>
-                  {unusedDocs.map((version) => <option key={version.id} value={version.id}>{fileDisplayName(version)}</option>)}
-                </select>
-              </label>
-              {!!taskCreateRefs.length && <div className="task-create-refs">
-                {taskCreateRefs.map((id) => {
-                  const version = detail?.versions.find((item) => item.id === id);
-                  return <span className="ref" key={id}>
-                    {version ? fileDisplayName(version) : id}
-                    <button type="button" className="ref-remove" aria-label={`取消引用 ${version ? fileDisplayName(version) : id}`}
-                      onClick={() => setTaskCreateRefs((previous) => previous.filter((item) => item !== id))}>×</button>
-                  </span>;
-                })}
-              </div>}
+              <div className="task-create-library">
+                <LibraryPickerField
+                  label="引用正式文件"
+                  buttonLabel="选择文件或文件夹"
+                  dialogTitle="选择正式文件"
+                  dialogDescription="可同时选择文件和文件夹。选中文件夹后，其中已选文件会自动收进该文件夹。"
+                  folders={detail?.folders || []}
+                  files={detail?.versions || []}
+                  rootKinds={["project_official"]}
+                  allowFiles
+                  allowFolders
+                  multiple
+                  value={{ fileIds: taskCreateRefs, folderIds: taskCreateFolderRefs }}
+                  onChange={(next) => {
+                    setTaskCreateRefs(next.fileIds);
+                    setTaskCreateFolderRefs(next.folderIds);
+                  }}
+                  searchPlaceholder="搜索正式文件或文件夹"
+                  emptyLabel="暂无可引用的正式文件"
+                />
+              </div>
               <label>指派成员
                 <select value={taskCreateTarget} onChange={(event) => setTaskCreateTarget(event.target.value)}>
                   <option value="">选择指派成员</option>
@@ -2600,8 +2688,7 @@ function App() {
                 <button type="submit" className="primary" disabled={taskActionBusy || !taskCreateTitle.trim() || !taskCreateGoal.trim() || !taskCreateTarget}><UiIcon name="plus" size={13} />创建正式任务</button>
               </div>
             </form>
-          </section>;
-        }}
+          </section>}
       </ModalBackdrop>}
       {quotePreview && <ModalBackdrop onClose={() => setQuotePreview(null)} enabled={!imagePreview}>
         {(close) => <section className="quoted-message-dialog" role="dialog" aria-modal="true" aria-label="引用消息原文" onClick={e => e.stopPropagation()}>
@@ -2937,4 +3024,4 @@ function App() {
     </div>
   );
 }
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(<><App /><TipHost /></>);

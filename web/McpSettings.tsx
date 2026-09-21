@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createMcpInstallGuide } from "../shared/mcp-guide.js";
 import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";
 import { UiIcon, type UiIconName } from "./ui-icon";
+import { showTip } from "./Tip";
 
 type Api = (path: string, data?: unknown, method?: string) => Promise<any>;
 export function McpSettings({ api, endpoint }: { api: Api; endpoint: string }) {
@@ -42,7 +43,11 @@ export function McpSettings({ api, endpoint }: { api: Api; endpoint: string }) {
       setNotice(message);
       window.clearTimeout(copyTimer.current);
       copyTimer.current = window.setTimeout(() => { setCopied(""); setNotice(""); }, 2500);
-    } catch { setError("无法写入剪贴板，请检查浏览器权限后重试"); }
+      showTip(message);
+    } catch {
+      setError("无法写入剪贴板，请检查浏览器权限后重试");
+      showTip("无法写入剪贴板，请检查浏览器权限后重试", "error");
+    }
   };
   const reset = async () => {
     if (!window.confirm("重置后本账号当前 MCP 令牌会立即失效，已配置的 Cursor、Codex、Claude Code 等客户端需要重新加载配置。确定继续吗？")) return;
@@ -51,7 +56,12 @@ export function McpSettings({ api, endpoint }: { api: Api; endpoint: string }) {
       setCredential(await api("/mcp/credential/reset", {}));
       setRevealed(false);
       setNotice("已生成新令牌，旧令牌已立即失效");
-    } catch (cause) { setError((cause as Error).message); }
+      showTip("已生成新令牌，旧令牌已立即失效");
+    } catch (cause) {
+      const detail = (cause as Error).message;
+      setError(detail);
+      showTip(detail, "error");
+    }
     finally { setBusy(false); }
   };
 
@@ -76,7 +86,7 @@ export function McpSettings({ api, endpoint }: { api: Api; endpoint: string }) {
         {notice && <p className="success" role="status">{notice}</p>}
         {error && <p className="error" role="alert">{error}</p>}
       </>}
-      <p className="mcp-warning"><UiIcon name="info" size={13} />复制的是纯文本配置。若本机 IDM 等下载器监视剪贴板，可能把其中的服务地址当成下载链接并弹窗，直接取消即可。重置会使旧配置立即失效；连接器下次同步会写入新令牌，手动配置请重新复制安装文档。</p>
+      <p className="mcp-warning"><UiIcon name="info" size={13} />复制的 MCP 安装文档含当前账号令牌。为安全起见，粘贴到对话或其他环境后请重置令牌，并在客户端手动替换配置。</p>
     </section>
     <section className="mcp-settings-section mcp-capabilities-section">
       <div className="mcp-settings-heading"><div><strong>MCP 能力清单</strong><small>{capabilities.length} 项工具，权限仍受账号和项目成员身份限制</small></div><UiIcon name="plugin" size={18} /></div>

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { UiIcon } from "./ui-icon";
+import { showTip } from "./Tip";
 
 type Authorization = {
   id: string; name: string; platform: string; version: string;
@@ -37,9 +38,19 @@ export function ConnectorAuthorization({ id, callbackPort, callbackSecret, api, 
         if (!delivered) await new Promise((resolve) => setTimeout(resolve, 300));
       }
       if (!delivered) throw new Error("未能通知本地连接器，请保持连接器开启后重试授权");
-      if (approved) setAuthorization((current) => current && ({ ...current, approved_at: new Date().toISOString() }));
-      else onDone();
-    } catch (cause) { setError((cause as Error).message); }
+      if (approved) {
+        setAuthorization((current) => current && ({ ...current, approved_at: new Date().toISOString() }));
+        showTip("连接器已授权");
+      }
+      else {
+        showTip("已拒绝连接器授权");
+        onDone();
+      }
+    } catch (cause) {
+      const detail = (cause as Error).message;
+      setError(detail);
+      showTip(detail, "error");
+    }
     finally { setBusy(false); }
   };
   return <dialog ref={dialog} className="connector-authorization-dialog" onCancel={(event) => event.preventDefault()}>

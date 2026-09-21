@@ -31,7 +31,16 @@ const STORED_MIME_BY_EXT = {
   gif: "image/gif",
   webp: "image/webp",
   pdf: "application/pdf",
+  zip: "application/zip",
 };
+
+export function normalizeUploadMime(mime) {
+  const current = String(mime || "").trim();
+  if (!current) return undefined;
+  const type = current.split(";")[0].trim().toLowerCase();
+  if (!/^[\w.+-]+\/[\w.+-]+$/.test(type)) return undefined;
+  return type;
+}
 
 function fileExt(filename) {
   return String(filename || "").split(".").pop()?.toLowerCase() || "";
@@ -46,7 +55,7 @@ export function storedContentType(filename) {
 
 export function resolveStoredMime(filename, mime) {
   const inferred = storedContentType(filename);
-  const current = String(mime || "").trim();
+  const current = normalizeUploadMime(mime);
   if (!current || current === "application/octet-stream") return inferred;
   if (current === "text/plain" && inferred !== "text/plain") return inferred;
   return current;

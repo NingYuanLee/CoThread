@@ -19,6 +19,7 @@ export type UiIconName =
   | "download"
   | "edit"
   | "email"
+  | "expand"
   | "eye"
   | "failed"
   | "filter"
@@ -97,6 +98,7 @@ const GLYPHS: Record<UiIconName, string[]> = {
   download: ["M12 4v12", "m7 12 5 5 5-5", "M5 20h14"],
   edit: ["M4 20h7", "M14.5 5.5 18.5 9.5 8 20H4v-4Z"],
   email: ["M4 6h16v12H4z", "m4 7 8 6 8-6"],
+  expand: ["M9 4H4v5", "M15 4h5v5", "M9 20H4v-5", "M15 20h5v-5"],
   eye: ["M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z", "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"],
   failed: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "m9 9 6 6m0-6-6 6"],
   filter: ["M4 6h16l-6 7v5l-4 2v-7L4 6Z"],

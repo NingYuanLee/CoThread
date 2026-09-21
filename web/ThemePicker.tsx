@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { UI_THEMES, normalizeUiTheme } from "../shared/ui-theme.js";
 import { applyUiTheme } from "./apply-ui-theme";
 import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
+import { showTip } from "./Tip";
 
 export function ThemePicker({
   theme,
@@ -29,10 +30,13 @@ export function ThemePicker({
     applyUiTheme(id);
     try {
       onChange(await api("/me/theme", { theme: id }, "PATCH"));
+      showTip("主题已切换");
       close();
     } catch (cause) {
       applyUiTheme(current);
-      setError((cause as Error).message);
+      const detail = (cause as Error).message;
+      setError(detail);
+      showTip(detail, "error");
     } finally {
       setBusy(false);
     }

@@ -26,6 +26,7 @@ import { retryReply } from "./reply-actions.js";
 import { personalProfile, profileSchema } from "./profile.js";
 import { UI_THEMES, normalizeUiTheme } from "../shared/ui-theme.js";
 import { registerRequestParts } from "./request-parts.js";
+import { completeFileUpload, putFileUploadChunk, startFileUpload } from "./file-upload.js";
 import { requestTiming } from "./request-timing.js";
 import { resolveIpLocation } from "./ip-location.js";
 import { randomUUID } from "node:crypto";
@@ -570,13 +571,14 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     await service.member(req.user, req.params.id);
     const data = z.object({ title: z.string().trim().min(1).max(240), goal: z.string().trim().min(1).max(20000),
       constraints: z.string().max(20000).optional(), refs: z.array(z.string().uuid()).max(30).default([]),
+      folderRefs: z.array(z.string().uuid()).max(30).default([]),
       targetType: z.enum(["human_member"]).optional(),
       targetUserId: z.string().uuid(), threadId: z.string().uuid().optional() }).parse(req.body);
     if (data.threadId) { const thread = await service.thread(req.user, data.threadId); if (thread.project_id !== req.params.id) throw new HttpError(403, "迭代不属于当前项目"); }
     const task = await createTask(db, { projectId: req.params.id, originThreadId: data.threadId,
       sourceType: "human_member", sourceUserId: req.user.id, sourceMessageId: null, createdByType: "human_member",
       createdById: req.user.id, taskType: "formal", title: data.title, goal: data.goal, constraints: data.constraints,
-      documentRefs: data.refs, targetType: "human_member", targetId: data.targetUserId });
+      documentRefs: data.refs, folderRefs: data.folderRefs, targetType: "human_member", targetId: data.targetUserId });
     res.status(201).json(task);
   });
   app.post("/api/task-questions/:id/answer", async (req, res) => {
@@ -696,6 +698,12 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   );
   app.post("/api/projects/:id/documents/upload", async (req, res) =>
     res.status(201).json(await service.uploadOfficialDocument(req.user, req.params.id, req.body)));
+  app.post("/api/file-uploads", async (req, res) =>
+    res.status(201).json(await startFileUpload(service, req.user, req.body)));
+  app.post("/api/file-uploads/:id/chunks", async (req, res) =>
+    res.json(await putFileUploadChunk(service, req.user, req.params.id, req.body)));
+  app.post("/api/file-uploads/:id/complete", async (req, res) =>
+    res.status(201).json(await completeFileUpload(service, req.user, req.params.id, req.body)));
   app.post("/api/projects/:id/folders", async (req, res) =>
     res.status(201).json(await libraryChange(service, req.user, req.params.id, "folder", null, req.body)));
   app.patch("/api/projects/:id/folders/:folderId", async (req, res) =>

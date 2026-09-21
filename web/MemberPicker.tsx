@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { UiIcon } from "./ui-icon";
 import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { showTip } from "./Tip";
 
 export function MemberPicker({ projectId, api, onClose, onAdded }: {
   projectId: string;
@@ -27,8 +28,8 @@ export function MemberPicker({ projectId, api, onClose, onAdded }: {
           <button type="button" className="primary" disabled={!!busy} onClick={() => {
             setBusy(account.id); setError("");
             void api(`/projects/${projectId}/members`, { userId: account.id, role: "member" })
-              .then(async () => { await onAdded(); await load(); })
-              .catch((e) => setError(e.message)).finally(() => setBusy(""));
+              .then(async () => { await onAdded(); await load(); showTip("已添加项目成员"); })
+              .catch((e) => { setError(e.message); showTip(e.message, "error"); }).finally(() => setBusy(""));
           }}>{busy === account.id ? "添加中…" : <><UiIcon name="userPlus" size={13} />添加</>}</button>
         </div>)}
         {!visible.length && <p className="empty-state">没有可添加的系统账号</p>}

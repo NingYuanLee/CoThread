@@ -38,6 +38,8 @@ test("ordinary HTTP app can load without DSH packages", () => {
     import { registerHooks } from 'node:module';
     registerHooks({ resolve(specifier, context, next) {
       if (specifier.startsWith('@deepseek-ai/dsh')) throw new Error('HTTP must not load DSH: ' + specifier);
+      if (specifier === 'playwright' || specifier.startsWith('playwright/') || specifier.includes('preview-screenshot'))
+        throw new Error('HTTP must not load Playwright: ' + specifier);
       return next(specifier, context);
     }});
     await import(${JSON.stringify(httpApp)});

@@ -8,7 +8,7 @@ import { synchronizeNextDiscussion } from "./context-sync.js";
 import { processNextCoordinator } from "./coordinator.js";
 import { publishWork, subscribeWork } from "./work-events.js";
 import { processNextProjectMemory } from "./project-memory.js";
-import { processNextDocumentOrganization } from "./document-organization.js";
+import { processNextDocumentOrganization } from "./document-organization-run.js";
 import { discussionHasActiveCoordinator } from "./session-lock.js";
 
 export async function runMakersThread(db, user, threadId, command, operations = {}) {

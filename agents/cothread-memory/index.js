@@ -1,7 +1,7 @@
 import { makersDatabase, makersErrorDetails } from "../../server/makers.js";
 import { makersWebRequest } from "../../server/makers-request.js";
 import { processNextProjectMemory } from "../../server/project-memory.js";
-import { processNextDocumentOrganization } from "../../server/document-organization.js";
+import { processNextDocumentOrganization } from "../../server/document-organization-run.js";
 import { processNextL1ContextCompression } from "../../server/l1-context.js";
 import { processNextL3ContextCompression } from "../../server/l3-context.js";
 

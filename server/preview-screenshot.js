@@ -1,4 +1,3 @@
-import { chromium } from "playwright";
 import { posix } from "node:path";
 import { inlineHtmlPreviewAssets } from "../shared/html-preview.mjs";
 import { previewContentType, storedContentType } from "./preview-mime.js";
@@ -77,6 +76,7 @@ export async function captureProjectTree(project) {
 }
 
 async function withBrowser(work) {
+  const { chromium } = await import("playwright");
   const browser = await chromium.launch({
     headless: true,
     executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined,

@@ -4,7 +4,8 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { processNextDocumentOrganization, queueDocumentOrganization } from "../server/document-organization.js";
+import { queueDocumentOrganization } from "../server/document-organization.js";
+import { processNextDocumentOrganization } from "../server/document-organization-run.js";
 
 test("formal file organization is blocked before L1 when the official area has no documents", async () => {
   const database = await testDatabase();

@@ -5,17 +5,8 @@ export default defineConfig({
     chunkSizeWarningLimit: 1600,
   },
   server: {
-    // middlewareMode 下开启会在部分环境导致首请求长时间挂起；独立 Vite 进程可预转换。
+    // middlewareMode 下开启会在部分环境导致首请求长时间挂起
     preTransformRequests: false,
-    warmup: {
-      clientFiles: [
-        "./web/main.tsx",
-        "./web/App.tsx",
-        "./web/WorkspaceApp.tsx",
-        "./web/BootScreen.tsx",
-        "./web/LoginScreen.tsx",
-      ],
-    },
     fs: { deny: [".local"] },
     watch: {
       ignored(path) {
@@ -26,7 +17,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     holdUntilCrawlEnd: false,
-    entries: ["./index.html", "./web/main.tsx", "./web/WorkspaceApp.tsx"],
+    entries: ["./index.html", "./web/main.tsx"],
     include: [
       "react",
       "react-dom",
@@ -35,12 +26,6 @@ export default defineConfig({
       "react/jsx-dev-runtime",
       "react-markdown",
       "remark-gfm",
-      "jszip",
-      "xlsx",
-      "docx-preview",
-      "mermaid",
-      "@react-symbols/icons/utils",
-      "@react-symbols/icons/files",
     ],
   },
 });

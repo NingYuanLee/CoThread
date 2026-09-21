@@ -13,15 +13,15 @@ const server = await createServer({
     port,
     host: "127.0.0.1",
     strictPort: true,
-    preTransformRequests: true,
     hmr: false,
   },
 });
 
 await server.listen();
 
-for (const url of ["/web/main.tsx", "/web/App.tsx", "/web/WorkspaceApp.tsx"]) {
-  void server.warmupRequest(url).catch(() => {});
+const warmupUrls = ["/web/main.tsx", "/web/App.tsx"];
+for (const url of warmupUrls) {
+  await server.warmupRequest(url);
 }
 
 console.log(`Vite 已就绪：http://127.0.0.1:${port}`);

@@ -2101,7 +2101,7 @@ export function WorkspaceApp() {
               onSelect={setDocumentId}
               onRefresh={async () => {
                 const library = await api(`/projects/${projectId}/library`);
-                const merge = (previous: Detail | undefined | null) => {
+                const applyLibrary = (previous: Detail | undefined | null) => {
                   if (!previous || previous.id !== projectId) return previous;
                   return {
                     ...previous,
@@ -2110,8 +2110,9 @@ export function WorkspaceApp() {
                     documentOrganizationJobs: library.documentOrganizationJobs,
                   };
                 };
-                projectCache.current.update(projectId, (previous) => merge(previous) || previous);
-                setDetail((previous) => merge(previous) || previous);
+                const cached = applyLibrary(projectCache.current.get(projectId));
+                if (cached) projectCache.current.update(projectId, () => cached);
+                setDetail((previous) => applyLibrary(previous) || previous);
               }}
               onReference={
                 active

@@ -14,7 +14,6 @@ import {
 import {
   createDevProgress,
   extractWarmupUrls,
-  isSkippedWarmupPath,
   normalizeWarmupUrl,
   renderDevProgress,
   renderDevProgressBar,
@@ -219,9 +218,9 @@ test("warmDevFrontend follows the module graph before resolving", async () => {
   }
 });
 
-test("warmDevFrontend retries 503 and does not crawl node_modules", async () => {
+test("warmDevFrontend retries 503 and does not crawl prebundled deps", async () => {
   const hits = [];
-  let mainHits = 0;
+  let reactHits = 0;
   const server = http.createServer((req, res) => {
     hits.push(req.url);
     if (req.url === "/") {
@@ -229,21 +228,17 @@ test("warmDevFrontend retries 503 and does not crawl node_modules", async () => 
       return;
     }
     if (req.url === "/web/main.tsx") {
-      mainHits += 1;
-      if (mainHits < 3) {
+      res.end(`import "react-dom" from "/node_modules/.vite/deps/react-dom.js"`);
+      return;
+    }
+    if (req.url === "/node_modules/.vite/deps/react-dom.js") {
+      reactHits += 1;
+      if (reactHits < 3) {
         res.statusCode = 503;
         res.end("frontend unavailable");
         return;
       }
-      res.end(`
-        import "/node_modules/.vite/deps/react-dom.js";
-        import "/node_modules/xlsx/xlsx.mjs";
-        import "/web/App.tsx";
-      `);
-      return;
-    }
-    if (req.url === "/web/App.tsx") {
-      res.end(`import "/@fs/D:/work/secret.ts"; export const App = 1`);
+      res.end(`href="/missing-from-bundle.js"; import "/web/should-not.ts"`);
       return;
     }
     res.statusCode = 404;
@@ -254,17 +249,14 @@ test("warmDevFrontend retries 503 and does not crawl node_modules", async () => 
     server.listen(0, "127.0.0.1", () => resolve(server.address().port));
   });
   try {
-    assert.equal(isSkippedWarmupPath("/node_modules/xlsx/xlsx.mjs"), true);
     const result = await warmDevFrontend(`http://127.0.0.1:${port}`, {
       concurrency: 2,
       retryDelayMs: 20,
     });
     assert.equal(result.completed, 3);
-    assert.equal(mainHits, 3);
-    assert.equal(hits.includes("/node_modules/.vite/deps/react-dom.js"), false);
-    assert.equal(hits.includes("/node_modules/xlsx/xlsx.mjs"), false);
-    assert.equal(hits.includes("/@fs/D:/work/secret.ts"), false);
-    assert.ok(hits.includes("/web/App.tsx"));
+    assert.equal(reactHits, 3);
+    assert.equal(hits.includes("/web/should-not.ts"), false);
+    assert.equal(hits.includes("/missing-from-bundle.js"), false);
   } finally {
     server.close();
   }

@@ -243,15 +243,9 @@ function isBinaryWarmupPath(path) {
   return /\.(svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot)$/i.test(path);
 }
 
-export function isSkippedWarmupPath(path) {
-  if (!path || isBinaryWarmupPath(path)) return true;
-  return path.startsWith("/node_modules/")
-    || path.startsWith("/@fs/")
-    || path.startsWith("/@id/");
-}
-
 export function shouldFollowWarmup(path) {
-  return !isSkippedWarmupPath(path);
+  if (!path || isBinaryWarmupPath(path)) return false;
+  return !path.startsWith("/node_modules/.vite/deps/");
 }
 
 export function warmupCrawlPercent(completed) {
@@ -261,7 +255,7 @@ export function warmupCrawlPercent(completed) {
 export async function warmDevFrontend(origin, {
   onProgress,
   timeoutMs = 180000,
-  concurrency = 8,
+  concurrency = 3,
   retryDelayMs = 200,
 } = {}) {
   const start = Date.now();
@@ -285,7 +279,7 @@ export async function warmDevFrontend(origin, {
           onProgress?.({ completed, queued: queue.length, inflight, path });
           if (!body || !shouldFollowWarmup(path)) return;
           for (const next of extractWarmupUrls(body, path)) {
-            if (seen.has(next) || isSkippedWarmupPath(next)) continue;
+            if (seen.has(next)) continue;
             seen.add(next);
             queue.push(next);
           }

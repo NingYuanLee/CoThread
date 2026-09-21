@@ -1,3 +1,5 @@
+export const PREVIEW_CONSOLE_MESSAGE: "cothread-preview-console";
+export function previewConsoleProbeHtml(): string;
 export function resolvePreviewAssetPath(ref: string): string | null;
 export function inlineHtmlPreviewAssets(
   html: string,

@@ -27,23 +27,13 @@ export function createMcpInstallGuide({ url, token, context, conversationId } = 
   } } }, null, 2);
   return `# 请帮我连接共序 CoThread MCP
 
-只配置 MCP，不要安装 SKILL。下方 JSON 已含账号令牌，不要在日志、提交或回复中复述。
-
-服务名：cothread-mcp · 传输：Streamable HTTP（非 SSE / stdio）
-
 ~~~json
 ${config}
 ~~~
 
-1. 按当前客户端适配上述 JSON，保留其他 MCP；已有 cothread-mcp 则更新。若仍有旧名 cothread，改成 cothread-mcp，不要两项并存。
-2. 令牌已填好，不要让我再替换。没有配置权限时，告诉我去哪个设置页填写。
-3. 重载 MCP，必要时让我重启客户端。远程客户端先确认能访问的本站地址，不要绕过 TLS。
-4. initialize 后调用 get_connection_guide 与 list_projects 做只读验证；不要发测试消息或创建文件。
-5. 只报告是否连上以及可访问的项目名。失败时区分：地址不可达 / 401 / 不支持 Streamable HTTP / 配置未加载。
+按当前客户端写入并重载。已有 cothread-mcp 则更新，旧名 cothread 改成 cothread-mcp。令牌已填好，不要复述或让我再替换；没有权限时告诉我去哪个设置页填。连上后只读调用 get_connection_guide 与 list_projects，报告是否连通和可见项目。不要发测试消息。失败时区分：地址不可达 / 401 / 不支持 Streamable HTTP / 配置未加载。
 
-连上后按 get_connection_guide 使用，不要猜项目或迭代 ID。
-
-${context?.threadId ? `当前会话（安装本身不授权发消息，先核对再按后续要求操作）：
+${context?.threadId ? `当前会话（先核对，再按后续要求操作）：
 
 ~~~json
 ${JSON.stringify(context, null, 2)}

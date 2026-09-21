@@ -123,6 +123,7 @@ test("MCP discovers the target, uploads source files first, then sends refs + te
   const connectorGuide = await mcp("get_connection_guide", {}, "local-connector");
   assert.equal(connectorGuide.data.instructions, guide.data.instructions);
   const installation = createMcpInstallGuide({ url: `${base}/mcp`, token, context: { projectId, threadId } });
+  assert.ok(installation.includes(`"cothread-mcp"`));
   assert.ok(installation.includes(`Bearer ${token}`));
   assert.ok(installation.includes(threadId));
   assert.throws(() => createMcpInstallGuide({ url: `${base}/mcp` }), /有效账号令牌/);

@@ -139,7 +139,7 @@ MCP 通过本机 Agent 连接器接入：连接器授权后调用 `POST /api/con
 ```json
 {
   "mcpServers": {
-    "cothread": {
+    "cothread-mcp": {
       "type": "http",
       "url": "http://localhost:3100/mcp",
       "headers": { "Authorization": "Bearer <你的账号令牌>" }
@@ -174,7 +174,7 @@ MCP 通过本机 Agent 连接器接入：连接器授权后调用 `POST /api/con
 
 任务每次状态变化都会记录（从什么状态到什么状态、由谁——成员 / 小祥 / 任务级 Agent / 本机连接器 / 系统——以及原因），与指派、转交、拒绝等事件合成任务详情里的「变更记录」；「执行轮次」单独列出每一轮由谁执行及其结果。
 
-两套令牌：`ctc_` 设备令牌只用于连接器与共序通讯；账号 MCP 令牌供 Agent 以开发人员身份读写共序。安装合并、秘密不合并：连接器授权后调用 `POST /api/connector/mcp-credential`（仅 ensure、仅本账号）取得 MCP 令牌，写入 Cursor `~/.cursor/mcp.json`（并执行 `agent mcp enable cothread`）、Codex `~/.codex/config.toml`（令牌放用户环境变量 `COTHREAD_MCP_TOKEN`）、Claude Code 用户级 MCP（`claude mcp add --transport http --scope user`），令牌剩余不足 7 天或在网页重置后自动回写。写入失败只记录日志，不影响收任务；已打开的会话需新开才生效。
+两套令牌：`ctc_` 设备令牌只用于连接器与共序通讯；账号 MCP 令牌供 Agent 以开发人员身份读写共序。安装合并、秘密不合并：连接器授权后调用 `POST /api/connector/mcp-credential`（仅 ensure、仅本账号）取得 MCP 令牌，写入 Cursor `~/.cursor/mcp.json`（并执行 `agent mcp enable cothread-mcp`）、Codex `~/.codex/config.toml`（令牌放用户环境变量 `COTHREAD_MCP_TOKEN`）、Claude Code 用户级 MCP（`claude mcp add --transport http --scope user`），令牌剩余不足 7 天或在网页重置后自动回写。写入失败只记录日志，不影响收任务；已打开的会话需新开才生效。
 
 构建使用 `npm run connector:build`，固定校验 Node 22 LTS x64。运行数据写入 `%LOCALAPPDATA%\CoThreadConnector`（`tasks.json` 保存任务与会话绑定、`task-cards/` 为任务卡、`worktrees/` 为任务独立工作副本）。共序不存储安装包、不提供下载入口，也不执行自动更新。Windows 原生终端下 Cursor TUI 在信任提示后可能不响应键盘，连接器已固定传 `--trust`；如仍无响应，关闭窗口后点「继续」重开即可。
 

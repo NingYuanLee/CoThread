@@ -2,7 +2,7 @@ import { documentTool, documentToolSchemas } from "./document-tools.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod/v3";
-import { mcpInstructionsForSource } from "../shared/mcp-guide.js";
+import { MCP_SERVER_NAME, mcpInstructionsForSource } from "../shared/mcp-guide.js";
 import { modelDiscussion, modelProject } from "./model-context.js";
 import { loadMemberUnderstanding } from "./project-memory.js";
 import { listDocumentChanges } from "./document-audit.js";
@@ -16,7 +16,7 @@ export { MCP_TOOL_NAMES };
 
 export function createMcpServer(service, user, afterMessage) {
   const instructions = mcpInstructionsForSource(user.mcpSource);
-  const server = new McpServer({ name: "cothread", version: "0.2.0" }, { instructions });
+  const server = new McpServer({ name: MCP_SERVER_NAME, version: "0.2.0" }, { instructions });
   const registered = new Set();
   const register = (name, description, schema, fn) => {
     if (!MCP_TOOL_NAMES.includes(name) || registered.has(name))

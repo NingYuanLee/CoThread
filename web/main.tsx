@@ -52,7 +52,7 @@ import { UiIcon, workflowIcon, type UiIconName } from "./ui-icon";
 import { DialogClose, ModalBackdrop, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
 import { ImagePreviewDialog } from "./ImagePreview";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
-import { folderRootKind } from "./Documents";
+import { folderRootKind } from "./document-library";
 import { McpSettings } from "./McpSettings";
 
 const LEFT_SIDEBAR_STATE_KEY = "cothread-left-sidebar-open";

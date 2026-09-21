@@ -149,6 +149,7 @@ test("connector detects three agents and writes their MCP configuration", async 
   assert.match(main, /"\/api\/connector\/mcp-credential\/version"/);
   assert.match(main, /sinceCheck >= 60 \* 1000/);
   assert.match(main, /\.cursor", "mcp\.json"/);
+  assert.match(main, /const MCP_SERVER_NAME = "cothread-mcp"/);
   assert.match(main, /\["mcp", "enable", MCP_SERVER_NAME\]/);
   assert.match(main, /\.codex", "config\.toml"/);
   assert.match(main, /"setx\.exe", \[MCP_TOKEN_ENV, server\.token\]/);

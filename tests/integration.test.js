@@ -344,7 +344,7 @@ test("MCP initialize, list tools and context over authenticated Streamable HTTP"
       clientInfo: { name: "Integration test", version: "1" },
     },
   });
-  assert.equal(initialized.result.serverInfo.name, "cothread");
+  assert.equal(initialized.result.serverInfo.name, "cothread-mcp");
   const listed = await call({
     jsonrpc: "2.0",
     id: 2,

@@ -14,6 +14,7 @@ import {
 import { CodePreview, DocxPreview, formatHtmlSource, MermaidPreview, PptxPreview, XlsxPreview } from "./office-preview";
 import { resolvePreviewAssetPath } from "../shared/html-preview.mjs";
 import { fileDisplayName } from "../shared/document-name.js";
+import { LIBRARY_ROOT_KINDS, folderRootKind } from "./document-library";
 import { UiIcon } from "./ui-icon";
 import { DialogClose, ModalBackdrop } from "./dialog-fx";
 import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
@@ -631,7 +632,6 @@ function recyclePathLabel(item: LibraryVersion, folders: LibraryFolder[]) {
   return names.join(" / ");
 }
 
-const LIBRARY_ROOT_KINDS = ["project_official", "project_outputs", "project_cache"] as const;
 const ROOT_DISPLAY_ORDER = [...LIBRARY_ROOT_KINDS];
 const ROOT_LABELS: Record<(typeof LIBRARY_ROOT_KINDS)[number], string> = {
   project_official: "正式文件",
@@ -707,33 +707,6 @@ function resolveLibraryRoot(
   if (kind === "project_official")
     return folders.find((f) => f.folder_kind === "project_official" && !f.parent_id);
   return undefined;
-}
-
-export function folderRootKind(
-  folderId: string | null | undefined,
-  folders: LibraryFolder[],
-): string | null {
-  if (!folderId) return null;
-  let current = folders.find((f) => f.id === folderId);
-  while (current) {
-    if (
-      LIBRARY_ROOT_KINDS.includes(current.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number])
-      && !current.parent_id
-    )
-      return current.folder_kind || null;
-    if (current.folder_kind === "iteration_cache") return "project_cache";
-    if (current.folder_kind === "iteration_outputs") return "project_outputs";
-    if (current.folder_kind === "iteration_root") {
-      current = current.parent_id
-        ? folders.find((f) => f.id === current!.parent_id)
-        : undefined;
-      continue;
-    }
-    current = current.parent_id
-      ? folders.find((f) => f.id === current!.parent_id)
-      : undefined;
-  }
-  return null;
 }
 
 export function isInProjectLibrary(

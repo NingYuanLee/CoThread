@@ -65,11 +65,11 @@ export function McpSettings({ api, endpoint }: { api: Api; endpoint: string }) {
         </div>
         <small className="mcp-expiry">有效期至 {expires}</small>
         <div className="mcp-actions">
-          <button type="button" className="primary" onClick={() => void copy(guide, "安装文档已复制")}><UiIcon name="download" size={13} />复制 MCP 安装文档</button>
+          <button type="button" className="primary" onClick={() => void copy(guide, "安装文档已复制")}><UiIcon name="copy" size={13} />复制 MCP 安装文档</button>
           <button type="button" disabled={busy} onClick={() => void reset()}><UiIcon name="refresh" size={13} />重置令牌</button>
         </div>
       </>}
-      <p className="mcp-warning"><UiIcon name="info" size={13} />重置会让所有旧配置立即失效；连接器会在下一次同步时自动写入新令牌，手动配置的客户端请重新加载安装文档。</p>
+      <p className="mcp-warning"><UiIcon name="info" size={13} />复制的是纯文本配置。若本机 IDM 等下载器监视剪贴板，可能把其中的服务地址当成下载链接并弹窗，直接取消即可。重置会使旧配置立即失效；连接器下次同步会写入新令牌，手动配置请重新复制安装文档。</p>
     </section>
     <section className="mcp-settings-section mcp-capabilities-section">
       <div className="mcp-settings-heading"><div><strong>MCP 能力清单</strong><small>{capabilities.length} 项工具，权限仍受账号和项目成员身份限制</small></div><UiIcon name="plugin" size={18} /></div>

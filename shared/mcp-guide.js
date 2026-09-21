@@ -1,5 +1,8 @@
 import { AGENT_MEMBER } from "./agent-member.js";
 
+export const MCP_SERVER_NAME = "cothread-mcp";
+export const LEGACY_MCP_SERVER_NAMES = ["cothread"];
+
 export const MCP_INSTRUCTIONS = `你已连接共序 CoThread，一个按账号身份和项目成员权限协作的 MCP 服务。无需安装任何 SKILL。
 首次使用先调用 get_connection_guide 阅读完整协议，再通过 tools/list 读取当前工具参数。
 定位流程：list_projects → get_project_context(projectId) 获取轻量项目、迭代清单和成员清单 → 按需调用 get_iteration_context(threadId) 读取迭代元数据与协作上下文，或调用 get_member(projectId, memberId) 读取成员详情。这里的迭代上下文是项目协作资料，不是 Agent 内部 prompt/context。用户给了会话信息时直接核对该 threadId，不需要会话 token。存在多个候选或同名目标时向用户确认，不要猜 ID。没有目标迭代时请用户在页面加号创建。
@@ -17,47 +20,33 @@ export function mcpInstructionsForSource() {
 
 export function createMcpInstallGuide({ url, token, context, conversationId } = {}) {
   if (!token) throw new Error("请先获取有效账号令牌");
-  const config = JSON.stringify({ mcpServers: { cothread: {
+  const config = JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: {
     type: "http", url, headers: { Authorization: `Bearer ${token}`,
       ...(conversationId ? { "Makers-Conversation-Id": conversationId } : {}),
     },
   } } }, null, 2);
   return `# 请帮我连接共序 CoThread MCP
 
-请在我当前使用的本地 Agent 客户端中完成 MCP 配置并验证连接。只安装/配置 MCP，不安装 SKILL，也不以编写 SKILL 代替连接。
+只配置 MCP，不要安装 SKILL。下方 JSON 已含账号令牌，不要在日志、提交或回复中复述。
 
-## 连接配置
-
-服务名称：cothread
-传输协议：Streamable HTTP（不是旧 SSE，不是 stdio）
-服务地址：${url}
-鉴权方式：使用下方配置中已填写的 Authorization 请求头，无需替换令牌
-下方配置已包含当前账号令牌，仅用于此连接，不要在日志、提交记录或回复中复述令牌。
+服务名：cothread-mcp · 传输：Streamable HTTP（非 SSE / stdio）
 
 ~~~json
 ${config}
 ~~~
 
-## 请按这个顺序完成配置
+1. 按当前客户端适配上述 JSON，保留其他 MCP；已有 cothread-mcp 则更新。若仍有旧名 cothread，改成 cothread-mcp，不要两项并存。
+2. 令牌已填好，不要让我再替换。没有配置权限时，告诉我去哪个设置页填写。
+3. 重载 MCP，必要时让我重启客户端。远程客户端先确认能访问的本站地址，不要绕过 TLS。
+4. initialize 后调用 get_connection_guide 与 list_projects 做只读验证；不要发测试消息或创建文件。
+5. 只报告是否连上以及可访问的项目名。失败时区分：地址不可达 / 401 / 不支持 Streamable HTTP / 配置未加载。
 
-1. 识别当前客户端，查看它实际支持的 MCP 配置方式和配置文件位置；上方是通用 JSON，按客户端字段适配，不要猜测路径或强行覆盖配置。保留已有的其他 MCP 服务。已存在 cothread 时更新它，避免添加重复项。
-2. 将服务 URL 与 Bearer 请求头配置进去，优先使用客户端提供的私密环境变量或密钥配置。直接使用已填写的令牌，不要要求我再次替换。若没有配置权限，明确告诉我需要在哪个设置页面填入哪些内容。
-3. 让客户端重新加载 MCP；必要时提示我重启客户端。localhost/127.0.0.1 指向运行客户端的机器：如果客户端在远程机器上，先向我确认能访问的本站 URL，不要擅自暴露服务或绕过 TLS 验证。
-4. 完成 MCP initialize，阅读返回的 instructions；用 tools/list 确认存在文件上传、消息发送和项目读取工具，然后调用 get_connection_guide 和 list_projects 做只读验证。不要为验证而创建文件或发送测试消息。
-5. 只向我报告连接成功与可访问的项目名称。若连接失败，区分地址不可达、401 令牌无效、客户端不支持 Streamable HTTP 或配置未加载，给出对应修复步骤；不要声称已经连接成功。
+连上后按 get_connection_guide 使用，不要猜项目或迭代 ID。
 
-## 连上后，直接通过 MCP 使用
-
-${MCP_INSTRUCTIONS}
-
-工具清单：get_connection_guide、list_projects、get_project_context、get_member、get_iteration_context、get_document_version、list_document_changes、upload_cache_draft、post_message、upload_official_file、list_tasks、get_task、accept_task、reject_task、update_task。
-
-${context?.threadId ? `## 当前会话定位（不包含额外秘密）
-
-下面是用户当前选中的真实项目与迭代，不是示例。安装连接本身不授权向此会话发消息。先核对上下文，再按我后续的具体要求操作。
+${context?.threadId ? `当前会话（安装本身不授权发消息，先核对再按后续要求操作）：
 
 ~~~json
 ${JSON.stringify(context, null, 2)}
 ~~~
-` : "尚未指定会话。连接成功后先询问我的目标，或让我从共序页面“复制会话信息”。"}`;
+` : "尚未指定会话。连上后先问我目标，或让我从共序页面复制会话信息。"}`;
 }

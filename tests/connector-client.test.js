@@ -139,22 +139,25 @@ test("session identifiers are recovered from Cursor output and Codex rollout fil
   assert.equal(parseCodexSessionId("notes.txt"), "");
 });
 
-test("MCP config writers keep other servers and only replace the cothread entry", () => {
+test("MCP config writers keep other servers and only replace the cothread-mcp entry", () => {
   const server = { url: "https://cothread.z2l.top/mcp", headers: { Authorization: "Bearer abc", "Makers-Conversation-Id": "u-1" } };
-  const cursor = JSON.parse(mergeCursorMcpConfig('{"mcpServers":{"other":{"command":"x"}},"theme":"dark"}', server));
+  const cursor = JSON.parse(mergeCursorMcpConfig('{"mcpServers":{"other":{"command":"x"},"cothread":{"url":"https://old/mcp"}},"theme":"dark"}', server));
   assert.equal(cursor.theme, "dark");
   assert.equal(cursor.mcpServers.other.command, "x");
-  assert.deepEqual(cursor.mcpServers.cothread, { url: server.url, headers: server.headers });
-  assert.deepEqual(JSON.parse(mergeCursorMcpConfig("not json", server)).mcpServers.cothread.url, server.url);
+  assert.equal(cursor.mcpServers.cothread, undefined);
+  assert.deepEqual(cursor.mcpServers["cothread-mcp"], { url: server.url, headers: server.headers });
+  assert.deepEqual(JSON.parse(mergeCursorMcpConfig("not json", server)).mcpServers["cothread-mcp"].url, server.url);
 
   const codex = mergeCodexMcpConfig([
-    'model = "gpt-5"', "", "[mcp_servers.cothread]", 'url = "https://old/mcp"', 'bearer_token_env_var = "OLD"', "",
-    "[mcp_servers.cothread.http_headers]", '"X" = "1"', "", "[mcp_servers.other]", 'command = "npx"', "",
+    'model = "gpt-5"', "", "[mcp_servers.cothread]", 'url = "https://legacy/mcp"', "",
+    "[mcp_servers.cothread-mcp]", 'url = "https://old/mcp"', 'bearer_token_env_var = "OLD"', "",
+    "[mcp_servers.cothread-mcp.http_headers]", '"X" = "1"', "", "[mcp_servers.other]", 'command = "npx"', "",
   ].join("\n"), server);
   assert.match(codex, /^model = "gpt-5"/);
   assert.match(codex, /\[mcp_servers\.other\]\ncommand = "npx"/);
-  assert.equal(codex.match(/\[mcp_servers\.cothread\]/g).length, 1);
-  assert.doesNotMatch(codex, /https:\/\/old\/mcp|"OLD"|"X" = "1"/);
+  assert.doesNotMatch(codex, /\[mcp_servers\.cothread\]/);
+  assert.equal(codex.match(/\[mcp_servers\.cothread-mcp\]/g).length, 1);
+  assert.doesNotMatch(codex, /https:\/\/legacy\/mcp|https:\/\/old\/mcp|"OLD"|"X" = "1"/);
   assert.match(codex, /bearer_token_env_var = "COTHREAD_MCP_TOKEN"/);
   assert.match(codex, /http_headers = \{ "Makers-Conversation-Id" = "u-1" \}/);
   assert.doesNotMatch(codex, /Bearer abc/);

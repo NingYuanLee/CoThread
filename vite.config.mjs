@@ -1,6 +1,9 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  build: {
+    chunkSizeWarningLimit: 1600,
+  },
   server: {
     // middlewareMode 下开启会在部分环境导致首请求长时间挂起
     preTransformRequests: false,

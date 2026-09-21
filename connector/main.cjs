@@ -43,7 +43,8 @@ const AGENTS = {
   claude: { label: "Claude Code TUI", downloadUrl: "https://claude.com/product/claude-code" },
 };
 const AGENT_KINDS = Object.keys(AGENTS);
-const MCP_SERVER_NAME = "cothread";
+const MCP_SERVER_NAME = "cothread-mcp";
+const LEGACY_MCP_SERVER_NAMES = ["cothread"];
 const MCP_TOKEN_ENV = "COTHREAD_MCP_TOKEN";
 const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const comSpec = () => process.env.ComSpec || "cmd.exe";
@@ -567,6 +568,7 @@ function mergeCursorMcpConfig(text, server) {
   try { config = JSON.parse(text || "{}"); } catch { config = {}; }
   if (!config || typeof config !== "object" || Array.isArray(config)) config = {};
   if (!config.mcpServers || typeof config.mcpServers !== "object" || Array.isArray(config.mcpServers)) config.mcpServers = {};
+  for (const name of LEGACY_MCP_SERVER_NAMES) delete config.mcpServers[name];
   config.mcpServers[MCP_SERVER_NAME] = { url: server.url, headers: { ...server.headers } };
   return `${JSON.stringify(config, null, 2)}\n`;
 }
@@ -580,7 +582,8 @@ function mergeCodexMcpConfig(text, server) {
     const header = line.match(/^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(?:#.*)?$/);
     if (header) {
       const name = header[1].replace(/"/g, "").trim();
-      skipping = name === `mcp_servers.${MCP_SERVER_NAME}` || name.startsWith(`mcp_servers.${MCP_SERVER_NAME}.`);
+      skipping = [MCP_SERVER_NAME, ...LEGACY_MCP_SERVER_NAMES].some((serverName) =>
+        name === `mcp_servers.${serverName}` || name.startsWith(`mcp_servers.${serverName}.`));
     }
     if (!skipping) kept.push(line);
   }
@@ -614,7 +617,8 @@ function writeCodexMcp(server) {
 }
 
 function writeClaudeMcp(server) {
-  runAgent("claude", ["mcp", "remove", "--scope", "user", MCP_SERVER_NAME], { timeout: 60000 });
+  for (const name of [MCP_SERVER_NAME, ...LEGACY_MCP_SERVER_NAMES])
+    runAgent("claude", ["mcp", "remove", "--scope", "user", name], { timeout: 60000 });
   const headers = Object.entries(server.headers || {}).flatMap(([key, value]) => ["--header", `${key}: ${value}`]);
   const result = runAgent("claude", ["mcp", "add", "--transport", "http", "--scope", "user", MCP_SERVER_NAME, server.url, ...headers], { timeout: 60000 });
   if (result.status !== 0) throw new Error((result.stderr || result.stdout || "claude mcp add 执行失败").trim().slice(0, 300));

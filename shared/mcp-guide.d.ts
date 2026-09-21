@@ -1,3 +1,5 @@
+export const MCP_SERVER_NAME: "cothread-mcp";
+export const LEGACY_MCP_SERVER_NAMES: readonly string[];
 export const MCP_INSTRUCTIONS: string;
 export const CONNECTOR_MCP_INSTRUCTIONS: string;
 export function mcpInstructionsForSource(source?: string): string;

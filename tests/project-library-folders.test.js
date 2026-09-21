@@ -602,6 +602,19 @@ test("same-folder duplicate names are auto-renamed instead of rejected", async (
     await libraryChange(service, user, project.id, "artifact", officialB.artifactId, { name: "规范" });
     const [renamed] = await query(db, "SELECT title FROM artifacts WHERE id=?", [officialB.artifactId]);
     assert.equal(renamed.title, "规范 (2)");
+    const officialPdf = await service.uploadOfficialDocument(user, project.id, {
+      folderId: official.id,
+      title: "规范",
+      filename: "spec.pdf",
+      mime: "application/pdf",
+      contentBase64: Buffer.from("%PDF-1.4").toString("base64"),
+    });
+    const [pdfRow] = await query(db, "SELECT title FROM artifacts WHERE id=?", [officialPdf.artifactId]);
+    const [pdfFile] = await query(db, "SELECT filename FROM versions WHERE id=?", [officialPdf.id]);
+    assert.equal(pdfRow.title, "规范");
+    assert.equal(pdfFile.filename, "spec.pdf");
+    assert.equal(officialPdf.title, "规范");
+    assert.equal(officialPdf.filename, "spec.pdf");
   } finally {
     await database.close();
   }
@@ -693,6 +706,38 @@ test("emptying recycle deletes an unreferenced recycled version without removing
     const live = (await service.project(user, project.id)).versions.find((row) => row.id === v1.id);
     assert.ok(live);
     assert.equal(live.deleted_at, null);
+  } finally {
+    await database.close();
+  }
+});
+
+test("document tree library snapshot skips iteration activity queries", async () => {
+  const database = await testDatabase();
+  const db = database.db;
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [user.id, `${user.id}@test.com`, "负责人"]);
+    const service = new Service(db);
+    const project = await service.createProject(user, { name: "库" });
+    const thread = await service.createThread(user, project.id, { title: "迭代" });
+    const uploaded = await service.submitVersion(user, thread.id, {
+      title: "附件",
+      filename: "a.txt",
+      mime: "text/plain",
+      contentBase64: Buffer.from("hi").toString("base64"),
+    }, undefined, undefined, true);
+    await service.review(user, uploaded.id, { decision: "approved" });
+    const library = await service.projectLibrary(user, project.id);
+    const full = await service.project(user, project.id);
+    assert.equal("threads" in library, false);
+    assert.equal("members" in library, false);
+    assert.deepEqual(
+      library.versions.map((row) => ({ id: row.id, review: row.review })),
+      full.versions.map((row) => ({ id: row.id, review: row.review })),
+    );
+    assert.equal(library.versions.find((row) => row.id === uploaded.id)?.review, "approved");
+    assert.equal(library.folders.length, full.folders.length);
   } finally {
     await database.close();
   }

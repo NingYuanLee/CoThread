@@ -8,6 +8,7 @@ import {
 import { promisify } from "node:util";
 import { query, transaction } from "./db.js";
 import { encryptToken, decryptToken } from "./credential-vault.js";
+import { readPreviewTicket, splitPreviewAssetPath } from "../shared/preview-ticket.mjs";
 const scrypt = promisify(scryptCallback);
 export const digest = (value) =>
   createHash("sha256").update(value).digest("hex");
@@ -108,4 +109,23 @@ export async function authenticate(db, req) {
   )
     return null;
   return row;
+}
+
+export async function authenticatePreviewTicket(db, req) {
+  if (String(req.method || "GET").toUpperCase() !== "GET") return null;
+  const path = String(req.originalUrl || req.path || "").split("?")[0];
+  const match = path.match(/\/versions\/([^/]+)\/preview\/(.*)$/);
+  if (!match) return null;
+  const versionId = match[1];
+  const { ticket } = splitPreviewAssetPath(match[2]);
+  const parsed = readPreviewTicket(ticket);
+  if (!parsed || parsed.versionId !== versionId) return null;
+  const [row] = await query(
+    db,
+    `SELECT u.id,u.user_number,u.username,u.name,u.email,u.motto,u.identity_tags,u.is_super_admin,u.ui_theme
+    FROM users u WHERE u.id=? AND u.disabled_at IS NULL`,
+    [parsed.userId],
+  );
+  if (!row) return null;
+  return { ...row, kind: "session", credential_id: null, scope: null };
 }

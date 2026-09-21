@@ -1,8 +1,12 @@
-export function fileDisplayName({ title, filename } = {}) {
-  const name = String(title || "").trim() || String(filename || "").trim() || "文档";
+export function fileSuffix(filename) {
   const file = String(filename || "").trim();
   const dot = file.lastIndexOf(".");
-  const suffix = dot > 0 && dot < file.length - 1 ? file.slice(dot) : "";
+  return dot > 0 && dot < file.length - 1 ? file.slice(dot) : "";
+}
+
+export function fileDisplayName({ title, filename } = {}) {
+  const name = String(title || "").trim() || String(filename || "").trim() || "文档";
+  const suffix = fileSuffix(filename);
   return suffix && !name.toLowerCase().endsWith(suffix.toLowerCase())
     ? `${name}${suffix}`
     : name;
@@ -28,4 +32,17 @@ export function nextDuplicateName(desired, taken) {
     if (!used.has(candidate.toLowerCase())) return candidate;
   }
   return `${stem} (${Date.now()})${ext}`.slice(0, 160);
+}
+
+export function uniqueDisplayTitle(desiredTitle, desiredFilename, taken) {
+  const title = String(desiredTitle || "").trim().slice(0, 160) || "文档";
+  const filename = String(desiredFilename || "").trim();
+  const uniqueName = nextDuplicateName(
+    fileDisplayName({ title, filename }),
+    [...taken].map((item) => typeof item === "string" ? item : fileDisplayName(item)),
+  );
+  const suffix = fileSuffix(filename);
+  if (suffix && uniqueName.toLowerCase().endsWith(suffix.toLowerCase()) && !title.toLowerCase().endsWith(suffix.toLowerCase()))
+    return uniqueName.slice(0, uniqueName.length - suffix.length);
+  return uniqueName;
 }

@@ -28,6 +28,29 @@ function highlightCode(value: string, filename?: string) {
   return highlighted;
 }
 
+const CODE_PREVIEW_PLAIN_CHARS = 80_000;
+
+export function CodePreview({ text, filename }: { text: string; filename?: string }) {
+  if (text.length > CODE_PREVIEW_PLAIN_CHARS) {
+    return (
+      <pre className="code-preview-content code-preview-plain" role="document" aria-label={filename || "代码文件"}>
+        {text}
+      </pre>
+    );
+  }
+  const lines = text.split("\n");
+  return (
+    <div className="code-preview" role="document" aria-label={filename || "代码文件"}>
+      <div className="code-preview-gutter" aria-hidden="true">
+        {lines.map((_, index) => <span key={index}>{index + 1}</span>)}
+      </div>
+      <pre className="code-preview-content"><code>{lines.map((line, index) => (
+        <span className="code-preview-line" key={index} dangerouslySetInnerHTML={{ __html: highlightCode(line, filename) }} />
+      ))}</code></pre>
+    </div>
+  );
+}
+
 function decodeXmlText(value: string) {
   return value
     .replace(/&lt;/g, "<")
@@ -261,19 +284,6 @@ export function MermaidPreview({ chart }: { chart: string }) {
   return (
     <div className="markdown-diagram" role="img" aria-label="Mermaid 图表">
       {svg ? <div dangerouslySetInnerHTML={{ __html: svg }} /> : <span className="markdown-diagram-loading" aria-hidden="true" />}
-    </div>
-  );
-}
-export function CodePreview({ text, filename }: { text: string; filename?: string }) {
-  const lines = text.split("\n");
-  return (
-    <div className="code-preview" role="document" aria-label={filename || "代码文件"}>
-      <div className="code-preview-gutter" aria-hidden="true">
-        {lines.map((_, index) => <span key={index}>{index + 1}</span>)}
-      </div>
-      <pre className="code-preview-content"><code>{lines.map((line, index) => (
-        <span className="code-preview-line" key={index} dangerouslySetInnerHTML={{ __html: highlightCode(line, filename) }} />
-      ))}</code></pre>
     </div>
   );
 }

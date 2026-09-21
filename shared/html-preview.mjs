@@ -1,3 +1,50 @@
+export const PREVIEW_CONSOLE_MESSAGE = "cothread-preview-console";
+
+export function previewConsoleProbeHtml() {
+  return `<script data-cothread-preview-console="1">(function(){
+    var TYPE=${JSON.stringify(PREVIEW_CONSOLE_MESSAGE)};
+    function fmt(value){
+      if(value==null)return String(value);
+      if(typeof value==="string")return value;
+      if(value instanceof Error)return value.stack||value.message||String(value);
+      try{return JSON.stringify(value);}catch(e){return String(value);}
+    }
+    function send(level,args){
+      var payload={type:TYPE,level:level,args:args};
+      try{top.postMessage(payload,"*");}catch(e){
+        try{parent.postMessage(payload,"*");}catch(e2){}
+      }
+    }
+    ["log","info","warn","error","debug"].forEach(function(level){
+      var orig=console[level]?console[level].bind(console):function(){};
+      console[level]=function(){
+        send(level,Array.prototype.slice.call(arguments).map(fmt));
+        orig.apply(console,arguments);
+      };
+    });
+    window.addEventListener("error",function(event){
+      var target=event.target;
+      if(target&&target!==window){
+        send("error",["资源加载失败",String(target.src||target.href||target.currentSrc||"")]);
+        return;
+      }
+      send("error",[event.message||"脚本错误",(event.filename||"")+(event.lineno?":"+event.lineno:"")]);
+    },true);
+    window.addEventListener("unhandledrejection",function(event){
+      send("error",["未处理的 Promise",fmt(event.reason)]);
+    });
+    if(window.fetch){
+      var _fetch=window.fetch.bind(window);
+      window.fetch=function(){
+        return _fetch.apply(this,arguments).then(function(res){
+          if(!res.ok)send("warn",["fetch "+res.status,String(res.url)]);
+          return res;
+        });
+      };
+    }
+  })();</script>`;
+}
+
 export function resolvePreviewAssetPath(ref) {
   const trimmed = String(ref || "").trim();
   if (
@@ -17,6 +64,7 @@ export function resolvePreviewAssetPath(ref) {
   } else {
     path = path.replace(/^\/+/, "");
   }
+  path = path.replace(/^~t~[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\/?/, "");
   if (!path || path.includes("..")) return null;
   return path;
 }

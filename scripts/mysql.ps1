@@ -1,5 +1,8 @@
 param([ValidateSet('start','stop')][string]$Action = 'start')
 $ErrorActionPreference = 'Stop'
+$utf8 = New-Object System.Text.UTF8Encoding $false
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $localRoot = Join-Path $projectRoot '.local'
 $mysqlRoot = Join-Path $localRoot 'mysql-8.4.9-winx64'
@@ -55,4 +58,4 @@ if (!(Test-Path -LiteralPath $client)) {
   try { node --env-file=.env scripts/mysql-bootstrap.js; if ($LASTEXITCODE -ne 0) { throw 'MySQL bootstrap failed' } }
   finally { Pop-Location }
 }
-Write-Host 'MySQL 已运行于 127.0.0.1:3307，数据位于项目 .local/mysql-data。'
+Write-Output 'MySQL 已运行于 127.0.0.1:3307，数据位于项目 .local/mysql-data。'

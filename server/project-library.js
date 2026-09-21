@@ -1,6 +1,6 @@
 import { query } from "./db.js";
 import { randomUUID } from "node:crypto";
-import { nextDuplicateName } from "../shared/document-name.js";
+import { nextDuplicateName, uniqueDisplayTitle } from "../shared/document-name.js";
 
 export const PROJECT_LIBRARY_ROOT_KINDS = [
   "project_official",
@@ -25,12 +25,31 @@ export function isOutputFolderKind(kind) {
   return kind === "project_outputs" || kind === "iteration_outputs";
 }
 
-export async function uniqueArtifactTitle(db, projectId, folderId, desired, excludeId = null) {
+export async function uniqueArtifactTitle(db, projectId, folderId, desired, excludeId = null, filename = null) {
   const rows = await query(db,
-    `SELECT title FROM artifacts WHERE project_id=? AND deleted_at IS NULL AND folder_id <=> ?
-     ${excludeId ? "AND id<>?" : ""}`,
+    `SELECT a.title, (
+       SELECT v.filename FROM versions v
+       LEFT JOIN version_recycle vr ON vr.version_id=v.id
+       WHERE v.artifact_id=a.id AND vr.version_id IS NULL
+       ORDER BY v.version DESC, v.created_at DESC, v.id DESC
+       LIMIT 1
+     ) AS filename
+     FROM artifacts a
+     WHERE a.project_id=? AND a.deleted_at IS NULL AND a.folder_id <=> ?
+     ${excludeId ? "AND a.id<>?" : ""}`,
     [projectId, folderId, ...(excludeId ? [excludeId] : [])]);
-  return nextDuplicateName(desired, rows.map((row) => row.title));
+  let matchFilename = filename;
+  if (matchFilename == null && excludeId) {
+    const [self] = await query(db,
+      `SELECT v.filename FROM versions v
+       LEFT JOIN version_recycle vr ON vr.version_id=v.id
+       WHERE v.artifact_id=? AND vr.version_id IS NULL
+       ORDER BY v.version DESC, v.created_at DESC, v.id DESC
+       LIMIT 1`,
+      [excludeId]);
+    matchFilename = self?.filename || null;
+  }
+  return uniqueDisplayTitle(desired, matchFilename, rows);
 }
 
 export async function uniqueVersionFilename(db, projectId, folderId, desired, excludeArtifactId = null) {

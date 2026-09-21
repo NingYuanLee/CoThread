@@ -13,6 +13,7 @@ import { countDocumentChanges, listDocumentChanges } from "./document-audit.js";
 import { z, ZodError } from "zod/v3";
 import {
   authenticate,
+  authenticatePreviewTicket,
   verifyPassword,
   issueCredential,
   hashPassword,
@@ -25,6 +26,7 @@ import { handleMcp } from "./mcp.js";
 import { retryReply } from "./reply-actions.js";
 import { personalProfile, profileSchema } from "./profile.js";
 import { UI_THEMES, normalizeUiTheme } from "../shared/ui-theme.js";
+import { signPreviewTicket, splitPreviewAssetPath } from "../shared/preview-ticket.mjs";
 import { registerRequestParts } from "./request-parts.js";
 import { completeFileUpload, putFileUploadChunk, startFileUpload } from "./file-upload.js";
 import { requestTiming } from "./request-timing.js";
@@ -325,6 +327,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   });
   app.use(["/api", "/mcp"], async (req, res, next) => {
     req.user = await authenticate(db, req);
+    if (!req.user) req.user = await authenticatePreviewTicket(db, req);
     if (!req.user)
       return res.status(401).json({ error: "请先登录，或使用有效的账号令牌" });
     next();
@@ -505,6 +508,9 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   );
   app.get("/api/projects/:id", async (req, res) =>
     res.json(await service.project(req.user, req.params.id, { display: req.query.view === "chat" })),
+  );
+  app.get("/api/projects/:id/library", async (req, res) =>
+    res.json(await service.projectLibrary(req.user, req.params.id)),
   );
   app.get("/api/projects/:id/agent-monitor", async (req, res) =>
     res.json(await service.agentMonitor(req.user, req.params.id)),
@@ -833,10 +839,18 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     let assetPath = req.params.assetPath || "";
     if (Array.isArray(assetPath)) assetPath = assetPath.join("/");
     assetPath = decodeURIComponent(String(assetPath));
+    const split = splitPreviewAssetPath(assetPath);
+    if (!split.ticket && !split.path) {
+      return res.redirect(
+        302,
+        `/api/versions/${req.params.id}/preview/${signPreviewTicket(req.user.id, req.params.id)}/`,
+      );
+    }
     const file = await service.versionPreview(
       req.user,
       req.params.id,
-      assetPath,
+      split.path,
+      split.ticket,
     );
     res.setHeader("Content-Type", file.mime);
     res.setHeader("Content-Disposition", "inline");
@@ -844,7 +858,10 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     res.send(file.content);
   };
   app.get("/api/versions/:id/source", async (req, res) => {
-    const file = await service.versionSource(req.user, req.params.id);
+    const limit = Number(req.query.limit);
+    const file = await service.versionSource(req.user, req.params.id, {
+      maxBytes: Number.isFinite(limit) && limit > 0 ? limit : 0,
+    });
     res.setHeader("Content-Type", file.mime);
     res.setHeader("Content-Disposition", "inline");
     res.setHeader("Cache-Control", "private, max-age=60");
@@ -855,8 +872,14 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   app.get("/api/versions/:id/preview/", sendVersionPreview);
   app.get("/api/versions/:id/preview/*assetPath", sendVersionPreview);
   app.get("/api/versions/:id", async (req, res) => {
-    const { content, ...meta } = await service.version(req.user, req.params.id);
-    res.json(req.query.metadata === "1" ? meta : { ...meta, contentBase64: content.toString("base64") });
+    const includeContent = req.query.metadata !== "1";
+    const version = await service.version(req.user, req.params.id, { includeContent });
+    if (!includeContent) {
+      res.json(version);
+      return;
+    }
+    const { content, ...meta } = version;
+    res.json({ ...meta, contentBase64: content.toString("base64") });
   });
   app.get("/api/tokens", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");

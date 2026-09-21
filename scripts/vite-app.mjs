@@ -14,9 +14,13 @@ const server = await createServer({
     port: vitePort,
     host,
     strictPort: true,
+    preTransformRequests: true,
     hmr: { host: "127.0.0.1", clientPort: uiPort },
   },
 });
 
 await server.listen();
+for (const url of ["/web/main.tsx", "/web/App.tsx", "/web/WorkspaceApp.tsx"]) {
+  void server.warmupRequest(url).catch(() => {});
+}
 console.log(`Vite 已启动：http://127.0.0.1:${vitePort}（浏览器经 ${uiPort}）`);

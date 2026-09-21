@@ -28,35 +28,104 @@ import {
   utcDateKey,
 } from "./project-library.js";
 import { previewContentType, resolveStoredMime } from "./preview-mime.js";
+import { previewConsoleProbeHtml } from "../shared/html-preview.mjs";
+import { signPreviewTicket } from "../shared/preview-ticket.mjs";
 import { recordDocumentChange } from "./document-audit.js";
 import JSZip from "jszip";
 
 function rewriteRootRelativeAssetUrls(html) {
   return html.replace(
-    /(\s(?:href|src)=["'])\/([^"']+)(["'])/gi,
+    /(\s(?:href|src|action)=["'])\/([^"']+)(["'])/gi,
     (_, prefix, path, suffix) => `${prefix}${path}${suffix}`,
   );
 }
 
-function injectPreviewBase(html, baseHref) {
-  let document = rewriteRootRelativeAssetUrls(html);
-  if (/<base\s/i.test(document)) {
-    return document.replace(
-      /<base\s[^>]*>/i,
-      `<base href="${baseHref}">`,
+function retargetPreviewNavigation(html) {
+  return html
+    .replace(
+      /(\s)target\s*=\s*(["'])(_blank|_parent|_top)\2/gi,
+      "$1target=$2_self$2",
+    )
+    .replace(
+      /(\s)target\s*=\s*(_blank|_parent|_top)(?=[\s>/])/gi,
+      '$1target="_self"',
     );
+}
+
+function previewBaseHref(versionId, assetPath = "", userId, ticket = "") {
+  const dir = pathPosix.dirname(String(assetPath || "").replace(/\\/g, "/"));
+  const prefix = !dir || dir === "."
+    ? ""
+    : `${dir.split("/").filter(Boolean).map(encodeURIComponent).join("/")}/`;
+  const token = ticket || signPreviewTicket(userId, versionId);
+  return `/api/versions/${versionId}/preview/${token}/${prefix}`;
+}
+
+function injectPreviewBase(html, baseHref) {
+  let document = retargetPreviewNavigation(rewriteRootRelativeAssetUrls(html));
+  const baseTag = `<base href="${baseHref}" target="_self">`;
+  const probe = /data-cothread-preview-console/i.test(document)
+    ? ""
+    : previewConsoleProbeHtml();
+  const headInject = `${baseTag}${probe}`;
+  if (/<base\s/i.test(document)) {
+    return document.replace(/<base\s[^>]*>/i, headInject);
   }
-  const baseTag = `<base href="${baseHref}">`;
   if (/<head[\s>]/i.test(document)) {
-    return document.replace(/<head(\s[^>]*)?>/i, `<head$1>${baseTag}`);
+    return document.replace(/<head(\s[^>]*)?>/i, `<head$1>${headInject}`);
   }
   if (/<html[\s>]/i.test(document)) {
     return document.replace(
       /<html(\s[^>]*)?>/i,
-      `<html$1><head>${baseTag}</head>`,
+      `<html$1><head>${headInject}</head>`,
     );
   }
-  return `<!DOCTYPE html><html><head>${baseTag}</head><body>${document}</body></html>`;
+  return `<!DOCTYPE html><html><head>${headInject}</head><body>${document}</body></html>`;
+}
+
+function asPreviewHtml(content, versionId, assetPath = "", userId, ticket = "") {
+  const html = Buffer.isBuffer(content)
+    ? content.toString("utf8")
+    : String(content ?? "");
+  return Buffer.from(
+    injectPreviewBase(html, previewBaseHref(versionId, assetPath, userId, ticket)),
+    "utf8",
+  );
+}
+
+async function previewAssetInFolder(db, folderId, filename) {
+  if (!folderId || !filename) return null;
+  const [row] = await query(
+    db,
+    `SELECT v.content, v.mime, v.filename FROM versions v
+     JOIN artifacts a ON a.id = v.artifact_id
+     WHERE a.folder_id = ? AND a.deleted_at IS NULL
+       AND (v.filename = ? OR v.filename LIKE CONCAT('%/', ?))
+     ORDER BY
+       CASE WHEN v.filename = ? THEN 0 WHEN v.filename LIKE CONCAT('%/', ?) THEN 1 ELSE 2 END,
+       v.version DESC
+     LIMIT 1`,
+    [folderId, filename, filename, filename, filename],
+  );
+  return row || null;
+}
+
+async function walkPreviewSubfolders(db, projectId, startFolderId, segments) {
+  let folderId = startFolderId;
+  for (const segment of segments) {
+    if (!segment || segment === "." || segment === "..") return null;
+    const [child] = await query(
+      db,
+      `SELECT id FROM document_folders
+       WHERE project_id=? AND parent_id=? AND name=?
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [projectId, folderId, segment],
+    );
+    if (!child) return null;
+    folderId = child.id;
+  }
+  return folderId;
 }
 
 export class HttpError extends Error {
@@ -390,9 +459,55 @@ export class Service {
     });
     return { id: projectId, ...data };
   }
+  libraryQueries(projectId) {
+    return {
+      versions: query(
+        this.db,
+        `SELECT a.id artifact_id,a.title,a.folder_id,a.recycle_path,f.thread_id folder_thread_id,f.folder_kind,COALESCE(a.deleted_at,vr.deleted_at) deleted_at,a.deleted_at artifact_deleted_at,vr.deleted_at version_deleted_at,a.updated_at,v.id,v.version,v.filename,v.mime,v.byte_size,v.sha256,v.note,v.thread_id,v.created_by author_id,v.created_at,u.name author,
+        (SELECT r.decision FROM reviews r WHERE r.version_id=v.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1) review
+        FROM artifacts a JOIN versions v ON v.artifact_id=a.id LEFT JOIN document_folders f ON f.id=a.folder_id LEFT JOIN version_recycle vr ON vr.version_id=v.id JOIN users u ON u.id=v.created_by WHERE a.project_id=? AND a.purged_at IS NULL AND vr.purged_at IS NULL ORDER BY v.created_at DESC,v.version DESC`,
+        [projectId],
+      ),
+      folders: query(
+        this.db,
+        "SELECT id,parent_id,thread_id,name,updated_at,system_key,folder_kind FROM document_folders WHERE project_id=? ORDER BY name",
+        [projectId],
+      ),
+      documentOrganizationJobs: query(
+        this.db,
+        `SELECT id,thread_id,scope,status,result,error,created_at,started_at,finished_at
+        FROM document_organization_jobs WHERE project_id=? ORDER BY created_at DESC LIMIT 20`,
+        [projectId],
+      ),
+    };
+  }
+  mapLibraryVersions(versions, folders) {
+    return versions.map((version) => {
+      const root = folderRootKindInList(version.folder_id, folders);
+      if (root === "project_official") return { ...version, review: "confirmed" };
+      if (root === "project_cache" && !version.review) return { ...version, review: "draft" };
+      return version;
+    });
+  }
+  async projectLibrary(user, projectId) {
+    await this.member(user, projectId);
+    await ensureProjectLibraryRoots(this.db, projectId);
+    const queries = this.libraryQueries(projectId);
+    const [versions, folders, documentOrganizationJobs] = await Promise.all([
+      queries.versions,
+      queries.folders,
+      queries.documentOrganizationJobs,
+    ]);
+    return {
+      folders,
+      versions: this.mapLibraryVersions(versions, folders),
+      documentOrganizationJobs,
+    };
+  }
   async project(user, projectId, { display = false } = {}) {
     await this.member(user, projectId);
     await ensureProjectLibraryRoots(this.db, projectId);
+    const library = this.libraryQueries(projectId);
     const projectQuery = query(
       this.db,
       "SELECT * FROM projects WHERE id=?",
@@ -421,27 +536,15 @@ export class Service {
        WHERE m.project_id=?`,
       [projectId],
     );
-    const versionsQuery = query(
-      this.db,
-      `SELECT a.id artifact_id,a.title,a.folder_id,a.recycle_path,f.thread_id folder_thread_id,f.folder_kind,COALESCE(a.deleted_at,vr.deleted_at) deleted_at,a.deleted_at artifact_deleted_at,vr.deleted_at version_deleted_at,a.updated_at,v.id,v.version,v.filename,v.mime,v.byte_size,v.sha256,v.note,v.thread_id,v.created_by author_id,v.created_at,u.name author,
-      (SELECT r.decision FROM reviews r WHERE r.version_id=v.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1) review
-      FROM artifacts a JOIN versions v ON v.artifact_id=a.id LEFT JOIN document_folders f ON f.id=a.folder_id LEFT JOIN version_recycle vr ON vr.version_id=v.id JOIN users u ON u.id=v.created_by WHERE a.project_id=? AND a.purged_at IS NULL AND vr.purged_at IS NULL ORDER BY v.created_at DESC,v.version DESC`,
-      [projectId],
-    );
-    const foldersQuery = query(
-      this.db,
-      "SELECT id,parent_id,thread_id,name,updated_at,system_key,folder_kind FROM document_folders WHERE project_id=? ORDER BY name",
-      [projectId],
-    );
-    const organizationQuery = query(this.db, `SELECT id,thread_id,scope,status,result,error,created_at,started_at,finished_at
-      FROM document_organization_jobs WHERE project_id=? ORDER BY created_at DESC LIMIT 20`, [projectId]);
-    const [[project], threads, members, versions, folders, documentOrganizationJobs] = await Promise.all([projectQuery, threadsQuery, membersQuery, versionsQuery, foldersQuery, organizationQuery]);
-    const libraryVersions = versions.map((version) => {
-      const root = folderRootKindInList(version.folder_id, folders);
-      if (root === "project_official") return { ...version, review: "confirmed" };
-      if (root === "project_cache" && !version.review) return { ...version, review: "draft" };
-      return version;
-    });
+    const [[project], threads, members, versions, folders, documentOrganizationJobs] = await Promise.all([
+      projectQuery,
+      threadsQuery,
+      membersQuery,
+      library.versions,
+      library.folders,
+      library.documentOrganizationJobs,
+    ]);
+    const libraryVersions = this.mapLibraryVersions(versions, folders);
     const coordinatorModel = modelConfig("coordinator");
     const [projectSummary] = await query(this.db, `SELECT s.summary,s.updated_at,t.title last_thread_title
       FROM agent_project_summaries s LEFT JOIN threads t ON t.id=s.last_thread_id WHERE s.project_id=?`, [projectId]);
@@ -1453,7 +1556,7 @@ export class Service {
       if (!folder) fail(404, "文件夹不存在");
       if (!(await isOfficialLibraryFolder(db, folder.id)))
         fail(403, "只能上传到正式文件区");
-      data.title = await uniqueArtifactTitle(db, projectId, data.folderId, data.title);
+      data.title = await uniqueArtifactTitle(db, projectId, data.folderId, data.title, null, data.filename);
       data.filename = await uniqueVersionFilename(db, projectId, data.folderId, data.filename);
       const artifactId = randomUUID();
       await query(
@@ -1612,7 +1715,7 @@ export class Service {
           artifactId = randomUUID();
           data.folderId = (await this.dailyProjectFolder(db, thread.project_id, "outputs")).id;
           if (!data.note) data.note = `基于对话缓存「${artifact.title}」修改`;
-          data.title = await uniqueArtifactTitle(db, thread.project_id, data.folderId, data.title);
+          data.title = await uniqueArtifactTitle(db, thread.project_id, data.folderId, data.title, null, data.filename);
           data.filename = await uniqueVersionFilename(db, thread.project_id, data.folderId, data.filename);
           await query(
             db,
@@ -1624,7 +1727,7 @@ export class Service {
         }
       } else {
         artifactId = randomUUID();
-        data.title = await uniqueArtifactTitle(db, thread.project_id, data.folderId || null, data.title);
+        data.title = await uniqueArtifactTitle(db, thread.project_id, data.folderId || null, data.title, null, data.filename);
         data.filename = await uniqueVersionFilename(db, thread.project_id, data.folderId || null, data.filename);
         await query(
           db,
@@ -1697,13 +1800,20 @@ export class Service {
     };
     return options.db ? save(options.db) : transaction(this.db, save);
   }
-  async version(user, versionId) {
+  async version(user, versionId, { includeContent = true, maxBytes = 0 } = {}) {
     id.parse(versionId);
+    const limit = Math.min(Math.max(0, Math.trunc(Number(maxBytes) || 0)), 1_048_576);
+    const metaColumns = "v.id,v.artifact_id,v.thread_id,v.version,v.filename,v.mime,v.sha256,v.byte_size,v.note,v.created_by,v.created_at";
+    const versionColumns = !includeContent
+      ? metaColumns
+      : limit
+        ? `${metaColumns},SUBSTRING(v.content, 1, ?) AS content`
+        : "v.*";
     const [version] = await query(
       this.db,
-      `SELECT v.*,a.project_id,a.title,a.folder_id,f.thread_id folder_thread_id,f.folder_kind
+      `SELECT ${versionColumns},a.project_id,a.title,a.folder_id,f.thread_id folder_thread_id,f.folder_kind
        FROM versions v JOIN artifacts a ON a.id=v.artifact_id LEFT JOIN document_folders f ON f.id=a.folder_id WHERE v.id=?`,
-      [versionId],
+      limit && includeContent ? [limit, versionId] : [versionId],
     );
     if (!version) fail(404, "文档版本不存在");
     await this.member(user, version.project_id);
@@ -1773,8 +1883,11 @@ export class Service {
       folder: folderById.get(folderId),
     };
   }
-  async versionSource(user, versionId) {
-    const version = await this.version(user, versionId);
+  async versionSource(user, versionId, { maxBytes = 0 } = {}) {
+    const version = await this.version(user, versionId, {
+      includeContent: true,
+      maxBytes,
+    });
     const filename = String(version.filename || "");
     // /source is the code view: force text/plain for markup so the browser does not render HTML.
     // HTML/CSS/JS preview uses versionPreview + /preview/, which prefers filename over stored mime.
@@ -1789,57 +1902,59 @@ export class Service {
       filename,
     };
   }
-  async versionPreview(user, versionId, assetPath = "") {
-    const root = await this.version(user, versionId);
+  async versionPreview(user, versionId, assetPath = "", ticket = "") {
+    const root = await this.version(user, versionId, { includeContent: !assetPath });
     const rootName = String(root.filename || "").replace(/\\/g, "/");
     if (!/\.html?$/i.test(rootName)) fail(404, "该版本不是 HTML 文档");
     if (!assetPath) {
-      const baseHref = `/api/versions/${versionId}/preview/`;
-      let html = Buffer.isBuffer(root.content)
-        ? root.content.toString("utf8")
-        : String(root.content ?? "");
-      html = injectPreviewBase(html, baseHref);
       return {
-        content: Buffer.from(html, "utf8"),
+        content: asPreviewHtml(root.content, versionId, "", user.id, ticket),
         mime: previewContentType(root.mime, rootName),
         filename: rootName,
       };
     }
     const relative = String(assetPath).replace(/\\/g, "/").replace(/^\/+/, "");
-    if (!relative || relative.includes("..")) {
-      fail(403, "资源路径无效");
-    }
+    if (!relative) fail(403, "资源路径无效");
     const dir = pathPosix.dirname(rootName);
     const resolved = pathPosix.normalize(
       pathPosix.join(dir === "." ? "" : dir, relative),
     );
-    if (resolved.startsWith("..") || resolved.includes("/../")) {
+    if (
+      !resolved
+      || resolved === ".."
+      || resolved.startsWith("../")
+      || resolved.split("/").includes("..")
+    ) {
       fail(403, "资源路径无效");
     }
-    const target = resolved || pathPosix.basename(rootName);
-    const basename = pathPosix.basename(target);
+    const target = String(resolved).replace(/^\/+/, "") || pathPosix.basename(rootName);
     if (!root.folder_id) fail(404, "资源不存在");
-    const lookupNames = [...new Set([target, basename].filter(Boolean))];
+    const segments = target.split("/").filter(Boolean);
+    const filename = segments.pop();
+    if (!filename) fail(403, "资源路径无效");
     let row = null;
-    for (const name of lookupNames) {
-      [row] = await query(
+    if (segments.length) {
+      const nestedFolder = await walkPreviewSubfolders(
         this.db,
-        `SELECT v.content, v.mime, v.filename FROM versions v
-         JOIN artifacts a ON a.id = v.artifact_id
-         WHERE a.folder_id = ? AND a.deleted_at IS NULL
-           AND (v.filename = ? OR v.filename LIKE CONCAT('%/', ?))
-         ORDER BY
-           CASE WHEN v.filename = ? THEN 0 WHEN v.filename LIKE CONCAT('%/', ?) THEN 1 ELSE 2 END,
-           v.version DESC
-         LIMIT 1`,
-        [root.folder_id, name, name, name, name],
+        root.project_id,
+        root.folder_id,
+        segments,
       );
-      if (row) break;
+      if (nestedFolder) row = await previewAssetInFolder(this.db, nestedFolder, filename);
+    }
+    if (!row) {
+      const lookupNames = segments.length ? [target] : [filename];
+      for (const name of lookupNames) {
+        row = await previewAssetInFolder(this.db, root.folder_id, name);
+        if (row) break;
+      }
     }
     if (!row) fail(404, "资源不存在");
+    const mime = previewContentType(row.mime, row.filename);
+    const isHtml = /\.html?$/i.test(row.filename) || /\.html?$/i.test(target);
     return {
-      content: row.content,
-      mime: previewContentType(row.mime, row.filename),
+      content: isHtml ? asPreviewHtml(row.content, versionId, target, user.id, ticket) : row.content,
+      mime,
       filename: row.filename,
     };
   }
@@ -1872,7 +1987,8 @@ export class Service {
     }
     const official = await this.documentFolder(db, projectId, "project_official");
     const copiedTitle = await uniqueArtifactTitle(db, projectId, official.id, givenTitle
-      || (isOutputFolderKind(sourceRoot) ? officialTitleWithVersion(source.title, source.version) : source.title));
+      || (isOutputFolderKind(sourceRoot) ? officialTitleWithVersion(source.title, source.version) : source.title),
+      null, source.filename);
     const copiedFilename = await uniqueVersionFilename(db, projectId, official.id, source.filename);
     const artifactId = randomUUID(), copiedVersionId = randomUUID();
     await query(db, "INSERT INTO artifacts(id,project_id,title,created_by,folder_id) VALUES(?,?,?,?,?)",

@@ -227,7 +227,7 @@ export async function startReplyWorker(db, listenDb = db) {
     const worked = await work();
     if (worked) publishWork(db);
     return worked;
-  }, { subscribe, concurrency, onError: (error) => console.error("Worker failed", { type: error.name }) });
+  }, { subscribe, concurrency, onError: (error) => console.error("Worker failed", error) });
   // Independent lanes: a slow child or compression cannot hold up reception.
   // Commits wake the lanes immediately; the minute sweep covers missed events.
   const stops = [

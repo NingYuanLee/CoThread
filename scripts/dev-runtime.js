@@ -1,5 +1,6 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import { resolve } from "node:path";
 
@@ -16,6 +17,30 @@ export function resolveDevPorts(env = process.env) {
     throw new Error("PORT、API_PORT、VITE_PORT 不能相同");
   }
   return { uiPort, apiPort, vitePort };
+}
+
+export function openDevBrowser(url, {
+  spawnFn = spawn,
+  platform = process.platform,
+  env = process.env,
+} = {}) {
+  if (env.COTHREAD_NO_BROWSER === "1" || env.CI) return false;
+  let parsed;
+  try {
+    parsed = new URL(String(url || ""));
+  } catch {
+    return false;
+  }
+  if (!/^https?:$/i.test(parsed.protocol)) return false;
+  if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") return false;
+  const target = parsed.toString();
+  const child = platform === "win32"
+    ? spawnFn("cmd", ["/c", "start", "", target], { stdio: "ignore", detached: true, windowsHide: true })
+    : platform === "darwin"
+      ? spawnFn("open", [target], { stdio: "ignore", detached: true })
+      : spawnFn("xdg-open", [target], { stdio: "ignore", detached: true });
+  child?.unref?.();
+  return true;
 }
 
 export function pidFilePath(projectRoot) {
@@ -140,17 +165,34 @@ export function clearDevPids(projectRoot) {
   }
 }
 
-export async function waitForHttp(url, timeoutMs = 60000) {
+function probeHttp(url, timeoutMs = 2000) {
+  return new Promise((resolve, reject) => {
+    const request = http.get(url, { timeout: timeoutMs, family: 4 }, (response) => {
+      response.resume();
+      response.on("end", () => {
+        if (response.statusCode >= 200 && response.statusCode < 400) {
+          resolve();
+          return;
+        }
+        reject(new Error(`${url} -> ${response.statusCode}`));
+      });
+    });
+    request.on("timeout", () => request.destroy(new Error(`${url} 探测超时`)));
+    request.on("error", reject);
+  });
+}
+
+export async function waitForHttp(url, timeoutMs = 60000, onTick) {
   const start = Date.now();
   let lastError;
   while (Date.now() - start < timeoutMs) {
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(2000) });
-      if (response.ok) return;
-      lastError = new Error(`${url} -> ${response.status}`);
+      await probeHttp(url);
+      return;
     } catch (error) {
       lastError = error;
     }
+    onTick?.();
     await sleep(200);
   }
   throw new Error(`等待 ${url} 超时：${lastError?.message || lastError}`);

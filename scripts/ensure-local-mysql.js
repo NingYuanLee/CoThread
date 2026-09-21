@@ -26,8 +26,14 @@ export function ensureLocalMysql() {
   const result = spawnSync(
     "powershell",
     ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "start"],
-    { cwd: projectRoot, stdio: "inherit", windowsHide: true },
+    { cwd: projectRoot, encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
   );
+  for (const chunk of [result.stdout, result.stderr]) {
+    for (const line of String(chunk || "").split(/\r?\n/)) {
+      const text = line.trim();
+      if (text) console.log(text);
+    }
+  }
   if (result.status !== 0) process.exit(result.status ?? 1);
   return true;
 }

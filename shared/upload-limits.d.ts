@@ -4,6 +4,8 @@ export const FILE_MAX_BYTES: number;
 export const FILE_CHUNK_SIZE: number;
 export const FILE_CHUNK_MIN: number;
 export const FILE_CHUNK_MAX: number;
+export const WEB_FILE_CHUNK_SIZE: number;
+export function webFileChunkSize(byteSize: number): number;
 export const FILE_UPLOAD_TTL_MS: number;
 export const FILE_UPLOAD_MAX_SESSIONS: number;
 export const FILE_UPLOAD_MAX_PENDING_BYTES: number;

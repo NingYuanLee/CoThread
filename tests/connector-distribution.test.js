@@ -12,7 +12,7 @@ test("connector application distribution stays outside CoThread", async () => {
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../.env.example", import.meta.url), "utf8"),
     readFile(new URL("../migrations/047_remove_connector_distribution.sql", import.meta.url), "utf8"),
-    readFile(new URL("../web/main.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../web/WorkspaceApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../README.md", import.meta.url), "utf8"),
   ]);
 

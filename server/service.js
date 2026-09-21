@@ -423,7 +423,7 @@ export class Service {
       this.db,
       `SELECT a.id artifact_id,a.title,a.folder_id,a.recycle_path,f.thread_id folder_thread_id,f.folder_kind,COALESCE(a.deleted_at,vr.deleted_at) deleted_at,a.deleted_at artifact_deleted_at,vr.deleted_at version_deleted_at,a.updated_at,v.id,v.version,v.filename,v.mime,v.byte_size,v.sha256,v.note,v.thread_id,v.created_by author_id,v.created_at,u.name author,
       (SELECT r.decision FROM reviews r WHERE r.version_id=v.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1) review
-      FROM artifacts a JOIN versions v ON v.artifact_id=a.id LEFT JOIN document_folders f ON f.id=a.folder_id LEFT JOIN version_recycle vr ON vr.version_id=v.id JOIN users u ON u.id=v.created_by WHERE a.project_id=? ORDER BY v.created_at DESC,v.version DESC`,
+      FROM artifacts a JOIN versions v ON v.artifact_id=a.id LEFT JOIN document_folders f ON f.id=a.folder_id LEFT JOIN version_recycle vr ON vr.version_id=v.id JOIN users u ON u.id=v.created_by WHERE a.project_id=? AND a.purged_at IS NULL AND vr.purged_at IS NULL ORDER BY v.created_at DESC,v.version DESC`,
       [projectId],
     );
     const foldersQuery = query(

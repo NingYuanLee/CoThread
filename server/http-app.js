@@ -8,7 +8,7 @@ import { readVisualArtifact } from "./visual-artifacts.js";
 import { queueDocumentOrganization } from "./document-organization.js";
 import { queueL1MemoryRun } from "./project-memory.js";
 import express from "express";
-import { libraryChange } from "./library.js";
+import { emptyLibraryRecycle, libraryChange } from "./library.js";
 import { countDocumentChanges, listDocumentChanges } from "./document-audit.js";
 import { z, ZodError } from "zod/v3";
 import {
@@ -712,6 +712,8 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     res.json(await libraryChange(service, req.user, req.params.id, "remove-folder", req.params.folderId, {})));
   app.post("/api/projects/:id/documents/organize", async (req, res) =>
     res.status(202).json(await queueDocumentOrganization(service, req.user, { projectId: req.params.id })));
+  app.post("/api/projects/:id/recycle/empty", async (req, res) =>
+    res.json(await emptyLibraryRecycle(service, req.user, req.params.id)));
   app.post("/api/projects/:id/member-memory", async (req, res) =>
     res.status(202).json(await queueL1MemoryRun(service, req.user, { projectId: req.params.id, task: "member_memory" })));
   app.post("/api/projects/:id/document-memory", async (req, res) =>

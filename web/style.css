@@ -3105,6 +3105,9 @@ summary {
 }
 .library-explorer-footer {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   margin-top: 0;
   padding: 8px 2px 0;
   border-top: 1px solid var(--c-e5e5e5, #e5e5e5);
@@ -3129,6 +3132,26 @@ summary {
 .library-trash-entry.active {
   background: var(--c-e8efe9, #e8efe9);
   color: var(--c-263b2b, #263b2b);
+}
+.library-trash-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--c-a9443e, #a9443e);
+  font-size: 13px;
+  text-align: left;
+}
+.library-trash-empty:hover:not(:disabled) {
+  background: var(--c-f6e6e4, #f6e6e4);
+}
+.library-trash-empty:disabled {
+  opacity: .45;
 }
 .explorer-heading {
   display: flex;
@@ -3793,6 +3816,11 @@ summary {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+.library-organize-actions button.danger {
+  border: 0;
+  background: var(--c-8a4a3b, #8a4a3b);
+  color: var(--c-fff, #fff);
 }
 .library-embedded .library-body {
   display: flex;

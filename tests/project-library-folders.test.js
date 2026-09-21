@@ -606,3 +606,94 @@ test("same-folder duplicate names are auto-renamed instead of rejected", async (
     await database.close();
   }
 });
+
+test("emptying recycle permanently deletes unreferenced files and retains cited versions", async () => {
+  const database = await testDatabase();
+  const db = database.db;
+  try {
+    const { emptyLibraryRecycle } = await import("../server/library.js");
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [user.id, `${user.id}@test.com`, "负责人"]);
+    const service = new Service(db);
+    const project = await service.createProject(user, { name: "库" });
+    const thread = await service.createThread(user, project.id, { title: "讨论" });
+    const [official] = await query(db,
+      "SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_official' AND parent_id IS NULL LIMIT 1",
+      [project.id]);
+    const unused = await service.uploadOfficialDocument(user, project.id, {
+      folderId: official.id,
+      title: "可删",
+      filename: "drop.txt",
+      mime: "text/plain",
+      contentBase64: Buffer.from("drop").toString("base64"),
+    });
+    const cited = await service.uploadOfficialDocument(user, project.id, {
+      folderId: official.id,
+      title: "引用",
+      filename: "keep.txt",
+      mime: "text/plain",
+      contentBase64: Buffer.from("keep").toString("base64"),
+    });
+    await service.postMessage(user, thread.id, { body: "看这个文件", refs: [cited.id] });
+    await libraryChange(service, user, project.id, "artifact", unused.artifactId, { deleted: true });
+    await libraryChange(service, user, project.id, "artifact", cited.artifactId, { deleted: true });
+    const result = await emptyLibraryRecycle(service, user, project.id);
+    assert.equal(result.removed.artifacts, 1);
+    assert.equal(result.retained.artifacts, 1);
+    assert.equal((await query(db, "SELECT id FROM artifacts WHERE id=?", [unused.artifactId])).length, 0);
+    const [kept] = await query(db, "SELECT deleted_at,purged_at FROM artifacts WHERE id=?", [cited.artifactId]);
+    assert.ok(kept.deleted_at);
+    assert.ok(kept.purged_at);
+    assert.equal((await service.project(user, project.id)).versions.find((row) => row.id === cited.id), undefined);
+    assert.equal((await service.version(user, cited.id)).content.toString(), "keep");
+    await assert.rejects(
+      () => libraryChange(service, user, project.id, "artifact", cited.artifactId, { deleted: false }),
+      (error) => error.status === 409,
+    );
+    await assert.rejects(
+      () => emptyLibraryRecycle(service, { ...user, kind: "agent" }, project.id),
+      (error) => error.status === 403,
+    );
+    const emptyAgain = await emptyLibraryRecycle(service, user, project.id);
+    assert.deepEqual(emptyAgain.removed, { artifacts: 0, versions: 0 });
+    assert.deepEqual(emptyAgain.retained, { artifacts: 0, versions: 0 });
+  } finally {
+    await database.close();
+  }
+});
+
+test("emptying recycle deletes an unreferenced recycled version without removing live versions", async () => {
+  const database = await testDatabase();
+  const db = database.db;
+  try {
+    const { emptyLibraryRecycle } = await import("../server/library.js");
+    const user = { id: randomUUID(), kind: "session" };
+    const agent = { ...user, kind: "agent" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [user.id, `${user.id}@test.com`, "负责人"]);
+    const service = new Service(db);
+    const project = await service.createProject(user, { name: "库" });
+    const thread = await service.createThread(user, project.id, { title: "产物" });
+    const data = {
+      title: "脚本",
+      filename: "run.txt",
+      mime: "text/plain",
+      contentBase64: Buffer.from("v1").toString("base64"),
+    };
+    const v1 = await service.submitVersion(agent, thread.id, data);
+    const extraId = randomUUID();
+    await query(db, `INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by)
+      VALUES(?,?,?,2,'run.txt','text/plain',?,REPEAT('a',64),1,'',?)`,
+      [extraId, v1.artifactId, thread.id, Buffer.from("v2"), user.id]);
+    await query(db, "INSERT INTO version_recycle(version_id) VALUES(?)", [extraId]);
+    const result = await emptyLibraryRecycle(service, user, project.id);
+    assert.equal(result.removed.versions, 1);
+    assert.equal((await query(db, "SELECT id FROM versions WHERE id=?", [extraId])).length, 0);
+    const live = (await service.project(user, project.id)).versions.find((row) => row.id === v1.id);
+    assert.ok(live);
+    assert.equal(live.deleted_at, null);
+  } finally {
+    await database.close();
+  }
+});

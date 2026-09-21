@@ -13,6 +13,7 @@ import {
 import { recordDocumentChange } from "./document-audit.js";
 
 const id = z.string().uuid();
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const name = z
   .string()
   .trim()
@@ -123,8 +124,9 @@ export async function libraryChange(
     const creatingFolder = kind === "folder" && !target;
     let removedFolderName = null;
     if (kind === "version") {
-      const [row] = await query(db, `SELECT v.id,a.deleted_at,a.folder_id,f.thread_id,f.folder_kind FROM versions v
+      const [row] = await query(db, `SELECT v.id,a.deleted_at,a.folder_id,vr.purged_at,f.thread_id,f.folder_kind FROM versions v
         JOIN artifacts a ON a.id=v.artifact_id LEFT JOIN document_folders f ON f.id=a.folder_id
+        LEFT JOIN version_recycle vr ON vr.version_id=v.id
         WHERE v.id=? AND a.project_id=? FOR UPDATE`, [id.parse(target),projectId]);
       if (!row) throw new HttpError(404,"文档版本不存在");
       await requireScope(row);
@@ -134,13 +136,14 @@ export async function libraryChange(
           ? "正式文件只有一个版本，请删除整份文档"
           : "对话缓存只有一个版本，请删除整份文档");
       if (row.deleted_at) throw new HttpError(409,"请先恢复整份文档，再操作其中的版本");
+      if (row.purged_at) throw new HttpError(409, "该版本已从回收站永久清除，无法恢复");
       if (data.deleted === undefined) throw new HttpError(400,"请指定删除或恢复版本");
       if (data.deleted) await query(db,"INSERT IGNORE INTO version_recycle(version_id) VALUES(?)",[target]);
       else await query(db,"DELETE FROM version_recycle WHERE version_id=?",[target]);
     } else if (kind === "artifact") {
       const [row] = await query(
         db,
-        `SELECT a.id,a.title,a.folder_id,a.recycle_path,a.deleted_at,f.thread_id,f.folder_kind FROM artifacts a
+        `SELECT a.id,a.title,a.folder_id,a.recycle_path,a.deleted_at,a.purged_at,f.thread_id,f.folder_kind FROM artifacts a
          LEFT JOIN document_folders f ON f.id=a.folder_id
          WHERE a.id=? AND a.project_id=? FOR UPDATE`,
         [id.parse(target), projectId],
@@ -186,6 +189,7 @@ export async function libraryChange(
           "UPDATE artifacts SET deleted_at=UTC_TIMESTAMP(3),recycle_path=? WHERE id=?",
           [path ? JSON.stringify(path) : null, target]);
       } else if (data.deleted === false) {
+        if (row.purged_at) throw new HttpError(409, "该文档已从回收站永久清除，无法恢复");
         let folderId = row.folder_id;
         if (folderId) {
           const [exists] = await query(db,
@@ -312,5 +316,120 @@ export async function libraryChange(
       details: { kind, action, input: data, affectedFolderId: kind === "remove-folder" ? target : null, affectedFolderName: removedFolderName },
     });
     return { id: target, ok: true };
+  });
+}
+
+function collectUuids(value, into, depth = 0) {
+  if (depth > 8 || value == null) return;
+  if (typeof value === "string") {
+    if (UUID.test(value)) into.add(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectUuids(item, into, depth + 1);
+    return;
+  }
+  if (typeof value === "object") {
+    for (const item of Object.values(value)) collectUuids(item, into, depth + 1);
+  }
+}
+
+function parseJsonColumn(value) {
+  if (value == null || value === "") return value;
+  return typeof value === "string" ? JSON.parse(value) : value;
+}
+
+async function referencedVersionIds(db, projectId) {
+  const ids = new Set();
+  const messages = await query(db,
+    `SELECT m.refs FROM messages m JOIN threads t ON t.id=m.thread_id
+     WHERE t.project_id=? AND m.refs IS NOT NULL`, [projectId]);
+  for (const row of messages) collectUuids(parseJsonColumn(row.refs), ids);
+  const tasks = await query(db,
+    "SELECT artifact_refs,document_refs FROM agent_tasks WHERE project_id=?", [projectId]);
+  for (const row of tasks) {
+    collectUuids(parseJsonColumn(row.artifact_refs), ids);
+    collectUuids(parseJsonColumn(row.document_refs), ids);
+  }
+  const linked = await query(db,
+    `SELECT atd.version_id FROM agent_task_documents atd
+     JOIN messages m ON m.id=atd.message_id JOIN threads t ON t.id=m.thread_id
+     WHERE t.project_id=?`, [projectId]);
+  for (const row of linked) if (row.version_id) ids.add(row.version_id);
+  const archives = await query(db,
+    "SELECT archive_snapshot FROM threads WHERE project_id=? AND archive_snapshot IS NOT NULL",
+    [projectId]);
+  for (const row of archives) collectUuids(parseJsonColumn(row.archive_snapshot), ids);
+  return ids;
+}
+
+async function deleteVersions(db, versionIds) {
+  if (!versionIds.length) return;
+  const placeholders = versionIds.map(() => "?").join(",");
+  await query(db, `DELETE FROM version_recycle WHERE version_id IN (${placeholders})`, versionIds);
+  await query(db, `DELETE FROM reviews WHERE version_id IN (${placeholders})`, versionIds);
+  await query(db, `DELETE FROM versions WHERE id IN (${placeholders})`, versionIds);
+}
+
+export async function emptyLibraryRecycle(service, user, projectId) {
+  if (user.kind !== "session") throw new HttpError(403, "清空回收站需要人工登录");
+  id.parse(projectId);
+  return transaction(service.db, async (db) => {
+    await service.member(user, projectId, true, db);
+    await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);
+    const referenced = await referencedVersionIds(db, projectId);
+    const recycledArtifacts = await query(db,
+      `SELECT id FROM artifacts WHERE project_id=? AND deleted_at IS NOT NULL AND purged_at IS NULL FOR UPDATE`,
+      [projectId]);
+    const recycledVersions = await query(db,
+      `SELECT v.id,v.artifact_id FROM versions v JOIN artifacts a ON a.id=v.artifact_id
+       JOIN version_recycle vr ON vr.version_id=v.id
+       WHERE a.project_id=? AND a.deleted_at IS NULL AND vr.purged_at IS NULL FOR UPDATE`,
+      [projectId]);
+    let removedArtifacts = 0;
+    let purgedArtifacts = 0;
+    let removedVersions = 0;
+    let purgedVersions = 0;
+    for (const artifact of recycledArtifacts) {
+      const versions = await query(db, "SELECT id FROM versions WHERE artifact_id=?", [artifact.id]);
+      const versionIds = versions.map((row) => row.id);
+      const keep = versionIds.some((versionId) => referenced.has(versionId));
+      if (keep) {
+        await query(db, "UPDATE artifacts SET purged_at=UTC_TIMESTAMP(3) WHERE id=?", [artifact.id]);
+        if (versionIds.length) {
+          const placeholders = versionIds.map(() => "?").join(",");
+          await query(db,
+            `UPDATE version_recycle SET purged_at=UTC_TIMESTAMP(3) WHERE version_id IN (${placeholders}) AND purged_at IS NULL`,
+            versionIds);
+        }
+        purgedArtifacts += 1;
+        purgedVersions += versionIds.length;
+      } else {
+        await deleteVersions(db, versionIds);
+        await query(db, "DELETE FROM artifacts WHERE id=?", [artifact.id]);
+        removedArtifacts += 1;
+        removedVersions += versionIds.length;
+      }
+    }
+    for (const version of recycledVersions) {
+      if (referenced.has(version.id)) {
+        await query(db, "UPDATE version_recycle SET purged_at=UTC_TIMESTAMP(3) WHERE version_id=? AND purged_at IS NULL",
+          [version.id]);
+        purgedVersions += 1;
+      } else {
+        await deleteVersions(db, [version.id]);
+        removedVersions += 1;
+      }
+    }
+    if (removedArtifacts || purgedArtifacts || removedVersions || purgedVersions)
+      await recordDocumentChange(db, {
+        projectId, action: "recycle_emptied", source: "ui", actorType: user.kind, actorId: user.id,
+        details: { removedArtifacts, purgedArtifacts, removedVersions, purgedVersions },
+      });
+    return {
+      ok: true,
+      removed: { artifacts: removedArtifacts, versions: removedVersions },
+      retained: { artifacts: purgedArtifacts, versions: purgedVersions },
+    };
   });
 }

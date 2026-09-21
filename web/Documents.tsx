@@ -520,6 +520,7 @@ const documentChangeLabels: Record<string, string> = {
   version_deleted: "删除版本", version_restored: "恢复版本",
   folder_created: "创建文件夹", folder_renamed: "重命名文件夹",
   folder_moved: "移动文件夹", folder_deleted: "删除文件夹",
+  recycle_emptied: "清空回收站",
 };
 const documentChangeSources: Record<string, string> = { ui: "界面", mcp: "MCP", agent: "Agent", system: "系统" };
 const documentChangeActions = Object.entries(documentChangeLabels);
@@ -973,6 +974,7 @@ export function Documents({
   const [deleteConfirm, setDeleteConfirm] = useState<
     | { type: "file"; item: LibraryVersion }
     | { type: "folder"; item: LibraryFolder }
+    | { type: "empty-recycle" }
     | null
   >(null);
   const [changeRequest, setChangeRequest] = useState<{ versionId: string; title: string } | null>(null);
@@ -1435,6 +1437,19 @@ export function Documents({
     if (!deleteConfirm) return;
     const target = deleteConfirm;
     setDeleteConfirm(null);
+    if (target.type === "empty-recycle") {
+      void act(async () => {
+        const result = await change(`/projects/${projectId}/recycle/empty`, {}) as {
+          retained?: { versions?: number };
+        };
+        onSelect("");
+        const kept = Number(result?.retained?.versions || 0);
+        showTip(kept
+          ? `回收站已清空。仍有 ${kept} 个被引用的版本保留内容，可从历史消息打开，但不能恢复到文件树。`
+          : "回收站已清空");
+      });
+      return;
+    }
     if (target.type === "file") {
       const item = target.item;
       void act(async () => {
@@ -1779,7 +1794,10 @@ export function Documents({
                 ? artifacts.map((v) => fileRow(v, 0))
                 : libraryRoots.map((root) => renderLibraryRoot(root))}
             </div>
-            {!artifacts.length && !libraryFolders.length && (
+            {trash && !artifacts.length ? (
+              <p className="muted">回收站是空的。</p>
+            ) : null}
+            {!artifacts.length && !libraryFolders.length && !trash && (
               <p className="muted">文档库尚无文件。</p>
             )}
             {organization?.status === "failed" && <div className="error" role="alert">{organization.error || "正式文件整理未完成，可以重试。"}</div>}
@@ -1805,6 +1823,19 @@ export function Documents({
                 <TreeIcon kind={trash ? "back" : "trash"} />
                 <span>{trash ? "返回文件树" : "回收站"}</span>
               </button>
+              {trash && writable ? (
+                <button
+                  type="button"
+                  className="library-trash-empty"
+                  title="永久清空回收站"
+                  aria-label="清空回收站"
+                  disabled={pending || !libraryVersions.some((item) => item.deleted_at)}
+                  onClick={() => setDeleteConfirm({ type: "empty-recycle" })}
+                >
+                  <TreeIcon kind="trash" />
+                  <span>清空回收站</span>
+                </button>
+              ) : null}
             </footer>
           </aside>
   );
@@ -2176,6 +2207,19 @@ export function Documents({
         ) : null;
   const deleteConfirmCopy = (() => {
     if (!deleteConfirm) return null;
+    if (deleteConfirm.type === "empty-recycle") {
+      const count = libraryVersions
+        .filter((item) => item.deleted_at)
+        .filter((item, index, list) => list.findIndex((row) => row.artifact_id === item.artifact_id) === index)
+        .length;
+      return {
+        title: "确认清空回收站",
+        body: count
+          ? `将永久清空本项目回收站中的 ${count} 份文档，不受当前搜索筛选影响。未被消息或任务引用的文件会从数据库删除；仍被引用的版本会保留内容供历史查看，但不能再恢复到文件树。`
+          : "回收站没有可清空的文件。",
+        confirm: "确认清空",
+      };
+    }
     if (deleteConfirm.type === "file") {
       const item = deleteConfirm.item;
       const unversioned = isUnversionedArea(fileAreaKind(item));
@@ -2184,6 +2228,7 @@ export function Documents({
         body: unversioned
           ? `删除「${item.title}」后将移入回收站，可从回收站原路恢复。`
           : `删除「${item.title}」及其全部版本后将移入回收站，可从回收站原路恢复。`,
+        confirm: "确认删除",
       };
     }
     const stats = subtreeStats(deleteConfirm.item.id);
@@ -2196,6 +2241,7 @@ export function Documents({
       body: parts.length
         ? `「${deleteConfirm.item.name}」内含 ${parts.join("、")}。删除后其中文档会移入回收站，文件夹将被移除。`
         : `将删除空文件夹「${deleteConfirm.item.name}」。`,
+      confirm: "确认删除",
     };
   })();
   const deleteConfirmDialog = deleteConfirm && deleteConfirmCopy ? (
@@ -2213,7 +2259,9 @@ export function Documents({
               <p>{deleteConfirmCopy.body}</p>
               <div className="library-organize-actions">
                 <button type="button" onClick={close}>取消</button>
-                <button type="button" className="primary" onClick={confirmDelete}><UiIcon name="trash" size={13} />确认删除</button>
+                <button type="button" className={deleteConfirm.type === "empty-recycle" ? "danger" : "primary"} onClick={confirmDelete} disabled={deleteConfirm.type === "empty-recycle" && !libraryVersions.some((item) => item.deleted_at)}>
+                  <UiIcon name="trash" size={13} />{deleteConfirmCopy.confirm}
+                </button>
               </div>
             </section>}
           </ModalBackdrop>

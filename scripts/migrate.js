@@ -6,7 +6,7 @@ import { seedInitialAdmin } from "./seed.js";
 // MySQL DDL commits independently of the file-level migration receipt. A cold
 // start can fail after ADD COLUMN succeeded, so retry only a verified match.
 async function matchingExistingColumn(conn, statement) {
-  const match = statement.match(/^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+`?(\w+)`?\s+(CHAR\(\d+\)|VARCHAR\(\d+\)|TEXT|BOOLEAN|TINYINT\s+UNSIGNED|INT\s+UNSIGNED|DATETIME(?:\(\d+\))?)\s+(NULL|NOT\s+NULL)(?:\s+DEFAULT\s+(FALSE|TRUE|NULL|\d+))?$/i);
+  const match = statement.match(/^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+`?(\w+)`?\s+(CHAR\(\d+\)|VARCHAR\(\d+\)|TEXT|JSON|BOOLEAN|TINYINT\s+UNSIGNED|INT\s+UNSIGNED|DATETIME(?:\(\d+\))?)\s+(NULL|NOT\s+NULL)(?:\s+DEFAULT\s+(FALSE|TRUE|NULL|\d+))?$/i);
   if (!match) return false;
   const [, table, column, type, nullable, defaultValue] = match;
   const [actual] = await query(conn,
@@ -14,7 +14,7 @@ async function matchingExistingColumn(conn, statement) {
      FROM information_schema.COLUMNS c JOIN information_schema.TABLES t
      ON t.TABLE_SCHEMA=c.TABLE_SCHEMA AND t.TABLE_NAME=c.TABLE_NAME
      WHERE c.TABLE_SCHEMA=DATABASE() AND c.TABLE_NAME=? AND c.COLUMN_NAME=?`, [table, column]);
-  const expectedType = type.toLowerCase().replace(/\s+/g, " ").replace(/^boolean$/, "tinyint(1)");
+  const expectedType = type.toLowerCase().replace(/\s+/g, " ").replace(/^boolean$/, "tinyint(1)").replace(/^json$/, "json");
   const expectedDefault = !defaultValue || /^null$/i.test(defaultValue) ? null
     : /^false$/i.test(defaultValue) ? "0" : /^true$/i.test(defaultValue) ? "1" : defaultValue;
   return !!actual && actual.COLUMN_TYPE.toLowerCase() === expectedType

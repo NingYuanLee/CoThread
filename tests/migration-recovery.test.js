@@ -61,6 +61,32 @@ test("a duplicate column with a different definition remains an actionable migra
   } finally { await database.close(); }
 });
 
+test("file upload migration retries after hosted MySQL rejects a second TIMESTAMP default", async () => {
+  const database = await testDatabase();
+  const db = database.db;
+  try {
+    await query(db, "DROP TABLE IF EXISTS file_upload_chunks, file_upload_sessions");
+    await query(db, "DELETE FROM schema_migrations WHERE name='079_file_uploads.sql'");
+    await query(db, "ALTER TABLE versions MODIFY content MEDIUMBLOB NOT NULL");
+    await query(db, "SET SESSION sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
+    try { await query(db, "SET SESSION explicit_defaults_for_timestamp=0"); }
+    catch { /* 部分账号不允许改该开关；DATETIME 列在两种设置下都能建表 */ }
+    await migrate(db);
+    const tables = await query(db,
+      `SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()
+       AND TABLE_NAME IN ('file_upload_sessions','file_upload_chunks')`);
+    assert.equal(tables.length, 2);
+    const [expires] = await query(db,
+      `SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()
+       AND TABLE_NAME='file_upload_sessions' AND COLUMN_NAME='expires_at'`);
+    assert.equal(expires.DATA_TYPE, "datetime");
+    const [content] = await query(db,
+      `SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()
+       AND TABLE_NAME='versions' AND COLUMN_NAME='content'`);
+    assert.equal(content.COLUMN_TYPE.toLowerCase(), "longblob");
+  } finally { await database.close(); }
+});
+
 test("a fully migrated cold start needs one query and no migration lock", async () => {
   const database = await testDatabase();
   try {

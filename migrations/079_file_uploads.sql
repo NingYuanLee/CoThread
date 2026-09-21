@@ -1,6 +1,8 @@
 ALTER TABLE versions MODIFY content LONGBLOB NOT NULL;
 
-CREATE TABLE file_upload_sessions (
+-- expires_at 使用 DATETIME，避免托管 MySQL 在 explicit_defaults_for_timestamp=OFF
+-- 时把第二列 TIMESTAMP NOT NULL 隐式默认成 0000-00-00 并被 NO_ZERO_DATE 拒绝。
+CREATE TABLE IF NOT EXISTS file_upload_sessions (
   id CHAR(36) PRIMARY KEY,
   user_id CHAR(36) NOT NULL,
   kind ENUM('cache_draft','official_file') NOT NULL,
@@ -17,20 +19,20 @@ CREATE TABLE file_upload_sessions (
   chunk_count INT UNSIGNED NOT NULL,
   version_id CHAR(36) NULL,
   created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  expires_at TIMESTAMP(3) NOT NULL,
+  expires_at DATETIME(3) NOT NULL,
   INDEX file_upload_sessions_expiry (expires_at),
   INDEX file_upload_sessions_user (user_id, created_at),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
   FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE,
   FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE SET NULL
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-CREATE TABLE file_upload_chunks (
+CREATE TABLE IF NOT EXISTS file_upload_chunks (
   session_id CHAR(36) NOT NULL,
   chunk_index INT UNSIGNED NOT NULL,
   sha256 CHAR(64) NOT NULL,
   content MEDIUMBLOB NOT NULL,
   PRIMARY KEY (session_id, chunk_index),
   FOREIGN KEY (session_id) REFERENCES file_upload_sessions(id) ON DELETE CASCADE
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

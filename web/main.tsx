@@ -9,7 +9,7 @@ import {
   SUMMARY_REQUEST,
   mentionsAgent,
 } from "../shared/agent-member.js";
-import { MCP_CONVERSATION_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
+import { MCP_CONVERSATION_COPY_INSTRUCTION, MCP_TASK_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
 import React, { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import "./theme.css";
@@ -900,14 +900,28 @@ function App() {
     setTaskDialogOpen(true);
   };
   const openTask = (taskId: string) => openTaskDialog(taskId);
-  const copyTaskId = async (taskId: string) => {
+  const copyTaskInfo = async (task: AgentTask) => {
+    if (!projectId || detail?.id !== projectId) return;
+    const originThreadId = task.origin_thread_id || threadId;
+    const iteration = detail?.threads.find((item) => item.id === originThreadId)?.title
+      || (thread?.id === originThreadId ? thread.title : undefined);
+    const info = formatMcpCopyPayload({
+      server: `${location.origin}${health?.mcpEndpoint || "/mcp"}`,
+      project: detail?.name,
+      projectId,
+      iteration,
+      threadId: originThreadId,
+      task: task.title,
+      taskId: task.id,
+      instruction: MCP_TASK_COPY_INSTRUCTION,
+    });
     try {
-      await navigator.clipboard.writeText(taskId);
-      setCopiedTaskId(taskId);
-      showTip("任务 ID 已复制");
+      await navigator.clipboard.writeText(info);
+      setCopiedTaskId(task.id);
+      showTip("任务信息已复制");
     } catch {
-      setTaskActionError("无法自动复制任务 ID，请检查剪贴板权限后重试。");
-      showTip("无法自动复制任务 ID，请检查剪贴板权限后重试。", "error");
+      setTaskActionError("无法自动复制任务信息，请检查剪贴板权限后重试。");
+      showTip("无法自动复制任务信息，请检查剪贴板权限后重试。", "error");
     }
   };
   useEffect(() => {
@@ -2592,7 +2606,7 @@ function App() {
                 const targetName = detail?.members.find((member) => member.id === task?.target_id)?.name || (task?.target_type === "l2_session" ? "小祥" : "未指派");
                 return <div className="task-detail">
                   {!task || task.id !== selectedTaskId ? <p className="muted">正在读取任务详情…</p> : <>
-                    <header><div className="task-detail-title"><h3>{task.title}</h3><div className="task-detail-id"><span>任务 ID：<code>{task.id}</code></span><button type="button" title={copiedTaskId === task.id ? "已复制" : "复制任务 ID"} aria-label={copiedTaskId === task.id ? "已复制任务 ID" : "复制任务 ID"} onClick={() => void copyTaskId(task.id)}><UiIcon name={copiedTaskId === task.id ? "check" : "copy"} size={12} /></button></div></div><div className="task-detail-header-actions"><span data-status={task.status}><UiIcon name={workflowIcon(task.status)} size={10} />{labelWorkflowStatus(task.status)}</span></div></header>
+                    <header><div className="task-detail-title"><h3>{task.title}</h3><div className="task-detail-id"><span>任务 ID：<code>{task.id}</code></span><button type="button" title={copiedTaskId === task.id ? "已复制" : "复制任务信息"} aria-label={copiedTaskId === task.id ? "已复制任务信息" : "复制任务信息"} onClick={() => void copyTaskInfo(task)}><UiIcon name={copiedTaskId === task.id ? "check" : "copy"} size={12} /></button></div></div><div className="task-detail-header-actions"><span data-status={task.status}><UiIcon name={workflowIcon(task.status)} size={10} />{labelWorkflowStatus(task.status)}</span></div></header>
                     <dl className="task-detail-meta"><div><dt>任务来源</dt><dd>{taskSourceLabel(task)}</dd></div><div><dt>任务类型</dt><dd>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</dd></div><div><dt>责任主体</dt><dd>{targetName}</dd></div><div><dt>任务执行</dt><dd>{taskExecutorLabel(task)}</dd></div></dl>
                     <section><h4>任务目标</h4><p>{task.goal}</p>{task.constraints && <><h4>约束</h4><p>{task.constraints}</p></>}
                     {(() => {

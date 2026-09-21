@@ -5,6 +5,7 @@ export const CONNECTOR_MCP_INSTRUCTIONS: string;
 export function mcpInstructionsForSource(source?: string): string;
 export const MCP_CONVERSATION_COPY_INSTRUCTION: string;
 export const MCP_OFFICIAL_LIBRARY_COPY_INSTRUCTION: string;
+export const MCP_TASK_COPY_INSTRUCTION: string;
 export function formatMcpCopyPayload(payload: Record<string, unknown>): string;
 export function createMcpInstallGuide(options: {
   url: string;

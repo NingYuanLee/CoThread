@@ -39,6 +39,9 @@ export const MCP_CONVERSATION_COPY_INSTRUCTION =
 export const MCP_OFFICIAL_LIBRARY_COPY_INSTRUCTION =
   `先调用 get_project_context 确认此项目。上传正式文件：大于 ${FILE_CHUNK_SIZE} 字节必须 start_file_upload（kind=official_file）→ upload_file_chunk → complete_file_upload，并带原始字节 SHA-256；不要一次提交整包 Base64。小文件才可用 upload_official_file。folderId 用下面给出的正式文件目录，省略则进根目录。同名不覆盖。上传不发群聊消息。`;
 
+export const MCP_TASK_COPY_INSTRUCTION =
+  `先调用 get_task 确认此任务。只通过 get_task / list_tasks 读取；执行闭环用 accept_task、reject_task、update_task，只改变任务状态，不自动发群聊。创建、取消、转交、拒绝处理、重新发起不通过普通 MCP。`;
+
 export function formatMcpCopyPayload(payload) {
   return JSON.stringify(payload, null, 2);
 }

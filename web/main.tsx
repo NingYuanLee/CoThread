@@ -54,7 +54,7 @@ import { DialogClose, ModalBackdrop, animateDialogClose, onDialogBackdropClick, 
 import { TipHost, showTip } from "./Tip";
 import { ImagePreviewDialog } from "./ImagePreview";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
-import { libraryFolderPath } from "./document-library";
+import { libraryFolderPath, folderDisplayName, latestVersionsInFolderTree } from "./document-library";
 import { LibraryPickerField } from "./LibraryPicker";
 import { McpSettings } from "./McpSettings";
 
@@ -923,10 +923,11 @@ function App() {
     setTaskCreateFolderRefs([]);
     setTaskCreateTarget(user?.id || "");
   };
-  const openTaskCreate = (seed?: { refId?: string }) => {
+  const openTaskCreate = (seed?: { refId?: string; folderId?: string }) => {
     setTaskActionError("");
     resetTaskCreate();
     if (seed?.refId) setTaskCreateRefs([seed.refId]);
+    if (seed?.folderId) setTaskCreateFolderRefs([seed.folderId]);
     setTaskCreateOpen(true);
   };
   const closeTaskCreate = () => {
@@ -1424,6 +1425,28 @@ function App() {
     setRefs(previous => [...new Set([...previous, id])].slice(0, 30));
     if (name) {
       setMessage(text => text.includes(`/${name}`)
+        ? text
+        : `${text}${text && !/\s$/.test(text) ? " " : ""}/${name} `);
+    }
+    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus());
+  };
+  const addFolderToConversation = (folderId: string) => {
+    const folders = detail?.folders || [];
+    const folder = folders.find((item) => item.id === folderId);
+    const files = latestVersionsInFolderTree(folderId, folders, detail?.versions || []);
+    if (!files.length) {
+      showTip("文件夹内没有可引用的文件", "info");
+      return;
+    }
+    const ids = files.map((item) => item.id);
+    setRefs((previous) => {
+      const next = [...new Set([...previous, ...ids])];
+      if (next.length > 30) showTip("每条消息最多引用 30 个文件，已尽量加入该文件夹中的文件", "info");
+      return next.slice(0, 30);
+    });
+    const name = folder ? folderDisplayName(folder) : undefined;
+    if (name) {
+      setMessage((text) => text.includes(`/${name}`)
         ? text
         : `${text}${text && !/\s$/.test(text) ? " " : ""}/${name} `);
     }
@@ -2383,6 +2406,7 @@ function App() {
                   refs={refs}
                   setRefs={setRefs}
                   versions={detail?.versions || []}
+                  folders={detail?.folders || []}
                   members={detail?.members || []}
                   busy={busy}
                   uploadTarget={uploadTarget}
@@ -2511,7 +2535,13 @@ function App() {
                   ? addVersionToConversation
                   : undefined
               }
+              onReferenceFolder={
+                active
+                  ? addFolderToConversation
+                  : undefined
+              }
               onAddToTask={writable ? (id) => openTaskCreate({ refId: id }) : undefined}
+              onAddFolderToTask={writable ? (id) => openTaskCreate({ folderId: id }) : undefined}
               onReview={
                 active
                   ? async (id, decision, comment) => {

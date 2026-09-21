@@ -3,12 +3,18 @@ import assert from "node:assert/strict";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isOurDevProcess, looksLikeTrackedDevCommand, resolveDevPorts } from "../scripts/dev-runtime.js";
+import { isApiPath } from "../scripts/dev-gateway.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const apiEntry = resolve(root, "server/index.js");
 const viteEntry = resolve(root, "scripts/vite-app.mjs");
 
-test("dev ports default to 3100, 3101 and 3102", () => {
+test("dev gateway treats MCP query strings as API traffic", () => {
+  assert.equal(isApiPath("/mcp"), true);
+  assert.equal(isApiPath("/mcp?v=0.3.0"), true);
+  assert.equal(isApiPath("/mcp/"), true);
+  assert.equal(isApiPath("/index.html"), false);
+});
   assert.deepEqual(resolveDevPorts({}), { uiPort: 3100, apiPort: 3101, vitePort: 3102 });
   assert.deepEqual(resolveDevPorts({ PORT: "3200" }), { uiPort: 3200, apiPort: 3201, vitePort: 3202 });
   assert.throws(() => resolveDevPorts({ PORT: "3100", API_PORT: "3100" }), /不能相同/);

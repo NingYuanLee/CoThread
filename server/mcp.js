@@ -31,7 +31,7 @@ function mcpErrorText(error) {
 
 export function createMcpServer(service, user, afterMessage) {
   const instructions = mcpInstructionsForSource(user.mcpSource);
-  const server = new McpServer({ name: MCP_SERVER_NAME, version: "0.2.0" }, { instructions });
+  const server = new McpServer({ name: MCP_SERVER_NAME, version: "0.3.0" }, { instructions });
   const registered = new Set();
   const register = (name, description, schema, fn) => {
     if (!MCP_TOOL_NAMES.includes(name) || registered.has(name))

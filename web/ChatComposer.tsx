@@ -1,6 +1,7 @@
 import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { folderDisplayName, folderRootKind, latestVersionsInFolderTree, libraryFolderPath } from "./document-library";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { FileIcon } from "@react-symbols/icons/utils";
@@ -22,6 +23,14 @@ type FileVersion = {
   filename: string;
   title: string;
   deleted_at?: string | null;
+  folder_id?: string | null;
+  version?: number;
+};
+type FolderRef = {
+  id: string;
+  parent_id: string | null;
+  name: string;
+  folder_kind?: string | null;
 };
 type Upload = {
   key: string;
@@ -110,6 +119,7 @@ export function ChatComposer({
   refs,
   setRefs,
   versions,
+  folders = [],
   members,
   busy,
   onSend,
@@ -126,6 +136,7 @@ export function ChatComposer({
   refs: string[];
   setRefs: React.Dispatch<React.SetStateAction<string[]>>;
   versions: FileVersion[];
+  folders?: FolderRef[];
   members: { id: string; name: string; email: string }[];
   busy: boolean;
   onSend: () => Promise<boolean>;
@@ -147,6 +158,7 @@ export function ChatComposer({
   const [index, setIndex] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLDivElement>(null);
   const alive = useRef(true);
   const urls = useRef<string[]>([]);
   const slots = useRef(0);
@@ -298,14 +310,27 @@ export function ChatComposer({
       !v.deleted_at &&
       all.findIndex((x) => x.artifact_id === v.artifact_id) === i,
   );
+  const libraryFolders = folders.filter((folder) => {
+    if (folder.folder_kind === "iteration_root" || folder.folder_kind === "iteration_cache" || folder.folder_kind === "iteration_outputs")
+      return false;
+    return folderRootKind(folder.id, folders) !== null;
+  });
   const options = (
     trigger?.symbol === "/"
-      ? available.map((v) => {
-          const label = fileDisplayName(v);
-          return { id: v.id, label, detail: v.title !== label ? v.title : v.filename };
-        })
+      ? [
+          ...available.map((v) => {
+            const label = fileDisplayName(v);
+            return { id: v.id, kind: "file" as const, label, detail: v.title !== label ? v.title : v.filename };
+          }),
+          ...libraryFolders.map((folder) => {
+            const label = folderDisplayName(folder);
+            const path = libraryFolderPath(folder.id, folders);
+            return { id: folder.id, kind: "folder" as const, label, detail: path !== label ? path : "文件夹" };
+          }),
+        ]
       : members.map((m) => ({
           id: m.id,
+          kind: "member" as const,
           label: m.name,
           detail: m.id === AGENT_MEMBER.id ? "助理" : m.email,
         }))
@@ -316,14 +341,37 @@ export function ChatComposer({
         .includes(trigger?.query.toLowerCase() || ""),
     )
     .slice(0, 30);
+  useLayoutEffect(() => {
+    if (!trigger) return;
+    const list = picker.current;
+    const item = list?.querySelector<HTMLElement>(`#composer-option-${index}`);
+    if (!list || !item) return;
+    const listRect = list.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    if (itemRect.bottom > listRect.bottom) list.scrollTop += itemRect.bottom - listRect.bottom;
+    else if (itemRect.top < listRect.top) list.scrollTop -= listRect.top - itemRect.top;
+  }, [index, trigger, options.length]);
   const choose = (option: (typeof options)[number]) => {
     if (!trigger) return;
     if (trigger.symbol === "/") {
-      if (!refs.includes(option.id) && refs.length + slots.current >= 30) {
-        setError("每条消息最多引用 30 个文件");
-        return;
+      if (option.kind === "folder") {
+        const ids = latestVersionsInFolderTree(option.id, folders, versions).map((item) => item.id);
+        if (!ids.length) {
+          setError("文件夹内没有可引用的文件");
+          return;
+        }
+        setRefs((rows) => {
+          const next = [...new Set([...rows, ...ids])];
+          if (next.length > 30) setError("每条消息最多引用 30 个文件，已尽量加入该文件夹中的文件");
+          return next.slice(0, 30);
+        });
+      } else {
+        if (!refs.includes(option.id) && refs.length + slots.current >= 30) {
+          setError("每条消息最多引用 30 个文件");
+          return;
+        }
+        setRefs((rows) => [...new Set([...rows, option.id])]);
       }
-      setRefs((rows) => [...new Set([...rows, option.id])]);
     }
     const selectedMember = trigger.symbol === "@" ? members.find((m) => m.id === option.id) : undefined;
     const mentionLabel = selectedMember && members.filter((m) => m.name === selectedMember.name).length > 1
@@ -453,31 +501,36 @@ export function ChatComposer({
       <div className="chat-input-wrap">
         {trigger && (
           <div
+            ref={picker}
             className="composer-picker"
             role="listbox"
             id="composer-picker"
             aria-label={
-              trigger.symbol === "/" ? "选择项目文件" : "选择项目成员"
+              trigger.symbol === "/" ? "选择项目文件或文件夹" : "选择项目成员"
             }
           >
-            <small>{trigger.symbol === "/" ? "项目文件" : "项目成员"}</small>
+            <small>{trigger.symbol === "/" ? "项目文件与文件夹" : "项目成员"}</small>
             {options.map((option, i) => (
               <button
                 type="button"
                 role="option"
                 aria-selected={i === index}
                 id={`composer-option-${i}`}
-                key={option.id}
+                key={`${option.kind}:${option.id}`}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => choose(option)}
               >
                 {trigger.symbol === "/" ? (
-                  <FileIcon
-                    fileName={option.label}
-                    autoAssign
-                    width={20}
-                    height={20}
-                  />
+                  option.kind === "folder" ? (
+                    <UiIcon name="folder" size={20} />
+                  ) : (
+                    <FileIcon
+                      fileName={option.label}
+                      autoAssign
+                      width={20}
+                      height={20}
+                    />
+                  )
                 ) : (
                   <span className="mention-avatar">
                     {option.id === AGENT_MEMBER.id ? (
@@ -494,7 +547,7 @@ export function ChatComposer({
               </button>
             ))}
             {!options.length && (
-              <p>没有匹配的{trigger.symbol === "/" ? "文件" : "成员"}</p>
+              <p>没有匹配的{trigger.symbol === "/" ? "文件或文件夹" : "成员"}</p>
             )}
           </div>
         )}
@@ -508,7 +561,7 @@ export function ChatComposer({
             trigger && options[index] ? `composer-option-${index}` : undefined
           }
           value={message}
-          placeholder="写下想法… / 引用文件，@ 提及成员；可拖拽或粘贴文件"
+          placeholder="写下想法… / 引用文件或文件夹，@ 提及成员；可拖拽或粘贴文件"
           maxLength={20000}
           onChange={(e) => {
             setMessage(e.target.value);

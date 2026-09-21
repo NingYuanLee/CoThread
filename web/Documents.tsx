@@ -211,6 +211,8 @@ function OfficialFolderMenu({
   onOpenMenuChange,
   disabled,
   isRoot,
+  onAddToConversation,
+  onAddToTask,
   onUpload,
   onDownload,
   canDownload,
@@ -225,6 +227,8 @@ function OfficialFolderMenu({
   onOpenMenuChange: (id: string | null) => void;
   disabled?: boolean;
   isRoot?: boolean;
+  onAddToConversation?: () => void;
+  onAddToTask?: () => void;
   onUpload?: () => void;
   onDownload?: () => void;
   canDownload?: boolean;
@@ -264,6 +268,18 @@ function OfficialFolderMenu({
       </button>
       {open ? (
         <div className="library-folder-menu" role="menu" onClick={(event) => event.stopPropagation()}>
+          {onAddToConversation ? (
+            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onAddToConversation(); close(); }}>
+              <TreeIcon kind="addToChat" />
+              <span>添加到会话</span>
+            </button>
+          ) : null}
+          {onAddToTask ? (
+            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onAddToTask(); close(); }}>
+              <TreeIcon kind="addToTask" />
+              <span>添加到任务</span>
+            </button>
+          ) : null}
           {onDownload ? (
             <button
               type="button"
@@ -825,7 +841,9 @@ export function Documents({
   selected,
   onSelect,
   onReference,
+  onReferenceFolder,
   onAddToTask,
+  onAddFolderToTask,
   organizationJobs = [],
 }: {
   onReview?: (versionId: string, decision: string, comment?: string) => Promise<void>;
@@ -841,7 +859,9 @@ export function Documents({
   selected: string;
   onSelect: (id: string) => void;
   onReference?: (id: string) => void;
+  onReferenceFolder?: (id: string) => void;
   onAddToTask?: (id: string) => void;
+  onAddFolderToTask?: (id: string) => void;
   organizationJobs?: { thread_id?: string | null; scope: "iteration" | "project"; status: string; error?: string | null }[];
 }) {
   const libraryFolders = folders.filter((folder) => {
@@ -1570,13 +1590,18 @@ export function Documents({
                 && folderRootKind(f.id, libraryFolders) === "project_official"
                 && !f.system_key
                 && f.folder_kind !== "project_official")
-                || subtreeStats(f.id).fileCount > 0) ? (
+                || subtreeStats(f.id).fileCount > 0
+                || (onAddFolderToTask && folderRootKind(f.id, libraryFolders) === "project_official")) ? (
                 <span className="tree-row-actions">
                 <OfficialFolderMenu
                   menuId={f.id}
                   openMenuId={openFolderMenuId}
                   onOpenMenuChange={setOpenFolderMenuId}
                   disabled={pending}
+                  onAddToConversation={onReferenceFolder && subtreeStats(f.id).fileCount > 0
+                    ? () => onReferenceFolder(f.id) : undefined}
+                  onAddToTask={onAddFolderToTask && folderRootKind(f.id, libraryFolders) === "project_official"
+                    ? () => onAddFolderToTask(f.id) : undefined}
                   onDownload={() => downloadFolder(f)}
                   canDownload={subtreeStats(f.id).fileCount > 0}
                   downloadProgress={downloadingFolderId === f.id ? downloadProgress : null}
@@ -1650,6 +1675,10 @@ export function Documents({
                 onOpenMenuChange={setOpenFolderMenuId}
                 disabled={pending}
                 isRoot
+                onAddToConversation={onReferenceFolder && subtreeStats(root.id).fileCount > 0
+                  ? () => onReferenceFolder(root.id) : undefined}
+                onAddToTask={onAddFolderToTask && root.folder_kind === "project_official"
+                  ? () => onAddFolderToTask(root.id) : undefined}
                 onDownload={() => downloadFolder(root)}
                 canDownload={subtreeStats(root.id).fileCount > 0}
                 downloadProgress={downloadingFolderId === root.id ? downloadProgress : null}

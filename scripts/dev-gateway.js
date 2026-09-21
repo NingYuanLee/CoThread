@@ -6,8 +6,9 @@ const hopByHop = new Set([
   "proxy-connection", "te", "trailers", "transfer-encoding", "upgrade",
 ]);
 
-function isApiPath(url = "/") {
-  return url.startsWith("/api") || url === "/mcp" || url.startsWith("/mcp/");
+export function isApiPath(url = "/") {
+  const path = String(url).split("?")[0];
+  return path.startsWith("/api") || path === "/mcp" || path.startsWith("/mcp/");
 }
 
 function forwardHeaders(source, hostHeader, { includeContentLength = true } = {}) {

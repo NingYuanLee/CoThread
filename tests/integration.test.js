@@ -14,6 +14,7 @@ import { createAgentTools } from "../server/agent-tools.js";
 import { relativePath } from "../server/agent-sandbox.js";
 import { processNextReply, retryReply } from "../server/replies.js";
 import { processNextContextCompression } from "../server/context-compression.js";
+import { MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js";
 
 let database;
 let db,
@@ -351,7 +352,10 @@ test("MCP initialize, list tools and context over authenticated Streamable HTTP"
     method: "tools/list",
     params: {},
   });
-  assert.equal(listed.result.tools.length, 14);
+  const listedNames = listed.result.tools.map((tool) => tool.name);
+  assert.equal(listed.result.tools.length, MCP_TOOL_NAMES.length);
+  for (const name of ["start_file_upload", "upload_file_chunk", "complete_file_upload"])
+    assert.ok(listedNames.includes(name), name);
   assert.match(initialized.result.instructions, /get_connection_guide/);
   assert.match(initialized.result.instructions, /post_message/);
   const context = await call({

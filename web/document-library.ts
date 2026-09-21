@@ -52,3 +52,47 @@ export function folderRootKind(
   }
   return null;
 }
+
+export function folderDisplayName(folder: LibraryFolderRef) {
+  const kind = folder.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number] | undefined;
+  if (!folder.parent_id && kind && LIBRARY_ROOT_LABELS[kind]) return LIBRARY_ROOT_LABELS[kind];
+  return folder.name || folder.id;
+}
+
+export function folderDescendantIds(rootId: string, folders: LibraryFolderRef[]) {
+  const children = new Map<string, string[]>();
+  for (const folder of folders) {
+    if (!folder.parent_id) continue;
+    const list = children.get(folder.parent_id) || [];
+    list.push(folder.id);
+    children.set(folder.parent_id, list);
+  }
+  const ids = new Set<string>([rootId]);
+  const stack = [rootId];
+  while (stack.length) {
+    const current = stack.pop()!;
+    for (const child of children.get(current) || []) {
+      if (ids.has(child)) continue;
+      ids.add(child);
+      stack.push(child);
+    }
+  }
+  return ids;
+}
+
+export function latestVersionsInFolderTree<T extends {
+  id: string;
+  artifact_id: string;
+  folder_id?: string | null;
+  deleted_at?: string | null;
+  version?: number;
+}>(folderId: string, folders: LibraryFolderRef[], versions: T[]): T[] {
+  const ids = folderDescendantIds(folderId, folders);
+  const latest = new Map<string, T>();
+  for (const item of versions) {
+    if (item.deleted_at || !item.folder_id || !ids.has(item.folder_id)) continue;
+    const prev = latest.get(item.artifact_id);
+    if (!prev || (item.version || 0) > (prev.version || 0)) latest.set(item.artifact_id, item);
+  }
+  return [...latest.values()];
+}

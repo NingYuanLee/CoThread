@@ -271,7 +271,14 @@ async function assertL2CanOperateTask(conn, actor, task) {
   if (actor?.type !== "l2_session") throw new HttpError(403, "只有当前迭代的 L2 可以跨任务安排");
   const [session] = await query(conn, `SELECT s.thread_id, t.project_id FROM agent_sessions s JOIN threads t ON t.id=s.thread_id
     WHERE s.session_id=?`, [actor.id]);
-  if (!session || session.project_id !== task.project_id) throw new HttpError(403, "当前 L2 不能操作其他项目的任务");
+  if (!session) {
+    if (task.origin_thread_id) {
+      const current = await currentThreadL2Session(conn, task.origin_thread_id, task.project_id);
+      if (current) throw new HttpError(409, "L2 会话已轮换，请重试本轮调度");
+    }
+    throw new HttpError(403, "当前 L2 不能操作其他项目的任务");
+  }
+  if (session.project_id !== task.project_id) throw new HttpError(403, "当前 L2 不能操作其他项目的任务");
   if (!task.origin_thread_id || task.origin_thread_id !== session.thread_id)
     throw new HttpError(403, "当前 L2 只能安排本迭代锁定的任务");
   if (!isL2OwnResponsibility(task)) await assertHumanMemberAuthorization(conn, task.project_id, actor);
@@ -362,6 +369,10 @@ export async function createTask(db, input) {
       if (input.originThreadId) {
         const current = await currentThreadL2Session(conn, input.originThreadId, input.projectId);
         if (!current) throw new HttpError(400, "任务目标不是当前项目迭代的 L2");
+        // Refuse to stamp tasks onto a rotated DB session while the live caller is still the old id.
+        // That mismatch is what produces "已安排" + unbound L3 ghosts.
+        if (input.createdByType === "l2_session" && input.createdById && input.createdById !== current.session_id)
+          throw new HttpError(409, "L2 会话已轮换，请重试本轮调度");
         targetId = current.session_id;
       } else {
         const [target] = await query(conn, `SELECT s.session_id FROM agent_sessions s JOIN threads t ON t.id=s.thread_id
@@ -600,9 +611,9 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
       const [state] = await query(conn, `SELECT COUNT(*) total,
         SUM(c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND)) online
         FROM connectors c WHERE c.user_id=? AND c.revoked_at IS NULL`, [actor.id]);
-      if (!Number(state?.total)) throw new HttpError(409, "你还没有已授权的本机连接器：请先运行连接器并在网页完成授权，或改为「由我直接完成」");
-      if (!Number(state?.online)) throw new HttpError(409, "本机连接器当前离线：请确认连接器正在运行并已登录，或改为「由我直接完成」");
-      throw new HttpError(409, "本机连接器在线，但尚未绑定当前项目：请在连接器的项目列表中为该项目选择 Git 根目录并绑定，再重新接受任务");
+      if (!Number(state?.total)) throw new HttpError(409, "你还没有已授权的本地执行器：请先运行本地执行器并在网页完成授权，或改为「由我直接完成」");
+      if (!Number(state?.online)) throw new HttpError(409, "本地执行器当前离线：请确认本地执行器正在运行并已登录，或改为「由我直接完成」");
+      throw new HttpError(409, "本地执行器在线，但尚未绑定当前项目：请在本地执行器的项目列表中为该项目选择 Git 根目录并绑定，再重新接受任务");
     }
     const executionType = actor.type === "human_member" ? (mode === "member_connector" ? "human_connector" : "human_self") : "dsh_l3";
     const nextStatus = executionType === "human_self" ? "running" : executionType === "human_connector" ? "pending_start" : "running";
@@ -624,13 +635,13 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
         const instructionRefs = await documentsForTaskInstruction(conn, task.project_id, task.document_refs, task.folder_refs);
         await query(conn, `INSERT INTO connector_tasks
           (id,agent_task_id,connector_id,project_id,thread_id,message_id,requested_by,assigned_to,member_id_snapshot,instruction,policy,allow_git_push,status,progress)
-          VALUES(UUID(),?,?,?,?,?,?,?,?,?,?,?, 'queued','等待本机连接器领取')`, [taskId, connector.id, task.project_id,
+          VALUES(UUID(),?,?,?,?,?,?,?,?,?,?,?, 'queued','等待本地执行器领取')`, [taskId, connector.id, task.project_id,
           task.origin_thread_id, task.source_message_id, task.source_user_id || actor.id, actor.id, actor.id,
           composeTaskInstruction(task, instructionRefs.documents, instructionRefs.folders), binding.policy, binding.allow_git_push]);
       }
     }
     await recordTaskStatusChange(conn, taskId, task.status, actor,
-      executionType === "human_connector" ? "成员接受任务，交给本机连接器执行" : executionType === "human_self" ? "成员接受任务，由本人完成" : "接受任务");
+      executionType === "human_connector" ? "成员接受任务，交给本地执行器执行" : executionType === "human_self" ? "成员接受任务，由本人完成" : "接受任务");
     return getTask(conn, taskId);
   });
   if (result.origin_thread_id) publishWork(db, result.origin_thread_id);
@@ -944,6 +955,15 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
   return transaction(db, async (conn) => {
     const [session] = await query(conn, "SELECT session_id FROM agent_sessions WHERE session_id=? FOR UPDATE", [l2SessionId]);
     if (!session) throw new HttpError(404, "L2 session 不存在");
+    // subagent.started and tool/result both call bind; the second pass must not look like failure.
+    const [already] = await query(conn, `SELECT t.* FROM agent_task_execution_runs r
+      JOIN agent_tasks t ON t.id=r.task_id
+      WHERE r.executor_type='dsh_l3' AND r.executor_id=? AND r.status IN ('running','waiting')
+      ORDER BY r.created_at DESC LIMIT 1 FOR UPDATE`, [childSessionId]);
+    if (already) {
+      if (taskId && already.id !== taskId) throw new HttpError(409, "该 L3 已绑定其他任务");
+      return getTask(conn, already.id);
+    }
     const [capacity] = await query(conn, `SELECT COUNT(*) active FROM agent_task_execution_runs r
       JOIN agent_tasks t ON t.id=r.task_id
       WHERE t.target_type='l2_session' AND t.target_id=? AND r.executor_type='dsh_l3'

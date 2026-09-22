@@ -457,11 +457,11 @@ function taskExecutorName(
     return l3ExecutorName(task.executor_id, l3Ids) || AGENT_LEVEL_LABELS.l3;
   }
   if (task.executor_type === "human_self") return "成员本人";
-  if (task.executor_type === "human_connector") return "本地连接器";
+  if (task.executor_type === "human_connector") return "本地执行器";
   if (task.target_type === "human_member") {
     const status = task.task_status || task.status || "";
     if (status === "awaiting_acceptance") return "待责任成员确认";
-    if (status === "pending_start") return "待连接器启动";
+    if (status === "pending_start") return "待本地执行器启动";
     if (ENDED.has(status) && !task.executor_id) return "责任成员未执行";
     return "待成员执行";
   }

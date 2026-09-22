@@ -1,4 +1,6 @@
 import React from "react";
+import yunxiaoMark from "./assets/yunxiao.png";
+import mastergoMark from "./assets/mastergo.svg";
 
 export type UiIconName =
   | "abandon"
@@ -24,6 +26,7 @@ export type UiIconName =
   | "failed"
   | "filter"
   | "folder"
+  | "github"
   | "history"
   | "human"
   | "inbox"
@@ -37,6 +40,7 @@ export type UiIconName =
   | "lock"
   | "login"
   | "logout"
+  | "mastergo"
   | "megaphone"
   | "members"
   | "mention"
@@ -76,10 +80,22 @@ export type UiIconName =
   | "userPlus"
   | "waiting"
   | "warning"
+  | "yunxiao"
   | "zoomIn"
   | "zoomOut";
 
-const GLYPHS: Record<UiIconName, string[]> = {
+/** Brand marks that render as filled paths instead of strokes. */
+const FILLED_ICONS = new Set<UiIconName>(["github"]);
+
+/** Official brand images (keep original colors). */
+const IMAGE_ICONS = {
+  yunxiao: yunxiaoMark,
+  mastergo: mastergoMark,
+} as const satisfies Partial<Record<UiIconName, string>>;
+
+type GlyphName = Exclude<UiIconName, keyof typeof IMAGE_ICONS>;
+
+const GLYPHS: Record<GlyphName, string[]> = {
   abandon: ["M5 4v16", "M5 5h9l-1.5 4L14 13H5"],
   archive: ["M3 7h18v3H3z", "M5 10v10h14V10", "M10 14h4"],
   blocked: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "m8 8 8 8"],
@@ -103,6 +119,9 @@ const GLYPHS: Record<UiIconName, string[]> = {
   failed: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "m9 9 6 6m0-6-6 6"],
   filter: ["M4 6h16l-6 7v5l-4 2v-7L4 6Z"],
   folder: ["M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"],
+  github: [
+    "M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2Z",
+  ],
   history: ["M12 8v5l3 2", "M21 12a9 9 0 1 1-2.6-6.35", "M21 4v6h-6"],
   human: ["M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z", "M5 20a7 7 0 0 1 14 0"],
   inbox: ["M4 8h16v12H4z", "M4 14h4l1.5 2h5L16 14h4"],
@@ -215,20 +234,35 @@ export function UiIcon({
   size?: number;
   className?: string;
 }) {
+  const imageSrc = name in IMAGE_ICONS ? IMAGE_ICONS[name as keyof typeof IMAGE_ICONS] : undefined;
+  if (imageSrc) {
+    return (
+      <img
+        className={className ? `ui-icon ui-icon-image ${className}` : "ui-icon ui-icon-image"}
+        src={imageSrc}
+        width={size}
+        height={size}
+        alt=""
+        draggable={false}
+        aria-hidden="true"
+      />
+    );
+  }
+  const filled = FILLED_ICONS.has(name);
   return (
     <svg
       className={className ? `ui-icon ${className}` : "ui-icon"}
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      fill={filled ? "currentColor" : "none"}
+      stroke={filled ? "none" : "currentColor"}
+      strokeWidth={filled ? undefined : "1.7"}
+      strokeLinecap={filled ? undefined : "round"}
+      strokeLinejoin={filled ? undefined : "round"}
       aria-hidden="true"
     >
-      {GLYPHS[name].map((d) => (
+      {GLYPHS[name as GlyphName].map((d) => (
         <path key={d} d={d} />
       ))}
     </svg>

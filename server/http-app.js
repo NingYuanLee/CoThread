@@ -41,6 +41,13 @@ import { acceptTask, acknowledgeTaskRejection, cancelTask, createTask, getTask, 
 import { mentionTaskSourceNotice, taskSourceMentionToken, taskStatusLabel, withTaskSourceMention } from "./task-source-notice.js";
 import { adminPluginManagement, archivePromptSkill, createPromptSkill, updatePromptSkill } from "./agent-capabilities.js";
 import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";
+import {
+  deleteProjectGitRemote, listPlatformRepositories, listProjectCodeConfig,
+  revealProjectCodeConnectorToken, syncPlatformScope, upsertProjectCodeConnector,
+} from "./project-code-sources.js";
+import {
+  listProjectDesignConfig, resolveMastergoUrl, syncMastergoScope, upsertMastergoConnector,
+} from "./project-mastergo.js";
 
 export function createApp(db, { makers = false, afterMcpMessage, executeRun, stopAgent = async () => {},
   sendVerificationEmail = deliverVerificationEmail,
@@ -679,6 +686,37 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     }
     res.json(reassigned);
   });
+  app.get("/api/projects/:id/code-connectors", async (req, res) =>
+    res.json(await listProjectDesignConfig(service, req.user, req.params.id)));
+  app.put("/api/projects/:id/code-connectors/:kind", async (req, res) => {
+    const kind = req.params.kind;
+    if (kind === "mastergo") {
+      return res.json(await upsertMastergoConnector(service, req.user, req.params.id, req.body));
+    }
+    res.json(await upsertProjectCodeConnector(service, req.user, req.params.id, {
+      ...req.body, kind,
+    }));
+  });
+  app.get("/api/projects/:id/code-connectors/:kind/token", async (req, res) =>
+    res.json(await revealProjectCodeConnectorToken(service, req.user, req.params.id, req.params.kind)));
+  app.get("/api/projects/:id/code-connectors/:kind/repositories", async (req, res) => {
+    if (req.params.kind === "mastergo") {
+      throw new HttpError(400, "MasterGo 不支持平台仓库列表，请粘贴设计稿链接加入范围");
+    }
+    res.json(await listPlatformRepositories(service, req.user, req.params.id, req.params.kind, {
+      search: req.query.search,
+    }));
+  });
+  app.put("/api/projects/:id/code-connectors/:kind/scope", async (req, res) => {
+    if (req.params.kind === "mastergo") {
+      return res.json(await syncMastergoScope(service, req.user, req.params.id, req.body));
+    }
+    res.json(await syncPlatformScope(service, req.user, req.params.id, req.params.kind, req.body));
+  });
+  app.post("/api/projects/:id/code-connectors/mastergo/resolve-url", async (req, res) =>
+    res.json(await resolveMastergoUrl(service, req.user, req.params.id, req.body)));
+  app.delete("/api/projects/:id/git-remotes/:remoteId", async (req, res) =>
+    res.json(await deleteProjectGitRemote(service, req.user, req.params.id, req.params.remoteId)));
   app.patch("/api/projects/:id", async (req, res) =>
     res.json(await service.updateProject(req.user, req.params.id, req.body)),
   );

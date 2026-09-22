@@ -83,7 +83,23 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       object = result.title || args.versionId || "项目文档";
       break;
     case "list_local_connectors":
-      action = "查看本地连接器";
+      action = "查看本地执行器";
+      break;
+    case "list_project_code_sources":
+      action = "查看代码源";
+      break;
+    case "list_code_refs":
+      action = "查看代码分支";
+      object = args.remoteId || "代码仓库";
+      break;
+    case "list_code_tree":
+      action = "查看代码目录";
+      object = args.path || args.remoteId || "代码仓库";
+      break;
+    case "read_code_file":
+      action = "读取代码文件";
+      object = args.path || "代码文件";
+      isPath = true;
       break;
     case "dsh_l3":
       action = "启动三级小祥";

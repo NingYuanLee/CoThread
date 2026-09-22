@@ -217,6 +217,7 @@ export function WorkspaceApp() {
   }, [copiedMessage]);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [projectManagementOpen, setProjectManagementOpen] = useState(false);
+  const [codeSourcesTick, setCodeSourcesTick] = useState(0);
   const [agentLogScope, setAgentLogScope] = useState<AgentLogScope | null>(null);
   const connectorAuthorizationParams = new URLSearchParams(location.search);
   const connectorAuthorizationId = connectorAuthorizationParams.get("connectorAuthorization") || "";
@@ -403,10 +404,10 @@ export function WorkspaceApp() {
       return l3ExecutorName(task.execution_agent_id, threadExecutorIds) || AGENT_LEVEL_LABELS.l3;
     }
     if (task.execution_agent_type === "human_self") return memberName(task.claimed_by_id || task.target_id) || "成员本人";
-    if (task.execution_agent_type === "human_connector") return "本地连接器";
+    if (task.execution_agent_type === "human_connector") return "本地执行器";
     if (task.target_type === "human_member") {
       if (task.status === "awaiting_acceptance") return "待责任成员确认";
-      if (task.status === "pending_start") return "待连接器启动";
+      if (task.status === "pending_start") return "待本地执行器启动";
       if (endedTask(task.status) && !task.execution_agent_type) return "责任成员未执行";
       return "待成员执行";
     }
@@ -434,19 +435,19 @@ export function WorkspaceApp() {
     if (run.executor_type === "human_self") return memberName(run.executor_id) || "成员本人";
     if (run.executor_type === "human_connector") {
       const ownerName = run.executor_member_name || run.executor_owner_name || memberName(task.target_id);
-      return ownerName ? `${ownerName}（连接器）` : "连接器成员";
+      return ownerName ? `${ownerName}（本地执行器）` : "本地执行器成员";
     }
     return labelExecutorType(run.executor_type);
   };
   const statusActorLabel = (event: { actor_type: string; actor_id: string | null; actor_name?: string | null; actor_name_snapshot?: string | null }, task?: AgentTaskDetail) => {
     if (event.actor_type === "human_member") return event.actor_name || memberName(event.actor_id) || "成员";
     if (event.actor_type === "human_member_mcp") return `${memberName(event.actor_id) || "成员"}（MCP）`;
-    if (event.actor_type === "human_member_connector_mcp" || event.actor_type === "human_member_connector") return `${event.actor_name || memberName(event.actor_id) || memberName(task?.target_id) || "成员"}（连接器）`;
+    if (event.actor_type === "human_member_connector_mcp" || event.actor_type === "human_member_connector") return `${event.actor_name || memberName(event.actor_id) || memberName(task?.target_id) || "成员"}（本地执行器）`;
     if (event.actor_type === "l2_session") return "L2-小祥";
     if (event.actor_type === "dsh_l3") {
       return event.actor_name_snapshot || "L3-未知";
     }
-    if (event.actor_type === "connector") return `${event.actor_name || memberName(task?.target_id) || "成员"}（连接器）`;
+    if (event.actor_type === "connector") return `${event.actor_name || memberName(task?.target_id) || "成员"}（本地执行器）`;
     return "系统";
   };
   // 指派事件与状态变更合成一条时间线：同一操作（创建 / 拒绝 / 重新发起）两边各有一条时，合并显示，不重复。
@@ -1530,13 +1531,13 @@ export function WorkspaceApp() {
         <div className="sidebar-bottom">
           <button
             className="sidebar-card sidebar-project-management"
-            title={`项目基础信息、人类成员、连接器与${AGENT_LEVEL_LABELS.l1}`}
+            title={`项目基础信息、人类成员、连接器、本地执行器与${AGENT_LEVEL_LABELS.l1}`}
             aria-label="项目管理"
             disabled={!projectId}
             onClick={() => setProjectManagementOpen(true)}
           >
             <span className="sidebar-card-icon"><SidebarIcon kind="project" /></span>
-            <span className="sidebar-card-copy">项目管理<small>人类成员、连接器与{AGENT_LEVEL_LABELS.l1}</small></span>
+            <span className="sidebar-card-copy">项目管理<small>成员、连接器、本地执行器与{AGENT_LEVEL_LABELS.l1}</small></span>
             <span className="sidebar-card-action" aria-hidden="true">›</span>
           </button>
           <button
@@ -2103,6 +2104,7 @@ export function WorkspaceApp() {
               folders={detail?.folders || []}
               versions={detail?.versions || []}
               organizationJobs={detail?.documentOrganizationJobs || []}
+              codeSourcesTick={codeSourcesTick}
               selected={documentId}
               onSelect={setDocumentId}
               onRefresh={async () => {
@@ -2214,8 +2216,8 @@ export function WorkspaceApp() {
                     </section>
                     {openQuestion && <section className="task-question"><h4>需要你回答</h4><p>{openQuestion.question}</p><textarea value={taskAnswer} onChange={(event) => setTaskAnswer(event.target.value)} placeholder="输入回答" /><button type="button" className="primary" disabled={taskActionBusy || !taskAnswer.trim()} onClick={() => void performTaskAction(async () => { await api(`/task-questions/${openQuestion.id}/answer`, { answer: taskAnswer }); setTaskAnswer(""); }, "回答已提交")}>提交回答</button></section>}
                     {isTarget && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>确认任务</h4>{projectConnectorBound
-                      ? <select value={taskExecutionMode === "auto" ? "member_connector" : taskExecutionMode} onChange={(event) => setTaskExecutionMode(event.target.value as typeof taskExecutionMode)}><option value="member_connector">下发连接器</option><option value="human_direct">由本人执行</option></select>
-                      : <p className="muted">当前账号未连接本项目连接器，确认后由本人执行。</p>}
+                      ? <select value={taskExecutionMode === "auto" ? "member_connector" : taskExecutionMode} onChange={(event) => setTaskExecutionMode(event.target.value as typeof taskExecutionMode)}><option value="member_connector">下发本地执行器</option><option value="human_direct">由本人执行</option></select>
+                      : <p className="muted">当前账号未连接本项目本地执行器，确认后由本人执行。</p>}
                     <div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reject`, {}, "POST"), "已拒绝任务")}><UiIcon name="reject" size={13} />拒绝</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/accept`, { mode: projectConnectorBound ? (taskExecutionMode === "human_direct" ? "human_direct" : "member_connector") : "human_direct" }, "POST"), "已确认任务")}><UiIcon name="check" size={13} />确认</button></div></section>}
                     {isSource && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>来源操作</h4><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/cancel`, {}, "POST"), "任务已取消")}><UiIcon name="close" size={13} />取消</button></section>}
                     {canReviewRejection && <section className="task-actions-section task-rejection-review"><h4>任务已被拒绝</h4><p>{[...task.assignmentHistory].reverse().find((event) => event.event_type === "rejected")?.reason || "目标成员拒绝了这个任务。"}</p><textarea value={taskReopenGoal} onChange={(event) => setTaskReopenGoal(event.target.value)} placeholder="修改任务目标与验收标准" /><textarea value={taskReopenConstraints} onChange={(event) => setTaskReopenConstraints(event.target.value)} placeholder="修改约束（可选）" /><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"), "已确认拒绝结果")}>知道了</button><button type="button" className="primary" disabled={taskActionBusy || !taskReopenGoal.trim()} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reopen`, { goal: taskReopenGoal.trim(), constraints: taskReopenConstraints }, "POST"), "任务已重新发起")}>修改后重新发起</button></div></section>}
@@ -2339,6 +2341,7 @@ export function WorkspaceApp() {
           detail={detail?.id === projectId ? detail : null}
           busy={busy}
           creator={creator}
+          owner={owner}
           projectMember={projectMember}
           api={api}
           localDate={localDate}
@@ -2355,7 +2358,10 @@ export function WorkspaceApp() {
               description: updated.description ?? previous.description,
             } : previous);
           }}
-          onClose={() => setProjectManagementOpen(false)}
+          onClose={() => {
+            setProjectManagementOpen(false);
+            setCodeSourcesTick((value) => value + 1);
+          }}
         />
         </Suspense>
       )}

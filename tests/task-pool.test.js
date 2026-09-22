@@ -636,7 +636,7 @@ test("a rotated L2 session recasts queued assist work so dsh_l3 can bind", async
   const staleSession = randomUUID();
   const assist = await createTask(db, {
     projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
-    createdByType: "l2_session", createdById: staleSession, taskType: "assist_l2", title: "旧会话排队",
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "旧会话排队",
     goal: "会话轮换后仍能开工", targetType: "l2_session", targetId: l2SessionId,
   });
   await query(db, "UPDATE agent_tasks SET target_id=?,claimed_by_id=?,created_by_id=? WHERE id=?",
@@ -650,6 +650,12 @@ test("a rotated L2 session recasts queued assist work so dsh_l3 can bind", async
   assert.equal(created.needsDispatch, true);
   assert.equal(created.started, false);
 
+  await assert.rejects(createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: staleSession, taskType: "assist_l2", title: "陈旧 L2 禁止建单",
+    goal: "caller 与 DB 不一致时应拒绝", targetType: "l2_session", targetId: staleSession,
+  }), { status: 409, message: /会话已轮换/ });
+
   const recovered = await recoverAbnormalTask(db, assist.id, { type: "l2_session", id: l2SessionId }, { action: "restart" });
   assert.equal(recovered.status, "running");
   assert.equal(recovered.target_id, l2SessionId);
@@ -662,6 +668,8 @@ test("a rotated L2 session recasts queued assist work so dsh_l3 can bind", async
   assert.equal(bound.status, "running");
   assert.equal(bound.target_id, l2SessionId);
   assert.equal(bound.execution_agent_id, childId);
+  const again = await bindDshL3Execution(db, l2SessionId, childId, assist.id);
+  assert.equal(again.execution_agent_id, childId);
   const assignment = await query(db, "SELECT event_type,reason FROM agent_task_assignment_events WHERE task_id=? ORDER BY id", [assist.id]);
   assert.equal(assignment.every((event) => event.event_type !== "transferred"), true);
   await updateTask(db, assist.id, { type: "dsh_l3", id: childId }, { status: "failed", progress: "L3 交活失败", resultSummary: "提交被拒" });

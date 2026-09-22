@@ -47,8 +47,43 @@ export function apply(ctx) {
     ],
     [
       "list_local_connectors",
-      "查看当前项目所有可执行成员已关联的本地连接器、设备所属成员、在线状态和是否允许 Git 推送。只有用户明确要求修改本地项目时使用。若消息明确 @ 其他成员，应选择该成员的在线设备；未允许 Git 推送时，整理的任务不得要求 commit 后推送。",
+      "查看当前项目所有可执行成员已关联的本地执行器、设备所属成员、在线状态和是否允许 Git 推送。只有用户明确要求修改本地项目时使用。若消息明确 @ 其他成员，应选择该成员的在线设备；未允许 Git 推送时，整理的任务不得要求 commit 后推送。",
       {},
+    ],
+    [
+      "list_project_code_sources",
+      "列出当前项目已配置的只读代码连接器（GitHub / 云效）与代码仓库。只读。仅在任务需要对照源码，或人类成员明确要求查阅代码库时使用。",
+      {},
+    ],
+    [
+      "list_code_refs",
+      "列出指定项目代码仓库的远程分支与标签（只读）。remoteId 来自 list_project_code_sources。",
+      { remoteId: { type: "string", required: true } },
+    ],
+    [
+      "list_code_tree",
+      "列出指定项目代码仓库某路径下的目录与文件（只读）。不要递归扫全库；按需下钻。",
+      { remoteId: { type: "string", required: true }, ref: { type: "string" }, path: { type: "string" } },
+    ],
+    [
+      "read_code_file",
+      "读取指定项目代码仓库中的单个文本文件（只读，有大小上限）。不要大段粘贴无关源码到对成员可见正文。",
+      { remoteId: { type: "string", required: true }, path: { type: "string", required: true }, ref: { type: "string" } },
+    ],
+    [
+      "list_project_design_sources",
+      "列出当前项目已配置的 MasterGo 连接器与范围内设计稿。只读。仅在任务需要对照设计，或人类成员明确要求查阅设计稿时使用。",
+      {},
+    ],
+    [
+      "read_design_meta",
+      "读取范围内某张 MasterGo 设计稿的 Meta（只读）。resourceId 来自 list_project_design_sources。",
+      { resourceId: { type: "string", required: true } },
+    ],
+    [
+      "read_design_dsl",
+      "读取范围内某张 MasterGo 设计稿的 DSL（只读，有大小上限）。不要把超大 DSL 贴进对成员可见正文。",
+      { resourceId: { type: "string", required: true } },
     ],
     [
       "read_iteration",

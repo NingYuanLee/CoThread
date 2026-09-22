@@ -15,6 +15,12 @@ import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { loadMemberUnderstanding, loadProjectWikiIndexes, queueDocumentMemory } from "./project-memory.js";
 import { connectorTool } from "./connectors.js";
 import { acknowledgeTaskRejection, askTaskQuestion, createTask, ensureDshL3CanUpdate, idleL3Count, inspectIterationTask, listTasks, reassignTask, recoverAbnormalTask, reopenRejectedTask, updateTask } from "./task-pool.js";
+import {
+  agentListCodeRefs, agentListCodeSources, agentListCodeTree, agentReadCodeFile,
+} from "./project-code-sources.js";
+import {
+  agentListDesignSources, agentReadDesignDsl, agentReadDesignMeta,
+} from "./project-mastergo.js";
 import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./project-library.js";
 import { captureDocumentPreview, captureDocumentTree, captureSandboxPreview } from "./preview-screenshot.js";
 import { saveVisualArtifact } from "./visual-artifacts.js";
@@ -38,6 +44,13 @@ const titles = {
   read_document: "读取",
   record_document_summary: "记录摘要",
   list_local_connectors: "查看",
+  list_project_code_sources: "查看代码源",
+  list_code_refs: "查看分支",
+  list_code_tree: "查看目录",
+  read_code_file: "读取代码",
+  list_project_design_sources: "查看设计源",
+  read_design_meta: "读取设计 Meta",
+  read_design_dsl: "读取设计 DSL",
   read_iteration: "读取", capture_preview_screenshot: "截图验收",
   sandbox_command: "执行",
   sandbox_read: "读取",
@@ -111,7 +124,7 @@ export function createAgentTools(
     }
     const thread = await assertJob(service, user, job, { role: effectiveRole, sessionId: callerSessionId });
     if (!titles[name]) throw new HttpError(400, "未知工具");
-    if (effectiveRole === "coordinator" && !["list_documents", "list_messages", "read_message", "list_members", "read_member", "project_context", "read_document", "record_document_summary", "read_iteration", "list_project_tasks", "inspect_task", "create_task", "update_task", "reassign_task", "resolve_task_rejection", "recover_task", "ask_task_question", "capture_preview_screenshot"].includes(name))
+    if (effectiveRole === "coordinator" && !["list_documents", "list_messages", "read_message", "list_members", "read_member", "project_context", "read_document", "record_document_summary", "read_iteration", "list_project_tasks", "inspect_task", "create_task", "update_task", "reassign_task", "resolve_task_rejection", "recover_task", "ask_task_question", "capture_preview_screenshot", "list_local_connectors", "list_project_code_sources", "list_code_refs", "list_code_tree", "read_code_file", "list_project_design_sources", "read_design_meta", "read_design_dsl"].includes(name))
       throw new HttpError(403, "L2 当前不能直接执行该工具");
     if (effectiveRole === "executor" && ["create_task", "reassign_task", "resolve_task_rejection", "recover_task", "inspect_task", "ask_task_question"].includes(name))
       throw new HttpError(403, "L3 只能执行已分派的工作，不能管理 L2 生命周期或创建新任务");
@@ -217,6 +230,26 @@ export function createAgentTools(
         result = await documentTool(service,user,name,args,job);
       } else if (name === "list_local_connectors") {
         result = await connectorTool(service, user, name, args, job, thread);
+      } else if (name === "list_project_code_sources") {
+        result = await agentListCodeSources(service.db, thread.project_id);
+      } else if (name === "list_code_refs") {
+        result = await agentListCodeRefs(service.db, thread.project_id, z.string().uuid().parse(args.remoteId));
+      } else if (name === "list_code_tree") {
+        result = await agentListCodeTree(service.db, thread.project_id, z.string().uuid().parse(args.remoteId), {
+          ref: z.string().trim().min(1).max(200).optional().parse(args.ref),
+          path: z.string().max(500).optional().parse(args.path),
+        });
+      } else if (name === "read_code_file") {
+        result = await agentReadCodeFile(service.db, thread.project_id, z.string().uuid().parse(args.remoteId), {
+          ref: z.string().trim().min(1).max(200).optional().parse(args.ref),
+          path: z.string().trim().min(1).max(500).parse(args.path),
+        });
+      } else if (name === "list_project_design_sources") {
+        result = await agentListDesignSources(service.db, thread.project_id);
+      } else if (name === "read_design_meta") {
+        result = await agentReadDesignMeta(service.db, thread.project_id, z.string().uuid().parse(args.resourceId));
+      } else if (name === "read_design_dsl") {
+        result = await agentReadDesignDsl(service.db, thread.project_id, z.string().uuid().parse(args.resourceId));
       } else if (name === "project_context") {
         result = modelProject(await service.project(user, thread.project_id));
         result.versions = filterProjectLibraryVersions(result.versions || []);

@@ -132,7 +132,7 @@ for (let attempt = 1; attempt <= 5; attempt++) {
       icon: iconPath,
       "file-version": version,
       "product-version": version,
-      "version-string": { ProductName: "CoThread Connector", FileDescription: "共序本地连接器", CompanyName: "CoThread" },
+      "version-string": { ProductName: "CoThread Connector", FileDescription: "共序本地执行器", CompanyName: "CoThread" },
       "requested-execution-level": "asInvoker",
     });
     break;

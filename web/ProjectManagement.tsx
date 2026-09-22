@@ -4,6 +4,7 @@ import { AGENT_LEVEL_LABELS } from "./ui-labels";
 import { RoleBadge } from "./Identity";
 import { MemberPicker } from "./MemberPicker";
 import { ProjectSettings } from "./ProjectSettings";
+import { ProjectCodeConnectors } from "./ProjectCodeConnectors";
 import { UiIcon } from "./ui-icon";
 import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
 import { showTip } from "./Tip";
@@ -52,6 +53,7 @@ export function ProjectManagement({
   detail,
   busy,
   creator,
+  owner,
   projectMember,
   api,
   localDate,
@@ -62,6 +64,7 @@ export function ProjectManagement({
   detail: ProjectDetail | null;
   busy: boolean;
   creator: boolean;
+  owner: boolean;
   projectMember: boolean;
   api: (path: string, data?: unknown, method?: string) => Promise<any>;
   localDate: (value?: string) => string;
@@ -70,8 +73,8 @@ export function ProjectManagement({
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [tab, setTab] = useState<"info" | "members">("info");
-  const [memberScope, setMemberScope] = useState<"humans" | "l1" | "connectors">("humans");
+  const [tab, setTab] = useState<"info" | "members" | "connectors">("info");
+  const [memberScope, setMemberScope] = useState<"humans" | "l1" | "executors">("humans");
   const [memberSearch, setMemberSearch] = useState("");
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
   useEffect(() => {
@@ -124,6 +127,14 @@ export function ProjectManagement({
             <span className="ui-icon-text"><UiIcon name="members" size={14} />项目成员</span>
             <small>{humans.length}</small>
           </button>
+          <button
+            type="button"
+            className={tab === "connectors" ? "active" : ""}
+            aria-selected={tab === "connectors"}
+            onClick={() => setTab("connectors")}
+          >
+            <span className="ui-icon-text"><UiIcon name="connector" size={14} />连接器</span>
+          </button>
         </nav>
         <div className="project-management-content">
           {tab === "info" ? (
@@ -144,10 +155,16 @@ export function ProjectManagement({
             ) : (
               <p className="muted">正在加载基本信息…</p>
             )
+          ) : tab === "connectors" ? (
+            detail ? (
+              <ProjectCodeConnectors projectId={detail.id} canManage={owner} api={api} />
+            ) : (
+              <p className="muted">正在加载连接器…</p>
+            )
           ) : (
             <>
               <p className="muted project-member-note">
-                项目成员是本项目的人类成员及其连接器，加上{AGENT_LEVEL_LABELS.l1}。迭代里再出现本迭代{AGENT_LEVEL_LABELS.l2}与{AGENT_LEVEL_LABELS.l3}；公司目录里只有人类成员。
+                项目成员是本项目的人类成员及其本地执行器，加上{AGENT_LEVEL_LABELS.l1}。迭代里再出现本迭代{AGENT_LEVEL_LABELS.l2}与{AGENT_LEVEL_LABELS.l3}；公司目录里只有人类成员。
               </p>
               <div className="member-scope" role="tablist" aria-label="项目成员分类">
                 <button type="button" className={memberScope === "humans" ? "active" : ""} onClick={() => setMemberScope("humans")}>
@@ -156,14 +173,17 @@ export function ProjectManagement({
                 <button type="button" className={memberScope === "l1" ? "active" : ""} onClick={() => setMemberScope("l1")}>
                   <UiIcon name="book" size={13} />{AGENT_LEVEL_LABELS.l1}
                 </button>
-                <button type="button" className={memberScope === "connectors" ? "active" : ""} onClick={() => setMemberScope("connectors")}>
-                  <UiIcon name="connector" size={13} />连接器<small>{connectors.length}</small>
+                <button type="button" className={memberScope === "executors" ? "active" : ""} onClick={() => setMemberScope("executors")}>
+                  <UiIcon name="connector" size={13} />本地执行器<small>{connectors.length}</small>
                 </button>
               </div>
               <input
                 className="member-search"
+                type="search"
+                name="cothread-project-member-search"
+                autoComplete="off"
                 aria-label="搜索成员"
-                placeholder={memberScope === "connectors" ? "搜索成员或连接器" : "搜索成员"}
+                placeholder={memberScope === "executors" ? "搜索成员或本地执行器" : "搜索成员"}
                 value={memberSearch}
                 onChange={(event) => setMemberSearch(event.target.value)}
               />
@@ -216,10 +236,10 @@ export function ProjectManagement({
                   )}
                 </>
               )}
-              {memberScope === "connectors" && (
+              {memberScope === "executors" && (
                 <>
                   <div className="panel-heading">
-                    <span>本项目人类成员的连接器</span>
+                    <span>本项目人类成员的本地执行器</span>
                   </div>
                   {visibleConnectors.map((member) => (
                     <div className="member" key={member.connector?.id || member.id}>
@@ -244,7 +264,7 @@ export function ProjectManagement({
                     </div>
                   ))}
                   {!visibleConnectors.length && (
-                    <p className="empty-state">本项目人类成员还没有授权连接器。连接器属于成员本人，授权后可绑定本项目。</p>
+                    <p className="empty-state">本项目人类成员还没有授权本地执行器。本地执行器属于成员本人，授权后可绑定本项目。</p>
                   )}
                 </>
               )}
@@ -302,7 +322,7 @@ function HumanMemberRow({
         {member.motto ? <small className="member-motto">{member.motto}</small> : null}
         {member.connector ? (
           <small className="member-motto">
-            连接器：{member.connector.bound ? (member.connector.online ? "本项目在线" : "已绑定，离线") : "已授权，未绑定本项目"}
+            本地执行器：{member.connector.bound ? (member.connector.online ? "本项目在线" : "已绑定，离线") : "已授权，未绑定本项目"}
           </small>
         ) : null}
       </div>

@@ -293,7 +293,8 @@ test("paired users can reopen browser authorization to switch accounts", async (
   assert.match(gui, /x:Name="ReauthorizeButton" Content="切换账号"/);
   assert.match(gui, /\$ReauthorizeButton\.Add_Click/);
   assert.match(gui, /Set-ControlVisible \$ReauthorizeButton \(\[bool\]\$state\.paired\)/);
-  assert.doesNotMatch(gui, /Text="CoThread 本地连接器"/);
+  assert.doesNotMatch(gui, /Text\s*=\s*['"]CoThread 本地连接器['"]/);
+  assert.match(gui, /Text\s*=\s*['"]CoThread 本地执行器['"]/);
   assert.match(gui, /x:Name="PairButton"[^>]*Content="网页登录并授权"/);
   assert.match(gui, /x:Name="ReauthorizeButton"[^>]*Content="切换账号"/);
   assert.match(gui, /x:Name="StatusText"[^>]*TextTrimming="CharacterEllipsis"/);

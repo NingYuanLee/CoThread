@@ -68,7 +68,7 @@ export function McpSettings({ api, endpoint }: { api: Api; endpoint: string }) {
   return <div className="mcp-settings">
     <div className="settings-content-heading">
       <h3>MCP 配置</h3>
-      <p>为当前账号配置共序 MCP。一个账号始终只有一个有效令牌，连接器和手动配置会共用这一令牌。</p>
+      <p>为当前账号配置共序 MCP。一个账号始终只有一个有效令牌，本地执行器和手动配置会共用这一令牌。</p>
     </div>
     <section className="mcp-settings-section">
       <div className="mcp-settings-heading"><div><strong>账号令牌</strong><small>用于 Cursor、Codex、Claude Code 等支持 MCP 的客户端</small></div><UiIcon name="key" size={18} /></div>

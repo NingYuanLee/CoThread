@@ -4,7 +4,13 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { openAgentRuntime } from "../server/agent.js";
+import {
+  openAgentRuntime,
+  acquireCoordinatorRuntime,
+  parkCoordinatorRuntime,
+  resetAgentSessionStore,
+  invalidateCoordinatorRuntime,
+} from "../server/agent.js";
 import { acquireSessionLock, discussionHasActiveCoordinator } from "../server/session-lock.js";
 
 test("L2 runtime does not compact below 900K, and a compact RPC failure does not kill the turn", async () => {
@@ -89,6 +95,46 @@ test("a corrupt L2 session log is discarded and the runtime starts fresh", async
     runtime = undefined;
   } finally {
     if (runtime) await runtime.close().catch(() => {});
+    await database.close();
+  }
+});
+
+test("parked L2 runtime is dropped when the durable session id rotates", async () => {
+  const database = await testDatabase(), db = database.db, service = new Service(db);
+  let threadId;
+  let second;
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [user.id, `${user.id}@test.com`, "成员"]);
+    const project = await service.createProject(user, { name: "会话轮换" });
+    const thread = await service.createThread(user, project.id, { title: "L2" });
+    threadId = thread.id;
+    const context = await service.context(user, thread.id);
+    let closed = 0;
+    const createHarness = () => ({
+      start: async () => {},
+      close: async () => { closed += 1; },
+      client: { request: async () => ({ used: 0, categories: {} }) },
+    });
+    const first = await acquireCoordinatorRuntime(context, {
+      db, user, job: { thread_id: thread.id, message_id: randomUUID() }, createHarness,
+    });
+    const oldSessionId = first.session.session_id;
+    await parkCoordinatorRuntime(thread.id, first, true);
+
+    await resetAgentSessionStore(db, { thread_id: thread.id });
+    const [rotated] = await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [thread.id]);
+    assert.notEqual(rotated.session_id, oldSessionId);
+    assert.ok(closed >= 1);
+
+    second = await acquireCoordinatorRuntime(context, {
+      db, user, job: { thread_id: thread.id, message_id: randomUUID() }, createHarness,
+    });
+    assert.equal(second.session.session_id, rotated.session_id);
+    assert.notEqual(second.session.session_id, oldSessionId);
+  } finally {
+    if (threadId) await invalidateCoordinatorRuntime(threadId);
+    if (second) await second.close().catch(() => {});
     await database.close();
   }
 });

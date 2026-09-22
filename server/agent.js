@@ -34,16 +34,6 @@ export function isCorruptSessionLog(error) {
   return /corrupt session log/i.test(String(error?.message || error || ""));
 }
 
-export async function resetAgentSessionStore(db, job) {
-  const spec = agentSession(job);
-  await query(
-    db,
-    `UPDATE ${spec.table} SET checkpoint=NULL,session_id=?,context_stats=NULL WHERE ${spec.key}=?`,
-    [randomUUID(), spec.id],
-  );
-  await rm(join(agentRuntimeRoot(), spec.homeId, "sessions"), { recursive: true, force: true });
-}
-
 async function discardCoordinatorRuntime(threadId, runtime) {
   const entry = coordinatorRuntimes.get(threadId);
   if (entry?.runtime === runtime) {
@@ -53,23 +43,57 @@ async function discardCoordinatorRuntime(threadId, runtime) {
   if (runtime) await runtime.close(false).catch(() => {});
 }
 
-export async function acquireCoordinatorRuntime(context, { db, job, user }) {
+/** Drop any parked L2 runtime for this iteration. Session-id rotations must never leave a stale in-memory L2. */
+export async function invalidateCoordinatorRuntime(threadId) {
+  if (!threadId) return;
+  const entry = coordinatorRuntimes.get(threadId);
+  if (!entry?.runtime) return;
+  clearTimeout(entry.idleTimer);
+  coordinatorRuntimes.delete(threadId);
+  await entry.runtime.close(false).catch(() => {});
+}
+
+export async function resetAgentSessionStore(db, job) {
+  const spec = agentSession(job);
+  // Rotate the durable session id only after killing any parked coordinator that still
+  // holds the old id; otherwise create_task stamps the new id while dsh_l3 binds the old one.
+  if (spec.kind === "l2") await invalidateCoordinatorRuntime(spec.id);
+  await query(
+    db,
+    `UPDATE ${spec.table} SET checkpoint=NULL,session_id=?,context_stats=NULL WHERE ${spec.key}=?`,
+    [randomUUID(), spec.id],
+  );
+  await rm(join(agentRuntimeRoot(), spec.homeId, "sessions"), { recursive: true, force: true });
+}
+
+export async function acquireCoordinatorRuntime(context, { db, job, user, createHarness } = {}) {
   const key = job.thread_id;
   const existing = coordinatorRuntimes.get(key);
   if (existing?.runtime) {
     clearTimeout(existing.idleTimer);
     existing.idleTimer = undefined;
     try {
+      const [row] = await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [key]);
+      if (!row?.session_id || row.session_id !== existing.runtime.session?.session_id) {
+        const error = new Error("L2 session rotated");
+        error.code = "L2_SESSION_ROTATED";
+        throw error;
+      }
       await existing.runtime.bindTurn({ job, user, context });
       existing.db = db;
       return existing.runtime;
     } catch (error) {
       coordinatorRuntimes.delete(key);
       await existing.runtime.close().catch(() => {});
-      console.error("Coordinator runtime rebind failed", { type: error?.name || "Error" });
+      console.error("Coordinator runtime rebind failed", {
+        type: error?.name || "Error",
+        code: error?.code || null,
+      });
     }
   }
-  const runtime = await openAgentRuntime(context, { db, job, user, role: "coordinator", keepalive: true });
+  const runtime = await openAgentRuntime(context, {
+    db, job, user, role: "coordinator", keepalive: true, createHarness,
+  });
   coordinatorRuntimes.set(key, { runtime, db });
   return runtime;
 }

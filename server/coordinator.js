@@ -287,11 +287,24 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       /(?:TASK_ID\s*[:=]|任务ID\s*[:：]|\[task:)\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
     )?.[1] || null;
     const attachChildTask = async (childId, taskId, parentEventId) => {
+      const abandonOrphan = async () => {
+        activeChildren.delete(childId);
+        runtime.forgetSession?.(childId);
+        const runEventId = childRunEvents.get(childId);
+        if (runEventId) {
+          await query(db, `UPDATE agent_events SET status='failed',finished_at=UTC_TIMESTAMP(3) WHERE id=? AND status='running'`,
+            [runEventId]);
+          childRunEvents.delete(childId);
+        }
+        // Best-effort stop: an unbound L3 must not keep burning tools against a ghost task.
+        try { await runtime.request("interrupt", { sessionId: childId }); } catch {}
+      };
       const failBind = async (message) => {
         if (parentEventId) {
           await query(db, `UPDATE agent_events SET status='failed',output=?,finished_at=UTC_TIMESTAMP(3)
             WHERE id=? AND status IN ('running','completed')`, [String(message || "未能绑定 L3").slice(0, 1000), parentEventId]);
         }
+        await abandonOrphan();
         return null;
       };
       let bindId = taskId || null;

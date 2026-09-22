@@ -21,7 +21,7 @@ export type AvailableConnector = {
 
 export function connectorHostLabel(name?: string | null) {
   const value = String(name || "").trim();
-  if (!value || value === "Windows 连接器") return "本机";
+  if (!value || value === "Windows 连接器" || value === "Windows 本地执行器") return "本机";
   return value;
 }
 
@@ -145,7 +145,7 @@ export function ConnectorPanel({
         ref={button}
         type="button"
         className="composer-connector"
-        title={available ? "查看在线连接器" : "运行连接器后在此授权"}
+        title={available ? "查看在线本地执行器" : "运行本地执行器后在此授权"}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => {
@@ -162,13 +162,13 @@ export function ConnectorPanel({
           <path d="M8 12h8M9 8V5m6 3V5M7 8h10v5a5 5 0 0 1-10 0V8Z" />
           <path d="M12 18v3" />
         </svg>
-        本地连接器
+        本地执行器
         {available && <i className="composer-connector-dot" aria-hidden="true" />}
       </button>
       {open && createPortal(
-        <div ref={panel} style={position} className="connector-popover" role="dialog" aria-label="在线连接器">
-          <header>在线连接器</header>
-          {!rows.length && <p className="muted">当前没有在线连接器</p>}
+        <div ref={panel} style={position} className="connector-popover" role="dialog" aria-label="在线本地执行器">
+          <header>在线本地执行器</header>
+          {!rows.length && <p className="muted">当前没有在线本地执行器</p>}
           {rows.map((row) => (
             <div className="connector-device-block" key={row.id}>
               <div className="connector-device">
@@ -204,7 +204,7 @@ export function ConnectorPanel({
                         await api(`/connectors/${row.id}`, undefined, "DELETE");
                         setConfirmId("");
                         await onRefresh();
-                      }, "已解除连接器绑定")}
+                      }, "已解除本地执行器绑定")}
                     >{busy ? "解除中…" : "确认解除"}</button>
                   </div>
                 </div>

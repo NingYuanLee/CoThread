@@ -254,7 +254,7 @@ export function warmupCrawlPercent(completed) {
 
 export async function warmDevFrontend(origin, {
   onProgress,
-  timeoutMs = 180000,
+  timeoutMs = 300000,
   concurrency = 3,
   retryDelayMs = 200,
 } = {}) {

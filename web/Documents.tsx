@@ -1,6 +1,6 @@
 import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type SVGProps } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type SVGProps } from "react";
 import { createPortal } from "react-dom";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -719,26 +719,25 @@ function FolderToggle({
   expanded,
   disabled,
   onToggle,
+  icon,
 }: {
   name: string;
   expanded: boolean;
   disabled?: boolean;
   onToggle: () => void;
+  /** Always shown when idle (collapsed or expanded); hover still shows expand/collapse. */
+  icon?: ReactNode;
 }) {
   return (
     <button
       type="button"
-      className={`tree-toggle tree-folder-toggle${expanded ? " expanded" : ""}`}
+      className={`tree-toggle tree-folder-toggle${expanded ? " expanded" : ""}${icon ? " has-custom-icon" : ""}`}
       disabled={disabled}
       aria-label={`${expanded ? "折叠" : "展开"} ${name}`}
       onClick={onToggle}
     >
       <span className="folder-toggle-icon icon-idle">
-        {expanded ? (
-          <OpenFolderIcon />
-        ) : (
-          <ClosedFolderIcon />
-        )}
+        {icon ?? (expanded ? <OpenFolderIcon /> : <ClosedFolderIcon />)}
       </span>
       <span className="folder-toggle-icon icon-hover">
         <TreeIcon kind={expanded ? "collapse" : "expand"} />
@@ -997,6 +996,125 @@ const ROOT_GUIDES: Record<(typeof LIBRARY_ROOT_KINDS)[number], string> = {
   project_cache: "对话框或连接器随消息上传的临时资料，按日期放进子文件夹。对小祥只读，改完应另存为沙箱产物；确认后也可以另存为正式文件。",
 };
 
+const CODE_LIBRARY_ROOT_ID = "code-library-root";
+const CODE_LIBRARY_ROOT_NAME = "连接器";
+const CODE_LIBRARY_GUIDE = "连接器是平台能力；勾选的仓库或设计稿是本项目范围。此处仅展示连接与范围状态，不浏览源码或设计稿内容。鉴权走平台连接器令牌。L2/L3 在需要时可只读查阅。";
+
+type CodeConnectorState = {
+  kind: "github" | "yunxiao" | "mastergo";
+  enabled: boolean;
+  hasToken: boolean;
+  tokenHint: string | null;
+  organizationId?: string | null;
+};
+
+type CodeRemoteState = {
+  id: string;
+  platform?: "github" | "yunxiao" | null;
+  label: string;
+  remoteUrl: string;
+};
+
+type DesignResourceState = {
+  id: string;
+  platform?: "mastergo";
+  fileId: string;
+  layerId: string;
+  label: string;
+  resourceUrl: string | null;
+};
+
+type CodeLibraryConfig = {
+  connectors: { github: CodeConnectorState; yunxiao: CodeConnectorState; mastergo: CodeConnectorState };
+  remotes: CodeRemoteState[];
+  designResources?: DesignResourceState[];
+};
+
+type CodeLibraryNode =
+  | { type: "connector"; id: string; platform: "github" | "yunxiao" | "mastergo"; name: string; lines: string[]; remotes: Array<{ id: string; name: string; lines: string[] }> }
+  | { type: "orphan"; id: string; name: string; lines: string[] };
+
+const CODE_PLATFORM_LABELS = { github: "GitHub", yunxiao: "云效 Codeup", mastergo: "MasterGo" } as const;
+const CODE_PLATFORM_ICONS = { github: "github", yunxiao: "yunxiao", mastergo: "mastergo" } as const;
+
+/** Hide Yunxiao organization id prefixes like "60de7a…/group/repo" or "60de7a… / repo". */
+function codeRemoteDisplayName(label: string) {
+  const value = String(label || "").trim();
+  if (!value) return "未命名仓库";
+  const orgId = /^[a-f0-9]{16,}$/i;
+  const spaced = value.split(/\s+\/\s+/).map((part) => part.trim()).filter(Boolean);
+  if (spaced.length > 1 && orgId.test(spaced[0])) return spaced.slice(1).join(" / ");
+  const parts = value.split("/").map((part) => part.trim()).filter(Boolean);
+  if (parts.length > 1 && orgId.test(parts[0])) return parts.slice(1).join("/");
+  return value;
+}
+
+function codeLibraryEntries(config: CodeLibraryConfig | null): CodeLibraryNode[] {
+  if (!config) return [];
+  const entries: CodeLibraryNode[] = [];
+  const usedRemoteIds = new Set<string>();
+  for (const kind of ["github", "yunxiao"] as const) {
+    const item = config.connectors[kind];
+    const remotes = config.remotes.filter((remote) => remote.platform === kind);
+    if (!item?.enabled && !item?.hasToken && !remotes.length) continue;
+    for (const remote of remotes) usedRemoteIds.add(remote.id);
+    const lines = [
+      item?.enabled ? "能力：已启用" : item?.hasToken ? "能力：已保存令牌，未启用" : "能力：未配置",
+      item?.hasToken ? `令牌：已配置${item.tokenHint ? `（${item.tokenHint}）` : ""}` : "令牌：未配置",
+      remotes.length ? `范围：已勾选 ${remotes.length} 个仓库` : "范围：尚未勾选仓库",
+    ];
+    if (kind === "yunxiao") {
+      lines.push(item?.organizationId ? `组织 ID：${item.organizationId}` : "组织 ID：未配置");
+    }
+    entries.push({
+      type: "connector",
+      id: `code-connector-${kind}`,
+      platform: kind,
+      name: CODE_PLATFORM_LABELS[kind],
+      lines,
+      remotes: remotes.map((remote) => ({
+        id: `code-remote-${remote.id}`,
+        name: codeRemoteDisplayName(remote.label),
+        lines: [`地址：${remote.remoteUrl}`, "范围仓库 · 鉴权走平台连接器"],
+      })),
+    });
+  }
+  const mastergo = config.connectors.mastergo;
+  const designs = config.designResources || [];
+  if (mastergo?.enabled || mastergo?.hasToken || designs.length) {
+    entries.push({
+      type: "connector",
+      id: "code-connector-mastergo",
+      platform: "mastergo",
+      name: CODE_PLATFORM_LABELS.mastergo,
+      lines: [
+        mastergo?.enabled ? "能力：已启用" : mastergo?.hasToken ? "能力：已保存令牌，未启用" : "能力：未配置",
+        mastergo?.hasToken ? `令牌：已配置${mastergo.tokenHint ? `（${mastergo.tokenHint}）` : ""}` : "令牌：未配置",
+        designs.length ? `范围：已加入 ${designs.length} 个设计稿` : "范围：尚未加入设计稿",
+      ],
+      remotes: designs.map((file) => ({
+        id: `design-resource-${file.id}`,
+        name: file.label || file.fileId,
+        lines: [
+          file.resourceUrl ? `链接：${file.resourceUrl}` : `fileId：${file.fileId}`,
+          file.layerId ? `layerId：${file.layerId}` : "layerId：未指定（读取 DSL 前请补充）",
+          "范围设计稿 · 鉴权走 MasterGo 连接器",
+        ],
+      })),
+    });
+  }
+  for (const remote of config.remotes) {
+    if (usedRemoteIds.has(remote.id)) continue;
+    entries.push({
+      type: "orphan",
+      id: `code-remote-${remote.id}`,
+      name: codeRemoteDisplayName(remote.label),
+      lines: [`地址：${remote.remoteUrl}`, "范围仓库"],
+    });
+  }
+  return entries;
+}
+
 function documentSourceLabel(item: LibraryVersion, folders: LibraryFolder[]) {
   const kind = folderRootKind(item.folder_id, folders);
   const area =
@@ -1138,6 +1256,7 @@ export function Documents({
   onAddToTask,
   onAddFolderToTask,
   organizationJobs = [],
+  codeSourcesTick = 0,
 }: {
   onReview?: (versionId: string, decision: string, comment?: string) => Promise<void>;
   projectId: string;
@@ -1156,6 +1275,7 @@ export function Documents({
   onAddToTask?: (id: string) => void;
   onAddFolderToTask?: (id: string) => void;
   organizationJobs?: { thread_id?: string | null; scope: "iteration" | "project"; status: string; error?: string | null }[];
+  codeSourcesTick?: number;
 }) {
   const libraryFolders = folders.filter((folder) => {
     if (folder.folder_kind === "iteration_root") return false;
@@ -1181,11 +1301,56 @@ export function Documents({
   const officialWritable = writable && !organizing;
   const [organizeOpen, setOrganizeOpen] = useState(false);
   const [folderGuideKind, setFolderGuideKind] = useState<(typeof LIBRARY_ROOT_KINDS)[number] | null>(null);
+  const [codeGuideId, setCodeGuideId] = useState<string | null>(null);
+  const [codeConfig, setCodeConfig] = useState<CodeLibraryConfig | null>(null);
+  const codeEntries = codeLibraryEntries(codeConfig);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      void apiFetch(`/api/projects/${projectId}/code-connectors`)
+        .then((response) => readJsonResponse(response, "代码连接器"))
+        .then((value) => {
+          if (!cancelled) setCodeConfig(value as CodeLibraryConfig);
+        })
+        .catch(() => {
+          if (!cancelled) setCodeConfig(null);
+        });
+    };
+    load();
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [projectId, codeSourcesTick]);
   const [folderId, setFolderId] = useState<string | null>(null);
   const knownFolderIds = useRef(new Set(folders.filter((folder) => folder.parent_id).map((folder) => folder.id)));
   const [collapsed, setCollapsed] = useState<Set<string>>(
     () => new Set(folders.filter((folder) => folder.parent_id).map((folder) => folder.id)),
   );
+  useEffect(() => {
+    if (!codeEntries.length) return;
+    setCollapsed((previous) => {
+      const next = new Set(previous);
+      const ids: string[] = [];
+      for (const entry of codeEntries) {
+        ids.push(entry.id);
+        if (entry.type === "connector") {
+          for (const remote of entry.remotes) ids.push(remote.id);
+        }
+      }
+      for (const id of ids) {
+        if (!previous.has(id) && !knownFolderIds.current.has(id)) next.add(id);
+      }
+      for (const id of ids) knownFolderIds.current.add(id);
+      return next;
+    });
+  }, [codeEntries.map((entry) => (
+    entry.type === "connector"
+      ? `${entry.id}:${entry.remotes.map((remote) => remote.id).join("+")}`
+      : entry.id
+  )).join(",")]);
   const toggleFolder = (id: string) => {
     setCollapsed((previous) => {
       const next = new Set(previous);
@@ -1201,10 +1366,21 @@ export function Documents({
         if (known.has(folder.id)) continue;
         if (folder.parent_id) next.add(folder.id);
       }
-      knownFolderIds.current = new Set(folders.map((folder) => folder.id));
+      const codeIds = codeEntries.flatMap((entry) => (
+        entry.type === "connector" ? [entry.id, ...entry.remotes.map((remote) => remote.id)] : [entry.id]
+      ));
+      knownFolderIds.current = new Set([
+        ...folders.map((folder) => folder.id),
+        ...codeIds,
+        CODE_LIBRARY_ROOT_ID,
+      ]);
       return next;
     });
-  }, [folders]);
+  }, [folders, codeEntries.map((entry) => (
+    entry.type === "connector"
+      ? `${entry.id}:${entry.remotes.map((remote) => remote.id).join("+")}`
+      : entry.id
+  )).join(",")]);
   const [trash, setTrash] = useState(false);
   const [sort, setSort] = useState<"type" | "modified">("type");
   const collator = new Intl.Collator("zh-CN", {
@@ -2152,6 +2328,152 @@ export function Documents({
       {!collapsed.has(root.id) ? <div role="group">{tree(root.id, 1)}</div> : null}
     </div>
   );
+  const openCodeFolderMenu = (event: ReactMouseEvent, menuId: string) => {
+    if (pending) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setOpenFolderMenuId(menuId);
+    setOpenFileMenuId(null);
+    setTabMenu(null);
+  };
+  const codeFolderMenuProps = (menuId: string) => ({
+    menuId,
+    openMenuId: openFolderMenuId,
+    onOpenMenuChange: (id: string | null) => {
+      setOpenFolderMenuId(id);
+      if (id) {
+        setOpenFileMenuId(null);
+        setTabMenu(null);
+      }
+    },
+    disabled: pending,
+    isRoot: true as const,
+  });
+  const renderCodeLibraryRoot = () => (
+    <div key={CODE_LIBRARY_ROOT_ID} role="treeitem" aria-expanded={!collapsed.has(CODE_LIBRARY_ROOT_ID)}>
+      <div
+        className="tree-folder tree-library-root tree-code-library-root"
+        onContextMenu={(event) => openCodeFolderMenu(event, CODE_LIBRARY_ROOT_ID)}
+      >
+        <FolderToggle
+          name={CODE_LIBRARY_ROOT_NAME}
+          expanded={!collapsed.has(CODE_LIBRARY_ROOT_ID)}
+          onToggle={() => toggleFolder(CODE_LIBRARY_ROOT_ID)}
+        />
+        <button
+          type="button"
+          className="tree-name"
+          data-tooltip="false"
+          aria-label={CODE_LIBRARY_ROOT_NAME}
+          onClick={() => toggleFolder(CODE_LIBRARY_ROOT_ID)}
+        >
+          <TreeOverflowLabel text={CODE_LIBRARY_ROOT_NAME} />
+        </button>
+        <span className="tree-root-actions tree-row-actions">
+          <OfficialFolderMenu
+            {...codeFolderMenuProps(CODE_LIBRARY_ROOT_ID)}
+            onExplain={() => setCodeGuideId(CODE_LIBRARY_ROOT_ID)}
+          />
+        </span>
+      </div>
+      {!collapsed.has(CODE_LIBRARY_ROOT_ID) ? (
+        <div role="group">
+          {codeEntries.map((entry) => (
+            entry.type === "orphan" ? (
+              <div key={entry.id} role="treeitem">
+                <div
+                  className="tree-folder tree-code-source-folder tree-code-leaf"
+                  onContextMenu={(event) => openCodeFolderMenu(event, entry.id)}
+                >
+                  <TreeDepth depth={1} />
+                  <span className="tree-code-leaf-icon" aria-hidden="true">
+                    <ClosedFolderIcon />
+                  </span>
+                  <button
+                    type="button"
+                    className="tree-name"
+                    data-tooltip="false"
+                    aria-label={entry.name}
+                    onClick={() => setCodeGuideId(entry.id)}
+                  >
+                    <TreeOverflowLabel text={entry.name} />
+                  </button>
+                  <span className="tree-root-actions tree-row-actions">
+                    <OfficialFolderMenu
+                      {...codeFolderMenuProps(entry.id)}
+                      onExplain={() => setCodeGuideId(entry.id)}
+                    />
+                  </span>
+                </div>
+              </div>
+            ) : (
+            <div key={entry.id} role="treeitem" aria-expanded={!collapsed.has(entry.id)}>
+              <div
+                className="tree-folder tree-code-source-folder"
+                onContextMenu={(event) => openCodeFolderMenu(event, entry.id)}
+              >
+                <TreeDepth depth={1} />
+                <FolderToggle
+                  name={entry.name}
+                  expanded={!collapsed.has(entry.id)}
+                  onToggle={() => toggleFolder(entry.id)}
+                  icon={<UiIcon name={CODE_PLATFORM_ICONS[entry.platform]} size={16} />}
+                />
+                <button
+                  type="button"
+                  className="tree-name"
+                  data-tooltip="false"
+                  aria-label={entry.name}
+                  onClick={() => toggleFolder(entry.id)}
+                >
+                  <TreeOverflowLabel text={entry.name} />
+                </button>
+                <span className="tree-root-actions tree-row-actions">
+                  <OfficialFolderMenu
+                    {...codeFolderMenuProps(entry.id)}
+                    onExplain={() => setCodeGuideId(entry.id)}
+                  />
+                </span>
+              </div>
+              {!collapsed.has(entry.id) ? (
+                <div role="group" className="tree-code-source-notes">
+                  {entry.remotes.map((remote) => (
+                    <div key={remote.id} role="treeitem">
+                      <div
+                        className="tree-folder tree-code-source-folder tree-code-leaf"
+                        onContextMenu={(event) => openCodeFolderMenu(event, remote.id)}
+                      >
+                        <TreeDepth depth={2} />
+                        <span className="tree-code-leaf-icon" aria-hidden="true">
+                          <ClosedFolderIcon />
+                        </span>
+                        <button
+                          type="button"
+                          className="tree-name"
+                          data-tooltip="false"
+                          aria-label={remote.name}
+                          onClick={() => setCodeGuideId(remote.id)}
+                        >
+                          <TreeOverflowLabel text={remote.name} />
+                        </button>
+                        <span className="tree-root-actions tree-row-actions">
+                          <OfficialFolderMenu
+                            {...codeFolderMenuProps(remote.id)}
+                            onExplain={() => setCodeGuideId(remote.id)}
+                          />
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            )
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
   const uploadInput = (
     <input
       ref={uploadInputRef}
@@ -2184,6 +2506,15 @@ export function Documents({
               <div className="tree-filter-bar">
                 <input
                   ref={fileSearchRef}
+                  type="search"
+                  name="cothread-document-tree-filter"
+                  autoComplete="off"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-form-type="other"
                   aria-label="搜索文档"
                   placeholder="搜索文档…"
                   value={filter}
@@ -2226,7 +2557,12 @@ export function Documents({
               {organizing ? <p className="muted">项目级Agent（L1）正在整理正式文件，正式文件区暂时不可操作。</p> : null}
               {trash || filter
                 ? artifacts.map((v) => fileRow(v, 0))
-                : libraryRoots.map((root) => renderLibraryRoot(root))}
+                : (
+                  <>
+                    {libraryRoots.map((root) => renderLibraryRoot(root))}
+                    {renderCodeLibraryRoot()}
+                  </>
+                )}
             </div>
             {trash && !artifacts.length ? (
               <p className="muted">回收站是空的。</p>
@@ -2735,6 +3071,49 @@ export function Documents({
             </section>}
           </ModalBackdrop>
         ) : null;
+  const codeGuideTarget = (() => {
+    if (!codeGuideId) return null;
+    if (codeGuideId === CODE_LIBRARY_ROOT_ID) {
+      return { title: CODE_LIBRARY_ROOT_NAME, body: CODE_LIBRARY_GUIDE as string | null, lines: null as string[] | null };
+    }
+    for (const entry of codeEntries) {
+      if (entry.id === codeGuideId) {
+        return { title: entry.name, body: null, lines: entry.lines };
+      }
+      if (entry.type === "connector") {
+        const remote = entry.remotes.find((item) => item.id === codeGuideId);
+        if (remote) return { title: remote.name, body: null, lines: remote.lines };
+      }
+    }
+    return { title: "连接器", body: CODE_LIBRARY_GUIDE, lines: null };
+  })();
+  const codeGuideDialog = codeGuideTarget ? (
+          <ModalBackdrop className="library-organize-backdrop" onClose={() => setCodeGuideId(null)}>
+            {(close) => <section
+              className="library-organize-dialog folder-guide-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="code-guide-title"
+            >
+              <header>
+                <h3 id="code-guide-title">{codeGuideTarget.title} · 文件夹说明</h3>
+                <DialogClose onClick={close} label="关闭文件夹说明" />
+              </header>
+              {codeGuideTarget.lines ? (
+                <ul className="folder-guide-lines">
+                  {codeGuideTarget.lines.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p>{codeGuideTarget.body}</p>
+              )}
+              <div className="library-organize-actions">
+                <button type="button" className="primary" onClick={close}>知道了</button>
+              </div>
+            </section>}
+          </ModalBackdrop>
+        ) : null;
   const deleteConfirmCopy = (() => {
     if (!deleteConfirm) return null;
     if (deleteConfirm.type === "empty-recycle") {
@@ -3013,6 +3392,7 @@ export function Documents({
         </div>
         {organizeDialog}
         {folderGuideDialog}
+        {codeGuideDialog}
         {deleteConfirmDialog}
         {changeRequestDialog}
         {changesOpen ? (

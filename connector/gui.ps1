@@ -602,7 +602,7 @@ $OpenTasksOnlyCheck.Add_Click({ Show-FilteredTasks })
 
 $tray = New-Object System.Windows.Forms.NotifyIcon
 $tray.Icon = New-Object System.Drawing.Icon($IconPath)
-$tray.Text = 'CoThread 本地连接器'
+$tray.Text = 'CoThread 本地执行器'
 $tray.Visible = $true
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $openItem = $menu.Items.Add('打开连接器')

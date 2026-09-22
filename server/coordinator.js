@@ -9,6 +9,14 @@ import { acquireCoordinatorRuntime, discardCoordinatorRuntime, parkCoordinatorRu
 import { discussionText } from "../shared/context.js";
 import { bindDshL3Execution, finishCoordinatorDispatch, l3LaunchPrompt, settleDshL3Execution, tasksAwaitingL3Launch } from "./task-pool.js";
 import { persistL3ContextStats, persistL3RunCheckpoint } from "./l3-session.js";
+import {
+  composeOpportunisticParticipation,
+  absorbOpportunisticBurst,
+  silenceOpportunisticBurst,
+  logParticipationDecision,
+  persistOpportunisticParticipationArtifacts,
+} from "./agent-participation.js";
+import { logAgentTiming } from "./agent-timing-log.js";
 
 const brief = (value, limit = 1200) =>
   typeof value === "string" ? value.slice(0, limit) : null;
@@ -638,6 +646,54 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
   try {
     const started = performance.now();
     const thread = await service.thread(user, job.thread_id, true);
+    // Unmentioned multi-member turns: compose a draft, revise if new messages arrive, then send or discard.
+    if (job.kind === "member_message" && job.participation === "pending") {
+      await query(db, "UPDATE assistant_replies SET status='running',progress=? WHERE message_id=? AND status='queued'",
+        ["正在斟酌是否参与", job.message_id]);
+      let decision;
+      try {
+        decision = await composeOpportunisticParticipation(db, {
+          title: thread.title,
+          threadId: job.thread_id,
+          messageId: job.message_id,
+        });
+      } catch (error) {
+        console.error("Opportunistic participation crashed", {
+          messageId: job.message_id,
+          type: error?.name || "Error",
+          diagnostic: redactSecrets(error?.stack || error?.message || error).slice(-2000),
+        });
+        decision = { respond: false, deferred: "judge_failed", burstIds: [job.message_id], revisions: 0 };
+      }
+      await transaction(db, async (conn) => {
+        await service.thread(user, job.thread_id, true, conn);
+        const [current] = await query(conn,
+          "SELECT status FROM assistant_replies WHERE message_id=? FOR UPDATE", [job.message_id]);
+        if (!current || !["queued", "running", "failed"].includes(current.status)) return;
+        const burstIds = decision.burstIds?.length ? decision.burstIds : [job.message_id];
+        if (!decision.respond) {
+          await silenceOpportunisticBurst(conn, burstIds, decision.deferred);
+          return;
+        }
+        const reply = await service.insertMessage(
+          conn, user, job.thread_id, decision.message, [], "assistant", job.message_id);
+        await absorbOpportunisticBurst(conn, burstIds, reply.id, job.message_id);
+      });
+      const wallDurationMs = performance.now() - started;
+      await persistOpportunisticParticipationArtifacts(db, {
+        messageId: job.message_id,
+        threadId: job.thread_id,
+        decision,
+        wallDurationMs,
+      });
+      logParticipationDecision({
+        messageId: job.message_id,
+        threadId: job.thread_id,
+        decision,
+        durationMs: wallDurationMs,
+      });
+      return true;
+    }
     if (job.kind !== "child_result" && job.kind !== "l3_idle") {
       await query(db, "UPDATE assistant_replies SET status='running',progress=? WHERE message_id=? AND status='queued'",
         ["小祥正在理解请求", job.message_id]);
@@ -648,7 +704,8 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
       : await dispatchContext(db, thread, job);
     const loaded = performance.now();
     const result = await runAgent(context, { db, job, user });
-    console.log("Agent timing", { messageId: job.message_id, stage: job.kind === "member_message" ? "coordinator_agent" : `coordinator_${job.kind}`,
+    logAgentTiming({ messageId: job.message_id, kind: job.kind,
+      stage: job.kind === "member_message" ? "coordinator_agent" : `coordinator_${job.kind}`,
       contextMs: Math.round(loaded - started), modelMs: Math.round(performance.now() - loaded) });
     const visible = result?.finalResponse?.trim() && result.finalResponse.trim() !== "NO_VISIBLE_MESSAGE"
       ? result.finalResponse.trim().slice(0, 4000) : null;

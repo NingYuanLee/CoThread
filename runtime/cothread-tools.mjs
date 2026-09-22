@@ -71,21 +71,6 @@ export function apply(ctx) {
       { remoteId: { type: "string", required: true }, path: { type: "string", required: true }, ref: { type: "string" } },
     ],
     [
-      "list_project_design_sources",
-      "列出当前项目已配置的 MasterGo 连接器与范围内设计稿。只读。仅在任务需要对照设计，或人类成员明确要求查阅设计稿时使用。",
-      {},
-    ],
-    [
-      "read_design_meta",
-      "读取范围内某张 MasterGo 设计稿的 Meta（只读）。resourceId 来自 list_project_design_sources。",
-      { resourceId: { type: "string", required: true } },
-    ],
-    [
-      "read_design_dsl",
-      "读取范围内某张 MasterGo 设计稿的 DSL（只读，有大小上限）。不要把超大 DSL 贴进对成员可见正文。",
-      { resourceId: { type: "string", required: true } },
-    ],
-    [
       "read_iteration",
       "读取本项目内指定迭代的近期讨论、审核与归档，以及工具执行状态。默认最近50条；limit可选1至200，before为向前翻页的消息sequence；省略头像和历史工具输入输出。附件保留版本引用，按需读取。",
       { threadId: { type: "string", required: true }, limit: { type: "number" }, before: { type: "string" } },

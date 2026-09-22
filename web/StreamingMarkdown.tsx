@@ -1,7 +1,10 @@
 import React,{memo,useEffect,useRef,useState} from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-const components={img:()=> <span>（图片链接）</span>};
+const components={
+ img:()=> <span>（图片链接）</span>,
+ a:({href,children})=><a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+};
 // Reveal only text already received. Keep a short, bounded visual buffer for
 // database/poll batches; completed output and phase replacements are immediate.
 export const StreamingMarkdown=memo(function StreamingMarkdown({text,active}:{text:string;active:boolean}){

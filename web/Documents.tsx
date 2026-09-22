@@ -998,10 +998,10 @@ const ROOT_GUIDES: Record<(typeof LIBRARY_ROOT_KINDS)[number], string> = {
 
 const CODE_LIBRARY_ROOT_ID = "code-library-root";
 const CODE_LIBRARY_ROOT_NAME = "连接器";
-const CODE_LIBRARY_GUIDE = "连接器是平台能力；勾选的仓库或设计稿是本项目范围。此处仅展示连接与范围状态，不浏览源码或设计稿内容。鉴权走平台连接器令牌。L2/L3 在需要时可只读查阅。";
+const CODE_LIBRARY_GUIDE = "连接器是平台能力；勾选的仓库是本项目范围。此处仅展示连接与范围状态，不浏览源码内容。鉴权走平台连接器令牌。L2/L3 在需要时可只读查阅。";
 
 type CodeConnectorState = {
-  kind: "github" | "yunxiao" | "mastergo";
+  kind: "github" | "yunxiao";
   enabled: boolean;
   hasToken: boolean;
   tokenHint: string | null;
@@ -1015,27 +1015,17 @@ type CodeRemoteState = {
   remoteUrl: string;
 };
 
-type DesignResourceState = {
-  id: string;
-  platform?: "mastergo";
-  fileId: string;
-  layerId: string;
-  label: string;
-  resourceUrl: string | null;
-};
-
 type CodeLibraryConfig = {
-  connectors: { github: CodeConnectorState; yunxiao: CodeConnectorState; mastergo: CodeConnectorState };
+  connectors: { github: CodeConnectorState; yunxiao: CodeConnectorState };
   remotes: CodeRemoteState[];
-  designResources?: DesignResourceState[];
 };
 
 type CodeLibraryNode =
-  | { type: "connector"; id: string; platform: "github" | "yunxiao" | "mastergo"; name: string; lines: string[]; remotes: Array<{ id: string; name: string; lines: string[] }> }
+  | { type: "connector"; id: string; platform: "github" | "yunxiao"; name: string; lines: string[]; remotes: Array<{ id: string; name: string; lines: string[] }> }
   | { type: "orphan"; id: string; name: string; lines: string[] };
 
-const CODE_PLATFORM_LABELS = { github: "GitHub", yunxiao: "云效 Codeup", mastergo: "MasterGo" } as const;
-const CODE_PLATFORM_ICONS = { github: "github", yunxiao: "yunxiao", mastergo: "mastergo" } as const;
+const CODE_PLATFORM_LABELS = { github: "GitHub", yunxiao: "云效 Codeup" } as const;
+const CODE_PLATFORM_ICONS = { github: "github", yunxiao: "yunxiao" } as const;
 
 /** Hide Yunxiao organization id prefixes like "60de7a…/group/repo" or "60de7a… / repo". */
 function codeRemoteDisplayName(label: string) {
@@ -1076,30 +1066,6 @@ function codeLibraryEntries(config: CodeLibraryConfig | null): CodeLibraryNode[]
         id: `code-remote-${remote.id}`,
         name: codeRemoteDisplayName(remote.label),
         lines: [`地址：${remote.remoteUrl}`, "范围仓库 · 鉴权走平台连接器"],
-      })),
-    });
-  }
-  const mastergo = config.connectors.mastergo;
-  const designs = config.designResources || [];
-  if (mastergo?.enabled || mastergo?.hasToken || designs.length) {
-    entries.push({
-      type: "connector",
-      id: "code-connector-mastergo",
-      platform: "mastergo",
-      name: CODE_PLATFORM_LABELS.mastergo,
-      lines: [
-        mastergo?.enabled ? "能力：已启用" : mastergo?.hasToken ? "能力：已保存令牌，未启用" : "能力：未配置",
-        mastergo?.hasToken ? `令牌：已配置${mastergo.tokenHint ? `（${mastergo.tokenHint}）` : ""}` : "令牌：未配置",
-        designs.length ? `范围：已加入 ${designs.length} 个设计稿` : "范围：尚未加入设计稿",
-      ],
-      remotes: designs.map((file) => ({
-        id: `design-resource-${file.id}`,
-        name: file.label || file.fileId,
-        lines: [
-          file.resourceUrl ? `链接：${file.resourceUrl}` : `fileId：${file.fileId}`,
-          file.layerId ? `layerId：${file.layerId}` : "layerId：未指定（读取 DSL 前请补充）",
-          "范围设计稿 · 鉴权走 MasterGo 连接器",
-        ],
       })),
     });
   }

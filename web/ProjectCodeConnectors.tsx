@@ -2,8 +2,8 @@ import React, { useEffect, useState } from "react";
 import { UiIcon } from "./ui-icon";
 import { showTip } from "./Tip";
 
-type ConnectorKind = "github" | "yunxiao" | "mastergo";
-type GitKind = "github" | "yunxiao";
+type ConnectorKind = "github" | "yunxiao";
+type GitKind = ConnectorKind;
 
 type ConnectorState = {
   kind: ConnectorKind;
@@ -22,19 +22,9 @@ type GitRemote = {
   remoteUrl: string;
 };
 
-type DesignResource = {
-  id: string;
-  platform: "mastergo";
-  fileId: string;
-  layerId: string;
-  label: string;
-  resourceUrl: string | null;
-};
-
 type CodeConfig = {
-  connectors: { github: ConnectorState; yunxiao: ConnectorState; mastergo: ConnectorState };
+  connectors: { github: ConnectorState; yunxiao: ConnectorState };
   remotes: GitRemote[];
-  designResources?: DesignResource[];
 };
 
 type PlatformRepo = {
@@ -46,9 +36,9 @@ type PlatformRepo = {
   selected: boolean;
 };
 
-const LABELS = { github: "GitHub", yunxiao: "云效 Codeup", mastergo: "MasterGo" } as const;
-const TAB_ICONS = { github: "github", yunxiao: "yunxiao", mastergo: "mastergo" } as const;
-const TAB_ORDER = ["yunxiao", "github", "mastergo"] as const;
+const LABELS = { github: "GitHub", yunxiao: "云效 Codeup" } as const;
+const TAB_ICONS = { github: "github", yunxiao: "yunxiao" } as const;
+const TAB_ORDER = ["yunxiao", "github"] as const;
 
 function repoTitle(label: string) {
   const value = String(label || "").trim();
@@ -73,13 +63,11 @@ export function ProjectCodeConnectors({
 }) {
   const [config, setConfig] = useState<CodeConfig | null>(null);
   const [busy, setBusy] = useState(false);
-  const [drafts, setDrafts] = useState<Record<string, string>>({ github: "", yunxiao: "", mastergo: "" });
-  const [revealed, setRevealed] = useState<Record<string, boolean>>({ github: false, yunxiao: false, mastergo: false });
+  const [drafts, setDrafts] = useState<Record<string, string>>({ github: "", yunxiao: "" });
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({ github: false, yunxiao: false });
   // Chrome ignores autocomplete=off on password fields; keep readonly until focus so it won't autofill.
-  const [tokenLocked, setTokenLocked] = useState<Record<string, boolean>>({ github: true, yunxiao: true, mastergo: true });
+  const [tokenLocked, setTokenLocked] = useState<Record<string, boolean>>({ github: true, yunxiao: true });
   const [orgDraft, setOrgDraft] = useState("");
-  const [designUrl, setDesignUrl] = useState("");
-  const [designDrafts, setDesignDrafts] = useState<DesignResource[]>([]);
   const [activeKind, setActiveKind] = useState<ConnectorKind>("yunxiao");
   const [repoState, setRepoState] = useState<Record<string, {
     loading: boolean;
@@ -94,12 +82,11 @@ export function ProjectCodeConnectors({
     const next = await api(`/projects/${projectId}/code-connectors`) as CodeConfig;
     setConfig(next);
     setOrgDraft(next.connectors.yunxiao.organizationId || "");
-    setRevealed({ github: false, yunxiao: false, mastergo: false });
-    setTokenLocked({ github: true, yunxiao: true, mastergo: true });
-    setDesignDrafts(next.designResources || []);
-    const nextDrafts: Record<string, string> = { github: "", yunxiao: "", mastergo: "" };
+    setRevealed({ github: false, yunxiao: false });
+    setTokenLocked({ github: true, yunxiao: true });
+    const nextDrafts: Record<string, string> = { github: "", yunxiao: "" };
     if (canManage) {
-      await Promise.all((["github", "yunxiao", "mastergo"] as const).map(async (kind) => {
+      await Promise.all((["github", "yunxiao"] as const).map(async (kind) => {
         if (!next.connectors[kind].hasToken) return;
         try {
           const revealedToken = await api(`/projects/${projectId}/code-connectors/${kind}/token`) as { token: string };
@@ -337,70 +324,6 @@ export function ProjectCodeConnectors({
     }
   };
 
-  const addDesignUrl = async () => {
-    const url = designUrl.trim();
-    if (!url) {
-      showTip("请先粘贴 MasterGo 设计稿链接", "error");
-      return;
-    }
-    setBusy(true);
-    try {
-      const resolved = await api(`/projects/${projectId}/code-connectors/mastergo/resolve-url`, { url }, "POST") as {
-        fileId: string; layerId: string; label: string; resourceUrl: string;
-      };
-      setDesignDrafts((previous) => {
-        const key = `${resolved.fileId}\\0${resolved.layerId || ""}`;
-        if (previous.some((item) => `${item.fileId}\\0${item.layerId || ""}` === key)) {
-          showTip("该设计稿已在范围内", "error");
-          return previous;
-        }
-        if (previous.length >= 20) {
-          showTip("最多加入 20 个设计稿", "error");
-          return previous;
-        }
-        return [...previous, {
-          id: `draft-${resolved.fileId}-${resolved.layerId || "root"}`,
-          platform: "mastergo" as const,
-          fileId: resolved.fileId,
-          layerId: resolved.layerId || "",
-          label: resolved.label,
-          resourceUrl: resolved.resourceUrl,
-        }];
-      });
-      setDesignUrl("");
-      showTip("已加入范围草稿，请点保存");
-    } catch (error) {
-      showTip((error as Error).message, "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const removeDesignDraft = (fileId: string, layerId: string) => {
-    setDesignDrafts((previous) => previous.filter((item) => !(item.fileId === fileId && (item.layerId || "") === (layerId || ""))));
-  };
-
-  const saveDesignScope = async () => {
-    setBusy(true);
-    try {
-      const next = await api(`/projects/${projectId}/code-connectors/mastergo/scope`, {
-        files: designDrafts.map((item) => ({
-          fileId: item.fileId,
-          layerId: item.layerId || "",
-          label: item.label,
-          resourceUrl: item.resourceUrl,
-        })),
-      }, "PUT") as CodeConfig;
-      setConfig(next);
-      setDesignDrafts(next.designResources || []);
-      showTip("已更新 MasterGo 设计稿范围");
-    } catch (error) {
-      showTip((error as Error).message, "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-
 
   if (!config) return <p className="muted">正在加载连接器配置…</p>;
 
@@ -408,9 +331,7 @@ export function ProjectCodeConnectors({
   const item = config.connectors[kind];
   const scope = repoState[kind];
   const selectedCount = Object.keys(scope?.selected || {}).length;
-  const configuredCount = kind === "mastergo"
-    ? (config.designResources || []).length
-    : config.remotes.filter((remote) => remote.platform === kind).length;
+  const configuredCount = config.remotes.filter((remote) => remote.platform === kind).length;
   const filter = (scope?.search || "").trim().toLowerCase();
   const visibleRepos = !scope?.loaded
     ? []
@@ -424,15 +345,12 @@ export function ProjectCodeConnectors({
   const tabCounts = {
     yunxiao: config.remotes.filter((remote) => remote.platform === "yunxiao").length,
     github: config.remotes.filter((remote) => remote.platform === "github").length,
-    mastergo: (config.designResources || []).length,
   };
-  const isGit = kind === "github" || kind === "yunxiao";
-  const designCount = designDrafts.length;
 
   return (
     <div className="project-code-connectors">
       <p className="muted project-member-note">
-        连接器是能力（平台令牌），开关控制是否启用；仓库/设计稿是范围。代码平台可拉取勾选，MasterGo 粘贴链接加入。
+        连接器是能力（平台令牌），开关控制是否启用；勾选的仓库是本项目范围。可拉取平台仓库后勾选保存。
       </p>
 
       <div className="pcc-tabs" role="tablist" aria-label="项目连接器平台">
@@ -558,78 +476,6 @@ export function ProjectCodeConnectors({
               </div>
             ) : null}
 
-            {kind === "mastergo" ? (
-              <div className="pcc-scope">
-                <div className="pcc-scope-toolbar">
-                  <input
-                    type="url"
-                    name="cothread-mastergo-design-url"
-                    autoComplete="off"
-                    aria-label="MasterGo 设计稿链接"
-                    placeholder="粘贴 MasterGo 文件链接（含 layer_id 更佳）"
-                    value={designUrl}
-                    disabled={busy || !item.enabled}
-                    onChange={(event) => setDesignUrl(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        void addDesignUrl();
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="pcc-icon-btn"
-                    disabled={busy || !item.enabled || !designUrl.trim()}
-                    title="解析并加入范围"
-                    aria-label="解析并加入范围"
-                    onClick={() => void addDesignUrl()}
-                  >
-                    <UiIcon name="plus" size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="primary pcc-icon-btn"
-                    disabled={busy || !item.enabled}
-                    title={`保存范围（${designCount}）`}
-                    aria-label={`保存范围，已选 ${designCount} 个`}
-                    onClick={() => void saveDesignScope()}
-                  >
-                    <UiIcon name="check" size={14} />
-                    {designCount > 0 ? <span className="pcc-icon-count">{designCount}</span> : null}
-                  </button>
-                </div>
-                {!item.enabled ? (
-                  <p className="muted">启用连接器后可粘贴 MasterGo 链接加入范围。</p>
-                ) : !designDrafts.length ? (
-                  <p className="muted">粘贴设计稿链接加入范围；读取 DSL 时链接需带 layer_id。</p>
-                ) : (
-                  <ul className="pcc-repo-list pcc-repo-selected">
-                    {designDrafts.map((file) => (
-                      <li key={`${file.fileId}-${file.layerId || ""}`}>
-                        <div className="pcc-repo-item pcc-repo-item-plain">
-                          <span className="pcc-repo-copy">
-                            <span className="pcc-repo-title">
-                              <strong title={file.label}>{file.label}</strong>
-                              {file.layerId ? <em className="pcc-repo-badge">图层</em> : <em className="pcc-repo-badge">无图层</em>}
-                            </span>
-                            <small title={file.resourceUrl || file.fileId}>{file.resourceUrl || file.fileId}</small>
-                          </span>
-                          <button
-                            type="button"
-                            className="pcc-text-btn"
-                            disabled={busy}
-                            onClick={() => removeDesignDraft(file.fileId, file.layerId || "")}
-                          >
-                            移除
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ) : (
             <div className="pcc-scope">
               <div className="pcc-scope-toolbar">
                 <input
@@ -756,23 +602,11 @@ export function ProjectCodeConnectors({
                 </ul>
               ) : null}
             </div>
-            )}
           </>
         ) : (
           <div className="pcc-scope">
             <p className="muted">仅项目管理员可修改。当前{item.enabled ? "已启用" : "未启用"}，范围 {configuredCount} 个。</p>
-            {kind === "mastergo"
-              ? (config.designResources || []).map((file) => (
-                <div className="pcc-repo-item pcc-repo-item-plain" key={file.id}>
-                  <span className="pcc-repo-copy">
-                    <span className="pcc-repo-title">
-                      <strong title={file.label}>{file.label}</strong>
-                    </span>
-                    <small title={file.resourceUrl || file.fileId}>{file.resourceUrl || file.fileId}</small>
-                  </span>
-                </div>
-              ))
-              : config.remotes.filter((remote) => remote.platform === kind).map((remote) => (
+            {config.remotes.filter((remote) => remote.platform === kind).map((remote) => (
               <div className="pcc-repo-item pcc-repo-item-plain" key={remote.id}>
                 <span className="pcc-repo-copy">
                   <span className="pcc-repo-title">

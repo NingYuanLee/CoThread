@@ -63,11 +63,41 @@ export type LedgerRow = {
   durationMs: number | null;
   isError: boolean;
 };
-export type LedgerTurn = { turn: number; label: string; rows: LedgerRow[] };
+export type LedgerTurn = {
+  turn: number;
+  label: string;
+  /** L2: light opportunistic path vs full DSH harness. Null for L1 task labels. */
+  runMode: "light" | "dsh" | null;
+  rows: LedgerRow[];
+};
 
 const MODEL_PHASE = new Set(["thinking"]);
 const REPLY_PHASE = new Set(["assistant_text", "assistant_final"]);
 
+/** Classify an L2 turn as lightweight participation vs full DSH harness. */
+export function turnRunMode(events: AgentLogEvent[]): "light" | "dsh" | null {
+  if (!events.length) return null;
+  if (events.every((event) => event.agentType === "l1")) return null;
+  if (events.some((event) => event.tool === "participation_judge")) return "light";
+  if (events.some((event) =>
+    event.agentType === "dsh_l3"
+    || event.tool === "agent_run"
+    || event.tool === "dsh_l3"
+    || event.tool === "thinking"
+  )) return "dsh";
+  if (events.some((event) =>
+    !REPLY_PHASE.has(event.tool) && event.tool !== "user_input" && event.tool !== "participation_judge"
+  )) return "dsh";
+  // Reply-only L2 rows without a judge marker: treat as light (pre-tag opportunistic or pure ack).
+  if (events.every((event) => event.agentType === "l2" && REPLY_PHASE.has(event.tool))) return "light";
+  return "dsh";
+}
+
+export function runModeLabel(mode: "light" | "dsh" | null) {
+  if (mode === "light") return "轻量";
+  if (mode === "dsh") return "完整";
+  return "";
+}
 export function timestamp(value: string) {
   return new Date(value.includes("T") ? value : value.replace(" ", "T") + "Z").getTime();
 }
@@ -275,6 +305,7 @@ export function buildLedger(events: AgentLogEvent[], inputs: AgentLogInput[]): L
     return {
       turn: index + 1,
       label: l1TaskLabel(group.find((event) => event.task)?.task) || `第 ${index + 1} 轮`,
+      runMode: turnRunMode(group),
       rows,
     };
   });

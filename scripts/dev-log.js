@@ -95,21 +95,75 @@ export function highlightDevLogBody(body, { color = false } = {}) {
   });
 }
 
+export function isDevLogContinuation(text) {
+  const line = String(text ?? "");
+  if (/^\s/.test(line)) return true;
+  if (/^[\]})]+[,;]?$/.test(line.trim())) return true;
+  return false;
+}
+
+export function updateDevLogBlockDepth(depth, text) {
+  let next = Math.max(0, Number(depth) || 0);
+  for (const ch of String(text ?? "")) {
+    if (ch === "{" || ch === "[") next += 1;
+    else if (ch === "}" || ch === "]") next = Math.max(0, next - 1);
+  }
+  return next;
+}
+
+function splitDevLogBodies(text) {
+  const raw = String(text ?? "").replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  const lines = raw.split("\n");
+  while (lines.length > 1 && lines.at(-1) === "") lines.pop();
+  if (lines.length <= 1) {
+    return [String(lines[0] ?? "").trim()];
+  }
+  return lines.map((line, index) => (index === 0 ? line.trimEnd() : line));
+}
+
+function formatDevLogPrefix({
+  color = false,
+  now = new Date(),
+  level = "info",
+  kind,
+  text = "",
+} = {}) {
+  const resolved = resolveDevLogKind(kind, text, level);
+  const meta = DEV_LOG_KINDS[resolved] || DEV_LOG_KINDS.log;
+  const time = formatDevTime(now);
+  const stamp = color ? `${DIM}${time}${RESET}` : time;
+  const brand = paintTag("Cothread", { color, tone: ART });
+  const kindTag = paintTag(meta.label, { color, tone: meta.color });
+  return {
+    prefix: `${stamp} ${brand} ${kindTag}`,
+    resolved,
+  };
+}
+
+export function formatDevLogContinuation(text, {
+  color = false,
+} = {}) {
+  return highlightDevLogBody(String(text ?? ""), { color });
+}
+
 export function formatDevLogLine(text, {
   color = false,
   now = new Date(),
   level = "info",
   kind,
 } = {}) {
-  const body = String(text ?? "").replaceAll(/\r?\n/g, " ").trim();
-  const resolved = resolveDevLogKind(kind, body, level);
-  const meta = DEV_LOG_KINDS[resolved] || DEV_LOG_KINDS.log;
-  const time = formatDevTime(now);
-  const stamp = color ? `${DIM}${time}${RESET}` : time;
-  const brand = paintTag("Cothread", { color, tone: ART });
-  const kindTag = paintTag(meta.label, { color, tone: meta.color });
-  const painted = highlightDevLogBody(body, { color });
-  return painted ? `${stamp} ${brand} ${kindTag}  ${painted}` : `${stamp} ${brand} ${kindTag}`;
+  const bodies = splitDevLogBodies(text);
+  const head = bodies[0] ?? "";
+  const { prefix } = formatDevLogPrefix({ color, now, level, kind, text: head });
+  const paintedBodies = bodies.map((line) => highlightDevLogBody(line, { color }));
+  if (bodies.length <= 1) {
+    const painted = paintedBodies[0] ?? "";
+    if (!painted) return prefix;
+    // Object/array dumps: put the body on the next line so continuations stay flush left.
+    if (/[{[]\s*$/.test(stripAnsi(painted))) return `${prefix}\n${painted}`;
+    return `${prefix}  ${painted}`;
+  }
+  return [prefix, ...paintedBodies].join("\n");
 }
 
 export function renderDevBanner({ color = false } = {}) {

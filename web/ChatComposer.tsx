@@ -123,6 +123,7 @@ export function ChatComposer({
   versions,
   folders = [],
   members,
+  currentUserId,
   busy,
   onSend,
   onRefresh,
@@ -142,6 +143,7 @@ export function ChatComposer({
   versions: FileVersion[];
   folders?: FolderRef[];
   members: { id: string; name: string; email: string; kind?: string; avatar?: string | null }[];
+  currentUserId?: string;
   busy: boolean;
   onSend: () => Promise<boolean>;
   onRefresh: () => Promise<void>;
@@ -168,6 +170,7 @@ export function ChatComposer({
   const slots = useRef(0);
   const cancelled = useRef(new Set<string>());
   const sending = useRef(false);
+  const suppressSlashTrigger = useRef(false);
   const currentRefs = useRef(refs);
   currentRefs.current = refs;
   useEffect(
@@ -296,7 +299,12 @@ export function ChatComposer({
     }
   };
   const detect = (text: string, caret: number) => {
-    const match = /([/@])([^\s/@]*)$/.exec(text.slice(0, caret));
+    // 键盘输入：光标前以 @ 或 / 结尾即触发（与改前一致，可在已有文字后直接触发）
+    // 粘贴：onPaste 置 suppressSlashTrigger，避免正文里的 / 弹出文件选择器
+    const match = suppressSlashTrigger.current
+      ? /(@)([^\s/@]*)$/.exec(text.slice(0, caret))
+      : /([/@])([^\s/@]*)$/.exec(text.slice(0, caret));
+    suppressSlashTrigger.current = false;
     setTrigger(
       match
         ? {
@@ -319,7 +327,9 @@ export function ChatComposer({
       return false;
     return folderRootKind(folder.id, folders) !== null;
   });
-  const mentionMembers = members.filter((m) => m.kind !== "l1" && m.id !== AGENT_MEMBER.id);
+  const mentionMembers = members.filter(
+    (m) => m.kind !== "l1" && m.id !== AGENT_MEMBER.id && m.id !== currentUserId,
+  );
   const options = (
     trigger?.symbol === "/"
       ? [
@@ -601,7 +611,10 @@ export function ChatComposer({
               e.preventDefault();
               e.stopPropagation();
               upload(files);
+              return;
             }
+            // 粘贴文本时即使内容含 `/` 也不打开文件引用面板
+            suppressSlashTrigger.current = true;
           }}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing || e.keyCode === 229) return;

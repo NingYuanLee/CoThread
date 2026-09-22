@@ -1,6 +1,5 @@
 import React from "react";
 import yunxiaoMark from "./assets/yunxiao.png";
-import mastergoMark from "./assets/mastergo.svg";
 
 export type UiIconName =
   | "abandon"
@@ -40,7 +39,6 @@ export type UiIconName =
   | "lock"
   | "login"
   | "logout"
-  | "mastergo"
   | "megaphone"
   | "members"
   | "mention"
@@ -90,7 +88,6 @@ const FILLED_ICONS = new Set<UiIconName>(["github"]);
 /** Official brand images (keep original colors). */
 const IMAGE_ICONS = {
   yunxiao: yunxiaoMark,
-  mastergo: mastergoMark,
 } as const satisfies Partial<Record<UiIconName, string>>;
 
 type GlyphName = Exclude<UiIconName, keyof typeof IMAGE_ICONS>;

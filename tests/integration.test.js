@@ -800,14 +800,21 @@ test("unmentioned messages can prompt participation and cancellation prevents ex
     db,
     async () => {
       executions++;
-      return "我可以补充一个思路。";
+      return "不应再走完整 Agent";
     },
-    async () => true,
+    async () => ({
+      respond: true,
+      message: "我理解你是在请人帮忙澄清这个问题。",
+    }),
   );
   let context = (await request(`/threads/${threadId}`, undefined, owner)).body;
-  assert.equal(executions, 1);
+  assert.equal(executions, 0);
   assert.equal(context.replies[0].participation, "reply");
   assert.ok(context.replies[0].reply_id);
+  assert.equal(
+    context.messages.find((m) => m.id === context.replies[0].reply_id).body,
+    "我理解你是在请人帮忙澄清这个问题。",
+  );
   const next = await request(
     `/threads/${threadId}/messages`,
     { body: "进一步讨论" },

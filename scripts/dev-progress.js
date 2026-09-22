@@ -1,5 +1,14 @@
 import http from "node:http";
-import { formatDevLogLine, inferDevLogKind, shouldColorDevLog, visibleWidth, writeDevBanner } from "./dev-log.js";
+import {
+  formatDevLogContinuation,
+  formatDevLogLine,
+  inferDevLogKind,
+  isDevLogContinuation,
+  shouldColorDevLog,
+  updateDevLogBlockDepth,
+  visibleWidth,
+  writeDevBanner,
+} from "./dev-log.js";
 import { sleep } from "./dev-runtime.js";
 
 const BAR_WIDTH = 28;
@@ -114,8 +123,25 @@ export function createDevProgress({
       startMotion();
     },
     note(text, extra = {}) {
-      const line = String(text || "").replaceAll(/\s+/g, " ").trim();
-      if (!line) return;
+      const raw = String(text ?? "").replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+      if (extra.continuation) {
+        if (tty && lastWidth) {
+          stream.write("\n");
+          lastWidth = 0;
+        }
+        stream.write(`${formatDevLogContinuation(raw, {
+          color,
+          now: clock(),
+          kind: extra.kind || "log",
+          level: extra.level,
+        })}\n`);
+        if (!finished) paint();
+        return;
+      }
+      const line = raw.includes("\n")
+        ? raw.replace(/\n+$/u, "")
+        : raw.replaceAll(/\s+/g, " ").trim();
+      if (!line.trim()) return;
       if (tty && lastWidth) {
         stream.write("\n");
         lastWidth = 0;
@@ -302,11 +328,16 @@ export function attachChildOutput(child, progress) {
     if (!stream) continue;
     stream.setEncoding("utf8");
     let buffer = "";
+    let blockDepth = 0;
     stream.on("data", (chunk) => {
       buffer += String(chunk).replaceAll("\r\n", "\n").replaceAll("\r", "\n");
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
-      for (const line of lines) progress.note(line);
+      for (const line of lines) {
+        const continuation = blockDepth > 0 || isDevLogContinuation(line);
+        progress.note(line, { continuation });
+        blockDepth = updateDevLogBlockDepth(blockDepth, line);
+      }
     });
   }
 }

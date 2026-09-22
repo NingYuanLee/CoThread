@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildLedger, buildTimeline, eventKind, kindLabel, ledgerSummary } from "../web/agent-trajectory.ts";
+import { buildLedger, buildTimeline, eventKind, kindLabel, ledgerSummary, turnRunMode } from "../web/agent-trajectory.ts";
 
 test("timeline puts user messages on the input lane", () => {
   const events = [
@@ -34,12 +34,32 @@ test("timeline puts user messages on the input lane", () => {
   const ledger = buildLedger(events, inputs);
   assert.equal(ledger[0].rows[0].kind, "user");
   assert.equal(ledger[0].rows[0].label, "输入");
+  assert.equal(ledger[0].runMode, "dsh");
   assert.equal(ledger[0].rows.find((row) => row.event?.tool === "thinking")?.kind, "message");
   assert.equal(ledger[0].rows.find((row) => row.event?.tool === "assistant_text")?.kind, "reply");
   assert.equal(ledger[0].rows.find((row) => row.event?.tool === "assistant_text")?.label, "正文");
   assert.equal(ledgerSummary(ledger[0].rows.find((row) => row.event?.tool === "assistant_text")), "你好");
   assert.equal(ledgerSummary(ledger[0].rows.find((row) => row.event?.tool === "thinking")), "");
   assert.equal(timeline.spans.find((span) => span.kind === "reply")?.label, "你好");
+});
+
+test("opportunistic participation turns are labeled light", () => {
+  const events = [
+    {
+      id: "1", agentType: "l2", agentSessionId: "s", taskId: null, messageId: "m2", threadId: "t",
+      tool: "participation_judge", action: "斟酌参与", status: "completed",
+      createdAt: "2026-01-01T00:00:01.000Z", finishedAt: "2026-01-01T00:00:01.400Z", durationMs: 400,
+    },
+    {
+      id: "2", agentType: "l2", agentSessionId: "s", taskId: null, messageId: "m2", threadId: "t",
+      tool: "assistant_final", action: "正文", status: "completed", preview: "在的",
+      createdAt: "2026-01-01T00:00:01.400Z", finishedAt: "2026-01-01T00:00:01.400Z", durationMs: 0,
+    },
+  ];
+  assert.equal(turnRunMode(events), "light");
+  const ledger = buildLedger(events, []);
+  assert.equal(ledger[0].runMode, "light");
+  assert.equal(ledger[0].label, "第 1 轮");
 });
 
 test("L1 maintenance runs become separate turns with process lanes", () => {

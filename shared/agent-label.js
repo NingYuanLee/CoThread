@@ -158,6 +158,9 @@ export function describeAgentAction(tool, args = {}, result = {}) {
     case "assistant_final":
       action = "正文";
       break;
+    case "participation_judge":
+      action = "斟酌参与";
+      break;
     case "agent_run":
       action = "运行三级小祥";
       break;

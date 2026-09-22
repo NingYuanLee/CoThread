@@ -16,6 +16,7 @@ import {
   kindLabel,
   ledgerSummary,
   prettyPayload,
+  runModeLabel,
   TIMELINE_LANES,
 } from "./agent-trajectory";
 
@@ -84,6 +85,10 @@ export function AgentTrajectory({ scope, api }: {
     const rows = ledger.flatMap((turn) => turn.rows);
     return rows.find((row) => row.id === selectedId) || rows.at(-1);
   }, [ledger, selectedId]);
+  const selectedTurn = useMemo(
+    () => ledger.find((turn) => turn.rows.some((row) => row.id === selectedRow?.id)) || null,
+    [ledger, selectedRow?.id],
+  );
 
   useEffect(() => {
     if (!selectedRow) return;
@@ -261,7 +266,10 @@ export function AgentTrajectory({ scope, api }: {
           <span>类型</span><span>内容</span><span>状态</span><span>时间</span>
         </div>
         {ledger.map((turn) => <div className="agent-log-turn" key={turn.turn}>
-          <div className="agent-log-turn-label">{turn.label}</div>
+          <div className="agent-log-turn-label">
+            {turn.label}
+            {turn.runMode && <span className="agent-log-turn-mode" data-mode={turn.runMode}>{runModeLabel(turn.runMode)}</span>}
+          </div>
           {turn.rows.map((row, index) => {
             const stepChanged = index === 0 || row.step !== turn.rows[index - 1].step;
             return <React.Fragment key={row.id}>
@@ -302,6 +310,7 @@ export function AgentTrajectory({ scope, api }: {
               {selectedRow.event && <div><dt>状态</dt><dd>{labelAgentEventStatus(selectedRow.event.status)}</dd></div>}
               {selectedRow.event && <div><dt>工具</dt><dd>{selectedRow.event.tool}</dd></div>}
               {selectedRow.event && <div><dt>执行者</dt><dd>{levelName(selectedRow.event.agentType)}</dd></div>}
+              {selectedTurn?.runMode && <div><dt>路径</dt><dd>{runModeLabel(selectedTurn.runMode)}</dd></div>}
               <div><dt>开始时间</dt><dd>{formatClock(selectedRow.createdAt)}</dd></div>
               <div><dt>总时长</dt><dd>{selectedRow.durationMs != null ? formatDurationMs(selectedRow.durationMs) : selectedRow.event?.status === "running" ? "进行中" : "未记录"}</dd></div>
               {selectedRow.event?.task && <div><dt>维护任务</dt><dd>{l1TaskLabel(selectedRow.event.task)}</dd></div>}

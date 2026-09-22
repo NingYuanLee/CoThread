@@ -26,7 +26,7 @@ export async function synchronizeDiscussionContext(db, threadId, openRuntime) {
     // Coordinator acknowledgements are not native DSH turns: observe them too.
     context.replies = [];
     const open = openRuntime || (await import("./agent.js")).openAgentRuntime;
-    runtime = await open(context, { db, user, job: { thread_id: threadId }, autoCompact: false, sessionLockHeld: true });
+    runtime = await open(context, { db, user, job: { thread_id: threadId, kind: "context_sync" }, autoCompact: false, sessionLockHeld: true });
     await runtime.close(true);
     runtime = undefined;
     await query(db, "UPDATE agent_sessions SET compact_status='idle',compact_error=NULL WHERE thread_id=? AND compact_status='failed'", [threadId]);

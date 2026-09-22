@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { UiIcon } from "./ui-icon";
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
 import { showTip } from "./Tip";
 
 export function MemberPicker({ projectId, api, onClose, onAdded }: {
@@ -9,31 +9,47 @@ export function MemberPicker({ projectId, api, onClose, onAdded }: {
   onClose: () => void;
   onAdded: () => Promise<void>;
 }) {
+  const dialog = useRef<HTMLDialogElement>(null);
   const [accounts, setAccounts] = useState<{ id: string; username: string; name: string; email: string | null; avatar?: string | null }[]>([]);
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const load = () => api(`/users?projectId=${encodeURIComponent(projectId)}`).then(setAccounts);
+  useEffect(() => {
+    dialog.current?.showModal();
+  }, []);
   useEffect(() => { void load().catch((e) => setError(e.message)); }, [projectId]);
   const visible = accounts.filter((account) => `${account.name} ${account.username} ${account.email || ""}`.toLowerCase().includes(search.toLowerCase()));
-  return <ModalBackdrop onClose={onClose}>
-    {(close) => <section className="modal member-picker" role="dialog" aria-modal="true" aria-labelledby="member-picker-title">
-      <div className="modal-header"><h2 id="member-picker-title">添加项目成员</h2><DialogClose onClick={close} label="关闭" /></div>
+  const close = () => animateDialogClose(dialog.current, onClose);
+  return (
+    <dialog
+      ref={dialog}
+      className="modal member-picker"
+      aria-labelledby="member-picker-title"
+      onCancel={onDialogCancel(onClose)}
+      onClick={onDialogBackdropClick(onClose, () => !busy)}
+    >
+      <div className="modal-header">
+        <h2 id="member-picker-title">添加项目成员</h2>
+        <DialogClose onClick={close} label="关闭" disabled={!!busy} />
+      </div>
       <input autoFocus className="member-search" aria-label="搜索系统账号" placeholder="搜索姓名或邮箱" value={search} onChange={(event) => setSearch(event.target.value)} />
       {error && <div className="error" role="alert">{error}</div>}
       <div className="member-picker-list">
-        {visible.map((account) => <div className="member" key={account.id}>
-          <span className="avatar">{account.avatar ? <img src={account.avatar} alt="" /> : account.name[0]}</span>
-          <div><strong>{account.name}</strong><small>账号：{account.username}{account.email ? ` · ${account.email}` : ""}</small></div>
-          <button type="button" className="primary" disabled={!!busy} onClick={() => {
-            setBusy(account.id); setError("");
-            void api(`/projects/${projectId}/members`, { userId: account.id, role: "member" })
-              .then(async () => { await onAdded(); await load(); showTip("已添加项目成员"); })
-              .catch((e) => { setError(e.message); showTip(e.message, "error"); }).finally(() => setBusy(""));
-          }}>{busy === account.id ? "添加中…" : <><UiIcon name="userPlus" size={13} />添加</>}</button>
-        </div>)}
+        {visible.map((account) => (
+          <div className="member" key={account.id}>
+            <span className="avatar">{account.avatar ? <img src={account.avatar} alt="" /> : account.name[0]}</span>
+            <div><strong>{account.name}</strong><small>账号：{account.username}{account.email ? ` · ${account.email}` : ""}</small></div>
+            <button type="button" className="primary" disabled={!!busy} onClick={() => {
+              setBusy(account.id); setError("");
+              void api(`/projects/${projectId}/members`, { userId: account.id, role: "member" })
+                .then(async () => { await onAdded(); await load(); showTip("已添加项目成员"); })
+                .catch((e) => { setError(e.message); showTip(e.message, "error"); }).finally(() => setBusy(""));
+            }}>{busy === account.id ? "添加中…" : <><UiIcon name="userPlus" size={13} />添加</>}</button>
+          </div>
+        ))}
         {!visible.length && <p className="empty-state">没有可添加的系统账号</p>}
       </div>
-    </section>}
-  </ModalBackdrop>;
+    </dialog>
+  );
 }

@@ -4,14 +4,18 @@ import http from "node:http";
 import {
   COTHREAD_BANNER,
   COTHREAD_GREETING,
+  formatDevLogContinuation,
   formatDevLogLine,
   highlightDevLogBody,
   inferDevLogKind,
+  isDevLogContinuation,
   renderDevBanner,
   stripAnsi,
+  updateDevLogBlockDepth,
   writeDevBanner,
 } from "../scripts/dev-log.js";
 import {
+  attachChildOutput,
   createDevProgress,
   extractWarmupUrls,
   normalizeWarmupUrl,
@@ -56,6 +60,54 @@ test("startup lines are classified by kind", () => {
     formatDevLogLine("已有超级管理员 admin@cothread.local", { now: clock() }),
     "18:22:01 [Cothread] [日志]  已有超级管理员 admin@cothread.local",
   );
+});
+
+test("multi-line logs only prefix the first line", () => {
+  const block = "Agent timing {\n  messageId: 'm1',\n  stage: 'claimed'\n}";
+  const formatted = formatDevLogLine(block, { now: clock() });
+  assert.equal(
+    formatted,
+    [
+      "18:22:01 [Cothread] [日志]",
+      "Agent timing {",
+      "  messageId: 'm1',",
+      "  stage: 'claimed'",
+      "}",
+    ].join("\n"),
+  );
+  assert.equal(formatted.split("\n").filter((line) => line.includes("[Cothread]")).length, 1);
+  assert.equal(
+    formatDevLogContinuation("  messageId: 'm1',", { now: clock() }),
+    "  messageId: 'm1',",
+  );
+  assert.equal(formatDevLogLine("Agent timing {", { now: clock() }), "18:22:01 [Cothread] [日志]\nAgent timing {");
+  assert.equal(isDevLogContinuation("  messageId: 'm1',"), true);
+  assert.equal(isDevLogContinuation("}"), true);
+  assert.equal(isDevLogContinuation("Agent timing {"), false);
+  assert.equal(updateDevLogBlockDepth(0, "Agent timing {"), 1);
+  assert.equal(updateDevLogBlockDepth(1, "}"), 0);
+});
+
+test("child object dumps keep one prefix across indented lines", () => {
+  const chunks = [];
+  const stream = { isTTY: false, write(text) { chunks.push(text); } };
+  const progress = createDevProgress({ stream, tty: false, clock, color: false });
+  const child = {
+    stdout: {
+      setEncoding() {},
+      on(event, handler) {
+        if (event !== "data") return;
+        handler("Agent timing {\n  messageId: 'm1',\n  stage: 'claimed'\n}\n");
+      },
+    },
+    stderr: null,
+  };
+  attachChildOutput(child, progress);
+  const output = chunks.join("");
+  assert.equal((output.match(/\[日志\]/g) || []).length, 1);
+  assert.match(output, /18:22:01 \[Cothread\] \[日志\]\nAgent timing \{\n/);
+  assert.match(output, /\n  messageId: 'm1',\n/);
+  assert.match(output, /\n\}\n/);
 });
 
 test("startup banner spells Cothread and greets", () => {

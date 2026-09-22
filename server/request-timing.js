@@ -36,9 +36,13 @@ export function requestTiming(req, res, next) {
     };
     res.once("finish", () => {
       const times = summary(metrics);
+      const path = req.path.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, ":id");
+      // SSE /live is capped at ~25s by design; duration alone is not a slow-request signal.
+      const liveOk = path === "/api/threads/:id/live" && res.statusCode < 500;
+      if (liveOk && process.env.REQUEST_TIMING_LOG !== "true") return;
       if (times.app >= 1000 || res.statusCode >= 500 || process.env.REQUEST_TIMING_LOG === "true")
         console.log("Request timing", { requestId: metrics.id, method: req.method,
-          path: req.path.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, ":id"), status: res.statusCode,
+          path, status: res.statusCode,
           ...Object.fromEntries(Object.entries(times).map(([key, value]) => [key, Math.round(value)])), queries: metrics.queries.length });
     });
     next();

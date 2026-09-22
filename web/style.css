@@ -1730,7 +1730,7 @@ header h2 {
   z-index: 0;
 }
 .conversation-stage-trajectory .agent-log-body {
-  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 .conversation-stage-trajectory .agent-log-ledger {
   border-right: 1px solid var(--c-e7eae7, #e7eae7);
@@ -4684,8 +4684,19 @@ body.col-resizing .doc-browser-tree-resize {
 .member-search {
   font-size: 12px;
 }
-.member-picker { width: min(520px, calc(100vw - 32px)); max-height: min(680px, calc(100vh - 32px)); overflow: hidden; }
+.member-picker {
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(680px, calc(100vh - 32px));
+  padding: 0;
+  border: 1px solid var(--c-dfe3de, #dfe3de);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.member-picker::backdrop { background: var(--c-18201973, #18201973); }
+.member-picker > .modal-header { padding: 20px 20px 0; }
 .member-picker > .member-search { width: calc(100% - 40px); margin: 18px 20px 8px; }
+.member-picker > .error { margin: 0 20px 8px; }
 .member-picker-list { max-height: 480px; padding: 8px 20px 20px; overflow-y: auto; }
 .member-picker-list .member { border-bottom: 1px solid var(--c-edf0ea, #edf0ea); }
 .empty-state { padding: 36px 12px; color: var(--c-8b9683, #8b9683); text-align: center; }
@@ -6260,6 +6271,9 @@ body.col-resizing .app-shell > .context-panel {
 .agent-status-chevron { flex-shrink:0; color:var(--c-8b9689, #8b9689); }
 .agent-trace > button.agent-status-line { width:100%; border:0; border-bottom:1px solid var(--c-e4e9df, #e4e9df); border-radius:0; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
 .message-actions button { display:inline-flex; align-items:center; justify-content:center; padding:4px; }
+.message-avatar-hit,
+.message-author-hit { cursor: context-menu; }
+.message-context-menu { z-index: 130; }
 .agent-elapsed { margin-left:auto; flex-shrink:0; color:var(--c-8b9689, #8b9689); font-size:12px; font-variant-numeric:tabular-nums; }
 .agent-tool-icon { flex-shrink: 0; color: var(--icon); }
 .agent-tool-icon.running { color: var(--c-b39558, #b39558); }
@@ -6379,7 +6393,7 @@ body.col-resizing .app-shell > .context-panel {
 .agent-log-tooltip strong { font-size: 12px; }
 .agent-log-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   min-height: 0;
   flex: 1;
   overflow: hidden;
@@ -6420,6 +6434,29 @@ body.col-resizing .app-shell > .context-panel {
   padding: 6px 12px 2px;
   color: var(--c-6d756f, #6d756f);
   font-size: 10px;
+}
+.agent-log-turn-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-log-turn-mode {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  border-radius: 2px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--c-5a635d, #5a635d);
+  background: var(--c-eef1ee, #eef1ee);
+}
+.agent-log-turn-mode[data-mode="light"] {
+  color: var(--c-3d6e8a, #3d6e8a);
+  background: var(--c-e7f0f5, #e7f0f5);
+}
+.agent-log-turn-mode[data-mode="dsh"] {
+  color: var(--c-5a635d, #5a635d);
+  background: var(--c-e8ebe8, #e8ebe8);
 }
 .agent-log-turn + .agent-log-turn { border-top: 2px solid var(--c-dfe3de, #dfe3de); }
 .agent-log-row {

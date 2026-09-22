@@ -56,7 +56,7 @@ async function compressClaimedDiscussion(db, openRuntime, threadId) {
     runtime = await open(context, {
       db,
       user,
-      job: { thread_id: job.thread_id },
+      job: { thread_id: job.thread_id, kind: "context_compress" },
       autoCompact: false,
       sessionLockHeld: true,
     });
@@ -108,7 +108,7 @@ export async function refreshNextContextStats(db) {
     ).openAgentRuntime(context, {
       db,
       user,
-      job: { thread_id: stored.thread_id },
+      job: { thread_id: stored.thread_id, kind: "context_measure" },
       observe: false,
       autoCompact: false,
       sessionLockHeld: true,

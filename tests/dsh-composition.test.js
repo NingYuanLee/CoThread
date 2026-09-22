@@ -59,10 +59,9 @@ test("L2 and L3 receive different model-facing tool schemas", () => {
     const byLevel = { l2: capabilityProfile("l2").allowedTools, l3: capabilityProfile("l3").allowedTools };
     assert.ok(byLevel.l2.includes("list_project_code_sources"));
     assert.ok(byLevel.l3.includes("read_code_file"));
-    assert.ok(byLevel.l2.includes("list_project_design_sources"));
-    assert.ok(byLevel.l3.includes("read_design_dsl"));
+    assert.ok(!byLevel.l2.includes("list_project_design_sources"));
+    assert.ok(!byLevel.l3.includes("read_design_dsl"));
     assert.ok(!capabilityProfile("l1").allowedTools.includes("read_code_file"));
-    assert.ok(!capabilityProfile("l1").allowedTools.includes("read_design_meta"));
     process.env.COTHREAD_ALLOWED_TOOLS = JSON.stringify([...new Set([...byLevel.l2, ...byLevel.l3])]);
     process.env.COTHREAD_ALLOWED_TOOLS_BY_LEVEL = JSON.stringify(byLevel);
     process.env.COTHREAD_PRIMARY_AGENT_LEVEL = "l2";

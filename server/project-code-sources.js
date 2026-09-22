@@ -7,15 +7,15 @@ import { query, transaction } from "./db.js";
 import { encryptToken, decryptToken } from "./credential-vault.js";
 import { HttpError } from "./service.js";
 
-const KIND = z.enum(["github", "yunxiao", "mastergo"]);
-const GIT_KIND = z.enum(["github", "yunxiao"]);
+const KIND = z.enum(["github", "yunxiao"]);
+const GIT_KIND = KIND;
 const vaultId = (projectId) => `project:${projectId}`;
 const MAX_FILE_BYTES = 512 * 1024;
 const MAX_TREE = 2000;
 const MAX_SCOPE = 20;
 const YUNXIAO_API_BASE = process.env.YUNXIAO_API_BASE_URL || "https://openapi-rdc.aliyuncs.com";
 
-const KIND_LABEL = { github: "GitHub", yunxiao: "云效", mastergo: "MasterGo" };
+const KIND_LABEL = { github: "GitHub", yunxiao: "云效" };
 
 function hintOf(secret) {
   const value = String(secret || "");
@@ -139,9 +139,6 @@ export async function listProjectCodeConfig(service, user, projectId) {
       },
       yunxiao: byKind.yunxiao || {
         kind: "yunxiao", enabled: false, hasToken: false, tokenHint: null, organizationId: null, updatedAt: null,
-      },
-      mastergo: byKind.mastergo || {
-        kind: "mastergo", enabled: false, hasToken: false, tokenHint: null, organizationId: null, updatedAt: null,
       },
     },
     remotes: remotes.map(redactedRemote),
@@ -419,14 +416,12 @@ export async function createProjectGitRemote(service, user, projectId, input) {
   const data = z.object({
     label: z.string().trim().min(1).max(128),
     remoteUrl: z.string().trim().min(1).max(1024),
-    platform: KIND.optional().refine((value) => value !== "mastergo", { message: "无效平台" }),
+    platform: KIND.optional(),
     externalId: z.string().trim().min(1).max(191).optional(),
   }).parse(input);
   const remoteUrl = normalizeRemoteUrl(data.remoteUrl);
-  const platform = data.platform && data.platform !== "mastergo"
-    ? data.platform
-    : platformForHost(hostOf(remoteUrl));
-  if (!platform || platform === "mastergo") throw new HttpError(400, "无法识别仓库所属平台，请使用 GitHub 或云效地址");
+  const platform = data.platform || platformForHost(hostOf(remoteUrl));
+  if (!platform) throw new HttpError(400, "无法识别仓库所属平台，请使用 GitHub 或云效地址");
   return syncPlatformScope(service, user, projectId, platform, {
     repositories: [
       ...(await listProjectCodeConfig(service, user, projectId)).remotes

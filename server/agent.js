@@ -21,6 +21,7 @@ import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { agentRuntimePatch } from "./dsh-runtime-config.js";
 import { persistL3ContextStats } from "./l3-session.js";
 import { acquireSessionLock } from "./session-lock.js";
+import { logAgentTiming } from "./agent-timing-log.js";
 
 const running = new Map();
 const coordinatorRuntimes = new Map();
@@ -32,7 +33,8 @@ function agentRuntimeRoot() {
 }
 
 export function isCorruptSessionLog(error) {
-  return /corrupt session log/i.test(String(error?.message || error || ""));
+  const message = String(error?.message || error || "");
+  return /corrupt session log/i.test(message) || /无效会话快照/.test(message);
 }
 
 async function discardCoordinatorRuntime(threadId, runtime) {
@@ -189,8 +191,8 @@ export async function openAgentRuntime(
   let stageStarted = runtimeStarted;
   const timed = (stage) => {
     const now = performance.now();
-    console.log('Agent timing', { messageId:job.message_id, threadId:job.thread_id, stage,
-      durationMs:Math.round(now-stageStarted), elapsedMs:Math.round(now-runtimeStarted) });
+    logAgentTiming({ messageId: job.message_id, threadId: job.thread_id, kind: job.kind, stage,
+      durationMs: Math.round(now - stageStarted), elapsedMs: Math.round(now - runtimeStarted) });
     stageStarted = now;
   };
   // The hosted bundle hoists static external imports even out of lazy modules.
@@ -243,6 +245,8 @@ export async function openAgentRuntime(
   const home = resolve(runtimeRoot, spec.homeId);
   await mkdir(home, { recursive: true });
   // MySQL is authoritative. Restore only session records into a dedicated host orchestration directory.
+  // A truncated/corrupt checkpoint (e.g. missing session header after failed compaction) must not
+  // permanently block L2; fall through to the one-shot reset path below.
   if (session.checkpoint) {
     const files = JSON.parse(
       gunzipSync(session.checkpoint, {

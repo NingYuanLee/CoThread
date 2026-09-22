@@ -11,6 +11,7 @@ import {
 } from "../shared/agent-member.js";
 import { MCP_CONVERSATION_COPY_INSTRUCTION, MCP_TASK_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
 import React, { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { configureMakers, invokeMakers, wakeMakers, useMakersConnection } from "./makers";
 import { coordinatorLogButtonLabel, COORDINATOR_LOG_IDLE_LABEL } from "./agent-label";
 const Documents = lazy(() =>
@@ -90,6 +91,99 @@ import type {
   Thread,
   Version,
 } from "./workspace-types";
+
+type ThreadMessage = Thread["messages"][number];
+
+function selectionTextInside(root: Element | null): string {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !root) return "";
+  const anchor = selection.anchorNode;
+  const focus = selection.focusNode;
+  if (!anchor || !focus) return "";
+  if (!root.contains(anchor) || !root.contains(focus)) return "";
+  return selection.toString();
+}
+
+function MessageContextMenu({
+  x,
+  y,
+  canQuote,
+  onCopy,
+  onQuote,
+  onDismiss,
+}: {
+  x: number;
+  y: number;
+  canQuote: boolean;
+  onCopy: () => void;
+  onQuote: () => void;
+  onDismiss: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState({ left: x, top: y });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const viewWidth = window.visualViewport?.width ?? document.documentElement.clientWidth;
+    const viewHeight = window.visualViewport?.height ?? document.documentElement.clientHeight;
+    const offsetLeft = window.visualViewport?.offsetLeft ?? 0;
+    const offsetTop = window.visualViewport?.offsetTop ?? 0;
+    let left = x;
+    if (x + rect.width > offsetLeft + viewWidth - 8) left = x - rect.width;
+    let top = y;
+    if (y + rect.height > offsetTop + viewHeight - 8) top = y - rect.height;
+    left = Math.min(Math.max(offsetLeft + 8, left), Math.max(offsetLeft + 8, offsetLeft + viewWidth - rect.width - 8));
+    top = Math.min(Math.max(offsetTop + 8, top), Math.max(offsetTop + 8, offsetTop + viewHeight - rect.height - 8));
+    setBox((previous) => (previous.left === left && previous.top === top ? previous : { left, top }));
+  }, [x, y]);
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node)) onDismiss();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onDismiss();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onDismiss]);
+  const run = (action: () => void) => {
+    action();
+    onDismiss();
+  };
+  return createPortal(
+    <div
+      ref={ref}
+      className="library-folder-menu doc-browser-tab-menu message-context-menu"
+      role="menu"
+      style={{ left: box.left, top: box.top }}
+      onContextMenu={(event) => event.preventDefault()}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => run(onCopy)}>
+        <span>复制</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className="library-folder-menu-item"
+        disabled={!canQuote}
+        title={canQuote ? undefined : "当前消息不可引用"}
+        onClick={() => {
+          if (!canQuote) return;
+          run(onQuote);
+        }}
+      >
+        <span>引用</span>
+      </button>
+    </div>,
+    document.body,
+  );
+}
 
 export function WorkspaceApp() {
   useActionTooltips();
@@ -193,19 +287,34 @@ export function WorkspaceApp() {
   const [quotedMessages, setQuotedMessages] = useState<MessageQuote[]>([]);
   const [quotePreview, setQuotePreview] = useState<MessageQuote | null>(null);
   const [copiedMessage, setCopiedMessage] = useState("");
-  const copyMessage = async (m: MessageQuote) => {
+  const [messageMenu, setMessageMenu] = useState<{
+    x: number;
+    y: number;
+    message: ThreadMessage;
+    selectedText: string;
+  } | null>(null);
+  useEffect(() => { setMessageMenu(null); }, [threadId]);
+  const focusComposer = () => {
+    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus());
+  };
+  const copyMessage = async (m: MessageQuote, selectedText = "") => {
     try {
-      const files = m.refs.map(id => {
-        const v = detail?.versions.find(v => v.id === id);
-        return `[${v?.title || id}](${location.origin}/api/versions/${id}/download)`;
-      });
-      const folders = (m.folder_refs || []).map((id) => {
-        const folder = detail?.folders.find((item) => item.id === id);
-        return folder ? `📁 ${libraryFolderPath(id, detail?.folders || []) || folderDisplayName(folder)}` : `📁 ${id}`;
-      });
-      await navigator.clipboard.writeText([m.body, ...folders, ...files].filter(Boolean).join("\n\n"));
+      const text = selectedText.trim()
+        ? selectedText
+        : [
+            m.body,
+            ...(m.folder_refs || []).map((id) => {
+              const folder = detail?.folders.find((item) => item.id === id);
+              return folder ? `📁 ${libraryFolderPath(id, detail?.folders || []) || folderDisplayName(folder)}` : `📁 ${id}`;
+            }),
+            ...m.refs.map((id) => {
+              const v = detail?.versions.find((item) => item.id === id);
+              return `[${v?.title || id}](${location.origin}/api/versions/${id}/download)`;
+            }),
+          ].filter(Boolean).join("\n\n");
+      await navigator.clipboard.writeText(text);
       setCopiedMessage(m.id);
-      showTip("消息已复制");
+      showTip(selectedText.trim() ? "已复制选中文本" : "消息已复制");
     } catch {
       setError("复制失败，请检查剪贴板权限。");
       showTip("复制失败，请检查剪贴板权限。", "error");
@@ -382,6 +491,60 @@ export function WorkspaceApp() {
   const creator = projects.find((p) => p.id === projectId)?.created_by === user?.id;
   const projectMember = projects.some((p) => p.id === projectId);
   const active = thread?.status === "active" && writable;
+  const quoteMessage = (m: ThreadMessage, selectedText = "") => {
+    const id = m.quoteTargetId || m.id;
+    if (!active || m.id.startsWith("optimistic:") || (m.id.startsWith("agent-task:") && !m.quoteTargetId)) return;
+    const original = thread?.messages.find((item) => item.id === id) || m;
+    const excerpt = selectedText.trim();
+    setQuotedMessages((previous) => {
+      const next = previous.filter((item) => item.id !== id);
+      return [...next, {
+        ...original,
+        id,
+        body: excerpt || original.body,
+        ...(excerpt ? { refs: [], folder_refs: [] } : {}),
+      }].slice(0, 10);
+    });
+    focusComposer();
+  };
+  const mentionAuthor = (m: ThreadMessage) => {
+    if (!active) return;
+    const isAssistant = m.source === "assistant";
+    if (!isAssistant && m.author_id === user?.id) return;
+    let label = isAssistant ? AGENT_MEMBER.name : m.author;
+    if (!isAssistant) {
+      const mentionMembers = (detail?.members || []).filter((member) => member.kind !== "l1" && member.id !== AGENT_MEMBER.id);
+      const selectedMember = mentionMembers.find((member) => member.id === m.author_id);
+      if (
+        selectedMember
+        && selectedMember.id !== AGENT_L2_MEMBER.id
+        && mentionMembers.filter((member) => member.name === selectedMember.name).length > 1
+      ) {
+        label = selectedMember.email;
+      } else if (selectedMember) {
+        label = selectedMember.name;
+      }
+    }
+    const mention = `@${label} `;
+    setMessage((text) => {
+      if (!text) return mention;
+      return /\s$/.test(text) ? `${text}${mention}` : `${text} ${mention}`;
+    });
+    focusComposer();
+  };
+  const openMessageMenu = (event: React.MouseEvent, m: ThreadMessage) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const root = (event.currentTarget as HTMLElement).closest(".message");
+    setMessageMenu({
+      x: event.clientX,
+      y: event.clientY,
+      message: m,
+      selectedText: selectionTextInside(root),
+    });
+  };
+  const canQuoteMessage = (m: ThreadMessage) =>
+    !!active && !m.id.startsWith("optimistic:") && !(m.id.startsWith("agent-task:") && !m.quoteTargetId);
   const localAvailable = connectorAvailability.some((item) => item.projectId === projectId);
   const projectConnectorBound = connectors.some((device) => device.projects?.some((item) => item.projectId === projectId));
   const endedTask = (status: string) => ["completed", "failed", "cancelled", "rejected", "abandoned", "superseded"].includes(status);
@@ -1773,10 +1936,22 @@ export function WorkspaceApp() {
                     data-message-id={m.id}
                     className={`message ${m.author_id === user.id && m.source !== "assistant" ? "own" : ""} ${continuesTurn ? "turn-continue" : ""}`}
                     key={m.render_key || m.id}
+                    onContextMenu={(event) => {
+                      if ((event.target as HTMLElement).closest(".message-author-hit, .message-avatar-hit, .message-actions, a, button")) return;
+                      openMessageMenu(event, m);
+                    }}
                   >
                     <span
-                      className={`avatar ${m.source === "assistant" ? "ai" : ""}`}
+                      className={`avatar ${m.source === "assistant" ? "ai" : ""} ${(m.source === "assistant" || m.author_id !== user.id) ? "message-avatar-hit" : ""}`}
                       aria-hidden={continuesTurn || undefined}
+                      onContextMenu={(event) => {
+                        if (continuesTurn) return;
+                        if (m.source !== "assistant" && m.author_id === user.id) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setMessageMenu(null);
+                        mentionAuthor(m);
+                      }}
                     >
                       {!continuesTurn && (m.source === "assistant" ? (
                         <img loading="lazy" decoding="async" src={AGENT_MEMBER.avatar} alt="" />
@@ -1788,7 +1963,16 @@ export function WorkspaceApp() {
                     </span>
                     <div className="message-content">
                       {!continuesTurn && <div className="message-meta">
-                        <span className="message-author">
+                        <span
+                          className={`message-author ${(m.source === "assistant" || m.author_id !== user.id) ? "message-author-hit" : ""}`}
+                          onContextMenu={(event) => {
+                            if (m.source !== "assistant" && m.author_id === user.id) return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setMessageMenu(null);
+                            mentionAuthor(m);
+                          }}
+                        >
                           <strong>
                             <IdentityName
                               role={
@@ -1859,7 +2043,7 @@ export function WorkspaceApp() {
                               } catch {}
                               return versionId
                                 ? <button type="button" className="ref" onClick={() => openConversationFile(versionId)}>{children}</button>
-                                : <a href={href}>{children}</a>;
+                                : <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
                             },
                           }}
                         >
@@ -1870,12 +2054,7 @@ export function WorkspaceApp() {
                       {!!m.body.trim() && !m.id.startsWith('agent-reception:') && <div className="message-actions">
                         {m.author_id === user.id && m.source !== "assistant" && <time className="message-action-time">{time(m.created_at)}</time>}
                         <button type="button" title={copiedMessage === m.id ? "已复制" : "复制"} aria-label={copiedMessage === m.id ? "已复制" : "复制"} onClick={() => void copyMessage(m)}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{copiedMessage === m.id ? <path d="m4 10 4 4 8-8"/> : <><rect x="3" y="7" width="11" height="11" rx="4"/><path d="M7 4a4 4 0 0 1 4-3h3a4 4 0 0 1 4 4v5a4 4 0 0 1-2 3.5"/></>}</svg></button>
-                        <button type="button" title="引用" aria-label="引用" disabled={!active || m.id.startsWith("optimistic:") || (m.id.startsWith("agent-task:") && !m.quoteTargetId)} onClick={() => {
-                          const id = m.quoteTargetId || m.id;
-                          const original = thread.messages.find(item => item.id === id) || m;
-                          setQuotedMessages(previous => previous.some(q => q.id === id) ? previous : [...previous, {...original, id}].slice(0,10));
-                          requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus());
-                        }}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 5H3v6h5V5Zm9 0h-5v6h5V5ZM8 11c0 3-2 4-4 4m13-4c0 3-2 4-4 4"/></svg></button>
+                        <button type="button" title="引用" aria-label="引用" disabled={!canQuoteMessage(m)} onClick={() => quoteMessage(m)}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 5H3v6h5V5Zm9 0h-5v6h5V5ZM8 11c0 3-2 4-4 4m13-4c0 3-2 4-4 4"/></svg></button>
                         {usageReply && <MessageUsage record={usageReply} finishedAt={usageReply.finished_at || m.created_at} allowClockFallback={isExecutorReply(usageReply)}/>}
                         {(m.author_id !== user.id || m.source === "assistant") && (!coordinatorTurnId(m, thread.replies) || (lastOfTurn && !continuesCoordinatorTurn({ source: "assistant", agent_task_id: liveCoordinator?.message_id }, m, thread.replies))) && <time className="message-action-time">{time(m.created_at)}</time>}
                       </div>}
@@ -1985,6 +2164,7 @@ export function WorkspaceApp() {
                   versions={detail?.versions || []}
                   folders={detail?.folders || []}
                   members={detail?.members || []}
+                  currentUserId={user.id}
                   busy={busy}
                   uploadTarget={uploadTarget}
                   copyLabel={copiedThreadId === threadId ? "已复制" : "复制会话"}
@@ -2324,10 +2504,23 @@ export function WorkspaceApp() {
         {(close) => <section className="quoted-message-dialog" role="dialog" aria-modal="true" aria-label="引用消息原文" onClick={e => e.stopPropagation()}>
           <div className="quoted-message-dialog-header"><DialogClose autoFocus onClick={close} label="关闭原文" /></div>
           <strong>{quotePreview.source === "assistant" ? AGENT_MEMBER.name : quotePreview.author}</strong>
-          <Markdown remarkPlugins={[remarkGfm]} components={{img: () => <span>（图片链接）</span>}}>{quotePreview.body}</Markdown>
+          <Markdown remarkPlugins={[remarkGfm]} components={{
+            img: () => <span>（图片链接）</span>,
+            a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+          }}>{quotePreview.body}</Markdown>
           {renderMessageAttachments(quotePreview)}
         </section>}
       </ModalBackdrop>}
+      {messageMenu && (
+        <MessageContextMenu
+          x={messageMenu.x}
+          y={messageMenu.y}
+          canQuote={canQuoteMessage(messageMenu.message)}
+          onCopy={() => void copyMessage(messageMenu.message, messageMenu.selectedText)}
+          onQuote={() => quoteMessage(messageMenu.message, messageMenu.selectedText)}
+          onDismiss={() => setMessageMenu(null)}
+        />
+      )}
       {imagePreview && (
         <ImagePreviewDialog
           id={imagePreview.id}

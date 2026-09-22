@@ -1,6 +1,13 @@
 import { query, transaction } from "./db.js";
 import { Service, HttpError } from "./service.js";
-import { decideParticipation } from "./agent-participation.js";
+import {
+  decideParticipation,
+  composeOpportunisticParticipation,
+  absorbOpportunisticBurst,
+  silenceOpportunisticBurst,
+  logParticipationDecision,
+  persistOpportunisticParticipationArtifacts,
+} from "./agent-participation.js";
 import { claimReply } from "./reply-dispatch.js";
 import { pendingTaskUpdates } from "./agent-updates.js";
 import { setTimeout as delay } from "node:timers/promises";
@@ -17,6 +24,7 @@ import { processNextL1ContextCompression } from "./l1-context.js";
 import { processNextL3ContextCompression } from "./l3-context.js";
 import { modelResponse, redactSecrets, responseText } from "./model-config.js";
 import { COORDINATOR_PERSONA } from "./coordinator-persona.js";
+import { logAgentTiming } from "./agent-timing-log.js";
 import { recoverInterruptedDshL3Executions } from "./task-pool.js";
 
 export async function generateReply(context, summarize = false) {
@@ -68,37 +76,94 @@ export async function processNextReply(
   let runtime;
   try {
     const claimedAt = performance.now();
-    console.log('Agent timing', {messageId:job.message_id,stage:'claimed'});
+    logAgentTiming({ messageId: job.message_id, stage: "claimed" });
     // The maintenance loop synchronizes the main context independently. A child
     // seeds its latest checkpoint and appends missing messages in openAgentRuntime;
     // starting another main DSH process here serially delays every child.
     const context = await service.context(user, job.thread_id);
-    console.log('Agent timing', {messageId:job.message_id,stage:'execution_context',durationMs:Math.round(performance.now()-claimedAt)});
+    logAgentTiming({ messageId: job.message_id, stage: "execution_context",
+      durationMs: Math.round(performance.now() - claimedAt) });
     if (context.status !== "active") throw new HttpError(409, "迭代已归档");
     context.messages = context.messages.filter(
       (m) => BigInt(m.sequence) <= BigInt(job.sequence),
     );
+    if (job.participation === "pending") {
+      const judgedAt = performance.now();
+      const decision = await composeOpportunisticParticipation(db, {
+        title: context.title,
+        threadId: job.thread_id,
+        messageId: job.message_id,
+        decide,
+      });
+      const burstIds = decision.burstIds?.length ? decision.burstIds : [job.message_id];
+      if (!decision.respond) {
+        await transaction(db, async (conn) => {
+          await silenceOpportunisticBurst(conn, burstIds, decision.deferred);
+        });
+        const wallDurationMs = performance.now() - judgedAt;
+        await persistOpportunisticParticipationArtifacts(db, {
+          messageId: job.message_id,
+          threadId: job.thread_id,
+          decision,
+          wallDurationMs,
+        });
+        logParticipationDecision({
+          messageId: job.message_id,
+          threadId: job.thread_id,
+          decision,
+          durationMs: wallDurationMs,
+        });
+        return true;
+      }
+      // Immediate integrated paraphrase — do not wait for the full Agent path.
+      if (decision.message) {
+        await transaction(db, async (conn) => {
+          await service.thread(user, job.thread_id, true, conn);
+          const [current] = await query(
+            conn,
+            "SELECT status FROM assistant_replies WHERE message_id=? FOR UPDATE",
+            [job.message_id],
+          );
+          if (current?.status !== "running") return;
+          const reply = await service.insertMessage(
+            conn,
+            user,
+            job.thread_id,
+            decision.message,
+            [],
+            "assistant",
+            job.message_id,
+          );
+          await absorbOpportunisticBurst(conn, burstIds, reply.id, job.message_id);
+        });
+        const wallDurationMs = performance.now() - judgedAt;
+        await persistOpportunisticParticipationArtifacts(db, {
+          messageId: job.message_id,
+          threadId: job.thread_id,
+          decision,
+          wallDurationMs,
+        });
+        logParticipationDecision({
+          messageId: job.message_id,
+          threadId: job.thread_id,
+          decision,
+          durationMs: wallDurationMs,
+        });
+        return true;
+      }
+      // Legacy test doubles may return respond:true without message; continue Agent.
+      const legacy = await query(
+        db,
+        "UPDATE assistant_replies SET participation='reply',status='running',progress=? WHERE message_id=? AND status='running'",
+        ["准备参与讨论", job.message_id],
+      );
+      if (!legacy.affectedRows) return true;
+    }
     if (!generate) {
       runtime = await (
         await import("./agent.js")
       ).openAgentRuntime(context, { db, job, user });
       context.modelMessages = await runtime.request("history");
-    }
-    if (job.participation === "pending") {
-      const respond = await decide(context);
-      const decision = await query(
-        db,
-        "UPDATE assistant_replies SET participation=?,status=?,progress=?,finished_at=IF(?='completed',UTC_TIMESTAMP(3),NULL) WHERE message_id=? AND status='running'",
-        [
-          respond ? "reply" : "silent",
-          respond ? "running" : "completed",
-          respond ? "准备参与讨论" : "已保持沉默",
-          respond ? "running" : "completed",
-          job.message_id,
-        ],
-      );
-      // Cancellation during the decision must not start Agent execution.
-      if (!decision.affectedRows || !respond) return true;
     }
     const invoke = generate || (await import("./agent.js")).generateAgentReply;
     while (true) {

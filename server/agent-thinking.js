@@ -1,12 +1,13 @@
 import { query } from './db.js';
 import { trackLiveOutput } from './agent-live-output.js';
+import { logAgentTiming } from './agent-timing-log.js';
 
 // All model phases share the same event sequence as actual tool calls.
 export function trackThinking(db,messageId,sessionId,options={}){
  const started=performance.now();let firstChunk=false;
  let queue=Promise.resolve(),phase,lastPhase,timer,failure,closed=false;
  const enqueue=task=>{queue=queue.then(task).catch(error=>{failure ||= error;});return queue;};
- const received=()=>{if(firstChunk)return;firstChunk=true;const receivedAt=new Date();enqueue(()=>query(db,"UPDATE assistant_replies SET first_response_at=COALESCE(first_response_at,?) WHERE message_id=? AND status='running'",[receivedAt,messageId]));console.log('Agent timing',{messageId,stage:'first_model_chunk',elapsedMs:Math.round(performance.now()-started)});};
+ const received=()=>{if(firstChunk)return;firstChunk=true;const receivedAt=new Date();enqueue(()=>query(db,"UPDATE assistant_replies SET first_response_at=COALESCE(first_response_at,?) WHERE message_id=? AND status='running'",[receivedAt,messageId]));logAgentTiming({messageId,stage:'first_model_chunk',elapsedMs:Math.round(performance.now()-started)});};
  const flushText=()=>{
   clearTimeout(timer);timer=undefined;if(!phase)return;
   const current=phase,text=current.text;

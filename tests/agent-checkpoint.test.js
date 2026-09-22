@@ -21,5 +21,7 @@ test("Windows checkpoints move to Linux workspace without changing identity or h
 
 test("corrupt DSH session logs are recognized for a one-shot reset", () => {
   assert.equal(isCorruptSessionLog({ message: "corrupt session log: seq gap in committed region at line 1474" }), true);
+  assert.equal(isCorruptSessionLog(new Error("无效会话快照标识")), true);
+  assert.equal(isCorruptSessionLog(new Error("无效会话快照头部")), true);
   assert.equal(isCorruptSessionLog(new Error("Internal error")), false);
 });

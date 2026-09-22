@@ -176,7 +176,7 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
     <div className="admin-manager">
       <div className="admin-manager-toolbar">
         <div><h3>{section === "projects" ? "项目管理" : "成员管理"}</h3>
-          <p>{section === "projects" ? "本公司内的项目：新建、归档或恢复，并查看各项目人类成员。" : "仅人类成员（含超级管理员）。Agent 与连接器不属于公司目录。"}</p></div>
+          <p>{section === "projects" ? "本公司内的项目：新建、归档或恢复，并查看各项目人类成员。" : "仅人类成员（含超级管理员）。Agent 与本地执行器不属于公司目录。"}</p></div>
         <button type="button" className="primary" onClick={() => setCreating(!creating)}>{creating ? <><UiIcon name="close" size={13} />取消</> : <><UiIcon name="plus" size={13} />{section === "projects" ? "新增项目" : "新增成员"}</>}</button>
       </div>
       {creating && (section === "projects" ? (

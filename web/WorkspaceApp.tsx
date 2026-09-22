@@ -1531,13 +1531,13 @@ export function WorkspaceApp() {
         <div className="sidebar-bottom">
           <button
             className="sidebar-card sidebar-project-management"
-            title={`项目基础信息、人类成员、连接器、本地执行器与${AGENT_LEVEL_LABELS.l1}`}
+            title={`项目基础信息、人类成员、连接器与 Agent（${AGENT_LEVEL_LABELS.l1} / ${AGENT_LEVEL_LABELS.l2}）`}
             aria-label="项目管理"
             disabled={!projectId}
             onClick={() => setProjectManagementOpen(true)}
           >
             <span className="sidebar-card-icon"><SidebarIcon kind="project" /></span>
-            <span className="sidebar-card-copy">项目管理<small>成员、连接器、本地执行器与{AGENT_LEVEL_LABELS.l1}</small></span>
+            <span className="sidebar-card-copy">项目管理<small>成员、连接器与 Agent</small></span>
             <span className="sidebar-card-action" aria-hidden="true">›</span>
           </button>
           <button
@@ -2221,7 +2221,7 @@ export function WorkspaceApp() {
                     <div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reject`, {}, "POST"), "已拒绝任务")}><UiIcon name="reject" size={13} />拒绝</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/accept`, { mode: projectConnectorBound ? (taskExecutionMode === "human_direct" ? "human_direct" : "member_connector") : "human_direct" }, "POST"), "已确认任务")}><UiIcon name="check" size={13} />确认</button></div></section>}
                     {isSource && task.status === "awaiting_acceptance" && <section className="task-actions-section"><h4>来源操作</h4><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/cancel`, {}, "POST"), "任务已取消")}><UiIcon name="close" size={13} />取消</button></section>}
                     {canReviewRejection && <section className="task-actions-section task-rejection-review"><h4>任务已被拒绝</h4><p>{[...task.assignmentHistory].reverse().find((event) => event.event_type === "rejected")?.reason || "目标成员拒绝了这个任务。"}</p><textarea value={taskReopenGoal} onChange={(event) => setTaskReopenGoal(event.target.value)} placeholder="修改任务目标与验收标准" /><textarea value={taskReopenConstraints} onChange={(event) => setTaskReopenConstraints(event.target.value)} placeholder="修改约束（可选）" /><div className="task-action-buttons"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"), "已确认拒绝结果")}>知道了</button><button type="button" className="primary" disabled={taskActionBusy || !taskReopenGoal.trim()} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reopen`, { goal: taskReopenGoal.trim(), constraints: taskReopenConstraints }, "POST"), "任务已重新发起")}>修改后重新发起</button></div></section>}
-                    {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.kind !== "l1" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"), "任务已转交")}><UiIcon name="transfer" size={13} />确认转交</button></section>}
+                    {canTransfer && <section className="task-actions-section"><h4>转交任务</h4><select value={taskTransferTarget} onChange={(event) => setTaskTransferTarget(event.target.value)}><option value="">选择新的责任主体</option><option value="l2_session">小祥</option>{detail?.members.filter((member) => member.id !== user.id && member.kind !== "l1" && member.kind !== "l2" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><button type="button" disabled={taskActionBusy || !taskTransferTarget} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}/reassign`, taskTransferTarget === "l2_session" ? { targetType: "l2_session" } : { targetType: "human_member", targetUserId: taskTransferTarget }, "POST"), "任务已转交")}><UiIcon name="transfer" size={13} />确认转交</button></section>}
                     {isTarget && task.execution_agent_type === "human_self" && !endedTask(task.status) && task.status !== "awaiting_acceptance" && <section className="task-actions-section"><h4>进度与结果</h4><textarea value={taskResult} onChange={(event) => setTaskResult(event.target.value)} placeholder="结果摘要" /><div className="task-status-actions"><button type="button" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "abandoned", resultSummary: taskResult || "已放弃" }, "PATCH"), "任务已放弃")}><UiIcon name="abandon" size={13} />放弃</button><button type="button" className="primary" disabled={taskActionBusy} onClick={() => void performTaskAction(() => api(`/tasks/${task.id}`, { status: "completed", resultSummary: taskResult || "已完成" }, "PATCH"), "任务已完成")}><UiIcon name="complete" size={13} />完成</button></div></section>}
                     {(() => {
                       const timeline = taskDetailTimeline(task);
@@ -2307,7 +2307,7 @@ export function WorkspaceApp() {
               <label>指派成员
                 <select value={taskCreateTarget} onChange={(event) => setTaskCreateTarget(event.target.value)}>
                   <option value="">选择指派成员</option>
-                  {detail?.members.filter((member) => member.kind !== "l1" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}{member.id === user?.id ? "（我）" : ""}</option>)}
+                  {detail?.members.filter((member) => member.kind !== "l1" && member.kind !== "l2" && member.id !== AGENT_MEMBER.id && member.role !== "viewer").map((member) => <option key={member.id} value={member.id}>{member.name}{member.id === user?.id ? "（我）" : ""}</option>)}
                 </select>
               </label>
               {taskActionError && <p className="project-settings-error" role="alert">{taskActionError}</p>}

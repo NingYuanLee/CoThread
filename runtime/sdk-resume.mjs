@@ -5,12 +5,67 @@ import {
   inject as sdkInject,
 } from "@deepseek-ai/dsh-sdk-jsonrpc-server";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
+import { parentAgentOptionsForDelegation } from "@deepseek-ai/dsh-subagent";
 import { measureContext } from "./context-meter.mjs";
 import { AUTO_COMPACT_AT } from "../shared/context.js";
 import { repairContext, transcriptBlocks } from "./repair-context.mjs";
 export { Config, apply } from "@deepseek-ai/dsh-sdk-jsonrpc-server";
 export const name = "cothread-sdk-server";
 export const inject = [...sdkInject, "tokenMeter", "compaction"];
+
+function liveDelegatedAgent(server, method, params) {
+  if (!["cothread/context", "cothread/history", "cothread/compact"].includes(method)) return undefined;
+  const sessionId = params?.sessionId;
+  if (!sessionId || server.sessions?.get(sessionId) || server.sessionCreations?.get(sessionId)) return undefined;
+  const live = server.ctx?.agents?.get?.(sessionId);
+  return live?.session ? live : undefined;
+}
+
+async function compactMeasuredSession(server, agent, params) {
+  const before = measureContext(server.ctx, agent.session);
+  if (!params.automatic && before.used < 4096)
+    return { before: before.used, after: before.used, changed: false, reason: "already_small" };
+  let result, reason;
+  try {
+    result = !params.automatic || before.used >= AUTO_COMPACT_AT
+      ? await server.ctx.compaction.compactNow(agent, AbortSignal.timeout(240000)) : null;
+  } catch (error) {
+    let cause = error, noReduction = false;
+    for (let depth = 0; cause && depth < 5; depth++, cause = cause.cause)
+      if (/^summary is not smaller than the shadowed content/.test(cause.message || "")) noReduction = true;
+    if (!noReduction) throw error;
+    reason = "not_smaller";
+  }
+  return {
+    before: before.used,
+    after: measureContext(server.ctx, agent.session).used,
+    changed: !!result,
+    ...(reason ? { reason } : {}),
+  };
+}
+
+export async function startContinuableL3(ctx, parent, { label, prompt, signal } = {}) {
+  const text = String(prompt || "").trim();
+  if (!text) throw new Error("L3 启动缺少任务说明");
+  if (!ctx?.subagents?.startContinuable) throw new Error("当前运行时不能启动 L3");
+  const title = String(label || "任务").slice(0, 80);
+  let agentOptions;
+  try { agentOptions = parentAgentOptionsForDelegation(parent); } catch { agentOptions = undefined; }
+  const started = await ctx.subagents.startContinuable({
+    provider: "spawn",
+    label: title,
+    request: {
+      label: title,
+      prompt: [{ type: "text", text }],
+      parent,
+      ...(agentOptions ? { agentOptions } : {}),
+      maxDepth: 1,
+    },
+    signal: signal || AbortSignal.timeout(30000),
+  });
+  if (!started?.childId) throw new Error("L3 启动没有返回会话");
+  return { childId: started.childId };
+}
 
 const createSession = HarnessSdkJsonRpcServer.prototype.createSession;
 const handleRequest = HarnessSdkJsonRpcServer.prototype.handleRequest;
@@ -26,9 +81,16 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
       "cothread/compact",
       "cothread/history",
       "cothread/updates",
+      "cothread/dispatch-l3",
     ].includes(method)
   )
     return handleRequest.call(this, method, params);
+  const delegated = liveDelegatedAgent(this, method, params);
+  if (delegated) {
+    if (method === "cothread/history") return delegated.session.deriveMessages();
+    if (method === "cothread/compact") return compactMeasuredSession(this, delegated, params);
+    return measureContext(this.ctx, delegated.session);
+  }
   const record = await this.getOrCreateSession(params.sessionId);
   const agent = record.handle.agent;
   if (!record.cothreadRepaired) {
@@ -80,30 +142,8 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
         await this.ctx.compaction.compactNow(agent, AbortSignal.timeout(240000));
     }
   }
-  if (method === "cothread/compact") {
-    const before = measureContext(this.ctx, agent.session);
-    if (!params.automatic && before.used < 4096)
-      return { before: before.used, after: before.used, changed: false, reason: "already_small" };
-    let result, reason;
-    try {
-      result = !params.automatic || before.used >= AUTO_COMPACT_AT
-        ? await this.ctx.compaction.compactNow(agent, AbortSignal.timeout(240000)) : null;
-    } catch (error) {
-      // DSH leaves the original surface intact when its candidate summary grows.
-      // Report a no-op, while preserving real model, timeout and commit failures.
-      let cause = error, noReduction = false;
-      for (let depth = 0; cause && depth < 5; depth++, cause = cause.cause)
-        if (/^summary is not smaller than the shadowed content/.test(cause.message || "")) noReduction = true;
-      if (!noReduction) throw error;
-      reason = "not_smaller";
-    }
-    return {
-      before: before.used,
-      after: measureContext(this.ctx, agent.session).used,
-      changed: !!result,
-      ...(reason ? { reason } : {}),
-    };
-  }
+  if (method === "cothread/compact") return compactMeasuredSession(this, agent, params);
+  if (method === "cothread/dispatch-l3") return startContinuableL3(this.ctx, agent, params);
   if (method === "cothread/history") return agent.session.deriveMessages();
   return measureContext(this.ctx, agent.session);
 };

@@ -1,9 +1,9 @@
-import { after, before, test } from "node:test";
+import { after, afterEach, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, cancelTask, composeTaskInstruction, createTask, ensureDshL3CanUpdate, getTask, inspectIterationTask, listTaskExecutionRuns, listTaskStatusEvents, listTasks, reassignTask, recoverAbnormalTask, recoverInterruptedDshL3Executions, reconcileEndedTaskRuns, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, updateTask } from "../server/task-pool.js";
+import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, cancelTask, composeTaskInstruction, createTask, ensureDshL3CanUpdate, finishCoordinatorDispatch, getTask, inspectIterationTask, l3LaunchPrompt, listTaskExecutionRuns, listTaskStatusEvents, listTasks, reassignTask, recoverAbnormalTask, recoverInterruptedDshL3Executions, reconcileEndedTaskRuns, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, tasksAwaitingL3Launch, updateTask } from "../server/task-pool.js";
 import { testDatabase } from "./database.js";
 
 let database, db, service, project, thread, users, l2SessionId, reportHostId;
@@ -23,6 +23,10 @@ before(async () => {
   reportHostId = randomUUID();
   await query(db, "INSERT INTO messages(id,thread_id,author_id,source,body,refs) VALUES(?,?,?,'human','host','[]')",
     [reportHostId, thread.id, users[0].id]);
+});
+
+afterEach(async () => {
+  if (db && thread) await finishCoordinatorDispatch(db, thread.id, { enqueueIdle: false });
 });
 
 after(async () => { await database?.close(); });
@@ -146,11 +150,11 @@ test("bound connector is the automatic executor even if recently seen stale", as
 test("explicit connector mode explains what blocks it", async () => {
   const actor = { type: "human_member", id: users[2].id };
   const unpaired = await formalTask(users[2].id, { title: "无连接器" });
-  await assert.rejects(acceptTask(db, unpaired.id, actor, "member_connector"), { status: 409, message: /没有已授权的本机连接器/ });
+  await assert.rejects(acceptTask(db, unpaired.id, actor, "member_connector"), { status: 409, message: /没有已授权的本地执行器/ });
   const connectorId = randomUUID();
   await query(db, `INSERT INTO connectors(id,user_id,name,platform,version,token_hash,last_seen_at)
     VALUES(?,?,?,'windows','1.0.0',?,DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 2 MINUTE))`, [connectorId, users[2].id, "本机 Agent", randomUUID()]);
-  await assert.rejects(acceptTask(db, unpaired.id, actor, "member_connector"), { status: 409, message: /连接器当前离线/ });
+  await assert.rejects(acceptTask(db, unpaired.id, actor, "member_connector"), { status: 409, message: /本地执行器当前离线/ });
   await query(db, "UPDATE connectors SET last_seen_at=UTC_TIMESTAMP(3) WHERE id=?", [connectorId]);
   await assert.rejects(acceptTask(db, unpaired.id, actor, "member_connector"), { status: 409, message: /尚未绑定当前项目/ });
   await query(db, "INSERT INTO connector_projects(connector_id,project_id,policy,allow_git_push) VALUES(?,?,'unrestricted',FALSE)", [connectorId, project.id]);
@@ -756,6 +760,64 @@ test("L2 needs an executable human member account this turn to touch foreign wor
   assert.equal(handed.target_id, users[1].id);
 });
 
+test("unbound L3 reservations occupy slots and return to the queue after the turn", async () => {
+  const isolated = await service.createThread(users[0], project.id, { title: "槽位预留" });
+  const sessionId = randomUUID();
+  await query(db, "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?)", [isolated.id, sessionId]);
+  const reserve = (title, taskType = "formal") => createTask(db, {
+    projectId: project.id, originThreadId: isolated.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: sessionId, taskType, title, goal: "占一个未绑定槽位",
+    targetType: "l2_session", targetId: sessionId,
+  });
+  const reserved = [];
+  for (let index = 0; index < 7; index += 1) reserved.push(await reserve(`预留${index + 1}`));
+  assert.ok(reserved.every((task) => task.status === "running"));
+  const overflow = await reserve("多出来的正式任务");
+  assert.equal(overflow.status, "pending_assignment");
+  await assert.rejects(reserve("多出来的辅助任务", "assist_l2"), { status: 409, message: /没有空闲 L3/ });
+  const followUp = await finishCoordinatorDispatch(db, isolated.id);
+  assert.equal(followUp.released, 7);
+  assert.equal(followUp.enqueued, true);
+  assert.equal((await getTask(db, reserved[0].id)).status, "pending_assignment");
+  const again = await finishCoordinatorDispatch(db, isolated.id);
+  assert.equal(again.released, 0);
+  assert.equal(again.enqueued, false);
+  const idleEvents = await query(db, "SELECT payload FROM coordinator_events WHERE kind='l3_idle' AND thread_id=?", [isolated.id]);
+  assert.equal(idleEvents.length, 1);
+  const payload = typeof idleEvents[0].payload === "string" ? JSON.parse(idleEvents[0].payload) : idleEvents[0].payload;
+  assert.equal(payload.idleL3Count, 7);
+  assert.equal(payload.pendingTasks.length, 7);
+  const kept = await reserve("已经绑定的任务");
+  const childId = randomUUID();
+  await bindDshL3Execution(db, sessionId, childId, kept.id);
+  const untouched = await finishCoordinatorDispatch(db, isolated.id, { enqueueIdle: false });
+  assert.equal(untouched.released, 0);
+  assert.equal((await getTask(db, kept.id)).status, "running");
+  assert.equal((await getTask(db, kept.id)).execution_agent_id, childId);
+});
+
+test("decided tasks can be launched by id and disappear once an L3 is bound", async () => {
+  const isolated = await service.createThread(users[0], project.id, { title: "系统启动 L3" });
+  const sessionId = randomUUID();
+  await query(db, "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?)", [isolated.id, sessionId]);
+  const task = await createTask(db, {
+    projectId: project.id, originThreadId: isolated.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: sessionId, taskType: "formal", title: "待启动的沙箱任务",
+    goal: "由系统启动", targetType: "l2_session", targetId: sessionId,
+  });
+  await finishCoordinatorDispatch(db, isolated.id, { enqueueIdle: false });
+  assert.equal((await getTask(db, task.id)).status, "pending_assignment");
+  const waiting = await tasksAwaitingL3Launch(db, sessionId);
+  assert.deepEqual(waiting.map((row) => row.id), [task.id]);
+  const launch = await l3LaunchPrompt(db, task.id);
+  assert.match(launch.prompt, new RegExp(`^TASK_ID: ${task.id}`));
+  assert.equal(launch.label, "待启动的沙箱任务");
+  const childId = randomUUID();
+  await bindDshL3Execution(db, sessionId, childId, task.id);
+  assert.deepEqual(await tasksAwaitingL3Launch(db, sessionId), []);
+  assert.equal(await l3LaunchPrompt(db, task.id), null);
+});
+
 test("assist tasks cannot be created when every L3 is busy", async () => {
   const occupy = async () => {
     const task = await createTask(db, {
@@ -787,13 +849,17 @@ test("assist tasks cannot be created when every L3 is busy", async () => {
     JOIN agent_tasks t ON t.id=r.task_id
     WHERE t.target_id=? AND r.executor_type='dsh_l3' AND r.status IN ('running','waiting')
     ORDER BY r.created_at LIMIT 1`, [l2SessionId]);
-  await settleDshL3Execution(db, l2SessionId, live.executor_id, {
+  const [idleBefore] = await query(db, "SELECT COUNT(*) n FROM coordinator_events WHERE kind='l3_idle' AND thread_id=?", [thread.id]);
+  const settled = await settleDshL3Execution(db, l2SessionId, live.executor_id, {
     status: "ok", stopReason: "completed", lastAssistantMessage: [{ type: "text", text: "让出槽位" }],
   });
-  const [idleEvent] = await query(db, "SELECT kind,payload FROM coordinator_events WHERE kind='l3_idle' AND thread_id=? ORDER BY created_at DESC LIMIT 1", [thread.id]);
-  assert.equal(idleEvent.kind, "l3_idle");
-  const payload = typeof idleEvent.payload === "string" ? JSON.parse(idleEvent.payload) : idleEvent.payload;
+  const [idleAfter] = await query(db, "SELECT COUNT(*) n FROM coordinator_events WHERE kind='l3_idle' AND thread_id=?", [thread.id]);
+  assert.equal(Number(idleAfter.n), Number(idleBefore.n));
+  const [childEvent] = await query(db, "SELECT payload FROM coordinator_events WHERE kind='child_result' AND task_id=? ORDER BY created_at DESC LIMIT 1", [settled.id]);
+  const payload = typeof childEvent.payload === "string" ? JSON.parse(childEvent.payload) : childEvent.payload;
+  assert.ok(payload.idleL3Count >= 1);
   assert.ok(payload.pendingAssignment >= 1);
+  assert.equal(payload.pendingTasks.length, Math.min(payload.pendingAssignment, payload.idleL3Count));
   const bound = await bindDshL3Execution(db, l2SessionId, randomUUID(), pending.id);
   assert.equal(bound.status, "running");
 });

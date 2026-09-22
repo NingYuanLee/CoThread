@@ -6,6 +6,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { processNextCoordinator, dispatchContext } from "../server/coordinator.js";
+import { createTask } from "../server/task-pool.js";
 
 test("coordinator waits for a concurrent claim instead of declaring a queued discussion idle", async () => {
   const database = await testDatabase(), db = database.db, service = new Service(db);
@@ -85,8 +86,40 @@ test("child_result events wake L2 and post the visible follow-up", async () => {
     assert.equal(seen.title, "制作测试文档.md");
     const posts = await query(db, "SELECT body FROM messages WHERE agent_task_id=? AND source='assistant' ORDER BY sequence", [trigger.id]);
     assert.equal(posts.at(-1).body, "文档没做成，沙箱在交活前被停了。要不要我再派一次？");
-    const [event] = await query(db, "SELECT status FROM coordinator_events WHERE thread_id=?", [thread.id]);
+    const [event] = await query(db, "SELECT status FROM coordinator_events WHERE thread_id=? AND kind='child_result'", [thread.id]);
     assert.equal(event.status, "completed");
+  } finally {
+    await database.close();
+  }
+});
+
+test("a coordinator turn that leaves pending work enqueues one idle dispatch", async () => {
+  const database = await testDatabase(), db = database.db, service = new Service(db);
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [user.id, `${user.id}@test.com`, "成员"]);
+    const project = await service.createProject(user, { name: "补派" });
+    const created = await service.createThread(user, project.id, { title: "待指派" });
+    const sessionId = randomUUID();
+    await query(db, "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?)", [created.id, sessionId]);
+    const task = await createTask(db, {
+      projectId: project.id, originThreadId: created.id, sourceType: "human_member", sourceUserId: user.id,
+      createdByType: "l2_session", createdById: sessionId, taskType: "formal", title: "还没派出去",
+      goal: "回合结束应退回待指派", targetType: "l2_session", targetId: sessionId,
+    });
+    assert.equal(task.status, "running");
+    await query(db, `INSERT INTO coordinator_events(id,thread_id,kind,status,payload)
+      VALUES(UUID(),?,'child_result','queued',?)`, [created.id, JSON.stringify({ status: "completed", title: "上一件", pendingTasks: [] })]);
+    assert.equal(await processNextCoordinator(db, created.id, async () => ({ finalResponse: "NO_VISIBLE_MESSAGE", mergedMessageIds: [] })), true);
+    const [released] = await query(db, "SELECT status FROM agent_tasks WHERE id=?", [task.id]);
+    assert.equal(released.status, "pending_assignment");
+    const idle = await query(db, "SELECT payload FROM coordinator_events WHERE thread_id=? AND kind='l3_idle'", [created.id]);
+    assert.equal(idle.length, 1);
+    const payload = typeof idle[0].payload === "string" ? JSON.parse(idle[0].payload) : idle[0].payload;
+    assert.equal(payload.pendingTasks[0].id, task.id);
+    assert.equal(await processNextCoordinator(db, created.id, async () => ({ finalResponse: "NO_VISIBLE_MESSAGE", mergedMessageIds: [] })), true);
+    const still = await query(db, "SELECT id FROM coordinator_events WHERE thread_id=? AND kind='l3_idle'", [created.id]);
+    assert.equal(still.length, 1);
   } finally {
     await database.close();
   }

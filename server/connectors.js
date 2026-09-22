@@ -17,10 +17,10 @@ const queryText = (value, max) => {
 };
 async function device(db, req) {
   const token = bearer(req);
-  if (!token?.startsWith("ctc_")) throw new HttpError(401, "连接器凭证无效");
+  if (!token?.startsWith("ctc_")) throw new HttpError(401, "本地执行器凭证无效");
   const [row] = await query(db, `SELECT c.*,u.disabled_at FROM connectors c JOIN users u ON u.id=c.user_id
     WHERE c.token_hash=? AND c.revoked_at IS NULL`, [digest(token)]);
-  if (!row || row.disabled_at) throw new HttpError(401, "连接器凭证无效或已撤销");
+  if (!row || row.disabled_at) throw new HttpError(401, "本地执行器凭证无效或已撤销");
   return row;
 }
 
@@ -82,7 +82,7 @@ async function replaceAccountConnector(conn, userId, data, token) {
 }
 
 export async function connectorTool(service, user, name, input, job, thread) {
-  if (name !== "list_local_connectors") throw new HttpError(400, "未知连接器工具");
+  if (name !== "list_local_connectors") throw new HttpError(400, "未知本地执行器工具");
   return query(service.db, `SELECT c.id,c.name,c.platform,c.version,cp.policy,cp.allow_git_push allowGitPush,u.id owner_id,u.name owner_name,
     c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND) online
     FROM connectors c JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=?
@@ -124,7 +124,7 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
         throw new HttpError(401, "授权请求凭证不匹配");
       if (Number(authorization.valid) !== 1)
         throw new HttpError(410, "网页登录授权已过期，请重新发起");
-      if (authorization.denied_at) throw new HttpError(403, "用户已拒绝连接器授权");
+      if (authorization.denied_at) throw new HttpError(403, "用户已拒绝本地执行器授权");
       if (authorization.consumed_at) throw new HttpError(409, "授权结果已经领取");
       if (!authorization.approved_at || !authorization.user_id) return { status: "pending" };
       const token = connectorToken();
@@ -211,13 +211,13 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
         return { ...resumable, leaseToken: lease, resumed: true };
       }
       const [active] = await query(conn, "SELECT id FROM connector_tasks WHERE connector_id=? AND status IN ('running','paused') LIMIT 1", [current.id]);
-      if (active) throw new HttpError(409, "当前连接器已有正在执行或暂停的任务");
+      if (active) throw new HttpError(409, "当前本地执行器已有正在执行或暂停的任务");
       const [candidate] = await query(conn, `SELECT ${taskColumns}
         FROM connector_tasks t JOIN projects p ON p.id=t.project_id
         WHERE t.id=? FOR UPDATE`, [taskId]);
       if (!candidate) throw new HttpError(404, "任务不存在");
       if (candidate.connector_id !== current.id || candidate.assigned_to !== current.user_id)
-        throw new HttpError(409, "当前连接器没有执行权限");
+        throw new HttpError(409, "当前本地执行器没有执行权限");
       if (candidate.status !== "queued") throw new HttpError(409, "任务已被处理或当前不是待开始状态");
       const [membership] = await query(conn, "SELECT role FROM members WHERE project_id=? AND user_id=?",
         [candidate.project_id, current.user_id]);
@@ -262,25 +262,25 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
       if (action === "abandon" && task.status === "queued") {
         await query(conn, "UPDATE connector_tasks SET status='cancelled',progress='已放弃',finished_at=UTC_TIMESTAMP(3),lease_expires_at=NULL WHERE id=?", [taskId]);
         await syncConnectorTaskById(conn, taskId, { publish: true });
-        await reportConnectorToSource(service, conn, task, "本机连接器已放弃该任务。");
+        await reportConnectorToSource(service, conn, task, "本地执行器已放弃该任务。");
         return { status: "cancelled" };
       }
       if (action === "pause" && task.status === "running") {
         await query(conn, "UPDATE connector_tasks SET status='paused',progress='本机执行已暂停',lease_expires_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 30 MINUTE) WHERE id=?", [taskId]);
         await syncConnectorTaskById(conn, taskId, { publish: true });
-        await reportConnectorToSource(service, conn, task, "本机连接器已暂停该任务。");
+        await reportConnectorToSource(service, conn, task, "本地执行器已暂停该任务。");
         return { status: "paused" };
       }
       if (action === "resume" && task.status === "paused") {
         await query(conn, "UPDATE connector_tasks SET status='running',progress='本机 Agent 会话进行中',lease_expires_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 2 MINUTE) WHERE id=?", [taskId]);
         await syncConnectorTaskById(conn, taskId, { publish: true });
-        await reportConnectorToSource(service, conn, task, "本机连接器已继续执行该任务。");
+        await reportConnectorToSource(service, conn, task, "本地执行器已继续执行该任务。");
         return { status: "running" };
       }
       if (action === "end" && ["running", "paused"].includes(task.status)) {
         await query(conn, "UPDATE connector_tasks SET status='stopped_pending_approval',progress='终止待通过',finished_at=UTC_TIMESTAMP(3),lease_expires_at=NULL WHERE id=?", [taskId]);
         await syncConnectorTaskById(conn, taskId, { publish: true });
-        await reportConnectorToSource(service, conn, task, "本机连接器已终止该任务，等待确认。");
+        await reportConnectorToSource(service, conn, task, "本地执行器已终止该任务，等待确认。");
         return { status: "stopped_pending_approval" };
       }
       if (action === "retry" && ["failed", "failed_pending_notification", "cancelled", "interrupted", "stopped_pending_approval"].includes(task.status)) {
@@ -288,7 +288,7 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
           lease_token_hash=NULL,lease_expires_at=NULL,finished_at=NULL WHERE id=?`, [taskId]);
         // 放弃/失败后重试：任务池任务已是终态，普通同步不会改动它，这里显式重新打开并新开执行记录。
         await reopenConnectorTask(conn, taskId, { publish: true });
-        await reportConnectorToSource(service, conn, task, "本机连接器已重试该任务。");
+        await reportConnectorToSource(service, conn, task, "本地执行器已重试该任务。");
         return { status: "queued" };
       }
       if (action === "notify" && ["completed_pending_notification", "failed_pending_notification", "stopped_pending_approval"].includes(task.status)) {
@@ -317,9 +317,9 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
     const projectId = z.string().uuid().parse(req.params.id);
     await transaction(db, async (conn) => {
       await query(conn, "DELETE FROM connector_projects WHERE connector_id=? AND project_id=?", [current.id, projectId]);
-      await query(conn, `UPDATE connector_tasks SET status='cancelled',error='连接器已解除项目关联',finished_at=UTC_TIMESTAMP(3)
+      await query(conn, `UPDATE connector_tasks SET status='cancelled',error='本地执行器已解除项目关联',finished_at=UTC_TIMESTAMP(3)
         WHERE connector_id=? AND project_id=? AND status IN ('queued','running','paused')`, [current.id, projectId]);
-      const cancelled = await query(conn, "SELECT id FROM connector_tasks WHERE connector_id=? AND project_id=? AND status='cancelled' AND error=?", [current.id, projectId, "连接器已解除项目关联"]);
+      const cancelled = await query(conn, "SELECT id FROM connector_tasks WHERE connector_id=? AND project_id=? AND status='cancelled' AND error=?", [current.id, projectId, "本地执行器已解除项目关联"]);
       for (const task of cancelled) await syncConnectorTaskById(conn, task.id, { publish: true });
     });
     res.json({ ok: true });
@@ -337,10 +337,10 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
       await query(conn, `UPDATE connector_tasks t LEFT JOIN connector_projects cp
         ON cp.connector_id=t.connector_id AND cp.project_id=t.project_id
         LEFT JOIN members m ON m.project_id=t.project_id AND m.user_id=?
-        SET t.status='interrupted',t.error='连接器已失去项目执行权限',t.finished_at=UTC_TIMESTAMP(3)
+        SET t.status='interrupted',t.error='本地执行器已失去项目执行权限',t.finished_at=UTC_TIMESTAMP(3)
         WHERE t.connector_id=? AND t.status='queued' AND (cp.connector_id IS NULL OR m.user_id IS NULL OR m.role='viewer')`,
       [current.user_id, current.id]);
-      const unauthorized = await query(conn, "SELECT id FROM connector_tasks WHERE connector_id=? AND status='interrupted' AND error=?", [current.id, "连接器已失去项目执行权限"]);
+      const unauthorized = await query(conn, "SELECT id FROM connector_tasks WHERE connector_id=? AND status='interrupted' AND error=?", [current.id, "本地执行器已失去项目执行权限"]);
       for (const task of unauthorized) await syncConnectorTaskById(conn, task.id, { publish: true });
     });
     res.json({ task: null });
@@ -361,7 +361,7 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
     const result = await transaction(db, async (conn) => {
       const [task] = await query(conn, `SELECT *,lease_expires_at>UTC_TIMESTAMP(3) lease_valid
         FROM connector_tasks WHERE id=? AND connector_id=? FOR UPDATE`, [taskId, current.id]);
-      if (!task) throw new HttpError(409, "任务不属于当前连接器");
+      if (!task) throw new HttpError(409, "任务不属于当前本地执行器");
       if (task.status === "cancelled") return { status: "cancelled" };
       if (task.lease_token_hash !== digest(data.leaseToken) || Number(task.lease_valid) !== 1)
         throw new HttpError(409, "任务租约无效或已过期");
@@ -373,7 +373,7 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
           [data.status, nextProgress, agentKind, data.status === "paused" ? 30 : 2, taskId]);
         await syncConnectorTaskById(conn, taskId, { publish: true });
         if (typeof data.progress === "string" && data.progress !== (task.progress || ""))
-          await reportConnectorToSource(service, conn, task, `本机连接器汇报进度：${data.progress}`);
+          await reportConnectorToSource(service, conn, task, `本地执行器汇报进度：${data.progress}`);
         return { status: data.status };
       }
       let responseMessageId = task.response_message_id;
@@ -421,7 +421,7 @@ export function registerConnectorBrowserRoutes(app, db, service) {
     const authorizationId = z.string().uuid().parse(req.params.id);
     const [authorization] = await query(db, `SELECT id,name,platform,version,expires_at,approved_at,denied_at,consumed_at
       FROM connector_authorizations WHERE id=? AND UNIX_TIMESTAMP(expires_at)>UNIX_TIMESTAMP()`, [authorizationId]);
-    if (!authorization) throw new HttpError(404, "连接器授权请求不存在或已过期");
+    if (!authorization) throw new HttpError(404, "本地执行器授权请求不存在或已过期");
     res.json(authorization);
   });
 
@@ -444,7 +444,7 @@ export function registerConnectorBrowserRoutes(app, db, service) {
     const result = await transaction(db, async (conn) => {
       const [authorization] = await query(conn, `SELECT *,UNIX_TIMESTAMP(expires_at)>UNIX_TIMESTAMP() valid
         FROM connector_authorizations WHERE id=? FOR UPDATE`, [authorizationId]);
-      if (!authorization || Number(authorization.valid) !== 1) throw new HttpError(404, "连接器授权请求不存在或已过期");
+      if (!authorization || Number(authorization.valid) !== 1) throw new HttpError(404, "本地执行器授权请求不存在或已过期");
       if (authorization.poll_token_hash !== digest(data.callbackSecret)) throw new HttpError(401, "授权回调凭证不匹配");
       if (authorization.approved_at || authorization.denied_at || authorization.consumed_at)
         throw new HttpError(409, "授权请求已处理或已过期");
@@ -475,10 +475,10 @@ export function registerConnectorBrowserRoutes(app, db, service) {
     const connectorId = z.string().uuid().parse(req.params.id);
     const result = await query(db, `UPDATE connectors SET revoked_at=UTC_TIMESTAMP(3),token_hash=SHA2(CONCAT(token_hash,UUID()),256)
       WHERE id=? AND user_id=? AND revoked_at IS NULL`, [connectorId, req.user.id]);
-    if (!result.affectedRows) throw new HttpError(404, "连接器不存在");
-    await query(db, `UPDATE connector_tasks SET status='cancelled',error='连接器已解除绑定',finished_at=UTC_TIMESTAMP(3)
+    if (!result.affectedRows) throw new HttpError(404, "本地执行器不存在");
+    await query(db, `UPDATE connector_tasks SET status='cancelled',error='本地执行器已解除绑定',finished_at=UTC_TIMESTAMP(3)
       WHERE connector_id=? AND status IN ('queued','running')`, [connectorId]);
-    const cancelled = await query(db, "SELECT id FROM connector_tasks WHERE connector_id=? AND status='cancelled' AND error=?", [connectorId, "连接器已解除绑定"]);
+    const cancelled = await query(db, "SELECT id FROM connector_tasks WHERE connector_id=? AND status='cancelled' AND error=?", [connectorId, "本地执行器已解除绑定"]);
     for (const task of cancelled) await syncConnectorTaskById(db, task.id, { publish: true });
     res.json({ ok: true });
   });

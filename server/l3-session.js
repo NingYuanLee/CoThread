@@ -148,6 +148,14 @@ export async function persistL3RunCheckpoint(db, executorId, history) {
   return result.affectedRows > 0;
 }
 
+export async function persistL3ContextStats(db, executorId, stats) {
+  if (!executorId || !stats || typeof stats.used !== "number") return false;
+  const result = await query(db, `UPDATE agent_task_execution_runs r
+    JOIN (SELECT id FROM agent_task_execution_runs WHERE executor_id=? ORDER BY created_at DESC LIMIT 1) latest
+    ON r.id=latest.id SET r.context_stats=?`, [executorId, JSON.stringify(stats)]);
+  return result.affectedRows > 0;
+}
+
 async function loadTaskReply(db, threadId, messageId) {
   const [row] = await query(db, `SELECT r.message_id,r.parent_message_id,r.agent_slot,r.status,r.progress,
     r.execution_active,r.error,s.checkpoint,s.context_stats,s.seen_sequence,s.compact_status,s.compact_error,s.compact_result
@@ -159,7 +167,7 @@ async function loadTaskReply(db, threadId, messageId) {
 
 async function loadTaskPoolSession(db, threadId, taskId) {
   const [row] = await query(db, `SELECT t.id task_id,t.status,t.progress,t.result_summary,t.execution_agent_id,
-    r.checkpoint,r.status run_status,r.error,r.executor_id,r.progress run_progress
+    r.checkpoint,r.context_stats,r.status run_status,r.error,r.executor_id,r.progress run_progress
     FROM agent_tasks t
     LEFT JOIN agent_task_execution_runs r ON r.id=(
       SELECT x.id FROM agent_task_execution_runs x WHERE x.task_id=t.id ORDER BY x.created_at DESC LIMIT 1)
@@ -249,7 +257,7 @@ export async function readL3TaskSession(service, user, threadId, messageId) {
     progress: task.run_progress || task.progress || null,
     running,
     error: task.error || null,
-    contextUsage: contextUsage(null, [], []),
+    contextUsage: contextUsage(task, [], []),
     messages: await historyForExecutor(service.db, threadId, executorId, task.checkpoint),
     events: mapEvents(events),
     pending: pending.map((item) => ({

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { AGENT_MEMBER } from "../shared/agent-member.js";
+import { AGENT_L1_PROFILE, AGENT_L2_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
 import { AGENT_LEVEL_LABELS } from "./ui-labels";
 import { RoleBadge } from "./Identity";
 import { MemberPicker } from "./MemberPicker";
@@ -8,7 +8,6 @@ import { ProjectCodeConnectors } from "./ProjectCodeConnectors";
 import { UiIcon } from "./ui-icon";
 import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
 import { showTip } from "./Tip";
-import { connectorHostLabel, connectorOsLabel } from "./ConnectorPanel";
 
 type ProjectConnector = {
   id: string;
@@ -27,10 +26,13 @@ type ProjectMember = {
   email?: string;
   bound_email?: string | null;
   avatar?: string | null;
+  display_avatar?: string | null;
+  nickname?: string | null;
+  title?: string | null;
   motto?: string | null;
   user_number?: string | number;
   role?: string;
-  kind?: "human" | "l1";
+  kind?: "human" | "l1" | "l2";
   identity_tags?: string[];
   connector?: ProjectConnector | null;
 };
@@ -48,6 +50,13 @@ type ProjectDetail = {
     lastThreadTitle: string | null;
   } | null;
 };
+
+function isHumanMember(member: ProjectMember) {
+  return member.kind !== "l1"
+    && member.kind !== "l2"
+    && member.id !== AGENT_MEMBER.id
+    && member.id !== AGENT_L2_MEMBER.id;
+}
 
 export function ProjectManagement({
   detail,
@@ -74,24 +83,31 @@ export function ProjectManagement({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [tab, setTab] = useState<"info" | "members" | "connectors">("info");
-  const [memberScope, setMemberScope] = useState<"humans" | "l1" | "executors">("humans");
+  const [memberScope, setMemberScope] = useState<"humans" | "agents">("humans");
   const [memberSearch, setMemberSearch] = useState("");
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
 
-  const humans = (detail?.members || []).filter((member) => member.kind !== "l1" && member.id !== AGENT_MEMBER.id);
+  const humans = (detail?.members || []).filter(isHumanMember);
   const projectAgent = (detail?.members || []).find((member) => member.kind === "l1" || member.id === AGENT_MEMBER.id)
-    || { ...AGENT_MEMBER, kind: "l1" as const };
-  const connectors = humans.filter((member) => member.connector);
+    || { ...AGENT_MEMBER, kind: "l1" as const, nickname: AGENT_L1_PROFILE.nickname, title: AGENT_L1_PROFILE.title, display_avatar: AGENT_L1_PROFILE.avatar };
+  const iterationAgent = (detail?.members || []).find((member) => member.kind === "l2" || member.id === AGENT_L2_MEMBER.id)
+    || { ...AGENT_L2_MEMBER, kind: "l2" as const };
   const matchesSearch = (member: ProjectMember) =>
     `${member.name} ${member.username || ""} ${member.email} ${member.bound_email || ""} ${member.connector?.name || ""}`
       .toLowerCase()
       .includes(memberSearch.toLowerCase());
   const visibleHumans = humans.filter(matchesSearch);
-  const visibleConnectors = connectors.filter(matchesSearch);
-  const agentVisible = `${projectAgent.name} L1 老翁`.toLowerCase().includes(memberSearch.toLowerCase());
+  const agentSearch = memberSearch.toLowerCase();
+  const l1Visible = `${projectAgent.nickname || AGENT_L1_PROFILE.nickname} ${projectAgent.name} L1 老翁 ${AGENT_LEVEL_LABELS.l1}`
+    .toLowerCase()
+    .includes(agentSearch);
+  const l2Visible = `${iterationAgent.nickname || AGENT_L2_MEMBER.nickname} ${iterationAgent.name} L2 ${AGENT_LEVEL_LABELS.l2}`
+    .toLowerCase()
+    .includes(agentSearch);
+  const agentVisibleCount = Number(l1Visible) + Number(l2Visible);
 
   return (
     <dialog
@@ -164,17 +180,14 @@ export function ProjectManagement({
           ) : (
             <>
               <p className="muted project-member-note">
-                项目成员是本项目的人类成员及其本地执行器，加上{AGENT_LEVEL_LABELS.l1}。迭代里再出现本迭代{AGENT_LEVEL_LABELS.l2}与{AGENT_LEVEL_LABELS.l3}；公司目录里只有人类成员。
+                项目成员含人类成员与 Agent（{AGENT_LEVEL_LABELS.l1}、{AGENT_LEVEL_LABELS.l2}）。本地执行器隶属于人类成员，不单独列成员；{AGENT_LEVEL_LABELS.l3} 隶属于 L2，也不单独列。L2 是项目内同一角色，各迭代只是独立会话。
               </p>
               <div className="member-scope" role="tablist" aria-label="项目成员分类">
                 <button type="button" className={memberScope === "humans" ? "active" : ""} onClick={() => setMemberScope("humans")}>
                   <UiIcon name="human" size={13} />人类成员<small>{humans.length}</small>
                 </button>
-                <button type="button" className={memberScope === "l1" ? "active" : ""} onClick={() => setMemberScope("l1")}>
-                  <UiIcon name="book" size={13} />{AGENT_LEVEL_LABELS.l1}
-                </button>
-                <button type="button" className={memberScope === "executors" ? "active" : ""} onClick={() => setMemberScope("executors")}>
-                  <UiIcon name="connector" size={13} />本地执行器<small>{connectors.length}</small>
+                <button type="button" className={memberScope === "agents" ? "active" : ""} onClick={() => setMemberScope("agents")}>
+                  <UiIcon name="sparkle" size={13} />Agent成员<small>2</small>
                 </button>
               </div>
               <input
@@ -183,7 +196,7 @@ export function ProjectManagement({
                 name="cothread-project-member-search"
                 autoComplete="off"
                 aria-label="搜索成员"
-                placeholder={memberScope === "executors" ? "搜索成员或本地执行器" : "搜索成员"}
+                placeholder="搜索成员"
                 value={memberSearch}
                 onChange={(event) => setMemberSearch(event.target.value)}
               />
@@ -211,61 +224,61 @@ export function ProjectManagement({
                   {!visibleHumans.length && <p className="empty-state">没有匹配的人类成员</p>}
                 </>
               )}
-              {memberScope === "l1" && (
+              {memberScope === "agents" && (
                 <>
                   <div className="panel-heading">
-                    <span>{AGENT_LEVEL_LABELS.l1}</span>
+                    <span>本项目 Agent 成员</span>
                   </div>
-                  {agentVisible ? (
+                  {l1Visible ? (
                     <div className="member">
                       <span className="avatar">
-                        <img loading="lazy" decoding="async" src={projectAgent.avatar || AGENT_MEMBER.avatar} alt="" />
+                        <img
+                          loading="lazy"
+                          decoding="async"
+                          src={projectAgent.display_avatar || AGENT_L1_PROFILE.avatar}
+                          alt=""
+                        />
                       </span>
                       <div className="member-copy">
                         <div className="member-name-row">
-                          <strong>{projectAgent.name}</strong>
+                          <strong>{projectAgent.nickname || AGENT_L1_PROFILE.nickname}</strong>
                           <RoleBadge role="L1" />
                           <RoleBadge role="项目知识库" />
                         </div>
-                        <small className="member-user-id">对用户仍显示为小祥；本层负责成员认识、文档摘要与长期记忆</small>
+                        <small className="member-user-id">
+                          {projectAgent.title || AGENT_L1_PROFILE.title}；对用户仍显示为小祥
+                        </small>
                         {projectAgent.motto ? <small className="member-motto">{projectAgent.motto}</small> : null}
                       </div>
                     </div>
-                  ) : (
-                    <p className="empty-state">没有匹配的{AGENT_LEVEL_LABELS.l1}</p>
-                  )}
-                </>
-              )}
-              {memberScope === "executors" && (
-                <>
-                  <div className="panel-heading">
-                    <span>本项目人类成员的本地执行器</span>
-                  </div>
-                  {visibleConnectors.map((member) => (
-                    <div className="member" key={member.connector?.id || member.id}>
+                  ) : null}
+                  {l2Visible ? (
+                    <div className="member">
                       <span className="avatar">
-                        {member.avatar ? (
-                          <img loading="lazy" decoding="async" src={member.avatar} alt="" />
-                        ) : (
-                          member.name[0]
-                        )}
+                        <img
+                          loading="lazy"
+                          decoding="async"
+                          src={iterationAgent.avatar || AGENT_L2_MEMBER.avatar}
+                          alt=""
+                        />
                       </span>
                       <div className="member-copy">
                         <div className="member-name-row">
-                          <strong>{member.name}</strong>
-                          <RoleBadge role={member.connector?.bound ? (member.connector.online ? "在线" : "离线") : "未绑定本项目"} />
+                          <strong>{iterationAgent.name}</strong>
+                          <RoleBadge role="L2" />
+                          <RoleBadge role="任务调度" />
                         </div>
                         <small className="member-user-id">
-                          {connectorHostLabel(member.connector?.name)}
-                          {member.connector?.platform ? ` · ${connectorOsLabel(member.connector.platform)}` : ""}
-                          {member.connector?.bound ? " · 已绑定本项目" : " · 设备在线于其他项目"}
+                          {iterationAgent.nickname || AGENT_L2_MEMBER.nickname}；项目内同一角色，各迭代使用独立会话
+                        </small>
+                        <small className="member-motto">
+                          L3 隶属于本层执行，不单独列成员
+                          {iterationAgent.motto ? ` · ${iterationAgent.motto}` : ""}
                         </small>
                       </div>
                     </div>
-                  ))}
-                  {!visibleConnectors.length && (
-                    <p className="empty-state">本项目人类成员还没有授权本地执行器。本地执行器属于成员本人，授权后可绑定本项目。</p>
-                  )}
+                  ) : null}
+                  {!agentVisibleCount && <p className="empty-state">没有匹配的 Agent 成员</p>}
                 </>
               )}
             </>

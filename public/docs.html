@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>共序文档 · CoThread Docs</title>
-<meta name="description" content="共序 CoThread 详细文档：概念、工作台、文档上传、MCP、连接器与部署。">
+<meta name="description" content="共序 CoThread 详细文档：概念、工作台、文档上传、MCP、本地执行器与部署。">
 <style>
   :root{
     --bg:#070a12; --bg-soft:#0a0e18; --card:rgba(255,255,255,.035);
@@ -176,7 +176,7 @@
           <a href="#mcp">共序 MCP</a>
           <ul><li><a href="#mcp-tools">工具清单</a></li></ul>
         </li>
-        <li><a href="#connector">本机连接器</a></li>
+        <li><a href="#connector">本地执行器</a></li>
       </ul>
     </details>
     <details class="toc-group" open>
@@ -206,7 +206,7 @@
       <tbody>
         <tr><td>关于我们</td><td>价值与产品介绍，给第一次听说共序的人</td><td><a href="/about_us.html">/about_us.html</a></td></tr>
         <tr><td>README</td><td>克隆仓库后的快捷使用：安装、启动、常用命令</td><td>仓库根目录</td></tr>
-        <tr><td>本文档</td><td>概念、工作台、上传、MCP、连接器、部署细则</td><td><a href="/docs.html">/docs.html</a></td></tr>
+        <tr><td>本文档</td><td>概念、工作台、上传、MCP、本地执行器、部署细则</td><td><a href="/docs.html">/docs.html</a></td></tr>
       </tbody>
     </table>
     <p>工程师向的架构备忘仍在仓库 <code>docs/architecture.md</code>、<code>docs/makers.md</code>，不替代本页给使用者看的说明。</p>
@@ -227,7 +227,7 @@ npm run dev</pre>
         <tr><td>公司</td><td>单次独立部署。账号、项目、文件都在本实例 MySQL，与其他部署互不影响</td></tr>
         <tr><td>项目</td><td>长期工作空间：共享文档库、长期记忆、项目成员</td></tr>
         <tr><td>迭代</td><td>一次讨论群聊：消息、本轮 L2；文档仍用项目文档库</td></tr>
-        <tr><td>任务</td><td>可指派、确认、执行的工作项：L3 槽或人类 / 连接器执行</td></tr>
+        <tr><td>任务</td><td>可指派、确认、执行的工作项：L3 槽或人类 / 本地执行器执行</td></tr>
       </tbody>
     </table>
 
@@ -237,7 +237,7 @@ npm run dev</pre>
       <thead><tr><th>层级</th><th>谁在这里</th></tr></thead>
       <tbody>
         <tr><td>成员管理</td><td>仅人类，含超级管理员。系统管理里的「成员管理」</td></tr>
-        <tr><td>项目成员</td><td>本项目人类、其连接器、项目级 Agent（L1）</td></tr>
+        <tr><td>项目成员</td><td>本项目人类、其本地执行器、项目级 Agent（L1）</td></tr>
         <tr><td>迭代成员</td><td>本项目人类、本迭代 L2、任务级 L3 槽</td></tr>
       </tbody>
     </table>
@@ -269,7 +269,7 @@ npm run dev</pre>
     <p>归档固定本轮讨论与引用版本；已确认产物最新版另存到正式文件。归档后本迭代不可改，文档库留给后续迭代。删除为可恢复软删除。回收站可在文件树底部永久清空：未被引用的文件会删除；仍被消息或任务引用的版本会保留内容，但不能再恢复。</p>
 
     <h3 id="tasks">任务池</h3>
-    <p>迭代内可创建辅助任务（L2 Ask）、沙箱正式任务、人类任务（本人执行或下发连接器）。人类任务创建时可引用正式文件版本（最多 30 个）。状态含待指派、待确认、待开始、执行中、等待中、阻塞，以及已拒绝 / 已放弃 / 已完成 / 已取消 / 已失败。状态变更和连接器汇报会 @ 任务来源人。任务详情「复制任务信息」与「复制会话信息」「复制项目信息」一样，会带上 MCP 服务地址、项目、迭代、任务 ID 和调用规则。</p>
+    <p>迭代内可创建辅助任务（L2 Ask）、沙箱正式任务、人类任务（本人执行或下发本地执行器）。人类任务创建时可引用正式文件版本（最多 30 个）。状态含待指派、待确认、待开始、执行中、等待中、阻塞，以及已拒绝 / 已放弃 / 已完成 / 已取消 / 已失败。状态变更和本地执行器汇报会 @ 任务来源人。任务详情「复制任务信息」与「复制会话信息」「复制项目信息」一样，会带上 MCP 服务地址、项目、迭代、任务 ID 和调用规则。</p>
 
     <h2 id="upload-web">网页上传</h2>
     <p>对话框附件进入当天对话缓存；文档树正式文件菜单可上传到正式文件区（含子文件夹）。网页走带 SHA-256 的分片会话，单文件上限 <strong>20 MiB</strong>。服务端合并后再验整文件哈希，截断不会入库。</p>
@@ -293,7 +293,7 @@ npm run dev</pre>
     <p>工作台「复制会话信息」和正式文件树「复制项目信息」会带上这段规则以及 ID。zip / <code>application/octet-stream</code> / 带 charset 的 MIME 按文件名推断，不会因此拒绝。</p>
 
     <h2 id="mcp">共序 MCP</h2>
-    <p>账号一个令牌、30 天有效。由本机连接器在授权后申领并写入 Cursor / Codex / Claude Code。网页个人设置不再作为日常配令牌入口。疑似泄露时在连接器重置 MCP 令牌，旧令牌立即失效。</p>
+    <p>账号一个令牌、30 天有效。由本地执行器在授权后申领并写入 Cursor / Codex / Claude Code。网页个人设置不再作为日常配令牌入口。疑似泄露时在本地执行器重置 MCP 令牌，旧令牌立即失效。</p>
     <p>写入的配置等价于：</p>
 <pre>{
   "mcpServers": {
@@ -311,15 +311,15 @@ npm run dev</pre>
     <p>写入：<code>manage_document</code>、<code>manage_folder</code>、<code>upload_official_file</code>、<code>start_file_upload</code>、<code>upload_file_chunk</code>、<code>complete_file_upload</code>、<code>upload_cache_draft</code>、<code>post_message</code>、<code>accept_task</code>、<code>reject_task</code>、<code>update_task</code>。</p>
     <p>只有 <code>post_message</code> 会发群聊。上传、改文档、改任务默认不自动发言。创建任务、转交、审批、归档不通过普通 MCP。只读成员不能上传或发言；归档迭代不能改。</p>
 
-    <h2 id="connector">本机连接器</h2>
-    <p>Windows 单文件程序（<code>npm run connector:build</code>），由系统外部渠道分发，网页不提供安装包。一个账号同一时间只保留一台连接器，可绑多个项目。每个项目选 Git 仓库，可选仓库内路径。本地路径只保存在电脑上。</p>
-    <p>「交给本机 Agent」：项目内任意可编辑成员的连接器在线即可。任务需被指派成员确认后锁定到一台设备，在本机以 Cursor / Codex / Claude Code 的交互式会话执行。</p>
+    <h2 id="connector">本地执行器</h2>
+    <p>Windows 单文件程序（<code>npm run connector:build</code>），由系统外部渠道分发，网页不提供安装包。一个账号同一时间只保留一台本地执行器，可绑多个项目。每个项目选 Git 仓库，可选仓库内路径。本地路径只保存在电脑上。</p>
+    <p>「交给本机 Agent」：项目内任意可编辑成员的本地执行器在线即可。任务需被指派成员确认后锁定到一台设备，在本机以 Cursor / Codex / Claude Code 的交互式会话执行。</p>
     <ul>
       <li><strong>开始</strong>：按当前 HEAD 建独立 Git worktree，打开 Agent，首条提示引用任务卡。</li>
-      <li><strong>会话中</strong>：人在窗口里打字和审批工具；Agent 用共序 MCP 回报。关窗不算完成，任务变为暂停，连接器可续租。</li>
-      <li><strong>完成 / 失败</strong>：由人在连接器点击。完成可带 Git Diff 回群。</li>
+      <li><strong>会话中</strong>：人在窗口里打字和审批工具；Agent 用共序 MCP 回报。关窗不算完成，任务变为暂停，本地执行器可续租。</li>
+      <li><strong>完成 / 失败</strong>：由人在本地执行器点击。完成可带 Git Diff 回群。</li>
     </ul>
-    <p>两套令牌：<code>ctc_</code> 设备令牌只用于连接器通讯；账号 MCP 令牌供 Agent 以该成员身份读写共序。</p>
+    <p>两套令牌：<code>ctc_</code> 设备令牌只用于本地执行器通讯；账号 MCP 令牌供 Agent 以该成员身份读写共序。</p>
 
     <h2 id="deploy-local">本机与命令</h2>
 <pre>npm run mysql:stop    # 关闭本地数据库

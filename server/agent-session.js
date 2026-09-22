@@ -1,5 +1,5 @@
 // Identifiers are selected here, never taken from tool input.
-// L2 keeps one durable discussion session per iteration.
+// L2 is one project role; each iteration keeps its own durable discussion session.
 // L3 keeps one durable DSH session per task; the sandbox stays per task.
 export function agentSession(scope) {
   const job = typeof scope === "string" ? { thread_id: scope } : scope;

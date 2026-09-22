@@ -7,8 +7,8 @@ import { modelConfig, redactSecrets } from "./model-config.js";
 import { createUsageMeter, saveReplyUsage } from "./agent-usage.js";
 import { acquireCoordinatorRuntime, discardCoordinatorRuntime, parkCoordinatorRuntime } from "./agent.js";
 import { discussionText } from "../shared/context.js";
-import { bindDshL3Execution, settleDshL3Execution } from "./task-pool.js";
-import { persistL3RunCheckpoint } from "./l3-session.js";
+import { bindDshL3Execution, finishCoordinatorDispatch, l3LaunchPrompt, settleDshL3Execution, tasksAwaitingL3Launch } from "./task-pool.js";
+import { persistL3ContextStats, persistL3RunCheckpoint } from "./l3-session.js";
 
 const brief = (value, limit = 1200) =>
   typeof value === "string" ? value.slice(0, limit) : null;
@@ -199,6 +199,7 @@ export async function dispatchContext(db, thread, job) {
     ...tasks.filter((task) => !task.closed),
   ];
   return {
+    project_id: thread.project_id,
     title: thread.title,
     messages: routedMessages,
     replies,
@@ -221,18 +222,56 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
   const runtime = await acquireCoordinatorRuntime(context, { db, job, user });
   let completed = false;
   try {
+    const launched = [];
+    const launchFailed = [];
+    let inflightLaunch = null;
+    const launchAwaitingL3 = async () => {
+      const waiting = await tasksAwaitingL3Launch(db, runtime.session.session_id);
+      for (const row of waiting) {
+        const launch = await l3LaunchPrompt(db, row.id);
+        if (!launch) continue;
+        inflightLaunch = { taskId: row.id };
+        try {
+          const started = await runtime.request("dispatch-l3", { label: launch.label, prompt: launch.prompt });
+          const bound = await bindDshL3Execution(db, runtime.session.session_id, started.childId, row.id);
+          if (!bound?.execution_agent_id) {
+            try { await runtime.request("interrupt", { sessionId: started.childId }); } catch {}
+            throw new Error("排队任务未能绑定到本次 L3");
+          }
+          launched.push({ taskId: row.id, childId: started.childId });
+        } catch (error) {
+          launchFailed.push(row.id);
+          console.error("L3 launch failed", {
+            taskId: row.id,
+            type: error?.name || "Error",
+            diagnostic: redactSecrets(error?.message || error).slice(-1000),
+          });
+        } finally {
+          inflightLaunch = null;
+        }
+      }
+    };
+    if (job.kind === "child_result" || job.kind === "l3_idle") await launchAwaitingL3();
+    const startedNote = launched.length
+      ? `系统已启动这些任务的 L3：${launched.map((item) => item.taskId).join("，")}。不要再为它们调用 dsh_l3。`
+      : "";
+    const failedNote = launchFailed.length
+      ? `这些任务系统没能启动，请立刻 dsh_l3，prompt 第一行写 TASK_ID：${launchFailed.join("，")}。`
+      : "";
+    const dispatchInstruction = failedNote
+      || "payload 里的 pendingTasks 由系统按任务 id 启动 L3，不要为了绑定再调用 dsh_l3。需要换人或恢复原会话时才用 dsh_l3 或 send_message，prompt 第一行写 TASK_ID。";
     const prompt = job.kind === "l3_idle"
       ? `当前项目：${context.project_id}；当前迭代：${job.thread_id}。
-本次唤醒：L3 由工作中变为空闲。${JSON.stringify(job.payload || {})}
-请 list_project_tasks 查看是否有 pending_assignment（待指派）的沙箱任务；若有且仍有空闲 L3，立刻 dsh_l3 指派，prompt 第一行写 TASK_ID。没有待指派任务就停。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。`
+本次唤醒：上一轮没有把待指派任务派出去。${JSON.stringify(job.payload || {})}
+${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。`
       : job.kind === "child_result"
       ? `当前项目：${context.project_id}；当前迭代：${job.thread_id}。
 本次唤醒：下属交活。${JSON.stringify(job.payload || {})}
 当前上下文：${JSON.stringify(context.promptContext || context)}
-请根据结果向成员回报；也可 inspect_task 或 send_message 追问仍在跑的 L3，拿到回复后决定帮一把还是换人。交活后 L3 已空闲时，若任务池有 pending_assignment，立刻 dsh_l3 指派。不要推给平台，不要在沙箱写 SQL。先说话再行动。做完就停。`
+请根据结果向成员回报；也可 inspect_task 或 send_message 追问仍在跑的 L3，拿到回复后决定帮一把还是换人。${startedNote}${dispatchInstruction}不要推给平台，不要在沙箱写 SQL。先说话再行动。做完就停。`
       : `当前项目：${context.project_id}；当前迭代：${job.thread_id}；触发消息：${job.message_id}。
 本次唤醒：成员消息。上下文：${JSON.stringify(context.promptContext || context)}
-先用可见正文回应理解或答复；催进度时 inspect_task 或 send_message 问 L3，拿到回复再决定帮一把还是换人。Ask 辅助任务没有空闲 L3 就不要 create_task，自己处理。沙箱 formal 无空闲 L3 可先建成 pending_assignment；有空闲则创建后立刻 dsh_l3。成员要求时也可 list_project_tasks 查看待指派与空闲 L3 并指派。见到 execution_agent_id 之前不要说已经派人。dsh_l3 失败就报绑定原因。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。做完就停。`;
+先用可见正文回应理解或答复；催进度时 inspect_task 或 send_message 问 L3，拿到回复再决定帮一把还是换人。Ask 辅助任务没有空闲 L3 就不要 create_task，自己处理。沙箱 formal 无空闲 L3 可先建成 pending_assignment；有空闲则创建为执行中，系统会启动 L3。成员要求时也可 list_project_tasks 查看待指派。见到 execution_agent_id 之前不要说已经派人。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。做完就停。`;
     const steeredMessageIds = new Set();
     const mergedMessageIds = new Set();
     let steeringBusy = false;
@@ -363,6 +402,14 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       // Keep task children in the durable session tree so a later
       // send_message can cold-resume the same continuable child.
       await runtime.request("compact", { sessionId: childId, automatic: false }).catch(() => {});
+      try {
+        await persistL3ContextStats(db, childId, await runtime.request("context", { sessionId: childId }));
+      } catch (error) {
+        console.error("L3 context sample skipped", {
+          type: error?.name || "Error",
+          diagnostic: redactSecrets(error?.message || error).slice(-1000),
+        });
+      }
     };
     const nativeTools = new Set(["dsh_l3", "send_message", "interrupt_agent", "list_agents"]);
     const nativeEventInput = (name, args) => name === "dsh_l3"
@@ -455,15 +502,20 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         } else if (notification.method === "subagent.started" && notification.params?.parentSessionId === runtime.session.session_id) {
           const childId = notification.params.childSessionId;
           activeChildren.add(childId);
-          const inserted = await query(db, `INSERT INTO agent_events
-            (message_id,agent_session_id,tool,status,input) VALUES(?,?,'agent_run','running','{}')`,
-          [job.message_id, childId]);
-          childRunEvents.set(childId, inserted.insertId);
+          if (!childRunEvents.has(childId)) {
+            const inserted = await query(db, `INSERT INTO agent_events
+              (message_id,agent_session_id,tool,status,input) VALUES(?,?,'agent_run','running','{}')`,
+            [job.message_id, childId]);
+            childRunEvents.set(childId, inserted.insertId);
+          }
+          const [alreadyBound] = await query(db, `SELECT task_id FROM agent_task_execution_runs
+            WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting') LIMIT 1`, [childId]);
+          if (alreadyBound) return;
           let pendingTask = null;
           for (const pending of toolTasks.values()) {
             if (!pending.childId) { pending.childId = childId; pendingTask = pending; break; }
           }
-          await attachChildTask(childId, pendingTask?.taskId, pendingTask?.parentEventId);
+          await attachChildTask(childId, pendingTask?.taskId || inflightLaunch?.taskId, pendingTask?.parentEventId);
         } else if (notification.method === "subagent.finished" && notification.params?.parentSessionId === runtime.session.session_id) {
           const childId = notification.params.childSessionId;
           const runEventId = childRunEvents.get(childId);
@@ -488,8 +540,17 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
     };
     let result;
     try {
+      for (const item of launched) activeChildren.add(item.childId);
+      if (job.kind === "l3_idle" && launched.length && !launchFailed.length) {
+        if (activeChildren.size) runtime.watchChildren?.(handleAgentTeamNotification, () => lifecycle);
+        completed = true;
+        return { finalResponse: "NO_VISIBLE_MESSAGE", steeredMessageIds: [], mergedMessageIds: [],
+          waiting: activeChildren.size > 0, runtime };
+      }
       result = await runCoordinatorTurn(prompt);
       await lifecycle;
+      await launchAwaitingL3();
+      for (const item of launched) activeChildren.add(item.childId);
       if (activeChildren.size) runtime.watchChildren?.(handleAgentTeamNotification, () => lifecycle);
       await lifecycle;
       await steerNewMessages();
@@ -582,7 +643,9 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
         ["小祥正在理解请求", job.message_id]);
     }
     await query(db, "UPDATE agent_sessions SET steering_epoch=steering_epoch+1,task_revision=task_revision+1,last_processed_sequence=?,convergence_state='active',replanning_count=0,wait_reason=NULL,convergence_until=NULL WHERE thread_id=?", [job.sequence, job.thread_id]);
-    const context = await dispatchContext(db, thread, job);
+    const context = job.kind === "l3_idle"
+      ? { project_id: thread.project_id, title: thread.title }
+      : await dispatchContext(db, thread, job);
     const loaded = performance.now();
     const result = await runAgent(context, { db, job, user });
     console.log("Agent timing", { messageId: job.message_id, stage: job.kind === "member_message" ? "coordinator_agent" : `coordinator_${job.kind}`,
@@ -632,6 +695,15 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
       type: error?.name || "Error",
       diagnostic: redactSecrets(error?.stack || error?.message || error).slice(-2500),
     });
+  } finally {
+    try {
+      await finishCoordinatorDispatch(db, job.thread_id, { enqueueIdle: job.kind !== "l3_idle" });
+    } catch (error) {
+      console.error("Coordinator dispatch follow-up failed", {
+        type: error?.name || "Error",
+        diagnostic: redactSecrets(error?.message || error).slice(-1000),
+      });
+    }
   }
   return true;
 }

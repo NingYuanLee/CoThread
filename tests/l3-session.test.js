@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { gzipSync } from "node:zlib";
 import { randomUUID } from "node:crypto";
-import { nativeHistoryFromCheckpoint, persistL3RunCheckpoint, readL3TaskSession, checkpointFromHistory } from "../server/l3-session.js";
+import { nativeHistoryFromCheckpoint, persistL3ContextStats, persistL3RunCheckpoint, readL3TaskSession, checkpointFromHistory } from "../server/l3-session.js";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
@@ -89,6 +89,18 @@ test("L3 task-pool session reads the run checkpoint saved before the child is fo
     const view = await readL3TaskSession(service, user, thread.id, task.id);
     assert.deepEqual(view.messages.map((row) => row.text), ["任务目标", "已开始处理"]);
     assert.equal(view.status, "completed");
+    assert.equal(view.contextUsage.used, 0);
+    assert.equal(await persistL3ContextStats(database.db, childSessionId, {
+      used: 18432,
+      estimated: false,
+      categories: { assistant: 1200, results: 8000 },
+      compactions: 0,
+      measuredAt: "2026-09-22T06:00:00.000Z",
+    }), true);
+    const metered = await readL3TaskSession(service, user, thread.id, task.id);
+    assert.equal(metered.contextUsage.used, 18432);
+    assert.equal(metered.contextUsage.categories.find((item) => item.key === "assistant").tokens, 1200);
+    assert.equal(metered.contextUsage.categories.find((item) => item.key === "results").tokens, 8000);
   } finally {
     await database.close();
   }

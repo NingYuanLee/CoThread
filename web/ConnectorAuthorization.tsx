@@ -40,10 +40,10 @@ export function ConnectorAuthorization({ id, callbackPort, callbackSecret, api, 
       if (!delivered) throw new Error("未能通知本地执行器，请保持本地执行器开启后重试授权");
       if (approved) {
         setAuthorization((current) => current && ({ ...current, approved_at: new Date().toISOString() }));
-        showTip("连接器已授权");
+        showTip("本地执行器已授权");
       }
       else {
-        showTip("已拒绝连接器授权");
+        showTip("已拒绝本地执行器授权");
         onDone();
       }
     } catch (cause) {
@@ -56,7 +56,7 @@ export function ConnectorAuthorization({ id, callbackPort, callbackSecret, api, 
   return <dialog ref={dialog} className="connector-authorization-dialog" onCancel={(event) => event.preventDefault()}>
     <header><div><small>本地执行器</small><h2>授权本地执行器</h2></div></header>
     {authorization?.approved_at ? <section className="connector-authorization-result">
-      <strong>授权完成</strong><p>可以返回连接器选择项目和本地目录。</p>
+      <strong>授权完成</strong><p>可以返回本地执行器选择项目和本地目录。</p>
       <button type="button" className="primary" onClick={onDone}><UiIcon name="check" size={13} />完成</button>
     </section> : <>
       <dl>

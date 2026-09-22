@@ -19,7 +19,7 @@ import { publishWork } from "./work-events.js";
 import { dshModelPatch, modelConfig, modelOutputLimit, redactSecrets } from "./model-config.js";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { agentRuntimePatch } from "./dsh-runtime-config.js";
-import { acquireSessionLock } from "./session-lock.js";
+import { persistL3ContextStats } from "./l3-session.js";
 
 const running = new Map();
 const coordinatorRuntimes = new Map();
@@ -429,17 +429,21 @@ export async function openAgentRuntime(
   const sample = () => {
     if (samplingNow || closed) return sampling;
     samplingNow = true;
-    sampling = request("context")
-      .then((stats) =>
-        query(
-          db,
-          `UPDATE ${sessionRow.table} SET context_stats=? WHERE ${sessionRow.key}=?`,
-          [JSON.stringify({ ...stats, seenSequence }), sessionRow.id],
-        ),
-      )
-      .finally(() => {
-        samplingNow = false;
-      });
+    sampling = (async () => {
+      const stats = await request("context");
+      await query(
+        db,
+        `UPDATE ${sessionRow.table} SET context_stats=? WHERE ${sessionRow.key}=?`,
+        [JSON.stringify({ ...stats, seenSequence }), sessionRow.id],
+      );
+      for (const childId of activeChildren) {
+        try {
+          await persistL3ContextStats(db, childId, await request("context", { sessionId: childId }));
+        } catch {}
+      }
+    })().finally(() => {
+      samplingNow = false;
+    });
     return sampling;
   };
   const ingest = async (messages, replies) => {

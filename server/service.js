@@ -1,6 +1,6 @@
 import { attachMessageQuotes } from "./message-quotes.js";
 import { contextUsage } from "../shared/context.js";
-import { AGENT_MEMBER, mentionsAgent } from "../shared/agent-member.js";
+import { AGENT_L1_PROFILE, AGENT_L2_MEMBER, AGENT_MEMBER, mentionsAgent } from "../shared/agent-member.js";
 import { modelConfig } from "./model-config.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { posix as pathPosix } from "node:path";
@@ -545,6 +545,7 @@ export class Service {
       library.documentOrganizationJobs,
     ]);
     const libraryVersions = this.mapLibraryVersions(versions, folders);
+    const knowledgeModel = modelConfig("knowledge");
     const coordinatorModel = modelConfig("coordinator");
     const [projectSummary] = await query(this.db, `SELECT s.summary,s.updated_at,t.title last_thread_title
       FROM agent_project_summaries s LEFT JOIN threads t ON t.id=s.last_thread_id WHERE s.project_id=?`, [projectId]);
@@ -579,6 +580,14 @@ export class Service {
         {
           ...AGENT_MEMBER,
           kind: "l1",
+          nickname: AGENT_L1_PROFILE.nickname,
+          title: AGENT_L1_PROFILE.title,
+          display_avatar: AGENT_L1_PROFILE.avatar,
+          motto: `${knowledgeModel.model} · ${knowledgeModel.reasoningEffort}`,
+        },
+        {
+          ...AGENT_L2_MEMBER,
+          kind: "l2",
           motto: `${coordinatorModel.model} · ${coordinatorModel.reasoningEffort}`,
         },
       ],

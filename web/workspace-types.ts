@@ -48,7 +48,10 @@ export type Detail = Project & {
     email: string;
     bound_email?: string | null;
     role: string;
-    kind?: "human" | "l1";
+    kind?: "human" | "l1" | "l2";
+    nickname?: string | null;
+    title?: string | null;
+    display_avatar?: string | null;
     avatar?: string | null;
     motto?: string;
     identity_tags?: string[];

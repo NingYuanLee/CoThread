@@ -243,7 +243,7 @@
       <div class="card reveal">
         <div class="ico">🔐</div>
         <h3>成员与权限</h3>
-        <p>账号名或已绑定邮箱登录。公司级成员管理只有人类（含超管）。项目成员是本项目人类及其连接器，加上项目级 Agent（L1）；权限按项目分配负责人 / 成员 / 只读。</p>
+        <p>账号名或已绑定邮箱登录。公司级成员管理只有人类（含超管）。项目成员是本项目人类及其本地执行器，加上项目级 Agent（L1）；权限按项目分配负责人 / 成员 / 只读。</p>
         <span class="tag">Agent 不进公司目录</span>
       </div>
       <div class="card reveal">
@@ -273,7 +273,7 @@
       <div class="card reveal">
         <div class="ico">🧰</div>
         <h3>MCP 与本机 Agent</h3>
-        <p>7 个 Streamable HTTP 工具让成员本地 AI 读上下文、发消息、提交产物。Windows 连接器属于项目人类成员，把确认后的任务交给本机 Cursor / Codex / Claude Code 会话与 Git。</p>
+        <p>7 个 Streamable HTTP 工具让成员本地 AI 读上下文、发消息、提交产物。Windows 本地执行器属于项目人类成员，把确认后的任务交给本机 Cursor / Codex / Claude Code 会话与 Git。</p>
         <span class="tag">Bearer 账号令牌</span>
       </div>
       <div class="card reveal">
@@ -317,7 +317,7 @@
     <div class="reveal">
       <div class="kicker">Architecture</div>
       <h2>架构与存储</h2>
-      <p class="sub">一家公司对应一次独立部署和一套数据库。项目、迭代、任务层层收纳；人类成员、连接器与三级 Agent 挂在不同层，互不混进公司目录。</p>
+      <p class="sub">一家公司对应一次独立部署和一套数据库。项目、迭代、任务层层收纳；人类成员、本地执行器与三级 Agent 挂在不同层，互不混进公司目录。</p>
     </div>
     <div class="cards g2" style="margin-bottom:28px">
       <div class="card reveal">
@@ -328,7 +328,7 @@
       <div class="card reveal">
         <div class="ico">👥</div>
         <h3>角色层级</h3>
-        <p>成员管理仅人类（含超管）。项目成员：本项目人类、其连接器、L1。迭代成员：本项目人类、本迭代 L2、任务级 L3。聊天里对外仍是小祥。</p>
+        <p>成员管理仅人类（含超管）。项目成员：本项目人类、其本地执行器、L1。迭代成员：本项目人类、本迭代 L2、任务级 L3。聊天里对外仍是小祥。</p>
       </div>
     </div>
     <div class="arch">
@@ -397,7 +397,7 @@ npm run dev
           <li><b>npm run app:start / app:stop</b>：Windows 下启动本地库并后台运行生产版</li>
           <li>安装 Docker 的机器可用 <b>compose.yaml</b>（mysql:8.4.9），但不要与便携版同时占用 3307</li>
         </ul>
-        <p class="note">细则、MCP 分片上传与部署步骤见 <a href="/docs.html">文档</a>。共序 MCP 由本机连接器在授权后写入 Cursor / Codex / Claude Code，无需手抄令牌。</p>
+        <p class="note">细则、MCP 分片上传与部署步骤见 <a href="/docs.html">文档</a>。共序 MCP 由本地执行器在授权后写入 Cursor / Codex / Claude Code，无需手抄令牌。</p>
       </div>
     </div>
   </section>

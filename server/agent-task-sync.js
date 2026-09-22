@@ -63,7 +63,7 @@ export async function reopenConnectorTask(conn, connectorTaskId, { publish = fal
     [connectorTask.progress || null, task.id]);
   await query(conn, `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,executor_id,status)
     SELECT UUID(),id,revision,'human_connector',?,'queued' FROM agent_tasks WHERE id=?`, [connectorTask.connector_id, task.id]);
-  await recordTaskStatusChange(conn, task.id, task.status, connectorActor(connectorTask), "本机连接器重试，任务重新待开始");
+  await recordTaskStatusChange(conn, task.id, task.status, connectorActor(connectorTask), "本地执行器重试，任务重新待开始");
   const [reopened] = await query(conn, "SELECT * FROM agent_tasks WHERE id=?", [task.id]);
   if (publish && reopened?.origin_thread_id) publishWork(conn, reopened.origin_thread_id);
   return reopened || null;

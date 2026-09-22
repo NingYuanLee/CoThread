@@ -1071,7 +1071,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
             <img className="monitor-avatar" src="/agent-avatars/xiaojingang.jpg" alt="" />
             <span className="monitor-agent-title">小祥（任务调度员）</span>
           </div>
-          <span className="monitor-count">{data?.coordinators.length || 0} 个</span>
+          <span className="monitor-count">{data?.coordinators.length || 0} 个迭代会话</span>
         </div>
         <div className="coordinator-list">
           {data?.coordinators.map((item) => {

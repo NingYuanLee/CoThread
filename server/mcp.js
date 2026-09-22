@@ -238,7 +238,7 @@ export function createMcpServer(service, user, afterMessage) {
     }
     return { ...task, updates, statusHistory, executionRuns, activity: mergeTaskActivity({ updates, statusHistory, executionRuns }), folder_contents: folderContents };
   });
-  register("accept_task", "接受当前账号被指派的任务，并选择本人或本机连接器执行。", { taskId: z.string().uuid(), mode: z.enum(["auto", "human_direct", "member_connector"]).optional() }, async ({ taskId, mode }) => { const task = await taskFor(taskId, true); return acceptTask(service.db, task.id, taskActor(), mode || "auto"); });
+  register("accept_task", "接受当前账号被指派的任务，并选择本人或本地执行器执行。", { taskId: z.string().uuid(), mode: z.enum(["auto", "human_direct", "member_connector"]).optional() }, async ({ taskId, mode }) => { const task = await taskFor(taskId, true); return acceptTask(service.db, task.id, taskActor(), mode || "auto"); });
   register("reject_task", "拒绝当前账号待确认的任务并记录原因。", { taskId: z.string().uuid(), reason: z.string().trim().max(1000).optional() }, async ({ taskId, reason }) => { const task = await taskFor(taskId, true); return rejectTask(service.db, task.id, taskActor(), reason); });
   register("update_task", "由当前任务目标更新状态、进度、结果和产物引用。", { taskId: z.string().uuid(), status: z.enum(["pending_start", "running", "waiting", "blocked", "completed", "failed", "cancelled", "abandoned"]).optional(), progress: z.string().max(500).optional(), resultSummary: z.string().max(20000).optional(), artifactRefs: z.array(z.unknown()).optional(), body: z.string().max(20000).optional(), messageId: z.string().uuid().optional() }, async ({ taskId, ...update }) => { await taskFor(taskId, true); return updateTask(service.db, taskId, taskActor(), update); });
   if (registered.size !== MCP_TOOL_NAMES.length)

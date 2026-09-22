@@ -63,6 +63,7 @@ test("the coordinator has no one-shot reply or execute decision route", async ()
   assert.match(source, /mode: "steer"/);
   assert.match(source, /排队任务未能绑定到本次 L3/);
   assert.match(source, /child_result/);
+  assert.match(source, /pendingTasks/);
   assert.doesNotMatch(source, /wait_for_updates|isLightCoordinatorTurn|finish_turn/);
   assert.doesNotMatch(tools, /exec\.concludeTurn\(\)/);
 });
@@ -84,6 +85,7 @@ test("stable L2 and L3 roles live only in the system prompt plugin", async () =>
   assert.match(SYSTEM_PROMPTS.l2.prompt, /自己责任/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /人类成员账号/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /send_message 当面问/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /pendingTasks/);
   assert.match(SYSTEM_PROMPTS.l3.prompt, /上级追问进度/);
   assert.doesNotMatch(SYSTEM_PROMPTS.l2.prompt, /辅助工作必须先创建/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /寒暄只回一句/);

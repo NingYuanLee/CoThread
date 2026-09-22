@@ -62,10 +62,13 @@ async function taskRetryStats(conn, taskId, signature, executorId) {
 }
 
 async function busyL3Count(conn, l2SessionId) {
-  const [row] = await query(conn, `SELECT COUNT(*) active FROM agent_task_execution_runs r
+  const [row] = await query(conn, `SELECT COUNT(DISTINCT t.id) active FROM agent_task_execution_runs r
     JOIN agent_tasks t ON t.id=r.task_id
     WHERE t.target_type='l2_session' AND t.target_id=? AND r.executor_type='dsh_l3'
-      AND r.status IN ('running','waiting')`, [l2SessionId]);
+      AND (
+        r.status IN ('running','waiting')
+        OR (r.status='queued' AND r.executor_id IS NULL AND r.task_revision=t.revision)
+      )`, [l2SessionId]);
   return Number(row?.active || 0);
 }
 
@@ -74,31 +77,104 @@ export async function idleL3Count(conn, l2SessionId) {
   return Math.max(0, MAX_L3 - await busyL3Count(conn, l2SessionId));
 }
 
-async function pendingAssignmentCount(conn, l2SessionId) {
-  const [row] = await query(conn, `SELECT COUNT(*) n FROM agent_tasks
-    WHERE target_type='l2_session' AND target_id=? AND status='pending_assignment'`, [l2SessionId]);
-  return Number(row?.n || 0);
+async function liveL3Count(conn, l2SessionId) {
+  const [row] = await query(conn, `SELECT COUNT(DISTINCT t.id) active FROM agent_task_execution_runs r
+    JOIN agent_tasks t ON t.id=r.task_id
+    WHERE t.target_type='l2_session' AND t.target_id=? AND r.executor_type='dsh_l3'
+      AND r.status IN ('running','waiting')`, [l2SessionId]);
+  return Number(row?.active || 0);
 }
 
-async function enqueueL3Idle(db, task) {
-  if (!task?.origin_thread_id || task.target_type !== "l2_session") return;
-  const idle = await idleL3Count(db, task.target_id);
-  const pending = await pendingAssignmentCount(db, task.target_id);
-  if (!pending) return;
+export async function tasksAwaitingL3Launch(db, l2SessionId) {
+  if (!l2SessionId) return [];
+  const room = MAX_L3 - await liveL3Count(db, l2SessionId);
+  if (room <= 0) return [];
+  return query(db, `SELECT id FROM agent_tasks t
+    WHERE t.target_type='l2_session' AND t.target_id=?
+      AND t.task_type IN ('assist_l2','formal')
+      AND t.status IN ('pending_assignment','running','queued')
+      AND (t.execution_agent_id IS NULL OR t.execution_agent_id='')
+      AND NOT EXISTS (
+        SELECT 1 FROM agent_task_execution_runs r
+        WHERE r.task_id=t.id AND r.executor_type='dsh_l3' AND r.executor_id IS NOT NULL
+          AND r.status IN ('running','waiting')
+      )
+    ORDER BY t.status='pending_assignment', t.created_at
+    LIMIT ${room}`, [l2SessionId]);
+}
+
+export async function l3LaunchPrompt(db, taskId) {
+  const task = await getTask(db, taskId);
+  if (!task || task.execution_agent_id) return null;
+  const { documents, folders } = await documentsForTaskInstruction(
+    db, task.project_id, task.document_refs, task.folder_refs,
+  );
+  return {
+    task,
+    label: String(task.title || "任务").slice(0, 80),
+    prompt: `TASK_ID: ${task.id}\n${composeTaskInstruction(task, documents, folders)}`,
+  };
+}
+
+async function l3DispatchSnapshot(conn, l2SessionId) {
+  const idleL3CountValue = await idleL3Count(conn, l2SessionId);
+  const pending = await query(conn, `SELECT id,title FROM agent_tasks
+    WHERE target_type='l2_session' AND target_id=? AND status='pending_assignment'
+    ORDER BY created_at`, [l2SessionId]);
+  return {
+    idleL3Count: idleL3CountValue,
+    pendingAssignment: pending.length,
+    pendingTasks: pending.slice(0, idleL3CountValue).map((task) => ({
+      id: task.id,
+      title: String(task.title || "").slice(0, 80),
+    })),
+  };
+}
+
+export async function finishCoordinatorDispatch(db, threadId, { enqueueIdle = true } = {}) {
+  if (!threadId) return { released: 0, enqueued: false };
+  const released = await transaction(db, async (conn) => {
+    const [session] = await query(conn, "SELECT session_id FROM agent_sessions WHERE thread_id=? FOR UPDATE", [threadId]);
+    if (!session) return 0;
+    const rows = await query(conn, `SELECT t.id,t.status,r.id run_id FROM agent_tasks t
+      JOIN agent_task_execution_runs r ON r.task_id=t.id AND r.task_revision=t.revision
+      WHERE t.origin_thread_id=? AND t.target_type='l2_session' AND t.target_id=?
+        AND t.task_type IN ('assist_l2','formal') AND t.status='running'
+        AND r.executor_type='dsh_l3' AND r.status='queued' AND r.executor_id IS NULL
+      FOR UPDATE`, [threadId, session.session_id]);
+    for (const row of rows) {
+      await query(conn, `UPDATE agent_task_execution_runs SET status='cancelled',error='本轮未绑定 L3，退回待指派',
+        finished_at=UTC_TIMESTAMP(3) WHERE id=? AND status='queued'`, [row.run_id]);
+      await query(conn, `UPDATE agent_tasks SET status='pending_assignment',execution_agent_id=NULL,
+        progress='本轮未绑定 L3，退回待指派',finished_at=NULL,revision=revision+1
+        WHERE id=? AND status='running'`, [row.id]);
+      await recordTaskStatusChange(conn, row.id, row.status, { type: "system" }, "本轮未绑定 L3，退回待指派");
+    }
+    return rows.length;
+  });
+  if (!enqueueIdle) return { released, enqueued: false };
+  const [session] = await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [threadId]);
+  if (!session) return { released, enqueued: false };
+  const snapshot = await l3DispatchSnapshot(db, session.session_id);
+  if (!snapshot.pendingAssignment || snapshot.idleL3Count < 1) return { released, enqueued: false };
+  const [existing] = await query(db, `SELECT id FROM coordinator_events
+    WHERE thread_id=? AND kind='l3_idle' AND status IN ('queued','running') LIMIT 1`, [threadId]);
+  if (existing) return { released, enqueued: false };
+  const [source] = await query(db, `SELECT id,title,source_message_id,source_user_id FROM agent_tasks
+    WHERE id=?`, [snapshot.pendingTasks[0].id]);
   await enqueueCoordinatorEvent(db, {
-    threadId: task.origin_thread_id,
+    threadId,
     kind: "l3_idle",
-    messageId: task.source_message_id || null,
-    taskId: task.id,
+    messageId: source?.source_message_id || null,
+    taskId: source?.id || null,
     payload: {
-      freedTaskId: task.id,
-      title: task.title,
-      idleL3Count: idle,
-      pendingAssignment: pending,
-      sourceMessageId: task.source_message_id || null,
-      sourceUserId: task.source_user_id || null,
+      ...snapshot,
+      title: source?.title || null,
+      sourceMessageId: source?.source_message_id || null,
+      sourceUserId: source?.source_user_id || null,
     },
   });
+  return { released, enqueued: true };
 }
 
 function assertTarget(type, id) {
@@ -224,7 +300,7 @@ function isL2OwnResponsibility(task) {
   return task.task_type === "assist_l2" || task.target_type === "l2_session" || task.execution_agent_type === "dsh_l3";
 }
 
-const L3_DISPATCH_HINT = "任务已指派但尚未绑定 L3。立刻 dsh_l3，prompt 第一行写 TASK_ID: <任务ID>。见到 execution_agent_id 之前不要对成员说已经派人干活。";
+const L3_DISPATCH_HINT = "任务已定，系统会启动 L3。见到 execution_agent_id 之前不要对成员说已经派人干活。";
 
 export function withL3DispatchGate(task, extra = {}) {
   if (!task) return extra;
@@ -607,7 +683,7 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
       JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=?
       WHERE c.user_id=? AND c.revoked_at IS NULL ORDER BY c.last_seen_at DESC LIMIT 1`, [task.project_id, actor.id]) : [];
     if (actor.type === "human_member" && mode === "member_connector" && !connector) {
-      // 区分「没有连接器 / 连接器离线 / 在线但未绑定当前项目」，提示成员该去做什么。
+      // 区分「没有本地执行器 / 本地执行器离线 / 在线但未绑定当前项目」，提示成员该去做什么。
       const [state] = await query(conn, `SELECT COUNT(*) total,
         SUM(c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND)) online
         FROM connectors c WHERE c.user_id=? AND c.revoked_at IS NULL`, [actor.id]);
@@ -631,7 +707,7 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
       if (!existingAdapter) {
         const [binding] = await query(conn, `SELECT cp.policy,cp.allow_git_push FROM connector_projects cp
           WHERE cp.connector_id=? AND cp.project_id=?`, [connector.id, task.project_id]);
-        if (!binding) throw new HttpError(409, "连接器未关联当前项目");
+        if (!binding) throw new HttpError(409, "本地执行器未关联当前项目");
         const instructionRefs = await documentsForTaskInstruction(conn, task.project_id, task.document_refs, task.folder_refs);
         await query(conn, `INSERT INTO connector_tasks
           (id,agent_task_id,connector_id,project_id,thread_id,message_id,requested_by,assigned_to,member_id_snapshot,instruction,policy,allow_git_push,status,progress)
@@ -1135,6 +1211,9 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
     return { ...await getTask(conn, run.id), run_id: run.run_id };
   });
   if (result?.origin_thread_id) {
+    const dispatch = result.target_type === "l2_session"
+      ? await l3DispatchSnapshot(db, result.target_id)
+      : { idleL3Count: 0, pendingAssignment: 0, pendingTasks: [] };
     await enqueueCoordinatorEvent(db, {
       threadId: result.origin_thread_id,
       kind: "child_result",
@@ -1150,9 +1229,11 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
         failureReason: result.status === "completed" ? null : (result.progress || result.result_summary || "未回报结果"),
         sourceMessageId: result.source_message_id || null,
         sourceUserId: result.source_user_id || null,
+        idleL3Count: dispatch.idleL3Count,
+        pendingAssignment: dispatch.pendingAssignment,
+        pendingTasks: dispatch.pendingTasks,
       },
     });
-    await enqueueL3Idle(db, result);
     publishWork(db, result.origin_thread_id);
   }
   return result;
@@ -1254,8 +1335,16 @@ export async function recoverInterruptedDshL3Executions(db) {
         AND EXISTS (SELECT 1 FROM agent_task_execution_runs r WHERE r.task_id=t.id AND r.status='interrupted')`);
   });
   for (const threadId of new Set(runs.map((row) => row.origin_thread_id).filter(Boolean))) publishWork(db, threadId);
+  const dispatchByThread = new Map();
   for (const run of runs) {
     if (!run.origin_thread_id) continue;
+    if (!dispatchByThread.has(run.origin_thread_id)) {
+      const [session] = await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [run.origin_thread_id]);
+      dispatchByThread.set(run.origin_thread_id, session
+        ? await l3DispatchSnapshot(db, session.session_id)
+        : { idleL3Count: 0, pendingAssignment: 0, pendingTasks: [] });
+    }
+    const dispatch = dispatchByThread.get(run.origin_thread_id);
     await enqueueCoordinatorEvent(db, {
       threadId: run.origin_thread_id,
       kind: "child_result",
@@ -1269,6 +1358,9 @@ export async function recoverInterruptedDshL3Executions(db) {
         failureReason: "服务重启，任务级 Agent 中断，等待 L2 重新评估",
         sourceMessageId: run.source_message_id || null,
         sourceUserId: run.source_user_id || null,
+        idleL3Count: dispatch.idleL3Count,
+        pendingAssignment: dispatch.pendingAssignment,
+        pendingTasks: dispatch.pendingTasks,
       },
     });
   }

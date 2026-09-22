@@ -4,7 +4,7 @@ import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";
 import { enqueueCoordinatorEvent } from "./coordinator-events.js";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
-import { folderRootKind } from "./project-library.js";
+import { folderRootKind, latestVersionsByFolderRoots } from "./project-library.js";
 
 const targetTypes = new Set(["human_member", "l2_session"]);
 const FOREIGN_TASK_AUTH = "非本 L2 责任的任务需要人类成员账号明确授权";
@@ -136,6 +136,16 @@ async function assertFolderRefs(conn, projectId, refs) {
       throw new HttpError(400, "任务只能引用本项目正式文件中的文件夹");
   }
   return ids;
+}
+
+async function stripDocumentRefsCoveredByFolders(conn, projectId, documentRefs, folderRefs) {
+  if (!documentRefs.length || !folderRefs.length) return documentRefs;
+  const versionsByFolder = await latestVersionsByFolderRoots(conn, projectId, folderRefs);
+  const covered = new Set();
+  for (const rows of versionsByFolder.values()) {
+    for (const row of rows) covered.add(row.version_id);
+  }
+  return documentRefs.filter((id) => !covered.has(id));
 }
 
 async function documentRefLabels(conn, refs) {
@@ -340,8 +350,13 @@ export async function createTask(db, input) {
       const [target] = await query(conn, "SELECT user_id FROM members WHERE project_id=? AND user_id=? AND role<>'viewer'", [input.projectId, input.targetId]);
       if (!target) throw new HttpError(400, "任务目标不是当前项目的可执行成员");
     }
-    const documentRefs = await assertDocumentRefs(conn, input.projectId, input.documentRefs ?? input.refs);
     const folderRefs = await assertFolderRefs(conn, input.projectId, input.folderRefs);
+    const documentRefs = await stripDocumentRefsCoveredByFolders(
+      conn,
+      input.projectId,
+      await assertDocumentRefs(conn, input.projectId, input.documentRefs ?? input.refs),
+      folderRefs,
+    );
     let targetId = input.targetId || null;
     if (input.targetType === "l2_session") {
       if (input.originThreadId) {

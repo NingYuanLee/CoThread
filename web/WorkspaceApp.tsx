@@ -404,7 +404,13 @@ export function WorkspaceApp() {
     }
     if (task.execution_agent_type === "human_self") return memberName(task.claimed_by_id || task.target_id) || "成员本人";
     if (task.execution_agent_type === "human_connector") return "本地连接器";
-    if (task.created_by_type === "l2_session" || task.target_type === "l2_session") {
+    if (task.target_type === "human_member") {
+      if (task.status === "awaiting_acceptance") return "待责任成员确认";
+      if (task.status === "pending_start") return "待连接器启动";
+      if (endedTask(task.status) && !task.execution_agent_type) return "责任成员未执行";
+      return "待成员执行";
+    }
+    if (task.target_type === "l2_session") {
       return endedTask(task.status)
         ? "小祥（未交给任务级Agent（L3））"
         : "待任务级Agent（L3）接单";

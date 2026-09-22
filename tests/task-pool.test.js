@@ -848,4 +848,24 @@ test("human tasks can only reference official document versions", async () => {
   assert.match(composeTaskInstruction(withFolder, [], [{ title: "正式文件 / 验收资料" }]),
     /引用文件夹：\n- 正式文件 \/ 验收资料[\s\S]*子目录和文件/);
   assert.doesNotMatch(composeTaskInstruction(withFolder, [], [{ title: "正式文件 / 验收资料" }]), /引用文档/);
+
+  const nestedDoc = await service.uploadOfficialDocument(users[0], project.id, {
+    folderId, title: "细则", filename: "detail.md", mime: "text/markdown",
+    contentBase64: Buffer.from("# 细则", "utf8").toString("base64"),
+  });
+  const outsideFolder = randomUUID();
+  await query(db, "INSERT INTO document_folders(id,project_id,parent_id,name,folder_kind) VALUES(?,?,?,?,'project_official')",
+    [outsideFolder, project.id, officialRoot.id, "另册"]);
+  const outsideDoc = await service.uploadOfficialDocument(users[0], project.id, {
+    folderId: outsideFolder, title: "另册说明", filename: "other.md", mime: "text/markdown",
+    contentBase64: Buffer.from("# 另册", "utf8").toString("base64"),
+  });
+  const stripped = await formalTask(users[1].id, {
+    title: "目录优先",
+    folderRefs: [folderId],
+    documentRefs: [nestedDoc.id, outsideDoc.id, uploaded.id],
+  });
+  assert.deepEqual(stripped.folder_refs, [folderId]);
+  assert.deepEqual(stripped.document_refs, [outsideDoc.id, uploaded.id]);
+  assert.equal(stripped.document_refs.includes(nestedDoc.id), false);
 });

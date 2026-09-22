@@ -458,7 +458,14 @@ function taskExecutorName(
   }
   if (task.executor_type === "human_self") return "成员本人";
   if (task.executor_type === "human_connector") return "本地连接器";
-  if (task.created_by_type === "l2_session" || task.target_type === "l2_session") {
+  if (task.target_type === "human_member") {
+    const status = task.task_status || task.status || "";
+    if (status === "awaiting_acceptance") return "待责任成员确认";
+    if (status === "pending_start") return "待连接器启动";
+    if (ENDED.has(status) && !task.executor_id) return "责任成员未执行";
+    return "待成员执行";
+  }
+  if (task.target_type === "l2_session") {
     const status = task.task_status || task.status || "";
     if (ENDED.has(status)) return "小祥（未交给任务级Agent（L3））";
     return "待任务级Agent（L3）接单";
@@ -764,7 +771,8 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   const selectedCoordinator = data?.coordinators.find((item) => item.id === selectedThreadId);
   const people = data?.humanAgents || [];
   const threadPool = useMemo(() => (data?.taskPool || []).filter((task) =>
-    task.origin_thread_id === selectedThreadId && (!task.executor_type || task.executor_type === "dsh_l3")), [data, selectedThreadId]);
+    task.origin_thread_id === selectedThreadId
+    && (task.target_type === "l2_session" || task.executor_type === "dsh_l3")), [data, selectedThreadId]);
   const selectedTasks = useMemo(() => data?.executors.filter((task) =>
     task.thread_id === selectedThreadId && task.executor_type === "dsh_l3"
     && (liveExecutor(task) || !!task.executor_id)) || [], [data, selectedThreadId]);

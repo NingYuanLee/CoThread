@@ -9,7 +9,6 @@ import { acquireCoordinatorRuntime, discardCoordinatorRuntime, parkCoordinatorRu
 import { discussionText } from "../shared/context.js";
 import { bindDshL3Execution, settleDshL3Execution } from "./task-pool.js";
 import { persistL3RunCheckpoint } from "./l3-session.js";
-import { latestVersionsByFolderRoots } from "./project-library.js";
 
 const brief = (value, limit = 1200) =>
   typeof value === "string" ? value.slice(0, limit) : null;
@@ -19,13 +18,15 @@ const isMentioned = (body, value) => new RegExp(
   `(^|[^\\p{L}\\p{N}_@])@${escapePattern(value)}(?=$|[^\\p{L}\\p{N}_@])`, "u",
 ).test(body);
 
-function messageRecord(message, members, versions, quoteIds, folders, folderFiles) {
+function messageRecord(message, members, versions, quoteIds, folders) {
   const assistant = message.source === "assistant";
   const mentions = members.filter((member) =>
     member.aliases.some((alias) => isMentioned(message.body, alias)));
+  // Keep folderRefs as folders only. Expanding them into files made L2 re-attach
+  // every document under the folder when creating tasks.
   const seen = new Set();
   const files = [];
-  for (const id of [...parseRefs(message.refs), ...folderFiles]) {
+  for (const id of parseRefs(message.refs)) {
     if (seen.has(id)) continue;
     seen.add(id);
     files.push(versions.get(id) || { versionId: id });
@@ -105,14 +106,12 @@ export async function dispatchContext(db, thread, job) {
       [thread.project_id, ...folderIds])
     : [];
   const folders = new Map(folderRows.map((folder) => [folder.id, { folderId: folder.id, name: folder.name }]));
-  const versionsByFolder = await latestVersionsByFolderRoots(db, thread.project_id, folderIds);
   const records = routedMessages.map((message) => messageRecord(
     message,
     members,
     versions,
     quoteIds,
     folders,
-    message.folder_refs.flatMap((id) => (versionsByFolder.get(id) || []).map((row) => row.version_id)),
   ));
   const memberContext = [
     ...memberRows.map((member) => ({ id: member.id, name: member.name,

@@ -19,6 +19,7 @@ test("the L2 runtime is composed from DSH AgentTeam plugins", async () => {
     assert.ok(patch.includes(plugin), plugin);
   for (const tool of ["create_task", "update_task", "ask_task_question", "report_task", "recover_task", "inspect_task"])
     assert.ok(tools.includes(`["${tool}"`), tool);
+  assert.match(tools, /只传 folderRefs，不要把文件夹展开成 documentRefs|不要把文件夹展开成 documentRefs/);
   assert.doesNotMatch(tools, /wait_for_updates|finish_turn|post_message/);
   assert.doesNotMatch(tools, /prepare_local_codex/);
   assert.match(tools, /ctx\.tools\.guard/);
@@ -79,6 +80,7 @@ test("stable L2 and L3 roles live only in the system prompt plugin", async () =>
   assert.match(SYSTEM_PROMPTS.l2.prompt, /本迭代锁定/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /没有空闲 L3 时禁止创建/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /不要对成员说已经派人干活/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /只传 folderRefs，不要把目录下文件展开进 documentRefs/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /自己责任/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /人类成员账号/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /send_message 当面问/);

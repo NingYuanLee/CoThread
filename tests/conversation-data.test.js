@@ -6,6 +6,7 @@ import {query} from '../server/db.js';
 import {Service} from '../server/service.js';
 import {createAgentTools} from '../server/agent-tools.js';
 import {discussionText} from '../shared/context.js';
+import {dispatchContext} from '../server/coordinator.js';
 let database,service,user,outsider,project,thread,other,a,b,c;
 before(async()=>{
  database=await testDatabase();service=new Service(database.db);
@@ -37,6 +38,15 @@ test('folder references stay as folders in chat and can be listed later',async()
  assert.deepEqual(saved.folder_refs,[folderId]);
  assert.deepEqual(saved.refs,[]);
  assert.match(discussionText(saved),new RegExp(folderId));
+ const agentContext=await dispatchContext(database.db,thread,{
+  thread_id:thread.id,sequence:posted.sequence,message_id:posted.id,body:posted.body,
+ });
+ const record=agentContext.promptContext.latestMessage?.messageId===posted.id
+  ? agentContext.promptContext.latestMessage
+  : agentContext.promptContext.history.messages.find(m=>m.messageId===posted.id);
+ assert.ok(record);
+ assert.equal(record.folders.some(f=>f.folderId===folderId),true);
+ assert.deepEqual(record.files,[]);
  await assert.rejects(service.postMessage(user,thread.id,{body:'外项目',folderRefs:[randomUUID()]}),e=>e.status===400);
 });
 test('references persist once, show bounded previews and support full original retrieval',async()=>{

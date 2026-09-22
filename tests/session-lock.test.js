@@ -13,7 +13,7 @@ import {
 } from "../server/agent.js";
 import { acquireSessionLock, discussionHasActiveCoordinator } from "../server/session-lock.js";
 
-test("L2 runtime does not compact below 900K, and a compact RPC failure does not kill the turn", async () => {
+test("L2 runtime does not compact below the auto-compact threshold, and a compact RPC failure does not kill the turn", async () => {
   const database = await testDatabase(), db = database.db, service = new Service(db);
   let runtime;
   try {
@@ -46,7 +46,7 @@ test("L2 runtime does not compact below 900K, and a compact RPC failure does not
     await runtime.close(true);
     runtime = undefined;
     methods.length = 0;
-    used = 900_000;
+    used = 400_000;
     await query(db, "UPDATE agent_sessions SET seen_sequence=0,checkpoint=NULL WHERE thread_id=?", [thread.id]);
     await service.postMessage(user, thread.id, { body: "@小祥 补一条以便触发观察后压缩" });
     const next = await service.context(user, thread.id);

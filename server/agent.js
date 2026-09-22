@@ -327,7 +327,7 @@ export async function openAgentRuntime(
     agentRuntimePatch(),
   );
   const configuredModel = modelConfig(role);
-  await writeFile(modelPatch, dshModelPatch(configuredModel));
+  await writeFile(modelPatch, dshModelPatch(configuredModel, role));
   // Never inherit database or unrelated application secrets into the Agent process.
   const env = {};
   for (const key of [
@@ -460,7 +460,7 @@ export async function openAgentRuntime(
       if (!job.parent_message_id) modelMessages = undefined;
       const stats = await request("observe", { messages: [discussionText(message)] });
       seenSequence = message.sequence;
-      if (autoCompact && stats.used >= AUTO_COMPACT_AT) {
+      if (autoCompact && stats.used >= (stats.autoCompactAt ?? AUTO_COMPACT_AT)) {
         agentStage = "compact";
         await compactSafely();
       }

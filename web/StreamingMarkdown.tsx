@@ -1,7 +1,7 @@
 import React,{memo,useEffect,useRef,useState} from 'react';
-import Markdown from 'react-markdown';
+import Markdown,{type Components} from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-const components={
+const components:Components={
  img:()=> <span>（图片链接）</span>,
  a:({href,children})=><a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
 };

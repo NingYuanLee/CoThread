@@ -7,7 +7,6 @@ import {
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { parentAgentOptionsForDelegation } from "@deepseek-ai/dsh-subagent";
 import { measureContext } from "./context-meter.mjs";
-import { AUTO_COMPACT_AT } from "../shared/context.js";
 import { repairContext, transcriptBlocks } from "./repair-context.mjs";
 export { Config, apply } from "@deepseek-ai/dsh-sdk-jsonrpc-server";
 export const name = "cothread-sdk-server";
@@ -27,7 +26,7 @@ async function compactMeasuredSession(server, agent, params) {
     return { before: before.used, after: before.used, changed: false, reason: "already_small" };
   let result, reason;
   try {
-    result = !params.automatic || before.used >= AUTO_COMPACT_AT
+    result = !params.automatic || before.used >= before.autoCompactAt
       ? await server.ctx.compaction.compactNow(agent, AbortSignal.timeout(240000)) : null;
   } catch (error) {
     let cause = error, noReduction = false;
@@ -138,8 +137,11 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
         }),
         { surfaceOp: "append" },
       );
-      if (params.autoCompact && measureContext(this.ctx, agent.session).used >= AUTO_COMPACT_AT)
-        await this.ctx.compaction.compactNow(agent, AbortSignal.timeout(240000));
+      if (params.autoCompact) {
+        const pressure = measureContext(this.ctx, agent.session);
+        if (pressure.used >= pressure.autoCompactAt)
+          await this.ctx.compaction.compactNow(agent, AbortSignal.timeout(240000));
+      }
     }
   }
   if (method === "cothread/compact") return compactMeasuredSession(this, agent, params);

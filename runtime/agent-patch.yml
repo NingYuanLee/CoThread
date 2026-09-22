@@ -20,8 +20,8 @@
     - id: compaction-basic
       name: '@deepseek-ai/dsh-compaction-basic'
       config:
-        thresholdRatio: 0.9
-        retainTokens: 64000
+        thresholdRatio: 0.7
+        retainTokens: 48000
         maxTokens: 8192
     - id: web
       name: '@deepseek-ai/dsh-web'

@@ -30,7 +30,7 @@ export function dshComposition(level) {
   const dynamicPatch = level === "l1" ? l1RuntimePatch() : agentRuntimePatch();
   const layers = [
     ...profile.layers.map((layer) => layer.patches),
-    loadYaml(dshModelPatch(inspectionModel)),
+    loadYaml(dshModelPatch(inspectionModel, level === "l1" ? "knowledge" : "coordinator")),
     loadOverlayPatches("cothread", assetPath(staticPatch)),
     loadYaml(dynamicPatch),
   ];

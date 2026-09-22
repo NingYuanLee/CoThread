@@ -1,4 +1,4 @@
-import { CONTEXT_LIMIT, AUTO_COMPACT_AT } from "../shared/context.js";
+import { contextBudgetFromEnv } from "../shared/context.js";
 
 export function measureContext(ctx, session) {
   const measured = ctx.tokenMeter.measure(session);
@@ -37,12 +37,13 @@ export function measureContext(ctx, session) {
       lastCompactedAt = new Date(event.time).toISOString();
     }
   }
+  const budget = contextBudgetFromEnv();
   return {
     used: measured.totalTokens,
     estimated:
       measured.baseline.kind !== "usage" || measured.surfaceDeltaTokens !== 0,
-    limit: CONTEXT_LIMIT,
-    autoCompactAt: AUTO_COMPACT_AT,
+    limit: budget.limit,
+    autoCompactAt: budget.autoCompactAt,
     categories,
     compactions,
     lastCompactedAt,

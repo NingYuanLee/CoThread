@@ -1,3 +1,9 @@
+export const CONTEXT_LIMITS: Readonly<{
+  coordinator: number;
+  executor: number;
+  knowledge: number;
+}>;
+export const AUTO_COMPACT_RATIO: number;
 export const CONTEXT_LIMIT: number;
 export const AUTO_COMPACT_AT: number;
 export const CONTEXT_CATEGORIES: {
@@ -5,6 +11,13 @@ export const CONTEXT_CATEGORIES: {
   label: string;
   color: string;
 }[];
+export type ContextBudget = {
+  scope: "coordinator" | "executor" | "knowledge";
+  limit: number;
+  autoCompactAt: number;
+};
+export function contextBudget(scopeOrLevel?: string): ContextBudget;
+export function contextBudgetFromEnv(env?: NodeJS.ProcessEnv): ContextBudget;
 export type ContextUsage = {
   limit: number;
   autoCompactAt: number;

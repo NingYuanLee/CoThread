@@ -5,6 +5,7 @@ import {
   modelResponse,
   modelResponseStream,
   modelConfig,
+  modelContextWindow,
   modelOutputLimit,
   normalizeModelBaseUrl,
   redactSecrets,
@@ -85,14 +86,17 @@ test("compatible request and DSH route use the configured model", () => withMode
   assert.match(patch, /reasoning: high/);
   assert.match(patch, /baseURL: "https:\/\/example\.test\/v1"/);
   assert.match(patch, /id: "example-model"/);
-  assert.match(patch, /contextWindow: 1048576/);
+  assert.match(patch, /contextWindow: 1000000/);
   assert.match(patch, /maxTokens: 131072/);
   assert.match(patch, /reasoningEfforts:\s+off: none\s+minimal: minimal\s+low: low\s+medium: medium\s+high: high\s+xhigh: xhigh\s+max: max/);
   assert.equal(patch.includes("secret-value"), false);
   assert.equal(redactSecrets("failed secret-value"), "failed [REDACTED]");
 }));
 
-test("model capacity uses a 1M context and model-specific output limits", () => {
+test("model capacity uses tiered context windows and model-specific output limits", () => {
+  assert.equal(modelContextWindow("coordinator"), 512000);
+  assert.equal(modelContextWindow("executor"), 1000000);
+  assert.equal(modelContextWindow("knowledge"), 1000000);
   assert.equal(modelOutputLimit({ model: "deepseek-flash" }), 393216);
   assert.equal(modelOutputLimit({ model: "gpt-6-astra" }), 131072);
 });

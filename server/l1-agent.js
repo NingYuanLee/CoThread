@@ -10,8 +10,10 @@ import { dshModelPatch, modelConfig, modelOutputLimit, redactSecrets } from "./m
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { l1RuntimePatch } from "./dsh-runtime-config.js";
 import { L1_MAINTENANCE_TASKS, normalizeL1Task } from "../shared/agent-label.js";
-import { AUTO_COMPACT_AT } from "../shared/context.js";
+import { contextBudget } from "../shared/context.js";
 import { saveVisualArtifact } from "./visual-artifacts.js";
+
+const L1_CONTEXT_BUDGET = contextBudget("knowledge");
 
 export { L1_MAINTENANCE_TASKS, normalizeL1Task };
 
@@ -86,7 +88,7 @@ async function openL1Harness(db, projectId, session, scope, options = {}) {
   await writeFile(runtimePatch, l1RuntimePatch());
   const configuredModel = options.model || modelConfig("knowledge");
   const capabilityProfile = await loadAgentCapabilityProfile(db, "l1");
-  await writeFile(modelPatch, dshModelPatch(configuredModel));
+  await writeFile(modelPatch, dshModelPatch(configuredModel, "knowledge"));
   const env = {};
   for (const key of ["SystemRoot", "WINDIR", "PATH", "Path", "TEMP", "TMP", "COMSPEC", "PATHEXT", "LANG"])
     if (process.env[key]) env[key] = process.env[key];
@@ -169,7 +171,7 @@ export async function runL1Task(db, projectId, task, input, schema, options = {}
       const opened = await openL1Harness(db, projectId, session, scope, options);
       harness = opened.harness;
       const pressure = await sampleContextStats(harness, session.session_id);
-      if (pressure?.used >= AUTO_COMPACT_AT) {
+      if (pressure?.used >= (pressure.autoCompactAt ?? L1_CONTEXT_BUDGET.autoCompactAt)) {
         await beginPhase("compact_context");
         try { await requestCompact(harness, session.session_id, true); }
         catch (error) {
@@ -236,7 +238,7 @@ export async function compactL1Session(db, projectId, task, options = {}) {
         harness = null;
         return { before: used, after: used, changed: false, reason: "already_small" };
       }
-      const result = !options.automatic || used >= AUTO_COMPACT_AT
+      const result = !options.automatic || used >= (before?.autoCompactAt ?? L1_CONTEXT_BUDGET.autoCompactAt)
         ? await requestCompact(harness, session.session_id, !!options.automatic)
         : { before: used, after: used, changed: false };
       const after = await sampleContextStats(harness, session.session_id);

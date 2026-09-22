@@ -11,6 +11,7 @@ import {
   contextUsage,
   pendingMessages,
   AUTO_COMPACT_AT,
+  CONTEXT_LIMIT,
 } from "../shared/context.js";
 
 test("context accounting excludes already retained discussion and native replies", () => {
@@ -35,15 +36,15 @@ test("context accounting excludes already retained discussion and native replies
     messages,
     replies,
   );
-  assert.equal(usage.limit, 1_000_000);
-  assert.equal(usage.autoCompactAt, 900_000);
+  assert.equal(usage.limit, CONTEXT_LIMIT);
+  assert.equal(usage.autoCompactAt, AUTO_COMPACT_AT);
   assert.ok(usage.used > 200);
   assert.equal(usage.categories.find((c) => c.key === "summary").tokens, 50);
   assert.equal(contextUsage(null, [], []).used, 0);
 });
 
 test(
-  "native context survives resume, manual compaction reduces history, and 900K pressure auto-compacts",
+  "native context survives resume, manual compaction reduces history, and pressure auto-compacts",
   { timeout: 120000 },
   async () => {
     const home = await mkdtemp(join(tmpdir(), "cothread-context-test-"));
@@ -74,7 +75,7 @@ test(
     const patch = join(home, "test.yml");
     await writeFile(
       patch,
-      `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n    - id: test-sdk-server\n      name: ${JSON.stringify(pathToFileURL(resolve("runtime/sdk-resume.mjs")).href)}\n      inject: [sdkAppStartup, loader]\n    - id: project-tools\n      name: ${JSON.stringify(pathToFileURL(resolve("runtime/cothread-tools.mjs")).href)}\n- id: llm-deepseek\n  config:\n    baseURL: 'http://127.0.0.1:${server.address().port}/v1'\n    apiKeyEnv: COTHREAD_TEST_KEY\n    defaultContextWindow: 1000000\n    models: [{id: context-test, contextWindow: 1000000}]\n`,
+      `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n    - id: test-sdk-server\n      name: ${JSON.stringify(pathToFileURL(resolve("runtime/sdk-resume.mjs")).href)}\n      inject: [sdkAppStartup, loader]\n    - id: project-tools\n      name: ${JSON.stringify(pathToFileURL(resolve("runtime/cothread-tools.mjs")).href)}\n- id: llm-deepseek\n  config:\n    baseURL: 'http://127.0.0.1:${server.address().port}/v1'\n    apiKeyEnv: COTHREAD_TEST_KEY\n    defaultContextWindow: ${CONTEXT_LIMIT}\n    models: [{id: context-test, contextWindow: ${CONTEXT_LIMIT}}]\n`,
     );
     const env = {};
     for (const key of [

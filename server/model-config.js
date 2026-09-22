@@ -1,10 +1,15 @@
+import { CONTEXT_LIMITS } from "../shared/context.js";
+
 const MODEL_SCOPES = Object.freeze({
   knowledge: "KNOWLEDGE_MODEL",
   coordinator: "COORDINATOR_MODEL",
   executor: "EXECUTOR_MODEL",
 });
 const REASONING_EFFORTS = new Set(["off", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
-const MODEL_CONTEXT_WINDOW = 1024 * 1024;
+
+export function modelContextWindow(scope = "coordinator") {
+  return CONTEXT_LIMITS[scope] || CONTEXT_LIMITS.coordinator;
+}
 
 export function modelOutputLimit(config) {
   return /deepseek/iu.test(config?.model || "")
@@ -175,12 +180,13 @@ export function modelUsage(usage) {
   } : null;
 }
 
-export function dshModelPatch(config = modelConfig("executor")) {
+export function dshModelPatch(config = modelConfig("executor"), scope = "executor") {
   const configuredEffort = config.reasoningEffort || "medium";
   const reasoning = ["off", "none"].includes(configuredEffort)
     ? "off" : configuredEffort === "ultra" ? "max" : configuredEffort;
   const maxReasoning = configuredEffort === "ultra" ? "ultra" : "max";
-  return `- id: llm-deepseek\n  disabled: true\n- insert:\n    - id: llm-cothread-compatible\n      name: '@deepseek-ai/dsh-llm-pi-ai'\n      config:\n        providers:\n          cothread-compatible:\n            displayName: CoThread\n            apiKeyEnv: MODEL_API_KEY\n            api: openai-responses\n            baseURL: ${JSON.stringify(config.baseUrl)}\n            reasoning: ${reasoning}\n            models:\n              - id: ${JSON.stringify(config.model)}\n                name: ${JSON.stringify(config.model)}\n                contextWindow: ${MODEL_CONTEXT_WINDOW}\n                maxTokens: ${modelOutputLimit(config)}\n                reasoningEfforts:\n                  off: none\n                  minimal: minimal\n                  low: low\n                  medium: medium\n                  high: high\n                  xhigh: xhigh\n                  max: ${maxReasoning}\n`;
+  const window = modelContextWindow(scope);
+  return `- id: llm-deepseek\n  disabled: true\n- insert:\n    - id: llm-cothread-compatible\n      name: '@deepseek-ai/dsh-llm-pi-ai'\n      config:\n        providers:\n          cothread-compatible:\n            displayName: CoThread\n            apiKeyEnv: MODEL_API_KEY\n            api: openai-responses\n            baseURL: ${JSON.stringify(config.baseUrl)}\n            reasoning: ${reasoning}\n            models:\n              - id: ${JSON.stringify(config.model)}\n                name: ${JSON.stringify(config.model)}\n                contextWindow: ${window}\n                maxTokens: ${modelOutputLimit(config)}\n                reasoningEfforts:\n                  off: none\n                  minimal: minimal\n                  low: low\n                  medium: medium\n                  high: high\n                  xhigh: xhigh\n                  max: ${maxReasoning}\n`;
 }
 
 export function redactSecrets(value, env = process.env) {

@@ -4,6 +4,7 @@ import { useAgentLiveOutput } from "./useAgentLiveOutput";
 import { continuesCoordinatorTurn, coordinatorTurnId, isExecutorReply, isLastCoordinatorTurnPost, liveCoordinatorDraft, taskTimeline, usageReplyForMessage } from "./chat-timeline";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import {
+  AGENT_L2_MEMBER,
   AGENT_MEMBER,
   SUMMARY_REQUEST,
   mentionsAgent,
@@ -150,7 +151,7 @@ export function WorkspaceApp() {
       ? JSON.parse(record.usage_stats) : record?.usage_stats || {}; } catch {}
     return usage.model
       ? `${usage.model} · ${labelReasoningEffort(usage.reasoningEffort)}`
-      : detail?.members.find((member) => member.id === AGENT_MEMBER.id)?.motto || AGENT_MEMBER.motto;
+      : detail?.members.find((member) => member.id === AGENT_L2_MEMBER.id)?.motto || "";
   };
   const readThread = async (id: string, signal: AbortSignal): Promise<Thread> => {
     const previous = threadCache.current.get(id);

@@ -7,13 +7,14 @@ import {agentLabel} from './agent-label';
 import type {LiveOutput} from './useAgentLiveOutput';
 type Event={id:string;tool:string;status:string;input:string;finished_at:string|null;screenshotUrl?:string|null};
 const modelPhase=(tool:string)=>['thinking','assistant_text','assistant_final'].includes(tool);
-export function AgentActivity({threadId,messageId,events,output,status,hasFinal,versions,threads,progress}:{
+export function AgentActivity({threadId,messageId,events,output,status,hasFinal,versions,threads,progress,expanded=false}:{
  threadId:string;messageId:string;events:Event[];output?:LiveOutput;status:string;hasFinal:boolean;
  versions?:{id:string;filename:string;version:number}[];threads?:{id:string;title:string}[];
- progress?:string|null;
+ progress?:string|null;expanded?:boolean;
 }){
  const running=['queued','running'].includes(status);
  const [open,setOpen]=useState(false);
+ const revealed=expanded||open;
  const [texts,setTexts]=useState<Record<string,string>>({});
  const [error,setError]=useState('');
  const ordered=[...events].sort((a,b)=>BigInt(a.id)<BigInt(b.id)?-1:1);
@@ -22,12 +23,12 @@ export function AgentActivity({threadId,messageId,events,output,status,hasFinal,
   if(output?.event_id&&(output.content||output.reasoning))setTexts(previous=>({...previous,[output.event_id!]:output.content||output.reasoning}));
  },[output]);
  useEffect(()=>{
-  if(!open||!events.length)return;const controller=new AbortController();setError('');
+  if(!revealed||!events.length)return;const controller=new AbortController();setError('');
   fetchJson(`/api/threads/${threadId}/replies/${messageId}/activity`,{signal:controller.signal})
    .then((rows:{id:string;output:string}[])=>{if(!controller.signal.aborted)setTexts(Object.fromEntries(rows.map(r=>[r.id,r.output])));})
    .catch(e=>{if(!controller.signal.aborted)setError(e.message);});
   return()=>controller.abort();
- },[open,threadId,messageId,revision]);
+ },[revealed,threadId,messageId,revision]);
  const last=ordered.at(-1);
  const streaming=output?.event_id && (!last||BigInt(output.event_id)>=BigInt(last.id));
  const active=status==='running';
@@ -42,10 +43,10 @@ export function AgentActivity({threadId,messageId,events,output,status,hasFinal,
  const hasContent=remaining.some(e=>!modelPhase(e.tool)||e.status!=='running'||!!texts[e.id]||String(output?.event_id)===String(e.id)&&!!(output?.reasoning||output?.content))||!!extraLive;
  const statusLine=<>
    <span className={`agent-current-step${changing?' agent-step-active':''}`} aria-live="polite" aria-atomic="true">{current}</span>
-   {hasContent&&<svg className="agent-status-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={open?'m3 7 3-3 3 3':'m4.5 3 3 3-3 3'}/></svg>}
+   {!expanded&&hasContent&&<svg className="agent-status-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={open?'m3 7 3-3 3 3':'m4.5 3 3 3-3 3'}/></svg>}
   </>;
- return <div className="agent-trace" data-open={open&&hasContent}>
-  {open&&hasContent&&<div className="agent-activity-items">
+ return <div className="agent-trace" data-open={revealed&&hasContent}>
+  {revealed&&hasContent&&<div className="agent-activity-items">
    {remaining.map(e=>{
     if(modelPhase(e.tool)){
      const live=String(output?.event_id)===String(e.id)?(e.tool==='thinking'?output?.reasoning:output?.content):undefined;
@@ -60,6 +61,6 @@ export function AgentActivity({threadId,messageId,events,output,status,hasFinal,
    {!!output?.truncated&&<small>当前阶段的展示内容已达到长度上限。</small>}
    {error&&<p role="status">{error}</p>}
   </div>}
-  {hasContent?<button className="agent-status-line" type="button" aria-expanded={open} title={`${current}；点击展开或收起过程`} onClick={()=>setOpen(!open)}>{statusLine}</button>:<div className="agent-status-line">{statusLine}</div>}
+  {expanded||!hasContent?<div className="agent-status-line">{statusLine}</div>:<button className="agent-status-line" type="button" aria-expanded={open} title={`${current}；点击展开或收起过程`} onClick={()=>setOpen(!open)}>{statusLine}</button>}
  </div>;
 }

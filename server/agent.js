@@ -20,6 +20,7 @@ import { dshModelPatch, modelConfig, modelOutputLimit, redactSecrets } from "./m
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { agentRuntimePatch } from "./dsh-runtime-config.js";
 import { persistL3ContextStats } from "./l3-session.js";
+import { acquireSessionLock } from "./session-lock.js";
 
 const running = new Map();
 const coordinatorRuntimes = new Map();

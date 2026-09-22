@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 const DIALOG_OUT_MS = 150;
 
@@ -141,7 +142,7 @@ export function ModalBackdrop({
     const timer = window.setTimeout(finish, DIALOG_OUT_MS + 40);
     return () => window.clearTimeout(timer);
   }, [closing]);
-  return (
+  return createPortal(
     <div
       ref={nodeRef}
       className={`modal-backdrop ${className} ${closing ? "is-closing" : ""}`.trim()}
@@ -155,6 +156,7 @@ export function ModalBackdrop({
       }}
     >
       {typeof children === "function" ? children(requestClose) : children}
-    </div>
+    </div>,
+    document.body,
   );
 }

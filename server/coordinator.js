@@ -1,6 +1,6 @@
 import { query, transaction } from "./db.js";
 import { Service } from "./service.js";
-import { AGENT_MEMBER, mentionsAgent } from "../shared/agent-member.js";
+import { AGENT_L2_MEMBER, mentionsAgent } from "../shared/agent-member.js";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { loadProjectMembers } from "./project-memory.js";
 import { modelConfig, redactSecrets } from "./model-config.js";
@@ -35,7 +35,7 @@ function messageRecord(message, members, versions, quoteIds, folders) {
     messageId: message.id,
     sequence: String(message.sequence),
     author: assistant
-      ? { id: AGENT_MEMBER.id, name: AGENT_MEMBER.name, role: AGENT_MEMBER.role }
+      ? { id: AGENT_L2_MEMBER.id, name: AGENT_L2_MEMBER.name, role: AGENT_L2_MEMBER.role }
       : { id: message.author_id, name: message.author, role: message.author_role },
     createdAt: message.created_at,
     source: message.source,
@@ -85,7 +85,7 @@ export async function dispatchContext(db, thread, job) {
   const members = [
     ...memberRows.map((member) => ({ id: member.id, name: member.name,
       aliases: [...new Set([member.name, member.email].filter(Boolean))] })),
-    { id: AGENT_MEMBER.id, name: AGENT_MEMBER.name, aliases: [AGENT_MEMBER.name, "Agent助手"] },
+    { id: AGENT_L2_MEMBER.id, name: AGENT_L2_MEMBER.name, aliases: [AGENT_L2_MEMBER.name, "Agent助手"] },
   ];
   const versions = new Map(versionRows.map((version) => [version.version_id, {
     versionId: version.version_id, artifactId: version.artifact_id, title: version.title,
@@ -122,8 +122,8 @@ export async function dispatchContext(db, thread, job) {
         understandingThroughSequence: String(member.through_sequence || 0),
         understandingRefreshPending: BigInt(member.pending_through_sequence || 0)
           > BigInt(member.through_sequence || 0) })),
-    { id: AGENT_MEMBER.id, name: AGENT_MEMBER.name,
-      projectRole: AGENT_MEMBER.role, identityTag: AGENT_MEMBER.identity_tags[0],
+    { id: AGENT_L2_MEMBER.id, name: AGENT_L2_MEMBER.name,
+      projectRole: AGENT_L2_MEMBER.role, identityTag: AGENT_L2_MEMBER.identity_tags[0],
       signature: "", messageCount: 0, understanding: null, statementSummary: null,
       understandingThroughSequence: "0", understandingRefreshPending: false },
   ];

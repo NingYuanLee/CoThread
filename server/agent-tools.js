@@ -261,7 +261,7 @@ export function createAgentTools(
         Object.assign(result, wiki);
       } else if (["list_members", "read_member"].includes(name)) {
         result = await service.conversationMembers(user, thread.project_id, name === "read_member" ? z.string().min(1).parse(args.memberId) : undefined);
-        if (name === "read_member" && result.id !== AGENT_MEMBER.id) {
+        if (name === "read_member" && result.kind === "human") {
           const memory = await loadMemberUnderstanding(service.db, thread.project_id, result.id);
           result = { ...result, understanding: memory?.understanding || null,
             statementSummary: memory?.statementSummary || null,

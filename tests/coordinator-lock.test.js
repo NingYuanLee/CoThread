@@ -32,7 +32,7 @@ test("coordinator waits for a concurrent claim instead of declaring a queued dis
     assert.equal('content' in withQuote.messages.at(-1).quotes[0],false);
     assert.equal(withQuote.promptContext.latestMessage.mentions.length,0);
     assert.deepEqual(withQuote.promptContext.history.messages[0].mentions,
-      [{id:'agent-assistant',name:'小祥'}]);
+      [{id:'agent-l2',name:'小祥'}]);
     assert.deepEqual(withQuote.promptContext.members.map(member=>member.name),['成员','小祥']);
     await query(db, "UPDATE assistant_replies SET status='running',parent_message_id=?,progress='正在验证结果' WHERE message_id=?", [message.id,message.id]);
     await query(db, "INSERT INTO agent_events(message_id,tool,status,input) VALUES(?,'sandbox_command','running',?)",

@@ -2,7 +2,7 @@ import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { folderDisplayName, folderRootKind, libraryFolderPath } from "./document-library";
-import { AGENT_MEMBER } from "../shared/agent-member.js";
+import { AGENT_L2_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { FileIcon } from "@react-symbols/icons/utils";
 import {
@@ -141,7 +141,7 @@ export function ChatComposer({
   setFolderRefs?: React.Dispatch<React.SetStateAction<string[]>>;
   versions: FileVersion[];
   folders?: FolderRef[];
-  members: { id: string; name: string; email: string }[];
+  members: { id: string; name: string; email: string; kind?: string; avatar?: string }[];
   busy: boolean;
   onSend: () => Promise<boolean>;
   onRefresh: () => Promise<void>;
@@ -319,6 +319,7 @@ export function ChatComposer({
       return false;
     return folderRootKind(folder.id, folders) !== null;
   });
+  const mentionMembers = members.filter((m) => m.kind !== "l1" && m.id !== AGENT_MEMBER.id);
   const options = (
     trigger?.symbol === "/"
       ? [
@@ -332,11 +333,12 @@ export function ChatComposer({
             return { id: folder.id, kind: "folder" as const, label, detail: path !== label ? path : "文件夹" };
           }),
         ]
-      : members.map((m) => ({
+      : mentionMembers.map((m) => ({
           id: m.id,
           kind: "member" as const,
           label: m.name,
-          detail: m.id === AGENT_MEMBER.id ? "助理" : m.email,
+          detail: m.id === AGENT_L2_MEMBER.id ? AGENT_L2_MEMBER.identity_tags[0] : m.email,
+          avatar: m.id === AGENT_L2_MEMBER.id ? (m.avatar || AGENT_L2_MEMBER.avatar) : m.avatar,
         }))
   )
     .filter((o) =>
@@ -372,8 +374,10 @@ export function ChatComposer({
         setRefs((rows) => [...new Set([...rows, option.id])]);
       }
     }
-    const selectedMember = trigger.symbol === "@" ? members.find((m) => m.id === option.id) : undefined;
-    const mentionLabel = selectedMember && members.filter((m) => m.name === selectedMember.name).length > 1
+    const selectedMember = trigger.symbol === "@" ? mentionMembers.find((m) => m.id === option.id) : undefined;
+    const mentionLabel = selectedMember
+      && selectedMember.id !== AGENT_L2_MEMBER.id
+      && mentionMembers.filter((m) => m.name === selectedMember.name).length > 1
       ? selectedMember.email : option.label;
     const replacement = `${trigger.symbol}${mentionLabel} `;
     setMessage(
@@ -553,8 +557,8 @@ export function ChatComposer({
                   )
                 ) : (
                   <span className="mention-avatar">
-                    {option.id === AGENT_MEMBER.id ? (
-                      <img src={AGENT_MEMBER.avatar} alt="" />
+                    {"avatar" in option && option.avatar ? (
+                      <img src={option.avatar} alt="" />
                     ) : (
                       option.label[0]
                     )}

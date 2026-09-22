@@ -1404,11 +1404,12 @@ export class Service {
   async conversationMembers(user, projectId, memberId) {
     await this.member(user, id.parse(projectId));
     if (memberId === AGENT_MEMBER.id) return { id: AGENT_MEMBER.id, name: AGENT_MEMBER.name, role: AGENT_MEMBER.role, kind: "l1", identity_tags: AGENT_MEMBER.identity_tags };
+    if (memberId === AGENT_L2_MEMBER.id) return { id: AGENT_L2_MEMBER.id, name: AGENT_L2_MEMBER.name, role: AGENT_L2_MEMBER.role, kind: "l2", identity_tags: AGENT_L2_MEMBER.identity_tags };
     if (memberId) id.parse(memberId);
     const rows = await query(this.db, `SELECT u.id,u.name,m.role${memberId ? ',u.motto,u.identity_tags' : ''}
       FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=?${memberId ? ' AND u.id=?' : ''} ORDER BY u.name,u.id`, [projectId,...(memberId ? [memberId] : [])]);
     if (memberId) { if (!rows.length) fail(404,"成员不属于当前项目"); return { ...rows[0], kind: "human" }; }
-    return [...rows.map((row) => ({ ...row, kind: "human" })), { id: AGENT_MEMBER.id, name: AGENT_MEMBER.name, role: AGENT_MEMBER.role, kind: "l1" }];
+    return [...rows.map((row) => ({ ...row, kind: "human" })), { id: AGENT_L2_MEMBER.id, name: AGENT_L2_MEMBER.name, role: AGENT_L2_MEMBER.role, kind: "l2" }];
   }
   async postMessage(user, threadId, input) {
     const data = z

@@ -693,7 +693,7 @@ function TaskSessionDialog({
           <StreamingMarkdown active={false} text={message.text} />
         </div>
       </article>)}
-      {(data?.events || []).filter((event) => event.screenshotUrl).map((event) => <article key={`screenshot-${event.id}`} className="l3-task-session-msg assistant">
+      {!live && (data?.events || []).filter((event) => event.screenshotUrl).map((event) => <article key={`screenshot-${event.id}`} className="l3-task-session-msg assistant">
         <small>视觉验收 · {event.tool}</small>
         <img className="agent-screenshot-preview" src={event.screenshotUrl || undefined} alt="Agent 视觉验收截图" loading="lazy" />
       </article>)}
@@ -710,6 +710,7 @@ function TaskSessionDialog({
           status={data.status || "running"}
           progress={data.progress}
           hasFinal={data.status === "completed"}
+          expanded={!!live}
         />
       </div> : null}
       {data?.error && <p className="error" role="alert">{data.error}</p>}

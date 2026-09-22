@@ -141,7 +141,7 @@ export function ChatComposer({
   setFolderRefs?: React.Dispatch<React.SetStateAction<string[]>>;
   versions: FileVersion[];
   folders?: FolderRef[];
-  members: { id: string; name: string; email: string; kind?: string; avatar?: string }[];
+  members: { id: string; name: string; email: string; kind?: string; avatar?: string | null }[];
   busy: boolean;
   onSend: () => Promise<boolean>;
   onRefresh: () => Promise<void>;
@@ -338,7 +338,7 @@ export function ChatComposer({
           kind: "member" as const,
           label: m.name,
           detail: m.id === AGENT_L2_MEMBER.id ? AGENT_L2_MEMBER.identity_tags[0] : m.email,
-          avatar: m.id === AGENT_L2_MEMBER.id ? (m.avatar || AGENT_L2_MEMBER.avatar) : m.avatar,
+          avatar: m.id === AGENT_L2_MEMBER.id ? (m.avatar || AGENT_L2_MEMBER.avatar) : (m.avatar || undefined),
         }))
   )
     .filter((o) =>

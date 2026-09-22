@@ -94,7 +94,7 @@ test("compatible request and DSH route use the configured model", () => withMode
 }));
 
 test("model capacity uses tiered context windows and model-specific output limits", () => {
-  assert.equal(modelContextWindow("coordinator"), 512000);
+  assert.equal(modelContextWindow("coordinator"), 256000);
   assert.equal(modelContextWindow("executor"), 1000000);
   assert.equal(modelContextWindow("knowledge"), 1000000);
   assert.equal(modelOutputLimit({ model: "deepseek-flash" }), 393216);

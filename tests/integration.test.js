@@ -934,8 +934,8 @@ test("context compression is scoped, durable, retryable, and preserves discussio
   await query(db, `UPDATE agent_requests SET status='completed' WHERE message_id IN (SELECT id FROM messages WHERE thread_id=?)`, [threadId]);
   let context = (await request(`/threads/${threadId}`, undefined, owner)).body;
   assert.ok(context.contextUsage.used > 0);
-  assert.equal(context.contextUsage.limit, 512000);
-  assert.equal(context.contextUsage.autoCompactAt, 358400);
+  assert.equal(context.contextUsage.limit, 256000);
+  assert.equal(context.contextUsage.autoCompactAt, 179200);
   assert.equal(
     (await request(`/threads/${other.body.id}`, undefined, owner)).body
       .contextUsage.used,

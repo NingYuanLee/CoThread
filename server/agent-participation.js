@@ -27,17 +27,19 @@ function mergeParticipationUsage(prior, next) {
 }
 
 /** Seconds to wait before another unmentioned opportunistic reply in the same iteration. */
-export const OPPORTUNISTIC_COOLDOWN_SECONDS = 90;
+export const OPPORTUNISTIC_COOLDOWN_SECONDS = 60;
 /** Max draft revisions when new messages arrive while "composing". */
 export const OPPORTUNISTIC_MAX_REVISIONS = 4;
 /** Brief pause before send so near-simultaneous follow-ups can land. */
 export const OPPORTUNISTIC_SETTLE_MS = 400;
 /** Participation judgment is a small JSON call; do not use the full 60s agent budget. */
 export const OPPORTUNISTIC_MODEL_TIMEOUT_MS = 20000;
-/** Recent chat rows for light-path judgment — keep tiny to avoid multi-K prompts. */
-export const OPPORTUNISTIC_HISTORY_LIMIT = 6;
+/** Recent chat rows for light-path judgment — enough to follow the thread. */
+export const OPPORTUNISTIC_HISTORY_LIMIT = 12;
 /** Per-message body cap in the light-path prompt. */
-export const OPPORTUNISTIC_BODY_CHARS = 120;
+export const OPPORTUNISTIC_BODY_CHARS = 240;
+/** One short Chinese sentence JSON; leave modest headroom. */
+export const OPPORTUNISTIC_MAX_TOKENS = 768;
 
 export function compactParticipationBody(body, limit = OPPORTUNISTIC_BODY_CHARS) {
   const text = String(body || "").replace(/\s+/g, " ").trim();
@@ -679,7 +681,7 @@ export async function decideParticipation(context, request = fetch) {
     {
       scope: "coordinator",
       // Tiny JSON judgment: turn reasoning off so low max_output_tokens is not eaten by CoT.
-      maxTokens: 512,
+      maxTokens: OPPORTUNISTIC_MAX_TOKENS,
       reasoningEffort: "none",
       signal: AbortSignal.timeout(OPPORTUNISTIC_MODEL_TIMEOUT_MS),
       messages: [

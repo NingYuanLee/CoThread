@@ -2,13 +2,13 @@
  * Soft context budgets. Billing is per-turn tokens — a huge window on a
  * long-lived session only delays compaction and makes later turns costlier.
  *
- *   L2 coordinator — long-lived iteration chat: cap below the ~1M hard ceiling
+ *   L2 coordinator — long-lived iteration chat: keep tight (256K)
  *   L3 executor    — use-and-done task runs: keep full 1M (tool/files may spike)
  *   L1 knowledge   — use-and-done maintenance: keep full 1M (large doc corpora)
  * Light opportunistic participation stays tiny and does not use these budgets.
  */
 export const CONTEXT_LIMITS = Object.freeze({
-  coordinator: 512_000,
+  coordinator: 256_000,
   executor: 1_000_000,
   knowledge: 1_000_000,
 });

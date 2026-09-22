@@ -46,7 +46,7 @@ test("L2 runtime does not compact below the auto-compact threshold, and a compac
     await runtime.close(true);
     runtime = undefined;
     methods.length = 0;
-    used = 400_000;
+    used = 200_000;
     await query(db, "UPDATE agent_sessions SET seen_sequence=0,checkpoint=NULL WHERE thread_id=?", [thread.id]);
     await service.postMessage(user, thread.id, { body: "@小祥 补一条以便触发观察后压缩" });
     const next = await service.context(user, thread.id);

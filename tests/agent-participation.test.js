@@ -46,7 +46,7 @@ test("unmentioned discussion reaches the model, which can choose silence or part
         const payload = JSON.parse(options.body);
         assert.match(payload.input[0].content, /插话|点名|JSON/);
         assert.equal(payload.tools, undefined);
-        assert.equal(payload.max_output_tokens, 512);
+        assert.equal(payload.max_output_tokens, 768);
         assert.equal(payload.reasoning?.effort, "none");
         assert.equal(JSON.parse(payload.input[1].content).integrateBurst, undefined);
         return {

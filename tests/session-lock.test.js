@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
@@ -164,4 +165,47 @@ test("context sync yields while the coordinator holds the L2 session", async () 
       await held.release();
     }
   } finally { await database.close(); }
+});
+
+test("park with a live L3 child does not wait on that child's context RPC", async () => {
+  const database = await testDatabase(), db = database.db, service = new Service(db);
+  let runtime;
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [user.id, `${user.id}@test.com`, "成员"]);
+    const project = await service.createProject(user, { name: "停驻不堵" });
+    const thread = await service.createThread(user, project.id, { title: "L2" });
+    const context = await service.context(user, thread.id);
+    let childContextCalls = 0;
+    const createHarness = () => ({
+      start: async () => {},
+      close: async () => {},
+      client: {
+        request: async (method, params = {}) => {
+          if (method === "cothread/context" && params.sessionId === "live-l3") {
+            childContextCalls += 1;
+            await new Promise(() => {});
+          }
+          if (method === "cothread/history") return [];
+          return { used: 0, categories: {} };
+        },
+      },
+    });
+    runtime = await openAgentRuntime(context, {
+      db, user, job: { thread_id: thread.id, message_id: randomUUID() }, createHarness,
+    });
+    runtime.activeChildren.add("live-l3");
+    const parked = runtime.park(true);
+    assert.equal(await Promise.race([
+      parked.then(() => "parked"),
+      delay(200, "waiting"),
+    ]), "parked");
+    assert.equal(childContextCalls, 0);
+    const free = await acquireSessionLock(db, thread.id, 0);
+    assert.ok(free);
+    await free.release();
+  } finally {
+    if (runtime) await runtime.close().catch(() => {});
+    await database.close();
+  }
 });

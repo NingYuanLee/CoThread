@@ -156,3 +156,35 @@ test("a coordinator turn that leaves pending work enqueues one idle dispatch", a
   }
 });
 
+test("a new member message is claimed while a prior L2 turn still waits on L3", async () => {
+  const database = await testDatabase(), db = database.db, service = new Service(db);
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [user.id, `${user.id}@test.com`, "成员"]);
+    const project = await service.createProject(user, { name: "L3 执行中接待" });
+    const created = await service.createThread(user, project.id, { title: "并发" });
+    const thread = await service.thread(user, created.id);
+    const first = await service.postMessage(user, thread.id, { body: "@小祥 先派一个 L3" });
+    await query(db, "UPDATE agent_requests SET status='completed' WHERE message_id=?", [first.id]);
+    await query(db, `UPDATE assistant_replies SET status='completed',participation='reply',
+      execution_active=TRUE,progress='等待任务级 Agent',finished_at=UTC_TIMESTAMP(3) WHERE message_id=?`, [first.id]);
+    await query(db, "UPDATE agent_sessions SET convergence_state='waiting',wait_reason='等待执行结果' WHERE thread_id=?", [thread.id]);
+    const second = await service.postMessage(user, thread.id, { body: "@小祥 顺便再问一句" });
+    assert.equal(second.request_status, "queued");
+    let seen;
+    assert.equal(await processNextCoordinator(db, thread.id, async (context, { job }) => {
+      seen = { kind: job.kind, messageId: job.message_id, body: job.body };
+      return { finalResponse: "收到，我先答这句。", mergedMessageIds: [], waiting: true };
+    }), true);
+    assert.equal(seen.kind, "member_message");
+    assert.equal(seen.messageId, second.id);
+    const [receipt] = await query(db, "SELECT status FROM agent_requests WHERE message_id=?", [second.id]);
+    assert.equal(receipt.status, "completed");
+    const [reply] = await query(db, "SELECT status,progress FROM assistant_replies WHERE message_id=?", [second.id]);
+    assert.equal(reply.status, "completed");
+    assert.notEqual(reply.progress, "等待处理");
+  } finally {
+    await database.close();
+  }
+});
+

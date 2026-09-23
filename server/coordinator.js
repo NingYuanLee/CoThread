@@ -615,11 +615,6 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
   } catch (error) {
     if (!completed) await discardCoordinatorRuntime(job.thread_id, runtime);
     throw error;
-  } finally {
-    if (completed) await parkCoordinatorRuntime(job.thread_id, runtime, true).catch((error) => {
-      console.error("Coordinator runtime park failed", { type: error?.name || "Error" });
-      return discardCoordinatorRuntime(job.thread_id, runtime);
-    });
   }
 }
 
@@ -685,6 +680,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
     job.author_id = member?.id;
   }
   const service = new Service(db), user = { id: job.author_id, kind: "session" };
+  let parkRuntime = null;
   try {
     const started = performance.now();
     const thread = await service.thread(user, job.thread_id, true);
@@ -746,6 +742,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
       : await dispatchContext(db, thread, job);
     const loaded = performance.now();
     const result = await runAgent(context, { db, job, user });
+    parkRuntime = result?.runtime || null;
     logAgentTiming({ messageId: job.message_id, kind: job.kind,
       stage: job.kind === "member_message" ? "coordinator_agent" : `coordinator_${job.kind}`,
       contextMs: Math.round(loaded - started), modelMs: Math.round(performance.now() - loaded) });
@@ -798,6 +795,16 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
       diagnostic: redactSecrets(error?.stack || error?.message || error).slice(-2500),
     });
   } finally {
+    // Finish the request/event first (above), then park. Parking must not keep
+    // agent_requests='running' while live L3 still occupies the harness RPC.
+    if (parkRuntime) {
+      try {
+        await parkCoordinatorRuntime(job.thread_id, parkRuntime, true);
+      } catch (error) {
+        console.error("Coordinator runtime park failed", { type: error?.name || "Error" });
+        await discardCoordinatorRuntime(job.thread_id, parkRuntime).catch(() => {});
+      }
+    }
     try {
       await finishCoordinatorDispatch(db, job.thread_id, { enqueueIdle: job.kind !== "l3_idle" });
     } catch (error) {

@@ -441,10 +441,14 @@ export async function openAgentRuntime(
         `UPDATE ${sessionRow.table} SET context_stats=? WHERE ${sessionRow.key}=?`,
         [JSON.stringify({ ...stats, seenSequence }), sessionRow.id],
       );
-      for (const childId of activeChildren) {
-        try {
-          await persistL3ContextStats(db, childId, await request("context", { sessionId: childId }));
-        } catch {}
+      // Never await live L3 meters on the shared harness RPC. A long child tool
+      // can serialize behind parent park/bind and leave the next L2 turn queued
+      // as 「等待处理」for the whole L3 run. watchChildren / retainOrForgetChild
+      // still capture durable L3 stats when the child settles.
+      for (const childId of [...activeChildren]) {
+        void request("context", { sessionId: childId })
+          .then((childStats) => persistL3ContextStats(db, childId, childStats))
+          .catch(() => {});
       }
     })().finally(() => {
       samplingNow = false;
@@ -473,15 +477,25 @@ export async function openAgentRuntime(
   const park = async (completed = true) => {
     running.delete(job.message_id);
     await thinking.close(completed ? "completed" : "failed");
-    await sampling.catch(() => {});
-    await sample().catch(() => {});
-    try { modelMessages = await request("history"); } catch {}
-    await checkpoint(db, sessionRow, home, seenSequence, modelMessages);
+    // Unlock before any harness RPC so a follow-up member message can claim L2
+    // while L3 is still running on this keepalive runtime.
     if (sessionLock) {
       const lock = sessionLock;
       sessionLock = undefined;
       await lock.release();
     }
+    if (activeChildren.size) {
+      // Live L3 shares this harness. Do not await in-flight sampling or parent
+      // history RPCs that can stall behind child tools; checkpoint the last
+      // known transcript. Metering continues via the idle interval and
+      // retainOrForgetChild when the child settles.
+      await checkpoint(db, sessionRow, home, seenSequence, modelMessages);
+      return;
+    }
+    await sampling.catch(() => {});
+    await sample().catch(() => {});
+    try { modelMessages = await request("history"); } catch {}
+    await checkpoint(db, sessionRow, home, seenSequence, modelMessages);
   };
   const bindTurn = async ({ job: nextJob, user: nextUser, context: nextContext } = {}) => {
     if (closed) throw new Error("runtime closed");

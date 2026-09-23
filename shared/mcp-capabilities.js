@@ -22,6 +22,11 @@ export const MCP_CAPABILITIES = Object.freeze([
   { name: "accept_task", group: "任务执行", title: "接受任务", description: "以当前账号身份接受分派给自己的任务；只更新任务状态，不自动发群聊消息。", access: "write", icon: "check" },
   { name: "reject_task", group: "任务执行", title: "拒绝任务", description: "拒绝当前账号待确认的任务并记录原因；只更新任务状态，不自动发群聊消息。", access: "write", icon: "close" },
   { name: "update_task", group: "任务执行", title: "更新任务", description: "由当前任务目标更新状态、进度、结果和产物引用；任务说明写入任务更新记录，不自动发群聊消息。", access: "write", icon: "edit" },
+  { name: "get_l1_status", group: "L1 维护", title: "L1 状态总览", description: "读取项目级 Agent（L1）会话状态、文档/成员摘要队列积压、最近 run 与失败记录。", access: "read", icon: "detail" },
+  { name: "list_l1_runs", group: "L1 维护", title: "L1 运行记录", description: "列出项目 L1 维护任务的历史 run，可按 task/status 筛选。", access: "read", icon: "list" },
+  { name: "list_l1_document_queue", group: "L1 维护", title: "文档摘要队列", description: "列出待做文档摘要的版本（文件名、就绪时间、是否已有摘要）。", access: "read", icon: "list" },
+  { name: "get_l1_logs", group: "L1 维护", title: "L1 轨迹", description: "读取指定 L1 维护任务（文档摘要/成员发言/文档整理/迭代归档）的执行轨迹。", access: "read", icon: "list" },
+  { name: "retry_l1_task", group: "L1 维护", title: "重试 L1 任务", description: "将文档摘要、成员发言或迭代归档重新排队；只触发维护，不发群聊消息。", access: "write", icon: "refresh" },
 ]);
 
 export const MCP_TOOL_NAMES = Object.freeze(MCP_CAPABILITIES.map(({ name }) => name));

@@ -75,8 +75,136 @@ function normalizeDocumentMemoryTask(task) {
   return LEGACY_DOCUMENT_MEMORY_TASKS.has(task) ? DOCUMENT_MEMORY_TASK : task;
 }
 
+export async function getL1Status(service, user, projectId) {
+  await service.member(user, projectId);
+  const [memberQueue, documentQueue, sessions, recentRuns, failedRuns] = await Promise.all([
+    query(service.db, `SELECT COUNT(*) pending,
+      COALESCE(SUM(available_at<=UTC_TIMESTAMP(3)),0) ready,
+      MIN(available_at) next_at FROM agent_member_memory_queue WHERE project_id=?`, [projectId]),
+    query(service.db, `SELECT COUNT(*) pending,
+      COALESCE(SUM(q.available_at<=UTC_TIMESTAMP(3)),0) ready,
+      MIN(q.available_at) next_at FROM agent_document_memory_queue q
+      JOIN versions v ON v.id=q.version_id JOIN artifacts a ON a.id=v.artifact_id
+      LEFT JOIN document_folders f ON f.id=a.folder_id
+      WHERE a.project_id=? ${DOCUMENT_LIBRARY_FOLDER_SQL}`, [projectId]),
+    query(service.db, `SELECT s.task,s.status,s.last_error,s.last_started_at,s.last_finished_at,
+      s.updated_at,s.context_stats,s.compact_status,s.compact_error,t.title thread_title
+      FROM agent_project_sessions s LEFT JOIN threads t ON t.id=s.thread_id
+      WHERE s.project_id=? ORDER BY s.updated_at DESC`, [projectId]),
+    query(service.db, `SELECT id,task,thread_id,trigger_source,status,agent_called,had_updates,item_count,
+      error,created_at,started_at,finished_at
+      FROM agent_l1_runs WHERE project_id=? ORDER BY created_at DESC LIMIT 20`, [projectId]),
+    query(service.db, `SELECT id,task,thread_id,trigger_source,status,item_count,error,created_at,started_at,finished_at
+      FROM agent_l1_runs WHERE project_id=? AND status='failed' ORDER BY created_at DESC LIMIT 10`, [projectId]),
+  ]);
+  const member = memberQueue[0] || {};
+  const document = documentQueue[0] || {};
+  const heading = [...sessions].sort((left, right) => {
+    const running = (value) => value.status === "running" ? 1 : 0;
+    if (running(right) !== running(left)) return running(right) - running(left);
+    return new Date(right.last_finished_at || right.last_started_at || 0).getTime()
+      - new Date(left.last_finished_at || left.last_started_at || 0).getTime();
+  })[0];
+  return {
+    projectId,
+    sessionStatus: heading?.status || "idle",
+    lastTask: heading?.task || null,
+    lastError: heading?.last_error || null,
+    lastStartedAt: heading?.last_started_at || null,
+    lastFinishedAt: heading?.last_finished_at || null,
+    memberQueue: {
+      pending: Number(member.pending || 0),
+      ready: Number(member.ready || 0),
+      nextAt: member.next_at || null,
+    },
+    documentQueue: {
+      pending: Number(document.pending || 0),
+      ready: Number(document.ready || 0),
+      nextAt: document.next_at || null,
+    },
+    sessions: sessions.map((row) => ({
+      task: row.task,
+      status: row.status || "idle",
+      lastError: row.last_error || null,
+      lastStartedAt: row.last_started_at || null,
+      lastFinishedAt: row.last_finished_at || null,
+      updatedAt: row.updated_at || null,
+      compactStatus: row.compact_status || null,
+      compactError: row.compact_error || null,
+      threadTitle: row.thread_title || null,
+      contextStats: row.context_stats || null,
+    })),
+    recentRuns,
+    failedRuns,
+  };
+}
+
+export async function listL1Runs(service, user, {
+  projectId, task = null, status = null, limit = 40,
+} = {}) {
+  await service.member(user, projectId);
+  const filters = ["project_id=?"];
+  const params = [projectId];
+  if (task) {
+    const scoped = normalizeL1Task(task);
+    if (scoped === "document_memory") {
+      filters.push("task IN ('document_memory','project_document_memory','iteration_document_memory')");
+    } else {
+      filters.push("task=?");
+      params.push(scoped);
+    }
+  }
+  if (status) {
+    filters.push("status=?");
+    params.push(String(status).slice(0, 40));
+  }
+  const capped = Math.min(Math.max(Number(limit) || 40, 1), 100);
+  params.push(capped);
+  return query(service.db, `SELECT id,task,thread_id,trigger_source,status,agent_called,had_updates,item_count,
+    error,created_at,started_at,finished_at
+    FROM agent_l1_runs WHERE ${filters.join(" AND ")}
+    ORDER BY created_at DESC LIMIT ?`, params);
+}
+
+export async function listL1DocumentQueue(service, user, {
+  projectId, limit = 50, readyOnly = false,
+} = {}) {
+  await service.member(user, projectId);
+  const capped = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const readyFilter = readyOnly ? "AND q.available_at<=UTC_TIMESTAMP(3)" : "";
+  const rows = await query(service.db, `SELECT q.version_id versionId,q.available_at availableAt,
+    q.candidate_summary IS NOT NULL hasCandidateSummary,q.created_by_message_id createdByMessageId,
+    a.title,v.filename,v.version,v.mime,v.byte_size byteSize,f.name folderName,f.folder_kind folderKind,
+    (q.available_at<=UTC_TIMESTAMP(3)) ready,
+    (s.version_id IS NOT NULL) alreadySummarized
+    FROM agent_document_memory_queue q
+    JOIN versions v ON v.id=q.version_id JOIN artifacts a ON a.id=v.artifact_id
+    LEFT JOIN document_folders f ON f.id=a.folder_id
+    LEFT JOIN agent_document_summaries s ON s.version_id=q.version_id
+    WHERE a.project_id=? ${DOCUMENT_LIBRARY_FOLDER_SQL} ${readyFilter}
+    ORDER BY q.available_at ASC LIMIT ?`, [projectId, capped]);
+  const [counts] = await query(service.db, `SELECT COUNT(*) pending,
+    COALESCE(SUM(q.available_at<=UTC_TIMESTAMP(3)),0) ready
+    FROM agent_document_memory_queue q
+    JOIN versions v ON v.id=q.version_id JOIN artifacts a ON a.id=v.artifact_id
+    LEFT JOIN document_folders f ON f.id=a.folder_id
+    WHERE a.project_id=? ${DOCUMENT_LIBRARY_FOLDER_SQL}`, [projectId]);
+  return {
+    projectId,
+    pending: Number(counts?.pending || 0),
+    ready: Number(counts?.ready || 0),
+    items: rows.map((row) => ({
+      ...row,
+      ready: !!Number(row.ready),
+      alreadySummarized: !!Number(row.alreadySummarized),
+      hasCandidateSummary: !!Number(row.hasCandidateSummary),
+    })),
+  };
+}
+
 export async function queueL1MemoryRun(service, user, { projectId, task, threadId = null }) {
-  if (user.kind !== "session") throw new HttpError(403, "需要人工登录");
+  if (user.kind !== "session" && user.kind !== "api")
+    throw new HttpError(403, "需要人工登录或账号令牌");
   const queuedTask = normalizeL1Task(task);
   if (!["member_memory", "document_memory", "iteration_archive"].includes(queuedTask))
     throw new HttpError(400, "不支持的维护任务");

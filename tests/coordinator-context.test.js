@@ -49,6 +49,7 @@ test("L1 denies every installed tool and MCP tools are a build-time manifest", a
     "get_iteration_context", "list_messages", "read_message",
     "upload_cache_draft", "post_message",
     "list_tasks", "get_task", "accept_task", "reject_task", "update_task",
+    "get_l1_status", "list_l1_runs", "list_l1_document_queue", "get_l1_logs", "retry_l1_task",
   ]);
   for (const hidden of ["create_task", "reassign_task", "list_task_questions", "answer_task_question", "list_task_agent_logs", "get_task_log_event"])
     assert.ok(!mcp.MCP_TOOL_NAMES.includes(hidden), hidden);

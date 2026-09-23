@@ -4,7 +4,10 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod/v3";
 import { MCP_SERVER_NAME, mcpInstructionsForSource } from "../shared/mcp-guide.js";
 import { modelDiscussion, modelProject } from "./model-context.js";
-import { loadMemberUnderstanding } from "./project-memory.js";
+import {
+  getL1Status, listL1DocumentQueue, listL1Runs, loadMemberUnderstanding, queueL1MemoryRun,
+} from "./project-memory.js";
+import { normalizeL1Task } from "../shared/agent-label.js";
 import { listDocumentChanges } from "./document-audit.js";
 import {
   acceptTask, getTask, listTaskExecutionRuns, listTaskStatusEvents, listTaskUpdates,
@@ -241,6 +244,29 @@ export function createMcpServer(service, user, afterMessage) {
   register("accept_task", "接受当前账号被指派的任务，并选择本人或本地执行器执行。", { taskId: z.string().uuid(), mode: z.enum(["auto", "human_direct", "member_connector"]).optional() }, async ({ taskId, mode }) => { const task = await taskFor(taskId, true); return acceptTask(service.db, task.id, taskActor(), mode || "auto"); });
   register("reject_task", "拒绝当前账号待确认的任务并记录原因。", { taskId: z.string().uuid(), reason: z.string().trim().max(1000).optional() }, async ({ taskId, reason }) => { const task = await taskFor(taskId, true); return rejectTask(service.db, task.id, taskActor(), reason); });
   register("update_task", "由当前任务目标更新状态、进度、结果和产物引用。", { taskId: z.string().uuid(), status: z.enum(["pending_start", "running", "waiting", "blocked", "completed", "failed", "cancelled", "abandoned"]).optional(), progress: z.string().max(500).optional(), resultSummary: z.string().max(20000).optional(), artifactRefs: z.array(z.unknown()).optional(), body: z.string().max(20000).optional(), messageId: z.string().uuid().optional() }, async ({ taskId, ...update }) => { await taskFor(taskId, true); return updateTask(service.db, taskId, taskActor(), update); });
+  register("get_l1_status", "读取项目级 Agent（L1）状态：会话 lastError、文档/成员摘要队列积压、最近 run 与失败记录。用于诊断「文档摘要失败」。", {
+    projectId: z.string().uuid(),
+  }, async ({ projectId }) => getL1Status(service, user, projectId));
+  register("list_l1_runs", "列出 L1 维护 run 历史。task 可选 document_memory / member_memory / document_organization / iteration_archive；status 可选 queued/running/completed/failed。", {
+    projectId: z.string().uuid(),
+    task: z.string().max(40).optional(),
+    status: z.string().max(40).optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+  }, async (a) => listL1Runs(service, user, a));
+  register("list_l1_document_queue", "列出文档摘要队列中的待处理版本（文件名、就绪时间、是否已有摘要）。readyOnly=true 只看已到点可跑的项。", {
+    projectId: z.string().uuid(),
+    limit: z.number().int().min(1).max(200).optional(),
+    readyOnly: z.boolean().optional(),
+  }, async (a) => listL1DocumentQueue(service, user, a));
+  register("get_l1_logs", "读取指定 L1 维护任务的执行轨迹（阶段、状态、错误）。task 必填：document_memory / member_memory / document_organization / iteration_archive。", {
+    projectId: z.string().uuid(),
+    task: z.enum(["member_memory", "document_memory", "document_organization", "iteration_archive"]),
+  }, async ({ projectId, task }) => service.agentLogs(user, "project", projectId, { task: normalizeL1Task(task) }));
+  register("retry_l1_task", "将 L1 维护任务重新排队。task=document_memory 会唤醒文档摘要队列；member_memory 唤醒成员发言；iteration_archive 需已归档迭代（可传 threadId）。不发群聊消息。", {
+    projectId: z.string().uuid(),
+    task: z.enum(["member_memory", "document_memory", "iteration_archive"]),
+    threadId: z.string().uuid().optional(),
+  }, async ({ projectId, task, threadId }) => queueL1MemoryRun(service, user, { projectId, task, threadId }));
   if (registered.size !== MCP_TOOL_NAMES.length)
     throw new Error("CoThread MCP tool manifest is incomplete");
   return server;

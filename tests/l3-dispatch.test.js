@@ -13,7 +13,7 @@ test("dispatch starts one continuable L3 with the task prompt", async () => {
       },
     },
   };
-  const started = await startContinuableL3(ctx, { options: {} }, {
+  const started = await startContinuableL3(ctx, { options: {}, status: "running" }, {
     label: "待启动的沙箱任务",
     prompt: "TASK_ID: abc\n去做",
   });
@@ -27,8 +27,34 @@ test("dispatch starts one continuable L3 with the task prompt", async () => {
 
 test("dispatch refuses an empty prompt or a runtime that cannot start children", async () => {
   const ctx = { subagents: { startContinuable: async () => ({ childId: "child-1" }) } };
-  await assert.rejects(startContinuableL3(ctx, {}, { prompt: "  " }), /缺少任务说明/);
-  await assert.rejects(startContinuableL3({}, {}, { prompt: "TASK_ID: abc" }), /不能启动 L3/);
+  await assert.rejects(startContinuableL3(ctx, { status: "running" }, { prompt: "  " }), /缺少任务说明/);
+  await assert.rejects(startContinuableL3({}, { status: "running" }, { prompt: "TASK_ID: abc" }), /不能启动 L3/);
+});
+
+test("idle parents spawn through runMaintenance instead of opening a model turn", async () => {
+  const calls = [];
+  const parent = {
+    status: "idle",
+    options: {},
+    runMaintenance: async (task) => {
+      calls.push("maintenance");
+      return task(AbortSignal.timeout(1000));
+    },
+  };
+  const ctx = {
+    subagents: {
+      startContinuable: async (spec) => {
+        calls.push(spec.request.parent);
+        return { childId: "child-idle", messageId: "msg-idle" };
+      },
+    },
+  };
+  const started = await startContinuableL3(ctx, parent, {
+    label: "待启动",
+    prompt: "TASK_ID: abc\n去做",
+  });
+  assert.equal(started.childId, "child-idle");
+  assert.deepEqual(calls, ["maintenance", parent]);
 });
 
 test("dispatch-l3 prefers the live parent agent over getOrCreateSession", async () => {

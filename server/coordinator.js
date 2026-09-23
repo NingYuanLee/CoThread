@@ -465,27 +465,13 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
         usageMeter.notify(notification.params.event);
       handleAgentTeamNotification(notification);
     };
-    const runCoordinatorTurn = async (promptText, { dispatchOnStart = false } = {}) => {
-      let dispatchArmed = dispatchOnStart;
+    const runCoordinatorTurn = async (promptText) => {
       const started = performance.now();
-      await runtime.progress(dispatchOnStart ? "正在启动 L3" : "正在调用模型");
+      await runtime.progress("正在调用模型");
       try {
         return await runtime.harness.run(promptText, {
           sessionId: runtime.session.session_id,
-          onNotification: (notification) => {
-            trackCoordinatorUsage(notification);
-            // startContinuable admits reliably while the parent turn is live
-            // (same window as an explicit dsh_l3 tool call). Idle pre-turn
-            // dispatch often no-ops against a parked keepalive handle.
-            if (
-              dispatchArmed
-              && notification.method === "session.event"
-              && notification.params?.sessionId === runtime.session.session_id
-            ) {
-              dispatchArmed = false;
-              lifecycle = lifecycle.then(() => launchAwaitingL3());
-            }
-          },
+          onNotification: trackCoordinatorUsage,
         });
       } finally {
         modelDurationMs += performance.now() - started;
@@ -618,25 +604,11 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
         return { finalResponse: "NO_VISIBLE_MESSAGE", steeredMessageIds: [], mergedMessageIds: [],
           waiting: activeChildren.size > 0, runtime };
       }
-      result = await runCoordinatorTurn(prompt, {
-        // l3_idle: parent is parked; arm dispatch on the first live session event.
-        dispatchOnStart: job.kind === "l3_idle",
-      });
+      result = await runCoordinatorTurn(prompt);
       await lifecycle;
+      // RPC to dispatch-l3 is serialized behind harness.run, so this is where
+      // create_task-era launches actually execute (parent idle + runMaintenance).
       await launchAwaitingL3();
-      // create_task during the member turn may have left unbound work if mid-turn
-      // RPC lost the race with an idle parent. One short live turn retries dispatch.
-      if (
-        job.kind !== "l3_idle"
-        && (await tasksAwaitingL3Launch(db, runtime.session.session_id)).length
-      ) {
-        await runCoordinatorTurn(
-          `当前项目：${context.project_id}；当前迭代：${job.thread_id}。系统正在启动已创建且仍待派发的任务。不要调用 dsh_l3，不要对成员说话，返回 NO_VISIBLE_MESSAGE。`,
-          { dispatchOnStart: true },
-        );
-        await lifecycle;
-        await launchAwaitingL3();
-      }
       for (const item of launched) {
         activeChildren.add(item.childId);
         ensureChildThinking(item.childId, item.taskId);

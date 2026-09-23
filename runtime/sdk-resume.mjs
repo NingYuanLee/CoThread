@@ -58,20 +58,36 @@ export async function startContinuableL3(ctx, parent, { label, prompt, signal } 
   const title = String(label || "任务").slice(0, 80);
   let agentOptions;
   try { agentOptions = parentAgentOptionsForDelegation(parent); } catch { agentOptions = undefined; }
-  const started = await ctx.subagents.startContinuable({
-    provider: "spawn",
-    label: title,
-    request: {
+  const outer = signal || AbortSignal.timeout(30000);
+  const spawn = async (spawnSignal) => {
+    const started = await ctx.subagents.startContinuable({
+      provider: "spawn",
       label: title,
-      prompt: [{ type: "text", text }],
-      parent,
-      ...(agentOptions ? { agentOptions } : {}),
-      maxDepth: 1,
-    },
-    signal: signal || AbortSignal.timeout(30000),
-  });
-  if (!started?.childId) throw new Error("L3 启动没有返回会话");
-  return { childId: started.childId };
+      request: {
+        label: title,
+        prompt: [{ type: "text", text }],
+        parent,
+        ...(agentOptions ? { agentOptions } : {}),
+        maxDepth: 1,
+      },
+      signal: spawnSignal,
+    });
+    if (!started?.childId) throw new Error("L3 启动没有返回会话");
+    return { childId: started.childId };
+  };
+  // harness.client.request is serialized behind harness.run, so mid-turn
+  // dispatch-l3 usually lands after the parent is already idle. Explicit dsh_l3
+  // works because it runs in-process during the live turn. Claim the idle
+  // maintenance phase so startContinuable is admitted without opening a model turn.
+  if (parent?.status !== "running" && typeof parent?.runMaintenance === "function") {
+    return parent.runMaintenance((maintenanceSignal) => {
+      const linked = typeof AbortSignal.any === "function"
+        ? AbortSignal.any([outer, maintenanceSignal])
+        : outer;
+      return spawn(linked);
+    });
+  }
+  return spawn(outer);
 }
 
 const createSession = HarnessSdkJsonRpcServer.prototype.createSession;

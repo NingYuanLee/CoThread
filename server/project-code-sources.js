@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { mkdir, rm, access } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { encryptToken, decryptToken } from "./credential-vault.js";
@@ -54,27 +51,6 @@ function platformForHost(host) {
 
 function remotePlatform(remote) {
   return remote.platform || platformForHost(hostOf(remote.remote_url));
-}
-
-function withAuth(remoteUrl, credential) {
-  if (!credential) return remoteUrl;
-  if (remoteUrl.startsWith("git@")) {
-    throw new HttpError(400, "带密钥的仓库请使用 HTTPS 地址");
-  }
-  const url = new URL(remoteUrl);
-  if (url.username || url.password) return remoteUrl;
-  const platform = platformForHost(url.host);
-  if (platform === "github") {
-    url.username = "x-access-token";
-    url.password = credential;
-  } else if (platform === "yunxiao") {
-    url.username = "oauth2";
-    url.password = credential;
-  } else {
-    url.username = "git";
-    url.password = credential;
-  }
-  return url.toString();
 }
 
 function redactedRemote(row) {
@@ -450,32 +426,11 @@ export async function deleteProjectGitRemote(service, user, projectId, remoteId)
   return listProjectCodeConfig(service, user, projectId);
 }
 
-async function loadRemoteSecret(db, projectId, remote) {
-  const platform = remotePlatform(remote);
-  if (!platform) return null;
-  const [connector] = await query(db, `SELECT enabled,token_ciphertext FROM project_code_connectors
-    WHERE project_id=? AND kind=?`, [projectId, platform]);
-  if (!connector || !Number(connector.enabled) || !connector.token_ciphertext) return null;
-  return decryptToken(connector.token_ciphertext, vaultId(projectId));
-}
-
-/** Makers 上 cwd（如 /tmp/user-code）常不可写；与 agentRuntimeRoot 同策略落到 os.tmpdir。 */
+/** 保留：本地调试镜像路径；只读工具已改走平台 API，不再 spawn git。 */
 export function codeMirrorBase() {
   return process.env.COTHREAD_MAKERS === "true"
     ? resolve(tmpdir(), "cothread-code-mirrors")
     : resolve(".local", "code-mirrors");
-}
-
-function gitScratchHome() {
-  return process.env.COTHREAD_MAKERS === "true"
-    ? resolve(tmpdir(), "cothread-git-home")
-    : resolve(".local", "git-home");
-}
-
-function prepareGitRuntimeSync() {
-  const home = gitScratchHome();
-  mkdirSync(join(home, ".cache"), { recursive: true });
-  return home;
 }
 
 function redactGitDetail(text) {
@@ -496,55 +451,251 @@ export function formatGitFailure(result) {
   return `读取代码库失败：${detail}`;
 }
 
-function git(args, { cwd, env, timeout = 60000 } = {}) {
-  const home = prepareGitRuntimeSync();
-  const result = spawnSync("git", args, {
-    cwd,
-    env: {
-      ...process.env,
-      GIT_TERMINAL_PROMPT: "0",
-      HOME: home,
-      USERPROFILE: home,
-      XDG_CACHE_HOME: join(home, ".cache"),
-      GIT_CONFIG_NOSYSTEM: "1",
-      ...(env || {}),
-    },
-    encoding: "utf8", windowsHide: true, timeout, maxBuffer: 8 * 1024 * 1024,
-  });
-  if (result.status !== 0) {
-    throw new HttpError(400, formatGitFailure(result));
-  }
-  return result.stdout || "";
+function githubHeaders(token) {
+  return {
+    Accept: "application/vnd.github+json",
+    Authorization: `Bearer ${token}`,
+    "User-Agent": "cothread-code-scope",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
 }
 
-function mirrorRoot(projectId, remoteId) {
-  return resolve(codeMirrorBase(), projectId, remoteId);
-}
-
-async function ensureMirror(db, projectId, remote, ref) {
-  const secret = await loadRemoteSecret(db, projectId, remote);
-  if (!secret) {
-    const platform = remotePlatform(remote);
-    if (platform) {
-      throw new HttpError(409, `请先启用并填写对应的${platform === "github" ? " GitHub" : " 云效"}连接器令牌`);
-    }
-    throw new HttpError(409, "无法识别仓库所属平台，请使用 GitHub 或云效地址");
-  }
-  const authRemote = withAuth(remote.remote_url, secret);
-  const dir = mirrorRoot(projectId, remote.id);
-  await mkdir(dir, { recursive: true });
-  const marker = join(dir, ".git");
+export function parseGithubOwnerRepo(remoteUrl, label) {
   try {
-    await access(marker);
-    git(["remote", "set-url", "origin", authRemote], { cwd: dir });
-    git(["fetch", "--depth", "1", "origin", ref || "HEAD"], { cwd: dir, timeout: 120000 });
-  } catch {
-    await rm(dir, { recursive: true, force: true });
-    await mkdir(dir, { recursive: true });
-    git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), authRemote, dir], { timeout: 180000 });
+    if (String(remoteUrl || "").startsWith("git@")) {
+      const path = String(remoteUrl).split(":")[1] || "";
+      const parts = path.replace(/\.git$/i, "").split("/").filter(Boolean);
+      if (parts.length >= 2) return { owner: parts[0], repo: parts[1] };
+    } else if (remoteUrl) {
+      const parts = new URL(remoteUrl).pathname.replace(/\.git$/i, "").split("/").filter(Boolean);
+      if (parts.length >= 2) return { owner: parts[0], repo: parts[1] };
+    }
+  } catch { /* fall through */ }
+  const parts = String(label || "").split("/").map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 2) return { owner: parts[0], repo: parts[1] };
+  throw new HttpError(400, "无法解析 GitHub 仓库 owner/repo");
+}
+
+function githubRepoApiBase(remote) {
+  if (remote.external_id) return `https://api.github.com/repositories/${encodeURIComponent(remote.external_id)}`;
+  const { owner, repo } = parseGithubOwnerRepo(remote.remote_url, remote.label);
+  return `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+}
+
+function normalizeRefParam(ref) {
+  const value = String(ref || "").trim();
+  if (!value || value === "HEAD") return null;
+  return value;
+}
+
+async function fetchCodeJson(url, headers) {
+  let response;
+  try {
+    response = await fetch(url, { headers });
+  } catch (error) {
+    throw new HttpError(400, `读取代码库失败：网络错误 ${error?.message || error}`);
   }
-  try { git(["remote", "set-url", "origin", remote.remote_url], { cwd: dir }); } catch {}
-  return dir;
+  const text = await response.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+  if (!response.ok) {
+    const detail = typeof body === "object" && body
+      ? (body.message || body.errorMessage || body.errorCode || body.error || body.code
+        || JSON.stringify(body).slice(0, 300))
+      : String(text || response.statusText).slice(0, 300);
+    throw new HttpError(400, `读取代码库失败（HTTP ${response.status}）：${redactGitDetail(detail || "无详情")}`);
+  }
+  return { body, headers: response.headers };
+}
+
+async function requireRemoteAccess(db, projectId, remote) {
+  const platform = remotePlatform(remote);
+  if (!platform) throw new HttpError(409, "无法识别仓库所属平台，请使用 GitHub 或云效地址");
+  const { row, token } = await decryptConnectorToken(db, projectId, platform);
+  return { platform, token, connector: row };
+}
+
+async function githubListRefs(token, remote) {
+  const base = githubRepoApiBase(remote);
+  const refs = [];
+  for (const kind of ["heads", "tags"]) {
+    const { body } = await fetchCodeJson(`${base}/git/matching-refs/${kind}`, githubHeaders(token));
+    for (const item of Array.isArray(body) ? body : []) {
+      if (!item?.ref || !item?.object?.sha) continue;
+      refs.push({ sha: item.object.sha, ref: item.ref });
+      if (refs.length >= 200) return refs;
+    }
+  }
+  return refs;
+}
+
+async function githubListTree(token, remote, { ref, path = "" } = {}) {
+  const base = githubRepoApiBase(remote);
+  const prefix = String(path || "").replace(/^\/+/, "").replace(/\/+$/, "");
+  const encoded = prefix.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+  const url = new URL(`${base}/contents${encoded ? `/${encoded}` : ""}`);
+  const normalized = normalizeRefParam(ref);
+  if (normalized) url.searchParams.set("ref", normalized);
+  const { body } = await fetchCodeJson(url.toString(), githubHeaders(token));
+  if (!Array.isArray(body)) {
+    throw new HttpError(400, "读取代码库失败：目标路径不是目录");
+  }
+  const entries = [];
+  for (const item of body) {
+    entries.push({
+      type: item.type === "dir" ? "dir" : "file",
+      path: item.path || item.name,
+      size: item.type === "dir" ? null : (Number.isFinite(Number(item.size)) ? Number(item.size) : null),
+    });
+    if (entries.length >= MAX_TREE) break;
+  }
+  return entries;
+}
+
+async function githubReadFile(token, remote, { ref, path } = {}) {
+  const base = githubRepoApiBase(remote);
+  const encoded = String(path).split("/").filter(Boolean).map(encodeURIComponent).join("/");
+  const url = new URL(`${base}/contents/${encoded}`);
+  const normalized = normalizeRefParam(ref);
+  if (normalized) url.searchParams.set("ref", normalized);
+  const { body } = await fetchCodeJson(url.toString(), githubHeaders(token));
+  if (Array.isArray(body) || body?.type === "dir") {
+    throw new HttpError(400, "目标路径是目录，请改用查看目录");
+  }
+  if (!body || body.type !== "file") throw new HttpError(404, "文件不存在或无法读取");
+  const size = Number(body.size);
+  if (!Number.isFinite(size)) throw new HttpError(400, "无法读取文件大小");
+  if (size > MAX_FILE_BYTES) {
+    throw new HttpError(400, `文件超过 ${MAX_FILE_BYTES} 字节只读上限，请改用更小的路径或让成员提供摘录`);
+  }
+  if (body.encoding && body.encoding !== "base64") {
+    throw new HttpError(400, `不支持的文件编码：${body.encoding}`);
+  }
+  const raw = Buffer.from(String(body.content || "").replace(/\s+/g, ""), "base64");
+  if (raw.includes(0)) throw new HttpError(400, "该路径是二进制文件，只读接口仅支持文本");
+  return { byteSize: size, content: raw.toString("utf8").slice(0, MAX_FILE_BYTES) };
+}
+
+async function yunxiaoRepoContext(db, projectId, remote, token, connector) {
+  const orgId = await resolveYunxiaoOrganizationId(token, connector.organization_id);
+  const repositoryId = remote.external_id
+    || (() => {
+      try {
+        const path = new URL(remote.remote_url).pathname.replace(/^\//, "").replace(/\.git$/i, "");
+        return path || null;
+      } catch {
+        return remote.label || null;
+      }
+    })();
+  if (!repositoryId) throw new HttpError(400, "云效仓库缺少 externalId，请重新同步仓库范围");
+  return { orgId, repositoryId: String(repositoryId) };
+}
+
+function yunxiaoRepoUrl(orgId, repositoryId, suffix) {
+  return new URL(
+    `/oapi/v1/codeup/organizations/${encodeURIComponent(orgId)}/repositories/${encodeURIComponent(repositoryId)}${suffix}`,
+    YUNXIAO_API_BASE,
+  );
+}
+
+async function yunxiaoPaged(url, token, mapItem) {
+  const items = [];
+  for (let page = 1; page <= 10; page += 1) {
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("perPage", "100");
+    const { body, headers } = await fetchCodeJson(url.toString(), yunxiaoHeaders(token));
+    const pageItems = Array.isArray(body) ? body : (Array.isArray(body?.result) ? body.result : []);
+    for (const item of pageItems) {
+      const mapped = mapItem(item);
+      if (mapped) items.push(mapped);
+      if (items.length >= 200) return items;
+    }
+    const totalPages = Number(headers.get("x-total-pages") || 0);
+    if (pageItems.length < 100) break;
+    if (totalPages && page >= totalPages) break;
+  }
+  return items;
+}
+
+async function yunxiaoListRefs(token, { orgId, repositoryId }) {
+  const branches = await yunxiaoPaged(
+    yunxiaoRepoUrl(orgId, repositoryId, "/branches"),
+    token,
+    (item) => {
+      const name = item.name || item.branchName;
+      const sha = item.commit?.id || item.commitId || item.id;
+      if (!name || !sha) return null;
+      return { sha, ref: `refs/heads/${name}` };
+    },
+  );
+  const tags = await yunxiaoPaged(
+    yunxiaoRepoUrl(orgId, repositoryId, "/tags"),
+    token,
+    (item) => {
+      const name = item.name || item.tagName;
+      const sha = item.commit?.id || item.id;
+      if (!name || !sha) return null;
+      return { sha, ref: `refs/tags/${name}` };
+    },
+  );
+  return [...branches, ...tags].slice(0, 200);
+}
+
+async function yunxiaoDefaultRef(token, { orgId, repositoryId }) {
+  const url = yunxiaoRepoUrl(orgId, repositoryId, "/branches");
+  url.searchParams.set("page", "1");
+  url.searchParams.set("perPage", "100");
+  const { body } = await fetchCodeJson(url.toString(), yunxiaoHeaders(token));
+  const list = Array.isArray(body) ? body : (Array.isArray(body?.result) ? body.result : []);
+  const preferred = list.find((item) => item.defaultBranch)?.name
+    || list[0]?.name
+    || list[0]?.branchName;
+  return preferred || "master";
+}
+
+async function yunxiaoListTree(token, ctx, { ref, path = "" } = {}) {
+  const url = yunxiaoRepoUrl(ctx.orgId, ctx.repositoryId, "/files/tree");
+  const prefix = String(path || "").replace(/^\/+/, "").replace(/\/+$/, "");
+  if (prefix) url.searchParams.set("path", prefix);
+  const normalized = normalizeRefParam(ref) || await yunxiaoDefaultRef(token, ctx);
+  url.searchParams.set("ref", normalized);
+  url.searchParams.set("type", "DIRECT");
+  const { body } = await fetchCodeJson(url.toString(), yunxiaoHeaders(token));
+  const list = Array.isArray(body) ? body : (Array.isArray(body?.result) ? body.result : []);
+  const entries = [];
+  for (const item of list) {
+    entries.push({
+      type: item.type === "tree" ? "dir" : "file",
+      path: item.path || (prefix ? `${prefix}/${item.name}` : item.name),
+      size: null,
+    });
+    if (entries.length >= MAX_TREE) break;
+  }
+  return entries;
+}
+
+async function yunxiaoReadFile(token, ctx, { ref, path } = {}) {
+  // 云效要求整段路径 URL-Encode（斜杠变成 %2F），而不是按段拆开。
+  const url = yunxiaoRepoUrl(ctx.orgId, ctx.repositoryId, `/files/${encodeURIComponent(path)}`);
+  const normalized = normalizeRefParam(ref) || await yunxiaoDefaultRef(token, ctx);
+  url.searchParams.set("ref", normalized);
+  const { body } = await fetchCodeJson(url.toString(), yunxiaoHeaders(token));
+  const size = Number(body?.size);
+  if (!Number.isFinite(size)) throw new HttpError(400, "无法读取文件大小");
+  if (size > MAX_FILE_BYTES) {
+    throw new HttpError(400, `文件超过 ${MAX_FILE_BYTES} 字节只读上限，请改用更小的路径或让成员提供摘录`);
+  }
+  const encoding = String(body?.encoding || "base64").toLowerCase();
+  let raw;
+  if (encoding === "base64") {
+    raw = Buffer.from(String(body.content || "").replace(/\s+/g, ""), "base64");
+  } else if (encoding === "text") {
+    raw = Buffer.from(String(body.content || ""), "utf8");
+  } else {
+    throw new HttpError(400, `不支持的文件编码：${encoding}`);
+  }
+  if (raw.includes(0)) throw new HttpError(400, "该路径是二进制文件，只读接口仅支持文本");
+  return { byteSize: size, content: raw.toString("utf8").slice(0, MAX_FILE_BYTES) };
 }
 
 export async function agentListCodeSources(db, projectId) {
@@ -584,41 +735,24 @@ async function getRemoteRow(db, projectId, remoteId) {
 
 export async function agentListCodeRefs(db, projectId, remoteId) {
   const remote = await getRemoteRow(db, projectId, remoteId);
-  const secret = await loadRemoteSecret(db, projectId, remote);
-  const authRemote = withAuth(remote.remote_url, secret);
-  const output = git(["ls-remote", "--heads", "--tags", authRemote], { timeout: 60000 });
-  const refs = output.split(/\r?\n/).filter(Boolean).map((line) => {
-    const [sha, ref] = line.split(/\s+/);
-    return { sha, ref };
-  }).slice(0, 200);
+  const { platform, token, connector } = await requireRemoteAccess(db, projectId, remote);
+  const refs = platform === "github"
+    ? await githubListRefs(token, remote)
+    : await yunxiaoListRefs(token, await yunxiaoRepoContext(db, projectId, remote, token, connector));
   return { remoteId, label: remote.label, refs };
 }
 
 export async function agentListCodeTree(db, projectId, remoteId, { ref, path = "" } = {}) {
   const remote = await getRemoteRow(db, projectId, remoteId);
-  const dir = await ensureMirror(db, projectId, remote, ref || undefined);
+  const { platform, token, connector } = await requireRemoteAccess(db, projectId, remote);
   const prefix = String(path || "").replace(/^\/+/, "").replace(/\/+$/, "");
-  const spec = ref ? `${ref}^{tree}` : "HEAD^{tree}";
-  let output;
-  try {
-    output = git(["ls-tree", "-l", spec, ...(prefix ? [`${prefix}/`] : [])], { cwd: dir });
-  } catch (error) {
-    if (!prefix) throw error;
-    output = git(["ls-tree", "-l", spec, prefix], { cwd: dir });
-  }
-  const entries = [];
-  for (const line of output.split(/\r?\n/).filter(Boolean)) {
-    const match = line.match(/^\d+\s+(\w+)\s+\S+\s+(\d+|-)\t(.+)$/)
-      || line.match(/^\d+\s+(\w+)\s+\S+\s+(\d+|-)\s+(.+)$/);
-    if (!match) continue;
-    const [, type, size, name] = match;
-    entries.push({
-      type: type === "tree" ? "dir" : "file",
-      path: name,
-      size: size === "-" ? null : Number(size),
-    });
-    if (entries.length >= MAX_TREE) break;
-  }
+  const entries = platform === "github"
+    ? await githubListTree(token, remote, { ref, path: prefix })
+    : await yunxiaoListTree(
+      token,
+      await yunxiaoRepoContext(db, projectId, remote, token, connector),
+      { ref, path: prefix },
+    );
   return { remoteId, label: remote.label, ref: ref || "HEAD", path: prefix || "", entries };
 }
 
@@ -628,26 +762,20 @@ export async function agentReadCodeFile(db, projectId, remoteId, { ref, path } =
     throw new HttpError(400, "非法文件路径");
   }
   const remote = await getRemoteRow(db, projectId, remoteId);
-  const dir = await ensureMirror(db, projectId, remote, ref || undefined);
-  const spec = `${ref || "HEAD"}:${filePath}`;
-  let size;
-  try {
-    size = Number(git(["cat-file", "-s", spec], { cwd: dir, timeout: 30000 }).trim());
-  } catch {
-    throw new HttpError(404, "文件不存在或无法读取");
-  }
-  if (!Number.isFinite(size)) throw new HttpError(400, "无法读取文件大小");
-  if (size > MAX_FILE_BYTES) {
-    throw new HttpError(400, `文件超过 ${MAX_FILE_BYTES} 字节只读上限，请改用更小的路径或让成员提供摘录`);
-  }
-  const content = git(["cat-file", "-p", spec], { cwd: dir });
-  if (content.includes("\0")) throw new HttpError(400, "该路径是二进制文件，只读接口仅支持文本");
+  const { platform, token, connector } = await requireRemoteAccess(db, projectId, remote);
+  const file = platform === "github"
+    ? await githubReadFile(token, remote, { ref, path: filePath })
+    : await yunxiaoReadFile(
+      token,
+      await yunxiaoRepoContext(db, projectId, remote, token, connector),
+      { ref, path: filePath },
+    );
   return {
     remoteId,
     label: remote.label,
     ref: ref || "HEAD",
     path: filePath,
-    byteSize: size,
-    content: content.slice(0, MAX_FILE_BYTES),
+    byteSize: file.byteSize,
+    content: file.content,
   };
 }

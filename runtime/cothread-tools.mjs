@@ -2,7 +2,9 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 import { startContinuableL3 } from "./sdk-resume.mjs";
 
 export const name = "cothread-project-tools";
-export const inject = ["tools", "agents"];
+// subagents is required so create_task can startContinuable in-process
+// (same path as explicit dsh_l3). Without it: "cannot get property subagents without inject".
+export const inject = ["tools", "agents", "subagents"];
 
 async function bridgeTool(name, args, sessionId) {
   const response = await fetch(
@@ -194,8 +196,10 @@ export function apply(ctx) {
           // fallback only; three production rounds showed it does not bind.
           if (name === "create_task" && result?.needsDispatch && result.dispatchPrompt && exec.agent) {
             let childId = null;
+            // Prefer the live agent's ctx (same inject tree as explicit dsh_l3).
+            const runtimeCtx = exec.agent.ctx || ctx;
             try {
-              const started = await startContinuableL3(ctx, exec.agent, {
+              const started = await startContinuableL3(runtimeCtx, exec.agent, {
                 label: result.dispatchLabel || result.title || "任务",
                 prompt: result.dispatchPrompt,
                 signal: exec.signal,
@@ -214,7 +218,7 @@ export function apply(ctx) {
             } catch (error) {
               if (childId) {
                 try {
-                  ctx.subagents?.interrupt?.(childId, { kind: "parent" });
+                  runtimeCtx.subagents?.interrupt?.(childId, { kind: "parent" });
                 } catch {}
               }
               return JSON.stringify({

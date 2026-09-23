@@ -182,7 +182,7 @@ export async function runL1Task(db, projectId, task, input, schema, options = {}
       const opened = await openL1Harness(db, projectId, session, scope, options);
       harness = opened.harness;
       const pressure = await sampleContextStats(harness, session.session_id);
-      if (pressure?.used >= (pressure.autoCompactAt ?? L1_CONTEXT_BUDGET.autoCompactAt)) {
+      if (pressure?.used >= (pressure?.autoCompactAt ?? L1_CONTEXT_BUDGET.autoCompactAt)) {
         await beginPhase("compact_context");
         try { await requestCompact(harness, session.session_id, true); }
         catch (error) {

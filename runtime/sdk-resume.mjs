@@ -30,11 +30,12 @@ function liveDelegatedAgent(server, method, params) {
 async function compactMeasuredSession(server, agent, params) {
   const level = sessionContextLevel(agent?.session?.id || params?.sessionId);
   const before = measureContext(server.ctx, agent.session, { level });
+  if (!before) return { before: 0, after: 0, changed: false, reason: "no_context" };
   if (!params.automatic && before.used < 4096)
     return { before: before.used, after: before.used, changed: false, reason: "already_small" };
   let result, reason;
   try {
-    result = !params.automatic || before.used >= before.autoCompactAt
+    result = !params.automatic || before.used >= (before.autoCompactAt ?? 0)
       ? await server.ctx.compaction.compactNow(agent, AbortSignal.timeout(240000)) : null;
   } catch (error) {
     let cause = error, noReduction = false;
@@ -223,7 +224,7 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
       );
       if (params.autoCompact) {
         const pressure = measureContext(this.ctx, agent.session, { level: sessionContextLevel(params.sessionId) });
-        if (pressure.used >= pressure.autoCompactAt)
+        if (pressure?.used >= (pressure?.autoCompactAt ?? 0))
           await this.ctx.compaction.compactNow(agent, AbortSignal.timeout(240000));
       }
     }

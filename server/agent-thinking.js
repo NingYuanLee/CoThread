@@ -6,8 +6,15 @@ import { logAgentTiming } from './agent-timing-log.js';
 export function trackThinking(db,messageId,sessionId,options={}){
  const started=performance.now();let firstChunk=false;
  let queue=Promise.resolve(),phase,lastPhase,timer,failure,closed=false;
+ const updateReply=options.updateReplyProgress!==false;
+ const agentTaskId=options.agentTaskId||null;
  const enqueue=task=>{queue=queue.then(task).catch(error=>{failure ||= error;});return queue;};
- const received=()=>{if(firstChunk)return;firstChunk=true;const receivedAt=new Date();enqueue(()=>query(db,"UPDATE assistant_replies SET first_response_at=COALESCE(first_response_at,?) WHERE message_id=? AND status='running'",[receivedAt,messageId]));logAgentTiming({messageId,stage:'first_model_chunk',elapsedMs:Math.round(performance.now()-started)});};
+ const received=()=>{
+  if(firstChunk)return;firstChunk=true;
+  const receivedAt=new Date();
+  if(updateReply&&messageId)enqueue(()=>query(db,"UPDATE assistant_replies SET first_response_at=COALESCE(first_response_at,?) WHERE message_id=? AND status='running'",[receivedAt,messageId]));
+  logAgentTiming({messageId,stage:'first_model_chunk',elapsedMs:Math.round(performance.now()-started)});
+ };
  const flushText=()=>{
   clearTimeout(timer);timer=undefined;if(!phase)return;
   const current=phase,text=current.text;
@@ -32,9 +39,11 @@ export function trackThinking(db,messageId,sessionId,options={}){
   finish();phase={kind,text:'',id:undefined};const current=phase;
   current.ready=enqueue(async()=>{
     if(!messageId)return;
-    const result=await query(db,"INSERT INTO agent_events(message_id,agent_session_id,tool,status,input) VALUES(?,?,?,'running','{}')",[messageId,sessionId,kind]);
+    const result=await query(db,
+      "INSERT INTO agent_events(message_id,agent_session_id,agent_task_id,tool,status,input) VALUES(?,?,?,?,'running','{}')",
+      [messageId,sessionId,agentTaskId,kind]);
     current.id=result.insertId;
-    await query(db,"UPDATE assistant_replies SET progress=? WHERE message_id=? AND status='running'",[kind==='thinking'?'正在思考':'正在回复',messageId]);
+    if(updateReply)await query(db,"UPDATE assistant_replies SET progress=? WHERE message_id=? AND status='running'",[kind==='thinking'?'正在思考':'正在回复',messageId]);
   });
  };
  const live=trackLiveOutput(db,messageId,sessionId,{cursor:()=>{const current=phase||lastPhase;return (current?.id?Promise.resolve():current?.ready||Promise.resolve()).then(()=>current?.id?String(current.id):null);}});

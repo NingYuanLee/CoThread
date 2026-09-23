@@ -52,8 +52,9 @@ test("context for a live L3 measures that child instead of creating a session", 
     server, "cothread/context", { sessionId: "child-1" },
   );
   assert.equal(stats.used, 4321);
+  assert.equal(stats.limit, 1_000_000);
   await assert.rejects(
     HarnessSdkJsonRpcServer.prototype.handleRequest.call(server, "cothread/context", { sessionId: "missing" }),
-    /create-called/,
+    /Agent session not found/,
   );
 });

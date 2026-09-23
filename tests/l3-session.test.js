@@ -101,6 +101,14 @@ test("L3 task-pool session reads the run checkpoint saved before the child is fo
     assert.equal(metered.contextUsage.used, 18432);
     assert.equal(metered.contextUsage.categories.find((item) => item.key === "assistant").tokens, 1200);
     assert.equal(metered.contextUsage.categories.find((item) => item.key === "results").tokens, 8000);
+    assert.equal(await persistL3ContextStats(database.db, childSessionId, {
+      used: 0,
+      estimated: true,
+      categories: { tools: 0, system: 0, results: 0, summary: 0, assistant: 0, discussion: 0 },
+      measuredAt: "2026-09-22T06:01:00.000Z",
+    }), false);
+    const kept = await readL3TaskSession(service, user, thread.id, task.id);
+    assert.equal(kept.contextUsage.used, 18432);
   } finally {
     await database.close();
   }

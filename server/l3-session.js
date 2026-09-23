@@ -150,6 +150,15 @@ export async function persistL3RunCheckpoint(db, executorId, history) {
 
 export async function persistL3ContextStats(db, executorId, stats) {
   if (!executorId || !stats || typeof stats.used !== "number") return false;
+  // Never clobber a real mid-run sample with a post-teardown empty measure
+  // (missing live child → getOrCreateSession invents an empty session → used:0).
+  if (stats.used <= 0) {
+    const [latest] = await query(db, `SELECT context_stats FROM agent_task_execution_runs
+      WHERE executor_id=? ORDER BY created_at DESC LIMIT 1`, [executorId]);
+    const prior = typeof latest?.context_stats === "string"
+      ? JSON.parse(latest.context_stats) : latest?.context_stats;
+    if (prior && typeof prior.used === "number" && prior.used > 0) return false;
+  }
   const result = await query(db, `UPDATE agent_task_execution_runs r
     JOIN (SELECT id FROM agent_task_execution_runs WHERE executor_id=? ORDER BY created_at DESC LIMIT 1) latest
     ON r.id=latest.id SET r.context_stats=?`, [executorId, JSON.stringify(stats)]);

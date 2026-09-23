@@ -767,7 +767,9 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       .json(await service.createThread(req.user, req.params.id, req.body)),
   );
   app.get("/api/threads/:id", async (req, res) =>
-    res.json(await service.context(req.user, req.params.id, db, { display: req.query.view === "chat", limit: req.query.limit, before: req.query.before, after: req.query.after })),
+    // Default to the lightweight chat payload. Full message lists without pagination
+    // previously inlined avatars/tool I/O and could exceed tens of MiB on busy threads.
+    res.json(await service.context(req.user, req.params.id, db, { display: req.query.view !== "full", limit: req.query.limit, before: req.query.before, after: req.query.after })),
   );
   app.get("/api/threads/:id/agent-logs", async (req, res) =>
     res.json(await service.agentLogs(req.user, "thread", req.params.id)),

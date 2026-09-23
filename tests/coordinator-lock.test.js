@@ -93,6 +93,37 @@ test("child_result events wake L2 and post the visible follow-up", async () => {
   }
 });
 
+test("child_result still posts when the source message already has earlier L2 replies", async () => {
+  const database = await testDatabase(), db = database.db, service = new Service(db);
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [user.id, `${user.id}@test.com`, "成员"]);
+    const project = await service.createProject(user, { name: "交活补帖" });
+    const created = await service.createThread(user, project.id, { title: "任务" });
+    const thread = await service.thread(user, created.id);
+    const trigger = await service.postMessage(user, thread.id, { body: "@小祥 验证 L3" });
+    await query(db, "UPDATE agent_requests SET status='completed' WHERE message_id=?", [trigger.id]);
+    await query(db, "UPDATE assistant_replies SET status='completed',participation='reply' WHERE message_id=?", [trigger.id]);
+    // Prior turn already posted ack / "已派人" under the same source message.
+    await service.insertMessage(db, user, thread.id, "已安排验证，系统即将启动 L3。", [], "assistant", trigger.id);
+    await service.insertMessage(db, user, thread.id, "L3 已启动执行。", [], "assistant", trigger.id);
+    await query(db, `INSERT INTO coordinator_events(id,thread_id,kind,status,message_id,task_id,payload)
+      VALUES(UUID(),?,'child_result','queued',?,?,?)`,
+      [thread.id, trigger.id, randomUUID(), JSON.stringify({
+        status: "completed", title: "验证 L3", resultSummary: "L3_PROBE_OK",
+        sourceMessageId: trigger.id, sourceUserId: user.id,
+      })]);
+    assert.equal(await processNextCoordinator(db, thread.id, async () => ({
+      finalResponse: "大娃已跑完：L3_PROBE_OK，退出码 0。", mergedMessageIds: [],
+    })), true);
+    const posts = await query(db, "SELECT body FROM messages WHERE agent_task_id=? AND source='assistant' ORDER BY sequence", [trigger.id]);
+    assert.equal(posts.length, 3);
+    assert.equal(posts.at(-1).body, "大娃已跑完：L3_PROBE_OK，退出码 0。");
+  } finally {
+    await database.close();
+  }
+});
+
 test("a coordinator turn that leaves pending work enqueues one idle dispatch", async () => {
   const database = await testDatabase(), db = database.db, service = new Service(db);
   try {

@@ -609,7 +609,17 @@ export function WorkspaceApp() {
     if (event.actor_type === "human_member_connector_mcp" || event.actor_type === "human_member_connector") return `${event.actor_name || memberName(event.actor_id) || memberName(task?.target_id) || "成员"}（本地执行器）`;
     if (event.actor_type === "l2_session") return "L2-小祥";
     if (event.actor_type === "dsh_l3") {
-      return event.actor_name_snapshot || "L3-未知";
+      // Timeline items pack the label into actor_name; status history also has actor_name_snapshot.
+      if (event.actor_name_snapshot || event.actor_name) return event.actor_name_snapshot || event.actor_name!;
+      if (event.actor_id && task) {
+        const runExecutorIds = uniqueActorIds([...task.executionRuns]
+          .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
+          .map((item) => item.executor_id));
+        const knownName = l3ExecutorName(event.actor_id, runExecutorIds);
+        if (knownName && knownName !== AGENT_LEVEL_LABELS.l3) return `L3-${knownName}`;
+        return `L3-${event.actor_id.slice(0, 8)}`;
+      }
+      return "L3-未知";
     }
     if (event.actor_type === "connector") return `${event.actor_name || memberName(task?.target_id) || "成员"}（本地执行器）`;
     return "系统";

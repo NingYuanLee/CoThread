@@ -276,6 +276,22 @@ export async function startReplyWorker(db, listenDb = db) {
     db,
     "UPDATE agent_events SET status='failed',finished_at=UTC_TIMESTAMP(3) WHERE status='running'",
   );
+  await query(
+    db,
+    `UPDATE agent_project_events SET status='failed',error='服务重启，维护任务已中断。',
+      finished_at=UTC_TIMESTAMP(3) WHERE status='running'`,
+  );
+  await query(
+    db,
+    `UPDATE agent_l1_runs SET status='failed',error='服务重启，维护任务已中断。',
+      finished_at=UTC_TIMESTAMP(3) WHERE status='running'`,
+  );
+  await query(
+    db,
+    `UPDATE agent_project_sessions SET status='failed',
+      last_error='服务重启，维护任务已中断。',last_finished_at=UTC_TIMESTAMP(3)
+      WHERE status='running'`,
+  );
   // A single process owns sandbox runs. Committed replies are never enqueued again.
   await query(
     db,

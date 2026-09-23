@@ -54,8 +54,19 @@ async function sampleHistory(harness, sessionId) {
 
 function parseJsonResponse(text) {
   const source = String(text || "").trim();
-  const fenced = source.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1];
-  return JSON.parse(fenced || source);
+  if (!source) throw new SyntaxError("L1 返回空内容，无法解析 JSON");
+  const fenced = source.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1]?.trim();
+  const candidate = fenced || source;
+  try {
+    return JSON.parse(candidate);
+  } catch (error) {
+    const embedded = candidate.match(/\{[\s\S]*\}|\[[\s\S]*\]/)?.[0];
+    if (embedded && embedded !== candidate) {
+      try { return JSON.parse(embedded); } catch { /* fall through */ }
+    }
+    const hint = candidate.slice(0, 120).replace(/\s+/g, " ");
+    throw new SyntaxError(`L1 返回无法解析的 JSON: ${error.message}; preview=${hint}`);
+  }
 }
 
 async function sampleContextStats(harness, sessionId) {

@@ -1232,18 +1232,21 @@ export class Service {
     const pageSize = z.coerce.number().int().min(1).max(200).parse(limit);
     const cursor = before || after;
     if (cursor) z.string().regex(/^\d+$/).parse(cursor);
+    // Never inline base64 avatars or full tool I/O here — a busy thread can exceed
+    // 30 MiB and arrive as HTTP 200 with a truncated/non-JSON body through the proxy.
+    // Avatars stay on /members/:id/avatar; event payloads stay on /events/:eventId.
     const messagesQuery = query(
       db,
-      `SELECT m.id,m.sequence,m.body,m.refs,m.folder_refs,m.source,m.execution_target,m.agent_task_id,m.created_at,u.name author,u.id author_id,${display ? "CASE WHEN m.source='assistant' THEN NULL ELSE CONCAT('/api/projects/',?,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) END author_avatar" : "u.avatar author_avatar"},
+      `SELECT m.id,m.sequence,m.body,m.refs,m.folder_refs,m.source,m.execution_target,m.agent_task_id,m.created_at,u.name author,u.id author_id,CASE WHEN m.source='assistant' THEN NULL ELSE CONCAT('/api/projects/',?,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) END author_avatar,
       JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags, '$[0]')) author_role
       FROM messages m JOIN users u ON u.id=m.author_id WHERE m.thread_id=? AND NOT (m.source='human' AND m.agent_task_id IS NOT NULL)${display && cursor ? ` AND m.sequence${before ? "<" : ">"}?` : ""} ORDER BY m.sequence${display && !after ? " DESC" : ""}${display ? ` LIMIT ${pageSize + 1}` : ""}`,
-      display ? [thread.project_id, threadId, ...(cursor ? [cursor] : [])] : [threadId],
+      [thread.project_id, threadId, ...(display && cursor ? [cursor] : [])],
     );
     const page = display ? await messagesQuery : null;
     const hasMore = !!page && page.length > pageSize;
     const selected = page?.slice(0, pageSize);
     if (display && !after) selected.reverse();
-    const eventFilter = display && !after ? ` AND m.id IN (${selected.length ? selected.map(() => "?").join(",") : "NULL"})` : "";
+    const eventFilter = display ? ` AND m.id IN (${selected.length ? selected.map(() => "?").join(",") : "NULL"})` : "";
     const reviewsQuery = query(
       db,
       `SELECT r.*,u.name reviewer FROM reviews r JOIN versions v ON v.id=r.version_id
@@ -1263,11 +1266,11 @@ export class Service {
     );
     const eventsQuery = query(
       db,
-      `SELECT ${display ? `e.id,e.message_id,e.tool,e.status,e.created_at,e.finished_at,
+      `SELECT e.id,e.message_id,e.tool,e.status,e.created_at,e.finished_at,
        CASE WHEN JSON_VALID(e.input) THEN JSON_OBJECT('action',JSON_EXTRACT(e.input,'$.action'),'scope',JSON_EXTRACT(e.input,'$.scope'),'name',JSON_EXTRACT(e.input,'$.name'),'artifactId',JSON_EXTRACT(e.input,'$.artifactId'),'folderId',JSON_EXTRACT(e.input,'$.folderId'),'threadId',JSON_EXTRACT(e.input,'$.threadId'),'versionId',JSON_EXTRACT(e.input,'$.versionId'),
        'path',JSON_EXTRACT(e.input,'$.path'),'title',JSON_EXTRACT(e.input,'$.title'),'command',LEFT(JSON_UNQUOTE(JSON_EXTRACT(e.input,'$.command')),300)) ELSE '{}' END input,
-       NULL output` : "e.*"} FROM agent_events e JOIN messages m ON m.id=e.message_id WHERE m.thread_id=?${eventFilter} ORDER BY e.id`,
-      [threadId, ...(display && !after ? selected.map((m) => m.id) : [])],
+       NULL output FROM agent_events e JOIN messages m ON m.id=e.message_id WHERE m.thread_id=?${eventFilter} ORDER BY e.id`,
+      [threadId, ...(display ? selected.map((m) => m.id) : [])],
     );
     const agentContextQuery = query(
       db,

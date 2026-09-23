@@ -1,6 +1,6 @@
-import { contextBudgetFromEnv } from "../shared/context.js";
+import { contextBudget, contextBudgetFromEnv } from "../shared/context.js";
 
-export function measureContext(ctx, session) {
+export function measureContext(ctx, session, options = {}) {
   const measured = ctx.tokenMeter.measure(session);
   const header = session.requestHeader();
   const categories = {
@@ -37,7 +37,9 @@ export function measureContext(ctx, session) {
       lastCompactedAt = new Date(event.time).toISOString();
     }
   }
-  const budget = contextBudgetFromEnv();
+  const budget = options.level
+    ? contextBudget(options.level)
+    : contextBudgetFromEnv();
   return {
     used: measured.totalTokens,
     estimated:

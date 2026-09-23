@@ -8,6 +8,7 @@ import { createUsageMeter, saveReplyUsage } from "./agent-usage.js";
 import { acquireCoordinatorRuntime, discardCoordinatorRuntime, parkCoordinatorRuntime } from "./agent.js";
 import { discussionText } from "../shared/context.js";
 import { bindDshL3Execution, finishCoordinatorDispatch, l3LaunchPrompt, settleDshL3Execution, tasksAwaitingL3Launch } from "./task-pool.js";
+import { trackThinking } from "./agent-thinking.js";
 import { persistL3ContextStats, persistL3RunCheckpoint } from "./l3-session.js";
 import {
   composeOpportunisticParticipation,
@@ -326,10 +327,26 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
     const toolTasks = new Map();
     const nativeToolEvents = new Map();
     const childRunEvents = new Map();
+    const childThinking = new Map();
     const finishedChildren = new Map();
     const activeChildren = runtime.activeChildren;
     let lifecycle = Promise.resolve();
     let childSettled;
+    const ensureChildThinking = (childId, taskId = null, messageId = job.message_id) => {
+      if (!childId || childThinking.has(childId) || !messageId) return childThinking.get(childId);
+      const tracker = trackThinking(db, messageId, childId, {
+        updateReplyProgress: false,
+        agentTaskId: taskId || null,
+      });
+      childThinking.set(childId, tracker);
+      return tracker;
+    };
+    const closeChildThinking = async (childId) => {
+      const tracker = childThinking.get(childId);
+      if (!tracker) return;
+      childThinking.delete(childId);
+      await tracker.close("completed").catch(() => {});
+    };
     const taskIdFromPrompt = (value) => String(value || "").match(
       /(?:TASK_ID\s*[:=]|任务ID\s*[:：]|\[task:)\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
     )?.[1] || null;
@@ -379,6 +396,7 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
         throw error;
       }
       if (!task) return failBind("排队任务未能绑定到本次 L3");
+      ensureChildThinking(childId, task.id, job.message_id || task.source_message_id);
       if (parentEventId) {
         await query(db, `UPDATE agent_events SET agent_task_id=?
           WHERE agent_session_id=? AND agent_task_id IS NULL
@@ -399,6 +417,16 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
     const notificationText = (blocks = []) => blocks.filter((block) => block?.type === "text")
       .map((block) => block.text || "").join("\n");
     const retainOrForgetChild = async (childId, task) => {
+      // Sample while the live child is still reachable. Measuring after teardown
+      // can create an empty session and persist used:0 over a good mid-run sample.
+      try {
+        await persistL3ContextStats(db, childId, await runtime.request("context", { sessionId: childId }));
+      } catch (error) {
+        console.error("L3 context sample skipped", {
+          type: error?.name || "Error",
+          diagnostic: redactSecrets(error?.message || error).slice(-1000),
+        });
+      }
       try {
         await persistL3RunCheckpoint(db, childId, await runtime.request("history", { sessionId: childId }));
       } catch (error) {
@@ -462,10 +490,13 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
       }
     };
     const handleAgentTeamNotification = (notification) => {
-      runtime.thinking.notify(notification);
+      const callerSessionId = notification.method === "session.event"
+        ? notification.params?.sessionId : null;
+      if (callerSessionId && callerSessionId !== runtime.session.session_id)
+        ensureChildThinking(callerSessionId)?.notify(notification);
+      else runtime.thinking.notify(notification);
       lifecycle = lifecycle.then(async () => {
         if (notification.method === "session.event") {
-          const callerSessionId = notification.params?.sessionId;
           const event = notification.params.event;
           if (event?.type === "tool/call" && nativeTools.has(event.data?.name)) {
             let args = {};
@@ -510,6 +541,7 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
         } else if (notification.method === "subagent.started" && notification.params?.parentSessionId === runtime.session.session_id) {
           const childId = notification.params.childSessionId;
           activeChildren.add(childId);
+          ensureChildThinking(childId);
           if (!childRunEvents.has(childId)) {
             const inserted = await query(db, `INSERT INTO agent_events
               (message_id,agent_session_id,tool,status,input) VALUES(?,?,'agent_run','running','{}')`,
@@ -518,7 +550,10 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
           }
           const [alreadyBound] = await query(db, `SELECT task_id FROM agent_task_execution_runs
             WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting') LIMIT 1`, [childId]);
-          if (alreadyBound) return;
+          if (alreadyBound) {
+            ensureChildThinking(childId, alreadyBound.task_id);
+            return;
+          }
           let pendingTask = null;
           for (const pending of toolTasks.values()) {
             if (!pending.childId) { pending.childId = childId; pendingTask = pending; break; }
@@ -526,6 +561,7 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
           await attachChildTask(childId, pendingTask?.taskId || inflightLaunch?.taskId, pendingTask?.parentEventId);
         } else if (notification.method === "subagent.finished" && notification.params?.parentSessionId === runtime.session.session_id) {
           const childId = notification.params.childSessionId;
+          await closeChildThinking(childId);
           const runEventId = childRunEvents.get(childId);
           if (runEventId) {
             const completed = notification.params.status === "ok" && notification.params.stopReason === "completed";
@@ -548,7 +584,10 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
     };
     let result;
     try {
-      for (const item of launched) activeChildren.add(item.childId);
+      for (const item of launched) {
+        activeChildren.add(item.childId);
+        ensureChildThinking(item.childId, item.taskId);
+      }
       if (job.kind === "l3_idle" && launched.length && !launchFailed.length) {
         if (activeChildren.size) runtime.watchChildren?.(handleAgentTeamNotification, () => lifecycle);
         completed = true;
@@ -558,7 +597,10 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
       result = await runCoordinatorTurn(prompt);
       await lifecycle;
       await launchAwaitingL3();
-      for (const item of launched) activeChildren.add(item.childId);
+      for (const item of launched) {
+        activeChildren.add(item.childId);
+        ensureChildThinking(item.childId, item.taskId);
+      }
       if (activeChildren.size) runtime.watchChildren?.(handleAgentTeamNotification, () => lifecycle);
       await lifecycle;
       await steerNewMessages();
@@ -720,7 +762,10 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
     let responseId = posts[0]?.id || null;
     await transaction(db, async (conn) => {
       if (job.kind === "child_result" || job.kind === "l3_idle") {
-        if (!responseId && visible) {
+        // Always append a new follow-up when L2 has something to say. Prior assistant
+        // posts for the same source message (ack / "已派人") must not suppress the
+        // completion report — otherwise child_result wakes L2 but nothing lands in chat.
+        if (visible) {
           responseId = (await service.insertMessage(conn, user, job.thread_id, visible, [], "assistant", job.message_id)).id;
         }
         await query(conn, "UPDATE coordinator_events SET status='completed',finished_at=UTC_TIMESTAMP(3) WHERE id=?", [job.event_id]);

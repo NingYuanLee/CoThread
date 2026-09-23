@@ -21,7 +21,8 @@ function liveDelegatedAgent(server, method, params) {
 }
 
 async function compactMeasuredSession(server, agent, params) {
-  const before = measureContext(server.ctx, agent.session);
+  const level = sessionContextLevel(agent?.session?.id || params?.sessionId);
+  const before = measureContext(server.ctx, agent.session, { level });
   if (!params.automatic && before.used < 4096)
     return { before: before.used, after: before.used, changed: false, reason: "already_small" };
   let result, reason;
@@ -37,7 +38,7 @@ async function compactMeasuredSession(server, agent, params) {
   }
   return {
     before: before.used,
-    after: measureContext(server.ctx, agent.session).used,
+    after: measureContext(server.ctx, agent.session, { level }).used,
     changed: !!result,
     ...(reason ? { reason } : {}),
   };
@@ -68,6 +69,16 @@ export async function startContinuableL3(ctx, parent, { label, prompt, signal } 
 
 const createSession = HarnessSdkJsonRpcServer.prototype.createSession;
 const handleRequest = HarnessSdkJsonRpcServer.prototype.handleRequest;
+function sessionContextLevel(sessionId) {
+  const primary = process.env.COTHREAD_PRIMARY_AGENT_ID;
+  if (primary && sessionId && sessionId !== primary) return "executor";
+  return process.env.COTHREAD_PRIMARY_AGENT_LEVEL === "l3" || process.env.COTHREAD_PRIMARY_AGENT_LEVEL === "executor"
+    ? "executor"
+    : process.env.COTHREAD_PRIMARY_AGENT_LEVEL === "l1" || process.env.COTHREAD_PRIMARY_AGENT_LEVEL === "knowledge"
+      ? "knowledge"
+      : "coordinator";
+}
+
 HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
   method,
   params,
@@ -88,7 +99,16 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
   if (delegated) {
     if (method === "cothread/history") return delegated.session.deriveMessages();
     if (method === "cothread/compact") return compactMeasuredSession(this, delegated, params);
-    return measureContext(this.ctx, delegated.session);
+    // Live subagents are always L3 executors under the L2 harness.
+    return measureContext(this.ctx, delegated.session, { level: "executor" });
+  }
+  // context/history for an unknown id must not invent an empty session — that
+  // overwrites L3 run meters with used:0 after the live child has torn down.
+  if ((method === "cothread/context" || method === "cothread/history")
+    && params?.sessionId
+    && !this.sessions?.get(params.sessionId)
+    && !this.sessionCreations?.get(params.sessionId)) {
+    throw new Error(`Agent session not found: ${params.sessionId}`);
   }
   const record = await this.getOrCreateSession(params.sessionId);
   const agent = record.handle.agent;
@@ -102,7 +122,7 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
       content: transcriptBlocks(params.messages || []),
       source: { kind: "plugin", plugin: "cothread-shared-context" },
     }), { surfaceOp: "append" });
-    return measureContext(this.ctx, agent.session);
+    return measureContext(this.ctx, agent.session, { level: sessionContextLevel(params.sessionId) });
   }
   if (method === "cothread/updates") {
     record.cothreadUpdates ||= new Set();
@@ -138,7 +158,7 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
         { surfaceOp: "append" },
       );
       if (params.autoCompact) {
-        const pressure = measureContext(this.ctx, agent.session);
+        const pressure = measureContext(this.ctx, agent.session, { level: sessionContextLevel(params.sessionId) });
         if (pressure.used >= pressure.autoCompactAt)
           await this.ctx.compaction.compactNow(agent, AbortSignal.timeout(240000));
       }
@@ -147,7 +167,7 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
   if (method === "cothread/compact") return compactMeasuredSession(this, agent, params);
   if (method === "cothread/dispatch-l3") return startContinuableL3(this.ctx, agent, params);
   if (method === "cothread/history") return agent.session.deriveMessages();
-  return measureContext(this.ctx, agent.session);
+  return measureContext(this.ctx, agent.session, { level: sessionContextLevel(params.sessionId) });
 };
 HarnessSdkJsonRpcServer.prototype.createSession = async function (sessionId) {
   if (sessionId !== process.env.COTHREAD_RESUME_SESSION) {

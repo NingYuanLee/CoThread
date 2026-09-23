@@ -312,9 +312,13 @@ async function processNextMemberMemory(db, summarize, projectId) {
   } catch (error) {
     await query(db, `UPDATE agent_member_memory_queue SET available_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 60 SECOND)
       WHERE project_id=?`, [targetProject]);
+    const detail = String(error?.message || error).slice(0, 300);
     if (run?.id) await finishL1Run(db, run.id, { status: "failed", agentCalled: true, hadUpdates: true,
-      error: "成员认识整理未完成，可以重试。" });
-    console.error("Project memory refresh failed", { type: error.name });
+      error: `成员认识整理未完成，可以重试。${detail ? ` (${detail})` : ""}`.slice(0, 255) });
+    console.error("Project memory refresh failed", {
+      type: error?.name || "Error",
+      message: detail,
+    });
   } finally {
     if (locked) await query(connection, "SELECT RELEASE_LOCK(?)", [lockName]);
     connection.release();
@@ -360,7 +364,10 @@ async function summarizeReadyDocument(db, summarize, candidate) {
   } catch (error) {
     await query(db, `UPDATE agent_document_memory_queue SET available_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 60 SECOND)
       WHERE version_id=?`, [candidate.version_id]);
-    console.error("Project document memory refresh failed", { type: error.name });
+    console.error("Project document memory refresh failed", {
+      type: error?.name || "Error",
+      message: String(error?.message || error).slice(0, 300),
+    });
     throw error;
   } finally {
     if (locked) await query(connection, "SELECT RELEASE_LOCK(?)", [lockName]);
@@ -463,9 +470,13 @@ async function processNextIterationArchive(db, summarize, projectId) {
     await finishL1Run(db, claimed.id, { status: "completed", agentCalled: true, hadUpdates: true,
       itemCount: 1, result: { threadId, summaryChars: summary.length } });
   } catch (error) {
+    const detail = String(error?.message || error).slice(0, 300);
     await finishL1Run(db, claimed.id, { status: "failed", agentCalled: true, hadUpdates: true,
-      error: "迭代归档整理未完成，可以重试。" });
-    console.error("Iteration archive memory failed", { type: error.name });
+      error: `迭代归档整理未完成，可以重试。${detail ? ` (${detail})` : ""}`.slice(0, 255) });
+    console.error("Iteration archive memory failed", {
+      type: error?.name || "Error",
+      message: detail,
+    });
   }
   return true;
 }

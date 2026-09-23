@@ -49,5 +49,22 @@ test('thinking, intermediate text and tools retain actual order; final text is m
   toolOnly.notify({method:'session.event',params:{sessionId:'tool-only',event:{type:'tool/call',data:{}}}});
   await toolOnly.close('completed');
   assert.ok((await query(db,'SELECT first_response_at FROM assistant_replies WHERE message_id=?',[direct.id]))[0].first_response_at);
+  const childId=randomUUID();
+  const [beforeProgress]=await query(db,'SELECT progress,first_response_at FROM assistant_replies WHERE message_id=?',[message.id]);
+  const child=trackThinking(db,message.id,childId,{updateReplyProgress:false,agentTaskId:null});
+  const childEmit=(type,data={})=>child.notify({method:'session.event',params:{sessionId:childId,event:{type,data}}});
+  childEmit('step/start');
+  childEmit('assistant/chunk',{chunk:{type:'reasoning-delta',text:'大娃先写探针。'}});
+  childEmit('assistant/chunk',{chunk:{type:'text-delta',text:'开始执行。'}});
+  childEmit('tool/call');
+  await child.flush();
+  await child.close('completed');
+  const childRows=await query(db,'SELECT tool,output,agent_session_id,agent_task_id FROM agent_events WHERE agent_session_id=? ORDER BY id',[childId]);
+  assert.deepEqual(childRows.map(e=>e.tool),['thinking','assistant_text']);
+  assert.equal(childRows[0].output,'大娃先写探针。');
+  assert.equal(childRows[0].agent_task_id,null);
+  const [afterProgress]=await query(db,'SELECT progress,first_response_at FROM assistant_replies WHERE message_id=?',[message.id]);
+  assert.equal(afterProgress.progress,beforeProgress.progress);
+  assert.equal(String(afterProgress.first_response_at),String(beforeProgress.first_response_at));
  }finally{await database.close();}
 });

@@ -22,6 +22,7 @@ import { agentRuntimePatch } from "./dsh-runtime-config.js";
 import { persistL3ContextStats } from "./l3-session.js";
 import { acquireSessionLock } from "./session-lock.js";
 import { logAgentTiming } from "./agent-timing-log.js";
+import { insertUniqueAssistantMessage } from "./assistant-post.js";
 
 const running = new Map();
 const coordinatorRuntimes = new Map();
@@ -223,6 +224,7 @@ export async function openAgentRuntime(
     sessionLock = await acquireSessionLock(db, job.thread_id, 30);
     if (!sessionLock) {
       const error = new Error("L2 session is busy");
+      error.code = "L2_SESSION_BUSY";
       error.agentStage = "start";
       throw error;
     }
@@ -231,6 +233,7 @@ export async function openAgentRuntime(
     sessionLock = await acquireSessionLock(db, spec.homeId, 30);
     if (!sessionLock) {
       const error = new Error("L3 session is busy");
+      error.code = "L3_SESSION_BUSY";
       error.agentStage = "start";
       throw error;
     }
@@ -258,14 +261,9 @@ export async function openAgentRuntime(
   const token = randomBytes(32).toString("hex");
   const thinkingOptions = role === "coordinator" ? {
     async onVisibleText(text) {
-      const body = String(text || "").trim().slice(0, 4000);
-      if (!body) return;
-      const [existing] = await query(db,
-        "SELECT id FROM messages WHERE agent_task_id=? AND body=? ORDER BY sequence DESC LIMIT 1",
-        [job.message_id, body]);
-      if (existing) return;
-      await service.insertMessage(db, actor, job.thread_id, body, [], "assistant", job.message_id);
-      publishWork(db, job.thread_id);
+      const posted = await insertUniqueAssistantMessage(
+        service, db, actor, job.thread_id, text, job.message_id);
+      if (posted) publishWork(db, job.thread_id);
     },
   } : {};
   let thinking = trackThinking(db, job.message_id, session.session_id, thinkingOptions);
@@ -505,6 +503,7 @@ export async function openAgentRuntime(
       sessionLock = await acquireSessionLock(db, job.thread_id, 30);
       if (!sessionLock) {
         const error = new Error("L2 session is busy");
+        error.code = "L2_SESSION_BUSY";
         error.agentStage = "start";
         throw error;
       }

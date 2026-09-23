@@ -56,7 +56,7 @@ import {
 } from "./ProfileFields";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { labelReasoningEffort, labelWorkflowStatus, labelExecutorType, l3ExecutorName, uniqueActorIds, AGENT_LEVEL_LABELS } from "./ui-labels";
+import { labelReasoningEffort, labelWorkflowStatus, labelExecutorType, l3ExecutorName, stickyActorIds, uniqueActorIds, AGENT_LEVEL_LABELS } from "./ui-labels";
 import { UiIcon, workflowIcon, type UiIconName } from "./ui-icon";
 import { DialogClose, ModalBackdrop, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
 import { showTip } from "./Tip";
@@ -558,7 +558,9 @@ export function WorkspaceApp() {
   const latestMyTask = [...currentMyTasks].sort((left, right) =>
     new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())[0] || null;
   const visibleTasks = taskPool.filter((task) => task.origin_thread_id === threadId && isTrackedTask(task) && (!taskMine || isMyTask(task)));
-  const threadExecutorIds = uniqueActorIds(taskPool.filter((task) => task.origin_thread_id === threadId).map((task) => task.execution_agent_id));
+  const threadExecutorIds = stickyActorIds(taskPool
+    .filter((task) => task.origin_thread_id === threadId && task.execution_agent_id)
+    .map((task) => ({ id: task.execution_agent_id, at: task.created_at })));
   const memberName = (id: string | null | undefined) => detail?.members.find((member) => member.id === id)?.name
     || (id && id === user?.id ? user.name : "");
   const taskSourceLabel = (task: AgentTask) => memberName(task.source_user_id)

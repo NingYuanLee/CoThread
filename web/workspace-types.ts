@@ -108,6 +108,7 @@ export type AgentTask = {
   execution_agent_id: string | null;
   progress: string | null;
   result_summary: string | null;
+  created_at: string;
   updated_at: string;
 };
 

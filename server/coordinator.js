@@ -9,6 +9,7 @@ import { acquireCoordinatorRuntime, discardCoordinatorRuntime, parkCoordinatorRu
 import { discussionText } from "../shared/context.js";
 import { bindDshL3Execution, finishCoordinatorDispatch, l3LaunchPrompt, settleDshL3Execution, tasksAwaitingL3Launch } from "./task-pool.js";
 import { trackThinking } from "./agent-thinking.js";
+import { insertUniqueAssistantMessage } from "./assistant-post.js";
 import { persistL3ContextStats, persistL3RunCheckpoint } from "./l3-session.js";
 import {
   composeOpportunisticParticipation,
@@ -260,7 +261,9 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         }
       }
     };
-    if (job.kind === "child_result" || job.kind === "l3_idle") await launchAwaitingL3();
+    if (job.kind === "child_result" || job.kind === "l3_idle" || job.kind === "member_message") {
+      await launchAwaitingL3();
+    }
     const startedNote = launched.length
       ? `系统已启动这些任务的 L3：${launched.map((item) => item.taskId).join("，")}。不要再为它们调用 dsh_l3。`
       : "";
@@ -532,11 +535,15 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
                 [failed ? "failed" : "completed", output.slice(0, 1000), nativeEvent.id]);
               nativeToolEvents.delete(callId);
             }
-            if (!toolTasks.has(callId)) return;
-            const pending = toolTasks.get(callId);
-            const childId = pending.childId || output.match(/started subagent\s+([^\s]+)/i)?.[1];
-            if (childId) await attachChildTask(childId, pending.taskId, pending.parentEventId);
-            toolTasks.delete(callId);
+            if (toolTasks.has(callId)) {
+              const pending = toolTasks.get(callId);
+              const childId = pending.childId || output.match(/started subagent\s+([^\s]+)/i)?.[1];
+              if (childId) await attachChildTask(childId, pending.taskId, pending.parentEventId);
+              toolTasks.delete(callId);
+            }
+            // create_task queues an unbound run; launch L3 in the same turn instead of
+            // waiting for finishCoordinatorDispatch → l3_idle → another wake.
+            if (callerSessionId === runtime.session.session_id) await launchAwaitingL3();
           }
         } else if (notification.method === "subagent.started" && notification.params?.parentSessionId === runtime.session.session_id) {
           const childId = notification.params.childSessionId;
@@ -748,8 +755,10 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
       contextMs: Math.round(loaded - started), modelMs: Math.round(performance.now() - loaded) });
     const visible = result?.finalResponse?.trim() && result.finalResponse.trim() !== "NO_VISIBLE_MESSAGE"
       ? result.finalResponse.trim().slice(0, 4000) : null;
+    // Flush streamed visible posts before deciding whether to append a final reply.
+    if (result?.runtime?.thinking) await result.runtime.thinking.flush().catch(() => {});
     const posts = job.message_id
-      ? await query(db, "SELECT id FROM messages WHERE agent_task_id=? ORDER BY sequence", [job.message_id])
+      ? await query(db, "SELECT id,body FROM messages WHERE agent_task_id=? AND source='assistant' ORDER BY sequence", [job.message_id])
       : [];
     const [liveChild] = await query(db, `SELECT r.id FROM agent_task_execution_runs r JOIN agent_tasks t ON t.id=r.task_id
       WHERE t.origin_thread_id=? AND r.status IN ('queued','running','waiting') LIMIT 1`, [job.thread_id]);
@@ -759,18 +768,23 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
     let responseId = posts[0]?.id || null;
     await transaction(db, async (conn) => {
       if (job.kind === "child_result" || job.kind === "l3_idle") {
-        // Always append a new follow-up when L2 has something to say. Prior assistant
-        // posts for the same source message (ack / "已派人") must not suppress the
-        // completion report — otherwise child_result wakes L2 but nothing lands in chat.
+        // Append a follow-up when L2 has something new to say. Identical bodies from
+        // onVisibleText must not create a second chat bubble.
         if (visible) {
-          responseId = (await service.insertMessage(conn, user, job.thread_id, visible, [], "assistant", job.message_id)).id;
+          const posted = await insertUniqueAssistantMessage(
+            service, conn, user, job.thread_id, visible, job.message_id);
+          if (posted) responseId = posted.id;
         }
         await query(conn, "UPDATE coordinator_events SET status='completed',finished_at=UTC_TIMESTAMP(3) WHERE id=?", [job.event_id]);
         return;
       }
       const [request] = await query(conn, "SELECT status FROM agent_requests WHERE message_id=? FOR UPDATE", [job.message_id]);
       if (request?.status !== "running") return;
-      if (!responseId && visible) responseId = (await service.insertMessage(conn, user, job.thread_id, visible, [], "assistant", job.message_id)).id;
+      if (visible) {
+        const posted = await insertUniqueAssistantMessage(
+          service, conn, user, job.thread_id, visible, job.message_id);
+        if (posted) responseId = responseId || posted.id;
+      }
       await query(conn, `UPDATE assistant_replies SET status='completed',execution_active=?,participation=?,reply_id=?,progress=?,finished_at=UTC_TIMESTAMP(3) WHERE message_id=? AND status IN ('queued','running')`,
         [waiting, responseId ? "reply" : "silent", responseId, waiting ? "等待任务级 Agent" : "小祥已完成本轮处理", job.message_id]);
       await query(conn, "UPDATE agent_requests SET status='completed',response_id=?,error=NULL,first_response_at=COALESCE(first_response_at,UTC_TIMESTAMP(3)) WHERE message_id=?", [responseId, job.message_id]);
@@ -780,9 +794,25 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
       }
     });
   } catch (error) {
+    const retryableBusy = error?.code === "L2_SESSION_BUSY"
+      || error?.code === "L3_SESSION_BUSY"
+      || /session is busy/i.test(String(error?.message || ""));
     await transaction(db, async (conn) => {
       if (job.kind === "child_result" || job.kind === "l3_idle") {
+        if (retryableBusy) {
+          await query(conn, `UPDATE coordinator_events SET status='queued',error=NULL,claimed_at=NULL,finished_at=NULL
+            WHERE id=? AND status='running'`, [job.event_id]);
+          return;
+        }
         await query(conn, "UPDATE coordinator_events SET status='failed',error='小祥暂未响应，请重试。',finished_at=UTC_TIMESTAMP(3) WHERE id=?", [job.event_id]);
+        return;
+      }
+      if (retryableBusy) {
+        // Keep the member message queued so a later wake can answer once the lock frees.
+        await query(conn, `UPDATE agent_requests SET status='queued',error=NULL,response_id=NULL
+          WHERE message_id=? AND status='running'`, [job.message_id]);
+        await query(conn, `UPDATE assistant_replies SET status='queued',error=NULL,progress='等待处理',finished_at=NULL
+          WHERE message_id=? AND status IN ('queued','running')`, [job.message_id]);
         return;
       }
       await query(conn, "UPDATE agent_requests SET status='failed',error='小祥暂未响应，请重试。' WHERE message_id=?", [job.message_id]);
@@ -792,6 +822,8 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
     console.error("Coordinator request failed", {
       messageId: job.message_id,
       type: error?.name || "Error",
+      code: error?.code || null,
+      retryableBusy,
       diagnostic: redactSecrets(error?.stack || error?.message || error).slice(-2500),
     });
   } finally {

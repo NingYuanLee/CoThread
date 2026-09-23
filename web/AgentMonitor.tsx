@@ -17,7 +17,7 @@ import {
   labelAgentEventStatus,
   labelExecutorType,
   labelWorkflowStatus,
-  uniqueActorIds,
+  stickyActorIds,
 } from "./ui-labels";
 import { UiIcon } from "./ui-icon";
 import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
@@ -194,6 +194,8 @@ type MonitorData = {
     artifact_refs: unknown[] | string | null;
     started_at?: string | null;
     finished_at?: string | null;
+    created_at?: string | null;
+    updated_at?: string | null;
   }[];
   eventLog: {
     id: string;
@@ -777,27 +779,24 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   const selectedTasks = useMemo(() => data?.executors.filter((task) =>
     task.thread_id === selectedThreadId && task.executor_type === "dsh_l3"
     && (liveExecutor(task) || !!task.executor_id)) || [], [data, selectedThreadId]);
-  const l3Ids = useMemo(() => uniqueActorIds([
-    ...selectedTasks.map((task) => task.executor_id),
-    ...threadPool.map((task) => task.executor_id),
+  const l3Ids = useMemo(() => stickyActorIds([
+    ...selectedTasks.map((task) => ({ id: task.executor_id, at: task.started_at || task.finished_at })),
+    ...threadPool.map((task) => ({ id: task.executor_id, at: task.started_at || task.created_at || task.updated_at })),
   ]), [selectedTasks, threadPool]);
   const slots = useMemo(() => {
-    const byExecutor: MonitorData["executors"] = [];
-    const seen = new Set<string>();
+    const byExecutor = new Map<string, MonitorData["executors"][number]>();
     for (const item of selectedTasks) {
-      if (!item.executor_id || seen.has(item.executor_id)) continue;
-      if (item.agent_slot != null) continue;
-      if (selectedTasks.some((candidate) => candidate.agent_slot != null && candidate.executor_id === item.executor_id)) continue;
-      seen.add(item.executor_id);
-      byExecutor.push(item);
+      if (!item.executor_id || byExecutor.has(item.executor_id)) continue;
+      byExecutor.set(item.executor_id, item);
     }
     return Array.from({ length: 7 }, (_, index) => {
       const slot = index + 1;
+      const stickyId = l3Ids[index] || null;
+      const stickyTask = stickyId ? byExecutor.get(stickyId) || null : null;
       const explicit = selectedTasks.find((item) => item.agent_slot === slot);
-      const occupiedBefore = Array.from({ length: index }, (_, previous) => selectedTasks.find((item) => item.agent_slot === previous + 1)).filter(Boolean).length;
-      return { slot, agent: EXECUTORS[index], task: explicit || byExecutor[index - occupiedBefore] || null };
+      return { slot, agent: EXECUTORS[index], task: explicit || stickyTask || null };
     });
-  }, [selectedTasks]);
+  }, [selectedTasks, l3Ids]);
   const selectedAgent = slots.find((item) => item.slot === selectedSlot) || slots[0];
   const selectedAgentState = agentState(selectedAgent?.task || null);
   const pendingTasks = useMemo(() => threadPool.filter((task) => !task.executor_id && !ENDED.has(task.task_status)), [threadPool]);

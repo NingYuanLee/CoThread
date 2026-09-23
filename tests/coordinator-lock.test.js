@@ -188,3 +188,57 @@ test("a new member message is claimed while a prior L2 turn still waits on L3", 
   }
 });
 
+test("identical visible text is posted only once for child_result", async () => {
+  const database = await testDatabase(), db = database.db, service = new Service(db);
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [user.id, `${user.id}@test.com`, "成员"]);
+    const project = await service.createProject(user, { name: "去重投递" });
+    const created = await service.createThread(user, project.id, { title: "任务" });
+    const thread = await service.thread(user, created.id);
+    const trigger = await service.postMessage(user, thread.id, { body: "@小祥 查一下" });
+    await query(db, "UPDATE agent_requests SET status='completed' WHERE message_id=?", [trigger.id]);
+    await query(db, "UPDATE assistant_replies SET status='completed',participation='reply' WHERE message_id=?", [trigger.id]);
+    const body = "负责人，复现成功——两条独立证据。";
+    await service.insertMessage(db, user, thread.id, body, [], "assistant", trigger.id);
+    await query(db, `INSERT INTO coordinator_events(id,thread_id,kind,status,message_id,task_id,payload)
+      VALUES(UUID(),?,'child_result','queued',?,?,?)`,
+      [thread.id, trigger.id, randomUUID(), JSON.stringify({
+        status: "completed", title: "核查", resultSummary: "ok",
+        sourceMessageId: trigger.id, sourceUserId: user.id,
+      })]);
+    assert.equal(await processNextCoordinator(db, thread.id, async () => ({
+      finalResponse: body, mergedMessageIds: [],
+    })), true);
+    const posts = await query(db, "SELECT body FROM messages WHERE agent_task_id=? AND source='assistant' ORDER BY sequence", [trigger.id]);
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].body, body);
+  } finally {
+    await database.close();
+  }
+});
+
+test("L2 session busy requeues the member message instead of failing", async () => {
+  const database = await testDatabase(), db = database.db, service = new Service(db);
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [user.id, `${user.id}@test.com`, "成员"]);
+    const project = await service.createProject(user, { name: "忙时重试" });
+    const created = await service.createThread(user, project.id, { title: "锁冲突" });
+    const thread = await service.thread(user, created.id);
+    const message = await service.postMessage(user, thread.id, { body: "@小祥 还在吗" });
+    const busy = new Error("L2 session is busy");
+    busy.code = "L2_SESSION_BUSY";
+    assert.equal(await processNextCoordinator(db, thread.id, async () => { throw busy; }), true);
+    const [request] = await query(db, "SELECT status,error FROM agent_requests WHERE message_id=?", [message.id]);
+    assert.equal(request.status, "queued");
+    assert.equal(request.error, null);
+    const [reply] = await query(db, "SELECT status,error,progress FROM assistant_replies WHERE message_id=?", [message.id]);
+    assert.equal(reply.status, "queued");
+    assert.equal(reply.error, null);
+    assert.equal(reply.progress, "等待处理");
+  } finally {
+    await database.close();
+  }
+});
+

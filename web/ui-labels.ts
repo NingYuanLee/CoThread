@@ -95,6 +95,21 @@ export function uniqueActorIds(values: Array<string | null | undefined>): string
   return ids;
 }
 
+/** Prefer first-seen order so 大娃/二娃 stay sticky when newer tasks appear. */
+export function stickyActorIds(
+  items: Array<{ id?: string | null; at?: string | number | Date | null }>,
+): string[] {
+  return uniqueActorIds(
+    [...items]
+      .sort((left, right) => {
+        const leftAt = left.at == null ? 0 : Date.parse(String(left.at));
+        const rightAt = right.at == null ? 0 : Date.parse(String(right.at));
+        return leftAt - rightAt;
+      })
+      .map((item) => item.id),
+  );
+}
+
 export function l3ExecutorName(executorId: string | null | undefined, knownIds: Array<string | null | undefined>): string | null {
   if (!executorId) return null;
   const index = uniqueActorIds(knownIds).indexOf(executorId);

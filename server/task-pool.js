@@ -13,6 +13,25 @@ export const MAX_L3 = 7;
 export const L3_LIVE_RUN = ["queued", "running", "waiting"];
 export const TASK_ENDED = ["completed", "failed", "cancelled", "rejected", "abandoned", "superseded"];
 const L3_NAMES = ["大娃", "二娃", "三娃", "四娃", "五娃", "六娃", "七娃"];
+export { L3_NAMES as L3_EXECUTOR_NAMES };
+
+/** Sticky L3 nickname index: first appearance on the thread keeps 大娃/二娃/… forever. */
+export async function stickyL3ExecutorIds(conn, originThreadId) {
+  if (!originThreadId) return [];
+  const rows = await query(conn, `SELECT r.executor_id FROM agent_task_execution_runs r
+    JOIN agent_tasks t ON t.id=r.task_id
+    WHERE t.origin_thread_id=? AND r.executor_type='dsh_l3' AND r.executor_id IS NOT NULL
+    GROUP BY r.executor_id
+    ORDER BY MIN(r.created_at), MIN(r.id)`, [originThreadId]);
+  return rows.map((row) => row.executor_id);
+}
+
+export function stickyL3Label(executorId, knownIds) {
+  if (!executorId) return null;
+  const index = knownIds.indexOf(executorId);
+  if (index >= 0 && index < L3_NAMES.length) return `L3-${L3_NAMES[index]}`;
+  return `L3-${String(executorId).slice(0, 8)}`;
+}
 const TASK_UPDATE_STATUSES = ["pending_assignment", "pending_start", "queued", "running", "waiting", "blocked",
   "completed", "failed", "cancelled", "abandoned"];
 const L3_DISPATCH_STATUSES = ["pending_assignment", "queued", "running", "waiting"];
@@ -375,11 +394,10 @@ export async function recordTaskStatusChange(conn, taskId, fromStatus, actor, re
     actorName = user?.name || null;
   }
   if (actorType === "dsh_l3") {
-    const prior = await query(conn, `SELECT actor_id FROM agent_task_status_events
-      WHERE task_id=? AND actor_type='dsh_l3' AND actor_id IS NOT NULL GROUP BY actor_id ORDER BY MIN(id)`, [taskId]);
-    const ids = [...prior.map((item) => item.actor_id), actorId].filter((id, index, all) => id && all.indexOf(id) === index);
-    const index = ids.indexOf(actorId);
-    actorName = `L3-${L3_NAMES[index] || actorId.slice(0, 8)}`;
+    const [task] = await query(conn, "SELECT origin_thread_id FROM agent_tasks WHERE id=?", [taskId]);
+    const known = await stickyL3ExecutorIds(conn, task?.origin_thread_id);
+    if (actorId && !known.includes(actorId)) known.push(actorId);
+    actorName = stickyL3Label(actorId, known);
   }
   await query(conn, `INSERT INTO agent_task_status_events(task_id,from_status,to_status,actor_type,actor_id,actor_connector_id,actor_name_snapshot,reason)
     VALUES(?,?,?,?,?,?,?,?)`,
@@ -394,11 +412,11 @@ export async function listTaskStatusEvents(db, taskId) {
     LEFT JOIN connectors connector ON connector.id=COALESCE(e.actor_connector_id,IF(e.actor_type='connector',e.actor_id,NULL))
     LEFT JOIN users connector_user ON connector_user.id=connector.user_id
     WHERE e.task_id=? ORDER BY e.id`, [taskId]);
-  const l3Ids = rows.filter((row) => row.actor_type === "dsh_l3" && row.actor_id)
-    .map((row) => row.actor_id).filter((id, index, all) => all.indexOf(id) === index);
+  const [task] = await query(db, "SELECT origin_thread_id FROM agent_tasks WHERE id=?", [taskId]);
+  const l3Ids = await stickyL3ExecutorIds(db, task?.origin_thread_id);
   return rows.map((row) => ({ ...row,
     actor_name_snapshot: row.actor_name_snapshot || (row.actor_type === "dsh_l3" && row.actor_id
-      ? `L3-${L3_NAMES[l3Ids.indexOf(row.actor_id)] || row.actor_id.slice(0, 8)}` : null),
+      ? stickyL3Label(row.actor_id, l3Ids) : null),
   }));
 }
 
@@ -1003,10 +1021,11 @@ export async function listTaskExecutionRuns(db, taskId) {
     LEFT JOIN users owner ON owner.id=COALESCE(r.executor_member_id,connector.user_id)
     LEFT JOIN users member ON member.id=r.executor_member_id
     WHERE r.task_id=? ORDER BY r.created_at DESC`, [taskId]);
-  const ids = [...rows].reverse().map((row) => row.executor_id).filter((id, index, all) => id && all.indexOf(id) === index);
+  const [task] = await query(db, "SELECT origin_thread_id FROM agent_tasks WHERE id=?", [taskId]);
+  const ids = await stickyL3ExecutorIds(db, task?.origin_thread_id);
   return rows.map((row) => ({ ...row,
     executor_label: row.executor_label || (row.executor_type === "dsh_l3" && row.executor_id
-      ? `L3-${L3_NAMES[ids.indexOf(row.executor_id)] || row.executor_id.slice(0, 8)}` : null),
+      ? stickyL3Label(row.executor_id, ids) : null),
   }));
 }
 
@@ -1068,11 +1087,9 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
         AND r.executor_type='dsh_l3' AND r.status='queued' AND r.executor_id IS NULL AND r.task_revision=t.revision ${taskFilter}
       ORDER BY r.created_at LIMIT 1 FOR UPDATE`, values);
     if (!run) return null;
-    const previousExecutors = await query(conn, `SELECT executor_id FROM agent_task_execution_runs
-      WHERE task_id=? AND executor_type='dsh_l3' AND executor_id IS NOT NULL ORDER BY created_at`, [run.id]);
-    const executorIds = [...previousExecutors.map((item) => item.executor_id), childSessionId]
-      .filter((id, index, all) => id && all.indexOf(id) === index);
-    const executorLabel = `L3-${L3_NAMES[executorIds.indexOf(childSessionId)] || childSessionId.slice(0, 8)}`;
+    const known = await stickyL3ExecutorIds(conn, run.origin_thread_id);
+    if (childSessionId && !known.includes(childSessionId)) known.push(childSessionId);
+    const executorLabel = stickyL3Label(childSessionId, known);
     await query(conn, `UPDATE agent_task_execution_runs SET executor_id=?,status='running',
       executor_label=?,started_at=COALESCE(started_at,UTC_TIMESTAMP(3)),heartbeat_at=UTC_TIMESTAMP(3) WHERE id=?`, [childSessionId, executorLabel, run.run_id]);
     await query(conn, `UPDATE agent_tasks SET status='running',execution_mode='dsh_l3',

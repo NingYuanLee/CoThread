@@ -943,3 +943,36 @@ test("human tasks can only reference official document versions", async () => {
   assert.deepEqual(stripped.document_refs, [outsideDoc.id, uploaded.id]);
   assert.equal(stripped.document_refs.includes(nestedDoc.id), false);
 });
+
+test("L3 nicknames stay sticky across tasks on the same thread", async () => {
+  const isolated = await service.createThread(users[0], project.id, { title: "粘性命名" });
+  const sessionId = randomUUID();
+  await query(db, "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?)", [isolated.id, sessionId]);
+
+  const first = await createTask(db, {
+    projectId: project.id, originThreadId: isolated.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: sessionId, taskType: "formal", title: "先派大娃",
+    goal: "第一个执行者应固定为大娃", targetType: "l2_session", targetId: sessionId,
+  });
+  const firstChild = randomUUID();
+  await bindDshL3Execution(db, sessionId, firstChild, first.id);
+  await reportL3(firstChild, "大娃交活");
+  await settleDshL3Execution(db, sessionId, firstChild, {
+    status: "ok", stopReason: "completed", lastAssistantMessage: [{ type: "text", text: "done" }],
+  });
+  const firstRuns = await listTaskExecutionRuns(db, first.id);
+  assert.equal(firstRuns.find((run) => run.executor_id === firstChild)?.executor_label, "L3-大娃");
+
+  const second = await createTask(db, {
+    projectId: project.id, originThreadId: isolated.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: sessionId, taskType: "formal", title: "再派二娃",
+    goal: "第二个执行者应是二娃，且不抢走大娃", targetType: "l2_session", targetId: sessionId,
+  });
+  const secondChild = randomUUID();
+  await bindDshL3Execution(db, sessionId, secondChild, second.id);
+  const secondRuns = await listTaskExecutionRuns(db, second.id);
+  assert.equal(secondRuns.find((run) => run.executor_id === secondChild)?.executor_label, "L3-二娃");
+
+  const firstAgain = await listTaskExecutionRuns(db, first.id);
+  assert.equal(firstAgain.find((run) => run.executor_id === firstChild)?.executor_label, "L3-大娃");
+});

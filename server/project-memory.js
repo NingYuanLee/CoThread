@@ -252,7 +252,25 @@ export async function queueL1MemoryRun(service, user, { projectId, task, threadI
     return { id, status: "queued" };
   });
   publishWork(service.db);
-  return result;
+  // Makers has no process-local wake worker; manual / MCP retries must run work here.
+  // Cloud function maxDuration is enough for a few L1 batches; failures stay on the run row.
+  try {
+    const { runMemoryMaintenance } = await import("./memory-maintenance.js");
+    await runMemoryMaintenance(service.db, {
+      maxBatches: 5,
+      projectId,
+      task: queuedTask,
+    });
+  } catch (error) {
+    console.error("L1 memory kick failed", {
+      type: error?.name || "Error",
+      message: String(error?.message || error).slice(0, 300),
+    });
+  }
+  const [run] = await query(service.db,
+    `SELECT id,task,status,error,item_count,created_at,started_at,finished_at
+     FROM agent_l1_runs WHERE id=?`, [result.id]);
+  return run || result;
 }
 
 export async function loadPendingMemberStatements(db, projectId, targets) {
@@ -374,8 +392,10 @@ export async function summarizeProjectDocument(db, context, options = {}) {
 }
 
 async function processNextMemberMemory(db, summarize, projectId) {
-  const claimed = await claimL1Run(db, "member_memory", projectId);
-  let targetProject = claimed?.project_id || null;
+  const [queued] = await query(db, `SELECT id,project_id FROM agent_l1_runs
+    WHERE task='member_memory' AND status='queued' ${projectId ? "AND project_id=?" : ""}
+    ORDER BY created_at LIMIT 1`, projectId ? [projectId] : []);
+  let targetProject = queued?.project_id || null;
   if (!targetProject) {
     const [candidate] = await query(db, `SELECT q.project_id FROM agent_member_memory_queue q
       LEFT JOIN agent_member_summaries s ON s.project_id=q.project_id AND s.user_id=q.user_id
@@ -387,15 +407,24 @@ async function processNextMemberMemory(db, summarize, projectId) {
   const connection = await db.getConnection();
   const lockName = `cothread-project-memory:${targetProject}`;
   let locked = false;
-  let run = claimed;
+  let run = null;
   try {
-    const [lock] = await query(connection, "SELECT GET_LOCK(?,0) acquired", [lockName]);
-    if (Number(lock.acquired) !== 1) {
-      if (claimed) await query(db, "UPDATE agent_l1_runs SET status='queued',started_at=NULL WHERE id=?", [claimed.id]);
-      return false;
-    }
+    // Wait briefly so a concurrent batch can finish; avoid claim→unclaim churn.
+    const [lock] = await query(connection, "SELECT GET_LOCK(?,10) acquired", [lockName]);
+    if (Number(lock.acquired) !== 1) return false;
     locked = true;
-    run = claimed || await insertScheduleRun(db, targetProject, "member_memory");
+    run = await claimL1Run(db, "member_memory", targetProject);
+    if (!run) {
+      const [running] = await query(db, `SELECT id FROM agent_l1_runs
+        WHERE project_id=? AND task='member_memory' AND status='running' LIMIT 1`, [targetProject]);
+      if (running) return false;
+      const [stillPending] = await query(db, `SELECT q.user_id FROM agent_member_memory_queue q
+        LEFT JOIN agent_member_summaries s ON s.project_id=q.project_id AND s.user_id=q.user_id
+        WHERE q.project_id=? AND q.available_at<=UTC_TIMESTAMP(3)
+        AND q.pending_through_sequence>COALESCE(s.through_sequence,0) LIMIT 1`, [targetProject]);
+      if (!stillPending) return false;
+      run = await insertScheduleRun(db, targetProject, "member_memory");
+    }
     const rows = await query(db, `SELECT q.user_id id,u.name,u.motto signature,
       JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags,'$[0]')) identityTag,
       s.summary understanding,s.statement_summary statementSummary,COALESCE(s.through_sequence,0) through_sequence,

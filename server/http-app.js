@@ -7,6 +7,7 @@ import { appendL3TaskSession, readL3TaskSession } from "./l3-session.js";
 import { readVisualArtifact } from "./visual-artifacts.js";
 import { queueDocumentOrganization } from "./document-organization.js";
 import { queueL1MemoryRun } from "./project-memory.js";
+import { assertMemoryMaintenanceAuth, runMemoryMaintenance } from "./memory-maintenance.js";
 import express from "express";
 import { emptyLibraryRecycle, libraryChange } from "./library.js";
 import { countDocumentChanges, listDocumentChanges } from "./document-audit.js";
@@ -114,6 +115,11 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       dshEnabled: process.env.DSH_ENABLED !== "false",
       ...(makers ? { agentEndpoint: "/cothread-agent", mcpEndpoint: "/cothread-mcp" } : {}),
     });
+  });
+  // Cron / external minute sweep. Bearer MEMORY_MAINTENANCE_TOKEN; same work as /cothread-memory.
+  app.post("/api/memory-maintenance", async (req, res) => {
+    assertMemoryMaintenanceAuth(req.headers.authorization);
+    res.json(await runMemoryMaintenance(db, { maxBatches: 25 }));
   });
   const email = z.string().email().max(191).transform((value) => value.toLowerCase());
   const challengeInput = z.object({ challengeId: z.string().uuid(), code: z.string().regex(/^\d{6}$/) });

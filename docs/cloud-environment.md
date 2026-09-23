@@ -27,7 +27,7 @@
 | `ADMIN_EMAIL`、`ADMIN_PASSWORD` | 空库初始化账号时使用；密码至少 12 位，不能为 `CHANGE_ME` |
 | `SMTP_URL` | SMTP 连接地址，例如 `smtps://账号:授权码@服务器:465`；账号和授权码中的特殊字符需 URL 编码 |
 | `EMAIL_FROM` | 系统邮件显示的发件人名称和地址 |
-| `MEMORY_MAINTENANCE_TOKEN` | 定时项目记忆维护接口专用令牌，属于敏感信息 |
+| `MEMORY_MAINTENANCE_TOKEN` | 定时维护专用令牌（`POST /api/memory-maintenance` 与 `/cothread-memory`），属于敏感信息 |
 
 迁移已有部署时，保留原有令牌加密密钥（原环境变量值，或将 `.local/credential-encryption.key` 的 32 字节二进制内容编码为 base64），否则无法解密原来的账号令牌。空库首次部署才生成新密钥；不要提交密钥。
 

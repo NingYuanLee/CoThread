@@ -1,26 +1,22 @@
 import { makersDatabase, makersErrorDetails } from "../../server/makers.js";
 import { makersWebRequest } from "../../server/makers-request.js";
-import { processNextProjectMemory } from "../../server/project-memory.js";
-import { processNextDocumentOrganization } from "../../server/document-organization-run.js";
-import { processNextL1ContextCompression } from "../../server/l1-context.js";
-import { processNextL3ContextCompression } from "../../server/l3-context.js";
+import { assertMemoryMaintenanceAuth, runMemoryMaintenance } from "../../server/memory-maintenance.js";
+import { HttpError } from "../../server/service.js";
 
 export async function handleRequest({ request }) {
   try {
     request = makersWebRequest(request);
     if (request.method !== "POST") return Response.json({ error: "仅支持 POST" }, { status: 405 });
-    const configured = process.env.MEMORY_MAINTENANCE_TOKEN;
-    const supplied = request.headers.get("authorization");
-    if (!configured || supplied !== `Bearer ${configured}`)
-      return Response.json({ error: "知识库维护凭据无效" }, { status: 401 });
+    try {
+      assertMemoryMaintenanceAuth(request.headers.get("authorization"));
+    } catch (error) {
+      if (error instanceof HttpError)
+        return Response.json({ error: error.message }, { status: error.status });
+      throw error;
+    }
     const db = await makersDatabase();
-    let processed = 0;
-    while (processed < 25 && (await processNextDocumentOrganization(db)
-      || await processNextProjectMemory(db)
-      || await processNextL1ContextCompression(db)
-      || await processNextL3ContextCompression(db))) processed++;
-    return Response.json({ status: "ok", processed },
-      { headers: { "Cache-Control": "no-store" } });
+    const result = await runMemoryMaintenance(db, { maxBatches: 25 });
+    return Response.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("Makers project memory failed", { code: error.code || error.name });
     return Response.json({ error: "项目知识库维护失败，请检查云端日志及配置",

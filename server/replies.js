@@ -25,7 +25,7 @@ import { processNextL3ContextCompression } from "./l3-context.js";
 import { modelResponse, redactSecrets, responseText } from "./model-config.js";
 import { COORDINATOR_PERSONA } from "./coordinator-persona.js";
 import { logAgentTiming } from "./agent-timing-log.js";
-import { recoverInterruptedDshL3Executions } from "./task-pool.js";
+import { recoverInterruptedDshL3Executions, recoverStaleDshL3Executions } from "./task-pool.js";
 
 export async function generateReply(context, summarize = false) {
   const history = context.messages.slice(-50).map((m) => ({
@@ -317,6 +317,7 @@ export async function startReplyWorker(db, listenDb = db) {
     run(() => processNextProjectMemory(db, { task: "document_memory" })),
     run(() => processNextProjectMemory(db, { task: "iteration_archive" })),
     run(() => processNextDocumentOrganization(db)),
+    run(async () => (await recoverStaleDshL3Executions(db)) > 0),
     run(async () => await processNextContextCompression(db) || await processNextL1ContextCompression(db)
       || await processNextL3ContextCompression(db)
       || await synchronizeNextDiscussion(db) || await refreshNextContextStats(db)),

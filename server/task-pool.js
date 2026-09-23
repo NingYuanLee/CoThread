@@ -38,6 +38,71 @@ const L3_DISPATCH_STATUSES = ["pending_assignment", "queued", "running", "waitin
 export const MAX_TASK_RETRIES = 5;
 export const MAX_EXECUTOR_ATTEMPTS = 2;
 export const MAX_DISTINCT_EXECUTORS = 3;
+/** Auto-recover L3 runs whose heartbeat is older than this (seconds). Inspect uses 180s as "ask". */
+export const L3_STALE_HEARTBEAT_SECONDS = 600;
+
+/** Refresh L3 run liveness; optionally rewrite progress (e.g. inference phase). */
+export async function touchL3RunHeartbeat(db, executorId, { progress } = {}) {
+  if (!executorId) return false;
+  const result = progress != null
+    ? await query(db, `UPDATE agent_task_execution_runs
+        SET heartbeat_at=UTC_TIMESTAMP(3), progress=?
+        WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting')`,
+      [String(progress).slice(0, 500), executorId])
+    : await query(db, `UPDATE agent_task_execution_runs
+        SET heartbeat_at=UTC_TIMESTAMP(3)
+        WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting')`,
+      [executorId]);
+  return (result.affectedRows || 0) > 0;
+}
+
+/**
+ * Keep L3 alive while the model thinks after a tool completes.
+ * If progress still ends with「已完成」, rewrite it to「正在调用模型」so the UI
+ * does not look stuck on the last tool.
+ */
+export async function touchL3InferenceHeartbeat(db, executorId) {
+  if (!executorId) return false;
+  const [run] = await query(db, `SELECT progress FROM agent_task_execution_runs
+    WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting')
+    ORDER BY created_at DESC LIMIT 1`, [executorId]);
+  if (!run) return false;
+  const toolDone = typeof run.progress === "string" && /已完成(?:$| ·)/.test(run.progress);
+  return touchL3RunHeartbeat(db, executorId, toolDone ? { progress: "正在调用模型" } : {});
+}
+
+async function enqueueInterruptedL3Recovery(db, runs, failureReason) {
+  for (const threadId of new Set(runs.map((row) => row.origin_thread_id).filter(Boolean))) publishWork(db, threadId);
+  const dispatchByThread = new Map();
+  for (const run of runs) {
+    if (!run.origin_thread_id) continue;
+    if (!dispatchByThread.has(run.origin_thread_id)) {
+      const [session] = await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [run.origin_thread_id]);
+      dispatchByThread.set(run.origin_thread_id, session
+        ? await l3DispatchSnapshot(db, session.session_id)
+        : { idleL3Count: 0, pendingAssignment: 0, pendingTasks: [] });
+    }
+    const dispatch = dispatchByThread.get(run.origin_thread_id);
+    await enqueueCoordinatorEvent(db, {
+      threadId: run.origin_thread_id,
+      kind: "child_result",
+      messageId: run.source_message_id || null,
+      taskId: run.task_id,
+      payload: {
+        runId: run.id,
+        taskId: run.task_id,
+        title: run.title,
+        status: "interrupted",
+        failureReason,
+        sourceMessageId: run.source_message_id || null,
+        sourceUserId: run.source_user_id || null,
+        idleL3Count: dispatch.idleL3Count,
+        pendingAssignment: dispatch.pendingAssignment,
+        pendingTasks: dispatch.pendingTasks,
+      },
+    });
+  }
+}
 
 const FAILURE_CLASSES = new Set(["interrupted", "transient", "agent_error", "platform_blocked", "external_unknown", "blocked"]);
 const PLATFORM_FAILURE = /任务已停止|迭代已归档|权限不足|没有权限|限流|too many requests|rate limit|service unavailable|temporarily unavailable|timeout|timed out|\b5\d\d\b|econnreset|econnrefused|网络错误|网络中断|服务不可用/i;
@@ -1351,35 +1416,46 @@ export async function recoverInterruptedDshL3Executions(db) {
         AND t.origin_thread_id IS NOT NULL AND t.target_id<>s.session_id
         AND EXISTS (SELECT 1 FROM agent_task_execution_runs r WHERE r.task_id=t.id AND r.status='interrupted')`);
   });
-  for (const threadId of new Set(runs.map((row) => row.origin_thread_id).filter(Boolean))) publishWork(db, threadId);
-  const dispatchByThread = new Map();
-  for (const run of runs) {
-    if (!run.origin_thread_id) continue;
-    if (!dispatchByThread.has(run.origin_thread_id)) {
-      const [session] = await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [run.origin_thread_id]);
-      dispatchByThread.set(run.origin_thread_id, session
-        ? await l3DispatchSnapshot(db, session.session_id)
-        : { idleL3Count: 0, pendingAssignment: 0, pendingTasks: [] });
-    }
-    const dispatch = dispatchByThread.get(run.origin_thread_id);
-    await enqueueCoordinatorEvent(db, {
-      threadId: run.origin_thread_id,
-      kind: "child_result",
-      messageId: run.source_message_id || null,
-      taskId: run.task_id,
-      payload: {
-        runId: run.id,
-        taskId: run.task_id,
-        title: run.title,
-        status: "interrupted",
-        failureReason: "服务重启，任务级 Agent 中断，等待 L2 重新评估",
-        sourceMessageId: run.source_message_id || null,
-        sourceUserId: run.source_user_id || null,
-        idleL3Count: dispatch.idleL3Count,
-        pendingAssignment: dispatch.pendingAssignment,
-        pendingTasks: dispatch.pendingTasks,
-      },
-    });
-  }
+  await enqueueInterruptedL3Recovery(db, runs, "服务重启，任务级 Agent 中断，等待 L2 重新评估");
+  return runs.length;
+}
+
+/**
+ * Recover L3 runs that look alive in DB but stopped heartbeating (zombie after tool
+ * completion / hung model / dead harness). Does not touch fresh runs.
+ */
+export async function recoverStaleDshL3Executions(db, { staleAfterSeconds = L3_STALE_HEARTBEAT_SECONDS } = {}) {
+  const age = Math.max(180, Number(staleAfterSeconds) || L3_STALE_HEARTBEAT_SECONDS);
+  const runs = await query(db, `SELECT r.id,r.task_id,t.origin_thread_id,t.source_message_id,t.source_user_id,t.title
+    FROM agent_task_execution_runs r
+    JOIN agent_tasks t ON t.id=r.task_id
+    WHERE r.executor_type='dsh_l3' AND r.status IN ('running','waiting')
+      AND t.status='running'
+      AND TIMESTAMPDIFF(SECOND, COALESCE(r.heartbeat_at, r.started_at, r.created_at), UTC_TIMESTAMP(3)) >= ?`,
+  [age]);
+  if (!runs.length) return 0;
+  const ids = runs.map((row) => row.id);
+  const taskIds = [...new Set(runs.map((row) => row.task_id))];
+  const idPlaceholders = ids.map(() => "?").join(",");
+  const taskPlaceholders = taskIds.map(() => "?").join(",");
+  const reason = `L3 心跳超时（≥${age}s），等待 L2 重新评估`;
+  const progress = "心跳超时，等待 L2 重新指派";
+  await transaction(db, async (conn) => {
+    await query(conn, `UPDATE agent_task_execution_runs SET status='interrupted',error=?,
+      finished_at=UTC_TIMESTAMP(3) WHERE id IN (${idPlaceholders}) AND status IN ('running','waiting')`,
+    [reason, ...ids]);
+    await query(conn, `INSERT INTO agent_task_status_events(task_id,from_status,to_status,actor_type,reason)
+      SELECT t.id,t.status,'pending_assignment','system',? FROM agent_tasks t
+      WHERE t.id IN (${taskPlaceholders}) AND t.status='running'`, [progress, ...taskIds]);
+    await query(conn, `UPDATE agent_tasks t SET t.status='pending_assignment',
+      t.execution_agent_id=IF(t.task_type='assist_l2',NULL,t.execution_agent_id),
+      t.progress=?,t.finished_at=NULL,t.revision=t.revision+1
+      WHERE t.id IN (${taskPlaceholders}) AND t.status='running'`, [progress, ...taskIds]);
+    await query(conn, `UPDATE agent_tasks t JOIN agent_sessions s ON s.thread_id=t.origin_thread_id
+      SET t.target_id=s.session_id,t.claimed_by_type='l2_session',t.claimed_by_id=s.session_id
+      WHERE t.id IN (${taskPlaceholders}) AND t.target_type='l2_session' AND t.status='pending_assignment'
+        AND t.origin_thread_id IS NOT NULL AND t.target_id<>s.session_id`, taskIds);
+  });
+  await enqueueInterruptedL3Recovery(db, runs, reason);
   return runs.length;
 }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, cancelTask, composeTaskInstruction, createTask, ensureDshL3CanUpdate, finishCoordinatorDispatch, getTask, inspectIterationTask, l3LaunchPrompt, listTaskExecutionRuns, listTaskStatusEvents, listTasks, reassignTask, recoverAbnormalTask, recoverInterruptedDshL3Executions, reconcileEndedTaskRuns, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, tasksAwaitingL3Launch, updateTask } from "../server/task-pool.js";
+import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, cancelTask, composeTaskInstruction, createTask, ensureDshL3CanUpdate, finishCoordinatorDispatch, getTask, inspectIterationTask, l3LaunchPrompt, listTaskExecutionRuns, listTaskStatusEvents, listTasks, reassignTask, recoverAbnormalTask, recoverInterruptedDshL3Executions, recoverStaleDshL3Executions, reconcileEndedTaskRuns, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, tasksAwaitingL3Launch, touchL3InferenceHeartbeat, touchL3RunHeartbeat, updateTask } from "../server/task-pool.js";
 import { testDatabase } from "./database.js";
 
 let database, db, service, project, thread, users, l2SessionId, reportHostId;
@@ -453,6 +453,63 @@ test("service recovery requeues interrupted L3 work without repeating completed 
   const recoveredListing = await listTasks(db, project.id, { limit: 200 });
   assert.equal(recoveredListing.find((task) => task.id === runningFormal.id).preferred_execution_agent_id, formalChild);
   assert.deepEqual(stillCompleted, { status: "completed", result_summary: "已完成" });
+});
+
+test("inference heartbeat renews liveness and rewrites tool-done progress", async () => {
+  const task = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "formal", title: "心跳续命",
+    goal: "推理期不应停在工具已完成", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const childId = randomUUID();
+  await bindDshL3Execution(db, l2SessionId, childId, task.id);
+  await query(db, `UPDATE agent_task_execution_runs
+    SET progress='读取文件 项目文档已完成', heartbeat_at=DATE_SUB(UTC_TIMESTAMP(3), INTERVAL 2 MINUTE)
+    WHERE executor_id=?`, [childId]);
+  assert.equal(await touchL3InferenceHeartbeat(db, childId), true);
+  const [run] = await query(db, `SELECT progress,
+    TIMESTAMPDIFF(SECOND, heartbeat_at, UTC_TIMESTAMP(3)) age_seconds
+    FROM agent_task_execution_runs WHERE executor_id=? ORDER BY created_at DESC LIMIT 1`, [childId]);
+  assert.equal(run.progress, "正在调用模型");
+  assert.ok(Number(run.age_seconds) <= 5);
+  assert.equal(await touchL3RunHeartbeat(db, childId), true);
+  const [again] = await query(db, "SELECT progress FROM agent_task_execution_runs WHERE executor_id=?", [childId]);
+  assert.equal(again.progress, "正在调用模型");
+});
+
+test("stale L3 heartbeat recovery interrupts only timed-out runs", async () => {
+  const fresh = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "formal", title: "新鲜心跳",
+    goal: "不应被回收", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const freshChild = randomUUID();
+  await bindDshL3Execution(db, l2SessionId, freshChild, fresh.id);
+
+  const stale = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "formal", title: "陈旧心跳",
+    goal: "应被回收", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const staleChild = randomUUID();
+  await bindDshL3Execution(db, l2SessionId, staleChild, stale.id);
+  await query(db, `UPDATE agent_task_execution_runs
+    SET progress='读取文件 项目文档已完成',
+      heartbeat_at=DATE_SUB(UTC_TIMESTAMP(3), INTERVAL 11 MINUTE)
+    WHERE executor_id=?`, [staleChild]);
+
+  assert.equal(await recoverStaleDshL3Executions(db, { staleAfterSeconds: 600 }), 1);
+
+  const [freshTask] = await query(db, "SELECT status FROM agent_tasks WHERE id=?", [fresh.id]);
+  const [staleTask] = await query(db, "SELECT status,progress FROM agent_tasks WHERE id=?", [stale.id]);
+  const [freshRun] = await query(db, "SELECT status FROM agent_task_execution_runs WHERE executor_id=?", [freshChild]);
+  const [staleRun] = await query(db, "SELECT status,error FROM agent_task_execution_runs WHERE executor_id=?", [staleChild]);
+  assert.equal(freshTask.status, "running");
+  assert.equal(freshRun.status, "running");
+  assert.equal(staleTask.status, "pending_assignment");
+  assert.match(staleTask.progress, /心跳超时/);
+  assert.equal(staleRun.status, "interrupted");
+  assert.match(staleRun.error, /心跳超时/);
 });
 
 test("updating a queued assist task cancels stale revisions and only binds the current run", async () => {

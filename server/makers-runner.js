@@ -9,6 +9,7 @@ import { processNextCoordinator } from "./coordinator.js";
 import { publishWork, subscribeWork } from "./work-events.js";
 import { processNextProjectMemory } from "./project-memory.js";
 import { processNextDocumentOrganization } from "./document-organization-run.js";
+import { recoverStaleDshL3Executions } from "./task-pool.js";
 import { discussionHasActiveCoordinator } from "./session-lock.js";
 
 export async function runMakersThread(db, user, threadId, command, operations = {}) {
@@ -49,7 +50,8 @@ export async function runMakersThread(db, user, threadId, command, operations = 
     const maintain = operations.reply ? async () => false : async (id) => {
       try {
         if (await discussionHasActiveCoordinator(db, id)) return false;
-        return await remember() || await compress(id) || await synchronizeNextDiscussion(db, id);
+        return await remember() || (await recoverStaleDshL3Executions(db)) > 0
+          || await compress(id) || await synchronizeNextDiscussion(db, id);
       }
       catch (error) { console.error("Context maintenance failed", { type: error.name }); return false; }
     };

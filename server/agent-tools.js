@@ -489,7 +489,7 @@ export function createAgentTools(
       if (effectiveRole === "executor" && callerSessionId) await query(service.db,
         `UPDATE agent_task_execution_runs SET progress=?,heartbeat_at=UTC_TIMESTAMP(3)
          WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting')`,
-        [`${label}已完成`, callerSessionId]);
+        [`${label}已完成 · 正在调用模型`, callerSessionId]);
       return result;
     } catch (error) {
       let message =

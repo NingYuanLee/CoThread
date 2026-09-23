@@ -7,7 +7,7 @@ import { modelConfig, redactSecrets } from "./model-config.js";
 import { createUsageMeter, saveReplyUsage } from "./agent-usage.js";
 import { acquireCoordinatorRuntime, discardCoordinatorRuntime, parkCoordinatorRuntime } from "./agent.js";
 import { discussionText } from "../shared/context.js";
-import { bindDshL3Execution, finishCoordinatorDispatch, l3LaunchPrompt, settleDshL3Execution, tasksAwaitingL3Launch } from "./task-pool.js";
+import { bindDshL3Execution, finishCoordinatorDispatch, l3LaunchPrompt, settleDshL3Execution, tasksAwaitingL3Launch, touchL3InferenceHeartbeat } from "./task-pool.js";
 import { trackThinking } from "./agent-thinking.js";
 import { insertUniqueAssistantMessage } from "./assistant-post.js";
 import { persistL3ContextStats, persistL3RunCheckpoint } from "./l3-session.js";
@@ -500,8 +500,11 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
     const handleAgentTeamNotification = (notification) => {
       const callerSessionId = notification.method === "session.event"
         ? notification.params?.sessionId : null;
-      if (callerSessionId && callerSessionId !== runtime.session.session_id)
+      if (callerSessionId && callerSessionId !== runtime.session.session_id) {
         ensureChildThinking(callerSessionId)?.notify(notification);
+        // Any child session event (thinking / tool / text) renews L3 liveness.
+        void touchL3InferenceHeartbeat(db, callerSessionId).catch(() => {});
+      }
       else runtime.thinking.notify(notification);
       lifecycle = lifecycle.then(async () => {
         if (notification.method === "session.event") {

@@ -20,6 +20,7 @@ import { dshModelPatch, modelConfig, modelOutputLimit, redactSecrets } from "./m
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { agentRuntimePatch } from "./dsh-runtime-config.js";
 import { persistL3ContextStats } from "./l3-session.js";
+import { touchL3InferenceHeartbeat } from "./task-pool.js";
 import { acquireSessionLock } from "./session-lock.js";
 import { logAgentTiming } from "./agent-timing-log.js";
 import { insertUniqueAssistantMessage } from "./assistant-post.js";
@@ -447,7 +448,9 @@ export async function openAgentRuntime(
       // can serialize behind parent park/bind and leave the next L2 turn queued
       // as 「等待处理」for the whole L3 run. watchChildren / retainOrForgetChild
       // still capture durable L3 stats when the child settles.
+      // Heartbeat is independent of context RPC so a hung meter cannot freeze liveness.
       for (const childId of [...activeChildren]) {
+        void touchL3InferenceHeartbeat(db, childId).catch(() => {});
         void request("context", { sessionId: childId })
           .then((childStats) => persistL3ContextStats(db, childId, childStats))
           .catch(() => {});

@@ -12,12 +12,19 @@ export { Config, apply } from "@deepseek-ai/dsh-sdk-jsonrpc-server";
 export const name = "cothread-sdk-server";
 export const inject = [...sdkInject, "tokenMeter", "compaction"];
 
+function liveAgent(server, sessionId) {
+  if (!sessionId) return undefined;
+  const live = server.ctx?.agents?.get?.(sessionId);
+  return live?.session ? live : undefined;
+}
+
 function liveDelegatedAgent(server, method, params) {
   if (!["cothread/context", "cothread/history", "cothread/compact"].includes(method)) return undefined;
   const sessionId = params?.sessionId;
+  // Prefer the in-registry agent when this server has not materialized a
+  // session record yet (typical for live L3 children under the L2 harness).
   if (!sessionId || server.sessions?.get(sessionId) || server.sessionCreations?.get(sessionId)) return undefined;
-  const live = server.ctx?.agents?.get?.(sessionId);
-  return live?.session ? live : undefined;
+  return liveAgent(server, sessionId);
 }
 
 async function compactMeasuredSession(server, agent, params) {
@@ -165,7 +172,12 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
     }
   }
   if (method === "cothread/compact") return compactMeasuredSession(this, agent, params);
-  if (method === "cothread/dispatch-l3") return startContinuableL3(this.ctx, agent, params);
+  if (method === "cothread/dispatch-l3") {
+    // dsh_l3 tool passes the live parent; getOrCreateSession can return a
+    // different handle that startContinuable will not admit under the running team.
+    const parent = liveAgent(this, params.sessionId) || agent;
+    return startContinuableL3(this.ctx, parent, params);
+  }
   if (method === "cothread/history") return agent.session.deriveMessages();
   return measureContext(this.ctx, agent.session, { level: sessionContextLevel(params.sessionId) });
 };

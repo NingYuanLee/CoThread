@@ -31,6 +31,36 @@ test("dispatch refuses an empty prompt or a runtime that cannot start children",
   await assert.rejects(startContinuableL3({}, {}, { prompt: "TASK_ID: abc" }), /不能启动 L3/);
 });
 
+test("dispatch-l3 prefers the live parent agent over getOrCreateSession", async () => {
+  const calls = [];
+  const liveParent = { id: "live-l2", session: { id: "live-l2" }, options: {} };
+  const staleParent = { id: "stale-l2", session: { id: "stale-l2" }, options: {} };
+  const server = {
+    sessions: new Map([["live-l2", { handle: { agent: staleParent }, cothreadRepaired: true }]]),
+    sessionCreations: new Map(),
+    ctx: {
+      agents: { get: (id) => id === "live-l2" ? liveParent : undefined },
+      subagents: {
+        startContinuable: async (spec) => {
+          calls.push(spec.request.parent);
+          return { childId: "child-live", messageId: "msg-live" };
+        },
+      },
+    },
+    getOrCreateSession: async () => ({ handle: { agent: staleParent }, cothreadRepaired: true }),
+  };
+  const started = await HarnessSdkJsonRpcServer.prototype.handleRequest.call(
+    server, "cothread/dispatch-l3", {
+      sessionId: "live-l2",
+      label: "待启动",
+      prompt: "TASK_ID: abc\n去做",
+    },
+  );
+  assert.equal(started.childId, "child-live");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0], liveParent);
+});
+
 test("context for a live L3 measures that child instead of creating a session", async () => {
   const session = {
     requestHeader: () => ({ system: "任务说明", tools: [] }),

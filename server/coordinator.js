@@ -251,11 +251,16 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           launched.push({ taskId: row.id, childId: started.childId });
         } catch (error) {
           launchFailed.push(row.id);
+          const diagnostic = redactSecrets(error?.message || error).slice(0, 500);
           console.error("L3 launch failed", {
             taskId: row.id,
             type: error?.name || "Error",
-            diagnostic: redactSecrets(error?.message || error).slice(-1000),
+            diagnostic: diagnostic.slice(-1000),
           });
+          // Surface the real failure on the task so acceptance can read it via inspect_task.
+          await query(db,
+            `UPDATE agent_tasks SET progress=? WHERE id=? AND (execution_agent_id IS NULL OR execution_agent_id='')`,
+            [`L3 自动启动失败: ${diagnostic}`, row.id]).catch(() => {});
         } finally {
           inflightLaunch = null;
         }
@@ -283,7 +288,7 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
 请根据结果向成员回报；也可 inspect_task 或 send_message 追问仍在跑的 L3，拿到回复后决定帮一把还是换人。${startedNote}${dispatchInstruction}不要推给平台，不要在沙箱写 SQL。先说话再行动。做完就停。`
       : `当前项目：${context.project_id}；当前迭代：${job.thread_id}；触发消息：${job.message_id}。
 本次唤醒：成员消息。上下文：${JSON.stringify(context.promptContext || context)}
-先用可见正文回应理解或答复；催进度时 inspect_task 或 send_message 问 L3，拿到回复再决定帮一把还是换人。Ask 辅助任务没有空闲 L3 就不要 create_task，自己处理。沙箱 formal 无空闲 L3 可先建成 pending_assignment；有空闲则创建为执行中，系统会启动 L3。成员要求时也可 list_project_tasks 查看待指派。见到 execution_agent_id 之前不要说已经派人。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。做完就停。`;
+先用可见正文回应理解或答复；催进度时 inspect_task 或 send_message 问 L3，拿到回复再决定帮一把还是换人。Ask 辅助任务没有空闲 L3 就不要 create_task，自己处理。沙箱 formal 无空闲 L3 可先建成 pending_assignment；有空闲则创建为执行中，create_task 会尽量在同一次调用内启动并绑定 L3。若 create_task 仍返回 needsDispatch=true 且无 execution_agent_id，请在同一轮立刻 dsh_l3，prompt 第一行写 TASK_ID。见到 execution_agent_id 之前不要说已经派人。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。做完就停。`;
     const steeredMessageIds = new Set();
     const mergedMessageIds = new Set();
     let steeringBusy = false;

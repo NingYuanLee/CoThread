@@ -14,7 +14,7 @@ import { bindMakersSandbox } from "./makers-sandbox.js";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { loadMemberUnderstanding, loadProjectWikiIndexes, queueDocumentMemory } from "./project-memory.js";
 import { connectorTool } from "./connectors.js";
-import { acknowledgeTaskRejection, askTaskQuestion, createTask, ensureDshL3CanUpdate, idleL3Count, inspectIterationTask, listTasks, reassignTask, recoverAbnormalTask, reopenRejectedTask, updateTask } from "./task-pool.js";
+import { acknowledgeTaskRejection, askTaskQuestion, bindDshL3Execution, createTask, ensureDshL3CanUpdate, idleL3Count, inspectIterationTask, l3LaunchPrompt, listTasks, reassignTask, recoverAbnormalTask, reopenRejectedTask, updateTask } from "./task-pool.js";
 import {
   agentListCodeRefs, agentListCodeSources, agentListCodeTree, agentReadCodeFile,
 } from "./project-code-sources.js";
@@ -53,6 +53,8 @@ const titles = {
   post_message: "发言", create_task: "创建任务", update_task: "更新任务", report_task: "交活",
   reassign_task: "转交任务", resolve_task_rejection: "处理任务拒绝", recover_task: "安排任务", ask_task_question: "提出问题",
   list_project_tasks: "查看任务", inspect_task: "询问任务进度",
+  // Internal: harness create_task auto-dispatch binds the spawned L3. Not model-facing.
+  bind_task_l3: "绑定执行者",
 };
 const L3_EXECUTION_TOOLS = new Set([
   "sandbox_command", "sandbox_read", "sandbox_write", "publish_artifact", "capture_preview_screenshot", "report_task",
@@ -118,7 +120,7 @@ export function createAgentTools(
     }
     const thread = await assertJob(service, user, job, { role: effectiveRole, sessionId: callerSessionId });
     if (!titles[name]) throw new HttpError(400, "未知工具");
-    if (effectiveRole === "coordinator" && !["list_documents", "list_messages", "read_message", "list_members", "read_member", "project_context", "read_document", "record_document_summary", "read_iteration", "list_project_tasks", "inspect_task", "create_task", "update_task", "reassign_task", "resolve_task_rejection", "recover_task", "ask_task_question", "capture_preview_screenshot", "list_local_connectors", "list_project_code_sources", "list_code_refs", "list_code_tree", "read_code_file"].includes(name))
+    if (effectiveRole === "coordinator" && !["list_documents", "list_messages", "read_message", "list_members", "read_member", "project_context", "read_document", "record_document_summary", "read_iteration", "list_project_tasks", "inspect_task", "create_task", "update_task", "reassign_task", "resolve_task_rejection", "recover_task", "ask_task_question", "capture_preview_screenshot", "list_local_connectors", "list_project_code_sources", "list_code_refs", "list_code_tree", "read_code_file", "bind_task_l3"].includes(name))
       throw new HttpError(403, "L2 当前不能直接执行该工具");
     if (effectiveRole === "executor" && ["create_task", "reassign_task", "resolve_task_rejection", "recover_task", "inspect_task", "ask_task_question"].includes(name))
       throw new HttpError(403, "L3 只能执行已分派的工作，不能管理 L2 生命周期或创建新任务");
@@ -220,6 +222,24 @@ export function createAgentTools(
             : z.array(z.string().uuid()).max(30).parse(args.documentRefs || args.refs),
           folderRefs: args.folderRefs == null ? [] : z.array(z.string().uuid()).max(30).parse(args.folderRefs),
           targetType, targetId });
+        // Harness create_task auto-spawns L3 in-process (same window as dsh_l3).
+        // Attach the launch prompt so the tool can startContinuable without another round-trip.
+        if (result?.needsDispatch && result.id) {
+          const launch = await l3LaunchPrompt(service.db, result.id);
+          if (launch?.prompt) {
+            result = {
+              ...result,
+              dispatchPrompt: launch.prompt,
+              dispatchLabel: launch.label,
+            };
+          }
+        }
+      } else if (name === "bind_task_l3") {
+        if (!l2SessionId) throw new HttpError(409, "当前没有可绑定的 L2 会话");
+        const taskId = z.string().uuid().parse(args.taskId);
+        const childSessionId = z.string().uuid().parse(args.childSessionId);
+        result = await bindDshL3Execution(service.db, l2SessionId, childSessionId, taskId);
+        if (!result?.execution_agent_id) throw new HttpError(409, "排队任务未能绑定到本次 L3");
       } else if (["list_documents","manage_document","manage_folder"].includes(name)) {
         result = await documentTool(service,user,name,args,job);
       } else if (name === "list_local_connectors") {

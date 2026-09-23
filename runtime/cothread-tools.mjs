@@ -1,7 +1,27 @@
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { startContinuableL3 } from "./sdk-resume.mjs";
 
 export const name = "cothread-project-tools";
 export const inject = ["tools", "agents"];
+
+async function bridgeTool(name, args, sessionId) {
+  const response = await fetch(
+    `${process.env.COTHREAD_BRIDGE_URL}/tool`,
+    {
+      method: "POST",
+      signal: AbortSignal.timeout(150000),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.COTHREAD_BRIDGE_TOKEN}`,
+      },
+      body: JSON.stringify({ name, args, sessionId: sessionId || null }),
+    },
+  );
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "工具执行失败");
+  return result;
+}
+
 export function apply(ctx) {
   // This build-time manifest is the only source of model-facing project tools.
   // Accounts and project data cannot extend it at runtime.
@@ -14,7 +34,7 @@ export function apply(ctx) {
     ["resolve_task_rejection", "处理被目标成员拒绝的任务。成员名下拒绝结果须本轮人类成员账号授权后，才可确认已知晓或修改后按原目标重新发起。", { taskId:{type:"string",required:true}, action:{type:"string",required:true}, title:{type:"string"}, goal:{type:"string"}, constraints:{type:"string"}, reason:{type:"string"} }],
     ["recover_task", "安排异常任务。自己责任的 L3 任务随时可处理；成员名下任务须本轮人类成员账号授权。失败先检查 failureClass、failureSignature 和 retryPolicy：同一平台错误不要换人，重复平台错误必须阻塞；执行错误先让原 L3 带反馈重试，只有达到同一执行者上限、客观验收仍失败或会话不可恢复时才换 L3。action=restart：有空闲 L3 则为执行中并立刻恢复或指派，否则待指派；返回 interruptedAgentId 时先对该 agent_id 调用 send_message，要求继续当前 TASK_ID，这是同一执行者优先恢复路径。只有 send_message 明确失败、会话不可恢复或达到执行者上限后才 dsh_l3 换人。被阻塞任务只有外部条件确实改变时才传 environmentChanged=true。对人的任务会回到待确认。见到 execution_agent_id 之前不要声称已派人干活。action=cancel 取消该任务。不要在沙箱里直连数据库。", { taskId:{type:"string",required:true}, action:{type:"string",required:true}, title:{type:"string"}, goal:{type:"string"}, constraints:{type:"string"}, reason:{type:"string"}, environmentChanged:{type:"boolean"} }],
     ["ask_task_question", "向当前迭代某任务的最新来源人提问。问题会作为群聊事件发布。自己责任的任务随时可问；成员名下任务须本轮人类成员账号授权。", { taskId:{type:"string",required:true}, question:{type:"string",required:true} }],
-    ["create_task", "创建项目任务。assist_l2 为 Ask 只读辅助：必须有空闲 L3，创建即执行中，系统会启动 L3，不要再为绑定调用 dsh_l3；没有空闲 L3 时不要创建。目标为本 L2 的 formal 为沙箱任务：有空闲则执行中并由系统启动 L3，否则 pending_assignment。给人的 formal 只能指派人类成员，须本轮授权，状态待确认。资料引用：成员只要文件夹时只传 folderRefs（正式文件文件夹 ID，最多 30 个），不要把文件夹展开成 documentRefs；只有成员明确点名个别文档时才另传 documentRefs（正式文件版本 ID，最多 30 个）。执行方用 list_documents({folderId, recursive:true}) 读取目录。不要为小祥自己就能完成的回复建任务。", {
+    ["create_task", "创建项目任务。assist_l2 为 Ask 只读辅助：必须有空闲 L3，创建即执行中，工具会在同一次调用内尽量启动并绑定 L3；没有空闲 L3 时不要创建。目标为本 L2 的 formal 为沙箱任务：有空闲则执行中并由工具尽量自动绑定 L3，否则 pending_assignment。若返回仍带 needsDispatch=true 且无 execution_agent_id，再在同一轮 dsh_l3，prompt 第一行写 TASK_ID。给人的 formal 只能指派人类成员，须本轮授权，状态待确认。资料引用：成员只要文件夹时只传 folderRefs（正式文件文件夹 ID，最多 30 个），不要把文件夹展开成 documentRefs；只有成员明确点名个别文档时才另传 documentRefs（正式文件版本 ID，最多 30 个）。执行方用 list_documents({folderId, recursive:true}) 读取目录。不要为小祥自己就能完成的回复建任务。", {
       taskType: { type: "string", required: true }, title: { type: "string", required: true }, goal: { type: "string", required: true },
       constraints: { type: "string" }, documentRefs: { type: "array" }, folderRefs: { type: "array" }, sourceType:{type:"string"}, sourceUserId:{type:"string"}, sourceMessageId:{type:"string"}, sourceTaskId:{type:"string"}, targetType: { type: "string" }, targetId: { type: "string" },
     }],
@@ -168,20 +188,42 @@ export function apply(ctx) {
               render: (_args, value) => [{ type: "text", text: value }],
             },
         async execute(args, exec) {
-          const response = await fetch(
-            `${process.env.COTHREAD_BRIDGE_URL}/tool`,
-            {
-              method: "POST",
-              signal: AbortSignal.timeout(150000),
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${process.env.COTHREAD_BRIDGE_TOKEN}`,
-              },
-              body: JSON.stringify({ name, args, sessionId: exec.agent?.id || null }),
-            },
-          );
-          const result = await response.json();
-          if (!response.ok) throw new Error(result.error || "工具执行失败");
+          const result = await bridgeTool(name, args, exec.agent?.id || null);
+          // Same-turn auto-dispatch: spawn L3 in-process under the live parent
+          // (identical to explicit dsh_l3). Post-turn JSON-RPC dispatch-l3 is a
+          // fallback only; three production rounds showed it does not bind.
+          if (name === "create_task" && result?.needsDispatch && result.dispatchPrompt && exec.agent) {
+            let childId = null;
+            try {
+              const started = await startContinuableL3(ctx, exec.agent, {
+                label: result.dispatchLabel || result.title || "任务",
+                prompt: result.dispatchPrompt,
+                signal: exec.signal,
+              });
+              childId = started.childId;
+              const bound = await bridgeTool("bind_task_l3", {
+                taskId: result.id,
+                childSessionId: childId,
+              }, exec.agent.id);
+              return JSON.stringify({
+                ...bound,
+                needsDispatch: false,
+                started: true,
+                autoDispatched: true,
+              });
+            } catch (error) {
+              if (childId) {
+                try {
+                  ctx.subagents?.interrupt?.(childId, { kind: "parent" });
+                } catch {}
+              }
+              return JSON.stringify({
+                ...result,
+                autoDispatched: false,
+                dispatchError: String(error?.message || error).slice(0, 500),
+              });
+            }
+          }
           return name === "capture_preview_screenshot" ? result : JSON.stringify(result);
         },
       }),

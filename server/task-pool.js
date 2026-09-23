@@ -319,7 +319,7 @@ function isL2OwnResponsibility(task) {
   return task.task_type === "assist_l2" || task.target_type === "l2_session" || task.execution_agent_type === "dsh_l3";
 }
 
-const L3_DISPATCH_HINT = "任务已定，系统会启动 L3。见到 execution_agent_id 之前不要对成员说已经派人干活。";
+const L3_DISPATCH_HINT = "任务已定，create_task 会尽量在同一次调用内启动并绑定 L3。见到 execution_agent_id 之前不要对成员说已经派人干活。";
 
 export function withL3DispatchGate(task, extra = {}) {
   if (!task) return extra;

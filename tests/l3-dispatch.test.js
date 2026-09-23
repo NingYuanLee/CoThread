@@ -57,6 +57,62 @@ test("idle parents spawn through runMaintenance instead of opening a model turn"
   assert.deepEqual(calls, ["maintenance", parent]);
 });
 
+test("idle parents fall back to direct spawn when runMaintenance rejects", async () => {
+  const calls = [];
+  const parent = {
+    status: "idle",
+    options: {},
+    runMaintenance: async () => {
+      calls.push("maintenance-fail");
+      throw new Error("already has active work");
+    },
+  };
+  const ctx = {
+    subagents: {
+      startContinuable: async () => {
+        calls.push("direct");
+        return { childId: "child-fallback" };
+      },
+    },
+  };
+  const started = await startContinuableL3(ctx, parent, {
+    label: "待启动",
+    prompt: "TASK_ID: abc\n去做",
+  });
+  assert.equal(started.childId, "child-fallback");
+  assert.deepEqual(calls, ["maintenance-fail", "direct"]);
+});
+
+test("running parents that fail direct spawn wait idle then use runMaintenance", async () => {
+  const calls = [];
+  const parent = {
+    status: "running",
+    options: {},
+    whenIdle: async () => { calls.push("whenIdle"); parent.status = "idle"; },
+    runMaintenance: async (task) => {
+      calls.push("maintenance");
+      return task(AbortSignal.timeout(1000));
+    },
+  };
+  let attempts = 0;
+  const ctx = {
+    subagents: {
+      startContinuable: async () => {
+        attempts += 1;
+        calls.push(`spawn-${attempts}`);
+        if (attempts === 1) throw new Error("parent busy");
+        return { childId: "child-after-idle" };
+      },
+    },
+  };
+  const started = await startContinuableL3(ctx, parent, {
+    label: "待启动",
+    prompt: "TASK_ID: abc\n去做",
+  });
+  assert.equal(started.childId, "child-after-idle");
+  assert.deepEqual(calls, ["spawn-1", "whenIdle", "maintenance", "spawn-2"]);
+});
+
 test("dispatch-l3 prefers the live parent agent over getOrCreateSession", async () => {
   const calls = [];
   const liveParent = { id: "live-l2", session: { id: "live-l2" }, options: {} };

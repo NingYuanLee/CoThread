@@ -75,19 +75,53 @@ export async function startContinuableL3(ctx, parent, { label, prompt, signal } 
     if (!started?.childId) throw new Error("L3 启动没有返回会话");
     return { childId: started.childId };
   };
-  // harness.client.request is serialized behind harness.run, so mid-turn
-  // dispatch-l3 usually lands after the parent is already idle. Explicit dsh_l3
-  // works because it runs in-process during the live turn. Claim the idle
-  // maintenance phase so startContinuable is admitted without opening a model turn.
-  if (parent?.status !== "running" && typeof parent?.runMaintenance === "function") {
+  const waitIdle = async () => {
+    if (typeof parent?.whenIdle !== "function" || parent.status === "idle") return;
+    await Promise.race([
+      parent.whenIdle(),
+      new Promise((resolve) => setTimeout(resolve, 8000)),
+    ]);
+  };
+  const viaMaintenance = async () => {
+    if (typeof parent?.runMaintenance !== "function") {
+      throw new Error("当前父会话缺少 runMaintenance，无法在 idle 期派发 L3");
+    }
     return parent.runMaintenance((maintenanceSignal) => {
       const linked = typeof AbortSignal.any === "function"
         ? AbortSignal.any([outer, maintenanceSignal])
         : outer;
       return spawn(linked);
     });
+  };
+  // harness.client.request is serialized behind harness.run, so most auto-dispatch
+  // calls arrive after the parent turn. Prefer idle maintenance (no model turn).
+  // Direct spawn only while status is clearly running; if that fails, wait idle and retry.
+  if (parent?.status === "running") {
+    try {
+      return await spawn(outer);
+    } catch (directError) {
+      await waitIdle();
+      try {
+        return await viaMaintenance();
+      } catch (maintError) {
+        throw new Error(
+          `L3 启动失败（running 直拉: ${directError?.message || directError}; idle 维护: ${maintError?.message || maintError})`,
+        );
+      }
+    }
   }
-  return spawn(outer);
+  await waitIdle();
+  try {
+    return await viaMaintenance();
+  } catch (maintError) {
+    try {
+      return await spawn(outer);
+    } catch (spawnError) {
+      throw new Error(
+        `L3 启动失败（idle 维护: ${maintError?.message || maintError}; 直拉: ${spawnError?.message || spawnError})`,
+      );
+    }
+  }
 }
 
 const createSession = HarnessSdkJsonRpcServer.prototype.createSession;

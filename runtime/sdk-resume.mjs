@@ -54,13 +54,20 @@ async function compactMeasuredSession(server, agent, params) {
 export async function startContinuableL3(ctx, parent, { label, prompt, signal } = {}) {
   const text = String(prompt || "").trim();
   if (!text) throw new Error("L3 启动缺少任务说明");
-  if (!ctx?.subagents?.startContinuable) throw new Error("当前运行时不能启动 L3");
+  let subagents;
+  try {
+    subagents = ctx?.subagents;
+  } catch (error) {
+    // Cordis throws on undeclared inject even under optional chaining.
+    throw new Error(`当前运行时不能启动 L3（${error?.message || error}）`);
+  }
+  if (!subagents?.startContinuable) throw new Error("当前运行时不能启动 L3");
   const title = String(label || "任务").slice(0, 80);
   let agentOptions;
   try { agentOptions = parentAgentOptionsForDelegation(parent); } catch { agentOptions = undefined; }
   const outer = signal || AbortSignal.timeout(30000);
   const spawn = async (spawnSignal) => {
-    const started = await ctx.subagents.startContinuable({
+    const started = await subagents.startContinuable({
       provider: "spawn",
       label: title,
       request: {

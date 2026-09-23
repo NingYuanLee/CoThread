@@ -6,6 +6,9 @@ export const name = "cothread-project-tools";
 // (same path as explicit dsh_l3). Without it: "cannot get property subagents without inject".
 export const inject = ["tools", "agents", "subagents"];
 
+/** Fingerprint so production验收 can confirm this build is live. */
+const AUTO_DISPATCH_BUILD = "v6-plugin-ctx";
+
 async function bridgeTool(name, args, sessionId) {
   const response = await fetch(
     `${process.env.COTHREAD_BRIDGE_URL}/tool`,
@@ -196,10 +199,11 @@ export function apply(ctx) {
           // fallback only; three production rounds showed it does not bind.
           if (name === "create_task" && result?.needsDispatch && result.dispatchPrompt && exec.agent) {
             let childId = null;
-            // Prefer the live agent's ctx (same inject tree as explicit dsh_l3).
-            const runtimeCtx = exec.agent.ctx || ctx;
+            // Use the plugin ctx (inject includes subagents). Preferring
+            // exec.agent.ctx re-triggered "cannot get property subagents without
+            // inject" — agent scopes do not declare that service.
             try {
-              const started = await startContinuableL3(runtimeCtx, exec.agent, {
+              const started = await startContinuableL3(ctx, exec.agent, {
                 label: result.dispatchLabel || result.title || "任务",
                 prompt: result.dispatchPrompt,
                 signal: exec.signal,
@@ -214,16 +218,18 @@ export function apply(ctx) {
                 needsDispatch: false,
                 started: true,
                 autoDispatched: true,
+                dispatchBuild: AUTO_DISPATCH_BUILD,
               });
             } catch (error) {
               if (childId) {
                 try {
-                  runtimeCtx.subagents?.interrupt?.(childId, { kind: "parent" });
+                  ctx.subagents.interrupt(childId, { kind: "parent" });
                 } catch {}
               }
               return JSON.stringify({
                 ...result,
                 autoDispatched: false,
+                dispatchBuild: AUTO_DISPATCH_BUILD,
                 dispatchError: String(error?.message || error).slice(0, 500),
               });
             }

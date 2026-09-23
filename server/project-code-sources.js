@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { mkdir, rm, access } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
@@ -457,20 +459,66 @@ async function loadRemoteSecret(db, projectId, remote) {
   return decryptToken(connector.token_ciphertext, vaultId(projectId));
 }
 
+/** Makers 上 cwd（如 /tmp/user-code）常不可写；与 agentRuntimeRoot 同策略落到 os.tmpdir。 */
+export function codeMirrorBase() {
+  return process.env.COTHREAD_MAKERS === "true"
+    ? resolve(tmpdir(), "cothread-code-mirrors")
+    : resolve(".local", "code-mirrors");
+}
+
+function gitScratchHome() {
+  return process.env.COTHREAD_MAKERS === "true"
+    ? resolve(tmpdir(), "cothread-git-home")
+    : resolve(".local", "git-home");
+}
+
+function prepareGitRuntimeSync() {
+  const home = gitScratchHome();
+  mkdirSync(join(home, ".cache"), { recursive: true });
+  return home;
+}
+
+function redactGitDetail(text) {
+  return String(text || "")
+    .replace(/(https?:\/\/)([^/\s:@]+):([^/\s@]+)@/gi, "$1$2:***@")
+    .replace(/\b(x-access-token|oauth2):[^\s@]+@/gi, "$1:***@");
+}
+
+export function formatGitFailure(result) {
+  const parts = [
+    result?.stderr,
+    result?.stdout,
+    result?.error?.message,
+    result?.signal ? `signal ${result.signal}` : "",
+    result?.status != null && result.status !== 0 ? `exit ${result.status}` : "",
+  ].map((part) => String(part || "").trim()).filter(Boolean);
+  const detail = redactGitDetail(parts.join(" | ") || "git 失败").slice(0, 500);
+  return `读取代码库失败：${detail}`;
+}
+
 function git(args, { cwd, env, timeout = 60000 } = {}) {
+  const home = prepareGitRuntimeSync();
   const result = spawnSync("git", args, {
-    cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...(env || {}) },
+    cwd,
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: "0",
+      HOME: home,
+      USERPROFILE: home,
+      XDG_CACHE_HOME: join(home, ".cache"),
+      GIT_CONFIG_NOSYSTEM: "1",
+      ...(env || {}),
+    },
     encoding: "utf8", windowsHide: true, timeout, maxBuffer: 8 * 1024 * 1024,
   });
   if (result.status !== 0) {
-    const detail = (result.stderr || result.stdout || "git 失败").trim().slice(0, 500);
-    throw new HttpError(400, `读取代码库失败：${detail}`);
+    throw new HttpError(400, formatGitFailure(result));
   }
   return result.stdout || "";
 }
 
 function mirrorRoot(projectId, remoteId) {
-  return resolve(".local", "code-mirrors", projectId, remoteId);
+  return resolve(codeMirrorBase(), projectId, remoteId);
 }
 
 async function ensureMirror(db, projectId, remote, ref) {
@@ -582,11 +630,12 @@ export async function agentReadCodeFile(db, projectId, remoteId, { ref, path } =
   const remote = await getRemoteRow(db, projectId, remoteId);
   const dir = await ensureMirror(db, projectId, remote, ref || undefined);
   const spec = `${ref || "HEAD"}:${filePath}`;
-  const result = spawnSync("git", ["-C", dir, "cat-file", "-s", spec], {
-    encoding: "utf8", windowsHide: true, timeout: 30000,
-  });
-  if (result.status !== 0) throw new HttpError(404, "文件不存在或无法读取");
-  const size = Number(String(result.stdout || "").trim());
+  let size;
+  try {
+    size = Number(git(["cat-file", "-s", spec], { cwd: dir, timeout: 30000 }).trim());
+  } catch {
+    throw new HttpError(404, "文件不存在或无法读取");
+  }
   if (!Number.isFinite(size)) throw new HttpError(400, "无法读取文件大小");
   if (size > MAX_FILE_BYTES) {
     throw new HttpError(400, `文件超过 ${MAX_FILE_BYTES} 字节只读上限，请改用更小的路径或让成员提供摘录`);

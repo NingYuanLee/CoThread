@@ -7,7 +7,7 @@ export const name = "cothread-project-tools";
 export const inject = ["tools", "agents", "subagents"];
 
 /** Fingerprint so production验收 can confirm this build is live. */
-const AUTO_DISPATCH_BUILD = "v6-plugin-ctx";
+const AUTO_DISPATCH_BUILD = "v7-bind-allow";
 
 async function bridgeTool(name, args, sessionId) {
   const response = await fetch(

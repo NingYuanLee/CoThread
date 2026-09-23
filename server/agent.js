@@ -276,7 +276,11 @@ export async function openAgentRuntime(
   const execute = (name, args, caller = {}) => {
     const level = role === "coordinator" && caller.sessionId && caller.sessionId !== session.session_id ? "l3"
       : role === "coordinator" ? "l2" : "l3";
-    if (!capabilityProfiles[level].allowedTools.includes(name))
+    // Internal harness helpers (not model-facing). create_task auto-dispatch
+    // binds the spawned L3 through bind_task_l3; it must not require a
+    // capability-profile allowlist entry or the model could also call it.
+    const internalBridgeTools = new Set(["bind_task_l3"]);
+    if (!internalBridgeTools.has(name) && !capabilityProfiles[level].allowedTools.includes(name))
       throw new HttpError(403, `${level.toUpperCase()} 未启用该插件能力`);
     return executeTool(name, args, caller);
   };

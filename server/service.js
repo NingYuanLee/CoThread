@@ -43,11 +43,11 @@ function rewriteRootRelativeAssetUrls(html) {
 function retargetPreviewNavigation(html) {
   return html
     .replace(
-      /(\s)target\s*=\s*(["'])(_blank|_parent|_top)\2/gi,
+      /(\s)target\s*=\s*(["'])(_parent|_top)\2/gi,
       "$1target=$2_self$2",
     )
     .replace(
-      /(\s)target\s*=\s*(_blank|_parent|_top)(?=[\s>/])/gi,
+      /(\s)target\s*=\s*(_parent|_top)(?=[\s>/])/gi,
       '$1target="_self"',
     );
 }

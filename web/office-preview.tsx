@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
 function escapeCode(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -30,7 +30,7 @@ function highlightCode(value: string, filename?: string) {
 
 const CODE_PREVIEW_PLAIN_CHARS = 80_000;
 
-export function CodePreview({ text, filename }: { text: string; filename?: string }) {
+export const CodePreview = memo(function CodePreview({ text, filename }: { text: string; filename?: string }) {
   if (text.length > CODE_PREVIEW_PLAIN_CHARS) {
     return (
       <pre className="code-preview-content code-preview-plain" role="document" aria-label={filename || "代码文件"}>
@@ -49,7 +49,7 @@ export function CodePreview({ text, filename }: { text: string; filename?: strin
       ))}</code></pre>
     </div>
   );
-}
+});
 
 function decodeXmlText(value: string) {
   return value

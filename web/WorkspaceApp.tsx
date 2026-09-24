@@ -398,6 +398,7 @@ export function WorkspaceApp() {
   const [fileDragOver, setFileDragOver] = useState(false);
   const [leftOpen, setLeftOpen] = useState(() => readStoredBoolean(LEFT_SIDEBAR_STATE_KEY, false));
   const [contextOpen, setContextOpen] = useState(() => readStoredBoolean(RIGHT_SIDEBAR_STATE_KEY, false));
+  const [documentFullscreen, setDocumentFullscreen] = useState(false);
   useEffect(() => {
     try { localStorage.setItem(LEFT_SIDEBAR_STATE_KEY, String(leftOpen)); } catch {}
   }, [leftOpen]);
@@ -1208,6 +1209,14 @@ export function WorkspaceApp() {
     }
     requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus());
   };
+  const addSelectionToConversation = (selectedText: string, versionId: string) => {
+    const excerpt = selectedText.trim();
+    if (!excerpt) return;
+    addVersionToConversation(versionId);
+    setMessage((text) => `${text ? `${text}\n` : ""}“${excerpt}”`);
+    showTip("已引用当前文件并添加选中内容");
+    focusComposer();
+  };
   const addFolderToConversation = (folderId: string) => {
     const folders = detail?.folders || [];
     const folder = folders.find((item) => item.id === folderId);
@@ -1406,7 +1415,7 @@ export function WorkspaceApp() {
   };
   return (
     <div
-      className={`app-shell ${leftOpen ? "" : "left-closed"} ${contextOpen ? "" : "right-closed"}`}
+      className={`app-shell ${leftOpen ? "" : "left-closed"} ${contextOpen ? "" : "right-closed"} ${documentFullscreen ? "document-fullscreen" : ""}`}
       style={
         rightPanelWidth
           ? ({ "--right-panel": `${rightPanelWidth}px` } as React.CSSProperties)
@@ -1604,7 +1613,11 @@ export function WorkspaceApp() {
           title={!projectId ? "导入项目后可使用右侧栏" : contextOpen ? "收起右侧栏" : "展开右侧栏"}
           aria-expanded={contextOpen}
           disabled={!projectId}
-          onClick={() => setContextOpen(!contextOpen)}
+          onClick={() => {
+            const nextOpen = !contextOpen;
+            setContextOpen(nextOpen);
+            if (!nextOpen) setDocumentFullscreen(false);
+          }}
         >
           <PanelIcon side="right" />
         </button>
@@ -2300,6 +2313,11 @@ export function WorkspaceApp() {
               codeSourcesTick={codeSourcesTick}
               selected={documentId}
               onSelect={setDocumentId}
+              documentFullscreen={documentFullscreen}
+              onDocumentFullscreenChange={(fullscreen) => {
+                setDocumentFullscreen(fullscreen);
+                if (fullscreen) setContextOpen(true);
+              }}
               onRefresh={async () => {
                 const library = await api(`/projects/${projectId}/library`);
                 const applyLibrary = (previous: Detail | undefined | null) => {
@@ -2318,6 +2336,11 @@ export function WorkspaceApp() {
               onReference={
                 active
                   ? addVersionToConversation
+                  : undefined
+              }
+              onAddSelectionToConversation={
+                active
+                  ? addSelectionToConversation
                   : undefined
               }
               onReferenceFolder={

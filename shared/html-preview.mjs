@@ -1,8 +1,12 @@
 export const PREVIEW_CONSOLE_MESSAGE = "cothread-preview-console";
+export const PREVIEW_NAVIGATION_MESSAGE = "cothread-preview-navigation";
+export const PREVIEW_NEW_WINDOW_MESSAGE = "cothread-preview-new-window";
 
 export function previewConsoleProbeHtml() {
   return `<script data-cothread-preview-console="1">(function(){
     var TYPE=${JSON.stringify(PREVIEW_CONSOLE_MESSAGE)};
+    var NAV=${JSON.stringify(PREVIEW_NAVIGATION_MESSAGE)};
+    var NEW_WINDOW=${JSON.stringify(PREVIEW_NEW_WINDOW_MESSAGE)};
     function fmt(value){
       if(value==null)return String(value);
       if(typeof value==="string")return value;
@@ -15,6 +19,40 @@ export function previewConsoleProbeHtml() {
         try{parent.postMessage(payload,"*");}catch(e2){}
       }
     }
+    function sendEvent(type,payload){
+      var message=Object.assign({type:type},payload||{});
+      try{top.postMessage(message,"*");}catch(e){
+        try{parent.postMessage(message,"*");}catch(e2){}
+      }
+    }
+    function absoluteUrl(value){
+      try{return new URL(String(value||""),location.href).href;}catch(e){return "";}
+    }
+    function announceNavigation(){sendEvent(NAV,{href:location.href,title:document.title||""});}
+    ["pushState","replaceState"].forEach(function(method){
+      var original=history[method];
+      history[method]=function(){var result=original.apply(this,arguments);announceNavigation();return result;};
+    });
+    window.addEventListener("popstate",announceNavigation);
+    window.addEventListener("hashchange",announceNavigation);
+    window.addEventListener("load",announceNavigation);
+    document.addEventListener("click",function(event){
+      var target=event.target&&event.target.closest?event.target.closest("a[href]"):null;
+      if(!target)return;
+      var opensNew=target.target==="_blank"||event.metaKey||event.ctrlKey||event.shiftKey||event.button===1;
+      if(!opensNew)return;
+      var href=absoluteUrl(target.href);
+      if(!href)return;
+      event.preventDefault();
+      event.stopPropagation();
+      sendEvent(NEW_WINDOW,{href:href,title:target.textContent||""});
+    },true);
+    var originalOpen=window.open;
+    window.open=function(value){
+      var href=absoluteUrl(value);
+      if(href){sendEvent(NEW_WINDOW,{href:href,title:""});return null;}
+      return originalOpen.apply(this,arguments);
+    };
     ["log","info","warn","error","debug"].forEach(function(level){
       var orig=console[level]?console[level].bind(console):function(){};
       console[level]=function(){

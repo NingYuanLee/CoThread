@@ -13,7 +13,12 @@ import {
   Text,
 } from "@react-symbols/icons/files";
 import { CodePreview, DocxPreview, formatHtmlSource, MermaidPreview, PptxPreview, XlsxPreview } from "./office-preview";
-import { resolvePreviewAssetPath, PREVIEW_CONSOLE_MESSAGE } from "../shared/html-preview.mjs";
+import {
+  resolvePreviewAssetPath,
+  PREVIEW_CONSOLE_MESSAGE,
+  PREVIEW_NAVIGATION_MESSAGE,
+  PREVIEW_NEW_WINDOW_MESSAGE,
+} from "../shared/html-preview.mjs";
 import { fileDisplayName } from "../shared/document-name.js";
 import { LIBRARY_ROOT_KINDS, folderRootKind } from "./document-library";
 import { UiIcon } from "./ui-icon";
@@ -40,6 +45,10 @@ const officeIcons = {
 
 function isSvgFilename(fileName: string) {
   return /\.svg$/i.test(fileName);
+}
+
+function isImageFilename(fileName: string) {
+  return /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(fileName);
 }
 
 function OfficeFileIcon({ fileName, ...props }: { fileName: string } & SVGProps<SVGSVGElement>) {
@@ -116,25 +125,250 @@ function LibraryFileIcon({
   );
 }
 
+type HtmlDeviceMode = "desktop" | "mobile";
+type HtmlMobilePreset = {
+  id: string;
+  label: string;
+  width: number;
+  height: number;
+};
+
+type HtmlMobilePresetGroup = {
+  label: string;
+  presets: HtmlMobilePreset[];
+};
+
+const HTML_MOBILE_ZOOM_MIN = 50;
+const HTML_MOBILE_ZOOM_MAX = 150;
+const HTML_MOBILE_ZOOM_WHEEL_STEP = 5;
+
+const HTML_MOBILE_PRESET_GROUPS: HtmlMobilePresetGroup[] = [
+  {
+    label: "苹果 iPhone",
+    presets: [
+      { id: "iphone-18-pro", label: "iPhone 18 Pro · 375 × 782", width: 375, height: 782 },
+      { id: "iphone-18-pro-max", label: "iPhone 18 Pro Max · 390 × 817", width: 390, height: 817 },
+      { id: "iphone-air", label: "iPhone Air · 393 × 824", width: 393, height: 824 },
+      { id: "iphone-17e", label: "iPhone 17e · 375 × 769", width: 375, height: 769 },
+    ],
+  },
+  {
+    label: "鸿蒙 Huawei",
+    presets: [
+      { id: "huawei-pura-90", label: "HUAWEI Pura 90 · 390 × 815", width: 390, height: 815 },
+      { id: "huawei-mate-x7", label: "HUAWEI Mate X7 外屏 · 382 × 813", width: 382, height: 813 },
+      { id: "huawei-pura-x-max", label: "HUAWEI Pura X Max 展开 · 360 × 508", width: 360, height: 508 },
+      { id: "huawei-mate-xt-2", label: "HUAWEI Mate XT 2 折叠屏 · 360 × 771", width: 360, height: 771 },
+    ],
+  },
+  {
+    label: "安卓 Android",
+    presets: [
+      { id: "xiaomi-17", label: "Xiaomi 17 · 360 × 759", width: 360, height: 759 },
+      { id: "xiaomi-17-ultra", label: "Xiaomi 17 Ultra · 390 × 818", width: 390, height: 818 },
+      { id: "galaxy-s26", label: "Samsung Galaxy S26 · 375 × 781", width: 375, height: 781 },
+      { id: "galaxy-z-fold7", label: "Samsung Galaxy Z Fold7 内屏 · 324 × 360", width: 324, height: 360 },
+    ],
+  },
+];
+
+const HTML_MOBILE_PRESETS = HTML_MOBILE_PRESET_GROUPS.flatMap((group) => group.presets);
+
+type HtmlBrowserFile = { id: string; filename: string; address: string };
+type BrowserTab = {
+  key: string;
+  versionId: string;
+  url: string;
+  loadUrl: string;
+  label: string;
+};
+
+function HtmlBrowserToolbar({
+  filename,
+  files,
+  addressQuery,
+  onAddressQueryChange,
+  onSelectFile,
+  onReload,
+  onOpenExternal,
+  deviceMode,
+  onDeviceModeChange,
+}: {
+  filename?: string;
+  files: HtmlBrowserFile[];
+  addressQuery: string;
+  onAddressQueryChange: (value: string) => void;
+  onSelectFile: (id: string) => void;
+  onReload?: () => void;
+  onOpenExternal?: () => void;
+  deviceMode: HtmlDeviceMode;
+  onDeviceModeChange: (mode: HtmlDeviceMode) => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  const query = addressQuery;
+  const matches = files
+    .filter((file) => !query.trim() || `${file.address} ${file.filename} ${file.id}`.toLowerCase().includes(query.trim().toLowerCase()))
+    .slice(0, 10);
+  return (
+    <div className="doc-html-browser-toolbar-shell">
+      <div className="doc-html-browser-toolbar" role="toolbar" aria-label="HTML 浏览器工具栏">
+      <button
+        type="button"
+        className="doc-html-browser-action"
+        title="刷新页面"
+        aria-label="刷新页面"
+        onClick={onReload}
+        disabled={!onReload}
+      >
+        <UiIcon name="refresh" size={14} />
+      </button>
+      <div className={`doc-html-browser-address-wrap${focused ? " focused" : ""}`}>
+        <UiIcon name="search" size={13} />
+        <input
+          className="doc-html-browser-address-input"
+          aria-label="搜索并选择 HTML 文件"
+          placeholder="输入或搜索 HTML 文件"
+          value={query}
+          onFocus={(event) => {
+            setFocused(true);
+            if (event.currentTarget.value) event.currentTarget.select();
+          }}
+          onChange={(event) => onAddressQueryChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && matches[0]) {
+              event.preventDefault();
+              onSelectFile(matches[0].id);
+              setFocused(false);
+            }
+            if (event.key === "Escape") setFocused(false);
+          }}
+          title={filename || "搜索 HTML 文件"}
+        />
+        {focused ? (
+          <div className="doc-html-browser-address-options" role="listbox" aria-label="HTML 文件候选">
+            {matches.length ? matches.map((file) => (
+              <button
+                key={file.id}
+                type="button"
+                role="option"
+                aria-selected={file.address === addressQuery}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  onSelectFile(file.id);
+                  setFocused(false);
+                }}
+              >
+                <UiIcon name="code" size={13} />
+                <span>{file.address}</span>
+              </button>
+            )) : <span className="doc-html-browser-address-empty">没有匹配的 HTML 文件</span>}
+          </div>
+        ) : null}
+      </div>
+      <div className="doc-html-device-controls" role="group" aria-label="预览设备">
+        <button
+          type="button"
+          className={`doc-html-device-button${deviceMode === "desktop" ? " active" : ""}`}
+          title="电脑模式"
+          aria-label="电脑模式"
+          aria-pressed={deviceMode === "desktop"}
+          onClick={() => onDeviceModeChange("desktop")}
+          >
+            <UiIcon name="monitor" size={13} />
+          </button>
+        <button
+          type="button"
+          className={`doc-html-device-button${deviceMode === "mobile" ? " active" : ""}`}
+          title="手机模式"
+          aria-label="手机模式"
+          aria-pressed={deviceMode === "mobile"}
+          onClick={() => onDeviceModeChange("mobile")}
+          >
+            <UiIcon name="smartphone" size={13} />
+          </button>
+      </div>
+      <button
+        type="button"
+        className="doc-html-browser-action"
+        title="在电脑浏览器中打开"
+        aria-label="在电脑浏览器中打开"
+        onClick={onOpenExternal}
+        disabled={!onOpenExternal}
+      >
+        <UiIcon name="share" size={14} />
+      </button>
+      </div>
+    </div>
+  );
+}
+
 function HtmlPreviewFrame({
   versionId,
   filename,
+  src: sourceOverride,
+  onReload,
+  onOpenExternal,
+  files,
+  addressQuery,
+  onAddressQueryChange,
+  onSelectFile,
+  deviceMode,
+  mobilePreset,
+  onDeviceModeChange,
+  onMobilePresetChange,
+  zoomPercent,
+  onZoomChange,
+  onNavigate,
+  onNewWindow,
 }: {
   versionId: string;
   filename: string;
+  src?: string;
+  onReload?: () => void;
+  onOpenExternal?: () => void;
+  files: HtmlBrowserFile[];
+  addressQuery: string;
+  onAddressQueryChange: (value: string) => void;
+  onSelectFile: (id: string) => void;
+  deviceMode: HtmlDeviceMode;
+  mobilePreset: HtmlMobilePreset;
+  onDeviceModeChange: (mode: HtmlDeviceMode) => void;
+  onMobilePresetChange: (presetId: string) => void;
+  zoomPercent: number;
+  onZoomChange: (value: number) => void;
+  onNavigate?: (href: string) => void;
+  onNewWindow?: (href: string, title?: string) => void;
 }) {
-  const src = `/api/versions/${versionId}/preview/`;
+  const src = sourceOverride || `/api/versions/${versionId}/preview/`;
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const zoomPanelRef = useRef<HTMLDivElement>(null);
+  const zoomPanelHoveredRef = useRef(false);
+  const previewScrollRef = useRef<HTMLDivElement>(null);
+  const previewViewportRef = useRef<HTMLDivElement>(null);
+  const onNavigateRef = useRef(onNavigate);
+  const onNewWindowRef = useRef(onNewWindow);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [logs, setLogs] = useState<Array<{ id: number; level: string; args: string[] }>>([]);
+  useEffect(() => { onNavigateRef.current = onNavigate; }, [onNavigate]);
+  useEffect(() => { onNewWindowRef.current = onNewWindow; }, [onNewWindow]);
   useEffect(() => {
     setLogs([]);
     setConsoleOpen(false);
     let nextId = 1;
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== "null" && event.origin !== window.location.origin) return;
+      if (event.source && iframeRef.current?.contentWindow && event.source !== iframeRef.current.contentWindow) return;
       const data = event.data;
-      if (!data || data.type !== PREVIEW_CONSOLE_MESSAGE || !Array.isArray(data.args)) return;
+      if (!data) return;
+      if (data.type === PREVIEW_NAVIGATION_MESSAGE && typeof data.href === "string") {
+        onNavigateRef.current?.(data.href);
+        return;
+      }
+      if (data.type === PREVIEW_NEW_WINDOW_MESSAGE && typeof data.href === "string") {
+        onNewWindowRef.current?.(data.href, typeof data.title === "string" ? data.title : undefined);
+        return;
+      }
+      if (data.type !== PREVIEW_CONSOLE_MESSAGE || !Array.isArray(data.args)) return;
       const level = String(data.level || "log");
       const args = data.args.map((item: unknown) => String(item));
       setLogs((previous) => {
@@ -147,21 +381,142 @@ function HtmlPreviewFrame({
     return () => window.removeEventListener("message", onMessage);
   }, [versionId]);
   const errorCount = logs.filter((row) => row.level === "error").length;
+  const fitZoomToScreen = () => {
+    if (deviceMode !== "mobile") return;
+    const scroll = previewScrollRef.current;
+    const viewport = previewViewportRef.current;
+    if (!scroll || !viewport) return;
+    const styles = window.getComputedStyle(scroll);
+    const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
+    const paddingBottom = Number.parseFloat(styles.paddingBottom) || 0;
+    const availableHeight = viewport.clientHeight - paddingTop - paddingBottom - 2;
+    if (availableHeight <= 0 || mobilePreset.height <= 0) return;
+    const frameHeight = mobilePreset.height + 2;
+    const nextZoom = Math.floor((availableHeight / frameHeight) * 100);
+    onZoomChange(Math.min(HTML_MOBILE_ZOOM_MAX, Math.max(HTML_MOBILE_ZOOM_MIN, nextZoom)));
+  };
+
+  const applyZoomWheel = (deltaY: number) => {
+    const direction = deltaY < 0 ? 1 : -1;
+    onZoomChange(Math.min(HTML_MOBILE_ZOOM_MAX, Math.max(HTML_MOBILE_ZOOM_MIN, zoomPercent + direction * HTML_MOBILE_ZOOM_WHEEL_STEP)));
+  };
+
+  useEffect(() => {
+    const panel = zoomPanelRef.current;
+    if (!panel) return undefined;
+    const onWheel = (event: WheelEvent) => {
+      if (!zoomPanelHoveredRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      applyZoomWheel(event.deltaY);
+    };
+    window.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    return () => window.removeEventListener("wheel", onWheel, true);
+  }, [onZoomChange, zoomPercent]);
   return (
     <div className="doc-html-preview-shell">
-      <iframe
-        ref={iframeRef}
-        className="doc-html-preview-frame"
-        title={filename}
-        src={src}
-        sandbox="allow-scripts allow-forms allow-modals"
-        referrerPolicy="no-referrer"
+      <HtmlBrowserToolbar
+        filename={filename}
+        files={files}
+        addressQuery={addressQuery}
+        onAddressQueryChange={onAddressQueryChange}
+        onSelectFile={onSelectFile}
+        onReload={onReload}
+        onOpenExternal={onOpenExternal}
+        deviceMode={deviceMode}
+        onDeviceModeChange={onDeviceModeChange}
       />
+      <div ref={previewViewportRef} className={`doc-html-preview-viewport doc-html-preview-viewport-${deviceMode}`}>
+        {deviceMode === "mobile" ? (
+          <div className="doc-html-mobile-floating-controls" aria-label="手机预览设置">
+            <select
+              className="doc-html-device-select"
+              aria-label="手机型号"
+              value={mobilePreset.id}
+              onChange={(event) => onMobilePresetChange(event.target.value)}
+            >
+              {HTML_MOBILE_PRESET_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.presets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>{preset.label}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <div
+              ref={zoomPanelRef}
+              className="doc-html-zoom-panel"
+              onPointerEnter={() => { zoomPanelHoveredRef.current = true; }}
+              onPointerLeave={() => { zoomPanelHoveredRef.current = false; }}
+              onWheelCapture={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                applyZoomWheel(event.deltaY);
+              }}
+            >
+              <button
+                type="button"
+                className="doc-html-fit-screen-button"
+                title="适应屏幕"
+                aria-label="适应屏幕"
+                onClick={fitZoomToScreen}
+              >
+                <UiIcon name="compress" size={13} />
+              </button>
+              <label className="doc-html-zoom-control">
+                <span>缩放 {zoomPercent}%</span>
+                <input
+                  type="range"
+                  min={HTML_MOBILE_ZOOM_MIN}
+                  max={HTML_MOBILE_ZOOM_MAX}
+                  step={HTML_MOBILE_ZOOM_WHEEL_STEP}
+                  value={zoomPercent}
+                  aria-label="手机网页缩放比例"
+                  onChange={(event) => onZoomChange(Number(event.target.value))}
+                />
+              </label>
+            </div>
+          </div>
+        ) : null}
+        <div ref={previewScrollRef} className="doc-html-preview-scroll">
+          {deviceMode === "mobile" ? (
+            <div
+              className="doc-html-mobile-frame-shell"
+              style={{ width: mobilePreset.width * (zoomPercent / 100), height: mobilePreset.height * (zoomPercent / 100) }}
+            >
+              <iframe
+                ref={iframeRef}
+                className="doc-html-preview-frame mobile"
+                title={filename}
+                src={src}
+                style={{
+                  width: mobilePreset.width,
+                  height: mobilePreset.height,
+                  transform: `scale(${zoomPercent / 100})`,
+                  transformOrigin: "top left",
+                }}
+                sandbox="allow-scripts allow-forms allow-modals"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+          ) : (
+            <iframe
+              ref={iframeRef}
+              className="doc-html-preview-frame"
+              title={filename}
+              src={src}
+              sandbox="allow-scripts allow-forms allow-modals"
+              referrerPolicy="no-referrer"
+            />
+          )}
+        </div>
+      </div>
       <div className={`doc-html-preview-console${consoleOpen ? " open" : ""}`}>
         <div className="doc-html-preview-console-bar">
           <button type="button" onClick={() => setConsoleOpen((open) => !open)}>
             控制台{errorCount ? ` · ${errorCount}` : logs.length ? ` · ${logs.length}` : ""}
           </button>
+
           {consoleOpen ? (
             <button type="button" onClick={() => setLogs([])} disabled={!logs.length}>
               清空
@@ -178,6 +533,48 @@ function HtmlPreviewFrame({
             )) : <p className="muted">暂无输出。脚本报错或资源 404 会出现在这里。</p>}
           </div>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+function HtmlBrowserEmptyState({
+  files,
+  addressQuery,
+  onAddressQueryChange,
+  onSelectFile,
+  deviceMode,
+  mobilePreset,
+  onDeviceModeChange,
+  onMobilePresetChange,
+  zoomPercent,
+  onZoomChange,
+}: {
+  files: HtmlBrowserFile[];
+  addressQuery: string;
+  onAddressQueryChange: (value: string) => void;
+  onSelectFile: (id: string) => void;
+  deviceMode: HtmlDeviceMode;
+  mobilePreset: HtmlMobilePreset;
+  onDeviceModeChange: (mode: HtmlDeviceMode) => void;
+  onMobilePresetChange: (presetId: string) => void;
+  zoomPercent: number;
+  onZoomChange: (value: number) => void;
+}) {
+  return (
+    <div className="doc-html-preview-shell">
+      <HtmlBrowserToolbar
+        files={files}
+        addressQuery={addressQuery}
+        onAddressQueryChange={onAddressQueryChange}
+        onSelectFile={onSelectFile}
+        deviceMode={deviceMode}
+        onDeviceModeChange={onDeviceModeChange}
+      />
+      <div className="doc-html-browser-empty">
+        <UiIcon name="preview" size={22} />
+        <strong>浏览器尚未打开页面</strong>
+        <span>在上方地址栏输入关键词，选择项目中的 HTML 文件。</span>
       </div>
     </div>
   );
@@ -492,6 +889,7 @@ function TreeIcon({ kind, className }: { kind: string; className?: string }) {
     ],
     actions: "M5 7h14M5 12h14M5 17h14",
     download: "M12 3v12 M8 11l4 4 4-4 M4 21h16",
+    share: "M14 4h6v6 M20 4 12 12 M19 14v5H5V5h5",
     restore: "M4 12a8 8 0 1 0 2.3-5.7 M4 4v6h6",
     addToChat: "M4 5h16v10H8l-4 4Z M8 10h8",
     addToTask: "M9 5H4v14h16V9 M14 4h6v6 M17 4v6 M14 7h6 M8 13h8 M8 17h5",
@@ -668,6 +1066,181 @@ function DocBrowserTabMenu({
       </button>
     </div>,
     document.body,
+  );
+}
+
+type FileContextMenuKind = "html" | "image" | "other" | "selection";
+
+type TextSelectionSnapshot = {
+  root: HTMLElement;
+  startPath: number[];
+  startOffset: number;
+  endPath: number[];
+  endOffset: number;
+  rects: Array<{ left: number; right: number; top: number; bottom: number }>;
+};
+
+type PendingTextSelection = {
+  snapshot: TextSelectionSnapshot;
+  text: string;
+};
+
+function getNodePath(root: Node, target: Node) {
+  const path: number[] = [];
+  let current: Node | null = target;
+  while (current && current !== root) {
+    const parent: Node | null = current.parentNode;
+    if (!parent) return null;
+    const index = Array.prototype.indexOf.call(parent.childNodes, current);
+    if (index < 0) return null;
+    path.unshift(index);
+    current = parent;
+  }
+  return current === root ? path : null;
+}
+
+function resolveNodePath(root: Node, path: number[]) {
+  let current: Node = root;
+  for (const index of path) {
+    const next = current.childNodes[index];
+    if (!next) return null;
+    current = next;
+  }
+  return current;
+}
+
+function DocumentFileContextMenu({
+  x,
+  y,
+  kind,
+  onOpenBrowser,
+  onCopyAddress,
+  onCopyImage,
+  onAddToConversation,
+  onDownload,
+  onDismiss,
+}: {
+  x: number;
+  y: number;
+  kind: FileContextMenuKind;
+  onOpenBrowser?: () => void;
+  onCopyAddress?: () => void;
+  onCopyImage?: () => void;
+  onAddToConversation?: () => void;
+  onDownload: () => void;
+  onDismiss: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState({ left: x, top: y });
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    const viewportWidth = window.visualViewport?.width ?? document.documentElement.clientWidth;
+    const viewportHeight = window.visualViewport?.height ?? document.documentElement.clientHeight;
+    const offsetLeft = window.visualViewport?.offsetLeft ?? 0;
+    const offsetTop = window.visualViewport?.offsetTop ?? 0;
+    const left = Math.min(
+      Math.max(offsetLeft + 8, x),
+      Math.max(offsetLeft + 8, offsetLeft + viewportWidth - rect.width - 8),
+    );
+    const top = Math.min(
+      Math.max(offsetTop + 8, y),
+      Math.max(offsetTop + 8, offsetTop + viewportHeight - rect.height - 8),
+    );
+    setBox((previous) => (previous.left === left && previous.top === top ? previous : { left, top }));
+  }, [x, y]);
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node)) onDismiss();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onDismiss();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onDismiss]);
+  const run = (action?: () => void) => {
+    action?.();
+    onDismiss();
+  };
+  return createPortal(
+    <div
+      ref={ref}
+      className="library-folder-menu document-context-menu"
+      role="menu"
+      style={{ left: box.left, top: box.top }}
+      onContextMenu={(event) => event.preventDefault()}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {kind === "html" && onOpenBrowser ? (
+        <button type="button" role="menuitem" className="library-folder-menu-item" onMouseDown={(event) => event.preventDefault()} onClick={() => run(onOpenBrowser)}>
+          <TreeIcon kind="preview" />
+          <span>在浏览器打开</span>
+        </button>
+      ) : null}
+      {kind === "image" && onCopyAddress ? (
+        <button type="button" role="menuitem" className="library-folder-menu-item" onMouseDown={(event) => event.preventDefault()} onClick={() => run(onCopyAddress)}>
+          <TreeIcon kind="share" />
+          <span>复制地址</span>
+        </button>
+      ) : null}
+      {kind === "image" && onCopyImage ? (
+        <button type="button" role="menuitem" className="library-folder-menu-item" onMouseDown={(event) => event.preventDefault()} onClick={() => run(onCopyImage)}>
+          <TreeIcon kind="copy" />
+          <span>复制图片</span>
+        </button>
+      ) : null}
+      {kind === "selection" && onCopyAddress ? (
+        <button type="button" role="menuitem" className="library-folder-menu-item" onMouseDown={(event) => event.preventDefault()} onClick={() => run(onCopyAddress)}>
+          <TreeIcon kind="copy" />
+          <span>复制</span>
+        </button>
+      ) : null}
+      {kind === "selection" && onAddToConversation ? (
+        <button type="button" role="menuitem" className="library-folder-menu-item" onMouseDown={(event) => event.preventDefault()} onClick={() => run(onAddToConversation)}>
+          <TreeIcon kind="addToChat" />
+          <span>添加到对话</span>
+        </button>
+      ) : null}
+      {kind !== "selection" ? (
+        <button type="button" role="menuitem" className="library-folder-menu-item" onMouseDown={(event) => event.preventDefault()} onClick={() => run(onDownload)}>
+          <TreeIcon kind="download" />
+          <span>下载</span>
+        </button>
+      ) : null}
+    </div>,
+    document.body,
+  );
+}
+
+function TextSelectionContextMenu({
+  x,
+  y,
+  onCopy,
+  onAddToConversation,
+  onDismiss,
+}: {
+  x: number;
+  y: number;
+  onCopy: () => void;
+  onAddToConversation: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <DocumentFileContextMenu
+      x={x}
+      y={y}
+      kind="selection"
+      onDownload={onDismiss}
+      onDismiss={onDismiss}
+      onCopyAddress={onCopy}
+      onAddToConversation={onAddToConversation}
+    />
   );
 }
 
@@ -1218,11 +1791,14 @@ export function Documents({
   selected,
   onSelect,
   onReference,
+  onAddSelectionToConversation,
   onReferenceFolder,
   onAddToTask,
   onAddFolderToTask,
   organizationJobs = [],
   codeSourcesTick = 0,
+  documentFullscreen = false,
+  onDocumentFullscreenChange,
 }: {
   onReview?: (versionId: string, decision: string, comment?: string) => Promise<void>;
   projectId: string;
@@ -1237,11 +1813,14 @@ export function Documents({
   selected: string;
   onSelect: (id: string) => void;
   onReference?: (id: string) => void;
+  onAddSelectionToConversation?: (text: string, versionId: string) => void;
   onReferenceFolder?: (id: string) => void;
   onAddToTask?: (id: string) => void;
   onAddFolderToTask?: (id: string) => void;
   organizationJobs?: { thread_id?: string | null; scope: "iteration" | "project"; status: string; error?: string | null }[];
   codeSourcesTick?: number;
+  documentFullscreen?: boolean;
+  onDocumentFullscreenChange?: (fullscreen: boolean) => void;
 }) {
   const libraryFolders = folders.filter((folder) => {
     if (folder.folder_kind === "iteration_root") return false;
@@ -1520,8 +2099,22 @@ export function Documents({
   const [imagePreview, setImagePreview] = useState<ImagePreviewSource | null>(null);
   const [error, setError] = useState("");
   const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [browserTabs, setBrowserTabs] = useState<BrowserTab[]>([]);
+  const [browserSelected, setBrowserSelected] = useState("");
+  const [documentSelected, setDocumentSelected] = useState(selected);
   const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [fileContextMenu, setFileContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [selectionContextMenu, setSelectionContextMenu] = useState<{ x: number; y: number; text: string } | null>(null);
+  const selectionRestoreRef = useRef<TextSelectionSnapshot | null>(null);
+  const pendingSelectionRef = useRef<PendingTextSelection | null>(null);
+  const lastSelectionRef = useRef<PendingTextSelection | null>(null);
+  const mainPanelRef = useRef<HTMLElement | null>(null);
   const [previewReload, setPreviewReload] = useState(0);
+  const [browserDeviceMode, setBrowserDeviceMode] = useState<HtmlDeviceMode>("desktop");
+  const [browserMobilePresetId, setBrowserMobilePresetId] = useState(HTML_MOBILE_PRESETS[1].id);
+  const [browserMobileZoom, setBrowserMobileZoom] = useState(100);
+  const [browserAddressQuery, setBrowserAddressQuery] = useState("");
+  const [activeTool, setActiveTool] = useState<"files" | "browser">("files");
   const [treeOpen, setTreeOpen] = useState(() => readStoredBoolean(DOCUMENT_TREE_STATE_KEY, false));
   const [treeWidth, setTreeWidth] = useState(readStoredTreeWidth);
   useEffect(() => {
@@ -1593,10 +2186,248 @@ export function Documents({
   const previewMode = selected
     ? previewModeByVersion[selected] ?? "preview"
     : "preview";
+  const browserMobilePreset = HTML_MOBILE_PRESETS.find((preset) => preset.id === browserMobilePresetId)
+    || HTML_MOBILE_PRESETS[0];
+  const browserFileAddress = (item: LibraryVersion) =>
+    `${documentSourceLabel(item, libraryFolders)} / ${fileLabel(item)}`;
   const setPreviewMode = (mode: "preview" | "text") => {
     if (!selected) return;
     setPreviewModeByVersion((previous) => ({ ...previous, [selected]: mode }));
   };
+  const makeBrowserNewTab = (): BrowserTab => ({
+    key: `new-tab:${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    versionId: "",
+    url: "",
+    loadUrl: "",
+    label: "新页签",
+  });
+  const createBrowserNewTab = () => {
+    const tab = makeBrowserNewTab();
+    setBrowserTabs((previous) => [...previous, tab]);
+    setBrowserSelected(tab.key);
+    setBrowserAddressQuery("");
+    setActiveTool("browser");
+    onSelect("");
+  };
+  const selectDocument = (id: string) => {
+    setDocumentSelected(id);
+    setActiveTool("files");
+    onSelect(id);
+  };
+  const openBrowserTab = (id: string) => {
+    const target = libraryVersions.find((item) => item.id === id) || versions.find((item) => item.id === id);
+    if (!target || !/\.html?$/i.test(target.filename || "")) return;
+    const key = `version:${id}`;
+    const current = browserTabs.find((tab) => tab.key === browserSelected);
+    const existing = browserTabs.find((tab) => tab.key === key);
+    const nextTab = {
+      key,
+      versionId: id,
+      url: browserFileAddress(target),
+      loadUrl: `/api/versions/${id}/preview/`,
+      label: target.filename,
+    };
+    setBrowserTabs((previous) => {
+      if (existing) return previous;
+      if (current && !current.versionId) return previous.map((tab) => tab.key === current.key ? nextTab : tab);
+      return [...previous, nextTab];
+    });
+    setBrowserSelected(existing?.key || key);
+    setBrowserAddressQuery(nextTab.url);
+    setActiveTool("browser");
+    onSelect(id);
+  };
+  const selectBrowserTab = (key: string) => {
+    const target = browserTabs.find((tab) => tab.key === key);
+    setBrowserSelected(key);
+    if (target) {
+      setBrowserAddressQuery(target.url);
+      onSelect(target.versionId || "");
+    }
+    setActiveTool("browser");
+  };
+  const closeBrowserTab = (key: string) => {
+    setBrowserTabs((previous) => {
+      const index = previous.findIndex((tab) => tab.key === key);
+      if (index < 0) return previous;
+      const next = previous.filter((tab) => tab.key !== key);
+      if (browserSelected === key) {
+        const nextTab = next[index] || next[index - 1] || null;
+        const fallbackTab = nextTab || makeBrowserNewTab();
+        setBrowserSelected(fallbackTab.key);
+        setBrowserAddressQuery(fallbackTab.url);
+        onSelect(fallbackTab.versionId || "");
+        if (!nextTab) next.push(fallbackTab);
+      }
+      return next;
+    });
+  };
+  const activateDocumentTool = () => {
+    setActiveTool("files");
+    const nextId = documentSelected || openTabs[openTabs.length - 1] || "";
+    if (nextId !== selected) onSelect(nextId);
+  };
+  const activateBrowserTool = () => {
+    const nextTab = browserTabs.find((tab) => tab.key === browserSelected)
+      || browserTabs[browserTabs.length - 1];
+    if (nextTab) selectBrowserTab(nextTab.key);
+    else {
+      createBrowserNewTab();
+    }
+  };
+  const openHtmlInBrowser = (target: LibraryVersion) => {
+    if (!/\.html?$/i.test(target.filename || "")) return;
+    setPreviewModeByVersion((previous) => ({ ...previous, [target.id]: "preview" }));
+    openBrowserTab(target.id);
+    setFileContextMenu(null);
+    setSelectionContextMenu(null);
+  };
+  const imageSourceUrl = (target: LibraryVersion) => `/api/versions/${target.id}/source`;
+  const copyImageAddress = async (target: LibraryVersion) => {
+    const sourceUrl = imageSourceUrl(target);
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(`${location.origin}${sourceUrl}`);
+      showTip("图片地址已复制");
+    } catch {
+      showTip("复制失败，请检查剪贴板权限。", "error");
+    }
+    setFileContextMenu(null);
+  };
+  const copyImageVersion = async (target: LibraryVersion) => {
+    const sourceUrl = imageSourceUrl(target);
+    try {
+      const response = await apiFetch(sourceUrl);
+      if (!response.ok) throw new Error("图片读取失败");
+      const blob = await response.blob();
+      if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+        throw new Error("image clipboard unavailable");
+      }
+      await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/png"]: blob })]);
+      showTip("图片已复制");
+    } catch {
+      showTip("无法复制图片，请检查浏览器和剪贴板权限。", "error");
+    }
+    setFileContextMenu(null);
+  };
+  const restoreTextSelection = () => {
+    const snapshot = selectionRestoreRef.current;
+    if (!snapshot || !snapshot.root.isConnected) return false;
+    const startNode = resolveNodePath(snapshot.root, snapshot.startPath);
+    const endNode = resolveNodePath(snapshot.root, snapshot.endPath);
+    if (!startNode || !endNode) return false;
+    const selection = window.getSelection();
+    if (!selection) return false;
+    try {
+      const range = document.createRange();
+      const maxOffset = (node: Node) => node.nodeType === Node.TEXT_NODE
+        ? node.nodeValue?.length || 0
+        : node.childNodes.length;
+      range.setStart(startNode, Math.min(snapshot.startOffset, maxOffset(startNode)));
+      range.setEnd(endNode, Math.min(snapshot.endOffset, maxOffset(endNode)));
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const copySelection = async () => {
+    const text = selectionContextMenu?.text;
+    if (!text) return;
+    restoreTextSelection();
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "true");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        if (!document.execCommand("copy")) throw new Error("copy failed");
+        textarea.remove();
+      }
+      showTip("已复制选中内容");
+    } catch {
+      showTip("复制失败，请检查剪贴板权限。", "error");
+    }
+  };
+  const captureTextSelection = (root: HTMLElement): PendingTextSelection | null => {
+    const selection = window.getSelection();
+    const range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+    const text = selection?.toString() || "";
+    if (!range || !text.trim()) return null;
+    const startPath = getNodePath(root, range.startContainer);
+    const endPath = getNodePath(root, range.endContainer);
+    if (!startPath || !endPath) return null;
+    return {
+      text,
+      snapshot: {
+        root,
+        startPath,
+        startOffset: range.startOffset,
+        endPath,
+        endOffset: range.endOffset,
+        rects: Array.from(range.getClientRects()).map((rect) => ({
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+        })),
+      },
+    };
+  };
+  useEffect(() => {
+    const rememberSelection = () => {
+      const root = mainPanelRef.current;
+      if (!root) return;
+      const next = captureTextSelection(root);
+      if (next) lastSelectionRef.current = next;
+    };
+    document.addEventListener("selectionchange", rememberSelection);
+    return () => document.removeEventListener("selectionchange", rememberSelection);
+  }, []);
+  const handleDocumentMouseDown = (event: ReactMouseEvent<HTMLElement>) => {
+    if (activeTool === "browser" || event.button !== 2) return;
+    pendingSelectionRef.current = captureTextSelection(event.currentTarget);
+    if (pendingSelectionRef.current) event.preventDefault();
+  };
+  const handleDocumentContextMenu = (event: ReactMouseEvent<HTMLElement>) => {
+    if (activeTool === "browser") return;
+    const pendingSelection = pendingSelectionRef.current;
+    pendingSelectionRef.current = null;
+    const currentSelection = captureTextSelection(event.currentTarget);
+    const rememberedSelection = lastSelectionRef.current;
+    const pointInRememberedSelection = rememberedSelection?.snapshot.rects.some((rect) => (
+      event.clientX >= rect.left - 4
+      && event.clientX <= rect.right + 4
+      && event.clientY >= rect.top - 4
+      && event.clientY <= rect.bottom + 4
+    ));
+    const textSelection = pendingSelection || currentSelection || (pointInRememberedSelection ? rememberedSelection : null);
+    if (textSelection && onAddSelectionToConversation) {
+      selectionRestoreRef.current = textSelection.snapshot;
+      event.preventDefault();
+      event.stopPropagation();
+      setFileContextMenu(null);
+      setSelectionContextMenu({ x: event.clientX, y: event.clientY, text: textSelection.text });
+      return;
+    }
+    const currentVersion = libraryVersions.find((item) => item.id === selected)
+      || versions.find((item) => item.id === selected);
+    if (!currentVersion) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectionContextMenu(null);
+    setFileContextMenu({ id: currentVersion.id, x: event.clientX, y: event.clientY });
+  };
+  useLayoutEffect(() => {
+    if (!selectionContextMenu) return;
+    restoreTextSelection();
+  }, [selectionContextMenu]);
   useEffect(() => {
     const preventPageFind = (event: KeyboardEvent) => {
       if (document.activeElement !== fileSearchRef.current) return;
@@ -1612,25 +2443,34 @@ export function Documents({
   }, []);
   useEffect(() => {
     if (!selected) return;
-    setOpenTabs((previous) => (previous.includes(selected) ? previous : [...previous, selected]));
-  }, [selected]);
+    if (activeTool === "files") {
+      setOpenTabs((previous) => (previous.includes(selected) ? previous : [...previous, selected]));
+      setDocumentSelected(selected);
+    }
+  }, [activeTool, selected]);
   const closeTab = (id: string) => {
     setOpenTabs((previous) => {
       const next = previous.filter((tabId) => tabId !== id);
-      if (selected === id) onSelect(next[next.length - 1] || "");
+      if (documentSelected === id) {
+        const nextId = next[next.length - 1] || "";
+        setDocumentSelected(nextId);
+        if (activeTool === "files") onSelect(nextId);
+      }
       return next;
     });
   };
   const closeOtherTabs = (id: string) => {
     setOpenTabs([id]);
-    if (selected !== id) onSelect(id);
+    setDocumentSelected(id);
+    if (activeTool === "files" && selected !== id) onSelect(id);
   };
   const closeTabsDirection = (id: string, side: "left" | "right") => {
     setOpenTabs((previous) => {
       const index = previous.indexOf(id);
       if (index < 0) return previous;
       const next = side === "left" ? previous.slice(index) : previous.slice(0, index + 1);
-      if (!next.includes(selected)) onSelect(id);
+      if (!next.includes(documentSelected)) setDocumentSelected(id);
+      if (activeTool === "files" && !next.includes(selected)) onSelect(id);
       return next;
     });
   };
@@ -1642,6 +2482,103 @@ export function Documents({
     setTabMenu({ id, x: event.clientX, y: event.clientY });
   };
   const version = libraryVersions.find((v) => v.id === selected);
+  const htmlBrowserFiles = libraryVersions
+    .filter((item) => !item.deleted_at && /\.html?$/i.test(item.filename || ""))
+    .map((item) => ({ id: item.id, filename: item.filename, address: browserFileAddress(item) }));
+  const activeBrowserTab = browserTabs.find((tab) => tab.key === browserSelected) || null;
+  const resolveBrowserNavigation = (href: string, tab: BrowserTab) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(href, window.location.href);
+    } catch {
+      return { href, versionId: tab.versionId, address: href, label: tab.label };
+    }
+    const match = parsed.pathname.match(/^\/api\/versions\/([^/]+)\/preview(?:\/(.*))?$/);
+    if (!match) {
+      const pathname = parsed.pathname.split("/").filter(Boolean).pop() || parsed.hostname || "新页面";
+      return { href: parsed.href, versionId: tab.versionId, address: parsed.href, label: pathname };
+    }
+    const root = libraryVersions.find((item) => item.id === match[1])
+      || versions.find((item) => item.id === match[1]);
+    if (!root) return { href: parsed.href, versionId: tab.versionId, address: parsed.href, label: tab.label };
+    let assetPath = decodeURIComponent(match[2] || "").replace(/^~t~[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\/?/, "");
+    if (!assetPath) {
+      return {
+        href: parsed.href,
+        versionId: root.id,
+        address: `${browserFileAddress(root)}${parsed.hash}`,
+        label: root.filename,
+      };
+    }
+    const rootName = String(root.filename || "").replace(/\\/g, "/");
+    const rootDir = rootName.includes("/") ? rootName.slice(0, rootName.lastIndexOf("/")) : "";
+    const parts = [...rootDir.split("/"), ...assetPath.split("/")].filter(Boolean);
+    const normalized: string[] = [];
+    for (const part of parts) {
+      if (part === ".") continue;
+      if (part === "..") normalized.pop();
+      else normalized.push(part);
+    }
+    const relativePath = normalized.join("/");
+    const rootFolderId = root.folder_id;
+    const folderRelativePath = (folderId: string | null | undefined) => {
+      const names: string[] = [];
+      let current = libraryFolders.find((folder) => folder.id === folderId) || null;
+      while (current && current.id !== rootFolderId) {
+        names.unshift(current.name);
+        current = libraryFolders.find((folder) => folder.id === current?.parent_id) || null;
+      }
+      return current?.id === rootFolderId ? names.join("/") : null;
+    };
+    const target = libraryVersions.find((item) => {
+      const folderPath = folderRelativePath(item.folder_id);
+      const candidate = folderPath ? `${folderPath}/${item.filename}` : item.filename;
+      return candidate === relativePath || item.filename === relativePath;
+    }) || libraryVersions.find((item) => item.folder_id === rootFolderId && item.filename === normalized[normalized.length - 1]);
+    if (!target) {
+      const displayPath = `${browserFileAddress(root)} / ${relativePath}${parsed.hash}`;
+      return { href: parsed.href, versionId: tab.versionId, address: displayPath, label: normalized[normalized.length - 1] || tab.label };
+    }
+    return {
+      href: parsed.href,
+      versionId: target.id,
+      address: `${browserFileAddress(target)}${parsed.hash}`,
+      label: target.filename,
+    };
+  };
+  const handleBrowserNavigation = (href: string) => {
+    if (!activeBrowserTab) return;
+    const navigation = resolveBrowserNavigation(href, activeBrowserTab);
+    setBrowserTabs((previous) => previous.map((tab) => (
+      tab.key === activeBrowserTab.key
+        ? { ...tab, versionId: navigation.versionId, url: navigation.address, loadUrl: navigation.href, label: navigation.label }
+        : tab
+    )));
+    setBrowserAddressQuery(navigation.address);
+    if (navigation.versionId) onSelect(navigation.versionId);
+  };
+  const handleBrowserNewWindow = (href: string, title?: string) => {
+    if (!activeBrowserTab) return;
+    const key = `window:${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const navigation = resolveBrowserNavigation(href, activeBrowserTab);
+    const label = title?.trim() || navigation.label || "新页面";
+    setBrowserTabs((previous) => [...previous, {
+      key,
+      versionId: navigation.versionId,
+      url: navigation.address,
+      loadUrl: navigation.href,
+      label,
+    }]);
+    setBrowserSelected(key);
+    setBrowserAddressQuery(navigation.address);
+    setActiveTool("browser");
+    onSelect(navigation.versionId);
+  };
+  const openBrowserInComputer = () => {
+    if (!activeBrowserTab?.versionId) return;
+    const href = activeBrowserTab.loadUrl || `/api/versions/${activeBrowserTab.versionId}/preview/`;
+    window.open(href, "_blank", "noopener,noreferrer");
+  };
   const artifacts = libraryVersions
     .filter((v) => Boolean(v.deleted_at) === trash)
     .filter(
@@ -1734,7 +2671,8 @@ export function Documents({
     return () => { alive = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [selected, previewReload]);
   useEffect(() => {
-    if (!selected || view?.kind !== "html" || previewMode !== "text" || view.text != null) return;
+    const htmlDocumentMode = activeTool === "files";
+    if (!selected || view?.kind !== "html" || (!htmlDocumentMode && previewMode !== "text") || view.text != null) return;
     let alive = true;
     const loadSource = async () => {
       const loaded = await readVersionText(selected, view.byteSize || 0);
@@ -1748,7 +2686,7 @@ export function Documents({
       if (alive) setError(cause instanceof Error ? cause.message : "源码读取失败");
     });
     return () => { alive = false; };
-  }, [selected, previewMode, view?.kind, view?.text]);
+  }, [activeTool, selected, previewMode, view?.kind, view?.text]);
   useEffect(() => {
     setFolderId(libraryRoots[0]?.id || null);
     setRenaming(false);
@@ -2026,8 +2964,13 @@ export function Documents({
         if (trash || pending) return;
         event.preventDefault();
         event.stopPropagation();
-        setOpenFileMenuId(v.artifact_id);
+        selectDocument(v.id);
+        setFolderId(v.folder_id || null);
+        setFileContextMenu(null);
+        setSelectionContextMenu(null);
+        setOpenFileMenuId(null);
         setOpenFolderMenuId(null);
+        setOpenFileMenuId(v.artifact_id);
         setTabMenu(null);
       }}
     >
@@ -2038,7 +2981,7 @@ export function Documents({
         aria-label={fileLabel(v)}
         disabled={organizing && folderRootKind(v.folder_id, libraryFolders) === "project_official"}
         onClick={() => {
-          onSelect(v.id);
+          selectDocument(v.id);
           setFolderId(v.folder_id || null);
         }}
       >
@@ -2584,7 +3527,7 @@ export function Documents({
             ) : null}
           </aside>
   );
-  const viewModeToggle = view?.kind === "markdown" || view?.kind === "html" ? (
+  const viewModeToggle = (view?.kind === "markdown" || (activeTool === "browser" && view?.kind === "html")) ? (
     <span className="doc-view-mode" role="group" aria-label="预览方式">
       <button
         type="button"
@@ -2698,6 +3641,9 @@ export function Documents({
       referrerPolicy="no-referrer"
     />
   ) : null;
+  const documentPreviewMode = activeTool === "files" && view?.kind === "html"
+    ? "text"
+    : previewMode;
   const truncatedNotice = view?.nativeSource ? (
     <p className="muted doc-source-truncated">
       完整源码以纯文本打开（不加高亮），避免把大文件塞进页面导致卡顿。
@@ -2721,7 +3667,7 @@ export function Documents({
   ) : null;
   const previewContent = (
     <>
-      {view?.kind === "markdown" && previewMode === "preview" && (
+      {view?.kind === "markdown" && documentPreviewMode === "preview" && (
         view.nativeSource ? (
           <>
             {truncatedNotice}
@@ -2759,7 +3705,7 @@ export function Documents({
           </div>
         )
       )}
-      {view?.kind === "markdown" && previewMode === "text" && (
+      {view?.kind === "markdown" && documentPreviewMode === "text" && (
         <>
           {truncatedNotice}
           {view.nativeSource
@@ -2772,14 +3718,29 @@ export function Documents({
             )}
         </>
       )}
-      {view?.kind === "html" && previewMode === "preview" && selected && (
-        <HtmlPreviewFrame
-          key={`${selected}-preview-${previewReload}`}
-          versionId={selected}
-          filename={version?.filename ?? "HTML"}
+      {view?.kind === "html" && documentPreviewMode === "preview" && selected && (
+          <HtmlPreviewFrame
+            key={`${browserSelected || selected}-preview-${previewReload}`}
+            versionId={selected}
+            filename={activeBrowserTab?.label || version?.filename || "HTML"}
+            src={activeBrowserTab?.loadUrl}
+            files={htmlBrowserFiles}
+            addressQuery={browserAddressQuery}
+            onAddressQueryChange={setBrowserAddressQuery}
+            onSelectFile={openBrowserTab}
+            deviceMode={browserDeviceMode}
+            mobilePreset={browserMobilePreset}
+            onDeviceModeChange={setBrowserDeviceMode}
+            onMobilePresetChange={setBrowserMobilePresetId}
+            zoomPercent={browserMobileZoom}
+            onZoomChange={setBrowserMobileZoom}
+            onReload={() => setPreviewReload((value) => value + 1)}
+            onOpenExternal={openBrowserInComputer}
+            onNavigate={handleBrowserNavigation}
+            onNewWindow={handleBrowserNewWindow}
         />
       )}
-      {view?.kind === "html" && previewMode === "text" && (
+      {view?.kind === "html" && documentPreviewMode === "text" && (
         view.nativeSource ? (
           <>
             {truncatedNotice}
@@ -2837,7 +3798,12 @@ export function Documents({
     </>
   );
   const mainPanel = (
-    <main className={`${renaming || newFolder || renamingFolder || savingOfficial ? "library-operation" : ""} doc-browser-main`}>
+    <main
+      ref={mainPanelRef}
+      className={`${renaming || newFolder || renamingFolder || savingOfficial ? "library-operation" : ""} doc-browser-main`}
+      onMouseDown={handleDocumentMouseDown}
+      onContextMenu={handleDocumentContextMenu}
+    >
             {newFolder && (
               <form className="library-form" onSubmit={(event) => {
                 event.preventDefault();
@@ -2947,7 +3913,24 @@ export function Documents({
                 </div>
               </form>
             )}
-            {!renaming && !newFolder && !renamingFolder && !savingOfficial && (version ? (
+            {!renaming && !newFolder && !renamingFolder && !savingOfficial && (activeTool === "browser" && !activeBrowserTab?.versionId ? (
+                <div className="doc-browser-view doc-browser-browser-empty-view">
+                  <div className="document-preview doc-browser-preview">
+                    <HtmlBrowserEmptyState
+                      files={htmlBrowserFiles}
+                      addressQuery={browserAddressQuery}
+                      onAddressQueryChange={setBrowserAddressQuery}
+                      onSelectFile={openBrowserTab}
+                      deviceMode={browserDeviceMode}
+                      mobilePreset={browserMobilePreset}
+                      onDeviceModeChange={setBrowserDeviceMode}
+                      onMobilePresetChange={setBrowserMobilePresetId}
+                      zoomPercent={browserMobileZoom}
+                      onZoomChange={setBrowserMobileZoom}
+                    />
+                  </div>
+                </div>
+              ) : version ? (
                 <>
                   {version.deleted_at && (
                     <p className="muted doc-browser-notice">
@@ -3259,10 +4242,80 @@ export function Documents({
     setChangePageNumber(next);
     setChangePage((current) => ({ ...current, currentPage: next, hasMore: next < current.totalPages }));
   };
+  const contextVersion = fileContextMenu
+    ? libraryVersions.find((item) => item.id === fileContextMenu.id)
+      || versions.find((item) => item.id === fileContextMenu.id)
+    : null;
+  const contextKind: FileContextMenuKind = contextVersion && isImageFilename(contextVersion.filename)
+    ? "image"
+    : contextVersion && /\.html?$/i.test(contextVersion.filename || "")
+      ? "html"
+      : "other";
   return (
     <div className="library-embedded doc-browser">
-      <section className="library doc-browser-shell" aria-label="项目文档库">
+      <section className={`library doc-browser-shell${activeTool === "browser" ? " browser-tool-active" : ""}`} aria-label="项目文档库">
         {uploadInput}
+        {fileContextMenu && contextVersion ? (
+          <DocumentFileContextMenu
+            x={fileContextMenu.x}
+            y={fileContextMenu.y}
+            kind={contextKind}
+            onOpenBrowser={contextKind === "html" ? () => openHtmlInBrowser(contextVersion) : undefined}
+            onCopyAddress={contextKind === "image" ? () => void copyImageAddress(contextVersion) : undefined}
+            onCopyImage={contextKind === "image" ? () => void copyImageVersion(contextVersion) : undefined}
+            onDownload={() => {
+              window.open(`/api/versions/${contextVersion.id}/download`, "_blank", "noopener,noreferrer");
+              setFileContextMenu(null);
+            }}
+            onDismiss={() => setFileContextMenu(null)}
+          />
+        ) : null}
+        {selectionContextMenu && onAddSelectionToConversation ? (
+          <TextSelectionContextMenu
+            x={selectionContextMenu.x}
+            y={selectionContextMenu.y}
+            onCopy={() => void copySelection()}
+            onAddToConversation={() => {
+              restoreTextSelection();
+              onAddSelectionToConversation(selectionContextMenu.text, selected);
+              setSelectionContextMenu(null);
+            }}
+            onDismiss={() => setSelectionContextMenu(null)}
+          />
+        ) : null}
+        <nav className="doc-toolbar" aria-label="项目工具区">
+          <button
+            type="button"
+            className={`doc-tool-button${activeTool === "files" ? " active" : ""}`}
+            aria-pressed={activeTool === "files"}
+            onClick={activateDocumentTool}
+          >
+            <UiIcon name="library" size={14} />
+            <span>文档</span>
+          </button>
+          <button
+            type="button"
+            className={`doc-tool-button${activeTool === "browser" ? " active" : ""}`}
+            aria-pressed={activeTool === "browser"}
+            title="打开项目 HTML 浏览器"
+            onClick={activateBrowserTool}
+          >
+            <UiIcon name="globe" size={14} />
+            <span>浏览器</span>
+          </button>
+          <span className="doc-toolbar-spacer" aria-hidden="true" />
+          <button
+            type="button"
+            className="doc-tool-button doc-fullscreen-button"
+            aria-pressed={documentFullscreen}
+            aria-label={documentFullscreen ? "退出全屏" : "全屏"}
+            title={documentFullscreen ? "退出全屏" : "全屏"}
+            onClick={() => onDocumentFullscreenChange?.(!documentFullscreen)}
+          >
+            <UiIcon name={documentFullscreen ? "compress" : "expand"} size={14} />
+            <span>{documentFullscreen ? "退出全屏" : "全屏"}</span>
+          </button>
+        </nav>
         <div
           className="doc-browser-tabbar"
           onContextMenu={(event) => {
@@ -3288,7 +4341,7 @@ export function Documents({
                     aria-selected={selected === id}
                     className="doc-browser-tab-open"
                     title={item ? fileLabel(item) : "文档"}
-                    onClick={() => onSelect(id)}
+                    onClick={() => selectDocument(id)}
                   >
                     {item ? (
                       <LibraryFileIcon
@@ -3347,13 +4400,68 @@ export function Documents({
             title={treeOpen ? "隐藏文件树" : "显示文件树"}
             aria-label={treeOpen ? "隐藏文件树" : "显示文件树"}
             aria-pressed={treeOpen}
+            hidden={activeTool === "browser"}
             onClick={() => setTreeOpen(!treeOpen)}
           >
             <TreeIcon kind="folder" />
           </button>
         </div>
-        <div className="library-body doc-browser-body">
-          {treeOpen ? explorer : null}
+        {activeTool === "browser" ? (
+          <div className="doc-browser-tabbar doc-browser-browser-tabbar">
+            <div className="doc-browser-tabs" role="tablist" aria-label="打开的浏览器页面">
+              {browserTabs.map((tab) => {
+                const item = tabVersion(tab.versionId);
+                return (
+                  <span
+                    key={tab.key}
+                    className={`doc-browser-tab${browserSelected === tab.key ? " active" : ""}`}
+                    role="presentation"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={browserSelected === tab.key}
+                      className="doc-browser-tab-open"
+                      title={tab.url}
+                      onClick={() => selectBrowserTab(tab.key)}
+                    >
+                      {item ? (
+                        <LibraryFileIcon
+                          fileName={item.filename}
+                          versionId={item.id}
+                          className="tree-icon file-type-icon"
+                          width={14}
+                          height={14}
+                        />
+                      ) : null}
+                      <span className="doc-browser-tab-label">{tab.label}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="doc-browser-tab-close"
+                      aria-label={`关闭 ${tab.label}`}
+                      title="关闭"
+                      onClick={() => closeBrowserTab(tab.key)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })}
+              <button
+                type="button"
+                className="doc-browser-new-tab"
+                aria-label="新建浏览器页签"
+                title="新建页签"
+                onClick={createBrowserNewTab}
+              >
+                <UiIcon name="plus" size={14} />
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <div className={`library-body doc-browser-body${activeTool === "browser" ? " browser-tool-active" : ""}`}>
+          {activeTool === "files" && treeOpen ? explorer : null}
           {mainPanel}
         </div>
         {organizeDialog}

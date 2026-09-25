@@ -463,7 +463,8 @@ export class Service {
     return {
       versions: query(
         this.db,
-        `SELECT a.id artifact_id,a.title,a.folder_id,a.recycle_path,f.thread_id folder_thread_id,f.folder_kind,COALESCE(a.deleted_at,vr.deleted_at) deleted_at,a.deleted_at artifact_deleted_at,vr.deleted_at version_deleted_at,a.updated_at,v.id,v.version,v.filename,v.mime,v.byte_size,v.sha256,v.note,v.thread_id,v.created_by author_id,v.created_at,u.name author,
+        `SELECT a.id artifact_id,a.title,a.folder_id,a.source_type,a.source_artifact_id,a.saved_official_artifact_id,a.recycle_path,f.thread_id folder_thread_id,f.folder_kind,COALESCE(a.deleted_at,vr.deleted_at) deleted_at,a.deleted_at artifact_deleted_at,vr.deleted_at version_deleted_at,a.updated_at,v.id,v.version,v.filename,v.mime,v.byte_size,v.sha256,v.note,v.thread_id,v.created_by author_id,v.created_at,u.name author,
+        (SELECT d.message_id FROM document_change_logs d WHERE d.version_id=v.id AND d.action='artifact_published' AND d.message_id IS NOT NULL ORDER BY d.created_at,d.id LIMIT 1) batch_id,
         (SELECT r.decision FROM reviews r WHERE r.version_id=v.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1) review
         FROM artifacts a JOIN versions v ON v.artifact_id=a.id LEFT JOIN document_folders f ON f.id=a.folder_id LEFT JOIN version_recycle vr ON vr.version_id=v.id JOIN users u ON u.id=v.created_by WHERE a.project_id=? AND a.purged_at IS NULL AND vr.purged_at IS NULL ORDER BY v.created_at DESC,v.version DESC`,
         [projectId],
@@ -1574,8 +1575,8 @@ export class Service {
       const artifactId = randomUUID();
       await query(
         db,
-        "INSERT INTO artifacts(id,project_id,title,created_by,folder_id) VALUES(?,?,?,?,?)",
-        [artifactId, projectId, data.title, user.id, data.folderId],
+        "INSERT INTO artifacts(id,project_id,title,created_by,folder_id,source_type) VALUES(?,?,?,?,?,?)",
+        [artifactId, projectId, data.title, user.id, data.folderId, "member_upload"],
       );
       const versionId = randomUUID();
       await query(
@@ -1971,6 +1972,36 @@ export class Service {
       filename: row.filename,
     };
   }
+  async updateLinkedOfficialFromSource(db, user, projectId, versionId) {
+    const [source] = await query(db, `SELECT v.*,a.title,a.folder_id,a.source_type,a.saved_official_artifact_id,f.folder_kind
+      FROM versions v JOIN artifacts a ON a.id=v.artifact_id
+      LEFT JOIN document_folders f ON f.id=a.folder_id
+      WHERE v.id=? AND a.project_id=? FOR UPDATE`, [versionId, projectId]);
+    if (!source || (!isCacheFolderKind(await folderRootKind(db, source.folder_id))
+      && !isOutputFolderKind(await folderRootKind(db, source.folder_id))) || !source.saved_official_artifact_id)
+      return null;
+    const [official] = await query(db, `SELECT a.id,a.title,a.deleted_at,a.purged_at,v.id version_id
+      FROM artifacts a LEFT JOIN versions v ON v.artifact_id=a.id AND v.version=1
+      WHERE a.id=? AND a.project_id=? FOR UPDATE`, [source.saved_official_artifact_id, projectId]);
+    if (!official || official.deleted_at || official.purged_at || !official.version_id) {
+      await query(db, "UPDATE artifacts SET saved_official_artifact_id=NULL WHERE id=?", [source.artifact_id]);
+      if (official) await query(db, "UPDATE artifacts SET source_artifact_id=NULL WHERE id=?", [official.id]);
+      return null;
+    }
+    await query(db, `UPDATE versions SET content=?,mime=?,sha256=?,byte_size=?,note=?,created_by=? WHERE id=?`, [
+      source.content, source.mime, source.sha256, source.byte_size,
+      `${isCacheFolderKind(await folderRootKind(db, source.folder_id)) ? "来源对话缓存" : "来源沙箱产物"} v${source.version}`,
+      source.created_by, official.version_id,
+    ]);
+    await query(db, "UPDATE artifacts SET updated_at=UTC_TIMESTAMP(3) WHERE id=?", [official.id]);
+    await recordDocumentChange(db, {
+      projectId, artifactId: official.id, versionId: official.version_id, folderId: source.folder_id,
+      action: "official_updated_from_source", source: user.kind === "agent" ? "agent" : "ui",
+      actorType: user.kind, actorId: user.id, threadId: source.thread_id,
+      details: { sourceArtifactId: source.artifact_id, sourceVersionId: versionId, version: source.version },
+    });
+    return { id: official.version_id, artifactId: official.id, version: 1, title: official.title, updated: true };
+  }
   async duplicateVersionToOfficial(db, user, projectId, versionId, {
     threadId = null,
     note = "另存至项目正式文件",
@@ -1980,7 +2011,7 @@ export class Service {
     id.parse(versionId);
     id.parse(projectId);
     if (!skipOrganizeCheck) await this.assertOfficialOrganizing(db, projectId);
-    const [source] = await query(db, `SELECT v.*,a.title,a.project_id,a.folder_id,f.folder_kind
+    const [source] = await query(db, `SELECT v.*,a.title,a.project_id,a.folder_id,a.saved_official_artifact_id,f.folder_kind
       FROM versions v JOIN artifacts a ON a.id=v.artifact_id LEFT JOIN document_folders f ON f.id=a.folder_id
       WHERE v.id=? AND a.project_id=?`, [versionId, projectId]);
     if (!source) fail(404, "文档版本不存在");
@@ -1998,18 +2029,24 @@ export class Service {
           ? "只有已确认的对话缓存可以另存为正式文件"
           : "只有已确认的沙箱产物版本可以另存为正式文件");
     }
+    if (source.saved_official_artifact_id) {
+      const updated = await this.updateLinkedOfficialFromSource(db, user, projectId, versionId);
+      if (updated) return updated;
+    }
     const official = await this.documentFolder(db, projectId, "project_official");
     const copiedTitle = await uniqueArtifactTitle(db, projectId, official.id, givenTitle
       || (isOutputFolderKind(sourceRoot) ? officialTitleWithVersion(source.title, source.version) : source.title),
       null, source.filename);
     const copiedFilename = await uniqueVersionFilename(db, projectId, official.id, source.filename);
     const artifactId = randomUUID(), copiedVersionId = randomUUID();
-    await query(db, "INSERT INTO artifacts(id,project_id,title,created_by,folder_id) VALUES(?,?,?,?,?)",
-      [artifactId, projectId, copiedTitle, user.id, official.id]);
+    const sourceType = isCacheFolderKind(sourceRoot) ? "cache_saved" : "output_saved";
+    await query(db, "INSERT INTO artifacts(id,project_id,title,created_by,folder_id,source_type,source_artifact_id) VALUES(?,?,?,?,?,?,?)",
+      [artifactId, projectId, copiedTitle, user.id, official.id, sourceType, source.artifact_id]);
     await query(db, `INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by)
       VALUES(?,?,?,?,?,?,?,?,?,?,?)`, [copiedVersionId, artifactId, threadId || source.thread_id || null, 1, copiedFilename, source.mime,
       source.content, source.sha256, source.byte_size, note, user.id]);
     await queueDocumentMemory(db, copiedVersionId);
+    await query(db, "UPDATE artifacts SET saved_official_artifact_id=? WHERE id=?", [artifactId, source.artifact_id]);
     await recordDocumentChange(db, {
       projectId, artifactId, versionId: copiedVersionId, folderId: official.id,
       action: "document_saved_to_official", source: user.kind === "agent" ? "agent" : "ui",
@@ -2023,6 +2060,51 @@ export class Service {
     const data = z.object({ title: title.optional() }).parse(input || {});
     return transaction(this.db, (db) =>
       this.duplicateVersionToOfficial(db, user, projectId, versionId, { title: data.title }));
+  }
+  async branchOutputVersion(user, projectId, versionId, input = {}) {
+    if (!['session', 'agent'].includes(user.kind)) fail(403, "创建文档新版需要人工登录");
+    id.parse(projectId);
+    id.parse(versionId);
+    const data = z.object({ target: z.enum(["current", "new"]), title: title.optional() }).parse(input || {});
+    return transaction(this.db, async (db) => {
+      await this.member(user, projectId, true, db);
+      const [source] = await query(db, `SELECT v.*,a.title,a.project_id,a.folder_id,f.folder_kind
+        FROM versions v JOIN artifacts a ON a.id=v.artifact_id
+        LEFT JOIN document_folders f ON f.id=a.folder_id
+        LEFT JOIN version_recycle vr ON vr.version_id=v.id
+        WHERE v.id=? AND a.project_id=? AND a.purged_at IS NULL AND a.deleted_at IS NULL
+          AND vr.version_id IS NULL AND vr.purged_at IS NULL FOR UPDATE`, [versionId, projectId]);
+      if (!source) fail(404, "文档版本不存在");
+      const rootKind = await folderRootKind(db, source.folder_id);
+      if (!isOutputFolderKind(rootKind)) fail(403, "只能基于沙箱产物创建新版");
+      await this.assertDocumentScopeAvailable(db, projectId, source.folder_id);
+      let artifactId = source.artifact_id;
+      let nextTitle = source.title;
+      let nextFilename = source.filename;
+      let version = 1;
+      if (data.target === "new") {
+        nextTitle = await uniqueArtifactTitle(db, projectId, source.folder_id, data.title || source.title, null, source.filename);
+        nextFilename = await uniqueVersionFilename(db, projectId, source.folder_id, source.filename);
+        artifactId = randomUUID();
+        await query(db, "INSERT INTO artifacts(id,project_id,title,created_by,folder_id) VALUES(?,?,?,?,?)",
+          [artifactId, projectId, nextTitle, user.id, source.folder_id]);
+      } else {
+        const [last] = await query(db, "SELECT COALESCE(MAX(version),0) version FROM versions WHERE artifact_id=? FOR UPDATE", [source.artifact_id]);
+        version = Number(last.version) + 1;
+      }
+      const nextVersionId = randomUUID();
+      await query(db, `INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?)`, [nextVersionId, artifactId, source.thread_id || null, version, nextFilename, source.mime,
+        source.content, source.sha256, source.byte_size, `基于 v${source.version} 创建新版`, user.id]);
+      await query(db, "UPDATE artifacts SET updated_at=UTC_TIMESTAMP(3) WHERE id=?", [artifactId]);
+      await queueDocumentMemory(db, nextVersionId);
+      await recordDocumentChange(db, {
+        projectId, artifactId, versionId: nextVersionId, folderId: source.folder_id, action: "version_branched",
+        source: user.kind === "agent" ? "agent" : "ui", actorType: user.kind, actorId: user.id, threadId: source.thread_id || null,
+        details: { sourceVersionId: versionId, target: data.target, title: nextTitle, filename: nextFilename, version },
+      });
+      return { id: nextVersionId, artifactId, version, title: nextTitle, filename: nextFilename };
+    });
   }
   async copyVersionToOfficial(user, threadId, versionId, options = {}) {
     if (user.kind !== "session" && !options.agent) fail(403, "另存项目正式文件需要人工登录");
@@ -2052,6 +2134,13 @@ export class Service {
       fail(403, "正式文件已确认，不需要审核");
     if (!isCacheFolderKind(rootKind) && !isOutputFolderKind(rootKind))
       fail(400, "只能审核对话缓存或沙箱产物");
+    if (isOutputFolderKind(rootKind) && data.decision === "approved") {
+      const [latest] = await query(this.db,
+        "SELECT version FROM versions WHERE artifact_id=? ORDER BY version DESC LIMIT 1",
+        [version.artifact_id]);
+      if (latest && Number(latest.version) > Number(version.version))
+        fail(409, "历史版本不能确认，请先选择当前版本");
+    }
     const comment = data.comment.trim();
     if (data.decision === "changes_requested" && !comment)
       fail(400, "请填写需要修改的内容");
@@ -2079,6 +2168,8 @@ export class Service {
           [versionId],
           "system",
         );
+        if (isOutputFolderKind(rootKind))
+          await this.updateLinkedOfficialFromSource(db, user, version.project_id, versionId);
       }
     });
     if (data.decision !== "changes_requested") return { id: reviewId };

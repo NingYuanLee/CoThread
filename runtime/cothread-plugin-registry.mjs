@@ -114,7 +114,7 @@ export const AGENT_CAPABILITIES = Object.freeze([
   capability("document_management", "cothread-project-tools", "文档管理", "查看、重命名、移动、删除、恢复文档和文件夹。", ["list_documents","manage_document","manage_folder"], l2OptionalL3),
   capability("preview_screenshot", "cothread-project-tools", "预览截图验收", "截图当前项目文档树、项目文档预览或当前任务沙箱 HTML，用于视觉复核实际结果。", ["capture_preview_screenshot"], { l1:"forbidden",l2:"required",l3:"required" }),
   capability("sandbox_execution", "cothread-project-tools", "沙箱执行", "在隔离工作区运行命令并读写工作副本。", ["sandbox_command","sandbox_read","sandbox_write"], { l1:"forbidden",l2:"forbidden",l3:"optional" }),
-  capability("artifact_publish", "cothread-project-tools", "产物发布", "把沙箱结果发布为迭代产物或正式文件的新版本。", ["publish_artifact"], { l1:"forbidden",l2:"forbidden",l3:"optional" }),
+  capability("artifact_publish", "cothread-project-tools", "产物发布", "把沙箱结果发布为迭代产物或正式文件的新版本，并通过工具明确创建当前文档新版或新文档。", ["publish_artifact","branch_artifact"], { l1:"forbidden",l2:"forbidden",l3:"optional" }),
   capability("web_access", "dsh-web", "网页读取", "读取公开 HTTP(S) 网页。", ["web_fetch"], l2OptionalL3),
   capability("local_connector_visibility", "cothread-project-tools", "本地执行器目录", "查看项目成员已授权的本地执行器状态。", ["list_local_connectors"], { l1:"forbidden",l2:"optional",l3:"forbidden" }),
   capability("project_code_readonly", "cothread-project-tools", "项目代码只读", "按需读取项目管理员配置的 GitHub/云效连接器与代码仓库；仅在需要对照源码或人类明确要求时使用。", ["list_project_code_sources","list_code_refs","list_code_tree","read_code_file"], { l1:"forbidden",l2:"optional",l3:"optional" }),

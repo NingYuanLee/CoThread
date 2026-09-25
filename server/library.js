@@ -144,7 +144,7 @@ export async function libraryChange(
     } else if (kind === "artifact") {
       const [row] = await query(
         db,
-        `SELECT a.id,a.title,a.folder_id,a.recycle_path,a.deleted_at,a.purged_at,f.thread_id,f.folder_kind FROM artifacts a
+        `SELECT a.id,a.title,a.folder_id,a.source_type,a.source_artifact_id,a.recycle_path,a.deleted_at,a.purged_at,f.thread_id,f.folder_kind FROM artifacts a
          LEFT JOIN document_folders f ON f.id=a.folder_id
          WHERE a.id=? AND a.project_id=? FOR UPDATE`,
         [id.parse(target), projectId],
@@ -186,6 +186,11 @@ export async function libraryChange(
       }
       if (data.deleted === true) {
         const path = parseRecyclePath(row.recycle_path) || await folderAncestry(db, row.folder_id);
+        if (rowRoot === "project_official") {
+          if (row.source_artifact_id)
+            await query(db, "UPDATE artifacts SET saved_official_artifact_id=NULL WHERE id=?", [row.source_artifact_id]);
+          await query(db, "UPDATE artifacts SET source_artifact_id=NULL WHERE id=?", [target]);
+        }
         await query(db,
           "UPDATE artifacts SET deleted_at=UTC_TIMESTAMP(3),recycle_path=? WHERE id=?",
           [path ? JSON.stringify(path) : null, target]);
@@ -207,9 +212,10 @@ export async function libraryChange(
         }
         if (folderId) await requireScope({ folder_id: folderId });
         const restoredTitle = await uniqueArtifactTitle(db, projectId, folderId, row.title, target);
+        const restoredRoot = await folderRootKind(db, folderId);
         await query(db,
-          "UPDATE artifacts SET deleted_at=NULL,recycle_path=NULL,folder_id=?,title=? WHERE id=?",
-          [folderId, restoredTitle, target]);
+          "UPDATE artifacts SET deleted_at=NULL,recycle_path=NULL,folder_id=?,title=?,source_type=CASE WHEN ?='project_official' THEN 'recycle_restored' ELSE source_type END WHERE id=?",
+          [folderId, restoredTitle, restoredRoot, target]);
       }
     } else {
       const current = target ? await requireScope(await folder(target)) : null;
@@ -240,12 +246,18 @@ export async function libraryChange(
           if (ids.length) {
             const placeholders = ids.map(() => "?").join(",");
             const artifacts = await query(db,
-              `SELECT id,folder_id,recycle_path FROM artifacts WHERE folder_id IN (${placeholders})`, ids);
+              `SELECT id,folder_id,recycle_path,source_artifact_id FROM artifacts WHERE folder_id IN (${placeholders})`, ids);
             for (const artifact of artifacts) {
+              const artifactRoot = await folderRootKind(db, artifact.folder_id);
               const path = parseRecyclePath(artifact.recycle_path) || await folderAncestry(db, artifact.folder_id);
               await query(db,
                 `UPDATE artifacts SET deleted_at=UTC_TIMESTAMP(3),recycle_path=?,folder_id=NULL WHERE id=?`,
                 [path ? JSON.stringify(path) : null, artifact.id]);
+              if (artifactRoot === "project_official") {
+                if (artifact.source_artifact_id)
+                  await query(db, "UPDATE artifacts SET saved_official_artifact_id=NULL WHERE id=?", [artifact.source_artifact_id]);
+                await query(db, "UPDATE artifacts SET source_artifact_id=NULL WHERE id=?", [artifact.id]);
+              }
             }
             await query(db, `DELETE FROM document_folders WHERE id IN (${placeholders})`, ids);
           }

@@ -610,6 +610,7 @@ function LibraryFileMenu({
   canRename,
   canDelete,
   canSaveToOfficial,
+  canViewOfficial,
   saveToOfficialDisabled,
   saveToOfficialTitle,
   onAddToConversation,
@@ -618,6 +619,7 @@ function LibraryFileMenu({
   onRename,
   onDelete,
   onSaveToOfficial,
+  onViewOfficial,
 }: {
   menuId: string;
   openMenuId: string | null;
@@ -626,6 +628,7 @@ function LibraryFileMenu({
   canRename?: boolean;
   canDelete?: boolean;
   canSaveToOfficial?: boolean;
+  canViewOfficial?: boolean;
   saveToOfficialDisabled?: boolean;
   saveToOfficialTitle?: string;
   onAddToConversation?: () => void;
@@ -634,6 +637,7 @@ function LibraryFileMenu({
   onRename?: () => void;
   onDelete?: () => void;
   onSaveToOfficial?: () => void;
+  onViewOfficial?: () => void;
 }) {
   const open = openMenuId === menuId;
   const anchorRef = useRef<HTMLSpanElement>(null);
@@ -691,7 +695,12 @@ function LibraryFileMenu({
               <span>重命名</span>
             </button>
           ) : null}
-          {canSaveToOfficial && onSaveToOfficial ? (
+          {canViewOfficial && onViewOfficial ? (
+            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onViewOfficial(); close(); }}>
+              <TreeIcon kind="preview" />
+              <span>查看正式文件</span>
+            </button>
+          ) : canSaveToOfficial && onSaveToOfficial ? (
             <button
               type="button"
               role="menuitem"
@@ -1323,16 +1332,22 @@ export type LibraryVersion = {
   id: string;
   artifact_id: string;
   folder_id?: string | null;
+  source_type?: "member_upload" | "cache_saved" | "output_saved" | "recycle_restored" | null;
+  source_artifact_id?: string | null;
+  saved_official_artifact_id?: string | null;
   folder_thread_id?: string | null;
   folder_kind?: string | null;
   deleted_at?: string | null;
   artifact_deleted_at?: string | null;
   version_deleted_at?: string | null;
   recycle_path?: { id: string; name: string }[] | string | null;
+  created_at?: string;
+  batch_id?: string | null;
   updated_at?: string;
   title: string;
   version: number;
   filename: string;
+  mime?: string | null;
   review: string | null;
   byte_size: number;
   author: string;
@@ -1373,13 +1388,25 @@ type DocumentChangeFilters = { from: string; to: string; fileName: string; actio
 
 const documentChangeLabels: Record<string, string> = {
   document_uploaded: "上传正式文件", cache_uploaded: "上传对话缓存",
-  artifact_published: "发布沙箱产物", document_saved_to_official: "另存为正式文件",
+  artifact_published: "发布沙箱产物", version_branched: "创建新版", document_saved_to_official: "另存为正式文件",
   document_renamed: "重命名文档", document_moved: "移动文档",
   document_deleted: "删除文档", document_restored: "恢复文档",
   version_deleted: "删除版本", version_restored: "恢复版本",
   folder_created: "创建文件夹", folder_renamed: "重命名文件夹",
   folder_moved: "移动文件夹", folder_deleted: "删除文件夹",
   recycle_emptied: "清空回收站",
+};
+
+const officialSourceTypeLabels: Record<string, string> = {
+  member_upload: "成员上传",
+  cache_saved: "缓存另存",
+  output_saved: "沙箱另存",
+  recycle_restored: "回收站恢复",
+};
+const fileAreaTypeLabels: Record<string, string> = {
+  project_official: "正式文件",
+  project_cache: "对话缓存",
+  project_outputs: "沙箱产物",
 };
 const documentChangeSources: Record<string, string> = { ui: "界面", mcp: "MCP", agent: "Agent", system: "系统" };
 const documentChangeActions = Object.entries(documentChangeLabels);
@@ -1507,33 +1534,18 @@ function TreeOverflowLabel({ text }: { text: string }) {
   );
 }
 
-const EMPTY_CHANGE_REQUEST_ITEMS = ["", "", ""];
-
-function formatChangeRequestItems(items: string[]) {
-  return items
-    .map((item) => item.replace(/\s+/g, " ").trim())
-    .filter(Boolean)
-    .map((item, index) => `${index + 1}. ${item}`)
-    .join("\n");
-}
-
 function isUnversionedArea(kind: string | null) {
   return kind === "project_official" || kind === "project_cache";
 }
 
 function documentStatusLabel(version: LibraryVersion, area: string | null) {
-  if (area === "project_official" || version.review === "confirmed") return "已确认";
-  if (area === "project_cache" || version.review === "draft") {
-    if (version.review === "approved") return "已确认";
-    if (version.review === "changes_requested") return "需要修改";
-    return "草稿";
-  }
-  if (version.review === "approved") return "已确认";
+  if (area === "project_official" || version.review === "confirmed" || version.review === "approved") return "已确认";
+  if (area === "project_cache" || area === "project_outputs") return "草稿";
   if (version.review === "changes_requested") return "需要修改";
-  return "待人工审核";
+  return "待确认";
 }
 
-function officialTitleWithVersion(name: string, versionNumber: number) {
+function officialTitleWithVersion(name: string, versionNumber: string) {
   const raw = name.trim() || "文档";
   const base = raw.replace(/\s+v\d+$/i, "").trim() || raw;
   return `${base} v${versionNumber}`.slice(0, 160);
@@ -1666,29 +1678,24 @@ function documentSourceLabel(item: LibraryVersion, folders: LibraryFolder[]) {
   return `${area} / ${path}`;
 }
 
-function formatLibraryDateTime(value?: string) {
-  if (!value) return "—";
+function formatVersionCode(createdAt?: string, fallback?: number) {
+  if (!createdAt) return fallback == null ? "—" : String(fallback);
+  const value = createdAt.includes("T") ? createdAt : createdAt.replace(" ", "T") + "Z";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  if (Number.isNaN(date.getTime())) return fallback == null ? "—" : String(fallback);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return String(date.getFullYear() % 100).padStart(2, "0") + pad(date.getMonth() + 1) + pad(date.getDate()) + pad(date.getHours()) + pad(date.getMinutes()) + pad(date.getSeconds());
 }
 
-function latestArtifactUpdatedAt(
-  item: LibraryVersion,
-  rows: LibraryVersion[],
-) {
-  const stamps = rows
-    .filter((row) => row.artifact_id === item.artifact_id)
-    .map((row) => row.updated_at || "")
-    .filter(Boolean);
-  if (!stamps.length) return item.updated_at || "";
-  return stamps.sort().at(-1) || item.updated_at || "";
+function versionCodeForRows(version: LibraryVersion, rows: LibraryVersion[]) {
+  const batchRows = version.batch_id
+    ? rows.filter((row) => row.batch_id === version.batch_id)
+    : [version];
+  const earliest = batchRows
+    .map((row) => row.created_at)
+    .filter((value): value is string => Boolean(value))
+    .sort()[0];
+  return formatVersionCode(earliest || version.created_at, version.version);
 }
 
 const DOCUMENT_TREE_STATE_KEY = "cothread-document-tree-open";
@@ -1779,6 +1786,7 @@ export function organizableDocuments(
 }
 export function Documents({
   onReview,
+  onRequestRevision,
   projectId,
   projectName,
   mcpEndpoint,
@@ -1801,6 +1809,7 @@ export function Documents({
   onDocumentFullscreenChange,
 }: {
   onReview?: (versionId: string, decision: string, comment?: string) => Promise<void>;
+  onRequestRevision?: (versionId: string, target: "current" | "new", title?: string) => Promise<void>;
   projectId: string;
   projectName?: string;
   mcpEndpoint?: string;
@@ -1938,6 +1947,20 @@ export function Documents({
     filename.includes(".")
       ? filename.split(".").pop()?.toLowerCase() || ""
       : "";
+  const fileEncodingLabel = (mime: string | undefined, filename: string) => {
+    const charset = mime?.match(/charset=([^;]+)/i)?.[1]?.trim().toLowerCase();
+    if (charset === "utf-8" || charset === "utf8") return "UTF-8";
+    if (charset === "utf-16le") return "UTF-16 LE";
+    if (charset === "utf-16be") return "UTF-16 BE";
+    if (charset === "gb18030") return "GB18030";
+    if (charset === "gbk") return "GBK";
+    if (charset) return charset.toUpperCase();
+    if (mime?.startsWith("text/")) return "UTF-8";
+    if (/\.(html?|css|m?js|json|md|markdown|txt|py|ts|tsx|jsx|csv|sql|ya?ml|xml|log|env|ini|conf|toml|properties|sh|bash)$/i.test(filename)) {
+      return "UTF-8";
+    }
+    return "二进制";
+  };
 
   const [pending, setPending] = useState(false);
   const [pendingLabel, setPendingLabel] = useState("正在更新文档树…");
@@ -1974,6 +1997,9 @@ export function Documents({
   const [savingOfficial, setSavingOfficial] = useState<LibraryVersion | null>(null);
   const [saveOfficialVersionId, setSaveOfficialVersionId] = useState("");
   const [saveOfficialTitle, setSaveOfficialTitle] = useState("");
+  const [branchVersion, setBranchVersion] = useState<LibraryVersion | null>(null);
+  const [branchTarget, setBranchTarget] = useState<"current" | "new">("current");
+  const [branchTitle, setBranchTitle] = useState("");
   const [draggedArtifactId, setDraggedArtifactId] = useState<string | null>(null);
   const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
@@ -1997,9 +2023,6 @@ export function Documents({
     | { type: "empty-recycle" }
     | null
   >(null);
-  const [changeRequest, setChangeRequest] = useState<{ versionId: string; title: string } | null>(null);
-  const [changeRequestItems, setChangeRequestItems] = useState<string[]>(EMPTY_CHANGE_REQUEST_ITEMS);
-  const changeRequestInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const officialRoot = libraryRoots.find((f) => f.folder_kind === "project_official");
   const officialFolderParentId = (() => {
     if (!folderId) return officialRoot?.id || null;
@@ -2097,6 +2120,7 @@ export function Documents({
     nativeSource?: boolean;
   } | null>(null);
   const [imagePreview, setImagePreview] = useState<ImagePreviewSource | null>(null);
+  const [fileInfoOpen, setFileInfoOpen] = useState(false);
   const [error, setError] = useState("");
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [browserTabs, setBrowserTabs] = useState<BrowserTab[]>([]);
@@ -2274,6 +2298,26 @@ export function Documents({
     else {
       createBrowserNewTab();
     }
+  };
+  const openBranchDialog = (item: LibraryVersion) => {
+    if (!canBranchVersion(item)) return;
+    setBranchVersion(item);
+    setBranchTarget("current");
+    setBranchTitle(item.title);
+  };
+  const submitBranch = async () => {
+    if (!branchVersion) return;
+    if (!onRequestRevision) {
+      showTip("当前迭代不可发送改新版请求", "error");
+      return;
+    }
+    await onRequestRevision(
+      branchVersion.id,
+      branchTarget,
+      branchTarget === "new" ? branchTitle.trim() : undefined,
+    );
+    setBranchVersion(null);
+    showTip("改新版请求已发送给 @小祥");
   };
   const openHtmlInBrowser = (target: LibraryVersion) => {
     if (!/\.html?$/i.test(target.filename || "")) return;
@@ -2601,6 +2645,7 @@ export function Documents({
     setView(null);
     setError("");
     setImagePreview(null);
+    setFileInfoOpen(false);
     if (!selected) return;
     let alive = true;
     let objectUrl = "";
@@ -2700,8 +2745,15 @@ export function Documents({
     writable && !item.deleted_at && fileAreaKind(item) !== null;
   const isCacheVersion = (item: LibraryVersion) => fileAreaKind(item) === "project_cache";
   const isOutputVersion = (item: LibraryVersion) => fileAreaKind(item) === "project_outputs";
+  const linkedOfficialVersion = (item: LibraryVersion) => item.saved_official_artifact_id
+    ? versions
+      .filter((row) => row.artifact_id === item.saved_official_artifact_id)
+      .sort((a, b) => b.version - a.version)[0]
+    : undefined;
   const showSaveToOfficial = (item: LibraryVersion) =>
     writable && !organizing && !item.deleted_at && (isCacheVersion(item) || isOutputVersion(item));
+  const canBranchVersion = (item: LibraryVersion) =>
+    writable && !item.deleted_at && isOutputVersion(item);
   const cacheConfirmed = (item: LibraryVersion) => item.review === "approved";
   const confirmedOutputVersions = (item: LibraryVersion) =>
     libraryVersions
@@ -2825,7 +2877,7 @@ export function Documents({
       onSelect(pick.id);
       setSavingOfficial(item);
       setSaveOfficialVersionId(pick.id);
-      setSaveOfficialTitle(officialTitleWithVersion(item.title, pick.version));
+      setSaveOfficialTitle(officialTitleWithVersion(item.title, versionCodeForRows(pick, versions)));
       setRenaming(false);
       setNewFolder(false);
       setRenamingFolder(false);
@@ -3024,7 +3076,8 @@ export function Documents({
           disabled={pending}
           canRename={canManageFile(v)}
           canDelete={canManageFile(v)}
-          canSaveToOfficial={showSaveToOfficial(v)}
+          canSaveToOfficial={showSaveToOfficial(v) && !linkedOfficialVersion(v)}
+          canViewOfficial={Boolean(linkedOfficialVersion(v))}
           saveToOfficialDisabled={!canSaveToOfficial(v)}
           saveToOfficialTitle={saveToOfficialHint(v)}
           onAddToConversation={onReference ? () => onReference(v.id) : undefined}
@@ -3036,6 +3089,10 @@ export function Documents({
           onRename={() => startRenameFile(v)}
           onDelete={() => deleteFile(v)}
           onSaveToOfficial={() => saveFileToOfficial(v)}
+          onViewOfficial={() => {
+            const official = linkedOfficialVersion(v);
+            if (official) onSelect(official.id);
+          }}
         />
         </span>
       ) : null}
@@ -3527,31 +3584,107 @@ export function Documents({
             ) : null}
           </aside>
   );
-  const viewModeToggle = (view?.kind === "markdown" || (activeTool === "browser" && view?.kind === "html")) ? (
-    <span className="doc-view-mode" role="group" aria-label="预览方式">
-      <button
-        type="button"
-        className={previewMode === "preview" ? "active" : ""}
-        aria-pressed={previewMode === "preview"}
-        onClick={() => setPreviewMode("preview")}
-      >
-        <UiIcon name="preview" size={12} />
-        预览
-      </button>
-      <button
-        type="button"
-        className={previewMode === "text" ? "active" : ""}
-        aria-pressed={previewMode === "text"}
-        onClick={() => setPreviewMode("text")}
-      >
-        <UiIcon name="code" size={12} />
-        源码
+  const capsuleKind = view?.kind || (() => {
+    const name = String(version?.filename || "").toLowerCase();
+    if (/\.html?$/.test(name)) return "html";
+    if (/\.md(own)?$/.test(name)) return "markdown";
+    if (TEXT_PREVIEW_NAME.test(name)) return "text";
+    if (/\.pdf$/.test(name)) return "pdf";
+    if (/\.(png|jpe?g|gif|webp|svg)$/.test(name)) return "image";
+    if (/\.docx$/.test(name)) return "docx";
+    if (/\.(xlsx|csv)$/.test(name)) return "xlsx";
+    if (/\.pptx$/.test(name)) return "pptx";
+    return "download";
+  })();
+  const isHtmlFile = capsuleKind === "html";
+  const supportsPreview = ["markdown", "docx", "xlsx", "pptx", "image", "pdf"].includes(capsuleKind);
+  const supportsSource = ["markdown", "html", "text"].includes(capsuleKind);
+  const setSourceMode = () => {
+    setPreviewMode("text");
+    setView((previous) => (previous ? { ...previous, nativeSource: false } : previous));
+  };
+  const setPlainTextMode = () => {
+    setPreviewMode("text");
+    setView((previous) => (previous ? { ...previous, nativeSource: true, truncated: false } : previous));
+  };
+  const setPreviewViewMode = () => {
+    setPreviewMode("preview");
+    setView((previous) => (previous ? { ...previous, nativeSource: false } : previous));
+  };
+  const fileActionCapsule = version && activeTool === "files" ? (
+    <span className="doc-view-mode" role="group" aria-label="文件操作">
+      {supportsPreview ? (
+        <button
+          type="button"
+          className={previewMode === "preview" && !view?.nativeSource ? "active" : ""}
+          aria-pressed={previewMode === "preview" && !view?.nativeSource}
+          onClick={setPreviewViewMode}
+        >
+          <UiIcon name="preview" size={12} />
+          预览
+        </button>
+      ) : null}
+      {supportsSource ? (
+        <button
+          type="button"
+          className={(previewMode === "text" || (isHtmlFile && activeTool === "files")) && !view?.nativeSource ? "active" : ""}
+          aria-pressed={(previewMode === "text" || (isHtmlFile && activeTool === "files")) && !view?.nativeSource}
+          onClick={setSourceMode}
+        >
+          <UiIcon name="code" size={12} />
+          源码
+        </button>
+      ) : null}
+      {supportsSource ? (
+        <button
+          type="button"
+          className={view?.nativeSource ? "active" : ""}
+          aria-pressed={Boolean(view?.nativeSource)}
+          onClick={setPlainTextMode}
+        >
+          <UiIcon name="list" size={12} />
+          纯文本
+        </button>
+      ) : null}
+      <button type="button" onClick={() => setFileInfoOpen(true)}>
+        <UiIcon name="info" size={12} />
+        文件信息
       </button>
     </span>
   ) : null;
+  const fileInfoDialog = fileInfoOpen && version ? (
+    <ModalBackdrop className="library-organize-backdrop" onClose={() => setFileInfoOpen(false)}>
+      {(close) => <section
+        className="library-organize-dialog document-file-info-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="document-file-info-title"
+      >
+        <header>
+          <h3 id="document-file-info-title">文件信息</h3>
+          <DialogClose onClick={close} label="关闭" />
+        </header>
+        <table className="document-file-info-table">
+          <tbody>
+            <tr><th scope="row">名称</th><td>{version.title}</td></tr>
+            <tr><th scope="row">文件名</th><td>{version.filename}</td></tr>
+            <tr><th scope="row">ID</th><td>{version.id}</td></tr>
+            <tr><th scope="row">位置</th><td>{documentSourceLabel(version, libraryFolders)}</td></tr>
+            <tr><th scope="row">类型</th><td>{fileAreaTypeLabels[fileAreaKind(version) || ""] || "未知"}</td></tr>
+            <tr><th scope="row">大小</th><td>{formatFileSize(view?.byteSize || version.byte_size || 0)}</td></tr>
+            <tr><th scope="row">后缀</th><td>{extension(version.filename) ? `.${extension(version.filename)}` : "—"}</td></tr>
+            <tr><th scope="row">格式</th><td>{fileEncodingLabel(version.mime || view?.mime, version.filename)}</td></tr>
+            <tr><th scope="row">作者</th><td>{version.author || "—"}</td></tr>
+            <tr><th scope="row">创建时间</th><td>{version.created_at ? new Date(version.created_at).toLocaleString("zh-CN") : "—"}</td></tr>
+            <tr><th scope="row">修改日期</th><td>{version.updated_at ? new Date(version.updated_at).toLocaleString("zh-CN") : "—"}</td></tr>
+          </tbody>
+        </table>
+      </section>}
+    </ModalBackdrop>
+  ) : null;
   const versionOptionDetail = (v: LibraryVersion) =>
-    `v${v.version}${v.deleted_at ? " · 已删除" : ""}${
-      v.review === "approved" ? " · 已确认" : " · 待确认"
+    `v${versionCodeForRows(v, versions)}${v.deleted_at ? " · 已删除" : ""}${
+      documentStatusLabel(v, fileAreaKind(v)) === "已确认" ? " · 已确认" : ` · ${documentStatusLabel(v, fileAreaKind(v))}`
     }`;
   const artifactVersionRows =
     version
@@ -3560,7 +3693,7 @@ export function Documents({
           .sort((a, b) => b.version - a.version)
       : [];
   const browserVersionHistorySelect =
-    version && !isUnversionedArea(fileAreaKind(version)) ? (
+    version && artifactVersionRows.length > 1 ? (
       <select
         className="doc-browser-version-select"
         aria-label="文档历史版本"
@@ -3572,7 +3705,7 @@ export function Documents({
       >
         {artifactVersionRows.map((v) => (
           <option key={v.id} value={v.id} title={versionOptionDetail(v)}>
-            {`v${v.version}`}
+            {`v${versionCodeForRows(v, versions)}`}
           </option>
         ))}
       </select>
@@ -3584,54 +3717,86 @@ export function Documents({
       <strong className="doc-browser-preview-name" title={version.filename}>{fileLabel(version)}</strong>
     </nav>
   ) : null;
-  const browserFileMeta = version ? (
-    <small
-      className="doc-browser-meta doc-browser-bottombar-meta"
-      title={`${documentSourceLabel(version, libraryFolders)} · ${formatLibraryDateTime(latestArtifactUpdatedAt(version, libraryVersions))}`}
-    >
-      来源 {documentSourceLabel(version, libraryFolders)} · 修改{" "}
-      {formatLibraryDateTime(latestArtifactUpdatedAt(version, libraryVersions))}
-    </small>
-  ) : null;
+  const browserSourceActions = version ? (() => {
+    const area = fileAreaKind(version);
+    if (area === "project_official") {
+      const source = version.source_artifact_id
+        ? versions.find((row) => row.artifact_id === version.source_artifact_id)
+        : null;
+      const sourceType = version.source_type;
+      if (sourceType !== "cache_saved" && sourceType !== "output_saved") return null;
+      const sourceLabel = officialSourceTypeLabels[sourceType] || "来源文件";
+      return (
+        <div className="doc-browser-source-actions">
+          {source && !source.deleted_at ? (
+            <button
+              type="button"
+              className="doc-browser-source-button"
+              disabled={pending}
+              onClick={() => onSelect(source.id)}
+            >
+              <UiIcon name="preview" size={12} />
+              {sourceType === "cache_saved" ? "查看·缓存源文件" : "查看·沙箱源文件"}
+            </button>
+          ) : null}
+          {!source || source.deleted_at ? (
+            <span className="doc-browser-source-button is-disabled">{sourceLabel} · 源文件已删除</span>
+          ) : null}
+        </div>
+      );
+    }
+    if (area !== "project_cache" && area !== "project_outputs") return null;
+    if (!version.saved_official_artifact_id) return null;
+    const official = versions.find((row) => row.artifact_id === version.saved_official_artifact_id);
+    return (
+      <div className="doc-browser-source-actions">
+        {official && !official.deleted_at ? (
+          <button
+            type="button"
+            className="doc-browser-source-button"
+            disabled={pending}
+            onClick={() => onSelect(official.id)}
+          >
+            <UiIcon name="preview" size={12} />
+            查看·已另存正式文件
+          </button>
+        ) : (
+          <span className="doc-browser-source-button is-disabled">已另存 · 正式文件已删除</span>
+        )}
+      </div>
+    );
+  })() : null;
   const reviewActions = version && !version.deleted_at ? (
     <div className="library-review-actions">
-      {fileAreaKind(version) === "project_official" || version.review === "confirmed" ? (
-        <span>已确认</span>
-      ) : (
-        <>
-          <span>{documentStatusLabel(version, fileAreaKind(version))}</span>
-          {onReview && (fileAreaKind(version) === "project_cache" || fileAreaKind(version) === "project_outputs") && (
-            <>
-              <button
-                disabled={pending}
-                onClick={() =>
-                  act(() => onReview(selected, "approved"))
-                }
-              >
-                <UiIcon name="check" size={12} />
-                {fileAreaKind(version) === "project_cache" ? "确认" : "确认通过"}
-              </button>
-              <button
-                disabled={pending}
-                onClick={() => {
-                  setChangeRequest({ versionId: selected, title: version.title });
-                  setChangeRequestItems([...EMPTY_CHANGE_REQUEST_ITEMS]);
-                  setActionError("");
-                }}
-              >
-                <UiIcon name="edit" size={12} />
-                需要修改
-              </button>
-            </>
-          )}
-        </>
+      {!artifactVersionRows.some((row) => !row.deleted_at && row.version > version.version)
+        && (fileAreaKind(version) === "project_cache" || fileAreaKind(version) === "project_outputs")
+        && documentStatusLabel(version, fileAreaKind(version)) === "草稿" && onReview ? (
+        <button
+          type="button"
+          className="doc-browser-review-button"
+          disabled={pending}
+          title="确认当前版本"
+          onClick={() => act(() => onReview(selected, "approved"))}
+        >
+          <UiIcon name="check" size={12} />
+          草稿 · 确认
+        </button>
+      ) : documentStatusLabel(version, fileAreaKind(version)) !== "已确认" ? (
+        <span>{documentStatusLabel(version, fileAreaKind(version))}</span>
+      ) : null}
+      {canBranchVersion(version) && (
+        <button
+          type="button"
+          disabled={pending}
+          title="基于此版本创建新版"
+          onClick={() => openBranchDialog(version)}
+        >
+          <UiIcon name="branch" size={12} />
+          改新版
+        </button>
       )}
     </div>
   ) : null;
-  const loadFullText = () => {
-    if (!selected) return;
-    setView((previous) => (previous ? { ...previous, nativeSource: true, truncated: false } : previous));
-  };
   const nativeSourceFrame = view?.nativeSource && selected ? (
     <iframe
       className="doc-file-source-frame"
@@ -3644,38 +3809,15 @@ export function Documents({
   const documentPreviewMode = activeTool === "files" && view?.kind === "html"
     ? "text"
     : previewMode;
-  const truncatedNotice = view?.nativeSource ? (
-    <p className="muted doc-source-truncated">
-      完整源码以纯文本打开（不加高亮），避免把大文件塞进页面导致卡顿。
-      <button
-        type="button"
-        onClick={() => setView((previous) => (previous
-          ? { ...previous, nativeSource: false, truncated: (previous.byteSize || 0) > TEXT_PREVIEW_LIMIT }
-          : previous))}
-      >
-        返回开头预览
-      </button>
-    </p>
-  ) : view?.truncated ? (
-    <p className="muted doc-source-truncated">
-      文件 {formatFileSize(view.byteSize || 0)}，源码视图先显示开头 {formatFileSize(TEXT_PREVIEW_LIMIT)}。
-      HTML 预览仍会加载完整 JS/CSS。
-      <button type="button" onClick={loadFullText}>
-        加载全部源码
-      </button>
-    </p>
-  ) : null;
   const previewContent = (
     <>
       {view?.kind === "markdown" && documentPreviewMode === "preview" && (
         view.nativeSource ? (
           <>
-            {truncatedNotice}
             {nativeSourceFrame}
           </>
         ) : (
           <div className="markdown-preview">
-            {truncatedNotice}
             <Markdown
               remarkPlugins={[remarkGfm]}
               components={{
@@ -3707,7 +3849,6 @@ export function Documents({
       )}
       {view?.kind === "markdown" && documentPreviewMode === "text" && (
         <>
-          {truncatedNotice}
           {view.nativeSource
             ? nativeSourceFrame
             : (
@@ -3743,31 +3884,26 @@ export function Documents({
       {view?.kind === "html" && documentPreviewMode === "text" && (
         view.nativeSource ? (
           <>
-            {truncatedNotice}
             {nativeSourceFrame}
           </>
         ) : view.text == null
           ? <p className="muted doc-browser-loading">正在读取源码…</p>
           : (
-            <>
-              {truncatedNotice}
-              <CodePreview
-                text={view.text.length > 80_000 ? view.text : formatHtmlSource(view.text)}
-                filename={version?.filename}
-              />
-            </>
+            <CodePreview
+              text={view.text.length > 80_000 ? view.text : formatHtmlSource(view.text)}
+              filename={version?.filename}
+            />
           )
       )}
       {view?.kind === "text" && (
         <>
-          {truncatedNotice}
           {view.nativeSource
             ? nativeSourceFrame
             : <CodePreview text={view.text || ""} filename={version?.filename} />}
         </>
       )}
       {view?.kind === "docx" && view.bytes && <DocxPreview bytes={view.bytes} />}
-      {view?.kind === "xlsx" && view.bytes && <XlsxPreview bytes={view.bytes} filename={version?.filename} />}
+      {view?.kind === "xlsx" && view.bytes && <XlsxPreview bytes={view.bytes} />}
       {view?.kind === "pptx" && view.bytes && <PptxPreview bytes={view.bytes} />}
       {view?.kind === "image" && version && (
         <button
@@ -3885,12 +4021,12 @@ export function Documents({
                       const nextId = event.target.value;
                       setSaveOfficialVersionId(nextId);
                       const picked = confirmedOutputVersions(savingOfficial).find((row) => row.id === nextId);
-                      if (picked) setSaveOfficialTitle(officialTitleWithVersion(savingOfficial.title, picked.version));
+                      if (picked) setSaveOfficialTitle(officialTitleWithVersion(savingOfficial.title, versionCodeForRows(picked, versions)));
                     }}
                   >
                     {confirmedOutputVersions(savingOfficial).map((row) => (
                       <option key={row.id} value={row.id}>
-                        v{row.version} · 已确认
+                        v{versionCodeForRows(row, versions)} · 已确认
                       </option>
                     ))}
                   </select>
@@ -3940,8 +4076,8 @@ export function Documents({
                   {error && <div className="error doc-browser-error">{error}</div>}
                   <div className="doc-browser-view">
                     {browserFileBreadcrumb}
-                    {viewModeToggle ? (
-                      <div className="doc-browser-preview-chrome">{viewModeToggle}</div>
+                    {fileActionCapsule ? (
+                      <div className="doc-browser-preview-chrome">{fileActionCapsule}</div>
                     ) : null}
                     <div className="document-preview doc-browser-preview">
                       {!view && !error && <p className="muted doc-browser-loading">正在读取文档…</p>}
@@ -3949,9 +4085,9 @@ export function Documents({
                     </div>
                   </div>
                   <footer className="doc-browser-bottombar">
-                    {browserFileMeta}
                     {browserVersionHistorySelect}
                     {reviewActions}
+                    {browserSourceActions}
                   </footer>
                 </>
               ) : (
@@ -4124,113 +4260,44 @@ export function Documents({
             </section>}
           </ModalBackdrop>
         ) : null;
-
-  const changeRequestDialog = changeRequest ? (
-          <ModalBackdrop className="library-organize-backdrop" onClose={() => setChangeRequest(null)} enabled={!pending}>
-            {(close) => <section
-              className="library-organize-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="library-change-request-title"
-            >
-              <header>
-                <h3 id="library-change-request-title">需要修改</h3>
-                <DialogClose disabled={pending} onClick={close} label="关闭" />
-              </header>
-              <p>按条填写要对「{changeRequest.title}」修改什么。确认后会自动发到当前迭代群聊并 @ 对方：沙箱产物会 @小祥；对话缓存若来自别人则 @来源人，本人上传的对话缓存则 @小祥。被 @ 的人请让小祥改并保存为沙箱产物，或自己改完后在对话框重新上传新的对话缓存。</p>
-              <ol className="change-request-list" aria-label="需要修改的内容">
-                {changeRequestItems.map((item, index) => (
-                  <li key={index}>
-                    <input
-                      ref={(el) => { changeRequestInputRefs.current[index] = el; }}
-                      autoFocus={index === 0}
-                      aria-label={`第 ${index + 1} 条`}
-                      placeholder="这一条要改什么"
-                      value={item}
-                      maxLength={800}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setChangeRequestItems((rows) => rows.map((row, rowIndex) => (rowIndex === index ? value : row)));
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          setChangeRequestItems((rows) => {
-                            if (rows.length >= 20) return rows;
-                            const next = [...rows];
-                            next.splice(index + 1, 0, "");
-                            queueMicrotask(() => changeRequestInputRefs.current[index + 1]?.focus());
-                            return next;
-                          });
-                          return;
-                        }
-                        if (event.key === "Backspace" && !item && changeRequestItems.length > 1) {
-                          event.preventDefault();
-                          setChangeRequestItems((rows) => {
-                            const next = rows.filter((_, rowIndex) => rowIndex !== index);
-                            const focusAt = Math.max(0, index - 1);
-                            queueMicrotask(() => changeRequestInputRefs.current[focusAt]?.focus());
-                            return next.length ? next : [...EMPTY_CHANGE_REQUEST_ITEMS];
-                          });
-                        }
-                      }}
-                    />
-                    {changeRequestItems.length > 1 ? (
-                      <button
-                        type="button"
-                        className="change-request-remove"
-                        aria-label={`删除第 ${index + 1} 条`}
-                        disabled={pending}
-                        onClick={() => {
-                          setChangeRequestItems((rows) => {
-                            const next = rows.filter((_, rowIndex) => rowIndex !== index);
-                            return next.length ? next : [...EMPTY_CHANGE_REQUEST_ITEMS];
-                          });
-                        }}
-                      >
-                        ×
-                      </button>
-                    ) : null}
-                  </li>
-                ))}
-              </ol>
-              <button
-                type="button"
-                className="change-request-add"
-                disabled={pending || changeRequestItems.length >= 20}
-                onClick={() => {
-                  setChangeRequestItems((rows) => {
-                    if (rows.length >= 20) return rows;
-                    queueMicrotask(() => changeRequestInputRefs.current[rows.length]?.focus());
-                    return [...rows, ""];
-                  });
-                }}
-              >
-                添加一条
-              </button>
-              {actionError ? <p className="error" role="alert">{actionError}</p> : null}
-              <div className="library-organize-actions">
-                <button type="button" disabled={pending} onClick={close}>取消</button>
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={pending || !formatChangeRequestItems(changeRequestItems)}
-                  onClick={() => {
-                    const comment = formatChangeRequestItems(changeRequestItems);
-                    const versionId = changeRequest.versionId;
-                    void act(async () => {
-                      await onReview?.(versionId, "changes_requested", comment);
-                      setChangeRequest(null);
-                      setChangeRequestItems([...EMPTY_CHANGE_REQUEST_ITEMS]);
-                    });
-                  }}
-                >
-                  确认发送
-                </button>
-              </div>
-            </section>}
-          </ModalBackdrop>
-        ) : null;
+  const branchDialog = branchVersion ? (
+    <ModalBackdrop className="library-organize-backdrop" onClose={() => setBranchVersion(null)}>
+      {(close) => <section
+        className="library-organize-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="library-branch-title"
+      >
+        <header>
+          <h3 id="library-branch-title">改新版</h3>
+          <DialogClose onClick={close} label="关闭" />
+        </header>
+        <p>选择修改目标后，将请求发送给 @小祥 处理。</p>
+        <div className="library-branch-targets" role="radiogroup" aria-label="新版归属">
+          <label>
+            <input type="radio" name="branch-target" checked={branchTarget === "current"} onChange={() => setBranchTarget("current")} />
+            <span>当前文档</span>
+          </label>
+          <label>
+            <input type="radio" name="branch-target" checked={branchTarget === "new"} onChange={() => setBranchTarget("new")} />
+            <span>新文档</span>
+          </label>
+        </div>
+        {branchTarget === "new" ? (
+          <label className="library-branch-title-field">
+            <span>文档名称</span>
+            <input value={branchTitle} maxLength={160} onChange={(event) => setBranchTitle(event.target.value)} autoFocus />
+          </label>
+        ) : null}
+        <div className="library-organize-actions">
+          <button type="button" onClick={close} disabled={pending}>取消</button>
+          <button type="button" className="primary" onClick={() => void submitBranch()} disabled={pending || (branchTarget === "new" && !branchTitle.trim())}>
+            <UiIcon name="branch" size={13} />发送改新版请求
+          </button>
+        </div>
+      </section>}
+    </ModalBackdrop>
+  ) : null;
 
   const tabVersion = (id: string) => libraryVersions.find((item) => item.id === id)
     || versions.find((item) => item.id === id);
@@ -4316,15 +4383,15 @@ export function Documents({
             <span>{documentFullscreen ? "退出全屏" : "全屏"}</span>
           </button>
         </nav>
-        <div
-          className="doc-browser-tabbar"
-          onContextMenu={(event) => {
-            if (!openTabs.length) return;
-            if ((event.target as HTMLElement).closest(".doc-browser-tab")) return;
-            const id = selected && openTabs.includes(selected) ? selected : openTabs[openTabs.length - 1];
-            openTabContextMenu(event, id);
-          }}
-        >
+        {activeTool !== "browser" && openTabs.length ? (
+          <div
+            className="doc-browser-tabbar"
+            onContextMenu={(event) => {
+              if ((event.target as HTMLElement).closest(".doc-browser-tab")) return;
+              const id = selected && openTabs.includes(selected) ? selected : openTabs[openTabs.length - 1];
+              openTabContextMenu(event, id);
+            }}
+          >
           <div className="doc-browser-tabs" role="tablist" aria-label="打开的文档">
             {openTabs.map((id) => {
               const item = tabVersion(id);
@@ -4400,12 +4467,12 @@ export function Documents({
             title={treeOpen ? "隐藏文件树" : "显示文件树"}
             aria-label={treeOpen ? "隐藏文件树" : "显示文件树"}
             aria-pressed={treeOpen}
-            hidden={activeTool === "browser"}
             onClick={() => setTreeOpen(!treeOpen)}
           >
             <TreeIcon kind="folder" />
           </button>
-        </div>
+          </div>
+        ) : null}
         {activeTool === "browser" ? (
           <div className="doc-browser-tabbar doc-browser-browser-tabbar">
             <div className="doc-browser-tabs" role="tablist" aria-label="打开的浏览器页面">
@@ -4468,7 +4535,8 @@ export function Documents({
         {folderGuideDialog}
         {codeGuideDialog}
         {deleteConfirmDialog}
-        {changeRequestDialog}
+        {fileInfoDialog}
+        {branchDialog}
         {changesOpen ? (
           <ModalBackdrop className="library-organize-backdrop" onClose={() => setChangesOpen(false)}>
             {(close) => <section className="library-organize-dialog document-change-log-dialog" role="dialog" aria-modal="true" aria-labelledby="document-change-log-title">

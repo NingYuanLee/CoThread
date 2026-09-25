@@ -1267,6 +1267,67 @@ export function WorkspaceApp() {
         item.id === optimisticId ? { ...item, delivery_status: "failed", delivery_error: detail } : item) }));
     }
   };
+  const sendOptimisticMessage = async (
+    targetThreadId: string,
+    body: string,
+    selectedRefs: string[],
+    selectedFolderRefs: string[] = [],
+    selectedQuotes: MessageQuote[] = [],
+  ) => {
+    if (!user) throw new Error("当前用户不可用");
+    const optimisticId = `optimistic:${crypto.randomUUID()}`;
+    const optimistic = {
+      id: optimisticId,
+      sequence: ((thread?.messages.reduce((latest, item) => {
+        try { return BigInt(item.sequence) > latest ? BigInt(item.sequence) : latest; }
+        catch { return latest; }
+      }, 0n) || 0n) + 1n).toString(),
+      body,
+      source: "web",
+      refs: selectedRefs,
+      folder_refs: selectedFolderRefs,
+      author: user.name,
+      author_id: user.id,
+      author_avatar: user.avatar,
+      author_role: user.identity_tags[0] || null,
+      quotes: selectedQuotes,
+      created_at: new Date().toISOString(),
+      execution_target: "cloud" as const,
+      delivery_status: "sending" as const,
+    };
+    threadCache.current.cancel(targetThreadId);
+    updateThreadCache(targetThreadId, current => ({ ...current, messages: [...current.messages, optimistic] }));
+    followConversation.current = true;
+    void persistOptimisticMessage(targetThreadId, optimisticId, {
+      body,
+      refs: selectedRefs,
+      folderRefs: selectedFolderRefs,
+      quoteIds: selectedQuotes.map((quote) => quote.id),
+      clientMessageId: optimisticId.slice("optimistic:".length),
+    }, selectedQuotes);
+    return true;
+  };
+  const requestDocumentRevision = async (
+    versionId: string,
+    target: "current" | "new",
+    title?: string,
+  ) => {
+    const targetThreadId = threadId;
+    if (!targetThreadId || !active) throw new Error("当前没有可用迭代");
+    const version = (detail?.versions || []).find((item) => item.id === versionId);
+    const label = version ? fileDisplayName(version) : versionId;
+    const targetText = target === "current"
+      ? "当前文档新增版本"
+      : `新建文档${title ? `「${title}」` : ""}`;
+    const body = [
+      "@小祥",
+      `请基于文档版本 /${label} 修改新版。`,
+      `目标：${targetText}。`,
+      target === "new" ? "如果新文档名称已存在，请由你处理重名，不要覆盖现有文档。" : "",
+      "请由你负责修改文件内容，并在完成后通过 Agent 工具发布新版，不要由用户端直接创建版本。",
+    ].filter(Boolean).join("\n");
+    await sendOptimisticMessage(targetThreadId, body, [versionId]);
+  };
   const hasAgentActivity = (reply: Thread["replies"][number]) => {
     if (!isExecutorReply(reply)) return reply.status === "failed";
     return (!!reply.dispatch_ready && ["queued", "running"].includes(reply.status)) ||
@@ -2210,37 +2271,11 @@ export function WorkspaceApp() {
                     const selectedRefs = [...refs];
                     const selectedFolderRefs = [...folderRefs];
                     const selectedQuotes = [...quotedMessages];
-                    const optimisticId = `optimistic:${crypto.randomUUID()}`;
-                    const optimistic = {
-                      id: optimisticId,
-                      sequence: ((thread?.messages.reduce((latest, item) => {
-                        try { return BigInt(item.sequence) > latest ? BigInt(item.sequence) : latest; }
-                        catch { return latest; }
-                      }, 0n) || 0n) + 1n).toString(),
-                      body,
-                      source: "web",
-                      refs: selectedRefs,
-                      folder_refs: selectedFolderRefs,
-                      author: user.name,
-                      author_id: user.id,
-                      author_avatar: user.avatar,
-                      author_role: user.identity_tags[0] || null,
-                      quotes: selectedQuotes,
-                      created_at: new Date().toISOString(),
-                      execution_target: "cloud" as const,
-                      delivery_status: "sending" as const,
-                    };
-                    threadCache.current.cancel(targetThreadId);
-                    updateThreadCache(targetThreadId, current => ({ ...current, messages: [...current.messages, optimistic] }));
                     setQuotedMessages([]);
                     setMessage("");
                     setRefs([]);
                     setFolderRefs([]);
-                    followConversation.current = true;
-                    void persistOptimisticMessage(targetThreadId, optimisticId, {
-                      body, refs: selectedRefs, folderRefs: selectedFolderRefs, quoteIds: selectedQuotes.map(q => q.id), clientMessageId: optimisticId.slice("optimistic:".length),
-                    }, selectedQuotes);
-                    return true;
+                    return sendOptimisticMessage(targetThreadId, body, selectedRefs, selectedFolderRefs, selectedQuotes);
                   }}
                 />
                 </Suspense>
@@ -2336,6 +2371,11 @@ export function WorkspaceApp() {
               onReference={
                 active
                   ? addVersionToConversation
+                  : undefined
+              }
+              onRequestRevision={
+                active
+                  ? requestDocumentRevision
                   : undefined
               }
               onAddSelectionToConversation={

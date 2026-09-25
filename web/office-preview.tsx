@@ -31,13 +31,7 @@ function highlightCode(value: string, filename?: string) {
 const CODE_PREVIEW_PLAIN_CHARS = 80_000;
 
 export const CodePreview = memo(function CodePreview({ text, filename }: { text: string; filename?: string }) {
-  if (text.length > CODE_PREVIEW_PLAIN_CHARS) {
-    return (
-      <pre className="code-preview-content code-preview-plain" role="document" aria-label={filename || "代码文件"}>
-        {text}
-      </pre>
-    );
-  }
+  const highlight = text.length <= CODE_PREVIEW_PLAIN_CHARS;
   const lines = text.split("\n");
   return (
     <div className="code-preview" role="document" aria-label={filename || "代码文件"}>
@@ -45,7 +39,11 @@ export const CodePreview = memo(function CodePreview({ text, filename }: { text:
         {lines.map((_, index) => <span key={index}>{index + 1}</span>)}
       </div>
       <pre className="code-preview-content"><code>{lines.map((line, index) => (
-        <span className="code-preview-line" key={index} dangerouslySetInnerHTML={{ __html: highlightCode(line, filename) }} />
+        <span className="code-preview-line" key={index}>
+          {highlight
+            ? <span dangerouslySetInnerHTML={{ __html: highlightCode(line, filename) }} />
+            : line}
+        </span>
       ))}</code></pre>
     </div>
   );
@@ -214,37 +212,34 @@ const mermaidSvgCache = new Map<string, string>();
 
 function getMermaid() {
   if (!mermaidModulePromise) {
-    mermaidModulePromise = import("mermaid").then((module) => {
-      module.default.initialize({
-        startOnLoad: false,
-        securityLevel: "strict",
-        theme: "base",
-        themeVariables: {
-          fontFamily: "Segoe UI, system-ui, sans-serif",
-          primaryColor: "#e8f0e8",
-          primaryTextColor: "#26352d",
-          primaryBorderColor: "#78927d",
-          lineColor: "#68776b",
-        },
-      });
-      return module;
-    });
+    mermaidModulePromise = import("mermaid");
   }
   return mermaidModulePromise;
 }
 
 export function MermaidPreview({ chart }: { chart: string }) {
   const source = chart.trim();
-  const [svg, setSvg] = useState(() => mermaidSvgCache.get(source) || "");
+  const [themeKey, setThemeKey] = useState(() => document.documentElement.dataset.theme || "forest");
+  const cacheKey = `${themeKey}\u0000${source}`;
+  const [svg, setSvg] = useState(() => mermaidSvgCache.get(cacheKey) || "");
   const [error, setError] = useState("");
   const request = useRef(0);
 
   useEffect(() => {
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => {
+      setThemeKey(root.dataset.theme || "forest");
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     let alive = true;
     const currentRequest = ++request.current;
-    const cached = mermaidSvgCache.get(source);
+    const cached = mermaidSvgCache.get(cacheKey);
+    setSvg(cached || "");
     if (cached) {
-      setSvg(cached);
       setError("");
       return () => {
         alive = false;
@@ -255,12 +250,20 @@ export function MermaidPreview({ chart }: { chart: string }) {
     void (async () => {
       try {
         const module = await getMermaid();
+        module.default.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: themeKey === "ink" || themeKey === "night" ? "dark" : "default",
+          themeVariables: {
+            fontFamily: "Segoe UI, system-ui, sans-serif",
+          },
+        });
         const id = "mermaid-preview-" + (++mermaidRenderSequence);
         const task = mermaidRenderQueue.then(() => module.default.render(id, source));
         mermaidRenderQueue = task.then(() => undefined, () => undefined);
         const result = await task;
         if (!alive || currentRequest !== request.current) return;
-        mermaidSvgCache.set(source, result.svg);
+        mermaidSvgCache.set(cacheKey, result.svg);
         setSvg(result.svg);
       } catch (cause) {
         if (alive && currentRequest === request.current) {
@@ -271,7 +274,7 @@ export function MermaidPreview({ chart }: { chart: string }) {
     return () => {
       alive = false;
     };
-  }, [source]);
+  }, [cacheKey, source, themeKey]);
 
   if (error) {
     return (
@@ -288,7 +291,7 @@ export function MermaidPreview({ chart }: { chart: string }) {
   );
 }
 
-export function XlsxPreview({ bytes, filename }: { bytes: Uint8Array; filename?: string }) {
+export function XlsxPreview({ bytes }: { bytes: Uint8Array }) {
   const [sheets, setSheets] = useState<{ name: string; html: string }[]>([]);
   const [active, setActive] = useState(0);
   const [error, setError] = useState("");
@@ -324,10 +327,6 @@ export function XlsxPreview({ bytes, filename }: { bytes: Uint8Array; filename?:
   const current = sheets[Math.min(active, sheets.length - 1)];
   return (
     <div className="xlsx-preview">
-      <div className="xlsx-preview-toolbar">
-        <span className="xlsx-preview-title">{filename || "工作簿"}</span>
-        <span className="xlsx-preview-meta">{sheets.length} 个工作表</span>
-      </div>
       {sheets.length > 1 ? (
         <div className="xlsx-sheet-tabs" role="tablist" aria-label="工作表">
           {sheets.map((sheet, index) => (

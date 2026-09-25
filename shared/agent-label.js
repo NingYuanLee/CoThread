@@ -187,6 +187,10 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       object = args.path || args.title || "文档";
       isPath = true;
       break;
+    case "branch_artifact":
+      action = args.target === "new" ? "创建新文档新版" : "创建当前文档新版";
+      object = args.versionId || "文档版本";
+      break;
     case "sandbox_command": {
       const command =
         typeof args.command === "string" ? args.command.trim() : "";

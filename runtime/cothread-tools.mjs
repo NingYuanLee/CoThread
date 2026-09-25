@@ -131,12 +131,21 @@ export function apply(ctx) {
     ],
     [
       "publish_artifact",
-      "将任务生成的沙箱文件保存到沙箱产物，生成待人工审核的新版本。默认使用任务名称或实际语义命名；更新已有产物时传 artifactId。不要把结果写回对话缓存；若任务来自对话缓存修改，即使传入对话缓存 artifactId 也会另存为新的沙箱产物。",
+      "将任务生成的沙箱文件保存到沙箱产物，生成待人工审核的新版本。默认使用任务名称或实际语义命名；更新已有产物时传 artifactId。不要把结果写回对话缓存；若任务来自对话缓存修改，即使传入对话缓存 artifactId 也会另存为新的沙箱产物。一次网站生成产生的 HTML/CSS/JS 等关联文件必须在同一任务中分别调用本工具，系统会按同一任务批次统一显示版本号。",
       {
         path: { type: "string", required: true },
         title: { type: "string", required: true },
         artifactId: { type: "string" },
         note: { type: "string" },
+      },
+    ],
+    [
+      "branch_artifact",
+      "基于指定沙箱产物版本创建新版。target=current 时为当前文档新增版本，target=new 时创建新文档；新文档可传 title，重名由系统自动处理。需要真正修改文件内容时，应先在沙箱中完成修改，再用 publish_artifact 保存结果；本工具负责明确记录分支动作。",
+      {
+        versionId: { type: "string", required: true },
+        target: { type: "string", required: true },
+        title: { type: "string" },
       },
     ],
   ];

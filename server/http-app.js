@@ -831,6 +831,8 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     res.status(201).json(await service.copyVersionToOfficial(req.user, req.params.id, req.params.versionId)));
   app.post("/api/projects/:id/versions/:versionId/save-to-official", async (req, res) =>
     res.status(201).json(await service.saveVersionToOfficial(req.user, req.params.id, req.params.versionId, req.body)));
+  app.post("/api/projects/:id/versions/:versionId/branch", async (req, res) =>
+    res.status(201).json(await service.branchOutputVersion(req.user, req.params.id, req.params.versionId, req.body)));
   app.post("/api/threads/:id/archive", async (req, res) =>
     res.json(await service.archive(req.user, req.params.id, req.body)),
   );
@@ -1027,4 +1029,3 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   });
   return app;
 }
-

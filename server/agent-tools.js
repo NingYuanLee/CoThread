@@ -49,7 +49,7 @@ const titles = {
   sandbox_command: "执行",
   sandbox_read: "读取",
   sandbox_write: "写入",
-  publish_artifact: "保存",
+  publish_artifact: "保存", branch_artifact: "创建新版",
   post_message: "发言", create_task: "创建任务", update_task: "更新任务", report_task: "交活",
   reassign_task: "转交任务", resolve_task_rejection: "处理任务拒绝", recover_task: "安排任务", ask_task_question: "提出问题",
   list_project_tasks: "查看任务", inspect_task: "询问任务进度",
@@ -57,7 +57,7 @@ const titles = {
   bind_task_l3: "绑定执行者",
 };
 const L3_EXECUTION_TOOLS = new Set([
-  "sandbox_command", "sandbox_read", "sandbox_write", "publish_artifact", "capture_preview_screenshot", "report_task",
+  "sandbox_command", "sandbox_read", "sandbox_write", "publish_artifact", "branch_artifact", "capture_preview_screenshot", "report_task",
 ]);
 
 export async function liveDshL3Run(db, { sessionId, threadId } = {}) {
@@ -288,6 +288,17 @@ export function createAgentTools(
           throw new HttpError(403, "仅可读取当前项目");
         await progress(formatAgentAction(name, args, target));
         result = modelDiscussion(await service.context(user, id, service.db, { display: true, limit: args.limit ?? 50, before: args.before }));
+      } else if (name === "branch_artifact") {
+        result = await service.branchOutputVersion(
+          { ...user, kind: "agent" },
+          thread.project_id,
+          z.string().uuid().parse(args.versionId),
+          {
+            target: z.enum(["current", "new"]).parse(args.target),
+            title: z.string().trim().min(1).max(160).optional().parse(args.title),
+          },
+        );
+        result = { ...result, savedToProject: true };
       } else if (name === "capture_preview_screenshot") {
         if (!visualVerificationEnabled(effectiveRole === "executor" ? "executor" : "coordinator")) {
           result = visualVerificationSkip(effectiveRole === "executor" ? "l3" : "l2");

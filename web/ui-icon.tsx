@@ -6,6 +6,7 @@ export type UiIconName =
   | "archive"
   | "blocked"
   | "book"
+  | "branch"
   | "chat"
   | "check"
   | "checkCircle"
@@ -101,6 +102,7 @@ const GLYPHS: Record<GlyphName, string[]> = {
   archive: ["M3 7h18v3H3z", "M5 10v10h14V10", "M10 14h4"],
   blocked: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "m8 8 8 8"],
   book: ["M4 5h7v14H5a1 1 0 0 1-1-1V5Z", "M20 5h-7v14h6a1 1 0 0 0 1-1V5Z"],
+  branch: ["M6 4v7a6 6 0 0 0 6 6h6", "M18 14l3 3-3 3", "M6 4a2 2 0 1 0 0 .01", "M18 4a2 2 0 1 0 0 .01"],
   chat: ["M4 5h16v10H8l-4 4V5Z"],
   check: ["m5 12 5 5 9-10"],
   checkCircle: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "m8 12 3 3 5-6"],

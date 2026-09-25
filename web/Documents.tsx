@@ -28,6 +28,7 @@ import { showTip } from "./Tip";
 import { MCP_OFFICIAL_LIBRARY_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
 import { uploadFileWithIntegrity } from "./file-upload";
 import { PdfPreview } from "./PdfPreview";
+import { createResourceCache } from "../shared/resource-cache.js";
 const officeIcons = {
   odt: Document,
   rtf: Document,
@@ -590,18 +591,32 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-async function readVersionText(versionId: string, byteSize = 0) {
+async function readVersionText(versionId: string, byteSize = 0, signal?: AbortSignal) {
   const truncated = byteSize > TEXT_PREVIEW_LIMIT;
   const path = truncated
     ? `/api/versions/${versionId}/source?limit=${TEXT_PREVIEW_LIMIT}`
     : `/api/versions/${versionId}/source`;
-  const response = await apiFetch(path);
+  const response = await apiFetch(path, signal ? { signal } : {});
   if (!response.ok) {
     const body = await readJsonResponse(response, path).catch(() => null);
     throw new Error(body?.error || `源码读取失败（${response.status}）`);
   }
   return { text: await response.text(), truncated, byteSize };
 }
+
+type DocumentViewCacheEntry = {
+  kind: string;
+  mime: string;
+  text?: string;
+  bytes?: Uint8Array;
+  truncated?: boolean;
+  byteSize?: number;
+};
+
+// Version IDs are immutable document snapshots. Keep a small in-memory cache so
+// switching between already-open files does not re-read their content.
+const documentViewCache = createResourceCache<DocumentViewCacheEntry>(8);
+
 function LibraryFileMenu({
   menuId,
   openMenuId,
@@ -2642,13 +2657,30 @@ export function Documents({
       `${v.title} ${v.filename}`.toLowerCase().includes(filter.toLowerCase()),
     );
   useEffect(() => {
-    setView(null);
+    let alive = true;
+    let objectUrl = "";
+    const cached = selected ? documentViewCache.get(selected) : undefined;
+    const publishCached = (entry: DocumentViewCacheEntry) => {
+      if (entry.kind === "image" && entry.bytes) {
+        const buffer = entry.bytes.buffer.slice(
+          entry.bytes.byteOffset,
+          entry.bytes.byteOffset + entry.bytes.byteLength,
+        ) as ArrayBuffer;
+        objectUrl = URL.createObjectURL(new Blob([buffer], { type: entry.mime }));
+        setView({ kind: "image", url: objectUrl, mime: entry.mime });
+      } else {
+        setView({ ...entry });
+      }
+    };
+    if (!cached) setView(null);
     setError("");
     setImagePreview(null);
     setFileInfoOpen(false);
-    if (!selected) return;
-    let alive = true;
-    let objectUrl = "";
+    if (!selected) return () => { alive = false; };
+    if (cached) {
+      publishCached(cached);
+      return () => { alive = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+    }
     const load = async () => {
       const metadataResponse = await apiFetch(`/api/versions/${selected}?metadata=1`);
       const metadata = await readJsonResponse(metadataResponse, `/api/versions/${selected}?metadata=1`);
@@ -2658,15 +2690,19 @@ export function Documents({
         const response = await apiFetch(`/api/versions/${selected}/preview-data`);
         const value = await readJsonResponse(response, `/api/versions/${selected}/preview-data`);
         const bytes = Uint8Array.from(atob(value.contentBase64), (c) => c.charCodeAt(0));
-        setView({ kind: "pdf", bytes, mime: "application/pdf" });
+        const entry = { kind: "pdf", bytes, mime: "application/pdf" } satisfies DocumentViewCacheEntry;
+        documentViewCache.update(selected, () => entry);
+        setView(entry);
         return;
       }
       if (name.endsWith(".html") || name.endsWith(".htm")) {
-        setView({
+        const entry = {
           kind: "html",
           mime: String(metadata.mime || "text/html"),
           byteSize: Number(metadata.byte_size) || 0,
-        });
+        } satisfies DocumentViewCacheEntry;
+        documentViewCache.update(selected, () => entry);
+        setView(entry);
         return;
       }
       const imageMime: Record<string, string> = {
@@ -2691,26 +2727,34 @@ export function Documents({
         if (!alive) return;
         const bytes = Uint8Array.from(atob(v.contentBase64), (c) => c.charCodeAt(0));
         if (imageMime[extension]) {
-          objectUrl = URL.createObjectURL(new Blob([bytes], { type: imageMime[extension] }));
-          setView({ kind: "image", url: objectUrl, mime: imageMime[extension] });
-        } else if (name.endsWith(".docx")) setView({ kind: "docx", bytes, mime: v.mime });
-        else if (name.endsWith(".xlsx") || name.endsWith(".csv")) setView({ kind: "xlsx", bytes, mime: v.mime });
-        else setView({ kind: "pptx", bytes, mime: v.mime });
+          const entry = { kind: "image", bytes, mime: imageMime[extension] } satisfies DocumentViewCacheEntry;
+          documentViewCache.update(selected, () => entry);
+          publishCached(entry);
+        } else {
+          const kind = name.endsWith(".docx") ? "docx" : name.endsWith(".xlsx") || name.endsWith(".csv") ? "xlsx" : "pptx";
+          const entry = { kind, bytes, mime: String(v.mime || mime || "application/octet-stream") } satisfies DocumentViewCacheEntry;
+          documentViewCache.update(selected, () => entry);
+          setView(entry);
+        }
         return;
       }
       if (mime.startsWith("text/") || TEXT_PREVIEW_NAME.test(name)) {
         const loaded = await readVersionText(selected, Number(metadata.byte_size) || 0);
         if (!alive) return;
-        setView({
+        const entry = {
           kind: name.endsWith(".md") || name.endsWith(".markdown") ? "markdown" : "text",
           text: loaded.text,
           mime: mime || "text/plain",
           truncated: loaded.truncated,
           byteSize: loaded.byteSize,
-        });
+        } satisfies DocumentViewCacheEntry;
+        documentViewCache.update(selected, () => entry);
+        setView(entry);
         return;
       }
-      setView({ kind: "download", mime: mime || "application/octet-stream" });
+      const entry = { kind: "download", mime: mime || "application/octet-stream" } satisfies DocumentViewCacheEntry;
+      documentViewCache.update(selected, () => entry);
+      setView(entry);
     };
     load().catch((e) => { if (alive) setError(e.message); });
     return () => { alive = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
@@ -2719,9 +2763,19 @@ export function Documents({
     const htmlDocumentMode = activeTool === "files";
     if (!selected || view?.kind !== "html" || (!htmlDocumentMode && previewMode !== "text") || view.text != null) return;
     let alive = true;
+    const cached = documentViewCache.get(selected);
+    if (cached?.kind === "html" && cached.text != null) {
+      setView((previous) => (previous?.kind === "html"
+        ? { ...previous, text: cached.text, truncated: cached.truncated, byteSize: cached.byteSize }
+        : previous));
+      return () => { alive = false; };
+    }
     const loadSource = async () => {
       const loaded = await readVersionText(selected, view.byteSize || 0);
       if (alive) {
+        documentViewCache.update(selected, (previous) => previous?.kind === "html"
+          ? { ...previous, text: loaded.text, truncated: loaded.truncated, byteSize: loaded.byteSize }
+          : previous || { kind: "html", mime: view.mime, text: loaded.text, truncated: loaded.truncated, byteSize: loaded.byteSize });
         setView((previous) => (previous?.kind === "html"
           ? { ...previous, text: loaded.text, truncated: loaded.truncated, byteSize: loaded.byteSize }
           : previous));

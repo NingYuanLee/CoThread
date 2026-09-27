@@ -1,6 +1,7 @@
 import mysql from "mysql2/promise";
 import { readFile } from "node:fs/promises";
 import { recordQuery } from "./request-timing.js";
+import { resolveConfiguredDatabaseUrl } from "./database-policy.js";
 
 const RETRYABLE_DB_ERRORS = new Set([
   "ETIMEDOUT",
@@ -10,7 +11,7 @@ const RETRYABLE_DB_ERRORS = new Set([
   "PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR",
 ]);
 
-export async function createDatabase(url = process.env.DATABASE_URL, options = {}) {
+export async function createDatabase(url = resolveConfiguredDatabaseUrl(), options = {}) {
   if (!url) throw new Error("DATABASE_URL 未配置，请先运行 npm run setup");
   const parsed = new URL(url);
   const ssl =

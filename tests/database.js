@@ -1,6 +1,7 @@
 import mysql from "mysql2/promise";
 import { readFile } from "node:fs/promises";
 import { createDatabase } from "../server/db.js";
+import { resolveConfiguredTestDatabaseUrl } from "../server/database-policy.js";
 import { migrate } from "../scripts/migrate.js";
 
 function quoteIdentifier(value) {
@@ -16,6 +17,8 @@ async function resetSchema(connection, name) {
       [name],
     );
     for (const object of objects) {
+      // 归属地离线库体积大、与业务无关；同实例复用，避免每次集成测试清空重导。
+      if (object.TABLE_NAME === "ip_geolocations") continue;
       const kind = object.TABLE_TYPE === "VIEW" ? "VIEW" : "TABLE";
       await connection.query(`DROP ${kind} IF EXISTS ${quoteIdentifier(object.TABLE_NAME)}`);
     }
@@ -30,9 +33,14 @@ async function resetSchema(connection, name) {
 const PROTECTED_TEST_DATABASES = new Set(["cothread", "cothread_dev"]);
 
 export async function testDatabase() {
-  const configured = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+  let configured;
+  try {
+    configured = resolveConfiguredTestDatabaseUrl();
+  } catch {
+    configured = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+  }
   if (!configured)
-    throw new Error("集成测试需要 TEST_DATABASE_URL（推荐）或 DATABASE_URL 指向独立测试库");
+    throw new Error("集成测试需要测试库配置（TEST_DATABASE_HOST_*/dbname 与 TEST_DATABASE_AUTH）");
   const source = new URL(configured);
   const sourceDatabase = source.pathname.slice(1);
   if (PROTECTED_TEST_DATABASES.has(sourceDatabase.toLowerCase()))

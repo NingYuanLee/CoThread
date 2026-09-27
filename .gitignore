@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-connector/
+.code_deploy/
 .env
 .env.*
 !.env.example

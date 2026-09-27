@@ -74,8 +74,6 @@ export async function runMakersThread(db, user, threadId, command, operations = 
 
 export function validateMakersOrigin(request) {
   const origin = request.headers.get("origin");
-  const allowed = process.env.APP_ORIGIN
-    ? [process.env.APP_ORIGIN]
-    : ["http://cothread.z2l.top", "https://cothread.z2l.top"];
+  const allowed = ["http://cothread.z2l.top", "https://cothread.z2l.top"];
   if (origin && !allowed.includes(origin)) throw new HttpError(403, "请求来源不受信任");
 }

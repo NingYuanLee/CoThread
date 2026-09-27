@@ -8,11 +8,11 @@ Makers 生成的 Node 入口会在请求处理器内重新执行应用模块（�
 
 ## 配置与数据库
 
-平台后端配置 `DATABASE_URL`，以及 `KNOWLEDGE_MODEL_*`、`COORDINATOR_MODEL_*`、`EXECUTOR_MODEL_*` 三套模型变量、`CREDENTIAL_ENCRYPTION_KEY` 和随机生成的 `MEMORY_MAINTENANCE_TOKEN`，按数据库要求设置 `DATABASE_SSL` 等连接选项。Makers 原生沙箱由请求上下文注入，不需要额外沙箱服务密钥。每套模型均包含请求地址、Key 和可附带推理强度的模型字段，使用 OpenAI Responses 兼容服务。`CREDENTIAL_ENCRYPTION_KEY` 沿用本地 `.env` 的原值，不能重新生成，否则旧账号令牌无法解密。真实 `.env`、`.local` 和 `.edgeone` 均不提交。已有账号沿用 MySQL，部署不会重置密码。
+平台后端配置数据库地址与账号，以及 `KNOWLEDGE_MODEL_*`、`COORDINATOR_MODEL_*`、`EXECUTOR_MODEL_*` 三套模型变量、人工配置并长期固定的 `CREDENTIAL_ENCRYPTION_KEY` 与 `MEMORY_MAINTENANCE_TOKEN`。监听地址、端口、站点 Origin、Cookie Secure 已在代码写死。Makers 原生沙箱由请求上下文注入，不需要额外沙箱服务密钥。每套模型均包含请求地址、Key 和可附带推理强度的模型字段，使用 OpenAI Responses 兼容服务。`CREDENTIAL_ENCRYPTION_KEY` 须与现网一致，不能重新生成，否则旧账号令牌无法解密。真实 `.env`、`.local` 和 `.edgeone` 均不提交。已有账号沿用 MySQL，部署不会重置密码。
 
 本地执行器由系统外部渠道分发。首次运行通过 Makers 网页登录授权，随后由本地执行器读取账号项目列表；本地仓库路径、项目开关、推送权限和开机启动设置不上传。Makers 只保存设备、授权、项目级连接权限和任务状态，不保存本地执行器安装包，也不提供版本发布、下载或自动更新能力。
 
-后端首次启动会在数据库迁移锁保护下应用未执行的迁移。数据库账号需要相应建表权限，数据库网络也需允许平台访问。部署主域名默认接受 `http://cothread.z2l.top` 和 `https://cothread.z2l.top`；换域名或使用预览域名时，用 `APP_ORIGIN` 指定完整源地址。HTTPS 请求自动设置 Secure Cookie。
+后端首次启动会在数据库迁移锁保护下应用未执行的迁移。数据库账号需要相应建表权限，数据库网络也需允许平台访问。部署主域名接受 `http://cothread.z2l.top` 和 `https://cothread.z2l.top`（本机另接受 `localhost:3100`）。HTTPS 请求自动设置 Secure Cookie。
 
 迁移和运行时资源兼容当前工作目录及 Agent bundle 旁的 `included_files` 布局。初始化失败时，API、Agent 和 MCP 返回固定的 `INIT_*` 错误代号，用于区分密钥配置、资源缺失、数据库连接或迁移失败；不返回原始 SQL、环境变量、路径和异常堆栈。
 
@@ -51,7 +51,7 @@ Agent 启动器由 Makers 生成，目前引用 OpenTelemetry 1.x 的 `Resource`
 
 本地普通 `npm run dev` 拆成三个内部端口：浏览器仍打开 `PORT`（默认 3100）上的开发网关；API 与后台执行器在 `API_PORT`（默认 3101）；Vite/HMR 在 `VITE_PORT`（默认 3102）。网关把 `/api`、`/mcp` 转到 API，其余转到 Vite。再次启动会先停止占用这些端口的本项目旧进程。`DATABASE_URL` 指向 `127.0.0.1:3307` 时会拉起便携版 MySQL，API 启动时迁移数据库（与 Makers 冷启动相同）。Makers CLI 调试时会为前端追加 `--port` 参数，只启动 Vite；云函数及 Agent 由 CLI 单独托管。`edgeone makers link` 会同步平台环境变量到本地 `.env`，操作前注意保留本地配置。禁止本地常驻 worker 和 Makers 同时处理同一业务数据库，测试使用独立数据库。
 
-本机 `npm run dev` / 监听 `127.0.0.1` 的 `npm start` 默认拒绝连接远端数据库。`edgeone makers link` 若把生产 `DATABASE_URL` 写入本地 `.env`，启动会失败而不是迁生产库。确需本机连接远端时设置 `COTHREAD_ALLOW_REMOTE_DB=1`，并确认没有其他执行器同时处理该库。云端常驻部署设置 `HOST=0.0.0.0` 后使用 `npm start` 可连接 RDS。只更新工作区文件不会更新已运行的 Node 进程，需要停止旧服务。
+默认监听 `0.0.0.0`，可连接 RDS；仅在强制 loopback 监听时才会拒绝远端库。确认没有其他执行器同时处理同一库。只更新工作区文件不会更新已运行的 Node 进程，需要停止旧服务。
 
 ## 任务唤醒与轮询
 

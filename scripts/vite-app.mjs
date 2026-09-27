@@ -2,17 +2,17 @@ import { createServer } from "vite";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { resolveDevPorts } from "./dev-runtime.js";
+import { LISTEN_HOST } from "../server/runtime-config.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const { uiPort, vitePort } = resolveDevPorts(process.env);
-const host = process.env.HOST || "127.0.0.1";
 
 const server = await createServer({
   configFile: resolve(projectRoot, "vite.config.mjs"),
   root: projectRoot,
   server: {
     port: vitePort,
-    host,
+    host: LISTEN_HOST,
     strictPort: true,
     hmr: { host: "127.0.0.1", clientPort: uiPort },
   },

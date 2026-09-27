@@ -46,6 +46,7 @@ import {
   deleteProjectGitRemote, listPlatformRepositories, listProjectCodeConfig,
   revealProjectCodeConnectorToken, syncPlatformScope, upsertProjectCodeConnector,
 } from "./project-code-sources.js";
+import { appOrigins, isProductionProcess, requestIsHttps } from "./runtime-config.js";
 
 export function createApp(db, { makers = false, afterMcpMessage, executeRun, stopAgent = async () => {},
   sendVerificationEmail = deliverVerificationEmail,
@@ -54,27 +55,13 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
   const service = new Service(db);
   app.disable("x-powered-by");
   app.use(requestTiming);
-  const origins = (() => {
-    if (process.env.APP_ORIGIN) {
-      const list = [process.env.APP_ORIGIN];
-      if (!makers) {
-        for (const local of ["http://127.0.0.1:3100", "http://localhost:3100"]) {
-          if (!list.includes(local)) list.push(local);
-        }
-      }
-      return list;
-    }
-    return makers
-      ? ["http://cothread.z2l.top", "https://cothread.z2l.top"]
-      : ["http://127.0.0.1:3100", "http://localhost:3100"];
-  })();
-  if (makers) app.set("trust proxy", 1);
+  const origins = appOrigins({ makers });
+  app.set("trust proxy", 1);
   const attempts = new Map();
   const emailAttempts = new Map();
   const humanChallengeAttempts = new Map();
-  const secure = process.env.COOKIE_SECURE === "true";
   const sessionCookie = (token, req) =>
-    `cothread_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${token ? 604800 : 0}${secure || (makers && req?.secure) ? "; Secure" : ""}`;
+    `cothread_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${token ? 604800 : 0}${requestIsHttps(req) ? "; Secure" : ""}`;
   const appendCookie = (res, value, first = false) => {
     const current = res.getHeader("Set-Cookie");
     const values = current ? (Array.isArray(current) ? current : [current]) : [];
@@ -86,7 +73,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     let id = cookieValue(req, "cothread_browser");
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id || "")) {
       id = randomUUID();
-      appendCookie(res, `cothread_browser=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${secure || (makers && req?.secure) ? "; Secure" : ""}`);
+      appendCookie(res, `cothread_browser=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${requestIsHttps(req) ? "; Secure" : ""}`);
     }
     return digest(id);
   };
@@ -155,7 +142,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
       await query(db, "DELETE FROM email_challenges WHERE id=?", [challengeId]);
       throw new HttpError(503, error instanceof Error ? error.message : "验证码发送失败");
     }
-    const localDev = !makers && ["127.0.0.1", "localhost", "::1"].includes(process.env.HOST || "127.0.0.1");
+    const localDev = !makers && !isProductionProcess();
     if (localDev) console.log(`本机验证码 [${purpose}] ${address}: ${code}`);
     return {
       challengeId, expiresIn: 600, resendAfter: 60, deliveryStatus: "accepted",
@@ -321,7 +308,7 @@ export function createApp(db, { makers = false, afterMcpMessage, executeRun, sto
     ]);
     const failureReason = rateLimited ? "登录尝试过多" : !user ? "账号不存在" : user.disabled_at ? "账号已停用"
       : !(await verifyPassword(data.password, user.password_hash)) ? "密码错误" : null;
-    const location = await resolveIpLocation(req.ip);
+    const location = await resolveIpLocation(db, req.ip);
     await query(db, `INSERT INTO login_logs(id,user_id,email,ip,country,province,city,district,success,failure_reason)
       VALUES(?,?,?,?,?,?,?,?,?,?)`, [randomUUID(), user?.id || null, data.identifier, location.ip, location.country,
       location.province, location.city, location.district, !failureReason, failureReason]);

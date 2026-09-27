@@ -12,7 +12,7 @@ const compatibilityNodeVersion = "v22.23.2";
 const compatibilityNodeSha256 = "0d0f5e39f9f3d9587bc19f73eab3c2c9c4903fd02d6dbf9c853dd81b3d95fad4";
 const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
 const version = pkg.version;
-const server = process.env.CONNECTOR_SERVER_URL || "https://cothread.z2l.top";
+const server = "https://cothread.z2l.top";
 const guiScript = (await readFile(join(root, "connector", "gui.ps1"))).toString("base64");
 const hashFile = async (file) => createHash("sha256").update(await readFile(file)).digest("hex");
 async function compatibilityNode() {

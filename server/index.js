@@ -7,10 +7,11 @@ import { createApp } from "./app.js";
 import { startReplyWorker } from "./replies.js";
 import { migrate } from "../scripts/migrate.js";
 import { DatabasePolicyError, resolveDatabasePolicy } from "./database-policy.js";
+import { APP_ORIGIN, LISTEN_HOST, LISTEN_PORT, isProductionProcess } from "./runtime-config.js";
 
-const production = process.argv.includes("--production");
+const production = isProductionProcess();
 const apiOnly = process.argv.includes("--api-only");
-const listenHost = process.env.HOST || "127.0.0.1";
+const listenHost = LISTEN_HOST;
 let databaseUrl;
 try {
   ({ url: databaseUrl } = resolveDatabasePolicy({ production, host: listenHost }));
@@ -33,8 +34,8 @@ if (process.platform === "win32") {
   if (!bash)
     console.warn("未找到 Git Bash。本机沙箱执行命令会失败，请安装 Git for Windows 或设置 GIT_BASH_PATH。");
 }
-const db = await createDatabase(undefined, { connectionLimit: 8 });
-const workDb = await createDatabase(undefined, { connectionLimit: 16 });
+const db = await createDatabase(databaseUrl.href, { connectionLimit: 8 });
+const workDb = await createDatabase(databaseUrl.href, { connectionLimit: 16 });
 await query(db, "SELECT 1");
 await migrate(db, undefined, { seedAdmin: true });
 const app = createApp(db);
@@ -87,14 +88,15 @@ if (production) {
 } else {
   server = createHttpServer(app);
 }
-const port = Number(process.env.PORT || 3100);
+// npm run dev 会注入 PORT=API_PORT；对外默认 3100，不必写进 .env。
+const port = Number(process.env.PORT || LISTEN_PORT);
 const host = listenHost;
 server.listen(port, host);
 await new Promise((resolve, reject) => {
   server.once("listening", resolve);
   server.once("error", reject);
 });
-const origin = process.env.APP_ORIGIN || `http://${host}:${port}`;
+const origin = production ? APP_ORIGIN : `http://127.0.0.1:${port}`;
 const sandbox = process.env.COTHREAD_MAKERS === "true" ? "EdgeOne Makers 原生沙箱" : "本机 .local/sandboxes";
 console.log(
   apiOnly

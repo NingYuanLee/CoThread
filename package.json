@@ -25,7 +25,8 @@
     "app:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 start",
     "app:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 stop",
     "seed:preview-fixtures": "node --env-file-if-exists=.env scripts/seed-document-preview-fixtures.mjs",
-    "setup:preview-browser": "playwright install chromium"
+    "setup:preview-browser": "playwright install chromium",
+    "ipgeo:import": "node --env-file-if-exists=.env scripts/import-ip-geolocations.js"
   },
   "dependencies": {
     "@deepseek-ai/cordis-plugin-group": "1.0.2",

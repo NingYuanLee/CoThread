@@ -5,6 +5,7 @@ import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
 import { reopenConnectorTask, syncConnectorTaskById } from "./agent-task-sync.js";
 import { mentionTaskSourceNotice } from "./task-source-notice.js";
+import { APP_ORIGIN } from "./runtime-config.js";
 
 const pairingCode = () => randomBytes(9).toString("base64url").toUpperCase();
 const bearer = (req) => req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
@@ -106,8 +107,7 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
     await query(db, `INSERT INTO connector_authorizations(id,poll_token_hash,device_id,name,platform,version,expires_at)
       VALUES(?,?,?,?,?,?,FROM_UNIXTIME(UNIX_TIMESTAMP()+600))`,
     [id, digest(pollToken), data.deviceId || null, data.name, data.platform, data.version]);
-    const origin = process.env.APP_ORIGIN || `${req.protocol}://${req.get("host")}`;
-    const verificationUrl = new URL("/", origin);
+    const verificationUrl = new URL("/", APP_ORIGIN);
     verificationUrl.searchParams.set("connectorAuthorization", id);
     res.status(201).json({ protocol: 2, delivery: "localhost", id, pollToken,
       verificationUrl: verificationUrl.toString(), expiresIn: 600 });

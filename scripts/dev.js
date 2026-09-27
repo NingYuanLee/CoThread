@@ -21,6 +21,7 @@ import {
   writeDevPids,
   openDevBrowser,
 } from "./dev-runtime.js";
+import { LISTEN_HOST } from "../server/runtime-config.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -71,7 +72,7 @@ if (portIndex >= 0) {
     uiPort,
     apiPort,
     vitePort,
-    host: process.env.HOST || "127.0.0.1",
+    host: LISTEN_HOST,
   });
   logToConsole("本项目开发服务已停止；MySQL 保持运行。");
 } else {
@@ -81,7 +82,7 @@ if (portIndex >= 0) {
     process.exit(1);
   }
   try {
-    resolveDatabasePolicy({ host: process.env.HOST || "127.0.0.1" });
+    resolveDatabasePolicy({ host: LISTEN_HOST });
   } catch (error) {
     if (error instanceof DatabasePolicyError) {
       logToConsole(error.message, { level: "error" });
@@ -90,7 +91,7 @@ if (portIndex >= 0) {
     throw error;
   }
   const { uiPort, apiPort, vitePort } = resolveDevPorts(process.env);
-  const host = process.env.HOST || "127.0.0.1";
+  const host = LISTEN_HOST;
   const progress = createDevProgress({ banner: true });
   bindConsoleToProgress(progress);
   progress.set(4, "停止旧进程");
@@ -121,7 +122,6 @@ if (portIndex >= 0) {
 
   const childEnv = {
     ...process.env,
-    HOST: host,
     NO_PROXY: [process.env.NO_PROXY, "127.0.0.1", "localhost", "::1"].filter(Boolean).join(","),
   };
   progress.set(16, "启动 API 与 Vite");

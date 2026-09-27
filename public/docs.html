@@ -217,7 +217,7 @@
 npm run setup
 npm run dev</pre>
     <p>之后日常只需 <code>npm run dev</code>。打开 <a href="http://localhost:3100">http://localhost:3100</a>。首次 setup 把初始账号写进 <code>.local/initial-admin.json</code> 和 <code>.local/登录信息.txt</code>。登录可用账号名或已绑定邮箱。</p>
-    <p>开发网关默认在 <code>3100</code>：<code>/api</code> 与 <code>/mcp</code> 转到 API（<code>3101</code>），其余转到 Vite（<code>3102</code>）。本机默认拒绝连接远端数据库；确需连接时设 <code>COTHREAD_ALLOW_REMOTE_DB=1</code>。</p>
+    <p>开发网关默认在 <code>3100</code>：<code>/api</code> 与 <code>/mcp</code> 转到 API（<code>3101</code>），其余转到 Vite（<code>3102</code>）。默认监听 <code>0.0.0.0</code> 时可连 RDS；仅强制 loopback 监听时才会拒绝远端库，确需覆盖时设 <code>COTHREAD_ALLOW_REMOTE_DB=1</code>。</p>
 
     <h2 id="model">公司 · 项目 · 迭代 · 任务</h2>
     <p>一次部署对应一家公司：服务独立、MySQL 隔离。公司之内是项目管理，项目之内是迭代，迭代之内是任务。</p>
@@ -307,8 +307,8 @@ npm run dev</pre>
     <p>首次连接先调用 <code>get_connection_guide</code>。无需安装 SKILL。完整协议在 initialize instructions 与该工具返回中。</p>
 
     <h3 id="mcp-tools">工具清单</h3>
-    <p>只读：<code>get_connection_guide</code>、<code>list_projects</code>、<code>get_project_context</code>、<code>get_member</code>、<code>list_documents</code>、<code>list_document_changes</code>、<code>get_document_version</code>、<code>get_iteration_context</code>、<code>list_messages</code>、<code>read_message</code>、<code>list_tasks</code>、<code>get_task</code>。</p>
-    <p>写入：<code>manage_document</code>、<code>manage_folder</code>、<code>upload_official_file</code>、<code>start_file_upload</code>、<code>upload_file_chunk</code>、<code>complete_file_upload</code>、<code>upload_cache_draft</code>、<code>post_message</code>、<code>accept_task</code>、<code>reject_task</code>、<code>update_task</code>。</p>
+    <p>只读：<code>get_connection_guide</code>、<code>list_projects</code>、<code>get_project_context</code>、<code>get_member</code>、<code>list_documents</code>、<code>list_document_changes</code>、<code>get_document_version</code>、<code>get_iteration_context</code>、<code>list_messages</code>、<code>read_message</code>、<code>list_tasks</code>、<code>get_task</code>、<code>get_l1_status</code>、<code>list_l1_runs</code>、<code>list_l1_document_queue</code>、<code>get_l1_logs</code>。</p>
+    <p>写入：<code>manage_document</code>、<code>manage_folder</code>、<code>upload_official_file</code>、<code>start_file_upload</code>、<code>upload_file_chunk</code>、<code>complete_file_upload</code>、<code>upload_cache_draft</code>、<code>post_message</code>、<code>accept_task</code>、<code>reject_task</code>、<code>update_task</code>、<code>retry_l1_task</code>。</p>
     <p>只有 <code>post_message</code> 会发群聊。上传、改文档、改任务默认不自动发言。创建任务、转交、审批、归档不通过普通 MCP。只读成员不能上传或发言；归档迭代不能改。</p>
 
     <h2 id="connector">本地执行器</h2>
@@ -326,19 +326,19 @@ npm run dev</pre>
 npm run dev:stop      # 停开发网关 / API / Vite；MySQL 保持运行
 npm run build
 npm start             # 生产静态页 + API
-npm test              # 必须独立 TEST_DATABASE_URL，禁止清日常库
+npm test              # 须独立测试库（TEST_DATABASE_HOST_* + TEST_DATABASE_AUTH），禁止清日常库
 npm run db:backup
 npm run db:restore-check</pre>
-    <p><code>npm test</code> 会清空目标库全部表后重新迁移，绝不能指向生产库或正在用的开发库 <code>cothread</code> / <code>cothread_dev</code>。</p>
+    <p><code>npm test</code> 会清空目标库全部表后重新迁移，绝不能指向生产库或正在用的开发库 <code>cothread</code> / <code>cothread_dev</code>。本机可在同一台 3307 上另开 <code>cothread_test</code>。</p>
     <p>也可用 <code>compose.yaml</code> 跑官方 <code>mysql:8.4.9</code>。不要同时让 Docker 与便携版 MySQL 占用 3307。</p>
 
     <h3 id="deploy-server">服务器 / 容器</h3>
     <ol>
       <li>MySQL 8.4，导入完整备份（含附件）或空库迁移。</li>
-      <li><code>DATABASE_URL</code>；TLS 时 <code>DATABASE_SSL=true</code>。</li>
-      <li><code>HOST=0.0.0.0</code>、HTTPS <code>APP_ORIGIN</code>、<code>COOKIE_SECURE=true</code>。</li>
-      <li>保留 <code>CREDENTIAL_ENCRYPTION_KEY</code>，与库备份分开保管。</li>
-      <li><code>npm ci && npm run build</code>，单实例 <code>npm start</code>。</li>
+      <li>配置 <code>DATABASE_HOST_INTERNAL</code> / <code>DATABASE_HOST_PUBLIC</code>（<code>host:port/dbname</code>）与 <code>DATABASE_AUTH</code>（<code>user:password</code>）；可选遗留整段 <code>DATABASE_URL</code>。TLS 时 <code>DATABASE_SSL=true</code>。</li>
+      <li>测试库同样用 <code>TEST_DATABASE_HOST_*</code> + <code>TEST_DATABASE_AUTH</code>，库名须含独立单词 <code>dev</code> 或 <code>test</code>。</li>
+      <li>监听、站点与 Secure Cookie 已在代码写死；保留 <code>CREDENTIAL_ENCRYPTION_KEY</code>，与库备份分开保管。</li>
+      <li><code>npm ci && npm run build</code>，单实例 <code>npm start</code>。ECS 探活通过后再切 <code>current</code>，见仓库 <code>docs/cloud-environment.md</code>。</li>
     </ol>
     <p>当前仅支持单服务实例。权威会话快照在 MySQL；<code>.local/agents</code> 需可写缓存。</p>
 

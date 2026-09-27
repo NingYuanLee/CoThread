@@ -147,8 +147,15 @@ test(
       const restored = await request("context");
       assert.equal(restored.used, compacted.used);
       assert.equal(restored.compactions, 1);
+      const isolatedId = randomUUID();
+      // New probe sessions are opened via observe (create); bare context on an
+      // unknown id stays rejected so torn-down L3 meters are not overwritten.
+      await harness.client.request("cothread/observe", {
+        sessionId: isolatedId,
+        messages: [],
+      });
       const isolated = await harness.client.request("cothread/context", {
-        sessionId: randomUUID(),
+        sessionId: isolatedId,
       });
       assert.equal(isolated.used, 0);
 

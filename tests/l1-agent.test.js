@@ -7,7 +7,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { runL1Task } from "../server/l1-agent.js";
-import { processNextProjectMemory, queueL1MemoryRun } from "../server/project-memory.js";
+import { processNextProjectMemory } from "../server/project-memory.js";
 import { processNextL1ContextCompression, queueL1ContextCompression, readL1TaskSession } from "../server/l1-context.js";
 
 test("L1 keeps a durable DSH session per maintenance agent and validates structured output", async () => {
@@ -143,7 +143,10 @@ test("iteration archive reuses one L1 session per project and updates project lo
     const stored = await service.project(user, project.id);
     assert.equal(stored.longTermSummary.summary, "项目总结：方案 A 已上线，下一步做推广");
     assert.equal(stored.longTermSummary.lastThreadTitle, "第二轮");
-    await queueL1MemoryRun(service, user, { projectId: project.id, task: "iteration_archive", threadId: first.id });
+    // 直接排队，避免 queueL1MemoryRun 同步 kick 真实维护把 mock harness 绕开。
+    await query(database.db, `INSERT INTO agent_l1_runs(id,project_id,thread_id,task,trigger_source,requested_by,status)
+      VALUES(?,?,?,'iteration_archive','user',?,'queued')`,
+      [randomUUID(), project.id, first.id, user.id]);
     assert.equal(await processNextProjectMemory(database.db, { projectId: project.id, task: "iteration_archive", l1Options }), true);
     assert.equal(sessionIds.length, 3);
     assert.equal(sessionIds[0], sessionIds[1]);

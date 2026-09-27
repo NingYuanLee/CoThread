@@ -41,9 +41,9 @@ L2 一轮结束后停住进程内 AgentTeam：有在跑的 L3 时保持 harness�
 
 本机官方 MySQL 8.4.9 监听 127.0.0.1:3307，数据在 .local/mysql-data，不能当作临时缓存删除。完整备份需包含 versions.content、agent_sessions.checkpoint 和工具事件。
 
-npm run db:backup 导出完整数据库；npm run db:restore-check 在随机独立数据库中恢复，比较业务表数量、文件 SHA-256 和会话快照哈希，再清理演练库。npm test 使用 `TEST_DATABASE_URL`（或回退 `DATABASE_URL`），但禁止清库日常开发库 `cothread` / `cothread_dev`；测试持有命名锁后清空表并重新迁移，绝不能使用生产库或日常开发库。本机可在同一台 3307 上另开 `cothread_test`。
+npm run db:backup 导出完整数据库；npm run db:restore-check 在随机独立数据库中恢复，比较业务表数量、文件 SHA-256 和会话快照哈希，再清理演练库。npm test 使用 `TEST_DATABASE_HOST_*` + `TEST_DATABASE_AUTH`（或遗留 `TEST_DATABASE_URL` / `DATABASE_URL`），但禁止清库日常开发库 `cothread` / `cothread_dev`；测试持有命名锁后清空表并重新迁移，绝不能使用生产库或日常开发库。本机可在同一台 3307 上另开 `cothread_test`。
 
-云迁移应先导入数据库，再修改 DATABASE_URL。数据库 TLS 验证证书；公网入口需 HTTPS，正确 APP_ORIGIN 与安全 Cookie。应用缓存目录应可写。当前仅支持单服务实例，扩容前需要独立队列和任务租约。
+云迁移应先导入数据库，再配置 `DATABASE_HOST_*` / `DATABASE_AUTH`（或修改遗留 `DATABASE_URL`）。数据库 TLS 验证证书；公网入口需 HTTPS。应用缓存目录应可写。当前仅支持单服务实例，扩容前需要独立队列和任务租约。
 
 ## 实际验收
 

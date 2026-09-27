@@ -169,10 +169,12 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
   }
   // context/history for an unknown id must not invent an empty session — that
   // overwrites L3 run meters with used:0 after the live child has torn down.
+  // Exception: the harness primary resume id must reach createSession → agents.resume.
   if ((method === "cothread/context" || method === "cothread/history")
     && params?.sessionId
     && !this.sessions?.get(params.sessionId)
-    && !this.sessionCreations?.get(params.sessionId)) {
+    && !this.sessionCreations?.get(params.sessionId)
+    && params.sessionId !== process.env.COTHREAD_RESUME_SESSION) {
     throw new Error(`Agent session not found: ${params.sessionId}`);
   }
   const record = await this.getOrCreateSession(params.sessionId);

@@ -1226,7 +1226,7 @@ export class Service {
         [threadId, projectId, data.title, user.id]);
       await this.createIterationFolders(db, projectId, threadId, data.title);
     });
-    return { id: threadId, ...data };
+    return { id: threadId, project_id: projectId, ...data };
   }
   async context(user, threadId, db = this.db, { display = false, limit = 50, before, after } = {}) {
     const thread = await this.thread(user, threadId, false, db, { display });
@@ -2031,7 +2031,19 @@ export class Service {
     }
     if (source.saved_official_artifact_id) {
       const updated = await this.updateLinkedOfficialFromSource(db, user, projectId, versionId);
-      if (updated) return updated;
+      if (updated) {
+        if (givenTitle) {
+          const [officialRow] = await query(db,
+            "SELECT folder_id FROM artifacts WHERE id=? AND project_id=?",
+            [updated.artifactId, projectId]);
+          const nextTitle = await uniqueArtifactTitle(
+            db, projectId, officialRow?.folder_id || null, givenTitle, updated.artifactId, source.filename);
+          await query(db, "UPDATE artifacts SET title=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?",
+            [nextTitle, updated.artifactId]);
+          return { ...updated, title: nextTitle };
+        }
+        return updated;
+      }
     }
     const official = await this.documentFolder(db, projectId, "project_official");
     const copiedTitle = await uniqueArtifactTitle(db, projectId, official.id, givenTitle

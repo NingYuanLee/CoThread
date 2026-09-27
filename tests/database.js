@@ -45,7 +45,7 @@ export async function testDatabase() {
   const sourceDatabase = source.pathname.slice(1);
   if (PROTECTED_TEST_DATABASES.has(sourceDatabase.toLowerCase()))
     throw new Error(
-      `集成测试不能清库 ${sourceDatabase}（日常开发库）。请配置 TEST_DATABASE_URL 指向独立测试库，例如 127.0.0.1:3307/cothread_test。`,
+      `集成测试不能清库 ${sourceDatabase}（日常开发库）。请配置 TEST_DATABASE_HOST_* + TEST_DATABASE_AUTH 指向独立测试库，例如 127.0.0.1:3307/cothread_test。`,
     );
   if (!/(?:^|_)(?:dev|test)(?:_|$)/i.test(sourceDatabase))
     throw new Error("集成测试数据库名称必须包含独立单词 dev 或 test");

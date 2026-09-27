@@ -102,7 +102,8 @@ test("task controls follow the interactive session lifecycle instead of process 
   assert.match(main, /command\.type === "discardWorktree"/);
   assert.match(main, /command\.type === "failTask"/);
   assert.match(main, /status: "completed", output: output\.slice\(0, 1000000\), diff/);
-  assert.match(main, /"start", `CoThread 任务 - \$\{agentLabel\(kind\)\}`, "\/wait"/);
+  assert.match(main, /title = `CoThread 任务 - \$\{agentLabel\(kind\)\}`/);
+  assert.match(main, /"start", title, "\/wait"/);
   assert.match(main, /entry\.state = "paused";/);
   assert.match(main, /const PAUSED_PROGRESS = "本机会话已关闭，可继续或结案"/);
   assert.match(main, /currentOperation = \{ type: command\.type, taskId: String\(payload\.taskId\)/);

@@ -1,5 +1,5 @@
 import mysql from "mysql2/promise";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { createDatabase } from "../server/db.js";
 import { resolveConfiguredTestDatabaseUrl } from "../server/database-policy.js";
 import { migrate } from "../scripts/migrate.js";
@@ -30,9 +30,43 @@ async function resetSchema(connection, name) {
   }
 }
 
+async function resetData(connection, name) {
+  await connection.query("SET FOREIGN_KEY_CHECKS=0");
+  try {
+    const [objects] = await connection.query(
+      `SELECT TABLE_NAME,TABLE_TYPE FROM information_schema.TABLES
+       WHERE TABLE_SCHEMA=? ORDER BY TABLE_TYPE='VIEW' DESC,TABLE_NAME`,
+      [name],
+    );
+    for (const object of objects) {
+      if (
+        object.TABLE_TYPE === "VIEW" ||
+        object.TABLE_NAME === "ip_geolocations" ||
+        object.TABLE_NAME === "schema_migrations"
+      )
+        continue;
+      await connection.query(`TRUNCATE TABLE ${quoteIdentifier(object.TABLE_NAME)}`);
+    }
+    await connection.query("ALTER TABLE `users` AUTO_INCREMENT=100001");
+  } finally {
+    await connection.query("SET FOREIGN_KEY_CHECKS=1");
+  }
+}
+
 const PROTECTED_TEST_DATABASES = new Set(["cothread", "cothread_dev"]);
+const MIGRATION_NAMES = new Set(
+  (await readdir(new URL("../migrations/", import.meta.url))).filter((name) =>
+    name.endsWith(".sql"),
+  ),
+);
 
 export async function testDatabase() {
+  if (
+    String(process.env.COTHREAD_DB_TARGET || "")
+      .trim()
+      .toLowerCase() === "prod"
+  )
+    throw new Error("集成测试拒绝使用 COTHREAD_DB_TARGET=prod，请将测试目标设置为 test。");
   let configured;
   try {
     configured = resolveConfiguredTestDatabaseUrl();
@@ -50,8 +84,15 @@ export async function testDatabase() {
   if (!/(?:^|_)(?:dev|test)(?:_|$)/i.test(sourceDatabase))
     throw new Error("集成测试数据库名称必须包含独立单词 dev 或 test");
   const password = decodeURIComponent(source.password);
-  const ssl = process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: true,
-    ...(process.env.DATABASE_SSL_CA ? { ca: await readFile(process.env.DATABASE_SSL_CA, "utf8") } : {}) } : undefined;
+  const ssl =
+    process.env.DATABASE_SSL === "true"
+      ? {
+          rejectUnauthorized: true,
+          ...(process.env.DATABASE_SSL_CA
+            ? { ca: await readFile(process.env.DATABASE_SSL_CA, "utf8") }
+            : {}),
+        }
+      : undefined;
   const control = await mysql.createConnection({
     host: source.hostname,
     port: Number(source.port || 3306),
@@ -67,16 +108,33 @@ export async function testDatabase() {
     const [[lock]] = await control.query("SELECT GET_LOCK(?,120) acquired", [lockName]);
     if (Number(lock.acquired) !== 1) throw new Error("等待测试库锁超时");
     locked = true;
-    await resetSchema(control, sourceDatabase);
+    let appliedMigrations = new Set();
+    try {
+      const [rows] = await control.query("SELECT name FROM schema_migrations");
+      appliedMigrations = new Set(rows.map((row) => row.name));
+    } catch {
+      appliedMigrations = new Set();
+    }
+    const schemaIsCurrent =
+      appliedMigrations.size === MIGRATION_NAMES.size &&
+      [...MIGRATION_NAMES].every((name) => appliedMigrations.has(name));
+    if (schemaIsCurrent) await resetData(control, sourceDatabase);
+    else await resetSchema(control, sourceDatabase);
     db = await createDatabase(configured);
-    await migrate(db);
+    if (!schemaIsCurrent) await migrate(db);
     return {
       db,
       url: configured,
+      async reset() {
+        await resetData(control, sourceDatabase);
+      },
       async close() {
         await db.end();
-        try { if (locked) await control.query("SELECT RELEASE_LOCK(?)", [lockName]); }
-        finally { await control.end(); }
+        try {
+          if (locked) await control.query("SELECT RELEASE_LOCK(?)", [lockName]);
+        } finally {
+          await control.end();
+        }
       },
     };
   } catch (error) {

@@ -6,12 +6,17 @@ import { resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { randomBytes } from "node:crypto";
 import { createDatabase, query } from "../server/db.js";
+import { resolveDatabaseTarget, resolveTargetDatabaseUrl } from "../server/database-policy.js";
 // Deliberately limited to this project's local instance; production restore remains an explicit operator action.
-const url = new URL(process.env.DATABASE_URL);
+const targetName = resolveDatabaseTarget();
+const url = new URL(resolveTargetDatabaseUrl());
+console.log(
+  `恢复演练目标：${targetName} / ${url.hostname}:${url.port || "3306"}/${url.pathname.slice(1)} / 写入数据库：是（仅临时本地库）`,
+);
 if (
   url.hostname !== "127.0.0.1" ||
   url.port !== "3307" ||
-  url.pathname !== "/cothread"
+  !/^\/(?:cothread|cothread_dev)$/.test(url.pathname)
 )
   throw new Error("恢复演练仅限项目本地 MySQL");
 const ini = await readFile(".local/mysql-client.ini", "utf8");
@@ -23,11 +28,9 @@ const root = await mysql.createConnection({
   user: "root",
   password,
 });
-const db = await createDatabase();
+const db = await createDatabase(url.href);
 const target = "cothread_restore_" + randomBytes(8).toString("hex");
-const backups = (await readdir(".local/backups"))
-  .filter((x) => x.endsWith(".sql"))
-  .sort();
+const backups = (await readdir(".local/backups")).filter((x) => x.endsWith(".sql")).sort();
 if (!backups.length) throw new Error("请先运行 npm run db:backup");
 try {
   await root.query(`CREATE DATABASE \`${target}\` CHARACTER SET utf8mb4`);
@@ -43,15 +46,10 @@ try {
   child.stderr.resume();
   const done = new Promise((resolve, reject) => {
     child.on("error", reject);
-    child.on("close", (code) =>
-      code === 0 ? resolve() : reject(new Error("恢复演练导入失败")),
-    );
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error("恢复演练导入失败"))));
   });
   await Promise.all([
-    pipeline(
-      createReadStream(resolve(".local/backups", backups.at(-1))),
-      child.stdin,
-    ),
+    pipeline(createReadStream(resolve(".local/backups", backups.at(-1))), child.stdin),
     done,
   ]);
   for (const table of [
@@ -71,9 +69,7 @@ try {
     "agent_exports",
   ]) {
     const [source] = await query(db, `SELECT COUNT(*) count FROM \`${table}\``);
-    const [[restored]] = await root.query(
-      `SELECT COUNT(*) count FROM \`${target}\`.\`${table}\``,
-    );
+    const [[restored]] = await root.query(`SELECT COUNT(*) count FROM \`${target}\`.\`${table}\``);
     if (Number(source.count) !== Number(restored.count))
       throw new Error(`${table} 数量不一致，请在无写入时演练`);
   }
@@ -85,9 +81,7 @@ try {
     `SELECT COUNT(*) count FROM cothread.agent_sessions s LEFT JOIN \`${target}\`.agent_sessions r ON r.thread_id=s.thread_id WHERE NOT (SHA2(s.checkpoint,256) <=> SHA2(r.checkpoint,256))`,
   );
   if (Number(snapshots[0].count)) throw new Error("Agent 会话快照校验失败");
-  console.log(
-    "恢复演练通过：业务与 Agent 表数量一致，文件及会话快照 SHA-256 校验通过。",
-  );
+  console.log("恢复演练通过：业务与 Agent 表数量一致，文件及会话快照 SHA-256 校验通过。");
 } finally {
   // target is exclusively generated above, never supplied by the user or environment.
   await root.query(`DROP DATABASE \`${target}\``);

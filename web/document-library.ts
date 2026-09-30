@@ -1,9 +1,15 @@
-export const LIBRARY_ROOT_KINDS = ["project_official", "project_outputs", "project_cache"] as const;
+export const LIBRARY_ROOT_KINDS = [
+  "project_official",
+  "project_outputs",
+  "project_cache",
+  "project_miniprogram",
+] as const;
 
 export const LIBRARY_ROOT_LABELS: Record<(typeof LIBRARY_ROOT_KINDS)[number], string> = {
   project_official: "正式文件",
   project_outputs: "沙箱产物",
   project_cache: "对话缓存",
+  project_miniprogram: "小程序",
 };
 
 type LibraryFolderRef = {
@@ -24,11 +30,14 @@ export function libraryFolderPath(
   while (current && !seen.has(current.id)) {
     seen.add(current.id);
     const kind = current.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number] | undefined;
-    const label = !current.parent_id && kind && LIBRARY_ROOT_LABELS[kind]
-      ? LIBRARY_ROOT_LABELS[kind]
-      : current.name || current.id;
+    const label =
+      !current.parent_id && kind && LIBRARY_ROOT_LABELS[kind]
+        ? LIBRARY_ROOT_LABELS[kind]
+        : current.name || current.id;
     names.unshift(label);
-    current = current.parent_id ? folders.find((folder) => folder.id === current?.parent_id) || null : null;
+    current = current.parent_id
+      ? folders.find((folder) => folder.id === current?.parent_id) || null
+      : null;
   }
   return names.join(" / ");
 }
@@ -41,8 +50,8 @@ export function folderRootKind(
   let current = folders.find((folder) => folder.id === folderId);
   while (current) {
     if (
-      LIBRARY_ROOT_KINDS.includes(current.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number])
-      && !current.parent_id
+      LIBRARY_ROOT_KINDS.includes(current.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number]) &&
+      !current.parent_id
     )
       return current.folder_kind || null;
     if (current.folder_kind === "iteration_cache") return "project_cache";
@@ -80,13 +89,15 @@ export function folderDescendantIds(rootId: string, folders: LibraryFolderRef[])
   return ids;
 }
 
-export function latestVersionsInFolderTree<T extends {
-  id: string;
-  artifact_id: string;
-  folder_id?: string | null;
-  deleted_at?: string | null;
-  version?: number;
-}>(folderId: string, folders: LibraryFolderRef[], versions: T[]): T[] {
+export function latestVersionsInFolderTree<
+  T extends {
+    id: string;
+    artifact_id: string;
+    folder_id?: string | null;
+    deleted_at?: string | null;
+    version?: number;
+  },
+>(folderId: string, folders: LibraryFolderRef[], versions: T[]): T[] {
   const ids = folderDescendantIds(folderId, folders);
   const latest = new Map<string, T>();
   for (const item of versions) {

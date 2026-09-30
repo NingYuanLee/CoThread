@@ -30,14 +30,20 @@ try {
   // CREDENTIAL_ENCRYPTION_KEY / MEMORY_MAINTENANCE_TOKEN 须人工配置并长期固定，setup 不生成。
   const env = sample
     .replaceAll("DATABASE_AUTH=cothread:CHANGE_ME", `DATABASE_AUTH=cothread:${databasePassword}`)
-    .replaceAll("TEST_DATABASE_AUTH=cothread:CHANGE_ME", `TEST_DATABASE_AUTH=cothread:${databasePassword}`);
+    .replaceAll(
+      "TEST_DATABASE_AUTH=cothread:CHANGE_ME",
+      `TEST_DATABASE_AUTH=cothread:${databasePassword}`,
+    )
+    .replaceAll(
+      "DEV_DATABASE_AUTH=cothread:CHANGE_ME",
+      `DEV_DATABASE_AUTH=cothread:${databasePassword}`,
+    );
   await writeLocalAdminFiles({ email: "admin@cothread.local", password: adminPassword });
   const modelDefaults = {};
   for (const prefix of ["KNOWLEDGE_MODEL", "COORDINATOR_MODEL", "EXECUTOR_MODEL"]) {
     for (const field of ["BASE_URL", "API_KEY"])
-      modelDefaults[`${prefix}_${field}`] = source[`${prefix}_${field}`]
-        || source[`MODEL_${field}`]
-        || "";
+      modelDefaults[`${prefix}_${field}`] =
+        source[`${prefix}_${field}`] || source[`MODEL_${field}`] || "";
     modelDefaults[prefix] = source[prefix] || "";
   }
   const output = env
@@ -50,9 +56,7 @@ try {
     })
     .join("\n");
   await writeFile(".env", output, { flag: "wx", mode: 0o600 });
-  console.log(
-    "已生成本地配置与随机密码；可用的模型配置已从原项目复制，未输出密钥。",
-  );
+  console.log("已生成本地配置与随机密码；可用的模型配置已从原项目复制，未输出密钥。");
   console.log(
     "请人工填写并固定 CREDENTIAL_ENCRYPTION_KEY 与 MEMORY_MAINTENANCE_TOKEN 后再启动服务。",
   );

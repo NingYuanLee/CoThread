@@ -6,7 +6,26 @@ export const PROJECT_LIBRARY_ROOT_KINDS = [
   "project_official",
   "project_cache",
   "project_outputs",
+  "project_miniprogram",
 ];
+
+/**
+ * Fixed subfolders of the miniprogram workspace root. Created lazily by
+ * ensureMiniprogramWorkspace, protected from rename/move/delete, and named in
+ * this display order.
+ */
+export const MINIPROGRAM_FIXED_FOLDERS = [
+  ["小程序源文件", "miniprogram_source", "miniprogram_source"],
+  ["小程序 Web 产物", "miniprogram_web", "miniprogram_web"],
+  ["PC 管理后台", "miniprogram_admin", "miniprogram_admin"],
+  ["服务端", "miniprogram_server", "miniprogram_server"],
+];
+
+export const MINIPROGRAM_FOLDER_KINDS = MINIPROGRAM_FIXED_FOLDERS.map(([, , kind]) => kind);
+
+export function isMiniprogramFolderKind(kind) {
+  return kind === "project_miniprogram" || MINIPROGRAM_FOLDER_KINDS.includes(kind);
+}
 
 export function utcDateKey(date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -25,8 +44,16 @@ export function isOutputFolderKind(kind) {
   return kind === "project_outputs" || kind === "iteration_outputs";
 }
 
-export async function uniqueArtifactTitle(db, projectId, folderId, desired, excludeId = null, filename = null) {
-  const rows = await query(db,
+export async function uniqueArtifactTitle(
+  db,
+  projectId,
+  folderId,
+  desired,
+  excludeId = null,
+  filename = null,
+) {
+  const rows = await query(
+    db,
     `SELECT a.title, (
        SELECT v.filename FROM versions v
        LEFT JOIN version_recycle vr ON vr.version_id=v.id
@@ -37,31 +64,45 @@ export async function uniqueArtifactTitle(db, projectId, folderId, desired, excl
      FROM artifacts a
      WHERE a.project_id=? AND a.deleted_at IS NULL AND a.folder_id <=> ?
      ${excludeId ? "AND a.id<>?" : ""}`,
-    [projectId, folderId, ...(excludeId ? [excludeId] : [])]);
+    [projectId, folderId, ...(excludeId ? [excludeId] : [])],
+  );
   let matchFilename = filename;
   if (matchFilename == null && excludeId) {
-    const [self] = await query(db,
+    const [self] = await query(
+      db,
       `SELECT v.filename FROM versions v
        LEFT JOIN version_recycle vr ON vr.version_id=v.id
        WHERE v.artifact_id=? AND vr.version_id IS NULL
        ORDER BY v.version DESC, v.created_at DESC, v.id DESC
        LIMIT 1`,
-      [excludeId]);
+      [excludeId],
+    );
     matchFilename = self?.filename || null;
   }
   return uniqueDisplayTitle(desired, matchFilename, rows);
 }
 
-export async function uniqueVersionFilename(db, projectId, folderId, desired, excludeArtifactId = null) {
-  const rows = await query(db,
+export async function uniqueVersionFilename(
+  db,
+  projectId,
+  folderId,
+  desired,
+  excludeArtifactId = null,
+) {
+  const rows = await query(
+    db,
     `SELECT v.filename FROM versions v
      JOIN artifacts a ON a.id=v.artifact_id
      LEFT JOIN version_recycle vr ON vr.version_id=v.id
      WHERE a.project_id=? AND a.deleted_at IS NULL AND vr.version_id IS NULL AND a.folder_id <=> ?
        AND v.id=(SELECT v2.id FROM versions v2 WHERE v2.artifact_id=a.id ORDER BY v2.version DESC, v2.created_at DESC, v2.id DESC LIMIT 1)
        ${excludeArtifactId ? "AND a.id<>?" : ""}`,
-    [projectId, folderId, ...(excludeArtifactId ? [excludeArtifactId] : [])]);
-  return nextDuplicateName(desired, rows.map((row) => row.filename));
+    [projectId, folderId, ...(excludeArtifactId ? [excludeArtifactId] : [])],
+  );
+  return nextDuplicateName(
+    desired,
+    rows.map((row) => row.filename),
+  );
 }
 
 /** SQL fragment (leading AND) for artifacts in cache/output library areas. */
@@ -83,6 +124,11 @@ export const PROJECT_LIBRARY_FOLDER_KINDS = [
   "project_official",
   "project_cache",
   "project_outputs",
+  "project_miniprogram",
+  "miniprogram_source",
+  "miniprogram_web",
+  "miniprogram_admin",
+  "miniprogram_server",
   "iteration_cache",
   "iteration_outputs",
 ];
@@ -145,13 +191,17 @@ export async function ensureProjectLibraryRoots(db, projectId) {
     ["沙箱产物", "project_outputs", "project_outputs"],
   ];
   for (const [name, systemKey, kind] of specs) {
-    const [existing] = await query(db,
+    const [existing] = await query(
+      db,
       "SELECT id FROM document_folders WHERE project_id=? AND folder_kind=? AND thread_id IS NULL AND parent_id IS NULL LIMIT 1",
-      [projectId, kind]);
+      [projectId, kind],
+    );
     if (existing) continue;
-    await query(db,
+    await query(
+      db,
       "INSERT INTO document_folders(id,project_id,name,system_key,folder_kind) VALUES(?,?,?,?,?)",
-      [randomUUID(), projectId, name, `${systemKey}:${projectId}`, kind]);
+      [randomUUID(), projectId, name, `${systemKey}:${projectId}`, kind],
+    );
   }
 }
 
@@ -159,9 +209,11 @@ export async function folderRootKind(db, folderId) {
   if (!folderId) return null;
   let current = folderId;
   while (current) {
-    const [row] = await query(db,
+    const [row] = await query(
+      db,
       "SELECT id,parent_id,folder_kind FROM document_folders WHERE id=?",
-      [current]);
+      [current],
+    );
     if (!row) return null;
     if (isProjectLibraryAreaRoot(row)) return row.folder_kind;
     if (row.folder_kind === "iteration_root") return null;
@@ -179,7 +231,8 @@ export async function isOfficialLibraryFolder(db, folderId) {
 /** SQL fragment (leading AND) for versions/artifacts in the unified project document library. */
 export const DOCUMENT_LIBRARY_FOLDER_SQL = `
   AND (
-    f.folder_kind IN ('project_official','project_cache','project_outputs')
+    f.folder_kind IN ('project_official','project_cache','project_outputs','project_miniprogram',
+      'miniprogram_source','miniprogram_web','miniprogram_admin','miniprogram_server')
     OR f.folder_kind IN ('iteration_cache','iteration_outputs')
   )`;
 
@@ -188,7 +241,9 @@ export async function latestVersionsByFolderRoots(db, projectId, folderIds) {
   const grouped = new Map(ids.map((id) => [id, []]));
   if (!ids.length) return grouped;
   const placeholders = ids.map(() => "?").join(",");
-  const rows = await query(db, `WITH RECURSIVE tree AS (
+  const rows = await query(
+    db,
+    `WITH RECURSIVE tree AS (
       SELECT id, id AS root_id FROM document_folders WHERE project_id=? AND id IN (${placeholders})
       UNION ALL
       SELECT f.id, t.root_id FROM document_folders f JOIN tree t ON f.parent_id=t.id WHERE f.project_id=?
@@ -200,7 +255,8 @@ export async function latestVersionsByFolderRoots(db, projectId, folderIds) {
       ORDER BY v2.version DESC, v2.created_at DESC, v2.id DESC LIMIT 1)
     LEFT JOIN version_recycle vr ON vr.version_id=v.id
     WHERE a.deleted_at IS NULL AND vr.version_id IS NULL`,
-  [projectId, ...ids, projectId, projectId]);
+    [projectId, ...ids, projectId, projectId],
+  );
   for (const row of rows) {
     const list = grouped.get(row.root_id);
     if (list) list.push(row);

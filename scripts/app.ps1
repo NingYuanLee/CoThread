@@ -18,8 +18,16 @@ if ($Action -eq 'stop') {
 if ($existing) { Write-Host '本项目应用已经运行。'; exit }
 if (!(Test-Path -LiteralPath (Join-Path $projectRoot 'dist/index.html'))) { throw '请先运行 npm run build' }
 $envFile = Join-Path $projectRoot '.env'
-$localDatabase = 'const url = new URL(process.env.DATABASE_URL); console.log(url.hostname === "127.0.0.1" && url.port === "3307" ? "local" : "remote")' | & node "--env-file=$envFile" --input-type=module
-if ($LASTEXITCODE -ne 0) { throw '无法读取数据库连接配置，请检查 .env 中的 DATABASE_URL' }
+Push-Location $projectRoot
+try {
+$databaseInfoJson = 'import { resolveDatabaseTarget, resolveTargetDatabaseUrl } from "./server/database-policy.js"; const target = resolveDatabaseTarget(); const url = new URL(resolveTargetDatabaseUrl()); console.log(JSON.stringify({ target, host: url.hostname, port: url.port || "3306", database: url.pathname.slice(1) }))' | & node "--env-file=$envFile" --input-type=module
+if ($LASTEXITCODE -ne 0) { throw '无法读取数据库连接配置，请检查 COTHREAD_DB_TARGET 与对应数据库变量' }
+$databaseInfo = $databaseInfoJson | ConvertFrom-Json
+Write-Host "数据库目标：$($databaseInfo.target) / $($databaseInfo.host):$($databaseInfo.port)/$($databaseInfo.database)"
+$localDatabase = if ($databaseInfo.host -eq '127.0.0.1' -and $databaseInfo.port -eq '3307') { 'local' } else { 'remote' }
+} finally {
+  Pop-Location
+}
 if ($localDatabase -eq 'local') {
   & (Join-Path $PSScriptRoot 'mysql.ps1') start
 }

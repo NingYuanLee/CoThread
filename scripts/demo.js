@@ -1,24 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { createDatabase, query } from "../server/db.js";
 import { Service } from "../server/service.js";
+import { assertProductionWriteAllowed } from "../server/database-policy.js";
+assertProductionWriteAllowed();
 const db = await createDatabase();
 try {
   const [user] = await query(db, "SELECT id FROM users WHERE COALESCE(username,email)=?", [
     process.env.ADMIN_EMAIL,
   ]);
   if (!user) throw new Error("请先创建初始账号");
-  if (
-    (await query(db, "SELECT id FROM projects WHERE created_by=?", [user.id]))
-      .length
-  ) {
+  if ((await query(db, "SELECT id FROM projects WHERE created_by=?", [user.id])).length) {
     console.log("已有项目，跳过示例初始化");
   } else {
     const actor = { ...user, kind: "session" };
     const service = new Service(db);
     const project = await service.createProject(actor, {
       name: "共序 · 产品研发",
-      description:
-        "让多人和各自的本地 AI，围绕一次迭代协作、提交、审核与归档。",
+      description: "让多人和各自的本地 AI，围绕一次迭代协作、提交、审核与归档。",
     });
     const thread = await service.createThread(actor, project.id, {
       title: "v0.1 · 跑通协作闭环",

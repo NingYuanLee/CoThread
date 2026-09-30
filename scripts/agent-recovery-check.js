@@ -3,6 +3,8 @@ import { rename, mkdir } from "node:fs/promises";
 import { createDatabase, query } from "../server/db.js";
 import { releaseSandbox } from "../server/agent-sandbox.js";
 import { digest } from "../server/auth.js";
+import { assertProductionWriteAllowed } from "../server/database-policy.js";
+assertProductionWriteAllowed();
 const db = await createDatabase();
 try {
   const [thread] = await query(
@@ -28,8 +30,7 @@ try {
   const source = resolve(root, "agents", thread.id);
   const target = resolve(root, "recovery-check", thread.id + "-" + Date.now());
   for (const path of [source, target])
-    if (relative(root, path).startsWith("..") || path === root)
-      throw new Error("路径不属于本项目");
+    if (relative(root, path).startsWith("..") || path === root) throw new Error("路径不属于本项目");
   await mkdir(resolve(target, ".."), { recursive: true });
   await rename(source, target);
   const versions = await query(
@@ -37,10 +38,7 @@ try {
     "SELECT v.content,v.sha256 FROM versions v JOIN artifacts a ON a.id=v.artifact_id WHERE a.title=? AND a.project_id=(SELECT project_id FROM threads WHERE id=?)",
     ["Agent 求和示例", thread.id],
   );
-  if (
-    versions.length < 2 ||
-    versions.some((v) => digest(v.content) !== v.sha256)
-  )
+  if (versions.length < 2 || versions.some((v) => digest(v.content) !== v.sha256))
     throw new Error("已保存版本校验失败");
   console.log({
     threadId: thread.id,

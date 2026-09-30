@@ -2,7 +2,9 @@
 import { createDatabase, query, transaction } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { randomUUID } from "node:crypto";
+import { assertProductionWriteAllowed } from "../server/database-policy.js";
 
+assertProductionWriteAllowed();
 const db = await createDatabase();
 const service = new Service(db);
 const [user] = await query(db, "SELECT id FROM users LIMIT 1");
@@ -84,9 +86,9 @@ const cssAsset = await service.versionPreview(sessionUser, htmlId, cssName);
 console.log("HTML version:", htmlId);
 console.log("CSS asset loaded:", cssAsset.mime, cssAsset.content.toString("utf8"));
 
-const previewHtml = (
-  await service.versionPreview(sessionUser, htmlId, "")
-).content.toString("utf8");
+const previewHtml = (await service.versionPreview(sessionUser, htmlId, "")).content.toString(
+  "utf8",
+);
 console.log("Preview contains base:", /<base/i.test(previewHtml));
 console.log("Preview still links css:", previewHtml.includes(cssName));
 

@@ -5,8 +5,14 @@ import { RoleBadge } from "./Identity";
 import { MemberPicker } from "./MemberPicker";
 import { ProjectSettings } from "./ProjectSettings";
 import { ProjectCodeConnectors } from "./ProjectCodeConnectors";
+import { ProjectMiniProgramConfig } from "./ProjectMiniProgramConfig";
 import { UiIcon } from "./ui-icon";
-import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
+import {
+  DialogClose,
+  animateDialogClose,
+  onDialogBackdropClick,
+  onDialogCancel,
+} from "./dialog-fx";
 import { showTip } from "./Tip";
 
 type ProjectConnector = {
@@ -52,10 +58,12 @@ type ProjectDetail = {
 };
 
 function isHumanMember(member: ProjectMember) {
-  return member.kind !== "l1"
-    && member.kind !== "l2"
-    && member.id !== AGENT_MEMBER.id
-    && member.id !== AGENT_L2_MEMBER.id;
+  return (
+    member.kind !== "l1" &&
+    member.kind !== "l2" &&
+    member.id !== AGENT_MEMBER.id &&
+    member.id !== AGENT_L2_MEMBER.id
+  );
 }
 
 export function ProjectManagement({
@@ -82,7 +90,7 @@ export function ProjectManagement({
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [tab, setTab] = useState<"info" | "members" | "connectors">("info");
+  const [tab, setTab] = useState<"info" | "members" | "connectors" | "miniprogram">("info");
   const [memberScope, setMemberScope] = useState<"humans" | "agents">("humans");
   const [memberSearch, setMemberSearch] = useState("");
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
@@ -91,22 +99,32 @@ export function ProjectManagement({
   }, []);
 
   const humans = (detail?.members || []).filter(isHumanMember);
-  const projectAgent = (detail?.members || []).find((member) => member.kind === "l1" || member.id === AGENT_MEMBER.id)
-    || { ...AGENT_MEMBER, kind: "l1" as const, nickname: AGENT_L1_PROFILE.nickname, title: AGENT_L1_PROFILE.title, display_avatar: AGENT_L1_PROFILE.avatar };
-  const iterationAgent = (detail?.members || []).find((member) => member.kind === "l2" || member.id === AGENT_L2_MEMBER.id)
-    || { ...AGENT_L2_MEMBER, kind: "l2" as const };
+  const projectAgent = (detail?.members || []).find(
+    (member) => member.kind === "l1" || member.id === AGENT_MEMBER.id,
+  ) || {
+    ...AGENT_MEMBER,
+    kind: "l1" as const,
+    nickname: AGENT_L1_PROFILE.nickname,
+    title: AGENT_L1_PROFILE.title,
+    display_avatar: AGENT_L1_PROFILE.avatar,
+  };
+  const iterationAgent = (detail?.members || []).find(
+    (member) => member.kind === "l2" || member.id === AGENT_L2_MEMBER.id,
+  ) || { ...AGENT_L2_MEMBER, kind: "l2" as const };
   const matchesSearch = (member: ProjectMember) =>
     `${member.name} ${member.username || ""} ${member.email} ${member.bound_email || ""} ${member.connector?.name || ""}`
       .toLowerCase()
       .includes(memberSearch.toLowerCase());
   const visibleHumans = humans.filter(matchesSearch);
   const agentSearch = memberSearch.toLowerCase();
-  const l1Visible = `${projectAgent.nickname || AGENT_L1_PROFILE.nickname} ${projectAgent.name} L1 老翁 ${AGENT_LEVEL_LABELS.l1}`
-    .toLowerCase()
-    .includes(agentSearch);
-  const l2Visible = `${iterationAgent.nickname || AGENT_L2_MEMBER.nickname} ${iterationAgent.name} L2 ${AGENT_LEVEL_LABELS.l2}`
-    .toLowerCase()
-    .includes(agentSearch);
+  const l1Visible =
+    `${projectAgent.nickname || AGENT_L1_PROFILE.nickname} ${projectAgent.name} L1 老翁 ${AGENT_LEVEL_LABELS.l1}`
+      .toLowerCase()
+      .includes(agentSearch);
+  const l2Visible =
+    `${iterationAgent.nickname || AGENT_L2_MEMBER.nickname} ${iterationAgent.name} L2 ${AGENT_LEVEL_LABELS.l2}`
+      .toLowerCase()
+      .includes(agentSearch);
   const agentVisibleCount = Number(l1Visible) + Number(l2Visible);
 
   return (
@@ -123,7 +141,10 @@ export function ProjectManagement({
             <span>当前项目</span>
             <h2 id="project-management-title">项目管理</h2>
           </div>
-          <DialogClose onClick={() => animateDialogClose(dialog.current, onClose)} label="关闭项目管理" />
+          <DialogClose
+            onClick={() => animateDialogClose(dialog.current, onClose)}
+            label="关闭项目管理"
+          />
         </header>
         <div className="project-management-body">
           <nav className="project-management-tabs" aria-label="项目管理">
@@ -133,7 +154,10 @@ export function ProjectManagement({
               aria-selected={tab === "info"}
               onClick={() => setTab("info")}
             >
-              <span className="ui-icon-text"><UiIcon name="info" size={14} />基础信息</span>
+              <span className="ui-icon-text">
+                <UiIcon name="info" size={14} />
+                基础信息
+              </span>
             </button>
             <button
               type="button"
@@ -141,7 +165,10 @@ export function ProjectManagement({
               aria-selected={tab === "members"}
               onClick={() => setTab("members")}
             >
-              <span className="ui-icon-text"><UiIcon name="members" size={14} />项目成员</span>
+              <span className="ui-icon-text">
+                <UiIcon name="members" size={14} />
+                项目成员
+              </span>
               <small>{humans.length}</small>
             </button>
             <button
@@ -150,7 +177,21 @@ export function ProjectManagement({
               aria-selected={tab === "connectors"}
               onClick={() => setTab("connectors")}
             >
-              <span className="ui-icon-text"><UiIcon name="connector" size={14} />连接器</span>
+              <span className="ui-icon-text">
+                <UiIcon name="connector" size={14} />
+                连接器
+              </span>
+            </button>
+            <button
+              type="button"
+              className={tab === "miniprogram" ? "active" : ""}
+              aria-selected={tab === "miniprogram"}
+              onClick={() => setTab("miniprogram")}
+            >
+              <span className="ui-icon-text">
+                <UiIcon name="smartphone" size={14} />
+                小程序与云开发
+              </span>
             </button>
           </nav>
           <div className="project-management-content">
@@ -165,8 +206,16 @@ export function ProjectManagement({
                   creator={creator}
                   longTermSummary={detail.longTermSummary}
                   onSave={async ({ name, description }) => {
-                    const updated = await api(`/projects/${detail.id}`, { name, description }, "PATCH");
-                    onProjectRenamed({ id: updated.id, name: updated.name, description: updated.description });
+                    const updated = await api(
+                      `/projects/${detail.id}`,
+                      { name, description },
+                      "PATCH",
+                    );
+                    onProjectRenamed({
+                      id: updated.id,
+                      name: updated.name,
+                      description: updated.description,
+                    });
                   }}
                 />
               ) : (
@@ -178,17 +227,36 @@ export function ProjectManagement({
               ) : (
                 <p className="muted">正在加载连接器…</p>
               )
+            ) : tab === "miniprogram" ? (
+              <ProjectMiniProgramConfig
+                key={detail?.id}
+                projectId={detail?.id || ""}
+                canManage={owner}
+                api={api}
+              />
             ) : (
               <>
                 <p className="muted project-member-note">
-                  项目成员含人类成员与 Agent（{AGENT_LEVEL_LABELS.l1}、{AGENT_LEVEL_LABELS.l2}）。本地执行器隶属于人类成员，不单独列成员；{AGENT_LEVEL_LABELS.l3} 隶属于 L2，也不单独列。L2 是项目内同一角色，各迭代只是独立会话。
+                  项目成员含人类成员与 Agent（{AGENT_LEVEL_LABELS.l1}、{AGENT_LEVEL_LABELS.l2}
+                  ）。本地执行器隶属于人类成员，不单独列成员；{AGENT_LEVEL_LABELS.l3} 隶属于
+                  L2，也不单独列。L2 是项目内同一角色，各迭代只是独立会话。
                 </p>
                 <div className="member-scope" role="tablist" aria-label="项目成员分类">
-                  <button type="button" className={memberScope === "humans" ? "active" : ""} onClick={() => setMemberScope("humans")}>
-                    <UiIcon name="human" size={13} />人类成员<small>{humans.length}</small>
+                  <button
+                    type="button"
+                    className={memberScope === "humans" ? "active" : ""}
+                    onClick={() => setMemberScope("humans")}
+                  >
+                    <UiIcon name="human" size={13} />
+                    人类成员<small>{humans.length}</small>
                   </button>
-                  <button type="button" className={memberScope === "agents" ? "active" : ""} onClick={() => setMemberScope("agents")}>
-                    <UiIcon name="sparkle" size={13} />Agent成员<small>2</small>
+                  <button
+                    type="button"
+                    className={memberScope === "agents" ? "active" : ""}
+                    onClick={() => setMemberScope("agents")}
+                  >
+                    <UiIcon name="sparkle" size={13} />
+                    Agent成员<small>2</small>
                   </button>
                 </div>
                 <input
@@ -207,7 +275,8 @@ export function ProjectManagement({
                       <span>本项目人类成员</span>
                       {projectMember && (
                         <button type="button" onClick={() => setMemberPickerOpen(true)}>
-                          <UiIcon name="userPlus" size={12} />添加
+                          <UiIcon name="userPlus" size={12} />
+                          添加
                         </button>
                       )}
                     </div>
@@ -249,7 +318,9 @@ export function ProjectManagement({
                           <small className="member-user-id">
                             {projectAgent.title || AGENT_L1_PROFILE.title}；对用户仍显示为小祥
                           </small>
-                          {projectAgent.motto ? <small className="member-motto">{projectAgent.motto}</small> : null}
+                          {projectAgent.motto ? (
+                            <small className="member-motto">{projectAgent.motto}</small>
+                          ) : null}
                         </div>
                       </div>
                     ) : null}
@@ -270,7 +341,8 @@ export function ProjectManagement({
                             <RoleBadge role="任务调度" />
                           </div>
                           <small className="member-user-id">
-                            {iterationAgent.nickname || AGENT_L2_MEMBER.nickname}；项目内同一角色，各迭代使用独立会话
+                            {iterationAgent.nickname || AGENT_L2_MEMBER.nickname}
+                            ；项目内同一角色，各迭代使用独立会话
                           </small>
                           <small className="member-motto">
                             L3 隶属于本层执行，不单独列成员
@@ -327,9 +399,7 @@ function HumanMemberRow({
         <div className="member-name-row">
           <strong>{member.name}</strong>
           {Array.isArray(member.identity_tags) &&
-            member.identity_tags.map((tag) => (
-              <RoleBadge key={tag} role={tag} />
-            ))}
+            member.identity_tags.map((tag) => <RoleBadge key={tag} role={tag} />)}
           {member.id === detail?.created_by && <RoleBadge role="创建人" />}
           {member.role === "viewer" && <RoleBadge role="只读" />}
         </div>
@@ -337,19 +407,25 @@ function HumanMemberRow({
         {member.motto ? <small className="member-motto">{member.motto}</small> : null}
         {member.connector ? (
           <small className="member-motto">
-            本地执行器：{member.connector.bound ? (member.connector.online ? "本项目在线" : "已绑定，离线") : "已授权，未绑定本项目"}
+            本地执行器：
+            {member.connector.bound
+              ? member.connector.online
+                ? "本项目在线"
+                : "已绑定，离线"
+              : "已授权，未绑定本项目"}
           </small>
         ) : null}
       </div>
-      {creator &&
-      detail &&
-      member.id !== detail.created_by ? (
+      {creator && detail && member.id !== detail.created_by ? (
         <button
           disabled={busy}
           onClick={() => {
             if (window.confirm(`确定将 ${member.name} 移出该项目？`))
               void api(`/projects/${detail.id}/members/${member.id}`, undefined, "DELETE")
-                .then(async () => { await refresh(); showTip("已移出项目成员"); })
+                .then(async () => {
+                  await refresh();
+                  showTip("已移出项目成员");
+                })
                 .catch((cause) => showTip((cause as Error).message, "error"));
           }}
         >

@@ -1,15 +1,17 @@
 import { spawn } from "node:child_process";
-import { mkdir, stat, rename } from "node:fs/promises";
+import { mkdir, stat, rename, unlink } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import { resolve, join } from "node:path";
 import { pipeline } from "node:stream/promises";
-const url = new URL(process.env.DATABASE_URL);
+import { resolveDatabaseTarget, resolveTargetDatabaseUrl } from "../server/database-policy.js";
+const targetName = resolveDatabaseTarget();
+const url = new URL(resolveTargetDatabaseUrl());
+console.log(
+  `备份目标：${targetName} / ${url.hostname}:${url.port || "3306"}/${url.pathname.slice(1)} / 写入数据库：否`,
+);
 const directory = resolve(".local/backups");
 await mkdir(directory, { recursive: true });
-const target = join(
-  directory,
-  `cothread-${new Date().toISOString().replace(/[:.]/g, "-")}.sql`,
-);
+const target = join(directory, `cothread-${new Date().toISOString().replace(/[:.]/g, "-")}.sql`);
 const bin =
   process.env.MYSQL_BIN ||
   (process.platform === "win32"
@@ -30,9 +32,7 @@ const args = [
   ...(process.env.DATABASE_SSL === "true"
     ? [
         "--ssl-mode=VERIFY_IDENTITY",
-        ...(process.env.DATABASE_SSL_CA
-          ? ["--ssl-ca", process.env.DATABASE_SSL_CA]
-          : []),
+        ...(process.env.DATABASE_SSL_CA ? ["--ssl-ca", process.env.DATABASE_SSL_CA] : []),
       ]
     : []),
   url.pathname.slice(1),
@@ -46,17 +46,17 @@ child.stderr.resume();
 const completed = new Promise((resolve, reject) => {
   child.on("error", reject);
   child.on("close", (code) =>
-    code === 0
-      ? resolve()
-      : reject(new Error(`mysqldump 失败，退出码 ${code}`)),
+    code === 0 ? resolve() : reject(new Error(`mysqldump 失败，退出码 ${code}`)),
   );
 });
-await Promise.all([
-  pipeline(
-    child.stdout,
-    createWriteStream(target + ".partial", { flags: "wx", mode: 0o600 }),
-  ),
-  completed,
-]);
+try {
+  await Promise.all([
+    pipeline(child.stdout, createWriteStream(target + ".partial", { flags: "wx", mode: 0o600 })),
+    completed,
+  ]);
+} catch (error) {
+  await unlink(target + ".partial", { force: true });
+  throw error;
+}
 await rename(target + ".partial", target);
 console.log(`完整备份已生成：${target} (${(await stat(target)).size} bytes)`);

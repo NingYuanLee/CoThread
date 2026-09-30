@@ -2,12 +2,14 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveConfiguredDevDatabaseUrl } from "../server/database-policy.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-export function isPortableLocalMysql(databaseUrl = process.env.DATABASE_URL) {
+export function isPortableLocalMysql(databaseUrl) {
+  const configured = databaseUrl || resolveConfiguredDevDatabaseUrl();
   try {
-    const url = new URL(databaseUrl);
+    const url = new URL(configured);
     return url.hostname === "127.0.0.1" && url.port === "3307";
   } catch {
     return false;
@@ -17,7 +19,9 @@ export function isPortableLocalMysql(databaseUrl = process.env.DATABASE_URL) {
 export function ensureLocalMysql() {
   if (!isPortableLocalMysql()) return false;
   if (process.platform !== "win32") {
-    console.log("DATABASE_URL 指向 127.0.0.1:3307。非 Windows 请自行启动 compose.yaml 中的 MySQL。");
+    console.log(
+      "DEV_DATABASE_HOST 指向 127.0.0.1:3307。非 Windows 请自行启动 compose.yaml 中的 MySQL。",
+    );
     return false;
   }
   const script = resolve(projectRoot, "scripts/mysql.ps1");

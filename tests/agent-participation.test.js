@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { query } from "../server/db.js";
@@ -24,6 +24,18 @@ import {
   OPPORTUNISTIC_SETTLE_MS,
 } from "../server/agent-participation.js";
 
+let database, db;
+before(async () => {
+  database = await testDatabase();
+  db = database.db;
+});
+after(async () => {
+  await database?.close();
+});
+afterEach(async () => {
+  await database?.reset();
+});
+
 test("unmentioned discussion reaches the model, which can choose silence or participation with a message", async () => {
   const keys = ["COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY", "COORDINATOR_MODEL"];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
@@ -37,9 +49,7 @@ test("unmentioned discussion reaches the model, which can choose silence or part
     const silent = await decideParticipation(
       {
         title: "讨论",
-        messages: [
-          { author: "成员", source: "human", body: "你们先聊，我旁听。" },
-        ],
+        messages: [{ author: "成员", source: "human", body: "你们先聊，我旁听。" }],
       },
       async (url, options) => {
         calls++;
@@ -65,9 +75,7 @@ test("unmentioned discussion reaches the model, which can choose silence or part
     const participate = await decideParticipation(
       {
         title: "讨论",
-        messages: [
-          { author: "成员", source: "human", body: "有人知道如何解决吗？" },
-        ],
+        messages: [{ author: "成员", source: "human", body: "有人知道如何解决吗？" }],
         integrateBurst: [{ author: "成员", body: "有人知道如何解决吗？" }],
       },
       async (url, options) => {
@@ -94,10 +102,7 @@ test("unmentioned discussion reaches the model, which can choose silence or part
       },
     );
     assert.equal(participate.respond, true);
-    assert.equal(
-      participate.message,
-      "听起来大家卡在同一个问题上，我可以帮忙一起理一下。",
-    );
+    assert.equal(participate.message, "听起来大家卡在同一个问题上，我可以帮忙一起理一下。");
     assert.deepEqual(participate.usage, {
       inputTokens: 100,
       cacheReadTokens: 20,
@@ -158,15 +163,9 @@ test("normalizeParticipationDecision accepts boolean legacy doubles", () => {
   assert.equal(deferSilenceProgress("still_changing"), "讨论仍在变化，撤回未发出的回复");
   assert.equal(deferSilenceProgress("revised_silent"), "看到后续发言后选择不发出");
   assert.ok(OPPORTUNISTIC_SETTLE_MS > 0);
-  assert.equal(
-    isShortAssistantDirectedFollowUp([{ body: "你这次反应挺快啊" }]),
-    true,
-  );
+  assert.equal(isShortAssistantDirectedFollowUp([{ body: "你这次反应挺快啊" }]), true);
   assert.equal(briefAssistantFollowUpAck([{ body: "你这次反应挺快啊" }]), "哈哈，这次赶上了。");
-  assert.equal(
-    isShortAssistantDirectedFollowUp([{ body: "@张三 你怎么看" }]),
-    false,
-  );
+  assert.equal(isShortAssistantDirectedFollowUp([{ body: "@张三 你怎么看" }]), false);
   assert.equal(addressesAgent("小祥，你为啥一直沉默"), true);
   assert.equal(addressesAgent("和小祥一起改"), false);
   assert.equal(addressesAgent("@小祥 在吗"), true);
@@ -278,30 +277,50 @@ test("participation decision log payload is readable for silent and reply outcom
 });
 
 test("short follow-ups right after 小祥 override a silent model decision", async () => {
-  const database = await testDatabase();
-  const db = database.db;
   const userId = randomUUID();
   const projectId = randomUUID();
   const threadId = randomUUID();
   const assistantId = randomUUID();
   const humanId = randomUUID();
   try {
-    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-      [userId, `follow-${userId}@example.com`, "Follow", "x"]);
-    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)",
-      [projectId, "Follow project", "", userId]);
-    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)",
-      [projectId, userId, "owner"]);
-    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)",
-      [threadId, projectId, "Follow thread", userId]);
-    await query(db,
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      userId,
+      `follow-${userId}@example.com`,
+      "Follow",
+      "x",
+    ]);
+    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)", [
+      projectId,
+      "Follow project",
+      "",
+      userId,
+    ]);
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)", [
+      projectId,
+      userId,
+      "owner",
+    ]);
+    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)", [
+      threadId,
+      projectId,
+      "Follow thread",
+      userId,
+    ]);
+    await query(
+      db,
       "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs) VALUES(?,?,?,?,?,'[]','[]')",
-      [assistantId, threadId, userId, "assistant", "报告已整理好。"]);
-    await query(db,
+      [assistantId, threadId, userId, "assistant", "报告已整理好。"],
+    );
+    await query(
+      db,
       "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs) VALUES(?,?,?,?,?,'[]','[]')",
-      [humanId, threadId, userId, "human", "你这次反应挺快啊"]);
-    await query(db, "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
-      [humanId, "pending", "running"]);
+      [humanId, threadId, userId, "human", "你这次反应挺快啊"],
+    );
+    await query(
+      db,
+      "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
+      [humanId, "pending", "running"],
+    );
 
     const result = await composeOpportunisticParticipation(db, {
       title: "Follow thread",
@@ -315,32 +334,49 @@ test("short follow-ups right after 小祥 override a silent model decision", asy
     assert.equal(result.respond, true);
     assert.equal(result.message, "哈哈，这次赶上了。");
   } finally {
-    await database.close();
   }
 });
 
 test("same content repeated 3 times by one member overrides silence", async () => {
-  const database = await testDatabase();
-  const db = database.db;
   const userId = randomUUID();
   const projectId = randomUUID();
   const threadId = randomUUID();
   const ids = [randomUUID(), randomUUID(), randomUUID()];
   try {
-    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-      [userId, `solo-${userId}@example.com`, "Solo", "x"]);
-    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)",
-      [projectId, "Solo project", "", userId]);
-    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)",
-      [projectId, userId, "owner"]);
-    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)",
-      [threadId, projectId, "Solo thread", userId]);
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      userId,
+      `solo-${userId}@example.com`,
+      "Solo",
+      "x",
+    ]);
+    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)", [
+      projectId,
+      "Solo project",
+      "",
+      userId,
+    ]);
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)", [
+      projectId,
+      userId,
+      "owner",
+    ]);
+    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)", [
+      threadId,
+      projectId,
+      "Solo thread",
+      userId,
+    ]);
     for (const [index, id] of ids.entries()) {
-      await query(db,
+      await query(
+        db,
         "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs) VALUES(?,?,?,?,?,'[]','[]')",
-        [id, threadId, userId, "human", "你这次反应挺快啊"]);
-      await query(db, "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
-        [id, "pending", index === ids.length - 1 ? "running" : "queued"]);
+        [id, threadId, userId, "human", "你这次反应挺快啊"],
+      );
+      await query(
+        db,
+        "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
+        [id, "pending", index === ids.length - 1 ? "running" : "queued"],
+      );
     }
 
     const result = await composeOpportunisticParticipation(db, {
@@ -356,32 +392,49 @@ test("same content repeated 3 times by one member overrides silence", async () =
     assert.equal(result.respond, true);
     assert.match(result.message, /连发了 3 遍一样的话/);
   } finally {
-    await database.close();
   }
 });
 
 test("compose revises the draft when new human messages arrive before send", async () => {
-  const database = await testDatabase();
-  const db = database.db;
   const userId = randomUUID();
   const projectId = randomUUID();
   const threadId = randomUUID();
   const firstId = randomUUID();
   const secondId = randomUUID();
   try {
-    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-      [userId, `compose-${userId}@example.com`, "Compose", "x"]);
-    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)",
-      [projectId, "Compose project", "", userId]);
-    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)",
-      [projectId, userId, "owner"]);
-    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)",
-      [threadId, projectId, "Compose thread", userId]);
-    await query(db,
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      userId,
+      `compose-${userId}@example.com`,
+      "Compose",
+      "x",
+    ]);
+    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)", [
+      projectId,
+      "Compose project",
+      "",
+      userId,
+    ]);
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)", [
+      projectId,
+      userId,
+      "owner",
+    ]);
+    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)", [
+      threadId,
+      projectId,
+      "Compose thread",
+      userId,
+    ]);
+    await query(
+      db,
       "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs) VALUES(?,?,?,?,?,'[]','[]')",
-      [firstId, threadId, userId, "human", "先说一句"]);
-    await query(db, "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
-      [firstId, "pending", "running"]);
+      [firstId, threadId, userId, "human", "先说一句"],
+    );
+    await query(
+      db,
+      "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
+      [firstId, "pending", "running"],
+    );
 
     let calls = 0;
     const result = await composeOpportunisticParticipation(db, {
@@ -391,11 +444,16 @@ test("compose revises the draft when new human messages arrive before send", asy
       decide: async (context) => {
         calls++;
         if (calls === 1) {
-          await query(db,
+          await query(
+            db,
             "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs) VALUES(?,?,?,?,?,'[]','[]')",
-            [secondId, threadId, userId, "human", "补充：其实不用你回了"]);
-          await query(db, "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
-            [secondId, "pending", "queued"]);
+            [secondId, threadId, userId, "human", "补充：其实不用你回了"],
+          );
+          await query(
+            db,
+            "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
+            [secondId, "pending", "queued"],
+          );
           return { respond: true, message: "我理解你先说了一句。" };
         }
         assert.equal(context.revision, 1);
@@ -410,31 +468,48 @@ test("compose revises the draft when new human messages arrive before send", asy
     assert.equal(result.deferred, "revised_silent");
     assert.deepEqual(result.burstIds.sort(), [firstId, secondId].sort());
   } finally {
-    await database.close();
   }
 });
 
 test("vocative 小祥 forces a reply even when the model stays silent", async () => {
-  const database = await testDatabase();
-  const db = database.db;
   const userId = randomUUID();
   const projectId = randomUUID();
   const threadId = randomUUID();
   const messageId = randomUUID();
   try {
-    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-      [userId, `name-${userId}@example.com`, "Name", "x"]);
-    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)",
-      [projectId, "Name project", "", userId]);
-    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)",
-      [projectId, userId, "owner"]);
-    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)",
-      [threadId, projectId, "Name thread", userId]);
-    await query(db,
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      userId,
+      `name-${userId}@example.com`,
+      "Name",
+      "x",
+    ]);
+    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)", [
+      projectId,
+      "Name project",
+      "",
+      userId,
+    ]);
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)", [
+      projectId,
+      userId,
+      "owner",
+    ]);
+    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)", [
+      threadId,
+      projectId,
+      "Name thread",
+      userId,
+    ]);
+    await query(
+      db,
       "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs) VALUES(?,?,?,?,?,'[]','[]')",
-      [messageId, threadId, userId, "human", "小祥，你为啥一直沉默"]);
-    await query(db, "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
-      [messageId, "pending", "running"]);
+      [messageId, threadId, userId, "human", "小祥，你为啥一直沉默"],
+    );
+    await query(
+      db,
+      "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
+      [messageId, "pending", "running"],
+    );
 
     const result = await composeOpportunisticParticipation(db, {
       title: "Name thread",
@@ -445,37 +520,54 @@ test("vocative 小祥 forces a reply even when the model stays silent", async ()
     assert.equal(result.respond, true);
     assert.match(result.message, /抱歉|在的/);
   } finally {
-    await database.close();
   }
 });
 
 test("prior soft silences stay in the burst so same-content ×3 still fires", async () => {
-  const database = await testDatabase();
-  const db = database.db;
   const userId = randomUUID();
   const projectId = randomUUID();
   const threadId = randomUUID();
   const ids = [randomUUID(), randomUUID(), randomUUID()];
   try {
-    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-      [userId, `streak-${userId}@example.com`, "Streak", "x"]);
-    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)",
-      [projectId, "Streak project", "", userId]);
-    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)",
-      [projectId, userId, "owner"]);
-    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)",
-      [threadId, projectId, "Streak thread", userId]);
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      userId,
+      `streak-${userId}@example.com`,
+      "Streak",
+      "x",
+    ]);
+    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)", [
+      projectId,
+      "Streak project",
+      "",
+      userId,
+    ]);
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)", [
+      projectId,
+      userId,
+      "owner",
+    ]);
+    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)", [
+      threadId,
+      projectId,
+      "Streak thread",
+      userId,
+    ]);
     for (const [index, id] of ids.entries()) {
-      await query(db,
+      await query(
+        db,
         "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs) VALUES(?,?,?,?,?,'[]','[]')",
-        [id, threadId, userId, "human", "你为啥一直沉默"]);
-      await query(db, "INSERT INTO assistant_replies(message_id,participation,status,progress) VALUES(?,?,?,?)",
+        [id, threadId, userId, "human", "你为啥一直沉默"],
+      );
+      await query(
+        db,
+        "INSERT INTO assistant_replies(message_id,participation,status,progress) VALUES(?,?,?,?)",
         [
           id,
           index < 2 ? "silent" : "pending",
           index < 2 ? "completed" : "running",
           index < 2 ? "已保持沉默" : null,
-        ]);
+        ],
+      );
     }
 
     const result = await composeOpportunisticParticipation(db, {
@@ -491,31 +583,48 @@ test("prior soft silences stay in the burst so same-content ×3 still fires", as
     assert.equal(result.respond, true);
     assert.ok(result.message);
   } finally {
-    await database.close();
   }
 });
 
 test("work requests invite @小祥 for full mode instead of fake start", async () => {
-  const database = await testDatabase();
-  const db = database.db;
   const userId = randomUUID();
   const projectId = randomUUID();
   const threadId = randomUUID();
   const messageId = randomUUID();
   try {
-    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-      [userId, `work-${userId}@example.com`, "Work", "x"]);
-    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)",
-      [projectId, "Work project", "", userId]);
-    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)",
-      [projectId, userId, "owner"]);
-    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)",
-      [threadId, projectId, "Work thread", userId]);
-    await query(db,
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      userId,
+      `work-${userId}@example.com`,
+      "Work",
+      "x",
+    ]);
+    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)", [
+      projectId,
+      "Work project",
+      "",
+      userId,
+    ]);
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)", [
+      projectId,
+      userId,
+      "owner",
+    ]);
+    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)", [
+      threadId,
+      projectId,
+      "Work thread",
+      userId,
+    ]);
+    await query(
+      db,
       "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs) VALUES(?,?,?,?,?,'[]','[]')",
-      [messageId, threadId, userId, "human", "帮我总结最近20轮对话并生成分析文档"]);
-    await query(db, "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
-      [messageId, "pending", "running"]);
+      [messageId, threadId, userId, "human", "帮我总结最近20轮对话并生成分析文档"],
+    );
+    await query(
+      db,
+      "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
+      [messageId, "pending", "running"],
+    );
 
     let decideCalls = 0;
     const result = await composeOpportunisticParticipation(db, {
@@ -533,13 +642,10 @@ test("work requests invite @小祥 for full mode instead of fake start", async (
     assert.match(result.message, /完整模式/);
     assert.equal(decideCalls, 0);
   } finally {
-    await database.close();
   }
 });
 
 test("persist opportunistic artifacts writes usage_stats and L2 trajectory events", async () => {
-  const database = await testDatabase();
-  const db = database.db;
   const userId = randomUUID();
   const projectId = randomUUID();
   const threadId = randomUUID();
@@ -552,19 +658,39 @@ test("persist opportunistic artifacts writes usage_stats and L2 trajectory event
     COORDINATOR_MODEL_API_KEY: "test-only",
   });
   try {
-    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-      [userId, `persist-${userId}@example.com`, "Persist", "x"]);
-    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)",
-      [projectId, "Persist project", "", userId]);
-    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)",
-      [projectId, userId, "owner"]);
-    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)",
-      [threadId, projectId, "Persist thread", userId]);
-    await query(db,
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      userId,
+      `persist-${userId}@example.com`,
+      "Persist",
+      "x",
+    ]);
+    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)", [
+      projectId,
+      "Persist project",
+      "",
+      userId,
+    ]);
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)", [
+      projectId,
+      userId,
+      "owner",
+    ]);
+    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)", [
+      threadId,
+      projectId,
+      "Persist thread",
+      userId,
+    ]);
+    await query(
+      db,
       "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs) VALUES(?,?,?,?,?,'[]','[]')",
-      [messageId, threadId, userId, "human", "欢迎小祥"]);
-    await query(db, "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
-      [messageId, "reply", "completed"]);
+      [messageId, threadId, userId, "human", "欢迎小祥"],
+    );
+    await query(
+      db,
+      "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
+      [messageId, "reply", "completed"],
+    );
 
     await persistOpportunisticParticipationArtifacts(db, {
       messageId,
@@ -588,21 +714,32 @@ test("persist opportunistic artifacts writes usage_stats and L2 trajectory event
       },
     });
 
-    const [reply] = await query(db, "SELECT usage_stats,first_response_at FROM assistant_replies WHERE message_id=?",
-      [messageId]);
-    const usage = typeof reply.usage_stats === "string" ? JSON.parse(reply.usage_stats) : reply.usage_stats;
+    const [reply] = await query(
+      db,
+      "SELECT usage_stats,first_response_at FROM assistant_replies WHERE message_id=?",
+      [messageId],
+    );
+    const usage =
+      typeof reply.usage_stats === "string" ? JSON.parse(reply.usage_stats) : reply.usage_stats;
     assert.equal(usage.model, "test-opportunistic-model");
     assert.equal(usage.reasoningEffort, "none");
     assert.equal(usage.totalTokens, 110);
     assert.equal(usage.executionDurationMs, 420);
     assert.ok(reply.first_response_at);
 
-    const [session] = await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [threadId]);
+    const [session] = await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [
+      threadId,
+    ]);
     assert.ok(session?.session_id);
-    const events = await query(db,
+    const events = await query(
+      db,
       "SELECT tool,status,output FROM agent_events WHERE message_id=? AND agent_session_id=? ORDER BY id",
-      [messageId, session.session_id]);
-    assert.deepEqual(events.map((row) => row.tool), ["participation_judge", "assistant_final"]);
+      [messageId, session.session_id],
+    );
+    assert.deepEqual(
+      events.map((row) => row.tool),
+      ["participation_judge", "assistant_final"],
+    );
     assert.equal(events[0].status, "completed");
     assert.equal(events[1].output, "欢迎，我是小祥。");
   } finally {
@@ -610,6 +747,5 @@ test("persist opportunistic artifacts writes usage_stats and L2 trajectory event
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
-    await database.close();
   }
 });

@@ -1,12 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { apply as applyProjectTools } from "../runtime/cothread-tools.mjs";
 
 test("the L2 runtime is composed from DSH AgentTeam plugins", async () => {
   const patch = await readFile(new URL("../runtime/agent-patch.yml", import.meta.url), "utf8");
   const tools = await readFile(new URL("../runtime/cothread-tools.mjs", import.meta.url), "utf8");
   const skills = await readFile(new URL("../runtime/cothread-skills.mjs", import.meta.url), "utf8");
-  const systemPrompt = await readFile(new URL("../runtime/cothread-system-prompt.mjs", import.meta.url), "utf8");
+  const systemPrompt = await readFile(
+    new URL("../runtime/cothread-system-prompt.mjs", import.meta.url),
+    "utf8",
+  );
   const agent = await readFile(new URL("../server/agent.js", import.meta.url), "utf8");
   for (const plugin of [
     "@deepseek-ai/dsh-subagent",
@@ -14,12 +18,36 @@ test("the L2 runtime is composed from DSH AgentTeam plugins", async () => {
     "@deepseek-ai/dsh-tool-subagent",
     "@deepseek-ai/dsh-compaction-basic",
     "@deepseek-ai/dsh-token-meter",
-  ]) assert.ok(patch.includes(plugin), plugin);
-  for (const plugin of ["@deepseek-ai/dsh-tool-subagent-control", "@deepseek-ai/dsh-tool-subagent-control/list-agents"])
+  ])
     assert.ok(patch.includes(plugin), plugin);
-  for (const tool of ["create_task", "update_task", "ask_task_question", "report_task", "recover_task", "inspect_task"])
-    assert.ok(tools.includes(`["${tool}"`), tool);
-  assert.match(tools, /只传 folderRefs，不要把文件夹展开成 documentRefs|不要把文件夹展开成 documentRefs/);
+  for (const plugin of [
+    "@deepseek-ai/dsh-tool-subagent-control",
+    "@deepseek-ai/dsh-tool-subagent-control/list-agents",
+  ])
+    assert.ok(patch.includes(plugin), plugin);
+  const registeredTools = [];
+  applyProjectTools({
+    tools: {
+      register(definition) {
+        registeredTools.push(definition.name);
+      },
+      guard() {},
+    },
+    on() {},
+  });
+  for (const tool of [
+    "create_task",
+    "update_task",
+    "ask_task_question",
+    "report_task",
+    "recover_task",
+    "inspect_task",
+  ])
+    assert.ok(registeredTools.includes(tool), tool);
+  assert.match(
+    tools,
+    /只传 folderRefs，不要把文件夹展开成 documentRefs|不要把文件夹展开成 documentRefs/,
+  );
   assert.doesNotMatch(tools, /wait_for_updates|finish_turn|post_message/);
   assert.doesNotMatch(tools, /prepare_local_codex/);
   assert.match(tools, /ctx\.tools\.guard/);
@@ -36,22 +64,53 @@ test("the L2 runtime is composed from DSH AgentTeam plugins", async () => {
 test("L1 denies every installed tool and MCP tools are a build-time manifest", async () => {
   const l1Tools = await readFile(new URL("../runtime/l1-tools.mjs", import.meta.url), "utf8");
   const l1Agent = await readFile(new URL("../server/l1-agent.js", import.meta.url), "utf8");
-  const runtimeConfig = await readFile(new URL("../server/dsh-runtime-config.js", import.meta.url), "utf8");
+  const runtimeConfig = await readFile(
+    new URL("../server/dsh-runtime-config.js", import.meta.url),
+    "utf8",
+  );
   const mcp = await import("../server/mcp.js");
   assert.match(l1Tools, /ctx\.tools\.guard\(\(\) =>/);
   assert.match(l1Agent, /l1RuntimePatch/);
   assert.match(runtimeConfig, /runtime\/l1-tools\.mjs/);
   assert.ok(Object.isFrozen(mcp.MCP_TOOL_NAMES));
   assert.deepEqual(mcp.MCP_TOOL_NAMES, [
-    "get_connection_guide", "list_projects", "get_project_context", "get_member",
-    "list_documents", "list_document_changes", "get_document_version", "manage_document", "manage_folder", "upload_official_file",
-    "start_file_upload", "upload_file_chunk", "complete_file_upload",
-    "get_iteration_context", "list_messages", "read_message",
-    "upload_cache_draft", "post_message",
-    "list_tasks", "get_task", "accept_task", "reject_task", "update_task",
-    "get_l1_status", "list_l1_runs", "list_l1_document_queue", "get_l1_logs", "retry_l1_task",
+    "get_connection_guide",
+    "list_projects",
+    "get_project_context",
+    "get_member",
+    "list_documents",
+    "list_document_changes",
+    "get_document_version",
+    "manage_document",
+    "manage_folder",
+    "upload_official_file",
+    "start_file_upload",
+    "upload_file_chunk",
+    "complete_file_upload",
+    "get_iteration_context",
+    "list_messages",
+    "read_message",
+    "upload_cache_draft",
+    "post_message",
+    "list_tasks",
+    "get_task",
+    "accept_task",
+    "reject_task",
+    "update_task",
+    "get_l1_status",
+    "list_l1_runs",
+    "list_l1_document_queue",
+    "get_l1_logs",
+    "retry_l1_task",
   ]);
-  for (const hidden of ["create_task", "reassign_task", "list_task_questions", "answer_task_question", "list_task_agent_logs", "get_task_log_event"])
+  for (const hidden of [
+    "create_task",
+    "reassign_task",
+    "list_task_questions",
+    "answer_task_question",
+    "list_task_agent_logs",
+    "get_task_log_event",
+  ])
     assert.ok(!mcp.MCP_TOOL_NAMES.includes(hidden), hidden);
 });
 

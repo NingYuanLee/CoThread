@@ -2,8 +2,9 @@ export const PREVIEW_CONSOLE_MESSAGE = "cothread-preview-console";
 export const PREVIEW_NAVIGATION_MESSAGE = "cothread-preview-navigation";
 export const PREVIEW_NEW_WINDOW_MESSAGE = "cothread-preview-new-window";
 
-export function previewConsoleProbeHtml() {
-  return `<script data-cothread-preview-console="1">(function(){
+export function previewConsoleProbeHtml(nonce = "") {
+  const nonceAttribute = nonce ? ` nonce="${String(nonce).replace(/[^A-Za-z0-9_-]/g, "")}"` : "";
+  return `<script${nonceAttribute} data-cothread-preview-console="1">(function(){
     var TYPE=${JSON.stringify(PREVIEW_CONSOLE_MESSAGE)};
     var NAV=${JSON.stringify(PREVIEW_NAVIGATION_MESSAGE)};
     var NEW_WINDOW=${JSON.stringify(PREVIEW_NEW_WINDOW_MESSAGE)};
@@ -113,19 +114,13 @@ async function replaceAllAsync(html, regexp, replacer) {
   for (let i = matches.length - 1; i >= 0; i--) {
     const match = matches[i];
     const replacement = await replacer(match);
-    out =
-      out.slice(0, match.index) +
-      replacement +
-      out.slice(match.index + match[0].length);
+    out = out.slice(0, match.index) + replacement + out.slice(match.index + match[0].length);
   }
   return out;
 }
 
 function escapeEmbedded(text, tag) {
-  return String(text).replace(
-    new RegExp(`</${tag}`, "gi"),
-    `<\\/${tag}`,
-  );
+  return String(text).replace(new RegExp(`</${tag}`, "gi"), `<\\/${tag}`);
 }
 
 export async function inlineHtmlPreviewAssets(html, loadAsset) {

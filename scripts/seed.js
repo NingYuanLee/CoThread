@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { createDatabase, query } from "../server/db.js";
 import { hashPassword } from "../server/auth.js";
 import { initialAdminPath, writeLocalAdminFiles } from "./local-admin-files.js";
+import { assertProductionWriteAllowed } from "../server/database-policy.js";
 
 export async function resolveInitialAdminCredentials() {
   let initialAdmin = {};
@@ -48,6 +49,7 @@ export async function seedInitialAdmin(db, { strict = false } = {}) {
 
 if (process.argv[1]?.endsWith("seed.js")) {
   void (async () => {
+    assertProductionWriteAllowed();
     const db = await createDatabase();
     try {
       await seedInitialAdmin(db, { strict: true });

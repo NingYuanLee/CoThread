@@ -1,6 +1,8 @@
 import { createDatabase, query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { executeRun } from "../server/sandbox-run.js";
+import { assertProductionWriteAllowed } from "../server/database-policy.js";
+assertProductionWriteAllowed();
 const db = await createDatabase();
 try {
   const [user] = await query(db, "SELECT id FROM users WHERE COALESCE(username,email)=?", [

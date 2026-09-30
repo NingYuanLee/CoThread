@@ -8,7 +8,9 @@ export class DatabasePolicyError extends Error {
 }
 
 export function isLoopbackHostname(hostname) {
-  const host = String(hostname || "").replace(/^\[|\]$/g, "").toLowerCase();
+  const host = String(hostname || "")
+    .replace(/^\[|\]$/g, "")
+    .toLowerCase();
   return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
 
@@ -41,21 +43,12 @@ export function parseDatabaseAddress(address) {
   }
 }
 
-export function buildMysqlDatabaseUrl({
-  host,
-  port = "3306",
-  user,
-  password,
-  name,
-} = {}) {
+export function buildMysqlDatabaseUrl({ host, port = "3306", user, password, name } = {}) {
   if (!host || !user || password == null || password === "" || !name) return null;
   return `mysql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${name}`;
 }
 
-const DMI_VENDOR_PATHS = [
-  "/sys/class/dmi/id/sys_vendor",
-  "/sys/class/dmi/id/board_vendor",
-];
+const DMI_VENDOR_PATHS = ["/sys/class/dmi/id/sys_vendor", "/sys/class/dmi/id/board_vendor"];
 
 /** 是否运行在阿里云主机上（ECS 内网可达 RDS）。可用 readText 注入便于测试。 */
 export function isAlibabaCloudHost({
@@ -76,7 +69,9 @@ export function isAlibabaCloudHost({
  * 选择内外网：显式 DATABASE_ENDPOINT 优先；否则阿里云主机用 internal，其余用 public。
  */
 export function resolveDatabaseEndpoint(env = process.env, options = {}) {
-  const forced = String(env.DATABASE_ENDPOINT || "").trim().toLowerCase();
+  const forced = String(env.DATABASE_ENDPOINT || "")
+    .trim()
+    .toLowerCase();
   if (forced === "public" || forced === "internal") return forced;
   if (forced) {
     throw new DatabasePolicyError("DATABASE_ENDPOINT 只能是 public 或 internal。");
@@ -97,32 +92,36 @@ function pickHostAddress(env, endpoint, hostInternalKey, hostPublicKey) {
   return { address: undefined, endpoint };
 }
 
-function composeFromParts(env, {
-  hostInternalKey,
-  hostPublicKey,
-  authKey,
-  legacyUrlKey,
-  legacyInternalUrlKey,
-  label,
-}, options = {}) {
+function composeFromParts(
+  env,
+  { hostInternalKey, hostPublicKey, authKey, legacyUrlKey, legacyInternalUrlKey, label },
+  options = {},
+) {
   const preferred = resolveDatabaseEndpoint(env, options);
   const { address, endpoint } = pickHostAddress(env, preferred, hostInternalKey, hostPublicKey);
   const parsedAddress = parseDatabaseAddress(address);
   const parsedAuth = parseDatabaseAuth(env[authKey]);
-  const composed = parsedAddress && parsedAuth
-    ? buildMysqlDatabaseUrl({
-      host: parsedAddress.host,
-      port: parsedAddress.port,
-      user: parsedAuth.user,
-      password: parsedAuth.password,
-      name: parsedAddress.name,
-    })
-    : null;
+  const composed =
+    parsedAddress && parsedAuth
+      ? buildMysqlDatabaseUrl({
+          host: parsedAddress.host,
+          port: parsedAddress.port,
+          user: parsedAuth.user,
+          password: parsedAuth.password,
+          name: parsedAddress.name,
+        })
+      : null;
   if (composed) return composed;
 
   if (endpoint === "internal" && env[legacyInternalUrlKey]) return env[legacyInternalUrlKey];
   if (endpoint === "public" && env[legacyUrlKey]) return env[legacyUrlKey];
-  if (preferred === "internal" && !env[hostInternalKey] && !env[hostPublicKey] && !env[legacyInternalUrlKey] && !env[legacyUrlKey]) {
+  if (
+    preferred === "internal" &&
+    !env[hostInternalKey] &&
+    !env[hostPublicKey] &&
+    !env[legacyInternalUrlKey] &&
+    !env[legacyUrlKey]
+  ) {
     throw new DatabasePolicyError(
       `缺少${label}数据库配置：请设置 ${hostInternalKey}（或 ${hostPublicKey} / 遗留 URL）。`,
     );
@@ -134,26 +133,92 @@ function composeFromParts(env, {
 
 /** 正式库：自动选内外网主机，并用正式库账号拼 URL。 */
 export function resolveConfiguredDatabaseUrl(env = process.env, options = {}) {
-  return composeFromParts(env, {
-    hostInternalKey: "DATABASE_HOST_INTERNAL",
-    hostPublicKey: "DATABASE_HOST_PUBLIC",
-    authKey: "DATABASE_AUTH",
-    legacyUrlKey: "DATABASE_URL",
-    legacyInternalUrlKey: "DATABASE_URL_INTERNAL",
-    label: "正式",
-  }, options);
+  return composeFromParts(
+    env,
+    {
+      hostInternalKey: "DATABASE_HOST_INTERNAL",
+      hostPublicKey: "DATABASE_HOST_PUBLIC",
+      authKey: "DATABASE_AUTH",
+      legacyUrlKey: "DATABASE_URL",
+      legacyInternalUrlKey: "DATABASE_URL_INTERNAL",
+      label: "正式",
+    },
+    options,
+  );
 }
 
 /** 测试库：同样自动选内外网，使用测试库账号。 */
 export function resolveConfiguredTestDatabaseUrl(env = process.env, options = {}) {
-  return composeFromParts(env, {
-    hostInternalKey: "TEST_DATABASE_HOST_INTERNAL",
-    hostPublicKey: "TEST_DATABASE_HOST_PUBLIC",
-    authKey: "TEST_DATABASE_AUTH",
-    legacyUrlKey: "TEST_DATABASE_URL",
-    legacyInternalUrlKey: "TEST_DATABASE_URL_INTERNAL",
-    label: "测试",
-  }, options);
+  return composeFromParts(
+    env,
+    {
+      hostInternalKey: "TEST_DATABASE_HOST_INTERNAL",
+      hostPublicKey: "TEST_DATABASE_HOST_PUBLIC",
+      authKey: "TEST_DATABASE_AUTH",
+      legacyUrlKey: "TEST_DATABASE_URL",
+      legacyInternalUrlKey: "TEST_DATABASE_URL_INTERNAL",
+      label: "测试",
+    },
+    options,
+  );
+}
+
+/** 本机开发库：使用独立的 DEV_DATABASE_HOST/DEV_DATABASE_AUTH 配置。 */
+export function resolveConfiguredDevDatabaseUrl(env = process.env) {
+  const address = parseDatabaseAddress(env.DEV_DATABASE_HOST);
+  const auth = parseDatabaseAuth(env.DEV_DATABASE_AUTH);
+  if (address && auth) {
+    return buildMysqlDatabaseUrl({
+      host: address.host,
+      port: address.port,
+      user: auth.user,
+      password: auth.password,
+      name: address.name,
+    });
+  }
+  if (env.DEV_DATABASE_URL) return env.DEV_DATABASE_URL;
+  throw new DatabasePolicyError(
+    "缺少开发数据库配置：请设置 DEV_DATABASE_HOST（host:port/dbname）和 DEV_DATABASE_AUTH（user:password）。",
+  );
+}
+
+export function resolveDatabaseTarget(env = process.env, { production = false } = {}) {
+  const configured = String(env.COTHREAD_DB_TARGET || "")
+    .trim()
+    .toLowerCase();
+  if (production && configured && configured !== "prod") {
+    throw new DatabasePolicyError(`生产进程不能使用 COTHREAD_DB_TARGET=${configured}。`);
+  }
+  const target = configured || (production ? "prod" : "");
+  if (!target || !["dev", "test", "prod"].includes(target)) {
+    throw new DatabasePolicyError("缺少或无效的 COTHREAD_DB_TARGET，请设置为 dev、test 或 prod。");
+  }
+  return target;
+}
+
+export function resolveTargetDatabaseUrl(env = process.env, { production = false } = {}) {
+  const target = resolveDatabaseTarget(env, { production });
+  if (target === "dev") return resolveConfiguredDevDatabaseUrl(env);
+  if (target === "test") return resolveConfiguredTestDatabaseUrl(env);
+  return resolveConfiguredDatabaseUrl(env);
+}
+
+export function productionWriteAllowed(env = process.env, { production = false } = {}) {
+  if (production) return true;
+  return (
+    String(env.COTHREAD_DB_TARGET || "")
+      .trim()
+      .toLowerCase() !== "prod" ||
+    env.COTHREAD_ALLOW_PROD_WRITE === "1" ||
+    String(env.COTHREAD_ALLOW_PROD_WRITE || "").toLowerCase() === "true"
+  );
+}
+
+export function assertProductionWriteAllowed(env = process.env, { production = false } = {}) {
+  if (productionWriteAllowed(env, { production })) return;
+  throw new DatabasePolicyError(
+    "已选择正式库，但当前进程未获生产写入许可。请设置 COTHREAD_ALLOW_PROD_WRITE=1，或改用 dev/test 目标。",
+  );
 }
 
 export function resolveDatabasePolicy({

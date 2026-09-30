@@ -1,0 +1,646 @@
+/**
+ * 小程序全栈工作区样式。
+ *
+ * 单独成文件，避免与 web/style.css 的并发改动冲突。颜色一律使用
+ * web/theme.css 生成的 --c-* 令牌，且不写 fallback（与 style.css 约定一致）。
+ */
+
+/* 右侧栏第三工具：六个固定页签 */
+.miniprogram-workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.miniprogram-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--c-d8e1d3);
+  background: var(--c-fafbfa);
+}
+.miniprogram-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--c-5e6c56);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.miniprogram-tabs button:hover {
+  background: var(--c-eef2ea);
+}
+.miniprogram-tabs button.active {
+  background: var(--c-dfe5d9);
+  color: var(--c-27362f);
+  font-weight: 600;
+}
+.miniprogram-tab-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px 18px;
+}
+.miniprogram-workspace-notice {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--c-f0f3ed);
+  color: var(--c-c59d4b);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.miniprogram-panel {
+  display: block;
+  min-width: 0;
+}
+.miniprogram-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.miniprogram-panel-head h4 {
+  margin: 0;
+  font-size: 13px;
+}
+.miniprogram-panel h5 {
+  margin: 16px 0 6px;
+  font-size: 12px;
+  color: var(--c-5e6c56);
+}
+.miniprogram-panel-pending {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px dashed var(--c-c3d3b6);
+  border-radius: 7px;
+  background: var(--c-fafbfa);
+  color: var(--c-4a524c);
+}
+.miniprogram-panel-pending strong {
+  font-size: 12px;
+}
+.miniprogram-panel-pending p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--c-5e6c56);
+}
+.miniprogram-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 6px 12px;
+  margin: 0 0 6px;
+}
+.miniprogram-meta > div {
+  min-width: 0;
+}
+.miniprogram-meta dt {
+  font-size: 11px;
+  color: var(--c-8b9689);
+}
+.miniprogram-meta dd {
+  margin: 2px 0 0;
+  font-size: 12px;
+  word-break: break-all;
+}
+.miniprogram-source-list,
+.miniprogram-source-list ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+.miniprogram-source-list > li {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--c-e7eae7);
+}
+.miniprogram-source-list > li:last-child {
+  border-bottom: 0;
+}
+.miniprogram-source-area {
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-344f65);
+}
+.miniprogram-source-count {
+  font-size: 11px;
+  color: var(--c-8b9689);
+}
+.miniprogram-source-list ul li {
+  padding: 1px 0 1px 10px;
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 11px;
+  color: var(--c-5e6c56);
+  word-break: break-all;
+}
+.miniprogram-status {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  white-space: nowrap;
+  background: var(--c-f0f3ed);
+  color: var(--c-5e6c56);
+}
+.miniprogram-status.ok {
+  background: var(--c-e8f0e1);
+  color: var(--c-516747);
+}
+.miniprogram-status.warning {
+  background: var(--c-f0f3ed);
+  color: var(--c-c59d4b);
+}
+.miniprogram-status.failed {
+  background: var(--c-fff0ec);
+  color: var(--c-9f2e28);
+}
+.miniprogram-status.muted {
+  background: var(--c-f0f3ed);
+  color: var(--c-8b9689);
+}
+
+/* Dimina 预览画布 */
+.miniprogram-canvas-shell {
+  margin-top: 12px;
+  border: 1px solid var(--c-d8e1d3);
+  border-radius: 8px;
+  background: var(--c-fafbfa);
+  overflow: hidden;
+}
+.miniprogram-canvas-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--c-e7eae7);
+  background: var(--c-fafbfa);
+}
+.miniprogram-canvas-state {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--c-f0f3ed);
+  color: var(--c-5e6c56);
+}
+.miniprogram-canvas-state.running {
+  background: var(--c-e8f0e1);
+  color: var(--c-516747);
+}
+.miniprogram-canvas-state.error {
+  background: var(--c-fff0ec);
+  color: var(--c-9f2e28);
+}
+.miniprogram-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 520px;
+  height: 62vh;
+  background: var(--c-f8faf8);
+}
+.miniprogram-canvas > * {
+  width: 100%;
+  height: 100%;
+}
+
+/* 项目管理 → 小程序与云开发配置 */
+.miniprogram-config {
+  min-width: 0;
+}
+.miniprogram-config-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.miniprogram-config-head h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+.miniprogram-config-head p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.miniprogram-config-error {
+  margin: 0 0 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--c-fff0ec);
+  color: var(--c-9f2e28);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.miniprogram-config-section {
+  margin: 0 0 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--c-e7eae7);
+}
+.miniprogram-config-section:last-child {
+  border-bottom: 0;
+}
+.miniprogram-config-section h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-344f65);
+}
+.miniprogram-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 7px;
+}
+.miniprogram-field > span {
+  flex-shrink: 0;
+  width: 92px;
+  font-size: 12px;
+  color: var(--c-5e6c56);
+}
+.miniprogram-field > input[type="text"],
+.miniprogram-field > select,
+.miniprogram-secret-actions > input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid var(--c-d8e1d3);
+  border-radius: 5px;
+  background: var(--c-fafbfa);
+  font-size: 12px;
+}
+.miniprogram-field-check {
+  align-items: flex-start;
+  gap: 8px;
+}
+.miniprogram-field-check > span {
+  width: auto;
+  line-height: 1.6;
+}
+.miniprogram-note {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.miniprogram-secret {
+  margin-bottom: 12px;
+  padding: 9px 10px;
+  border: 1px solid var(--c-e7eae7);
+  border-radius: 6px;
+  background: var(--c-fafbfa);
+}
+.miniprogram-secret-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.miniprogram-secret-on {
+  color: var(--c-516747);
+  font-weight: 400;
+}
+.miniprogram-secret-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+}
+.miniprogram-secret-actions > input {
+  flex: 1;
+}
+.miniprogram-config-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.miniprogram-config-actions button,
+.miniprogram-secondary,
+.miniprogram-danger,
+.miniprogram-secret-actions button {
+  padding: 6px 12px;
+  border: 1px solid var(--c-c3d3b6);
+  border-radius: 5px;
+  background: var(--c-fafbfa);
+  color: var(--c-27362f);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.miniprogram-config-actions button:disabled,
+.miniprogram-secondary:disabled,
+.miniprogram-secret-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.miniprogram-config-actions button:first-child {
+  background: var(--c-dfe5d9);
+}
+.miniprogram-danger {
+  color: var(--c-9f2e28);
+}
+.miniprogram-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.miniprogram-empty p {
+  margin: 0;
+  font-size: 12px;
+}
+.miniprogram-checks {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.miniprogram-checks li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--c-eef2ea);
+  font-size: 12px;
+}
+.miniprogram-checks li:last-child {
+  border-bottom: 0;
+}
+.miniprogram-check-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  width: 130px;
+  font-weight: 500;
+}
+.miniprogram-check-detail {
+  flex: 1;
+  min-width: 0;
+  color: var(--c-5e6c56);
+  word-break: break-word;
+}
+.miniprogram-check-state {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--c-8b9689);
+}
+.miniprogram-checks li[data-status="passed"] .miniprogram-check-state {
+  color: var(--c-516747);
+}
+.miniprogram-checks li[data-status="failed"] .miniprogram-check-state {
+  color: var(--c-9f2e28);
+}
+
+/* Admin 开发服务器预览 iframe */
+.miniprogram-admin-frame {
+  display: block;
+  width: 100%;
+  height: 62vh;
+  min-height: 480px;
+  border: 0;
+  background: var(--c-f8faf8);
+}
+
+/* CloudBase 数据库 / 文件存储页签 */
+.miniprogram-field-column {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.miniprogram-field-column > span {
+  width: auto;
+}
+.miniprogram-doc-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--c-e7eae7);
+  border-radius: 6px;
+}
+.miniprogram-doc-list li + li {
+  border-top: 1px solid var(--c-eef2ea);
+}
+.miniprogram-doc-list button {
+  display: block;
+  width: 100%;
+  padding: 6px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--c-27362f);
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  word-break: break-all;
+}
+.miniprogram-doc-list button:hover {
+  background: var(--c-eef2ea);
+}
+.miniprogram-doc-editor {
+  margin-top: 10px;
+}
+.miniprogram-doc-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.miniprogram-doc-editor-head button {
+  padding: 3px 9px;
+  border: 1px solid var(--c-c3d3b6);
+  border-radius: 5px;
+  background: var(--c-fafbfa);
+  font-size: 11px;
+  cursor: pointer;
+}
+.miniprogram-doc-textarea {
+  width: 100%;
+  min-height: 120px;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid var(--c-d8e1d3);
+  border-radius: 5px;
+  background: var(--c-fafbfa);
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.miniprogram-doc-result {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--c-e7eae7);
+  border-radius: 6px;
+  background: var(--c-fafbfa);
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 微信发布 */
+.miniprogram-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--c-e7eae7);
+  border-radius: 6px;
+  background: var(--c-fafbfa);
+}
+.miniprogram-qr img {
+  width: 180px;
+  height: 180px;
+  image-rendering: pixelated;
+  background: #fff;
+}
+.miniprogram-qr span {
+  font-size: 11px;
+  line-height: 1.6;
+}
+.miniprogram-deploy-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--c-e7eae7);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.miniprogram-deploy-list > li + li {
+  border-top: 1px solid var(--c-eef2ea);
+}
+.miniprogram-deploy-list button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.miniprogram-deploy-list button:hover {
+  background: var(--c-eef2ea);
+}
+.miniprogram-deploy-target {
+  font-weight: 600;
+  color: var(--c-27362f);
+}
+.miniprogram-deploy-version {
+  flex: 1;
+  min-width: 0;
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  color: var(--c-5e6c56);
+  word-break: break-all;
+}
+
+/* 待审批发布申请（批准 / 拒绝） */
+.miniprogram-approval-alert {
+  margin: 0 0 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--c-f3d8d0);
+  border-radius: 6px;
+  background: var(--c-fff0ec);
+  color: var(--c-9f2e28);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.miniprogram-approval-list,
+.miniprogram-approval-history {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--c-e7eae7);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.miniprogram-approval-list > li + li,
+.miniprogram-approval-history > li + li {
+  border-top: 1px solid var(--c-eef2ea);
+}
+.miniprogram-approval-list > li {
+  padding: 8px 9px;
+}
+.miniprogram-approval-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.miniprogram-approval-target {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--c-27362f);
+}
+.miniprogram-approval-version {
+  flex: 1;
+  min-width: 0;
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 11px;
+  color: var(--c-5e6c56);
+  word-break: break-all;
+}
+.miniprogram-approval-note {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--c-4a524c);
+}
+.miniprogram-approval-list .miniprogram-note {
+  margin: 4px 0 6px;
+}
+.miniprogram-approval-reject {
+  margin-top: 6px;
+  padding: 8px 9px;
+  border: 1px solid var(--c-e7eae7);
+  border-radius: 6px;
+  background: var(--c-fafbfa);
+}
+.miniprogram-approval-reject .miniprogram-field {
+  margin-bottom: 6px;
+}
+.miniprogram-approval-history > li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  font-size: 11px;
+}
+.miniprogram-approval-history .miniprogram-approval-version {
+  flex: 0 0 auto;
+}
+.miniprogram-approval-detail {
+  flex: 1;
+  min-width: 0;
+  color: var(--c-8b9689);
+  word-break: break-all;
+}

@@ -2,6 +2,9 @@
 import { createHash } from "node:crypto";
 import { createDatabase, query } from "../server/db.js";
 import PptxGenJS from "pptxgenjs";
+import { assertProductionWriteAllowed } from "../server/database-policy.js";
+
+assertProductionWriteAllowed();
 
 async function buildPreviewPptxBytes() {
   const pptx = new PptxGenJS();
@@ -48,20 +51,19 @@ function digest(bytes) {
 const db = await createDatabase();
 const bytes = await buildPreviewPptxBytes();
 const sha = digest(bytes);
-const rows = await query(
-  db,
-  `SELECT id, filename FROM versions WHERE filename = ?`,
-  ["预览测试.pptx"],
-);
+const rows = await query(db, `SELECT id, filename FROM versions WHERE filename = ?`, [
+  "预览测试.pptx",
+]);
 if (!rows.length) {
   console.log("未找到「预览测试.pptx」，无需修复。");
   process.exit(0);
 }
 for (const row of rows) {
-  await query(
-    db,
-    `UPDATE versions SET content = ?, byte_size = ?, sha256 = ? WHERE id = ?`,
-    [bytes, bytes.length, sha, row.id],
-  );
+  await query(db, `UPDATE versions SET content = ?, byte_size = ?, sha256 = ? WHERE id = ?`, [
+    bytes,
+    bytes.length,
+    sha,
+    row.id,
+  ]);
   console.log(`已修复 version ${row.id}（${row.filename}，${bytes.length} 字节）`);
 }

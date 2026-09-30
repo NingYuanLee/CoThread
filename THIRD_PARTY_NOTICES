@@ -45,3 +45,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+Dimina 星河小程序 1.2.1 (fe-container-sdk, 编译器 @dimina/compiler) — https://github.com/didi/dimina
+Copyright (c) DiDi. Licensed under the Apache License, Version 2.0.
+运行时资产 vendor 自提交 fa34f11e02f480df715d374e11a3f531f63b7a60，产物位于 public/dimina/：
+  index.js, index.css, service.js, pageFrame.js, pageFrame.css（pageFrame.html 由本仓库生成）
+重新生成方式见 scripts/vendor-dimina-runtime.mjs。
+Apache License 2.0 全文：https://www.apache.org/licenses/LICENSE-2.0

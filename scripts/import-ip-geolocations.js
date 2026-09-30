@@ -6,10 +6,11 @@ import { pipeline } from "node:stream/promises";
 import { createDatabase, query } from "../server/db.js";
 import { ipv4ToLong } from "../server/ip-location.js";
 import { migrate } from "./migrate.js";
+import { assertProductionWriteAllowed } from "../server/database-policy.js";
 
 const DEFAULT_SOURCE_URL =
-  process.env.IP_GEOLOCATION_SOURCE_URL
-  || "https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ipv4_source.txt";
+  process.env.IP_GEOLOCATION_SOURCE_URL ||
+  "https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ipv4_source.txt";
 
 function cleanPart(value) {
   const text = String(value || "").trim();
@@ -31,7 +32,13 @@ function parseLine(line) {
   const city = modern ? parts[4] : parts[parts.length >= 7 ? 5 : 4];
   const startIp = /^\d+$/.test(startRaw) ? Number(startRaw) >>> 0 : ipv4ToLong(startRaw);
   const endIp = /^\d+$/.test(endRaw) ? Number(endRaw) >>> 0 : ipv4ToLong(endRaw);
-  if (startIp === null || endIp === null || Number.isNaN(startIp) || Number.isNaN(endIp) || startIp > endIp) {
+  if (
+    startIp === null ||
+    endIp === null ||
+    Number.isNaN(startIp) ||
+    Number.isNaN(endIp) ||
+    startIp > endIp
+  ) {
     return null;
   }
   return [startIp, endIp, cleanPart(country), cleanPart(province), cleanPart(city), null];
@@ -94,6 +101,7 @@ async function main() {
 }
 
 if (process.argv[1]?.endsWith("import-ip-geolocations.js")) {
+  assertProductionWriteAllowed();
   void main().catch((error) => {
     console.error(error.message || error);
     process.exitCode = 1;

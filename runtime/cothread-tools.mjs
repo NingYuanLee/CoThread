@@ -10,18 +10,15 @@ export const inject = ["tools", "agents", "subagents"];
 const AUTO_DISPATCH_BUILD = "v7-bind-allow";
 
 async function bridgeTool(name, args, sessionId) {
-  const response = await fetch(
-    `${process.env.COTHREAD_BRIDGE_URL}/tool`,
-    {
-      method: "POST",
-      signal: AbortSignal.timeout(150000),
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.COTHREAD_BRIDGE_TOKEN}`,
-      },
-      body: JSON.stringify({ name, args, sessionId: sessionId || null }),
+  const response = await fetch(`${process.env.COTHREAD_BRIDGE_URL}/tool`, {
+    method: "POST",
+    signal: AbortSignal.timeout(150000),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.COTHREAD_BRIDGE_TOKEN}`,
     },
-  );
+    body: JSON.stringify({ name, args, sessionId: sessionId || null }),
+  });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || "工具执行失败");
   return result;
@@ -31,25 +28,153 @@ export function apply(ctx) {
   // This build-time manifest is the only source of model-facing project tools.
   // Accounts and project data cannot extend it at runtime.
   const definitions = [
-    ["list_project_tasks", "读取当前迭代锁定的任务池。返回 idleL3Count（空闲 L3 数）和 tasks。待指派是 pending_assignment。不含其他迭代的任务。", { status: { type: "string" }, targetId: { type: "string" }, limit: { type: "number" } }],
-    ["inspect_task", "查看当前迭代某任务的执行快照：状态、心跳、最近工具、失败分类、失败指纹、重试预算和建议下一步。自己责任（L2/L3）随时可看；成员名下任务须本轮人类成员账号授权。失败先分类：平台错误不要换人，重复平台错误应阻塞；执行错误先给原 L3 反馈后再决定是否换人。", { taskId:{type:"string",required:true} }],
-    ["update_task", "更新当前负责任务的状态、进度、结果摘要或产物。L3 日常进度用本工具；结束必须改用 report_task。", { taskId:{type:"string",required:true}, status:{type:"string"}, progress:{type:"string"}, resultSummary:{type:"string"}, artifactRefs:{type:"array"}, body:{type:"string"} }],
-    ["report_task", "L3 结束前必须调用：向 L2 交活。status=completed|failed|blocked。无论成败都要交一份真实摘要；调用后不要再继续干活。", { taskId:{type:"string"}, status:{type:"string",required:true}, summary:{type:"string",required:true}, reason:{type:"string"}, artifactRefs:{type:"array"} }],
-    ["reassign_task", "把任务转交给项目人类成员或当前迭代 L2。自己责任的任务可在 L2/L3 之间转交；转给人类或转交成员名下任务须本轮人类成员账号授权。assist_l2 不能转给人类。", { taskId:{type:"string",required:true}, targetType:{type:"string",required:true}, targetId:{type:"string",required:true}, reason:{type:"string"} }],
-    ["resolve_task_rejection", "处理被目标成员拒绝的任务。成员名下拒绝结果须本轮人类成员账号授权后，才可确认已知晓或修改后按原目标重新发起。", { taskId:{type:"string",required:true}, action:{type:"string",required:true}, title:{type:"string"}, goal:{type:"string"}, constraints:{type:"string"}, reason:{type:"string"} }],
-    ["recover_task", "安排异常任务。自己责任的 L3 任务随时可处理；成员名下任务须本轮人类成员账号授权。失败先检查 failureClass、failureSignature 和 retryPolicy：同一平台错误不要换人，重复平台错误必须阻塞；执行错误先让原 L3 带反馈重试，只有达到同一执行者上限、客观验收仍失败或会话不可恢复时才换 L3。action=restart：有空闲 L3 则为执行中并立刻恢复或指派，否则待指派；返回 interruptedAgentId 时先对该 agent_id 调用 send_message，要求继续当前 TASK_ID，这是同一执行者优先恢复路径。只有 send_message 明确失败、会话不可恢复或达到执行者上限后才 dsh_l3 换人。被阻塞任务只有外部条件确实改变时才传 environmentChanged=true。对人的任务会回到待确认。见到 execution_agent_id 之前不要声称已派人干活。action=cancel 取消该任务。不要在沙箱里直连数据库。", { taskId:{type:"string",required:true}, action:{type:"string",required:true}, title:{type:"string"}, goal:{type:"string"}, constraints:{type:"string"}, reason:{type:"string"}, environmentChanged:{type:"boolean"} }],
-    ["ask_task_question", "向当前迭代某任务的最新来源人提问。问题会作为群聊事件发布。自己责任的任务随时可问；成员名下任务须本轮人类成员账号授权。", { taskId:{type:"string",required:true}, question:{type:"string",required:true} }],
-    ["create_task", "创建项目任务。assist_l2 为 Ask 只读辅助：必须有空闲 L3，创建即执行中，工具会在同一次调用内尽量启动并绑定 L3；没有空闲 L3 时不要创建。目标为本 L2 的 formal 为沙箱任务：有空闲则执行中并由工具尽量自动绑定 L3，否则 pending_assignment。若返回仍带 needsDispatch=true 且无 execution_agent_id，再在同一轮 dsh_l3，prompt 第一行写 TASK_ID。给人的 formal 只能指派人类成员，须本轮授权，状态待确认。资料引用：成员只要文件夹时只传 folderRefs（正式文件文件夹 ID，最多 30 个），不要把文件夹展开成 documentRefs；只有成员明确点名个别文档时才另传 documentRefs（正式文件版本 ID，最多 30 个）。执行方用 list_documents({folderId, recursive:true}) 读取目录。不要为小祥自己就能完成的回复建任务。", {
-      taskType: { type: "string", required: true }, title: { type: "string", required: true }, goal: { type: "string", required: true },
-      constraints: { type: "string" }, documentRefs: { type: "array" }, folderRefs: { type: "array" }, sourceType:{type:"string"}, sourceUserId:{type:"string"}, sourceMessageId:{type:"string"}, sourceTaskId:{type:"string"}, targetType: { type: "string" }, targetId: { type: "string" },
-    }],
-    ["list_documents","项目文档：分页查看当前迭代文件和项目正式文件，其他迭代文件不可见；含回收站状态，默认100项。传入 folderId 只列出该文件夹的子目录和文件；recursive=true 时包含全部子孙目录与其中文件。任务或消息里的 folderRefs 是文件夹 ID，不要当成文件列表，应再用本工具按目录读取。",{folderId:{type:"string"},recursive:{type:"boolean"},limit:{type:"number"},offset:{type:"number"}}],
-    ["manage_document","项目文档：按用户要求重命名、移动、删除或恢复文档。对话缓存只允许重命名、删除和恢复，不能移动或新增版本；产物和项目正式文件可管理。跨范围保存必须另存副本。",{action:{type:"string",required:true},scope:{type:"string"},artifactId:{type:"string"},versionId:{type:"string"},name:{type:"string"},folderId:{oneOf:[{type:"string"},{type:"null"}]}}],
-    ["manage_folder","项目文档：按用户要求创建、重命名、移动、删除文件夹。action=create|rename|move|delete；删除前须清空；parentId为null表示根目录。",{action:{type:"string",required:true},folderId:{type:"string"},name:{type:"string"},parentId:{oneOf:[{type:"string"},{type:"null"}]}}],
-    ["list_messages", "会话资料：读取本项目某会话消息列表，默认最近20条；beforeMessageId取该消息之前的消息，包含类型与引用预览。", {threadId:{type:"string",required:true},limit:{type:"number"},beforeMessageId:{type:"string"}}],
-    ["read_message", "会话资料：读取指定消息，before可取之前0至20条；返回引用预览，可按引用ID再次读取原文。", {threadId:{type:"string",required:true},messageId:{type:"string",required:true},before:{type:"number"}}],
+    [
+      "list_project_tasks",
+      "读取当前迭代锁定的任务池。返回 idleL3Count（空闲 L3 数）和 tasks。待指派是 pending_assignment。不含其他迭代的任务。",
+      { status: { type: "string" }, targetId: { type: "string" }, limit: { type: "number" } },
+    ],
+    [
+      "inspect_task",
+      "查看当前迭代某任务的执行快照：状态、心跳、最近工具、失败分类、失败指纹、重试预算和建议下一步。自己责任（L2/L3）随时可看；成员名下任务须本轮人类成员账号授权。失败先分类：平台错误不要换人，重复平台错误应阻塞；执行错误先给原 L3 反馈后再决定是否换人。",
+      { taskId: { type: "string", required: true } },
+    ],
+    [
+      "update_task",
+      "更新当前负责任务的状态、进度、结果摘要或产物。L3 日常进度用本工具；结束必须改用 report_task。",
+      {
+        taskId: { type: "string", required: true },
+        status: { type: "string" },
+        progress: { type: "string" },
+        resultSummary: { type: "string" },
+        artifactRefs: { type: "array" },
+        body: { type: "string" },
+      },
+    ],
+    [
+      "report_task",
+      "L3 结束前必须调用：向 L2 交活。status=completed|failed|blocked。无论成败都要交一份真实摘要；调用后不要再继续干活。",
+      {
+        taskId: { type: "string" },
+        status: { type: "string", required: true },
+        summary: { type: "string", required: true },
+        reason: { type: "string" },
+        artifactRefs: { type: "array" },
+      },
+    ],
+    [
+      "reassign_task",
+      "把任务转交给项目人类成员或当前迭代 L2。自己责任的任务可在 L2/L3 之间转交；转给人类或转交成员名下任务须本轮人类成员账号授权。assist_l2 不能转给人类。",
+      {
+        taskId: { type: "string", required: true },
+        targetType: { type: "string", required: true },
+        targetId: { type: "string", required: true },
+        reason: { type: "string" },
+      },
+    ],
+    [
+      "resolve_task_rejection",
+      "处理被目标成员拒绝的任务。成员名下拒绝结果须本轮人类成员账号授权后，才可确认已知晓或修改后按原目标重新发起。",
+      {
+        taskId: { type: "string", required: true },
+        action: { type: "string", required: true },
+        title: { type: "string" },
+        goal: { type: "string" },
+        constraints: { type: "string" },
+        reason: { type: "string" },
+      },
+    ],
+    [
+      "recover_task",
+      "安排异常任务。自己责任的 L3 任务随时可处理；成员名下任务须本轮人类成员账号授权。失败先检查 failureClass、failureSignature 和 retryPolicy：同一平台错误不要换人，重复平台错误必须阻塞；执行错误先让原 L3 带反馈重试，只有达到同一执行者上限、客观验收仍失败或会话不可恢复时才换 L3。action=restart：有空闲 L3 则为执行中并立刻恢复或指派，否则待指派；返回 interruptedAgentId 时先对该 agent_id 调用 send_message，要求继续当前 TASK_ID，这是同一执行者优先恢复路径。只有 send_message 明确失败、会话不可恢复或达到执行者上限后才 dsh_l3 换人。被阻塞任务只有外部条件确实改变时才传 environmentChanged=true。对人的任务会回到待确认。见到 execution_agent_id 之前不要声称已派人干活。action=cancel 取消该任务。不要在沙箱里直连数据库。",
+      {
+        taskId: { type: "string", required: true },
+        action: { type: "string", required: true },
+        title: { type: "string" },
+        goal: { type: "string" },
+        constraints: { type: "string" },
+        reason: { type: "string" },
+        environmentChanged: { type: "boolean" },
+      },
+    ],
+    [
+      "ask_task_question",
+      "向当前迭代某任务的最新来源人提问。问题会作为群聊事件发布。自己责任的任务随时可问；成员名下任务须本轮人类成员账号授权。",
+      { taskId: { type: "string", required: true }, question: { type: "string", required: true } },
+    ],
+    [
+      "create_task",
+      "创建项目任务。assist_l2 为 Ask 只读辅助：必须有空闲 L3，创建即执行中，工具会在同一次调用内尽量启动并绑定 L3；没有空闲 L3 时不要创建。目标为本 L2 的 formal 为沙箱任务：有空闲则执行中并由工具尽量自动绑定 L3，否则 pending_assignment。若返回仍带 needsDispatch=true 且无 execution_agent_id，再在同一轮 dsh_l3，prompt 第一行写 TASK_ID。给人的 formal 只能指派人类成员，须本轮授权，状态待确认。资料引用：成员只要文件夹时只传 folderRefs（正式文件文件夹 ID，最多 30 个），不要把文件夹展开成 documentRefs；只有成员明确点名个别文档时才另传 documentRefs（正式文件版本 ID，最多 30 个）。执行方用 list_documents({folderId, recursive:true}) 读取目录。不要为小祥自己就能完成的回复建任务。",
+      {
+        taskType: { type: "string", required: true },
+        title: { type: "string", required: true },
+        goal: { type: "string", required: true },
+        constraints: { type: "string" },
+        documentRefs: { type: "array" },
+        folderRefs: { type: "array" },
+        sourceType: { type: "string" },
+        sourceUserId: { type: "string" },
+        sourceMessageId: { type: "string" },
+        sourceTaskId: { type: "string" },
+        targetType: { type: "string" },
+        targetId: { type: "string" },
+      },
+    ],
+    [
+      "list_documents",
+      "项目文档：分页查看当前迭代文件和项目正式文件，其他迭代文件不可见；含回收站状态，默认100项。传入 folderId 只列出该文件夹的子目录和文件；recursive=true 时包含全部子孙目录与其中文件。任务或消息里的 folderRefs 是文件夹 ID，不要当成文件列表，应再用本工具按目录读取。",
+      {
+        folderId: { type: "string" },
+        recursive: { type: "boolean" },
+        limit: { type: "number" },
+        offset: { type: "number" },
+      },
+    ],
+    [
+      "manage_document",
+      "项目文档：按用户要求重命名、移动、删除或恢复文档。对话缓存只允许重命名、删除和恢复，不能移动或新增版本；产物和项目正式文件可管理。跨范围保存必须另存副本。",
+      {
+        action: { type: "string", required: true },
+        scope: { type: "string" },
+        artifactId: { type: "string" },
+        versionId: { type: "string" },
+        name: { type: "string" },
+        folderId: { oneOf: [{ type: "string" }, { type: "null" }] },
+      },
+    ],
+    [
+      "manage_folder",
+      "项目文档：按用户要求创建、重命名、移动、删除文件夹。action=create|rename|move|delete；删除前须清空；parentId为null表示根目录。",
+      {
+        action: { type: "string", required: true },
+        folderId: { type: "string" },
+        name: { type: "string" },
+        parentId: { oneOf: [{ type: "string" }, { type: "null" }] },
+      },
+    ],
+    [
+      "list_messages",
+      "会话资料：读取本项目某会话消息列表，默认最近20条；beforeMessageId取该消息之前的消息，包含类型与引用预览。",
+      {
+        threadId: { type: "string", required: true },
+        limit: { type: "number" },
+        beforeMessageId: { type: "string" },
+      },
+    ],
+    [
+      "read_message",
+      "会话资料：读取指定消息，before可取之前0至20条；返回引用预览，可按引用ID再次读取原文。",
+      {
+        threadId: { type: "string", required: true },
+        messageId: { type: "string", required: true },
+        before: { type: "number" },
+      },
+    ],
     ["list_members", "会话资料：读取当前项目成员列表，只含ID、名称、角色，不含头像。", {}],
-    ["read_member", "项目记忆：读取单个成员的名称、角色、个性签名、身份标签和小祥对该成员的持久化认识，不含头像或凭据。", {memberId:{type:"string",required:true}}],
+    [
+      "read_member",
+      "项目记忆：读取单个成员的名称、角色、个性签名、身份标签和小祥对该成员的持久化认识，不含头像或凭据。",
+      { memberId: { type: "string", required: true } },
+    ],
     [
       "project_context",
       "读取一级小祥维护的项目 Wiki 目录：成员、成员认识索引、所有迭代、文档版本和已有版本摘要；已有摘要足够时可直接复用，无需再次读取正文。",
@@ -88,22 +213,38 @@ export function apply(ctx) {
     [
       "list_code_tree",
       "列出指定项目代码仓库某路径下的目录与文件（只读）。不要递归扫全库；按需下钻。",
-      { remoteId: { type: "string", required: true }, ref: { type: "string" }, path: { type: "string" } },
+      {
+        remoteId: { type: "string", required: true },
+        ref: { type: "string" },
+        path: { type: "string" },
+      },
     ],
     [
       "read_code_file",
       "读取指定项目代码仓库中的单个文本文件（只读，有大小上限）。不要大段粘贴无关源码到对成员可见正文。",
-      { remoteId: { type: "string", required: true }, path: { type: "string", required: true }, ref: { type: "string" } },
+      {
+        remoteId: { type: "string", required: true },
+        path: { type: "string", required: true },
+        ref: { type: "string" },
+      },
     ],
     [
       "read_iteration",
       "读取本项目内指定迭代的近期讨论、审核与归档，以及工具执行状态。默认最近50条；limit可选1至200，before为向前翻页的消息sequence；省略头像和历史工具输入输出。附件保留版本引用，按需读取。",
-      { threadId: { type: "string", required: true }, limit: { type: "number" }, before: { type: "string" } },
+      {
+        threadId: { type: "string", required: true },
+        limit: { type: "number" },
+        before: { type: "string" },
+      },
     ],
     [
       "capture_preview_screenshot",
       "视觉验收：截图当前项目文档树、指定项目文档版本预览，或当前任务沙箱中的 HTML 文件。写入或整理完成后必须用它做视觉复核；只能访问当前项目和当前任务范围，不能访问外部网页或宿主机屏幕。",
-      { source: { type: "string", required: true }, versionId: { type: "string" }, path: { type: "string" } },
+      {
+        source: { type: "string", required: true },
+        versionId: { type: "string" },
+        path: { type: "string" },
+      },
     ],
     [
       "sandbox_command",
@@ -148,6 +289,115 @@ export function apply(ctx) {
         title: { type: "string" },
       },
     ],
+    [
+      "miniprogram_list_source",
+      "列出项目小程序工作区的四个固定目录及其中的源码文件（相对路径、大小、哈希），并说明工作区是否已启用、源码是否已有可运行的编译产物。写入或编译前先用本工具确认现状。",
+      {},
+    ],
+    [
+      "miniprogram_read_source",
+      "读取小程序工作区中某个文件当前有效版本的内容。默认读取小程序源文件目录。",
+      {
+        path: { type: "string", required: true },
+        area: { type: "string" },
+      },
+    ],
+    [
+      "miniprogram_write_source",
+      "把源码写入项目小程序目录。默认写入小程序源文件（Dimina 的编译输入）。同名文件会追加一个新版本而不是覆盖历史，因此可随时回看或重建任意快照。仅在项目已启用小程序工作区时可用。",
+      {
+        path: { type: "string", required: true },
+        content: { type: "string", required: true },
+        area: { type: "string" },
+        mime: { type: "string" },
+        note: { type: "string" },
+      },
+    ],
+    [
+      "miniprogram_build_preview",
+      "用 Dimina 编译器把小程序源文件区编译为可运行的资源包，供右侧栏「应用预览」加载。源码哈希未变化时复用上次成功编译。编译失败会返回失败原因，需先修源码再重试。",
+      {
+        force: { type: "boolean" },
+      },
+    ],
+    [
+      "miniprogram_register_admin_preview",
+      "登记 PC 管理后台的开发服务器，供右侧栏「Admin」页签实时预览。必须先用本工具拿到 proxyBase，再用 npm run dev -- --base=<proxyBase> 启动；否则绝对路径资源会 404。启动成功后再用 miniprogram_report_admin_preview 标记 running。开发服务器运行在沙箱内。",
+      {
+        port: { type: "number", required: true },
+        command: { type: "string" },
+      },
+    ],
+    [
+      "miniprogram_report_admin_preview",
+      "上报 PC 管理后台开发服务器的真实状态：running 表示已能访问，failed 表示启动失败（请附错误），stopped 表示已停止。",
+      {
+        serverId: { type: "string", required: true },
+        status: { type: "string", required: true },
+        error: { type: "string" },
+      },
+    ],
+    [
+      "cloudbase_db_query",
+      "在 CloudBase 开发环境中查询集合文档。集合名需已知：列举集合属管理面能力，尚未接入。whereJson 为 JSON 对象字符串（可选），limit 上限 200。",
+      {
+        collection: { type: "string", required: true },
+        whereJson: { type: "string" },
+        limit: { type: "number" },
+        skip: { type: "number" },
+      },
+    ],
+    [
+      "cloudbase_db_write",
+      "在 CloudBase 开发环境中写入数据库文档。action=add 需 documentJson；update 需 id 与 patchJson；remove 只需 id。生产与预发布环境不允许 L3 操作。",
+      {
+        action: { type: "string", required: true },
+        collection: { type: "string", required: true },
+        documentJson: { type: "string" },
+        id: { type: "string" },
+        patchJson: { type: "string" },
+      },
+    ],
+    [
+      "cloudbase_storage_upload",
+      "上传文本文件到 CloudBase 开发环境云存储。cloudPath 为存储路径（如 uploads/note.txt）。二进制文件请在沙箱内处理后用文件接口上传。",
+      {
+        cloudPath: { type: "string", required: true },
+        content: { type: "string", required: true },
+      },
+    ],
+    [
+      "cloudbase_storage_manage",
+      "管理 CloudBase 开发环境云存储文件：action=url 获取临时访问地址，action=delete 删除。fileListJson 为 cloud:// 文件 ID 的 JSON 数组字符串。",
+      {
+        action: { type: "string", required: true },
+        fileListJson: { type: "string", required: true },
+      },
+    ],
+    [
+      "wechat_preview",
+      "用微信官方 CI 依据当前源码快照生成开发版预览二维码，供真机扫码验证。需要项目已配置 AppID 与上传私钥。上传体验版/审核版本属于发布动作，本工具不提供。",
+      {
+        desc: { type: "string" },
+        pagePath: { type: "string" },
+      },
+    ],
+    [
+      "miniprogram_submit_release",
+      "提交小程序发布申请，本工具只登记申请、不执行发布。提交后进入待审批，只有项目负责人能在界面批准或拒绝；批准后由服务端执行。target 取值 wechat_upload、cloudbase_static、cloudbase_hosted；target=wechat_upload 时必须提供 version。同一目标已有未完成申请时会被拒绝。",
+      {
+        target: { type: "string", required: true },
+        version: { type: "string" },
+        releaseNote: { type: "string" },
+      },
+    ],
+    [
+      "miniprogram_release_status",
+      "查询本项目的小程序发布申请列表及状态（待审批/已批准/执行中/已发布/失败/已拒绝/已过期），并给出待审批申请绑定的源码哈希是否仍是当前源码。只能查询，不能批准或拒绝。",
+      {
+        limit: { type: "number" },
+      },
+    ],
   ];
   // Public URL fetching is provided by DSH's SSRF-protected HTTP provider
   // rather than the CoThread bridge. Keep it available while blocking every
@@ -160,7 +410,8 @@ export function apply(ctx) {
     "interrupt_agent",
     "list_agents",
   ]);
-  let configured, configuredByLevel = {};
+  let configured,
+    configuredByLevel = {};
   try {
     const parsed = JSON.parse(process.env.COTHREAD_ALLOWED_TOOLS || "null");
     if (Array.isArray(parsed)) configured = new Set(parsed);
@@ -172,9 +423,7 @@ export function apply(ctx) {
   const allowed = new Set([...builtIn].filter((name) => !configured || configured.has(name)));
   // Defence in depth: no other installed DSH tool may execute in this profile.
   ctx.tools.guard((call) =>
-    allowed.has(call.name ?? call.tool?.name ?? "")
-      ? undefined
-      : "仅允许共序项目工具",
+    allowed.has(call.name ?? call.tool?.name ?? "") ? undefined : "仅允许共序项目工具",
   );
   for (const [name, description, parameters] of definitions.filter(([name]) => allowed.has(name)))
     ctx.tools.register(
@@ -182,31 +431,44 @@ export function apply(ctx) {
         name,
         description,
         parameters,
-        output: name === "capture_preview_screenshot"
-          ? {
-              schema: {
-                type: "object", additionalProperties: false,
-                properties: {
-                  source: { type: "string", required: true }, filename: { type: "string", required: true },
-                  mime: { type: "string", required: true }, contentBase64: { type: "string", required: true },
-                  path: { type: "string" }, versionId: { type: "string" },
+        output:
+          name === "capture_preview_screenshot"
+            ? {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    source: { type: "string", required: true },
+                    filename: { type: "string", required: true },
+                    mime: { type: "string", required: true },
+                    contentBase64: { type: "string", required: true },
+                    path: { type: "string" },
+                    versionId: { type: "string" },
+                  },
                 },
+                render: (_args, value) => [
+                  {
+                    type: "text",
+                    text: `已生成视觉验收截图：${value.filename}（来源：${value.source}）`,
+                  },
+                  { type: "image", data: value.contentBase64, mimeType: value.mime },
+                ],
+              }
+            : {
+                schema: { type: "string" },
+                render: (_args, value) => [{ type: "text", text: value }],
               },
-              render: (_args, value) => [
-                { type: "text", text: `已生成视觉验收截图：${value.filename}（来源：${value.source}）` },
-                { type: "image", data: value.contentBase64, mimeType: value.mime },
-              ],
-            }
-          : {
-              schema: { type: "string" },
-              render: (_args, value) => [{ type: "text", text: value }],
-            },
         async execute(args, exec) {
           const result = await bridgeTool(name, args, exec.agent?.id || null);
           // Same-turn auto-dispatch: spawn L3 in-process under the live parent
           // (identical to explicit dsh_l3). Post-turn JSON-RPC dispatch-l3 is a
           // fallback only; three production rounds showed it does not bind.
-          if (name === "create_task" && result?.needsDispatch && result.dispatchPrompt && exec.agent) {
+          if (
+            name === "create_task" &&
+            result?.needsDispatch &&
+            result.dispatchPrompt &&
+            exec.agent
+          ) {
             let childId = null;
             // Use the plugin ctx (inject includes subagents). Preferring
             // exec.agent.ctx re-triggered "cannot get property subagents without
@@ -218,10 +480,14 @@ export function apply(ctx) {
                 signal: exec.signal,
               });
               childId = started.childId;
-              const bound = await bridgeTool("bind_task_l3", {
-                taskId: result.id,
-                childSessionId: childId,
-              }, exec.agent.id);
+              const bound = await bridgeTool(
+                "bind_task_l3",
+                {
+                  taskId: result.id,
+                  childSessionId: childId,
+                },
+                exec.agent.id,
+              );
               return JSON.stringify({
                 ...bound,
                 needsDispatch: false,
@@ -250,7 +516,8 @@ export function apply(ctx) {
   ctx.on?.("agent/created", ({ agent }) => {
     const primaryLevel = process.env.COTHREAD_PRIMARY_AGENT_LEVEL || "l3";
     const primaryId = process.env.COTHREAD_PRIMARY_AGENT_ID || "";
-    const level = primaryLevel === "l2" && primaryId && agent.id !== primaryId ? "l3" : primaryLevel;
+    const level =
+      primaryLevel === "l2" && primaryId && agent.id !== primaryId ? "l3" : primaryLevel;
     const names = configuredByLevel[level];
     if (Array.isArray(names)) agent.ctx.tools.restrict({ allow: names });
   });

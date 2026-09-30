@@ -3,12 +3,9 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 export const PREVIEW_TICKET_PREFIX = "~t~";
 
 function previewSigningKey() {
-  const raw =
-    process.env.CREDENTIAL_ENCRYPTION_KEY
-    || process.env.DATABASE_URL
-    || process.env.TEST_DATABASE_URL
-    || "cothread-preview-ticket";
-  return createHash("sha256").update(String(raw)).digest();
+  const raw = String(process.env.CREDENTIAL_ENCRYPTION_KEY || "").trim();
+  if (!raw) throw new Error("缺少 CREDENTIAL_ENCRYPTION_KEY，无法签发预览票据");
+  return createHash("sha256").update(raw).digest();
 }
 
 export function signPreviewTicket(userId, versionId, ttlMs = 6 * 60 * 60 * 1000) {
@@ -50,8 +47,12 @@ export function readPreviewTicket(ticket) {
 }
 
 export function splitPreviewAssetPath(assetPath) {
-  const raw = String(assetPath || "").replace(/\\/g, "/").replace(/^\/+/, "");
-  const match = raw.match(new RegExp(`^${PREVIEW_TICKET_PREFIX}([A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+)(?:/(.*))?$`));
+  const raw = String(assetPath || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "");
+  const match = raw.match(
+    new RegExp(`^${PREVIEW_TICKET_PREFIX}([A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+)(?:/(.*))?$`),
+  );
   if (!match) return { ticket: "", path: raw };
   return {
     ticket: `${PREVIEW_TICKET_PREFIX}${match[1]}`,

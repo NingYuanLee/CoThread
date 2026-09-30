@@ -1,7 +1,7 @@
 import mysql from "mysql2/promise";
 import { readFile } from "node:fs/promises";
 import { recordQuery } from "./request-timing.js";
-import { resolveConfiguredDatabaseUrl } from "./database-policy.js";
+import { resolveTargetDatabaseUrl } from "./database-policy.js";
 
 const RETRYABLE_DB_ERRORS = new Set([
   "ETIMEDOUT",
@@ -11,8 +11,8 @@ const RETRYABLE_DB_ERRORS = new Set([
   "PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR",
 ]);
 
-export async function createDatabase(url = resolveConfiguredDatabaseUrl(), options = {}) {
-  if (!url) throw new Error("DATABASE_URL 未配置，请先运行 npm run setup");
+export async function createDatabase(url = resolveTargetDatabaseUrl(), options = {}) {
+  if (!url) throw new Error("正式数据库未配置，请先运行 npm run setup");
   const parsed = new URL(url);
   const ssl =
     process.env.DATABASE_SSL === "true"
@@ -40,9 +40,7 @@ export async function createDatabase(url = resolveConfiguredDatabaseUrl(), optio
     supportBigNumbers: true,
     bigNumberStrings: true,
   });
-  pool.on("connection", (connection) =>
-    connection.query("SET time_zone = '+00:00'"),
-  );
+  pool.on("connection", (connection) => connection.query("SET time_zone = '+00:00'"));
   return pool;
 }
 async function execute(db, sql, params) {
@@ -59,7 +57,9 @@ export async function query(db, sql, params = []) {
   const start = performance.now();
   try {
     return await execute(db, sql, params);
-  } finally { recordQuery(start); }
+  } finally {
+    recordQuery(start);
+  }
 }
 export async function transaction(pool, fn) {
   const conn = await pool.getConnection();

@@ -4,7 +4,12 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { ensureLocalMysql } from "./ensure-local-mysql.js";
 import { startDevGateway } from "./dev-gateway.js";
-import { DatabasePolicyError, resolveDatabasePolicy } from "../server/database-policy.js";
+import {
+  DatabasePolicyError,
+  resolveDatabasePolicy,
+  resolveDatabaseTarget,
+  resolveTargetDatabaseUrl,
+} from "../server/database-policy.js";
 import {
   attachChildOutput,
   createDevProgress,
@@ -21,7 +26,7 @@ import {
   writeDevPids,
   openDevBrowser,
 } from "./dev-runtime.js";
-import { LISTEN_HOST } from "../server/runtime-config.js";
+import { resolveListenHost } from "../server/runtime-config.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -40,7 +45,9 @@ function logToConsole(text, { level = "info", kind } = {}) {
 
 function bindConsoleToProgress(progress) {
   const write = (...args) => {
-    progress.note(args.map((value) => typeof value === "string" ? value : String(value)).join(" "));
+    progress.note(
+      args.map((value) => (typeof value === "string" ? value : String(value))).join(" "),
+    );
   };
   console.log = write;
   console.info = write;
@@ -50,7 +57,10 @@ function bindConsoleToProgress(progress) {
 function requireNodeVersion() {
   const [major, minor] = process.versions.node.split(".").map(Number);
   if (major > 22 || (major === 22 && minor >= 19)) return;
-  logToConsole(`需要 Node.js 22.19+，当前为 ${process.versions.node}。`, { level: "error", kind: "error" });
+  logToConsole(`需要 Node.js 22.19+，当前为 ${process.versions.node}。`, {
+    level: "error",
+    kind: "error",
+  });
   process.exit(1);
 }
 
@@ -72,17 +82,24 @@ if (portIndex >= 0) {
     uiPort,
     apiPort,
     vitePort,
-    host: LISTEN_HOST,
+    host: resolveListenHost({ env: process.env }),
   });
   logToConsole("本项目开发服务已停止；MySQL 保持运行。");
 } else {
   requireNodeVersion();
+  process.env.COTHREAD_DB_TARGET ||= "dev";
+  const listenHost = resolveListenHost({ env: process.env });
   if (!existsSync(resolve(projectRoot, ".env"))) {
     logToConsole("未找到 .env。请先运行 npm run setup。", { level: "error", kind: "error" });
     process.exit(1);
   }
   try {
-    resolveDatabasePolicy({ host: LISTEN_HOST });
+    const databaseTarget = resolveDatabaseTarget(process.env);
+    resolveDatabasePolicy({
+      databaseUrl: resolveTargetDatabaseUrl(process.env),
+      host: listenHost,
+    });
+    logToConsole(`开发数据库目标：${databaseTarget}`);
   } catch (error) {
     if (error instanceof DatabasePolicyError) {
       logToConsole(error.message, { level: "error" });
@@ -91,7 +108,7 @@ if (portIndex >= 0) {
     throw error;
   }
   const { uiPort, apiPort, vitePort } = resolveDevPorts(process.env);
-  const host = LISTEN_HOST;
+  const host = listenHost;
   const progress = createDevProgress({ banner: true });
   bindConsoleToProgress(progress);
   progress.set(4, "停止旧进程");
@@ -122,37 +139,30 @@ if (portIndex >= 0) {
 
   const childEnv = {
     ...process.env,
+    COTHREAD_DB_TARGET: process.env.COTHREAD_DB_TARGET || "dev",
     NO_PROXY: [process.env.NO_PROXY, "127.0.0.1", "localhost", "::1"].filter(Boolean).join(","),
   };
   progress.set(16, "启动 API 与 Vite");
-  api = spawn(
-    process.execPath,
-    ["--env-file-if-exists=.env", apiEntry, "--api-only"],
-    {
-      cwd: projectRoot,
-      env: {
-        ...childEnv,
-        PORT: String(apiPort),
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
+  api = spawn(process.execPath, ["--env-file-if-exists=.env", apiEntry, "--api-only"], {
+    cwd: projectRoot,
+    env: {
+      ...childEnv,
+      PORT: String(apiPort),
     },
-  );
-  vite = spawn(
-    process.execPath,
-    [viteEntry],
-    {
-      cwd: projectRoot,
-      env: {
-        ...childEnv,
-        PORT: String(uiPort),
-        API_PORT: String(apiPort),
-        VITE_PORT: String(vitePort),
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  vite = spawn(process.execPath, [viteEntry], {
+    cwd: projectRoot,
+    env: {
+      ...childEnv,
+      PORT: String(uiPort),
+      API_PORT: String(apiPort),
+      VITE_PORT: String(vitePort),
     },
-  );
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
   attachChildOutput(api, progress);
   attachChildOutput(vite, progress);
   writeDevPids(projectRoot, {
@@ -209,6 +219,8 @@ if (portIndex >= 0) {
     stopChildren();
     process.exit(1);
   }
-  progress.finish(`共序开发已就绪：http://${host}:${uiPort}  →  API :${apiPort}  Vite :${vitePort}`);
+  progress.finish(
+    `共序开发已就绪：http://${host}:${uiPort}  →  API :${apiPort}  Vite :${vitePort}`,
+  );
   openDevBrowser(`http://${host}:${uiPort}/`);
 }

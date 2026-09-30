@@ -7,7 +7,12 @@ import {
   parseDatabaseAddress,
   parseDatabaseAuth,
   resolveConfiguredDatabaseUrl,
+  resolveConfiguredDevDatabaseUrl,
   resolveConfiguredTestDatabaseUrl,
+  productionWriteAllowed,
+  assertProductionWriteAllowed,
+  resolveDatabaseTarget,
+  resolveTargetDatabaseUrl,
   resolveDatabaseEndpoint,
   resolveDatabasePolicy,
 } from "../server/database-policy.js";
@@ -97,18 +102,26 @@ test("buildMysqlDatabaseUrl encodes credentials", () => {
 });
 
 test("non-cloud host auto-selects public address", () => {
-  assert.equal(resolveDatabaseEndpoint(parts, { readText: () => { throw new Error("missing"); } }), "public");
   assert.equal(
-    resolveConfiguredDatabaseUrl(parts, { readText: () => { throw new Error("missing"); } }),
+    resolveDatabaseEndpoint(parts, {
+      readText: () => {
+        throw new Error("missing");
+      },
+    }),
+    "public",
+  );
+  assert.equal(
+    resolveConfiguredDatabaseUrl(parts, {
+      readText: () => {
+        throw new Error("missing");
+      },
+    }),
     "mysql://cothread:p%40ss%3Aword%2F1@rm-public.example:3306/cothread",
   );
 });
 
 test("Alibaba Cloud host auto-selects internal address", () => {
-  assert.equal(
-    isAlibabaCloudHost({ readText: () => "Alibaba Cloud\n" }),
-    true,
-  );
+  assert.equal(isAlibabaCloudHost({ readText: () => "Alibaba Cloud\n" }), true);
   assert.equal(
     resolveConfiguredDatabaseUrl(parts, { readText: () => "Alibaba Cloud\n" }),
     "mysql://cothread:p%40ss%3Aword%2F1@rm-internal.example:3306/cothread",
@@ -131,12 +144,74 @@ test("DATABASE_ENDPOINT can still force public or internal", () => {
 
 test("test database uses dedicated auth and hosts", () => {
   assert.equal(
-    resolveConfiguredTestDatabaseUrl(parts, { readText: () => { throw new Error("missing"); } }),
+    resolveConfiguredTestDatabaseUrl(parts, {
+      readText: () => {
+        throw new Error("missing");
+      },
+    }),
     "mysql://tester:test-pass@rm-public.example:3306/cothread_test",
   );
   assert.equal(
     resolveConfiguredTestDatabaseUrl({ ...parts, DATABASE_ENDPOINT: "internal" }),
     "mysql://tester:test-pass@rm-internal.example:3306/cothread_test",
+  );
+});
+
+test("development database uses its dedicated host and auth", () => {
+  assert.equal(
+    resolveConfiguredDevDatabaseUrl({
+      DEV_DATABASE_HOST: "127.0.0.1:3307/cothread_dev",
+      DEV_DATABASE_AUTH: "developer:dev-pass",
+    }),
+    "mysql://developer:dev-pass@127.0.0.1:3307/cothread_dev",
+  );
+});
+
+test("development database reports missing configuration clearly", () => {
+  assert.throws(
+    () => resolveConfiguredDevDatabaseUrl({}),
+    (error) => error instanceof DatabasePolicyError && error.message.includes("DEV_DATABASE_HOST"),
+  );
+});
+
+test("database target selects the configured group", () => {
+  const env = {
+    COTHREAD_DB_TARGET: "dev",
+    DEV_DATABASE_HOST: "127.0.0.1:3307/cothread_dev",
+    DEV_DATABASE_AUTH: "developer:dev-pass",
+  };
+  assert.equal(resolveDatabaseTarget(env), "dev");
+  assert.equal(
+    resolveTargetDatabaseUrl(env),
+    "mysql://developer:dev-pass@127.0.0.1:3307/cothread_dev",
+  );
+});
+
+test("production writes are blocked for non-production processes by default", () => {
+  assert.equal(productionWriteAllowed({ COTHREAD_DB_TARGET: "prod" }), false);
+  assert.equal(
+    productionWriteAllowed({ COTHREAD_DB_TARGET: "prod", COTHREAD_ALLOW_PROD_WRITE: "1" }),
+    true,
+  );
+  assert.equal(productionWriteAllowed({ COTHREAD_DB_TARGET: "prod" }, { production: true }), true);
+});
+
+test("production processes cannot select dev or test targets", () => {
+  assert.throws(
+    () => resolveDatabaseTarget({ COTHREAD_DB_TARGET: "dev" }, { production: true }),
+    (error) => error instanceof DatabasePolicyError && error.message.includes("生产进程不能使用"),
+  );
+  assert.equal(resolveDatabaseTarget({}, { production: true }), "prod");
+});
+
+test("production write assertion requires an explicit override", () => {
+  assert.throws(
+    () => assertProductionWriteAllowed({ COTHREAD_DB_TARGET: "prod" }),
+    (error) =>
+      error instanceof DatabasePolicyError && error.message.includes("COTHREAD_ALLOW_PROD_WRITE"),
+  );
+  assert.doesNotThrow(() =>
+    assertProductionWriteAllowed({ COTHREAD_DB_TARGET: "prod", COTHREAD_ALLOW_PROD_WRITE: "1" }),
   );
 });
 

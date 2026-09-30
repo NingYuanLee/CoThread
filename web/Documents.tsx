@@ -1,9 +1,7 @@
 import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type SVGProps } from "react";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type SVGProps } from "react";
 import { createPortal } from "react-dom";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { FileIcon } from "@react-symbols/icons/utils";
 import {
   Document,
@@ -12,23 +10,47 @@ import {
   Python,
   Text,
 } from "@react-symbols/icons/files";
-import { CodePreview, DocxPreview, formatHtmlSource, MermaidPreview, PptxPreview, XlsxPreview } from "./office-preview";
-import {
-  resolvePreviewAssetPath,
-  PREVIEW_CONSOLE_MESSAGE,
-  PREVIEW_NAVIGATION_MESSAGE,
-  PREVIEW_NEW_WINDOW_MESSAGE,
-} from "../shared/html-preview.mjs";
+import { CodePreview } from "./office-preview";
 import { fileDisplayName } from "../shared/document-name.js";
 import { LIBRARY_ROOT_KINDS, folderRootKind } from "./document-library";
+import { MiniProgramWorkspace } from "./MiniProgramWorkspace";
 import { UiIcon } from "./ui-icon";
 import { DialogClose, ModalBackdrop } from "./dialog-fx";
 import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
 import { showTip } from "./Tip";
 import { MCP_OFFICIAL_LIBRARY_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
 import { uploadFileWithIntegrity } from "./file-upload";
-import { PdfPreview } from "./PdfPreview";
 import { createResourceCache } from "../shared/resource-cache.js";
+import { DocumentTabList } from "./DocumentTabList";
+import { StaticDocumentPreview } from "./StaticDocumentPreview";
+import { DocumentChangeLogDialog } from "./DocumentChangeLogDialog";
+import { HtmlBrowserToolbar, type HtmlBrowserFile, type HtmlDeviceMode } from "./HtmlBrowserToolbar";
+import {
+  HTML_MOBILE_PRESETS,
+  HtmlPreviewFrame,
+} from "./HtmlPreviewFrame";
+import { HtmlBrowserEmptyState } from "./HtmlBrowserEmptyState";
+import { DocumentFileInfoDialog, type DocumentFileInfoRow } from "./DocumentFileInfoDialog";
+import { DocumentFileActionCapsule } from "./DocumentFileActionCapsule";
+import { DocumentPreviewBreadcrumb } from "./DocumentPreviewBreadcrumb";
+import { DocumentVersionHistorySelect, type DocumentVersionHistoryOption } from "./DocumentVersionHistorySelect";
+import { DocumentSourceActions } from "./DocumentSourceActions";
+import { DocumentReviewActions } from "./DocumentReviewActions";
+import { FolderGuideDialog, LibraryOrganizeDialog } from "./LibraryOrganizeDialog";
+import { CodeGuideDialog } from "./CodeGuideDialog";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
+import { BranchVersionDialog } from "./BranchVersionDialog";
+import { DocumentPreviewContent } from "./DocumentPreviewContent";
+import { DocumentLibraryExplorer } from "./DocumentLibraryExplorer";
+
+type BrowserTab = {
+  key: string;
+  versionId: string;
+  url: string;
+  loadUrl: string;
+  label: string;
+};
+
 const officeIcons = {
   odt: Document,
   rtf: Document,
@@ -123,461 +145,6 @@ function LibraryFileIcon({
       width={width}
       height={height}
     />
-  );
-}
-
-type HtmlDeviceMode = "desktop" | "mobile";
-type HtmlMobilePreset = {
-  id: string;
-  label: string;
-  width: number;
-  height: number;
-};
-
-type HtmlMobilePresetGroup = {
-  label: string;
-  presets: HtmlMobilePreset[];
-};
-
-const HTML_MOBILE_ZOOM_MIN = 50;
-const HTML_MOBILE_ZOOM_MAX = 150;
-const HTML_MOBILE_ZOOM_WHEEL_STEP = 5;
-
-const HTML_MOBILE_PRESET_GROUPS: HtmlMobilePresetGroup[] = [
-  {
-    label: "苹果 iPhone",
-    presets: [
-      { id: "iphone-18-pro", label: "iPhone 18 Pro · 375 × 782", width: 375, height: 782 },
-      { id: "iphone-18-pro-max", label: "iPhone 18 Pro Max · 390 × 817", width: 390, height: 817 },
-      { id: "iphone-air", label: "iPhone Air · 393 × 824", width: 393, height: 824 },
-      { id: "iphone-17e", label: "iPhone 17e · 375 × 769", width: 375, height: 769 },
-    ],
-  },
-  {
-    label: "鸿蒙 Huawei",
-    presets: [
-      { id: "huawei-pura-90", label: "HUAWEI Pura 90 · 390 × 815", width: 390, height: 815 },
-      { id: "huawei-mate-x7", label: "HUAWEI Mate X7 外屏 · 382 × 813", width: 382, height: 813 },
-      { id: "huawei-pura-x-max", label: "HUAWEI Pura X Max 展开 · 360 × 508", width: 360, height: 508 },
-      { id: "huawei-mate-xt-2", label: "HUAWEI Mate XT 2 折叠屏 · 360 × 771", width: 360, height: 771 },
-    ],
-  },
-  {
-    label: "安卓 Android",
-    presets: [
-      { id: "xiaomi-17", label: "Xiaomi 17 · 360 × 759", width: 360, height: 759 },
-      { id: "xiaomi-17-ultra", label: "Xiaomi 17 Ultra · 390 × 818", width: 390, height: 818 },
-      { id: "galaxy-s26", label: "Samsung Galaxy S26 · 375 × 781", width: 375, height: 781 },
-      { id: "galaxy-z-fold7", label: "Samsung Galaxy Z Fold7 内屏 · 324 × 360", width: 324, height: 360 },
-    ],
-  },
-];
-
-const HTML_MOBILE_PRESETS = HTML_MOBILE_PRESET_GROUPS.flatMap((group) => group.presets);
-
-type HtmlBrowserFile = { id: string; filename: string; address: string };
-type BrowserTab = {
-  key: string;
-  versionId: string;
-  url: string;
-  loadUrl: string;
-  label: string;
-};
-
-function HtmlBrowserToolbar({
-  filename,
-  files,
-  addressQuery,
-  onAddressQueryChange,
-  onSelectFile,
-  onReload,
-  onOpenExternal,
-  deviceMode,
-  onDeviceModeChange,
-}: {
-  filename?: string;
-  files: HtmlBrowserFile[];
-  addressQuery: string;
-  onAddressQueryChange: (value: string) => void;
-  onSelectFile: (id: string) => void;
-  onReload?: () => void;
-  onOpenExternal?: () => void;
-  deviceMode: HtmlDeviceMode;
-  onDeviceModeChange: (mode: HtmlDeviceMode) => void;
-}) {
-  const [focused, setFocused] = useState(false);
-  const query = addressQuery;
-  const matches = files
-    .filter((file) => !query.trim() || `${file.address} ${file.filename} ${file.id}`.toLowerCase().includes(query.trim().toLowerCase()))
-    .slice(0, 10);
-  return (
-    <div className="doc-html-browser-toolbar-shell">
-      <div className="doc-html-browser-toolbar" role="toolbar" aria-label="HTML 浏览器工具栏">
-      <button
-        type="button"
-        className="doc-html-browser-action"
-        title="刷新页面"
-        aria-label="刷新页面"
-        onClick={onReload}
-        disabled={!onReload}
-      >
-        <UiIcon name="refresh" size={14} />
-      </button>
-      <div className={`doc-html-browser-address-wrap${focused ? " focused" : ""}`}>
-        <UiIcon name="search" size={13} />
-        <input
-          className="doc-html-browser-address-input"
-          aria-label="搜索并选择 HTML 文件"
-          placeholder="输入或搜索 HTML 文件"
-          value={query}
-          onFocus={(event) => {
-            setFocused(true);
-            if (event.currentTarget.value) event.currentTarget.select();
-          }}
-          onChange={(event) => onAddressQueryChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && matches[0]) {
-              event.preventDefault();
-              onSelectFile(matches[0].id);
-              setFocused(false);
-            }
-            if (event.key === "Escape") setFocused(false);
-          }}
-          title={filename || "搜索 HTML 文件"}
-        />
-        {focused ? (
-          <div className="doc-html-browser-address-options" role="listbox" aria-label="HTML 文件候选">
-            {matches.length ? matches.map((file) => (
-              <button
-                key={file.id}
-                type="button"
-                role="option"
-                aria-selected={file.address === addressQuery}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  onSelectFile(file.id);
-                  setFocused(false);
-                }}
-              >
-                <UiIcon name="code" size={13} />
-                <span>{file.address}</span>
-              </button>
-            )) : <span className="doc-html-browser-address-empty">没有匹配的 HTML 文件</span>}
-          </div>
-        ) : null}
-      </div>
-      <div className="doc-html-device-controls" role="group" aria-label="预览设备">
-        <button
-          type="button"
-          className={`doc-html-device-button${deviceMode === "desktop" ? " active" : ""}`}
-          title="电脑模式"
-          aria-label="电脑模式"
-          aria-pressed={deviceMode === "desktop"}
-          onClick={() => onDeviceModeChange("desktop")}
-          >
-            <UiIcon name="monitor" size={13} />
-          </button>
-        <button
-          type="button"
-          className={`doc-html-device-button${deviceMode === "mobile" ? " active" : ""}`}
-          title="手机模式"
-          aria-label="手机模式"
-          aria-pressed={deviceMode === "mobile"}
-          onClick={() => onDeviceModeChange("mobile")}
-          >
-            <UiIcon name="smartphone" size={13} />
-          </button>
-      </div>
-      <button
-        type="button"
-        className="doc-html-browser-action"
-        title="在电脑浏览器中打开"
-        aria-label="在电脑浏览器中打开"
-        onClick={onOpenExternal}
-        disabled={!onOpenExternal}
-      >
-        <UiIcon name="share" size={14} />
-      </button>
-      </div>
-    </div>
-  );
-}
-
-function HtmlPreviewFrame({
-  versionId,
-  filename,
-  src: sourceOverride,
-  onReload,
-  onOpenExternal,
-  files,
-  addressQuery,
-  onAddressQueryChange,
-  onSelectFile,
-  deviceMode,
-  mobilePreset,
-  onDeviceModeChange,
-  onMobilePresetChange,
-  zoomPercent,
-  onZoomChange,
-  onNavigate,
-  onNewWindow,
-}: {
-  versionId: string;
-  filename: string;
-  src?: string;
-  onReload?: () => void;
-  onOpenExternal?: () => void;
-  files: HtmlBrowserFile[];
-  addressQuery: string;
-  onAddressQueryChange: (value: string) => void;
-  onSelectFile: (id: string) => void;
-  deviceMode: HtmlDeviceMode;
-  mobilePreset: HtmlMobilePreset;
-  onDeviceModeChange: (mode: HtmlDeviceMode) => void;
-  onMobilePresetChange: (presetId: string) => void;
-  zoomPercent: number;
-  onZoomChange: (value: number) => void;
-  onNavigate?: (href: string) => void;
-  onNewWindow?: (href: string, title?: string) => void;
-}) {
-  const src = sourceOverride || `/api/versions/${versionId}/preview/`;
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const zoomPanelRef = useRef<HTMLDivElement>(null);
-  const zoomPanelHoveredRef = useRef(false);
-  const previewScrollRef = useRef<HTMLDivElement>(null);
-  const previewViewportRef = useRef<HTMLDivElement>(null);
-  const onNavigateRef = useRef(onNavigate);
-  const onNewWindowRef = useRef(onNewWindow);
-  const [consoleOpen, setConsoleOpen] = useState(false);
-  const [logs, setLogs] = useState<Array<{ id: number; level: string; args: string[] }>>([]);
-  useEffect(() => { onNavigateRef.current = onNavigate; }, [onNavigate]);
-  useEffect(() => { onNewWindowRef.current = onNewWindow; }, [onNewWindow]);
-  useEffect(() => {
-    setLogs([]);
-    setConsoleOpen(false);
-    let nextId = 1;
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin !== "null" && event.origin !== window.location.origin) return;
-      if (event.source && iframeRef.current?.contentWindow && event.source !== iframeRef.current.contentWindow) return;
-      const data = event.data;
-      if (!data) return;
-      if (data.type === PREVIEW_NAVIGATION_MESSAGE && typeof data.href === "string") {
-        onNavigateRef.current?.(data.href);
-        return;
-      }
-      if (data.type === PREVIEW_NEW_WINDOW_MESSAGE && typeof data.href === "string") {
-        onNewWindowRef.current?.(data.href, typeof data.title === "string" ? data.title : undefined);
-        return;
-      }
-      if (data.type !== PREVIEW_CONSOLE_MESSAGE || !Array.isArray(data.args)) return;
-      const level = String(data.level || "log");
-      const args = data.args.map((item: unknown) => String(item));
-      setLogs((previous) => {
-        const row = { id: nextId++, level, args };
-        return previous.length > 180 ? [...previous.slice(-160), row] : [...previous, row];
-      });
-      if (level === "error") setConsoleOpen(true);
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [versionId]);
-  const errorCount = logs.filter((row) => row.level === "error").length;
-  const fitZoomToScreen = () => {
-    if (deviceMode !== "mobile") return;
-    const scroll = previewScrollRef.current;
-    const viewport = previewViewportRef.current;
-    if (!scroll || !viewport) return;
-    const styles = window.getComputedStyle(scroll);
-    const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
-    const paddingBottom = Number.parseFloat(styles.paddingBottom) || 0;
-    const availableHeight = viewport.clientHeight - paddingTop - paddingBottom - 2;
-    if (availableHeight <= 0 || mobilePreset.height <= 0) return;
-    const frameHeight = mobilePreset.height + 2;
-    const nextZoom = Math.floor((availableHeight / frameHeight) * 100);
-    onZoomChange(Math.min(HTML_MOBILE_ZOOM_MAX, Math.max(HTML_MOBILE_ZOOM_MIN, nextZoom)));
-  };
-
-  const applyZoomWheel = (deltaY: number) => {
-    const direction = deltaY < 0 ? 1 : -1;
-    onZoomChange(Math.min(HTML_MOBILE_ZOOM_MAX, Math.max(HTML_MOBILE_ZOOM_MIN, zoomPercent + direction * HTML_MOBILE_ZOOM_WHEEL_STEP)));
-  };
-
-  useEffect(() => {
-    const panel = zoomPanelRef.current;
-    if (!panel) return undefined;
-    const onWheel = (event: WheelEvent) => {
-      if (!zoomPanelHoveredRef.current) return;
-      event.preventDefault();
-      event.stopPropagation();
-      applyZoomWheel(event.deltaY);
-    };
-    window.addEventListener("wheel", onWheel, { passive: false, capture: true });
-    return () => window.removeEventListener("wheel", onWheel, true);
-  }, [onZoomChange, zoomPercent]);
-  return (
-    <div className="doc-html-preview-shell">
-      <HtmlBrowserToolbar
-        filename={filename}
-        files={files}
-        addressQuery={addressQuery}
-        onAddressQueryChange={onAddressQueryChange}
-        onSelectFile={onSelectFile}
-        onReload={onReload}
-        onOpenExternal={onOpenExternal}
-        deviceMode={deviceMode}
-        onDeviceModeChange={onDeviceModeChange}
-      />
-      <div ref={previewViewportRef} className={`doc-html-preview-viewport doc-html-preview-viewport-${deviceMode}`}>
-        {deviceMode === "mobile" ? (
-          <div className="doc-html-mobile-floating-controls" aria-label="手机预览设置">
-            <select
-              className="doc-html-device-select"
-              aria-label="手机型号"
-              value={mobilePreset.id}
-              onChange={(event) => onMobilePresetChange(event.target.value)}
-            >
-              {HTML_MOBILE_PRESET_GROUPS.map((group) => (
-                <optgroup key={group.label} label={group.label}>
-                  {group.presets.map((preset) => (
-                    <option key={preset.id} value={preset.id}>{preset.label}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            <div
-              ref={zoomPanelRef}
-              className="doc-html-zoom-panel"
-              onPointerEnter={() => { zoomPanelHoveredRef.current = true; }}
-              onPointerLeave={() => { zoomPanelHoveredRef.current = false; }}
-              onWheelCapture={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                applyZoomWheel(event.deltaY);
-              }}
-            >
-              <button
-                type="button"
-                className="doc-html-fit-screen-button"
-                title="适应屏幕"
-                aria-label="适应屏幕"
-                onClick={fitZoomToScreen}
-              >
-                <UiIcon name="compress" size={13} />
-              </button>
-              <label className="doc-html-zoom-control">
-                <span>缩放 {zoomPercent}%</span>
-                <input
-                  type="range"
-                  min={HTML_MOBILE_ZOOM_MIN}
-                  max={HTML_MOBILE_ZOOM_MAX}
-                  step={HTML_MOBILE_ZOOM_WHEEL_STEP}
-                  value={zoomPercent}
-                  aria-label="手机网页缩放比例"
-                  onChange={(event) => onZoomChange(Number(event.target.value))}
-                />
-              </label>
-            </div>
-          </div>
-        ) : null}
-        <div ref={previewScrollRef} className="doc-html-preview-scroll">
-          {deviceMode === "mobile" ? (
-            <div
-              className="doc-html-mobile-frame-shell"
-              style={{ width: mobilePreset.width * (zoomPercent / 100), height: mobilePreset.height * (zoomPercent / 100) }}
-            >
-              <iframe
-                ref={iframeRef}
-                className="doc-html-preview-frame mobile"
-                title={filename}
-                src={src}
-                style={{
-                  width: mobilePreset.width,
-                  height: mobilePreset.height,
-                  transform: `scale(${zoomPercent / 100})`,
-                  transformOrigin: "top left",
-                }}
-                sandbox="allow-scripts allow-forms allow-modals"
-                referrerPolicy="no-referrer"
-              />
-            </div>
-          ) : (
-            <iframe
-              ref={iframeRef}
-              className="doc-html-preview-frame"
-              title={filename}
-              src={src}
-              sandbox="allow-scripts allow-forms allow-modals"
-              referrerPolicy="no-referrer"
-            />
-          )}
-        </div>
-      </div>
-      <div className={`doc-html-preview-console${consoleOpen ? " open" : ""}`}>
-        <div className="doc-html-preview-console-bar">
-          <button type="button" onClick={() => setConsoleOpen((open) => !open)}>
-            控制台{errorCount ? ` · ${errorCount}` : logs.length ? ` · ${logs.length}` : ""}
-          </button>
-
-          {consoleOpen ? (
-            <button type="button" onClick={() => setLogs([])} disabled={!logs.length}>
-              清空
-            </button>
-          ) : null}
-        </div>
-        {consoleOpen ? (
-          <div className="doc-html-preview-console-log" role="log">
-            {logs.length ? logs.map((row) => (
-              <p key={row.id} className={`doc-html-preview-console-${row.level}`}>
-                <span>{row.level}</span>
-                {row.args.join(" ")}
-              </p>
-            )) : <p className="muted">暂无输出。脚本报错或资源 404 会出现在这里。</p>}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function HtmlBrowserEmptyState({
-  files,
-  addressQuery,
-  onAddressQueryChange,
-  onSelectFile,
-  deviceMode,
-  mobilePreset,
-  onDeviceModeChange,
-  onMobilePresetChange,
-  zoomPercent,
-  onZoomChange,
-}: {
-  files: HtmlBrowserFile[];
-  addressQuery: string;
-  onAddressQueryChange: (value: string) => void;
-  onSelectFile: (id: string) => void;
-  deviceMode: HtmlDeviceMode;
-  mobilePreset: HtmlMobilePreset;
-  onDeviceModeChange: (mode: HtmlDeviceMode) => void;
-  onMobilePresetChange: (presetId: string) => void;
-  zoomPercent: number;
-  onZoomChange: (value: number) => void;
-}) {
-  return (
-    <div className="doc-html-preview-shell">
-      <HtmlBrowserToolbar
-        files={files}
-        addressQuery={addressQuery}
-        onAddressQueryChange={onAddressQueryChange}
-        onSelectFile={onSelectFile}
-        deviceMode={deviceMode}
-        onDeviceModeChange={onDeviceModeChange}
-      />
-      <div className="doc-html-browser-empty">
-        <UiIcon name="preview" size={22} />
-        <strong>浏览器尚未打开页面</strong>
-        <span>在上方地址栏输入关键词，选择项目中的 HTML 文件。</span>
-      </div>
-    </div>
   );
 }
 
@@ -1432,82 +999,6 @@ function documentChangePageNumbers(current: number, totalPages: number) {
   return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
-type DocumentChangeDateRange = { from: string; to: string };
-
-function dateKey(value: Date) {
-  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
-}
-
-function parseDateKey(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return year && month && day ? new Date(year, month - 1, day) : null;
-}
-
-function dateRangeLabel({ from, to }: DocumentChangeDateRange) {
-  if (!from && !to) return "选择日期范围";
-  return `${from || "开始日期"} 至 ${to || "结束日期"}`;
-}
-
-function DocumentChangeDateRangePicker({ value, onChange }: { value: DocumentChangeDateRange; onChange: (next: DocumentChangeDateRange) => void }) {
-  const [open, setOpen] = useState(false);
-  const [hovered, setHovered] = useState("");
-  const rootRef = useRef<HTMLDivElement>(null);
-  const [viewMonth, setViewMonth] = useState(() => {
-    const initial = parseDateKey(value.from) || parseDateKey(value.to) || new Date();
-    return new Date(initial.getFullYear(), initial.getMonth(), 1);
-  });
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [open]);
-
-  const monthStart = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
-  const firstCell = new Date(monthStart);
-  firstCell.setDate(1 - monthStart.getDay());
-  const days = Array.from({ length: 42 }, (_, index) => {
-    const day = new Date(firstCell);
-    day.setDate(firstCell.getDate() + index);
-    return day;
-  });
-  const rangeEnd = value.to || (value.from && hovered ? hovered : "");
-  const rangeStart = value.from && rangeEnd && rangeEnd < value.from ? rangeEnd : value.from;
-  const normalizedEnd = value.from && rangeEnd && rangeEnd < value.from ? value.from : rangeEnd;
-
-  const selectDate = (selected: string) => {
-    if (!value.from || value.to) {
-      onChange({ from: selected, to: "" });
-      setHovered("");
-      return;
-    }
-    onChange(selected < value.from ? { from: selected, to: value.from } : { from: value.from, to: selected });
-    setHovered("");
-    setOpen(false);
-  };
-
-  return <div className="document-change-log-date-range-picker" ref={rootRef}>
-    <button type="button" className={`document-change-log-date-range-trigger${open ? " is-open" : ""}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
-      <span>{dateRangeLabel(value)}</span><UiIcon name="layout" size={14} />
-    </button>
-    {open ? <div className="document-change-log-date-range-popover" role="dialog" aria-label="选择日期范围">
-      <div className="document-change-log-date-range-toolbar"><button type="button" aria-label="上个月" onClick={() => setViewMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}>‹</button><strong>{`${viewMonth.getFullYear()}年${viewMonth.getMonth() + 1}月`}</strong><button type="button" aria-label="下个月" onClick={() => setViewMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}>›</button></div>
-      <div className="document-change-log-date-range-weekdays">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <span key={day}>{day}</span>)}</div>
-      <div className="document-change-log-date-range-calendar">{days.map((day) => {
-        const key = dateKey(day);
-        const inMonth = day.getMonth() === viewMonth.getMonth();
-        const inRange = Boolean(rangeStart && normalizedEnd && key >= rangeStart && key <= normalizedEnd);
-        const selected = key === value.from || key === value.to;
-        return <button key={key} type="button" className={`${inMonth ? "" : "is-outside"}${inRange ? " is-in-range" : ""}${selected ? " is-selected" : ""}`} onMouseEnter={() => value.from && !value.to && setHovered(key)} onClick={() => selectDate(key)}>{day.getDate()}</button>;
-      })}</div>
-      <div className="document-change-log-date-range-footer"><span>{value.from && !value.to ? "请选择结束日期" : dateRangeLabel(value)}</span>{(value.from || value.to) && <button type="button" onClick={() => { onChange({ from: "", to: "" }); setHovered(""); }}>清空</button>}</div>
-    </div> : null}
-  </div>;
-}
-
 function fileLabel(version: LibraryVersion) {
   return fileDisplayName(version);
 }
@@ -1589,11 +1080,13 @@ const ROOT_LABELS: Record<(typeof LIBRARY_ROOT_KINDS)[number], string> = {
   project_official: "正式文件",
   project_outputs: "沙箱产物",
   project_cache: "对话缓存",
+  project_miniprogram: "小程序",
 };
 const ROOT_GUIDES: Record<(typeof LIBRARY_ROOT_KINDS)[number], string> = {
   project_official: "项目的正式资料库。成员可以在这里上传、建文件夹、整理和归档确认后的文件；对话缓存和沙箱产物经确认后，也可以另存进来作为正式版本。",
   project_outputs: "小祥在沙箱里生成、修改并发布的成果。对话框附件不会进这里。成员可以预览、下载、确认，或把已确认版本另存为正式文件。",
   project_cache: "对话框或连接器随消息上传的临时资料，按日期放进子文件夹。对小祥只读，改完应另存为沙箱产物；确认后也可以另存为正式文件。",
+  project_miniprogram: "小程序全栈工作区。固定包含小程序源文件、小程序 Web 产物、PC 管理后台和服务端四个子目录；源码可在此预览，也可交给 Dimina 编译后在「小程序」工具区实时运行。",
 };
 
 const CODE_LIBRARY_ROOT_ID = "code-library-root";
@@ -1872,7 +1365,7 @@ export function Documents({
   const [folderGuideKind, setFolderGuideKind] = useState<(typeof LIBRARY_ROOT_KINDS)[number] | null>(null);
   const [codeGuideId, setCodeGuideId] = useState<string | null>(null);
   const [codeConfig, setCodeConfig] = useState<CodeLibraryConfig | null>(null);
-  const codeEntries = codeLibraryEntries(codeConfig);
+  const codeEntries = useMemo(() => codeLibraryEntries(codeConfig), [codeConfig]);
   useEffect(() => {
     let cancelled = false;
     const load = () => {
@@ -1952,10 +1445,10 @@ export function Documents({
   )).join(",")]);
   const [trash, setTrash] = useState(false);
   const [sort, setSort] = useState<"type" | "modified">("type");
-  const collator = new Intl.Collator("zh-CN", {
+  const collator = useMemo(() => new Intl.Collator("zh-CN", {
     numeric: true,
     sensitivity: "base",
-  });
+  }), []);
   const modified = (a: { updated_at?: string }, b: { updated_at?: string }) =>
     (b.updated_at || "").localeCompare(a.updated_at || "");
   const extension = (filename: string) =>
@@ -2123,6 +1616,7 @@ export function Documents({
     }
   };
   const [filter, setFilter] = useState("");
+  const deferredFilter = useDeferredValue(filter);
   const fileSearchRef = useRef<HTMLInputElement>(null);
   const [view, setView] = useState<{
     text?: string;
@@ -2153,7 +1647,7 @@ export function Documents({
   const [browserMobilePresetId, setBrowserMobilePresetId] = useState(HTML_MOBILE_PRESETS[1].id);
   const [browserMobileZoom, setBrowserMobileZoom] = useState(100);
   const [browserAddressQuery, setBrowserAddressQuery] = useState("");
-  const [activeTool, setActiveTool] = useState<"files" | "browser">("files");
+  const [activeTool, setActiveTool] = useState<"files" | "browser" | "miniprogram">("files");
   const [treeOpen, setTreeOpen] = useState(() => readStoredBoolean(DOCUMENT_TREE_STATE_KEY, false));
   const [treeWidth, setTreeWidth] = useState(readStoredTreeWidth);
   useEffect(() => {
@@ -2654,7 +2148,7 @@ export function Documents({
         a.artifact_id.localeCompare(b.artifact_id),
     )
     .filter((v) =>
-      `${v.title} ${v.filename}`.toLowerCase().includes(filter.toLowerCase()),
+      `${v.title} ${v.filename}`.toLowerCase().includes(deferredFilter.toLowerCase()),
     );
   useEffect(() => {
     let alive = true;
@@ -3506,137 +3000,45 @@ export function Documents({
       }}
     />
   );
+  const explorerTreeContent = trash || filter
+    ? artifacts.map((v) => fileRow(v, 0))
+    : (
+      <>
+        {libraryRoots.map((root) => renderLibraryRoot(root))}
+        {renderCodeLibraryRoot()}
+      </>
+    );
   const explorer = (
-    <aside
-      className="file-explorer doc-browser-tree"
-      style={{ "--doc-tree-width": `${treeWidth}px` } as CSSProperties}
-    >
-            <div
-              className="doc-browser-tree-resize"
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="拖拽调整文件树宽度"
-              title="拖拽调整宽度"
-              aria-valuemin={TREE_WIDTH_MIN}
-              aria-valuemax={TREE_WIDTH_MAX}
-              aria-valuenow={treeWidth}
-              onPointerDown={startTreeResize}
-            />
-            <div className="file-explorer-top">
-              <div className="tree-filter-bar">
-                <input
-                  ref={fileSearchRef}
-                  type="search"
-                  name="cothread-document-tree-filter"
-                  autoComplete="off"
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  data-lpignore="true"
-                  data-1p-ignore="true"
-                  data-form-type="other"
-                  aria-label="搜索文档"
-                  placeholder="搜索文档…"
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                  onKeyDown={(event) => {
-                    // Keep browser/app-level find shortcuts from taking over the file tree search.
-                    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
-                      event.preventDefault();
-                      event.nativeEvent.stopImmediatePropagation();
-                      event.currentTarget.select();
-                    }
-                    event.stopPropagation();
-                  }}
-                  onKeyUp={(event) => event.stopPropagation()}
-                  onKeyPress={(event) => event.stopPropagation()}
-                />
-                <button
-                  type="button"
-                  className="tree-sort"
-                  title={
-                    sort === "type"
-                      ? "当前：类型 / 名称；切换为最近修改"
-                      : "当前：最近修改；切换为类型 / 名称"
-                  }
-                  aria-label={
-                    sort === "type"
-                      ? "当前按类型和名称排序，切换为最近修改"
-                      : "当前按最近修改排序，切换为类型和名称"
-                  }
-                  onClick={() => setSort(sort === "type" ? "modified" : "type")}
-                >
-                  <TreeIcon
-                    kind={sort === "type" ? "sortType" : "sortModified"}
-                  />
-                </button>
-              </div>
-            </div>
-            <div className="file-explorer-scroll" aria-busy={pending}>
-            <div role="tree" aria-label="项目文档库">
-              {organizing ? <p className="muted">项目级Agent（L1）正在整理正式文件，正式文件区暂时不可操作。</p> : null}
-              {trash || filter
-                ? artifacts.map((v) => fileRow(v, 0))
-                : (
-                  <>
-                    {libraryRoots.map((root) => renderLibraryRoot(root))}
-                    {renderCodeLibraryRoot()}
-                  </>
-                )}
-            </div>
-            {trash && !artifacts.length ? (
-              <p className="muted">回收站是空的。</p>
-            ) : null}
-            {!artifacts.length && !libraryFolders.length && !trash && (
-              <p className="muted">文档库尚无文件。</p>
-            )}
-            {organization?.status === "failed" && <div className="error" role="alert">{organization.error || "正式文件整理未完成，可以重试。"}</div>}
-            {actionError && (
-              <div className="error" role="alert">
-                {actionError}
-              </div>
-            )}
-            </div>
-            <footer className="library-explorer-footer">
-              <button
-                type="button"
-                className={trash ? "library-trash-entry active" : "library-trash-entry"}
-                title={trash ? "返回文件树" : "回收站"}
-                aria-label={trash ? "返回文件树" : "回收站"}
-                aria-pressed={trash}
-                onClick={() => {
-                  setTrash(!trash);
-                  onSelect("");
-                  setFilter("");
-                }}
-              >
-                <TreeIcon kind={trash ? "back" : "trash"} />
-                <span>{trash ? "返回文件树" : "回收站"}</span>
-              </button>
-              {trash && writable ? (
-                <button
-                  type="button"
-                  className="library-trash-empty"
-                  title="永久清空回收站"
-                  aria-label="清空回收站"
-                  disabled={pending || !libraryVersions.some((item) => item.deleted_at)}
-                  onClick={() => setDeleteConfirm({ type: "empty-recycle" })}
-                >
-                  <TreeIcon kind="trash" />
-                  <span>清空回收站</span>
-                </button>
-              ) : null}
-            </footer>
-            {pending ? (
-              <div className="tree-loading" role="status" aria-live="polite">
-                <span className="tree-loading-spinner" aria-hidden="true" />
-                <span>
-                  {pendingLabel}
-                  {uploadProgress != null ? ` ${uploadProgress}%` : ""}
-                </span>
-              </div>
-            ) : null}
-          </aside>
+    <DocumentLibraryExplorer
+      treeWidth={treeWidth}
+      treeWidthMin={TREE_WIDTH_MIN}
+      treeWidthMax={TREE_WIDTH_MAX}
+      fileSearchRef={fileSearchRef}
+      filter={filter}
+      sort={sort}
+      pending={pending}
+      organizing={organizing}
+      writable={writable}
+      trash={trash}
+      artifacts={artifacts}
+      canEmptyTrash={libraryVersions.some((item) => item.deleted_at)}
+      libraryFolders={libraryFolders}
+      actionError={actionError}
+      organizationError={organization?.status === "failed" ? organization.error || "正式文件整理未完成，可以重试。" : undefined}
+      pendingLabel={pendingLabel}
+      uploadProgress={uploadProgress}
+      treeContent={explorerTreeContent}
+      renderTreeIcon={(kind) => <TreeIcon kind={kind} />}
+      onResizeStart={startTreeResize}
+      onFilterChange={setFilter}
+      onSortToggle={() => setSort(sort === "type" ? "modified" : "type")}
+      onToggleTrash={() => {
+        setTrash(!trash);
+        onSelect("");
+        setFilter("");
+      }}
+      onEmptyTrash={() => setDeleteConfirm({ type: "empty-recycle" })}
+    />
   );
   const capsuleKind = view?.kind || (() => {
     const name = String(version?.filename || "").toLowerCase();
@@ -3666,110 +3068,66 @@ export function Documents({
     setView((previous) => (previous ? { ...previous, nativeSource: false } : previous));
   };
   const fileActionCapsule = version && activeTool === "files" ? (
-    <span className="doc-view-mode" role="group" aria-label="文件操作">
-      {supportsPreview ? (
-        <button
-          type="button"
-          className={previewMode === "preview" && !view?.nativeSource ? "active" : ""}
-          aria-pressed={previewMode === "preview" && !view?.nativeSource}
-          onClick={setPreviewViewMode}
-        >
-          <UiIcon name="preview" size={12} />
-          预览
-        </button>
-      ) : null}
-      {supportsSource ? (
-        <button
-          type="button"
-          className={(previewMode === "text" || (isHtmlFile && activeTool === "files")) && !view?.nativeSource ? "active" : ""}
-          aria-pressed={(previewMode === "text" || (isHtmlFile && activeTool === "files")) && !view?.nativeSource}
-          onClick={setSourceMode}
-        >
-          <UiIcon name="code" size={12} />
-          源码
-        </button>
-      ) : null}
-      {supportsSource ? (
-        <button
-          type="button"
-          className={view?.nativeSource ? "active" : ""}
-          aria-pressed={Boolean(view?.nativeSource)}
-          onClick={setPlainTextMode}
-        >
-          <UiIcon name="list" size={12} />
-          纯文本
-        </button>
-      ) : null}
-      <button type="button" onClick={() => setFileInfoOpen(true)}>
-        <UiIcon name="info" size={12} />
-        文件信息
-      </button>
-    </span>
+    <DocumentFileActionCapsule
+      supportsPreview={supportsPreview}
+      supportsSource={supportsSource}
+      isPreviewActive={previewMode === "preview" && !view?.nativeSource}
+      isSourceActive={(previewMode === "text" || (isHtmlFile && activeTool === "files")) && !view?.nativeSource}
+      isPlainTextActive={Boolean(view?.nativeSource)}
+      onPreview={setPreviewViewMode}
+      onSource={setSourceMode}
+      onPlainText={setPlainTextMode}
+      onShowInfo={() => setFileInfoOpen(true)}
+    />
   ) : null;
+  const fileInfoRows: DocumentFileInfoRow[] = version ? [
+    { label: "名称", value: version.title },
+    { label: "文件名", value: version.filename },
+    { label: "ID", value: version.id },
+    { label: "位置", value: documentSourceLabel(version, libraryFolders) },
+    { label: "类型", value: fileAreaTypeLabels[fileAreaKind(version) || ""] || "未知" },
+    { label: "大小", value: formatFileSize(view?.byteSize || version.byte_size || 0) },
+    { label: "后缀", value: extension(version.filename) ? `.${extension(version.filename)}` : "—" },
+    { label: "格式", value: fileEncodingLabel(version.mime || view?.mime, version.filename) },
+    { label: "作者", value: version.author || "—" },
+    { label: "创建时间", value: version.created_at ? new Date(version.created_at).toLocaleString("zh-CN") : "—" },
+    { label: "修改日期", value: version.updated_at ? new Date(version.updated_at).toLocaleString("zh-CN") : "—" },
+  ] : [];
   const fileInfoDialog = fileInfoOpen && version ? (
-    <ModalBackdrop className="library-organize-backdrop" onClose={() => setFileInfoOpen(false)}>
-      {(close) => <section
-        className="library-organize-dialog document-file-info-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="document-file-info-title"
-      >
-        <header>
-          <h3 id="document-file-info-title">文件信息</h3>
-          <DialogClose onClick={close} label="关闭" />
-        </header>
-        <table className="document-file-info-table">
-          <tbody>
-            <tr><th scope="row">名称</th><td>{version.title}</td></tr>
-            <tr><th scope="row">文件名</th><td>{version.filename}</td></tr>
-            <tr><th scope="row">ID</th><td>{version.id}</td></tr>
-            <tr><th scope="row">位置</th><td>{documentSourceLabel(version, libraryFolders)}</td></tr>
-            <tr><th scope="row">类型</th><td>{fileAreaTypeLabels[fileAreaKind(version) || ""] || "未知"}</td></tr>
-            <tr><th scope="row">大小</th><td>{formatFileSize(view?.byteSize || version.byte_size || 0)}</td></tr>
-            <tr><th scope="row">后缀</th><td>{extension(version.filename) ? `.${extension(version.filename)}` : "—"}</td></tr>
-            <tr><th scope="row">格式</th><td>{fileEncodingLabel(version.mime || view?.mime, version.filename)}</td></tr>
-            <tr><th scope="row">作者</th><td>{version.author || "—"}</td></tr>
-            <tr><th scope="row">创建时间</th><td>{version.created_at ? new Date(version.created_at).toLocaleString("zh-CN") : "—"}</td></tr>
-            <tr><th scope="row">修改日期</th><td>{version.updated_at ? new Date(version.updated_at).toLocaleString("zh-CN") : "—"}</td></tr>
-          </tbody>
-        </table>
-      </section>}
-    </ModalBackdrop>
+    <DocumentFileInfoDialog rows={fileInfoRows} onClose={() => setFileInfoOpen(false)} />
   ) : null;
   const versionOptionDetail = (v: LibraryVersion) =>
     `v${versionCodeForRows(v, versions)}${v.deleted_at ? " · 已删除" : ""}${
       documentStatusLabel(v, fileAreaKind(v)) === "已确认" ? " · 已确认" : ` · ${documentStatusLabel(v, fileAreaKind(v))}`
     }`;
-  const artifactVersionRows =
-    version
+  const artifactVersionRows = useMemo(
+    () => version
       ? versions
           .filter((v) => v.artifact_id === version.artifact_id)
           .sort((a, b) => b.version - a.version)
-      : [];
+      : [],
+    [version, versions],
+  );
   const browserVersionHistorySelect =
     version && artifactVersionRows.length > 1 ? (
-      <select
-        className="doc-browser-version-select"
-        aria-label="文档历史版本"
-        title={versionOptionDetail(
-          artifactVersionRows.find((v) => v.id === selected) || version,
-        )}
-        value={selected}
-        onChange={(e) => onSelect(e.target.value)}
-      >
-        {artifactVersionRows.map((v) => (
-          <option key={v.id} value={v.id} title={versionOptionDetail(v)}>
-            {`v${versionCodeForRows(v, versions)}`}
-          </option>
-        ))}
-      </select>
+      <DocumentVersionHistorySelect
+        selected={selected}
+        title={versionOptionDetail(artifactVersionRows.find((v) => v.id === selected) || version)}
+        options={artifactVersionRows.map<DocumentVersionHistoryOption>((v) => ({
+          id: v.id,
+          value: v.id,
+          title: versionOptionDetail(v),
+          label: `v${versionCodeForRows(v, versions)}`,
+        }))}
+        onChange={onSelect}
+      />
     ) : null;
   const browserFileBreadcrumb = version ? (
-    <nav className="doc-browser-preview-header" aria-label="文档路径">
-      <span className="doc-browser-preview-path">{documentSourceLabel(version, libraryFolders)}</span>
-      <span className="doc-browser-preview-separator" aria-hidden="true">/</span>
-      <strong className="doc-browser-preview-name" title={version.filename}>{fileLabel(version)}</strong>
-    </nav>
+    <DocumentPreviewBreadcrumb
+      sourceLabel={documentSourceLabel(version, libraryFolders)}
+      filename={version.filename}
+      displayName={fileLabel(version)}
+    />
   ) : null;
   const browserSourceActions = version ? (() => {
     const area = fileAreaKind(version);
@@ -3781,75 +3139,43 @@ export function Documents({
       if (sourceType !== "cache_saved" && sourceType !== "output_saved") return null;
       const sourceLabel = officialSourceTypeLabels[sourceType] || "来源文件";
       return (
-        <div className="doc-browser-source-actions">
-          {source && !source.deleted_at ? (
-            <button
-              type="button"
-              className="doc-browser-source-button"
-              disabled={pending}
-              onClick={() => onSelect(source.id)}
-            >
-              <UiIcon name="preview" size={12} />
-              {sourceType === "cache_saved" ? "查看·缓存源文件" : "查看·沙箱源文件"}
-            </button>
-          ) : null}
-          {!source || source.deleted_at ? (
-            <span className="doc-browser-source-button is-disabled">{sourceLabel} · 源文件已删除</span>
-          ) : null}
-        </div>
+        <DocumentSourceActions
+          sourceId={source && !source.deleted_at ? source.id : undefined}
+          buttonLabel={sourceType === "cache_saved" ? "查看·缓存源文件" : "查看·沙箱源文件"}
+          deletedLabel={`${sourceLabel} · 源文件已删除`}
+          pending={pending}
+          onSelect={onSelect}
+        />
       );
     }
     if (area !== "project_cache" && area !== "project_outputs") return null;
     if (!version.saved_official_artifact_id) return null;
     const official = versions.find((row) => row.artifact_id === version.saved_official_artifact_id);
     return (
-      <div className="doc-browser-source-actions">
-        {official && !official.deleted_at ? (
-          <button
-            type="button"
-            className="doc-browser-source-button"
-            disabled={pending}
-            onClick={() => onSelect(official.id)}
-          >
-            <UiIcon name="preview" size={12} />
-            查看·已另存正式文件
-          </button>
-        ) : (
-          <span className="doc-browser-source-button is-disabled">已另存 · 正式文件已删除</span>
-        )}
-      </div>
+      <DocumentSourceActions
+        sourceId={official && !official.deleted_at ? official.id : undefined}
+        buttonLabel="查看·已另存正式文件"
+        deletedLabel="已另存 · 正式文件已删除"
+        pending={pending}
+        onSelect={onSelect}
+      />
     );
   })() : null;
   const reviewActions = version && !version.deleted_at ? (
-    <div className="library-review-actions">
-      {!artifactVersionRows.some((row) => !row.deleted_at && row.version > version.version)
+    <DocumentReviewActions
+      showApprove={
+        !artifactVersionRows.some((row) => !row.deleted_at && row.version > version.version)
         && (fileAreaKind(version) === "project_cache" || fileAreaKind(version) === "project_outputs")
-        && documentStatusLabel(version, fileAreaKind(version)) === "草稿" && onReview ? (
-        <button
-          type="button"
-          className="doc-browser-review-button"
-          disabled={pending}
-          title="确认当前版本"
-          onClick={() => act(() => onReview(selected, "approved"))}
-        >
-          <UiIcon name="check" size={12} />
-          草稿 · 确认
-        </button>
-      ) : documentStatusLabel(version, fileAreaKind(version)) !== "已确认" ? (
-        <span>{documentStatusLabel(version, fileAreaKind(version))}</span>
-      ) : null}
-      {canBranchVersion(version) && (
-        <button
-          type="button"
-          disabled={pending}
-          title="基于此版本创建新版"
-          onClick={() => openBranchDialog(version)}
-        >
-          <UiIcon name="branch" size={12} />
-          改新版
-        </button>
-      )}
-    </div>
+        && documentStatusLabel(version, fileAreaKind(version)) === "草稿" && Boolean(onReview)
+      }
+      statusLabel={documentStatusLabel(version, fileAreaKind(version))}
+      canBranch={canBranchVersion(version)}
+      pending={pending}
+      onApprove={() => {
+        if (onReview) void act(() => onReview(selected, "approved"));
+      }}
+      onBranch={() => openBranchDialog(version)}
+    />
   ) : null;
   const nativeSourceFrame = view?.nativeSource && selected ? (
     <iframe
@@ -3865,55 +3191,14 @@ export function Documents({
     : previewMode;
   const previewContent = (
     <>
-      {view?.kind === "markdown" && documentPreviewMode === "preview" && (
-        view.nativeSource ? (
-          <>
-            {nativeSourceFrame}
-          </>
-        ) : (
-          <div className="markdown-preview">
-            <Markdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                img: ({ src, alt }) => {
-                  const path = resolvePreviewAssetPath(src || "");
-                  const assetSrc = selected && path
-                    ? `/api/versions/${selected}/preview/${encodeURI(path)}`
-                    : src;
-                  return assetSrc ? <img src={assetSrc} alt={alt || ""} loading="lazy" /> : null;
-                },
-                code: ({ className, children, ...props }) => {
-                  const language = className?.match(/language-([\w-]+)/)?.[1]?.toLowerCase();
-                  if (language === "mermaid") {
-                    const chart = String(children).replace(/\n$/, "");
-                    return <MermaidPreview key={chart} chart={chart} />;
-                  }
-                  return className ? (
-                    <pre className="markdown-code-block"><code className={className} {...props}>{children}</code></pre>
-                  ) : (
-                    <code className="markdown-inline-code" {...props}>{children}</code>
-                  );
-                },
-              }}
-            >
-              {view.text}
-            </Markdown>
-          </div>
-        )
-      )}
-      {view?.kind === "markdown" && documentPreviewMode === "text" && (
-        <>
-          {view.nativeSource
-            ? nativeSourceFrame
-            : (
-              <CodePreview
-                text={view.text || ""}
-                filename={version?.filename}
-              />
-            )}
-        </>
-      )}
-      {view?.kind === "html" && documentPreviewMode === "preview" && selected && (
+      <DocumentPreviewContent
+        kind={view?.kind}
+        mode={documentPreviewMode}
+        text={view?.text}
+        selected={selected}
+        filename={version?.filename}
+        nativeSourceFrame={nativeSourceFrame}
+        htmlPreview={selected ? (
           <HtmlPreviewFrame
             key={`${browserSelected || selected}-preview-${previewReload}`}
             versionId={selected}
@@ -3933,58 +3218,10 @@ export function Documents({
             onOpenExternal={openBrowserInComputer}
             onNavigate={handleBrowserNavigation}
             onNewWindow={handleBrowserNewWindow}
-        />
-      )}
-      {view?.kind === "html" && documentPreviewMode === "text" && (
-        view.nativeSource ? (
-          <>
-            {nativeSourceFrame}
-          </>
-        ) : view.text == null
-          ? <p className="muted doc-browser-loading">正在读取源码…</p>
-          : (
-            <CodePreview
-              text={view.text.length > 80_000 ? view.text : formatHtmlSource(view.text)}
-              filename={version?.filename}
-            />
-          )
-      )}
-      {view?.kind === "text" && (
-        <>
-          {view.nativeSource
-            ? nativeSourceFrame
-            : <CodePreview text={view.text || ""} filename={version?.filename} />}
-        </>
-      )}
-      {view?.kind === "docx" && view.bytes && <DocxPreview bytes={view.bytes} />}
-      {view?.kind === "xlsx" && view.bytes && <XlsxPreview bytes={view.bytes} />}
-      {view?.kind === "pptx" && view.bytes && <PptxPreview bytes={view.bytes} />}
-      {view?.kind === "image" && version && (
-        <button
-          type="button"
-          className="doc-image-open"
-          title="打开预览"
-          onClick={() => setImagePreview({
-            id: version.id,
-            title: fileLabel(version),
-            filename: version.filename,
-            src: view.url,
-          })}
-        >
-          <img src={view.url} alt={version.filename} />
-        </button>
-      )}{" "}
-      {view?.kind === "pdf" && version && view.bytes && (
-        <PdfPreview
-          bytes={view.bytes}
-          filename={version.filename}
-        />
-      )}{" "}
-      {view?.kind === "download" && (
-        <p>
-          文件已安全保存在项目中。此格式暂不支持在线预览，请下载原文件查看。
-        </p>
-      )}
+          />
+        ) : null}
+      />
+      {view && <StaticDocumentPreview kind={view.kind} bytes={view.bytes} version={version} url={view.url} onOpenImage={(source) => setImagePreview({ ...source, title: fileLabel(version!) })} />}
     </>
   );
   const mainPanel = (
@@ -4112,11 +3349,7 @@ export function Documents({
                       onAddressQueryChange={setBrowserAddressQuery}
                       onSelectFile={openBrowserTab}
                       deviceMode={browserDeviceMode}
-                      mobilePreset={browserMobilePreset}
                       onDeviceModeChange={setBrowserDeviceMode}
-                      onMobilePresetChange={setBrowserMobilePresetId}
-                      zoomPercent={browserMobileZoom}
-                      onZoomChange={setBrowserMobileZoom}
                     />
                   </div>
                 </div>
@@ -4160,55 +3393,21 @@ export function Documents({
           </main>
   );
   const organizeDialog = organizeOpen ? (
-          <ModalBackdrop className="library-organize-backdrop" onClose={() => setOrganizeOpen(false)}>
-            {(close) => <section
-              className="library-organize-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="library-organize-title"
-            >
-              <header>
-                <h3 id="library-organize-title">正式文件整理</h3>
-                <DialogClose onClick={close} label="关闭" />
-              </header>
-              <p>由项目级Agent（L1）在后台归类与命名正式文件；整理期间正式文件区不可上传、另存或修改。</p>
-              {organizing ? <p className="muted">正在排队或执行中…</p> : null}
-              {organization?.status === "failed" ? (
-                <div className="error" role="alert">{organization.error || "上次整理失败，可重试。"}</div>
-              ) : null}
-              <div className="library-organize-actions">
-                <button type="button" disabled={pending} onClick={close}>关闭</button>
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={pending || organizing || !canOrganizeOfficial}
-                  title={!canOrganizeOfficial ? "正式文件区没有可整理的文档" : undefined}
-                  onClick={() => void triggerOrganize()}
-                >
-                  {organizing ? "整理中…" : pending ? "提交中…" : "立即整理"}
-                </button>
-              </div>
-            </section>}
-          </ModalBackdrop>
+          <LibraryOrganizeDialog
+            organizing={organizing}
+            pending={pending}
+            canOrganize={canOrganizeOfficial}
+            error={organization?.status === "failed" ? organization.error || "上次整理失败，可重试。" : undefined}
+            onClose={() => setOrganizeOpen(false)}
+            onOrganize={() => void triggerOrganize()}
+          />
         ) : null;
   const folderGuideDialog = folderGuideKind ? (
-          <ModalBackdrop className="library-organize-backdrop" onClose={() => setFolderGuideKind(null)}>
-            {(close) => <section
-              className="library-organize-dialog folder-guide-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="folder-guide-title"
-            >
-              <header>
-                <h3 id="folder-guide-title">{ROOT_LABELS[folderGuideKind]} · 文件夹说明</h3>
-                <DialogClose onClick={close} label="关闭文件夹说明" />
-              </header>
-              <p>{ROOT_GUIDES[folderGuideKind]}</p>
-              <div className="library-organize-actions">
-                <button type="button" className="primary" onClick={close}>知道了</button>
-              </div>
-            </section>}
-          </ModalBackdrop>
+          <FolderGuideDialog
+            title={`${ROOT_LABELS[folderGuideKind]} · 文件夹说明`}
+            body={ROOT_GUIDES[folderGuideKind]}
+            onClose={() => setFolderGuideKind(null)}
+          />
         ) : null;
   const codeGuideTarget = (() => {
     if (!codeGuideId) return null;
@@ -4227,31 +3426,12 @@ export function Documents({
     return { title: "连接器", body: CODE_LIBRARY_GUIDE, lines: null };
   })();
   const codeGuideDialog = codeGuideTarget ? (
-          <ModalBackdrop className="library-organize-backdrop" onClose={() => setCodeGuideId(null)}>
-            {(close) => <section
-              className="library-organize-dialog folder-guide-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="code-guide-title"
-            >
-              <header>
-                <h3 id="code-guide-title">{codeGuideTarget.title} · 文件夹说明</h3>
-                <DialogClose onClick={close} label="关闭文件夹说明" />
-              </header>
-              {codeGuideTarget.lines ? (
-                <ul className="folder-guide-lines">
-                  {codeGuideTarget.lines.map((line) => (
-                    <li key={line}>{line}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p>{codeGuideTarget.body}</p>
-              )}
-              <div className="library-organize-actions">
-                <button type="button" className="primary" onClick={close}>知道了</button>
-              </div>
-            </section>}
-          </ModalBackdrop>
+          <CodeGuideDialog
+            title={codeGuideTarget.title}
+            body={codeGuideTarget.body}
+            lines={codeGuideTarget.lines}
+            onClose={() => setCodeGuideId(null)}
+          />
         ) : null;
   const deleteConfirmCopy = (() => {
     if (!deleteConfirm) return null;
@@ -4293,64 +3473,26 @@ export function Documents({
     };
   })();
   const deleteConfirmDialog = deleteConfirm && deleteConfirmCopy ? (
-          <ModalBackdrop className="library-organize-backdrop" onClose={() => setDeleteConfirm(null)}>
-            {(close) => <section
-              className="library-organize-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="library-delete-title"
-            >
-              <header>
-                <h3 id="library-delete-title">{deleteConfirmCopy.title}</h3>
-                <DialogClose onClick={close} label="关闭" />
-              </header>
-              <p>{deleteConfirmCopy.body}</p>
-              <div className="library-organize-actions">
-                <button type="button" onClick={close}>取消</button>
-                <button type="button" className={deleteConfirm.type === "empty-recycle" ? "danger" : "primary"} onClick={confirmDelete} disabled={deleteConfirm.type === "empty-recycle" && !libraryVersions.some((item) => item.deleted_at)}>
-                  <UiIcon name="trash" size={13} />{deleteConfirmCopy.confirm}
-                </button>
-              </div>
-            </section>}
-          </ModalBackdrop>
+          <DeleteConfirmDialog
+            title={deleteConfirmCopy.title}
+            body={deleteConfirmCopy.body}
+            confirmLabel={deleteConfirmCopy.confirm}
+            danger={deleteConfirm.type === "empty-recycle"}
+            confirmDisabled={deleteConfirm.type === "empty-recycle" && !libraryVersions.some((item) => item.deleted_at)}
+            onClose={() => setDeleteConfirm(null)}
+            onConfirm={confirmDelete}
+          />
         ) : null;
   const branchDialog = branchVersion ? (
-    <ModalBackdrop className="library-organize-backdrop" onClose={() => setBranchVersion(null)}>
-      {(close) => <section
-        className="library-organize-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="library-branch-title"
-      >
-        <header>
-          <h3 id="library-branch-title">改新版</h3>
-          <DialogClose onClick={close} label="关闭" />
-        </header>
-        <p>选择修改目标后，将请求发送给 @小祥 处理。</p>
-        <div className="library-branch-targets" role="radiogroup" aria-label="新版归属">
-          <label>
-            <input type="radio" name="branch-target" checked={branchTarget === "current"} onChange={() => setBranchTarget("current")} />
-            <span>当前文档</span>
-          </label>
-          <label>
-            <input type="radio" name="branch-target" checked={branchTarget === "new"} onChange={() => setBranchTarget("new")} />
-            <span>新文档</span>
-          </label>
-        </div>
-        {branchTarget === "new" ? (
-          <label className="library-branch-title-field">
-            <span>文档名称</span>
-            <input value={branchTitle} maxLength={160} onChange={(event) => setBranchTitle(event.target.value)} autoFocus />
-          </label>
-        ) : null}
-        <div className="library-organize-actions">
-          <button type="button" onClick={close} disabled={pending}>取消</button>
-          <button type="button" className="primary" onClick={() => void submitBranch()} disabled={pending || (branchTarget === "new" && !branchTitle.trim())}>
-            <UiIcon name="branch" size={13} />发送改新版请求
-          </button>
-        </div>
-      </section>}
-    </ModalBackdrop>
+    <BranchVersionDialog
+      target={branchTarget}
+      title={branchTitle}
+      pending={pending}
+      onTargetChange={setBranchTarget}
+      onTitleChange={setBranchTitle}
+      onClose={() => setBranchVersion(null)}
+      onSubmit={() => void submitBranch()}
+    />
   ) : null;
 
   const tabVersion = (id: string) => libraryVersions.find((item) => item.id === id)
@@ -4424,6 +3566,16 @@ export function Documents({
             <UiIcon name="globe" size={14} />
             <span>浏览器</span>
           </button>
+          <button
+            type="button"
+            className={`doc-tool-button${activeTool === "miniprogram" ? " active" : ""}`}
+            aria-pressed={activeTool === "miniprogram"}
+            title="小程序全栈工作区"
+            onClick={() => setActiveTool("miniprogram")}
+          >
+            <UiIcon name="smartphone" size={14} />
+            <span>小程序</span>
+          </button>
           <span className="doc-toolbar-spacer" aria-hidden="true" />
           <button
             type="button"
@@ -4437,58 +3589,32 @@ export function Documents({
             <span>{documentFullscreen ? "退出全屏" : "全屏"}</span>
           </button>
         </nav>
-        {activeTool !== "browser" && openTabs.length ? (
+        {activeTool !== "browser" && activeTool !== "miniprogram" ? (
           <div
             className="doc-browser-tabbar"
             onContextMenu={(event) => {
               if ((event.target as HTMLElement).closest(".doc-browser-tab")) return;
+              // 无打开页签时没有可操作的页签，不弹出页签菜单，右侧工具按钮保持可用。
+              if (!openTabs.length) return;
               const id = selected && openTabs.includes(selected) ? selected : openTabs[openTabs.length - 1];
               openTabContextMenu(event, id);
             }}
           >
-          <div className="doc-browser-tabs" role="tablist" aria-label="打开的文档">
-            {openTabs.map((id) => {
+          <DocumentTabList
+            emptyLabel={null}
+            tabs={openTabs.map((id) => {
               const item = tabVersion(id);
-              return (
-                <span
-                  key={id}
-                  className={`doc-browser-tab${selected === id ? " active" : ""}`}
-                  role="presentation"
-                  onContextMenu={(event) => openTabContextMenu(event, id)}
-                >
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={selected === id}
-                    className="doc-browser-tab-open"
-                    title={item ? fileLabel(item) : "文档"}
-                    onClick={() => selectDocument(id)}
-                  >
-                    {item ? (
-                      <LibraryFileIcon
-                        fileName={item.filename}
-                        versionId={item.id}
-                        className="tree-icon file-type-icon"
-                        width={14}
-                        height={14}
-                      />
-                    ) : null}
-                    <span className="doc-browser-tab-label">{item ? fileLabel(item) : "文档"}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="doc-browser-tab-close"
-                    aria-label={`关闭 ${item ? fileLabel(item) : "文档"}`}
-                    title="关闭"
-                    onClick={() => closeTab(id)}
-                  >
-                    ×
-                  </button>
-                </span>
-              );
+              return {
+                id,
+                label: item ? fileLabel(item) : "文档",
+                icon: item ? <LibraryFileIcon fileName={item.filename} versionId={item.id} className="tree-icon file-type-icon" width={14} height={14} /> : null,
+              };
             })}
-            {!openTabs.length && <span className="doc-browser-tabs-empty">从文件树选择文档</span>}
-          </div>
+            selected={selected}
+            onSelect={selectDocument}
+            onClose={closeTab}
+            onContextMenu={openTabContextMenu}
+          />
           {tabMenu && openTabs.includes(tabMenu.id) ? (
             <DocBrowserTabMenu
               x={tabMenu.x}
@@ -4529,62 +3655,40 @@ export function Documents({
         ) : null}
         {activeTool === "browser" ? (
           <div className="doc-browser-tabbar doc-browser-browser-tabbar">
-            <div className="doc-browser-tabs" role="tablist" aria-label="打开的浏览器页面">
-              {browserTabs.map((tab) => {
+            <DocumentTabList
+              ariaLabel="打开的浏览器页面"
+              emptyLabel={null}
+              tabs={browserTabs.map((tab) => {
                 const item = tabVersion(tab.versionId);
-                return (
-                  <span
-                    key={tab.key}
-                    className={`doc-browser-tab${browserSelected === tab.key ? " active" : ""}`}
-                    role="presentation"
-                  >
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={browserSelected === tab.key}
-                      className="doc-browser-tab-open"
-                      title={tab.url}
-                      onClick={() => selectBrowserTab(tab.key)}
-                    >
-                      {item ? (
-                        <LibraryFileIcon
-                          fileName={item.filename}
-                          versionId={item.id}
-                          className="tree-icon file-type-icon"
-                          width={14}
-                          height={14}
-                        />
-                      ) : null}
-                      <span className="doc-browser-tab-label">{tab.label}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="doc-browser-tab-close"
-                      aria-label={`关闭 ${tab.label}`}
-                      title="关闭"
-                      onClick={() => closeBrowserTab(tab.key)}
-                    >
-                      ×
-                    </button>
-                  </span>
-                );
+                return {
+                  id: tab.key,
+                  label: tab.label,
+                  title: tab.url,
+                  icon: item ? <LibraryFileIcon fileName={item.filename} versionId={item.id} className="tree-icon file-type-icon" width={14} height={14} /> : null,
+                };
               })}
-              <button
-                type="button"
-                className="doc-browser-new-tab"
-                aria-label="新建浏览器页签"
-                title="新建页签"
-                onClick={createBrowserNewTab}
-              >
-                <UiIcon name="plus" size={14} />
-              </button>
-            </div>
+              selected={browserSelected}
+              onSelect={selectBrowserTab}
+              onClose={closeBrowserTab}
+              suffix={<button type="button" className="doc-browser-new-tab" aria-label="新建浏览器页签" title="新建页签" onClick={createBrowserNewTab}><UiIcon name="plus" size={14} /></button>}
+            />
           </div>
         ) : null}
-        <div className={`library-body doc-browser-body${activeTool === "browser" ? " browser-tool-active" : ""}`}>
-          {activeTool === "files" && treeOpen ? explorer : null}
-          {mainPanel}
-        </div>
+        {activeTool === "miniprogram" ? (
+          <div className="library-body doc-browser-body miniprogram-tool-active">
+            <MiniProgramWorkspace
+              key={projectId}
+              projectId={projectId}
+              request={apiFetch}
+              writable={writable}
+            />
+          </div>
+        ) : (
+          <div className={`library-body doc-browser-body${activeTool === "browser" ? " browser-tool-active" : ""}`}>
+            {activeTool === "files" && treeOpen ? explorer : null}
+            {mainPanel}
+          </div>
+        )}
         {organizeDialog}
         {folderGuideDialog}
         {codeGuideDialog}
@@ -4593,53 +3697,31 @@ export function Documents({
         {branchDialog}
         {changesOpen ? (
           <ModalBackdrop className="library-organize-backdrop" onClose={() => setChangesOpen(false)}>
-            {(close) => <section className="library-organize-dialog document-change-log-dialog" role="dialog" aria-modal="true" aria-labelledby="document-change-log-title">
-              <header className="library-organize-header"><div><span>项目文档库</span><h3 id="document-change-log-title">文档操作日志</h3></div><DialogClose onClick={close} label="关闭文档操作日志" /></header>
-              <form
-                className="document-change-log-filters"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  setChangePageNumber(1);
-                  setChangePageInput("1");
-                  setChangeFilters({ ...changeFilterDraft, fileName: changeFilterDraft.fileName.trim() });
-                }}
-              >
-                <label><span>操作类型</span><select value={changeFilterDraft.action} onChange={(event) => setChangeFilterDraft((current) => ({ ...current, action: event.target.value }))}><option value="">全部操作</option>{documentChangeActions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-                <label className="document-change-log-date-range"><span>日期范围</span><DocumentChangeDateRangePicker value={changeFilterDraft} onChange={(range) => setChangeFilterDraft((current) => ({ ...current, ...range }))} /></label>
-                <label className="document-change-log-file-filter"><span>文件名</span><input type="search" value={changeFilterDraft.fileName} placeholder="搜索文档标题或文件名" onChange={(event) => setChangeFilterDraft((current) => ({ ...current, fileName: event.target.value }))} /></label>
-                <div className="document-change-log-filter-actions"><button type="submit">应用筛选</button><button type="button" className="secondary" onClick={() => { const empty = { from: "", to: "", fileName: "", action: "", limit: "20" }; setChangeFilterDraft(empty); setChangeFilters(empty); setChangePageNumber(1); setChangePageInput("1"); }}>重置</button></div>
-              </form>
-              <div className="document-change-log-list">
-                <div className="document-change-log-list-head" aria-hidden="true"><span>操作</span><span>文档 / 文件夹</span><span>操作人 / 来源</span><span>时间</span></div>
-                <div className={`document-change-log-rows${changesLoading && changes.length && !changesError ? " is-refreshing" : ""}`} aria-busy={changesLoading}>
-                  {changesError ? <p className="error document-change-log-state" role="alert">{changesError}</p> : changes.length ? changes.map((item) => <article className="document-change-log-item" key={item.id}>
-                    <strong>{documentChangeLabels[item.action] || item.action}</strong>
-                    <span className="document-change-log-target">{item.artifact_title || item.version_filename || item.folder_name || String(item.details?.title || item.details?.filename || item.details?.affectedFolderName || "文档库")}</span>
-                    <span className="document-change-log-actor">{item.actor_name || (item.actor_type === "agent" ? "Agent" : "系统")} · {documentChangeSources[item.source] || item.source}</span>
-                    <time>{new Date(item.created_at).toLocaleString("zh-CN")}</time>
-                  </article>) : <p className="muted document-change-log-state">{changesLoading ? "正在读取操作日志…" : "暂无文档操作记录。"}</p>}
-                </div>
-              </div>
-              <footer className="document-change-log-pagination">
-                <small>共 {changePage.total} 条 · 第 {changePage.currentPage} / {changePage.totalPages} 页</small>
-                <div>
-                  <label className="document-change-log-page-size"><span>每页</span><select value={changeFilters.limit} onChange={(event) => { const limit = event.target.value; setChangeFilterDraft((current) => ({ ...current, limit })); setChangeFilters((current) => ({ ...current, limit })); setChangePageNumber(1); setChangePageInput("1"); setChangePage((current) => ({ ...current, currentPage: 1 })); }}><option value="20">20 条</option><option value="50">50 条</option><option value="100">100 条</option></select></label>
-                  <button type="button" disabled={changePage.currentPage <= 1} onClick={() => goToChangePage(changePage.currentPage - 1)}>上一页</button>
-                  {visibleChangePages.map((page) => <button key={page} type="button" className={page === changePage.currentPage ? "active" : ""} aria-current={page === changePage.currentPage ? "page" : undefined} disabled={page === changePage.currentPage} onClick={() => goToChangePage(page)}>{page}</button>)}
-                  <label className="document-change-log-page-jump"><span>跳至</span><input type="number" min="1" max={changePage.totalPages} value={changePageInput} onChange={(event) => setChangePageInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); goToChangePage(Number(changePageInput)); } }} /></label>
-                  <button type="button" onClick={() => goToChangePage(Number(changePageInput))}>跳转</button>
-                  <button type="button" disabled={changePage.currentPage >= changePage.totalPages} onClick={() => goToChangePage(changePage.currentPage + 1)}>下一页</button>
-                </div>
-              </footer>
-            </section>}
+            {(close) => <DocumentChangeLogDialog
+              close={close}
+              draft={changeFilterDraft}
+              filters={changeFilters}
+              page={changePage}
+              pageInput={changePageInput}
+              visiblePages={visibleChangePages}
+              changes={changes}
+              loading={changesLoading}
+              error={changesError}
+              actionLabels={documentChangeLabels}
+              sourceLabels={documentChangeSources}
+              actions={documentChangeActions}
+              onDraftChange={setChangeFilterDraft}
+              onApply={() => { setChangePageNumber(1); setChangePageInput("1"); setChangeFilters({ ...changeFilterDraft, fileName: changeFilterDraft.fileName.trim() }); }}
+              onReset={() => { const empty = { from: "", to: "", fileName: "", action: "", limit: "20" }; setChangeFilterDraft(empty); setChangeFilters(empty); setChangePageNumber(1); setChangePageInput("1"); }}
+              onLimitChange={(limit) => { setChangeFilterDraft((current) => ({ ...current, limit })); setChangeFilters((current) => ({ ...current, limit })); setChangePageNumber(1); setChangePageInput("1"); setChangePage((current) => ({ ...current, currentPage: 1 })); }}
+              onPageInputChange={setChangePageInput}
+              onGoToPage={goToChangePage}
+            />}
           </ModalBackdrop>
         ) : null}
         {imagePreview && (
           <ImagePreviewDialog
-            id={imagePreview.id}
-            title={imagePreview.title}
-            filename={imagePreview.filename}
-            src={imagePreview.src}
+            {...imagePreview}
             onClose={() => setImagePreview(null)}
           />
         )}

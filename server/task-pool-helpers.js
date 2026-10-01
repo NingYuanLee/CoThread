@@ -46,7 +46,7 @@ export function withParsedTask(task) {
   };
 }
 
-function isL2OwnResponsibility(task) {
+export function isL2OwnResponsibility(task) {
   return (
     task.task_type === "assist_l2" ||
     task.target_type === "l2_session" ||

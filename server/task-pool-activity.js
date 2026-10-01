@@ -15,12 +15,12 @@ export async function stickyL3ExecutorIds(conn, originThreadId) {
   return rows.map((row) => row.executor_id);
 }
 
-const L3_NAMES = ["大娃", "二娃", "三娃", "四娃", "五娃", "六娃", "七娃"];
+export const L3_EXECUTOR_NAMES = ["大娃", "二娃", "三娃", "四娃", "五娃", "六娃", "七娃"];
 
 export function stickyL3Label(executorId, knownIds) {
   if (!executorId) return null;
   const index = knownIds.indexOf(executorId);
-  if (index >= 0 && index < L3_NAMES.length) return `L3-${L3_NAMES[index]}`;
+  if (index >= 0 && index < L3_EXECUTOR_NAMES.length) return `L3-${L3_EXECUTOR_NAMES[index]}`;
   return `L3-${String(executorId).slice(0, 8)}`;
 }
 

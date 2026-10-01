@@ -7,6 +7,7 @@ import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { folderRootKind, latestVersionsByFolderRoots } from "./project-library.js";
 import {
   composeTaskInstruction,
+  isL2OwnResponsibility,
   parseDocumentRefs,
   withL3DispatchGate,
   withParsedTask,
@@ -16,6 +17,7 @@ import {
   listTaskExecutionRuns,
   listTaskStatusEvents,
   listTaskUpdates,
+  L3_EXECUTOR_NAMES,
   mergeTaskActivity,
   recordTaskStatusChange,
   stickyL3ExecutorIds,
@@ -35,8 +37,15 @@ import {
   repairMisclosedHumanExecutionRuns,
   voidSelfHandledAssistTasks,
 } from "./task-pool-recovery.js";
-export { composeTaskInstruction, parseDocumentRefs, withL3DispatchGate, withParsedTask };
 export {
+  composeTaskInstruction,
+  isL2OwnResponsibility,
+  parseDocumentRefs,
+  withL3DispatchGate,
+  withParsedTask,
+};
+export {
+  L3_EXECUTOR_NAMES,
   listAssignmentEvents,
   listTaskExecutionRuns,
   listTaskStatusEvents,
@@ -68,9 +77,6 @@ export const TASK_ENDED = [
   "abandoned",
   "superseded",
 ];
-const L3_NAMES = ["大娃", "二娃", "三娃", "四娃", "五娃", "六娃", "七娃"];
-export { L3_NAMES as L3_EXECUTOR_NAMES };
-
 const TASK_UPDATE_STATUSES = [
   "pending_assignment",
   "pending_start",
@@ -438,14 +444,6 @@ function assertActorCanUpdateTask(task, actor) {
   }
   if (task.target_type !== actor.type || task.target_id !== actor.id)
     throw new HttpError(403, "只有当前任务目标可以更新任务");
-}
-
-function isL2OwnResponsibility(task) {
-  return (
-    task.task_type === "assist_l2" ||
-    task.target_type === "l2_session" ||
-    task.execution_agent_type === "dsh_l3"
-  );
 }
 
 async function currentThreadL2Session(conn, threadId, projectId) {

@@ -11,6 +11,9 @@ import {
 import {
   addCloudbaseDocument,
   assertAgentEnvironment,
+  assertUsableCloudbaseCredential,
+  classifyCloudbaseCredential,
+  cloudbaseAuthTokenGuidance,
   cloudbaseFileUrls,
   deleteCloudbaseFiles,
   getCloudbaseClient,
@@ -622,4 +625,52 @@ test("management-plane reads stay behind project membership", async () => {
     setCloudbaseManagerFactory(null);
     await database.close();
   }
+});
+
+test("a CloudBase Auth token is recognised as unusable for management calls", () => {
+  // Real shape observed from the CloudBase 统一登录 token: RS256 JWT whose claims
+  // carry an environment id in `aud` plus end-user identity fields.
+  const claims = {
+    aud: "cothread-d5gq4f15te5506334",
+    exp: 253402300799,
+    iat: 1790752272,
+    at_hash: "abc",
+    user_type: "administrator",
+    is_system_admin: true,
+  };
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const token = `${b64({ alg: "RS256", kid: "k" })}.${b64(claims)}.signature`;
+
+  const info = classifyCloudbaseCredential(token);
+  assert.equal(info.kind, "auth_token");
+  assert.equal(info.envId, "cothread-d5gq4f15te5506334", "aud is reported as the env");
+  assert.ok(info.expiresAt > Date.now(), "a far-future exp is reported, not treated as expired");
+
+  // The guard fails fast with the actionable sentence instead of a provider error.
+  assert.throws(
+    () => assertUsableCloudbaseCredential(token),
+    (error) => {
+      assert.equal(error.status, 409);
+      assert.match(error.message, /身份认证令牌/);
+      assert.match(error.message, /cothread-d5g4f15te5506334|环境/);
+      assert.match(error.message, /secretId/);
+      return true;
+    },
+  );
+  assert.match(cloudbaseAuthTokenGuidance(info), /secretId/);
+
+  // A key pair is accepted, and an STS pair is distinguished from a plain pair.
+  assert.equal(classifyCloudbaseCredential('{"secretId":"AKIDx","secretKey":"k"}').kind, "keypair");
+  assert.equal(
+    classifyCloudbaseCredential('{"secretId":"AKIDx","secretKey":"k","sessionToken":"t"}').kind,
+    "sts",
+  );
+  assert.equal(classifyCloudbaseCredential("AKIDx:key").kind, "keypair");
+  assert.equal(classifyCloudbaseCredential("").kind, "missing");
+  assert.equal(classifyCloudbaseCredential("random-opaque-string-that-is-long").kind, "token");
+  assert.doesNotThrow(() => assertUsableCloudbaseCredential('{"secretId":"a","secretKey":"b"}'));
+  assert.throws(
+    () => assertUsableCloudbaseCredential("random-opaque-string-that-is-long"),
+    (error) => error.status === 400,
+  );
 });

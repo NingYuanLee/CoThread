@@ -115,7 +115,9 @@ test("config status advances with secrets and reflects missing credentials", asy
     assert.equal(config.status, "credential_expired");
 
     config = await saveProjectMiniProgramSecret(service, user, project.id, "cloudbase_credential", {
-      value: "cloudbase-secret-value",
+      // A realistic key pair: the verify step now refuses values that are not a
+      // usable credential instead of reporting a reassuring "pending".
+      value: JSON.stringify({ secretId: "AKIDconfigtest000000", secretKey: "config-test-key" }),
     });
     assert.equal(config.secrets.cloudbase_credential.configured, true);
     // Complete but never verified.
@@ -160,7 +162,7 @@ test("verify reports local checks and defers live connectivity checks", async ()
       value: "key",
     });
     await saveProjectMiniProgramSecret(service, user, project.id, "cloudbase_credential", {
-      value: "cred",
+      value: JSON.stringify({ secretId: "AKIDconfigtest000000", secretKey: "config-test-key" }),
     });
     result = await verifyProjectMiniProgramConfig(service, user, project.id);
     assert.equal(result.status, "verified");
@@ -193,7 +195,7 @@ test("verify fails when the AppID is cleared after a verified save", async () =>
       value: "key",
     });
     await saveProjectMiniProgramSecret(service, user, project.id, "cloudbase_credential", {
-      value: "cred",
+      value: JSON.stringify({ secretId: "AKIDconfigtest000000", secretKey: "config-test-key" }),
     });
     assert.equal(
       (await verifyProjectMiniProgramConfig(service, user, project.id)).status,

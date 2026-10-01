@@ -92,6 +92,86 @@ export function looksLikeToken(text) {
   return value.length >= 24 && !/\s/.test(value);
 }
 
+/** Decode a JWT payload. Claims are plaintext; used for diagnosis only. */
+export function decodeJwtClaims(token) {
+  const parts = String(token || "").split(".");
+  if (parts.length < 2) return null;
+  try {
+    const json = Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(
+      "utf8",
+    );
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * CloudBase Auth (统一登录/自定义登录) access tokens carry end-user identity claims
+ * and an `aud` pointing at one environment. CloudBase signs them with RS256, so
+ * they can never sign Tencent Cloud management calls (TC3-HMAC with SecretKey).
+ */
+export function isCloudbaseAuthTokenClaims(claims) {
+  if (!claims || typeof claims !== "object") return false;
+  const marker =
+    claims.at_hash || claims.user_type || claims.client_type || claims.administrator_id;
+  return Boolean(marker && claims.aud);
+}
+
+/**
+ * Classify what the operator pasted into the single credential field so the UI and
+ * the API can say something useful instead of relaying a provider error.
+ */
+export function classifyCloudbaseCredential(value) {
+  const text = String(value || "").trim();
+  if (!text) return { kind: "missing" };
+  let parsed;
+  try {
+    parsed = parseCloudbaseCredential(text);
+  } catch {
+    return { kind: "unknown" };
+  }
+  if (parsed.secretId && parsed.secretKey) {
+    return {
+      kind: parsed.sessionToken || parsed.token ? "sts" : "keypair",
+      secretIdTail: String(parsed.secretId).slice(-4),
+    };
+  }
+  const claims = decodeJwtClaims(parsed.token);
+  if (isCloudbaseAuthTokenClaims(claims)) {
+    return {
+      kind: "auth_token",
+      envId: typeof claims.aud === "string" ? claims.aud : null,
+      expiresAt: Number(claims.exp) ? Number(claims.exp) * 1000 : null,
+      userType: claims.user_type || null,
+    };
+  }
+  return { kind: "token" };
+}
+
+/** The sentence shown to whoever pasted an unusable Auth token. */
+export function cloudbaseAuthTokenGuidance(info = {}) {
+  const env = info.envId ? `（令牌所属环境：${info.envId}）` : "";
+  return (
+    `这是 CloudBase 身份认证令牌${env}，只代表终端用户身份，无法用于服务端管理操作` +
+    `（列举集合、静态托管发布）。请在同一输入框粘贴腾讯云 API 密钥对：` +
+    `secretId:secretKey，或 {"secretId":"...","secretKey":"..."}`
+  );
+}
+
+/** Both SDKs can only sign with a key pair; refuse early with a clear reason. */
+export function assertUsableCloudbaseCredential(value) {
+  const info = classifyCloudbaseCredential(value);
+  if (info.kind === "keypair" || info.kind === "sts") return info;
+  if (info.kind === "auth_token") throw new HttpError(409, cloudbaseAuthTokenGuidance(info));
+  if (info.kind === "missing") throw new HttpError(409, "尚未配置 CloudBase 凭据");
+  throw new HttpError(
+    400,
+    "CloudBase 凭据无法用于服务端调用：请粘贴腾讯云 API 密钥对（secretId:secretKey）",
+  );
+}
+
 export function resolveCloudbaseEnv(runtime, environment = "development") {
   const kind = String(environment || "development");
   if (!CLOUDBASE_ENVIRONMENTS.includes(kind)) {
@@ -151,6 +231,7 @@ export async function getCloudbaseClient(service, projectId, environment = "deve
   if (!credentialText) throw new HttpError(409, "尚未配置 CloudBase 凭据");
   const key = clientKey(projectId, target.envId);
   if (clients.has(key)) return { client: clients.get(key), ...target };
+  assertUsableCloudbaseCredential(credentialText);
   const credential = parseCloudbaseCredential(credentialText);
   const factory = clientFactoryOverride || defaultClientFactory;
   const client = await factory({ envId: target.envId, credential, region: target.region });
@@ -408,6 +489,7 @@ export async function getCloudbaseManager(service, projectId, environment = "dev
   if (!credentialText) throw new HttpError(409, "尚未配置 CloudBase 凭据");
   const key = clientKey(projectId, target.envId);
   if (managers.has(key)) return { manager: managers.get(key), ...target };
+  assertUsableCloudbaseCredential(credentialText);
   const credential = parseCloudbaseCredential(credentialText);
   const factory = managerFactoryOverride || defaultManagerFactory;
   const manager = await factory({ envId: target.envId, credential, region: target.region });

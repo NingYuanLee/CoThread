@@ -1,4 +1,4 @@
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID, createHash, createPrivateKey } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,6 +24,23 @@ import { miniprogramSnapshot } from "./miniprogram-workspace.js";
  */
 
 export const WECHAT_KEY_MAX_BYTES = 64 * 1024;
+
+/** Sniff the real image type: WeChat returns JPEG for qrcodeFormat "image". */
+export function detectImageMime(buffer) {
+  const b = buffer;
+  if (!b || b.length < 4) return "application/octet-stream";
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (
+    b.length >= 12 &&
+    b.toString("ascii", 0, 4) === "RIFF" &&
+    b.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  if (b.toString("ascii", 0, 3) === "GIF") return "image/gif";
+  return "application/octet-stream";
+}
 export const WECHAT_QR_MAX_BYTES = 1024 * 1024;
 export const WECHAT_RELEASE_TARGETS = ["wechat_preview", "wechat_upload"];
 
@@ -136,9 +153,43 @@ async function materializeProject(db, projectId, appId, dir) {
   return { snapshot, synthesized: false, projectAppId: projectAppId || appId };
 }
 
+/**
+ * WeChat's console gives the upload key as a bare base64 body (usually PKCS#1
+ * `RSAPrivateKey`), while miniprogram-ci/OpenSSL needs a real PEM. Writing the
+ * raw text produced `DECODER routines::unsupported` (errCode 20002), so the key
+ * is normalized here: a PEM is passed through, a bare body is wrapped in the
+ * header that actually parses.
+ */
+export function normalizeWechatPrivateKey(value) {
+  const raw = String(value || "").trim();
+  if (!raw) throw new HttpError(409, "尚未配置微信上传私钥");
+  if (raw.includes("-----BEGIN")) return raw.endsWith("\n") ? raw : `${raw}\n`;
+
+  const body = raw.replace(/\s+/g, "");
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(body)) {
+    throw new HttpError(400, "微信上传私钥既不是 PEM，也不是合法的 base64 内容");
+  }
+  const asPem = (label) =>
+    `-----BEGIN ${label}-----\n${(body.match(/.{1,64}/g) || []).join("\n")}\n-----END ${label}-----\n`;
+
+  for (const label of ["PRIVATE KEY", "RSA PRIVATE KEY"]) {
+    const pem = asPem(label);
+    try {
+      createPrivateKey(pem);
+      return pem;
+    } catch {
+      // try the next envelope
+    }
+  }
+  throw new HttpError(
+    400,
+    "微信上传私钥无法解析：既不是 PKCS#8（PRIVATE KEY）也不是 PKCS#1（RSA PRIVATE KEY）；请从微信公众平台重新下载上传密钥",
+  );
+}
+
 async function writePrivateKey(dir, keyText) {
   const path = join(dir, "cothread-wechat-upload.key");
-  await writeFile(path, keyText, { mode: 0o600 });
+  await writeFile(path, normalizeWechatPrivateKey(keyText), { mode: 0o600 });
   return path;
 }
 
@@ -399,13 +450,19 @@ export async function previewMiniprogram(service, actor, projectId, input = {}) 
     const result = step.result;
 
     let qrBase64 = null;
+    let qrMime = null;
     try {
       const info = await stat(qrcodeOutputDest);
       if (info.size <= WECHAT_QR_MAX_BYTES) {
-        qrBase64 = (await readFile(qrcodeOutputDest)).toString("base64");
+        const buffer = await readFile(qrcodeOutputDest);
+        qrBase64 = buffer.toString("base64");
+        // WeChat writes a JPEG even though the option is called "image"; report
+        // what the bytes actually are instead of assuming PNG.
+        qrMime = detectImageMime(buffer);
       }
     } catch {
       qrBase64 = null;
+      qrMime = null;
     }
 
     const deploymentId = await recordDeployment(service.db, {
@@ -425,7 +482,7 @@ export async function previewMiniprogram(service, actor, projectId, input = {}) 
       sourceHash: prepared.snapshot.sourceHash,
       desc: desc || "共序预览",
       qrcodeBase64: qrBase64,
-      qrcodeMime: qrBase64 ? "image/png" : null,
+      qrcodeMime: qrMime,
       elapsedMs: Date.now() - startedAt,
       summary: summarizeResult(result),
     };

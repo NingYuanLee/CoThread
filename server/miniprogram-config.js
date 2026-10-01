@@ -423,12 +423,37 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
   }
 
   if (secrets.cloudbase_credential.configured) {
-    push(
-      "cloudbase_credential",
-      "CloudBase 凭据",
-      "pending",
-      "已保存；真实连通性在云资源操作时校验",
-    );
+    // Say which kind of credential is stored: a CloudBase Auth token looks valid in
+    // the console but cannot sign Tencent Cloud management calls at all, and the
+    // provider's own error ("missing secretId or secretKey") explains nothing.
+    // Dynamic import on purpose: cloudbase.js already imports this module, so a
+    // static import here would create a cycle.
+    const { classifyCloudbaseCredential, cloudbaseAuthTokenGuidance } =
+      await import("./cloudbase.js");
+    // `secrets` above is the redacted view; classification needs the plaintext.
+    const decrypted = await loadProjectMiniProgramRuntime(service, projectId);
+    const info = classifyCloudbaseCredential(decrypted.secrets?.cloudbase_credential);
+    if (info.kind === "keypair" || info.kind === "sts") {
+      push(
+        "cloudbase_credential",
+        "CloudBase 凭据",
+        "pending",
+        info.kind === "sts"
+          ? "已保存临时密钥（secretId/secretKey + sessionToken）；真实连通性在云资源操作时校验"
+          : "已保存 API 密钥对；真实连通性在云资源操作时校验",
+      );
+    } else if (info.kind === "auth_token") {
+      push("cloudbase_credential", "CloudBase 凭据", "failed", cloudbaseAuthTokenGuidance(info));
+    } else if (info.kind === "missing") {
+      push("cloudbase_credential", "CloudBase 凭据", "failed", "尚未配置 CloudBase 凭据");
+    } else {
+      push(
+        "cloudbase_credential",
+        "CloudBase 凭据",
+        "failed",
+        "已保存的内容既不是 API 密钥对（secretId:secretKey），也不是可识别的 CloudBase 令牌；请核对后重新粘贴",
+      );
+    }
   } else {
     push("cloudbase_credential", "CloudBase 凭据", "failed", "尚未配置 CloudBase 凭据");
   }

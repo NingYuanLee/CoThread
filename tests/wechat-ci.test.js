@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID, createHash, createPrivateKey, generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +18,9 @@ import {
 } from "../server/miniprogram-workspace.js";
 import {
   buildReleaseDesc,
+  detectImageMime,
   listMiniprogramDeployments,
+  normalizeWechatPrivateKey,
   previewMiniprogram,
   readMiniprogramDeployment,
   redactSecrets,
@@ -115,7 +117,16 @@ function fakeCi(calls, { failUpload, failPreview, writeQr = true } = {}) {
         pagePath: options.pagePath,
       });
       if (failPreview) throw new Error(`preview rejected: ${failPreview}`);
-      if (writeQr) await writeFile(options.qrcodeOutputDest, Buffer.from("PNG-BYTES"));
+      // Real PNG magic bytes: the preview result sniffs the payload type.
+      if (writeQr) {
+        await writeFile(
+          options.qrcodeOutputDest,
+          Buffer.concat([
+            Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+            Buffer.from("PNG-BYTES"),
+          ]),
+        );
+      }
       options.onProgressUpdate?.("compiling");
       return { subPackageInfo: [{ name: "__FULL__", size: 1234 }] };
     },
@@ -203,8 +214,12 @@ test("preview generates a QR code, records the deployment and cleans up", async 
       true,
       "a Dimina-style source gets a synthesized config",
     );
-    assert.equal(result.qrcodeMime, "image/png");
-    assert.equal(Buffer.from(result.qrcodeBase64, "base64").toString("utf8"), "PNG-BYTES");
+    assert.equal(
+      result.qrcodeMime,
+      "image/png",
+      "the type comes from the payload, not an assumption",
+    );
+    assert.match(Buffer.from(result.qrcodeBase64, "base64").toString("utf8"), /PNG-BYTES/);
     assert.equal(result.desc, "验收预览");
 
     // The private key is handed to CI from a temp path, never from the project.
@@ -507,4 +522,50 @@ test("the approval flow is what actually reaches WeChat", async () => {
     setWechatCiFactory(null);
     await database.close();
   }
+});
+
+test("the upload key is normalized from a bare base64 body into a real PEM", () => {
+  // The WeChat console hands out a bare base64 body; OpenSSL rejects it as-is
+  // (errCode 20002 DECODER routines::unsupported).
+  const { privateKey: pkcs1 } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs1", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  const bare = pkcs1.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+  const normalized = normalizeWechatPrivateKey(bare);
+  assert.match(normalized, /^-----BEGIN (RSA )?PRIVATE KEY-----/);
+  assert.equal(createPrivateKey(normalized).asymmetricKeyType, "rsa");
+
+  // A real PEM passes through unchanged.
+  const { privateKey: pkcs8 } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  assert.equal(normalizeWechatPrivateKey(pkcs8), pkcs8);
+
+  assert.throws(
+    () => normalizeWechatPrivateKey("not a key at all !!"),
+    (error) => error.status === 400 && /base64/.test(error.message),
+  );
+  assert.throws(
+    () =>
+      normalizeWechatPrivateKey(
+        "TUlJRXZ3SUJBREFOQmdrcWhraUc5dzBCQVFFRkFBU0NCSzl3Z2dTckFnRUFBb0lCQVFE",
+      ),
+    (error) => error.status === 400 && /无法解析/.test(error.message),
+  );
+});
+
+test("the QR mime type is sniffed from the bytes, not assumed", () => {
+  // WeChat returns a JPEG even though the option is called qrcodeFormat "image".
+  assert.equal(detectImageMime(Buffer.from([0xff, 0xd8, 0xff, 0xe0])), "image/jpeg");
+  assert.equal(
+    detectImageMime(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+    "image/png",
+  );
+  assert.equal(detectImageMime(Buffer.from("RIFF0000WEBPVP8 ")), "image/webp");
+  assert.equal(detectImageMime(Buffer.from("GIF89a")), "image/gif");
+  assert.equal(detectImageMime(Buffer.from([1, 2, 3, 4])), "application/octet-stream");
 });

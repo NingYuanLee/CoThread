@@ -7,7 +7,8 @@ import {
   mentionsAgent,
 } from "../shared/agent-member.js";
 import { modelConfig } from "./model-config.js";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { posix as pathPosix } from "node:path";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { digest, hashPassword } from "./auth.js";
@@ -41,7 +42,22 @@ import {
 import { previewContentType, resolveStoredMime } from "./preview-mime.js";
 import { recordDocumentChange } from "./document-audit.js";
 import { asPreviewHtml, previewAssetInFolder, walkPreviewSubfolders } from "./service-preview.js";
+import {
+  listNotifications,
+  notify,
+  openNotification,
+  readNotification,
+} from "./service-notifications.js";
 import JSZip from "jszip";
+import {
+  adminAccounts as adminAccountsDomain,
+  adminProjects as adminProjectsDomain,
+  createUser as createUserDomain,
+  resetAccountPassword as resetAccountPasswordDomain,
+  setAccountDisabled as setAccountDisabledDomain,
+  setProjectArchived as setProjectArchivedDomain,
+  users as usersDomain,
+} from "./service-admin.js";
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -49,6 +65,7 @@ export class HttpError extends Error {
     this.status = status;
   }
 }
+
 const fail = (status, message) => {
   throw new HttpError(status, message);
 };
@@ -61,6 +78,7 @@ export function officialTitleWithVersion(name, versionNumber) {
   const base = raw.replace(/\s+v\d+$/i, "").trim() || raw;
   return `${base} v${versionNumber}`.slice(0, 160);
 }
+
 function submittedVersion(id, artifactId, version, sha256, data, byteSize) {
   return {
     id,
@@ -213,77 +231,16 @@ export class Service {
     messageId = null,
     senderName = "系统通知",
   ) {
-    await query(
-      db,
-      "INSERT INTO notifications(id,user_id,project_id,kind,body,thread_id,message_id,sender_name) VALUES(?,?,?,?,?,?,?,?)",
-      [randomUUID(), userId, projectId, kind, text, threadId, messageId, senderName],
-    );
+    return notify(db, userId, projectId, kind, text, threadId, messageId, senderName);
   }
   async notifications(user, before, input = {}) {
-    if (user.kind !== "session") fail(403, "站内信需要人工登录");
-    if (before) id.parse(before);
-    const { kind, limit } = z
-      .object({
-        kind: z.enum(["all", "mention", "member_added", "member_removed"]).default("all"),
-        limit: z.coerce.number().int().min(1).max(50).default(50),
-      })
-      .parse(input);
-    const params = [user.id];
-    if (kind !== "all") params.push(kind);
-    if (before) params.push(before, user.id);
-    const itemsQuery =
-      input.summary === "1"
-        ? Promise.resolve([])
-        : query(
-            this.db,
-            `SELECT n.*,p.name project_name,
-      CASE n.kind WHEN 'mention' THEN CONCAT('在「',COALESCE(t.title,p.name),'」中提到了你') WHEN 'member_added' THEN CONCAT('你已加入「',p.name,'」') ELSE CONCAT('你已被移出「',p.name,'」') END title,
-      (m.user_id IS NOT NULL AND n.kind<>'member_removed') can_open
-      FROM notifications n JOIN projects p ON p.id=n.project_id
-      LEFT JOIN threads t ON t.id=n.thread_id
-      LEFT JOIN members m ON m.project_id=n.project_id AND m.user_id=n.user_id
-      WHERE n.user_id=? ${kind !== "all" ? "AND n.kind=?" : ""} ${before ? "AND (n.created_at,n.id)<(SELECT created_at,id FROM notifications WHERE id=? AND user_id=?)" : ""}
-      ORDER BY n.created_at DESC,n.id DESC LIMIT ${limit + 1}`,
-            params,
-          );
-    const countsQuery = query(
-      this.db,
-      "SELECT kind,COUNT(*) total,SUM(read_at IS NULL) unread FROM notifications WHERE user_id=? GROUP BY kind",
-      [user.id],
-    );
-    const [items, counts] = await Promise.all([itemsQuery, countsQuery]);
-    return {
-      items: items.slice(0, limit),
-      unread: counts.reduce((sum, row) => sum + Number(row.unread), 0),
-      counts: Object.fromEntries(
-        counts.map((row) => [row.kind, { total: Number(row.total), unread: Number(row.unread) }]),
-      ),
-      next: items.length > limit ? items[limit - 1].id : null,
-    };
+    return listNotifications(this, user, before, input, { id, fail });
   }
   async readNotification(user, notificationId) {
-    if (user.kind !== "session") fail(403, "站内信需要人工登录");
-    if (notificationId) id.parse(notificationId);
-    await query(
-      this.db,
-      `UPDATE notifications SET read_at=UTC_TIMESTAMP(3) WHERE user_id=? AND read_at IS NULL${notificationId ? " AND id=?" : ""}`,
-      notificationId ? [user.id, notificationId] : [user.id],
-    );
-    return { ok: true };
+    return readNotification(this, user, notificationId, { id, fail });
   }
   async openNotification(user, notificationId) {
-    if (user.kind !== "session") fail(403, "站内信需要人工登录");
-    id.parse(notificationId);
-    const [notice] = await query(this.db, "SELECT * FROM notifications WHERE id=? AND user_id=?", [
-      notificationId,
-      user.id,
-    ]);
-    if (!notice) fail(404, "站内信不存在");
-    if (notice.kind === "member_removed") fail(403, "移出通知不支持跳转");
-    if (notice.thread_id) await this.thread(user, notice.thread_id);
-    const projects = await this.updateProjectTab(user, notice.project_id, { action: "open" });
-    await this.readNotification(user, notificationId);
-    return { projects, projectId: notice.project_id, threadId: notice.thread_id };
+    return openNotification(this, user, notificationId, { id, fail });
   }
   async removeMember(user, projectId, userId) {
     if (user.kind !== "session") fail(403, "成员管理需要人工登录");
@@ -1257,182 +1214,9 @@ export class Service {
     }
     fail(400, "未知日志作用域");
   }
-  async users(user, projectId) {
-    if (user.kind !== "session") fail(403, "成员目录需要人工登录");
-    if (projectId) await this.member(user, projectId);
-    return query(
-      this.db,
-      `SELECT id,user_number,COALESCE(username,email) username,name,email,avatar,motto,identity_tags FROM users
-       WHERE disabled_at IS NULL${projectId ? " AND id NOT IN (SELECT user_id FROM members WHERE project_id=?)" : ""}
-       ORDER BY name,username,email`,
-      projectId ? [projectId] : [],
-    );
-  }
-  async createUser(user, input) {
-    await this.systemAdmin(user);
-    const data = z
-      .object({
-        name: title.max(80),
-        username: z.string().trim().min(3).max(80).optional(),
-        email: z.string().trim().min(3).max(191).optional(),
-      })
-      .transform((value) => ({ ...value, username: value.username || value.email || "" }))
-      .parse(input);
-    if (data.username.length < 3) fail(400, "账号名至少需要 3 位");
-    const userId = randomUUID();
-    const password = randomBytes(15).toString("base64url");
-    let created;
-    try {
-      created = await transaction(this.db, async (db) => {
-        await query(
-          db,
-          "INSERT INTO users(id,username,email,name,password_hash) VALUES(?,?,NULL,?,?)",
-          [userId, data.username, data.name, await hashPassword(password)],
-        );
-        await this.accountChange(db, userId, user.id, "created", {
-          name: data.name,
-          username: data.username,
-        });
-        const row = (await query(db, "SELECT user_number FROM users WHERE id=?", [userId]))[0];
-        if (Number(row.user_number) > 999999) fail(409, "六位用户ID已用完");
-        return row;
-      });
-    } catch (error) {
-      if (error.code === "ER_DUP_ENTRY") fail(409, "该账号名已被使用");
-      throw error;
-    }
-    return {
-      id: userId,
-      user_number: Number(created.user_number),
-      name: data.name,
-      username: data.username,
-      email: null,
-      password,
-    };
-  }
-  async adminProjects(user) {
-    await this.systemAdmin(user);
-    const [projects, memberships, changes] = await Promise.all([
-      query(
-        this.db,
-        `SELECT p.id,p.name,p.description,p.created_at,p.archived_at,p.created_by,u.name creator
-        FROM projects p JOIN users u ON u.id=p.created_by ORDER BY p.archived_at IS NOT NULL,p.created_at DESC,p.id`,
-      ),
-      query(
-        this.db,
-        `SELECT m.project_id,u.id,u.user_number,COALESCE(u.username,u.email) username,u.name,u.email,m.role FROM members m JOIN users u ON u.id=m.user_id
-        ORDER BY u.name,u.username,u.email`,
-      ),
-      query(
-        this.db,
-        `SELECT l.project_id,l.action,l.details,l.created_at,u.name actor FROM
-        (SELECT project_id,actor_user_id,action,details,created_at,id,
-          ROW_NUMBER() OVER(PARTITION BY project_id ORDER BY created_at DESC,id DESC) audit_rank
-         FROM project_change_logs) l JOIN users u ON u.id=l.actor_user_id
-        WHERE l.audit_rank<=50 ORDER BY l.created_at DESC,l.id DESC`,
-      ),
-    ]);
-    return projects.map((project) => ({
-      ...project,
-      members: memberships.filter((member) => member.project_id === project.id),
-      changes: changes.filter((change) => change.project_id === project.id).slice(0, 50),
-    }));
-  }
   async adminCreateProject(user, input) {
     await this.systemAdmin(user);
     return this.createProject(user, input);
-  }
-  async setProjectArchived(user, projectId, archived) {
-    await this.systemAdmin(user);
-    id.parse(projectId);
-    const result = await transaction(this.db, async (db) => {
-      const changed = await query(
-        db,
-        `UPDATE projects SET archived_at=${archived ? "UTC_TIMESTAMP(3)" : "NULL"} WHERE id=?`,
-        [projectId],
-      );
-      if (changed.affectedRows)
-        await this.projectChange(db, projectId, user.id, archived ? "archived" : "restored");
-      return changed;
-    });
-    if (!result.affectedRows) fail(404, "项目不存在");
-    return { id: projectId, archived };
-  }
-  async adminAccounts(user) {
-    await this.systemAdmin(user);
-    const [accounts, memberships, changes, logins] = await Promise.all([
-      query(
-        this.db,
-        "SELECT id,user_number,COALESCE(username,email) username,name,email,email_verified_at,is_super_admin,disabled_at,created_at FROM users ORDER BY disabled_at IS NOT NULL,user_number",
-      ),
-      query(
-        this.db,
-        `SELECT m.user_id,p.id,p.name,m.role,p.archived_at FROM members m JOIN projects p ON p.id=m.project_id
-        ORDER BY p.archived_at IS NOT NULL,p.name,p.id`,
-      ),
-      query(
-        this.db,
-        `SELECT l.target_user_id,l.action,l.details,l.created_at,u.name actor FROM
-        (SELECT target_user_id,actor_user_id,action,details,created_at,id,
-          ROW_NUMBER() OVER(PARTITION BY target_user_id ORDER BY created_at DESC,id DESC) audit_rank
-         FROM account_change_logs) l JOIN users u ON u.id=l.actor_user_id
-        WHERE l.audit_rank<=50 ORDER BY l.created_at DESC,l.id DESC`,
-      ),
-      query(
-        this.db,
-        `SELECT user_id,email identifier,ip,country,province,city,district,success,failure_reason,created_at FROM
-        (SELECT user_id,email,ip,country,province,city,district,success,failure_reason,created_at,id,
-          ROW_NUMBER() OVER(PARTITION BY COALESCE(user_id,email) ORDER BY created_at DESC,id DESC) audit_rank
-         FROM login_logs) l WHERE audit_rank<=50 ORDER BY created_at DESC,id DESC`,
-      ),
-    ]);
-    return accounts.map((account) => ({
-      ...account,
-      projects: memberships.filter((project) => project.user_id === account.id),
-      changes: changes.filter((change) => change.target_user_id === account.id).slice(0, 50),
-      logins: logins
-        .filter(
-          (login) =>
-            login.user_id === account.id ||
-            (!login.user_id && [account.username, account.email].includes(login.identifier)),
-        )
-        .slice(0, 50),
-    }));
-  }
-  async setAccountDisabled(user, userId, input) {
-    await this.systemAdmin(user);
-    id.parse(userId);
-    const { disabled } = z.object({ disabled: z.boolean() }).parse(input);
-    if (userId === user.id && disabled) fail(409, "不能停用当前登录账号");
-    const result = await transaction(this.db, async (db) => {
-      const changed = await query(
-        db,
-        `UPDATE users SET disabled_at=${disabled ? "UTC_TIMESTAMP(3)" : "NULL"} WHERE id=?`,
-        [userId],
-      );
-      if (disabled) await query(db, "DELETE FROM credentials WHERE user_id=?", [userId]);
-      if (changed.affectedRows)
-        await this.accountChange(db, userId, user.id, disabled ? "disabled" : "enabled");
-      return changed;
-    });
-    if (!result.affectedRows) fail(404, "账号不存在");
-    return { id: userId, disabled };
-  }
-  async resetAccountPassword(user, userId) {
-    await this.systemAdmin(user);
-    id.parse(userId);
-    const password = randomBytes(15).toString("base64url");
-    const result = await transaction(this.db, async (db) => {
-      const changed = await query(db, "UPDATE users SET password_hash=? WHERE id=?", [
-        await hashPassword(password),
-        userId,
-      ]);
-      await query(db, "DELETE FROM credentials WHERE user_id=?", [userId]);
-      if (changed.affectedRows) await this.accountChange(db, userId, user.id, "password_reset");
-      return changed;
-    });
-    if (!result.affectedRows) fail(404, "账号不存在");
-    return { password };
   }
   async addMember(user, projectId, input) {
     await this.member(user, projectId);
@@ -3010,3 +2794,25 @@ export class Service {
     return snapshot;
   }
 }
+
+Service.prototype.users = function users(user, projectId) {
+  return usersDomain(this, user, projectId, { fail });
+};
+Service.prototype.createUser = function createUser(user, input) {
+  return createUserDomain(this, user, input, { title, fail });
+};
+Service.prototype.adminProjects = function adminProjects(user) {
+  return adminProjectsDomain(this, user);
+};
+Service.prototype.setProjectArchived = function setProjectArchived(user, projectId, archived) {
+  return setProjectArchivedDomain(this, user, projectId, archived, { id, fail });
+};
+Service.prototype.adminAccounts = function adminAccounts(user) {
+  return adminAccountsDomain(this, user);
+};
+Service.prototype.setAccountDisabled = function setAccountDisabled(user, userId, input) {
+  return setAccountDisabledDomain(this, user, userId, input, { id, fail });
+};
+Service.prototype.resetAccountPassword = function resetAccountPassword(user, userId) {
+  return resetAccountPasswordDomain(this, user, userId, { id, fail });
+};

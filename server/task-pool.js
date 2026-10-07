@@ -717,7 +717,7 @@ export async function listTasks(
     `SELECT t.*,
     r.status run_status, r.progress run_progress, r.executor_id, r.heartbeat_at, r.started_at run_started_at,
     TIMESTAMPDIFF(SECOND, r.started_at, UTC_TIMESTAMP(3)) run_elapsed_seconds,
-    COALESCE(IF(t.task_type='formal',t.execution_agent_id,NULL),
+    COALESCE(t.preferred_executor_id,IF(t.task_type='formal',t.execution_agent_id,NULL),
     (SELECT previous.execution_agent_id FROM agent_tasks previous
       WHERE previous.id<>t.id AND previous.target_type='l2_session' AND previous.target_id=t.target_id
         AND previous.task_type='formal' AND previous.status='completed'
@@ -1440,7 +1440,7 @@ const arrangeableStatuses = new Set([
 ]);
 
 export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
-  const action = update.action === "cancel" ? "cancel" : "restart";
+  const action = update.action === "cancel" ? "cancel" : update.action === "clear_binding" ? "clear_binding" : "restart";
   const result = await transaction(db, async (conn) => {
     const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
     if (!task) throw new HttpError(404, "任务不存在");
@@ -1459,14 +1459,23 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       task.execution_agent_type === "dsh_l3" ||
       task.task_type === "assist_l2";
     const environmentChanged = update.environmentChanged === true;
-    if (action === "restart" && task.status === "blocked" && !environmentChanged) {
+    if (action === "clear_binding") {
+      if (!dispatchL3) throw new HttpError(409, "只有 L3 任务可以清理执行者绑定");
+      if (!task.execution_agent_id && ["running", "queued", "pending_assignment"].includes(task.status)) {
+        return withL3DispatchGate(await getTask(conn, taskId), {
+          action, noop: true, interruptedAgentId: null,
+          recovery: { strategy: "dispatch_new_executor", created_run_id: null },
+        });
+      }
+    }
+    if (action !== "cancel" && action !== "clear_binding" && task.status === "blocked" && !environmentChanged) {
       throw new HttpError(
         409,
         task.resume_condition || "任务已阻塞；请先改变外部条件并明确标记 environmentChanged=true",
       );
     }
     if (
-      action === "restart" &&
+      action !== "cancel" &&
       task.status === "failed" &&
       task.failure_class === "platform_blocked" &&
       task.failure_signature &&
@@ -1492,7 +1501,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       });
     }
     if (
-      action === "restart" &&
+      action !== "cancel" &&
       Number(task.retry_count || 0) >= Number(task.max_retry_count || MAX_TASK_RETRIES)
     ) {
       await query(
@@ -1534,9 +1543,9 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
     } else if (dispatchL3) {
       await adoptCurrentIterationL2(conn, task, actor.id);
       const idle = await idleL3Count(conn, actor.id);
-      if (task.task_type === "assist_l2" && idle < 1)
+      if (action === "restart" && task.task_type === "assist_l2" && idle < 1)
         throw new HttpError(409, "当前没有空闲 L3，不能重新安排辅助任务");
-      const nextStatus = idle >= 1 ? "running" : "pending_assignment";
+      const nextStatus = action === "clear_binding" ? "pending_assignment" : idle >= 1 ? "running" : "pending_assignment";
       await query(
         conn,
         `UPDATE agent_tasks SET title=COALESCE(?,title),goal=COALESCE(?,goal),constraints=IF(?,?,constraints),
@@ -1556,7 +1565,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
           taskId,
         ],
       );
-      if (nextStatus === "running") {
+      if (nextStatus === "running" || action === "clear_binding") {
         await query(
           conn,
           `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,status)
@@ -1586,11 +1595,13 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       interruptedAgentId,
       recovery: interruptedAgentId
         ? {
-            strategy: "resume_same_executor_first",
+            strategy: action === "clear_binding" ? "dispatch_new_executor" : "resume_same_executor_first",
             executorId: interruptedAgentId,
-            fallback: "replace_only_after_resume_failure",
+            fallback: action === "clear_binding" ? "dispatch_new_executor" : "replace_only_after_resume_failure",
+            // Recovery queues work only. No run is bound to the old executor.
+            created_run_id: null,
           }
-        : { strategy: "dispatch_new_executor" },
+        : { strategy: "dispatch_new_executor", created_run_id: null },
     });
   });
   if (result.origin_thread_id) publishWork(db, result.origin_thread_id);
@@ -1604,7 +1615,7 @@ export async function inspectIterationTask(db, taskId, actor) {
   const [run] = await query(
     db,
     `SELECT id,status,progress,result_summary,error,executor_type,executor_id,
-    started_at,heartbeat_at,finished_at,TIMESTAMPDIFF(SECOND, started_at, UTC_TIMESTAMP(3)) elapsed_seconds,
+    created_at,task_revision,started_at,heartbeat_at,finished_at,TIMESTAMPDIFF(SECOND, started_at, UTC_TIMESTAMP(3)) elapsed_seconds,
     TIMESTAMPDIFF(SECOND, COALESCE(heartbeat_at, started_at), UTC_TIMESTAMP(3)) heartbeat_age_seconds
     FROM agent_task_execution_runs WHERE task_id=? ORDER BY created_at DESC LIMIT 1`,
     [taskId],
@@ -1619,6 +1630,14 @@ export async function inspectIterationTask(db, taskId, actor) {
     : [];
   const live = ["running", "waiting"].includes(run?.status);
   const stale = live && Number(run.heartbeat_age_seconds || 0) >= 180;
+  const [bindingEvent] = await query(db, `SELECT status,output,created_at FROM agent_events
+    WHERE agent_task_id=? AND tool IN ('bind_task_l3','dsh_l3') ORDER BY id DESC LIMIT 1`, [taskId]);
+  const lastBindingError = bindingEvent?.status === "failed"
+    && (!run || bindingEvent.created_at >= run.created_at) ? bindingEvent.output : null;
+  const bound = live && run.executor_id === task.execution_agent_id && run.task_revision === task.revision;
+  const bindingStatus = bound ? (stale ? "stale" : "bound") : lastBindingError ? "rejected"
+    : task.execution_agent_id && !TASK_ENDED.includes(task.status) ? "stale"
+    : TASK_ENDED.includes(task.status) ? "ended" : "pending";
   let suggestedNext = "keep";
   if (task.status === "blocked") suggestedNext = "wait_for_condition";
   else if (task.status === "failed" || run?.status === "failed")
@@ -1656,6 +1675,9 @@ export async function inspectIterationTask(db, taskId, actor) {
     run: run || null,
     live,
     stale,
+    binding_status: bindingStatus,
+    binding_target_run_id: run?.id || null,
+    last_binding_error: lastBindingError,
     lastEvents: events.reverse(),
     suggestedNext,
     askVia: live && run.executor_id ? { tool: "send_message", agentId: run.executor_id } : null,
@@ -1694,8 +1716,10 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
       `SELECT t.* FROM agent_task_execution_runs r
       JOIN agent_tasks t ON t.id=r.task_id
       WHERE r.executor_type='dsh_l3' AND r.executor_id=? AND r.status IN ('running','waiting')
+        AND t.target_type='l2_session' AND t.target_id=? AND t.execution_agent_id=r.executor_id
+        AND r.task_revision=t.revision
       ORDER BY r.created_at DESC LIMIT 1 FOR UPDATE`,
-      [childSessionId],
+      [childSessionId, l2SessionId],
     );
     if (already) {
       if (taskId && already.id !== taskId) throw new HttpError(409, "该 L3 已绑定其他任务");
@@ -1721,6 +1745,8 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
       await adoptCurrentIterationL2(conn, task, l2SessionId);
       if (!["pending_assignment", "queued", "running"].includes(task.status))
         throw new HttpError(409, "任务当前不可启动 DSH L3");
+      if (task.execution_agent_id && task.execution_agent_id !== childSessionId)
+        throw new HttpError(409, `L3_BINDING_OCCUPIED: 任务 ${task.id} 已绑定执行者 ${task.execution_agent_id}；请先 inspect_task，必要时 recover_task clear_binding`);
       if (task.status === "pending_assignment" || task.task_type === "formal") {
         await query(
           conn,
@@ -1747,7 +1773,10 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
       ORDER BY r.created_at LIMIT 1 FOR UPDATE`,
       values,
     );
-    if (!run) return null;
+    if (!run) {
+      if (taskId) throw new HttpError(409, `L3_BINDING_NOT_QUEUED: 任务 ${taskId} 没有当前版本的未绑定排队 run`);
+      return null;
+    }
     const known = await stickyL3ExecutorIds(conn, run.origin_thread_id);
     if (childSessionId && !known.includes(childSessionId)) known.push(childSessionId);
     const executorLabel = stickyL3Label(childSessionId, known);
@@ -1816,6 +1845,7 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
       JOIN agent_tasks t ON t.id=r.task_id
       WHERE t.target_type='l2_session' AND t.target_id=? AND r.executor_type='dsh_l3'
         AND r.executor_id=? AND r.status IN ('running','waiting','completed','failed','interrupted')
+        AND t.execution_agent_id=r.executor_id
       ORDER BY r.created_at DESC LIMIT 1 FOR UPDATE`,
       [l2SessionId, childSessionId],
     );
@@ -1915,7 +1945,8 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
         failure_environment_revision=IF(? IN ('failed','blocked'),environment_revision,NULL),
         blocked_reason=IF(?='blocked',COALESCE(?,failure_signature),NULL),
         resume_condition=IF(?='blocked',COALESCE(resume_condition,'外部条件恢复或人工确认后再重试'),NULL),
-        execution_agent_id=?,finished_at=IF(? IN ('completed','failed','cancelled','rejected','abandoned'),UTC_TIMESTAMP(3),NULL),revision=revision+1 WHERE id=?`,
+        preferred_executor_id=IF(?='pending_assignment',COALESCE(preferred_executor_id,execution_agent_id),preferred_executor_id),
+        execution_agent_id=IF(?='pending_assignment',NULL,?),finished_at=IF(? IN ('completed','failed','cancelled','rejected','abandoned'),UTC_TIMESTAMP(3),NULL),revision=revision+1 WHERE id=?`,
         [
           taskStatus,
           taskStatus === "completed"
@@ -1930,6 +1961,8 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
           taskStatus,
           taskStatus,
           error,
+          taskStatus,
+          taskStatus,
           taskStatus,
           childSessionId,
           taskStatus,
@@ -2019,106 +2052,63 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
   return result;
 }
 
+// Recheck each candidate under locks. A heartbeat or replacement may have arrived
+// after the initial scan; neither may be overwritten by an old recovery snapshot.
+async function interruptDshL3Candidates(db, candidates, { age = null, reason, progress }) {
+  const recovered = [];
+  for (const candidate of candidates) {
+    const changed = await transaction(db, async (conn) => {
+      const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [candidate.task_id]);
+      const [run] = await query(conn, `SELECT *,
+        TIMESTAMPDIFF(SECOND,COALESCE(heartbeat_at,started_at,created_at),UTC_TIMESTAMP(3)) heartbeat_age_seconds
+        FROM agent_task_execution_runs WHERE id=? FOR UPDATE`, [candidate.id]);
+      if (!run || !["running", "waiting"].includes(run.status)) return false;
+      if (age != null && Number(run.heartbeat_age_seconds) < age) return false;
+      await query(conn, `UPDATE agent_task_execution_runs SET status='interrupted',error=?,
+        finished_at=UTC_TIMESTAMP(3) WHERE id=?`, [reason, run.id]);
+      if (task && task.execution_agent_id === run.executor_id && task.revision === run.task_revision
+        && ["running", "waiting"].includes(task.status)) {
+        await query(conn, `UPDATE agent_tasks SET status='pending_assignment',
+          preferred_executor_id=COALESCE(preferred_executor_id,execution_agent_id),execution_agent_id=NULL,
+          progress=?,finished_at=NULL,revision=revision+1 WHERE id=?`, [progress, task.id]);
+        await recordTaskStatusChange(conn, task.id, task.status, { type: "system" }, reason);
+        await query(conn, `UPDATE agent_tasks t JOIN agent_sessions s ON s.thread_id=t.origin_thread_id
+          SET t.target_id=s.session_id,t.claimed_by_type='l2_session',t.claimed_by_id=s.session_id
+          WHERE t.id=? AND t.target_type='l2_session' AND t.target_id<>s.session_id`, [task.id]);
+        return true;
+      }
+      return false;
+    });
+    if (changed) recovered.push(candidate);
+  }
+  if (recovered.length) await enqueueInterruptedL3Recovery(db, recovered, reason);
+  return recovered.length;
+}
+
 export async function recoverInterruptedDshL3Executions(db) {
   await voidSelfHandledAssistTasks(db);
   await reconcileEndedTaskRuns(db);
-  const runs = await query(
-    db,
-    `SELECT r.id,r.task_id,t.origin_thread_id,t.source_message_id,t.source_user_id,t.title
-    FROM agent_task_execution_runs r
-    JOIN agent_tasks t ON t.id=r.task_id WHERE r.executor_type='dsh_l3' AND r.status IN ('running','waiting')`,
-  );
-  if (!runs.length) return 0;
-  await transaction(db, async (conn) => {
-    await query(
-      conn,
-      `UPDATE agent_task_execution_runs SET status='interrupted',error='服务重启，等待 L2 重新评估',
-      finished_at=UTC_TIMESTAMP(3) WHERE executor_type='dsh_l3' AND status IN ('running','waiting')`,
-    );
-    await query(
-      conn,
-      `INSERT INTO agent_task_status_events(task_id,from_status,to_status,actor_type,reason)
-      SELECT t.id,t.status,'pending_assignment','system','服务重启，任务级 Agent 中断，等待 L2 重新指派' FROM agent_tasks t
-      WHERE t.task_type IN ('assist_l2','formal') AND t.status='running'
-        AND EXISTS (SELECT 1 FROM agent_task_execution_runs r WHERE r.task_id=t.id AND r.status='interrupted')`,
-    );
-    await query(
-      conn,
-      `UPDATE agent_tasks t SET t.status='pending_assignment',t.execution_agent_id=IF(t.task_type='assist_l2',NULL,t.execution_agent_id),
-      t.progress='服务重启，等待 L2 重新指派',t.finished_at=NULL,t.revision=t.revision+1
-      WHERE t.task_type IN ('assist_l2','formal') AND t.status='running'
-        AND EXISTS (SELECT 1 FROM agent_task_execution_runs r WHERE r.task_id=t.id AND r.status='interrupted')`,
-    );
-    await query(
-      conn,
-      `UPDATE agent_tasks t JOIN agent_sessions s ON s.thread_id=t.origin_thread_id
-      SET t.target_id=s.session_id,t.claimed_by_type='l2_session',t.claimed_by_id=s.session_id
-      WHERE t.target_type='l2_session' AND t.task_type IN ('assist_l2','formal') AND t.status='pending_assignment'
-        AND t.origin_thread_id IS NOT NULL AND t.target_id<>s.session_id
-        AND EXISTS (SELECT 1 FROM agent_task_execution_runs r WHERE r.task_id=t.id AND r.status='interrupted')`,
-    );
+  const runs = await query(db, `SELECT r.id,r.task_id,t.origin_thread_id,t.source_message_id,t.source_user_id,t.title
+    FROM agent_task_execution_runs r JOIN agent_tasks t ON t.id=r.task_id
+    WHERE r.executor_type='dsh_l3' AND r.status IN ('running','waiting')`);
+  return interruptDshL3Candidates(db, runs, {
+    reason: "服务重启，任务级 Agent 中断，等待 L2 重新评估",
+    progress: "服务重启，等待 L2 重新指派",
   });
-  await enqueueInterruptedL3Recovery(db, runs, "服务重启，任务级 Agent 中断，等待 L2 重新评估");
-  return runs.length;
 }
 
-/**
- * Recover L3 runs that look alive in DB but stopped heartbeating (zombie after tool
- * completion / hung model / dead harness). Does not touch fresh runs.
- */
+/** Recover zombie runs without interrupting a concurrently renewed heartbeat. */
 export async function recoverStaleDshL3Executions(
   db,
   { staleAfterSeconds = L3_STALE_HEARTBEAT_SECONDS } = {},
 ) {
   const age = Math.max(180, Number(staleAfterSeconds) || L3_STALE_HEARTBEAT_SECONDS);
-  const runs = await query(
-    db,
-    `SELECT r.id,r.task_id,t.origin_thread_id,t.source_message_id,t.source_user_id,t.title
-    FROM agent_task_execution_runs r
-    JOIN agent_tasks t ON t.id=r.task_id
-    WHERE r.executor_type='dsh_l3' AND r.status IN ('running','waiting')
-      AND t.status='running'
-      AND TIMESTAMPDIFF(SECOND, COALESCE(r.heartbeat_at, r.started_at, r.created_at), UTC_TIMESTAMP(3)) >= ?`,
-    [age],
-  );
-  if (!runs.length) return 0;
-  const ids = runs.map((row) => row.id);
-  const taskIds = [...new Set(runs.map((row) => row.task_id))];
-  const idPlaceholders = ids.map(() => "?").join(",");
-  const taskPlaceholders = taskIds.map(() => "?").join(",");
-  const reason = `L3 心跳超时（≥${age}s），等待 L2 重新评估`;
-  const progress = "心跳超时，等待 L2 重新指派";
-  await transaction(db, async (conn) => {
-    await query(
-      conn,
-      `UPDATE agent_task_execution_runs SET status='interrupted',error=?,
-      finished_at=UTC_TIMESTAMP(3) WHERE id IN (${idPlaceholders}) AND status IN ('running','waiting')`,
-      [reason, ...ids],
-    );
-    await query(
-      conn,
-      `INSERT INTO agent_task_status_events(task_id,from_status,to_status,actor_type,reason)
-      SELECT t.id,t.status,'pending_assignment','system',? FROM agent_tasks t
-      WHERE t.id IN (${taskPlaceholders}) AND t.status='running'`,
-      [progress, ...taskIds],
-    );
-    await query(
-      conn,
-      `UPDATE agent_tasks t SET t.status='pending_assignment',
-      t.execution_agent_id=IF(t.task_type='assist_l2',NULL,t.execution_agent_id),
-      t.progress=?,t.finished_at=NULL,t.revision=t.revision+1
-      WHERE t.id IN (${taskPlaceholders}) AND t.status='running'`,
-      [progress, ...taskIds],
-    );
-    await query(
-      conn,
-      `UPDATE agent_tasks t JOIN agent_sessions s ON s.thread_id=t.origin_thread_id
-      SET t.target_id=s.session_id,t.claimed_by_type='l2_session',t.claimed_by_id=s.session_id
-      WHERE t.id IN (${taskPlaceholders}) AND t.target_type='l2_session' AND t.status='pending_assignment'
-        AND t.origin_thread_id IS NOT NULL AND t.target_id<>s.session_id`,
-      taskIds,
-    );
+  const runs = await query(db, `SELECT r.id,r.task_id,t.origin_thread_id,t.source_message_id,t.source_user_id,t.title
+    FROM agent_task_execution_runs r JOIN agent_tasks t ON t.id=r.task_id
+    WHERE r.executor_type='dsh_l3' AND r.status IN ('running','waiting') AND t.status IN ('running','waiting')
+      AND TIMESTAMPDIFF(SECOND,COALESCE(r.heartbeat_at,r.started_at,r.created_at),UTC_TIMESTAMP(3)) >= ?`, [age]);
+  return interruptDshL3Candidates(db, runs, {
+    age, reason: `L3 心跳超时（≥${age}s），等待 L2 重新评估`,
+    progress: "心跳超时，等待 L2 重新指派",
   });
-  await enqueueInterruptedL3Recovery(db, runs, reason);
-  return runs.length;
 }

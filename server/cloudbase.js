@@ -1,4 +1,5 @@
 import { HttpError } from "./service.js";
+import { compileCloudbaseFilter } from "./cloudbase-filter.js";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
 
 /**
@@ -16,7 +17,7 @@ import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
  * instead of a silently empty list.
  */
 
-export const CLOUDBASE_ENVIRONMENTS = ["development", "staging", "production"];
+export const CLOUDBASE_ENVIRONMENTS = ["development", "production"];
 export const CLOUDBASE_AGENT_ENVIRONMENTS = ["development"];
 export const CLOUDBASE_MAX_QUERY_LIMIT = 200;
 export const CLOUDBASE_MAX_WRITE_BYTES = 5 * 1024 * 1024;
@@ -35,7 +36,7 @@ export function setCloudbaseManagerFactory(factory) {
 }
 
 export function cloudbaseEnvironmentLabel(kind) {
-  return { development: "开发环境", staging: "预发布环境", production: "生产环境" }[kind] || kind;
+  return { development: "开发环境", production: "生产环境" }[kind] || kind;
 }
 
 /**
@@ -177,11 +178,13 @@ export function resolveCloudbaseEnv(runtime, environment = "development") {
   if (!CLOUDBASE_ENVIRONMENTS.includes(kind)) {
     throw new HttpError(400, `未知的 CloudBase 环境：${kind}`);
   }
-  const env = runtime.cloudbaseEnvs?.[kind];
+  const configured = runtime.cloudbaseEnvs || {};
+  const inherited = kind === "production" && !configured.production?.envId;
+  const env = inherited ? configured.development : configured[kind];
   if (!env?.envId) {
     throw new HttpError(409, `尚未配置${cloudbaseEnvironmentLabel(kind)}的 CloudBase 环境 ID`);
   }
-  return { kind, envId: env.envId, region: env.region || null };
+  return { kind, envId: env.envId, region: env.region || null, inherited };
 }
 
 async function defaultClientFactory({ envId, credential }) {
@@ -249,14 +252,20 @@ export async function readCloudbaseEnvironments(service, user, projectId) {
   const runtime = await loadProjectMiniProgramRuntime(service, projectId);
   const configured = Object.keys(runtime.cloudbaseEnvs || {});
   return {
-    environments: CLOUDBASE_ENVIRONMENTS.map((kind) => ({
-      kind,
-      label: cloudbaseEnvironmentLabel(kind),
-      envId: runtime.cloudbaseEnvs?.[kind]?.envId || null,
-      region: runtime.cloudbaseEnvs?.[kind]?.region || null,
-      configured: Boolean(runtime.cloudbaseEnvs?.[kind]?.envId),
-      agentAllowed: CLOUDBASE_AGENT_ENVIRONMENTS.includes(kind),
-    })),
+    environments: CLOUDBASE_ENVIRONMENTS.map((kind) => {
+      const direct = runtime.cloudbaseEnvs?.[kind];
+      const inherited = kind === "production" && !direct?.envId;
+      const target = inherited ? runtime.cloudbaseEnvs?.development : direct;
+      return {
+        kind,
+        label: cloudbaseEnvironmentLabel(kind),
+        envId: target?.envId || null,
+        region: target?.region || null,
+        configured: Boolean(target?.envId),
+        inherited: Boolean(target?.envId && inherited),
+        agentAllowed: CLOUDBASE_AGENT_ENVIRONMENTS.includes(kind),
+      };
+    }),
     hasCredential: Boolean(runtime.secrets?.cloudbase_credential),
     defaultEnvironment: configured.includes("development") ? "development" : configured[0] || null,
     // Enumeration of collections/files uses the management-plane SDK.
@@ -283,7 +292,7 @@ function clampLimit(value, fallback = 20) {
  * the provider's own message so the panel shows something actionable instead of
  * an empty 500.
  */
-async function callProvider(operation, fn) {
+export async function callProvider(operation, fn) {
   try {
     return await fn();
   } catch (error) {
@@ -300,9 +309,23 @@ export async function queryCloudbaseDocuments(service, user, projectId, input = 
   const collection = assertCollectionName(input.collection);
   const { client, envId } = await getCloudbaseClient(service, projectId, environment);
   const limit = clampLimit(input.limit);
-  let query = client.database().collection(collection);
-  if (input.where && typeof input.where === "object" && Object.keys(input.where).length) {
+  const database = client.database();
+  let query = database.collection(collection);
+  const compiledFilter = compileCloudbaseFilter(database.command, input.filter);
+  if (compiledFilter) {
+    query = query.where(compiledFilter);
+  } else if (input.where && typeof input.where === "object" && Object.keys(input.where).length) {
     query = query.where(input.where);
+  }
+  let total = null;
+  if (typeof query.count === "function") {
+    try {
+      const counted = await callProvider("统计文档", () => query.count());
+      const value = Number(counted?.total ?? counted?.count ?? counted);
+      total = Number.isFinite(value) ? value : null;
+    } catch {
+      total = null;
+    }
   }
   if (input.skip) query = query.skip(Math.max(0, Math.floor(Number(input.skip) || 0)));
   const result = await callProvider("查询文档", () => query.limit(limit).get());
@@ -312,6 +335,7 @@ export async function queryCloudbaseDocuments(service, user, projectId, input = 
     envId,
     collection,
     limit,
+    total,
     count: data.length,
     documents: data.map((doc) => sanitizeDocument(doc)),
   };
@@ -441,6 +465,30 @@ export async function deleteCloudbaseFiles(service, user, projectId, input = {})
   return { environment, envId, result: result?.fileList || [] };
 }
 
+/** Create a real directory marker in CloudBase storage. */
+export async function createCloudbaseDirectory(service, user, projectId, input = {}) {
+  await service.member(user, projectId, false);
+  const environment = input.environment || "development";
+  const cloudPath = `${assertCloudPath(input.cloudPath).replace(/\/+$/, "")}/`;
+  const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
+  await callProvider("新建存储文件夹", () => manager.storage.createCloudDirectroy(cloudPath));
+  return { environment, envId, cloudPath };
+}
+
+/** Delete one file or directory by its CloudBase storage path. */
+export async function deleteCloudbaseStorageEntry(service, user, projectId, input = {}) {
+  await service.member(user, projectId, false);
+  const environment = input.environment || "development";
+  const cloudPath = assertCloudPath(input.cloudPath);
+  const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
+  if (input.isDirectory) {
+    await callProvider("删除存储文件夹", () => manager.storage.deleteDirectory(cloudPath));
+  } else {
+    await callProvider("删除存储文件", () => manager.storage.deleteFile([cloudPath]));
+  }
+  return { environment, envId, cloudPath, deleted: true };
+}
+
 /**
  * L3-facing guard: agents are limited to the development environment unless the
  * project explicitly allows more. Kept explicit so the rule is auditable.
@@ -487,14 +535,159 @@ export async function getCloudbaseManager(service, projectId, environment = "dev
   const target = resolveCloudbaseEnv(runtime, environment);
   const credentialText = runtime.secrets?.cloudbase_credential;
   if (!credentialText) throw new HttpError(409, "尚未配置 CloudBase 凭据");
+  // Validate on every lookup, including cache hits. A previously cached client
+  // must never allow a CloudBase Auth end-user token to be reused as a
+  // management credential after the secret was changed.
+  assertUsableCloudbaseCredential(credentialText);
   const key = clientKey(projectId, target.envId);
   if (managers.has(key)) return { manager: managers.get(key), ...target };
-  assertUsableCloudbaseCredential(credentialText);
   const credential = parseCloudbaseCredential(credentialText);
   const factory = managerFactoryOverride || defaultManagerFactory;
   const manager = await factory({ envId: target.envId, credential, region: target.region });
   managers.set(key, manager);
   return { manager, ...target };
+}
+
+/**
+ * Return the environment Publishable Key, creating the single environment
+ * publish key when CloudBase has not created one yet. The secretId/secretKey
+ * used by manager-node stay inside this server function.
+ */
+export async function ensureCloudbasePublishableKey(service, projectId, environment = "development") {
+  const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
+  const env = manager.currentEnvironment();
+  const api = env.getEnvService();
+  const listed = await callProvider("查询 CloudBase Publishable Key", () =>
+    api.describeApiKeyList({ KeyType: "publish_key", Limit: 10, Offset: 0 }),
+  );
+  const existing = (listed?.Data || [])[0];
+  if (existing?.ApiKey) return { environment, envId, keyId: existing.KeyId || null, publishableKey: existing.ApiKey, created: false };
+  const created = await callProvider("创建 CloudBase Publishable Key", () =>
+    api.createApiKey({ KeyType: "publish_key" }),
+  );
+  if (!created?.ApiKey) throw new HttpError(502, "CloudBase 创建 Publishable Key 未返回明文");
+  return { environment, envId, keyId: created.KeyId || null, publishableKey: created.ApiKey, created: true };
+}
+
+/** Read CloudBase end-user login switches without exposing provider credentials. */
+export async function readCloudbaseAuthSettings(service, user, projectId, environment = "development") {
+  await service.member(user, projectId, false);
+  const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
+  const config = await callProvider("查询 CloudBase 登录配置", () =>
+    manager.currentEnvironment().getEnvService().getLoginConfig(),
+  );
+  return {
+    environment,
+    envId,
+    anonymousLogin: Boolean(config?.AnonymousLogin),
+    usernameLogin: Boolean(config?.UserNameLogin),
+    emailLogin: Boolean(config?.EmailLogin),
+    phoneNumberLogin: Boolean(config?.PhoneNumberLogin),
+    requestId: config?.RequestId || null,
+  };
+}
+
+/** Update CloudBase login switches. Production changes require an explicit confirmation. */
+export async function updateCloudbaseAuthSettings(service, user, projectId, input = {}) {
+  await service.member(user, projectId, true, service.db, true);
+  const environment = input.environment || "development";
+  if (environment === "production" && input.confirmProduction !== true) {
+    throw new HttpError(400, "修改生产环境登录方式必须确认 confirmProduction=true");
+  }
+  const current = await readCloudbaseAuthSettings(service, user, projectId, environment);
+  const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
+  const payload = {
+    PhoneNumberLogin: input.phoneNumberLogin === undefined ? current.phoneNumberLogin : Boolean(input.phoneNumberLogin),
+    EmailLogin: input.emailLogin === undefined ? current.emailLogin : Boolean(input.emailLogin),
+    UserNameLogin: input.usernameLogin === undefined ? current.usernameLogin : Boolean(input.usernameLogin),
+    AnonymousLogin: input.anonymousLogin === undefined ? current.anonymousLogin : Boolean(input.anonymousLogin),
+  };
+  const result = await callProvider("更新 CloudBase 登录配置", () =>
+    manager.currentEnvironment().getEnvService().modifyLoginConfig(payload),
+  );
+  return { ...(await readCloudbaseAuthSettings(service, user, projectId, environment)), requestId: result?.RequestId || null };
+}
+
+/**
+ * Some CloudBase adapters return an error envelope instead of throwing. Do not
+ * report such a response as a successful account sync, especially when the
+ * provider identified the caller as anonymous.
+ */
+function assertCloudbaseManagementResult(result, operation) {
+  const envelope = result?.result && typeof result.result === "object" ? result.result : result;
+  if (envelope?.ok === false || String(envelope?.code || "").toUpperCase() === "UNAUTHENTICATED") {
+    throw new HttpError(
+      409,
+      `${operation}失败：CloudBase 未取得已验证身份。请在此页面配置腾讯云 API 密钥对（SecretId/SecretKey），不要填写 CloudBase Auth 终端令牌；Admin 首个账号必须通过管理面同步。`,
+    );
+  }
+  return result;
+}
+
+/** Create or reset the first Admin password user in a CloudBase environment. */
+export async function saveCloudbaseAdminAccount(service, user, projectId, input = {}) {
+  await service.member(user, projectId, true, service.db, true);
+  const environment = input.environment || "development";
+  if (environment === "production" && input.confirmProduction !== true) {
+    throw new HttpError(400, "配置生产环境 Admin 账号必须确认 confirmProduction=true");
+  }
+  const username = String(input.username || input.email || "").trim();
+  const password = String(input.password || "");
+  if (!/^[^\s@]+(?:@[^\s@]+)?$/.test(username) || username.length < 3 || username.length > 128) {
+    throw new HttpError(400, "Admin 账号须为至少 3 位的用户名或邮箱");
+  }
+  if (password.length < 8 || password.length > 128) throw new HttpError(400, "Admin 密码长度须为 8 到 128 位");
+  const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
+  const users = await callProvider("查询 CloudBase 用户", () => manager.currentEnvironment().getUserService().getEndUserList({ limit: 100, offset: 0 }));
+  assertCloudbaseManagementResult(users, "查询 CloudBase 用户");
+  const existing = (users?.Users || []).find((item) => String(item?.Username || item?.UserName || item?.username || item?.Email || item?.email || "").toLowerCase() === username.toLowerCase());
+  let result;
+  if (existing?.UUID || existing?.Uuid || existing?.UUId || existing?.uuid) {
+    const uuid = existing.UUID || existing.Uuid || existing.UUId || existing.uuid;
+    result = await callProvider("重置 CloudBase Admin 密码", () => manager.currentEnvironment().getUserService().modifyEndUser({ uuid, username, password }));
+  } else {
+    result = await callProvider("创建 CloudBase Admin 账号", () => manager.currentEnvironment().getUserService().createEndUser({ username, password }));
+  }
+  assertCloudbaseManagementResult(result, "同步 CloudBase Admin 账号");
+  return { environment, envId, username, configured: true, requestId: result?.RequestId || null };
+}
+
+export async function readCloudbaseAdminAccount(service, user, projectId, environment = "development") {
+  await service.member(user, projectId, false);
+  const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
+  const users = await callProvider("查询 CloudBase Admin 账号", () => manager.currentEnvironment().getUserService().getEndUserList({ limit: 100, offset: 0 }));
+  const admin = (users?.Users || []).find((item) => item?.Username || item?.UserName || item?.username || item?.Email || item?.email);
+  return { environment, envId, configured: Boolean(admin), username: admin?.Username || admin?.UserName || admin?.username || admin?.Email || admin?.email || null };
+}
+
+/** Invoke a deployed Event cloud function through the management plane. */
+export async function invokeCloudbaseFunction(service, user, projectId, input = {}) {
+  await service.member(user, projectId, false);
+  const environment = input.environment || "development";
+  const name = String(input.name || "").trim();
+  if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(name)) throw new HttpError(400, "云函数名称非法");
+  const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
+  const result = await callProvider("调用云函数", () => manager.currentEnvironment().getFunctionService().invokeFunction(name, input.data && typeof input.data === "object" ? input.data : {}));
+  return { environment, envId, name, result };
+}
+
+/** Search CloudBase function logs; callers must provide an explicit time window. */
+export async function searchCloudbaseFunctionLogs(service, user, projectId, input = {}) {
+  await service.member(user, projectId, false);
+  const environment = input.environment || "development";
+  const name = String(input.name || "").trim();
+  if (!name) throw new HttpError(400, "缺少云函数名称");
+  const end = input.endTime || new Date().toISOString().slice(0, 19).replace("T", " ");
+  const start = input.startTime || new Date(Date.now() - 15 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
+  const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
+  const result = await callProvider("查询云函数日志", () => manager.currentEnvironment().getLogService().searchClsLog({
+    queryString: input.queryString || `functionName:${name}`,
+    StartTime: start,
+    EndTime: end,
+    Limit: Math.min(100, Math.max(1, Number(input.limit) || 50)),
+    Sort: input.sort === "asc" ? "asc" : "desc",
+  }));
+  return { environment, envId, name, startTime: start, endTime: end, result };
 }
 
 function collectionName(item) {
@@ -517,11 +710,30 @@ export async function listCloudbaseCollections(service, user, projectId, input =
   return { environment, envId, count: names.length, collections: names };
 }
 
-function fileEntry(item) {
+/** Create a collection without failing when an earlier idempotent run created it. */
+export async function ensureCloudbaseCollection(service, user, projectId, input = {}) {
+  await service.member(user, projectId, false);
+  const environment = input.environment || "development";
+  const collection = assertCollectionName(input.collection);
+  const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
+  const result = await callProvider("创建集合", () =>
+    manager.database.createCollectionIfNotExists(collection),
+  );
+  return {
+    environment,
+    envId,
+    collection,
+    created: Boolean(result?.IsCreated ?? result?.isCreated ?? result?.created),
+  };
+}
+
+function fileEntry(item, fileIds = new Map()) {
   const key = String(item?.Key ?? item?.key ?? item?.cloudPath ?? "").trim();
   if (!key) return null;
   return {
     key,
+    fileId:
+      String(item?.FileId ?? item?.fileID ?? item?.fileId ?? fileIds.get(key) ?? "").trim() || null,
     size: Number(item?.Size ?? item?.size ?? 0) || 0,
     lastModified: item?.LastModified || item?.lastModified || null,
     isDirectory: key.endsWith("/"),
@@ -537,12 +749,66 @@ export async function listCloudbaseFiles(service, user, projectId, input = {}) {
     .replace(/^\/+/, "");
   if (cloudPath.includes("..")) throw new HttpError(400, "目录路径非法");
   const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
-  const result = await callProvider("列举存储文件", () =>
-    manager.storage.listDirectoryFiles(cloudPath),
+  const result = await callProvider("列举存储文件", async () => {
+    if (typeof manager.storage.listCurrentDirectory === "function") {
+      const current = await manager.storage.listCurrentDirectory(cloudPath);
+      return [
+        ...(Array.isArray(current?.directories)
+          ? current.directories.map((key) => ({ Key: key.endsWith("/") ? key : `${key}/` }))
+          : []),
+        ...(Array.isArray(current?.files) ? current.files : []),
+      ];
+    }
+    return manager.storage.listDirectoryFiles(cloudPath);
+  });
+  const rawFiles = Array.isArray(result) ? result : [];
+  const downloadablePaths = rawFiles
+    .map((item) => String(item?.Key ?? item?.key ?? item?.cloudPath ?? "").trim())
+    .filter((key) => key && !key.endsWith("/"));
+  const resolvedIds = downloadablePaths.length
+    ? await callProvider("读取存储文件 ID", () =>
+        manager.storage.getTemporaryUrl(downloadablePaths),
+      )
+    : [];
+  const fileIds = new Map(
+    (Array.isArray(resolvedIds) ? resolvedIds : []).map((item) => [
+      String(item?.fileId ?? item?.fileID ?? "")
+        .split("/")
+        .slice(1)
+        .join("/"),
+      String(item?.fileId ?? item?.fileID ?? ""),
+    ]),
   );
-  const files = (Array.isArray(result) ? result : [])
-    .map(fileEntry)
+  for (const item of Array.isArray(resolvedIds) ? resolvedIds : []) {
+    const fileId = String(item?.fileId ?? item?.fileID ?? "");
+    const matched = downloadablePaths.find((key) => fileId.endsWith(`/${key}`));
+    if (matched) fileIds.set(matched, fileId);
+  }
+  const files = rawFiles
+    .map((item) => fileEntry(item, fileIds))
     .filter(Boolean)
     .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   return { environment, envId, cloudPath, count: files.length, files };
+}
+
+/** Resolve one storage object path to a short-lived download URL. */
+export async function getCloudbaseFileDownload(service, user, projectId, input = {}) {
+  await service.member(user, projectId, false);
+  const environment = input.environment || "development";
+  const cloudPath = assertCloudPath(input.cloudPath);
+  const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
+  const result = await callProvider("获取文件下载地址", () =>
+    manager.storage.getTemporaryUrl([cloudPath]),
+  );
+  const url = String(result?.[0]?.url || "").trim();
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new HttpError(502, "CloudBase 未返回有效的文件下载地址");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new HttpError(502, "CloudBase 返回了不支持的文件下载地址");
+  }
+  return { environment, envId, cloudPath, url: parsed.href };
 }

@@ -2341,6 +2341,8 @@ export function WorkspaceApp() {
               mcpEndpoint={health?.mcpEndpoint || "/mcp"}
               threadId={threadId || undefined}
               writable={writable}
+              currentUserId={user.id}
+              owner={owner}
               iterationWritable={active}
               folders={detail?.folders || []}
               versions={detail?.versions || []}

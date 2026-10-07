@@ -54,7 +54,16 @@ export async function ensureMiniprogramWorkspace(db, projectId) {
       "SELECT id FROM document_folders WHERE project_id=? AND parent_id=? AND folder_kind=? LIMIT 1",
       [projectId, root.id, kind],
     );
-    if (existing) continue;
+    if (existing) {
+      if (kind === "miniprogram_server") {
+        await query(db, "UPDATE document_folders SET name=? WHERE id=? AND name=?", [
+          name,
+          existing.id,
+          "服务端",
+        ]);
+      }
+      continue;
+    }
     await query(
       db,
       `INSERT INTO document_folders(id,project_id,parent_id,name,system_key,folder_kind)
@@ -62,7 +71,84 @@ export async function ensureMiniprogramWorkspace(db, projectId) {
       [randomUUID(), projectId, root.id, name, systemKeyFor(kind, projectId), kind],
     );
   }
+  await migrateLegacyAdminDist(db, projectId);
   return root.id;
+}
+
+/**
+ * Promote the retired PC Admin `dist/` layout into the Admin area root.
+ * Existing root files win conflicts; the legacy copy is soft-deleted so its
+ * version history remains recoverable after the now-empty folder is removed.
+ */
+export async function migrateLegacyAdminDist(db, projectId) {
+  const { byKind } = await miniprogramWorkspaceFolders(db, projectId);
+  const admin = byKind.get("miniprogram_admin");
+  if (!admin) return false;
+  const legacyFolders = await query(
+    db,
+    "SELECT id FROM document_folders WHERE project_id=? AND parent_id=? AND name='dist' AND folder_kind IS NULL",
+    [projectId, admin.id],
+  );
+  if (!legacyFolders.length) return false;
+
+  const mergeFolder = async (sourceId, targetId) => {
+    const children = await query(
+      db,
+      "SELECT id,name FROM document_folders WHERE project_id=? AND parent_id=? ORDER BY created_at,id",
+      [projectId, sourceId],
+    );
+    for (const child of children) {
+      const [sameName] = await query(
+        db,
+        "SELECT id FROM document_folders WHERE project_id=? AND parent_id=? AND name=? AND id<>? ORDER BY created_at,id LIMIT 1",
+        [projectId, targetId, child.name, child.id],
+      );
+      if (sameName) await mergeFolder(child.id, sameName.id);
+      else {
+        await query(db, "UPDATE document_folders SET parent_id=? WHERE id=?", [targetId, child.id]);
+      }
+    }
+
+    const targetFiles = await query(
+      db,
+      `SELECT v.filename FROM artifacts a
+       JOIN versions v ON v.id=(SELECT v2.id FROM versions v2 WHERE v2.artifact_id=a.id
+         ORDER BY v2.version DESC,v2.created_at DESC,v2.id DESC LIMIT 1)
+       LEFT JOIN version_recycle vr ON vr.version_id=v.id
+       WHERE a.project_id=? AND a.folder_id=? AND a.deleted_at IS NULL AND vr.version_id IS NULL`,
+      [projectId, targetId],
+    );
+    const occupied = new Set(targetFiles.map((row) => row.filename));
+    const sourceFiles = await query(
+      db,
+      `SELECT a.id,a.deleted_at,v.filename,vr.version_id recycled_version_id FROM artifacts a
+       LEFT JOIN versions v ON v.id=(SELECT v2.id FROM versions v2 WHERE v2.artifact_id=a.id
+         ORDER BY v2.version DESC,v2.created_at DESC,v2.id DESC LIMIT 1)
+       LEFT JOIN version_recycle vr ON vr.version_id=v.id
+       WHERE a.project_id=? AND a.folder_id=?
+       ORDER BY a.created_at,a.id`,
+      [projectId, sourceId],
+    );
+    for (const file of sourceFiles) {
+      const conflict =
+        !file.deleted_at &&
+        !file.recycled_version_id &&
+        file.filename &&
+        occupied.has(file.filename);
+      await query(
+        db,
+        `UPDATE artifacts SET folder_id=?${conflict ? ",deleted_at=COALESCE(deleted_at,UTC_TIMESTAMP(3))" : ""} WHERE id=?`,
+        [targetId, file.id],
+      );
+      if (!file.deleted_at && !file.recycled_version_id && !conflict && file.filename) {
+        occupied.add(file.filename);
+      }
+    }
+    await query(db, "DELETE FROM document_folders WHERE id=?", [sourceId]);
+  };
+
+  for (const legacy of legacyFolders) await mergeFolder(legacy.id, admin.id);
+  return true;
 }
 
 /** Resolve the workspace root and fixed subfolders. Returns nulls when absent. */
@@ -132,11 +218,24 @@ export function computeMiniprogramSourceHash(files) {
   return hash.digest("hex");
 }
 
+/** Current files below one workspace-relative directory. */
+export function miniprogramFilesUnderPath(files, pathPrefix) {
+  const prefix = `${normalizeMiniprogramPath(pathPrefix).replace(/\/+$/, "")}/`;
+  return (files || []).filter((file) => String(file.path || "").startsWith(prefix));
+}
+
+/** Hash one directory only; an absent source directory is not a valid snapshot. */
+export function computeMiniprogramPathHash(files, pathPrefix) {
+  const scoped = miniprogramFilesUnderPath(files, pathPrefix);
+  return scoped.length ? computeMiniprogramSourceHash(scoped) : null;
+}
+
 /**
  * Current effective version of every file in the four fixed subfolders.
  * Immutable versions are used as-is; the newest version per artifact wins.
  */
 export async function miniprogramSnapshot(db, projectId) {
+  await migrateLegacyAdminDist(db, projectId);
   const { rootId, byKind, folders } = await miniprogramTree(db, projectId);
   const areas = {};
   for (const [, , kind] of MINIPROGRAM_FIXED_FOLDERS) {

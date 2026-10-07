@@ -2,19 +2,19 @@
 
 ## 目标
 
-发布是生产动作。现状是「L3 只能生成预览，上传只能在界面人工点」——这只有一个开关，没有可追溯的申请与批准记录。
-本设计把发布改成**申请 → 批准 → 执行**的可审计流程。
+Admin 与服务端的生产发布属于生产动作，本设计将其实现为**申请 → 批准 → 执行**的可审计流程。
+微信体验版上传只生成供测试的版本，真正的提审与发布仍在微信后台完成，因此不进入 CoThread 发布审批。
 
 ## 适用范围
 
 走审批的目标（后续新增发布目标默认都要走）：
 
-| 目标                                                  | 是否走审批                                      |
-| ----------------------------------------------------- | ----------------------------------------------- |
-| `wechat_upload`（上传微信版本）                       | 是                                              |
-| `cloudbase_static` / `cloudbase_hosted`（Admin 发布） | 是                                              |
-| `wechat_preview`（生成开发版预览二维码）              | 否，保持现状                                    |
-| CloudBase 数据面写操作（文档增删改、文件上传删除）    | 否，保持现状（开发环境；生产环境尚未开放给 L3） |
+| 目标                                               | 是否走审批                                      |
+| -------------------------------------------------- | ----------------------------------------------- |
+| `wechat_upload`（上传微信体验版）                  | 否，有项目写权限即可直接上传                    |
+| `cloudbase_static`（Admin 生产版静态托管）         | 是                                              |
+| `wechat_preview`（生成开发版预览二维码）           | 否，保持现状                                    |
+| CloudBase 数据面写操作（文档增删改、文件上传删除） | 否，保持现状（开发环境；生产环境尚未开放给 L3） |
 
 ## 角色
 
@@ -65,9 +65,7 @@ owner 自己发起的申请允许自我批准（见下方已确认决定 ②）�
 4. **批准的不可变性**：批准后申请内容（版本号、说明、源码哈希、目标）不可修改；要改就撤回后重新提交。
 5. **幂等执行**：执行入口先做状态 CAS（`pending → approved → executing`），只有拿到 `executing` 的调用才真正执行，重复点击不会重复上传。
 6. **失败不自动重试**：失败写入申请日志与 `miniprogram_deployments`，需要重新提交申请（避免拿旧批准反复打生产）。
-7. **环境未指定时跟随发布目标**：`environment` 留空表示「用发布目标自己配置的环境」（如 Admin 发布目标配的 `development`）。
-   **不要默认成 `production`**——实测中该默认值会让每一次未显式指定环境的提交都失败在「尚未配置生产环境的 CloudBase 环境 ID」，
-   而发布目标其实只用 development。数据库列是 `NOT NULL`，因此空值以空字符串存储，读取时还原为 `null`。
+7. **Admin 生产环境固定**：`cloudbase_static` 固定发布到 `production`；Admin 不设独立体验环境，微信与云函数仍按各自申请显式指定环境。
 8. **发布记录必须留痕**：凭据/配置类失败也要写入 `miniprogram_deployments`（曾出现过在 `try` 之外解析凭据、
    导致失败只在申请上可见、发布历史上查无此单的情况）。
 
@@ -79,7 +77,7 @@ owner 自己发起的申请允许自我批准（见下方已确认决定 ②）�
 CREATE TABLE IF NOT EXISTS miniprogram_release_requests (
   id CHAR(36) NOT NULL PRIMARY KEY,
   project_id CHAR(36) NOT NULL,
-  target ENUM('wechat_upload','cloudbase_static','cloudbase_hosted') NOT NULL,
+  target ENUM('wechat_upload','cloudbase_static','cloudbase_function') NOT NULL,
   environment VARCHAR(32) NOT NULL DEFAULT 'production',  -- 空串 = 跟随发布目标配置；见状态规则 7
   version VARCHAR(64) NULL,
   desc TEXT NULL,                      -- 提交说明（改名避免与保留字冲突）
@@ -121,13 +119,13 @@ L3 工具（`miniprogram_development` 能力内新增两个）：
 - `miniprogram_submit_release` → 提交申请，返回申请 ID 与当前状态；**不执行发布**
 - `miniprogram_release_status` → 查询自己申请的状态
 
-现有的 `miniprogram_report_admin_preview` 等不变。**移除 `uploadMiniprogram` 里临时的 `confirm` 开关**，改由审批流统一表达授权。
+现有的 `miniprogram_report_admin_preview` 等不变。`uploadMiniprogram` 不要求审批授权，按项目写权限直接执行并记录上传人。
 
 ## 界面
 
-- **应用预览页签**：在微信发布区上方显示「待审批申请」卡片——目标、版本号、说明、申请人、提交时间、源码哈希是否已过期；owner 看到「批准并执行 / 拒绝」两个按钮，其他人只读；拒绝时弹出理由输入。
-- **项目管理 → 小程序与云开发**：显示未处理申请数量，作为负责人进入的提示。
-- 已处理的历史留在发布记录里，申请详情可从记录反查。
+- **生产发布页签**：主体只展示一行一个发布申请的记录表格；Admin 静态托管与云函数的发布操作统一收进「新建生产发布」弹窗。
+- **发布详情弹窗**：展示申请人、时间、说明、审批信息及每个发布目标的执行结果。待审批时，项目负责人可通过或拒绝，申请人可放弃自己的申请。
+- **PC管理后台预览服务弹窗**：只管理 CoThread 宿主机上的开发版预览，不再承载生产发布配置或提交入口。
 
 ## 边界与失败处理
 
@@ -143,8 +141,7 @@ L3 工具（`miniprogram_development` 能力内新增两个）：
 
 ## 已确认的决定
 
-1. **全部走审批**：不再保留「owner 在界面直接上传」这条路径。owner 也要先提交申请再批准。
-   现存的 `uploadMiniprogram` 临时 `confirm` 开关一并移除，授权只由审批流表达。
+1. **仅生产发布走审批**：Admin 静态托管与服务端云函数需要审批；微信体验版由有写权限的成员直接上传，提审与正式发布由微信后台控制。
 2. **允许 owner 自我批准**：符合当前单实例小团队定位。L3 发起的申请仍然只能由 owner 批准，
    L3 自己永远不能批准自己（或任何）申请。
 3. **有效期 24 小时**：`pending` 超过 24 小时转 `expired`，需重新提交。
@@ -154,8 +151,8 @@ L3 工具（`miniprogram_development` 能力内新增两个）：
 1. 迁移 `090`：新建 `miniprogram_release_requests`（无唯一键，服务层事务保证单一 pending）。
 2. `server/release-requests.js`：状态机与 CAS 转换、源码哈希复核、24 小时过期、审计字段。
 3. 路由：提交 / 列表 / 详情 / 批准（即执行）/ 拒绝 / 撤回。
-4. 移除 `uploadMiniprogram` 的 `confirm` 分支，改由审批流调用执行入口。
+4. 移除 `uploadMiniprogram` 的审批授权参数，按项目写权限直接执行；保留旧申请的兼容执行能力。
 5. L3 工具：`miniprogram_submit_release`、`miniprogram_release_status`。
-6. 界面：应用预览页签的「待审批申请」卡片 + 批准/拒绝（拒绝需理由）；项目管理显示待处理数量。
+6. 界面：生产发布记录表格 + 新建发布弹窗 + 记录详情及批准、拒绝、放弃操作。
 7. 测试：状态机全部合法/非法转换、源码变更导致 `expired`、重复 pending 409、非 owner 批准 403、
    owner 自批允许、L3 无法批准、幂等执行、失败不自动重试。

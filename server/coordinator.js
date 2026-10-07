@@ -9,6 +9,7 @@ import { acquireCoordinatorRuntime, discardCoordinatorRuntime, parkCoordinatorRu
 import { discussionText } from "../shared/context.js";
 import { bindDshL3Execution, finishCoordinatorDispatch, l3LaunchPrompt, settleDshL3Execution, tasksAwaitingL3Launch, touchL3InferenceHeartbeat } from "./task-pool.js";
 import { trackThinking } from "./agent-thinking.js";
+import { childBindingFromToolResult } from "./l3-binding.js";
 import { insertUniqueAssistantMessage } from "./assistant-post.js";
 import { persistL3ContextStats, persistL3RunCheckpoint } from "./l3-session.js";
 import {
@@ -373,8 +374,8 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
       };
       const failBind = async (message) => {
         if (parentEventId) {
-          await query(db, `UPDATE agent_events SET status='failed',output=?,finished_at=UTC_TIMESTAMP(3)
-            WHERE id=? AND status IN ('running','completed')`, [String(message || "未能绑定 L3").slice(0, 1000), parentEventId]);
+          await query(db, `UPDATE agent_events SET status='failed',output=?,agent_task_id=COALESCE(agent_task_id,?),finished_at=UTC_TIMESTAMP(3)
+            WHERE id=? AND status IN ('running','completed')`, [String(message || "未能绑定 L3").slice(0, 1000), bindId, parentEventId]);
         }
         await abandonOrphan();
         return null;
@@ -545,9 +546,9 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
             }
             if (toolTasks.has(callId)) {
               const pending = toolTasks.get(callId);
-              const childId = pending.childId || output.match(/started subagent\s+([^\s]+)/i)?.[1];
-              if (childId) await attachChildTask(childId, pending.taskId, pending.parentEventId);
               toolTasks.delete(callId);
+              const binding = childBindingFromToolResult(pending, event, output);
+              if (binding) await attachChildTask(binding.childId, binding.taskId, binding.parentEventId);
             }
             // create_task queues an unbound run; launch L3 in the same turn instead of
             // waiting for finishCoordinatorDispatch → l3_idle → another wake.
@@ -569,12 +570,17 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
           const [alreadyBound] = await query(db, `SELECT task_id FROM agent_task_execution_runs
             WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting') LIMIT 1`, [childId]);
           if (alreadyBound) {
-            ensureChildThinking(childId, alreadyBound.task_id);
-            return;
+            const [currentTask] = await query(db, "SELECT status,execution_agent_id FROM agent_tasks WHERE id=?", [alreadyBound.task_id]);
+            if (currentTask?.execution_agent_id === childId && ["running", "waiting"].includes(currentTask.status)) {
+              ensureChildThinking(childId, alreadyBound.task_id);
+              return;
+            }
           }
           let pendingTask = null;
           for (const pending of toolTasks.values()) {
-            if (!pending.childId) { pending.childId = childId; pendingTask = pending; break; }
+            if (pending.childId === childId || !pending.childId) {
+              pending.childId = childId; pendingTask = pending; break;
+            }
           }
           await attachChildTask(childId, pendingTask?.taskId || inflightLaunch?.taskId, pendingTask?.parentEventId);
         } else if (notification.method === "subagent.finished" && notification.params?.parentSessionId === runtime.session.session_id) {

@@ -154,6 +154,31 @@ test("build refuses when the workspace is not enabled", async () => {
   }
 });
 
+test("preview metadata stays readable before a development environment is configured", async () => {
+  const database = await testDatabase();
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(
+      database.db,
+      "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [user.id, `${user.id}@test.com`, "负责人"],
+    );
+    const service = new Service(database.db);
+    const project = await service.createProject(user, { name: "待配置小程序" });
+    await saveProjectMiniProgramConfig(service, user, project.id, {
+      enabled: false,
+      appId: VALID_APP_ID,
+      cloudbaseEnvs: {},
+    });
+    const meta = await readMiniprogramPreviewMeta(service, user, project.id);
+    assert.equal(meta.runnable, false);
+    assert.equal(meta.environment, "development");
+    assert.equal(meta.envId, null);
+  } finally {
+    await database.close();
+  }
+});
+
 test("build refuses when the source area is empty", async () => {
   const database = await testDatabase();
   try {
@@ -224,6 +249,8 @@ test("build compiles the source area into a runnable Dimina bundle", async () =>
     assert.equal(meta.runnable, true);
     assert.equal(meta.stale, false);
     assert.equal(meta.appId, VALID_APP_ID);
+    assert.equal(meta.environment, "development");
+    assert.equal(meta.envId, "dev-env-build");
     assert.equal(meta.runtime.pageFrameUrl, "/dimina/pageFrame.html");
     assert.equal(
       meta.runtime.resourceBaseUrl,
@@ -252,6 +279,7 @@ test("build compiles the source area into a runnable Dimina bundle", async () =>
     );
     assert.ok(logic);
     assert.match(logic.mime, /javascript/);
+    assert.match(logic.content.toString("utf8"), /dev-env-build/);
 
     // Unknown assets resolve to a miss rather than throwing.
     assert.equal(

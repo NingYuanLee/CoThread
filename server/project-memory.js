@@ -306,13 +306,15 @@ export async function saveMemberUnderstandings(db, projectId, targets, summaries
   for (const item of summaries || []) {
     const target = allowed.get(item.memberId);
     if (!target?.latestRelatedSequence) continue;
+    const understanding = truncateMemoryText(item.understanding ?? item.summary, 800);
+    const statementSummary = truncateMemoryText(item.statementSummary, 2000);
     await query(db, `INSERT INTO agent_member_summaries(project_id,user_id,summary,statement_summary,through_sequence)
       VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE
       summary=IF(VALUES(through_sequence)>=through_sequence,VALUES(summary),summary),
       statement_summary=IF(VALUES(through_sequence)>=through_sequence,VALUES(statement_summary),statement_summary),
       through_sequence=GREATEST(through_sequence,VALUES(through_sequence)),updated_at=UTC_TIMESTAMP(3)`,
-    [projectId, item.memberId, String(item.understanding ?? item.summary ?? "").trim(),
-      String(item.statementSummary ?? "").trim() || null, target.latestRelatedSequence]);
+    [projectId, item.memberId, understanding,
+      statementSummary || null, target.latestRelatedSequence]);
   }
 }
 
@@ -363,12 +365,24 @@ export async function loadMemberUnderstanding(db, projectId, userId) {
   return memory || null;
 }
 
+function truncateMemoryText(value, maximum) {
+  const text = String(value ?? "").trim();
+  return Array.from(text).slice(0, maximum).join("");
+}
+
+function boundedMemoryString(maximum) {
+  return z.preprocess(
+    (value) => typeof value === "string" ? truncateMemoryText(value, maximum) : value,
+    z.string().trim().max(maximum).optional(),
+  );
+}
+
 const memoryDecisionSchema = z.object({
   memberSummaries: z.array(z.object({
     memberId: z.string().uuid(),
-    understanding: z.string().trim().max(800).optional(),
-    statementSummary: z.string().trim().max(2000).optional(),
-    summary: z.string().trim().max(2000).optional(),
+    understanding: boundedMemoryString(800),
+    statementSummary: boundedMemoryString(2000),
+    summary: boundedMemoryString(2000),
   })).max(50),
 });
 

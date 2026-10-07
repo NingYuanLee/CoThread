@@ -7,14 +7,16 @@ import { HttpError } from "./service.js";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
 import { miniprogramSnapshot } from "./miniprogram-workspace.js";
 import { getCloudbaseManager } from "./cloudbase.js";
+import {
+  injectAdminRuntimeHtml,
+  resolveMiniprogramRuntime,
+} from "./miniprogram-runtime-environment.js";
 
 /**
  * PC 管理后台的 CloudBase 静态托管发布。
  *
- * 一个刻意划定的边界：**服务端不执行项目配置里的 buildCommand**。
- * 那等于让「项目配置」在服务进程里跑任意代码；构建应当发生在 Agent 的沙箱里，
- * 产物写进 admin 目录，服务端只做「物化 → 上传 → 记录」。因此这里要求
- * 上传集合的根部必须有 index.html，否则拒绝并提示先在沙箱里构建。
+ * Admin 工作区本身就是可发布根目录。服务端只做「物化 → 上传 → 记录」，
+ * 不执行构建命令，也不再约定额外的 dist 目录。
  *
  * 环境限定：只有 development 允许由 Agent 触发；生产环境需项目负责人在界面确认
  * （由审批流表达，见 server/release-requests.js）。
@@ -31,25 +33,11 @@ export function normalizeCloudPath(value) {
   return raw.replace(/^\/+/, "").replace(/\/+$/, "");
 }
 
-/**
- * Pick the files to upload: the configured distDir when the admin area provides
- * one, otherwise the whole admin area. Paths are relative to the upload root.
- */
-export function selectHostingFiles(files, distDir) {
-  const prefix = normalizeCloudPath(distDir);
-  const scoped = [];
-  for (const file of files) {
-    const path = String(file.path || "").replace(/^\/+/, "");
-    if (!path) continue;
-    if (prefix) {
-      if (path === prefix) continue;
-      if (!path.startsWith(`${prefix}/`)) continue;
-      scoped.push({ ...file, relative: path.slice(prefix.length + 1) });
-    } else {
-      scoped.push({ ...file, relative: path });
-    }
-  }
-  return scoped;
+/** Select the whole Admin workspace; it is the static site's upload root. */
+export function selectHostingFiles(files) {
+  return files
+    .map((file) => ({ ...file, relative: String(file.path || "").replace(/^\/+/, "") }))
+    .filter((file) => file.relative);
 }
 
 export function assertHostingPayload(entries) {
@@ -67,23 +55,24 @@ export function assertHostingPayload(entries) {
     throw new HttpError(413, "Admin 产物总体积超出上限");
   }
   if (!entries.some((entry) => entry.relative === "index.html")) {
-    throw new HttpError(
-      409,
-      "Admin 产物根部缺少 index.html：静态托管要求入口文件；若产物在子目录，请在项目配置中填写产物目录",
-    );
+    throw new HttpError(409, "Admin 根目录缺少 index.html：静态网站托管要求入口文件");
   }
   return { fileCount: entries.length, totalBytes: total };
 }
 
-async function materialize(dir, entries, db) {
+async function materialize(dir, entries, db, runtimeConfig) {
   let bytes = 0;
   for (const entry of entries) {
     const [row] = await query(db, "SELECT content FROM versions WHERE id=?", [entry.versionId]);
     if (!row) throw new HttpError(409, `产物版本已不存在：${entry.path}`);
     const target = join(dir, ...entry.relative.split("/"));
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, row.content);
-    bytes += row.content?.length || 0;
+    const content =
+      entry.relative === "index.html"
+        ? injectAdminRuntimeHtml(row.content, runtimeConfig)
+        : row.content;
+    await writeFile(target, content);
+    bytes += content?.length || 0;
   }
   return bytes;
 }
@@ -92,10 +81,46 @@ async function readHostingDomain(manager) {
   try {
     const info = await manager.hosting.getInfo();
     const first = Array.isArray(info) ? info[0] : null;
-    return first?.domain || first?.Domain || null;
+    if (!first) return null;
+    // 实测 getInfo() 返回的字段是 `CdnDomain`（同结构里还有 Bucket/Region/Status）。
+    // 早期只读 domain/Domain 会得到 null，发布记录里因此没有可访问地址。
+    return first.CdnDomain || first.cdnDomain || first.domain || first.Domain || null;
   } catch {
     return null;
   }
+}
+
+function hostingUrl(domain, cloudPath) {
+  const value = String(domain || "").trim();
+  if (!value) return null;
+  let parsed;
+  try {
+    parsed = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+  const prefix = parsed.pathname.replace(/\/+$/, "");
+  const suffix = cloudPath ? `/${cloudPath}/` : "/";
+  parsed.pathname = `${prefix}${suffix}`.replace(/\/{2,}/g, "/");
+  return parsed.href;
+}
+
+/** Resolve the current Admin address even when an older deployment row has no URL. */
+export async function readAdminProductionUrl(service, user, projectId) {
+  await service.member(user, projectId, false);
+  const runtime = await loadProjectMiniProgramRuntime(service, projectId);
+  const adminDeploy = runtime.adminDeploy;
+  if (!adminDeploy) return { environment: "production", url: null };
+  const cloudPath = normalizeCloudPath(adminDeploy.hostingPath);
+  const customUrl = hostingUrl(adminDeploy.customDomain, cloudPath);
+  if (customUrl) return { environment: "production", url: customUrl };
+  if (!runtime.cloudbaseEnvs?.production?.envId && !runtime.cloudbaseEnvs?.development?.envId) {
+    return { environment: "production", url: null };
+  }
+  const { manager } = await getCloudbaseManager(service, projectId, "production");
+  const domain = await readHostingDomain(manager);
+  return { environment: "production", url: hostingUrl(domain, cloudPath) };
 }
 
 /**
@@ -103,15 +128,19 @@ async function readHostingDomain(manager) {
  * deployment. Returns the deployment id so the approval flow can store it.
  */
 export async function deployAdminHosting(service, actor, projectId, request, options = {}) {
+  if (request?.target && request.target !== "cloudbase_static") {
+    throw new HttpError(400, "Admin 仅支持静态网站托管");
+  }
   const runtime = await loadProjectMiniProgramRuntime(service, projectId);
-  if (!runtime.enabled) throw new HttpError(409, "该项目尚未启用小程序全量工作区");
+  if (!runtime.enabled) throw new HttpError(409, "小程序工作区尚未通过连接测试");
   const adminDeploy = runtime.adminDeploy;
-  if (!adminDeploy) throw new HttpError(409, "尚未配置 Admin 发布目标");
-  const environment = request.environment || adminDeploy.environment || "development";
+  if (!adminDeploy) throw new HttpError(409, "尚未配置 Admin 生产版");
+  const runtimeConfig = resolveMiniprogramRuntime(runtime, "admin_publish");
+  const environment = runtimeConfig.environment;
 
   const snapshot = await miniprogramSnapshot(service.db, projectId);
   const adminFiles = snapshot.areas.miniprogram_admin?.files || [];
-  const selected = selectHostingFiles(adminFiles, adminDeploy.distDir);
+  const selected = selectHostingFiles(adminFiles);
   const payload = assertHostingPayload(selected);
 
   const cloudPath = normalizeCloudPath(adminDeploy.hostingPath);
@@ -121,10 +150,10 @@ export async function deployAdminHosting(service, actor, projectId, request, opt
     // Resolved inside the try so a credential/config failure is still recorded as a
     // failed deployment instead of vanishing (audit consistency).
     const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
-    const bytes = await materialize(dir, selected, service.db);
+    const bytes = await materialize(dir, selected, service.db, runtimeConfig);
     log.push(`materialized ${selected.length} files (${bytes} bytes)`);
     const info = await stat(join(dir, "index.html"));
-    if (!info.isFile()) throw new HttpError(409, "Admin 产物 index.html 不是文件");
+    if (!info.isFile()) throw new HttpError(409, "Admin 根目录的 index.html 不是文件");
 
     await manager.hosting.uploadFiles({
       localPath: dir,
@@ -146,7 +175,7 @@ export async function deployAdminHosting(service, actor, projectId, request, opt
     }
 
     const domain = await readHostingDomain(manager);
-    const url = domain ? `https://${domain}${cloudPath ? `/${cloudPath}/` : "/"}` : null;
+    const url = hostingUrl(domain, cloudPath);
 
     const deploymentId = randomUUID();
     await query(
@@ -168,7 +197,7 @@ export async function deployAdminHosting(service, actor, projectId, request, opt
         actor.id,
       ],
     );
-    return { deploymentId, url, envId, cloudPath, ...payload };
+    return { deploymentId, url, envId, environment, cloudPath, ...payload };
   } catch (error) {
     const detail =
       error instanceof HttpError ? error.message : `Admin 发布失败：${error?.message || error}`;

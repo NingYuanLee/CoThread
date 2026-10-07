@@ -1,5 +1,7 @@
 # DSH owns reasoning and sessions; model-facing I/O uses the sandbox bridge.
 - insert:
+    - id: session-query
+      name: '@deepseek-ai/dsh-session-query'
     - id: token-meter
       name: '@deepseek-ai/dsh-token-meter'
     - id: subagent-service

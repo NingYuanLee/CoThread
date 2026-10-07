@@ -202,6 +202,36 @@ test("project memory gathers cross-iteration statements and rejects stale overwr
   }
 });
 
+test("project memory bounds oversized member summaries before persistence", async () => {
+  const member = { id: randomUUID(), kind: "session" };
+  await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
+    member.id,
+    `${member.id}@test.com`,
+    "长摘要成员",
+  ]);
+  const service = new Service(db);
+  const project = await service.createProject(member, { name: "摘要边界" });
+  const thread = await service.createThread(member, project.id, { title: "边界" });
+  const message = await service.postMessage(member, thread.id, { body: "请记录这条内容。" });
+  await saveMemberUnderstandings(
+    db,
+    project.id,
+    [{ id: member.id, latestRelatedSequence: String(message.sequence) }],
+    [{
+      memberId: member.id,
+      statementSummary: "字".repeat(2500),
+      understanding: "好".repeat(1000),
+    }],
+  );
+  const [stored] = await query(
+    db,
+    "SELECT summary,statement_summary FROM agent_member_summaries WHERE project_id=? AND user_id=?",
+    [project.id, member.id],
+  );
+  assert.equal(Array.from(stored.summary).length, 800);
+  assert.equal(Array.from(stored.statement_summary).length, 2000);
+});
+
 test("member memory does not call the model when nobody said anything new", async () => {
   try {
     const owner = { id: randomUUID(), kind: "session" };

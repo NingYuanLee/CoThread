@@ -83,10 +83,16 @@ import {
 import {
   deleteProjectMiniProgramSecret,
   readProjectMiniProgramConfig,
+  saveAdminProductionConfig,
   saveProjectMiniProgramConfig,
   saveProjectMiniProgramSecret,
   verifyProjectMiniProgramConfig,
 } from "./miniprogram-config.js";
+import {
+  readMiniprogramAuthConfig,
+  saveMiniprogramAuthConfig,
+  saveMiniprogramPublishableKey,
+} from "./miniprogram-auth-config.js";
 import {
   buildMiniprogramPreview,
   listMiniprogramBuilds,
@@ -94,28 +100,45 @@ import {
   readMiniprogramPreviewMeta,
   readMiniprogramResource,
 } from "./miniprogram-build.js";
-import { publishMiniprogramSourceFile } from "./miniprogram-workspace.js";
+import { migrateLegacyAdminDist, publishMiniprogramSourceFile } from "./miniprogram-workspace.js";
 import {
   listMiniprogramDevServers,
   proxyDevServerRequest,
   recycleIdleDevServers,
   registerMiniprogramDevServer,
+  startMiniprogramDevServer,
   stopMiniprogramDevServer,
   updateMiniprogramDevServer,
 } from "./miniprogram-dev-server.js";
+import { readAdminProductionUrl } from "./cloudbase-hosting.js";
 import {
   addCloudbaseDocument,
   cloudbaseFileUrls,
+  createCloudbaseDirectory,
   deleteCloudbaseFiles,
+  deleteCloudbaseStorageEntry,
   queryCloudbaseDocuments,
   readCloudbaseEnvironments,
   removeCloudbaseDocument,
   resetCloudbaseClients,
+  getCloudbaseFileDownload,
   listCloudbaseCollections,
   listCloudbaseFiles,
   updateCloudbaseDocument,
   uploadCloudbaseFile,
+  ensureCloudbasePublishableKey,
+  readCloudbaseAuthSettings,
+  updateCloudbaseAuthSettings,
+  readCloudbaseAdminAccount,
+  saveCloudbaseAdminAccount,
+  invokeCloudbaseFunction,
+  searchCloudbaseFunctionLogs,
 } from "./cloudbase.js";
+import {
+  createCloudbaseTimer,
+  deleteCloudbaseTimer,
+  listCloudbaseFunctions,
+} from "./cloudbase-functions.js";
 import {
   listMiniprogramDeployments,
   previewMiniprogram,
@@ -123,11 +146,16 @@ import {
   uploadMiniprogram,
 } from "./wechat-ci.js";
 import {
+  approveReleaseApplication,
   approveReleaseRequest,
+  cancelReleaseApplication,
   cancelReleaseRequest,
+  listReleaseApplications,
   listReleaseRequests,
   readReleaseRequest,
+  rejectReleaseApplication,
   rejectReleaseRequest,
+  submitReleaseApplication,
   submitReleaseRequest,
 } from "./release-requests.js";
 import { executeRelease } from "./release-executor.js";
@@ -843,9 +871,11 @@ export function createApp(
       await service.project(req.user, req.params.id, { display: req.query.view === "chat" }),
     ),
   );
-  app.get("/api/projects/:id/library", async (req, res) =>
-    res.json(await service.projectLibrary(req.user, req.params.id)),
-  );
+  app.get("/api/projects/:id/library", async (req, res) => {
+    await service.member(req.user, req.params.id);
+    await migrateLegacyAdminDist(db, req.params.id);
+    res.json(await service.projectLibrary(req.user, req.params.id));
+  });
   app.get("/api/projects/:id/agent-monitor", async (req, res) =>
     res.json(await service.agentMonitor(req.user, req.params.id)),
   );
@@ -1232,6 +1262,67 @@ export function createApp(
   app.put("/api/projects/:id/miniprogram-config", async (req, res) =>
     res.json(await saveProjectMiniProgramConfig(service, req.user, req.params.id, req.body)),
   );
+  const saveAdminProduction = async (req, res) =>
+    res.json(await saveAdminProductionConfig(service, req.user, req.params.id, req.body));
+  app.put("/api/projects/:id/miniprogram/admin-production", saveAdminProduction);
+  // Compatibility for clients opened before Admin experience and production were unified.
+  app.put("/api/projects/:id/miniprogram/admin-experience", saveAdminProduction);
+  app.get("/api/projects/:id/miniprogram-auth-config", async (req, res) =>
+    res.json(
+      await readMiniprogramAuthConfig(service, req.user, req.params.id, {
+        environment: req.query.environment,
+      }),
+    ),
+  );
+  app.put("/api/projects/:id/miniprogram-auth-config", async (req, res) =>
+    res.json(await saveMiniprogramAuthConfig(service, req.user, req.params.id, req.body || {})),
+  );
+  app.get("/api/projects/:id/cloudbase/auth-settings", async (req, res) =>
+    res.json(await readCloudbaseAuthSettings(service, req.user, req.params.id, req.query.environment || "development")),
+  );
+  app.put("/api/projects/:id/cloudbase/auth-settings", async (req, res) =>
+    res.json(await updateCloudbaseAuthSettings(service, req.user, req.params.id, req.body || {})),
+  );
+  app.get("/api/projects/:id/cloudbase/admin-account", async (req, res) =>
+    res.json(await readCloudbaseAdminAccount(service, req.user, req.params.id, req.query.environment || "development")),
+  );
+  app.put("/api/projects/:id/cloudbase/admin-account", async (req, res) =>
+    res.json(await saveCloudbaseAdminAccount(service, req.user, req.params.id, req.body || {})),
+  );
+  app.post("/api/projects/:id/cloudbase/functions/:functionName/invoke", async (req, res) =>
+    res.json(await invokeCloudbaseFunction(service, req.user, req.params.id, { ...(req.body || {}), name: req.params.functionName })),
+  );
+  app.get("/api/projects/:id/cloudbase/functions/:functionName/logs", async (req, res) =>
+    res.json(await searchCloudbaseFunctionLogs(service, req.user, req.params.id, { ...req.query, name: req.params.functionName })),
+  );
+  app.put("/api/projects/:id/miniprogram-auth-config/publishable-key", async (req, res) => {
+    await service.member(req.user, req.params.id, true, service.db, true);
+    const environment = req.body?.environment;
+    await saveMiniprogramPublishableKey(
+      service.db,
+      req.params.id,
+      environment,
+      req.body?.cloudbasePublishableKey,
+      req.user.id,
+    );
+    res.json(await readMiniprogramAuthConfig(service, req.user, req.params.id, { environment }));
+  });
+  app.post("/api/projects/:id/miniprogram-auth-config/publishable-key", async (req, res) => {
+    const environment = req.body?.environment || "development";
+    await service.member(req.user, req.params.id, true, service.db, true);
+    const key = await ensureCloudbasePublishableKey(service, req.params.id, environment);
+    await saveMiniprogramPublishableKey(
+      service.db,
+      req.params.id,
+      environment,
+      key.publishableKey,
+      req.user.id,
+    );
+    res.json({
+      ...(await readMiniprogramAuthConfig(service, req.user, req.params.id, { environment })),
+      publishableKeyCreated: key.created,
+    });
+  });
   app.post("/api/projects/:id/miniprogram-config/verify", async (req, res) =>
     res.json(await verifyProjectMiniProgramConfig(service, req.user, req.params.id)),
   );
@@ -1284,6 +1375,11 @@ export function createApp(
     res
       .status(201)
       .json(await registerMiniprogramDevServer(service, req.user, req.params.id, req.body));
+  });
+  app.post("/api/projects/:id/miniprogram/dev-servers/start", async (req, res) => {
+    await service.member(req.user, req.params.id, true, db, true);
+    const serverId = req.body?.serverId ? z.string().uuid().parse(req.body.serverId) : null;
+    res.json(await startMiniprogramDevServer(service, req.params.id, serverId));
   });
   app.patch("/api/projects/:id/miniprogram/dev-servers/:serverId", async (req, res) => {
     await service.member(req.user, req.params.id, true, db, true);
@@ -1350,6 +1446,48 @@ export function createApp(
   app.post("/api/projects/:id/miniprogram/release-requests/:requestId/cancel", async (req, res) =>
     res.json(await cancelReleaseRequest(service, req.user, req.params.id, req.params.requestId)),
   );
+  app.post("/api/projects/:id/miniprogram/release-applications", async (req, res) =>
+    res
+      .status(201)
+      .json(await submitReleaseApplication(service, req.user, req.params.id, req.body || {})),
+  );
+  app.get("/api/projects/:id/miniprogram/release-applications", async (req, res) =>
+    res.json(
+      await listReleaseApplications(service, req.user, req.params.id, { limit: req.query.limit }),
+    ),
+  );
+  app.post(
+    "/api/projects/:id/miniprogram/release-applications/:applicationId/approve",
+    async (req, res) =>
+      res.json(
+        await approveReleaseApplication(
+          service,
+          req.user,
+          req.params.id,
+          req.params.applicationId,
+          {
+            note: req.body?.note,
+            execute: (request) => executeRelease(service, req.user, req.params.id, request),
+          },
+        ),
+      ),
+  );
+  app.post(
+    "/api/projects/:id/miniprogram/release-applications/:applicationId/reject",
+    async (req, res) =>
+      res.json(
+        await rejectReleaseApplication(service, req.user, req.params.id, req.params.applicationId, {
+          reason: req.body?.reason,
+        }),
+      ),
+  );
+  app.post(
+    "/api/projects/:id/miniprogram/release-applications/:applicationId/cancel",
+    async (req, res) =>
+      res.json(
+        await cancelReleaseApplication(service, req.user, req.params.id, req.params.applicationId),
+      ),
+  );
   app.post("/api/projects/:id/miniprogram/wechat/preview", async (req, res) => {
     await service.member(req.user, req.params.id, true, db, true);
     res
@@ -1357,11 +1495,49 @@ export function createApp(
       .json(await previewMiniprogram(service, req.user, req.params.id, req.body || {}));
   });
   app.post("/api/projects/:id/miniprogram/wechat/upload", async (req, res) => {
-    await service.member(req.user, req.params.id, true, db, true);
+    await service.member(req.user, req.params.id, true, db);
     res.status(201).json(await uploadMiniprogram(service, req.user, req.params.id, req.body || {}));
   });
   app.get("/api/projects/:id/cloudbase/environments", async (req, res) =>
     res.json(await readCloudbaseEnvironments(service, req.user, req.params.id)),
+  );
+  const readAdminProductionAddress = async (req, res) =>
+    res.json(await readAdminProductionUrl(service, req.user, req.params.id));
+  app.get("/api/projects/:id/cloudbase/admin-production-url", readAdminProductionAddress);
+  app.get("/api/projects/:id/cloudbase/admin-experience-url", readAdminProductionAddress);
+  app.get("/api/projects/:id/cloudbase/functions", async (req, res) =>
+    res.json(
+      await listCloudbaseFunctions(service, req.user, req.params.id, {
+        environment: req.query.environment,
+      }),
+    ),
+  );
+  app.post("/api/projects/:id/cloudbase/functions/:functionName/timers", async (req, res) =>
+    res
+      .status(201)
+      .json(
+        await createCloudbaseTimer(
+          service,
+          req.user,
+          req.params.id,
+          req.params.functionName,
+          req.body || {},
+        ),
+      ),
+  );
+  app.delete(
+    "/api/projects/:id/cloudbase/functions/:functionName/timers/:triggerName",
+    async (req, res) =>
+      res.json(
+        await deleteCloudbaseTimer(
+          service,
+          req.user,
+          req.params.id,
+          req.params.functionName,
+          req.params.triggerName,
+          { environment: req.query.environment },
+        ),
+      ),
   );
   app.get("/api/projects/:id/cloudbase/collections", async (req, res) =>
     res.json(
@@ -1378,6 +1554,13 @@ export function createApp(
       }),
     ),
   );
+  app.get("/api/projects/:id/cloudbase/storage/download", async (req, res) => {
+    const result = await getCloudbaseFileDownload(service, req.user, req.params.id, {
+      environment: req.query.environment,
+      cloudPath: req.query.path,
+    });
+    res.redirect(302, result.url);
+  });
   app.post("/api/projects/:id/cloudbase/databases/query", async (req, res) =>
     res.json(await queryCloudbaseDocuments(service, req.user, req.params.id, req.body || {})),
   );
@@ -1410,6 +1593,14 @@ export function createApp(
   );
   app.post("/api/projects/:id/cloudbase/storage/delete", async (req, res) =>
     res.json(await deleteCloudbaseFiles(service, req.user, req.params.id, req.body || {})),
+  );
+  app.post("/api/projects/:id/cloudbase/storage/directory", async (req, res) =>
+    res
+      .status(201)
+      .json(await createCloudbaseDirectory(service, req.user, req.params.id, req.body || {})),
+  );
+  app.post("/api/projects/:id/cloudbase/storage/delete-entry", async (req, res) =>
+    res.json(await deleteCloudbaseStorageEntry(service, req.user, req.params.id, req.body || {})),
   );
   app.get("/api/projects/:id/miniprogram/preview-meta", async (req, res) =>
     res.json(await readMiniprogramPreviewMeta(service, req.user, req.params.id)),

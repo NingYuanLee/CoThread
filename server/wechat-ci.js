@@ -8,6 +8,10 @@ import { z } from "zod/v3";
 import { query } from "./db.js";
 import { HttpError } from "./service.js";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
+import {
+  injectMiniprogramRuntimeSource,
+  resolveMiniprogramRuntime,
+} from "./miniprogram-runtime-environment.js";
 import { miniprogramSnapshot } from "./miniprogram-workspace.js";
 
 /**
@@ -19,8 +23,8 @@ import { miniprogramSnapshot } from "./miniprogram-workspace.js";
  *  2. Nothing that reaches a log, an event row or a response may contain the
  *     key material, so every provider message passes through redactSecrets.
  *
- * Uploading a release is a production action: it requires a human session
- * actor unless the caller explicitly confirms.
+ * Uploading creates a WeChat experience version. Review and production release
+ * still happen in WeChat, so CoThread only requires project write permission.
  */
 
 export const WECHAT_KEY_MAX_BYTES = 64 * 1024;
@@ -125,7 +129,7 @@ export function parseProjectConfig(raw) {
   }
 }
 
-async function materializeProject(db, projectId, appId, dir) {
+async function materializeProject(db, projectId, appId, dir, runtimeConfig) {
   const snapshot = await miniprogramSnapshot(db, projectId);
   const sources = snapshot.areas.miniprogram_source?.files || [];
   if (!sources.length) throw new HttpError(409, "小程序源文件目录为空，请先写入源码");
@@ -134,7 +138,10 @@ async function materializeProject(db, projectId, appId, dir) {
     await mkdir(dirname(target), { recursive: true });
     const [row] = await query(db, "SELECT content FROM versions WHERE id=?", [file.versionId]);
     if (!row) throw new HttpError(409, `源码版本已不存在：${file.path}`);
-    await writeFile(target, row.content);
+    const content = /^(app|game)\.(js|ts)$/i.test(String(file.path))
+      ? injectMiniprogramRuntimeSource(row.content, file.path, runtimeConfig)
+      : row.content;
+    await writeFile(target, content);
   }
   const plan = resolveProjectConfig(sources, appId);
   if (plan.synthesized) {
@@ -334,10 +341,11 @@ async function executeReleaseStep(prepared, request) {
   return { ok: false, error, log: combinedLog };
 }
 
-async function prepareRelease(service, projectId) {
+async function prepareRelease(service, projectId, channel, { allowUnverified = false } = {}) {
   const runtime = await loadProjectMiniProgramRuntime(service, projectId);
-  if (!runtime.enabled) throw new HttpError(409, "该项目尚未启用小程序全量工作区");
+  if (!runtime.enabled && !allowUnverified) throw new HttpError(409, "小程序工作区尚未通过连接测试");
   if (!runtime.appId) throw new HttpError(409, "尚未配置微信小程序 AppID");
+  const runtimeConfig = resolveMiniprogramRuntime(runtime, channel);
   const privateKey = runtime.secrets?.wechat_upload_key;
   if (!privateKey) throw new HttpError(409, "尚未配置微信上传私钥");
   if (Buffer.byteLength(privateKey, "utf8") > WECHAT_KEY_MAX_BYTES) {
@@ -346,8 +354,14 @@ async function prepareRelease(service, projectId) {
   const settings = readWechatCiSettings(runtime);
   const dir = await mkdtemp(join(tmpdir(), "cothread-wechat-"));
   try {
-    const prepared = await materializeProject(service.db, projectId, runtime.appId, dir);
-    return { runtime, settings, dir, privateKey, ...prepared };
+    const prepared = await materializeProject(
+      service.db,
+      projectId,
+      runtime.appId,
+      dir,
+      runtimeConfig,
+    );
+    return { runtime, runtimeConfig, settings, dir, privateKey, ...prepared };
   } catch (error) {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
     throw error;
@@ -416,7 +430,7 @@ export async function listMiniprogramDeployments(service, user, projectId, { lim
 }
 
 /** Generate a preview QR code from the current source snapshot. */
-export async function previewMiniprogram(service, actor, projectId, input = {}) {
+export async function previewMiniprogram(service, actor, projectId, input = {}, options = {}) {
   const data = z
     .object({
       desc: z.string().trim().max(200).optional(),
@@ -425,7 +439,7 @@ export async function previewMiniprogram(service, actor, projectId, input = {}) 
     })
     .parse(input || {});
 
-  const prepared = await prepareRelease(service, projectId);
+  const prepared = await prepareRelease(service, projectId, "wechat_preview", options);
   const startedAt = Date.now();
   let log = "";
   try {
@@ -468,6 +482,7 @@ export async function previewMiniprogram(service, actor, projectId, input = {}) 
     const deploymentId = await recordDeployment(service.db, {
       projectId,
       target: "wechat_preview",
+      environment: prepared.runtimeConfig.environment,
       version: null,
       sourceHash: prepared.snapshot.sourceHash,
       status: "succeeded",
@@ -478,6 +493,8 @@ export async function previewMiniprogram(service, actor, projectId, input = {}) 
       deploymentId,
       status: "succeeded",
       appId: prepared.runtime.appId,
+      environment: prepared.runtimeConfig.environment,
+      envId: prepared.runtimeConfig.cloudbase.envId,
       projectConfigSynthesized: prepared.synthesized,
       sourceHash: prepared.snapshot.sourceHash,
       desc: desc || "共序预览",
@@ -491,6 +508,7 @@ export async function previewMiniprogram(service, actor, projectId, input = {}) 
     await recordDeployment(service.db, {
       projectId,
       target: "wechat_preview",
+      environment: prepared.runtimeConfig.environment,
       sourceHash: prepared.snapshot?.sourceHash || null,
       status: "failed",
       log: redactSecrets(`${log}\n${detail}`, [prepared.privateKey]),
@@ -502,31 +520,18 @@ export async function previewMiniprogram(service, actor, projectId, input = {}) 
   }
 }
 
-/**
- * Upload a candidate version to WeChat. Releasing is a production action, so a
- * non-human actor must pass an explicit confirmation.
- */
+/** Upload a candidate experience version to WeChat. */
 export async function uploadMiniprogram(service, actor, projectId, input = {}) {
+  await service.member(actor, projectId, true);
   const data = z
     .object({
       version: z.string().trim().min(1).max(64),
       desc: z.string().trim().max(200).optional(),
       robot: z.union([z.number(), z.string()]).optional(),
-      // 发布授权只能来自审批流：没有任何旁路能上传版本。
-      authorization: z
-        .object({ requestId: z.string().uuid(), approvedBy: z.string().uuid() })
-        .optional(),
     })
     .parse(input || {});
 
-  if (!data.authorization) {
-    throw new HttpError(
-      403,
-      "上传微信版本只能经发布审批流执行：请先提交发布申请，由项目负责人批准",
-    );
-  }
-
-  const prepared = await prepareRelease(service, projectId);
+  const prepared = await prepareRelease(service, projectId, "wechat_upload");
   const startedAt = Date.now();
   let log = "";
   try {
@@ -551,35 +556,32 @@ export async function uploadMiniprogram(service, actor, projectId, input = {}) {
     const deploymentId = await recordDeployment(service.db, {
       projectId,
       target: "wechat_upload",
+      environment: prepared.runtimeConfig.environment,
       version: data.version,
       sourceHash: prepared.snapshot.sourceHash,
       status: "succeeded",
       log: redactSecrets(log, [prepared.privateKey]),
       publishedBy: actor.id,
     });
-    await query(
-      service.db,
-      `UPDATE miniprogram_deployments SET confirmed_by=?,confirmed_at=UTC_TIMESTAMP(3) WHERE id=?`,
-      [actor.id, deploymentId],
-    );
     return {
       deploymentId,
       status: "succeeded",
       appId: prepared.runtime.appId,
+      environment: prepared.runtimeConfig.environment,
+      envId: prepared.runtimeConfig.cloudbase.envId,
       version: data.version,
       desc: desc || `v${data.version}`,
       projectConfigSynthesized: prepared.synthesized,
       sourceHash: prepared.snapshot.sourceHash,
-      confirmedBy: actor.id,
       elapsedMs: Date.now() - startedAt,
       summary: summarizeResult(result),
     };
   } catch (error) {
-    if (error instanceof HttpError && error.status === 403) throw error;
     const detail = redactSecrets(error?.message || String(error), [prepared.privateKey]);
     await recordDeployment(service.db, {
       projectId,
       target: "wechat_upload",
+      environment: prepared.runtimeConfig.environment,
       version: data.version,
       sourceHash: prepared.snapshot?.sourceHash || null,
       status: "failed",

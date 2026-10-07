@@ -3,12 +3,17 @@ import { z } from "zod/v3";
 import { query } from "./db.js";
 import { encryptToken, decryptToken } from "./credential-vault.js";
 import { HttpError } from "./service.js";
-import { ensureMiniprogramWorkspace } from "./miniprogram-workspace.js";
+import { ensureMiniprogramWorkspace, migrateLegacyAdminDist } from "./miniprogram-workspace.js";
+import { readMiniprogramAuthRuntime } from "./miniprogram-auth-config.js";
 import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./project-library.js";
 
-export const MINIPROGRAM_ENVIRONMENTS = ["development", "staging", "production"];
+export const MINIPROGRAM_ENVIRONMENTS = ["development", "production"];
 export const MINIPROGRAM_SECRET_KINDS = ["wechat_upload_key", "cloudbase_credential"];
-export const MINIPROGRAM_ADMIN_TARGETS = ["cloudbase_static", "cloudbase_hosted"];
+export const MINIPROGRAM_ADMIN_TARGETS = ["cloudbase_static"];
+
+export function isMiniProgramWorkspaceReady(config) {
+  return computeConfigStatus(config) === "verified";
+}
 
 export const MINIPROGRAM_SECRET_LABELS = {
   wechat_upload_key: "微信上传私钥",
@@ -17,7 +22,6 @@ export const MINIPROGRAM_SECRET_LABELS = {
 
 const ENVIRONMENT = z.enum(MINIPROGRAM_ENVIRONMENTS);
 const SECRET_KIND = z.enum(MINIPROGRAM_SECRET_KINDS);
-const ADMIN_TARGET = z.enum(MINIPROGRAM_ADMIN_TARGETS);
 
 const MAX_SECRET_BYTES = 64 * 1024;
 const WECHAT_APP_ID = /^wx[0-9a-f]{16}$/i;
@@ -38,12 +42,10 @@ const cloudbaseEnvSchema = z.object({
 });
 
 const adminDeploySchema = z.object({
-  target: ADMIN_TARGET,
-  environment: ENVIRONMENT.default("development"),
-  hostingPath: z.string().trim().max(255).default("/"),
+  target: z.literal("cloudbase_static").default("cloudbase_static"),
+  environment: z.literal("production").default("production"),
+  hostingPath: z.string().trim().max(255).default("/admin/"),
   customDomain: z.string().trim().max(255).nullable().optional(),
-  buildCommand: z.string().trim().max(512).nullable().optional(),
-  distDir: z.string().trim().max(255).default("dist"),
   spaFallback: z.boolean().default(true),
 });
 
@@ -54,7 +56,7 @@ const wechatCiSchema = z.object({
 });
 
 const configSchema = z.object({
-  enabled: z.boolean().default(false),
+  enabled: z.boolean().optional(),
   appId: z.string().trim().max(64).nullable().optional(),
   appName: z.string().trim().max(128).nullable().optional(),
   entryPage: z.string().trim().max(255).nullable().optional(),
@@ -93,18 +95,11 @@ function normalizeCloudbaseEnvs(input = {}) {
     };
   }
   if (
-    normalized.staging &&
-    normalized.development &&
-    normalized.staging.envId === normalized.development.envId
-  ) {
-    throw new HttpError(400, "预发布环境不能与开发环境使用同一个 CloudBase 环境 ID");
-  }
-  if (
     normalized.production &&
     normalized.development &&
     normalized.production.envId === normalized.development.envId
   ) {
-    throw new HttpError(400, "生产环境不能与开发环境使用同一个 CloudBase 环境 ID");
+    throw new HttpError(400, "生产环境与开发环境相同时请留空，系统会自动共用开发环境");
   }
   return normalized;
 }
@@ -112,17 +107,18 @@ function normalizeCloudbaseEnvs(input = {}) {
 function normalizeAdminDeploy(input) {
   if (!input) return null;
   return {
-    target: input.target,
-    environment: input.environment || "development",
-    hostingPath: parseHostingPath(input.hostingPath),
+    target: "cloudbase_static",
+    environment: "production",
+    hostingPath: parseHostingPath(input.hostingPath || "/admin/"),
     customDomain: input.customDomain ? String(input.customDomain).trim() : null,
-    buildCommand: input.buildCommand ? String(input.buildCommand).trim() : null,
-    distDir:
-      String(input.distDir || "dist")
-        .trim()
-        .replace(/^\/+|\/+$/g, "") || "dist",
-    spaFallback: Boolean(input.spaFallback),
+    spaFallback: input.spaFallback !== false,
   };
+}
+
+function readAdminDeploy(value) {
+  const parsed = parseJsonColumn(value);
+  if (!parsed || parsed.target !== "cloudbase_static") return null;
+  return normalizeAdminDeploy(parsed);
 }
 
 function normalizeWechatCi(input) {
@@ -171,13 +167,11 @@ export function computeConfigStatus({
   secrets,
   verifyError,
   verifiedAt,
-  enabled,
 }) {
   const hasAppId = Boolean(appId);
-  const hasEnv = Object.keys(cloudbaseEnvs || {}).length > 0;
+  const hasEnv = Boolean(cloudbaseEnvs?.development?.envId);
   if (!hasAppId && !hasEnv) return "unconfigured";
   if (!hasAppId || !hasEnv) return "incomplete";
-  if (!enabled) return "incomplete";
   const hasWechatKey = secrets?.wechat_upload_key?.configured;
   const hasCloudbaseKey = secrets?.cloudbase_credential?.configured;
   if (!hasWechatKey || !hasCloudbaseKey) return "credential_expired";
@@ -200,7 +194,6 @@ function deriveStatusFromRow(row, secrets) {
     secrets,
     verifyError: row.last_verify_error,
     verifiedAt: row.last_verified_at,
-    enabled: Boolean(row.enabled),
   });
 }
 
@@ -218,16 +211,18 @@ async function persistDerivedStatus(db, projectId) {
   );
   if (!row) return null;
   const status = deriveStatusFromRow(row, redactedSecretState(await readSecretRows(db, projectId)));
-  await query(db, "UPDATE project_miniprogram_config SET status=? WHERE project_id=?", [
-    status,
-    projectId,
-  ]);
+  await query(
+    db,
+    "UPDATE project_miniprogram_config SET status=?,enabled=? WHERE project_id=?",
+    [status, status === "verified" ? 1 : 0, projectId],
+  );
   return status;
 }
 
 /** Public config read: never returns secret material. */
 export async function readProjectMiniProgramConfig(service, user, projectId) {
   await service.member(user, projectId, false);
+  await migrateLegacyAdminDist(service.db, projectId);
   const [row] = await query(
     service.db,
     `SELECT project_id,enabled,app_id,app_name,entry_page,version_policy,cloudbase_envs,admin_deploy,
@@ -254,18 +249,19 @@ export async function readProjectMiniProgramConfig(service, user, projectId) {
       secrets,
     };
   }
+  const status = deriveStatusFromRow(row, secrets);
   return {
     projectId,
-    enabled: Boolean(row.enabled),
+    enabled: status === "verified",
     appId: row.app_id || null,
     appName: row.app_name || null,
     entryPage: row.entry_page || null,
     versionPolicy: row.version_policy || "manual",
     cloudbaseEnvs: parseJsonColumn(row.cloudbase_envs) || {},
-    adminDeploy: parseJsonColumn(row.admin_deploy),
+    adminDeploy: readAdminDeploy(row.admin_deploy),
     wechatCi: parseJsonColumn(row.wechat_ci),
     // Derived on read so a credential change is reflected without a stale column.
-    status: deriveStatusFromRow(row, secrets),
+    status,
     lastVerifiedAt: row.last_verified_at || null,
     lastVerifyError: row.last_verify_error || null,
     updatedAt: row.updated_at || null,
@@ -289,7 +285,7 @@ export async function saveProjectMiniProgramConfig(service, user, projectId, inp
     secrets,
     verifyError: null,
     verifiedAt: null,
-    enabled: data.enabled,
+    enabled: false,
   });
 
   await query(
@@ -303,7 +299,7 @@ export async function saveProjectMiniProgramConfig(service, user, projectId, inp
        wechat_ci=VALUES(wechat_ci),status=VALUES(status),last_verified_at=NULL,last_verify_error=NULL`,
     [
       projectId,
-      data.enabled ? 1 : 0,
+      0,
       appId,
       data.appName || null,
       data.entryPage || null,
@@ -321,15 +317,64 @@ export async function saveProjectMiniProgramConfig(service, user, projectId, inp
   return readProjectMiniProgramConfig(service, user, projectId);
 }
 
+/** The Admin sidebar owns the single fixed production/static-hosting configuration. */
+export async function saveAdminProductionConfig(service, user, projectId, input) {
+  await service.member(user, projectId, true, service.db, true);
+  const data = z
+    .object({ hostingPath: z.string().trim().max(255).default("/admin/") })
+    .parse(input || {});
+  const adminDeploy = normalizeAdminDeploy({ hostingPath: data.hostingPath });
+  const [existing] = await query(
+    service.db,
+    "SELECT project_id FROM project_miniprogram_config WHERE project_id=?",
+    [projectId],
+  );
+  if (!existing) throw new HttpError(409, "请先保存小程序与云开发配置");
+  await query(
+    service.db,
+    `UPDATE project_miniprogram_config SET admin_deploy=?,updated_at=UTC_TIMESTAMP(3)
+     WHERE project_id=?`,
+    [JSON.stringify(adminDeploy), projectId],
+  );
+  return readProjectMiniProgramConfig(service, user, projectId);
+}
+
 export async function saveProjectMiniProgramSecret(service, user, projectId, rawKind, input) {
   await service.member(user, projectId, true, service.db, true);
   const kind = SECRET_KIND.parse(rawKind);
   const data = z
     .object({
       value: z.string().min(1).max(MAX_SECRET_BYTES).optional(),
+      // CloudBase 凭据支持按字段提交：腾讯云控制台给的就是两段独立的值，
+      // 让界面拆成两个输入框比让用户自己拼 secretId:secretKey 更不容易出错。
+      secretId: z.string().trim().min(1).max(256).optional(),
+      secretKey: z.string().trim().min(1).max(1024).optional(),
+      sessionToken: z.string().trim().max(MAX_SECRET_BYTES).optional(),
       clear: z.boolean().optional(),
     })
     .parse(input || {});
+
+  let payload = data.value || null;
+  let hint = payload ? hintOf(payload) : null;
+  if (!data.clear && (data.secretId || data.secretKey)) {
+    if (kind !== "cloudbase_credential") {
+      throw new HttpError(
+        400,
+        `${MINIPROGRAM_SECRET_LABELS[kind]}不接受 SecretId/SecretKey 分段提交`,
+      );
+    }
+    if (!data.secretId || !data.secretKey) {
+      throw new HttpError(400, "请同时填写 SecretId 与 SecretKey");
+    }
+    if (/[{}\s]/.test(data.secretId) || data.secretId.includes(":")) {
+      throw new HttpError(400, "SecretId 里不要包含空格、冒号或花括号，请只粘贴 SecretId 本身的值");
+    }
+    const composed = { secretId: data.secretId, secretKey: data.secretKey };
+    if (data.sessionToken) composed.sessionToken = data.sessionToken;
+    payload = JSON.stringify(composed);
+    // 提示串取 SecretId 尾四位：整段 JSON 的尾四位（`or"}`）没有任何辨识价值。
+    hint = hintOf(data.secretId);
+  }
 
   const [existing] = await query(
     service.db,
@@ -342,15 +387,19 @@ export async function saveProjectMiniProgramSecret(service, user, projectId, raw
       "DELETE FROM project_miniprogram_secrets WHERE project_id=? AND kind=?",
       [projectId, kind],
     );
+    await query(
+      service.db,
+      "UPDATE project_miniprogram_config SET last_verified_at=NULL,last_verify_error=NULL WHERE project_id=?",
+      [projectId],
+    );
     await persistDerivedStatus(service.db, projectId);
     return readProjectMiniProgramConfig(service, user, projectId);
   }
-  if (!data.value) throw new HttpError(400, `请提供${MINIPROGRAM_SECRET_LABELS[kind]}`);
-  if (Buffer.byteLength(data.value, "utf8") > MAX_SECRET_BYTES) {
+  if (!payload) throw new HttpError(400, `请提供${MINIPROGRAM_SECRET_LABELS[kind]}`);
+  if (Buffer.byteLength(payload, "utf8") > MAX_SECRET_BYTES) {
     throw new HttpError(400, `${MINIPROGRAM_SECRET_LABELS[kind]}超过 ${MAX_SECRET_BYTES} 字节上限`);
   }
-  const ciphertext = await encryptToken(data.value, vaultId(projectId));
-  const hint = hintOf(data.value);
+  const ciphertext = await encryptToken(payload, vaultId(projectId));
   if (existing) {
     await query(
       service.db,
@@ -366,6 +415,11 @@ export async function saveProjectMiniProgramSecret(service, user, projectId, raw
       [randomUUID(), projectId, kind, ciphertext, hint, user.id],
     );
   }
+  await query(
+    service.db,
+    "UPDATE project_miniprogram_config SET last_verified_at=NULL,last_verify_error=NULL WHERE project_id=?",
+    [projectId],
+  );
   await persistDerivedStatus(service.db, projectId);
   return readProjectMiniProgramConfig(service, user, projectId);
 }
@@ -378,6 +432,11 @@ export async function deleteProjectMiniProgramSecret(service, user, projectId, r
     projectId,
     kind,
   ]);
+  await query(
+    service.db,
+    "UPDATE project_miniprogram_config SET last_verified_at=NULL,last_verify_error=NULL WHERE project_id=?",
+    [projectId],
+  );
   await persistDerivedStatus(service.db, projectId);
   return readProjectMiniProgramConfig(service, user, projectId);
 }
@@ -396,7 +455,7 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
   );
   if (!row) throw new HttpError(409, "请先保存小程序与云开发配置");
   const cloudbaseEnvs = parseJsonColumn(row.cloudbase_envs) || {};
-  const adminDeploy = parseJsonColumn(row.admin_deploy);
+  const adminDeploy = readAdminDeploy(row.admin_deploy);
   const secrets = redactedSecretState(await readSecretRows(service.db, projectId));
 
   const checks = [];
@@ -405,10 +464,18 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
   if (row.app_id) push("wechat_appid", "小程序 AppID", "passed", "格式正确");
   else push("wechat_appid", "小程序 AppID", "failed", "尚未填写 AppID");
 
-  if (secrets.wechat_upload_key.configured) {
-    push("wechat_credential", "微信上传私钥", "pending", "已保存；真实连通性在预览/上传时校验");
-  } else {
+  if (!secrets.wechat_upload_key.configured) {
     push("wechat_credential", "微信上传私钥", "failed", "尚未上传上传私钥");
+  } else if (!row.app_id || !cloudbaseEnvs.development?.envId) {
+    push("wechat_credential", "微信上传私钥", "pending", "补齐 AppID 和 CloudBase 开发环境后才能测试微信预览");
+  } else {
+    try {
+      const { previewMiniprogram } = await import("./wechat-ci.js");
+      await previewMiniprogram(service, user, projectId, { desc: "CoThread 工作区连接验证" }, { allowUnverified: true });
+      push("wechat_credential", "微信上传私钥", "passed", "已向微信生成体验版预览；未上传正式版本");
+    } catch (error) {
+      push("wechat_credential", "微信上传私钥", "failed", `微信预览模拟失败：${String(error?.message || error).slice(0, 240)}`);
+    }
   }
 
   if (cloudbaseEnvs.development?.envId) {
@@ -434,14 +501,14 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
     const decrypted = await loadProjectMiniProgramRuntime(service, projectId);
     const info = classifyCloudbaseCredential(decrypted.secrets?.cloudbase_credential);
     if (info.kind === "keypair" || info.kind === "sts") {
-      push(
-        "cloudbase_credential",
-        "CloudBase 凭据",
-        "pending",
-        info.kind === "sts"
-          ? "已保存临时密钥（secretId/secretKey + sessionToken）；真实连通性在云资源操作时校验"
-          : "已保存 API 密钥对；真实连通性在云资源操作时校验",
-      );
+      try {
+        const { getCloudbaseManager } = await import("./cloudbase.js");
+        const { manager } = await getCloudbaseManager(service, projectId, "development");
+        await manager.functions.listFunctions(1, 0);
+        push("cloudbase_credential", "CloudBase 凭据", "passed", "已成功读取开发环境云函数列表（只读测试）");
+      } catch (error) {
+        push("cloudbase_credential", "CloudBase 凭据", "failed", `CloudBase 只读测试失败：${String(error?.message || error).slice(0, 240)}`);
+      }
     } else if (info.kind === "auth_token") {
       push("cloudbase_credential", "CloudBase 凭据", "failed", cloudbaseAuthTokenGuidance(info));
     } else if (info.kind === "missing") {
@@ -459,24 +526,14 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
   }
 
   if (!adminDeploy) {
-    push("admin_deploy", "Admin 发布目标", "pending", "尚未配置；配置后才能发布 PC 管理后台");
+    push("admin_deploy", "Admin 生产版", "pending", "尚未在 PC管理后台预览服务中配置生产版");
   } else {
     push(
       "admin_deploy",
-      "Admin 发布目标",
+      "Admin 生产版",
       "passed",
-      `${adminDeploy.target} · ${adminDeploy.environment} · ${adminDeploy.hostingPath}`,
+      `静态网站托管 · 生产环境 · ${adminDeploy.hostingPath}`,
     );
-    if (adminDeploy.buildCommand || adminDeploy.target === "cloudbase_static") {
-      push(
-        "admin_build",
-        "Admin 构建配置",
-        adminDeploy.distDir ? "passed" : "failed",
-        adminDeploy.distDir ? `产物目录 ${adminDeploy.distDir}` : "缺少产物目录",
-      );
-    } else {
-      push("admin_build", "Admin 构建配置", "pending", "使用 CloudBase 平台构建");
-    }
   }
 
   const failed = checks.filter((check) => check.status === "failed");
@@ -510,7 +567,7 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
 export async function loadProjectMiniProgramRuntime(service, projectId) {
   const [row] = await query(
     service.db,
-    `SELECT enabled,app_id,app_name,entry_page,cloudbase_envs,admin_deploy,wechat_ci
+    `SELECT enabled,app_id,app_name,entry_page,cloudbase_envs,admin_deploy,wechat_ci,last_verified_at,last_verify_error
      FROM project_miniprogram_config WHERE project_id=?`,
     [projectId],
   );
@@ -525,13 +582,20 @@ export async function loadProjectMiniProgramRuntime(service, projectId) {
   }
   return {
     projectId,
-    enabled: Boolean(row.enabled),
+    enabled: isMiniProgramWorkspaceReady({
+      appId: row.app_id,
+      cloudbaseEnvs: parseJsonColumn(row.cloudbase_envs) || {},
+      secrets: Object.fromEntries(Object.entries(secrets).map(([kind, value]) => [kind, { configured: Boolean(value) }])),
+      verifyError: row.last_verify_error,
+      verifiedAt: row.last_verified_at,
+    }),
     appId: row.app_id || null,
     appName: row.app_name || null,
     entryPage: row.entry_page || null,
     cloudbaseEnvs: parseJsonColumn(row.cloudbase_envs) || {},
-    adminDeploy: parseJsonColumn(row.admin_deploy),
+    adminDeploy: readAdminDeploy(row.admin_deploy),
     wechatCi: parseJsonColumn(row.wechat_ci),
+    authConfigs: await readMiniprogramAuthRuntime(service.db, projectId),
     secrets,
   };
 }

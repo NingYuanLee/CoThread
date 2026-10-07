@@ -70,7 +70,7 @@ function fakeManager(calls, { failUpload, domain = "admin.example.com" } = {}) {
   };
 }
 
-async function seed(database, { withAdminDeploy = true, distDir = null } = {}) {
+async function seed(database, { withAdminDeploy = true, withProduction = true } = {}) {
   const owner = { id: randomUUID(), kind: "session" };
   await query(
     database.db,
@@ -82,16 +82,16 @@ async function seed(database, { withAdminDeploy = true, distDir = null } = {}) {
   await saveProjectMiniProgramConfig(service, owner, project.id, {
     enabled: true,
     appId: VALID_APP_ID,
-    cloudbaseEnvs: { development: { envId: "dev-env-hosting" } },
+    cloudbaseEnvs: {
+      development: { envId: "dev-env-hosting" },
+      ...(withProduction ? { production: { envId: "prod-env-hosting" } } : {}),
+    },
     adminDeploy: withAdminDeploy
       ? {
           target: "cloudbase_static",
-          // distDir is not nullable in the config schema; omit it to mean "whole area".
-          ...(distDir ? { distDir } : {}),
-          environment: "development",
+          environment: "production",
           hostingPath: "/admin/",
           spaFallback: true,
-          buildCommand: "npm run build",
         }
       : null,
   });
@@ -129,18 +129,15 @@ test("cloudPath and file selection are normalized", () => {
   );
 
   const files = [
-    { path: "dist/index.html", versionId: "v1" },
-    { path: "dist/assets/app.js", versionId: "v2" },
+    { path: "index.html", versionId: "v1" },
+    { path: "assets/app.js", versionId: "v2" },
     { path: "src/main.tsx", versionId: "v3" },
-    { path: "dist", versionId: "v4" },
   ];
-  const scoped = selectHostingFiles(files, "dist");
+  const scoped = selectHostingFiles(files);
   assert.deepEqual(
     scoped.map((f) => f.relative),
-    ["index.html", "assets/app.js"],
+    ["index.html", "assets/app.js", "src/main.tsx"],
   );
-  // No distDir means the whole area is the payload.
-  assert.equal(selectHostingFiles(files, null).length, 4);
 });
 
 test("a payload without a root index.html is refused with guidance", () => {
@@ -165,7 +162,7 @@ test("admin deploy requires a configured target", async () => {
     const { owner, service, project } = await seed(database, { withAdminDeploy: false });
     await assert.rejects(
       () => deployAdminHosting(service, owner, project.id, { target: "cloudbase_static" }),
-      (error) => error.status === 409 && /尚未配置 Admin 发布目标/.test(error.message),
+      (error) => error.status === 409 && /尚未配置 Admin 生产版/.test(error.message),
     );
   } finally {
     resetCloudbaseClients();
@@ -198,24 +195,24 @@ test("the built bundle is uploaded to the configured hosting path", async () => 
   const before = new Set(await readdir(tmpdir()));
   try {
     const { owner, service, project } = await seed(database);
-    await put(database.db, owner, project.id, "dist/index.html", "<html></html>");
-    await put(database.db, owner, project.id, "dist/assets/app.js", "console.log(1)");
-    await put(database.db, owner, project.id, "README.md", "not uploaded");
+    await put(database.db, owner, project.id, "index.html", "<html></html>");
+    await put(database.db, owner, project.id, "assets/app.js", "console.log(1)");
+    await put(database.db, owner, project.id, "README.md", "published from the root");
 
     const result = await deployAdminHosting(service, owner, project.id, {
       target: "cloudbase_static",
       id: randomUUID(),
     });
-    assert.equal(result.fileCount, 2);
+    assert.equal(result.fileCount, 3);
     assert.equal(result.cloudPath, "admin");
-    assert.equal(result.envId, "dev-env-hosting");
+    assert.equal(result.envId, "prod-env-hosting");
     assert.equal(result.url, "https://admin.example.com/admin/");
 
     const upload = calls.find((call) => call.op === "uploadFiles");
     assert.equal(upload.cloudPath, "admin");
-    assert.deepEqual(upload.files.sort(), ["assets", "index.html"]);
-    // README.md lives outside dist/ and must not be published.
-    assert.equal(upload.files.includes("README.md"), false);
+    assert.deepEqual(upload.files.sort(), ["README.md", "assets", "index.html"]);
+    assert.match(upload.indexHtml, /__COTHREAD_RUNTIME__/);
+    assert.match(upload.indexHtml, /prod-env-hosting/);
     // The temp workspace is gone after the call.
     const after = new Set(await readdir(tmpdir()));
     assert.deepEqual(
@@ -244,30 +241,45 @@ test("the built bundle is uploaded to the configured hosting path", async () => 
   }
 });
 
-test("distDir defaults to dist, so files outside it are not published", async () => {
+test("Admin publishing reuses development when production is not configured", async () => {
   const database = await testDatabase();
   const calls = [];
   setCloudbaseManagerFactory(async () => fakeManager(calls));
   try {
-    // distDir is not nullable and defaults to "dist" in the config normalizer.
-    const { owner, service, project } = await seed(database, { distDir: null });
-    await put(database.db, owner, project.id, "index.html", "<html>root</html>");
-    await assert.rejects(
-      () => deployAdminHosting(service, owner, project.id, { target: "cloudbase_static" }),
-      // Nothing under dist/ yet, so the payload is empty — not an index.html error.
-      (error) => error.status === 409 && /产物为空/.test(error.message),
-    );
-    assert.equal(calls.length, 0, "a root-level index.html is not the configured payload root");
-
-    // With the default dist/ present, only dist/ is uploaded.
-    await put(database.db, owner, project.id, "dist/index.html", "<html>dist</html>");
+    const { owner, service, project } = await seed(database, { withProduction: false });
+    await put(database.db, owner, project.id, "index.html", "<html></html>");
     const result = await deployAdminHosting(service, owner, project.id, {
       target: "cloudbase_static",
     });
-    assert.equal(result.fileCount, 1);
+    assert.equal(result.environment, "production");
+    assert.equal(result.envId, "dev-env-hosting");
     const upload = calls.find((call) => call.op === "uploadFiles");
-    assert.deepEqual(upload.tree, ["index.html"]);
-    assert.equal(upload.indexHtml, "<html>dist</html>");
+    assert.match(upload.indexHtml, /\"environment\":\"production\"/);
+    assert.match(upload.indexHtml, /\"envId\":\"dev-env-hosting\"/);
+    assert.match(upload.indexHtml, /\"inherited\":true/);
+  } finally {
+    resetCloudbaseClients();
+    setCloudbaseManagerFactory(null);
+    await database.close();
+  }
+});
+
+test("the Admin workspace root is always the upload root", async () => {
+  const database = await testDatabase();
+  const calls = [];
+  setCloudbaseManagerFactory(async () => fakeManager(calls));
+  try {
+    const { owner, service, project } = await seed(database);
+    await put(database.db, owner, project.id, "index.html", "<html>root</html>");
+    await put(database.db, owner, project.id, "nested/index.html", "<html>nested</html>");
+    const result = await deployAdminHosting(service, owner, project.id, {
+      target: "cloudbase_static",
+    });
+    assert.equal(result.fileCount, 2);
+    const upload = calls.find((call) => call.op === "uploadFiles");
+    assert.deepEqual(upload.tree, ["index.html", "nested/index.html"]);
+    assert.match(upload.indexHtml, /__COTHREAD_RUNTIME__/);
+    assert.match(upload.indexHtml, /<html>root<\/html>/);
   } finally {
     resetCloudbaseClients();
     setCloudbaseManagerFactory(null);
@@ -282,7 +294,7 @@ test("a provider failure is recorded as a failed deployment with the reason", as
   );
   try {
     const { owner, service, project } = await seed(database);
-    await put(database.db, owner, project.id, "dist/index.html", "<html></html>");
+    await put(database.db, owner, project.id, "index.html", "<html></html>");
     await assert.rejects(
       () => deployAdminHosting(service, owner, project.id, { target: "cloudbase_static" }),
       (error) => error.status === 502 && /hosting rejected the upload/.test(error.message),
@@ -317,16 +329,19 @@ test("a credential failure is still recorded as a failed deployment", async () =
     await saveProjectMiniProgramConfig(service, owner, project.id, {
       enabled: true,
       appId: VALID_APP_ID,
-      cloudbaseEnvs: { development: { envId: "dev-env-nocred" } },
+      cloudbaseEnvs: {
+        development: { envId: "dev-env-nocred" },
+        production: { envId: "prod-env-nocred" },
+      },
       adminDeploy: {
         target: "cloudbase_static",
-        environment: "development",
+        environment: "production",
         hostingPath: "/admin/",
         spaFallback: true,
       },
     });
     await ensureMiniprogramWorkspace(database.db, project.id);
-    await put(database.db, owner, project.id, "dist/index.html", "<html></html>");
+    await put(database.db, owner, project.id, "index.html", "<html></html>");
 
     await assert.rejects(
       () => deployAdminHosting(service, owner, project.id, { target: "cloudbase_static" }),
@@ -346,15 +361,14 @@ test("a credential failure is still recorded as a failed deployment", async () =
   }
 });
 
-test("nested dist output keeps its relative structure", async () => {
+test("nested root content keeps its relative structure", async () => {
   const database = await testDatabase();
   const calls = [];
   setCloudbaseManagerFactory(async () => fakeManager(calls));
   try {
-    const { owner, service, project } = await seed(database, { distDir: "build/out" });
-    await put(database.db, owner, project.id, "build/out/index.html", "<html></html>");
-    await put(database.db, owner, project.id, "build/out/nested/deep.js", "x");
-    await put(database.db, owner, project.id, "build/other/ignore.js", "y");
+    const { owner, service, project } = await seed(database);
+    await put(database.db, owner, project.id, "index.html", "<html></html>");
+    await put(database.db, owner, project.id, "nested/deep.js", "x");
     const result = await deployAdminHosting(service, owner, project.id, {
       target: "cloudbase_static",
     });
@@ -363,7 +377,8 @@ test("nested dist output keeps its relative structure", async () => {
     // Asserted from a snapshot taken during the upload: the temp workspace is
     // removed before this line runs.
     assert.deepEqual(upload.tree, ["index.html", "nested/deep.js"]);
-    assert.equal(upload.indexHtml, "<html></html>");
+    assert.match(upload.indexHtml, /__COTHREAD_RUNTIME__/);
+    assert.match(upload.indexHtml, /<html><\/html>/);
     assert.deepEqual(upload.files, ["index.html", "nested"]);
     const leftover = await stat(upload.localPath).then(
       () => true,

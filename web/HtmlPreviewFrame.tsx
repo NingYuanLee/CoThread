@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   PREVIEW_CONSOLE_MESSAGE,
   PREVIEW_NAVIGATION_MESSAGE,
@@ -9,7 +9,6 @@ import {
   type HtmlBrowserFile,
   type HtmlDeviceMode,
 } from "./HtmlBrowserToolbar";
-import { UiIcon } from "./ui-icon";
 
 export type HtmlMobilePreset = {
   id: string;
@@ -24,20 +23,20 @@ type HtmlMobilePresetGroup = {
 };
 
 export const HTML_MOBILE_PRESETS: HtmlMobilePreset[] = [
-  { id: "iphone-18-pro", label: "iPhone 18 Pro · 375 × 782", width: 375, height: 782 },
-  { id: "iphone-18-pro-max", label: "iPhone 18 Pro Max · 390 × 817", width: 390, height: 817 },
-  { id: "iphone-air", label: "iPhone Air · 393 × 824", width: 393, height: 824 },
-  { id: "iphone-17e", label: "iPhone 17e · 375 × 769", width: 375, height: 769 },
-  { id: "huawei-pura-90", label: "HUAWEI Pura 90 · 390 × 815", width: 390, height: 815 },
-  { id: "huawei-mate-x7", label: "HUAWEI Mate X7 外屏 · 382 × 813", width: 382, height: 813 },
-  { id: "huawei-pura-x-max", label: "HUAWEI Pura X Max 展开 · 360 × 508", width: 360, height: 508 },
-  { id: "huawei-mate-xt-2", label: "HUAWEI Mate XT 2 折叠屏 · 360 × 771", width: 360, height: 771 },
-  { id: "xiaomi-17", label: "Xiaomi 17 · 360 × 759", width: 360, height: 759 },
-  { id: "xiaomi-17-ultra", label: "Xiaomi 17 Ultra · 390 × 818", width: 390, height: 818 },
-  { id: "galaxy-s26", label: "Samsung Galaxy S26 · 375 × 781", width: 375, height: 781 },
+  { id: "iphone-18-pro", label: "iPhone 18 Pro", width: 375, height: 782 },
+  { id: "iphone-18-pro-max", label: "iPhone 18 Pro Max", width: 390, height: 817 },
+  { id: "iphone-air", label: "iPhone Air", width: 393, height: 824 },
+  { id: "iphone-17e", label: "iPhone 17e", width: 375, height: 769 },
+  { id: "huawei-pura-90", label: "HUAWEI Pura 90", width: 390, height: 815 },
+  { id: "huawei-mate-x7", label: "HUAWEI Mate X7 外屏", width: 382, height: 813 },
+  { id: "huawei-pura-x-max", label: "HUAWEI Pura X Max 展开", width: 360, height: 508 },
+  { id: "huawei-mate-xt-2", label: "HUAWEI Mate XT 2 折叠屏", width: 360, height: 771 },
+  { id: "xiaomi-17", label: "Xiaomi 17", width: 360, height: 759 },
+  { id: "xiaomi-17-ultra", label: "Xiaomi 17 Ultra", width: 390, height: 818 },
+  { id: "galaxy-s26", label: "Samsung Galaxy S26", width: 375, height: 781 },
   {
     id: "galaxy-z-fold7",
-    label: "Samsung Galaxy Z Fold7 内屏 · 324 × 360",
+    label: "Samsung Galaxy Z Fold7 内屏",
     width: 324,
     height: 360,
   },
@@ -45,7 +44,47 @@ export const HTML_MOBILE_PRESETS: HtmlMobilePreset[] = [
 
 const HTML_MOBILE_ZOOM_MIN = 50;
 const HTML_MOBILE_ZOOM_MAX = 150;
-const HTML_MOBILE_ZOOM_WHEEL_STEP = 5;
+const HTML_MOBILE_ZOOM_OPTIONS = [50, 75, 100, 125, 150];
+
+type HtmlMobileAppearance = {
+  bezel: { top: number; right: number; bottom: number; left: number };
+  screenRadius: number;
+  frameRadius: number;
+  cutout: "notch" | "island" | "punch" | "none";
+  homeIndicator: boolean;
+  sideButtons: boolean;
+};
+
+function mobileAppearance(preset: HtmlMobilePreset): HtmlMobileAppearance {
+  if (preset.id.startsWith("iphone-")) {
+    return {
+      bezel: { top: 12, right: 12, bottom: 12, left: 12 },
+      screenRadius: 44,
+      frameRadius: 52,
+      cutout: preset.id === "iphone-17e" ? "notch" : "island",
+      homeIndicator: true,
+      sideButtons: true,
+    };
+  }
+  if (preset.id === "huawei-pura-x-max" || preset.id === "galaxy-z-fold7") {
+    return {
+      bezel: { top: 10, right: 10, bottom: 10, left: 10 },
+      screenRadius: 24,
+      frameRadius: 32,
+      cutout: "punch",
+      homeIndicator: true,
+      sideButtons: true,
+    };
+  }
+  return {
+    bezel: { top: 10, right: 10, bottom: 10, left: 10 },
+    screenRadius: 30,
+    frameRadius: 38,
+    cutout: "punch",
+    homeIndicator: true,
+    sideButtons: true,
+  };
+}
 
 const HTML_MOBILE_PRESET_GROUPS: HtmlMobilePresetGroup[] = [
   {
@@ -101,14 +140,19 @@ export function HtmlPreviewFrame({
 }) {
   const src = sourceOverride || `/api/versions/${versionId}/preview/`;
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const zoomPanelRef = useRef<HTMLDivElement>(null);
-  const zoomPanelHoveredRef = useRef(false);
   const previewScrollRef = useRef<HTMLDivElement>(null);
-  const previewViewportRef = useRef<HTMLDivElement>(null);
   const onNavigateRef = useRef(onNavigate);
   const onNewWindowRef = useRef(onNewWindow);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [logs, setLogs] = useState<Array<{ id: number; level: string; args: string[] }>>([]);
+  const [zoomMode, setZoomMode] = useState<"fit" | "manual">("fit");
+
+  const appearance = mobileAppearance(mobilePreset);
+  const chassisWidth =
+    mobilePreset.width + appearance.bezel.left + appearance.bezel.right;
+  const chassisHeight =
+    mobilePreset.height + appearance.bezel.top + appearance.bezel.bottom;
+  const zoom = zoomPercent / 100;
 
   useEffect(() => {
     onNavigateRef.current = onNavigate;
@@ -155,43 +199,28 @@ export function HtmlPreviewFrame({
   }, [versionId]);
 
   const errorCount = logs.filter((row) => row.level === "error").length;
-  const fitZoomToScreen = () => {
+  const fitZoomToWidth = useCallback(() => {
     if (deviceMode !== "mobile") return;
     const scroll = previewScrollRef.current;
-    const viewport = previewViewportRef.current;
-    if (!scroll || !viewport) return;
+    if (!scroll) return;
     const styles = window.getComputedStyle(scroll);
-    const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
-    const paddingBottom = Number.parseFloat(styles.paddingBottom) || 0;
-    const availableHeight = viewport.clientHeight - paddingTop - paddingBottom - 2;
-    if (availableHeight <= 0 || mobilePreset.height <= 0) return;
-    const frameHeight = mobilePreset.height + 2;
-    const nextZoom = Math.floor((availableHeight / frameHeight) * 100);
+    const paddingLeft = Number.parseFloat(styles.paddingLeft) || 0;
+    const paddingRight = Number.parseFloat(styles.paddingRight) || 0;
+    const availableWidth = scroll.clientWidth - paddingLeft - paddingRight;
+    if (availableWidth <= 0 || chassisWidth <= 0) return;
+    const nextZoom = Math.floor((availableWidth / chassisWidth) * 100);
     onZoomChange(Math.min(HTML_MOBILE_ZOOM_MAX, Math.max(HTML_MOBILE_ZOOM_MIN, nextZoom)));
-  };
-
-  const applyZoomWheel = (deltaY: number) => {
-    const direction = deltaY < 0 ? 1 : -1;
-    onZoomChange(
-      Math.min(
-        HTML_MOBILE_ZOOM_MAX,
-        Math.max(HTML_MOBILE_ZOOM_MIN, zoomPercent + direction * HTML_MOBILE_ZOOM_WHEEL_STEP),
-      ),
-    );
-  };
+  }, [chassisWidth, deviceMode, onZoomChange]);
 
   useEffect(() => {
-    const panel = zoomPanelRef.current;
-    if (!panel) return undefined;
-    const onWheel = (event: WheelEvent) => {
-      if (!zoomPanelHoveredRef.current) return;
-      event.preventDefault();
-      event.stopPropagation();
-      applyZoomWheel(event.deltaY);
-    };
-    window.addEventListener("wheel", onWheel, { passive: false, capture: true });
-    return () => window.removeEventListener("wheel", onWheel, true);
-  }, [onZoomChange, zoomPercent]);
+    if (deviceMode !== "mobile" || zoomMode !== "fit") return undefined;
+    fitZoomToWidth();
+    const scroll = previewScrollRef.current;
+    if (!scroll || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(fitZoomToWidth);
+    observer.observe(scroll);
+    return () => observer.disconnect();
+  }, [deviceMode, fitZoomToWidth, mobilePreset.id, zoomMode]);
 
   return (
     <div className="doc-html-preview-shell">
@@ -206,90 +235,107 @@ export function HtmlPreviewFrame({
         deviceMode={deviceMode}
         onDeviceModeChange={onDeviceModeChange}
       />
-      <div
-        ref={previewViewportRef}
-        className={`doc-html-preview-viewport doc-html-preview-viewport-${deviceMode}`}
-      >
+      <div className={`doc-html-preview-viewport doc-html-preview-viewport-${deviceMode}`}>
         {deviceMode === "mobile" ? (
-          <div className="doc-html-mobile-floating-controls" aria-label="手机预览设置">
-            <select
-              className="doc-html-device-select"
-              aria-label="手机型号"
-              value={mobilePreset.id}
-              onChange={(event) => onMobilePresetChange(event.target.value)}
-            >
-              {HTML_MOBILE_PRESET_GROUPS.map((group) => (
-                <optgroup key={group.label} label={group.label}>
-                  {group.presets.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.label}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            <div
-              ref={zoomPanelRef}
-              className="doc-html-zoom-panel"
-              onPointerEnter={() => {
-                zoomPanelHoveredRef.current = true;
-              }}
-              onPointerLeave={() => {
-                zoomPanelHoveredRef.current = false;
-              }}
-              onWheelCapture={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                applyZoomWheel(event.deltaY);
-              }}
-            >
-              <button
-                type="button"
-                className="doc-html-fit-screen-button"
-                title="适应屏幕"
-                aria-label="适应屏幕"
-                onClick={fitZoomToScreen}
+          <div className="miniprogram-canvas-bar doc-html-mobile-controls">
+            <div className="miniprogram-device-controls" aria-label="手机预览设置">
+              <select
+                aria-label="手机型号"
+                value={mobilePreset.id}
+                onChange={(event) => onMobilePresetChange(event.target.value)}
               >
-                <UiIcon name="compress" size={13} />
-              </button>
-              <label className="doc-html-zoom-control">
-                <span>缩放 {zoomPercent}%</span>
-                <input
-                  type="range"
-                  min={HTML_MOBILE_ZOOM_MIN}
-                  max={HTML_MOBILE_ZOOM_MAX}
-                  step={HTML_MOBILE_ZOOM_WHEEL_STEP}
-                  value={zoomPercent}
-                  aria-label="手机网页缩放比例"
-                  onChange={(event) => onZoomChange(Number(event.target.value))}
-                />
-              </label>
+                {HTML_MOBILE_PRESET_GROUPS.map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.presets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <select
+                aria-label="手机网页缩放比例"
+                value={zoomMode === "fit" ? "fit" : String(zoomPercent)}
+                onChange={(event) => {
+                  if (event.target.value === "fit") {
+                    setZoomMode("fit");
+                    fitZoomToWidth();
+                    return;
+                  }
+                  setZoomMode("manual");
+                  onZoomChange(Number(event.target.value));
+                }}
+              >
+                <option value="fit">适应屏幕</option>
+                {HTML_MOBILE_ZOOM_OPTIONS.map((value) => (
+                  <option key={value} value={value}>
+                    {value}%
+                  </option>
+                ))}
+              </select>
+              <span className="miniprogram-device-size">
+                {mobilePreset.width}×{mobilePreset.height} · {zoomPercent}%
+              </span>
             </div>
           </div>
         ) : null}
         <div ref={previewScrollRef} className="doc-html-preview-scroll">
           {deviceMode === "mobile" ? (
             <div
-              className="doc-html-mobile-frame-shell"
+              className="miniprogram-device-box doc-html-mobile-frame-shell"
               style={{
-                width: mobilePreset.width * (zoomPercent / 100),
-                height: mobilePreset.height * (zoomPercent / 100),
+                width: chassisWidth * zoom,
+                height: chassisHeight * zoom,
               }}
             >
-              <iframe
-                ref={iframeRef}
-                className="doc-html-preview-frame mobile"
-                title={filename}
-                src={src}
+              <div
+                className="miniprogram-phone"
                 style={{
-                  width: mobilePreset.width,
-                  height: mobilePreset.height,
-                  transform: `scale(${zoomPercent / 100})`,
-                  transformOrigin: "top left",
+                  width: chassisWidth,
+                  height: chassisHeight,
+                  padding: `${appearance.bezel.top}px ${appearance.bezel.right}px ${appearance.bezel.bottom}px ${appearance.bezel.left}px`,
+                  borderRadius: appearance.frameRadius,
+                  transform: `scale(${zoom})`,
                 }}
-                sandbox="allow-scripts allow-forms allow-modals"
-                referrerPolicy="no-referrer"
-              />
+              >
+                {appearance.sideButtons ? (
+                  <>
+                    <span className="miniprogram-phone-btn miniprogram-phone-btn-power" />
+                    <span className="miniprogram-phone-btn miniprogram-phone-btn-vol-up" />
+                    <span className="miniprogram-phone-btn miniprogram-phone-btn-vol-down" />
+                  </>
+                ) : null}
+                <div
+                  className="miniprogram-phone-screen"
+                  style={{
+                    width: mobilePreset.width,
+                    height: mobilePreset.height,
+                    borderRadius: appearance.screenRadius,
+                  }}
+                >
+                  <iframe
+                    ref={iframeRef}
+                    className="doc-html-preview-frame mobile"
+                    title={filename}
+                    src={src}
+                    sandbox="allow-scripts allow-forms allow-modals"
+                    referrerPolicy="no-referrer"
+                  />
+                  {appearance.cutout === "notch" ? (
+                    <span className="miniprogram-phone-notch" aria-hidden="true" />
+                  ) : null}
+                  {appearance.cutout === "island" ? (
+                    <span className="miniprogram-phone-island" aria-hidden="true" />
+                  ) : null}
+                  {appearance.cutout === "punch" ? (
+                    <span className="miniprogram-phone-punch" aria-hidden="true" />
+                  ) : null}
+                  {appearance.homeIndicator ? (
+                    <span className="miniprogram-phone-home-bar" aria-hidden="true" />
+                  ) : null}
+                </div>
+              </div>
             </div>
           ) : (
             <iframe

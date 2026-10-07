@@ -15,6 +15,7 @@ import {
   publishMiniprogramSourceFile,
   miniprogramSnapshot,
   miniprogramWorkspaceFolders,
+  migrateLegacyAdminDist,
   MINIPROGRAM_FIXED_FOLDERS,
 } from "../server/miniprogram-workspace.js";
 
@@ -95,6 +96,18 @@ test("miniprogram workspace is created lazily and idempotently", async () => {
       children.map((row) => row.folder_kind).sort(),
       MINIPROGRAM_FIXED_FOLDERS.map(([, , kind]) => kind).sort(),
     );
+    await query(
+      db,
+      "UPDATE document_folders SET name='服务端' WHERE project_id=? AND folder_kind='miniprogram_server'",
+      [project.id],
+    );
+    await ensureMiniprogramWorkspace(db, project.id);
+    const [functionFolder] = await query(
+      db,
+      "SELECT name FROM document_folders WHERE project_id=? AND folder_kind='miniprogram_server'",
+      [project.id],
+    );
+    assert.equal(functionFolder.name, "云函数");
   } finally {
     await database.close();
   }
@@ -205,6 +218,54 @@ test("miniprogram snapshot hash changes when a source version changes", async ()
     assert.notEqual(second.sourceHash, first.sourceHash);
     assert.equal(second.areas.miniprogram_source.files.length, 1);
     assert.equal(second.files[0].sha256, sha256);
+  } finally {
+    await database.close();
+  }
+});
+
+test("legacy Admin dist files are promoted to the Admin root without overwriting root files", async () => {
+  const database = await testDatabase();
+  const db = database.db;
+  try {
+    const { user, project } = await seedProject(database);
+    await ensureMiniprogramWorkspace(db, project.id);
+    const { byKind } = await miniprogramWorkspaceFolders(db, project.id);
+    const adminId = byKind.get("miniprogram_admin").id;
+    const distId = randomUUID();
+    const legacyAssetsId = randomUUID();
+    await query(
+      db,
+      "INSERT INTO document_folders(id,project_id,parent_id,name) VALUES(?,?,?,'dist')",
+      [distId, project.id, adminId],
+    );
+    await query(
+      db,
+      "INSERT INTO document_folders(id,project_id,parent_id,name) VALUES(?,?,?,'assets')",
+      [legacyAssetsId, project.id, distId],
+    );
+    const rootIndex = await addFile(db, project.id, adminId, "index.html", "root", user.id);
+    const legacyIndex = await addFile(db, project.id, distId, "index.html", "legacy", user.id);
+    await addFile(db, project.id, legacyAssetsId, "app.js", "console.log('ok')", user.id);
+
+    assert.equal(await migrateLegacyAdminDist(db, project.id), true);
+    assert.equal(await migrateLegacyAdminDist(db, project.id), false);
+
+    const snapshot = await miniprogramSnapshot(db, project.id);
+    assert.deepEqual(snapshot.areas.miniprogram_admin.files.map((file) => file.path).sort(), [
+      "assets/app.js",
+      "index.html",
+    ]);
+    assert.equal(
+      snapshot.areas.miniprogram_admin.files.find((file) => file.path === "index.html").versionId,
+      rootIndex.versionId,
+    );
+    const [retired] = await query(db, "SELECT folder_id,deleted_at FROM artifacts WHERE id=?", [
+      legacyIndex.artifactId,
+    ]);
+    assert.equal(retired.folder_id, adminId);
+    assert.ok(retired.deleted_at);
+    const [dist] = await query(db, "SELECT id FROM document_folders WHERE id=?", [distId]);
+    assert.equal(dist, undefined);
   } finally {
     await database.close();
   }

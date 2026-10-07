@@ -1,15 +1,22 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { readJsonResponse } from "../shared/json-response.js";
 import { UiIcon, type UiIconName } from "./ui-icon";
+import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import {
+  DatabaseFilterBuilder,
+  databaseFilterCount,
+  type DatabaseFilterSpec,
+} from "./DatabaseFilterBuilder";
+import { showTip } from "./Tip";
 import "./miniprogram.css";
 
 export const MINIPROGRAM_TABS = [
-  { id: "preview", label: "应用预览", icon: "smartphone" },
-  { id: "admin", label: "Admin", icon: "monitor" },
-  { id: "database", label: "数据库", icon: "layers" },
-  { id: "storage", label: "文件存储", icon: "folder" },
-  { id: "auth", label: "身份授权", icon: "shield" },
-  { id: "stats", label: "数据统计", icon: "trajectory" },
+  { id: "preview", label: "小程序web预览", icon: "smartphone" },
+  { id: "admin", label: "PC管理后台预览", icon: "monitor" },
+  { id: "database", label: "云数据库", icon: "layers" },
+  { id: "storage", label: "云存储", icon: "folder" },
+  { id: "server", label: "云函数", icon: "server" },
+  { id: "deploy", label: "生产发布", icon: "upload" },
 ] as const;
 
 export type MiniProgramTabId = (typeof MINIPROGRAM_TABS)[number]["id"];
@@ -19,21 +26,83 @@ type MiniProgramConfig = {
   appId: string | null;
   appName: string | null;
   status: string;
-  cloudbaseEnvs: Partial<Record<"development" | "staging" | "production", { envId: string }>>;
-  adminDeploy: { target: string; environment: string } | null;
+  cloudbaseEnvs: Partial<Record<"development" | "production", { envId: string }>>;
+  adminDeploy: {
+    target: "cloudbase_static";
+    environment: "production";
+    hostingPath: string;
+  } | null;
   lastVerifiedAt: string | null;
   secrets: Record<string, { configured: boolean; hint: string | null }>;
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  unconfigured: "未配置",
-  incomplete: "配置不完整",
-  verify_failed: "验证失败",
-  verified: "已验证",
-  credential_expired: "凭据缺失",
+const TAB_STATE_KEY = "cothread-miniprogram-tab";
+const PREVIEW_VIEW_KEY = "cothread-miniprogram-preview-view";
+
+type PreviewViewState = { deviceId: string; zoom: string };
+
+type StorageFile = {
+  key: string;
+  fileId: string | null;
+  size: number;
+  lastModified: string | null;
+  isDirectory: boolean;
 };
 
-const TAB_STATE_KEY = "cothread-miniprogram-tab";
+function normalizedStoragePath(value: string) {
+  return value.trim().replace(/^\/+|\/+$/g, "");
+}
+
+function joinStoragePath(...parts: string[]) {
+  return parts.map(normalizedStoragePath).filter(Boolean).join("/");
+}
+
+function storageFileName(key: string) {
+  const normalized = key.replace(/\/+$/, "");
+  return normalized.split("/").pop() || normalized;
+}
+
+function formatStorageSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+}
+
+function fileAsBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
+    reader.onerror = () => reject(reader.error || new Error(`读取 ${file.name} 失败`));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * 记住上次选的机型与缩放（按项目）。localStorage 在隐私模式/被禁用时会抛错，
+ * 这里静默降级为「不记忆」，不影响预览本身。
+ */
+function readStoredPreviewView(projectId: string): PreviewViewState | null {
+  try {
+    const raw = localStorage.getItem(`${PREVIEW_VIEW_KEY}:${projectId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PreviewViewState>;
+    return {
+      deviceId: typeof parsed.deviceId === "string" ? parsed.deviceId : "",
+      zoom: typeof parsed.zoom === "string" ? parsed.zoom : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function storePreviewView(projectId: string, view: PreviewViewState) {
+  try {
+    localStorage.setItem(`${PREVIEW_VIEW_KEY}:${projectId}`, JSON.stringify(view));
+  } catch {
+    /* 忽略：仅退化为不记忆 */
+  }
+}
 
 function readStoredTab(projectId: string): MiniProgramTabId {
   try {
@@ -63,34 +132,39 @@ function PendingPanel({
   );
 }
 
-function SourceSummary({ files }: { files: Array<{ area: string; path: string }> }) {
-  const grouped = useMemo(() => {
-    const map = new Map<string, string[]>();
-    for (const file of files) {
-      const list = map.get(file.area) || [];
-      list.push(file.path);
-      map.set(file.area, list);
-    }
-    return map;
-  }, [files]);
-  if (!grouped.size) {
-    return <p className="muted">小程序目录下还没有源码文件。</p>;
-  }
+/**
+ * 小程序web预览页把微信发布 / 发布记录收进弹窗，这里统一弹窗外壳：
+ * 标题 + 关闭按钮 + 可滚动正文，视觉沿用文档库的 library-organize-dialog。
+ */
+function WorkspaceDialog({
+  title,
+  onClose,
+  children,
+  className = "",
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const titleId = useId();
   return (
-    <ul className="miniprogram-source-list">
-      {[...grouped.entries()].map(([area, paths]) => (
-        <li key={area}>
-          <span className="miniprogram-source-area">{area}</span>
-          <span className="miniprogram-source-count">{paths.length} 个文件</span>
-          <ul>
-            {paths.slice(0, 8).map((path) => (
-              <li key={path}>{path}</li>
-            ))}
-            {paths.length > 8 ? <li className="muted">…还有 {paths.length - 8} 个</li> : null}
-          </ul>
-        </li>
-      ))}
-    </ul>
+    <ModalBackdrop className="library-organize-backdrop" onClose={onClose}>
+      {(close) => (
+        <section
+          className={`library-organize-dialog miniprogram-dialog ${className}`.trim()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+        >
+          <header>
+            <h3 id={titleId}>{title}</h3>
+            <DialogClose onClick={close} label={`关闭${title}`} />
+          </header>
+          <div className="miniprogram-dialog-body">{children}</div>
+        </section>
+      )}
+    </ModalBackdrop>
   );
 }
 
@@ -125,33 +199,316 @@ type CloudbaseEnvInfo = {
   envId: string | null;
   region: string | null;
   configured: boolean;
+  inherited: boolean;
   agentAllowed: boolean;
 };
 
 type DeploymentRow = {
   id: string;
   target: string;
+  environment: string;
   status: string;
   version: string | null;
+  url: string | null;
   publishedAt: string | null;
   createdAt: string | null;
 };
 
+type CloudbaseTimer = {
+  name: string;
+  type: "timer";
+  schedule: string;
+  enabled: boolean;
+};
+
+type CloudbaseFunction = {
+  id: string | null;
+  name: string;
+  description: string | null;
+  runtime: string | null;
+  status: string;
+  statusDetail: string | null;
+  type: string | null;
+  handler: string | null;
+  modifiedAt: string | null;
+  createdAt: string | null;
+  timers: CloudbaseTimer[];
+};
+
+const TABLE_PAGE_SIZE = 20;
+const TABLE_PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
+
+function TablePagination({
+  page,
+  pageSize,
+  total,
+  hasNext,
+  onPageChange,
+  onPageSizeChange,
+}: {
+  page: number;
+  pageSize: number;
+  total: number | null;
+  hasNext: boolean;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+}) {
+  const totalPages = total === null ? Math.max(1, page + (hasNext ? 2 : 1)) : Math.max(1, Math.ceil(total / pageSize));
+  return (
+    <nav className="miniprogram-table-pagination" aria-label="表格分页">
+      <button
+        type="button"
+        disabled={page === 0}
+        onClick={() => onPageChange(Math.max(0, page - 1))}
+      >
+        上一页
+      </button>
+      <span>
+        共 {total === null ? "—" : total} 条 · 每页 {pageSize} 条 · 第 {page + 1} / {totalPages} 页
+      </span>
+      <label className="miniprogram-table-page-size">
+        <span>每页</span>
+        <select
+          aria-label="每页条数"
+          value={pageSize}
+          onChange={(event) => onPageSizeChange(Number(event.target.value))}
+        >
+          {TABLE_PAGE_SIZE_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+        <span>条</span>
+      </label>
+      <button type="button" disabled={!hasNext} onClick={() => onPageChange(page + 1)}>
+        下一页
+      </button>
+    </nav>
+  );
+}
+
 const DEPLOY_TARGET_LABELS: Record<string, string> = {
-  wechat_preview: "微信预览",
-  wechat_upload: "微信上传",
+  wechat_preview: "开发版预览",
+  wechat_upload: "体验版上传",
   cloudbase_static: "Admin 静态托管",
-  cloudbase_hosted: "Admin 云托管",
   cloudbase_function: "云函数",
 };
+
+const DEVELOPMENT_ENVIRONMENT = "development";
+type DatabaseEnvironment = "development" | "production";
+
+function databaseCell(value: unknown): string {
+  if (value === null || value === undefined) return "NULL";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function adminHostingUrl(row: DeploymentRow): string | null {
+  if (
+    row.environment !== "production" ||
+    row.status !== "succeeded" ||
+    row.target !== "cloudbase_static" ||
+    !row.url
+  )
+    return null;
+  try {
+    const parsed = new URL(row.url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function DeploymentRecordList({
+  rows,
+  openDeploymentId,
+  deploymentLog,
+  emptyText,
+  onOpen,
+}: {
+  rows: DeploymentRow[];
+  openDeploymentId: string;
+  deploymentLog: string;
+  emptyText: string;
+  onOpen: (id: string) => void;
+}) {
+  if (!rows.length) return <p className="muted miniprogram-note">{emptyText}</p>;
+  return (
+    <ul className="miniprogram-deploy-list">
+      {rows.map((row) => (
+        <li key={row.id}>
+          <div className="miniprogram-deploy-row">
+            <button type="button" onClick={() => onOpen(row.id)}>
+              <span
+                className={`miniprogram-status ${row.status === "succeeded" ? "ok" : "failed"}`}
+              >
+                {row.status === "succeeded" ? "成功" : "失败"}
+              </span>
+              <span className="miniprogram-deploy-target">
+                {DEPLOY_TARGET_LABELS[row.target] || row.target}
+              </span>
+              <span className="miniprogram-deploy-version">{row.version || "—"}</span>
+              <span className="muted">{row.publishedAt || row.createdAt || ""}</span>
+            </button>
+            {adminHostingUrl(row) ? (
+              <a
+                className="miniprogram-deploy-url"
+                href={adminHostingUrl(row)!}
+                target="_blank"
+                rel="noreferrer"
+                title={`在新标签打开 ${adminHostingUrl(row)}`}
+              >
+                <UiIcon name="globe" size={13} />
+                <span>{adminHostingUrl(row)}</span>
+              </a>
+            ) : null}
+          </div>
+          {openDeploymentId === row.id ? (
+            <pre className="miniprogram-doc-result">{deploymentLog}</pre>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * 预览机型：`width/height` 是**屏幕**的逻辑尺寸（CSS px），与浏览器设备模式口径一致；
+ * 其余字段描述机身材质，用来画出手机外壳而不是一个圆角矩形。
+ */
+type PreviewDevice = {
+  id: string;
+  label: string;
+  width: number;
+  height: number;
+  /** 机身四边黑边，屏幕之外的部分。 */
+  bezel: { top: number; right: number; bottom: number; left: number };
+  /** 屏幕圆角与外框圆角。 */
+  screenRadius: number;
+  frameRadius: number;
+  /** 顶部开孔样式：刘海 / 灵动岛 / 居中挖孔 / 无。 */
+  cutout: "notch" | "island" | "punch" | "none";
+  /** 底部横条（全面屏手势条）。 */
+  homeIndicator: boolean;
+  /** 底部实体 Home 键（带下巴的老机型）。 */
+  homeButton: boolean;
+  /** 侧边实体按键。 */
+  sideButtons: boolean;
+};
+
+const PREVIEW_DEVICES: PreviewDevice[] = [
+  {
+    id: "iphone-se",
+    label: "iPhone SE",
+    width: 375,
+    height: 667,
+    bezel: { top: 46, right: 10, bottom: 58, left: 10 },
+    screenRadius: 2,
+    frameRadius: 26,
+    cutout: "none",
+    homeIndicator: false,
+    homeButton: true,
+    sideButtons: true,
+  },
+  {
+    id: "iphone-13-mini",
+    label: "iPhone 13 mini",
+    width: 375,
+    height: 812,
+    bezel: { top: 12, right: 11, bottom: 12, left: 11 },
+    screenRadius: 40,
+    frameRadius: 48,
+    cutout: "notch",
+    homeIndicator: true,
+    homeButton: false,
+    sideButtons: true,
+  },
+  {
+    id: "iphone-14",
+    label: "iPhone 14",
+    width: 390,
+    height: 844,
+    bezel: { top: 12, right: 12, bottom: 12, left: 12 },
+    screenRadius: 44,
+    frameRadius: 52,
+    cutout: "notch",
+    homeIndicator: true,
+    homeButton: false,
+    sideButtons: true,
+  },
+  {
+    id: "iphone-14-pro-max",
+    label: "iPhone 14 Pro Max",
+    width: 430,
+    height: 932,
+    bezel: { top: 12, right: 12, bottom: 12, left: 12 },
+    screenRadius: 50,
+    frameRadius: 58,
+    cutout: "island",
+    homeIndicator: true,
+    homeButton: false,
+    sideButtons: true,
+  },
+  {
+    id: "pixel-7",
+    label: "Pixel 7",
+    width: 412,
+    height: 915,
+    bezel: { top: 10, right: 10, bottom: 10, left: 10 },
+    screenRadius: 28,
+    frameRadius: 36,
+    cutout: "punch",
+    homeIndicator: true,
+    homeButton: false,
+    sideButtons: true,
+  },
+  {
+    id: "galaxy-s20",
+    label: "Galaxy S20",
+    width: 360,
+    height: 800,
+    bezel: { top: 9, right: 9, bottom: 9, left: 9 },
+    screenRadius: 30,
+    frameRadius: 38,
+    cutout: "punch",
+    homeIndicator: true,
+    homeButton: false,
+    sideButtons: true,
+  },
+  {
+    id: "ipad-mini",
+    label: "iPad mini",
+    width: 744,
+    height: 1133,
+    bezel: { top: 18, right: 18, bottom: 18, left: 18 },
+    screenRadius: 16,
+    frameRadius: 24,
+    cutout: "none",
+    homeIndicator: false,
+    homeButton: false,
+    sideButtons: true,
+  },
+];
+
+const PREVIEW_DEFAULT_DEVICE_ID = "iphone-14";
+const PREVIEW_ZOOM_OPTIONS = [
+  { value: "fit", label: "适应屏幕" },
+  { value: "0.5", label: "50%" },
+  { value: "0.75", label: "75%" },
+  { value: "1", label: "100%" },
+  { value: "1.25", label: "125%" },
+];
 
 /** `server/release-requests.js` 的 publicRow 形状。 */
 type ReleaseRequest = {
   id: string;
+  applicationId: string;
   target: string;
   targetLabel: string;
   environment: string;
   version: string | null;
+  resourceName: string | null;
   releaseNote: string | null;
   sourceHash: string;
   status: string;
@@ -168,16 +525,20 @@ type ReleaseRequest = {
   updatedAt: string | null;
 };
 
-type ReleaseRequestList = {
-  requests: ReleaseRequest[];
-  pendingCount: number;
-  currentSourceHash: string | null;
+type ReleaseApplication = {
+  id: string;
+  status: string;
+  statusLabel: string;
+  requestedBy: string;
+  requestedByKind: string;
+  releaseNote: string | null;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
   sourceChanged: boolean;
-};
-
-const REQUESTER_KIND_LABELS: Record<string, string> = {
-  session: "项目成员（会话提交）",
-  agent: "Agent 提交",
+  items: ReleaseRequest[];
 };
 
 const RELEASE_STATUS_TONES: Record<string, string> = {
@@ -189,6 +550,7 @@ const RELEASE_STATUS_TONES: Record<string, string> = {
   rejected: "muted",
   cancelled: "muted",
   expired: "failed",
+  partial: "warning",
 };
 
 function releaseStatusTone(status: string): string {
@@ -204,6 +566,48 @@ function ensureRuntimeStyle(href: string) {
   link.rel = "stylesheet";
   link.href = href;
   document.head.appendChild(link);
+}
+
+type DiminaContainer = {
+  openApp?: (options: Record<string, unknown>) => Promise<void> | void;
+  closeApp?: () => void;
+  destroy?: () => void;
+};
+
+type DiminaRuntimeModule = {
+  createContainer: (options: Record<string, unknown>) => DiminaContainer;
+};
+
+type DiminaRuntimeHolder = { url: string; module: DiminaRuntimeModule };
+
+const RUNTIME_LOADER_URL = "/dimina/loader.js";
+
+/**
+ * Dimina 运行时不在 Vite 的模块图里。
+ *
+ * 它必须放在 `public/`（生产构建原样复制；且容器内部用
+ * `new URL("./service.js", import.meta.url)` 推导 worker 路径，必须与
+ * service.js / pageFrame.* 同目录）。而 Vite 明确禁止从源码 import() `public/`
+ * 里的文件——直接 import 会得到 500「should not be imported from source code」。
+ * 所以改为按 URL 加载一个静态 ESM 加载器，由它把运行时挂到全局。
+ */
+function loadDiminaRuntime(): Promise<DiminaRuntimeModule> {
+  const holder = () =>
+    (globalThis as { __COTHREAD_DIMINA__?: DiminaRuntimeHolder }).__COTHREAD_DIMINA__;
+  const ready = holder();
+  if (ready?.module) return Promise.resolve(ready.module);
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.type = "module";
+    script.src = RUNTIME_LOADER_URL;
+    script.onload = () => {
+      const loaded = holder();
+      if (loaded?.module?.createContainer) resolve(loaded.module);
+      else reject(new Error("小程序运行时未导出 createContainer"));
+    };
+    script.onerror = () => reject(new Error(`无法加载小程序运行时：${RUNTIME_LOADER_URL}`));
+    document.head.appendChild(script);
+  });
 }
 
 type PreviewMeta = {
@@ -223,16 +627,76 @@ type PreviewMeta = {
   };
 };
 
+function formatBuildTime(value: string | null | undefined) {
+  if (!value) return "尚未编译";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 /**
  * Mounts the vendored Dimina Web container. The runtime module is loaded at
  * runtime (not bundled) because it ships as static assets under /dimina and
  * resolves its logic worker relative to its own module URL.
  */
-function PreviewCanvas({ meta }: { meta: PreviewMeta }) {
+function PreviewCanvas({ meta, projectId }: { meta: PreviewMeta; projectId: string }) {
   const mountRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<{ destroy?: () => void } | null>(null);
   const [state, setState] = useState<"loading" | "running" | "error">("loading");
   const [error, setError] = useState("");
+  const storedView = useMemo(() => readStoredPreviewView(projectId), [projectId]);
+  const [deviceId, setDeviceId] = useState(() =>
+    PREVIEW_DEVICES.some((item) => item.id === storedView?.deviceId)
+      ? (storedView?.deviceId as string)
+      : PREVIEW_DEFAULT_DEVICE_ID,
+  );
+  const [zoomMode, setZoomMode] = useState(() =>
+    PREVIEW_ZOOM_OPTIONS.some((option) => option.value === storedView?.zoom)
+      ? (storedView?.zoom as string)
+      : "fit",
+  );
+  const [fitZoom, setFitZoom] = useState(1);
+
+  useEffect(() => {
+    storePreviewView(projectId, { deviceId, zoom: zoomMode });
+  }, [projectId, deviceId, zoomMode]);
+
+  const device = PREVIEW_DEVICES.find((item) => item.id === deviceId) ?? PREVIEW_DEVICES[0];
+  // 机身 = 屏幕 + 四边黑边；缩放与占位都按机身算，屏幕上仍保持逻辑尺寸。
+  const chassisWidth = device.width + device.bezel.left + device.bezel.right;
+  const chassisHeight = device.height + device.bezel.top + device.bezel.bottom;
+
+  /** 自动缩放同时受舞台宽度和高度约束，确保整台设备完整可见。 */
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return undefined;
+    const measure = () => {
+      const styles = window.getComputedStyle(stage);
+      const horizontalPadding =
+        (Number.parseFloat(styles.paddingLeft) || 0) +
+        (Number.parseFloat(styles.paddingRight) || 0);
+      const verticalPadding =
+        (Number.parseFloat(styles.paddingTop) || 0) +
+        (Number.parseFloat(styles.paddingBottom) || 0);
+      const availableWidth = stage.clientWidth - horizontalPadding;
+      const availableHeight = stage.clientHeight - verticalPadding;
+      if (availableWidth <= 0 || availableHeight <= 0) return;
+      const next = Math.min(availableWidth / chassisWidth, availableHeight / chassisHeight, 1);
+      setFitZoom(Math.max(0.01, next));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [chassisHeight, chassisWidth]);
+
+  const zoom = zoomMode === "fit" ? fitZoom : Number(zoomMode) || 1;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -243,7 +707,7 @@ function PreviewCanvas({ meta }: { meta: PreviewMeta }) {
     void (async () => {
       try {
         ensureRuntimeStyle(meta.runtime.styleUrl);
-        const mod = await import(/* @vite-ignore */ meta.runtime.moduleUrl);
+        const mod = await loadDiminaRuntime();
         if (cancelled) return;
         const container = mod.createContainer({
           mount,
@@ -259,6 +723,9 @@ function PreviewCanvas({ meta }: { meta: PreviewMeta }) {
           },
         });
         containerRef.current = container;
+        if (typeof container.openApp !== "function") {
+          throw new Error("小程序运行时缺少 openApp");
+        }
         await container.openApp({
           appId: meta.appId || "",
           path: meta.entryPage || undefined,
@@ -284,6 +751,8 @@ function PreviewCanvas({ meta }: { meta: PreviewMeta }) {
     meta.appId,
     meta.entryPage,
     meta.build?.id,
+    // 换机型要重建容器，否则容器仍按旧视口尺寸初始化。
+    device.id,
     meta.runtime.moduleUrl,
     meta.runtime.pageFrameUrl,
     meta.runtime.resourceBaseUrl,
@@ -293,17 +762,87 @@ function PreviewCanvas({ meta }: { meta: PreviewMeta }) {
   return (
     <div className="miniprogram-canvas-shell">
       <div className="miniprogram-canvas-bar">
-        <span className={`miniprogram-canvas-state ${state}`}>
-          {state === "running" ? "运行中" : state === "loading" ? "启动中…" : "启动失败"}
-        </span>
-        {meta.stale ? (
-          <span className="miniprogram-status warning">源码已更新，待重新编译</span>
-        ) : null}
+        <div className="miniprogram-device-controls">
+          <select
+            aria-label="预览机型"
+            value={deviceId}
+            onChange={(event) => setDeviceId(event.target.value)}
+          >
+            {PREVIEW_DEVICES.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="预览缩放"
+            value={zoomMode}
+            onChange={(event) => setZoomMode(event.target.value)}
+          >
+            {PREVIEW_ZOOM_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <span className="miniprogram-device-size">
+            {device.width}×{device.height} · {Math.round(zoom * 100)}%
+          </span>
+        </div>
       </div>
       {state === "error" ? (
         <p className="miniprogram-config-error">{error || "小程序启动失败"}</p>
       ) : null}
-      <div className="miniprogram-canvas" ref={mountRef} />
+      <div className="miniprogram-stage" ref={stageRef}>
+        <div
+          className="miniprogram-device-box"
+          style={{ width: chassisWidth * zoom, height: chassisHeight * zoom }}
+        >
+          <div
+            className="miniprogram-phone"
+            style={{
+              width: chassisWidth,
+              height: chassisHeight,
+              padding: `${device.bezel.top}px ${device.bezel.right}px ${device.bezel.bottom}px ${device.bezel.left}px`,
+              borderRadius: device.frameRadius,
+              transform: `scale(${zoom})`,
+            }}
+          >
+            {device.sideButtons ? (
+              <>
+                <span className="miniprogram-phone-btn miniprogram-phone-btn-power" />
+                <span className="miniprogram-phone-btn miniprogram-phone-btn-vol-up" />
+                <span className="miniprogram-phone-btn miniprogram-phone-btn-vol-down" />
+              </>
+            ) : null}
+            <div
+              className="miniprogram-phone-screen"
+              style={{
+                width: device.width,
+                height: device.height,
+                borderRadius: device.screenRadius,
+              }}
+            >
+              <div className="miniprogram-canvas" ref={mountRef} />
+              {device.cutout === "notch" ? (
+                <span className="miniprogram-phone-notch" aria-hidden="true" />
+              ) : null}
+              {device.cutout === "island" ? (
+                <span className="miniprogram-phone-island" aria-hidden="true" />
+              ) : null}
+              {device.cutout === "punch" ? (
+                <span className="miniprogram-phone-punch" aria-hidden="true" />
+              ) : null}
+              {device.homeIndicator ? (
+                <span className="miniprogram-phone-home-bar" aria-hidden="true" />
+              ) : null}
+            </div>
+            {device.homeButton ? (
+              <span className="miniprogram-phone-home-button" aria-hidden="true" />
+            ) : null}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -312,16 +851,22 @@ export function MiniProgramWorkspace({
   projectId,
   request,
   writable,
+  currentUserId,
+  owner,
 }: {
   projectId: string;
   request: (path: string, options?: RequestInit) => Promise<Response>;
   writable: boolean;
+  currentUserId: string;
+  owner: boolean;
 }) {
   const [tab, setTab] = useState<MiniProgramTabId>(() => readStoredTab(projectId));
   const [config, setConfig] = useState<MiniProgramConfig | null>(null);
   const [error, setError] = useState("");
-  const [sourceFiles, setSourceFiles] = useState<Array<{ area: string; path: string }>>([]);
   const [meta, setMeta] = useState<PreviewMeta | null>(null);
+  const [openAction, setOpenAction] = useState<"wechat" | "records" | null>(null);
+  const [refreshMenuOpen, setRefreshMenuOpen] = useState(false);
+  const refreshMenuRef = useRef<HTMLDivElement>(null);
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
@@ -330,23 +875,37 @@ export function MiniProgramWorkspace({
   const [adminBusy, setAdminBusy] = useState(false);
   const [adminError, setAdminError] = useState("");
   const [adminFrameKey, setAdminFrameKey] = useState(0);
+  const adminFrameRef = useRef<HTMLIFrameElement>(null);
+  const [adminDialogOpen, setAdminDialogOpen] = useState(false);
+  const [adminProductionPath, setAdminProductionPath] = useState("/admin/");
+  const [serverFunctions, setServerFunctions] = useState<CloudbaseFunction[]>([]);
+  const [releaseFunctions, setReleaseFunctions] = useState<CloudbaseFunction[]>([]);
+  const [serverBusy, setServerBusy] = useState(false);
+  const [serverError, setServerError] = useState("");
+  const [functionEnvironment, setFunctionEnvironment] = useState<DatabaseEnvironment>("development");
+  const [functionSearch, setFunctionSearch] = useState("");
+  const [functionPage, setFunctionPage] = useState(0);
+  const [functionPageSize, setFunctionPageSize] = useState(TABLE_PAGE_SIZE);
+  const [timerFunctionName, setTimerFunctionName] = useState("");
+  const [timerName, setTimerName] = useState("");
+  const [timerSchedule, setTimerSchedule] = useState("");
+  const [timerError, setTimerError] = useState("");
+  const [timerToDelete, setTimerToDelete] = useState<string | null>(null);
+  const [timerEditorOpen, setTimerEditorOpen] = useState(false);
+  const [timerEditingName, setTimerEditingName] = useState<string | null>(null);
   const [cbEnvironments, setCbEnvironments] = useState<CloudbaseEnvInfo[]>([]);
   const [cbEnv, setCbEnv] = useState("development");
+  const [dbEnvironment, setDbEnvironment] = useState<DatabaseEnvironment>("development");
   const [dbCollection, setDbCollection] = useState("");
-  const [dbWhere, setDbWhere] = useState("");
+  const [dbFilter, setDbFilter] = useState<DatabaseFilterSpec | null>(null);
+  const [dbFilterOpen, setDbFilterOpen] = useState(false);
   const [dbLimit, setDbLimit] = useState(20);
+  const [dbPage, setDbPage] = useState(0);
+  const [dbHasNext, setDbHasNext] = useState(false);
+  const [dbTotal, setDbTotal] = useState<number | null>(null);
   const [dbDocs, setDbDocs] = useState<Array<Record<string, unknown>>>([]);
-  const [dbSelectedId, setDbSelectedId] = useState("");
-  const [dbDraft, setDbDraft] = useState("");
   const [dbBusy, setDbBusy] = useState(false);
   const [dbError, setDbError] = useState("");
-  const [dbNotice, setDbNotice] = useState("");
-  const [stCloudPath, setStCloudPath] = useState("");
-  const [stContent, setStContent] = useState("");
-  const [stFileList, setStFileList] = useState("");
-  const [stResult, setStResult] = useState("");
-  const [stBusy, setStBusy] = useState(false);
-  const [stError, setStError] = useState("");
   const [wechatBusy, setWechatBusy] = useState<"preview" | "upload" | null>(null);
   const [wechatError, setWechatError] = useState("");
   const [wechatNotice, setWechatNotice] = useState("");
@@ -356,20 +915,32 @@ export function MiniProgramWorkspace({
   const [deployments, setDeployments] = useState<DeploymentRow[]>([]);
   const [openDeploymentId, setOpenDeploymentId] = useState("");
   const [deploymentLog, setDeploymentLog] = useState("");
-  const [releaseRequests, setReleaseRequests] = useState<ReleaseRequest[]>([]);
-  const [releaseSourceChanged, setReleaseSourceChanged] = useState(false);
+  const [releaseApplications, setReleaseApplications] = useState<ReleaseApplication[]>([]);
+  const [releaseCreateOpen, setReleaseCreateOpen] = useState(false);
+  const [releaseDetailId, setReleaseDetailId] = useState("");
+  const [releaseSelection, setReleaseSelection] = useState<string[]>([]);
+  const [releaseNote, setReleaseNote] = useState("");
   const [releaseBusy, setReleaseBusy] = useState("");
   const [releaseError, setReleaseError] = useState("");
   const [releaseNotice, setReleaseNotice] = useState("");
   const [rejectingId, setRejectingId] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [collections, setCollections] = useState<string[]>([]);
-  const [storageFiles, setStorageFiles] = useState<
-    Array<{ key: string; size: number; isDirectory: boolean }>
-  >([]);
+  const [storageFiles, setStorageFiles] = useState<StorageFile[]>([]);
   const [browseBusy, setBrowseBusy] = useState<"collections" | "files" | null>(null);
   const [browseError, setBrowseError] = useState("");
   const [browsePath, setBrowsePath] = useState("");
+  const [storageLoaded, setStorageLoaded] = useState(false);
+  const [storageEnvironment, setStorageEnvironment] = useState<DatabaseEnvironment>("development");
+  const [storagePage, setStoragePage] = useState(0);
+  const [storagePageSize, setStoragePageSize] = useState(TABLE_PAGE_SIZE);
+  const [storageActionBusy, setStorageActionBusy] = useState<"create" | "upload" | "delete" | null>(
+    null,
+  );
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const storageFileInputRef = useRef<HTMLInputElement>(null);
+  const storageFolderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setTab(readStoredTab(projectId)), [projectId]);
 
@@ -385,7 +956,11 @@ export function MiniProgramWorkspace({
     void request(`/api/projects/${projectId}/miniprogram-config`)
       .then((response) => readJsonResponse(response, "小程序配置"))
       .then((value) => {
-        if (alive) setConfig(value as MiniProgramConfig);
+        if (alive) {
+          const next = value as MiniProgramConfig;
+          setConfig(next);
+          setAdminProductionPath(next.adminDeploy?.hostingPath || "/admin/");
+        }
       })
       .catch((cause) => {
         if (alive) setError(cause instanceof Error ? cause.message : "小程序配置读取失败");
@@ -395,61 +970,31 @@ export function MiniProgramWorkspace({
     };
   }, [projectId, request]);
 
-  useEffect(() => {
-    let alive = true;
-    // The workspace snapshot is read from the document library so the source
-    // tree mirrors exactly what the compiler will consume.
-    void request(`/api/projects/${projectId}/library`)
-      .then((response) => readJsonResponse(response, "项目文档库"))
-      .then((value: any) => {
-        if (!alive) return;
-        const folders: Array<{
-          id: string;
-          parent_id: string | null;
-          folder_kind?: string | null;
-        }> = value?.folders || [];
-        const versions: Array<{
-          deleted_at?: string | null;
-          folder_id?: string | null;
-          filename: string;
-        }> = value?.versions || [];
-        const byId = new Map(folders.map((folder) => [folder.id, folder]));
-        const areas = new Set([
-          "miniprogram_source",
-          "miniprogram_web",
-          "miniprogram_admin",
-          "miniprogram_server",
-        ]);
-        const areaOf = (folderId: string | null) => {
-          let current = folderId ? byId.get(folderId) : null;
-          const seen = new Set<string>();
-          while (current && !seen.has(current.id)) {
-            seen.add(current.id);
-            if (current.folder_kind && areas.has(current.folder_kind)) return current.folder_kind;
-            current = current.parent_id ? byId.get(current.parent_id) : null;
-          }
-          return null;
-        };
-        const files: Array<{ area: string; path: string }> = [];
-        for (const version of versions) {
-          if (version.deleted_at) continue;
-          const area = areaOf(version.folder_id ?? null);
-          if (!area) continue;
-          files.push({ area, path: version.filename });
-        }
-        setSourceFiles(files);
-      })
-      .catch(() => {
-        if (alive) setSourceFiles([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [projectId, request]);
-
-  const status = config?.status || "unconfigured";
   const enabled = Boolean(config?.enabled);
   const devEnv = config?.cloudbaseEnvs?.development?.envId || null;
+  const previewRoute = meta?.entryPage
+    ? meta.entryPage.startsWith("/")
+      ? meta.entryPage
+      : `/${meta.entryPage}`
+    : "未设置页面路由";
+
+  useEffect(() => {
+    if (!refreshMenuOpen) return undefined;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!refreshMenuRef.current?.contains(event.target as Node)) {
+        setRefreshMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setRefreshMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [refreshMenuOpen]);
 
   const loadMeta = useCallback(async () => {
     const response = await request(`/api/projects/${projectId}/miniprogram/preview-meta`);
@@ -492,6 +1037,111 @@ export function MiniProgramWorkspace({
     return undefined;
   }, [tab, loadAdminServers]);
 
+  useEffect(() => {
+    if (
+      tab !== "admin" ||
+      adminBusy ||
+      !adminServers.some((server) => server.status === "starting")
+    ) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => void loadAdminServers(), 2_000);
+    return () => window.clearTimeout(timer);
+  }, [adminBusy, adminServers, loadAdminServers, tab]);
+
+  useEffect(() => {
+    if (tab !== "admin") {
+      setAdminDialogOpen(false);
+    }
+  }, [tab]);
+
+  const loadServerFunctions = useCallback(async () => {
+    setServerBusy(true);
+    setServerError("");
+    try {
+      const response = await request(
+        `/api/projects/${projectId}/cloudbase/functions?environment=${functionEnvironment}`,
+      );
+      const data = (await readJsonResponse(response, "云函数列表")) as {
+        functions: CloudbaseFunction[];
+      };
+      setServerFunctions(data.functions || []);
+    } catch (cause) {
+      setServerFunctions([]);
+      setServerError(cause instanceof Error ? cause.message : "读取云函数失败");
+    } finally {
+      setServerBusy(false);
+    }
+  }, [functionEnvironment, projectId, request]);
+
+  const loadReleaseFunctions = useCallback(async () => {
+    try {
+      const response = await request(
+        `/api/projects/${projectId}/cloudbase/functions?environment=development`,
+      );
+      const data = (await readJsonResponse(response, "待发布云函数")) as {
+        functions: CloudbaseFunction[];
+      };
+      setReleaseFunctions(data.functions || []);
+    } catch (cause) {
+      setReleaseFunctions([]);
+      setReleaseError(cause instanceof Error ? cause.message : "读取待发布云函数失败");
+    }
+  }, [projectId, request]);
+
+  const saveTimer = async (functionName: string) => {
+    setServerBusy(true);
+    setTimerError("");
+    try {
+      if (timerEditingName) {
+        const deleteResponse = await request(
+          `/api/projects/${projectId}/cloudbase/functions/${encodeURIComponent(functionName)}/timers/${encodeURIComponent(timerEditingName)}?environment=${functionEnvironment}`,
+          { method: "DELETE" },
+        );
+        await readJsonResponse(deleteResponse, "更新定时触发器");
+      }
+      const response = await request(
+        `/api/projects/${projectId}/cloudbase/functions/${encodeURIComponent(functionName)}/timers`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            environment: functionEnvironment,
+            name: timerName,
+            schedule: timerSchedule,
+          }),
+        },
+      );
+      await readJsonResponse(response, timerEditingName ? "更新定时触发器" : "创建定时任务");
+      setTimerEditorOpen(false);
+      setTimerEditingName(null);
+      setTimerName("");
+      setTimerSchedule("");
+      await loadServerFunctions();
+    } catch (cause) {
+      setTimerError(cause instanceof Error ? cause.message : "保存定时触发器失败");
+    } finally {
+      setServerBusy(false);
+    }
+  };
+
+  const disableTimer = async (functionName: string, triggerName: string) => {
+    setServerBusy(true);
+    setTimerError("");
+    try {
+      const response = await request(
+        `/api/projects/${projectId}/cloudbase/functions/${encodeURIComponent(functionName)}/timers/${encodeURIComponent(triggerName)}?environment=${functionEnvironment}`,
+        { method: "DELETE" },
+      );
+      await readJsonResponse(response, "删除定时触发器");
+      await loadServerFunctions();
+    } catch (cause) {
+      setTimerError(cause instanceof Error ? cause.message : "删除定时触发器失败");
+    } finally {
+      setServerBusy(false);
+    }
+  };
+
   const stopAdminServer = async (serverId: string) => {
     setAdminBusy(true);
     setAdminError("");
@@ -502,8 +1152,29 @@ export function MiniProgramWorkspace({
       );
       await readJsonResponse(response, "停止后台预览服务");
       await loadAdminServers();
+      setAdminDialogOpen(false);
     } catch (cause) {
       setAdminError(cause instanceof Error ? cause.message : "停止失败");
+    } finally {
+      setAdminBusy(false);
+    }
+  };
+
+  const startAdminServer = async (serverId?: string) => {
+    setAdminBusy(true);
+    setAdminError("");
+    try {
+      const response = await request(`/api/projects/${projectId}/miniprogram/dev-servers/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(serverId ? { serverId } : {}),
+      });
+      await readJsonResponse(response, serverId ? "重启后台预览服务" : "开启后台预览服务");
+      setAdminFrameKey((value) => value + 1);
+      await loadAdminServers();
+      setAdminDialogOpen(false);
+    } catch (cause) {
+      setAdminError(cause instanceof Error ? cause.message : "启动失败");
     } finally {
       setAdminBusy(false);
     }
@@ -522,7 +1193,8 @@ export function MiniProgramWorkspace({
   );
 
   useEffect(() => {
-    if (tab !== "database" && tab !== "storage") return undefined;
+    if (tab !== "server" && tab !== "database" && tab !== "storage")
+      return undefined;
     let alive = true;
     void request(`/api/projects/${projectId}/cloudbase/environments`)
       .then((response) => readJsonResponse(response, "CloudBase 环境"))
@@ -543,118 +1215,48 @@ export function MiniProgramWorkspace({
     };
   }, [tab, projectId, request]);
 
-  const runDbQuery = async () => {
-    setDbBusy(true);
-    setDbError("");
-    setDbNotice("");
-    try {
-      const body: Record<string, unknown> = {
-        environment: cbEnv,
-        collection: dbCollection,
-        limit: dbLimit,
-      };
-      if (dbWhere.trim()) {
-        try {
-          body.where = JSON.parse(dbWhere);
-        } catch {
-          throw new Error("查询条件不是合法 JSON");
-        }
-      }
-      const result = (await cbCall("databases/query", body)) as {
-        documents: Array<Record<string, unknown>>;
-        count: number;
-      };
-      setDbDocs(result.documents || []);
-      setDbNotice(`返回 ${result.count} 条文档`);
-      setDbSelectedId("");
-    } catch (cause) {
-      setDbError(cause instanceof Error ? cause.message : "查询失败");
-      setDbDocs([]);
-    } finally {
-      setDbBusy(false);
-    }
-  };
-
-  const runDbWrite = async (action: "add" | "update" | "remove") => {
-    setDbBusy(true);
-    setDbError("");
-    setDbNotice("");
-    try {
-      let document: unknown;
-      if (action !== "remove") {
-        try {
-          document = JSON.parse(dbDraft || "{}");
-        } catch {
-          throw new Error("文档内容不是合法 JSON");
-        }
-      }
-      const body: Record<string, unknown> = { environment: cbEnv, collection: dbCollection };
-      if (action === "add") body.document = document;
-      else {
-        body.id = dbSelectedId;
-        if (action === "update") body.patch = document;
-      }
-      const result = (await cbCall(`databases/${action}`, body)) as Record<string, unknown>;
-      setDbNotice(
-        action === "add"
-          ? `已新增文档 ${result.id || ""}`
-          : action === "update"
-            ? `已更新 ${result.updated || 0} 条`
-            : `已删除 ${result.deleted || 0} 条`,
-      );
-      await runDbQuery();
-    } catch (cause) {
-      setDbError(cause instanceof Error ? cause.message : "写入失败");
-    } finally {
-      setDbBusy(false);
-    }
-  };
-
-  const selectDocument = (doc: Record<string, unknown>) => {
-    const id = String(doc._id || doc.id || "");
-    setDbSelectedId(id);
-    setDbDraft(JSON.stringify(doc, null, 2));
-  };
-
-  const uploadToStorage = async () => {
-    setStBusy(true);
-    setStError("");
-    setStResult("");
-    try {
-      const result = (await cbCall("storage/upload", {
-        environment: cbEnv,
-        cloudPath: stCloudPath,
-        content: stContent,
-      })) as Record<string, unknown>;
-      setStResult(`已上传：${result.fileID || result.cloudPath}（${result.bytes} 字节）`);
-    } catch (cause) {
-      setStError(cause instanceof Error ? cause.message : "上传失败");
-    } finally {
-      setStBusy(false);
-    }
-  };
-
-  const manageStorage = async (action: "urls" | "delete") => {
-    setStBusy(true);
-    setStError("");
-    setStResult("");
-    try {
-      let fileList: unknown;
+  const runDbQuery = useCallback(
+    async (collectionName = dbCollection, filter = dbFilter, page = dbPage, limit = dbLimit) => {
+      setDbBusy(true);
+      setDbError("");
       try {
-        fileList = JSON.parse(stFileList || "[]");
-      } catch {
-        throw new Error("文件 ID 列表不是合法 JSON 数组");
+        const body: Record<string, unknown> = {
+          environment: dbEnvironment,
+          collection: collectionName,
+          limit,
+          skip: page * limit,
+        };
+        if (filter && databaseFilterCount(filter)) body.filter = filter;
+        const result = (await cbCall("databases/query", body)) as {
+          documents: Array<Record<string, unknown>>;
+          count: number;
+          total: number | null;
+        };
+        setDbDocs(result.documents || []);
+        setDbPage(page);
+        setDbHasNext((result.documents || []).length >= limit);
+        setDbTotal(
+          typeof result.total === "number"
+            ? result.total
+            : result.documents.length < limit
+              ? page * limit + result.count
+              : null,
+        );
+      } catch (cause) {
+        setDbError(cause instanceof Error ? cause.message : "查询失败");
+        setDbDocs([]);
+        setDbTotal(null);
+      } finally {
+        setDbBusy(false);
       }
-      const result = (await cbCall(`storage/${action}`, { environment: cbEnv, fileList })) as {
-        files?: Array<{ fileID: string; tempFileURL?: string }>;
-        result?: Array<{ fileID: string; code?: string }>;
-      };
-      setStResult(JSON.stringify(result.files || result.result || result, null, 2));
-    } catch (cause) {
-      setStError(cause instanceof Error ? cause.message : "操作失败");
-    } finally {
-      setStBusy(false);
-    }
+    },
+    [cbCall, dbCollection, dbEnvironment, dbFilter, dbLimit, dbPage],
+  );
+
+  const openDocumentCollection = (name: string) => {
+    setDbCollection(name);
+    setDbPage(0);
+    void runDbQuery(name, dbFilter, 0);
   };
 
   const loadDeployments = useCallback(async () => {
@@ -669,31 +1271,113 @@ export function MiniProgramWorkspace({
     }
   }, [projectId, request]);
 
-  const loadReleaseRequests = useCallback(async () => {
+  useEffect(() => {
+    if (tab !== "server") return undefined;
+    void Promise.all([loadServerFunctions(), loadDeployments()]);
+    return undefined;
+  }, [tab, loadServerFunctions, loadDeployments]);
+
+  const loadReleaseApplications = useCallback(async () => {
     try {
-      const response = await request(`/api/projects/${projectId}/miniprogram/release-requests`);
-      const data = (await readJsonResponse(response, "发布申请")) as ReleaseRequestList;
-      setReleaseRequests(data.requests || []);
-      setReleaseSourceChanged(Boolean(data.sourceChanged));
+      const response = await request(`/api/projects/${projectId}/miniprogram/release-applications`);
+      const data = (await readJsonResponse(response, "生产发布申请")) as {
+        applications: ReleaseApplication[];
+      };
+      setReleaseApplications(data.applications || []);
     } catch {
-      setReleaseRequests([]);
-      setReleaseSourceChanged(false);
+      setReleaseApplications([]);
     }
   }, [projectId, request]);
 
-  /** 批准即执行；拒绝必须带理由。两者都只对项目负责人开放。 */
-  const decideReleaseRequest = async (row: ReleaseRequest, action: "approve" | "reject") => {
+  const submitReleaseApplication = async () => {
+    const items = releaseSelection.map((key) => {
+      if (key.startsWith("function:")) {
+        return { target: "cloudbase_function", resourceName: key.slice("function:".length) };
+      }
+      return { target: key.slice("admin:".length) };
+    });
+    setReleaseBusy("submit");
+    setReleaseError("");
+    setReleaseNotice("");
+    try {
+      if (releaseSelection.includes("admin:cloudbase_static")) {
+        const configResponse = await request(
+          `/api/projects/${projectId}/miniprogram/admin-production`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ hostingPath: adminProductionPath.trim() || "/admin/" }),
+          },
+        );
+        const next = (await readJsonResponse(
+          configResponse,
+          "保存 Admin 生产版配置",
+        )) as MiniProgramConfig;
+        setConfig(next);
+        setAdminProductionPath(next.adminDeploy?.hostingPath || "/admin/");
+      }
+      const response = await request(
+        `/api/projects/${projectId}/miniprogram/release-applications`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items,
+            environment: "production",
+            releaseNote: releaseNote.trim() || undefined,
+          }),
+        },
+      );
+      await readJsonResponse(response, "提交生产发布申请");
+      setReleaseSelection([]);
+      setReleaseNote("");
+      setReleaseCreateOpen(false);
+      await loadReleaseApplications();
+      showTip(`已提交包含 ${items.length} 个目标的生产发布申请`);
+    } catch (cause) {
+      setReleaseError(cause instanceof Error ? cause.message : "提交发布申请失败");
+      await loadReleaseApplications();
+    } finally {
+      setReleaseBusy("");
+    }
+  };
+
+  const cancelReleaseApplication = async (application: ReleaseApplication) => {
+    setReleaseBusy(`cancel:${application.id}`);
+    setReleaseError("");
+    setReleaseNotice("");
+    try {
+      const response = await request(
+        `/api/projects/${projectId}/miniprogram/release-applications/${application.id}/cancel`,
+        { method: "POST" },
+      );
+      await readJsonResponse(response, "放弃生产发布");
+      setReleaseNotice("已放弃本次生产发布");
+      await loadReleaseApplications();
+    } catch (cause) {
+      setReleaseError(cause instanceof Error ? cause.message : "放弃生产发布失败");
+      await loadReleaseApplications();
+    } finally {
+      setReleaseBusy("");
+    }
+  };
+
+  /** 一个申请整批批准或拒绝；每个目标保留独立执行结果。 */
+  const decideReleaseApplication = async (
+    application: ReleaseApplication,
+    action: "approve" | "reject",
+  ) => {
     const reason = rejectReason.trim();
     if (action === "reject" && !reason) {
       setReleaseError("拒绝必须填写理由。");
       return;
     }
-    setReleaseBusy(`${action}:${row.id}`);
+    setReleaseBusy(`${action}:${application.id}`);
     setReleaseError("");
     setReleaseNotice("");
     try {
       const response = await request(
-        `/api/projects/${projectId}/miniprogram/release-requests/${row.id}/${action}`,
+        `/api/projects/${projectId}/miniprogram/release-applications/${application.id}/${action}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -703,8 +1387,10 @@ export function MiniProgramWorkspace({
       const data = (await readJsonResponse(
         response,
         action === "approve" ? "批准发布申请" : "拒绝发布申请",
-      )) as Partial<ReleaseRequest> | null;
-      const label = `${row.targetLabel}${row.version ? ` ${row.version}` : ""}`;
+      )) as Partial<ReleaseApplication> | null;
+      const label = application.items
+        .map((item) => item.resourceName || item.targetLabel)
+        .join("、");
       setReleaseNotice(
         action === "approve"
           ? `已批准并执行：${label}${data?.statusLabel ? `（当前状态：${data.statusLabel}）` : ""}`
@@ -712,14 +1398,14 @@ export function MiniProgramWorkspace({
       );
       setRejectingId("");
       setRejectReason("");
-      await loadReleaseRequests();
+      await loadReleaseApplications();
       await loadDeployments();
     } catch (cause) {
       setReleaseError(
         cause instanceof Error ? cause.message : action === "approve" ? "批准失败" : "拒绝失败",
       );
       // 失败也可能已经改变了服务端状态（例如源码变更导致作废），所以照常刷新。
-      await loadReleaseRequests();
+      await loadReleaseApplications();
       await loadDeployments();
     } finally {
       setReleaseBusy("");
@@ -727,11 +1413,16 @@ export function MiniProgramWorkspace({
   };
 
   useEffect(() => {
-    if (tab !== "preview") return undefined;
+    if (tab !== "preview" && tab !== "deploy") return undefined;
     void loadDeployments();
-    void loadReleaseRequests();
     return undefined;
-  }, [tab, loadDeployments, loadReleaseRequests]);
+  }, [tab, loadDeployments]);
+
+  useEffect(() => {
+    if (tab !== "deploy") return undefined;
+    void Promise.all([loadReleaseApplications(), loadReleaseFunctions()]);
+    return undefined;
+  }, [tab, loadReleaseApplications, loadReleaseFunctions]);
 
   const generateWechatPreview = async () => {
     setWechatBusy("preview");
@@ -778,7 +1469,7 @@ export function MiniProgramWorkspace({
       const response = await request(`/api/projects/${projectId}/miniprogram/wechat/upload`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: uploadVersion, desc: uploadDesc, confirm: true }),
+        body: JSON.stringify({ version: uploadVersion, desc: uploadDesc }),
       });
       const data = (await readJsonResponse(response, "微信上传")) as { version: string };
       setWechatNotice(`已上传版本 ${data.version}，可在微信后台提交审核`);
@@ -809,43 +1500,182 @@ export function MiniProgramWorkspace({
     }
   };
 
-  const loadCollections = async () => {
+  const loadCollections = useCallback(async () => {
     setBrowseBusy("collections");
     setBrowseError("");
     try {
       const response = await request(
-        `/api/projects/${projectId}/cloudbase/collections?environment=${encodeURIComponent(cbEnv)}`,
+        `/api/projects/${projectId}/cloudbase/collections?environment=${dbEnvironment}`,
       );
       const data = (await readJsonResponse(response, "集合列表")) as { collections: string[] };
-      setCollections(data.collections || []);
+      const nextCollections = data.collections || [];
+      setCollections(nextCollections);
+      if (nextCollections.length) {
+        const nextCollection = nextCollections.includes(dbCollection)
+          ? dbCollection
+          : nextCollections[0];
+        setDbCollection(nextCollection);
+        await runDbQuery(nextCollection, dbFilter, 0);
+      } else {
+        setDbCollection("");
+        setDbDocs([]);
+      }
     } catch (cause) {
       setBrowseError(cause instanceof Error ? cause.message : "载入集合列表失败");
       setCollections([]);
+      setDbCollection("");
+      setDbDocs([]);
+      setDbPage(0);
+      setDbHasNext(false);
+      setDbTotal(0);
+    } finally {
+      setBrowseBusy(null);
+    }
+  }, [dbEnvironment, projectId, request, runDbQuery]);
+
+  useEffect(() => {
+    if (tab !== "database") return undefined;
+    void loadCollections();
+    return undefined;
+  }, [tab, projectId, dbEnvironment]);
+
+  const switchDatabaseEnvironment = (environment: DatabaseEnvironment) => {
+    if (environment === dbEnvironment) return;
+    setCollections([]);
+    setDbCollection("");
+    setDbDocs([]);
+    setDbPage(0);
+    setDbHasNext(false);
+    setDbTotal(null);
+    setDbError("");
+    setDbEnvironment(environment);
+  };
+
+  const browseStorage = async (path = browsePath) => {
+    setBrowseBusy("files");
+    setBrowseError("");
+    try {
+      const params = new URLSearchParams({ environment: storageEnvironment });
+      if (path.trim()) params.set("path", path.trim());
+      const response = await request(
+        `/api/projects/${projectId}/cloudbase/storage/files?${params.toString()}`,
+      );
+      const data = (await readJsonResponse(response, "存储目录")) as {
+        files: StorageFile[];
+      };
+      setBrowsePath(normalizedStoragePath(path));
+      setStorageFiles(data.files || []);
+      setStoragePage(0);
+      setStorageLoaded(true);
+    } catch (cause) {
+      setBrowseError(cause instanceof Error ? cause.message : "浏览存储目录失败");
+      setStorageFiles([]);
+      setStorageLoaded(true);
     } finally {
       setBrowseBusy(null);
     }
   };
 
-  const browseStorage = async () => {
-    setBrowseBusy("files");
+  useEffect(() => {
+    if (tab !== "storage") return;
+    void browseStorage(browsePath);
+  }, [tab, projectId, storageEnvironment]);
+
+  const createStorageFolder = async () => {
+    const name = normalizedStoragePath(newFolderName);
+    if (!name || name.includes("/") || name.includes("..")) {
+      setBrowseError("文件夹名称不能包含 / 或 ..");
+      return;
+    }
+    setStorageActionBusy("create");
     setBrowseError("");
     try {
-      const params = new URLSearchParams({ environment: cbEnv });
-      if (browsePath.trim()) params.set("path", browsePath.trim());
-      const response = await request(
-        `/api/projects/${projectId}/cloudbase/storage/files?${params.toString()}`,
-      );
-      const data = (await readJsonResponse(response, "存储目录")) as {
-        files: Array<{ key: string; size: number; isDirectory: boolean }>;
-      };
-      setStorageFiles(data.files || []);
+      const response = await request(`/api/projects/${projectId}/cloudbase/storage/directory`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          environment: storageEnvironment,
+          cloudPath: joinStoragePath(browsePath, name),
+        }),
+      });
+      await readJsonResponse(response, "新建文件夹");
+      setNewFolderOpen(false);
+      setNewFolderName("");
+      await browseStorage(browsePath);
     } catch (cause) {
-      setBrowseError(cause instanceof Error ? cause.message : "浏览存储目录失败");
-      setStorageFiles([]);
+      setBrowseError(cause instanceof Error ? cause.message : "新建文件夹失败");
     } finally {
-      setBrowseBusy(null);
+      setStorageActionBusy(null);
     }
   };
+
+  const uploadStorageFiles = async (files: FileList | null, keepRelativePath: boolean) => {
+    const selected = Array.from(files || []);
+    if (!selected.length) return;
+    setStorageActionBusy("upload");
+    setBrowseError("");
+    try {
+      for (const file of selected) {
+        const relativePath = keepRelativePath
+          ? (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+          : file.name;
+        const response = await request(`/api/projects/${projectId}/cloudbase/storage/upload`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            environment: storageEnvironment,
+            cloudPath: joinStoragePath(browsePath, relativePath),
+            contentBase64: await fileAsBase64(file),
+          }),
+        });
+        await readJsonResponse(response, `上传 ${relativePath}`);
+      }
+      showTip(`已上传 ${selected.length} 个文件`);
+      await browseStorage(browsePath);
+    } catch (cause) {
+      setBrowseError(cause instanceof Error ? cause.message : "上传失败");
+    } finally {
+      setStorageActionBusy(null);
+      if (storageFileInputRef.current) storageFileInputRef.current.value = "";
+      if (storageFolderInputRef.current) storageFolderInputRef.current.value = "";
+    }
+  };
+
+  const deleteStorageEntry = async (file: StorageFile) => {
+    if (
+      !window.confirm(
+        `确定删除${file.isDirectory ? "文件夹" : "文件"}“${storageFileName(file.key)}”吗？`,
+      )
+    )
+      return;
+    setStorageActionBusy("delete");
+    setBrowseError("");
+    try {
+      const response = await request(`/api/projects/${projectId}/cloudbase/storage/delete-entry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          environment: storageEnvironment,
+          cloudPath: file.key,
+          isDirectory: file.isDirectory,
+        }),
+      });
+      await readJsonResponse(response, "删除存储项");
+      await browseStorage(browsePath);
+    } catch (cause) {
+      setBrowseError(cause instanceof Error ? cause.message : "删除失败");
+    } finally {
+      setStorageActionBusy(null);
+    }
+  };
+
+  const storageBreadcrumbs = normalizedStoragePath(browsePath).split("/").filter(Boolean);
+  const visibleStorageFiles = storageFiles;
+  const pagedStorageFiles = visibleStorageFiles.slice(
+    storagePage * storagePageSize,
+    (storagePage + 1) * storagePageSize,
+  );
+  const storageHasNext = (storagePage + 1) * storagePageSize < visibleStorageFiles.length;
 
   const activeAdminServer =
     adminServers.find((row) => row.id === adminActiveId) ||
@@ -854,16 +1684,79 @@ export function MiniProgramWorkspace({
     null;
   const adminStatusLabel = activeAdminServer
     ? ADMIN_STATUS_LABELS[activeAdminServer.status]
-    : config?.adminDeploy
-      ? "未启动"
-      : "未配置";
+    : "未启动";
   const adminStatusTone = activeAdminServer
     ? ADMIN_STATUS_TONES[activeAdminServer.status]
     : "muted";
-  const pendingReleaseRequests = releaseRequests.filter((row) => row.status === "pending");
-  const decidedReleaseRequests = releaseRequests
-    .filter((row) => row.status !== "pending")
-    .slice(0, 8);
+  const adminPreviewRunning = activeAdminServer?.status === "running";
+  const adminServiceTitle = activeAdminServer
+    ? activeAdminServer.status === "running"
+      ? "预览服务正在运行"
+      : activeAdminServer.status === "starting"
+        ? "预览服务正在启动"
+        : activeAdminServer.status === "failed"
+          ? "预览服务启动失败"
+          : "预览服务已停止"
+    : "尚未启动预览服务";
+  const adminServiceDescription = activeAdminServer
+    ? activeAdminServer.status === "running"
+      ? "Admin 根目录已通过 CoThread 宿主机提供实时预览。"
+      : activeAdminServer.status === "starting"
+        ? "服务正在启动，状态就绪后预览会自动显示。"
+        : activeAdminServer.status === "failed"
+          ? "请检查错误信息后重新启动服务。"
+          : "重新开启后可继续预览 Admin 根目录。"
+    : "开启服务后即可在当前页签预览 Admin 根目录。";
+  const adminPendingTitle = activeAdminServer
+    ? activeAdminServer.status === "failed"
+      ? "开发服务器启动失败"
+      : activeAdminServer.status === "stopped"
+        ? "开发服务器已停止"
+        : "开发服务器启动中"
+    : "还没有 Admin 开发服务器";
+  const adminPendingDetail = activeAdminServer
+    ? activeAdminServer.error ||
+      (activeAdminServer.status === "stopped"
+        ? "请重新启动 Admin 开发服务器，并登记新的预览服务。"
+        : `L3 需用 --base=${activeAdminServer.proxyBase} 启动开发服务器，再标记为 running。`)
+    : "L3 在任务中用 miniprogram_register_admin_preview 登记端口并启动开发服务器后，这里会实时显示管理后台。";
+  const selectedReleaseApplication = releaseApplications.find(
+    (application) => application.id === releaseDetailId,
+  );
+  const wechatDeployments = deployments.filter(
+    (row) => row.target === "wechat_preview" || row.target === "wechat_upload",
+  );
+  const adminFrontendDeployments = deployments.filter(
+    (row) => row.environment === "production" && row.target === "cloudbase_static",
+  );
+  const adminProductionAddress =
+    adminFrontendDeployments.find((row) => row.status === "succeeded" && row.url)?.url || "";
+  const serverDeployments = deployments.filter(
+    (row) => row.environment === "production" && row.target === "cloudbase_function",
+  );
+  const visibleFunctions = serverFunctions.filter((item) =>
+    item.name.toLocaleLowerCase().includes(functionSearch.trim().toLocaleLowerCase()),
+  );
+  const selectedTimerFunction = serverFunctions.find((item) => item.name === timerFunctionName);
+  const trimmedTimerName = timerName.trim();
+  const trimmedTimerSchedule = timerSchedule.trim();
+  const timerNameValid = /^[A-Za-z][A-Za-z0-9_-]{0,59}$/.test(trimmedTimerName);
+  const timerScheduleValid = trimmedTimerSchedule.split(/\s+/).length === 7;
+  const timerNameDuplicate = Boolean(
+    selectedTimerFunction?.timers.some((timer) => timer.name === trimmedTimerName),
+  );
+  const timerLimitReached = (selectedTimerFunction?.timers.length || 0) >= 10;
+  const pagedFunctions = visibleFunctions.slice(
+    functionPage * functionPageSize,
+    (functionPage + 1) * functionPageSize,
+  );
+  const functionHasNext = (functionPage + 1) * functionPageSize < visibleFunctions.length;
+  useEffect(() => {
+    setFunctionPage(0);
+  }, [functionSearch]);
+  const documentColumns = Array.from(
+    new Set(dbDocs.flatMap((document) => Object.keys(document))),
+  ).slice(0, 7);
 
   const rebuild = async (force: boolean) => {
     setBuilding(true);
@@ -915,657 +1808,1402 @@ export function MiniProgramWorkspace({
         ))}
       </nav>
 
-      <div className="miniprogram-tab-body" role="tabpanel">
+      <div
+        className={`miniprogram-tab-body ${
+          tab === "preview"
+            ? "miniprogram-preview-tab-body"
+            : tab === "admin"
+              ? "miniprogram-admin-tab-body"
+              : tab === "database"
+                ? "miniprogram-database-tab-body"
+                : tab === "storage"
+                  ? "miniprogram-storage-tab-body"
+                  : tab === "server"
+                    ? "miniprogram-server-tab-body"
+                  : ""
+        }`}
+        role="tabpanel"
+      >
         {error ? <p className="miniprogram-config-error">{error}</p> : null}
         {!enabled ? (
           <p className="miniprogram-workspace-notice">
-            小程序全栈工作区尚未启用。请在「项目管理 → 小程序与云开发」完成配置后启用。
+            请在「项目管理 → 小程序与云开发」完成①②配置，然后运行连接测试；验证通过后工作区会自动开放。
           </p>
         ) : null}
 
         {tab === "preview" ? (
-          <section className="miniprogram-panel">
-            <header className="miniprogram-panel-head">
-              <h4>应用预览</h4>
-              <span className={`miniprogram-status ${status === "verified" ? "ok" : "muted"}`}>
-                {STATUS_LABELS[status] || status}
-              </span>
-            </header>
-            <dl className="miniprogram-meta">
-              <div>
-                <dt>AppID</dt>
-                <dd>{config?.appId || "未配置"}</dd>
-              </div>
-              <div>
-                <dt>源码文件</dt>
-                <dd>{meta ? `${meta.sourceFileCount} 个` : "—"}</dd>
-              </div>
-              <div>
-                <dt>上次编译</dt>
-                <dd>
-                  {meta?.build
-                    ? `${meta.build.status}${meta.build.finishedAt ? ` · ${meta.build.finishedAt}` : ""}`
-                    : "尚未编译"}
-                </dd>
-              </div>
-            </dl>
-            <div className="miniprogram-config-actions">
-              <button
-                type="button"
-                disabled={!enabled || building}
-                onClick={() => void rebuild(false)}
-              >
-                {building ? "编译中…" : meta?.runnable ? "重新编译" : "编译并预览"}
-              </button>
-              <button
-                type="button"
-                disabled={building}
-                onClick={() => setReloadKey((value) => value + 1)}
-              >
-                刷新状态
-              </button>
-              {meta?.runnable ? (
-                <button type="button" disabled={building} onClick={() => void rebuild(true)}>
-                  强制重新编译
+          <section className="miniprogram-panel miniprogram-preview-panel">
+            <div
+              className="miniprogram-preview-toolbar"
+              role="toolbar"
+              aria-label="小程序预览工具栏"
+            >
+              <div className="miniprogram-preview-refresh" ref={refreshMenuRef}>
+                <button
+                  type="button"
+                  className="miniprogram-preview-icon-button"
+                  aria-label="刷新与编译"
+                  aria-haspopup="menu"
+                  aria-expanded={refreshMenuOpen}
+                  title="刷新与编译"
+                  disabled={building}
+                  onClick={() => setRefreshMenuOpen((value) => !value)}
+                >
+                  <UiIcon name="refresh" size={14} />
                 </button>
-              ) : null}
-            </div>
-            {buildError ? <p className="miniprogram-config-error">{buildError}</p> : null}
-            {meta?.build?.errorCode ? (
-              <p className="miniprogram-config-error">上次编译失败（{meta.build.errorCode}）</p>
-            ) : null}
-            {!enabled ? (
-              <PendingPanel
-                icon="smartphone"
-                title="工作区未启用"
-                detail="在「项目管理 → 小程序与云开发」启用后，这里会编译小程序源文件并运行预览。"
-              />
-            ) : meta?.runnable && meta.appId ? (
-              <PreviewCanvas key={`${meta.build?.id}-${meta.runtime.moduleUrl}`} meta={meta} />
-            ) : (
-              <PendingPanel
-                icon="smartphone"
-                title={meta?.build ? "源码已变更，需要重新编译" : "还没有可运行的编译产物"}
-                detail="点击「编译并预览」把「小程序源文件」编译为 Dimina 资源包，随后在此运行。源码仍可在文档树中直接预览。"
-              />
-            )}
-            <h5>小程序源文件</h5>
-            <SourceSummary
-              files={sourceFiles.filter((file) => file.area === "miniprogram_source")}
-            />
-
-            <h5>待审批发布申请</h5>
-            {releaseError ? <p className="miniprogram-config-error">{releaseError}</p> : null}
-            {releaseNotice ? <p className="muted miniprogram-note">{releaseNotice}</p> : null}
-            {pendingReleaseRequests.length ? (
-              <>
-                {releaseSourceChanged ? (
-                  <p className="miniprogram-approval-alert">
-                    源码已变更，该申请已无法批准。请让提交人基于最新源码重新提交发布申请。
-                  </p>
+                {refreshMenuOpen ? (
+                  <div className="miniprogram-preview-refresh-menu" role="menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={!enabled || building}
+                      onClick={() => {
+                        setRefreshMenuOpen(false);
+                        void rebuild(false);
+                      }}
+                    >
+                      <UiIcon name="play" size={13} />
+                      {building ? "编译中…" : meta?.runnable ? "重新编译" : "编译并预览"}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={building}
+                      onClick={() => {
+                        setRefreshMenuOpen(false);
+                        setReloadKey((value) => value + 1);
+                      }}
+                    >
+                      <UiIcon name="refresh" size={13} />
+                      重新加载
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={building || !meta?.runnable}
+                      onClick={() => {
+                        setRefreshMenuOpen(false);
+                        void rebuild(true);
+                      }}
+                    >
+                      <UiIcon name="restore" size={13} />
+                      强制重新编译
+                    </button>
+                  </div>
                 ) : null}
-                {writable ? null : (
-                  <p className="muted miniprogram-note">
-                    当前账号对该项目只读，无法批准或拒绝发布申请。
-                  </p>
-                )}
-                <ul className="miniprogram-approval-list">
-                  {pendingReleaseRequests.map((row) => (
-                    <li key={row.id}>
-                      <div className="miniprogram-approval-head">
-                        <span className="miniprogram-status warning">
-                          {row.statusLabel || "待审批"}
-                        </span>
-                        <span className="miniprogram-approval-target">{row.targetLabel}</span>
-                        <span className="miniprogram-approval-version">{row.version || "—"}</span>
-                      </div>
-                      {row.releaseNote ? (
-                        <p className="miniprogram-approval-note">{row.releaseNote}</p>
-                      ) : null}
-                      <p className="muted miniprogram-note">
-                        环境 {row.environment} · 申请人{" "}
-                        {REQUESTER_KIND_LABELS[row.requestedByKind] || row.requestedByKind} ·{" "}
-                        {row.createdAt || "—"}
-                      </p>
-                      {writable ? (
-                        <div className="miniprogram-config-actions">
-                          <button
-                            type="button"
-                            disabled={releaseBusy !== "" || releaseSourceChanged}
-                            onClick={() => void decideReleaseRequest(row, "approve")}
-                          >
-                            {releaseBusy === `approve:${row.id}` ? "批准中…" : "批准并执行"}
-                          </button>
-                          <button
-                            type="button"
-                            className="miniprogram-danger"
-                            disabled={releaseBusy !== ""}
-                            onClick={() => {
-                              setRejectingId(row.id);
-                              setRejectReason("");
-                            }}
-                          >
-                            拒绝
-                          </button>
-                        </div>
-                      ) : null}
-                      {writable && rejectingId === row.id ? (
-                        <div className="miniprogram-approval-reject">
-                          <label className="miniprogram-field">
-                            <span>拒绝理由</span>
-                            <input
-                              type="text"
-                              value={rejectReason}
-                              placeholder="必填，会记录在申请上"
-                              autoComplete="off"
-                              onChange={(event) => setRejectReason(event.target.value)}
-                            />
-                          </label>
-                          <div className="miniprogram-config-actions">
-                            <button
-                              type="button"
-                              className="miniprogram-danger"
-                              disabled={releaseBusy !== "" || !rejectReason.trim()}
-                              onClick={() => void decideReleaseRequest(row, "reject")}
-                            >
-                              {releaseBusy === `reject:${row.id}` ? "提交中…" : "确认拒绝"}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={releaseBusy !== ""}
-                              onClick={() => {
-                                setRejectingId("");
-                                setRejectReason("");
-                              }}
-                            >
-                              取消
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <p className="muted miniprogram-note">没有待审批的发布申请。</p>
-            )}
-            {decidedReleaseRequests.length ? (
-              <>
-                <p className="muted miniprogram-note">最近处理结果</p>
-                <ul className="miniprogram-approval-history">
-                  {decidedReleaseRequests.map((row) => (
-                    <li key={row.id}>
-                      <span className={`miniprogram-status ${releaseStatusTone(row.status)}`}>
-                        {row.statusLabel || row.status}
-                      </span>
-                      <span className="miniprogram-approval-target">{row.targetLabel}</span>
-                      <span className="miniprogram-approval-version">{row.version || "—"}</span>
-                      <span className="muted">{row.decidedAt || row.updatedAt || ""}</span>
-                      {row.lastError || row.decisionNote ? (
-                        <span className="miniprogram-approval-detail">
-                          {row.lastError || row.decisionNote}
-                        </span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
-
-            <h5>微信发布</h5>
-            <div className="miniprogram-config-actions">
-              <button
-                type="button"
-                disabled={!enabled || wechatBusy !== null}
-                onClick={() => void generateWechatPreview()}
-              >
-                {wechatBusy === "preview" ? "生成中…" : "生成开发版预览二维码"}
-              </button>
-            </div>
-            {wechatError ? <p className="miniprogram-config-error">{wechatError}</p> : null}
-            {wechatNotice ? <p className="muted miniprogram-note">{wechatNotice}</p> : null}
-            {qrDataUrl ? (
-              <div className="miniprogram-qr">
-                <img src={qrDataUrl} alt="微信开发版预览二维码" />
-                <span className="muted">
-                  用微信扫码打开开发版；二维码由微信官方 CI 生成，会过期。
+              </div>
+              <div className="miniprogram-preview-route" title={previewRoute}>
+                <UiIcon name="code" size={13} />
+                <span className="miniprogram-preview-route-path">{previewRoute}</span>
+                <span
+                  className="miniprogram-preview-build-time"
+                  title={meta?.build?.finishedAt || undefined}
+                >
+                  上次编译：{formatBuildTime(meta?.build?.finishedAt)}
                 </span>
               </div>
-            ) : null}
-
-            {writable ? (
-              <>
-                <div className="miniprogram-field">
-                  <span>上传版本号</span>
-                  <input
-                    type="text"
-                    value={uploadVersion}
-                    placeholder="1.0.0"
-                    autoComplete="off"
-                    onChange={(event) => setUploadVersion(event.target.value)}
-                  />
-                </div>
-                <div className="miniprogram-field">
-                  <span>版本说明</span>
-                  <input
-                    type="text"
-                    value={uploadDesc}
-                    placeholder="本次更新内容"
-                    autoComplete="off"
-                    onChange={(event) => setUploadDesc(event.target.value)}
-                  />
-                </div>
+              <div className="miniprogram-preview-primary-actions">
+                <button
+                  type="button"
+                  className="miniprogram-preview-icon-button"
+                  aria-label="微信发布"
+                  title="微信发布"
+                  onClick={() => setOpenAction("wechat")}
+                >
+                  <UiIcon name="upload" size={14} />
+                </button>
+                <button
+                  type="button"
+                  className="miniprogram-preview-icon-button"
+                  aria-label="记录"
+                  title="记录"
+                  onClick={() => setOpenAction("records")}
+                >
+                  <UiIcon name="history" size={14} />
+                </button>
+              </div>
+            </div>
+            <div className="miniprogram-preview-scroll">
+              {buildError ? <p className="miniprogram-config-error">{buildError}</p> : null}
+              {meta?.build?.errorCode ? (
+                <p className="miniprogram-config-error">上次编译失败（{meta.build.errorCode}）</p>
+              ) : null}
+              {!enabled ? (
+                <PendingPanel
+                  icon="smartphone"
+                  title="工作区尚未开放"
+                  detail="在「项目管理 → 小程序与云开发」完成配置并通过连接测试后，这里会自动开放。"
+                />
+              ) : meta?.runnable && meta.appId ? (
+                <PreviewCanvas
+                  key={`${meta.build?.id}-${meta.runtime.moduleUrl}-${reloadKey}`}
+                  meta={meta}
+                  projectId={projectId}
+                />
+              ) : (
+                <PendingPanel
+                  icon="smartphone"
+                  title={meta?.build ? "源码已变更，需要重新编译" : "还没有可运行的编译产物"}
+                  detail="点击「编译并预览」把「小程序源文件」编译为 Dimina 资源包，随后在此运行。源码仍可在文档树中直接预览。"
+                />
+              )}
+            </div>
+            {openAction === "wechat" ? (
+              <WorkspaceDialog title="微信发布" onClose={() => setOpenAction(null)}>
                 <div className="miniprogram-config-actions">
                   <button
                     type="button"
-                    disabled={wechatBusy !== null || !uploadVersion}
-                    onClick={() => void uploadWechatVersion()}
+                    disabled={!enabled || wechatBusy !== null}
+                    onClick={() => void generateWechatPreview()}
                   >
-                    {wechatBusy === "upload" ? "上传中…" : "上传体验版"}
+                    {wechatBusy === "preview"
+                      ? "生成中…"
+                      : qrDataUrl
+                        ? "重新生成预览二维码"
+                        : "生成开发版预览二维码"}
                   </button>
                 </div>
-                <p className="muted miniprogram-note">
-                  上传是发布动作：会写入微信后台的开发版本，提交审核仍需在微信后台完成。微信还要求调用方
-                  IP 在白名单内。
-                </p>
-              </>
-            ) : (
-              <p className="muted miniprogram-note">当前账号对该项目只读，无法上传版本。</p>
-            )}
+                {wechatError ? <p className="miniprogram-config-error">{wechatError}</p> : null}
+                {wechatNotice ? <p className="muted miniprogram-note">{wechatNotice}</p> : null}
+                {qrDataUrl ? (
+                  <div className="miniprogram-qr">
+                    <img src={qrDataUrl} alt="微信开发版预览二维码" />
+                    <span className="muted">
+                      用微信扫码打开开发版；二维码由微信官方 CI 生成，会过期。
+                    </span>
+                  </div>
+                ) : (
+                  <p className="muted miniprogram-note">
+                    还没有二维码。生成后用微信扫码打开开发版；二维码由微信官方 CI 生成，会过期。
+                  </p>
+                )}
 
-            <h5>发布记录</h5>
-            {deployments.length ? (
-              <ul className="miniprogram-deploy-list">
-                {deployments.map((row) => (
-                  <li key={row.id}>
-                    <button type="button" onClick={() => void openDeployment(row.id)}>
-                      <span
-                        className={`miniprogram-status ${row.status === "succeeded" ? "ok" : "failed"}`}
+                <h5>上传体验版</h5>
+                {writable ? (
+                  <>
+                    <div className="miniprogram-field">
+                      <span>上传版本号</span>
+                      <input
+                        type="text"
+                        value={uploadVersion}
+                        placeholder="1.0.0"
+                        autoComplete="off"
+                        onChange={(event) => setUploadVersion(event.target.value)}
+                      />
+                    </div>
+                    <div className="miniprogram-field">
+                      <span>版本说明</span>
+                      <input
+                        type="text"
+                        value={uploadDesc}
+                        placeholder="本次更新内容"
+                        autoComplete="off"
+                        onChange={(event) => setUploadDesc(event.target.value)}
+                      />
+                    </div>
+                    <div className="miniprogram-config-actions">
+                      <button
+                        type="button"
+                        disabled={wechatBusy !== null || !uploadVersion}
+                        onClick={() => void uploadWechatVersion()}
                       >
-                        {row.status === "succeeded" ? "成功" : "失败"}
-                      </span>
-                      <span className="miniprogram-deploy-target">
-                        {DEPLOY_TARGET_LABELS[row.target] || row.target}
-                      </span>
-                      <span className="miniprogram-deploy-version">{row.version || "—"}</span>
-                      <span className="muted">{row.publishedAt || row.createdAt || ""}</span>
-                    </button>
-                    {openDeploymentId === row.id ? (
-                      <pre className="miniprogram-doc-result">{deploymentLog}</pre>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="muted miniprogram-note">还没有发布记录。</p>
-            )}
+                        {wechatBusy === "upload" ? "上传中…" : "上传体验版"}
+                      </button>
+                    </div>
+                    <p className="muted miniprogram-note">
+                      上传后生成微信体验版，不代表已提交审核；提审与正式发布仍需在微信后台完成。微信还要求调用方
+                      IP 在白名单内。
+                    </p>
+                  </>
+                ) : (
+                  <p className="muted miniprogram-note">当前账号对该项目只读，无法上传版本。</p>
+                )}
+              </WorkspaceDialog>
+            ) : null}
+
+            {openAction === "records" ? (
+              <WorkspaceDialog title="微信小程序发布记录" onClose={() => setOpenAction(null)}>
+                <DeploymentRecordList
+                  rows={wechatDeployments}
+                  openDeploymentId={openDeploymentId}
+                  deploymentLog={deploymentLog}
+                  emptyText="还没有微信小程序发布记录。"
+                  onOpen={(id) => void openDeployment(id)}
+                />
+              </WorkspaceDialog>
+            ) : null}
           </section>
         ) : null}
 
         {tab === "admin" ? (
-          <section className="miniprogram-panel">
-            <header className="miniprogram-panel-head">
-              <h4>Admin</h4>
-              <span className={`miniprogram-status ${adminStatusTone}`}>{adminStatusLabel}</span>
-            </header>
-            <div className="miniprogram-config-actions">
-              <button type="button" disabled={adminBusy} onClick={() => void loadAdminServers()}>
-                <UiIcon name="refresh" size={13} /> 刷新状态
+          <section className="miniprogram-panel miniprogram-admin-panel">
+            <div className="miniprogram-admin-toolbar" role="toolbar" aria-label="PC管理后台预览工具栏">
+              <button
+                type="button"
+                className="miniprogram-preview-icon-button"
+                aria-label={adminPreviewRunning ? "重新加载 PC管理后台预览" : "开启 PC管理后台预览服务"}
+                title={adminPreviewRunning ? "重新加载" : "开启 PC管理后台预览服务"}
+                onClick={() => {
+                  if (adminPreviewRunning) {
+                    setAdminFrameKey((value) => value + 1);
+                    return;
+                  }
+                  setAdminDialogOpen(true);
+                }}
+              >
+                <UiIcon name={adminPreviewRunning ? "refresh" : "play"} size={14} />
               </button>
-              {activeAdminServer ? (
-                <button
-                  type="button"
-                  className="miniprogram-danger"
-                  disabled={adminBusy}
-                  onClick={() => void stopAdminServer(activeAdminServer.id)}
-                >
-                  停止服务
-                </button>
-              ) : null}
+              <div
+                className="miniprogram-admin-address"
+                title={activeAdminServer?.proxyBase || "PC管理后台预览服务未连接"}
+              >
+                <UiIcon name="globe" size={13} />
+                <span>{activeAdminServer?.proxyBase || "PC管理后台预览服务未连接"}</span>
+              </div>
+              <button
+                type="button"
+                className="miniprogram-preview-icon-button"
+                aria-label="在新窗口打开 PC 管理后台预览"
+                title="在新窗口打开 PC 管理后台预览"
+                disabled={!adminPreviewRunning}
+                onClick={() => {
+                  if (!activeAdminServer?.proxyBase) return;
+                  window.open(activeAdminServer.proxyBase, "_blank", "noopener,noreferrer");
+                }}
+              >
+                <UiIcon name="next" size={14} />
+              </button>
+              <button
+                type="button"
+                className="miniprogram-preview-icon-button"
+                aria-label="PC管理后台预览服务"
+                title={`PC管理后台预览服务 · ${adminStatusLabel}`}
+                onClick={() => setAdminDialogOpen(true)}
+              >
+                <UiIcon name="server" size={14} />
+              </button>
             </div>
-            {adminError ? <p className="miniprogram-config-error">{adminError}</p> : null}
-            {activeAdminServer ? (
-              <>
-                <dl className="miniprogram-meta">
-                  <div>
-                    <dt>端口</dt>
-                    <dd>{activeAdminServer.port || "—"}</dd>
+
+            <div className="miniprogram-admin-preview">
+              {activeAdminServer?.status === "running" ? (
+                <iframe
+                  ref={adminFrameRef}
+                  key={adminFrameKey}
+                  className="miniprogram-admin-frame"
+                  title="PC 管理后台预览"
+                  src={activeAdminServer.proxyBase}
+                />
+              ) : (
+                <PendingPanel
+                  icon="monitor"
+                  title={adminPendingTitle}
+                  detail={adminPendingDetail}
+                />
+              )}
+            </div>
+
+
+            {adminDialogOpen ? (
+              <WorkspaceDialog title="PC管理后台预览服务" onClose={() => setAdminDialogOpen(false)}>
+                <section className="miniprogram-admin-service-section">
+                  <div className="miniprogram-admin-service-summary">
+                    <span className="miniprogram-admin-service-icon" aria-hidden="true">
+                      <UiIcon name={adminPreviewRunning ? "online" : "server"} size={16} />
+                    </span>
+                    <div className="miniprogram-admin-service-summary-copy">
+                      <div className="miniprogram-admin-service-head">
+                        <div>
+                          <span className="miniprogram-admin-service-environment">开发版</span>
+                          <h5>{adminServiceTitle}</h5>
+                        </div>
+                        <span className={`miniprogram-status ${adminStatusTone}`}>
+                          {adminStatusLabel}
+                        </span>
+                      </div>
+                      <p className="muted miniprogram-note">{adminServiceDescription}</p>
+                    </div>
                   </div>
-                  <div>
-                    <dt>代理路径</dt>
-                    <dd>{activeAdminServer.proxyBase}</dd>
-                  </div>
-                  <div>
-                    <dt>最近活动</dt>
-                    <dd>{activeAdminServer.lastActivityAt || "—"}</dd>
-                  </div>
-                </dl>
-                {activeAdminServer.status === "running" ? (
-                  <div className="miniprogram-canvas-shell">
-                    <div className="miniprogram-canvas-bar">
-                      <span className="miniprogram-canvas-state running">运行中</span>
-                      <button type="button" onClick={() => setAdminFrameKey((value) => value + 1)}>
-                        重新加载
+                  {adminError ? <p className="miniprogram-config-error">{adminError}</p> : null}
+                  {activeAdminServer ? (
+                    <div className="miniprogram-admin-service-details">
+                      <div className="miniprogram-admin-service-address">
+                        <span>预览地址</span>
+                        <code>{activeAdminServer.proxyBase}</code>
+                      </div>
+                      <dl className="miniprogram-admin-service-meta">
+                        <div>
+                          <dt>端口</dt>
+                          <dd>{activeAdminServer.port || "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>最近活动</dt>
+                          <dd>{activeAdminServer.lastActivityAt || "—"}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  ) : (
+                    <div className="miniprogram-admin-service-empty">
+                      <strong>当前没有已登记的服务</strong>
+                      <span>开启后会在这里显示预览地址和运行信息。</span>
+                    </div>
+                  )}
+                  <div className="miniprogram-admin-service-actions">
+                    <div className="miniprogram-config-actions miniprogram-admin-service-primary-actions">
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={adminBusy || !writable}
+                        onClick={() => void startAdminServer(activeAdminServer?.id)}
+                      >
+                        <UiIcon
+                          name={activeAdminServer?.status === "running" ? "refresh" : "play"}
+                          size={13}
+                        />
+                        {adminBusy
+                          ? "处理中…"
+                          : activeAdminServer?.status === "running" ||
+                              activeAdminServer?.status === "failed"
+                            ? "重启服务"
+                            : "开启服务"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={adminBusy}
+                        onClick={() => void loadAdminServers()}
+                      >
+                        <UiIcon name="refresh" size={13} />
+                        {adminBusy ? "刷新中…" : "刷新状态"}
                       </button>
                     </div>
-                    <iframe
-                      key={adminFrameKey}
-                      className="miniprogram-admin-frame"
-                      title="PC 管理后台预览"
-                      src={activeAdminServer.proxyBase}
-                    />
+                    {activeAdminServer?.status === "running" ? (
+                      <div className="miniprogram-admin-service-danger-zone">
+                        <div>
+                          <strong>停止开发服务</strong>
+                          <span>停止后当前 PC管理后台预览将不可访问。</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="miniprogram-danger"
+                          disabled={adminBusy || !writable}
+                          onClick={() => void stopAdminServer(activeAdminServer.id)}
+                        >
+                          <UiIcon name="stop" size={13} />
+                          停止服务
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
-                ) : (
-                  <PendingPanel
-                    icon="monitor"
-                    title={
-                      activeAdminServer.status === "failed"
-                        ? "开发服务器启动失败"
-                        : "开发服务器启动中"
-                    }
-                    detail={
-                      activeAdminServer.error ||
-                      `L3 需用 --base=${activeAdminServer.proxyBase} 启动开发服务器，再标记为 running。`
-                    }
-                  />
-                )}
-              </>
-            ) : (
-              <PendingPanel
-                icon="monitor"
-                title="还没有 Admin 开发服务器"
-                detail={
-                  config?.adminDeploy
-                    ? "L3 在任务中用 miniprogram_register_admin_preview 登记端口并启动开发服务器后，这里会实时显示管理后台。"
-                    : "请先在「项目管理 → 小程序与云开发」配置 Admin 发布目标。"
-                }
-              />
-            )}
-            {writable ? null : <p className="muted">当前账号对该项目只读，无法停止服务。</p>}
+                </section>
+
+                {writable ? null : <p className="muted miniprogram-note">当前账号对该项目只读。</p>}
+              </WorkspaceDialog>
+            ) : null}
           </section>
         ) : null}
 
-        {tab === "database" ? (
-          <section className="miniprogram-panel">
-            <header className="miniprogram-panel-head">
-              <h4>数据库</h4>
-              <span className="miniprogram-status muted">{cbEnv}</span>
-            </header>
-            <label className="miniprogram-field">
-              <span>环境</span>
-              <select value={cbEnv} onChange={(event) => setCbEnv(event.target.value)}>
-                {cbEnvironments
-                  .filter((item) => item.configured)
-                  .map((item) => (
-                    <option key={item.kind} value={item.kind}>
-                      {item.label}（{item.envId}）
-                    </option>
-                  ))}
-                {cbEnvironments.some((item) => item.configured) ? null : (
-                  <option value="development">未配置环境</option>
-                )}
-              </select>
-            </label>
-            <label className="miniprogram-field">
-              <span>集合名</span>
-              <input
-                type="text"
-                value={dbCollection}
-                placeholder="orders"
-                list="miniprogram-collection-options"
-                autoComplete="off"
-                onChange={(event) => setDbCollection(event.target.value)}
-              />
-              <datalist id="miniprogram-collection-options">
-                {collections.map((name) => (
-                  <option key={name} value={name} />
-                ))}
-              </datalist>
-            </label>
-            <label className="miniprogram-field">
-              <span>查询条件</span>
-              <input
-                type="text"
-                value={dbWhere}
-                placeholder='{"status":"open"}（可留空）'
-                autoComplete="off"
-                onChange={(event) => setDbWhere(event.target.value)}
-              />
-            </label>
-            <label className="miniprogram-field">
-              <span>条数上限</span>
-              <input
-                type="number"
-                min={1}
-                max={200}
-                value={dbLimit}
-                onChange={(event) => setDbLimit(Number(event.target.value) || 20)}
-              />
-            </label>
-            <div className="miniprogram-config-actions">
+        {tab === "server" ? (
+          <section className="miniprogram-panel miniprogram-server-panel">
+            <div
+              className="miniprogram-admin-toolbar miniprogram-function-addressbar"
+              role="toolbar"
+              aria-label="云函数工具栏"
+            >
               <button
                 type="button"
-                disabled={dbBusy || !dbCollection}
-                onClick={() => void runDbQuery()}
+                className="miniprogram-preview-icon-button"
+                title="刷新云函数"
+                aria-label="刷新云函数"
+                disabled={serverBusy}
+                onClick={() => void Promise.all([loadServerFunctions(), loadDeployments()])}
               >
-                {dbBusy ? "处理中…" : "查询"}
+                <UiIcon name="refresh" size={14} />
               </button>
+              <label className="miniprogram-function-search">
+                <UiIcon name="search" size={13} />
+                <input
+                  type="search"
+                  value={functionSearch}
+                  placeholder="按函数名搜索"
+                  aria-label="按函数名搜索云函数"
+                  onChange={(event) => setFunctionSearch(event.target.value)}
+                />
+              </label>
+              <div className="miniprogram-database-environment" role="group" aria-label="云函数环境">
+                {(["development", "production"] as const).map((environment) => {
+                  const info = cbEnvironments.find((item) => item.kind === environment);
+                  const selected = functionEnvironment === environment;
+                  const label = environment === "production" ? "生产环境" : "开发环境";
+                  const unavailable = Boolean(cbEnvironments.length && !info?.configured);
+                  return (
+                    <button
+                      type="button"
+                      key={environment}
+                      className={selected ? "is-selected" : ""}
+                      aria-pressed={selected}
+                      title={info?.inherited ? `${label}（共用开发环境）` : `${label}${info?.envId ? ` ${info.envId}` : "未配置"}`}
+                      disabled={serverBusy || unavailable}
+                      onClick={() => {
+                        if (selected) return;
+                        setFunctionEnvironment(environment);
+                        setFunctionPage(0);
+                        setTimerFunctionName("");
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <div className="miniprogram-config-actions">
+            {serverError ? <p className="miniprogram-config-error">{serverError}</p> : null}
+            <div className="miniprogram-table-content miniprogram-server-content">
+              <section className="miniprogram-server-functions" aria-label="云函数列表">
+                {pagedFunctions.length ? (
+                  <div className="miniprogram-function-table-wrap">
+                    <table className="miniprogram-function-table">
+                    <thead>
+                      <tr>
+                        <th>函数名</th>
+                        <th>描述</th>
+                        <th title="函数运行环境，例如 Nodejs20.19、Python3.10">运行时</th>
+                        <th>函数类型</th>
+                        <th>处理器路径</th>
+                        <th>状态</th>
+                        <th>更新时间</th>
+                        <th>定时任务</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagedFunctions.map((item) => {
+                    const publishedToProduction = serverDeployments.some(
+                      (row) =>
+                        row.environment === "production" &&
+                        row.status === "succeeded" &&
+                        row.version === item.name,
+                    );
+                    return (
+                      <tr key={item.name}>
+                        <td className="miniprogram-function-name">{item.name}</td>
+                        <td className="miniprogram-function-description">{item.description || "—"}</td>
+                        <td title={item.runtime || undefined}>{item.runtime || "—"}</td>
+                        <td>{item.type || "—"}</td>
+                        <td className="miniprogram-function-handler">{item.handler || "—"}</td>
+                        <td>
+                          <span className={`miniprogram-status ${item.status === "Active" ? "ok" : "warning"}`}>
+                            {item.status === "Active" ? "运行中" : item.status}
+                          </span>
+                        </td>
+                        <td>{item.modifiedAt || item.createdAt || "—"}</td>
+                        <td>
+                          {item.timers.length ? `${item.timers.length} 个` : "—"}
+                          {item.timers.length ? (
+                            <div className="miniprogram-function-timer-summary">
+                              {item.timers.map((timer) => `${timer.name} · ${timer.schedule}`).join("；")}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            disabled={!writable}
+                            onClick={() => {
+                              setTimerFunctionName(timerFunctionName === item.name ? "" : item.name);
+                              setTimerName("");
+                              setTimerSchedule("");
+                              setTimerError("");
+                            }}
+                          >
+                            <UiIcon name="clock" size={13} />
+                            管理定时触发器
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                    </tbody>
+                    </table>
+                  </div>
+                ) : serverBusy ? null : (
+                  <p className="muted miniprogram-note">
+                    {functionSearch.trim() ? "没有匹配的云函数。" : "当前环境没有云函数。"}
+                  </p>
+                )}
+                {selectedTimerFunction ? (
+                  <WorkspaceDialog
+                    title={`${timerFunctionName} · 定时触发器`}
+                    onClose={() => setTimerFunctionName("")}
+                    className="miniprogram-timer-dialog"
+                  >
+                    <section className="miniprogram-function-detail" aria-label={`${timerFunctionName} 的定时触发器`}>
+                      <div className="miniprogram-function-detail-head">
+                        <span className="miniprogram-function-timer-count">
+                          {selectedTimerFunction.timers.length} / 10 个触发器
+                        </span>
+                      </div>
+                      {selectedTimerFunction.timers.length ? (
+                        <div className="miniprogram-function-timer-list">
+                          {selectedTimerFunction.timers.map((timer) => (
+                            <div className="miniprogram-function-timer-row" key={timer.name}>
+                              <span className="miniprogram-function-timer-name">{timer.name}</span>
+                              <code>{timer.schedule}</code>
+                              <span className={timer.enabled ? "miniprogram-timer-active" : "muted"}>
+                                {timer.enabled ? "已启用" : "已停用"}
+                              </span>
+                              <span className="miniprogram-function-timer-actions">
+                                <button
+                                  type="button"
+                                  disabled={!writable || serverBusy}
+                                  onClick={() => {
+                                    setTimerEditingName(timer.name);
+                                    setTimerName(timer.name);
+                                    setTimerSchedule(timer.schedule);
+                                    setTimerError("");
+                                    setTimerEditorOpen(true);
+                                  }}
+                                >
+                                  修改
+                                </button>
+                                <button
+                                  type="button"
+                                  className="miniprogram-danger"
+                                  disabled={!writable || serverBusy}
+                                  aria-label={`删除定时触发器 ${timer.name}`}
+                                  onClick={() => setTimerToDelete(timer.name)}
+                                >
+                                  删除
+                                </button>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="muted miniprogram-function-timer-empty">尚无定时触发器。</p>
+                      )}
+                      <div className="miniprogram-timer-create">
+                        <button
+                          type="button"
+                          disabled={!writable || serverBusy || timerLimitReached}
+                          onClick={() => {
+                            setTimerEditingName(null);
+                            setTimerName("");
+                            setTimerSchedule("");
+                            setTimerError("");
+                            setTimerEditorOpen(true);
+                          }}
+                        >
+                          新增定时触发器
+                        </button>
+                      </div>
+                    </section>
+                    {timerEditorOpen ? (
+                      <WorkspaceDialog
+                        title={timerEditingName ? "修改定时触发器" : "新增定时触发器"}
+                        onClose={() => setTimerEditorOpen(false)}
+                        className="miniprogram-timer-editor-dialog"
+                      >
+                        <div className="miniprogram-timer-form">
+                          <label>
+                            <span>名称</span>
+                            <input
+                              aria-label="定时触发器名称"
+                              value={timerName}
+                              maxLength={60}
+                              placeholder="例如 dailyReport"
+                              disabled={!writable || (!timerEditingName && timerLimitReached)}
+                              onChange={(event) => { setTimerName(event.target.value); setTimerError(""); }}
+                            />
+                          </label>
+                          <label>
+                            <span>Cron 表达式</span>
+                            <input
+                              aria-label="Cron 表达式"
+                              value={timerSchedule}
+                              placeholder="0 0 9 * * * *"
+                              disabled={!writable || (!timerEditingName && timerLimitReached)}
+                              onChange={(event) => { setTimerSchedule(event.target.value); setTimerError(""); }}
+                            />
+                          </label>
+                          <p className="muted miniprogram-timer-help">
+                            {timerLimitReached && !timerEditingName
+                              ? "已达到每个云函数 10 个触发器的上限。"
+                              : timerNameDuplicate && !timerEditingName
+                                ? "该名称已用于当前云函数。"
+                                : timerName && !timerNameValid
+                                  ? "名称须以字母开头，只能包含字母、数字、- 和 _，最多 60 个字符。"
+                                  : timerSchedule && !timerScheduleValid
+                                    ? "Cron 需要 7 个字段：秒 分 时 日 月 星期 年。"
+                                    : "每个云函数最多 10 个；Cron 为 7 个字段：秒 分 时 日 月 星期 年。"}
+                          </p>
+                          {timerError ? <p className="miniprogram-config-error">{timerError}</p> : null}
+                          <div className="miniprogram-config-actions">
+                            <button type="button" onClick={() => setTimerEditorOpen(false)}>取消</button>
+                            <button
+                              type="button"
+                              disabled={!writable || serverBusy || (!timerEditingName && timerLimitReached) || !timerNameValid || !timerScheduleValid || (timerNameDuplicate && timerName.trim() !== timerEditingName)}
+                              onClick={() => void saveTimer(timerFunctionName)}
+                            >
+                              {timerEditingName ? "保存修改" : "创建"}
+                            </button>
+                          </div>
+                        </div>
+                      </WorkspaceDialog>
+                    ) : null}
+                  </WorkspaceDialog>
+                ) : null}
+                {selectedTimerFunction && timerToDelete ? (
+                  <WorkspaceDialog title="删除定时触发器" onClose={() => setTimerToDelete(null)}>
+                    <p>删除后，{selectedTimerFunction.name} 将不再按「{timerToDelete}」的规则定时执行。</p>
+                    <div className="miniprogram-config-actions">
+                      <button type="button" onClick={() => setTimerToDelete(null)}>取消</button>
+                      <button
+                        type="button"
+                        className="miniprogram-danger"
+                        disabled={serverBusy}
+                        onClick={() => {
+                          const triggerName = timerToDelete;
+                          setTimerToDelete(null);
+                          void disableTimer(selectedTimerFunction.name, triggerName);
+                        }}
+                      >
+                        删除触发器
+                      </button>
+                    </div>
+                  </WorkspaceDialog>
+                ) : null}
+                <TablePagination
+                  page={functionPage}
+                  pageSize={functionPageSize}
+                  total={visibleFunctions.length}
+                  hasNext={functionHasNext}
+                  onPageChange={setFunctionPage}
+                  onPageSizeChange={(pageSize) => {
+                    setFunctionPageSize(pageSize);
+                    setFunctionPage(0);
+                  }}
+                />
+              </section>
+            </div>
+          </section>
+        ) : null}
+
+        {tab === "deploy" ? (
+          <>
+            <section className="miniprogram-panel miniprogram-deploy-panel">
+              <header className="miniprogram-panel-head miniprogram-production-head">
+                <div>
+                  <strong>发布记录</strong>
+                  <span className="muted">生产环境</span>
+                </div>
+                <div className="miniprogram-production-actions">
+                  <button
+                    type="button"
+                    className="miniprogram-preview-icon-button"
+                    aria-label="刷新生产发布记录"
+                    title="刷新"
+                    disabled={releaseBusy !== ""}
+                    onClick={() =>
+                      void Promise.all([
+                        loadReleaseApplications(),
+                        loadReleaseFunctions(),
+                        loadDeployments(),
+                      ])
+                    }
+                  >
+                    <UiIcon name="refresh" size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="miniprogram-production-create"
+                    disabled={!writable || releaseBusy !== ""}
+                    onClick={() => {
+                      setReleaseError("");
+                      setReleaseNotice("");
+                      setReleaseSelection([]);
+                      setReleaseNote("");
+                      setReleaseCreateOpen(true);
+                    }}
+                  >
+                    <UiIcon name="plus" size={13} />
+                    新建生产发布
+                  </button>
+                </div>
+              </header>
+
+              <div className="miniprogram-production-table-wrap">
+                <table className="miniprogram-production-table">
+                  <thead>
+                    <tr>
+                      <th>状态</th>
+                      <th>发布内容</th>
+                      <th>发布者</th>
+                      <th>提交时间</th>
+                      <th>更新时间</th>
+                      <th aria-label="操作" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {releaseApplications.map((application) => (
+                      <tr key={application.id}>
+                        <td>
+                          <span
+                            className={`miniprogram-status ${releaseStatusTone(application.status)}`}
+                          >
+                            {application.statusLabel}
+                          </span>
+                        </td>
+                        <td>
+                          <strong className="miniprogram-production-targets">
+                            {application.items
+                              .map((item) => item.resourceName || item.targetLabel)
+                              .join("、")}
+                          </strong>
+                          {application.releaseNote ? (
+                            <small>{application.releaseNote}</small>
+                          ) : null}
+                        </td>
+                        <td title={application.requestedBy}>
+                          {application.requestedBy === currentUserId
+                            ? "我"
+                            : application.requestedByKind === "session"
+                              ? `成员 ${application.requestedBy.slice(0, 8)}`
+                              : `小祥 ${application.requestedBy.slice(0, 8)}`}
+                        </td>
+                        <td>{application.createdAt || "—"}</td>
+                        <td>{application.updatedAt || "—"}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="miniprogram-production-detail"
+                            onClick={() => {
+                              setReleaseError("");
+                              setReleaseNotice("");
+                              setRejectingId("");
+                              setRejectReason("");
+                              setReleaseDetailId(application.id);
+                            }}
+                          >
+                            <UiIcon name="detail" size={13} />
+                            详情
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!releaseApplications.length ? (
+                      <tr>
+                        <td className="miniprogram-production-empty" colSpan={6}>
+                          还没有生产发布记录。
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            {releaseCreateOpen ? (
+              <WorkspaceDialog title="新建生产发布" onClose={() => setReleaseCreateOpen(false)}>
+                <p className="muted miniprogram-note">
+                  选择本次要发布到生产环境的内容，提交后由项目负责人审批。
+                </p>
+                <div className="miniprogram-release-targets">
+                  <label className="miniprogram-release-target">
+                    <input
+                      type="checkbox"
+                      checked={releaseSelection.includes("admin:cloudbase_static")}
+                      onChange={(event) =>
+                        setReleaseSelection((current) =>
+                          event.target.checked
+                            ? [...current, "admin:cloudbase_static"]
+                            : current.filter((value) => value !== "admin:cloudbase_static"),
+                        )
+                      }
+                    />
+                    <span>
+                      <strong>Admin 生产版</strong>
+                      <small>静态网站托管 · Admin 根目录</small>
+                    </span>
+                  </label>
+                  {releaseFunctions.map((item) => {
+                    const key = `function:${item.name}`;
+                    return (
+                      <label className="miniprogram-release-target" key={key}>
+                        <input
+                          type="checkbox"
+                          checked={releaseSelection.includes(key)}
+                          onChange={(event) =>
+                            setReleaseSelection((current) =>
+                              event.target.checked
+                                ? [...current, key]
+                                : current.filter((value) => value !== key),
+                            )
+                          }
+                        />
+                        <span>
+                          <strong>{item.name}</strong>
+                          <small>云函数 · {item.runtime || item.status}</small>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {releaseSelection.includes("admin:cloudbase_static") ? (
+                  <section className="miniprogram-production-admin-config">
+                    <dl className="miniprogram-meta">
+                      <div>
+                        <dt>发布方式</dt>
+                        <dd>静态网站托管</dd>
+                      </div>
+                      <div>
+                        <dt>发布环境</dt>
+                        <dd>生产环境</dd>
+                      </div>
+                      <div>
+                        <dt>产物来源</dt>
+                        <dd>Admin 根目录</dd>
+                      </div>
+                    </dl>
+                    <label className="miniprogram-field miniprogram-admin-hosting-path">
+                      <span>托管路径</span>
+                      <input
+                        type="text"
+                        value={adminProductionPath}
+                        placeholder="/admin/"
+                        disabled={releaseBusy !== ""}
+                        autoComplete="off"
+                        onChange={(event) => setAdminProductionPath(event.target.value)}
+                      />
+                    </label>
+                    {adminProductionAddress ? (
+                      <a
+                        className="miniprogram-admin-production-url"
+                        href={adminProductionAddress}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <UiIcon name="globe" size={13} />
+                        <span>{adminProductionAddress}</span>
+                      </a>
+                    ) : null}
+                  </section>
+                ) : null}
+                <label className="miniprogram-field miniprogram-field-column miniprogram-production-note">
+                  <span>发布说明</span>
+                  <textarea
+                    rows={4}
+                    value={releaseNote}
+                    placeholder="本次生产发布内容（可选）"
+                    onChange={(event) => setReleaseNote(event.target.value)}
+                  />
+                </label>
+                {releaseError ? <p className="miniprogram-config-error">{releaseError}</p> : null}
+                <div className="miniprogram-dialog-actions">
+                  <button
+                    type="button"
+                    disabled={releaseBusy !== ""}
+                    onClick={() => setReleaseCreateOpen(false)}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!writable || !releaseSelection.length || releaseBusy !== ""}
+                    onClick={() => void submitReleaseApplication()}
+                  >
+                    <UiIcon name="upload" size={13} />
+                    {releaseBusy === "submit" ? "提交中…" : "提交审批"}
+                  </button>
+                </div>
+              </WorkspaceDialog>
+            ) : null}
+
+            {selectedReleaseApplication ? (
+              <WorkspaceDialog title="生产发布详情" onClose={() => setReleaseDetailId("")}>
+                <div className="miniprogram-production-detail-head">
+                  <span
+                    className={`miniprogram-status ${releaseStatusTone(selectedReleaseApplication.status)}`}
+                  >
+                    {selectedReleaseApplication.statusLabel}
+                  </span>
+                  <code>{selectedReleaseApplication.id}</code>
+                </div>
+                {selectedReleaseApplication.sourceChanged &&
+                selectedReleaseApplication.status === "pending" ? (
+                  <p className="miniprogram-approval-alert">源码已变化，不能通过，请重新提交。</p>
+                ) : null}
+                <dl className="miniprogram-production-detail-meta">
+                  <div>
+                    <dt>发布者</dt>
+                    <dd>
+                      {selectedReleaseApplication.requestedBy === currentUserId
+                        ? "我"
+                        : selectedReleaseApplication.requestedBy}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>提交时间</dt>
+                    <dd>{selectedReleaseApplication.createdAt || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>审批人</dt>
+                    <dd>{selectedReleaseApplication.decidedBy || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>审批时间</dt>
+                    <dd>{selectedReleaseApplication.decidedAt || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>发布说明</dt>
+                    <dd>{selectedReleaseApplication.releaseNote || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>审批说明</dt>
+                    <dd>{selectedReleaseApplication.decisionNote || "—"}</dd>
+                  </div>
+                </dl>
+                <section className="miniprogram-production-detail-items">
+                  <h5>发布内容</h5>
+                  <ul className="miniprogram-release-application-items">
+                    {selectedReleaseApplication.items.map((item) => (
+                      <li key={item.id}>
+                        <div>
+                          <strong>{item.resourceName || item.targetLabel}</strong>
+                          <small>
+                            {item.environment === "production" ? "生产环境" : item.environment}
+                            {item.deploymentId ? ` · 部署记录 ${item.deploymentId}` : ""}
+                          </small>
+                        </div>
+                        <span className={`miniprogram-status ${releaseStatusTone(item.status)}`}>
+                          {item.statusLabel}
+                        </span>
+                        {item.lastError ? <p>{item.lastError}</p> : null}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+                {releaseError ? <p className="miniprogram-config-error">{releaseError}</p> : null}
+                {releaseNotice ? <p className="muted miniprogram-note">{releaseNotice}</p> : null}
+                {selectedReleaseApplication.status === "pending" ? (
+                  <div className="miniprogram-production-detail-actions">
+                    {owner ? (
+                      <>
+                        <button
+                          type="button"
+                          className="miniprogram-approve"
+                          disabled={releaseBusy !== "" || selectedReleaseApplication.sourceChanged}
+                          onClick={() =>
+                            void decideReleaseApplication(selectedReleaseApplication, "approve")
+                          }
+                        >
+                          <UiIcon name="check" size={13} />
+                          {releaseBusy === `approve:${selectedReleaseApplication.id}`
+                            ? "发布中…"
+                            : "通过并发布"}
+                        </button>
+                        <button
+                          type="button"
+                          className="miniprogram-danger"
+                          disabled={releaseBusy !== ""}
+                          onClick={() => {
+                            setRejectingId(selectedReleaseApplication.id);
+                            setRejectReason("");
+                          }}
+                        >
+                          <UiIcon name="reject" size={13} />
+                          拒绝
+                        </button>
+                      </>
+                    ) : null}
+                    {selectedReleaseApplication.requestedBy === currentUserId ? (
+                      <button
+                        type="button"
+                        className="miniprogram-danger"
+                        disabled={releaseBusy !== ""}
+                        onClick={() => void cancelReleaseApplication(selectedReleaseApplication)}
+                      >
+                        <UiIcon name="abandon" size={13} />
+                        {releaseBusy === `cancel:${selectedReleaseApplication.id}`
+                          ? "放弃中…"
+                          : "放弃发布"}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {selectedReleaseApplication.status === "pending" &&
+                rejectingId === selectedReleaseApplication.id ? (
+                  <div className="miniprogram-approval-reject">
+                    <label className="miniprogram-field">
+                      <span>拒绝理由</span>
+                      <input
+                        value={rejectReason}
+                        placeholder="必填，会记录到本次发布"
+                        onChange={(event) => setRejectReason(event.target.value)}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="miniprogram-danger"
+                      disabled={releaseBusy !== "" || !rejectReason.trim()}
+                      onClick={() =>
+                        void decideReleaseApplication(selectedReleaseApplication, "reject")
+                      }
+                    >
+                      确认拒绝
+                    </button>
+                  </div>
+                ) : null}
+              </WorkspaceDialog>
+            ) : null}
+          </>
+        ) : null}
+
+        {tab === "database" ? (
+          <section className="miniprogram-panel miniprogram-database-panel">
+            <div
+              className="miniprogram-admin-toolbar miniprogram-database-toolbar"
+              role="toolbar"
+              aria-label="云数据库工具栏"
+            >
               <button
                 type="button"
+                className="miniprogram-preview-icon-button"
+                title={`刷新${dbEnvironment === "production" ? "生产" : "开发"}环境集合`}
+                aria-label={`刷新${dbEnvironment === "production" ? "生产" : "开发"}环境集合`}
                 disabled={browseBusy !== null}
                 onClick={() => void loadCollections()}
               >
-                {browseBusy === "collections"
-                  ? "载入中…"
-                  : `载入集合列表${collections.length ? `（${collections.length}）` : ""}`}
+                <UiIcon name="refresh" size={14} />
+              </button>
+              <div className="miniprogram-admin-address miniprogram-database-address">
+                <UiIcon name="layers" size={13} />
+                <select
+                  aria-label="集合"
+                  value={dbCollection}
+                  disabled={browseBusy === "collections" || !collections.length}
+                  onChange={(event) => openDocumentCollection(event.target.value)}
+                >
+                  {collections.length ? null : <option value="">暂无集合</option>}
+                  {collections.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div
+                className="miniprogram-database-environment"
+                role="group"
+                aria-label="数据库环境"
+              >
+                {(["development", "production"] as const).map((environment) => {
+                  const info = cbEnvironments.find((item) => item.kind === environment);
+                  const selected = dbEnvironment === environment;
+                  const label = environment === "production" ? "生产环境" : "开发环境";
+                  const unavailable = Boolean(cbEnvironments.length && !info?.configured);
+                  const title = info?.inherited
+                    ? `${label}（共用开发环境 ${info.envId || ""}）`
+                    : info?.envId
+                      ? `${label} ${info.envId}`
+                      : `${label}未配置`;
+                  return (
+                    <button
+                      type="button"
+                      key={environment}
+                      className={selected ? "is-selected" : ""}
+                      aria-pressed={selected}
+                      title={title}
+                      disabled={browseBusy !== null || unavailable}
+                      onClick={() => switchDatabaseEnvironment(environment)}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                className={`miniprogram-preview-icon-button ${databaseFilterCount(dbFilter) ? "is-active" : ""}`}
+                title={databaseFilterCount(dbFilter) ? `筛选 · ${databaseFilterCount(dbFilter)}` : "筛选"}
+                aria-label={databaseFilterCount(dbFilter) ? `筛选 · ${databaseFilterCount(dbFilter)}` : "筛选"}
+                disabled={!dbCollection}
+                onClick={() => setDbFilterOpen(true)}
+              >
+                <UiIcon name="filter" size={14} />
               </button>
             </div>
-            {browseError ? <p className="miniprogram-config-error">{browseError}</p> : null}
-            <p className="muted miniprogram-note">
-              集合列表通过 CloudBase 管理面接口载入；载入后集合名输入框可直接补全。
-            </p>
-            {dbError ? <p className="miniprogram-config-error">{dbError}</p> : null}
-            {dbNotice ? <p className="muted miniprogram-note">{dbNotice}</p> : null}
-            {dbDocs.length ? (
-              <ul className="miniprogram-doc-list">
-                {dbDocs.map((doc, index) => (
-                  <li key={String(doc._id || index)}>
-                    <button type="button" onClick={() => selectDocument(doc)}>
-                      {String(doc._id || `文档 ${index + 1}`)}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {dbSelectedId || dbDraft ? (
-              <div className="miniprogram-doc-editor">
-                <div className="miniprogram-doc-editor-head">
-                  <strong>{dbSelectedId ? `文档 ${dbSelectedId}` : "新增文档"}</strong>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDbSelectedId("");
-                      setDbDraft("");
-                    }}
-                  >
-                    清空
-                  </button>
-                </div>
-                <textarea
-                  className="miniprogram-doc-textarea"
-                  value={dbDraft}
-                  spellCheck={false}
-                  onChange={(event) => setDbDraft(event.target.value)}
-                />
-                <div className="miniprogram-config-actions">
-                  <button
-                    type="button"
-                    disabled={dbBusy || !dbCollection}
-                    onClick={() => void runDbWrite("add")}
-                  >
-                    新增
-                  </button>
-                  <button
-                    type="button"
-                    disabled={dbBusy || !dbCollection || !dbSelectedId}
-                    onClick={() => void runDbWrite("update")}
-                  >
-                    保存修改
-                  </button>
-                  <button
-                    type="button"
-                    className="miniprogram-danger"
-                    disabled={dbBusy || !dbCollection || !dbSelectedId}
-                    onClick={() => void runDbWrite("remove")}
-                  >
-                    删除
-                  </button>
-                </div>
+            <div className="miniprogram-database-content">
+              {browseError ? <p className="miniprogram-config-error">{browseError}</p> : null}
+              {dbError ? <p className="miniprogram-config-error">{dbError}</p> : null}
+              <div className="miniprogram-database-table-wrap">
+                <table className="miniprogram-database-table">
+                  <thead>
+                    <tr>
+                      {documentColumns.map((column) => (
+                        <th key={column}>{column}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dbDocs.map((document, index) => (
+                      <tr key={String(document._id || index)}>
+                        {documentColumns.map((column) => (
+                          <td key={column}>{databaseCell(document[column])}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
+              <TablePagination
+                page={dbPage}
+                pageSize={dbLimit}
+                total={dbTotal}
+                hasNext={dbHasNext}
+                onPageChange={(page) => void runDbQuery(dbCollection, dbFilter, page)}
+                onPageSizeChange={(pageSize) => {
+                  setDbLimit(pageSize);
+                  setDbPage(0);
+                  void runDbQuery(dbCollection, dbFilter, 0, pageSize);
+                }}
+              />
+            </div>
+            {dbFilterOpen ? (
+              <WorkspaceDialog
+                title="筛选"
+                className="miniprogram-filter-dialog"
+                onClose={() => setDbFilterOpen(false)}
+              >
+                <DatabaseFilterBuilder
+                  value={dbFilter}
+                  fieldOptions={documentColumns}
+                  onCancel={() => setDbFilterOpen(false)}
+                  onApply={(filter) => {
+                    setDbFilter(filter);
+                    setDbFilterOpen(false);
+                    setDbPage(0);
+                    void runDbQuery(dbCollection, filter, 0);
+                  }}
+                />
+              </WorkspaceDialog>
             ) : null}
           </section>
         ) : null}
 
         {tab === "storage" ? (
-          <section className="miniprogram-panel">
-            <header className="miniprogram-panel-head">
-              <h4>文件存储</h4>
-              <span className="miniprogram-status muted">{cbEnv}</span>
-            </header>
-            <label className="miniprogram-field">
-              <span>环境</span>
-              <select value={cbEnv} onChange={(event) => setCbEnv(event.target.value)}>
-                {cbEnvironments
-                  .filter((item) => item.configured)
-                  .map((item) => (
-                    <option key={item.kind} value={item.kind}>
-                      {item.label}（{item.envId}）
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <label className="miniprogram-field">
-              <span>存储路径</span>
-              <input
-                type="text"
-                value={stCloudPath}
-                placeholder="uploads/note.txt"
-                autoComplete="off"
-                onChange={(event) => setStCloudPath(event.target.value)}
-              />
-            </label>
-            <label className="miniprogram-field miniprogram-field-column">
-              <span>文本内容</span>
-              <textarea
-                className="miniprogram-doc-textarea"
-                value={stContent}
-                spellCheck={false}
-                placeholder="要上传的文本内容"
-                onChange={(event) => setStContent(event.target.value)}
-              />
-            </label>
-            <div className="miniprogram-config-actions">
+          <section className="miniprogram-panel miniprogram-storage-panel">
+            <div
+              className="miniprogram-admin-toolbar miniprogram-storage-addressbar"
+              role="toolbar"
+              aria-label="云存储工具栏"
+            >
               <button
                 type="button"
-                disabled={stBusy || !stCloudPath || !stContent}
-                onClick={() => void uploadToStorage()}
+                className="miniprogram-preview-icon-button"
+                title="刷新当前文件夹"
+                aria-label="刷新当前文件夹"
+                disabled={browseBusy !== null || storageActionBusy !== null}
+                onClick={() => void browseStorage(browsePath)}
               >
-                上传文本
+                <UiIcon name="refresh" size={14} />
               </button>
-            </div>
-            <label className="miniprogram-field miniprogram-field-column">
-              <span>文件 ID 列表</span>
-              <textarea
-                className="miniprogram-doc-textarea"
-                value={stFileList}
-                spellCheck={false}
-                placeholder='["cloud://env.xxx/uploads/note.txt"]'
-                onChange={(event) => setStFileList(event.target.value)}
-              />
-            </label>
-            <div className="miniprogram-config-actions">
-              <button
-                type="button"
-                disabled={stBusy || !stFileList}
-                onClick={() => void manageStorage("urls")}
+              <nav
+                className="miniprogram-admin-address miniprogram-storage-breadcrumbs"
+                aria-label="文件夹路径"
               >
-                获取临时地址
-              </button>
-              <button
-                type="button"
-                className="miniprogram-danger"
-                disabled={stBusy || !stFileList}
-                onClick={() => void manageStorage("delete")}
-              >
-                删除文件
-              </button>
-            </div>
-            <div className="miniprogram-field">
-              <span>浏览路径</span>
-              <input
-                type="text"
-                value={browsePath}
-                placeholder="uploads（留空为整桶）"
-                autoComplete="off"
-                onChange={(event) => setBrowsePath(event.target.value)}
-              />
-            </div>
-            <div className="miniprogram-config-actions">
-              <button
-                type="button"
-                disabled={browseBusy !== null}
-                onClick={() => void browseStorage()}
-              >
-                {browseBusy === "files" ? "载入中…" : "浏览远端目录"}
-              </button>
-            </div>
-            {storageFiles.length ? (
-              <ul className="miniprogram-doc-list">
-                {storageFiles.map((file) => (
-                  <li key={file.key}>
+                <UiIcon name="folder" size={13} />
+                <button type="button" onClick={() => void browseStorage("")}>
+                  根目录
+                </button>
+                {storageBreadcrumbs.map((part, index) => {
+                  const path = storageBreadcrumbs.slice(0, index + 1).join("/");
+                  return (
+                    <React.Fragment key={path}>
+                      <span aria-hidden="true">/</span>
+                      <button type="button" onClick={() => void browseStorage(path)}>
+                        {part}
+                      </button>
+                    </React.Fragment>
+                  );
+                })}
+              </nav>
+              <div className="miniprogram-database-environment" role="group" aria-label="云存储环境">
+                {(["development", "production"] as const).map((environment) => {
+                  const info = cbEnvironments.find((item) => item.kind === environment);
+                  const selected = storageEnvironment === environment;
+                  const label = environment === "production" ? "生产环境" : "开发环境";
+                  const unavailable = Boolean(cbEnvironments.length && !info?.configured);
+                  return (
                     <button
                       type="button"
-                      title="填入上传路径"
-                      onClick={() => setStCloudPath(file.key)}
+                      key={environment}
+                      className={selected ? "is-selected" : ""}
+                      aria-pressed={selected}
+                      title={info?.inherited ? `${label}（共用开发环境）` : `${label}${info?.envId ? ` ${info.envId}` : "未配置"}`}
+                      disabled={browseBusy !== null || storageActionBusy !== null || unavailable}
+                      onClick={() => {
+                        if (!selected) {
+                          setStorageEnvironment(environment);
+                          setStoragePage(0);
+                        }
+                      }}
                     >
-                      {file.key}
-                      {file.isDirectory ? "" : ` · ${file.size} B`}
+                      {label}
                     </button>
-                  </li>
-                ))}
-              </ul>
+                  );
+                })}
+              </div>
+              <button type="button" className="miniprogram-preview-icon-button" title="新建文件夹" aria-label="新建文件夹" disabled={!writable || storageActionBusy !== null} onClick={() => setNewFolderOpen(true)}>
+                <UiIcon name="plus" size={14} />
+              </button>
+              <button type="button" className="miniprogram-preview-icon-button" title="上传文件夹" aria-label="上传文件夹" disabled={!writable || storageActionBusy !== null} onClick={() => storageFolderInputRef.current?.click()}>
+                <UiIcon name="upload" size={14} />
+              </button>
+              <button type="button" className="miniprogram-preview-icon-button" title="上传文件" aria-label="上传文件" disabled={!writable || storageActionBusy !== null} onClick={() => storageFileInputRef.current?.click()}>
+                <UiIcon name="detail" size={14} />
+              </button>
+            </div>
+
+            <div className="miniprogram-table-content miniprogram-storage-content">
+            <div className="miniprogram-storage-inputs" aria-hidden="true">
+              <input
+                ref={storageFolderInputRef}
+                className="miniprogram-storage-file-input"
+                type="file"
+                multiple
+                {...({
+                  webkitdirectory: "",
+                  directory: "",
+                } as React.InputHTMLAttributes<HTMLInputElement>)}
+                onChange={(event) => void uploadStorageFiles(event.target.files, true)}
+              />
+              <input
+                ref={storageFileInputRef}
+                className="miniprogram-storage-file-input"
+                type="file"
+                multiple
+                onChange={(event) => void uploadStorageFiles(event.target.files, false)}
+              />
+            </div>
+
+            <div className="miniprogram-storage-table-wrap">
+              <table className="miniprogram-storage-table">
+                <thead>
+                  <tr>
+                    <th>文件名</th>
+                    <th>fileid</th>
+                    <th>大小</th>
+                    <th>更新时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedStorageFiles.map((file) => (
+                    <tr key={file.key}>
+                      <td>
+                        {file.isDirectory ? (
+                          <button
+                            type="button"
+                            className="miniprogram-storage-name"
+                            onClick={() => void browseStorage(file.key)}
+                          >
+                            <UiIcon name="folder" size={14} />
+                            <span>{storageFileName(file.key)}/</span>
+                          </button>
+                        ) : (
+                          <span className="miniprogram-storage-name is-file">
+                            <UiIcon name="detail" size={14} />
+                            <span>{storageFileName(file.key)}</span>
+                          </span>
+                        )}
+                      </td>
+                      <td title={file.fileId || undefined}>{file.fileId || "—"}</td>
+                      <td>{file.isDirectory ? "—" : formatStorageSize(file.size)}</td>
+                      <td>{file.lastModified || "—"}</td>
+                      <td>
+                        <div className="miniprogram-storage-row-actions">
+                          {!file.isDirectory ? (
+                            <a
+                              href={`/api/projects/${projectId}/cloudbase/storage/download?environment=${storageEnvironment}&path=${encodeURIComponent(file.key)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              download
+                              title={`下载 ${storageFileName(file.key)}`}
+                            >
+                              <UiIcon name="download" size={13} />
+                              下载
+                            </a>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="is-danger"
+                            disabled={!writable || storageActionBusy !== null}
+                            onClick={() => void deleteStorageEntry(file)}
+                          >
+                            <UiIcon name="trash" size={13} />
+                            删除
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {!visibleStorageFiles.length && storageLoaded && browseBusy === null ? (
+                    <tr>
+                      <td className="miniprogram-storage-empty" colSpan={5}>
+                        当前文件夹为空。
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+              {browseBusy === "files" ? (
+                <div className="miniprogram-storage-loading">正在加载文件列表…</div>
+              ) : null}
+            </div>
+            <TablePagination
+              page={storagePage}
+              pageSize={storagePageSize}
+              total={visibleStorageFiles.length}
+              hasNext={storageHasNext}
+              onPageChange={setStoragePage}
+              onPageSizeChange={(pageSize) => {
+                setStoragePageSize(pageSize);
+                setStoragePage(0);
+              }}
+            />
+            {browseError ? (
+              <p className="miniprogram-config-error miniprogram-storage-error">{browseError}</p>
             ) : null}
-            <p className="muted miniprogram-note">
-              目录内容通过 CloudBase
-              管理面接口列举，点选可填入上传路径。注意：管理器返回的是对象键，
-              而获取临时地址与删除需要 cloud:// 文件 ID，两者不可混用，所以下载与删除仍需粘贴文件
-              ID。
-            </p>
-            {stError ? <p className="miniprogram-config-error">{stError}</p> : null}
-            {stResult ? <pre className="miniprogram-doc-result">{stResult}</pre> : null}
+            </div>
+            {newFolderOpen ? (
+              <WorkspaceDialog title="新建文件夹" onClose={() => setNewFolderOpen(false)}>
+                <label className="miniprogram-field miniprogram-field-column">
+                  <span>文件夹名称</span>
+                  <input
+                    value={newFolderName}
+                    autoFocus
+                    onChange={(event) => setNewFolderName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void createStorageFolder();
+                    }}
+                  />
+                </label>
+                <div className="miniprogram-config-actions miniprogram-storage-dialog-actions">
+                  <button type="button" onClick={() => setNewFolderOpen(false)}>
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!newFolderName.trim() || storageActionBusy !== null}
+                    onClick={() => void createStorageFolder()}
+                  >
+                    {storageActionBusy === "create" ? "创建中…" : "创建"}
+                  </button>
+                </div>
+              </WorkspaceDialog>
+            ) : null}
           </section>
         ) : null}
 
-        {tab === "auth" || tab === "stats" ? (
-          <section className="miniprogram-panel">
-            <header className="miniprogram-panel-head">
-              <h4>{MINIPROGRAM_TABS.find((item) => item.id === tab)?.label}</h4>
-              <span className="miniprogram-status muted">{devEnv || "未配置环境"}</span>
-            </header>
-            <PendingPanel
-              icon={MINIPROGRAM_TABS.find((item) => item.id === tab)?.icon || "shield"}
-              title="该面板尚未接入"
-              detail={
-                devEnv
-                  ? `已配置开发环境 ${devEnv}。接入后本页通过 CoThread 后端代理访问 CloudBase，浏览器不会持有管理凭据。`
-                  : "请先在「项目管理 → 小程序与云开发」配置 CloudBase 开发环境。"
-              }
-            />
-          </section>
-        ) : null}
       </div>
     </div>
   );

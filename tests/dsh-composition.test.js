@@ -60,6 +60,10 @@ test("plugin registry versions follow package metadata", () => {
   assert.equal(DSH_VERSION, packageVersion("@deepseek-ai/dsh"));
   for (const plugin of DSH_PLUGINS)
     assert.equal(plugin.version, packageVersion(plugin.packageName), plugin.pluginId);
+  const query = DSH_PLUGINS.find((plugin) => plugin.key === "dsh-session-query");
+  assert.equal(query?.packageName, "@deepseek-ai/dsh-session-query");
+  assert.equal(query?.policies.l2, "required");
+  assert.equal(query?.policies.l3, "required");
 });
 
 test("plugin registry version reads survive a Makers bundled module URL", () => {
@@ -99,6 +103,8 @@ test("L2 and L3 receive different model-facing tool schemas", () => {
     assert.ok(!byLevel.l2.includes("miniprogram_build_preview"));
     assert.ok(byLevel.l3.includes("miniprogram_write_source"));
     assert.ok(byLevel.l3.includes("miniprogram_build_preview"));
+    assert.ok(byLevel.l3.includes("miniprogram_upload_experience"));
+    assert.ok(!byLevel.l2.includes("miniprogram_upload_experience"));
     assert.deepEqual(
       capabilityProfile("l1").allowedTools.filter((tool) => tool.startsWith("miniprogram")),
       [],

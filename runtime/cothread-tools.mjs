@@ -85,7 +85,7 @@ export function apply(ctx) {
     ],
     [
       "recover_task",
-      "安排异常任务。自己责任的 L3 任务随时可处理；成员名下任务须本轮人类成员账号授权。失败先检查 failureClass、failureSignature 和 retryPolicy：同一平台错误不要换人，重复平台错误必须阻塞；执行错误先让原 L3 带反馈重试，只有达到同一执行者上限、客观验收仍失败或会话不可恢复时才换 L3。action=restart：有空闲 L3 则为执行中并立刻恢复或指派，否则待指派；返回 interruptedAgentId 时先对该 agent_id 调用 send_message，要求继续当前 TASK_ID，这是同一执行者优先恢复路径。只有 send_message 明确失败、会话不可恢复或达到执行者上限后才 dsh_l3 换人。被阻塞任务只有外部条件确实改变时才传 environmentChanged=true。对人的任务会回到待确认。见到 execution_agent_id 之前不要声称已派人干活。action=cancel 取消该任务。不要在沙箱里直连数据库。",
+      "安排异常任务。自己责任的 L3 任务随时可处理；成员名下任务须本轮人类成员账号授权。失败先检查 failureClass、failureSignature 和 retryPolicy：同一平台错误不要换人，重复平台错误必须阻塞；执行错误先让原 L3 带反馈重试，只有达到同一执行者上限、客观验收仍失败或会话不可恢复时才换 L3。action=restart：有空闲 L3 则为执行中并立刻恢复或指派，否则待指派；返回 interruptedAgentId 时先对该 agent_id 调用 send_message，要求继续当前 TASK_ID，这是同一执行者优先恢复路径。只有 send_message 明确失败、会话不可恢复或达到执行者上限后才 dsh_l3 换人。被阻塞任务只有外部条件确实改变时才传 environmentChanged=true。对人的任务会回到待确认。见到 execution_agent_id 之前不要声称已派人干活。action=clear_binding 幂等释放 L3 槽位，仅排队、不唤醒旧执行者；返回 noop=true 表示已经释放，不消耗重试预算。action=cancel 取消该任务。不要在沙箱里直连数据库。",
       {
         taskId: { type: "string", required: true },
         action: { type: "string", required: true },
@@ -291,7 +291,7 @@ export function apply(ctx) {
     ],
     [
       "miniprogram_list_source",
-      "列出项目小程序工作区的四个固定目录及其中的源码文件（相对路径、大小、哈希），并说明工作区是否已启用、源码是否已有可运行的编译产物。写入或编译前先用本工具确认现状。",
+      "列出项目小程序工作区的四个固定目录及其中的源码文件（相对路径、大小、哈希），并返回完整云开发流程、环境和认证约束。Cothread 是交付工作台：人类目标由 L2 拆解，L3 应自主完成源码持久化、development 同步、预览验证和发布申请，不要把步骤重新交回人类。先调用本工具理解流程：原生小程序源码持久化后必须调用 miniprogram_build_preview，由 Dimina 编译成 Web 预览；Admin 预览必须调用 miniprogram_register_admin_preview 并在宿主机或任务沙箱启动带 --base 的开发服务器。两种预览在代码和 CloudBase 配置正确、对应 development 云函数已部署且权限通过时都可以调用云函数。生产小程序和 Admin 静态站必须提交发布申请；生产环境要切换 envId、Publishable Key、认证、规则和云函数版本。业务运行时直连 CloudBase，共序服务端只负责源码、配置、发布和管理面操作。开发小程序必须使用 signInWithOpenId，按配置使用 signInWithPhoneAuth；Admin 使用 signInWithPassword，不要自行实现 code2Session 或自建 token。写入或编译前先调用本工具。",
       {},
     ],
     [
@@ -304,7 +304,7 @@ export function apply(ctx) {
     ],
     [
       "miniprogram_write_source",
-      "把源码写入项目小程序目录。默认写入小程序源文件（Dimina 的编译输入）。同名文件会追加一个新版本而不是覆盖历史，因此可随时回看或重建任意快照。仅在项目已启用小程序工作区时可用。",
+      "把源码写入项目小程序目录。默认写入小程序源文件（Dimina 的编译输入）。写入 PC 管理后台时使用 area=miniprogram_admin，静态站入口必须直接写为根路径 index.html，不要创建 dist 目录。同名文件会追加一个新版本而不是覆盖历史，因此可随时回看或重建任意快照。仅在项目已启用小程序工作区时可用。",
       {
         path: { type: "string", required: true },
         content: { type: "string", required: true },
@@ -315,7 +315,7 @@ export function apply(ctx) {
     ],
     [
       "miniprogram_build_preview",
-      "用 Dimina 编译器把小程序源文件区编译为可运行的资源包，供右侧栏「应用预览」加载。源码哈希未变化时复用上次成功编译。编译失败会返回失败原因，需先修源码再重试。",
+      "用 Dimina 编译器把小程序源文件区编译为可运行的资源包，供右侧栏「小程序web预览」加载。源码哈希未变化时复用上次成功编译。编译失败会返回失败原因，需先修源码再重试。",
       {
         force: { type: "boolean" },
       },
@@ -338,13 +338,56 @@ export function apply(ctx) {
       },
     ],
     [
+      "cloudbase_auth_config",
+      "读取当前 CloudBase 开发环境供前端代码使用的非敏感身份认证上下文：环境 ID、Publishable Key、OpenID/手机号授权和 Admin 密码登录方式。可把返回值写入小程序或 PC Admin 的 CloudBase SDK 初始化代码。生产 Admin 发布时由平台注入对应 production 运行时配置；Admin 业务请求直连 CloudBase，不要改成请求共序服务端。绝不返回 SecretId、SecretKey 或其他服务端凭据。",
+      {
+        environment: { type: "string" },
+      },
+    ],
+    [
+      "cloudbase_auth_config_update",
+      "修改当前 CloudBase 开发环境的认证配置。action=ensure_publishable_key 时自动创建（若不存在）并保存唯一的 Publishable Key；action=set_phone_auth 时启用或关闭小程序手机号授权；action=set_anonymous_auth 时同步 CloudBase 匿名登录开关。返回值可直接用于 L3 编写前端代码；不返回 SecretId/SecretKey。",
+      {
+        action: { type: "string", required: true },
+        environment: { type: "string" },
+        enabled: { type: "boolean" },
+      },
+    ],
+    [
+      "cloudbase_function_call",
+      "通过 CloudBase 管理面真实调用 development Event 云函数并返回原始结果，用于验收 create/list/update/delete。dataJson 为 JSON 对象字符串。该调用没有终端用户登录上下文，云函数会将调用者识别为 anonymous；需要验证账号密码登录后的权限时，必须在同一个 CloudBase Web SDK 实例上先 auth.signInWithPassword()，再调用 app.callFunction()，不要使用本工具代替终端调用。",
+      {
+        functionName: { type: "string", required: true },
+        dataJson: { type: "string" },
+      },
+    ],
+    [
+      "cloudbase_function_logs",
+      "查询 development 云函数日志。默认查询最近 15 分钟，返回真实日志或 CloudBase 原始错误。",
+      {
+        functionName: { type: "string", required: true },
+        queryString: { type: "string" },
+        startTime: { type: "string" },
+        endTime: { type: "string" },
+        limit: { type: "number" },
+      },
+    ],
+    [
       "cloudbase_db_query",
-      "在 CloudBase 开发环境中查询集合文档。集合名需已知：列举集合属管理面能力，尚未接入。whereJson 为 JSON 对象字符串（可选），limit 上限 200。",
+      "在 CloudBase 开发环境中查询集合文档。whereJson 为 JSON 对象字符串（可选），limit 上限 200。",
       {
         collection: { type: "string", required: true },
         whereJson: { type: "string" },
         limit: { type: "number" },
         skip: { type: "number" },
+      },
+    ],
+    [
+      "cloudbase_db_manage",
+      "管理 CloudBase 开发环境集合：action=list 列举集合；action=ensure 幂等创建集合（已存在时不报错）。不提供删除集合。",
+      {
+        action: { type: "string", required: true },
+        collection: { type: "string" },
       },
     ],
     [
@@ -359,6 +402,20 @@ export function apply(ctx) {
       },
     ],
     [
+      "cloudbase_function_manage",
+      "管理 CloudBase 开发环境云函数：action=list 列举函数和状态；action=deploy 会先把 index.js、package.json、cloudbase.json 持久化到小程序/云函数/<函数名>/，再从该源码快照创建或更新函数。可选 timersJson 传入定时触发器数组（每项为 {name,schedule}，Cron 必须 7 字段）；传入后会额外持久化 timers.json，并自动把 development 中实际触发器对齐为该清单（创建、更新、删除）。不传 timersJson 时保留现有触发器不变。相同内容不会重复创建文档版本。仅允许 development。云函数源码内应直接使用 CloudBase SDK 操作数据库和云存储；前端通过 CloudBase SDK 调用 Event 云函数，HTTP 仅用于 Webhook 或外部 REST 集成。",
+      {
+        action: { type: "string", required: true },
+        functionName: { type: "string" },
+        code: { type: "string" },
+        packageJson: { type: "string" },
+        runtime: { type: "string" },
+        handler: { type: "string" },
+        timeout: { type: "number" },
+        timersJson: { type: "string" },
+      },
+    ],
+    [
       "cloudbase_storage_upload",
       "上传文本文件到 CloudBase 开发环境云存储。cloudPath 为存储路径（如 uploads/note.txt）。二进制文件请在沙箱内处理后用文件接口上传。",
       {
@@ -368,15 +425,25 @@ export function apply(ctx) {
     ],
     [
       "cloudbase_storage_manage",
-      "管理 CloudBase 开发环境云存储文件：action=url 获取临时访问地址，action=delete 删除。fileListJson 为 cloud:// 文件 ID 的 JSON 数组字符串。",
+      "管理 CloudBase 开发环境云存储文件：action=list 列举 cloudPath 目录；action=url 获取临时访问地址；action=delete 删除。fileListJson 为 cloud:// 文件 ID 的 JSON 数组字符串。",
       {
         action: { type: "string", required: true },
-        fileListJson: { type: "string", required: true },
+        cloudPath: { type: "string" },
+        fileListJson: { type: "string" },
+      },
+    ],
+    [
+      "miniprogram_upload_experience",
+      "用微信官方 CI 依据当前源码快照直接上传微信体验版。该操作不进入生产发布审批；只有生产发布需调用 miniprogram_submit_release。需要项目已配置 AppID 与上传私钥。",
+      {
+        version: { type: "string", required: true },
+        desc: { type: "string" },
+        robot: { type: "number" },
       },
     ],
     [
       "wechat_preview",
-      "用微信官方 CI 依据当前源码快照生成开发版预览二维码，供真机扫码验证。需要项目已配置 AppID 与上传私钥。上传体验版/审核版本属于发布动作，本工具不提供。",
+      "用微信官方 CI 依据当前源码快照生成开发版预览二维码，供真机扫码验证。需要项目已配置 AppID 与上传私钥。体验版可由 L3 直接调用 miniprogram_upload_experience 上传；生产发布仍需审批。",
       {
         desc: { type: "string" },
         pagePath: { type: "string" },
@@ -384,10 +451,10 @@ export function apply(ctx) {
     ],
     [
       "miniprogram_submit_release",
-      "提交小程序发布申请，本工具只登记申请、不执行发布。提交后进入待审批，只有项目负责人能在界面批准或拒绝；批准后由服务端执行。target 取值 wechat_upload、cloudbase_static、cloudbase_hosted；target=wechat_upload 时必须提供 version。同一目标已有未完成申请时会被拒绝。",
+      "提交配套 Admin 静态站或服务端云函数的生产发布申请，本工具只登记申请、不执行发布。Admin 静态站发布到 CloudBase production 静态托管，并注入 production 的非敏感运行时配置；Admin 的业务请求必须直连 CloudBase，不依赖共序服务端。提交后进入待审批，只有项目负责人能在界面批准或拒绝；批准后由服务端执行。target 取值 cloudbase_static 或 cloudbase_function；发布云函数时必须提供 resourceName。微信体验版上传不属于生产发布审批，应调用 miniprogram_upload_experience。",
       {
         target: { type: "string", required: true },
-        version: { type: "string" },
+        resourceName: { type: "string" },
         releaseNote: { type: "string" },
       },
     ],

@@ -1,10 +1,19 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
+import { createServer } from "node:http";
 import { connect as netConnect } from "node:net";
+import { extname, resolve } from "node:path";
 import { z } from "zod/v3";
 import { query } from "./db.js";
 import { HttpError } from "./service.js";
 import { digest, authenticate } from "./auth.js";
+import { miniprogramSnapshot } from "./miniprogram-workspace.js";
+import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
+import {
+  injectAdminRuntimeHtml,
+  resolveMiniprogramRuntime,
+} from "./miniprogram-runtime-environment.js";
 
 /**
  * Admin preview dev servers.
@@ -34,6 +43,33 @@ const HOP_BY_HOP = new Set([
   "transfer-encoding",
   "upgrade",
 ]);
+
+const managedServers = new Map();
+const cloudbaseBrowserSdkPath = resolve(import.meta.dirname, "../public/sdk/cloudbase.esm.js");
+let cloudbaseBrowserSdk;
+const CONTENT_TYPES = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".txt": "text/plain; charset=utf-8",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+};
+
+function getCloudbaseBrowserSdk() {
+  if (!cloudbaseBrowserSdk) {
+    cloudbaseBrowserSdk = readFileSync(cloudbaseBrowserSdkPath);
+    if (!cloudbaseBrowserSdk.length) throw new Error("CloudBase 浏览器 SDK bundle 为空");
+  }
+  return cloudbaseBrowserSdk;
+}
 
 export function normalizeDevServerPort(value) {
   const port = Number(value);
@@ -65,6 +101,123 @@ async function readDevServer(db, projectId, serverId) {
   return row;
 }
 
+async function readAdminAssets(service, projectId) {
+  const db = service.db;
+  const runtime = await loadProjectMiniProgramRuntime(service, projectId);
+  const runtimeConfig = resolveMiniprogramRuntime(runtime, "admin_preview");
+  const snapshot = await miniprogramSnapshot(db, projectId);
+  const selected = snapshot.areas.miniprogram_admin?.files || [];
+  if (!selected.length) throw new HttpError(409, "Admin 根目录尚无可预览内容");
+  const assets = new Map();
+  for (const file of selected) {
+    const [version] = await query(db, "SELECT content FROM versions WHERE id=?", [file.versionId]);
+    if (!version) throw new HttpError(409, `Admin 产物版本已不存在：${file.path}`);
+    assets.set(file.path.replace(/^\/+/, ""), Buffer.from(version.content));
+  }
+  // The SDK is a platform runtime dependency. Keep it outside the Admin
+  // source area so large bundles do not have to pass through write_source.
+  if (!assets.has("sdk/cloudbase.esm.js")) {
+    assets.set("sdk/cloudbase.esm.js", getCloudbaseBrowserSdk());
+  }
+  if (!assets.has("index.html")) throw new HttpError(409, "Admin 根目录缺少 index.html");
+  assets.set("index.html", injectAdminRuntimeHtml(assets.get("index.html"), runtimeConfig));
+  return { assets, spaFallback: true, runtimeConfig };
+}
+
+function closeManagedServer(serverId) {
+  const current = managedServers.get(serverId);
+  if (!current) return Promise.resolve(false);
+  managedServers.delete(serverId);
+  return new Promise((resolve) => current.close(() => resolve(true)));
+}
+
+function listen(server, port) {
+  return new Promise((resolve, reject) => {
+    const fail = (error) => reject(error);
+    server.once("error", fail);
+    server.listen(port || 0, "127.0.0.1", () => {
+      server.off("error", fail);
+      resolve(server.address().port);
+    });
+  });
+}
+
+/** Start or restart a server owned by CoThread and backed by the current Admin build. */
+export async function startMiniprogramDevServer(service, projectId, serverId = null) {
+  const id = serverId || randomUUID();
+  const existing = serverId ? await readDevServer(service.db, projectId, serverId) : null;
+  const { assets, spaFallback, runtimeConfig } = await readAdminAssets(service, projectId);
+  await closeManagedServer(id);
+  if (existing && (await probeDevServer(existing.port, 400)).reachable) {
+    throw new HttpError(409, "该端口由外部任务进程占用，无法从这里重启；请先在原任务中停止服务");
+  }
+  const proxyBase = devServerProxyBase(projectId, id);
+  const server = createServer((req, res) => {
+    let pathname = "/";
+    try { pathname = decodeURIComponent(new URL(req.url, "http://127.0.0.1").pathname); }
+    catch {}
+    if (pathname.startsWith(proxyBase)) pathname = pathname.slice(proxyBase.length);
+    const clean = pathname.replace(/^\/+/, "");
+    const safe = clean.split("/").every((part) => part && part !== "." && part !== "..")
+      ? clean
+      : "";
+    const key = safe || "index.html";
+    const body = assets.get(key) || (spaFallback ? assets.get("index.html") : null);
+    if (!body) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Not found");
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": CONTENT_TYPES[extname(assets.has(key) ? key : "index.html").toLowerCase()] ||
+        "application/octet-stream",
+      "Cache-Control": "no-store",
+    });
+    res.end(body);
+  });
+  try {
+    const port = await listen(server, existing?.port || 0);
+    managedServers.set(id, server);
+    if (existing) {
+      await query(
+        service.db,
+        `UPDATE miniprogram_dev_servers SET port=?,status='running',last_error=NULL,
+         started_at=UTC_TIMESTAMP(3),last_activity_at=UTC_TIMESTAMP(3),stopped_at=NULL WHERE id=?`,
+        [port, id],
+      );
+    } else {
+      await query(
+        service.db,
+        `INSERT INTO miniprogram_dev_servers
+         (id,project_id,port,status,started_at,last_activity_at)
+         VALUES(?,?,?,'running',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))`,
+        [id, projectId, port],
+      );
+    }
+    const probe = await probeDevServer(port);
+    if (!probe.reachable) throw new Error("服务监听后探活失败");
+    return {
+      id,
+      port,
+      status: "running",
+      proxyBase,
+      restarted: Boolean(existing),
+      environment: runtimeConfig.environment,
+      envId: runtimeConfig.cloudbase.envId,
+    };
+  } catch (error) {
+    await closeManagedServer(id);
+    if (existing) {
+      await query(
+        service.db,
+        "UPDATE miniprogram_dev_servers SET status='failed',last_error=? WHERE id=?",
+        [String(error.message || error).slice(0, 512), id],
+      );
+    }
+    throw error;
+  }
+}
+
 /**
  * Register (or replace) the project's Admin preview dev server. The caller —
  * an L3 task or the project owner — must have already started the process in
@@ -82,36 +235,56 @@ export async function registerMiniprogramDevServer(service, actor, projectId, in
     .parse(input || {});
   const port = normalizeDevServerPort(data.port);
 
-  const [config] = await query(
-    service.db,
-    "SELECT enabled,admin_deploy FROM project_miniprogram_config WHERE project_id=?",
-    [projectId],
-  );
-  if (!config || !Number(config.enabled))
-    throw new HttpError(409, "该项目尚未启用小程序全量工作区");
+  const runtime = await loadProjectMiniProgramRuntime(service, projectId);
+  if (!runtime.enabled)
+    throw new HttpError(409, "请先配置小程序 AppID 和 CloudBase 开发环境");
+  const runtimeConfig = resolveMiniprogramRuntime(runtime, "admin_preview");
 
-  const serverId = randomUUID();
+  // Reuse a record for the same project/port when the host process survived a
+  // page refresh or a previous task run. Creating a new record here would
+  // leave the old process listening and make the next launch fail with
+  // EADDRINUSE.
+  const [samePort] = await query(
+    service.db,
+    `SELECT id,status FROM miniprogram_dev_servers
+     WHERE project_id=? AND port=? ORDER BY started_at DESC LIMIT 1`,
+    [projectId, port],
+  );
+  const portProbe = await probeDevServer(port, 400);
+  if (portProbe.reachable && !samePort) {
+    throw new HttpError(409, `端口 ${port} 已被其他开发服务器占用`);
+  }
+  const serverId = samePort?.id || randomUUID();
   const token = randomBytes(24).toString("base64url");
+  const replaced = await query(
+    service.db,
+    "SELECT id FROM miniprogram_dev_servers WHERE project_id=? AND status IN ('starting','running') AND id<>?",
+    [projectId, serverId],
+  );
+  await Promise.all(replaced.map((row) => closeManagedServer(row.id)));
   await query(
     service.db,
     `UPDATE miniprogram_dev_servers SET status='stopped',stopped_at=UTC_TIMESTAMP(3)
      WHERE project_id=? AND status IN ('starting','running')`,
     [projectId],
   );
-  await query(
-    service.db,
-    `INSERT INTO miniprogram_dev_servers(id,project_id,task_id,runtime_id,port,status,token_hash,started_at,last_activity_at)
-     VALUES(?,?,?,?,?,?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))`,
-    [
-      serverId,
-      projectId,
-      data.taskId || null,
-      data.runtimeId || null,
-      port,
-      "starting",
-      digest(token),
-    ],
-  );
+  if (samePort) {
+    await query(
+      service.db,
+      `UPDATE miniprogram_dev_servers
+       SET task_id=?,runtime_id=?,port=?,status='starting',token_hash=?,last_error=NULL,
+           started_at=UTC_TIMESTAMP(3),last_activity_at=UTC_TIMESTAMP(3),stopped_at=NULL
+       WHERE id=?`,
+      [data.taskId || null, data.runtimeId || null, port, digest(token), serverId],
+    );
+  } else {
+    await query(
+      service.db,
+      `INSERT INTO miniprogram_dev_servers(id,project_id,task_id,runtime_id,port,status,token_hash,started_at,last_activity_at)
+       VALUES(?,?,?,?,?,?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))`,
+      [serverId, projectId, data.taskId || null, data.runtimeId || null, port, "starting", digest(token)],
+    );
+  }
 
   const proxyBase = devServerProxyBase(projectId, serverId);
   return {
@@ -121,8 +294,10 @@ export async function registerMiniprogramDevServer(service, actor, projectId, in
     proxyBase,
     token,
     hint: hintOf(token),
+    environment: runtimeConfig.environment,
+    envId: runtimeConfig.cloudbase.envId,
     commandHint: data.command || null,
-    note: `请用 --base=${proxyBase} 启动开发服务器，否则绝对路径资源会 404。启动后调用标记为 running。`,
+    note: `请用 --base=${proxyBase} 启动开发服务器；PC管理后台预览固定使用 CloudBase ${runtimeConfig.environment}/${runtimeConfig.cloudbase.envId}。启动后调用标记为 running。`,
   };
 }
 
@@ -147,12 +322,32 @@ export async function updateMiniprogramDevServer(service, projectId, serverId, i
 
 export async function listMiniprogramDevServers(service, user, projectId) {
   await service.member(user, projectId, false);
-  const rows = await query(
+  let rows = await query(
     service.db,
     `SELECT id,task_id,runtime_id,port,status,last_error,started_at,last_activity_at,stopped_at
      FROM miniprogram_dev_servers WHERE project_id=? ORDER BY started_at DESC LIMIT 20`,
     [projectId],
   );
+  for (const row of rows.filter((item) => item.status === "starting" || item.status === "running")) {
+    const reachable = (await probeDevServer(row.port, 300)).reachable;
+    if (reachable && row.status === "starting") {
+      await query(
+        service.db,
+        "UPDATE miniprogram_dev_servers SET status='running',last_error=NULL,last_activity_at=UTC_TIMESTAMP(3) WHERE id=?",
+        [row.id],
+      );
+      row.status = "running";
+      row.last_error = null;
+    } else if (!reachable && row.status === "running") {
+      await query(
+        service.db,
+        "UPDATE miniprogram_dev_servers SET status='failed',last_error=? WHERE id=?",
+        ["开发服务器进程已退出", row.id],
+      );
+      row.status = "failed";
+      row.last_error = "开发服务器进程已退出";
+    }
+  }
   const active = rows.find((row) => row.status === "running" || row.status === "starting") || null;
   return {
     servers: rows.map((row) => ({
@@ -173,7 +368,11 @@ export async function listMiniprogramDevServers(service, user, projectId) {
 
 /** Caller (HTTP route or agent tool) is responsible for authorization. */
 export async function stopMiniprogramDevServer(service, projectId, serverId) {
-  await readDevServer(service.db, projectId, serverId);
+  const row = await readDevServer(service.db, projectId, serverId);
+  const closed = await closeManagedServer(serverId);
+  if (!closed && row.status === "running" && (await probeDevServer(row.port, 400)).reachable) {
+    throw new HttpError(409, "该服务由外部任务进程管理，请在原任务中停止");
+  }
   await query(
     service.db,
     `UPDATE miniprogram_dev_servers SET status='stopped',stopped_at=UTC_TIMESTAMP(3) WHERE id=?`,
@@ -193,13 +392,22 @@ export async function touchDevServer(db, serverId) {
 
 /** Stop servers nobody has looked at for too long. */
 export async function recycleIdleDevServers(db, idleMs = DEV_SERVER_IDLE_MS) {
+  const seconds = Math.max(30, Math.round(idleMs / 1000));
+  const stale = await query(
+    db,
+    `SELECT id FROM miniprogram_dev_servers
+     WHERE status IN ('starting','running')
+       AND COALESCE(last_activity_at,started_at) < DATE_SUB(UTC_TIMESTAMP(3), INTERVAL ? SECOND)`,
+    [seconds],
+  );
+  await Promise.all(stale.map((row) => closeManagedServer(row.id)));
   const result = await query(
     db,
     `UPDATE miniprogram_dev_servers SET status='stopped',stopped_at=UTC_TIMESTAMP(3),
        last_error=COALESCE(last_error,'空闲超时，已停止')
      WHERE status IN ('starting','running')
        AND COALESCE(last_activity_at,started_at) < DATE_SUB(UTC_TIMESTAMP(3), INTERVAL ? SECOND)`,
-    [Math.max(30, Math.round(idleMs / 1000))],
+    [seconds],
   );
   return Number(result?.affectedRows) || 0;
 }
@@ -247,19 +455,65 @@ export async function authorizeDevServerUpgrade(db, req, projectId, row, url) {
 /** Forward one HTTP request to the dev server, preserving path and query. */
 export async function proxyDevServerRequest(service, projectId, serverId, req, res) {
   const row = await resolveDevServerTarget(service, projectId, serverId);
+  const runtime = await loadProjectMiniProgramRuntime(service, projectId);
+  const runtimeConfig = resolveMiniprogramRuntime(runtime, "admin_preview");
   await touchDevServer(service.db, serverId);
+  let requestedPath = "";
+  try {
+    requestedPath = new URL(req.originalUrl || req.url || "/", "http://127.0.0.1").pathname;
+  } catch {}
+  const sdkPath = `${devServerProxyBase(projectId, serverId)}sdk/cloudbase.esm.js`;
+  const isSdkRequest = requestedPath === sdkPath;
+  const servePlatformSdk = () => {
+    const body = getCloudbaseBrowserSdk();
+    res.writeHead(200, {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Content-Length": body.length,
+      "Cache-Control": "no-store",
+      "X-Cothread-Runtime-Asset": "cloudbase-js-sdk",
+    });
+    res.end(body);
+  };
   const headers = {};
   for (const [key, value] of Object.entries(req.headers)) {
-    if (!HOP_BY_HOP.has(key.toLowerCase()) && key.toLowerCase() !== "host") headers[key] = value;
+    if (
+      !HOP_BY_HOP.has(key.toLowerCase()) &&
+      key.toLowerCase() !== "host" &&
+      key.toLowerCase() !== "accept-encoding"
+    ) headers[key] = value;
   }
   headers.host = `127.0.0.1:${row.port}`;
   return new Promise((resolve, reject) => {
     const upstream = httpRequest(
       { host: "127.0.0.1", port: row.port, method: req.method, path: req.originalUrl, headers },
       (upstreamRes) => {
+        // Preserve a project's bundled SDK (and its build integrity record).
+        // Supply the platform runtime only when the upstream has no asset;
+        // SPA servers often respond to missing JS with a 200 HTML fallback.
+        if (isSdkRequest && (upstreamRes.statusCode === 404 ||
+            (upstreamRes.statusCode === 200 &&
+             String(upstreamRes.headers["content-type"] || "").includes("text/html")))) {
+          upstreamRes.resume();
+          servePlatformSdk();
+          resolve();
+          return;
+        }
         const outHeaders = {};
         for (const [key, value] of Object.entries(upstreamRes.headers)) {
           if (!HOP_BY_HOP.has(key.toLowerCase())) outHeaders[key] = value;
+        }
+        if (String(upstreamRes.headers["content-type"] || "").includes("text/html")) {
+          const chunks = [];
+          upstreamRes.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+          upstreamRes.on("end", () => {
+            const body = injectAdminRuntimeHtml(Buffer.concat(chunks), runtimeConfig);
+            delete outHeaders["content-length"];
+            delete outHeaders["content-encoding"];
+            res.writeHead(upstreamRes.statusCode || 502, outHeaders);
+            res.end(body);
+            resolve();
+          });
+          return;
         }
         res.writeHead(upstreamRes.statusCode || 502, outHeaders);
         upstreamRes.pipe(res);

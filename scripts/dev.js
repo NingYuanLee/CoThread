@@ -202,16 +202,24 @@ if (portIndex >= 0) {
     gateway = await startDevGateway({ host, uiPort, apiPort, vitePort });
     let gatePercent = 52;
     progress.set(gatePercent, "等待网关首页");
-    await waitForHttp(`http://127.0.0.1:${uiPort}/`, 60000, () => {
+    // 首次访问要触发 Vite 编译入口与其依赖图；机器忙或依赖重装后可能远超 60 秒。
+    // 超时就退出会让「服务莫名其妙消失」，比首屏慢得多更糟，所以给足时间。
+    await waitForHttp(`http://127.0.0.1:${uiPort}/`, 300000, () => {
       gatePercent = Math.min(57, gatePercent + 0.4);
       progress.set(gatePercent, "等待网关首页");
     });
     progress.set(58, "编译浏览器入口");
-    await warmDevFrontend(`http://127.0.0.1:${uiPort}`, {
-      onProgress({ completed, path }) {
-        progress.set(warmupCrawlPercent(completed), `编译 ${path}`);
-      },
-    });
+    try {
+      await warmDevFrontend(`http://127.0.0.1:${uiPort}`, {
+        onProgress({ completed, path }) {
+          progress.set(warmupCrawlPercent(completed), `编译 ${path}`);
+        },
+      });
+    } catch (error) {
+      // 预热只是让首屏更快（首次依赖预构建可能远超 5 分钟）。它超时不该把
+      // API、网关与 Vite 一起关掉——那会让「服务莫名其妙消失」，比首屏慢更糟。
+      progress.set(85, `前端预热未完成：${error.message}；服务继续运行，首屏可能较慢`);
+    }
     progress.set(99, "核对接口通路");
     await waitForHttp(`http://127.0.0.1:${uiPort}/api/health`);
   } catch (error) {

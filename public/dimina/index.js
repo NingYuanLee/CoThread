@@ -1,3451 +1,3483 @@
-import e from "mitt";
-//#region \0@oxc-project+runtime@0.151.0/helpers/esm/typeof.js
+// node_modules/mitt/dist/mitt.mjs
+function mitt_default(n2) {
+  return { all: n2 = n2 || /* @__PURE__ */ new Map(), on: function(t2, e) {
+    var i2 = n2.get(t2);
+    i2 ? i2.push(e) : n2.set(t2, [e]);
+  }, off: function(t2, e) {
+    var i2 = n2.get(t2);
+    i2 && (e ? i2.splice(i2.indexOf(e) >>> 0, 1) : n2.set(t2, []));
+  }, emit: function(t2, e) {
+    var i2 = n2.get(t2);
+    i2 && i2.slice().map(function(n3) {
+      n3(e);
+    }), (i2 = n2.get("*")) && i2.slice().map(function(n3) {
+      n3(t2, e);
+    });
+  } };
+}
+
+// public/dimina/index.js
 function t(e) {
-	"@babel/helpers - typeof";
-	return t = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(e) {
-		return typeof e;
-	} : function(e) {
-		return e && typeof Symbol == "function" && e.constructor === Symbol && e !== Symbol.prototype ? "symbol" : typeof e;
-	}, t(e);
+  "@babel/helpers - typeof";
+  return t = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(e2) {
+    return typeof e2;
+  } : function(e2) {
+    return e2 && typeof Symbol == "function" && e2.constructor === Symbol && e2 !== Symbol.prototype ? "symbol" : typeof e2;
+  }, t(e);
 }
-//#endregion
-//#region \0@oxc-project+runtime@0.151.0/helpers/esm/toPrimitive.js
-function n(e, n) {
-	if (t(e) != "object" || !e) return e;
-	var r = e[Symbol.toPrimitive];
-	if (r !== void 0) {
-		var i = r.call(e, n || "default");
-		if (t(i) != "object") return i;
-		throw TypeError("@@toPrimitive must return a primitive value.");
-	}
-	return (n === "string" ? String : Number)(e);
+function n(e, n2) {
+  if (t(e) != "object" || !e) return e;
+  var r2 = e[Symbol.toPrimitive];
+  if (r2 !== void 0) {
+    var i2 = r2.call(e, n2 || "default");
+    if (t(i2) != "object") return i2;
+    throw TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return (n2 === "string" ? String : Number)(e);
 }
-//#endregion
-//#region \0@oxc-project+runtime@0.151.0/helpers/esm/toPropertyKey.js
 function r(e) {
-	var r = n(e, "string");
-	return t(r) == "symbol" ? r : r + "";
+  var r2 = n(e, "string");
+  return t(r2) == "symbol" ? r2 : r2 + "";
 }
-//#endregion
-//#region \0@oxc-project+runtime@0.151.0/helpers/esm/defineProperty.js
-function i(e, t, n) {
-	return (t = r(t)) in e ? Object.defineProperty(e, t, {
-		value: n,
-		enumerable: !0,
-		configurable: !0,
-		writable: !0
-	}) : e[t] = n, e;
+function i(e, t2, n2) {
+  return (t2 = r(t2)) in e ? Object.defineProperty(e, t2, {
+    value: n2,
+    enumerable: true,
+    configurable: true,
+    writable: true
+  }) : e[t2] = n2, e;
 }
-//#endregion
-//#region src/utils/queryRouter.ts
 var a = class {
-	static _namespacedKey(e, t) {
-		return t ? `${e}__${t}` : e;
-	}
-	static _encodePage(e, t) {
-		return t && Object.keys(t).length > 0 ? `${e}?${Object.entries(t).map(([e, t]) => `${encodeURIComponent(e)}=${encodeURIComponent(t)}`).join("&")}` : e;
-	}
-	static _decodePage(e) {
-		let t = e.indexOf("?");
-		if (t === -1) return {
-			pagePath: e,
-			query: {}
-		};
-		let n = e.slice(0, t), r = {};
-		return new URLSearchParams(e.slice(t + 1)).forEach((e, t) => {
-			r[t] = e;
-		}), {
-			pagePath: n,
-			query: r
-		};
-	}
-	static _encodeSearchValue(e) {
-		return encodeURIComponent(e).replace(/%2F/g, "/");
-	}
-	static _normalizeSearch(e) {
-		return e ? e.startsWith("?") ? e.slice(1) : e : "";
-	}
-	static _stringifySearchParams(e) {
-		return Array.from(e.entries()).map(([e, t]) => `${encodeURIComponent(e)}=${this._encodeSearchValue(t)}`).join("&");
-	}
-	static buildRouteSearch(e, t, n = typeof window < "u" ? window.location.search : "", r) {
-		let i = new URLSearchParams(this._normalizeSearch(n));
-		if (this.ROUTE_QUERY_KEYS.forEach((e) => i.delete(this._namespacedKey(e, r))), !e || !(t != null && t.length)) return this._stringifySearchParams(i);
-		let a = t[0], o = t[t.length - 1];
-		return i.set(this._namespacedKey("appId", r), e), i.set(this._namespacedKey("entry", r), this._encodePage(a.pagePath, a.query || {})), i.set(this._namespacedKey("page", r), this._encodePage(o.pagePath, o.query || {})), this._stringifySearchParams(i);
-	}
-	static buildRouteURL(e, t, n = typeof window < "u" ? `${window.location.origin}${window.location.pathname}` : "", r) {
-		let i = this.buildRouteSearch(e, t, void 0, r);
-		return `${n}${i ? `?${i}` : ""}`;
-	}
-	static syncStack(e, t, n) {
-		let r = this.buildRouteSearch(e, t, void 0, n);
-		history.replaceState(null, "", `${window.location.pathname}${r ? `?${r}` : ""}`);
-	}
-	static clear(e) {
-		let t = new URLSearchParams(this._normalizeSearch(window.location.search));
-		this.ROUTE_QUERY_KEYS.forEach((n) => t.delete(this._namespacedKey(n, e)));
-		let n = this._stringifySearchParams(t);
-		history.replaceState(null, "", `${window.location.pathname}${n ? `?${n}` : ""}`);
-	}
-	static parseSearch(e, t) {
-		let n = new URLSearchParams(this._normalizeSearch(e)), r = n.get(this._namespacedKey("appId", t)), i = n.get(this._namespacedKey("entry", t)), a = n.get(this._namespacedKey("page", t)) || i;
-		if (!r || !i) return null;
-		let o = this._decodePage(i);
-		if (!o.pagePath) return null;
-		let s = [o];
-		if (a && a !== i) {
-			let e = this._decodePage(a);
-			e.pagePath && s.push(e);
-		}
-		return {
-			appId: r,
-			stack: s
-		};
-	}
-	static parseHash(e) {
-		if (!e || e.length <= 1) return null;
-		let t = e.slice(1).split("|");
-		if (t.length < 2) return null;
-		let n = t[0], r = t.slice(1).map((e) => this._decodePage(e));
-		return !n || r.length === 0 ? null : {
-			appId: n,
-			stack: r
-		};
-	}
-	static parse(e, t = typeof window < "u" ? window.location.search : "", n) {
-		return this.parseSearch(t, n) || this.parseHash(e);
-	}
+  static _namespacedKey(e, t2) {
+    return t2 ? `${e}__${t2}` : e;
+  }
+  static _encodePage(e, t2) {
+    return t2 && Object.keys(t2).length > 0 ? `${e}?${Object.entries(t2).map(([e2, t3]) => `${encodeURIComponent(e2)}=${encodeURIComponent(t3)}`).join("&")}` : e;
+  }
+  static _decodePage(e) {
+    let t2 = e.indexOf("?");
+    if (t2 === -1) return {
+      pagePath: e,
+      query: {}
+    };
+    let n2 = e.slice(0, t2), r2 = {};
+    return new URLSearchParams(e.slice(t2 + 1)).forEach((e2, t3) => {
+      r2[t3] = e2;
+    }), {
+      pagePath: n2,
+      query: r2
+    };
+  }
+  static _encodeSearchValue(e) {
+    return encodeURIComponent(e).replace(/%2F/g, "/");
+  }
+  static _normalizeSearch(e) {
+    return e ? e.startsWith("?") ? e.slice(1) : e : "";
+  }
+  static _stringifySearchParams(e) {
+    return Array.from(e.entries()).map(([e2, t2]) => `${encodeURIComponent(e2)}=${this._encodeSearchValue(t2)}`).join("&");
+  }
+  static buildRouteSearch(e, t2, n2 = typeof window < "u" ? window.location.search : "", r2) {
+    let i2 = new URLSearchParams(this._normalizeSearch(n2));
+    if (this.ROUTE_QUERY_KEYS.forEach((e2) => i2.delete(this._namespacedKey(e2, r2))), !e || !(t2 != null && t2.length)) return this._stringifySearchParams(i2);
+    let a2 = t2[0], o2 = t2[t2.length - 1];
+    return i2.set(this._namespacedKey("appId", r2), e), i2.set(this._namespacedKey("entry", r2), this._encodePage(a2.pagePath, a2.query || {})), i2.set(this._namespacedKey("page", r2), this._encodePage(o2.pagePath, o2.query || {})), this._stringifySearchParams(i2);
+  }
+  static buildRouteURL(e, t2, n2 = typeof window < "u" ? `${window.location.origin}${window.location.pathname}` : "", r2) {
+    let i2 = this.buildRouteSearch(e, t2, void 0, r2);
+    return `${n2}${i2 ? `?${i2}` : ""}`;
+  }
+  static syncStack(e, t2, n2) {
+    let r2 = this.buildRouteSearch(e, t2, void 0, n2);
+    history.replaceState(null, "", `${window.location.pathname}${r2 ? `?${r2}` : ""}`);
+  }
+  static clear(e) {
+    let t2 = new URLSearchParams(this._normalizeSearch(window.location.search));
+    this.ROUTE_QUERY_KEYS.forEach((n3) => t2.delete(this._namespacedKey(n3, e)));
+    let n2 = this._stringifySearchParams(t2);
+    history.replaceState(null, "", `${window.location.pathname}${n2 ? `?${n2}` : ""}`);
+  }
+  static parseSearch(e, t2) {
+    let n2 = new URLSearchParams(this._normalizeSearch(e)), r2 = n2.get(this._namespacedKey("appId", t2)), i2 = n2.get(this._namespacedKey("entry", t2)), a2 = n2.get(this._namespacedKey("page", t2)) || i2;
+    if (!r2 || !i2) return null;
+    let o2 = this._decodePage(i2);
+    if (!o2.pagePath) return null;
+    let s2 = [o2];
+    if (a2 && a2 !== i2) {
+      let e2 = this._decodePage(a2);
+      e2.pagePath && s2.push(e2);
+    }
+    return {
+      appId: r2,
+      stack: s2
+    };
+  }
+  static parseHash(e) {
+    if (!e || e.length <= 1) return null;
+    let t2 = e.slice(1).split("|");
+    if (t2.length < 2) return null;
+    let n2 = t2[0], r2 = t2.slice(1).map((e2) => this._decodePage(e2));
+    return !n2 || r2.length === 0 ? null : {
+      appId: n2,
+      stack: r2
+    };
+  }
+  static parse(e, t2 = typeof window < "u" ? window.location.search : "", n2) {
+    return this.parseSearch(t2, n2) || this.parseHash(e);
+  }
 };
 i(a, "ROUTE_QUERY_KEYS", [
-	"appId",
-	"entry",
-	"page"
+  "appId",
+  "entry",
+  "page"
 ]);
-//#endregion
-//#region src/config.ts
-var o = "/", s = "difile://", c = /* @__PURE__ */ new Set([
-	"about",
-	"blob",
-	"content",
-	"data",
-	"dimina",
-	"file",
-	"ftp",
-	"http",
-	"https",
-	"internal",
-	"javascript",
-	"resource",
-	"ws",
-	"wss"
+var o = "/";
+var s = "difile://";
+var c = /* @__PURE__ */ new Set([
+  "about",
+  "blob",
+  "content",
+  "data",
+  "dimina",
+  "file",
+  "ftp",
+  "http",
+  "https",
+  "internal",
+  "javascript",
+  "resource",
+  "ws",
+  "wss"
 ]);
 function l(e) {
-	return e.endsWith("/") ? e : `${e}/`;
+  return e.endsWith("/") ? e : `${e}/`;
 }
 function u() {
-	return {
-		top: 0,
-		left: 0,
-		width: 0,
-		height: 0,
-		right: 0,
-		bottom: 0
-	};
+  return {
+    top: 0,
+    left: 0,
+    width: 0,
+    height: 0,
+    right: 0,
+    bottom: 0
+  };
 }
-function d() {}
+function d() {
+}
 function f(e) {
-	let t = globalThis.__VIRTUAL_FILE_PREFIX__, n = e ?? t ?? "difile://";
-	if (typeof n != "string") throw TypeError("[container] createContainer: virtualFilePrefix must be a string");
-	let r = n.trim().toLowerCase(), i = r.slice(0, -3);
-	if (!/^[a-z][a-z0-9+.-]*:\/\/$/.test(r) || c.has(i)) throw Error("[container] createContainer: virtualFilePrefix must be a custom URI scheme ending in \"://\"");
-	return r;
+  let t2 = globalThis.__VIRTUAL_FILE_PREFIX__, n2 = e ?? t2 ?? "difile://";
+  if (typeof n2 != "string") throw TypeError("[container] createContainer: virtualFilePrefix must be a string");
+  let r2 = n2.trim().toLowerCase(), i2 = r2.slice(0, -3);
+  if (!/^[a-z][a-z0-9+.-]*:\/\/$/.test(r2) || c.has(i2)) throw Error('[container] createContainer: virtualFilePrefix must be a custom URI scheme ending in "://"');
+  return r2;
 }
 function p(e = {}) {
-	return {
-		getStatusBarRect: e.getStatusBarRect ? e.getStatusBarRect.bind(e) : u,
-		updateStatusBarColor: e.updateStatusBarColor ? e.updateStatusBarColor.bind(e) : d
-	};
+  return {
+    getStatusBarRect: e.getStatusBarRect ? e.getStatusBarRect.bind(e) : u,
+    updateStatusBarColor: e.updateStatusBarColor ? e.updateStatusBarColor.bind(e) : d
+  };
 }
-function m(e, t, n) {
-	if (t && !t.includes(e.origin)) throw Error(`[container] createContainer: ${n} resolves to origin "${e.origin}", which is not in allowedOrigins`);
+function m(e, t2, n2) {
+  if (t2 && !t2.includes(e.origin)) throw Error(`[container] createContainer: ${n2} resolves to origin "${e.origin}", which is not in allowedOrigins`);
 }
-function h(e, t) {
-	let n = new URL(e || o, window.location.origin);
-	return m(n, t, "resourceBaseUrl"), l(n.toString());
+function h(e, t2) {
+  let n2 = new URL(e || o, window.location.origin);
+  return m(n2, t2, "resourceBaseUrl"), l(n2.toString());
 }
-function g(e, t, n) {
-	let r = e ? new URL(e, window.location.origin) : new URL("pageFrame.html", t);
-	return m(r, n, "pageFrameUrl"), r.toString();
+function g(e, t2, n2) {
+  let r2 = e ? new URL(e, window.location.origin) : new URL("pageFrame.html", t2);
+  return m(r2, n2, "pageFrameUrl"), r2.toString();
 }
 function _(e = []) {
-	return Array.from(new Set(e));
+  return Array.from(new Set(e));
 }
 function v(e) {
-	return e ?? (async () => ({}));
+  return e ?? (async () => ({}));
 }
 var y = {
-	syncStack: d,
-	clear: d
+  syncStack: d,
+  clear: d
 };
-function ee(e = !0, t) {
-	return e === !1 ? y : e === !0 ? {
-		syncStack: (e, n) => a.syncStack(e, n, t),
-		clear: () => a.clear(t),
-		buildShareUrl: (e, n) => a.buildRouteURL(e, n, void 0, t)
-	} : e;
+function ee(e = true, t2) {
+  return e === false ? y : e === true ? {
+    syncStack: (e2, n2) => a.syncStack(e2, n2, t2),
+    clear: () => a.clear(t2),
+    buildShareUrl: (e2, n2) => a.buildRouteURL(e2, n2, void 0, t2)
+  } : e;
 }
-var b = "storageSync is disabled: the container will not read/write localStorage", te = {
-	getItem() {
-		throw Error(b);
-	},
-	setItem() {
-		throw Error(b);
-	},
-	removeItem() {
-		throw Error(b);
-	},
-	key() {
-		throw Error(b);
-	},
-	get length() {
-		throw Error(b);
-	}
+var b = "storageSync is disabled: the container will not read/write localStorage";
+var te = {
+  getItem() {
+    throw Error(b);
+  },
+  setItem() {
+    throw Error(b);
+  },
+  removeItem() {
+    throw Error(b);
+  },
+  key() {
+    throw Error(b);
+  },
+  get length() {
+    throw Error(b);
+  }
 };
 function ne() {
-	return {
-		getItem: (e) => window.localStorage.getItem(e),
-		setItem: (e, t) => window.localStorage.setItem(e, t),
-		removeItem: (e) => window.localStorage.removeItem(e),
-		key: (e) => window.localStorage.key(e),
-		get length() {
-			return window.localStorage.length;
-		}
-	};
+  return {
+    getItem: (e) => window.localStorage.getItem(e),
+    setItem: (e, t2) => window.localStorage.setItem(e, t2),
+    removeItem: (e) => window.localStorage.removeItem(e),
+    key: (e) => window.localStorage.key(e),
+    get length() {
+      return window.localStorage.length;
+    }
+  };
 }
-function re(e = !0) {
-	return e === !1 ? te : e === !0 ? ne() : e;
+function re(e = true) {
+  return e === false ? te : e === true ? ne() : e;
 }
-//#endregion
-//#region src/core/retention.ts
 function x(e = {}) {
-	let t = e.maxBackgroundApps ?? 3, n = e.backgroundTimeoutMs ?? 3e5;
-	if (!Number.isSafeInteger(t) || t < 0 || !Number.isSafeInteger(n) || n < 0) throw RangeError("Retention limits must be non-negative safe integers");
-	return {
-		maxBackgroundApps: t,
-		backgroundTimeoutMs: n
-	};
+  let t2 = e.maxBackgroundApps ?? 3, n2 = e.backgroundTimeoutMs ?? 3e5;
+  if (!Number.isSafeInteger(t2) || t2 < 0 || !Number.isSafeInteger(n2) || n2 < 0) throw RangeError("Retention limits must be non-negative safe integers");
+  return {
+    maxBackgroundApps: t2,
+    backgroundTimeoutMs: n2
+  };
 }
 var ie = class {
-	constructor(e, t = () => performance.now()) {
-		i(this, "reconcile", void 0), i(this, "now", void 0), i(this, "policy", x()), i(this, "hidden", /* @__PURE__ */ new Map()), i(this, "timer", void 0), i(this, "pressure", !1), this.reconcile = e, this.now = t;
-	}
-	configure(e) {
-		this.policy = x(e), this.reconcile();
-	}
-	hide(e) {
-		this.hidden.has(e) || this.hidden.set(e, this.now()), this.reconcile();
-	}
-	forget(e) {
-		this.hidden.delete(e), this.hidden.size || clearTimeout(this.timer);
-	}
-	memoryPressure() {
-		this.pressure = !0, this.reconcile();
-	}
-	collect(e) {
-		clearTimeout(this.timer);
-		let t = [...this.hidden].filter(([t]) => e(t)).sort((e, t) => e[1] - t[1]), n = this.now(), { maxBackgroundApps: r, backgroundTimeoutMs: i } = this.policy, a = [];
-		for (let [e, o] of t) (this.pressure || t.length - a.length > r || i > 0 && n - o >= i) && (a.push(e), this.hidden.delete(e));
-		this.pressure = !1;
-		let o = t.find(([e]) => this.hidden.has(e));
-		return o && i > 0 && (this.timer = setTimeout(this.reconcile, Math.min(2147483647, Math.max(1, o[1] + i - n)))), a;
-	}
+  constructor(e, t2 = () => performance.now()) {
+    i(this, "reconcile", void 0), i(this, "now", void 0), i(this, "policy", x()), i(this, "hidden", /* @__PURE__ */ new Map()), i(this, "timer", void 0), i(this, "pressure", false), this.reconcile = e, this.now = t2;
+  }
+  configure(e) {
+    this.policy = x(e), this.reconcile();
+  }
+  hide(e) {
+    this.hidden.has(e) || this.hidden.set(e, this.now()), this.reconcile();
+  }
+  forget(e) {
+    this.hidden.delete(e), this.hidden.size || clearTimeout(this.timer);
+  }
+  memoryPressure() {
+    this.pressure = true, this.reconcile();
+  }
+  collect(e) {
+    clearTimeout(this.timer);
+    let t2 = [...this.hidden].filter(([t3]) => e(t3)).sort((e2, t3) => e2[1] - t3[1]), n2 = this.now(), { maxBackgroundApps: r2, backgroundTimeoutMs: i2 } = this.policy, a2 = [];
+    for (let [e2, o3] of t2) (this.pressure || t2.length - a2.length > r2 || i2 > 0 && n2 - o3 >= i2) && (a2.push(e2), this.hidden.delete(e2));
+    this.pressure = false;
+    let o2 = t2.find(([e2]) => this.hidden.has(e2));
+    return o2 && i2 > 0 && (this.timer = setTimeout(this.reconcile, Math.min(2147483647, Math.max(1, o2[1] + i2 - n2)))), a2;
+  }
 };
-//#endregion
-//#region src/utils/util.ts
 function S() {
-	return Math.random().toString(36).slice(2, 7);
+  return Math.random().toString(36).slice(2, 7);
 }
 function ae(e) {
-	return new Promise((t) => {
-		setTimeout(() => {
-			t();
-		}, e);
-	});
+  return new Promise((t2) => {
+    setTimeout(() => {
+      t2();
+    }, e);
+  });
 }
 function C(e) {
-	let t = e.indexOf("?"), n = (t === -1 ? e : e.slice(0, t)).replace(/^\/+/, ""), r = t === -1 ? "" : e.slice(t + 1), i = {
-		query: {},
-		pagePath: n
-	};
-	return r && new URLSearchParams(r).forEach((e, t) => {
-		i.query[t] = e;
-	}), i;
+  let t2 = e.indexOf("?"), n2 = (t2 === -1 ? e : e.slice(0, t2)).replace(/^\/+/, ""), r2 = t2 === -1 ? "" : e.slice(t2 + 1), i2 = {
+    query: {},
+    pagePath: n2
+  };
+  return r2 && new URLSearchParams(r2).forEach((e2, t3) => {
+    i2.query[t3] = e2;
+  }), i2;
 }
 function oe(e) {
-	return new Promise((t) => {
-		fetch(`${e}`).then((e) => e.text()).then((e) => {
-			t(e);
-		}).catch(() => {
-			t(null);
-		});
-	});
+  return new Promise((t2) => {
+    fetch(`${e}`).then((e2) => e2.text()).then((e2) => {
+      t2(e2);
+    }).catch(() => {
+      t2(null);
+    });
+  });
 }
-function w(e, t) {
-	let n = {}, r = e.window || {}, i = t || {};
-	return n.navigationBarTitleText = i.navigationBarTitleText || r.navigationBarTitleText || "", n.navigationBarBackgroundColor = i.navigationBarBackgroundColor || r.navigationBarBackgroundColor || "#000", n.navigationBarTextStyle = i.navigationBarTextStyle || r.navigationBarTextStyle || "white", n.backgroundColor = i.backgroundColor || r.backgroundColor || "#fff", n.navigationStyle = i.navigationStyle || r.navigationStyle || "default", n.homeButton = i.homeButton ?? r.homeButton ?? !1, n.usingComponents = i.usingComponents || {}, n;
+function w(e, t2) {
+  let n2 = {}, r2 = e.window || {}, i2 = t2 || {};
+  return n2.navigationBarTitleText = i2.navigationBarTitleText || r2.navigationBarTitleText || "", n2.navigationBarBackgroundColor = i2.navigationBarBackgroundColor || r2.navigationBarBackgroundColor || "#000", n2.navigationBarTextStyle = i2.navigationBarTextStyle || r2.navigationBarTextStyle || "white", n2.backgroundColor = i2.backgroundColor || r2.backgroundColor || "#fff", n2.navigationStyle = i2.navigationStyle || r2.navigationStyle || "default", n2.homeButton = i2.homeButton ?? r2.homeButton ?? false, n2.usingComponents = i2.usingComponents || {}, n2;
 }
-//#endregion
-//#region src/pages/webview/webview.html?raw
-var se = "<div class=\"dimina-native-webview\">\r\n	<!-- 导航区域 -->\r\n	<div class=\"dimina-native-webview__navigation\">\r\n		<div class=\"dimina-native-webview__navigation-content\">\r\n			<div class=\"dimina-native-webview__navigation-left-btn\"></div>\r\n			<div class=\"dimina-native-webview__navigation-home-btn\"></div>\r\n			<h2 class=\"dimina-native-webview__navigation-title\"></h2>\r\n		</div>\r\n	</div>\r\n\r\n	<!-- iframe -->\r\n	<div class=\"dimina-native-webview__body\">\r\n		<div class=\"dimina-native-webview__root\">\r\n			<iframe class=\"dimina-native-webview__window\" title=\"pageFrame\"></iframe>\r\n		</div>\r\n	</div>\r\n</div>", ce = class {
-	constructor(t) {
-		i(this, "opts", void 0), i(this, "id", void 0), i(this, "el", void 0), i(this, "iframe", void 0), i(this, "event", void 0), i(this, "parent", void 0), this.opts = t, this.id = `webview_${S()}`, this.el = document.createElement("div"), this.el.classList.add("dimina-native-view"), this.el.innerHTML = se, this.iframe = this.el.querySelector(".dimina-native-webview__window");
-		let n = new URL(this.opts.pageFrameUrl ?? "/pageFrame.html", window.location.href);
-		this.iframe.src = n.toString(), this.iframe.name = this.id, this.event = e(), this.bindBackEvent(), this.bindHomeEvent(), this.applyPageStyle(this.opts.configInfo, {
-			isRoot: this.opts.isRoot,
-			showHomeButton: this.opts.showHomeButton === !0
-		});
-	}
-	async init(e, t) {
-		await this.frameLoaded(t);
-		let n = window.frames[this.iframe.name];
-		this.applyResourceBaseUrl(n.document), n.DiminaRenderBridge.mapRenderer = "web", n.DiminaRenderBridge.invoke = (e) => {
-			this.event.emit("invoke", e);
-		}, n.DiminaRenderBridge.publish = (e) => {
-			this.event.emit("publish", e);
-		}, e == null || e();
-	}
-	applyResourceBaseUrl(e) {
-		if (!this.opts.resourceBaseUrl || !e.head) return;
-		let t = e.createElement("base");
-		t.href = this.opts.resourceBaseUrl, e.head.prepend(t);
-	}
-	invoke(e) {
-		this.event.on("invoke", e);
-	}
-	publish(e) {
-		this.event.on("publish", e);
-	}
-	postMessage(e) {
-		window.frames[this.iframe.name].DiminaRenderBridge.onMessage(e);
-	}
-	bindBackEvent() {
-		let e = this.el.querySelector(".dimina-native-webview__navigation-left-btn");
-		e.onclick = () => {
-			this.parent.parent.navigateBack();
-		};
-	}
-	bindHomeEvent() {
-		let e = this.el.querySelector(".dimina-native-webview__navigation-home-btn");
-		e.onclick = () => {
-			this.parent.parent.navigateHome();
-		};
-	}
-	setHomeButtonVisible(e) {
-		let t = this.el.querySelector(".dimina-native-webview__navigation-home-btn");
-		t.style.display = e ? "block" : "none";
-	}
-	frameLoaded(e) {
-		return e != null && e.aborted ? Promise.reject(e.reason ?? new DOMException("Aborted", "AbortError")) : new Promise((t, n) => {
-			let r = () => {
-				this.iframe.onload = null, n(e.reason ?? new DOMException("Aborted", "AbortError"));
-			};
-			this.iframe.onload = () => {
-				e == null || e.removeEventListener("abort", r), t();
-			}, e == null || e.addEventListener("abort", r, { once: !0 });
-		});
-	}
-	applyPageStyle(e, { isRoot: t, showHomeButton: n }) {
-		let r = this.el.querySelector(".dimina-native-webview"), i = this.el.querySelector(".dimina-native-webview__navigation-title"), a = this.el.querySelector(".dimina-native-webview__navigation"), o = this.el.querySelector(".dimina-native-webview__navigation-left-btn"), s = this.el.querySelector(".dimina-native-webview__root");
-		o.style.display = t ? "none" : "block", this.setHomeButtonVisible(n === !0), this.el.querySelector(".dimina-native-webview__navigation-home-btn").classList.toggle("dimina-native-webview__navigation-home-btn--after-back", !t && n === !0), a.classList.remove("dimina-native-webview__navigation--white", "dimina-native-webview__navigation--black"), a.classList.add(e.navigationBarTextStyle === "white" ? "dimina-native-webview__navigation--white" : "dimina-native-webview__navigation--black"), r.classList.toggle("dimina-native-webview--custom-nav", e.navigationStyle === "custom"), s.style.backgroundColor = e.backgroundColor, a.style.backgroundColor = e.navigationBarBackgroundColor, i.textContent = e.navigationBarTitleText;
-	}
+var se = '<div class="dimina-native-webview">\r\n	<!-- \u5BFC\u822A\u533A\u57DF -->\r\n	<div class="dimina-native-webview__navigation">\r\n		<div class="dimina-native-webview__navigation-content">\r\n			<div class="dimina-native-webview__navigation-left-btn"></div>\r\n			<div class="dimina-native-webview__navigation-home-btn"></div>\r\n			<h2 class="dimina-native-webview__navigation-title"></h2>\r\n		</div>\r\n	</div>\r\n\r\n	<!-- iframe -->\r\n	<div class="dimina-native-webview__body">\r\n		<div class="dimina-native-webview__root">\r\n			<iframe class="dimina-native-webview__window" title="pageFrame"></iframe>\r\n		</div>\r\n	</div>\r\n</div>';
+var ce = class {
+  constructor(t2) {
+    i(this, "opts", void 0), i(this, "id", void 0), i(this, "el", void 0), i(this, "iframe", void 0), i(this, "event", void 0), i(this, "parent", void 0), this.opts = t2, this.id = `webview_${S()}`, this.el = document.createElement("div"), this.el.classList.add("dimina-native-view"), this.el.innerHTML = se, this.iframe = this.el.querySelector(".dimina-native-webview__window");
+    let n2 = new URL(this.opts.pageFrameUrl ?? "/pageFrame.html", window.location.href);
+    this.iframe.src = n2.toString(), this.iframe.name = this.id, this.event = mitt_default(), this.bindBackEvent(), this.bindHomeEvent(), this.applyPageStyle(this.opts.configInfo, {
+      isRoot: this.opts.isRoot,
+      showHomeButton: this.opts.showHomeButton === true
+    });
+  }
+  async init(e, t2) {
+    await this.frameLoaded(t2);
+    let n2 = window.frames[this.iframe.name];
+    this.applyResourceBaseUrl(n2.document), n2.DiminaRenderBridge.mapRenderer = "web", n2.DiminaRenderBridge.invoke = (e2) => {
+      this.event.emit("invoke", e2);
+    }, n2.DiminaRenderBridge.publish = (e2) => {
+      this.event.emit("publish", e2);
+    }, e == null || e();
+  }
+  applyResourceBaseUrl(e) {
+    if (!this.opts.resourceBaseUrl || !e.head) return;
+    let t2 = e.createElement("base");
+    t2.href = this.opts.resourceBaseUrl, e.head.prepend(t2);
+  }
+  invoke(e) {
+    this.event.on("invoke", e);
+  }
+  publish(e) {
+    this.event.on("publish", e);
+  }
+  postMessage(e) {
+    window.frames[this.iframe.name].DiminaRenderBridge.onMessage(e);
+  }
+  bindBackEvent() {
+    let e = this.el.querySelector(".dimina-native-webview__navigation-left-btn");
+    e.onclick = () => {
+      this.parent.parent.navigateBack();
+    };
+  }
+  bindHomeEvent() {
+    let e = this.el.querySelector(".dimina-native-webview__navigation-home-btn");
+    e.onclick = () => {
+      this.parent.parent.navigateHome();
+    };
+  }
+  setHomeButtonVisible(e) {
+    let t2 = this.el.querySelector(".dimina-native-webview__navigation-home-btn");
+    t2.style.display = e ? "block" : "none";
+  }
+  frameLoaded(e) {
+    return e != null && e.aborted ? Promise.reject(e.reason ?? new DOMException("Aborted", "AbortError")) : new Promise((t2, n2) => {
+      let r2 = () => {
+        this.iframe.onload = null, n2(e.reason ?? new DOMException("Aborted", "AbortError"));
+      };
+      this.iframe.onload = () => {
+        e == null || e.removeEventListener("abort", r2), t2();
+      }, e == null || e.addEventListener("abort", r2, { once: true });
+    });
+  }
+  applyPageStyle(e, { isRoot: t2, showHomeButton: n2 }) {
+    let r2 = this.el.querySelector(".dimina-native-webview"), i2 = this.el.querySelector(".dimina-native-webview__navigation-title"), a2 = this.el.querySelector(".dimina-native-webview__navigation"), o2 = this.el.querySelector(".dimina-native-webview__navigation-left-btn"), s2 = this.el.querySelector(".dimina-native-webview__root");
+    o2.style.display = t2 ? "none" : "block", this.setHomeButtonVisible(n2 === true), this.el.querySelector(".dimina-native-webview__navigation-home-btn").classList.toggle("dimina-native-webview__navigation-home-btn--after-back", !t2 && n2 === true), a2.classList.remove("dimina-native-webview__navigation--white", "dimina-native-webview__navigation--black"), a2.classList.add(e.navigationBarTextStyle === "white" ? "dimina-native-webview__navigation--white" : "dimina-native-webview__navigation--black"), r2.classList.toggle("dimina-native-webview--custom-nav", e.navigationStyle === "custom"), s2.style.backgroundColor = e.backgroundColor, a2.style.backgroundColor = e.navigationBarBackgroundColor, i2.textContent = e.navigationBarTitleText;
+  }
 };
-//#endregion
-//#region \0@oxc-project+runtime@0.151.0/helpers/esm/checkPrivateRedeclaration.js
-function le(e, t) {
-	if (t.has(e)) throw TypeError("Cannot initialize the same private elements twice on an object");
+function le(e, t2) {
+  if (t2.has(e)) throw TypeError("Cannot initialize the same private elements twice on an object");
 }
-//#endregion
-//#region \0@oxc-project+runtime@0.151.0/helpers/esm/classPrivateMethodInitSpec.js
-function T(e, t) {
-	le(e, t), t.add(e);
+function T(e, t2) {
+  le(e, t2), t2.add(e);
 }
-//#endregion
-//#region \0@oxc-project+runtime@0.151.0/helpers/esm/assertClassBrand.js
-function E(e, t, n) {
-	if (typeof e == "function" ? e === t : e.has(t)) return arguments.length < 3 ? t : n;
-	throw TypeError("Private element is not present on this object");
+function E(e, t2, n2) {
+  if (typeof e == "function" ? e === t2 : e.has(t2)) return arguments.length < 3 ? t2 : n2;
+  throw TypeError("Private element is not present on this object");
 }
-//#endregion
-//#region src/core/bridge.ts
-var ue = 15e3, D = /* @__PURE__ */ new WeakSet(), de = class {
-	constructor(e) {
-		T(this, D), i(this, "id", void 0), i(this, "opts", void 0), i(this, "webview", void 0), i(this, "jscore", void 0), i(this, "parent", void 0), i(this, "destroyed", void 0), i(this, "serviceResource", void 0), i(this, "renderResource", void 0), i(this, "resourceLoadedForwarded", void 0), i(this, "resourceLoadId", void 0), i(this, "desiredPageVisible", void 0), i(this, "sentPageVisible", void 0), i(this, "domReadyResourceLoadId", void 0), i(this, "startupReadyWaiter", void 0), i(this, "unsubscribeServiceInvoke", void 0), i(this, "unsubscribeServicePublish", void 0), this.id = `bridge_${S()}`, this.opts = e, this.webview = null, this.jscore = e.jscore, this.parent = null, this.startupReadyWaiter = null, this.unsubscribeServiceInvoke = null, this.unsubscribeServicePublish = null, this.resetStatus();
-	}
-	async init(e) {
-		var t, n;
-		this.webview = await this.createWebview(e), this.webview && ((t = this.unsubscribeServiceInvoke) == null || t.call(this), (n = this.unsubscribeServicePublish) == null || n.call(this), this.unsubscribeServiceInvoke = this.jscore.invoke((e) => this.messageInvoke("service", e)), this.unsubscribeServicePublish = this.jscore.publish((e) => this.messagePublish(e)), this.webview.invoke((e) => this.messageInvoke("render", e)), this.webview.publish((e) => this.messagePublish(e)));
-	}
-	messagePublish(e) {
-		if (this.destroyed) return;
-		typeof e == "string" && (e = JSON.parse(e));
-		let { body: t, target: n } = e;
-		t.bridgeId && t.bridgeId !== this.id || (n === "service" ? this.jscore.postMessage(e) : n === "render" && this.webview.postMessage(e));
-	}
-	messageInvoke(e, t) {
-		if (this.destroyed) return;
-		typeof t == "string" && (t = JSON.parse(t));
-		let { type: n, body: r, target: i } = t;
-		if (r.bridgeId && r.bridgeId !== this.id) return;
-		let a = n === "serviceResourceLoaded" || n === "renderResourceLoaded" || n === "renderResourceLoadFailed";
-		if ((a || i === "container" && n === "domReady") && (typeof r.resourceLoadId != "string" || r.resourceLoadId !== this.resourceLoadId) || !a && r.resourceLoadId && r.resourceLoadId !== this.resourceLoadId) return;
-		console.log(`[container] receive msg from ${e}: `, t);
-		let o = {
-			type: n,
-			body: {
-				bridgeId: this.id,
-				pagePath: this.opts.pagePath,
-				scene: this.opts.scene,
-				query: this.opts.query,
-				...r
-			}
-		};
-		if (i === "service") {
-			if (n === "serviceResourceLoaded") {
-				if (this.serviceResource = !0, this.jscore.notifyServiceReady(), this.isResourceLoaded() && !this.resourceLoadedForwarded) this.resourceLoadedForwarded = !0, o.type = "resourceLoaded";
-				else return;
-			} else if (n === "renderResourceLoaded") {
-				if (this.renderResource = !0, this.isResourceLoaded() && !this.resourceLoadedForwarded) this.resourceLoadedForwarded = !0, o.type = "resourceLoaded";
-				else return;
-			} else n === "renderResourceLoadFailed" && (this.renderResource = !1, this.resourceLoadedForwarded = !1, o.type = "resourceLoadFailed");
-			if (this.jscore.postMessage(o), o.type === "resourceLoaded") E(D, this, A).call(this), E(D, this, O).call(this);
-			else if (o.type === "resourceLoadFailed") {
-				let e = Array.isArray(r.errors) ? r.errors.map(String).join("; ") : "";
-				E(D, this, k).call(this, Error(e || `render resource load failed: ${this.opts.pagePath}`));
-			}
-		} else if (i === "container") {
-			if (n === "invokeAPI") {
-				let { name: e, params: t } = r;
-				this.parent.invokeApi(e, t, this);
-			} else n === "domReady" && (this.domReadyResourceLoadId = r.resourceLoadId, E(D, this, O).call(this));
-		}
-	}
-	start(e = {}) {
-		var t, n, r, i;
-		E(D, this, k).call(this, /* @__PURE__ */ Error("startup was superseded")), this.serviceResource = !1, this.renderResource = !1, this.resourceLoadedForwarded = !1, this.resourceLoadId = S(), this.domReadyResourceLoadId = null, this.sentPageVisible = null, Object.prototype.hasOwnProperty.call(e, "visible") ? this.desiredPageVisible = e.visible ?? null : this.desiredPageVisible === null && (this.desiredPageVisible = !0), this.webview.postMessage({
-			type: "loadResource",
-			body: {
-				bridgeId: this.id,
-				resourceLoadId: this.resourceLoadId,
-				appId: this.opts.appId,
-				runtimeType: this.opts.runtimeType,
-				pagePath: this.opts.pagePath,
-				root: this.opts.root,
-				baseUrl: ((t = this.parent) == null || (n = t.getResourceBaseUrl) == null ? void 0 : n.call(t)) ?? "/"
-			}
-		}), this.jscore.postMessage({
-			type: "loadResource",
-			body: {
-				bridgeId: this.id,
-				resourceLoadId: this.resourceLoadId,
-				appId: this.opts.appId,
-				runtimeType: this.opts.runtimeType,
-				pagePath: this.opts.pagePath,
-				scene: this.opts.scene,
-				query: this.opts.query,
-				referrerInfo: this.opts.referrerInfo,
-				root: this.opts.root,
-				baseUrl: ((r = this.parent) == null || (i = r.getResourceBaseUrl) == null ? void 0 : i.call(r)) ?? "/",
-				hostEnv: this.parent.getHostEnvSnapshot()
-			}
-		}), this.opts.isRoot && this.jscore.postMessage({
-			type: "onUpdateStatusChange",
-			body: {
-				bridgeId: this.id,
-				event: "noupdate"
-			}
-		});
-	}
-	startAndWait(e = {}) {
-		if (this.start(e), this.isStartupReady()) return Promise.resolve();
-		let t = this.resourceLoadId;
-		return t ? new Promise((e, n) => {
-			let r = this.jscore.onWorkerFailure((e) => {
-				let t = e instanceof Error ? e.message : "worker failed while loading resources";
-				E(D, this, k).call(this, Error(t));
-			}), i = setTimeout(() => {
-				E(D, this, k).call(this, /* @__PURE__ */ Error(`startup ready timed out: ${this.opts.pagePath}`));
-			}, ue);
-			this.startupReadyWaiter = {
-				resourceLoadId: t,
-				resolve: e,
-				reject: n,
-				timer: i,
-				unsubscribeWorkerFailure: r
-			}, E(D, this, O).call(this);
-		}) : Promise.reject(/* @__PURE__ */ Error("resource load did not start"));
-	}
-	resetStatus() {
-		E(D, this, k).call(this, /* @__PURE__ */ Error("startup state was reset")), this.destroyed = !1, this.serviceResource = !1, this.renderResource = !1, this.resourceLoadedForwarded = !1, this.resourceLoadId = null, this.domReadyResourceLoadId = null, this.desiredPageVisible = null, this.sentPageVisible = null;
-	}
-	createWebview(e) {
-		return e != null && e.aborted ? Promise.resolve(null) : new Promise((t, n) => {
-			var r, i, a, o, s, c;
-			let l = new ce({
-				configInfo: this.opts.configInfo,
-				isRoot: this.opts.isRoot,
-				pageFrameUrl: (r = this.parent) == null || (i = r.getPageFrameUrl) == null ? void 0 : i.call(r),
-				resourceBaseUrl: (a = this.parent) == null || (o = a.getResourceBaseUrl) == null ? void 0 : o.call(a),
-				showHomeButton: ((s = this.parent) == null || (c = s.shouldShowHomeButton) == null ? void 0 : c.call(s, {
-					pagePath: this.opts.pagePath,
-					configInfo: this.opts.configInfo,
-					isRoot: this.opts.isRoot
-				})) ?? !1
-			});
-			l.parent = this, this.opts.isRoot || l.el.classList.add("dimina-native-view--before-enter"), this.parent.webviewsContainer.appendChild(l.el), l.init(() => {
-				t(l);
-			}, e).catch((e) => {
-				if (l.el.remove(), (e == null ? void 0 : e.name) === "AbortError") {
-					t(null);
-					return;
-				}
-				n(e);
-			});
-		});
-	}
-	isResourceLoaded() {
-		return this.serviceResource && this.renderResource;
-	}
-	isStartupReady() {
-		return this.isResourceLoaded() && this.resourceLoadId !== null && this.domReadyResourceLoadId === this.resourceLoadId;
-	}
-	pageShow() {
-		this.desiredPageVisible = !0, E(D, this, A).call(this);
-	}
-	pageHide() {
-		this.desiredPageVisible = !1, E(D, this, A).call(this);
-	}
-	destroy(e = "routing") {
-		var t, n;
-		let r = this.isResourceLoaded();
-		E(D, this, k).call(this, /* @__PURE__ */ Error("bridge was destroyed before startup became ready")), this.destroyed = !0, this.serviceResource = !1, this.renderResource = !1, this.resourceLoadedForwarded = !1, this.resourceLoadId = null, this.domReadyResourceLoadId = null, this.desiredPageVisible = null, this.sentPageVisible = null, (t = this.unsubscribeServiceInvoke) == null || t.call(this), (n = this.unsubscribeServicePublish) == null || n.call(this), this.unsubscribeServiceInvoke = null, this.unsubscribeServicePublish = null, r && e === "routing" && this.jscore.postMessage({
-			type: "pageUnload",
-			body: { bridgeId: this.id }
-		});
-	}
+var ue = 15e3;
+var D = /* @__PURE__ */ new WeakSet();
+var de = class {
+  constructor(e) {
+    T(this, D), i(this, "id", void 0), i(this, "opts", void 0), i(this, "webview", void 0), i(this, "jscore", void 0), i(this, "parent", void 0), i(this, "destroyed", void 0), i(this, "serviceResource", void 0), i(this, "renderResource", void 0), i(this, "resourceLoadedForwarded", void 0), i(this, "resourceLoadId", void 0), i(this, "desiredPageVisible", void 0), i(this, "sentPageVisible", void 0), i(this, "domReadyResourceLoadId", void 0), i(this, "startupReadyWaiter", void 0), i(this, "unsubscribeServiceInvoke", void 0), i(this, "unsubscribeServicePublish", void 0), this.id = `bridge_${S()}`, this.opts = e, this.webview = null, this.jscore = e.jscore, this.parent = null, this.startupReadyWaiter = null, this.unsubscribeServiceInvoke = null, this.unsubscribeServicePublish = null, this.resetStatus();
+  }
+  async init(e) {
+    var t2, n2;
+    this.webview = await this.createWebview(e), this.webview && ((t2 = this.unsubscribeServiceInvoke) == null || t2.call(this), (n2 = this.unsubscribeServicePublish) == null || n2.call(this), this.unsubscribeServiceInvoke = this.jscore.invoke((e2) => this.messageInvoke("service", e2)), this.unsubscribeServicePublish = this.jscore.publish((e2) => this.messagePublish(e2)), this.webview.invoke((e2) => this.messageInvoke("render", e2)), this.webview.publish((e2) => this.messagePublish(e2)));
+  }
+  messagePublish(e) {
+    if (this.destroyed) return;
+    typeof e == "string" && (e = JSON.parse(e));
+    let { body: t2, target: n2 } = e;
+    t2.bridgeId && t2.bridgeId !== this.id || (n2 === "service" ? this.jscore.postMessage(e) : n2 === "render" && this.webview.postMessage(e));
+  }
+  messageInvoke(e, t2) {
+    if (this.destroyed) return;
+    typeof t2 == "string" && (t2 = JSON.parse(t2));
+    let { type: n2, body: r2, target: i2 } = t2;
+    if (r2.bridgeId && r2.bridgeId !== this.id) return;
+    let a2 = n2 === "serviceResourceLoaded" || n2 === "renderResourceLoaded" || n2 === "renderResourceLoadFailed";
+    if ((a2 || i2 === "container" && n2 === "domReady") && (typeof r2.resourceLoadId != "string" || r2.resourceLoadId !== this.resourceLoadId) || !a2 && r2.resourceLoadId && r2.resourceLoadId !== this.resourceLoadId) return;
+    console.log(`[container] receive msg from ${e}: `, t2);
+    let o2 = {
+      type: n2,
+      body: {
+        bridgeId: this.id,
+        pagePath: this.opts.pagePath,
+        scene: this.opts.scene,
+        query: this.opts.query,
+        ...r2
+      }
+    };
+    if (i2 === "service") {
+      if (n2 === "serviceResourceLoaded") {
+        if (this.serviceResource = true, this.jscore.notifyServiceReady(), this.isResourceLoaded() && !this.resourceLoadedForwarded) this.resourceLoadedForwarded = true, o2.type = "resourceLoaded";
+        else return;
+      } else if (n2 === "renderResourceLoaded") {
+        if (this.renderResource = true, this.isResourceLoaded() && !this.resourceLoadedForwarded) this.resourceLoadedForwarded = true, o2.type = "resourceLoaded";
+        else return;
+      } else n2 === "renderResourceLoadFailed" && (this.renderResource = false, this.resourceLoadedForwarded = false, o2.type = "resourceLoadFailed");
+      if (this.jscore.postMessage(o2), o2.type === "resourceLoaded") E(D, this, A).call(this), E(D, this, O).call(this);
+      else if (o2.type === "resourceLoadFailed") {
+        let e2 = Array.isArray(r2.errors) ? r2.errors.map(String).join("; ") : "";
+        E(D, this, k).call(this, Error(e2 || `render resource load failed: ${this.opts.pagePath}`));
+      }
+    } else if (i2 === "container") {
+      if (n2 === "invokeAPI") {
+        let { name: e2, params: t3 } = r2;
+        this.parent.invokeApi(e2, t3, this);
+      } else n2 === "domReady" && (this.domReadyResourceLoadId = r2.resourceLoadId, E(D, this, O).call(this));
+    }
+  }
+  start(e = {}) {
+    var t2, n2, r2, i2;
+    E(D, this, k).call(this, /* @__PURE__ */ Error("startup was superseded")), this.serviceResource = false, this.renderResource = false, this.resourceLoadedForwarded = false, this.resourceLoadId = S(), this.domReadyResourceLoadId = null, this.sentPageVisible = null, Object.prototype.hasOwnProperty.call(e, "visible") ? this.desiredPageVisible = e.visible ?? null : this.desiredPageVisible === null && (this.desiredPageVisible = true), this.webview.postMessage({
+      type: "loadResource",
+      body: {
+        bridgeId: this.id,
+        resourceLoadId: this.resourceLoadId,
+        appId: this.opts.appId,
+        runtimeType: this.opts.runtimeType,
+        pagePath: this.opts.pagePath,
+        root: this.opts.root,
+        baseUrl: ((t2 = this.parent) == null || (n2 = t2.getResourceBaseUrl) == null ? void 0 : n2.call(t2)) ?? "/"
+      }
+    }), this.jscore.postMessage({
+      type: "loadResource",
+      body: {
+        bridgeId: this.id,
+        resourceLoadId: this.resourceLoadId,
+        appId: this.opts.appId,
+        runtimeType: this.opts.runtimeType,
+        pagePath: this.opts.pagePath,
+        scene: this.opts.scene,
+        query: this.opts.query,
+        referrerInfo: this.opts.referrerInfo,
+        root: this.opts.root,
+        baseUrl: ((r2 = this.parent) == null || (i2 = r2.getResourceBaseUrl) == null ? void 0 : i2.call(r2)) ?? "/",
+        hostEnv: this.parent.getHostEnvSnapshot()
+      }
+    }), this.opts.isRoot && this.jscore.postMessage({
+      type: "onUpdateStatusChange",
+      body: {
+        bridgeId: this.id,
+        event: "noupdate"
+      }
+    });
+  }
+  startAndWait(e = {}) {
+    if (this.start(e), this.isStartupReady()) return Promise.resolve();
+    let t2 = this.resourceLoadId;
+    return t2 ? new Promise((e2, n2) => {
+      let r2 = this.jscore.onWorkerFailure((e3) => {
+        let t3 = e3 instanceof Error ? e3.message : "worker failed while loading resources";
+        E(D, this, k).call(this, Error(t3));
+      }), i2 = setTimeout(() => {
+        E(D, this, k).call(this, /* @__PURE__ */ Error(`startup ready timed out: ${this.opts.pagePath}`));
+      }, ue);
+      this.startupReadyWaiter = {
+        resourceLoadId: t2,
+        resolve: e2,
+        reject: n2,
+        timer: i2,
+        unsubscribeWorkerFailure: r2
+      }, E(D, this, O).call(this);
+    }) : Promise.reject(/* @__PURE__ */ Error("resource load did not start"));
+  }
+  resetStatus() {
+    E(D, this, k).call(this, /* @__PURE__ */ Error("startup state was reset")), this.destroyed = false, this.serviceResource = false, this.renderResource = false, this.resourceLoadedForwarded = false, this.resourceLoadId = null, this.domReadyResourceLoadId = null, this.desiredPageVisible = null, this.sentPageVisible = null;
+  }
+  createWebview(e) {
+    return e != null && e.aborted ? Promise.resolve(null) : new Promise((t2, n2) => {
+      var r2, i2, a2, o2, s2, c2;
+      let l2 = new ce({
+        configInfo: this.opts.configInfo,
+        isRoot: this.opts.isRoot,
+        pageFrameUrl: (r2 = this.parent) == null || (i2 = r2.getPageFrameUrl) == null ? void 0 : i2.call(r2),
+        resourceBaseUrl: (a2 = this.parent) == null || (o2 = a2.getResourceBaseUrl) == null ? void 0 : o2.call(a2),
+        showHomeButton: ((s2 = this.parent) == null || (c2 = s2.shouldShowHomeButton) == null ? void 0 : c2.call(s2, {
+          pagePath: this.opts.pagePath,
+          configInfo: this.opts.configInfo,
+          isRoot: this.opts.isRoot
+        })) ?? false
+      });
+      l2.parent = this, this.opts.isRoot || l2.el.classList.add("dimina-native-view--before-enter"), this.parent.webviewsContainer.appendChild(l2.el), l2.init(() => {
+        t2(l2);
+      }, e).catch((e2) => {
+        if (l2.el.remove(), (e2 == null ? void 0 : e2.name) === "AbortError") {
+          t2(null);
+          return;
+        }
+        n2(e2);
+      });
+    });
+  }
+  isResourceLoaded() {
+    return this.serviceResource && this.renderResource;
+  }
+  isStartupReady() {
+    return this.isResourceLoaded() && this.resourceLoadId !== null && this.domReadyResourceLoadId === this.resourceLoadId;
+  }
+  pageShow() {
+    this.desiredPageVisible = true, E(D, this, A).call(this);
+  }
+  pageHide() {
+    this.desiredPageVisible = false, E(D, this, A).call(this);
+  }
+  destroy(e = "routing") {
+    var t2, n2;
+    let r2 = this.isResourceLoaded();
+    E(D, this, k).call(this, /* @__PURE__ */ Error("bridge was destroyed before startup became ready")), this.destroyed = true, this.serviceResource = false, this.renderResource = false, this.resourceLoadedForwarded = false, this.resourceLoadId = null, this.domReadyResourceLoadId = null, this.desiredPageVisible = null, this.sentPageVisible = null, (t2 = this.unsubscribeServiceInvoke) == null || t2.call(this), (n2 = this.unsubscribeServicePublish) == null || n2.call(this), this.unsubscribeServiceInvoke = null, this.unsubscribeServicePublish = null, r2 && e === "routing" && this.jscore.postMessage({
+      type: "pageUnload",
+      body: { bridgeId: this.id }
+    });
+  }
 };
 function O() {
-	let e = this.startupReadyWaiter;
-	e && e.resourceLoadId === this.resourceLoadId && this.isStartupReady() && (this.startupReadyWaiter = null, clearTimeout(e.timer), e.unsubscribeWorkerFailure(), e.resolve());
+  let e = this.startupReadyWaiter;
+  e && e.resourceLoadId === this.resourceLoadId && this.isStartupReady() && (this.startupReadyWaiter = null, clearTimeout(e.timer), e.unsubscribeWorkerFailure(), e.resolve());
 }
 function k(e) {
-	let t = this.startupReadyWaiter;
-	t && (this.startupReadyWaiter = null, clearTimeout(t.timer), t.unsubscribeWorkerFailure(), t.reject(e));
+  let t2 = this.startupReadyWaiter;
+  t2 && (this.startupReadyWaiter = null, clearTimeout(t2.timer), t2.unsubscribeWorkerFailure(), t2.reject(e));
 }
 function A() {
-	if (this.isResourceLoaded() && this.desiredPageVisible !== null && this.sentPageVisible !== this.desiredPageVisible) {
-		if (!this.desiredPageVisible && this.sentPageVisible === null) {
-			this.sentPageVisible = !1;
-			return;
-		}
-		this.jscore.postMessage({
-			type: this.desiredPageVisible ? "pageShow" : "pageHide",
-			body: { bridgeId: this.id }
-		}), this.sentPageVisible = this.desiredPageVisible;
-	}
+  if (this.isResourceLoaded() && this.desiredPageVisible !== null && this.sentPageVisible !== this.desiredPageVisible) {
+    if (!this.desiredPageVisible && this.sentPageVisible === null) {
+      this.sentPageVisible = false;
+      return;
+    }
+    this.jscore.postMessage({
+      type: this.desiredPageVisible ? "pageShow" : "pageHide",
+      body: { bridgeId: this.id }
+    }), this.sentPageVisible = this.desiredPageVisible;
+  }
 }
-//#endregion
-//#region \0dimina-service-url
-var fe = new URL("./service.js", import.meta.url).href, pe = 5e3, j = /* @__PURE__ */ new WeakSet(), me = class {
-	constructor(t) {
-		T(this, j), i(this, "parent", void 0), i(this, "worker", void 0), i(this, "event", void 0), i(this, "desiredAppVisible", void 0), i(this, "sentAppVisible", void 0), i(this, "pendingAppShowOptions", void 0), i(this, "serviceReady", void 0), i(this, "callbackFlushWaiters", void 0), i(this, "workerFailureHandlers", void 0), this.parent = t, this.worker = null, this.event = e(), this.desiredAppVisible = null, this.sentAppVisible = null, this.pendingAppShowOptions = null, this.serviceReady = !1, this.callbackFlushWaiters = /* @__PURE__ */ new Map(), this.workerFailureHandlers = /* @__PURE__ */ new Set();
-	}
-	async init() {
-		var e, t;
-		let n = ((e = (t = this.parent).getApiNamespaces) == null ? void 0 : e.call(t)) || [], r = Object.keys(this.parent.apiRegistry ?? {}), i = JSON.stringify({
-			apiNamespaces: n,
-			registeredApis: r,
-			virtualFilePrefix: this.parent.appInfo.virtualFilePrefix
-		});
-		this.worker = new Worker(fe, {
-			type: "classic",
-			name: i
-		}), this.worker.onmessage = (e) => {
-			let t = e.data;
-			if (t.type === "callbacksFlushed") {
-				var n;
-				let e = (n = t.body) == null ? void 0 : n.requestId;
-				typeof e == "string" && E(j, this, N).call(this, e);
-				return;
-			}
-			this.event.emit(t.method, t);
-		}, this.worker.onerror = (e) => E(j, this, P).call(this, e), this.worker.onmessageerror = (e) => E(j, this, P).call(this, e);
-	}
-	onWorkerFailure(e) {
-		return this.workerFailureHandlers.add(e), () => this.workerFailureHandlers.delete(e);
-	}
-	invoke(e) {
-		return this.event.on("invoke", e), () => this.event.off("invoke", e);
-	}
-	publish(e) {
-		return this.event.on("publish", e), () => this.event.off("publish", e);
-	}
-	queueAppShowOptions(e) {
-		this.pendingAppShowOptions = { ...e };
-	}
-	appShow(e) {
-		e && this.queueAppShowOptions(e), this.desiredAppVisible = !0, E(j, this, M).call(this);
-	}
-	appHide() {
-		this.desiredAppVisible = !1, E(j, this, M).call(this);
-	}
-	flushCallbacks() {
-		if (!this.worker) return Promise.resolve();
-		let e = S();
-		return new Promise((t) => {
-			let n = setTimeout(() => {
-				console.warn("[container] flushCallbacks timed out; continuing destructive mini program operation"), E(j, this, N).call(this, e);
-			}, pe);
-			this.callbackFlushWaiters.set(e, {
-				resolve: t,
-				timer: n
-			});
-			try {
-				this.postMessage({
-					type: "flushCallbacks",
-					body: { requestId: e }
-				});
-			} catch {
-				E(j, this, N).call(this, e);
-			}
-		});
-	}
-	notifyServiceReady() {
-		this.serviceReady || (this.serviceReady = !0, this.sentAppVisible = !0, E(j, this, M).call(this));
-	}
-	postMessage(e) {
-		if (!this.worker) {
-			this.parent._destroyed || console.warn(`[container] postMessage(${e.type}) dropped: worker not ready`);
-			return;
-		}
-		this.worker.postMessage(e);
-	}
-	destroy() {
-		var e;
-		E(j, this, P).call(this, /* @__PURE__ */ Error("mini program worker was destroyed")), (e = this.worker) == null || e.terminate(), this.worker = null, this.desiredAppVisible = null, this.sentAppVisible = null, this.pendingAppShowOptions = null, this.serviceReady = !1, this.workerFailureHandlers.clear(), this.event.all.clear();
-	}
+var fe = new URL("./service.js", import.meta.url).href;
+var pe = 5e3;
+var j = /* @__PURE__ */ new WeakSet();
+var me = class {
+  constructor(t2) {
+    T(this, j), i(this, "parent", void 0), i(this, "worker", void 0), i(this, "event", void 0), i(this, "desiredAppVisible", void 0), i(this, "sentAppVisible", void 0), i(this, "pendingAppShowOptions", void 0), i(this, "serviceReady", void 0), i(this, "callbackFlushWaiters", void 0), i(this, "workerFailureHandlers", void 0), this.parent = t2, this.worker = null, this.event = mitt_default(), this.desiredAppVisible = null, this.sentAppVisible = null, this.pendingAppShowOptions = null, this.serviceReady = false, this.callbackFlushWaiters = /* @__PURE__ */ new Map(), this.workerFailureHandlers = /* @__PURE__ */ new Set();
+  }
+  async init() {
+    var e, t2;
+    let n2 = ((e = (t2 = this.parent).getApiNamespaces) == null ? void 0 : e.call(t2)) || [], r2 = Object.keys(this.parent.apiRegistry ?? {}), i2 = JSON.stringify({
+      apiNamespaces: n2,
+      registeredApis: r2,
+      virtualFilePrefix: this.parent.appInfo.virtualFilePrefix
+    });
+    this.worker = new Worker(fe, {
+      type: "classic",
+      name: i2
+    }), this.worker.onmessage = (e2) => {
+      let t3 = e2.data;
+      if (t3.type === "callbacksFlushed") {
+        var n3;
+        let e3 = (n3 = t3.body) == null ? void 0 : n3.requestId;
+        typeof e3 == "string" && E(j, this, N).call(this, e3);
+        return;
+      }
+      this.event.emit(t3.method, t3);
+    }, this.worker.onerror = (e2) => E(j, this, P).call(this, e2), this.worker.onmessageerror = (e2) => E(j, this, P).call(this, e2);
+  }
+  onWorkerFailure(e) {
+    return this.workerFailureHandlers.add(e), () => this.workerFailureHandlers.delete(e);
+  }
+  invoke(e) {
+    return this.event.on("invoke", e), () => this.event.off("invoke", e);
+  }
+  publish(e) {
+    return this.event.on("publish", e), () => this.event.off("publish", e);
+  }
+  queueAppShowOptions(e) {
+    this.pendingAppShowOptions = { ...e };
+  }
+  appShow(e) {
+    e && this.queueAppShowOptions(e), this.desiredAppVisible = true, E(j, this, M).call(this);
+  }
+  appHide() {
+    this.desiredAppVisible = false, E(j, this, M).call(this);
+  }
+  flushCallbacks() {
+    if (!this.worker) return Promise.resolve();
+    let e = S();
+    return new Promise((t2) => {
+      let n2 = setTimeout(() => {
+        console.warn("[container] flushCallbacks timed out; continuing destructive mini program operation"), E(j, this, N).call(this, e);
+      }, pe);
+      this.callbackFlushWaiters.set(e, {
+        resolve: t2,
+        timer: n2
+      });
+      try {
+        this.postMessage({
+          type: "flushCallbacks",
+          body: { requestId: e }
+        });
+      } catch {
+        E(j, this, N).call(this, e);
+      }
+    });
+  }
+  notifyServiceReady() {
+    this.serviceReady || (this.serviceReady = true, this.sentAppVisible = true, E(j, this, M).call(this));
+  }
+  postMessage(e) {
+    if (!this.worker) {
+      this.parent._destroyed || console.warn(`[container] postMessage(${e.type}) dropped: worker not ready`);
+      return;
+    }
+    this.worker.postMessage(e);
+  }
+  destroy() {
+    var e;
+    E(j, this, P).call(this, /* @__PURE__ */ Error("mini program worker was destroyed")), (e = this.worker) == null || e.terminate(), this.worker = null, this.desiredAppVisible = null, this.sentAppVisible = null, this.pendingAppShowOptions = null, this.serviceReady = false, this.workerFailureHandlers.clear(), this.event.all.clear();
+  }
 };
 function M() {
-	this.serviceReady && this.desiredAppVisible !== null && (this.sentAppVisible !== this.desiredAppVisible || this.desiredAppVisible && this.pendingAppShowOptions) && (this.postMessage({
-		type: this.desiredAppVisible ? "appShow" : "appHide",
-		body: this.desiredAppVisible ? this.pendingAppShowOptions ?? {} : {}
-	}), this.desiredAppVisible && (this.pendingAppShowOptions = null), this.sentAppVisible = this.desiredAppVisible);
+  this.serviceReady && this.desiredAppVisible !== null && (this.sentAppVisible !== this.desiredAppVisible || this.desiredAppVisible && this.pendingAppShowOptions) && (this.postMessage({
+    type: this.desiredAppVisible ? "appShow" : "appHide",
+    body: this.desiredAppVisible ? this.pendingAppShowOptions ?? {} : {}
+  }), this.desiredAppVisible && (this.pendingAppShowOptions = null), this.sentAppVisible = this.desiredAppVisible);
 }
 function N(e) {
-	let t = this.callbackFlushWaiters.get(e);
-	t && (clearTimeout(t.timer), this.callbackFlushWaiters.delete(e), t.resolve());
+  let t2 = this.callbackFlushWaiters.get(e);
+  t2 && (clearTimeout(t2.timer), this.callbackFlushWaiters.delete(e), t2.resolve());
 }
 function he() {
-	for (let e of [...this.callbackFlushWaiters.keys()]) E(j, this, N).call(this, e);
+  for (let e of [...this.callbackFlushWaiters.keys()]) E(j, this, N).call(this, e);
 }
 function P(e) {
-	E(j, this, he).call(this);
-	for (let t of [...this.workerFailureHandlers]) t(e);
+  E(j, this, he).call(this);
+  for (let t2 of [...this.workerFailureHandlers]) t2(e);
 }
-//#endregion
-//#region src/core/webSocketValidation.ts
-var F = 6e4, I = 2147483647, L = 123, ge = /* @__PURE__ */ new Set([
-	"connection",
-	"content-length",
-	"host",
-	"referer",
-	"sec-websocket-accept",
-	"sec-websocket-extensions",
-	"sec-websocket-key",
-	"sec-websocket-protocol",
-	"sec-websocket-version",
-	"upgrade"
-]), _e = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/, ve = /^[\t\x20-\x7E]*$/, ye = /* @__PURE__ */ new Set([
-	"\"",
-	"<",
-	">",
-	"{",
-	"}",
-	"|",
-	"\\",
-	"^",
-	"`"
-]), be = /%(?![0-9A-Fa-f]{2})/;
+var F = 6e4;
+var I = 2147483647;
+var L = 123;
+var ge = /* @__PURE__ */ new Set([
+  "connection",
+  "content-length",
+  "host",
+  "referer",
+  "sec-websocket-accept",
+  "sec-websocket-extensions",
+  "sec-websocket-key",
+  "sec-websocket-protocol",
+  "sec-websocket-version",
+  "upgrade"
+]);
+var _e = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+var ve = /^[\t\x20-\x7E]*$/;
+var ye = /* @__PURE__ */ new Set([
+  '"',
+  "<",
+  ">",
+  "{",
+  "}",
+  "|",
+  "\\",
+  "^",
+  "`"
+]);
+var be = /%(?![0-9A-Fa-f]{2})/;
 function xe(e) {
-	for (let t of e) {
-		let e = t.charCodeAt(0);
-		if (e <= 32 || e === 127 || ye.has(t)) return !0;
-	}
-	return !1;
+  for (let t2 of e) {
+    let e2 = t2.charCodeAt(0);
+    if (e2 <= 32 || e2 === 127 || ye.has(t2)) return true;
+  }
+  return false;
 }
 function R(e) {
-	return {
-		ok: !0,
-		value: e
-	};
+  return {
+    ok: true,
+    value: e
+  };
 }
 function z(e) {
-	return {
-		ok: !1,
-		error: e
-	};
+  return {
+    ok: false,
+    error: e
+  };
 }
 function Se(e) {
-	return typeof e != "number" || !Number.isFinite(e) || e < 1 || e > I ? F : Math.floor(e);
+  return typeof e != "number" || !Number.isFinite(e) || e < 1 || e > I ? F : Math.floor(e);
 }
 var B = {
-	DEFAULT_TIMEOUT_MS: F,
-	MAX_TIMEOUT_MS: I,
-	MAX_REASON_UTF8_BYTES: L,
-	validateUrl(e) {
-		if (typeof e != "string" || e.length === 0 || !/^wss:\/\/[^/?#]/i.test(e) || xe(e) || be.test(e) || e.includes("#")) return z("invalid url");
-		try {
-			let t = new URL(e);
-			if (t.protocol.toLowerCase() !== "wss:" || t.hostname.length === 0) return z("invalid url");
-		} catch {
-			return z("invalid url");
-		}
-		return R(e);
-	},
-	validateTimeout(e, t) {
-		let n = Se(t);
-		return e == null ? R(n) : typeof e != "number" || !Number.isFinite(e) || e > I ? z("invalid timeout") : R(e < 1 ? n : Math.floor(e));
-	},
-	validateProtocols(e) {
-		if (e == null) return R([]);
-		if (!Array.isArray(e)) return z("protocols must be an array");
-		let t = [];
-		for (let n of e) {
-			if (typeof n != "string" || n.length === 0) return z("invalid protocol");
-			t.push(n);
-		}
-		return R(t);
-	},
-	validateHeader(e) {
-		let t = {};
-		if (e == null) return R(t);
-		if (typeof e != "object" || Array.isArray(e)) return z("header must be an object");
-		for (let n of Object.keys(e)) {
-			if (n.includes("\r") || n.includes("\n")) return z("invalid header");
-			let r = n.trim();
-			if (!r || ge.has(r.toLowerCase())) continue;
-			if (!_e.test(r)) return z("invalid header");
-			let i = e[n];
-			if (i == null) continue;
-			let a = String(i);
-			if (!ve.test(a)) return z("invalid header");
-			t[r] = a;
-		}
-		return R(t);
-	},
-	validateCloseCode(e) {
-		return e == null ? R(1e3) : typeof e != "number" || !Number.isFinite(e) || !Number.isInteger(e) || e !== 1e3 && (e < 3e3 || e > 4999) ? z("invalid code") : R(e);
-	},
-	validateReason(e) {
-		return e == null ? R("") : typeof e == "string" ? new TextEncoder().encode(e).byteLength > L ? z("reason must not exceed 123 UTF-8 bytes") : R(e) : z("reason must be a string");
-	}
-}, V = 5, Ce = 5e3, we = 32, H = "connectSocket:fail WebSocket connection failed", Te = "connectSocket:fail timeout";
+  DEFAULT_TIMEOUT_MS: F,
+  MAX_TIMEOUT_MS: I,
+  MAX_REASON_UTF8_BYTES: L,
+  validateUrl(e) {
+    if (typeof e != "string" || e.length === 0 || !/^wss:\/\/[^/?#]/i.test(e) || xe(e) || be.test(e) || e.includes("#")) return z("invalid url");
+    try {
+      let t2 = new URL(e);
+      if (t2.protocol.toLowerCase() !== "wss:" || t2.hostname.length === 0) return z("invalid url");
+    } catch {
+      return z("invalid url");
+    }
+    return R(e);
+  },
+  validateTimeout(e, t2) {
+    let n2 = Se(t2);
+    return e == null ? R(n2) : typeof e != "number" || !Number.isFinite(e) || e > I ? z("invalid timeout") : R(e < 1 ? n2 : Math.floor(e));
+  },
+  validateProtocols(e) {
+    if (e == null) return R([]);
+    if (!Array.isArray(e)) return z("protocols must be an array");
+    let t2 = [];
+    for (let n2 of e) {
+      if (typeof n2 != "string" || n2.length === 0) return z("invalid protocol");
+      t2.push(n2);
+    }
+    return R(t2);
+  },
+  validateHeader(e) {
+    let t2 = {};
+    if (e == null) return R(t2);
+    if (typeof e != "object" || Array.isArray(e)) return z("header must be an object");
+    for (let n2 of Object.keys(e)) {
+      if (n2.includes("\r") || n2.includes("\n")) return z("invalid header");
+      let r2 = n2.trim();
+      if (!r2 || ge.has(r2.toLowerCase())) continue;
+      if (!_e.test(r2)) return z("invalid header");
+      let i2 = e[n2];
+      if (i2 == null) continue;
+      let a2 = String(i2);
+      if (!ve.test(a2)) return z("invalid header");
+      t2[r2] = a2;
+    }
+    return R(t2);
+  },
+  validateCloseCode(e) {
+    return e == null ? R(1e3) : typeof e != "number" || !Number.isFinite(e) || !Number.isInteger(e) || e !== 1e3 && (e < 3e3 || e > 4999) ? z("invalid code") : R(e);
+  },
+  validateReason(e) {
+    return e == null ? R("") : typeof e == "string" ? new TextEncoder().encode(e).byteLength > L ? z("reason must not exceed 123 UTF-8 bytes") : R(e) : z("reason must be a string");
+  }
+};
+var V = 5;
+var Ce = 5e3;
+var we = 32;
+var H = "connectSocket:fail WebSocket connection failed";
+var Te = "connectSocket:fail timeout";
 function U(e) {
-	return e != null && e !== "";
+  return e != null && e !== "";
 }
 function Ee(e) {
-	let t = new Uint8Array(e), n = "", r = 32768;
-	for (let e = 0; e < t.length; e += r) n += String.fromCharCode(...t.subarray(e, Math.min(e + r, t.length)));
-	return btoa(n);
+  let t2 = new Uint8Array(e), n2 = "", r2 = 32768;
+  for (let e2 = 0; e2 < t2.length; e2 += r2) n2 += String.fromCharCode(...t2.subarray(e2, Math.min(e2 + r2, t2.length)));
+  return btoa(n2);
 }
 function De(e) {
-	if (typeof e != "string" || e.length % 4 != 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(e)) return null;
-	try {
-		let t = atob(e), n = new Uint8Array(t.length);
-		for (let e = 0; e < t.length; e++) n[e] = t.charCodeAt(e);
-		return n.buffer;
-	} catch {
-		return null;
-	}
+  if (typeof e != "string" || e.length % 4 != 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(e)) return null;
+  try {
+    let t2 = atob(e), n2 = new Uint8Array(t2.length);
+    for (let e2 = 0; e2 < t2.length; e2++) n2[e2] = t2.charCodeAt(e2);
+    return n2.buffer;
+  } catch {
+    return null;
+  }
 }
 var Oe = class {
-	constructor(e) {
-		i(this, "emitCallback", void 0), i(this, "getAppConnectTimeout", void 0), i(this, "webSocketFactory", void 0), i(this, "sockets", /* @__PURE__ */ new Map()), i(this, "terminalReplay", /* @__PURE__ */ new Map()), i(this, "legacyListeners", {
-			open: /* @__PURE__ */ new Set(),
-			message: /* @__PURE__ */ new Set(),
-			error: /* @__PURE__ */ new Set(),
-			close: /* @__PURE__ */ new Set()
-		}), i(this, "legacyBoundSocketId", null), i(this, "backgrounded", !1), i(this, "backgroundTimer", null), i(this, "destroyed", !1), this.emitCallback = e.emitCallback, this.getAppConnectTimeout = e.getAppConnectTimeout ?? (() => void 0), this.webSocketFactory = e.webSocketFactory ?? ((e, t) => new WebSocket(e, t));
-	}
-	connectSocket(e = {}) {
-		if (this.destroyed || this.backgrounded) {
-			this.fail("connectSocket", e, "interrupted");
-			return;
-		}
-		let t = typeof e.socketId == "string" ? e.socketId : "";
-		if (!t || this.sockets.has(t)) {
-			this.fail("connectSocket", e, "invalid socketId");
-			return;
-		}
-		if (this.sockets.size >= V) {
-			this.fail("connectSocket", e, `fail reach max websocket connect count ${V}`);
-			return;
-		}
-		let n = B.validateUrl(e.url);
-		if (!n.ok) {
-			this.fail("connectSocket", e, n.error);
-			return;
-		}
-		let r = B.validateTimeout(e.timeout, this.getAppConnectTimeout());
-		if (!r.ok) {
-			this.fail("connectSocket", e, r.error);
-			return;
-		}
-		let i = B.validateProtocols(e.protocols);
-		if (!i.ok) {
-			this.fail("connectSocket", e, i.error);
-			return;
-		}
-		let a = B.validateHeader(e.header);
-		if (!a.ok) {
-			this.fail("connectSocket", e, a.error);
-			return;
-		}
-		this.clearTerminalReplay(t);
-		let o = {
-			socketId: t,
-			state: "CREATED",
-			opened: !1,
-			closedByGlobalApi: !1,
-			errorEmitted: !1,
-			transport: null,
-			connectTimer: null,
-			dialTimer: null,
-			listeners: {
-				open: /* @__PURE__ */ new Set(),
-				message: /* @__PURE__ */ new Set(),
-				error: /* @__PURE__ */ new Set(),
-				close: /* @__PURE__ */ new Set()
-			},
-			openPayload: null,
-			openDeliveredCallbackIds: /* @__PURE__ */ new Set(),
-			requestedCloseCode: null,
-			requestedCloseReason: null
-		};
-		this.sockets.set(t, o);
-		let s = this.legacyBoundSocketId ? this.sockets.get(this.legacyBoundSocketId) : void 0;
-		(!s || s.closedByGlobalApi) && (this.legacyBoundSocketId = t), this.succeed("connectSocket", e), this.isCurrent(o) && (o.connectTimer = setTimeout(() => this.handleConnectTimeout(o), r.value), o.dialTimer = setTimeout(() => this.startDialing(o, n.value, i.value), 0));
-	}
-	sendSocketMessage(e = {}) {
-		if (this.destroyed || this.backgrounded) {
-			this.fail("sendSocketMessage", e, "interrupted");
-			return;
-		}
-		let t = this.resolveEntry(e);
-		if (!t || t.state !== "OPEN" || !t.transport) {
-			this.fail("sendSocketMessage", e, "WebSocket is not connected");
-			return;
-		}
-		let n;
-		if (e.isBuffer === !0) {
-			let t = De(e.data);
-			if (!t) {
-				this.fail("sendSocketMessage", e, "data must be string or ArrayBuffer");
-				return;
-			}
-			n = t;
-		} else if (typeof e.data == "string") n = e.data;
-		else {
-			this.fail("sendSocketMessage", e, "data must be string or ArrayBuffer");
-			return;
-		}
-		try {
-			t.transport.send(n);
-		} catch {
-			this.fail("sendSocketMessage", e, "WebSocket is not connected");
-			return;
-		}
-		this.succeed("sendSocketMessage", e);
-	}
-	closeSocket(e = {}) {
-		if (this.destroyed || this.backgrounded) {
-			this.fail("closeSocket", e, "interrupted");
-			return;
-		}
-		let t = typeof e.socketId == "string" && e.socketId.length > 0, n = this.resolveEntry(e);
-		if (!n || n.state === "CLOSING" || !t && n.state !== "OPEN") {
-			this.fail("closeSocket", e, "WebSocket is not connected");
-			return;
-		}
-		let r = B.validateCloseCode(e.code);
-		if (!r.ok) {
-			this.fail("closeSocket", e, r.error);
-			return;
-		}
-		let i = B.validateReason(e.reason);
-		if (!i.ok) {
-			this.fail("closeSocket", e, i.error);
-			return;
-		}
-		t || (n.closedByGlobalApi = !0);
-		let a = r.value, o = i.value;
-		if (n.state === "CREATED" || n.state === "CONNECTING") {
-			this.detachEntry(n), this.closeTransport(n.transport, a, o), this.dispatchEvent(n, "close", {
-				code: a,
-				reason: o
-			}), this.succeed("closeSocket", e);
-			return;
-		}
-		n.state = "CLOSING", n.requestedCloseCode = a, n.requestedCloseReason = o;
-		try {
-			var s;
-			(s = n.transport) == null || s.close(a, o);
-		} catch {
-			n.state = "OPEN", n.requestedCloseCode = null, n.requestedCloseReason = null, this.fail("closeSocket", e, "WebSocket is not connected");
-			return;
-		}
-		this.succeed("closeSocket", e);
-	}
-	onSocketEvent(e, t = {}) {
-		let n = t.callback;
-		if (U(n)) {
-			let i = typeof t.socketId == "string" ? t.socketId : "";
-			if (i) {
-				var r;
-				(r = this.sockets.get(i)) == null || r.listeners[e].add(n), this.replayMissedEvent(i, e, n);
-			} else this.legacyListeners[e].add(n), this.legacyBoundSocketId && this.replayMissedEvent(this.legacyBoundSocketId, e, n);
-		}
-	}
-	offSocketEvent(e, t = {}) {
-		var n;
-		let r = t.callback, i = typeof t.socketId == "string" ? t.socketId : "", a = i ? (n = this.sockets.get(i)) == null ? void 0 : n.listeners[e] : this.legacyListeners[e];
-		a && (U(r) ? a.delete(r) : a.clear()), i ? this.forgetDeliveredCallback(i, e, r) : this.legacyBoundSocketId && this.forgetDeliveredCallback(this.legacyBoundSocketId, e, r);
-	}
-	onAppHide() {
-		this.destroyed || this.backgrounded || (this.backgrounded = !0, this.backgroundTimer = setTimeout(() => {
-			if (this.backgroundTimer = null, this.backgrounded && !this.destroyed) for (let e of [...this.sockets.values()]) e.opened ? this.terminateOpenedEntry(e, 1006, "interrupted") : this.terminateHandshakeWithError(e, "connectSocket:fail interrupted");
-		}, Ce));
-	}
-	onAppShow() {
-		this.destroyed || (this.backgrounded = !1, this.backgroundTimer !== null && (clearTimeout(this.backgroundTimer), this.backgroundTimer = null));
-	}
-	destroy() {
-		if (!this.destroyed) {
-			this.destroyed = !0, this.backgroundTimer !== null && clearTimeout(this.backgroundTimer), this.backgroundTimer = null;
-			for (let e of [...this.sockets.values()]) this.detachEntry(e), this.closeTransport(e.transport, 1e3, "");
-			this.sockets.clear(), this.terminalReplay.clear();
-			for (let e of Object.values(this.legacyListeners)) e.clear();
-			this.legacyBoundSocketId = null;
-		}
-	}
-	startDialing(e, t, n) {
-		if (e.dialTimer = null, !this.isCurrent(e) || e.state !== "CREATED") return;
-		e.state = "CONNECTING";
-		let r;
-		try {
-			r = this.webSocketFactory(t, n), e.transport = r, r.binaryType = "arraybuffer", r.onopen = () => this.handleOpen(e), r.onmessage = (t) => this.handleMessage(e, t.data), r.onerror = () => this.handleError(e), r.onclose = (t) => this.handleClose(e, t.code, t.reason);
-		} catch {
-			this.terminateHandshakeWithError(e, H);
-		}
-	}
-	handleOpen(e) {
-		this.isCurrent(e) && e.state === "CONNECTING" && (e.state = "OPEN", e.opened = !0, this.clearConnectTimer(e), e.openPayload = { header: {} }, this.dispatchEvent(e, "open", e.openPayload));
-	}
-	handleMessage(e, t) {
-		if (this.isCurrent(e) && e.state === "OPEN") {
-			if (typeof t == "string") {
-				this.dispatchEvent(e, "message", { data: t });
-				return;
-			}
-			Object.prototype.toString.call(t) === "[object ArrayBuffer]" && this.dispatchEvent(e, "message", {
-				data: Ee(t),
-				isBuffer: !0
-			});
-		}
-	}
-	handleError(e) {
-		if (this.isCurrent(e)) {
-			if (!e.opened) {
-				this.terminateHandshakeWithError(e, H);
-				return;
-			}
-			e.requestedCloseCode !== null || e.errorEmitted || (e.errorEmitted = !0, this.dispatchEvent(e, "error", { errMsg: H }));
-		}
-	}
-	handleClose(e, t, n) {
-		if (!this.isCurrent(e)) return;
-		if (!e.opened) {
-			this.terminateHandshakeWithError(e, H);
-			return;
-		}
-		let r = e.requestedCloseCode ?? t, i = e.requestedCloseReason ?? n;
-		this.detachEntry(e), this.dispatchEvent(e, "close", {
-			code: r,
-			reason: i
-		});
-	}
-	handleConnectTimeout(e) {
-		this.isCurrent(e) && e.state !== "OPEN" && this.terminateHandshakeWithError(e, Te);
-	}
-	terminateHandshakeWithError(e, t) {
-		this.isCurrent(e) && (this.detachEntry(e), this.closeTransport(e.transport), e.errorEmitted || (e.errorEmitted = !0, this.dispatchEvent(e, "error", { errMsg: t })));
-	}
-	terminateOpenedEntry(e, t, n) {
-		this.isCurrent(e) && (this.detachEntry(e), this.closeTransport(e.transport), this.dispatchEvent(e, "close", {
-			code: t,
-			reason: n
-		}));
-	}
-	resolveEntry(e) {
-		return typeof e.socketId == "string" && e.socketId.length > 0 ? this.sockets.get(e.socketId) : this.legacyBoundSocketId ? this.sockets.get(this.legacyBoundSocketId) : void 0;
-	}
-	dispatchEvent(e, t, n) {
-		let r;
-		t === "open" ? r = e.openDeliveredCallbackIds : (t === "error" || t === "close") && (r = this.recordTerminalEvent(e.socketId, t, n).deliveredCallbackIds);
-		for (let i of e.listeners[t]) this.emitEventOnce(i, n, r);
-		if (e.socketId === this.legacyBoundSocketId) for (let e of this.legacyListeners[t]) this.emitEventOnce(e, n, r);
-	}
-	replayMissedEvent(e, t, n) {
-		if (t === "open") {
-			let t = this.sockets.get(e);
-			(t == null ? void 0 : t.state) === "OPEN" && t.openPayload && this.emitEventOnce(n, t.openPayload, t.openDeliveredCallbackIds);
-			return;
-		}
-		if (t === "error" || t === "close") {
-			let r = this.terminalReplay.get(this.replayKey(e, t));
-			r && this.emitEventOnce(n, r.payload, r.deliveredCallbackIds);
-		}
-	}
-	emitEventOnce(e, t, n) {
-		n && n.has(e) || (n == null || n.add(e), this.emit(e, t));
-	}
-	recordTerminalEvent(e, t, n) {
-		let r = this.replayKey(e, t), i = {
-			payload: n,
-			deliveredCallbackIds: /* @__PURE__ */ new Set()
-		};
-		for (this.terminalReplay.delete(r), this.terminalReplay.set(r, i); this.terminalReplay.size > we;) {
-			let e = this.terminalReplay.keys().next().value;
-			if (e === void 0) break;
-			this.terminalReplay.delete(e);
-		}
-		return i;
-	}
-	forgetDeliveredCallback(e, t, n) {
-		var r, i;
-		let a = t === "open" ? (r = this.sockets.get(e)) == null ? void 0 : r.openDeliveredCallbackIds : t === "error" || t === "close" ? (i = this.terminalReplay.get(this.replayKey(e, t))) == null ? void 0 : i.deliveredCallbackIds : void 0;
-		a && (U(n) ? a.delete(n) : a.clear());
-	}
-	clearTerminalReplay(e) {
-		this.terminalReplay.delete(this.replayKey(e, "error")), this.terminalReplay.delete(this.replayKey(e, "close"));
-	}
-	replayKey(e, t) {
-		return `${e}|${t}`;
-	}
-	isCurrent(e) {
-		return this.sockets.get(e.socketId) === e;
-	}
-	detachEntry(e) {
-		this.clearConnectTimer(e), e.dialTimer !== null && clearTimeout(e.dialTimer), e.dialTimer = null, this.isCurrent(e) && this.sockets.delete(e.socketId), e.transport && (e.transport.onopen = null, e.transport.onmessage = null, e.transport.onerror = null, e.transport.onclose = null);
-	}
-	clearConnectTimer(e) {
-		e.connectTimer !== null && clearTimeout(e.connectTimer), e.connectTimer = null;
-	}
-	closeTransport(e, t, n) {
-		if (e) try {
-			t === void 0 ? e.close() : e.close(t, n);
-		} catch {}
-	}
-	succeed(e, t) {
-		let n = { errMsg: `${e}:ok` };
-		this.emit(t.success, n), this.emit(t.complete, n);
-	}
-	fail(e, t, n) {
-		let r = { errMsg: `${e}:fail ${n}` };
-		this.emit(t.fail, r), this.emit(t.complete, r);
-	}
-	emit(e, t) {
-		U(e) && this.emitCallback(e, t);
-	}
+  constructor(e) {
+    i(this, "emitCallback", void 0), i(this, "getAppConnectTimeout", void 0), i(this, "webSocketFactory", void 0), i(this, "sockets", /* @__PURE__ */ new Map()), i(this, "terminalReplay", /* @__PURE__ */ new Map()), i(this, "legacyListeners", {
+      open: /* @__PURE__ */ new Set(),
+      message: /* @__PURE__ */ new Set(),
+      error: /* @__PURE__ */ new Set(),
+      close: /* @__PURE__ */ new Set()
+    }), i(this, "legacyBoundSocketId", null), i(this, "backgrounded", false), i(this, "backgroundTimer", null), i(this, "destroyed", false), this.emitCallback = e.emitCallback, this.getAppConnectTimeout = e.getAppConnectTimeout ?? (() => void 0), this.webSocketFactory = e.webSocketFactory ?? ((e2, t2) => new WebSocket(e2, t2));
+  }
+  connectSocket(e = {}) {
+    if (this.destroyed || this.backgrounded) {
+      this.fail("connectSocket", e, "interrupted");
+      return;
+    }
+    let t2 = typeof e.socketId == "string" ? e.socketId : "";
+    if (!t2 || this.sockets.has(t2)) {
+      this.fail("connectSocket", e, "invalid socketId");
+      return;
+    }
+    if (this.sockets.size >= V) {
+      this.fail("connectSocket", e, `fail reach max websocket connect count ${V}`);
+      return;
+    }
+    let n2 = B.validateUrl(e.url);
+    if (!n2.ok) {
+      this.fail("connectSocket", e, n2.error);
+      return;
+    }
+    let r2 = B.validateTimeout(e.timeout, this.getAppConnectTimeout());
+    if (!r2.ok) {
+      this.fail("connectSocket", e, r2.error);
+      return;
+    }
+    let i2 = B.validateProtocols(e.protocols);
+    if (!i2.ok) {
+      this.fail("connectSocket", e, i2.error);
+      return;
+    }
+    let a2 = B.validateHeader(e.header);
+    if (!a2.ok) {
+      this.fail("connectSocket", e, a2.error);
+      return;
+    }
+    this.clearTerminalReplay(t2);
+    let o2 = {
+      socketId: t2,
+      state: "CREATED",
+      opened: false,
+      closedByGlobalApi: false,
+      errorEmitted: false,
+      transport: null,
+      connectTimer: null,
+      dialTimer: null,
+      listeners: {
+        open: /* @__PURE__ */ new Set(),
+        message: /* @__PURE__ */ new Set(),
+        error: /* @__PURE__ */ new Set(),
+        close: /* @__PURE__ */ new Set()
+      },
+      openPayload: null,
+      openDeliveredCallbackIds: /* @__PURE__ */ new Set(),
+      requestedCloseCode: null,
+      requestedCloseReason: null
+    };
+    this.sockets.set(t2, o2);
+    let s2 = this.legacyBoundSocketId ? this.sockets.get(this.legacyBoundSocketId) : void 0;
+    (!s2 || s2.closedByGlobalApi) && (this.legacyBoundSocketId = t2), this.succeed("connectSocket", e), this.isCurrent(o2) && (o2.connectTimer = setTimeout(() => this.handleConnectTimeout(o2), r2.value), o2.dialTimer = setTimeout(() => this.startDialing(o2, n2.value, i2.value), 0));
+  }
+  sendSocketMessage(e = {}) {
+    if (this.destroyed || this.backgrounded) {
+      this.fail("sendSocketMessage", e, "interrupted");
+      return;
+    }
+    let t2 = this.resolveEntry(e);
+    if (!t2 || t2.state !== "OPEN" || !t2.transport) {
+      this.fail("sendSocketMessage", e, "WebSocket is not connected");
+      return;
+    }
+    let n2;
+    if (e.isBuffer === true) {
+      let t3 = De(e.data);
+      if (!t3) {
+        this.fail("sendSocketMessage", e, "data must be string or ArrayBuffer");
+        return;
+      }
+      n2 = t3;
+    } else if (typeof e.data == "string") n2 = e.data;
+    else {
+      this.fail("sendSocketMessage", e, "data must be string or ArrayBuffer");
+      return;
+    }
+    try {
+      t2.transport.send(n2);
+    } catch {
+      this.fail("sendSocketMessage", e, "WebSocket is not connected");
+      return;
+    }
+    this.succeed("sendSocketMessage", e);
+  }
+  closeSocket(e = {}) {
+    if (this.destroyed || this.backgrounded) {
+      this.fail("closeSocket", e, "interrupted");
+      return;
+    }
+    let t2 = typeof e.socketId == "string" && e.socketId.length > 0, n2 = this.resolveEntry(e);
+    if (!n2 || n2.state === "CLOSING" || !t2 && n2.state !== "OPEN") {
+      this.fail("closeSocket", e, "WebSocket is not connected");
+      return;
+    }
+    let r2 = B.validateCloseCode(e.code);
+    if (!r2.ok) {
+      this.fail("closeSocket", e, r2.error);
+      return;
+    }
+    let i2 = B.validateReason(e.reason);
+    if (!i2.ok) {
+      this.fail("closeSocket", e, i2.error);
+      return;
+    }
+    t2 || (n2.closedByGlobalApi = true);
+    let a2 = r2.value, o2 = i2.value;
+    if (n2.state === "CREATED" || n2.state === "CONNECTING") {
+      this.detachEntry(n2), this.closeTransport(n2.transport, a2, o2), this.dispatchEvent(n2, "close", {
+        code: a2,
+        reason: o2
+      }), this.succeed("closeSocket", e);
+      return;
+    }
+    n2.state = "CLOSING", n2.requestedCloseCode = a2, n2.requestedCloseReason = o2;
+    try {
+      var s2;
+      (s2 = n2.transport) == null || s2.close(a2, o2);
+    } catch {
+      n2.state = "OPEN", n2.requestedCloseCode = null, n2.requestedCloseReason = null, this.fail("closeSocket", e, "WebSocket is not connected");
+      return;
+    }
+    this.succeed("closeSocket", e);
+  }
+  onSocketEvent(e, t2 = {}) {
+    let n2 = t2.callback;
+    if (U(n2)) {
+      let i2 = typeof t2.socketId == "string" ? t2.socketId : "";
+      if (i2) {
+        var r2;
+        (r2 = this.sockets.get(i2)) == null || r2.listeners[e].add(n2), this.replayMissedEvent(i2, e, n2);
+      } else this.legacyListeners[e].add(n2), this.legacyBoundSocketId && this.replayMissedEvent(this.legacyBoundSocketId, e, n2);
+    }
+  }
+  offSocketEvent(e, t2 = {}) {
+    var n2;
+    let r2 = t2.callback, i2 = typeof t2.socketId == "string" ? t2.socketId : "", a2 = i2 ? (n2 = this.sockets.get(i2)) == null ? void 0 : n2.listeners[e] : this.legacyListeners[e];
+    a2 && (U(r2) ? a2.delete(r2) : a2.clear()), i2 ? this.forgetDeliveredCallback(i2, e, r2) : this.legacyBoundSocketId && this.forgetDeliveredCallback(this.legacyBoundSocketId, e, r2);
+  }
+  onAppHide() {
+    this.destroyed || this.backgrounded || (this.backgrounded = true, this.backgroundTimer = setTimeout(() => {
+      if (this.backgroundTimer = null, this.backgrounded && !this.destroyed) for (let e of [...this.sockets.values()]) e.opened ? this.terminateOpenedEntry(e, 1006, "interrupted") : this.terminateHandshakeWithError(e, "connectSocket:fail interrupted");
+    }, Ce));
+  }
+  onAppShow() {
+    this.destroyed || (this.backgrounded = false, this.backgroundTimer !== null && (clearTimeout(this.backgroundTimer), this.backgroundTimer = null));
+  }
+  destroy() {
+    if (!this.destroyed) {
+      this.destroyed = true, this.backgroundTimer !== null && clearTimeout(this.backgroundTimer), this.backgroundTimer = null;
+      for (let e of [...this.sockets.values()]) this.detachEntry(e), this.closeTransport(e.transport, 1e3, "");
+      this.sockets.clear(), this.terminalReplay.clear();
+      for (let e of Object.values(this.legacyListeners)) e.clear();
+      this.legacyBoundSocketId = null;
+    }
+  }
+  startDialing(e, t2, n2) {
+    if (e.dialTimer = null, !this.isCurrent(e) || e.state !== "CREATED") return;
+    e.state = "CONNECTING";
+    let r2;
+    try {
+      r2 = this.webSocketFactory(t2, n2), e.transport = r2, r2.binaryType = "arraybuffer", r2.onopen = () => this.handleOpen(e), r2.onmessage = (t3) => this.handleMessage(e, t3.data), r2.onerror = () => this.handleError(e), r2.onclose = (t3) => this.handleClose(e, t3.code, t3.reason);
+    } catch {
+      this.terminateHandshakeWithError(e, H);
+    }
+  }
+  handleOpen(e) {
+    this.isCurrent(e) && e.state === "CONNECTING" && (e.state = "OPEN", e.opened = true, this.clearConnectTimer(e), e.openPayload = { header: {} }, this.dispatchEvent(e, "open", e.openPayload));
+  }
+  handleMessage(e, t2) {
+    if (this.isCurrent(e) && e.state === "OPEN") {
+      if (typeof t2 == "string") {
+        this.dispatchEvent(e, "message", { data: t2 });
+        return;
+      }
+      Object.prototype.toString.call(t2) === "[object ArrayBuffer]" && this.dispatchEvent(e, "message", {
+        data: Ee(t2),
+        isBuffer: true
+      });
+    }
+  }
+  handleError(e) {
+    if (this.isCurrent(e)) {
+      if (!e.opened) {
+        this.terminateHandshakeWithError(e, H);
+        return;
+      }
+      e.requestedCloseCode !== null || e.errorEmitted || (e.errorEmitted = true, this.dispatchEvent(e, "error", { errMsg: H }));
+    }
+  }
+  handleClose(e, t2, n2) {
+    if (!this.isCurrent(e)) return;
+    if (!e.opened) {
+      this.terminateHandshakeWithError(e, H);
+      return;
+    }
+    let r2 = e.requestedCloseCode ?? t2, i2 = e.requestedCloseReason ?? n2;
+    this.detachEntry(e), this.dispatchEvent(e, "close", {
+      code: r2,
+      reason: i2
+    });
+  }
+  handleConnectTimeout(e) {
+    this.isCurrent(e) && e.state !== "OPEN" && this.terminateHandshakeWithError(e, Te);
+  }
+  terminateHandshakeWithError(e, t2) {
+    this.isCurrent(e) && (this.detachEntry(e), this.closeTransport(e.transport), e.errorEmitted || (e.errorEmitted = true, this.dispatchEvent(e, "error", { errMsg: t2 })));
+  }
+  terminateOpenedEntry(e, t2, n2) {
+    this.isCurrent(e) && (this.detachEntry(e), this.closeTransport(e.transport), this.dispatchEvent(e, "close", {
+      code: t2,
+      reason: n2
+    }));
+  }
+  resolveEntry(e) {
+    return typeof e.socketId == "string" && e.socketId.length > 0 ? this.sockets.get(e.socketId) : this.legacyBoundSocketId ? this.sockets.get(this.legacyBoundSocketId) : void 0;
+  }
+  dispatchEvent(e, t2, n2) {
+    let r2;
+    t2 === "open" ? r2 = e.openDeliveredCallbackIds : (t2 === "error" || t2 === "close") && (r2 = this.recordTerminalEvent(e.socketId, t2, n2).deliveredCallbackIds);
+    for (let i2 of e.listeners[t2]) this.emitEventOnce(i2, n2, r2);
+    if (e.socketId === this.legacyBoundSocketId) for (let e2 of this.legacyListeners[t2]) this.emitEventOnce(e2, n2, r2);
+  }
+  replayMissedEvent(e, t2, n2) {
+    if (t2 === "open") {
+      let t3 = this.sockets.get(e);
+      (t3 == null ? void 0 : t3.state) === "OPEN" && t3.openPayload && this.emitEventOnce(n2, t3.openPayload, t3.openDeliveredCallbackIds);
+      return;
+    }
+    if (t2 === "error" || t2 === "close") {
+      let r2 = this.terminalReplay.get(this.replayKey(e, t2));
+      r2 && this.emitEventOnce(n2, r2.payload, r2.deliveredCallbackIds);
+    }
+  }
+  emitEventOnce(e, t2, n2) {
+    n2 && n2.has(e) || (n2 == null || n2.add(e), this.emit(e, t2));
+  }
+  recordTerminalEvent(e, t2, n2) {
+    let r2 = this.replayKey(e, t2), i2 = {
+      payload: n2,
+      deliveredCallbackIds: /* @__PURE__ */ new Set()
+    };
+    for (this.terminalReplay.delete(r2), this.terminalReplay.set(r2, i2); this.terminalReplay.size > we; ) {
+      let e2 = this.terminalReplay.keys().next().value;
+      if (e2 === void 0) break;
+      this.terminalReplay.delete(e2);
+    }
+    return i2;
+  }
+  forgetDeliveredCallback(e, t2, n2) {
+    var r2, i2;
+    let a2 = t2 === "open" ? (r2 = this.sockets.get(e)) == null ? void 0 : r2.openDeliveredCallbackIds : t2 === "error" || t2 === "close" ? (i2 = this.terminalReplay.get(this.replayKey(e, t2))) == null ? void 0 : i2.deliveredCallbackIds : void 0;
+    a2 && (U(n2) ? a2.delete(n2) : a2.clear());
+  }
+  clearTerminalReplay(e) {
+    this.terminalReplay.delete(this.replayKey(e, "error")), this.terminalReplay.delete(this.replayKey(e, "close"));
+  }
+  replayKey(e, t2) {
+    return `${e}|${t2}`;
+  }
+  isCurrent(e) {
+    return this.sockets.get(e.socketId) === e;
+  }
+  detachEntry(e) {
+    this.clearConnectTimer(e), e.dialTimer !== null && clearTimeout(e.dialTimer), e.dialTimer = null, this.isCurrent(e) && this.sockets.delete(e.socketId), e.transport && (e.transport.onopen = null, e.transport.onmessage = null, e.transport.onerror = null, e.transport.onclose = null);
+  }
+  clearConnectTimer(e) {
+    e.connectTimer !== null && clearTimeout(e.connectTimer), e.connectTimer = null;
+  }
+  closeTransport(e, t2, n2) {
+    if (e) try {
+      t2 === void 0 ? e.close() : e.close(t2, n2);
+    } catch {
+    }
+  }
+  succeed(e, t2) {
+    let n2 = { errMsg: `${e}:ok` };
+    this.emit(t2.success, n2), this.emit(t2.complete, n2);
+  }
+  fail(e, t2, n2) {
+    let r2 = { errMsg: `${e}:fail ${n2}` };
+    this.emit(t2.fail, r2), this.emit(t2.complete, r2);
+  }
+  emit(e, t2) {
+    U(e) && this.emitCallback(e, t2);
+  }
 };
 `${s}`;
 var ke = "dimina-file-system";
 function Ae(e) {
-	let t;
-	try {
-		t = decodeURIComponent(e);
-	} catch {
-		throw Error(`invalid file path segment: ${e}`);
-	}
-	if (!t || t === "." || t === ".." || /[\\/\0]/.test(t)) throw Error(`invalid file path segment: ${e}`);
-	return t;
+  let t2;
+  try {
+    t2 = decodeURIComponent(e);
+  } catch {
+    throw Error(`invalid file path segment: ${e}`);
+  }
+  if (!t2 || t2 === "." || t2 === ".." || /[\\/\0]/.test(t2)) throw Error(`invalid file path segment: ${e}`);
+  return t2;
 }
-function W(e, t) {
-	let n = `${t}usr/`;
-	if (!e.startsWith(n)) throw Error("filePath must be under wx.env.USER_DATA_PATH");
-	let r = e.slice(n.length).split("/").map(Ae);
-	if (r.length === 0) throw Error("filePath must point to a file");
-	return r;
+function W(e, t2) {
+  let n2 = `${t2}usr/`;
+  if (!e.startsWith(n2)) throw Error("filePath must be under wx.env.USER_DATA_PATH");
+  let r2 = e.slice(n2.length).split("/").map(Ae);
+  if (r2.length === 0) throw Error("filePath must point to a file");
+  return r2;
 }
-function je(e, t) {
-	if (e.startsWith("data:")) return "file";
-	try {
-		let n = new URL(t, window.location.origin), r = new URL(e, n);
-		return decodeURIComponent(r.pathname.split("/").pop() || "").replace(/[\\/\0]/g, "_") || "file";
-	} catch {
-		return "file";
-	}
+function je(e, t2) {
+  if (e.startsWith("data:")) return "file";
+  try {
+    let n2 = new URL(t2, window.location.origin), r2 = new URL(e, n2);
+    return decodeURIComponent(r2.pathname.split("/").pop() || "").replace(/[\\/\0]/g, "_") || "file";
+  } catch {
+    return "file";
+  }
 }
-function Me(e, t, n) {
-	var r, i;
-	let a = je(e, t);
-	return `${n}usr/saved/${((r = globalThis.crypto) == null || (i = r.randomUUID) == null ? void 0 : i.call(r)) ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}_${a}`;
+function Me(e, t2, n2) {
+  var r2, i2;
+  let a2 = je(e, t2);
+  return `${n2}usr/saved/${((r2 = globalThis.crypto) == null || (i2 = r2.randomUUID) == null ? void 0 : i2.call(r2)) ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}_${a2}`;
 }
 async function G(e) {
-	let t = navigator.storage;
-	if (typeof (t == null ? void 0 : t.getDirectory) != "function") throw TypeError("origin private file system is not supported");
-	let n = await t.getDirectory();
-	return n = await n.getDirectoryHandle(ke, { create: !0 }), n = await n.getDirectoryHandle(encodeURIComponent(e), { create: !0 }), n.getDirectoryHandle("usr", { create: !0 });
+  let t2 = navigator.storage;
+  if (typeof (t2 == null ? void 0 : t2.getDirectory) != "function") throw TypeError("origin private file system is not supported");
+  let n2 = await t2.getDirectory();
+  return n2 = await n2.getDirectoryHandle(ke, { create: true }), n2 = await n2.getDirectoryHandle(encodeURIComponent(e), { create: true }), n2.getDirectoryHandle("usr", { create: true });
 }
-async function Ne(e, t, n) {
-	if (!e) throw Error("tempFilePath is required");
-	if (e.startsWith(n)) throw Error(`temporary virtual file is not available on Web: ${e}`);
-	let r = new URL(t, window.location.origin), i = new URL(e, r).toString(), a = await fetch(i);
-	if (!a.ok) throw Error(`failed to read tempFilePath: HTTP ${a.status}`);
-	return a.blob();
+async function Ne(e, t2, n2) {
+  if (!e) throw Error("tempFilePath is required");
+  if (e.startsWith(n2)) throw Error(`temporary virtual file is not available on Web: ${e}`);
+  let r2 = new URL(t2, window.location.origin), i2 = new URL(e, r2).toString(), a2 = await fetch(i2);
+  if (!a2.ok) throw Error(`failed to read tempFilePath: HTTP ${a2.status}`);
+  return a2.blob();
 }
 async function Pe(e) {
-	let { appId: t, tempFilePath: n, resourceBaseUrl: r } = e, i = e.virtualFilePrefix ?? "difile://";
-	if (!t) throw Error("appId is required");
-	if (!n) throw Error("tempFilePath is required");
-	let a = e.filePath || Me(n, r, i), o = W(a, i), s = await G(t), c = await Ne(n, r, i);
-	for (let e of o.slice(0, -1)) s = await s.getDirectoryHandle(e, { create: !0 });
-	let l = await (await s.getFileHandle(o[o.length - 1], { create: !0 })).createWritable();
-	try {
-		await l.write(c), await l.close();
-	} catch (e) {
-		throw await l.abort().catch(() => {}), e;
-	}
-	return a;
+  let { appId: t2, tempFilePath: n2, resourceBaseUrl: r2 } = e, i2 = e.virtualFilePrefix ?? "difile://";
+  if (!t2) throw Error("appId is required");
+  if (!n2) throw Error("tempFilePath is required");
+  let a2 = e.filePath || Me(n2, r2, i2), o2 = W(a2, i2), s2 = await G(t2), c2 = await Ne(n2, r2, i2);
+  for (let e2 of o2.slice(0, -1)) s2 = await s2.getDirectoryHandle(e2, { create: true });
+  let l2 = await (await s2.getFileHandle(o2[o2.length - 1], { create: true })).createWritable();
+  try {
+    await l2.write(c2), await l2.close();
+  } catch (e2) {
+    throw await l2.abort().catch(() => {
+    }), e2;
+  }
+  return a2;
 }
-async function Fe(e, t, n = s) {
-	if (!e) throw Error("appId is required");
-	let r = W(t, n), i = await G(e);
-	for (let e of r.slice(0, -1)) i = await i.getDirectoryHandle(e);
-	return (await i.getFileHandle(r[r.length - 1])).getFile();
+async function Fe(e, t2, n2 = s) {
+  if (!e) throw Error("appId is required");
+  let r2 = W(t2, n2), i2 = await G(e);
+  for (let e2 of r2.slice(0, -1)) i2 = await i2.getDirectoryHandle(e2);
+  return (await i2.getFileHandle(r2[r2.length - 1])).getFile();
 }
-//#endregion
-//#region src/pages/miniApp/navigator.ts
 var Ie = class {
-	constructor() {
-		i(this, "stack", []), i(this, "tabPool", /* @__PURE__ */ new Map()), i(this, "_activeTabPath", null);
-	}
-	get top() {
-		return this.stack[this.stack.length - 1];
-	}
-	get size() {
-		return this.stack.length;
-	}
-	getStack() {
-		return this.stack.slice();
-	}
-	pushPage(e) {
-		this.stack.push(e);
-	}
-	popPage() {
-		return this.stack.pop();
-	}
-	removeFromStack(e) {
-		let t = this.stack.indexOf(e);
-		return t !== -1 && (this.stack.splice(t, 1), !0);
-	}
-	resetTo(e) {
-		this.stack = [e], this.tabPool.clear(), this._activeTabPath = null;
-	}
-	clear() {
-		this.stack = [], this.tabPool.clear(), this._activeTabPath = null;
-	}
-	getTabBridge(e) {
-		return this.tabPool.get(e);
-	}
-	setTabBridge(e, t) {
-		this.tabPool.set(e, t);
-	}
-	deleteTabBridge(e) {
-		this.tabPool.delete(e);
-	}
-	getTabBridges() {
-		return [...this.tabPool.values()];
-	}
-	get activeTabPath() {
-		return this._activeTabPath;
-	}
-	setActiveTabPath(e) {
-		this._activeTabPath = e;
-	}
-	getPageStack() {
-		return this.stack.map((e) => ({
-			pagePath: e.opts.pagePath.startsWith("/") ? e.opts.pagePath.slice(1) : e.opts.pagePath,
-			query: e.opts.query || {}
-		}));
-	}
-}, Le = "<div class=\"dimina-mini-app\">\r\n	<!-- 右上方药丸按钮 -->\r\n	<ul class=\"dimina-mini-app-navigation__actions\">\r\n		<li class=\"dimina-mini-app-navigation__actions-variable\"></li>\r\n		<li class=\"dimina-mini-app-navigation__actions-close\"></li>\r\n	</ul>\r\n\r\n	<!-- webview挂载节点 -->\r\n	<div class=\"dimina-mini-app__webviews\"></div>\r\n\r\n	<!-- TabBar 底部导航栏 -->\r\n	<div class=\"dimina-mini-app__tabbar\" style=\"display: none;\"></div>\r\n\r\n	<!-- 启动loading页面 -->\r\n	<div class=\"dimina-mini-app__launch-screen\">\r\n		<div class=\"dimina-mini-app__launch-screen-content\">\r\n			<div class=\"dimina-mini-app__logo\">\r\n				<div class=\"dimina-mini-app__logo-img\">\r\n					<img class=\"dimina-mini-app__logo-img-url\" alt=\"logo\" />\r\n				</div>\r\n				<div class=\"dimina-mini-app__logo-circle\"></div>\r\n				<span class=\"dimina-mini-app__green-point\"></span>\r\n			</div>\r\n			<h1 class=\"dimina-mini-app__name\"></h1>\r\n		</div>\r\n	</div>\r\n\r\n	<div class=\"dimina-mini-app-menu__mask\"></div>\r\n	<div class=\"dimina-mini-app-menu\">\r\n		<div class=\"dimina-mini-app-menu__handle\"></div>\r\n		<div class=\"dimina-mini-app-menu__app\">\r\n			<div class=\"dimina-mini-app-menu__app-logo\">\r\n				<img class=\"dimina-mini-app-menu__app-logo-img\" alt=\"logo\" />\r\n			</div>\r\n			<div class=\"dimina-mini-app-menu__app-meta\">\r\n				<h2 class=\"dimina-mini-app-menu__app-name\"></h2>\r\n				<p class=\"dimina-mini-app-menu__app-id\"></p>\r\n				<p class=\"dimina-mini-app-menu__app-desc\"></p>\r\n			</div>\r\n		</div>\r\n		<div class=\"dimina-mini-app-menu__quick-actions\"></div>\r\n		<div class=\"dimina-mini-app-menu__footer\">\r\n			<button type=\"button\" class=\"dimina-mini-app-menu__footer-btn dimina-mini-app-menu__footer-btn--cancel\">取消</button>\r\n		</div>\r\n	</div>\r\n</div>\r\n", K = (e, t, n = 560) => new Promise((r) => {
-	let i = setTimeout(r, n), a = (n) => {
-		(!t || n.propertyName === t) && (clearTimeout(i), e.removeEventListener("transitionend", a), r());
-	};
-	e.addEventListener("transitionend", a);
+  constructor() {
+    i(this, "stack", []), i(this, "tabPool", /* @__PURE__ */ new Map()), i(this, "_activeTabPath", null);
+  }
+  get top() {
+    return this.stack[this.stack.length - 1];
+  }
+  get size() {
+    return this.stack.length;
+  }
+  getStack() {
+    return this.stack.slice();
+  }
+  pushPage(e) {
+    this.stack.push(e);
+  }
+  popPage() {
+    return this.stack.pop();
+  }
+  removeFromStack(e) {
+    let t2 = this.stack.indexOf(e);
+    return t2 !== -1 && (this.stack.splice(t2, 1), true);
+  }
+  resetTo(e) {
+    this.stack = [e], this.tabPool.clear(), this._activeTabPath = null;
+  }
+  clear() {
+    this.stack = [], this.tabPool.clear(), this._activeTabPath = null;
+  }
+  getTabBridge(e) {
+    return this.tabPool.get(e);
+  }
+  setTabBridge(e, t2) {
+    this.tabPool.set(e, t2);
+  }
+  deleteTabBridge(e) {
+    this.tabPool.delete(e);
+  }
+  getTabBridges() {
+    return [...this.tabPool.values()];
+  }
+  get activeTabPath() {
+    return this._activeTabPath;
+  }
+  setActiveTabPath(e) {
+    this._activeTabPath = e;
+  }
+  getPageStack() {
+    return this.stack.map((e) => ({
+      pagePath: e.opts.pagePath.startsWith("/") ? e.opts.pagePath.slice(1) : e.opts.pagePath,
+      query: e.opts.query || {}
+    }));
+  }
+};
+var Le = '<div class="dimina-mini-app">\r\n	<!-- \u53F3\u4E0A\u65B9\u836F\u4E38\u6309\u94AE -->\r\n	<ul class="dimina-mini-app-navigation__actions">\r\n		<li class="dimina-mini-app-navigation__actions-variable"></li>\r\n		<li class="dimina-mini-app-navigation__actions-close"></li>\r\n	</ul>\r\n\r\n	<!-- webview\u6302\u8F7D\u8282\u70B9 -->\r\n	<div class="dimina-mini-app__webviews"></div>\r\n\r\n	<!-- TabBar \u5E95\u90E8\u5BFC\u822A\u680F -->\r\n	<div class="dimina-mini-app__tabbar" style="display: none;"></div>\r\n\r\n	<!-- \u542F\u52A8loading\u9875\u9762 -->\r\n	<div class="dimina-mini-app__launch-screen">\r\n		<div class="dimina-mini-app__launch-screen-content">\r\n			<div class="dimina-mini-app__logo">\r\n				<div class="dimina-mini-app__logo-img">\r\n					<img class="dimina-mini-app__logo-img-url" alt="logo" />\r\n				</div>\r\n				<div class="dimina-mini-app__logo-circle"></div>\r\n				<span class="dimina-mini-app__green-point"></span>\r\n			</div>\r\n			<h1 class="dimina-mini-app__name"></h1>\r\n		</div>\r\n	</div>\r\n\r\n	<div class="dimina-mini-app-menu__mask"></div>\r\n	<div class="dimina-mini-app-menu">\r\n		<div class="dimina-mini-app-menu__handle"></div>\r\n		<div class="dimina-mini-app-menu__app">\r\n			<div class="dimina-mini-app-menu__app-logo">\r\n				<img class="dimina-mini-app-menu__app-logo-img" alt="logo" />\r\n			</div>\r\n			<div class="dimina-mini-app-menu__app-meta">\r\n				<h2 class="dimina-mini-app-menu__app-name"></h2>\r\n				<p class="dimina-mini-app-menu__app-id"></p>\r\n				<p class="dimina-mini-app-menu__app-desc"></p>\r\n			</div>\r\n		</div>\r\n		<div class="dimina-mini-app-menu__quick-actions"></div>\r\n		<div class="dimina-mini-app-menu__footer">\r\n			<button type="button" class="dimina-mini-app-menu__footer-btn dimina-mini-app-menu__footer-btn--cancel">\u53D6\u6D88</button>\r\n		</div>\r\n	</div>\r\n</div>\r\n';
+var K = (e, t2, n2 = 560) => new Promise((r2) => {
+  let i2 = setTimeout(r2, n2), a2 = (n3) => {
+    (!t2 || n3.propertyName === t2) && (clearTimeout(i2), e.removeEventListener("transitionend", a2), r2());
+  };
+  e.addEventListener("transitionend", a2);
 });
 function q(e) {
-	e.cancelable && e.preventDefault();
+  e.cancelable && e.preventDefault();
 }
 function J(e) {
-	var t;
-	q(e), (t = e.stopImmediatePropagation) == null || t.call(e);
+  var t2;
+  q(e), (t2 = e.stopImmediatePropagation) == null || t2.call(e);
 }
-var Re = "__dimina_storage_v2_data__", ze = "__dimina_storage_v2_meta__";
+var Re = "__dimina_storage_v2_data__";
+var ze = "__dimina_storage_v2_meta__";
 function Y(e) {
-	return e instanceof Error ? e.message : String(e);
+  return e instanceof Error ? e.message : String(e);
 }
 var X = class {
-	constructor(e) {
-		i(this, "appInfo", void 0), i(this, "id", void 0), i(this, "parent", void 0), i(this, "appId", void 0), i(this, "opener", void 0), i(this, "appConfig", void 0), i(this, "runtimeType", void 0), i(this, "navigator", void 0), i(this, "jscore", void 0), i(this, "webviewsContainer", void 0), i(this, "webviewAnimaEnd", void 0), i(this, "el", void 0), i(this, "toastInfo", void 0), i(this, "color", void 0), i(this, "apiRegistry", void 0), i(this, "webSocketManager", void 0), i(this, "_extSubscriptions", void 0), i(this, "_windowResizeHandlers", void 0), i(this, "_networkStatusHandlers", void 0), i(this, "_wakeLockSentinel", void 0), i(this, "_wakeLockRequest", void 0), i(this, "_keepScreenOnRequested", void 0), i(this, "_wakeLockVisibilityHandler", void 0), i(this, "_mediaPreviewEl", void 0), i(this, "_tempObjectUrls", void 0), i(this, "tabBarConfig", void 0), i(this, "tabBarPaths", void 0), i(this, "tabBarEl", void 0), i(this, "tabBarHeight", void 0), i(this, "tabBarBadges", void 0), i(this, "tabBarRedDots", void 0), i(this, "tabBarApiVisible", void 0), i(this, "_modalStack", void 0), i(this, "_modalPendingTimers", void 0), i(this, "_modalPageTouchTarget", void 0), i(this, "_destroyed", void 0), i(this, "_destructionLifecycleQueued", void 0), i(this, "_destroyAbortController", void 0), i(this, "customTabBar", !1), i(this, "_themeMediaQuery", null), i(this, "_themeChangeHandler", null), i(this, "_tabBarResizeObserver", null), this.appInfo = {
-			...e,
-			virtualFilePrefix: e.virtualFilePrefix ?? "difile://"
-		}, this.id = `mini_app_${S()}`, this.parent = null, this.appId = e.appId, this.opener = e.opener ?? null, this.appConfig = null, this.runtimeType = "miniProgram", this.navigator = new Ie(), this.jscore = new me(this), this.webviewsContainer = null, this.webviewAnimaEnd = !0, this.el = document.createElement("div"), this.el.classList.add("dimina-native-view"), this.toastInfo = {
-			dom: null,
-			timer: null
-		}, this.color = null, this.apiRegistry = {}, this.webSocketManager = new Oe({
-			emitCallback: (e, t) => {
-				var n;
-				return (n = this.createCallbackFunction(e)) == null ? void 0 : n(t);
-			},
-			getAppConnectTimeout: () => {
-				var e;
-				return (e = this.appConfig) == null || (e = e.app.networkTimeout) == null ? void 0 : e.connectSocket;
-			}
-		}), this._extSubscriptions = /* @__PURE__ */ new Map(), this._windowResizeHandlers = /* @__PURE__ */ new Set(), this._networkStatusHandlers = /* @__PURE__ */ new Map(), this._wakeLockSentinel = null, this._wakeLockRequest = null, this._keepScreenOnRequested = !1, this._wakeLockVisibilityHandler = null, this._mediaPreviewEl = null, this._tempObjectUrls = /* @__PURE__ */ new Set(), this.tabBarConfig = null, this.tabBarPaths = [], this.tabBarEl = null, this.tabBarHeight = 0, this.tabBarBadges = [], this.tabBarRedDots = [], this.tabBarApiVisible = !0, this._modalStack = [], this._modalPendingTimers = /* @__PURE__ */ new Set(), this._modalPageTouchTarget = null, this._modalPageTouchTarget = null, this._destroyed = !1, this._destructionLifecycleQueued = !1, this._destroyAbortController = new AbortController();
-	}
-	get pagePath() {
-		return this.appInfo.pagePath;
-	}
-	get query() {
-		return this.appInfo.query ?? {};
-	}
-	_normalizePagePath(e) {
-		return !e || typeof e != "string" ? "" : e.startsWith("/") ? e.slice(1) : e;
-	}
-	_isTabBarPage(e) {
-		return this.tabBarPaths.includes(this._normalizePagePath(e));
-	}
-	getCurrentPagePath() {
-		var e, t;
-		let n = this.navigator.top;
-		return (n == null || (e = n.opts) == null ? void 0 : e.pagePath) || this.appInfo.pagePath || ((t = this.appConfig) == null || (t = t.app) == null ? void 0 : t.entryPagePath) || "";
-	}
-	getCurrentPageQuery() {
-		var e;
-		let t = this.navigator.top;
-		return (t == null || (e = t.opts) == null ? void 0 : e.query) || this.appInfo.query || {};
-	}
-	getEntryPagePath() {
-		var e;
-		return this.appInfo.pagePath || ((e = this.appConfig) == null || (e = e.app) == null ? void 0 : e.entryPagePath) || "";
-	}
-	getHomePagePath() {
-		var e, t;
-		return this._normalizePagePath(((e = this.appConfig) == null || (e = e.app) == null ? void 0 : e.entryPagePath) || ((t = this.appConfig) == null || (t = t.app) == null || (t = t.pages) == null ? void 0 : t[0]) || "");
-	}
-	shouldShowHomeButton({ pagePath: e, configInfo: t, isRoot: n }) {
-		if ((t == null ? void 0 : t.navigationStyle) === "custom") return !1;
-		let r = this.getHomePagePath();
-		if (!r) return !1;
-		let i = this._normalizePagePath(e);
-		return this._isTabBarPage(i) || i === r ? !1 : n === !0 || (t == null ? void 0 : t.homeButton) === !0;
-	}
-	navigateHome() {
-		let e = this.getHomePagePath();
-		e && (this._isTabBarPage(e) ? this.switchTab({ url: `/${e}` }) : this.navigator.size <= 1 ? this.redirectTo({ url: `/${e}` }) : this.reLaunch({ url: `/${e}` }));
-	}
-	hideHomeButton(e = {}, t) {
-		var n;
-		let { onSuccess: r, onComplete: i } = this._createApiCallbacks(e), a = t || this.navigator.top;
-		a == null || (n = a.webview) == null || n.setHomeButtonVisible(!1), r == null || r({ errMsg: "hideHomeButton:ok" }), i == null || i();
-	}
-	async copyText(e, t) {
-		try {
-			var n;
-			if ((n = navigator.clipboard) != null && n.writeText) await navigator.clipboard.writeText(e);
-			else {
-				let t = document.createElement("textarea");
-				t.value = e, t.setAttribute("readonly", "readonly"), t.style.position = "fixed", t.style.opacity = "0", document.body.appendChild(t), t.select(), document.execCommand("copy"), document.body.removeChild(t);
-			}
-			this.showToast({
-				title: t,
-				icon: "success"
-			});
-		} catch {
-			this.showToast({
-				title: "复制失败",
-				icon: "none"
-			});
-		}
-	}
-	closeMiniProgram() {
-		this.closeMiniAppMenu(), this.parent.appManager.closeApp(this);
-	}
-	renderMiniAppMenu() {
-		var e, t;
-		let n = this.el.querySelector(".dimina-mini-app-menu__app-name"), r = this.el.querySelector(".dimina-mini-app-menu__app-id"), i = this.el.querySelector(".dimina-mini-app-menu__app-desc"), a = this.el.querySelector(".dimina-mini-app-menu__app-logo-img"), o = this.el.querySelector(".dimina-mini-app-menu__quick-actions"), s = this.getCurrentPagePath(), c = this.getEntryPagePath(), l = s || c || "", u = (e = this.parent) == null || (e = e.urlSync) == null || (t = e.buildShareUrl) == null ? void 0 : t.call(e, this.appId, this.getPageStack());
-		n.textContent = this.appInfo.name || "未命名小程序", r.textContent = `AppID：${this.appId || "--"}`, i.textContent = `当前页面：${l || "--"}`, a.src = this.appInfo.logo || "";
-		let d = [
-			...u ? [{
-				label: "复制链接",
-				icon: "↗",
-				handler: () => this.copyText(u, "链接已复制")
-			}] : [],
-			{
-				label: "重新进入",
-				icon: "↻",
-				handler: () => {
-					this.closeMiniAppMenu(), this.reLaunch({ url: c || s });
-				}
-			},
-			{
-				label: "关闭小程序",
-				icon: "×",
-				danger: !0,
-				handler: () => this.closeMiniProgram()
-			}
-		];
-		o.style.gridTemplateColumns = `repeat(${d.length}, minmax(0, 1fr))`, o.innerHTML = d.map((e, t) => `
-				<button type="button" class="dimina-mini-app-menu__quick-action${e.danger ? " is-danger" : ""}" data-quick-index="${t}">
-					<span class="dimina-mini-app-menu__quick-action-icon">${e.icon}</span>
-					<span class="dimina-mini-app-menu__quick-action-label">${e.label}</span>
+  constructor(e) {
+    i(this, "appInfo", void 0), i(this, "id", void 0), i(this, "parent", void 0), i(this, "appId", void 0), i(this, "opener", void 0), i(this, "appConfig", void 0), i(this, "runtimeType", void 0), i(this, "navigator", void 0), i(this, "jscore", void 0), i(this, "webviewsContainer", void 0), i(this, "webviewAnimaEnd", void 0), i(this, "el", void 0), i(this, "toastInfo", void 0), i(this, "color", void 0), i(this, "apiRegistry", void 0), i(this, "webSocketManager", void 0), i(this, "_extSubscriptions", void 0), i(this, "_windowResizeHandlers", void 0), i(this, "_networkStatusHandlers", void 0), i(this, "_wakeLockSentinel", void 0), i(this, "_wakeLockRequest", void 0), i(this, "_keepScreenOnRequested", void 0), i(this, "_wakeLockVisibilityHandler", void 0), i(this, "_mediaPreviewEl", void 0), i(this, "_tempObjectUrls", void 0), i(this, "tabBarConfig", void 0), i(this, "tabBarPaths", void 0), i(this, "tabBarEl", void 0), i(this, "tabBarHeight", void 0), i(this, "tabBarBadges", void 0), i(this, "tabBarRedDots", void 0), i(this, "tabBarApiVisible", void 0), i(this, "_modalStack", void 0), i(this, "_modalPendingTimers", void 0), i(this, "_modalPageTouchTarget", void 0), i(this, "_destroyed", void 0), i(this, "_destructionLifecycleQueued", void 0), i(this, "_destroyAbortController", void 0), i(this, "customTabBar", false), i(this, "_themeMediaQuery", null), i(this, "_themeChangeHandler", null), i(this, "_tabBarResizeObserver", null), this.appInfo = {
+      ...e,
+      virtualFilePrefix: e.virtualFilePrefix ?? "difile://"
+    }, this.id = `mini_app_${S()}`, this.parent = null, this.appId = e.appId, this.opener = e.opener ?? null, this.appConfig = null, this.runtimeType = "miniProgram", this.navigator = new Ie(), this.jscore = new me(this), this.webviewsContainer = null, this.webviewAnimaEnd = true, this.el = document.createElement("div"), this.el.classList.add("dimina-native-view"), this.toastInfo = {
+      dom: null,
+      timer: null
+    }, this.color = null, this.apiRegistry = {}, this.webSocketManager = new Oe({
+      emitCallback: (e2, t2) => {
+        var n2;
+        return (n2 = this.createCallbackFunction(e2)) == null ? void 0 : n2(t2);
+      },
+      getAppConnectTimeout: () => {
+        var e2;
+        return (e2 = this.appConfig) == null || (e2 = e2.app.networkTimeout) == null ? void 0 : e2.connectSocket;
+      }
+    }), this._extSubscriptions = /* @__PURE__ */ new Map(), this._windowResizeHandlers = /* @__PURE__ */ new Set(), this._networkStatusHandlers = /* @__PURE__ */ new Map(), this._wakeLockSentinel = null, this._wakeLockRequest = null, this._keepScreenOnRequested = false, this._wakeLockVisibilityHandler = null, this._mediaPreviewEl = null, this._tempObjectUrls = /* @__PURE__ */ new Set(), this.tabBarConfig = null, this.tabBarPaths = [], this.tabBarEl = null, this.tabBarHeight = 0, this.tabBarBadges = [], this.tabBarRedDots = [], this.tabBarApiVisible = true, this._modalStack = [], this._modalPendingTimers = /* @__PURE__ */ new Set(), this._modalPageTouchTarget = null, this._modalPageTouchTarget = null, this._destroyed = false, this._destructionLifecycleQueued = false, this._destroyAbortController = new AbortController();
+  }
+  get pagePath() {
+    return this.appInfo.pagePath;
+  }
+  get query() {
+    return this.appInfo.query ?? {};
+  }
+  _normalizePagePath(e) {
+    return !e || typeof e != "string" ? "" : e.startsWith("/") ? e.slice(1) : e;
+  }
+  _isTabBarPage(e) {
+    return this.tabBarPaths.includes(this._normalizePagePath(e));
+  }
+  getCurrentPagePath() {
+    var e, t2;
+    let n2 = this.navigator.top;
+    return (n2 == null || (e = n2.opts) == null ? void 0 : e.pagePath) || this.appInfo.pagePath || ((t2 = this.appConfig) == null || (t2 = t2.app) == null ? void 0 : t2.entryPagePath) || "";
+  }
+  getCurrentPageQuery() {
+    var e;
+    let t2 = this.navigator.top;
+    return (t2 == null || (e = t2.opts) == null ? void 0 : e.query) || this.appInfo.query || {};
+  }
+  getEntryPagePath() {
+    var e;
+    return this.appInfo.pagePath || ((e = this.appConfig) == null || (e = e.app) == null ? void 0 : e.entryPagePath) || "";
+  }
+  getHomePagePath() {
+    var e, t2;
+    return this._normalizePagePath(((e = this.appConfig) == null || (e = e.app) == null ? void 0 : e.entryPagePath) || ((t2 = this.appConfig) == null || (t2 = t2.app) == null || (t2 = t2.pages) == null ? void 0 : t2[0]) || "");
+  }
+  shouldShowHomeButton({ pagePath: e, configInfo: t2, isRoot: n2 }) {
+    if ((t2 == null ? void 0 : t2.navigationStyle) === "custom") return false;
+    let r2 = this.getHomePagePath();
+    if (!r2) return false;
+    let i2 = this._normalizePagePath(e);
+    return this._isTabBarPage(i2) || i2 === r2 ? false : n2 === true || (t2 == null ? void 0 : t2.homeButton) === true;
+  }
+  navigateHome() {
+    let e = this.getHomePagePath();
+    e && (this._isTabBarPage(e) ? this.switchTab({ url: `/${e}` }) : this.navigator.size <= 1 ? this.redirectTo({ url: `/${e}` }) : this.reLaunch({ url: `/${e}` }));
+  }
+  hideHomeButton(e = {}, t2) {
+    var n2;
+    let { onSuccess: r2, onComplete: i2 } = this._createApiCallbacks(e), a2 = t2 || this.navigator.top;
+    a2 == null || (n2 = a2.webview) == null || n2.setHomeButtonVisible(false), r2 == null || r2({ errMsg: "hideHomeButton:ok" }), i2 == null || i2();
+  }
+  async copyText(e, t2) {
+    try {
+      var n2;
+      if ((n2 = navigator.clipboard) != null && n2.writeText) await navigator.clipboard.writeText(e);
+      else {
+        let t3 = document.createElement("textarea");
+        t3.value = e, t3.setAttribute("readonly", "readonly"), t3.style.position = "fixed", t3.style.opacity = "0", document.body.appendChild(t3), t3.select(), document.execCommand("copy"), document.body.removeChild(t3);
+      }
+      this.showToast({
+        title: t2,
+        icon: "success"
+      });
+    } catch {
+      this.showToast({
+        title: "\u590D\u5236\u5931\u8D25",
+        icon: "none"
+      });
+    }
+  }
+  closeMiniProgram() {
+    this.closeMiniAppMenu(), this.parent.appManager.closeApp(this);
+  }
+  renderMiniAppMenu() {
+    var e, t2;
+    let n2 = this.el.querySelector(".dimina-mini-app-menu__app-name"), r2 = this.el.querySelector(".dimina-mini-app-menu__app-id"), i2 = this.el.querySelector(".dimina-mini-app-menu__app-desc"), a2 = this.el.querySelector(".dimina-mini-app-menu__app-logo-img"), o2 = this.el.querySelector(".dimina-mini-app-menu__quick-actions"), s2 = this.getCurrentPagePath(), c2 = this.getEntryPagePath(), l2 = s2 || c2 || "", u2 = (e = this.parent) == null || (e = e.urlSync) == null || (t2 = e.buildShareUrl) == null ? void 0 : t2.call(e, this.appId, this.getPageStack());
+    n2.textContent = this.appInfo.name || "\u672A\u547D\u540D\u5C0F\u7A0B\u5E8F", r2.textContent = `AppID\uFF1A${this.appId || "--"}`, i2.textContent = `\u5F53\u524D\u9875\u9762\uFF1A${l2 || "--"}`, a2.src = this.appInfo.logo || "";
+    let d2 = [
+      ...u2 ? [{
+        label: "\u590D\u5236\u94FE\u63A5",
+        icon: "\u2197",
+        handler: () => this.copyText(u2, "\u94FE\u63A5\u5DF2\u590D\u5236")
+      }] : [],
+      {
+        label: "\u91CD\u65B0\u8FDB\u5165",
+        icon: "\u21BB",
+        handler: () => {
+          this.closeMiniAppMenu(), this.reLaunch({ url: c2 || s2 });
+        }
+      },
+      {
+        label: "\u5173\u95ED\u5C0F\u7A0B\u5E8F",
+        icon: "\xD7",
+        danger: true,
+        handler: () => this.closeMiniProgram()
+      }
+    ];
+    o2.style.gridTemplateColumns = `repeat(${d2.length}, minmax(0, 1fr))`, o2.innerHTML = d2.map((e2, t3) => `
+				<button type="button" class="dimina-mini-app-menu__quick-action${e2.danger ? " is-danger" : ""}" data-quick-index="${t3}">
+					<span class="dimina-mini-app-menu__quick-action-icon">${e2.icon}</span>
+					<span class="dimina-mini-app-menu__quick-action-label">${e2.label}</span>
 				</button>
-			`).join(""), o.querySelectorAll("[data-quick-index]").forEach((e, t) => {
-			e.onclick = () => d[t].handler();
-		});
-	}
-	openMiniAppMenu() {
-		let e = this.el.querySelector(".dimina-mini-app-menu__mask"), t = this.el.querySelector(".dimina-mini-app-menu");
-		this.renderMiniAppMenu(), e.style.display = "block", requestAnimationFrame(() => {
-			e.classList.add("show"), t.classList.add("show");
-		});
-	}
-	closeMiniAppMenu() {
-		let e = this.el.querySelector(".dimina-mini-app-menu__mask"), t = this.el.querySelector(".dimina-mini-app-menu");
-		e.classList.remove("show"), t.classList.remove("show");
-	}
-	registerApi(e, t) {
-		this.apiRegistry[e] = t;
-	}
-	getApiNamespaces() {
-		var e;
-		return ((e = this.parent) == null ? void 0 : e.apiNamespaces) ?? [];
-	}
-	getResourceBaseUrl() {
-		var e;
-		return this.appInfo.resourceBaseUrl ?? ((e = this.parent) == null ? void 0 : e.resourceBaseUrl) ?? "/";
-	}
-	getPageFrameUrl() {
-		var e;
-		return ((e = this.parent) == null ? void 0 : e.pageFrameUrl) ?? `${this.getResourceBaseUrl()}pageFrame.html`;
-	}
-	_getStatusBarRect() {
-		var e, t;
-		return ((e = this.parent) == null || (e = e.shell) == null || (t = e.getStatusBarRect) == null ? void 0 : t.call(e)) ?? {
-			top: 0,
-			left: 0,
-			width: 0,
-			height: 0,
-			right: 0,
-			bottom: 0
-		};
-	}
-	_getStorageAdapter() {
-		var e;
-		return ((e = this.parent) == null ? void 0 : e.storageAdapter) ?? re(!0);
-	}
-	_storageKey(e) {
-		return `${this._storageKeyPrefix()}${e}`;
-	}
-	_storageKeyPrefix() {
-		return `${Re}${this.appId.length}:${this.appId}:`;
-	}
-	_legacyStorageKey(e) {
-		return `${this.appId}_${e}`;
-	}
-	_legacyStorageDisabledKey() {
-		return `${ze}${this.appId.length}:${this.appId}:legacy-disabled`;
-	}
-	_serializeStorageValue(e) {
-		return JSON.stringify(e === void 0 ? {
-			version: 2,
-			kind: "value",
-			dataType: "undefined"
-		} : {
-			version: 2,
-			kind: "value",
-			dataType: "json",
-			data: e
-		});
-	}
-	_serializeStorageTombstone() {
-		return JSON.stringify({
-			version: 2,
-			kind: "deleted"
-		});
-	}
-	_decodeStorageRecord(e) {
-		let t = JSON.parse(e);
-		if (!t || t.version !== 2 || t.kind !== "value" && t.kind !== "deleted") throw Error("invalid storage record");
-		if (t.kind === "value" && t.dataType !== "json" && t.dataType !== "undefined") throw Error("invalid storage value type");
-		return t;
-	}
-	_decodeLegacyStorageValue(e) {
-		try {
-			return JSON.parse(e);
-		} catch {
-			return e;
-		}
-	}
-	_readStorageValue(e, t) {
-		let n = this._storageKey(t), r = e.getItem(n);
-		if (r !== null) {
-			let e = this._decodeStorageRecord(r);
-			return e.kind === "deleted" ? { found: !1 } : {
-				found: !0,
-				data: e.dataType === "undefined" ? void 0 : e.data
-			};
-		}
-		if (e.getItem(this._legacyStorageDisabledKey()) === "1" || this.appId.includes("_") || t.includes("_")) return { found: !1 };
-		let i = e.getItem(this._legacyStorageKey(t));
-		if (i === null) return { found: !1 };
-		let a = this._decodeLegacyStorageValue(i);
-		return e.setItem(n, this._serializeStorageValue(a)), {
-			found: !0,
-			data: a
-		};
-	}
-	isPresentedTop() {
-		return !this.parent || this.parent.getActiveView() === this && !this.parent.isSleeping;
-	}
-	safeSyncUrl() {
-		try {
-			var e;
-			(e = this.parent) == null || e.syncUrl();
-		} catch {}
-	}
-	invokeApi(e, t, n) {
-		let r = this.apiRegistry[e];
-		r ? r.call(this, t, n) : typeof this[e] == "function" ? this[e](t, n) : (t == null ? void 0 : t.module) !== void 0 || (t == null ? void 0 : t.evtId) !== void 0 ? this._handleExtCall(e, t) : this._handleUnsupportedApi(e, t);
-	}
-	_handleUnsupportedApi(e, t = {}) {
-		let { onFail: n, onComplete: r } = this._createApiCallbacks(t), i = { errMsg: `${e}:fail api is not supported` };
-		t.fail ? n == null || n(i) : console.warn(`[container] ${i.errMsg}`), r == null || r();
-	}
-	_prepareViewForLoad() {
-		this.initPageFrame(), this.webviewsContainer = this.el.querySelector(".dimina-mini-app__webviews"), this.showLaunchScreen(), this.bindMoreEvent(), this.bindCloseEvent();
-	}
-	viewDidLoad() {
-		this._prepareViewForLoad(), this.initApp().catch((e) => {
-			var t, n;
-			this._destroyed || e instanceof Error && e.name === "AbortError" || (console.error(`[container] initApp failed for ${this.appId}:`, e), (t = this.parent) == null || (n = t.onAppLaunchError) == null || n.call(t, e, { appId: this.appId }));
-		});
-	}
-	async viewDidLoadForReplacement() {
-		this._prepareViewForLoad(), await this.initApp(!1, !0);
-	}
-	async initApp(e = !0, t = !1) {
-		this.webviewAnimaEnd = !1;
-		try {
-			var n, r;
-			await this.jscore.init(), this._bindThemeChange();
-			let e = "main", i = `${this.appInfo.appId}/${e}/app-config.json`, [a] = await Promise.all([oe(`${this.getResourceBaseUrl()}${i}`), ae(560)]);
-			if (this._destroyed) return;
-			if (!a) throw Error(`[container] failed to load app config: ${i}`);
-			this.appConfig = JSON.parse(a), this.runtimeType = ((n = this.appConfig) == null || (n = n.app) == null ? void 0 : n.runtimeType) === "game" ? "game" : "miniProgram", this.el.classList.toggle("dimina-native-view--game", this.runtimeType === "game"), this._initTabBar();
-			let o = this.runtimeType === "game" ? this.appConfig.app.entryPagePath || "game" : this.appInfo.pagePath || this.appConfig.app.entryPagePath;
-			if (this.appInfo.pagePath || (this.appInfo.pagePath = o), t && !this.appConfig.app.pages.some((e) => this._normalizePagePath(e) === this._normalizePagePath(o))) throw Error(`[container] page is not declared in app config: ${o}`);
-			let s = this.appConfig.modules[o], c = w(this.appConfig.app, s);
-			this.updateTargetPageColorStyle(c);
-			let l = await this.createBridge({
-				pagePath: o,
-				query: this.appInfo.query,
-				scene: this.appInfo.scene,
-				jscore: this.jscore,
-				isRoot: !0,
-				root: e,
-				appId: this.appInfo.appId,
-				pages: this.appConfig.app.pages,
-				configInfo: c
-			});
-			if (this._destroyed) return;
-			if (this.navigator.pushPage(l), this._isTabBarPage(o)) {
-				let e = this._normalizePagePath(o);
-				this.navigator.setTabBridge(e, l), this.navigator.setActiveTabPath(e), this._setTabBarVisible(!0), this._updateTabBarSelection(e);
-			}
-			let u = (((r = this.appInfo.restoreStack) == null ? void 0 : r.length) ?? 0) > 1, d = { visible: !u && this.isPresentedTop() };
-			if (u) {
-				if (t ? await l.startAndWait(d) : l.start(d), await this.restorePageStack(this.appInfo.restoreStack.slice(1)), this._destroyed) return;
-			} else await l.startAndWait(d);
-			this.safeSyncUrl(), this.hideLaunchScreen();
-		} catch (t) {
-			let n = /* @__PURE__ */ new Set([...this.navigator.getStack(), ...this.navigator.getTabBridges()]);
-			for (let e of n) {
-				var i;
-				e.destroy(), (i = e.webview) == null || (i = i.el) == null || i.remove();
-			}
-			this.navigator.clear(), this.safeSyncUrl(), console.error(`[container] initApp failed for ${this.appId}:`, t);
-			try {
-				var a, o;
-				(a = this.parent) == null || (o = a.onAppLaunchError) == null || o.call(a, t, { appId: this.appId });
-			} catch (e) {
-				console.error(`[container] onAppLaunchError threw for ${this.appId}:`, e);
-			}
-			try {
-				this.destroy();
-			} catch (e) {
-				console.error(`[container] destroy() threw during initApp failure cleanup for ${this.appId}:`, e);
-			}
-			if (e) {
-				var s;
-				await ((s = this.parent) == null ? void 0 : s.removeFailedView(this));
-			}
-			throw t;
-		} finally {
-			this.webviewAnimaEnd = !0;
-		}
-	}
-	async restorePageStack(e) {
-		for (let t = 0; t < e.length; t++) {
-			let { pagePath: n, query: r } = e[t], i = t === e.length - 1, a = n.startsWith("/") ? n.slice(1) : n, o = this.appConfig.modules[a], s = w(this.appConfig.app, o), c = await this.createBridge({
-				pagePath: a,
-				query: r,
-				scene: this.appInfo.scene,
-				jscore: this.jscore,
-				isRoot: !1,
-				root: (o == null ? void 0 : o.root) || "main",
-				appId: this.appInfo.appId,
-				pages: this.appConfig.app.pages,
-				configInfo: s
-			});
-			if (this._destroyed) return;
-			let l = this.navigator.top;
-			l.webview.el.classList.remove("dimina-native-view--instage"), l.webview.el.classList.add("dimina-native-view--slide-out"), this.navigator.pushPage(c), c.webview.el.style.zIndex = String(this.navigator.size + 1), c.webview.el.classList.remove("dimina-native-view--before-enter"), i || c.webview.el.classList.add("dimina-native-view--slide-out");
-			let u = { visible: i && this.isPresentedTop() };
-			i ? await c.startAndWait(u) : c.start(u);
-		}
-		if (e.length > 0) {
-			let e = this.navigator.top, t = this.appConfig.modules[e.opts.pagePath], n = w(this.appConfig.app, t);
-			this.updateTargetPageColorStyle(n), this._isTabBarPage(e.opts.pagePath) || this._setTabBarVisible(!1);
-		}
-	}
-	getPageStack() {
-		return this.navigator.getPageStack();
-	}
-	async createBridge(e) {
-		let { jscore: t, configInfo: n, isRoot: r, appId: i, pagePath: a, query: o, scene: s, pages: c, root: l } = e, u = new de({
-			jscore: t,
-			configInfo: n,
-			isRoot: r,
-			appId: i,
-			runtimeType: this.runtimeType,
-			pagePath: a,
-			query: o,
-			scene: s,
-			referrerInfo: e.referrerInfo ?? this.appInfo.referrerInfo,
-			pages: c,
-			root: l
-		});
-		return u.parent = this, await u.init(this._destroyAbortController.signal), u;
-	}
-	queueAppShowOptions(e) {
-		this.jscore.queueAppShowOptions(e);
-	}
-	onPresentIn() {
-		var e;
-		(e = this.parent) == null || e.appManager.retention.forget(this);
-		let t = this.navigator.top;
-		this.webSocketManager.onAppShow(), this.jscore.appShow(), t == null || t.pageShow();
-	}
-	onPresentOut() {
-		var e;
-		let t = this.navigator.top;
-		t == null || t.pageHide(), this.webSocketManager.onAppHide(), this.jscore.appHide(), (e = this.parent) == null || e.appManager.retention.hide(this);
-	}
-	queueDestructionLifecycle() {
-		if (this._destructionLifecycleQueued) return;
-		this._destructionLifecycleQueued = !0;
-		let e = /* @__PURE__ */ new Set([...this.navigator.getStack(), ...this.navigator.getTabBridges()]);
-		for (let t of e) t.destroy("exit");
-	}
-	initPageFrame() {
-		this.el.innerHTML = Le;
-	}
-	updateTargetPageColorStyle(e) {
-		let { navigationBarTextStyle: t } = e;
-		this.updateActionColorStyle(t);
-	}
-	showLaunchScreen() {
-		let e = this.el.querySelector(".dimina-mini-app__launch-screen"), t = this.el.querySelector(".dimina-mini-app__name"), n = this.el.querySelector(".dimina-mini-app__logo-img-url");
-		this.updateActionColorStyle("black"), t.textContent = this.appInfo.name ?? null, n.src = this.appInfo.logo || "", e.style.display = "block";
-	}
-	hideLaunchScreen() {
-		let e = this.el.querySelector(".dimina-mini-app__launch-screen");
-		e.style.display = "none";
-	}
-	updateActionColorStyle(e) {
-		this.color = e;
-		let t = this.el.querySelector(".dimina-mini-app-navigation__actions");
-		if (e === "white" ? (t.classList.remove("dimina-mini-app-navigation__actions--black"), t.classList.add("dimina-mini-app-navigation__actions--white")) : e === "black" && (t.classList.remove("dimina-mini-app-navigation__actions--white"), t.classList.add("dimina-mini-app-navigation__actions--black")), this.isPresentedTop()) try {
-			this.parent.updateStatusBarColor(e);
-		} catch (e) {
-			console.error(`[container] updateStatusBarColor threw for ${this.appId}:`, e);
-		}
-	}
-	restoreColorStyle() {
-		this.updateActionColorStyle(this.color);
-	}
-	createCallbackFunction(e) {
-		if (e) return (t) => {
-			this.jscore.postMessage({
-				type: "triggerCallback",
-				body: {
-					id: e,
-					args: t
-				}
-			});
-		};
-	}
-	_createApiCallbacks({ success: e, fail: t, complete: n } = {}) {
-		let r = this.createCallbackFunction(e), i = this.createCallbackFunction(t), a = this.createCallbackFunction(n), o;
-		return {
-			onSuccess: r || a ? (e) => {
-				o = e, r == null || r(e);
-			} : void 0,
-			onFail: i || a ? (e) => {
-				o = e, i == null || i(e);
-			} : void 0,
-			onComplete: a ? (...e) => a(e.length > 0 ? e[0] : o) : void 0
-		};
-	}
-	async navigateTo(e) {
-		let { url: t, success: n, fail: r, complete: i } = e, { query: a, pagePath: o } = C(t), { onSuccess: s, onFail: c, onComplete: l } = this._createApiCallbacks({
-			success: n,
-			fail: r,
-			complete: i
-		});
-		if (this._isTabBarPage(o)) {
-			c == null || c({ errMsg: "navigateTo:fail can not navigateTo a tabbar page" }), l == null || l();
-			return;
-		}
-		if (!this.webviewAnimaEnd) {
-			c == null || c({ errMsg: "navigateTo:fail busy" }), l == null || l();
-			return;
-		}
-		this.webviewAnimaEnd = !1;
-		let u = this.color;
-		try {
-			let e = this.appConfig.modules[o], t = w(this.appConfig.app, e), n = await this.createBridge({
-				pagePath: o,
-				query: a,
-				scene: this.appInfo.scene,
-				jscore: this.jscore,
-				isRoot: !1,
-				root: (e == null ? void 0 : e.root) || "main",
-				appId: this.appInfo.appId,
-				pages: this.appConfig.app.pages,
-				configInfo: t
-			});
-			if (this._destroyed) return;
-			this.updateTargetPageColorStyle(t);
-			let r = this.navigator.top, i = r.webview;
-			this.navigator.pushPage(n), n.start({ visible: this.isPresentedTop() }), this.safeSyncUrl(), i.el.classList.remove("dimina-native-view--instage"), i.el.classList.add("dimina-native-view--slide-out"), i.el.classList.add("dimina-native-view--linear-anima"), r == null || r.pageHide(), this._setTabBarVisible(!1), n.webview.el.style.zIndex = String(this.navigator.size + 1), n.webview.el.classList.add("dimina-native-view--enter-anima"), n.webview.el.classList.add("dimina-native-view--instage"), await K(n.webview.el, "transform"), i.el.classList.remove("dimina-native-view--linear-anima"), n.webview.el.classList.remove("dimina-native-view--before-enter"), n.webview.el.classList.remove("dimina-native-view--enter-anima"), n.webview.el.classList.remove("dimina-native-view--instage"), s == null || s({ errMsg: "navigateTo:ok" });
-		} catch (e) {
-			if (this.parent) try {
-				this.updateActionColorStyle(u);
-			} catch {}
-			c == null || c({ errMsg: `navigateTo:fail ${Y(e)}` });
-		} finally {
-			this.webviewAnimaEnd = !0, l == null || l();
-		}
-	}
-	reLaunch(e) {
-		let { url: t, success: n, fail: r, complete: i } = e, { onSuccess: a, onFail: o, onComplete: s } = this._createApiCallbacks({
-			success: n,
-			fail: r,
-			complete: i
-		});
-		if (!this.webviewAnimaEnd) {
-			o == null || o({ errMsg: "reLaunch:fail busy" }), s == null || s();
-			return;
-		}
-		this.webviewAnimaEnd = !1;
-		let { query: c, pagePath: l } = C(t);
-		try {
-			let e = this.appConfig.modules[l], t = w(this.appConfig.app, e);
-			this.updateTargetPageColorStyle(t);
-			let n = /* @__PURE__ */ new Set([...this.navigator.getStack(), ...this.navigator.getTabBridges()]);
-			for (let e of n) {
-				var u;
-				e.destroy(), (u = e.webview) == null || (u = u.el) == null || u.remove();
-			}
-			this.navigator.clear(), this.safeSyncUrl(), this.webviewsContainer && (this.webviewsContainer.innerHTML = ""), this.createBridge({
-				pagePath: l,
-				query: c,
-				scene: this.appInfo.scene,
-				jscore: this.jscore,
-				isRoot: !0,
-				root: (e == null ? void 0 : e.root) || "main",
-				appId: this.appInfo.appId,
-				pages: this.appConfig.app.pages,
-				configInfo: t
-			}).then((e) => {
-				if (!this._destroyed) {
-					if (this.navigator.pushPage(e), this._isTabBarPage(l)) {
-						let t = this._normalizePagePath(l);
-						this.navigator.setTabBridge(t, e), this.navigator.setActiveTabPath(t), this._setTabBarVisible(!0), this._updateTabBarSelection(t);
-					} else this._setTabBarVisible(!1);
-					e.start({ visible: this.isPresentedTop() }), this.safeSyncUrl(), e.webview.el.style.zIndex = "1", this.webviewAnimaEnd = !0, a == null || a({ errMsg: "reLaunch:ok" }), s == null || s();
-				}
-			}).catch((e) => {
-				this.webviewAnimaEnd = !0, o == null || o({ errMsg: `reLaunch:fail ${Y(e)}` }), s == null || s();
-			});
-		} catch (e) {
-			o == null || o({ errMsg: `reLaunch:fail ${Y(e)}` }), s == null || s(), this.webviewAnimaEnd = !0;
-		}
-	}
-	applyUpdate() {
-		this.reLaunch({ url: this.getEntryPagePath() });
-	}
-	redirectTo(e) {
-		let { url: t, success: n, fail: r, complete: i } = e, { query: a, pagePath: o } = C(t), { onSuccess: s, onFail: c, onComplete: l } = this._createApiCallbacks({
-			success: n,
-			fail: r,
-			complete: i
-		});
-		if (this._isTabBarPage(o)) {
-			c == null || c({ errMsg: "redirectTo:fail can not redirectTo a tabbar page" }), l == null || l();
-			return;
-		}
-		if (!this.webviewAnimaEnd) {
-			c == null || c({ errMsg: "redirectTo:fail busy" }), l == null || l();
-			return;
-		}
-		this.webviewAnimaEnd = !1;
-		try {
-			let e = this.navigator.top, t = this._normalizePagePath(e.opts.pagePath), n = this.appConfig.modules[o], r = w(this.appConfig.app, n);
-			this.updateTargetPageColorStyle(r), e.destroy(), e.opts = {
-				...e.opts,
-				pagePath: o,
-				query: a,
-				configInfo: r
-			}, e.webview.applyPageStyle(r, {
-				isRoot: e.opts.isRoot,
-				showHomeButton: this.shouldShowHomeButton({
-					pagePath: o,
-					configInfo: r,
-					isRoot: e.opts.isRoot
-				})
-			}), e.resetStatus(), e.start({ visible: this.isPresentedTop() }), this.safeSyncUrl(), this.navigator.getTabBridge(t) === e && (this.navigator.deleteTabBridge(t), this.navigator.activeTabPath === t && this.navigator.setActiveTabPath(null)), this._setBridgeTabBarInset(e, !1), this._setTabBarVisible(!1), s == null || s({ errMsg: "redirectTo:ok" });
-		} catch (e) {
-			c == null || c({ errMsg: `redirectTo:fail ${Y(e)}` });
-		} finally {
-			this.webviewAnimaEnd = !0, l == null || l();
-		}
-	}
-	async navigateBack(e = {}) {
-		let { onSuccess: t, onFail: n, onComplete: r } = this._createApiCallbacks(e);
-		if (this.navigator.size < 2) {
-			n == null || n({ errMsg: "navigateBack:fail cannot navigate back at first page" }), r == null || r();
-			return;
-		}
-		if (!this.webviewAnimaEnd) {
-			n == null || n({ errMsg: "navigateBack:fail busy" }), r == null || r();
-			return;
-		}
-		this.webviewAnimaEnd = !1;
-		try {
-			let e = this.navigator.popPage(), n = this.navigator.top, r = this.appConfig.modules[n.opts.pagePath], i = w(this.appConfig.app, r);
-			if (this.updateTargetPageColorStyle(i), e.webview.el.classList.add("dimina-native-view--before-enter"), e.webview.el.classList.add("dimina-native-view--enter-anima"), e.destroy(), n.webview.el.classList.remove("dimina-native-view--slide-out"), n.webview.el.classList.add("dimina-native-view--instage"), n.webview.el.classList.add("dimina-native-view--enter-anima"), this.isPresentedTop() && n.pageShow(), this.safeSyncUrl(), this._isTabBarPage(n.opts.pagePath)) {
-				let e = this._normalizePagePath(n.opts.pagePath);
-				this.navigator.setActiveTabPath(e), this._setTabBarVisible(!0), this._updateTabBarSelection(e);
-			}
-			await K(n.webview.el, "transform"), n.webview.el.classList.remove("dimina-native-view--enter-anima"), n.webview.el.classList.remove("dimina-native-view--instage"), e.webview.el.parentNode.removeChild(e.webview.el), t == null || t({ errMsg: "navigateBack:ok" });
-		} catch (e) {
-			n == null || n({ errMsg: `navigateBack:fail ${Y(e)}` });
-		} finally {
-			this.webviewAnimaEnd = !0, r == null || r();
-		}
-	}
-	async switchTab(e) {
-		let { url: t, success: n, fail: r, complete: i } = e, { query: a, pagePath: o } = C(t), s = this._normalizePagePath(o), { onSuccess: c, onFail: l, onComplete: u } = this._createApiCallbacks({
-			success: n,
-			fail: r,
-			complete: i
-		});
-		if (!this._isTabBarPage(s)) {
-			l == null || l({ errMsg: `switchTab:fail not a tabBar page: ${s}` }), u == null || u();
-			return;
-		}
-		if (!this.webviewAnimaEnd) {
-			l == null || l({ errMsg: "switchTab:fail busy" }), u == null || u();
-			return;
-		}
-		if (this.navigator.activeTabPath === s && this.navigator.size === 1) {
-			this._setTabBarVisible(!0), this._updateTabBarSelection(s), c == null || c({ errMsg: "switchTab:ok" }), u == null || u();
-			return;
-		}
-		this.webviewAnimaEnd = !1;
-		try {
-			let e = this.navigator.activeTabPath, t = e ? this.navigator.getTabBridge(e) : null, n = !!t && this.navigator.size === 1 && this.navigator.top === t, r = this.navigator.getTabBridge(s), i = this.appConfig.modules[s], o = w(this.appConfig.app, i);
-			if (!r) {
-				if (r = await this.createBridge({
-					pagePath: s,
-					query: a,
-					scene: this.appInfo.scene,
-					jscore: this.jscore,
-					isRoot: !0,
-					root: (i == null ? void 0 : i.root) || "main",
-					appId: this.appInfo.appId,
-					pages: this.appConfig.app.pages,
-					configInfo: o
-				}), this._destroyed) return;
-				this.navigator.setTabBridge(s, r), r.start({ visible: !1 });
-			}
-			for (this.updateTargetPageColorStyle(o); this.navigator.size > 0;) {
-				var d;
-				let e = this.navigator.top;
-				if (this._isTabBarPage(e.opts.pagePath)) break;
-				e.pageHide(), e.destroy(), (d = e.webview) == null || (d = d.el) == null || d.remove(), this.navigator.popPage();
-			}
-			if (t && t !== r) {
-				var f;
-				n && t.pageHide(), (f = t.webview) != null && f.el && (t.webview.el.style.display = "none"), this.navigator.removeFromStack(t);
-			}
-			let l = r.webview.el;
-			this._setBridgeTabBarInset(r, !0), l.classList.remove("dimina-native-view--before-enter", "dimina-native-view--slide-out", "dimina-native-view--enter-anima", "dimina-native-view--linear-anima", "dimina-native-view--instage"), l.style.display = "", l.style.zIndex = "1", this.navigator.getStack().includes(r) || this.navigator.pushPage(r), this.navigator.setActiveTabPath(s), this.isPresentedTop() && r.pageShow(), this._setTabBarVisible(!0), this._updateTabBarSelection(s), this.safeSyncUrl(), c == null || c({ errMsg: "switchTab:ok" });
-		} catch (e) {
-			l == null || l({ errMsg: `switchTab:fail ${Y(e)}` });
-		} finally {
-			this.webviewAnimaEnd = !0, u == null || u();
-		}
-	}
-	_initTabBar() {
-		var e;
-		let t = (e = this.appConfig) == null || (e = e.app) == null ? void 0 : e.tabBar;
-		if (!t || !Array.isArray(t.list) || t.list.length === 0) return;
-		let n = t.list.filter((e) => this._normalizePagePath(e == null ? void 0 : e.pagePath) !== "");
-		if (n.length !== 0) {
-			if (this.tabBarConfig = {
-				...t,
-				list: n
-			}, this.tabBarPaths = n.map((e) => this._normalizePagePath(e.pagePath)), this.tabBarBadges = n.map(() => ""), this.tabBarRedDots = n.map(() => !1), this.tabBarApiVisible = !0, this.customTabBar = t.custom === !0, this.customTabBar) {
-				this.tabBarEl = this.el.querySelector(".dimina-mini-app__tabbar"), this.tabBarEl && (this.tabBarEl.textContent = "", this.tabBarEl.style.display = "none"), this.tabBarHeight = 0, this.el.style.setProperty("--dimina-tabbar-height", "0px");
-				return;
-			}
-			this._renderTabBar();
-		}
-	}
-	_renderTabBar() {
-		if (this.tabBarEl = this.el.querySelector(".dimina-mini-app__tabbar"), !this.tabBarEl) return;
-		let { color: e, backgroundColor: t, borderStyle: n, list: r } = this.tabBarConfig, i = this._sanitizeCssColor(e) || "#999999", a = this._sanitizeCssColor(t) || "#ffffff";
-		this.tabBarEl.textContent = "";
-		let o = document.createElement("div");
-		if (o.className = "dimina-tabbar", o.style.backgroundColor = a, o.style.borderTopColor = this._getTabBarBorderColor(n), r.forEach((e, t) => {
-			let n = this._normalizePagePath(e.pagePath), r = document.createElement("div");
-			r.className = "dimina-tabbar-item", r.dataset.path = n, r.dataset.index = String(t);
-			let a = this._resolveTabBarIcon(e.iconPath);
-			a && r.appendChild(this._createTabBarIcon(a, "dimina-tabbar-icon-default"));
-			let s = this._resolveTabBarIcon(e.selectedIconPath);
-			s && r.appendChild(this._createTabBarIcon(s, "dimina-tabbar-icon-selected"));
-			let c = document.createElement("span");
-			c.className = "dimina-tabbar-text", c.style.color = i, c.textContent = e.text || "", r.appendChild(c);
-			let l = document.createElement("span");
-			l.className = "dimina-tabbar-badge", l.hidden = !0, r.appendChild(l);
-			let u = document.createElement("span");
-			u.className = "dimina-tabbar-red-dot", u.hidden = !0, r.appendChild(u), o.appendChild(r);
-		}), this.tabBarEl.appendChild(o), this.tabBarEl.addEventListener("click", (e) => {
-			let t = e.target.closest(".dimina-tabbar-item");
-			if (!t) return;
-			let n = t.dataset.path;
-			n && n !== this.navigator.activeTabPath && this.switchTab({ url: `/${n}` });
-		}), typeof ResizeObserver < "u") {
-			var s;
-			(s = this._tabBarResizeObserver) == null || s.disconnect(), this._tabBarResizeObserver = new ResizeObserver(() => this._syncTabBarHeightVar()), this._tabBarResizeObserver.observe(this.tabBarEl);
-		}
-	}
-	_createTabBarIcon(e, t) {
-		let n = document.createElement("img");
-		return n.className = `dimina-tabbar-icon ${t}`, n.src = e, n.alt = "", n.addEventListener("error", () => {
-			n.style.display = "none";
-		}), n;
-	}
-	_sanitizeCssColor(e) {
-		if (!e || typeof e != "string") return "";
-		let t = e.trim();
-		return t.length === 0 || t.length > 64 ? "" : /[<>"';{}()\\]/.test(t) ? /^(?:rgb|rgba|hsl|hsla)\(\s*[\d.,%\s/-]+\)$/i.test(t) ? t : "" : t;
-	}
-	_getTabBarBorderColor(e) {
-		return e === "white" ? "#ffffff" : "#e0e0e0";
-	}
-	_getTabBarHeight() {
-		if (this.customTabBar) return 0;
-		if (!this.tabBarEl) return this.tabBarHeight;
-		let e = this.tabBarEl.getBoundingClientRect().height;
-		if (!e && this.tabBarEl.style.display === "none") {
-			let t = this.tabBarEl.style.display, n = this.tabBarEl.style.visibility;
-			this.tabBarEl.style.visibility = "hidden", this.tabBarEl.style.display = "block", e = this.tabBarEl.getBoundingClientRect().height, this.tabBarEl.style.display = t, this.tabBarEl.style.visibility = n;
-		}
-		return e > 0 && (this.tabBarHeight = e), this.tabBarHeight;
-	}
-	_syncTabBarHeightVar() {
-		let e = this._getTabBarHeight();
-		this.el.style.setProperty("--dimina-tabbar-height", `${e}px`), this._syncTabBarBridgeInsets();
-	}
-	_setBridgeTabBarInset(e, t) {
-		var n;
-		let r = e == null || (n = e.webview) == null ? void 0 : n.el;
-		if (r) {
-			if (!t || this.customTabBar) {
-				r.style.removeProperty("bottom");
-				return;
-			}
-			r.style.bottom = `${this._getTabBarHeight()}px`;
-		}
-	}
-	_syncTabBarBridgeInsets() {
-		for (let e of this.navigator.getTabBridges()) this._setBridgeTabBarInset(e, !0);
-	}
-	_joinBaseUrl(...e) {
-		return `${this.getResourceBaseUrl()}${e.map((e) => String(e).trim().replace(/^\/+|\/+$/g, "")).filter(Boolean).join("/")}`;
-	}
-	_resolveTabBarIcon(e) {
-		if (!e || typeof e != "string") return null;
-		let t = e.trim();
-		if (!t) return null;
-		if (/^(?:data:|blob:|https?:|\/\/)/i.test(t)) return t;
-		let n = t.replace(/^\/+/, "").replace(/^\.\//, ""), r = `${this.appId}/`;
-		return n.startsWith(r) ? this._joinBaseUrl(n) : this._joinBaseUrl(this.appId, "main", n);
-	}
-	_setTabBarVisible(e) {
-		var t;
-		if (!this.tabBarEl) return;
-		if (this.customTabBar) {
-			this.tabBarEl.style.display = "none", this._syncTabBarHeightVar();
-			return;
-		}
-		let n = this.navigator.top, r = this._normalizePagePath(n == null || (t = n.opts) == null ? void 0 : t.pagePath), i = !!r && r === this.navigator.activeTabPath && this._isTabBarPage(r), a = e && this.tabBarApiVisible && i;
-		this.tabBarEl.style.display = a ? "block" : "none", this._syncTabBarHeightVar();
-	}
-	_updateTabBarSelection(e) {
-		if (!this.tabBarEl || !this.tabBarConfig) return;
-		let t = this.tabBarConfig.color || "#999999", n = this.tabBarConfig.selectedColor || "#1890ff";
-		this.tabBarEl.querySelectorAll(".dimina-tabbar-item").forEach((r) => {
-			let i = r.getAttribute("data-path") === e, a = r.querySelector(".dimina-tabbar-text"), o = r.querySelector(".dimina-tabbar-icon-default"), s = r.querySelector(".dimina-tabbar-icon-selected");
-			a && (a.style.color = i ? n : t), o && (o.style.display = i ? "none" : "block"), s && (s.style.display = i ? "block" : "none"), r.classList.toggle("dimina-tabbar-item--selected", i);
-		});
-	}
-	_getTabBarItemEl(e) {
-		var t;
-		return ((t = this.tabBarEl) == null ? void 0 : t.querySelector(`.dimina-tabbar-item[data-index="${e}"]`)) || null;
-	}
-	_validateTabBarIndex(e, t, n, r) {
-		var i;
-		let a = ((i = this.tabBarConfig) == null || (i = i.list) == null ? void 0 : i.length) || 0;
-		if (!a || !this.tabBarEl) return n == null || n({ errMsg: `${e}:fail tabBar not configured` }), r == null || r(), !1;
-		let o = Number(t);
-		return t == null || !Number.isInteger(o) || o < 0 || o >= a ? (n == null || n({ errMsg: `${e}:fail invalid index ${t}` }), r == null || r(), !1) : !0;
-	}
-	_replaceTabBarItemIcons(e, t) {
-		let n = e.querySelector(".dimina-tabbar-text");
-		e.querySelectorAll(".dimina-tabbar-icon-default, .dimina-tabbar-icon-selected").forEach((e) => e.remove());
-		let r = this._resolveTabBarIcon(t.iconPath);
-		r && e.insertBefore(this._createTabBarIcon(r, "dimina-tabbar-icon-default"), n);
-		let i = this._resolveTabBarIcon(t.selectedIconPath);
-		i && e.insertBefore(this._createTabBarIcon(i, "dimina-tabbar-icon-selected"), n);
-	}
-	setTabBarStyle(e = {}) {
-		let { color: t, selectedColor: n, backgroundColor: r, borderStyle: i, success: a, fail: o, complete: s } = e, { onSuccess: c, onFail: l, onComplete: u } = this._createApiCallbacks({
-			success: a,
-			fail: o,
-			complete: s
-		});
-		if (!this.tabBarConfig || !this.tabBarEl) {
-			l == null || l({ errMsg: "setTabBarStyle:fail tabBar not configured" }), u == null || u();
-			return;
-		}
-		let d = i === "black" || i === "white" ? i : null, f = t === void 0 ? null : this._sanitizeCssColor(t), p = n === void 0 ? null : this._sanitizeCssColor(n), m = r === void 0 ? null : this._sanitizeCssColor(r);
-		f && (this.tabBarConfig.color = f), p && (this.tabBarConfig.selectedColor = p), m && (this.tabBarConfig.backgroundColor = m), d && (this.tabBarConfig.borderStyle = d);
-		let h = this.tabBarEl.querySelector(".dimina-tabbar");
-		h && (m && (h.style.backgroundColor = m), d && (h.style.borderTopColor = this._getTabBarBorderColor(d))), this._updateTabBarSelection(this.navigator.activeTabPath), c == null || c({ errMsg: "setTabBarStyle:ok" }), u == null || u();
-	}
-	setTabBarItem(e = {}) {
-		let { index: t, text: n, iconPath: r, selectedIconPath: i } = e, { onSuccess: a, onFail: o, onComplete: s } = this._createApiCallbacks(e);
-		if (!this._validateTabBarIndex("setTabBarItem", t, o, s)) return;
-		let c = Number(t), l = this.tabBarConfig.list[c], u = {
-			...l,
-			text: n === void 0 ? l.text : n,
-			iconPath: r === void 0 ? l.iconPath : r,
-			selectedIconPath: i === void 0 ? l.selectedIconPath : i
-		};
-		this.tabBarConfig.list[c] = u;
-		let d = this._getTabBarItemEl(c);
-		if (d) {
-			let e = d.querySelector(".dimina-tabbar-text");
-			e && (e.textContent = u.text || ""), (r !== void 0 || i !== void 0) && this._replaceTabBarItemIcons(d, u), this._updateTabBarSelection(this.navigator.activeTabPath);
-		}
-		a == null || a({ errMsg: "setTabBarItem:ok" }), s == null || s();
-	}
-	showTabBar(e = {}) {
-		let { onSuccess: t, onComplete: n } = this._createApiCallbacks(e);
-		this.tabBarApiVisible = !0, this._setTabBarVisible(!0), t == null || t({ errMsg: "showTabBar:ok" }), n == null || n();
-	}
-	hideTabBar(e = {}) {
-		let { onSuccess: t, onComplete: n } = this._createApiCallbacks(e);
-		this.tabBarApiVisible = !1, this._setTabBarVisible(!1), t == null || t({ errMsg: "hideTabBar:ok" }), n == null || n();
-	}
-	setTabBarBadge(e = {}) {
-		let { index: t, text: n = "" } = e, { onSuccess: r, onFail: i, onComplete: a } = this._createApiCallbacks(e);
-		if (!this._validateTabBarIndex("setTabBarBadge", t, i, a)) return;
-		let o = Number(t);
-		this.tabBarBadges[o] = String(n), this.tabBarRedDots[o] = !1;
-		let s = this._getTabBarItemEl(o), c = s == null ? void 0 : s.querySelector(".dimina-tabbar-badge"), l = s == null ? void 0 : s.querySelector(".dimina-tabbar-red-dot");
-		c && (c.textContent = this.tabBarBadges[o], c.hidden = this.tabBarBadges[o].length === 0), l && (l.hidden = !0), r == null || r({ errMsg: "setTabBarBadge:ok" }), a == null || a();
-	}
-	removeTabBarBadge(e = {}) {
-		var t;
-		let { index: n } = e, { onSuccess: r, onFail: i, onComplete: a } = this._createApiCallbacks(e);
-		if (!this._validateTabBarIndex("removeTabBarBadge", n, i, a)) return;
-		let o = Number(n);
-		this.tabBarBadges[o] = "";
-		let s = (t = this._getTabBarItemEl(o)) == null ? void 0 : t.querySelector(".dimina-tabbar-badge");
-		s && (s.textContent = "", s.hidden = !0), r == null || r({ errMsg: "removeTabBarBadge:ok" }), a == null || a();
-	}
-	showTabBarRedDot(e = {}) {
-		let { index: t } = e, { onSuccess: n, onFail: r, onComplete: i } = this._createApiCallbacks(e);
-		if (!this._validateTabBarIndex("showTabBarRedDot", t, r, i)) return;
-		let a = Number(t);
-		this.tabBarRedDots[a] = !0, this.tabBarBadges[a] = "";
-		let o = this._getTabBarItemEl(a), s = o == null ? void 0 : o.querySelector(".dimina-tabbar-badge"), c = o == null ? void 0 : o.querySelector(".dimina-tabbar-red-dot");
-		s && (s.textContent = "", s.hidden = !0), c && (c.hidden = !1), n == null || n({ errMsg: "showTabBarRedDot:ok" }), i == null || i();
-	}
-	hideTabBarRedDot(e = {}) {
-		var t;
-		let { index: n } = e, { onSuccess: r, onFail: i, onComplete: a } = this._createApiCallbacks(e);
-		if (!this._validateTabBarIndex("hideTabBarRedDot", n, i, a)) return;
-		let o = Number(n);
-		this.tabBarRedDots[o] = !1;
-		let s = (t = this._getTabBarItemEl(o)) == null ? void 0 : t.querySelector(".dimina-tabbar-red-dot");
-		s && (s.hidden = !0), r == null || r({ errMsg: "hideTabBarRedDot:ok" }), a == null || a();
-	}
-	async navigateToMiniProgram(e = {}) {
-		let { onSuccess: t, onFail: n, onComplete: r } = this._createApiCallbacks(e);
-		try {
-			await this.parent.appManager.navigateToMiniProgram(e, this);
-			let n = { errMsg: "navigateToMiniProgram:ok" };
-			t == null || t(n), r == null || r(n);
-		} catch (e) {
-			let t = { errMsg: `navigateToMiniProgram:fail ${Y(e)}` };
-			n == null || n(t), r == null || r(t);
-		}
-	}
-	async navigateBackMiniProgram(e = {}) {
-		let { onSuccess: t, onFail: n, onComplete: r } = this._createApiCallbacks(e), i = !1;
-		try {
-			await this.parent.appManager.navigateBackMiniProgram(this, e.extraData, async () => {
-				i = !0;
-				let e = { errMsg: "navigateBackMiniProgram:ok" };
-				t == null || t(e), r == null || r(e);
-			});
-		} catch (e) {
-			if (!i) {
-				let t = { errMsg: `navigateBackMiniProgram:fail ${Y(e)}` };
-				n == null || n(t), r == null || r(t);
-			}
-		}
-	}
-	async exitMiniProgram(e = {}) {
-		let { onSuccess: t, onFail: n, onComplete: r } = this._createApiCallbacks(e), i = !1;
-		try {
-			await this.parent.appManager.exitMiniProgram(this, async () => {
-				i = !0;
-				let e = { errMsg: "exitMiniProgram:ok" };
-				t == null || t(e), r == null || r(e);
-			});
-		} catch (e) {
-			if (!i) {
-				let t = { errMsg: `exitMiniProgram:fail ${Y(e)}` };
-				n == null || n(t), r == null || r(t);
-			}
-		}
-	}
-	async restartMiniProgram(e = {}) {
-		let { onSuccess: t, onFail: n, onComplete: r } = this._createApiCallbacks(e), i = !1;
-		try {
-			await this.parent.appManager.restartMiniProgram(this, e.path ?? "", async () => {
-				i = !0;
-				let e = { errMsg: "restartMiniProgram:ok" };
-				t == null || t(e), r == null || r(e);
-			});
-		} catch (e) {
-			if (!i) {
-				let t = { errMsg: `restartMiniProgram:fail ${Y(e)}` };
-				n == null || n(t), r == null || r(t);
-			}
-		}
-	}
-	bindMoreEvent() {
-		let e = this.el.querySelector(".dimina-mini-app-navigation__actions-variable"), t = this.el.querySelector(".dimina-mini-app-menu__mask"), n = this.el.querySelector(".dimina-mini-app-menu"), r = this.el.querySelector(".dimina-mini-app-menu__footer-btn--cancel");
-		t.addEventListener("transitionend", () => {
-			t.classList.contains("show") || (t.style.display = "none");
-		}), e.onclick = () => this.openMiniAppMenu(), t.onclick = () => this.closeMiniAppMenu(), r.onclick = () => this.closeMiniAppMenu(), n.onclick = (e) => e.stopPropagation();
-	}
-	bindCloseEvent() {
-		let e = this.el.querySelector(".dimina-mini-app-navigation__actions-close");
-		e.onclick = () => {
-			this.closeMiniProgram();
-		};
-	}
-	destroy() {
-		var e, t, n, r;
-		this._destroyed = !0, this.queueDestructionLifecycle(), this._destroyAbortController.abort(), this.webSocketManager.destroy();
-		let i;
-		for (let e of this._extSubscriptions.values()) try {
-			e == null || e();
-		} catch (e) {
-			console.error(`[container] extension unsubscribe threw during destroy() for ${this.appId}:`, e), i || (i = e);
-		}
-		this._extSubscriptions.clear();
-		for (let e of this._windowResizeHandlers) {
-			var a, o;
-			(a = (o = globalThis).removeEventListener) == null || a.call(o, "resize", e);
-		}
-		this._windowResizeHandlers.clear();
-		for (let e of this._networkStatusHandlers.values()) {
-			var s, c, l, u, d, f;
-			(s = (c = globalThis).removeEventListener) == null || s.call(c, "online", e), (l = (u = globalThis).removeEventListener) == null || l.call(u, "offline", e), (d = this._networkConnection()) == null || (f = d.removeEventListener) == null || f.call(d, "change", e);
-		}
-		this._networkStatusHandlers.clear(), this._keepScreenOnRequested = !1, this._wakeLockVisibilityHandler && (document.removeEventListener("visibilitychange", this._wakeLockVisibilityHandler), this._wakeLockVisibilityHandler = null), this._releaseWakeLock().catch(() => {}), (e = this._mediaPreviewEl) == null || e.remove(), this._mediaPreviewEl = null;
-		for (let e of this._tempObjectUrls) URL.revokeObjectURL(e);
-		if (this._tempObjectUrls.clear(), (t = this._themeMediaQuery) != null && t.removeEventListener) this._themeMediaQuery.removeEventListener("change", this._themeChangeHandler);
-		else {
-			var p, m;
-			(p = this._themeMediaQuery) == null || (m = p.removeListener) == null || m.call(p, this._themeChangeHandler);
-		}
-		this._themeMediaQuery = null, this._themeChangeHandler = null, (n = this._tabBarResizeObserver) == null || n.disconnect(), this._tabBarResizeObserver = null;
-		for (let e of this._modalPendingTimers) clearTimeout(e);
-		this._modalPendingTimers.clear();
-		for (let e of this._modalStack) {
-			var h, g;
-			(h = e.mask) == null || h.remove(), (g = e.dialog) == null || g.remove();
-		}
-		if (this._modalStack.length = 0, this._unlockModalPageTouch(), this.hideToast({}), (r = this.parent) == null || (r = r.appManager) == null || r.removeApp(this), this.jscore.destroy(), i) throw i;
-	}
-	connectSocket(e = {}) {
-		this.webSocketManager.connectSocket(e);
-	}
-	sendSocketMessage(e = {}) {
-		this.webSocketManager.sendSocketMessage(e);
-	}
-	closeSocket(e = {}) {
-		this.webSocketManager.closeSocket(e);
-	}
-	onSocketOpen(e = {}) {
-		this.onSocketEvent("open", e);
-	}
-	onSocketMessage(e = {}) {
-		this.onSocketEvent("message", e);
-	}
-	onSocketError(e = {}) {
-		this.onSocketEvent("error", e);
-	}
-	onSocketClose(e = {}) {
-		this.onSocketEvent("close", e);
-	}
-	offSocketOpen(e = {}) {
-		this.offSocketEvent("open", e);
-	}
-	offSocketMessage(e = {}) {
-		this.offSocketEvent("message", e);
-	}
-	offSocketError(e = {}) {
-		this.offSocketEvent("error", e);
-	}
-	offSocketClose(e = {}) {
-		this.offSocketEvent("close", e);
-	}
-	onSocketEvent(e, t) {
-		this.webSocketManager.onSocketEvent(e, t);
-	}
-	offSocketEvent(e, t) {
-		this.webSocketManager.offSocketEvent(e, t);
-	}
-	getNetworkType(e) {
-		let { onSuccess: t, onComplete: n } = this._createApiCallbacks(e), r = {
-			networkType: this._currentNetworkType(),
-			errMsg: "getNetworkType:ok"
-		};
-		t == null || t(r), n == null || n(r);
-	}
-	onNetworkStatusChange(e) {
-		var t, n, r, i, a, o;
-		let s = e.callbackId ?? e.success;
-		if (!s || this._networkStatusHandlers.has(s)) return;
-		let c = () => {
-			var e;
-			(e = this.createCallbackFunction(s)) == null || e({
-				isConnected: navigator.onLine,
-				networkType: this._currentNetworkType()
-			});
-		};
-		this._networkStatusHandlers.set(s, c), (t = (n = globalThis).addEventListener) == null || t.call(n, "online", c), (r = (i = globalThis).addEventListener) == null || r.call(i, "offline", c), (a = this._networkConnection()) == null || (o = a.addEventListener) == null || o.call(a, "change", c);
-	}
-	offNetworkStatusChange(e = {}) {
-		let t = e.callbackId ? [[e.callbackId, this._networkStatusHandlers.get(e.callbackId)]] : [...this._networkStatusHandlers.entries()];
-		for (let [e, c] of t) {
-			var n, r, i, a, o, s;
-			c && ((n = (r = globalThis).removeEventListener) == null || n.call(r, "online", c), (i = (a = globalThis).removeEventListener) == null || i.call(a, "offline", c), (o = this._networkConnection()) == null || (s = o.removeEventListener) == null || s.call(o, "change", c), this._networkStatusHandlers.delete(e));
-		}
-	}
-	_networkConnection() {
-		let e = navigator;
-		return e.connection ?? e.mozConnection ?? e.webkitConnection;
-	}
-	_currentNetworkType() {
-		var e;
-		if (!navigator.onLine) return "none";
-		let t = this._networkConnection(), n = t == null || (e = t.type) == null ? void 0 : e.toLowerCase();
-		if (n === "wifi" || n === "ethernet") return "wifi";
-		if (n === "cellular") {
-			var r;
-			let e = t == null || (r = t.effectiveType) == null ? void 0 : r.toLowerCase();
-			if (e && [
-				"2g",
-				"3g",
-				"4g",
-				"5g"
-			].includes(e)) return e;
-		}
-		return "unknown";
-	}
-	getSystemInfoAsync(e) {
-		let t = this._getStatusBarRect(), n = this.parent.el.querySelector(".dimina-native-webview__root").getBoundingClientRect(), { success: r, complete: i } = e, { onSuccess: a, onComplete: o } = this._createApiCallbacks({
-			success: r,
-			complete: i
-		});
-		a == null || a({
-			statusBarHeight: t.height,
-			brand: "devtools",
-			mode: "default",
-			model: "web",
-			platform: "devtools",
-			system: "web",
-			deviceOrientation: "portrait",
-			SDKVersion: "3.0.0",
-			language: "zh_CN",
-			wifiEnabled: !0,
-			safeArea: {
-				width: n.width,
-				height: n.height,
-				top: n.top,
-				bottom: n.bottom,
-				left: n.left,
-				right: n.right
-			}
-		}), o == null || o();
-	}
-	getSystemInfo(e = {}) {
-		let { onSuccess: t, onComplete: n } = this._createApiCallbacks(e);
-		t == null || t({
-			...this.getSystemInfoSync(),
-			errMsg: "getSystemInfo:ok"
-		}), n == null || n();
-	}
-	onWindowResize(e = {}) {
-		let t = this.createCallbackFunction(e.success);
-		if (!t || !globalThis.addEventListener) return;
-		let n = () => {
-			let { windowWidth: e, windowHeight: n, deviceOrientation: r = "portrait" } = this.getSystemInfoSync();
-			t({
-				size: {
-					windowWidth: e,
-					windowHeight: n
-				},
-				deviceOrientation: r
-			});
-		};
-		this._windowResizeHandlers ?? (this._windowResizeHandlers = /* @__PURE__ */ new Set()), this._windowResizeHandlers.add(n), globalThis.addEventListener("resize", n);
-	}
-	getMenuButtonBoundingClientRect() {
-		let e = this.el.querySelector(".dimina-mini-app-navigation__actions").getBoundingClientRect(), t = this.el.getBoundingClientRect(), n = (this._getStatusBarRect().height || 0) + 4, r = n + e.height, i = e.left - t.left;
-		return {
-			top: n,
-			right: e.right - t.left,
-			bottom: r,
-			left: i,
-			width: e.width,
-			height: e.height,
-			x: i,
-			y: n
-		};
-	}
-	getHostEnvSnapshot() {
-		return {
-			menuRect: this.getMenuButtonBoundingClientRect(),
-			systemInfo: this.getSystemInfoSync()
-		};
-	}
-	_bindThemeChange() {
-		var e, t;
-		let n = (e = (t = globalThis).matchMedia) == null ? void 0 : e.call(t, "(prefers-color-scheme: dark)");
-		if (n) {
-			if (this._themeMediaQuery = n, this._themeChangeHandler = (e) => {
-				this.jscore.postMessage({
-					type: "hostEnvUpdate",
-					body: { systemInfo: {
-						...this.getSystemInfoSync(),
-						theme: e.matches ? "dark" : "light"
-					} }
-				});
-			}, n.addEventListener) n.addEventListener("change", this._themeChangeHandler);
-			else {
-				var r;
-				(r = n.addListener) == null || r.call(n, this._themeChangeHandler);
-			}
-		}
-	}
-	getSystemInfoSync() {
-		var e, t;
-		let n = this.parent.el.querySelector(".dimina-native-webview__root"), r = n == null ? void 0 : n.getBoundingClientRect(), i = (n == null ? void 0 : n.clientWidth) || (r == null ? void 0 : r.width) || this.el.clientWidth || 375, a = (n == null ? void 0 : n.clientHeight) || (r == null ? void 0 : r.height) || this.el.clientHeight || 667, o = this._getStatusBarRect().height || 0;
-		return {
-			brand: "devtools",
-			model: "web",
-			platform: "devtools",
-			system: "web",
-			SDKVersion: "3.0.0",
-			pixelRatio: globalThis.devicePixelRatio || 1,
-			screenWidth: i,
-			screenHeight: a,
-			windowWidth: i,
-			windowHeight: a,
-			statusBarHeight: o,
-			safeArea: {
-				left: 0,
-				right: i,
-				top: o,
-				bottom: a,
-				width: i,
-				height: Math.max(a - o, 0)
-			},
-			enableDebug: !1,
-			host: { appId: "" },
-			language: navigator.language || "zh_CN",
-			version: "",
-			theme: (e = (t = globalThis).matchMedia) != null && (e = e.call(t, "(prefers-color-scheme: dark)")) != null && e.matches ? "dark" : "light",
-			fontSizeScaleFactor: 1,
-			fontSizeSetting: 16,
-			deviceOrientation: "portrait"
-		};
-	}
-	showToast(e = {}) {
-		let { title: t = "", duration: n = 1500, icon: r = "success", mask: i = !1, success: a, complete: o } = e;
-		if (!t) return;
-		this.hideToast({});
-		let { onSuccess: s, onComplete: c } = this._createApiCallbacks({
-			success: a,
-			complete: o
-		}), l = null;
-		i && (l = document.createElement("div"), l.className = "dimina-toast-mask", this.el.appendChild(l));
-		let u = document.createElement("div");
-		u.className = `dimina-toast dimina-toast--${r}`, r === "none" && u.classList.add("dimina-toast--text-only");
-		let d = document.createElement("p");
-		d.textContent = String(t), u.appendChild(d), this.el.appendChild(u), this.toastInfo.dom = u, this.toastInfo.maskEl = l, this.toastInfo.timer = setTimeout(() => {
-			u.remove(), l == null || l.remove(), this.toastInfo.dom === u && (this.toastInfo.dom = null, this.toastInfo.maskEl = null, this.toastInfo.timer = null);
-		}, n), s == null || s(), c == null || c();
-	}
-	hideToast(e = {}) {
-		let { success: t, complete: n } = e, { onSuccess: r, onComplete: i } = this._createApiCallbacks({
-			success: t,
-			complete: n
-		});
-		this.toastInfo.dom && (this.toastInfo.dom.remove(), this.toastInfo.dom = null), this.toastInfo.maskEl && (this.toastInfo.maskEl.remove(), this.toastInfo.maskEl = null), this.toastInfo.timer && (clearTimeout(this.toastInfo.timer), this.toastInfo.timer = null), r == null || r(), i == null || i();
-	}
-	showLoading(e = {}) {
-		this.showToast({
-			...e,
-			icon: "loading"
-		});
-	}
-	hideLoading(e = {}) {
-		this.hideToast(e);
-	}
-	_lockModalPageTouch() {
-		var e;
-		if (this._modalPageTouchTarget) return;
-		let t = this.navigator.top, n = t == null || (e = t.webview) == null || (e = e.iframe) == null ? void 0 : e.contentWindow;
-		n != null && n.addEventListener && (n.addEventListener("touchmove", J, {
-			capture: !0,
-			passive: !1
-		}), this._modalPageTouchTarget = n);
-	}
-	_unlockModalPageTouch() {
-		this._modalPageTouchTarget && (this._modalPageTouchTarget.removeEventListener("touchmove", J, !0), this._modalPageTouchTarget = null);
-	}
-	showModal(e) {
-		if (this._destroyed) return;
-		this._modalStack.length === 0 && this._lockModalPageTouch();
-		let t = this._mountModal(e || {});
-		this._modalStack.push(t), this._updateModalView(), t.mask.classList.add("show");
-		let n = setTimeout(() => {
-			this._modalPendingTimers.delete(n), !this._destroyed && this._modalStack.includes(t) && t.dialog.classList.add("show");
-		}, 100);
-		this._modalPendingTimers.add(n);
-	}
-	_updateModalView() {
-		let e = this._modalStack.length - 1;
-		for (let t = 0; t < this._modalStack.length; t++) {
-			let n = this._modalStack[t];
-			t === e ? (n.mask.classList.remove("dimina-modal--occluded"), n.dialog.classList.remove("dimina-modal--occluded")) : (n.mask.classList.add("dimina-modal--occluded"), n.dialog.classList.add("dimina-modal--occluded"));
-		}
-	}
-	_mountModal(e) {
-		let { title: t = "", content: n = "", showCancel: r = !0, cancelText: i = "取消", cancelColor: a = "#000", confirmText: o = "确定", confirmColor: s = "#576b95", success: c, complete: l } = e, { onSuccess: u, onComplete: d } = this._createApiCallbacks({
-			success: c,
-			complete: l
-		}), f = document.createElement("div");
-		f.className = "dimina-dialog-mask", f.addEventListener("touchmove", q, { passive: !1 });
-		let p = document.createElement("div");
-		p.className = "dimina-dialog";
-		let m = this._modalStack.length;
-		if (f.style.zIndex = String(1100 + m * 20), p.style.zIndex = String(1110 + m * 20), t) {
-			let e = document.createElement("h2");
-			e.className = "dimina-dialog__title", e.textContent = String(t), p.appendChild(e);
-		}
-		if (n) {
-			let e = document.createElement("p");
-			e.className = "dimina-dialog__content", e.textContent = String(n), p.appendChild(e);
-		}
-		let h = document.createElement("div");
-		h.className = "dimina-dialog__buttons";
-		let g = !1, _ = {
-			mask: f,
-			dialog: p,
-			close: null
-		}, v = (e) => {
-			if (g) return;
-			g = !0;
-			let t = this._modalStack.indexOf(_);
-			t >= 0 && this._modalStack.splice(t, 1), this._modalStack.length === 0 ? (f.classList.remove("show"), p.classList.remove("show"), setTimeout(() => {
-				f.remove(), p.remove();
-			}, 200)) : (f.remove(), p.remove()), this._updateModalView(), this._modalStack.length === 0 && this._unlockModalPageTouch(), u == null || u(e), d == null || d();
-		};
-		if (_.close = v, r) {
-			let e = document.createElement("button");
-			e.type = "button", e.className = "dimina-dialog__button", e.style.color = a, e.textContent = String(i), e.addEventListener("click", () => {
-				v({
-					cancel: !0,
-					confirm: !1,
-					errMsg: "showModal:ok"
-				});
-			}), h.appendChild(e);
-		}
-		let y = document.createElement("button");
-		return y.type = "button", y.className = "dimina-dialog__button", y.style.color = s, y.textContent = String(o), y.addEventListener("click", () => {
-			v({
-				cancel: !1,
-				confirm: !0,
-				errMsg: "showModal:ok"
-			});
-		}), h.appendChild(y), p.appendChild(h), this.el.appendChild(f), this.el.appendChild(p), _;
-	}
-	showActionSheet(e) {
-		let { itemList: t = [], itemColor: n = "#000", success: r, fail: i, complete: a } = e || {}, { onSuccess: o, onFail: s, onComplete: c } = this._createApiCallbacks({
-			success: r,
-			fail: i,
-			complete: a
-		});
-		if (!Array.isArray(t) || t.length === 0) {
-			s == null || s({ errMsg: "showActionSheet:fail" }), c == null || c();
-			return;
-		}
-		let l = document.createElement("div");
-		l.className = "dimina-action-sheet-mask";
-		let u = document.createElement("div");
-		u.className = "dimina-action-sheet";
-		let d = () => {
-			l.remove(), u.remove();
-		};
-		t.forEach((e, t) => {
-			let r = document.createElement("div");
-			r.className = "dimina-action-sheet-item", r.style.color = n, r.textContent = e, r.onclick = () => {
-				d(), o == null || o({
-					tapIndex: t,
-					errMsg: "showActionSheet:ok"
-				}), c == null || c();
-			}, u.appendChild(r);
-		});
-		let f = document.createElement("div");
-		f.className = "dimina-action-sheet-cancel", f.textContent = "取消", f.onclick = () => {
-			d(), s == null || s({ errMsg: "showActionSheet:fail cancel" }), c == null || c();
-		}, u.appendChild(f), l.onclick = d, this.el.appendChild(l), this.el.appendChild(u), requestAnimationFrame(() => requestAnimationFrame(() => {
-			u.classList.add("show"), l.classList.add("show");
-		}));
-	}
-	setNavigationBarTitle(e) {
-		let { title: t, success: n, fail: r, complete: i } = e, { onSuccess: a, onFail: o, onComplete: s } = this._createApiCallbacks({
-			success: n,
-			fail: r,
-			complete: i
-		});
-		try {
-			let e = this.navigator.top.webview.el.querySelector(".dimina-native-webview__navigation-title");
-			e ? (e.textContent = t || "", a == null || a({ errMsg: "setNavigationBarTitle:ok" })) : o == null || o({ errMsg: "setNavigationBarTitle:fail Navigation title element not found" });
-		} catch (e) {
-			o == null || o({ errMsg: `setNavigationBarTitle:fail ${Y(e)}` });
-		} finally {
-			s == null || s();
-		}
-	}
-	setNavigationBarColor(e) {
-		let { frontColor: t, backgroundColor: n, success: r, fail: i, complete: a } = e, { onSuccess: o, onFail: s, onComplete: c } = this._createApiCallbacks({
-			success: r,
-			fail: i,
-			complete: a
-		});
-		try {
-			let e = this.navigator.top.webview.el.querySelector(".dimina-native-webview__navigation");
-			e ? (t && (e.querySelector(".dimina-native-webview__navigation-title").style.color = t), n && (e.style.backgroundColor = n), o == null || o({ errMsg: "setNavigationBarColor:ok" })) : s == null || s({ errMsg: "setNavigationBarColor:fail Navigation element not found" });
-		} catch (e) {
-			s == null || s({ errMsg: `setNavigationBarColor:fail ${Y(e)}` });
-		} finally {
-			c == null || c();
-		}
-	}
-	pageScrollTo(e) {
-		let { scrollTop: t, duration: n = 300, success: r, fail: i, complete: a } = e, { onSuccess: o, onFail: s, onComplete: c } = this._createApiCallbacks({
-			success: r,
-			fail: i,
-			complete: a
-		});
-		try {
-			var l;
-			let e = (l = this.navigator.top.webview.iframe.contentWindow) == null ? void 0 : l.document.documentElement;
-			e ? (e.scrollTo({
-				top: t,
-				behavior: n > 0 ? "smooth" : "auto"
-			}), setTimeout(() => {
-				o == null || o({ errMsg: "pageScrollTo:ok" }), c == null || c();
-			}, n)) : (s == null || s({ errMsg: "pageScrollTo:fail Webview root element not found" }), c == null || c());
-		} catch (e) {
-			s == null || s({ errMsg: `pageScrollTo:fail ${Y(e)}` }), c == null || c();
-		}
-	}
-	setClipboardData(e) {
-		let { data: t, success: n, fail: r, complete: i } = e, { onSuccess: a, onFail: o, onComplete: s } = this._createApiCallbacks({
-			success: n,
-			fail: r,
-			complete: i
-		});
-		try {
-			navigator.clipboard.writeText(t).then(() => {
-				a == null || a({ errMsg: "setClipboardData:ok" }), s == null || s();
-			}).catch((e) => {
-				o == null || o({ errMsg: `setClipboardData:fail ${e.message}` }), s == null || s();
-			});
-		} catch (e) {
-			o == null || o({ errMsg: `setClipboardData:fail ${Y(e)}` }), s == null || s();
-		}
-	}
-	getClipboardData(e) {
-		let { success: t, fail: n, complete: r } = e, { onSuccess: i, onFail: a, onComplete: o } = this._createApiCallbacks({
-			success: t,
-			fail: n,
-			complete: r
-		});
-		try {
-			navigator.clipboard.readText().then((e) => {
-				i == null || i({
-					data: e,
-					errMsg: "getClipboardData:ok"
-				}), o == null || o();
-			}).catch((e) => {
-				a == null || a({ errMsg: `getClipboardData:fail ${e.message}` }), o == null || o();
-			});
-		} catch (e) {
-			a == null || a({ errMsg: `getClipboardData:fail ${Y(e)}` }), o == null || o();
-		}
-	}
-	chooseVideo(e = {}) {
-		var t, n, r;
-		let { onSuccess: i, onFail: a, onComplete: o } = this._createApiCallbacks(e), s = document.createElement("input");
-		s.type = "file", s.accept = "video/*", ((t = e.sourceType) == null ? void 0 : t.length) === 1 && e.sourceType[0] === "camera" && (s.capture = e.camera === "front" ? "user" : "environment"), s.style.display = "none", this.el.appendChild(s);
-		let c = !1, l = !1, u = null, d = () => {
-			var e, t;
-			(e = (t = globalThis).removeEventListener) == null || e.call(t, "focus", p), u && clearTimeout(u), s.remove();
-		}, f = () => {
-			if (c) return;
-			c = !0, d();
-			let e = { errMsg: "chooseVideo:fail cancel" };
-			a == null || a(e), o == null || o(e);
-		}, p = () => {
-			u = setTimeout(() => {
-				var e;
-				!c && !((e = s.files) != null && e.length) && f();
-			}, 300);
-		}, m = (e, t) => {
-			l || (l = !0, t ? i == null || i(e) : a == null || a(e), o == null || o(e));
-		};
-		s.addEventListener("cancel", f, { once: !0 }), (n = (r = globalThis).addEventListener) == null || n.call(r, "focus", p), s.onchange = () => {
-			var e;
-			let t = (e = s.files) == null ? void 0 : e[0];
-			if (!t) {
-				f();
-				return;
-			}
-			c = !0, d();
-			let n = URL.createObjectURL(t);
-			this._tempObjectUrls.add(n);
-			let r = document.createElement("video");
-			r.preload = "metadata", r.onloadedmetadata = () => {
-				let e = {
-					tempFilePath: n,
-					duration: Number.isFinite(r.duration) ? r.duration : 0,
-					width: r.videoWidth,
-					height: r.videoHeight,
-					size: t.size,
-					errMsg: "chooseVideo:ok"
-				};
-				m(e, !0);
-			}, r.onerror = () => {
-				m({ errMsg: "chooseVideo:fail unsupported video" }, !1);
-			}, r.src = n;
-		}, s.click();
-	}
-	getImageInfo(e) {
-		let { onSuccess: t, onFail: n, onComplete: r } = this._createApiCallbacks(e);
-		if (!e.src) {
-			let e = { errMsg: "getImageInfo:fail src is required" };
-			n == null || n(e), r == null || r(e);
-			return;
-		}
-		this._resolveMediaObjectUrl(e.src).then((i) => {
-			let a = new Image();
-			a.onload = () => {
-				let n = e.src.split("?")[0], i = n.includes(".") ? n.split(".").pop().toLowerCase() : "unknown", o = {
-					width: a.naturalWidth,
-					height: a.naturalHeight,
-					path: e.src,
-					orientation: "up",
-					type: i,
-					errMsg: "getImageInfo:ok"
-				};
-				t == null || t(o), r == null || r(o);
-			}, a.onerror = () => {
-				let e = { errMsg: "getImageInfo:fail unsupported image" };
-				n == null || n(e), r == null || r(e);
-			}, a.src = i;
-		}).catch((e) => {
-			let t = { errMsg: `getImageInfo:fail ${Y(e)}` };
-			n == null || n(t), r == null || r(t);
-		});
-	}
-	getVideoInfo(e) {
-		let { onSuccess: t, onFail: n, onComplete: r } = this._createApiCallbacks(e);
-		if (!e.src) {
-			let e = { errMsg: "getVideoInfo:fail src is required" };
-			n == null || n(e), r == null || r(e);
-			return;
-		}
-		this._resolveMediaObjectUrl(e.src).then((i) => {
-			let a = document.createElement("video");
-			a.preload = "metadata", a.onloadedmetadata = async () => {
-				var n;
-				let o = 0;
-				try {
-					let e = await fetch(i);
-					o = Math.ceil((await e.blob()).size / 1024);
-				} catch {}
-				let s = ((n = e.src.split("?")[0].split(".").pop()) == null ? void 0 : n.toLowerCase()) ?? "unknown", c = {
-					duration: Number.isFinite(a.duration) ? a.duration : 0,
-					width: a.videoWidth,
-					height: a.videoHeight,
-					orientation: "up",
-					type: s,
-					size: o,
-					bitrate: 0,
-					fps: 0,
-					errMsg: "getVideoInfo:ok"
-				};
-				t == null || t(c), r == null || r(c);
-			}, a.onerror = () => {
-				let e = { errMsg: "getVideoInfo:fail unsupported video" };
-				n == null || n(e), r == null || r(e);
-			}, a.src = i;
-		}).catch((e) => {
-			let t = { errMsg: `getVideoInfo:fail ${Y(e)}` };
-			n == null || n(t), r == null || r(t);
-		});
-	}
-	previewMedia(e) {
-		var t;
-		let { onSuccess: n, onFail: r, onComplete: i } = this._createApiCallbacks(e), a = (e.sources ?? []).filter((e) => e.url);
-		if (a.length === 0) {
-			let e = { errMsg: "previewMedia:fail sources is required" };
-			r == null || r(e), i == null || i(e);
-			return;
-		}
-		(t = this._mediaPreviewEl) == null || t.remove();
-		let o = Math.max(0, Math.min(e.current ?? 0, a.length - 1)), s = document.createElement("div");
-		s.style.cssText = "position:absolute;inset:0;z-index:10000;background:#000;display:flex;align-items:center;justify-content:center;";
-		let c = document.createElement("div");
-		c.style.cssText = "width:100%;height:100%;display:flex;align-items:center;justify-content:center;";
-		let l = document.createElement("div");
-		l.style.cssText = "position:absolute;top:calc(env(safe-area-inset-top) + 16px);left:50%;transform:translateX(-50%);color:white;font:14px sans-serif;z-index:2;";
-		let u = document.createElement("button");
-		u.type = "button", u.textContent = "×", u.style.cssText = "position:absolute;right:16px;top:calc(env(safe-area-inset-top) + 8px);z-index:3;border:0;background:transparent;color:white;font-size:36px;";
-		let d = async () => {
-			let e = o;
-			c.textContent = "";
-			let t = a[o];
-			try {
-				let n = await this._resolveMediaObjectUrl(t.url);
-				if (e !== o) return;
-				let r = t.type === "video" ? document.createElement("video") : document.createElement("img");
-				if (r.style.cssText = "max-width:100%;max-height:100%;object-fit:contain;", r instanceof HTMLVideoElement && (r.controls = !0, r.autoplay = !0, r.poster = t.poster ? await this._resolveMediaObjectUrl(t.poster) : ""), e !== o) return;
-				r.src = n, c.appendChild(r), l.textContent = `${o + 1}/${a.length}`;
-			} catch (t) {
-				if (e !== o) return;
-				c.textContent = `previewMedia:fail ${Y(t)}`, c.style.color = "white";
-			}
-		}, f = 0;
-		c.addEventListener("pointerdown", (e) => {
-			f = e.clientX;
-		}), c.addEventListener("pointerup", (e) => {
-			let t = e.clientX - f;
-			Math.abs(t) < 40 || (o = Math.max(0, Math.min(o + (t < 0 ? 1 : -1), a.length - 1)), d());
-		}), u.onclick = () => {
-			s.remove(), this._mediaPreviewEl === s && (this._mediaPreviewEl = null);
-		}, s.append(c, l, u), this.el.appendChild(s), this._mediaPreviewEl = s, d();
-		let p = { errMsg: "previewMedia:ok" };
-		n == null || n(p), i == null || i(p);
-	}
-	setKeepScreenOn(e) {
-		let { onSuccess: t, onFail: n, onComplete: r } = this._createApiCallbacks(e);
-		if (typeof e.keepScreenOn != "boolean") {
-			let e = { errMsg: "setKeepScreenOn:fail invalid keepScreenOn" };
-			n == null || n(e), r == null || r(e);
-			return;
-		}
-		let i = (e, i) => {
-			i ? t == null || t(e) : n == null || n(e), r == null || r(e);
-		};
-		if (!e.keepScreenOn) {
-			this._keepScreenOnRequested = !1, this._wakeLockVisibilityHandler && (document.removeEventListener("visibilitychange", this._wakeLockVisibilityHandler), this._wakeLockVisibilityHandler = null), (this._wakeLockRequest ?? Promise.resolve()).catch(() => {}).then(() => this._releaseWakeLock()).then(() => {
-				i({ errMsg: "setKeepScreenOn:ok" }, !0);
-			}).catch((e) => i({ errMsg: `setKeepScreenOn:fail ${Y(e)}` }, !1));
-			return;
-		}
-		this._keepScreenOnRequested = !0, this._installWakeLockVisibilityHandler(), this._requestWakeLock().then(() => {
-			i({ errMsg: "setKeepScreenOn:ok" }, !0);
-		}).catch((e) => {
-			this._keepScreenOnRequested = !1, this._wakeLockVisibilityHandler && (document.removeEventListener("visibilitychange", this._wakeLockVisibilityHandler), this._wakeLockVisibilityHandler = null), i({ errMsg: `setKeepScreenOn:fail ${Y(e)}` }, !1);
-		});
-	}
-	_installWakeLockVisibilityHandler() {
-		this._wakeLockVisibilityHandler || (this._wakeLockVisibilityHandler = () => {
-			document.visibilityState === "visible" && this._keepScreenOnRequested && !this._destroyed && this._requestWakeLock().catch(() => {});
-		}, document.addEventListener("visibilitychange", this._wakeLockVisibilityHandler));
-	}
-	_requestWakeLock() {
-		if (this._wakeLockSentinel && !this._wakeLockSentinel.released) return Promise.resolve();
-		if (this._wakeLockRequest) return this._wakeLockRequest;
-		let e = navigator.wakeLock;
-		if (!e) return Promise.reject(/* @__PURE__ */ Error("screen wake lock is not supported"));
-		let t;
-		return t = e.request("screen").then(async (e) => {
-			var t;
-			if (!this._keepScreenOnRequested || this._destroyed) {
-				await e.release();
-				return;
-			}
-			this._wakeLockSentinel = e, (t = e.addEventListener) == null || t.call(e, "release", () => {
-				this._wakeLockSentinel === e && (this._wakeLockSentinel = null);
-			});
-		}).finally(() => {
-			this._wakeLockRequest === t && (this._wakeLockRequest = null);
-		}), this._wakeLockRequest = t, t;
-	}
-	_releaseWakeLock() {
-		let e = this._wakeLockSentinel;
-		return this._wakeLockSentinel = null, e ? e.release() : Promise.resolve();
-	}
-	async getSetting(e = {}) {
-		let { onSuccess: t, onComplete: n } = this._createApiCallbacks(e), r = {}, i = navigator.permissions;
-		for (let [e, t] of [
-			["scope.camera", "camera"],
-			["scope.record", "microphone"],
-			["scope.userLocation", "geolocation"]
-		]) try {
-			var a;
-			r[e] = ((a = await (i == null ? void 0 : i.query({ name: t }))) == null ? void 0 : a.state) === "granted";
-		} catch {
-			r[e] = !1;
-		}
-		let o = {
-			authSetting: r,
-			errMsg: "getSetting:ok"
-		};
-		t == null || t(o), n == null || n(o);
-	}
-	authorize(e) {
-		let { onSuccess: t, onFail: n, onComplete: r } = this._createApiCallbacks(e), i = (e, i = "auth deny") => {
-			let a = { errMsg: e ? "authorize:ok" : `authorize:fail ${i}` };
-			e ? t == null || t(a) : n == null || n(a), r == null || r(a);
-		};
-		if (e.scope === "scope.camera" || e.scope === "scope.record") {
-			var a;
-			if (!((a = navigator.mediaDevices) != null && a.getUserMedia)) {
-				i(!1, "media permission is not supported");
-				return;
-			}
-			navigator.mediaDevices.getUserMedia({
-				video: e.scope === "scope.camera",
-				audio: e.scope === "scope.record"
-			}).then((e) => {
-				e.getTracks().forEach((e) => e.stop()), i(!0);
-			}).catch((e) => i(!1, Y(e)));
-			return;
-		}
-		if (e.scope === "scope.userLocation" && navigator.geolocation) {
-			navigator.geolocation.getCurrentPosition(() => i(!0), (e) => i(!1, e.message));
-			return;
-		}
-		i(!1, "scope is not supported on Web");
-	}
-	_resolveMediaUrl(e) {
-		return new URL(e, new URL(this.getResourceBaseUrl(), window.location.origin)).toString();
-	}
-	async _resolveMediaObjectUrl(e) {
-		let t = this.appInfo.virtualFilePrefix, n = `${t}usr/`;
-		if (e.startsWith(n)) {
-			let n = await Fe(this.appId, e, t), r = URL.createObjectURL(n);
-			return this._tempObjectUrls.add(r), r;
-		}
-		if (e.startsWith(t)) throw Error(`temporary virtual file is not available on Web: ${e}`);
-		return this._resolveMediaUrl(e);
-	}
-	"FileSystemManager.saveFile"(e = {}) {
-		let { tempFilePath: t = "", filePath: n, success: r, fail: i, complete: a } = e, { onSuccess: o, onFail: s, onComplete: c } = this._createApiCallbacks({
-			success: r,
-			fail: i,
-			complete: a
-		});
-		Pe({
-			appId: this.appId,
-			tempFilePath: t,
-			filePath: n,
-			resourceBaseUrl: this.getResourceBaseUrl(),
-			virtualFilePrefix: this.appInfo.virtualFilePrefix
-		}).then((e) => {
-			let t = {
-				savedFilePath: e,
-				errMsg: "FileSystemManager.saveFile:ok"
-			};
-			o == null || o(t), c == null || c(t);
-		}).catch((e) => {
-			let t = { errMsg: `FileSystemManager.saveFile:fail ${Y(e)}` };
-			s == null || s(t), c == null || c(t);
-		});
-	}
-	setStorage(e) {
-		let { key: t, data: n, success: r, fail: i, complete: a } = e, { onSuccess: o, onFail: s, onComplete: c } = this._createApiCallbacks({
-			success: r,
-			fail: i,
-			complete: a
-		});
-		try {
-			let e = this._storageKey(t);
-			this._getStorageAdapter().setItem(e, this._serializeStorageValue(n)), o == null || o({ errMsg: "setStorage:ok" });
-		} catch (e) {
-			s == null || s({ errMsg: `setStorage:fail ${Y(e)}` });
-		} finally {
-			c == null || c();
-		}
-	}
-	getStorage(e) {
-		let { key: t, success: n, fail: r, complete: i } = e, { onSuccess: a, onFail: o, onComplete: s } = this._createApiCallbacks({
-			success: n,
-			fail: r,
-			complete: i
-		});
-		try {
-			let e = this._readStorageValue(this._getStorageAdapter(), t);
-			e.found ? a == null || a({
-				data: e.data,
-				errMsg: "getStorage:ok"
-			}) : o == null || o({ errMsg: "getStorage:fail data not found" });
-		} catch (e) {
-			o == null || o({ errMsg: `getStorage:fail ${Y(e)}` });
-		} finally {
-			s == null || s();
-		}
-	}
-	removeStorage(e) {
-		let { key: t, success: n, fail: r, complete: i } = e, { onSuccess: a, onFail: o, onComplete: s } = this._createApiCallbacks({
-			success: n,
-			fail: r,
-			complete: i
-		});
-		try {
-			this._getStorageAdapter().setItem(this._storageKey(t), this._serializeStorageTombstone()), a == null || a({ errMsg: "removeStorage:ok" });
-		} catch (e) {
-			o == null || o({ errMsg: `removeStorage:fail ${Y(e)}` });
-		} finally {
-			s == null || s();
-		}
-	}
-	clearStorage(e = {}) {
-		let { success: t, fail: n, complete: r } = e || {}, { onSuccess: i, onFail: a, onComplete: o } = this._createApiCallbacks({
-			success: t,
-			fail: n,
-			complete: r
-		});
-		try {
-			let e = this._storageKeyPrefix(), t = [], n = this._getStorageAdapter();
-			for (let r = 0; r < n.length; r++) {
-				let i = n.key(r);
-				i != null && i.startsWith(e) && t.push(i);
-			}
-			t.forEach((e) => n.removeItem(e)), n.setItem(this._legacyStorageDisabledKey(), "1"), i == null || i({ errMsg: "clearStorage:ok" });
-		} catch (e) {
-			a == null || a({ errMsg: `clearStorage:fail ${Y(e)}` });
-		} finally {
-			o == null || o();
-		}
-	}
-	getStorageInfo(e = {}) {
-		let { success: t, fail: n, complete: r } = e || {}, { onSuccess: i, onFail: a, onComplete: o } = this._createApiCallbacks({
-			success: t,
-			fail: n,
-			complete: r
-		});
-		try {
-			let e = [], t = 0, n = this._storageKeyPrefix(), r = this._getStorageAdapter();
-			for (let i = 0; i < r.length; i++) {
-				let a = r.key(i);
-				if (a != null && a.startsWith(n)) {
-					let i = r.getItem(a);
-					if (i === null || this._decodeStorageRecord(i).kind === "deleted") continue;
-					e.push(a.substring(n.length)), t += i.length * 2;
-				}
-			}
-			i == null || i({
-				keys: e,
-				currentSize: t,
-				limitSize: 10485760,
-				errMsg: "getStorageInfo:ok"
-			});
-		} catch (e) {
-			a == null || a({ errMsg: `getStorageInfo:fail ${Y(e)}` });
-		} finally {
-			o == null || o();
-		}
-	}
-	_parseExtEventKey(e) {
-		var t;
-		let n = ((t = this.parent) == null || (t = t.appManager) == null ? void 0 : t.getExtModules()) ?? {};
-		for (let t of Object.keys(n)) {
-			let n = `${t}_`;
-			if (e.startsWith(n)) return {
-				module: t,
-				event: e.slice(n.length)
-			};
-		}
-		return {
-			module: null,
-			event: null
-		};
-	}
-	_handleExtCall(e, t = {}) {
-		t.module === void 0 ? t.success ? this._extOnBridgeCall(e, t) : this._extOffBridgeCall(e) : this._extBridgeCall(e, t);
-	}
-	_extBridgeCall(e, t) {
-		var n;
-		let { module: r, data: i = {}, success: a, fail: o, complete: s } = t, { onSuccess: c, onFail: l, onComplete: u } = this._createApiCallbacks({
-			success: a,
-			fail: o,
-			complete: s
-		}), d = (n = this.parent) == null || (n = n.appManager) == null ? void 0 : n.getExtModule(r);
-		if (!d) {
-			let e = `extBridge:fail module "${r}" not registered`;
-			console.error(`[container] ${e}`), l == null || l({ errMsg: e }), u == null || u();
-			return;
-		}
-		try {
-			d({
-				event: e,
-				data: i,
-				success: (e) => {
-					c == null || c(e), u == null || u();
-				},
-				fail: (e) => {
-					l == null || l(e), u == null || u();
-				}
-			});
-		} catch (e) {
-			l == null || l({ errMsg: `extBridge:fail ${Y(e)}` }), u == null || u();
-		}
-	}
-	_extOnBridgeCall(e, t) {
-		var n;
-		let { success: r } = t, i = this.createCallbackFunction(r), { module: a, event: o } = this._parseExtEventKey(e);
-		if (!a) {
-			console.warn(`[container] extOnBridge:fail no registered module matched for key "${e}"`);
-			return;
-		}
-		let s = (n = this.parent) == null || (n = n.appManager) == null ? void 0 : n.getExtModule(a), c = this._extSubscriptions.get(e);
-		c == null || c();
-		try {
-			let t = s == null ? void 0 : s({
-				event: o,
-				data: { isSustain: !0 },
-				success: (e) => i == null ? void 0 : i(e),
-				fail: (t) => console.error(`[container] extOnBridge error (${e}):`, t)
-			});
-			this._extSubscriptions.set(e, t ?? null);
-		} catch (e) {
-			console.error(`[container] extOnBridge:fail ${Y(e)}`);
-		}
-	}
-	_extOffBridgeCall(e) {
-		let t = this._extSubscriptions.get(e);
-		t && (t(), this._extSubscriptions.delete(e));
-	}
-}, Z = class {
-	configureRetention(e, t) {
-		this.application = t, this.retention.configure(e);
-	}
-	scheduleRetention() {
-		!this.retentionQueued && this.application && (this.retentionQueued = !0, this._enqueue(async () => {
-			let e = this.application;
-			await e._enqueue(async () => {
-				this.retentionQueued = !1;
-				for (let t of this.retention.collect((t) => !e.views.includes(t))) this.apps.get(t.appId) === t && await e.destroyRootView(t);
-			});
-		}).catch((e) => {
-			this.retentionQueued = !1, console.error("[container] retention:", e);
-		}));
-	}
-	constructor() {
-		i(this, "apps", void 0), i(this, "_extModules", void 0), i(this, "_containerApis", void 0), i(this, "_openQueue", void 0), i(this, "application", void 0), i(this, "retentionQueued", !1), i(this, "retention", new ie(() => this.scheduleRetention())), this.apps = /* @__PURE__ */ new Map(), this._extModules = {}, this._containerApis = {}, this._openQueue = Promise.resolve();
-	}
-	registerExtModule(e, t) {
-		this._extModules[e] = t;
-	}
-	registerApi(e, t) {
-		this._containerApis[e] = t;
-		for (let n of this.apps.values()) n.registerApi(e, t);
-	}
-	getExtModule(e) {
-		return this._extModules[e];
-	}
-	getExtModules() {
-		return this._extModules;
-	}
-	openApp(e, t) {
-		return this._enqueue(() => this._openApp(e, t));
-	}
-	_enqueue(e) {
-		let t = this._openQueue.then(e);
-		return this._openQueue = t.catch(() => {}), t;
-	}
-	async _openApp(e, t) {
-		await t._enqueue(async () => {
-			for (let e of this.retention.collect((e) => !t.views.includes(e))) this.apps.get(e.appId) === e && await t.destroyRootView(e);
-		});
-		let { appId: n, path: r, scene: i, destroy: a, restoreStack: o } = e;
-		if (!n || typeof n != "string") throw Error("[container] openApp: options.appId is required");
-		let s = e.resourceBaseUrl === void 0 ? void 0 : h(e.resourceBaseUrl, t.allowedOrigins), c, l;
-		if (r) ({pagePath: c, query: l} = C(r));
-		else if (!e.allowDefaultPath && o != null && o.length) {
-			let e = o == null ? void 0 : o[0], t = typeof (e == null ? void 0 : e.pagePath) == "string" ? e.pagePath.replace(/^\/+/, "") : "";
-			if (!t) throw Error("[container] openApp: restoreStack[0].pagePath must be a non-empty string");
-			c = t, l = e.query ?? {};
-		} else c = "", l = {};
-		let { name: u, logo: d } = await t.getAppInfo(n) ?? {};
-		if (a) {
-			let e = [...this.apps.values()].filter((e) => e.appId !== n);
-			for (let n of e) {
-				let e = n.navigator.popPage();
-				e == null || e.destroy("exit"), await t.destroyRootView(n);
-			}
-		}
-		let f = this.getAppById(n);
-		if (f) return f.opener = e.opener ?? null, t.views[t.views.length - 1] !== f && f.queueAppShowOptions({
-			scene: i ?? 1001,
-			path: f.getCurrentPagePath(),
-			query: f.getCurrentPageQuery(),
-			referrerInfo: e.referrerInfo ?? {}
-		}), await t.presentView(f, !0), f;
-		let p = new X({
-			appId: n,
-			scene: i,
-			referrerInfo: e.referrerInfo,
-			opener: e.opener,
-			name: u,
-			logo: d,
-			pagePath: c,
-			query: l,
-			restoreStack: o,
-			resourceBaseUrl: s,
-			virtualFilePrefix: t.virtualFilePrefix
-		});
-		for (let [e, t] of Object.entries(this._containerApis)) p.registerApi(e, t);
-		return this.apps.set(p.appId, p), await t.presentView(p, !1), p;
-	}
-	_navigateContext(e) {
-		let t = e.parent;
-		if (!t || t.views[t.views.length - 1] !== e) throw Error("[container] mini program navigation requires the active mini program");
-		return t;
-	}
-	_referrerInfo(e, t) {
-		return t === void 0 ? { appId: e.appId } : {
-			appId: e.appId,
-			extraData: t
-		};
-	}
-	_sameQuery(e, t) {
-		let n = Object.keys(e);
-		return n.length === Object.keys(t).length && n.every((n) => e[n] === t[n]);
-	}
-	_validateExtraData(e, t) {
-		if (t !== void 0 && Object.prototype.toString.call(t) !== "[object Object]") throw Error(`[container] ${e}: options.extraData must be an object`);
-	}
-	navigateToMiniProgram(e, t) {
-		return this._enqueue(async () => {
-			var n;
-			let r = this._navigateContext(t);
-			if (e.shortLink !== void 0 && typeof e.shortLink != "string") throw Error("[container] navigateToMiniProgram: options.shortLink must be a string");
-			if ((n = e.shortLink) != null && n.trim()) throw Error("[container] navigateToMiniProgram: shortLink is not supported by this host");
-			let i = typeof e.appId == "string" ? e.appId.trim() : "";
-			if (!i) throw Error("[container] navigateToMiniProgram: options.appId is required");
-			if (i === t.appId) throw Error("[container] navigateToMiniProgram: cannot navigate to the current mini program");
-			if (e.path !== void 0 && typeof e.path != "string") throw Error("[container] navigateToMiniProgram: options.path must be a string");
-			if (e.envVersion !== void 0 && e.envVersion !== "release") throw Error(`[container] navigateToMiniProgram: envVersion ${String(e.envVersion)} is not available in this host`);
-			if (e.noRelaunchIfPathUnchanged !== void 0 && typeof e.noRelaunchIfPathUnchanged != "boolean") throw Error("[container] navigateToMiniProgram: options.noRelaunchIfPathUnchanged must be a boolean");
-			this._validateExtraData("navigateToMiniProgram", e.extraData);
-			let a = this._referrerInfo(t, e.extraData), o = this.getAppById(i);
-			if (o && e.noRelaunchIfPathUnchanged) {
-				let n = e.path ? C(e.path) : {
-					pagePath: o.getHomePagePath() || o.pagePath,
-					query: {}
-				};
-				if (n.pagePath && n.pagePath === o.getCurrentPagePath() && this._sameQuery(n.query, o.getCurrentPageQuery())) return o.opener = t, o.queueAppShowOptions({
-					scene: 1037,
-					path: o.getCurrentPagePath(),
-					query: o.getCurrentPageQuery(),
-					referrerInfo: a
-				}), await r.presentView(o, !0), o;
-			}
-			return o && (r.views.includes(o) ? await r.dismissView(o, { destroy: !0 }) : await r.destroyRootView(o)), this._openApp({
-				appId: i,
-				path: e.path,
-				scene: 1037,
-				allowDefaultPath: !0,
-				referrerInfo: a,
-				opener: t
-			}, r);
-		});
-	}
-	navigateBackMiniProgram(e, t, n) {
-		return this._enqueue(async () => {
-			let r = this._navigateContext(e);
-			this._validateExtraData("navigateBackMiniProgram", t);
-			let i = e.opener, a = r.views.indexOf(e), o = i ? r.views.indexOf(i) : -1;
-			if (!i || o < 0 || o >= a) throw Error("[container] navigateBackMiniProgram: current mini program was not opened by another mini program");
-			e.onPresentOut(), await n(), e.queueDestructionLifecycle(), await e.jscore.flushCallbacks(), i.queueAppShowOptions({
-				scene: 1038,
-				path: i.getCurrentPagePath(),
-				query: i.getCurrentPageQuery(),
-				referrerInfo: this._referrerInfo(e, t)
-			}), await r.dismissView(e, { destroy: !0 });
-		});
-	}
-	exitMiniProgram(e, t) {
-		return this._enqueue(async () => {
-			let n = this._navigateContext(e), r = e.opener, i = n.views.indexOf(e), a = r ? n.views.indexOf(r) : -1;
-			e.onPresentOut(), await t(), e.queueDestructionLifecycle(), await e.jscore.flushCallbacks(), r && a >= 0 && a < i && r.queueAppShowOptions({
-				scene: 1038,
-				path: r.getCurrentPagePath(),
-				query: r.getCurrentPageQuery(),
-				referrerInfo: this._referrerInfo(e, void 0)
-			}), await n.dismissView(e, { destroy: !0 });
-		});
-	}
-	restartMiniProgram(e, t, n) {
-		return this._enqueue(async () => {
-			let r = this._navigateContext(e);
-			if (typeof t != "string" || !t.trim()) throw Error("[container] restartMiniProgram: options.path is required");
-			let { pagePath: i, query: a } = C(t);
-			if (!i) throw Error("[container] restartMiniProgram: options.path is required");
-			let o = new X({
-				...e.appInfo,
-				pagePath: i,
-				query: a,
-				restoreStack: void 0,
-				opener: e.opener
-			});
-			for (let [t, n] of Object.entries(e.apiRegistry)) o.registerApi(t, n);
-			this.apps.set(e.appId, o);
-			try {
-				await r.replaceView(e, o, n);
-			} catch (t) {
-				let n = this.apps.get(e.appId);
-				(!n || n === o) && this.apps.set(e.appId, e);
-				try {
-					o.destroy();
-				} catch {}
-				throw t;
-			}
-			return o;
-		});
-	}
-	getAppById(e) {
-		return this.apps.get(e) ?? null;
-	}
-	removeApp(e) {
-		this.retention.forget(e), this.apps.get(e.appId) === e && this.apps.delete(e.appId);
-	}
-	closeApp(e) {
-		e.parent.dismissView(e, { destroy: !1 });
-	}
-}, Q = () => new Promise((e) => requestAnimationFrame(() => requestAnimationFrame(() => e()))), Be = (e, t, n = 560) => new Promise((r) => {
-	let i = setTimeout(r, n), a = (n) => {
-		(!t || n.propertyName === t) && (clearTimeout(i), e.removeEventListener("transitionend", a), r());
-	};
-	e.addEventListener("transitionend", a);
-}), Ve = class {
-	constructor(e = {}) {
-		i(this, "el", void 0), i(this, "window", void 0), i(this, "root", void 0), i(this, "views", void 0), i(this, "rootView", void 0), i(this, "parent", void 0), i(this, "done", void 0), i(this, "isSleeping", void 0), i(this, "_queue", void 0), i(this, "shell", void 0), i(this, "resourceBaseUrl", void 0), i(this, "pageFrameUrl", void 0), i(this, "virtualFilePrefix", void 0), i(this, "allowedOrigins", void 0), i(this, "apiNamespaces", void 0), i(this, "urlSync", void 0), i(this, "storageAdapter", void 0), i(this, "getAppInfo", void 0), i(this, "onAppLaunchError", void 0), i(this, "appManager", void 0), this.root = null, this.views = [], this.rootView = null, this.parent = null, this.done = !0, this.isSleeping = !1, this._queue = Promise.resolve(), this.shell = p(e.shell), this.resourceBaseUrl = h(e.resourceBaseUrl, e.allowedOrigins), this.pageFrameUrl = g(e.pageFrameUrl, this.resourceBaseUrl, e.allowedOrigins), this.virtualFilePrefix = f(e.virtualFilePrefix), this.allowedOrigins = e.allowedOrigins, this.apiNamespaces = _(e.apiNamespaces), this.urlSync = ee(e.urlSync, e.instanceKey), this.storageAdapter = re(e.storageSync), this.getAppInfo = v(e.getAppInfo), this.onAppLaunchError = e.onAppLaunchError, this.appManager = e.appManager ?? new Z(), this.init();
-	}
-	_enqueue(e) {
-		let t = this._queue.then(() => e());
-		return this._queue = t.catch(() => {}), t;
-	}
-	syncUrl() {
-		let e = this.views[this.views.length - 1];
-		if (!e) {
-			this.urlSync.clear();
-			return;
-		}
-		this.urlSync.syncStack(e.appId, e.getPageStack());
-	}
-	safeSyncUrl() {
-		try {
-			this.syncUrl();
-		} catch {}
-	}
-	safeRestoreColorStyle(e) {
-		try {
-			e.restoreColorStyle();
-		} catch {}
-	}
-	init() {
-		this.el = document.createElement("div"), this.el.classList.add("dimina-application"), this.window = document.createElement("div"), this.window.classList.add("dimina-native-window"), this.el.appendChild(this.window);
-	}
-	initRootView(e) {
-		var t;
-		this.rootView = e, e.parent = this, e.el.classList.add("dimina-native-view--instage"), e.el.style.zIndex = "1", this.root = e, this.window.appendChild(e.el), (t = e.viewDidLoad) == null || t.call(e);
-	}
-	presentView(e, t) {
-		return this._enqueue(() => this._presentView(e, t));
-	}
-	async _presentView(e, t) {
-		if (this.done) {
-			if (this.views[this.views.length - 1] === e) {
-				t && this.safeRestoreColorStyle(e), this.safeSyncUrl();
-				return;
-			}
-			this.done = !1;
-			try {
-				let n = this.views[this.views.length - 1];
-				e.parent = this, e.el.style.zIndex = String(this.views.length + 1), e.el.classList.add("dimina-native-view--before-present"), e.el.classList.add("dimina-native-view--enter-anima"), n == null || n.el.classList.add("dimina-native-view--before-presenting"), n == null || n.el.classList.remove("dimina-native-view--instage"), n == null || n.el.classList.add("dimina-native-view--enter-anima"), n == null || n.onPresentOut(), this.isSleeping ? e.onPresentOut() : e.onPresentIn(), !t && this.el.appendChild(e.el);
-				let r = this.views.indexOf(e);
-				r !== -1 && this.views.splice(r, 1), this.views.push(e), !t && e.viewDidLoad && e.viewDidLoad(), t && this.safeRestoreColorStyle(e), await Q(), n == null || n.el.classList.add("dimina-native-view--presenting"), e.el.classList.add("dimina-native-view--instage"), await Be(e.el, "transform"), e.el.classList.remove("dimina-native-view--before-present"), e.el.classList.remove("dimina-native-view--enter-anima"), n == null || n.el.classList.remove("dimina-native-view--enter-anima"), n == null || n.el.classList.remove("dimina-native-view--before-presenting"), this.safeSyncUrl();
-			} finally {
-				this.done = !0;
-			}
-		}
-	}
-	dismissView(e, t = {}) {
-		return this._enqueue(() => this._dismissView(e, t));
-	}
-	replaceView(e, t, n = () => {}) {
-		return this._enqueue(async () => {
-			var r;
-			let i = this.views.indexOf(e);
-			if (i === -1 || i !== this.views.length - 1) throw Error("[container] replaceView: current view must be active");
-			t.parent = this, t.el.style.zIndex = e.el.style.zIndex, t.el.classList.add("dimina-native-view--instage"), e.onPresentOut(), (r = e.el.parentNode) == null || r.replaceChild(t.el, e.el), this.views[i] = t;
-			try {
-				this.isSleeping ? t.onPresentOut() : t.onPresentIn(), await t.viewDidLoadForReplacement(), await n(), e.queueDestructionLifecycle(), await e.jscore.flushCallbacks();
-			} catch (n) {
-				var a;
-				throw this.views[i] = e, (a = t.el.parentNode) == null || a.replaceChild(e.el, t.el), this.isSleeping || e.onPresentIn(), this.safeRestoreColorStyle(e), this.safeSyncUrl(), n;
-			}
-			try {
-				e.destroy();
-			} catch (t) {
-				console.error(`[container] view.destroy() threw during replaceView cleanup for ${e.appId}:`, t);
-			}
-		});
-	}
-	async _dismissView(e, t = {}) {
-		if (!this.done) return;
-		let n = this.views.indexOf(e);
-		if (n === -1) return;
-		let { destroy: r = !0 } = t;
-		if (n !== this.views.length - 1) {
-			if (this.views.splice(n, 1), e.el.classList.remove("dimina-native-view--presenting", "dimina-native-view--before-presenting", "dimina-native-view--enter-anima"), r) {
-				var i;
-				try {
-					e.destroy();
-				} catch (t) {
-					console.error(`[container] view.destroy() threw during dismissView cleanup for ${e.appId}:`, t);
-				}
-				(i = e.el.parentNode) == null || i.removeChild(e.el);
-			}
-			return;
-		}
-		this.done = !1;
-		try {
-			let t = this.views[this.views.length - 2], n = e;
-			if (n.el.classList.add("dimina-native-view--enter-anima"), t == null || t.el.classList.add("dimina-native-view--enter-anima"), t == null || t.el.classList.add("dimina-native-view--before-presenting"), await Q(), n.el.classList.add("dimina-native-view--before-present"), n.el.classList.remove("dimina-native-view--instage"), t == null || t.el.classList.remove("dimina-native-view--presenting"), this.isSleeping || t == null || t.onPresentIn(), n == null || n.onPresentOut(), await Be(n.el, "transform"), r) {
-				try {
-					n.destroy();
-				} catch (e) {
-					console.error(`[container] view.destroy() threw during dismissView cleanup for ${n.appId}:`, e);
-				}
-				this.el.removeChild(n.el);
-			}
-			this.views.pop(), t == null || t.el.classList.remove("dimina-native-view--enter-anima"), t == null || t.el.classList.remove("dimina-native-view--before-presenting"), this.safeSyncUrl();
-		} finally {
-			this.done = !0;
-		}
-	}
-	async destroyRootView(e) {
-		var t;
-		try {
-			e.destroy();
-		} catch (t) {
-			console.error(`[container] view.destroy() threw during destroyRootView for ${e.appId}:`, t);
-		}
-		let n = this.views.indexOf(e);
-		n !== -1 && this.views.splice(n, 1), (t = e.el.parentNode) == null || t.removeChild(e.el);
-	}
-	removeFailedView(e) {
-		return this._enqueue(async () => {
-			var t;
-			let n = this.views.indexOf(e), r = n !== -1 && n === this.views.length - 1;
-			if (n !== -1 && this.views.splice(n, 1), (t = e.el.parentNode) == null || t.removeChild(e.el), r) {
-				let e = this.views[this.views.length - 1];
-				e && (e.el.classList.remove("dimina-native-view--presenting", "dimina-native-view--before-presenting", "dimina-native-view--enter-anima"), e.el.classList.add("dimina-native-view--instage"), this.safeRestoreColorStyle(e), this.isSleeping || e.onPresentIn()), this.safeSyncUrl();
-			}
-		});
-	}
-	getActiveView() {
-		return this.views[this.views.length - 1] || this.rootView;
-	}
-	sleepActiveView() {
-		var e, t;
-		this.isSleeping || (this.isSleeping = !0, (e = this.getActiveView()) == null || (t = e.onPresentOut) == null || t.call(e));
-	}
-	wakeActiveView() {
-		var e, t;
-		if (!this.isSleeping) return;
-		this.isSleeping = !1;
-		let n = this.getActiveView();
-		n == null || (e = n.restoreColorStyle) == null || e.call(n), n == null || (t = n.onPresentIn) == null || t.call(n);
-	}
-	updateStatusBarColor(e) {
-		this.shell.updateStatusBarColor(e);
-	}
-}, $ = "dimina-default-shell__status-bar";
+			`).join(""), o2.querySelectorAll("[data-quick-index]").forEach((e2, t3) => {
+      e2.onclick = () => d2[t3].handler();
+    });
+  }
+  openMiniAppMenu() {
+    let e = this.el.querySelector(".dimina-mini-app-menu__mask"), t2 = this.el.querySelector(".dimina-mini-app-menu");
+    this.renderMiniAppMenu(), e.style.display = "block", requestAnimationFrame(() => {
+      e.classList.add("show"), t2.classList.add("show");
+    });
+  }
+  closeMiniAppMenu() {
+    let e = this.el.querySelector(".dimina-mini-app-menu__mask"), t2 = this.el.querySelector(".dimina-mini-app-menu");
+    e.classList.remove("show"), t2.classList.remove("show");
+  }
+  registerApi(e, t2) {
+    this.apiRegistry[e] = t2;
+  }
+  getApiNamespaces() {
+    var e;
+    return ((e = this.parent) == null ? void 0 : e.apiNamespaces) ?? [];
+  }
+  getResourceBaseUrl() {
+    var e;
+    return this.appInfo.resourceBaseUrl ?? ((e = this.parent) == null ? void 0 : e.resourceBaseUrl) ?? "/";
+  }
+  getPageFrameUrl() {
+    var e;
+    return ((e = this.parent) == null ? void 0 : e.pageFrameUrl) ?? `${this.getResourceBaseUrl()}pageFrame.html`;
+  }
+  _getStatusBarRect() {
+    var e, t2;
+    return ((e = this.parent) == null || (e = e.shell) == null || (t2 = e.getStatusBarRect) == null ? void 0 : t2.call(e)) ?? {
+      top: 0,
+      left: 0,
+      width: 0,
+      height: 0,
+      right: 0,
+      bottom: 0
+    };
+  }
+  _getStorageAdapter() {
+    var e;
+    return ((e = this.parent) == null ? void 0 : e.storageAdapter) ?? re(true);
+  }
+  _storageKey(e) {
+    return `${this._storageKeyPrefix()}${e}`;
+  }
+  _storageKeyPrefix() {
+    return `${Re}${this.appId.length}:${this.appId}:`;
+  }
+  _legacyStorageKey(e) {
+    return `${this.appId}_${e}`;
+  }
+  _legacyStorageDisabledKey() {
+    return `${ze}${this.appId.length}:${this.appId}:legacy-disabled`;
+  }
+  _serializeStorageValue(e) {
+    return JSON.stringify(e === void 0 ? {
+      version: 2,
+      kind: "value",
+      dataType: "undefined"
+    } : {
+      version: 2,
+      kind: "value",
+      dataType: "json",
+      data: e
+    });
+  }
+  _serializeStorageTombstone() {
+    return JSON.stringify({
+      version: 2,
+      kind: "deleted"
+    });
+  }
+  _decodeStorageRecord(e) {
+    let t2 = JSON.parse(e);
+    if (!t2 || t2.version !== 2 || t2.kind !== "value" && t2.kind !== "deleted") throw Error("invalid storage record");
+    if (t2.kind === "value" && t2.dataType !== "json" && t2.dataType !== "undefined") throw Error("invalid storage value type");
+    return t2;
+  }
+  _decodeLegacyStorageValue(e) {
+    try {
+      return JSON.parse(e);
+    } catch {
+      return e;
+    }
+  }
+  _readStorageValue(e, t2) {
+    let n2 = this._storageKey(t2), r2 = e.getItem(n2);
+    if (r2 !== null) {
+      let e2 = this._decodeStorageRecord(r2);
+      return e2.kind === "deleted" ? { found: false } : {
+        found: true,
+        data: e2.dataType === "undefined" ? void 0 : e2.data
+      };
+    }
+    if (e.getItem(this._legacyStorageDisabledKey()) === "1" || this.appId.includes("_") || t2.includes("_")) return { found: false };
+    let i2 = e.getItem(this._legacyStorageKey(t2));
+    if (i2 === null) return { found: false };
+    let a2 = this._decodeLegacyStorageValue(i2);
+    return e.setItem(n2, this._serializeStorageValue(a2)), {
+      found: true,
+      data: a2
+    };
+  }
+  isPresentedTop() {
+    return !this.parent || this.parent.getActiveView() === this && !this.parent.isSleeping;
+  }
+  safeSyncUrl() {
+    try {
+      var e;
+      (e = this.parent) == null || e.syncUrl();
+    } catch {
+    }
+  }
+  invokeApi(e, t2, n2) {
+    let r2 = this.apiRegistry[e];
+    r2 ? r2.call(this, t2, n2) : typeof this[e] == "function" ? this[e](t2, n2) : (t2 == null ? void 0 : t2.module) !== void 0 || (t2 == null ? void 0 : t2.evtId) !== void 0 ? this._handleExtCall(e, t2) : this._handleUnsupportedApi(e, t2);
+  }
+  _handleUnsupportedApi(e, t2 = {}) {
+    let { onFail: n2, onComplete: r2 } = this._createApiCallbacks(t2), i2 = { errMsg: `${e}:fail api is not supported` };
+    t2.fail ? n2 == null || n2(i2) : console.warn(`[container] ${i2.errMsg}`), r2 == null || r2();
+  }
+  _prepareViewForLoad() {
+    this.initPageFrame(), this.webviewsContainer = this.el.querySelector(".dimina-mini-app__webviews"), this.showLaunchScreen(), this.bindMoreEvent(), this.bindCloseEvent();
+  }
+  viewDidLoad() {
+    this._prepareViewForLoad(), this.initApp().catch((e) => {
+      var t2, n2;
+      this._destroyed || e instanceof Error && e.name === "AbortError" || (console.error(`[container] initApp failed for ${this.appId}:`, e), (t2 = this.parent) == null || (n2 = t2.onAppLaunchError) == null || n2.call(t2, e, { appId: this.appId }));
+    });
+  }
+  async viewDidLoadForReplacement() {
+    this._prepareViewForLoad(), await this.initApp(false, true);
+  }
+  async initApp(e = true, t2 = false) {
+    this.webviewAnimaEnd = false;
+    try {
+      var n2, r2;
+      await this.jscore.init(), this._bindThemeChange();
+      let e2 = "main", i3 = `${this.appInfo.appId}/${e2}/app-config.json`, [a3] = await Promise.all([oe(`${this.getResourceBaseUrl()}${i3}`), ae(560)]);
+      if (this._destroyed) return;
+      if (!a3) throw Error(`[container] failed to load app config: ${i3}`);
+      this.appConfig = JSON.parse(a3), this.runtimeType = ((n2 = this.appConfig) == null || (n2 = n2.app) == null ? void 0 : n2.runtimeType) === "game" ? "game" : "miniProgram", this.el.classList.toggle("dimina-native-view--game", this.runtimeType === "game"), this._initTabBar();
+      let o3 = this.runtimeType === "game" ? this.appConfig.app.entryPagePath || "game" : this.appInfo.pagePath || this.appConfig.app.entryPagePath;
+      if (this.appInfo.pagePath || (this.appInfo.pagePath = o3), t2 && !this.appConfig.app.pages.some((e3) => this._normalizePagePath(e3) === this._normalizePagePath(o3))) throw Error(`[container] page is not declared in app config: ${o3}`);
+      let s3 = this.appConfig.modules[o3], c2 = w(this.appConfig.app, s3);
+      this.updateTargetPageColorStyle(c2);
+      let l2 = await this.createBridge({
+        pagePath: o3,
+        query: this.appInfo.query,
+        scene: this.appInfo.scene,
+        jscore: this.jscore,
+        isRoot: true,
+        root: e2,
+        appId: this.appInfo.appId,
+        pages: this.appConfig.app.pages,
+        configInfo: c2
+      });
+      if (this._destroyed) return;
+      if (this.navigator.pushPage(l2), this._isTabBarPage(o3)) {
+        let e3 = this._normalizePagePath(o3);
+        this.navigator.setTabBridge(e3, l2), this.navigator.setActiveTabPath(e3), this._setTabBarVisible(true), this._updateTabBarSelection(e3);
+      }
+      let u2 = (((r2 = this.appInfo.restoreStack) == null ? void 0 : r2.length) ?? 0) > 1, d2 = { visible: !u2 && this.isPresentedTop() };
+      if (u2) {
+        if (t2 ? await l2.startAndWait(d2) : l2.start(d2), await this.restorePageStack(this.appInfo.restoreStack.slice(1)), this._destroyed) return;
+      } else await l2.startAndWait(d2);
+      this.safeSyncUrl(), this.hideLaunchScreen();
+    } catch (t3) {
+      let n3 = /* @__PURE__ */ new Set([...this.navigator.getStack(), ...this.navigator.getTabBridges()]);
+      for (let e2 of n3) {
+        var i2;
+        e2.destroy(), (i2 = e2.webview) == null || (i2 = i2.el) == null || i2.remove();
+      }
+      this.navigator.clear(), this.safeSyncUrl(), console.error(`[container] initApp failed for ${this.appId}:`, t3);
+      try {
+        var a2, o2;
+        (a2 = this.parent) == null || (o2 = a2.onAppLaunchError) == null || o2.call(a2, t3, { appId: this.appId });
+      } catch (e2) {
+        console.error(`[container] onAppLaunchError threw for ${this.appId}:`, e2);
+      }
+      try {
+        this.destroy();
+      } catch (e2) {
+        console.error(`[container] destroy() threw during initApp failure cleanup for ${this.appId}:`, e2);
+      }
+      if (e) {
+        var s2;
+        await ((s2 = this.parent) == null ? void 0 : s2.removeFailedView(this));
+      }
+      throw t3;
+    } finally {
+      this.webviewAnimaEnd = true;
+    }
+  }
+  async restorePageStack(e) {
+    for (let t2 = 0; t2 < e.length; t2++) {
+      let { pagePath: n2, query: r2 } = e[t2], i2 = t2 === e.length - 1, a2 = n2.startsWith("/") ? n2.slice(1) : n2, o2 = this.appConfig.modules[a2], s2 = w(this.appConfig.app, o2), c2 = await this.createBridge({
+        pagePath: a2,
+        query: r2,
+        scene: this.appInfo.scene,
+        jscore: this.jscore,
+        isRoot: false,
+        root: (o2 == null ? void 0 : o2.root) || "main",
+        appId: this.appInfo.appId,
+        pages: this.appConfig.app.pages,
+        configInfo: s2
+      });
+      if (this._destroyed) return;
+      let l2 = this.navigator.top;
+      l2.webview.el.classList.remove("dimina-native-view--instage"), l2.webview.el.classList.add("dimina-native-view--slide-out"), this.navigator.pushPage(c2), c2.webview.el.style.zIndex = String(this.navigator.size + 1), c2.webview.el.classList.remove("dimina-native-view--before-enter"), i2 || c2.webview.el.classList.add("dimina-native-view--slide-out");
+      let u2 = { visible: i2 && this.isPresentedTop() };
+      i2 ? await c2.startAndWait(u2) : c2.start(u2);
+    }
+    if (e.length > 0) {
+      let e2 = this.navigator.top, t2 = this.appConfig.modules[e2.opts.pagePath], n2 = w(this.appConfig.app, t2);
+      this.updateTargetPageColorStyle(n2), this._isTabBarPage(e2.opts.pagePath) || this._setTabBarVisible(false);
+    }
+  }
+  getPageStack() {
+    return this.navigator.getPageStack();
+  }
+  async createBridge(e) {
+    let { jscore: t2, configInfo: n2, isRoot: r2, appId: i2, pagePath: a2, query: o2, scene: s2, pages: c2, root: l2 } = e, u2 = new de({
+      jscore: t2,
+      configInfo: n2,
+      isRoot: r2,
+      appId: i2,
+      runtimeType: this.runtimeType,
+      pagePath: a2,
+      query: o2,
+      scene: s2,
+      referrerInfo: e.referrerInfo ?? this.appInfo.referrerInfo,
+      pages: c2,
+      root: l2
+    });
+    return u2.parent = this, await u2.init(this._destroyAbortController.signal), u2;
+  }
+  queueAppShowOptions(e) {
+    this.jscore.queueAppShowOptions(e);
+  }
+  onPresentIn() {
+    var e;
+    (e = this.parent) == null || e.appManager.retention.forget(this);
+    let t2 = this.navigator.top;
+    this.webSocketManager.onAppShow(), this.jscore.appShow(), t2 == null || t2.pageShow();
+  }
+  onPresentOut() {
+    var e;
+    let t2 = this.navigator.top;
+    t2 == null || t2.pageHide(), this.webSocketManager.onAppHide(), this.jscore.appHide(), (e = this.parent) == null || e.appManager.retention.hide(this);
+  }
+  queueDestructionLifecycle() {
+    if (this._destructionLifecycleQueued) return;
+    this._destructionLifecycleQueued = true;
+    let e = /* @__PURE__ */ new Set([...this.navigator.getStack(), ...this.navigator.getTabBridges()]);
+    for (let t2 of e) t2.destroy("exit");
+  }
+  initPageFrame() {
+    this.el.innerHTML = Le;
+  }
+  updateTargetPageColorStyle(e) {
+    let { navigationBarTextStyle: t2 } = e;
+    this.updateActionColorStyle(t2);
+  }
+  showLaunchScreen() {
+    let e = this.el.querySelector(".dimina-mini-app__launch-screen"), t2 = this.el.querySelector(".dimina-mini-app__name"), n2 = this.el.querySelector(".dimina-mini-app__logo-img-url");
+    this.updateActionColorStyle("black"), t2.textContent = this.appInfo.name ?? null, n2.src = this.appInfo.logo || "", e.style.display = "block";
+  }
+  hideLaunchScreen() {
+    let e = this.el.querySelector(".dimina-mini-app__launch-screen");
+    e.style.display = "none";
+  }
+  updateActionColorStyle(e) {
+    this.color = e;
+    let t2 = this.el.querySelector(".dimina-mini-app-navigation__actions");
+    if (e === "white" ? (t2.classList.remove("dimina-mini-app-navigation__actions--black"), t2.classList.add("dimina-mini-app-navigation__actions--white")) : e === "black" && (t2.classList.remove("dimina-mini-app-navigation__actions--white"), t2.classList.add("dimina-mini-app-navigation__actions--black")), this.isPresentedTop()) try {
+      this.parent.updateStatusBarColor(e);
+    } catch (e2) {
+      console.error(`[container] updateStatusBarColor threw for ${this.appId}:`, e2);
+    }
+  }
+  restoreColorStyle() {
+    this.updateActionColorStyle(this.color);
+  }
+  createCallbackFunction(e) {
+    if (e) return (t2) => {
+      this.jscore.postMessage({
+        type: "triggerCallback",
+        body: {
+          id: e,
+          args: t2
+        }
+      });
+    };
+  }
+  _createApiCallbacks({ success: e, fail: t2, complete: n2 } = {}) {
+    let r2 = this.createCallbackFunction(e), i2 = this.createCallbackFunction(t2), a2 = this.createCallbackFunction(n2), o2;
+    return {
+      onSuccess: r2 || a2 ? (e2) => {
+        o2 = e2, r2 == null || r2(e2);
+      } : void 0,
+      onFail: i2 || a2 ? (e2) => {
+        o2 = e2, i2 == null || i2(e2);
+      } : void 0,
+      onComplete: a2 ? (...e2) => a2(e2.length > 0 ? e2[0] : o2) : void 0
+    };
+  }
+  async navigateTo(e) {
+    let { url: t2, success: n2, fail: r2, complete: i2 } = e, { query: a2, pagePath: o2 } = C(t2), { onSuccess: s2, onFail: c2, onComplete: l2 } = this._createApiCallbacks({
+      success: n2,
+      fail: r2,
+      complete: i2
+    });
+    if (this._isTabBarPage(o2)) {
+      c2 == null || c2({ errMsg: "navigateTo:fail can not navigateTo a tabbar page" }), l2 == null || l2();
+      return;
+    }
+    if (!this.webviewAnimaEnd) {
+      c2 == null || c2({ errMsg: "navigateTo:fail busy" }), l2 == null || l2();
+      return;
+    }
+    this.webviewAnimaEnd = false;
+    let u2 = this.color;
+    try {
+      let e2 = this.appConfig.modules[o2], t3 = w(this.appConfig.app, e2), n3 = await this.createBridge({
+        pagePath: o2,
+        query: a2,
+        scene: this.appInfo.scene,
+        jscore: this.jscore,
+        isRoot: false,
+        root: (e2 == null ? void 0 : e2.root) || "main",
+        appId: this.appInfo.appId,
+        pages: this.appConfig.app.pages,
+        configInfo: t3
+      });
+      if (this._destroyed) return;
+      this.updateTargetPageColorStyle(t3);
+      let r3 = this.navigator.top, i3 = r3.webview;
+      this.navigator.pushPage(n3), n3.start({ visible: this.isPresentedTop() }), this.safeSyncUrl(), i3.el.classList.remove("dimina-native-view--instage"), i3.el.classList.add("dimina-native-view--slide-out"), i3.el.classList.add("dimina-native-view--linear-anima"), r3 == null || r3.pageHide(), this._setTabBarVisible(false), n3.webview.el.style.zIndex = String(this.navigator.size + 1), n3.webview.el.classList.add("dimina-native-view--enter-anima"), n3.webview.el.classList.add("dimina-native-view--instage"), await K(n3.webview.el, "transform"), i3.el.classList.remove("dimina-native-view--linear-anima"), n3.webview.el.classList.remove("dimina-native-view--before-enter"), n3.webview.el.classList.remove("dimina-native-view--enter-anima"), n3.webview.el.classList.remove("dimina-native-view--instage"), s2 == null || s2({ errMsg: "navigateTo:ok" });
+    } catch (e2) {
+      if (this.parent) try {
+        this.updateActionColorStyle(u2);
+      } catch {
+      }
+      c2 == null || c2({ errMsg: `navigateTo:fail ${Y(e2)}` });
+    } finally {
+      this.webviewAnimaEnd = true, l2 == null || l2();
+    }
+  }
+  reLaunch(e) {
+    let { url: t2, success: n2, fail: r2, complete: i2 } = e, { onSuccess: a2, onFail: o2, onComplete: s2 } = this._createApiCallbacks({
+      success: n2,
+      fail: r2,
+      complete: i2
+    });
+    if (!this.webviewAnimaEnd) {
+      o2 == null || o2({ errMsg: "reLaunch:fail busy" }), s2 == null || s2();
+      return;
+    }
+    this.webviewAnimaEnd = false;
+    let { query: c2, pagePath: l2 } = C(t2);
+    try {
+      let e2 = this.appConfig.modules[l2], t3 = w(this.appConfig.app, e2);
+      this.updateTargetPageColorStyle(t3);
+      let n3 = /* @__PURE__ */ new Set([...this.navigator.getStack(), ...this.navigator.getTabBridges()]);
+      for (let e3 of n3) {
+        var u2;
+        e3.destroy(), (u2 = e3.webview) == null || (u2 = u2.el) == null || u2.remove();
+      }
+      this.navigator.clear(), this.safeSyncUrl(), this.webviewsContainer && (this.webviewsContainer.innerHTML = ""), this.createBridge({
+        pagePath: l2,
+        query: c2,
+        scene: this.appInfo.scene,
+        jscore: this.jscore,
+        isRoot: true,
+        root: (e2 == null ? void 0 : e2.root) || "main",
+        appId: this.appInfo.appId,
+        pages: this.appConfig.app.pages,
+        configInfo: t3
+      }).then((e3) => {
+        if (!this._destroyed) {
+          if (this.navigator.pushPage(e3), this._isTabBarPage(l2)) {
+            let t4 = this._normalizePagePath(l2);
+            this.navigator.setTabBridge(t4, e3), this.navigator.setActiveTabPath(t4), this._setTabBarVisible(true), this._updateTabBarSelection(t4);
+          } else this._setTabBarVisible(false);
+          e3.start({ visible: this.isPresentedTop() }), this.safeSyncUrl(), e3.webview.el.style.zIndex = "1", this.webviewAnimaEnd = true, a2 == null || a2({ errMsg: "reLaunch:ok" }), s2 == null || s2();
+        }
+      }).catch((e3) => {
+        this.webviewAnimaEnd = true, o2 == null || o2({ errMsg: `reLaunch:fail ${Y(e3)}` }), s2 == null || s2();
+      });
+    } catch (e2) {
+      o2 == null || o2({ errMsg: `reLaunch:fail ${Y(e2)}` }), s2 == null || s2(), this.webviewAnimaEnd = true;
+    }
+  }
+  applyUpdate() {
+    this.reLaunch({ url: this.getEntryPagePath() });
+  }
+  redirectTo(e) {
+    let { url: t2, success: n2, fail: r2, complete: i2 } = e, { query: a2, pagePath: o2 } = C(t2), { onSuccess: s2, onFail: c2, onComplete: l2 } = this._createApiCallbacks({
+      success: n2,
+      fail: r2,
+      complete: i2
+    });
+    if (this._isTabBarPage(o2)) {
+      c2 == null || c2({ errMsg: "redirectTo:fail can not redirectTo a tabbar page" }), l2 == null || l2();
+      return;
+    }
+    if (!this.webviewAnimaEnd) {
+      c2 == null || c2({ errMsg: "redirectTo:fail busy" }), l2 == null || l2();
+      return;
+    }
+    this.webviewAnimaEnd = false;
+    try {
+      let e2 = this.navigator.top, t3 = this._normalizePagePath(e2.opts.pagePath), n3 = this.appConfig.modules[o2], r3 = w(this.appConfig.app, n3);
+      this.updateTargetPageColorStyle(r3), e2.destroy(), e2.opts = {
+        ...e2.opts,
+        pagePath: o2,
+        query: a2,
+        configInfo: r3
+      }, e2.webview.applyPageStyle(r3, {
+        isRoot: e2.opts.isRoot,
+        showHomeButton: this.shouldShowHomeButton({
+          pagePath: o2,
+          configInfo: r3,
+          isRoot: e2.opts.isRoot
+        })
+      }), e2.resetStatus(), e2.start({ visible: this.isPresentedTop() }), this.safeSyncUrl(), this.navigator.getTabBridge(t3) === e2 && (this.navigator.deleteTabBridge(t3), this.navigator.activeTabPath === t3 && this.navigator.setActiveTabPath(null)), this._setBridgeTabBarInset(e2, false), this._setTabBarVisible(false), s2 == null || s2({ errMsg: "redirectTo:ok" });
+    } catch (e2) {
+      c2 == null || c2({ errMsg: `redirectTo:fail ${Y(e2)}` });
+    } finally {
+      this.webviewAnimaEnd = true, l2 == null || l2();
+    }
+  }
+  async navigateBack(e = {}) {
+    let { onSuccess: t2, onFail: n2, onComplete: r2 } = this._createApiCallbacks(e);
+    if (this.navigator.size < 2) {
+      n2 == null || n2({ errMsg: "navigateBack:fail cannot navigate back at first page" }), r2 == null || r2();
+      return;
+    }
+    if (!this.webviewAnimaEnd) {
+      n2 == null || n2({ errMsg: "navigateBack:fail busy" }), r2 == null || r2();
+      return;
+    }
+    this.webviewAnimaEnd = false;
+    try {
+      let e2 = this.navigator.popPage(), n3 = this.navigator.top, r3 = this.appConfig.modules[n3.opts.pagePath], i2 = w(this.appConfig.app, r3);
+      if (this.updateTargetPageColorStyle(i2), e2.webview.el.classList.add("dimina-native-view--before-enter"), e2.webview.el.classList.add("dimina-native-view--enter-anima"), e2.destroy(), n3.webview.el.classList.remove("dimina-native-view--slide-out"), n3.webview.el.classList.add("dimina-native-view--instage"), n3.webview.el.classList.add("dimina-native-view--enter-anima"), this.isPresentedTop() && n3.pageShow(), this.safeSyncUrl(), this._isTabBarPage(n3.opts.pagePath)) {
+        let e3 = this._normalizePagePath(n3.opts.pagePath);
+        this.navigator.setActiveTabPath(e3), this._setTabBarVisible(true), this._updateTabBarSelection(e3);
+      }
+      await K(n3.webview.el, "transform"), n3.webview.el.classList.remove("dimina-native-view--enter-anima"), n3.webview.el.classList.remove("dimina-native-view--instage"), e2.webview.el.parentNode.removeChild(e2.webview.el), t2 == null || t2({ errMsg: "navigateBack:ok" });
+    } catch (e2) {
+      n2 == null || n2({ errMsg: `navigateBack:fail ${Y(e2)}` });
+    } finally {
+      this.webviewAnimaEnd = true, r2 == null || r2();
+    }
+  }
+  async switchTab(e) {
+    let { url: t2, success: n2, fail: r2, complete: i2 } = e, { query: a2, pagePath: o2 } = C(t2), s2 = this._normalizePagePath(o2), { onSuccess: c2, onFail: l2, onComplete: u2 } = this._createApiCallbacks({
+      success: n2,
+      fail: r2,
+      complete: i2
+    });
+    if (!this._isTabBarPage(s2)) {
+      l2 == null || l2({ errMsg: `switchTab:fail not a tabBar page: ${s2}` }), u2 == null || u2();
+      return;
+    }
+    if (!this.webviewAnimaEnd) {
+      l2 == null || l2({ errMsg: "switchTab:fail busy" }), u2 == null || u2();
+      return;
+    }
+    if (this.navigator.activeTabPath === s2 && this.navigator.size === 1) {
+      this._setTabBarVisible(true), this._updateTabBarSelection(s2), c2 == null || c2({ errMsg: "switchTab:ok" }), u2 == null || u2();
+      return;
+    }
+    this.webviewAnimaEnd = false;
+    try {
+      let e2 = this.navigator.activeTabPath, t3 = e2 ? this.navigator.getTabBridge(e2) : null, n3 = !!t3 && this.navigator.size === 1 && this.navigator.top === t3, r3 = this.navigator.getTabBridge(s2), i3 = this.appConfig.modules[s2], o3 = w(this.appConfig.app, i3);
+      if (!r3) {
+        if (r3 = await this.createBridge({
+          pagePath: s2,
+          query: a2,
+          scene: this.appInfo.scene,
+          jscore: this.jscore,
+          isRoot: true,
+          root: (i3 == null ? void 0 : i3.root) || "main",
+          appId: this.appInfo.appId,
+          pages: this.appConfig.app.pages,
+          configInfo: o3
+        }), this._destroyed) return;
+        this.navigator.setTabBridge(s2, r3), r3.start({ visible: false });
+      }
+      for (this.updateTargetPageColorStyle(o3); this.navigator.size > 0; ) {
+        var d2;
+        let e3 = this.navigator.top;
+        if (this._isTabBarPage(e3.opts.pagePath)) break;
+        e3.pageHide(), e3.destroy(), (d2 = e3.webview) == null || (d2 = d2.el) == null || d2.remove(), this.navigator.popPage();
+      }
+      if (t3 && t3 !== r3) {
+        var f2;
+        n3 && t3.pageHide(), (f2 = t3.webview) != null && f2.el && (t3.webview.el.style.display = "none"), this.navigator.removeFromStack(t3);
+      }
+      let l3 = r3.webview.el;
+      this._setBridgeTabBarInset(r3, true), l3.classList.remove("dimina-native-view--before-enter", "dimina-native-view--slide-out", "dimina-native-view--enter-anima", "dimina-native-view--linear-anima", "dimina-native-view--instage"), l3.style.display = "", l3.style.zIndex = "1", this.navigator.getStack().includes(r3) || this.navigator.pushPage(r3), this.navigator.setActiveTabPath(s2), this.isPresentedTop() && r3.pageShow(), this._setTabBarVisible(true), this._updateTabBarSelection(s2), this.safeSyncUrl(), c2 == null || c2({ errMsg: "switchTab:ok" });
+    } catch (e2) {
+      l2 == null || l2({ errMsg: `switchTab:fail ${Y(e2)}` });
+    } finally {
+      this.webviewAnimaEnd = true, u2 == null || u2();
+    }
+  }
+  _initTabBar() {
+    var e;
+    let t2 = (e = this.appConfig) == null || (e = e.app) == null ? void 0 : e.tabBar;
+    if (!t2 || !Array.isArray(t2.list) || t2.list.length === 0) return;
+    let n2 = t2.list.filter((e2) => this._normalizePagePath(e2 == null ? void 0 : e2.pagePath) !== "");
+    if (n2.length !== 0) {
+      if (this.tabBarConfig = {
+        ...t2,
+        list: n2
+      }, this.tabBarPaths = n2.map((e2) => this._normalizePagePath(e2.pagePath)), this.tabBarBadges = n2.map(() => ""), this.tabBarRedDots = n2.map(() => false), this.tabBarApiVisible = true, this.customTabBar = t2.custom === true, this.customTabBar) {
+        this.tabBarEl = this.el.querySelector(".dimina-mini-app__tabbar"), this.tabBarEl && (this.tabBarEl.textContent = "", this.tabBarEl.style.display = "none"), this.tabBarHeight = 0, this.el.style.setProperty("--dimina-tabbar-height", "0px");
+        return;
+      }
+      this._renderTabBar();
+    }
+  }
+  _renderTabBar() {
+    if (this.tabBarEl = this.el.querySelector(".dimina-mini-app__tabbar"), !this.tabBarEl) return;
+    let { color: e, backgroundColor: t2, borderStyle: n2, list: r2 } = this.tabBarConfig, i2 = this._sanitizeCssColor(e) || "#999999", a2 = this._sanitizeCssColor(t2) || "#ffffff";
+    this.tabBarEl.textContent = "";
+    let o2 = document.createElement("div");
+    if (o2.className = "dimina-tabbar", o2.style.backgroundColor = a2, o2.style.borderTopColor = this._getTabBarBorderColor(n2), r2.forEach((e2, t3) => {
+      let n3 = this._normalizePagePath(e2.pagePath), r3 = document.createElement("div");
+      r3.className = "dimina-tabbar-item", r3.dataset.path = n3, r3.dataset.index = String(t3);
+      let a3 = this._resolveTabBarIcon(e2.iconPath);
+      a3 && r3.appendChild(this._createTabBarIcon(a3, "dimina-tabbar-icon-default"));
+      let s3 = this._resolveTabBarIcon(e2.selectedIconPath);
+      s3 && r3.appendChild(this._createTabBarIcon(s3, "dimina-tabbar-icon-selected"));
+      let c2 = document.createElement("span");
+      c2.className = "dimina-tabbar-text", c2.style.color = i2, c2.textContent = e2.text || "", r3.appendChild(c2);
+      let l2 = document.createElement("span");
+      l2.className = "dimina-tabbar-badge", l2.hidden = true, r3.appendChild(l2);
+      let u2 = document.createElement("span");
+      u2.className = "dimina-tabbar-red-dot", u2.hidden = true, r3.appendChild(u2), o2.appendChild(r3);
+    }), this.tabBarEl.appendChild(o2), this.tabBarEl.addEventListener("click", (e2) => {
+      let t3 = e2.target.closest(".dimina-tabbar-item");
+      if (!t3) return;
+      let n3 = t3.dataset.path;
+      n3 && n3 !== this.navigator.activeTabPath && this.switchTab({ url: `/${n3}` });
+    }), typeof ResizeObserver < "u") {
+      var s2;
+      (s2 = this._tabBarResizeObserver) == null || s2.disconnect(), this._tabBarResizeObserver = new ResizeObserver(() => this._syncTabBarHeightVar()), this._tabBarResizeObserver.observe(this.tabBarEl);
+    }
+  }
+  _createTabBarIcon(e, t2) {
+    let n2 = document.createElement("img");
+    return n2.className = `dimina-tabbar-icon ${t2}`, n2.src = e, n2.alt = "", n2.addEventListener("error", () => {
+      n2.style.display = "none";
+    }), n2;
+  }
+  _sanitizeCssColor(e) {
+    if (!e || typeof e != "string") return "";
+    let t2 = e.trim();
+    return t2.length === 0 || t2.length > 64 ? "" : /[<>"';{}()\\]/.test(t2) ? /^(?:rgb|rgba|hsl|hsla)\(\s*[\d.,%\s/-]+\)$/i.test(t2) ? t2 : "" : t2;
+  }
+  _getTabBarBorderColor(e) {
+    return e === "white" ? "#ffffff" : "#e0e0e0";
+  }
+  _getTabBarHeight() {
+    if (this.customTabBar) return 0;
+    if (!this.tabBarEl) return this.tabBarHeight;
+    let e = this.tabBarEl.getBoundingClientRect().height;
+    if (!e && this.tabBarEl.style.display === "none") {
+      let t2 = this.tabBarEl.style.display, n2 = this.tabBarEl.style.visibility;
+      this.tabBarEl.style.visibility = "hidden", this.tabBarEl.style.display = "block", e = this.tabBarEl.getBoundingClientRect().height, this.tabBarEl.style.display = t2, this.tabBarEl.style.visibility = n2;
+    }
+    return e > 0 && (this.tabBarHeight = e), this.tabBarHeight;
+  }
+  _syncTabBarHeightVar() {
+    let e = this._getTabBarHeight();
+    this.el.style.setProperty("--dimina-tabbar-height", `${e}px`), this._syncTabBarBridgeInsets();
+  }
+  _setBridgeTabBarInset(e, t2) {
+    var n2;
+    let r2 = e == null || (n2 = e.webview) == null ? void 0 : n2.el;
+    if (r2) {
+      if (!t2 || this.customTabBar) {
+        r2.style.removeProperty("bottom");
+        return;
+      }
+      r2.style.bottom = `${this._getTabBarHeight()}px`;
+    }
+  }
+  _syncTabBarBridgeInsets() {
+    for (let e of this.navigator.getTabBridges()) this._setBridgeTabBarInset(e, true);
+  }
+  _joinBaseUrl(...e) {
+    return `${this.getResourceBaseUrl()}${e.map((e2) => String(e2).trim().replace(/^\/+|\/+$/g, "")).filter(Boolean).join("/")}`;
+  }
+  _resolveTabBarIcon(e) {
+    if (!e || typeof e != "string") return null;
+    let t2 = e.trim();
+    if (!t2) return null;
+    if (/^(?:data:|blob:|https?:|\/\/)/i.test(t2)) return t2;
+    let n2 = t2.replace(/^\/+/, "").replace(/^\.\//, ""), r2 = `${this.appId}/`;
+    return n2.startsWith(r2) ? this._joinBaseUrl(n2) : this._joinBaseUrl(this.appId, "main", n2);
+  }
+  _setTabBarVisible(e) {
+    var t2;
+    if (!this.tabBarEl) return;
+    if (this.customTabBar) {
+      this.tabBarEl.style.display = "none", this._syncTabBarHeightVar();
+      return;
+    }
+    let n2 = this.navigator.top, r2 = this._normalizePagePath(n2 == null || (t2 = n2.opts) == null ? void 0 : t2.pagePath), i2 = !!r2 && r2 === this.navigator.activeTabPath && this._isTabBarPage(r2), a2 = e && this.tabBarApiVisible && i2;
+    this.tabBarEl.style.display = a2 ? "block" : "none", this._syncTabBarHeightVar();
+  }
+  _updateTabBarSelection(e) {
+    if (!this.tabBarEl || !this.tabBarConfig) return;
+    let t2 = this.tabBarConfig.color || "#999999", n2 = this.tabBarConfig.selectedColor || "#1890ff";
+    this.tabBarEl.querySelectorAll(".dimina-tabbar-item").forEach((r2) => {
+      let i2 = r2.getAttribute("data-path") === e, a2 = r2.querySelector(".dimina-tabbar-text"), o2 = r2.querySelector(".dimina-tabbar-icon-default"), s2 = r2.querySelector(".dimina-tabbar-icon-selected");
+      a2 && (a2.style.color = i2 ? n2 : t2), o2 && (o2.style.display = i2 ? "none" : "block"), s2 && (s2.style.display = i2 ? "block" : "none"), r2.classList.toggle("dimina-tabbar-item--selected", i2);
+    });
+  }
+  _getTabBarItemEl(e) {
+    var t2;
+    return ((t2 = this.tabBarEl) == null ? void 0 : t2.querySelector(`.dimina-tabbar-item[data-index="${e}"]`)) || null;
+  }
+  _validateTabBarIndex(e, t2, n2, r2) {
+    var i2;
+    let a2 = ((i2 = this.tabBarConfig) == null || (i2 = i2.list) == null ? void 0 : i2.length) || 0;
+    if (!a2 || !this.tabBarEl) return n2 == null || n2({ errMsg: `${e}:fail tabBar not configured` }), r2 == null || r2(), false;
+    let o2 = Number(t2);
+    return t2 == null || !Number.isInteger(o2) || o2 < 0 || o2 >= a2 ? (n2 == null || n2({ errMsg: `${e}:fail invalid index ${t2}` }), r2 == null || r2(), false) : true;
+  }
+  _replaceTabBarItemIcons(e, t2) {
+    let n2 = e.querySelector(".dimina-tabbar-text");
+    e.querySelectorAll(".dimina-tabbar-icon-default, .dimina-tabbar-icon-selected").forEach((e2) => e2.remove());
+    let r2 = this._resolveTabBarIcon(t2.iconPath);
+    r2 && e.insertBefore(this._createTabBarIcon(r2, "dimina-tabbar-icon-default"), n2);
+    let i2 = this._resolveTabBarIcon(t2.selectedIconPath);
+    i2 && e.insertBefore(this._createTabBarIcon(i2, "dimina-tabbar-icon-selected"), n2);
+  }
+  setTabBarStyle(e = {}) {
+    let { color: t2, selectedColor: n2, backgroundColor: r2, borderStyle: i2, success: a2, fail: o2, complete: s2 } = e, { onSuccess: c2, onFail: l2, onComplete: u2 } = this._createApiCallbacks({
+      success: a2,
+      fail: o2,
+      complete: s2
+    });
+    if (!this.tabBarConfig || !this.tabBarEl) {
+      l2 == null || l2({ errMsg: "setTabBarStyle:fail tabBar not configured" }), u2 == null || u2();
+      return;
+    }
+    let d2 = i2 === "black" || i2 === "white" ? i2 : null, f2 = t2 === void 0 ? null : this._sanitizeCssColor(t2), p2 = n2 === void 0 ? null : this._sanitizeCssColor(n2), m2 = r2 === void 0 ? null : this._sanitizeCssColor(r2);
+    f2 && (this.tabBarConfig.color = f2), p2 && (this.tabBarConfig.selectedColor = p2), m2 && (this.tabBarConfig.backgroundColor = m2), d2 && (this.tabBarConfig.borderStyle = d2);
+    let h2 = this.tabBarEl.querySelector(".dimina-tabbar");
+    h2 && (m2 && (h2.style.backgroundColor = m2), d2 && (h2.style.borderTopColor = this._getTabBarBorderColor(d2))), this._updateTabBarSelection(this.navigator.activeTabPath), c2 == null || c2({ errMsg: "setTabBarStyle:ok" }), u2 == null || u2();
+  }
+  setTabBarItem(e = {}) {
+    let { index: t2, text: n2, iconPath: r2, selectedIconPath: i2 } = e, { onSuccess: a2, onFail: o2, onComplete: s2 } = this._createApiCallbacks(e);
+    if (!this._validateTabBarIndex("setTabBarItem", t2, o2, s2)) return;
+    let c2 = Number(t2), l2 = this.tabBarConfig.list[c2], u2 = {
+      ...l2,
+      text: n2 === void 0 ? l2.text : n2,
+      iconPath: r2 === void 0 ? l2.iconPath : r2,
+      selectedIconPath: i2 === void 0 ? l2.selectedIconPath : i2
+    };
+    this.tabBarConfig.list[c2] = u2;
+    let d2 = this._getTabBarItemEl(c2);
+    if (d2) {
+      let e2 = d2.querySelector(".dimina-tabbar-text");
+      e2 && (e2.textContent = u2.text || ""), (r2 !== void 0 || i2 !== void 0) && this._replaceTabBarItemIcons(d2, u2), this._updateTabBarSelection(this.navigator.activeTabPath);
+    }
+    a2 == null || a2({ errMsg: "setTabBarItem:ok" }), s2 == null || s2();
+  }
+  showTabBar(e = {}) {
+    let { onSuccess: t2, onComplete: n2 } = this._createApiCallbacks(e);
+    this.tabBarApiVisible = true, this._setTabBarVisible(true), t2 == null || t2({ errMsg: "showTabBar:ok" }), n2 == null || n2();
+  }
+  hideTabBar(e = {}) {
+    let { onSuccess: t2, onComplete: n2 } = this._createApiCallbacks(e);
+    this.tabBarApiVisible = false, this._setTabBarVisible(false), t2 == null || t2({ errMsg: "hideTabBar:ok" }), n2 == null || n2();
+  }
+  setTabBarBadge(e = {}) {
+    let { index: t2, text: n2 = "" } = e, { onSuccess: r2, onFail: i2, onComplete: a2 } = this._createApiCallbacks(e);
+    if (!this._validateTabBarIndex("setTabBarBadge", t2, i2, a2)) return;
+    let o2 = Number(t2);
+    this.tabBarBadges[o2] = String(n2), this.tabBarRedDots[o2] = false;
+    let s2 = this._getTabBarItemEl(o2), c2 = s2 == null ? void 0 : s2.querySelector(".dimina-tabbar-badge"), l2 = s2 == null ? void 0 : s2.querySelector(".dimina-tabbar-red-dot");
+    c2 && (c2.textContent = this.tabBarBadges[o2], c2.hidden = this.tabBarBadges[o2].length === 0), l2 && (l2.hidden = true), r2 == null || r2({ errMsg: "setTabBarBadge:ok" }), a2 == null || a2();
+  }
+  removeTabBarBadge(e = {}) {
+    var t2;
+    let { index: n2 } = e, { onSuccess: r2, onFail: i2, onComplete: a2 } = this._createApiCallbacks(e);
+    if (!this._validateTabBarIndex("removeTabBarBadge", n2, i2, a2)) return;
+    let o2 = Number(n2);
+    this.tabBarBadges[o2] = "";
+    let s2 = (t2 = this._getTabBarItemEl(o2)) == null ? void 0 : t2.querySelector(".dimina-tabbar-badge");
+    s2 && (s2.textContent = "", s2.hidden = true), r2 == null || r2({ errMsg: "removeTabBarBadge:ok" }), a2 == null || a2();
+  }
+  showTabBarRedDot(e = {}) {
+    let { index: t2 } = e, { onSuccess: n2, onFail: r2, onComplete: i2 } = this._createApiCallbacks(e);
+    if (!this._validateTabBarIndex("showTabBarRedDot", t2, r2, i2)) return;
+    let a2 = Number(t2);
+    this.tabBarRedDots[a2] = true, this.tabBarBadges[a2] = "";
+    let o2 = this._getTabBarItemEl(a2), s2 = o2 == null ? void 0 : o2.querySelector(".dimina-tabbar-badge"), c2 = o2 == null ? void 0 : o2.querySelector(".dimina-tabbar-red-dot");
+    s2 && (s2.textContent = "", s2.hidden = true), c2 && (c2.hidden = false), n2 == null || n2({ errMsg: "showTabBarRedDot:ok" }), i2 == null || i2();
+  }
+  hideTabBarRedDot(e = {}) {
+    var t2;
+    let { index: n2 } = e, { onSuccess: r2, onFail: i2, onComplete: a2 } = this._createApiCallbacks(e);
+    if (!this._validateTabBarIndex("hideTabBarRedDot", n2, i2, a2)) return;
+    let o2 = Number(n2);
+    this.tabBarRedDots[o2] = false;
+    let s2 = (t2 = this._getTabBarItemEl(o2)) == null ? void 0 : t2.querySelector(".dimina-tabbar-red-dot");
+    s2 && (s2.hidden = true), r2 == null || r2({ errMsg: "hideTabBarRedDot:ok" }), a2 == null || a2();
+  }
+  async navigateToMiniProgram(e = {}) {
+    let { onSuccess: t2, onFail: n2, onComplete: r2 } = this._createApiCallbacks(e);
+    try {
+      await this.parent.appManager.navigateToMiniProgram(e, this);
+      let n3 = { errMsg: "navigateToMiniProgram:ok" };
+      t2 == null || t2(n3), r2 == null || r2(n3);
+    } catch (e2) {
+      let t3 = { errMsg: `navigateToMiniProgram:fail ${Y(e2)}` };
+      n2 == null || n2(t3), r2 == null || r2(t3);
+    }
+  }
+  async navigateBackMiniProgram(e = {}) {
+    let { onSuccess: t2, onFail: n2, onComplete: r2 } = this._createApiCallbacks(e), i2 = false;
+    try {
+      await this.parent.appManager.navigateBackMiniProgram(this, e.extraData, async () => {
+        i2 = true;
+        let e2 = { errMsg: "navigateBackMiniProgram:ok" };
+        t2 == null || t2(e2), r2 == null || r2(e2);
+      });
+    } catch (e2) {
+      if (!i2) {
+        let t3 = { errMsg: `navigateBackMiniProgram:fail ${Y(e2)}` };
+        n2 == null || n2(t3), r2 == null || r2(t3);
+      }
+    }
+  }
+  async exitMiniProgram(e = {}) {
+    let { onSuccess: t2, onFail: n2, onComplete: r2 } = this._createApiCallbacks(e), i2 = false;
+    try {
+      await this.parent.appManager.exitMiniProgram(this, async () => {
+        i2 = true;
+        let e2 = { errMsg: "exitMiniProgram:ok" };
+        t2 == null || t2(e2), r2 == null || r2(e2);
+      });
+    } catch (e2) {
+      if (!i2) {
+        let t3 = { errMsg: `exitMiniProgram:fail ${Y(e2)}` };
+        n2 == null || n2(t3), r2 == null || r2(t3);
+      }
+    }
+  }
+  async restartMiniProgram(e = {}) {
+    let { onSuccess: t2, onFail: n2, onComplete: r2 } = this._createApiCallbacks(e), i2 = false;
+    try {
+      await this.parent.appManager.restartMiniProgram(this, e.path ?? "", async () => {
+        i2 = true;
+        let e2 = { errMsg: "restartMiniProgram:ok" };
+        t2 == null || t2(e2), r2 == null || r2(e2);
+      });
+    } catch (e2) {
+      if (!i2) {
+        let t3 = { errMsg: `restartMiniProgram:fail ${Y(e2)}` };
+        n2 == null || n2(t3), r2 == null || r2(t3);
+      }
+    }
+  }
+  bindMoreEvent() {
+    let e = this.el.querySelector(".dimina-mini-app-navigation__actions-variable"), t2 = this.el.querySelector(".dimina-mini-app-menu__mask"), n2 = this.el.querySelector(".dimina-mini-app-menu"), r2 = this.el.querySelector(".dimina-mini-app-menu__footer-btn--cancel");
+    t2.addEventListener("transitionend", () => {
+      t2.classList.contains("show") || (t2.style.display = "none");
+    }), e.onclick = () => this.openMiniAppMenu(), t2.onclick = () => this.closeMiniAppMenu(), r2.onclick = () => this.closeMiniAppMenu(), n2.onclick = (e2) => e2.stopPropagation();
+  }
+  bindCloseEvent() {
+    let e = this.el.querySelector(".dimina-mini-app-navigation__actions-close");
+    e.onclick = () => {
+      this.closeMiniProgram();
+    };
+  }
+  destroy() {
+    var e, t2, n2, r2;
+    this._destroyed = true, this.queueDestructionLifecycle(), this._destroyAbortController.abort(), this.webSocketManager.destroy();
+    let i2;
+    for (let e2 of this._extSubscriptions.values()) try {
+      e2 == null || e2();
+    } catch (e3) {
+      console.error(`[container] extension unsubscribe threw during destroy() for ${this.appId}:`, e3), i2 || (i2 = e3);
+    }
+    this._extSubscriptions.clear();
+    for (let e2 of this._windowResizeHandlers) {
+      var a2, o2;
+      (a2 = (o2 = globalThis).removeEventListener) == null || a2.call(o2, "resize", e2);
+    }
+    this._windowResizeHandlers.clear();
+    for (let e2 of this._networkStatusHandlers.values()) {
+      var s2, c2, l2, u2, d2, f2;
+      (s2 = (c2 = globalThis).removeEventListener) == null || s2.call(c2, "online", e2), (l2 = (u2 = globalThis).removeEventListener) == null || l2.call(u2, "offline", e2), (d2 = this._networkConnection()) == null || (f2 = d2.removeEventListener) == null || f2.call(d2, "change", e2);
+    }
+    this._networkStatusHandlers.clear(), this._keepScreenOnRequested = false, this._wakeLockVisibilityHandler && (document.removeEventListener("visibilitychange", this._wakeLockVisibilityHandler), this._wakeLockVisibilityHandler = null), this._releaseWakeLock().catch(() => {
+    }), (e = this._mediaPreviewEl) == null || e.remove(), this._mediaPreviewEl = null;
+    for (let e2 of this._tempObjectUrls) URL.revokeObjectURL(e2);
+    if (this._tempObjectUrls.clear(), (t2 = this._themeMediaQuery) != null && t2.removeEventListener) this._themeMediaQuery.removeEventListener("change", this._themeChangeHandler);
+    else {
+      var p2, m2;
+      (p2 = this._themeMediaQuery) == null || (m2 = p2.removeListener) == null || m2.call(p2, this._themeChangeHandler);
+    }
+    this._themeMediaQuery = null, this._themeChangeHandler = null, (n2 = this._tabBarResizeObserver) == null || n2.disconnect(), this._tabBarResizeObserver = null;
+    for (let e2 of this._modalPendingTimers) clearTimeout(e2);
+    this._modalPendingTimers.clear();
+    for (let e2 of this._modalStack) {
+      var h2, g2;
+      (h2 = e2.mask) == null || h2.remove(), (g2 = e2.dialog) == null || g2.remove();
+    }
+    if (this._modalStack.length = 0, this._unlockModalPageTouch(), this.hideToast({}), (r2 = this.parent) == null || (r2 = r2.appManager) == null || r2.removeApp(this), this.jscore.destroy(), i2) throw i2;
+  }
+  connectSocket(e = {}) {
+    this.webSocketManager.connectSocket(e);
+  }
+  sendSocketMessage(e = {}) {
+    this.webSocketManager.sendSocketMessage(e);
+  }
+  closeSocket(e = {}) {
+    this.webSocketManager.closeSocket(e);
+  }
+  onSocketOpen(e = {}) {
+    this.onSocketEvent("open", e);
+  }
+  onSocketMessage(e = {}) {
+    this.onSocketEvent("message", e);
+  }
+  onSocketError(e = {}) {
+    this.onSocketEvent("error", e);
+  }
+  onSocketClose(e = {}) {
+    this.onSocketEvent("close", e);
+  }
+  offSocketOpen(e = {}) {
+    this.offSocketEvent("open", e);
+  }
+  offSocketMessage(e = {}) {
+    this.offSocketEvent("message", e);
+  }
+  offSocketError(e = {}) {
+    this.offSocketEvent("error", e);
+  }
+  offSocketClose(e = {}) {
+    this.offSocketEvent("close", e);
+  }
+  onSocketEvent(e, t2) {
+    this.webSocketManager.onSocketEvent(e, t2);
+  }
+  offSocketEvent(e, t2) {
+    this.webSocketManager.offSocketEvent(e, t2);
+  }
+  getNetworkType(e) {
+    let { onSuccess: t2, onComplete: n2 } = this._createApiCallbacks(e), r2 = {
+      networkType: this._currentNetworkType(),
+      errMsg: "getNetworkType:ok"
+    };
+    t2 == null || t2(r2), n2 == null || n2(r2);
+  }
+  onNetworkStatusChange(e) {
+    var t2, n2, r2, i2, a2, o2;
+    let s2 = e.callbackId ?? e.success;
+    if (!s2 || this._networkStatusHandlers.has(s2)) return;
+    let c2 = () => {
+      var e2;
+      (e2 = this.createCallbackFunction(s2)) == null || e2({
+        isConnected: navigator.onLine,
+        networkType: this._currentNetworkType()
+      });
+    };
+    this._networkStatusHandlers.set(s2, c2), (t2 = (n2 = globalThis).addEventListener) == null || t2.call(n2, "online", c2), (r2 = (i2 = globalThis).addEventListener) == null || r2.call(i2, "offline", c2), (a2 = this._networkConnection()) == null || (o2 = a2.addEventListener) == null || o2.call(a2, "change", c2);
+  }
+  offNetworkStatusChange(e = {}) {
+    let t2 = e.callbackId ? [[e.callbackId, this._networkStatusHandlers.get(e.callbackId)]] : [...this._networkStatusHandlers.entries()];
+    for (let [e2, c2] of t2) {
+      var n2, r2, i2, a2, o2, s2;
+      c2 && ((n2 = (r2 = globalThis).removeEventListener) == null || n2.call(r2, "online", c2), (i2 = (a2 = globalThis).removeEventListener) == null || i2.call(a2, "offline", c2), (o2 = this._networkConnection()) == null || (s2 = o2.removeEventListener) == null || s2.call(o2, "change", c2), this._networkStatusHandlers.delete(e2));
+    }
+  }
+  _networkConnection() {
+    let e = navigator;
+    return e.connection ?? e.mozConnection ?? e.webkitConnection;
+  }
+  _currentNetworkType() {
+    var e;
+    if (!navigator.onLine) return "none";
+    let t2 = this._networkConnection(), n2 = t2 == null || (e = t2.type) == null ? void 0 : e.toLowerCase();
+    if (n2 === "wifi" || n2 === "ethernet") return "wifi";
+    if (n2 === "cellular") {
+      var r2;
+      let e2 = t2 == null || (r2 = t2.effectiveType) == null ? void 0 : r2.toLowerCase();
+      if (e2 && [
+        "2g",
+        "3g",
+        "4g",
+        "5g"
+      ].includes(e2)) return e2;
+    }
+    return "unknown";
+  }
+  getSystemInfoAsync(e) {
+    let t2 = this._getStatusBarRect(), n2 = this.parent.el.querySelector(".dimina-native-webview__root").getBoundingClientRect(), { success: r2, complete: i2 } = e, { onSuccess: a2, onComplete: o2 } = this._createApiCallbacks({
+      success: r2,
+      complete: i2
+    });
+    a2 == null || a2({
+      statusBarHeight: t2.height,
+      brand: "devtools",
+      mode: "default",
+      model: "web",
+      platform: "devtools",
+      system: "web",
+      deviceOrientation: "portrait",
+      SDKVersion: "3.0.0",
+      language: "zh_CN",
+      wifiEnabled: true,
+      safeArea: {
+        width: n2.width,
+        height: n2.height,
+        top: n2.top,
+        bottom: n2.bottom,
+        left: n2.left,
+        right: n2.right
+      }
+    }), o2 == null || o2();
+  }
+  getSystemInfo(e = {}) {
+    let { onSuccess: t2, onComplete: n2 } = this._createApiCallbacks(e);
+    t2 == null || t2({
+      ...this.getSystemInfoSync(),
+      errMsg: "getSystemInfo:ok"
+    }), n2 == null || n2();
+  }
+  onWindowResize(e = {}) {
+    let t2 = this.createCallbackFunction(e.success);
+    if (!t2 || !globalThis.addEventListener) return;
+    let n2 = () => {
+      let { windowWidth: e2, windowHeight: n3, deviceOrientation: r2 = "portrait" } = this.getSystemInfoSync();
+      t2({
+        size: {
+          windowWidth: e2,
+          windowHeight: n3
+        },
+        deviceOrientation: r2
+      });
+    };
+    this._windowResizeHandlers ?? (this._windowResizeHandlers = /* @__PURE__ */ new Set()), this._windowResizeHandlers.add(n2), globalThis.addEventListener("resize", n2);
+  }
+  getMenuButtonBoundingClientRect() {
+    let e = this.el.querySelector(".dimina-mini-app-navigation__actions").getBoundingClientRect(), t2 = this.el.getBoundingClientRect(), n2 = (this._getStatusBarRect().height || 0) + 4, r2 = n2 + e.height, i2 = e.left - t2.left;
+    return {
+      top: n2,
+      right: e.right - t2.left,
+      bottom: r2,
+      left: i2,
+      width: e.width,
+      height: e.height,
+      x: i2,
+      y: n2
+    };
+  }
+  getHostEnvSnapshot() {
+    return {
+      menuRect: this.getMenuButtonBoundingClientRect(),
+      systemInfo: this.getSystemInfoSync()
+    };
+  }
+  _bindThemeChange() {
+    var e, t2;
+    let n2 = (e = (t2 = globalThis).matchMedia) == null ? void 0 : e.call(t2, "(prefers-color-scheme: dark)");
+    if (n2) {
+      if (this._themeMediaQuery = n2, this._themeChangeHandler = (e2) => {
+        this.jscore.postMessage({
+          type: "hostEnvUpdate",
+          body: { systemInfo: {
+            ...this.getSystemInfoSync(),
+            theme: e2.matches ? "dark" : "light"
+          } }
+        });
+      }, n2.addEventListener) n2.addEventListener("change", this._themeChangeHandler);
+      else {
+        var r2;
+        (r2 = n2.addListener) == null || r2.call(n2, this._themeChangeHandler);
+      }
+    }
+  }
+  getSystemInfoSync() {
+    var e, t2;
+    let n2 = this.parent.el.querySelector(".dimina-native-webview__root"), r2 = n2 == null ? void 0 : n2.getBoundingClientRect(), i2 = (n2 == null ? void 0 : n2.clientWidth) || (r2 == null ? void 0 : r2.width) || this.el.clientWidth || 375, a2 = (n2 == null ? void 0 : n2.clientHeight) || (r2 == null ? void 0 : r2.height) || this.el.clientHeight || 667, o2 = this._getStatusBarRect().height || 0;
+    return {
+      brand: "devtools",
+      model: "web",
+      platform: "devtools",
+      system: "web",
+      SDKVersion: "3.0.0",
+      pixelRatio: globalThis.devicePixelRatio || 1,
+      screenWidth: i2,
+      screenHeight: a2,
+      windowWidth: i2,
+      windowHeight: a2,
+      statusBarHeight: o2,
+      safeArea: {
+        left: 0,
+        right: i2,
+        top: o2,
+        bottom: a2,
+        width: i2,
+        height: Math.max(a2 - o2, 0)
+      },
+      enableDebug: false,
+      host: { appId: "" },
+      language: navigator.language || "zh_CN",
+      version: "",
+      theme: (e = (t2 = globalThis).matchMedia) != null && (e = e.call(t2, "(prefers-color-scheme: dark)")) != null && e.matches ? "dark" : "light",
+      fontSizeScaleFactor: 1,
+      fontSizeSetting: 16,
+      deviceOrientation: "portrait"
+    };
+  }
+  showToast(e = {}) {
+    let { title: t2 = "", duration: n2 = 1500, icon: r2 = "success", mask: i2 = false, success: a2, complete: o2 } = e;
+    if (!t2) return;
+    this.hideToast({});
+    let { onSuccess: s2, onComplete: c2 } = this._createApiCallbacks({
+      success: a2,
+      complete: o2
+    }), l2 = null;
+    i2 && (l2 = document.createElement("div"), l2.className = "dimina-toast-mask", this.el.appendChild(l2));
+    let u2 = document.createElement("div");
+    u2.className = `dimina-toast dimina-toast--${r2}`, r2 === "none" && u2.classList.add("dimina-toast--text-only");
+    let d2 = document.createElement("p");
+    d2.textContent = String(t2), u2.appendChild(d2), this.el.appendChild(u2), this.toastInfo.dom = u2, this.toastInfo.maskEl = l2, this.toastInfo.timer = setTimeout(() => {
+      u2.remove(), l2 == null || l2.remove(), this.toastInfo.dom === u2 && (this.toastInfo.dom = null, this.toastInfo.maskEl = null, this.toastInfo.timer = null);
+    }, n2), s2 == null || s2(), c2 == null || c2();
+  }
+  hideToast(e = {}) {
+    let { success: t2, complete: n2 } = e, { onSuccess: r2, onComplete: i2 } = this._createApiCallbacks({
+      success: t2,
+      complete: n2
+    });
+    this.toastInfo.dom && (this.toastInfo.dom.remove(), this.toastInfo.dom = null), this.toastInfo.maskEl && (this.toastInfo.maskEl.remove(), this.toastInfo.maskEl = null), this.toastInfo.timer && (clearTimeout(this.toastInfo.timer), this.toastInfo.timer = null), r2 == null || r2(), i2 == null || i2();
+  }
+  showLoading(e = {}) {
+    this.showToast({
+      ...e,
+      icon: "loading"
+    });
+  }
+  hideLoading(e = {}) {
+    this.hideToast(e);
+  }
+  _lockModalPageTouch() {
+    var e;
+    if (this._modalPageTouchTarget) return;
+    let t2 = this.navigator.top, n2 = t2 == null || (e = t2.webview) == null || (e = e.iframe) == null ? void 0 : e.contentWindow;
+    n2 != null && n2.addEventListener && (n2.addEventListener("touchmove", J, {
+      capture: true,
+      passive: false
+    }), this._modalPageTouchTarget = n2);
+  }
+  _unlockModalPageTouch() {
+    this._modalPageTouchTarget && (this._modalPageTouchTarget.removeEventListener("touchmove", J, true), this._modalPageTouchTarget = null);
+  }
+  showModal(e) {
+    if (this._destroyed) return;
+    this._modalStack.length === 0 && this._lockModalPageTouch();
+    let t2 = this._mountModal(e || {});
+    this._modalStack.push(t2), this._updateModalView(), t2.mask.classList.add("show");
+    let n2 = setTimeout(() => {
+      this._modalPendingTimers.delete(n2), !this._destroyed && this._modalStack.includes(t2) && t2.dialog.classList.add("show");
+    }, 100);
+    this._modalPendingTimers.add(n2);
+  }
+  _updateModalView() {
+    let e = this._modalStack.length - 1;
+    for (let t2 = 0; t2 < this._modalStack.length; t2++) {
+      let n2 = this._modalStack[t2];
+      t2 === e ? (n2.mask.classList.remove("dimina-modal--occluded"), n2.dialog.classList.remove("dimina-modal--occluded")) : (n2.mask.classList.add("dimina-modal--occluded"), n2.dialog.classList.add("dimina-modal--occluded"));
+    }
+  }
+  _mountModal(e) {
+    let { title: t2 = "", content: n2 = "", showCancel: r2 = true, cancelText: i2 = "\u53D6\u6D88", cancelColor: a2 = "#000", confirmText: o2 = "\u786E\u5B9A", confirmColor: s2 = "#576b95", success: c2, complete: l2 } = e, { onSuccess: u2, onComplete: d2 } = this._createApiCallbacks({
+      success: c2,
+      complete: l2
+    }), f2 = document.createElement("div");
+    f2.className = "dimina-dialog-mask", f2.addEventListener("touchmove", q, { passive: false });
+    let p2 = document.createElement("div");
+    p2.className = "dimina-dialog";
+    let m2 = this._modalStack.length;
+    if (f2.style.zIndex = String(1100 + m2 * 20), p2.style.zIndex = String(1110 + m2 * 20), t2) {
+      let e2 = document.createElement("h2");
+      e2.className = "dimina-dialog__title", e2.textContent = String(t2), p2.appendChild(e2);
+    }
+    if (n2) {
+      let e2 = document.createElement("p");
+      e2.className = "dimina-dialog__content", e2.textContent = String(n2), p2.appendChild(e2);
+    }
+    let h2 = document.createElement("div");
+    h2.className = "dimina-dialog__buttons";
+    let g2 = false, _2 = {
+      mask: f2,
+      dialog: p2,
+      close: null
+    }, v2 = (e2) => {
+      if (g2) return;
+      g2 = true;
+      let t3 = this._modalStack.indexOf(_2);
+      t3 >= 0 && this._modalStack.splice(t3, 1), this._modalStack.length === 0 ? (f2.classList.remove("show"), p2.classList.remove("show"), setTimeout(() => {
+        f2.remove(), p2.remove();
+      }, 200)) : (f2.remove(), p2.remove()), this._updateModalView(), this._modalStack.length === 0 && this._unlockModalPageTouch(), u2 == null || u2(e2), d2 == null || d2();
+    };
+    if (_2.close = v2, r2) {
+      let e2 = document.createElement("button");
+      e2.type = "button", e2.className = "dimina-dialog__button", e2.style.color = a2, e2.textContent = String(i2), e2.addEventListener("click", () => {
+        v2({
+          cancel: true,
+          confirm: false,
+          errMsg: "showModal:ok"
+        });
+      }), h2.appendChild(e2);
+    }
+    let y2 = document.createElement("button");
+    return y2.type = "button", y2.className = "dimina-dialog__button", y2.style.color = s2, y2.textContent = String(o2), y2.addEventListener("click", () => {
+      v2({
+        cancel: false,
+        confirm: true,
+        errMsg: "showModal:ok"
+      });
+    }), h2.appendChild(y2), p2.appendChild(h2), this.el.appendChild(f2), this.el.appendChild(p2), _2;
+  }
+  showActionSheet(e) {
+    let { itemList: t2 = [], itemColor: n2 = "#000", success: r2, fail: i2, complete: a2 } = e || {}, { onSuccess: o2, onFail: s2, onComplete: c2 } = this._createApiCallbacks({
+      success: r2,
+      fail: i2,
+      complete: a2
+    });
+    if (!Array.isArray(t2) || t2.length === 0) {
+      s2 == null || s2({ errMsg: "showActionSheet:fail" }), c2 == null || c2();
+      return;
+    }
+    let l2 = document.createElement("div");
+    l2.className = "dimina-action-sheet-mask";
+    let u2 = document.createElement("div");
+    u2.className = "dimina-action-sheet";
+    let d2 = () => {
+      l2.remove(), u2.remove();
+    };
+    t2.forEach((e2, t3) => {
+      let r3 = document.createElement("div");
+      r3.className = "dimina-action-sheet-item", r3.style.color = n2, r3.textContent = e2, r3.onclick = () => {
+        d2(), o2 == null || o2({
+          tapIndex: t3,
+          errMsg: "showActionSheet:ok"
+        }), c2 == null || c2();
+      }, u2.appendChild(r3);
+    });
+    let f2 = document.createElement("div");
+    f2.className = "dimina-action-sheet-cancel", f2.textContent = "\u53D6\u6D88", f2.onclick = () => {
+      d2(), s2 == null || s2({ errMsg: "showActionSheet:fail cancel" }), c2 == null || c2();
+    }, u2.appendChild(f2), l2.onclick = d2, this.el.appendChild(l2), this.el.appendChild(u2), requestAnimationFrame(() => requestAnimationFrame(() => {
+      u2.classList.add("show"), l2.classList.add("show");
+    }));
+  }
+  setNavigationBarTitle(e) {
+    let { title: t2, success: n2, fail: r2, complete: i2 } = e, { onSuccess: a2, onFail: o2, onComplete: s2 } = this._createApiCallbacks({
+      success: n2,
+      fail: r2,
+      complete: i2
+    });
+    try {
+      let e2 = this.navigator.top.webview.el.querySelector(".dimina-native-webview__navigation-title");
+      e2 ? (e2.textContent = t2 || "", a2 == null || a2({ errMsg: "setNavigationBarTitle:ok" })) : o2 == null || o2({ errMsg: "setNavigationBarTitle:fail Navigation title element not found" });
+    } catch (e2) {
+      o2 == null || o2({ errMsg: `setNavigationBarTitle:fail ${Y(e2)}` });
+    } finally {
+      s2 == null || s2();
+    }
+  }
+  setNavigationBarColor(e) {
+    let { frontColor: t2, backgroundColor: n2, success: r2, fail: i2, complete: a2 } = e, { onSuccess: o2, onFail: s2, onComplete: c2 } = this._createApiCallbacks({
+      success: r2,
+      fail: i2,
+      complete: a2
+    });
+    try {
+      let e2 = this.navigator.top.webview.el.querySelector(".dimina-native-webview__navigation");
+      e2 ? (t2 && (e2.querySelector(".dimina-native-webview__navigation-title").style.color = t2), n2 && (e2.style.backgroundColor = n2), o2 == null || o2({ errMsg: "setNavigationBarColor:ok" })) : s2 == null || s2({ errMsg: "setNavigationBarColor:fail Navigation element not found" });
+    } catch (e2) {
+      s2 == null || s2({ errMsg: `setNavigationBarColor:fail ${Y(e2)}` });
+    } finally {
+      c2 == null || c2();
+    }
+  }
+  pageScrollTo(e) {
+    let { scrollTop: t2, duration: n2 = 300, success: r2, fail: i2, complete: a2 } = e, { onSuccess: o2, onFail: s2, onComplete: c2 } = this._createApiCallbacks({
+      success: r2,
+      fail: i2,
+      complete: a2
+    });
+    try {
+      var l2;
+      let e2 = (l2 = this.navigator.top.webview.iframe.contentWindow) == null ? void 0 : l2.document.documentElement;
+      e2 ? (e2.scrollTo({
+        top: t2,
+        behavior: n2 > 0 ? "smooth" : "auto"
+      }), setTimeout(() => {
+        o2 == null || o2({ errMsg: "pageScrollTo:ok" }), c2 == null || c2();
+      }, n2)) : (s2 == null || s2({ errMsg: "pageScrollTo:fail Webview root element not found" }), c2 == null || c2());
+    } catch (e2) {
+      s2 == null || s2({ errMsg: `pageScrollTo:fail ${Y(e2)}` }), c2 == null || c2();
+    }
+  }
+  setClipboardData(e) {
+    let { data: t2, success: n2, fail: r2, complete: i2 } = e, { onSuccess: a2, onFail: o2, onComplete: s2 } = this._createApiCallbacks({
+      success: n2,
+      fail: r2,
+      complete: i2
+    });
+    try {
+      navigator.clipboard.writeText(t2).then(() => {
+        a2 == null || a2({ errMsg: "setClipboardData:ok" }), s2 == null || s2();
+      }).catch((e2) => {
+        o2 == null || o2({ errMsg: `setClipboardData:fail ${e2.message}` }), s2 == null || s2();
+      });
+    } catch (e2) {
+      o2 == null || o2({ errMsg: `setClipboardData:fail ${Y(e2)}` }), s2 == null || s2();
+    }
+  }
+  getClipboardData(e) {
+    let { success: t2, fail: n2, complete: r2 } = e, { onSuccess: i2, onFail: a2, onComplete: o2 } = this._createApiCallbacks({
+      success: t2,
+      fail: n2,
+      complete: r2
+    });
+    try {
+      navigator.clipboard.readText().then((e2) => {
+        i2 == null || i2({
+          data: e2,
+          errMsg: "getClipboardData:ok"
+        }), o2 == null || o2();
+      }).catch((e2) => {
+        a2 == null || a2({ errMsg: `getClipboardData:fail ${e2.message}` }), o2 == null || o2();
+      });
+    } catch (e2) {
+      a2 == null || a2({ errMsg: `getClipboardData:fail ${Y(e2)}` }), o2 == null || o2();
+    }
+  }
+  chooseVideo(e = {}) {
+    var t2, n2, r2;
+    let { onSuccess: i2, onFail: a2, onComplete: o2 } = this._createApiCallbacks(e), s2 = document.createElement("input");
+    s2.type = "file", s2.accept = "video/*", ((t2 = e.sourceType) == null ? void 0 : t2.length) === 1 && e.sourceType[0] === "camera" && (s2.capture = e.camera === "front" ? "user" : "environment"), s2.style.display = "none", this.el.appendChild(s2);
+    let c2 = false, l2 = false, u2 = null, d2 = () => {
+      var e2, t3;
+      (e2 = (t3 = globalThis).removeEventListener) == null || e2.call(t3, "focus", p2), u2 && clearTimeout(u2), s2.remove();
+    }, f2 = () => {
+      if (c2) return;
+      c2 = true, d2();
+      let e2 = { errMsg: "chooseVideo:fail cancel" };
+      a2 == null || a2(e2), o2 == null || o2(e2);
+    }, p2 = () => {
+      u2 = setTimeout(() => {
+        var e2;
+        !c2 && !((e2 = s2.files) != null && e2.length) && f2();
+      }, 300);
+    }, m2 = (e2, t3) => {
+      l2 || (l2 = true, t3 ? i2 == null || i2(e2) : a2 == null || a2(e2), o2 == null || o2(e2));
+    };
+    s2.addEventListener("cancel", f2, { once: true }), (n2 = (r2 = globalThis).addEventListener) == null || n2.call(r2, "focus", p2), s2.onchange = () => {
+      var e2;
+      let t3 = (e2 = s2.files) == null ? void 0 : e2[0];
+      if (!t3) {
+        f2();
+        return;
+      }
+      c2 = true, d2();
+      let n3 = URL.createObjectURL(t3);
+      this._tempObjectUrls.add(n3);
+      let r3 = document.createElement("video");
+      r3.preload = "metadata", r3.onloadedmetadata = () => {
+        let e3 = {
+          tempFilePath: n3,
+          duration: Number.isFinite(r3.duration) ? r3.duration : 0,
+          width: r3.videoWidth,
+          height: r3.videoHeight,
+          size: t3.size,
+          errMsg: "chooseVideo:ok"
+        };
+        m2(e3, true);
+      }, r3.onerror = () => {
+        m2({ errMsg: "chooseVideo:fail unsupported video" }, false);
+      }, r3.src = n3;
+    }, s2.click();
+  }
+  getImageInfo(e) {
+    let { onSuccess: t2, onFail: n2, onComplete: r2 } = this._createApiCallbacks(e);
+    if (!e.src) {
+      let e2 = { errMsg: "getImageInfo:fail src is required" };
+      n2 == null || n2(e2), r2 == null || r2(e2);
+      return;
+    }
+    this._resolveMediaObjectUrl(e.src).then((i2) => {
+      let a2 = new Image();
+      a2.onload = () => {
+        let n3 = e.src.split("?")[0], i3 = n3.includes(".") ? n3.split(".").pop().toLowerCase() : "unknown", o2 = {
+          width: a2.naturalWidth,
+          height: a2.naturalHeight,
+          path: e.src,
+          orientation: "up",
+          type: i3,
+          errMsg: "getImageInfo:ok"
+        };
+        t2 == null || t2(o2), r2 == null || r2(o2);
+      }, a2.onerror = () => {
+        let e2 = { errMsg: "getImageInfo:fail unsupported image" };
+        n2 == null || n2(e2), r2 == null || r2(e2);
+      }, a2.src = i2;
+    }).catch((e2) => {
+      let t3 = { errMsg: `getImageInfo:fail ${Y(e2)}` };
+      n2 == null || n2(t3), r2 == null || r2(t3);
+    });
+  }
+  getVideoInfo(e) {
+    let { onSuccess: t2, onFail: n2, onComplete: r2 } = this._createApiCallbacks(e);
+    if (!e.src) {
+      let e2 = { errMsg: "getVideoInfo:fail src is required" };
+      n2 == null || n2(e2), r2 == null || r2(e2);
+      return;
+    }
+    this._resolveMediaObjectUrl(e.src).then((i2) => {
+      let a2 = document.createElement("video");
+      a2.preload = "metadata", a2.onloadedmetadata = async () => {
+        var n3;
+        let o2 = 0;
+        try {
+          let e2 = await fetch(i2);
+          o2 = Math.ceil((await e2.blob()).size / 1024);
+        } catch {
+        }
+        let s2 = ((n3 = e.src.split("?")[0].split(".").pop()) == null ? void 0 : n3.toLowerCase()) ?? "unknown", c2 = {
+          duration: Number.isFinite(a2.duration) ? a2.duration : 0,
+          width: a2.videoWidth,
+          height: a2.videoHeight,
+          orientation: "up",
+          type: s2,
+          size: o2,
+          bitrate: 0,
+          fps: 0,
+          errMsg: "getVideoInfo:ok"
+        };
+        t2 == null || t2(c2), r2 == null || r2(c2);
+      }, a2.onerror = () => {
+        let e2 = { errMsg: "getVideoInfo:fail unsupported video" };
+        n2 == null || n2(e2), r2 == null || r2(e2);
+      }, a2.src = i2;
+    }).catch((e2) => {
+      let t3 = { errMsg: `getVideoInfo:fail ${Y(e2)}` };
+      n2 == null || n2(t3), r2 == null || r2(t3);
+    });
+  }
+  previewMedia(e) {
+    var t2;
+    let { onSuccess: n2, onFail: r2, onComplete: i2 } = this._createApiCallbacks(e), a2 = (e.sources ?? []).filter((e2) => e2.url);
+    if (a2.length === 0) {
+      let e2 = { errMsg: "previewMedia:fail sources is required" };
+      r2 == null || r2(e2), i2 == null || i2(e2);
+      return;
+    }
+    (t2 = this._mediaPreviewEl) == null || t2.remove();
+    let o2 = Math.max(0, Math.min(e.current ?? 0, a2.length - 1)), s2 = document.createElement("div");
+    s2.style.cssText = "position:absolute;inset:0;z-index:10000;background:#000;display:flex;align-items:center;justify-content:center;";
+    let c2 = document.createElement("div");
+    c2.style.cssText = "width:100%;height:100%;display:flex;align-items:center;justify-content:center;";
+    let l2 = document.createElement("div");
+    l2.style.cssText = "position:absolute;top:calc(env(safe-area-inset-top) + 16px);left:50%;transform:translateX(-50%);color:white;font:14px sans-serif;z-index:2;";
+    let u2 = document.createElement("button");
+    u2.type = "button", u2.textContent = "\xD7", u2.style.cssText = "position:absolute;right:16px;top:calc(env(safe-area-inset-top) + 8px);z-index:3;border:0;background:transparent;color:white;font-size:36px;";
+    let d2 = async () => {
+      let e2 = o2;
+      c2.textContent = "";
+      let t3 = a2[o2];
+      try {
+        let n3 = await this._resolveMediaObjectUrl(t3.url);
+        if (e2 !== o2) return;
+        let r3 = t3.type === "video" ? document.createElement("video") : document.createElement("img");
+        if (r3.style.cssText = "max-width:100%;max-height:100%;object-fit:contain;", r3 instanceof HTMLVideoElement && (r3.controls = true, r3.autoplay = true, r3.poster = t3.poster ? await this._resolveMediaObjectUrl(t3.poster) : ""), e2 !== o2) return;
+        r3.src = n3, c2.appendChild(r3), l2.textContent = `${o2 + 1}/${a2.length}`;
+      } catch (t4) {
+        if (e2 !== o2) return;
+        c2.textContent = `previewMedia:fail ${Y(t4)}`, c2.style.color = "white";
+      }
+    }, f2 = 0;
+    c2.addEventListener("pointerdown", (e2) => {
+      f2 = e2.clientX;
+    }), c2.addEventListener("pointerup", (e2) => {
+      let t3 = e2.clientX - f2;
+      Math.abs(t3) < 40 || (o2 = Math.max(0, Math.min(o2 + (t3 < 0 ? 1 : -1), a2.length - 1)), d2());
+    }), u2.onclick = () => {
+      s2.remove(), this._mediaPreviewEl === s2 && (this._mediaPreviewEl = null);
+    }, s2.append(c2, l2, u2), this.el.appendChild(s2), this._mediaPreviewEl = s2, d2();
+    let p2 = { errMsg: "previewMedia:ok" };
+    n2 == null || n2(p2), i2 == null || i2(p2);
+  }
+  setKeepScreenOn(e) {
+    let { onSuccess: t2, onFail: n2, onComplete: r2 } = this._createApiCallbacks(e);
+    if (typeof e.keepScreenOn != "boolean") {
+      let e2 = { errMsg: "setKeepScreenOn:fail invalid keepScreenOn" };
+      n2 == null || n2(e2), r2 == null || r2(e2);
+      return;
+    }
+    let i2 = (e2, i3) => {
+      i3 ? t2 == null || t2(e2) : n2 == null || n2(e2), r2 == null || r2(e2);
+    };
+    if (!e.keepScreenOn) {
+      this._keepScreenOnRequested = false, this._wakeLockVisibilityHandler && (document.removeEventListener("visibilitychange", this._wakeLockVisibilityHandler), this._wakeLockVisibilityHandler = null), (this._wakeLockRequest ?? Promise.resolve()).catch(() => {
+      }).then(() => this._releaseWakeLock()).then(() => {
+        i2({ errMsg: "setKeepScreenOn:ok" }, true);
+      }).catch((e2) => i2({ errMsg: `setKeepScreenOn:fail ${Y(e2)}` }, false));
+      return;
+    }
+    this._keepScreenOnRequested = true, this._installWakeLockVisibilityHandler(), this._requestWakeLock().then(() => {
+      i2({ errMsg: "setKeepScreenOn:ok" }, true);
+    }).catch((e2) => {
+      this._keepScreenOnRequested = false, this._wakeLockVisibilityHandler && (document.removeEventListener("visibilitychange", this._wakeLockVisibilityHandler), this._wakeLockVisibilityHandler = null), i2({ errMsg: `setKeepScreenOn:fail ${Y(e2)}` }, false);
+    });
+  }
+  _installWakeLockVisibilityHandler() {
+    this._wakeLockVisibilityHandler || (this._wakeLockVisibilityHandler = () => {
+      document.visibilityState === "visible" && this._keepScreenOnRequested && !this._destroyed && this._requestWakeLock().catch(() => {
+      });
+    }, document.addEventListener("visibilitychange", this._wakeLockVisibilityHandler));
+  }
+  _requestWakeLock() {
+    if (this._wakeLockSentinel && !this._wakeLockSentinel.released) return Promise.resolve();
+    if (this._wakeLockRequest) return this._wakeLockRequest;
+    let e = navigator.wakeLock;
+    if (!e) return Promise.reject(/* @__PURE__ */ Error("screen wake lock is not supported"));
+    let t2;
+    return t2 = e.request("screen").then(async (e2) => {
+      var t3;
+      if (!this._keepScreenOnRequested || this._destroyed) {
+        await e2.release();
+        return;
+      }
+      this._wakeLockSentinel = e2, (t3 = e2.addEventListener) == null || t3.call(e2, "release", () => {
+        this._wakeLockSentinel === e2 && (this._wakeLockSentinel = null);
+      });
+    }).finally(() => {
+      this._wakeLockRequest === t2 && (this._wakeLockRequest = null);
+    }), this._wakeLockRequest = t2, t2;
+  }
+  _releaseWakeLock() {
+    let e = this._wakeLockSentinel;
+    return this._wakeLockSentinel = null, e ? e.release() : Promise.resolve();
+  }
+  async getSetting(e = {}) {
+    let { onSuccess: t2, onComplete: n2 } = this._createApiCallbacks(e), r2 = {}, i2 = navigator.permissions;
+    for (let [e2, t3] of [
+      ["scope.camera", "camera"],
+      ["scope.record", "microphone"],
+      ["scope.userLocation", "geolocation"]
+    ]) try {
+      var a2;
+      r2[e2] = ((a2 = await (i2 == null ? void 0 : i2.query({ name: t3 }))) == null ? void 0 : a2.state) === "granted";
+    } catch {
+      r2[e2] = false;
+    }
+    let o2 = {
+      authSetting: r2,
+      errMsg: "getSetting:ok"
+    };
+    t2 == null || t2(o2), n2 == null || n2(o2);
+  }
+  authorize(e) {
+    let { onSuccess: t2, onFail: n2, onComplete: r2 } = this._createApiCallbacks(e), i2 = (e2, i3 = "auth deny") => {
+      let a3 = { errMsg: e2 ? "authorize:ok" : `authorize:fail ${i3}` };
+      e2 ? t2 == null || t2(a3) : n2 == null || n2(a3), r2 == null || r2(a3);
+    };
+    if (e.scope === "scope.camera" || e.scope === "scope.record") {
+      var a2;
+      if (!((a2 = navigator.mediaDevices) != null && a2.getUserMedia)) {
+        i2(false, "media permission is not supported");
+        return;
+      }
+      navigator.mediaDevices.getUserMedia({
+        video: e.scope === "scope.camera",
+        audio: e.scope === "scope.record"
+      }).then((e2) => {
+        e2.getTracks().forEach((e3) => e3.stop()), i2(true);
+      }).catch((e2) => i2(false, Y(e2)));
+      return;
+    }
+    if (e.scope === "scope.userLocation" && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(() => i2(true), (e2) => i2(false, e2.message));
+      return;
+    }
+    i2(false, "scope is not supported on Web");
+  }
+  _resolveMediaUrl(e) {
+    return new URL(e, new URL(this.getResourceBaseUrl(), window.location.origin)).toString();
+  }
+  async _resolveMediaObjectUrl(e) {
+    let t2 = this.appInfo.virtualFilePrefix, n2 = `${t2}usr/`;
+    if (e.startsWith(n2)) {
+      let n3 = await Fe(this.appId, e, t2), r2 = URL.createObjectURL(n3);
+      return this._tempObjectUrls.add(r2), r2;
+    }
+    if (e.startsWith(t2)) throw Error(`temporary virtual file is not available on Web: ${e}`);
+    return this._resolveMediaUrl(e);
+  }
+  "FileSystemManager.saveFile"(e = {}) {
+    let { tempFilePath: t2 = "", filePath: n2, success: r2, fail: i2, complete: a2 } = e, { onSuccess: o2, onFail: s2, onComplete: c2 } = this._createApiCallbacks({
+      success: r2,
+      fail: i2,
+      complete: a2
+    });
+    Pe({
+      appId: this.appId,
+      tempFilePath: t2,
+      filePath: n2,
+      resourceBaseUrl: this.getResourceBaseUrl(),
+      virtualFilePrefix: this.appInfo.virtualFilePrefix
+    }).then((e2) => {
+      let t3 = {
+        savedFilePath: e2,
+        errMsg: "FileSystemManager.saveFile:ok"
+      };
+      o2 == null || o2(t3), c2 == null || c2(t3);
+    }).catch((e2) => {
+      let t3 = { errMsg: `FileSystemManager.saveFile:fail ${Y(e2)}` };
+      s2 == null || s2(t3), c2 == null || c2(t3);
+    });
+  }
+  setStorage(e) {
+    let { key: t2, data: n2, success: r2, fail: i2, complete: a2 } = e, { onSuccess: o2, onFail: s2, onComplete: c2 } = this._createApiCallbacks({
+      success: r2,
+      fail: i2,
+      complete: a2
+    });
+    try {
+      let e2 = this._storageKey(t2);
+      this._getStorageAdapter().setItem(e2, this._serializeStorageValue(n2)), o2 == null || o2({ errMsg: "setStorage:ok" });
+    } catch (e2) {
+      s2 == null || s2({ errMsg: `setStorage:fail ${Y(e2)}` });
+    } finally {
+      c2 == null || c2();
+    }
+  }
+  getStorage(e) {
+    let { key: t2, success: n2, fail: r2, complete: i2 } = e, { onSuccess: a2, onFail: o2, onComplete: s2 } = this._createApiCallbacks({
+      success: n2,
+      fail: r2,
+      complete: i2
+    });
+    try {
+      let e2 = this._readStorageValue(this._getStorageAdapter(), t2);
+      e2.found ? a2 == null || a2({
+        data: e2.data,
+        errMsg: "getStorage:ok"
+      }) : o2 == null || o2({ errMsg: "getStorage:fail data not found" });
+    } catch (e2) {
+      o2 == null || o2({ errMsg: `getStorage:fail ${Y(e2)}` });
+    } finally {
+      s2 == null || s2();
+    }
+  }
+  removeStorage(e) {
+    let { key: t2, success: n2, fail: r2, complete: i2 } = e, { onSuccess: a2, onFail: o2, onComplete: s2 } = this._createApiCallbacks({
+      success: n2,
+      fail: r2,
+      complete: i2
+    });
+    try {
+      this._getStorageAdapter().setItem(this._storageKey(t2), this._serializeStorageTombstone()), a2 == null || a2({ errMsg: "removeStorage:ok" });
+    } catch (e2) {
+      o2 == null || o2({ errMsg: `removeStorage:fail ${Y(e2)}` });
+    } finally {
+      s2 == null || s2();
+    }
+  }
+  clearStorage(e = {}) {
+    let { success: t2, fail: n2, complete: r2 } = e || {}, { onSuccess: i2, onFail: a2, onComplete: o2 } = this._createApiCallbacks({
+      success: t2,
+      fail: n2,
+      complete: r2
+    });
+    try {
+      let e2 = this._storageKeyPrefix(), t3 = [], n3 = this._getStorageAdapter();
+      for (let r3 = 0; r3 < n3.length; r3++) {
+        let i3 = n3.key(r3);
+        i3 != null && i3.startsWith(e2) && t3.push(i3);
+      }
+      t3.forEach((e3) => n3.removeItem(e3)), n3.setItem(this._legacyStorageDisabledKey(), "1"), i2 == null || i2({ errMsg: "clearStorage:ok" });
+    } catch (e2) {
+      a2 == null || a2({ errMsg: `clearStorage:fail ${Y(e2)}` });
+    } finally {
+      o2 == null || o2();
+    }
+  }
+  getStorageInfo(e = {}) {
+    let { success: t2, fail: n2, complete: r2 } = e || {}, { onSuccess: i2, onFail: a2, onComplete: o2 } = this._createApiCallbacks({
+      success: t2,
+      fail: n2,
+      complete: r2
+    });
+    try {
+      let e2 = [], t3 = 0, n3 = this._storageKeyPrefix(), r3 = this._getStorageAdapter();
+      for (let i3 = 0; i3 < r3.length; i3++) {
+        let a3 = r3.key(i3);
+        if (a3 != null && a3.startsWith(n3)) {
+          let i4 = r3.getItem(a3);
+          if (i4 === null || this._decodeStorageRecord(i4).kind === "deleted") continue;
+          e2.push(a3.substring(n3.length)), t3 += i4.length * 2;
+        }
+      }
+      i2 == null || i2({
+        keys: e2,
+        currentSize: t3,
+        limitSize: 10485760,
+        errMsg: "getStorageInfo:ok"
+      });
+    } catch (e2) {
+      a2 == null || a2({ errMsg: `getStorageInfo:fail ${Y(e2)}` });
+    } finally {
+      o2 == null || o2();
+    }
+  }
+  _parseExtEventKey(e) {
+    var t2;
+    let n2 = ((t2 = this.parent) == null || (t2 = t2.appManager) == null ? void 0 : t2.getExtModules()) ?? {};
+    for (let t3 of Object.keys(n2)) {
+      let n3 = `${t3}_`;
+      if (e.startsWith(n3)) return {
+        module: t3,
+        event: e.slice(n3.length)
+      };
+    }
+    return {
+      module: null,
+      event: null
+    };
+  }
+  _handleExtCall(e, t2 = {}) {
+    t2.module === void 0 ? t2.success ? this._extOnBridgeCall(e, t2) : this._extOffBridgeCall(e) : this._extBridgeCall(e, t2);
+  }
+  _extBridgeCall(e, t2) {
+    var n2;
+    let { module: r2, data: i2 = {}, success: a2, fail: o2, complete: s2 } = t2, { onSuccess: c2, onFail: l2, onComplete: u2 } = this._createApiCallbacks({
+      success: a2,
+      fail: o2,
+      complete: s2
+    }), d2 = (n2 = this.parent) == null || (n2 = n2.appManager) == null ? void 0 : n2.getExtModule(r2);
+    if (!d2) {
+      let e2 = `extBridge:fail module "${r2}" not registered`;
+      console.error(`[container] ${e2}`), l2 == null || l2({ errMsg: e2 }), u2 == null || u2();
+      return;
+    }
+    try {
+      d2({
+        event: e,
+        data: i2,
+        success: (e2) => {
+          c2 == null || c2(e2), u2 == null || u2();
+        },
+        fail: (e2) => {
+          l2 == null || l2(e2), u2 == null || u2();
+        }
+      });
+    } catch (e2) {
+      l2 == null || l2({ errMsg: `extBridge:fail ${Y(e2)}` }), u2 == null || u2();
+    }
+  }
+  _extOnBridgeCall(e, t2) {
+    var n2;
+    let { success: r2 } = t2, i2 = this.createCallbackFunction(r2), { module: a2, event: o2 } = this._parseExtEventKey(e);
+    if (!a2) {
+      console.warn(`[container] extOnBridge:fail no registered module matched for key "${e}"`);
+      return;
+    }
+    let s2 = (n2 = this.parent) == null || (n2 = n2.appManager) == null ? void 0 : n2.getExtModule(a2), c2 = this._extSubscriptions.get(e);
+    c2 == null || c2();
+    try {
+      let t3 = s2 == null ? void 0 : s2({
+        event: o2,
+        data: { isSustain: true },
+        success: (e2) => i2 == null ? void 0 : i2(e2),
+        fail: (t4) => console.error(`[container] extOnBridge error (${e}):`, t4)
+      });
+      this._extSubscriptions.set(e, t3 ?? null);
+    } catch (e2) {
+      console.error(`[container] extOnBridge:fail ${Y(e2)}`);
+    }
+  }
+  _extOffBridgeCall(e) {
+    let t2 = this._extSubscriptions.get(e);
+    t2 && (t2(), this._extSubscriptions.delete(e));
+  }
+};
+var Z = class {
+  configureRetention(e, t2) {
+    this.application = t2, this.retention.configure(e);
+  }
+  scheduleRetention() {
+    !this.retentionQueued && this.application && (this.retentionQueued = true, this._enqueue(async () => {
+      let e = this.application;
+      await e._enqueue(async () => {
+        this.retentionQueued = false;
+        for (let t2 of this.retention.collect((t3) => !e.views.includes(t3))) this.apps.get(t2.appId) === t2 && await e.destroyRootView(t2);
+      });
+    }).catch((e) => {
+      this.retentionQueued = false, console.error("[container] retention:", e);
+    }));
+  }
+  constructor() {
+    i(this, "apps", void 0), i(this, "_extModules", void 0), i(this, "_containerApis", void 0), i(this, "_openQueue", void 0), i(this, "application", void 0), i(this, "retentionQueued", false), i(this, "retention", new ie(() => this.scheduleRetention())), this.apps = /* @__PURE__ */ new Map(), this._extModules = {}, this._containerApis = {}, this._openQueue = Promise.resolve();
+  }
+  registerExtModule(e, t2) {
+    this._extModules[e] = t2;
+  }
+  registerApi(e, t2) {
+    this._containerApis[e] = t2;
+    for (let n2 of this.apps.values()) n2.registerApi(e, t2);
+  }
+  getExtModule(e) {
+    return this._extModules[e];
+  }
+  getExtModules() {
+    return this._extModules;
+  }
+  openApp(e, t2) {
+    return this._enqueue(() => this._openApp(e, t2));
+  }
+  _enqueue(e) {
+    let t2 = this._openQueue.then(e);
+    return this._openQueue = t2.catch(() => {
+    }), t2;
+  }
+  async _openApp(e, t2) {
+    await t2._enqueue(async () => {
+      for (let e2 of this.retention.collect((e3) => !t2.views.includes(e3))) this.apps.get(e2.appId) === e2 && await t2.destroyRootView(e2);
+    });
+    let { appId: n2, path: r2, scene: i2, destroy: a2, restoreStack: o2 } = e;
+    if (!n2 || typeof n2 != "string") throw Error("[container] openApp: options.appId is required");
+    let s2 = e.resourceBaseUrl === void 0 ? void 0 : h(e.resourceBaseUrl, t2.allowedOrigins), c2, l2;
+    if (r2) ({ pagePath: c2, query: l2 } = C(r2));
+    else if (!e.allowDefaultPath && o2 != null && o2.length) {
+      let e2 = o2 == null ? void 0 : o2[0], t3 = typeof (e2 == null ? void 0 : e2.pagePath) == "string" ? e2.pagePath.replace(/^\/+/, "") : "";
+      if (!t3) throw Error("[container] openApp: restoreStack[0].pagePath must be a non-empty string");
+      c2 = t3, l2 = e2.query ?? {};
+    } else c2 = "", l2 = {};
+    let { name: u2, logo: d2 } = await t2.getAppInfo(n2) ?? {};
+    if (a2) {
+      let e2 = [...this.apps.values()].filter((e3) => e3.appId !== n2);
+      for (let n3 of e2) {
+        let e3 = n3.navigator.popPage();
+        e3 == null || e3.destroy("exit"), await t2.destroyRootView(n3);
+      }
+    }
+    let f2 = this.getAppById(n2);
+    if (f2) return f2.opener = e.opener ?? null, t2.views[t2.views.length - 1] !== f2 && f2.queueAppShowOptions({
+      scene: i2 ?? 1001,
+      path: f2.getCurrentPagePath(),
+      query: f2.getCurrentPageQuery(),
+      referrerInfo: e.referrerInfo ?? {}
+    }), await t2.presentView(f2, true), f2;
+    let p2 = new X({
+      appId: n2,
+      scene: i2,
+      referrerInfo: e.referrerInfo,
+      opener: e.opener,
+      name: u2,
+      logo: d2,
+      pagePath: c2,
+      query: l2,
+      restoreStack: o2,
+      resourceBaseUrl: s2,
+      virtualFilePrefix: t2.virtualFilePrefix
+    });
+    for (let [e2, t3] of Object.entries(this._containerApis)) p2.registerApi(e2, t3);
+    return this.apps.set(p2.appId, p2), await t2.presentView(p2, false), p2;
+  }
+  _navigateContext(e) {
+    let t2 = e.parent;
+    if (!t2 || t2.views[t2.views.length - 1] !== e) throw Error("[container] mini program navigation requires the active mini program");
+    return t2;
+  }
+  _referrerInfo(e, t2) {
+    return t2 === void 0 ? { appId: e.appId } : {
+      appId: e.appId,
+      extraData: t2
+    };
+  }
+  _sameQuery(e, t2) {
+    let n2 = Object.keys(e);
+    return n2.length === Object.keys(t2).length && n2.every((n3) => e[n3] === t2[n3]);
+  }
+  _validateExtraData(e, t2) {
+    if (t2 !== void 0 && Object.prototype.toString.call(t2) !== "[object Object]") throw Error(`[container] ${e}: options.extraData must be an object`);
+  }
+  navigateToMiniProgram(e, t2) {
+    return this._enqueue(async () => {
+      var n2;
+      let r2 = this._navigateContext(t2);
+      if (e.shortLink !== void 0 && typeof e.shortLink != "string") throw Error("[container] navigateToMiniProgram: options.shortLink must be a string");
+      if ((n2 = e.shortLink) != null && n2.trim()) throw Error("[container] navigateToMiniProgram: shortLink is not supported by this host");
+      let i2 = typeof e.appId == "string" ? e.appId.trim() : "";
+      if (!i2) throw Error("[container] navigateToMiniProgram: options.appId is required");
+      if (i2 === t2.appId) throw Error("[container] navigateToMiniProgram: cannot navigate to the current mini program");
+      if (e.path !== void 0 && typeof e.path != "string") throw Error("[container] navigateToMiniProgram: options.path must be a string");
+      if (e.envVersion !== void 0 && e.envVersion !== "release") throw Error(`[container] navigateToMiniProgram: envVersion ${String(e.envVersion)} is not available in this host`);
+      if (e.noRelaunchIfPathUnchanged !== void 0 && typeof e.noRelaunchIfPathUnchanged != "boolean") throw Error("[container] navigateToMiniProgram: options.noRelaunchIfPathUnchanged must be a boolean");
+      this._validateExtraData("navigateToMiniProgram", e.extraData);
+      let a2 = this._referrerInfo(t2, e.extraData), o2 = this.getAppById(i2);
+      if (o2 && e.noRelaunchIfPathUnchanged) {
+        let n3 = e.path ? C(e.path) : {
+          pagePath: o2.getHomePagePath() || o2.pagePath,
+          query: {}
+        };
+        if (n3.pagePath && n3.pagePath === o2.getCurrentPagePath() && this._sameQuery(n3.query, o2.getCurrentPageQuery())) return o2.opener = t2, o2.queueAppShowOptions({
+          scene: 1037,
+          path: o2.getCurrentPagePath(),
+          query: o2.getCurrentPageQuery(),
+          referrerInfo: a2
+        }), await r2.presentView(o2, true), o2;
+      }
+      return o2 && (r2.views.includes(o2) ? await r2.dismissView(o2, { destroy: true }) : await r2.destroyRootView(o2)), this._openApp({
+        appId: i2,
+        path: e.path,
+        scene: 1037,
+        allowDefaultPath: true,
+        referrerInfo: a2,
+        opener: t2
+      }, r2);
+    });
+  }
+  navigateBackMiniProgram(e, t2, n2) {
+    return this._enqueue(async () => {
+      let r2 = this._navigateContext(e);
+      this._validateExtraData("navigateBackMiniProgram", t2);
+      let i2 = e.opener, a2 = r2.views.indexOf(e), o2 = i2 ? r2.views.indexOf(i2) : -1;
+      if (!i2 || o2 < 0 || o2 >= a2) throw Error("[container] navigateBackMiniProgram: current mini program was not opened by another mini program");
+      e.onPresentOut(), await n2(), e.queueDestructionLifecycle(), await e.jscore.flushCallbacks(), i2.queueAppShowOptions({
+        scene: 1038,
+        path: i2.getCurrentPagePath(),
+        query: i2.getCurrentPageQuery(),
+        referrerInfo: this._referrerInfo(e, t2)
+      }), await r2.dismissView(e, { destroy: true });
+    });
+  }
+  exitMiniProgram(e, t2) {
+    return this._enqueue(async () => {
+      let n2 = this._navigateContext(e), r2 = e.opener, i2 = n2.views.indexOf(e), a2 = r2 ? n2.views.indexOf(r2) : -1;
+      e.onPresentOut(), await t2(), e.queueDestructionLifecycle(), await e.jscore.flushCallbacks(), r2 && a2 >= 0 && a2 < i2 && r2.queueAppShowOptions({
+        scene: 1038,
+        path: r2.getCurrentPagePath(),
+        query: r2.getCurrentPageQuery(),
+        referrerInfo: this._referrerInfo(e, void 0)
+      }), await n2.dismissView(e, { destroy: true });
+    });
+  }
+  restartMiniProgram(e, t2, n2) {
+    return this._enqueue(async () => {
+      let r2 = this._navigateContext(e);
+      if (typeof t2 != "string" || !t2.trim()) throw Error("[container] restartMiniProgram: options.path is required");
+      let { pagePath: i2, query: a2 } = C(t2);
+      if (!i2) throw Error("[container] restartMiniProgram: options.path is required");
+      let o2 = new X({
+        ...e.appInfo,
+        pagePath: i2,
+        query: a2,
+        restoreStack: void 0,
+        opener: e.opener
+      });
+      for (let [t3, n3] of Object.entries(e.apiRegistry)) o2.registerApi(t3, n3);
+      this.apps.set(e.appId, o2);
+      try {
+        await r2.replaceView(e, o2, n2);
+      } catch (t3) {
+        let n3 = this.apps.get(e.appId);
+        (!n3 || n3 === o2) && this.apps.set(e.appId, e);
+        try {
+          o2.destroy();
+        } catch {
+        }
+        throw t3;
+      }
+      return o2;
+    });
+  }
+  getAppById(e) {
+    return this.apps.get(e) ?? null;
+  }
+  removeApp(e) {
+    this.retention.forget(e), this.apps.get(e.appId) === e && this.apps.delete(e.appId);
+  }
+  closeApp(e) {
+    e.parent.dismissView(e, { destroy: false });
+  }
+};
+var Q = () => new Promise((e) => requestAnimationFrame(() => requestAnimationFrame(() => e())));
+var Be = (e, t2, n2 = 560) => new Promise((r2) => {
+  let i2 = setTimeout(r2, n2), a2 = (n3) => {
+    (!t2 || n3.propertyName === t2) && (clearTimeout(i2), e.removeEventListener("transitionend", a2), r2());
+  };
+  e.addEventListener("transitionend", a2);
+});
+var Ve = class {
+  constructor(e = {}) {
+    i(this, "el", void 0), i(this, "window", void 0), i(this, "root", void 0), i(this, "views", void 0), i(this, "rootView", void 0), i(this, "parent", void 0), i(this, "done", void 0), i(this, "isSleeping", void 0), i(this, "_queue", void 0), i(this, "shell", void 0), i(this, "resourceBaseUrl", void 0), i(this, "pageFrameUrl", void 0), i(this, "virtualFilePrefix", void 0), i(this, "allowedOrigins", void 0), i(this, "apiNamespaces", void 0), i(this, "urlSync", void 0), i(this, "storageAdapter", void 0), i(this, "getAppInfo", void 0), i(this, "onAppLaunchError", void 0), i(this, "appManager", void 0), this.root = null, this.views = [], this.rootView = null, this.parent = null, this.done = true, this.isSleeping = false, this._queue = Promise.resolve(), this.shell = p(e.shell), this.resourceBaseUrl = h(e.resourceBaseUrl, e.allowedOrigins), this.pageFrameUrl = g(e.pageFrameUrl, this.resourceBaseUrl, e.allowedOrigins), this.virtualFilePrefix = f(e.virtualFilePrefix), this.allowedOrigins = e.allowedOrigins, this.apiNamespaces = _(e.apiNamespaces), this.urlSync = ee(e.urlSync, e.instanceKey), this.storageAdapter = re(e.storageSync), this.getAppInfo = v(e.getAppInfo), this.onAppLaunchError = e.onAppLaunchError, this.appManager = e.appManager ?? new Z(), this.init();
+  }
+  _enqueue(e) {
+    let t2 = this._queue.then(() => e());
+    return this._queue = t2.catch(() => {
+    }), t2;
+  }
+  syncUrl() {
+    let e = this.views[this.views.length - 1];
+    if (!e) {
+      this.urlSync.clear();
+      return;
+    }
+    this.urlSync.syncStack(e.appId, e.getPageStack());
+  }
+  safeSyncUrl() {
+    try {
+      this.syncUrl();
+    } catch {
+    }
+  }
+  safeRestoreColorStyle(e) {
+    try {
+      e.restoreColorStyle();
+    } catch {
+    }
+  }
+  init() {
+    this.el = document.createElement("div"), this.el.classList.add("dimina-application"), this.window = document.createElement("div"), this.window.classList.add("dimina-native-window"), this.el.appendChild(this.window);
+  }
+  initRootView(e) {
+    var t2;
+    this.rootView = e, e.parent = this, e.el.classList.add("dimina-native-view--instage"), e.el.style.zIndex = "1", this.root = e, this.window.appendChild(e.el), (t2 = e.viewDidLoad) == null || t2.call(e);
+  }
+  presentView(e, t2) {
+    return this._enqueue(() => this._presentView(e, t2));
+  }
+  async _presentView(e, t2) {
+    if (this.done) {
+      if (this.views[this.views.length - 1] === e) {
+        t2 && this.safeRestoreColorStyle(e), this.safeSyncUrl();
+        return;
+      }
+      this.done = false;
+      try {
+        let n2 = this.views[this.views.length - 1];
+        e.parent = this, e.el.style.zIndex = String(this.views.length + 1), e.el.classList.add("dimina-native-view--before-present"), e.el.classList.add("dimina-native-view--enter-anima"), n2 == null || n2.el.classList.add("dimina-native-view--before-presenting"), n2 == null || n2.el.classList.remove("dimina-native-view--instage"), n2 == null || n2.el.classList.add("dimina-native-view--enter-anima"), n2 == null || n2.onPresentOut(), this.isSleeping ? e.onPresentOut() : e.onPresentIn(), !t2 && this.el.appendChild(e.el);
+        let r2 = this.views.indexOf(e);
+        r2 !== -1 && this.views.splice(r2, 1), this.views.push(e), !t2 && e.viewDidLoad && e.viewDidLoad(), t2 && this.safeRestoreColorStyle(e), await Q(), n2 == null || n2.el.classList.add("dimina-native-view--presenting"), e.el.classList.add("dimina-native-view--instage"), await Be(e.el, "transform"), e.el.classList.remove("dimina-native-view--before-present"), e.el.classList.remove("dimina-native-view--enter-anima"), n2 == null || n2.el.classList.remove("dimina-native-view--enter-anima"), n2 == null || n2.el.classList.remove("dimina-native-view--before-presenting"), this.safeSyncUrl();
+      } finally {
+        this.done = true;
+      }
+    }
+  }
+  dismissView(e, t2 = {}) {
+    return this._enqueue(() => this._dismissView(e, t2));
+  }
+  replaceView(e, t2, n2 = () => {
+  }) {
+    return this._enqueue(async () => {
+      var r2;
+      let i2 = this.views.indexOf(e);
+      if (i2 === -1 || i2 !== this.views.length - 1) throw Error("[container] replaceView: current view must be active");
+      t2.parent = this, t2.el.style.zIndex = e.el.style.zIndex, t2.el.classList.add("dimina-native-view--instage"), e.onPresentOut(), (r2 = e.el.parentNode) == null || r2.replaceChild(t2.el, e.el), this.views[i2] = t2;
+      try {
+        this.isSleeping ? t2.onPresentOut() : t2.onPresentIn(), await t2.viewDidLoadForReplacement(), await n2(), e.queueDestructionLifecycle(), await e.jscore.flushCallbacks();
+      } catch (n3) {
+        var a2;
+        throw this.views[i2] = e, (a2 = t2.el.parentNode) == null || a2.replaceChild(e.el, t2.el), this.isSleeping || e.onPresentIn(), this.safeRestoreColorStyle(e), this.safeSyncUrl(), n3;
+      }
+      try {
+        e.destroy();
+      } catch (t3) {
+        console.error(`[container] view.destroy() threw during replaceView cleanup for ${e.appId}:`, t3);
+      }
+    });
+  }
+  async _dismissView(e, t2 = {}) {
+    if (!this.done) return;
+    let n2 = this.views.indexOf(e);
+    if (n2 === -1) return;
+    let { destroy: r2 = true } = t2;
+    if (n2 !== this.views.length - 1) {
+      if (this.views.splice(n2, 1), e.el.classList.remove("dimina-native-view--presenting", "dimina-native-view--before-presenting", "dimina-native-view--enter-anima"), r2) {
+        var i2;
+        try {
+          e.destroy();
+        } catch (t3) {
+          console.error(`[container] view.destroy() threw during dismissView cleanup for ${e.appId}:`, t3);
+        }
+        (i2 = e.el.parentNode) == null || i2.removeChild(e.el);
+      }
+      return;
+    }
+    this.done = false;
+    try {
+      let t3 = this.views[this.views.length - 2], n3 = e;
+      if (n3.el.classList.add("dimina-native-view--enter-anima"), t3 == null || t3.el.classList.add("dimina-native-view--enter-anima"), t3 == null || t3.el.classList.add("dimina-native-view--before-presenting"), await Q(), n3.el.classList.add("dimina-native-view--before-present"), n3.el.classList.remove("dimina-native-view--instage"), t3 == null || t3.el.classList.remove("dimina-native-view--presenting"), this.isSleeping || t3 == null || t3.onPresentIn(), n3 == null || n3.onPresentOut(), await Be(n3.el, "transform"), r2) {
+        try {
+          n3.destroy();
+        } catch (e2) {
+          console.error(`[container] view.destroy() threw during dismissView cleanup for ${n3.appId}:`, e2);
+        }
+        this.el.removeChild(n3.el);
+      }
+      this.views.pop(), t3 == null || t3.el.classList.remove("dimina-native-view--enter-anima"), t3 == null || t3.el.classList.remove("dimina-native-view--before-presenting"), this.safeSyncUrl();
+    } finally {
+      this.done = true;
+    }
+  }
+  async destroyRootView(e) {
+    var t2;
+    try {
+      e.destroy();
+    } catch (t3) {
+      console.error(`[container] view.destroy() threw during destroyRootView for ${e.appId}:`, t3);
+    }
+    let n2 = this.views.indexOf(e);
+    n2 !== -1 && this.views.splice(n2, 1), (t2 = e.el.parentNode) == null || t2.removeChild(e.el);
+  }
+  removeFailedView(e) {
+    return this._enqueue(async () => {
+      var t2;
+      let n2 = this.views.indexOf(e), r2 = n2 !== -1 && n2 === this.views.length - 1;
+      if (n2 !== -1 && this.views.splice(n2, 1), (t2 = e.el.parentNode) == null || t2.removeChild(e.el), r2) {
+        let e2 = this.views[this.views.length - 1];
+        e2 && (e2.el.classList.remove("dimina-native-view--presenting", "dimina-native-view--before-presenting", "dimina-native-view--enter-anima"), e2.el.classList.add("dimina-native-view--instage"), this.safeRestoreColorStyle(e2), this.isSleeping || e2.onPresentIn()), this.safeSyncUrl();
+      }
+    });
+  }
+  getActiveView() {
+    return this.views[this.views.length - 1] || this.rootView;
+  }
+  sleepActiveView() {
+    var e, t2;
+    this.isSleeping || (this.isSleeping = true, (e = this.getActiveView()) == null || (t2 = e.onPresentOut) == null || t2.call(e));
+  }
+  wakeActiveView() {
+    var e, t2;
+    if (!this.isSleeping) return;
+    this.isSleeping = false;
+    let n2 = this.getActiveView();
+    n2 == null || (e = n2.restoreColorStyle) == null || e.call(n2), n2 == null || (t2 = n2.onPresentIn) == null || t2.call(n2);
+  }
+  updateStatusBarColor(e) {
+    this.shell.updateStatusBarColor(e);
+  }
+};
+var $ = "dimina-default-shell__status-bar";
 function He(e) {
-	return `${String(e.getHours()).padStart(2, "0")}:${String(e.getMinutes()).padStart(2, "0")}`;
+  return `${String(e.getHours()).padStart(2, "0")}:${String(e.getMinutes()).padStart(2, "0")}`;
 }
 function Ue(e = {}) {
-	let { mount: t, height: n = 44, showTime: r = !0 } = e, i = document.createElement("div");
-	i.className = $, i.style.height = `${n}px`;
-	let a = null;
-	if (r) {
-		let e = document.createElement("span");
-		e.className = "dimina-default-shell__time", e.textContent = He(/* @__PURE__ */ new Date()), i.appendChild(e), a = setInterval(() => {
-			e.textContent = He(/* @__PURE__ */ new Date());
-		}, 1e3);
-	}
-	return t == null || t.prepend(i), {
-		el: i,
-		getStatusBarRect: () => i.isConnected ? i.getBoundingClientRect() : {
-			top: 0,
-			left: 0,
-			right: 0,
-			width: 0,
-			height: n,
-			bottom: n
-		},
-		updateStatusBarColor: (e) => {
-			e === "black" ? (i.classList.add(`${$}--black`), i.classList.remove(`${$}--white`)) : e === "white" && (i.classList.add(`${$}--white`), i.classList.remove(`${$}--black`));
-		},
-		destroy: () => {
-			a !== null && (clearInterval(a), a = null), i.remove();
-		}
-	};
+  let { mount: t2, height: n2 = 44, showTime: r2 = true } = e, i2 = document.createElement("div");
+  i2.className = $, i2.style.height = `${n2}px`;
+  let a2 = null;
+  if (r2) {
+    let e2 = document.createElement("span");
+    e2.className = "dimina-default-shell__time", e2.textContent = He(/* @__PURE__ */ new Date()), i2.appendChild(e2), a2 = setInterval(() => {
+      e2.textContent = He(/* @__PURE__ */ new Date());
+    }, 1e3);
+  }
+  return t2 == null || t2.prepend(i2), {
+    el: i2,
+    getStatusBarRect: () => i2.isConnected ? i2.getBoundingClientRect() : {
+      top: 0,
+      left: 0,
+      right: 0,
+      width: 0,
+      height: n2,
+      bottom: n2
+    },
+    updateStatusBarColor: (e2) => {
+      e2 === "black" ? (i2.classList.add(`${$}--black`), i2.classList.remove(`${$}--white`)) : e2 === "white" && (i2.classList.add(`${$}--white`), i2.classList.remove(`${$}--black`));
+    },
+    destroy: () => {
+      a2 !== null && (clearInterval(a2), a2 = null), i2.remove();
+    }
+  };
 }
-//#endregion
-//#region src/index.ts
 function We(e = {}) {
-	let { mount: t, shell: n, resourceBaseUrl: r, pageFrameUrl: i, virtualFilePrefix: a, apiNamespaces: o, urlSync: s, instanceKey: c, storageSync: l, getAppInfo: u, onAppLaunchError: d, apis: f, extModules: p, allowedOrigins: m } = e;
-	if (!t) throw Error("[container] createContainer: options.mount is required");
-	let h = x(e.retention), g = new Z();
-	for (let [e, t] of Object.entries(f ?? {})) g.registerApi(e, t);
-	for (let [e, t] of Object.entries(p ?? {})) g.registerExtModule(e, t);
-	let _ = new Ve({
-		shell: n,
-		resourceBaseUrl: r,
-		pageFrameUrl: i,
-		virtualFilePrefix: a,
-		apiNamespaces: o,
-		urlSync: s,
-		instanceKey: c,
-		storageSync: l,
-		getAppInfo: u,
-		onAppLaunchError: d,
-		appManager: g,
-		allowedOrigins: m
-	});
-	return g.configureRetention(h, _), t.appendChild(_.el), {
-		application: _,
-		configureRetention: (e) => g.configureRetention(e, _),
-		notifyMemoryPressure: () => g.retention.memoryPressure(),
-		openApp(e) {
-			return g.openApp(e, _);
-		},
-		closeApp(e) {
-			let t = e ?? _.views[_.views.length - 1];
-			t && g.closeApp(t);
-		},
-		registerExtModule(e, t) {
-			g.registerExtModule(e, t);
-		},
-		registerApi(e, t) {
-			g.registerApi(e, t);
-		},
-		setRootView(e) {
-			_.initRootView(e);
-		}
-	};
+  let { mount: t2, shell: n2, resourceBaseUrl: r2, pageFrameUrl: i2, virtualFilePrefix: a2, apiNamespaces: o2, urlSync: s2, instanceKey: c2, storageSync: l2, getAppInfo: u2, onAppLaunchError: d2, apis: f2, extModules: p2, allowedOrigins: m2 } = e;
+  if (!t2) throw Error("[container] createContainer: options.mount is required");
+  let h2 = x(e.retention), g2 = new Z();
+  for (let [e2, t3] of Object.entries(f2 ?? {})) g2.registerApi(e2, t3);
+  for (let [e2, t3] of Object.entries(p2 ?? {})) g2.registerExtModule(e2, t3);
+  let _2 = new Ve({
+    shell: n2,
+    resourceBaseUrl: r2,
+    pageFrameUrl: i2,
+    virtualFilePrefix: a2,
+    apiNamespaces: o2,
+    urlSync: s2,
+    instanceKey: c2,
+    storageSync: l2,
+    getAppInfo: u2,
+    onAppLaunchError: d2,
+    appManager: g2,
+    allowedOrigins: m2
+  });
+  return g2.configureRetention(h2, _2), t2.appendChild(_2.el), {
+    application: _2,
+    configureRetention: (e2) => g2.configureRetention(e2, _2),
+    notifyMemoryPressure: () => g2.retention.memoryPressure(),
+    openApp(e2) {
+      return g2.openApp(e2, _2);
+    },
+    closeApp(e2) {
+      let t3 = e2 ?? _2.views[_2.views.length - 1];
+      t3 && g2.closeApp(t3);
+    },
+    registerExtModule(e2, t3) {
+      g2.registerExtModule(e2, t3);
+    },
+    registerApi(e2, t3) {
+      g2.registerApi(e2, t3);
+    },
+    setRootView(e2) {
+      _2.initRootView(e2);
+    }
+  };
 }
-//#endregion
-export { a as QueryRouter, We as createContainer, Ue as createDefaultShell };
+export {
+  a as QueryRouter,
+  We as createContainer,
+  Ue as createDefaultShell
+};

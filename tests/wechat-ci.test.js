@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, createHash, createPrivateKey, generateKeyPairSync } from "node:crypto";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { testDatabase } from "./database.js";
@@ -49,7 +49,10 @@ async function seed(database, { withKey = true, withAppId = true } = {}) {
   await saveProjectMiniProgramConfig(service, user, project.id, {
     enabled: true,
     appId: withAppId ? VALID_APP_ID : null,
-    cloudbaseEnvs: { development: { envId: "dev-env-wx" } },
+    cloudbaseEnvs: {
+      development: { envId: "dev-env-wx" },
+      production: { envId: "prod-env-wx" },
+    },
   });
   if (withKey) {
     await saveProjectMiniProgramSecret(service, user, project.id, "wechat_upload_key", {
@@ -110,11 +113,13 @@ function fakeCi(calls, { failUpload, failPreview, writeQr = true } = {}) {
       }
     },
     async preview(options) {
+      const appSource = await readFile(thisProject(options).options.projectPath + "/app.js", "utf8");
       calls.push({
         op: "preview",
         desc: options.desc,
         robot: options.robot,
         pagePath: options.pagePath,
+        appSource,
       });
       if (failPreview) throw new Error(`preview rejected: ${failPreview}`);
       // Real PNG magic bytes: the preview result sniffs the payload type.
@@ -131,16 +136,22 @@ function fakeCi(calls, { failUpload, failPreview, writeQr = true } = {}) {
       return { subPackageInfo: [{ name: "__FULL__", size: 1234 }] };
     },
     async upload(options) {
+      const appSource = await readFile(thisProject(options).options.projectPath + "/app.js", "utf8");
       calls.push({
         op: "upload",
         version: options.version,
         desc: options.desc,
         robot: options.robot,
+        appSource,
       });
       if (failUpload) throw new Error(`upload rejected: ${failUpload}`);
       return { subPackageInfo: [{ name: "__APP__", size: 4321 }] };
     },
   };
+}
+
+function thisProject(options) {
+  return options.project;
 }
 
 test("redaction removes key blocks and credential-shaped strings", () => {
@@ -209,6 +220,8 @@ test("preview generates a QR code, records the deployment and cleans up", async 
     const result = await previewMiniprogram(service, user, project.id, { desc: "验收预览" });
     assert.equal(result.status, "succeeded");
     assert.equal(result.appId, VALID_APP_ID);
+    assert.equal(result.environment, "development");
+    assert.equal(result.envId, "dev-env-wx");
     assert.equal(
       result.projectConfigSynthesized,
       true,
@@ -226,13 +239,15 @@ test("preview generates a QR code, records the deployment and cleans up", async 
     const projectCall = calls.find((call) => call.op === "Project");
     assert.equal(projectCall.options.appid, VALID_APP_ID);
     assert.equal(projectCall.options.privateKeyPath, "[path]");
+    assert.match(calls.find((call) => call.op === "preview").appSource, /dev-env-wx/);
 
     const [row] = await query(
       database.db,
-      "SELECT target,status,source_hash FROM miniprogram_deployments WHERE id=?",
+      "SELECT target,environment,status,source_hash FROM miniprogram_deployments WHERE id=?",
       [result.deploymentId],
     );
     assert.equal(row.target, "wechat_preview");
+    assert.equal(row.environment, "development");
     assert.equal(row.status, "succeeded");
     assert.equal(row.source_hash, result.sourceHash);
 
@@ -320,45 +335,46 @@ test("a failed preview is recorded with a redacted log", async () => {
   }
 });
 
-test("upload has no bypass: it must carry approval-flow authorization", async () => {
+test("writable project members can upload an experience version without approval", async () => {
   const database = await testDatabase();
   const calls = [];
   setWechatCiFactory(async () => fakeCi(calls));
   try {
     const { user, service, project, sourceFolderId } = await seed(database);
     await seedMinimalApp(database, project, sourceFolderId, user.id);
-
-    // No authorization at all — this is the only upload path, so it must refuse.
-    await assert.rejects(
-      () => uploadMiniprogram(service, user, project.id, { version: "1.0.0" }),
-      (error) => error.status === 403 && /只能经发布审批流执行/.test(error.message),
+    const member = { id: randomUUID(), kind: "session" };
+    await query(
+      database.db,
+      "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [member.id, `${member.id}@test.com`, "项目成员"],
     );
-    assert.equal(calls.length, 0, "an unauthorized upload never reaches WeChat");
+    await query(
+      database.db,
+      "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')",
+      [project.id, member.id],
+    );
 
-    // Approval-flow authorization is what unlocks the release.
-    const requestId = randomUUID();
-    const uploaded = await uploadMiniprogram(service, user, project.id, {
+    const uploaded = await uploadMiniprogram(service, member, project.id, {
       version: "1.0.0",
       desc: "首个版本",
-      authorization: { requestId, approvedBy: user.id },
     });
     assert.equal(uploaded.status, "succeeded");
     assert.equal(uploaded.version, "1.0.0");
-    assert.equal(uploaded.confirmedBy, user.id);
+    assert.equal(uploaded.environment, "production");
+    assert.equal(uploaded.envId, "prod-env-wx");
 
     const uploadCall = calls.find((call) => call.op === "upload");
     assert.equal(uploadCall.version, "1.0.0");
     assert.equal(uploadCall.desc, "首个版本");
-
-    // A malformed authorization is rejected before any provider call.
-    await assert.rejects(
-      () =>
-        uploadMiniprogram(service, user, project.id, {
-          version: "1.0.1",
-          authorization: { requestId: "not-a-uuid", approvedBy: user.id },
-        }),
-      (error) => error.name === "ZodError" || error.status === 400,
+    assert.match(uploadCall.appSource, /prod-env-wx/);
+    const [deployment] = await query(
+      database.db,
+      "SELECT published_by,confirmed_by,confirmed_at FROM miniprogram_deployments WHERE id=?",
+      [uploaded.deploymentId],
     );
+    assert.equal(deployment.published_by, member.id);
+    assert.equal(deployment.confirmed_by, null);
+    assert.equal(deployment.confirmed_at, null);
   } finally {
     setWechatCiFactory(null);
     await database.close();
@@ -480,7 +496,7 @@ test("a missing QR image is reported instead of faked", async () => {
   }
 });
 
-test("the approval flow is what actually reaches WeChat", async () => {
+test("legacy approval requests remain executable without being required for direct uploads", async () => {
   const database = await testDatabase();
   const calls = [];
   setWechatCiFactory(async () => fakeCi(calls));
@@ -488,36 +504,19 @@ test("the approval flow is what actually reaches WeChat", async () => {
     const { user, service, project, sourceFolderId } = await seed(database);
     await seedMinimalApp(database, project, sourceFolderId, user.id);
 
-    // Submitting records intent only.
     const request = await submitReleaseRequest(service, user, project.id, {
       target: "wechat_upload",
       version: "9.9.9",
-      releaseNote: "审批流集成验证",
+      releaseNote: "历史申请兼容验证",
     });
-    assert.equal(request.status, "pending");
-    assert.equal(calls.length, 0, "submitting must not touch WeChat");
+    assert.equal(calls.length, 0);
 
-    // Approving runs the shared executor, which performs the upload.
     const approved = await approveReleaseRequest(service, user, project.id, request.id, {
-      note: "同意",
+      note: "处理历史申请",
       execute: (row) => executeRelease(service, user, project.id, row),
     });
     assert.equal(approved.status, "succeeded");
-    assert.ok(approved.deploymentId, "the deployment id is written back on the request");
-
-    const uploadCall = calls.find((call) => call.op === "upload");
-    assert.equal(uploadCall.version, "9.9.9");
-    assert.equal(uploadCall.desc, "审批流集成验证");
-
-    const [deployment] = await query(
-      database.db,
-      "SELECT target,version,status,confirmed_by FROM miniprogram_deployments WHERE id=?",
-      [approved.deploymentId],
-    );
-    assert.equal(deployment.target, "wechat_upload");
-    assert.equal(deployment.version, "9.9.9");
-    assert.equal(deployment.status, "succeeded");
-    assert.equal(deployment.confirmed_by, user.id);
+    assert.equal(calls.find((call) => call.op === "upload")?.version, "9.9.9");
   } finally {
     setWechatCiFactory(null);
     await database.close();

@@ -5,6 +5,7 @@ import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { acceptTask, acknowledgeTaskRejection, answerTaskQuestion, askTaskQuestion, bindDshL3Execution, cancelTask, composeTaskInstruction, createTask, ensureDshL3CanUpdate, finishCoordinatorDispatch, getTask, inspectIterationTask, l3LaunchPrompt, listTaskExecutionRuns, listTaskStatusEvents, listTasks, reassignTask, recoverAbnormalTask, recoverInterruptedDshL3Executions, recoverStaleDshL3Executions, reconcileEndedTaskRuns, rejectTask, reopenRejectedTask, settleDshL3Execution, taskRejectionReview, tasksAwaitingL3Launch, touchL3InferenceHeartbeat, touchL3RunHeartbeat, updateTask } from "../server/task-pool.js";
 import { testDatabase } from "./database.js";
+import { childBindingFromToolResult } from "../server/l3-binding.js";
 
 let database, db, service, project, thread, users, l2SessionId, reportHostId;
 
@@ -447,7 +448,7 @@ test("service recovery requeues interrupted L3 work without repeating completed 
   assert.equal(recoveredTask.execution_agent_id, null);
   const [recoveredFormal] = await query(db, "SELECT status,execution_agent_id FROM agent_tasks WHERE id=?", [runningFormal.id]);
   const formalRuns = await query(db, "SELECT status,executor_id FROM agent_task_execution_runs WHERE task_id=? ORDER BY created_at,id", [runningFormal.id]);
-  assert.deepEqual(recoveredFormal, { status: "pending_assignment", execution_agent_id: formalChild });
+  assert.deepEqual(recoveredFormal, { status: "pending_assignment", execution_agent_id: null });
   assert.equal(formalRuns.filter((run) => run.status === "interrupted").length, 1);
   assert.equal(formalRuns.filter((run) => run.status === "queued" && run.executor_id === null).length, 0);
   const recoveredListing = await listTasks(db, project.id, { limit: 200 });
@@ -507,9 +508,20 @@ test("stale L3 heartbeat recovery interrupts only timed-out runs", async () => {
   assert.equal(freshTask.status, "running");
   assert.equal(freshRun.status, "running");
   assert.equal(staleTask.status, "pending_assignment");
+  const staleSnapshot = await getTask(db, stale.id);
+  assert.equal(staleSnapshot.execution_agent_id, null);
+  assert.equal(staleSnapshot.preferred_executor_id, staleChild);
   assert.match(staleTask.progress, /心跳超时/);
   assert.equal(staleRun.status, "interrupted");
   assert.match(staleRun.error, /心跳超时/);
+  const replacement = randomUUID();
+  const rebound = await bindDshL3Execution(db, l2SessionId, replacement, stale.id);
+  assert.equal(rebound.execution_agent_id, replacement);
+  assert.equal(await settleDshL3Execution(db, l2SessionId, staleChild, {
+    status: "error", stopReason: "aborted", lastAssistantMessage: [],
+  }), null);
+  assert.equal((await getTask(db, stale.id)).execution_agent_id, replacement);
+  await recoverAbnormalTask(db, stale.id, { type: "l2_session", id: l2SessionId }, { action: "cancel" });
 });
 
 test("updating a queued assist task cancels stale revisions and only binds the current run", async () => {
@@ -671,6 +683,113 @@ test("an executor failure resumes the same L3 before replacement is considered",
   const rebound = await bindDshL3Execution(db, l2SessionId, childId, task.id);
   assert.equal(rebound.execution_agent_id, childId);
   assert.equal(rebound.executor_switch_count, 0);
+});
+
+test("binding recovery clear_binding is idempotent and concurrent bind has one winner", async () => {
+  const actor = { type: "l2_session", id: l2SessionId };
+  const task = await createTask(db, {
+    projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+    createdByType: "l2_session", createdById: l2SessionId, taskType: "formal", title: "幂等清槽位",
+    goal: "不能重复创建 run 或消耗预算", targetType: "l2_session", targetId: l2SessionId,
+  });
+  const oldChild = randomUUID();
+  await bindDshL3Execution(db, l2SessionId, oldChild, task.id);
+  const first = await recoverAbnormalTask(db, task.id, actor, { action: "clear_binding" });
+  assert.equal(first.execution_agent_id, null);
+  assert.equal(first.needsDispatch, true);
+  assert.equal(first.recovery.strategy, "dispatch_new_executor");
+  for (let i = 0; i < 2; i++) {
+    const again = await recoverAbnormalTask(db, task.id, actor, { action: "clear_binding" });
+    assert.equal(again.noop, true);
+    assert.equal(again.revision, first.revision);
+    assert.equal(again.retry_count, first.retry_count);
+    assert.equal(again.executor_switch_count, first.executor_switch_count);
+  }
+  const runs = await listTaskExecutionRuns(db, task.id);
+  assert.equal(runs.filter((run) => run.status === "queued" && run.executor_id === null).length, 1);
+  const attempts = await Promise.allSettled([randomUUID(), randomUUID()].map((child) =>
+    bindDshL3Execution(db, l2SessionId, child, task.id)));
+  assert.equal(attempts.filter((r) => r.status === "fulfilled").length, 1);
+  const rejected = attempts.find((r) => r.status === "rejected");
+  assert.equal(rejected.reason.status, 409);
+  assert.match(rejected.reason.message, /L3_BINDING_OCCUPIED/);
+  const winner = attempts.find((r) => r.status === "fulfilled").value;
+  assert.equal(winner.executor_switch_count, 1);
+  const again = await bindDshL3Execution(db, l2SessionId, winner.execution_agent_id, task.id);
+  assert.equal(again.executor_switch_count, 1);
+  const snapshot = await inspectIterationTask(db, task.id, actor);
+  assert.equal(snapshot.binding_status, "bound");
+  assert.ok(snapshot.binding_target_run_id);
+  assert.equal(snapshot.last_binding_error, null);
+  await recoverAbnormalTask(db, task.id, actor, { action: "cancel" });
+});
+
+test("binding recovery stale scan cannot clear a renewed heartbeat or replacement", async () => {
+  const actor = { type: "l2_session", id: l2SessionId };
+  for (const replace of [false, true]) {
+    const task = await createTask(db, {
+      projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+      createdByType: "l2_session", createdById: l2SessionId, taskType: "formal", title: "扫描与清理竞态",
+      goal: "保护已续命和已接管任务", targetType: "l2_session", targetId: l2SessionId,
+    });
+    const oldChild = randomUUID();
+    let currentChild = oldChild;
+    await bindDshL3Execution(db, l2SessionId, oldChild, task.id);
+    await query(db, `UPDATE agent_task_execution_runs SET heartbeat_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 11 MINUTE)
+      WHERE task_id=?`, [task.id]);
+    let scanned = false;
+    const racingDb = {
+      getConnection: () => db.getConnection(),
+      async execute(sql, params) {
+        const result = await db.execute(sql, params);
+        if (!scanned && sql.includes("SELECT r.id,r.task_id") && sql.includes(">= ?")) {
+          scanned = true;
+          if (replace) {
+            await recoverAbnormalTask(db, task.id, actor, { action: "restart" });
+            currentChild = randomUUID();
+            await bindDshL3Execution(db, l2SessionId, currentChild, task.id);
+          } else await touchL3RunHeartbeat(db, oldChild);
+        }
+        return result;
+      },
+    };
+    assert.equal(await recoverStaleDshL3Executions(racingDb, { staleAfterSeconds: 600 }), 0);
+    assert.equal(scanned, true);
+    const current = await getTask(db, task.id);
+    assert.equal(current.status, "running");
+    assert.equal(current.execution_agent_id, currentChild);
+    await recoverAbnormalTask(db, task.id, actor, { action: "cancel" });
+  }
+});
+
+test("binding recovery failed resume leaves slot free for replacement in 20 cycles", async () => {
+  const actor = { type: "l2_session", id: l2SessionId };
+  for (let i = 0; i < 20; i++) {
+    const task = await createTask(db, {
+      projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
+      createdByType: "l2_session", createdById: l2SessionId, taskType: "formal", title: `续接失败 ${i + 1}`,
+      goal: "失败不能预占槽位", targetType: "l2_session", targetId: l2SessionId,
+    });
+    const oldChild = randomUUID();
+    await bindDshL3Execution(db, l2SessionId, oldChild, task.id);
+    const recovered = await recoverAbnormalTask(db, task.id, actor, { action: "restart" });
+    assert.equal(recovered.execution_agent_id, null);
+    assert.equal(recovered.recovery.created_run_id, null);
+    const binding = childBindingFromToolResult({ taskId: task.id, childId: oldChild }, {
+      data: { message: { source: { isError: true } } },
+    }, "continuable subagents require session query");
+    if (binding) await bindDshL3Execution(db, l2SessionId, binding.childId, binding.taskId);
+    assert.equal((await getTask(db, task.id)).execution_agent_id, null);
+    const newChild = randomUUID();
+    const rebound = await bindDshL3Execution(db, l2SessionId, newChild, task.id);
+    assert.equal(rebound.execution_agent_id, newChild);
+    assert.equal(rebound.retry_count, 0);
+    assert.equal(rebound.executor_switch_count, 1);
+    assert.equal(await settleDshL3Execution(db, l2SessionId, oldChild, {
+      status: "error", stopReason: "aborted", lastAssistantMessage: [],
+    }), null);
+    await recoverAbnormalTask(db, task.id, actor, { action: "cancel" });
+  }
 });
 
 test("retry budget exhaustion blocks before another executor can be dispatched", async () => {

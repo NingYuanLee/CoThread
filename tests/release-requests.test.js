@@ -11,11 +11,14 @@ import {
   publishMiniprogramSourceFile,
 } from "../server/miniprogram-workspace.js";
 import {
+  approveReleaseApplication,
   approveReleaseRequest,
   cancelReleaseRequest,
+  listReleaseApplications,
   listReleaseRequests,
   readReleaseRequest,
   rejectReleaseRequest,
+  submitReleaseApplication,
   submitReleaseRequest,
   sweepReleaseRequests,
   RELEASE_EXPIRY_HOURS,
@@ -70,6 +73,77 @@ async function addMember(database, projectId, role) {
 }
 
 const okExecutor = async () => randomUUID();
+
+test("one release application can approve multiple selected targets", async () => {
+  const database = await testDatabase();
+  try {
+    const { owner, service, project } = await seed(database);
+    await publishMiniprogramSourceFile(database.db, { id: owner.id }, project.id, {
+      area: "miniprogram_admin",
+      path: "index.html",
+      content: Buffer.from("<main>Admin</main>"),
+    });
+    await publishMiniprogramSourceFile(database.db, { id: owner.id }, project.id, {
+      area: "miniprogram_server",
+      path: "dailyReport/index.js",
+      content: Buffer.from("exports.main = async () => ({ ok: true })"),
+    });
+    const application = await submitReleaseApplication(service, owner, project.id, {
+      items: [
+        { target: "cloudbase_static" },
+        { target: "cloudbase_function", resourceName: "dailyReport" },
+      ],
+      releaseNote: "Admin 与日报函数一起发布",
+    });
+    assert.equal(application.status, "pending");
+    assert.equal(application.items.length, 2);
+    assert.ok(application.items.every((item) => item.applicationId === application.id));
+
+    const executed = [];
+    const approved = await approveReleaseApplication(service, owner, project.id, application.id, {
+      execute: async (item) => {
+        executed.push(`${item.target}:${item.resourceName || ""}`);
+        return randomUUID();
+      },
+    });
+    assert.equal(approved.status, "succeeded");
+    assert.deepEqual(executed.sort(), ["cloudbase_function:dailyReport", "cloudbase_static:"]);
+    assert.ok(approved.items.every((item) => item.status === "succeeded" && item.deploymentId));
+
+    const list = await listReleaseApplications(service, owner, project.id);
+    assert.equal(list.applications.length, 1);
+    assert.equal(list.applications[0].id, application.id);
+  } finally {
+    await database.close();
+  }
+});
+
+test("a cloud function release is bound only to that function directory", async () => {
+  const database = await testDatabase();
+  try {
+    const { owner, service, project } = await seed(database);
+    for (const name of ["dailyReport", "otherFunction"]) {
+      await publishMiniprogramSourceFile(database.db, { id: owner.id }, project.id, {
+        area: "miniprogram_server",
+        path: `${name}/index.js`,
+        content: Buffer.from(`exports.main = async () => ({ name: "${name}" })`),
+      });
+    }
+    const request = await submitReleaseRequest(service, owner, project.id, {
+      target: "cloudbase_function",
+      resourceName: "dailyReport",
+    });
+    await publishMiniprogramSourceFile(database.db, { id: owner.id }, project.id, {
+      area: "miniprogram_server",
+      path: "otherFunction/index.js",
+      content: Buffer.from("exports.main = async () => ({ changed: true })"),
+    });
+    const detail = await readReleaseRequest(service, owner, project.id, request.id);
+    assert.equal(detail.sourceMatches, true);
+  } finally {
+    await database.close();
+  }
+});
 
 test("a submitted request publishes nothing and stays pending", async () => {
   const database = await testDatabase();

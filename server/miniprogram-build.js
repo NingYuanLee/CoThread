@@ -10,6 +10,11 @@ import { query } from "./db.js";
 import { HttpError } from "./service.js";
 import { miniprogramSnapshot, miniprogramWorkspaceFolders } from "./miniprogram-workspace.js";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
+import {
+  injectMiniprogramRuntimeSource,
+  resolveMiniprogramRuntime,
+  runtimeBuildHash,
+} from "./miniprogram-runtime-environment.js";
 import { uniqueArtifactTitle, uniqueVersionFilename } from "./project-library.js";
 
 const require = createRequire(import.meta.url);
@@ -64,7 +69,7 @@ function safeRelativePath(value) {
 }
 
 /** Materialize the effective source snapshot into a temp workspace. */
-async function materializeSources(db, files, root) {
+async function materializeSources(db, files, root, runtimeConfig = null) {
   let written = 0;
   for (const file of files) {
     const relativePath = safeRelativePath(file.path);
@@ -72,7 +77,11 @@ async function materializeSources(db, files, root) {
     await mkdir(dirname(target), { recursive: true });
     const [row] = await query(db, "SELECT content FROM versions WHERE id=?", [file.versionId]);
     if (!row) throw new HttpError(409, `源码版本已不存在：${file.path}`);
-    await writeFile(target, row.content);
+    const isEntry = /^(app|game)\.(js|ts)$/i.test(relativePath);
+    const content = runtimeConfig && isEntry
+      ? injectMiniprogramRuntimeSource(row.content, relativePath, runtimeConfig)
+      : row.content;
+    await writeFile(target, content);
     written += 1;
   }
   return written;
@@ -205,13 +214,15 @@ export async function findRunningBuild(db, projectId, kind) {
 export async function buildMiniprogramPreview(service, actor, projectId, options = {}) {
   const kind = "app_preview";
   const runtime = await loadProjectMiniProgramRuntime(service, projectId);
-  if (!runtime.enabled) throw new HttpError(409, "小程序全量工作区尚未启用");
+  if (!runtime.enabled) throw new HttpError(409, "小程序工作区尚未通过连接测试");
   if (!runtime.appId) throw new HttpError(409, "尚未配置微信小程序 AppID");
+  const runtimeConfig = resolveMiniprogramRuntime(runtime, "dimina");
 
   const snapshot = await miniprogramSnapshot(service.db, projectId);
   const sources = snapshot.areas.miniprogram_source?.files || [];
   const sourceCheck = validateSources(sources);
   if (!sourceCheck.ok) throw new HttpError(409, sourceCheck.reason);
+  const buildSourceHash = runtimeBuildHash(snapshot.sourceHash, runtimeConfig);
 
   const running = await findRunningBuild(service.db, projectId, kind);
   if (running) {
@@ -219,7 +230,7 @@ export async function buildMiniprogramPreview(service, actor, projectId, options
   }
 
   if (!options.force) {
-    const cached = await latestSucceededBuild(service.db, projectId, kind, snapshot.sourceHash);
+    const cached = await latestSucceededBuild(service.db, projectId, kind, buildSourceHash);
     if (cached) {
       return { buildId: cached.id, status: "succeeded", reused: true, running: false };
     }
@@ -238,8 +249,10 @@ export async function buildMiniprogramPreview(service, actor, projectId, options
       buildId,
       projectId,
       kind,
-      snapshot.sourceHash,
+      buildSourceHash,
       JSON.stringify({
+        sourceHash: snapshot.sourceHash,
+        runtime: runtimeConfig,
         files: sources.map((file) => ({
           path: file.path,
           versionId: file.versionId,
@@ -259,8 +272,8 @@ export async function buildMiniprogramPreview(service, actor, projectId, options
   try {
     await mkdir(srcDir, { recursive: true });
     await mkdir(outDir, { recursive: true });
-    const written = await materializeSources(service.db, sources, srcDir);
-    log += `已写入源码文件 ${written} 个，源码 hash ${snapshot.sourceHash}\n`;
+    const written = await materializeSources(service.db, sources, srcDir, runtimeConfig);
+    log += `已写入源码文件 ${written} 个，源码 hash ${snapshot.sourceHash}，CloudBase ${runtimeConfig.environment}/${runtimeConfig.cloudbase.envId}\n`;
 
     const result = await runCompiler({ srcDir, outDir, signal: options.signal });
     log += `--- dmcc stdout ---\n${result.stdout}\n--- dmcc stderr ---\n${result.stderr}\n`;
@@ -310,7 +323,7 @@ export async function buildMiniprogramPreview(service, actor, projectId, options
       filename: `${runtime.appId}.zip`,
       content: bytes,
       createdBy: actor.id,
-      note: `Dimina 编译产物 · ${snapshot.sourceHash.slice(0, 12)}`,
+      note: `Dimina 编译产物 · ${snapshot.sourceHash.slice(0, 12)} · ${runtimeConfig.environment}`,
     });
     log += `已保存编译产物 ${compiled.length} 个文件，bundle ${bytes.length} 字节\n`;
 
@@ -331,7 +344,10 @@ export async function buildMiniprogramPreview(service, actor, projectId, options
       artifactId: published.artifactId,
       fileCount: compiled.length,
       bundleBytes: bytes.length,
-      sourceHash: snapshot.sourceHash,
+      sourceHash: buildSourceHash,
+      sourceContentHash: snapshot.sourceHash,
+      environment: runtimeConfig.environment,
+      envId: runtimeConfig.cloudbase.envId,
     };
   } catch (error) {
     if (error?.status === 499) throw error;
@@ -448,13 +464,19 @@ function redactBuild(row) {
 }
 
 /**
- * What the 应用预览 tab needs: whether a runnable bundle exists, where the
+ * What the 小程序web预览 tab needs: whether a runnable bundle exists, where the
  * container should look for resources, and which pageFrame to use.
  */
 export async function readMiniprogramPreviewMeta(service, user, projectId) {
   await service.member(user, projectId, false);
   const runtime = await loadProjectMiniProgramRuntime(service, projectId);
   const snapshot = await miniprogramSnapshot(service.db, projectId);
+  const runtimeConfig = runtime.cloudbaseEnvs?.development?.envId
+    ? resolveMiniprogramRuntime(runtime, "dimina")
+    : null;
+  const buildSourceHash = runtimeConfig
+    ? runtimeBuildHash(snapshot.sourceHash, runtimeConfig)
+    : null;
   const [build] = await query(
     service.db,
     `SELECT id,status,source_hash,output_version_id,output_folder_id,error_code,finished_at
@@ -463,16 +485,18 @@ export async function readMiniprogramPreviewMeta(service, user, projectId) {
     [projectId],
   );
   const current =
-    build && build.source_hash === snapshot.sourceHash && build.status === "succeeded";
+    runtimeConfig && build && build.source_hash === buildSourceHash && build.status === "succeeded";
   return {
     appId: runtime.appId,
     entryPage: runtime.entryPage,
     enabled: runtime.enabled,
     sourceHash: snapshot.sourceHash,
+    environment: runtimeConfig?.environment || "development",
+    envId: runtimeConfig?.cloudbase.envId || null,
     sourceFileCount: (snapshot.areas.miniprogram_source?.files || []).length,
     build: build ? redactBuild(build) : null,
     runnable: Boolean(current && build?.output_version_id && runtime.appId),
-    stale: Boolean(build && build.source_hash !== snapshot.sourceHash),
+    stale: Boolean(build && (!buildSourceHash || build.source_hash !== buildSourceHash)),
     // Global runtime assets (app-agnostic) and the per-project resource space.
     runtime: {
       moduleUrl: "/dimina/index.js",

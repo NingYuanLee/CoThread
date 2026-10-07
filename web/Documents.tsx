@@ -1086,7 +1086,7 @@ const ROOT_GUIDES: Record<(typeof LIBRARY_ROOT_KINDS)[number], string> = {
   project_official: "项目的正式资料库。成员可以在这里上传、建文件夹、整理和归档确认后的文件；对话缓存和沙箱产物经确认后，也可以另存进来作为正式版本。",
   project_outputs: "小祥在沙箱里生成、修改并发布的成果。对话框附件不会进这里。成员可以预览、下载、确认，或把已确认版本另存为正式文件。",
   project_cache: "对话框或连接器随消息上传的临时资料，按日期放进子文件夹。对小祥只读，改完应另存为沙箱产物；确认后也可以另存为正式文件。",
-  project_miniprogram: "小程序全栈工作区。固定包含小程序源文件、小程序 Web 产物、PC 管理后台和服务端四个子目录；源码可在此预览，也可交给 Dimina 编译后在「小程序」工具区实时运行。",
+  project_miniprogram: "小程序全栈工作区。固定包含小程序源文件、小程序 Web 产物、PC 管理后台和云函数四个子目录；源码可在此预览，也可交给 Dimina 编译后在「小程序」工具区实时运行。",
 };
 
 const CODE_LIBRARY_ROOT_ID = "code-library-root";
@@ -1300,6 +1300,8 @@ export function Documents({
   mcpEndpoint,
   threadId,
   writable,
+  currentUserId,
+  owner,
   iterationWritable = false,
   folders,
   onRefresh,
@@ -1323,6 +1325,8 @@ export function Documents({
   mcpEndpoint?: string;
   threadId?: string;
   writable: boolean;
+  currentUserId: string;
+  owner: boolean;
   iterationWritable?: boolean;
   folders: LibraryFolder[];
   onRefresh: () => Promise<void>;
@@ -3554,7 +3558,7 @@ export function Documents({
             onClick={activateDocumentTool}
           >
             <UiIcon name="library" size={14} />
-            <span>文档</span>
+            <span>文档阅览</span>
           </button>
           <button
             type="button"
@@ -3564,7 +3568,7 @@ export function Documents({
             onClick={activateBrowserTool}
           >
             <UiIcon name="globe" size={14} />
-            <span>浏览器</span>
+            <span>HTML阅览</span>
           </button>
           <button
             type="button"
@@ -3574,7 +3578,7 @@ export function Documents({
             onClick={() => setActiveTool("miniprogram")}
           >
             <UiIcon name="smartphone" size={14} />
-            <span>小程序</span>
+            <span>小程序云开发</span>
           </button>
           <span className="doc-toolbar-spacer" aria-hidden="true" />
           <button
@@ -3681,6 +3685,8 @@ export function Documents({
               projectId={projectId}
               request={apiFetch}
               writable={writable}
+              currentUserId={currentUserId}
+              owner={owner}
             />
           </div>
         ) : (
@@ -3729,6 +3735,4 @@ export function Documents({
     </div>
   );
 }
-
-
 

@@ -162,7 +162,7 @@ test("GET release-requests/:requestId returns detail and 404 for unknown ids", a
 
 test("POST approve injects the release executor (approval executes)", async () => {
   // cloudbase_static 的执行器会走 deployAdminHosting；本用例的项目没有配置 Admin
-  // 发布目标，因此它抛 409「尚未配置 Admin 发布目标」。这恰好证明路由把 executeRelease
+  // 生产版，因此它抛 409「尚未配置 Admin 生产版」。这恰好证明路由把 executeRelease
   // 注入给了状态机并真的被调用：若漏注入，approveReleaseRequest 会先抛 500
   // 「缺少发布执行入口」，状态码与错误信息都完全不同。
   const created = await submit(ownerCookie, { target: "cloudbase_static" });
@@ -175,11 +175,11 @@ test("POST approve injects the release executor (approval executes)", async () =
   });
   assert.equal(response.status, 409);
   const body = await response.json();
-  assert.match(body.error, /尚未配置 Admin 发布目标/);
+  assert.match(body.error, /尚未配置 Admin 生产版/);
 
   const detail = await (await api(requestPath(id))).json();
   assert.equal(detail.status, "failed");
-  assert.match(detail.lastError, /尚未配置 Admin 发布目标/);
+  assert.match(detail.lastError, /尚未配置 Admin 生产版/);
   assert.equal(detail.attemptCount, 1);
   assert.equal(detail.decidedBy, owner.id);
   assert.equal(detail.decisionNote, "同意发布");

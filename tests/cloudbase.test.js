@@ -15,8 +15,12 @@ import {
   classifyCloudbaseCredential,
   cloudbaseAuthTokenGuidance,
   cloudbaseFileUrls,
+  createCloudbaseDirectory,
   deleteCloudbaseFiles,
+  deleteCloudbaseStorageEntry,
+  ensureCloudbaseCollection,
   getCloudbaseClient,
+  getCloudbaseFileDownload,
   parseCloudbaseCredential,
   queryCloudbaseDocuments,
   readCloudbaseEnvironments,
@@ -29,6 +33,11 @@ import {
   listCloudbaseFiles,
   updateCloudbaseDocument,
   uploadCloudbaseFile,
+  readCloudbaseAuthSettings,
+  updateCloudbaseAuthSettings,
+  saveCloudbaseAdminAccount,
+  invokeCloudbaseFunction,
+  searchCloudbaseFunctionLogs,
 } from "../server/cloudbase.js";
 
 const VALID_APP_ID = "wx1234567890abcdef";
@@ -182,6 +191,12 @@ test("environment resolution follows the project config and env whitelist", () =
   };
   assert.equal(resolveCloudbaseEnv(runtime, "development").envId, "dev-1");
   assert.equal(resolveCloudbaseEnv(runtime, "production").envId, "prod-1");
+  const shared = resolveCloudbaseEnv(
+    { cloudbaseEnvs: { development: { envId: "dev-only" } } },
+    "production",
+  );
+  assert.equal(shared.envId, "dev-only");
+  assert.equal(shared.inherited, true);
   assert.throws(
     () => resolveCloudbaseEnv(runtime, "nope"),
     (error) => error.status === 400,
@@ -216,7 +231,9 @@ test("environment overview reports configuration without claiming a health check
     assert.equal(development.configured, true);
     assert.equal(development.envId, "dev-env-cb");
     assert.equal(development.agentAllowed, true);
-    assert.equal(production.configured, false);
+    assert.equal(production.configured, true);
+    assert.equal(production.envId, "dev-env-cb");
+    assert.equal(production.inherited, true);
     assert.equal(production.agentAllowed, false);
     assert.equal(view.hasCredential, true);
     assert.equal(view.defaultEnvironment, "development");
@@ -417,9 +434,9 @@ test("clients are cached per project and environment, and reset on credential ch
     await saveProjectMiniProgramConfig(service, user, project.id, {
       enabled: true,
       appId: VALID_APP_ID,
-      cloudbaseEnvs: { development: { envId: "dev-env-cb" }, staging: { envId: "stage-env-cb" } },
+      cloudbaseEnvs: { development: { envId: "dev-env-cb" }, production: { envId: "prod-env-cb" } },
     });
-    await getCloudbaseClient(service, project.id, "staging");
+    await getCloudbaseClient(service, project.id, "production");
     assert.equal(created, 2, "a different environment gets its own client");
 
     resetCloudbaseClients(project.id);
@@ -484,11 +501,44 @@ test("only project members can reach CloudBase helpers", async () => {
 /** Minimal stand-in for the CloudBase management SDK. */
 function fakeManager(calls, { failCollections } = {}) {
   return {
+    currentEnvironment() {
+      return {
+        getEnvService() {
+          return {
+            async getLoginConfig() {
+              calls.push({ op: "getLoginConfig" });
+              return { AnonymousLogin: false, UserNameLogin: true, EmailLogin: false, PhoneNumberLogin: false, RequestId: "login-1" };
+            },
+            async modifyLoginConfig(payload) {
+              calls.push({ op: "modifyLoginConfig", payload });
+              return { RequestId: "login-2" };
+            },
+          };
+        },
+        getUserService() {
+          return {
+            async getEndUserList() { calls.push({ op: "getEndUserList" }); return { Users: [] }; },
+            async createEndUser(payload) { calls.push({ op: "createEndUser", payload }); return { RequestId: "user-1", User: { UUID: "u-1" } }; },
+            async modifyEndUser(payload) { calls.push({ op: "modifyEndUser", payload }); return { RequestId: "user-2" }; },
+          };
+        },
+        getFunctionService() {
+          return { async invokeFunction(name, data) { calls.push({ op: "invokeFunction", name, data }); return { Result: "ok" }; } };
+        },
+        getLogService() {
+          return { async searchClsLog(params) { calls.push({ op: "searchClsLog", params }); return { LogResults: { Results: [] }, RequestId: "log-1" }; } };
+        },
+      };
+    },
     database: {
       async listCollections() {
         calls.push({ op: "listCollections" });
         if (failCollections) throw new Error(failCollections);
         return { Collections: [{ CollectionName: "users" }, { CollectionName: "orders" }] };
+      },
+      async createCollectionIfNotExists(collection) {
+        calls.push({ op: "createCollectionIfNotExists", collection });
+        return { IsCreated: collection === "products" };
       },
     },
     storage: {
@@ -498,6 +548,23 @@ function fakeManager(calls, { failCollections } = {}) {
           { Key: "uploads/", Size: 0 },
           { Key: "uploads/logo.png", Size: 1024, LastModified: "2026-09-30T00:00:00Z" },
         ];
+      },
+      async getTemporaryUrl(fileList) {
+        calls.push({ op: "getTemporaryUrl", fileList });
+        return fileList.map((cloudPath) => ({
+          fileId: `cloud://${cloudPath}`,
+          url: `https://download.example/${encodeURIComponent(cloudPath)}`,
+        }));
+      },
+      async createCloudDirectroy(cloudPath) {
+        calls.push({ op: "createCloudDirectroy", cloudPath });
+      },
+      async deleteFile(cloudPathList) {
+        calls.push({ op: "deleteFile", cloudPathList });
+      },
+      async deleteDirectory(cloudPath) {
+        calls.push({ op: "deleteDirectory", cloudPath });
+        return { Deleted: [{ Key: cloudPath }], Error: [] };
       },
     },
   };
@@ -526,6 +593,57 @@ test("collections are listed through the management plane", async () => {
   }
 });
 
+test("auth settings, first Admin account, function invoke and logs use the management plane", async () => {
+  const database = await testDatabase();
+  const calls = [];
+  setCloudbaseManagerFactory(async () => fakeManager(calls));
+  try {
+    const { user, service, project } = await seed(database);
+    const auth = await readCloudbaseAuthSettings(service, user, project.id, "development");
+    assert.equal(auth.anonymousLogin, false);
+    const updated = await updateCloudbaseAuthSettings(service, user, project.id, { anonymousLogin: true });
+    assert.equal(updated.environment, "development");
+    const admin = await saveCloudbaseAdminAccount(service, user, project.id, { username: "admin@test.local", password: "password123" });
+    assert.equal(admin.configured, true);
+    const invoked = await invokeCloudbaseFunction(service, user, project.id, { name: "crud-demo", data: { action: "list" } });
+    assert.equal(invoked.result.Result, "ok");
+    const logs = await searchCloudbaseFunctionLogs(service, user, project.id, { name: "crud-demo" });
+    assert.deepEqual(logs.result.LogResults.Results, []);
+    assert.ok(calls.some((call) => call.op === "modifyLoginConfig"));
+    assert.ok(calls.some((call) => call.op === "createEndUser"));
+    assert.ok(calls.some((call) => call.op === "invokeFunction"));
+  } finally {
+    resetCloudbaseClients();
+    setCloudbaseManagerFactory(null);
+    await database.close();
+  }
+});
+
+test("collections can be created idempotently through the management plane", async () => {
+  const database = await testDatabase();
+  const calls = [];
+  setCloudbaseManagerFactory(async () => fakeManager(calls));
+  try {
+    const { user, service, project } = await seed(database);
+    const created = await ensureCloudbaseCollection(service, user, project.id, {
+      collection: "products",
+    });
+    const existing = await ensureCloudbaseCollection(service, user, project.id, {
+      collection: "users",
+    });
+    assert.equal(created.created, true);
+    assert.equal(existing.created, false);
+    assert.deepEqual(calls, [
+      { op: "createCollectionIfNotExists", collection: "products" },
+      { op: "createCollectionIfNotExists", collection: "users" },
+    ]);
+  } finally {
+    resetCloudbaseClients();
+    setCloudbaseManagerFactory(null);
+    await database.close();
+  }
+});
+
 test("storage files are listed with metadata and path traversal is refused", async () => {
   const database = await testDatabase();
   const calls = [];
@@ -538,15 +656,77 @@ test("storage files are listed with metadata and path traversal is refused", asy
     assert.equal(result.files[1].key, "uploads/logo.png");
     assert.equal(result.files[1].size, 1024);
     assert.equal(result.files[1].lastModified, "2026-09-30T00:00:00Z");
+    assert.equal(result.files[1].fileId, "cloud://uploads/logo.png");
     assert.equal(result.files[0].isDirectory, true);
-    assert.deepEqual(calls, [{ op: "listDirectoryFiles", cloudPath: "uploads" }]);
+    assert.deepEqual(calls, [
+      { op: "listDirectoryFiles", cloudPath: "uploads" },
+      { op: "getTemporaryUrl", fileList: ["uploads/logo.png"] },
+    ]);
 
     // An empty path means the whole bucket.
     await listCloudbaseFiles(service, user, project.id, {});
-    assert.equal(calls[1].cloudPath, "");
+    assert.equal(calls[2].cloudPath, "");
 
     await assert.rejects(
       () => listCloudbaseFiles(service, user, project.id, { cloudPath: "../../etc" }),
+      (error) => error.status === 400,
+    );
+  } finally {
+    resetCloudbaseClients();
+    setCloudbaseManagerFactory(null);
+    await database.close();
+  }
+});
+
+test("storage directories can be created and entries deleted by path", async () => {
+  const database = await testDatabase();
+  const calls = [];
+  setCloudbaseManagerFactory(async () => fakeManager(calls));
+  try {
+    const { user, service, project } = await seed(database);
+    const created = await createCloudbaseDirectory(service, user, project.id, {
+      cloudPath: "/uploads/images",
+    });
+    assert.equal(created.cloudPath, "uploads/images/");
+
+    await deleteCloudbaseStorageEntry(service, user, project.id, {
+      cloudPath: "uploads/logo.png",
+      isDirectory: false,
+    });
+    await deleteCloudbaseStorageEntry(service, user, project.id, {
+      cloudPath: "uploads/images/",
+      isDirectory: true,
+    });
+
+    assert.deepEqual(calls, [
+      { op: "createCloudDirectroy", cloudPath: "uploads/images/" },
+      { op: "deleteFile", cloudPathList: ["uploads/logo.png"] },
+      { op: "deleteDirectory", cloudPath: "uploads/images/" },
+    ]);
+  } finally {
+    resetCloudbaseClients();
+    setCloudbaseManagerFactory(null);
+    await database.close();
+  }
+});
+
+test("storage object paths resolve to validated temporary download URLs", async () => {
+  const database = await testDatabase();
+  const calls = [];
+  setCloudbaseManagerFactory(async () => fakeManager(calls));
+  try {
+    const { user, service, project } = await seed(database);
+    const result = await getCloudbaseFileDownload(service, user, project.id, {
+      cloudPath: "/uploads/logo.png",
+    });
+    assert.equal(result.environment, "development");
+    assert.equal(result.envId, "dev-env-cb");
+    assert.equal(result.cloudPath, "uploads/logo.png");
+    assert.equal(result.url, "https://download.example/uploads%2Flogo.png");
+    assert.deepEqual(calls, [{ op: "getTemporaryUrl", fileList: ["uploads/logo.png"] }]);
+
+    await assert.rejects(
+      () => getCloudbaseFileDownload(service, user, project.id, { cloudPath: "../secret" }),
       (error) => error.status === 400,
     );
   } finally {

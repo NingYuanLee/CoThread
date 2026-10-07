@@ -250,15 +250,15 @@ test("admin deploy config is normalized and validated", async () => {
       cloudbaseEnvs: { development: { envId: "dev-env" } },
       adminDeploy: {
         target: "cloudbase_static",
-        environment: "development",
+        environment: "production",
         hostingPath: "admin",
-        buildCommand: "npm run build",
-        distDir: "/dist/",
       },
     });
     assert.equal(config.adminDeploy.hostingPath, "/admin/");
-    assert.equal(config.adminDeploy.distDir, "dist");
     assert.equal(config.adminDeploy.target, "cloudbase_static");
+    assert.equal(config.adminDeploy.environment, "production");
+    assert.equal("distDir" in config.adminDeploy, false);
+    assert.equal("buildCommand" in config.adminDeploy, false);
 
     await assert.rejects(
       () =>
@@ -339,6 +339,75 @@ test("unknown secret kinds are rejected", async () => {
       () => saveProjectMiniProgramSecret(service, user, project.id, "unknown_kind", { value: "x" }),
       (error) => error.name === "ZodError" || error.status === 400,
     );
+  } finally {
+    await database.close();
+  }
+});
+
+test("a CloudBase key pair can be submitted as two fields", async () => {
+  const database = await testDatabase();
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(
+      database.db,
+      "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [user.id, `${user.id}@test.com`, "负责人"],
+    );
+    const service = new Service(database.db);
+    const project = await service.createProject(user, { name: "两段式凭据" });
+    await saveProjectMiniProgramConfig(service, user, project.id, {
+      enabled: true,
+      appId: "wx1234567890abcdef",
+    });
+
+    const config = await saveProjectMiniProgramSecret(
+      service,
+      user,
+      project.id,
+      "cloudbase_credential",
+      { secretId: "AKIDtwofieldtest000001", secretKey: "two-field-secret-key" },
+    );
+    assert.equal(config.secrets.cloudbase_credential.configured, true);
+    // The hint shows the SecretId tail, not the tail of a JSON blob (`r"}`).
+    assert.equal(config.secrets.cloudbase_credential.hint, "********0001");
+
+    // The stored value is the canonical JSON the runtime parses into a key pair.
+    const runtime = await loadProjectMiniProgramRuntime(service, project.id);
+    const parsed = JSON.parse(runtime.secrets.cloudbase_credential);
+    assert.equal(parsed.secretId, "AKIDtwofieldtest000001");
+    assert.equal(parsed.secretKey, "two-field-secret-key");
+
+    // Both halves are required, and a pasted-whole-JSON mistake is caught.
+    await assert.rejects(
+      () =>
+        saveProjectMiniProgramSecret(service, user, project.id, "cloudbase_credential", {
+          secretId: "AKIDtwofieldtest000001",
+        }),
+      (error) => error.status === 400 && /同时填写/.test(error.message),
+    );
+    await assert.rejects(
+      () =>
+        saveProjectMiniProgramSecret(service, user, project.id, "cloudbase_credential", {
+          secretId: '{"secretId":"x"}',
+          secretKey: "k",
+        }),
+      (error) => error.status === 400 && /不要包含/.test(error.message),
+    );
+    // The WeChat key still uses the single-value form.
+    await assert.rejects(
+      () =>
+        saveProjectMiniProgramSecret(service, user, project.id, "wechat_upload_key", {
+          secretId: "a",
+          secretKey: "b",
+        }),
+      (error) => error.status === 400 && /不接受/.test(error.message),
+    );
+
+    // Verify no longer treats an unusable value as reassuringly "pending".
+    const result = await verifyProjectMiniProgramConfig(service, user, project.id);
+    const check = result.checks.find((entry) => entry.id === "cloudbase_credential");
+    assert.equal(check.status, "pending", "a real key pair stays pending until a live call");
+    assert.match(check.detail, /API 密钥对/);
   } finally {
     await database.close();
   }

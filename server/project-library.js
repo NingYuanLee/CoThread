@@ -18,7 +18,7 @@ export const MINIPROGRAM_FIXED_FOLDERS = [
   ["小程序源文件", "miniprogram_source", "miniprogram_source"],
   ["小程序 Web 产物", "miniprogram_web", "miniprogram_web"],
   ["PC 管理后台", "miniprogram_admin", "miniprogram_admin"],
-  ["服务端", "miniprogram_server", "miniprogram_server"],
+  ["云函数", "miniprogram_server", "miniprogram_server"],
 ];
 
 export const MINIPROGRAM_FOLDER_KINDS = MINIPROGRAM_FIXED_FOLDERS.map(([, , kind]) => kind);

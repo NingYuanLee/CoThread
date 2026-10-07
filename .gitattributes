@@ -3,3 +3,4 @@
 *.yml text eol=lf
 *.js text eol=lf
 *.tsx text eol=lf
+migrations/*.sql text eol=lf

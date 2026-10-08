@@ -799,7 +799,7 @@
   color: var(--c-9f2e28);
 }
 
-/* PC管理后台预览：与浏览器桌面模式共用同类型的工具栏与无边框预览。 */
+/* Admin预览：与浏览器桌面模式共用同类型的工具栏与无边框预览。 */
 .miniprogram-admin-panel {
   display: flex;
   flex: 1;
@@ -859,6 +859,19 @@
   min-height: 0;
   border: 0;
   background: var(--c-f8faf8);
+}
+/* 手机模式：Admin预览的 iframe 要撑满机模屏幕，和 Dimina 画布同一套做法。 */
+.miniprogram-phone-screen > .miniprogram-admin-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.miniprogram-admin-device-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
 }
 .miniprogram-admin-service-head {
   display: flex;
@@ -3293,7 +3306,7 @@
   }
 }
 
-/* 小程序web预览：发布待办数量附着在工具栏图标上。 */
+/* Dimina预览：发布待办数量附着在工具栏图标上。 */
 .miniprogram-action-badge {
   position: absolute;
   top: -4px;

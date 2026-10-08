@@ -9,7 +9,6 @@ export function DocumentFileActionCapsule({
   onPreview,
   onSource,
   onPlainText,
-  onShowInfo,
 }: {
   supportsPreview: boolean;
   supportsSource: boolean;
@@ -19,7 +18,6 @@ export function DocumentFileActionCapsule({
   onPreview: () => void;
   onSource: () => void;
   onPlainText: () => void;
-  onShowInfo: () => void;
 }) {
   return (
     <span className="doc-view-mode" role="group" aria-label="文件操作">
@@ -56,10 +54,6 @@ export function DocumentFileActionCapsule({
           纯文本
         </button>
       ) : null}
-      <button type="button" onClick={onShowInfo}>
-        <UiIcon name="info" size={12} />
-        文件信息
-      </button>
     </span>
   );
 }

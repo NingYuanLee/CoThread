@@ -9,7 +9,7 @@ import { promoteCloudbaseFunction } from "./cloudbase-functions.js";
  * 状态机（server/release-requests.js）只负责「谁能批、什么时候有效、怎么记」，
  * 真正的发布动作集中在这里。这样做的两个原因：
  * 发布动作集中在这里，便于审计与替换。微信体验版上传不属于生产发布，
- * 由小程序web预览中的直接上传入口处理。
+ * 由 Dimina预览中的直接上传入口处理。
  *
  * 约定：成功返回 deploymentId；失败抛出错误，由状态机记为 failed（不自动重试）。
  */

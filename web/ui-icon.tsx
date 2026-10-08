@@ -29,6 +29,7 @@ export type UiIconName =
   | "github"
   | "globe"
   | "history"
+  | "home"
   | "human"
   | "inbox"
   | "info"
@@ -142,6 +143,7 @@ const GLYPHS: Record<GlyphName, string[]> = {
     "M12 3C9.8 5.4 8.7 8.4 8.7 12s1.1 6.6 3.3 9",
   ],
   history: ["M12 8v5l3 2", "M21 12a9 9 0 1 1-2.6-6.35", "M21 4v6h-6"],
+  home: ["M4 11 12 4l8 7", "M6 10.5V20h12v-9.5", "M10 20v-5h4v5"],
   human: ["M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z", "M5 20a7 7 0 0 1 14 0"],
   inbox: ["M4 8h16v12H4z", "M4 14h4l1.5 2h5L16 14h4"],
   info: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "M12 11v6M12 8h.01"],

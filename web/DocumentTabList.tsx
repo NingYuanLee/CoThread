@@ -5,6 +5,10 @@ export type DocumentTabListItem = {
   label: string;
   icon: ReactNode;
   title?: string;
+  /** 额外的页签 class，用于区分同栏里的不同页签种类（如文档 / HTML）。 */
+  className?: string;
+  /** 是否显示关闭按钮；开始页签在只有自己时不显示。 */
+  closable?: boolean;
 };
 
 export function DocumentTabList({
@@ -31,7 +35,7 @@ export function DocumentTabList({
       {tabs.map((tab) => (
         <span
           key={tab.id}
-          className={`doc-browser-tab${selected === tab.id ? " active" : ""}`}
+          className={`doc-browser-tab${selected === tab.id ? " active" : ""}${tab.closable === false ? " doc-browser-tab-no-close" : ""}${tab.className ? ` ${tab.className}` : ""}`}
           role="presentation"
           onContextMenu={onContextMenu ? (event) => onContextMenu(event, tab.id) : undefined}
         >
@@ -46,15 +50,17 @@ export function DocumentTabList({
             {tab.icon}
             <span className="doc-browser-tab-label">{tab.label}</span>
           </button>
-          <button
-            type="button"
-            className="doc-browser-tab-close"
-            aria-label={`关闭 ${tab.label}`}
-            title="关闭"
-            onClick={() => onClose(tab.id)}
-          >
-            ×
-          </button>
+          {tab.closable === false ? null : (
+            <button
+              type="button"
+              className="doc-browser-tab-close"
+              aria-label={`关闭 ${tab.label}`}
+              title="关闭"
+              onClick={() => onClose(tab.id)}
+            >
+              ×
+            </button>
+          )}
         </span>
       ))}
       {!tabs.length && emptyLabel ? (

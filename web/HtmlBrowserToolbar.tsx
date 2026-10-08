@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { UiIcon } from "./ui-icon";
 
 export type HtmlDeviceMode = "desktop" | "mobile";
@@ -26,6 +26,15 @@ export function HtmlBrowserToolbar({
   onDeviceModeChange: (mode: HtmlDeviceMode) => void;
 }) {
   const [focused, setFocused] = useState(false);
+  const addressWrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!focused) return;
+    const closeOnOutsidePointerDown = (event: PointerEvent) => {
+      if (!addressWrapRef.current?.contains(event.target as Node)) setFocused(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
+  }, [focused]);
   const query = addressQuery;
   const matches = files
     .filter(
@@ -49,7 +58,7 @@ export function HtmlBrowserToolbar({
         >
           <UiIcon name="refresh" size={14} />
         </button>
-        <div className={`doc-html-browser-address-wrap${focused ? " focused" : ""}`}>
+        <div ref={addressWrapRef} className={`doc-html-browser-address-wrap${focused ? " focused" : ""}`}>
           <UiIcon name="search" size={13} />
           <input
             className="doc-html-browser-address-input"

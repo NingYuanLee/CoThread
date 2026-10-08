@@ -118,7 +118,7 @@ if (production) {
 // npm run dev 会注入 PORT=API_PORT；对外默认 3100，不必写进 .env。
 const port = Number(process.env.PORT || LISTEN_PORT);
 const host = listenHost;
-// PC管理后台预览的 HMR 走 WebSocket；升级请求按项目开发服务器登记表转发。
+// Admin预览的 HMR 走 WebSocket；升级请求按项目开发服务器登记表转发。
 registerDevServerUpgrade(server, db);
 server.listen(port, host);
 await new Promise((resolve, reject) => {

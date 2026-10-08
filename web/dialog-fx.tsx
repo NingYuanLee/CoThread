@@ -4,7 +4,9 @@ import { createPortal } from "react-dom";
 const DIALOG_OUT_MS = 150;
 
 function prefersReducedMotion() {
-  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return (
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
 }
 
 export function animateDialogClose(el: HTMLDialogElement | null, after?: () => void) {
@@ -26,7 +28,8 @@ export function animateDialogClose(el: HTMLDialogElement | null, after?: () => v
   let done = false;
   const finish = (event?: AnimationEvent) => {
     if (done) return;
-    if (event && (event.target !== el || !String(event.animationName).includes("dialog-out"))) return;
+    if (event && (event.target !== el || !String(event.animationName).includes("dialog-out")))
+      return;
     done = true;
     el.removeEventListener("animationend", finish as EventListener);
     window.clearTimeout(timer);
@@ -60,7 +63,8 @@ export function onDialogBackdropClick(onClose: () => void, canClose?: () => bool
       event.clientX <= rect.right &&
       event.clientY >= rect.top &&
       event.clientY <= rect.bottom
-    ) return;
+    )
+      return;
     animateDialogClose(dialog, onClose);
   };
 }
@@ -89,6 +93,20 @@ export function DialogClose({
       ×
     </button>
   );
+}
+
+/**
+ * 浮层该挂在谁下面。
+ *
+ * 原生 `<dialog>` 用 `showModal()` 打开后会进入 top layer，同时把 layer 之外的
+ * 内容变成 inert；此时把浮层 portal 到 `document.body`，浮层既画不出来也点不到
+ * ——「小程序云开发」里再次打开的弹窗被挡住就是这个原因。所以优先挂进最上层
+ * 打开着的 `<dialog>`，只有页面上没有对话框时才用 body。
+ */
+function modalPortalHost(): HTMLElement {
+  const openDialogs = document.querySelectorAll("dialog[open]");
+  const top = openDialogs[openDialogs.length - 1];
+  return top instanceof HTMLElement ? top : document.body;
 }
 
 export function ModalBackdrop({
@@ -125,6 +143,9 @@ export function ModalBackdrop({
     setClosing(true);
   };
   const nodeRef = useRef<HTMLDivElement>(null);
+  // 宿主在挂载时定一次：浮层显示时父对话框已经打开，之后不会换层。
+  const hostRef = useRef<HTMLElement | null>(null);
+  if (!hostRef.current) hostRef.current = modalPortalHost();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -146,9 +167,13 @@ export function ModalBackdrop({
     <div
       ref={nodeRef}
       className={`modal-backdrop ${className} ${closing ? "is-closing" : ""}`.trim()}
-      onClick={closeOnBackdrop ? (event) => {
-        if (event.target === event.currentTarget) requestClose();
-      } : undefined}
+      onClick={
+        closeOnBackdrop
+          ? (event) => {
+              if (event.target === event.currentTarget) requestClose();
+            }
+          : undefined
+      }
       onAnimationEnd={(event) => {
         if (!closing || event.target !== event.currentTarget) return;
         if (!String(event.animationName).includes("dialog-backdrop-out")) return;
@@ -157,6 +182,6 @@ export function ModalBackdrop({
     >
       {typeof children === "function" ? children(requestClose) : children}
     </div>,
-    document.body,
+    hostRef.current,
   );
 }

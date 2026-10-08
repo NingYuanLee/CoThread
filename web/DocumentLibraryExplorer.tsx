@@ -25,6 +25,8 @@ export function DocumentLibraryExplorer({
   onSortToggle,
   onToggleTrash,
   onEmptyTrash,
+  onOpenChangeLog,
+  changeLogOpen,
 }: {
   treeWidth: number;
   treeWidthMin: number;
@@ -50,6 +52,8 @@ export function DocumentLibraryExplorer({
   onSortToggle: () => void;
   onToggleTrash: () => void;
   onEmptyTrash: () => void;
+  onOpenChangeLog: () => void;
+  changeLogOpen: boolean;
 }) {
   return (
     <aside
@@ -137,6 +141,17 @@ export function DocumentLibraryExplorer({
         ) : null}
       </div>
       <footer className="library-explorer-footer">
+        <button
+          type="button"
+          className={changeLogOpen ? "library-trash-entry active" : "library-trash-entry"}
+          title="文档操作日志"
+          aria-label="文档操作日志"
+          aria-pressed={changeLogOpen}
+          onClick={onOpenChangeLog}
+        >
+          {renderTreeIcon("history")}
+          <span>操作日志</span>
+        </button>
         <button
           type="button"
           className={trash ? "library-trash-entry active" : "library-trash-entry"}

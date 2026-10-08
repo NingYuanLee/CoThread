@@ -369,30 +369,63 @@ button.dialog-close:hover:not(:disabled) {
 .library-empty {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 12px;
+  align-items: stretch;
+  gap: 18px;
+  width: min(calc(100% - 48px), 480px);
   margin: auto;
+  box-sizing: border-box;
   color: var(--c-9aa68a);
   text-align: center;
 }
-.library-empty p { margin: 0; }
-.doc-browser-open-tree {
-  display: inline-flex;
+/* 开始页的两个入口：仿参考图的大卡片（左图标 + 标题与说明）。
+   选择器带上 .library-empty 是为了压过全局的 button:has(> .ui-icon) 居中规则。 */
+.library-empty .doc-browser-start-card {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 0 10px;
+  justify-content: flex-start;
+  gap: 18px;
+  width: 100%;
+  min-height: 84px;
+  padding: 20px 22px;
+  box-sizing: border-box;
   border: 1px solid var(--c-dce3d9);
-  border-radius: 4px;
+  border-radius: 14px;
   background: var(--c-fff);
-  color: var(--c-526d46);
-  font-size: 12px;
+  color: var(--c-354238);
+  text-align: left;
 }
-.doc-browser-open-tree:hover {
+.library-empty .doc-browser-start-card:hover {
   border-color: var(--c-b8c9b2, #b8c9b2);
   background: var(--c-f3f7f1, #f3f7f1);
 }
-.doc-browser-open-tree .tree-icon { width: 15px; height: 15px; }
+.library-empty .doc-browser-start-card .doc-browser-start-card-icon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  color: var(--c-526d46);
+}
+.library-empty .doc-browser-start-card-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+.library-empty .doc-browser-start-card-copy strong {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--c-263b2b);
+}
+.library-empty .doc-browser-start-card-copy small {
+  font-size: 12px;
+  color: var(--c-8a958d, #8a958d);
+}
+.library-empty .doc-browser-start-card-copy strong,
+.library-empty .doc-browser-start-card-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 @media (max-width: 650px) {
   .library-body {
     flex-direction: column;
@@ -3135,9 +3168,9 @@ summary {
 }
 .library-explorer-footer {
   flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
   margin-top: 0;
   padding: 8px 2px 0;
   border-top: 1px solid var(--c-e5e5e5);
@@ -3145,16 +3178,23 @@ summary {
 .library-trash-entry {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  min-height: 36px;
-  padding: 6px 8px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px 7px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--c-555);
-  font-size: 13px;
+  font-size: 12px;
   text-align: left;
+}
+.library-trash-entry > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .library-trash-entry:hover {
   background: var(--c-efefef);
@@ -3164,17 +3204,19 @@ summary {
   color: var(--c-263b2b);
 }
 .library-trash-empty {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  min-height: 36px;
-  padding: 6px 8px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px 7px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--c-a9443e);
-  font-size: 13px;
+  font-size: 12px;
   text-align: left;
 }
 .library-trash-empty:hover:not(:disabled) {
@@ -3956,52 +3998,6 @@ img.file-type-icon {
   box-sizing: border-box;
   font: inherit;
 }
-.doc-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 36px;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--c-e5e9e2);
-  background: var(--c-fbfcf9);
-  flex-shrink: 0;
-}
-.doc-tool-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: 4px 9px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--c-687066);
-  font-size: 11px;
-  font-weight: 600;
-}
-.doc-tool-button:hover:not(:disabled) {
-  background: var(--c-f1f5ef, #f1f5ef);
-  color: var(--c-354238, #354238);
-}
-.doc-tool-button.active {
-  border-color: var(--c-dce3d9);
-  background: var(--c-fff);
-  color: var(--c-263b2b);
-  box-shadow: 0 1px 1px var(--c-1c2a1e0d);
-}
-.doc-tool-button:disabled {
-  color: var(--c-b0b8b0, #b0b8b0);
-  cursor: not-allowed;
-}
-.doc-tool-button .ui-icon {
-  flex: none;
-}
-.doc-toolbar .doc-tool-button:not(.doc-fullscreen-button) {
-  gap: 3px;
-  padding-inline: 5px;
-  font-size: 10px;
-  white-space: nowrap;
-}
 .doc-browser-tabbar {
   display: flex;
   align-items: center;
@@ -4035,6 +4031,22 @@ img.file-type-icon {
   border: 1px solid transparent;
   border-radius: 4px;
 }
+/* 同一页签栏里，第一项 HTML 页签 / 开始页签与前面的页签之间留一条分隔线。 */
+.doc-browser-tab-html,
+.doc-browser-tab-start {
+  position: relative;
+  margin-left: 10px;
+}
+.doc-browser-tab-html::before,
+.doc-browser-tab-start::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 20%;
+  bottom: 20%;
+  width: 1px;
+  background: var(--c-dce3d9);
+}
 .doc-browser-tab:not(.active):hover {
   background: var(--c-eef3eb, #eef3eb);
   border-color: var(--c-dce3d9);
@@ -4058,6 +4070,10 @@ img.file-type-icon {
   padding: 5px 2px 5px 8px;
   font-size: 11px;
   color: var(--c-4a524c);
+}
+/* 没有关闭按钮的页签（只有自己时的开始页签）左右内边距一致。 */
+.doc-browser-tab-no-close .doc-browser-tab-open {
+  padding-right: 8px;
 }
 .doc-browser-tab:hover .doc-browser-tab-open {
   color: var(--c-263b2b);
@@ -4111,12 +4127,6 @@ img.file-type-icon {
 .doc-browser-tree-toggle.active { background: var(--c-e3ead9); color: var(--c-2f3a33); }
 .doc-browser-tree-toggle .tree-icon { width: 15px; height: 15px; }
 .doc-browser-body { position: relative; }
-.doc-browser-shell.browser-tool-active .doc-browser-tabbar {
-  display: none;
-}
-.doc-browser-shell.browser-tool-active .doc-browser-browser-tabbar {
-  display: flex;
-}
 .doc-browser-shell.browser-tool-active .doc-browser-preview-header {
   display: none;
 }
@@ -4145,20 +4155,39 @@ img.file-type-icon {
   border-bottom: 1px solid var(--c-e7eddf);
   background: var(--c-fbfcf9);
 }
+/* 文档路径行与 HTML 阅览的地址栏同款：行高、底色、内边距一致，路径放在同款白底描边字段框里。 */
 .doc-browser-preview-header {
   display: flex;
   align-items: center;
-  gap: 7px;
-  flex: 0 0 34px;
-  height: 34px;
-  min-height: 34px;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-height: 32px;
   box-sizing: border-box;
   min-width: 0;
-  padding: 0 12px;
+  padding: 4px 7px;
   border-bottom: 1px solid var(--c-e7eddf);
-  background: var(--c-fbfcf9);
+  background: var(--c-f7f9f6);
   color: var(--c-69756c, #69756c);
   font-size: 11px;
+}
+.doc-browser-path-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  min-height: 25px;
+  padding: 0 9px;
+  box-sizing: border-box;
+  border: 1px solid var(--c-dce3d9);
+  border-radius: 4px;
+  background: var(--c-fff);
+  color: var(--c-4a524c);
+  font-size: 11px;
+}
+.doc-browser-path-field > .ui-icon {
+  flex: none;
+  color: var(--c-7b8d7e, #7b8d7e);
 }
 .doc-browser-preview-path,
 .doc-browser-preview-name {
@@ -4371,7 +4400,8 @@ body.col-resizing .doc-browser-tree-resize {
 .doc-html-browser-toolbar-shell .doc-html-browser-toolbar {
   border-bottom: 0;
 }
-.doc-html-browser-action {
+.doc-html-browser-action,
+.doc-browser-path-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4384,12 +4414,14 @@ body.col-resizing .doc-browser-tree-resize {
   background: transparent;
   color: var(--c-687066);
 }
-.doc-html-browser-action:hover:not(:disabled) {
+.doc-html-browser-action:hover:not(:disabled),
+.doc-browser-path-action:hover:not(:disabled) {
   border-color: var(--c-dce3d9);
   background: var(--c-fff);
   color: var(--c-263b2b);
 }
-.doc-html-browser-action:disabled {
+.doc-html-browser-action:disabled,
+.doc-browser-path-action:disabled {
   color: var(--c-b0b8b0, #b0b8b0);
   cursor: not-allowed;
 }
@@ -4599,7 +4631,10 @@ body.col-resizing .doc-browser-tree-resize {
   padding: 14px 12px;
   background: var(--c-eef2ea);
 }
-.doc-html-preview-viewport-mobile .doc-html-preview-frame.mobile {
+/* 手机模式：iframe 必须撑满机模屏幕。选择器带上 .miniprogram-phone-screen 是为了压过下方
+   .doc-html-preview-shell iframe.doc-html-preview-frame 的 height: auto（那条规则特异性更高，
+   会把 iframe 压回 150px 的默认高度，只在屏幕顶部留一条）。 */
+.doc-html-preview-viewport-mobile .miniprogram-phone-screen .doc-html-preview-frame.mobile {
   position: absolute;
   inset: 0;
   display: block;
@@ -8456,12 +8491,8 @@ body.col-resizing .app-shell > .context-panel {
   width: auto;
   max-width: none;
 }
-.doc-toolbar-spacer {
-  flex: 1;
-  min-width: 0;
-}
-.doc-fullscreen-button {
-  margin-left: auto;
+.doc-browser-fullscreen-toggle {
+  margin-left: 2px;
 }
 @media (max-width: 700px) {
   .app-shell.document-fullscreen > .context-panel,

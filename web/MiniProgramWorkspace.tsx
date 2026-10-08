@@ -8,11 +8,18 @@ import {
   type DatabaseFilterSpec,
 } from "./DatabaseFilterBuilder";
 import { showTip } from "./Tip";
+import {
+  MiniProgramDeviceShell,
+  PREVIEW_DEFAULT_DEVICE_ID,
+  PREVIEW_DEVICES,
+  PREVIEW_ZOOM_OPTIONS,
+  findPreviewDevice,
+} from "./MiniProgramDeviceShell";
 import "./miniprogram.css";
 
 export const MINIPROGRAM_TABS = [
-  { id: "preview", label: "小程序web预览", icon: "smartphone" },
-  { id: "admin", label: "PC管理后台预览", icon: "monitor" },
+  { id: "preview", label: "Dimina预览", icon: "smartphone" },
+  { id: "admin", label: "Admin预览", icon: "monitor" },
   { id: "database", label: "云数据库", icon: "layers" },
   { id: "storage", label: "云存储", icon: "folder" },
   { id: "server", label: "云函数", icon: "server" },
@@ -38,6 +45,7 @@ type MiniProgramConfig = {
 
 const TAB_STATE_KEY = "cothread-miniprogram-tab";
 const PREVIEW_VIEW_KEY = "cothread-miniprogram-preview-view";
+const ADMIN_VIEW_KEY = "cothread-miniprogram-admin-view";
 
 type PreviewViewState = { deviceId: string; zoom: string };
 
@@ -104,6 +112,41 @@ function storePreviewView(projectId: string, view: PreviewViewState) {
   }
 }
 
+type AdminDeviceMode = "desktop" | "mobile";
+
+type AdminPreviewViewState = {
+  deviceMode: AdminDeviceMode;
+  deviceId: string;
+  zoom: string;
+};
+
+/**
+ * Admin 预览的设备模式单独一份（`ADMIN_VIEW_KEY`），与 Dimina 预览互不覆盖：
+ * 后台是桌面应用，多数时候要看「电脑模式」，不该被 Dimina 那边的机型选择带走。
+ */
+function readStoredAdminView(projectId: string): AdminPreviewViewState | null {
+  try {
+    const raw = localStorage.getItem(`${ADMIN_VIEW_KEY}:${projectId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<AdminPreviewViewState>;
+    return {
+      deviceMode: parsed.deviceMode === "mobile" ? "mobile" : "desktop",
+      deviceId: typeof parsed.deviceId === "string" ? parsed.deviceId : "",
+      zoom: typeof parsed.zoom === "string" ? parsed.zoom : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function storeAdminView(projectId: string, view: AdminPreviewViewState) {
+  try {
+    localStorage.setItem(`${ADMIN_VIEW_KEY}:${projectId}`, JSON.stringify(view));
+  } catch {
+    /* 忽略：仅退化为不记忆 */
+  }
+}
+
 function readStoredTab(projectId: string): MiniProgramTabId {
   try {
     const raw = localStorage.getItem(`${TAB_STATE_KEY}:${projectId}`);
@@ -133,7 +176,7 @@ function PendingPanel({
 }
 
 /**
- * 小程序web预览页把微信发布 / 发布记录收进弹窗，这里统一弹窗外壳：
+ * Dimina预览页把微信发布 / 发布记录收进弹窗，这里统一弹窗外壳：
  * 标题 + 关闭按钮 + 可滚动正文，视觉沿用文档库的 library-organize-dialog。
  */
 function WorkspaceDialog({
@@ -253,7 +296,10 @@ function TablePagination({
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
 }) {
-  const totalPages = total === null ? Math.max(1, page + (hasNext ? 2 : 1)) : Math.max(1, Math.ceil(total / pageSize));
+  const totalPages =
+    total === null
+      ? Math.max(1, page + (hasNext ? 2 : 1))
+      : Math.max(1, Math.ceil(total / pageSize));
   return (
     <nav className="miniprogram-table-pagination" aria-label="表格分页">
       <button
@@ -372,133 +418,6 @@ function DeploymentRecordList({
     </ul>
   );
 }
-
-/**
- * 预览机型：`width/height` 是**屏幕**的逻辑尺寸（CSS px），与浏览器设备模式口径一致；
- * 其余字段描述机身材质，用来画出手机外壳而不是一个圆角矩形。
- */
-type PreviewDevice = {
-  id: string;
-  label: string;
-  width: number;
-  height: number;
-  /** 机身四边黑边，屏幕之外的部分。 */
-  bezel: { top: number; right: number; bottom: number; left: number };
-  /** 屏幕圆角与外框圆角。 */
-  screenRadius: number;
-  frameRadius: number;
-  /** 顶部开孔样式：刘海 / 灵动岛 / 居中挖孔 / 无。 */
-  cutout: "notch" | "island" | "punch" | "none";
-  /** 底部横条（全面屏手势条）。 */
-  homeIndicator: boolean;
-  /** 底部实体 Home 键（带下巴的老机型）。 */
-  homeButton: boolean;
-  /** 侧边实体按键。 */
-  sideButtons: boolean;
-};
-
-const PREVIEW_DEVICES: PreviewDevice[] = [
-  {
-    id: "iphone-se",
-    label: "iPhone SE",
-    width: 375,
-    height: 667,
-    bezel: { top: 46, right: 10, bottom: 58, left: 10 },
-    screenRadius: 2,
-    frameRadius: 26,
-    cutout: "none",
-    homeIndicator: false,
-    homeButton: true,
-    sideButtons: true,
-  },
-  {
-    id: "iphone-13-mini",
-    label: "iPhone 13 mini",
-    width: 375,
-    height: 812,
-    bezel: { top: 12, right: 11, bottom: 12, left: 11 },
-    screenRadius: 40,
-    frameRadius: 48,
-    cutout: "notch",
-    homeIndicator: true,
-    homeButton: false,
-    sideButtons: true,
-  },
-  {
-    id: "iphone-14",
-    label: "iPhone 14",
-    width: 390,
-    height: 844,
-    bezel: { top: 12, right: 12, bottom: 12, left: 12 },
-    screenRadius: 44,
-    frameRadius: 52,
-    cutout: "notch",
-    homeIndicator: true,
-    homeButton: false,
-    sideButtons: true,
-  },
-  {
-    id: "iphone-14-pro-max",
-    label: "iPhone 14 Pro Max",
-    width: 430,
-    height: 932,
-    bezel: { top: 12, right: 12, bottom: 12, left: 12 },
-    screenRadius: 50,
-    frameRadius: 58,
-    cutout: "island",
-    homeIndicator: true,
-    homeButton: false,
-    sideButtons: true,
-  },
-  {
-    id: "pixel-7",
-    label: "Pixel 7",
-    width: 412,
-    height: 915,
-    bezel: { top: 10, right: 10, bottom: 10, left: 10 },
-    screenRadius: 28,
-    frameRadius: 36,
-    cutout: "punch",
-    homeIndicator: true,
-    homeButton: false,
-    sideButtons: true,
-  },
-  {
-    id: "galaxy-s20",
-    label: "Galaxy S20",
-    width: 360,
-    height: 800,
-    bezel: { top: 9, right: 9, bottom: 9, left: 9 },
-    screenRadius: 30,
-    frameRadius: 38,
-    cutout: "punch",
-    homeIndicator: true,
-    homeButton: false,
-    sideButtons: true,
-  },
-  {
-    id: "ipad-mini",
-    label: "iPad mini",
-    width: 744,
-    height: 1133,
-    bezel: { top: 18, right: 18, bottom: 18, left: 18 },
-    screenRadius: 16,
-    frameRadius: 24,
-    cutout: "none",
-    homeIndicator: false,
-    homeButton: false,
-    sideButtons: true,
-  },
-];
-
-const PREVIEW_DEFAULT_DEVICE_ID = "iphone-14";
-const PREVIEW_ZOOM_OPTIONS = [
-  { value: "fit", label: "适应屏幕" },
-  { value: "0.5", label: "50%" },
-  { value: "0.75", label: "75%" },
-  { value: "1", label: "100%" },
-  { value: "1.25", label: "125%" },
-];
 
 /** `server/release-requests.js` 的 publicRow 形状。 */
 type ReleaseRequest = {
@@ -645,7 +564,6 @@ function formatBuildTime(value: string | null | undefined) {
  */
 function PreviewCanvas({ meta, projectId }: { meta: PreviewMeta; projectId: string }) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<{ destroy?: () => void } | null>(null);
   const [state, setState] = useState<"loading" | "running" | "error">("loading");
   const [error, setError] = useState("");
@@ -660,43 +578,11 @@ function PreviewCanvas({ meta, projectId }: { meta: PreviewMeta; projectId: stri
       ? (storedView?.zoom as string)
       : "fit",
   );
-  const [fitZoom, setFitZoom] = useState(1);
-
   useEffect(() => {
     storePreviewView(projectId, { deviceId, zoom: zoomMode });
   }, [projectId, deviceId, zoomMode]);
 
-  const device = PREVIEW_DEVICES.find((item) => item.id === deviceId) ?? PREVIEW_DEVICES[0];
-  // 机身 = 屏幕 + 四边黑边；缩放与占位都按机身算，屏幕上仍保持逻辑尺寸。
-  const chassisWidth = device.width + device.bezel.left + device.bezel.right;
-  const chassisHeight = device.height + device.bezel.top + device.bezel.bottom;
-
-  /** 自动缩放同时受舞台宽度和高度约束，确保整台设备完整可见。 */
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return undefined;
-    const measure = () => {
-      const styles = window.getComputedStyle(stage);
-      const horizontalPadding =
-        (Number.parseFloat(styles.paddingLeft) || 0) +
-        (Number.parseFloat(styles.paddingRight) || 0);
-      const verticalPadding =
-        (Number.parseFloat(styles.paddingTop) || 0) +
-        (Number.parseFloat(styles.paddingBottom) || 0);
-      const availableWidth = stage.clientWidth - horizontalPadding;
-      const availableHeight = stage.clientHeight - verticalPadding;
-      if (availableWidth <= 0 || availableHeight <= 0) return;
-      const next = Math.min(availableWidth / chassisWidth, availableHeight / chassisHeight, 1);
-      setFitZoom(Math.max(0.01, next));
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return undefined;
-    const observer = new ResizeObserver(measure);
-    observer.observe(stage);
-    return () => observer.disconnect();
-  }, [chassisHeight, chassisWidth]);
-
-  const zoom = zoomMode === "fit" ? fitZoom : Number(zoomMode) || 1;
+  const device = findPreviewDevice(deviceId);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -760,90 +646,19 @@ function PreviewCanvas({ meta, projectId }: { meta: PreviewMeta; projectId: stri
   ]);
 
   return (
-    <div className="miniprogram-canvas-shell">
-      <div className="miniprogram-canvas-bar">
-        <div className="miniprogram-device-controls">
-          <select
-            aria-label="预览机型"
-            value={deviceId}
-            onChange={(event) => setDeviceId(event.target.value)}
-          >
-            {PREVIEW_DEVICES.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="预览缩放"
-            value={zoomMode}
-            onChange={(event) => setZoomMode(event.target.value)}
-          >
-            {PREVIEW_ZOOM_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <span className="miniprogram-device-size">
-            {device.width}×{device.height} · {Math.round(zoom * 100)}%
-          </span>
-        </div>
-      </div>
-      {state === "error" ? (
-        <p className="miniprogram-config-error">{error || "小程序启动失败"}</p>
-      ) : null}
-      <div className="miniprogram-stage" ref={stageRef}>
-        <div
-          className="miniprogram-device-box"
-          style={{ width: chassisWidth * zoom, height: chassisHeight * zoom }}
-        >
-          <div
-            className="miniprogram-phone"
-            style={{
-              width: chassisWidth,
-              height: chassisHeight,
-              padding: `${device.bezel.top}px ${device.bezel.right}px ${device.bezel.bottom}px ${device.bezel.left}px`,
-              borderRadius: device.frameRadius,
-              transform: `scale(${zoom})`,
-            }}
-          >
-            {device.sideButtons ? (
-              <>
-                <span className="miniprogram-phone-btn miniprogram-phone-btn-power" />
-                <span className="miniprogram-phone-btn miniprogram-phone-btn-vol-up" />
-                <span className="miniprogram-phone-btn miniprogram-phone-btn-vol-down" />
-              </>
-            ) : null}
-            <div
-              className="miniprogram-phone-screen"
-              style={{
-                width: device.width,
-                height: device.height,
-                borderRadius: device.screenRadius,
-              }}
-            >
-              <div className="miniprogram-canvas" ref={mountRef} />
-              {device.cutout === "notch" ? (
-                <span className="miniprogram-phone-notch" aria-hidden="true" />
-              ) : null}
-              {device.cutout === "island" ? (
-                <span className="miniprogram-phone-island" aria-hidden="true" />
-              ) : null}
-              {device.cutout === "punch" ? (
-                <span className="miniprogram-phone-punch" aria-hidden="true" />
-              ) : null}
-              {device.homeIndicator ? (
-                <span className="miniprogram-phone-home-bar" aria-hidden="true" />
-              ) : null}
-            </div>
-            {device.homeButton ? (
-              <span className="miniprogram-phone-home-button" aria-hidden="true" />
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </div>
+    <MiniProgramDeviceShell
+      deviceId={deviceId}
+      onDeviceIdChange={setDeviceId}
+      zoomMode={zoomMode}
+      onZoomModeChange={setZoomMode}
+      notice={
+        state === "error" ? (
+          <p className="miniprogram-config-error">{error || "小程序启动失败"}</p>
+        ) : null
+      }
+    >
+      <div className="miniprogram-canvas" ref={mountRef} />
+    </MiniProgramDeviceShell>
   );
 }
 
@@ -878,11 +693,23 @@ export function MiniProgramWorkspace({
   const adminFrameRef = useRef<HTMLIFrameElement>(null);
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
   const [adminProductionPath, setAdminProductionPath] = useState("/admin/");
+  const [adminDeviceMode, setAdminDeviceMode] = useState<AdminDeviceMode>(
+    () => readStoredAdminView(projectId)?.deviceMode ?? "desktop",
+  );
+  const [adminDeviceId, setAdminDeviceId] = useState(() => {
+    const stored = readStoredAdminView(projectId)?.deviceId || "";
+    return PREVIEW_DEVICES.some((item) => item.id === stored) ? stored : PREVIEW_DEFAULT_DEVICE_ID;
+  });
+  const [adminZoomMode, setAdminZoomMode] = useState(() => {
+    const stored = readStoredAdminView(projectId)?.zoom || "";
+    return PREVIEW_ZOOM_OPTIONS.some((option) => option.value === stored) ? stored : "fit";
+  });
   const [serverFunctions, setServerFunctions] = useState<CloudbaseFunction[]>([]);
   const [releaseFunctions, setReleaseFunctions] = useState<CloudbaseFunction[]>([]);
   const [serverBusy, setServerBusy] = useState(false);
   const [serverError, setServerError] = useState("");
-  const [functionEnvironment, setFunctionEnvironment] = useState<DatabaseEnvironment>("development");
+  const [functionEnvironment, setFunctionEnvironment] =
+    useState<DatabaseEnvironment>("development");
   const [functionSearch, setFunctionSearch] = useState("");
   const [functionPage, setFunctionPage] = useState(0);
   const [functionPageSize, setFunctionPageSize] = useState(TABLE_PAGE_SIZE);
@@ -943,6 +770,30 @@ export function MiniProgramWorkspace({
   const storageFolderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setTab(readStoredTab(projectId)), [projectId]);
+
+  // 切项目时，后台预览的设备模式也要跟着回到该项目上次的选择。
+  useEffect(() => {
+    const stored = readStoredAdminView(projectId);
+    setAdminDeviceMode(stored?.deviceMode ?? "desktop");
+    setAdminDeviceId(
+      stored && PREVIEW_DEVICES.some((item) => item.id === stored.deviceId)
+        ? stored.deviceId
+        : PREVIEW_DEFAULT_DEVICE_ID,
+    );
+    setAdminZoomMode(
+      stored && PREVIEW_ZOOM_OPTIONS.some((option) => option.value === stored.zoom)
+        ? stored.zoom
+        : "fit",
+    );
+  }, [projectId]);
+
+  useEffect(() => {
+    storeAdminView(projectId, {
+      deviceMode: adminDeviceMode,
+      deviceId: adminDeviceId,
+      zoom: adminZoomMode,
+    });
+  }, [projectId, adminDeviceMode, adminDeviceId, adminZoomMode]);
 
   useEffect(() => {
     try {
@@ -1193,8 +1044,7 @@ export function MiniProgramWorkspace({
   );
 
   useEffect(() => {
-    if (tab !== "server" && tab !== "database" && tab !== "storage")
-      return undefined;
+    if (tab !== "server" && tab !== "database" && tab !== "storage") return undefined;
     let alive = true;
     void request(`/api/projects/${projectId}/cloudbase/environments`)
       .then((response) => readJsonResponse(response, "CloudBase 环境"))
@@ -1820,14 +1670,15 @@ export function MiniProgramWorkspace({
                   ? "miniprogram-storage-tab-body"
                   : tab === "server"
                     ? "miniprogram-server-tab-body"
-                  : ""
+                    : ""
         }`}
         role="tabpanel"
       >
         {error ? <p className="miniprogram-config-error">{error}</p> : null}
         {!enabled ? (
           <p className="miniprogram-workspace-notice">
-            请在「项目管理 → 小程序与云开发」完成①②配置，然后运行连接测试；验证通过后工作区会自动开放。
+            请在「项目管理 →
+            小程序与云开发」完成①②配置，然后运行连接测试；验证通过后工作区会自动开放。
           </p>
         ) : null}
 
@@ -2037,12 +1888,12 @@ export function MiniProgramWorkspace({
 
         {tab === "admin" ? (
           <section className="miniprogram-panel miniprogram-admin-panel">
-            <div className="miniprogram-admin-toolbar" role="toolbar" aria-label="PC管理后台预览工具栏">
+            <div className="miniprogram-admin-toolbar" role="toolbar" aria-label="Admin预览工具栏">
               <button
                 type="button"
                 className="miniprogram-preview-icon-button"
-                aria-label={adminPreviewRunning ? "重新加载 PC管理后台预览" : "开启 PC管理后台预览服务"}
-                title={adminPreviewRunning ? "重新加载" : "开启 PC管理后台预览服务"}
+                aria-label={adminPreviewRunning ? "重新加载 Admin预览" : "开启 Admin预览服务"}
+                title={adminPreviewRunning ? "重新加载" : "开启 Admin预览服务"}
                 onClick={() => {
                   if (adminPreviewRunning) {
                     setAdminFrameKey((value) => value + 1);
@@ -2055,56 +1906,102 @@ export function MiniProgramWorkspace({
               </button>
               <div
                 className="miniprogram-admin-address"
-                title={activeAdminServer?.proxyBase || "PC管理后台预览服务未连接"}
+                title={activeAdminServer?.proxyBase || "Admin预览服务未连接"}
               >
                 <UiIcon name="globe" size={13} />
-                <span>{activeAdminServer?.proxyBase || "PC管理后台预览服务未连接"}</span>
+                <span>{activeAdminServer?.proxyBase || "Admin预览服务未连接"}</span>
+              </div>
+              <div className="miniprogram-admin-device-controls" role="group" aria-label="预览设备">
+                <button
+                  type="button"
+                  className={`miniprogram-preview-icon-button${adminDeviceMode === "desktop" ? " is-active" : ""}`}
+                  aria-label="电脑模式"
+                  aria-pressed={adminDeviceMode === "desktop"}
+                  title="电脑模式"
+                  disabled={!adminPreviewRunning}
+                  onClick={() => setAdminDeviceMode("desktop")}
+                >
+                  <UiIcon name="monitor" size={14} />
+                </button>
+                <button
+                  type="button"
+                  className={`miniprogram-preview-icon-button${adminDeviceMode === "mobile" ? " is-active" : ""}`}
+                  aria-label="手机模式"
+                  aria-pressed={adminDeviceMode === "mobile"}
+                  title="手机模式"
+                  disabled={!adminPreviewRunning}
+                  onClick={() => setAdminDeviceMode("mobile")}
+                >
+                  <UiIcon name="smartphone" size={14} />
+                </button>
               </div>
               <button
                 type="button"
                 className="miniprogram-preview-icon-button"
-                aria-label="在新窗口打开 PC 管理后台预览"
-                title="在新窗口打开 PC 管理后台预览"
+                aria-label="在电脑浏览器中打开"
+                title="在电脑浏览器中打开"
                 disabled={!adminPreviewRunning}
                 onClick={() => {
                   if (!activeAdminServer?.proxyBase) return;
                   window.open(activeAdminServer.proxyBase, "_blank", "noopener,noreferrer");
                 }}
               >
-                <UiIcon name="next" size={14} />
+                <UiIcon name="share" size={14} />
               </button>
               <button
                 type="button"
                 className="miniprogram-preview-icon-button"
-                aria-label="PC管理后台预览服务"
-                title={`PC管理后台预览服务 · ${adminStatusLabel}`}
+                aria-label="Admin预览服务"
+                title={`Admin预览服务 · ${adminStatusLabel}`}
                 onClick={() => setAdminDialogOpen(true)}
               >
                 <UiIcon name="server" size={14} />
               </button>
             </div>
 
-            <div className="miniprogram-admin-preview">
-              {activeAdminServer?.status === "running" ? (
-                <iframe
-                  ref={adminFrameRef}
-                  key={adminFrameKey}
-                  className="miniprogram-admin-frame"
-                  title="PC 管理后台预览"
-                  src={activeAdminServer.proxyBase}
-                />
+            {activeAdminServer?.status === "running" ? (
+              adminDeviceMode === "mobile" ? (
+                // 手机模式只套机模外壳，不给 iframe 加 sandbox：
+                // 同源 cookie、CloudBase 鉴权与 HMR WebSocket 都必须保持可用。
+                <MiniProgramDeviceShell
+                  deviceId={adminDeviceId}
+                  onDeviceIdChange={setAdminDeviceId}
+                  zoomMode={adminZoomMode}
+                  onZoomModeChange={setAdminZoomMode}
+                  deviceAriaLabel="后台预览机型"
+                  zoomAriaLabel="后台预览缩放"
+                >
+                  <iframe
+                    ref={adminFrameRef}
+                    key={adminFrameKey}
+                    className="miniprogram-admin-frame"
+                    title="PC 管理后台预览"
+                    src={activeAdminServer.proxyBase}
+                  />
+                </MiniProgramDeviceShell>
               ) : (
+                <div className="miniprogram-admin-preview">
+                  <iframe
+                    ref={adminFrameRef}
+                    key={adminFrameKey}
+                    className="miniprogram-admin-frame"
+                    title="PC 管理后台预览"
+                    src={activeAdminServer.proxyBase}
+                  />
+                </div>
+              )
+            ) : (
+              <div className="miniprogram-admin-preview">
                 <PendingPanel
                   icon="monitor"
                   title={adminPendingTitle}
                   detail={adminPendingDetail}
                 />
-              )}
-            </div>
-
+              </div>
+            )}
 
             {adminDialogOpen ? (
-              <WorkspaceDialog title="PC管理后台预览服务" onClose={() => setAdminDialogOpen(false)}>
+              <WorkspaceDialog title="Admin预览服务" onClose={() => setAdminDialogOpen(false)}>
                 <section className="miniprogram-admin-service-section">
                   <div className="miniprogram-admin-service-summary">
                     <span className="miniprogram-admin-service-icon" aria-hidden="true">
@@ -2179,7 +2076,7 @@ export function MiniProgramWorkspace({
                       <div className="miniprogram-admin-service-danger-zone">
                         <div>
                           <strong>停止开发服务</strong>
-                          <span>停止后当前 PC管理后台预览将不可访问。</span>
+                          <span>停止后当前 Admin预览将不可访问。</span>
                         </div>
                         <button
                           type="button"
@@ -2228,7 +2125,11 @@ export function MiniProgramWorkspace({
                   onChange={(event) => setFunctionSearch(event.target.value)}
                 />
               </label>
-              <div className="miniprogram-database-environment" role="group" aria-label="云函数环境">
+              <div
+                className="miniprogram-database-environment"
+                role="group"
+                aria-label="云函数环境"
+              >
                 {(["development", "production"] as const).map((environment) => {
                   const info = cbEnvironments.find((item) => item.kind === environment);
                   const selected = functionEnvironment === environment;
@@ -2240,7 +2141,11 @@ export function MiniProgramWorkspace({
                       key={environment}
                       className={selected ? "is-selected" : ""}
                       aria-pressed={selected}
-                      title={info?.inherited ? `${label}（共用开发环境）` : `${label}${info?.envId ? ` ${info.envId}` : "未配置"}`}
+                      title={
+                        info?.inherited
+                          ? `${label}（共用开发环境）`
+                          : `${label}${info?.envId ? ` ${info.envId}` : "未配置"}`
+                      }
                       disabled={serverBusy || unavailable}
                       onClick={() => {
                         if (selected) return;
@@ -2261,67 +2166,77 @@ export function MiniProgramWorkspace({
                 {pagedFunctions.length ? (
                   <div className="miniprogram-function-table-wrap">
                     <table className="miniprogram-function-table">
-                    <thead>
-                      <tr>
-                        <th>函数名</th>
-                        <th>描述</th>
-                        <th title="函数运行环境，例如 Nodejs20.19、Python3.10">运行时</th>
-                        <th>函数类型</th>
-                        <th>处理器路径</th>
-                        <th>状态</th>
-                        <th>更新时间</th>
-                        <th>定时任务</th>
-                        <th>操作</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pagedFunctions.map((item) => {
-                    const publishedToProduction = serverDeployments.some(
-                      (row) =>
-                        row.environment === "production" &&
-                        row.status === "succeeded" &&
-                        row.version === item.name,
-                    );
-                    return (
-                      <tr key={item.name}>
-                        <td className="miniprogram-function-name">{item.name}</td>
-                        <td className="miniprogram-function-description">{item.description || "—"}</td>
-                        <td title={item.runtime || undefined}>{item.runtime || "—"}</td>
-                        <td>{item.type || "—"}</td>
-                        <td className="miniprogram-function-handler">{item.handler || "—"}</td>
-                        <td>
-                          <span className={`miniprogram-status ${item.status === "Active" ? "ok" : "warning"}`}>
-                            {item.status === "Active" ? "运行中" : item.status}
-                          </span>
-                        </td>
-                        <td>{item.modifiedAt || item.createdAt || "—"}</td>
-                        <td>
-                          {item.timers.length ? `${item.timers.length} 个` : "—"}
-                          {item.timers.length ? (
-                            <div className="miniprogram-function-timer-summary">
-                              {item.timers.map((timer) => `${timer.name} · ${timer.schedule}`).join("；")}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            disabled={!writable}
-                            onClick={() => {
-                              setTimerFunctionName(timerFunctionName === item.name ? "" : item.name);
-                              setTimerName("");
-                              setTimerSchedule("");
-                              setTimerError("");
-                            }}
-                          >
-                            <UiIcon name="clock" size={13} />
-                            管理定时触发器
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                    </tbody>
+                      <thead>
+                        <tr>
+                          <th>函数名</th>
+                          <th>描述</th>
+                          <th title="函数运行环境，例如 Nodejs20.19、Python3.10">运行时</th>
+                          <th>函数类型</th>
+                          <th>处理器路径</th>
+                          <th>状态</th>
+                          <th>更新时间</th>
+                          <th>定时任务</th>
+                          <th>操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pagedFunctions.map((item) => {
+                          const publishedToProduction = serverDeployments.some(
+                            (row) =>
+                              row.environment === "production" &&
+                              row.status === "succeeded" &&
+                              row.version === item.name,
+                          );
+                          return (
+                            <tr key={item.name}>
+                              <td className="miniprogram-function-name">{item.name}</td>
+                              <td className="miniprogram-function-description">
+                                {item.description || "—"}
+                              </td>
+                              <td title={item.runtime || undefined}>{item.runtime || "—"}</td>
+                              <td>{item.type || "—"}</td>
+                              <td className="miniprogram-function-handler">
+                                {item.handler || "—"}
+                              </td>
+                              <td>
+                                <span
+                                  className={`miniprogram-status ${item.status === "Active" ? "ok" : "warning"}`}
+                                >
+                                  {item.status === "Active" ? "运行中" : item.status}
+                                </span>
+                              </td>
+                              <td>{item.modifiedAt || item.createdAt || "—"}</td>
+                              <td>
+                                {item.timers.length ? `${item.timers.length} 个` : "—"}
+                                {item.timers.length ? (
+                                  <div className="miniprogram-function-timer-summary">
+                                    {item.timers
+                                      .map((timer) => `${timer.name} · ${timer.schedule}`)
+                                      .join("；")}
+                                  </div>
+                                ) : null}
+                              </td>
+                              <td>
+                                <button
+                                  type="button"
+                                  disabled={!writable}
+                                  onClick={() => {
+                                    setTimerFunctionName(
+                                      timerFunctionName === item.name ? "" : item.name,
+                                    );
+                                    setTimerName("");
+                                    setTimerSchedule("");
+                                    setTimerError("");
+                                  }}
+                                >
+                                  <UiIcon name="clock" size={13} />
+                                  管理定时触发器
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
                     </table>
                   </div>
                 ) : serverBusy ? null : (
@@ -2335,7 +2250,10 @@ export function MiniProgramWorkspace({
                     onClose={() => setTimerFunctionName("")}
                     className="miniprogram-timer-dialog"
                   >
-                    <section className="miniprogram-function-detail" aria-label={`${timerFunctionName} 的定时触发器`}>
+                    <section
+                      className="miniprogram-function-detail"
+                      aria-label={`${timerFunctionName} 的定时触发器`}
+                    >
                       <div className="miniprogram-function-detail-head">
                         <span className="miniprogram-function-timer-count">
                           {selectedTimerFunction.timers.length} / 10 个触发器
@@ -2347,7 +2265,9 @@ export function MiniProgramWorkspace({
                             <div className="miniprogram-function-timer-row" key={timer.name}>
                               <span className="miniprogram-function-timer-name">{timer.name}</span>
                               <code>{timer.schedule}</code>
-                              <span className={timer.enabled ? "miniprogram-timer-active" : "muted"}>
+                              <span
+                                className={timer.enabled ? "miniprogram-timer-active" : "muted"}
+                              >
                                 {timer.enabled ? "已启用" : "已停用"}
                               </span>
                               <span className="miniprogram-function-timer-actions">
@@ -2411,7 +2331,10 @@ export function MiniProgramWorkspace({
                               maxLength={60}
                               placeholder="例如 dailyReport"
                               disabled={!writable || (!timerEditingName && timerLimitReached)}
-                              onChange={(event) => { setTimerName(event.target.value); setTimerError(""); }}
+                              onChange={(event) => {
+                                setTimerName(event.target.value);
+                                setTimerError("");
+                              }}
                             />
                           </label>
                           <label>
@@ -2421,7 +2344,10 @@ export function MiniProgramWorkspace({
                               value={timerSchedule}
                               placeholder="0 0 9 * * * *"
                               disabled={!writable || (!timerEditingName && timerLimitReached)}
-                              onChange={(event) => { setTimerSchedule(event.target.value); setTimerError(""); }}
+                              onChange={(event) => {
+                                setTimerSchedule(event.target.value);
+                                setTimerError("");
+                              }}
                             />
                           </label>
                           <p className="muted miniprogram-timer-help">
@@ -2435,12 +2361,23 @@ export function MiniProgramWorkspace({
                                     ? "Cron 需要 7 个字段：秒 分 时 日 月 星期 年。"
                                     : "每个云函数最多 10 个；Cron 为 7 个字段：秒 分 时 日 月 星期 年。"}
                           </p>
-                          {timerError ? <p className="miniprogram-config-error">{timerError}</p> : null}
+                          {timerError ? (
+                            <p className="miniprogram-config-error">{timerError}</p>
+                          ) : null}
                           <div className="miniprogram-config-actions">
-                            <button type="button" onClick={() => setTimerEditorOpen(false)}>取消</button>
+                            <button type="button" onClick={() => setTimerEditorOpen(false)}>
+                              取消
+                            </button>
                             <button
                               type="button"
-                              disabled={!writable || serverBusy || (!timerEditingName && timerLimitReached) || !timerNameValid || !timerScheduleValid || (timerNameDuplicate && timerName.trim() !== timerEditingName)}
+                              disabled={
+                                !writable ||
+                                serverBusy ||
+                                (!timerEditingName && timerLimitReached) ||
+                                !timerNameValid ||
+                                !timerScheduleValid ||
+                                (timerNameDuplicate && timerName.trim() !== timerEditingName)
+                              }
                               onClick={() => void saveTimer(timerFunctionName)}
                             >
                               {timerEditingName ? "保存修改" : "创建"}
@@ -2453,9 +2390,14 @@ export function MiniProgramWorkspace({
                 ) : null}
                 {selectedTimerFunction && timerToDelete ? (
                   <WorkspaceDialog title="删除定时触发器" onClose={() => setTimerToDelete(null)}>
-                    <p>删除后，{selectedTimerFunction.name} 将不再按「{timerToDelete}」的规则定时执行。</p>
+                    <p>
+                      删除后，{selectedTimerFunction.name} 将不再按「{timerToDelete}
+                      」的规则定时执行。
+                    </p>
                     <div className="miniprogram-config-actions">
-                      <button type="button" onClick={() => setTimerToDelete(null)}>取消</button>
+                      <button type="button" onClick={() => setTimerToDelete(null)}>
+                        取消
+                      </button>
                       <button
                         type="button"
                         className="miniprogram-danger"
@@ -2923,8 +2865,12 @@ export function MiniProgramWorkspace({
               <button
                 type="button"
                 className={`miniprogram-preview-icon-button ${databaseFilterCount(dbFilter) ? "is-active" : ""}`}
-                title={databaseFilterCount(dbFilter) ? `筛选 · ${databaseFilterCount(dbFilter)}` : "筛选"}
-                aria-label={databaseFilterCount(dbFilter) ? `筛选 · ${databaseFilterCount(dbFilter)}` : "筛选"}
+                title={
+                  databaseFilterCount(dbFilter) ? `筛选 · ${databaseFilterCount(dbFilter)}` : "筛选"
+                }
+                aria-label={
+                  databaseFilterCount(dbFilter) ? `筛选 · ${databaseFilterCount(dbFilter)}` : "筛选"
+                }
                 disabled={!dbCollection}
                 onClick={() => setDbFilterOpen(true)}
               >
@@ -3026,7 +2972,11 @@ export function MiniProgramWorkspace({
                   );
                 })}
               </nav>
-              <div className="miniprogram-database-environment" role="group" aria-label="云存储环境">
+              <div
+                className="miniprogram-database-environment"
+                role="group"
+                aria-label="云存储环境"
+              >
                 {(["development", "production"] as const).map((environment) => {
                   const info = cbEnvironments.find((item) => item.kind === environment);
                   const selected = storageEnvironment === environment;
@@ -3038,7 +2988,11 @@ export function MiniProgramWorkspace({
                       key={environment}
                       className={selected ? "is-selected" : ""}
                       aria-pressed={selected}
-                      title={info?.inherited ? `${label}（共用开发环境）` : `${label}${info?.envId ? ` ${info.envId}` : "未配置"}`}
+                      title={
+                        info?.inherited
+                          ? `${label}（共用开发环境）`
+                          : `${label}${info?.envId ? ` ${info.envId}` : "未配置"}`
+                      }
                       disabled={browseBusy !== null || storageActionBusy !== null || unavailable}
                       onClick={() => {
                         if (!selected) {
@@ -3052,127 +3006,148 @@ export function MiniProgramWorkspace({
                   );
                 })}
               </div>
-              <button type="button" className="miniprogram-preview-icon-button" title="新建文件夹" aria-label="新建文件夹" disabled={!writable || storageActionBusy !== null} onClick={() => setNewFolderOpen(true)}>
+              <button
+                type="button"
+                className="miniprogram-preview-icon-button"
+                title="新建文件夹"
+                aria-label="新建文件夹"
+                disabled={!writable || storageActionBusy !== null}
+                onClick={() => setNewFolderOpen(true)}
+              >
                 <UiIcon name="plus" size={14} />
               </button>
-              <button type="button" className="miniprogram-preview-icon-button" title="上传文件夹" aria-label="上传文件夹" disabled={!writable || storageActionBusy !== null} onClick={() => storageFolderInputRef.current?.click()}>
+              <button
+                type="button"
+                className="miniprogram-preview-icon-button"
+                title="上传文件夹"
+                aria-label="上传文件夹"
+                disabled={!writable || storageActionBusy !== null}
+                onClick={() => storageFolderInputRef.current?.click()}
+              >
                 <UiIcon name="upload" size={14} />
               </button>
-              <button type="button" className="miniprogram-preview-icon-button" title="上传文件" aria-label="上传文件" disabled={!writable || storageActionBusy !== null} onClick={() => storageFileInputRef.current?.click()}>
+              <button
+                type="button"
+                className="miniprogram-preview-icon-button"
+                title="上传文件"
+                aria-label="上传文件"
+                disabled={!writable || storageActionBusy !== null}
+                onClick={() => storageFileInputRef.current?.click()}
+              >
                 <UiIcon name="detail" size={14} />
               </button>
             </div>
 
             <div className="miniprogram-table-content miniprogram-storage-content">
-            <div className="miniprogram-storage-inputs" aria-hidden="true">
-              <input
-                ref={storageFolderInputRef}
-                className="miniprogram-storage-file-input"
-                type="file"
-                multiple
-                {...({
-                  webkitdirectory: "",
-                  directory: "",
-                } as React.InputHTMLAttributes<HTMLInputElement>)}
-                onChange={(event) => void uploadStorageFiles(event.target.files, true)}
-              />
-              <input
-                ref={storageFileInputRef}
-                className="miniprogram-storage-file-input"
-                type="file"
-                multiple
-                onChange={(event) => void uploadStorageFiles(event.target.files, false)}
-              />
-            </div>
+              <div className="miniprogram-storage-inputs" aria-hidden="true">
+                <input
+                  ref={storageFolderInputRef}
+                  className="miniprogram-storage-file-input"
+                  type="file"
+                  multiple
+                  {...({
+                    webkitdirectory: "",
+                    directory: "",
+                  } as React.InputHTMLAttributes<HTMLInputElement>)}
+                  onChange={(event) => void uploadStorageFiles(event.target.files, true)}
+                />
+                <input
+                  ref={storageFileInputRef}
+                  className="miniprogram-storage-file-input"
+                  type="file"
+                  multiple
+                  onChange={(event) => void uploadStorageFiles(event.target.files, false)}
+                />
+              </div>
 
-            <div className="miniprogram-storage-table-wrap">
-              <table className="miniprogram-storage-table">
-                <thead>
-                  <tr>
-                    <th>文件名</th>
-                    <th>fileid</th>
-                    <th>大小</th>
-                    <th>更新时间</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pagedStorageFiles.map((file) => (
-                    <tr key={file.key}>
-                      <td>
-                        {file.isDirectory ? (
-                          <button
-                            type="button"
-                            className="miniprogram-storage-name"
-                            onClick={() => void browseStorage(file.key)}
-                          >
-                            <UiIcon name="folder" size={14} />
-                            <span>{storageFileName(file.key)}/</span>
-                          </button>
-                        ) : (
-                          <span className="miniprogram-storage-name is-file">
-                            <UiIcon name="detail" size={14} />
-                            <span>{storageFileName(file.key)}</span>
-                          </span>
-                        )}
-                      </td>
-                      <td title={file.fileId || undefined}>{file.fileId || "—"}</td>
-                      <td>{file.isDirectory ? "—" : formatStorageSize(file.size)}</td>
-                      <td>{file.lastModified || "—"}</td>
-                      <td>
-                        <div className="miniprogram-storage-row-actions">
-                          {!file.isDirectory ? (
-                            <a
-                              href={`/api/projects/${projectId}/cloudbase/storage/download?environment=${storageEnvironment}&path=${encodeURIComponent(file.key)}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              download
-                              title={`下载 ${storageFileName(file.key)}`}
-                            >
-                              <UiIcon name="download" size={13} />
-                              下载
-                            </a>
-                          ) : null}
-                          <button
-                            type="button"
-                            className="is-danger"
-                            disabled={!writable || storageActionBusy !== null}
-                            onClick={() => void deleteStorageEntry(file)}
-                          >
-                            <UiIcon name="trash" size={13} />
-                            删除
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {!visibleStorageFiles.length && storageLoaded && browseBusy === null ? (
+              <div className="miniprogram-storage-table-wrap">
+                <table className="miniprogram-storage-table">
+                  <thead>
                     <tr>
-                      <td className="miniprogram-storage-empty" colSpan={5}>
-                        当前文件夹为空。
-                      </td>
+                      <th>文件名</th>
+                      <th>fileid</th>
+                      <th>大小</th>
+                      <th>更新时间</th>
+                      <th>操作</th>
                     </tr>
-                  ) : null}
-                </tbody>
-              </table>
-              {browseBusy === "files" ? (
-                <div className="miniprogram-storage-loading">正在加载文件列表…</div>
+                  </thead>
+                  <tbody>
+                    {pagedStorageFiles.map((file) => (
+                      <tr key={file.key}>
+                        <td>
+                          {file.isDirectory ? (
+                            <button
+                              type="button"
+                              className="miniprogram-storage-name"
+                              onClick={() => void browseStorage(file.key)}
+                            >
+                              <UiIcon name="folder" size={14} />
+                              <span>{storageFileName(file.key)}/</span>
+                            </button>
+                          ) : (
+                            <span className="miniprogram-storage-name is-file">
+                              <UiIcon name="detail" size={14} />
+                              <span>{storageFileName(file.key)}</span>
+                            </span>
+                          )}
+                        </td>
+                        <td title={file.fileId || undefined}>{file.fileId || "—"}</td>
+                        <td>{file.isDirectory ? "—" : formatStorageSize(file.size)}</td>
+                        <td>{file.lastModified || "—"}</td>
+                        <td>
+                          <div className="miniprogram-storage-row-actions">
+                            {!file.isDirectory ? (
+                              <a
+                                href={`/api/projects/${projectId}/cloudbase/storage/download?environment=${storageEnvironment}&path=${encodeURIComponent(file.key)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                download
+                                title={`下载 ${storageFileName(file.key)}`}
+                              >
+                                <UiIcon name="download" size={13} />
+                                下载
+                              </a>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="is-danger"
+                              disabled={!writable || storageActionBusy !== null}
+                              onClick={() => void deleteStorageEntry(file)}
+                            >
+                              <UiIcon name="trash" size={13} />
+                              删除
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {!visibleStorageFiles.length && storageLoaded && browseBusy === null ? (
+                      <tr>
+                        <td className="miniprogram-storage-empty" colSpan={5}>
+                          当前文件夹为空。
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+                {browseBusy === "files" ? (
+                  <div className="miniprogram-storage-loading">正在加载文件列表…</div>
+                ) : null}
+              </div>
+              <TablePagination
+                page={storagePage}
+                pageSize={storagePageSize}
+                total={visibleStorageFiles.length}
+                hasNext={storageHasNext}
+                onPageChange={setStoragePage}
+                onPageSizeChange={(pageSize) => {
+                  setStoragePageSize(pageSize);
+                  setStoragePage(0);
+                }}
+              />
+              {browseError ? (
+                <p className="miniprogram-config-error miniprogram-storage-error">{browseError}</p>
               ) : null}
-            </div>
-            <TablePagination
-              page={storagePage}
-              pageSize={storagePageSize}
-              total={visibleStorageFiles.length}
-              hasNext={storageHasNext}
-              onPageChange={setStoragePage}
-              onPageSizeChange={(pageSize) => {
-                setStoragePageSize(pageSize);
-                setStoragePage(0);
-              }}
-            />
-            {browseError ? (
-              <p className="miniprogram-config-error miniprogram-storage-error">{browseError}</p>
-            ) : null}
             </div>
             {newFolderOpen ? (
               <WorkspaceDialog title="新建文件夹" onClose={() => setNewFolderOpen(false)}>
@@ -3203,7 +3178,6 @@ export function MiniProgramWorkspace({
             ) : null}
           </section>
         ) : null}
-
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   PREVIEW_CONSOLE_MESSAGE,
   PREVIEW_NAVIGATION_MESSAGE,
@@ -9,97 +9,21 @@ import {
   type HtmlBrowserFile,
   type HtmlDeviceMode,
 } from "./HtmlBrowserToolbar";
+// 手机模式与 Dimina / Admin 预览共用同一份机型表与机模，类名走的还是 miniprogram-*，
+// 样式表必须随本组件一起加载：不能依赖小程序工作台那条懒加载链路，
+// 没开过「小程序云开发」时它会缺席，机模会裸奔。
+import {
+  MiniProgramPhoneFrame,
+  PREVIEW_DEVICE_GROUPS,
+  findPreviewDevice,
+  useDeviceFitZoom,
+} from "./MiniProgramDeviceShell";
+import "./miniprogram.css";
 
-export type HtmlMobilePreset = {
-  id: string;
-  label: string;
-  width: number;
-  height: number;
-};
-
-type HtmlMobilePresetGroup = {
-  label: string;
-  presets: HtmlMobilePreset[];
-};
-
-export const HTML_MOBILE_PRESETS: HtmlMobilePreset[] = [
-  { id: "iphone-18-pro", label: "iPhone 18 Pro", width: 375, height: 782 },
-  { id: "iphone-18-pro-max", label: "iPhone 18 Pro Max", width: 390, height: 817 },
-  { id: "iphone-air", label: "iPhone Air", width: 393, height: 824 },
-  { id: "iphone-17e", label: "iPhone 17e", width: 375, height: 769 },
-  { id: "huawei-pura-90", label: "HUAWEI Pura 90", width: 390, height: 815 },
-  { id: "huawei-mate-x7", label: "HUAWEI Mate X7 外屏", width: 382, height: 813 },
-  { id: "huawei-pura-x-max", label: "HUAWEI Pura X Max 展开", width: 360, height: 508 },
-  { id: "huawei-mate-xt-2", label: "HUAWEI Mate XT 2 折叠屏", width: 360, height: 771 },
-  { id: "xiaomi-17", label: "Xiaomi 17", width: 360, height: 759 },
-  { id: "xiaomi-17-ultra", label: "Xiaomi 17 Ultra", width: 390, height: 818 },
-  { id: "galaxy-s26", label: "Samsung Galaxy S26", width: 375, height: 781 },
-  {
-    id: "galaxy-z-fold7",
-    label: "Samsung Galaxy Z Fold7 内屏",
-    width: 324,
-    height: 360,
-  },
-];
-
-const HTML_MOBILE_ZOOM_MIN = 50;
-const HTML_MOBILE_ZOOM_MAX = 150;
+// 手动缩放档位；「适应屏幕」不走档位，见下方 FIT_MIN。
 const HTML_MOBILE_ZOOM_OPTIONS = [50, 75, 100, 125, 150];
-
-type HtmlMobileAppearance = {
-  bezel: { top: number; right: number; bottom: number; left: number };
-  screenRadius: number;
-  frameRadius: number;
-  cutout: "notch" | "island" | "punch" | "none";
-  homeIndicator: boolean;
-  sideButtons: boolean;
-};
-
-function mobileAppearance(preset: HtmlMobilePreset): HtmlMobileAppearance {
-  if (preset.id.startsWith("iphone-")) {
-    return {
-      bezel: { top: 12, right: 12, bottom: 12, left: 12 },
-      screenRadius: 44,
-      frameRadius: 52,
-      cutout: preset.id === "iphone-17e" ? "notch" : "island",
-      homeIndicator: true,
-      sideButtons: true,
-    };
-  }
-  if (preset.id === "huawei-pura-x-max" || preset.id === "galaxy-z-fold7") {
-    return {
-      bezel: { top: 10, right: 10, bottom: 10, left: 10 },
-      screenRadius: 24,
-      frameRadius: 32,
-      cutout: "punch",
-      homeIndicator: true,
-      sideButtons: true,
-    };
-  }
-  return {
-    bezel: { top: 10, right: 10, bottom: 10, left: 10 },
-    screenRadius: 30,
-    frameRadius: 38,
-    cutout: "punch",
-    homeIndicator: true,
-    sideButtons: true,
-  };
-}
-
-const HTML_MOBILE_PRESET_GROUPS: HtmlMobilePresetGroup[] = [
-  {
-    label: "苹果 iPhone",
-    presets: HTML_MOBILE_PRESETS.slice(0, 4),
-  },
-  {
-    label: "鸿蒙 Huawei",
-    presets: HTML_MOBILE_PRESETS.slice(4, 8),
-  },
-  {
-    label: "安卓 Android",
-    presets: HTML_MOBILE_PRESETS.slice(8),
-  },
-];
+// contain 口径下比例不会超过 100%，这里只用一个下限兜底极小的预览区。
+const HTML_MOBILE_FIT_MIN = 25;
 
 export function HtmlPreviewFrame({
   versionId,
@@ -112,9 +36,9 @@ export function HtmlPreviewFrame({
   onAddressQueryChange,
   onSelectFile,
   deviceMode,
-  mobilePreset,
+  mobileDeviceId,
   onDeviceModeChange,
-  onMobilePresetChange,
+  onMobileDeviceIdChange,
   zoomPercent,
   onZoomChange,
   onNavigate,
@@ -130,9 +54,10 @@ export function HtmlPreviewFrame({
   onAddressQueryChange: (value: string) => void;
   onSelectFile: (id: string) => void;
   deviceMode: HtmlDeviceMode;
-  mobilePreset: HtmlMobilePreset;
+  /** 机型来自全站唯一的机型表（见 MiniProgramDeviceShell）。 */
+  mobileDeviceId: string;
   onDeviceModeChange: (mode: HtmlDeviceMode) => void;
-  onMobilePresetChange: (presetId: string) => void;
+  onMobileDeviceIdChange: (deviceId: string) => void;
   zoomPercent: number;
   onZoomChange: (value: number) => void;
   onNavigate?: (href: string) => void;
@@ -147,11 +72,7 @@ export function HtmlPreviewFrame({
   const [logs, setLogs] = useState<Array<{ id: number; level: string; args: string[] }>>([]);
   const [zoomMode, setZoomMode] = useState<"fit" | "manual">("fit");
 
-  const appearance = mobileAppearance(mobilePreset);
-  const chassisWidth =
-    mobilePreset.width + appearance.bezel.left + appearance.bezel.right;
-  const chassisHeight =
-    mobilePreset.height + appearance.bezel.top + appearance.bezel.bottom;
+  const mobileDevice = findPreviewDevice(mobileDeviceId);
   const zoom = zoomPercent / 100;
 
   useEffect(() => {
@@ -199,28 +120,14 @@ export function HtmlPreviewFrame({
   }, [versionId]);
 
   const errorCount = logs.filter((row) => row.level === "error").length;
-  const fitZoomToWidth = useCallback(() => {
-    if (deviceMode !== "mobile") return;
-    const scroll = previewScrollRef.current;
-    if (!scroll) return;
-    const styles = window.getComputedStyle(scroll);
-    const paddingLeft = Number.parseFloat(styles.paddingLeft) || 0;
-    const paddingRight = Number.parseFloat(styles.paddingRight) || 0;
-    const availableWidth = scroll.clientWidth - paddingLeft - paddingRight;
-    if (availableWidth <= 0 || chassisWidth <= 0) return;
-    const nextZoom = Math.floor((availableWidth / chassisWidth) * 100);
-    onZoomChange(Math.min(HTML_MOBILE_ZOOM_MAX, Math.max(HTML_MOBILE_ZOOM_MIN, nextZoom)));
-  }, [chassisWidth, deviceMode, onZoomChange]);
+  // 「适应屏幕」与 Dimina / Admin 预览同一个口径：整机完整可见且永不放大（contain）。
+  const fitZoom = useDeviceFitZoom(previewScrollRef, mobileDevice);
+  const fitZoomPercent = Math.max(HTML_MOBILE_FIT_MIN, Math.floor(fitZoom * 100));
 
   useEffect(() => {
-    if (deviceMode !== "mobile" || zoomMode !== "fit") return undefined;
-    fitZoomToWidth();
-    const scroll = previewScrollRef.current;
-    if (!scroll || typeof ResizeObserver === "undefined") return undefined;
-    const observer = new ResizeObserver(fitZoomToWidth);
-    observer.observe(scroll);
-    return () => observer.disconnect();
-  }, [deviceMode, fitZoomToWidth, mobilePreset.id, zoomMode]);
+    if (deviceMode !== "mobile" || zoomMode !== "fit") return;
+    onZoomChange(fitZoomPercent);
+  }, [deviceMode, fitZoomPercent, onZoomChange, zoomMode]);
 
   return (
     <div className="doc-html-preview-shell">
@@ -241,14 +148,14 @@ export function HtmlPreviewFrame({
             <div className="miniprogram-device-controls" aria-label="手机预览设置">
               <select
                 aria-label="手机型号"
-                value={mobilePreset.id}
-                onChange={(event) => onMobilePresetChange(event.target.value)}
+                value={mobileDeviceId}
+                onChange={(event) => onMobileDeviceIdChange(event.target.value)}
               >
-                {HTML_MOBILE_PRESET_GROUPS.map((group) => (
+                {PREVIEW_DEVICE_GROUPS.map((group) => (
                   <optgroup key={group.label} label={group.label}>
-                    {group.presets.map((preset) => (
-                      <option key={preset.id} value={preset.id}>
-                        {preset.label}
+                    {group.devices.map((device) => (
+                      <option key={device.id} value={device.id}>
+                        {device.label}
                       </option>
                     ))}
                   </optgroup>
@@ -260,7 +167,6 @@ export function HtmlPreviewFrame({
                 onChange={(event) => {
                   if (event.target.value === "fit") {
                     setZoomMode("fit");
-                    fitZoomToWidth();
                     return;
                   }
                   setZoomMode("manual");
@@ -275,68 +181,27 @@ export function HtmlPreviewFrame({
                 ))}
               </select>
               <span className="miniprogram-device-size">
-                {mobilePreset.width}×{mobilePreset.height} · {zoomPercent}%
+                {mobileDevice.width}×{mobileDevice.height} · {zoomPercent}%
               </span>
             </div>
           </div>
         ) : null}
         <div ref={previewScrollRef} className="doc-html-preview-scroll">
           {deviceMode === "mobile" ? (
-            <div
-              className="miniprogram-device-box doc-html-mobile-frame-shell"
-              style={{
-                width: chassisWidth * zoom,
-                height: chassisHeight * zoom,
-              }}
+            <MiniProgramPhoneFrame
+              device={mobileDevice}
+              zoom={zoom}
+              boxClassName="doc-html-mobile-frame-shell"
             >
-              <div
-                className="miniprogram-phone"
-                style={{
-                  width: chassisWidth,
-                  height: chassisHeight,
-                  padding: `${appearance.bezel.top}px ${appearance.bezel.right}px ${appearance.bezel.bottom}px ${appearance.bezel.left}px`,
-                  borderRadius: appearance.frameRadius,
-                  transform: `scale(${zoom})`,
-                }}
-              >
-                {appearance.sideButtons ? (
-                  <>
-                    <span className="miniprogram-phone-btn miniprogram-phone-btn-power" />
-                    <span className="miniprogram-phone-btn miniprogram-phone-btn-vol-up" />
-                    <span className="miniprogram-phone-btn miniprogram-phone-btn-vol-down" />
-                  </>
-                ) : null}
-                <div
-                  className="miniprogram-phone-screen"
-                  style={{
-                    width: mobilePreset.width,
-                    height: mobilePreset.height,
-                    borderRadius: appearance.screenRadius,
-                  }}
-                >
-                  <iframe
-                    ref={iframeRef}
-                    className="doc-html-preview-frame mobile"
-                    title={filename}
-                    src={src}
-                    sandbox="allow-scripts allow-forms allow-modals"
-                    referrerPolicy="no-referrer"
-                  />
-                  {appearance.cutout === "notch" ? (
-                    <span className="miniprogram-phone-notch" aria-hidden="true" />
-                  ) : null}
-                  {appearance.cutout === "island" ? (
-                    <span className="miniprogram-phone-island" aria-hidden="true" />
-                  ) : null}
-                  {appearance.cutout === "punch" ? (
-                    <span className="miniprogram-phone-punch" aria-hidden="true" />
-                  ) : null}
-                  {appearance.homeIndicator ? (
-                    <span className="miniprogram-phone-home-bar" aria-hidden="true" />
-                  ) : null}
-                </div>
-              </div>
-            </div>
+              <iframe
+                ref={iframeRef}
+                className="doc-html-preview-frame mobile"
+                title={filename}
+                src={src}
+                sandbox="allow-scripts allow-forms allow-modals"
+                referrerPolicy="no-referrer"
+              />
+            </MiniProgramPhoneFrame>
           ) : (
             <iframe
               ref={iframeRef}

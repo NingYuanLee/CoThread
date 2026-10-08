@@ -83,9 +83,10 @@ async function materializeSources(db, files, root, runtimeConfig = null) {
     const [row] = await query(db, "SELECT content FROM versions WHERE id=?", [file.versionId]);
     if (!row) throw new HttpError(409, `源码版本已不存在：${file.path}`);
     const isEntry = /^(app|game)\.(js|ts)$/i.test(relativePath);
-    const content = runtimeConfig && isEntry
-      ? injectMiniprogramRuntimeSource(row.content, relativePath, runtimeConfig)
-      : row.content;
+    const content =
+      runtimeConfig && isEntry
+        ? injectMiniprogramRuntimeSource(row.content, relativePath, runtimeConfig)
+        : row.content;
     await writeFile(target, content);
     written += 1;
   }
@@ -465,7 +466,7 @@ function redactBuild(row) {
 }
 
 /**
- * What the 小程序web预览 tab needs: whether a runnable bundle exists, where the
+ * What the Dimina预览 tab needs: whether a runnable bundle exists, where the
  * container should look for resources, and which pageFrame to use.
  */
 export async function readMiniprogramPreviewMeta(service, user, projectId) {

@@ -154,8 +154,9 @@ export async function startMiniprogramDevServer(service, projectId, serverId = n
   const proxyBase = devServerProxyBase(projectId, id);
   const server = createServer((req, res) => {
     let pathname = "/";
-    try { pathname = decodeURIComponent(new URL(req.url, "http://127.0.0.1").pathname); }
-    catch {}
+    try {
+      pathname = decodeURIComponent(new URL(req.url, "http://127.0.0.1").pathname);
+    } catch {}
     if (pathname.startsWith(proxyBase)) pathname = pathname.slice(proxyBase.length);
     const clean = pathname.replace(/^\/+/, "");
     const safe = clean.split("/").every((part) => part && part !== "." && part !== "..")
@@ -169,7 +170,8 @@ export async function startMiniprogramDevServer(service, projectId, serverId = n
       return;
     }
     res.writeHead(200, {
-      "Content-Type": CONTENT_TYPES[extname(assets.has(key) ? key : "index.html").toLowerCase()] ||
+      "Content-Type":
+        CONTENT_TYPES[extname(assets.has(key) ? key : "index.html").toLowerCase()] ||
         "application/octet-stream",
       "Cache-Control": "no-store",
     });
@@ -236,8 +238,7 @@ export async function registerMiniprogramDevServer(service, actor, projectId, in
   const port = normalizeDevServerPort(data.port);
 
   const runtime = await loadProjectMiniProgramRuntime(service, projectId);
-  if (!runtime.enabled)
-    throw new HttpError(409, "请先配置小程序 AppID 和 CloudBase 开发环境");
+  if (!runtime.enabled) throw new HttpError(409, "请先配置小程序 AppID 和 CloudBase 开发环境");
   const runtimeConfig = resolveMiniprogramRuntime(runtime, "admin_preview");
 
   // Reuse a record for the same project/port when the host process survived a
@@ -284,7 +285,15 @@ export async function registerMiniprogramDevServer(service, actor, projectId, in
       service.db,
       `INSERT INTO miniprogram_dev_servers(id,project_id,task_id,runtime_id,port,status,token_hash,started_at,last_activity_at)
        VALUES(?,?,?,?,?,?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))`,
-      [serverId, projectId, data.taskId || null, data.runtimeId || null, port, "starting", digest(token)],
+      [
+        serverId,
+        projectId,
+        data.taskId || null,
+        data.runtimeId || null,
+        port,
+        "starting",
+        digest(token),
+      ],
     );
   }
 
@@ -299,7 +308,7 @@ export async function registerMiniprogramDevServer(service, actor, projectId, in
     environment: runtimeConfig.environment,
     envId: runtimeConfig.cloudbase.envId,
     commandHint: data.command || null,
-    note: `请用 --base=${proxyBase} 启动开发服务器；PC管理后台预览固定使用 CloudBase ${runtimeConfig.environment}/${runtimeConfig.cloudbase.envId}。启动后调用标记为 running。`,
+    note: `请用 --base=${proxyBase} 启动开发服务器；Admin预览固定使用 CloudBase ${runtimeConfig.environment}/${runtimeConfig.cloudbase.envId}。启动后调用标记为 running。`,
   };
 }
 
@@ -330,7 +339,9 @@ export async function listMiniprogramDevServers(service, user, projectId) {
      FROM miniprogram_dev_servers WHERE project_id=? ORDER BY started_at DESC LIMIT 20`,
     [projectId],
   );
-  for (const row of rows.filter((item) => item.status === "starting" || item.status === "running")) {
+  for (const row of rows.filter(
+    (item) => item.status === "starting" || item.status === "running",
+  )) {
     const reachable = (await probeDevServer(row.port, 300)).reachable;
     if (reachable && row.status === "starting") {
       await query(
@@ -482,7 +493,8 @@ export async function proxyDevServerRequest(service, projectId, serverId, req, r
       !HOP_BY_HOP.has(key.toLowerCase()) &&
       key.toLowerCase() !== "host" &&
       key.toLowerCase() !== "accept-encoding"
-    ) headers[key] = value;
+    )
+      headers[key] = value;
   }
   headers.host = `127.0.0.1:${row.port}`;
   return new Promise((resolve, reject) => {
@@ -492,9 +504,12 @@ export async function proxyDevServerRequest(service, projectId, serverId, req, r
         // Preserve a project's bundled SDK (and its build integrity record).
         // Supply the platform runtime only when the upstream has no asset;
         // SPA servers often respond to missing JS with a 200 HTML fallback.
-        if (isSdkRequest && (upstreamRes.statusCode === 404 ||
+        if (
+          isSdkRequest &&
+          (upstreamRes.statusCode === 404 ||
             (upstreamRes.statusCode === 200 &&
-             String(upstreamRes.headers["content-type"] || "").includes("text/html")))) {
+              String(upstreamRes.headers["content-type"] || "").includes("text/html")))
+        ) {
           upstreamRes.resume();
           servePlatformSdk();
           resolve();

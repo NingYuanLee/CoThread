@@ -73,7 +73,10 @@ import {
 import { previewMiniprogram, uploadMiniprogram } from "./wechat-ci.js";
 import { listReleaseRequests, submitReleaseRequest } from "./release-requests.js";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
-import { saveMiniprogramPublishableKey, setMiniprogramPhoneAuthForAgent } from "./miniprogram-auth-config.js";
+import {
+  saveMiniprogramPublishableKey,
+  setMiniprogramPhoneAuthForAgent,
+} from "./miniprogram-auth-config.js";
 import {
   captureDocumentPreview,
   captureDocumentTree,
@@ -218,7 +221,10 @@ const MINIPROGRAM_READ_MAX_BYTES = 200 * 1024;
 async function requireMiniprogramWorkspace(service, projectId) {
   const runtime = await loadProjectMiniProgramRuntime(service, projectId);
   if (!runtime.enabled) {
-    throw new HttpError(409, "小程序工作区尚未通过连接测试，请在项目管理 → 小程序与云开发中完成配置并测试");
+    throw new HttpError(
+      409,
+      "小程序工作区尚未通过连接测试，请在项目管理 → 小程序与云开发中完成配置并测试",
+    );
   }
   return runtime;
 }
@@ -785,30 +791,41 @@ export function createAgentTools(
               environment: "development",
               miniprogram: {
                 openId: "auth.signInWithOpenId()",
-                phoneAuth: runtime.authConfigs?.development?.miniprogram?.wechatPhoneAuthorization === true
-                  ? "auth.signInWithPhoneAuth({ phoneCode })"
-                  : null,
-                phoneAuthEnabled: runtime.authConfigs?.development?.miniprogram?.wechatPhoneAuthorization === true,
-                publishableKey: runtime.authConfigs?.development?.miniprogram?.publishableKey || null,
+                phoneAuth:
+                  runtime.authConfigs?.development?.miniprogram?.wechatPhoneAuthorization === true
+                    ? "auth.signInWithPhoneAuth({ phoneCode })"
+                    : null,
+                phoneAuthEnabled:
+                  runtime.authConfigs?.development?.miniprogram?.wechatPhoneAuthorization === true,
+                publishableKey:
+                  runtime.authConfigs?.development?.miniprogram?.publishableKey || null,
               },
               admin: {
                 password: "auth.signInWithPassword({ username|email|phone, password })",
-                publishableKey: runtime.authConfigs?.development?.miniprogram?.publishableKey || null,
+                publishableKey:
+                  runtime.authConfigs?.development?.miniprogram?.publishableKey || null,
               },
               rule: "小程序和 Admin 都使用 CloudBase 身份认证；不要自行实现常规登录、code2Session 或自建 token。",
             },
             workflow: {
-              operatingModel: "Cothread 是小程序与配套 Admin 的云开发工作台：人类用自然语言提出目标，L2 负责拆解和验收，L3 通过本组工具读写源码、部署 development、预览并提交生产发布申请。L3 不应把步骤重新交回人类，也不应绕过源码持久化直接在宿主机临时修改结果。",
+              operatingModel:
+                "Cothread 是小程序与配套 Admin 的云开发工作台：人类用自然语言提出目标，L2 负责拆解和验收，L3 通过本组工具读写源码、部署 development、预览并提交生产发布申请。L3 不应把步骤重新交回人类，也不应绕过源码持久化直接在宿主机临时修改结果。",
               rule: "业务运行时直连 CloudBase；共序服务端只负责源码、配置、发布和管理面操作。",
               development: {
-                miniProgram: "原生小程序源码持久化后必须先调用 miniprogram_build_preview，由 Dimina 编译成 Web 预览资源；编译入口会注入 development CloudBase 运行时配置。只有源码使用受支持的 wx.cloud API，且 development 云函数已部署并通过权限校验时，Web 预览才能调用云函数。",
-                admin: "Admin 预览不是 Dimina 编译：必须调用 miniprogram_register_admin_preview，拿到 proxyBase 后在宿主机/任务沙箱启动带 --base 的开发服务器，再调用 miniprogram_report_admin_preview 标记 running。Admin 代码必须自行用 development 的 CloudBase Web SDK 初始化；配置正确且云函数已部署时可以直连调用，代理只负责提供静态页面。",
-                cloudbase: "L3 的云开发数据面工具只允许操作 development；预览调用的是 development 云函数，不会自动调用 production。",
+                miniProgram:
+                  "原生小程序源码持久化后必须先调用 miniprogram_build_preview，由 Dimina 编译成 Web 预览资源；编译入口会注入 development CloudBase 运行时配置。只有源码使用受支持的 wx.cloud API，且 development 云函数已部署并通过权限校验时，Web 预览才能调用云函数。",
+                admin:
+                  "Admin 预览不是 Dimina 编译：必须调用 miniprogram_register_admin_preview，拿到 proxyBase 后在宿主机/任务沙箱启动带 --base 的开发服务器，再调用 miniprogram_report_admin_preview 标记 running。Admin 代码必须自行用 development 的 CloudBase Web SDK 初始化；配置正确且云函数已部署时可以直连调用，代理只负责提供静态页面。",
+                cloudbase:
+                  "L3 的云开发数据面工具只允许操作 development；预览调用的是 development 云函数，不会自动调用 production。",
               },
               production: {
-                miniProgram: "生产小程序通过微信发布；运行时使用 production CloudBase 环境。先确保生产云函数已发布，再让小程序代码使用 production 环境运行。",
-                admin: "Admin 生产版是 CloudBase 静态托管；发布时由平台注入 production 的非敏感运行时配置。页面业务请求必须直连 production CloudBase，不依赖共序服务端。",
-                cloudbase: "生产云函数和 Admin 静态站只能通过 miniprogram_submit_release 提交申请，由项目负责人审批后执行；生产发布需要检查环境 ID、Publishable Key、认证配置、数据库规则和云函数权限。",
+                miniProgram:
+                  "生产小程序通过微信发布；运行时使用 production CloudBase 环境。先确保生产云函数已发布，再让小程序代码使用 production 环境运行。",
+                admin:
+                  "Admin 生产版是 CloudBase 静态托管；发布时由平台注入 production 的非敏感运行时配置。页面业务请求必须直连 production CloudBase，不依赖共序服务端。",
+                cloudbase:
+                  "生产云函数和 Admin 静态站只能通过 miniprogram_submit_release 提交申请，由项目负责人审批后执行；生产发布需要检查环境 ID、Publishable Key、认证配置、数据库规则和云函数权限。",
                 changesFromDevelopment: [
                   "development envId / Publishable Key 切换为 production 配置",
                   "云函数、数据库规则和数据访问权限切换到 production",
@@ -829,12 +846,15 @@ export function createAgentTools(
                 diminaWeb: {
                   buildTool: "miniprogram_build_preview",
                   environment: "development",
-                  cloudFunctions: "可调用；前提是编译入口已注入运行时、代码使用受支持的 wx.cloud API、函数已部署到 development 且权限通过。",
+                  cloudFunctions:
+                    "可调用；前提是编译入口已注入运行时、代码使用受支持的 wx.cloud API、函数已部署到 development 且权限通过。",
                 },
                 adminDevServer: {
-                  setup: "miniprogram_register_admin_preview → 宿主机/任务沙箱启动带 --base 的开发服务器 → miniprogram_report_admin_preview",
+                  setup:
+                    "miniprogram_register_admin_preview → 宿主机/任务沙箱启动带 --base 的开发服务器 → miniprogram_report_admin_preview",
                   environment: "development",
-                  cloudFunctions: "可调用；代理会向 HTML 注入 development 运行时配置，但 Admin 代码仍需加载 CloudBase Web SDK 并正确初始化。",
+                  cloudFunctions:
+                    "可调用；代理会向 HTML 注入 development 运行时配置，但 Admin 代码仍需加载 CloudBase Web SDK 并正确初始化。",
                 },
               },
             },
@@ -976,7 +996,7 @@ export function createAgentTools(
             qrcodeBase64: preview.qrcodeBase64,
             qrcodeMime: preview.qrcodeMime,
             hint: preview.qrcodeBase64
-              ? "开发版预览二维码已生成，可在右侧栏「小程序web预览」页签查看。"
+              ? "开发版预览二维码已生成，可在右侧栏「Dimina预览」页签查看。"
               : "预览已提交，但未取到二维码图片；请查看发布记录日志。",
           };
         }
@@ -992,7 +1012,10 @@ export function createAgentTools(
           const auth = runtime.authConfigs?.[environment] || {};
           result = {
             environment,
-            envId: runtime.cloudbaseEnvs?.[environment]?.envId || runtime.cloudbaseEnvs?.development?.envId || null,
+            envId:
+              runtime.cloudbaseEnvs?.[environment]?.envId ||
+              runtime.cloudbaseEnvs?.development?.envId ||
+              null,
             publishableKey: auth.miniprogram?.publishableKey || null,
             miniprogram: {
               openIdLogin: auth.miniprogram?.silentLogin !== false,
@@ -1002,15 +1025,24 @@ export function createAgentTools(
               passwordLogin: auth.admin?.passwordLogin !== false,
             },
             usage: {
-              miniProgram: "cloudbase.init({ env, accessKey }); auth.signInWithOpenId() / auth.signInWithPhoneAuth({ phoneCode })",
-              admin: "cloudbase.init({ env, accessKey }); auth.signInWithPassword({ username|email|phone, password })",
+              miniProgram:
+                "cloudbase.init({ env, accessKey }); auth.signInWithOpenId() / auth.signInWithPhoneAuth({ phoneCode })",
+              admin:
+                "cloudbase.init({ env, accessKey }); auth.signInWithPassword({ username|email|phone, password })",
             },
-            secretPolicy: "SecretId/SecretKey 不返回；只能通过 cloudbase_* 受控工具操作 CloudBase 开发环境。",
+            secretPolicy:
+              "SecretId/SecretKey 不返回；只能通过 cloudbase_* 受控工具操作 CloudBase 开发环境。",
           };
         } else if (name === "cloudbase_auth_config_update") {
-          const action = z.enum(["ensure_publishable_key", "set_phone_auth", "set_anonymous_auth"]).parse(args.action);
+          const action = z
+            .enum(["ensure_publishable_key", "set_phone_auth", "set_anonymous_auth"])
+            .parse(args.action);
           if (action === "ensure_publishable_key") {
-            const key = await ensureCloudbasePublishableKey(service, thread.project_id, environment);
+            const key = await ensureCloudbasePublishableKey(
+              service,
+              thread.project_id,
+              environment,
+            );
             await saveMiniprogramPublishableKey(
               service.db,
               thread.project_id,
@@ -1031,7 +1063,8 @@ export function createAgentTools(
               enabled,
               AGENT_MEMBER.id,
             );
-            result.hint = "小程序手机号授权策略已更新；L3 应据此决定是否生成 signInWithPhoneAuth 入口。";
+            result.hint =
+              "小程序手机号授权策略已更新；L3 应据此决定是否生成 signInWithPhoneAuth 入口。";
           } else {
             const enabled = z.boolean().parse(args.enabled);
             result = await updateCloudbaseAuthSettings(service, user, thread.project_id, {
@@ -1050,12 +1083,13 @@ export function createAgentTools(
           });
         } else if (name === "cloudbase_db_manage") {
           const action = z.enum(["list", "ensure"]).parse(args.action);
-          result = action === "list"
-            ? await listCloudbaseCollections(service, user, thread.project_id, { environment })
-            : await ensureCloudbaseCollection(service, user, thread.project_id, {
-                environment,
-                collection: args.collection,
-              });
+          result =
+            action === "list"
+              ? await listCloudbaseCollections(service, user, thread.project_id, { environment })
+              : await ensureCloudbaseCollection(service, user, thread.project_id, {
+                  environment,
+                  collection: args.collection,
+                });
         } else if (name === "cloudbase_db_write") {
           const action = z.enum(["add", "update", "remove"]).parse(args.action);
           if (action === "add") {
@@ -1080,23 +1114,26 @@ export function createAgentTools(
           }
         } else if (name === "cloudbase_function_manage") {
           const action = z.enum(["list", "deploy"]).parse(args.action);
-          result = action === "list"
-            ? await listCloudbaseFunctions(service, user, thread.project_id, { environment })
-            : await deployDevelopmentCloudbaseFunction(
-                service,
-                user,
-                thread.project_id,
-                args.functionName,
-                {
-                  environment,
-                  code: args.code,
-                  packageJson: args.packageJson,
-                  runtime: args.runtime,
-                  handler: args.handler,
-                  timeout: args.timeout,
-                  timers: args.timersJson ? parseJsonArgument(args.timersJson, "timersJson") : undefined,
-                },
-              );
+          result =
+            action === "list"
+              ? await listCloudbaseFunctions(service, user, thread.project_id, { environment })
+              : await deployDevelopmentCloudbaseFunction(
+                  service,
+                  user,
+                  thread.project_id,
+                  args.functionName,
+                  {
+                    environment,
+                    code: args.code,
+                    packageJson: args.packageJson,
+                    runtime: args.runtime,
+                    handler: args.handler,
+                    timeout: args.timeout,
+                    timers: args.timersJson
+                      ? parseJsonArgument(args.timersJson, "timersJson")
+                      : undefined,
+                  },
+                );
         } else if (name === "cloudbase_function_call") {
           result = await invokeCloudbaseFunction(service, user, thread.project_id, {
             environment,
@@ -1120,20 +1157,25 @@ export function createAgentTools(
           });
         } else {
           const action = z.enum(["list", "url", "delete"]).parse(args.action);
-          const fileList = action === "list"
-            ? undefined
-            : parseJsonArgument(args.fileListJson, "fileListJson", { required: true });
-          result = action === "list"
-            ? await listCloudbaseFiles(service, user, thread.project_id, {
-                environment,
-                cloudPath: args.cloudPath,
-              })
-            : action === "url"
-              ? await cloudbaseFileUrls(service, user, thread.project_id, { environment, fileList })
-              : await deleteCloudbaseFiles(service, user, thread.project_id, {
+          const fileList =
+            action === "list"
+              ? undefined
+              : parseJsonArgument(args.fileListJson, "fileListJson", { required: true });
+          result =
+            action === "list"
+              ? await listCloudbaseFiles(service, user, thread.project_id, {
                   environment,
-                  fileList,
-                });
+                  cloudPath: args.cloudPath,
+                })
+              : action === "url"
+                ? await cloudbaseFileUrls(service, user, thread.project_id, {
+                    environment,
+                    fileList,
+                  })
+                : await deleteCloudbaseFiles(service, user, thread.project_id, {
+                    environment,
+                    fileList,
+                  });
         }
       } else {
         const sandbox = await getSandbox(service.db, sandboxScope, progress);

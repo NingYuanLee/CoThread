@@ -161,13 +161,7 @@ function secretState(row) {
  * Derived configuration status. Secret-dependent kinds only flip once the rest
  * of the configuration is complete, so a half-filled form reports "incomplete".
  */
-export function computeConfigStatus({
-  appId,
-  cloudbaseEnvs,
-  secrets,
-  verifyError,
-  verifiedAt,
-}) {
+export function computeConfigStatus({ appId, cloudbaseEnvs, secrets, verifyError, verifiedAt }) {
   const hasAppId = Boolean(appId);
   const hasEnv = Boolean(cloudbaseEnvs?.development?.envId);
   if (!hasAppId && !hasEnv) return "unconfigured";
@@ -211,11 +205,11 @@ async function persistDerivedStatus(db, projectId) {
   );
   if (!row) return null;
   const status = deriveStatusFromRow(row, redactedSecretState(await readSecretRows(db, projectId)));
-  await query(
-    db,
-    "UPDATE project_miniprogram_config SET status=?,enabled=? WHERE project_id=?",
-    [status, status === "verified" ? 1 : 0, projectId],
-  );
+  await query(db, "UPDATE project_miniprogram_config SET status=?,enabled=? WHERE project_id=?", [
+    status,
+    status === "verified" ? 1 : 0,
+    projectId,
+  ]);
   return status;
 }
 
@@ -467,14 +461,30 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
   if (!secrets.wechat_upload_key.configured) {
     push("wechat_credential", "微信上传私钥", "failed", "尚未上传上传私钥");
   } else if (!row.app_id || !cloudbaseEnvs.development?.envId) {
-    push("wechat_credential", "微信上传私钥", "pending", "补齐 AppID 和 CloudBase 开发环境后才能测试微信预览");
+    push(
+      "wechat_credential",
+      "微信上传私钥",
+      "pending",
+      "补齐 AppID 和 CloudBase 开发环境后才能测试微信预览",
+    );
   } else {
     try {
       const { previewMiniprogram } = await import("./wechat-ci.js");
-      await previewMiniprogram(service, user, projectId, { desc: "CoThread 工作区连接验证" }, { allowUnverified: true });
+      await previewMiniprogram(
+        service,
+        user,
+        projectId,
+        { desc: "CoThread 工作区连接验证" },
+        { allowUnverified: true },
+      );
       push("wechat_credential", "微信上传私钥", "passed", "已向微信生成体验版预览；未上传正式版本");
     } catch (error) {
-      push("wechat_credential", "微信上传私钥", "failed", `微信预览模拟失败：${String(error?.message || error).slice(0, 240)}`);
+      push(
+        "wechat_credential",
+        "微信上传私钥",
+        "failed",
+        `微信预览模拟失败：${String(error?.message || error).slice(0, 240)}`,
+      );
     }
   }
 
@@ -505,9 +515,19 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
         const { getCloudbaseManager } = await import("./cloudbase.js");
         const { manager } = await getCloudbaseManager(service, projectId, "development");
         await manager.functions.listFunctions(1, 0);
-        push("cloudbase_credential", "CloudBase 凭据", "passed", "已成功读取开发环境云函数列表（只读测试）");
+        push(
+          "cloudbase_credential",
+          "CloudBase 凭据",
+          "passed",
+          "已成功读取开发环境云函数列表（只读测试）",
+        );
       } catch (error) {
-        push("cloudbase_credential", "CloudBase 凭据", "failed", `CloudBase 只读测试失败：${String(error?.message || error).slice(0, 240)}`);
+        push(
+          "cloudbase_credential",
+          "CloudBase 凭据",
+          "failed",
+          `CloudBase 只读测试失败：${String(error?.message || error).slice(0, 240)}`,
+        );
       }
     } else if (info.kind === "auth_token") {
       push("cloudbase_credential", "CloudBase 凭据", "failed", cloudbaseAuthTokenGuidance(info));
@@ -526,7 +546,7 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
   }
 
   if (!adminDeploy) {
-    push("admin_deploy", "Admin 生产版", "pending", "尚未在 PC管理后台预览服务中配置生产版");
+    push("admin_deploy", "Admin 生产版", "pending", "尚未在 Admin预览服务中配置生产版");
   } else {
     push(
       "admin_deploy",
@@ -585,7 +605,9 @@ export async function loadProjectMiniProgramRuntime(service, projectId) {
     enabled: isMiniProgramWorkspaceReady({
       appId: row.app_id,
       cloudbaseEnvs: parseJsonColumn(row.cloudbase_envs) || {},
-      secrets: Object.fromEntries(Object.entries(secrets).map(([kind, value]) => [kind, { configured: Boolean(value) }])),
+      secrets: Object.fromEntries(
+        Object.entries(secrets).map(([kind, value]) => [kind, { configured: Boolean(value) }]),
+      ),
       verifyError: row.last_verify_error,
       verifiedAt: row.last_verified_at,
     }),

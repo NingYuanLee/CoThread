@@ -35,7 +35,8 @@ for (const name of rebaselineNames) {
     process.exit(1);
   }
 }
-assertProductionWriteAllowed();
+// 只读诊断：不要求生产写权限，部署前可以直接对着正式库跑。
+// 只有 --rebaseline 会写入，写前再单独过写闸门（见下）。
 const db = await createDatabase();
 try {
   let applied = [];
@@ -75,6 +76,7 @@ try {
     console.log("提示：eol-only 会在下次启动 / 迁移时自动重基线，无需人工处理。");
 
   if (rebaselineNames.length) {
+    assertProductionWriteAllowed();
     for (const name of rebaselineNames) {
       const row = rows.find((item) => item.name === name);
       if (!row || row.status === "not-applied") {

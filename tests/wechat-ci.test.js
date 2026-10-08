@@ -11,6 +11,7 @@ import {
   saveProjectMiniProgramConfig,
   saveProjectMiniProgramSecret,
 } from "../server/miniprogram-config.js";
+import { markMiniProgramWorkspaceVerified } from "./miniprogram-ready.js";
 import {
   ensureMiniprogramWorkspace,
   miniprogramWorkspaceFolders,
@@ -58,6 +59,15 @@ async function seed(database, { withKey = true, withAppId = true } = {}) {
     await saveProjectMiniProgramSecret(service, user, project.id, "wechat_upload_key", {
       value: PRIVATE_KEY,
     });
+  }
+  // 工作区"已启用"= AppID + development 环境 + 两个凭据 + 连接测试通过。
+  // 只在夹具本来就意图构造"可用工作区"时补齐；缺 key / 缺 AppID 的负向用例保持不变。
+  if (withKey && withAppId) {
+    await saveProjectMiniProgramSecret(service, user, project.id, "cloudbase_credential", {
+      secretId: "AKIDwechcitest0000000",
+      secretKey: "wechat-ci-test-secret",
+    });
+    await markMiniProgramWorkspaceVerified(service, user, project.id);
   }
   await ensureMiniprogramWorkspace(database.db, project.id);
   const { byKind } = await miniprogramWorkspaceFolders(database.db, project.id);
@@ -113,7 +123,10 @@ function fakeCi(calls, { failUpload, failPreview, writeQr = true } = {}) {
       }
     },
     async preview(options) {
-      const appSource = await readFile(thisProject(options).options.projectPath + "/app.js", "utf8");
+      const appSource = await readFile(
+        thisProject(options).options.projectPath + "/app.js",
+        "utf8",
+      );
       calls.push({
         op: "preview",
         desc: options.desc,
@@ -136,7 +149,10 @@ function fakeCi(calls, { failUpload, failPreview, writeQr = true } = {}) {
       return { subPackageInfo: [{ name: "__FULL__", size: 1234 }] };
     },
     async upload(options) {
-      const appSource = await readFile(thisProject(options).options.projectPath + "/app.js", "utf8");
+      const appSource = await readFile(
+        thisProject(options).options.projectPath + "/app.js",
+        "utf8",
+      );
       calls.push({
         op: "upload",
         version: options.version,
@@ -189,12 +205,27 @@ test("preview needs AppID and a private key, with actionable errors", async () =
   try {
     const noKey = await seed(database, { withKey: false });
     await assert.rejects(
-      () => previewMiniprogram(noKey.service, noKey.user, noKey.project.id, {}),
+      // allowUnverified：负向用例要验证"缺什么就说什么"的具体提示，需绕过统一的工作区守卫。
+      () =>
+        previewMiniprogram(
+          noKey.service,
+          noKey.user,
+          noKey.project.id,
+          {},
+          { allowUnverified: true },
+        ),
       (error) => error.status === 409 && /上传私钥/.test(error.message),
     );
     const noApp = await seed(database, { withAppId: false });
     await assert.rejects(
-      () => previewMiniprogram(noApp.service, noApp.user, noApp.project.id, {}),
+      () =>
+        previewMiniprogram(
+          noApp.service,
+          noApp.user,
+          noApp.project.id,
+          {},
+          { allowUnverified: true },
+        ),
       (error) => error.status === 409 && /AppID/.test(error.message),
     );
     const empty = await seed(database);
@@ -348,11 +379,10 @@ test("writable project members can upload an experience version without approval
       "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
       [member.id, `${member.id}@test.com`, "项目成员"],
     );
-    await query(
-      database.db,
-      "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')",
-      [project.id, member.id],
-    );
+    await query(database.db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')", [
+      project.id,
+      member.id,
+    ]);
 
     const uploaded = await uploadMiniprogram(service, member, project.id, {
       version: "1.0.0",

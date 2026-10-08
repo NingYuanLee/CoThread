@@ -11,6 +11,7 @@ import { hashPassword } from "../server/auth.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { saveProjectMiniProgramConfig } from "../server/miniprogram-config.js";
+import { markMiniProgramWorkspaceVerified } from "./miniprogram-ready.js";
 import {
   ensureMiniprogramWorkspace,
   publishMiniprogramSourceFile,
@@ -104,6 +105,8 @@ before(async () => {
     appId: VALID_APP_ID,
     cloudbaseEnvs: { development: { envId: "dev-env-routes" } },
   });
+  // 工作区要"已启用"才能走到发布分支，否则会先撞上 409 连接测试守卫。
+  await markMiniProgramWorkspaceVerified(service, owner, project.id);
   await ensureMiniprogramWorkspace(db, project.id);
   await publishMiniprogramSourceFile(db, { id: owner.id }, project.id, {
     area: "miniprogram_source",

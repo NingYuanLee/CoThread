@@ -17,6 +17,7 @@ import {
   publishMiniprogramSourceFile,
 } from "../server/miniprogram-workspace.js";
 import { setCloudbaseManagerFactory, resetCloudbaseClients } from "../server/cloudbase.js";
+import { markMiniProgramWorkspaceVerified } from "./miniprogram-ready.js";
 import {
   assertHostingPayload,
   deployAdminHosting,
@@ -99,6 +100,8 @@ async function seed(database, { withAdminDeploy = true, withProduction = true } 
   await saveProjectMiniProgramSecret(service, owner, project.id, "cloudbase_credential", {
     value: JSON.stringify({ secretId: "AKIDhostingtest000000", secretKey: "hosting-test-secret" }),
   });
+  // 工作区"已启用"还要求微信私钥齐备且通过过一次连接测试，否则入口会先落在 409 守卫上。
+  await markMiniProgramWorkspaceVerified(service, owner, project.id);
   await ensureMiniprogramWorkspace(database.db, project.id);
   const { byKind } = await miniprogramWorkspaceFolders(database.db, project.id);
   return {
@@ -340,12 +343,18 @@ test("a credential failure is still recorded as a failed deployment", async () =
         spaFallback: true,
       },
     });
+    await saveProjectMiniProgramSecret(service, owner, project.id, "cloudbase_credential", {
+      // 凭据"存在但不可用"：工作区就绪判定只看有没有，具体缺什么由 provider 侧报。
+      value: JSON.stringify({ secretId: "AKIDnocred0000000000" }),
+    });
+    await markMiniProgramWorkspaceVerified(service, owner, project.id);
     await ensureMiniprogramWorkspace(database.db, project.id);
     await put(database.db, owner, project.id, "index.html", "<html></html>");
 
     await assert.rejects(
       () => deployAdminHosting(service, owner, project.id, { target: "cloudbase_static" }),
-      (error) => error.status === 409 && /CloudBase 凭据/.test(error.message),
+      // 就绪判定只要求"凭据存在"，不可用的凭据在 provider 侧按 400 拒（缺失才是 409）。
+      (error) => [400, 409].includes(error.status) && /CloudBase 凭据/.test(error.message),
     );
     // The failure must be visible in the publish history, not silently dropped.
     const [row] = await query(

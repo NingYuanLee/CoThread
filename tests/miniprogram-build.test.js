@@ -4,7 +4,10 @@ import { randomUUID, createHash } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { saveProjectMiniProgramConfig } from "../server/miniprogram-config.js";
+import {
+  saveProjectMiniProgramConfig,
+  saveProjectMiniProgramSecret,
+} from "../server/miniprogram-config.js";
 import {
   ensureMiniprogramWorkspace,
   miniprogramWorkspaceFolders,
@@ -35,6 +38,21 @@ async function seed(database, { enabled = true } = {}) {
     appId: VALID_APP_ID,
     cloudbaseEnvs: { development: { envId: "dev-env-build" } },
   });
+  if (enabled) {
+    // 工作区"已启用"= 配置完整 + 两个凭据齐备 + 连接测试通过（computeConfigStatus === "verified"）。
+    await saveProjectMiniProgramSecret(service, user, project.id, "wechat_upload_key", {
+      value: "-----BEGIN PRIVATE KEY-----\ntest-key\n-----END PRIVATE KEY-----",
+    });
+    await saveProjectMiniProgramSecret(service, user, project.id, "cloudbase_credential", {
+      secretId: "AKIDtestSecretId",
+      secretKey: "test-secret-key",
+    });
+    await query(
+      database.db,
+      "UPDATE project_miniprogram_config SET last_verified_at=UTC_TIMESTAMP(3),last_verify_error=NULL WHERE project_id=?",
+      [project.id],
+    );
+  }
   await ensureMiniprogramWorkspace(database.db, project.id);
   const { byKind } = await miniprogramWorkspaceFolders(database.db, project.id);
   return { user, service, project, byKind };
@@ -147,7 +165,7 @@ test("build refuses when the workspace is not enabled", async () => {
     const { user, service, project } = await seed(database, { enabled: false });
     await assert.rejects(
       () => buildMiniprogramPreview(service, user, project.id, {}),
-      (error) => error.status === 409 && /尚未启用/.test(error.message),
+      (error) => error.status === 409 && /尚未通过连接测试/.test(error.message),
     );
   } finally {
     await database.close();

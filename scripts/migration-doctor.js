@@ -2,10 +2,12 @@
  * 迁移健康检查（只读，不修改任何数据、不执行任何迁移）。
  *
  * 部署前用它替代「启动即崩」：逐个迁移对比数据库里的 checksum 与当前文件，
- * 分成三类：
+ * 分成四类：
  *   ok           一致，无需处理
- *   eol-only     只差行尾（历史 CRLF 检出）；下次 migrate 会自动重基线
- *   content-changed  正文被改过——必须人工确认，migrate 会拒绝启动
+ *   legacy       历史修订（只差行尾，或 scripts/migrate.js 里登记的等价修订）；
+ *                下次 migrate 会自动重基线
+ *   not-applied  当前库还没应用该迁移
+ *   content-changed  正文被改过且未登记——必须人工确认，migrate 会拒绝启动
  *
  * 用法：
  *   node --env-file-if-exists=.env scripts/migration-doctor.js
@@ -55,16 +57,16 @@ try {
     let status;
     if (!actual) status = "not-applied";
     else if (actual === expected) status = "ok";
-    else if (legacyMigrationChecksums(sql).has(actual)) status = "eol-only";
+    else if (legacyMigrationChecksums(sql, name).has(actual)) status = "legacy";
     else status = "content-changed";
     rows.push({ name, status, expected, actual });
   }
 
-  const groups = { ok: 0, "eol-only": 0, "not-applied": 0, "content-changed": 0 };
+  const groups = { ok: 0, legacy: 0, "not-applied": 0, "content-changed": 0 };
   for (const row of rows) groups[row.status] += 1;
 
   console.log(
-    `迁移健康检查：共 ${rows.length} 个 · 一致 ${groups.ok} · 仅行尾差异 ${groups["eol-only"]} · 未应用 ${groups["not-applied"]} · 正文已改 ${groups["content-changed"]}`,
+    `迁移健康检查：共 ${rows.length} 个 · 一致 ${groups.ok} · 历史修订 ${groups.legacy} · 未应用 ${groups["not-applied"]} · 正文已改 ${groups["content-changed"]}`,
   );
   for (const row of rows) {
     if (row.status === "ok") continue;
@@ -72,8 +74,8 @@ try {
     if (row.status === "content-changed")
       console.log(`      数据库=${row.actual}  当前文件=${row.expected}`);
   }
-  if (groups["eol-only"])
-    console.log("提示：eol-only 会在下次启动 / 迁移时自动重基线，无需人工处理。");
+  if (groups.legacy)
+    console.log("提示：历史修订会在下次启动 / 迁移时自动重基线，无需人工处理。");
 
   if (rebaselineNames.length) {
     assertProductionWriteAllowed();

@@ -20,16 +20,37 @@ export function migrationChecksum(sql) {
 }
 
 /**
- * 历史 checksum 集合：只差行尾、内容未变的迁移应被识别成「重基线」，
- * 而不是报「文件已变更」。真正的正文改动仍会命中 mismatch。
+ * 已知等价修订：这些迁移在历史上有过「只改注释 / 只被编码工具写坏」的版本，
+ * 与当前文件相比 DDL 完全一致，只是正文（注释）不同。登记在这里，让已应用过
+ * 旧版本的库自动重基线，而不是把部署卡死；新增条目必须逐个人工核对 DDL。
  */
-export function legacyMigrationChecksums(sql) {
+export const KNOWN_EQUIVALENT_REVISIONS = new Map([
+  [
+    // 071 有三个修订：原始（中文注释）→ 被一次非 UTF-8 安全的改写破坏成 27 个 "?"
+    // → 本提交补回中文注释。三者 DDL 完全相同（已核对库内 retry_count /
+    // failure_class / preferred_executor_id 等列均在），因此旧值全部登记为等价修订，
+    // 正式库与各地本地库都无需人工干预。
+    "071_task_retry_guards.sql",
+    [
+      "a7d16869f39d164bdbcb191bf92efacd67110b48cc40c77317c065696e4b8ca7", // 原始版本
+      "1e7c2345e01db50cbe05ee3c201c640a4e37044fd7ca1041a0312d1a89410045", // 被写坏 "?" 的版本（正式库当前记录）
+    ],
+  ],
+]);
+
+/**
+ * 可自动重基线的历史 checksum：既包括只差行尾的，也包括上面登记的等价修订。
+ * 其余不匹配一律视为「正文被改」，必须人工处理。
+ */
+export function legacyMigrationChecksums(sql, name = "") {
   const lf = normalizeSqlEol(sql);
   const crlf = lf.replace(/\n/g, "\r\n");
   const variants = new Set([String(sql), lf, crlf]);
-  return new Set(
+  const hashes = new Set(
     [...variants].map((text) => createHash("sha256").update(text, "utf8").digest("hex")),
   );
+  for (const hash of KNOWN_EQUIVALENT_REVISIONS.get(name) || []) hashes.add(hash);
+  return hashes;
 }
 
 async function ensureChecksumColumn(conn) {
@@ -161,13 +182,13 @@ export async function migrate(
             continue;
           }
           if (existing.checksum === migration.checksum) continue;
-          if (legacyMigrationChecksums(migration.sql).has(existing.checksum)) {
-            // 仅行尾差异（历史 CRLF 检出）：一次性重基线，避免部署被历史哈希卡死。
+          if (legacyMigrationChecksums(migration.sql, name).has(existing.checksum)) {
+            // 行尾差异或已登记的等价修订：一次性重基线，避免部署被历史哈希卡死。
             await query(conn, "UPDATE schema_migrations SET checksum=? WHERE name=?", [
               migration.checksum,
               name,
             ]);
-            console.log(`Rebaselined ${name}（仅行尾差异）`);
+            console.log(`Rebaselined ${name}（历史修订：行尾 / 已知等价改动）`);
             continue;
           }
           throw checksumMismatch(name, migration.checksum, existing.checksum);

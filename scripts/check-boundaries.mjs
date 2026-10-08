@@ -69,13 +69,25 @@ for (const file of walk(serverDir)) {
   });
 }
 
-// 规则 5：迁移文件必须是 LF。checksum 已做行尾归一，但工作树混入 CRLF 仍会制造
-// 噪声 diff，且历史上正是它引发过部署启动失败。
-for (const name of readdirSync(join(root, "migrations"))) {
+// 规则 5 / 6：迁移文件必须 LF 且编码健康。
+// checksum 已做行尾归一，但工作树混入 CRLF 仍会制造噪声 diff；编码破坏会把中文
+// 注释写成合法的 ASCII "?"（U+FFFD 检查抓不到），因此两条都查。
+const migrationsDir = join(root, "migrations");
+for (const name of readdirSync(migrationsDir)) {
   if (!name.endsWith(".sql")) continue;
-  const file = join(root, "migrations", name);
-  if (readFileSync(file, "utf8").includes("\r"))
+  const text = readFileSync(join(migrationsDir, name), "utf8");
+  if (text.includes("\r"))
     violations.push([5, `migrations/${name}`, "迁移文件含 CR，应为 LF 行尾"]);
+  if (text.includes("\uFFFD"))
+    violations.push([6, `migrations/${name}`, "迁移文件不是合法 UTF-8（含替换字符）"]);
+  for (const line of text.split("\n")) {
+    if (/^\s*--/.test(line) && /\?{4,}/.test(line))
+      violations.push([
+        6,
+        `migrations/${name}`,
+        `注释里的非 ASCII 文本疑似被写坏成「?」：${line.trim().slice(0, 60)}`,
+      ]);
+  }
 }
 
 if (!violations.length) {

@@ -1,4 +1,6 @@
--- ???????????????????????????
+-- 任务重试与执行守卫：任务池补齐重试预算、失败分类与指纹、阻塞原因、恢复条件、
+-- 环境版本与指定执行器；执行 run 记录尝试次数、失败指纹与反馈状态，
+-- 供二级小祥判断该重试原执行器、换执行器，还是阻塞等待。
 ALTER TABLE agent_tasks ADD COLUMN retry_count INT UNSIGNED NOT NULL DEFAULT 0;
 ALTER TABLE agent_tasks ADD COLUMN executor_switch_count INT UNSIGNED NOT NULL DEFAULT 0;
 ALTER TABLE agent_tasks ADD COLUMN max_retry_count INT UNSIGNED NOT NULL DEFAULT 5;

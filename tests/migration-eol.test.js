@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { legacyMigrationChecksums, migrationChecksum, normalizeSqlEol } from "../scripts/migrate.js";
+import {
+  KNOWN_EQUIVALENT_REVISIONS,
+  legacyMigrationChecksums,
+  migrationChecksum,
+  normalizeSqlEol,
+} from "../scripts/migrate.js";
 
 const SQL = "ALTER TABLE artifacts\n  ADD COLUMN foo CHAR(36) NULL;\n";
 
@@ -29,4 +34,14 @@ test("历史 CRLF 记录被识别为可重基线，正文改动仍判为变更",
   const changedRaw = createHash("sha256").update(changed, "utf8").digest("hex");
   assert.notEqual(migrationChecksum(changed), migrationChecksum(SQL));
   assert.ok(!legacyMigrationChecksums(SQL).has(changedRaw));
+});
+
+test("已登记的等价修订会被接受自动重基线，未登记的名字不受影响", () => {
+  const sql = "SELECT 1;\n";
+  for (const [name, hashes] of KNOWN_EQUIVALENT_REVISIONS) {
+    assert.ok(hashes.length, `${name} 没有登记任何历史 checksum`);
+    for (const hash of hashes) assert.ok(legacyMigrationChecksums(sql, name).has(hash));
+    assert.ok(!legacyMigrationChecksums(sql, "000_unregistered.sql").has(hashes[0]));
+    assert.ok(!legacyMigrationChecksums(sql).has(hashes[0]));
+  }
 });

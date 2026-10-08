@@ -37,6 +37,11 @@ const WRITE_RE = new RegExp(
 const KERNEL_FORBIDDEN_RE = /from\s+["'][^"']*\/(service|agent|agent-tools|agent-session|coordinator|coordinator-events|dsh-[a-z-]*)\.js["']|from\s+["'][^"']*\/runtime\//;
 const AGENT_IMPORT_RE = /from\s+["']\.\/agent\.js["']/;
 const DEEP_KERNEL_RE = /from\s+["'][^"']*\/?documents\/(?!index\.js)[a-z-]+\.js["']/;
+/**
+ * 规则 4 的例外：`documents/service.js` 是 `Service` 的父类，业务门面必须直接继承它。
+ * 若改为经 index.js 转发，会形成 index → documents/service → project-memory → service → index 的循环。
+ */
+const DEEP_KERNEL_ALLOWED = new Set(["server/service.js"]);
 
 function walk(dir) {
   const out = [];
@@ -64,7 +69,7 @@ for (const file of walk(serverDir)) {
       violations.push([2, at, `内核反向依赖业务模块：${line.trim().slice(0, 100)}`]);
     if (AGENT_IMPORT_RE.test(line) && !/\/(app|coordinator)\.js$/.test(rel(file)))
       violations.push([3, at, `仅 app.js / coordinator.js 可以 import agent.js`]);
-    if (!isKernel && DEEP_KERNEL_RE.test(line))
+    if (!isKernel && DEEP_KERNEL_RE.test(line) && !DEEP_KERNEL_ALLOWED.has(rel(file)))
       violations.push([4, at, `深引用内核内部文件，应改为 documents/index.js：${line.trim().slice(0, 100)}`]);
   });
 }

@@ -13,6 +13,7 @@ import {
 import { CodePreview } from "./office-preview";
 import { fileDisplayName } from "../shared/document-name.js";
 import { LIBRARY_ROOT_KINDS, folderRootKind } from "./document-library";
+import { ProjectContentPanel } from "./ProjectContentPanel";
 import { UiIcon } from "./ui-icon";
 import { DialogClose, ModalBackdrop } from "./dialog-fx";
 import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
@@ -3549,104 +3550,15 @@ export function Documents({
             onDismiss={() => setSelectionContextMenu(null)}
           />
         ) : null}
-        <nav className="doc-toolbar" aria-label="项目工具区">
-          <button
-            type="button"
-            className={`doc-tool-button${activeTool === "files" ? " active" : ""}`}
-            aria-pressed={activeTool === "files"}
-            onClick={activateDocumentTool}
-          >
-            <UiIcon name="library" size={14} />
-            <span>文档阅览</span>
-          </button>
-          <button
-            type="button"
-            className={`doc-tool-button${activeTool === "browser" ? " active" : ""}`}
-            aria-pressed={activeTool === "browser"}
-            title="打开项目 HTML 浏览器"
-            onClick={activateBrowserTool}
-          >
-            <UiIcon name="globe" size={14} />
-            <span>HTML阅览</span>
-          </button>
-          <span className="doc-toolbar-spacer" aria-hidden="true" />
-          <button
-            type="button"
-            className="doc-tool-button doc-fullscreen-button"
-            aria-pressed={documentFullscreen}
-            aria-label={documentFullscreen ? "退出全屏" : "全屏"}
-            title={documentFullscreen ? "退出全屏" : "全屏"}
-            onClick={() => onDocumentFullscreenChange?.(!documentFullscreen)}
-          >
-            <UiIcon name={documentFullscreen ? "compress" : "expand"} size={14} />
-            <span>{documentFullscreen ? "退出全屏" : "全屏"}</span>
-          </button>
-        </nav>
-        {activeTool !== "browser" ? (
-          <div
-            className="doc-browser-tabbar"
-            onContextMenu={(event) => {
-              if ((event.target as HTMLElement).closest(".doc-browser-tab")) return;
-              // 无打开页签时没有可操作的页签，不弹出页签菜单，右侧工具按钮保持可用。
-              if (!openTabs.length) return;
-              const id = selected && openTabs.includes(selected) ? selected : openTabs[openTabs.length - 1];
-              openTabContextMenu(event, id);
-            }}
-          >
-          <DocumentTabList
-            emptyLabel={null}
-            tabs={openTabs.map((id) => {
-              const item = tabVersion(id);
-              return {
-                id,
-                label: item ? fileLabel(item) : "文档",
-                icon: item ? <LibraryFileIcon fileName={item.filename} versionId={item.id} className="tree-icon file-type-icon" width={14} height={14} /> : null,
-              };
-            })}
-            selected={selected}
-            onSelect={selectDocument}
-            onClose={closeTab}
-            onContextMenu={openTabContextMenu}
-          />
-          {tabMenu && openTabs.includes(tabMenu.id) ? (
-            <DocBrowserTabMenu
-              x={tabMenu.x}
-              y={tabMenu.y}
-              index={openTabs.indexOf(tabMenu.id)}
-              tabCount={openTabs.length}
-              canAddToConversation={Boolean(onReference)}
-              onRefresh={() => {
-                if (tabMenu.id !== selected) onSelect(tabMenu.id);
-                setPreviewReload((value) => value + 1);
-                void onRefresh();
-              }}
-              onDownload={() => {
-                window.open(`/api/versions/${tabMenu.id}/download`, "_blank", "noopener,noreferrer");
-              }}
-              onAddToConversation={() => onReference?.(tabMenu.id)}
-              onClose={() => closeTab(tabMenu.id)}
-              onCloseOthers={() => closeOtherTabs(tabMenu.id)}
-              onCloseRight={() => closeTabsDirection(tabMenu.id, "right")}
-              onCloseLeft={() => closeTabsDirection(tabMenu.id, "left")}
-              onDismiss={() => setTabMenu(null)}
-            />
-          ) : null}
-          <button type="button" className="doc-browser-tree-toggle" title="文档操作日志" aria-label="查看文档操作日志" onClick={() => { setChangePageNumber(1); setChangePageInput("1"); setChangesOpen(true); }}>
-            <UiIcon name="history" size={15} />
-          </button>
-          <button
-            type="button"
-            className={`doc-browser-tree-toggle${treeOpen ? " active" : ""}`}
-            title={treeOpen ? "隐藏文件树" : "显示文件树"}
-            aria-label={treeOpen ? "隐藏文件树" : "显示文件树"}
-            aria-pressed={treeOpen}
-            onClick={() => setTreeOpen(!treeOpen)}
-          >
-            <TreeIcon kind="folder" />
-          </button>
-          </div>
-        ) : null}
-        {activeTool === "browser" ? (
+        <ProjectContentPanel
+          activeTool={activeTool}
+          onSelectFiles={activateDocumentTool}
+          onSelectBrowser={activateBrowserTool}
+          documentFullscreen={documentFullscreen}
+          onToggleFullscreen={() => onDocumentFullscreenChange?.(!documentFullscreen)}
+          treeOpen={treeOpen}
+          onToggleTree={() => setTreeOpen(!treeOpen)}
+          browserTabbar={activeTool === "browser" ? (
           <div className="doc-browser-tabbar doc-browser-browser-tabbar">
             <DocumentTabList
               ariaLabel="打开的浏览器页面"
@@ -3667,10 +3579,9 @@ export function Documents({
             />
           </div>
         ) : null}
-        <div className="library-body doc-browser-body">
-          {activeTool === "files" && treeOpen ? explorer : null}
-          {mainPanel}
-        </div>
+          explorer={activeTool === "files" && treeOpen ? explorer : null}
+          mainPanel={mainPanel}
+        />
         {organizeDialog}
         {folderGuideDialog}
         {codeGuideDialog}

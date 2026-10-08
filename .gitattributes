@@ -1,6 +1,49 @@
-* text=auto
+# 行尾统一策略
+#
+# 背景：迁移文件按字节取 checksum。Windows 在 core.autocrlf=true 下检出为 CRLF，
+# ECS/Linux 检出为 LF，同一个文件会记录出不同 checksum，表现为部署时
+# 「迁移文件已变更」直接启动失败。现在有两道保险：
+#   1. scripts/migrate.js 对 SQL 先做行尾归一（CRLF/CR → LF）再哈希；
+#   2. 本文件把全部文本固定为 LF，保证任何平台检出的字节一致。
+# 已应用的迁移文件仍然禁止改正文 —— 只有行尾差异会被自动重基线。
+
+* text=auto eol=lf
+
+# Windows 上直接执行的脚本保留 CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 显式声明文本类型（同时固定为 LF）
 *.sh text eol=lf
 *.yml text eol=lf
+*.yaml text eol=lf
 *.js text eol=lf
+*.cjs text eol=lf
+*.mjs text eol=lf
+*.ts text eol=lf
+*.mts text eol=lf
 *.tsx text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+*.html text eol=lf
+*.svg text eol=lf
+*.py text eol=lf
+*.sql text eol=lf
 migrations/*.sql text eol=lf
+
+# 二进制：不做行尾转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.exe binary
+*.pdf binary
+*.woff binary
+*.woff2 binary

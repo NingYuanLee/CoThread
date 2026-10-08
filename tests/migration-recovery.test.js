@@ -1,11 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
-import { migrate } from "../scripts/migrate.js";
+import { migrate, migrationChecksum } from "../scripts/migrate.js";
 import { Service } from "../server/service.js";
 import { hashPassword } from "../server/auth.js";
 import { createApp } from "../server/app.js";
@@ -104,7 +103,7 @@ test("a changed applied migration fails checksum validation", async () => {
   const db = database.db;
   const name = "017_child_agents.sql";
   const sql = await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8");
-  const checksum = createHash("sha256").update(sql, "utf8").digest("hex");
+  const checksum = migrationChecksum(sql);
   try {
     await query(db, "UPDATE schema_migrations SET checksum=? WHERE name=?", ["0".repeat(64), name]);
     await assert.rejects(migrate(db), {

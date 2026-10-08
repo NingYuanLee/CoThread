@@ -5,8 +5,31 @@ import { createDatabase, query } from "../server/db.js";
 import { seedInitialAdmin } from "./seed.js";
 import { assertProductionWriteAllowed } from "../server/database-policy.js";
 
-function migrationChecksum(sql) {
-  return createHash("sha256").update(sql, "utf8").digest("hex");
+/**
+ * 迁移 checksum 必须与检出时的行尾无关：CI / ECS 检出得到 LF，Windows 在
+ * `core.autocrlf=true` 下历史上可能得到 CRLF。旧实现直接对磁盘原文取哈希，
+ * 同一个文件在两个平台会记录出不同 checksum，部署时表现为「迁移文件已变更」
+ * 直接启动失败。这里统一把 CRLF / 孤立 CR 归一成 LF 再哈希。
+ */
+export function normalizeSqlEol(sql) {
+  return String(sql).replace(/\r\n?/g, "\n");
+}
+
+export function migrationChecksum(sql) {
+  return createHash("sha256").update(normalizeSqlEol(sql), "utf8").digest("hex");
+}
+
+/**
+ * 历史 checksum 集合：只差行尾、内容未变的迁移应被识别成「重基线」，
+ * 而不是报「文件已变更」。真正的正文改动仍会命中 mismatch。
+ */
+export function legacyMigrationChecksums(sql) {
+  const lf = normalizeSqlEol(sql);
+  const crlf = lf.replace(/\n/g, "\r\n");
+  const variants = new Set([String(sql), lf, crlf]);
+  return new Set(
+    [...variants].map((text) => createHash("sha256").update(text, "utf8").digest("hex")),
+  );
 }
 
 async function ensureChecksumColumn(conn) {
@@ -130,14 +153,24 @@ export async function migrate(
         const migration = migrations.get(name);
         const existing = applied.get(name);
         if (existing) {
-          if (existing.checksum && existing.checksum !== migration.checksum)
-            throw checksumMismatch(name, migration.checksum, existing.checksum);
-          if (!existing.checksum)
+          if (!existing.checksum) {
             await query(conn, "UPDATE schema_migrations SET checksum=? WHERE name=?", [
               migration.checksum,
               name,
             ]);
-          continue;
+            continue;
+          }
+          if (existing.checksum === migration.checksum) continue;
+          if (legacyMigrationChecksums(migration.sql).has(existing.checksum)) {
+            // 仅行尾差异（历史 CRLF 检出）：一次性重基线，避免部署被历史哈希卡死。
+            await query(conn, "UPDATE schema_migrations SET checksum=? WHERE name=?", [
+              migration.checksum,
+              name,
+            ]);
+            console.log(`Rebaselined ${name}（仅行尾差异）`);
+            continue;
+          }
+          throw checksumMismatch(name, migration.checksum, existing.checksum);
         }
         const sql = migration.sql;
         const statements = sql

@@ -9,6 +9,8 @@
  * 3. Agent 单向依赖：只有 `server/app.js` 与 `server/coordinator.js` 可以 import `agent.js`。
  * 4. 内核深引用禁令：`server/` 下非内核代码只能从 `./documents/index.js` 导入内核能力，
  *    不得引用内核内部文件（测试文件不受本规则约束）。
+ * 5. 迁移文件行尾：`migrations/*.sql` 必须是 LF。checksum 已做行尾归一，但工作树
+ *    混入 CRLF 仍会让 review、blame 与格式检查产生噪声，且历史上就是它引发过部署失败。
  *
  * 用法：node scripts/check-boundaries.mjs
  */
@@ -67,11 +69,19 @@ for (const file of walk(serverDir)) {
   });
 }
 
+// 规则 5：迁移文件必须是 LF。checksum 已做行尾归一，但工作树混入 CRLF 仍会制造
+// 噪声 diff，且历史上正是它引发过部署启动失败。
+for (const name of readdirSync(join(root, "migrations"))) {
+  if (!name.endsWith(".sql")) continue;
+  const file = join(root, "migrations", name);
+  if (readFileSync(file, "utf8").includes("\r"))
+    violations.push([5, `migrations/${name}`, "迁移文件含 CR，应为 LF 行尾"]);
+}
+
 if (!violations.length) {
   console.log("架构边界检查通过：0 处违例。");
   process.exit(0);
 }
-
 console.error(`架构边界检查发现 ${violations.length} 处违例：`);
 for (const [rule, at, message] of violations) console.error(`  [规则 ${rule}] ${at}  ${message}`);
 process.exitCode = 1;

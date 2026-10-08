@@ -34,7 +34,8 @@ const WRITE_RE = new RegExp(
   `(?:INSERT\\s+INTO|UPDATE|DELETE\\s+FROM)\\s+(?:${TABLES.join("|")})\\b`,
   "i",
 );
-const KERNEL_FORBIDDEN_RE = /from\s+["'][^"']*\/(service|agent|agent-tools|agent-session|coordinator|coordinator-events|dsh-[a-z-]*)\.js["']|from\s+["'][^"']*\/runtime\//;
+const KERNEL_FORBIDDEN_RE =
+  /from\s+["'][^"']*\/(service|agent|agent-tools|agent-session|coordinator|coordinator-events|dsh-[a-z-]*)\.js["']|from\s+["'][^"']*\/runtime\//;
 const AGENT_IMPORT_RE = /from\s+["']\.\/agent\.js["']/;
 const DEEP_KERNEL_RE = /from\s+["'][^"']*\/?documents\/(?!index\.js)[a-z-]+\.js["']/;
 /**
@@ -70,7 +71,11 @@ for (const file of walk(serverDir)) {
     if (AGENT_IMPORT_RE.test(line) && !/\/(app|coordinator)\.js$/.test(rel(file)))
       violations.push([3, at, `仅 app.js / coordinator.js 可以 import agent.js`]);
     if (!isKernel && DEEP_KERNEL_RE.test(line) && !DEEP_KERNEL_ALLOWED.has(rel(file)))
-      violations.push([4, at, `深引用内核内部文件，应改为 documents/index.js：${line.trim().slice(0, 100)}`]);
+      violations.push([
+        4,
+        at,
+        `深引用内核内部文件，应改为 documents/index.js：${line.trim().slice(0, 100)}`,
+      ]);
   });
 }
 

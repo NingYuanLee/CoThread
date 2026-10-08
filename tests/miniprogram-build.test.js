@@ -4,7 +4,10 @@ import { randomUUID, createHash } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { saveProjectMiniProgramConfig, saveProjectMiniProgramSecret } from "../server/miniprogram-config.js";
+import {
+  saveProjectMiniProgramConfig,
+  saveProjectMiniProgramSecret,
+} from "../server/miniprogram-config.js";
 import {
   ensureMiniprogramWorkspace,
   miniprogramWorkspaceFolders,

@@ -123,7 +123,10 @@ function fakeCi(calls, { failUpload, failPreview, writeQr = true } = {}) {
       }
     },
     async preview(options) {
-      const appSource = await readFile(thisProject(options).options.projectPath + "/app.js", "utf8");
+      const appSource = await readFile(
+        thisProject(options).options.projectPath + "/app.js",
+        "utf8",
+      );
       calls.push({
         op: "preview",
         desc: options.desc,
@@ -146,7 +149,10 @@ function fakeCi(calls, { failUpload, failPreview, writeQr = true } = {}) {
       return { subPackageInfo: [{ name: "__FULL__", size: 1234 }] };
     },
     async upload(options) {
-      const appSource = await readFile(thisProject(options).options.projectPath + "/app.js", "utf8");
+      const appSource = await readFile(
+        thisProject(options).options.projectPath + "/app.js",
+        "utf8",
+      );
       calls.push({
         op: "upload",
         version: options.version,
@@ -200,12 +206,26 @@ test("preview needs AppID and a private key, with actionable errors", async () =
     const noKey = await seed(database, { withKey: false });
     await assert.rejects(
       // allowUnverified：负向用例要验证"缺什么就说什么"的具体提示，需绕过统一的工作区守卫。
-      () => previewMiniprogram(noKey.service, noKey.user, noKey.project.id, {}, { allowUnverified: true }),
+      () =>
+        previewMiniprogram(
+          noKey.service,
+          noKey.user,
+          noKey.project.id,
+          {},
+          { allowUnverified: true },
+        ),
       (error) => error.status === 409 && /上传私钥/.test(error.message),
     );
     const noApp = await seed(database, { withAppId: false });
     await assert.rejects(
-      () => previewMiniprogram(noApp.service, noApp.user, noApp.project.id, {}, { allowUnverified: true }),
+      () =>
+        previewMiniprogram(
+          noApp.service,
+          noApp.user,
+          noApp.project.id,
+          {},
+          { allowUnverified: true },
+        ),
       (error) => error.status === 409 && /AppID/.test(error.message),
     );
     const empty = await seed(database);
@@ -359,11 +379,10 @@ test("writable project members can upload an experience version without approval
       "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
       [member.id, `${member.id}@test.com`, "项目成员"],
     );
-    await query(
-      database.db,
-      "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')",
-      [project.id, member.id],
-    );
+    await query(database.db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')", [
+      project.id,
+      member.id,
+    ]);
 
     const uploaded = await uploadMiniprogram(service, member, project.id, {
       version: "1.0.0",

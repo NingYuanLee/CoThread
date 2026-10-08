@@ -9,7 +9,7 @@ import {
   isVisibleLibraryTreeFolder,
   filterProjectLibraryFolders,
   filterProjectLibraryVersions,
-} from "../server/project-library.js";
+} from "../server/documents/project-library.js";
 import {
   ensureMiniprogramWorkspace,
   publishMiniprogramSourceFile,

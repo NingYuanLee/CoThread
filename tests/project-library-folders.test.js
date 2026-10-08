@@ -4,8 +4,8 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { libraryChange } from "../server/library.js";
-import { folderRootKind, isVisibleLibraryTreeFolder } from "../server/project-library.js";
+import { libraryChange } from "../server/documents/library.js";
+import { folderRootKind, isVisibleLibraryTreeFolder } from "../server/documents/project-library.js";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 import JSZip from "jszip";
 
@@ -224,7 +224,7 @@ test("human can move artifacts within official folders", async () => {
       [user.id, `${user.id}@test.com`, "负责人"]);
     const service = new Service(db);
     const project = await service.createProject(user, { name: "库" });
-    const { libraryChange } = await import("../server/library.js");
+    const { libraryChange } = await import("../server/documents/library.js");
     const [official] = await query(db,
       "SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_official' LIMIT 1",
       [project.id]);
@@ -624,7 +624,7 @@ test("emptying recycle permanently deletes unreferenced files and retains cited 
   const database = await testDatabase();
   const db = database.db;
   try {
-    const { emptyLibraryRecycle } = await import("../server/library.js");
+    const { emptyLibraryRecycle } = await import("../server/documents/library.js");
     const user = { id: randomUUID(), kind: "session" };
     await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
       [user.id, `${user.id}@test.com`, "负责人"]);
@@ -680,7 +680,7 @@ test("emptying recycle deletes an unreferenced recycled version without removing
   const database = await testDatabase();
   const db = database.db;
   try {
-    const { emptyLibraryRecycle } = await import("../server/library.js");
+    const { emptyLibraryRecycle } = await import("../server/documents/library.js");
     const user = { id: randomUUID(), kind: "session" };
     const agent = { ...user, kind: "agent" };
     await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",

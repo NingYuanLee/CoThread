@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";
-import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./project-library.js";
+import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.js";
 import { normalizeL1Task } from "../shared/agent-label.js";
 import { z } from "zod/v3";
 

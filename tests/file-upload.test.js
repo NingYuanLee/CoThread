@@ -6,7 +6,7 @@ import { hashPassword } from "../server/auth.js";
 import { query } from "../server/db.js";
 import { testDatabase } from "./database.js";
 import { FILE_CHUNK_SIZE, MCP_INLINE_BASE64_MAX } from "../shared/upload-limits.js";
-import { resolveStoredMime } from "../server/preview-mime.js";
+import { resolveStoredMime } from "../server/documents/preview-mime.js";
 
 let database, server, base, cookie, token, projectId, threadId;
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");

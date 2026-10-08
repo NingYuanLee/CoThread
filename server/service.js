@@ -12,7 +12,6 @@ import { posix as pathPosix } from "node:path";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { digest, hashPassword } from "./auth.js";
-import { decodeUploadedBytes, verifyBytes } from "./file-bytes.js";
 import { INLINE_FILE_MAX_BYTES } from "../shared/upload-limits.js";
 import { publishWork } from "./work-events.js";
 import { queueDocumentMemory, queueMemberMemory } from "./project-memory.js";
@@ -25,6 +24,8 @@ import {
   normalizeL1Task,
 } from "../shared/agent-label.js";
 import {
+  asPreviewHtml,
+  decodeUploadedBytes,
   DOCUMENT_LIBRARY_FOLDER_SQL,
   ensureProjectLibraryRoots,
   folderRootKind,
@@ -35,13 +36,16 @@ import {
   isProjectLibraryAreaRoot,
   latestVersionsByFolderRoots,
   OUTPUT_LIBRARY_FOLDER_SQL,
+  previewAssetInFolder,
+  previewContentType,
+  recordDocumentChange,
+  resolveStoredMime,
   uniqueArtifactTitle,
   uniqueVersionFilename,
   utcDateKey,
-} from "./project-library.js";
-import { previewContentType, resolveStoredMime } from "./preview-mime.js";
-import { recordDocumentChange } from "./document-audit.js";
-import { asPreviewHtml, previewAssetInFolder, walkPreviewSubfolders } from "./service-preview.js";
+  verifyBytes,
+  walkPreviewSubfolders,
+} from "./documents/index.js";
 import {
   listNotifications,
   notify,
@@ -59,12 +63,7 @@ import {
   users as usersDomain,
 } from "./service-admin.js";
 
-export class HttpError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.status = status;
-  }
-}
+export { HttpError } from "./http-error.js";
 
 const fail = (status, message) => {
   throw new HttpError(status, message);

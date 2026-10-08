@@ -4,7 +4,7 @@ import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";
 import { enqueueCoordinatorEvent } from "./coordinator-events.js";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
-import { folderRootKind, latestVersionsByFolderRoots } from "./project-library.js";
+import { folderRootKind, latestVersionsByFolderRoots } from "./documents/index.js";
 import {
   composeTaskInstruction,
   isL2OwnResponsibility,

@@ -1,11 +1,11 @@
-import { documentTool } from "./document-tools.js";
+import { documentTool } from "./documents/index.js";
 import { z } from "zod/v3";
 import { redactSecrets } from "./model-config.js";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { posix } from "node:path";
 import { query } from "./db.js";
 import { digest } from "./auth.js";
-import { storedContentType } from "./preview-mime.js";
+import { storedContentType } from "./documents/index.js";
 import { HttpError } from "./service.js";
 import { modelDiscussion, modelProject } from "./model-context.js";
 import { agentSession } from "./agent-session.js";
@@ -38,7 +38,7 @@ import {
   agentListCodeTree,
   agentReadCodeFile,
 } from "./project-code-sources.js";
-import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./project-library.js";
+import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.js";
 import {
   MINIPROGRAM_FIXED_FOLDERS,
   miniprogramSnapshot,

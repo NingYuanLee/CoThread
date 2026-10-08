@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { previewContentType, resolveStoredMime, storedContentType } from "../server/preview-mime.js";
+import { previewContentType, resolveStoredMime, storedContentType } from "../server/documents/preview-mime.js";
 
 test("preview prefers filename over stored text/plain", () => {
   assert.equal(previewContentType("text/plain", "index.html"), "text/html; charset=utf-8");

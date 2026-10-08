@@ -1,7 +1,7 @@
 import { posix as pathPosix } from "node:path";
-import { query } from "./db.js";
-import { previewConsoleProbeHtml } from "../shared/html-preview.mjs";
-import { signPreviewTicket } from "../shared/preview-ticket.mjs";
+import { query } from "../db.js";
+import { previewConsoleProbeHtml } from "../../shared/html-preview.mjs";
+import { signPreviewTicket } from "../../shared/preview-ticket.mjs";
 
 function rewriteRootRelativeAssetUrls(html) {
   return html.replace(

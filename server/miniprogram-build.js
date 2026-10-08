@@ -15,7 +15,7 @@ import {
   resolveMiniprogramRuntime,
   runtimeBuildHash,
 } from "./miniprogram-runtime-environment.js";
-import { uniqueArtifactTitle, uniqueVersionFilename } from "./project-library.js";
+import { uniqueArtifactTitle, uniqueVersionFilename } from "./documents/index.js";
 
 const require = createRequire(import.meta.url);
 

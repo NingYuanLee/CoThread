@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "../db.js";
 import { resolveStoredMime } from "./preview-mime.js";
 import { decodeUploadedBytes, hashesEqual, parseSha256, verifyBytes } from "./file-bytes.js";
-import { HttpError } from "./service.js";
+import { HttpError } from "../http-error.js";
 import {
   FILE_CHUNK_MAX,
   FILE_CHUNK_MIN,
@@ -14,7 +14,7 @@ import {
   FILE_UPLOAD_TTL_MS,
   fileChunkCount,
   lastChunkSize,
-} from "../shared/upload-limits.js";
+} from "../../shared/upload-limits.js";
 
 const fail = (status, message) => {
   throw new HttpError(status, message);

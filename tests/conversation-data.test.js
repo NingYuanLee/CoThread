@@ -93,7 +93,7 @@ test('built-in Agent tools execute message/member reads and reject another proje
 });
 
 test('deleting one version preserves others and references; whole-document deletion is separate and recoverable',async()=>{
- const {libraryChange}=await import('../server/library.js');
+ const {libraryChange}=await import('../server/documents/library.js');
  const agent={...user,kind:'agent'};
  const data={title:'版本测试',filename:'version.txt',mime:'text/plain',contentBase64:Buffer.from('v1').toString('base64')};
  const v1=await service.submitVersion(agent,thread.id,data);

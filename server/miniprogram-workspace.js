@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { query } from "./db.js";
 import { HttpError } from "./service.js";
-import { MINIPROGRAM_FIXED_FOLDERS, MINIPROGRAM_FOLDER_KINDS } from "./project-library.js";
+import { MINIPROGRAM_FIXED_FOLDERS, MINIPROGRAM_FOLDER_KINDS } from "./documents/index.js";
 
 export const MINIPROGRAM_ROOT_KIND = "project_miniprogram";
 export { MINIPROGRAM_FIXED_FOLDERS, MINIPROGRAM_FOLDER_KINDS };

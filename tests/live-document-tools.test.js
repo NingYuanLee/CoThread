@@ -5,7 +5,7 @@ import {testDatabase} from './database.js';
 import {query} from '../server/db.js';
 import {Service} from '../server/service.js';
 import {trackLiveOutput,liveOutputSnapshot,observeLiveOutput} from '../server/agent-live-output.js';
-import {documentTool} from '../server/document-tools.js';
+import {documentTool} from '../server/documents/document-tools.js';
 import {createAgentTools} from '../server/agent-tools.js';
 import {bindDshL3Execution, createTask} from '../server/task-pool.js';
 let database,service,user,project,thread,message,job;

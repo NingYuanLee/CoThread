@@ -1,6 +1,6 @@
-import { query } from "./db.js";
+import { query } from "../db.js";
 import { randomUUID } from "node:crypto";
-import { nextDuplicateName, uniqueDisplayTitle } from "../shared/document-name.js";
+import { nextDuplicateName, uniqueDisplayTitle } from "../../shared/document-name.js";
 
 export const PROJECT_LIBRARY_ROOT_KINDS = [
   "project_official",

@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 import { inlineHtmlPreviewAssets } from "../shared/html-preview.mjs";
-import { previewContentType, storedContentType } from "./preview-mime.js";
-import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./project-library.js";
+import { previewContentType, storedContentType } from "./documents/index.js";
+import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.js";
 
 const MAX_SCREENSHOT_BYTES = 4 * 1024 * 1024;
 const DEFAULT_VIEWPORT = { width: 1440, height: 1000 };

@@ -9,8 +9,8 @@ import { queueDocumentOrganization } from "./document-organization.js";
 import { queueL1MemoryRun } from "./project-memory.js";
 import { assertMemoryMaintenanceAuth, runMemoryMaintenance } from "./memory-maintenance.js";
 import express from "express";
-import { emptyLibraryRecycle, libraryChange } from "./library.js";
-import { countDocumentChanges, listDocumentChanges } from "./document-audit.js";
+import { emptyLibraryRecycle, libraryChange } from "./documents/index.js";
+import { countDocumentChanges, listDocumentChanges } from "./documents/index.js";
 import { z, ZodError } from "zod/v3";
 import {
   authenticate,
@@ -29,7 +29,7 @@ import { personalProfile, profileSchema } from "./profile.js";
 import { UI_THEMES, normalizeUiTheme } from "../shared/ui-theme.js";
 import { signPreviewTicket, splitPreviewAssetPath } from "../shared/preview-ticket.mjs";
 import { registerRequestParts } from "./request-parts.js";
-import { completeFileUpload, putFileUploadChunk, startFileUpload } from "./file-upload.js";
+import { completeFileUpload, putFileUploadChunk, startFileUpload } from "./documents/index.js";
 import { currentTiming, requestTiming } from "./request-timing.js";
 import { resolveIpLocation } from "./ip-location.js";
 import { randomBytes, randomUUID } from "node:crypto";

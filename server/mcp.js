@@ -1,4 +1,4 @@
-import { documentTool, documentToolSchemas } from "./document-tools.js";
+import { documentTool, documentToolSchemas } from "./documents/index.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod/v3";
@@ -8,14 +8,14 @@ import {
   getL1Status, listL1DocumentQueue, listL1Runs, loadMemberUnderstanding, queueL1MemoryRun,
 } from "./project-memory.js";
 import { normalizeL1Task } from "../shared/agent-label.js";
-import { listDocumentChanges } from "./document-audit.js";
+import { listDocumentChanges } from "./documents/index.js";
 import {
   acceptTask, getTask, listTaskExecutionRuns, listTaskStatusEvents, listTaskUpdates,
   listTasks, mergeTaskActivity, rejectTask, updateTask,
 } from "./task-pool.js";
 import { MCP_CAPABILITIES, MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js";
 import { MCP_INLINE_BASE64_MAX } from "../shared/upload-limits.js";
-import { completeFileUpload, putFileUploadChunk, startFileUpload } from "./file-upload.js";
+import { completeFileUpload, putFileUploadChunk, startFileUpload } from "./documents/index.js";
 
 export { MCP_TOOL_NAMES };
 

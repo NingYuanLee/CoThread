@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
@@ -13,8 +14,39 @@ import {
   loadProjectMiniProgramRuntime,
   normalizeAppId,
 } from "../server/miniprogram-config.js";
+import { setWechatCiFactory } from "../server/wechat-ci.js";
+import { resetCloudbaseClients, setCloudbaseManagerFactory } from "../server/cloudbase.js";
+import { TEST_WECHAT_PRIVATE_KEY, seedMinimalMiniprogramApp } from "./miniprogram-ready.js";
 
 const VALID_APP_ID = "wx1234567890abcdef";
+const PNG_HEADER = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/**
+ * `verifyProjectMiniProgramConfig` 的连接测试会真的调 provider：微信侧生成一次预览、
+ * CloudBase 侧读一次云函数列表。用仓库既有的 provider 注入点换成假实现，让实时检查
+ * 确定性地通过，而不是依赖外网凭据。
+ */
+function installProviderSeams() {
+  setWechatCiFactory(async () => ({
+    Project: class Project {},
+    async preview(options) {
+      await writeFile(
+        options.qrcodeOutputDest,
+        Buffer.concat([PNG_HEADER, Buffer.from("PNG-BYTES")]),
+      );
+      return { subPackageInfo: [{ name: "__FULL__", size: 1234 }] };
+    },
+  }));
+  setCloudbaseManagerFactory(async () => ({
+    functions: { listFunctions: async () => [] },
+  }));
+}
+
+function clearProviderSeams() {
+  setWechatCiFactory(null);
+  setCloudbaseManagerFactory(null);
+  resetCloudbaseClients();
+}
 
 async function seed(database) {
   const user = { id: randomUUID(), kind: "session" };
@@ -141,6 +173,7 @@ test("verify reports local checks and defers live connectivity checks", async ()
   const database = await testDatabase();
   try {
     const { user, service, project } = await seed(database);
+    installProviderSeams();
 
     // Nothing saved yet.
     await assert.rejects(
@@ -159,25 +192,31 @@ test("verify reports local checks and defers live connectivity checks", async ()
     assert.deepEqual(failedIds.sort(), ["cloudbase_credential", "wechat_credential"]);
 
     await saveProjectMiniProgramSecret(service, user, project.id, "wechat_upload_key", {
-      value: "key",
+      value: TEST_WECHAT_PRIVATE_KEY,
     });
     await saveProjectMiniProgramSecret(service, user, project.id, "cloudbase_credential", {
       value: JSON.stringify({ secretId: "AKIDconfigtest000000", secretKey: "config-test-key" }),
     });
+    await seedMinimalMiniprogramApp(database.db, project.id, user.id);
     result = await verifyProjectMiniProgramConfig(service, user, project.id);
     assert.equal(result.status, "verified");
     assert.equal(result.error, null);
-    // Live checks stay pending rather than falsely passing.
+    // 实时检查由注入的假 provider 完成，必须记 passed；未配置的 Admin 生产版才是 pending。
+    const live = result.checks
+      .filter((check) => ["cloudbase_credential", "wechat_credential"].includes(check.id))
+      .map((check) => check.status);
+    assert.deepEqual(live, ["passed", "passed"]);
     const pending = result.checks
       .filter((check) => check.status === "pending")
       .map((c) => c.id)
       .sort();
-    assert.deepEqual(pending, ["admin_deploy", "cloudbase_credential", "wechat_credential"]);
+    assert.deepEqual(pending, ["admin_deploy"]);
 
     const config = await readProjectMiniProgramConfig(service, user, project.id);
     assert.equal(config.status, "verified");
     assert.ok(config.lastVerifiedAt);
   } finally {
+    clearProviderSeams();
     await database.close();
   }
 });
@@ -186,17 +225,19 @@ test("verify fails when the AppID is cleared after a verified save", async () =>
   const database = await testDatabase();
   try {
     const { user, service, project } = await seed(database);
+    installProviderSeams();
     await saveProjectMiniProgramConfig(service, user, project.id, {
       enabled: true,
       appId: VALID_APP_ID,
       cloudbaseEnvs: { development: { envId: "dev-env" } },
     });
     await saveProjectMiniProgramSecret(service, user, project.id, "wechat_upload_key", {
-      value: "key",
+      value: TEST_WECHAT_PRIVATE_KEY,
     });
     await saveProjectMiniProgramSecret(service, user, project.id, "cloudbase_credential", {
       value: JSON.stringify({ secretId: "AKIDconfigtest000000", secretKey: "config-test-key" }),
     });
+    await seedMinimalMiniprogramApp(database.db, project.id, user.id);
     assert.equal(
       (await verifyProjectMiniProgramConfig(service, user, project.id)).status,
       "verified",
@@ -215,6 +256,7 @@ test("verify fails when the AppID is cleared after a verified save", async () =>
       "verify_failed",
     );
   } finally {
+    clearProviderSeams();
     await database.close();
   }
 });
@@ -355,9 +397,12 @@ test("a CloudBase key pair can be submitted as two fields", async () => {
     );
     const service = new Service(database.db);
     const project = await service.createProject(user, { name: "两段式凭据" });
+    installProviderSeams();
     await saveProjectMiniProgramConfig(service, user, project.id, {
       enabled: true,
       appId: "wx1234567890abcdef",
+      // 连接测试里的 CloudBase 只读检查需要能解析出开发环境。
+      cloudbaseEnvs: { development: { envId: "dev-env-twofields" } },
     });
 
     const config = await saveProjectMiniProgramSecret(
@@ -403,12 +448,14 @@ test("a CloudBase key pair can be submitted as two fields", async () => {
       (error) => error.status === 400 && /不接受/.test(error.message),
     );
 
-    // Verify no longer treats an unusable value as reassuringly "pending".
+    // 保存下来的密钥对会被真的送到 provider 做一次只读列举（由注入的假实现完成），
+    // 因此这里既不是 "pending" 也不是 "failed"。
     const result = await verifyProjectMiniProgramConfig(service, user, project.id);
     const check = result.checks.find((entry) => entry.id === "cloudbase_credential");
-    assert.equal(check.status, "pending", "a real key pair stays pending until a live call");
-    assert.match(check.detail, /API 密钥对/);
+    assert.equal(check.status, "passed");
+    assert.match(check.detail, /已成功读取开发环境云函数列表/);
   } finally {
+    clearProviderSeams();
     await database.close();
   }
 });

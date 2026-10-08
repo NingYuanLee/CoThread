@@ -1,7 +1,32 @@
 import { query } from "../server/db.js";
 import { saveProjectMiniProgramSecret } from "../server/miniprogram-config.js";
+import { publishMiniprogramSourceFile } from "../server/miniprogram-workspace.js";
 
 const TEST_WECHAT_KEY = "-----BEGIN PRIVATE KEY-----\ntest-key\n-----END PRIVATE KEY-----";
+
+/** 结构合法但内容虚构的私钥：`prepareRelease` 只校验 PEM 形状与可解析性。 */
+export const TEST_WECHAT_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCfakeKeyMaterialForTests
+-----END PRIVATE KEY-----`;
+
+/**
+ * 铺一份最小小程序源码。
+ *
+ * 连接测试里用 `previewMiniprogram` 验证微信上传私钥，而它会先要求源码目录非空，
+ * 否则直接以「源文件目录为空」失败，走不到 provider 调用。
+ */
+export async function seedMinimalMiniprogramApp(db, projectId, createdBy) {
+  await publishMiniprogramSourceFile(db, { id: createdBy }, projectId, {
+    area: "miniprogram_source",
+    path: "app.json",
+    content: Buffer.from(JSON.stringify({ pages: ["pages/index"] })),
+  });
+  await publishMiniprogramSourceFile(db, { id: createdBy }, projectId, {
+    area: "miniprogram_source",
+    path: "app.js",
+    content: Buffer.from("App({ onLaunch() {} });\n"),
+  });
+}
 
 /**
  * 让项目的小程序工作区进入"已启用"状态。

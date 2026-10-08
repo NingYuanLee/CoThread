@@ -11,6 +11,7 @@ import {
   saveProjectMiniProgramConfig,
   saveProjectMiniProgramSecret,
 } from "../server/miniprogram-config.js";
+import { markMiniProgramWorkspaceVerified } from "./miniprogram-ready.js";
 import {
   ensureMiniprogramWorkspace,
   miniprogramWorkspaceFolders,
@@ -58,6 +59,15 @@ async function seed(database, { withKey = true, withAppId = true } = {}) {
     await saveProjectMiniProgramSecret(service, user, project.id, "wechat_upload_key", {
       value: PRIVATE_KEY,
     });
+  }
+  // 工作区"已启用"= AppID + development 环境 + 两个凭据 + 连接测试通过。
+  // 只在夹具本来就意图构造"可用工作区"时补齐；缺 key / 缺 AppID 的负向用例保持不变。
+  if (withKey && withAppId) {
+    await saveProjectMiniProgramSecret(service, user, project.id, "cloudbase_credential", {
+      secretId: "AKIDwechcitest0000000",
+      secretKey: "wechat-ci-test-secret",
+    });
+    await markMiniProgramWorkspaceVerified(service, user, project.id);
   }
   await ensureMiniprogramWorkspace(database.db, project.id);
   const { byKind } = await miniprogramWorkspaceFolders(database.db, project.id);
@@ -189,12 +199,13 @@ test("preview needs AppID and a private key, with actionable errors", async () =
   try {
     const noKey = await seed(database, { withKey: false });
     await assert.rejects(
-      () => previewMiniprogram(noKey.service, noKey.user, noKey.project.id, {}),
+      // allowUnverified：负向用例要验证"缺什么就说什么"的具体提示，需绕过统一的工作区守卫。
+      () => previewMiniprogram(noKey.service, noKey.user, noKey.project.id, {}, { allowUnverified: true }),
       (error) => error.status === 409 && /上传私钥/.test(error.message),
     );
     const noApp = await seed(database, { withAppId: false });
     await assert.rejects(
-      () => previewMiniprogram(noApp.service, noApp.user, noApp.project.id, {}),
+      () => previewMiniprogram(noApp.service, noApp.user, noApp.project.id, {}, { allowUnverified: true }),
       (error) => error.status === 409 && /AppID/.test(error.message),
     );
     const empty = await seed(database);

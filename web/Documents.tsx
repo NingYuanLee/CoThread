@@ -3518,6 +3518,72 @@ export function Documents({
     : contextVersion && /\.html?$/i.test(contextVersion.filename || "")
       ? "html"
       : "other";
+  // 文档阅览态的页签栏：打开的文档页签 + 页签右键菜单 + 文档操作日志 + 文件树开合。
+  // 这三种按钮必须与页签同排（同一 .doc-browser-tabbar 行），所以整行随内容一起成型。
+  const documentTabbar = (
+    <div
+      className="doc-browser-tabbar"
+      onContextMenu={(event) => {
+        if ((event.target as HTMLElement).closest(".doc-browser-tab")) return;
+        // 无打开页签时没有可操作的页签，不弹出页签菜单，右侧工具按钮保持可用。
+        if (!openTabs.length) return;
+        const id = selected && openTabs.includes(selected) ? selected : openTabs[openTabs.length - 1];
+        openTabContextMenu(event, id);
+      }}
+    >
+      <DocumentTabList
+        emptyLabel={null}
+        tabs={openTabs.map((id) => {
+          const item = tabVersion(id);
+          return {
+            id,
+            label: item ? fileLabel(item) : "文档",
+            icon: item ? <LibraryFileIcon fileName={item.filename} versionId={item.id} className="tree-icon file-type-icon" width={14} height={14} /> : null,
+          };
+        })}
+        selected={selected}
+        onSelect={selectDocument}
+        onClose={closeTab}
+        onContextMenu={openTabContextMenu}
+      />
+      {tabMenu && openTabs.includes(tabMenu.id) ? (
+        <DocBrowserTabMenu
+          x={tabMenu.x}
+          y={tabMenu.y}
+          index={openTabs.indexOf(tabMenu.id)}
+          tabCount={openTabs.length}
+          canAddToConversation={Boolean(onReference)}
+          onRefresh={() => {
+            if (tabMenu.id !== selected) onSelect(tabMenu.id);
+            setPreviewReload((value) => value + 1);
+            void onRefresh();
+          }}
+          onDownload={() => {
+            window.open(`/api/versions/${tabMenu.id}/download`, "_blank", "noopener,noreferrer");
+          }}
+          onAddToConversation={() => onReference?.(tabMenu.id)}
+          onClose={() => closeTab(tabMenu.id)}
+          onCloseOthers={() => closeOtherTabs(tabMenu.id)}
+          onCloseRight={() => closeTabsDirection(tabMenu.id, "right")}
+          onCloseLeft={() => closeTabsDirection(tabMenu.id, "left")}
+          onDismiss={() => setTabMenu(null)}
+        />
+      ) : null}
+      <button type="button" className="doc-browser-tree-toggle" title="文档操作日志" aria-label="查看文档操作日志" onClick={() => { setChangePageNumber(1); setChangePageInput("1"); setChangesOpen(true); }}>
+        <UiIcon name="history" size={15} />
+      </button>
+      <button
+        type="button"
+        className={`doc-browser-tree-toggle${treeOpen ? " active" : ""}`}
+        title={treeOpen ? "隐藏文件树" : "显示文件树"}
+        aria-label={treeOpen ? "隐藏文件树" : "显示文件树"}
+        aria-pressed={treeOpen}
+        onClick={() => setTreeOpen(!treeOpen)}
+      >
+        <TreeIcon kind="folder" />
+      </button>
+    </div>
+  );
   return (
     <div className="library-embedded doc-browser">
       <section className={`library doc-browser-shell${activeTool === "browser" ? " browser-tool-active" : ""}`} aria-label="项目文档库">
@@ -3556,9 +3622,7 @@ export function Documents({
           onSelectBrowser={activateBrowserTool}
           documentFullscreen={documentFullscreen}
           onToggleFullscreen={() => onDocumentFullscreenChange?.(!documentFullscreen)}
-          treeOpen={treeOpen}
-          onToggleTree={() => setTreeOpen(!treeOpen)}
-          browserTabbar={activeTool === "browser" ? (
+          tabbar={activeTool === "browser" ? (
           <div className="doc-browser-tabbar doc-browser-browser-tabbar">
             <DocumentTabList
               ariaLabel="打开的浏览器页面"
@@ -3578,7 +3642,7 @@ export function Documents({
               suffix={<button type="button" className="doc-browser-new-tab" aria-label="新建浏览器页签" title="新建页签" onClick={createBrowserNewTab}><UiIcon name="plus" size={14} /></button>}
             />
           </div>
-        ) : null}
+        ) : documentTabbar}
           explorer={activeTool === "files" && treeOpen ? explorer : null}
           mainPanel={mainPanel}
         />

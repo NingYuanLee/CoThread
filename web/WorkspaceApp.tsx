@@ -16,6 +16,9 @@ import { coordinatorLogButtonLabel, COORDINATOR_LOG_IDLE_LABEL } from "./agent-l
 const Documents = lazy(() =>
   import("./Documents").then((module) => ({ default: module.Documents })),
 );
+const MiniProgramWorkbench = lazy(() =>
+  import("./MiniProgramWorkbench").then((module) => ({ default: module.MiniProgramWorkbench })),
+);
 import { MessageNavigator } from "./MessageNavigator";
 const loadComposer = () => import("./ChatComposer");
 const ChatComposer = lazy(() => loadComposer().then((module) => ({ default: module.ChatComposer })));
@@ -64,6 +67,7 @@ import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { libraryFolderPath, folderDisplayName } from "./document-library";
 import { LibraryPickerField } from "./LibraryPicker";
 import { api } from "./workspace-api";
+import { apiFetch } from "./api-fetch";
 import {
   LEFT_SIDEBAR_STATE_KEY,
   RIGHT_SIDEBAR_STATE_KEY,
@@ -325,6 +329,7 @@ export function WorkspaceApp() {
   }, [copiedMessage]);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [projectManagementOpen, setProjectManagementOpen] = useState(false);
+  const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [codeSourcesTick, setCodeSourcesTick] = useState(0);
   const [agentLogScope, setAgentLogScope] = useState<AgentLogScope | null>(null);
   const connectorAuthorizationParams = new URLSearchParams(location.search);
@@ -1784,6 +1789,18 @@ export function WorkspaceApp() {
             <span className="sidebar-card-action" aria-hidden="true">›</span>
           </button>
           <button
+            type="button"
+            className="sidebar-card sidebar-workbench"
+            title="小程序云开发工作台：预览、云数据库、云存储、云函数与生产发布"
+            aria-label="小程序云开发"
+            disabled={!projectId}
+            onClick={() => setWorkbenchOpen(true)}
+          >
+            <span className="sidebar-card-icon"><UiIcon name="smartphone" size={16} /></span>
+            <span className="sidebar-card-copy">小程序云开发<small>预览、云资源与发布</small></span>
+            <span className="sidebar-card-action" aria-hidden="true">›</span>
+          </button>
+          <button
             className="sidebar-card sidebar-profile"
             title={`${user.name} · 设置`}
             aria-label={`${user.name} · 设置`}
@@ -2616,6 +2633,19 @@ export function WorkspaceApp() {
             setCodeSourcesTick((value) => value + 1);
           }}
         />
+        </Suspense>
+      )}
+      {workbenchOpen && projectId && (
+        <Suspense fallback={null}>
+          <MiniProgramWorkbench
+            key={projectId}
+            projectId={projectId}
+            request={apiFetch}
+            writable={writable}
+            currentUserId={user.id}
+            owner={owner}
+            onClose={() => setWorkbenchOpen(false)}
+          />
         </Suspense>
       )}
       {monitorOpen && projectId && (

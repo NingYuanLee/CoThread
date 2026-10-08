@@ -3340,3 +3340,26 @@
   font-size: 12px;
   color: var(--c-5e6c56);
 }
+
+/* 项目级面板：小程序云开发工作台（原寄在会话右侧栏文档库里） */
+.miniprogram-workbench-dialog {
+  width: min(1280px, calc(100vw - 32px));
+  height: min(860px, calc(100vh - 32px));
+  padding: 0;
+  border: 1px solid var(--c-dfe3de);
+  border-radius: 6px;
+  background: var(--c-fff);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.miniprogram-workbench-dialog > header {
+  flex: 0 0 auto;
+}
+.miniprogram-workbench-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 10px 10px;
+}

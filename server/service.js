@@ -25,6 +25,11 @@ import {
 } from "../shared/agent-label.js";
 import {
   asPreviewHtml,
+  clearArtifactOfficialLink,
+  clearArtifactSourceLink,
+  createArtifact,
+  createFolder,
+  createVersion,
   decodeUploadedBytes,
   DOCUMENT_LIBRARY_FOLDER_SQL,
   ensureProjectLibraryRoots,
@@ -35,11 +40,16 @@ import {
   isOutputFolderKind,
   isProjectLibraryAreaRoot,
   latestVersionsByFolderRoots,
+  nextVersionNumber,
   OUTPUT_LIBRARY_FOLDER_SQL,
   previewAssetInFolder,
   previewContentType,
   recordDocumentChange,
+  renameArtifact,
+  replaceVersionContent,
   resolveStoredMime,
+  setArtifactOfficialLink,
+  touchArtifact,
   uniqueArtifactTitle,
   uniqueVersionFilename,
   utcDateKey,
@@ -63,7 +73,9 @@ import {
   users as usersDomain,
 } from "./service-admin.js";
 
-export { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.js";
+
+export { HttpError };
 
 const fail = (status, message) => {
   throw new HttpError(status, message);
@@ -152,12 +164,14 @@ export class Service {
     );
     if (!folder) {
       folder = { id: randomUUID() };
-      await query(
-        db,
-        `INSERT INTO document_folders(id,project_id,thread_id,parent_id,name,system_key,folder_kind)
-        VALUES(?,?,?,?,?,?,?)`,
-        [folder.id, projectId, null, root.id, date, `project:${projectId}:${area}:${date}`, kind],
-      );
+      await createFolder(db, {
+        id: folder.id,
+        projectId,
+        parentId: root.id,
+        name: date,
+        systemKey: `project:${projectId}:${area}:${date}`,
+        folderKind: kind,
+      });
     }
     return folder;
   }
@@ -1871,33 +1885,26 @@ export class Service {
         data.filename,
       );
       data.filename = await uniqueVersionFilename(db, projectId, data.folderId, data.filename);
-      const artifactId = randomUUID();
-      await query(
-        db,
-        "INSERT INTO artifacts(id,project_id,title,created_by,folder_id,source_type) VALUES(?,?,?,?,?,?)",
-        [artifactId, projectId, data.title, user.id, data.folderId, "member_upload"],
-      );
-      const versionId = randomUUID();
-      await query(
-        db,
-        `INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          versionId,
-          artifactId,
-          null,
-          1,
-          data.filename,
-          data.mime,
-          bytes,
-          sha256,
-          bytes.length,
-          data.note,
-          user.id,
-        ],
-      );
+      const artifactId = await createArtifact(db, {
+        projectId,
+        title: data.title,
+        createdBy: user.id,
+        folderId: data.folderId,
+        sourceType: "member_upload",
+      });
+      const versionId = await createVersion(db, {
+        artifactId,
+        version: 1,
+        filename: data.filename,
+        mime: data.mime,
+        content: bytes,
+        sha256,
+        byteSize: bytes.length,
+        note: data.note,
+        createdBy: user.id,
+      });
       await queueDocumentMemory(db, versionId);
-      await query(db, "UPDATE artifacts SET updated_at=UTC_TIMESTAMP(3) WHERE id=?", [artifactId]);
+      await touchArtifact(db, artifactId);
       await recordDocumentChange(db, {
         projectId,
         artifactId,
@@ -2048,11 +2055,13 @@ export class Service {
             data.folderId,
             data.filename,
           );
-          await query(
-            db,
-            "INSERT INTO artifacts(id,project_id,title,created_by,folder_id) VALUES(?,?,?,?,?)",
-            [artifactId, thread.project_id, data.title, user.id, data.folderId],
-          );
+          await createArtifact(db, {
+            id: artifactId,
+            projectId: thread.project_id,
+            title: data.title,
+            createdBy: user.id,
+            folderId: data.folderId,
+          });
         } else {
           await this.assertDocumentScopeAvailable(db, thread.project_id, artifact.folder_id);
         }
@@ -2072,39 +2081,31 @@ export class Service {
           data.folderId || null,
           data.filename,
         );
-        await query(
-          db,
-          "INSERT INTO artifacts(id,project_id,title,created_by,folder_id) VALUES(?,?,?,?,?)",
-          [artifactId, thread.project_id, data.title, user.id, data.folderId || null],
-        );
+        await createArtifact(db, {
+          id: artifactId,
+          projectId: thread.project_id,
+          title: data.title,
+          createdBy: user.id,
+          folderId: data.folderId || null,
+        });
       }
-      const [last] = await query(
-        db,
-        "SELECT COALESCE(MAX(version),0) version FROM versions WHERE artifact_id=?",
-        [artifactId],
-      );
       const versionId = randomUUID();
-      const version = Number(last.version) + 1;
-      await query(
-        db,
-        `INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          versionId,
-          artifactId,
-          threadId,
-          version,
-          data.filename,
-          data.mime,
-          bytes,
-          sha256,
-          bytes.length,
-          data.note,
-          user.id,
-        ],
-      );
+      const version = (await nextVersionNumber(db, artifactId)) + 1;
+      await createVersion(db, {
+        id: versionId,
+        artifactId,
+        threadId,
+        version,
+        filename: data.filename,
+        mime: data.mime,
+        content: bytes,
+        sha256,
+        byteSize: bytes.length,
+        note: data.note,
+        createdBy: user.id,
+      });
       if (!chatUpload) await queueDocumentMemory(db, versionId);
-      await query(db, "UPDATE artifacts SET updated_at=UTC_TIMESTAMP(3) WHERE id=?", [artifactId]);
+      await touchArtifact(db, artifactId);
       await recordDocumentChange(db, {
         projectId: thread.project_id,
         artifactId,
@@ -2318,27 +2319,20 @@ export class Service {
       [source.saved_official_artifact_id, projectId],
     );
     if (!official || official.deleted_at || official.purged_at || !official.version_id) {
-      await query(db, "UPDATE artifacts SET saved_official_artifact_id=NULL WHERE id=?", [
-        source.artifact_id,
-      ]);
-      if (official)
-        await query(db, "UPDATE artifacts SET source_artifact_id=NULL WHERE id=?", [official.id]);
+      await clearArtifactOfficialLink(db, source.artifact_id);
+      if (official) await clearArtifactSourceLink(db, official.id);
       return null;
     }
-    await query(
-      db,
-      `UPDATE versions SET content=?,mime=?,sha256=?,byte_size=?,note=?,created_by=? WHERE id=?`,
-      [
-        source.content,
-        source.mime,
-        source.sha256,
-        source.byte_size,
-        `${isCacheFolderKind(await folderRootKind(db, source.folder_id)) ? "来源对话缓存" : "来源沙箱产物"} v${source.version}`,
-        source.created_by,
-        official.version_id,
-      ],
-    );
-    await query(db, "UPDATE artifacts SET updated_at=UTC_TIMESTAMP(3) WHERE id=?", [official.id]);
+    await replaceVersionContent(db, {
+      id: official.version_id,
+      content: source.content,
+      mime: source.mime,
+      sha256: source.sha256,
+      byteSize: source.byte_size,
+      note: `${isCacheFolderKind(await folderRootKind(db, source.folder_id)) ? "来源对话缓存" : "来源沙箱产物"} v${source.version}`,
+      createdBy: source.created_by,
+    });
+    await touchArtifact(db, official.id);
     await recordDocumentChange(db, {
       projectId,
       artifactId: official.id,
@@ -2422,10 +2416,7 @@ export class Service {
             updated.artifactId,
             source.filename,
           );
-          await query(db, "UPDATE artifacts SET title=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [
-            nextTitle,
-            updated.artifactId,
-          ]);
+          await renameArtifact(db, updated.artifactId, nextTitle);
           return { ...updated, title: nextTitle };
         }
         return updated;
@@ -2447,34 +2438,30 @@ export class Service {
     const artifactId = randomUUID(),
       copiedVersionId = randomUUID();
     const sourceType = isCacheFolderKind(sourceRoot) ? "cache_saved" : "output_saved";
-    await query(
-      db,
-      "INSERT INTO artifacts(id,project_id,title,created_by,folder_id,source_type,source_artifact_id) VALUES(?,?,?,?,?,?,?)",
-      [artifactId, projectId, copiedTitle, user.id, official.id, sourceType, source.artifact_id],
-    );
-    await query(
-      db,
-      `INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        copiedVersionId,
-        artifactId,
-        threadId || source.thread_id || null,
-        1,
-        copiedFilename,
-        source.mime,
-        source.content,
-        source.sha256,
-        source.byte_size,
-        note,
-        user.id,
-      ],
-    );
-    await queueDocumentMemory(db, copiedVersionId);
-    await query(db, "UPDATE artifacts SET saved_official_artifact_id=? WHERE id=?", [
+    await createArtifact(db, {
+      id: artifactId,
+      projectId,
+      title: copiedTitle,
+      createdBy: user.id,
+      folderId: official.id,
+      sourceType,
+      sourceArtifactId: source.artifact_id,
+    });
+    await createVersion(db, {
+      id: copiedVersionId,
       artifactId,
-      source.artifact_id,
-    ]);
+      threadId: threadId || source.thread_id || null,
+      version: 1,
+      filename: copiedFilename,
+      mime: source.mime,
+      content: source.content,
+      sha256: source.sha256,
+      byteSize: source.byte_size,
+      note,
+      createdBy: user.id,
+    });
+    await queueDocumentMemory(db, copiedVersionId);
+    await setArtifactOfficialLink(db, artifactId, source.artifact_id);
     await recordDocumentChange(db, {
       projectId,
       artifactId,
@@ -2544,39 +2531,31 @@ export class Service {
           source.filename,
         );
         artifactId = randomUUID();
-        await query(
-          db,
-          "INSERT INTO artifacts(id,project_id,title,created_by,folder_id) VALUES(?,?,?,?,?)",
-          [artifactId, projectId, nextTitle, user.id, source.folder_id],
-        );
+        await createArtifact(db, {
+          id: artifactId,
+          projectId,
+          title: nextTitle,
+          createdBy: user.id,
+          folderId: source.folder_id,
+        });
       } else {
-        const [last] = await query(
-          db,
-          "SELECT COALESCE(MAX(version),0) version FROM versions WHERE artifact_id=? FOR UPDATE",
-          [source.artifact_id],
-        );
-        version = Number(last.version) + 1;
+        version = (await nextVersionNumber(db, source.artifact_id, { forUpdate: true })) + 1;
       }
       const nextVersionId = randomUUID();
-      await query(
-        db,
-        `INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          nextVersionId,
-          artifactId,
-          source.thread_id || null,
-          version,
-          nextFilename,
-          source.mime,
-          source.content,
-          source.sha256,
-          source.byte_size,
-          `基于 v${source.version} 创建新版`,
-          user.id,
-        ],
-      );
-      await query(db, "UPDATE artifacts SET updated_at=UTC_TIMESTAMP(3) WHERE id=?", [artifactId]);
+      await createVersion(db, {
+        id: nextVersionId,
+        artifactId,
+        threadId: source.thread_id || null,
+        version,
+        filename: nextFilename,
+        mime: source.mime,
+        content: source.content,
+        sha256: source.sha256,
+        byteSize: source.byte_size,
+        note: `基于 v${source.version} 创建新版`,
+        createdBy: user.id,
+      });
+      await touchArtifact(db, artifactId);
       await queueDocumentMemory(db, nextVersionId);
       await recordDocumentChange(db, {
         projectId,

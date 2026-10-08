@@ -268,6 +268,8 @@ export async function registerMiniprogramDevServer(service, actor, projectId, in
      WHERE project_id=? AND status IN ('starting','running')`,
     [projectId],
   );
+  // 归属约定：task_id / runtime_id 由执行侧（L3 经 agent-tools.js）写入，本模块只当
+  // 黑盒存回与透传，不用它们做任何业务判断。这样小程序板块的 schema 不复制执行模型。
   if (samePort) {
     await query(
       service.db,

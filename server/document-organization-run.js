@@ -5,6 +5,7 @@ import { Service } from "./service.js";
 import { publishWork } from "./work-events.js";
 import { listOrganizationDocuments } from "./document-organization.js";
 import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.js";
+import { createFolder, placeArtifact } from "./documents/index.js";
 
 const planSchema = z.object({
   documents: z.array(z.object({
@@ -74,14 +75,20 @@ export async function processNextDocumentOrganization(db, options = {}) {
               let [folder] = await query(conn, "SELECT id FROM document_folders WHERE project_id=? AND parent_id=? AND name=?", [job.project_id, base.id, item.folder]);
               if (!folder) {
                 folder = { id: randomUUID() };
-                await query(conn, `INSERT INTO document_folders(id,project_id,thread_id,parent_id,name,folder_kind)
-                  VALUES(?,?,?,?,?,?)`, [folder.id, job.project_id, null, base.id, item.folder, null]);
+                await createFolder(conn, {
+                  id: folder.id,
+                  projectId: job.project_id,
+                  parentId: base.id,
+                  name: item.folder,
+                });
               }
               folderId = folder.id;
             }
           }
-          await query(conn, "UPDATE artifacts SET title=?,folder_id=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?",
-            [item.title || source.title, folderId, item.artifactId]);
+          await placeArtifact(conn, item.artifactId, {
+            title: item.title || source.title,
+            folderId,
+          });
           changed.push(item.artifactId);
         }
       });

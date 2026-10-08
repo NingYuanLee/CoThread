@@ -1,7 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import { query } from "./db.js";
 import { HttpError } from "./service.js";
-import { MINIPROGRAM_FIXED_FOLDERS, MINIPROGRAM_FOLDER_KINDS } from "./documents/index.js";
+import {
+  MINIPROGRAM_FIXED_FOLDERS,
+  MINIPROGRAM_FOLDER_KINDS,
+  createArtifact,
+  createFolder,
+  createVersion,
+  deleteFolder,
+  moveFolder,
+  renameFolderIfNamed,
+  setArtifactFolder,
+} from "./documents/index.js";
 
 export const MINIPROGRAM_ROOT_KIND = "project_miniprogram";
 export { MINIPROGRAM_FIXED_FOLDERS, MINIPROGRAM_FOLDER_KINDS };
@@ -30,18 +40,13 @@ export async function ensureMiniprogramWorkspace(db, projectId) {
   );
   if (!root) {
     const id = randomUUID();
-    await query(
-      db,
-      `INSERT INTO document_folders(id,project_id,name,system_key,folder_kind)
-       VALUES(?,?,?,?,?)`,
-      [
-        id,
-        projectId,
-        "小程序",
-        systemKeyFor(MINIPROGRAM_ROOT_KIND, projectId),
-        MINIPROGRAM_ROOT_KIND,
-      ],
-    );
+    await createFolder(db, {
+      id,
+      projectId,
+      name: "小程序",
+      systemKey: systemKeyFor(MINIPROGRAM_ROOT_KIND, projectId),
+      folderKind: MINIPROGRAM_ROOT_KIND,
+    });
     [root] = await query(
       db,
       "SELECT id FROM document_folders WHERE project_id=? AND folder_kind=? AND parent_id IS NULL LIMIT 1",
@@ -56,20 +61,17 @@ export async function ensureMiniprogramWorkspace(db, projectId) {
     );
     if (existing) {
       if (kind === "miniprogram_server") {
-        await query(db, "UPDATE document_folders SET name=? WHERE id=? AND name=?", [
-          name,
-          existing.id,
-          "服务端",
-        ]);
+        await renameFolderIfNamed(db, existing.id, "服务端", name);
       }
       continue;
     }
-    await query(
-      db,
-      `INSERT INTO document_folders(id,project_id,parent_id,name,system_key,folder_kind)
-       VALUES(?,?,?,?,?,?)`,
-      [randomUUID(), projectId, root.id, name, systemKeyFor(kind, projectId), kind],
-    );
+    await createFolder(db, {
+      projectId,
+      parentId: root.id,
+      name,
+      systemKey: systemKeyFor(kind, projectId),
+      folderKind: kind,
+    });
   }
   await migrateLegacyAdminDist(db, projectId);
   return root.id;
@@ -105,7 +107,7 @@ export async function migrateLegacyAdminDist(db, projectId) {
       );
       if (sameName) await mergeFolder(child.id, sameName.id);
       else {
-        await query(db, "UPDATE document_folders SET parent_id=? WHERE id=?", [targetId, child.id]);
+        await moveFolder(db, child.id, targetId);
       }
     }
 
@@ -135,16 +137,12 @@ export async function migrateLegacyAdminDist(db, projectId) {
         !file.recycled_version_id &&
         file.filename &&
         occupied.has(file.filename);
-      await query(
-        db,
-        `UPDATE artifacts SET folder_id=?${conflict ? ",deleted_at=COALESCE(deleted_at,UTC_TIMESTAMP(3))" : ""} WHERE id=?`,
-        [targetId, file.id],
-      );
+      await setArtifactFolder(db, file.id, targetId, { softDeleteOnConflict: conflict });
       if (!file.deleted_at && !file.recycled_version_id && !conflict && file.filename) {
         occupied.add(file.filename);
       }
     }
-    await query(db, "DELETE FROM document_folders WHERE id=?", [sourceId]);
+    await deleteFolder(db, sourceId);
   };
 
   for (const legacy of legacyFolders) await mergeFolder(legacy.id, admin.id);
@@ -354,12 +352,7 @@ async function resolvePathFolder(db, projectId, areaFolderId, segments) {
       continue;
     }
     const id = randomUUID();
-    await query(db, "INSERT INTO document_folders(id,project_id,parent_id,name) VALUES(?,?,?,?)", [
-      id,
-      projectId,
-      parentId,
-      segment,
-    ]);
+    await createFolder(db, { id, projectId, parentId, name: segment });
     parentId = id;
   }
   return { parentId, filename: segments[segments.length - 1] };
@@ -415,24 +408,18 @@ export async function publishMiniprogramSourceFile(db, actor, projectId, input) 
   const versionId = randomUUID();
 
   if (existing) {
-    await query(
-      db,
-      `INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        versionId,
-        existing.artifact_id,
-        null,
-        Number(existing.version) + 1,
-        filename,
-        mime,
-        content,
-        sha256,
-        content.length,
-        input.note || "",
-        actor.id,
-      ],
-    );
+    await createVersion(db, {
+      id: versionId,
+      artifactId: existing.artifact_id,
+      version: Number(existing.version) + 1,
+      filename,
+      mime,
+      content,
+      sha256,
+      byteSize: content.length,
+      note: input.note || "",
+      createdBy: actor.id,
+    });
     return {
       path: relativePath,
       area,
@@ -446,29 +433,25 @@ export async function publishMiniprogramSourceFile(db, actor, projectId, input) 
   }
 
   const artifactId = randomUUID();
-  await query(
-    db,
-    "INSERT INTO artifacts(id,project_id,folder_id,title,created_by) VALUES(?,?,?,?,?)",
-    [artifactId, projectId, parentId, filename, actor.id],
-  );
-  await query(
-    db,
-    `INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      versionId,
-      artifactId,
-      null,
-      1,
-      filename,
-      mime,
-      content,
-      sha256,
-      content.length,
-      input.note || "",
-      actor.id,
-    ],
-  );
+  await createArtifact(db, {
+    id: artifactId,
+    projectId,
+    folderId: parentId,
+    title: filename,
+    createdBy: actor.id,
+  });
+  await createVersion(db, {
+    id: versionId,
+    artifactId,
+    version: 1,
+    filename,
+    mime,
+    content,
+    sha256,
+    byteSize: content.length,
+    note: input.note || "",
+    createdBy: actor.id,
+  });
   return {
     path: relativePath,
     area,

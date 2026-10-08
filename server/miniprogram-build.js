@@ -15,7 +15,12 @@ import {
   resolveMiniprogramRuntime,
   runtimeBuildHash,
 } from "./miniprogram-runtime-environment.js";
-import { uniqueArtifactTitle, uniqueVersionFilename } from "./documents/index.js";
+import {
+  createArtifact,
+  createVersion,
+  uniqueArtifactTitle,
+  uniqueVersionFilename,
+} from "./documents/index.js";
 
 const require = createRequire(import.meta.url);
 
@@ -388,29 +393,25 @@ async function publishBundle(db, { projectId, folderId, filename, content, creat
   const storedName = await uniqueVersionFilename(db, projectId, folderId, filename);
   const artifactId = randomUUID();
   const versionId = randomUUID();
-  await query(
-    db,
-    "INSERT INTO artifacts(id,project_id,folder_id,title,created_by) VALUES(?,?,?,?,?)",
-    [artifactId, projectId, folderId, title, createdBy],
-  );
-  await query(
-    db,
-    `INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      versionId,
-      artifactId,
-      null,
-      1,
-      storedName,
-      "application/zip",
-      content,
-      sha256,
-      content.length,
-      note || "",
-      createdBy,
-    ],
-  );
+  await createArtifact(db, {
+    id: artifactId,
+    projectId,
+    folderId,
+    title,
+    createdBy,
+  });
+  await createVersion(db, {
+    id: versionId,
+    artifactId,
+    version: 1,
+    filename: storedName,
+    mime: "application/zip",
+    content,
+    sha256,
+    byteSize: content.length,
+    note: note || "",
+    createdBy,
+  });
   return { artifactId, versionId, sha256, byteSize: content.length };
 }
 

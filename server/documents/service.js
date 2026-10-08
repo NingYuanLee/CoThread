@@ -9,9 +9,13 @@
  * 与业务侧的协作（权限、迭代锁、记忆队列）继续通过传入的 `this` 与显式 import 完成。
  */
 import { randomUUID } from "node:crypto";
+import { posix as pathPosix } from "node:path";
+import JSZip from "jszip";
 import { z } from "zod/v3";
 import { query, transaction } from "../db.js";
 import { HttpError } from "../http-error.js";
+import { AGENT_MEMBER } from "../../shared/agent-member.js";
+import { decodeUploadedBytes, verifyBytes } from "./file-bytes.js";
 import { INLINE_FILE_MAX_BYTES } from "../../shared/upload-limits.js";
 import { publishWork } from "../work-events.js";
 import { queueDocumentMemory } from "../project-memory.js";
@@ -50,6 +54,7 @@ import {
 const fail = (status, message) => {
   throw new HttpError(status, message);
 };
+const json = (value) => (typeof value === "string" ? JSON.parse(value) : value);
 const id = z.string().uuid();
 const title = z.string().trim().min(1).max(160);
 const body = z.string().trim().min(1).max(20000);

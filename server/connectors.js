@@ -93,7 +93,7 @@ export async function connectorTool(service, user, name, input, job, thread) {
     ORDER BY online DESC,u.name,c.last_seen_at DESC,c.created_at DESC`, [thread.project_id]);
 }
 
-export function registerConnectorPublicRoutes(app, db, service, { makers = false } = {}) {
+export function registerConnectorPublicRoutes(app, db, service) {
   app.post(["/api/connector/authorizations", "/api/connector/v2/authorizations"], async (req, res) => {
     const data = z.object({
       name: z.string().trim().min(1).max(100),
@@ -238,8 +238,7 @@ export function registerConnectorPublicRoutes(app, db, service, { makers = false
     token: credential.token,
     expiresAt: credential.expiresAt,
     version: credential.version,
-    endpoint: makers ? "/cothread-mcp" : "/mcp",
-    conversationId: makers ? current.user_id : null,
+    endpoint: "/mcp",
   });
   app.post("/api/connector/mcp-credential", async (req, res) => {
     const current = await device(db, req);

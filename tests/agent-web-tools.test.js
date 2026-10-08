@@ -9,7 +9,7 @@ test("executor profile retains the guarded DSH web tools", async () => {
     readFile(new URL("../runtime/agent-patch.yml", import.meta.url), "utf8"),
   ]);
   assert.match(tools, /"web_fetch"/);
-  assert.match(prompt, /persona: ''/);
+  assert.match(prompt, /personaPrefix: ''/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /不能使用沙箱/);
   assert.match(SYSTEM_PROMPTS.l3.prompt, /publish_artifact/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /葫芦小金刚/);

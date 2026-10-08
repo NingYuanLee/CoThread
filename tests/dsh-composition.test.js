@@ -66,7 +66,7 @@ test("plugin registry versions follow package metadata", () => {
   assert.equal(query?.policies.l3, "required");
 });
 
-test("plugin registry version reads survive a Makers bundled module URL", () => {
+test("plugin registry version reads fall back to a nearby package.json", () => {
   const missing = () => {
     throw Object.assign(new Error("ENOENT: no such file or directory, open '/var/package.json'"), {
       code: "ENOENT",

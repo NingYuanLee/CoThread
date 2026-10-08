@@ -327,7 +327,7 @@ test("connectors renew expired paused leases for interactive sessions and fetch 
   assert.match(credential.body.token, /^[A-Za-z0-9_-]{40,}$/);
   assert.ok(Date.parse(credential.body.expiresAt) > Date.now() + 20 * 86400000);
   assert.equal(credential.body.endpoint, "/mcp");
-  assert.equal(credential.body.conversationId, null);
+  assert.equal("conversationId" in credential.body, false);
   const browserToken = await request("/tokens/ensure", {}, developer);
   assert.equal(browserToken.status, 200);
   assert.equal(browserToken.body.token, credential.body.token);

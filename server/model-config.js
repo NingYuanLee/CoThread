@@ -1,10 +1,11 @@
-import { CONTEXT_LIMITS } from "../shared/context.js";
+import { AUTO_COMPACT_RATIO, CONTEXT_LIMITS } from "../shared/context.js";
 
 const MODEL_SCOPES = Object.freeze({
   knowledge: "KNOWLEDGE_MODEL",
   coordinator: "COORDINATOR_MODEL",
   executor: "EXECUTOR_MODEL",
 });
+const BASELINE_MODEL = "MODEL";
 const REASONING_EFFORTS = new Set(["off", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 
 export function modelContextWindow(scope = "coordinator") {
@@ -15,6 +16,21 @@ export function modelOutputLimit(config) {
   return /deepseek/iu.test(config?.model || "")
     ? 384 * 1024
     : 128 * 1024;
+}
+
+/**
+ * DSH 0.2 reserves the request output cap inside the model's context window and
+ * subtracts its compaction headroom (`headroomTokens` in runtime/*-patch.yml).
+ * Keep the advertised cap inside the window so DSH's own pressure threshold
+ * survives and still lands on the shared 70% budget.
+ */
+export const DSH_COMPACTION_HEADROOM_TOKENS = 8_192;
+
+export function dshModelMaxTokens(config, scope = "executor") {
+  const window = modelContextWindow(scope);
+  const ceiling =
+    window - DSH_COMPACTION_HEADROOM_TOKENS - Math.floor(window * AUTO_COMPACT_RATIO);
+  return Math.max(1_024, Math.min(modelOutputLimit(config), ceiling));
 }
 
 function reasoningOptions(config) {
@@ -39,8 +55,17 @@ export function normalizeModelBaseUrl(value) {
 }
 
 export function modelConfig(scope = "coordinator", env = process.env) {
-  const prefix = MODEL_SCOPES[scope];
-  if (!prefix) throw new Error(`Unknown model scope: ${scope}`);
+  const scopedPrefix = MODEL_SCOPES[scope];
+  if (!scopedPrefix) throw new Error(`Unknown model scope: ${scope}`);
+  // The production router has two model routes: KNOWLEDGE and the shared
+  // runtime route used by both coordinator and delegated L3 agents. Keep the
+  // old coordinator/executor variables as a migration fallback, but prefer
+  // the new MODEL_* baseline whenever it is present.
+  const prefix = scope === "knowledge"
+    ? (env[scopedPrefix]?.trim() || env[`${scopedPrefix}_BASE_URL`]?.trim() || env[`${scopedPrefix}_API_KEY`]?.trim()
+      ? scopedPrefix : BASELINE_MODEL)
+    : (env[BASELINE_MODEL]?.trim() || env[`${BASELINE_MODEL}_BASE_URL`]?.trim() || env[`${BASELINE_MODEL}_API_KEY`]?.trim()
+      ? BASELINE_MODEL : scopedPrefix);
   const key = (field) => `${prefix}_${field}`;
   const missing = [key("BASE_URL"), key("API_KEY"), prefix].filter((name) => !env[name]?.trim());
   if (missing.length)
@@ -50,7 +75,7 @@ export function modelConfig(scope = "coordinator", env = process.env) {
   const separator = configuredModel.lastIndexOf("@");
   const hasEffort = separator > 0;
   const model = (hasEffort ? configuredModel.slice(0, separator) : configuredModel).trim();
-  const reasoningEffort = (hasEffort ? configuredModel.slice(separator + 1) : (scope === "coordinator" ? "low" : "medium")).trim().toLowerCase();
+  const reasoningEffort = (hasEffort ? configuredModel.slice(separator + 1) : (prefix === BASELINE_MODEL || scope === "coordinator" ? "low" : "medium")).trim().toLowerCase();
   if (!model) throw new Error(`${prefix} must include a model name`);
   if (!REASONING_EFFORTS.has(reasoningEffort))
     throw new Error(`${prefix} reasoning effort must be one of: off, none, minimal, low, medium, high, xhigh, max, ultra`);
@@ -186,7 +211,7 @@ export function dshModelPatch(config = modelConfig("executor"), scope = "executo
     ? "off" : configuredEffort === "ultra" ? "max" : configuredEffort;
   const maxReasoning = configuredEffort === "ultra" ? "ultra" : "max";
   const window = modelContextWindow(scope);
-  return `- id: llm-deepseek\n  disabled: true\n- insert:\n    - id: llm-cothread-compatible\n      name: '@deepseek-ai/dsh-llm-pi-ai'\n      config:\n        providers:\n          cothread-compatible:\n            displayName: CoThread\n            apiKeyEnv: MODEL_API_KEY\n            api: openai-responses\n            baseURL: ${JSON.stringify(config.baseUrl)}\n            reasoning: ${reasoning}\n            models:\n              - id: ${JSON.stringify(config.model)}\n                name: ${JSON.stringify(config.model)}\n                contextWindow: ${window}\n                maxTokens: ${modelOutputLimit(config)}\n                reasoningEfforts:\n                  off: none\n                  minimal: minimal\n                  low: low\n                  medium: medium\n                  high: high\n                  xhigh: xhigh\n                  max: ${maxReasoning}\n`;
+  return `- id: llm-deepseek\n  disabled: true\n- insert:\n    - id: llm-cothread-compatible\n      name: '@deepseek-ai/dsh-llm-pi-ai'\n      config:\n        providers:\n          cothread-compatible:\n            displayName: CoThread\n            apiKeyEnv: MODEL_API_KEY\n            api: openai-responses\n            baseURL: ${JSON.stringify(config.baseUrl)}\n            reasoning: ${reasoning}\n            models:\n              - id: ${JSON.stringify(config.model)}\n                name: ${JSON.stringify(config.model)}\n                contextWindow: ${window}\n                maxTokens: ${dshModelMaxTokens(config, scope)}\n                reasoningEfforts:\n                  off: none\n                  minimal: minimal\n                  low: low\n                  medium: medium\n                  high: high\n                  xhigh: xhigh\n                  max: ${maxReasoning}\n`;
 }
 
 export function redactSecrets(value, env = process.env) {

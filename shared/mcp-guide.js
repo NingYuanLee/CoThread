@@ -47,12 +47,10 @@ export function formatMcpCopyPayload(payload) {
   return JSON.stringify(payload, null, 2);
 }
 
-export function createMcpInstallGuide({ url, token, context, conversationId } = {}) {
+export function createMcpInstallGuide({ url, token, context } = {}) {
   if (!token) throw new Error("请先获取有效账号令牌");
   const config = JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: {
-    type: "http", url, headers: { Authorization: `Bearer ${token}`,
-      ...(conversationId ? { "Makers-Conversation-Id": conversationId } : {}),
-    },
+    type: "http", url, headers: { Authorization: `Bearer ${token}` },
   } } }, null, 2);
   return `# 请帮我连接共序 CoThread MCP
 

@@ -22,10 +22,11 @@ Desktop.ini
 # Temporary files and build caches
 .cache/
 .vite/
-.edgeone/
 *.tsbuildinfo
 tmp/
 temp/
+.dsh-vision-router/
+cloudbase-js-sdk-3.10.1.tgz
 
 # Local database files, backups, and private keys
 backups/

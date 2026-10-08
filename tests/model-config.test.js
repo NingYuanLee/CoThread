@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  DSH_COMPACTION_HEADROOM_TOKENS,
+  dshModelMaxTokens,
   dshModelPatch,
   modelResponse,
   modelResponseStream,
@@ -12,7 +14,7 @@ import {
   responseText,
 } from "../server/model-config.js";
 
-const keys = ["COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY", "COORDINATOR_MODEL"];
+const keys = ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL", "COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY", "COORDINATOR_MODEL"];
 
 async function withModelEnv(values, run) {
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
@@ -101,6 +103,27 @@ test("model capacity uses tiered context windows and model-specific output limit
   assert.equal(modelOutputLimit({ model: "gpt-6-astra" }), 131072);
 });
 
+test("DSH patch output cap leaves the native pressure budget intact", () => {
+  const deepseek = { baseUrl: "https://example.test", apiKey: "secret", model: "deepseek-chat" };
+  // DSH 0.2 reserves the request cap inside the window and subtracts its
+  // compaction headroom, so the advertised cap must stay well below the window.
+  assert.equal(dshModelMaxTokens(deepseek, "coordinator"), 68608);
+  assert.equal(dshModelMaxTokens(deepseek, "executor"), 291808);
+  assert.equal(dshModelMaxTokens(deepseek, "knowledge"), 291808);
+  assert.equal(dshModelMaxTokens({ model: "gpt-6-astra" }, "executor"), 131072);
+  for (const scope of ["coordinator", "executor", "knowledge"]) {
+    const window = modelContextWindow(scope);
+    const declared = Number(
+      dshModelPatch(deepseek, scope).match(/maxTokens: (\d+)/)[1],
+    );
+    assert.equal(declared, dshModelMaxTokens(deepseek, scope));
+    assert.ok(
+      window - declared - DSH_COMPACTION_HEADROOM_TOKENS >= Math.floor(window * 0.7),
+      `${scope} must keep a positive DSH pressure budget`,
+    );
+  }
+});
+
 test("DSH maps none and ultra onto its supported reasoning selector keys", () => {
   const base = { baseUrl: "https://example.test", apiKey: "secret", model: "custom" };
   const none = dshModelPatch({ ...base, reasoningEffort: "none" });
@@ -182,3 +205,32 @@ test("combined model field defaults coordinator to low and rejects unknown effor
   process.env.COORDINATOR_MODEL = "example-model@extreme";
   assert.throws(() => modelConfig(), /reasoning effort/);
 }));
+
+test("coordinator and executor share MODEL baseline, with optional knowledge override", () => {
+  const names = ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL", "KNOWLEDGE_MODEL_BASE_URL", "KNOWLEDGE_MODEL_API_KEY", "KNOWLEDGE_MODEL"];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of names) delete process.env[name];
+    Object.assign(process.env, {
+      MODEL_BASE_URL: "https://baseline.test/v1",
+      MODEL_API_KEY: "baseline-key",
+      MODEL: "baseline-model@high",
+    });
+    assert.equal(modelConfig("coordinator").model, "baseline-model");
+    assert.equal(modelConfig("coordinator").reasoningEffort, "high");
+    assert.deepEqual(modelConfig("executor"), modelConfig("coordinator"));
+    assert.equal(modelConfig("knowledge").model, "baseline-model");
+    Object.assign(process.env, {
+      KNOWLEDGE_MODEL_BASE_URL: "https://knowledge.test/v1",
+      KNOWLEDGE_MODEL_API_KEY: "knowledge-key",
+      KNOWLEDGE_MODEL: "knowledge-model@low",
+    });
+    assert.equal(modelConfig("knowledge").model, "knowledge-model");
+    assert.equal(modelConfig("coordinator").model, "baseline-model");
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});

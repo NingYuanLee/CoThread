@@ -267,7 +267,7 @@
       <div class="card reveal">
         <div class="ico">📦</div>
         <h3>沙箱与会话快照</h3>
-        <p>本机走本地沙箱，云端走 Makers 原生沙箱。临时文件可能过期；正式留存必须发布进文档库。会话快照写入 MySQL，重启不自动重放副作用操作。</p>
+        <p>命令统一在服务端的本机沙箱里执行。临时文件可能过期；正式留存必须发布进文档库。会话快照写入 MySQL，重启不自动重放副作用操作。</p>
         <span class="tag">长期成果必须入库</span>
       </div>
       <div class="card reveal">
@@ -291,7 +291,7 @@
       <div class="card reveal">
         <div class="ico">🖥️</div>
         <h3>云端与本机</h3>
-        <p>Git 推送 main 后由 EdgeOne Makers 构建。生产站点 cothread.z2l.top。本机 Node 22.19+ 与便携 MySQL 8.4 即可开发。</p>
+        <p>生产跑在阿里云 ECS + RDS，站点 cothread.z2l.top。本机 Node 22.19+ 与便携 MySQL 8.4 即可开发。</p>
         <span class="tag">单实例试用</span>
       </div>
     </div>
@@ -342,8 +342,8 @@
           <p>HTTP API、权限校验、协作业务、MCP 工具与沙箱路由；MCP 工具由服务端凭据确定调用者身份。</p>
         </div>
         <div class="layer">
-          <div class="hd"><span>执行后端</span><em>Local / Makers</em></div>
-          <p>本机固定本地沙箱；Makers 使用请求注入的原生沙箱。检查点有配额，长期成果必须发布到文档库。</p>
+          <div class="hd"><span>执行后端</span><em>Local</em></div>
+          <p>命令统一在服务端本机沙箱执行，只有这一条路径。检查点有配额，长期成果必须发布到文档库。</p>
         </div>
         <div class="layer">
           <div class="hd"><span>持久化</span><em>MySQL 8.4</em></div>
@@ -356,9 +356,9 @@
 web/               React 工作台
 public/            静态页（关于我们、文档）
 server/            HTTP API、权限、MCP、沙箱路由
-cloud-functions/   EdgeOne 云函数
-agents/            Makers 长任务
+runtime/           DSH 运行时插件与 patch
 migrations/        版本化 MySQL 结构
+scripts/           迁移、ECS 发布与打包
 .local/            本机数据与密钥（不入库）</pre>
         <ul class="list ok">
           <li>文档版本不可覆盖，消息引用精确到具体版本号</li>

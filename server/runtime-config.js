@@ -14,9 +14,8 @@ export function isProductionProcess(argv = process.argv) {
   return argv.includes("--production");
 }
 
-export function appOrigins({ makers = false } = {}) {
+export function appOrigins() {
   const site = ["http://cothread.z2l.top", "https://cothread.z2l.top"];
-  if (makers) return site;
   return [...site, ...LOCAL_APP_ORIGINS];
 }
 

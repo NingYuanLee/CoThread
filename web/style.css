@@ -7718,6 +7718,8 @@ body.col-resizing .app-shell > .context-panel {
   padding: 28px 12px;
 }
 .coordinator-list, .executor-list { display: grid; gap: 8px; }
+.monitor-models { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin: 0 0 10px; padding: 8px 10px; border: 1px solid var(--c-e3e7e3); border-radius: 4px; color: var(--c-666e69); font-size: 11px; }
+.monitor-models-label { color: var(--c-425047); font-weight: 600; }
 .monitor-coordinators .coordinator-list {
   display: flex;
   flex-direction: row;

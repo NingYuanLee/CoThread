@@ -60,7 +60,7 @@ type HistoryRow = {
 
 type MonitorData = {
   generatedAt: string;
-  models: Record<"knowledge" | "coordinator" | "executor", {
+  models: Record<"knowledge" | "runtime" | "coordinator" | "executor", {
     model: string;
     reasoningEffort: string;
   }>;
@@ -976,6 +976,11 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
     </header>
 
     {loading && !data ? <div className="monitor-loading" role="status">正在读取运行状态…</div> : <>
+      {data && <div className="monitor-models" aria-label="模型路由">
+        <span className="monitor-models-label">模型路由</span>
+        <span>知识整理（L1）：{data.models.knowledge.model} · {data.models.knowledge.reasoningEffort}</span>
+        <span>调度与 L3（L2+L3）：{(data.models.runtime || data.models.coordinator).model} · {(data.models.runtime || data.models.coordinator).reasoningEffort}</span>
+      </div>}
       <section className={`monitor-section${l1Open ? "" : " is-collapsed"}`}>
         <span className="monitor-level">{AGENT_LEVEL_LABELS.l1}</span>
         <button

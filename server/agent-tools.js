@@ -10,7 +10,6 @@ import { HttpError } from "./service.js";
 import { modelDiscussion, modelProject } from "./model-context.js";
 import { agentSession } from "./agent-session.js";
 import { acquireSandbox, safeRemotePath, shellQuote } from "./agent-sandbox.js";
-import { bindMakersSandbox } from "./makers-sandbox.js";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 import {
   loadMemberUnderstanding,
@@ -298,7 +297,7 @@ export function createAgentTools(
   job,
   { getSandbox, role = "executor", l2SessionId } = {},
 ) {
-  getSandbox ||= bindMakersSandbox(acquireSandbox);
+  getSandbox ||= acquireSandbox;
   const progress = (text) =>
     query(
       service.db,

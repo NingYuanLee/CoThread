@@ -24,4 +24,10 @@ test("corrupt DSH session logs are recognized for a one-shot reset", () => {
   assert.equal(isCorruptSessionLog(new Error("无效会话快照标识")), true);
   assert.equal(isCorruptSessionLog(new Error("无效会话快照头部")), true);
   assert.equal(isCorruptSessionLog(new Error("Internal error")), false);
+  // DSH 0.2 migration refusals leave an intact but unusable artifact.
+  assert.equal(
+    isCorruptSessionLog(new Error("format v2 surface before first step cannot acquire a system head without changing chronology; source v0 artifact remains unchanged (raw log: /tmp/session.jsonl)")),
+    true,
+  );
+  assert.equal(isCorruptSessionLog(new Error("unsupported session format generation")), true);
 });

@@ -14,7 +14,9 @@ MySQL 保存账号、项目、成员、迭代讨论、文档原始字节、不�
 
 ## DSH Agent 与执行环境
 
-应用宿主机安装官方 DSH/SDK 0.1.2-rc.1，启动独立进程编排 Agent。L1 的成员发言、文档摘要、文档整理、迭代归档按项目各维护独立 DSH 会话，同项目多次整理接续同一套上下文与轨迹；迭代归档同时总结该轮并更新项目长期记忆。L2 每个迭代一套上下文与轨迹。L3 每个任务一套独立 DSH 会话，七个槽位只限制并发；监控里可打开该任务的原生会话并追加要求。模型可见工具严格限定为共序注入的能力。本地服务固定使用 `.local/sandboxes` 下的本机工作区和 Git Bash；Makers 部署固定使用请求注入的原生沙箱。两条路径之间不做回退。
+模型配置按实际推理路由分为两路：L1 知识维护使用 `KNOWLEDGE_MODEL_*`，L2 调度与其派生的 L3 任务默认共用 `MODEL_*` 基线。L1/L2/L3 仍是产品与权限层级；`EXECUTOR_MODEL_*` 不会单独改变生产 L3 派活模型，仅保留给迁移兼容和边缘维护路径。
+
+应用宿主机安装官方 DSH/SDK 0.2.0-rc.2，启动独立进程编排 Agent。L1 的成员发言、文档摘要、文档整理、迭代归档按项目各维护独立 DSH 会话，同项目多次整理接续同一套上下文与轨迹；迭代归档同时总结该轮并更新项目长期记忆。L2 每个迭代一套上下文与轨迹。L3 每个任务一套独立 DSH 会话，七个槽位只限制并发；监控里可打开该任务的原生会话并追加要求。模型可见工具严格限定为共序注入的能力。所有层固定使用 `.local/sandboxes` 下的本机工作区和 Git Bash，只有这一条执行路径，不做跨环境回退。
 
 插件管理读取项目内的 DSH 注册表，并通过 DSH 官方 composition API 合成 `sdk-minimal + model patch + 层级 patch + 动态 patch`，不把原生插件、原子能力或层级合同复制进业务数据库。系统管理按 L1/L2/L3 展示 `dsh-plugins`、`cothread-dsh-plugins`、`自定义skills` 三个视图。插件状态区分 `assembled`（生产 patch 组合结果中已装配，不是当前进程的实时加载状态）、`exposed`（当前 Agent 层可见）和 `callable`（当前层合同允许调用）；共享进程中物理装配的 AgentTeam 插件不会因此自动暴露给 L3。`dsh-plugins` 只展示未包装的 DSH 原生运行时插件，其中系统提示词插件可展开查看各层角色提示段、注入来源和变量注释；`cothread-dsh-plugins` 展示共序按 DSH/Cordis 规则新增或改造的插件，并在插件行内列出其 Tool/MCP。可执行插件与权限上限只能通过代码、依赖和 patch 发布。每层插件及能力合同固定分为 required、optional、forbidden；optional 必须声明代码内默认启用状态，账号、项目资料和自定义 Skill 都不能扩大该边界。
 
@@ -35,7 +37,7 @@ L2/L3 另有受限的 `capture_preview_screenshot` 视觉验收工具，只能�
 
 L2 一轮结束后停住进程内 AgentTeam：有在跑的 L3 时保持 harness，空闲 5 分钟且无子 Agent 后才关闭并把会话目录压缩进 MySQL（上限 10 MiB）。下次恢复缓存再运行。该 SDK 同名 session 默认走 create，runtime/sdk-resume.mjs 对固定版本 SDK 做显式 resume 适配。升级依赖必须重新验证该适配。异常关闭可能丢失本轮尚未写入的会话快照，但已提交文档和工具记录仍在数据库。运行中 L3 在应用重启后标记中断，写入 `coordinator_events.child_result` 唤醒 L2 重新评估，不自动重放。
 
-「梳理讨论」单独使用直接模型调用，只总结最近最多 50 条消息、80 KB 上下文，不使用 Agent 工具。`SUMMARY_MODE=dsh` 可在当前本地或 Makers 沙箱中运行 headless 总结；该模式可能需要临时安装环境，速度较慢。
+「梳理讨论」单独使用直接模型调用，只总结最近最多 50 条消息、80 KB 上下文，不使用 Agent 工具。`SUMMARY_MODE=dsh` 可在本机沙箱中运行 headless 总结；该模式可能需要临时安装环境，速度较慢。
 
 ## 部署和备份
 

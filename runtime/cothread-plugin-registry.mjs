@@ -4,8 +4,8 @@ import { COORDINATOR_PERSONA } from "../server/coordinator-persona.js";
 
 const require = createRequire(import.meta.url);
 
-// Makers bundles this module into /var/user/index.mjs. Reading package.json
-// relative to import.meta.url then becomes /var/package.json and must not crash.
+// Bundled deployments may place this module where ../package.json is absent
+// (for example /var/user/index.mjs → /var/package.json); that must not crash.
 export function readNearbyPackageVersion(requireImpl, moduleUrl, readFile = readFileSync) {
   try {
     return requireImpl("../package.json").version;
@@ -96,7 +96,7 @@ export const DSH_PLUGINS = Object.freeze([
   plugin(
     "dsh-llm-deepseek",
     "llm-deepseek",
-    "@deepseek-ai/dsh-llm-deepseek",
+    "@deepseek-ai/dsh-llm-deepseek-api-key",
     "DeepSeek 模型适配器",
     "core",
     disabledLevels,
@@ -132,13 +132,13 @@ export const DSH_PLUGINS = Object.freeze([
     "core",
     disabledLevels,
   ),
-  plugin("dsh-fs-local", "fs-local", "@deepseek-ai/dsh-fs-local", "本地文件系统服务"),
   plugin("cordis-timer", "timer", "@deepseek-ai/cordis-plugin-timer", "Cordis 定时器"),
   plugin("dsh-llm-core", "llm", "@deepseek-ai/dsh-llm", "模型服务"),
   plugin("dsh-session-core", "session", "@deepseek-ai/dsh-session", "会话服务"),
   plugin("dsh-session-title", "session-title", "@deepseek-ai/dsh-session-title", "会话标题服务"),
   plugin("dsh-system-prompt", "system-prompt", "@deepseek-ai/dsh-system-prompt", "系统提示词"),
   plugin("dsh-tools-core", "tools", "@deepseek-ai/dsh-tools", "工具注册服务"),
+  plugin("dsh-mcp-resources", "mcp-resources", "@deepseek-ai/dsh-mcp-resources", "MCP 资源服务"),
   plugin("dsh-agent-core", "agent", "@deepseek-ai/dsh-agent", "Agent 核心"),
   plugin("dsh-llm-retry", "llm-retry", "@deepseek-ai/dsh-llm-retry", "模型重试服务"),
   plugin("dsh-jobs-local", "jobs", "@deepseek-ai/dsh-jobs-local", "本地作业服务"),
@@ -181,14 +181,6 @@ export const DSH_PLUGINS = Object.freeze([
     "persistent-pwsh",
     "@deepseek-ai/dsh-tool-pwsh-persistent",
     "持久 PowerShell 工具",
-    "tool",
-    disabledLevels,
-  ),
-  plugin(
-    "dsh-str-replace-editor",
-    "str-replace-editor",
-    "@deepseek-ai/dsh-tool-str-replace-editor",
-    "字符串编辑工具",
     "tool",
     disabledLevels,
   ),

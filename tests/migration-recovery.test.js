@@ -8,9 +8,9 @@ import { query } from "../server/db.js";
 import { migrate } from "../scripts/migrate.js";
 import { Service } from "../server/service.js";
 import { hashPassword } from "../server/auth.js";
-import { createMakersApp } from "../server/makers.js";
+import { createApp } from "../server/app.js";
 
-test("Makers login recovers partial child migration on a database with a different default charset", async () => {
+test("login recovers partial child migration on a database with a different default charset", async () => {
   const database = await testDatabase();
   const db = database.db;
   let server;
@@ -34,10 +34,8 @@ test("Makers login recovers partial child migration on a database with a differe
     const schema = new URL(database.url).pathname.slice(1);
     assert.match(schema, /(?:^|_)(?:dev|test)(?:_|$)/i);
     await db.query(`ALTER DATABASE \`${schema}\` CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci`);
-    server = createMakersApp(async () => {
-      await migrate(db);
-      return db;
-    }).listen(0, "127.0.0.1");
+    await migrate(db);
+    server = createApp(db).listen(0, "127.0.0.1");
     await new Promise((done) => server.once("listening", done));
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/login`, {
       method: "POST",

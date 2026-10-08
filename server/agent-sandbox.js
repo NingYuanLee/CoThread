@@ -1,6 +1,5 @@
 import { query } from "./db.js";
 import { agentSession } from "./agent-session.js";
-import { currentMakersSandbox, makersWorkspace } from "./makers-sandbox.js";
 import { LocalSandbox } from "./local-sandbox.js";
 
 export const shellQuote = (value) => `'${value.replace(/'/g, `'"'"'`)}'`;
@@ -15,10 +14,6 @@ export async function acquireSandbox(
   const table = spec.sandboxTable || spec.table;
   const key = spec.sandboxKey || spec.key;
   const workspaceId = spec.sandboxRowId || spec.id;
-  if (currentMakersSandbox() || process.env.COTHREAD_MAKERS === "true") {
-    await progress("正在准备 Makers 沙箱工作区");
-    return makersWorkspace(workspaceId);
-  }
   let sandbox = handles.get(workspaceId);
   if (sandbox) {
     try {
@@ -60,11 +55,6 @@ export async function releaseSandbox(db, threadId) {
   const table = spec.sandboxTable || spec.table;
   const key = spec.sandboxKey || spec.key;
   const workspaceId = spec.sandboxRowId || spec.id;
-  if (currentMakersSandbox() || process.env.COTHREAD_MAKERS === "true") {
-    // The managed instance is shared by active children and owned by Makers.
-    handles.delete(workspaceId);
-    return;
-  }
   let sandbox = handles.get(workspaceId);
   handles.delete(workspaceId);
   if (!sandbox) {

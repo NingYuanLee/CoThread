@@ -140,7 +140,7 @@ test("session identifiers are recovered from Cursor output and Codex rollout fil
 });
 
 test("MCP config writers keep other servers and only replace the cothread-mcp entry", () => {
-  const server = { url: "https://cothread.z2l.top/mcp", headers: { Authorization: "Bearer abc", "Makers-Conversation-Id": "u-1" } };
+  const server = { url: "https://cothread.z2l.top/mcp", headers: { Authorization: "Bearer abc", "X-Thread-Id": "u-1" } };
   const cursor = JSON.parse(mergeCursorMcpConfig('{"mcpServers":{"other":{"command":"x"},"cothread":{"url":"https://old/mcp"}},"theme":"dark"}', server));
   assert.equal(cursor.theme, "dark");
   assert.equal(cursor.mcpServers.other.command, "x");
@@ -159,7 +159,7 @@ test("MCP config writers keep other servers and only replace the cothread-mcp en
   assert.equal(codex.match(/\[mcp_servers\.cothread-mcp\]/g).length, 1);
   assert.doesNotMatch(codex, /https:\/\/legacy\/mcp|https:\/\/old\/mcp|"OLD"|"X" = "1"/);
   assert.match(codex, /bearer_token_env_var = "COTHREAD_MCP_TOKEN"/);
-  assert.match(codex, /http_headers = \{ "Makers-Conversation-Id" = "u-1" \}/);
+  assert.match(codex, /http_headers = \{ "X-Thread-Id" = "u-1" \}/);
   assert.doesNotMatch(codex, /Bearer abc/);
 });
 

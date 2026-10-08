@@ -31,7 +31,7 @@ test("local runner scopes files and scrubs service credentials", async () => {
   }
 });
 
-test("default run route always uses the local runner outside Makers", async () => {
+test("default run route always uses the local runner", async () => {
   const database = await testDatabase();
   try {
     const user = { id: randomUUID(), kind: "session" };

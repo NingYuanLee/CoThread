@@ -808,6 +808,10 @@ export class Service {
       generatedAt: new Date().toISOString(),
       models: {
         knowledge: modelSummary("knowledge"),
+        // Production inference has two routes: L1 knowledge and the shared
+        // coordinator/L3 runtime. Keep the legacy coordinator/executor keys
+        // for older clients, but expose the shared route explicitly.
+        runtime: modelSummary("coordinator"),
         coordinator: modelSummary("coordinator"),
         executor: modelSummary("executor"),
       },

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
@@ -428,9 +427,7 @@ export async function deleteProjectGitRemote(service, user, projectId, remoteId)
 
 /** 保留：本地调试镜像路径；只读工具已改走平台 API，不再 spawn git。 */
 export function codeMirrorBase() {
-  return process.env.COTHREAD_MAKERS === "true"
-    ? resolve(tmpdir(), "cothread-code-mirrors")
-    : resolve(".local", "code-mirrors");
+  return resolve(".local", "code-mirrors");
 }
 
 function redactGitDetail(text) {

@@ -20,12 +20,12 @@ function summary(metrics) {
     db += Math.max(0, stop - Math.max(start, end));
     end = Math.max(end, stop);
   }
-  return { app: performance.now() - metrics.start, init: metrics.init, db, db_sum: sum, db_max: max };
+  return { app: performance.now() - metrics.start, db, db_sum: sum, db_max: max };
 }
 
 export function requestTiming(req, res, next) {
   if (currentTiming()) return next();
-  const metrics = { id: randomUUID(), start: performance.now(), init: 0, queries: [] };
+  const metrics = { id: randomUUID(), start: performance.now(), queries: [] };
   requests.run(metrics, () => {
     const writeHead = res.writeHead;
     res.writeHead = function (...args) {

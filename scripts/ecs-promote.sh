@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 类 EdgeOne：新版本解压到 releases/<id>，探活通过后才原子切换 current。
+# 滚动发布：新版本解压到 releases/<id>，探活通过后才原子切换 current。
 # 失败时删除本轮 release，current / 线上进程不动。
 #
 # 用法（在 ECS 上）：

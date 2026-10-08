@@ -40,11 +40,16 @@ try {
     );
   await writeLocalAdminFiles({ email: "admin@cothread.local", password: adminPassword });
   const modelDefaults = {};
-  for (const prefix of ["KNOWLEDGE_MODEL", "COORDINATOR_MODEL", "EXECUTOR_MODEL"]) {
+  const baselineValue = (field) =>
+    source[`MODEL_${field}`] || source[`COORDINATOR_MODEL_${field}`] || source[`EXECUTOR_MODEL_${field}`] || "";
+  // MODEL_* is the shared runtime route (L2 + L3); KNOWLEDGE_MODEL_* overrides
+  // it for L1. Legacy COORDINATOR_*/EXECUTOR_* values migrate into the baseline.
+  for (const prefix of ["MODEL", "KNOWLEDGE_MODEL"]) {
     for (const field of ["BASE_URL", "API_KEY"])
-      modelDefaults[`${prefix}_${field}`] =
-        source[`${prefix}_${field}`] || source[`MODEL_${field}`] || "";
-    modelDefaults[prefix] = source[prefix] || "";
+      modelDefaults[`${prefix}_${field}`] = source[`${prefix}_${field}`] || baselineValue(field);
+    modelDefaults[prefix] = prefix === "MODEL"
+      ? source.MODEL || source.COORDINATOR_MODEL || source.EXECUTOR_MODEL || ""
+      : source.KNOWLEDGE_MODEL || source.MODEL || "";
   }
   const output = env
     .split("\n")

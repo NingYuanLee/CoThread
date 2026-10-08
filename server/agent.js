@@ -4,7 +4,6 @@ import { createServer } from "node:http";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile, readdir, rm } from "node:fs/promises";
 import { resolve, join, dirname, sep } from "node:path";
-import { tmpdir } from "node:os";
 import { assetPath } from "./assets.js";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { query } from "./db.js";
@@ -16,7 +15,7 @@ import { deliverTaskUpdates } from "./agent-updates.js";
 import { restoreSessionCheckpoint } from "./agent-checkpoint.js";
 import { createUsageMeter, saveReplyUsage } from './agent-usage.js';
 import { publishWork } from "./work-events.js";
-import { dshModelPatch, modelConfig, modelOutputLimit, redactSecrets } from "./model-config.js";
+import { dshModelMaxTokens, dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { agentRuntimePatch } from "./dsh-runtime-config.js";
 import { persistL3ContextStats } from "./l3-session.js";
@@ -30,13 +29,17 @@ const coordinatorRuntimes = new Map();
 const COORDINATOR_IDLE_MS = 5 * 60 * 1000;
 
 function agentRuntimeRoot() {
-  return process.env.COTHREAD_MAKERS === "true"
-    ? resolve(tmpdir(), "cothread-agents") : resolve(".local/agents");
+  return resolve(".local/agents");
 }
 
 export function isCorruptSessionLog(error) {
   const message = String(error?.message || error || "");
-  return /corrupt session log/i.test(message) || /无效会话快照/.test(message);
+  return /corrupt session log/i.test(message) || /无效会话快照/.test(message)
+    // DSH 0.2 refuses historical session formats it cannot migrate (the artifact
+    // itself stays intact but unusable), so the one-shot reset path applies too.
+    || /cannot acquire a system head/i.test(message)
+    || /source v0 artifact remains unchanged/i.test(message)
+    || /unsupported session format/i.test(message);
 }
 
 async function discardCoordinatorRuntime(threadId, runtime) {
@@ -373,7 +376,7 @@ export async function openAgentRuntime(
     model: configuredModel.model,
     initializeTimeoutMs: 30000,
     requestTimeoutMs: 600000,
-    maxTokens: modelOutputLimit(configuredModel),
+    maxTokens: dshModelMaxTokens(configuredModel, role),
   });
   if (job.message_id) running.set(job.message_id, harness);
   let seenSequence = session.seen_sequence;
@@ -702,7 +705,7 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
   } finally {
     clearInterval(cancellationTimer);
     await polling;
-    if(modelStarted!==undefined){const configuredModel=modelConfig("executor");await saveReplyUsage(db,job.message_id,{...usageMeter.result(),model:configuredModel.model,reasoningEffort:configuredModel.reasoningEffort,executionDurationMs:Math.round((modelFinished??performance.now())-modelStarted)}).catch(error=>console.error('Usage persistence failed',{type:error.name}));}
+    if(modelStarted!==undefined){const configuredModel=modelConfig("coordinator");await saveReplyUsage(db,job.message_id,{...usageMeter.result(),model:configuredModel.model,reasoningEffort:configuredModel.reasoningEffort,executionDurationMs:Math.round((modelFinished??performance.now())-modelStarted)}).catch(error=>console.error('Usage persistence failed',{type:error.name}));}
     if (owned) await runtime.close(completed);
   }
 }

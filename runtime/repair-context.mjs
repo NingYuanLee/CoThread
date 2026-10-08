@@ -10,13 +10,19 @@ export function repairContext(ctx, session) {
   const cleaned = cleanLegacyContext(messages);
   const removed = JSON.stringify(messages).length - JSON.stringify(cleaned).length;
   if (removed <= 0 || !nodes.length) return 0;
+  // DSH 0.2 keeps the system prompt as the surface's first `system/message` node,
+  // and only a `system/message` may rewrite it. Leave that head in place and
+  // replace the legacy body beneath it.
+  const head = session.eventAt(nodes[0])?.type === "system/message" ? 1 : 0;
+  const replaceable = nodes.slice(head);
+  if (!replaceable.length) return 0;
   const content = transcriptBlocks(cleaned);
   session.append("compaction/prune", {
     shadowedRange: { start: nodes[0], end: nodes.at(-1) }, shadowedSeqs: nodes,
     shadowedTokenCount: messages.reduce((sum, message) => sum + ctx.tokenMeter.estimateMessage(message), 0),
   });
-  session.append("user/message", createUserMessage({ content, source: { kind: "plugin", plugin: "cothread-repair" } }), {
-    surfaceOp: { op: "replace", start: nodes[0], end: nodes.at(-1) }, sourceEventSeqs: nodes,
+  session.append("user/message", createUserMessage({ content, source: { kind: "plugin:cothread-repair" } }), {
+    surfaceOp: { op: "replace", startSeq: replaceable[0], endSeq: replaceable.at(-1) }, sourceEventSeqs: replaceable,
   });
   return removed;
 }

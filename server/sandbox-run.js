@@ -6,7 +6,6 @@ import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
 import { generateReply } from "./replies.js";
 import { modelDiscussion } from "./model-context.js";
-import { currentMakersSandbox, makersWorkspace } from "./makers-sandbox.js";
 import { LocalSandbox } from "./local-sandbox.js";
 import { dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
 const shellQuote = (text) => `'${text.replace(/'/g, `'"'"'`)}'`;
@@ -27,9 +26,8 @@ export async function executeRun(
     kind === "summary" &&
     process.env.SUMMARY_MODE !== "dsh" &&
     provider === LocalSandbox;
-  const managed = !!currentMakersSandbox();
   if (kind === "summary" && !directSummary && process.env.DSH_ENABLED === "false")
-    throw new HttpError(503, "DSH 助手尚未启用，请安装本地 DSH 或使用 Makers 运行环境");
+    throw new HttpError(503, "DSH 助手尚未启用，请先安装本地 DSH");
   const runId = randomUUID();
   const context = await transaction(service.db, async (db) => {
     await service.thread(user, threadId, true, db);
@@ -74,8 +72,8 @@ export async function executeRun(
       });
       status = "succeeded";
     } else {
-      await progress(managed ? "正在准备 Makers 沙箱" : "正在准备本机工作区");
-      sandbox = managed ? await makersWorkspace(threadId) : await provider.create();
+      await progress("正在准备本机工作区");
+      sandbox = await provider.create();
       await query(
         service.db,
         "UPDATE sandbox_runs SET sandbox_id=? WHERE id=?",
@@ -161,7 +159,7 @@ export async function executeRun(
         cwd,
         timeoutMs: 120000,
         ...(kind === "summary"
-          ? { envs: { MODEL_API_KEY: modelConfig("executor").apiKey } }
+          ? { envs: { MODEL_API_KEY: modelConfig("coordinator").apiKey } }
           : {}),
       });
       output = (
@@ -202,12 +200,12 @@ export async function executeRun(
       diagnostic: kind === "summary" ? diagnostic : undefined,
     });
   } finally {
-    await progress(sandbox && !managed ? "正在回收沙箱" : "正在保存执行状态");
+    await progress(sandbox ? "正在回收沙箱" : "正在保存执行状态");
     if (sandbox) {
       try {
         await sandbox.kill();
       } catch {
-        output += managed ? "\nMakers 沙箱清理由平台继续管理。" : "\n本机工作区清理未确认。";
+        output += "\n本机工作区清理未确认。";
       }
     }
     await query(

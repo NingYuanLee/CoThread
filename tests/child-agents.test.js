@@ -4,9 +4,8 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { claimReply, MAX_THREAD_AGENTS } from "../server/reply-dispatch.js";
+import { claimReply, drainReplies, MAX_THREAD_AGENTS } from "../server/reply-dispatch.js";
 import { processNextReply } from "../server/replies.js";
-import { runMakersThread } from "../server/makers-runner.js";
 import { openAgentRuntime, stopAgent } from "../server/agent.js";
 import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.js";
 import { agentSession } from "../server/agent-session.js";
@@ -129,30 +128,28 @@ test("project monitor reports knowledge, coordinators and isolated execution slo
   await assert.rejects(service.agentMonitor({ id: randomUUID(), kind: "session" }, project.id), { status: 403 });
 });
 
-test("a hosted owner picks up another member while the main request is still running", { timeout: 20000 }, async () => {
+test("the running lane picks up another member while the main request is still running", { timeout: 20000 }, async () => {
   const { users, thread, post } = await fixture();
   const first = await post(0);
   const entered = Promise.withResolvers(), release = Promise.withResolvers(), childDone = Promise.withResolvers();
-  const operations = {
-    reply: (id) => processNextReply(db, async (_context, { job }) => {
-      if (job.message_id === first.id) { entered.resolve(); await release.promise; }
-      else { assert.equal(job.parent_message_id, job.message_id); childDone.resolve(); }
-      return "finished " + job.message_id;
-    }, undefined, id), compress: async () => false, coordinate: async () => false,
-  };
-  const running = runMakersThread(db, users[0], thread.id, undefined, operations);
+  const reply = (id) => processNextReply(db, async (_context, { job }) => {
+    if (job.message_id === first.id) { entered.resolve(); await release.promise; }
+    else { assert.equal(job.parent_message_id, job.message_id); childDone.resolve(); }
+    return "finished " + job.message_id;
+  }, undefined, id);
+  const running = drainReplies(reply, thread.id, Date.now() + 20000,
+    async () => false, async () => false, (wake) => subscribeWork(db, wake));
   void running.catch(entered.reject);
   await entered.promise;
   try {
     await post(1);
-    assert.equal((await runMakersThread(db, users[1], thread.id, undefined, operations)).status, "running");
     await childDone.promise;
     assert.equal((await query(db, "SELECT status FROM assistant_replies WHERE message_id=?", [first.id]))[0].status, "running");
   } finally { release.resolve(); await running; }
   const context = await service.context(users[0], thread.id);
   assert.equal(context.replies.length, 2);
-  assert.ok(context.replies.every((reply) => reply.status === "completed"));
-  const childReply = context.replies.find((reply) => reply.message_id !== first.id);
+  assert.ok(context.replies.every((entry) => entry.status === "completed"));
+  const childReply = context.replies.find((entry) => entry.message_id !== first.id);
   assert.ok(pendingMessages(context.messages, 0, context.replies).some((m) => m.id === childReply.reply_id));
 });
 

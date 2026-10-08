@@ -1,4 +1,4 @@
-// Adapter for the pinned DSH 0.1.2-rc.1 SDK: its named-session path creates
+// Adapter for the pinned DSH 0.2.0-rc.2 SDK: its named-session path creates
 // a new session even when a durable record exists. Resume that record explicitly.
 import {
   HarnessSdkJsonRpcServer,
@@ -187,7 +187,7 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
     if (agent.session.surface.nodes.length) throw new Error("Only an empty child context may be seeded");
     agent.session.append("user/message", createUserMessage({
       content: transcriptBlocks(params.messages || []),
-      source: { kind: "plugin", plugin: "cothread-shared-context" },
+      source: { kind: "plugin:cothread-shared-context" },
     }), { surfaceOp: "append" });
     return measureContext(this.ctx, agent.session, { level: sessionContextLevel(params.sessionId) });
   }
@@ -201,7 +201,7 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
         if (params.mode !== "observe" && agent.status !== "running") continue;
         const message = createUserMessage({
           content: [{ type: "text", text: `同一成员对当前任务的追加要求，请据此更新当前工作：\n${update.text}` }],
-          source: { kind: "plugin", plugin: "cothread-task-update" },
+          source: { kind: "plugin:cothread-task-update" },
         });
         if (params.mode === "observe") {
           agent.session.append("user/message", message, { surfaceOp: "append" });
@@ -220,7 +220,7 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (
         "user/message",
         createUserMessage({
           content: [{ type: "text", text }],
-          source: { kind: "plugin", plugin: "cothread-discussion" },
+          source: { kind: "plugin:cothread-discussion" },
         }),
         { surfaceOp: "append" },
       );

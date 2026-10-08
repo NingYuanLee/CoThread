@@ -252,8 +252,8 @@ export async function queueL1MemoryRun(service, user, { projectId, task, threadI
     return { id, status: "queued" };
   });
   publishWork(service.db);
-  // Makers has no process-local wake worker; manual / MCP retries must run work here.
-  // Cloud function maxDuration is enough for a few L1 batches; failures stay on the run row.
+  // Manual / MCP retries run a bounded number of L1 batches inline instead of
+  // waiting for the wake worker; failures stay on the run row.
   try {
     const { runMemoryMaintenance } = await import("./memory-maintenance.js");
     await runMemoryMaintenance(service.db, {

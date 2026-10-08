@@ -4,8 +4,9 @@ export function fetchJson(url: string, options: RequestInit = {}) {
   return requestJson(url, options, apiFetch);
 }
 
-// Keep each network request below the Makers Cloud Functions 6 MB boundary.
-// Reassembled payloads still pass the same backend authorization and validators.
+// Split oversized request bodies into parts so no single request hits the
+// gateway / proxy body limit. Reassembled payloads still pass the same backend
+// authorization and validators.
 export async function apiFetch(url: string, options: RequestInit = {}, progress?: (percent: number) => void): Promise<Response> {
   if ((!options.method || options.method === "GET") && /^\/api\/versions\/[0-9a-f-]{36}$/i.test(url)) {
     const meta = await fetch(url + "?metadata=1", options);

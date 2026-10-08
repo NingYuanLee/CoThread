@@ -2,7 +2,6 @@ node_modules/
 dist/
 dist-connector/
 .local/
-.edgeone/
 .code_deploy/
 coverage/
 backups/

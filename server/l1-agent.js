@@ -1,12 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
-import { tmpdir } from "node:os";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { query } from "./db.js";
 import { assetPath } from "./assets.js";
 import { restoreSessionCheckpoint } from "./agent-checkpoint.js";
-import { dshModelPatch, modelConfig, modelOutputLimit, redactSecrets } from "./model-config.js";
+import { dshModelMaxTokens, dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { l1RuntimePatch } from "./dsh-runtime-config.js";
 import { L1_MAINTENANCE_TASKS, normalizeL1Task } from "../shared/agent-label.js";
@@ -84,8 +83,7 @@ async function requestCompact(harness, sessionId, automatic) {
 }
 
 async function openL1Harness(db, projectId, session, scope, options = {}) {
-  const root = process.env.COTHREAD_MAKERS === "true"
-    ? resolve(tmpdir(), "cothread-agents") : resolve(".local/agents");
+  const root = resolve(".local/agents");
   const home = resolve(root, `l1-${scope.task}-${scope.scopeId}`);
   await mkdir(home, { recursive: true });
   if (session.checkpoint) {
@@ -115,7 +113,7 @@ async function openL1Harness(db, projectId, session, scope, options = {}) {
       patches: [modelPatch, assetPath("runtime/l1-agent-patch.yml"), runtimePatch], env,
       provider: "cothread-compatible", model: configuredModel.model,
       initializeTimeoutMs: 30000, requestTimeoutMs: 600000,
-      maxTokens: modelOutputLimit(configuredModel),
+      maxTokens: dshModelMaxTokens(configuredModel, "knowledge"),
     });
   });
   const harness = await createHarness();

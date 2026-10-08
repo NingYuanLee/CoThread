@@ -10,6 +10,5 @@ export function formatMcpCopyPayload(payload: Record<string, unknown>): string;
 export function createMcpInstallGuide(options: {
   url: string;
   token: string;
-  conversationId?: string;
   context?: { project?: string; projectId: string; iteration?: string; threadId: string };
 }): string;

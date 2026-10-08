@@ -61,21 +61,42 @@ test(
         gate.entered.resolve();
         await gate.release.promise;
       }
+      // DSH 0.2.x speaks DeepSeek's native Messages wire format (Anthropic-style
+      // SSE events), not OpenAI chat-completion `choices` deltas.
       const content = "已保留关键结论：项目代号 ALPHA，接下来验证方案。";
+      const inputTokens = Math.ceil(JSON.stringify(body.messages).length / 4);
       res.writeHead(200, { "Content-Type": "text/event-stream" });
-      res.write(
-        `data: ${JSON.stringify({ id: "fixture", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] })}\n\n`,
-      );
-      res.write(
-        `data: ${JSON.stringify({ id: "fixture", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: Math.ceil(JSON.stringify(body.messages).length / 4), completion_tokens: 20, total_tokens: Math.ceil(JSON.stringify(body.messages).length / 4) + 20 } })}\n\n`,
-      );
+      const frame = (payload) => {
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      };
+      frame({
+        type: "message_start",
+        message: { usage: { input_tokens: inputTokens, output_tokens: 0 } },
+      });
+      frame({
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "text", text: "" },
+      });
+      frame({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: content },
+      });
+      frame({ type: "content_block_stop", index: 0 });
+      frame({
+        type: "message_delta",
+        delta: { stop_reason: "end_turn" },
+        usage: { output_tokens: 20 },
+      });
+      frame({ type: "message_stop" });
       res.end("data: [DONE]\n\n");
     });
     await new Promise((done) => server.listen(0, "127.0.0.1", done));
     const patch = join(home, "test.yml");
     await writeFile(
       patch,
-      `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n    - id: test-sdk-server\n      name: ${JSON.stringify(pathToFileURL(resolve("runtime/sdk-resume.mjs")).href)}\n      inject: [sdkAppStartup, loader]\n    - id: project-tools\n      name: ${JSON.stringify(pathToFileURL(resolve("runtime/cothread-tools.mjs")).href)}\n- id: llm-deepseek\n  config:\n    baseURL: 'http://127.0.0.1:${server.address().port}/v1'\n    apiKeyEnv: COTHREAD_TEST_KEY\n    defaultContextWindow: ${CONTEXT_LIMIT}\n    models: [{id: context-test, contextWindow: ${CONTEXT_LIMIT}}]\n`,
+      `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n    - id: test-sdk-server\n      name: ${JSON.stringify(pathToFileURL(resolve("runtime/sdk-resume.mjs")).href)}\n      inject: [sdkAppStartup, loader]\n    - id: project-tools\n      name: ${JSON.stringify(pathToFileURL(resolve("runtime/cothread-tools.mjs")).href)}\n- id: llm-deepseek\n  config:\n    baseURL: 'http://127.0.0.1:${server.address().port}/v1'\n    apiKeyEnv: COTHREAD_TEST_KEY\n    defaultContextWindow: ${CONTEXT_LIMIT}\n    maxTokens: 8192\n    models: [{id: context-test, contextWindow: ${CONTEXT_LIMIT}}]\n`,
     );
     const env = {};
     for (const key of [
@@ -177,9 +198,11 @@ test(
       assert.ok(after.categories.system > 0);
       assert.ok(after.categories.tools > 0);
       assert.ok(after.categories.assistant > 0);
-      const lastRequest = JSON.stringify(requests.at(-1).messages);
+      // DSH 0.2 splits the request into top-level `system`, `tools`, and
+      // `messages` fields; the tool listing is no longer inside `messages`.
+      const lastRequest = JSON.stringify(requests.at(-1));
       assert.ok(lastRequest.includes("web_fetch"), "executor exposes the public webpage reader");
-      assert.ok(lastRequest.includes("ALPHA"));
+      assert.ok(JSON.stringify(requests.at(-1).messages).includes("ALPHA"));
       assert.ok(
         lastRequest.length < 1_000_000,
         "compacted history must be used on the next model call",

@@ -12,7 +12,6 @@ import {
 import { MCP_CONVERSATION_COPY_INSTRUCTION, MCP_TASK_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
 import React, { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { configureMakers, invokeMakers, wakeMakers, useMakersConnection } from "./makers";
 import { coordinatorLogButtonLabel, COORDINATOR_LOG_IDLE_LABEL } from "./agent-label";
 const Documents = lazy(() =>
   import("./Documents").then((module) => ({ default: module.Documents })),
@@ -266,7 +265,6 @@ export function WorkspaceApp() {
   const detail = loadedDetail?.id === projectId ? loadedDetail : projectCache.current.get(projectId) || null;
   const [threadId, setThreadId] = useState("");
   const [threadView, setThreadView] = useState<"chat" | "trajectory">("chat");
-  const makersConnection = useMakersConnection(threadId);
   useEffect(() => { setThreadView("chat"); }, [threadId]);
   const pendingNotification = useRef<{ projectId: string; threadId: string | null } | null>(null);
   const [loadedThread, setThread] = useState<Thread | null>(null);
@@ -331,17 +329,13 @@ export function WorkspaceApp() {
   const [agentLogScope, setAgentLogScope] = useState<AgentLogScope | null>(null);
   const connectorAuthorizationParams = new URLSearchParams(location.search);
   const connectorAuthorizationId = connectorAuthorizationParams.get("connectorAuthorization") || "";
-  const requestedConnectorConversation = connectorAuthorizationParams.get("connectorConversation") || "";
   const connectorCallbackPort = connectorAuthorizationParams.get("connectorCallbackPort") || "";
   const connectorCallbackSecret = new URLSearchParams(location.hash.slice(1)).get("connectorCallbackSecret") || "";
-  const connectorConversationId = /^[0-9a-f-]{36}$/i.test(requestedConnectorConversation)
-    ? requestedConnectorConversation : connectorAuthorizationId;
   const connectorAuthorizationApi = useCallback((path: string, data?: unknown, method?: string) =>
-    api(path, data, method, undefined, { "Makers-Conversation-Id": connectorConversationId }), [connectorConversationId]);
+    api(path, data, method), []);
   const closeConnectorAuthorization = () => {
     const url = new URL(location.href);
     url.searchParams.delete("connectorAuthorization");
-    url.searchParams.delete("connectorConversation");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
     setClock(Date.now());
   };
@@ -483,7 +477,6 @@ export function WorkspaceApp() {
   }, [user?.id, leftOpen, loading, showArchived]);
   const [health, setHealth] = useState<{
     dshEnabled: boolean;
-    agentEndpoint?: string;
     mcpEndpoint?: string;
   } | null>(null);
   const [history, setHistory] = useState(false);
@@ -758,7 +751,6 @@ export function WorkspaceApp() {
       setShowArchived(workspace.thread?.status === "archived");
       setDetail(workspace.project);
       setThread(workspace.thread);
-      configureMakers(workspace.health, setError);
       setHealth(workspace.health);
     } catch (cause) {
       if (signal?.aborted) return;
@@ -1003,14 +995,6 @@ export function WorkspaceApp() {
     ).length,
   ]);
   const currentContext = useRef({ projectId, threadId });
-  useEffect(() => {
-    if (!health?.agentEndpoint || !thread || !writable || thread.status !== "active") return;
-    if (thread.replies.some((r) => ["queued", "running"].includes(r.status)) ||
-        thread.requests?.some((r) => ["queued", "running"].includes(r.status)) ||
-        (["queued", "running"].includes(thread.contextUsage?.compactStatus) ||
-          (thread.contextUsage?.compactStatus !== "failed" && thread.contextUsage?.categories.some((c) => c.key === "pending" && c.tokens > 0))))
-      wakeMakers(thread.id, setError);
-  }, [health, thread, writable]);
   currentContext.current = { projectId, threadId };
   const refresh = async () => {
     await Promise.all([
@@ -1163,9 +1147,7 @@ export function WorkspaceApp() {
       }
       if (modal === "run") {
         const input = { command: value("command") };
-        const result = health?.agentEndpoint
-          ? await invokeMakers(threadId, input)
-          : await api(`/threads/${threadId}/runs`, input);
+        const result = await api(`/threads/${threadId}/runs`, input);
         await refresh();
         if (result.status !== "succeeded") throw new Error(result.output);
       }
@@ -1375,7 +1357,7 @@ export function WorkspaceApp() {
     return (
       <div className="agent-round" data-message-id={reply.message_id}>
         <div className="agent-trace-row">
-          <AgentActivity threadId={threadId} messageId={reply.message_id} events={events} output={output} status={reply.status} progress={makersConnection==='unavailable'?'助手暂时无法连接，消息已保存。':reply.progress} hasFinal={!!reply.reply_id} versions={detail?.versions} threads={detail?.threads}/>
+          <AgentActivity threadId={threadId} messageId={reply.message_id} events={events} output={output} status={reply.status} progress={reply.progress} hasFinal={!!reply.reply_id} versions={detail?.versions} threads={detail?.threads}/>
           {stopControl}
         </div>
         {failed}

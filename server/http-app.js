@@ -164,7 +164,6 @@ import { appOrigins, isProductionProcess, requestIsHttps } from "./runtime-confi
 export function createApp(
   db,
   {
-    makers = false,
     afterMcpMessage,
     executeRun,
     stopAgent = async () => {},
@@ -176,7 +175,7 @@ export function createApp(
   const service = new Service(db);
   app.disable("x-powered-by");
   app.use(requestTiming);
-  const origins = appOrigins({ makers });
+  const origins = appOrigins();
   app.set("trust proxy", 1);
   const attempts = new Map();
   const emailAttempts = new Map();
@@ -219,19 +218,19 @@ export function createApp(
     next();
   });
   app.use(express.json({ limit: "32mb" }));
-  registerConnectorPublicRoutes(app, db, service, { makers });
+  registerConnectorPublicRoutes(app, db, service);
   app.get("/api/health", async (req, res) => {
     await query(db, "SELECT 1");
     res.json({
       status: "ok",
       database: "mysql",
-      sandbox: makers ? "makers" : "local",
+      sandbox: "local",
       sandboxConfigured: true,
       dshEnabled: process.env.DSH_ENABLED !== "false",
-      ...(makers ? { agentEndpoint: "/cothread-agent", mcpEndpoint: "/cothread-mcp" } : {}),
+      mcpEndpoint: "/mcp",
     });
   });
-  // Cron / external minute sweep. Bearer MEMORY_MAINTENANCE_TOKEN; same work as /cothread-memory.
+  // Cron / external minute sweep. Bearer MEMORY_MAINTENANCE_TOKEN.
   app.post("/api/memory-maintenance", async (req, res) => {
     assertMemoryMaintenanceAuth(req.headers.authorization);
     res.json(await runMemoryMaintenance(db, { maxBatches: 25 }));
@@ -302,7 +301,7 @@ export function createApp(
       await query(db, "DELETE FROM email_challenges WHERE id=?", [challengeId]);
       throw new HttpError(503, error instanceof Error ? error.message : "验证码发送失败");
     }
-    const localDev = !makers && !isProductionProcess();
+    const localDev = !isProductionProcess();
     if (localDev) console.log(`本机验证码 [${purpose}] ${address}: ${code}`);
     return {
       challengeId,
@@ -669,10 +668,10 @@ export function createApp(
       health: {
         status: "ok",
         database: "mysql",
-        sandbox: makers ? "makers" : "local",
+        sandbox: "local",
         sandboxConfigured: true,
         dshEnabled: process.env.DSH_ENABLED !== "false",
-        ...(makers ? { agentEndpoint: "/cothread-agent", mcpEndpoint: "/cothread-mcp" } : {}),
+        mcpEndpoint: "/mcp",
       },
     });
   });
@@ -1978,7 +1977,7 @@ export function createApp(
     token: credential.token,
     expiresAt: credential.expiresAt,
     version: credential.version,
-    endpoint: makers ? "/cothread-mcp" : "/mcp",
+    endpoint: "/mcp",
     capabilities: MCP_CAPABILITIES,
   });
   app.get("/api/mcp/credential", async (req, res) => {

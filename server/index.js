@@ -126,8 +126,7 @@ await new Promise((resolve, reject) => {
   server.once("error", reject);
 });
 const origin = production ? APP_ORIGIN : `http://127.0.0.1:${port}`;
-const sandbox =
-  process.env.COTHREAD_MAKERS === "true" ? "EdgeOne Makers 原生沙箱" : "本机 .local/sandboxes";
+const sandbox = "本机 .local/sandboxes";
 console.log(apiOnly ? `共序接口已启动：http://${host}:${port}` : `共序已启动：${origin}`);
 console.log(
   `数据库：${databaseHost}${databaseUrl.port ? `:${databaseUrl.port}` : ""}  沙箱：${sandbox}  执行器：进程内常驻`,

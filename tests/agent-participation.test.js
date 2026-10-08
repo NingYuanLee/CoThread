@@ -37,8 +37,11 @@ afterEach(async () => {
 });
 
 test("unmentioned discussion reaches the model, which can choose silence or participation with a message", async () => {
-  const keys = ["COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY", "COORDINATOR_MODEL"];
+  const keys = ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL", "COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY", "COORDINATOR_MODEL"];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  // The shared MODEL_* baseline takes precedence; clear it so the legacy
+  // coordinator route under test is the one that resolves.
+  for (const key of ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL"]) delete process.env[key];
   Object.assign(process.env, {
     COORDINATOR_MODEL_BASE_URL: "https://model.test/v1",
     COORDINATOR_MODEL_API_KEY: "test-only",
@@ -650,8 +653,9 @@ test("persist opportunistic artifacts writes usage_stats and L2 trajectory event
   const projectId = randomUUID();
   const threadId = randomUUID();
   const messageId = randomUUID();
-  const keys = ["COORDINATOR_MODEL", "COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY"];
+  const keys = ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL", "COORDINATOR_MODEL", "COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY"];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  for (const key of ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL"]) delete process.env[key];
   Object.assign(process.env, {
     COORDINATOR_MODEL: "test-opportunistic-model",
     COORDINATOR_MODEL_BASE_URL: "https://model.test/v1",

@@ -41,6 +41,6 @@ PY
 fi
 export PATH="$RUNTIME/node/bin:$PATH"
 if [ ! -x "$RUNTIME/dsh/node_modules/.bin/dsh" ]; then
-  npm install --prefix "$RUNTIME/dsh" --registry=https://registry.npmjs.org --no-audit --no-fund @deepseek-ai/dsh@0.1.2-rc.1
+  npm install --prefix "$RUNTIME/dsh" --registry=https://registry.npmjs.org --no-audit --no-fund @deepseek-ai/dsh@0.2.0-rc.2
 fi
 "$RUNTIME/node/bin/node" --version

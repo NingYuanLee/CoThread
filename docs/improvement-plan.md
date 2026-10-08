@@ -3,6 +3,7 @@
 > 版本 v1.2 · 2026-09-29 · 依据：三轮交叉评估（DeepSeek / workbuddy / GPT-6）+ 本机实测
 > 原则：只列"明显该改且已核实"的项；每条给出位置、现状证据、改法与验收标准。
 > 计数约定：行数 = **总行数（含空行）**；hook 数 = **调用点计数（不含 import）**。v1.0/v1.1 的行数用的是"非空行"，已修正。
+> 时效说明：本文是 2026-09-29 的评估记录。文中 `server/makers.js`、`tests/makers*.test.js` 等 EdgeOne Makers 路径已于后续版本整体移除，生产只保留 ECS 一条路径；这些引用按当时事实保留，不再对应现有文件。
 
 ## 0. 结论
 
@@ -38,7 +39,7 @@
 
 设计约束（与现有部署契约兼容）：
 
-- 不改名 `DATABASE_HOST_*` / `TEST_DATABASE_HOST_*`：已是 Makers 控制台与 ECS 现网变量名。
+- 不改名 `DATABASE_HOST_*` / `TEST_DATABASE_HOST_*`：已是 ECS 现网变量名。
 - 不新增易与 `DATABASE_ENDPOINT`（public|internal，网络路径）混淆的名字；新变量统一 `COTHREAD_*` 前缀。
 - `--production` 进程零配置变更，行为保持一致。
 - 目标可被**命令级覆盖**（事实 15），因此 `.env` 里写什么都不会锁死单次命令；代价是 shell 里残留的变量也会 silently 生效，所以启动横幅必须打印"生效目标 + 来源"。
@@ -61,7 +62,7 @@
 
 | 入口 | 默认 target | 说明 |
 |---|---|---|
-| `npm start` / `--production`（ECS、Makers） | `prod` | 现网行为不变，平台变量一个都不用改 |
+| `npm start` / `--production`（ECS） | `prod` | 现网行为不变，变量一个都不用改 |
 | `npm run dev` | `dev` | **行为变更点**：今天它走 `DATABASE_HOST_*`（= prod） |
 | `npm test` | `test`（强制） | 在 `tests/database.js` 落实，不依赖 `db.js` 默认解析（见 A2） |
 | 裸 `node scripts/*.js` | 无默认 | 未设即报错并打印设置指引 |

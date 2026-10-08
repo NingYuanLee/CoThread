@@ -29,6 +29,27 @@ test("failed or stale compression telemetry cannot permanently disable retry", (
   assert.equal(contextUsage({ context_stats: stats }, [], []).automaticCompacting, true);
 });
 
+test("legacy repair keeps the DSH 0.2 system head and replaces only the body", () => {
+  const session = Session.create("repair-head-fixture");
+  session.append("system/message", {
+    turn: 1,
+    step: 1,
+    message: { id: "system-head", role: "system", content: [{ type: "text", text: "SYSTEM HEAD" }] },
+  }, { surfaceOp: "append" });
+  session.append("user/message", createUserMessage({
+    content: [{ type: "text", text: JSON.stringify({ author: "成员", author_avatar: "x".repeat(100000), body: "保留决策 BETA" }) }],
+    source: { kind: "plugin", plugin: "fixture" },
+  }), { surfaceOp: "append" });
+  const ctx = { tokenMeter: { estimateMessage: (message) => Math.ceil(JSON.stringify(message).length / 4) } };
+  assert.ok(repairContext(ctx, session) > 90000);
+  const history = JSON.stringify(session.deriveMessages());
+  assert.ok(history.includes("保留决策 BETA"));
+  assert.ok(history.includes("SYSTEM HEAD"), "the system head must survive the repair");
+  const replaces = session.snapshotEvents().filter((event) => event.surfaceOp?.op === "replace");
+  assert.equal(replaces.length, 1);
+  assert.equal(session.eventAt(replaces[0].surfaceOp.startSeq).type, "user/message");
+});
+
 test("legacy repair persists a valid idle DSH surface and remains idempotent on resume", () => {
   const session = Session.create("repair-fixture");
   session.append("user/message", createUserMessage({

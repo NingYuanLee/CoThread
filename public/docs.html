@@ -186,7 +186,7 @@
           <a href="#deploy-local">本机与命令</a>
           <ul>
             <li><a href="#deploy-server">服务器 / 容器</a></li>
-            <li><a href="#deploy-makers">EdgeOne Makers</a></li>
+            <li><a href="#deploy-ecs">ECS 发布</a></li>
           </ul>
         </li>
         <li><a href="#limits">边界</a></li>
@@ -209,7 +209,7 @@
         <tr><td>本文档</td><td>概念、工作台、上传、MCP、本地执行器、部署细则</td><td><a href="/docs.html">/docs.html</a></td></tr>
       </tbody>
     </table>
-    <p>工程师向的架构备忘仍在仓库 <code>docs/architecture.md</code>、<code>docs/makers.md</code>，不替代本页给使用者看的说明。</p>
+    <p>工程师向的架构备忘仍在仓库 <code>docs/architecture.md</code>、<code>docs/cloud-environment.md</code>，不替代本页给使用者看的说明。</p>
 
     <h3 id="quick-start">本机启动</h3>
     <p>需要 Node.js 22.19+。本地 MySQL 为官方 8.4.9 Windows ZIP 版，不注册系统服务，监听 <code>127.0.0.1:3307</code>。Agent 命令依赖 Git Bash。</p>
@@ -342,8 +342,8 @@ npm run db:restore-check</pre>
     </ol>
     <p>当前仅支持单服务实例。权威会话快照在 MySQL；<code>.local/agents</code> 需可写缓存。</p>
 
-    <h3 id="deploy-makers">EdgeOne Makers</h3>
-    <p>仓库含云函数与 Agents 入口。仅上传前端 <code>dist</code> 不能跑后端。构建需包含 <code>cloud-functions/</code>、<code>agents/</code>、<code>edgeone.json</code>。细则见仓库 <code>docs/makers.md</code>。生产默认 <a href="https://cothread.z2l.top">https://cothread.z2l.top</a>。</p>
+    <h3 id="deploy-ecs">ECS 发布</h3>
+    <p>生产为阿里云 ECS 单实例 + RDS，只有这一条部署路径。<code>npm run build && node scripts/ecs-pack.mjs</code> 打包后，在机器上执行 <code>RELEASE_TGZ=... bash scripts/ecs-promote.sh</code>：新版本解压到 <code>/opt/cothread/releases/&lt;id&gt;</code>，临时端口探活 <code>/api/health</code>，通过后才原子切换 <code>current</code> 并重启 <code>cothread</code>；失败则删除本轮 release。变量清单见仓库 <code>docs/cloud-environment.md</code>。生产默认 <a href="https://cothread.z2l.top">https://cothread.z2l.top</a>。</p>
 
     <h2 id="limits">边界</h2>
     <ul>

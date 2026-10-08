@@ -1,7 +1,6 @@
 import { gzipSync, gunzipSync } from "node:zlib";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve, sep } from "node:path";
-import { tmpdir } from "node:os";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";
@@ -93,8 +92,7 @@ export function nativeHistoryFromCheckpoint(checkpoint, { sessionId } = {}) {
 }
 
 export function agentRuntimeHome(homeId) {
-  const root = process.env.COTHREAD_MAKERS === "true"
-    ? resolve(tmpdir(), "cothread-agents") : resolve(".local/agents");
+  const root = resolve(".local/agents");
   return resolve(root, String(homeId));
 }
 

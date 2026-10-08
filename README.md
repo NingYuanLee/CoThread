@@ -10,7 +10,7 @@
 | **本 README** | 克隆仓库后的快捷使用 | 本文件 |
 | **Docs** | 概念、工作台、上传、MCP、连接器、部署细则 | 运行后打开 `/docs.html` |
 
-工程师向的架构与 Makers 备忘：[`docs/architecture.md`](docs/architecture.md)、[`docs/makers.md`](docs/makers.md)。当前版本见工作台；首版面向小团队单实例试用。
+工程师向的架构备忘：[`docs/architecture.md`](docs/architecture.md)、[`docs/cloud-environment.md`](docs/cloud-environment.md)。当前版本见工作台；首版面向小团队单实例试用。生产部署在阿里云 ECS（见下方「部署」）。
 
 ## 本机启动
 
@@ -57,11 +57,14 @@ npm run connector:build
 web/                 React 工作台
 public/              静态页（about_us.html、docs.html）
 server/              HTTP API、权限、协作业务、MCP、沙箱路由
-cloud-functions/     EdgeOne 云函数入口
-agents/              Makers 长任务入口
+runtime/             DSH 运行时插件、patch 与打包脚本
 migrations/          版本化 MySQL 结构
-scripts/             安装初始化、迁移、连接器构建
+scripts/             安装初始化、迁移、ECS 发布、连接器构建
 tests/               真实数据库集成测试
 docs/                架构与部署备忘（给工程师）
 .local/              本机 MySQL、数据、私有配置（不入库）
 ```
+
+## 部署
+
+生产环境为阿里云 ECS 单实例 + RDS：`npm run build && node scripts/ecs-pack.mjs` 打包，再用 `scripts/ecs-promote.sh` 解压到 `releases/<id>`、探活后原子切换 `current` 并 `systemctl restart cothread`。变量清单见 [云端配置](docs/cloud-environment.md)。

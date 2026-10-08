@@ -630,7 +630,6 @@ function mcpServerSpec(config, token) {
   const mcp = config.mcp || {};
   const url = new URL(mcp.endpoint || "/mcp", config.server).toString();
   const headers = { Authorization: `Bearer ${token}` };
-  if (mcp.conversationId) headers["Makers-Conversation-Id"] = mcp.conversationId;
   return { url, headers, token };
 }
 
@@ -650,7 +649,6 @@ async function syncMcp(config, prerequisites, { force = false } = {}) {
       const credential = await request(config, "/api/connector/mcp-credential", { body: {} });
       token = credential.token;
       mcp.endpoint = credential.endpoint;
-      mcp.conversationId = credential.conversationId || null;
       mcp.version = credential.version ?? version.version;
       mcp.expiresAt = credential.expiresAt;
       changed = true;
@@ -746,13 +744,11 @@ async function createAuthorizationCallback(config, authorization) {
 }
 
 async function authorizeInBrowser(config) {
-  const conversationId = crypto.randomUUID();
-  const conversationHeaders = { "Makers-Conversation-Id": conversationId };
   let authorization;
   for (let attempt = 0; attempt < 15; attempt++) {
     try {
       const candidate = await request(config, "/api/connector/v2/authorizations", {
-        public: true, headers: conversationHeaders,
+        public: true,
         body: deviceIdentity(),
       });
       if (candidate.protocol === 2 && candidate.delivery === "localhost") { authorization = candidate; break; }
@@ -769,7 +765,6 @@ async function authorizeInBrowser(config) {
   log("已打开共序网页，请在浏览器中登录并确认授权。");
   const verificationUrl = new URL("/", config.server);
   verificationUrl.searchParams.set("connectorAuthorization", authorization.id);
-  verificationUrl.searchParams.set("connectorConversation", conversationId);
   verificationUrl.searchParams.set("connectorCallbackPort", String(callback.port));
   verificationUrl.hash = new URLSearchParams({ connectorCallbackSecret: authorization.pollToken }).toString();
   openBrowser(verificationUrl.toString());
@@ -794,7 +789,7 @@ async function authorizeInBrowser(config) {
     let result;
     try {
       result = await request(config, `/api/connector/v2/authorizations/${authorization.id}/poll`, {
-        public: true, headers: conversationHeaders, body: { pollToken: authorization.pollToken },
+        public: true, body: { pollToken: authorization.pollToken },
       });
     } catch (error) {
       const staleRoute = error.status === 404 || error.status === 409 || error.status === 410 ||

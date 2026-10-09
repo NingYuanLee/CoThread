@@ -92,6 +92,7 @@ export type AvailableConnector = {
 export type AgentTask = {
   id: string;
   origin_thread_id: string | null;
+  thread_number: number | null;
   title: string;
   goal: string;
   task_type: "assist_l2" | "formal";
@@ -164,7 +165,7 @@ export type Thread = {
     quotes?: MessageQuote[];
     created_at: string;
   }[];
-  archive_snapshot: { conclusion: string; versions: Version[] } | null;
+  archive_snapshot: { conclusion?: string; versions: Version[] } | null;
   runs: {
     id: string;
     status: string;
@@ -206,12 +207,10 @@ export type Thread = {
 export type Modal =
   | "profile"
   | "project"
-  | "thread"
   | "settings"
   | "admin-projects"
   | "admin-accounts"
   | "admin-plugins"
-  | "archive"
   | "password"
   | "email"
   | "mcp"

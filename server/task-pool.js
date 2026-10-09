@@ -286,14 +286,14 @@ export async function finishCoordinatorDispatch(db, threadId, { enqueueIdle = tr
     for (const row of rows) {
       await query(
         conn,
-        `UPDATE agent_task_execution_runs SET status='cancelled',error='本轮未绑定 L3，退回待指派',
+        `UPDATE agent_task_execution_runs SET status='cancelled',error='本轮未绑定子 Agent，退回待指派',
         finished_at=UTC_TIMESTAMP(3) WHERE id=? AND status='queued'`,
         [row.run_id],
       );
       await query(
         conn,
         `UPDATE agent_tasks SET status='pending_assignment',execution_agent_id=NULL,
-        progress='本轮未绑定 L3，退回待指派',finished_at=NULL,revision=revision+1
+        progress='本轮未绑定子 Agent，退回待指派',finished_at=NULL,revision=revision+1
         WHERE id=? AND status='running'`,
         [row.id],
       );
@@ -302,7 +302,7 @@ export async function finishCoordinatorDispatch(db, threadId, { enqueueIdle = tr
         row.id,
         row.status,
         { type: "system" },
-        "本轮未绑定 L3，退回待指派",
+        "本轮未绑定子 Agent，退回待指派",
       );
     }
     return rows.length;
@@ -604,11 +604,23 @@ export async function createTask(db, input) {
     }
     const idle = input.targetType === "l2_session" ? await idleL3Count(conn, targetId) : 0;
     if (input.taskType === "assist_l2" && idle < 1)
-      throw new HttpError(409, "当前没有空闲 L3，不能创建辅助任务，请自行处理");
+      throw new HttpError(409, "当前没有空闲子 Agent，不能创建辅助任务，请自行处理");
     const startL3Now =
       input.targetType === "l2_session" &&
       idle >= 1 &&
       (input.taskType === "assist_l2" || input.taskType === "formal");
+    let threadNumber = null;
+    if (input.originThreadId) {
+      await query(conn, "SELECT id FROM threads WHERE id=? FOR UPDATE", [input.originThreadId]);
+      const [maxRow] = await query(
+        conn,
+        "SELECT COALESCE(MAX(thread_number), 0) AS max_num FROM agent_tasks WHERE origin_thread_id=?",
+        [input.originThreadId],
+      );
+      const next = Number(maxRow?.max_num || 0) + 1;
+      if (next > 9999) throw new HttpError(409, "本迭代任务编号已达上限");
+      threadNumber = next;
+    }
     const initialStatus =
       input.targetType === "human_member"
         ? "awaiting_acceptance"
@@ -620,13 +632,14 @@ export async function createTask(db, input) {
     await query(
       conn,
       `INSERT INTO agent_tasks
-      (id,project_id,origin_thread_id,source_type,source_user_id,source_agent_session_id,source_message_id,source_task_id,
+      (id,project_id,origin_thread_id,thread_number,source_type,source_user_id,source_agent_session_id,source_message_id,source_task_id,
        created_by_type,created_by_id,task_type,title,goal,constraints,document_refs,folder_refs,target_type,target_id,status)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         id,
         input.projectId,
         input.originThreadId || null,
+        threadNumber,
         input.sourceType,
         input.sourceUserId || null,
         input.sourceAgentSessionId || null,
@@ -755,7 +768,7 @@ export async function updateTask(db, taskId, actor, update) {
     ) {
       nextStatus = "cancelled";
       if (!update.resultSummary)
-        update = { ...update, resultSummary: "小祥自行处理，未调度任务级 Agent，已从任务池撤销。" };
+        update = { ...update, resultSummary: "小祥自行处理，未调度子 Agent，已从任务池撤销。" };
     }
     const redispatchDsh =
       ["queued", "pending_assignment"].includes(nextStatus) &&
@@ -907,7 +920,7 @@ export async function answerTaskQuestion(db, questionId, actor, answer, messageI
       question.task_id,
       before?.status,
       actor,
-      resume === "pending_assignment" ? "问题已回答，等待指派空闲 L3" : "问题已回答，继续执行",
+      resume === "pending_assignment" ? "问题已回答，等待指派空闲子 Agent" : "问题已回答，继续执行",
     );
     const answered = (
       await query(
@@ -1460,7 +1473,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       task.task_type === "assist_l2";
     const environmentChanged = update.environmentChanged === true;
     if (action === "clear_binding") {
-      if (!dispatchL3) throw new HttpError(409, "只有 L3 任务可以清理执行者绑定");
+      if (!dispatchL3) throw new HttpError(409, "只有子 Agent 任务可以清理执行者绑定");
       if (!task.execution_agent_id && ["running", "queued", "pending_assignment"].includes(task.status)) {
         return withL3DispatchGate(await getTask(conn, taskId), {
           action, noop: true, interruptedAgentId: null,
@@ -1544,7 +1557,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       await adoptCurrentIterationL2(conn, task, actor.id);
       const idle = await idleL3Count(conn, actor.id);
       if (action === "restart" && task.task_type === "assist_l2" && idle < 1)
-        throw new HttpError(409, "当前没有空闲 L3，不能重新安排辅助任务");
+        throw new HttpError(409, "当前没有空闲子 Agent，不能重新安排辅助任务");
       const nextStatus = action === "clear_binding" ? "pending_assignment" : idle >= 1 ? "running" : "pending_assignment";
       await query(
         conn,
@@ -1559,7 +1572,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
           update.constraints !== undefined,
           update.constraints ?? null,
           nextStatus,
-          nextStatus === "running" ? "已指派，尚未绑定 L3" : "待指派空闲 L3",
+          nextStatus === "running" ? "已指派，尚未绑定子 Agent" : "待指派空闲子 Agent",
           task.execution_agent_id || null,
           environmentChanged,
           taskId,
@@ -1722,7 +1735,7 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
       [childSessionId, l2SessionId],
     );
     if (already) {
-      if (taskId && already.id !== taskId) throw new HttpError(409, "该 L3 已绑定其他任务");
+      if (taskId && already.id !== taskId) throw new HttpError(409, "该子 Agent 已绑定其他任务");
       return getTask(conn, already.id);
     }
     const [capacity] = await query(
@@ -1733,7 +1746,7 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
         AND r.status IN ('running','waiting')`,
       [l2SessionId],
     );
-    if (Number(capacity.active) >= 7) throw new HttpError(409, "当前 L2 已有 7 个运行中的 DSH L3");
+    if (Number(capacity.active) >= 7) throw new HttpError(409, "当前 L2 已有 7 个运行中的子 Agent");
     if (taskId) {
       const [task] = await query(
         conn,
@@ -1744,7 +1757,7 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
       if (!task) throw new HttpError(404, "当前 L2 没有这个可委派任务");
       await adoptCurrentIterationL2(conn, task, l2SessionId);
       if (!["pending_assignment", "queued", "running"].includes(task.status))
-        throw new HttpError(409, "任务当前不可启动 DSH L3");
+        throw new HttpError(409, "任务当前不可启动子 Agent");
       if (task.execution_agent_id && task.execution_agent_id !== childSessionId)
         throw new HttpError(409, `L3_BINDING_OCCUPIED: 任务 ${task.id} 已绑定执行者 ${task.execution_agent_id}；请先 inspect_task，必要时 recover_task clear_binding`);
       if (task.status === "pending_assignment" || task.task_type === "formal") {
@@ -1791,11 +1804,11 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
       `UPDATE agent_tasks SET status='running',execution_mode='dsh_l3',
       execution_agent_type='dsh_l3',execution_agent_id=?,
       executor_switch_count=executor_switch_count+IF(preferred_executor_id IS NOT NULL AND preferred_executor_id<>?,1,0),
-      preferred_executor_id=NULL,progress=IF(preferred_executor_id IS NULL,'DSH L3 正在执行','DSH L3 正在执行（原执行者不可恢复，已接续）') WHERE id=?`,
+      preferred_executor_id=NULL,progress=IF(preferred_executor_id IS NULL,'子 Agent 正在执行','子 Agent 正在执行（原执行者不可恢复，已接续）') WHERE id=?`,
       [childSessionId, childSessionId, run.id],
     );
     const l3Actor = { type: "dsh_l3", id: childSessionId };
-    await recordTaskStatusChange(conn, run.id, run.status, l3Actor, "任务级 Agent 开始执行");
+    await recordTaskStatusChange(conn, run.id, run.status, l3Actor, "子 Agent 开始执行");
     if (run.source_task_id) {
       const [sourceBefore] = await query(conn, "SELECT status FROM agent_tasks WHERE id=?", [
         run.source_task_id,
@@ -1812,7 +1825,7 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
         run.source_task_id,
         sourceBefore?.status,
         l3Actor,
-        "辅助任务的任务级 Agent 开始执行",
+        "辅助任务的子 Agent 开始执行",
       );
     }
     return getTask(conn, run.id);
@@ -1834,7 +1847,7 @@ export async function ensureDshL3CanUpdate(db, l2SessionId, childSessionId, task
   } catch (error) {
     if (error?.status !== 409 && error?.status !== 404) throw error;
   }
-  throw new HttpError(403, "L3 只能更新分派给自己的任务");
+  throw new HttpError(403, "子 Agent 只能更新分派给自己的任务");
 }
 
 export async function settleDshL3Execution(db, l2SessionId, childSessionId, notification) {
@@ -1893,12 +1906,12 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
     } else if (notification.stopReason === "aborted") {
       taskStatus = "pending_assignment";
       runStatus = "interrupted";
-      error = "DSH L3 aborted";
+      error = "子 Agent 已中止";
       summary = output || summary;
     } else {
       taskStatus = "failed";
       runStatus = "failed";
-      error = stoppedCleanly ? "未回报结果" : `DSH L3 ${notification.stopReason || "error"}`;
+      error = stoppedCleanly ? "未回报结果" : `子 Agent ${notification.stopReason || "error"}`;
       summary = output || summary || "未回报结果";
     }
     if (taskStatus === "failed" || taskStatus === "blocked") {
@@ -1950,10 +1963,10 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
         [
           taskStatus,
           taskStatus === "completed"
-            ? "DSH L3 已交活"
+            ? "子 Agent 已交活"
             : taskStatus === "blocked"
-              ? run.progress || "DSH L3 已阻塞"
-              : error || "DSH L3 已返回",
+              ? run.progress || "子 Agent 已阻塞"
+              : error || "子 Agent 已返回",
           summary,
           taskStatus,
           failureClass,
@@ -1975,12 +1988,12 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
         run.status,
         { type: "dsh_l3", id: childSessionId },
         taskStatus === "completed"
-          ? "任务级 Agent 已交活"
+          ? "子 Agent 已交活"
           : taskStatus === "blocked"
-            ? "任务级 Agent 阻塞暂停"
+            ? "子 Agent 阻塞暂停"
             : runStatus === "interrupted"
-              ? "任务级 Agent 被中止，重新排队"
-              : `任务级 Agent 失败：${error}`,
+              ? "子 Agent 被中止，重新排队"
+              : `子 Agent 失败：${error}`,
       );
     }
     if (run.source_task_id && !taskAlreadyEnded) {
@@ -2009,10 +2022,10 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
         AND status NOT IN ('completed','failed','cancelled','rejected','abandoned','superseded')`,
         [
           taskStatus === "completed"
-            ? "辅助 L3 已返回结果，等待 L2 汇总"
+            ? "辅助子 Agent 已返回结果，等待 L2 汇总"
             : taskStatus === "blocked"
-              ? "辅助 L3 阻塞暂停，等待处理"
-              : "辅助 L3 执行失败，等待 L2 处理",
+              ? "辅助子 Agent 阻塞暂停，等待处理"
+              : "辅助子 Agent 执行失败，等待 L2 处理",
           run.source_task_id,
         ],
       );
@@ -2092,7 +2105,7 @@ export async function recoverInterruptedDshL3Executions(db) {
     FROM agent_task_execution_runs r JOIN agent_tasks t ON t.id=r.task_id
     WHERE r.executor_type='dsh_l3' AND r.status IN ('running','waiting')`);
   return interruptDshL3Candidates(db, runs, {
-    reason: "服务重启，任务级 Agent 中断，等待 L2 重新评估",
+    reason: "服务重启，子 Agent 中断，等待 L2 重新评估",
     progress: "服务重启，等待 L2 重新指派",
   });
 }
@@ -2108,7 +2121,7 @@ export async function recoverStaleDshL3Executions(
     WHERE r.executor_type='dsh_l3' AND r.status IN ('running','waiting') AND t.status IN ('running','waiting')
       AND TIMESTAMPDIFF(SECOND,COALESCE(r.heartbeat_at,r.started_at,r.created_at),UTC_TIMESTAMP(3)) >= ?`, [age]);
   return interruptDshL3Candidates(db, runs, {
-    age, reason: `L3 心跳超时（≥${age}s），等待 L2 重新评估`,
+    age, reason: `子 Agent 心跳超时（≥${age}s），等待 L2 重新评估`,
     progress: "心跳超时，等待 L2 重新指派",
   });
 }

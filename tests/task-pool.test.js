@@ -224,7 +224,7 @@ test("assist tasks start running and return a compact result to their source tas
   assert.equal(wakeup.kind, "child_result");
   assert.equal(wakeup.status, "queued");
   const [source] = await query(db, "SELECT progress FROM agent_tasks WHERE id=?", [formal.id]);
-  assert.equal(source.progress, "辅助 L3 已返回结果，等待 L2 汇总");
+  assert.equal(source.progress, "辅助子 Agent 已返回结果，等待 L2 汇总");
   const [update] = await query(db, "SELECT body FROM agent_task_pool_updates WHERE task_id=? ORDER BY created_at DESC LIMIT 1", [formal.id]);
   assert.match(update.body, /结论与验证结果/);
 });
@@ -841,7 +841,7 @@ test("a rotated L2 session recasts queued assist work so dsh_l3 can bind", async
   assert.equal(recovered.target_id, l2SessionId);
   assert.equal(recovered.claimed_by_id, l2SessionId);
   assert.equal(recovered.needsDispatch, true);
-  assert.match(recovered.progress, /尚未绑定 L3/);
+  assert.match(recovered.progress, /尚未绑定子 Agent/);
 
   const childId = randomUUID();
   const bound = await bindDshL3Execution(db, l2SessionId, childId, assist.id);
@@ -950,7 +950,7 @@ test("unbound L3 reservations occupy slots and return to the queue after the tur
   assert.ok(reserved.every((task) => task.status === "running"));
   const overflow = await reserve("多出来的正式任务");
   assert.equal(overflow.status, "pending_assignment");
-  await assert.rejects(reserve("多出来的辅助任务", "assist_l2"), { status: 409, message: /没有空闲 L3/ });
+  await assert.rejects(reserve("多出来的辅助任务", "assist_l2"), { status: 409, message: /没有空闲子 Agent/ });
   const followUp = await finishCoordinatorDispatch(db, isolated.id);
   assert.equal(followUp.released, 7);
   assert.equal(followUp.enqueued, true);
@@ -1013,7 +1013,7 @@ test("assist tasks cannot be created when every L3 is busy", async () => {
     projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
     createdByType: "l2_session", createdById: l2SessionId, taskType: "assist_l2", title: "第 8 个辅助",
     goal: "应当失败", targetType: "l2_session", targetId: l2SessionId,
-  }), { status: 409, message: /没有空闲 L3/ });
+  }), { status: 409, message: /没有空闲子 Agent/ });
   const pending = await createTask(db, {
     projectId: project.id, originThreadId: thread.id, sourceType: "human_member", sourceUserId: users[0].id,
     createdByType: "l2_session", createdById: l2SessionId, taskType: "formal", title: "沙箱待指派",
@@ -1137,7 +1137,7 @@ test("L3 nicknames stay sticky across tasks on the same thread", async () => {
     status: "ok", stopReason: "completed", lastAssistantMessage: [{ type: "text", text: "done" }],
   });
   const firstRuns = await listTaskExecutionRuns(db, first.id);
-  assert.equal(firstRuns.find((run) => run.executor_id === firstChild)?.executor_label, "L3-大娃");
+  assert.equal(firstRuns.find((run) => run.executor_id === firstChild)?.executor_label, "大娃");
 
   const second = await createTask(db, {
     projectId: project.id, originThreadId: isolated.id, sourceType: "human_member", sourceUserId: users[0].id,
@@ -1147,8 +1147,20 @@ test("L3 nicknames stay sticky across tasks on the same thread", async () => {
   const secondChild = randomUUID();
   await bindDshL3Execution(db, sessionId, secondChild, second.id);
   const secondRuns = await listTaskExecutionRuns(db, second.id);
-  assert.equal(secondRuns.find((run) => run.executor_id === secondChild)?.executor_label, "L3-二娃");
+  assert.equal(secondRuns.find((run) => run.executor_id === secondChild)?.executor_label, "二娃");
 
   const firstAgain = await listTaskExecutionRuns(db, first.id);
-  assert.equal(firstAgain.find((run) => run.executor_id === firstChild)?.executor_label, "L3-大娃");
+  assert.equal(firstAgain.find((run) => run.executor_id === firstChild)?.executor_label, "大娃");
+});
+
+test("thread_number increments within an iteration", async () => {
+  const [{ max_num: maxNum }] = await query(
+    db,
+    "SELECT COALESCE(MAX(thread_number), 0) AS max_num FROM agent_tasks WHERE origin_thread_id=?",
+    [thread.id],
+  );
+  const first = await formalTask(users[1].id, { title: `编号任务 ${randomUUID().slice(0, 8)}` });
+  const second = await formalTask(users[1].id, { title: `编号任务 ${randomUUID().slice(0, 8)}` });
+  assert.equal(first.thread_number, Number(maxNum) + 1);
+  assert.equal(second.thread_number, Number(maxNum) + 2);
 });

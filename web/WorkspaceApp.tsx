@@ -6,7 +6,6 @@ import { StreamingMarkdown } from "./StreamingMarkdown";
 import {
   AGENT_L2_MEMBER,
   AGENT_MEMBER,
-  SUMMARY_REQUEST,
   mentionsAgent,
 } from "../shared/agent-member.js";
 import { MCP_CONVERSATION_COPY_INSTRUCTION, MCP_TASK_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
@@ -16,9 +15,17 @@ import { coordinatorLogButtonLabel, COORDINATOR_LOG_IDLE_LABEL } from "./agent-l
 const Documents = lazy(() =>
   import("./Documents").then((module) => ({ default: module.Documents })),
 );
-const MiniProgramWorkbench = lazy(() =>
-  import("./MiniProgramWorkbench").then((module) => ({ default: module.MiniProgramWorkbench })),
+const MiniProgramWorkspace = lazy(() =>
+  import("./MiniProgramWorkspace").then((module) => ({ default: module.MiniProgramWorkspace })),
 );
+import { ContextPanelModeSwitch } from "./ContextPanelModeSwitch";
+import {
+  readThreadDialogueMode,
+  writeThreadDialogueMode,
+  type DialogueMode,
+} from "./dialogue-mode-storage";
+import { DIALOGUE_MODE_LABELS } from "../shared/dialogue-mode.js";
+import { formatTaskThreadNumber, taskThreadNumberSearchMatch } from "../shared/task-thread-number.js";
 import { MessageNavigator } from "./MessageNavigator";
 const loadComposer = () => import("./ChatComposer");
 const ChatComposer = lazy(() => loadComposer().then((module) => ({ default: module.ChatComposer })));
@@ -62,6 +69,7 @@ import { labelReasoningEffort, labelWorkflowStatus, labelExecutorType, l3Executo
 import { UiIcon, workflowIcon, type UiIconName } from "./ui-icon";
 import { DialogClose, ModalBackdrop, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
 import { showTip } from "./Tip";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { ImagePreviewDialog } from "./ImagePreview";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { libraryFolderPath, folderDisplayName } from "./document-library";
@@ -105,6 +113,15 @@ function selectionTextInside(root: Element | null): string {
   if (!anchor || !focus) return "";
   if (!root.contains(anchor) || !root.contains(focus)) return "";
   return selection.toString();
+}
+
+/** Keep the current iteration when it still exists; otherwise prefer an active one. */
+function resolveProjectThreadId(
+  threads: Array<{ id: string; status: string }>,
+  current: string,
+): string {
+  if (current && threads.some((thread) => thread.id === current)) return current;
+  return threads.find((thread) => thread.status === "active")?.id || threads[0]?.id || "";
 }
 
 function MessageContextMenu({
@@ -185,6 +202,138 @@ function MessageContextMenu({
       </button>
     </div>,
     document.body,
+  );
+}
+
+function ThreadMoreIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="12" cy="5" r="1.75" />
+      <circle cx="12" cy="12" r="1.75" />
+      <circle cx="12" cy="19" r="1.75" />
+    </svg>
+  );
+}
+
+function ThreadIterationMenu({
+  open,
+  onOpenChange,
+  showArchive,
+  showArchivedActions,
+  busy,
+  copyLabel,
+  onArchive,
+  onCopy,
+  onRestore,
+  onDelete,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  showArchive: boolean;
+  showArchivedActions: boolean;
+  busy: boolean;
+  copyLabel: string;
+  onArchive: () => void;
+  onCopy: () => void;
+  onRestore: () => void;
+  onDelete: () => void;
+}) {
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      if (!anchorRef.current?.contains(event.target as Node)) onOpenChange(false);
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [open, onOpenChange]);
+  const dismiss = () => onOpenChange(false);
+  return (
+    <span className="thread-row-menu-anchor" ref={anchorRef}>
+      <button
+        type="button"
+        className={`tree-menu-trigger thread-menu-trigger${open ? " active" : ""}`}
+        title="迭代操作"
+        aria-label="迭代操作"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpenChange(!open);
+        }}
+      >
+        <ThreadMoreIcon />
+      </button>
+      {open ? (
+        <div
+          className="library-folder-menu thread-row-menu"
+          role="menu"
+          onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          {showArchive ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="library-folder-menu-item"
+              disabled={busy}
+              onClick={() => {
+                onArchive();
+                dismiss();
+              }}
+            >
+              <UiIcon name="archive" size={14} />
+              <span>归档迭代</span>
+            </button>
+          ) : null}
+          {showArchivedActions ? (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                disabled={busy}
+                onClick={() => {
+                  onRestore();
+                  dismiss();
+                }}
+              >
+                <UiIcon name="restore" size={14} />
+                <span>恢复迭代</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item danger"
+                disabled={busy}
+                onClick={() => {
+                  onDelete();
+                  dismiss();
+                }}
+              >
+                <UiIcon name="trash" size={14} />
+                <span>删除迭代</span>
+              </button>
+            </>
+          ) : null}
+          {!showArchivedActions ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="library-folder-menu-item"
+              onClick={() => {
+                void onCopy();
+                dismiss();
+              }}
+            >
+              <UiIcon name="copy" size={14} />
+              <span>{copyLabel}</span>
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </span>
   );
 }
 
@@ -296,6 +445,9 @@ export function WorkspaceApp() {
     selectedText: string;
   } | null>(null);
   useEffect(() => { setMessageMenu(null); }, [threadId]);
+  const [threadRowMenuId, setThreadRowMenuId] = useState<string | null>(null);
+  const [threadDeleteConfirm, setThreadDeleteConfirm] = useState<{ id: string; title: string } | null>(null);
+  useEffect(() => { setThreadRowMenuId(null); }, [threadId]);
   const focusComposer = () => {
     requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus());
   };
@@ -329,7 +481,6 @@ export function WorkspaceApp() {
   }, [copiedMessage]);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [projectManagementOpen, setProjectManagementOpen] = useState(false);
-  const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [codeSourcesTick, setCodeSourcesTick] = useState(0);
   const [agentLogScope, setAgentLogScope] = useState<AgentLogScope | null>(null);
   const connectorAuthorizationParams = new URLSearchParams(location.search);
@@ -347,6 +498,7 @@ export function WorkspaceApp() {
   const [connectors, setConnectors] = useState<ConnectorDevice[]>([]);
   const [connectorAvailability, setConnectorAvailability] = useState<AvailableConnector[]>([]);
   const [documentId, setDocumentId] = useState("");
+  const [documentFocus, setDocumentFocus] = useState(0);
   const [rightPanelWidth, setRightPanelWidth] = useState<number | null>(null);
   const [clock, setClock] = useState(Date.now());
   useEffect(() => {
@@ -355,6 +507,8 @@ export function WorkspaceApp() {
   }, []);
   const conversationRef = useRef<HTMLDivElement>(null);
   const composerAreaRef = useRef<HTMLDivElement>(null);
+  const conversationTaskPoolRef = useRef<HTMLDivElement>(null);
+  const conversationTaskSearchRef = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {
     const composer = composerAreaRef.current;
     const conversation = conversationRef.current;
@@ -397,6 +551,7 @@ export function WorkspaceApp() {
   const [fileDragOver, setFileDragOver] = useState(false);
   const [leftOpen, setLeftOpen] = useState(() => readStoredBoolean(LEFT_SIDEBAR_STATE_KEY, false));
   const [contextOpen, setContextOpen] = useState(() => readStoredBoolean(RIGHT_SIDEBAR_STATE_KEY, false));
+  const [dialogueMode, setDialogueMode] = useState<DialogueMode>("default");
   const [documentFullscreen, setDocumentFullscreen] = useState(false);
   useEffect(() => {
     try { localStorage.setItem(LEFT_SIDEBAR_STATE_KEY, String(leftOpen)); } catch {}
@@ -404,12 +559,43 @@ export function WorkspaceApp() {
   useEffect(() => {
     try { localStorage.setItem(RIGHT_SIDEBAR_STATE_KEY, String(contextOpen)); } catch {}
   }, [contextOpen]);
+  useEffect(() => {
+    if (!threadId) {
+      setDialogueMode("default");
+      return;
+    }
+    setDialogueMode(readThreadDialogueMode(threadId));
+  }, [threadId]);
+  const applyDialogueMode = useCallback((mode: DialogueMode) => {
+    setDialogueMode(mode);
+    if (threadId) writeThreadDialogueMode(threadId, mode);
+    if (mode === "cloudbase") setContextOpen(true);
+  }, [threadId]);
+  const applyContextPanelMode = useCallback((panelMode: "standard" | "cloudbase") => {
+    if (panelMode === "cloudbase") {
+      applyDialogueMode("cloudbase");
+      return;
+    }
+    setDialogueMode((current) => {
+      if (current !== "cloudbase") return current;
+      if (threadId) writeThreadDialogueMode(threadId, "default");
+      return "default";
+    });
+  }, [applyDialogueMode, threadId]);
+  const handleDocumentFullscreenChange = useCallback((fullscreen: boolean) => {
+    setDocumentFullscreen(fullscreen);
+    if (fullscreen) {
+      setContextOpen(true);
+      setLeftOpen(false);
+    }
+  }, []);
 
   const [imagePreview, setImagePreview] = useState<{ id: string; title: string; filename?: string } | null>(null);
   const showDocument = (id?: string) => {
     setQuotePreview(null);
     setDocumentId(id || detail?.versions.find((v) => !v.deleted_at)?.id || "");
     setContextOpen(true);
+    setDocumentFocus((value) => value + 1);
   };
   const versionRefLabel = (ref: string, version?: Version) => {
     if (!version) return ref;
@@ -438,6 +624,10 @@ export function WorkspaceApp() {
   });
   const [taskTimelinePage, setTaskTimelinePage] = useState(0);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const [conversationTaskListOpen, setConversationTaskListOpen] = useState(false);
+  const [conversationTaskSearch, setConversationTaskSearch] = useState("");
+  const [conversationTaskHighlightId, setConversationTaskHighlightId] = useState("");
+  const [conversationTaskMineOnly, setConversationTaskMineOnly] = useState(true);
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [taskDetail, setTaskDetail] = useState<AgentTaskDetail | null>(null);
   const [taskActionBusy, setTaskActionBusy] = useState(false);
@@ -457,29 +647,15 @@ export function WorkspaceApp() {
   const [taskCreateTarget, setTaskCreateTarget] = useState("");
   const [taskCreateRefs, setTaskCreateRefs] = useState<string[]>([]);
   const [taskCreateFolderRefs, setTaskCreateFolderRefs] = useState<string[]>([]);
-  const [showArchived, setShowArchived] = useState(false);
-  const threadViewportRef = useRef<HTMLDivElement>(null);
-  const archiveToggleRef = useRef<HTMLButtonElement>(null);
-  const [threadPaneHeight, setThreadPaneHeight] = useState(0);
+  const [threadListPane, setThreadListPane] = useState<"active" | "archived" | "create">("active");
+  const [newThreadTitle, setNewThreadTitle] = useState("");
+  const newThreadInputRef = useRef<HTMLInputElement>(null);
+  const railCreateRef = useRef<HTMLButtonElement>(null);
   const [copiedThreadId, setCopiedThreadId] = useState("");
   const conversationCopyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => {
     clearTimeout(conversationCopyTimer.current);
   }, []);
-  useLayoutEffect(() => {
-    const viewport = threadViewportRef.current;
-    if (!viewport) return;
-    const update = () => {
-      const toggle = archiveToggleRef.current;
-      if (!toggle) return;
-      setThreadPaneHeight(Math.max(0, viewport.clientHeight - toggle.offsetHeight));
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(viewport);
-    observer.observe(archiveToggleRef.current || viewport);
-    return () => observer.disconnect();
-  }, [user?.id, leftOpen, loading, showArchived]);
   const [health, setHealth] = useState<{
     dshEnabled: boolean;
     mcpEndpoint?: string;
@@ -554,8 +730,30 @@ export function WorkspaceApp() {
     || !endedTask(task.status);
   const myTasks = taskPool.filter((task) => isMyTask(task) && isTrackedTask(task));
   const currentMyTasks = myTasks.filter((task) => task.origin_thread_id === threadId);
+  const currentThreadTasks = taskPool.filter((task) => task.origin_thread_id === threadId && isTrackedTask(task));
   const latestMyTask = [...currentMyTasks].sort((left, right) =>
     new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())[0] || null;
+  const conversationTaskSource = conversationTaskMineOnly ? currentMyTasks : currentThreadTasks;
+  const conversationMyTasks = [...conversationTaskSource].sort((left, right) => {
+    const leftNo = left.thread_number ?? 0;
+    const rightNo = right.thread_number ?? 0;
+    if (leftNo !== rightNo) return rightNo - leftNo;
+    return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+  });
+  const filteredConversationMyTasks = conversationMyTasks.filter((task) =>
+    taskThreadNumberSearchMatch(task, conversationTaskSearch));
+  const openConversationTaskList = () => {
+    setConversationTaskMineOnly(true);
+    setConversationTaskHighlightId(latestMyTask?.id ?? "");
+    setConversationTaskSearch("");
+    setConversationTaskListOpen(true);
+  };
+  const closeConversationTaskList = () => {
+    setConversationTaskListOpen(false);
+    setConversationTaskSearch("");
+    setConversationTaskHighlightId("");
+    setConversationTaskMineOnly(true);
+  };
   const visibleTasks = taskPool.filter((task) => task.origin_thread_id === threadId && isTrackedTask(task) && (!taskMine || isMyTask(task)));
   const threadExecutorIds = stickyActorIds(taskPool
     .filter((task) => task.origin_thread_id === threadId && task.execution_agent_id)
@@ -578,24 +776,21 @@ export function WorkspaceApp() {
     }
     if (task.target_type === "l2_session") {
       return endedTask(task.status)
-        ? "小祥（未交给任务级Agent（L3））"
-        : "待任务级Agent（L3）接单";
+        ? "小祥（未交给子 Agent）"
+        : "待子 Agent 接单";
     }
     return "待选择";
   };
   const executionRunLabel = (run: AgentTaskDetail["executionRuns"][number], task: AgentTaskDetail) => {
     if (run.executor_type === "dsh_l3") {
-      if (!run.executor_id) return run.status === "queued" ? "L3-待分配" : "L3-未绑定";
+      if (!run.executor_id) return run.status === "queued" ? "待分配" : "未绑定";
       if (run.executor_label) return run.executor_label;
       // Execution-run labels must be scoped to this task. Mixing IDs from the
       // task pool makes a historical run's name depend on unrelated tasks.
       const runExecutorIds = uniqueActorIds([...task.executionRuns]
         .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
         .map((item) => item.executor_id));
-      const knownName = l3ExecutorName(run.executor_id, runExecutorIds);
-      return knownName && knownName !== AGENT_LEVEL_LABELS.l3
-        ? `L3-${knownName}`
-        : `L3-${run.executor_id.slice(0, 8)}`;
+      return l3ExecutorName(run.executor_id, runExecutorIds) || `子 Agent-${run.executor_id.slice(0, 8)}`;
     }
     if (run.executor_type === "human_self") return memberName(run.executor_id) || "成员本人";
     if (run.executor_type === "human_connector") {
@@ -616,11 +811,9 @@ export function WorkspaceApp() {
         const runExecutorIds = uniqueActorIds([...task.executionRuns]
           .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
           .map((item) => item.executor_id));
-        const knownName = l3ExecutorName(event.actor_id, runExecutorIds);
-        if (knownName && knownName !== AGENT_LEVEL_LABELS.l3) return `L3-${knownName}`;
-        return `L3-${event.actor_id.slice(0, 8)}`;
+        return l3ExecutorName(event.actor_id, runExecutorIds) || `子 Agent-${event.actor_id.slice(0, 8)}`;
       }
-      return "L3-未知";
+      return "子 Agent";
     }
     if (event.actor_type === "connector") return `${event.actor_name || memberName(task?.target_id) || "成员"}（本地执行器）`;
     return "系统";
@@ -753,7 +946,7 @@ export function WorkspaceApp() {
       setProjects(workspace.projects);
       setProjectId(workspace.project?.id || "");
       setThreadId(workspace.thread?.id || "");
-      setShowArchived(workspace.thread?.status === "archived");
+      setThreadListPane(workspace.thread?.status === "archived" ? "archived" : "active");
       setDetail(workspace.project);
       setThread(workspace.thread);
       setHealth(workspace.health);
@@ -804,9 +997,7 @@ export function WorkspaceApp() {
   useEffect(() => {
     const cached = projectCache.current.get(projectId);
     setDetail(cached || null);
-    setThreadId((current) => cached?.threads.some((t) => t.id === current && t.status === "active")
-      ? current
-      : cached?.threads.find((t) => t.status === "active")?.id || "");
+    setThreadId((current) => resolveProjectThreadId(cached?.threads || [], current));
     setRefs([]);
     setFolderRefs([]);
     setQuotedMessages([]);
@@ -827,12 +1018,11 @@ export function WorkspaceApp() {
         const target = pendingNotification.current;
         if (target?.projectId === projectId) {
           pendingNotification.current = null;
-          setThreadId(target.threadId || d.threads[0]?.id || "");
-          setShowArchived(!!d.threads.find((t) => t.id === target.threadId && t.status === "archived"));
+          const nextId = resolveProjectThreadId(d.threads, target.threadId || "");
+          setThreadId(nextId);
+          setThreadListPane(d.threads.find((t) => t.id === nextId)?.status === "archived" ? "archived" : "active");
         } else {
-          setThreadId((t) => d.threads.some((x) => x.id === t && x.status === "active")
-            ? t
-            : d.threads.find((x) => x.status === "active")?.id || "");
+          setThreadId((t) => resolveProjectThreadId(d.threads, t));
         }
       } catch (e) {
         const error = e as Error & { status?: number };
@@ -960,6 +1150,28 @@ export function WorkspaceApp() {
     void load();
     return () => { alive = false; clearTimeout(timer); };
   }, [selectedTaskId, taskDialogOpen]);
+  useEffect(() => {
+    setConversationTaskListOpen(false);
+    setConversationTaskSearch("");
+    setConversationTaskHighlightId("");
+    setConversationTaskMineOnly(true);
+  }, [threadId]);
+  useEffect(() => {
+    if (!conversationTaskListOpen) return;
+    const close = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      if (!conversationTaskPoolRef.current?.contains(event.target as Node)) {
+        setConversationTaskListOpen(false);
+        setConversationTaskSearch("");
+        setConversationTaskHighlightId("");
+      }
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [conversationTaskListOpen]);
+  useEffect(() => {
+    if (conversationTaskListOpen) conversationTaskSearchRef.current?.focus();
+  }, [conversationTaskListOpen]);
   const performTaskAction = async (action: () => Promise<unknown>, success = "操作成功") => {
     setTaskActionBusy(true);
     setTaskActionError("");
@@ -1036,19 +1248,63 @@ export function WorkspaceApp() {
     setError("");
     setModal(value);
   };
-  const copyConversationInfo = async () => {
-    if (!threadId || !projectId || thread?.id !== threadId || detail?.id !== projectId) return;
+  const focusNewThreadInput = () => {
+    railCreateRef.current?.blur();
+    newThreadInputRef.current?.focus({ preventScroll: true });
+  };
+  const openNewThreadPane = () => {
+    setNewThreadTitle("");
+    setThreadListPane("create");
+    setLeftOpen(true);
+  };
+  const cancelNewThread = () => {
+    setNewThreadTitle("");
+    setThreadListPane("active");
+  };
+  const submitNewThread = () =>
+    void run(async () => {
+      const title = newThreadTitle.trim();
+      if (!title) {
+        newThreadInputRef.current?.focus();
+        return;
+      }
+      if (!projectId) {
+        showTip("请先选择或导入项目", "error");
+        return;
+      }
+      if (!writable) {
+        showTip("当前项目无创建迭代权限", "error");
+        return;
+      }
+      const t = await api(`/projects/${projectId}/threads`, { title });
+      setNewThreadTitle("");
+      setThreadListPane("active");
+      setThreadId(t.id);
+      setDetail(await api(`/projects/${projectId}?view=chat`));
+      showTip("迭代已创建");
+    });
+  useLayoutEffect(() => {
+    if (!leftOpen || threadListPane !== "create") return;
+    const id = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => focusNewThreadInput());
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [leftOpen, threadListPane]);
+  const copyConversationInfo = async (target?: { id: string; title: string }) => {
+    const copyThreadId = target?.id ?? threadId;
+    const copyTitle = target?.title ?? thread?.title;
+    if (!copyThreadId || !projectId || detail?.id !== projectId) return;
     const info = formatMcpCopyPayload({
         server: `${location.origin}${health?.mcpEndpoint || "/mcp"}`,
         project: detail?.name,
         projectId,
-        iteration: thread?.title,
-        threadId,
+        iteration: copyTitle,
+        threadId: copyThreadId,
         instruction: MCP_CONVERSATION_COPY_INSTRUCTION,
       });
     try {
       await navigator.clipboard.writeText(info);
-      setCopiedThreadId(threadId);
+      setCopiedThreadId(copyThreadId);
       clearTimeout(conversationCopyTimer.current);
       conversationCopyTimer.current = setTimeout(() => setCopiedThreadId(""), 3000);
       showTip("会话信息已复制");
@@ -1056,6 +1312,56 @@ export function WorkspaceApp() {
       setError("无法自动复制会话信息，请检查剪贴板权限后重试。");
       showTip("无法自动复制会话信息，请检查剪贴板权限后重试。", "error");
     }
+  };
+  const archiveActiveThread = (target: { id: string }) =>
+    void run(async () => {
+      await api(`/threads/${target.id}/archive`, {});
+      if (threadId === target.id) setThreadListPane("archived");
+      threadCache.current.clear();
+      const nextDetail = await projectCache.current.read(
+        projectId,
+        (signal) => api(`/projects/${projectId}?view=chat`, undefined, undefined, signal),
+        true,
+      );
+      setDetail(nextDetail);
+      setThreadId((current) => resolveProjectThreadId(nextDetail.threads, current));
+      await refresh();
+      showTip("迭代已归档");
+    });
+  const restoreArchivedThread = (target: { id: string }) =>
+    void run(async () => {
+      await api(`/threads/${target.id}/restore`, {});
+      if (threadId === target.id) setThreadListPane("active");
+      threadCache.current.clear();
+      const nextDetail = await projectCache.current.read(
+        projectId,
+        (signal) => api(`/projects/${projectId}?view=chat`, undefined, undefined, signal),
+        true,
+      );
+      setDetail(nextDetail);
+      setThreadId((current) => resolveProjectThreadId(nextDetail.threads, current));
+      await refresh();
+      showTip("迭代已恢复");
+    });
+  const confirmDeleteArchivedThread = () => {
+    if (!threadDeleteConfirm) return;
+    const target = threadDeleteConfirm;
+    void run(async () => {
+      await api(`/threads/${target.id}`, undefined, "DELETE");
+      setThreadDeleteConfirm(null);
+      threadCache.current.clear();
+      const nextDetail = await projectCache.current.read(
+        projectId,
+        (signal) => api(`/projects/${projectId}?view=chat`, undefined, undefined, signal),
+        true,
+      );
+      setDetail(nextDetail);
+      setThreadId((current) =>
+        resolveProjectThreadId(nextDetail.threads, current === target.id ? "" : current),
+      );
+      await refresh();
+      showTip("迭代已删除");
+    });
   };
   const updateProjectTab = (
     id: string,
@@ -1127,21 +1433,6 @@ export function WorkspaceApp() {
         setProjects(await api("/projects"));
         setProjectId(p.id);
         showTip("项目已创建");
-      }
-      if (modal === "thread") {
-        const t = await api(`/projects/${projectId}/threads`, {
-          title: value("title"),
-        });
-        setThreadId(t.id);
-        setDetail(await api(`/projects/${projectId}?view=chat`));
-        showTip("迭代已创建");
-      }
-      if (modal === "archive") {
-        await api(`/threads/${threadId}/archive`, {
-          conclusion: value("conclusion"),
-        });
-        await refresh();
-        showTip("迭代已归档");
       }
       if (modal === "password") {
         await api("/password", {
@@ -1230,7 +1521,7 @@ export function WorkspaceApp() {
   const persistOptimisticMessage = async (
     targetThreadId: string,
     optimisticId: string,
-    payload: { body: string; refs: string[]; folderRefs?: string[]; quoteIds: string[]; clientMessageId: string },
+    payload: { body: string; refs: string[]; folderRefs?: string[]; quoteIds: string[]; clientMessageId: string; dialogueMode: DialogueMode },
     quotes: MessageQuote[],
   ) => {
     updateThreadCache(targetThreadId, current => ({ ...current, messages: current.messages.map(item =>
@@ -1291,6 +1582,7 @@ export function WorkspaceApp() {
       folderRefs: selectedFolderRefs,
       quoteIds: selectedQuotes.map((quote) => quote.id),
       clientMessageId: optimisticId.slice("optimistic:".length),
+      dialogueMode,
     }, selectedQuotes);
     return true;
   };
@@ -1418,28 +1710,52 @@ export function WorkspaceApp() {
   const threads = detail?.threads || [];
   const activeThreads = threads.filter((t) => t.status === "active");
   const archivedThreads = threads.filter((t) => t.status === "archived");
-  const renderThreadLink = (t: (typeof threads)[number]) => (
-    <button
-      key={t.id}
-      className={`thread-link ${threadId === t.id ? "selected" : ""}`}
-      onClick={() => setThreadId(t.id)}
-    >
-      <span>{t.status === "archived" ? <UiIcon name="archive" size={14} /> : <UiIcon name="chat" size={14} />}</span>
-      <span className="thread-card-body">
-        <strong>{t.title}</strong>
-        <span className="thread-card-meta">
-          <span>{t.creator}</span>
-          <time
-            dateTime={t.last_active_at?.replace(" ", "T") + "Z"}
-            title={localDate(t.last_active_at)}
-          >
-            活跃于 {relativeActivity(t.last_active_at, clock)}
-          </time>
-        </span>
-      </span>
-      {t.status === "archived" && <small className="ui-icon-text"><UiIcon name="archive" size={10} />归档</small>}
-    </button>
-  );
+  const renderThreadLink = (t: (typeof threads)[number]) => {
+    const selected = threadId === t.id;
+    const showArchive = t.status === "active" && writable;
+    const showArchivedActions = t.status === "archived" && writable;
+    const menuOpen = threadRowMenuId === t.id;
+    return (
+      <div
+        key={t.id}
+        className={`thread-row ${selected ? "selected" : ""}`}
+      >
+        <button
+          type="button"
+          className="thread-link"
+          onClick={() => {
+            setThreadId(t.id);
+            setThreadListPane(t.status === "archived" ? "archived" : "active");
+          }}
+        >
+          <span className="thread-card-body">
+            <strong>{t.title}</strong>
+            <span className="thread-card-meta">
+              <span>{t.creator}</span>
+              <time
+                dateTime={t.last_active_at?.replace(" ", "T") + "Z"}
+                title={localDate(t.last_active_at)}
+              >
+                活跃于 {relativeActivity(t.last_active_at, clock)}
+              </time>
+            </span>
+          </span>
+        </button>
+        <ThreadIterationMenu
+          open={menuOpen}
+          onOpenChange={(next) => setThreadRowMenuId(next ? t.id : null)}
+          showArchive={showArchive}
+          showArchivedActions={showArchivedActions}
+          busy={busy}
+          copyLabel={copiedThreadId === t.id ? "已复制" : "复制会话"}
+          onArchive={() => archiveActiveThread(t)}
+          onCopy={() => copyConversationInfo(t)}
+          onRestore={() => restoreArchivedThread(t)}
+          onDelete={() => setThreadDeleteConfirm({ id: t.id, title: t.title })}
+        />
+      </div>
+    );
+  };
   const startPanelDrag = (event: React.PointerEvent) => {
     event.preventDefault();
     const startX = event.clientX;
@@ -1649,7 +1965,7 @@ export function WorkspaceApp() {
           setProjects(target.projects);
           setProjectPickerOpen(false);
           if (target.projectId === projectId) {
-            if (target.threadId) { setThreadId(target.threadId); setShowArchived(true); }
+            if (target.threadId) { setThreadId(target.threadId); setThreadListPane("archived"); }
           } else {
             pendingNotification.current = target;
             setProjectId(target.projectId);
@@ -1695,36 +2011,65 @@ export function WorkspaceApp() {
           </button>
         </div>
         <div className="section-label">
-          <span className="sidebar-label">迭代讨论</span>
-          <button
-            className="sidebar-create"
-            title="新迭代"
-            aria-label="新迭代"
-            disabled={!projectId || !writable}
-            onClick={() => open("thread")}
-          >
-            <UiIcon name="send" size={18} />
-            <span className="sidebar-create-label">新迭代</span>
-          </button>
+          {leftOpen ? (
+            <div className="thread-list-capsule sidebar-label" role="group" aria-label="迭代列表">
+              <div className="thread-list-capsule-tabs" role="tablist" aria-label="迭代范围">
+                <button
+                  type="button"
+                  role="tab"
+                  className="thread-list-capsule-tab"
+                  aria-selected={threadListPane === "active"}
+                  onClick={() => setThreadListPane("active")}
+                >
+                  <UiIcon name="chat" size={11} />
+                  <span>活跃中</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className="thread-list-capsule-tab"
+                  aria-selected={threadListPane === "archived"}
+                  onClick={() => setThreadListPane("archived")}
+                >
+                  <UiIcon name="archive" size={11} />
+                  <span>已归档</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className="thread-list-capsule-tab"
+                  title="新迭代"
+                  aria-label="新迭代"
+                  aria-selected={threadListPane === "create"}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={openNewThreadPane}
+                >
+                  <UiIcon name="send" size={11} />
+                  <span className="sidebar-create-label">新迭代</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              ref={railCreateRef}
+              type="button"
+              className="sidebar-rail-thread-create"
+              title="新迭代"
+              aria-label="新迭代"
+              aria-pressed={threadListPane === "create"}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={openNewThreadPane}
+            >
+              <UiIcon name="send" size={18} />
+            </button>
+          )}
         </div>
-        <div
-          ref={threadViewportRef}
-          className={`thread-viewport${showArchived ? " is-archived-open" : ""}`}
-        >
-          <div
-            className="thread-track"
-            style={{
-              transform:
-                showArchived && threadPaneHeight
-                  ? `translateY(-${threadPaneHeight}px)`
-                  : "translateY(0)",
-            }}
-          >
+        <div className="thread-viewport" data-thread-list-pane={threadListPane}>
+          <div className="thread-track">
             <div
               className="thread-pane thread-pane-active"
-              style={threadPaneHeight ? { height: threadPaneHeight } : undefined}
-              aria-hidden={showArchived}
-              inert={showArchived ? true : undefined}
+              aria-hidden={threadListPane !== "active"}
+              inert={threadListPane !== "active" ? true : undefined}
             >
               <nav aria-label="活跃迭代">
                 {activeThreads.map(renderThreadLink)}
@@ -1737,22 +2082,11 @@ export function WorkspaceApp() {
                 )}
               </nav>
             </div>
-            <button
-              ref={archiveToggleRef}
-              className="archive-toggle"
-              type="button"
-              aria-expanded={showArchived}
-              aria-controls="archived-thread-list"
-              onClick={() => setShowArchived(!showArchived)}
-            >
-              <UiIcon name="archive" size={13} /> {showArchived ? "隐藏已归档" : "查看已归档"}
-            </button>
             <div
               className="thread-pane thread-pane-archived"
               id="archived-thread-list"
-              style={threadPaneHeight ? { height: threadPaneHeight } : undefined}
-              aria-hidden={!showArchived}
-              inert={showArchived ? undefined : true}
+              aria-hidden={threadListPane !== "archived"}
+              inert={threadListPane !== "archived" ? true : undefined}
             >
               <nav aria-label="已归档迭代">
                 {archivedThreads.map(renderThreadLink)}
@@ -1762,6 +2096,45 @@ export function WorkspaceApp() {
                   </p>
                 )}
               </nav>
+            </div>
+            <div
+              className="thread-pane thread-pane-create"
+              aria-hidden={threadListPane !== "create"}
+              inert={threadListPane !== "create" ? true : undefined}
+            >
+              <div className="thread-create-pane">
+                <div className="thread-create-card" aria-label="发起新迭代">
+                  <label className="thread-create-field">
+                    <input
+                      ref={newThreadInputRef}
+                      type="text"
+                      name="title"
+                      aria-label="迭代主题"
+                      value={newThreadTitle}
+                      onChange={(event) => setNewThreadTitle(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          submitNewThread();
+                        }
+                        if (event.key === "Escape") cancelNewThread();
+                      }}
+                      maxLength={160}
+                      placeholder="输入新迭代主题"
+                      disabled={busy}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <div className="thread-create-actions">
+                    <button type="button" disabled={busy} onClick={cancelNewThread}>
+                      取消
+                    </button>
+                    <button type="button" className="primary" disabled={busy} onClick={submitNewThread}>
+                      {busy ? "正在处理…" : "确认"}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1788,18 +2161,16 @@ export function WorkspaceApp() {
             <span className="sidebar-card-copy">小祥监控<small>调度、执行与知识整理</small></span>
             <span className="sidebar-card-action" aria-hidden="true">›</span>
           </button>
-          <button
-            type="button"
-            className="sidebar-card sidebar-workbench"
-            title="小程序云开发工作台：预览、云数据库、云存储、云函数与生产发布"
-            aria-label="小程序云开发"
-            disabled={!projectId}
-            onClick={() => setWorkbenchOpen(true)}
-          >
-            <span className="sidebar-card-icon"><UiIcon name="smartphone" size={16} /></span>
-            <span className="sidebar-card-copy">小程序云开发<small>预览、云资源与发布</small></span>
-            <span className="sidebar-card-action" aria-hidden="true">›</span>
-          </button>
+          <ConnectorPanel
+            variant="sidebar"
+            devices={connectors}
+            availability={connectorAvailability}
+            projectId={projectId}
+            currentUserId={user.id}
+            available={localAvailable}
+            api={api}
+            onRefresh={refreshConnectors}
+          />
           <button
             className="sidebar-card sidebar-profile"
             title={`${user.name} · 设置`}
@@ -1850,7 +2221,7 @@ export function WorkspaceApp() {
         {fileDragOver && (
           <div className="chat-drop-hint">松开以上传至项目缓存（今日日期文件夹）</div>
         )}
-        <header>
+        <header className="workspace-top-strip">
           <div className="conversation-heading">
             {thread && <span className="conversation-log-group">
               <div className="conversation-views" role="tablist" aria-label="会话视图">
@@ -1922,7 +2293,7 @@ export function WorkspaceApp() {
                   <h1>先从一轮讨论开始吧</h1>
                 </div>
                 <p>为这个项目发起一次新的讨论。</p>
-                <button className="primary" onClick={() => open("thread")}>
+                <button className="primary" onClick={openNewThreadPane}>
                   <UiIcon name="plus" size={14} />发起新迭代
                 </button>
               </>
@@ -1996,9 +2367,11 @@ export function WorkspaceApp() {
               {thread.archive_snapshot && (
                 <div className="archive-card">
                   <span className="eyebrow">迭代归档</span>
-                  <h3>这一轮，已有结论</h3>
-                  <p>{thread.archive_snapshot.conclusion}</p>
-                  <small>讨论、审核与引用的历史版本已固定保存。</small>
+                  <h3>本迭代已归档</h3>
+                  {thread.archive_snapshot.conclusion ? (
+                    <p>{thread.archive_snapshot.conclusion}</p>
+                  ) : null}
+                  <small>讨论、审核与引用的历史版本已固定保存；项目长期总结由 L1 异步整理。</small>
                 </div>
               )}
               {thread.page?.hasMore && <button type="button" disabled={historyLoading} onClick={() => void loadHistory()}><UiIcon name="history" size={13} />{historyLoading ? "正在加载历史消息…" : "加载更早的消息"}</button>}
@@ -2206,28 +2579,128 @@ export function WorkspaceApp() {
             </div>
             <div className="composer-area" ref={composerAreaRef}>
               <div className="composer-toolbar">
-                <div className="conversation-task-pool" role="group" aria-label="本迭代与我有关的任务" onClick={() => {
-                  setTaskMine(true); setSelectedTaskId(""); setTaskDetail(null); openTaskDialog();
-                }}>
-                  <button type="button" className="conversation-task-pool-label"><UiIcon name="task" size={13} />任务</button>
-                  {latestMyTask ? <button type="button" className="conversation-task-item" data-status={latestMyTask.status}
-                    title={latestMyTask.title} onClick={(event) => { event.stopPropagation(); setTaskMine(true); openTask(latestMyTask.id); }}>
-                    <i aria-hidden="true" /><strong>{latestMyTask.title}</strong>
-                  </button> : <span className="conversation-task-empty">暂无与我有关的任务</span>}
-                </div>
-                <div className="composer-actions" role="group" aria-label="迭代操作">
-                  {active && (
-                    <button
-                      disabled={!active || busy}
-                      title="基于助手已有上下文梳理讨论"
-                      onClick={() => { setMessage(SUMMARY_REQUEST); requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus()); }}
+                <div
+                  className="conversation-task-pool-wrap"
+                  ref={conversationTaskPoolRef}
+                >
+                  <div
+                    className="conversation-task-pool"
+                    data-expanded={conversationTaskListOpen ? "true" : undefined}
+                    role={conversationTaskListOpen ? undefined : "button"}
+                    tabIndex={conversationTaskListOpen ? undefined : 0}
+                    aria-expanded={conversationTaskListOpen}
+                    aria-label="本迭代与我有关的任务"
+                    onClick={conversationTaskListOpen ? undefined : () => openConversationTaskList()}
+                    onKeyDown={conversationTaskListOpen ? undefined : (event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      openConversationTaskList();
+                    }}
+                  >
+                    <span
+                      className="conversation-task-pool-head"
+                      onClick={conversationTaskListOpen ? (event) => event.stopPropagation() : undefined}
                     >
-                      <UiIcon name="sparkle" size={13} /> 梳理讨论
-                    </button>
-                  )}
-                  {active && (
-                    <button onClick={() => open("archive")}><UiIcon name="archive" size={13} />归档迭代</button>
-                  )}
+                      <span
+                        className="conversation-task-pool-label"
+                        onClick={conversationTaskListOpen ? (event) => {
+                          event.stopPropagation();
+                          closeConversationTaskList();
+                        } : undefined}
+                      >
+                        <UiIcon name={conversationTaskListOpen ? "chevronDown" : "chevronUp"} size={13} />
+                        任务
+                      </span>
+                      {conversationTaskListOpen ? (
+                        <label className="conversation-task-mine-filter" title="只看我的任务">
+                          <input
+                            type="checkbox"
+                            checked={conversationTaskMineOnly}
+                            aria-label="只看我的任务"
+                            onChange={(event) => {
+                              const mineOnly = event.target.checked;
+                              setConversationTaskMineOnly(mineOnly);
+                              const source = mineOnly ? currentMyTasks : currentThreadTasks;
+                              const latest = [...source].sort((left, right) =>
+                                new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())[0];
+                              setConversationTaskHighlightId(latest?.id ?? "");
+                            }}
+                          />
+                          <span>我的</span>
+                        </label>
+                      ) : null}
+                    </span>
+                    {conversationTaskListOpen ? (
+                      <input
+                        ref={conversationTaskSearchRef}
+                        type="search"
+                        className="conversation-task-search"
+                        placeholder="搜索编号或标题"
+                        value={conversationTaskSearch}
+                        aria-label="搜索任务编号或标题"
+                        onChange={(event) => setConversationTaskSearch(event.target.value)}
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      />
+                    ) : latestMyTask ? (
+                      <span
+                        className="conversation-task-preview"
+                        data-status={latestMyTask.status}
+                        title={latestMyTask.title}
+                      >
+                        <span className="conversation-task-list-status" aria-hidden="true">
+                          <i />
+                        </span>
+                        <span className="conversation-task-list-main">
+                          <span className="conversation-task-list-number">
+                            {formatTaskThreadNumber(latestMyTask.thread_number)}
+                          </span>
+                          <strong>{latestMyTask.title}</strong>
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="conversation-task-empty">暂无与我有关的任务</span>
+                    )}
+                  </div>
+                  {conversationTaskListOpen ? (
+                    <div className="conversation-task-list" role="list">
+                      {filteredConversationMyTasks.map((task) => (
+                        <button
+                          type="button"
+                          role="listitem"
+                          className="conversation-task-list-item"
+                          data-status={task.status}
+                          aria-current={conversationTaskHighlightId === task.id ? "true" : undefined}
+                          key={task.id}
+                          title={task.title}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            closeConversationTaskList();
+                            setTaskMine(true);
+                            openTask(task.id);
+                          }}
+                        >
+                          <span className="conversation-task-list-status" aria-hidden="true">
+                            <i />
+                          </span>
+                          <span className="conversation-task-list-main">
+                            <span className="conversation-task-list-number">
+                              {formatTaskThreadNumber(task.thread_number)}
+                            </span>
+                            <strong>{task.title}</strong>
+                          </span>
+                        </button>
+                      ))}
+                      {!conversationMyTasks.length && (
+                        <p className="conversation-task-list-empty">
+                          {conversationTaskMineOnly ? "暂无与我有关的任务" : "当前迭代暂无任务"}
+                        </p>
+                      )}
+                      {conversationMyTasks.length && !filteredConversationMyTasks.length && (
+                        <p className="conversation-task-list-empty">没有匹配的任务</p>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               </div>
               {active ? (
@@ -2252,18 +2725,9 @@ export function WorkspaceApp() {
                   currentUserId={user.id}
                   busy={busy}
                   uploadTarget={uploadTarget}
-                  copyLabel={copiedThreadId === threadId ? "已复制" : "复制会话"}
-                  connectorControl={<ConnectorPanel
-                    devices={connectors}
-                    availability={connectorAvailability}
-                    projectId={projectId}
-                    currentUserId={user.id}
-                    available={localAvailable}
-                    api={api}
-                    onRefresh={refreshConnectors}
-                  />}
-                  onCopyConversation={() => void copyConversationInfo()}
                   onRefresh={refresh}
+                  dialogueMode={dialogueMode}
+                  onDialogueModeChange={applyDialogueMode}
                   onSend={async () => {
                     const targetThreadId = threadId;
                     const body = message;
@@ -2283,22 +2747,6 @@ export function WorkspaceApp() {
                   {thread.status === "archived"
                     ? "此迭代已归档。历史讨论与文档可以继续查阅，也可以引用到新的迭代。"
                     : "你正在以只读成员身份查看此迭代。"}
-                  <div className="composer-tools">
-                    <ConnectorPanel
-                      devices={connectors}
-                      availability={connectorAvailability}
-                      projectId={projectId}
-                      currentUserId={user.id}
-                      available={localAvailable}
-                      api={api}
-                      onRefresh={refreshConnectors}
-                    />
-                    <span className="composer-tools-split" aria-hidden="true" />
-                    <button type="button" className="composer-connector" onClick={() => void copyConversationInfo()}>
-                      <UiIcon name="copy" size={15} />
-                      {copiedThreadId === threadId ? "已复制" : "复制会话"}
-                    </button>
-                  </div>
                 </div>
               )}
             </div>
@@ -2331,7 +2779,28 @@ export function WorkspaceApp() {
         >
           <UiIcon name="close" size={12} />
         </button>
-        {projectId && (
+        {projectId && threadId && (
+          <ContextPanelModeSwitch
+            dialogueMode={dialogueMode}
+            onSelect={applyContextPanelMode}
+            documentFullscreen={documentFullscreen}
+            onDocumentFullscreenChange={handleDocumentFullscreenChange}
+          />
+        )}
+        {projectId && dialogueMode === "cloudbase" ? (
+          <Suspense fallback={<p className="muted">正在加载小程序云开发…</p>}>
+            <div className="library-embedded miniprogram-sidebar-embedded doc-browser-shell">
+              <MiniProgramWorkspace
+                projectId={projectId}
+                request={apiFetch}
+                writable={writable}
+                currentUserId={user.id}
+                owner={owner}
+                embeddedInSidebar
+              />
+            </div>
+          </Suspense>
+        ) : projectId ? (
           <Suspense fallback={<p className="muted">正在加载文件树…</p>}>
             <Documents
               key={projectId}
@@ -2348,12 +2817,10 @@ export function WorkspaceApp() {
               organizationJobs={detail?.documentOrganizationJobs || []}
               codeSourcesTick={codeSourcesTick}
               selected={documentId}
+              documentFocus={documentFocus}
               onSelect={setDocumentId}
               documentFullscreen={documentFullscreen}
-              onDocumentFullscreenChange={(fullscreen) => {
-                setDocumentFullscreen(fullscreen);
-                if (fullscreen) setContextOpen(true);
-              }}
+              onDocumentFullscreenChange={handleDocumentFullscreenChange}
               onRefresh={async () => {
                 const library = await api(`/projects/${projectId}/library`);
                 const applyLibrary = (previous: Detail | undefined | null) => {
@@ -2409,7 +2876,7 @@ export function WorkspaceApp() {
               }
             />
           </Suspense>
-        )}
+        ) : null}
       </aside>
       {taskDialogOpen && <ModalBackdrop onClose={() => { closeTaskCreate(); setTaskDialogOpen(false); }} enabled={!taskCreateOpen}>
         {(close) => <section className="task-pool-dialog" role="dialog" aria-modal="true" aria-labelledby="task-pool-dialog-title" onClick={(event) => event.stopPropagation()}>
@@ -2635,19 +3102,6 @@ export function WorkspaceApp() {
         />
         </Suspense>
       )}
-      {workbenchOpen && projectId && (
-        <Suspense fallback={null}>
-          <MiniProgramWorkbench
-            key={projectId}
-            projectId={projectId}
-            request={apiFetch}
-            writable={writable}
-            currentUserId={user.id}
-            owner={owner}
-            onClose={() => setWorkbenchOpen(false)}
-          />
-        </Suspense>
-      )}
       {monitorOpen && projectId && (
         <Suspense fallback={null}>
         <AgentMonitor
@@ -2692,10 +3146,8 @@ export function WorkspaceApp() {
                 {
                   {
                     project: "创建项目",
-                    thread: "发起迭代",
                     profile: "个人设置",
                     settings: "个人设置",
-                    archive: "归档本次迭代",
                     password: "个人设置",
                     email: "个人设置",
                     mcp: "个人设置",
@@ -2836,35 +3288,6 @@ export function WorkspaceApp() {
                     </label>
                   </>
                 )}
-                {modal === "thread" && (
-                  <label>
-                    这次迭代的主题
-                    <input
-                      name="title"
-                      maxLength={160}
-                      autoFocus
-                      required
-                      placeholder="例如：v0.1 · 协作闭环"
-                    />
-                  </label>
-                )}
-                {modal === "archive" && (
-                  <>
-                    <p>
-                      保存这一轮的结论、完整讨论、审核记录和引用版本；本迭代沙箱产物中已确认的最新版本将自动另存至正式文件（名称后带版本号，不含对话缓存）。归档后不可继续修改。
-                    </p>
-                    <label>
-                      验收与归档结论
-                      <textarea
-                        name="conclusion"
-                        autoFocus
-                        required
-                        maxLength={20000}
-                        placeholder="完成了什么？确认了哪些结果？哪些问题留给下一轮？"
-                      />
-                    </label>
-                  </>
-                )}
                 {modal === "password" && (
                   <>
                     <div className="settings-identity">
@@ -2914,7 +3337,7 @@ export function WorkspaceApp() {
                     {error}
                   </div>
                 )}
-                {(modal === "profile" || modal === "password" || modal === "project" || modal === "thread" || modal === "archive" || modal === "run") && (
+                {(modal === "profile" || modal === "password" || modal === "project" || modal === "run") && (
                 <div className="modal-footer">
                   {!["profile", "password"].includes(modal) && (
                     <button
@@ -2927,14 +3350,8 @@ export function WorkspaceApp() {
                     </button>
                   )}
                   <button className="primary" disabled={busy}>
-                    <UiIcon name={busy ? "running" : modal === "archive" ? "archive" : "save"} size={13} />
-                    {busy
-                      ? "正在处理…"
-                      : modal === "profile"
-                        ? "保存资料"
-                        : modal === "archive"
-                          ? "确认归档"
-                          : "确认"}
+                    <UiIcon name={busy ? "running" : "save"} size={13} />
+                    {busy ? "正在处理…" : modal === "profile" ? "保存资料" : "确认"}
                   </button>
                 </div>
                 )}
@@ -2943,6 +3360,17 @@ export function WorkspaceApp() {
           </section>}
         </ModalBackdrop>
       )}
+      {threadDeleteConfirm ? (
+        <DeleteConfirmDialog
+          title="删除已归档迭代"
+          body={`将永久删除「${threadDeleteConfirm.title}」及其讨论、文档与执行记录，且无法恢复。`}
+          confirmLabel="确认删除"
+          danger
+          confirmDisabled={busy}
+          onClose={() => setThreadDeleteConfirm(null)}
+          onConfirm={confirmDeleteArchivedThread}
+        />
+      ) : null}
     </div>
   );
 }

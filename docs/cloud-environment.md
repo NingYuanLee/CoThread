@@ -27,7 +27,7 @@
 
 新版本解压到 `/opt/cothread/releases/<id>`，在临时端口探活 `/api/health`；**通过后**才把 `/opt/cothread/current` 原子切到新目录并 `systemctl restart cothread`。探活失败则删除本轮 release，`current` 与线上进程不动。共享 `.env`、`.local` 在 `/opt/cothread/`，不随 release 覆盖。
 
-本地：`npm run build && node scripts/ecs-pack.mjs` → 把 tgz 与 `scripts/ecs-promote.sh` 放到机器后执行 `RELEASE_TGZ=... bash scripts/ecs-promote.sh`。
+本地：配置 `.env.deploy.local`（可复制 `.env.deploy.local.example`）后执行 `npm run deploy:ecs`（等同 `build` + `ecs-pack`，并写入 `.code_deploy/last-deploy.json`）。再用 Cursor 阿里云 MCP `OOS_CodeDeploy` 按清单上传，或在 ECS 上 `RELEASE_TGZ=... bash scripts/ecs-promote.sh`。仅打包可加 `--pack-only`。
 
 本地 `.env` 仅保留 `.env.example` 中列出的必要项。监听 `0.0.0.0:3100`、站点 `https://cothread.z2l.top`、HTTPS 时 Secure Cookie 已在代码写死，不必再配。
 

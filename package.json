@@ -11,6 +11,7 @@
     "dev:stop": "node --env-file-if-exists=.env scripts/dev.js --stop",
     "dev:static": "node --env-file=.env server/index.js --production",
     "build": "tsc --noEmit && vite build",
+    "deploy:ecs": "node --env-file-if-exists=.env.deploy.local scripts/ecs-deploy.mjs",
     "connector:build": "node --env-file-if-exists=.env scripts/build-connector.mjs",
     "start": "node --env-file-if-exists=.env server/index.js --production",
     "db:migrate": "node --env-file-if-exists=.env scripts/migrate.js",

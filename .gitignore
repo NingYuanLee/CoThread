@@ -5,6 +5,7 @@ dist-connector/
 .env
 .env.*
 !.env.example
+!.env.deploy.local.example
 .local/
 *.log
 coverage/

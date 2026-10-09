@@ -5,7 +5,7 @@
 <script>document.documentElement.classList.add("js");</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>共序 CoThread · 让每次讨论都有承接，让每个决定都有出处</title>
-<meta name="description" content="共序 CoThread —— 面向小团队的协作工作台。项目是长期工作空间，一次迭代对应一个群聊；文档浏览器管成果，小祥执行任务，人工审核后归档。">
+<meta name="description" content="共序 CoThread —— 面向小团队的协作工作台。项目是长期工作空间，一次迭代对应一个群聊；文档与云开发侧栏管成果，小祥 L2 调度与子 Agent 执行，人工审核后归档。">
 <style>
   :root{
     --bg:#070a12;
@@ -158,6 +158,8 @@
     <ul>
       <li><a href="#about">产品</a></li>
       <li><a href="#workspace">工作台</a></li>
+      <li><a href="#dialogue">对话模式</a></li>
+      <li><a href="#cloudbase">小程序云开发</a></li>
       <li><a href="#features">能力</a></li>
       <li><a href="#flow">流程</a></li>
       <li><a href="#arch">架构</a></li>
@@ -176,7 +178,7 @@
     <p class="lead">
       共序把讨论、执行和文档版本绑在同一条时间线上。
       一次部署就是一家公司（服务独立、数据库隔离）；公司下管项目，项目下管迭代，迭代下管任务。
-      一次迭代就是一个群聊；右侧文档浏览器管正式文件、缓存与产物。
+      一次迭代就是一个群聊，可选三种对话模式；右侧在文档库与小程序云开发工作台之间切换。
       内置助手「小祥」在沙箱里干活，人工审核之后归档——结论和出处一起留下。
     </p>
     <div class="btns">
@@ -222,14 +224,58 @@
     <div class="reveal">
       <div class="kicker">Workspace</div>
       <h2>打开项目以后</h2>
-      <p class="sub">三栏各司其职：左侧收纳项目与人，中间把事聊清楚，右侧永远是文件而不是成员面板。侧栏可以收缩，把宽度留给讨论和预览。</p>
+      <p class="sub">三栏各司其职：左侧收纳项目与人，中间把事聊清楚，右侧在「标准文档库」与「小程序云开发」之间切换。侧栏可收缩或全屏预览。</p>
     </div>
     <div class="flow">
-      <div class="step reveal"><div class="n">左侧</div><h3>迭代与项目管理</h3><p>列出当前项目的迭代讨论，可查看已归档。底部打开「项目管理」（人类成员、连接器、项目级 Agent）和「小祥 Agent 监控」（L1 / L2 / L3）。</p></div>
-      <div class="step reveal"><div class="n">中间</div><h3>迭代群聊</h3><p>默认勾选「交给 Agent 处理」。可引用精确文档版本、把附件丢进当天对话缓存目录，看执行过程并停止或重试。</p></div>
-      <div class="step reveal"><div class="n">右侧</div><h3>文档浏览器</h3><p>一棵树看本项目共享的正式文件、对话缓存与沙箱产物。点选即可预览 Markdown、代码、图片、PDF 以及 Word / Excel / PowerPoint。</p></div>
+      <div class="step reveal"><div class="n">左侧</div><h3>迭代与项目管理</h3><p>列出当前项目的迭代讨论，可查看已归档。底部打开「项目管理」（人类成员、连接器、项目级 Agent）和「小祥 Agent 监控」（L1、L2 与子 Agent）。</p></div>
+      <div class="step reveal"><div class="n">中间</div><h3>迭代群聊</h3><p>输入框可选对话模式（自由发言 / 有问必答 / 小程序云开发）。可引用文件版本或文件夹、上传当天对话缓存，看小祥执行过程并停止或重试；群顶可查看二级上下文用量与压缩。</p></div>
+      <div class="step reveal"><div class="n">右侧</div><h3>文档与云开发</h3><p>标准模式：一棵树浏览正式文件、对话缓存与沙箱产物，预览 Markdown、代码、图片、PDF 与 Office。云开发模式：Dimina/Admin 预览、云数据库、云存储、云函数与发布（需在项目管理配置小程序）。</p></div>
       <div class="step reveal"><div class="n">边界</div><h3>谁能改什么</h3><p>缓存只来自对话框或 MCP 上传；产物只由 Agent 生成（含按缓存修改后的结果）。人不能在这两区直接改内容，可查看、引用、下载、审核、重命名、回收。「需要修改」会弹窗填意见后发到当前群聊。</p></div>
     </div>
+  </section>
+
+  <section id="dialogue" class="wrap">
+    <div class="reveal">
+      <div class="kicker">Dialogue mode</div>
+      <h2>三种对话模式</h2>
+      <p class="sub">在迭代群聊输入框左下角「+」选择。每个迭代单独记忆（本浏览器本地保存）；你发出的消息会带上当前模式，小祥按模式决定是否必回、能否改文件/开任务，以及是否按云开发语境理解需求。非默认模式时输入框旁会显示彩色标签，可一键恢复「自由发言」。</p>
+    </div>
+    <div class="cards g3">
+      <div class="card reveal">
+        <div class="ico">👥</div>
+        <h3>自由发言</h3>
+        <p>日常协作默认项。多人讨论时未 @ 小祥 可先沉默；@ 小祥、两人项目、点名与若干硬规则会触发回复。可创建任务、写文档、跑沙箱与完整工具链。</p>
+        <span class="tag">按需参与</span>
+      </div>
+      <div class="card reveal">
+        <div class="ico">💬</div>
+        <h3>有问必答</h3>
+        <p>每条成员消息都会得到回复，适合答疑、读资料、对口径。助手只能查询与说明，不能创建/更新任务，不能改文档库、沙箱产物或云资源。</p>
+        <span class="tag">必回 · 只读</span>
+      </div>
+      <div class="card reveal">
+        <div class="ico">📱</div>
+        <h3>小程序云开发</h3>
+        <p>讨论微信小程序与腾讯云开发（云函数、云数据库、云存储、预览与发布）时选用。自动打开右侧云开发工作台，并为小祥注入云开发导向说明；须在项目管理完成小程序配置与连接测试。</p>
+        <span class="tag">联动右侧栏</span>
+      </div>
+    </div>
+    <p class="note">细则（必回/可沉默规则、与右侧栏切换关系）见 <a href="/docs.html#dialogue-mode">文档 · 对话模式</a>。</p>
+  </section>
+
+  <section id="cloudbase" class="wrap">
+    <div class="reveal">
+      <div class="kicker">WeChat · CloudBase</div>
+      <h2>小程序云开发工作台</h2>
+      <p class="sub">面向把小程序源码放在共序文档库、云端由小祥改代码并操作 CloudBase 的团队。配置在项目级一次完成；迭代里用「小程序云开发」对话模式或右侧「小程序云开发」页签进入同一套面板。</p>
+    </div>
+    <div class="flow">
+      <div class="step reveal"><div class="n">配置</div><h3>项目管理</h3><p>「小程序与云开发」：填写 AppID、默认预览页、开发/生产环境 ID 与 Publishable Key；加密保存上传私钥与 CloudBase API 凭据；可做连接测试与身份认证（匿名/账号登录、Admin 首个账号）。</p></div>
+      <div class="step reveal"><div class="n">右侧</div><h3>六个面板</h3><p>Dimina 预览、Admin 预览、云数据库、云存储、云函数、生产发布——在浏览器里看效果、查数据、管函数与发布，不必来回切微信开发者工具网页。</p></div>
+      <div class="step reveal"><div class="n">群聊</div><h3>与小祥协作</h3><p>云开发模式下 @ 小祥 可派子 Agent 改小程序相关文件并调用受控云开发工具（查库、写库、云函数、云存储等）。密钥不出群聊，只由服务端按项目配置解密使用。</p></div>
+      <div class="step reveal"><div class="n">边界</div><h3>仍需本地工具的场景</h3><p>连接测试会校验 CloudBase 与预览码，不代替真机全部权限。复杂调试仍可用本地执行器 + 微信开发者工具；共序侧重资料、讨论与云端执行在同一工作台闭环。</p></div>
+    </div>
+    <p class="note">逐步配置说明见 <a href="/docs.html#miniprogram">文档 · 小程序云开发</a>。</p>
   </section>
 
   <!-- 能力 -->
@@ -243,7 +289,7 @@
       <div class="card reveal">
         <div class="ico">🔐</div>
         <h3>成员与权限</h3>
-        <p>账号名或已绑定邮箱登录。公司级成员管理只有人类（含超管）。项目成员是本项目人类及其本地执行器，加上项目级 Agent（L1）；权限按项目分配负责人 / 成员 / 只读。</p>
+        <p>账号名或已绑定邮箱登录。公司级成员管理只有人类（含超管）。项目成员是本项目人类、其本地执行器，以及项目级 Agent（L1 老翁、L2 小祥）；权限按项目分配负责人 / 成员 / 只读。L2 是项目内同一角色，各迭代独立会话。</p>
         <span class="tag">Agent 不进公司目录</span>
       </div>
       <div class="card reveal">
@@ -260,8 +306,8 @@
       </div>
       <div class="card reveal">
         <div class="ico">🤖</div>
-        <h3>小祥：一个身份，三层干活</h3>
-        <p>对用户始终是「小祥」。L1 挂在项目（知识库），L2 挂在迭代（调度），L3 挂在任务（执行槽）。同时最多 7 个执行任务加 1 个接待名额。</p>
+        <h3>小祥：对外一个名字，对内分工</h3>
+        <p>群聊里 @ 的是小祥（L2 调度）。L1「老翁」在后台维护知识库与归档总结；重活由 L2 派给最多 7 个并行子 Agent。多人讨论默认按需参与，未 @ 时可沉默；「有问必答」模式则必回且仅只读查询。</p>
         <span class="tag">监控页可看内部职责</span>
       </div>
       <div class="card reveal">
@@ -273,7 +319,7 @@
       <div class="card reveal">
         <div class="ico">🧰</div>
         <h3>MCP 与本机 Agent</h3>
-        <p>7 个 Streamable HTTP 工具让成员本地 AI 读上下文、发消息、提交产物。Windows 本地执行器属于项目人类成员，把确认后的任务交给本机 Cursor / Codex / Claude Code 会话与 Git。</p>
+        <p>Streamable HTTP MCP 让成员本地 AI 读上下文、发消息、管文档与任务。Windows 本地执行器属于项目人类成员，把确认后的任务交给本机 Cursor / Codex / Claude Code 会话与 Git。</p>
         <span class="tag">Bearer 账号令牌</span>
       </div>
       <div class="card reveal">
@@ -284,9 +330,9 @@
       </div>
       <div class="card reveal">
         <div class="ico">✨</div>
-        <h3>梳理讨论</h3>
-        <p>在输入框预填一条基于助手已有上下文的请求，成员发送后按普通 @ 小祥处理，不再弹出消息条数选择，也不要求重新读完整会话。</p>
-        <span class="tag">走群聊，不另开通道</span>
+        <h3>快捷入口与引用</h3>
+        <p>「帮我梳理群聊」「帮我创建任务」预填 @小祥 请求。消息可引用文件版本或文件夹（folderRefs）；MCP 同样支持。梳理走群聊，不另开通道。</p>
+        <span class="tag">精确版本 + 文件夹</span>
       </div>
       <div class="card reveal">
         <div class="ico">🖥️</div>
@@ -306,7 +352,7 @@
     </div>
     <div class="flow">
       <div class="step reveal"><div class="n">STEP 01</div><h3>讨论与澄清</h3><p>在迭代群聊里提出需求、@ 小祥或交给本机 Agent，引用已有版本。上下文由消息序号和引用关系固定下来。</p></div>
-      <div class="step reveal"><div class="n">STEP 02</div><h3>小祥执行</h3><p>二级判断是否开跑；三级在独立沙箱里改文件、跑命令。忙时会明说暂时只陪聊，不会把请求悄悄排队。</p></div>
+      <div class="step reveal"><div class="n">STEP 02</div><h3>小祥执行</h3><p>L2 判断是否开跑并派子 Agent；子 Agent 在独立沙箱改文件、跑命令，HTML 等可视化产物需截图验收。忙时会说明，重活需明确 @小祥 进入完整调度。</p></div>
       <div class="step reveal"><div class="n">STEP 03</div><h3>发布沙箱产物</h3><p>云端 Agent 成果进入项目沙箱产物（含 SHA-256）。对话附件只进缓存，正式文件独立上传。本地 AI 令牌不能审批，也不能归档。</p></div>
       <div class="step reveal"><div class="n">STEP 04</div><h3>人工审核归档</h3><p>确认或「需要修改」（弹窗说明后发到当前群聊）。归档后本迭代锁定，已确认产物另存正式文件；文档库仍给后续迭代共用。</p></div>
     </div>
@@ -328,7 +374,7 @@
       <div class="card reveal">
         <div class="ico">👥</div>
         <h3>角色层级</h3>
-        <p>成员管理仅人类（含超管）。项目成员：本项目人类、其本地执行器、L1。迭代成员：本项目人类、本迭代 L2、任务级 L3。聊天里对外仍是小祥。</p>
+        <p>成员管理仅人类（含超管）。项目成员：人类、本地执行器、L1 与 L2。子 Agent 隶属于 L2，不单独列成员；对外聊天身份仍是小祥。</p>
       </div>
     </div>
     <div class="arch">
@@ -382,8 +428,6 @@ scripts/           迁移、ECS 发布与打包
         <pre><span class="c"># 初始化与启动</span>
 npm install
 npm run setup
-npm run mysql:start
-npm run db:migrate
 npm run dev
 
 <span class="c"># 打开 http://localhost:3100</span>
@@ -416,7 +460,7 @@ npm run dev
         <ul class="list no" style="margin-top:6px">
           <li>SSO、邮件邀请入项目</li>
           <li>推送通知、全文搜索</li>
-          <li>文件在线编辑（可预览）、对象存储</li>
+          <li>文件在线编辑、对象存储</li>
           <li>多实例作业调度</li>
         </ul>
       </div>

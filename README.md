@@ -2,7 +2,7 @@
 
 让每次讨论都有承接，让每个决定都有出处。
 
-共序是面向小团队的协作工作台。一次部署对应一家公司：服务独立、数据库隔离。成员在迭代群聊里讨论、引用精确文档版本、把任务交给内置助手「小祥」或本机 Agent。线上试用：[https://cothread.z2l.top](https://cothread.z2l.top)。
+共序是面向小团队的协作工作台。一次部署对应一家公司：服务独立、数据库隔离。成员在迭代群聊里讨论、引用精确文档版本与文件夹，把重活交给内置助手「小祥」（L2 调度 + 子 Agent 执行）或本机 Agent。输入框可选对话模式（自由发言 / 有问必答只读 / 小程序云开发）。线上试用：[https://cothread.z2l.top](https://cothread.z2l.top)。
 
 | 入口 | 定位 | 打开 |
 |------|------|------|
@@ -39,6 +39,7 @@ npm test                 # 须独立测试库（TEST_DATABASE_HOST_* + TEST_DATA
 npm run db:backup
 npm run db:restore-check
 npm run connector:build
+npm run setup:preview-browser   # Agent 视觉验收（HTML/文档预览截图）所需 Chromium
 ```
 
 也可用 `compose.yaml` 跑官方 `mysql:8.4.9`。不要同时让 Docker 与便携版占用 3307。
@@ -47,7 +48,7 @@ npm run connector:build
 
 ## 接下来看 Docs
 
-工作台怎么摆、文档三区、分片上传与 SHA-256、MCP 工具、连接器和服务器部署，都在 **`/docs.html`**（左侧目录、右侧说明）。不要在 README 里找长篇细则。
+工作台怎么摆、**三种对话模式**（自由发言 / 有问必答 / 小程序云开发）、**小程序云开发配置与右侧六个页签**、文档三区、按需参与、上下文压缩、分片上传与 SHA-256、MCP、连接器和部署，都在 **`/docs.html`**（锚点 `#dialogue-mode`、`#miniprogram`）。不要在 README 里找长篇细则。
 
 单文件上限 **20 MiB**（网页与 MCP 分片）。MCP 宿主约 10KB 参数截断时，大于 6144 字节的文件必须走 `start_file_upload` → `upload_file_chunk` → `complete_file_upload`。
 

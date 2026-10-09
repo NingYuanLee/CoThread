@@ -30,7 +30,9 @@ export const AGENT_L2_MEMBER = Object.freeze({
   role: "agent",
 });
 export const SUMMARY_REQUEST =
-  "@小祥 请直接基于已有上下文梳理讨论，按已确认事项、待决策问题、下一步与负责人整理。不重新读取整个会话，不虚构共识。";
+  "@小祥 请直接基于当前群聊已有上下文帮我梳理讨论，按已确认事项、待决策问题、下一步与负责人整理。不重新读取整个会话，不虚构共识。";
+export const TASK_CREATE_REQUEST =
+  "@小祥 请根据当前群聊上下文帮我创建合适的任务：先简要说明你的理解与拟创建的任务要点，再执行创建；信息不足时先向我确认，不要臆造需求。";
 export function mentionsAgent(text) {
   return /(?:^|[^\p{L}\p{N}_@])@(?:小祥|Agent\s*助手)(?=$|[\s\p{P}\p{S}])/iu.test(
     text,

@@ -2507,6 +2507,10 @@ header h2 {
 .composer-footer > div button svg {
   color: var(--icon);
 }
+.chat-composer .composer-footer .primary svg.ui-icon {
+  width: 17px;
+  height: 17px;
+}
 .composer-tools {
   display: inline-flex;
   align-items: center;
@@ -2587,8 +2591,8 @@ header h2 {
 .composer-resize-btn {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
   border-radius: 5px;
@@ -4088,7 +4092,14 @@ img.file-type-icon {
   position: relative;
   flex-shrink: 0;
 }
-.chat-composer .composer-summary-shortcut {
+.chat-composer .composer-prompt-shortcuts {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 1;
+  min-width: 0;
+}
+.chat-composer .composer-prompt-shortcut {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -4102,27 +4113,28 @@ img.file-type-icon {
   line-height: 1.2;
   white-space: nowrap;
   flex-shrink: 0;
+  max-width: 100%;
 }
-.chat-composer .composer-summary-shortcut svg {
+.chat-composer .composer-prompt-shortcut svg {
   color: var(--c-7a9a6a);
   flex-shrink: 0;
 }
-.chat-composer .composer-summary-shortcut:hover:not(:disabled) {
+.chat-composer .composer-prompt-shortcut:hover:not(:disabled) {
   background: var(--c-edf1e9);
   color: var(--c-426b4b);
 }
-.chat-composer .composer-summary-shortcut:hover:not(:disabled) svg {
+.chat-composer .composer-prompt-shortcut:hover:not(:disabled) svg {
   color: var(--c-5a8a62);
 }
-.chat-composer .composer-summary-shortcut:focus-visible {
+.chat-composer .composer-prompt-shortcut:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--c-5a6b52) 35%, transparent);
   outline-offset: 2px;
 }
 .chat-composer .composer-mode-toggle {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -4169,11 +4181,14 @@ img.file-type-icon {
 .chat-composer .composer-mode-menu .composer-mode-option-icon {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border-radius: 6px;
-  background: var(--c-edf1e9);
+  background: transparent;
   flex-shrink: 0;
+}
+.chat-composer .composer-mode-menu .composer-mode-option.is-active .composer-mode-option-icon {
+  background: var(--c-edf1e9);
 }
 .chat-composer .composer-mode-menu .composer-mode-option-icon svg {
   color: var(--mode-accent);
@@ -4221,8 +4236,8 @@ img.file-type-icon {
   align-items: center;
   gap: 4px;
   max-width: min(200px, 42vw);
-  min-height: 22px;
-  padding: 2px 4px 2px 6px;
+  min-height: 26px;
+  padding: 3px 5px 3px 7px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--mode-accent) 28%, var(--c-e0e6dc));
   background: var(--mode-surface);
@@ -4247,8 +4262,8 @@ img.file-type-icon {
 .composer-mode-chip-clear {
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   margin: 0 -1px 0 0;
   border: 0;

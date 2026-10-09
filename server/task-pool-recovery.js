@@ -84,14 +84,14 @@ export async function voidSelfHandledAssistTasks(db) {
     await query(
       conn,
       `INSERT INTO agent_task_status_events(task_id,from_status,to_status,actor_type,reason)
-      SELECT id,status,'cancelled','system','小祥自行处理，未调度任务级 Agent，已从任务池撤销' FROM agent_tasks
+      SELECT id,status,'cancelled','system','小祥自行处理，未调度子 Agent，已从任务池撤销' FROM agent_tasks
       WHERE task_type='assist_l2' AND status IN ('completed','failed') AND (execution_agent_id IS NULL OR execution_agent_id='')`,
     );
     await query(
       conn,
       `UPDATE agent_tasks SET status='cancelled',
       result_summary=TRIM(BOTH CHAR(10) FROM CONCAT(IFNULL(result_summary,''), IF(IFNULL(result_summary,'')='','',CHAR(10)),
-        '小祥自行处理，未调度任务级 Agent，已从任务池撤销。')),
+        '小祥自行处理，未调度子 Agent，已从任务池撤销。')),
       finished_at=COALESCE(finished_at,UTC_TIMESTAMP(3)), revision=revision+1
       WHERE task_type='assist_l2' AND status IN ('completed','failed')
         AND (execution_agent_id IS NULL OR execution_agent_id='')`,

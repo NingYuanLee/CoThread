@@ -4,25 +4,41 @@ function escapeCode(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
+function highlightMarkup(escaped: string) {
+  return escaped.replace(
+    /&lt;\/?[a-zA-Z][\w:.-]*(?:\s(?:[^&]|&(?:quot|amp|lt|gt|apos|#39);)*?)?&gt;/g,
+    (tag) => {
+      const withStrings = tag.replace(
+        /(&quot;[\s\S]*?&quot;|'[^']*')/g,
+        '<span class="code-token-string">$1</span>',
+      );
+      return `<span class="code-token-keyword">${withStrings}</span>`;
+    },
+  );
+}
+
 function highlightCode(value: string, filename?: string) {
   const escaped = escapeCode(value);
   const extension = filename?.toLowerCase().split(".").pop() || "";
   const python = extension === "py";
   const script = ["js", "jsx", "ts", "tsx"].includes(extension);
   const data = ["json", "yaml", "yml"].includes(extension);
-  const style = extension === "css";
-  const markup = ["html", "htm", "xml", "svg"].includes(extension);
+  const style = extension === "css" || extension === "wxss";
+  const markup = ["html", "htm", "xml", "svg", "wxml"].includes(extension);
   const sql = extension === "sql";
   if (!(python || script || data || style || markup || sql)) return escaped;
+  if (markup) return highlightMarkup(escaped);
   let highlighted = escaped
     .replace(/(\/\/.*|#[^<]*)$/g, '<span class="code-token-comment">$1</span>')
     .replace(/(&quot;[^&]*?&quot;|&#39;[^&]*?&#39;|`[^`]*`)/g, '<span class="code-token-string">$1</span>');
-  if (markup) {
-    highlighted = highlighted.replace(/(&lt;\/?[a-zA-Z][^&]*?&gt;)/g, '<span class="code-token-keyword">$1</span>');
-  } else {
-    highlighted = highlighted
-      .replace(/\b(def|class|return|if|else|elif|for|while|in|import|from|as|with|try|except|True|False|None|and|or|not|is|const|let|var|function|async|await|new|export|default|interface|type|public|private|SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|JOIN|CREATE|TABLE|NULL|true|false|null)\b/g, '<span class="code-token-keyword">$1</span>')
-      .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="code-token-number">$1</span>');
+  highlighted = highlighted
+    .replace(/\b(def|class|return|if|else|elif|for|while|in|import|from|as|with|try|except|True|False|None|and|or|not|is|const|let|var|function|async|await|new|export|default|interface|type|public|private|SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|JOIN|CREATE|TABLE|NULL|true|false|null)\b/g, '<span class="code-token-keyword">$1</span>')
+    .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="code-token-number">$1</span>');
+  if (style) {
+    highlighted = highlighted.replace(
+      /(?<![\w/])\.[_a-zA-Z-][\w-]*|(?<=[\w])\.[_a-zA-Z-][\w-]*(?=[\s,.#[{}:>+~])/g,
+      '<span class="code-token-selector">$&</span>',
+    );
   }
   if (data || style) highlighted = highlighted.replace(/([A-Za-z_$][\w$-]*)(?=\s*:)/g, '<span class="code-token-keyword">$1</span>');
   return highlighted;

@@ -1003,8 +1003,7 @@ export class DocumentsService {
       const thread = await this.thread(user, threadId, !options.archive, db);
       return this.duplicateVersionToOfficial(db, user, thread.project_id, versionId, {
         threadId,
-        note: options.archive ? "迭代归档自动另存" : "另存至项目正式文件",
-        skipOrganizeCheck: !!options.archive,
+        note: "另存至项目正式文件",
       });
     };
     return options.db ? save(options.db) : transaction(this.db, save);
@@ -1090,10 +1089,13 @@ export class DocumentsService {
     });
     return { id: reviewId, messageId: message.id };
   }
-  async archive(user, threadId, input) {
+  async archive(user, threadId, input = {}) {
     if (user.kind !== "session") fail(403, "归档需要人工登录");
-    const data = z.object({ conclusion: body }).parse(input);
-    return transaction(this.db, async (db) => {
+    const data = z
+      .object({ conclusion: z.string().trim().max(20000).optional() })
+      .parse(input || {});
+    const conclusion = data.conclusion?.trim() || "";
+    const snapshot = await transaction(this.db, async (db) => {
       const thread = await this.thread(user, threadId, true, db);
       const [running] = await query(
         db,
@@ -1113,27 +1115,7 @@ export class DocumentsService {
         SET r.status='cancelled',r.finished_at=UTC_TIMESTAMP(3) WHERE m.thread_id=? AND r.status IN ('queued','running')`,
         [threadId],
       );
-      await this.insertMessage(db, user, threadId, `迭代归档：${data.conclusion}`, [], "system");
-      const outputVersions = await query(
-        db,
-        `SELECT v.id,v.artifact_id,v.version,
-        (SELECT r.decision FROM reviews r WHERE r.version_id=v.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1) review
-        FROM versions v
-        JOIN artifacts a ON a.id=v.artifact_id JOIN document_folders f ON f.id=a.folder_id
-        WHERE v.thread_id=? AND a.deleted_at IS NULL ${OUTPUT_LIBRARY_FOLDER_SQL}`,
-        [threadId],
-      );
-      const latestConfirmed = new Map();
-      for (const row of outputVersions) {
-        if (row.review !== "approved") continue;
-        const previous = latestConfirmed.get(row.artifact_id);
-        if (!previous || row.version > previous.version) latestConfirmed.set(row.artifact_id, row);
-      }
-      const archivedOutputs = [];
-      for (const output of latestConfirmed.values())
-        archivedOutputs.push(
-          await this.copyVersionToOfficial(user, threadId, output.id, { db, archive: true }),
-        );
+      await this.insertMessage(db, user, threadId, "迭代已归档", [], "system");
       const context = await this.context(user, threadId, db);
       const folderIds = [...new Set(context.messages.flatMap((m) => m.folder_refs || []))];
       const folderVersions = await latestVersionsByFolderRoots(db, thread.project_id, folderIds);
@@ -1161,14 +1143,13 @@ export class DocumentsService {
         schemaVersion: 1,
         projectId: thread.project_id,
         threadId,
-        conclusion: data.conclusion,
+        conclusion,
         archivedBy: user.id,
         archivedAt: new Date().toISOString(),
         messages: context.messages,
         versions,
         reviews: context.reviews,
         runs: context.runs,
-        archivedOutputs,
       };
       await query(
         db,
@@ -1192,5 +1173,103 @@ export class DocumentsService {
     });
     publishWork(this.db);
     return snapshot;
+  }
+  async archivedThread(user, threadId, write = false, db = this.db) {
+    id.parse(threadId);
+    const [thread] = await query(
+      db,
+      `SELECT * FROM threads WHERE id=?${write ? " FOR UPDATE" : ""}`,
+      [threadId],
+    );
+    if (!thread) fail(404, "迭代不存在");
+    await this.member(user, thread.project_id, write, db);
+    if (thread.status !== "archived") fail(409, "只能操作已归档的迭代");
+    return thread;
+  }
+  async restoreArchivedThread(user, threadId) {
+    if (user.kind !== "session") fail(403, "恢复迭代需要人工登录");
+    return transaction(this.db, async (db) => {
+      await this.archivedThread(user, threadId, true, db);
+      await query(db, "UPDATE threads SET status='active', archived_at=NULL WHERE id=?", [threadId]);
+      return { id: threadId, status: "active" };
+    }).then((result) => {
+      publishWork(this.db, threadId);
+      return result;
+    });
+  }
+  async deleteArchivedThread(user, threadId) {
+    if (user.kind !== "session") fail(403, "删除迭代需要人工登录");
+    return transaction(this.db, async (db) => {
+      const thread = await this.archivedThread(user, threadId, true, db);
+      const messageIds = (
+        await query(db, "SELECT id FROM messages WHERE thread_id=?", [threadId])
+      ).map((row) => row.id);
+      if (messageIds.length) {
+        const placeholders = messageIds.map(() => "?").join(",");
+        await query(
+          db,
+          `DELETE FROM message_quotes WHERE message_id IN (${placeholders}) OR quoted_message_id IN (${placeholders})`,
+          [...messageIds, ...messageIds],
+        );
+        await query(
+          db,
+          `DELETE FROM agent_live_output WHERE message_id IN (${placeholders})`,
+          messageIds,
+        );
+        await query(
+          db,
+          `DELETE FROM notifications WHERE thread_id=? OR message_id IN (${placeholders})`,
+          [threadId, ...messageIds],
+        );
+      } else {
+        await query(db, "DELETE FROM notifications WHERE thread_id=?", [threadId]);
+      }
+      await query(db, "DELETE FROM sandbox_runs WHERE thread_id=?", [threadId]);
+      await query(db, "DELETE FROM document_organization_jobs WHERE thread_id=?", [threadId]);
+      const folderRows = await query(
+        db,
+        "SELECT id, parent_id FROM document_folders WHERE thread_id=?",
+        [threadId],
+      );
+      const folderIds = folderRows.map((row) => row.id);
+      const versionIdRows = folderIds.length
+        ? await query(
+            db,
+            `SELECT v.id FROM versions v
+             JOIN artifacts a ON a.id=v.artifact_id
+             WHERE v.thread_id=? OR a.folder_id IN (${folderIds.map(() => "?").join(",")})`,
+            [threadId, ...folderIds],
+          )
+        : await query(db, "SELECT id FROM versions WHERE thread_id=?", [threadId]);
+      const versionIds = [...new Set(versionIdRows.map((row) => row.id))];
+      if (versionIds.length) {
+        const placeholders = versionIds.map(() => "?").join(",");
+        await query(db, `DELETE FROM agent_exports WHERE version_id IN (${placeholders})`, versionIds);
+        await query(db, `DELETE FROM version_recycle WHERE version_id IN (${placeholders})`, versionIds);
+        await query(db, `DELETE FROM reviews WHERE version_id IN (${placeholders})`, versionIds);
+        await query(db, `DELETE FROM versions WHERE id IN (${placeholders})`, versionIds);
+      }
+      if (folderIds.length) {
+        const placeholders = folderIds.map(() => "?").join(",");
+        await query(db, `DELETE FROM artifacts WHERE folder_id IN (${placeholders})`, folderIds);
+        const remaining = new Set(folderIds);
+        while (remaining.size) {
+          const leafIds = [...remaining].filter(
+            (folderId) =>
+              !folderRows.some((row) => row.parent_id === folderId && remaining.has(row.id)),
+          );
+          if (!leafIds.length) fail(500, "无法删除迭代文件夹");
+          const leafPlaceholders = leafIds.map(() => "?").join(",");
+          await query(db, `DELETE FROM document_folders WHERE id IN (${leafPlaceholders})`, leafIds);
+          for (const leafId of leafIds) remaining.delete(leafId);
+        }
+      }
+      await query(db, "DELETE FROM messages WHERE thread_id=?", [threadId]);
+      await query(db, "DELETE FROM threads WHERE id=?", [threadId]);
+      return { id: threadId, project_id: thread.project_id };
+    }).then((result) => {
+      publishWork(this.db, threadId);
+      return result;
+    });
   }
 }

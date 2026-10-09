@@ -514,8 +514,8 @@ export class Service extends DocumentsService {
           MAX(COALESCE(q.first_response_at,m.created_at,t.created_at)) last_activity_at
           FROM threads t LEFT JOIN messages m ON m.thread_id=t.id
           LEFT JOIN agent_requests q ON q.message_id=m.id
-          WHERE t.project_id=? GROUP BY t.id,t.title,t.status,t.created_at,t.archived_at
-          ORDER BY t.status='active' DESC,last_activity_at DESC`,
+          WHERE t.project_id=? AND t.status='active' GROUP BY t.id,t.title,t.status,t.created_at,t.archived_at
+          ORDER BY last_activity_at DESC`,
         [projectId],
       ),
       query(
@@ -954,7 +954,7 @@ export class Service extends DocumentsService {
       );
       if (!task) fail(404, "任务不存在");
       await this.member(user, task.project_id);
-      titleText = `${task.title} · 三级小祥轨迹`;
+      titleText = `${task.title} · 子 Agent 轨迹`;
       rows = await query(
         this.db,
         `SELECT DISTINCT e.id,e.agent_session_id,? task_id,e.tool,e.status,
@@ -1493,6 +1493,7 @@ export class Service extends DocumentsService {
         quoteIds: z.array(id).max(10).default([]),
         clientMessageId: id.optional(),
         mentionAgent: z.boolean().default(false),
+        dialogueMode: z.enum(["default", "chat", "cloudbase"]).default("default"),
         files: z
           .array(
             z.object({
@@ -1594,9 +1595,10 @@ export class Service extends DocumentsService {
           );
           if (onlineConnector) interactionSource = "connector_mcp";
         }
-        await query(db, "INSERT INTO agent_requests(message_id,interaction_source) VALUES(?,?)", [
+        await query(db, "INSERT INTO agent_requests(message_id,interaction_source,dialogue_mode) VALUES(?,?,?)", [
           message.id,
           interactionSource,
+          data.dialogueMode,
         ]);
         if (mentionsAgent(text)) {
           // postMessage already holds the discussion row lock. Completion and
@@ -1630,9 +1632,10 @@ export class Service extends DocumentsService {
           "SELECT user_id FROM members WHERE project_id=? AND user_id<>? LIMIT 1",
           [thread.project_id, user.id],
         );
+        const forceReply = data.dialogueMode === "chat" || mentionsAgent(text) || !others.length;
         await query(db, "INSERT INTO assistant_replies(message_id,participation) VALUES(?,?)", [
           message.id,
-          mentionsAgent(text) || !others.length ? "reply" : "pending",
+          forceReply ? "reply" : "pending",
         ]);
       }
       return { ...message, refs, folder_refs: folderRefs, files };

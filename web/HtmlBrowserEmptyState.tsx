@@ -12,6 +12,8 @@ export function HtmlBrowserEmptyState({
   onSelectFile,
   deviceMode,
   onDeviceModeChange,
+  focusAddressKey,
+  onAddressFocused,
 }: {
   files: HtmlBrowserFile[];
   addressQuery: string;
@@ -19,6 +21,8 @@ export function HtmlBrowserEmptyState({
   onSelectFile: (id: string) => void;
   deviceMode: HtmlDeviceMode;
   onDeviceModeChange: (mode: HtmlDeviceMode) => void;
+  focusAddressKey?: string;
+  onAddressFocused?: () => void;
 }) {
   return (
     <div className="doc-html-preview-shell">
@@ -29,6 +33,8 @@ export function HtmlBrowserEmptyState({
         onSelectFile={onSelectFile}
         deviceMode={deviceMode}
         onDeviceModeChange={onDeviceModeChange}
+        focusAddressKey={focusAddressKey}
+        onAddressFocused={onAddressFocused}
       />
       <div className="doc-html-browser-empty">
         <UiIcon name="preview" size={22} />

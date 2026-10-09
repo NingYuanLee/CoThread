@@ -36,7 +36,7 @@ const REASONING_EFFORT: Record<string, string> = {
 const ACTOR_TYPE: Record<string, string> = {
   human_member: "人类成员",
   l2_session: "迭代级Agent（L2）",
-  dsh_l3: "任务级Agent（L3）",
+  dsh_l3: "子 Agent",
   human_self: "成员本人",
   human_connector: "本地执行器",
 };
@@ -44,7 +44,7 @@ const ACTOR_TYPE: Record<string, string> = {
 export const AGENT_LEVEL_LABELS = {
   l1: "项目级Agent（L1）",
   l2: "迭代级Agent（L2）",
-  l3: "任务级Agent（L3）",
+  l3: "子 Agent",
 } as const;
 
 const AGENT_EVENT_STATUS: Record<string, string> = {
@@ -114,5 +114,5 @@ export function l3ExecutorName(executorId: string | null | undefined, knownIds: 
   if (!executorId) return null;
   const index = uniqueActorIds(knownIds).indexOf(executorId);
   if (index >= 0 && index < L3_EXECUTOR_NAMES.length) return L3_EXECUTOR_NAMES[index];
-  return "任务级Agent（L3）";
+  return "子 Agent";
 }

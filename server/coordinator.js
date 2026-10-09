@@ -20,6 +20,7 @@ import {
   persistOpportunisticParticipationArtifacts,
 } from "./agent-participation.js";
 import { logAgentTiming } from "./agent-timing-log.js";
+import { CHAT_DIALOGUE_STEERING, CLOUDBASE_DIALOGUE_STEERING } from "../shared/dialogue-mode.js";
 
 const brief = (value, limit = 1200) =>
   typeof value === "string" ? value.slice(0, limit) : null;
@@ -247,7 +248,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           const bound = await bindDshL3Execution(db, runtime.session.session_id, started.childId, row.id);
           if (!bound?.execution_agent_id) {
             try { await runtime.request("interrupt", { sessionId: started.childId }); } catch {}
-            throw new Error("排队任务未能绑定到本次 L3");
+            throw new Error("排队任务未能绑定到本次子 Agent");
           }
           launched.push({ taskId: row.id, childId: started.childId });
         } catch (error) {
@@ -261,7 +262,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           // Surface the real failure on the task so acceptance can read it via inspect_task.
           await query(db,
             `UPDATE agent_tasks SET progress=? WHERE id=? AND (execution_agent_id IS NULL OR execution_agent_id='')`,
-            [`L3 自动启动失败: ${diagnostic}`, row.id]).catch(() => {});
+            [`子 Agent 自动启动失败: ${diagnostic}`, row.id]).catch(() => {});
         } finally {
           inflightLaunch = null;
         }
@@ -271,13 +272,13 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       await launchAwaitingL3();
     }
     const startedNote = launched.length
-      ? `系统已启动这些任务的 L3：${launched.map((item) => item.taskId).join("，")}。不要再为它们调用 dsh_l3。`
+      ? `系统已启动这些任务的子 Agent：${launched.map((item) => item.taskId).join("，")}。不要再为它们调用 dsh_l3。`
       : "";
     const failedNote = launchFailed.length
       ? `这些任务系统没能启动，请立刻 dsh_l3，prompt 第一行写 TASK_ID：${launchFailed.join("，")}。`
       : "";
     const dispatchInstruction = failedNote
-      || "payload 里的 pendingTasks 由系统按任务 id 启动 L3，不要为了绑定再调用 dsh_l3。需要换人或恢复原会话时才用 dsh_l3 或 send_message，prompt 第一行写 TASK_ID。";
+      || "payload 里的 pendingTasks 由系统按任务 id 启动子 Agent，不要为了绑定再调用 dsh_l3。需要换人或恢复原会话时才用 dsh_l3 或 send_message，prompt 第一行写 TASK_ID。";
     const prompt = job.kind === "l3_idle"
       ? `当前项目：${context.project_id}；当前迭代：${job.thread_id}。
 本次唤醒：上一轮没有把待指派任务派出去。${JSON.stringify(job.payload || {})}
@@ -286,10 +287,10 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
       ? `当前项目：${context.project_id}；当前迭代：${job.thread_id}。
 本次唤醒：下属交活。${JSON.stringify(job.payload || {})}
 当前上下文：${JSON.stringify(context.promptContext || context)}
-请根据结果向成员回报；也可 inspect_task 或 send_message 追问仍在跑的 L3，拿到回复后决定帮一把还是换人。${startedNote}${dispatchInstruction}不要推给平台，不要在沙箱写 SQL。先说话再行动。做完就停。`
+请根据结果向成员回报；也可 inspect_task 或 send_message 追问仍在跑的子 Agent，拿到回复后决定帮一把还是换人。${startedNote}${dispatchInstruction}不要推给平台，不要在沙箱写 SQL。先说话再行动。做完就停。`
       : `当前项目：${context.project_id}；当前迭代：${job.thread_id}；触发消息：${job.message_id}。
 本次唤醒：成员消息。上下文：${JSON.stringify(context.promptContext || context)}
-先用可见正文回应理解或答复；催进度时 inspect_task 或 send_message 问 L3，拿到回复再决定帮一把还是换人。Ask 辅助任务没有空闲 L3 就不要 create_task，自己处理。沙箱 formal 无空闲 L3 可先建成 pending_assignment；有空闲则创建为执行中，create_task 会尽量在同一次调用内启动并绑定 L3。若 create_task 仍返回 needsDispatch=true 且无 execution_agent_id，请在同一轮立刻 dsh_l3，prompt 第一行写 TASK_ID。见到 execution_agent_id 之前不要说已经派人。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。做完就停。`;
+${job.dialogue_mode === "cloudbase" ? `${CLOUDBASE_DIALOGUE_STEERING}\n` : ""}${job.dialogue_mode === "chat" ? `${CHAT_DIALOGUE_STEERING}\n` : ""}先用可见正文回应理解或答复；催进度时 inspect_task 或 send_message 问子 Agent，拿到回复再决定帮一把还是换人。Ask 辅助任务没有空闲子 Agent 就不要 create_task，自己处理。沙箱 formal 无空闲子 Agent 可先建成 pending_assignment；有空闲则创建为执行中，create_task 会尽量在同一次调用内启动并绑定子 Agent。若 create_task 仍返回 needsDispatch=true 且无 execution_agent_id，请在同一轮立刻 dsh_l3，prompt 第一行写 TASK_ID。见到 execution_agent_id 之前不要说已经派人。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。做完就停。`;
     const steeredMessageIds = new Set();
     const mergedMessageIds = new Set();
     let steeringBusy = false;
@@ -375,7 +376,7 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
       const failBind = async (message) => {
         if (parentEventId) {
           await query(db, `UPDATE agent_events SET status='failed',output=?,agent_task_id=COALESCE(agent_task_id,?),finished_at=UTC_TIMESTAMP(3)
-            WHERE id=? AND status IN ('running','completed')`, [String(message || "未能绑定 L3").slice(0, 1000), bindId, parentEventId]);
+            WHERE id=? AND status IN ('running','completed')`, [String(message || "未能绑定子 Agent").slice(0, 1000), bindId, parentEventId]);
         }
         await abandonOrphan();
         return null;
@@ -393,7 +394,7 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
         if (pending.length !== 1) {
           return failBind(pending.length
             ? "dsh_l3 prompt 缺少 TASK_ID，当前有多条待指派任务，无法自动绑定"
-            : "没有可绑定的任务。有空闲 L3 时 create_task 后必须带 TASK_ID 调用 dsh_l3；待指派任务也要带 TASK_ID。");
+            : "没有可绑定的任务。有空闲子 Agent 时 create_task 后必须带 TASK_ID 调用 dsh_l3；待指派任务也要带 TASK_ID。");
         }
         bindId = pending[0].id;
       }
@@ -404,7 +405,7 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
         if (error?.status === 409 || error?.status === 404) return failBind(error.message);
         throw error;
       }
-      if (!task) return failBind("排队任务未能绑定到本次 L3");
+      if (!task) return failBind("排队任务未能绑定到本次子 Agent");
       ensureChildThinking(childId, task.id, job.message_id || task.source_message_id);
       if (parentEventId) {
         await query(db, `UPDATE agent_events SET agent_task_id=?
@@ -663,7 +664,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
         "SELECT id FROM coordinator_events WHERE thread_id=? AND status='running' LIMIT 1", [thread.id]);
       if (activeRequest || activeEvent) return;
       const [nextMessage] = await query(conn,
-         `SELECT q.message_id,q.interaction_source,m.thread_id,m.author_id,m.sequence,m.body,m.refs,m.execution_target,m.created_at,
+         `SELECT q.message_id,q.interaction_source,q.dialogue_mode,m.thread_id,m.author_id,m.sequence,m.body,m.refs,m.execution_target,m.created_at,
           r.participation,r.status reply_status,r.reply_id FROM agent_requests q
           JOIN messages m ON m.id=q.message_id LEFT JOIN assistant_replies r ON r.message_id=m.id
           WHERE m.thread_id=? AND q.status='queued' ORDER BY m.sequence LIMIT 1`, [thread.id]);
@@ -805,7 +806,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
         if (posted) responseId = responseId || posted.id;
       }
       await query(conn, `UPDATE assistant_replies SET status='completed',execution_active=?,participation=?,reply_id=?,progress=?,finished_at=UTC_TIMESTAMP(3) WHERE message_id=? AND status IN ('queued','running')`,
-        [waiting, responseId ? "reply" : "silent", responseId, waiting ? "等待任务级 Agent" : "小祥已完成本轮处理", job.message_id]);
+        [waiting, responseId ? "reply" : "silent", responseId, waiting ? "等待子 Agent" : "小祥已完成本轮处理", job.message_id]);
       await query(conn, "UPDATE agent_requests SET status='completed',response_id=?,error=NULL,first_response_at=COALESCE(first_response_at,UTC_TIMESTAMP(3)) WHERE message_id=?", [responseId, job.message_id]);
       for (const messageId of result?.mergedMessageIds || []) {
         await query(conn, "UPDATE assistant_replies SET status='completed',participation='reply',reply_id=?,progress='已并入当前 L2 处理周期',finished_at=UTC_TIMESTAMP(3) WHERE message_id=? AND status='queued'", [responseId, messageId]);

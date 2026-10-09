@@ -102,15 +102,15 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       isPath = true;
       break;
     case "dsh_l3":
-      action = "启动三级小祥";
+      action = "启动子 Agent";
       object = args.taskId || "DSH L3";
       break;
     case "send_message":
-      action = "续接三级小祥";
+      action = "续接子 Agent";
       object = args.agentId || "DSH L3";
       break;
     case "interrupt_agent":
-      action = "中断三级小祥";
+      action = "中断子 Agent";
       object = args.agentId || "DSH L3";
       break;
     case "list_agents":
@@ -162,7 +162,7 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       action = "斟酌参与";
       break;
     case "agent_run":
-      action = "运行三级小祥";
+      action = "运行子 Agent";
       break;
     case "resolve_task_rejection":
       action = args.action === "reopen" ? "重新发起任务" : "确认任务拒绝";

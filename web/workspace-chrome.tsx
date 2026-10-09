@@ -34,7 +34,7 @@ export function PanelIcon({ side }: { side: "left" | "right" }) {
   );
 }
 
-export function SidebarIcon({ kind }: { kind: "plus" | "monitor" | "project" }) {
+export function SidebarIcon({ kind }: { kind: "plus" | "monitor" | "project" | "connector" }) {
   return (
     <svg
       width="18"
@@ -49,6 +49,11 @@ export function SidebarIcon({ kind }: { kind: "plus" | "monitor" | "project" }) 
     >
       {kind === "monitor" ? (
         <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+      ) : kind === "connector" ? (
+        <>
+          <path d="M8 12h8M9 8V5m6 3V5M7 8h10v5a5 5 0 0 1-10 0V8Z" />
+          <path d="M12 18v3" />
+        </>
       ) : kind === "project" ? (
         <>
           <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />

@@ -1871,6 +1871,12 @@ export function createApp(
   app.post("/api/threads/:id/archive", async (req, res) =>
     res.json(await service.archive(req.user, req.params.id, req.body)),
   );
+  app.post("/api/threads/:id/restore", async (req, res) =>
+    res.json(await service.restoreArchivedThread(req.user, req.params.id)),
+  );
+  app.delete("/api/threads/:id", async (req, res) =>
+    res.json(await service.deleteArchivedThread(req.user, req.params.id)),
+  );
   app.post("/api/versions/:id/reviews", async (req, res) =>
     res.status(201).json(await service.review(req.user, req.params.id, req.body)),
   );

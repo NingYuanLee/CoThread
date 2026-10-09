@@ -20,8 +20,8 @@ export const L3_EXECUTOR_NAMES = ["大娃", "二娃", "三娃", "四娃", "五�
 export function stickyL3Label(executorId, knownIds) {
   if (!executorId) return null;
   const index = knownIds.indexOf(executorId);
-  if (index >= 0 && index < L3_EXECUTOR_NAMES.length) return `L3-${L3_EXECUTOR_NAMES[index]}`;
-  return `L3-${String(executorId).slice(0, 8)}`;
+  if (index >= 0 && index < L3_EXECUTOR_NAMES.length) return L3_EXECUTOR_NAMES[index];
+  return `子 Agent-${String(executorId).slice(0, 8)}`;
 }
 
 // 状态变更记录：与写状态的语句放在同一事务里；status 未变化则不写。

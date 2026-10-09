@@ -25,4 +25,5 @@ export const AGENT_L2_MEMBER: {
   readonly role: string;
 };
 export const SUMMARY_REQUEST: string;
+export const TASK_CREATE_REQUEST: string;
 export function mentionsAgent(text: string): boolean;

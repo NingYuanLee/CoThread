@@ -30,17 +30,17 @@ export function apply(ctx) {
   const definitions = [
     [
       "list_project_tasks",
-      "读取当前迭代锁定的任务池。返回 idleL3Count（空闲 L3 数）和 tasks。待指派是 pending_assignment。不含其他迭代的任务。",
+      "读取当前迭代锁定的任务池。返回 idleL3Count（空闲子 Agent 数）和 tasks。待指派是 pending_assignment。不含其他迭代的任务。",
       { status: { type: "string" }, targetId: { type: "string" }, limit: { type: "number" } },
     ],
     [
       "inspect_task",
-      "查看当前迭代某任务的执行快照：状态、心跳、最近工具、失败分类、失败指纹、重试预算和建议下一步。自己责任（L2/L3）随时可看；成员名下任务须本轮人类成员账号授权。失败先分类：平台错误不要换人，重复平台错误应阻塞；执行错误先给原 L3 反馈后再决定是否换人。",
+      "查看当前迭代某任务的执行快照：状态、心跳、最近工具、失败分类、失败指纹、重试预算和建议下一步。自己责任（L2 或已派子 Agent）随时可看；成员名下任务须本轮人类成员账号授权。失败先分类：平台错误不要换人，重复平台错误应阻塞；执行错误先给原来的子 Agent 反馈后再决定是否换人。",
       { taskId: { type: "string", required: true } },
     ],
     [
       "update_task",
-      "更新当前负责任务的状态、进度、结果摘要或产物。L3 日常进度用本工具；结束必须改用 report_task。",
+      "更新当前负责任务的状态、进度、结果摘要或产物。子 Agent 日常进度用本工具；结束必须改用 report_task。",
       {
         taskId: { type: "string", required: true },
         status: { type: "string" },
@@ -52,7 +52,7 @@ export function apply(ctx) {
     ],
     [
       "report_task",
-      "L3 结束前必须调用：向 L2 交活。status=completed|failed|blocked。无论成败都要交一份真实摘要；调用后不要再继续干活。",
+      "子 Agent 结束前必须调用：向 L2 交活。status=completed|failed|blocked。无论成败都要交一份真实摘要；调用后不要再继续干活。",
       {
         taskId: { type: "string" },
         status: { type: "string", required: true },
@@ -63,7 +63,7 @@ export function apply(ctx) {
     ],
     [
       "reassign_task",
-      "把任务转交给项目人类成员或当前迭代 L2。自己责任的任务可在 L2/L3 之间转交；转给人类或转交成员名下任务须本轮人类成员账号授权。assist_l2 不能转给人类。",
+      "把任务转交给项目人类成员或当前迭代 L2。自己责任的任务可在 L2 与子 Agent 之间转交；转给人类或转交成员名下任务须本轮人类成员账号授权。assist_l2 不能转给人类。",
       {
         taskId: { type: "string", required: true },
         targetType: { type: "string", required: true },
@@ -85,7 +85,7 @@ export function apply(ctx) {
     ],
     [
       "recover_task",
-      "安排异常任务。自己责任的 L3 任务随时可处理；成员名下任务须本轮人类成员账号授权。失败先检查 failureClass、failureSignature 和 retryPolicy：同一平台错误不要换人，重复平台错误必须阻塞；执行错误先让原 L3 带反馈重试，只有达到同一执行者上限、客观验收仍失败或会话不可恢复时才换 L3。action=restart：有空闲 L3 则为执行中并立刻恢复或指派，否则待指派；返回 interruptedAgentId 时先对该 agent_id 调用 send_message，要求继续当前 TASK_ID，这是同一执行者优先恢复路径。只有 send_message 明确失败、会话不可恢复或达到执行者上限后才 dsh_l3 换人。被阻塞任务只有外部条件确实改变时才传 environmentChanged=true。对人的任务会回到待确认。见到 execution_agent_id 之前不要声称已派人干活。action=clear_binding 幂等释放 L3 槽位，仅排队、不唤醒旧执行者；返回 noop=true 表示已经释放，不消耗重试预算。action=cancel 取消该任务。不要在沙箱里直连数据库。",
+      "安排异常任务。自己责任的子 Agent 任务随时可处理；成员名下任务须本轮人类成员账号授权。失败先检查 failureClass、failureSignature 和 retryPolicy：同一平台错误不要换人，重复平台错误必须阻塞；执行错误先让原来的子 Agent 带反馈重试，只有达到同一执行者上限、客观验收仍失败或会话不可恢复时才换子 Agent。action=restart：有空闲子 Agent 则为执行中并立刻恢复或指派，否则待指派；返回 interruptedAgentId 时先对该 agent_id 调用 send_message，要求继续当前 TASK_ID，这是同一执行者优先恢复路径。只有 send_message 明确失败、会话不可恢复或达到执行者上限后才 dsh_l3 换人。被阻塞任务只有外部条件确实改变时才传 environmentChanged=true。对人的任务会回到待确认。见到 execution_agent_id 之前不要声称已派人干活。action=clear_binding 幂等释放子 Agent 槽位，仅排队、不唤醒旧执行者；返回 noop=true 表示已经释放，不消耗重试预算。action=cancel 取消该任务。不要在沙箱里直连数据库。",
       {
         taskId: { type: "string", required: true },
         action: { type: "string", required: true },
@@ -103,7 +103,7 @@ export function apply(ctx) {
     ],
     [
       "create_task",
-      "创建项目任务。assist_l2 为 Ask 只读辅助：必须有空闲 L3，创建即执行中，工具会在同一次调用内尽量启动并绑定 L3；没有空闲 L3 时不要创建。目标为本 L2 的 formal 为沙箱任务：有空闲则执行中并由工具尽量自动绑定 L3，否则 pending_assignment。若返回仍带 needsDispatch=true 且无 execution_agent_id，再在同一轮 dsh_l3，prompt 第一行写 TASK_ID。给人的 formal 只能指派人类成员，须本轮授权，状态待确认。资料引用：成员只要文件夹时只传 folderRefs（正式文件文件夹 ID，最多 30 个），不要把文件夹展开成 documentRefs；只有成员明确点名个别文档时才另传 documentRefs（正式文件版本 ID，最多 30 个）。执行方用 list_documents({folderId, recursive:true}) 读取目录。不要为小祥自己就能完成的回复建任务。",
+      "创建项目任务。assist_l2 为 Ask 只读辅助：必须有空闲子 Agent，创建即执行中，工具会在同一次调用内尽量启动并绑定子 Agent；没有空闲子 Agent 时不要创建。目标为本 L2 的 formal 为沙箱任务：有空闲则执行中并由工具尽量自动绑定子 Agent，否则 pending_assignment。若返回仍带 needsDispatch=true 且无 execution_agent_id，再在同一轮 dsh_l3，prompt 第一行写 TASK_ID。给人的 formal 只能指派人类成员，须本轮授权，状态待确认。资料引用：成员只要文件夹时只传 folderRefs（正式文件文件夹 ID，最多 30 个），不要把文件夹展开成 documentRefs；只有成员明确点名个别文档时才另传 documentRefs（正式文件版本 ID，最多 30 个）。执行方用 list_documents({folderId, recursive:true}) 读取目录。不要为小祥自己就能完成的回复建任务。",
       {
         taskType: { type: "string", required: true },
         title: { type: "string", required: true },
@@ -291,7 +291,7 @@ export function apply(ctx) {
     ],
     [
       "miniprogram_list_source",
-      "列出项目小程序工作区的四个固定目录及其中的源码文件（相对路径、大小、哈希），并返回完整云开发流程、环境和认证约束。Cothread 是交付工作台：人类目标由 L2 拆解，L3 应自主完成源码持久化、development 同步、预览验证和发布申请，不要把步骤重新交回人类。先调用本工具理解流程：原生小程序源码持久化后必须调用 miniprogram_build_preview，由 Dimina 编译成 Web 预览；Admin 预览必须调用 miniprogram_register_admin_preview 并在宿主机或任务沙箱启动带 --base 的开发服务器。两种预览在代码和 CloudBase 配置正确、对应 development 云函数已部署且权限通过时都可以调用云函数。生产小程序和 Admin 静态站必须提交发布申请；生产环境要切换 envId、Publishable Key、认证、规则和云函数版本。业务运行时直连 CloudBase，共序服务端只负责源码、配置、发布和管理面操作。开发小程序必须使用 signInWithOpenId，按配置使用 signInWithPhoneAuth；Admin 使用 signInWithPassword，不要自行实现 code2Session 或自建 token。写入或编译前先调用本工具。",
+      "列出项目小程序工作区的四个固定目录及其中的源码文件（相对路径、大小、哈希），并返回完整云开发流程、环境和认证约束。Cothread 是交付工作台：人类目标由 L2 拆解，子 Agent 应自主完成源码持久化、development 同步、预览验证和发布申请，不要把步骤重新交回人类。先调用本工具理解流程：原生小程序源码持久化后必须调用 miniprogram_build_preview，由 Dimina 编译成 Web 预览；Admin 预览必须调用 miniprogram_register_admin_preview 并在宿主机或任务沙箱启动带 --base 的开发服务器。两种预览在代码和 CloudBase 配置正确、对应 development 云函数已部署且权限通过时都可以调用云函数。生产小程序和 Admin 静态站必须提交发布申请；生产环境要切换 envId、Publishable Key、认证、规则和云函数版本。业务运行时直连 CloudBase，共序服务端只负责源码、配置、发布和管理面操作。开发小程序必须使用 signInWithOpenId，按配置使用 signInWithPhoneAuth；Admin 使用 signInWithPassword，不要自行实现 code2Session 或自建 token。写入或编译前先调用本工具。",
       {},
     ],
     [
@@ -346,7 +346,7 @@ export function apply(ctx) {
     ],
     [
       "cloudbase_auth_config_update",
-      "修改当前 CloudBase 开发环境的认证配置。action=ensure_publishable_key 时自动创建（若不存在）并保存唯一的 Publishable Key；action=set_phone_auth 时启用或关闭小程序手机号授权；action=set_anonymous_auth 时同步 CloudBase 匿名登录开关。返回值可直接用于 L3 编写前端代码；不返回 SecretId/SecretKey。",
+      "修改当前 CloudBase 开发环境的认证配置。action=ensure_publishable_key 时自动创建（若不存在）并保存唯一的 Publishable Key；action=set_phone_auth 时启用或关闭小程序手机号授权；action=set_anonymous_auth 时同步 CloudBase 匿名登录开关。返回值可直接用于子 Agent 编写前端代码；不返回 SecretId/SecretKey。",
       {
         action: { type: "string", required: true },
         environment: { type: "string" },
@@ -392,7 +392,7 @@ export function apply(ctx) {
     ],
     [
       "cloudbase_db_write",
-      "在 CloudBase 开发环境中写入数据库文档。action=add 需 documentJson；update 需 id 与 patchJson；remove 只需 id。生产与预发布环境不允许 L3 操作。",
+      "在 CloudBase 开发环境中写入数据库文档。action=add 需 documentJson；update 需 id 与 patchJson；remove 只需 id。生产与预发布环境不允许子 Agent 操作。",
       {
         action: { type: "string", required: true },
         collection: { type: "string", required: true },
@@ -443,7 +443,7 @@ export function apply(ctx) {
     ],
     [
       "wechat_preview",
-      "用微信官方 CI 依据当前源码快照生成开发版预览二维码，供真机扫码验证。需要项目已配置 AppID 与上传私钥。体验版可由 L3 直接调用 miniprogram_upload_experience 上传；生产发布仍需审批。",
+      "用微信官方 CI 依据当前源码快照生成开发版预览二维码，供真机扫码验证。需要项目已配置 AppID 与上传私钥。体验版可由子 Agent 直接调用 miniprogram_upload_experience 上传；生产发布仍需审批。",
       {
         desc: { type: "string" },
         pagePath: { type: "string" },

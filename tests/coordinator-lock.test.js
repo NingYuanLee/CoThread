@@ -336,7 +336,7 @@ test("a new member message is claimed while a prior L2 turn still waits on L3", 
     await query(
       db,
       `UPDATE assistant_replies SET status='completed',participation='reply',
-      execution_active=TRUE,progress='等待任务级 Agent',finished_at=UTC_TIMESTAMP(3) WHERE message_id=?`,
+      execution_active=TRUE,progress='等待子 Agent',finished_at=UTC_TIMESTAMP(3) WHERE message_id=?`,
       [first.id],
     );
     await query(

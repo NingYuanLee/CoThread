@@ -1,5 +1,8 @@
 import { DocxPreview, PptxPreview, XlsxPreview } from "./office-preview";
 import { PdfPreview } from "./PdfPreview";
+import { UiIcon } from "./ui-icon";
+
+const ARCHIVE_FILENAME = /\.(?:7z|bz2|cab|deb|dmg|gz|iso|rar|rpm|tar|tgz|xz|zip)$/i;
 
 type PreviewVersion = { id: string; filename: string };
 
@@ -40,6 +43,17 @@ export function StaticDocumentPreview({
   }
   if (kind === "pdf" && version && bytes)
     return <PdfPreview bytes={bytes} filename={version.filename} />;
+  if (kind === "download" && version && ARCHIVE_FILENAME.test(version.filename)) {
+    return (
+      <div className="doc-archive-preview">
+        <p>文件已安全保存在项目中。此格式暂不支持在线预览，请下载原文件查看。</p>
+        <a className="primary doc-archive-download" href={`/api/versions/${version.id}/download`}>
+          <UiIcon name="download" size={14} />
+          下载
+        </a>
+      </div>
+    );
+  }
   if (kind === "download")
     return <p>文件已安全保存在项目中。此格式暂不支持在线预览，请下载原文件查看。</p>;
   return null;

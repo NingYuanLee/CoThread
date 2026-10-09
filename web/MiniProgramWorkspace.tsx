@@ -302,16 +302,24 @@ function TablePagination({
       : Math.max(1, Math.ceil(total / pageSize));
   return (
     <nav className="miniprogram-table-pagination" aria-label="表格分页">
-      <button
-        type="button"
-        disabled={page === 0}
-        onClick={() => onPageChange(Math.max(0, page - 1))}
-      >
-        上一页
-      </button>
-      <span>
-        共 {total === null ? "—" : total} 条 · 每页 {pageSize} 条 · 第 {page + 1} / {totalPages} 页
+      <span className="miniprogram-table-pagination-summary">
+        共 {total === null ? "—" : total} 条
       </span>
+      <div className="miniprogram-table-pagination-nav">
+        <button
+          type="button"
+          disabled={page === 0}
+          onClick={() => onPageChange(Math.max(0, page - 1))}
+        >
+          上一页
+        </button>
+        <span className="miniprogram-table-pagination-page">
+          第 {page + 1} / {totalPages} 页
+        </span>
+        <button type="button" disabled={!hasNext} onClick={() => onPageChange(page + 1)}>
+          下一页
+        </button>
+      </div>
       <label className="miniprogram-table-page-size">
         <span>每页</span>
         <select
@@ -327,9 +335,6 @@ function TablePagination({
         </select>
         <span>条</span>
       </label>
-      <button type="button" disabled={!hasNext} onClick={() => onPageChange(page + 1)}>
-        下一页
-      </button>
     </nav>
   );
 }
@@ -657,7 +662,7 @@ function PreviewCanvas({ meta, projectId }: { meta: PreviewMeta; projectId: stri
         ) : null
       }
     >
-      <div className="miniprogram-canvas" ref={mountRef} />
+      <div className="miniprogram-canvas miniprogram-dimina-canvas" ref={mountRef} />
     </MiniProgramDeviceShell>
   );
 }
@@ -668,12 +673,14 @@ export function MiniProgramWorkspace({
   writable,
   currentUserId,
   owner,
+  embeddedInSidebar = false,
 }: {
   projectId: string;
   request: (path: string, options?: RequestInit) => Promise<Response>;
   writable: boolean;
   currentUserId: string;
   owner: boolean;
+  embeddedInSidebar?: boolean;
 }) {
   const [tab, setTab] = useState<MiniProgramTabId>(() => readStoredTab(projectId));
   const [config, setConfig] = useState<MiniProgramConfig | null>(null);
@@ -743,6 +750,9 @@ export function MiniProgramWorkspace({
   const [openDeploymentId, setOpenDeploymentId] = useState("");
   const [deploymentLog, setDeploymentLog] = useState("");
   const [releaseApplications, setReleaseApplications] = useState<ReleaseApplication[]>([]);
+  const [releaseSearch, setReleaseSearch] = useState("");
+  const [releasePage, setReleasePage] = useState(0);
+  const [releasePageSize, setReleasePageSize] = useState(TABLE_PAGE_SIZE);
   const [releaseCreateOpen, setReleaseCreateOpen] = useState(false);
   const [releaseDetailId, setReleaseDetailId] = useState("");
   const [releaseSelection, setReleaseSelection] = useState<string[]>([]);
@@ -1568,11 +1578,32 @@ export function MiniProgramWorkspace({
     ? activeAdminServer.error ||
       (activeAdminServer.status === "stopped"
         ? "请重新启动 Admin 开发服务器，并登记新的预览服务。"
-        : `L3 需用 --base=${activeAdminServer.proxyBase} 启动开发服务器，再标记为 running。`)
-    : "L3 在任务中用 miniprogram_register_admin_preview 登记端口并启动开发服务器后，这里会实时显示管理后台。";
+        : `子 Agent 需用 --base=${activeAdminServer.proxyBase} 启动开发服务器，再标记为 running。`)
+    : "子 Agent 在任务中用 miniprogram_register_admin_preview 登记端口并启动开发服务器后，这里会实时显示管理后台。";
   const selectedReleaseApplication = releaseApplications.find(
     (application) => application.id === releaseDetailId,
   );
+  const releaseSearchLower = releaseSearch.trim().toLocaleLowerCase();
+  const visibleReleaseApplications = releaseApplications.filter((application) => {
+    if (!releaseSearchLower) return true;
+    const content = application.items
+      .map((item) => item.resourceName || item.targetLabel)
+      .join(" ");
+    const haystack = [
+      content,
+      application.releaseNote || "",
+      application.statusLabel || "",
+    ]
+      .join(" ")
+      .toLocaleLowerCase();
+    return haystack.includes(releaseSearchLower);
+  });
+  const pagedReleaseApplications = visibleReleaseApplications.slice(
+    releasePage * releasePageSize,
+    (releasePage + 1) * releasePageSize,
+  );
+  const releaseHasNext =
+    (releasePage + 1) * releasePageSize < visibleReleaseApplications.length;
   const wechatDeployments = deployments.filter(
     (row) => row.target === "wechat_preview" || row.target === "wechat_upload",
   );
@@ -1604,6 +1635,9 @@ export function MiniProgramWorkspace({
   useEffect(() => {
     setFunctionPage(0);
   }, [functionSearch]);
+  useEffect(() => {
+    setReleasePage(0);
+  }, [releaseSearch]);
   const documentColumns = Array.from(
     new Set(dbDocs.flatMap((document) => Object.keys(document))),
   ).slice(0, 7);
@@ -1642,21 +1676,45 @@ export function MiniProgramWorkspace({
 
   return (
     <div className="miniprogram-workspace">
-      <nav className="miniprogram-tabs" aria-label="小程序工作区">
-        {MINIPROGRAM_TABS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            className={tab === item.id ? "active" : ""}
-            aria-selected={tab === item.id}
-            onClick={() => setTab(item.id)}
-          >
-            <UiIcon name={item.icon} size={13} />
-            <span>{item.label}</span>
-          </button>
-        ))}
-      </nav>
+      {embeddedInSidebar ? (
+        <div className="doc-browser-tabbar miniprogram-embedded-tabbar" aria-label="小程序工作区">
+          <div className="doc-browser-tabs" role="tablist">
+            {MINIPROGRAM_TABS.map((item) => (
+              <div
+                key={item.id}
+                className={`doc-browser-tab doc-browser-tab-no-close${tab === item.id ? " active" : ""}`}
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  className="doc-browser-tab-open"
+                  aria-selected={tab === item.id}
+                  onClick={() => setTab(item.id)}
+                >
+                  <UiIcon name={item.icon} size={13} />
+                  <span className="doc-browser-tab-label">{item.label}</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <nav className="miniprogram-tabs" aria-label="小程序工作区" role="tablist">
+          {MINIPROGRAM_TABS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              className={tab === item.id ? "active" : ""}
+              aria-selected={tab === item.id}
+              onClick={() => setTab(item.id)}
+            >
+              <UiIcon name={item.icon} size={13} />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+      )}
 
       <div
         className={`miniprogram-tab-body ${
@@ -1670,7 +1728,9 @@ export function MiniProgramWorkspace({
                   ? "miniprogram-storage-tab-body"
                   : tab === "server"
                     ? "miniprogram-server-tab-body"
-                    : ""
+                    : tab === "deploy"
+                      ? "miniprogram-deploy-tab-body"
+                      : ""
         }`}
         role="tabpanel"
       >
@@ -2432,47 +2492,56 @@ export function MiniProgramWorkspace({
         {tab === "deploy" ? (
           <>
             <section className="miniprogram-panel miniprogram-deploy-panel">
-              <header className="miniprogram-panel-head miniprogram-production-head">
-                <div>
-                  <strong>发布记录</strong>
-                  <span className="muted">生产环境</span>
-                </div>
-                <div className="miniprogram-production-actions">
-                  <button
-                    type="button"
-                    className="miniprogram-preview-icon-button"
-                    aria-label="刷新生产发布记录"
-                    title="刷新"
-                    disabled={releaseBusy !== ""}
-                    onClick={() =>
-                      void Promise.all([
-                        loadReleaseApplications(),
-                        loadReleaseFunctions(),
-                        loadDeployments(),
-                      ])
-                    }
-                  >
-                    <UiIcon name="refresh" size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="miniprogram-production-create"
-                    disabled={!writable || releaseBusy !== ""}
-                    onClick={() => {
-                      setReleaseError("");
-                      setReleaseNotice("");
-                      setReleaseSelection([]);
-                      setReleaseNote("");
-                      setReleaseCreateOpen(true);
-                    }}
-                  >
-                    <UiIcon name="plus" size={13} />
-                    新建生产发布
-                  </button>
-                </div>
-              </header>
+              <div
+                className="miniprogram-admin-toolbar miniprogram-production-addressbar"
+                role="toolbar"
+                aria-label="生产发布工具栏"
+              >
+                <button
+                  type="button"
+                  className="miniprogram-preview-icon-button"
+                  aria-label="刷新生产发布记录"
+                  title="刷新生产发布记录"
+                  disabled={releaseBusy !== ""}
+                  onClick={() =>
+                    void Promise.all([
+                      loadReleaseApplications(),
+                      loadReleaseFunctions(),
+                      loadDeployments(),
+                    ])
+                  }
+                >
+                  <UiIcon name="refresh" size={14} />
+                </button>
+                <label className="miniprogram-function-search">
+                  <UiIcon name="search" size={13} />
+                  <input
+                    type="search"
+                    value={releaseSearch}
+                    placeholder="按发布内容搜索"
+                    aria-label="按发布内容搜索"
+                    onChange={(event) => setReleaseSearch(event.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="miniprogram-toolbar-button"
+                  disabled={!writable || releaseBusy !== ""}
+                  onClick={() => {
+                    setReleaseError("");
+                    setReleaseNotice("");
+                    setReleaseSelection([]);
+                    setReleaseNote("");
+                    setReleaseCreateOpen(true);
+                  }}
+                >
+                  <UiIcon name="plus" size={13} />
+                  新建生产发布
+                </button>
+              </div>
 
-              <div className="miniprogram-production-table-wrap">
+              <div className="miniprogram-table-content miniprogram-deploy-content">
+                <div className="miniprogram-production-table-wrap">
                 <table className="miniprogram-production-table">
                   <thead>
                     <tr>
@@ -2485,7 +2554,7 @@ export function MiniProgramWorkspace({
                     </tr>
                   </thead>
                   <tbody>
-                    {releaseApplications.map((application) => (
+                    {pagedReleaseApplications.map((application) => (
                       <tr key={application.id}>
                         <td>
                           <span
@@ -2531,15 +2600,29 @@ export function MiniProgramWorkspace({
                         </td>
                       </tr>
                     ))}
-                    {!releaseApplications.length ? (
+                    {!visibleReleaseApplications.length ? (
                       <tr>
                         <td className="miniprogram-production-empty" colSpan={6}>
-                          还没有生产发布记录。
+                          {releaseSearch.trim()
+                            ? "没有匹配的生产发布记录。"
+                            : "还没有生产发布记录。"}
                         </td>
                       </tr>
                     ) : null}
                   </tbody>
                 </table>
+                </div>
+                <TablePagination
+                  page={releasePage}
+                  pageSize={releasePageSize}
+                  total={visibleReleaseApplications.length}
+                  hasNext={releaseHasNext}
+                  onPageChange={setReleasePage}
+                  onPageSizeChange={(pageSize) => {
+                    setReleasePageSize(pageSize);
+                    setReleasePage(0);
+                  }}
+                />
               </div>
             </section>
 
@@ -3014,7 +3097,7 @@ export function MiniProgramWorkspace({
                 disabled={!writable || storageActionBusy !== null}
                 onClick={() => setNewFolderOpen(true)}
               >
-                <UiIcon name="plus" size={14} />
+                <UiIcon name="folderPlus" size={14} />
               </button>
               <button
                 type="button"
@@ -3024,7 +3107,7 @@ export function MiniProgramWorkspace({
                 disabled={!writable || storageActionBusy !== null}
                 onClick={() => storageFolderInputRef.current?.click()}
               >
-                <UiIcon name="upload" size={14} />
+                <UiIcon name="folderUpload" size={14} />
               </button>
               <button
                 type="button"
@@ -3034,7 +3117,7 @@ export function MiniProgramWorkspace({
                 disabled={!writable || storageActionBusy !== null}
                 onClick={() => storageFileInputRef.current?.click()}
               >
-                <UiIcon name="detail" size={14} />
+                <UiIcon name="upload" size={14} />
               </button>
             </div>
 

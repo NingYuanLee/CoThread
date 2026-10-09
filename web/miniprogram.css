@@ -80,6 +80,12 @@
   overflow: hidden;
   padding: 0;
 }
+.miniprogram-deploy-tab-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
 .miniprogram-preview-tab-body > .miniprogram-config-error,
 .miniprogram-preview-tab-body > .miniprogram-workspace-notice,
 .miniprogram-admin-tab-body > .miniprogram-config-error,
@@ -87,7 +93,11 @@
 .miniprogram-database-tab-body > .miniprogram-config-error,
 .miniprogram-database-tab-body > .miniprogram-workspace-notice,
 .miniprogram-storage-tab-body > .miniprogram-config-error,
-.miniprogram-storage-tab-body > .miniprogram-workspace-notice {
+.miniprogram-storage-tab-body > .miniprogram-workspace-notice,
+.miniprogram-server-tab-body > .miniprogram-config-error,
+.miniprogram-server-tab-body > .miniprogram-workspace-notice,
+.miniprogram-deploy-tab-body > .miniprogram-config-error,
+.miniprogram-deploy-tab-body > .miniprogram-workspace-notice {
   margin: 12px 14px 0;
 }
 .miniprogram-workspace-notice {
@@ -234,6 +244,19 @@
 .miniprogram-canvas > * {
   width: 100%;
   height: 100%;
+}
+
+/* 机模内：导航 padding-top / body 顶距较默认共少 20px；胶囊 actions 的 top 少 10px。 */
+.miniprogram-dimina-canvas .dimina-native-webview__navigation {
+  padding-top: calc(50.336px - 20px);
+}
+.miniprogram-dimina-canvas
+  .dimina-native-webview:not(.dimina-native-webview--custom-nav)
+  .dimina-native-webview__body {
+  padding-top: calc(100.672px - 20px);
+}
+.miniprogram-dimina-canvas .dimina-mini-app-navigation__actions {
+  top: calc(46.904px - 10px);
 }
 
 /* 机型/缩放控制与浏览器手机模式保持相同的三列布局。 */
@@ -1077,6 +1100,42 @@
   color: var(--c-5e6c56);
   font-size: 11px;
 }
+.miniprogram-admin-toolbar .miniprogram-function-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  margin: 0;
+}
+.miniprogram-function-addressbar .miniprogram-database-environment {
+  flex: 0 0 auto;
+}
+.miniprogram-admin-toolbar .miniprogram-toolbar-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 25px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 8px;
+  border: 1px solid var(--c-dce3d9);
+  border-radius: 4px;
+  background: var(--c-fff);
+  color: var(--c-27362f);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.miniprogram-admin-toolbar .miniprogram-toolbar-button:hover:not(:disabled) {
+  background: var(--c-eef2ea);
+}
+.miniprogram-admin-toolbar .miniprogram-toolbar-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .miniprogram-function-search {
   display: flex;
   width: min(280px, 42%);
@@ -1085,12 +1144,13 @@
   align-items: center;
   gap: 6px;
   margin: 0 auto 0 0;
-  padding: 0 7px;
-  border: 1px solid var(--c-d8e1d3);
+  padding: 0 9px;
+  border: 1px solid var(--c-dce3d9);
   border-radius: 4px;
   background: var(--c-fff);
-  color: var(--c-8b9689);
+  color: var(--c-69756c);
   box-sizing: border-box;
+  font-size: 11px;
 }
 .miniprogram-function-search:focus-within {
   border-color: var(--c-70916f);
@@ -1374,6 +1434,15 @@
   color: var(--c-69756c);
   font-size: 11px;
 }
+.miniprogram-table-pagination-summary {
+  line-height: 26px;
+  white-space: nowrap;
+}
+.miniprogram-table-pagination-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .miniprogram-table-pagination button {
   min-height: 26px;
   padding: 3px 9px;
@@ -1388,20 +1457,30 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+.miniprogram-table-pagination-page {
+  line-height: 26px;
+  white-space: nowrap;
+}
 .miniprogram-table-page-size {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  height: 26px;
   white-space: nowrap;
 }
 .miniprogram-table-page-size select {
-  min-height: 26px;
-  padding: 2px 6px;
+  height: 26px;
+  margin: 0;
+  padding: 0 6px;
   border: 1px solid var(--c-d8e1d3);
   border-radius: 4px;
   background: var(--c-fafbfa);
   color: var(--c-27362f);
   font: inherit;
+  font-size: 11px;
+  line-height: 24px;
+  box-sizing: border-box;
+  vertical-align: middle;
 }
 .miniprogram-function-list,
 .miniprogram-timer-list {
@@ -1529,8 +1608,27 @@
 }
 
 .miniprogram-deploy-panel {
-  display: grid;
-  gap: 18px;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  gap: 0;
+}
+.miniprogram-deploy-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  padding: 12px;
+  box-sizing: border-box;
+}
+.miniprogram-deploy-panel .miniprogram-production-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
 }
 .miniprogram-deploy-panel .miniprogram-panel-head {
   margin-bottom: 0;
@@ -3375,4 +3473,35 @@
   display: flex;
   flex-direction: column;
   padding: 0 10px 10px;
+}
+
+/* 右侧栏云开发：复用 doc-browser-tabbar / doc-browser-tab；略增左内边距 */
+.miniprogram-sidebar-embedded.doc-browser-shell .miniprogram-embedded-tabbar.doc-browser-tabbar {
+  padding-left: 10px;
+  padding-right: 8px;
+}
+.miniprogram-sidebar-embedded.doc-browser-shell .miniprogram-embedded-tabbar .doc-browser-tabs {
+  padding-right: var(--doc-browser-tab-fillet);
+}
+.miniprogram-sidebar-embedded.doc-browser-shell .miniprogram-embedded-tabbar .doc-browser-tab-open {
+  gap: 5px;
+}
+.miniprogram-sidebar-embedded.doc-browser-shell .miniprogram-preview-toolbar,
+.miniprogram-sidebar-embedded.doc-browser-shell .miniprogram-admin-toolbar {
+  background: var(--doc-browser-active-surface);
+  border-bottom-color: var(--c-e7eddf);
+}
+.miniprogram-sidebar-embedded.doc-browser-shell .miniprogram-preview-route,
+.miniprogram-sidebar-embedded.doc-browser-shell .miniprogram-admin-address,
+.miniprogram-sidebar-embedded.doc-browser-shell .miniprogram-function-addressbar .miniprogram-admin-address,
+.miniprogram-sidebar-embedded.doc-browser-shell .miniprogram-database-toolbar .miniprogram-admin-address,
+.miniprogram-sidebar-embedded.doc-browser-shell .miniprogram-storage-addressbar .miniprogram-admin-address,
+.miniprogram-sidebar-embedded.doc-browser-shell .miniprogram-admin-toolbar .miniprogram-function-search,
+.miniprogram-sidebar-embedded.doc-browser-shell .miniprogram-admin-toolbar .miniprogram-toolbar-button {
+  border-color: var(--c-dce3d9);
+  background: var(--c-fff);
+  color: var(--c-69756c);
+}
+.miniprogram-sidebar-embedded.doc-browser-shell .miniprogram-admin-toolbar .miniprogram-toolbar-button {
+  color: var(--c-27362f);
 }

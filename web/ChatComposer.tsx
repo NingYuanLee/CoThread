@@ -2,7 +2,12 @@ import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { folderDisplayName, folderRootKind, libraryFolderPath } from "./document-library";
-import { AGENT_L2_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
+import {
+  AGENT_L2_MEMBER,
+  AGENT_MEMBER,
+  SUMMARY_REQUEST,
+  TASK_CREATE_REQUEST,
+} from "../shared/agent-member.js";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { FileIcon } from "@react-symbols/icons/utils";
 import {
@@ -16,6 +21,10 @@ import { UiIcon } from "./ui-icon";
 import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
 import { FILE_MAX_BYTES } from "../shared/upload-limits.js";
 import { uploadFileWithIntegrity } from "./file-upload";
+import { wechatFileIcons } from "./wechat-file-icons";
+import { DIALOGUE_MODE_UI, DIALOGUE_MODES } from "../shared/dialogue-mode.js";
+import type { UiIconName } from "./ui-icon";
+import type { DialogueMode } from "./dialogue-mode-storage";
 
 type FileVersion = {
   id: string;
@@ -56,6 +65,7 @@ const officeIcons = {
   log: Text,
   env: Text,
   py: Python,
+  ...wechatFileIcons,
 };
 function FilePreview({
   name,
@@ -128,9 +138,8 @@ export function ChatComposer({
   onSend,
   onRefresh,
   uploadTarget,
-  connectorControl,
-  onCopyConversation,
-  copyLabel,
+  dialogueMode = "default",
+  onDialogueModeChange,
 }: {
   projectId: string;
   threadId: string;
@@ -148,9 +157,8 @@ export function ChatComposer({
   onSend: () => Promise<boolean>;
   onRefresh: () => Promise<void>;
   uploadTarget: React.MutableRefObject<((files: File[]) => void) | null>;
-  connectorControl: React.ReactNode;
-  onCopyConversation: () => void;
-  copyLabel: string;
+  dialogueMode?: DialogueMode;
+  onDialogueModeChange?: (mode: DialogueMode) => void;
 }) {
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [imagePreview, setImagePreview] = useState<ImagePreviewSource | null>(null);
@@ -171,6 +179,8 @@ export function ChatComposer({
   const cancelled = useRef(new Set<string>());
   const sending = useRef(false);
   const suppressSlashTrigger = useRef(false);
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const modeMenuRef = useRef<HTMLDivElement>(null);
   const currentRefs = useRef(refs);
   currentRefs.current = refs;
   useEffect(
@@ -180,6 +190,15 @@ export function ChatComposer({
     },
     [],
   );
+  useEffect(() => {
+    if (!modeMenuOpen) return;
+    const close = (event: MouseEvent) => {
+      if (modeMenuRef.current?.contains(event.target as Node)) return;
+      setModeMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [modeMenuOpen]);
   const update = (key: string, value: Partial<Upload>) => {
     if (alive.current)
       setUploads((rows) =>
@@ -448,7 +467,7 @@ export function ChatComposer({
           title={expanded ? "缩小" : "放大"}
           onClick={() => setExpanded((value) => !value)}
         >
-          <UiIcon name={expanded ? "compress" : "expand"} size={14} />
+          <UiIcon name={expanded ? "compress" : "expand"} size={16} />
         </button>
       </div>
       {folderRefs.length > 0 && (
@@ -458,7 +477,7 @@ export function ChatComposer({
             const label = folder ? libraryFolderPath(id, folders) || folderDisplayName(folder) : id;
             return (
               <span className="ref ref-folder" key={id}>
-                <UiIcon name="folder" size={12} /> {label}
+                <UiIcon name="folder" size={14} /> {label}
                 <button
                   type="button"
                   className="ref-remove"
@@ -560,6 +579,7 @@ export function ChatComposer({
                   ) : (
                     <FileIcon
                       fileName={option.label}
+                      editFileExtensionData={wechatFileIcons}
                       autoAssign
                       width={20}
                       height={20}
@@ -651,19 +671,108 @@ export function ChatComposer({
         </div>
       )}
       <div className="composer-footer">
-        <div className="composer-tools">
-          {connectorControl}
-          <span className="composer-tools-split" aria-hidden="true" />
-          <button type="button" className="composer-connector" onClick={onCopyConversation}>
-            <UiIcon name="copy" size={15} />
-            {copyLabel}
-          </button>
-        </div>
+        {onDialogueModeChange ? (
+          <div className="composer-mode-row">
+            <div className="composer-mode-anchor" ref={modeMenuRef}>
+              <button
+                type="button"
+                className="composer-mode-toggle"
+                aria-label={`对话模式：${DIALOGUE_MODE_UI[dialogueMode].label}`}
+                aria-expanded={modeMenuOpen}
+                aria-haspopup="menu"
+                title={`对话模式：${DIALOGUE_MODE_UI[dialogueMode].label}`}
+                onClick={() => setModeMenuOpen((open) => !open)}
+              >
+                <UiIcon name="plus" size={18} />
+              </button>
+              {modeMenuOpen ? (
+                <div className="composer-mode-menu" role="menu" aria-label="对话模式">
+                  {DIALOGUE_MODES.map((mode) => {
+                    const meta = DIALOGUE_MODE_UI[mode];
+                    return (
+                      <button
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={dialogueMode === mode}
+                        className={`composer-mode-option composer-mode-option-${mode}${dialogueMode === mode ? " is-active" : ""}`}
+                        key={mode}
+                        style={{ "--mode-accent": meta.accent } as React.CSSProperties}
+                        onClick={() => {
+                          onDialogueModeChange(mode);
+                          setModeMenuOpen(false);
+                        }}
+                      >
+                        <span className="composer-mode-option-icon" aria-hidden="true">
+                          <UiIcon name={meta.icon as UiIconName} size={18} />
+                        </span>
+                        <span className="composer-mode-option-copy">
+                          <span className="composer-mode-option-label">{meta.label}</span>
+                          <span className="composer-mode-option-summary">{meta.summary}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+            {dialogueMode !== "default" ? (
+              <div
+                className={`composer-mode-chip composer-mode-chip-${dialogueMode}`}
+                style={{
+                  "--mode-accent": DIALOGUE_MODE_UI[dialogueMode].accent,
+                  "--mode-surface": DIALOGUE_MODE_UI[dialogueMode].surface,
+                } as React.CSSProperties}
+              >
+                <span className="composer-mode-chip-icon" aria-hidden="true">
+                  <UiIcon name={DIALOGUE_MODE_UI[dialogueMode].icon as UiIconName} size={16} />
+                </span>
+                <span className="composer-mode-chip-label">{DIALOGUE_MODE_UI[dialogueMode].label}</span>
+                <button
+                  type="button"
+                  className="composer-mode-chip-clear"
+                  aria-label={`退出 ${DIALOGUE_MODE_UI[dialogueMode].label}，恢复${DIALOGUE_MODE_UI.default.label}`}
+                  title={`恢复${DIALOGUE_MODE_UI.default.label}`}
+                  onClick={() => onDialogueModeChange("default")}
+                >
+                  <UiIcon name="close" size={12} />
+                </button>
+              </div>
+            ) : null}
+            <div className="composer-prompt-shortcuts">
+              <button
+                type="button"
+                className="composer-prompt-shortcut"
+                disabled={busy}
+                title="预填 @小祥，基于当前群聊上下文梳理讨论"
+                onClick={() => {
+                  setMessage(SUMMARY_REQUEST);
+                  requestAnimationFrame(() => input.current?.focus());
+                }}
+              >
+                <UiIcon name="sparkle" size={16} />
+                帮我梳理群聊
+              </button>
+              <button
+                type="button"
+                className="composer-prompt-shortcut"
+                disabled={busy}
+                title="预填 @小祥，根据群聊上下文创建任务"
+                onClick={() => {
+                  setMessage(TASK_CREATE_REQUEST);
+                  requestAnimationFrame(() => input.current?.focus());
+                }}
+              >
+                <UiIcon name="task" size={16} />
+                帮我创建任务
+              </button>
+            </div>
+          </div>
+        ) : null}
         <button
           className="primary"
           disabled={busy || pending || !message.trim()}
         >
-          <UiIcon name="send" size={14} />
+          <UiIcon name="send" size={17} />
           {pending ? "上传中…" : busy ? "处理中…" : "发送"}
         </button>
       </div>

@@ -392,7 +392,7 @@ test("failed sandbox execution retains team data and does not expose provider di
 test("archival is immutable, includes exact reviewed versions, and survives a fresh database connection", async () => {
   const archived = await request(
     `/threads/${iteration}/archive`,
-    { conclusion: "Accepted version one" },
+    {},
     owner,
   );
   assert.equal(archived.status, 200);
@@ -434,7 +434,7 @@ test("archival is immutable, includes exact reviewed versions, and survives a fr
   const db2 = await createDatabase(database.url);
   try {
     const fresh = await new Service(db2).context(owner, iteration);
-    assert.equal(fresh.archive_snapshot.conclusion, "Accepted version one");
+    assert.equal(fresh.archive_snapshot.conclusion, "");
     assert.ok(fresh.messages.length >= 6);
   } finally {
     await db2.end();

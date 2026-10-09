@@ -88,6 +88,7 @@ export type UiIconName =
   | "unbound"
   | "upload"
   | "userPlus"
+  | "users"
   | "waiting"
   | "warning"
   | "yunxiao"
@@ -249,6 +250,12 @@ const GLYPHS: Record<GlyphName, string[]> = {
   unbound: ["M9 8H7a4 4 0 0 0 0 8h2", "M15 8h2a4 4 0 0 1 0 8h-2", "m6 6 12 12"],
   upload: ["M12 16V4", "M8 8l4-4 4 4", "M5 20h14"],
   userPlus: ["M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z", "M4 20a8 8 0 0 1 10-7.7", "M17 14v6M14 17h6"],
+  users: [
+    "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2",
+    "M9 3a4 4 0 0 1 0 8a4 4 0 0 1 0-8",
+    "M22 21v-2a4 4 0 0 0-3-3.87",
+    "M16 3.13a4 4 0 0 1 0 7.75",
+  ],
   waiting: ["M8 6h3v12H8zM13 6h3v12h-3z"],
   warning: ["M12 4 3 20h18L12 4Z", "M12 10v5M12 17h.01"],
   zoomIn: [

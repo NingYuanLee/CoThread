@@ -1,7 +1,8 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import React, { useState } from "react";
 import { UiIcon } from "./ui-icon";
 import { showTip } from "./Tip";
+import { SidebarIcon } from "./workspace-chrome";
+import { DialogClose, ModalBackdrop } from "./dialog-fx";
 
 export type ConnectorDevice = {
   id: string; name: string; platform: string; version: string; online: number;
@@ -42,6 +43,7 @@ export function ConnectorPanel({
   available,
   api,
   onRefresh,
+  variant = "composer",
 }: {
   devices: ConnectorDevice[];
   availability: AvailableConnector[];
@@ -50,15 +52,12 @@ export function ConnectorPanel({
   available: boolean;
   api: (path: string, data?: unknown, method?: string) => Promise<any>;
   onRefresh: () => Promise<void>;
+  variant?: "composer" | "sidebar";
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmId, setConfirmId] = useState("");
-  const [position, setPosition] = useState({ top: 0, left: 0 });
-  const root = useRef<HTMLDivElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
-  const button = useRef<HTMLButtonElement>(null);
   const ownById = new Map(devices.map((device) => [device.id, device]));
   const projectOnline = availability.filter((item) => item.projectId === projectId);
   const listedIds = new Set(projectOnline.map((item) => item.id));
@@ -81,51 +80,6 @@ export function ConnectorPanel({
       ownerName: "",
     })),
   ];
-  useLayoutEffect(() => {
-    if (!open || !panel.current || !button.current) return;
-    const anchor = button.current.getBoundingClientRect();
-    const box = panel.current.getBoundingClientRect();
-    setPosition({
-      left: Math.max(8, Math.min(anchor.left, window.innerWidth - box.width - 8)),
-      top: anchor.top >= box.height + 16
-        ? anchor.top - box.height - 8
-        : Math.max(8, Math.min(anchor.bottom + 8, window.innerHeight - box.height - 8)),
-    });
-  }, [open, rows.length, error, confirmId]);
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node) && !panel.current?.contains(event.target as Node)) {
-        setConfirmId("");
-        setOpen(false);
-      }
-    };
-    const key = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (confirmId) {
-        setConfirmId("");
-        return;
-      }
-      setOpen(false);
-      button.current?.focus();
-    };
-    const dismiss = (event: Event) => {
-      if (!panel.current?.contains(event.target as Node)) {
-        setConfirmId("");
-        setOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", key);
-    window.addEventListener("scroll", dismiss, true);
-    window.addEventListener("resize", dismiss);
-    return () => {
-      document.removeEventListener("pointerdown", close);
-      document.removeEventListener("keydown", key);
-      window.removeEventListener("scroll", dismiss, true);
-      window.removeEventListener("resize", dismiss);
-    };
-  }, [open, confirmId]);
   const act = async (fn: () => Promise<void>, success?: string) => {
     setBusy(true);
     setError("");
@@ -139,24 +93,122 @@ export function ConnectorPanel({
     }
     finally { setBusy(false); }
   };
+  const sidebar = variant === "sidebar";
+  const closePanel = () => {
+    setConfirmId("");
+    setOpen(false);
+  };
+  const toggleOpen = () => {
+    const next = !open;
+    setOpen(next);
+    if (next) {
+      setError("");
+      setConfirmId("");
+      void onRefresh();
+    } else setConfirmId("");
+  };
+  const dialog = open ? (
+    <ModalBackdrop className="connector-panel-backdrop" onClose={closePanel} enabled={!busy}>
+      {(close) => (
+        <section
+          className="connector-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="connector-panel-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <header>
+            <div>
+              <small>本地执行器</small>
+              <h2 id="connector-panel-title">在线本地执行器</h2>
+            </div>
+            <DialogClose autoFocus onClick={close} label="关闭本地执行器" />
+          </header>
+          <section>
+            {!rows.length && <p className="muted">当前没有在线本地执行器</p>}
+            {rows.map((row) => (
+              <div className="connector-device-block" key={row.id}>
+                <div className="connector-device">
+                  <i className="online" aria-hidden="true" />
+                  <span>
+                    <strong>{connectorHostLabel(row.name)}</strong>
+                    <small>
+                      {connectorOsLabel(row.platform)}
+                      {row.ownerId !== currentUserId && row.ownerName ? ` · ${row.ownerName}` : ""}
+                    </small>
+                  </span>
+                  {row.ownerId === currentUserId && confirmId !== row.id && (
+                    <button
+                      type="button"
+                      className="connector-unbind"
+                      disabled={busy}
+                      aria-label="解除绑定"
+                      title="解除绑定"
+                      onClick={() => { setError(""); setConfirmId(row.id); }}
+                    ><UiIcon name="unbound" size={14} /></button>
+                  )}
+                </div>
+                {row.ownerId === currentUserId && confirmId === row.id && (
+                  <div className="connector-unbind-confirm">
+                    <p>解除后需重新授权才能领取本机任务。</p>
+                    <div>
+                      <button type="button" disabled={busy} onClick={() => setConfirmId("")}>取消</button>
+                      <button
+                        type="button"
+                        className="danger"
+                        disabled={busy}
+                        onClick={() => void act(async () => {
+                          await api(`/connectors/${row.id}`, undefined, "DELETE");
+                          setConfirmId("");
+                          await onRefresh();
+                        }, "已解除本地执行器绑定")}
+                      >{busy ? "解除中…" : "确认解除"}</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+            {error && <p className="project-settings-error" role="alert">{error}</p>}
+          </section>
+        </section>
+      )}
+    </ModalBackdrop>
+  ) : null;
+  if (sidebar) {
+    return (
+      <>
+        <button
+          type="button"
+          className="sidebar-card sidebar-connector"
+          title={available ? "查看在线本地执行器" : "运行本地执行器后在此授权"}
+          aria-label="本地执行器"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          disabled={!projectId}
+          onClick={toggleOpen}
+        >
+          <span className="sidebar-card-icon"><SidebarIcon kind="connector" /></span>
+          <span className="sidebar-card-copy">
+            本地执行器
+            <small>{available ? "本项目已在线" : "运行后在此授权"}</small>
+          </span>
+          <span className="sidebar-card-action" aria-hidden="true">
+            {available ? <i className="composer-connector-dot" /> : "›"}
+          </span>
+        </button>
+        {dialog}
+      </>
+    );
+  }
   return (
-    <div className="composer-connector-wrap" ref={root}>
+    <div className="composer-connector-wrap">
       <button
-        ref={button}
         type="button"
         className="composer-connector"
         title={available ? "查看在线本地执行器" : "运行本地执行器后在此授权"}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => {
-          const next = !open;
-          setOpen(next);
-          if (next) {
-            setError("");
-            setConfirmId("");
-            void onRefresh();
-          } else setConfirmId("");
-        }}
+        onClick={toggleOpen}
       >
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M8 12h8M9 8V5m6 3V5M7 8h10v5a5 5 0 0 1-10 0V8Z" />
@@ -165,56 +217,7 @@ export function ConnectorPanel({
         本地执行器
         {available && <i className="composer-connector-dot" aria-hidden="true" />}
       </button>
-      {open && createPortal(
-        <div ref={panel} style={position} className="connector-popover" role="dialog" aria-label="在线本地执行器">
-          <header>在线本地执行器</header>
-          {!rows.length && <p className="muted">当前没有在线本地执行器</p>}
-          {rows.map((row) => (
-            <div className="connector-device-block" key={row.id}>
-              <div className="connector-device">
-                <i className="online" aria-hidden="true" />
-                <span>
-                  <strong>{connectorHostLabel(row.name)}</strong>
-                  <small>
-                    {connectorOsLabel(row.platform)}
-                    {row.ownerId !== currentUserId && row.ownerName ? ` · ${row.ownerName}` : ""}
-                  </small>
-                </span>
-                {row.ownerId === currentUserId && confirmId !== row.id && (
-                  <button
-                    type="button"
-                    className="connector-unbind"
-                    disabled={busy}
-                    aria-label="解除绑定"
-                    title="解除绑定"
-                    onClick={() => { setError(""); setConfirmId(row.id); }}
-                  ><UiIcon name="unbound" size={14} /></button>
-                )}
-              </div>
-              {row.ownerId === currentUserId && confirmId === row.id && (
-                <div className="connector-unbind-confirm">
-                  <p>解除后需重新授权才能领取本机任务。</p>
-                  <div>
-                    <button type="button" disabled={busy} onClick={() => setConfirmId("")}>取消</button>
-                    <button
-                      type="button"
-                      className="danger"
-                      disabled={busy}
-                      onClick={() => void act(async () => {
-                        await api(`/connectors/${row.id}`, undefined, "DELETE");
-                        setConfirmId("");
-                        await onRefresh();
-                      }, "已解除本地执行器绑定")}
-                    >{busy ? "解除中…" : "确认解除"}</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-          {error && <p className="project-settings-error" role="alert">{error}</p>}
-        </div>,
-        document.body,
-      )}
+      {dialog}
     </div>
   );
 }

@@ -121,7 +121,7 @@ test("the coordinator has no one-shot reply or execute decision route", async ()
   assert.match(source, /runCoordinatorAgent/);
   assert.match(source, /runtime\.harness\.run/);
   assert.match(source, /mode: "steer"/);
-  assert.match(source, /排队任务未能绑定到本次 L3/);
+  assert.match(source, /排队任务未能绑定到本次子 Agent/);
   assert.match(source, /child_result/);
   assert.match(source, /pendingTasks/);
   assert.doesNotMatch(source, /wait_for_updates|isLightCoordinatorTurn|finish_turn/);
@@ -139,7 +139,7 @@ test("stable L2 and L3 roles live only in the system prompt plugin", async () =>
   assert.match(SYSTEM_PROMPTS.l2.prompt, /不能使用沙箱/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /自己能答的短问题/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /本迭代锁定/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /没有空闲 L3 时禁止创建/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /没有空闲子 Agent 时禁止创建/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /不要对成员说已经派人干活/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /只传 folderRefs，不要把目录下文件展开进 documentRefs/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /自己责任/);
@@ -150,12 +150,12 @@ test("stable L2 and L3 roles live only in the system prompt plugin", async () =>
   assert.doesNotMatch(SYSTEM_PROMPTS.l2.prompt, /辅助工作必须先创建/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /寒暄只回一句/);
   assert.doesNotMatch(SYSTEM_PROMPTS.l2.prompt, /wait_for_updates|finish_turn|post_message/);
-  assert.match(SYSTEM_PROMPTS.l3.prompt, /三级小祥/);
-  assert.match(SYSTEM_PROMPTS.l3.prompt, /不得提及分身层级/);
+  assert.match(SYSTEM_PROMPTS.l3.prompt, /二级小祥派出的子 Agent/);
+  assert.match(SYSTEM_PROMPTS.l3.prompt, /不要自称小祥/);
   assert.match(SYSTEM_PROMPTS.l3.prompt, /publish_artifact/);
   assert.match(SYSTEM_PROMPTS.l3.prompt, /report_task/);
   assert.doesNotMatch(SYSTEM_PROMPTS.l3.prompt, /40 次工具调用/);
   assert.match(agent, /Parent L2 chunks already arrive via harness.run/);
   assert.doesNotMatch(coordinator, /COORDINATOR_PERSONA|你是当前迭代会话的二级小祥|葫芦小金刚/);
-  assert.doesNotMatch(agent, /你是共序项目中的助理|你是三级小祥|不得提及分身层级/);
+  assert.doesNotMatch(agent, /你是共序项目中的助理|你是三级小祥|二级小祥派出的子 Agent/);
 });

@@ -469,8 +469,8 @@ function taskExecutorName(
   }
   if (task.target_type === "l2_session") {
     const status = task.task_status || task.status || "";
-    if (ENDED.has(status)) return "小祥（未交给任务级Agent（L3））";
-    return "待任务级Agent（L3）接单";
+    if (ENDED.has(status)) return "小祥（未交给子 Agent）";
+    return "待子 Agent 接单";
   }
   return "未选择";
 }
@@ -771,7 +771,11 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   const [l1Open, setL1Open] = useState(false);
   const [reloading, setReloading] = useState(false);
   const reloadNow = useRef<(() => Promise<void>) | null>(null);
-  const selectedCoordinator = data?.coordinators.find((item) => item.id === selectedThreadId);
+  const activeCoordinators = useMemo(
+    () => (data?.coordinators || []).filter((item) => item.status !== "archived"),
+    [data?.coordinators],
+  );
+  const selectedCoordinator = activeCoordinators.find((item) => item.id === selectedThreadId);
   const people = data?.humanAgents || [];
   const threadPool = useMemo(() => (data?.taskPool || []).filter((task) =>
     task.origin_thread_id === selectedThreadId
@@ -893,9 +897,12 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
         if (alive && next) {
           const snapshot = next;
           setData(snapshot);
-          setSelectedThreadId((current) => snapshot.coordinators.some((item: MonitorData["coordinators"][number]) => item.id === current)
+          const coordinators = snapshot.coordinators.filter(
+            (item: MonitorData["coordinators"][number]) => item.status !== "archived",
+          );
+          setSelectedThreadId((current) => coordinators.some((item) => item.id === current)
             ? current
-            : snapshot.coordinators.find((item: MonitorData["coordinators"][number]) => item.status === "active")?.id || snapshot.coordinators[0]?.id || "");
+            : coordinators[0]?.id || "");
           setError("");
         }
       } catch (cause) {
@@ -979,7 +986,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
       {data && <div className="monitor-models" aria-label="模型路由">
         <span className="monitor-models-label">模型路由</span>
         <span>知识整理（L1）：{data.models.knowledge.model} · {data.models.knowledge.reasoningEffort}</span>
-        <span>调度与 L3（L2+L3）：{(data.models.runtime || data.models.coordinator).model} · {(data.models.runtime || data.models.coordinator).reasoningEffort}</span>
+        <span>调度与子 Agent：{(data.models.runtime || data.models.coordinator).model} · {(data.models.runtime || data.models.coordinator).reasoningEffort}</span>
       </div>}
       <section className={`monitor-section${l1Open ? "" : " is-collapsed"}`}>
         <span className="monitor-level">{AGENT_LEVEL_LABELS.l1}</span>
@@ -1076,23 +1083,22 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
             <img className="monitor-avatar" src="/agent-avatars/xiaojingang.jpg" alt="" />
             <span className="monitor-agent-title">小祥（任务调度员）</span>
           </div>
-          <span className="monitor-count">{data?.coordinators.length || 0} 个迭代会话</span>
+          <span className="monitor-count">{activeCoordinators.length} 个迭代会话</span>
         </div>
         <div className="coordinator-list">
-          {data?.coordinators.map((item) => {
-            const busy = item.status !== "archived" && item.running_requests + item.queued_requests > 0;
-            const archived = item.status === "archived";
-            const status = archived ? "已归档" : busy ? "工作中" : "空闲";
+          {activeCoordinators.map((item) => {
+            const busy = item.running_requests + item.queued_requests > 0;
+            const status = busy ? "工作中" : "空闲";
             return <article className={`coordinator-row ${selectedThreadId === item.id ? "selected" : ""}`} key={item.id}>
               <button type="button" className="coordinator-select" aria-label={`${item.title} ${status}`} aria-pressed={selectedThreadId === item.id} onClick={() => setSelectedThreadId(item.id)}>
-                <CoordinatorStatusIcon busy={busy} archived={archived} />
+                <CoordinatorStatusIcon busy={busy} archived={false} />
                 <span className="coordinator-copy">
                   <OverflowTitle text={item.title} />
                 </span>
               </button>
             </article>;
           })}
-          {!data?.coordinators.length && <p className="monitor-empty">项目还没有迭代。</p>}
+          {!activeCoordinators.length && <p className="monitor-empty">还没有活跃中的迭代。</p>}
         </div>
       </section>
 
@@ -1121,7 +1127,7 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
           <span className="monitor-count">{selectedCoordinator?.active_executors || 0}/7 工作中</span>
         </div>
         <div className="l3-workspace">
-          <div className="l3-agent-list" role="listbox" aria-label="任务级Agents">
+          <div className="l3-agent-list" role="listbox" aria-label="子 Agent">
             {slots.map(({ slot, agent, task }) => {
               const state = agentState(task);
               const busy = state.tone === "running";

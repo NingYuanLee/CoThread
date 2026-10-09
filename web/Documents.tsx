@@ -40,6 +40,7 @@ import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { BranchVersionDialog } from "./BranchVersionDialog";
 import { DocumentPreviewContent } from "./DocumentPreviewContent";
 import { DocumentLibraryExplorer } from "./DocumentLibraryExplorer";
+import { wechatFileIcons } from "./wechat-file-icons";
 
 type BrowserTab = {
   key: string;
@@ -65,6 +66,7 @@ const officeIcons = {
   conf: Text,
   toml: Text,
   py: Python,
+  ...wechatFileIcons,
 };
 
 function isSvgFilename(fileName: string) {
@@ -535,11 +537,17 @@ function TabContextMenu({
   y,
   items,
   onDismiss,
+  onMouseEnter,
+  onMouseLeave,
+  className,
 }: {
   x: number;
   y: number;
   items: TabMenuItem[];
   onDismiss: () => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+  className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ left: x, top: y });
@@ -581,11 +589,13 @@ function TabContextMenu({
   return createPortal(
     <div
       ref={ref}
-      className="library-folder-menu doc-browser-tab-menu"
+      className={`library-folder-menu doc-browser-tab-menu${className ? ` ${className}` : ""}`}
       role="menu"
       style={{ left: box.left, top: box.top }}
       onContextMenu={(event) => event.preventDefault()}
       onClick={(event) => event.stopPropagation()}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
     >
       {items.map((item) => (
         <Fragment key={item.key}>
@@ -787,11 +797,11 @@ function TreeDepth({ depth }: { depth: number }) {
   return <span className="tree-depth" style={{ width: depth * 14 }} aria-hidden="true" />;
 }
 
-function ClosedFolderIcon() {
+function ClosedFolderIcon({ className }: { className?: string } = {}) {
   return (
     <svg
       aria-hidden="true"
-      className="tree-icon"
+      className={className ? `tree-icon ${className}` : "tree-icon"}
       viewBox="0 0 24 24"
       width={16}
       height={16}
@@ -806,11 +816,11 @@ function ClosedFolderIcon() {
   );
 }
 
-function OpenFolderIcon() {
+function OpenFolderIcon({ className }: { className?: string } = {}) {
   return (
     <svg
       aria-hidden="true"
-      className="tree-icon"
+      className={className ? `tree-icon ${className}` : "tree-icon"}
       viewBox="0 0 24 24"
       width={16}
       height={16}
@@ -1039,7 +1049,7 @@ const ROOT_GUIDES: Record<(typeof LIBRARY_ROOT_KINDS)[number], string> = {
 
 const CODE_LIBRARY_ROOT_ID = "code-library-root";
 const CODE_LIBRARY_ROOT_NAME = "连接器";
-const CODE_LIBRARY_GUIDE = "连接器是平台能力；勾选的仓库是本项目范围。此处仅展示连接与范围状态，不浏览源码内容。鉴权走平台连接器令牌。L2/L3 在需要时可只读查阅。";
+const CODE_LIBRARY_GUIDE = "连接器是平台能力；勾选的仓库是本项目范围。此处仅展示连接与范围状态，不浏览源码内容。鉴权走平台连接器令牌。L2 与子 Agent 在需要时可只读查阅。";
 
 type CodeConnectorState = {
   kind: "github" | "yunxiao";
@@ -1265,6 +1275,7 @@ export function Documents({
   codeSourcesTick = 0,
   documentFullscreen = false,
   onDocumentFullscreenChange,
+  documentFocus = 0,
 }: {
   onReview?: (versionId: string, decision: string, comment?: string) => Promise<void>;
   onRequestRevision?: (versionId: string, target: "current" | "new", title?: string) => Promise<void>;
@@ -1290,6 +1301,8 @@ export function Documents({
   codeSourcesTick?: number;
   documentFullscreen?: boolean;
   onDocumentFullscreenChange?: (fullscreen: boolean) => void;
+  /** 群聊里点文件时递增，用来打开右侧栏中的该文件。 */
+  documentFocus?: number;
 }) {
   const libraryFolders = folders.filter((folder) => {
     if (folder.folder_kind === "iteration_root") return false;
@@ -1591,6 +1604,7 @@ export function Documents({
   const [startOpen, setStartOpen] = useState(() => !selected);
   const [startActive, setStartActive] = useState(() => !selected);
   const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [newTabMenu, setNewTabMenu] = useState<{ x: number; y: number } | null>(null);
   const [fileContextMenu, setFileContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [selectionContextMenu, setSelectionContextMenu] = useState<{ x: number; y: number; text: string } | null>(null);
   const selectionRestoreRef = useRef<TextSelectionSnapshot | null>(null);
@@ -1602,9 +1616,17 @@ export function Documents({
   const [browserMobileDeviceId, setBrowserMobileDeviceId] = useState(DOC_PREVIEW_DEFAULT_DEVICE_ID);
   const [browserMobileZoom, setBrowserMobileZoom] = useState(100);
   const [browserAddressQuery, setBrowserAddressQuery] = useState("");
+  const [browserAddressFocusKey, setBrowserAddressFocusKey] = useState("");
   const [activeTool, setActiveTool] = useState<"files" | "browser">("files");
   const [treeOpen, setTreeOpen] = useState(() => readStoredBoolean(DOCUMENT_TREE_STATE_KEY, false));
   const [treeWidth, setTreeWidth] = useState(readStoredTreeWidth);
+  const treeVisible = treeOpen && activeTool === "files";
+  const treeWasVisible = useRef(treeVisible);
+  useEffect(() => {
+    const opened = treeVisible && !treeWasVisible.current;
+    treeWasVisible.current = treeVisible;
+    if (opened) fileSearchRef.current?.focus();
+  }, [treeVisible]);
   useEffect(() => {
     if (!changesOpen) return;
     let alive = true;
@@ -1687,7 +1709,7 @@ export function Documents({
     loadUrl: "",
     label: "新HTML阅览页",
   });
-  // 打开「开始」页签：没有别的页签时它是默认页签，有别的页签时由加号召回。
+  // 打开「开始」页签：没有别的页签时它是默认页签。加号不再召回开始页签。
   const activateStartTab = () => {
     setStartOpen(true);
     setStartActive(true);
@@ -1699,11 +1721,14 @@ export function Documents({
     setBrowserTabs((previous) => [...previous, tab]);
     setBrowserSelected(tab.key);
     setBrowserAddressQuery("");
+    setBrowserAddressFocusKey(tab.key);
+    setStartOpen(false);
     setStartActive(false);
     setActiveTool("browser");
     onSelect("");
   };
   const selectDocument = (id: string) => {
+    setStartOpen(false);
     setStartActive(false);
     setDocumentSelected(id);
     setActiveTool("files");
@@ -1729,6 +1754,7 @@ export function Documents({
     });
     setBrowserSelected(existing?.key || key);
     setBrowserAddressQuery(nextTab.url);
+    setStartOpen(false);
     setStartActive(false);
     setActiveTool("browser");
     onSelect(id);
@@ -1750,10 +1776,11 @@ export function Documents({
     setBrowserTabs(next);
     if (browserSelected !== key) return;
     setBrowserSelected("");
-    // 正看着这个 HTML 页签：接管到相邻 HTML 页签，没有了就回到开始页签。
+    // 正看着这个 HTML 页签：接管到相邻页签；文档和 HTML 都没有了才回到开始页签。
     if (startActive || activeTool !== "browser") return;
     const neighbor = next[index] || next[index - 1];
     if (neighbor) selectBrowserTab(neighbor.key);
+    else if (openTabs.length) selectDocument(openTabs[openTabs.length - 1]);
     else activateStartTab();
   };
   // 页签菜单里的「关闭其它 / 关闭左 / 右」：只作用在 HTML 阅览页签之间。
@@ -1791,11 +1818,20 @@ export function Documents({
     setActiveTool("files");
     const nextId = documentSelected || openTabs[openTabs.length - 1] || "";
     if (!nextId) {
-      activateStartTab();
+      if (!browserTabs.length) activateStartTab();
       return;
     }
+    setStartOpen(false);
     setStartActive(false);
     if (nextId !== selected) onSelect(nextId);
+  };
+  const openDocumentTree = () => {
+    setTreeOpen(true);
+    if (openTabs.length) {
+      if (activeTool !== "files") activateDocumentTool();
+      return;
+    }
+    activateStartTab();
   };
   const openBranchDialog = (item: LibraryVersion) => {
     if (!canBranchVersion(item)) return;
@@ -1984,22 +2020,38 @@ export function Documents({
     return () => window.removeEventListener("keydown", preventPageFind, true);
   }, []);
   useEffect(() => {
-    if (!selected) return;
+    if (!selected || startActive) return;
     if (activeTool === "files") {
       setOpenTabs((previous) => (previous.includes(selected) ? previous : [...previous, selected]));
       setDocumentSelected(selected);
+      setStartOpen(false);
       setStartActive(false);
     }
-  }, [activeTool, selected]);
+  }, [activeTool, selected, startActive]);
+  const documentFocusSeen = useRef(documentFocus);
+  useEffect(() => {
+    if (!documentFocus || documentFocus === documentFocusSeen.current) return;
+    documentFocusSeen.current = documentFocus;
+    if (!selected) return;
+    setActiveTool("files");
+    setStartOpen(false);
+    setStartActive(false);
+    setOpenTabs((previous) => (previous.includes(selected) ? previous : [...previous, selected]));
+    setDocumentSelected(selected);
+  }, [documentFocus, selected]);
+  useEffect(() => {
+    if (openTabs.length) setStartOpen(false);
+  }, [openTabs.length]);
   const closeTab = (id: string) => {
     const next = openTabs.filter((tabId) => tabId !== id);
     setOpenTabs(next);
     if (documentSelected !== id) return;
     setDocumentSelected("");
-    // 正看着这个文档页签：接管到相邻文档页签，没有了就回到开始页签。
+    // 正看着这个文档页签：接管到相邻页签；文档和 HTML 都没有了才回到开始页签。
     if (startActive || activeTool !== "files") return;
     const fallback = next[next.length - 1];
     if (fallback) selectDocument(fallback);
+    else if (browserTabs.length) selectBrowserTab(browserTabs[browserTabs.length - 1].key);
     else activateStartTab();
   };
   const closeOtherTabs = (id: string) => {
@@ -2118,6 +2170,7 @@ export function Documents({
     }]);
     setBrowserSelected(key);
     setBrowserAddressQuery(navigation.address);
+    setStartOpen(false);
     setStartActive(false);
     setActiveTool("browser");
     onSelect(navigation.versionId);
@@ -3237,12 +3290,14 @@ export function Documents({
       <button
         type="button"
         className="doc-browser-start-card"
-        onClick={() => setTreeOpen(true)}
+        onClick={() => (treeOpen ? setTreeOpen(false) : openDocumentTree())}
       >
-        <TreeIcon kind="folder" className="doc-browser-start-card-icon" />
+        {treeOpen
+          ? <OpenFolderIcon className="doc-browser-start-card-icon" />
+          : <ClosedFolderIcon className="doc-browser-start-card-icon" />}
         <span className="doc-browser-start-card-copy">
-          <strong>打开文件树</strong>
-          <small>浏览项目里的文档与文件夹</small>
+          <strong>{treeOpen ? "关闭文件树" : "打开文件树"}</strong>
+          <small>{treeOpen ? "收起项目里的文档与文件夹" : "浏览项目里的文档与文件夹"}</small>
         </span>
       </button>
       <button
@@ -3386,6 +3441,10 @@ export function Documents({
                       onSelectFile={openBrowserTab}
                       deviceMode={browserDeviceMode}
                       onDeviceModeChange={setBrowserDeviceMode}
+                      focusAddressKey={
+                        activeBrowserTab?.key === browserAddressFocusKey ? browserAddressFocusKey : ""
+                      }
+                      onAddressFocused={() => setBrowserAddressFocusKey("")}
                     />
                   </div>
                 </div>
@@ -3541,7 +3600,7 @@ export function Documents({
       ? "html"
       : "other";
   // 文档阅览与 HTML 阅览共用一个页签栏：文档页签在前、HTML 页签在后，末尾是新开 HTML 页签的加号，
-  // 再接文档操作日志与文件树开合按钮。四种元素必须同排（同一 .doc-browser-tabbar 行），所以整行一起成型。
+  // 再接文档操作日志、全屏与文件树开合按钮。四种元素必须同排（同一 .doc-browser-tabbar 行），所以整行一起成型。
   const isBrowserTabKey = (id: string) => browserTabs.some((tab) => tab.key === id);
   const activeTabId = startActive
     ? START_TAB_ID
@@ -3579,7 +3638,7 @@ export function Documents({
         id: START_TAB_ID,
         label: "开始",
         title: "开始",
-        icon: <UiIcon name="home" size={14} />,
+        icon: <UiIcon name="compass" size={14} />,
         className: hasContentTabs ? "doc-browser-tab-start" : undefined,
         closable: hasContentTabs,
       } satisfies DocumentTabListItem]
@@ -3616,7 +3675,7 @@ export function Documents({
           key: "tree",
           label: treeOpen ? "隐藏文件树" : "打开文件树",
           icon: "folder",
-          onRun: () => setTreeOpen(!treeOpen),
+          onRun: () => (treeOpen ? setTreeOpen(false) : openDocumentTree()),
         },
         {
           key: "new-html",
@@ -3769,9 +3828,11 @@ export function Documents({
   // 所以在 HTML 页签上点它等价于“回到文档阅览并打开文件树”。
   const treeToggleActive = treeOpen && activeTool === "files";
   const toggleTree = () => {
-    const next = !treeToggleActive;
-    if (next && activeTool !== "files") activateDocumentTool();
-    setTreeOpen(next);
+    if (treeToggleActive) {
+      setTreeOpen(false);
+      return;
+    }
+    openDocumentTree();
   };
   const contentTabbar = (
     <div
@@ -3799,11 +3860,20 @@ export function Documents({
           <button
             type="button"
             className="doc-browser-new-tab"
-            aria-label="打开开始页签"
-            title="打开开始页签"
-            onClick={activateStartTab}
+            aria-label={treeToggleActive ? "打开新HTML阅览页" : "新建"}
+            aria-haspopup={treeToggleActive ? undefined : "menu"}
+            aria-expanded={newTabMenu ? true : undefined}
+            title={treeToggleActive ? "打开新HTML阅览页" : "新建"}
+            onClick={(event) => {
+              if (treeToggleActive) {
+                setNewTabMenu(null);
+                createBrowserNewTab();
+                return;
+              }
+              setNewTabMenu({ x: event.clientX, y: event.clientY });
+            }}
           >
-            <UiIcon name="plus" size={14} />
+            <UiIcon name="plus" size={16} />
           </button>
         )}
       />
@@ -3815,6 +3885,28 @@ export function Documents({
           onDismiss={() => setTabMenu(null)}
         />
       ) : null}
+      {newTabMenu ? (
+        <TabContextMenu
+          x={newTabMenu.x}
+          y={newTabMenu.y}
+          className="doc-browser-new-tab-menu"
+          onDismiss={() => setNewTabMenu(null)}
+          items={[
+            {
+              key: "tree",
+              label: "打开文件树",
+              icon: "folder",
+              onRun: openDocumentTree,
+            },
+            {
+              key: "html",
+              label: "打开新HTML阅览页",
+              icon: "globe",
+              onRun: createBrowserNewTab,
+            },
+          ]}
+        />
+      ) : null}
       <button
         type="button"
         className={`doc-browser-tree-toggle${treeToggleActive ? " active" : ""}`}
@@ -3823,17 +3915,7 @@ export function Documents({
         aria-pressed={treeToggleActive}
         onClick={toggleTree}
       >
-        <TreeIcon kind="folder" />
-      </button>
-      <button
-        type="button"
-        className={`doc-browser-tree-toggle doc-browser-fullscreen-toggle${documentFullscreen ? " active" : ""}`}
-        aria-pressed={documentFullscreen}
-        aria-label={documentFullscreen ? "退出全屏" : "全屏"}
-        title={documentFullscreen ? "退出全屏" : "全屏"}
-        onClick={() => onDocumentFullscreenChange?.(!documentFullscreen)}
-      >
-        <UiIcon name={documentFullscreen ? "compress" : "expand"} size={15} />
+        {treeToggleActive ? <OpenFolderIcon /> : <ClosedFolderIcon />}
       </button>
     </div>
   );

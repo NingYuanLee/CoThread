@@ -146,7 +146,7 @@ export function SystemManagement({ section, api, currentUserId, onProjectsChange
       </div>
       {error && <div className="error" role="alert">{error}</div>}
       <div className="plugin-level-tabs" role="tablist" aria-label="Agent 层级">
-        {(["l1", "l2", "l3"] as const).map((value) => <button type="button" role="tab" aria-selected={agentLevel === value} key={value} onClick={() => { setAgentLevel(value); setSkillDraft(null); }}><UiIcon name={value === "l1" ? "book" : value === "l2" ? "task" : "play"} size={12} />{value.toUpperCase()}</button>)}
+        {(["l1", "l2", "l3"] as const).map((value) => <button type="button" role="tab" aria-selected={agentLevel === value} key={value} onClick={() => { setAgentLevel(value); setSkillDraft(null); }}><UiIcon name={value === "l1" ? "book" : value === "l2" ? "task" : "play"} size={12} />{value === "l3" ? "子Agent" : value.toUpperCase()}</button>)}
       </div>
       <div className="plugin-type-tabs" role="tablist" aria-label="插件类型">
         {pluginViews.map((view) => <button type="button" role="tab" aria-selected={pluginType === view.id} key={view.id} onClick={() => { setPluginType(view.id); setSkillDraft(null); }}><UiIcon name={view.id === "skill" ? "skill" : "plugin"} size={12} />{view.label}</button>)}

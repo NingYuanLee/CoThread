@@ -217,6 +217,37 @@ const MINIPROGRAM_AREA_LABELS = Object.fromEntries(
 );
 const MINIPROGRAM_READ_MAX_BYTES = 200 * 1024;
 
+const CHAT_DIALOGUE_BLOCKED_TOOLS = new Set([
+  "manage_document",
+  "manage_folder",
+  "record_document_summary",
+  "post_message",
+  "create_task",
+  "update_task",
+  "reassign_task",
+  "resolve_task_rejection",
+  "recover_task",
+  "ask_task_question",
+  "bind_task_l3",
+  "sandbox_command",
+  "sandbox_write",
+  "publish_artifact",
+  "branch_artifact",
+  "miniprogram_write_source",
+  "miniprogram_build_preview",
+  "miniprogram_register_admin_preview",
+  "miniprogram_report_admin_preview",
+  "miniprogram_submit_release",
+  "wechat_preview",
+  "miniprogram_upload_experience",
+  "cloudbase_db_manage",
+  "cloudbase_db_write",
+  "cloudbase_function_manage",
+  "cloudbase_storage_upload",
+  "cloudbase_storage_manage",
+  "cloudbase_auth_config_update",
+]);
+
 /** Reject miniprogram tool use until the project has enabled the workspace. */
 async function requireMiniprogramWorkspace(service, projectId) {
   const runtime = await loadProjectMiniProgramRuntime(service, projectId);
@@ -333,6 +364,9 @@ export function createAgentTools(
       sessionId: callerSessionId,
     });
     if (!titles[name]) throw new HttpError(400, "未知工具");
+    if (job.dialogue_mode === "chat" && CHAT_DIALOGUE_BLOCKED_TOOLS.has(name)) {
+      throw new HttpError(403, "当前为 Chat 只读对话模式，不能执行写入或任务类操作");
+    }
     if (
       effectiveRole === "coordinator" &&
       ![
@@ -375,7 +409,7 @@ export function createAgentTools(
         "ask_task_question",
       ].includes(name)
     )
-      throw new HttpError(403, "L3 只能执行已分派的工作，不能管理 L2 生命周期或创建新任务");
+      throw new HttpError(403, "子 Agent 只能执行已分派的工作，不能管理 L2 生命周期或创建新任务");
     let agentTaskId = null;
     if (effectiveRole === "executor" && callerSessionId) {
       const [activeRun] = await query(
@@ -437,7 +471,7 @@ export function createAgentTools(
           args,
         );
       } else if (name === "report_task") {
-        if (effectiveRole !== "executor") throw new HttpError(403, "只有执行中的 L3 可以交活");
+        if (effectiveRole !== "executor") throw new HttpError(403, "只有执行中的子 Agent 可以交活");
         const taskId = z
           .string()
           .uuid()
@@ -455,10 +489,10 @@ export function createAgentTools(
             artifactRefs: args.artifactRefs,
             progress:
               status === "completed"
-                ? "L3 已交活"
+                ? "子 Agent 已交活"
                 : status === "failed"
-                  ? reason || "L3 交活失败"
-                  : reason || "L3 已阻塞",
+                  ? reason || "子 Agent 交活失败"
+                  : reason || "子 Agent 已阻塞",
           },
         );
       } else if (name === "reassign_task") {
@@ -578,7 +612,7 @@ export function createAgentTools(
         const taskId = z.string().uuid().parse(args.taskId);
         const childSessionId = z.string().uuid().parse(args.childSessionId);
         result = await bindDshL3Execution(service.db, l2SessionId, childSessionId, taskId);
-        if (!result?.execution_agent_id) throw new HttpError(409, "排队任务未能绑定到本次 L3");
+        if (!result?.execution_agent_id) throw new HttpError(409, "排队任务未能绑定到本次子 Agent");
       } else if (["list_documents", "manage_document", "manage_folder"].includes(name)) {
         result = await documentTool(service, user, name, args, job);
       } else if (name === "list_local_connectors") {
@@ -691,7 +725,7 @@ export function createAgentTools(
               throw new HttpError(403, "文档不属于当前项目");
             result = await captureDocumentPreview(service, user, versionId);
           } else {
-            if (effectiveRole !== "executor") throw new HttpError(403, "只有 L3 可以截图沙箱 HTML");
+            if (effectiveRole !== "executor") throw new HttpError(403, "只有子 Agent 可以截图沙箱 HTML");
             const sandbox = await getSandbox(service.db, sandboxScope, progress);
             const relative = z.string().min(1).max(240).parse(args.path);
             await safeRemotePath(sandbox, root, relative);
@@ -776,7 +810,7 @@ export function createAgentTools(
         };
       } else if (MINIPROGRAM_TOOL_NAMES.includes(name)) {
         if (effectiveRole !== "executor" && !MINIPROGRAM_READ_TOOLS.includes(name)) {
-          throw new HttpError(403, "只有 L3 可以写入小程序源码或触发小程序编译");
+          throw new HttpError(403, "只有子 Agent 可以写入小程序源码或触发小程序编译");
         }
         const runtime = await requireMiniprogramWorkspace(service, thread.project_id);
         await progress(label);
@@ -809,7 +843,7 @@ export function createAgentTools(
             },
             workflow: {
               operatingModel:
-                "Cothread 是小程序与配套 Admin 的云开发工作台：人类用自然语言提出目标，L2 负责拆解和验收，L3 通过本组工具读写源码、部署 development、预览并提交生产发布申请。L3 不应把步骤重新交回人类，也不应绕过源码持久化直接在宿主机临时修改结果。",
+                "Cothread 是小程序与配套 Admin 的云开发工作台：人类用自然语言提出目标，L2 负责拆解和验收，子 Agent 通过本组工具读写源码、部署 development、预览并提交生产发布申请。子 Agent 不应把步骤重新交回人类，也不应绕过源码持久化直接在宿主机临时修改结果。",
               rule: "业务运行时直连 CloudBase；共序服务端只负责源码、配置、发布和管理面操作。",
               development: {
                 miniProgram:
@@ -817,7 +851,7 @@ export function createAgentTools(
                 admin:
                   "Admin 预览不是 Dimina 编译：必须调用 miniprogram_register_admin_preview，拿到 proxyBase 后在宿主机/任务沙箱启动带 --base 的开发服务器，再调用 miniprogram_report_admin_preview 标记 running。Admin 代码必须自行用 development 的 CloudBase Web SDK 初始化；配置正确且云函数已部署时可以直连调用，代理只负责提供静态页面。",
                 cloudbase:
-                  "L3 的云开发数据面工具只允许操作 development；预览调用的是 development 云函数，不会自动调用 production。",
+                  "子 Agent 的云开发数据面工具只允许操作 development；预览调用的是 development 云函数，不会自动调用 production。",
               },
               production: {
                 miniProgram:
@@ -1002,7 +1036,7 @@ export function createAgentTools(
         }
       } else if (CLOUDBASE_TOOL_NAMES.includes(name)) {
         if (effectiveRole !== "executor") {
-          throw new HttpError(403, "只有 L3 可以调用云开发数据面工具");
+          throw new HttpError(403, "只有子 Agent 可以调用云开发数据面工具");
         }
         await requireMiniprogramWorkspace(service, thread.project_id);
         // Agents are confined to the development environment.
@@ -1052,7 +1086,7 @@ export function createAgentTools(
             );
             result = {
               ...key,
-              hint: "Publishable Key 已保存到项目管理的小程序与云开发配置；L3 可通过 cloudbase_auth_config 读取并写入前端代码。",
+              hint: "Publishable Key 已保存到项目管理的小程序与云开发配置；子 Agent 可通过 cloudbase_auth_config 读取并写入前端代码。",
             };
           } else if (action === "set_phone_auth") {
             const enabled = z.boolean().parse(args.enabled);
@@ -1064,7 +1098,7 @@ export function createAgentTools(
               AGENT_MEMBER.id,
             );
             result.hint =
-              "小程序手机号授权策略已更新；L3 应据此决定是否生成 signInWithPhoneAuth 入口。";
+              "小程序手机号授权策略已更新；子 Agent 应据此决定是否生成 signInWithPhoneAuth 入口。";
           } else {
             const enabled = z.boolean().parse(args.enabled);
             result = await updateCloudbaseAuthSettings(service, user, thread.project_id, {

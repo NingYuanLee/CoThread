@@ -148,6 +148,7 @@ export function createMcpServer(service, user, afterMessage) {
       folderRefs: z.array(z.string().uuid()).max(30).optional().describe("引用当前项目中的文件夹，群聊展示文件夹本身，不要展开成文件列表"),
       quoteIds: z.array(z.string().uuid()).max(10).optional().describe("引用当前会话消息的ID，最多10条，与文档refs分开"),
       mentionAgent: z.boolean().optional(),
+      dialogueMode: z.enum(["default", "chat", "cloudbase"]).optional(),
       files: z.array(z.object({
         title: z.string().min(1).max(160),
         filename: z.string().min(1).max(200),

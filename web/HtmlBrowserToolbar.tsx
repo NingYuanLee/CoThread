@@ -14,6 +14,8 @@ export function HtmlBrowserToolbar({
   onOpenExternal,
   deviceMode,
   onDeviceModeChange,
+  focusAddressKey = "",
+  onAddressFocused,
 }: {
   filename?: string;
   files: HtmlBrowserFile[];
@@ -24,9 +26,23 @@ export function HtmlBrowserToolbar({
   onOpenExternal?: () => void;
   deviceMode: HtmlDeviceMode;
   onDeviceModeChange: (mode: HtmlDeviceMode) => void;
+  /** 新开的空阅览页签 key；变化时把地址栏设为焦点，空字符串不抢焦点。 */
+  focusAddressKey?: string;
+  onAddressFocused?: () => void;
 }) {
   const [focused, setFocused] = useState(false);
   const addressWrapRef = useRef<HTMLDivElement>(null);
+  const addressInputRef = useRef<HTMLInputElement>(null);
+  const onAddressFocusedRef = useRef(onAddressFocused);
+  onAddressFocusedRef.current = onAddressFocused;
+  useEffect(() => {
+    if (!focusAddressKey) return;
+    const input = addressInputRef.current;
+    if (!input) return;
+    setFocused(true);
+    input.focus();
+    onAddressFocusedRef.current?.();
+  }, [focusAddressKey]);
   useEffect(() => {
     if (!focused) return;
     const closeOnOutsidePointerDown = (event: PointerEvent) => {
@@ -61,6 +77,7 @@ export function HtmlBrowserToolbar({
         <div ref={addressWrapRef} className={`doc-html-browser-address-wrap${focused ? " focused" : ""}`}>
           <UiIcon name="search" size={13} />
           <input
+            ref={addressInputRef}
             className="doc-html-browser-address-input"
             aria-label="搜索并选择 HTML 文件"
             placeholder="输入或搜索 HTML 文件"

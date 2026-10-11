@@ -9,6 +9,17 @@ import { queueDocumentOrganization } from "./document-organization.js";
 import { queueL1MemoryRun } from "./project-memory.js";
 import { assertMemoryMaintenanceAuth, runMemoryMaintenance } from "./memory-maintenance.js";
 import express from "express";
+import { adminPermissionForRequest, ADMIN_PERMISSION_TREE } from "../shared/admin-permissions.js";
+import {
+  adminAccess,
+  requireAdminPermission,
+  listAdminRoles,
+  adminRoleOptions,
+  saveAdminRole,
+  deleteAdminRole,
+  assignAdminRoles,
+} from "./admin-rbac.js";
+import { listAdminWork, adminTaskDetail, updateAdminWork } from "./admin-work.js";
 import { emptyLibraryRecycle, libraryChange } from "./documents/index.js";
 import { countDocumentChanges, listDocumentChanges } from "./documents/index.js";
 import { z, ZodError } from "zod/v3";
@@ -825,6 +836,63 @@ export function createApp(
   app.post("/api/users", async (req, res) =>
     res.status(201).json(await service.createUser(req.user, req.body)),
   );
+  app.use("/api/admin", async (req, _res, next) => {
+    const permission = adminPermissionForRequest(req.method, req.path);
+    if (permission === false) throw new HttpError(403, "未授权的管理接口");
+    if (permission) await requireAdminPermission(db, req.user, permission);
+    next();
+  });
+  app.get("/api/admin/access", async (req, res) => res.json(await adminAccess(db, req.user)));
+  app.get("/api/admin/permissions", (_req, res) => res.json(ADMIN_PERMISSION_TREE));
+  app.get("/api/admin/roles", async (req, res) => res.json(await listAdminRoles(db, req.user)));
+  app.post("/api/admin/roles", async (req, res) =>
+    res.status(201).json(await saveAdminRole(db, req.user, null, req.body)),
+  );
+  app.patch("/api/admin/roles/:id", async (req, res) =>
+    res.json(await saveAdminRole(db, req.user, req.params.id, req.body)),
+  );
+  app.delete("/api/admin/roles/:id", async (req, res) =>
+    res.json(await deleteAdminRole(db, req.user, req.params.id)),
+  );
+  app.get("/api/admin/role-members", async (_req, res) => {
+    const [members, assignments] = await Promise.all([
+      query(
+        db,
+        "SELECT id,name,user_number,COALESCE(username,email) username,is_super_admin,disabled_at FROM users ORDER BY user_number",
+      ),
+      query(db, "SELECT user_id,role_id FROM admin_user_roles"),
+    ]);
+    res.json(
+      members.map((member) => ({
+        ...member,
+        roleIds: assignments.filter((row) => row.user_id === member.id).map((row) => row.role_id),
+      })),
+    );
+  });
+  app.get("/api/admin/accounts/:id/role-options", async (req, res) =>
+    res.json(await adminRoleOptions(db, req.user, req.params.id)),
+  );
+  app.get("/api/admin/accounts/:id/avatar", async (req, res) => {
+    const [account] = await query(db, "SELECT avatar FROM users WHERE id=?", [req.params.id]);
+    const image = account?.avatar?.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/);
+    if (!image) throw new HttpError(404, "头像不存在");
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.type(image[1]).send(Buffer.from(image[2], "base64"));
+  });
+  app.put("/api/admin/accounts/:id/roles", async (req, res) =>
+    res.json(await assignAdminRoles(db, req.user, req.params.id, req.body)),
+  );
+  for (const kind of ["iterations", "tasks"]) {
+    app.get(`/api/admin/${kind}`, async (req, res) =>
+      res.json(await listAdminWork(db, req.user, kind, req.query)),
+    );
+    app.patch(`/api/admin/${kind}/:id`, async (req, res) =>
+      res.json(await updateAdminWork(db, req.user, kind, req.params.id, req.body)),
+    );
+  }
+  app.get("/api/admin/tasks/:id", async (req, res) =>
+    res.json(await adminTaskDetail(db, req.user, req.params.id)),
+  );
   app.get("/api/admin/projects", async (req, res) =>
     res.json(await service.adminProjects(req.user)),
   );
@@ -1277,22 +1345,46 @@ export function createApp(
     res.json(await saveMiniprogramAuthConfig(service, req.user, req.params.id, req.body || {})),
   );
   app.get("/api/projects/:id/cloudbase/auth-settings", async (req, res) =>
-    res.json(await readCloudbaseAuthSettings(service, req.user, req.params.id, req.query.environment || "development")),
+    res.json(
+      await readCloudbaseAuthSettings(
+        service,
+        req.user,
+        req.params.id,
+        req.query.environment || "development",
+      ),
+    ),
   );
   app.put("/api/projects/:id/cloudbase/auth-settings", async (req, res) =>
     res.json(await updateCloudbaseAuthSettings(service, req.user, req.params.id, req.body || {})),
   );
   app.get("/api/projects/:id/cloudbase/admin-account", async (req, res) =>
-    res.json(await readCloudbaseAdminAccount(service, req.user, req.params.id, req.query.environment || "development")),
+    res.json(
+      await readCloudbaseAdminAccount(
+        service,
+        req.user,
+        req.params.id,
+        req.query.environment || "development",
+      ),
+    ),
   );
   app.put("/api/projects/:id/cloudbase/admin-account", async (req, res) =>
     res.json(await saveCloudbaseAdminAccount(service, req.user, req.params.id, req.body || {})),
   );
   app.post("/api/projects/:id/cloudbase/functions/:functionName/invoke", async (req, res) =>
-    res.json(await invokeCloudbaseFunction(service, req.user, req.params.id, { ...(req.body || {}), name: req.params.functionName })),
+    res.json(
+      await invokeCloudbaseFunction(service, req.user, req.params.id, {
+        ...(req.body || {}),
+        name: req.params.functionName,
+      }),
+    ),
   );
   app.get("/api/projects/:id/cloudbase/functions/:functionName/logs", async (req, res) =>
-    res.json(await searchCloudbaseFunctionLogs(service, req.user, req.params.id, { ...req.query, name: req.params.functionName })),
+    res.json(
+      await searchCloudbaseFunctionLogs(service, req.user, req.params.id, {
+        ...req.query,
+        name: req.params.functionName,
+      }),
+    ),
   );
   app.put("/api/projects/:id/miniprogram-auth-config/publishable-key", async (req, res) => {
     await service.member(req.user, req.params.id, true, service.db, true);

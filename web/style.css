@@ -4620,7 +4620,7 @@ img.file-type-icon {
 .doc-browser-shell {
   --doc-browser-active-surface: var(--c-fff);
   /* 与主题色条偏右段（preview 第 3 色）混页面底色，比活动页签区更深一档 */
-  --doc-browser-tabbar-surface: color-mix(in srgb, var(--c-3f5945) 15%, var(--c-f8faf8) 85%);
+  --doc-browser-tabbar-surface: color-mix(in srgb, var(--c-3f5945) 8%, var(--c-f8faf8) 92%);
   --doc-browser-tab-divider: color-mix(in srgb, var(--c-3f5945) 26%, var(--c-f8faf8) 74%);
   --doc-browser-tab-fillet: 6px;
 }
@@ -7247,6 +7247,8 @@ body.col-resizing .app-shell > .context-panel {
 .settings-mode button { margin: 0; padding: 7px 4px; text-align: center; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
 .settings-mode button.active { background: var(--c-fff); color: var(--c-405432); box-shadow: 0 1px 2px var(--c-0001); }
 .admin-manager { min-width: 0; }
+.settings-admin-link { display: flex; align-items: center; gap: 8px; color: var(--c-516747); text-decoration: none; padding: 12px 10px; margin-bottom: 12px; border-bottom: 1px solid var(--c-dde5d7); font-size: 12px; }
+.settings-admin-link:hover { background: var(--c-f3f5f0); border-radius: 6px; }
 .admin-manager-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
 .admin-manager-toolbar h3 { margin: 0; font-size: 16px; }
 .admin-manager-toolbar p { margin: 6px 0 0; color: var(--c-8b9683); font-size: 12px; }

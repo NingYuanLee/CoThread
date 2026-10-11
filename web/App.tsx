@@ -8,6 +8,7 @@ const loadWorkspaceApp = () => import("./WorkspaceApp");
 const WorkspaceApp = lazy(() =>
   loadWorkspaceApp().then((module) => ({ default: module.WorkspaceApp })),
 );
+const AdminApp = lazy(() => import("./AdminApp").then((module) => ({ default: module.AdminApp })));
 
 export function App() {
   const [phase, setPhase] = useState<"boot" | "login" | "app">("boot");
@@ -46,7 +47,7 @@ export function App() {
   }
   return (
     <Suspense fallback={<BootScreen error="" onRetry={() => window.location.reload()} />}>
-      <WorkspaceApp />
+      {/^\/admin(?:\/|$)/.test(window.location.pathname) ? <AdminApp /> : <WorkspaceApp />}
     </Suspense>
   );
 }

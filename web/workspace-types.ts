@@ -56,10 +56,27 @@ export type Detail = Project & {
     motto?: string;
     identity_tags?: string[];
   }[];
-  folders: { id: string; parent_id: string | null; thread_id?: string | null; folder_kind?: string | null; system_key?: string | null; name: string }[];
+  folders: {
+    id: string;
+    parent_id: string | null;
+    thread_id?: string | null;
+    folder_kind?: string | null;
+    system_key?: string | null;
+    name: string;
+  }[];
   versions: Version[];
-  documentOrganizationJobs: { id: string; thread_id?: string | null; scope: "iteration" | "project"; status: string; error?: string | null }[];
-  longTermSummary?: { summary: string; updatedAt: string | null; lastThreadTitle: string | null } | null;
+  documentOrganizationJobs: {
+    id: string;
+    thread_id?: string | null;
+    scope: "iteration" | "project";
+    status: string;
+    error?: string | null;
+  }[];
+  longTermSummary?: {
+    summary: string;
+    updatedAt: string | null;
+    lastThreadTitle: string | null;
+  } | null;
 };
 
 export type MessageQuote = {
@@ -74,8 +91,18 @@ export type MessageQuote = {
 
 export type LocalTask = {
   id: string;
-  status: "awaiting_approval" | "queued" | "running" | "paused" | "stopped_pending_approval" |
-    "completed_pending_notification" | "failed_pending_notification" | "completed" | "failed" | "cancelled" | "interrupted";
+  status:
+    | "awaiting_approval"
+    | "queued"
+    | "running"
+    | "paused"
+    | "stopped_pending_approval"
+    | "completed_pending_notification"
+    | "failed_pending_notification"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "interrupted";
 };
 
 export type AvailableConnector = {
@@ -118,13 +145,75 @@ export type AgentTaskDetail = AgentTask & {
   document_refs?: string[] | string | null;
   folder_refs?: string[] | string | null;
   artifact_refs: unknown[] | string | null;
-  assignmentHistory: { id: number; event_type: "assigned" | "transferred" | "rejected" | "acknowledged" | "reopened"; from_target_type: string | null; from_target_id: string | null; to_target_type: string | null; to_target_id: string | null; changed_by_type: string; changed_by_id: string | null; actor_name?: string | null; reason: string | null; created_at: string }[];
-  questions: { id: string; source_user_id: string | null; question: string; answer: string | null; status: string; created_at: string }[];
-  executionRuns: { id: string; executor_type: string; executor_id: string | null; executor_label?: string | null; executor_member_name?: string | null; executor_owner_name?: string | null; status: string; progress: string | null; result_summary: string | null; error: string | null; created_at: string }[];
-  updates: { id: string; body: string; source_type: string; source_id: string; created_at: string }[];
-  rejectionReview: { rejected: boolean; resolved: boolean; reviewer_type: string | null; reviewer_id: string | null };
-  statusHistory: { id: number; from_status: string | null; to_status: string; actor_type: string; actor_id: string | null; actor_name?: string | null; actor_name_snapshot?: string | null; reason: string | null; created_at: string }[];
-  activity?: { kind: "member_update" | "status_change" | "l3_execution"; at: string; body?: string; source_type?: string; actor_name?: string | null; to_status?: string; reason?: string | null; progress?: string | null; result_summary?: string | null }[];
+  assignmentHistory: {
+    id: number;
+    event_type: "assigned" | "transferred" | "rejected" | "acknowledged" | "reopened";
+    from_target_type: string | null;
+    from_target_id: string | null;
+    to_target_type: string | null;
+    to_target_id: string | null;
+    changed_by_type: string;
+    changed_by_id: string | null;
+    actor_name?: string | null;
+    reason: string | null;
+    created_at: string;
+  }[];
+  questions: {
+    id: string;
+    source_user_id: string | null;
+    question: string;
+    answer: string | null;
+    status: string;
+    created_at: string;
+  }[];
+  executionRuns: {
+    id: string;
+    executor_type: string;
+    executor_id: string | null;
+    executor_label?: string | null;
+    executor_member_name?: string | null;
+    executor_owner_name?: string | null;
+    status: string;
+    progress: string | null;
+    result_summary: string | null;
+    error: string | null;
+    created_at: string;
+  }[];
+  updates: {
+    id: string;
+    body: string;
+    source_type: string;
+    source_id: string;
+    created_at: string;
+  }[];
+  rejectionReview: {
+    rejected: boolean;
+    resolved: boolean;
+    reviewer_type: string | null;
+    reviewer_id: string | null;
+  };
+  statusHistory: {
+    id: number;
+    from_status: string | null;
+    to_status: string;
+    actor_type: string;
+    actor_id: string | null;
+    actor_name?: string | null;
+    actor_name_snapshot?: string | null;
+    reason: string | null;
+    created_at: string;
+  }[];
+  activity?: {
+    kind: "member_update" | "status_change" | "l3_execution";
+    at: string;
+    body?: string;
+    source_type?: string;
+    actor_name?: string | null;
+    to_status?: string;
+    reason?: string | null;
+    progress?: string | null;
+    result_summary?: string | null;
+  }[];
 };
 
 export type TaskTimelineKind = "member_update" | "status_change" | "assignment" | "execution";
@@ -190,7 +279,14 @@ export type Thread = {
     progress: string | null;
   }[];
   updates: { message_id: string; task_message_id: string; delivered_at: string | null }[];
-  requests: { usage_stats?: UsageStats | string | null; first_response_at?: string | null; message_id: string; status: string; response_id: string | null; error: string | null }[];
+  requests: {
+    usage_stats?: UsageStats | string | null;
+    first_response_at?: string | null;
+    message_id: string;
+    status: string;
+    response_id: string | null;
+    error: string | null;
+  }[];
   connectorTasks: LocalTask[];
   events: {
     id: string;
@@ -205,14 +301,4 @@ export type Thread = {
 };
 
 export type Modal =
-  | "profile"
-  | "project"
-  | "settings"
-  | "admin-projects"
-  | "admin-accounts"
-  | "admin-plugins"
-  | "password"
-  | "email"
-  | "mcp"
-  | "run"
-  | null;
+  "profile" | "project" | "settings" | "password" | "email" | "mcp" | "run" | null;

@@ -1,0 +1,27 @@
+CREATE TABLE IF NOT EXISTS admin_roles (
+ id CHAR(36) PRIMARY KEY,
+ name VARCHAR(80) NOT NULL UNIQUE,
+ description VARCHAR(500) NOT NULL DEFAULT '',
+ permissions JSON NOT NULL,
+ created_by CHAR(36) NOT NULL,
+ created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+ updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+ FOREIGN KEY(created_by) REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS admin_user_roles (
+ user_id CHAR(36) NOT NULL,
+ role_id CHAR(36) NOT NULL,
+ PRIMARY KEY(user_id,role_id),
+ FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+ FOREIGN KEY(role_id) REFERENCES admin_roles(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS admin_change_logs (
+ id CHAR(36) PRIMARY KEY,
+ actor_user_id CHAR(36) NOT NULL,
+ action VARCHAR(80) NOT NULL,
+ target_id CHAR(36) NOT NULL,
+ details JSON NOT NULL,
+ created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+ INDEX(target_id,created_at),
+ FOREIGN KEY(actor_user_id) REFERENCES users(id)
+);

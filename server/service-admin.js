@@ -3,6 +3,26 @@ import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { hashPassword } from "./auth.js";
 
+async function assertAccountManagementScope(service, user, userId, permission, db, fail) {
+  const access = await service.adminPermission(user, permission, db);
+  if (access.isSuperAdmin) return;
+  const [target] = await query(db, "SELECT is_super_admin FROM users WHERE id=?", [userId]);
+  if (target && Number(target.is_super_admin)) fail(403, "仅超级管理员可管理超级管理员账号");
+  const roles = await query(
+    db,
+    `SELECT r.permissions FROM admin_roles r JOIN admin_user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?`,
+    [userId],
+  );
+  if (
+    roles.some((role) =>
+      (typeof role.permissions === "string" ? JSON.parse(role.permissions) : role.permissions).some(
+        (key) => !access.permissions.includes(key),
+      ),
+    )
+  )
+    fail(403, "不能管理权限范围高于自己的成员账号");
+}
+
 export async function users(service, user, projectId, { fail }) {
   if (user.kind !== "session") fail(403, "成员目录需要人工登录");
   if (projectId) await service.member(user, projectId);
@@ -16,7 +36,7 @@ export async function users(service, user, projectId, { fail }) {
 }
 
 export async function createUser(service, user, input, { title, fail }) {
-  await service.systemAdmin(user);
+  await service.adminPermission(user, "accounts.create");
   const data = z
     .object({
       name: title.max(80),
@@ -59,7 +79,7 @@ export async function createUser(service, user, input, { title, fail }) {
 }
 
 export async function adminProjects(service, user) {
-  await service.systemAdmin(user);
+  await service.adminPermission(user, "projects");
   const [projects, memberships, changes] = await Promise.all([
     query(
       service.db,
@@ -88,7 +108,7 @@ export async function adminProjects(service, user) {
 }
 
 export async function setProjectArchived(service, user, projectId, archived, { id, fail }) {
-  await service.systemAdmin(user);
+  await service.adminPermission(user, archived ? "projects.archive" : "projects.restore");
   id.parse(projectId);
   const result = await transaction(service.db, async (db) => {
     const changed = await query(
@@ -105,11 +125,11 @@ export async function setProjectArchived(service, user, projectId, archived, { i
 }
 
 export async function adminAccounts(service, user) {
-  await service.systemAdmin(user);
+  await service.adminPermission(user, "accounts");
   const [accounts, memberships, changes, logins] = await Promise.all([
     query(
       service.db,
-      "SELECT id,user_number,COALESCE(username,email) username,name,email,email_verified_at,is_super_admin,disabled_at,created_at FROM users ORDER BY disabled_at IS NOT NULL,user_number",
+      "SELECT id,user_number,COALESCE(username,email) username,name,email,email_verified_at,is_super_admin,disabled_at,created_at,CASE WHEN avatar IS NULL OR avatar='' THEN NULL ELSE CONCAT('/api/admin/accounts/',id,'/avatar?v=',LEFT(SHA2(avatar,256),16)) END avatar FROM users ORDER BY disabled_at IS NOT NULL,user_number",
     ),
     query(
       service.db,
@@ -147,11 +167,22 @@ export async function adminAccounts(service, user) {
 }
 
 export async function setAccountDisabled(service, user, userId, input, { id, fail }) {
-  await service.systemAdmin(user);
+  await service.adminPermission(user, "accounts.status");
   id.parse(userId);
   const { disabled } = z.object({ disabled: z.boolean() }).parse(input);
   if (userId === user.id && disabled) fail(409, "不能停用当前登录账号");
   const result = await transaction(service.db, async (db) => {
+    const [target] = await query(db, "SELECT is_super_admin FROM users WHERE id=? FOR UPDATE", [
+      userId,
+    ]);
+    await assertAccountManagementScope(service, user, userId, "accounts.status", db, fail);
+    if (target && Number(target.is_super_admin) && disabled) {
+      const active = await query(
+        db,
+        "SELECT id FROM users WHERE is_super_admin=TRUE AND disabled_at IS NULL FOR UPDATE",
+      );
+      if (active.length <= 1) fail(409, "不能停用最后一个超级管理员");
+    }
     const changed = await query(
       db,
       `UPDATE users SET disabled_at=${disabled ? "UTC_TIMESTAMP(3)" : "NULL"} WHERE id=?`,
@@ -167,10 +198,14 @@ export async function setAccountDisabled(service, user, userId, input, { id, fai
 }
 
 export async function resetAccountPassword(service, user, userId, { id, fail }) {
-  await service.systemAdmin(user);
+  await service.adminPermission(user, "accounts.reset-password");
   id.parse(userId);
   const password = randomBytes(15).toString("base64url");
   const result = await transaction(service.db, async (db) => {
+    const [target] = await query(db, "SELECT is_super_admin FROM users WHERE id=? FOR UPDATE", [
+      userId,
+    ]);
+    await assertAccountManagementScope(service, user, userId, "accounts.reset-password", db, fail);
     const changed = await query(db, "UPDATE users SET password_hash=? WHERE id=?", [
       await hashPassword(password),
       userId,

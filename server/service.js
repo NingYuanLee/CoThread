@@ -75,6 +75,7 @@ import {
 
 import { HttpError } from "./http-error.js";
 import { DocumentsService } from "./documents/service.js";
+import { requireAdminPermission } from "./admin-rbac.js";
 
 // 保持既有公开面：文档标题工具随文档方法一起搬进内核，这里只做转发。
 export { officialTitleWithVersion } from "./documents/service.js";
@@ -216,6 +217,9 @@ export class Service extends DocumentsService {
       [user.id],
     );
     if (!account || !Number(account.is_super_admin)) fail(403, "仅超级管理员可执行此操作");
+  }
+  async adminPermission(user, permission, db = this.db) {
+    return requireAdminPermission(db, user, permission);
   }
   async member(user, projectId, write = false, db = this.db, owner = false) {
     id.parse(projectId);
@@ -1070,7 +1074,7 @@ export class Service extends DocumentsService {
     fail(400, "未知日志作用域");
   }
   async adminCreateProject(user, input) {
-    await this.systemAdmin(user);
+    await this.adminPermission(user, "projects.create");
     return this.createProject(user, input);
   }
   async addMember(user, projectId, input) {
@@ -1595,11 +1599,11 @@ export class Service extends DocumentsService {
           );
           if (onlineConnector) interactionSource = "connector_mcp";
         }
-        await query(db, "INSERT INTO agent_requests(message_id,interaction_source,dialogue_mode) VALUES(?,?,?)", [
-          message.id,
-          interactionSource,
-          data.dialogueMode,
-        ]);
+        await query(
+          db,
+          "INSERT INTO agent_requests(message_id,interaction_source,dialogue_mode) VALUES(?,?,?)",
+          [message.id, interactionSource, data.dialogueMode],
+        );
         if (mentionsAgent(text)) {
           // postMessage already holds the discussion row lock. Completion and
           // dispatch use the same lock, so an update cannot fall between tasks.

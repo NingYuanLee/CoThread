@@ -22,10 +22,11 @@ export async function notify(
 export async function listNotifications(service, user, before, input, { id, fail }) {
   if (user.kind !== "session") fail(403, "站内信需要人工登录");
   if (before) id.parse(before);
-  const { kind, limit } = z
+  const { kind, limit, page } = z
     .object({
       kind: z.enum(["all", "mention", "member_added", "member_removed"]).default("all"),
       limit: z.coerce.number().int().min(1).max(50).default(50),
+      page: z.coerce.number().int().min(1).max(100000).default(1),
     })
     .parse(input);
   const params = [user.id];
@@ -43,7 +44,7 @@ export async function listNotifications(service, user, before, input, { id, fail
       LEFT JOIN threads t ON t.id=n.thread_id
       LEFT JOIN members m ON m.project_id=n.project_id AND m.user_id=n.user_id
       WHERE n.user_id=? ${kind !== "all" ? "AND n.kind=?" : ""} ${before ? "AND (n.created_at,n.id)<(SELECT created_at,id FROM notifications WHERE id=? AND user_id=?)" : ""}
-      ORDER BY n.created_at DESC,n.id DESC LIMIT ${limit + 1}`,
+      ORDER BY n.created_at DESC,n.id DESC LIMIT ${limit + 1} OFFSET ${(page - 1) * limit}`,
           params,
         );
   const countsQuery = query(

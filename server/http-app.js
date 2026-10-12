@@ -757,6 +757,18 @@ export function createApp(
   app.delete("/api/projects/:id/members/:userId", async (req, res) =>
     res.json(await service.removeMember(req.user, req.params.id, req.params.userId)),
   );
+  app.patch("/api/projects/:id/members/:userId/role", async (req, res) =>
+    res.json(await service.updateMemberRole(req.user, req.params.id, req.params.userId, req.body)),
+  );
+  app.post("/api/projects/:id/leader", async (req, res) =>
+    res.json(await service.transferProjectLeader(req.user, req.params.id, req.body)),
+  );
+  app.post("/api/projects/:id/admins", async (req, res) =>
+    res.status(201).json(await service.addProjectAdmin(req.user, req.params.id, req.body)),
+  );
+  app.delete("/api/projects/:id/admins/:userId", async (req, res) =>
+    res.json(await service.removeProjectAdmin(req.user, req.params.id, req.params.userId)),
+  );
   app.patch("/api/me", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "请在浏览器中修改个人资料");
     const data = profileSchema.parse(req.body);
@@ -876,7 +888,20 @@ export function createApp(
     const [account] = await query(db, "SELECT avatar FROM users WHERE id=?", [req.params.id]);
     const image = account?.avatar?.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/);
     if (!image) throw new HttpError(404, "头像不存在");
-    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.setHeader("Cache-Control", "private, no-cache, must-revalidate");
+    res.type(image[1]).send(Buffer.from(image[2], "base64"));
+  });
+  app.get("/api/admin/projects/:projectId/members/:userId/avatar", async (req, res) => {
+    const [member] = await query(
+      db,
+      `SELECT u.avatar FROM users u JOIN projects p ON p.id=?
+       WHERE u.id=? AND (p.created_by=u.id OR p.project_leader_id=u.id OR EXISTS
+         (SELECT 1 FROM members m WHERE m.project_id=p.id AND m.user_id=u.id))`,
+      [req.params.projectId, req.params.userId],
+    );
+    const image = member?.avatar?.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/);
+    if (!image) throw new HttpError(404, "头像不存在");
+    res.setHeader("Cache-Control", "private, no-cache, must-revalidate");
     res.type(image[1]).send(Buffer.from(image[2], "base64"));
   });
   app.put("/api/admin/accounts/:id/roles", async (req, res) =>
@@ -899,11 +924,17 @@ export function createApp(
   app.post("/api/admin/projects", async (req, res) =>
     res.status(201).json(await service.adminCreateProject(req.user, req.body)),
   );
+  app.patch("/api/admin/projects/:id", async (req, res) =>
+    res.json(await service.updateAdminProject(req.user, req.params.id, req.body)),
+  );
   app.patch("/api/admin/projects/:id/archive", async (req, res) =>
     res.json(await service.setProjectArchived(req.user, req.params.id, true)),
   );
   app.patch("/api/admin/projects/:id/restore", async (req, res) =>
     res.json(await service.setProjectArchived(req.user, req.params.id, false)),
+  );
+  app.post("/api/admin/projects/:id/leader-recovery", async (req, res) =>
+    res.json(await service.recoverProjectLeader(req.user, req.params.id, req.body)),
   );
   app.get("/api/admin/accounts", async (req, res) =>
     res.json(await service.adminAccounts(req.user)),

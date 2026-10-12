@@ -4,6 +4,8 @@ import type { UsageStats } from "./MessageUsage";
 export type Project = {
   id: string;
   created_by: string;
+  created_by_name?: string;
+  project_leader_id: string | null;
   created_at: string;
   name: string;
   description: string;

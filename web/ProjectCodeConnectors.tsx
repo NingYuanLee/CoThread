@@ -605,7 +605,7 @@ export function ProjectCodeConnectors({
           </>
         ) : (
           <div className="pcc-scope">
-            <p className="muted">仅项目管理员可修改。当前{item.enabled ? "已启用" : "未启用"}，范围 {configuredCount} 个。</p>
+            <p className="muted">仅项目管理可修改。当前{item.enabled ? "已启用" : "未启用"}，范围 {configuredCount} 个。</p>
             {config.remotes.filter((remote) => remote.platform === kind).map((remote) => (
               <div className="pcc-repo-item pcc-repo-item-plain" key={remote.id}>
                 <span className="pcc-repo-copy">

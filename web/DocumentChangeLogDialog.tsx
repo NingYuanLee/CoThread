@@ -4,6 +4,7 @@ import {
 } from "./DocumentChangeDateRangePicker";
 import { DocumentChangeLogList, type DocumentChange } from "./DocumentChangeLogList";
 import { DialogClose } from "./dialog-fx";
+import { PaginationControl } from "./PaginationControl";
 
 export type DocumentChangeLogFilters = DocumentChangeDateRange & {
   fileName: string;
@@ -17,8 +18,6 @@ export function DocumentChangeLogDialog({
   draft,
   filters,
   page,
-  pageInput,
-  visiblePages,
   changes,
   loading,
   error,
@@ -29,15 +28,12 @@ export function DocumentChangeLogDialog({
   onApply,
   onReset,
   onLimitChange,
-  onPageInputChange,
   onGoToPage,
 }: {
   close: () => void;
   draft: DocumentChangeLogFilters;
   filters: DocumentChangeLogFilters;
   page: DocumentChangeLogPage;
-  pageInput: string;
-  visiblePages: number[];
   changes: DocumentChange[];
   loading: boolean;
   error: string;
@@ -48,7 +44,6 @@ export function DocumentChangeLogDialog({
   onApply: () => void;
   onReset: () => void;
   onLimitChange: (limit: string) => void;
-  onPageInputChange: (value: string) => void;
   onGoToPage: (page: number) => void;
 }) {
   return (
@@ -117,64 +112,15 @@ export function DocumentChangeLogDialog({
         sourceLabels={sourceLabels}
       />
       <footer className="document-change-log-pagination">
-        <small>
-          共 {page.total} 条 · 第 {page.currentPage} / {page.totalPages} 页
-        </small>
-        <div>
-          <label className="document-change-log-page-size">
-            <span>每页</span>
-            <select value={filters.limit} onChange={(event) => onLimitChange(event.target.value)}>
-              <option value="20">20 条</option>
-              <option value="50">50 条</option>
-              <option value="100">100 条</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            disabled={page.currentPage <= 1}
-            onClick={() => onGoToPage(page.currentPage - 1)}
-          >
-            上一页
-          </button>
-          {visiblePages.map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={item === page.currentPage ? "active" : ""}
-              aria-current={item === page.currentPage ? "page" : undefined}
-              disabled={item === page.currentPage}
-              onClick={() => onGoToPage(item)}
-            >
-              {item}
-            </button>
-          ))}
-          <label className="document-change-log-page-jump">
-            <span>跳至</span>
-            <input
-              type="number"
-              min="1"
-              max={page.totalPages}
-              value={pageInput}
-              onChange={(event) => onPageInputChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  onGoToPage(Number(pageInput));
-                }
-              }}
-            />
-          </label>
-          <button type="button" onClick={() => onGoToPage(Number(pageInput))}>
-            跳转
-          </button>
-          <button
-            type="button"
-            disabled={page.currentPage >= page.totalPages}
-            onClick={() => onGoToPage(page.currentPage + 1)}
-          >
-            下一页
-          </button>
-        </div>
+        <PaginationControl
+          total={page.total}
+          currentPage={page.currentPage}
+          pageSize={Number(filters.limit) || 20}
+          pageSizeOptions={[20, 50, 100]}
+          onPageChange={onGoToPage}
+          onPageSizeChange={(size) => onLimitChange(String(size))}
+          ariaLabel="文档操作日志分页"
+        />
       </footer>
     </section>
   );

@@ -10,7 +10,7 @@ async function assertAccountManagementScope(service, user, userId, permission, d
   if (target && Number(target.is_super_admin)) fail(403, "仅超级管理员可管理超级管理员账号");
   const roles = await query(
     db,
-    `SELECT r.permissions FROM admin_roles r JOIN admin_user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?`,
+    `SELECT r.permissions FROM roles r JOIN admin_user_roles ur ON ur.role_id=r.id WHERE ur.user_id=? AND r.scope='platform' AND r.is_builtin=FALSE`,
     [userId],
   );
   if (
@@ -80,15 +80,20 @@ export async function createUser(service, user, input, { title, fail }) {
 
 export async function adminProjects(service, user) {
   await service.adminPermission(user, "projects");
-  const [projects, memberships, changes] = await Promise.all([
+  const [projects, memberships, changes, roleMigrationIssues, recoveryAccess] = await Promise.all([
     query(
       service.db,
-      `SELECT p.id,p.name,p.description,p.created_at,p.archived_at,p.created_by,u.name creator
-        FROM projects p JOIN users u ON u.id=p.created_by ORDER BY p.archived_at IS NOT NULL,p.created_at DESC,p.id`,
+      `SELECT p.id,p.name,p.description,p.created_at,p.archived_at,p.created_by,p.project_leader_id,
+        u.name creator,CASE WHEN u.avatar IS NULL OR u.avatar='' THEN NULL ELSE CONCAT('/api/admin/projects/',p.id,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) END creator_avatar
+        FROM projects p JOIN users u ON u.id=p.created_by
+        ORDER BY p.archived_at IS NOT NULL,p.created_at DESC,p.id`,
     ),
     query(
       service.db,
-      `SELECT m.project_id,u.id,u.user_number,COALESCE(u.username,u.email) username,u.name,u.email,m.role FROM members m JOIN users u ON u.id=m.user_id
+      `SELECT m.project_id,u.id,u.user_number,COALESCE(u.username,u.email) username,u.name,u.email,m.joined_at,m.role_changed_at,
+        CASE WHEN u.avatar IS NULL OR u.avatar='' THEN NULL ELSE CONCAT('/api/admin/projects/',m.project_id,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) END avatar,
+        CASE WHEN p.project_leader_id=u.id THEN 'project_leader' WHEN m.role='project_admin' THEN 'project_admin' ELSE m.role END role
+        FROM members m JOIN users u ON u.id=m.user_id JOIN projects p ON p.id=m.project_id
         ORDER BY u.name,u.username,u.email`,
     ),
     query(
@@ -99,12 +104,64 @@ export async function adminProjects(service, user) {
          FROM project_change_logs) l JOIN users u ON u.id=l.actor_user_id
         WHERE l.audit_rank<=50 ORDER BY l.created_at DESC,l.id DESC`,
     ),
+    query(
+      service.db,
+      "SELECT project_id,issue_type,candidate_user_ids FROM project_role_migration_issues",
+    ),
+    user.kind === "session"
+      ? query(service.db, "SELECT is_super_admin FROM users WHERE id=? AND disabled_at IS NULL", [
+          user.id,
+        ])
+      : Promise.resolve([]),
   ]);
-  return projects.map((project) => ({
-    ...project,
-    members: memberships.filter((member) => member.project_id === project.id),
-    changes: changes.filter((change) => change.project_id === project.id).slice(0, 50),
-  }));
+  return projects.map((project) => {
+    const roleIssue = roleMigrationIssues.find((issue) => issue.project_id === project.id) || null;
+    if (roleIssue && typeof roleIssue.candidate_user_ids === "string") {
+      try {
+        roleIssue.candidate_user_ids = JSON.parse(roleIssue.candidate_user_ids);
+      } catch {
+        roleIssue.candidate_user_ids = [];
+      }
+    }
+    return {
+      ...project,
+      members: memberships.filter((member) => member.project_id === project.id),
+      changes: changes.filter((change) => change.project_id === project.id).slice(0, 50),
+      role_migration_issue: roleIssue,
+      can_recover_legacy_roles: Number(recoveryAccess[0]?.is_super_admin) === 1,
+    };
+  });
+}
+
+export async function updateAdminProject(service, user, projectId, input, { id, title, fail }) {
+  await service.adminPermission(user, "projects.update");
+  id.parse(projectId);
+  const data = z
+    .object({ name: title.max(120).optional(), description: z.string().max(4000).optional() })
+    .refine((value) => value.name !== undefined || value.description !== undefined)
+    .parse(input);
+  const description = data.description === undefined ? undefined : data.description.trim();
+  const updated = await transaction(service.db, async (db) => {
+    const [previous] = await query(
+      db,
+      "SELECT name,description FROM projects WHERE id=? FOR UPDATE",
+      [projectId],
+    );
+    if (!previous) fail(404, "项目不存在");
+    const name = data.name ?? previous.name;
+    const nextDescription = description ?? previous.description;
+    await query(db, "UPDATE projects SET name=?,description=? WHERE id=?", [
+      name,
+      nextDescription,
+      projectId,
+    ]);
+    await service.projectChange(db, projectId, user.id, "profile_updated", {
+      before: { name: previous.name, description: previous.description },
+      after: { name, description: nextDescription },
+    });
+    return { id: projectId, name, description: nextDescription };
+  });
+  return updated;
 }
 
 export async function setProjectArchived(service, user, projectId, archived, { id, fail }) {

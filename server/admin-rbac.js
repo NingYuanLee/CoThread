@@ -28,8 +28,8 @@ export async function adminAccess(db, user) {
   if (!account) throw new HttpError(403, "账号已停用或不存在");
   const roles = await query(
     db,
-    `SELECT r.id,r.name,r.permissions FROM admin_roles r
-    JOIN admin_user_roles ur ON ur.role_id=r.id WHERE ur.user_id=? ORDER BY r.name,r.id`,
+    `SELECT r.id,r.name,r.permissions FROM roles r
+    JOIN admin_user_roles ur ON ur.role_id=r.id WHERE ur.user_id=? AND r.scope='platform' AND r.is_builtin=FALSE ORDER BY r.name,r.id`,
     [user.id],
   );
   const permissions = Number(account.is_super_admin)
@@ -60,14 +60,33 @@ export async function adminAudit(db, user, action, targetId, details) {
 
 export async function listAdminRoles(db, user) {
   await requireAdminPermission(db, user, "roles");
-  return readAdminRoles(db);
+  return query(
+    db,
+    `SELECT r.id,r.scope,r.code,r.name,r.description,r.permissions,r.is_builtin,
+      CASE
+        WHEN r.code='super_admin' THEN (SELECT COUNT(*) FROM users WHERE is_super_admin=TRUE)
+        WHEN r.scope='project' AND r.code='project_leader' THEN (SELECT COUNT(*) FROM projects WHERE project_leader_id IS NOT NULL)
+        WHEN r.scope='project' AND r.code='project_admin' THEN (SELECT COUNT(*) FROM members WHERE role='project_admin')
+        WHEN r.scope='project' AND r.code='member' THEN (
+          SELECT COUNT(*) FROM members m JOIN projects p ON p.id=m.project_id
+          WHERE m.role='member' AND (p.project_leader_id IS NULL OR p.project_leader_id<>m.user_id)
+        )
+        WHEN r.scope='project' AND r.code='viewer' THEN (SELECT COUNT(*) FROM members WHERE role='viewer')
+        ELSE (SELECT COUNT(*) FROM admin_user_roles ur WHERE ur.role_id=r.id)
+      END member_count
+    FROM roles r ORDER BY r.scope,r.is_builtin DESC,r.created_at,r.id`,
+  ).then((rows) => rows.map((role) => ({
+    ...role,
+    is_builtin: !!Number(role.is_builtin),
+    permissions: role.scope === "platform" ? expandAdminPermissions(decode(role.permissions) || []) : [],
+  })));
 }
 
 async function readAdminRoles(db) {
   const rows = await query(
     db,
     `SELECT r.*, (SELECT COUNT(*) FROM admin_user_roles ur WHERE ur.role_id=r.id) member_count
-    FROM admin_roles r ORDER BY r.created_at,r.id`,
+    FROM roles r WHERE r.scope='platform' AND r.is_builtin=FALSE ORDER BY r.created_at,r.id`,
   );
   return rows.map((role) => ({
     ...role,
@@ -110,7 +129,7 @@ export async function saveAdminRole(db, user, roleId, input) {
     if (roleId) {
       const [current] = await query(
         conn,
-        "SELECT permissions FROM admin_roles WHERE id=? FOR UPDATE",
+        "SELECT permissions FROM roles WHERE id=? AND scope='platform' AND is_builtin=FALSE FOR UPDATE",
         [roleId],
       );
       if (!current) throw new HttpError(404, "角色不存在");
@@ -123,7 +142,7 @@ export async function saveAdminRole(db, user, roleId, input) {
     }
     try {
       if (roleId)
-        await query(conn, "UPDATE admin_roles SET name=?,description=?,permissions=? WHERE id=?", [
+        await query(conn, "UPDATE roles SET name=?,description=?,permissions=? WHERE id=?", [
           data.name,
           data.description,
           JSON.stringify(permissions),
@@ -132,7 +151,7 @@ export async function saveAdminRole(db, user, roleId, input) {
       else
         await query(
           conn,
-          "INSERT INTO admin_roles(id,name,description,permissions,created_by) VALUES(?,?,?,?,?)",
+          "INSERT INTO roles(id,scope,code,name,description,permissions,is_builtin,created_by) VALUES(?,'platform',NULL,?,?,?,FALSE,?)",
           [targetId, data.name, data.description, JSON.stringify(permissions), user.id],
         );
     } catch (error) {
@@ -151,7 +170,7 @@ export async function deleteAdminRole(db, user, roleId) {
   uuid.parse(roleId);
   return transaction(db, async (conn) => {
     const access = await requireAdminPermission(conn, user, "roles.manage");
-    const [role] = await query(conn, "SELECT permissions FROM admin_roles WHERE id=? FOR UPDATE", [
+    const [role] = await query(conn, "SELECT permissions FROM roles WHERE id=? AND scope='platform' AND is_builtin=FALSE FOR UPDATE", [
       roleId,
     ]);
     if (!role) throw new HttpError(404, "角色不存在");
@@ -167,7 +186,7 @@ export async function deleteAdminRole(db, user, roleId) {
       [roleId],
     );
     if (assigned) throw new HttpError(409, "角色已分配给成员，请先解除分配");
-    await query(conn, "DELETE FROM admin_roles WHERE id=?", [roleId]);
+    await query(conn, "DELETE FROM roles WHERE id=?", [roleId]);
     await adminAudit(conn, user, "role_deleted", roleId, {});
     return { ok: true };
   });
@@ -187,7 +206,7 @@ export async function assignAdminRoles(db, user, userId, input) {
       throw new HttpError(409, "不能修改自己的管理角色");
     const existing = await query(
       conn,
-      `SELECT r.permissions FROM admin_roles r JOIN admin_user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?`,
+      `SELECT r.permissions FROM roles r JOIN admin_user_roles ur ON ur.role_id=r.id WHERE ur.user_id=? AND r.scope='platform' AND r.is_builtin=FALSE`,
       [userId],
     );
     if (
@@ -202,7 +221,7 @@ export async function assignAdminRoles(db, user, userId, input) {
     for (const roleId of nextIds) {
       const [role] = await query(
         conn,
-        "SELECT permissions FROM admin_roles WHERE id=? FOR UPDATE",
+        "SELECT permissions FROM roles WHERE id=? AND scope='platform' AND is_builtin=FALSE FOR UPDATE",
         [roleId],
       );
       if (!role) throw new HttpError(404, "角色不存在");

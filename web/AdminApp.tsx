@@ -182,9 +182,9 @@ export function AdminApp() {
             </span>
           </div>
         </header>
-        <main className="admin-content">
+        <main className={`admin-content ${["iterations", "tasks"].includes(page) ? "admin-content-work" : ""} ${["projects", "accounts", "plugins", "roles"].includes(page) ? "admin-content-list" : ""}`}>
           {allowed ? (
-            <div className="admin-content-card" key={`${page}-${refresh}`}>
+            <div className={`admin-content-card ${["iterations", "tasks"].includes(page) ? "admin-content-work-card" : ""} ${["projects", "accounts", "plugins", "roles"].includes(page) ? "admin-content-list-card" : ""}`} key={`${page}-${refresh}`}>
               {["projects", "accounts", "plugins"].includes(page) && (
                 <SystemManagement
                   section={page as "projects" | "accounts" | "plugins"}

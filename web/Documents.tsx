@@ -951,12 +951,6 @@ const fileAreaTypeLabels: Record<string, string> = {
 const documentChangeSources: Record<string, string> = { ui: "界面", mcp: "MCP", agent: "Agent", system: "系统" };
 const documentChangeActions = Object.entries(documentChangeLabels);
 
-function documentChangePageNumbers(current: number, totalPages: number) {
-  const start = Math.max(1, current - 2);
-  const end = Math.min(totalPages, current + 2);
-  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
-}
-
 function fileLabel(version: LibraryVersion) {
   return fileDisplayName(version);
 }
@@ -3582,7 +3576,6 @@ export function Documents({
 
   const tabVersion = (id: string) => libraryVersions.find((item) => item.id === id)
     || versions.find((item) => item.id === id);
-  const visibleChangePages = documentChangePageNumbers(changePage.currentPage, changePage.totalPages);
   const goToChangePage = (target: number) => {
     const next = Math.min(Math.max(Math.trunc(target) || 1, 1), changePage.totalPages);
     if (next === changePageNumber) return;
@@ -3969,8 +3962,6 @@ export function Documents({
               draft={changeFilterDraft}
               filters={changeFilters}
               page={changePage}
-              pageInput={changePageInput}
-              visiblePages={visibleChangePages}
               changes={changes}
               loading={changesLoading}
               error={changesError}
@@ -3981,7 +3972,6 @@ export function Documents({
               onApply={() => { setChangePageNumber(1); setChangePageInput("1"); setChangeFilters({ ...changeFilterDraft, fileName: changeFilterDraft.fileName.trim() }); }}
               onReset={() => { const empty = { from: "", to: "", fileName: "", action: "", limit: "20" }; setChangeFilterDraft(empty); setChangeFilters(empty); setChangePageNumber(1); setChangePageInput("1"); }}
               onLimitChange={(limit) => { setChangeFilterDraft((current) => ({ ...current, limit })); setChangeFilters((current) => ({ ...current, limit })); setChangePageNumber(1); setChangePageInput("1"); setChangePage((current) => ({ ...current, currentPage: 1 })); }}
-              onPageInputChange={setChangePageInput}
               onGoToPage={goToChangePage}
             />}
           </ModalBackdrop>

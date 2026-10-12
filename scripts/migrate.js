@@ -36,6 +36,13 @@ export const KNOWN_EQUIVALENT_REVISIONS = new Map([
       "1e7c2345e01db50cbe05ee3c201c640a4e37044fd7ca1041a0312d1a89410045", // 被写坏 "?" 的版本（正式库当前记录）
     ],
   ],
+  [
+    // 101 已在部分本地开发库应用；随后文件内容被整理，库中保存的是这个旧修订的
+    // checksum。已检查本地库的 role enum、project_leader_id 列/索引/外键、角色迁移问题表
+    // 及其外键和负责人迁移结果，均与当前迁移的目标结构一致。
+    "101_project_builtin_roles.sql",
+    ["fc4df09564e952d1453eeed49782069fb79b40f3fa611fcd88bbbdc851dd3c13"],
+  ],
 ]);
 
 /**

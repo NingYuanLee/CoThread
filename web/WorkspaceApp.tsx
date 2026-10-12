@@ -46,6 +46,7 @@ import {
   taskThreadNumberSearchMatch,
 } from "../shared/task-thread-number.js";
 import { MessageNavigator } from "./MessageNavigator";
+import { PaginationControl } from "./PaginationControl";
 const loadComposer = () => import("./ChatComposer");
 const ChatComposer = lazy(() =>
   loadComposer().then((module) => ({ default: module.ChatComposer })),
@@ -757,6 +758,7 @@ export function WorkspaceApp() {
     },
   );
   const [taskTimelinePage, setTaskTimelinePage] = useState(0);
+  const [taskTimelinePageSize, setTaskTimelinePageSize] = useState(12);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [conversationTaskListOpen, setConversationTaskListOpen] = useState(false);
   const [conversationTaskSearch, setConversationTaskSearch] = useState("");
@@ -801,9 +803,10 @@ export function WorkspaceApp() {
   } | null>(null);
   const [history, setHistory] = useState(false);
   const writable = projects.find((p) => p.id === projectId)?.role !== "viewer";
-  const owner = projects.find((p) => p.id === projectId)?.role === "owner";
-  const creator = projects.find((p) => p.id === projectId)?.created_by === user?.id;
-  const projectMember = projects.some((p) => p.id === projectId);
+  const selectedProject = projects.find((p) => p.id === projectId);
+  const owner =
+    selectedProject?.project_leader_id === user?.id || selectedProject?.role === "project_admin";
+  const projectLeader = selectedProject?.project_leader_id === user?.id;
   const active = thread?.status === "active" && writable;
   const quoteMessage = (m: ThreadMessage, selectedText = "") => {
     const id = m.quoteTargetId || m.id;
@@ -1554,6 +1557,9 @@ export function WorkspaceApp() {
               if (currentContext.current.projectId === projectId) setTaskPool(value);
             })
           : null,
+        api("/projects").then((value) => {
+          if (currentContext.current.projectId === projectId) setProjects(value);
+        }),
       ].map((request) =>
         request?.catch((e) => {
           if (e.name !== "AbortError") throw e;
@@ -4192,7 +4198,7 @@ export function WorkspaceApp() {
                                 const visibleTimeline = timeline.filter(
                                   (item) => taskTimelineFilters[item.kind],
                                 );
-                                const pageSize = 12;
+                                const pageSize = taskTimelinePageSize;
                                 const pageCount = Math.max(
                                   1,
                                   Math.ceil(visibleTimeline.length / pageSize),
@@ -4286,37 +4292,17 @@ export function WorkspaceApp() {
                                         当前筛选条件下暂无记录。
                                       </p>
                                     )}
-                                    {pageCount > 1 && (
-                                      <div className="task-timeline-pagination">
-                                        <small>
-                                          第 {page + 1} / {pageCount} 页 · 共{" "}
-                                          {visibleTimeline.length} 条
-                                        </small>
-                                        <div>
-                                          <button
-                                            type="button"
-                                            disabled={page === 0}
-                                            onClick={() =>
-                                              setTaskTimelinePage((current) =>
-                                                Math.max(0, current - 1),
-                                              )
-                                            }
-                                          >
-                                            上一页
-                                          </button>
-                                          <button
-                                            type="button"
-                                            disabled={page >= pageCount - 1}
-                                            onClick={() =>
-                                              setTaskTimelinePage((current) =>
-                                                Math.min(pageCount - 1, current + 1),
-                                              )
-                                            }
-                                          >
-                                            下一页
-                                          </button>
-                                        </div>
-                                      </div>
+                                    {visibleTimeline.length > 0 && (
+                                      <PaginationControl
+                                        className="task-timeline-pagination"
+                                        total={visibleTimeline.length}
+                                        currentPage={page + 1}
+                                        pageSize={pageSize}
+                                        pageSizeOptions={[10, 12, 20, 50]}
+                                        onPageChange={(next) => setTaskTimelinePage(next - 1)}
+                                        onPageSizeChange={(next) => { setTaskTimelinePageSize(next); setTaskTimelinePage(0); }}
+                                        ariaLabel="任务时间线分页"
+                                      />
                                     )}
                                   </section>
                                 ) : null;
@@ -4545,9 +4531,8 @@ export function WorkspaceApp() {
           <ProjectManagement
             detail={detail?.id === projectId ? detail : null}
             busy={busy}
-            creator={creator}
-            owner={owner}
-            projectMember={projectMember}
+            projectLeader={projectLeader}
+            canManage={owner}
             api={api}
             localDate={localDate}
             refresh={refresh}

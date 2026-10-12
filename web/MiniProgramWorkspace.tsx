@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 
 import { readJsonResponse } from "../shared/json-response.js";
 import { UiIcon, type UiIconName } from "./ui-icon";
 import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { PaginationControl } from "./PaginationControl";
 import {
   DatabaseFilterBuilder,
   databaseFilterCount,
@@ -296,46 +297,18 @@ function TablePagination({
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
 }) {
-  const totalPages =
-    total === null
-      ? Math.max(1, page + (hasNext ? 2 : 1))
-      : Math.max(1, Math.ceil(total / pageSize));
   return (
-    <nav className="miniprogram-table-pagination" aria-label="表格分页">
-      <span className="miniprogram-table-pagination-summary">
-        共 {total === null ? "—" : total} 条
-      </span>
-      <div className="miniprogram-table-pagination-nav">
-        <button
-          type="button"
-          disabled={page === 0}
-          onClick={() => onPageChange(Math.max(0, page - 1))}
-        >
-          上一页
-        </button>
-        <span className="miniprogram-table-pagination-page">
-          第 {page + 1} / {totalPages} 页
-        </span>
-        <button type="button" disabled={!hasNext} onClick={() => onPageChange(page + 1)}>
-          下一页
-        </button>
-      </div>
-      <label className="miniprogram-table-page-size">
-        <span>每页</span>
-        <select
-          aria-label="每页条数"
-          value={pageSize}
-          onChange={(event) => onPageSizeChange(Number(event.target.value))}
-        >
-          {TABLE_PAGE_SIZE_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-        <span>条</span>
-      </label>
-    </nav>
+    <PaginationControl
+      className="miniprogram-table-pagination"
+      total={total}
+      currentPage={page + 1}
+      pageSize={pageSize}
+      pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+      hasNext={hasNext}
+      onPageChange={(next) => onPageChange(next - 1)}
+      onPageSizeChange={onPageSizeChange}
+      ariaLabel="表格分页"
+    />
   );
 }
 
@@ -2629,7 +2602,7 @@ export function MiniProgramWorkspace({
             {releaseCreateOpen ? (
               <WorkspaceDialog title="新建生产发布" onClose={() => setReleaseCreateOpen(false)}>
                 <p className="muted miniprogram-note">
-                  选择本次要发布到生产环境的内容，提交后由项目负责人审批。
+                  选择本次要发布到生产环境的内容，提交后由项目主审批。
                 </p>
                 <div className="miniprogram-release-targets">
                   <label className="miniprogram-release-target">

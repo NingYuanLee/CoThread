@@ -49,6 +49,8 @@ type ProjectDetail = {
   description?: string;
   created_at: string;
   created_by: string;
+  created_by_name?: string;
+  project_leader_id: string | null;
   members: ProjectMember[];
   longTermSummary?: {
     summary: string;
@@ -69,9 +71,8 @@ function isHumanMember(member: ProjectMember) {
 export function ProjectManagement({
   detail,
   busy,
-  creator,
-  owner,
-  projectMember,
+  canManage,
+  projectLeader,
   api,
   localDate,
   refresh,
@@ -80,9 +81,8 @@ export function ProjectManagement({
 }: {
   detail: ProjectDetail | null;
   busy: boolean;
-  creator: boolean;
-  owner: boolean;
-  projectMember: boolean;
+  canManage: boolean;
+  projectLeader: boolean;
   api: (path: string, data?: unknown, method?: string) => Promise<any>;
   localDate: (value?: string) => string;
   refresh: () => Promise<void>;
@@ -203,7 +203,8 @@ export function ProjectManagement({
                   name={detail.name}
                   description={detail.description || ""}
                   createdAt={localDate(detail.created_at)}
-                  creator={creator}
+                  creatorName={detail.created_by_name || "未知"}
+                  canManage={canManage}
                   longTermSummary={detail.longTermSummary}
                   onSave={async ({ name, description }) => {
                     const updated = await api(
@@ -223,7 +224,7 @@ export function ProjectManagement({
               )
             ) : tab === "connectors" ? (
               detail ? (
-                <ProjectCodeConnectors projectId={detail.id} canManage={owner} api={api} />
+                <ProjectCodeConnectors projectId={detail.id} canManage={canManage} api={api} />
               ) : (
                 <p className="muted">正在加载连接器…</p>
               )
@@ -231,7 +232,7 @@ export function ProjectManagement({
               <ProjectMiniProgramConfig
                 key={detail?.id}
                 projectId={detail?.id || ""}
-                canManage={owner}
+                canManage={canManage}
                 api={api}
               />
             ) : (
@@ -273,7 +274,8 @@ export function ProjectManagement({
                   <>
                     <div className="panel-heading">
                       <span>本项目人类成员</span>
-                      {projectMember && (
+                      {canManage && <small>{projectLeader ? "负责人可管理成员、任免管理员并转移负责人" : "可管理成员角色；管理员任免和负责人转移仅负责人可操作"}</small>}
+                      {canManage && (
                         <button type="button" onClick={() => setMemberPickerOpen(true)}>
                           <UiIcon name="userPlus" size={12} />
                           添加
@@ -285,7 +287,8 @@ export function ProjectManagement({
                         key={member.id}
                         member={member}
                         detail={detail}
-                        creator={creator}
+                        canManage={canManage}
+                        projectLeader={projectLeader}
                         busy={busy}
                         api={api}
                         refresh={refresh}
@@ -374,14 +377,16 @@ export function ProjectManagement({
 function HumanMemberRow({
   member,
   detail,
-  creator,
+  canManage,
+  projectLeader,
   busy,
   api,
   refresh,
 }: {
   member: ProjectMember;
   detail: ProjectDetail | null;
-  creator: boolean;
+  canManage: boolean;
+  projectLeader: boolean;
   busy: boolean;
   api: (path: string, data?: unknown, method?: string) => Promise<any>;
   refresh: () => Promise<void>;
@@ -400,8 +405,10 @@ function HumanMemberRow({
           <strong>{member.name}</strong>
           {Array.isArray(member.identity_tags) &&
             member.identity_tags.map((tag) => <RoleBadge key={tag} role={tag} />)}
-          {member.id === detail?.created_by && <RoleBadge role="创建人" />}
+          {member.id === detail?.project_leader_id && <RoleBadge role="项目主" />}
+          {member.role === "project_admin" && <RoleBadge role="项目管理" />}
           {member.role === "viewer" && <RoleBadge role="只读" />}
+          {member.role === "member" && <RoleBadge role="普通成员" />}
         </div>
         <small className="member-user-id">用户ID：{member.user_number ?? member.id}</small>
         {member.motto ? <small className="member-motto">{member.motto}</small> : null}
@@ -416,7 +423,79 @@ function HumanMemberRow({
           </small>
         ) : null}
       </div>
-      {creator && detail && member.id !== detail.created_by ? (
+      {projectLeader &&
+      detail &&
+      member.id !== detail.project_leader_id &&
+      !["project_admin", "viewer"].includes(member.role || "") ? (
+        <button
+          disabled={busy}
+          onClick={() => {
+            if (window.confirm(`确定将 ${member.name} 设为项目管理？`))
+              void api(`/projects/${detail.id}/admins`, { userId: member.id }, "POST")
+                .then(async () => {
+                  await refresh();
+                  showTip(`已将 ${member.name} 设为项目管理`);
+                })
+                .catch((cause) => showTip((cause as Error).message, "error"));
+          }}
+        >
+          设为管理员
+        </button>
+      ) : null}
+      {canManage && detail && member.id !== detail.project_leader_id &&
+      member.id !== AGENT_MEMBER.id && member.id !== AGENT_L2_MEMBER.id &&
+      member.role === "member" ? (
+        <button disabled={busy} onClick={() => void api(`/projects/${detail.id}/members/${member.id}/role`, { role: "viewer" }, "PATCH")
+          .then(async () => { await refresh(); showTip(`已将 ${member.name} 设为只读成员`); })
+          .catch((cause) => showTip((cause as Error).message, "error"))}>设为只读</button>
+      ) : null}
+      {canManage && detail && member.id !== detail.project_leader_id &&
+      member.id !== AGENT_MEMBER.id && member.id !== AGENT_L2_MEMBER.id && member.role === "viewer" ? (
+        <button disabled={busy} onClick={() => void api(`/projects/${detail.id}/members/${member.id}/role`, { role: "member" }, "PATCH")
+          .then(async () => { await refresh(); showTip(`已恢复 ${member.name} 的编辑权限`); })
+          .catch((cause) => showTip((cause as Error).message, "error"))}>恢复编辑权限</button>
+      ) : null}
+      {projectLeader && detail && member.role === "project_admin" ? (
+        <button
+          disabled={busy}
+          onClick={() => {
+            if (window.confirm(`确定撤销 ${member.name} 的项目管理身份？`))
+              void api(`/projects/${detail.id}/admins/${member.id}`, undefined, "DELETE")
+                .then(async () => {
+                  await refresh();
+                  showTip(`已撤销 ${member.name} 的项目管理身份`);
+                })
+                .catch((cause) => showTip((cause as Error).message, "error"));
+          }}
+        >
+          撤销管理员
+        </button>
+      ) : null}
+      {projectLeader && detail && member.id !== detail.project_leader_id ? (
+        <button
+          disabled={busy}
+          onClick={() => {
+            if (
+              window.confirm(
+                `确定将项目主转移给 ${member.name}？你将失去项目主的专属权限。`,
+              )
+            )
+              void api(`/projects/${detail.id}/leader`, { userId: member.id }, "POST")
+                .then(async () => {
+                  await refresh();
+                  showTip(`项目主已转移给 ${member.name}`);
+                })
+                .catch((cause) => showTip((cause as Error).message, "error"));
+          }}
+        >
+          转移负责人
+        </button>
+      ) : null}
+      {canManage &&
+      detail &&
+      member.id !== detail.project_leader_id &&
+      member.id !== AGENT_MEMBER.id &&
+      member.role !== "project_admin" ? (
         <button
           disabled={busy}
           onClick={() => {

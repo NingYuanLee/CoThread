@@ -14,6 +14,7 @@ export function MemberPicker({ projectId, api, onClose, onAdded }: {
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [role, setRole] = useState<"member" | "viewer">("member");
   const load = () => api(`/users?projectId=${encodeURIComponent(projectId)}`).then(setAccounts);
   useEffect(() => {
     dialog.current?.showModal();
@@ -34,6 +35,12 @@ export function MemberPicker({ projectId, api, onClose, onAdded }: {
         <DialogClose onClick={close} label="关闭" disabled={!!busy} />
       </div>
       <input autoFocus className="member-search" aria-label="搜索系统账号" placeholder="搜索姓名或邮箱" value={search} onChange={(event) => setSearch(event.target.value)} />
+      <label className="member-role-select">加入后角色
+        <select value={role} onChange={(event) => setRole(event.target.value as "member" | "viewer")}>
+          <option value="member">普通成员（可编辑）</option>
+          <option value="viewer">只读成员（仅查看）</option>
+        </select>
+      </label>
       {error && <div className="error" role="alert">{error}</div>}
       <div className="member-picker-list">
         {visible.map((account) => (
@@ -42,7 +49,7 @@ export function MemberPicker({ projectId, api, onClose, onAdded }: {
             <div><strong>{account.name}</strong><small>账号：{account.username}{account.email ? ` · ${account.email}` : ""}</small></div>
             <button type="button" className="primary" disabled={!!busy} onClick={() => {
               setBusy(account.id); setError("");
-              void api(`/projects/${projectId}/members`, { userId: account.id, role: "member" })
+              void api(`/projects/${projectId}/members`, { userId: account.id, role })
                 .then(async () => { await onAdded(); await load(); showTip("已添加项目成员"); })
                 .catch((e) => { setError(e.message); showTip(e.message, "error"); }).finally(() => setBusy(""));
             }}>{busy === account.id ? "添加中…" : <><UiIcon name="userPlus" size={13} />添加</>}</button>

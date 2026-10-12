@@ -19,6 +19,7 @@ export const ADMIN_PERMISSION_TREE = [
     children: [
       page("projects", "项目管理", "project", [
         ["create", "新增项目"],
+        ["update", "编辑项目信息"],
         ["archive", "归档项目"],
         ["restore", "恢复项目"],
       ]),
@@ -32,7 +33,7 @@ export const ADMIN_PERMISSION_TREE = [
     icon: "members",
     type: "menu",
     children: [
-      page("accounts", "成员管理", "members", [
+      page("accounts", "账号管理", "members", [
         ["create", "新增成员"],
         ["status", "启用与停用成员"],
         ["reset-password", "重置密码"],
@@ -85,6 +86,7 @@ export function adminPermissionForRequest(method, path) {
         : false;
   if (method === "GET" && /^\/accounts\/[^/]+\/role-options$/.test(path)) return "roles.assign";
   if (method === "GET" && /^\/accounts\/[^/]+\/avatar$/.test(path)) return "accounts";
+  if (method === "GET" && /^\/projects\/[^/]+\/members\/[^/]+\/avatar$/.test(path)) return "projects";
   if (/^\/accounts\/[^/]+\/roles$/.test(path)) return method === "PUT" ? "roles.assign" : false;
   if (method === "GET" && /^\/(projects|accounts|iterations|tasks|plugins)$/.test(path))
     return path.slice(1);
@@ -92,6 +94,7 @@ export function adminPermissionForRequest(method, path) {
   if (method === "POST" && /^\/(projects|accounts)$/.test(path)) return `${path.slice(1)}.create`;
   const project = path.match(/^\/projects\/[^/]+\/(archive|restore)$/);
   if (method === "PATCH" && project) return `projects.${project[1]}`;
+  if (method === "PATCH" && /^\/projects\/[^/]+$/.test(path)) return "projects.update";
   if (method === "PATCH" && /^\/accounts\/[^/]+\/status$/.test(path)) return "accounts.status";
   if (method === "POST" && /^\/accounts\/[^/]+\/reset-password$/.test(path))
     return "accounts.reset-password";

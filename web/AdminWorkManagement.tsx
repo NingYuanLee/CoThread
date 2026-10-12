@@ -3,6 +3,7 @@ import { api } from "./workspace-api";
 import { UiIcon } from "./ui-icon";
 import { showTip } from "./Tip";
 import { AdminDialog } from "./AdminDialog";
+import { PaginationControl } from "./PaginationControl";
 
 const labels: Record<string, string> = {
   active: "进行中",
@@ -59,18 +60,31 @@ export function AdminWorkManagement({
   const [projectId, setProjectId] = useState("");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(30);
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<WorkItem | null>(null);
   const [detail, setDetail] = useState<any>(null);
+  const [detailEventsPage, setDetailEventsPage] = useState(1);
+  const [detailUpdatesPage, setDetailUpdatesPage] = useState(1);
+  const [detailPageSize, setDetailPageSize] = useState(10);
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!data) return;
+    setPage((current) => Math.min(current, Math.max(1, Math.ceil(data.total / pageSize))));
+  }, [data, pageSize]);
+  useEffect(() => {
+    setDetailEventsPage(1);
+    setDetailUpdatesPage(1);
+  }, [detail?.id]);
   useEffect(() => {
     const controller = new AbortController();
     const params = new URLSearchParams({
       search: query,
       status,
       page: String(page),
+      pageSize: String(pageSize),
       ...(projectId ? { projectId } : {}),
     });
     setLoading(true);
@@ -84,7 +98,7 @@ export function AdminWorkManagement({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [kind, query, status, projectId, page, revision]);
+  }, [kind, query, status, projectId, page, pageSize, revision]);
   const run = async (work: () => Promise<void>) => {
     setBusy(true);
     setError("");
@@ -312,21 +326,16 @@ export function AdminWorkManagement({
         )}
       </div>
       <footer className="admin-pagination">
-        <span>共 {data?.total || 0} 条 · 每页 30 条</span>
-        <div>
-          <button disabled={loading || page === 1} onClick={() => setPage(page - 1)}>
-            上一页
-          </button>
-          <span>
-            第 {page} / {Math.max(1, Math.ceil((data?.total || 0) / 30))} 页
-          </span>
-          <button
-            disabled={loading || page * 30 >= (data?.total || 0)}
-            onClick={() => setPage(page + 1)}
-          >
-            下一页
-          </button>
-        </div>
+        <PaginationControl
+          total={data?.total ?? 0}
+          currentPage={page}
+          pageSize={data?.pageSize ?? pageSize}
+          pageSizeOptions={[10, 20, 30, 50, 100]}
+          onPageChange={setPage}
+          onPageSizeChange={(next) => { setPageSize(next); setPage(1); }}
+          disabled={loading}
+          ariaLabel={kind === "iterations" ? "迭代列表分页" : "任务列表分页"}
+        />
       </footer>
 
       {detail && (
@@ -360,7 +369,7 @@ export function AdminWorkManagement({
                 </tr>
               </thead>
               <tbody>
-                {detail.events.map((event: any) => (
+                {detail.events.slice((detailEventsPage - 1) * detailPageSize, detailEventsPage * detailPageSize).map((event: any) => (
                   <tr key={event.id}>
                     <td>
                       {labels[event.from_status] || event.from_status} →{" "}
@@ -380,6 +389,7 @@ export function AdminWorkManagement({
               </tbody>
             </table>
           </div>
+          {detail.events.length > 0 && <PaginationControl total={detail.events.length} currentPage={detailEventsPage} pageSize={detailPageSize} pageSizeOptions={[10, 20, 50]} onPageChange={setDetailEventsPage} onPageSizeChange={(size) => { setDetailPageSize(size); setDetailEventsPage(1); setDetailUpdatesPage(1); }} ariaLabel="任务状态记录分页" />}
           <h4>进度记录</h4>
           <div className="admin-table-wrap">
             <table className="admin-table">
@@ -390,7 +400,7 @@ export function AdminWorkManagement({
                 </tr>
               </thead>
               <tbody>
-                {detail.updates.map((update: any) => (
+                {detail.updates.slice((detailUpdatesPage - 1) * detailPageSize, detailUpdatesPage * detailPageSize).map((update: any) => (
                   <tr key={update.id}>
                     <td>{update.body || update.content || update.summary || update.kind}</td>
                     <td>{dateTime(update.created_at)}</td>
@@ -406,6 +416,7 @@ export function AdminWorkManagement({
               </tbody>
             </table>
           </div>
+          {detail.updates.length > 0 && <PaginationControl total={detail.updates.length} currentPage={detailUpdatesPage} pageSize={detailPageSize} pageSizeOptions={[10, 20, 50]} onPageChange={setDetailUpdatesPage} onPageSizeChange={(size) => { setDetailPageSize(size); setDetailEventsPage(1); setDetailUpdatesPage(1); }} ariaLabel="任务进度记录分页" />}
         </AdminDialog>
       )}
     </section>

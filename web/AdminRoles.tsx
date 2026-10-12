@@ -8,15 +8,30 @@ import { api } from "./workspace-api";
 import { UiIcon } from "./ui-icon";
 import { showTip } from "./Tip";
 import { AdminDialog, AdminConfirmDialog, type AdminConfirmation } from "./AdminDialog";
+import { PaginationControl } from "./PaginationControl";
 
 type Role = {
   id: string;
+  scope: "platform" | "project";
+  code: string | null;
+  is_builtin: boolean;
   name: string;
   description: string;
   permissions: string[];
   member_count: number;
 };
 type Draft = { id?: string; name: string; description: string; permissions: string[] };
+const matchesRoleSearch = (role: Role, search: string) =>
+  [
+    role.name,
+    role.description,
+    role.scope === "project" ? "项目内置" : "平台",
+    role.is_builtin ? "内置" : "自定义",
+    role.code === "super_admin" ? "全部权限" : "",
+  ]
+    .join(" ")
+    .toLowerCase()
+    .includes(search.toLowerCase());
 const descendants = (node: AdminPermissionNode): string[] => [
   node.key,
   ...(node.children || []).flatMap(descendants),
@@ -32,6 +47,8 @@ export function AdminRoles({
   const [roles, setRoles] = useState<Role[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(30);
   const [detail, setDetail] = useState<Role | null>(null);
   const [confirmation, setConfirmation] = useState<AdminConfirmation | null>(null);
   const [error, setError] = useState("");
@@ -81,6 +98,8 @@ export function AdminRoles({
       <small>{node.type === "menu" ? "菜单" : node.type === "page" ? "页面" : "功能"}</small>
     </label>
   );
+  const filteredRoles = roles.filter((role) => matchesRoleSearch(role, search));
+  const visibleRoles = filteredRoles.slice((page - 1) * pageSize, page * pageSize);
   return (
     <section className="admin-roles">
       <div className="admin-filters">
@@ -90,7 +109,10 @@ export function AdminRoles({
             aria-label="搜索角色"
             placeholder="搜索角色名称或说明"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
           />
         </label>
         {canManage && (
@@ -110,6 +132,7 @@ export function AdminRoles({
           {error}
         </div>
       )}
+      {loading && <p className="admin-empty" role="status">正在加载角色…</p>}
       {draft && (
         <AdminDialog
           title={draft.id ? "编辑角色" : "新增角色"}
@@ -198,101 +221,99 @@ export function AdminRoles({
               <tr>
                 <th>角色</th>
                 <th>类型</th>
-                <th>权限</th>
+                <th>权限与范围</th>
                 <th>成员数</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody>
-              {["超级管理员", "内置", "全部权限"].some((value) => value.includes(search)) && (
-                <tr>
-                  <td>
-                    <strong>超级管理员</strong>
-                    <small>由现有超级管理员标记识别</small>
-                  </td>
-                  <td>
-                    <span className="status-badge">内置</span>
-                  </td>
-                  <td>全部菜单 · 页面 · 功能</td>
-                  <td>—</td>
-                  <td>系统内置</td>
-                </tr>
-              )}
-              {roles
-                .filter((role) =>
-                  [role.name, role.description].some((value) =>
-                    value.toLowerCase().includes(search.toLowerCase()),
-                  ),
-                )
-                .map((role) => (
+              {visibleRoles.map((role) => (
                   <tr key={role.id}>
                     <td>
                       <strong>{role.name}</strong>
-                      <small>{role.description || "暂无说明"}</small>
-                    </td>
-                    <td>自定义</td>
-                    <td>
-                      {role.permissions.length} 项权限
                       <small>
-                        {ADMIN_PERMISSION_TREE.flatMap((menu) => menu.children || [])
-                          .filter((page) => role.permissions.includes(page.key))
-                          .map((page) => page.label)
-                          .join("、") || "未配置页面"}
+                        {role.description ||
+                          (role.code === "super_admin" ? "由超级管理员账号标记识别" : "暂无说明")}
                       </small>
+                    </td>
+                    <td>
+                      <span className="status-badge">
+                        {role.scope === "project"
+                          ? "项目内置"
+                          : role.is_builtin
+                            ? "平台内置"
+                            : "平台自定义"}
+                      </span>
+                    </td>
+                    <td>
+                      {role.scope === "project"
+                        ? role.description
+                        : role.code === "super_admin"
+                          ? "全部菜单 · 页面 · 功能"
+                          : `${role.permissions.length} 项权限`}
+                      {role.scope === "platform" && role.code !== "super_admin" && (
+                        <small>
+                          {ADMIN_PERMISSION_TREE.flatMap((menu) => menu.children || [])
+                            .filter((page) => role.permissions.includes(page.key))
+                            .map((page) => page.label)
+                            .join("、") || "未配置页面"}
+                        </small>
+                      )}
+                      {role.scope === "project" && (
+                        <small>管理入口：项目管理 → 项目成员</small>
+                      )}
                     </td>
                     <td>{role.member_count}</td>
                     <td>
-                      <div className="admin-table-actions">
-                        <button onClick={() => setDetail(role)}>详情</button>
-                        {canManage && (
-                          <>
-                            <button
-                              disabled={
-                                busy || role.permissions.some((key) => !permissions.includes(key))
-                              }
-                              onClick={() => {
-                                setDraft({
-                                  id: role.id,
-                                  name: role.name,
-                                  description: role.description,
-                                  permissions: role.permissions,
-                                });
-                              }}
-                            >
-                              编辑
-                            </button>
-                            <button
-                              disabled={
-                                busy ||
-                                Number(role.member_count) > 0 ||
-                                role.permissions.some((key) => !permissions.includes(key))
-                              }
-                              onClick={() =>
-                                setConfirmation({
-                                  title: "删除角色",
-                                  message: `删除未分配的角色「${role.name}」？`,
-                                  confirm: async () => {
-                                    await api(`/admin/roles/${role.id}`, {}, "DELETE");
-                                    showTip("角色已删除");
-                                  },
-                                })
-                              }
-                            >
-                              删除
-                            </button>
-                          </>
-                        )}
-                      </div>
+                      {role.scope === "platform" && !role.is_builtin ? (
+                        <div className="admin-table-actions">
+                          <button onClick={() => setDetail(role)}>详情</button>
+                          {canManage && (
+                            <>
+                              <button
+                                disabled={
+                                  busy || role.permissions.some((key) => !permissions.includes(key))
+                                }
+                                onClick={() => {
+                                  setDraft({
+                                    id: role.id,
+                                    name: role.name,
+                                    description: role.description,
+                                    permissions: role.permissions,
+                                  });
+                                }}
+                              >
+                                编辑
+                              </button>
+                              <button
+                                disabled={
+                                  busy ||
+                                  Number(role.member_count) > 0 ||
+                                  role.permissions.some((key) => !permissions.includes(key))
+                                }
+                                onClick={() =>
+                                  setConfirmation({
+                                    title: "删除角色",
+                                    message: `删除未分配的角色「${role.name}」？`,
+                                    confirm: async () => {
+                                      await api(`/admin/roles/${role.id}`, {}, "DELETE");
+                                      showTip("角色已删除");
+                                    },
+                                  })
+                                }
+                              >
+                                删除
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        "系统内置"
+                      )}
                     </td>
                   </tr>
                 ))}
-              {!loading &&
-                !roles.some((role) =>
-                  [role.name, role.description].some((value) =>
-                    value.toLowerCase().includes(search.toLowerCase()),
-                  ),
-                ) &&
-                !["超级管理员", "内置", "全部权限"].some((value) => value.includes(search)) && (
+              {!loading && !filteredRoles.length && (
                   <tr>
                     <td colSpan={5} className="admin-empty">
                       没有符合筛选条件的角色
@@ -303,7 +324,20 @@ export function AdminRoles({
           </table>
         </div>
       }
-      {loading && <p className="admin-empty">正在加载角色…</p>}
+      {filteredRoles.length > 0 && (
+        <PaginationControl
+          total={filteredRoles.length}
+          currentPage={page}
+          pageSize={pageSize}
+          pageSizeOptions={[10, 20, 30, 50, 100]}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          ariaLabel="角色列表分页"
+        />
+      )}
       {detail && (
         <AdminDialog title={`${detail.name} · 权限详情`} onClose={() => setDetail(null)}>
           <p>{detail.description || "暂无说明"}</p>

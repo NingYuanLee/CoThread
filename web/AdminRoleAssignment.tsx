@@ -38,7 +38,7 @@ export function AdminRoleAssignment({
     };
   }, [member.id]);
   return (
-    <AdminDialog title={`分配角色 · ${member.name}`} onClose={onClose} busy={busy}>
+    <AdminDialog title={`Admin角色 · ${member.name}`} onClose={onClose} busy={busy}>
       {(close) => (
         <form
           onSubmit={(event) => {

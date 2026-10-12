@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { UiIcon } from "./ui-icon";
 import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
+import { PaginationControl } from "./PaginationControl";
 
 type Kind = "all" | "mention" | "member_added" | "member_removed";
 type Notice = { id: string; kind: Exclude<Kind, "all">; title: string; sender_name: string; body: string; project_name: string; read_at: string | null; created_at: string; can_open: boolean; thread_id: string | null };
@@ -20,7 +21,8 @@ export function Notifications({ api, onOpen }: {
   const [page, setPage] = useState<Page>(empty);
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<Kind>("all");
-  const [cursors, setCursors] = useState<(string | null)[]>([null]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(12);
   const [selectedId, setSelectedId] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -31,12 +33,15 @@ export function Notifications({ api, onOpen }: {
   const revision = useRef(0);
   const pages = useRef(new Map<string, Page>());
   const selected = page.items.find((n) => n.id === selectedId);
-  const cursor = cursors[cursors.length - 1];
   const total = kind === "all" ? Object.values(page.counts).reduce((sum, count) => sum + count.total, 0) : page.counts[kind]?.total || 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  useEffect(() => {
+    setCurrentPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
   useEffect(() => {
     let alive = true;
     const version = ++revision.current;
-    const path = `/notifications?kind=${kind}&limit=12${cursor ? `&before=${cursor}` : ""}`;
+    const path = `/notifications?kind=${kind}&limit=${pageSize}&page=${currentPage}`;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     let inFlight = false;
@@ -73,7 +78,7 @@ export function Notifications({ api, onOpen }: {
     void load();
     document.addEventListener("visibilitychange", resume);
     return () => { alive = false; controller.abort(); clearTimeout(timer); document.removeEventListener("visibilitychange", resume); };
-  }, [open, kind, cursor, reload]);
+  }, [open, kind, currentPage, pageSize, reload]);
   useEffect(() => {
     if (open) dialog.current?.showModal();
   }, [open]);
@@ -90,7 +95,7 @@ export function Notifications({ api, onOpen }: {
       setPage((old) => ({ ...old, unread: Math.max(0, old.unread - 1), counts: { ...old.counts, [notice.kind]: { total: old.counts[notice.kind]?.total || 0, unread: Math.max(0, (old.counts[notice.kind]?.unread || 0) - 1) } }, items: old.items.map((n) => n.id === notice.id ? { ...n, read_at: new Date().toISOString() } : n) }));
     });
   };
-  const changeTab = (next: Kind) => { if (next === kind) return; setKind(next); setCursors([null]); setSelectedId(""); setPage((old) => ({ ...old, items: [], next: null })); };
+  const changeTab = (next: Kind) => { if (next === kind) return; setKind(next); setCurrentPage(1); setSelectedId(""); setPage((old) => ({ ...old, items: [], next: null })); };
   return <>
     <button ref={bell} className="sidebar-toggle notification-bell" title="站内信" aria-label={`站内信，${page.unread} 条未读`} onClick={() => setOpen(true)}>
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
@@ -106,7 +111,7 @@ export function Notifications({ api, onOpen }: {
           changeTab(tabs[target].id);
           document.getElementById(`notice-tab-${tabs[target].id}`)?.focus();
         }}><UiIcon name={item.icon} size={13} />{item.label}{(item.id === "all" ? page.unread : page.counts[item.id]?.unread || 0) > 0 && <span>{item.id === "all" ? page.unread : page.counts[item.id]?.unread}</span>}</button>)}</div>
-        <div className="notification-tools"><button disabled={busy || loading} onClick={() => { setCursors([null]); setSelectedId(""); setReload((v) => v + 1); }}><UiIcon name="refresh" size={12} />刷新</button><button disabled={busy || !page.unread} onClick={() => void act(async () => { await api("/notifications/read-all", {}); setReload((v) => v + 1); })}><UiIcon name="check" size={12} />全部已读</button></div>
+        <div className="notification-tools"><button disabled={busy || loading} onClick={() => { setSelectedId(""); setReload((v) => v + 1); }}><UiIcon name="refresh" size={12} />刷新</button><button disabled={busy || !page.unread} onClick={() => void act(async () => { await api("/notifications/read-all", {}); setReload((v) => v + 1); })}><UiIcon name="check" size={12} />全部已读</button></div>
       </div>
       {error && <p role="alert" className="notification-error">{error}</p>}
       <div id="notice-panel" role="tabpanel" aria-labelledby={`notice-tab-${kind}`} className="notification-split">
@@ -117,7 +122,7 @@ export function Notifications({ api, onOpen }: {
               <span title={notice.title}>{notice.title}</span><span title={notice.sender_name}>{notice.sender_name}</span><time title={time(notice.created_at)} dateTime={notice.created_at}>{time(notice.created_at, true)}</time>
             </button>)}
           </div>
-          <div className="notification-pagination"><small>共 {total} 条 · 第 {cursors.length} 页</small><div><button disabled={busy || loading || cursors.length === 1} onClick={() => { setCursors((old) => old.slice(0, -1)); setSelectedId(""); }}><UiIcon name="prev" size={12} />上一页</button><button disabled={busy || loading || !page.next} onClick={() => { setCursors((old) => [...old, page.next]); setSelectedId(""); }}>下一页<UiIcon name="next" size={12} /></button></div></div>
+          <PaginationControl className="notification-pagination" total={total} currentPage={currentPage} pageSize={pageSize} pageSizeOptions={[10, 12, 20, 50]} onPageChange={(next) => { setCurrentPage(next); setSelectedId(""); }} onPageSizeChange={(next) => { setPageSize(next); setCurrentPage(1); setSelectedId(""); }} disabled={busy || loading} ariaLabel="站内信分页" />
         </section>
         <section className="notification-detail" aria-label="消息详情" aria-live="polite">
           {!selected || loading ? <div className="notification-detail-empty"><UiIcon name="inbox" size={28} /><p>选择左侧消息，查看详情</p></div> : <>

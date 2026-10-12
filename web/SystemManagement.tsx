@@ -3,6 +3,7 @@ import { UiIcon } from "./ui-icon";
 import { showTip } from "./Tip";
 import { AdminRoleAssignment } from "./AdminRoleAssignment";
 import { AdminDialog, AdminConfirmDialog, type AdminConfirmation } from "./AdminDialog";
+import { PaginationControl } from "./PaginationControl";
 
 type Api = (path: string, data?: unknown, method?: string) => Promise<any>;
 type AdminProject = {
@@ -11,8 +12,22 @@ type AdminProject = {
   description: string;
   creator: string;
   created_at: string;
+  created_by: string;
   archived_at: string | null;
-  members: { id: string; username: string; name: string; email: string | null; role: string }[];
+  project_leader_id: string | null;
+  creator_avatar: string | null;
+  role_migration_issue: { issue_type: string; candidate_user_ids: string[] } | null;
+  can_recover_legacy_roles: boolean;
+  members: {
+    id: string;
+    username: string;
+    name: string;
+    email: string | null;
+    avatar: string | null;
+    role: string;
+    joined_at: string;
+    role_changed_at: string;
+  }[];
   changes: ChangeLog[];
 };
 type AdminAccount = {
@@ -142,6 +157,11 @@ const actionNames: Record<string, string> = {
   profile_updated: "变更资料",
   member_added: "添加成员",
   member_removed: "移出成员",
+  member_role_changed: "调整成员角色",
+  leader_transferred: "转移项目主",
+  admin_added: "添加项目管理",
+  admin_removed: "撤销项目管理",
+  leader_migration_resolved: "核定历史项目主",
   password_changed: "修改密码",
   password_reset: "重置密码",
   disabled: "停用账号",
@@ -150,6 +170,47 @@ const actionNames: Record<string, string> = {
   email_bound: "绑定邮箱",
   password_recovered: "邮箱重置密码",
 };
+
+function changeSummary(change: ChangeLog) {
+  let details: any = change.details;
+  if (typeof details === "string") {
+    try {
+      details = JSON.parse(details);
+    } catch {
+      return "";
+    }
+  }
+  if (!details || typeof details !== "object") return "";
+  if (change.action === "profile_updated") {
+    const before = details.before || {};
+    const after = details.after || {};
+    const parts = [];
+    if (before.name !== after.name)
+      parts.push(`名称：${before.name || "（空）"} → ${after.name || "（空）"}`);
+    if (before.description !== after.description)
+      parts.push(`简介：${before.description || "（空）"} → ${after.description || "（空）"}`);
+    return parts.join("；");
+  }
+  if (change.action === "leader_transferred")
+    return `${details.fromUserName || "原负责人"} → ${details.toUserName || "新负责人"}`;
+  if (change.action === "member_role_changed") {
+    const roleNames: Record<string, string> = { member: "普通成员", viewer: "只读成员" };
+    return `${details.userName || details.userId || "成员"}：${roleNames[details.fromRole] || details.fromRole} → ${roleNames[details.toRole] || details.toRole}`;
+  }
+  if (
+    [
+      "admin_added",
+      "admin_removed",
+      "member_added",
+      "member_removed",
+      "member_role_changed",
+      "leader_migration_resolved",
+    ].includes(change.action)
+  )
+    return details.userName || details.userId || "";
+  if (change.action === "created") return details.name || "";
+  return "";
+}
 
 function SystemPromptContent({ level }: { level: PluginLevel }) {
   return (
@@ -226,6 +287,8 @@ function PluginInventory({
   search: string;
 }) {
   const [detail, setDetail] = useState<DshPlugin | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(30);
   const inventory = (level?.plugins || []).filter(
     (plugin) =>
       plugin.origin === origin &&
@@ -235,6 +298,7 @@ function PluginInventory({
   );
   return (
     <>
+      <p className="admin-list-note">装配状态来自生产配置快照，不代表当前进程的实时加载结果。</p>
       <div className="admin-table-wrap">
         <table className="admin-table admin-plugin-table">
           <thead>
@@ -248,7 +312,7 @@ function PluginInventory({
             </tr>
           </thead>
           <tbody>
-            {inventory.map((plugin) => (
+            {inventory.slice((page - 1) * pageSize, page * pageSize).map((plugin) => (
               <tr key={plugin.key}>
                 <td>
                   <strong>{plugin.name}</strong>
@@ -282,7 +346,17 @@ function PluginInventory({
           </tbody>
         </table>
       </div>
-      <p className="admin-list-note">装配状态来自生产配置快照，不代表当前进程的实时加载结果。</p>
+      {inventory.length > 0 && (
+        <PaginationControl
+          total={inventory.length}
+          currentPage={page}
+          pageSize={pageSize}
+          pageSizeOptions={[10, 20, 30, 50, 100]}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          ariaLabel="插件列表分页"
+        />
+      )}
       {detail && (
         <AdminDialog title={detail.name} onClose={() => setDetail(null)}>
           <p>
@@ -333,16 +407,17 @@ function PluginInventory({
   );
 }
 
-function MemberAvatar({ account }: { account: AdminAccount }) {
-  const [failed, setFailed] = useState(false);
-  return account.avatar && !failed ? (
+function MemberAvatar({ account }: { account: { name: string; avatar: string | null } }) {
+  const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
+  const avatarFailed = account.avatar !== null && failedAvatar === account.avatar;
+  return account.avatar && !avatarFailed ? (
     <img
       className="admin-member-avatar"
       src={account.avatar}
       alt={`${account.name}的头像`}
       loading="lazy"
       decoding="async"
-      onError={() => setFailed(true)}
+      onError={() => setFailedAvatar(account.avatar)}
     />
   ) : (
     <span
@@ -359,14 +434,28 @@ function RecordDetails({
   item,
   isProject,
   section,
+  api,
+  onProjectRolesRecovered,
 }: {
   item: AdminProject | AdminAccount;
   isProject: boolean;
   section: "details" | "related" | "changes" | "logins";
+  api: Api;
+  onProjectRolesRecovered: () => Promise<void>;
 }) {
+  const [listPage, setListPage] = useState(1);
+  const [listPageSize, setListPageSize] = useState(10);
   const project = item as AdminProject,
     account = item as AdminAccount;
   const related = isProject ? project.members : account.projects;
+  const listItems: any[] = section === "related" ? related : section === "changes" ? item.changes : section === "logins" && !isProject ? account.logins : [];
+  const visibleListItems = listItems.slice((listPage - 1) * listPageSize, listPage * listPageSize);
+  useEffect(() => {
+    setListPage(1);
+  }, [item.id, section]);
+  const projectLeader = isProject
+    ? project.members.find((member) => member.id === project.project_leader_id)
+    : undefined;
   return (
     <>
       {section === "details" && (
@@ -377,12 +466,62 @@ function RecordDetails({
             <>
               <dt>项目简介</dt>
               <dd className="admin-prewrap">{project.description || "暂无简介"}</dd>
-              <dt>创建人</dt>
-              <dd>{project.creator}</dd>
+              <dt>项目创始人</dt>
+              <dd className="admin-project-person">
+                <MemberAvatar account={{ name: project.creator, avatar: project.creator_avatar }} />
+                {project.creator}
+              </dd>
+              <dt>项目主</dt>
+              <dd>
+                {project.project_leader_id ? (
+                  <span className="admin-project-person">
+                    <MemberAvatar
+                      account={{
+                        name: projectLeader?.name || "项目主",
+                        avatar: projectLeader?.avatar || null,
+                      }}
+                    />
+                    {projectLeader?.name || "项目主"}
+                  </span>
+                ) : (
+                  "待设置"
+                )}
+              </dd>
+              {project.role_migration_issue && (
+                <>
+                  <dt>角色迁移</dt>
+                  <dd role="status">
+                    {project.role_migration_issue.issue_type === "multiple_legacy_owners"
+                      ? "历史项目存在多个负责人候选，需要核对后设置唯一负责人。"
+                      : project.role_migration_issue.issue_type === "inactive_legacy_owner"
+                        ? "历史负责人账号已停用，需要核对后设置新的负责人。"
+                        : "历史项目没有负责人记录，需要核对后设置负责人。"}
+                    {project.role_migration_issue.candidate_user_ids?.length ? (
+                      <small>
+                        候选：
+                        {project.role_migration_issue.candidate_user_ids
+                          .map(
+                            (id) => project.members.find((member) => member.id === id)?.name || id,
+                          )
+                          .join("、")}
+                      </small>
+                    ) : null}
+                    {project.can_recover_legacy_roles && (
+                      <LegacyProjectLeaderRecovery
+                        project={project}
+                        api={api}
+                        onRecovered={onProjectRolesRecovered}
+                      />
+                    )}
+                  </dd>
+                </>
+              )}
               <dt>创建时间</dt>
               <dd>{dateTime(project.created_at)}</dd>
               <dt>成员数</dt>
-              <dd>{project.members.length}</dd>
+              <dd>
+                {project.members.filter((member) => ["project_leader", "project_admin"].includes(member.role)).length} / {project.members.length}
+              </dd>
               <dt>状态</dt>
               <dd>{project.archived_at ? "已归档" : "正常"}</dd>
             </>
@@ -412,20 +551,51 @@ function RecordDetails({
                 <tr>
                   <th>{isProject ? "成员" : "项目"}</th>
                   <th>{isProject ? "账号" : "状态"}</th>
-                  <th>角色</th>
+                  <th>{isProject ? "项目角色" : "账号角色"}</th>
+                  {isProject && (
+                    <>
+                      <th>加入时间</th>
+                      <th>角色变更时间</th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
-                {related.map((value: any) => (
+                {visibleListItems.map((value: any) => (
                   <tr key={value.id}>
-                    <td>{value.name}</td>
+                    <td>
+                      {isProject ? (
+                        <span className="admin-project-member-cell">
+                          <MemberAvatar account={{ name: value.name, avatar: value.avatar }} />
+                          <span className="admin-project-member-copy">
+                            <span className="admin-project-member-name">{value.name}</span>
+                            {value.id === project.created_by && (
+                              <span className="admin-project-creator-badge">项目创始人</span>
+                            )}
+                          </span>
+                        </span>
+                      ) : value.name}
+                    </td>
                     <td>{isProject ? value.username : value.archived_at ? "已归档" : "正常"}</td>
-                    <td>{value.role}</td>
+                    <td className={isProject ? `admin-project-role admin-project-role-${value.role}` : undefined}>
+                      {{
+                        project_leader: "项目主",
+                        project_admin: "项目管理",
+                        member: "成员",
+                        viewer: "只读成员",
+                      }[value.role] || value.role}
+                    </td>
+                    {isProject && (
+                      <>
+                        <td>{dateTime(value.joined_at)}</td>
+                        <td>{dateTime(value.role_changed_at)}</td>
+                      </>
+                    )}
                   </tr>
                 ))}
                 {!related.length && (
                   <tr>
-                    <td colSpan={3} className="admin-empty">
+                    <td colSpan={isProject ? 5 : 3} className="admin-empty">
                       暂无记录
                     </td>
                   </tr>
@@ -433,6 +603,7 @@ function RecordDetails({
               </tbody>
             </table>
           </div>
+          {listItems.length > 0 && <PaginationControl total={listItems.length} currentPage={listPage} pageSize={listPageSize} pageSizeOptions={[10, 20, 50]} onPageChange={setListPage} onPageSizeChange={(size) => { setListPageSize(size); setListPage(1); }} ariaLabel="详情关联列表分页" />}
         </>
       )}
       {section === "changes" && (
@@ -447,9 +618,12 @@ function RecordDetails({
                 </tr>
               </thead>
               <tbody>
-                {item.changes.map((change, index) => (
+                {visibleListItems.map((change, index) => (
                   <tr key={index}>
-                    <td>{actionNames[change.action] || change.action}</td>
+                    <td>
+                      {actionNames[change.action] || change.action}
+                      {changeSummary(change) && <small>{changeSummary(change)}</small>}
+                    </td>
                     <td>{change.actor}</td>
                     <td>{dateTime(change.created_at)}</td>
                   </tr>
@@ -464,6 +638,7 @@ function RecordDetails({
               </tbody>
             </table>
           </div>
+          {listItems.length > 0 && <PaginationControl total={listItems.length} currentPage={listPage} pageSize={listPageSize} pageSizeOptions={[10, 20, 50]} onPageChange={setListPage} onPageSizeChange={(size) => { setListPageSize(size); setListPage(1); }} ariaLabel="变更记录分页" />}
         </>
       )}
       {!isProject && section === "logins" && (
@@ -478,7 +653,7 @@ function RecordDetails({
                 </tr>
               </thead>
               <tbody>
-                {account.logins.map((login, index) => (
+                {visibleListItems.map((login, index) => (
                   <tr key={index}>
                     <td>
                       {login.success ? "成功" : "失败"}
@@ -505,9 +680,69 @@ function RecordDetails({
               </tbody>
             </table>
           </div>
+          {listItems.length > 0 && <PaginationControl total={listItems.length} currentPage={listPage} pageSize={listPageSize} pageSizeOptions={[10, 20, 50]} onPageChange={setListPage} onPageSizeChange={(size) => { setListPageSize(size); setListPage(1); }} ariaLabel="登录记录分页" />}
         </>
       )}
     </>
+  );
+}
+
+function LegacyProjectLeaderRecovery({
+  project,
+  api,
+  onRecovered,
+}: {
+  project: AdminProject;
+  api: Api;
+  onRecovered: () => Promise<void>;
+}) {
+  const [userId, setUserId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const candidates = project.members.filter((member) => {
+    if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(member.id)) return false;
+    return (
+      project.role_migration_issue?.issue_type !== "multiple_legacy_owners" ||
+      project.role_migration_issue.candidate_user_ids.includes(member.id)
+    );
+  });
+  useEffect(() => {
+    setUserId(candidates[0]?.id || "");
+  }, [project.id, project.role_migration_issue?.issue_type]);
+  if (!candidates.length) return <p>没有可用于恢复负责人的人类成员。</p>;
+  return (
+    <div className="admin-table-actions">
+      <label>
+        初始负责人
+        <select value={userId} onChange={(event) => setUserId(event.target.value)}>
+          {candidates.map((member) => (
+            <option key={member.id} value={member.id}>
+              {member.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        disabled={saving || !userId}
+        onClick={() => {
+          if (
+            !window.confirm(
+              `将 ${candidates.find((member) => member.id === userId)?.name} 设为该项目的初始负责人？`,
+            )
+          )
+            return;
+          setSaving(true);
+          void api(`/admin/projects/${project.id}/leader-recovery`, { userId }, "POST")
+            .then(async () => {
+              await onRecovered();
+              showTip("历史项目主已核定");
+            })
+            .catch((error) => showTip((error as Error).message, "error"))
+            .finally(() => setSaving(false));
+        }}
+      >
+        {saving ? "保存中…" : "核定负责人"}
+      </button>
+    </div>
   );
 }
 
@@ -529,6 +764,8 @@ export function SystemManagement({
   const can = (permission: string) => permissions.includes(permission);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(30);
   const [projects, setProjects] = useState<AdminProject[]>([]);
   const [accounts, setAccounts] = useState<AdminAccount[]>([]);
   const [expanded, setExpanded] = useState("");
@@ -541,6 +778,7 @@ export function SystemManagement({
     setDetailSection(section);
   };
   const [creating, setCreating] = useState(false);
+  const [editingProject, setEditingProject] = useState<AdminProject | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -572,6 +810,7 @@ export function SystemManagement({
     setExpanded("");
     setAssignment(null);
     setCreating(false);
+    setEditingProject(null);
     setPassword(null);
     setSkillDraft(null);
     setConfirmation(null);
@@ -642,7 +881,7 @@ export function SystemManagement({
               aria-label="搜索插件或Skill"
               placeholder="搜索插件或 Skill"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             />
           </label>
           <select
@@ -651,6 +890,7 @@ export function SystemManagement({
             onChange={(e) => {
               setAgentLevel(e.target.value as AgentLevel);
               setSearch("");
+              setPage(1);
             }}
           >
             <option value="l1">L1</option>
@@ -664,6 +904,7 @@ export function SystemManagement({
               setPluginType(e.target.value as PluginView);
               setSearch("");
               setStatus("all");
+              setPage(1);
             }}
           >
             {pluginViews.map((view) => (
@@ -676,7 +917,7 @@ export function SystemManagement({
             <select
               aria-label="Skill 状态"
               value={status}
-              onChange={(e) => setStatus(e.target.value)}
+              onChange={(e) => { setStatus(e.target.value); setPage(1); }}
             >
               <option value="all">全部状态</option>
               <option value="active">已启用</option>
@@ -708,6 +949,7 @@ export function SystemManagement({
             search={search}
           />
         ) : (
+          <>
           <div className="admin-table-wrap">
             <table className="admin-table">
               <thead>
@@ -720,7 +962,7 @@ export function SystemManagement({
                 </tr>
               </thead>
               <tbody>
-                {skills.map((skill) => (
+                {skills.slice((page - 1) * pageSize, page * pageSize).map((skill) => (
                   <tr key={skill.id}>
                     <td>
                       <strong>{skill.name}</strong>
@@ -784,6 +1026,10 @@ export function SystemManagement({
               </tbody>
             </table>
           </div>
+          {skills.length > 0 && (
+            <PaginationControl total={skills.length} currentPage={page} pageSize={pageSize} pageSizeOptions={[10, 20, 30, 50, 100]} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} ariaLabel="Skill 列表分页" />
+          )}
+          </>
         )}
         {skillDetail && (
           <AdminDialog title={skillDetail.name} onClose={() => setSkillDetail(null)}>
@@ -858,7 +1104,7 @@ export function SystemManagement({
     );
   }
   const isProject = section === "projects";
-  const visibleItems = (isProject ? projects : accounts).filter((item) => {
+  const filteredItems = (isProject ? projects : accounts).filter((item) => {
     const value = item as AdminProject & AdminAccount;
     const inactive = isProject ? !!value.archived_at : !!value.disabled_at;
     return (
@@ -871,6 +1117,7 @@ export function SystemManagement({
       )
     );
   });
+  const visibleItems = filteredItems.slice((page - 1) * pageSize, page * pageSize);
   const detailItem = (isProject ? projects : accounts).find((item) => item.id === expanded);
   const create = async (form: HTMLFormElement) => {
     const fields = new FormData(form);
@@ -914,12 +1161,12 @@ export function SystemManagement({
           <UiIcon name="search" size={14} />
           <input
             aria-label="搜索项目或成员"
-            placeholder={isProject ? "搜索项目名称、简介或创建人" : "搜索姓名、账号或用户 ID"}
+            placeholder={isProject ? "搜索项目名称、简介或项目创始人" : "搜索姓名、账号或用户 ID"}
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
         </label>
-        <select aria-label="状态筛选" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <select aria-label="状态筛选" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
           <option value="all">全部状态</option>
           <option value="active">正常</option>
           <option value="inactive">{isProject ? "已归档" : "已停用"}</option>
@@ -938,8 +1185,9 @@ export function SystemManagement({
             <tr>
               {!isProject && <th className="admin-avatar-column">头像</th>}
               <th>{isProject ? "项目名称" : "成员"}</th>
-              <th>{isProject ? "创建人" : "账号"}</th>
-              <th>{isProject ? "成员数" : "加入项目"}</th>
+              <th>{isProject ? "项目创始人" : "账号"}</th>
+              {isProject && <th>项目主</th>}
+              <th>{isProject ? "管理员 / 总成员" : "加入项目"}</th>
               <th>状态</th>
               <th>{isProject ? "创建时间" : "账号类型"}</th>
               <th>操作</th>
@@ -951,6 +1199,9 @@ export function SystemManagement({
                 const project = item as AdminProject,
                   account = item as AdminAccount;
                 const inactive = isProject ? !!project.archived_at : !!account.disabled_at;
+                const projectLeader = isProject
+                  ? project.members.find((member) => member.id === project.project_leader_id)
+                  : undefined;
                 return (
                   <tr key={item.id}>
                     {!isProject && (
@@ -972,12 +1223,36 @@ export function SystemManagement({
                       </small>
                     </td>
                     <td>
-                      <span className="admin-nowrap">
-                        {isProject ? project.creator : account.username}
-                      </span>
+                      {isProject ? (
+                        <span className="admin-project-person">
+                          <MemberAvatar account={{ name: project.creator, avatar: project.creator_avatar }} />
+                          <span className="admin-nowrap">{project.creator}</span>
+                        </span>
+                      ) : <span className="admin-nowrap">{account.username}</span>}
                       {!isProject && <small>{account.email || "未绑定邮箱"}</small>}
                     </td>
-                    <td>{isProject ? project.members.length : account.projects.length}</td>
+                    {isProject && (
+                      <td>
+                        {project.project_leader_id ? (
+                          <span className="admin-project-person">
+                            <MemberAvatar
+                              account={{
+                                name: projectLeader?.name || "项目主",
+                                avatar: projectLeader?.avatar || null,
+                              }}
+                            />
+                            <span className="admin-nowrap">
+                              {projectLeader?.name || "项目主"}
+                            </span>
+                          </span>
+                        ) : <span>待设置</span>}
+                      </td>
+                    )}
+                    <td>
+                      {isProject
+                        ? `${project.members.filter((member) => ["project_leader", "project_admin"].includes(member.role)).length} / ${project.members.length}`
+                        : account.projects.length}
+                    </td>
                     <td>
                       <span className={`status-badge ${inactive ? "inactive" : ""}`}>
                         {inactive ? (isProject ? "已归档" : "已停用") : "正常"}
@@ -992,6 +1267,9 @@ export function SystemManagement({
                     </td>
                     <td>
                       <div className="admin-table-actions">
+                        {isProject && can("projects.update") && (
+                          <button disabled={busy} onClick={() => setEditingProject(project)}>编辑</button>
+                        )}
                         <button onClick={() => openDetail(item.id, "details")}>详情</button>
                         <button onClick={() => openDetail(item.id, "related")}>
                           {isProject ? "成员" : "项目"}
@@ -1002,16 +1280,16 @@ export function SystemManagement({
                         {!isProject && (
                           <button onClick={() => openDetail(item.id, "logins")}>登录记录</button>
                         )}
-                        {!isProject && can("roles.assign") && (
+                        {!isProject && !account.is_super_admin && can("roles.assign") && (
                           <button disabled={busy} onClick={() => setAssignment(account)}>
-                            分配角色
+                            Admin角色
                           </button>
                         )}
                         {can(
                           isProject
                             ? `projects.${inactive ? "restore" : "archive"}`
                             : "accounts.status",
-                        ) && (
+                        ) && (isProject || !account.is_super_admin) && (
                           <button
                             disabled={busy || (!isProject && account.id === currentUserId)}
                             onClick={() =>
@@ -1045,7 +1323,7 @@ export function SystemManagement({
                             {inactive ? "恢复" : isProject ? "归档" : "停用"}
                           </button>
                         )}
-                        {!isProject && can("accounts.reset-password") && (
+                        {!isProject && !account.is_super_admin && can("accounts.reset-password") && (
                           <button
                             disabled={busy}
                             onClick={() =>
@@ -1079,7 +1357,7 @@ export function SystemManagement({
             {(loading || !visibleItems.length) && (
               <tr>
                 <td
-                  colSpan={isProject ? 6 : 7}
+                  colSpan={7}
                   className="admin-empty"
                   role={loading ? "status" : undefined}
                 >
@@ -1091,14 +1369,67 @@ export function SystemManagement({
         </table>
       </div>
       <div className="admin-pagination">
-        <span>共 {visibleItems.length} 条</span>
+        <PaginationControl total={filteredItems.length} currentPage={page} pageSize={pageSize} pageSizeOptions={[10, 20, 30, 50, 100]} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} disabled={loading} ariaLabel={isProject ? "项目列表分页" : "成员列表分页"} />
       </div>
       {detailItem && (
         <AdminDialog
           title={`${detailItem.name} · ${detailSection === "details" ? (isProject ? "项目详情" : "成员详情") : detailSection === "related" ? (isProject ? "项目成员" : "加入的项目") : detailSection === "changes" ? "变更记录" : "登录记录"}`}
           onClose={() => setExpanded("")}
         >
-          <RecordDetails item={detailItem} isProject={isProject} section={detailSection} />
+          <RecordDetails
+            item={detailItem}
+            isProject={isProject}
+            section={detailSection}
+            api={api}
+            onProjectRolesRecovered={async () => {
+              await load();
+            }}
+          />
+        </AdminDialog>
+      )}
+      {editingProject && (
+        <AdminDialog
+          title={`编辑项目 · ${editingProject.name}`}
+          onClose={() => setEditingProject(null)}
+          busy={busy}
+        >
+          {(close) => (
+            <form
+              className="admin-editor"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const form = e.currentTarget;
+                void action(async () => {
+                  const fields = new FormData(form);
+                  await api(
+                    `/admin/projects/${editingProject.id}`,
+                    {
+                      name: String(fields.get("name") || "").trim(),
+                      description: String(fields.get("description") || "").trim(),
+                    },
+                    "PATCH",
+                  );
+                  await onProjectsChanged();
+                  await load();
+                  setEditingProject(null);
+                }, "项目信息已保存");
+              }}
+            >
+              {feedback}
+              <label>
+                项目名称
+                <input autoFocus required name="name" maxLength={120} defaultValue={editingProject.name} />
+              </label>
+              <label>
+                项目简介
+                <textarea name="description" maxLength={4000} defaultValue={editingProject.description || ""} />
+              </label>
+              <div className="admin-editor-actions">
+                <button type="button" disabled={busy} onClick={close}>取消</button>
+                <button className="primary" disabled={busy}>保存</button>
+              </div>
+            </form>
+          )}
         </AdminDialog>
       )}
       {assignment && (

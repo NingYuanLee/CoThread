@@ -578,12 +578,12 @@ function RecordDetails({
                     </td>
                     <td>{isProject ? value.username : value.archived_at ? "已归档" : "正常"}</td>
                     <td className={isProject ? `admin-project-role admin-project-role-${value.role}` : undefined}>
-                      {{
+                      {({
                         project_leader: "项目主",
                         project_admin: "项目管理",
                         member: "成员",
                         viewer: "只读成员",
-                      }[value.role] || value.role}
+                      } as Record<string, string>)[value.role] || value.role}
                     </td>
                     {isProject && (
                       <>

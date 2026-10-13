@@ -38,7 +38,21 @@ character-set-server=utf8mb4
 collation-server=utf8mb4_0900_ai_ci
 max_allowed_packet=32M
 log-error=mysql-error.log
+binlog_expire_logs_seconds=86400
+binlog_expire_logs_auto_purge=ON
 "@ | Set-Content -LiteralPath $config -Encoding ascii
+}
+# Upgrade existing local installations without overriding an explicit retention policy.
+$configText = Get-Content -LiteralPath $config -Raw
+$missingLogSettings = @()
+if ($configText -notmatch '(?m)^\s*binlog[_-]expire[_-]logs[_-]seconds\s*=') {
+  $missingLogSettings += 'binlog_expire_logs_seconds=86400'
+}
+if ($configText -notmatch '(?m)^\s*binlog[_-]expire[_-]logs[_-]auto[_-]purge\s*=') {
+  $missingLogSettings += 'binlog_expire_logs_auto_purge=ON'
+}
+if ($missingLogSettings.Count -gt 0) {
+  Add-Content -LiteralPath $config -Value ("`r`n[mysqld]`r`n" + ($missingLogSettings -join "`r`n")) -Encoding ascii
 }
 $initialized = Test-Path -LiteralPath (Join-Path $data 'mysql')
 if (!$initialized) {

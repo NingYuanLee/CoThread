@@ -44,6 +44,8 @@ npm run setup:preview-browser   # Agent 视觉验收（HTML/文档预览截图�
 
 也可用 `compose.yaml` 跑官方 `mysql:8.4.9`。不要同时让 Docker 与便携版占用 3307。
 
+便携版 MySQL 默认将二进制变更日志保留 24 小时，并在启动或日志轮转时自动清理过期日志，避免本地开发写入长期累积。已有安装会在下次启动时补齐缺失配置；自定义保留期可在 `.local/my.ini` 中设置 `binlog_expire_logs_seconds`。这只控制历史变更日志，不删除当前业务表数据；完整备份使用 `npm run db:backup`，需要复制或更长时间点恢复窗口时应相应延长保留期。Docker 与云端数据库的日志策略由各自配置管理。
+
 `npm test` 会清空目标库全部表后重新迁移，绝不能指向生产库或正在用的 `cothread` / `cothread_dev`。
 
 ## 接下来看 Docs

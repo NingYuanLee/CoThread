@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 const DIALOG_OUT_MS = 150;
@@ -104,9 +104,11 @@ export function DialogClose({
  * 打开着的 `<dialog>`，只有页面上没有对话框时才用 body。
  */
 function modalPortalHost(): HTMLElement {
-  const openDialogs = document.querySelectorAll("dialog[open]");
-  const top = openDialogs[openDialogs.length - 1];
-  return top instanceof HTMLElement ? top : document.body;
+  const openDialogs = [...document.querySelectorAll("dialog[open]")].filter(
+    (node): node is HTMLDialogElement =>
+      node instanceof HTMLDialogElement && node.isConnected,
+  );
+  return openDialogs.at(-1) ?? document.body;
 }
 
 export function ModalBackdrop({
@@ -143,9 +145,15 @@ export function ModalBackdrop({
     setClosing(true);
   };
   const nodeRef = useRef<HTMLDivElement>(null);
-  // 宿主在挂载时定一次：浮层显示时父对话框已经打开，之后不会换层。
+  const [hostVersion, setHostVersion] = useState(0);
+  // 父级 dialog 可能在同一轮提交里关掉。宿主断开后改挂到仍在文档里的层。
   const hostRef = useRef<HTMLElement | null>(null);
-  if (!hostRef.current) hostRef.current = modalPortalHost();
+  if (!hostRef.current?.isConnected) hostRef.current = modalPortalHost();
+  useLayoutEffect(() => {
+    if (hostRef.current?.isConnected) return;
+    hostRef.current = modalPortalHost();
+    setHostVersion((value) => value + 1);
+  }, [hostVersion]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;

@@ -1,3 +1,8 @@
+import {
+  assertIterationWritable,
+  lockTaskIteration,
+  withTaskIterationWrite,
+} from "./iteration-state.js";
 import { randomUUID } from "node:crypto";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
@@ -267,6 +272,7 @@ async function l3DispatchSnapshot(conn, l2SessionId) {
 export async function finishCoordinatorDispatch(db, threadId, { enqueueIdle = true } = {}) {
   if (!threadId) return { released: 0, enqueued: false };
   const released = await transaction(db, async (conn) => {
+    await assertIterationWritable(conn, threadId);
     const [session] = await query(
       conn,
       "SELECT session_id FROM agent_sessions WHERE thread_id=? FOR UPDATE",
@@ -519,6 +525,7 @@ async function assertL2CanOperateTask(conn, actor, task) {
 
 export async function createTask(db, input) {
   const id = input.id || randomUUID();
+  if (!input.originThreadId) throw new HttpError(400, "任务必须属于一个迭代");
   if (!input.projectId || !input.title || !input.goal)
     throw new HttpError(400, "任务缺少项目、标题或目标");
   if (input.taskType === "assist_l2") {
@@ -539,6 +546,7 @@ export async function createTask(db, input) {
   if (input.createdByType === "l2_session" && input.targetType === "human_member")
     await assertHumanMemberAuthorization(db, input.projectId, input, ASSIGN_HUMAN_AUTH);
   await transaction(db, async (conn) => {
+    await assertIterationWritable(conn, input.originThreadId, input.projectId);
     if (input.sourceUserId) {
       const [member] = await query(
         conn,
@@ -658,6 +666,10 @@ export async function createTask(db, input) {
         initialStatus,
       ],
     );
+    await query(conn, "UPDATE agent_tasks SET original_thread_id=? WHERE id=?", [
+      input.originThreadId,
+      id,
+    ]);
     if (input.targetType === "l2_session") {
       await query(
         conn,
@@ -748,6 +760,7 @@ export async function listTasks(
 
 export async function updateTask(db, taskId, actor, update) {
   const result = await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
     const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
     if (!task) throw new HttpError(404, "任务不存在");
     assertActorCanUpdateTask(task, actor);
@@ -839,6 +852,11 @@ export async function updateTask(db, taskId, actor, update) {
 }
 
 export async function appendTaskUpdate(db, taskId, actor, body, messageId = null) {
+  if (typeof db.getConnection === "function")
+    return withTaskIterationWrite(db, taskId, (conn) =>
+      appendTaskUpdate(conn, taskId, actor, body, messageId),
+    );
+  await lockTaskIteration(db, taskId);
   const task = await getTask(db, taskId);
   if (!task) throw new HttpError(404, "任务不存在");
   if (task.target_type !== actor.type || task.target_id !== actor.id)
@@ -852,6 +870,11 @@ export async function appendTaskUpdate(db, taskId, actor, body, messageId = null
 }
 
 export async function askTaskQuestion(db, taskId, actor, question, sourceUserId, messageId = null) {
+  if (typeof db.getConnection === "function")
+    return withTaskIterationWrite(db, taskId, (conn) =>
+      askTaskQuestion(conn, taskId, actor, question, sourceUserId, messageId),
+    );
+  await lockTaskIteration(db, taskId);
   const task = await getTask(db, taskId);
   if (!task) throw new HttpError(404, "任务不存在");
   await assertL2CanOperateTask(db, actor, task);
@@ -884,6 +907,13 @@ export async function askTaskQuestion(db, taskId, actor, question, sourceUserId,
 
 export async function answerTaskQuestion(db, questionId, actor, answer, messageId = null) {
   return transaction(db, async (conn) => {
+    const [questionScope] = await query(
+      conn,
+      "SELECT task_id FROM agent_task_questions WHERE id=?",
+      [questionId],
+    );
+    if (!questionScope) throw new HttpError(404, "问题不存在");
+    await lockTaskIteration(conn, questionScope.task_id);
     const [question] = await query(
       conn,
       "SELECT q.*,t.project_id FROM agent_task_questions q JOIN agent_tasks t ON t.id=q.task_id WHERE q.id=? FOR UPDATE",
@@ -943,6 +973,7 @@ export async function listTaskQuestions(db, taskId) {
 export async function reassignTask(db, taskId, actor, target, reason, messageId) {
   assertTarget(target.type, target.id);
   const result = await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
     const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
     if (!task) throw new HttpError(404, "任务不存在");
     const l2Operator = actor.type === "l2_session";
@@ -1053,6 +1084,7 @@ export async function reassignTask(db, taskId, actor, target, reason, messageId)
 
 export async function acceptTask(db, taskId, actor, mode = "auto") {
   const result = await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
     const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
     if (!task) throw new HttpError(404, "任务不存在");
     if (task.target_type !== actor.type || task.target_id !== actor.id)
@@ -1206,6 +1238,7 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
 
 export async function claimTask(db, taskId, actor) {
   return transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
     const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
     if (!task) throw new HttpError(404, "任务不存在");
     if (task.target_type !== actor.type || task.target_id !== actor.id)
@@ -1228,6 +1261,7 @@ export async function claimTask(db, taskId, actor) {
 
 export async function rejectTask(db, taskId, actor, reason) {
   const result = await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
     const [task] = await query(
       conn,
       "SELECT * FROM agent_tasks WHERE id=? AND target_type=? AND target_id=? FOR UPDATE",
@@ -1263,6 +1297,7 @@ export async function rejectTask(db, taskId, actor, reason) {
 
 export async function cancelTask(db, taskId, actor, reason) {
   const result = await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
     const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
     if (!task) throw new HttpError(404, "任务不存在");
     if (task.status !== "awaiting_acceptance")
@@ -1337,6 +1372,7 @@ async function assertRejectionReviewer(review, actor, conn) {
 
 export async function acknowledgeTaskRejection(db, taskId, actor) {
   return transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
     const review = await rejectionReviewActor(db, taskId, conn);
     await assertRejectionReviewer(review, actor, conn);
     await query(
@@ -1359,6 +1395,7 @@ export async function acknowledgeTaskRejection(db, taskId, actor) {
 
 export async function reopenRejectedTask(db, taskId, actor, update = {}) {
   const result = await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
     const [locked] = await query(conn, "SELECT id FROM agent_tasks WHERE id=? FOR UPDATE", [
       taskId,
     ]);
@@ -1453,8 +1490,14 @@ const arrangeableStatuses = new Set([
 ]);
 
 export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
-  const action = update.action === "cancel" ? "cancel" : update.action === "clear_binding" ? "clear_binding" : "restart";
+  const action =
+    update.action === "cancel"
+      ? "cancel"
+      : update.action === "clear_binding"
+        ? "clear_binding"
+        : "restart";
   const result = await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
     const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
     if (!task) throw new HttpError(404, "任务不存在");
     await assertL2CanOperateTask(conn, actor, task);
@@ -1474,14 +1517,24 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
     const environmentChanged = update.environmentChanged === true;
     if (action === "clear_binding") {
       if (!dispatchL3) throw new HttpError(409, "只有子 Agent 任务可以清理执行者绑定");
-      if (!task.execution_agent_id && ["running", "queued", "pending_assignment"].includes(task.status)) {
+      if (
+        !task.execution_agent_id &&
+        ["running", "queued", "pending_assignment"].includes(task.status)
+      ) {
         return withL3DispatchGate(await getTask(conn, taskId), {
-          action, noop: true, interruptedAgentId: null,
+          action,
+          noop: true,
+          interruptedAgentId: null,
           recovery: { strategy: "dispatch_new_executor", created_run_id: null },
         });
       }
     }
-    if (action !== "cancel" && action !== "clear_binding" && task.status === "blocked" && !environmentChanged) {
+    if (
+      action !== "cancel" &&
+      action !== "clear_binding" &&
+      task.status === "blocked" &&
+      !environmentChanged
+    ) {
       throw new HttpError(
         409,
         task.resume_condition || "任务已阻塞；请先改变外部条件并明确标记 environmentChanged=true",
@@ -1558,7 +1611,12 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       const idle = await idleL3Count(conn, actor.id);
       if (action === "restart" && task.task_type === "assist_l2" && idle < 1)
         throw new HttpError(409, "当前没有空闲子 Agent，不能重新安排辅助任务");
-      const nextStatus = action === "clear_binding" ? "pending_assignment" : idle >= 1 ? "running" : "pending_assignment";
+      const nextStatus =
+        action === "clear_binding"
+          ? "pending_assignment"
+          : idle >= 1
+            ? "running"
+            : "pending_assignment";
       await query(
         conn,
         `UPDATE agent_tasks SET title=COALESCE(?,title),goal=COALESCE(?,goal),constraints=IF(?,?,constraints),
@@ -1608,9 +1666,13 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       interruptedAgentId,
       recovery: interruptedAgentId
         ? {
-            strategy: action === "clear_binding" ? "dispatch_new_executor" : "resume_same_executor_first",
+            strategy:
+              action === "clear_binding" ? "dispatch_new_executor" : "resume_same_executor_first",
             executorId: interruptedAgentId,
-            fallback: action === "clear_binding" ? "dispatch_new_executor" : "replace_only_after_resume_failure",
+            fallback:
+              action === "clear_binding"
+                ? "dispatch_new_executor"
+                : "replace_only_after_resume_failure",
             // Recovery queues work only. No run is bound to the old executor.
             created_run_id: null,
           }
@@ -1643,14 +1705,29 @@ export async function inspectIterationTask(db, taskId, actor) {
     : [];
   const live = ["running", "waiting"].includes(run?.status);
   const stale = live && Number(run.heartbeat_age_seconds || 0) >= 180;
-  const [bindingEvent] = await query(db, `SELECT status,output,created_at FROM agent_events
-    WHERE agent_task_id=? AND tool IN ('bind_task_l3','dsh_l3') ORDER BY id DESC LIMIT 1`, [taskId]);
-  const lastBindingError = bindingEvent?.status === "failed"
-    && (!run || bindingEvent.created_at >= run.created_at) ? bindingEvent.output : null;
-  const bound = live && run.executor_id === task.execution_agent_id && run.task_revision === task.revision;
-  const bindingStatus = bound ? (stale ? "stale" : "bound") : lastBindingError ? "rejected"
-    : task.execution_agent_id && !TASK_ENDED.includes(task.status) ? "stale"
-    : TASK_ENDED.includes(task.status) ? "ended" : "pending";
+  const [bindingEvent] = await query(
+    db,
+    `SELECT status,output,created_at FROM agent_events
+    WHERE agent_task_id=? AND tool IN ('bind_task_l3','dsh_l3') ORDER BY id DESC LIMIT 1`,
+    [taskId],
+  );
+  const lastBindingError =
+    bindingEvent?.status === "failed" && (!run || bindingEvent.created_at >= run.created_at)
+      ? bindingEvent.output
+      : null;
+  const bound =
+    live && run.executor_id === task.execution_agent_id && run.task_revision === task.revision;
+  const bindingStatus = bound
+    ? stale
+      ? "stale"
+      : "bound"
+    : lastBindingError
+      ? "rejected"
+      : task.execution_agent_id && !TASK_ENDED.includes(task.status)
+        ? "stale"
+        : TASK_ENDED.includes(task.status)
+          ? "ended"
+          : "pending";
   let suggestedNext = "keep";
   if (task.status === "blocked") suggestedNext = "wait_for_condition";
   else if (task.status === "failed" || run?.status === "failed")
@@ -1717,6 +1794,11 @@ function assistantText(blocks = []) {
 
 export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId) {
   return transaction(db, async (conn) => {
+    const [scope] = await query(conn, "SELECT thread_id FROM agent_sessions WHERE session_id=?", [
+      l2SessionId,
+    ]);
+    if (!scope) throw new HttpError(404, "迭代调度会话不存在");
+    await assertIterationWritable(conn, scope.thread_id);
     const [session] = await query(
       conn,
       "SELECT session_id FROM agent_sessions WHERE session_id=? FOR UPDATE",
@@ -1759,7 +1841,10 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
       if (!["pending_assignment", "queued", "running"].includes(task.status))
         throw new HttpError(409, "任务当前不可启动子 Agent");
       if (task.execution_agent_id && task.execution_agent_id !== childSessionId)
-        throw new HttpError(409, `L3_BINDING_OCCUPIED: 任务 ${task.id} 已绑定执行者 ${task.execution_agent_id}；请先 inspect_task，必要时 recover_task clear_binding`);
+        throw new HttpError(
+          409,
+          `L3_BINDING_OCCUPIED: 任务 ${task.id} 已绑定执行者 ${task.execution_agent_id}；请先 inspect_task，必要时 recover_task clear_binding`,
+        );
       if (task.status === "pending_assignment" || task.task_type === "formal") {
         await query(
           conn,
@@ -1787,7 +1872,11 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
       values,
     );
     if (!run) {
-      if (taskId) throw new HttpError(409, `L3_BINDING_NOT_QUEUED: 任务 ${taskId} 没有当前版本的未绑定排队 run`);
+      if (taskId)
+        throw new HttpError(
+          409,
+          `L3_BINDING_NOT_QUEUED: 任务 ${taskId} 没有当前版本的未绑定排队 run`,
+        );
       return null;
     }
     const known = await stickyL3ExecutorIds(conn, run.origin_thread_id);
@@ -1852,6 +1941,11 @@ export async function ensureDshL3CanUpdate(db, l2SessionId, childSessionId, task
 
 export async function settleDshL3Execution(db, l2SessionId, childSessionId, notification) {
   const result = await transaction(db, async (conn) => {
+    const [scope] = await query(conn, "SELECT thread_id FROM agent_sessions WHERE session_id=?", [
+      l2SessionId,
+    ]);
+    if (!scope) throw new HttpError(404, "迭代调度会话不存在");
+    await assertIterationWritable(conn, scope.thread_id);
     const [run] = await query(
       conn,
       `SELECT r.id run_id,r.status run_status,r.result_summary run_result,t.* FROM agent_task_execution_runs r
@@ -2071,23 +2165,55 @@ async function interruptDshL3Candidates(db, candidates, { age = null, reason, pr
   const recovered = [];
   for (const candidate of candidates) {
     const changed = await transaction(db, async (conn) => {
-      const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [candidate.task_id]);
-      const [run] = await query(conn, `SELECT *,
+      const [scope] = await query(conn, "SELECT origin_thread_id FROM agent_tasks WHERE id=?", [
+        candidate.task_id,
+      ]);
+      if (!scope) return false;
+      if (scope.origin_thread_id) {
+        const [thread] = await query(conn, "SELECT status FROM threads WHERE id=? FOR UPDATE", [
+          scope.origin_thread_id,
+        ]);
+        if (thread?.status !== "active") return false;
+      }
+      const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [
+        candidate.task_id,
+      ]);
+      const [run] = await query(
+        conn,
+        `SELECT *,
         TIMESTAMPDIFF(SECOND,COALESCE(heartbeat_at,started_at,created_at),UTC_TIMESTAMP(3)) heartbeat_age_seconds
-        FROM agent_task_execution_runs WHERE id=? FOR UPDATE`, [candidate.id]);
+        FROM agent_task_execution_runs WHERE id=? FOR UPDATE`,
+        [candidate.id],
+      );
       if (!run || !["running", "waiting"].includes(run.status)) return false;
       if (age != null && Number(run.heartbeat_age_seconds) < age) return false;
-      await query(conn, `UPDATE agent_task_execution_runs SET status='interrupted',error=?,
-        finished_at=UTC_TIMESTAMP(3) WHERE id=?`, [reason, run.id]);
-      if (task && task.execution_agent_id === run.executor_id && task.revision === run.task_revision
-        && ["running", "waiting"].includes(task.status)) {
-        await query(conn, `UPDATE agent_tasks SET status='pending_assignment',
+      await query(
+        conn,
+        `UPDATE agent_task_execution_runs SET status='interrupted',error=?,
+        finished_at=UTC_TIMESTAMP(3) WHERE id=?`,
+        [reason, run.id],
+      );
+      if (
+        task &&
+        task.execution_agent_id === run.executor_id &&
+        task.revision === run.task_revision &&
+        ["running", "waiting"].includes(task.status)
+      ) {
+        await query(
+          conn,
+          `UPDATE agent_tasks SET status='pending_assignment',
           preferred_executor_id=COALESCE(preferred_executor_id,execution_agent_id),execution_agent_id=NULL,
-          progress=?,finished_at=NULL,revision=revision+1 WHERE id=?`, [progress, task.id]);
+          progress=?,finished_at=NULL,revision=revision+1 WHERE id=?`,
+          [progress, task.id],
+        );
         await recordTaskStatusChange(conn, task.id, task.status, { type: "system" }, reason);
-        await query(conn, `UPDATE agent_tasks t JOIN agent_sessions s ON s.thread_id=t.origin_thread_id
+        await query(
+          conn,
+          `UPDATE agent_tasks t JOIN agent_sessions s ON s.thread_id=t.origin_thread_id
           SET t.target_id=s.session_id,t.claimed_by_type='l2_session',t.claimed_by_id=s.session_id
-          WHERE t.id=? AND t.target_type='l2_session' AND t.target_id<>s.session_id`, [task.id]);
+          WHERE t.id=? AND t.target_type='l2_session' AND t.target_id<>s.session_id`,
+          [task.id],
+        );
         return true;
       }
       return false;
@@ -2101,9 +2227,12 @@ async function interruptDshL3Candidates(db, candidates, { age = null, reason, pr
 export async function recoverInterruptedDshL3Executions(db) {
   await voidSelfHandledAssistTasks(db);
   await reconcileEndedTaskRuns(db);
-  const runs = await query(db, `SELECT r.id,r.task_id,t.origin_thread_id,t.source_message_id,t.source_user_id,t.title
+  const runs = await query(
+    db,
+    `SELECT r.id,r.task_id,t.origin_thread_id,t.source_message_id,t.source_user_id,t.title
     FROM agent_task_execution_runs r JOIN agent_tasks t ON t.id=r.task_id
-    WHERE r.executor_type='dsh_l3' AND r.status IN ('running','waiting')`);
+    WHERE r.executor_type='dsh_l3' AND r.status IN ('running','waiting')`,
+  );
   return interruptDshL3Candidates(db, runs, {
     reason: "服务重启，子 Agent 中断，等待 L2 重新评估",
     progress: "服务重启，等待 L2 重新指派",
@@ -2116,12 +2245,17 @@ export async function recoverStaleDshL3Executions(
   { staleAfterSeconds = L3_STALE_HEARTBEAT_SECONDS } = {},
 ) {
   const age = Math.max(180, Number(staleAfterSeconds) || L3_STALE_HEARTBEAT_SECONDS);
-  const runs = await query(db, `SELECT r.id,r.task_id,t.origin_thread_id,t.source_message_id,t.source_user_id,t.title
+  const runs = await query(
+    db,
+    `SELECT r.id,r.task_id,t.origin_thread_id,t.source_message_id,t.source_user_id,t.title
     FROM agent_task_execution_runs r JOIN agent_tasks t ON t.id=r.task_id
     WHERE r.executor_type='dsh_l3' AND r.status IN ('running','waiting') AND t.status IN ('running','waiting')
-      AND TIMESTAMPDIFF(SECOND,COALESCE(r.heartbeat_at,r.started_at,r.created_at),UTC_TIMESTAMP(3)) >= ?`, [age]);
+      AND TIMESTAMPDIFF(SECOND,COALESCE(r.heartbeat_at,r.started_at,r.created_at),UTC_TIMESTAMP(3)) >= ?`,
+    [age],
+  );
   return interruptDshL3Candidates(db, runs, {
-    age, reason: `子 Agent 心跳超时（≥${age}s），等待 L2 重新评估`,
+    age,
+    reason: `子 Agent 心跳超时（≥${age}s），等待 L2 重新评估`,
     progress: "心跳超时，等待 L2 重新指派",
   });
 }

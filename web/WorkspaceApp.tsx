@@ -11,6 +11,9 @@ import {
   usageReplyForMessage,
 } from "./chat-timeline";
 import { StreamingMarkdown } from "./StreamingMarkdown";
+import { bindMessageMarkdownOpener, MessageMarkdown } from "./MessageMarkdown";
+import type { ComposerController } from "./ChatComposer";
+import { RelativeActivityText, RunElapsed, TaskCreatedTime } from "./LiveClock";
 import { AGENT_L2_MEMBER, AGENT_MEMBER, mentionsAgent } from "../shared/agent-member.js";
 import {
   MCP_CONVERSATION_COPY_INSTRUCTION,
@@ -47,6 +50,7 @@ import {
 } from "../shared/task-thread-number.js";
 import { MessageNavigator } from "./MessageNavigator";
 import { PaginationControl } from "./PaginationControl";
+import { ProjectMark } from "./ProjectMark";
 const loadComposer = () => import("./ChatComposer");
 const ChatComposer = lazy(() =>
   loadComposer().then((module) => ({ default: module.ChatComposer })),
@@ -74,10 +78,26 @@ import { DEFAULT_UI_THEME } from "../shared/ui-theme.js";
 import { AgentLogDialog, AgentTrajectory } from "./AgentLogDialog";
 import type { AgentLogScope } from "./agent-trajectory";
 import { PasswordField } from "./PasswordField";
-import { ConnectorPanel, type ConnectorDevice } from "./ConnectorPanel";
+import type { ConnectorDevice } from "./ConnectorPanel";
 import { createResourceCache } from "../shared/resource-cache.js";
+import { projectActivityKey, sameSnapshot, threadPollKey } from "../shared/poll-signature.js";
+import { mentionsUser } from "../shared/mentions.js";
 import { IdentityName } from "./Identity";
 import { ProfileFields, prepareAvatar, type PersonalProfile } from "./ProfileFields";
+import { ProjectImageField } from "./ProjectSettings";
+import { AccountSwitchList } from "./AccountSwitchList";
+import {
+  clearSavedAccountToken,
+  listSavedAccounts,
+  mergeKnownAccounts,
+  removeSavedAccount,
+  saveAccountSession,
+  setLoginHint,
+  setLoginNotice,
+  shouldSkipRemember,
+  updateSavedAccountProfile,
+  type SavedAccount,
+} from "./saved-accounts";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -89,7 +109,7 @@ import {
   uniqueActorIds,
   AGENT_LEVEL_LABELS,
 } from "./ui-labels";
-import { UiIcon, workflowIcon, type UiIconName } from "./ui-icon";
+import { UiIcon, type UiIconName } from "./ui-icon";
 import {
   DialogClose,
   ModalBackdrop,
@@ -99,6 +119,8 @@ import {
 } from "./dialog-fx";
 import { showTip } from "./Tip";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
+import { ThreadArchiveDialog } from "./ThreadArchiveDialog";
+import { ThreadBrief } from "./ThreadBrief";
 import { ImagePreviewDialog } from "./ImagePreview";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { libraryFolderPath, folderDisplayName } from "./document-library";
@@ -111,7 +133,6 @@ import {
   clipQuote,
   localDate,
   readStoredBoolean,
-  relativeActivity,
 } from "./workspace-format";
 import { CoThreadLogo, PanelIcon, ProjectActionIcon, SidebarIcon } from "./workspace-chrome";
 import { ProjectPicker } from "./ProjectPicker";
@@ -121,7 +142,6 @@ import { useActionTooltips } from "./use-action-tooltips";
 import type {
   AgentTask,
   AgentTaskDetail,
-  AvailableConnector,
   Detail,
   MessageQuote,
   Modal,
@@ -133,6 +153,22 @@ import type {
 } from "./workspace-types";
 
 type ThreadMessage = Thread["messages"][number];
+function unreadMention(
+  message: ThreadMessage,
+  lastRead: string | undefined,
+  person: { id: string; name: string; email: string | null; username: string },
+) {
+  if (!lastRead || message.author_id === person.id || !mentionsUser(message.body, person))
+    return false;
+  try {
+    return BigInt(message.sequence) > BigInt(lastRead);
+  } catch {
+    return false;
+  }
+}
+const EMPTY_FOLDERS: Detail["folders"] = [];
+const EMPTY_VERSIONS: Detail["versions"] = [];
+const EMPTY_JOBS: Detail["documentOrganizationJobs"] = [];
 
 function selectionTextInside(root: Element | null): string {
   const selection = window.getSelection();
@@ -262,23 +298,27 @@ function ThreadIterationMenu({
   onOpenChange,
   showArchive,
   showArchivedActions,
+  showReviewArchive,
   busy,
   copyLabel,
   onArchive,
   onCopy,
   onRestore,
   onDelete,
+  onReviewArchive,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   showArchive: boolean;
   showArchivedActions: boolean;
+  showReviewArchive: boolean;
   busy: boolean;
   copyLabel: string;
   onArchive: () => void;
   onCopy: () => void;
   onRestore: () => void;
   onDelete: () => void;
+  onReviewArchive: () => void;
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -314,6 +354,20 @@ function ThreadIterationMenu({
           onClick={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.preventDefault()}
         >
+          {showReviewArchive ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="library-folder-menu-item"
+              onClick={() => {
+                onReviewArchive();
+                dismiss();
+              }}
+            >
+              <UiIcon name="preview" size={14} />
+              <span>审查归档方案</span>
+            </button>
+          ) : null}
           {showArchive ? (
             <button
               type="button"
@@ -383,30 +437,9 @@ export function WorkspaceApp() {
   useActionTooltips();
 
   const [user, setUser] = useState<PersonalProfile | null>(null);
-  const [canOpenAdmin, setCanOpenAdmin] = useState(false);
-  useEffect(() => {
-    if (!user) {
-      setCanOpenAdmin(false);
-      return;
-    }
-    let active = true;
-    void api("/admin/access")
-      .then((access) => {
-        if (active)
-          setCanOpenAdmin(
-            access.permissions.some((key: string) =>
-              ["projects", "iterations", "tasks", "accounts", "plugins", "roles"].includes(key),
-            ),
-          );
-      })
-      .catch(() => {
-        if (active) setCanOpenAdmin(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [user?.id]);
+  const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>(() => listSavedAccounts());
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
+  const [projectImage, setProjectImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [startupError, setStartupError] = useState("");
   const bootstrappedUser = useRef<string | null>(null);
@@ -414,6 +447,7 @@ export function WorkspaceApp() {
   const [projectId, setProjectId] = useState("");
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const visibleProjects = projects.filter((p) => p.tab_visible);
+  const currentProject = projects.find((item) => item.id === projectId);
   const availableProjects = projects
     .filter((p) => !p.tab_visible)
     .sort(
@@ -505,7 +539,7 @@ export function WorkspaceApp() {
   const detail =
     loadedDetail?.id === projectId ? loadedDetail : projectCache.current.get(projectId) || null;
   const [threadId, setThreadId] = useState("");
-  const [threadView, setThreadView] = useState<"chat" | "trajectory">("chat");
+  const [threadView, setThreadView] = useState<"chat" | "trajectory" | "brief">("chat");
   useEffect(() => {
     setThreadView("chat");
   }, [threadId]);
@@ -535,7 +569,35 @@ export function WorkspaceApp() {
   const [error, setError] = useState("");
   const [modal, setModal] = useState<Modal>(null);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const composerApi = useRef<ComposerController | null>(null);
+  const pendingDraftOps = useRef<Array<{ threadId: string; updater: (text: string) => string }>>(
+    [],
+  );
+  const draftScope = projectId + ":" + threadId;
+  const draftScopeRef = useRef(draftScope);
+  if (draftScopeRef.current !== draftScope) {
+    draftScopeRef.current = draftScope;
+    pendingDraftOps.current = [];
+  }
+  const updateDraft = (updater: (text: string) => string) => {
+    const api = composerApi.current;
+    if (api) {
+      api.updateDraft(updater);
+      return;
+    }
+    pendingDraftOps.current.push({ threadId, updater });
+  };
+  const registerComposer = useCallback(
+    (controller: ComposerController | null, mountedThreadId = "") => {
+      composerApi.current = controller;
+      if (!controller) return;
+      const pending = pendingDraftOps.current.splice(0);
+      for (const op of pending) {
+        if (op.threadId === mountedThreadId) controller.updateDraft(op.updater);
+      }
+    },
+    [],
+  );
   const [quotedMessages, setQuotedMessages] = useState<MessageQuote[]>([]);
   const [quotePreview, setQuotePreview] = useState<MessageQuote | null>(null);
   const [copiedMessage, setCopiedMessage] = useState("");
@@ -557,9 +619,10 @@ export function WorkspaceApp() {
     setThreadRowMenuId(null);
   }, [threadId]);
   const focusComposer = () => {
-    requestAnimationFrame(() =>
-      document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus(),
-    );
+    requestAnimationFrame(() => {
+      if (composerApi.current) composerApi.current.focus();
+      else document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus();
+    });
   };
   const copyMessage = async (m: MessageQuote, selectedText = "") => {
     try {
@@ -597,8 +660,10 @@ export function WorkspaceApp() {
   const [projectManagementOpen, setProjectManagementOpen] = useState(false);
   const [codeSourcesTick, setCodeSourcesTick] = useState(0);
   const [agentLogScope, setAgentLogScope] = useState<AgentLogScope | null>(null);
+  const [urlRevision, setUrlRevision] = useState(0);
   const connectorAuthorizationParams = new URLSearchParams(location.search);
-  const connectorAuthorizationId = connectorAuthorizationParams.get("connectorAuthorization") || "";
+  const connectorAuthorizationId =
+    urlRevision >= 0 ? connectorAuthorizationParams.get("connectorAuthorization") || "" : "";
   const connectorCallbackPort = connectorAuthorizationParams.get("connectorCallbackPort") || "";
   const connectorCallbackSecret =
     new URLSearchParams(location.hash.slice(1)).get("connectorCallbackSecret") || "";
@@ -609,23 +674,59 @@ export function WorkspaceApp() {
   const closeConnectorAuthorization = () => {
     const url = new URL(location.href);
     url.searchParams.delete("connectorAuthorization");
-    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-    setClock(Date.now());
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    setUrlRevision((value) => value + 1);
   };
   const [connectors, setConnectors] = useState<ConnectorDevice[]>([]);
-  const [connectorAvailability, setConnectorAvailability] = useState<AvailableConnector[]>([]);
+  const [connectorsReady, setConnectorsReady] = useState(false);
   const [documentId, setDocumentId] = useState("");
   const [documentFocus, setDocumentFocus] = useState(0);
-  const [rightPanelWidth, setRightPanelWidth] = useState<number | null>(null);
-  const [clock, setClock] = useState(Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setClock(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const panelWidthRef = useRef<number | null>(null);
+  const documentActions = useRef({
+    refresh: async () => {},
+    review: async (_id: string, _decision: string, _comment?: string) => {},
+    reference: (_id: string) => {},
+    requestRevision: async (_id: string, _target: "current" | "new", _title?: string) => {},
+    addSelection: (_text: string, _id: string) => {},
+    referenceFolder: (_id: string) => {},
+    addToTask: (_id: string) => {},
+    addFolderToTask: (_id: string) => {},
+  });
+  const refreshDocuments = useCallback(() => documentActions.current.refresh(), []);
+  const reviewDocument = useCallback(
+    (id: string, decision: string, comment?: string) =>
+      documentActions.current.review(id, decision, comment),
+    [],
+  );
+  const referenceDocument = useCallback((id: string) => documentActions.current.reference(id), []);
+  const requestRevisionDocument = useCallback(
+    (id: string, target: "current" | "new", title?: string) =>
+      documentActions.current.requestRevision(id, target, title),
+    [],
+  );
+  const addSelectionDocument = useCallback(
+    (text: string, id: string) => documentActions.current.addSelection(text, id),
+    [],
+  );
+  const referenceFolderDocument = useCallback(
+    (id: string) => documentActions.current.referenceFolder(id),
+    [],
+  );
+  const addDocumentToTask = useCallback((id: string) => documentActions.current.addToTask(id), []);
+  const addFolderDocumentToTask = useCallback(
+    (id: string) => documentActions.current.addFolderToTask(id),
+    [],
+  );
+  useLayoutEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    const width = panelWidthRef.current;
+    if (width) shell.style.setProperty("--right-panel", width + "px");
+    else shell.style.removeProperty("--right-panel");
+  });
   const conversationRef = useRef<HTMLDivElement>(null);
   const composerAreaRef = useRef<HTMLDivElement>(null);
-  const conversationTaskPoolRef = useRef<HTMLDivElement>(null);
-  const conversationTaskSearchRef = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {
     const composer = composerAreaRef.current;
     const conversation = conversationRef.current;
@@ -760,10 +861,7 @@ export function WorkspaceApp() {
   const [taskTimelinePage, setTaskTimelinePage] = useState(0);
   const [taskTimelinePageSize, setTaskTimelinePageSize] = useState(12);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
-  const [conversationTaskListOpen, setConversationTaskListOpen] = useState(false);
-  const [conversationTaskSearch, setConversationTaskSearch] = useState("");
-  const [conversationTaskHighlightId, setConversationTaskHighlightId] = useState("");
-  const [conversationTaskMineOnly, setConversationTaskMineOnly] = useState(true);
+  const [taskListSearch, setTaskListSearch] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [taskDetail, setTaskDetail] = useState<AgentTaskDetail | null>(null);
   const [taskActionBusy, setTaskActionBusy] = useState(false);
@@ -787,6 +885,9 @@ export function WorkspaceApp() {
   const [taskCreateFolderRefs, setTaskCreateFolderRefs] = useState<string[]>([]);
   const [threadListPane, setThreadListPane] = useState<"active" | "archived" | "create">("active");
   const [newThreadTitle, setNewThreadTitle] = useState("");
+  const [newThreadBackground, setNewThreadBackground] = useState("");
+  const [newThreadGoal, setNewThreadGoal] = useState("");
+  const [archiveDialog, setArchiveDialog] = useState<{ id: string; title: string } | null>(null);
   const newThreadInputRef = useRef<HTMLInputElement>(null);
   const railCreateRef = useRef<HTMLButtonElement>(null);
   const [copiedThreadId, setCopiedThreadId] = useState("");
@@ -852,10 +953,10 @@ export function WorkspaceApp() {
         label = selectedMember.name;
       }
     }
-    const mention = `@${label} `;
-    setMessage((text) => {
+    const mention = "@" + label + " ";
+    updateDraft((text) => {
       if (!text) return mention;
-      return /\s$/.test(text) ? `${text}${mention}` : `${text} ${mention}`;
+      return /\s$/.test(text) ? text + mention : text + " " + mention;
     });
     focusComposer();
   };
@@ -874,7 +975,6 @@ export function WorkspaceApp() {
     !!active &&
     !m.id.startsWith("optimistic:") &&
     !(m.id.startsWith("agent-task:") && !m.quoteTargetId);
-  const localAvailable = connectorAvailability.some((item) => item.projectId === projectId);
   const projectConnectorBound = connectors.some((device) =>
     device.projects?.some((item) => item.projectId === projectId),
   );
@@ -890,36 +990,11 @@ export function WorkspaceApp() {
     task.task_type !== "assist_l2" || !!task.execution_agent_id || !endedTask(task.status);
   const myTasks = taskPool.filter((task) => isMyTask(task) && isTrackedTask(task));
   const currentMyTasks = myTasks.filter((task) => task.origin_thread_id === threadId);
-  const currentThreadTasks = taskPool.filter(
-    (task) => task.origin_thread_id === threadId && isTrackedTask(task),
-  );
   const latestMyTask =
     [...currentMyTasks].sort(
       (left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
     )[0] || null;
-  const conversationTaskSource = conversationTaskMineOnly ? currentMyTasks : currentThreadTasks;
-  const conversationMyTasks = [...conversationTaskSource].sort((left, right) => {
-    const leftNo = left.thread_number ?? 0;
-    const rightNo = right.thread_number ?? 0;
-    if (leftNo !== rightNo) return rightNo - leftNo;
-    return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
-  });
-  const filteredConversationMyTasks = conversationMyTasks.filter((task) =>
-    taskThreadNumberSearchMatch(task, conversationTaskSearch),
-  );
-  const openConversationTaskList = () => {
-    setConversationTaskMineOnly(true);
-    setConversationTaskHighlightId(latestMyTask?.id ?? "");
-    setConversationTaskSearch("");
-    setConversationTaskListOpen(true);
-  };
-  const closeConversationTaskList = () => {
-    setConversationTaskListOpen(false);
-    setConversationTaskSearch("");
-    setConversationTaskHighlightId("");
-    setConversationTaskMineOnly(true);
-  };
-  const visibleTasks = taskPool.filter(
+  const scopedTasks = taskPool.filter(
     (task) =>
       task.origin_thread_id === threadId && isTrackedTask(task) && (!taskMine || isMyTask(task)),
   );
@@ -934,6 +1009,8 @@ export function WorkspaceApp() {
   const taskSourceLabel = (task: AgentTask) =>
     memberName(task.source_user_id) ||
     (task.source_type === "l2_session" ? "小祥" : labelExecutorType(task.source_type));
+  const taskTargetLabel = (task: AgentTask) =>
+    memberName(task.target_id) || (task.target_type === "l2_session" ? "小祥" : "未指派");
   const taskExecutorLabel = (task: AgentTask) => {
     if (
       task.execution_agent_id &&
@@ -955,6 +1032,22 @@ export function WorkspaceApp() {
     }
     return "待选择";
   };
+  const matchesTaskListQuery = (task: AgentTask) => {
+    const raw = taskListSearch.trim().toLowerCase();
+    if (!raw) return true;
+    if (taskThreadNumberSearchMatch(task, taskListSearch)) return true;
+    const needle = raw.startsWith("#") ? raw.slice(1) : raw;
+    return [
+      taskSourceLabel(task),
+      taskTargetLabel(task),
+      taskExecutorLabel(task),
+      labelWorkflowStatus(task.status),
+    ]
+      .join("\n")
+      .toLowerCase()
+      .includes(needle);
+  };
+  const visibleTasks = scopedTasks.filter(matchesTaskListQuery);
   const executionRunLabel = (
     run: AgentTaskDetail["executionRuns"][number],
     task: AgentTaskDetail,
@@ -1148,6 +1241,10 @@ export function WorkspaceApp() {
     setTaskCreateTarget(user?.id || "");
   };
   const openTaskCreate = (seed?: { refId?: string; folderId?: string }) => {
+    if (!active) {
+      showTip("当前迭代只读，暂不能创建任务", "error");
+      return;
+    }
     setTaskActionError("");
     resetTaskCreate();
     if (seed?.refId) setTaskCreateRefs([seed.refId]);
@@ -1162,14 +1259,11 @@ export function WorkspaceApp() {
     setSelectedTaskId("");
     setTaskDetail(null);
     setTaskCreateOpen(false);
+    setTaskListSearch("");
   }, [threadId]);
   const refreshConnectors = async () => {
-    const [devices, availability] = await Promise.all([
-      api("/connectors"),
-      api("/connectors/availability"),
-    ]);
-    setConnectors(devices);
-    setConnectorAvailability(availability);
+    setConnectors(await api("/connectors"));
+    setConnectorsReady(true);
   };
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -1237,25 +1331,94 @@ export function WorkspaceApp() {
     }
   }, [user?.id]);
   useEffect(() => {
+    if (!user) return;
+    const existing = listSavedAccounts().find((item) => item.id === user.id && item.token);
+    const skip = shouldSkipRemember(user.id);
+    let active = true;
+    const refresh = async () => {
+      if (skip) return;
+      if (existing) updateSavedAccountProfile(user);
+      else {
+        const result = await api("/session/remember", {});
+        if (result?.sessionToken) saveAccountSession(result, result.sessionToken);
+      }
+      const merged = await mergeKnownAccounts(api);
+      if (active) setSavedAccounts(merged);
+    };
+    void refresh().catch(() => {
+      if (active) setSavedAccounts(listSavedAccounts());
+    });
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+  const leaveAccount = () => {
+    setModal(null);
+    setUser(null);
+    setProjects([]);
+    setProjectId("");
+    setThreadId("");
+    setContextOpen(false);
+  };
+  const forgetSavedLogin = async (userId: string) => {
+    await api("/session/forget", { userId }).catch(() => {});
+    removeSavedAccount(userId);
+    setSavedAccounts(listSavedAccounts());
+  };
+  const logoutCurrent = async () => {
+    await api("/logout", {});
+    if (user) await forgetSavedLogin(user.id);
+    leaveAccount();
+  };
+  const loginAnother = async () => {
+    await api("/session/detach", {});
+    setSavedAccounts(listSavedAccounts());
+    leaveAccount();
+  };
+  const switchSavedAccount = async (account: SavedAccount) => {
+    if (!user || account.id === user.id) return;
+    const hint = account.email || account.username;
+    if (!account.token) {
+      setLoginHint(hint);
+      await api("/session/detach", {});
+      leaveAccount();
+      return;
+    }
+    try {
+      const profile = await api("/session/switch", { token: account.token });
+      updateSavedAccountProfile(profile);
+      setSavedAccounts(listSavedAccounts());
+      setModal(null);
+      setUser(profile);
+      showTip("已切换到 " + profile.name);
+    } catch (cause) {
+      if ((cause as { status?: number }).status !== 401) throw cause;
+      clearSavedAccountToken(account.id);
+      setLoginHint(hint);
+      setLoginNotice("该账号登录已过期，请重新登录");
+      await api("/logout", {}).catch(() => {});
+      clearSavedAccountToken(user.id);
+      setSavedAccounts(listSavedAccounts());
+      leaveAccount();
+    }
+  };
+  useEffect(() => {
     if (loading) return;
     applyUiTheme(user?.ui_theme || DEFAULT_UI_THEME);
   }, [loading, user?.id, user?.ui_theme]);
   useEffect(() => {
     if (!user) {
       setConnectors([]);
-      setConnectorAvailability([]);
+      setConnectorsReady(false);
       return;
     }
     let alive = true;
     const load = async () => {
       try {
-        const [devices, availability] = await Promise.all([
-          api("/connectors"),
-          api("/connectors/availability"),
-        ]);
+        const devices = await api("/connectors");
         if (alive) {
-          setConnectors(devices);
-          setConnectorAvailability(availability);
+          setConnectors((current) => (sameSnapshot(current, devices) ? current : devices));
+          setConnectorsReady(true);
         }
       } catch {}
     };
@@ -1284,7 +1447,6 @@ export function WorkspaceApp() {
     setFolderRefs([]);
     setQuotedMessages([]);
     setQuotePreview(null);
-    setMessage("");
     if (!projectId || !user) return;
     let alive = true;
     let inFlight = false;
@@ -1294,11 +1456,42 @@ export function WorkspaceApp() {
       if (document.hidden || inFlight) return;
       inFlight = true;
       try {
-        const d = await projectCache.current.read(projectId, (signal) =>
-          api(`/projects/${projectId}?view=chat`, undefined, undefined, signal),
-        );
+        const d = await projectCache.current.read(projectId, async (signal) => {
+          const current = projectCache.current.get(projectId);
+          if (!current?.libraryRevision) {
+            return api(`/projects/${projectId}?view=chat`, undefined, undefined, signal);
+          }
+          const activity = await api(
+            `/projects/${projectId}?view=chat&library=0`,
+            undefined,
+            undefined,
+            signal,
+          );
+          let next = {
+            ...activity,
+            folders: current.folders,
+            versions: current.versions,
+            documentOrganizationJobs: current.documentOrganizationJobs,
+          };
+          if (activity.libraryRevision !== current.libraryRevision) {
+            const library = await api(
+              `/projects/${projectId}/library`,
+              undefined,
+              undefined,
+              signal,
+            );
+            next = {
+              ...next,
+              folders: library.folders,
+              versions: library.versions,
+              documentOrganizationJobs: library.documentOrganizationJobs,
+              libraryRevision: library.libraryRevision || activity.libraryRevision,
+            };
+          }
+          return projectActivityKey(current) === projectActivityKey(next) ? current : next;
+        });
         if (!alive) return;
-        setDetail(d);
+        setDetail((previous) => (previous === d ? previous : d));
         const target = pendingNotification.current;
         if (target?.projectId === projectId) {
           pendingNotification.current = null;
@@ -1346,7 +1539,6 @@ export function WorkspaceApp() {
     followConversation.current = true;
     setRefs([]);
     setFolderRefs([]);
-    setMessage("");
     if (!threadId || !user) return;
     let alive = true;
     let inFlight = false;
@@ -1363,7 +1555,7 @@ export function WorkspaceApp() {
           readThread(threadId, signal),
         );
         if (!alive) return;
-        setThread(t);
+        setThread((current) => (threadPollKey(current) === threadPollKey(t) ? current : t));
         const latest = t.messages.at(-1)?.id;
         idlePolls = latest === latestMessage ? idlePolls + 1 : 0;
         latestMessage = latest;
@@ -1407,6 +1599,54 @@ export function WorkspaceApp() {
     };
   }, [threadId, user?.id]);
   useEffect(() => {
+    if (!user || !threadId || !thread || thread.id !== threadId || historyLoading) return;
+    const latest = [...thread.messages]
+      .reverse()
+      .find((item) => item.sequence && !item.id.startsWith("optimistic:"))?.sequence;
+    if (!latest) return;
+    if (thread.last_read_sequence && BigInt(thread.last_read_sequence) >= BigInt(latest)) return;
+    const timer = window.setTimeout(() => {
+      void api("/threads/" + threadId + "/read", { sequence: latest })
+        .then(() => {
+          const readPatch = { last_read_sequence: latest, unread_count: 0, unread_mention: false };
+          setThread((current) =>
+            current && current.id === threadId ? { ...current, ...readPatch } : current,
+          );
+          setDetail((current) =>
+            current
+              ? {
+                  ...current,
+                  threads: current.threads.map((item) =>
+                    item.id === threadId ? { ...item, ...readPatch } : item,
+                  ),
+                }
+              : current,
+          );
+          const cachedProject = projectCache.current.get(projectId);
+          if (cachedProject)
+            projectCache.current.update(projectId, () => ({
+              ...cachedProject,
+              threads: cachedProject.threads.map((item) =>
+                item.id === threadId ? { ...item, ...readPatch } : item,
+              ),
+            }));
+          const cachedThread = threadCache.current.get(threadId);
+          if (cachedThread)
+            threadCache.current.update(threadId, () => ({ ...cachedThread, ...readPatch }));
+        })
+        .catch(() => {});
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [
+    user?.id,
+    threadId,
+    thread?.id,
+    thread?.last_read_sequence,
+    thread?.messages.at(-1)?.id,
+    historyLoading,
+    projectId,
+  ]);
+  useEffect(() => {
     if (pendingWork) wakeThreadPoll.current?.();
   }, [threadId, pendingWork]);
   useEffect(() => {
@@ -1419,7 +1659,7 @@ export function WorkspaceApp() {
     const load = async () => {
       try {
         const tasks = await api(`/projects/${projectId}/tasks?limit=200`);
-        if (alive) setTaskPool(tasks);
+        if (alive) setTaskPool((current) => (sameSnapshot(current, tasks) ? current : tasks));
       } catch (e) {
         if (alive && (e as Error).name !== "AbortError") setError((e as Error).message);
       } finally {
@@ -1468,29 +1708,11 @@ export function WorkspaceApp() {
       clearTimeout(timer);
     };
   }, [selectedTaskId, taskDialogOpen]);
-  useEffect(() => {
-    setConversationTaskListOpen(false);
-    setConversationTaskSearch("");
-    setConversationTaskHighlightId("");
-    setConversationTaskMineOnly(true);
-  }, [threadId]);
-  useEffect(() => {
-    if (!conversationTaskListOpen) return;
-    const close = (event: MouseEvent) => {
-      if (event.button !== 0) return;
-      if (!conversationTaskPoolRef.current?.contains(event.target as Node)) {
-        setConversationTaskListOpen(false);
-        setConversationTaskSearch("");
-        setConversationTaskHighlightId("");
-      }
-    };
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
-  }, [conversationTaskListOpen]);
-  useEffect(() => {
-    if (conversationTaskListOpen) conversationTaskSearchRef.current?.focus();
-  }, [conversationTaskListOpen]);
   const performTaskAction = async (action: () => Promise<unknown>, success = "操作成功") => {
+    if (!active) {
+      setTaskActionError("当前迭代只读，任务暂不能变更");
+      return;
+    }
     setTaskActionBusy(true);
     setTaskActionError("");
     try {
@@ -1602,6 +1824,8 @@ export function WorkspaceApp() {
   };
   const open = (value: Modal) => {
     if (value === "profile") setProfileAvatar(user?.avatar ?? null);
+    if (value === "project") setProjectImage(null);
+    if (value === "mcp") void refreshConnectors().catch(() => {});
     setError("");
     setModal(value);
   };
@@ -1611,6 +1835,8 @@ export function WorkspaceApp() {
   };
   const openNewThreadPane = () => {
     setNewThreadTitle("");
+    setNewThreadBackground("");
+    setNewThreadGoal("");
     setThreadListPane("create");
     setLeftOpen(true);
   };
@@ -1633,7 +1859,11 @@ export function WorkspaceApp() {
         showTip("当前项目无创建迭代权限", "error");
         return;
       }
-      const t = await api(`/projects/${projectId}/threads`, { title });
+      const t = await api(`/projects/${projectId}/threads`, {
+        title,
+        background: newThreadBackground.trim(),
+        goal: newThreadGoal.trim(),
+      });
       setNewThreadTitle("");
       setThreadListPane("active");
       setThreadId(t.id);
@@ -1670,10 +1900,11 @@ export function WorkspaceApp() {
       showTip("无法自动复制会话信息，请检查剪贴板权限后重试。", "error");
     }
   };
-  const archiveActiveThread = (target: { id: string }) =>
+  const archiveActiveThread = (target: { id: string; title: string }) =>
     void run(async () => {
       await api(`/threads/${target.id}/archive`, {});
-      if (threadId === target.id) setThreadListPane("archived");
+      setThreadListPane("active");
+      setThreadId(target.id);
       threadCache.current.clear();
       const nextDetail = await projectCache.current.read(
         projectId,
@@ -1683,7 +1914,8 @@ export function WorkspaceApp() {
       setDetail(nextDetail);
       setThreadId((current) => resolveProjectThreadId(nextDetail.threads, current));
       await refresh();
-      showTip("迭代已归档");
+      setArchiveDialog(target);
+      showTip("已进入归档中，知识库管理员正在梳理");
     });
   const restoreArchivedThread = (target: { id: string }) =>
     void run(async () => {
@@ -1757,18 +1989,19 @@ export function WorkspaceApp() {
     const value = (key: string) => String(form.get(key) || "");
     void run(async () => {
       if (modal === "profile") {
-        setUser(
-          await api(
-            "/me",
-            {
-              name: value("name"),
-              motto: value("motto"),
-              avatar: profileAvatar,
-              identity_tags: form.getAll("identity_tags").filter(Boolean),
-            },
-            "PATCH",
-          ),
+        const profile = await api(
+          "/me",
+          {
+            name: value("name"),
+            motto: value("motto"),
+            avatar: profileAvatar,
+            identity_tags: form.getAll("identity_tags").filter(Boolean),
+          },
+          "PATCH",
         );
+        updateSavedAccountProfile(profile);
+        setSavedAccounts(listSavedAccounts());
+        setUser(profile);
         await refresh();
         showTip("个人资料已保存");
       }
@@ -1776,6 +2009,7 @@ export function WorkspaceApp() {
         const p = await api("/projects", {
           name: value("name"),
           description: value("description"),
+          ...(projectImage ? { image: projectImage } : {}),
         });
         setProjects(await api("/projects"));
         setProjectId(p.id);
@@ -1842,21 +2076,18 @@ export function WorkspaceApp() {
     const name = version ? fileDisplayName(version) : undefined;
     setRefs((previous) => [...new Set([...previous, id])].slice(0, 30));
     if (name) {
-      setMessage((text) =>
-        text.includes(`/${name}`)
-          ? text
-          : `${text}${text && !/\s$/.test(text) ? " " : ""}/${name} `,
+      const token = "/" + name + " ";
+      updateDraft((text) =>
+        text.includes("/" + name) ? text : (text && !/\s$/.test(text) ? text + " " : text) + token,
       );
     }
-    requestAnimationFrame(() =>
-      document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus(),
-    );
+    focusComposer();
   };
   const addSelectionToConversation = (selectedText: string, versionId: string) => {
     const excerpt = selectedText.trim();
     if (!excerpt) return;
     addVersionToConversation(versionId);
-    setMessage((text) => `${text ? `${text}\n` : ""}“${excerpt}”`);
+    updateDraft((text) => (text ? text + "\n" : "") + "“" + excerpt + "”");
     showTip("已引用当前文件并添加选中内容");
     focusComposer();
   };
@@ -1877,15 +2108,12 @@ export function WorkspaceApp() {
     });
     const name = folderDisplayName(folder);
     if (name) {
-      setMessage((text) =>
-        text.includes(`/${name}`)
-          ? text
-          : `${text}${text && !/\s$/.test(text) ? " " : ""}/${name} `,
+      const token = "/" + name + " ";
+      updateDraft((text) =>
+        text.includes("/" + name) ? text : (text && !/\s$/.test(text) ? text + " " : text) + token,
       );
     }
-    requestAnimationFrame(() =>
-      document.querySelector<HTMLTextAreaElement>('textarea[aria-label="发送消息"]')?.focus(),
-    );
+    focusComposer();
   };
   const persistOptimisticMessage = async (
     targetThreadId: string,
@@ -2202,12 +2430,13 @@ export function WorkspaceApp() {
         !v.deleted_at && (history || all.findIndex((x) => x.artifact_id === v.artifact_id) === i),
     ) || [];
   const threads = detail?.threads || [];
-  const activeThreads = threads.filter((t) => t.status === "active");
+  const activeThreads = threads.filter((t) => t.status === "active" || t.status === "archiving");
   const archivedThreads = threads.filter((t) => t.status === "archived");
   const renderThreadLink = (t: (typeof threads)[number]) => {
     const selected = threadId === t.id;
-    const showArchive = t.status === "active" && writable;
+    const showArchive = t.status === "active" && (t.created_by === user.id || projectLeader);
     const showArchivedActions = t.status === "archived" && writable;
+    const showReviewArchive = t.status === "archiving";
     const menuOpen = threadRowMenuId === t.id;
     return (
       <div key={t.id} className={`thread-row ${selected ? "selected" : ""}`}>
@@ -2222,12 +2451,19 @@ export function WorkspaceApp() {
           <span className="thread-card-body">
             <strong>{t.title}</strong>
             <span className="thread-card-meta">
-              <span>{t.creator}</span>
+              <span title="迭代创建人">{t.creator}</span>
+              {t.status === "archiving" && <span className="thread-archiving-badge">归档中</span>}
+              {(t.unread_mention || (t.unread_count || 0) > 0) && (
+                <span className={"thread-unread" + (t.unread_mention ? " is-mention" : "")}>
+                  {t.unread_mention ? "@" : ""}
+                  {t.unread_count || ""}
+                </span>
+              )}
               <time
                 dateTime={t.last_active_at?.replace(" ", "T") + "Z"}
                 title={localDate(t.last_active_at)}
               >
-                活跃于 {relativeActivity(t.last_active_at, clock)}
+                <RelativeActivityText value={t.last_active_at} />
               </time>
             </span>
           </span>
@@ -2237,12 +2473,14 @@ export function WorkspaceApp() {
           onOpenChange={(next) => setThreadRowMenuId(next ? t.id : null)}
           showArchive={showArchive}
           showArchivedActions={showArchivedActions}
+          showReviewArchive={showReviewArchive}
           busy={busy}
           copyLabel={copiedThreadId === t.id ? "已复制" : "复制会话"}
           onArchive={() => archiveActiveThread(t)}
           onCopy={() => copyConversationInfo(t)}
           onRestore={() => restoreArchivedThread(t)}
           onDelete={() => setThreadDeleteConfirm({ id: t.id, title: t.title })}
+          onReviewArchive={() => setArchiveDialog({ id: t.id, title: t.title })}
         />
       </div>
     );
@@ -2251,13 +2489,14 @@ export function WorkspaceApp() {
     event.preventDefault();
     const startX = event.clientX;
     const startWidth =
-      rightPanelWidth ??
+      panelWidthRef.current ??
       document.querySelector(".context-panel")?.getBoundingClientRect().width ??
       420;
     const onMove = (move: PointerEvent) => {
       const max = Math.max(320, Math.round(window.innerWidth * 0.6));
       const next = Math.min(Math.max(startWidth + (startX - move.clientX), 220), max);
-      setRightPanelWidth(next);
+      panelWidthRef.current = next;
+      shellRef.current?.style.setProperty("--right-panel", next + "px");
     };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
@@ -2268,13 +2507,51 @@ export function WorkspaceApp() {
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
   };
+  documentActions.current = {
+    refresh: async () => {
+      const library = await api(`/projects/${projectId}/library`);
+      const applyLibrary = (previous: Detail | undefined | null) => {
+        if (!previous || previous.id !== projectId) return previous;
+        return {
+          ...previous,
+          folders: library.folders,
+          versions: library.versions,
+          documentOrganizationJobs: library.documentOrganizationJobs,
+          libraryRevision: library.libraryRevision || previous.libraryRevision,
+        };
+      };
+      const cached = applyLibrary(projectCache.current.get(projectId));
+      if (cached) projectCache.current.update(projectId, () => cached);
+      setDetail((previous) => applyLibrary(previous) || previous);
+    },
+    review: async (id, decision, comment) => {
+      await api(`/versions/${id}/reviews`, { decision, comment, threadId }, "POST");
+      if (threadId) {
+        const nextThread = await threadCache.current.read(
+          threadId,
+          (signal) => readThread(threadId, signal),
+          true,
+        );
+        if (currentContext.current.threadId === threadId) setThread(nextThread);
+      }
+      showTip(decision === "changes_requested" ? "已发送修改意见" : "已确认该版本");
+    },
+    reference: addVersionToConversation,
+    requestRevision: requestDocumentRevision,
+    addSelection: addSelectionToConversation,
+    referenceFolder: addFolderToConversation,
+    addToTask: (id) => openTaskCreate({ refId: id }),
+    addFolderToTask: (id) => openTaskCreate({ folderId: id }),
+  };
+  bindMessageMarkdownOpener(openConversationFile);
   return (
     <div
-      className={`app-shell ${leftOpen ? "" : "left-closed"} ${contextOpen ? "" : "right-closed"} ${documentFullscreen ? "document-fullscreen" : ""}`}
-      style={
-        rightPanelWidth
-          ? ({ "--right-panel": `${rightPanelWidth}px` } as React.CSSProperties)
-          : undefined
+      ref={shellRef}
+      className={
+        "app-shell " +
+        (leftOpen ? "" : "left-closed ") +
+        (contextOpen ? "" : "right-closed ") +
+        (documentFullscreen ? "document-fullscreen" : "")
       }
     >
       <header className="workspace-topbar">
@@ -2368,7 +2645,8 @@ export function WorkspaceApp() {
                     if (target) reorderPinnedProject(p.id, target.id, right);
                   }}
                 >
-                  {p.name}
+                  <ProjectMark name={p.name} image={p.image} size={16} />
+                  <span>{p.name}</span>
                 </button>
                 <div className="project-tab-actions">
                   <button
@@ -2462,7 +2740,7 @@ export function WorkspaceApp() {
         <div className="sidebar-brand">
           <CoThreadLogo className="sidebar-logo sidebar-brand-mark" title="共序 LOGO" />
           <span className="sidebar-brand-name">
-            共序 <small>CoThread</small>
+            共序 <small>工作空间</small>
           </span>
           <button
             className={`sidebar-toggle ${leftOpen ? "sidebar-collapse-toggle" : "sidebar-brand-toggle"}`}
@@ -2591,6 +2869,28 @@ export function WorkspaceApp() {
                       autoComplete="off"
                     />
                   </label>
+                  <label className="thread-create-field">
+                    背景
+                    <textarea
+                      rows={3}
+                      maxLength={20000}
+                      placeholder="这次协作的背景与已知约束"
+                      value={newThreadBackground}
+                      disabled={busy}
+                      onChange={(event) => setNewThreadBackground(event.target.value)}
+                    />
+                  </label>
+                  <label className="thread-create-field">
+                    目标
+                    <textarea
+                      rows={2}
+                      maxLength={20000}
+                      placeholder="本轮希望达成什么"
+                      value={newThreadGoal}
+                      disabled={busy}
+                      onChange={(event) => setNewThreadGoal(event.target.value)}
+                    />
+                  </label>
                   <div className="thread-create-actions">
                     <button type="button" disabled={busy} onClick={cancelNewThread}>
                       取消
@@ -2618,7 +2918,11 @@ export function WorkspaceApp() {
             onClick={() => setProjectManagementOpen(true)}
           >
             <span className="sidebar-card-icon">
-              <SidebarIcon kind="project" />
+              {currentProject ? (
+                <ProjectMark name={currentProject.name} image={currentProject.image} size={30} />
+              ) : (
+                <SidebarIcon kind="project" />
+              )}
             </span>
             <span className="sidebar-card-copy">
               项目管理<small>成员、连接器与 Agent</small>
@@ -2644,16 +2948,6 @@ export function WorkspaceApp() {
               ›
             </span>
           </button>
-          <ConnectorPanel
-            variant="sidebar"
-            devices={connectors}
-            availability={connectorAvailability}
-            projectId={projectId}
-            currentUserId={user.id}
-            available={localAvailable}
-            api={api}
-            onRefresh={refreshConnectors}
-          />
           <button
             className="sidebar-card sidebar-profile"
             title={`${user.name} · 设置`}
@@ -2739,6 +3033,16 @@ export function WorkspaceApp() {
                     )}
                     <UiIcon name="trajectory" size={13} />
                     轨迹
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    className="conversation-view"
+                    aria-selected={threadView === "brief"}
+                    onClick={() => setThreadView("brief")}
+                  >
+                    <UiIcon name="info" size={13} />
+                    背景与目标
                   </button>
                 </div>
                 {coordinatorLogLabel !== COORDINATOR_LOG_IDLE_LABEL && (
@@ -2840,7 +3144,10 @@ export function WorkspaceApp() {
                           onClick={() => updateProjectTab(project.id, "open")}
                           disabled={busy}
                         >
-                          <strong>{project.name}</strong>
+                          <strong>
+                            <ProjectMark name={project.name} image={project.image} size={18} />
+                            <span>{project.name}</span>
+                          </strong>
                           <span>{project.description || "暂无项目简介"}</span>
                           <small>加入于 {localDate(project.joined_at)}</small>
                         </button>
@@ -2921,7 +3228,7 @@ export function WorkspaceApp() {
                     void loadHistory();
                 }}
               >
-                {thread.archive_snapshot && (
+                {thread.status === "archived" && thread.archive_snapshot && (
                   <div className="archive-card">
                     <span className="eyebrow">迭代归档</span>
                     <h3>本迭代已归档</h3>
@@ -2929,8 +3236,14 @@ export function WorkspaceApp() {
                       <p>{thread.archive_snapshot.conclusion}</p>
                     ) : null}
                     <small>
-                      讨论、审核与引用的历史版本已固定保存；项目长期总结由 L1 异步整理。
+                      讨论、审核与引用的历史版本已固定保存；项目长期总结由知识库管理员整理。
                     </small>
+                    <button
+                      type="button"
+                      onClick={() => setArchiveDialog({ id: thread.id, title: thread.title })}
+                    >
+                      查看归档与交接记录
+                    </button>
                   </div>
                 )}
                 {thread.page?.hasMore && (
@@ -2967,7 +3280,7 @@ export function WorkspaceApp() {
                     <React.Fragment key={m.render_key || m.id}>
                       <article
                         data-message-id={m.id}
-                        className={`message ${m.author_id === user.id && m.source !== "assistant" ? "own" : ""} ${continuesTurn ? "turn-continue" : ""}`}
+                        className={`message ${m.author_id === user.id && m.source !== "assistant" ? "own" : ""} ${continuesTurn ? "turn-continue" : ""} ${unreadMention(m, thread.last_read_sequence, user) ? "mention-unread" : ""}`}
                         key={m.render_key || m.id}
                         onContextMenu={(event) => {
                           if (
@@ -3013,6 +3326,9 @@ export function WorkspaceApp() {
                         <div className="message-content">
                           {!continuesTurn && (
                             <div className="message-meta">
+                              {unreadMention(m, thread.last_read_sequence, user) && (
+                                <span className="mention-flag">未读提及</span>
+                              )}
                               <span
                                 className={`message-author ${m.source === "assistant" || m.author_id !== user.id ? "message-author-hit" : ""}`}
                                 onContextMenu={(event) => {
@@ -3119,37 +3435,7 @@ export function WorkspaceApp() {
                                     : "已关联到当前任务，等待助手接收"}
                                 </p>
                               ))}
-                            <Markdown
-                              remarkPlugins={[remarkGfm]}
-                              components={{
-                                img: () => <span>（图片链接）</span>,
-                                a: ({ href, children }) => {
-                                  let versionId: string | undefined;
-                                  try {
-                                    const url = new URL(href || "", location.origin);
-                                    if (url.origin === location.origin)
-                                      versionId = url.pathname.match(
-                                        /^\/api\/versions\/([\da-f-]+)(?:\/download)?\/?$/i,
-                                      )?.[1];
-                                  } catch {}
-                                  return versionId ? (
-                                    <button
-                                      type="button"
-                                      className="ref"
-                                      onClick={() => openConversationFile(versionId)}
-                                    >
-                                      {children}
-                                    </button>
-                                  ) : (
-                                    <a href={href} target="_blank" rel="noopener noreferrer">
-                                      {children}
-                                    </a>
-                                  );
-                                },
-                              }}
-                            >
-                              {m.body}
-                            </Markdown>
+                            <MessageMarkdown body={m.body} />
                           </div>
                           {renderMessageAttachments(m)}
                           {!!m.body.trim() && !m.id.startsWith("agent-reception:") && (
@@ -3322,15 +3608,7 @@ export function WorkspaceApp() {
                     <div className="run-progress" role="status" key={r.id}>
                       <strong>✧ {r.progress || "正在执行"}</strong>
                       <span>
-                        已用时{" "}
-                        {Math.max(
-                          0,
-                          Math.floor(
-                            (clock - new Date(r.created_at.replace(" ", "T") + "Z").getTime()) /
-                              1000,
-                          ),
-                        )}{" "}
-                        秒
+                        已用时 <RunElapsed createdAt={r.created_at} /> 秒
                       </span>
                       <small>你可以继续讨论或刷新页面，任务会在后台运行。</small>
                     </div>
@@ -3343,85 +3621,21 @@ export function WorkspaceApp() {
               </div>
               <div className="composer-area" ref={composerAreaRef}>
                 <div className="composer-toolbar">
-                  <div className="conversation-task-pool-wrap" ref={conversationTaskPoolRef}>
-                    <div
+                  <div className="conversation-task-pool-wrap">
+                    <button
+                      type="button"
                       className="conversation-task-pool"
-                      data-expanded={conversationTaskListOpen ? "true" : undefined}
-                      role={conversationTaskListOpen ? undefined : "button"}
-                      tabIndex={conversationTaskListOpen ? undefined : 0}
-                      aria-expanded={conversationTaskListOpen}
-                      aria-label="本迭代与我有关的任务"
-                      onClick={
-                        conversationTaskListOpen ? undefined : () => openConversationTaskList()
+                      aria-haspopup="dialog"
+                      aria-expanded={taskDialogOpen}
+                      aria-label={
+                        latestMyTask ? `打开本迭代任务，${latestMyTask.title}` : "打开本迭代任务"
                       }
-                      onKeyDown={
-                        conversationTaskListOpen
-                          ? undefined
-                          : (event) => {
-                              if (event.key !== "Enter" && event.key !== " ") return;
-                              event.preventDefault();
-                              openConversationTaskList();
-                            }
-                      }
+                      onClick={() => setTaskDialogOpen(true)}
                     >
-                      <span
-                        className="conversation-task-pool-head"
-                        onClick={
-                          conversationTaskListOpen ? (event) => event.stopPropagation() : undefined
-                        }
-                      >
-                        <span
-                          className="conversation-task-pool-label"
-                          onClick={
-                            conversationTaskListOpen
-                              ? (event) => {
-                                  event.stopPropagation();
-                                  closeConversationTaskList();
-                                }
-                              : undefined
-                          }
-                        >
-                          <UiIcon
-                            name={conversationTaskListOpen ? "chevronDown" : "chevronUp"}
-                            size={13}
-                          />
-                          任务
-                        </span>
-                        {conversationTaskListOpen ? (
-                          <label className="conversation-task-mine-filter" title="只看我的任务">
-                            <input
-                              type="checkbox"
-                              checked={conversationTaskMineOnly}
-                              aria-label="只看我的任务"
-                              onChange={(event) => {
-                                const mineOnly = event.target.checked;
-                                setConversationTaskMineOnly(mineOnly);
-                                const source = mineOnly ? currentMyTasks : currentThreadTasks;
-                                const latest = [...source].sort(
-                                  (left, right) =>
-                                    new Date(right.updated_at).getTime() -
-                                    new Date(left.updated_at).getTime(),
-                                )[0];
-                                setConversationTaskHighlightId(latest?.id ?? "");
-                              }}
-                            />
-                            <span>我的</span>
-                          </label>
-                        ) : null}
+                      <span className="conversation-task-pool-head">
+                        <span className="conversation-task-pool-label">任务</span>
                       </span>
-                      {conversationTaskListOpen ? (
-                        <input
-                          ref={conversationTaskSearchRef}
-                          type="search"
-                          className="conversation-task-search"
-                          placeholder="搜索编号或标题"
-                          value={conversationTaskSearch}
-                          aria-label="搜索任务编号或标题"
-                          onChange={(event) => setConversationTaskSearch(event.target.value)}
-                          onClick={(event) => event.stopPropagation()}
-                          onKeyDown={(event) => event.stopPropagation()}
-                        />
-                      ) : latestMyTask ? (
+                      {latestMyTask ? (
                         <span
                           className="conversation-task-preview"
                           data-status={latestMyTask.status}
@@ -3440,48 +3654,7 @@ export function WorkspaceApp() {
                       ) : (
                         <span className="conversation-task-empty">暂无与我有关的任务</span>
                       )}
-                    </div>
-                    {conversationTaskListOpen ? (
-                      <div className="conversation-task-list" role="list">
-                        {filteredConversationMyTasks.map((task) => (
-                          <button
-                            type="button"
-                            role="listitem"
-                            className="conversation-task-list-item"
-                            data-status={task.status}
-                            aria-current={
-                              conversationTaskHighlightId === task.id ? "true" : undefined
-                            }
-                            key={task.id}
-                            title={task.title}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              closeConversationTaskList();
-                              setTaskMine(true);
-                              openTask(task.id);
-                            }}
-                          >
-                            <span className="conversation-task-list-status" aria-hidden="true">
-                              <i />
-                            </span>
-                            <span className="conversation-task-list-main">
-                              <span className="conversation-task-list-number">
-                                {formatTaskThreadNumber(task.thread_number)}
-                              </span>
-                              <strong>{task.title}</strong>
-                            </span>
-                          </button>
-                        ))}
-                        {!conversationMyTasks.length && (
-                          <p className="conversation-task-list-empty">
-                            {conversationTaskMineOnly ? "暂无与我有关的任务" : "当前迭代暂无任务"}
-                          </p>
-                        )}
-                        {conversationMyTasks.length && !filteredConversationMyTasks.length && (
-                          <p className="conversation-task-list-empty">没有匹配的任务</p>
-                        )}
-                      </div>
-                    ) : null}
+                    </button>
                   </div>
                 </div>
                 {active ? (
@@ -3516,11 +3689,10 @@ export function WorkspaceApp() {
                       </div>
                     )}
                     <ChatComposer
-                      key={`${projectId}:${threadId}`}
+                      key={projectId + ":" + threadId}
                       projectId={projectId}
                       threadId={threadId}
-                      message={message}
-                      setMessage={setMessage}
+                      onController={registerComposer}
                       refs={refs}
                       setRefs={setRefs}
                       folderRefs={folderRefs}
@@ -3534,23 +3706,24 @@ export function WorkspaceApp() {
                       onRefresh={refresh}
                       dialogueMode={dialogueMode}
                       onDialogueModeChange={applyDialogueMode}
-                      onSend={async () => {
+                      onSend={async (body) => {
                         const targetThreadId = threadId;
-                        const body = message;
                         const selectedRefs = [...refs];
                         const selectedFolderRefs = [...folderRefs];
                         const selectedQuotes = [...quotedMessages];
-                        setQuotedMessages([]);
-                        setMessage("");
-                        setRefs([]);
-                        setFolderRefs([]);
-                        return sendOptimisticMessage(
+                        const accepted = await sendOptimisticMessage(
                           targetThreadId,
                           body,
                           selectedRefs,
                           selectedFolderRefs,
                           selectedQuotes,
                         );
+                        if (accepted) {
+                          setQuotedMessages([]);
+                          setRefs([]);
+                          setFolderRefs([]);
+                        }
+                        return accepted;
                       }}
                     />
                   </Suspense>
@@ -3558,7 +3731,17 @@ export function WorkspaceApp() {
                   <div className="readonly">
                     {thread.status === "archived"
                       ? "此迭代已归档。历史讨论与文档可以继续查阅，也可以引用到新的迭代。"
-                      : "你正在以只读成员身份查看此迭代。"}
+                      : thread.status === "archiving"
+                        ? "此迭代正在归档，消息、任务与背景目标已冻结。"
+                        : "你正在以只读成员身份查看此迭代。"}
+                    {thread.status === "archiving" && (
+                      <button
+                        type="button"
+                        onClick={() => setArchiveDialog({ id: thread.id, title: thread.title })}
+                      >
+                        审查归档方案
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -3572,9 +3755,35 @@ export function WorkspaceApp() {
                 />
               </div>
             )}
+            {threadView === "brief" && (
+              <div className="conversation-stage conversation-stage-brief">
+                <ThreadBrief key={thread.id} thread={thread} writable={active} onSaved={refresh} />
+              </div>
+            )}
           </>
         )}
       </main>
+      {archiveDialog && (
+        <ThreadArchiveDialog
+          key={archiveDialog.id}
+          threadId={archiveDialog.id}
+          title={archiveDialog.title}
+          onClose={() => setArchiveDialog(null)}
+          onChanged={async (status, nextThreadId) => {
+            threadCache.current.clear();
+            await refresh();
+            if (nextThreadId) setThreadId(nextThreadId);
+            setThreadListPane(nextThreadId || status === "active" ? "active" : "archived");
+            showTip(
+              status === "active"
+                ? "归档已撤回，可以继续协作"
+                : nextThreadId
+                  ? "迭代已归档，承接迭代已创建"
+                  : "迭代已归档",
+            );
+          }}
+        />
+      )}
       <aside
         className={`context-panel context-doc-browser ${contextOpen ? "context-open" : ""}`}
         aria-hidden={!contextOpen}
@@ -3628,52 +3837,23 @@ export function WorkspaceApp() {
               currentUserId={user.id}
               owner={owner}
               iterationWritable={active}
-              folders={detail?.folders || []}
-              versions={detail?.versions || []}
-              organizationJobs={detail?.documentOrganizationJobs || []}
+              folders={detail?.folders || EMPTY_FOLDERS}
+              versions={detail?.versions || EMPTY_VERSIONS}
+              organizationJobs={detail?.documentOrganizationJobs || EMPTY_JOBS}
               codeSourcesTick={codeSourcesTick}
               selected={documentId}
               documentFocus={documentFocus}
               onSelect={setDocumentId}
               documentFullscreen={documentFullscreen}
               onDocumentFullscreenChange={handleDocumentFullscreenChange}
-              onRefresh={async () => {
-                const library = await api(`/projects/${projectId}/library`);
-                const applyLibrary = (previous: Detail | undefined | null) => {
-                  if (!previous || previous.id !== projectId) return previous;
-                  return {
-                    ...previous,
-                    folders: library.folders,
-                    versions: library.versions,
-                    documentOrganizationJobs: library.documentOrganizationJobs,
-                  };
-                };
-                const cached = applyLibrary(projectCache.current.get(projectId));
-                if (cached) projectCache.current.update(projectId, () => cached);
-                setDetail((previous) => applyLibrary(previous) || previous);
-              }}
-              onReference={active ? addVersionToConversation : undefined}
-              onRequestRevision={active ? requestDocumentRevision : undefined}
-              onAddSelectionToConversation={active ? addSelectionToConversation : undefined}
-              onReferenceFolder={active ? addFolderToConversation : undefined}
-              onAddToTask={writable ? (id) => openTaskCreate({ refId: id }) : undefined}
-              onAddFolderToTask={writable ? (id) => openTaskCreate({ folderId: id }) : undefined}
-              onReview={
-                active
-                  ? async (id, decision, comment) => {
-                      await api(`/versions/${id}/reviews`, { decision, comment, threadId }, "POST");
-                      if (threadId) {
-                        const nextThread = await threadCache.current.read(
-                          threadId,
-                          (signal) => readThread(threadId, signal),
-                          true,
-                        );
-                        if (currentContext.current.threadId === threadId) setThread(nextThread);
-                      }
-                      showTip(decision === "changes_requested" ? "已发送修改意见" : "已确认该版本");
-                    }
-                  : undefined
-              }
+              onRefresh={refreshDocuments}
+              onReference={active ? referenceDocument : undefined}
+              onRequestRevision={active ? requestRevisionDocument : undefined}
+              onAddSelectionToConversation={active ? addSelectionDocument : undefined}
+              onReferenceFolder={active ? referenceFolderDocument : undefined}
+              onAddToTask={active ? addDocumentToTask : undefined}
+              onAddFolderToTask={active ? addFolderDocumentToTask : undefined}
+              onReview={active ? reviewDocument : undefined}
             />
           </Suspense>
         ) : null}
@@ -3683,6 +3863,7 @@ export function WorkspaceApp() {
           onClose={() => {
             closeTaskCreate();
             setTaskDialogOpen(false);
+            setTaskListSearch("");
           }}
           enabled={!taskCreateOpen}
         >
@@ -3696,35 +3877,45 @@ export function WorkspaceApp() {
             >
               <header className="task-pool-dialog-header">
                 <div>
-                  <span>当前迭代</span>
-                  <h2 id="task-pool-dialog-title">本迭代任务</h2>
-                  <p>
+                  <span>当前迭代任务</span>
+                  <h2 id="task-pool-dialog-title">
                     {detail?.threads.find((item) => item.id === threadId)?.title || "未选择迭代"}
-                  </p>
+                  </h2>
                 </div>
                 <DialogClose autoFocus onClick={close} label="关闭本迭代任务" />
               </header>
               <div className="task-pool-dialog-body">
                 <aside className="task-pool-dialog-list">
-                  <div className="task-pool-heading">
-                    <label className="task-mine-filter">
+                  <div className="task-pool-list-toolbar">
+                    <label className="task-pool-search">
+                      <UiIcon name="search" size={13} />
                       <input
-                        type="checkbox"
-                        checked={taskMine}
-                        onChange={(event) => setTaskMine(event.target.checked)}
+                        type="search"
+                        value={taskListSearch}
+                        placeholder="搜索任务"
+                        aria-label="搜索任务编号、标题或成员"
+                        autoComplete="off"
+                        onChange={(event) => setTaskListSearch(event.target.value)}
                       />
-                      只看我的任务
                     </label>
-                    {writable && (
+                    <div className="task-scope-capsule" role="tablist" aria-label="任务范围">
                       <button
                         type="button"
-                        className="task-create-toggle"
-                        onClick={() => openTaskCreate()}
+                        role="tab"
+                        aria-selected={taskMine}
+                        onClick={() => setTaskMine(true)}
                       >
-                        <UiIcon name="plus" size={12} />
-                        新建任务
+                        我的
                       </button>
-                    )}
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={!taskMine}
+                        onClick={() => setTaskMine(false)}
+                      >
+                        全部
+                      </button>
+                    </div>
                   </div>
                   <div className="task-pool-list">
                     {visibleTasks.map((task) => {
@@ -3739,32 +3930,51 @@ export function WorkspaceApp() {
                           <span className="task-pool-item-heading">
                             <span>
                               <strong>{task.title}</strong>
-                              <small>
-                                来源 {taskSourceLabel(task)} · 执行 {taskExecutorLabel(task)}
+                              <small
+                                title={`${taskSourceLabel(task)} → ${taskTargetLabel(task)} → ${taskExecutorLabel(task)}`}
+                              >
+                                {taskSourceLabel(task)} → {taskTargetLabel(task)} →{" "}
+                                {taskExecutorLabel(task)}
                               </small>
                             </span>
-                            <i data-status={task.status}>
-                              <UiIcon name={workflowIcon(task.status)} size={10} />
-                              {labelWorkflowStatus(task.status)}
-                            </i>
+                            <span className="task-pool-item-side">
+                              <i data-status={task.status}>{labelWorkflowStatus(task.status)}</i>
+                              <TaskCreatedTime value={task.created_at} />
+                            </span>
                           </span>
                         </button>
                       );
                     })}
-                    {!visibleTasks.length && (
+                    {!scopedTasks.length && (
                       <p className="panel-empty">
                         {taskMine ? "暂无与我有关的任务。" : "当前迭代暂无任务。"}
                       </p>
                     )}
+                    {!!scopedTasks.length && !visibleTasks.length && (
+                      <p className="panel-empty">没有匹配的任务。</p>
+                    )}
                   </div>
+                  {active && (
+                    <button
+                      type="button"
+                      className="task-create-dock"
+                      onClick={() => openTaskCreate()}
+                    >
+                      <UiIcon name="plus" size={12} />
+                      新建任务
+                    </button>
+                  )}
                 </aside>
                 <div className="task-pool-dialog-detail">
                   {selectedTaskId ? (
                     (() => {
                       const task = taskDetail;
                       const isTarget =
-                        task?.target_type === "human_member" && task.target_id === user.id;
+                        active &&
+                        task?.target_type === "human_member" &&
+                        task.target_id === user.id;
                       const isSource =
+                        active &&
                         !!task &&
                         (task.source_user_id === user.id ||
                           (task.created_by_type === "human_member" &&
@@ -3786,6 +3996,7 @@ export function WorkspaceApp() {
                           question.status === "open" && question.source_user_id === user.id,
                       );
                       const canReviewRejection =
+                        active &&
                         !!task &&
                         task.status === "rejected" &&
                         task.rejectionReview.rejected &&
@@ -3825,7 +4036,6 @@ export function WorkspaceApp() {
                                 </div>
                                 <div className="task-detail-header-actions">
                                   <span data-status={task.status}>
-                                    <UiIcon name={workflowIcon(task.status)} size={10} />
                                     {labelWorkflowStatus(task.status)}
                                   </span>
                                 </div>
@@ -3913,7 +4123,7 @@ export function WorkspaceApp() {
                                   ) : null;
                                 })()}
                               </section>
-                              {openQuestion && (
+                              {active && openQuestion && (
                                 <section className="task-question">
                                   <h4>需要你回答</h4>
                                   <p>{openQuestion.question}</p>
@@ -4300,7 +4510,10 @@ export function WorkspaceApp() {
                                         pageSize={pageSize}
                                         pageSizeOptions={[10, 12, 20, 50]}
                                         onPageChange={(next) => setTaskTimelinePage(next - 1)}
-                                        onPageSizeChange={(next) => { setTaskTimelinePageSize(next); setTaskTimelinePage(0); }}
+                                        onPageSizeChange={(next) => {
+                                          setTaskTimelinePageSize(next);
+                                          setTaskTimelinePage(0);
+                                        }}
                                         ariaLabel="任务时间线分页"
                                       />
                                     )}
@@ -4544,6 +4757,7 @@ export function WorkspaceApp() {
                         ...project,
                         name: updated.name,
                         description: updated.description ?? project.description,
+                        image: updated.image === undefined ? project.image : updated.image,
                       }
                     : project,
                 ),
@@ -4554,6 +4768,7 @@ export function WorkspaceApp() {
                       ...previous,
                       name: updated.name,
                       description: updated.description ?? previous.description,
+                      image: updated.image === undefined ? previous.image : updated.image,
                     }
                   : previous,
               );
@@ -4569,7 +4784,8 @@ export function WorkspaceApp() {
         <Suspense fallback={null}>
           <AgentMonitor
             projectId={projectId}
-            projectName={detail?.name || "当前项目"}
+            projectName={detail?.name || currentProject?.name || "当前项目"}
+            projectImage={detail?.image || currentProject?.image}
             api={api}
             onClose={() => setMonitorOpen(false)}
           />
@@ -4606,50 +4822,56 @@ export function WorkspaceApp() {
         <ModalBackdrop onClose={() => setModal(null)} enabled={!busy}>
           {(close) => (
             <section
-              className={`modal ${["profile", "settings", "password", "email", "mcp"].includes(modal) ? "workspace-settings" : ""}`}
+              className={`modal ${["profile", "settings", "password", "email", "mcp"].includes(modal) ? "workspace-settings space-dialog" : ""}`}
               role="dialog"
               aria-modal="true"
               aria-labelledby="modal-title"
             >
-              <div className="modal-header">
-                <h2 id="modal-title">
-                  {
+              <div
+                className={`modal-header${["profile", "settings", "password", "email", "mcp"].includes(modal) ? " space-dialog-header" : ""}`}
+              >
+                <div>
+                  {["profile", "settings", "password", "email", "mcp"].includes(modal) && (
+                    <span>工作空间</span>
+                  )}
+                  <h2 id="modal-title">
                     {
-                      project: "创建项目",
-                      profile: "个人设置",
-                      settings: "个人设置",
-                      password: "个人设置",
-                      email: "个人设置",
-                      mcp: "个人设置",
-                      run: "在沙箱中执行",
-                    }[modal]
-                  }
-                </h2>
+                      {
+                        project: "创建项目",
+                        profile: "个人设置",
+                        settings: "个人设置",
+                        password: "个人设置",
+                        email: "个人设置",
+                        mcp: "个人设置",
+                        run: "在沙箱中执行",
+                      }[modal]
+                    }
+                  </h2>
+                </div>
                 <DialogClose disabled={busy} onClick={close} label="关闭" />
               </div>
               <div
                 className={
                   ["profile", "settings", "password", "email", "mcp"].includes(modal)
-                    ? "settings-layout"
+                    ? "settings-layout space-dialog-body"
                     : undefined
                 }
               >
                 {["profile", "settings", "password", "email", "mcp"].includes(modal) && (
-                  <nav className="settings-nav" aria-label="设置项目">
-                    {canOpenAdmin && (
-                      <a className="settings-admin-link" href="/admin">
+                  <nav className="settings-nav space-dialog-nav" aria-label="个人设置">
+                    <a href="/admin">
+                      <span className="ui-icon-text">
                         <UiIcon name="shield" size={14} />
-                        进入管理平台
-                        <UiIcon name="next" size={12} />
-                      </a>
-                    )}
+                        进入管理空间
+                      </span>
+                      <UiIcon name="next" size={12} />
+                    </a>
                     {(
                       [
                         ["profile", "个人资料", "human"],
                         ["password", "修改密码", "lock"],
-                        ["email", "绑定邮箱", "email"],
                         ["mcp", "MCP 配置", "key"],
-                        ["settings", "退出登录", "logout"],
+                        ["settings", "退出/切换", "logout"],
                       ] as const
                     ).map(([value, label, icon]) => (
                       <button
@@ -4659,20 +4881,30 @@ export function WorkspaceApp() {
                         disabled={busy}
                         onClick={() => open(value as Modal)}
                       >
-                        <UiIcon name={icon as UiIconName} size={14} />
-                        {label}
+                        <span className="ui-icon-text">
+                          <UiIcon name={icon as UiIconName} size={14} />
+                          {label}
+                        </span>
                       </button>
                     ))}
                   </nav>
                 )}
-                <form key={modal} onSubmit={submitModal}>
+                <form
+                  key={modal}
+                  className={
+                    ["profile", "settings", "password", "email", "mcp"].includes(modal)
+                      ? "space-dialog-content"
+                      : undefined
+                  }
+                  onSubmit={submitModal}
+                >
                   {["profile", "settings", "password", "email", "mcp"].includes(modal) && (
                     <div className="settings-content-heading">
                       <p>
-                        {modal === "email"
-                          ? "验证邮箱后，可使用邮箱登录和找回密码。"
+                        {modal === "settings"
+                          ? "这台浏览器可以记住多个账号。切换只点右侧按钮；退出并清除账号会清掉这台设备上的登录信息。"
                           : modal === "mcp"
-                            ? "跨 Windows、macOS 和 Linux 使用共序 MCP。"
+                            ? "跨 Windows、macOS 和 Linux 使用共序 MCP，并管理本账号的本地执行器。"
                             : "管理你的通用账号"}
                       </p>
                     </div>
@@ -4682,6 +4914,12 @@ export function WorkspaceApp() {
                       user={user}
                       avatar={profileAvatar}
                       busy={busy}
+                      api={api}
+                      onProfile={(profile) => {
+                        setUser(profile);
+                        updateSavedAccountProfile(profile);
+                        setSavedAccounts(listSavedAccounts());
+                      }}
                       onUpload={(file) =>
                         void run(async () => {
                           setProfileAvatar(await prepareAvatar(file));
@@ -4692,39 +4930,28 @@ export function WorkspaceApp() {
                   )}
                   {modal === "settings" && (
                     <div className="settings-logout-panel">
-                      <div className="settings-identity">
-                        <strong>{user.name}</strong>
-                        <small>
-                          账号：{user.username}
-                          {user.email ? ` · ${user.email}` : " · 未绑定邮箱"}
-                        </small>
-                      </div>
-                      <p className="muted">退出当前账号后，可重新登录继续访问你的项目。</p>
+                      <AccountSwitchList
+                        accounts={savedAccounts}
+                        currentId={user.id}
+                        busy={busy}
+                        onSwitch={(account) => void run(() => switchSavedAccount(account))}
+                        onLogout={() => void run(logoutCurrent)}
+                        onClear={(account) => void run(() => forgetSavedLogin(account.id))}
+                      />
                       <button
                         type="button"
-                        className="settings-logout"
+                        className="account-login-another"
                         disabled={busy}
-                        onClick={() =>
-                          run(async () => {
-                            await api("/logout", {});
-                            setModal(null);
-                            setUser(null);
-                            setProjects([]);
-                            setProjectId("");
-                            setThreadId("");
-                            setContextOpen(false);
-                          })
-                        }
+                        onClick={() => void run(loginAnother)}
                       >
-                        <span>
-                          <UiIcon name="logout" size={14} />
-                        </span>
-                        <span>退出登录</span>
+                        <UiIcon name="login" size={13} />
+                        登录其他账号
                       </button>
                     </div>
                   )}
                   {modal === "project" && (
                     <>
+                      <ProjectImageField image={projectImage} busy={busy} onChange={setProjectImage} />
                       <label>
                         项目名称
                         <input
@@ -4750,7 +4977,7 @@ export function WorkspaceApp() {
                       <div className="settings-identity">
                         <strong>{user.name}</strong>
                         <small>
-                          账号：{user.username}
+                          用户名：{user.username}
                           {user.email ? ` · ${user.email}` : " · 未绑定邮箱"}
                         </small>
                       </div>
@@ -4780,7 +5007,14 @@ export function WorkspaceApp() {
                   )}
                   {modal === "mcp" && (
                     <Suspense fallback={<p className="muted">正在加载…</p>}>
-                      <McpSettings api={api} endpoint={health?.mcpEndpoint || "/mcp"} />
+                      <McpSettings
+                        api={api}
+                        endpoint={health?.mcpEndpoint || "/mcp"}
+                        connectors={connectors}
+                        connectorsReady={connectorsReady}
+                        projectId={projectId}
+                        onConnectorsChanged={refreshConnectors}
+                      />
                     </Suspense>
                   )}
                   {modal === "run" && (

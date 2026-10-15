@@ -122,6 +122,7 @@ const titles = {
   list_code_tree: "查看目录",
   read_code_file: "读取代码",
   read_iteration: "读取",
+  update_iteration_context: "更新迭代背景与目标",
   capture_preview_screenshot: "截图验收",
   sandbox_command: "执行",
   sandbox_read: "读取",
@@ -218,6 +219,7 @@ const MINIPROGRAM_AREA_LABELS = Object.fromEntries(
 const MINIPROGRAM_READ_MAX_BYTES = 200 * 1024;
 
 const CHAT_DIALOGUE_BLOCKED_TOOLS = new Set([
+  "update_iteration_context",
   "manage_document",
   "manage_folder",
   "record_document_summary",
@@ -379,6 +381,7 @@ export function createAgentTools(
         "read_document",
         "record_document_summary",
         "read_iteration",
+        "update_iteration_context",
         "list_project_tasks",
         "inspect_task",
         "create_task",
@@ -686,6 +689,23 @@ export function createAgentTools(
                 z.string().uuid().parse(args.messageId),
                 args.before,
               );
+      } else if (name === "update_iteration_context") {
+        if (effectiveRole !== "coordinator")
+          throw new HttpError(403, "只有当前迭代调度角色可以更新背景与目标");
+        const data = z
+          .object({
+            background: z.string().max(20000).optional(),
+            goal: z.string().max(20000).optional(),
+            reason: z.string().trim().min(1).max(2000),
+          })
+          .parse(args);
+        const updated = await service.updateThread(user, thread.id, data, { source: "agent" });
+        result = {
+          threadId: thread.id,
+          background: updated.background || "",
+          goal: updated.goal || "",
+          reason: data.reason,
+        };
       } else if (name === "read_iteration") {
         const id = z.string().uuid().parse(args.threadId);
         const target = await service.thread(user, id);
@@ -725,7 +745,8 @@ export function createAgentTools(
               throw new HttpError(403, "文档不属于当前项目");
             result = await captureDocumentPreview(service, user, versionId);
           } else {
-            if (effectiveRole !== "executor") throw new HttpError(403, "只有子 Agent 可以截图沙箱 HTML");
+            if (effectiveRole !== "executor")
+              throw new HttpError(403, "只有子 Agent 可以截图沙箱 HTML");
             const sandbox = await getSandbox(service.db, sandboxScope, progress);
             const relative = z.string().min(1).max(240).parse(args.path);
             await safeRemotePath(sandbox, root, relative);

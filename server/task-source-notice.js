@@ -7,7 +7,7 @@ const STATUS_LABEL = {
   assigned: "已指派",
   queued: "待指派",
   waiting: "等待中",
-  blocked: "阻塞暂停",
+  blocked: "已阻塞",
   running: "执行中",
   completed: "已完成",
   failed: "已失败",

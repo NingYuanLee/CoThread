@@ -488,6 +488,11 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
+.admin-project-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .admin-content .admin-table-link {
   height: auto;
   padding: 0;

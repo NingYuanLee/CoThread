@@ -29,6 +29,15 @@ export function apply(ctx) {
   // Accounts and project data cannot extend it at runtime.
   const definitions = [
     [
+      "update_iteration_context",
+      "更新当前迭代的背景或目标并记录原因。背景可随事实和讨论进展维护；目标只沿成员已明确表达的方向调整。发现明显偏离但新方向不明确时先提醒成员，不要擅自替换目标，也不限制群聊。归档中不可更新。",
+      {
+        background: { type: "string" },
+        goal: { type: "string" },
+        reason: { type: "string", required: true },
+      },
+    ],
+    [
       "list_project_tasks",
       "读取当前迭代锁定的任务池。返回 idleL3Count（空闲子 Agent 数）和 tasks。待指派是 pending_assignment。不含其他迭代的任务。",
       { status: { type: "string" }, targetId: { type: "string" }, limit: { type: "number" } },
@@ -153,11 +162,12 @@ export function apply(ctx) {
     ],
     [
       "list_messages",
-      "会话资料：读取本项目某会话消息列表，默认最近20条；beforeMessageId取该消息之前的消息，包含类型与引用预览。",
+      "会话资料：读取本项目某会话消息列表，默认最近20条；beforeMessageId取该消息之前的消息。轮询新消息传入 afterMessageId，没有更新时 changed=false 且不返回正文。",
       {
         threadId: { type: "string", required: true },
         limit: { type: "number" },
         beforeMessageId: { type: "string" },
+        afterMessageId: { type: "string" },
       },
     ],
     [

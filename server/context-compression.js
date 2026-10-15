@@ -6,9 +6,14 @@ import { discussionHasActiveCoordinator, sessionLockName } from "./session-lock.
 export { queueContextCompression } from "./queue-context.js";
 
 export async function processNextContextCompression(db, openRuntime, threadId) {
-  const [candidate] = await query(db, `SELECT thread_id FROM agent_sessions WHERE compact_status='queued' ${threadId ? "AND thread_id=?" : ""} ORDER BY updated_at LIMIT 1`, threadId ? [threadId] : []);
+  const [candidate] = await query(
+    db,
+    `SELECT thread_id FROM agent_sessions WHERE compact_status='queued' ${threadId ? "AND thread_id=?" : ""} ORDER BY updated_at LIMIT 1`,
+    threadId ? [threadId] : [],
+  );
   if (!candidate) return false;
-  const connection = await db.getConnection(), key = sessionLockName(candidate.thread_id);
+  const connection = await db.getConnection(),
+    key = sessionLockName(candidate.thread_id);
   let locked = false;
   try {
     const [lock] = await query(connection, "SELECT GET_LOCK(?,0) acquired", [key]);
@@ -29,19 +34,23 @@ async function compressClaimedDiscussion(db, openRuntime, threadId) {
       threadId ? [threadId] : [],
     );
     if (next) {
-      const [thread] = await query(conn,
-        "SELECT id FROM threads WHERE id=? FOR UPDATE SKIP LOCKED", [next.thread_id]);
-      if (!thread) return;
-      const [active] = await query(conn,
-        `SELECT r.message_id FROM assistant_replies r JOIN messages m ON m.id=r.message_id
-         WHERE m.thread_id=? AND r.parent_message_id IS NULL AND (r.status='running' OR r.execution_active=TRUE) LIMIT 1`, [next.thread_id]);
-      if (active) return;
-      if (await discussionHasActiveCoordinator(conn, next.thread_id)) return;
-      await query(
+      const [thread] = await query(
         conn,
-        "UPDATE agent_sessions SET compact_status='running' WHERE thread_id=?",
+        "SELECT id,status FROM threads WHERE id=? FOR UPDATE SKIP LOCKED",
         [next.thread_id],
       );
+      if (!thread || thread.status !== "active") return;
+      const [active] = await query(
+        conn,
+        `SELECT r.message_id FROM assistant_replies r JOIN messages m ON m.id=r.message_id
+         WHERE m.thread_id=? AND r.parent_message_id IS NULL AND (r.status='running' OR r.execution_active=TRUE) LIMIT 1`,
+        [next.thread_id],
+      );
+      if (active) return;
+      if (await discussionHasActiveCoordinator(conn, next.thread_id)) return;
+      await query(conn, "UPDATE agent_sessions SET compact_status='running' WHERE thread_id=?", [
+        next.thread_id,
+      ]);
     }
     return next;
   });
@@ -96,9 +105,13 @@ export async function refreshNextContextStats(db) {
     AND s.compact_status<>'failed' ORDER BY s.updated_at LIMIT 1`,
   );
   if (!stored) return false;
-  const connection = await db.getConnection(), key = sessionLockName(stored.thread_id);
+  const connection = await db.getConnection(),
+    key = sessionLockName(stored.thread_id);
   const [lock] = await query(connection, "SELECT GET_LOCK(?,0) acquired", [key]);
-  if (Number(lock.acquired) !== 1) { connection.release(); return false; }
+  if (Number(lock.acquired) !== 1) {
+    connection.release();
+    return false;
+  }
   let runtime;
   try {
     const user = { id: stored.created_by, kind: "session" };

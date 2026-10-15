@@ -9,7 +9,7 @@ const CHUNK_B64 = Math.ceil(FILE_CHUNK_SIZE / 3) * 4;
 
 export const MCP_INSTRUCTIONS = `你已连接共序 CoThread，一个按账号身份和项目成员权限协作的 MCP 服务。无需安装任何 SKILL。
 首次使用先调用 get_connection_guide 阅读完整协议，再通过 tools/list 读取当前工具参数。
-定位流程：list_projects → get_project_context(projectId) 获取轻量项目、迭代清单和成员清单 → 按需调用 get_iteration_context(threadId) 读取迭代元数据与协作上下文，或调用 get_member(projectId, memberId) 读取成员详情。这里的迭代上下文是项目协作资料，不是 Agent 内部 prompt/context。用户给了会话信息时直接核对该 threadId，不需要会话 token。存在多个候选或同名目标时向用户确认，不要猜 ID。没有目标迭代时请用户在页面加号创建。
+定位流程：list_projects → get_project_context(projectId) 获取轻量项目、迭代清单和成员清单 → 按需调用 get_iteration_context(threadId) 读取迭代元数据与协作上下文，或调用 get_member(projectId, memberId) 读取成员详情。这里的迭代上下文是项目协作资料，不是 Agent 内部 prompt/context。用户给了会话信息时直接核对该 threadId，不需要会话 token。存在多个候选或同名目标时向用户确认，不要猜 ID。没有目标迭代时请用户在页面加号创建。轮询某个会话有没有新消息时，用 list_messages({threadId, afterMessageId})，afterMessageId 取上次返回的 page.afterMessageId 或 page.latestMessageId；changed=false 表示没有新消息，不要改用 get_iteration_context 或 get_project_context 反复拉全量。
 
 【上传（必读）】许多 MCP 宿主会把单次工具参数截在约 10KB。整包 Base64 被截断后，文件会前半正常、末尾乱码，看起来像编码错误，其实是传输被砍断。禁止对大于 ${FILE_CHUNK_SIZE} 字节的文件调用 upload_cache_draft / upload_official_file / post_message.files。
 规则：

@@ -4,6 +4,7 @@ import { AGENT_LEVEL_LABELS } from "./ui-labels";
 import { RoleBadge } from "./Identity";
 import { MemberPicker } from "./MemberPicker";
 import { ProjectSettings } from "./ProjectSettings";
+import { ProjectMark } from "./ProjectMark";
 import { ProjectCodeConnectors } from "./ProjectCodeConnectors";
 import { ProjectMiniProgramConfig } from "./ProjectMiniProgramConfig";
 import { UiIcon } from "./ui-icon";
@@ -47,6 +48,7 @@ type ProjectDetail = {
   id: string;
   name: string;
   description?: string;
+  image?: string | null;
   created_at: string;
   created_by: string;
   created_by_name?: string;
@@ -86,7 +88,12 @@ export function ProjectManagement({
   api: (path: string, data?: unknown, method?: string) => Promise<any>;
   localDate: (value?: string) => string;
   refresh: () => Promise<void>;
-  onProjectRenamed: (project: { id: string; name: string; description?: string }) => void;
+  onProjectRenamed: (project: {
+    id: string;
+    name: string;
+    description?: string;
+    image?: string | null;
+  }) => void;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -131,26 +138,30 @@ export function ProjectManagement({
     <>
       <dialog
         ref={dialog}
-        className="project-management-dialog"
+        className="project-management-dialog space-dialog"
         aria-labelledby="project-management-title"
         onCancel={onDialogCancel(onClose)}
         onClick={onDialogBackdropClick(onClose)}
       >
-        <header className="agent-monitor-header">
-          <div>
-            <span>当前项目</span>
-            <h2 id="project-management-title">项目管理</h2>
+        <header className="space-dialog-header">
+          <div className="space-dialog-heading">
+            <ProjectMark name={detail?.name || "项目"} image={detail?.image} size={36} />
+            <div>
+              <span>工作空间</span>
+              <h2 id="project-management-title">项目管理</h2>
+            </div>
           </div>
           <DialogClose
             onClick={() => animateDialogClose(dialog.current, onClose)}
             label="关闭项目管理"
           />
         </header>
-        <div className="project-management-body">
-          <nav className="project-management-tabs" aria-label="项目管理">
+        <div className="project-management-body space-dialog-body">
+          <nav className="project-management-tabs space-dialog-nav" aria-label="项目管理">
             <button
               type="button"
               className={tab === "info" ? "active" : ""}
+              aria-current={tab === "info" ? "page" : undefined}
               aria-selected={tab === "info"}
               onClick={() => setTab("info")}
             >
@@ -162,6 +173,7 @@ export function ProjectManagement({
             <button
               type="button"
               className={tab === "members" ? "active" : ""}
+              aria-current={tab === "members" ? "page" : undefined}
               aria-selected={tab === "members"}
               onClick={() => setTab("members")}
             >
@@ -174,6 +186,7 @@ export function ProjectManagement({
             <button
               type="button"
               className={tab === "connectors" ? "active" : ""}
+              aria-current={tab === "connectors" ? "page" : undefined}
               aria-selected={tab === "connectors"}
               onClick={() => setTab("connectors")}
             >
@@ -185,6 +198,7 @@ export function ProjectManagement({
             <button
               type="button"
               className={tab === "miniprogram" ? "active" : ""}
+              aria-current={tab === "miniprogram" ? "page" : undefined}
               aria-selected={tab === "miniprogram"}
               onClick={() => setTab("miniprogram")}
             >
@@ -194,34 +208,45 @@ export function ProjectManagement({
               </span>
             </button>
           </nav>
-          <div className="project-management-content">
+          <div className="project-management-content space-dialog-content">
             {tab === "info" ? (
-              detail ? (
+              <>
+                <div className="settings-content-heading">
+                  <p>维护当前项目的图片、名称和简介。</p>
+                </div>
+                {detail ? (
                 <ProjectSettings
                   key={detail.id}
                   projectId={detail.id}
                   name={detail.name}
                   description={detail.description || ""}
+                  image={detail.image}
                   createdAt={localDate(detail.created_at)}
                   creatorName={detail.created_by_name || "未知"}
                   canManage={canManage}
                   longTermSummary={detail.longTermSummary}
-                  onSave={async ({ name, description }) => {
+                  onSave={async ({ name, description, image }) => {
                     const updated = await api(
                       `/projects/${detail.id}`,
-                      { name, description },
+                      {
+                        name,
+                        description,
+                        ...(image !== undefined ? { image } : {}),
+                      },
                       "PATCH",
                     );
                     onProjectRenamed({
                       id: updated.id,
                       name: updated.name,
                       description: updated.description,
+                      image: updated.image,
                     });
                   }}
                 />
               ) : (
                 <p className="muted">正在加载基本信息…</p>
-              )
+                )}
+              </>
             ) : tab === "connectors" ? (
               detail ? (
                 <ProjectCodeConnectors projectId={detail.id} canManage={canManage} api={api} />

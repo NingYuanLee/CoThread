@@ -1,4 +1,16 @@
+import {
+  beginIterationArchive,
+  readArchiveWorkflow,
+  cancelIterationArchive,
+  retryIterationArchive,
+  confirmIterationArchive,
+} from "./iteration-archive.js";
 import { attachMessageQuotes } from "./message-quotes.js";
+import {
+  attachThreadReads,
+  markThreadRead as saveThreadRead,
+  threadReadSummary,
+} from "./thread-reads.js";
 import { contextUsage } from "../shared/context.js";
 import {
   AGENT_L1_PROFILE,
@@ -7,10 +19,12 @@ import {
   mentionsAgent,
 } from "../shared/agent-member.js";
 import { modelConfig } from "./model-config.js";
+import { projectImageSchema, projectImageUrl, projectImageUrlSql } from "./project-image.js";
 import { randomUUID } from "node:crypto";
 import { posix as pathPosix } from "node:path";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
+import * as iterationState from "./iteration-state.js";
 import { digest, hashPassword } from "./auth.js";
 import { INLINE_FILE_MAX_BYTES } from "../shared/upload-limits.js";
 import { publishWork } from "./work-events.js";
@@ -222,14 +236,16 @@ export class Service extends DocumentsService {
       if (target.disabled_at) fail(409, "新负责人必须是正常状态的成员");
       const [actor] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
       await query(db, "UPDATE projects SET project_leader_id=? WHERE id=?", [userId, projectId]);
-      await query(db, "UPDATE members SET role='member',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?", [
-        projectId,
-        user.id,
-      ]);
-      await query(db, "UPDATE members SET role='member',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?", [
-        projectId,
-        userId,
-      ]);
+      await query(
+        db,
+        "UPDATE members SET role='member',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?",
+        [projectId, user.id],
+      );
+      await query(
+        db,
+        "UPDATE members SET role='member',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?",
+        [projectId, userId],
+      );
       await this.projectChange(db, projectId, user.id, "leader_transferred", {
         fromUserId: user.id,
         fromUserName: actor?.name || null,
@@ -259,10 +275,11 @@ export class Service extends DocumentsService {
       if (target.disabled_at) fail(409, "项目管理员必须是正常状态的成员");
       if (target.role === "viewer") fail(409, "只读成员不能设为项目管理员");
       if (target.role === "project_admin") fail(409, "该成员已拥有项目管理身份");
-      await query(db, "UPDATE members SET role='project_admin',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?", [
-        projectId,
-        userId,
-      ]);
+      await query(
+        db,
+        "UPDATE members SET role='project_admin',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?",
+        [projectId, userId],
+      );
       await this.projectChange(db, projectId, user.id, "admin_added", {
         userId,
         userName: target.name,
@@ -284,10 +301,11 @@ export class Service extends DocumentsService {
         [projectId, userId],
       );
       if (!target || target.role !== "project_admin") fail(409, "该成员不是项目管理员");
-      await query(db, "UPDATE members SET role='member',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?", [
-        projectId,
-        userId,
-      ]);
+      await query(
+        db,
+        "UPDATE members SET role='member',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?",
+        [projectId, userId],
+      );
       await this.projectChange(db, projectId, user.id, "admin_removed", {
         userId,
         userName: target.name,
@@ -332,10 +350,11 @@ export class Service extends DocumentsService {
       );
       if (!target || target.disabled_at) fail(409, "负责人必须是项目内正常状态的人类成员");
       await query(db, "UPDATE projects SET project_leader_id=? WHERE id=?", [userId, projectId]);
-      await query(db, "UPDATE members SET role='member',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?", [
-        projectId,
-        userId,
-      ]);
+      await query(
+        db,
+        "UPDATE members SET role='member',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?",
+        [projectId, userId],
+      );
       await query(db, "DELETE FROM project_role_migration_issues WHERE project_id=?", [projectId]);
       await this.projectChange(db, projectId, user.id, "leader_migration_resolved", {
         userId,
@@ -352,8 +371,14 @@ export class Service extends DocumentsService {
       .object({
         name: title.max(120).optional(),
         description: z.string().max(4000).optional(),
+        image: projectImageSchema.optional(),
       })
-      .refine((value) => value.name !== undefined || value.description !== undefined)
+      .refine(
+        (value) =>
+          value.name !== undefined ||
+          value.description !== undefined ||
+          value.image !== undefined,
+      )
       .parse(input);
     const next = {
       ...data,
@@ -364,25 +389,37 @@ export class Service extends DocumentsService {
       await this.projectManager(user, projectId, db);
       const [previous] = await query(
         db,
-        "SELECT name,description FROM projects WHERE id=? FOR UPDATE",
+        "SELECT name,description,image FROM projects WHERE id=? FOR UPDATE",
         [projectId],
       );
       const name = next.name ?? previous.name;
       const description = next.description ?? previous.description;
-      await query(db, "UPDATE projects SET name=?,description=? WHERE id=?", [
+      const image = next.image === undefined ? previous.image : next.image;
+      await query(db, "UPDATE projects SET name=?,description=?,image=? WHERE id=?", [
         name,
         description,
+        image,
         projectId,
       ]);
       await this.projectChange(db, projectId, user.id, "profile_updated", {
         before: { name: previous.name, description: previous.description },
         after: { name, description },
+        ...(next.image === undefined
+          ? {}
+          : { image: next.image ? "updated" : "removed" }),
       });
     });
-    const [updated] = await query(this.db, "SELECT id,name,description FROM projects WHERE id=?", [
-      projectId,
-    ]);
-    return updated;
+    const [updated] = await query(
+      this.db,
+      "SELECT id,name,description,image FROM projects WHERE id=?",
+      [projectId],
+    );
+    return {
+      id: updated.id,
+      name: updated.name,
+      description: updated.description,
+      image: projectImageUrl(updated.id, updated.image),
+    };
   }
   async systemAdmin(user, db = this.db) {
     if (user.kind !== "session") fail(403, "系统管理需要人工登录");
@@ -417,18 +454,24 @@ export class Service extends DocumentsService {
     id.parse(threadId);
     const [thread] = await query(
       db,
-      `SELECT ${display ? "id,project_id,title,status,created_by,created_at,archived_at,IF(archive_snapshot IS NULL,NULL,JSON_OBJECT('conclusion',JSON_EXTRACT(archive_snapshot,'$.conclusion'),'versions',JSON_EXTRACT(archive_snapshot,'$.versions'))) archive_snapshot" : "*"} FROM threads WHERE id=?${write ? " FOR UPDATE" : ""}`,
+      `SELECT ${display ? "id,project_id,title,background,goal,status,created_by,created_at,archived_at,IF(archive_snapshot IS NULL,NULL,JSON_OBJECT('conclusion',JSON_EXTRACT(archive_snapshot,'$.conclusion'),'versions',JSON_EXTRACT(archive_snapshot,'$.versions'))) archive_snapshot" : "*"} FROM threads WHERE id=?${write ? " FOR UPDATE" : ""}`,
       [threadId],
     );
     if (!thread) fail(404, "迭代不存在");
     await this.member(user, thread.project_id, write, db);
-    if (write && thread.status !== "active") fail(409, "此迭代已归档，无法修改");
+    if (write && thread.status !== "active")
+      fail(
+        409,
+        thread.status === "archiving"
+          ? "此迭代正在归档，消息、任务及背景目标已冻结，请先撤回归档"
+          : "此迭代已归档，无法修改",
+      );
     return thread;
   }
   async projects(user) {
     return query(
       this.db,
-      `SELECT p.*,creator.name created_by_name,m.role,m.joined_at,m.tab_visible,m.tab_opened_at,m.tab_pinned_at,(SELECT COUNT(*) FROM threads t WHERE t.project_id=p.id AND t.status='active') active_threads
+      `SELECT p.id,p.name,p.description,p.created_by,p.project_leader_id,p.created_at,p.archived_at,${projectImageUrlSql()} image,creator.name created_by_name,m.role,m.joined_at,m.tab_visible,m.tab_opened_at,m.tab_pinned_at,(SELECT COUNT(*) FROM threads t WHERE t.project_id=p.id AND t.status='active') active_threads
       FROM projects p JOIN users creator ON creator.id=p.created_by JOIN members m ON m.project_id=p.id WHERE m.user_id=? AND p.archived_at IS NULL${user.scope ? " AND p.id=?" : ""}
       ORDER BY m.tab_pinned_at DESC,m.tab_opened_at DESC,p.created_at DESC,p.id`,
       user.scope ? [user.id, user.scope] : [user.id],
@@ -489,14 +532,16 @@ export class Service extends DocumentsService {
       .object({
         name: title.max(120),
         description: z.string().max(4000).default(""),
+        image: projectImageSchema.nullish(),
       })
       .parse(input);
+    const image = data.image || null;
     const projectId = randomUUID();
     await transaction(this.db, async (db) => {
       await query(
         db,
-        "INSERT INTO projects(id,name,description,created_by,project_leader_id) VALUES(?,?,?,?,?)",
-        [projectId, data.name, data.description, user.id, user.id],
+        "INSERT INTO projects(id,name,description,image,created_by,project_leader_id) VALUES(?,?,?,?,?,?)",
+        [projectId, data.name, data.description, image, user.id, user.id],
       );
       await ensureProjectLibraryRoots(db, projectId);
       await query(
@@ -507,29 +552,52 @@ export class Service extends DocumentsService {
       await this.projectChange(db, projectId, user.id, "created", {
         name: data.name,
         description: data.description,
+        ...(image ? { image: "set" } : {}),
       });
     });
-    return { id: projectId, ...data };
+    return {
+      id: projectId,
+      name: data.name,
+      description: data.description,
+      image: projectImageUrl(projectId, image),
+    };
   }
-  async project(user, projectId, { display = false } = {}) {
+  async project(user, projectId, { display = false, includeLibrary = true } = {}) {
     await this.member(user, projectId);
-    await ensureProjectLibraryRoots(this.db, projectId);
-    const library = this.libraryQueries(projectId);
+    if (includeLibrary) await ensureProjectLibraryRoots(this.db, projectId);
+    const library = includeLibrary ? this.libraryQueries(projectId) : null;
     const projectQuery = query(
       this.db,
-      "SELECT p.*,creator.name created_by_name FROM projects p JOIN users creator ON creator.id=p.created_by WHERE p.id=?",
+      `SELECT p.id,p.name,p.description,p.created_by,p.project_leader_id,p.created_at,p.archived_at,${projectImageUrlSql()} image,creator.name created_by_name FROM projects p JOIN users creator ON creator.id=p.created_by WHERE p.id=?`,
       [projectId],
     );
     const threadsQuery = query(
       this.db,
-      `SELECT t.id,t.title,t.status,t.created_at,t.archived_at,t.created_by,u.name creator,
+      `SELECT t.id,t.title,t.background,t.goal,t.status,t.created_at,t.archived_at,t.created_by,u.name creator,
        GREATEST(t.created_at,COALESCE(t.archived_at,t.created_at),
-         COALESCE((SELECT MAX(m.created_at) FROM messages m WHERE m.thread_id=t.id),t.created_at),
-         COALESCE((SELECT MAX(COALESCE(e.finished_at,e.created_at)) FROM agent_events e JOIN messages m ON m.id=e.message_id WHERE m.thread_id=t.id),t.created_at),
-         COALESCE((SELECT MAX(COALESCE(r.finished_at,r.created_at)) FROM sandbox_runs r WHERE r.thread_id=t.id),t.created_at)
+         COALESCE(msg.last_message_at,t.created_at),
+         COALESCE(ev.last_event_at,t.created_at),
+         COALESCE(run.last_run_at,t.created_at)
        ) last_active_at
-       FROM threads t JOIN users u ON u.id=t.created_by WHERE t.project_id=? ORDER BY last_active_at DESC,t.created_at DESC`,
-      [projectId],
+       FROM threads t JOIN users u ON u.id=t.created_by
+       LEFT JOIN (
+         SELECT m.thread_id, MAX(m.created_at) last_message_at
+         FROM messages m JOIN threads tt ON tt.id=m.thread_id
+         WHERE tt.project_id=? GROUP BY m.thread_id
+       ) msg ON msg.thread_id=t.id
+       LEFT JOIN (
+         SELECT m.thread_id, MAX(COALESCE(e.finished_at,e.created_at)) last_event_at
+         FROM agent_events e JOIN messages m ON m.id=e.message_id
+         JOIN threads tt ON tt.id=m.thread_id
+         WHERE tt.project_id=? GROUP BY m.thread_id
+       ) ev ON ev.thread_id=t.id
+       LEFT JOIN (
+         SELECT r.thread_id, MAX(COALESCE(r.finished_at,r.created_at)) last_run_at
+         FROM sandbox_runs r JOIN threads tt ON tt.id=r.thread_id
+         WHERE tt.project_id=? GROUP BY r.thread_id
+       ) run ON run.thread_id=t.id
+       WHERE t.project_id=? ORDER BY last_active_at DESC,t.created_at DESC`,
+      [projectId, projectId, projectId, projectId],
     );
     const membersQuery = query(
       this.db,
@@ -543,16 +611,17 @@ export class Service extends DocumentsService {
        WHERE m.project_id=?`,
       [projectId],
     );
-    const [[project], threads, members, versions, folders, documentOrganizationJobs] =
-      await Promise.all([
-        projectQuery,
-        threadsQuery,
-        membersQuery,
-        library.versions,
-        library.folders,
-        library.documentOrganizationJobs,
-      ]);
-    const libraryVersions = this.mapLibraryVersions(versions, folders);
+    const [[project], threads, members, libraryRows, libraryRevision] = await Promise.all([
+      projectQuery,
+      threadsQuery,
+      membersQuery,
+      library
+        ? Promise.all([library.versions, library.folders, library.documentOrganizationJobs])
+        : Promise.resolve([[], [], []]),
+      this.libraryRevision(projectId),
+    ]);
+    const [versions, folders, documentOrganizationJobs] = libraryRows;
+    const libraryVersions = includeLibrary ? this.mapLibraryVersions(versions, folders) : [];
     const knowledgeModel = modelConfig("knowledge");
     const coordinatorModel = modelConfig("coordinator");
     const [projectSummary] = await query(
@@ -570,7 +639,7 @@ export class Service extends DocumentsService {
             lastThreadTitle: projectSummary.last_thread_title || null,
           }
         : null,
-      threads,
+      threads: await attachThreadReads(this.db, user.id, threads),
       members: [
         ...members.map((row) => {
           const {
@@ -613,9 +682,9 @@ export class Service extends DocumentsService {
           motto: `${coordinatorModel.model} · ${coordinatorModel.reasoningEffort}`,
         },
       ],
-      versions: libraryVersions,
-      folders,
-      documentOrganizationJobs,
+      libraryIncluded: includeLibrary,
+      libraryRevision,
+      ...(includeLibrary ? { versions: libraryVersions, folders, documentOrganizationJobs } : {}),
     };
   }
   async agentMonitor(user, projectId) {
@@ -637,6 +706,7 @@ export class Service extends DocumentsService {
       organizationJobs,
       organizationLast,
       archives,
+      archivePlans,
       archiveLast,
       l1Runs,
       l1RunLast,
@@ -748,6 +818,14 @@ export class Service extends DocumentsService {
         this.db,
         `SELECT id,title,archived_at,JSON_UNQUOTE(JSON_EXTRACT(archive_snapshot,'$.conclusion')) conclusion
           FROM threads WHERE project_id=? AND status='archived' ORDER BY archived_at DESC LIMIT 20`,
+        [projectId],
+      ),
+      query(
+        this.db,
+        `SELECT w.id,w.status,w.error,w.created_at,w.updated_at,w.finished_at,
+          JSON_UNQUOTE(JSON_EXTRACT(w.plan,'$.conclusion')) conclusion,t.title
+          FROM iteration_archive_workflows w JOIN threads t ON t.id=w.thread_id
+          WHERE t.project_id=? ORDER BY w.created_at DESC LIMIT 40`,
         [projectId],
       ),
       query(
@@ -920,6 +998,26 @@ export class Service extends DocumentsService {
           sessionStatus: archiveSession.status || "idle",
           runs: archiveRuns.filter((run) => run.thread_id === row.id).map(mapL1Run),
         })),
+        archiveHistory: [
+          ...archivePlans.map((row) => ({
+            id: `plan:${row.id}`,
+            kind: "plan",
+            title: row.title,
+            occurredAt: row.finished_at || row.updated_at || row.created_at,
+            conclusion: row.conclusion || "",
+            status: row.status,
+            error: row.error || null,
+          })),
+          ...archives.map((row) => ({
+            id: `record:${row.id}`,
+            kind: "record",
+            title: row.title,
+            occurredAt: row.archived_at,
+            conclusion: row.conclusion || "",
+            status: "archived",
+            error: null,
+          })),
+        ].sort((left, right) => new Date(right.occurredAt || 0) - new Date(left.occurredAt || 0)),
       },
       coordinators: coordinators.map((row) => {
         const session = l2Sessions.find((item) => item.thread_id === row.id) || {};
@@ -1282,6 +1380,11 @@ export class Service extends DocumentsService {
             "INSERT INTO members(project_id,user_id,role,joined_at,role_changed_at) VALUES(?,?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",
             [projectId, data.userId, data.role],
           );
+          await query(
+            db,
+            "INSERT INTO thread_reads(thread_id, user_id, last_read_sequence, read_at) SELECT id, ?, COALESCE((SELECT MAX(sequence) FROM messages WHERE thread_id=threads.id), 0), UTC_TIMESTAMP(3) FROM threads WHERE project_id=? ON DUPLICATE KEY UPDATE thread_id=thread_reads.thread_id",
+            [data.userId, projectId],
+          );
           const [sender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
           await this.notify(
             db,
@@ -1378,26 +1481,132 @@ export class Service extends DocumentsService {
       if (target.project_leader_id === userId || target.role === "project_admin")
         fail(409, "项目负责人和项目管理员身份需通过专属操作管理");
       if (target.role === role) return { projectId, userId, role };
-      await query(db, "UPDATE members SET role=?,role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?", [role, projectId, userId]);
+      await query(
+        db,
+        "UPDATE members SET role=?,role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?",
+        [role, projectId, userId],
+      );
       await this.projectChange(db, projectId, user.id, "member_role_changed", {
-        userId, userName: target.name, fromRole: target.role, toRole: role,
+        userId,
+        userName: target.name,
+        fromRole: target.role,
+        toRole: role,
       });
       return { projectId, userId, role };
     });
   }
+  beginIterationArchive(user, threadId) {
+    return beginIterationArchive(this, user, threadId);
+  }
+  readArchiveWorkflow(user, threadId) {
+    return readArchiveWorkflow(this, user, threadId);
+  }
+  cancelIterationArchive(user, threadId, input) {
+    return cancelIterationArchive(this, user, threadId, input);
+  }
+  retryIterationArchive(user, threadId, input) {
+    return retryIterationArchive(this, user, threadId, input);
+  }
+  confirmIterationArchive(user, threadId, input) {
+    return confirmIterationArchive(this, user, threadId, input);
+  }
+  async listIterationContextChanges(user, threadId, input = {}) {
+    const { page, pageSize } = z
+      .object({
+        page: z.coerce.number().int().min(1).max(1000000).default(1),
+        pageSize: z.coerce.number().int().min(1).max(50).default(10),
+      })
+      .parse(input);
+    await this.thread(user, threadId);
+    const [count] = await query(
+      this.db,
+      "SELECT COUNT(*) total FROM iteration_context_changes WHERE thread_id=?",
+      [threadId],
+    );
+    const rows = await query(
+      this.db,
+      `SELECT c.*,u.name initiator_name,r.name reviewer_name
+      FROM iteration_context_changes c LEFT JOIN users u ON u.id=c.changed_by
+      LEFT JOIN users r ON r.id=c.reviewed_by WHERE c.thread_id=?
+      ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?`,
+      [threadId, pageSize, (page - 1) * pageSize],
+    );
+    const context = (value) => (typeof value === "string" ? JSON.parse(value) : value);
+    return {
+      page,
+      pageSize,
+      total: Number(count.total),
+      items: rows.map((row) => ({
+        id: row.id,
+        source: row.source,
+        initiatorName: row.source === "agent" ? "迭代 Agent" : row.initiator_name || "已离开成员",
+        reviewerName: row.reviewer_name || null,
+        before: context(row.before_context),
+        after: context(row.after_context),
+        reason: row.reason,
+        createdAt: row.created_at,
+      })),
+    };
+  }
+  async updateThread(user, threadId, input, { source = "human" } = {}) {
+    const data = z
+      .object({
+        background: z.string().max(20000).optional(),
+        goal: z.string().max(20000).optional(),
+        reason: z.string().max(2000).default(""),
+      })
+      .refine(
+        (value) => value.background !== undefined || value.goal !== undefined,
+        "请提供背景或目标",
+      )
+      .parse(input);
+    return transaction(this.db, async (db) => {
+      const before = await this.thread(user, threadId, true, db);
+      await query(
+        db,
+        "UPDATE threads SET background=COALESCE(?,background),goal=COALESCE(?,goal) WHERE id=?",
+        [data.background ?? null, data.goal ?? null, threadId],
+      );
+      const previous = { background: before.background || "", goal: before.goal || "" };
+      const next = {
+        background: data.background ?? previous.background,
+        goal: data.goal ?? previous.goal,
+      };
+      if (previous.background !== next.background || previous.goal !== next.goal)
+        await query(
+          db,
+          "INSERT INTO iteration_context_changes(id,thread_id,changed_by,source,reason,before_context,after_context) VALUES(?,?,?,?,?,?,?)",
+          [
+            randomUUID(),
+            threadId,
+            user.id,
+            source,
+            data.reason,
+            JSON.stringify(previous),
+            JSON.stringify(next),
+          ],
+        );
+      return this.thread(user, threadId, false, db);
+    });
+  }
   async createThread(user, projectId, input) {
     await this.member(user, projectId, true);
-    const data = z.object({ title }).parse(input);
+    const data = z
+      .object({
+        title,
+        background: z.string().max(20000).default(""),
+        goal: z.string().max(20000).default(""),
+      })
+      .parse(input);
     const threadId = randomUUID();
     await transaction(this.db, async (db) => {
       await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);
       await this.assertDocumentScopeAvailable(db, projectId, null);
-      await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)", [
-        threadId,
-        projectId,
-        data.title,
-        user.id,
-      ]);
+      await query(
+        db,
+        "INSERT INTO threads(id,project_id,title,created_by,background,goal) VALUES(?,?,?,?,?,?)",
+        [threadId, projectId, data.title, user.id, data.background, data.goal],
+      );
       await this.createIterationFolders(db, projectId, threadId, data.title);
     });
     return { id: threadId, project_id: projectId, ...data };
@@ -1509,8 +1718,12 @@ export class Service extends DocumentsService {
       ...new Map([...(pending || []), ...messages].map((m) => [m.id, parseMessageRow(m)])).values(),
     ]);
     const quotedById = new Map(withQuotes.map((m) => [m.id, m]));
+    const readState = await threadReadSummary(db, user.id, threadId);
     return {
       ...thread,
+      last_read_sequence: readState.lastReadSequence,
+      unread_count: readState.unreadCount,
+      unread_mention: readState.unreadMention,
       contextUsage: contextUsage(
         agentContext,
         (pending || messages).map((m) => quotedById.get(m.id)),
@@ -1552,6 +1765,24 @@ export class Service extends DocumentsService {
     executionTargetUserId = null,
     folderRefs = [],
   ) {
+    if (typeof db.getConnection === "function") {
+      return iterationState.withIterationWrite(db, threadId, (conn) =>
+        this.insertMessage(
+          conn,
+          user,
+          threadId,
+          text,
+          refs,
+          source,
+          agentTaskId,
+          messageId,
+          executionTarget,
+          executionTargetUserId,
+          folderRefs,
+        ),
+      );
+    }
+    await iterationState.assertIterationWritable(db, threadId);
     const inserted = await query(
       db,
       "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs,agent_task_id,execution_target,execution_target_user_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -1614,14 +1845,78 @@ export class Service extends DocumentsService {
     return { id: messageId };
   }
 
+  async markThreadRead(user, threadId, input = {}) {
+    const thread = await this.thread(user, id.parse(threadId));
+    const sequence = z
+      .string()
+      .regex(/^\d+$/)
+      .parse(String(input.sequence || ""));
+    await saveThreadRead(this.db, user.id, thread.id, sequence);
+    return { ok: true, lastReadSequence: sequence };
+  }
   async listMessages(user, threadId, input = {}) {
     await this.thread(user, id.parse(threadId));
     const args = z
       .object({
         limit: z.number().int().min(1).max(100).default(20),
         beforeMessageId: id.optional(),
+        afterMessageId: id.optional(),
       })
       .parse(input);
+    if (args.beforeMessageId && args.afterMessageId)
+      fail(400, "beforeMessageId 与 afterMessageId 不能同时使用");
+    const read = await threadReadSummary(this.db, user.id, threadId);
+    if (args.afterMessageId) {
+      const [anchor] = await query(
+        this.db,
+        "SELECT sequence FROM messages WHERE id=? AND thread_id=?",
+        [args.afterMessageId, threadId],
+      );
+      if (!anchor) fail(404, "消息不存在于当前会话");
+      const [latest] = await query(
+        this.db,
+        `SELECT id, sequence FROM messages WHERE thread_id=? AND NOT (source='human' AND agent_task_id IS NOT NULL) ORDER BY sequence DESC LIMIT 1`,
+        [threadId],
+      );
+      if (!latest || BigInt(latest.sequence) <= BigInt(anchor.sequence)) {
+        return {
+          threadId,
+          messages: [],
+          changed: false,
+          read,
+          page: {
+            hasMore: false,
+            beforeMessageId: null,
+            afterMessageId: args.afterMessageId,
+            latestMessageId: latest?.id || null,
+          },
+        };
+      }
+      const rows = await query(
+        this.db,
+        `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.folder_refs,m.author_id,u.name author,m.created_at
+        FROM messages m JOIN users u ON u.id=m.author_id WHERE m.thread_id=? AND NOT (m.source='human' AND m.agent_task_id IS NOT NULL) AND m.sequence>?
+        ORDER BY m.sequence ASC LIMIT ?`,
+        [threadId, anchor.sequence, args.limit + 1],
+      );
+      const hasMore = rows.length > args.limit;
+      const messages = await attachMessageQuotes(
+        this.db,
+        rows.slice(0, args.limit).map(parseMessageRow),
+      );
+      return {
+        threadId,
+        messages,
+        changed: true,
+        read,
+        page: {
+          hasMore,
+          beforeMessageId: messages[0]?.id || null,
+          afterMessageId: messages.at(-1)?.id || args.afterMessageId,
+          latestMessageId: latest.id,
+        },
+      };
+    }
     let sequence;
     if (args.beforeMessageId) {
       const [anchor] = await query(
@@ -1644,7 +1939,12 @@ export class Service extends DocumentsService {
       this.db,
       rows.slice(0, args.limit).reverse().map(parseMessageRow),
     );
-    return { threadId, messages, page: { hasMore, beforeMessageId: messages[0]?.id || null } };
+    return {
+      threadId,
+      messages,
+      read,
+      page: { hasMore, beforeMessageId: messages[0]?.id || null },
+    };
   }
   async readMessage(user, threadId, messageId, before = 0) {
     await this.thread(user, id.parse(threadId));

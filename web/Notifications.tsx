@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { UiIcon } from "./ui-icon";
+import { ProjectMark } from "./ProjectMark";
 import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
 import { PaginationControl } from "./PaginationControl";
 
 type Kind = "all" | "mention" | "member_added" | "member_removed";
-type Notice = { id: string; kind: Exclude<Kind, "all">; title: string; sender_name: string; body: string; project_name: string; read_at: string | null; created_at: string; can_open: boolean; thread_id: string | null };
+type Notice = { id: string; kind: Exclude<Kind, "all">; title: string; sender_name: string; body: string; project_name: string; project_image?: string | null; read_at: string | null; created_at: string; can_open: boolean; thread_id: string | null };
 type Page = { items: Notice[]; unread: number; counts: Partial<Record<Kind, { total: number; unread: number }>>; next: string | null };
 const tabs: { id: Kind; label: string; icon: "inbox" | "mention" | "userPlus" | "trash" }[] = [
   { id: "all", label: "全部", icon: "inbox" },
@@ -128,7 +129,7 @@ export function Notifications({ api, onOpen }: {
           {!selected || loading ? <div className="notification-detail-empty"><UiIcon name="inbox" size={28} /><p>选择左侧消息，查看详情</p></div> : <>
             <span className="notification-kind"><UiIcon name={tabs.find((item) => item.id === selected.kind)?.icon || "inbox"} size={12} />{tabs.find((item) => item.id === selected.kind)?.label}</span>
             <h3>{selected.title}</h3>
-            <div className="notification-meta"><span>发送人：{selected.sender_name}</span><time>{time(selected.created_at)}</time><span>项目：{selected.project_name}</span></div>
+            <div className="notification-meta"><span>发送人：{selected.sender_name}</span><time>{time(selected.created_at)}</time><span className="notification-project"><ProjectMark name={selected.project_name} image={selected.project_image} size={16} />项目：{selected.project_name}</span></div>
             <p className="notification-body">{selected.body}</p>
             <div className="notification-actions">
               {!!selected.can_open && <button disabled={busy} onClick={() => void act(async () => { const target = await api(`/notifications/${selected.id}/open`, {}); onOpen(target); setOpen(false); })}><UiIcon name={selected.thread_id ? "chat" : "project"} size={13} />{selected.thread_id ? "打开迭代会话" : "进入项目"}</button>}

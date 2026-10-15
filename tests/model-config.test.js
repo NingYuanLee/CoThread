@@ -91,6 +91,10 @@ test("compatible request and DSH route use the configured model", () => withMode
   assert.match(patch, /contextWindow: 1000000/);
   assert.match(patch, /maxTokens: 131072/);
   assert.match(patch, /reasoningEfforts:\s+off: none\s+minimal: minimal\s+low: low\s+medium: medium\s+high: high\s+xhigh: xhigh\s+max: max/);
+  assert.doesNotMatch(patch, /streamIdleTimeoutMs/);
+  const knowledge = dshModelPatch(config, "knowledge");
+  assert.match(knowledge, /streamIdleTimeoutMs: 90000/);
+  assert.match(knowledge, /maxRetries: 1/);
   assert.equal(patch.includes("secret-value"), false);
   assert.equal(redactSecrets("failed secret-value"), "failed [REDACTED]");
 }));

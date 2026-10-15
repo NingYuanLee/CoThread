@@ -14,6 +14,7 @@ import {
   adminRoleOptions,
   listAdminRoles,
 } from "../server/admin-rbac.js";
+import { IMPLICIT_ADMIN_PERMISSIONS } from "../shared/admin-permissions.js";
 import { listAdminWork, updateAdminWork, adminTaskDetail } from "../server/admin-work.js";
 
 test("RBAC reuses members, unions roles, revokes live access and prevents escalation", async () => {
@@ -30,7 +31,7 @@ test("RBAC reuses members, unions roles, revokes live access and prevents escala
         [user.id, `${user.id}@test.com`, "测试成员", "unused", user.id === admin.id],
       );
     const service = new Service(db);
-    assert.deepEqual((await adminAccess(db, member)).permissions, []);
+    assert.deepEqual((await adminAccess(db, member)).permissions, IMPLICIT_ADMIN_PERMISSIONS);
     await assert.rejects(service.adminAccounts(member), { status: 403 });
     await assert.rejects(adminAccess(db, { ...admin, kind: "api" }), { status: 403 });
     const reader = await saveAdminRole(db, admin, null, {

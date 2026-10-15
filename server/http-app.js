@@ -7,6 +7,7 @@ import { appendL3TaskSession, readL3TaskSession } from "./l3-session.js";
 import { readVisualArtifact } from "./visual-artifacts.js";
 import { queueDocumentOrganization } from "./document-organization.js";
 import { queueL1MemoryRun } from "./project-memory.js";
+import { kickArchiveDraft, reviseArchiveSummary, suggestArchiveContinuation, suggestArchivePriorities } from "./iteration-archive.js";
 import { assertMemoryMaintenanceAuth, runMemoryMaintenance } from "./memory-maintenance.js";
 import express from "express";
 import { adminPermissionForRequest, ADMIN_PERMISSION_TREE } from "../shared/admin-permissions.js";
@@ -20,6 +21,9 @@ import {
   assignAdminRoles,
 } from "./admin-rbac.js";
 import { listAdminWork, adminTaskDetail, updateAdminWork } from "./admin-work.js";
+import { listAccountChanges, listAccountLogins } from "./account-audit.js";
+import { listMyProjects, listMyWork, myProjectImage, myProjectMemberAvatar, myTaskDetail } from "./my-work.js";
+import { parseStoredImage } from "./project-image.js";
 import { emptyLibraryRecycle, libraryChange } from "./documents/index.js";
 import { countDocumentChanges, listDocumentChanges } from "./documents/index.js";
 import { z, ZodError } from "zod/v3";
@@ -508,7 +512,7 @@ export function createApp(
       throw error;
     }
     appendCookie(res, sessionCookie(result.session.token, req), true);
-    res.status(201).json(personalProfile(result.user));
+    res.status(201).json({ ...personalProfile(result.user), sessionToken: result.session.token });
   });
   app.post("/api/email/recover/request", async (req, res) => {
     const data = z
@@ -564,7 +568,7 @@ export function createApp(
       return { user, session: await issueCredential(conn, user.id, "session", "邮箱找回密码") };
     });
     appendCookie(res, sessionCookie(result.session.token, req), true);
-    res.json(personalProfile(result.user));
+    res.json({ ...personalProfile(result.user), sessionToken: result.session.token });
   });
   app.post("/api/login", async (req, res) => {
     const data = z
@@ -574,12 +578,13 @@ export function createApp(
         password: z.string().min(1).max(200),
         humanChallengeId: z.string().uuid().optional(),
         humanAnswer: z.string().trim().min(1).max(12).optional(),
+        remember: z.boolean().optional(),
       })
       .transform((value) => ({
         ...value,
         identifier: (value.identifier || value.email || "").toLowerCase(),
       }))
-      .refine((value) => value.identifier, "请输入账号或邮箱")
+      .refine((value) => value.identifier, "请输入用户名或邮箱")
       .parse(req.body);
     const browserHash = await requireHumanWhenNeeded(req, res, data, "auth");
     const now = Date.now();
@@ -630,8 +635,47 @@ export function createApp(
     attempts.delete(key);
     await clearActivity(browserHash, "auth_login_failure");
     const session = await issueCredential(db, user.id, "session", "浏览器登录");
+    if (data.remember) {
+      await query(
+        db,
+        "INSERT INTO browser_accounts(browser_hash,user_id,last_login_at) VALUES(?,?,UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE last_login_at=UTC_TIMESTAMP(3)",
+        [browserHash, user.id],
+      );
+    } else {
+      await query(db, "DELETE FROM browser_accounts WHERE browser_hash=? AND user_id=?", [browserHash, user.id]);
+    }
     appendCookie(res, sessionCookie(session.token, req), true);
-    res.json(personalProfile(user));
+    res.json({ ...personalProfile(user), sessionToken: session.token });
+  });
+  app.post("/api/session/switch", async (req, res) => {
+    const data = z.object({ token: z.string().trim().min(20).max(200) }).parse(req.body);
+    const [row] = await query(
+      db,
+      "SELECT u.id,u.user_number,u.username,u.name,u.email,u.avatar,u.motto,u.identity_tags,u.is_super_admin,u.ui_theme,c.kind FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.token_hash=? AND c.expires_at>UTC_TIMESTAMP(3) AND u.disabled_at IS NULL",
+      [digest(data.token)],
+    );
+    if (!row || row.kind !== "session") throw new HttpError(401, "该账号登录已过期，请重新登录");
+    appendCookie(res, sessionCookie(data.token, req), true);
+    res.json(personalProfile(row));
+  });
+  app.get("/api/session/known-accounts", async (req, res) => {
+    const browserHash = browserIdentity(req, res);
+    const rows = await query(
+      db,
+      "SELECT u.id,u.user_number,u.username,u.name,u.email,u.avatar,u.motto,u.identity_tags,u.is_super_admin,u.ui_theme FROM users u JOIN browser_accounts b ON b.user_id=u.id WHERE b.browser_hash=? AND u.disabled_at IS NULL ORDER BY b.last_login_at DESC",
+      [browserHash],
+    );
+    res.json(rows.map((row) => personalProfile(row)));
+  });
+  app.post("/api/session/detach", async (req, res) => {
+    appendCookie(res, sessionCookie("", req));
+    res.json({ ok: true });
+  });
+  app.post("/api/session/forget", async (req, res) => {
+    const browserHash = browserIdentity(req, res);
+    const data = z.object({ userId: z.string().uuid() }).parse(req.body);
+    await query(db, "DELETE FROM browser_accounts WHERE browser_hash=? AND user_id=?", [browserHash, data.userId]);
+    res.json({ ok: true });
   });
   app.use(["/api", "/mcp"], async (req, res, next) => {
     req.user = await authenticate(db, req);
@@ -792,6 +836,41 @@ export function createApp(
     );
     res.json(personalProfile({ ...req.user, ...data }));
   });
+  app.patch("/api/me/username", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "请在浏览器中修改用户名");
+    const data = z
+      .object({
+        username: z.string().trim().min(3, "用户名至少需要 3 位").max(80),
+        currentPassword: z.string().min(1, "请输入当前密码").max(200),
+      })
+      .parse(req.body);
+    const [account] = await query(db, "SELECT password_hash FROM users WHERE id=?", [req.user.id]);
+    if (!(await verifyPassword(data.currentPassword, account.password_hash)))
+      throw new HttpError(400, "当前密码错误");
+    if (data.username !== req.user.username) {
+      const taken = await query(
+        db,
+        "SELECT id FROM users WHERE id<>? AND (LOWER(username)=LOWER(?) OR LOWER(email)=LOWER(?))",
+        [req.user.id, data.username, data.username],
+      );
+      if (taken.length) throw new HttpError(409, "该用户名已被使用");
+      try {
+        await query(db, "UPDATE users SET username=? WHERE id=?", [data.username, req.user.id]);
+      } catch (error) {
+        if (error.code === "ER_DUP_ENTRY") throw new HttpError(409, "该用户名已被使用");
+        throw error;
+      }
+      await service.accountChange(db, req.user.id, req.user.id, "username_updated", {
+        username: data.username,
+      });
+    }
+    const [profile] = await query(
+      db,
+      "SELECT id,user_number,username,name,email,avatar,motto,identity_tags,is_super_admin,ui_theme FROM users WHERE id=?",
+      [req.user.id],
+    );
+    res.json(personalProfile(profile));
+  });
   app.patch("/api/me/theme", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "请在浏览器中修改主题");
     const theme = normalizeUiTheme(
@@ -815,6 +894,20 @@ export function createApp(
     await query(db, "DELETE FROM credentials WHERE id=?", [req.user.credential_id]);
     appendCookie(res, sessionCookie("", req));
     res.json({ ok: true });
+  });
+  app.post("/api/session/remember", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "请在浏览器中保存登录");
+    const session = await issueCredential(db, req.user.id, "session", "账号切换");
+    if (req.user.credential_id) {
+      await query(db, "DELETE FROM credentials WHERE id=? AND user_id=?", [req.user.credential_id, req.user.id]);
+    }
+    appendCookie(res, sessionCookie(session.token, req), true);
+    const [profile] = await query(
+      db,
+      "SELECT id,user_number,username,name,email,avatar,motto,identity_tags,is_super_admin,ui_theme FROM users WHERE id=?",
+      [req.user.id],
+    );
+    res.json({ ...personalProfile(profile), sessionToken: session.token });
   });
   app.post("/api/password", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "请在浏览器中修改密码");
@@ -891,6 +984,20 @@ export function createApp(
     res.setHeader("Cache-Control", "private, no-cache, must-revalidate");
     res.type(image[1]).send(Buffer.from(image[2], "base64"));
   });
+  app.get("/api/admin/projects/:id/image", async (req, res) => {
+    const access = await adminAccess(db, req.user);
+    if (
+      !["projects", "accounts", "iterations", "tasks"].some((key) =>
+        access.permissions.includes(key),
+      )
+    )
+      throw new HttpError(403, "没有此管理操作的权限");
+    const [project] = await query(db, "SELECT image FROM projects WHERE id=?", [req.params.id]);
+    const image = parseStoredImage(project?.image);
+    if (!image) throw new HttpError(404, "项目图片不存在");
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.type(image[1]).send(Buffer.from(image[2], "base64"));
+  });
   app.get("/api/admin/projects/:projectId/members/:userId/avatar", async (req, res) => {
     const [member] = await query(
       db,
@@ -918,6 +1025,38 @@ export function createApp(
   app.get("/api/admin/tasks/:id", async (req, res) =>
     res.json(await adminTaskDetail(db, req.user, req.params.id)),
   );
+  app.get("/api/admin/my/projects", async (req, res) =>
+    res.json(await listMyProjects(db, req.user)),
+  );
+  app.get("/api/admin/my/projects/:projectId/image", async (req, res) => {
+    const image = parseStoredImage(
+      await myProjectImage(db, req.user, req.params.projectId),
+    );
+    if (!image) throw new HttpError(404, "项目图片不存在");
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.type(image[1]).send(Buffer.from(image[2], "base64"));
+  });
+  app.get("/api/admin/my/projects/:projectId/members/:userId/avatar", async (req, res) => {
+    const avatar = await myProjectMemberAvatar(
+      db,
+      req.user,
+      req.params.projectId,
+      req.params.userId,
+    );
+    const image = avatar?.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/);
+    if (!image) throw new HttpError(404, "头像不存在");
+    res.setHeader("Cache-Control", "private, no-cache, must-revalidate");
+    res.type(image[1]).send(Buffer.from(image[2], "base64"));
+  });
+  app.get("/api/admin/my/iterations", async (req, res) =>
+    res.json(await listMyWork(db, req.user, "iterations", req.query)),
+  );
+  app.get("/api/admin/my/tasks", async (req, res) =>
+    res.json(await listMyWork(db, req.user, "tasks", req.query)),
+  );
+  app.get("/api/admin/my/tasks/:id", async (req, res) =>
+    res.json(await myTaskDetail(db, req.user, req.params.id)),
+  );
   app.get("/api/admin/projects", async (req, res) =>
     res.json(await service.adminProjects(req.user)),
   );
@@ -938,6 +1077,12 @@ export function createApp(
   );
   app.get("/api/admin/accounts", async (req, res) =>
     res.json(await service.adminAccounts(req.user)),
+  );
+  app.get("/api/admin/account-changes", async (req, res) =>
+    res.json(await listAccountChanges(db, req.user, req.query)),
+  );
+  app.get("/api/admin/account-logins", async (req, res) =>
+    res.json(await listAccountLogins(db, req.user, req.query)),
   );
   app.post("/api/admin/accounts", async (req, res) =>
     res.status(201).json(await service.createUser(req.user, req.body)),
@@ -966,7 +1111,10 @@ export function createApp(
   );
   app.get("/api/projects/:id", async (req, res) =>
     res.json(
-      await service.project(req.user, req.params.id, { display: req.query.view === "chat" }),
+      await service.project(req.user, req.params.id, {
+        display: req.query.view === "chat",
+        includeLibrary: req.query.library !== "0",
+      }),
     ),
   );
   app.get("/api/projects/:id/library", async (req, res) => {
@@ -1895,6 +2043,9 @@ export function createApp(
   app.post("/api/projects/:id/threads", async (req, res) =>
     res.status(201).json(await service.createThread(req.user, req.params.id, req.body)),
   );
+  app.post("/api/threads/:id/read", async (req, res) =>
+    res.json(await service.markThreadRead(req.user, req.params.id, req.body || {})),
+  );
   app.get("/api/threads/:id", async (req, res) =>
     // Default to the lightweight chat payload. Full message lists without pagination
     // previously inlined avatars/tool I/O and could exceed tens of MiB on busy threads.
@@ -1920,6 +2071,14 @@ export function createApp(
     );
     if (!event) throw new HttpError(404, "执行记录不存在");
     res.json(event);
+  });
+  app.get("/api/projects/:id/image", async (req, res) => {
+    await service.member(req.user, req.params.id);
+    const [project] = await query(db, "SELECT image FROM projects WHERE id=?", [req.params.id]);
+    const image = parseStoredImage(project?.image);
+    if (!image) throw new HttpError(404, "项目图片不存在");
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.type(image[1]).send(Buffer.from(image[2], "base64"));
   });
   app.get("/api/projects/:id/members/:userId/avatar", async (req, res) => {
     await service.member(req.user, req.params.id);
@@ -1991,9 +2150,44 @@ export function createApp(
         await service.branchOutputVersion(req.user, req.params.id, req.params.versionId, req.body),
       ),
   );
-  app.post("/api/threads/:id/archive", async (req, res) =>
-    res.json(await service.archive(req.user, req.params.id, req.body)),
+  app.get("/api/threads/:id/archive", async (req, res) =>
+    res.json(await service.readArchiveWorkflow(req.user, req.params.id)),
   );
+  app.post("/api/threads/:id/archive/next-draft", async (req, res) =>
+    res.json(await suggestArchiveContinuation(service, req.user, req.params.id, req.body)),
+  );
+  app.post("/api/threads/:id/archive/prioritize", async (req, res) =>
+    res.json(await suggestArchivePriorities(service, req.user, req.params.id, req.body)),
+  );
+  app.post("/api/threads/:id/archive/revise", async (req, res) =>
+    res.json(await reviseArchiveSummary(service, req.user, req.params.id, req.body)),
+  );
+  app.post("/api/threads/:id/archive/cancel", async (req, res) =>
+    res.json(await service.cancelIterationArchive(req.user, req.params.id, req.body)),
+  );
+  app.post("/api/threads/:id/archive/retry", async (req, res) => {
+    const result = await service.retryIterationArchive(req.user, req.params.id, req.body);
+    const thread = await service.thread(req.user, req.params.id);
+    // 梳理不依赖进程内唤醒与 60s 兜底轮询，请求一返回就踢起来。
+    await kickArchiveDraft(service, thread.project_id);
+    return res.json(result);
+  });
+  app.post("/api/threads/:id/archive/confirm", async (req, res) =>
+    res.json(await service.confirmIterationArchive(req.user, req.params.id, req.body)),
+  );
+  app.get("/api/threads/:id/context-changes", async (req, res) =>
+    res.json(await service.listIterationContextChanges(req.user, req.params.id, req.query)),
+  );
+  app.patch("/api/threads/:id", async (req, res) =>
+    res.json(await service.updateThread(req.user, req.params.id, req.body)),
+  );
+  app.post("/api/threads/:id/archive", async (req, res) => {
+    const result = await service.archive(req.user, req.params.id, req.body);
+    const thread = await service.thread(req.user, req.params.id);
+    // 梳理不依赖进程内唤醒与 60s 兜底轮询，请求一返回就踢起来。
+    await kickArchiveDraft(service, thread.project_id);
+    return res.json(result);
+  });
   app.post("/api/threads/:id/restore", async (req, res) =>
     res.json(await service.restoreArchivedThread(req.user, req.params.id)),
   );

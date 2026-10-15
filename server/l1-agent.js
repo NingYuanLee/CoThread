@@ -4,7 +4,7 @@ import { resolve, join } from "node:path";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { query } from "./db.js";
 import { assetPath } from "./assets.js";
-import { restoreSessionCheckpoint } from "./agent-checkpoint.js";
+import { hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.js";
 import { dshModelMaxTokens, dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { l1RuntimePatch } from "./dsh-runtime-config.js";
@@ -51,6 +51,18 @@ async function sampleHistory(harness, sessionId) {
   }
 }
 
+function providerFailure(result) {
+  const events = Array.isArray(result?.events) ? result.events : [];
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index];
+    if (event?.type !== "turn/end") continue;
+    const reason = event.data?.reason;
+    if (reason?.kind !== "error") return null;
+    return String(reason.error?.message || reason.message || "模型没有返回结果").slice(0, 500);
+  }
+  return null;
+}
+
 function parseJsonResponse(text) {
   const source = String(text || "").trim();
   if (!source) throw new SyntaxError("L1 返回空内容，无法解析 JSON");
@@ -62,6 +74,15 @@ function parseJsonResponse(text) {
     const embedded = candidate.match(/\{[\s\S]*\}|\[[\s\S]*\]/)?.[0];
     if (embedded && embedded !== candidate) {
       try { return JSON.parse(embedded); } catch { /* fall through */ }
+    }
+    // 模型偶尔会多写一个右花括号（例如 conclusion 提前收尾后继续写 taskDecisions），
+    // 使整份结果不可解析。逐个去掉「紧跟字符串值、后面仍是键值对」的多余 } 再试，
+    // 解析成功与否由调用方 schema 继续把关。
+    for (const match of candidate.matchAll(/"\}(?=\s*,")/g)) {
+      const index = match.index + 1;
+      try {
+        return JSON.parse(candidate.slice(0, index) + candidate.slice(index + 1));
+      } catch { /* 继续尝试下一个候选 */ }
     }
     const hint = candidate.slice(0, 120).replace(/\s+/g, " ");
     throw new SyntaxError(`L1 返回无法解析的 JSON: ${error.message}; preview=${hint}`);
@@ -92,6 +113,13 @@ async function openL1Harness(db, projectId, session, scope, options = {}) {
     }).toString());
     await restoreSessionCheckpoint(files, home);
   }
+  // A run that created the session log but failed before saving a checkpoint still
+  // owns that id on disk; re-creating it fails with 'session "<id>" already exists'
+  // on every retry, so resume whenever the log is present.
+  const resumeSessionId =
+    Boolean(session.checkpoint) || (await hasSessionLog(home, session.session_id))
+      ? session.session_id
+      : "";
   const runtimePatch = join(home, "l1-runtime.yml");
   const modelPatch = join(home, "l1-model.yml");
   await writeFile(runtimePatch, l1RuntimePatch());
@@ -105,18 +133,22 @@ async function openL1Harness(db, projectId, session, scope, options = {}) {
     COTHREAD_SKILLS_BY_LEVEL: JSON.stringify({ l1: capabilityProfile.instructions }),
     COTHREAD_SYSTEM_PROMPTS_BY_LEVEL: JSON.stringify({ l1: capabilityProfile.systemPrompt }),
     COTHREAD_PRIMARY_AGENT_LEVEL: "l1", COTHREAD_PRIMARY_AGENT_ID: session.session_id,
+    // sdk-resume only opens an existing log when this matches. A named prompt
+    // otherwise creates, and the restored checkpoint then collides.
+    COTHREAD_RESUME_SESSION: resumeSessionId,
     HOME: home, USERPROFILE: home });
+  const harnessOptions = {
+    profile: "sdk-minimal", dshHome: home, processCwd: home, cwd: home,
+    patches: [modelPatch, assetPath("runtime/l1-agent-patch.yml"), runtimePatch], env,
+    provider: "cothread-compatible", model: configuredModel.model,
+    initializeTimeoutMs: 30000, requestTimeoutMs: 600000,
+    maxTokens: dshModelMaxTokens(configuredModel, "knowledge"),
+  };
   const createHarness = options.createHarness || (async () => {
     const { DeepSeekHarness } = await import("@deepseek-ai/dsh-sdk-client");
-    return new DeepSeekHarness({
-      profile: "sdk-minimal", dshHome: home, processCwd: home, cwd: home,
-      patches: [modelPatch, assetPath("runtime/l1-agent-patch.yml"), runtimePatch], env,
-      provider: "cothread-compatible", model: configuredModel.model,
-      initializeTimeoutMs: 30000, requestTimeoutMs: 600000,
-      maxTokens: dshModelMaxTokens(configuredModel, "knowledge"),
-    });
+    return new DeepSeekHarness(harnessOptions);
   });
-  const harness = await createHarness();
+  const harness = await createHarness(harnessOptions);
   await harness.start();
   return { harness, home };
 }
@@ -206,6 +238,8 @@ export async function runL1Task(db, projectId, task, input, schema, options = {}
         ? [{ type: "text", text: prompt }, { type: "image", data: options.image.data, mimeType: options.image.mimeType || "image/png" }]
         : prompt;
       const result = await harness.run(promptInput, { sessionId: session.session_id });
+      const failure = providerFailure(result);
+      if (failure) throw new Error(failure);
       await beginPhase("validate_result");
       const parsed = schema.parse(parseJsonResponse(result.finalResponse));
       const contextStats = await sampleContextStats(harness, session.session_id);

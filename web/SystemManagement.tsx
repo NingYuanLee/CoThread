@@ -4,6 +4,9 @@ import { showTip } from "./Tip";
 import { AdminRoleAssignment } from "./AdminRoleAssignment";
 import { AdminDialog, AdminConfirmDialog, type AdminConfirmation } from "./AdminDialog";
 import { PaginationControl } from "./PaginationControl";
+import { ProjectMark } from "./ProjectMark";
+import { actionNames, changeSummary, type ChangeLog } from "./change-log";
+import { ProjectImageField } from "./ProjectSettings";
 
 type Api = (path: string, data?: unknown, method?: string) => Promise<any>;
 type AdminProject = {
@@ -16,6 +19,7 @@ type AdminProject = {
   archived_at: string | null;
   project_leader_id: string | null;
   creator_avatar: string | null;
+  image?: string | null;
   role_migration_issue: { issue_type: string; candidate_user_ids: string[] } | null;
   can_recover_legacy_roles: boolean;
   members: {
@@ -40,20 +44,7 @@ type AdminAccount = {
   email: string | null;
   is_super_admin: number;
   disabled_at: string | null;
-  projects: { id: string; name: string; role: string; archived_at: string | null }[];
-  changes: ChangeLog[];
-  logins: LoginLog[];
-};
-type ChangeLog = { action: string; actor: string; details: unknown; created_at: string };
-type LoginLog = {
-  ip: string;
-  country: string | null;
-  province: string | null;
-  city: string | null;
-  district: string | null;
-  success: number;
-  failure_reason: string | null;
-  created_at: string;
+  projects: { id: string; name: string; role: string; archived_at: string | null; image?: string | null }[];
 };
 type AgentLevel = "l1" | "l2" | "l3";
 type PromptSkill = {
@@ -150,68 +141,6 @@ const utcDate = (value: string) =>
   new Date(value.includes("T") ? value : value.replace(" ", "T") + "Z");
 const date = (value: string) => utcDate(value).toLocaleDateString("zh-CN");
 const dateTime = (value: string) => utcDate(value).toLocaleString("zh-CN");
-const actionNames: Record<string, string> = {
-  created: "新建",
-  archived: "归档",
-  restored: "恢复",
-  profile_updated: "变更资料",
-  member_added: "添加成员",
-  member_removed: "移出成员",
-  member_role_changed: "调整成员角色",
-  leader_transferred: "转移项目主",
-  admin_added: "添加项目管理",
-  admin_removed: "撤销项目管理",
-  leader_migration_resolved: "核定历史项目主",
-  password_changed: "修改密码",
-  password_reset: "重置密码",
-  disabled: "停用账号",
-  enabled: "启用账号",
-  registered: "邮箱注册",
-  email_bound: "绑定邮箱",
-  password_recovered: "邮箱重置密码",
-};
-
-function changeSummary(change: ChangeLog) {
-  let details: any = change.details;
-  if (typeof details === "string") {
-    try {
-      details = JSON.parse(details);
-    } catch {
-      return "";
-    }
-  }
-  if (!details || typeof details !== "object") return "";
-  if (change.action === "profile_updated") {
-    const before = details.before || {};
-    const after = details.after || {};
-    const parts = [];
-    if (before.name !== after.name)
-      parts.push(`名称：${before.name || "（空）"} → ${after.name || "（空）"}`);
-    if (before.description !== after.description)
-      parts.push(`简介：${before.description || "（空）"} → ${after.description || "（空）"}`);
-    return parts.join("；");
-  }
-  if (change.action === "leader_transferred")
-    return `${details.fromUserName || "原负责人"} → ${details.toUserName || "新负责人"}`;
-  if (change.action === "member_role_changed") {
-    const roleNames: Record<string, string> = { member: "普通成员", viewer: "只读成员" };
-    return `${details.userName || details.userId || "成员"}：${roleNames[details.fromRole] || details.fromRole} → ${roleNames[details.toRole] || details.toRole}`;
-  }
-  if (
-    [
-      "admin_added",
-      "admin_removed",
-      "member_added",
-      "member_removed",
-      "member_role_changed",
-      "leader_migration_resolved",
-    ].includes(change.action)
-  )
-    return details.userName || details.userId || "";
-  if (change.action === "created") return details.name || "";
-  return "";
-}
-
 function SystemPromptContent({ level }: { level: PluginLevel }) {
   return (
     <>
@@ -439,7 +368,7 @@ function RecordDetails({
 }: {
   item: AdminProject | AdminAccount;
   isProject: boolean;
-  section: "details" | "related" | "changes" | "logins";
+  section: "details" | "related" | "changes";
   api: Api;
   onProjectRolesRecovered: () => Promise<void>;
 }) {
@@ -448,7 +377,7 @@ function RecordDetails({
   const project = item as AdminProject,
     account = item as AdminAccount;
   const related = isProject ? project.members : account.projects;
-  const listItems: any[] = section === "related" ? related : section === "changes" ? item.changes : section === "logins" && !isProject ? account.logins : [];
+  const listItems: any[] = section === "related" ? related : isProject && section === "changes" ? project.changes : [];
   const visibleListItems = listItems.slice((listPage - 1) * listPageSize, listPage * listPageSize);
   useEffect(() => {
     setListPage(1);
@@ -461,7 +390,16 @@ function RecordDetails({
       {section === "details" && (
         <dl className="admin-info-grid">
           <dt>{isProject ? "项目名称" : "姓名"}</dt>
-          <dd>{item.name}</dd>
+          <dd>
+            {isProject ? (
+              <span className="admin-project-person">
+                <ProjectMark name={project.name} image={project.image} size={28} />
+                <span>{item.name}</span>
+              </span>
+            ) : (
+              item.name
+            )}
+          </dd>
           {isProject ? (
             <>
               <dt>项目简介</dt>
@@ -523,13 +461,13 @@ function RecordDetails({
                 {project.members.filter((member) => ["project_leader", "project_admin"].includes(member.role)).length} / {project.members.length}
               </dd>
               <dt>状态</dt>
-              <dd>{project.archived_at ? "已归档" : "正常"}</dd>
+              <dd>{project.archived_at ? "已结项" : "正常"}</dd>
             </>
           ) : (
             <>
               <dt>用户 ID</dt>
               <dd>{account.user_number}</dd>
-              <dt>账号</dt>
+              <dt>用户名</dt>
               <dd>{account.username}</dd>
               <dt>邮箱</dt>
               <dd>{account.email || "未绑定"}</dd>
@@ -550,7 +488,7 @@ function RecordDetails({
               <thead>
                 <tr>
                   <th>{isProject ? "成员" : "项目"}</th>
-                  <th>{isProject ? "账号" : "状态"}</th>
+                  <th>{isProject ? "用户名" : "状态"}</th>
                   <th>{isProject ? "项目角色" : "账号角色"}</th>
                   {isProject && (
                     <>
@@ -574,9 +512,14 @@ function RecordDetails({
                             )}
                           </span>
                         </span>
-                      ) : value.name}
+                      ) : (
+                        <span className="admin-project-person">
+                          <ProjectMark name={value.name} image={value.image} size={22} />
+                          <span>{value.name}</span>
+                        </span>
+                      )}
                     </td>
-                    <td>{isProject ? value.username : value.archived_at ? "已归档" : "正常"}</td>
+                    <td>{isProject ? value.username : value.archived_at ? "已结项" : "正常"}</td>
                     <td className={isProject ? `admin-project-role admin-project-role-${value.role}` : undefined}>
                       {({
                         project_leader: "项目主",
@@ -606,7 +549,7 @@ function RecordDetails({
           {listItems.length > 0 && <PaginationControl total={listItems.length} currentPage={listPage} pageSize={listPageSize} pageSizeOptions={[10, 20, 50]} onPageChange={setListPage} onPageSizeChange={(size) => { setListPageSize(size); setListPage(1); }} ariaLabel="详情关联列表分页" />}
         </>
       )}
-      {section === "changes" && (
+      {isProject && section === "changes" && (
         <>
           <div className="admin-table-wrap">
             <table className="admin-table">
@@ -628,7 +571,7 @@ function RecordDetails({
                     <td>{dateTime(change.created_at)}</td>
                   </tr>
                 ))}
-                {!item.changes.length && (
+                {!project.changes.length && (
                   <tr>
                     <td colSpan={3} className="admin-empty">
                       暂无变更记录
@@ -639,48 +582,6 @@ function RecordDetails({
             </table>
           </div>
           {listItems.length > 0 && <PaginationControl total={listItems.length} currentPage={listPage} pageSize={listPageSize} pageSizeOptions={[10, 20, 50]} onPageChange={setListPage} onPageSizeChange={(size) => { setListPageSize(size); setListPage(1); }} ariaLabel="变更记录分页" />}
-        </>
-      )}
-      {!isProject && section === "logins" && (
-        <>
-          <div className="admin-table-wrap">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>结果</th>
-                  <th>IP / 归属地</th>
-                  <th>时间</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleListItems.map((login, index) => (
-                  <tr key={index}>
-                    <td>
-                      {login.success ? "成功" : "失败"}
-                      <small>{login.failure_reason}</small>
-                    </td>
-                    <td>
-                      {login.ip}
-                      <small>
-                        {[login.country, login.province, login.city, login.district]
-                          .filter(Boolean)
-                          .join(" - ") || "归属地未知"}
-                      </small>
-                    </td>
-                    <td>{dateTime(login.created_at)}</td>
-                  </tr>
-                ))}
-                {!account.logins.length && (
-                  <tr>
-                    <td colSpan={3} className="admin-empty">
-                      暂无登录记录
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          {listItems.length > 0 && <PaginationControl total={listItems.length} currentPage={listPage} pageSize={listPageSize} pageSizeOptions={[10, 20, 50]} onPageChange={setListPage} onPageSizeChange={(size) => { setListPageSize(size); setListPage(1); }} ariaLabel="登录记录分页" />}
         </>
       )}
     </>
@@ -753,6 +654,9 @@ export function SystemManagement({
   onProjectsChanged,
   onAccessChanged,
   permissions,
+  listPath,
+  notice,
+  onOpenAudit,
 }: {
   section: "projects" | "accounts" | "plugins";
   api: Api;
@@ -760,6 +664,9 @@ export function SystemManagement({
   onProjectsChanged: () => Promise<void>;
   onAccessChanged: () => Promise<void>;
   permissions: string[];
+  listPath?: string;
+  notice?: string;
+  onOpenAudit?: (page: "account-changes" | "account-logins", userNumber: number) => void;
 }) {
   const can = (permission: string) => permissions.includes(permission);
   const [search, setSearch] = useState("");
@@ -769,15 +676,14 @@ export function SystemManagement({
   const [projects, setProjects] = useState<AdminProject[]>([]);
   const [accounts, setAccounts] = useState<AdminAccount[]>([]);
   const [expanded, setExpanded] = useState("");
-  const [detailSection, setDetailSection] = useState<"details" | "related" | "changes" | "logins">(
-    "details",
-  );
+  const [detailSection, setDetailSection] = useState<"details" | "related" | "changes">("details");
   const [assignment, setAssignment] = useState<AdminAccount | null>(null);
   const openDetail = (id: string, section: typeof detailSection) => {
     setExpanded(id);
     setDetailSection(section);
   };
   const [creating, setCreating] = useState(false);
+  const [createImage, setCreateImage] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<AdminProject | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -798,7 +704,7 @@ export function SystemManagement({
   const load = async () => {
     setLoading(true);
     try {
-      if (section === "projects") setProjects(await api("/admin/projects"));
+      if (section === "projects") setProjects(await api(listPath || "/admin/projects"));
       else if (section === "accounts") setAccounts(await api("/admin/accounts"));
       else setPlugins(await api("/admin/plugins"));
     } finally {
@@ -817,7 +723,7 @@ export function SystemManagement({
     setSearch("");
     setStatus("all");
     void load().catch((e) => setError(e.message));
-  }, [section]);
+  }, [section, listPath]);
   const action = async (work: () => Promise<void>, success?: string) => {
     setBusy(true);
     setError("");
@@ -833,7 +739,7 @@ export function SystemManagement({
     }
   };
   const loginDetails = (value: { username: string; value: string }) =>
-    `网站：${document.title}\n访问地址：${window.location.origin}\n账号：${value.username}\n密码：${value.value}`;
+    `网站：${document.title}\n访问地址：${window.location.origin}\n用户名：${value.username}\n密码：${value.value}`;
   const feedback = error && (
     <div className="error" role="alert">
       {error}
@@ -1127,7 +1033,9 @@ export function SystemManagement({
       await api("/admin/projects", {
         name,
         description: String(fields.get("description") || "").trim(),
+        ...(createImage ? { image: createImage } : {}),
       });
+      setCreateImage(null);
       await onProjectsChanged();
     } else {
       const result = await api("/admin/accounts", {
@@ -1156,12 +1064,13 @@ export function SystemManagement({
   };
   return (
     <div className="admin-manager">
+      {notice && <p className="admin-list-note">{notice}</p>}
       <div className="admin-filters">
         <label className="admin-search">
           <UiIcon name="search" size={14} />
           <input
             aria-label="搜索项目或成员"
-            placeholder={isProject ? "搜索项目名称、简介或项目创始人" : "搜索姓名、账号或用户 ID"}
+            placeholder={isProject ? "搜索项目名称、简介或项目创始人" : "搜索姓名、用户名或用户 ID"}
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
@@ -1169,10 +1078,10 @@ export function SystemManagement({
         <select aria-label="状态筛选" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
           <option value="all">全部状态</option>
           <option value="active">正常</option>
-          <option value="inactive">{isProject ? "已归档" : "已停用"}</option>
+          <option value="inactive">{isProject ? "已结项" : "已停用"}</option>
         </select>
         {can(`${section}.create`) && (
-          <button className="primary" onClick={() => setCreating(true)}>
+          <button className="primary" onClick={() => { setCreateImage(null); setCreating(true); }}>
             <UiIcon name="plus" size={13} />
             {isProject ? "新增项目" : "新增成员"}
           </button>
@@ -1185,7 +1094,7 @@ export function SystemManagement({
             <tr>
               {!isProject && <th className="admin-avatar-column">头像</th>}
               <th>{isProject ? "项目名称" : "成员"}</th>
-              <th>{isProject ? "项目创始人" : "账号"}</th>
+              <th>{isProject ? "项目创始人" : "用户名"}</th>
               {isProject && <th>项目主</th>}
               <th>{isProject ? "管理员 / 总成员" : "加入项目"}</th>
               <th>状态</th>
@@ -1211,10 +1120,11 @@ export function SystemManagement({
                     )}
                     <td>
                       <button
-                        className="admin-table-link"
+                        className="admin-table-link admin-project-name"
                         onClick={() => openDetail(item.id, "details")}
                       >
-                        {item.name}
+                        {isProject && <ProjectMark name={project.name} image={project.image} size={22} />}
+                        <span>{item.name}</span>
                       </button>
                       <small>
                         {isProject
@@ -1255,7 +1165,7 @@ export function SystemManagement({
                     </td>
                     <td>
                       <span className={`status-badge ${inactive ? "inactive" : ""}`}>
-                        {inactive ? (isProject ? "已归档" : "已停用") : "正常"}
+                        {inactive ? (isProject ? "已结项" : "已停用") : "正常"}
                       </span>
                     </td>
                     <td>
@@ -1274,12 +1184,23 @@ export function SystemManagement({
                         <button onClick={() => openDetail(item.id, "related")}>
                           {isProject ? "成员" : "项目"}
                         </button>
-                        <button onClick={() => openDetail(item.id, "changes")}>
-                          {isProject ? "记录" : "变更记录"}
-                        </button>
-                        {!isProject && (
-                          <button onClick={() => openDetail(item.id, "logins")}>登录记录</button>
+                        {isProject ? (
+                          <button onClick={() => openDetail(item.id, "changes")}>记录</button>
+                        ) : (
+                          onOpenAudit &&
+                          (account.id === currentUserId || can("account-changes.view-all")) && (
+                            <button onClick={() => onOpenAudit("account-changes", account.user_number)}>
+                              变更记录
+                            </button>
+                          )
                         )}
+                        {!isProject &&
+                          onOpenAudit &&
+                          (account.id === currentUserId || can("account-logins.view-all")) && (
+                            <button onClick={() => onOpenAudit("account-logins", account.user_number)}>
+                              登录记录
+                            </button>
+                          )}
                         {!isProject && !account.is_super_admin && can("roles.assign") && (
                           <button disabled={busy} onClick={() => setAssignment(account)}>
                             Admin角色
@@ -1313,14 +1234,14 @@ export function SystemManagement({
                                 isProject
                                   ? inactive
                                     ? "项目已恢复"
-                                    : "项目已归档"
+                                    : "项目已结项"
                                   : inactive
                                     ? "成员已恢复"
                                     : "成员已停用",
                               )
                             }
                           >
-                            {inactive ? "恢复" : isProject ? "归档" : "停用"}
+                            {inactive ? "恢复" : isProject ? "结项" : "停用"}
                           </button>
                         )}
                         {!isProject && !account.is_super_admin && can("accounts.reset-password") && (
@@ -1373,7 +1294,7 @@ export function SystemManagement({
       </div>
       {detailItem && (
         <AdminDialog
-          title={`${detailItem.name} · ${detailSection === "details" ? (isProject ? "项目详情" : "成员详情") : detailSection === "related" ? (isProject ? "项目成员" : "加入的项目") : detailSection === "changes" ? "变更记录" : "登录记录"}`}
+          title={`${detailItem.name} · ${detailSection === "details" ? (isProject ? "项目详情" : "成员详情") : detailSection === "related" ? (isProject ? "项目成员" : "加入的项目") : "变更记录"}`}
           onClose={() => setExpanded("")}
         >
           <RecordDetails
@@ -1447,7 +1368,7 @@ export function SystemManagement({
       {creating && (
         <AdminDialog
           title={isProject ? "新增项目" : "新增成员"}
-          onClose={() => setCreating(false)}
+          onClose={() => { setCreateImage(null); setCreating(false); }}
           busy={busy}
         >
           {(close) => (
@@ -1465,13 +1386,16 @@ export function SystemManagement({
                 <input autoFocus required name="name" maxLength={isProject ? 120 : 80} />
               </label>
               {isProject ? (
+                <>
+                <ProjectImageField image={createImage} busy={busy} onChange={setCreateImage} />
                 <label>
                   项目简介
                   <textarea name="description" maxLength={4000} placeholder="选填" />
                 </label>
+                </>
               ) : (
                 <label>
-                  账号名
+                  用户名
                   <input required name="username" maxLength={80} />
                 </label>
               )}
@@ -1493,11 +1417,11 @@ export function SystemManagement({
           onClose={() => setPassword(null)}
         >
           <div className="admin-password">
-            <p>账号：{password.username}</p>
+            <p>用户名：{password.username}</p>
             <code>{password.value}</code>
             <p>
               {password.initial && password.copied
-                ? "网站、访问地址、账号和密码已自动复制。"
+                ? "网站、访问地址、用户名和密码已自动复制。"
                 : "请立即交给账号本人。关闭后无法再次查看。"}
             </p>
             <button
@@ -1508,7 +1432,7 @@ export function SystemManagement({
                     setPassword({ ...password, copied: true });
                     showTip("登录信息已复制");
                   } catch {
-                    showTip("浏览器未允许写入剪贴板，请手动复制账号和密码。", "error");
+                    showTip("浏览器未允许写入剪贴板，请手动复制用户名和密码。", "error");
                   }
                 })()
               }

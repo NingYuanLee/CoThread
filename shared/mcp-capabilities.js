@@ -13,7 +13,7 @@ export const MCP_CAPABILITIES = Object.freeze([
   { name: "upload_file_chunk", group: "文档与目录", title: "上传文件分片", description: "按原始字节切片上传；index、片内容 Base64、片 sha256。不要按 Base64 字符串切片。", access: "write", icon: "upload" },
   { name: "complete_file_upload", group: "文档与目录", title: "完成分片上传", description: "合并分片并校验整文件哈希，成功才写入文档库，返回版本 ID。", access: "write", icon: "check" },
   { name: "get_iteration_context", group: "迭代与消息", title: "迭代与会话上下文", description: "读取迭代元数据、讨论、消息、引用、审核和归档信息；不是 Agent 内部 prompt/context。", access: "read", icon: "chat" },
-  { name: "list_messages", group: "迭代与消息", title: "消息列表", description: "读取指定会话的消息和引用预览。", access: "read", icon: "list" },
+  { name: "list_messages", group: "迭代与消息", title: "消息列表", description: "读取指定会话的消息和引用预览。传入 afterMessageId 可只探询之后有没有新消息。", access: "read", icon: "list" },
   { name: "read_message", group: "迭代与消息", title: "读取消息", description: "读取单条消息及其引用消息预览。", access: "read", icon: "detail" },
   { name: "upload_cache_draft", group: "群聊发言", title: "上传对话缓存", description: "仅 ≤6144 字节；必须带整文件 sha256。更大文件用 start_file_upload（kind=cache_draft）。返回版本 ID 放入 post_message.refs。", access: "write", icon: "upload" },
   { name: "post_message", group: "群聊发言", title: "发送消息", description: "向指定迭代发送消息；refs 引用文件版本，folderRefs 引用文件夹，并可请求 Agent 回复。", access: "write", icon: "send" },

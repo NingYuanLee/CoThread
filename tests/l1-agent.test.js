@@ -2,6 +2,8 @@ import { gzipSync } from "node:zlib";
 import { test, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { z } from "zod/v3";
 import { testDatabase } from "./database.js";
 
@@ -35,6 +37,7 @@ test("L1 keeps a durable DSH session per maintenance agent and validates structu
     );
     const project = await new Service(database.db).createProject(user, { name: "L1 DSH" });
     const sessionIds = [];
+    const resumeSessions = [];
     const outputs = [
       JSON.stringify({ summary: "第一次" }),
       JSON.stringify({ summary: "第二次" }),
@@ -47,9 +50,10 @@ test("L1 keeps a durable DSH session per maintenance agent and validates structu
         model: "test",
         reasoningEffort: "medium",
       },
-      createHarness: () => ({
+      createHarness: (harnessOptions) => ({
         async start() {},
         async run(_prompt, runOptions) {
+          resumeSessions.push(harnessOptions.env.COTHREAD_RESUME_SESSION);
           sessionIds.push(runOptions.sessionId);
           return { finalResponse: outputs.shift() };
         },
@@ -72,6 +76,7 @@ test("L1 keeps a durable DSH session per maintenance agent and validates structu
     assert.equal(sessionIds.length, 3);
     assert.notEqual(sessionIds[0], sessionIds[1]);
     assert.equal(sessionIds[0], sessionIds[2]);
+    assert.deepEqual(resumeSessions, ["", "", sessionIds[0]]);
     const sessions = await query(
       database.db,
       "SELECT task,status,last_error,checkpoint IS NOT NULL has_checkpoint FROM agent_project_sessions WHERE project_id=? ORDER BY task",
@@ -217,6 +222,25 @@ test("iteration archive reuses one L1 session per project and updates project lo
     const second = await service.createThread(user, project.id, { title: "第二轮" });
     await service.archive(user, first.id, { conclusion: "确定采用方案 A" });
     await service.archive(user, second.id, { conclusion: "方案 A 已上线，下一步做推广" });
+    for (const target of [first, second]) {
+      await processNextProjectMemory(database.db, {
+        projectId: project.id,
+        task: "iteration_archive",
+        summarizeArchive: async (context) => ({
+          conclusion:
+            context.thread.id === first.id ? "确定采用方案 A" : "方案 A 已上线，下一步做推广",
+          taskDecisions: [],
+          notes: "",
+          nextIteration: { title: "", background: "", goal: "" },
+        }),
+      });
+      const workflow = await service.readArchiveWorkflow(user, target.id);
+      await service.confirmIterationArchive(user, target.id, {
+        ...workflow,
+        workflowId: workflow.id,
+        createNextIteration: false,
+      });
+    }
     const sessionIds = [];
     const outputs = [
       JSON.stringify({ summary: "项目总结：确定采用方案 A" }),
@@ -366,4 +390,82 @@ test("L1 auto-compacts resident context at 900K and accepts a manual compact", a
     );
   } finally {
   }
+});
+
+test("L1 resumes the on-disk session log when the checkpoint was never saved", async () => {
+  const user = { id: randomUUID(), kind: "session" };
+  await query(
+    database.db,
+    "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+    [user.id, `${user.id}@test.com`, "负责人"],
+  );
+  const project = await new Service(database.db).createProject(user, { name: "L1 会话恢复" });
+  const sessionIds = [];
+  const resumeSessions = [];
+  const options = {
+    model: {
+      baseUrl: "http://127.0.0.1:1/v1",
+      apiKey: "test",
+      model: "test",
+      reasoningEffort: "medium",
+    },
+    createHarness: (harnessOptions) => ({
+      async start() {},
+      async run(_prompt, runOptions) {
+        resumeSessions.push(harnessOptions.env.COTHREAD_RESUME_SESSION);
+        sessionIds.push(runOptions.sessionId);
+        return { finalResponse: JSON.stringify({ summary: "ok" }) };
+      },
+      async close() {},
+    }),
+  };
+  const schema = z.object({ summary: z.string() });
+  const home = resolve(".local/agents", `l1-document_memory-${project.id}`);
+  try {
+    await runL1Task(database.db, project.id, "document_memory", {}, schema, options);
+    // 运行留下了会话日志，但快照没落库：磁盘上仍占着这个 id，
+    // 下一次若按“无快照就新建”处理就会一直报 session already exists。
+    const logDir = join(home, "sessions", "resume-home", sessionIds[0]);
+    await mkdir(logDir, { recursive: true });
+    await writeFile(join(logDir, "session.v4.jsonl"), "{}\n");
+    await query(
+      database.db,
+      "UPDATE agent_project_sessions SET checkpoint=NULL WHERE project_id=? AND task='document_memory'",
+      [project.id],
+    );
+    await runL1Task(database.db, project.id, "document_memory", {}, schema, options);
+    assert.equal(sessionIds[0], sessionIds[1]);
+    assert.deepEqual(resumeSessions, ["", sessionIds[0]]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("L1 repairs a stray closing brace instead of failing the whole run", async () => {
+  const user = { id: randomUUID(), kind: "session" };
+  await query(
+    database.db,
+    "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+    [user.id, `${user.id}@test.com`, "负责人"],
+  );
+  const project = await new Service(database.db).createProject(user, { name: "L1 JSON 修复" });
+  const options = {
+    model: {
+      baseUrl: "http://127.0.0.1:1/v1",
+      apiKey: "test",
+      model: "test",
+      reasoningEffort: "medium",
+    },
+    createHarness: () => ({
+      async start() {},
+      async run() {
+        // 线上样本：模型在首字段后多写了一个 }，然后继续写其余字段。
+        return { finalResponse: '{"summary":"修好了"},"extra":"多余内容"}' };
+      },
+      async close() {},
+    }),
+  };
+  const schema = z.object({ summary: z.string() });
+  const result = await runL1Task(database.db, project.id, "document_memory", {}, schema, options);
+  assert.equal(result.summary, "修好了");
 });

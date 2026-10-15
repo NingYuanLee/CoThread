@@ -46,7 +46,7 @@ export function MemberPicker({ projectId, api, onClose, onAdded }: {
         {visible.map((account) => (
           <div className="member" key={account.id}>
             <span className="avatar">{account.avatar ? <img src={account.avatar} alt="" /> : account.name[0]}</span>
-            <div><strong>{account.name}</strong><small>账号：{account.username}{account.email ? ` · ${account.email}` : ""}</small></div>
+            <div><strong>{account.name}</strong><small>用户名：{account.username}{account.email ? ` · ${account.email}` : ""}</small></div>
             <button type="button" className="primary" disabled={!!busy} onClick={() => {
               setBusy(account.id); setError("");
               void api(`/projects/${projectId}/members`, { userId: account.id, role })

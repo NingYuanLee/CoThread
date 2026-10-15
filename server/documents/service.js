@@ -207,6 +207,32 @@ export class DocumentsService {
       ),
     };
   }
+  async libraryRevision(projectId) {
+    const [row] = await query(
+      this.db,
+      `SELECT
+        (SELECT COUNT(*) FROM artifacts WHERE project_id=? AND purged_at IS NULL) artifact_count,
+        (SELECT DATE_FORMAT(MAX(updated_at), '%Y-%m-%d %H:%i:%s.%f') FROM artifacts WHERE project_id=? AND purged_at IS NULL) artifact_at,
+        (SELECT COUNT(*) FROM versions v JOIN artifacts a ON a.id=v.artifact_id WHERE a.project_id=? AND a.purged_at IS NULL) version_count,
+        (SELECT DATE_FORMAT(MAX(v.created_at), '%Y-%m-%d %H:%i:%s.%f') FROM versions v JOIN artifacts a ON a.id=v.artifact_id WHERE a.project_id=? AND a.purged_at IS NULL) version_at,
+        (SELECT COUNT(*) FROM document_folders WHERE project_id=?) folder_count,
+        (SELECT DATE_FORMAT(MAX(updated_at), '%Y-%m-%d %H:%i:%s.%f') FROM document_folders WHERE project_id=?) folder_at,
+        (SELECT COUNT(*) FROM document_organization_jobs WHERE project_id=?) job_count,
+        (SELECT DATE_FORMAT(MAX(created_at), '%Y-%m-%d %H:%i:%s.%f') FROM document_organization_jobs WHERE project_id=?) job_at`,
+      Array(8).fill(projectId),
+    );
+    if (!row) return "0";
+    return [
+      row.artifact_count,
+      row.artifact_at,
+      row.version_count,
+      row.version_at,
+      row.folder_count,
+      row.folder_at,
+      row.job_count,
+      row.job_at,
+    ].join("|");
+  }
   mapLibraryVersions(versions, folders) {
     return versions.map((version) => {
       const root = folderRootKindInList(version.folder_id, folders);
@@ -228,6 +254,7 @@ export class DocumentsService {
       folders,
       versions: this.mapLibraryVersions(versions, folders),
       documentOrganizationJobs,
+      libraryRevision: await this.libraryRevision(projectId),
     };
   }
   async refs(db, projectId, refs) {
@@ -1090,89 +1117,7 @@ export class DocumentsService {
     return { id: reviewId, messageId: message.id };
   }
   async archive(user, threadId, input = {}) {
-    if (user.kind !== "session") fail(403, "归档需要人工登录");
-    const data = z
-      .object({ conclusion: z.string().trim().max(20000).optional() })
-      .parse(input || {});
-    const conclusion = data.conclusion?.trim() || "";
-    const snapshot = await transaction(this.db, async (db) => {
-      const thread = await this.thread(user, threadId, true, db);
-      const [running] = await query(
-        db,
-        "SELECT id FROM sandbox_runs WHERE thread_id=? AND status='running' LIMIT 1",
-        [threadId],
-      );
-      if (running) fail(409, "请等待执行结束后再归档");
-      const [agent] = await query(
-        db,
-        `SELECT r.message_id FROM assistant_replies r JOIN messages m ON m.id=r.message_id WHERE m.thread_id=? AND (r.status='running' OR r.execution_active=TRUE) LIMIT 1`,
-        [threadId],
-      );
-      if (agent) fail(409, "请先停止 Agent，或等待任务完成后再归档");
-      await query(
-        db,
-        `UPDATE assistant_replies r JOIN messages m ON m.id=r.message_id
-        SET r.status='cancelled',r.finished_at=UTC_TIMESTAMP(3) WHERE m.thread_id=? AND r.status IN ('queued','running')`,
-        [threadId],
-      );
-      await this.insertMessage(db, user, threadId, "迭代已归档", [], "system");
-      const context = await this.context(user, threadId, db);
-      const folderIds = [...new Set(context.messages.flatMap((m) => m.folder_refs || []))];
-      const folderVersions = await latestVersionsByFolderRoots(db, thread.project_id, folderIds);
-      const versionIds = [
-        ...new Set([
-          ...context.messages.flatMap((m) => m.refs),
-          ...[...folderVersions.values()].flatMap((rows) => rows.map((row) => row.version_id)),
-        ]),
-      ];
-      const versions = [];
-      for (const versionId of versionIds) {
-        const [v] = await query(
-          db,
-          "SELECT id,artifact_id,version,filename,sha256,byte_size FROM versions WHERE id=?",
-          [versionId],
-        );
-        const reviews = await query(
-          db,
-          "SELECT id,reviewer_id,decision,comment,created_at FROM reviews WHERE version_id=? ORDER BY created_at,id",
-          [versionId],
-        );
-        versions.push({ ...v, reviews });
-      }
-      const snapshot = {
-        schemaVersion: 1,
-        projectId: thread.project_id,
-        threadId,
-        conclusion,
-        archivedBy: user.id,
-        archivedAt: new Date().toISOString(),
-        messages: context.messages,
-        versions,
-        reviews: context.reviews,
-        runs: context.runs,
-      };
-      await query(
-        db,
-        "UPDATE threads SET status='archived',archive_snapshot=?,archived_at=UTC_TIMESTAMP(3) WHERE id=?",
-        [JSON.stringify(snapshot), threadId],
-      );
-      const [existing] = await query(
-        db,
-        `SELECT id,status FROM agent_l1_runs
-        WHERE project_id=? AND task='iteration_archive' AND thread_id=? AND status IN ('queued','running') LIMIT 1`,
-        [thread.project_id, threadId],
-      );
-      if (!existing)
-        await query(
-          db,
-          `INSERT INTO agent_l1_runs(id,project_id,thread_id,task,trigger_source,requested_by)
-        VALUES(?,?,?,'iteration_archive','user',?)`,
-          [randomUUID(), thread.project_id, threadId, user.id],
-        );
-      return snapshot;
-    });
-    publishWork(this.db);
-    return snapshot;
+    return this.beginIterationArchive(user, threadId, input);
   }
   async archivedThread(user, threadId, write = false, db = this.db) {
     id.parse(threadId);
@@ -1190,7 +1135,9 @@ export class DocumentsService {
     if (user.kind !== "session") fail(403, "恢复迭代需要人工登录");
     return transaction(this.db, async (db) => {
       await this.archivedThread(user, threadId, true, db);
-      await query(db, "UPDATE threads SET status='active', archived_at=NULL WHERE id=?", [threadId]);
+      await query(db, "UPDATE threads SET status='active', archived_at=NULL WHERE id=?", [
+        threadId,
+      ]);
       return { id: threadId, status: "active" };
     }).then((result) => {
       publishWork(this.db, threadId);
@@ -1201,6 +1148,12 @@ export class DocumentsService {
     if (user.kind !== "session") fail(403, "删除迭代需要人工登录");
     return transaction(this.db, async (db) => {
       const thread = await this.archivedThread(user, threadId, true, db);
+      const [task] = await query(
+        db,
+        "SELECT id FROM agent_tasks WHERE origin_thread_id=? LIMIT 1",
+        [threadId],
+      );
+      if (task) fail(409, "此迭代仍保留任务记录，不能删除以免任务脱离迭代");
       const messageIds = (
         await query(db, "SELECT id FROM messages WHERE thread_id=?", [threadId])
       ).map((row) => row.id);
@@ -1244,8 +1197,16 @@ export class DocumentsService {
       const versionIds = [...new Set(versionIdRows.map((row) => row.id))];
       if (versionIds.length) {
         const placeholders = versionIds.map(() => "?").join(",");
-        await query(db, `DELETE FROM agent_exports WHERE version_id IN (${placeholders})`, versionIds);
-        await query(db, `DELETE FROM version_recycle WHERE version_id IN (${placeholders})`, versionIds);
+        await query(
+          db,
+          `DELETE FROM agent_exports WHERE version_id IN (${placeholders})`,
+          versionIds,
+        );
+        await query(
+          db,
+          `DELETE FROM version_recycle WHERE version_id IN (${placeholders})`,
+          versionIds,
+        );
         await query(db, `DELETE FROM reviews WHERE version_id IN (${placeholders})`, versionIds);
         await query(db, `DELETE FROM versions WHERE id IN (${placeholders})`, versionIds);
       }
@@ -1260,7 +1221,11 @@ export class DocumentsService {
           );
           if (!leafIds.length) fail(500, "无法删除迭代文件夹");
           const leafPlaceholders = leafIds.map(() => "?").join(",");
-          await query(db, `DELETE FROM document_folders WHERE id IN (${leafPlaceholders})`, leafIds);
+          await query(
+            db,
+            `DELETE FROM document_folders WHERE id IN (${leafPlaceholders})`,
+            leafIds,
+          );
           for (const leafId of leafIds) remaining.delete(leafId);
         }
       }

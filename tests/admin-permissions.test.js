@@ -16,6 +16,15 @@ test("functions imply page and menu but read permissions never grant write acces
 
 test("admin request permissions fail closed and separate read and action access", () => {
   assert.equal(adminPermissionForRequest("GET", "/access"), null);
+  assert.equal(adminPermissionForRequest("GET", "/my/projects"), null);
+  assert.equal(adminPermissionForRequest("GET", "/my/iterations"), null);
+  assert.equal(adminPermissionForRequest("GET", "/my/tasks"), null);
+  assert.equal(adminPermissionForRequest("GET", "/my/tasks/example"), null);
+  assert.equal(adminPermissionForRequest("GET", "/my/projects/example/members/user/avatar"), null);
+  assert.equal(adminPermissionForRequest("GET", "/my/projects/example/image"), null);
+  assert.equal(adminPermissionForRequest("GET", "/projects/example/image"), null);
+  assert.equal(adminPermissionForRequest("POST", "/my/projects"), false);
+  assert.equal(adminPermissionForRequest("PATCH", "/my/tasks/example"), false);
   assert.equal(adminPermissionForRequest("GET", "/projects"), "projects");
   assert.equal(adminPermissionForRequest("POST", "/projects"), "projects.create");
   assert.equal(adminPermissionForRequest("PATCH", "/projects/example/archive"), "projects.archive");
@@ -26,6 +35,19 @@ test("admin request permissions fail closed and separate read and action access"
   assert.equal(adminPermissionForRequest("GET", "/accounts/example/role-options"), "roles.assign");
   assert.equal(adminPermissionForRequest("POST", "/accounts/example/role-options"), false);
   assert.equal(adminPermissionForRequest("GET", "/accounts/example/avatar"), "accounts");
+  assert.equal(adminPermissionForRequest("GET", "/account-changes"), "account-changes");
+  assert.equal(adminPermissionForRequest("GET", "/account-logins"), "account-logins");
+  assert.equal(adminPermissionForRequest("POST", "/account-changes"), false);
+  assert.deepEqual(expandAdminPermissions(["account-changes.view-all"]), [
+    "organization",
+    "account-changes",
+    "account-changes.view-all",
+  ]);
+  assert.deepEqual(expandAdminPermissions(["account-logins.view-all"]), [
+    "organization",
+    "account-logins",
+    "account-logins.view-all",
+  ]);
   assert.equal(adminPermissionForRequest("POST", "/plugins/skills"), "plugins.create");
   assert.equal(adminPermissionForRequest("PATCH", "/plugins/skills/example"), "plugins.update");
   assert.equal(adminPermissionForRequest("DELETE", "/plugins/skills/example"), "plugins.archive");

@@ -1,3 +1,4 @@
+import { completeArchiveRequest } from "./archive-helper.js";
 import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { openAgentRuntime } from "../server/agent.js";
@@ -17,28 +18,19 @@ import { processNextContextCompression } from "../server/context-compression.js"
 import { MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js";
 
 let database;
-let db,
-  server,
-  base,
-  owner,
-  outsider,
-  viewer,
-  project,
-  iteration,
-  version1,
-  apiToken;
+let db, server, base, owner, outsider, viewer, project, iteration, version1, apiToken;
 const userIds = [];
 const projectIds = [];
 const password = "Test-only!Password-" + randomUUID();
+const archiveRequest = (path, data, credential) =>
+  completeArchiveRequest(db, request, path, data, credential);
 async function request(path, data, credential, method) {
   const res = await fetch(`${base}/api${path}`, {
     method: method || (data === undefined ? "GET" : "POST"),
     headers: {
       "Content-Type": "application/json",
       ...(credential?.cookie ? { Cookie: credential.cookie } : {}),
-      ...(credential?.token
-        ? { Authorization: `Bearer ${credential.token}` }
-        : {}),
+      ...(credential?.token ? { Authorization: `Bearer ${credential.token}` } : {}),
     },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
@@ -46,7 +38,11 @@ async function request(path, data, credential, method) {
   return {
     status: res.status,
     body: result,
-    cookie: res.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ") || undefined,
+    cookie:
+      res.headers
+        .getSetCookie()
+        .map((value) => value.split(";")[0])
+        .join("; ") || undefined,
   };
 }
 before(async () => {
@@ -59,11 +55,12 @@ before(async () => {
     const id = randomUUID();
     const email = `test-${id}@example.com`;
     userIds.push(id);
-    await query(
-      db,
-      "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-      [id, email, name, await hashPassword(password)],
-    );
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      id,
+      email,
+      name,
+      await hashPassword(password),
+    ]);
     const result = await request("/login", { email, password });
     assert.equal(result.status, 200);
     return { ...result, id, email, kind: "session" };
@@ -107,21 +104,18 @@ after(async () => {
       [projectId],
     );
     await query(db, "DELETE FROM artifacts WHERE project_id=?", [projectId]);
-    await query(
-      db,
-      "UPDATE document_folders SET parent_id=NULL WHERE project_id=?",
-      [projectId],
-    );
-    await query(db, "DELETE FROM document_folders WHERE project_id=?", [
-      projectId,
-    ]);
+    await query(db, "UPDATE document_folders SET parent_id=NULL WHERE project_id=?", [projectId]);
+    await query(db, "DELETE FROM document_folders WHERE project_id=?", [projectId]);
     await query(db, "DELETE FROM threads WHERE project_id=?", [projectId]);
     await query(db, "DELETE FROM members WHERE project_id=?", [projectId]);
     await query(db, "DELETE FROM projects WHERE id=?", [projectId]);
   }
   for (const id of userIds) {
     await query(db, "DELETE FROM login_logs WHERE user_id=?", [id]);
-    await query(db, "DELETE FROM account_change_logs WHERE target_user_id=? OR actor_user_id=?", [id, id]);
+    await query(db, "DELETE FROM account_change_logs WHERE target_user_id=? OR actor_user_id=?", [
+      id,
+      id,
+    ]);
     await query(db, "DELETE FROM credentials WHERE user_id=?", [id]);
     await query(db, "DELETE FROM users WHERE id=?", [id]);
   }
@@ -137,10 +131,7 @@ test("authentication, project scope, origin validation, and viewer permissions",
   assert.equal(res.status, 201);
   project = res.body.id;
   projectIds.push(project);
-  assert.equal(
-    (await request(`/projects/${project}`, undefined, outsider)).status,
-    403,
-  );
+  assert.equal((await request(`/projects/${project}`, undefined, outsider)).status, 403);
   assert.equal(
     (
       await request(
@@ -152,30 +143,14 @@ test("authentication, project scope, origin validation, and viewer permissions",
     201,
   );
   assert.equal(
-    (
-      await request(
-        `/projects/${project}/threads`,
-        { title: "Forbidden" },
-        viewer,
-      )
-    ).status,
+    (await request(`/projects/${project}/threads`, { title: "Forbidden" }, viewer)).status,
     403,
   );
-  const thread = await request(
-    `/projects/${project}/threads`,
-    { title: "Iteration 1" },
-    owner,
-  );
+  const thread = await request(`/projects/${project}/threads`, { title: "Iteration 1" }, owner);
   assert.equal(thread.status, 201);
   iteration = thread.body.id;
   assert.equal(
-    (
-      await request(
-        `/threads/${iteration}/messages`,
-        { body: "Forbidden" },
-        viewer,
-      )
-    ).status,
+    (await request(`/threads/${iteration}/messages`, { body: "Forbidden" }, viewer)).status,
     403,
   );
   const origin = await fetch(`${base}/api/projects`, {
@@ -190,11 +165,7 @@ test("authentication, project scope, origin validation, and viewer permissions",
   assert.equal(origin.status, 403);
 });
 test("human and local AI identities cannot be forged; account token cannot mint credentials or approve", async () => {
-  const minted = await request(
-    "/tokens",
-    { projectId: project, label: "Test AI" },
-    owner,
-  );
+  const minted = await request("/tokens", { projectId: project, label: "Test AI" }, owner);
   assert.equal(minted.status, 201);
   apiToken = minted.body.token;
   const sent = await request(
@@ -206,26 +177,18 @@ test("human and local AI identities cannot be forged; account token cannot mint 
   const context = await request(`/threads/${iteration}`, undefined, owner);
   assert.equal(context.body.messages[0].author_id, owner.id);
   assert.equal(context.body.messages[0].source, "local_ai");
-  const created = new Date(
-    context.body.messages[0].created_at.replace(" ", "T") + "Z",
-  );
+  const created = new Date(context.body.messages[0].created_at.replace(" ", "T") + "Z");
   assert.ok(
     Math.abs(Date.now() - created.getTime()) < 60000,
     "Database timestamps must be returned in UTC",
   );
   assert.equal(
-    (
-      await request(
-        "/tokens",
-        { projectId: project, label: "Bad" },
-        { token: apiToken },
-      )
-    ).status,
+    (await request("/tokens", { projectId: project, label: "Bad" }, { token: apiToken })).status,
     403,
   );
   assert.equal(
     (
-      await request(
+      await archiveRequest(
         `/threads/${iteration}/archive`,
         { conclusion: "Bad" },
         { token: apiToken },
@@ -255,10 +218,9 @@ test("binary versions, sequential concurrent submissions, review history and ref
   const apiUser = { id: owner.id, kind: "api", scope: project };
   const first = await new Service(db).submitVersion(apiUser, iteration, data);
   version1 = first;
-  const downloaded = await fetch(
-    `${base}/api/versions/${version1.id}/download`,
-    { headers: { Cookie: owner.cookie } },
-  );
+  const downloaded = await fetch(`${base}/api/versions/${version1.id}/download`, {
+    headers: { Cookie: owner.cookie },
+  });
   assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), payload);
   assert.equal(
     (
@@ -384,17 +346,10 @@ test("failed sandbox execution retains team data and does not expose provider di
   );
   assert.equal(result.status, "failed");
   assert.ok(!result.output.includes("test-secret"));
-  assert.equal(
-    (await request(`/versions/${version1.id}`, undefined, owner)).status,
-    200,
-  );
+  assert.equal((await request(`/versions/${version1.id}`, undefined, owner)).status, 200);
 });
 test("archival is immutable, includes exact reviewed versions, and survives a fresh database connection", async () => {
-  const archived = await request(
-    `/threads/${iteration}/archive`,
-    {},
-    owner,
-  );
+  const archived = await archiveRequest(`/threads/${iteration}/archive`, {}, owner);
   assert.equal(archived.status, 200);
   assert.ok(
     archived.body.versions.some(
@@ -402,13 +357,7 @@ test("archival is immutable, includes exact reviewed versions, and survives a fr
     ),
   );
   assert.equal(
-    (
-      await request(
-        `/threads/${iteration}/messages`,
-        { body: "Too late" },
-        owner,
-      )
-    ).status,
+    (await request(`/threads/${iteration}/messages`, { body: "Too late" }, owner)).status,
     409,
   );
   assert.equal(
@@ -422,28 +371,19 @@ test("archival is immutable, includes exact reviewed versions, and survives a fr
     409,
   );
   assert.equal(
-    (
-      await request(
-        `/threads/${iteration}/archive`,
-        { conclusion: "Overwrite" },
-        owner,
-      )
-    ).status,
+    (await archiveRequest(`/threads/${iteration}/archive`, { conclusion: "Overwrite" }, owner))
+      .status,
     409,
   );
   const db2 = await createDatabase(database.url);
   try {
     const fresh = await new Service(db2).context(owner, iteration);
-    assert.equal(fresh.archive_snapshot.conclusion, "");
+    assert.equal(fresh.archive_snapshot.conclusion, "本轮已结束");
     assert.ok(fresh.messages.length >= 6);
   } finally {
     await db2.end();
   }
-  const next = await request(
-    `/projects/${project}/threads`,
-    { title: "Iteration 2" },
-    owner,
-  );
+  const next = await request(`/projects/${project}/threads`, { title: "Iteration 2" }, owner);
   assert.equal(next.status, 201);
   assert.equal(
     (
@@ -458,20 +398,12 @@ test("archival is immutable, includes exact reviewed versions, and survives a fr
 });
 
 test("a message racing archival is either included in the snapshot or rejected", async () => {
-  const created = await request(
-    `/projects/${project}/threads`,
-    { title: "Archive race" },
-    owner,
-  );
+  const created = await request(`/projects/${project}/threads`, { title: "Archive race" }, owner);
   assert.equal(created.status, 201);
   const target = created.body.id;
   const [message, archive] = await Promise.all([
     request(`/threads/${target}/messages`, { body: "Racing message" }, owner),
-    request(
-      `/threads/${target}/archive`,
-      { conclusion: "Frozen atomically" },
-      owner,
-    ),
+    archiveRequest(`/threads/${target}/archive`, { conclusion: "Frozen atomically" }, owner),
   ]);
   assert.equal(archive.status, 200);
   assert.ok([201, 409].includes(message.status));
@@ -482,11 +414,7 @@ test("a message racing archival is either included in the snapshot or rejected",
 });
 
 test("revoked account credentials stop working immediately", async () => {
-  const token = await request(
-    "/tokens",
-    { projectId: project, label: "Disposable" },
-    viewer,
-  );
+  const token = await request("/tokens", { projectId: project, label: "Disposable" }, viewer);
   assert.equal(
     (
       await request(`/projects/${project}`, undefined, {
@@ -496,8 +424,7 @@ test("revoked account credentials stop working immediately", async () => {
     200,
   );
   assert.equal(
-    (await request(`/tokens/${token.body.id}`, undefined, viewer, "DELETE"))
-      .status,
+    (await request(`/tokens/${token.body.id}`, undefined, viewer, "DELETE")).status,
     200,
   );
   assert.equal(
@@ -511,20 +438,13 @@ test("revoked account credentials stop working immediately", async () => {
 });
 
 test("a summary that cannot be committed is never marked successful", async () => {
-  const created = await request(
-    `/projects/${project}/threads`,
-    { title: "Commit failure" },
-    owner,
-  );
+  const created = await request(`/projects/${project}/threads`, { title: "Commit failure" }, owner);
   const service = new Service(db);
   service.insertMessage = async () => {
     throw new Error("Injected persistence failure");
   };
   const saved = Object.fromEntries(
-    ["DSH_ENABLED", "DSH_BOOTSTRAP"].map((key) => [
-      key,
-      process.env[key],
-    ]),
+    ["DSH_ENABLED", "DSH_BOOTSTRAP"].map((key) => [key, process.env[key]]),
   );
   Object.assign(process.env, {
     DSH_ENABLED: "true",
@@ -532,32 +452,21 @@ test("a summary that cannot be committed is never marked successful", async () =
   });
   let released = false;
   try {
-    const result = await executeRun(
-      service,
-      owner,
-      created.body.id,
-      {},
-      "summary",
-      {
-        create: async () => ({
-          sandboxId: "test-only",
-          files: { makeDir: async () => {}, write: async () => {} },
-          commands: {
-            run: async () => ({ exitCode: 0, stdout: "A summary", stderr: "" }),
-          },
-          kill: async () => {
-            released = true;
-          },
-        }),
-      },
-    );
+    const result = await executeRun(service, owner, created.body.id, {}, "summary", {
+      create: async () => ({
+        sandboxId: "test-only",
+        files: { makeDir: async () => {}, write: async () => {} },
+        commands: {
+          run: async () => ({ exitCode: 0, stdout: "A summary", stderr: "" }),
+        },
+        kill: async () => {
+          released = true;
+        },
+      }),
+    });
     assert.equal(result.status, "failed");
     assert.equal(released, true);
-    const [record] = await query(
-      db,
-      "SELECT status FROM sandbox_runs WHERE id=?",
-      [result.id],
-    );
+    const [record] = await query(db, "SELECT status FROM sandbox_runs WHERE id=?", [result.id]);
     assert.equal(record.status, "failed");
   } finally {
     for (const [key, value] of Object.entries(saved)) {
@@ -574,13 +483,8 @@ test("a human message queues exactly one durable assistant reply and AI messages
     owner,
   );
   const threadId = created.body.id;
-  const members = (await request(`/projects/${project}`, undefined, owner)).body
-    .members;
-  assert.equal(
-    members.filter((m) => m.id === "agent-assistant" && m.name === "小祥")
-      .length,
-    1,
-  );
+  const members = (await request(`/projects/${project}`, undefined, owner)).body.members;
+  assert.equal(members.filter((m) => m.id === "agent-assistant" && m.name === "小祥").length, 1);
   const sent = await request(
     `/threads/${threadId}/messages`,
     { body: "@Agent助手 你好", autoReply: false },
@@ -600,10 +504,7 @@ test("a human message queues exactly one durable assistant reply and AI messages
   });
   const replied = await request(`/threads/${threadId}`, undefined, owner);
   assert.equal(replied.body.replies[0].status, "completed");
-  assert.equal(
-    replied.body.messages.filter((m) => m.source === "assistant").length,
-    1,
-  );
+  assert.equal(replied.body.messages.filter((m) => m.source === "assistant").length, 1);
   let decisions = 0;
   assert.equal(
     await processNextReply(
@@ -614,25 +515,19 @@ test("a human message queues exactly one durable assistant reply and AI messages
       async (context) => {
         decisions++;
         const burst = context.integrateBurst || [];
-        const lastHuman = burst.at(-1) || [...(context.messages || [])].reverse()
-          .find((row) => row.source === "human");
-        assert.equal(
-          lastHuman?.body,
-          "later context should not leak backwards",
-        );
+        const lastHuman =
+          burst.at(-1) ||
+          [...(context.messages || [])].reverse().find((row) => row.source === "human");
+        assert.equal(lastHuman?.body, "later context should not leak backwards");
         return false;
       },
     ),
     true,
   );
-  const observed = (await request(`/threads/${threadId}`, undefined, owner))
-    .body;
+  const observed = (await request(`/threads/${threadId}`, undefined, owner)).body;
   assert.equal(observed.replies[1].participation, "silent");
   assert.equal(observed.replies[1].reply_id, null);
-  assert.equal(
-    observed.messages.filter((m) => m.source === "assistant").length,
-    1,
-  );
+  assert.equal(observed.messages.filter((m) => m.source === "assistant").length, 1);
   // Hard silence rules may skip the model judge; when it runs it must see the later body.
   if (decisions !== 0) assert.equal(decisions, 1);
 
@@ -648,11 +543,9 @@ test("a human message queues exactly one durable assistant reply and AI messages
   );
   assert.equal(
     (
-      await query(
-        db,
-        "SELECT COUNT(*) count FROM assistant_replies WHERE message_id=?",
-        [sent.body.id],
-      )
+      await query(db, "SELECT COUNT(*) count FROM assistant_replies WHERE message_id=?", [
+        sent.body.id,
+      ])
     )[0].count,
     "1",
   );
@@ -692,8 +585,7 @@ test("summary shortcut and same-member additions share one task and execution re
       return `本轮回复 ${trigger}`;
     });
   }
-  const context = (await request(`/threads/${threadId}`, undefined, owner))
-    .body;
+  const context = (await request(`/threads/${threadId}`, undefined, owner)).body;
   assert.equal(context.replies.length, 1);
   assert.equal(context.updates[0].message_id, second.body.id);
   assert.ok(context.updates[0].delivered_at);
@@ -703,20 +595,12 @@ test("summary shortcut and same-member additions share one task and execution re
       context.messages.find((m) => m.id === reply.reply_id).body,
       `本轮回复 ${reply.message_id}`,
     );
-    assert.equal(
-      context.events.filter((event) => event.message_id === reply.message_id)
-        .length,
-      1,
-    );
+    assert.equal(context.events.filter((event) => event.message_id === reply.message_id).length, 1);
   }
 });
 
 test("a lone project member gets direct replies without mentions; adding a silent member restores participation decisions", async () => {
-  const created = await request(
-    "/projects",
-    { name: "Direct Agent conversation" },
-    owner,
-  );
+  const created = await request("/projects", { name: "Direct Agent conversation" }, owner);
   assert.equal(created.status, 201);
   const projectId = created.body.id;
   projectIds.push(projectId);
@@ -757,11 +641,7 @@ test("a lone project member gets direct replies without mentions; adding a silen
     owner,
   );
   assert.equal(joined.status, 201);
-  await request(
-    `/threads/${threadId}/messages`,
-    { body: "我再补充一点" },
-    owner,
-  );
+  await request(`/threads/${threadId}/messages`, { body: "我再补充一点" }, owner);
   context = (await request(`/threads/${threadId}`, undefined, owner)).body;
   assert.equal(context.replies[1].participation, "pending");
   await processNextReply(
@@ -771,11 +651,7 @@ test("a lone project member gets direct replies without mentions; adding a silen
     },
     async () => false,
   );
-  await request(
-    `/threads/${threadId}/messages`,
-    { body: "@Agent助手 请回答" },
-    owner,
-  );
+  await request(`/threads/${threadId}/messages`, { body: "@Agent助手 请回答" }, owner);
   context = (await request(`/threads/${threadId}`, undefined, owner)).body;
   assert.equal(context.replies[2].participation, "reply");
   await processNextReply(
@@ -794,11 +670,7 @@ test("unmentioned messages can prompt participation and cancellation prevents ex
     owner,
   );
   const threadId = created.body.id;
-  await request(
-    `/threads/${threadId}/messages`,
-    { body: "谁能帮忙澄清这个问题？" },
-    owner,
-  );
+  await request(`/threads/${threadId}/messages`, { body: "谁能帮忙澄清这个问题？" }, owner);
   let executions = 0;
   await processNextReply(
     db,
@@ -819,30 +691,21 @@ test("unmentioned messages can prompt participation and cancellation prevents ex
     context.messages.find((m) => m.id === context.replies[0].reply_id).body,
     "我理解你是在请人帮忙澄清这个问题。",
   );
-  const next = await request(
-    `/threads/${threadId}/messages`,
-    { body: "进一步讨论" },
-    owner,
-  );
+  const next = await request(`/threads/${threadId}/messages`, { body: "进一步讨论" }, owner);
   await processNextReply(
     db,
     async () => {
       throw new Error("Cancelled observation must not execute");
     },
     async () => {
-      await query(
-        db,
-        "UPDATE assistant_replies SET status='cancelled' WHERE message_id=?",
-        [next.body.id],
-      );
+      await query(db, "UPDATE assistant_replies SET status='cancelled' WHERE message_id=?", [
+        next.body.id,
+      ]);
       return true;
     },
   );
   context = (await request(`/threads/${threadId}`, undefined, owner)).body;
-  assert.equal(
-    context.messages.filter((m) => m.source === "assistant").length,
-    1,
-  );
+  assert.equal(context.messages.filter((m) => m.source === "assistant").length, 1);
   assert.equal(context.replies[1].status, "cancelled");
 });
 
@@ -901,18 +764,13 @@ test("native context checkpoint and live usage track each message once across re
     runtime = undefined;
     context = await service.context(owner, threadId);
     assert.equal(context.messages.length, 2);
-    assert.equal(
-      context.contextUsage.categories.find((c) => c.key === "pending").tokens,
-      0,
-    );
+    assert.equal(context.contextUsage.categories.find((c) => c.key === "pending").tokens, 0);
   } finally {
     if (runtime) await runtime.close();
     const directory = resolve(".local/agents", threadId);
     assert.equal(
       directory,
-      resolve(".local/agents") +
-        (process.platform === "win32" ? "\\" : "/") +
-        threadId,
+      resolve(".local/agents") + (process.platform === "win32" ? "\\" : "/") + threadId,
     );
     await rm(directory, { recursive: true, force: true });
   }
@@ -930,33 +788,30 @@ test("context compression is scoped, durable, retryable, and preserves discussio
     { title: "Independent context" },
     owner,
   );
-  await request(
-    `/threads/${threadId}/messages`,
-    { body: "保留这个决定与聊天记录" },
-    owner,
+  await request(`/threads/${threadId}/messages`, { body: "保留这个决定与聊天记录" }, owner);
+  await query(
+    db,
+    `UPDATE agent_requests SET status='completed' WHERE message_id IN (SELECT id FROM messages WHERE thread_id=?)`,
+    [threadId],
   );
-  await query(db, `UPDATE agent_requests SET status='completed' WHERE message_id IN (SELECT id FROM messages WHERE thread_id=?)`, [threadId]);
   let context = (await request(`/threads/${threadId}`, undefined, owner)).body;
   assert.ok(context.contextUsage.used > 0);
   assert.equal(context.contextUsage.limit, 256000);
   assert.equal(context.contextUsage.autoCompactAt, 179200);
   assert.equal(
-    (await request(`/threads/${other.body.id}`, undefined, owner)).body
-      .contextUsage.used,
+    (await request(`/threads/${other.body.id}`, undefined, owner)).body.contextUsage.used,
     0,
   );
   for (const credential of [viewer, outsider, { token: apiToken }])
     assert.equal(
-      (await request(`/threads/${threadId}/context/compact`, {}, credential))
-        .status,
+      (await request(`/threads/${threadId}/context/compact`, {}, credential)).status,
       403,
     );
   const route = `/threads/${threadId}/context/compact`;
   assert.equal((await request(route, {}, owner)).status, 202);
   assert.equal((await request(route, {}, owner)).body.status, "queued");
   assert.equal(
-    (await request(`/threads/${threadId}`, undefined, owner)).body.contextUsage
-      .compactStatus,
+    (await request(`/threads/${threadId}`, undefined, owner)).body.contextUsage.compactStatus,
     "queued",
   );
   await processNextContextCompression(db, async () => {
@@ -991,24 +846,15 @@ test("context compression is scoped, durable, retryable, and preserves discussio
   assert.equal(context.messages.length, 1);
   assert.equal(context.messages[0].body, "保留这个决定与聊天记录");
   assert.equal(
-    (await request(`/threads/${other.body.id}`, undefined, owner)).body
-      .contextUsage.compactStatus,
+    (await request(`/threads/${other.body.id}`, undefined, owner)).body.contextUsage.compactStatus,
     "idle",
   );
-  await request(
-    `/threads/${threadId}/archive`,
-    { conclusion: "保留历史" },
-    owner,
-  );
+  await archiveRequest(`/threads/${threadId}/archive`, { conclusion: "保留历史" }, owner);
   assert.equal((await request(route, {}, owner)).status, 409);
 });
 
 test("reply failures are visible and retryable; archival cancels queued replies", async () => {
-  const created = await request(
-    `/projects/${project}/threads`,
-    { title: "Reply recovery" },
-    owner,
-  );
+  const created = await request(`/projects/${project}/threads`, { title: "Reply recovery" }, owner);
   const threadId = created.body.id;
   const sent = await request(
     `/threads/${threadId}/messages`,
@@ -1021,14 +867,11 @@ test("reply failures are visible and retryable; archival cancels queued replies"
   let context = await request(`/threads/${threadId}`, undefined, owner);
   assert.equal(context.body.replies[0].status, "failed");
   assert.ok(!context.body.replies[0].error.includes("secret"));
-  await assert.rejects(
-    retryReply(new Service(db), outsider, threadId, sent.body.id),
-  );
+  await assert.rejects(retryReply(new Service(db), outsider, threadId, sent.body.id));
   await retryReply(new Service(db), owner, threadId, sent.body.id);
   await processNextReply(db, async () => "恢复成功");
   assert.equal(
-    (await request(`/threads/${threadId}`, undefined, owner)).body.replies[0]
-      .status,
+    (await request(`/threads/${threadId}`, undefined, owner)).body.replies[0].status,
     "completed",
   );
   await request(
@@ -1037,13 +880,7 @@ test("reply failures are visible and retryable; archival cancels queued replies"
     owner,
   );
   assert.equal(
-    (
-      await request(
-        `/threads/${threadId}/archive`,
-        { conclusion: "End" },
-        owner,
-      )
-    ).status,
+    (await archiveRequest(`/threads/${threadId}/archive`, { conclusion: "End" }, owner)).status,
     200,
   );
   assert.equal(
@@ -1066,11 +903,9 @@ test("Agent tools enforce project scope, record failures, and stop after cancell
     { body: "@Agent助手 agent test", autoReply: true },
     owner,
   );
-  await query(
-    db,
-    "UPDATE assistant_replies SET status='running' WHERE message_id=?",
-    [sent.body.id],
-  );
+  await query(db, "UPDATE assistant_replies SET status='running' WHERE message_id=?", [
+    sent.body.id,
+  ]);
   const job = { message_id: sent.body.id, thread_id: threadId };
   const service = new Service(db);
   const sandbox = {
@@ -1093,19 +928,14 @@ test("Agent tools enforce project scope, record failures, and stop after cancell
   assert.equal(output.exitCode, 1);
   assert.equal(output.stderr, "assertion failed");
   await assert.rejects(tools("host_shell", { command: "Get-Content .env" }));
-  await assert.rejects(
-    createAgentTools(service, viewer, job)("project_context", {}),
-  );
+  await assert.rejects(createAgentTools(service, viewer, job)("project_context", {}));
   const other = await service.createThread(owner, projectIds[1], {
     title: "Other project",
   });
-  await assert.rejects(
-    tools("read_iteration", { threadId: other.id }),
-    (e) => e.status === 403,
-  );
+  await assert.rejects(tools("read_iteration", { threadId: other.id }), (e) => e.status === 403);
   assert.equal(
     (
-      await request(
+      await archiveRequest(
         `/threads/${threadId}/archive`,
         { conclusion: "cannot archive running agent" },
         owner,
@@ -1113,11 +943,9 @@ test("Agent tools enforce project scope, record failures, and stop after cancell
     ).status,
     409,
   );
-  await query(
-    db,
-    "UPDATE assistant_replies SET status='cancelled' WHERE message_id=?",
-    [sent.body.id],
-  );
+  await query(db, "UPDATE assistant_replies SET status='cancelled' WHERE message_id=?", [
+    sent.body.id,
+  ]);
   await assert.rejects(
     tools("sandbox_command", { command: "must not execute" }),
     (e) => e.status === 409,
@@ -1128,14 +956,7 @@ test("Agent tools enforce project scope, record failures, and stop after cancell
     [sent.body.id],
   );
   assert.equal(event.status, "failed");
-  for (const path of [
-    "../secrets",
-    "/etc/passwd",
-    "C:\\secret",
-    ".",
-    "a/../../b",
-    "a//b",
-  ])
+  for (const path of ["../secrets", "/etc/passwd", "C:\\secret", ".", "a/../../b", "a//b"])
     assert.throws(() => relativePath(path));
   assert.equal(relativePath("src/hello.py"), "src/hello.py");
 });
@@ -1149,11 +970,7 @@ test("Agent publishing persists immutable versions idempotently and cannot claim
     body: "@Agent助手 Generate a document",
     autoReply: true,
   });
-  await query(
-    db,
-    "UPDATE assistant_replies SET status='running' WHERE message_id=?",
-    [sent.id],
-  );
+  await query(db, "UPDATE assistant_replies SET status='running' WHERE message_id=?", [sent.id]);
   const actor = { ...owner, kind: "agent" };
   const exportKey = "a".repeat(64);
   const data = {
@@ -1162,20 +979,8 @@ test("Agent publishing persists immutable versions idempotently and cannot claim
     mime: "text/plain",
     contentBase64: Buffer.from("print(2+3)").toString("base64"),
   };
-  const first = await service.submitVersion(
-    actor,
-    thread.id,
-    data,
-    exportKey,
-    sent.id,
-  );
-  const again = await service.submitVersion(
-    actor,
-    thread.id,
-    data,
-    exportKey,
-    sent.id,
-  );
+  const first = await service.submitVersion(actor, thread.id, data, exportKey, sent.id);
+  const again = await service.submitVersion(actor, thread.id, data, exportKey, sent.id);
   assert.equal(first.id, again.id);
   assert.equal(again.reused, true);
   const context = await service.context(owner, thread.id);
@@ -1184,26 +989,24 @@ test("Agent publishing persists immutable versions idempotently and cannot claim
     service.review(actor, first.id, { decision: "approved" }),
     (e) => e.status === 403,
   );
-  await query(
-    db,
-    "UPDATE assistant_replies SET status='cancelled' WHERE message_id=?",
-    [sent.id],
-  );
+  await query(db, "UPDATE assistant_replies SET status='cancelled' WHERE message_id=?", [sent.id]);
   await assert.rejects(
     service.submitVersion(actor, thread.id, data, "b".repeat(64), sent.id),
     (e) => e.status === 409,
   );
-  assert.equal(
-    (await service.version(owner, first.id)).content.toString(),
-    "print(2+3)",
-  );
+  assert.equal((await service.version(owner, first.id)).content.toString(), "print(2+3)");
 });
 
 test("document tree permissions, nesting, soft deletion, and immutable historical references", async () => {
   const rootPath = `/projects/${project}`;
-  const official = (await request(rootPath, undefined, owner)).body.folders
-    .find((folder) => folder.folder_kind === "project_official" && folder.parent_id == null);
-  const folder = await request(rootPath + "/folders", { name: "资料", parentId: official.id }, owner);
+  const official = (await request(rootPath, undefined, owner)).body.folders.find(
+    (folder) => folder.folder_kind === "project_official" && folder.parent_id == null,
+  );
+  const folder = await request(
+    rootPath + "/folders",
+    { name: "资料", parentId: official.id },
+    owner,
+  );
   assert.equal(folder.status, 201);
   const child = await request(
     rootPath + "/folders",
@@ -1216,7 +1019,8 @@ test("document tree permissions, nesting, soft deletion, and immutable historica
     201,
   );
   assert.equal(
-    (await request(rootPath + "/folders", { name: "无权创建", parentId: official.id }, viewer)).status,
+    (await request(rootPath + "/folders", { name: "无权创建", parentId: official.id }, viewer))
+      .status,
     403,
   );
   assert.equal(
@@ -1235,11 +1039,7 @@ test("document tree permissions, nesting, soft deletion, and immutable historica
     ).status,
     409,
   );
-  const t = await request(
-    rootPath + "/threads",
-    { title: "文件树测试" },
-    owner,
-  );
+  const t = await request(rootPath + "/threads", { title: "文件树测试" }, owner);
   const file = await request(
     rootPath + "/documents/upload",
     {
@@ -1253,35 +1053,16 @@ test("document tree permissions, nesting, soft deletion, and immutable historica
   );
   assert.equal(file.status, 201);
   const path = rootPath + `/artifacts/${file.body.artifactId}`;
+  assert.equal((await request(path, { name: "改名" }, viewer, "PATCH")).status, 403);
+  assert.equal((await request(path, { folderId: randomUUID() }, owner, "PATCH")).status, 404);
   assert.equal(
-    (await request(path, { name: "改名" }, viewer, "PATCH")).status,
-    403,
-  );
-  assert.equal(
-    (await request(path, { folderId: randomUUID() }, owner, "PATCH")).status,
-    404,
-  );
-  assert.equal(
-    (
-      await request(
-        path,
-        { name: "使用说明", folderId: folder.body.id },
-        owner,
-        "PATCH",
-      )
-    ).status,
+    (await request(path, { name: "使用说明", folderId: folder.body.id }, owner, "PATCH")).status,
     200,
   );
-  assert.equal(
-    (await request(path, { deleted: true }, owner, "PATCH")).status,
-    200,
-  );
+  assert.equal((await request(path, { deleted: true }, owner, "PATCH")).status, 200);
   const old = await request(`/versions/${file.body.id}`, undefined, owner);
   assert.equal(old.status, 200);
-  assert.equal(
-    Buffer.from(old.body.contentBase64, "base64").toString(),
-    "# 原始内容",
-  );
+  assert.equal(Buffer.from(old.body.contentBase64, "base64").toString(), "# 原始内容");
   assert.equal(old.body.filename, "说明.md");
   assert.equal(
     (
@@ -1298,28 +1079,21 @@ test("document tree permissions, nesting, soft deletion, and immutable historica
     ).status,
     400,
   );
-  assert.equal(
-    (await request(path, { deleted: false }, owner, "PATCH")).status,
-    200,
-  );
+  assert.equal((await request(path, { deleted: false }, owner, "PATCH")).status, 200);
   const d = await request(rootPath, undefined, owner);
   const v = d.body.versions.find((v) => v.id === file.body.id);
   assert.equal(v.title, "使用说明");
   assert.equal(v.folder_id, folder.body.id);
   assert.equal(v.deleted_at, null);
   assert.equal(
-    (await request(rootPath + `/folders/${child.body.id}`, {}, owner, "DELETE"))
-      .status,
+    (await request(rootPath + `/folders/${child.body.id}`, {}, owner, "DELETE")).status,
     200,
   );
 });
 
 test("global accounts join multiple projects without resetting credentials or inheriting access", async () => {
   assert.equal((await request("/users")).status, 401);
-  assert.equal(
-    (await request("/users", undefined, { token: apiToken })).status,
-    403,
-  );
+  assert.equal((await request("/users", undefined, { token: apiToken })).status, 403);
   assert.equal(
     (
       await request(
@@ -1331,27 +1105,31 @@ test("global accounts join multiple projects without resetting credentials or in
     403,
   );
   const email = `shared-${randomUUID()}@example.com`;
-  const created = await request(
-    "/users",
-    { name: "Shared account", email, password },
-    owner,
-  );
+  const created = await request("/users", { name: "Shared account", email, password }, owner);
   assert.equal(created.status, 201);
   userIds.push(created.body.id);
   assert.equal(
-    (await request("/users", { name: "Duplicate", email, password }, owner))
-      .status,
+    (await request("/users", { name: "Duplicate", email, password }, owner)).status,
     409,
   );
-  const signed = await request("/login", { identifier: created.body.username, password: created.body.password });
+  const signed = await request("/login", {
+    identifier: created.body.username,
+    password: created.body.password,
+  });
   assert.equal(signed.status, 200);
   assert.deepEqual((await request("/projects", undefined, signed)).body, []);
   const directory = await request("/users", undefined, signed);
   assert.equal(directory.status, 200);
-  assert.deepEqual(
-    Object.keys(directory.body.find((u) => u.id === created.body.id)).sort(),
-    ["avatar", "email", "id", "identity_tags", "motto", "name", "user_number", "username"],
-  );
+  assert.deepEqual(Object.keys(directory.body.find((u) => u.id === created.body.id)).sort(), [
+    "avatar",
+    "email",
+    "id",
+    "identity_tags",
+    "motto",
+    "name",
+    "user_number",
+    "username",
+  ]);
   assert.equal(
     (
       await request(
@@ -1373,25 +1151,12 @@ test("global accounts join multiple projects without resetting credentials or in
     201,
   );
   assert.equal(
-    (
-      await request(
-        `/projects/${project}/members`,
-        { userId: created.body.id },
-        owner,
-      )
-    ).status,
+    (await request(`/projects/${project}/members`, { userId: created.body.id }, owner)).status,
     409,
   );
-  const second = await request(
-    "/projects",
-    { name: "Second membership" },
-    owner,
-  );
+  const second = await request("/projects", { name: "Second membership" }, owner);
   projectIds.push(second.body.id);
-  assert.equal(
-    (await request(`/projects/${second.body.id}`, undefined, signed)).status,
-    403,
-  );
+  assert.equal((await request(`/projects/${second.body.id}`, undefined, signed)).status, 403);
   assert.equal(
     (
       await request(
@@ -1402,7 +1167,10 @@ test("global accounts join multiple projects without resetting credentials or in
     ).status,
     201,
   );
-  const again = await request("/login", { identifier: created.body.username, password: created.body.password });
+  const again = await request("/login", {
+    identifier: created.body.username,
+    password: created.body.password,
+  });
   assert.equal(again.status, 200);
   const joined = (await request("/projects", undefined, again)).body;
   assert.equal(joined.length, 2);
@@ -1417,11 +1185,9 @@ test("iteration directory includes creator and activity from subsequent discussi
     owner,
   );
   assert.equal(created.status, 201);
-  await query(
-    db,
-    "UPDATE threads SET created_at='2000-01-01 00:00:00' WHERE id=?",
-    [created.body.id],
-  );
+  await query(db, "UPDATE threads SET created_at='2000-01-01 00:00:00' WHERE id=?", [
+    created.body.id,
+  ]);
   const message = await request(
     `/threads/${created.body.id}/messages`,
     { body: "Activity update", autoReply: false },
@@ -1437,7 +1203,9 @@ test("iteration directory includes creator and activity from subsequent discussi
 
 test("chat attachments persist privately until sent and the system folder only permits moving out", async () => {
   const detail = (await request(`/projects/${project}`, undefined, owner)).body;
-  const folder = detail.folders.find((f) => f.folder_kind === "project_cache" && f.parent_id == null);
+  const folder = detail.folders.find(
+    (f) => f.folder_kind === "project_cache" && f.parent_id == null,
+  );
   assert.equal(folder.name, "对话缓存");
   assert.equal(folder.parent_id, null);
   const folderPath = `/projects/${project}/folders/${folder.id}`;
@@ -1456,69 +1224,38 @@ test("chat attachments persist privately until sent and the system folder only p
     ).status,
     403,
   );
-  const thread = (
-    await request(
-      `/projects/${project}/threads`,
-      { title: "Chat uploads" },
-      owner,
-    )
-  ).body.id;
+  const thread = (await request(`/projects/${project}/threads`, { title: "Chat uploads" }, owner))
+    .body.id;
   const payload = {
     title: "附件.md",
     filename: "附件.md",
     mime: "text/markdown",
     contentBase64: Buffer.from("# persisted attachment").toString("base64"),
   };
+  assert.equal((await request(`/threads/${thread}/attachments`, payload, viewer)).status, 403);
+  assert.equal((await request(`/threads/${thread}/attachments`, payload, outsider)).status, 403);
   assert.equal(
-    (await request(`/threads/${thread}/attachments`, payload, viewer)).status,
-    403,
-  );
-  assert.equal(
-    (await request(`/threads/${thread}/attachments`, payload, outsider)).status,
-    403,
-  );
-  assert.equal(
-    (
-      await request(
-        `/threads/${thread}/versions`,
-        { ...payload, folderId: folder.id },
-        owner,
-      )
-    ).status,
+    (await request(`/threads/${thread}/versions`, { ...payload, folderId: folder.id }, owner))
+      .status,
     404,
   );
-  const uploaded = await request(
-    `/threads/${thread}/attachments`,
-    payload,
-    owner,
-  );
+  const uploaded = await request(`/threads/${thread}/attachments`, payload, owner);
   assert.equal(uploaded.status, 201);
   const version = uploaded.body;
-  assert.equal(
-    (await request(`/threads/${thread}`, undefined, owner)).body.messages
-      .length,
-    0,
-  );
-  const saved = (await request(`/versions/${version.id}`, undefined, owner))
-    .body;
+  assert.equal((await request(`/threads/${thread}`, undefined, owner)).body.messages.length, 0);
+  const saved = (await request(`/versions/${version.id}`, undefined, owner)).body;
   assert.equal(saved.contentBase64, payload.contentBase64);
-  const refreshed = (await request(`/projects/${project}`, undefined, owner))
-    .body;
+  const refreshed = (await request(`/projects/${project}`, undefined, owner)).body;
   const stored = refreshed.versions.find((v) => v.id === version.id);
   const storedFolder = refreshed.folders.find((item) => item.id === stored.folder_id);
   assert.equal(storedFolder.parent_id, folder.id);
   assert.match(storedFolder.name, /^\d{4}-\d{2}-\d{2}$/);
   const artifactPath = `/projects/${project}/artifacts/${version.artifactId}`;
-  assert.equal(
-    (await request(artifactPath, { folderId: null }, owner, "PATCH")).status,
-    403,
+  assert.equal((await request(artifactPath, { folderId: null }, owner, "PATCH")).status, 403);
+  assert.equal((await request(artifactPath, { folderId: folder.id }, owner, "PATCH")).status, 403);
+  const official = detail.folders.find(
+    (f) => f.folder_kind === "project_official" && f.parent_id == null,
   );
-  assert.equal(
-    (await request(artifactPath, { folderId: folder.id }, owner, "PATCH"))
-      .status,
-    403,
-  );
-  const official = detail.folders.find((f) => f.folder_kind === "project_official" && f.parent_id == null);
   const ordinary = (
     await request(
       `/projects/${project}/folders`,
@@ -1526,42 +1263,22 @@ test("chat attachments persist privately until sent and the system folder only p
       owner,
     )
   ).body.id;
-  assert.equal(
-    (await request(artifactPath, { folderId: ordinary }, owner, "PATCH"))
-      .status,
-    403,
-  );
-  assert.equal(
-    (await request(folderPath, { parentId: ordinary }, owner, "PATCH")).status,
-    403,
-  );
+  assert.equal((await request(artifactPath, { folderId: ordinary }, owner, "PATCH")).status, 403);
+  assert.equal((await request(folderPath, { parentId: ordinary }, owner, "PATCH")).status, 403);
   const sent = await request(
     `/threads/${thread}/messages`,
     { body: "/附件.md 请查看", refs: [version.id], autoReply: false },
     owner,
   );
   assert.equal(sent.status, 201);
-  assert.deepEqual(
-    (await request(`/threads/${thread}`, undefined, owner)).body.messages[0]
-      .refs,
-    [version.id],
-  );
+  assert.deepEqual((await request(`/threads/${thread}`, undefined, owner)).body.messages[0].refs, [
+    version.id,
+  ]);
+  assert.equal((await request(artifactPath, { deleted: true }, owner, "PATCH")).status, 200);
   assert.equal(
-    (await request(artifactPath, { deleted: true }, owner, "PATCH")).status,
-    200,
-  );
-  assert.equal(
-    (await request(`/versions/${version.id}`, undefined, owner)).body
-      .contentBase64,
+    (await request(`/versions/${version.id}`, undefined, owner)).body.contentBase64,
     payload.contentBase64,
   );
-  await request(
-    `/threads/${thread}/archive`,
-    { conclusion: "Upload verified" },
-    owner,
-  );
-  assert.equal(
-    (await request(`/threads/${thread}/attachments`, payload, owner)).status,
-    409,
-  );
+  await archiveRequest(`/threads/${thread}/archive`, { conclusion: "Upload verified" }, owner);
+  assert.equal((await request(`/threads/${thread}/attachments`, payload, owner)).status, 409);
 });

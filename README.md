@@ -2,15 +2,15 @@
 
 让每次讨论都有承接，让每个决定都有出处。
 
-共序是面向小团队的协作工作台。一次部署对应一家公司：服务独立、数据库隔离。成员在迭代群聊里讨论、引用精确文档版本与文件夹，把重活交给内置助手「小祥」（L2 调度 + 子 Agent 执行）或本机 Agent。输入框可选对话模式（自由发言 / 有问必答只读 / 小程序云开发）。线上试用：[https://cothread.z2l.top](https://cothread.z2l.top)。
+共序是面向小团队的协作工作台。一次部署对应一家公司：服务独立、数据库隔离。成员在迭代群聊里讨论、引用精确文档版本与文件夹，把重活交给内置助手「小祥」（L2 调度 + 子 Agent 执行）或本机 Agent。输入框可选对话模式（自由发言 / 有问必答只读 / 小程序云开发）。一轮结束时，迭代创建人或项目负责人确认归档方案，未完成事项可留在本轮或交给下一迭代。个人设置可进入管理空间。线上试用：[https://cothread.z2l.top](https://cothread.z2l.top)。
 
 | 入口 | 定位 | 打开 |
 |------|------|------|
 | **关于我们** | 价值宣传与产品介绍 | 工作台登录页，或 `/about_us.html` |
 | **本 README** | 克隆仓库后的快捷使用 | 本文件 |
-| **Docs** | 概念、工作台、上传、MCP、连接器、部署细则 | 运行后打开 `/docs.html` |
+| **Docs** | 概念、工作台、归档交接、管理空间、上传、MCP、连接器、部署细则 | 运行后打开 `/docs.html` |
 
-工程师向的架构备忘：[`docs/architecture.md`](docs/architecture.md)、[`docs/cloud-environment.md`](docs/cloud-environment.md)。当前版本见工作台；首版面向小团队单实例试用。生产部署在阿里云 ECS（见下方「部署」）。
+工程师向的架构备忘：[`docs/architecture.md`](docs/architecture.md)、[`docs/admin-platform.md`](docs/admin-platform.md)、[`docs/iteration-archive.md`](docs/iteration-archive.md)、[`docs/cloud-environment.md`](docs/cloud-environment.md)。当前版本见工作台；首版面向小团队单实例试用。生产部署在阿里云 ECS（见下方「部署」）。
 
 ## 本机启动
 
@@ -26,7 +26,7 @@ npm run dev
 
 之后日常只需 `npm run dev`。它会在正式库指向 `127.0.0.1:3307`（`DATABASE_HOST_*` 或遗留 `DATABASE_URL`）时拉起便携版 MySQL，执行未跑过的迁移、写入超级管理员（若尚未存在），再启动 API（默认 `3101`）、Vite（默认 `3102`）和 `3100` 上的开发网关（`/api`、`/mcp` 转到 API，其余转到 Vite）。再次执行会先停掉占用这些端口的本项目旧进程；也可用 `npm run dev:stop`。默认监听 `0.0.0.0` 时可连 RDS；仅在强制 loopback 监听时才会拒绝远端库，确需覆盖时设 `COTHREAD_ALLOW_REMOTE_DB=1`。
 
-打开 <http://localhost:3100>。首次 `setup` 把初始账号写进 `.local/initial-admin.json` 和 `.local/登录信息.txt`。登录可用账号名或已绑定邮箱。
+打开 <http://localhost:3100>。首次 `setup` 把初始账号写进 `.local/initial-admin.json` 和 `.local/登录信息.txt`。登录可用用户名或已绑定邮箱。
 
 本机工作文件默认在 `.local/sandboxes`。命令以当前 Windows 账号执行，只应跑可信任务。`.env` 不入库；`npm run setup` 不覆盖已有 `.env`。部署差异见 [云端配置](docs/cloud-environment.md)。
 
@@ -50,7 +50,7 @@ npm run setup:preview-browser   # Agent 视觉验收（HTML/文档预览截图�
 
 ## 接下来看 Docs
 
-工作台怎么摆、**三种对话模式**（自由发言 / 有问必答 / 小程序云开发）、**小程序云开发配置与右侧六个页签**、文档三区、按需参与、上下文压缩、分片上传与 SHA-256、MCP、连接器和部署，都在 **`/docs.html`**（锚点 `#dialogue-mode`、`#miniprogram`）。不要在 README 里找长篇细则。
+工作台怎么摆、**三种对话模式**（自由发言 / 有问必答 / 小程序云开发）、**迭代归档与交接**、**管理空间**、**账号 / 站内信 / 项目图片**、**小程序云开发配置与右侧六个页签**、文档三区、按需参与、上下文压缩、分片上传与 SHA-256、MCP、连接器和部署，都在 **`/docs.html`**（锚点 `#dialogue-mode`、`#archive`、`#admin`、`#account`、`#miniprogram`）。不要在 README 里找长篇细则。
 
 单文件上限 **20 MiB**（网页与 MCP 分片）。MCP 宿主约 10KB 参数截断时，大于 6144 字节的文件必须走 `start_file_upload` → `upload_file_chunk` → `complete_file_upload`。
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { UiIcon } from "./ui-icon";
+import { prepareAvatar } from "./ProfileFields";
 import {
   DialogClose,
   animateDialogClose,
@@ -8,10 +9,71 @@ import {
 } from "./dialog-fx";
 import { showTip } from "./Tip";
 
+export function ProjectImageField({
+  image,
+  busy,
+  onChange,
+}: {
+  image: string | null;
+  busy?: boolean;
+  onChange: (image: string | null) => void;
+}) {
+  return (
+    <div className="project-image-field">
+      <div className="profile-avatar-slot">
+        <label className="profile-avatar-hit">
+          <span className="avatar profile-avatar-preview">
+            {image ? <img src={image} alt="" /> : "项"}
+            <span className="profile-avatar-mask" aria-hidden="true">
+              <UiIcon name="camera" size={20} />
+            </span>
+          </span>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            aria-label={image ? "更换项目图片" : "上传项目图片"}
+            disabled={busy}
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              if (!file) return;
+              void prepareAvatar(file)
+                .then(onChange)
+                .catch((uploadError) => {
+                  const detail = (
+                    uploadError instanceof Error ? uploadError.message : "无法读取这张图片"
+                  ).replaceAll("头像", "项目图片");
+                  showTip(detail, "error");
+                });
+            }}
+          />
+        </label>
+        {image && (
+          <button
+            type="button"
+            className="profile-avatar-remove"
+            disabled={busy}
+            onClick={() => onChange(null)}
+            aria-label="移除项目图片"
+            title="移除项目图片"
+          >
+            <UiIcon name="close" size={11} />
+          </button>
+        )}
+      </div>
+      <span className="project-image-field-copy">
+        项目图片
+        <small>选填，PNG、JPEG 或 WebP</small>
+      </span>
+    </div>
+  );
+}
+
 export function ProjectSettings({
   projectId,
   name,
   description,
+  image,
   createdAt,
   creatorName,
   canManage,
@@ -21,6 +83,7 @@ export function ProjectSettings({
   projectId: string;
   name: string;
   description: string;
+  image?: string | null;
   createdAt: string;
   creatorName: string;
   canManage: boolean;
@@ -29,63 +92,75 @@ export function ProjectSettings({
     updatedAt: string | null;
     lastThreadTitle: string | null;
   } | null;
-  onSave: (input: { name: string; description: string }) => Promise<void>;
+  onSave: (input: { name: string; description: string; image?: string | null }) => Promise<void>;
 }) {
   const [draftName, setDraftName] = useState(name);
   const [draftDescription, setDraftDescription] = useState(description);
+  const [draftImage, setDraftImage] = useState<string | null | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [saved, setSaved] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
-  const [copyError, setCopyError] = useState("");
   const [summaryOpen, setSummaryOpen] = useState(false);
   const copyTimer = useRef(0);
   useEffect(() => () => window.clearTimeout(copyTimer.current), []);
+  useEffect(() => {
+    setDraftName(name);
+    setDraftDescription(description);
+    setDraftImage(undefined);
+  }, [name, description, image]);
+  const preview = draftImage === undefined ? image || null : draftImage;
   const copyProjectId = async () => {
-    setCopyError("");
     try {
       await navigator.clipboard.writeText(projectId);
       setCopiedId(true);
       window.clearTimeout(copyTimer.current);
-      copyTimer.current = window.setTimeout(() => setCopiedId(false), 2000);
+      copyTimer.current = window.setTimeout(() => setCopiedId(false), 1600);
       showTip("项目 ID 已复制");
     } catch {
-      setCopyError("无法自动复制项目 ID，请检查剪贴板权限后重试。");
-      showTip("无法自动复制项目 ID，请检查剪贴板权限后重试。", "error");
+      showTip("复制失败，请检查剪贴板权限。", "error");
     }
   };
-  useEffect(() => {
-    setDraftName(name);
-    setDraftDescription(description);
-  }, [name, description]);
   const nextName = draftName.trim();
   const nextDescription = draftDescription.trim();
+  const imageDirty = draftImage !== undefined;
   const dirty =
     canManage &&
     nextName !== "" &&
-    (nextName !== name || nextDescription !== (description || "").trim());
+    (imageDirty || nextName !== name || nextDescription !== (description || "").trim());
   const summaryHint = longTermSummary?.summary
     ? longTermSummary.lastThreadTitle
       ? `最近由「${longTermSummary.lastThreadTitle}」归档更新`
       : "已有项目级长期记忆"
     : "归档迭代后，会把该轮结论沉淀到这里供后续沿用";
+  const uploadImage = async (file: File) => {
+    try {
+      setDraftImage(await prepareAvatar(file));
+      setError("");
+    } catch (uploadError) {
+      const detail = (uploadError instanceof Error ? uploadError.message : "无法读取这张图片").replaceAll("头像", "项目图片");
+      setError(detail);
+      showTip(detail, "error");
+    }
+  };
 
   return (
     <section className="project-settings">
       <form
-        className="project-settings-block"
+        className="profile-fields"
         onSubmit={async (event) => {
           event.preventDefault();
           if (saving || !dirty) return;
           setSaving(true);
           setError("");
-          setSaved(false);
           try {
-            await onSave({ name: nextName, description: nextDescription });
-            setSaved(true);
-            showTip("项目信息已保存");
-          } catch (error) {
-            const detail = (error as Error).message;
+            await onSave({
+              name: nextName,
+              description: nextDescription,
+              ...(imageDirty ? { image: draftImage } : {}),
+            });
+            showTip("项目资料已保存");
+          } catch (saveError) {
+            const detail = saveError instanceof Error ? saveError.message : "保存失败";
             setError(detail);
             showTip(detail, "error");
           } finally {
@@ -93,53 +168,121 @@ export function ProjectSettings({
           }
         }}
       >
-        <div className="project-settings-head">
-          <label htmlFor="project-settings-name">项目名称</label>
-          <small>
-            {canManage ? "项目主和项目管理可修改" : "仅项目主和项目管理可修改"}
-          </small>
+        <div className="profile-identity">
+          <div className="profile-avatar-slot">
+            <label className={canManage ? "profile-avatar-hit" : "profile-avatar-hit is-readonly"}>
+              <span className="avatar profile-avatar-preview">
+                {preview ? <img src={preview} alt="" /> : name.trim()[0] || "项"}
+                {canManage && (
+                  <span className="profile-avatar-mask" aria-hidden="true">
+                    <UiIcon name="camera" size={20} />
+                  </span>
+                )}
+              </span>
+              {canManage && (
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  aria-label={preview ? "更换项目图片" : "上传项目图片"}
+                  disabled={saving}
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    event.currentTarget.value = "";
+                    if (file) void uploadImage(file);
+                  }}
+                />
+              )}
+            </label>
+            {canManage && preview && (
+              <button
+                type="button"
+                className="profile-avatar-remove"
+                disabled={saving}
+                onClick={() => setDraftImage(null)}
+                aria-label="移除项目图片"
+                title="移除项目图片"
+              >
+                <UiIcon name="close" size={11} />
+              </button>
+            )}
+          </div>
+          <div className="profile-identity-fields">
+            <span className="profile-email-field profile-id-row">
+              <span className="profile-id-label">ID：</span>
+              <span className="project-settings-id">{projectId}</span>
+              <button type="button" className="profile-id-copy" onClick={() => void copyProjectId()}>
+                {copiedId ? "已复制" : "复制"}
+              </button>
+            </span>
+            {canManage ? (
+              <input
+                id="project-settings-name"
+                value={draftName}
+                required
+                maxLength={120}
+                disabled={saving}
+                aria-label="项目名称"
+                placeholder="项目名称"
+                onChange={(event) => setDraftName(event.target.value)}
+              />
+            ) : (
+              <p className="project-settings-value">{name}</p>
+            )}
+            {canManage ? (
+              <textarea
+                id="project-settings-description"
+                value={draftDescription}
+                maxLength={4000}
+                disabled={saving}
+                rows={3}
+                aria-label="项目简介"
+                placeholder="这个项目要达成什么目标？"
+                onChange={(event) => setDraftDescription(event.target.value)}
+              />
+            ) : (
+              <p className="project-settings-value muted">{description.trim() || "暂无项目简介"}</p>
+            )}
+          </div>
         </div>
-        {canManage ? (
-          <input
-            id="project-settings-name"
-            value={draftName}
-            required
-            maxLength={120}
-            disabled={saving}
-            onChange={(event) => {
-              setDraftName(event.target.value);
-              setSaved(false);
-            }}
-          />
-        ) : (
-          <p className="project-settings-value">{name}</p>
-        )}
-        <label htmlFor="project-settings-description">项目简介</label>
-        {canManage ? (
-          <textarea
-            id="project-settings-description"
-            value={draftDescription}
-            maxLength={4000}
-            disabled={saving}
-            rows={4}
-            placeholder="这个项目要达成什么目标？"
-            onChange={(event) => {
-              setDraftDescription(event.target.value);
-              setSaved(false);
-            }}
-          />
-        ) : (
-          <p className="project-settings-value muted">{description.trim() || "暂无项目简介"}</p>
-        )}
+        <div className="profile-email-row">
+          <span>创建人</span>
+          <span className="profile-email-field">
+            <span>{creatorName}</span>
+          </span>
+        </div>
+        <div className="profile-email-row">
+          <span>创建时间</span>
+          <span className="profile-email-field">
+            <span>{createdAt}</span>
+          </span>
+        </div>
+        <div className="profile-email-row">
+          <span>项目长期总结</span>
+          <span className="profile-email-field">
+            <span>{summaryHint}</span>
+            <button type="button" onClick={() => setSummaryOpen(true)}>
+              <UiIcon name="eye" size={13} />
+              查看
+            </button>
+          </span>
+          <small>归档迭代后由项目级 Agent 沉淀，供后续迭代沿用</small>
+        </div>
+        <div className="profile-email-row">
+          <span>结项</span>
+          <span className="profile-email-field">
+            <span>暂未开放</span>
+            <button type="button" disabled>
+              <UiIcon name="archive" size={13} />
+              结项
+            </button>
+          </span>
+          <small>结项后项目进入只读，工作空间不再显示</small>
+        </div>
         {canManage && (
           <div className="project-settings-actions">
-            <button
-              type="submit"
-              className={dirty ? "primary" : undefined}
-              disabled={saving || !dirty}
-            >
+            <button type="submit" className="primary" disabled={saving || !dirty}>
               <UiIcon name="save" size={13} />
-              {saving ? "保存中…" : "保存"}
+              {saving ? "保存中…" : "保存资料"}
             </button>
           </div>
         )}
@@ -148,73 +291,8 @@ export function ProjectSettings({
             {error}
           </p>
         )}
-        {saved && (
-          <p role="status" className="project-settings-ok">
-            项目信息已保存
-          </p>
-        )}
+        {!canManage && <small>仅项目主和项目管理可修改</small>}
       </form>
-
-      <div className="project-settings-block">
-        <div className="project-settings-head">
-          <span className="project-settings-label">项目 ID</span>
-          <button
-            type="button"
-            className="project-settings-ghost"
-            title={copiedId ? "项目 ID 已复制" : "复制项目 ID"}
-            aria-label={copiedId ? "项目 ID 已复制" : "复制项目 ID"}
-            onClick={() => void copyProjectId()}
-          >
-            <UiIcon name={copiedId ? "check" : "copy"} size={13} />
-            {copiedId ? "已复制" : "复制"}
-          </button>
-        </div>
-        <p className="project-settings-value">
-          <code className="project-settings-id">{projectId}</code>
-        </p>
-        <small>MCP 上传正式文件时使用此 ID</small>
-        {copyError && (
-          <p role="alert" className="project-settings-error">
-            {copyError}
-          </p>
-        )}
-      </div>
-
-      <div className="project-settings-block">
-        <div className="project-settings-head">
-          <span className="project-settings-label">项目长期总结</span>
-          <button
-            type="button"
-            className="project-settings-ghost"
-            onClick={() => setSummaryOpen(true)}
-          >
-            <UiIcon name="eye" size={13} />
-            查看
-          </button>
-        </div>
-        <p className="project-settings-value muted">{summaryHint}</p>
-      </div>
-
-      <div className="project-settings-block project-settings-meta">
-        <span className="project-settings-label">创建人</span>
-        <p className="project-settings-value">{creatorName}</p>
-      </div>
-
-      <div className="project-settings-block project-settings-meta">
-        <span className="project-settings-label">创建时间</span>
-        <p className="project-settings-value">{createdAt}</p>
-      </div>
-
-      <div className="project-settings-footer">
-        <div>
-          <span className="project-settings-label">归档项目</span>
-          <small>暂未开放</small>
-        </div>
-        <button type="button" disabled>
-          <UiIcon name="archive" size={13} />
-          归档
-        </button>
-      </div>
       {summaryOpen ? (
         <ProjectSummaryDialog summary={longTermSummary} onClose={() => setSummaryOpen(false)} />
       ) : null}

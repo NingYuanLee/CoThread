@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query } from "./db.js";
+import { projectImageUrlSql } from "./project-image.js";
 
 export async function notify(
   db,
@@ -37,7 +38,7 @@ export async function listNotifications(service, user, before, input, { id, fail
       ? Promise.resolve([])
       : query(
           service.db,
-          `SELECT n.*,p.name project_name,
+          `SELECT n.*,p.name project_name,${projectImageUrlSql("p.id")} project_image,
       CASE n.kind WHEN 'mention' THEN CONCAT('在「',COALESCE(t.title,p.name),'」中提到了你') WHEN 'member_added' THEN CONCAT('你已加入「',p.name,'」') ELSE CONCAT('你已被移出「',p.name,'」') END title,
       (m.user_id IS NOT NULL AND n.kind<>'member_removed') can_open
       FROM notifications n JOIN projects p ON p.id=n.project_id

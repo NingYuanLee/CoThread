@@ -4,6 +4,17 @@ import { ResendCountdown } from "./ResendCountdown";
 import { PasswordField } from "./PasswordField";
 import { UiIcon } from "./ui-icon";
 import { showTip } from "./Tip";
+import { AccountSwitchList } from "./AccountSwitchList";
+import {
+  acceptSessionResult,
+  clearSavedAccountToken,
+  listSavedAccounts,
+  setLoginHint,
+  mergeKnownAccounts,
+  takeLoginHint,
+  takeLoginNotice,
+  type SavedAccount,
+} from "./saved-accounts";
 
 type Api = (path: string, data?: unknown, method?: string) => Promise<any>;
 type Mode = "login" | "register" | "recover";
@@ -19,6 +30,13 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
   const [humanRequired, setHumanRequired] = useState(false);
   const [sentAt, setSentAt] = useState(0);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [accounts, setAccounts] = useState<SavedAccount[]>(() => listSavedAccounts());
+  const [identifierDefault, setIdentifierDefault] = useState(() => takeLoginHint() || "admin@cothread.local");
+  useEffect(() => {
+    const notice = takeLoginNotice();
+    if (notice) setError(notice);
+    void mergeKnownAccounts(api).then(setAccounts).catch(() => setAccounts(listSavedAccounts()));
+  }, []);
   const refreshHumanStatus = async (refreshChallenge = false) => {
     const result = await api("/human-verification/status?scope=auth");
     setHumanRequired(result.required);
@@ -34,9 +52,12 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
     event.preventDefault(); setBusy(true); setError("");
     const form = new FormData(event.currentTarget), value = (key: string) => String(form.get(key) || "");
     try {
-      if (mode === "login") onLogin(await api("/login", {
-        identifier: value("identifier"), password: value("password"), ...(humanRequired ? humanProof : {}),
-      }));
+      if (mode === "login") {
+        const remember = form.get("rememberDevice") === "on";
+        onLogin(acceptSessionResult(await api("/login", {
+          identifier: value("identifier"), password: value("password"), remember, ...(humanRequired ? humanProof : {}),
+        }), remember));
+      }
       else if (!challengeId) {
         const requestData = {
           email: value("email"), password: value("password"), ...(humanRequired ? humanProof : {}),
@@ -54,7 +75,7 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
         showTip("验证码已发送", "info");
       } else {
         const result = await api(`/email/${mode}/confirm`, { challengeId, code: value("code") });
-        onLogin(result);
+        onLogin(acceptSessionResult(result));
         return;
       }
     } catch (cause) {
@@ -65,6 +86,29 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
       }
     }
     finally { setBusy(false); }
+  };
+  const switchAccount = async (account: SavedAccount) => {
+    if (!account.token) {
+      setIdentifierDefault(account.email || account.username);
+      setError("该账号需要重新登录");
+      return;
+    }
+    setBusy(true); setError("");
+    try {
+      const profile = await api("/session/switch", { token: account.token });
+      onLogin(acceptSessionResult({ ...profile, sessionToken: account.token }));
+    } catch (cause) {
+      const status = (cause as { status?: number }).status;
+      if (status === 401) {
+        clearSavedAccountToken(account.id);
+        setAccounts(listSavedAccounts());
+        setIdentifierDefault(account.email || account.username);
+        setLoginHint(account.email || account.username);
+        setError("该账号登录已过期，请重新登录");
+      } else {
+        setError((cause as Error).message);
+      }
+    } finally { setBusy(false); }
   };
   return <form className="login-card" onSubmit={submit} onPointerMove={(event) => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -79,9 +123,15 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
       </button>)}
     </div>
     <h2>{mode === "login" ? "回到共同的上下文" : mode === "register" ? "创建共序账号" : "重置密码"}</h2>
-    <p>{challengeId ? "输入邮箱中收到的验证码" : mode === "login" ? "使用账号或已绑定邮箱登录" : mode === "register" ? "验证邮箱后完成注册" : "通过已绑定邮箱重置密码"}</p>
-    {mode === "login" && <><label>账号或邮箱<input name="identifier" defaultValue="admin@cothread.local" autoComplete="username" required /></label>
-      <label>密码<input name="password" type="password" autoComplete="current-password" required /></label></>}
+    {(challengeId || mode !== "login") && (
+      <p>{challengeId ? "输入邮箱中收到的验证码" : mode === "register" ? "验证邮箱后完成注册" : "通过已绑定邮箱重置密码"}</p>
+    )}
+    {mode === "login" && accounts.length > 0 && (
+      <AccountSwitchList variant="tiles" accounts={accounts} busy={busy} onSwitch={(account) => void switchAccount(account)} />
+    )}
+    {mode === "login" && <><label>用户名或邮箱<input key={identifierDefault} name="identifier" defaultValue={identifierDefault} autoComplete="username" required /></label>
+      <label>密码<input name="password" type="password" autoComplete="current-password" required /></label>
+      <label className="remember-device"><input type="checkbox" name="rememberDevice" />在当前设备记住登录信息</label></>}
     {mode === "register" && !challengeId && <>
       <label>邮箱<input name="email" defaultValue={draft.email || ""} type="email" autoComplete="email" required /></label>
       <PasswordField autoComplete="new-password" required />

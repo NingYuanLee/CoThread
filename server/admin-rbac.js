@@ -5,6 +5,7 @@ import { HttpError } from "./http-error.js";
 import {
   ADMIN_PERMISSION_KEYS,
   ADMIN_PERMISSION_TREE,
+  IMPLICIT_ADMIN_PERMISSIONS,
   expandAdminPermissions,
 } from "../shared/admin-permissions.js";
 
@@ -19,7 +20,7 @@ const roleInput = z
 const decode = (value) => (typeof value === "string" ? JSON.parse(value) : value);
 
 export async function adminAccess(db, user) {
-  if (user.kind !== "session") throw new HttpError(403, "管理平台需要成员账号登录");
+  if (user.kind !== "session") throw new HttpError(403, "管理空间需要成员账号登录");
   const [account] = await query(
     db,
     "SELECT id,name,is_super_admin FROM users WHERE id=? AND disabled_at IS NULL",
@@ -32,9 +33,10 @@ export async function adminAccess(db, user) {
     JOIN admin_user_roles ur ON ur.role_id=r.id WHERE ur.user_id=? AND r.scope='platform' AND r.is_builtin=FALSE ORDER BY r.name,r.id`,
     [user.id],
   );
-  const permissions = Number(account.is_super_admin)
+  const granted = Number(account.is_super_admin)
     ? [...ADMIN_PERMISSION_KEYS]
     : expandAdminPermissions(roles.flatMap((role) => decode(role.permissions) || []));
+  const permissions = [...new Set([...IMPLICIT_ADMIN_PERMISSIONS, ...granted])];
   return {
     user: { id: account.id, name: account.name },
     isSuperAdmin: !!Number(account.is_super_admin),

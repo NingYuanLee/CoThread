@@ -12,6 +12,7 @@ import {
   renderDevBanner,
   stripAnsi,
   updateDevLogBlockDepth,
+  visibleWidth,
   writeDevBanner,
 } from "../scripts/dev-log.js";
 import {
@@ -60,6 +61,48 @@ test("startup lines are classified by kind", () => {
     formatDevLogLine("已有超级管理员 admin@cothread.local", { now: clock() }),
     "18:22:01 [Cothread] [日志]  已有超级管理员 admin@cothread.local",
   );
+});
+
+test("wide characters count as two columns", () => {
+  assert.equal(visibleWidth("进度"), 4);
+  assert.equal(visibleWidth("abc"), 3);
+  assert.equal(visibleWidth("已变更："), 8);
+});
+
+test("long error lines wrap before a checksum instead of inside it", () => {
+  const applied = "13a6eea5429c8f8aa2dbf0f6aeecfef27a5cb6e8730049380eeed62c41431eed";
+  const current = "dadf5ac0145ab4987bff380d75880719a3394f21066de2b95808f32f4b81048b";
+  const text = `Error: 迁移文件 101_project_builtin_roles.sql 已变更：数据库 checksum=${applied}，当前文件 checksum=${current}`;
+  const formatted = formatDevLogLine(text, {
+    now: clock(),
+    columns: 100,
+    kind: "error",
+    level: "error",
+  });
+  const lines = formatted.split("\n");
+  assert.equal(lines.filter((line) => line.includes("[Cothread]")).length, 1);
+  assert.equal(formatDevLogLine("Vite 已启动", { now: clock(), columns: 100 }), "18:22:01 [Cothread] [启动]  Vite 已启动");
+  for (const line of lines) assert.ok(visibleWidth(line) <= 99, line);
+  assert.ok(lines.some((line) => line.includes(applied)));
+  assert.ok(lines.some((line) => line.includes(current)));
+  assert.equal(formatted.includes(`${applied.slice(0, 20)}\n`), false);
+});
+
+test("tty progress label stays inside the terminal width", () => {
+  const chunks = [];
+  const stream = {
+    isTTY: true,
+    columns: 100,
+    write(text) {
+      chunks.push(text);
+    },
+  };
+  const progress = createDevProgress({ stream, tty: true, clock, color: false, animate: false });
+  progress.set(19, "编译 /web/components/very/long/WorkspaceCanvas.tsx 以及更多不会塞进这一行的路径");
+  const line = stripAnsi(chunks.at(-1)).replace(/^\r/, "").trimEnd();
+  assert.ok(visibleWidth(line) < 100, line);
+  assert.match(line, /19%/);
+  assert.equal(line.includes("WorkspaceCanvas.tsx 以及更多不会塞进这一行的路径"), false);
 });
 
 test("multi-line logs only prefix the first line", () => {

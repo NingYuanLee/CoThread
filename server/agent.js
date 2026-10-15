@@ -12,7 +12,7 @@ import { createAgentTools } from "./agent-tools.js";
 import { releaseSandbox } from "./agent-sandbox.js";
 import { agentSession } from "./agent-session.js";
 import { deliverTaskUpdates } from "./agent-updates.js";
-import { restoreSessionCheckpoint } from "./agent-checkpoint.js";
+import { hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.js";
 import { createUsageMeter, saveReplyUsage } from './agent-usage.js';
 import { publishWork } from "./work-events.js";
 import { dshModelMaxTokens, dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
@@ -262,6 +262,13 @@ export async function openAgentRuntime(
     );
     await restoreSessionCheckpoint(files, home);
   }
+  // A run that created the session log but failed before saving a checkpoint still
+  // owns that id on disk; re-creating it fails with 'session "<id>" already exists'
+  // on every retry, so resume whenever the log is present.
+  const resumeSessionId =
+    Boolean(session.checkpoint) || (await hasSessionLog(home, session.session_id))
+      ? session.session_id
+      : "";
   const token = randomBytes(32).toString("hex");
   const thinkingOptions = role === "coordinator" ? {
     async onVisibleText(text) {
@@ -352,7 +359,7 @@ export async function openAgentRuntime(
     MODEL_API_KEY: configuredModel.apiKey,
     COTHREAD_BRIDGE_URL: `http://127.0.0.1:${bridge.address().port}`,
     COTHREAD_BRIDGE_TOKEN: token,
-    COTHREAD_RESUME_SESSION: session.checkpoint ? session.session_id : "",
+    COTHREAD_RESUME_SESSION: resumeSessionId,
     COTHREAD_ALLOWED_TOOLS: JSON.stringify([...new Set(Object.values(capabilityProfiles).flatMap((profile) => profile.allowedTools))]),
     COTHREAD_ALLOWED_TOOLS_BY_LEVEL: JSON.stringify(Object.fromEntries(Object.entries(capabilityProfiles)
       .map(([level, profile]) => [level, profile.allowedTools]))),

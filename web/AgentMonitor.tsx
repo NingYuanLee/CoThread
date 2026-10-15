@@ -6,6 +6,7 @@ import { l1TaskLabel } from "../shared/agent-label.js";
 import type { ContextUsage } from "../shared/context.js";
 import { contextUsage } from "../shared/context.js";
 import { ContextMeter } from "./ContextMeter";
+import { ProjectMark } from "./ProjectMark";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { useAgentLiveOutput } from "./useAgentLiveOutput";
 import {
@@ -113,6 +114,15 @@ type MonitorData = {
       contextUsage?: ContextUsage;
       sessionStatus?: string;
       runs?: L1Run[];
+    }[];
+    archiveHistory?: {
+      id: string;
+      kind: "plan" | "record";
+      title: string;
+      occurredAt: string | null;
+      conclusion: string;
+      status: string;
+      error: string | null;
     }[];
   };
   coordinators: {
@@ -258,6 +268,23 @@ function runStatusLabel(status: string) {
   if (status === "running") return "进行中";
   if (status === "queued") return "排队中";
   return "已完成";
+}
+
+function archiveHistoryStatus(status: string) {
+  if (status === "preparing") return "梳理中";
+  if (status === "ready") return "待确认";
+  if (status === "failed") return "失败";
+  if (status === "cancelled") return "已撤回";
+  if (status === "completed") return "已确认";
+  if (status === "archived") return "已归档";
+  return status;
+}
+
+function archiveHistoryTone(status: string): "idle" | "running" | "waiting" | "failed" {
+  if (status === "failed") return "failed";
+  if (status === "preparing") return "running";
+  if (status === "ready") return "waiting";
+  return "idle";
 }
 
 const L1_RUN_COLUMNS: HistoryColumn[] = [
@@ -750,9 +777,10 @@ function EventLogDialog({ events, onClose }: { events: MonitorData["eventLog"]; 
   </dialog>;
 }
 
-export function AgentMonitor({ projectId, projectName, api, onClose }: {
+export function AgentMonitor({ projectId, projectName, projectImage, api, onClose }: {
   projectId: string;
   projectName: string;
+  projectImage?: string | null;
   api: (path: string, data?: unknown, method?: string, signal?: AbortSignal) => Promise<any>;
   onClose: () => void;
 }) {
@@ -965,7 +993,10 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
       <div>
         <span>项目运行状态</span>
         <h2 id="agent-monitor-title">小祥监控</h2>
-        <p>{projectName}</p>
+        <p className="monitor-project-name">
+          <ProjectMark name={projectName} image={projectImage} size={16} />
+          <span>{projectName}</span>
+        </p>
       </div>
       <div className="agent-monitor-header-actions">
         <button
@@ -1244,27 +1275,26 @@ export function AgentMonitor({ projectId, projectName, api, onClose }: {
   /> : null}
   {historyKind === "archive" ? <L1HistoryDialog
     title="迭代归档"
-    empty="还没有迭代归档记录。"
+    empty="还没有归档方案或归档记录。"
     onClose={() => setHistoryKind(null)}
     columns={[
       { key: "time", label: "时间" },
+      { key: "kind", label: "类型" },
       { key: "title", label: "迭代" },
       { key: "note", label: "结论" },
       { key: "status", label: "状态" },
     ]}
-    rows={(knowledge?.archives || []).map((item) => {
-      const latestRun = item.runs?.[0];
-      return {
-        id: item.id,
-        tone: latestRun ? runTone(latestRun.status) : "idle" as const,
-        cells: {
-          time: time(latestRun?.finished_at || latestRun?.started_at || item.archived_at),
-          title: item.title,
-          note: item.conclusion || "无结论",
-          status: latestRun ? runStatusLabel(latestRun.status) : "已归档",
-        },
-      };
-    })}
+    rows={(knowledge?.archiveHistory || []).map((item) => ({
+      id: item.id,
+      tone: archiveHistoryTone(item.status),
+      cells: {
+        time: time(item.occurredAt),
+        kind: item.kind === "plan" ? "方案" : "记录",
+        title: item.title,
+        note: (item.error || item.conclusion || "无结论").replace(/\s+/g, " ").slice(0, 160),
+        status: archiveHistoryStatus(item.status),
+      },
+    }))}
   /> : null}
   </>;
 }

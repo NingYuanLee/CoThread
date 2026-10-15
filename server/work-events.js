@@ -21,7 +21,12 @@ export function startWakeWorker(work, { subscribe, concurrency = 1, fallbackMs =
       void Promise.resolve().then(work).then((worked) => {
         if (!worked && generation === startedGeneration) idleGeneration = generation;
         else if (worked) generation++;
-      }).catch((error) => { idleGeneration = generation; onError(error); })
+      }).catch((error) => {
+        onError(error);
+        // A wake that arrived while this call was failing must not be discarded
+        // until the 60s sweep. Only go idle when nothing newer is pending.
+        if (generation === startedGeneration) idleGeneration = generation;
+      })
         .finally(() => { active--; pump(); });
     }
   };

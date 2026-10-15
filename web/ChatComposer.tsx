@@ -1,6 +1,6 @@
 import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { folderDisplayName, folderRootKind, libraryFolderPath } from "./document-library";
 import {
   AGENT_L2_MEMBER,
@@ -67,15 +67,7 @@ const officeIcons = {
   py: Python,
   ...wechatFileIcons,
 };
-function FilePreview({
-  name,
-  url,
-  id,
-}: {
-  name: string;
-  url?: string;
-  id?: string;
-}) {
+function FilePreview({ name, url, id }: { name: string; url?: string; id?: string }) {
   const [preview, setPreview] = useState("");
   useEffect(() => {
     if (url || !id || !isImageFile(name)) return;
@@ -88,16 +80,11 @@ function FilePreview({
         if (!alive) return;
         const ext = name.split(".").pop()?.toLowerCase();
         const mime =
-          ext === "svg"
-            ? "image/svg+xml"
-            : ext === "jpg"
-              ? "image/jpeg"
-              : `image/${ext}`;
+          ext === "svg" ? "image/svg+xml" : ext === "jpg" ? "image/jpeg" : `image/${ext}`;
         local = URL.createObjectURL(
-          new Blob(
-            [Uint8Array.from(atob(v.contentBase64), (c) => c.charCodeAt(0))],
-            { type: mime },
-          ),
+          new Blob([Uint8Array.from(atob(v.contentBase64), (c) => c.charCodeAt(0))], {
+            type: mime,
+          }),
         );
         setPreview(local);
       })
@@ -121,11 +108,14 @@ function FilePreview({
   );
 }
 
+export type ComposerController = {
+  updateDraft: (updater: (text: string) => string) => void;
+  focus: () => void;
+};
+
 export function ChatComposer({
   projectId,
   threadId,
-  message,
-  setMessage,
   refs,
   setRefs,
   folderRefs = [],
@@ -140,11 +130,10 @@ export function ChatComposer({
   uploadTarget,
   dialogueMode = "default",
   onDialogueModeChange,
+  onController,
 }: {
   projectId: string;
   threadId: string;
-  message: string;
-  setMessage: React.Dispatch<React.SetStateAction<string>>;
   refs: string[];
   setRefs: React.Dispatch<React.SetStateAction<string[]>>;
   folderRefs?: string[];
@@ -154,12 +143,14 @@ export function ChatComposer({
   members: { id: string; name: string; email: string; kind?: string; avatar?: string | null }[];
   currentUserId?: string;
   busy: boolean;
-  onSend: () => Promise<boolean>;
+  onSend: (body: string) => Promise<boolean>;
   onRefresh: () => Promise<void>;
   uploadTarget: React.MutableRefObject<((files: File[]) => void) | null>;
   dialogueMode?: DialogueMode;
   onDialogueModeChange?: (mode: DialogueMode) => void;
+  onController?: (controller: ComposerController | null, threadId?: string) => void;
 }) {
+  const [message, setMessage] = useState("");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [imagePreview, setImagePreview] = useState<ImagePreviewSource | null>(null);
   const [error, setError] = useState("");
@@ -172,6 +163,16 @@ export function ChatComposer({
   const [index, setIndex] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    onController?.(
+      {
+        updateDraft: (updater) => setMessage(updater),
+        focus: () => input.current?.focus(),
+      },
+      threadId,
+    );
+    return () => onController?.(null);
+  }, [onController, threadId]);
   const picker = useRef<HTMLDivElement>(null);
   const alive = useRef(true);
   const urls = useRef<string[]>([]);
@@ -201,9 +202,7 @@ export function ChatComposer({
   }, [modeMenuOpen]);
   const update = (key: string, value: Partial<Upload>) => {
     if (alive.current)
-      setUploads((rows) =>
-        rows.map((r) => (r.key === key ? { ...r, ...value } : r)),
-      );
+      setUploads((rows) => rows.map((r) => (r.key === key ? { ...r, ...value } : r)));
   };
   const upload = (files: File[]) => {
     if (sending.current || busy) return;
@@ -221,17 +220,18 @@ export function ChatComposer({
       const key = crypto.randomUUID();
       const url = isImageFile(file.name) ? URL.createObjectURL(file) : undefined;
       if (url) urls.current.push(url);
-      setUploads((rows) => [
-        ...rows,
-        { key, name: file.name, url, progress: 0 },
-      ]);
+      setUploads((rows) => [...rows, { key, name: file.name, url, progress: 0 }]);
       void (async () => {
         try {
-          const result = await uploadFileWithIntegrity({
-            kind: "cache_draft",
-            threadId,
-            title: file.name,
-          }, file, (progress) => update(key, { progress }));
+          const result = await uploadFileWithIntegrity(
+            {
+              kind: "cache_draft",
+              threadId,
+              title: file.name,
+            },
+            file,
+            (progress) => update(key, { progress }),
+          );
           if (cancelled.current.has(key)) {
             update(key, { ...result, progress: 100 });
             await remove({
@@ -263,14 +263,9 @@ export function ChatComposer({
             title: result.title,
             filename: result.filename || file.name,
           });
-          currentRefs.current = [
-            ...new Set([...currentRefs.current, result.id]),
-          ];
+          currentRefs.current = [...new Set([...currentRefs.current, result.id])];
           setRefs(currentRefs.current);
-          setMessage(
-            (text) =>
-              `${text}${text && !/\s$/.test(text) ? " " : ""}/${savedName} `,
-          );
+          setMessage((text) => `${text}${text && !/\s$/.test(text) ? " " : ""}/${savedName} `);
           update(key, {
             id: result.id,
             artifactId: result.artifactId,
@@ -295,16 +290,12 @@ export function ChatComposer({
     update(item.key, { removing: true });
     try {
       if (item.artifactId) {
-        const response = await fetch(
-          `/api/projects/${projectId}/artifacts/${item.artifactId}`,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ deleted: true, threadId }),
-          },
-        );
-        if (!response.ok)
-          await readJsonResponse(response, "/api/attachments");
+        const response = await fetch(`/api/projects/${projectId}/artifacts/${item.artifactId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deleted: true, threadId }),
+        });
+        if (!response.ok) await readJsonResponse(response, "/api/attachments");
       }
       if (!alive.current) return;
       setUploads((rows) => rows.filter((r) => r.key !== item.key));
@@ -336,44 +327,73 @@ export function ChatComposer({
     );
     setIndex(0);
   };
-  const available = versions.filter(
-    (v, i, all) =>
-      !v.deleted_at &&
-      all.findIndex((x) => x.artifact_id === v.artifact_id) === i,
+  const available = useMemo(
+    () =>
+      versions.filter(
+        (v, i, all) => !v.deleted_at && all.findIndex((x) => x.artifact_id === v.artifact_id) === i,
+      ),
+    [versions],
   );
-  const libraryFolders = folders.filter((folder) => {
-    if (folder.folder_kind === "iteration_root" || folder.folder_kind === "iteration_cache" || folder.folder_kind === "iteration_outputs")
-      return false;
-    return folderRootKind(folder.id, folders) !== null;
-  });
-  const mentionMembers = members.filter(
-    (m) => m.kind !== "l1" && m.id !== AGENT_MEMBER.id && m.id !== currentUserId,
+  const libraryFolders = useMemo(
+    () =>
+      folders.filter((folder) => {
+        if (
+          folder.folder_kind === "iteration_root" ||
+          folder.folder_kind === "iteration_cache" ||
+          folder.folder_kind === "iteration_outputs"
+        )
+          return false;
+        return folderRootKind(folder.id, folders) !== null;
+      }),
+    [folders],
   );
-  const options = (
-    trigger?.symbol === "/"
-      ? [
-          ...available.map((v) => {
-            const label = fileDisplayName(v);
-            return { id: v.id, kind: "file" as const, label, detail: v.title !== label ? v.title : v.filename };
-          }),
-          ...libraryFolders.map((folder) => {
-            const label = folderDisplayName(folder);
-            const path = libraryFolderPath(folder.id, folders);
-            return { id: folder.id, kind: "folder" as const, label, detail: path !== label ? path : "文件夹" };
-          }),
-        ]
-      : mentionMembers.map((m) => ({
-          id: m.id,
-          kind: "member" as const,
-          label: m.name,
-          detail: m.id === AGENT_L2_MEMBER.id ? AGENT_L2_MEMBER.identity_tags[0] : m.email,
-          avatar: m.id === AGENT_L2_MEMBER.id ? (m.avatar || AGENT_L2_MEMBER.avatar) : (m.avatar || undefined),
-        }))
-  )
+  const mentionMembers = useMemo(
+    () =>
+      members.filter((m) => m.kind !== "l1" && m.id !== AGENT_MEMBER.id && m.id !== currentUserId),
+    [members, currentUserId],
+  );
+  const fileChoices = useMemo(
+    () =>
+      available.map((v) => {
+        const label = fileDisplayName(v);
+        return {
+          id: v.id,
+          kind: "file" as const,
+          label,
+          detail: v.title !== label ? v.title : v.filename,
+        };
+      }),
+    [available],
+  );
+  const folderChoices = useMemo(
+    () =>
+      libraryFolders.map((folder) => {
+        const label = folderDisplayName(folder);
+        const path = libraryFolderPath(folder.id, folders);
+        return {
+          id: folder.id,
+          kind: "folder" as const,
+          label,
+          detail: path !== label ? path : "文件夹",
+        };
+      }),
+    [libraryFolders, folders],
+  );
+  const memberChoices = useMemo(
+    () =>
+      mentionMembers.map((m) => ({
+        id: m.id,
+        kind: "member" as const,
+        label: m.name,
+        detail: m.id === AGENT_L2_MEMBER.id ? AGENT_L2_MEMBER.identity_tags[0] : m.email,
+        avatar:
+          m.id === AGENT_L2_MEMBER.id ? m.avatar || AGENT_L2_MEMBER.avatar : m.avatar || undefined,
+      })),
+    [mentionMembers],
+  );
+  const options = (trigger?.symbol === "/" ? [...fileChoices, ...folderChoices] : memberChoices)
     .filter((o) =>
-      `${o.label} ${o.detail}`
-        .toLowerCase()
-        .includes(trigger?.query.toLowerCase() || ""),
+      `${o.label} ${o.detail}`.toLowerCase().includes(trigger?.query.toLowerCase() || ""),
     )
     .slice(0, 30);
   useLayoutEffect(() => {
@@ -403,16 +423,16 @@ export function ChatComposer({
         setRefs((rows) => [...new Set([...rows, option.id])]);
       }
     }
-    const selectedMember = trigger.symbol === "@" ? mentionMembers.find((m) => m.id === option.id) : undefined;
-    const mentionLabel = selectedMember
-      && selectedMember.id !== AGENT_L2_MEMBER.id
-      && mentionMembers.filter((m) => m.name === selectedMember.name).length > 1
-      ? selectedMember.email : option.label;
+    const selectedMember =
+      trigger.symbol === "@" ? mentionMembers.find((m) => m.id === option.id) : undefined;
+    const mentionLabel =
+      selectedMember &&
+      selectedMember.id !== AGENT_L2_MEMBER.id &&
+      mentionMembers.filter((m) => m.name === selectedMember.name).length > 1
+        ? selectedMember.email
+        : option.label;
     const replacement = `${trigger.symbol}${mentionLabel} `;
-    setMessage(
-      (text) =>
-        text.slice(0, trigger.start) + replacement + text.slice(trigger.end),
-    );
+    setMessage((text) => text.slice(0, trigger.start) + replacement + text.slice(trigger.end));
     const caret = trigger.start + replacement.length;
     setTrigger(null);
     requestAnimationFrame(() => {
@@ -432,362 +452,361 @@ export function ChatComposer({
   };
   return (
     <>
-    <form
-      className={`composer chat-composer${expanded ? " is-expanded" : ""}`}
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (
-          pending ||
-          slots.current ||
-          sending.current ||
-          busy ||
-          !message.trim()
-        )
-          return;
-        sending.current = true;
-        try {
-          if (await onSend()) {
-            setUploads([]);
-            setImagePreview(null);
-            urls.current.forEach(URL.revokeObjectURL);
-            urls.current = [];
-            setTrigger(null);
+      <form
+        className={`composer chat-composer${expanded ? " is-expanded" : ""}`}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (pending || slots.current || sending.current || busy || !message.trim()) return;
+          sending.current = true;
+          const body = message;
+          try {
+            if (await onSend(body)) {
+              setMessage("");
+              setUploads([]);
+              setImagePreview(null);
+              urls.current.forEach(URL.revokeObjectURL);
+              urls.current = [];
+              setTrigger(null);
+            }
+          } catch (error) {
+            setMessage(body);
+            throw error;
+          } finally {
+            sending.current = false;
           }
-        } finally {
-          sending.current = false;
-        }
-      }}
-    >
-      <div className="composer-resize">
-        <button
-          type="button"
-          className="composer-resize-btn"
-          aria-label={expanded ? "缩小输入框" : "放大输入框"}
-          aria-pressed={expanded}
-          title={expanded ? "缩小" : "放大"}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          <UiIcon name={expanded ? "compress" : "expand"} size={16} />
-        </button>
-      </div>
-      {folderRefs.length > 0 && (
-        <div className="references composer-folder-refs" aria-label="引用文件夹">
-          {folderRefs.map((id) => {
-            const folder = folders.find((item) => item.id === id);
-            const label = folder ? libraryFolderPath(id, folders) || folderDisplayName(folder) : id;
-            return (
-              <span className="ref ref-folder" key={id}>
-                <UiIcon name="folder" size={14} /> {label}
+        }}
+      >
+        <div className="composer-resize">
+          <button
+            type="button"
+            className="composer-resize-btn"
+            aria-label={expanded ? "缩小输入框" : "放大输入框"}
+            aria-pressed={expanded}
+            title={expanded ? "缩小" : "放大"}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            <UiIcon name={expanded ? "compress" : "expand"} size={16} />
+          </button>
+        </div>
+        {folderRefs.length > 0 && (
+          <div className="references composer-folder-refs" aria-label="引用文件夹">
+            {folderRefs.map((id) => {
+              const folder = folders.find((item) => item.id === id);
+              const label = folder
+                ? libraryFolderPath(id, folders) || folderDisplayName(folder)
+                : id;
+              return (
+                <span className="ref ref-folder" key={id}>
+                  <UiIcon name="folder" size={14} /> {label}
+                  <button
+                    type="button"
+                    className="ref-remove"
+                    aria-label={`移除文件夹 ${label}`}
+                    onClick={() => setFolderRefs?.((rows) => rows.filter((item) => item !== id))}
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        )}
+        {uploads.length > 0 && (
+          <div className="chat-attachments" aria-label="消息附件">
+            {uploads.map((item) => (
+              <div
+                className={`chat-attachment ${item.error ? "failed" : ""}`}
+                key={item.key}
+                title={item.error || item.name}
+              >
+                <div
+                  className={`attachment-preview${isImageFile(item.name) && (item.url || item.id) && !item.error ? " is-image" : ""}`}
+                  role={
+                    isImageFile(item.name) && (item.url || item.id) && !item.error
+                      ? "button"
+                      : undefined
+                  }
+                  tabIndex={
+                    isImageFile(item.name) && (item.url || item.id) && !item.error ? 0 : undefined
+                  }
+                  title={
+                    isImageFile(item.name) && (item.url || item.id) && !item.error
+                      ? `预览 ${item.name}`
+                      : undefined
+                  }
+                  onClick={() => openUploadPreview(item)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    openUploadPreview(item);
+                  }}
+                >
+                  <FilePreview name={item.name} url={item.url} id={item.id} />
+                  {!item.id && !item.error && (
+                    <div
+                      className="upload-overlay"
+                      role="progressbar"
+                      aria-label={`上传 ${item.name}`}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={item.progress}
+                    >
+                      <span>{item.progress === 99 ? "正在保存…" : `${item.progress}%`}</span>
+                      <progress max={100} value={item.progress} />
+                    </div>
+                  )}
+                  {item.error && <span className="upload-overlay">上传失败</span>}
+                </div>
+                <small>{item.name}</small>
                 <button
                   type="button"
-                  className="ref-remove"
-                  aria-label={`移除文件夹 ${label}`}
-                  onClick={() => setFolderRefs?.((rows) => rows.filter((item) => item !== id))}
+                  className="attachment-remove"
+                  aria-label={`删除 ${item.name}`}
+                  disabled={busy || item.removing}
+                  onClick={() => {
+                    if (!item.id && !item.error) {
+                      cancelled.current.add(item.key);
+                      update(item.key, { removing: true });
+                    } else void remove(item);
+                  }}
                 >
                   ×
                 </button>
-              </span>
-            );
-          })}
-        </div>
-      )}
-      {uploads.length > 0 && (
-        <div className="chat-attachments" aria-label="消息附件">
-          {uploads.map((item) => (
-            <div
-              className={`chat-attachment ${item.error ? "failed" : ""}`}
-              key={item.key}
-              title={item.error || item.name}
-            >
-              <div
-                className={`attachment-preview${isImageFile(item.name) && (item.url || item.id) && !item.error ? " is-image" : ""}`}
-                role={isImageFile(item.name) && (item.url || item.id) && !item.error ? "button" : undefined}
-                tabIndex={isImageFile(item.name) && (item.url || item.id) && !item.error ? 0 : undefined}
-                title={isImageFile(item.name) && (item.url || item.id) && !item.error ? `预览 ${item.name}` : undefined}
-                onClick={() => openUploadPreview(item)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  event.preventDefault();
-                  openUploadPreview(item);
-                }}
-              >
-                <FilePreview name={item.name} url={item.url} id={item.id} />
-                {!item.id && !item.error && (
-                  <div
-                    className="upload-overlay"
-                    role="progressbar"
-                    aria-label={`上传 ${item.name}`}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={item.progress}
-                  >
-                    <span>
-                      {item.progress === 99 ? "正在保存…" : `${item.progress}%`}
-                    </span>
-                    <progress max={100} value={item.progress} />
-                  </div>
-                )}
-                {item.error && <span className="upload-overlay">上传失败</span>}
+                {item.error && <span className="attachment-error">{item.error}</span>}
               </div>
-              <small>{item.name}</small>
-              <button
-                type="button"
-                className="attachment-remove"
-                aria-label={`删除 ${item.name}`}
-                disabled={busy || item.removing}
-                onClick={() => {
-                  if (!item.id && !item.error) {
-                    cancelled.current.add(item.key);
-                    update(item.key, { removing: true });
-                  } else void remove(item);
-                }}
-              >
-                ×
-              </button>
-              {item.error && (
-                <span className="attachment-error">{item.error}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="chat-input-wrap">
-        {trigger && (
-          <div
-            ref={picker}
-            className="composer-picker"
-            role="listbox"
-            id="composer-picker"
-            aria-label={
-              trigger.symbol === "/" ? "选择项目文件或文件夹" : "选择项目成员"
-            }
-          >
-            <small>{trigger.symbol === "/" ? "项目文件与文件夹" : "项目成员"}</small>
-            {options.map((option, i) => (
-              <button
-                type="button"
-                role="option"
-                aria-selected={i === index}
-                id={`composer-option-${i}`}
-                key={`${option.kind}:${option.id}`}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => choose(option)}
-              >
-                {trigger.symbol === "/" ? (
-                  option.kind === "folder" ? (
-                    <UiIcon name="folder" size={20} />
-                  ) : (
-                    <FileIcon
-                      fileName={option.label}
-                      editFileExtensionData={wechatFileIcons}
-                      autoAssign
-                      width={20}
-                      height={20}
-                    />
-                  )
-                ) : (
-                  <span className="mention-avatar">
-                    {"avatar" in option && option.avatar ? (
-                      <img src={option.avatar} alt="" />
-                    ) : (
-                      option.label[0]
-                    )}
-                  </span>
-                )}
-                <span>
-                  {option.label}
-                  <small>{option.detail}</small>
-                </span>
-              </button>
             ))}
-            {!options.length && (
-              <p>没有匹配的{trigger.symbol === "/" ? "文件或文件夹" : "成员"}</p>
-            )}
           </div>
         )}
-        <textarea
-          rows={2}
-          ref={input}
-          aria-label="发送消息"
-          aria-controls={trigger ? "composer-picker" : undefined}
-          aria-expanded={!!trigger}
-          aria-activedescendant={
-            trigger && options[index] ? `composer-option-${index}` : undefined
-          }
-          value={message}
-          placeholder="写下想法… / 引用文件或文件夹，@ 提及成员；可拖拽或粘贴文件"
-          maxLength={20000}
-          onChange={(e) => {
-            setMessage(e.target.value);
-            detect(e.target.value, e.target.selectionStart);
-          }}
-          onClick={(e) =>
-            detect(e.currentTarget.value, e.currentTarget.selectionStart)
-          }
-          onBlur={() => setTrigger(null)}
-          onPaste={(e) => {
-            const files = Array.from(e.clipboardData.files);
-            if (files.length) {
-              e.preventDefault();
-              e.stopPropagation();
-              upload(files);
-              return;
-            }
-            // 粘贴文本时即使内容含 `/` 也不打开文件引用面板
-            suppressSlashTrigger.current = true;
-          }}
-          onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-            if (e.key === "Enter") {
-              if (e.shiftKey) return;
-              e.preventDefault();
-              if (e.repeat) return;
-              if (trigger) {
-                if (options[index]) choose(options[index]);
-                return;
-              }
-              e.currentTarget.form?.requestSubmit();
-              return;
-            }
-            if (!trigger) return;
-            if (e.key === "Escape") {
-              e.preventDefault();
-              setTrigger(null);
-            }
-            if (options.length && ["ArrowDown", "ArrowUp"].includes(e.key)) {
-              e.preventDefault();
-              setIndex(
-                (i) =>
-                  (i + (e.key === "ArrowDown" ? 1 : -1) + options.length) %
-                  options.length,
-              );
-            }
-          }}
-        />
-      </div>
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
-      <div className="composer-footer">
-        {onDialogueModeChange ? (
-          <div className="composer-mode-row">
-            <div className="composer-mode-anchor" ref={modeMenuRef}>
-              <button
-                type="button"
-                className="composer-mode-toggle"
-                aria-label={`对话模式：${DIALOGUE_MODE_UI[dialogueMode].label}`}
-                aria-expanded={modeMenuOpen}
-                aria-haspopup="menu"
-                title={`对话模式：${DIALOGUE_MODE_UI[dialogueMode].label}`}
-                onClick={() => setModeMenuOpen((open) => !open)}
-              >
-                <UiIcon name="plus" size={18} />
-              </button>
-              {modeMenuOpen ? (
-                <div className="composer-mode-menu" role="menu" aria-label="对话模式">
-                  {DIALOGUE_MODES.map((mode) => {
-                    const meta = DIALOGUE_MODE_UI[mode];
-                    return (
-                      <button
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={dialogueMode === mode}
-                        className={`composer-mode-option composer-mode-option-${mode}${dialogueMode === mode ? " is-active" : ""}`}
-                        key={mode}
-                        style={{ "--mode-accent": meta.accent } as React.CSSProperties}
-                        onClick={() => {
-                          onDialogueModeChange(mode);
-                          setModeMenuOpen(false);
-                        }}
-                      >
-                        <span className="composer-mode-option-icon" aria-hidden="true">
-                          <UiIcon name={meta.icon as UiIconName} size={18} />
-                        </span>
-                        <span className="composer-mode-option-copy">
-                          <span className="composer-mode-option-label">{meta.label}</span>
-                          <span className="composer-mode-option-summary">{meta.summary}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
-            {dialogueMode !== "default" ? (
-              <div
-                className={`composer-mode-chip composer-mode-chip-${dialogueMode}`}
-                style={{
-                  "--mode-accent": DIALOGUE_MODE_UI[dialogueMode].accent,
-                  "--mode-surface": DIALOGUE_MODE_UI[dialogueMode].surface,
-                } as React.CSSProperties}
-              >
-                <span className="composer-mode-chip-icon" aria-hidden="true">
-                  <UiIcon name={DIALOGUE_MODE_UI[dialogueMode].icon as UiIconName} size={16} />
-                </span>
-                <span className="composer-mode-chip-label">{DIALOGUE_MODE_UI[dialogueMode].label}</span>
+        <div className="chat-input-wrap">
+          {trigger && (
+            <div
+              ref={picker}
+              className="composer-picker"
+              role="listbox"
+              id="composer-picker"
+              aria-label={trigger.symbol === "/" ? "选择项目文件或文件夹" : "选择项目成员"}
+            >
+              <small>{trigger.symbol === "/" ? "项目文件与文件夹" : "项目成员"}</small>
+              {options.map((option, i) => (
                 <button
                   type="button"
-                  className="composer-mode-chip-clear"
-                  aria-label={`退出 ${DIALOGUE_MODE_UI[dialogueMode].label}，恢复${DIALOGUE_MODE_UI.default.label}`}
-                  title={`恢复${DIALOGUE_MODE_UI.default.label}`}
-                  onClick={() => onDialogueModeChange("default")}
+                  role="option"
+                  aria-selected={i === index}
+                  id={`composer-option-${i}`}
+                  key={`${option.kind}:${option.id}`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => choose(option)}
                 >
-                  <UiIcon name="close" size={12} />
+                  {trigger.symbol === "/" ? (
+                    option.kind === "folder" ? (
+                      <UiIcon name="folder" size={20} />
+                    ) : (
+                      <FileIcon
+                        fileName={option.label}
+                        editFileExtensionData={wechatFileIcons}
+                        autoAssign
+                        width={20}
+                        height={20}
+                      />
+                    )
+                  ) : (
+                    <span className="mention-avatar">
+                      {"avatar" in option && option.avatar ? (
+                        <img src={option.avatar} alt="" />
+                      ) : (
+                        option.label[0]
+                      )}
+                    </span>
+                  )}
+                  <span>
+                    {option.label}
+                    <small>{option.detail}</small>
+                  </span>
+                </button>
+              ))}
+              {!options.length && (
+                <p>没有匹配的{trigger.symbol === "/" ? "文件或文件夹" : "成员"}</p>
+              )}
+            </div>
+          )}
+          <textarea
+            rows={2}
+            ref={input}
+            aria-label="发送消息"
+            aria-controls={trigger ? "composer-picker" : undefined}
+            aria-expanded={!!trigger}
+            aria-activedescendant={
+              trigger && options[index] ? `composer-option-${index}` : undefined
+            }
+            value={message}
+            placeholder="写下想法… / 引用文件或文件夹，@ 提及成员；可拖拽或粘贴文件"
+            maxLength={20000}
+            onChange={(e) => {
+              setMessage(e.target.value);
+              detect(e.target.value, e.target.selectionStart);
+            }}
+            onClick={(e) => detect(e.currentTarget.value, e.currentTarget.selectionStart)}
+            onBlur={() => setTrigger(null)}
+            onPaste={(e) => {
+              const files = Array.from(e.clipboardData.files);
+              if (files.length) {
+                e.preventDefault();
+                e.stopPropagation();
+                upload(files);
+                return;
+              }
+              // 粘贴文本时即使内容含 `/` 也不打开文件引用面板
+              suppressSlashTrigger.current = true;
+            }}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              if (e.key === "Enter") {
+                if (e.shiftKey) return;
+                e.preventDefault();
+                if (e.repeat) return;
+                if (trigger) {
+                  if (options[index]) choose(options[index]);
+                  return;
+                }
+                e.currentTarget.form?.requestSubmit();
+                return;
+              }
+              if (!trigger) return;
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setTrigger(null);
+              }
+              if (options.length && ["ArrowDown", "ArrowUp"].includes(e.key)) {
+                e.preventDefault();
+                setIndex(
+                  (i) => (i + (e.key === "ArrowDown" ? 1 : -1) + options.length) % options.length,
+                );
+              }
+            }}
+          />
+        </div>
+        {error && (
+          <div className="error" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="composer-footer">
+          {onDialogueModeChange ? (
+            <div className="composer-mode-row">
+              <div className="composer-mode-anchor" ref={modeMenuRef}>
+                <button
+                  type="button"
+                  className="composer-mode-toggle"
+                  aria-label={`对话模式：${DIALOGUE_MODE_UI[dialogueMode].label}`}
+                  aria-expanded={modeMenuOpen}
+                  aria-haspopup="menu"
+                  title={`对话模式：${DIALOGUE_MODE_UI[dialogueMode].label}`}
+                  onClick={() => setModeMenuOpen((open) => !open)}
+                >
+                  <UiIcon name="plus" size={18} />
+                </button>
+                {modeMenuOpen ? (
+                  <div className="composer-mode-menu" role="menu" aria-label="对话模式">
+                    {DIALOGUE_MODES.map((mode) => {
+                      const meta = DIALOGUE_MODE_UI[mode];
+                      return (
+                        <button
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={dialogueMode === mode}
+                          className={`composer-mode-option composer-mode-option-${mode}${dialogueMode === mode ? " is-active" : ""}`}
+                          key={mode}
+                          style={{ "--mode-accent": meta.accent } as React.CSSProperties}
+                          onClick={() => {
+                            onDialogueModeChange(mode);
+                            setModeMenuOpen(false);
+                          }}
+                        >
+                          <span className="composer-mode-option-icon" aria-hidden="true">
+                            <UiIcon name={meta.icon as UiIconName} size={18} />
+                          </span>
+                          <span className="composer-mode-option-copy">
+                            <span className="composer-mode-option-label">{meta.label}</span>
+                            <span className="composer-mode-option-summary">{meta.summary}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+              {dialogueMode !== "default" ? (
+                <div
+                  className={`composer-mode-chip composer-mode-chip-${dialogueMode}`}
+                  style={
+                    {
+                      "--mode-accent": DIALOGUE_MODE_UI[dialogueMode].accent,
+                      "--mode-surface": DIALOGUE_MODE_UI[dialogueMode].surface,
+                    } as React.CSSProperties
+                  }
+                >
+                  <span className="composer-mode-chip-icon" aria-hidden="true">
+                    <UiIcon name={DIALOGUE_MODE_UI[dialogueMode].icon as UiIconName} size={16} />
+                  </span>
+                  <span className="composer-mode-chip-label">
+                    {DIALOGUE_MODE_UI[dialogueMode].label}
+                  </span>
+                  <button
+                    type="button"
+                    className="composer-mode-chip-clear"
+                    aria-label={`退出 ${DIALOGUE_MODE_UI[dialogueMode].label}，恢复${DIALOGUE_MODE_UI.default.label}`}
+                    title={`恢复${DIALOGUE_MODE_UI.default.label}`}
+                    onClick={() => onDialogueModeChange("default")}
+                  >
+                    <UiIcon name="close" size={12} />
+                  </button>
+                </div>
+              ) : null}
+              <div className="composer-prompt-shortcuts">
+                <button
+                  type="button"
+                  className="composer-prompt-shortcut"
+                  disabled={busy}
+                  title="预填 @小祥，基于当前群聊上下文梳理讨论"
+                  onClick={() => {
+                    setMessage(SUMMARY_REQUEST);
+                    requestAnimationFrame(() => input.current?.focus());
+                  }}
+                >
+                  <UiIcon name="sparkle" size={16} />
+                  帮我梳理群聊
+                </button>
+                <button
+                  type="button"
+                  className="composer-prompt-shortcut"
+                  disabled={busy}
+                  title="预填 @小祥，根据群聊上下文创建任务"
+                  onClick={() => {
+                    setMessage(TASK_CREATE_REQUEST);
+                    requestAnimationFrame(() => input.current?.focus());
+                  }}
+                >
+                  <UiIcon name="task" size={16} />
+                  帮我创建任务
                 </button>
               </div>
-            ) : null}
-            <div className="composer-prompt-shortcuts">
-              <button
-                type="button"
-                className="composer-prompt-shortcut"
-                disabled={busy}
-                title="预填 @小祥，基于当前群聊上下文梳理讨论"
-                onClick={() => {
-                  setMessage(SUMMARY_REQUEST);
-                  requestAnimationFrame(() => input.current?.focus());
-                }}
-              >
-                <UiIcon name="sparkle" size={16} />
-                帮我梳理群聊
-              </button>
-              <button
-                type="button"
-                className="composer-prompt-shortcut"
-                disabled={busy}
-                title="预填 @小祥，根据群聊上下文创建任务"
-                onClick={() => {
-                  setMessage(TASK_CREATE_REQUEST);
-                  requestAnimationFrame(() => input.current?.focus());
-                }}
-              >
-                <UiIcon name="task" size={16} />
-                帮我创建任务
-              </button>
             </div>
-          </div>
-        ) : null}
-        <button
-          className="primary"
-          disabled={busy || pending || !message.trim()}
-        >
-          <UiIcon name="send" size={17} />
-          {pending ? "上传中…" : busy ? "处理中…" : "发送"}
-        </button>
-      </div>
-    </form>
-    {imagePreview && (
-      <ImagePreviewDialog
-        id={imagePreview.id}
-        title={imagePreview.title}
-        filename={imagePreview.filename}
-        src={imagePreview.src}
-        onClose={() => setImagePreview(null)}
-      />
-    )}
+          ) : null}
+          <button className="primary" disabled={busy || pending || !message.trim()}>
+            <UiIcon name="send" size={17} />
+            {pending ? "上传中…" : busy ? "处理中…" : "发送"}
+          </button>
+        </div>
+      </form>
+      {imagePreview && (
+        <ImagePreviewDialog
+          id={imagePreview.id}
+          title={imagePreview.title}
+          filename={imagePreview.filename}
+          src={imagePreview.src}
+          onClose={() => setImagePreview(null)}
+        />
+      )}
     </>
   );
 }
-
-

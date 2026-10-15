@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { hashPassword } from "./auth.js";
+import { projectImageUrlSql } from "./project-image.js";
 
 async function assertAccountManagementScope(service, user, userId, permission, db, fail) {
   const access = await service.adminPermission(user, permission, db);
@@ -45,7 +46,7 @@ export async function createUser(service, user, input, { title, fail }) {
     })
     .transform((value) => ({ ...value, username: value.username || value.email || "" }))
     .parse(input);
-  if (data.username.length < 3) fail(400, "账号名至少需要 3 位");
+  if (data.username.length < 3) fail(400, "用户名至少需要 3 位");
   const userId = randomUUID();
   const password = randomBytes(15).toString("base64url");
   let created;
@@ -65,7 +66,7 @@ export async function createUser(service, user, input, { title, fail }) {
       return row;
     });
   } catch (error) {
-    if (error.code === "ER_DUP_ENTRY") fail(409, "该账号名已被使用");
+    if (error.code === "ER_DUP_ENTRY") fail(409, "该用户名已被使用");
     throw error;
   }
   return {
@@ -84,6 +85,7 @@ export async function adminProjects(service, user) {
     query(
       service.db,
       `SELECT p.id,p.name,p.description,p.created_at,p.archived_at,p.created_by,p.project_leader_id,
+        ${projectImageUrlSql("p.id", "/api/admin/projects")} image,
         u.name creator,CASE WHEN u.avatar IS NULL OR u.avatar='' THEN NULL ELSE CONCAT('/api/admin/projects/',p.id,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) END creator_avatar
         FROM projects p JOIN users u ON u.id=p.created_by
         ORDER BY p.archived_at IS NOT NULL,p.created_at DESC,p.id`,
@@ -183,43 +185,20 @@ export async function setProjectArchived(service, user, projectId, archived, { i
 
 export async function adminAccounts(service, user) {
   await service.adminPermission(user, "accounts");
-  const [accounts, memberships, changes, logins] = await Promise.all([
+  const [accounts, memberships] = await Promise.all([
     query(
       service.db,
       "SELECT id,user_number,COALESCE(username,email) username,name,email,email_verified_at,is_super_admin,disabled_at,created_at,CASE WHEN avatar IS NULL OR avatar='' THEN NULL ELSE CONCAT('/api/admin/accounts/',id,'/avatar?v=',LEFT(SHA2(avatar,256),16)) END avatar FROM users ORDER BY disabled_at IS NOT NULL,user_number",
     ),
     query(
       service.db,
-      `SELECT m.user_id,p.id,p.name,m.role,p.archived_at FROM members m JOIN projects p ON p.id=m.project_id
+      `SELECT m.user_id,p.id,p.name,m.role,p.archived_at,${projectImageUrlSql("p.id", "/api/admin/projects")} image FROM members m JOIN projects p ON p.id=m.project_id
         ORDER BY p.archived_at IS NOT NULL,p.name,p.id`,
-    ),
-    query(
-      service.db,
-      `SELECT l.target_user_id,l.action,l.details,l.created_at,u.name actor FROM
-        (SELECT target_user_id,actor_user_id,action,details,created_at,id,
-          ROW_NUMBER() OVER(PARTITION BY target_user_id ORDER BY created_at DESC,id DESC) audit_rank
-         FROM account_change_logs) l JOIN users u ON u.id=l.actor_user_id
-        WHERE l.audit_rank<=50 ORDER BY l.created_at DESC,l.id DESC`,
-    ),
-    query(
-      service.db,
-      `SELECT user_id,email identifier,ip,country,province,city,district,success,failure_reason,created_at FROM
-        (SELECT user_id,email,ip,country,province,city,district,success,failure_reason,created_at,id,
-          ROW_NUMBER() OVER(PARTITION BY COALESCE(user_id,email) ORDER BY created_at DESC,id DESC) audit_rank
-         FROM login_logs) l WHERE audit_rank<=50 ORDER BY l.created_at DESC,l.id DESC`,
     ),
   ]);
   return accounts.map((account) => ({
     ...account,
     projects: memberships.filter((project) => project.user_id === account.id),
-    changes: changes.filter((change) => change.target_user_id === account.id).slice(0, 50),
-    logins: logins
-      .filter(
-        (login) =>
-          login.user_id === account.id ||
-          (!login.user_id && [account.username, account.email].includes(login.identifier)),
-      )
-      .slice(0, 50),
   }));
 }
 

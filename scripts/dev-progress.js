@@ -1,11 +1,11 @@
 import http from "node:http";
 import {
+  createDevOutputParser,
+  fitDevLogContinuation,
   formatDevLogContinuation,
   formatDevLogLine,
   inferDevLogKind,
-  isDevLogContinuation,
   shouldColorDevLog,
-  updateDevLogBlockDepth,
   visibleWidth,
   writeDevBanner,
 } from "./dev-log.js";
@@ -24,7 +24,9 @@ export function renderDevSpinner(frame = 0) {
 export function renderDevProgressBar(percent, { frame = 0, animated = false } = {}) {
   const clamped = Math.max(0, Math.min(100, Math.floor(Number(percent) || 0)));
   const filled = Math.round((clamped / 100) * BAR_WIDTH);
-  const cells = Array.from({ length: BAR_WIDTH }, (_, index) => (index < filled ? FILL_CHAR : EMPTY_CHAR));
+  const cells = Array.from({ length: BAR_WIDTH }, (_, index) =>
+    index < filled ? FILL_CHAR : EMPTY_CHAR,
+  );
   if (animated && clamped < 100) {
     const head = Math.min(BAR_WIDTH - 1, filled);
     cells[head] = HEAD_FRAMES[Math.abs(Number(frame) || 0) % HEAD_FRAMES.length];
@@ -40,7 +42,9 @@ export function renderDevProgressBar(percent, { frame = 0, animated = false } = 
 export function renderDevProgress(percent, label = "", { frame = 0, animated = false } = {}) {
   const clamped = Math.max(0, Math.min(100, Math.floor(Number(percent) || 0)));
   const bar = renderDevProgressBar(clamped, { frame, animated });
-  const text = String(label || "").replaceAll(/\s+/g, " ").trim();
+  const text = String(label || "")
+    .replaceAll(/\s+/g, " ")
+    .trim();
   const spin = animated && clamped < 100 ? ` ${renderDevSpinner(frame)}` : "";
   return `[${bar}] ${String(clamped).padStart(3, " ")}%${spin}  ${text}`.trimEnd();
 }
@@ -59,13 +63,32 @@ export function createDevProgress({
   let percent = 0;
   let label = "准备启动";
   let finished = false;
+  let halted = false;
   let lastWidth = 0;
   let lastPlain = "";
   let frame = 0;
   let timer;
+  let errorLock = null;
+  let draining = false;
+  const pending = [];
+  const releaseHooks = [];
+
+  function terminalColumns() {
+    return tty ? Number(stream.columns) || 0 : 0;
+  }
 
   function decorate(text, extra = {}) {
-    return formatDevLogLine(text, { color, now: clock(), ...extra });
+    const columns = extra.kind === "progress" ? undefined : terminalColumns();
+    return formatDevLogLine(text, { color, now: clock(), ...extra, columns });
+  }
+
+  function writeFittedContinuation(text) {
+    const fitted = fitDevLogContinuation(text, terminalColumns());
+    const painted = fitted
+      .split("\n")
+      .map((line) => formatDevLogContinuation(line, { color }))
+      .join("\n");
+    stream.write(`${painted}\n`);
   }
 
   function writeStatus(line, { newline = true } = {}) {
@@ -82,10 +105,26 @@ export function createDevProgress({
   }
 
   function paint() {
-    const line = decorate(renderDevProgress(percent, label, {
+    if (halted || finished || errorLock != null) return;
+    const opts = {
       frame,
       animated: animate && !finished && percent < 100,
-    }), { kind: "progress" });
+    };
+    let shown = label;
+    const cols = terminalColumns();
+    if (cols) {
+      const render = (text) => decorate(renderDevProgress(percent, text, opts), { kind: "progress" });
+      let guard = 0;
+      while (shown && visibleWidth(render(shown)) >= cols && guard < 200) {
+        shown = [...shown].slice(0, -1).join("");
+        guard += 1;
+      }
+      if (shown && shown !== label) {
+        const clipped = `${[...shown].slice(0, Math.max(0, [...shown].length - 3)).join("")}...`;
+        if (visibleWidth(render(clipped)) < cols) shown = clipped;
+      }
+    }
+    const line = decorate(renderDevProgress(percent, shown, opts), { kind: "progress" });
     if (!tty) {
       if (line === lastPlain) return;
       lastPlain = line;
@@ -100,9 +139,9 @@ export function createDevProgress({
   }
 
   function startMotion() {
-    if (!animate || finished || timer != null) return;
+    if (!animate || finished || halted || errorLock != null || timer != null) return;
     timer = interval(() => {
-      if (finished) {
+      if (finished || halted) {
         stopMotion();
         return;
       }
@@ -111,11 +150,93 @@ export function createDevProgress({
     }, tickMs);
   }
 
+  function commitCursor() {
+    if (tty && lastWidth) {
+      stream.write("\n");
+      lastWidth = 0;
+    }
+  }
+
+  function itemChannel(item) {
+    return item.type === "error" ? item.channel : item.extra?.channel;
+  }
+
+  function writeNote(text, extra = {}, { silent = false } = {}) {
+    const raw = String(text ?? "")
+      .replaceAll("\r\n", "\n")
+      .replaceAll("\r", "\n");
+    if (extra.continuation) {
+      commitCursor();
+      writeFittedContinuation(raw);
+      if (!silent && !finished && !halted) paint();
+      return;
+    }
+    const line = raw.includes("\n") ? raw.replace(/\n+$/u, "") : raw.replaceAll(/\s+/g, " ").trim();
+    if (!line.trim()) return;
+    commitCursor();
+    stream.write(
+      `${decorate(line, { kind: extra.kind || inferDevLogKind(line), level: extra.level })}\n`,
+    );
+    if (!silent && !finished && !halted) paint();
+  }
+
+  function lockError(channel) {
+    if (errorLock != null) return;
+    errorLock = channel;
+    stopMotion();
+  }
+
+  function writeErrorLine({ text, channel, continuation = false }) {
+    lockError(channel);
+    commitCursor();
+    const body = String(text ?? "");
+    if (!body.trim()) {
+      stream.write("\n");
+      return;
+    }
+    if (continuation) {
+      writeFittedContinuation(body);
+      return;
+    }
+    stream.write(`${decorate(body, { kind: "error", level: "error" })}\n`);
+  }
+
+  function drain({ silent = false } = {}) {
+    if (draining) return;
+    draining = true;
+    try {
+      while (pending.length) {
+        const channel = itemChannel(pending[0]);
+        if (errorLock != null && channel !== errorLock) break;
+        const item = pending.shift();
+        if (item.type === "error") writeErrorLine(item);
+        else writeNote(item.text, item.extra, { silent });
+      }
+    } finally {
+      draining = false;
+    }
+  }
+
+  function endError(channel, { resume = true } = {}) {
+    if (errorLock !== channel) return;
+    errorLock = null;
+    const silent = !(resume && !halted && !finished);
+    drain({ silent });
+    if (resume && !halted && !finished && errorLock == null) {
+      paint();
+      startMotion();
+    }
+  }
+
+  function releaseOutput() {
+    for (const hook of releaseHooks.splice(0)) hook();
+  }
+
   if (banner) writeDevBanner(stream, { color, now: clock() });
 
   return {
     set(nextPercent, nextLabel) {
-      if (finished) return;
+      if (finished || halted) return;
       const capped = Math.min(99, Math.max(percent, Number(nextPercent) || 0));
       percent = capped;
       if (nextLabel) label = nextLabel;
@@ -123,34 +244,36 @@ export function createDevProgress({
       startMotion();
     },
     note(text, extra = {}) {
-      const raw = String(text ?? "").replaceAll("\r\n", "\n").replaceAll("\r", "\n");
-      if (extra.continuation) {
-        if (tty && lastWidth) {
-          stream.write("\n");
-          lastWidth = 0;
-        }
-        stream.write(`${formatDevLogContinuation(raw, {
-          color,
-          now: clock(),
-          kind: extra.kind || "log",
-          level: extra.level,
-        })}\n`);
-        if (!finished) paint();
+      if (!draining && errorLock != null && extra.channel !== errorLock) {
+        pending.push({ type: "note", text, extra });
         return;
       }
-      const line = raw.includes("\n")
-        ? raw.replace(/\n+$/u, "")
-        : raw.replaceAll(/\s+/g, " ").trim();
-      if (!line.trim()) return;
-      if (tty && lastWidth) {
-        stream.write("\n");
-        lastWidth = 0;
+      writeNote(text, extra);
+    },
+    writeError(text, { channel, continuation = false } = {}) {
+      if (!draining && errorLock != null && channel !== errorLock) {
+        pending.push({ type: "error", text, channel, continuation });
+        return;
       }
-      stream.write(`${decorate(line, { kind: extra.kind || inferDevLogKind(line), level: extra.level })}\n`);
-      if (!finished) paint();
+      writeErrorLine({ text, channel, continuation });
+    },
+    hold(channel) {
+      if (halted || finished) return;
+      lockError(channel);
+    },
+    endError,
+    errorChannel() {
+      return errorLock;
+    },
+    onRelease(hook) {
+      releaseHooks.push(hook);
+    },
+    halt() {
+      halted = true;
+      stopMotion();
     },
     finish(readyLine) {
-      if (finished) return;
+      if (finished || halted) return;
       finished = true;
       stopMotion();
       percent = 100;
@@ -161,8 +284,18 @@ export function createDevProgress({
     fail(message) {
       if (finished) return;
       finished = true;
+      halted = true;
       stopMotion();
-      if (tty) stream.write("\n");
+      releaseOutput();
+      while (pending.length) {
+        const before = pending.length;
+        const locked = errorLock;
+        errorLock = null;
+        drain({ silent: true });
+        if (pending.length === before && errorLock === locked) break;
+      }
+      errorLock = null;
+      commitCursor();
       stream.write(`${decorate(message, { kind: "error", level: "error" })}\n`);
     },
   };
@@ -188,7 +321,8 @@ export function normalizeWarmupUrl(raw) {
   return path;
 }
 
-const WARMUP_REF = /(?:from|import)\(\s*["']([^"']+)["']|[^\w]from\s+["']([^"']+)["']|[^\w]import\s+["']([^"']+)["']|\b(?:href|src)=["']([^"']+)["']/g;
+const WARMUP_REF =
+  /(?:from|import)\(\s*["']([^"']+)["']|[^\w]from\s+["']([^"']+)["']|[^\w]import\s+["']([^"']+)["']|\b(?:href|src)=["']([^"']+)["']/g;
 
 export function resolveWarmupUrl(raw, fromPath = "/") {
   const absolute = normalizeWarmupUrl(raw);
@@ -220,27 +354,31 @@ export function extractWarmupUrls(source, fromPath = "/") {
 
 function fetchDevUrlOnce(url, timeoutMs) {
   return new Promise((resolve, reject) => {
-    const request = http.get(url, {
-      timeout: timeoutMs,
-      family: 4,
-      agent: false,
-    }, (response) => {
-      const chunks = [];
-      response.on("data", (chunk) => chunks.push(chunk));
-      response.on("end", () => {
-        if (response.statusCode >= 200 && response.statusCode < 400) {
-          resolve(Buffer.concat(chunks).toString("utf8"));
-          return;
-        }
-        if (response.statusCode === 404) {
-          resolve("");
-          return;
-        }
-        const error = new Error(`${url} -> ${response.statusCode}`);
-        error.statusCode = response.statusCode;
-        reject(error);
-      });
-    });
+    const request = http.get(
+      url,
+      {
+        timeout: timeoutMs,
+        family: 4,
+        agent: false,
+      },
+      (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("end", () => {
+          if (response.statusCode >= 200 && response.statusCode < 400) {
+            resolve(Buffer.concat(chunks).toString("utf8"));
+            return;
+          }
+          if (response.statusCode === 404) {
+            resolve("");
+            return;
+          }
+          const error = new Error(`${url} -> ${response.statusCode}`);
+          error.statusCode = response.statusCode;
+          reject(error);
+        });
+      },
+    );
     request.on("timeout", () => request.destroy(new Error(`${url} 探测超时`)));
     request.on("error", reject);
   });
@@ -248,7 +386,9 @@ function fetchDevUrlOnce(url, timeoutMs) {
 
 function isRetryableWarmupError(error) {
   if (["ECONNRESET", "EPIPE", "ETIMEDOUT", "ECONNREFUSED"].includes(error.code)) return true;
-  return error.statusCode === 502 || error.statusCode === 503 || /探测超时$/.test(error.message || "");
+  return (
+    error.statusCode === 502 || error.statusCode === 503 || /探测超时$/.test(error.message || "")
+  );
 }
 
 async function fetchDevUrl(url, { timeoutMs = 60000, retryDelayMs = 200 } = {}) {
@@ -278,12 +418,10 @@ export function warmupCrawlPercent(completed) {
   return Math.min(99, 58 + Math.round(41 * (1 - Math.exp(-(Number(completed) || 0) / 28))));
 }
 
-export async function warmDevFrontend(origin, {
-  onProgress,
-  timeoutMs = 300000,
-  concurrency = 3,
-  retryDelayMs = 200,
-} = {}) {
+export async function warmDevFrontend(
+  origin,
+  { onProgress, timeoutMs = 300000, concurrency = 3, retryDelayMs = 200 } = {},
+) {
   const start = Date.now();
   const queue = ["/"];
   const seen = new Set(queue);
@@ -323,21 +461,114 @@ export async function warmDevFrontend(origin, {
   return { completed, discovered: seen.size };
 }
 
-export function attachChildOutput(child, progress) {
+function defaultErrorSchedule(fn, ms) {
+  const timer = setTimeout(fn, ms);
+  timer.unref?.();
+  return timer;
+}
+
+let devOutputChannel = 0;
+
+export function attachChildOutput(
+  child,
+  progress,
+  { schedule = defaultErrorSchedule, cancel = clearTimeout, settleMs = 100 } = {},
+) {
+  const states = [];
+  const MAX_ERROR_EXTENDS = 8;
+
+  function emitRecords(channel, records) {
+    for (const record of records) {
+      if (record.role === "error") {
+        progress.writeError(record.text, { channel, continuation: record.continuation });
+        continue;
+      }
+      progress.note(record.text, { channel, continuation: record.continuation });
+    }
+  }
+
+  function disarm(state) {
+    if (state.timer == null) return;
+    cancel(state.timer);
+    state.timer = undefined;
+  }
+
+  function onSettle(state) {
+    state.timer = undefined;
+    if (progress.errorChannel() != null && progress.errorChannel() !== state.id) {
+      arm(state);
+      return;
+    }
+    const result = state.parser.settle();
+    emitRecords(state.id, result.records);
+    if (result.wait && state.parser.isHolding()) {
+      state.extends += 1;
+      if (state.extends <= MAX_ERROR_EXTENDS) {
+        arm(state);
+        return;
+      }
+      emitRecords(state.id, state.parser.forceClose());
+    }
+    state.extends = 0;
+    progress.endError(state.id, { resume: true });
+  }
+
+  function arm(state) {
+    disarm(state);
+    state.timer = schedule(() => onSettle(state), settleMs);
+  }
+
+  function flushState(state, { resume = false } = {}) {
+    if (state.flushed) return;
+    state.flushed = true;
+    disarm(state);
+    if (state.buffer) {
+      const tail = state.buffer;
+      state.buffer = "";
+      emitRecords(state.id, state.parser.push(tail));
+    }
+    emitRecords(state.id, state.parser.finish());
+    progress.endError(state.id, { resume });
+  }
+
+  function flushAll() {
+    for (const state of states) flushState(state, { resume: false });
+  }
+
   for (const stream of [child.stdout, child.stderr]) {
     if (!stream) continue;
-    stream.setEncoding("utf8");
-    let buffer = "";
-    let blockDepth = 0;
+    const state = {
+      id: `dev-child-${++devOutputChannel}`,
+      parser: createDevOutputParser(),
+      buffer: "",
+      timer: undefined,
+      extends: 0,
+      flushed: false,
+    };
+    states.push(state);
+    stream.setEncoding?.("utf8");
     stream.on("data", (chunk) => {
-      buffer += String(chunk).replaceAll("\r\n", "\n").replaceAll("\r", "\n");
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        const continuation = blockDepth > 0 || isDevLogContinuation(line);
-        progress.note(line, { continuation });
-        blockDepth = updateDevLogBlockDepth(blockDepth, line);
+      if (state.flushed) return;
+      state.buffer += String(chunk).replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+      const lines = state.buffer.split("\n");
+      state.buffer = lines.pop() ?? "";
+      for (const line of lines) emitRecords(state.id, state.parser.push(line));
+      if (state.parser.isHolding()) {
+        state.extends = 0;
+        progress.hold(state.id);
+        arm(state);
+      } else {
+        disarm(state);
+        progress.endError(state.id, { resume: true });
       }
     });
+    stream.on("end", () => flushState(state, { resume: false }));
   }
+
+  const release = () => {
+    progress.halt();
+    flushAll();
+  };
+  if (typeof child.on === "function") child.on("exit", release);
+  progress.onRelease?.(release);
 }

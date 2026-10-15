@@ -1,3 +1,4 @@
+import { completeArchiveRequest } from "./archive-helper.js";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -8,6 +9,8 @@ import { testDatabase } from "./database.js";
 
 let database, server, base, owner, viewer, projectId;
 
+const archiveRequest = (path, data, credential) =>
+  completeArchiveRequest(database.db, request, path, data, credential);
 async function request(path, data, credential, method) {
   const res = await fetch(`${base}/api${path}`, {
     method: method || (data === undefined ? "GET" : "POST"),
@@ -17,7 +20,15 @@ async function request(path, data, credential, method) {
     },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
-  return { status: res.status, body: await res.json() };
+  return {
+    status: res.status,
+    body: await res.json(),
+    cookie:
+      res.headers
+        .getSetCookie()
+        .map((value) => value.split(";")[0])
+        .join("; ") || undefined,
+  };
 }
 
 before(async () => {
@@ -40,8 +51,14 @@ before(async () => {
     "Viewer",
     await hashPassword(password),
   ]);
-  owner = { id: ownerId, ...(await request("/login", { email: `owner-${ownerId}@example.com`, password })) };
-  viewer = { id: viewerId, ...(await request("/login", { email: `viewer-${viewerId}@example.com`, password })) };
+  owner = {
+    id: ownerId,
+    ...(await request("/login", { email: `owner-${ownerId}@example.com`, password })),
+  };
+  viewer = {
+    id: viewerId,
+    ...(await request("/login", { email: `viewer-${viewerId}@example.com`, password })),
+  };
   projectId = (await request("/projects", { name: "Archived ops" }, owner)).body.id;
   await query(database.db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)", [
     projectId,
@@ -56,18 +73,28 @@ after(async () => {
 });
 
 test("archived threads can be restored or deleted", async () => {
-  const restoreTarget = (await request(`/projects/${projectId}/threads`, { title: "Restore me" }, owner)).body.id;
-  const deleteTarget = (await request(`/projects/${projectId}/threads`, { title: "Delete me" }, owner)).body.id;
+  const restoreTarget = (
+    await request(`/projects/${projectId}/threads`, { title: "Restore me" }, owner)
+  ).body.id;
+  const deleteTarget = (
+    await request(`/projects/${projectId}/threads`, { title: "Delete me" }, owner)
+  ).body.id;
   assert.equal(
-    (await request(`/threads/${restoreTarget}/archive`, { conclusion: "done" }, owner)).status,
+    (await archiveRequest(`/threads/${restoreTarget}/archive`, { conclusion: "done" }, owner))
+      .status,
     200,
   );
-  const monitorAfterArchive = await request(`/projects/${projectId}/agent-monitor`, undefined, owner);
+  const monitorAfterArchive = await request(
+    `/projects/${projectId}/agent-monitor`,
+    undefined,
+    owner,
+  );
   assert.equal(monitorAfterArchive.status, 200);
   assert.ok(!monitorAfterArchive.body.coordinators.some((thread) => thread.id === restoreTarget));
-  assert.ok(!monitorAfterArchive.body.coordinators.some((thread) => thread.id === deleteTarget));
+  assert.ok(monitorAfterArchive.body.coordinators.some((thread) => thread.id === deleteTarget));
   assert.equal(
-    (await request(`/threads/${deleteTarget}/archive`, { conclusion: "done" }, owner)).status,
+    (await archiveRequest(`/threads/${deleteTarget}/archive`, { conclusion: "done" }, owner))
+      .status,
     200,
   );
   assert.equal((await request(`/threads/${restoreTarget}/restore`, {}, viewer)).status, 403);

@@ -1,6 +1,6 @@
 import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
-import { Fragment, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type SVGProps } from "react";
+import { Fragment, memo, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type SVGProps } from "react";
 import { createPortal } from "react-dom";
 import { FileIcon } from "@react-symbols/icons/utils";
 import {
@@ -1244,7 +1244,7 @@ export function organizableDocuments(
   }
   return [...latest.values()];
 }
-export function Documents({
+export const Documents = memo(function Documents({
   onReview,
   onRequestRevision,
   projectId,
@@ -3985,5 +3985,5 @@ export function Documents({
       </section>
     </div>
   );
-}
+});
 

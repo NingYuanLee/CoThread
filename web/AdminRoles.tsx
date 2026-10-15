@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   ADMIN_PERMISSION_TREE,
+  IMPLICIT_ADMIN_PERMISSIONS,
   expandAdminPermissions,
   type AdminPermissionNode,
 } from "../shared/admin-permissions.js";
@@ -86,16 +87,20 @@ export function AdminRoles({
     keys.forEach((key) => (checked ? selected.add(key) : selected.delete(key)));
     setDraft({ ...draft, permissions: expandAdminPermissions([...selected]) });
   };
+  const alwaysOpen = (node: AdminPermissionNode) =>
+    node.type === "page" && IMPLICIT_ADMIN_PERMISSIONS.includes(node.key);
   const checkbox = (node: AdminPermissionNode) => (
     <label key={node.key} className={`permission-node permission-${node.type}`}>
       <input
         type="checkbox"
-        checked={draft?.permissions.includes(node.key) || false}
-        disabled={busy || !permissions.includes(node.key)}
+        checked={alwaysOpen(node) || draft?.permissions.includes(node.key) || false}
+        disabled={busy || alwaysOpen(node) || !permissions.includes(node.key)}
         onChange={(event) => toggle(node, event.target.checked)}
       />
       {node.label}
-      <small>{node.type === "menu" ? "菜单" : node.type === "page" ? "页面" : "功能"}</small>
+      <small>
+        {alwaysOpen(node) ? "全员开放" : node.type === "menu" ? "菜单" : node.type === "page" ? "页面" : "功能"}
+      </small>
     </label>
   );
   const filteredRoles = roles.filter((role) => matchesRoleSearch(role, search));

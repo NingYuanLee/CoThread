@@ -3,9 +3,24 @@ import { createMcpInstallGuide } from "../shared/mcp-guide.js";
 import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";
 import { UiIcon, type UiIconName } from "./ui-icon";
 import { showTip } from "./Tip";
+import { ConnectorAccountSection, type ConnectorDevice } from "./ConnectorPanel";
 
 type Api = (path: string, data?: unknown, method?: string) => Promise<any>;
-export function McpSettings({ api, endpoint }: { api: Api; endpoint: string }) {
+export function McpSettings({
+  api,
+  endpoint,
+  connectors,
+  connectorsReady,
+  projectId,
+  onConnectorsChanged,
+}: {
+  api: Api;
+  endpoint: string;
+  connectors: ConnectorDevice[];
+  connectorsReady: boolean;
+  projectId: string;
+  onConnectorsChanged: () => Promise<void>;
+}) {
   const [credential, setCredential] = useState<{ token: string; expiresAt: string } | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [busy, setBusy] = useState(true);
@@ -88,6 +103,13 @@ export function McpSettings({ api, endpoint }: { api: Api; endpoint: string }) {
       </>}
       <p className="mcp-warning"><UiIcon name="info" size={13} />复制的 MCP 安装文档含当前账号令牌。为安全起见，粘贴到对话或其他环境后请重置令牌，并在客户端手动替换配置。</p>
     </section>
+    <ConnectorAccountSection
+      devices={connectors}
+      ready={connectorsReady}
+      projectId={projectId}
+      api={api}
+      onChanged={onConnectorsChanged}
+    />
     <section className="mcp-settings-section mcp-capabilities-section">
       <div className="mcp-settings-heading"><div><strong>MCP 能力清单</strong><small>{capabilities.length} 项工具，权限仍受账号和项目成员身份限制</small></div><UiIcon name="plugin" size={18} /></div>
       <div className="mcp-capability-groups">

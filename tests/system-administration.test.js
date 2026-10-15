@@ -6,6 +6,7 @@ import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { hashPassword, issueCredential, verifyPassword } from "../server/auth.js";
 import { createApp } from "../server/http-app.js";
+import { listAccountChanges, listAccountLogins } from "../server/account-audit.js";
 
 test("super administrators manage projects and accounts without storing reset passwords", async () => {
   const database = await testDatabase();
@@ -65,11 +66,17 @@ test("super administrators manage projects and accounts without storing reset pa
     } finally { await new Promise((resolve) => http.close(resolve)); }
 
     const auditedAccount = (await service.adminAccounts(admin)).find((row) => row.id === account.id);
-    assert.ok(auditedAccount.changes.some((change) => change.action === "password_reset"));
-    assert.ok(auditedAccount.changes.some((change) => change.action === "disabled"));
-    assert.ok(auditedAccount.logins.some((login) => Number(login.success) === 1 && login.failure_reason === null));
-    assert.ok(auditedAccount.logins.some((login) => Number(login.success) === 0 && login.failure_reason === "密码错误"));
-    assert.ok(auditedAccount.logins.every((login) => login.country === "本机"));
+    assert.equal(auditedAccount.changes, undefined);
+    assert.equal(auditedAccount.logins, undefined);
+    const changes = await listAccountChanges(database.db, admin, { userNumber: account.user_number });
+    assert.equal(changes.canViewAll, true);
+    assert.ok(changes.items.some((change) => change.action === "password_reset"));
+    assert.ok(changes.items.some((change) => change.action === "disabled"));
+    assert.ok(changes.items.every((change) => change.user_number === account.user_number));
+    const logins = await listAccountLogins(database.db, admin, { userNumber: account.user_number });
+    assert.ok(logins.items.some((login) => login.success && login.failure_reason === null));
+    assert.ok(logins.items.some((login) => !login.success && login.failure_reason === "密码错误"));
+    assert.ok(logins.items.every((login) => login.country === "本机"));
     const auditedProject = (await service.adminProjects(admin)).find((row) => row.id === project.id);
     assert.ok(auditedProject.changes.some((change) => change.action === "member_added"));
     assert.ok(auditedProject.changes.some((change) => change.action === "archived"));

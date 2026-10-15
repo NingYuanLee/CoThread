@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import {
   KNOWN_EQUIVALENT_REVISIONS,
   legacyMigrationChecksums,
@@ -44,4 +45,32 @@ test("已登记的等价修订会被接受自动重基线，未登记的名字�
     assert.ok(!legacyMigrationChecksums(sql, "000_unregistered.sql").has(hashes[0]));
     assert.ok(!legacyMigrationChecksums(sql).has(hashes[0]));
   }
+});
+
+test("101 的新增历史 checksum 只比当前文件多一个末尾换行", async () => {
+  const current = await readFile(
+    new URL("../migrations/101_project_builtin_roles.sql", import.meta.url),
+    "utf8",
+  );
+  const applied = `${current}\n`;
+  const historical = "13a6eea5429c8f8aa2dbf0f6aeecfef27a5cb6e8730049380eeed62c41431eed";
+  const statements = (sql) =>
+    sql
+      .split(";")
+      .map((statement) => statement.trim())
+      .filter(Boolean);
+  assert.equal(migrationChecksum(applied), historical);
+  assert.deepEqual(statements(applied), statements(current));
+  assert.ok(KNOWN_EQUIVALENT_REVISIONS.get("101_project_builtin_roles.sql").includes(historical));
+  assert.equal(applied.length, current.length + 1);
+
+  const repair = await readFile(
+    new URL("../migrations/104_project_role_issue_inactive_owner.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    repair,
+    /^ALTER TABLE project_role_migration_issues\n {2}MODIFY issue_type ENUM\('no_legacy_owner','multiple_legacy_owners','inactive_legacy_owner'\) NOT NULL;\n$/,
+  );
+  assert.equal(current.includes("inactive_legacy_owner"), true);
 });

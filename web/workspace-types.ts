@@ -9,6 +9,7 @@ export type Project = {
   created_at: string;
   name: string;
   description: string;
+  image?: string | null;
   role: string;
   joined_at: string;
   active_threads: string;
@@ -39,8 +40,14 @@ export type Detail = Project & {
     title: string;
     status: string;
     creator: string;
+    created_by?: string;
+    background?: string;
+    goal?: string;
     created_at: string;
     last_active_at: string;
+    last_read_sequence?: string;
+    unread_count?: number;
+    unread_mention?: boolean;
   }[];
   members: {
     id: string;
@@ -67,6 +74,8 @@ export type Detail = Project & {
     name: string;
   }[];
   versions: Version[];
+  libraryIncluded?: boolean;
+  libraryRevision?: string;
   documentOrganizationJobs: {
     id: string;
     thread_id?: string | null;
@@ -236,6 +245,12 @@ export type Thread = {
   id: string;
   title: string;
   status: string;
+  created_by?: string;
+  background?: string;
+  goal?: string;
+  last_read_sequence?: string;
+  unread_count?: number;
+  unread_mention?: boolean;
   messages: {
     sequence: string;
     id: string;

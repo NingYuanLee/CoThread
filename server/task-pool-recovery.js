@@ -1,4 +1,14 @@
-import { query, transaction } from "./db.js";
+import { query } from "./db.js";
+import { withTaskIterationWrite } from "./iteration-state.js";
+
+async function mutableTask(db, taskId, operation) {
+  try {
+    return await withTaskIterationWrite(db, taskId, operation);
+  } catch (error) {
+    if (error.status === 409 || error.status === 404) return null;
+    throw error;
+  }
+}
 
 export function closeEndedTaskRuns(conn, taskId, taskStatus) {
   const endedRunStatus =
@@ -25,26 +35,42 @@ export function closeEndedTaskRuns(conn, taskId, taskStatus) {
 }
 
 export async function repairMisclosedHumanExecutionRuns(conn) {
-  const completed = await query(
+  const tasks = await query(
     conn,
-    `UPDATE agent_task_execution_runs r
+    `SELECT DISTINCT t.id FROM agent_tasks t
+    JOIN agent_task_execution_runs r ON r.task_id=t.id
+    WHERE r.executor_type IN ('human_self','human_connector') AND r.error='任务已结束，L3 未启动'
+      AND t.status IN ('completed','failed','cancelled','rejected','abandoned','superseded') ORDER BY t.id`,
+  );
+  let repaired = 0;
+  for (const task of tasks) {
+    const result = await mutableTask(conn, task.id, async (db) => {
+      const completed = await query(
+        db,
+        `UPDATE agent_task_execution_runs r
     JOIN agent_tasks t ON t.id=r.task_id
     SET r.status=IF(t.status='failed','failed','completed'), r.error=NULL,
         r.progress=COALESCE(r.progress,t.progress),
         r.result_summary=COALESCE(r.result_summary,t.result_summary),
         r.finished_at=COALESCE(r.finished_at,t.finished_at,UTC_TIMESTAMP(3))
     WHERE r.executor_type IN ('human_self','human_connector') AND r.status='cancelled'
-      AND r.error='任务已结束，L3 未启动' AND t.status IN ('completed','failed')`,
-  );
-  const cancelled = await query(
-    conn,
-    `UPDATE agent_task_execution_runs r
+      AND r.error='任务已结束，L3 未启动' AND t.status IN ('completed','failed') AND t.id=?`,
+        [task.id],
+      );
+      const cancelled = await query(
+        db,
+        `UPDATE agent_task_execution_runs r
     JOIN agent_tasks t ON t.id=r.task_id
     SET r.error=NULL
     WHERE r.executor_type IN ('human_self','human_connector')
-      AND r.error='任务已结束，L3 未启动' AND t.status IN ('cancelled','rejected','abandoned','superseded')`,
-  );
-  return (completed.affectedRows || 0) + (cancelled.affectedRows || 0);
+      AND r.error='任务已结束，L3 未启动' AND t.status IN ('cancelled','rejected','abandoned','superseded') AND t.id=?`,
+        [task.id],
+      );
+      return (completed.affectedRows || 0) + (cancelled.affectedRows || 0);
+    });
+    repaired += result || 0;
+  }
+  return repaired;
 }
 
 export async function reconcileEndedTaskRuns(db) {
@@ -64,12 +90,14 @@ export async function reconcileEndedTaskRuns(db) {
         OR t.status IN ('cancelled','rejected','abandoned','superseded'))`,
   );
   if (!rows.length && !misclosed.length) return 0;
-  await transaction(db, async (conn) => {
-    for (const row of [...new Map(rows.map((item) => [item.task_id, item])).values()])
-      await closeEndedTaskRuns(conn, row.task_id, row.status);
-    if (misclosed.length) await repairMisclosedHumanExecutionRuns(conn);
-  });
-  return rows.length + misclosed.length;
+  let closed = 0;
+  for (const row of [...new Map(rows.map((item) => [item.task_id, item])).values()]) {
+    const result = await mutableTask(db, row.task_id, (conn) =>
+      closeEndedTaskRuns(conn, row.task_id, row.status),
+    );
+    closed += result?.affectedRows || 0;
+  }
+  return closed + (misclosed.length ? await repairMisclosedHumanExecutionRuns(db) : 0);
 }
 
 export async function voidSelfHandledAssistTasks(db) {
@@ -80,23 +108,30 @@ export async function voidSelfHandledAssistTasks(db) {
       AND (execution_agent_id IS NULL OR execution_agent_id='')`,
   );
   if (!tasks.length) return 0;
-  await transaction(db, async (conn) => {
-    await query(
-      conn,
-      `INSERT INTO agent_task_status_events(task_id,from_status,to_status,actor_type,reason)
+  let changed = 0;
+  for (const task of tasks) {
+    const result = await mutableTask(db, task.id, async (conn) => {
+      await query(
+        conn,
+        `INSERT INTO agent_task_status_events(task_id,from_status,to_status,actor_type,reason)
       SELECT id,status,'cancelled','system','小祥自行处理，未调度子 Agent，已从任务池撤销' FROM agent_tasks
-      WHERE task_type='assist_l2' AND status IN ('completed','failed') AND (execution_agent_id IS NULL OR execution_agent_id='')`,
-    );
-    await query(
-      conn,
-      `UPDATE agent_tasks SET status='cancelled',
+      WHERE task_type='assist_l2' AND status IN ('completed','failed') AND (execution_agent_id IS NULL OR execution_agent_id='') AND id=?`,
+        [task.id],
+      );
+      const update = await query(
+        conn,
+        `UPDATE agent_tasks SET status='cancelled',
       result_summary=TRIM(BOTH CHAR(10) FROM CONCAT(IFNULL(result_summary,''), IF(IFNULL(result_summary,'')='','',CHAR(10)),
         '小祥自行处理，未调度子 Agent，已从任务池撤销。')),
       finished_at=COALESCE(finished_at,UTC_TIMESTAMP(3)), revision=revision+1
       WHERE task_type='assist_l2' AND status IN ('completed','failed')
-        AND (execution_agent_id IS NULL OR execution_agent_id='')`,
-    );
-    for (const task of tasks) await closeEndedTaskRuns(conn, task.id, "cancelled");
-  });
-  return tasks.length;
+        AND (execution_agent_id IS NULL OR execution_agent_id='') AND id=?`,
+        [task.id],
+      );
+      if (update.affectedRows) await closeEndedTaskRuns(conn, task.id, "cancelled");
+      return update.affectedRows || 0;
+    });
+    changed += result || 0;
+  }
+  return changed;
 }

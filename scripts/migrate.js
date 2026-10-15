@@ -37,11 +37,15 @@ export const KNOWN_EQUIVALENT_REVISIONS = new Map([
     ],
   ],
   [
-    // 101 已在部分本地开发库应用；随后文件内容被整理，库中保存的是这个旧修订的
-    // checksum。已检查本地库的 role enum、project_leader_id 列/索引/外键、角色迁移问题表
-    // 及其外键和负责人迁移结果，均与当前迁移的目标结构一致。
+    // 101 的文件不能改。fc4df095…是更早登记的修订，这次没从 git 找回原文，继续保留。
+    // 13a6eea5…是当前文件末尾多一个 LF：按分号切开并 trim 后语句相同，不是 CRLF。
+    // 本机开发库的问题表在 101 应用当时建成，issue_type 仍没有 inactive_legacy_owner；
+    // CREATE TABLE IF NOT EXISTS 不会改已有表。这个结构差由 104 补，重基线只对齐回执。
     "101_project_builtin_roles.sql",
-    ["fc4df09564e952d1453eeed49782069fb79b40f3fa611fcd88bbbdc851dd3c13"],
+    [
+      "fc4df09564e952d1453eeed49782069fb79b40f3fa611fcd88bbbdc851dd3c13",
+      "13a6eea5429c8f8aa2dbf0f6aeecfef27a5cb6e8730049380eeed62c41431eed",
+    ],
   ],
 ]);
 

@@ -4,6 +4,7 @@ import { HttpError } from "./http-error.js";
 import { adminAudit, requireAdminPermission } from "./admin-rbac.js";
 import { publishWork } from "./work-events.js";
 import { listTaskStatusEvents, listTaskUpdates } from "./task-pool.js";
+import { projectImageUrlSql } from "./project-image.js";
 
 const uuid = z.string().uuid();
 const filters = z.object({
@@ -38,7 +39,7 @@ export async function listAdminWork(db, user, kind, input) {
   const [count] = await query(db, `SELECT COUNT(*) total FROM ${from}${clause}`, params);
   const rows = await query(
     db,
-    `SELECT w.id,w.title,w.status,w.project_id,w.created_at,p.name project_name,p.archived_at project_archived_at,
+    `SELECT w.id,w.title,w.status,w.project_id,w.created_at,p.name project_name,p.archived_at project_archived_at,${projectImageUrlSql("p.id", "/api/admin/projects")} project_image,
     ${iterations ? "w.archived_at,u.name creator,(SELECT COUNT(*) FROM agent_tasks t WHERE t.origin_thread_id=w.id) task_count" : "w.goal,w.progress,w.result_summary,w.updated_at,w.task_type,w.origin_thread_id,w.thread_number,t.title iteration_title,COALESCE(u.name,CASE w.claimed_by_type WHEN 'dsh_l3' THEN '子 Agent' WHEN 'l2_session' THEN '小祥' END) assignee"}
     FROM ${from} ${iterations ? "LEFT JOIN users u ON u.id=w.created_by" : "LEFT JOIN threads t ON t.id=w.origin_thread_id LEFT JOIN users u ON u.id=COALESCE(w.claimed_by_id,w.target_id)"}
     ${clause} ORDER BY w.created_at DESC,w.id LIMIT ${data.pageSize} OFFSET ${(data.page - 1) * data.pageSize}`,
@@ -57,7 +58,7 @@ export async function adminTaskDetail(db, user, taskId) {
   uuid.parse(taskId);
   const [task] = await query(
     db,
-    `SELECT w.*,p.name project_name,t.title iteration_title FROM agent_tasks w
+    `SELECT w.*,p.name project_name,${projectImageUrlSql("p.id", "/api/admin/projects")} project_image,t.title iteration_title FROM agent_tasks w
     JOIN projects p ON p.id=w.project_id LEFT JOIN threads t ON t.id=w.origin_thread_id WHERE w.id=?`,
     [taskId],
   );

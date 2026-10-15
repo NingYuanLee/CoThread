@@ -3,6 +3,7 @@ import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel 
 import { UiIcon } from "./ui-icon";
 import { ProjectActionIcon } from "./workspace-chrome";
 import type { Project } from "./workspace-types";
+import { ProjectMark } from "./ProjectMark";
 
 export function ProjectPicker({
   projects,
@@ -59,7 +60,10 @@ export function ProjectPicker({
         {results.map((p) => (
           <article className="project-picker-card" key={p.id}>
             <div>
-              <strong>{p.name}</strong>
+              <strong>
+                <ProjectMark name={p.name} image={p.image} size={28} />
+                <span>{p.name}</span>
+              </strong>
               <p>{p.description || "暂无项目简介"}</p>
             </div>
             <button
@@ -84,7 +88,19 @@ export function ProjectPicker({
         </p>
       )}
       <div className="project-picker-footer">
-        <button className="project-picker-create" disabled={busy} onClick={onCreate}>
+        <button
+          type="button"
+          className="project-picker-create"
+          disabled={busy}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            // 创建浮层会 portal 到当前打开的 dialog。先关掉再交给父级打开，
+            // 否则浮层挂进即将卸载的对话框，点击后什么都看不到。
+            if (dialog.current?.open) dialog.current.close();
+            onCreate();
+          }}
+        >
           <UiIcon name="plus" size={14} />
           新建我的项目
         </button>

@@ -35,6 +35,30 @@ test("idle workers stop querying, wake on commits and retain notifications recei
   assert.equal(calls, 5);
 });
 
+test("a failure does not discard a wake that arrived while the call was failing", async () => {
+  const db = {};
+  const gate = Promise.withResolvers();
+  let calls = 0;
+  const stop = startWakeWorker(async () => {
+    calls++;
+    if (calls === 1) {
+      await gate.promise;
+      throw new Error("boom");
+    }
+    return false;
+  }, { subscribe: (wake) => subscribeWork(db, wake), onError() {} });
+  try {
+    await turn();
+    publishWork(db, "during-failure");
+    gate.resolve();
+    for (let i = 0; i < 8; i++) await turn();
+    assert.ok(calls >= 2, `wake during failure was discarded, calls=${calls}`);
+  } finally {
+    gate.resolve();
+    stop();
+  }
+});
+
 test("http commits wake the worker even when they use a different connection pool", async () => {
   const workerDb = {}, httpDb = {};
   let calls = 0;

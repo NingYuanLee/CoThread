@@ -4,6 +4,7 @@ import { UiIcon } from "./ui-icon";
 import { showTip } from "./Tip";
 import { AdminDialog } from "./AdminDialog";
 import { PaginationControl } from "./PaginationControl";
+import { ProjectMark } from "./ProjectMark";
 
 const labels: Record<string, string> = {
   active: "进行中",
@@ -27,6 +28,7 @@ type WorkItem = {
   status: string;
   project_id: string;
   project_name: string;
+  project_image?: string | null;
   project_archived_at: string | null;
   creator?: string;
   task_count?: number;
@@ -50,9 +52,13 @@ const dateTime = (value: string) =>
 export function AdminWorkManagement({
   kind,
   permissions,
+  endpoint,
+  notice,
 }: {
   kind: "iterations" | "tasks";
   permissions: string[];
+  endpoint?: string;
+  notice?: string;
 }) {
   const [data, setData] = useState<WorkList | null>(null);
   const [search, setSearch] = useState("");
@@ -89,7 +95,7 @@ export function AdminWorkManagement({
     });
     setLoading(true);
     setError("");
-    api(`/admin/${kind}?${params}`, undefined, undefined, controller.signal)
+    api(`${endpoint || `/admin/${kind}`}?${params}`, undefined, undefined, controller.signal)
       .then(setData)
       .catch((e) => {
         if (!controller.signal.aborted) setError(e.message);
@@ -98,7 +104,7 @@ export function AdminWorkManagement({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [kind, query, status, projectId, page, pageSize, revision]);
+  }, [kind, endpoint, query, status, projectId, page, pageSize, revision]);
   const run = async (work: () => Promise<void>) => {
     setBusy(true);
     setError("");
@@ -117,6 +123,7 @@ export function AdminWorkManagement({
       : Object.keys(labels).filter((key) => !["active", "archived"].includes(key));
   return (
     <section className="admin-work">
+      {notice && <p className="admin-list-note">{notice}</p>}
       <form
         className="admin-filters"
         onSubmit={(event) => {
@@ -257,8 +264,11 @@ export function AdminWorkManagement({
                     {item.progress && <small>{item.progress}</small>}
                   </td>
                   <td>
-                    {item.project_name}
-                    {item.project_archived_at && <small>项目已归档</small>}
+                    <span className="admin-project-person">
+                      <ProjectMark name={item.project_name} image={item.project_image} size={18} />
+                      <span>{item.project_name}</span>
+                    </span>
+                    {item.project_archived_at && <small>项目已结项</small>}
                   </td>
                   <td>
                     {kind === "iterations" ? (
@@ -287,7 +297,9 @@ export function AdminWorkManagement({
                         <button
                           disabled={busy}
                           onClick={() =>
-                            void run(async () => setDetail(await api(`/admin/tasks/${item.id}`)))
+                            void run(async () =>
+                              setDetail(await api(`${endpoint || "/admin/tasks"}/${item.id}`)),
+                            )
                           }
                         >
                           详情
@@ -341,6 +353,7 @@ export function AdminWorkManagement({
       {detail && (
         <AdminDialog title={`${detail.title} · 任务详情`} onClose={() => setDetail(null)}>
           <p className="admin-list-note">
+            <ProjectMark name={detail.project_name} image={detail.project_image} size={16} />
             {detail.project_name} · {detail.iteration_title || "未关联迭代"} ·{" "}
             {labels[detail.status] || detail.status}
           </p>

@@ -40,6 +40,27 @@ export function relativeActivity(value: string | undefined, now: number) {
   });
 }
 
+export function formatTaskCreatedAt(value: string | undefined, now = Date.now()) {
+  if (!value) return "";
+  const date = new Date(
+    value.includes("T") ? value : value.replace(" ", "T") + (value.endsWith("Z") ? "" : "Z"),
+  );
+  if (Number.isNaN(date.getTime())) return "";
+  const elapsed = Math.max(0, now - date.getTime());
+  if (elapsed < 60_000) return "刚刚";
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}分钟前`;
+  const today = new Date(now);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const sameDay =
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate();
+  if (sameDay) return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  if (date.getFullYear() !== today.getFullYear())
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}`;
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 export function clipQuote(text: string, max = 72) {
   const value = Array.from(String(text || "").replace(/\s+/g, " ").trim());
   return value.length > max ? `${value.slice(0, max).join("")}…` : value.join("");

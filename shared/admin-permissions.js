@@ -13,7 +13,7 @@ const page = (key, label, icon, actions) => ({
 export const ADMIN_PERMISSION_TREE = [
   {
     key: "work",
-    label: "工作管理",
+    label: "组织工作",
     icon: "project",
     type: "menu",
     children: [
@@ -29,7 +29,7 @@ export const ADMIN_PERMISSION_TREE = [
   },
   {
     key: "organization",
-    label: "组织管理",
+    label: "账号权限",
     icon: "members",
     type: "menu",
     children: [
@@ -39,6 +39,8 @@ export const ADMIN_PERMISSION_TREE = [
         ["reset-password", "重置密码"],
         ["assign", "分配成员角色", "roles.assign"],
       ]),
+      page("account-changes", "变更记录", "history", [["view-all", "查看全部"]]),
+      page("account-logins", "登录记录", "login", [["view-all", "查看全部"]]),
       page("roles", "角色权限", "shield", [["manage", "维护角色及权限"]]),
     ],
   },
@@ -62,6 +64,27 @@ export const ADMIN_PERMISSION_KEYS = ADMIN_PERMISSION_TREE.flatMap((menu) => [
   ...menu.children.flatMap((item) => [item.key, ...item.children.map((action) => action.key)]),
 ]);
 
+// Personal pages are implicit for every member account and are not role-assignable.
+export const MY_WORK_MENU = {
+  key: "my-work",
+  label: "我的工作",
+  icon: "inbox",
+  type: "menu",
+  children: [
+    { key: "my-projects", label: "我的项目", icon: "project", type: "page", children: [] },
+    { key: "my-iterations", label: "我的迭代", icon: "iteration", type: "page", children: [] },
+    { key: "my-tasks", label: "我的任务", icon: "task", type: "page", children: [] },
+  ],
+};
+
+export const IMPLICIT_ADMIN_PERMISSIONS = [
+  MY_WORK_MENU.key,
+  ...MY_WORK_MENU.children.map((item) => item.key),
+  "organization",
+  "account-changes",
+  "account-logins",
+];
+
 // A function always carries its page and menu. A menu/page alone never grants functions.
 export function expandAdminPermissions(keys) {
   const selected = new Set(keys);
@@ -76,6 +99,17 @@ export function expandAdminPermissions(keys) {
 
 export function adminPermissionForRequest(method, path) {
   if (method === "GET" && path === "/access") return null;
+  if (
+    method === "GET" &&
+    (path === "/my/projects" ||
+      path === "/my/iterations" ||
+      path === "/my/tasks" ||
+      /^\/my\/tasks\/[^/]+$/.test(path) ||
+      /^\/my\/projects\/[^/]+\/members\/[^/]+\/avatar$/.test(path) ||
+      /^\/my\/projects\/[^/]+\/image$/.test(path))
+  )
+    return null;
+  if (path === "/my" || path.startsWith("/my/")) return false;
   if (method === "GET" && path === "/permissions") return "roles";
   if (method === "GET" && path === "/role-members") return "roles.assign";
   if (/^\/roles(?:\/[^/]+)?$/.test(path))
@@ -87,7 +121,10 @@ export function adminPermissionForRequest(method, path) {
   if (method === "GET" && /^\/accounts\/[^/]+\/role-options$/.test(path)) return "roles.assign";
   if (method === "GET" && /^\/accounts\/[^/]+\/avatar$/.test(path)) return "accounts";
   if (method === "GET" && /^\/projects\/[^/]+\/members\/[^/]+\/avatar$/.test(path)) return "projects";
+  if (method === "GET" && /^\/projects\/[^/]+\/image$/.test(path)) return null;
   if (/^\/accounts\/[^/]+\/roles$/.test(path)) return method === "PUT" ? "roles.assign" : false;
+  if (method === "GET" && (path === "/account-changes" || path === "/account-logins"))
+    return path.slice(1);
   if (method === "GET" && /^\/(projects|accounts|iterations|tasks|plugins)$/.test(path))
     return path.slice(1);
   if (method === "GET" && /^\/tasks\/[^/]+$/.test(path)) return "tasks";

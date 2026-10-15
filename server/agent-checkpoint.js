@@ -1,4 +1,4 @@
-import { mkdir, writeFile, rm, rename } from "node:fs/promises";
+import { mkdir, readdir, writeFile, rm, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -32,6 +32,13 @@ export function relocateSessionFiles(files, home) {
     result.set(target, content);
   }
   return result;
+}
+
+/** True when home/sessions already holds a log for this session id. */
+export async function hasSessionLog(home, sessionId) {
+  if (!/^[0-9a-f-]{36}$/i.test(String(sessionId || ""))) return false;
+  const entries = await readdir(join(home, "sessions"), { recursive: true }).catch(() => []);
+  return entries.some((entry) => String(entry).split(/[\\/]/).includes(sessionId));
 }
 
 export async function restoreSessionCheckpoint(files, home) {

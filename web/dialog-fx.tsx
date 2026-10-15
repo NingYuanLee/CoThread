@@ -104,7 +104,7 @@ export function DialogClose({
  * 打开着的 `<dialog>`，只有页面上没有对话框时才用 body。
  */
 function modalPortalHost(): HTMLElement {
-  const openDialogs = [...document.querySelectorAll("dialog[open]")].filter(
+  const openDialogs = Array.from(document.querySelectorAll("dialog[open]")).filter(
     (node): node is HTMLDialogElement =>
       node instanceof HTMLDialogElement && node.isConnected,
   );

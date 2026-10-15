@@ -127,7 +127,7 @@ export function ThreadArchiveDialog({
           setCreateNext(
             !!value.nextThreadId ||
               value.taskDecisions.some((task) => task.disposition === "handoff") ||
-              archiveItemsOf(value).some((item) => item.include),
+              archiveItemsOf(value).some((item) => item.choice === "task"),
           );
           setStep(value.status === "ready" || value.status === "completed" ? 2 : 1);
         }
@@ -293,7 +293,9 @@ export function ThreadArchiveDialog({
     setBusy(true);
     setError("");
     try {
-      const ranked = await api("/threads/" + threadId + "/archive/prioritize", {
+      const ranked: {
+        decisions?: { key: string; priority?: 1 | 2 | 3; suggestion?: ArchiveChoice }[];
+      } = await api("/threads/" + threadId + "/archive/prioritize", {
         conclusion: draft.conclusion,
         decisions: [
           ...draft.taskDecisions.map((task) => ({
@@ -322,7 +324,7 @@ export function ThreadArchiveDialog({
               ...task,
               priority: hit.priority,
               suggestion: hit.suggestion,
-              disposition: dispositionOf(hit.suggestion),
+              disposition: dispositionOf(hit.suggestion || "archive"),
             };
           }),
           nextIteration: {
@@ -330,7 +332,7 @@ export function ThreadArchiveDialog({
             items: (current.nextIteration.items || []).map((item, index) => {
               const hit = byKey.get("item:" + index);
               if (!hit) return item;
-              return { ...item, priority: hit.priority, suggestion: hit.suggestion, choice: hit.suggestion };
+              return { ...item, priority: hit.priority, suggestion: hit.suggestion, choice: hit.suggestion || item.choice };
             }),
           },
         };

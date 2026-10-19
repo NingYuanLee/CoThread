@@ -11,6 +11,10 @@
  *    不得引用内核内部文件（测试文件不受本规则约束）。
  * 5. 迁移文件行尾：`migrations/*.sql` 必须是 LF。checksum 已做行尾归一，但工作树
  *    混入 CRLF 仍会让 review、blame 与格式检查产生噪声，且历史上就是它引发过部署失败。
+ * 7. 数据库通用层不依赖业务：db.js 的本地依赖只允许数据库配置与查询计时，
+ *    禁止通过静态或动态 import 引入业务写入副作用。
+ * 8. 拆分后的 Service/任务领域模块不得反向依赖兼容门面；领域模块之间必须无循环依赖。
+ * 9. MySQL 命名锁只由 named-lock.js 获取/释放，统一不确定连接的销毁与释放去重。
  *
  * 用法：node scripts/check-boundaries.mjs
  */
@@ -55,15 +59,51 @@ function walk(dir) {
 }
 
 const violations = [];
+const domainSources = new Map();
 const rel = (file) => relative(root, file).split(sep).join("/");
 
 for (const file of walk(serverDir)) {
   const isKernel = file.startsWith(kernelDir + sep);
   const source = readFileSync(file, "utf8");
   const lines = source.split(/\r?\n/);
+  if (
+    /^server\/(?:service-(?:access|members|projects|monitor|iterations|messages|support|notification-operations)|task-(?:policy|access|documents|queries|dispatch|commands|assignments|resolution|l3-execution))\.js$/.test(
+      rel(file),
+    )
+  ) {
+    domainSources.set(rel(file), source);
+    const forbidden = /(?:from\s*|import\s*\(\s*)["']\.\/(service|task-pool)\.js["']/g;
+    for (const match of source.matchAll(forbidden)) {
+      violations.push([
+        8,
+        `${rel(file)}:${source.slice(0, match.index).split("\n").length}`,
+        "领域模块反向依赖兼容门面，应依赖具体领域模块或通过参数注入协作者",
+      ]);
+    }
+  }
+
+  if (rel(file) === "server/db.js") {
+    const allowed = new Set(["./database-policy.js", "./request-timing.js"]);
+    const imports = /\b(?:from\s*|import\s*\(\s*|import\s*)["'](\.[^"']+)["']/g;
+    for (const match of source.matchAll(imports)) {
+      if (!allowed.has(match[1])) {
+        const line = source.slice(0, match.index).split("\n").length;
+        violations.push([
+          7,
+          `${rel(file)}:${line}`,
+          `数据库通用层引入业务依赖：${match[1]}，应由业务写入路径显式调用`,
+        ]);
+      }
+    }
+  }
 
   lines.forEach((line, index) => {
     const at = `${rel(file)}:${index + 1}`;
+    if (
+      rel(file) !== "server/named-lock.js" &&
+      /\bSELECT\s+(?:GET_LOCK|RELEASE_LOCK|RELEASE_ALL_LOCKS)\s*\(/i.test(line)
+    )
+      violations.push([9, at, "命名锁必须经 named-lock.js 管理连接生命周期"]);
     if (!isKernel && WRITE_RE.test(line))
       violations.push([1, at, `内核之外直写文档表：${line.trim().slice(0, 100)}`]);
     if (isKernel && KERNEL_FORBIDDEN_RE.test(line))
@@ -78,6 +118,30 @@ for (const file of walk(serverDir)) {
       ]);
   });
 }
+
+const domainEdges = new Map(
+  [...domainSources].map(([file, source]) => [
+    file,
+    [...source.matchAll(/from\s*["']\.\/([^"']+\.js)["']/g)]
+      .map((match) => `server/${match[1]}`)
+      .filter((target) => domainSources.has(target)),
+  ]),
+);
+const visited = new Set();
+function visitDomain(file, trail = []) {
+  if (trail.includes(file)) {
+    violations.push([
+      8,
+      file,
+      `领域模块循环依赖：${[...trail.slice(trail.indexOf(file)), file].join(" → ")}`,
+    ]);
+    return;
+  }
+  if (visited.has(file)) return;
+  visited.add(file);
+  for (const target of domainEdges.get(file) || []) visitDomain(target, [...trail, file]);
+}
+for (const file of domainEdges.keys()) visitDomain(file);
 
 // 规则 5 / 6：迁移文件必须 LF 且编码健康。
 // checksum 已做行尾归一，但工作树混入 CRLF 仍会制造噪声 diff；编码破坏会把中文

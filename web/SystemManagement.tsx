@@ -44,7 +44,13 @@ type AdminAccount = {
   email: string | null;
   is_super_admin: number;
   disabled_at: string | null;
-  projects: { id: string; name: string; role: string; archived_at: string | null; image?: string | null }[];
+  projects: {
+    id: string;
+    name: string;
+    role: string;
+    archived_at: string | null;
+    image?: string | null;
+  }[];
 };
 type AgentLevel = "l1" | "l2" | "l3";
 type PromptSkill = {
@@ -282,7 +288,10 @@ function PluginInventory({
           pageSize={pageSize}
           pageSizeOptions={[10, 20, 30, 50, 100]}
           onPageChange={setPage}
-          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
           ariaLabel="插件列表分页"
         />
       )}
@@ -377,7 +386,8 @@ function RecordDetails({
   const project = item as AdminProject,
     account = item as AdminAccount;
   const related = isProject ? project.members : account.projects;
-  const listItems: any[] = section === "related" ? related : isProject && section === "changes" ? project.changes : [];
+  const listItems: any[] =
+    section === "related" ? related : isProject && section === "changes" ? project.changes : [];
   const visibleListItems = listItems.slice((listPage - 1) * listPageSize, listPage * listPageSize);
   useEffect(() => {
     setListPage(1);
@@ -458,7 +468,12 @@ function RecordDetails({
               <dd>{dateTime(project.created_at)}</dd>
               <dt>成员数</dt>
               <dd>
-                {project.members.filter((member) => ["project_leader", "project_admin"].includes(member.role)).length} / {project.members.length}
+                {
+                  project.members.filter((member) =>
+                    ["project_leader", "project_admin"].includes(member.role),
+                  ).length
+                }{" "}
+                / {project.members.length}
               </dd>
               <dt>状态</dt>
               <dd>{project.archived_at ? "已结项" : "正常"}</dd>
@@ -520,13 +535,21 @@ function RecordDetails({
                       )}
                     </td>
                     <td>{isProject ? value.username : value.archived_at ? "已结项" : "正常"}</td>
-                    <td className={isProject ? `admin-project-role admin-project-role-${value.role}` : undefined}>
-                      {({
-                        project_leader: "项目主",
-                        project_admin: "项目管理",
-                        member: "成员",
-                        viewer: "只读成员",
-                      } as Record<string, string>)[value.role] || value.role}
+                    <td
+                      className={
+                        isProject
+                          ? `admin-project-role admin-project-role-${value.role}`
+                          : undefined
+                      }
+                    >
+                      {(
+                        {
+                          project_leader: "项目主",
+                          project_admin: "项目管理",
+                          member: "成员",
+                          viewer: "只读成员",
+                        } as Record<string, string>
+                      )[value.role] || value.role}
                     </td>
                     {isProject && (
                       <>
@@ -546,7 +569,20 @@ function RecordDetails({
               </tbody>
             </table>
           </div>
-          {listItems.length > 0 && <PaginationControl total={listItems.length} currentPage={listPage} pageSize={listPageSize} pageSizeOptions={[10, 20, 50]} onPageChange={setListPage} onPageSizeChange={(size) => { setListPageSize(size); setListPage(1); }} ariaLabel="详情关联列表分页" />}
+          {listItems.length > 0 && (
+            <PaginationControl
+              total={listItems.length}
+              currentPage={listPage}
+              pageSize={listPageSize}
+              pageSizeOptions={[10, 20, 50]}
+              onPageChange={setListPage}
+              onPageSizeChange={(size) => {
+                setListPageSize(size);
+                setListPage(1);
+              }}
+              ariaLabel="详情关联列表分页"
+            />
+          )}
         </>
       )}
       {isProject && section === "changes" && (
@@ -581,7 +617,20 @@ function RecordDetails({
               </tbody>
             </table>
           </div>
-          {listItems.length > 0 && <PaginationControl total={listItems.length} currentPage={listPage} pageSize={listPageSize} pageSizeOptions={[10, 20, 50]} onPageChange={setListPage} onPageSizeChange={(size) => { setListPageSize(size); setListPage(1); }} ariaLabel="变更记录分页" />}
+          {listItems.length > 0 && (
+            <PaginationControl
+              total={listItems.length}
+              currentPage={listPage}
+              pageSize={listPageSize}
+              pageSizeOptions={[10, 20, 50]}
+              onPageChange={setListPage}
+              onPageSizeChange={(size) => {
+                setListPageSize(size);
+                setListPage(1);
+              }}
+              ariaLabel="变更记录分页"
+            />
+          )}
         </>
       )}
     </>
@@ -787,7 +836,10 @@ export function SystemManagement({
               aria-label="搜索插件或Skill"
               placeholder="搜索插件或 Skill"
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
             />
           </label>
           <select
@@ -823,7 +875,10 @@ export function SystemManagement({
             <select
               aria-label="Skill 状态"
               value={status}
-              onChange={(e) => { setStatus(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setStatus(e.target.value);
+                setPage(1);
+              }}
             >
               <option value="all">全部状态</option>
               <option value="active">已启用</option>
@@ -856,85 +911,96 @@ export function SystemManagement({
           />
         ) : (
           <>
-          <div className="admin-table-wrap">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>Skill</th>
-                  <th>版本</th>
-                  <th>状态</th>
-                  <th>更新时间</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {skills.slice((page - 1) * pageSize, page * pageSize).map((skill) => (
-                  <tr key={skill.id}>
-                    <td>
-                      <strong>{skill.name}</strong>
-                      <small>{skill.description || "暂无说明"}</small>
-                    </td>
-                    <td>v{skill.version}</td>
-                    <td>
-                      <span className={`status-badge ${skill.enabled ? "" : "inactive"}`}>
-                        {skill.enabled ? "已启用" : "已停用"}
-                      </span>
-                    </td>
-                    <td className="admin-date">{dateTime(skill.updatedAt)}</td>
-                    <td>
-                      <div className="admin-table-actions">
-                        <button onClick={() => setSkillDetail(skill)}>详情</button>
-                        {can("plugins.update") && (
-                          <button
-                            disabled={busy}
-                            onClick={() =>
-                              setSkillDraft({
-                                id: skill.id,
-                                name: skill.name,
-                                description: skill.description,
-                                prompt: skill.prompt,
-                                enabled: skill.enabled,
-                              })
-                            }
-                          >
-                            编辑
-                          </button>
-                        )}
-                        {can("plugins.archive") && (
-                          <button
-                            disabled={busy}
-                            onClick={() =>
-                              setConfirmation({
-                                title: "归档 Skill",
-                                message: `确定归档 Skill「${skill.name}」？`,
-                                confirm: async () => {
-                                  await api(`/admin/plugins/skills/${skill.id}`, {}, "DELETE");
-                                  await load();
-                                  showTip("Skill 已归档");
-                                },
-                              })
-                            }
-                          >
-                            归档
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {!skills.length && (
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <thead>
                   <tr>
-                    <td colSpan={5} className="admin-empty">
-                      没有符合筛选条件的 Skills
-                    </td>
+                    <th>Skill</th>
+                    <th>版本</th>
+                    <th>状态</th>
+                    <th>更新时间</th>
+                    <th>操作</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          {skills.length > 0 && (
-            <PaginationControl total={skills.length} currentPage={page} pageSize={pageSize} pageSizeOptions={[10, 20, 30, 50, 100]} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} ariaLabel="Skill 列表分页" />
-          )}
+                </thead>
+                <tbody>
+                  {skills.slice((page - 1) * pageSize, page * pageSize).map((skill) => (
+                    <tr key={skill.id}>
+                      <td>
+                        <strong>{skill.name}</strong>
+                        <small>{skill.description || "暂无说明"}</small>
+                      </td>
+                      <td>v{skill.version}</td>
+                      <td>
+                        <span className={`status-badge ${skill.enabled ? "" : "inactive"}`}>
+                          {skill.enabled ? "已启用" : "已停用"}
+                        </span>
+                      </td>
+                      <td className="admin-date">{dateTime(skill.updatedAt)}</td>
+                      <td>
+                        <div className="admin-table-actions">
+                          <button onClick={() => setSkillDetail(skill)}>详情</button>
+                          {can("plugins.update") && (
+                            <button
+                              disabled={busy}
+                              onClick={() =>
+                                setSkillDraft({
+                                  id: skill.id,
+                                  name: skill.name,
+                                  description: skill.description,
+                                  prompt: skill.prompt,
+                                  enabled: skill.enabled,
+                                })
+                              }
+                            >
+                              编辑
+                            </button>
+                          )}
+                          {can("plugins.archive") && (
+                            <button
+                              disabled={busy}
+                              onClick={() =>
+                                setConfirmation({
+                                  title: "归档 Skill",
+                                  message: `确定归档 Skill「${skill.name}」？`,
+                                  confirm: async () => {
+                                    await api(`/admin/plugins/skills/${skill.id}`, {}, "DELETE");
+                                    await load();
+                                    showTip("Skill 已归档");
+                                  },
+                                })
+                              }
+                            >
+                              归档
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {!skills.length && (
+                    <tr>
+                      <td colSpan={5} className="admin-empty">
+                        没有符合筛选条件的 Skills
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {skills.length > 0 && (
+              <PaginationControl
+                total={skills.length}
+                currentPage={page}
+                pageSize={pageSize}
+                pageSizeOptions={[10, 20, 30, 50, 100]}
+                onPageChange={setPage}
+                onPageSizeChange={(size) => {
+                  setPageSize(size);
+                  setPage(1);
+                }}
+                ariaLabel="Skill 列表分页"
+              />
+            )}
           </>
         )}
         {skillDetail && (
@@ -1072,16 +1138,32 @@ export function SystemManagement({
             aria-label="搜索项目或成员"
             placeholder={isProject ? "搜索项目名称、简介或项目创始人" : "搜索姓名、用户名或用户 ID"}
             value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
           />
         </label>
-        <select aria-label="状态筛选" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
+        <select
+          aria-label="状态筛选"
+          value={status}
+          onChange={(e) => {
+            setStatus(e.target.value);
+            setPage(1);
+          }}
+        >
           <option value="all">全部状态</option>
           <option value="active">正常</option>
           <option value="inactive">{isProject ? "已结项" : "已停用"}</option>
         </select>
         {can(`${section}.create`) && (
-          <button className="primary" onClick={() => { setCreateImage(null); setCreating(true); }}>
+          <button
+            className="primary"
+            onClick={() => {
+              setCreateImage(null);
+              setCreating(true);
+            }}
+          >
             <UiIcon name="plus" size={13} />
             {isProject ? "新增项目" : "新增成员"}
           </button>
@@ -1123,7 +1205,9 @@ export function SystemManagement({
                         className="admin-table-link admin-project-name"
                         onClick={() => openDetail(item.id, "details")}
                       >
-                        {isProject && <ProjectMark name={project.name} image={project.image} size={22} />}
+                        {isProject && (
+                          <ProjectMark name={project.name} image={project.image} size={22} />
+                        )}
                         <span>{item.name}</span>
                       </button>
                       <small>
@@ -1135,10 +1219,14 @@ export function SystemManagement({
                     <td>
                       {isProject ? (
                         <span className="admin-project-person">
-                          <MemberAvatar account={{ name: project.creator, avatar: project.creator_avatar }} />
+                          <MemberAvatar
+                            account={{ name: project.creator, avatar: project.creator_avatar }}
+                          />
                           <span className="admin-nowrap">{project.creator}</span>
                         </span>
-                      ) : <span className="admin-nowrap">{account.username}</span>}
+                      ) : (
+                        <span className="admin-nowrap">{account.username}</span>
+                      )}
                       {!isProject && <small>{account.email || "未绑定邮箱"}</small>}
                     </td>
                     {isProject && (
@@ -1151,11 +1239,11 @@ export function SystemManagement({
                                 avatar: projectLeader?.avatar || null,
                               }}
                             />
-                            <span className="admin-nowrap">
-                              {projectLeader?.name || "项目主"}
-                            </span>
+                            <span className="admin-nowrap">{projectLeader?.name || "项目主"}</span>
                           </span>
-                        ) : <span>待设置</span>}
+                        ) : (
+                          <span>待设置</span>
+                        )}
                       </td>
                     )}
                     <td>
@@ -1178,7 +1266,9 @@ export function SystemManagement({
                     <td>
                       <div className="admin-table-actions">
                         {isProject && can("projects.update") && (
-                          <button disabled={busy} onClick={() => setEditingProject(project)}>编辑</button>
+                          <button disabled={busy} onClick={() => setEditingProject(project)}>
+                            编辑
+                          </button>
                         )}
                         <button onClick={() => openDetail(item.id, "details")}>详情</button>
                         <button onClick={() => openDetail(item.id, "related")}>
@@ -1189,7 +1279,9 @@ export function SystemManagement({
                         ) : (
                           onOpenAudit &&
                           (account.id === currentUserId || can("account-changes.view-all")) && (
-                            <button onClick={() => onOpenAudit("account-changes", account.user_number)}>
+                            <button
+                              onClick={() => onOpenAudit("account-changes", account.user_number)}
+                            >
                               变更记录
                             </button>
                           )
@@ -1197,7 +1289,9 @@ export function SystemManagement({
                         {!isProject &&
                           onOpenAudit &&
                           (account.id === currentUserId || can("account-logins.view-all")) && (
-                            <button onClick={() => onOpenAudit("account-logins", account.user_number)}>
+                            <button
+                              onClick={() => onOpenAudit("account-logins", account.user_number)}
+                            >
                               登录记录
                             </button>
                           )}
@@ -1210,66 +1304,69 @@ export function SystemManagement({
                           isProject
                             ? `projects.${inactive ? "restore" : "archive"}`
                             : "accounts.status",
-                        ) && (isProject || !account.is_super_admin) && (
-                          <button
-                            disabled={busy || (!isProject && account.id === currentUserId)}
-                            onClick={() =>
-                              void action(
-                                async () => {
-                                  if (isProject) {
-                                    await api(
-                                      `/admin/projects/${item.id}/${inactive ? "restore" : "archive"}`,
+                        ) &&
+                          (isProject || !account.is_super_admin) && (
+                            <button
+                              disabled={busy || (!isProject && account.id === currentUserId)}
+                              onClick={() =>
+                                void action(
+                                  async () => {
+                                    if (isProject) {
+                                      await api(
+                                        `/admin/projects/${item.id}/${inactive ? "restore" : "archive"}`,
+                                        {},
+                                        "PATCH",
+                                      );
+                                      await onProjectsChanged();
+                                    } else
+                                      await api(
+                                        `/admin/accounts/${item.id}/status`,
+                                        { disabled: !inactive },
+                                        "PATCH",
+                                      );
+                                    await load();
+                                  },
+                                  isProject
+                                    ? inactive
+                                      ? "项目已恢复"
+                                      : "项目已结项"
+                                    : inactive
+                                      ? "成员已恢复"
+                                      : "成员已停用",
+                                )
+                              }
+                            >
+                              {inactive ? "恢复" : isProject ? "结项" : "停用"}
+                            </button>
+                          )}
+                        {!isProject &&
+                          !account.is_super_admin &&
+                          can("accounts.reset-password") && (
+                            <button
+                              disabled={busy}
+                              onClick={() =>
+                                setConfirmation({
+                                  title: "重置密码",
+                                  message: `确定重置 ${account.name} 的密码？该账号当前登录将失效。`,
+                                  confirm: async () => {
+                                    const result = await api(
+                                      `/admin/accounts/${item.id}/reset-password`,
                                       {},
-                                      "PATCH",
                                     );
-                                    await onProjectsChanged();
-                                  } else
-                                    await api(
-                                      `/admin/accounts/${item.id}/status`,
-                                      { disabled: !inactive },
-                                      "PATCH",
-                                    );
-                                  await load();
-                                },
-                                isProject
-                                  ? inactive
-                                    ? "项目已恢复"
-                                    : "项目已结项"
-                                  : inactive
-                                    ? "成员已恢复"
-                                    : "成员已停用",
-                              )
-                            }
-                          >
-                            {inactive ? "恢复" : isProject ? "结项" : "停用"}
-                          </button>
-                        )}
-                        {!isProject && !account.is_super_admin && can("accounts.reset-password") && (
-                          <button
-                            disabled={busy}
-                            onClick={() =>
-                              setConfirmation({
-                                title: "重置密码",
-                                message: `确定重置 ${account.name} 的密码？该账号当前登录将失效。`,
-                                confirm: async () => {
-                                  const result = await api(
-                                    `/admin/accounts/${item.id}/reset-password`,
-                                    {},
-                                  );
-                                  setConfirmation(null);
-                                  setPassword({
-                                    name: account.name,
-                                    username: account.username,
-                                    value: result.password,
-                                  });
-                                  showTip("密码已重置");
-                                },
-                              })
-                            }
-                          >
-                            重置密码
-                          </button>
-                        )}
+                                    setConfirmation(null);
+                                    setPassword({
+                                      name: account.name,
+                                      username: account.username,
+                                      value: result.password,
+                                    });
+                                    showTip("密码已重置");
+                                  },
+                                })
+                              }
+                            >
+                              重置密码
+                            </button>
+                          )}
                       </div>
                     </td>
                   </tr>
@@ -1277,11 +1374,7 @@ export function SystemManagement({
               })}
             {(loading || !visibleItems.length) && (
               <tr>
-                <td
-                  colSpan={7}
-                  className="admin-empty"
-                  role={loading ? "status" : undefined}
-                >
+                <td colSpan={7} className="admin-empty" role={loading ? "status" : undefined}>
                   {loading ? "正在加载…" : `没有符合筛选条件的${isProject ? "项目" : "成员"}`}
                 </td>
               </tr>
@@ -1290,7 +1383,19 @@ export function SystemManagement({
         </table>
       </div>
       <div className="admin-pagination">
-        <PaginationControl total={filteredItems.length} currentPage={page} pageSize={pageSize} pageSizeOptions={[10, 20, 30, 50, 100]} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} disabled={loading} ariaLabel={isProject ? "项目列表分页" : "成员列表分页"} />
+        <PaginationControl
+          total={filteredItems.length}
+          currentPage={page}
+          pageSize={pageSize}
+          pageSizeOptions={[10, 20, 30, 50, 100]}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          disabled={loading}
+          ariaLabel={isProject ? "项目列表分页" : "成员列表分页"}
+        />
       </div>
       {detailItem && (
         <AdminDialog
@@ -1339,15 +1444,29 @@ export function SystemManagement({
               {feedback}
               <label>
                 项目名称
-                <input autoFocus required name="name" maxLength={120} defaultValue={editingProject.name} />
+                <input
+                  autoFocus
+                  required
+                  name="name"
+                  maxLength={120}
+                  defaultValue={editingProject.name}
+                />
               </label>
               <label>
                 项目简介
-                <textarea name="description" maxLength={4000} defaultValue={editingProject.description || ""} />
+                <textarea
+                  name="description"
+                  maxLength={4000}
+                  defaultValue={editingProject.description || ""}
+                />
               </label>
               <div className="admin-editor-actions">
-                <button type="button" disabled={busy} onClick={close}>取消</button>
-                <button className="primary" disabled={busy}>保存</button>
+                <button type="button" disabled={busy} onClick={close}>
+                  取消
+                </button>
+                <button className="primary" disabled={busy}>
+                  保存
+                </button>
               </div>
             </form>
           )}
@@ -1368,7 +1487,10 @@ export function SystemManagement({
       {creating && (
         <AdminDialog
           title={isProject ? "新增项目" : "新增成员"}
-          onClose={() => { setCreateImage(null); setCreating(false); }}
+          onClose={() => {
+            setCreateImage(null);
+            setCreating(false);
+          }}
           busy={busy}
         >
           {(close) => (
@@ -1387,11 +1509,11 @@ export function SystemManagement({
               </label>
               {isProject ? (
                 <>
-                <ProjectImageField image={createImage} busy={busy} onChange={setCreateImage} />
-                <label>
-                  项目简介
-                  <textarea name="description" maxLength={4000} placeholder="选填" />
-                </label>
+                  <ProjectImageField image={createImage} busy={busy} onChange={setCreateImage} />
+                  <label>
+                    项目简介
+                    <textarea name="description" maxLength={4000} placeholder="选填" />
+                  </label>
                 </>
               ) : (
                 <label>

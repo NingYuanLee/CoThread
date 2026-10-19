@@ -72,7 +72,12 @@ export function AccountSwitchList({
             >
               {copy}
               {onLogout ? (
-                <button type="button" className="account-switch-action" disabled={busy} onClick={onLogout}>
+                <button
+                  type="button"
+                  className="account-switch-action"
+                  disabled={busy}
+                  onClick={onLogout}
+                >
                   <UiIcon name="logout" size={13} />
                   退出并清除账号
                 </button>

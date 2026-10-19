@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { query, transaction } from "./db.js";
+import { acquireNamedLock } from "./named-lock.js";
 import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";
 import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.js";
@@ -625,15 +626,13 @@ async function processNextMemberMemory(db, summarize, projectId) {
     if (!candidate) return false;
     targetProject = candidate.project_id;
   }
-  const connection = await db.getConnection();
   const lockName = `cothread-project-memory:${targetProject}`;
-  let locked = false;
+  let lock;
   let run = null;
   try {
     // Wait briefly so a concurrent batch can finish; avoid claim→unclaim churn.
-    const [lock] = await query(connection, "SELECT GET_LOCK(?,10) acquired", [lockName]);
-    if (Number(lock.acquired) !== 1) return false;
-    locked = true;
+    lock = await acquireNamedLock(db, lockName, 10);
+    if (!lock) return false;
     run = await claimL1Run(db, "member_memory", targetProject);
     if (!run) {
       const [running] = await query(
@@ -750,20 +749,17 @@ async function processNextMemberMemory(db, summarize, projectId) {
       message: detail,
     });
   } finally {
-    if (locked) await query(connection, "SELECT RELEASE_LOCK(?)", [lockName]);
-    connection.release();
+    await lock?.release();
   }
   return true;
 }
 
 async function summarizeReadyDocument(db, summarize, candidate) {
-  const connection = await db.getConnection();
   const lockName = `cothread-document-memory:${candidate.version_id}`;
-  let locked = false;
+  let lock;
   try {
-    const [lock] = await query(connection, "SELECT GET_LOCK(?,0) acquired", [lockName]);
-    if (Number(lock.acquired) !== 1) return { skipped: true };
-    locked = true;
+    lock = await acquireNamedLock(db, lockName);
+    if (!lock) return { skipped: true };
     const [current] = await query(
       db,
       `SELECT q.candidate_summary,q.created_by_message_id,
@@ -833,8 +829,7 @@ async function summarizeReadyDocument(db, summarize, candidate) {
     });
     throw error;
   } finally {
-    if (locked) await query(connection, "SELECT RELEASE_LOCK(?)", [lockName]);
-    connection.release();
+    await lock?.release();
   }
 }
 

@@ -12,11 +12,7 @@ test("action labels distinguish scripts from shell commands without inventing we
     "bash ./build.sh",
     "./test.py",
   ])
-    assert.equal(
-      label("sandbox_command", { command }).action,
-      "运行脚本",
-      command,
-    );
+    assert.equal(label("sandbox_command", { command }).action, "运行脚本", command);
   for (const command of [
     "pip install pandas",
     "python3 -m pytest",
@@ -26,22 +22,14 @@ test("action labels distinguish scripts from shell commands without inventing we
     "curl https://example.com",
     "python3 - <<PY\nprint(1)\nPY",
   ])
-    assert.equal(
-      label("sandbox_command", { command }).action,
-      "运行命令",
-      command,
-    );
-  const path =
-    "/workspace/a-very-long-project-directory/src/deeply/nested/report.test.py";
+    assert.equal(label("sandbox_command", { command }).action, "运行命令", command);
+  const path = "/workspace/a-very-long-project-directory/src/deeply/nested/report.test.py";
   assert.deepEqual(label("sandbox_read", { path }), {
     action: "读取文件",
     target: "…/report.test.py",
     full: path,
   });
-  assert.equal(
-    label("sandbox_command", { command: `python3 ${path}` }).full,
-    `python3 ${path}`,
-  );
+  assert.equal(label("sandbox_command", { command: `python3 ${path}` }).full, `python3 ${path}`);
   assert.equal(
     label("read_document", {}, { filename: "README.md", version: 2 }).target,
     "README.md · v2",
@@ -85,12 +73,15 @@ test("thinking lifecycle records phases once, omits content, and closes interrup
   await tracker.flush();
   assert.equal(writes.filter((x) => x.sql.startsWith("INSERT INTO agent_events")).length, 1);
   assert.equal(
-    writes.filter((x) => x.sql.startsWith("UPDATE agent_events SET status"))[0].params[0],
+    writes.filter((x) => x.sql.startsWith("UPDATE agent_events e "))[0].params[0],
     "completed",
   );
   notify("step/start");
   await tracker.close("failed");
-  assert.equal(writes.filter(x => x.sql.startsWith('UPDATE agent_events SET status')).at(-1).params[0], "failed");
+  assert.equal(
+    writes.filter((x) => x.sql.startsWith("UPDATE agent_events e ")).at(-1).params[0],
+    "failed",
+  );
   assert.ok(!JSON.stringify(writes).includes("private reasoning"));
 });
 
@@ -101,11 +92,14 @@ test("each completed assistant text return is published, thinking is not", async
     },
   };
   const published = [];
-  const tracker = trackThinking(db, "message", "session", { onVisibleText: async (text) => published.push(text) });
-  const notify = (type, data = {}) => tracker.notify({
-    method: "session.event",
-    params: { sessionId: "session", event: { type, data } },
+  const tracker = trackThinking(db, "message", "session", {
+    onVisibleText: async (text) => published.push(text),
   });
+  const notify = (type, data = {}) =>
+    tracker.notify({
+      method: "session.event",
+      params: { sessionId: "session", event: { type, data } },
+    });
   const chunk = (type, text) => notify("assistant/chunk", { chunk: { type, text } });
   notify("step/start");
   chunk("reasoning-delta", "内部思考");
@@ -129,11 +123,14 @@ test("ordinary tool calls do not hide already streamed group text", async () => 
     },
   };
   const published = [];
-  const tracker = trackThinking(db, "message", "session", { onVisibleText: async (text) => published.push(text) });
-  const notify = (type, data = {}) => tracker.notify({
-    method: "session.event",
-    params: { sessionId: "session", event: { type, data } },
+  const tracker = trackThinking(db, "message", "session", {
+    onVisibleText: async (text) => published.push(text),
   });
+  const notify = (type, data = {}) =>
+    tracker.notify({
+      method: "session.event",
+      params: { sessionId: "session", event: { type, data } },
+    });
   const chunk = (type, text) => notify("assistant/chunk", { chunk: { type, text } });
   notify("step/start");
   chunk("text-delta", "给成员看。");
@@ -146,30 +143,53 @@ test("ordinary tool calls do not hide already streamed group text", async () => 
 });
 
 test("conversation log button follows the live L2 event name", () => {
-  const replies = [{ message_id: "m1", parent_message_id: null, status: "completed", progress: null }];
+  const replies = [
+    { message_id: "m1", parent_message_id: null, status: "completed", progress: null },
+  ];
   assert.equal(coordinatorLogButtonLabel({ replies, events: [] }), "轨迹");
   replies[0].status = "queued";
   assert.equal(coordinatorLogButtonLabel({ replies, events: [] }), "等待处理");
   replies[0].status = "running";
   replies[0].progress = "正在准备上下文";
   assert.equal(coordinatorLogButtonLabel({ replies, events: [] }), "正在准备上下文");
-  assert.equal(coordinatorLogButtonLabel({
-    replies, events: [{ id: "1", message_id: "m1", tool: "thinking", status: "running" }],
-  }), "正在思考");
-  assert.equal(coordinatorLogButtonLabel({
-    replies, events: [
-      { id: "1", message_id: "m1", tool: "thinking", status: "completed" },
-      { id: "2", message_id: "m1", tool: "list_project_tasks", status: "running" },
-    ],
-  }), "查看任务");
-  assert.equal(coordinatorLogButtonLabel({
-    replies, events: [{ id: "2", message_id: "m1", tool: "post_message", status: "running" }],
-  }), "发言");
-  assert.equal(coordinatorLogButtonLabel({
-    replies, events: [], liveOutput: { m1: { reasoning: "…" } },
-  }), "正在思考");
-  assert.equal(coordinatorLogButtonLabel({
-    replies: [{ message_id: "m1", parent_message_id: null, status: "completed", progress: null }],
-    events: [], compactStatus: "running",
-  }), "正在整理上下文");
+  assert.equal(
+    coordinatorLogButtonLabel({
+      replies,
+      events: [{ id: "1", message_id: "m1", tool: "thinking", status: "running" }],
+    }),
+    "正在思考",
+  );
+  assert.equal(
+    coordinatorLogButtonLabel({
+      replies,
+      events: [
+        { id: "1", message_id: "m1", tool: "thinking", status: "completed" },
+        { id: "2", message_id: "m1", tool: "list_project_tasks", status: "running" },
+      ],
+    }),
+    "查看任务",
+  );
+  assert.equal(
+    coordinatorLogButtonLabel({
+      replies,
+      events: [{ id: "2", message_id: "m1", tool: "post_message", status: "running" }],
+    }),
+    "发言",
+  );
+  assert.equal(
+    coordinatorLogButtonLabel({
+      replies,
+      events: [],
+      liveOutput: { m1: { reasoning: "…" } },
+    }),
+    "正在思考",
+  );
+  assert.equal(
+    coordinatorLogButtonLabel({
+      replies: [{ message_id: "m1", parent_message_id: null, status: "completed", progress: null }],
+      events: [],
+      compactStatus: "running",
+    }),
+    "正在整理上下文",
+  );
 });

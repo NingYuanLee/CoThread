@@ -275,7 +275,7 @@ export type Thread = {
   runs: {
     id: string;
     status: string;
-    output: string;
+    output: string | null;
     kind: string;
     progress: string | null;
     created_at: string;
@@ -305,6 +305,8 @@ export type Thread = {
     error: string | null;
   }[];
   connectorTasks: LocalTask[];
+  side_revision?: number | string;
+  sideState?: { mode: "snapshot" | "unchanged"; token: string };
   events: {
     id: string;
     message_id: string;

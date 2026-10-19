@@ -1,7 +1,11 @@
 import { memo, useEffect, useRef, useState } from "react";
 
 function escapeCode(value: string) {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 function highlightMarkup(escaped: string) {
@@ -30,9 +34,15 @@ function highlightCode(value: string, filename?: string) {
   if (markup) return highlightMarkup(escaped);
   let highlighted = escaped
     .replace(/(\/\/.*|#[^<]*)$/g, '<span class="code-token-comment">$1</span>')
-    .replace(/(&quot;[^&]*?&quot;|&#39;[^&]*?&#39;|`[^`]*`)/g, '<span class="code-token-string">$1</span>');
+    .replace(
+      /(&quot;[^&]*?&quot;|&#39;[^&]*?&#39;|`[^`]*`)/g,
+      '<span class="code-token-string">$1</span>',
+    );
   highlighted = highlighted
-    .replace(/\b(def|class|return|if|else|elif|for|while|in|import|from|as|with|try|except|True|False|None|and|or|not|is|const|let|var|function|async|await|new|export|default|interface|type|public|private|SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|JOIN|CREATE|TABLE|NULL|true|false|null)\b/g, '<span class="code-token-keyword">$1</span>')
+    .replace(
+      /\b(def|class|return|if|else|elif|for|while|in|import|from|as|with|try|except|True|False|None|and|or|not|is|const|let|var|function|async|await|new|export|default|interface|type|public|private|SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|JOIN|CREATE|TABLE|NULL|true|false|null)\b/g,
+      '<span class="code-token-keyword">$1</span>',
+    )
     .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="code-token-number">$1</span>');
   if (style) {
     highlighted = highlighted.replace(
@@ -40,27 +50,45 @@ function highlightCode(value: string, filename?: string) {
       '<span class="code-token-selector">$&</span>',
     );
   }
-  if (data || style) highlighted = highlighted.replace(/([A-Za-z_$][\w$-]*)(?=\s*:)/g, '<span class="code-token-keyword">$1</span>');
+  if (data || style)
+    highlighted = highlighted.replace(
+      /([A-Za-z_$][\w$-]*)(?=\s*:)/g,
+      '<span class="code-token-keyword">$1</span>',
+    );
   return highlighted;
 }
 
 const CODE_PREVIEW_PLAIN_CHARS = 80_000;
 
-export const CodePreview = memo(function CodePreview({ text, filename }: { text: string; filename?: string }) {
+export const CodePreview = memo(function CodePreview({
+  text,
+  filename,
+}: {
+  text: string;
+  filename?: string;
+}) {
   const highlight = text.length <= CODE_PREVIEW_PLAIN_CHARS;
   const lines = text.split("\n");
   return (
     <div className="code-preview" role="document" aria-label={filename || "代码文件"}>
       <div className="code-preview-gutter" aria-hidden="true">
-        {lines.map((_, index) => <span key={index}>{index + 1}</span>)}
+        {lines.map((_, index) => (
+          <span key={index}>{index + 1}</span>
+        ))}
       </div>
-      <pre className="code-preview-content"><code>{lines.map((line, index) => (
-        <span className="code-preview-line" key={index}>
-          {highlight
-            ? <span dangerouslySetInnerHTML={{ __html: highlightCode(line, filename) }} />
-            : line}
-        </span>
-      ))}</code></pre>
+      <pre className="code-preview-content">
+        <code>
+          {lines.map((line, index) => (
+            <span className="code-preview-line" key={index}>
+              {highlight ? (
+                <span dangerouslySetInnerHTML={{ __html: highlightCode(line, filename) }} />
+              ) : (
+                line
+              )}
+            </span>
+          ))}
+        </code>
+      </pre>
     </div>
   );
 });
@@ -163,7 +191,22 @@ export function DocxPreview({ bytes }: { bytes: Uint8Array }) {
   return <div className="docx-preview docx-preview-a4" ref={host} />;
 }
 
-const HTML_VOID_ELEMENTS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+const HTML_VOID_ELEMENTS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
 
 export function formatHtmlSource(source: string) {
   const normalized = source.replace(/\r\n?/g, "\n").trim();
@@ -235,7 +278,9 @@ function getMermaid() {
 
 export function MermaidPreview({ chart }: { chart: string }) {
   const source = chart.trim();
-  const [themeKey, setThemeKey] = useState(() => document.documentElement.dataset.theme || "forest");
+  const [themeKey, setThemeKey] = useState(
+    () => document.documentElement.dataset.theme || "forest",
+  );
   const cacheKey = `${themeKey}\u0000${source}`;
   const [svg, setSvg] = useState(() => mermaidSvgCache.get(cacheKey) || "");
   const [error, setError] = useState("");
@@ -274,9 +319,12 @@ export function MermaidPreview({ chart }: { chart: string }) {
             fontFamily: "Segoe UI, system-ui, sans-serif",
           },
         });
-        const id = "mermaid-preview-" + (++mermaidRenderSequence);
+        const id = "mermaid-preview-" + ++mermaidRenderSequence;
         const task = mermaidRenderQueue.then(() => module.default.render(id, source));
-        mermaidRenderQueue = task.then(() => undefined, () => undefined);
+        mermaidRenderQueue = task.then(
+          () => undefined,
+          () => undefined,
+        );
         const result = await task;
         if (!alive || currentRequest !== request.current) return;
         mermaidSvgCache.set(cacheKey, result.svg);
@@ -296,13 +344,19 @@ export function MermaidPreview({ chart }: { chart: string }) {
     return (
       <div className="markdown-diagram-error">
         <p>图表渲染失败，已回退为 Mermaid 源码。</p>
-        <pre><code>{chart}</code></pre>
+        <pre>
+          <code>{chart}</code>
+        </pre>
       </div>
     );
   }
   return (
     <div className="markdown-diagram" role="img" aria-label="Mermaid 图表">
-      {svg ? <div dangerouslySetInnerHTML={{ __html: svg }} /> : <span className="markdown-diagram-loading" aria-hidden="true" />}
+      {svg ? (
+        <div dangerouslySetInnerHTML={{ __html: svg }} />
+      ) : (
+        <span className="markdown-diagram-loading" aria-hidden="true" />
+      )}
     </div>
   );
 }
@@ -365,13 +419,33 @@ export function XlsxPreview({ bytes }: { bytes: Uint8Array }) {
 }
 
 type PptxElement =
-  | { kind: "text"; text: string; left: number; top: number; width: number; height: number; fontSize: number; bold: boolean; color: string }
-  | { kind: "image"; src: string; left: number; top: number; width: number; height: number; rotation: number };
+  | {
+      kind: "text";
+      text: string;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      fontSize: number;
+      bold: boolean;
+      color: string;
+    }
+  | {
+      kind: "image";
+      src: string;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      rotation: number;
+    };
 
 type PptxSlide = { elements: PptxElement[] };
 
 function findDescendant(root: Element | Document, localName: string) {
-  return Array.from(root.getElementsByTagName("*")).find((node) => node.localName === localName) || null;
+  return (
+    Array.from(root.getElementsByTagName("*")).find((node) => node.localName === localName) || null
+  );
 }
 
 function findDescendants(root: Element | Document, localName: string) {
@@ -415,7 +489,11 @@ function readShapeText(shape: Element) {
   const textBody = findDescendant(shape, "txBody");
   if (!textBody) return "";
   return findDescendants(textBody, "p")
-    .map((paragraph) => findDescendants(paragraph, "t").map((text) => text.textContent || "").join(""))
+    .map((paragraph) =>
+      findDescendants(paragraph, "t")
+        .map((text) => text.textContent || "")
+        .join(""),
+    )
     .filter(Boolean)
     .join("\\n");
 }
@@ -436,14 +514,20 @@ async function parsePptx(bytes: Uint8Array): Promise<PptxSlide[]> {
   const zip = await JSZip.loadAsync(bytes);
   const parser = new DOMParser();
   const presentationXml = await zip.file("ppt/presentation.xml")?.async("text");
-  const presentation = presentationXml ? parser.parseFromString(presentationXml, "application/xml") : null;
+  const presentation = presentationXml
+    ? parser.parseFromString(presentationXml, "application/xml")
+    : null;
   const fallbackDocument = parser.parseFromString("<root />", "application/xml");
   const slideSize = findDescendant(presentation || fallbackDocument, "sldSz");
   const slideWidth = numberAttribute(slideSize, "cx") || 12192000;
   const slideHeight = numberAttribute(slideSize, "cy") || 6858000;
   const names = Object.keys(zip.files)
     .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
-    .sort((a, b) => Number(a.match(/slide(\d+)\.xml$/)?.[1] || 0) - Number(b.match(/slide(\d+)\.xml$/)?.[1] || 0));
+    .sort(
+      (a, b) =>
+        Number(a.match(/slide(\d+)\.xml$/)?.[1] || 0) -
+        Number(b.match(/slide(\d+)\.xml$/)?.[1] || 0),
+    );
   const slides: PptxSlide[] = [];
   for (const name of names) {
     const slideXml = await zip.file(name)?.async("text");
@@ -471,7 +555,10 @@ async function parsePptx(bytes: Uint8Array): Promise<PptxSlide[]> {
         elements.push({ kind: "text", text, ...transform, ...style });
       } else if (child.localName === "pic") {
         const blip = findDescendant(child, "blip");
-        const embed = blip?.getAttribute("r:embed") || blip?.getAttribute("embed") || Array.from(blip?.attributes || []).find((attr) => attr.localName === "embed")?.value;
+        const embed =
+          blip?.getAttribute("r:embed") ||
+          blip?.getAttribute("embed") ||
+          Array.from(blip?.attributes || []).find((attr) => attr.localName === "embed")?.value;
         const target = embed ? relationships.get(embed) : null;
         const image = target ? zip.file(target) : null;
         if (!image) continue;
@@ -495,7 +582,9 @@ export function PptxPreview({ bytes }: { bytes: Uint8Array }) {
     setSlides(null);
     void parsePptx(bytes)
       .then((parsed) => {
-        imageUrls = parsed.flatMap((slide) => slide.elements.flatMap((element) => element.kind === "image" ? [element.src] : []));
+        imageUrls = parsed.flatMap((slide) =>
+          slide.elements.flatMap((element) => (element.kind === "image" ? [element.src] : [])),
+        );
         if (alive) setSlides(parsed);
       })
       .catch((cause) => {
@@ -521,9 +610,31 @@ export function PptxPreview({ bytes }: { bytes: Uint8Array }) {
                 width: element.width + "%",
                 height: element.height + "%",
               };
-              return element.kind === "image"
-                ? <img key={elementIndex} className="pptx-slide-image" style={{ ...style, transform: element.rotation ? "rotate(" + element.rotation + "deg)" : undefined }} src={element.src} alt="" draggable={false} />
-                : <div key={elementIndex} className={element.bold ? "pptx-slide-text bold" : "pptx-slide-text"} style={{ ...style, color: element.color, fontSize: (element.fontSize / 14) + "cqw" }}>{element.text}</div>;
+              return element.kind === "image" ? (
+                <img
+                  key={elementIndex}
+                  className="pptx-slide-image"
+                  style={{
+                    ...style,
+                    transform: element.rotation ? "rotate(" + element.rotation + "deg)" : undefined,
+                  }}
+                  src={element.src}
+                  alt=""
+                  draggable={false}
+                />
+              ) : (
+                <div
+                  key={elementIndex}
+                  className={element.bold ? "pptx-slide-text bold" : "pptx-slide-text"}
+                  style={{
+                    ...style,
+                    color: element.color,
+                    fontSize: element.fontSize / 14 + "cqw",
+                  }}
+                >
+                  {element.text}
+                </div>
+              );
             })}
             {!slide.elements.length ? <p className="muted">（此页无可预览内容）</p> : null}
           </div>

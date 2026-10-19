@@ -1,34 +1,17 @@
 import { query } from "./db.js";
+import { acquireNamedLock } from "./named-lock.js";
 
 export function sessionLockName(threadId) {
   return `cothread-context:${threadId}`;
 }
 
 export async function acquireSessionLock(db, threadId, waitSeconds = 0) {
-  const connection = await db.getConnection();
-  try {
-    const [lock] = await query(connection, "SELECT GET_LOCK(?,?) acquired", [sessionLockName(threadId), waitSeconds]);
-    if (Number(lock.acquired) !== 1) {
-      connection.release();
-      return null;
-    }
-  } catch (error) {
-    connection.release();
-    throw error;
-  }
-  let released = false;
-  return {
-    async release() {
-      if (released) return;
-      released = true;
-      try { await query(connection, "SELECT RELEASE_LOCK(?)", [sessionLockName(threadId)]); }
-      finally { connection.release(); }
-    },
-  };
+  return acquireNamedLock(db, sessionLockName(threadId), waitSeconds);
 }
 
 export async function discussionHasActiveCoordinator(db, threadId) {
-  const [busy] = await query(db,
+  const [busy] = await query(
+    db,
     `SELECT 1 AS busy FROM agent_requests q JOIN messages m ON m.id=q.message_id
      WHERE m.thread_id=? AND q.status IN ('queued','running')
      UNION ALL
@@ -37,6 +20,8 @@ export async function discussionHasActiveCoordinator(db, threadId) {
      UNION ALL
      SELECT 1 FROM coordinator_events e
      WHERE e.thread_id=? AND e.status IN ('queued','running')
-     LIMIT 1`, [threadId, threadId, threadId]);
+     LIMIT 1`,
+    [threadId, threadId, threadId],
+  );
   return Boolean(busy);
 }

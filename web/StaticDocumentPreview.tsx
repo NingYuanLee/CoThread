@@ -1,6 +1,20 @@
-import { DocxPreview, PptxPreview, XlsxPreview } from "./office-preview";
+import { lazy, Suspense } from "react";
 import { PdfPreview } from "./PdfPreview";
 import { UiIcon } from "./ui-icon";
+
+const DocxPreview = lazy(() =>
+  import("./office-preview").then((module) => ({ default: module.DocxPreview })),
+);
+const XlsxPreview = lazy(() =>
+  import("./office-preview").then((module) => ({ default: module.XlsxPreview })),
+);
+const PptxPreview = lazy(() =>
+  import("./office-preview").then((module) => ({ default: module.PptxPreview })),
+);
+
+function PreviewFallback() {
+  return <p className="muted">正在加载预览…</p>;
+}
 
 const ARCHIVE_FILENAME = /\.(?:7z|bz2|cab|deb|dmg|gz|iso|rar|rpm|tar|tgz|xz|zip)$/i;
 
@@ -19,9 +33,24 @@ export function StaticDocumentPreview({
   url?: string;
   onOpenImage: (source: { id: string; title: string; filename: string; src?: string }) => void;
 }) {
-  if (kind === "docx" && bytes) return <DocxPreview bytes={bytes} />;
-  if (kind === "xlsx" && bytes) return <XlsxPreview bytes={bytes} />;
-  if (kind === "pptx" && bytes) return <PptxPreview bytes={bytes} />;
+  if (kind === "docx" && bytes)
+    return (
+      <Suspense fallback={<PreviewFallback />}>
+        <DocxPreview bytes={bytes} />
+      </Suspense>
+    );
+  if (kind === "xlsx" && bytes)
+    return (
+      <Suspense fallback={<PreviewFallback />}>
+        <XlsxPreview bytes={bytes} />
+      </Suspense>
+    );
+  if (kind === "pptx" && bytes)
+    return (
+      <Suspense fallback={<PreviewFallback />}>
+        <PptxPreview bytes={bytes} />
+      </Suspense>
+    );
   if (kind === "image" && version) {
     return (
       <button

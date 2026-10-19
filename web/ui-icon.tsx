@@ -1,4 +1,3 @@
-import React from "react";
 import yunxiaoMark from "./assets/yunxiao.png";
 
 export type UiIconName =

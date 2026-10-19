@@ -1,12 +1,48 @@
 import { randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, sep } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { promisify } from "node:util";
+import { assertExternalAdmitted } from "./executor-fence.js";
 
 const execute = promisify(execFile);
+const outputLimit = 6 * 1024 * 1024;
+const outputLimitMessage = "输出超过上限";
 const virtualPrefix = "/home/user/";
+// Keep aliases in one process on the same lifecycle without retaining every
+// sandbox ever opened. Commands and in-flight file operations retain their
+// instance until completion; idle instances may be collected.
+const instances = new Map();
+const instanceKey = (root) => (process.platform === "win32" ? root.toLowerCase() : root);
+const collectedInstances = new FinalizationRegistry(({ key, reference }) => {
+  if (instances.get(key) === reference) instances.delete(key);
+});
+
+function rememberInstance(instance) {
+  const key = instanceKey(instance.root);
+  const existing = instances.get(key)?.deref();
+  if (existing) return existing;
+  const reference = new WeakRef(instance);
+  instances.set(key, reference);
+  collectedInstances.register(instance, { key, reference }, instance);
+  return instance;
+}
+
+function forgetInstance(instance) {
+  const key = instanceKey(instance.root);
+  if (instances.get(key)?.deref() === instance) instances.delete(key);
+  collectedInstances.unregister(instance);
+}
+
+function utf8Prefix(text, bytes) {
+  const buffer = Buffer.from(text);
+  if (buffer.length <= bytes) return text;
+  // Keep complete characters only; flushing here would add a replacement
+  // character that can exceed the remaining byte budget.
+  return new StringDecoder("utf8").write(buffer.subarray(0, bytes));
+}
 
 function sandboxBase() {
   return resolve(".local/sandboxes");
@@ -20,14 +56,25 @@ function bashExecutable() {
     "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
   ].filter(Boolean);
   const found = candidates.find((candidate) => existsSync(candidate));
-  if (!found) throw new Error("本机执行器需要 Git Bash，请安装 Git for Windows 或设置 GIT_BASH_PATH");
+  if (!found)
+    throw new Error("本机执行器需要 Git Bash，请安装 Git for Windows 或设置 GIT_BASH_PATH");
   return found;
 }
 
 function cleanEnvironment(extra = {}) {
-  const allowed = ["PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "HOME", "LANG"];
+  const allowed = [
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "HOME",
+    "LANG",
+  ];
   return Object.fromEntries([
-    ...allowed.flatMap((key) => process.env[key] ? [[key, process.env[key]]] : []),
+    ...allowed.flatMap((key) => (process.env[key] ? [[key, process.env[key]]] : [])),
     ...Object.entries(extra).map(([key, value]) => [key, String(value)]),
   ]);
 }
@@ -37,20 +84,74 @@ function validId(value) {
   return value;
 }
 
+/**
+ * 结束一个子进程。Git Bash 会派生子进程，Windows 上按进程树结束更稳；
+ * POSIX 使用独立进程组；必须先结束整棵树，再让调用方回收目录。
+ */
+async function terminate(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  // Windows 上 Git Bash 会派生子进程，先按进程树杀一次；
+  // 无论哪条路都要再兜底强杀本进程，避免 taskkill 不可用时杀不掉。
+  if (process.platform === "win32" && child.pid) {
+    try {
+      await execute("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+        windowsHide: true,
+        timeout: 5000,
+      });
+    } catch {
+      // 交给下面的兜底。
+    }
+  }
+  if (process.platform !== "win32" && child.pid) {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+      return;
+    } catch {
+      // 进程组已经退出时仍尝试结束直接子进程。
+    }
+  }
+  try {
+    child.kill("SIGKILL");
+  } catch {
+    // 进程已经退出。
+  }
+}
+
 class LocalSandboxInstance {
   constructor(sandboxId) {
     this.sandboxId = validId(sandboxId);
     this.root = resolve(sandboxBase(), this.sandboxId);
+    // 正在运行的子进程。kill() 必须连它们一起收掉，否则「回收沙箱」只删了文件，
+    // 命令还在后台跑——容器 provider 的 kill 语义不是这样的。
+    this.children = new Set();
+    this.preparations = new Set();
+    this.killed = false;
     this.files = {
-      makeDir: async (path) => mkdir(this.localPath(path), { recursive: true }),
-      write: async (path, content) => {
-        const target = this.localPath(path);
-        await mkdir(resolve(target, ".."), { recursive: true });
-        const value = content instanceof ArrayBuffer ? new Uint8Array(content) : content;
-        await writeFile(target, value);
-      },
+      makeDir: (path) => this.prepare(() => mkdir(this.localPath(path), { recursive: true })),
+      write: (path, content) =>
+        this.prepare(async () => {
+          const target = this.localPath(path);
+          await mkdir(resolve(target, ".."), { recursive: true });
+          const value = content instanceof ArrayBuffer ? new Uint8Array(content) : content;
+          await writeFile(target, value);
+        }),
     };
     this.commands = { run: (command, options = {}) => this.run(command, options) };
+  }
+
+  assertActive() {
+    if (this.killed || !existsSync(this.root)) throw new Error("Local sandbox not found");
+  }
+
+  async prepare(operation) {
+    this.assertActive();
+    const pending = Promise.resolve().then(operation);
+    this.preparations.add(pending);
+    try {
+      return await pending;
+    } finally {
+      this.preparations.delete(pending);
+    }
   }
 
   localPath(value) {
@@ -76,30 +177,172 @@ class LocalSandboxInstance {
   }
 
   async run(command, { cwd = "/home/user/", timeoutMs = 120000, envs = {} } = {}) {
-    await mkdir(this.localPath(cwd), { recursive: true });
-    const rewritten = String(command).replaceAll(virtualPrefix, `${this.commandPath(virtualPrefix)}/`);
+    await this.prepare(() => mkdir(this.localPath(cwd), { recursive: true }));
+    // kill may begin while the directory operation is waiting. Never spawn
+    // after retirement, even if that operation was admitted before it.
+    this.assertActive();
+    const fence = assertExternalAdmitted();
+    const rewritten = String(command).replaceAll(
+      virtualPrefix,
+      `${this.commandPath(virtualPrefix)}/`,
+    );
+    // Git Bash 的 ps 不支持 --ppid，pkill 也不在 PATH。set -m 后 jobs -p 能看到后台作业。
+    // 进程被强杀时 trap 不会跑，那条路仍靠下面的进程树终止。
+    const wrapped =
+      "set -m; trap 'kill -9 $(jobs -p) >/dev/null 2>&1 || true' EXIT; " + rewritten;
+    let child;
     try {
-      const result = await execute(bashExecutable(), ["-lc", rewritten], {
+      child = spawn(bashExecutable(), ["-lc", wrapped], {
         cwd: this.localPath(cwd),
         env: cleanEnvironment(envs),
-        timeout: Math.min(Math.max(Number(timeoutMs) || 120000, 1000), 900000),
-        maxBuffer: 6 * 1024 * 1024,
+        detached: process.platform !== "win32",
         windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
       });
-      return { exitCode: 0, stdout: result.stdout || "", stderr: result.stderr || "" };
     } catch (error) {
-      return {
-        exitCode: typeof error.code === "number" ? error.code : 1,
-        stdout: String(error.stdout || ""),
-        stderr: String(error.stderr || (error.killed ? "命令执行超时" : error.message || "")),
-      };
+      return { exitCode: 1, stdout: "", stderr: String(error.message || error) };
     }
+    this.children.add(child);
+    return new Promise((settle) => {
+      const streams = {
+        stdout: { text: "", bytes: 0, decoder: new StringDecoder("utf8") },
+        stderr: { text: "", bytes: 0, decoder: new StringDecoder("utf8") },
+      };
+      let done = false;
+      let outcome = null;
+      let timedOut = false;
+      let overflowed = false;
+      let sealed = false;
+      let termination;
+      const stop = () => {
+        sealed = true;
+        return (termination ||= terminate(child));
+      };
+      const append = (name, text) => {
+        const stream = streams[name];
+        const bytes = Buffer.byteLength(text);
+        const room = outputLimit - stream.bytes;
+        if (bytes > room) {
+          const prefix = utf8Prefix(text, room);
+          stream.text += prefix;
+          stream.bytes += Buffer.byteLength(prefix);
+          overflowed = true;
+          sealed = true;
+          const stderr = streams.stderr;
+          const note = `\n${outputLimitMessage}`;
+          stderr.text = utf8Prefix(stderr.text, outputLimit - Buffer.byteLength(note)) + note;
+          stderr.bytes = Buffer.byteLength(stderr.text);
+          void stop();
+          return;
+        }
+        stream.bytes += bytes;
+        stream.text += text;
+      };
+      const take = (name, chunk) => {
+        if (sealed || done) return;
+        append(name, streams[name].decoder.write(chunk));
+      };
+      const deadline = setTimeout(
+        () => {
+          timedOut = true;
+          void stop();
+        },
+        Math.min(Math.max(Number(timeoutMs) || 120000, 1000), 900000),
+      );
+      const finish = async () => {
+        if (done) return;
+        done = true;
+        clearTimeout(deadline);
+        if (!sealed) {
+          append("stdout", streams.stdout.decoder.end());
+          if (!overflowed) append("stderr", streams.stderr.decoder.end());
+        }
+        sealed = true;
+        await termination;
+        this.children.delete(child);
+        const flushedOut = streams.stdout.text;
+        const flushedErr = streams.stderr.text;
+        const { code, signal } = outcome || {};
+        settle({
+          exitCode: overflowed || timedOut ? 1 : typeof code === "number" ? code : 1,
+          stdout: flushedOut,
+          stderr:
+            flushedErr ||
+            (overflowed
+              ? outputLimitMessage
+              : timedOut
+                ? "命令执行超时"
+                : signal
+                  ? `命令被终止（${signal}）`
+                  : ""),
+        });
+      };
+      child.stdout?.on("data", (chunk) => take("stdout", chunk));
+      child.stderr?.on("data", (chunk) => take("stderr", chunk));
+      child.on("error", (error) => {
+        if (!sealed && !streams.stderr.text) append("stderr", String(error.message || error));
+        outcome = { code: 1 };
+        finish();
+      });
+      child.on("exit", (code, signal) => {
+        // 被终止时，孙进程可能仍握着继承来的 stdio 管道，close 迟迟不来；
+        // 进程既已退出，收一小段输出后就结算，避免调用方白等整条命令。
+        outcome = { code, signal };
+        const timer = setTimeout(finish, 250);
+        timer.unref?.();
+      });
+      child.on("close", (code, signal) => {
+        outcome = { code, signal };
+        finish();
+      });
+      if (fence?.signal) {
+        const onAbort = () => {
+          void stop();
+        };
+        if (fence.signal.aborted) void stop();
+        else fence.signal.addEventListener("abort", onAbort, { once: true });
+      }
+      // kill() 可能在命令启动前就已经发生，这里补一次。
+      if (this.killed) void stop();
+    });
   }
 
-  async setTimeout() {}
+  async setTimeout() {
+    this.assertActive();
+  }
 
-  async kill() {
-    await rm(this.root, { recursive: true, force: true });
+  kill() {
+    if (this.killPromise) return this.killPromise;
+    this.killed = true;
+    const children = [...this.children];
+    this.killPromise = (async () => {
+      // New filesystem work is closed synchronously. Finish already admitted
+      // operations before removal, so late mkdir/write cannot resurrect it.
+      await Promise.all([
+        Promise.allSettled([...this.preparations]),
+        Promise.all(children.map((child) => terminate(child))),
+      ]);
+      await Promise.all(children.map((child) => this.childExited(child)));
+      await rm(this.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      this.children.clear();
+      forgetInstance(this);
+    })().catch((error) => {
+      // A failed removal is retryable, but the old handle stays retired.
+      this.killPromise = undefined;
+      throw error;
+    });
+    return this.killPromise;
+  }
+
+  childExited(child) {
+    if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => resolve();
+      child.once("close", done);
+      child.once("exit", done);
+      const timer = setTimeout(done, 5000);
+      timer.unref?.();
+    });
   }
 }
 
@@ -107,11 +350,14 @@ export const LocalSandbox = {
   async create() {
     const instance = new LocalSandboxInstance(randomUUID());
     await mkdir(instance.root, { recursive: true });
-    return instance;
+    const active = rememberInstance(instance);
+    active.assertActive();
+    return active;
   },
   async connect(sandboxId) {
     const instance = new LocalSandboxInstance(sandboxId);
     if (!existsSync(instance.root)) throw new Error("Local sandbox not found");
-    return instance;
+    const existing = instances.get(instanceKey(instance.root))?.deref();
+    return existing || rememberInstance(instance);
   },
 };

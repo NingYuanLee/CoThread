@@ -31,11 +31,15 @@ function emit() {
 function subscribe(listener: (next: TipItem[]) => void) {
   listeners.add(listener);
   listener(items);
-  return () => { listeners.delete(listener); };
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 function prefersReducedMotion() {
-  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return (
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
 }
 
 function clearTimer(bag: Map<number, number>, id: number) {
@@ -62,10 +66,13 @@ export function dismissTip(id: number) {
     removeTip(id);
     return;
   }
-  items = items.map((item) => item.id === id ? { ...item, leaving: true } : item);
+  items = items.map((item) => (item.id === id ? { ...item, leaving: true } : item));
   emit();
   clearTimer(leaveTimers, id);
-  leaveTimers.set(id, window.setTimeout(() => removeTip(id), TIP_OUT_MS));
+  leaveTimers.set(
+    id,
+    window.setTimeout(() => removeTip(id), TIP_OUT_MS),
+  );
 }
 
 export function showTip(message: string, kindOrOptions: TipKind | TipOptions = "success") {
@@ -80,7 +87,10 @@ export function showTip(message: string, kindOrOptions: TipKind | TipOptions = "
   items = [...active, { id, message: text, kind }].slice(-MAX_VISIBLE).concat(leaving);
   emit();
   if (duration > 0) {
-    hideTimers.set(id, window.setTimeout(() => dismissTip(id), duration));
+    hideTimers.set(
+      id,
+      window.setTimeout(() => dismissTip(id), duration),
+    );
   }
 }
 
@@ -102,7 +112,12 @@ function TipCard({ tip }: { tip: TipItem }) {
     >
       <UiIcon name={ICONS[tip.kind]} size={16} />
       <span>{tip.message}</span>
-      <button type="button" className="tip-dismiss" aria-label="关闭提示" onClick={() => dismissTip(tip.id)}>
+      <button
+        type="button"
+        className="tip-dismiss"
+        aria-label="关闭提示"
+        onClick={() => dismissTip(tip.id)}
+      >
         <UiIcon name="close" size={12} />
       </button>
     </div>
@@ -124,13 +139,25 @@ export function TipHost() {
       }
       if (!open) el.showPopover();
     } catch {
-      try { el.showPopover(); } catch { /* Keep fixed positioning fallback. */ }
+      try {
+        el.showPopover();
+      } catch {
+        /* Keep fixed positioning fallback. */
+      }
     }
   }, [tips]);
   if (typeof document === "undefined") return null;
   return createPortal(
-    <div ref={host} className="tip-host" popover="manual" aria-live="polite" aria-relevant="additions">
-      {tips.map((tip) => <TipCard key={tip.id} tip={tip} />)}
+    <div
+      ref={host}
+      className="tip-host"
+      popover="manual"
+      aria-live="polite"
+      aria-relevant="additions"
+    >
+      {tips.map((tip) => (
+        <TipCard key={tip.id} tip={tip} />
+      ))}
     </div>,
     document.body,
   );

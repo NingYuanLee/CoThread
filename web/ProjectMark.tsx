@@ -18,11 +18,7 @@ export function ProjectMark({
       style={{ width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.42)) }}
       aria-hidden="true"
     >
-      {show ? (
-        <img src={image || ""} alt="" onError={() => setFailed(true)} />
-      ) : (
-        letter
-      )}
+      {show ? <img src={image || ""} alt="" onError={() => setFailed(true)} /> : letter}
     </span>
   );
 }

@@ -1,5 +1,9 @@
 import { readJsonResponse } from "../shared/json-response.js";
-import { INLINE_FILE_MAX_BYTES, FILE_MAX_BYTES, webFileChunkSize } from "../shared/upload-limits.js";
+import {
+  INLINE_FILE_MAX_BYTES,
+  FILE_MAX_BYTES,
+  webFileChunkSize,
+} from "../shared/upload-limits.js";
 import { apiFetch } from "./api-fetch";
 
 export async function sha256Hex(data: BufferSource) {
@@ -35,11 +39,21 @@ async function pollOfficialUpload(projectId: unknown, sha256: string, filename: 
 
 async function findOfficialUpload(projectId: unknown, sha256: string, filename: string) {
   const response = await apiFetch(`/api/projects/${projectId}/library`);
-  const library = await readJsonResponse(response, `/api/projects/${projectId}/library`) as {
-    versions?: Array<{ id: string; artifactId: string; sha256: string; byte_size?: number; title: string; filename: string; mime?: string; deleted_at?: string | null }>;
+  const library = (await readJsonResponse(response, `/api/projects/${projectId}/library`)) as {
+    versions?: Array<{
+      id: string;
+      artifactId: string;
+      sha256: string;
+      byte_size?: number;
+      title: string;
+      filename: string;
+      mime?: string;
+      deleted_at?: string | null;
+    }>;
   };
-  const found = library.versions?.find((row) =>
-    !row.deleted_at && (row.sha256 === sha256 || row.filename === filename));
+  const found = library.versions?.find(
+    (row) => !row.deleted_at && (row.sha256 === sha256 || row.filename === filename),
+  );
   if (!found) return null;
   return {
     id: found.id,
@@ -80,7 +94,9 @@ export async function uploadFileWithIntegrity(
           folderId: init.folderId,
           ...payload,
         }),
-      }).then((response) => readJsonResponse(response, `/api/projects/${init.projectId}/documents/upload`));
+      }).then((response) =>
+        readJsonResponse(response, `/api/projects/${init.projectId}/documents/upload`),
+      );
       const completed = await Promise.race([
         posted,
         pollOfficialUpload(init.projectId, sha256, file.name),
@@ -88,7 +104,7 @@ export async function uploadFileWithIntegrity(
       progress?.(100);
       return completed as UploadedVersion;
     }
-    const started = await readJsonResponse(
+    const started = (await readJsonResponse(
       await apiFetch("/api/file-uploads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -103,7 +119,7 @@ export async function uploadFileWithIntegrity(
         }),
       }),
       "/api/file-uploads",
-    ) as { uploadId: string; chunkSize: number; chunkCount: number };
+    )) as { uploadId: string; chunkSize: number; chunkCount: number };
     for (let index = 0; index < started.chunkCount; index++) {
       const start = index * started.chunkSize;
       const chunk = bytes.subarray(start, start + started.chunkSize);

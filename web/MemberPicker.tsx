@@ -1,16 +1,28 @@
 import React, { useEffect, useRef, useState } from "react";
 import { UiIcon } from "./ui-icon";
-import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
+import {
+  DialogClose,
+  animateDialogClose,
+  onDialogBackdropClick,
+  onDialogCancel,
+} from "./dialog-fx";
 import { showTip } from "./Tip";
 
-export function MemberPicker({ projectId, api, onClose, onAdded }: {
+export function MemberPicker({
+  projectId,
+  api,
+  onClose,
+  onAdded,
+}: {
   projectId: string;
   api: (path: string, data?: unknown, method?: string) => Promise<any>;
   onClose: () => void;
   onAdded: () => Promise<void>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [accounts, setAccounts] = useState<{ id: string; username: string; name: string; email: string | null; avatar?: string | null }[]>([]);
+  const [accounts, setAccounts] = useState<
+    { id: string; username: string; name: string; email: string | null; avatar?: string | null }[]
+  >([]);
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -19,8 +31,14 @@ export function MemberPicker({ projectId, api, onClose, onAdded }: {
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
-  useEffect(() => { void load().catch((e) => setError(e.message)); }, [projectId]);
-  const visible = accounts.filter((account) => `${account.name} ${account.username} ${account.email || ""}`.toLowerCase().includes(search.toLowerCase()));
+  useEffect(() => {
+    void load().catch((e) => setError(e.message));
+  }, [projectId]);
+  const visible = accounts.filter((account) =>
+    `${account.name} ${account.username} ${account.email || ""}`
+      .toLowerCase()
+      .includes(search.toLowerCase()),
+  );
   const close = () => animateDialogClose(dialog.current, onClose);
   return (
     <dialog
@@ -34,25 +52,71 @@ export function MemberPicker({ projectId, api, onClose, onAdded }: {
         <h2 id="member-picker-title">添加项目成员</h2>
         <DialogClose onClick={close} label="关闭" disabled={!!busy} />
       </div>
-      <input autoFocus className="member-search" aria-label="搜索系统账号" placeholder="搜索姓名或邮箱" value={search} onChange={(event) => setSearch(event.target.value)} />
-      <label className="member-role-select">加入后角色
-        <select value={role} onChange={(event) => setRole(event.target.value as "member" | "viewer")}>
+      <input
+        autoFocus
+        className="member-search"
+        aria-label="搜索系统账号"
+        placeholder="搜索姓名或邮箱"
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+      />
+      <label className="member-role-select">
+        加入后角色
+        <select
+          value={role}
+          onChange={(event) => setRole(event.target.value as "member" | "viewer")}
+        >
           <option value="member">普通成员（可编辑）</option>
           <option value="viewer">只读成员（仅查看）</option>
         </select>
       </label>
-      {error && <div className="error" role="alert">{error}</div>}
+      {error && (
+        <div className="error" role="alert">
+          {error}
+        </div>
+      )}
       <div className="member-picker-list">
         {visible.map((account) => (
           <div className="member" key={account.id}>
-            <span className="avatar">{account.avatar ? <img src={account.avatar} alt="" /> : account.name[0]}</span>
-            <div><strong>{account.name}</strong><small>用户名：{account.username}{account.email ? ` · ${account.email}` : ""}</small></div>
-            <button type="button" className="primary" disabled={!!busy} onClick={() => {
-              setBusy(account.id); setError("");
-              void api(`/projects/${projectId}/members`, { userId: account.id, role })
-                .then(async () => { await onAdded(); await load(); showTip("已添加项目成员"); })
-                .catch((e) => { setError(e.message); showTip(e.message, "error"); }).finally(() => setBusy(""));
-            }}>{busy === account.id ? "添加中…" : <><UiIcon name="userPlus" size={13} />添加</>}</button>
+            <span className="avatar">
+              {account.avatar ? <img src={account.avatar} alt="" /> : account.name[0]}
+            </span>
+            <div>
+              <strong>{account.name}</strong>
+              <small>
+                用户名：{account.username}
+                {account.email ? ` · ${account.email}` : ""}
+              </small>
+            </div>
+            <button
+              type="button"
+              className="primary"
+              disabled={!!busy}
+              onClick={() => {
+                setBusy(account.id);
+                setError("");
+                void api(`/projects/${projectId}/members`, { userId: account.id, role })
+                  .then(async () => {
+                    await onAdded();
+                    await load();
+                    showTip("已添加项目成员");
+                  })
+                  .catch((e) => {
+                    setError(e.message);
+                    showTip(e.message, "error");
+                  })
+                  .finally(() => setBusy(""));
+              }}
+            >
+              {busy === account.id ? (
+                "添加中…"
+              ) : (
+                <>
+                  <UiIcon name="userPlus" size={13} />
+                  添加
+                </>
+              )}
+            </button>
           </div>
         ))}
         {!visible.length && <p className="empty-state">没有可添加的系统账号</p>}

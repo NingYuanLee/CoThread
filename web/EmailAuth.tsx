@@ -31,11 +31,15 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
   const [sentAt, setSentAt] = useState(0);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [accounts, setAccounts] = useState<SavedAccount[]>(() => listSavedAccounts());
-  const [identifierDefault, setIdentifierDefault] = useState(() => takeLoginHint() || "admin@cothread.local");
+  const [identifierDefault, setIdentifierDefault] = useState(
+    () => takeLoginHint() || "admin@cothread.local",
+  );
   useEffect(() => {
     const notice = takeLoginNotice();
     if (notice) setError(notice);
-    void mergeKnownAccounts(api).then(setAccounts).catch(() => setAccounts(listSavedAccounts()));
+    void mergeKnownAccounts(api)
+      .then(setAccounts)
+      .catch(() => setAccounts(listSavedAccounts()));
   }, []);
   const refreshHumanStatus = async (refreshChallenge = false) => {
     const result = await api("/human-verification/status?scope=auth");
@@ -44,34 +48,63 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
     if (!result.required) setHumanProof({ humanChallengeId: "", humanAnswer: "" });
     return Boolean(result.required);
   };
-  useEffect(() => { void refreshHumanStatus(); }, []);
+  useEffect(() => {
+    void refreshHumanStatus();
+  }, []);
   const switchMode = (next: Mode) => {
-    setMode(next); setChallengeId(""); setError(""); setNotice(""); setDraft({});
+    setMode(next);
+    setChallengeId("");
+    setError("");
+    setNotice("");
+    setDraft({});
   };
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault(); setBusy(true); setError("");
-    const form = new FormData(event.currentTarget), value = (key: string) => String(form.get(key) || "");
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    const form = new FormData(event.currentTarget),
+      value = (key: string) => String(form.get(key) || "");
     try {
       if (mode === "login") {
         const remember = form.get("rememberDevice") === "on";
-        onLogin(acceptSessionResult(await api("/login", {
-          identifier: value("identifier"), password: value("password"), remember, ...(humanRequired ? humanProof : {}),
-        }), remember));
-      }
-      else if (!challengeId) {
+        onLogin(
+          acceptSessionResult(
+            await api("/login", {
+              identifier: value("identifier"),
+              password: value("password"),
+              remember,
+              ...(humanRequired ? humanProof : {}),
+            }),
+            remember,
+          ),
+        );
+      } else if (!challengeId) {
         const requestData = {
-          email: value("email"), password: value("password"), ...(humanRequired ? humanProof : {}),
+          email: value("email"),
+          password: value("password"),
+          ...(humanRequired ? humanProof : {}),
         };
-        setDraft(Object.fromEntries(Object.entries(requestData).filter(([key]) => !key.startsWith("human") && key !== "password")));
+        setDraft(
+          Object.fromEntries(
+            Object.entries(requestData).filter(
+              ([key]) => !key.startsWith("human") && key !== "password",
+            ),
+          ),
+        );
         const result = await api(`/email/${mode}/request`, requestData);
-        setChallengeId(result.challengeId); setSentAt(Date.now());
+        setChallengeId(result.challengeId);
+        setSentAt(Date.now());
         await refreshHumanStatus();
-        setNotice([
-          result.deliveryStatus === "accepted"
-            ? "收件服务器已接受验证码邮件，请在 10 分钟内完成验证。"
-            : "如果该邮箱已绑定账号，验证码邮件将会发送，请检查收件箱和垃圾邮件。",
-          result.devCode ? `本机验证码：${result.devCode}` : "",
-        ].filter(Boolean).join(" "));
+        setNotice(
+          [
+            result.deliveryStatus === "accepted"
+              ? "收件服务器已接受验证码邮件，请在 10 分钟内完成验证。"
+              : "如果该邮箱已绑定账号，验证码邮件将会发送，请检查收件箱和垃圾邮件。",
+            result.devCode ? `本机验证码：${result.devCode}` : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
         showTip("验证码已发送", "info");
       } else {
         const result = await api(`/email/${mode}/confirm`, { challengeId, code: value("code") });
@@ -82,10 +115,15 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
       setError((cause as Error).message);
       showTip((cause as Error).message, "error");
       if (!challengeId) {
-        try { await refreshHumanStatus(humanRequired); } catch { /* Keep the original action error visible. */ }
+        try {
+          await refreshHumanStatus(humanRequired);
+        } catch {
+          /* Keep the original action error visible. */
+        }
       }
+    } finally {
+      setBusy(false);
     }
-    finally { setBusy(false); }
   };
   const switchAccount = async (account: SavedAccount) => {
     if (!account.token) {
@@ -93,7 +131,8 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
       setError("该账号需要重新登录");
       return;
     }
-    setBusy(true); setError("");
+    setBusy(true);
+    setError("");
     try {
       const profile = await api("/session/switch", { token: account.token });
       onLogin(acceptSessionResult({ ...profile, sessionToken: account.token }));
@@ -108,48 +147,184 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
       } else {
         setError((cause as Error).message);
       }
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
-  return <form className="login-card" onSubmit={submit} onPointerMove={(event) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    event.currentTarget.style.setProperty("--spot-x", `${event.clientX - bounds.left}px`);
-    event.currentTarget.style.setProperty("--spot-y", `${event.clientY - bounds.top}px`);
-  }}>
-    <span className="eyebrow">工作空间</span>
-    <div className="auth-mode-tabs" role="tablist" aria-label="账号入口">
-      {(["login", "register", "recover"] as Mode[]).map((value) => <button key={value} type="button" role="tab"
-        aria-selected={mode === value} className={mode === value ? "active" : ""} onClick={() => switchMode(value)}>
-        {value === "login" ? <><UiIcon name="login" size={13} />登录</> : value === "register" ? <><UiIcon name="userPlus" size={13} />注册</> : <><UiIcon name="key" size={13} />重置密码</>}
-      </button>)}
-    </div>
-    <h2>{mode === "login" ? "回到共同的上下文" : mode === "register" ? "创建共序账号" : "重置密码"}</h2>
-    {(challengeId || mode !== "login") && (
-      <p>{challengeId ? "输入邮箱中收到的验证码" : mode === "register" ? "验证邮箱后完成注册" : "通过已绑定邮箱重置密码"}</p>
-    )}
-    {mode === "login" && accounts.length > 0 && (
-      <AccountSwitchList variant="tiles" accounts={accounts} busy={busy} onSwitch={(account) => void switchAccount(account)} />
-    )}
-    {mode === "login" && <><label>用户名或邮箱<input key={identifierDefault} name="identifier" defaultValue={identifierDefault} autoComplete="username" required /></label>
-      <label>密码<input name="password" type="password" autoComplete="current-password" required /></label>
-      <label className="remember-device"><input type="checkbox" name="rememberDevice" />在当前设备记住登录信息</label></>}
-    {mode === "register" && !challengeId && <>
-      <label>邮箱<input name="email" defaultValue={draft.email || ""} type="email" autoComplete="email" required /></label>
-      <PasswordField autoComplete="new-password" required />
-    </>}
-    {mode === "recover" && !challengeId && <>
-      <label>已绑定邮箱<input name="email" defaultValue={draft.email || ""} type="email" autoComplete="email" required /></label>
-      <PasswordField label="新密码" autoComplete="new-password" required />
-    </>}
-    {humanRequired && !challengeId && <HumanVerification api={api} purpose="auth" refreshKey={humanRefresh} onChange={setHumanProof} />}
-    {challengeId && <>
-      <label>验证码<input name="code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} autoComplete="one-time-code" required /></label>
-      <ResendCountdown sentAt={sentAt} onResend={() => { setChallengeId(""); setNotice(""); void refreshHumanStatus(true); }} />
-    </>}
-    {notice && <div className="auth-notice" role="status">{notice}</div>}
-    {error && <div className="error" role="alert">{error}</div>}
-    <button className="primary" disabled={busy || (humanRequired && !challengeId && (!humanProof.humanChallengeId || !humanProof.humanAnswer))}>
-      <UiIcon name={busy ? "running" : mode === "login" ? "login" : challengeId ? "check" : "email"} size={14} />
-      {busy ? "正在处理…" : mode === "login" ? "进入工作空间" : challengeId ? "确认" : "发送验证码"}
-    </button>
-  </form>;
+  return (
+    <form
+      className="login-card"
+      onSubmit={submit}
+      onPointerMove={(event) => {
+        const bounds = event.currentTarget.getBoundingClientRect();
+        event.currentTarget.style.setProperty("--spot-x", `${event.clientX - bounds.left}px`);
+        event.currentTarget.style.setProperty("--spot-y", `${event.clientY - bounds.top}px`);
+      }}
+    >
+      <span className="eyebrow">工作空间</span>
+      <div className="auth-mode-tabs" role="tablist" aria-label="账号入口">
+        {(["login", "register", "recover"] as Mode[]).map((value) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={mode === value}
+            className={mode === value ? "active" : ""}
+            onClick={() => switchMode(value)}
+          >
+            {value === "login" ? (
+              <>
+                <UiIcon name="login" size={13} />
+                登录
+              </>
+            ) : value === "register" ? (
+              <>
+                <UiIcon name="userPlus" size={13} />
+                注册
+              </>
+            ) : (
+              <>
+                <UiIcon name="key" size={13} />
+                重置密码
+              </>
+            )}
+          </button>
+        ))}
+      </div>
+      <h2>
+        {mode === "login" ? "回到共同的上下文" : mode === "register" ? "创建共序账号" : "重置密码"}
+      </h2>
+      {(challengeId || mode !== "login") && (
+        <p>
+          {challengeId
+            ? "输入邮箱中收到的验证码"
+            : mode === "register"
+              ? "验证邮箱后完成注册"
+              : "通过已绑定邮箱重置密码"}
+        </p>
+      )}
+      {mode === "login" && accounts.length > 0 && (
+        <AccountSwitchList
+          variant="tiles"
+          accounts={accounts}
+          busy={busy}
+          onSwitch={(account) => void switchAccount(account)}
+        />
+      )}
+      {mode === "login" && (
+        <>
+          <label>
+            用户名或邮箱
+            <input
+              key={identifierDefault}
+              name="identifier"
+              defaultValue={identifierDefault}
+              autoComplete="username"
+              required
+            />
+          </label>
+          <label>
+            密码
+            <input name="password" type="password" autoComplete="current-password" required />
+          </label>
+          <label className="remember-device">
+            <input type="checkbox" name="rememberDevice" />
+            在当前设备记住登录信息
+          </label>
+        </>
+      )}
+      {mode === "register" && !challengeId && (
+        <>
+          <label>
+            邮箱
+            <input
+              name="email"
+              defaultValue={draft.email || ""}
+              type="email"
+              autoComplete="email"
+              required
+            />
+          </label>
+          <PasswordField autoComplete="new-password" required />
+        </>
+      )}
+      {mode === "recover" && !challengeId && (
+        <>
+          <label>
+            已绑定邮箱
+            <input
+              name="email"
+              defaultValue={draft.email || ""}
+              type="email"
+              autoComplete="email"
+              required
+            />
+          </label>
+          <PasswordField label="新密码" autoComplete="new-password" required />
+        </>
+      )}
+      {humanRequired && !challengeId && (
+        <HumanVerification
+          api={api}
+          purpose="auth"
+          refreshKey={humanRefresh}
+          onChange={setHumanProof}
+        />
+      )}
+      {challengeId && (
+        <>
+          <label>
+            验证码
+            <input
+              name="code"
+              inputMode="numeric"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              autoComplete="one-time-code"
+              required
+            />
+          </label>
+          <ResendCountdown
+            sentAt={sentAt}
+            onResend={() => {
+              setChallengeId("");
+              setNotice("");
+              void refreshHumanStatus(true);
+            }}
+          />
+        </>
+      )}
+      {notice && (
+        <div className="auth-notice" role="status">
+          {notice}
+        </div>
+      )}
+      {error && (
+        <div className="error" role="alert">
+          {error}
+        </div>
+      )}
+      <button
+        className="primary"
+        disabled={
+          busy ||
+          (humanRequired &&
+            !challengeId &&
+            (!humanProof.humanChallengeId || !humanProof.humanAnswer))
+        }
+      >
+        <UiIcon
+          name={busy ? "running" : mode === "login" ? "login" : challengeId ? "check" : "email"}
+          size={14}
+        />
+        {busy
+          ? "正在处理…"
+          : mode === "login"
+            ? "进入工作空间"
+            : challengeId
+              ? "确认"
+              : "发送验证码"}
+      </button>
+    </form>
+  );
 }

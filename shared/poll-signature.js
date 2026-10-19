@@ -5,6 +5,7 @@ export function threadPollKey(thread) {
   const usage = thread.contextUsage;
   return [
     thread.id || "",
+    thread.sideState?.token || "",
     thread.status || "",
     thread.title || "",
     thread.background || "",

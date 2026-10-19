@@ -9,7 +9,12 @@ import { processNextProjectMemory } from "../server/project-memory.js";
 import { claimReply } from "../server/reply-dispatch.js";
 import { lockIteration } from "../server/iteration-state.js";
 import { createApp } from "../server/app.js";
-import { archivePlanDraftSchema, reviseArchiveSummary, suggestArchiveContinuation, suggestArchivePriorities } from "../server/iteration-archive.js";
+import {
+  archivePlanDraftSchema,
+  reviseArchiveSummary,
+  suggestArchiveContinuation,
+  suggestArchivePriorities,
+} from "../server/iteration-archive.js";
 import { issueCredential } from "../server/auth.js";
 import { createAgentTools } from "../server/agent-tools.js";
 
@@ -467,10 +472,19 @@ test("archive draft normalizes unfinished items", () => {
       items: ["确认定时触发器是否生效", { title: "回填历史数据", detail: "先出影响面方案" }],
     },
   });
-  assert.deepEqual(plan.nextIteration.items, [
-    { title: "确认定时触发器是否生效", detail: "" },
-    { title: "回填历史数据", detail: "先出影响面方案" },
-  ]);
+  // 归一化契约：title 必填、detail 缺省为空串，并补出 suggestion（未指定时按归档处理）。
+  // 对象形态还会带上 choice/priority 供归档流程使用，所以这里只断言归一化本身。
+  assert.deepEqual(
+    plan.nextIteration.items.map(({ title, detail, suggestion }) => ({
+      title,
+      detail,
+      suggestion,
+    })),
+    [
+      { title: "确认定时触发器是否生效", detail: "", suggestion: "archive" },
+      { title: "回填历史数据", detail: "先出影响面方案", suggestion: "archive" },
+    ],
+  );
   const bare = archivePlanDraftSchema.parse({
     conclusion: "结论",
     taskDecisions: [],
@@ -526,7 +540,10 @@ test("a draft queued but never claimed becomes retryable", async () => {
   const runs = await query(db, "SELECT status FROM agent_l1_runs WHERE archive_workflow_id=?", [
     workflow.id,
   ]);
-  assert.deepEqual(runs.map((row) => row.status), ["queued"]);
+  assert.deepEqual(
+    runs.map((row) => row.status),
+    ["queued"],
+  );
 });
 
 test("checked unfinished items become tasks in the next iteration", async () => {
@@ -622,15 +639,26 @@ test("background choice is written into the next iteration and does not create a
       ],
     },
   });
-  const [next] = await query(db, "SELECT background FROM threads WHERE id=?", [confirmed.nextThreadId]);
+  const [next] = await query(db, "SELECT background FROM threads WHERE id=?", [
+    confirmed.nextThreadId,
+  ]);
   assert.match(next.background, /留在本轮的口径/);
   assert.match(next.background, /写入背景的事项/);
   assert.match(next.background, /作为背景/);
-  const created = await query(db, "SELECT title FROM agent_tasks WHERE origin_thread_id=? ORDER BY thread_number", [
-    confirmed.nextThreadId,
-  ]);
-  assert.deepEqual(created.map((row) => row.title), ["变成任务的事项"]);
-  const [kept] = await query(db, "SELECT origin_thread_id, retained_at FROM agent_tasks WHERE id=?", [task.id]);
+  const created = await query(
+    db,
+    "SELECT title FROM agent_tasks WHERE origin_thread_id=? ORDER BY thread_number",
+    [confirmed.nextThreadId],
+  );
+  assert.deepEqual(
+    created.map((row) => row.title),
+    ["变成任务的事项"],
+  );
+  const [kept] = await query(
+    db,
+    "SELECT origin_thread_id, retained_at FROM agent_tasks WHERE id=?",
+    [task.id],
+  );
   assert.equal(kept.origin_thread_id, thread.id);
   assert.ok(kept.retained_at);
 });
@@ -648,23 +676,36 @@ test("step-three suggestion follows the model and falls back when it fails", asy
       { title: "不再继续", detail: "已放弃", choice: "archive" },
     ],
   };
-  const suggested = await suggestArchiveContinuation(service, creator, thread.id, input, async () => ({
-    ok: true,
-    headers: { get: () => "application/json" },
-    text: async () => JSON.stringify({
-      output_text: JSON.stringify({
-        title: "承接触发器确认",
-        background: "沿用方案，并记下 timers 为空。",
-        goal: "完成变成任务的事项",
-      }),
+  const suggested = await suggestArchiveContinuation(
+    service,
+    creator,
+    thread.id,
+    input,
+    async () => ({
+      ok: true,
+      headers: { get: () => "application/json" },
+      text: async () =>
+        JSON.stringify({
+          output_text: JSON.stringify({
+            title: "承接触发器确认",
+            background: "沿用方案，并记下 timers 为空。",
+            goal: "完成变成任务的事项",
+          }),
+        }),
     }),
-  }));
+  );
   assert.equal(suggested.title, "承接触发器确认");
   assert.match(suggested.background, /timers 为空/);
   assert.match(suggested.goal, /变成任务的事项/);
-  const fallback = await suggestArchiveContinuation(service, creator, thread.id, input, async () => {
-    throw new Error("model down");
-  });
+  const fallback = await suggestArchiveContinuation(
+    service,
+    creator,
+    thread.id,
+    input,
+    async () => {
+      throw new Error("model down");
+    },
+  );
   assert.equal(fallback.title, workflow.nextIteration.title);
   assert.match(fallback.background, /写入背景的事项/);
   assert.doesNotMatch(fallback.background, /不再继续/);
@@ -673,24 +714,31 @@ test("step-three suggestion follows the model and falls back when it fails", asy
 test("priority suggestion ranks items and preselects a choice", async () => {
   await newTask("确认定时触发器");
   const workflow = await ready();
-  const ranked = await suggestArchivePriorities(service, creator, thread.id, {
-    conclusion: workflow.conclusion,
-    decisions: [
-      { key: "task:1", title: "确认定时触发器", detail: "阻塞上线", kind: "task" },
-      { key: "item:1", title: "回填身份类型", detail: "只是口径", kind: "item" },
-    ],
-  }, async () => ({
-    ok: true,
-    headers: { get: () => "application/json" },
-    text: async () => JSON.stringify({
-      output_text: JSON.stringify({
-        decisions: [
-          { key: "task:1", priority: 1, suggestion: "task" },
-          { key: "item:1", priority: 3, suggestion: "background" },
-        ],
-      }),
+  const ranked = await suggestArchivePriorities(
+    service,
+    creator,
+    thread.id,
+    {
+      conclusion: workflow.conclusion,
+      decisions: [
+        { key: "task:1", title: "确认定时触发器", detail: "阻塞上线", kind: "task" },
+        { key: "item:1", title: "回填身份类型", detail: "只是口径", kind: "item" },
+      ],
+    },
+    async () => ({
+      ok: true,
+      headers: { get: () => "application/json" },
+      text: async () =>
+        JSON.stringify({
+          output_text: JSON.stringify({
+            decisions: [
+              { key: "task:1", priority: 1, suggestion: "task" },
+              { key: "item:1", priority: 3, suggestion: "background" },
+            ],
+          }),
+        }),
     }),
-  }));
+  );
   assert.deepEqual(ranked.decisions, [
     { key: "task:1", priority: 1, suggestion: "task" },
     { key: "item:1", priority: 3, suggestion: "background" },
@@ -699,14 +747,20 @@ test("priority suggestion ranks items and preselects a choice", async () => {
 
 test("summary revise keeps the workflow ready and stores markdown", async () => {
   const workflow = await ready();
-  const revised = await reviseArchiveSummary(service, creator, thread.id, {
-    workflowId: workflow.id,
-    comment: "补上未完成的触发器",
-  }, async () => ({
-    ok: true,
-    headers: { get: () => "application/json" },
-    text: async () => JSON.stringify({ output_text: "## 迭代总结\n触发器仍未确认。" }),
-  }));
+  const revised = await reviseArchiveSummary(
+    service,
+    creator,
+    thread.id,
+    {
+      workflowId: workflow.id,
+      comment: "补上未完成的触发器",
+    },
+    async () => ({
+      ok: true,
+      headers: { get: () => "application/json" },
+      text: async () => JSON.stringify({ output_text: "## 迭代总结\n触发器仍未确认。" }),
+    }),
+  );
   assert.match(revised.conclusion, /触发器仍未确认/);
   const again = await service.readArchiveWorkflow(creator, thread.id);
   assert.equal(again.status, "ready");
@@ -717,7 +771,13 @@ test("archive draft accepts the model's decision key and defaults unknown dispos
   const plan = archivePlanDraftSchema.parse({
     conclusion: "本轮未完成任务留档，另一条交接下一轮。",
     taskDecisions: [
-      { taskId: randomUUID(), title: "任务 A", status: "blocked", decision: "handoff", reason: "交接" },
+      {
+        taskId: randomUUID(),
+        title: "任务 A",
+        status: "blocked",
+        decision: "handoff",
+        reason: "交接",
+      },
       { taskId: randomUUID(), disposition: "留档", reason: "" },
       { taskId: randomUUID(), reason: "模型漏给取值" },
     ],

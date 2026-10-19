@@ -24,12 +24,19 @@ export function taskStatusLabel(status) {
 
 export async function taskSourceMentionToken(db, task) {
   if (!task?.source_user_id) return null;
-  const [user] = await query(db, "SELECT name, COALESCE(username, email) email FROM users WHERE id=?",
-    [task.source_user_id]);
+  const [user] = await query(
+    db,
+    "SELECT name, COALESCE(username, email) email FROM users WHERE id=?",
+    [task.source_user_id],
+  );
   if (!user?.name) return null;
   if (!task.project_id) return user.name;
-  const [dup] = await query(db, `SELECT COUNT(*) n FROM members m JOIN users u ON u.id=m.user_id
-    WHERE m.project_id=? AND u.name=?`, [task.project_id, user.name]);
+  const [dup] = await query(
+    db,
+    `SELECT COUNT(*) n FROM members m JOIN users u ON u.id=m.user_id
+    WHERE m.project_id=? AND u.name=?`,
+    [task.project_id, user.name],
+  );
   return Number(dup?.n) > 1 ? user.email : user.name;
 }
 
@@ -45,7 +52,8 @@ export async function mentionTaskSourceNotice(service, db, actor, task, body, op
   if (!task?.origin_thread_id || !actor?.id || !body) return null;
   const token = await taskSourceMentionToken(db, task);
   const text = withTaskSourceMention(token, body).slice(0, 20000);
-  const source = options.source
-    || (actor.kind === "api" ? "local_ai" : actor.kind === "agent" ? "assistant" : "human");
+  const source =
+    options.source ||
+    (actor.kind === "api" ? "local_ai" : actor.kind === "agent" ? "assistant" : "human");
   return service.insertMessage(db, actor, task.origin_thread_id, text, options.refs || [], source);
 }

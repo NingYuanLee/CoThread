@@ -2,7 +2,12 @@ import React, { useEffect, useState } from "react";
 
 type Proof = { humanChallengeId: string; humanAnswer: string };
 
-export function HumanVerification({ api, purpose, refreshKey, onChange }: {
+export function HumanVerification({
+  api,
+  purpose,
+  refreshKey,
+  onChange,
+}: {
   api: (path: string, data?: unknown, method?: string) => Promise<any>;
   purpose: "auth" | "bind";
   refreshKey: number;
@@ -32,7 +37,9 @@ export function HumanVerification({ api, purpose, refreshKey, onChange }: {
     }
   };
 
-  useEffect(() => { void load(); }, [purpose, refreshKey]);
+  useEffect(() => {
+    void load();
+  }, [purpose, refreshKey]);
 
   const update = (value: string) => {
     const next = value.replace(/\s/g, "").slice(0, 6);
@@ -40,16 +47,40 @@ export function HumanVerification({ api, purpose, refreshKey, onChange }: {
     onChange({ humanChallengeId: challengeId, humanAnswer: next });
   };
 
-  return <div className="human-verification">
-    <label>人类验证
-      <div className="human-verification-row">
-        <input value={answer} onChange={(event) => update(event.target.value)} maxLength={6}
-          autoComplete="off" spellCheck={false} placeholder="输入图片字符" required />
-        <button type="button" className="captcha-image" onClick={() => void load()} title="刷新验证码" disabled={loading}>
-          {image ? <img src={image} alt="图片验证码" /> : <span>{loading ? "加载中" : "重新加载"}</span>}
-        </button>
-      </div>
-    </label>
-    {error && <small className="captcha-error" role="alert">{error}</small>}
-  </div>;
+  return (
+    <div className="human-verification">
+      <label>
+        人类验证
+        <div className="human-verification-row">
+          <input
+            value={answer}
+            onChange={(event) => update(event.target.value)}
+            maxLength={6}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="输入图片字符"
+            required
+          />
+          <button
+            type="button"
+            className="captcha-image"
+            onClick={() => void load()}
+            title="刷新验证码"
+            disabled={loading}
+          >
+            {image ? (
+              <img src={image} alt="图片验证码" />
+            ) : (
+              <span>{loading ? "加载中" : "重新加载"}</span>
+            )}
+          </button>
+        </div>
+      </label>
+      {error && (
+        <small className="captcha-error" role="alert">
+          {error}
+        </small>
+      )}
+    </div>
+  );
 }

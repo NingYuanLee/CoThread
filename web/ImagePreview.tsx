@@ -19,7 +19,10 @@ async function blobToPng(blob: Blob) {
   ctx.drawImage(bitmap, 0, 0);
   bitmap.close();
   return await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((next) => (next ? resolve(next) : reject(new Error("无法转换图片"))), "image/png");
+    canvas.toBlob(
+      (next) => (next ? resolve(next) : reject(new Error("无法转换图片"))),
+      "image/png",
+    );
   });
 }
 
@@ -52,14 +55,17 @@ export function ImagePreviewDialog({
   const downloadName = filename || title || "image";
   const downloadHref = id ? `/api/versions/${id}/download` : src;
 
-  const applyFit = useCallback((width = natural.width, height = natural.height) => {
-    const view = viewportRef.current;
-    if (!view || !width || !height) return 1;
-    const next = fitImageScale(width, height, view.clientWidth, view.clientHeight);
-    setScale(next);
-    setOffset({ x: 0, y: 0 });
-    return next;
-  }, [natural.height, natural.width]);
+  const applyFit = useCallback(
+    (width = natural.width, height = natural.height) => {
+      const view = viewportRef.current;
+      if (!view || !width || !height) return 1;
+      const next = fitImageScale(width, height, view.clientWidth, view.clientHeight);
+      setScale(next);
+      setOffset({ x: 0, y: 0 });
+      return next;
+    },
+    [natural.height, natural.width],
+  );
 
   const zoomBy = useCallback((direction: number, origin?: { x: number; y: number }) => {
     userAdjusted.current = true;
@@ -173,15 +179,26 @@ export function ImagePreviewDialog({
           <header className="image-preview-dialog-header">
             <strong title={title}>{title}</strong>
             <div className="image-preview-tools">
-              {status ? <span className="image-preview-status" role="status">{status}</span> : null}
+              {status ? (
+                <span className="image-preview-status" role="status">
+                  {status}
+                </span>
+              ) : null}
               <button type="button" title="缩小" aria-label="缩小" onClick={() => zoomBy(-1)}>
                 <UiIcon name="zoomOut" size={16} />
               </button>
               <button type="button" title="放大" aria-label="放大" onClick={() => zoomBy(1)}>
                 <UiIcon name="zoomIn" size={16} />
               </button>
-              <span className="image-preview-scale">{Math.round(clampImageZoom(scale) * 100)}%</span>
-              <button type="button" title="复制图片" aria-label="复制图片" onClick={() => void copyImage()}>
+              <span className="image-preview-scale">
+                {Math.round(clampImageZoom(scale) * 100)}%
+              </span>
+              <button
+                type="button"
+                title="复制图片"
+                aria-label="复制图片"
+                onClick={() => void copyImage()}
+              >
                 <UiIcon name="copy" size={16} />
               </button>
               <button type="button" title="下载" aria-label="下载" onClick={downloadImage}>
@@ -200,7 +217,12 @@ export function ImagePreviewDialog({
             onPointerDown={(event) => {
               if (event.button !== 0) return;
               event.currentTarget.setPointerCapture(event.pointerId);
-              drag.current = { x: event.clientX, y: event.clientY, offsetX: offset.x, offsetY: offset.y };
+              drag.current = {
+                x: event.clientX,
+                y: event.clientY,
+                offsetX: offset.x,
+                offsetY: offset.y,
+              };
               setDragging(true);
             }}
             onPointerMove={(event) => {

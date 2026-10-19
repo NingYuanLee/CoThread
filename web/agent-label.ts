@@ -26,10 +26,31 @@ export function agentLabel(
     ...result,
   };
   const label = describeAgentAction(event.tool, args, resolved);
-  const category = event.tool.startsWith("sandbox_") ? "沙箱操作"
-    : ["read_document", "publish_artifact", "list_documents", "manage_document", "manage_folder"].includes(event.tool) ? "项目文档"
-      : ["project_context", "read_iteration", "list_messages", "read_message", "list_members", "read_member"].includes(event.tool) ? "会话资料" : "外部工具";
-  return { ...label, category, action: event.tool === "thinking" ? label.action : `${category} · ${label.action}` };
+  const category = event.tool.startsWith("sandbox_")
+    ? "沙箱操作"
+    : [
+          "read_document",
+          "publish_artifact",
+          "list_documents",
+          "manage_document",
+          "manage_folder",
+        ].includes(event.tool)
+      ? "项目文档"
+      : [
+            "project_context",
+            "read_iteration",
+            "list_messages",
+            "read_message",
+            "list_members",
+            "read_member",
+          ].includes(event.tool)
+        ? "会话资料"
+        : "外部工具";
+  return {
+    ...label,
+    category,
+    action: event.tool === "thinking" ? label.action : `${category} · ${label.action}`,
+  };
 }
 
 function eventActionName(event: { tool: string; input?: string | null }) {
@@ -40,13 +61,19 @@ function eventActionName(event: { tool: string; input?: string | null }) {
 }
 
 export function coordinatorLogButtonLabel(input: {
-  replies: { message_id: string; parent_message_id: string | null; status: string; progress: string | null }[];
+  replies: {
+    message_id: string;
+    parent_message_id: string | null;
+    status: string;
+    progress: string | null;
+  }[];
   events: { id: string; message_id: string; tool: string; status: string; input?: string | null }[];
   liveOutput?: Record<string, { content?: string; reasoning?: string }>;
   compactStatus?: string | null;
 }) {
-  const busy = input.replies.find((reply) =>
-    !reply.parent_message_id && ["queued", "running"].includes(reply.status));
+  const busy = input.replies.find(
+    (reply) => !reply.parent_message_id && ["queued", "running"].includes(reply.status),
+  );
   if (!busy) {
     if (["queued", "running"].includes(input.compactStatus || "")) return "正在整理上下文";
     return COORDINATOR_LOG_IDLE_LABEL;
@@ -59,5 +86,7 @@ export function coordinatorLogButtonLabel(input: {
     .sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
     .at(-1);
   if (last) return eventActionName(last);
-  return busy.progress?.replace(/[。．]$/, "") || (busy.status === "queued" ? "等待处理" : "正在处理");
+  return (
+    busy.progress?.replace(/[。．]$/, "") || (busy.status === "queued" ? "等待处理" : "正在处理")
+  );
 }

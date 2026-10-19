@@ -9,7 +9,11 @@ export type ConnectorDevice = {
   version: string;
   online: number;
   last_seen_at: string | null;
-  projects: { projectId: string; policy: "unrestricted" | "style_only" | "layout_style"; allowGitPush: boolean }[];
+  projects: {
+    projectId: string;
+    policy: "unrestricted" | "style_only" | "layout_style";
+    allowGitPush: boolean;
+  }[];
 };
 
 export function connectorHostLabel(name?: string | null) {
@@ -84,7 +88,8 @@ export function ConnectorAccountSection({
           {rows.map((row) => {
             const online = !!row.online;
             const projectCount = row.projects?.length || 0;
-            const boundHere = !!projectId && row.projects?.some((item) => item.projectId === projectId);
+            const boundHere =
+              !!projectId && row.projects?.some((item) => item.projectId === projectId);
             return (
               <div className="mcp-connector" key={row.id}>
                 <div className="mcp-connector-main">
@@ -98,7 +103,9 @@ export function ConnectorAccountSection({
                       {boundHere ? " · 含当前项目" : ""}
                     </small>
                   </span>
-                  <span className={`status-badge${online ? "" : " inactive"}`}>{online ? "在线" : "离线"}</span>
+                  <span className={`status-badge${online ? "" : " inactive"}`}>
+                    {online ? "在线" : "离线"}
+                  </span>
                   {confirmId !== row.id && (
                     <button
                       type="button"
@@ -109,7 +116,8 @@ export function ConnectorAccountSection({
                         setConfirmId(row.id);
                       }}
                     >
-                      <UiIcon name="unbound" size={13} />解除绑定
+                      <UiIcon name="unbound" size={13} />
+                      解除绑定
                     </button>
                   )}
                 </div>
@@ -117,8 +125,15 @@ export function ConnectorAccountSection({
                   <div className="mcp-connector-confirm">
                     <p>解除后需重新授权才能领取本机任务。</p>
                     <div>
-                      <button type="button" disabled={busy} onClick={() => setConfirmId("")}>取消</button>
-                      <button type="button" className="danger" disabled={busy} onClick={() => void unbind(row.id)}>
+                      <button type="button" disabled={busy} onClick={() => setConfirmId("")}>
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        disabled={busy}
+                        onClick={() => void unbind(row.id)}
+                      >
                         {busy ? "解除中…" : "确认解除"}
                       </button>
                     </div>
@@ -129,7 +144,11 @@ export function ConnectorAccountSection({
           })}
         </div>
       )}
-      {error && <p className="error" role="alert">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
     </section>
   );
 }

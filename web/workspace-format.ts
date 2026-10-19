@@ -11,14 +11,12 @@ export function readStoredBoolean(key: string, fallback: boolean) {
 }
 
 export function localDate(value?: string) {
-  return value
-    ? new Date(value.replace(" ", "T") + "Z").toLocaleString("zh-CN")
-    : "";
+  return value ? new Date(value.replace(" ", "T") + "Z").toLocaleString("zh-CN") : "";
 }
 
 export function actionTooltipLabel(element: HTMLElement) {
-  const explicit = element.getAttribute("aria-label")?.trim()
-    || element.getAttribute("data-tooltip")?.trim();
+  const explicit =
+    element.getAttribute("aria-label")?.trim() || element.getAttribute("data-tooltip")?.trim();
   if (explicit) return explicit;
   const text = element.textContent?.replace(/\s+/g, " ").trim() || "";
   return text && text.length <= 80 ? text : "";
@@ -26,10 +24,7 @@ export function actionTooltipLabel(element: HTMLElement) {
 
 export function relativeActivity(value: string | undefined, now: number) {
   if (!value) return "暂无";
-  const elapsed = Math.max(
-    0,
-    now - new Date(value.replace(" ", "T") + "Z").getTime(),
-  );
+  const elapsed = Math.max(0, now - new Date(value.replace(" ", "T") + "Z").getTime());
   if (elapsed < 60000) return "刚刚";
   if (elapsed < 3600000) return `${Math.floor(elapsed / 60000)} 分钟前`;
   if (elapsed < 86400000) return `${Math.floor(elapsed / 3600000)} 小时前`;
@@ -62,6 +57,10 @@ export function formatTaskCreatedAt(value: string | undefined, now = Date.now())
 }
 
 export function clipQuote(text: string, max = 72) {
-  const value = Array.from(String(text || "").replace(/\s+/g, " ").trim());
+  const value = Array.from(
+    String(text || "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
   return value.length > max ? `${value.slice(0, max).join("")}…` : value.join("");
 }

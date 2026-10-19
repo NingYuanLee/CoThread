@@ -1,0 +1,6 @@
+-- 执行器代次。新持锁进程把 epoch 加一；旧进程写回完成状态时必须对上自己的 epoch。
+CREATE TABLE IF NOT EXISTS executor_fence (
+  lock_name VARCHAR(191) NOT NULL PRIMARY KEY,
+  epoch BIGINT UNSIGNED NOT NULL,
+  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

@@ -32,13 +32,21 @@ export function PaginationControl({
   useEffect(() => {
     setPageInput(String(page));
   }, [page]);
-  const pages = totalPages === null
-    ? [page]
-    : [...new Set([
-        ...Array.from({ length: Math.min(2, totalPages) }, (_, i) => i + 1),
-        ...Array.from({ length: Math.min(5, totalPages) }, (_, i) => page - 2 + i).filter((n) => n >= 1 && n <= totalPages),
-        ...Array.from({ length: Math.min(2, totalPages) }, (_, i) => totalPages - Math.min(2, totalPages) + i + 1),
-      ])].sort((a, b) => a - b);
+  const pages =
+    totalPages === null
+      ? [page]
+      : [
+          ...new Set([
+            ...Array.from({ length: Math.min(2, totalPages) }, (_, i) => i + 1),
+            ...Array.from({ length: Math.min(5, totalPages) }, (_, i) => page - 2 + i).filter(
+              (n) => n >= 1 && n <= totalPages,
+            ),
+            ...Array.from(
+              { length: Math.min(2, totalPages) },
+              (_, i) => totalPages - Math.min(2, totalPages) + i + 1,
+            ),
+          ]),
+        ].sort((a, b) => a - b);
   const goTo = (candidate: number) => {
     if (!Number.isFinite(candidate)) return;
     const next = Math.trunc(candidate);
@@ -64,27 +72,101 @@ export function PaginationControl({
       <span className="pagination-control-summary">共 {total === null ? "—" : total} 条</span>
       {onPageSizeChange && (
         <label className="pagination-control-size">
-          <select aria-label="每页条数" value={pageSize} disabled={disabled} onChange={(event) => { setPageInput(String(page)); onPageSizeChange(Number(event.target.value)); }}>
-            {[...new Set([...pageSizeOptions, pageSize])].sort((a, b) => a - b).map((size) => <option key={size} value={size}>{size} 条</option>)}
+          <select
+            aria-label="每页条数"
+            value={pageSize}
+            disabled={disabled}
+            onChange={(event) => {
+              setPageInput(String(page));
+              onPageSizeChange(Number(event.target.value));
+            }}
+          >
+            {[...new Set([...pageSizeOptions, pageSize])]
+              .sort((a, b) => a - b)
+              .map((size) => (
+                <option key={size} value={size}>
+                  {size} 条
+                </option>
+              ))}
           </select>
         </label>
       )}
       <div className="pagination-control-pages">
-        <button type="button" aria-label="上一页" disabled={disabled || page <= 1} onClick={() => goTo(page - 1)}>‹</button>
+        <button
+          type="button"
+          aria-label="上一页"
+          disabled={disabled || page <= 1}
+          onClick={() => goTo(page - 1)}
+        >
+          ‹
+        </button>
         {pages.map((number) => (
-          <button key={number} type="button" aria-label={`第 ${number} 页`} aria-current={page === number ? "page" : undefined} className={page === number ? "active" : ""} disabled={disabled || page === number} onClick={() => goTo(number)}>{number}</button>
+          <button
+            key={number}
+            type="button"
+            aria-label={`第 ${number} 页`}
+            aria-current={page === number ? "page" : undefined}
+            className={page === number ? "active" : ""}
+            disabled={disabled || page === number}
+            onClick={() => goTo(number)}
+          >
+            {number}
+          </button>
         ))}
-        <button type="button" aria-label="下一页" disabled={disabled || (totalPages === null ? !hasNext : page >= totalPages)} onClick={() => goTo(page + 1)}>›</button>
+        <button
+          type="button"
+          aria-label="下一页"
+          disabled={disabled || (totalPages === null ? !hasNext : page >= totalPages)}
+          onClick={() => goTo(page + 1)}
+        >
+          ›
+        </button>
       </div>
-      <form className="pagination-control-jump" onSubmit={(event) => { event.preventDefault(); commitPageInput(); }}>
-        <label><span>跳至</span><input aria-label="跳转到页码" type="number" inputMode="numeric" step="1" min="1" max={totalPages ?? undefined} value={pageInput} disabled={disabled} onBlur={commitPageInput} onKeyDown={(event) => {
-          if (event.key === "Enter") { event.preventDefault(); commitPageInput(); }
-        }} onChange={(event) => {
-          const value = event.target.value;
-          if (value === "") { setPageInput(""); return; }
-          const number = Number(value);
-          if (Number.isFinite(number)) setPageInput(String(Math.max(1, Math.min(totalPages ?? Number.MAX_SAFE_INTEGER, Math.trunc(number)))));
-        }} /><span> / {totalPages ?? "—"} 页</span></label>
+      <form
+        className="pagination-control-jump"
+        onSubmit={(event) => {
+          event.preventDefault();
+          commitPageInput();
+        }}
+      >
+        <label>
+          <span>跳至</span>
+          <input
+            aria-label="跳转到页码"
+            type="number"
+            inputMode="numeric"
+            step="1"
+            min="1"
+            max={totalPages ?? undefined}
+            value={pageInput}
+            disabled={disabled}
+            onBlur={commitPageInput}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitPageInput();
+              }
+            }}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value === "") {
+                setPageInput("");
+                return;
+              }
+              const number = Number(value);
+              if (Number.isFinite(number))
+                setPageInput(
+                  String(
+                    Math.max(
+                      1,
+                      Math.min(totalPages ?? Number.MAX_SAFE_INTEGER, Math.trunc(number)),
+                    ),
+                  ),
+                );
+            }}
+          />
+          <span> / {totalPages ?? "—"} 页</span>
+        </label>
       </form>
     </nav>
   );

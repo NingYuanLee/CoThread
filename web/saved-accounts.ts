@@ -123,7 +123,9 @@ export function takeLoginNotice() {
   return value;
 }
 
-export async function mergeKnownAccounts(api: (path: string, data?: unknown, method?: string) => Promise<any>) {
+export async function mergeKnownAccounts(
+  api: (path: string, data?: unknown, method?: string) => Promise<any>,
+) {
   const known = await api("/session/known-accounts", undefined, "GET");
   const byId = new Map(listSavedAccounts().map((item) => [item.id, item]));
   for (const profile of Array.isArray(known) ? known : []) {
@@ -161,7 +163,10 @@ export function shouldSkipRemember(userId: string) {
   return !!userId && sessionStorage.getItem(SKIP_KEY) === userId;
 }
 
-export function acceptSessionResult<T extends { sessionToken?: string; id?: string }>(result: T, remember = true) {
+export function acceptSessionResult<T extends { sessionToken?: string; id?: string }>(
+  result: T,
+  remember = true,
+) {
   if (!remember && result?.id) {
     setSkipRemember(result.id);
     removeSavedAccount(result.id);

@@ -85,9 +85,28 @@ function checksumMismatch(name, expected, actual) {
 
 // MySQL DDL commits independently of the file-level migration receipt. A cold
 // start can fail after ADD COLUMN succeeded, so retry only a verified match.
+function withoutLeadingComments(sql) {
+  let rest = sql.trim();
+  while (rest) {
+    if (rest.startsWith("--") || rest.startsWith("#")) {
+      const newline = rest.indexOf("\n");
+      rest = (newline === -1 ? "" : rest.slice(newline + 1)).trim();
+      continue;
+    }
+    if (rest.startsWith("/*")) {
+      const end = rest.indexOf("*/");
+      if (end === -1) break;
+      rest = rest.slice(end + 2).trim();
+      continue;
+    }
+    break;
+  }
+  return rest;
+}
+
 async function matchingExistingColumn(conn, statement) {
-  const match = statement.match(
-    /^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+`?(\w+)`?\s+(CHAR\(\d+\)|VARCHAR\(\d+\)|TEXT|JSON|BOOLEAN|TINYINT\s+UNSIGNED|INT\s+UNSIGNED|DATETIME(?:\(\d+\))?)\s+(NULL|NOT\s+NULL)(?:\s+DEFAULT\s+(FALSE|TRUE|NULL|\d+))?$/i,
+  const match = withoutLeadingComments(statement).match(
+    /^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+`?(\w+)`?\s+(CHAR\(\d+\)|VARCHAR\(\d+\)|TEXT|JSON|BOOLEAN|TINYINT\s+UNSIGNED|BIGINT\s+UNSIGNED|INT\s+UNSIGNED|DATETIME(?:\(\d+\))?)\s+(NULL|NOT\s+NULL)(?:\s+DEFAULT\s+(FALSE|TRUE|NULL|\d+))?$/i,
   );
   if (!match) return false;
   const [, table, column, type, nullable, defaultValue] = match;
@@ -211,7 +230,9 @@ export async function migrate(
           .filter(Boolean);
         for (const [index, statement] of statements.entries()) {
           try {
-            await query(conn, statement);
+            // CREATE TRIGGER 不能走预处理协议（ER_UNSUPPORTED_PS）。
+            if (/^CREATE\s+TRIGGER\b/i.test(statement)) await conn.query(statement);
+            else await query(conn, statement);
           } catch (error) {
             if (
               error.code === "ER_DUP_FIELDNAME" &&

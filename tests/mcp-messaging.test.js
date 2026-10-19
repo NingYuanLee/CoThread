@@ -13,26 +13,50 @@ let database, server, base, cookie, userId, token, projectId, threadId, foreignP
 async function api(path, data, auth = { cookie }) {
   const response = await fetch(`${base}/api${path}`, {
     method: data === undefined ? "GET" : "POST",
-    headers: { "Content-Type": "application/json", ...(auth.cookie ? { Cookie: auth.cookie } : { Authorization: `Bearer ${auth.token}` }) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(auth.cookie ? { Cookie: auth.cookie } : { Authorization: `Bearer ${auth.token}` }),
+    },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
-  return { status: response.status, body: await response.json(), cookie: response.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ") || undefined };
+  return {
+    status: response.status,
+    body: await response.json(),
+    cookie:
+      response.headers
+        .getSetCookie()
+        .map((value) => value.split(";")[0])
+        .join("; ") || undefined,
+  };
 }
 async function mcp(name, args, source) {
   const response = await fetch(`${base}/mcp`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${token}`,
-      ...(source ? { "X-CoThread-MCP-Source": source } : {}) },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      Authorization: `Bearer ${token}`,
+      ...(source ? { "X-CoThread-MCP-Source": source } : {}),
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name, arguments: args },
+    }),
   });
   assert.equal(response.status, 200);
   const result = (await response.json()).result;
-  return { error: !!result.isError, data: result.isError ? result.content[0].text : JSON.parse(result.content[0].text) };
+  return {
+    error: !!result.isError,
+    data: result.isError ? result.content[0].text : JSON.parse(result.content[0].text),
+  };
 }
 const file = (name = "plan.md", extra = {}) => {
   const { sha256: givenSha, contentBase64: givenBase64, ...rest } = extra;
   const contentBase64 = givenBase64 ?? Buffer.from("方案内容").toString("base64");
-  const sha256 = givenSha ?? createHash("sha256").update(Buffer.from(contentBase64, "base64")).digest("hex");
+  const sha256 =
+    givenSha ?? createHash("sha256").update(Buffer.from(contentBase64, "base64")).digest("hex");
   return { title: name, filename: name, mime: "text/markdown", contentBase64, sha256, ...rest };
 };
 
@@ -44,12 +68,23 @@ before(async () => {
   userId = randomUUID();
   const password = "test-password-" + randomUUID();
   const email = `${userId}@example.com`;
-  await query(database.db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [userId, email, "MCP 测试", await hashPassword(password)]);
+  await query(database.db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+    userId,
+    email,
+    "MCP 测试",
+    await hashPassword(password),
+  ]);
   cookie = (await api("/login", { email, password }, { cookie: "" })).cookie;
   projectId = (await api("/projects", { name: "MCP target" })).body.id;
-  threadId = (await api(`/projects/${projectId}/threads`, { title: "MCP target iteration" })).body.id;
+  threadId = (await api(`/projects/${projectId}/threads`, { title: "MCP target iteration" })).body
+    .id;
   foreignProjectId = randomUUID();
-  await query(database.db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)", [foreignProjectId, "Not joined", "", userId]);
+  await query(database.db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)", [
+    foreignProjectId,
+    "Not joined",
+    "",
+    userId,
+  ]);
   token = (await api("/tokens", {})).body.token;
 });
 after(async () => {
@@ -65,7 +100,11 @@ test("ensure reuses an encrypted recoverable token and concurrent first copies c
   assert.equal((await api("/mcp/credential", undefined, { token })).status, 403);
   const listed = (await api("/tokens")).body;
   assert.equal(listed[0].token, token);
-  const [stored] = await query(database.db, "SELECT token_hash,token_ciphertext FROM credentials WHERE id=?", [listed[0].id]);
+  const [stored] = await query(
+    database.db,
+    "SELECT token_hash,token_ciphertext FROM credentials WHERE id=?",
+    [listed[0].id],
+  );
   assert.ok(!stored.token_ciphertext.includes(token));
   assert.notEqual(stored.token_hash, token);
   await assert.rejects(decryptToken(stored.token_ciphertext, randomUUID()));
@@ -78,12 +117,20 @@ test("ensure reuses an encrypted recoverable token and concurrent first copies c
   token = created[0].body.token;
   assert.equal((await api("/tokens")).body.length, 1);
   // Legacy hashes cannot be recovered: one ensure upgrades them, later copies reuse it.
-  await query(database.db, "UPDATE credentials SET token_ciphertext=NULL WHERE user_id=? AND kind='api'", [userId]);
+  await query(
+    database.db,
+    "UPDATE credentials SET token_ciphertext=NULL WHERE user_id=? AND kind='api'",
+    [userId],
+  );
   const upgraded = (await api("/tokens/ensure", {})).body.token;
   assert.notEqual(upgraded, token);
   token = upgraded;
   assert.equal((await api("/tokens/ensure", {})).body.token, token);
-  await query(database.db, "UPDATE credentials SET expires_at='2000-01-01' WHERE user_id=? AND kind='api'", [userId]);
+  await query(
+    database.db,
+    "UPDATE credentials SET expires_at='2000-01-01' WHERE user_id=? AND kind='api'",
+    [userId],
+  );
   const renewed = (await api("/tokens/ensure", {})).body.token;
   assert.notEqual(renewed, token);
   token = renewed;
@@ -110,7 +157,9 @@ test("account reset is serialized, leaves one token, revokes old tokens and pres
   assert.equal(credentials[0].project_id, null);
   assert.ok(resets.every((r) => r.body.id === credentials[0].id));
   assert.equal((await api("/projects", undefined, { token: old })).status, 401);
-  const resetStatuses = await Promise.all(resets.map((r) => api("/projects", undefined, { token: r.body.token })));
+  const resetStatuses = await Promise.all(
+    resets.map((r) => api("/projects", undefined, { token: r.body.token })),
+  );
   assert.deepEqual(resetStatuses.map((r) => r.status).sort(), [200, 401]);
   token = resets[resetStatuses.findIndex((r) => r.status === 200)].body.token;
   const second = (await api("/projects", { name: "Second joined project" })).body.id;
@@ -129,7 +178,11 @@ test("MCP discovers the target, uploads source files first, then sends refs + te
   assert.ok(!guide.data.instructions.includes(token));
   const connectorGuide = await mcp("get_connection_guide", {}, "local-connector");
   assert.equal(connectorGuide.data.instructions, guide.data.instructions);
-  const installation = createMcpInstallGuide({ url: `${base}/mcp`, token, context: { projectId, threadId } });
+  const installation = createMcpInstallGuide({
+    url: `${base}/mcp`,
+    token,
+    context: { projectId, threadId },
+  });
   assert.ok(installation.includes(`"cothread-mcp"`));
   assert.ok(installation.includes(`Bearer ${token}`));
   assert.ok(installation.includes(threadId));
@@ -162,9 +215,20 @@ test("MCP discovers the target, uploads source files first, then sends refs + te
   const documentChanges = await mcp("list_document_changes", { projectId });
   assert.equal(documentChanges.error, false);
   assert.ok(documentChanges.data.items.some((item) => item.action === "document_uploaded"));
-  assert.equal((await mcp("get_iteration_context", { threadId })).data.messages.length, beforeOfficialContext.messages.length);
-  assert.equal((await mcp("get_iteration_context", { threadId })).data.messages.length, beforeContext.messages.length);
-  const result = await mcp("post_message", { threadId, body: "一起检查这些文件", mentionAgent: true, refs: [existing.data.id, plan.data.id, notes.data.id] });
+  assert.equal(
+    (await mcp("get_iteration_context", { threadId })).data.messages.length,
+    beforeOfficialContext.messages.length,
+  );
+  assert.equal(
+    (await mcp("get_iteration_context", { threadId })).data.messages.length,
+    beforeContext.messages.length,
+  );
+  const result = await mcp("post_message", {
+    threadId,
+    body: "一起检查这些文件",
+    mentionAgent: true,
+    refs: [existing.data.id, plan.data.id, notes.data.id],
+  });
   assert.equal(result.error, false);
   assert.deepEqual(result.data.files, []);
   assert.equal(result.data.refs.length, 3);
@@ -175,11 +239,16 @@ test("MCP discovers the target, uploads source files first, then sends refs + te
   assert.equal(message.author_id, userId);
   assert.equal(message.source, "local_ai");
   assert.deepEqual(message.refs, result.data.refs);
-  const [reply] = await query(database.db, "SELECT participation,status FROM assistant_replies WHERE message_id=?", [message.id]);
+  const [reply] = await query(
+    database.db,
+    "SELECT participation,status FROM assistant_replies WHERE message_id=?",
+    [message.id],
+  );
   assert.equal(reply.participation, "reply");
   assert.equal(reply.status, "queued");
   const saved = (await mcp("list_documents", { projectId })).data.versions;
-  for (const upload of [plan.data, notes.data, official.data]) assert.ok(saved.some((v) => v.id === upload.id));
+  for (const upload of [plan.data, notes.data, official.data])
+    assert.ok(saved.some((v) => v.id === upload.id));
   assert.ok(saved.find((v) => v.id === existing.data.id));
   const downloaded = await mcp("get_document_version", { versionId: plan.data.id });
   assert.equal(downloaded.data.contentBase64, file().contentBase64);
@@ -226,25 +295,103 @@ test("bad second file, wrong-project reference, oversize file and archived threa
     { files: [file(), file("bad/path.md")] },
     { files: [file(), file("invalid.md", { contentBase64: "not base64!" })] },
     { files: [file()], refs: [otherFile.id] },
-    { files: [file(), file("big.md", { contentBase64: Buffer.alloc(5 * 1024 * 1024 + 1).toString("base64") })] },
   ]) {
-    assert.equal((await mcp("post_message", { threadId, body: "should fail", ...extra })).error, true);
+    assert.equal(
+      (await mcp("post_message", { threadId, body: "should fail", ...extra })).error,
+      true,
+    );
   }
-  assert.equal((await mcp("list_documents", { projectId })).data.versions.length, beforeProject.versions.length);
-  assert.equal((await mcp("get_iteration_context", { threadId })).data.messages.length, beforeContext.messages.length);
+  // 刚超过 MCP 内联上限（约 10KB）的内联文件仍走到工具层，并给出可操作的改法。
+  const slightlyBig = await mcp("post_message", {
+    threadId,
+    body: "should fail",
+    files: [
+      file(),
+      file("slightly-big.md", { contentBase64: Buffer.alloc(20_000).toString("base64") }),
+    ],
+  });
+  assert.equal(slightlyBig.error, true);
+  assert.match(String(slightlyBig.data), /start_file_upload|分片/);
+  // 远超大文件由请求体上限直接拒绝，不进入工具层，避免把几十兆解析进内存。
+  const oversize = await fetch(`${base}/mcp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "post_message",
+        arguments: {
+          threadId,
+          body: "should fail",
+          files: [
+            file(),
+            file("big.md", { contentBase64: Buffer.alloc(5 * 1024 * 1024 + 1).toString("base64") }),
+          ],
+        },
+      },
+    }),
+  });
+  assert.equal(oversize.status, 413);
+  assert.equal(
+    (await mcp("list_documents", { projectId })).data.versions.length,
+    beforeProject.versions.length,
+  );
+  assert.equal(
+    (await mcp("get_iteration_context", { threadId })).data.messages.length,
+    beforeContext.messages.length,
+  );
   const archived = (await api(`/projects/${projectId}/threads`, { title: "archived" })).body.id;
   assert.equal((await api(`/threads/${archived}/archive`, { conclusion: "done" })).status, 200);
-  assert.equal((await mcp("post_message", { threadId: archived, body: "blocked", files: [file()] })).error, true);
+  assert.equal(
+    (await mcp("post_message", { threadId: archived, body: "blocked", files: [file()] })).error,
+    true,
+  );
 });
 
 test("only explicit local Agent mentions queue replies; read-only members cannot upload", async () => {
-  const plain = (await mcp("post_message", { threadId, body: "local update", files: [file()] })).data;
-  assert.equal((await query(database.db, "SELECT message_id FROM assistant_replies WHERE message_id=?", [plain.id])).length, 0);
+  const plain = (await mcp("post_message", { threadId, body: "local update", files: [file()] }))
+    .data;
+  assert.equal(
+    (
+      await query(database.db, "SELECT message_id FROM assistant_replies WHERE message_id=?", [
+        plain.id,
+      ])
+    ).length,
+    0,
+  );
   const mention = (await mcp("post_message", { threadId, body: "@Agent助手 请检查" })).data;
   assert.ok(mention.updatedTaskId);
-  assert.equal((await query(database.db, "SELECT message_id FROM assistant_replies WHERE message_id=?", [mention.updatedTaskId])).length, 1);
-  assert.equal((await query(database.db, "SELECT task_message_id FROM agent_task_updates WHERE message_id=?", [mention.id]))[0].task_message_id, mention.updatedTaskId);
-  await query(database.db, "UPDATE members SET role='viewer' WHERE project_id=? AND user_id=?", [projectId, userId]);
-  assert.equal((await mcp("post_message", { threadId, body: "blocked", files: [file()] })).error, true);
+  assert.equal(
+    (
+      await query(database.db, "SELECT message_id FROM assistant_replies WHERE message_id=?", [
+        mention.updatedTaskId,
+      ])
+    ).length,
+    1,
+  );
+  assert.equal(
+    (
+      await query(
+        database.db,
+        "SELECT task_message_id FROM agent_task_updates WHERE message_id=?",
+        [mention.id],
+      )
+    )[0].task_message_id,
+    mention.updatedTaskId,
+  );
+  await query(database.db, "UPDATE members SET role='viewer' WHERE project_id=? AND user_id=?", [
+    projectId,
+    userId,
+  ]);
+  assert.equal(
+    (await mcp("post_message", { threadId, body: "blocked", files: [file()] })).error,
+    true,
+  );
   assert.equal((await mcp("upload_cache_draft", { threadId, ...file() })).error, true);
 });

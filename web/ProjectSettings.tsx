@@ -137,7 +137,9 @@ export function ProjectSettings({
       setDraftImage(await prepareAvatar(file));
       setError("");
     } catch (uploadError) {
-      const detail = (uploadError instanceof Error ? uploadError.message : "无法读取这张图片").replaceAll("头像", "项目图片");
+      const detail = (
+        uploadError instanceof Error ? uploadError.message : "无法读取这张图片"
+      ).replaceAll("头像", "项目图片");
       setError(detail);
       showTip(detail, "error");
     }
@@ -210,7 +212,11 @@ export function ProjectSettings({
             <span className="profile-email-field profile-id-row">
               <span className="profile-id-label">ID：</span>
               <span className="project-settings-id">{projectId}</span>
-              <button type="button" className="profile-id-copy" onClick={() => void copyProjectId()}>
+              <button
+                type="button"
+                className="profile-id-copy"
+                onClick={() => void copyProjectId()}
+              >
                 {copiedId ? "已复制" : "复制"}
               </button>
             </span>

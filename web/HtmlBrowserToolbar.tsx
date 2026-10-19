@@ -74,7 +74,10 @@ export function HtmlBrowserToolbar({
         >
           <UiIcon name="refresh" size={14} />
         </button>
-        <div ref={addressWrapRef} className={`doc-html-browser-address-wrap${focused ? " focused" : ""}`}>
+        <div
+          ref={addressWrapRef}
+          className={`doc-html-browser-address-wrap${focused ? " focused" : ""}`}
+        >
           <UiIcon name="search" size={13} />
           <input
             ref={addressInputRef}

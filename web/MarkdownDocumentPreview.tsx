@@ -1,8 +1,12 @@
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { resolvePreviewAssetPath } from "../shared/html-preview.mjs";
-import { CodePreview, MermaidPreview } from "./office-preview";
+import { CodePreview } from "./office-preview";
+
+const MermaidPreview = lazy(() =>
+  import("./office-preview").then((module) => ({ default: module.MermaidPreview })),
+);
 
 export function MarkdownDocumentPreview({
   mode,
@@ -36,7 +40,11 @@ export function MarkdownDocumentPreview({
             const language = className?.match(/language-([\w-]+)/)?.[1]?.toLowerCase();
             if (language === "mermaid") {
               const chart = String(children).replace(/\n$/, "");
-              return <MermaidPreview key={chart} chart={chart} />;
+              return (
+                <Suspense fallback={<p className="muted">正在加载图表…</p>}>
+                  <MermaidPreview key={chart} chart={chart} />
+                </Suspense>
+              );
             }
             return className ? (
               <pre className="markdown-code-block">

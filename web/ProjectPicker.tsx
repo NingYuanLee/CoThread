@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
+import {
+  DialogClose,
+  animateDialogClose,
+  onDialogBackdropClick,
+  onDialogCancel,
+} from "./dialog-fx";
 import { UiIcon } from "./ui-icon";
 import { ProjectActionIcon } from "./workspace-chrome";
 import type { Project } from "./workspace-types";
@@ -30,9 +35,7 @@ export function ProjectPicker({
   const results = projects.filter(
     (p) =>
       !p.tab_visible &&
-      `${p.name} ${p.description}`
-        .toLocaleLowerCase()
-        .includes(search.trim().toLocaleLowerCase()),
+      `${p.name} ${p.description}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
   );
   return (
     <dialog
@@ -44,7 +47,11 @@ export function ProjectPicker({
     >
       <div className="modal-header">
         <h2 id="project-picker-title">添加项目</h2>
-        <DialogClose disabled={busy} onClick={() => animateDialogClose(dialog.current, onClose)} label="关闭项目列表" />
+        <DialogClose
+          disabled={busy}
+          onClick={() => animateDialogClose(dialog.current, onClose)}
+          label="关闭项目列表"
+        />
       </div>
       <input
         ref={searchInput}

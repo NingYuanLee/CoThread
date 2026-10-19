@@ -8,12 +8,19 @@ function preview(text: string) {
   return characters.slice(0, 10).join("") + (characters.length > 10 ? "…" : "");
 }
 
-export const MessageNavigator = memo(function MessageNavigator({ messages, container, onNavigate }: {
+export const MessageNavigator = memo(function MessageNavigator({
+  messages,
+  container,
+  onNavigate,
+}: {
   messages: Message[];
   container: React.RefObject<HTMLDivElement | null>;
   onNavigate: () => void;
 }) {
-  const members = useMemo(() => messages.filter((message) => ["human", "local_ai"].includes(message.source)), [messages]);
+  const members = useMemo(
+    () => messages.filter((message) => ["human", "local_ai"].includes(message.source)),
+    [messages],
+  );
   const [visible, setVisible] = useState<Set<string>>(new Set());
   const [hovered, setHovered] = useState<number | null>(null);
   const [tooltip, setTooltip] = useState<{ left: number; top: number } | null>(null);
@@ -26,14 +33,17 @@ export const MessageNavigator = memo(function MessageNavigator({ messages, conta
     const ids = new Set(members.map((message) => message.id));
     const current = new Set<string>();
     setVisible(new Set());
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        const id = (entry.target as HTMLElement).dataset.messageId!;
-        if (entry.isIntersecting && entry.intersectionRect.height > 0) current.add(id);
-        else current.delete(id);
-      }
-      setVisible(new Set(current));
-    }, { root, threshold: 0 });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).dataset.messageId!;
+          if (entry.isIntersecting && entry.intersectionRect.height > 0) current.add(id);
+          else current.delete(id);
+        }
+        setVisible(new Set(current));
+      },
+      { root, threshold: 0 },
+    );
     root.querySelectorAll<HTMLElement>("[data-message-id]").forEach((element) => {
       if (ids.has(element.dataset.messageId!)) observer.observe(element);
     });
@@ -58,39 +68,81 @@ export const MessageNavigator = memo(function MessageNavigator({ messages, conta
   };
 
   if (!members.length) return null;
-  return <nav className="message-navigator" aria-label="成员消息导航">
-    <div className="message-navigator-rail" ref={rail}
-      onMouseLeave={() => { if (!focused.current) { setHovered(null); setTooltip(null); } }}
-      onScroll={() => { setHovered(null); setTooltip(null); }}>
-      {members.map((message, index) => {
-        const distance = hovered === null ? 5 : Math.abs(index - hovered);
-        const width = [32, 26, 21, 17, 13][distance] || 9;
-        return <button key={message.id} type="button" className="message-navigator-mark"
-          aria-label={`跳到${message.author}的消息：${preview(message.body) || "附件"}`}
-          aria-current={visible.has(message.id) ? "location" : undefined}
-          data-visible={visible.has(message.id)}
-          style={{ "--mark-width": `${width}px` } as React.CSSProperties}
-          onMouseEnter={(event) => reveal(index, event.currentTarget)}
-          onFocus={(event) => {
-            focused.current = event.currentTarget.matches(":focus-visible");
-            if (focused.current) reveal(index, event.currentTarget);
-          }}
-          onBlur={() => { focused.current = false; setHovered(null); setTooltip(null); }}
-          onClick={() => {
-            const root = container.current;
-            const target = root?.querySelector<HTMLElement>(`[data-message-id="${message.id}"]`);
-            if (!root || !target) return;
-            onNavigate();
-            root.scrollTo({ top: root.scrollTop + target.getBoundingClientRect().top - root.getBoundingClientRect().top - 32,
-              behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-          }}>
-          <span />
-        </button>;
-      })}
-    </div>
-    {hovered !== null && tooltip && members[hovered] && createPortal(<span className="message-navigator-preview"
-      aria-hidden="true" style={{ left: tooltip.left, top: tooltip.top }}>
-      {preview(members[hovered].body) || "附件"}
-    </span>, document.body)}
-  </nav>;
+  return (
+    <nav className="message-navigator" aria-label="成员消息导航">
+      <div
+        className="message-navigator-rail"
+        ref={rail}
+        onMouseLeave={() => {
+          if (!focused.current) {
+            setHovered(null);
+            setTooltip(null);
+          }
+        }}
+        onScroll={() => {
+          setHovered(null);
+          setTooltip(null);
+        }}
+      >
+        {members.map((message, index) => {
+          const distance = hovered === null ? 5 : Math.abs(index - hovered);
+          const width = [32, 26, 21, 17, 13][distance] || 9;
+          return (
+            <button
+              key={message.id}
+              type="button"
+              className="message-navigator-mark"
+              aria-label={`跳到${message.author}的消息：${preview(message.body) || "附件"}`}
+              aria-current={visible.has(message.id) ? "location" : undefined}
+              data-visible={visible.has(message.id)}
+              style={{ "--mark-width": `${width}px` } as React.CSSProperties}
+              onMouseEnter={(event) => reveal(index, event.currentTarget)}
+              onFocus={(event) => {
+                focused.current = event.currentTarget.matches(":focus-visible");
+                if (focused.current) reveal(index, event.currentTarget);
+              }}
+              onBlur={() => {
+                focused.current = false;
+                setHovered(null);
+                setTooltip(null);
+              }}
+              onClick={() => {
+                const root = container.current;
+                const target = root?.querySelector<HTMLElement>(
+                  `[data-message-id="${message.id}"]`,
+                );
+                if (!root || !target) return;
+                onNavigate();
+                root.scrollTo({
+                  top:
+                    root.scrollTop +
+                    target.getBoundingClientRect().top -
+                    root.getBoundingClientRect().top -
+                    32,
+                  behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+                    ? "instant"
+                    : "smooth",
+                });
+              }}
+            >
+              <span />
+            </button>
+          );
+        })}
+      </div>
+      {hovered !== null &&
+        tooltip &&
+        members[hovered] &&
+        createPortal(
+          <span
+            className="message-navigator-preview"
+            aria-hidden="true"
+            style={{ left: tooltip.left, top: tooltip.top }}
+          >
+            {preview(members[hovered].body) || "附件"}
+          </span>,
+          document.body,
+        )}
+    </nav>
+  );
 });

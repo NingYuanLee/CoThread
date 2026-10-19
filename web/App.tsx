@@ -15,10 +15,12 @@ export function App() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    void loadWorkspaceApp();
     const controller = new AbortController();
     void api("/me", undefined, undefined, controller.signal)
-      .then(() => setPhase("app"))
+      .then(() => {
+        void loadWorkspaceApp();
+        setPhase("app");
+      })
       .catch((cause) => {
         if (controller.signal.aborted) return;
         if ((cause as { status?: number }).status === 401) {

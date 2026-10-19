@@ -100,7 +100,11 @@ export function ProfileFields({
       return;
     }
     try {
-      const profile = await api("/me/username", { username: next, currentPassword: passwordDraft }, "PATCH");
+      const profile = await api(
+        "/me/username",
+        { username: next, currentPassword: passwordDraft },
+        "PATCH",
+      );
       updateSavedAccountProfile(profile);
       onProfile(profile);
       showTip("用户名已修改");
@@ -132,7 +136,13 @@ export function ProfileFields({
             />
           </label>
           {avatar && (
-            <button type="button" className="profile-avatar-remove" onClick={onRemove} aria-label="移除头像" title="移除头像">
+            <button
+              type="button"
+              className="profile-avatar-remove"
+              onClick={onRemove}
+              aria-label="移除头像"
+              title="移除头像"
+            >
               <UiIcon name="close" size={11} />
             </button>
           )}
@@ -218,7 +228,12 @@ export function ProfileFields({
       {roleOpen && (
         <ModalBackdrop onClose={() => setRoleOpen(false)}>
           {(close) => (
-            <section className="modal profile-role-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-role-title">
+            <section
+              className="modal profile-role-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="profile-role-title"
+            >
               <div className="modal-header">
                 <h2 id="profile-role-title">选择岗位</h2>
                 <DialogClose onClick={close} label="关闭选择岗位" />
@@ -262,7 +277,12 @@ export function ProfileFields({
       {usernameOpen && (
         <ModalBackdrop onClose={() => setUsernameOpen(false)}>
           {(close) => (
-            <section className="modal profile-username-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-username-title">
+            <section
+              className="modal profile-username-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="profile-username-title"
+            >
               <div className="modal-header">
                 <h2 id="profile-username-title">修改用户名</h2>
                 <DialogClose onClick={close} label="关闭修改用户名" />
@@ -298,7 +318,12 @@ export function ProfileFields({
       {emailOpen && (
         <ModalBackdrop onClose={() => setEmailOpen(false)}>
           {(close) => (
-            <section className="modal email-bind-dialog" role="dialog" aria-modal="true" aria-labelledby="email-bind-title">
+            <section
+              className="modal email-bind-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="email-bind-title"
+            >
               <div className="modal-header">
                 <h2 id="email-bind-title">{user.email ? "更换绑定邮箱" : "绑定邮箱"}</h2>
                 <DialogClose onClick={close} label="关闭绑定邮箱" />

@@ -1,3 +1,4 @@
+import { finishAgentEvent } from "./thread-activity.js";
 import { query, transaction } from "./db.js";
 import { Service } from "./service.js";
 import { AGENT_L2_MEMBER, mentionsAgent } from "../shared/agent-member.js";
@@ -31,6 +32,11 @@ import {
   persistOpportunisticParticipationArtifacts,
 } from "./agent-participation.js";
 import { logAgentTiming } from "./agent-timing-log.js";
+import {
+  assertCurrentExecutorEpoch,
+  assertExternalAdmitted,
+  isExecutorEpochLost,
+} from "./executor-fence.js";
 import { CHAT_DIALOGUE_STEERING, CLOUDBASE_DIALOGUE_STEERING } from "../shared/dialogue-mode.js";
 
 const brief = (value, limit = 1200) => (typeof value === "string" ? value.slice(0, limit) : null);
@@ -543,11 +549,7 @@ ${job.dialogue_mode === "cloudbase" ? `${CLOUDBASE_DIALOGUE_STEERING}\n` : ""}${
         runtime.forgetSession?.(childId);
         const runEventId = childRunEvents.get(childId);
         if (runEventId) {
-          await query(
-            db,
-            `UPDATE agent_events SET status='failed',finished_at=UTC_TIMESTAMP(3) WHERE id=? AND status='running'`,
-            [runEventId],
-          );
+          await finishAgentEvent(db, runEventId, { status: "failed", onlyStatuses: ["running"] });
           childRunEvents.delete(childId);
         }
         // Best-effort stop: an unbound L3 must not keep burning tools against a ghost task.
@@ -557,12 +559,12 @@ ${job.dialogue_mode === "cloudbase" ? `${CLOUDBASE_DIALOGUE_STEERING}\n` : ""}${
       };
       const failBind = async (message) => {
         if (parentEventId) {
-          await query(
-            db,
-            `UPDATE agent_events SET status='failed',output=?,agent_task_id=COALESCE(agent_task_id,?),finished_at=UTC_TIMESTAMP(3)
-            WHERE id=? AND status IN ('running','completed')`,
-            [String(message || "未能绑定子 Agent").slice(0, 1000), bindId, parentEventId],
-          );
+          await finishAgentEvent(db, parentEventId, {
+            status: "failed",
+            output: String(message || "未能绑定子 Agent").slice(0, 1000),
+            bindTaskId: bindId,
+            onlyStatuses: ["running", "completed"],
+          });
         }
         await abandonOrphan();
         return null;
@@ -797,12 +799,11 @@ ${job.dialogue_mode === "cloudbase" ? `${CLOUDBASE_DIALOGUE_STEERING}\n` : ""}${
               const output = notificationText(event.data.message?.content);
               if (nativeEvent) {
                 const failed = !!(event.data?.isError || event.data?.message?.source?.isError);
-                await query(
-                  db,
-                  `UPDATE agent_events SET status=?,output=?,finished_at=UTC_TIMESTAMP(3)
-                WHERE id=? AND status='running'`,
-                  [failed ? "failed" : "completed", output.slice(0, 1000), nativeEvent.id],
-                );
+                await finishAgentEvent(db, nativeEvent.id, {
+                  status: failed ? "failed" : "completed",
+                  output: output.slice(0, 1000),
+                  onlyStatuses: ["running"],
+                });
                 nativeToolEvents.delete(callId);
               }
               if (toolTasks.has(callId)) {
@@ -879,11 +880,9 @@ ${job.dialogue_mode === "cloudbase" ? `${CLOUDBASE_DIALOGUE_STEERING}\n` : ""}${
               const completed =
                 notification.params.status === "ok" &&
                 notification.params.stopReason === "completed";
-              await query(
-                db,
-                `UPDATE agent_events SET status=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?`,
-                [completed ? "completed" : "failed", runEventId],
-              );
+              await finishAgentEvent(db, runEventId, {
+                status: completed ? "completed" : "failed",
+              });
               childRunEvents.delete(childId);
             }
             const settled = await settleDshL3Execution(
@@ -1076,6 +1075,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
         "UPDATE assistant_replies SET status='running',progress=? WHERE message_id=? AND status='queued'",
         ["正在斟酌是否参与", job.message_id],
       );
+      assertExternalAdmitted();
       let decision;
       try {
         decision = await composeOpportunisticParticipation(db, {
@@ -1097,6 +1097,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
         };
       }
       await transaction(db, async (conn) => {
+        await assertCurrentExecutorEpoch(conn);
         await service.thread(user, job.thread_id, true, conn);
         const [current] = await query(
           conn,
@@ -1157,7 +1158,10 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
           }
         : await dispatchContext(db, thread, job);
     const loaded = performance.now();
-    const result = await runAgent(context, { db, job, user });
+    const fence = assertExternalAdmitted();
+    const invoke = fence?.runExternal || runAgent;
+    const result = await invoke(context, { db, job, user, signal: fence?.signal });
+    assertExternalAdmitted();
     parkRuntime = result?.runtime || null;
     logAgentTiming({
       messageId: job.message_id,
@@ -1186,6 +1190,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
       [job.thread_id],
     );
     const waiting = !!(result?.waiting || liveChild);
+    assertExternalAdmitted();
     await query(
       db,
       "UPDATE agent_sessions SET convergence_state=?,wait_reason=?,updated_at=UTC_TIMESTAMP(3) WHERE thread_id=?",
@@ -1193,6 +1198,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
     );
     let responseId = posts[0]?.id || null;
     await transaction(db, async (conn) => {
+      await assertCurrentExecutorEpoch(conn);
       if (job.kind === "child_result" || job.kind === "l3_idle") {
         // Append a follow-up when L2 has something new to say. Identical bodies from
         // onVisibleText must not create a second chat bubble.
@@ -1261,11 +1267,13 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
       }
     });
   } catch (error) {
+    if (isExecutorEpochLost(error)) throw error;
     const retryableBusy =
       error?.code === "L2_SESSION_BUSY" ||
       error?.code === "L3_SESSION_BUSY" ||
       /session is busy/i.test(String(error?.message || ""));
     await transaction(db, async (conn) => {
+      await assertCurrentExecutorEpoch(conn);
       if (job.kind === "child_result" || job.kind === "l3_idle") {
         if (retryableBusy) {
           await query(

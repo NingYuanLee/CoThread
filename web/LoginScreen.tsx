@@ -11,14 +11,19 @@ export function LoginScreen({ onLogin }: { onLogin: (user: PersonalProfile) => v
   return (
     <div className="login">
       <AuthParticleBackground />
-      <div className="login-story" onPointerMove={(event) => {
-        const bounds = event.currentTarget.getBoundingClientRect();
-        event.currentTarget.style.setProperty("--spot-x", `${event.clientX - bounds.left}px`);
-        event.currentTarget.style.setProperty("--spot-y", `${event.clientY - bounds.top}px`);
-      }}>
+      <div
+        className="login-story"
+        onPointerMove={(event) => {
+          const bounds = event.currentTarget.getBoundingClientRect();
+          event.currentTarget.style.setProperty("--spot-x", `${event.clientX - bounds.left}px`);
+          event.currentTarget.style.setProperty("--spot-y", `${event.clientY - bounds.top}px`);
+        }}
+      >
         <div className="brand">
           <CoThreadLogo className="brand-logo" />
-          <span>共序 <small>CoThread</small></span>
+          <span>
+            共序 <small>CoThread</small>
+          </span>
         </div>
         <h1>
           讨论有承接。
@@ -31,15 +36,28 @@ export function LoginScreen({ onLogin }: { onLogin: (user: PersonalProfile) => v
           从一条消息，到一个被确认的版本。
         </p>
         <div className="story-tags">
-          <span><UiIcon name="chat" size={13} />团队讨论</span>
-          <span><UiIcon name="layers" size={13} />版本沉淀</span>
-          <span><UiIcon name="checkCircle" size={13} />协作交付</span>
+          <span>
+            <UiIcon name="chat" size={13} />
+            团队讨论
+          </span>
+          <span>
+            <UiIcon name="layers" size={13} />
+            版本沉淀
+          </span>
+          <span>
+            <UiIcon name="checkCircle" size={13} />
+            协作交付
+          </span>
         </div>
       </div>
       <EmailAuth api={api} onLogin={onLogin} />
       <nav className="login-links">
-        <a href="/docs.html" target="_blank" rel="noopener noreferrer">文档</a>
-        <a href="/about_us.html" target="_blank" rel="noopener noreferrer">关于我们</a>
+        <a href="/docs.html" target="_blank" rel="noopener noreferrer">
+          文档
+        </a>
+        <a href="/about_us.html" target="_blank" rel="noopener noreferrer">
+          关于我们
+        </a>
       </nav>
     </div>
   );

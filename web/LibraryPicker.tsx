@@ -42,8 +42,16 @@ function TreeIcon({ kind }: { kind: "expand" | "collapse" | "file" }) {
     file: "M6 3h8l4 4v14H6Z M14 3v5h5",
   };
   return (
-    <svg aria-hidden="true" className="tree-icon" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      aria-hidden="true"
+      className="tree-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d={paths[kind]} />
     </svg>
   );
@@ -51,8 +59,18 @@ function TreeIcon({ kind }: { kind: "expand" | "collapse" | "file" }) {
 
 function ClosedFolderIcon() {
   return (
-    <svg aria-hidden="true" className="tree-icon" viewBox="0 0 24 24" width={16} height={16}
-      fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      aria-hidden="true"
+      className="tree-icon"
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M3.4 19.6V6.9c0-.9.7-1.6 1.6-1.6h4c.4 0 .8.16 1.05.44L11.6 7.5h7.4c.9 0 1.6.7 1.6 1.6v10.5c0 .9-.7 1.6-1.6 1.6H5c-.9 0-1.6-.7-1.6-1.6Z" />
     </svg>
   );
@@ -60,8 +78,18 @@ function ClosedFolderIcon() {
 
 function OpenFolderIcon() {
   return (
-    <svg aria-hidden="true" className="tree-icon" viewBox="0 0 24 24" width={16} height={16}
-      fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      aria-hidden="true"
+      className="tree-icon"
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M3.2 9.2V7.1c0-.9.7-1.6 1.6-1.6h3.5c.4 0 .8.15 1.05.42L10.7 7.4h8.1c.9 0 1.6.7 1.6 1.6v1.1" />
       <path d="M3.15 10.7h17.7c.8 0 1.4.74 1.23 1.52l-1.58 7.05A1.7 1.7 0 0 1 18.85 20.8H5.15a1.7 1.7 0 0 1-1.65-1.53l-1.58-7.05A1.26 1.26 0 0 1 3.15 10.7Z" />
     </svg>
@@ -69,9 +97,10 @@ function OpenFolderIcon() {
 }
 
 function uniqueLatestFiles(files: LibraryPickerFile[]) {
-  return files.filter((file, index, all) =>
-    !file.deleted_at
-    && all.findIndex((item) => item.artifact_id === file.artifact_id) === index);
+  return files.filter(
+    (file, index, all) =>
+      !file.deleted_at && all.findIndex((item) => item.artifact_id === file.artifact_id) === index,
+  );
 }
 
 function uniqueIds(ids: string[]) {
@@ -99,14 +128,20 @@ function folderDescendantIds(rootId: string, folders: LibraryPickerFolder[]) {
   return ids;
 }
 
-function isFolderInside(folderId: string | null | undefined, ancestorId: string, folders: LibraryPickerFolder[]) {
+function isFolderInside(
+  folderId: string | null | undefined,
+  ancestorId: string,
+  folders: LibraryPickerFolder[],
+) {
   if (!folderId) return false;
   let current = folders.find((folder) => folder.id === folderId);
   const seen = new Set<string>();
   while (current && !seen.has(current.id)) {
     if (current.id === ancestorId) return true;
     seen.add(current.id);
-    current = current.parent_id ? folders.find((folder) => folder.id === current?.parent_id) : undefined;
+    current = current.parent_id
+      ? folders.find((folder) => folder.id === current?.parent_id)
+      : undefined;
   }
   return false;
 }
@@ -125,8 +160,9 @@ export function calibrateLibraryPickerValue(
   files: LibraryPickerFile[],
 ): LibraryPickerValue {
   const selectedFolders = uniqueIds(value.folderIds);
-  const folderIds = selectedFolders.filter((id) =>
-    !selectedFolders.some((other) => other !== id && isFolderInside(id, other, folders)));
+  const folderIds = selectedFolders.filter(
+    (id) => !selectedFolders.some((other) => other !== id && isFolderInside(id, other, folders)),
+  );
   const covered = coveredFolderIds(folderIds, folders);
   const fileById = new Map(uniqueLatestFiles(files).map((file) => [file.id, file]));
   const fileIds = uniqueIds(value.fileIds).filter((id) => {
@@ -202,35 +238,48 @@ export function LibraryPicker({
   const initialized = useRef(false);
   const kindSet = useMemo(() => new Set(rootKinds), [rootKinds]);
   const scopedFolders = useMemo(
-    () => folders.filter((folder) => {
-      const kind = folderRootKind(folder.id, folders);
-      return kind != null && kindSet.has(kind as LibraryPickerRootKind);
-    }),
+    () =>
+      folders.filter((folder) => {
+        const kind = folderRootKind(folder.id, folders);
+        return kind != null && kindSet.has(kind as LibraryPickerRootKind);
+      }),
     [folders, kindSet],
   );
   const scopedFiles = useMemo(
-    () => uniqueLatestFiles(files).filter((file) => {
-      const kind = folderRootKind(file.folder_id, folders);
-      return kind != null && kindSet.has(kind as LibraryPickerRootKind);
-    }),
+    () =>
+      uniqueLatestFiles(files).filter((file) => {
+        const kind = folderRootKind(file.folder_id, folders);
+        return kind != null && kindSet.has(kind as LibraryPickerRootKind);
+      }),
     [files, folders, kindSet],
   );
   const roots = useMemo(
-    () => scopedFolders
-      .filter((folder) => !folder.parent_id && kindSet.has(folder.folder_kind as LibraryPickerRootKind))
-      .sort((a, b) => rootKinds.indexOf(a.folder_kind as LibraryPickerRootKind)
-        - rootKinds.indexOf(b.folder_kind as LibraryPickerRootKind)),
+    () =>
+      scopedFolders
+        .filter(
+          (folder) => !folder.parent_id && kindSet.has(folder.folder_kind as LibraryPickerRootKind),
+        )
+        .sort(
+          (a, b) =>
+            rootKinds.indexOf(a.folder_kind as LibraryPickerRootKind) -
+            rootKinds.indexOf(b.folder_kind as LibraryPickerRootKind),
+        ),
     [scopedFolders, kindSet, rootKinds],
   );
 
   useEffect(() => {
     if (initialized.current || !scopedFolders.length) return;
     initialized.current = true;
-    setCollapsed(new Set(scopedFolders.filter((folder) => folder.parent_id).map((folder) => folder.id)));
+    setCollapsed(
+      new Set(scopedFolders.filter((folder) => folder.parent_id).map((folder) => folder.id)),
+    );
   }, [scopedFolders]);
 
   const needle = query.trim().toLowerCase();
-  const folderById = useMemo(() => new Map(scopedFolders.map((folder) => [folder.id, folder])), [scopedFolders]);
+  const folderById = useMemo(
+    () => new Map(scopedFolders.map((folder) => [folder.id, folder])),
+    [scopedFolders],
+  );
 
   const visible = useMemo(() => {
     if (!needle) {
@@ -283,7 +332,8 @@ export function LibraryPicker({
     [value.folderIds, scopedFolders],
   );
   const fileCovered = (file: LibraryPickerFile) => !!file.folder_id && covered.has(file.folder_id);
-  const folderCovered = (folderId: string) => covered.has(folderId) && !value.folderIds.includes(folderId);
+  const folderCovered = (folderId: string) =>
+    covered.has(folderId) && !value.folderIds.includes(folderId);
 
   const emit = (fileIds: string[], folderIds: string[]) => {
     onChange(calibrateLibraryPickerValue({ fileIds, folderIds }, scopedFolders, scopedFiles));
@@ -295,7 +345,10 @@ export function LibraryPicker({
     if (file && fileCovered(file) && !value.fileIds.includes(id)) return;
     if (multiple) {
       if (value.fileIds.includes(id)) {
-        emit(value.fileIds.filter((item) => item !== id), value.folderIds);
+        emit(
+          value.fileIds.filter((item) => item !== id),
+          value.folderIds,
+        );
         return;
       }
       if (value.fileIds.length >= maxFiles) return;
@@ -310,7 +363,10 @@ export function LibraryPicker({
     if (folderCovered(id)) return;
     if (multiple) {
       if (value.folderIds.includes(id)) {
-        emit(value.fileIds, value.folderIds.filter((item) => item !== id));
+        emit(
+          value.fileIds,
+          value.folderIds.filter((item) => item !== id),
+        );
         return;
       }
       if (value.folderIds.length >= maxFolders) return;
@@ -325,18 +381,19 @@ export function LibraryPicker({
   const inputType = multiple ? "checkbox" : "radio";
   const maxTotal = (allowFiles ? maxFiles : 0) + (allowFolders ? maxFolders : 0);
 
-  const childrenOf = (parentId: string) => scopedFolders
-    .filter((folder) => folder.parent_id === parentId && visible.folders.has(folder.id))
-    .sort((a, b) => collator.compare(a.name, b.name) || a.id.localeCompare(b.id));
-  const filesOf = (parentId: string) => scopedFiles
-    .filter((file) => (file.folder_id || null) === parentId && visible.files.has(file.id))
-    .sort((a, b) => collator.compare(fileDisplayName(a), fileDisplayName(b)) || a.id.localeCompare(b.id));
+  const childrenOf = (parentId: string) =>
+    scopedFolders
+      .filter((folder) => folder.parent_id === parentId && visible.folders.has(folder.id))
+      .sort((a, b) => collator.compare(a.name, b.name) || a.id.localeCompare(b.id));
+  const filesOf = (parentId: string) =>
+    scopedFiles
+      .filter((file) => (file.folder_id || null) === parentId && visible.files.has(file.id))
+      .sort(
+        (a, b) =>
+          collator.compare(fileDisplayName(a), fileDisplayName(b)) || a.id.localeCompare(b.id),
+      );
 
-  const checkControl = (opts: {
-    selected: boolean;
-    disabled: boolean;
-    onToggle: () => void;
-  }) => (
+  const checkControl = (opts: { selected: boolean; disabled: boolean; onToggle: () => void }) => (
     <label className="library-picker-check">
       <input
         type={inputType}
@@ -357,7 +414,12 @@ export function LibraryPicker({
         const selected = value.folderIds.includes(folder.id) || implied;
         const expanded = !isCollapsed(folder.id);
         return (
-          <div key={folder.id} role="treeitem" aria-expanded={expanded} aria-selected={selectable ? selected : undefined}>
+          <div
+            key={folder.id}
+            role="treeitem"
+            aria-expanded={expanded}
+            aria-selected={selectable ? selected : undefined}
+          >
             <div className={`tree-folder library-picker-row${selected ? " selected" : ""}`}>
               <span className="tree-depth" style={{ width: depth * 14 }} aria-hidden="true" />
               <button
@@ -366,17 +428,27 @@ export function LibraryPicker({
                 aria-label={`${expanded ? "折叠" : "展开"} ${folder.name}`}
                 onClick={() => toggleCollapsed(folder.id)}
               >
-                <span className="folder-toggle-icon icon-idle">{expanded ? <OpenFolderIcon /> : <ClosedFolderIcon />}</span>
-                <span className="folder-toggle-icon icon-hover"><TreeIcon kind={expanded ? "collapse" : "expand"} /></span>
+                <span className="folder-toggle-icon icon-idle">
+                  {expanded ? <OpenFolderIcon /> : <ClosedFolderIcon />}
+                </span>
+                <span className="folder-toggle-icon icon-hover">
+                  <TreeIcon kind={expanded ? "collapse" : "expand"} />
+                </span>
               </button>
-              {allowFolders
-                ? checkControl({
+              {allowFolders ? (
+                checkControl({
                   selected,
                   disabled: implied || (!value.folderIds.includes(folder.id) && folderLimitReached),
                   onToggle: () => toggleFolder(folder.id),
                 })
-                : <span className="library-picker-check-spacer" aria-hidden="true" />}
-              <button type="button" className="tree-name" onClick={() => (selectable ? toggleFolder(folder.id) : toggleCollapsed(folder.id))}>
+              ) : (
+                <span className="library-picker-check-spacer" aria-hidden="true" />
+              )}
+              <button
+                type="button"
+                className="tree-name"
+                onClick={() => (selectable ? toggleFolder(folder.id) : toggleCollapsed(folder.id))}
+              >
                 <span>{folder.name}</span>
               </button>
             </div>
@@ -396,15 +468,24 @@ export function LibraryPicker({
             aria-selected={allowFiles ? selected : undefined}
           >
             <span className="tree-depth" style={{ width: depth * 14 }} aria-hidden="true" />
-            <span className="library-picker-file-icon" aria-hidden="true"><TreeIcon kind="file" /></span>
-            {allowFiles
-              ? checkControl({
+            <span className="library-picker-file-icon" aria-hidden="true">
+              <TreeIcon kind="file" />
+            </span>
+            {allowFiles ? (
+              checkControl({
                 selected,
                 disabled: implied || (!selected && fileLimitReached),
                 onToggle: () => toggleFile(file.id),
               })
-              : <span className="library-picker-check-spacer" aria-hidden="true" />}
-            <button type="button" className="tree-name" disabled={!allowFiles || implied} onClick={() => toggleFile(file.id)}>
+            ) : (
+              <span className="library-picker-check-spacer" aria-hidden="true" />
+            )}
+            <button
+              type="button"
+              className="tree-name"
+              disabled={!allowFiles || implied}
+              onClick={() => toggleFile(file.id)}
+            >
               <span>{name}</span>
             </button>
           </div>
@@ -420,21 +501,42 @@ export function LibraryPicker({
     const name = LIBRARY_ROOT_LABELS[root.folder_kind as LibraryPickerRootKind] || root.name;
     if (needle && !visible.folders.has(root.id)) return null;
     return (
-      <div key={root.id} role="treeitem" aria-expanded={expanded} aria-selected={selectable ? selected : undefined}>
-        <div className={`tree-folder tree-library-root library-picker-row${selected ? " selected" : ""}`}>
+      <div
+        key={root.id}
+        role="treeitem"
+        aria-expanded={expanded}
+        aria-selected={selectable ? selected : undefined}
+      >
+        <div
+          className={`tree-folder tree-library-root library-picker-row${selected ? " selected" : ""}`}
+        >
           <button
             type="button"
             className={`tree-toggle tree-folder-toggle${expanded ? " expanded" : ""}`}
             aria-label={`${expanded ? "折叠" : "展开"} ${name}`}
             onClick={() => toggleCollapsed(root.id)}
           >
-            <span className="folder-toggle-icon icon-idle">{expanded ? <OpenFolderIcon /> : <ClosedFolderIcon />}</span>
-            <span className="folder-toggle-icon icon-hover"><TreeIcon kind={expanded ? "collapse" : "expand"} /></span>
+            <span className="folder-toggle-icon icon-idle">
+              {expanded ? <OpenFolderIcon /> : <ClosedFolderIcon />}
+            </span>
+            <span className="folder-toggle-icon icon-hover">
+              <TreeIcon kind={expanded ? "collapse" : "expand"} />
+            </span>
           </button>
-          {selectable
-            ? checkControl({ selected, disabled: !selected && folderLimitReached, onToggle: () => toggleFolder(root.id) })
-            : <span className="library-picker-check-spacer" aria-hidden="true" />}
-          <button type="button" className="tree-name" onClick={() => (selectable ? toggleFolder(root.id) : toggleCollapsed(root.id))}>
+          {selectable ? (
+            checkControl({
+              selected,
+              disabled: !selected && folderLimitReached,
+              onToggle: () => toggleFolder(root.id),
+            })
+          ) : (
+            <span className="library-picker-check-spacer" aria-hidden="true" />
+          )}
+          <button
+            type="button"
+            className="tree-name"
+            onClick={() => (selectable ? toggleFolder(root.id) : toggleCollapsed(root.id))}
+          >
             <span>{name}</span>
           </button>
         </div>
@@ -452,25 +554,38 @@ export function LibraryPicker({
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.preventDefault();
+          }}
           placeholder={searchPlaceholder}
           aria-label={searchPlaceholder}
         />
         {selectedChips.length ? (
-          <small>已选 {selectedChips.length}{multiple ? ` / ${maxTotal}` : ""}</small>
+          <small>
+            已选 {selectedChips.length}
+            {multiple ? ` / ${maxTotal}` : ""}
+          </small>
         ) : null}
       </div>
       {showChips && selectedChips.length ? (
         <div className="library-picker-chips" aria-label="已选文档">
           {selectedChips.map((item) => (
-            <span className={`ref library-picker-chip is-${item.kind}`} key={`${item.kind}-${item.id}`}>
-              {item.kind === "folder" ? "文件夹 · " : ""}{item.label}
+            <span
+              className={`ref library-picker-chip is-${item.kind}`}
+              key={`${item.kind}-${item.id}`}
+            >
+              {item.kind === "folder" ? "文件夹 · " : ""}
+              {item.label}
               <button
                 type="button"
                 className="ref-remove"
                 aria-label={`取消选择 ${item.label}`}
-                onClick={() => (item.kind === "folder" ? toggleFolder(item.id) : toggleFile(item.id))}
-              >×</button>
+                onClick={() =>
+                  item.kind === "folder" ? toggleFolder(item.id) : toggleFile(item.id)
+                }
+              >
+                ×
+              </button>
             </span>
           ))}
         </div>
@@ -519,8 +634,19 @@ export function LibraryPickerDialog({
             <LibraryPicker {...pickerProps} value={draft} onChange={setDraft} />
           </div>
           <div className="library-picker-dialog-actions">
-            <button type="button" onClick={close}>取消</button>
-            <button type="button" className="primary" onClick={() => { onConfirm(draft); close(); }}>{confirmLabel}</button>
+            <button type="button" onClick={close}>
+              取消
+            </button>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                onConfirm(draft);
+                close();
+              }}
+            >
+              {confirmLabel}
+            </button>
           </div>
         </section>
       )}
@@ -547,11 +673,12 @@ export function LibraryPickerField({
 }) {
   const [open, setOpen] = useState(false);
   const chips = libraryPickerSelectionItems(value, folders, files);
-  const defaultButton = pickerProps.allowFolders === false
-    ? "选择文件"
-    : pickerProps.allowFiles === false
-      ? "选择文件夹"
-      : "选择文件或文件夹";
+  const defaultButton =
+    pickerProps.allowFolders === false
+      ? "选择文件"
+      : pickerProps.allowFiles === false
+        ? "选择文件夹"
+        : "选择文件或文件夹";
   return (
     <div className="library-picker-field">
       {label ? <span>{label}</span> : null}
@@ -562,17 +689,37 @@ export function LibraryPickerField({
       {chips.length ? (
         <div className="library-picker-chips" aria-label="已选文档">
           {chips.map((item) => (
-            <span className={`ref library-picker-chip is-${item.kind}`} key={`${item.kind}-${item.id}`}>
-              {item.kind === "folder" ? "文件夹 · " : ""}{item.label}
+            <span
+              className={`ref library-picker-chip is-${item.kind}`}
+              key={`${item.kind}-${item.id}`}
+            >
+              {item.kind === "folder" ? "文件夹 · " : ""}
+              {item.label}
               <button
                 type="button"
                 className="ref-remove"
                 aria-label={`取消选择 ${item.label}`}
-                onClick={() => onChange(calibrateLibraryPickerValue({
-                  fileIds: item.kind === "file" ? value.fileIds.filter((id) => id !== item.id) : value.fileIds,
-                  folderIds: item.kind === "folder" ? value.folderIds.filter((id) => id !== item.id) : value.folderIds,
-                }, folders, files))}
-              >×</button>
+                onClick={() =>
+                  onChange(
+                    calibrateLibraryPickerValue(
+                      {
+                        fileIds:
+                          item.kind === "file"
+                            ? value.fileIds.filter((id) => id !== item.id)
+                            : value.fileIds,
+                        folderIds:
+                          item.kind === "folder"
+                            ? value.folderIds.filter((id) => id !== item.id)
+                            : value.folderIds,
+                      },
+                      folders,
+                      files,
+                    ),
+                  )
+                }
+              >
+                ×
+              </button>
             </span>
           ))}
         </div>

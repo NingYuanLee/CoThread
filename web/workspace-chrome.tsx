@@ -1,17 +1,32 @@
-export function CoThreadLogo({
-  className,
-  title,
-}: {
-  className?: string;
-  title?: string;
-}) {
+export function CoThreadLogo({ className, title }: { className?: string; title?: string }) {
   return (
-    <svg className={className} viewBox="0 0 64 64" fill="none" aria-hidden={title ? undefined : true} role={title ? "img" : "presentation"}>
+    <svg
+      className={className}
+      viewBox="0 0 64 64"
+      fill="none"
+      aria-hidden={title ? undefined : true}
+      role={title ? "img" : "presentation"}
+    >
       {title ? <title>{title}</title> : null}
       <rect width="64" height="64" rx="13" fill="currentColor" />
-      <path d="M44 19H29C20.7 19 14 25.7 14 34s6.7 15 15 15h15" stroke="var(--logo-ink, #F3F6EC)" strokeWidth="6" strokeLinecap="round" />
-      <path d="M22 15v17c0 7.2 5.8 13 13 13s13-5.8 13-13V22" stroke="var(--logo-accent, #B7D295)" strokeWidth="6" strokeLinecap="round" />
-      <path d="M18.5 23.3A15 15 0 0 1 29 19h8" stroke="var(--logo-ink, #F3F6EC)" strokeWidth="6" strokeLinecap="round" />
+      <path
+        d="M44 19H29C20.7 19 14 25.7 14 34s6.7 15 15 15h15"
+        stroke="var(--logo-ink, #F3F6EC)"
+        strokeWidth="6"
+        strokeLinecap="round"
+      />
+      <path
+        d="M22 15v17c0 7.2 5.8 13 13 13s13-5.8 13-13V22"
+        stroke="var(--logo-accent, #B7D295)"
+        strokeWidth="6"
+        strokeLinecap="round"
+      />
+      <path
+        d="M18.5 23.3A15 15 0 0 1 29 19h8"
+        stroke="var(--logo-ink, #F3F6EC)"
+        strokeWidth="6"
+        strokeLinecap="round"
+      />
       <circle cx="48" cy="16" r="3" fill="var(--logo-accent, #B7D295)" />
     </svg>
   );
@@ -68,11 +83,7 @@ export function SidebarIcon({ kind }: { kind: "plus" | "monitor" | "project" | "
   );
 }
 
-export function ProjectActionIcon({
-  action,
-}: {
-  action: "pin" | "unpin" | "import" | "close";
-}) {
+export function ProjectActionIcon({ action }: { action: "pin" | "unpin" | "import" | "close" }) {
   return (
     <svg
       width="16"

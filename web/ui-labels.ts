@@ -79,7 +79,11 @@ export function formatDurationMs(ms: number): string {
   return ms < 1000 ? `${ms} 毫秒` : `${(ms / 1000).toFixed(1)} 秒`;
 }
 
-export function formatActorRef(type: string | null | undefined, id: string | null | undefined, empty = "-"): string {
+export function formatActorRef(
+  type: string | null | undefined,
+  id: string | null | undefined,
+  empty = "-",
+): string {
   if (!type) return empty;
   const label = labelActorType(type);
   return id ? `${label}：${id}` : label;
@@ -110,7 +114,10 @@ export function stickyActorIds(
   );
 }
 
-export function l3ExecutorName(executorId: string | null | undefined, knownIds: Array<string | null | undefined>): string | null {
+export function l3ExecutorName(
+  executorId: string | null | undefined,
+  knownIds: Array<string | null | undefined>,
+): string | null {
   if (!executorId) return null;
   const index = uniqueActorIds(knownIds).indexOf(executorId);
   if (index >= 0 && index < L3_EXECUTOR_NAMES.length) return L3_EXECUTOR_NAMES[index];

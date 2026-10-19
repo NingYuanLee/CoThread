@@ -41,15 +41,11 @@ type AuditList = {
 const dateTime = (value: string) =>
   new Date(value.includes("T") ? value : value.replace(" ", "T") + "Z").toLocaleString("zh-CN");
 const initialUserNumber = () =>
-  (new URLSearchParams(window.location.search).get("userNumber") || "").replace(/\D/g, "").slice(0, 10);
+  (new URLSearchParams(window.location.search).get("userNumber") || "")
+    .replace(/\D/g, "")
+    .slice(0, 10);
 
-export function AccountAuditList({
-  kind,
-  permissions,
-}: {
-  kind: Kind;
-  permissions: string[];
-}) {
+export function AccountAuditList({ kind, permissions }: { kind: Kind; permissions: string[] }) {
   const changes = kind === "account-changes";
   const [userNumber, setUserNumber] = useState(initialUserNumber);
   const [query, setQuery] = useState(initialUserNumber);
@@ -87,7 +83,9 @@ export function AccountAuditList({
   return (
     <section className="admin-work">
       {restricted && (
-        <p className="admin-list-note">仅显示当前登录账号的记录。查看其他成员需要「查看全部」权限。</p>
+        <p className="admin-list-note">
+          仅显示当前登录账号的记录。查看其他成员需要「查看全部」权限。
+        </p>
       )}
       <form
         className="admin-filters"
@@ -152,7 +150,9 @@ export function AccountAuditList({
                   <tr key={item.id}>
                     <td>{item.user_number ?? "—"}</td>
                     <td>
-                      <span className="admin-nowrap">{item.user_name || login.identifier || "未匹配账号"}</span>
+                      <span className="admin-nowrap">
+                        {item.user_name || login.identifier || "未匹配账号"}
+                      </span>
                       <small>{item.username || (item.user_name ? "" : "未匹配账号")}</small>
                     </td>
                     {changes ? (

@@ -1,4 +1,4 @@
-import { completeArchiveRequest } from "./archive-helper.js";
+import { completeArchiveRequest, archiveAppOptions } from "./archive-helper.js";
 import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { openAgentRuntime } from "../server/agent.js";
@@ -48,7 +48,7 @@ async function request(path, data, credential, method) {
 before(async () => {
   database = await testDatabase();
   db = database.db;
-  server = createApp(db).listen(0, "127.0.0.1");
+  server = createApp(db, archiveAppOptions).listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   base = `http://127.0.0.1:${server.address().port}`;
   async function user(name) {
@@ -378,7 +378,9 @@ test("archival is immutable, includes exact reviewed versions, and survives a fr
   const db2 = await createDatabase(database.url);
   try {
     const fresh = await new Service(db2).context(owner, iteration);
-    assert.equal(fresh.archive_snapshot.conclusion, "本轮已结束");
+    // 结论由归档梳理产出（服务端发起时会真的调用模型），这里只断言它已完整写入快照。
+    assert.equal(typeof fresh.archive_snapshot.conclusion, "string");
+    assert.ok(fresh.archive_snapshot.conclusion.trim().length > 0);
     assert.ok(fresh.messages.length >= 6);
   } finally {
     await db2.end();

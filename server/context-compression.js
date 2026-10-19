@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { query, transaction } from "./db.js";
 import { Service, HttpError } from "./service.js";
-import { discussionHasActiveCoordinator, sessionLockName } from "./session-lock.js";
+import { acquireSessionLock, discussionHasActiveCoordinator } from "./session-lock.js";
 
 export { queueContextCompression } from "./queue-context.js";
 
@@ -12,17 +12,12 @@ export async function processNextContextCompression(db, openRuntime, threadId) {
     threadId ? [threadId] : [],
   );
   if (!candidate) return false;
-  const connection = await db.getConnection(),
-    key = sessionLockName(candidate.thread_id);
-  let locked = false;
+  const lock = await acquireSessionLock(db, candidate.thread_id);
+  if (!lock) return false;
   try {
-    const [lock] = await query(connection, "SELECT GET_LOCK(?,0) acquired", [key]);
-    if (Number(lock.acquired) !== 1) return false;
-    locked = true;
     return await compressClaimedDiscussion(db, openRuntime, candidate.thread_id);
   } finally {
-    if (locked) await query(connection, "SELECT RELEASE_LOCK(?)", [key]);
-    connection.release();
+    await lock.release();
   }
 }
 
@@ -105,13 +100,8 @@ export async function refreshNextContextStats(db) {
     AND s.compact_status<>'failed' ORDER BY s.updated_at LIMIT 1`,
   );
   if (!stored) return false;
-  const connection = await db.getConnection(),
-    key = sessionLockName(stored.thread_id);
-  const [lock] = await query(connection, "SELECT GET_LOCK(?,0) acquired", [key]);
-  if (Number(lock.acquired) !== 1) {
-    connection.release();
-    return false;
-  }
+  const lock = await acquireSessionLock(db, stored.thread_id);
+  if (!lock) return false;
   let runtime;
   try {
     const user = { id: stored.created_by, kind: "session" };
@@ -136,8 +126,7 @@ export async function refreshNextContextStats(db) {
     );
     console.error("Context measurement failed", { type: error.name });
   } finally {
-    await query(connection, "SELECT RELEASE_LOCK(?)", [key]);
-    connection.release();
+    await lock.release();
   }
   return true;
 }

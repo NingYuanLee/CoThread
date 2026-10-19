@@ -215,36 +215,36 @@ export function ProjectManagement({
                   <p>维护当前项目的图片、名称和简介。</p>
                 </div>
                 {detail ? (
-                <ProjectSettings
-                  key={detail.id}
-                  projectId={detail.id}
-                  name={detail.name}
-                  description={detail.description || ""}
-                  image={detail.image}
-                  createdAt={localDate(detail.created_at)}
-                  creatorName={detail.created_by_name || "未知"}
-                  canManage={canManage}
-                  longTermSummary={detail.longTermSummary}
-                  onSave={async ({ name, description, image }) => {
-                    const updated = await api(
-                      `/projects/${detail.id}`,
-                      {
-                        name,
-                        description,
-                        ...(image !== undefined ? { image } : {}),
-                      },
-                      "PATCH",
-                    );
-                    onProjectRenamed({
-                      id: updated.id,
-                      name: updated.name,
-                      description: updated.description,
-                      image: updated.image,
-                    });
-                  }}
-                />
-              ) : (
-                <p className="muted">正在加载基本信息…</p>
+                  <ProjectSettings
+                    key={detail.id}
+                    projectId={detail.id}
+                    name={detail.name}
+                    description={detail.description || ""}
+                    image={detail.image}
+                    createdAt={localDate(detail.created_at)}
+                    creatorName={detail.created_by_name || "未知"}
+                    canManage={canManage}
+                    longTermSummary={detail.longTermSummary}
+                    onSave={async ({ name, description, image }) => {
+                      const updated = await api(
+                        `/projects/${detail.id}`,
+                        {
+                          name,
+                          description,
+                          ...(image !== undefined ? { image } : {}),
+                        },
+                        "PATCH",
+                      );
+                      onProjectRenamed({
+                        id: updated.id,
+                        name: updated.name,
+                        description: updated.description,
+                        image: updated.image,
+                      });
+                    }}
+                  />
+                ) : (
+                  <p className="muted">正在加载基本信息…</p>
                 )}
               </>
             ) : tab === "connectors" ? (
@@ -299,7 +299,13 @@ export function ProjectManagement({
                   <>
                     <div className="panel-heading">
                       <span>本项目人类成员</span>
-                      {canManage && <small>{projectLeader ? "负责人可管理成员、任免管理员并转移负责人" : "可管理成员角色；管理员任免和负责人转移仅负责人可操作"}</small>}
+                      {canManage && (
+                        <small>
+                          {projectLeader
+                            ? "负责人可管理成员、任免管理员并转移负责人"
+                            : "可管理成员角色；管理员任免和负责人转移仅负责人可操作"}
+                        </small>
+                      )}
                       {canManage && (
                         <button type="button" onClick={() => setMemberPickerOpen(true)}>
                           <UiIcon name="userPlus" size={12} />
@@ -467,18 +473,53 @@ function HumanMemberRow({
           设为管理员
         </button>
       ) : null}
-      {canManage && detail && member.id !== detail.project_leader_id &&
-      member.id !== AGENT_MEMBER.id && member.id !== AGENT_L2_MEMBER.id &&
+      {canManage &&
+      detail &&
+      member.id !== detail.project_leader_id &&
+      member.id !== AGENT_MEMBER.id &&
+      member.id !== AGENT_L2_MEMBER.id &&
       member.role === "member" ? (
-        <button disabled={busy} onClick={() => void api(`/projects/${detail.id}/members/${member.id}/role`, { role: "viewer" }, "PATCH")
-          .then(async () => { await refresh(); showTip(`已将 ${member.name} 设为只读成员`); })
-          .catch((cause) => showTip((cause as Error).message, "error"))}>设为只读</button>
+        <button
+          disabled={busy}
+          onClick={() =>
+            void api(
+              `/projects/${detail.id}/members/${member.id}/role`,
+              { role: "viewer" },
+              "PATCH",
+            )
+              .then(async () => {
+                await refresh();
+                showTip(`已将 ${member.name} 设为只读成员`);
+              })
+              .catch((cause) => showTip((cause as Error).message, "error"))
+          }
+        >
+          设为只读
+        </button>
       ) : null}
-      {canManage && detail && member.id !== detail.project_leader_id &&
-      member.id !== AGENT_MEMBER.id && member.id !== AGENT_L2_MEMBER.id && member.role === "viewer" ? (
-        <button disabled={busy} onClick={() => void api(`/projects/${detail.id}/members/${member.id}/role`, { role: "member" }, "PATCH")
-          .then(async () => { await refresh(); showTip(`已恢复 ${member.name} 的编辑权限`); })
-          .catch((cause) => showTip((cause as Error).message, "error"))}>恢复编辑权限</button>
+      {canManage &&
+      detail &&
+      member.id !== detail.project_leader_id &&
+      member.id !== AGENT_MEMBER.id &&
+      member.id !== AGENT_L2_MEMBER.id &&
+      member.role === "viewer" ? (
+        <button
+          disabled={busy}
+          onClick={() =>
+            void api(
+              `/projects/${detail.id}/members/${member.id}/role`,
+              { role: "member" },
+              "PATCH",
+            )
+              .then(async () => {
+                await refresh();
+                showTip(`已恢复 ${member.name} 的编辑权限`);
+              })
+              .catch((cause) => showTip((cause as Error).message, "error"))
+          }
+        >
+          恢复编辑权限
+        </button>
       ) : null}
       {projectLeader && detail && member.role === "project_admin" ? (
         <button
@@ -500,11 +541,7 @@ function HumanMemberRow({
         <button
           disabled={busy}
           onClick={() => {
-            if (
-              window.confirm(
-                `确定将项目主转移给 ${member.name}？你将失去项目主的专属权限。`,
-              )
-            )
+            if (window.confirm(`确定将项目主转移给 ${member.name}？你将失去项目主的专属权限。`))
               void api(`/projects/${detail.id}/leader`, { userId: member.id }, "POST")
                 .then(async () => {
                   await refresh();

@@ -1,3 +1,4 @@
+import { finishSandboxRun } from "./thread-activity.js";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { assetPath } from "./assets.js";
@@ -7,6 +8,7 @@ import { HttpError } from "./service.js";
 import { generateReply } from "./replies.js";
 import { modelDiscussion } from "./model-context.js";
 import { LocalSandbox } from "./local-sandbox.js";
+import { resolveSandboxProvider } from "./sandbox-provider.js";
 import { dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
 const shellQuote = (text) => `'${text.replace(/'/g, `'"'"'`)}'`;
 export async function executeRun(
@@ -15,17 +17,15 @@ export async function executeRun(
   threadId,
   input,
   kind = "command",
-  provider = LocalSandbox,
+  provider,
   onStarted,
 ) {
+  // 不传 provider 时按 COTHREAD_SANDBOX_PROVIDER 解析；显式传入优先（测试用 stub）。
+  const sandboxProvider = resolveSandboxProvider(provider);
   const command =
-    kind === "command"
-      ? z.string().trim().min(1).max(8000).parse(input.command)
-      : "总结当前迭代";
+    kind === "command" ? z.string().trim().min(1).max(8000).parse(input.command) : "总结当前迭代";
   const directSummary =
-    kind === "summary" &&
-    process.env.SUMMARY_MODE !== "dsh" &&
-    provider === LocalSandbox;
+    kind === "summary" && process.env.SUMMARY_MODE !== "dsh" && sandboxProvider === LocalSandbox;
   if (kind === "summary" && !directSummary && process.env.DSH_ENABLED === "false")
     throw new HttpError(503, "DSH 助手尚未启用，请先安装本地 DSH");
   const runId = randomUUID();
@@ -47,10 +47,7 @@ export async function executeRun(
   });
   onStarted?.({ id: runId, status: "running" });
   const progress = async (text) =>
-    query(service.db, "UPDATE sandbox_runs SET progress=? WHERE id=?", [
-      text,
-      runId,
-    ]);
+    query(service.db, "UPDATE sandbox_runs SET progress=? WHERE id=?", [text, runId]);
   let sandbox;
   let output = "";
   let status = "failed";
@@ -61,41 +58,27 @@ export async function executeRun(
       output = await generateReply(context, true);
       await transaction(service.db, async (db) => {
         await service.thread(user, threadId, true, db);
-        await service.insertMessage(
-          db,
-          user,
-          threadId,
-          output,
-          [],
-          "assistant",
-        );
+        await service.insertMessage(db, user, threadId, output, [], "assistant");
       });
       status = "succeeded";
     } else {
       await progress("正在准备本机工作区");
-      sandbox = await provider.create();
-      await query(
-        service.db,
-        "UPDATE sandbox_runs SET sandbox_id=? WHERE id=?",
-        [sandbox.sandboxId, runId],
-      );
+      sandbox = await sandboxProvider.create();
+      await query(service.db, "UPDATE sandbox_runs SET sandbox_id=? WHERE id=?", [
+        sandbox.sandboxId,
+        runId,
+      ]);
       const cwd = `/home/user/cothread/${threadId}`;
       stage = "copy-context";
       await progress("正在准备讨论和文档副本");
       await sandbox.files.makeDir(cwd);
-      await sandbox.files.write(
-        `${cwd}/context.json`,
-        JSON.stringify(context, null, 2),
-      );
+      await sandbox.files.write(`${cwd}/context.json`, JSON.stringify(context, null, 2));
       const project = await service.project(user, context.project_id);
       const manifest = [];
       // Every immutable version gets its own safe ID-based filename; no client paths enter shell commands.
       for (const meta of project.versions.slice(0, 40)) {
         const version = await service.version(user, meta.id);
-        await sandbox.files.write(
-          `${cwd}/${version.id}`,
-          new Uint8Array(version.content).buffer,
-        );
+        await sandbox.files.write(`${cwd}/${version.id}`, new Uint8Array(version.content).buffer);
         manifest.push({
           id: version.id,
           title: version.title,
@@ -104,10 +87,7 @@ export async function executeRun(
           path: `${cwd}/${version.id}`,
         });
       }
-      await sandbox.files.write(
-        `${cwd}/manifest.json`,
-        JSON.stringify(manifest, null, 2),
-      );
+      await sandbox.files.write(`${cwd}/manifest.json`, JSON.stringify(manifest, null, 2));
       let executable = command;
       if (kind === "summary") {
         const summaryContext = JSON.stringify({
@@ -117,44 +97,32 @@ export async function executeRun(
           documents: manifest,
         });
         if (Buffer.byteLength(summaryContext) > 80000)
-          throw new HttpError(
-            413,
-            "讨论过长，首版助手支持最多 80 KB 讨论上下文",
-          );
+          throw new HttpError(413, "讨论过长，首版助手支持最多 80 KB 讨论上下文");
         const prompt = `请总结以下迭代记录。按「已确认决定」「待决策问题」「下一步与负责人」组织，引用消息 ID 或文档版本 ID。\n${summaryContext}`;
         await sandbox.files.write(
           `${cwd}/summary-patch.yml`,
-          await readFile(
-            assetPath("runtime/summary-patch.yml"),
-            "utf8",
-          ),
+          await readFile(assetPath("runtime/summary-patch.yml"), "utf8"),
         );
         await sandbox.files.write(`${cwd}/model-patch.yml`, dshModelPatch());
         await sandbox.files.write(
           `${cwd}/prepare-dsh.sh`,
-          await readFile(
-            assetPath("runtime/prepare-dsh.sh"),
-            "utf8",
-          ),
+          await readFile(assetPath("runtime/prepare-dsh.sh"), "utf8"),
         );
         if (process.env.DSH_BOOTSTRAP !== "false") {
           stage = "prepare-dsh";
           await progress("正在准备助手环境，首次可能需要几分钟");
-          const prepared = await sandbox.commands.run(
-            `sh ${shellQuote(`${cwd}/prepare-dsh.sh`)}`,
-            { cwd, timeoutMs: 180000 },
-          );
-          if (prepared.exitCode !== 0)
-            throw new Error("DSH preparation failed");
+          const prepared = await sandbox.commands.run(`sh ${shellQuote(`${cwd}/prepare-dsh.sh`)}`, {
+            cwd,
+            timeoutMs: 180000,
+          });
+          if (prepared.exitCode !== 0) throw new Error("DSH preparation failed");
           executable =
             "PATH=/home/user/.local/cothread-runtime/node/bin:$PATH /home/user/.local/cothread-runtime/dsh/node_modules/.bin/dsh";
         } else executable = "dsh";
         executable += ` --profile headless --patch ${shellQuote(`${cwd}/model-patch.yml`)} --patch ${shellQuote(`${cwd}/summary-patch.yml`)} ${shellQuote(prompt)}`;
       }
       stage = "execute";
-      await progress(
-        kind === "summary" ? "正在梳理讨论，等待模型返回" : "正在执行命令",
-      );
+      await progress(kind === "summary" ? "正在梳理讨论，等待模型返回" : "正在执行命令");
       const result = await sandbox.commands.run(executable, {
         cwd,
         timeoutMs: 120000,
@@ -189,8 +157,7 @@ export async function executeRun(
         ? error.message
         : "沙箱执行失败。请检查服务可用性；群聊与文档数据不受影响。";
     if (stage === "prepare-dsh")
-      output =
-        "助手环境准备失败或超时，尚未开始梳理讨论。请重试；群聊和文档均已保存。";
+      output = "助手环境准备失败或超时，尚未开始梳理讨论。请重试；群聊和文档均已保存。";
     const diagnostic = redactSecrets(error.stderr || error.message || "").slice(-2500);
     console.error("Sandbox run failed", {
       kind,
@@ -208,16 +175,11 @@ export async function executeRun(
         output += "\n本机工作区清理未确认。";
       }
     }
-    await query(
-      service.db,
-      "UPDATE sandbox_runs SET status=?,output=?,progress=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?",
-      [
-        status,
-        output,
-        status === "succeeded" ? "已完成" : "未完成，可重试",
-        runId,
-      ],
-    );
+    await finishSandboxRun(service.db, runId, {
+      status,
+      output,
+      progress: status === "succeeded" ? "已完成" : "未完成，可重试",
+    });
   }
   return { id: runId, status, output };
 }

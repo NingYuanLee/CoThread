@@ -1,4 +1,3 @@
-import React from "react";
 import { roleIcon, UiIcon } from "./ui-icon";
 
 export function RoleBadge({ role }: { role: string }) {
@@ -11,13 +10,7 @@ export function RoleBadge({ role }: { role: string }) {
   );
 }
 
-export function IdentityName({
-  role,
-  name,
-}: {
-  role?: string | null;
-  name: string;
-}) {
+export function IdentityName({ role, name }: { role?: string | null; name: string }) {
   return (
     <>
       {role && (

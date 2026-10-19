@@ -1,25 +1,7 @@
-import { AgentActivity } from "./AgentActivity";
-import { MessageUsage, type UsageStats } from "./MessageUsage";
-import { useAgentLiveOutput } from "./useAgentLiveOutput";
-import {
-  continuesCoordinatorTurn,
-  coordinatorTurnId,
-  isExecutorReply,
-  isLastCoordinatorTurnPost,
-  liveCoordinatorDraft,
-  taskTimeline,
-  usageReplyForMessage,
-} from "./chat-timeline";
-import { StreamingMarkdown } from "./StreamingMarkdown";
-import { bindMessageMarkdownOpener, MessageMarkdown } from "./MessageMarkdown";
-import type { ComposerController } from "./ChatComposer";
-import { RelativeActivityText, RunElapsed, TaskCreatedTime } from "./LiveClock";
-import { AGENT_L2_MEMBER, AGENT_MEMBER, mentionsAgent } from "../shared/agent-member.js";
-import {
-  MCP_CONVERSATION_COPY_INSTRUCTION,
-  MCP_TASK_COPY_INSTRUCTION,
-  formatMcpCopyPayload,
-} from "../shared/mcp-guide.js";
+import { useConversationSelection } from "./use-conversation-selection";
+import { useAccountSession } from "./use-account-session";
+import { useProjectTasks } from "./use-project-tasks";
+import { taskViewModel } from "./task-view-model";
 import React, {
   lazy,
   Suspense,
@@ -29,7 +11,33 @@ import React, {
   useState,
   useCallback,
 } from "react";
-import { createPortal } from "react-dom";
+import "./workspace.css";
+import { type UsageStats } from "./MessageUsage";
+import { useAgentLiveOutput } from "./useAgentLiveOutput";
+import { isExecutorReply, liveCoordinatorDraft, taskTimeline } from "./chat-timeline";
+import { bindMessageMarkdownOpener } from "./message-markdown-opener";
+const QuoteMarkdown = lazy(() =>
+  import("./QuoteMarkdown").then((module) => ({ default: module.QuoteMarkdown })),
+);
+import type { ComposerController } from "./ChatComposer";
+
+import { AGENT_L2_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
+import { MCP_CONVERSATION_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
+import { WorkspaceModals } from "./WorkspaceModals";
+import { WorkspaceSidebar } from "./WorkspaceSidebar";
+import { WorkspaceTopbar } from "./WorkspaceTopbar";
+import { TaskListDialog } from "./TaskListDialog";
+
+import { AgentRoundView } from "./AgentRoundView";
+import { useProjectActivity } from "./use-project-activity";
+import { useThreadActivity } from "./use-thread-activity";
+import { useThreadReadReceipt } from "./use-thread-read-receipt";
+import { submitWorkspaceModal } from "./workspace-modal-submit";
+import { ThreadRow } from "./ThreadRow";
+import { WorkspaceWelcome } from "./WorkspaceWelcome";
+import { ConversationHeader } from "./ConversationHeader";
+import { TaskCreateDialog } from "./TaskCreateDialog";
+import { ConversationStage } from "./ConversationStage";
 import { coordinatorLogButtonLabel, COORDINATOR_LOG_IDLE_LABEL } from "./agent-label";
 const Documents = lazy(() =>
   import("./Documents").then((module) => ({ default: module.Documents })),
@@ -43,401 +51,93 @@ import {
   writeThreadDialogueMode,
   type DialogueMode,
 } from "./dialogue-mode-storage";
-import { DIALOGUE_MODE_LABELS } from "../shared/dialogue-mode.js";
-import {
-  formatTaskThreadNumber,
-  taskThreadNumberSearchMatch,
-} from "../shared/task-thread-number.js";
-import { MessageNavigator } from "./MessageNavigator";
-import { PaginationControl } from "./PaginationControl";
-import { ProjectMark } from "./ProjectMark";
-const loadComposer = () => import("./ChatComposer");
-const ChatComposer = lazy(() =>
-  loadComposer().then((module) => ({ default: module.ChatComposer })),
-);
+
 const ProjectManagement = lazy(() =>
   import("./ProjectManagement").then((module) => ({ default: module.ProjectManagement })),
 );
 const AgentMonitor = lazy(() =>
   import("./AgentMonitor").then((module) => ({ default: module.AgentMonitor })),
 );
-const EmailBinding = lazy(() =>
-  import("./EmailBinding").then((module) => ({ default: module.EmailBinding })),
-);
 const ConnectorAuthorization = lazy(() =>
   import("./ConnectorAuthorization").then((module) => ({ default: module.ConnectorAuthorization })),
 );
-const McpSettings = lazy(() =>
-  import("./McpSettings").then((module) => ({ default: module.McpSettings })),
-);
-import { ContextMeter } from "./ContextMeter";
-import { Notifications } from "./Notifications";
-import { ThemePicker } from "./ThemePicker";
 import { applyUiTheme } from "./apply-ui-theme";
 import { DEFAULT_UI_THEME } from "../shared/ui-theme.js";
-import { AgentLogDialog, AgentTrajectory } from "./AgentLogDialog";
 import type { AgentLogScope } from "./agent-trajectory";
-import { PasswordField } from "./PasswordField";
+const AgentTrajectory = lazy(() =>
+  import("./AgentLogDialog").then((module) => ({ default: module.AgentTrajectory })),
+);
+const AgentLogDialog = lazy(() =>
+  import("./AgentLogDialog").then((module) => ({ default: module.AgentLogDialog })),
+);
 import type { ConnectorDevice } from "./ConnectorPanel";
 import { createResourceCache } from "../shared/resource-cache.js";
-import { projectActivityKey, sameSnapshot, threadPollKey } from "../shared/poll-signature.js";
-import { mentionsUser } from "../shared/mentions.js";
-import { IdentityName } from "./Identity";
-import { ProfileFields, prepareAvatar, type PersonalProfile } from "./ProfileFields";
-import { ProjectImageField } from "./ProjectSettings";
-import { AccountSwitchList } from "./AccountSwitchList";
-import {
-  clearSavedAccountToken,
-  listSavedAccounts,
-  mergeKnownAccounts,
-  removeSavedAccount,
-  saveAccountSession,
-  setLoginHint,
-  setLoginNotice,
-  shouldSkipRemember,
-  updateSavedAccountProfile,
-  type SavedAccount,
-} from "./saved-accounts";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import {
-  labelReasoningEffort,
-  labelWorkflowStatus,
-  labelExecutorType,
-  l3ExecutorName,
-  stickyActorIds,
-  uniqueActorIds,
-  AGENT_LEVEL_LABELS,
-} from "./ui-labels";
-import { UiIcon, type UiIconName } from "./ui-icon";
-import {
-  DialogClose,
-  ModalBackdrop,
-  animateDialogClose,
-  onDialogBackdropClick,
-  onDialogCancel,
-} from "./dialog-fx";
+import { mergeThread } from "../shared/thread-window.js";
+import { readThreadPages } from "../shared/thread-reader.js";
+import { sameSnapshot } from "../shared/poll-signature.js";
+
+import { MessageContextMenu } from "./thread-menus";
+import { labelReasoningEffort } from "./ui-labels";
+import { UiIcon } from "./ui-icon";
+import { DialogClose, ModalBackdrop } from "./dialog-fx";
 import { showTip } from "./Tip";
-import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
-import { ThreadArchiveDialog } from "./ThreadArchiveDialog";
-import { ThreadBrief } from "./ThreadBrief";
-import { ImagePreviewDialog } from "./ImagePreview";
+const DeleteConfirmDialog = lazy(() =>
+  import("./DeleteConfirmDialog").then((module) => ({ default: module.DeleteConfirmDialog })),
+);
+const ThreadArchiveDialog = lazy(() =>
+  import("./ThreadArchiveDialog").then((module) => ({ default: module.ThreadArchiveDialog })),
+);
+const ThreadBrief = lazy(() =>
+  import("./ThreadBrief").then((module) => ({ default: module.ThreadBrief })),
+);
+const ImagePreviewDialog = lazy(() =>
+  import("./ImagePreview").then((module) => ({ default: module.ImagePreviewDialog })),
+);
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { libraryFolderPath, folderDisplayName } from "./document-library";
-import { LibraryPickerField } from "./LibraryPicker";
 import { api } from "./workspace-api";
+import {
+  persistOptimisticMessage as persistOptimisticMessageImpl,
+  sendOptimisticMessage as sendOptimisticMessageImpl,
+  type OptimisticMessagePayload,
+} from "./optimistic-messages";
 import { apiFetch } from "./api-fetch";
 import {
   LEFT_SIDEBAR_STATE_KEY,
   RIGHT_SIDEBAR_STATE_KEY,
-  clipQuote,
   localDate,
   readStoredBoolean,
 } from "./workspace-format";
-import { CoThreadLogo, PanelIcon, ProjectActionIcon, SidebarIcon } from "./workspace-chrome";
+
 import { ProjectPicker } from "./ProjectPicker";
 import { BootScreen } from "./BootScreen";
-import { LoginScreen } from "./LoginScreen";
+const LoginScreen = lazy(() =>
+  import("./LoginScreen").then((module) => ({ default: module.LoginScreen })),
+);
 import { useActionTooltips } from "./use-action-tooltips";
-import type {
-  AgentTask,
-  AgentTaskDetail,
-  Detail,
-  MessageQuote,
-  Modal,
-  Project,
-  TaskTimelineItem,
-  TaskTimelineKind,
-  Thread,
-  Version,
-} from "./workspace-types";
+import type { Detail, MessageQuote, Modal, Project, Thread, Version } from "./workspace-types";
 
-type ThreadMessage = Thread["messages"][number];
-function unreadMention(
-  message: ThreadMessage,
-  lastRead: string | undefined,
-  person: { id: string; name: string; email: string | null; username: string },
-) {
-  if (!lastRead || message.author_id === person.id || !mentionsUser(message.body, person))
-    return false;
-  try {
-    return BigInt(message.sequence) > BigInt(lastRead);
-  } catch {
-    return false;
-  }
-}
-const EMPTY_FOLDERS: Detail["folders"] = [];
-const EMPTY_VERSIONS: Detail["versions"] = [];
-const EMPTY_JOBS: Detail["documentOrganizationJobs"] = [];
-
-function selectionTextInside(root: Element | null): string {
-  const selection = window.getSelection();
-  if (!selection || selection.isCollapsed || !root) return "";
-  const anchor = selection.anchorNode;
-  const focus = selection.focusNode;
-  if (!anchor || !focus) return "";
-  if (!root.contains(anchor) || !root.contains(focus)) return "";
-  return selection.toString();
-}
-
-/** Keep the current iteration when it still exists; otherwise prefer an active one. */
-function resolveProjectThreadId(
-  threads: Array<{ id: string; status: string }>,
-  current: string,
-): string {
-  if (current && threads.some((thread) => thread.id === current)) return current;
-  return threads.find((thread) => thread.status === "active")?.id || threads[0]?.id || "";
-}
-
-function MessageContextMenu({
-  x,
-  y,
-  canQuote,
-  onCopy,
-  onQuote,
-  onDismiss,
-}: {
-  x: number;
-  y: number;
-  canQuote: boolean;
-  onCopy: () => void;
-  onQuote: () => void;
-  onDismiss: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [box, setBox] = useState({ left: x, top: y });
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const viewWidth = window.visualViewport?.width ?? document.documentElement.clientWidth;
-    const viewHeight = window.visualViewport?.height ?? document.documentElement.clientHeight;
-    const offsetLeft = window.visualViewport?.offsetLeft ?? 0;
-    const offsetTop = window.visualViewport?.offsetTop ?? 0;
-    let left = x;
-    if (x + rect.width > offsetLeft + viewWidth - 8) left = x - rect.width;
-    let top = y;
-    if (y + rect.height > offsetTop + viewHeight - 8) top = y - rect.height;
-    left = Math.min(
-      Math.max(offsetLeft + 8, left),
-      Math.max(offsetLeft + 8, offsetLeft + viewWidth - rect.width - 8),
-    );
-    top = Math.min(
-      Math.max(offsetTop + 8, top),
-      Math.max(offsetTop + 8, offsetTop + viewHeight - rect.height - 8),
-    );
-    setBox((previous) =>
-      previous.left === left && previous.top === top ? previous : { left, top },
-    );
-  }, [x, y]);
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) onDismiss();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onDismiss();
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onDismiss]);
-  const run = (action: () => void) => {
-    action();
-    onDismiss();
-  };
-  return createPortal(
-    <div
-      ref={ref}
-      className="library-folder-menu doc-browser-tab-menu message-context-menu"
-      role="menu"
-      style={{ left: box.left, top: box.top }}
-      onContextMenu={(event) => event.preventDefault()}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <button
-        type="button"
-        role="menuitem"
-        className="library-folder-menu-item"
-        onClick={() => run(onCopy)}
-      >
-        <span>复制</span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className="library-folder-menu-item"
-        disabled={!canQuote}
-        title={canQuote ? undefined : "当前消息不可引用"}
-        onClick={() => {
-          if (!canQuote) return;
-          run(onQuote);
-        }}
-      >
-        <span>引用</span>
-      </button>
-    </div>,
-    document.body,
-  );
-}
-
-function ThreadMoreIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <circle cx="12" cy="5" r="1.75" />
-      <circle cx="12" cy="12" r="1.75" />
-      <circle cx="12" cy="19" r="1.75" />
-    </svg>
-  );
-}
-
-function ThreadIterationMenu({
-  open,
-  onOpenChange,
-  showArchive,
-  showArchivedActions,
-  showReviewArchive,
-  busy,
-  copyLabel,
-  onArchive,
-  onCopy,
-  onRestore,
-  onDelete,
-  onReviewArchive,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  showArchive: boolean;
-  showArchivedActions: boolean;
-  showReviewArchive: boolean;
-  busy: boolean;
-  copyLabel: string;
-  onArchive: () => void;
-  onCopy: () => void;
-  onRestore: () => void;
-  onDelete: () => void;
-  onReviewArchive: () => void;
-}) {
-  const anchorRef = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => {
-      if (event.button !== 0) return;
-      if (!anchorRef.current?.contains(event.target as Node)) onOpenChange(false);
-    };
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
-  }, [open, onOpenChange]);
-  const dismiss = () => onOpenChange(false);
-  return (
-    <span className="thread-row-menu-anchor" ref={anchorRef}>
-      <button
-        type="button"
-        className={`tree-menu-trigger thread-menu-trigger${open ? " active" : ""}`}
-        title="迭代操作"
-        aria-label="迭代操作"
-        aria-expanded={open}
-        aria-haspopup="menu"
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpenChange(!open);
-        }}
-      >
-        <ThreadMoreIcon />
-      </button>
-      {open ? (
-        <div
-          className="library-folder-menu thread-row-menu"
-          role="menu"
-          onClick={(event) => event.stopPropagation()}
-          onContextMenu={(event) => event.preventDefault()}
-        >
-          {showReviewArchive ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              onClick={() => {
-                onReviewArchive();
-                dismiss();
-              }}
-            >
-              <UiIcon name="preview" size={14} />
-              <span>审查归档方案</span>
-            </button>
-          ) : null}
-          {showArchive ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              disabled={busy}
-              onClick={() => {
-                onArchive();
-                dismiss();
-              }}
-            >
-              <UiIcon name="archive" size={14} />
-              <span>归档迭代</span>
-            </button>
-          ) : null}
-          {showArchivedActions ? (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                className="library-folder-menu-item"
-                disabled={busy}
-                onClick={() => {
-                  onRestore();
-                  dismiss();
-                }}
-              >
-                <UiIcon name="restore" size={14} />
-                <span>恢复迭代</span>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="library-folder-menu-item danger"
-                disabled={busy}
-                onClick={() => {
-                  onDelete();
-                  dismiss();
-                }}
-              >
-                <UiIcon name="trash" size={14} />
-                <span>删除迭代</span>
-              </button>
-            </>
-          ) : null}
-          {!showArchivedActions ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              onClick={() => {
-                void onCopy();
-                dismiss();
-              }}
-            >
-              <UiIcon name="copy" size={14} />
-              <span>{copyLabel}</span>
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </span>
-  );
-}
-
+import {
+  type ThreadMessage,
+  EMPTY_FOLDERS,
+  EMPTY_VERSIONS,
+  EMPTY_JOBS,
+  selectionTextInside,
+  resolveProjectThreadId,
+} from "./workspace-helpers";
 export function WorkspaceApp() {
   useActionTooltips();
 
-  const [user, setUser] = useState<PersonalProfile | null>(null);
-  const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>(() => listSavedAccounts());
+  const {
+    user,
+    savedAccounts,
+    acceptProfile,
+    revision: sessionRevision,
+    forgetSavedLogin,
+    logoutCurrent,
+    loginAnother,
+    switchSavedAccount,
+  } = useAccountSession();
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
   const [projectImage, setProjectImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -464,30 +164,6 @@ export function WorkspaceApp() {
   const threadCache = useRef(createResourceCache<Thread>());
   const [historyLoading, setHistoryLoading] = useState(false);
   const historyRequest = useRef<AbortController | null>(null);
-  const mergeThread = (previous: Thread | undefined, incoming: Thread, older = false): Thread => {
-    if (!previous) return incoming;
-    const messageMap = new Map(previous.messages.map((item) => [item.id, item]));
-    for (const item of incoming.messages) {
-      const optimisticKey = `optimistic:${item.id}`;
-      const optimistic = messageMap.get(optimisticKey);
-      if (optimistic) {
-        messageMap.delete(optimisticKey);
-        messageMap.set(item.id, { ...item, render_key: optimisticKey });
-        continue;
-      }
-      const local = messageMap.get(item.id);
-      messageMap.set(item.id, local?.render_key ? { ...item, render_key: local.render_key } : item);
-    }
-    const messages = [...messageMap.values()].sort((a, b) =>
-      BigInt(a.sequence) < BigInt(b.sequence) ? -1 : 1,
-    );
-    return {
-      ...(older ? previous : incoming),
-      messages,
-      events: [...new Map([...previous.events, ...incoming.events].map((e) => [e.id, e])).values()],
-      page: older ? incoming.page : previous.page,
-    };
-  };
   const messageAvatar = (m: Thread["messages"][number]) => {
     const member = detail?.members.find((member) => member.id === m.author_id);
     return member ? member.avatar : m.author_avatar;
@@ -510,31 +186,23 @@ export function WorkspaceApp() {
       ? `${usage.model} · ${labelReasoningEffort(usage.reasoningEffort)}`
       : detail?.members.find((member) => member.id === AGENT_L2_MEMBER.id)?.motto || "";
   };
-  const readThread = async (id: string, signal: AbortSignal): Promise<Thread> => {
-    const previous = threadCache.current.get(id);
-    const after = previous?.messages.at(-1)?.sequence;
-    const incoming = await api(
-      `/threads/${id}?view=chat${after ? `&after=${after}` : ""}`,
-      undefined,
-      undefined,
-      signal,
-    );
-    const merged = mergeThread(threadCache.current.get(id), incoming);
-    // Catch up in bounded pages if many messages arrived while away.
-    if (after && incoming.page?.hasMore) {
-      let page = incoming;
-      while (page.page?.hasMore) {
-        page = await api(
-          `/threads/${id}?view=chat&after=${page.page.after}`,
+  const readThread = (id: string, signal: AbortSignal): Promise<Thread> =>
+    readThreadPages<Thread>(
+      () => threadCache.current.get(id),
+      (after, sideState) => {
+        const revision = threadCache.current.get(id)?.side_revision;
+        const revisionQuery =
+          revision == null || sideState === "initial"
+            ? ""
+            : `&sideRevision=${encodeURIComponent(String(revision))}`;
+        return api(
+          `/threads/${id}?view=chat&sideState=${encodeURIComponent(sideState)}${revisionQuery}${after ? `&after=${after}` : ""}`,
           undefined,
           undefined,
           signal,
         );
-        Object.assign(merged, mergeThread(merged, page));
-      }
-    }
-    return mergeThread(threadCache.current.get(id), merged);
-  };
+      },
+    );
   const [loadedDetail, setDetail] = useState<Detail | null>(null);
   const detail =
     loadedDetail?.id === projectId ? loadedDetail : projectCache.current.get(projectId) || null;
@@ -598,8 +266,13 @@ export function WorkspaceApp() {
     },
     [],
   );
-  const [quotedMessages, setQuotedMessages] = useState<MessageQuote[]>([]);
-  const [quotePreview, setQuotePreview] = useState<MessageQuote | null>(null);
+  const selection = useConversationSelection(`${user?.id || ""}:${projectId}:${threadId}`);
+  const {
+    preview: quotePreview,
+    updateFiles: setRefs,
+    updateFolders: setFolderRefs,
+    showQuote: setQuotePreview,
+  } = selection;
   const [copiedMessage, setCopiedMessage] = useState("");
   const [messageMenu, setMessageMenu] = useState<{
     x: number;
@@ -763,8 +436,6 @@ export function WorkspaceApp() {
     navigationUntil.current = Date.now() + 1500;
   }, []);
   const followConversation = useRef(true);
-  const [refs, setRefs] = useState<string[]>([]);
-  const [folderRefs, setFolderRefs] = useState<string[]>([]);
   const uploadTarget = useRef<((files: File[]) => void) | null>(null);
   const [fileDragOver, setFileDragOver] = useState(false);
   const [leftOpen, setLeftOpen] = useState(() => readStoredBoolean(LEFT_SIDEBAR_STATE_KEY, false));
@@ -848,41 +519,21 @@ export function WorkspaceApp() {
     }
     showDocument(id);
   };
-  const [taskPool, setTaskPool] = useState<AgentTask[]>([]);
-  const [taskMine, setTaskMine] = useState(true);
-  const [taskTimelineFilters, setTaskTimelineFilters] = useState<Record<TaskTimelineKind, boolean>>(
-    {
-      member_update: true,
-      status_change: true,
-      assignment: true,
-      execution: true,
-    },
-  );
-  const [taskTimelinePage, setTaskTimelinePage] = useState(0);
-  const [taskTimelinePageSize, setTaskTimelinePageSize] = useState(12);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
-  const [taskListSearch, setTaskListSearch] = useState("");
-  const [selectedTaskId, setSelectedTaskId] = useState("");
-  const [taskDetail, setTaskDetail] = useState<AgentTaskDetail | null>(null);
-  const [taskActionBusy, setTaskActionBusy] = useState(false);
-  const [taskActionError, setTaskActionError] = useState("");
-  const [copiedTaskId, setCopiedTaskId] = useState("");
-  const [taskExecutionMode, setTaskExecutionMode] = useState<
-    "auto" | "human_direct" | "member_connector"
-  >("auto");
-  const [taskTransferTarget, setTaskTransferTarget] = useState("");
-  const [taskProgress, setTaskProgress] = useState("");
-  const [taskResult, setTaskResult] = useState("");
-  const [taskAnswer, setTaskAnswer] = useState("");
-  const [taskReopenGoal, setTaskReopenGoal] = useState("");
-  const [taskReopenConstraints, setTaskReopenConstraints] = useState("");
-  const [taskCreateOpen, setTaskCreateOpen] = useState(false);
-  const [taskCreateTitle, setTaskCreateTitle] = useState("");
-  const [taskCreateGoal, setTaskCreateGoal] = useState("");
-  const [taskCreateConstraints, setTaskCreateConstraints] = useState("");
-  const [taskCreateTarget, setTaskCreateTarget] = useState("");
-  const [taskCreateRefs, setTaskCreateRefs] = useState<string[]>([]);
-  const [taskCreateFolderRefs, setTaskCreateFolderRefs] = useState<string[]>([]);
+  const [taskSelection, setTaskSelection] = useState({ id: 0, taskId: "" });
+  const { tasks: taskPool, refresh: refreshProjectTasks } = useProjectTasks(
+    projectId,
+    user?.id,
+    taskDialogOpen,
+    setError,
+  );
+  const taskCreateSequence = useRef(0);
+  const [taskCreateRequest, setTaskCreateRequest] = useState<{
+    id: number;
+    refId?: string;
+    folderId?: string;
+  } | null>(null);
+  const taskCreateOpen = taskCreateRequest !== null;
   const [threadListPane, setThreadListPane] = useState<"active" | "archived" | "create">("active");
   const [newThreadTitle, setNewThreadTitle] = useState("");
   const [newThreadBackground, setNewThreadBackground] = useState("");
@@ -919,18 +570,7 @@ export function WorkspaceApp() {
       return;
     const original = thread?.messages.find((item) => item.id === id) || m;
     const excerpt = selectedText.trim();
-    setQuotedMessages((previous) => {
-      const next = previous.filter((item) => item.id !== id);
-      return [
-        ...next,
-        {
-          ...original,
-          id,
-          body: excerpt || original.body,
-          ...(excerpt ? { refs: [], folder_refs: [] } : {}),
-        },
-      ].slice(0, 10);
-    });
+    selection.quote({ ...original, id }, excerpt);
     focusComposer();
   };
   const mentionAuthor = (m: ThreadMessage) => {
@@ -978,289 +618,27 @@ export function WorkspaceApp() {
   const projectConnectorBound = connectors.some((device) =>
     device.projects?.some((item) => item.projectId === projectId),
   );
-  const endedTask = (status: string) =>
-    ["completed", "failed", "cancelled", "rejected", "abandoned", "superseded"].includes(status);
-  const isMyTask = (task: AgentTask) =>
-    task.source_user_id === user?.id ||
-    task.created_by_id === user?.id ||
-    task.target_id === user?.id ||
-    task.claimed_by_id === user?.id ||
-    task.execution_agent_id === user?.id;
-  const isTrackedTask = (task: AgentTask) =>
-    task.task_type !== "assist_l2" || !!task.execution_agent_id || !endedTask(task.status);
-  const myTasks = taskPool.filter((task) => isMyTask(task) && isTrackedTask(task));
-  const currentMyTasks = myTasks.filter((task) => task.origin_thread_id === threadId);
-  const latestMyTask =
-    [...currentMyTasks].sort(
-      (left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
-    )[0] || null;
-  const scopedTasks = taskPool.filter(
-    (task) =>
-      task.origin_thread_id === threadId && isTrackedTask(task) && (!taskMine || isMyTask(task)),
-  );
-  const threadExecutorIds = stickyActorIds(
-    taskPool
-      .filter((task) => task.origin_thread_id === threadId && task.execution_agent_id)
-      .map((task) => ({ id: task.execution_agent_id, at: task.created_at })),
-  );
-  const memberName = (id: string | null | undefined) =>
-    detail?.members.find((member) => member.id === id)?.name ||
-    (id && id === user?.id ? user.name : "");
-  const taskSourceLabel = (task: AgentTask) =>
-    memberName(task.source_user_id) ||
-    (task.source_type === "l2_session" ? "小祥" : labelExecutorType(task.source_type));
-  const taskTargetLabel = (task: AgentTask) =>
-    memberName(task.target_id) || (task.target_type === "l2_session" ? "小祥" : "未指派");
-  const taskExecutorLabel = (task: AgentTask) => {
-    if (
-      task.execution_agent_id &&
-      (!task.execution_agent_type || task.execution_agent_type === "dsh_l3")
-    ) {
-      return l3ExecutorName(task.execution_agent_id, threadExecutorIds) || AGENT_LEVEL_LABELS.l3;
-    }
-    if (task.execution_agent_type === "human_self")
-      return memberName(task.claimed_by_id || task.target_id) || "成员本人";
-    if (task.execution_agent_type === "human_connector") return "本地执行器";
-    if (task.target_type === "human_member") {
-      if (task.status === "awaiting_acceptance") return "待责任成员确认";
-      if (task.status === "pending_start") return "待本地执行器启动";
-      if (endedTask(task.status) && !task.execution_agent_type) return "责任成员未执行";
-      return "待成员执行";
-    }
-    if (task.target_type === "l2_session") {
-      return endedTask(task.status) ? "小祥（未交给子 Agent）" : "待子 Agent 接单";
-    }
-    return "待选择";
-  };
-  const matchesTaskListQuery = (task: AgentTask) => {
-    const raw = taskListSearch.trim().toLowerCase();
-    if (!raw) return true;
-    if (taskThreadNumberSearchMatch(task, taskListSearch)) return true;
-    const needle = raw.startsWith("#") ? raw.slice(1) : raw;
-    return [
-      taskSourceLabel(task),
-      taskTargetLabel(task),
-      taskExecutorLabel(task),
-      labelWorkflowStatus(task.status),
-    ]
-      .join("\n")
-      .toLowerCase()
-      .includes(needle);
-  };
-  const visibleTasks = scopedTasks.filter(matchesTaskListQuery);
-  const executionRunLabel = (
-    run: AgentTaskDetail["executionRuns"][number],
-    task: AgentTaskDetail,
-  ) => {
-    if (run.executor_type === "dsh_l3") {
-      if (!run.executor_id) return run.status === "queued" ? "待分配" : "未绑定";
-      if (run.executor_label) return run.executor_label;
-      // Execution-run labels must be scoped to this task. Mixing IDs from the
-      // task pool makes a historical run's name depend on unrelated tasks.
-      const runExecutorIds = uniqueActorIds(
-        [...task.executionRuns]
-          .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
-          .map((item) => item.executor_id),
-      );
-      return (
-        l3ExecutorName(run.executor_id, runExecutorIds) || `子 Agent-${run.executor_id.slice(0, 8)}`
-      );
-    }
-    if (run.executor_type === "human_self") return memberName(run.executor_id) || "成员本人";
-    if (run.executor_type === "human_connector") {
-      const ownerName =
-        run.executor_member_name || run.executor_owner_name || memberName(task.target_id);
-      return ownerName ? `${ownerName}（本地执行器）` : "本地执行器成员";
-    }
-    return labelExecutorType(run.executor_type);
-  };
-  const statusActorLabel = (
-    event: {
-      actor_type: string;
-      actor_id: string | null;
-      actor_name?: string | null;
-      actor_name_snapshot?: string | null;
-    },
-    task?: AgentTaskDetail,
-  ) => {
-    if (event.actor_type === "human_member")
-      return event.actor_name || memberName(event.actor_id) || "成员";
-    if (event.actor_type === "human_member_mcp")
-      return `${memberName(event.actor_id) || "成员"}（MCP）`;
-    if (
-      event.actor_type === "human_member_connector_mcp" ||
-      event.actor_type === "human_member_connector"
-    )
-      return `${event.actor_name || memberName(event.actor_id) || memberName(task?.target_id) || "成员"}（本地执行器）`;
-    if (event.actor_type === "l2_session") return "L2-小祥";
-    if (event.actor_type === "dsh_l3") {
-      // Timeline items pack the label into actor_name; status history also has actor_name_snapshot.
-      if (event.actor_name_snapshot || event.actor_name)
-        return event.actor_name_snapshot || event.actor_name!;
-      if (event.actor_id && task) {
-        const runExecutorIds = uniqueActorIds(
-          [...task.executionRuns]
-            .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
-            .map((item) => item.executor_id),
-        );
-        return (
-          l3ExecutorName(event.actor_id, runExecutorIds) || `子 Agent-${event.actor_id.slice(0, 8)}`
-        );
-      }
-      return "子 Agent";
-    }
-    if (event.actor_type === "connector")
-      return `${event.actor_name || memberName(task?.target_id) || "成员"}（本地执行器）`;
-    return "系统";
-  };
-  // 指派事件与状态变更合成一条时间线：同一操作（创建 / 拒绝 / 重新发起）两边各有一条时，合并显示，不重复。
-  const taskDetailTimeline = (task: AgentTaskDetail): TaskTimelineItem[] => {
-    const actionLabels: Record<string, string> = {
-      assigned: "创建并指派",
-      transferred: "转交",
-      rejected: "拒绝",
-      acknowledged: "已知晓",
-      reopened: "重新发起",
-    };
-    const targetLabel = (type: string | null, id: string | null) =>
-      type === "l2_session" ? "小祥" : type === "human_member" ? memberName(id) || "成员" : "";
-    const items: (TaskTimelineItem & { transition?: string })[] = task.assignmentHistory
-      .filter(
-        (event) =>
-          !(
-            event.event_type === "transferred" &&
-            event.from_target_type === "l2_session" &&
-            event.to_target_type === "l2_session" &&
-            /L2 会话已更新/.test(event.reason || "")
-          ),
-      )
-      .map((event) => ({
-        key: `assignment-${event.id}`,
-        kind: "assignment",
-        at: event.created_at,
-        actorType: event.changed_by_type,
-        actorId: event.changed_by_id,
-        actorName: event.actor_name,
-        title: `${actionLabels[event.event_type] || event.event_type}${["assigned", "transferred"].includes(event.event_type) && event.to_target_type ? ` → ${targetLabel(event.to_target_type, event.to_target_id)}` : ""}`,
-        body: event.reason,
-      }));
-    for (const event of task.statusHistory || []) {
-      const transition = `${event.from_status ? `${labelWorkflowStatus(event.from_status)} → ` : ""}${labelWorkflowStatus(event.to_status)}`;
-      const twin = items.find(
-        (item) =>
-          !item.transition &&
-          item.actorType === event.actor_type &&
-          item.actorId === event.actor_id &&
-          Math.abs(Date.parse(item.at) - Date.parse(event.created_at)) < 2000,
-      );
-      if (twin) {
-        twin.transition = transition;
-        twin.body = [twin.body, `当时任务状态：${transition}`, event.reason]
-          .filter(Boolean)
-          .join("\n");
-      } else
-        items.push({
-          key: `status-${event.id}`,
-          kind: "status_change",
-          at: event.created_at,
-          actorType: event.actor_type,
-          actorId: event.actor_id,
-          actorName: event.actor_name || event.actor_name_snapshot,
-          title: transition,
-          body: event.reason,
-        });
-    }
-    const updates: TaskTimelineItem[] = task.updates.map((item) => ({
-      key: `update-${item.id}`,
-      kind: "member_update",
-      at: item.created_at,
-      actorType: item.source_type,
-      actorId: item.source_id,
-      title: "成员动态",
-      body: item.body,
-    }));
-    const executions: TaskTimelineItem[] = task.executionRuns.map((run) => ({
-      key: `execution-${run.id}`,
-      kind: "execution",
-      at: run.created_at,
-      actorType: run.executor_type,
-      actorId: run.executor_id,
-      actorName: run.executor_label,
-      title: "执行轮次",
-      body: [labelWorkflowStatus(run.status), run.progress || run.result_summary || run.error]
-        .filter(Boolean)
-        .join("："),
-    }));
-    return [...items, ...updates, ...executions].sort(
-      (left, right) => Date.parse(right.at) - Date.parse(left.at),
-    );
-  };
+  const { latestMyTask } = taskViewModel(taskPool, detail, user, threadId);
   const openTaskDialog = (taskId = "") => {
-    setSelectedTaskId(taskId);
-    setTaskTimelinePage(0);
-    if (!taskId) setTaskDetail(null);
+    setTaskSelection((current) => ({ id: current.id + 1, taskId }));
     setTaskDialogOpen(true);
   };
   const openTask = (taskId: string) => openTaskDialog(taskId);
-  const copyTaskInfo = async (task: AgentTask) => {
-    if (!projectId || detail?.id !== projectId) return;
-    const originThreadId = task.origin_thread_id || threadId;
-    const iteration =
-      detail?.threads.find((item) => item.id === originThreadId)?.title ||
-      (thread?.id === originThreadId ? thread.title : undefined);
-    const info = formatMcpCopyPayload({
-      server: `${location.origin}${health?.mcpEndpoint || "/mcp"}`,
-      project: detail?.name,
-      projectId,
-      iteration,
-      threadId: originThreadId,
-      task: task.title,
-      taskId: task.id,
-      instruction: MCP_TASK_COPY_INSTRUCTION,
-    });
-    try {
-      await navigator.clipboard.writeText(info);
-      setCopiedTaskId(task.id);
-      showTip("任务信息已复制");
-    } catch {
-      setTaskActionError("无法自动复制任务信息，请检查剪贴板权限后重试。");
-      showTip("无法自动复制任务信息，请检查剪贴板权限后重试。", "error");
-    }
-  };
-  useEffect(() => {
-    if (!copiedTaskId) return;
-    const timer = setTimeout(() => setCopiedTaskId(""), 2000);
-    return () => clearTimeout(timer);
-  }, [copiedTaskId]);
-  const resetTaskCreate = () => {
-    setTaskCreateTitle("");
-    setTaskCreateGoal("");
-    setTaskCreateConstraints("");
-    setTaskCreateRefs([]);
-    setTaskCreateFolderRefs([]);
-    setTaskCreateTarget(user?.id || "");
-  };
   const openTaskCreate = (seed?: { refId?: string; folderId?: string }) => {
     if (!active) {
       showTip("当前迭代只读，暂不能创建任务", "error");
       return;
     }
-    setTaskActionError("");
-    resetTaskCreate();
-    if (seed?.refId) setTaskCreateRefs([seed.refId]);
-    if (seed?.folderId) setTaskCreateFolderRefs([seed.folderId]);
-    setTaskCreateOpen(true);
+    setTaskCreateRequest({ ...seed, id: ++taskCreateSequence.current });
   };
   const closeTaskCreate = () => {
-    setTaskCreateOpen(false);
-    resetTaskCreate();
+    setTaskCreateRequest(null);
   };
   useEffect(() => {
-    setSelectedTaskId("");
-    setTaskDetail(null);
-    setTaskCreateOpen(false);
-    setTaskListSearch("");
-  }, [threadId]);
+    setTaskSelection((current) => ({ id: current.id + 1, taskId: "" }));
+    setTaskDialogOpen(false);
+    setTaskCreateRequest(null);
+  }, [threadId, projectId, user?.id]);
   const refreshConnectors = async () => {
     setConnectors(await api("/connectors"));
     setConnectorsReady(true);
@@ -1279,6 +657,7 @@ export function WorkspaceApp() {
   const loadWorkspace = async (signal?: AbortSignal) => {
     setLoading(true);
     setStartupError("");
+    const revision = sessionRevision.current;
     let selection: { projectId?: string; threadId?: string } = {};
     try {
       const saved = JSON.parse(sessionStorage.getItem("cothread-selection") || "{}");
@@ -1292,14 +671,14 @@ export function WorkspaceApp() {
       if (typeof selection.projectId === "string") params.set("projectId", selection.projectId);
       if (typeof selection.threadId === "string") params.set("threadId", selection.threadId);
       const workspace = await api(`/workspace?${params}`, undefined, undefined, workspaceSignal);
-      if (signal?.aborted) return;
+      if (signal?.aborted || sessionRevision.current !== revision) return;
       projectCache.current.clear();
       threadCache.current.clear();
       if (workspace.project)
         projectCache.current.update(workspace.project.id, () => workspace.project);
       if (workspace.thread) threadCache.current.update(workspace.thread.id, () => workspace.thread);
       bootstrappedUser.current = workspace.user.id;
-      setUser(workspace.user);
+      acceptProfile(workspace.user);
       setProjects(workspace.projects);
       setProjectId(workspace.project?.id || "");
       setThreadId(workspace.thread?.id || "");
@@ -1308,8 +687,8 @@ export function WorkspaceApp() {
       setThread(workspace.thread);
       setHealth(workspace.health);
     } catch (cause) {
-      if (signal?.aborted) return;
-      if ((cause as { status?: number }).status === 401) setUser(null);
+      if (signal?.aborted || sessionRevision.current !== revision) return;
+      if ((cause as { status?: number }).status === 401) acceptProfile(null);
       else setStartupError((cause as Error).message);
     } finally {
       if (!signal?.aborted) setLoading(false);
@@ -1328,80 +707,14 @@ export function WorkspaceApp() {
       threadCache.current.clear();
       setDetail(null);
       setThread(null);
+      setProjects([]);
+      setProjectId("");
+      setThreadId("");
+      setContextOpen(false);
+      if (sessionRevision.current > 0) setLoading(false);
     }
-  }, [user?.id]);
-  useEffect(() => {
-    if (!user) return;
-    const existing = listSavedAccounts().find((item) => item.id === user.id && item.token);
-    const skip = shouldSkipRemember(user.id);
-    let active = true;
-    const refresh = async () => {
-      if (skip) return;
-      if (existing) updateSavedAccountProfile(user);
-      else {
-        const result = await api("/session/remember", {});
-        if (result?.sessionToken) saveAccountSession(result, result.sessionToken);
-      }
-      const merged = await mergeKnownAccounts(api);
-      if (active) setSavedAccounts(merged);
-    };
-    void refresh().catch(() => {
-      if (active) setSavedAccounts(listSavedAccounts());
-    });
-    return () => {
-      active = false;
-    };
-  }, [user?.id]);
-  const leaveAccount = () => {
     setModal(null);
-    setUser(null);
-    setProjects([]);
-    setProjectId("");
-    setThreadId("");
-    setContextOpen(false);
-  };
-  const forgetSavedLogin = async (userId: string) => {
-    await api("/session/forget", { userId }).catch(() => {});
-    removeSavedAccount(userId);
-    setSavedAccounts(listSavedAccounts());
-  };
-  const logoutCurrent = async () => {
-    await api("/logout", {});
-    if (user) await forgetSavedLogin(user.id);
-    leaveAccount();
-  };
-  const loginAnother = async () => {
-    await api("/session/detach", {});
-    setSavedAccounts(listSavedAccounts());
-    leaveAccount();
-  };
-  const switchSavedAccount = async (account: SavedAccount) => {
-    if (!user || account.id === user.id) return;
-    const hint = account.email || account.username;
-    if (!account.token) {
-      setLoginHint(hint);
-      await api("/session/detach", {});
-      leaveAccount();
-      return;
-    }
-    try {
-      const profile = await api("/session/switch", { token: account.token });
-      updateSavedAccountProfile(profile);
-      setSavedAccounts(listSavedAccounts());
-      setModal(null);
-      setUser(profile);
-      showTip("已切换到 " + profile.name);
-    } catch (cause) {
-      if ((cause as { status?: number }).status !== 401) throw cause;
-      clearSavedAccountToken(account.id);
-      setLoginHint(hint);
-      setLoginNotice("该账号登录已过期，请重新登录");
-      await api("/logout", {}).catch(() => {});
-      clearSavedAccountToken(user.id);
-      setSavedAccounts(listSavedAccounts());
-      leaveAccount();
-    }
-  };
+  }, [user?.id]);
   useEffect(() => {
     if (loading) return;
     applyUiTheme(user?.ui_theme || DEFAULT_UI_THEME);
@@ -1439,305 +752,47 @@ export function WorkspaceApp() {
     if (!projects.some((p) => p.id === projectId && p.tab_visible))
       setProjectId(projects.find((p) => p.tab_visible)?.id || "");
   }, [projects, projectId]);
-  useEffect(() => {
-    const cached = projectCache.current.get(projectId);
-    setDetail(cached || null);
-    setThreadId((current) => resolveProjectThreadId(cached?.threads || [], current));
-    setRefs([]);
-    setFolderRefs([]);
-    setQuotedMessages([]);
-    setQuotePreview(null);
-    if (!projectId || !user) return;
-    let alive = true;
-    let inFlight = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const load = async () => {
-      clearTimeout(timer);
-      if (document.hidden || inFlight) return;
-      inFlight = true;
-      try {
-        const d = await projectCache.current.read(projectId, async (signal) => {
-          const current = projectCache.current.get(projectId);
-          if (!current?.libraryRevision) {
-            return api(`/projects/${projectId}?view=chat`, undefined, undefined, signal);
-          }
-          const activity = await api(
-            `/projects/${projectId}?view=chat&library=0`,
-            undefined,
-            undefined,
-            signal,
-          );
-          let next = {
-            ...activity,
-            folders: current.folders,
-            versions: current.versions,
-            documentOrganizationJobs: current.documentOrganizationJobs,
-          };
-          if (activity.libraryRevision !== current.libraryRevision) {
-            const library = await api(
-              `/projects/${projectId}/library`,
-              undefined,
-              undefined,
-              signal,
-            );
-            next = {
-              ...next,
-              folders: library.folders,
-              versions: library.versions,
-              documentOrganizationJobs: library.documentOrganizationJobs,
-              libraryRevision: library.libraryRevision || activity.libraryRevision,
-            };
-          }
-          return projectActivityKey(current) === projectActivityKey(next) ? current : next;
-        });
-        if (!alive) return;
-        setDetail((previous) => (previous === d ? previous : d));
-        const target = pendingNotification.current;
-        if (target?.projectId === projectId) {
-          pendingNotification.current = null;
-          const nextId = resolveProjectThreadId(d.threads, target.threadId || "");
-          setThreadId(nextId);
-          setThreadListPane(
-            d.threads.find((t) => t.id === nextId)?.status === "archived" ? "archived" : "active",
-          );
-        } else {
-          setThreadId((t) => resolveProjectThreadId(d.threads, t));
-        }
-      } catch (e) {
-        const error = e as Error & { status?: number };
-        if (alive && error.name !== "AbortError") {
-          setError(error.message);
-          if ([401, 403, 404].includes(error.status || 0)) {
-            setDetail(null);
-            setThreadId("");
-            threadCache.current.clear();
-          }
-        }
-      } finally {
-        inFlight = false;
-        if (alive) {
-          clearTimeout(timer);
-          timer = setTimeout(load, 30000);
-        }
-      }
-    };
-    if (cached) timer = setTimeout(load, 30000);
-    else void load();
-    document.addEventListener("visibilitychange", load);
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-      projectCache.current.cancel(projectId);
-      document.removeEventListener("visibilitychange", load);
-    };
-  }, [projectId, user?.id]);
-  useEffect(() => {
-    historyRequest.current?.abort();
-    setHistoryLoading(false);
-    const cached = threadCache.current.get(threadId);
-    setThread(cached || null);
-    followConversation.current = true;
-    setRefs([]);
-    setFolderRefs([]);
-    if (!threadId || !user) return;
-    let alive = true;
-    let inFlight = false;
-    let idlePolls = 0;
-    let latestMessage = cached?.messages.at(-1)?.id;
-    let timer: ReturnType<typeof setTimeout>;
-    const load = async () => {
-      clearTimeout(timer);
-      if (document.hidden || inFlight) return;
-      inFlight = true;
-      let active = false;
-      try {
-        const t = await threadCache.current.read(threadId, (signal) =>
-          readThread(threadId, signal),
-        );
-        if (!alive) return;
-        setThread((current) => (threadPollKey(current) === threadPollKey(t) ? current : t));
-        const latest = t.messages.at(-1)?.id;
-        idlePolls = latest === latestMessage ? idlePolls + 1 : 0;
-        latestMessage = latest;
-        active =
-          t.replies.some((r) => ["queued", "running"].includes(r.status)) ||
-          !!t.requests?.some((r) => ["queued", "running"].includes(r.status)) ||
-          ["queued", "running"].includes(t.contextUsage?.compactStatus);
-      } catch (e) {
-        const error = e as Error & { status?: number };
-        if (alive && error.name !== "AbortError") {
-          setError(error.message);
-          if ([401, 403, 404].includes(error.status || 0)) setThread(null);
-        }
-      } finally {
-        inFlight = false;
-        if (alive) {
-          clearTimeout(timer);
-          timer = setTimeout(
-            load,
-            active || hasPendingWork(threadCache.current.get(threadId))
-              ? 1000
-              : Math.min(30000, 8000 * 2 ** Math.min(idlePolls, 2)),
-          );
-        }
-      }
-    };
-    wakeThreadPoll.current = () => {
-      idlePolls = 0;
-      void load();
-    };
-    if (cached) timer = setTimeout(load, 2500);
-    else void load();
-    document.addEventListener("visibilitychange", load);
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-      wakeThreadPoll.current = null;
-      threadCache.current.cancel(threadId);
-      historyRequest.current?.abort();
-      document.removeEventListener("visibilitychange", load);
-    };
-  }, [threadId, user?.id]);
-  useEffect(() => {
-    if (!user || !threadId || !thread || thread.id !== threadId || historyLoading) return;
-    const latest = [...thread.messages]
-      .reverse()
-      .find((item) => item.sequence && !item.id.startsWith("optimistic:"))?.sequence;
-    if (!latest) return;
-    if (thread.last_read_sequence && BigInt(thread.last_read_sequence) >= BigInt(latest)) return;
-    const timer = window.setTimeout(() => {
-      void api("/threads/" + threadId + "/read", { sequence: latest })
-        .then(() => {
-          const readPatch = { last_read_sequence: latest, unread_count: 0, unread_mention: false };
-          setThread((current) =>
-            current && current.id === threadId ? { ...current, ...readPatch } : current,
-          );
-          setDetail((current) =>
-            current
-              ? {
-                  ...current,
-                  threads: current.threads.map((item) =>
-                    item.id === threadId ? { ...item, ...readPatch } : item,
-                  ),
-                }
-              : current,
-          );
-          const cachedProject = projectCache.current.get(projectId);
-          if (cachedProject)
-            projectCache.current.update(projectId, () => ({
-              ...cachedProject,
-              threads: cachedProject.threads.map((item) =>
-                item.id === threadId ? { ...item, ...readPatch } : item,
-              ),
-            }));
-          const cachedThread = threadCache.current.get(threadId);
-          if (cachedThread)
-            threadCache.current.update(threadId, () => ({ ...cachedThread, ...readPatch }));
-        })
-        .catch(() => {});
-    }, 1200);
-    return () => window.clearTimeout(timer);
-  }, [
-    user?.id,
+  const projectActivityContext = {
+    projectId,
+    user,
+    projectCache,
+    threadCache,
+    pendingNotification,
+    setDetail,
+    setThreadId,
+    setThreadListPane,
+    setError,
+  };
+  useProjectActivity(projectActivityContext);
+  const threadActivityContext = {
     threadId,
-    thread?.id,
-    thread?.last_read_sequence,
-    thread?.messages.at(-1)?.id,
+    user,
+    threadCache,
+    historyRequest,
+    wakeThreadPoll,
+    followConversation,
+    readThread,
+    hasPendingWork,
+    setThread,
+    setHistoryLoading,
+    setError,
+  };
+  useThreadActivity(threadActivityContext);
+  const readReceiptContext = {
+    user,
+    threadId,
+    thread,
     historyLoading,
     projectId,
-  ]);
+    projectCache,
+    threadCache,
+    setThread,
+    setDetail,
+  };
+  useThreadReadReceipt(readReceiptContext);
   useEffect(() => {
     if (pendingWork) wakeThreadPoll.current?.();
   }, [threadId, pendingWork]);
-  useEffect(() => {
-    if (!projectId || !user) {
-      setTaskPool([]);
-      return;
-    }
-    let alive = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const load = async () => {
-      try {
-        const tasks = await api(`/projects/${projectId}/tasks?limit=200`);
-        if (alive) setTaskPool((current) => (sameSnapshot(current, tasks) ? current : tasks));
-      } catch (e) {
-        if (alive && (e as Error).name !== "AbortError") setError((e as Error).message);
-      } finally {
-        if (alive) timer = setTimeout(load, taskDialogOpen ? 5000 : 15000);
-      }
-    };
-    void load();
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-    };
-  }, [projectId, user?.id, taskDialogOpen]);
-  useEffect(() => {
-    if (!selectedTaskId) {
-      setTaskDetail(null);
-      return;
-    }
-    let alive = true;
-    let timer: ReturnType<typeof setTimeout>;
-    let primed = false;
-    const load = async () => {
-      try {
-        const value = await api(`/tasks/${selectedTaskId}`);
-        if (!alive) return;
-        setTaskDetail(value);
-        if (!primed) {
-          primed = true;
-          setTaskProgress(value.progress || "");
-          setTaskResult(value.result_summary || "");
-          setTaskReopenGoal(value.goal || "");
-          setTaskReopenConstraints(value.constraints || "");
-          setTaskActionError("");
-        }
-      } catch (cause) {
-        if (alive) setTaskActionError((cause as Error).message);
-      } finally {
-        if (alive && taskDialogOpen)
-          timer = setTimeout(() => {
-            void load();
-          }, 5000);
-      }
-    };
-    void load();
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-    };
-  }, [selectedTaskId, taskDialogOpen]);
-  const performTaskAction = async (action: () => Promise<unknown>, success = "操作成功") => {
-    if (!active) {
-      setTaskActionError("当前迭代只读，任务暂不能变更");
-      return;
-    }
-    setTaskActionBusy(true);
-    setTaskActionError("");
-    try {
-      await action();
-      const [tasks, nextDetail] = await Promise.all([
-        api(`/projects/${projectId}/tasks?limit=200`),
-        selectedTaskId ? api(`/tasks/${selectedTaskId}`) : Promise.resolve(null),
-      ]);
-      setTaskPool(tasks);
-      setTaskDetail(nextDetail);
-      if (nextDetail) {
-        setTaskProgress(nextDetail.progress || "");
-        setTaskResult(nextDetail.result_summary || "");
-        setTaskReopenGoal(nextDetail.goal || "");
-        setTaskReopenConstraints(nextDetail.constraints || "");
-      }
-      if (success) showTip(success);
-    } catch (cause) {
-      const detail = (cause as Error).message;
-      setTaskActionError(detail);
-      showTip(detail, "error");
-    } finally {
-      setTaskActionBusy(false);
-    }
-  };
   useEffect(() => {
     const container = conversationRef.current;
     if (container && followConversation.current) container.scrollTop = container.scrollHeight;
@@ -1774,11 +829,7 @@ export function WorkspaceApp() {
                 if (currentContext.current.threadId === threadId) setThread(value);
               })
           : null,
-        projectId
-          ? api(`/projects/${projectId}/tasks?limit=200`).then((value) => {
-              if (currentContext.current.projectId === projectId) setTaskPool(value);
-            })
-          : null,
+        projectId ? refreshProjectTasks() : null,
         api("/projects").then((value) => {
           if (currentContext.current.projectId === projectId) setProjects(value);
         }),
@@ -1982,55 +1033,20 @@ export function WorkspaceApp() {
       }
     });
   };
-  const submitModal = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (modal === "email") return;
-    const form = new FormData(event.currentTarget);
-    const value = (key: string) => String(form.get(key) || "");
-    void run(async () => {
-      if (modal === "profile") {
-        const profile = await api(
-          "/me",
-          {
-            name: value("name"),
-            motto: value("motto"),
-            avatar: profileAvatar,
-            identity_tags: form.getAll("identity_tags").filter(Boolean),
-          },
-          "PATCH",
-        );
-        updateSavedAccountProfile(profile);
-        setSavedAccounts(listSavedAccounts());
-        setUser(profile);
-        await refresh();
-        showTip("个人资料已保存");
-      }
-      if (modal === "project") {
-        const p = await api("/projects", {
-          name: value("name"),
-          description: value("description"),
-          ...(projectImage ? { image: projectImage } : {}),
-        });
-        setProjects(await api("/projects"));
-        setProjectId(p.id);
-        showTip("项目已创建");
-      }
-      if (modal === "password") {
-        await api("/password", {
-          currentPassword: value("currentPassword"),
-          password: value("password"),
-        });
-        showTip("密码已更新");
-      }
-      if (modal === "run") {
-        const input = { command: value("command") };
-        const result = await api(`/threads/${threadId}/runs`, input);
-        await refresh();
-        if (result.status !== "succeeded") throw new Error(result.output);
-      }
-      if (modal !== "profile" && modal !== "password") setModal(null);
-    });
+  const modalSubmitContext = {
+    modal,
+    run,
+    refresh,
+    profileAvatar,
+    projectImage,
+    threadId,
+    acceptProfile,
+    setProjects,
+    setProjectId,
+    setModal,
   };
+  const submitModal = (event: React.FormEvent<HTMLFormElement>) =>
+    submitWorkspaceModal(modalSubmitContext, event);
   const time = (text: string) => {
     const value = new Date(text.replace(" ", "T") + (text.endsWith("Z") ? "" : "Z"));
     const today = new Date();
@@ -2066,9 +1082,10 @@ export function WorkspaceApp() {
     return `${date} ${clock}`;
   };
   const updateThreadCache = (targetThreadId: string, transform: (current: Thread) => Thread) => {
-    const next = threadCache.current.update(targetThreadId, (current) =>
-      transform(current || (loadedThread?.id === targetThreadId ? loadedThread : thread)!),
-    );
+    const next = threadCache.current.update(targetThreadId, (current) => ({
+      ...transform(current || (loadedThread?.id === targetThreadId ? loadedThread : thread)!),
+      sideState: undefined,
+    }));
     if (currentContext.current.threadId === targetThreadId) setThread(next);
   };
   const addVersionToConversation = (id: string) => {
@@ -2115,141 +1132,43 @@ export function WorkspaceApp() {
     }
     focusComposer();
   };
-  const persistOptimisticMessage = async (
+  const optimisticMessageCtx = {
+    updateThreadCache,
+    cancelThreadCache: (id: string) => threadCache.current.cancel(id),
+    followConversation,
+    refresh,
+    user,
+    thread,
+    dialogueMode,
+  };
+  const persistOptimisticMessage = (
     targetThreadId: string,
     optimisticId: string,
-    payload: {
-      body: string;
-      refs: string[];
-      folderRefs?: string[];
-      quoteIds: string[];
-      clientMessageId: string;
-      dialogueMode: DialogueMode;
-    },
+    payload: OptimisticMessagePayload,
     quotes: MessageQuote[],
-  ) => {
-    updateThreadCache(targetThreadId, (current) => ({
-      ...current,
-      messages: current.messages.map((item) =>
-        item.id === optimisticId
-          ? { ...item, delivery_status: "sending", delivery_error: undefined }
-          : item,
-      ),
-    }));
-    try {
-      const saved = await api(
-        `/threads/${targetThreadId}/messages`,
-        payload,
-        undefined,
-        AbortSignal.timeout(10000),
-      );
-      updateThreadCache(targetThreadId, (current) => {
-        const withoutDuplicate = current.messages.filter((item) => item.id !== saved.id);
-        const found = withoutDuplicate.some((item) => item.id === optimisticId);
-        const committed = { ...saved, quotes, render_key: optimisticId };
-        return {
-          ...current,
-          messages: found
-            ? withoutDuplicate.map((item) => (item.id === optimisticId ? committed : item))
-            : [...withoutDuplicate, committed],
-          requests:
-            !saved.request_status || current.requests.some((r) => r.message_id === saved.id)
-              ? current.requests
-              : [
-                  ...current.requests,
-                  {
-                    message_id: saved.id,
-                    status: saved.request_status,
-                    response_id: null,
-                    error: null,
-                  },
-                ],
-          replies:
-            !saved.participation || current.replies.some((r) => r.message_id === saved.id)
-              ? current.replies
-              : [
-                  ...current.replies,
-                  {
-                    message_id: saved.id,
-                    status: "queued",
-                    participation: saved.participation,
-                    reply_id: null,
-                    parent_message_id: null,
-                    agent_slot: null,
-                    dispatch_ready: false,
-                    error: null,
-                    progress: null,
-                  },
-                ],
-        };
-      });
-      await refresh();
-    } catch (cause) {
-      const detail = cause instanceof Error ? cause.message : "消息发送失败";
-      updateThreadCache(targetThreadId, (current) => ({
-        ...current,
-        messages: current.messages.map((item) =>
-          item.id === optimisticId
-            ? { ...item, delivery_status: "failed", delivery_error: detail }
-            : item,
-        ),
-      }));
-    }
-  };
-  const sendOptimisticMessage = async (
+  ) =>
+    persistOptimisticMessageImpl(
+      optimisticMessageCtx,
+      targetThreadId,
+      optimisticId,
+      payload,
+      quotes,
+    );
+  const sendOptimisticMessage = (
     targetThreadId: string,
     body: string,
     selectedRefs: string[],
     selectedFolderRefs: string[] = [],
     selectedQuotes: MessageQuote[] = [],
-  ) => {
-    if (!user) throw new Error("当前用户不可用");
-    const optimisticId = `optimistic:${crypto.randomUUID()}`;
-    const optimistic = {
-      id: optimisticId,
-      sequence: (
-        (thread?.messages.reduce((latest, item) => {
-          try {
-            return BigInt(item.sequence) > latest ? BigInt(item.sequence) : latest;
-          } catch {
-            return latest;
-          }
-        }, 0n) || 0n) + 1n
-      ).toString(),
-      body,
-      source: "web",
-      refs: selectedRefs,
-      folder_refs: selectedFolderRefs,
-      author: user.name,
-      author_id: user.id,
-      author_avatar: user.avatar,
-      author_role: user.identity_tags[0] || null,
-      quotes: selectedQuotes,
-      created_at: new Date().toISOString(),
-      execution_target: "cloud" as const,
-      delivery_status: "sending" as const,
-    };
-    threadCache.current.cancel(targetThreadId);
-    updateThreadCache(targetThreadId, (current) => ({
-      ...current,
-      messages: [...current.messages, optimistic],
-    }));
-    followConversation.current = true;
-    void persistOptimisticMessage(
+  ) =>
+    sendOptimisticMessageImpl(
+      optimisticMessageCtx,
       targetThreadId,
-      optimisticId,
-      {
-        body,
-        refs: selectedRefs,
-        folderRefs: selectedFolderRefs,
-        quoteIds: selectedQuotes.map((quote) => quote.id),
-        clientMessageId: optimisticId.slice("optimistic:".length),
-        dialogueMode,
-      },
+      body,
+      selectedRefs,
+      selectedFolderRefs,
       selectedQuotes,
     );
-    return true;
-  };
   const requestDocumentRevision = async (
     versionId: string,
     target: "current" | "new",
@@ -2307,69 +1226,20 @@ export function WorkspaceApp() {
         compactStatus: thread.contextUsage?.compactStatus,
       })
     : COORDINATOR_LOG_IDLE_LABEL;
-  const renderAgentRound = (reply: Thread["replies"][number]) => {
-    if (!hasAgentActivity(reply)) return null;
-    const stopControl = active && (reply.status === "queued" || reply.status === "running") && (
-      <button
-        className="agent-stop"
-        disabled={busy}
-        onClick={() =>
-          void run(async () => {
-            await api(`/threads/${threadId}/replies/${reply.message_id}/stop`, {});
-            await refresh();
-          })
-        }
-      >
-        停止
-      </button>
-    );
-    const failed = reply.status === "failed" && (
-      <div className="reply-status failed" role="status">
-        <span>{reply.error}</span>
-        {active && (
-          <button
-            disabled={busy}
-            onClick={() =>
-              void run(async () => {
-                await api(`/threads/${threadId}/replies/${reply.message_id}/retry`, {});
-                await refresh();
-              })
-            }
-          >
-            重试回复
-          </button>
-        )}
-      </div>
-    );
-    if (!isExecutorReply(reply)) {
-      return failed ? (
-        <div className="agent-round" data-message-id={reply.message_id}>
-          {failed}
-        </div>
-      ) : null;
-    }
-    const events = thread?.events.filter((e) => e.message_id === reply.message_id) || [];
-    const output = liveOutput[reply.message_id];
-    return (
-      <div className="agent-round" data-message-id={reply.message_id}>
-        <div className="agent-trace-row">
-          <AgentActivity
-            threadId={threadId}
-            messageId={reply.message_id}
-            events={events}
-            output={output}
-            status={reply.status}
-            progress={reply.progress}
-            hasFinal={!!reply.reply_id}
-            versions={detail?.versions}
-            threads={detail?.threads}
-          />
-          {stopControl}
-        </div>
-        {failed}
-      </div>
-    );
+  const agentRoundProps = {
+    hasAgentActivity,
+    active,
+    busy,
+    threadId,
+    thread,
+    detail,
+    liveOutput,
+    run,
+    refresh,
   };
+  const renderAgentRound = (reply: Thread["replies"][number]) => (
+    <AgentRoundView {...agentRoundProps} reply={reply} />
+  );
   const renderFolderRef = (folderId: string) => {
     const folder = detail?.folders.find((item) => item.id === folderId);
     const label = folder
@@ -2421,9 +1291,14 @@ export function WorkspaceApp() {
       </button>
     );
   };
-  if (loading || startupError)
+  if (loading || startupError || (user && bootstrappedUser.current !== user.id))
     return <BootScreen error={startupError} onRetry={() => void loadWorkspace()} />;
-  if (!user) return <LoginScreen onLogin={setUser} />;
+  if (!user)
+    return (
+      <Suspense fallback={<BootScreen error="" onRetry={() => void loadWorkspace()} />}>
+        <LoginScreen onLogin={acceptProfile} />
+      </Suspense>
+    );
   const versions =
     detail?.versions.filter(
       (v, i, all) =>
@@ -2432,59 +1307,47 @@ export function WorkspaceApp() {
   const threads = detail?.threads || [];
   const activeThreads = threads.filter((t) => t.status === "active" || t.status === "archiving");
   const archivedThreads = threads.filter((t) => t.status === "archived");
-  const renderThreadLink = (t: (typeof threads)[number]) => {
-    const selected = threadId === t.id;
-    const showArchive = t.status === "active" && (t.created_by === user.id || projectLeader);
-    const showArchivedActions = t.status === "archived" && writable;
-    const showReviewArchive = t.status === "archiving";
-    const menuOpen = threadRowMenuId === t.id;
-    return (
-      <div key={t.id} className={`thread-row ${selected ? "selected" : ""}`}>
-        <button
-          type="button"
-          className="thread-link"
-          onClick={() => {
-            setThreadId(t.id);
-            setThreadListPane(t.status === "archived" ? "archived" : "active");
-          }}
-        >
-          <span className="thread-card-body">
-            <strong>{t.title}</strong>
-            <span className="thread-card-meta">
-              <span title="迭代创建人">{t.creator}</span>
-              {t.status === "archiving" && <span className="thread-archiving-badge">归档中</span>}
-              {(t.unread_mention || (t.unread_count || 0) > 0) && (
-                <span className={"thread-unread" + (t.unread_mention ? " is-mention" : "")}>
-                  {t.unread_mention ? "@" : ""}
-                  {t.unread_count || ""}
-                </span>
-              )}
-              <time
-                dateTime={t.last_active_at?.replace(" ", "T") + "Z"}
-                title={localDate(t.last_active_at)}
-              >
-                <RelativeActivityText value={t.last_active_at} />
-              </time>
-            </span>
-          </span>
-        </button>
-        <ThreadIterationMenu
-          open={menuOpen}
-          onOpenChange={(next) => setThreadRowMenuId(next ? t.id : null)}
-          showArchive={showArchive}
-          showArchivedActions={showArchivedActions}
-          showReviewArchive={showReviewArchive}
-          busy={busy}
-          copyLabel={copiedThreadId === t.id ? "已复制" : "复制会话"}
-          onArchive={() => archiveActiveThread(t)}
-          onCopy={() => copyConversationInfo(t)}
-          onRestore={() => restoreArchivedThread(t)}
-          onDelete={() => setThreadDeleteConfirm({ id: t.id, title: t.title })}
-          onReviewArchive={() => setArchiveDialog({ id: t.id, title: t.title })}
-        />
-      </div>
-    );
+  const conversationHeaderProps = {
+    thread,
+    threadView,
+    setThreadView,
+    coordinatorLogLabel,
+    liveCoordinator,
+    active,
+    busy,
+    threadId,
+    run,
+    refresh,
   };
+  const welcomeProps = {
+    projectId,
+    busy,
+    availableProjects,
+    open,
+    openNewThreadPane,
+    showProjectPicker,
+    updateProjectTab,
+  };
+  const threadRowProps = {
+    threadId,
+    user,
+    writable,
+    projectLeader,
+    busy,
+    copiedThreadId,
+    threadRowMenuId,
+    setThreadId,
+    setThreadListPane,
+    setThreadRowMenuId,
+    setThreadDeleteConfirm,
+    setArchiveDialog,
+    archiveActiveThread,
+    copyConversationInfo,
+    restoreArchivedThread,
+  };
+  const renderThreadLink = (t: (typeof threads)[number]) => (
+    <ThreadRow key={t.id} {...threadRowProps} t={t} />
+  );
   const startPanelDrag = (event: React.PointerEvent) => {
     event.preventDefault();
     const startX = event.clientX;
@@ -2544,6 +1407,128 @@ export function WorkspaceApp() {
     addFolderToTask: (id) => openTaskCreate({ folderId: id }),
   };
   bindMessageMarkdownOpener(openConversationFile);
+  const stageProps = {
+    selection,
+    onOpenTasks: () => openTaskDialog(),
+    onOpenArchive: setArchiveDialog,
+    threadView,
+    threadId,
+    historyLoading,
+    user,
+    copiedMessage,
+    taskDialogOpen,
+    projectId,
+    busy,
+    dialogueMode,
+    setMessageMenu,
+    chatMessages,
+    conversationRef,
+    followConversation,
+    navigationUntil,
+    composerAreaRef,
+    navigateMessage,
+    loadHistory,
+    registerComposer,
+    thread,
+    timeline,
+    detail,
+    liveCoordinator,
+    latestMyTask,
+    active,
+    coordinatorDraft,
+    openMessageMenu,
+    mentionAuthor,
+    messageAvatar,
+    messageMotto,
+    renderAgentRound,
+    renderRef,
+    renderMessageAttachments,
+    time,
+    copyMessage,
+    canQuoteMessage,
+    quoteMessage,
+    run,
+    persistOptimisticMessage,
+    uploadTarget,
+    refresh,
+    applyDialogueMode,
+    sendOptimisticMessage,
+  };
+  const topbarProps = {
+    visibleProjects,
+    projectId,
+    setProjectId,
+    draggedProject,
+    setDraggedProject,
+    projectDrop,
+    setProjectDrop,
+    reorderPinnedProject,
+    updateProjectTab,
+    showProjectPicker,
+    busy,
+    user,
+    acceptProfile,
+    setProjects,
+    setProjectPickerOpen,
+    setThreadId,
+    setThreadListPane,
+    pendingNotification,
+    contextOpen,
+    setContextOpen,
+    setDocumentFullscreen,
+  };
+  const sidebarProps = {
+    leftOpen,
+    setLeftOpen,
+    threadListPane,
+    setThreadListPane,
+    openNewThreadPane,
+    railCreateRef,
+    activeThreads,
+    renderThreadLink,
+    archivedThreads,
+    newThreadInputRef,
+    newThreadTitle,
+    setNewThreadTitle,
+    submitNewThread,
+    cancelNewThread,
+    busy,
+    newThreadBackground,
+    setNewThreadBackground,
+    newThreadGoal,
+    setNewThreadGoal,
+    projectId,
+    open,
+    setProjectManagementOpen,
+    currentProject,
+    setMonitorOpen,
+    user,
+  };
+  const modalsProps = {
+    modal,
+    setModal,
+    open,
+    error,
+    projectId,
+    refreshConnectors,
+    busy,
+    submitModal,
+    user,
+    acceptProfile,
+    profileAvatar,
+    setProfileAvatar,
+    savedAccounts,
+    projectImage,
+    setProjectImage,
+    health,
+    connectors,
+    connectorsReady,
+    run,
+    switchSavedAccount,
+    logoutCurrent,
+    forgetSavedLogin,
+    loginAnother,
+  };
   return (
     <div
       ref={shellRef}
@@ -2554,423 +1539,8 @@ export function WorkspaceApp() {
         (documentFullscreen ? "document-fullscreen" : "")
       }
     >
-      <header className="workspace-topbar">
-        <nav className="project-tabs" aria-label="项目页签">
-          {visibleProjects.map((p, index) => (
-            <React.Fragment key={p.id}>
-              {!p.tab_pinned_at && index > 0 && visibleProjects[index - 1].tab_pinned_at && (
-                <span
-                  className="project-tabs-divider"
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label="固定项目与普通项目分隔"
-                />
-              )}
-              <div
-                className={`project-tab ${projectId === p.id ? "selected" : ""} ${p.tab_pinned_at ? "pinned" : ""} ${draggedProject === p.id ? "dragging" : ""} ${projectDrop?.id === p.id ? (projectDrop.after ? "drop-after" : "drop-before") : ""}`}
-                draggable={!!p.tab_pinned_at && !busy}
-                onDragStart={(event) => {
-                  if (
-                    !p.tab_pinned_at ||
-                    busy ||
-                    (event.target as HTMLElement).closest(".project-tab-actions")
-                  ) {
-                    event.preventDefault();
-                    return;
-                  }
-                  event.stopPropagation();
-                  event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData("application/x-cothread-project", p.id);
-                  setDraggedProject(p.id);
-                }}
-                onDragOver={(event) => {
-                  if (!draggedProject || !p.tab_pinned_at || busy) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  event.dataTransfer.dropEffect = "move";
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  setProjectDrop(
-                    p.id === draggedProject
-                      ? null
-                      : {
-                          id: p.id,
-                          after: event.clientX > rect.left + rect.width / 2,
-                        },
-                  );
-                }}
-                onDragLeave={(event) => {
-                  if (!event.currentTarget.contains(event.relatedTarget as Node | null))
-                    setProjectDrop(null);
-                }}
-                onDrop={(event) => {
-                  if (!draggedProject || !p.tab_pinned_at) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  reorderPinnedProject(
-                    draggedProject,
-                    p.id,
-                    event.clientX > rect.left + rect.width / 2,
-                  );
-                  setDraggedProject("");
-                  setProjectDrop(null);
-                }}
-                onDragEnd={() => {
-                  setDraggedProject("");
-                  setProjectDrop(null);
-                }}
-              >
-                {p.tab_pinned_at && (
-                  <span className="project-tab-pin-mark" title="已固定" aria-hidden="true">
-                    <ProjectActionIcon action="pin" />
-                  </span>
-                )}
-                <button
-                  aria-current={projectId === p.id ? "page" : undefined}
-                  className="project-tab-name"
-                  onClick={() => setProjectId(p.id)}
-                  title={p.tab_pinned_at ? `${p.name}（拖拽排序，或按 Alt + 左右方向键）` : p.name}
-                  onKeyDown={(event) => {
-                    if (
-                      !p.tab_pinned_at ||
-                      !event.altKey ||
-                      !["ArrowLeft", "ArrowRight"].includes(event.key)
-                    )
-                      return;
-                    event.preventDefault();
-                    const pinned = visibleProjects.filter((project) => project.tab_pinned_at);
-                    const right = event.key === "ArrowRight";
-                    const target =
-                      pinned[pinned.findIndex((project) => project.id === p.id) + (right ? 1 : -1)];
-                    if (target) reorderPinnedProject(p.id, target.id, right);
-                  }}
-                >
-                  <ProjectMark name={p.name} image={p.image} size={16} />
-                  <span>{p.name}</span>
-                </button>
-                <div className="project-tab-actions">
-                  <button
-                    disabled={busy}
-                    title={p.tab_pinned_at ? "取消固定" : "固定项目"}
-                    aria-label={`${p.tab_pinned_at ? "取消固定" : "固定"} ${p.name}`}
-                    onClick={() => updateProjectTab(p.id, p.tab_pinned_at ? "unpin" : "pin")}
-                  >
-                    <ProjectActionIcon action={p.tab_pinned_at ? "unpin" : "pin"} />
-                  </button>
-                  {!p.tab_pinned_at && (
-                    <button
-                      disabled={busy}
-                      title="移出页签区（不删除项目）"
-                      aria-label={`移出页签区 ${p.name}`}
-                      onClick={() => updateProjectTab(p.id, "close")}
-                    >
-                      <ProjectActionIcon action="close" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </React.Fragment>
-          ))}
-          <button
-            className="new-project-tab"
-            title="添加项目"
-            aria-label="添加项目"
-            disabled={busy}
-            onClick={showProjectPicker}
-          >
-            ＋
-          </button>
-        </nav>
-        <a
-          className="sidebar-toggle workspace-help-link"
-          href="/about_us.html"
-          target="_blank"
-          rel="noopener noreferrer"
-          title="关于我们"
-          aria-label="关于我们"
-        >
-          <UiIcon name="info" size={20} />
-        </a>
-        <a
-          className="sidebar-toggle workspace-help-link"
-          href="/docs.html"
-          target="_blank"
-          rel="noopener noreferrer"
-          title="共序文档"
-          aria-label="共序文档"
-        >
-          <UiIcon name="book" size={20} />
-        </a>
-        <ThemePicker theme={user.ui_theme || DEFAULT_UI_THEME} api={api} onChange={setUser} />
-        <Notifications
-          key={user.id}
-          api={api}
-          onOpen={(target) => {
-            setProjects(target.projects);
-            setProjectPickerOpen(false);
-            if (target.projectId === projectId) {
-              if (target.threadId) {
-                setThreadId(target.threadId);
-                setThreadListPane("archived");
-              }
-            } else {
-              pendingNotification.current = target;
-              setProjectId(target.projectId);
-            }
-          }}
-        />
-        <button
-          className="sidebar-toggle"
-          aria-label={
-            !projectId ? "暂无项目，右侧栏不可用" : contextOpen ? "收起右侧栏" : "展开右侧栏"
-          }
-          title={!projectId ? "导入项目后可使用右侧栏" : contextOpen ? "收起右侧栏" : "展开右侧栏"}
-          aria-expanded={contextOpen}
-          disabled={!projectId}
-          onClick={() => {
-            const nextOpen = !contextOpen;
-            setContextOpen(nextOpen);
-            if (!nextOpen) setDocumentFullscreen(false);
-          }}
-        >
-          <PanelIcon side="right" />
-        </button>
-      </header>
-      <aside className="sidebar">
-        <div className="sidebar-brand">
-          <CoThreadLogo className="sidebar-logo sidebar-brand-mark" title="共序 LOGO" />
-          <span className="sidebar-brand-name">
-            共序 <small>工作空间</small>
-          </span>
-          <button
-            className={`sidebar-toggle ${leftOpen ? "sidebar-collapse-toggle" : "sidebar-brand-toggle"}`}
-            aria-label={leftOpen ? "收起左侧栏" : "展开左侧栏"}
-            title={leftOpen ? "收起左侧栏" : "展开左侧栏"}
-            aria-expanded={leftOpen}
-            onClick={() => setLeftOpen(!leftOpen)}
-          >
-            <CoThreadLogo className="sidebar-logo sidebar-rail-logo" aria-hidden="true" />
-            <span
-              className={leftOpen ? "sidebar-collapse-control" : "sidebar-brand-control"}
-              aria-hidden="true"
-            >
-              <PanelIcon side="left" />
-            </span>
-          </button>
-        </div>
-        <div className="section-label">
-          {leftOpen ? (
-            <div className="thread-list-capsule sidebar-label" role="group" aria-label="迭代列表">
-              <div className="thread-list-capsule-tabs" role="tablist" aria-label="迭代范围">
-                <button
-                  type="button"
-                  role="tab"
-                  className="thread-list-capsule-tab"
-                  aria-selected={threadListPane === "active"}
-                  onClick={() => setThreadListPane("active")}
-                >
-                  <UiIcon name="chat" size={11} />
-                  <span>活跃中</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  className="thread-list-capsule-tab"
-                  aria-selected={threadListPane === "archived"}
-                  onClick={() => setThreadListPane("archived")}
-                >
-                  <UiIcon name="archive" size={11} />
-                  <span>已归档</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  className="thread-list-capsule-tab"
-                  title="新迭代"
-                  aria-label="新迭代"
-                  aria-selected={threadListPane === "create"}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={openNewThreadPane}
-                >
-                  <UiIcon name="send" size={11} />
-                  <span className="sidebar-create-label">新迭代</span>
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              ref={railCreateRef}
-              type="button"
-              className="sidebar-rail-thread-create"
-              title="新迭代"
-              aria-label="新迭代"
-              aria-pressed={threadListPane === "create"}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={openNewThreadPane}
-            >
-              <UiIcon name="send" size={18} />
-            </button>
-          )}
-        </div>
-        <div className="thread-viewport" data-thread-list-pane={threadListPane}>
-          <div className="thread-track">
-            <div
-              className="thread-pane thread-pane-active"
-              aria-hidden={threadListPane !== "active"}
-              inert={threadListPane !== "active" ? true : undefined}
-            >
-              <nav aria-label="活跃迭代">
-                {activeThreads.map(renderThreadLink)}
-                {!activeThreads.length && (
-                  <p className="muted side-empty">
-                    还没有迭代讨论
-                    <br />
-                    从一次新的需求开始。
-                  </p>
-                )}
-              </nav>
-            </div>
-            <div
-              className="thread-pane thread-pane-archived"
-              id="archived-thread-list"
-              aria-hidden={threadListPane !== "archived"}
-              inert={threadListPane !== "archived" ? true : undefined}
-            >
-              <nav aria-label="已归档迭代">
-                {archivedThreads.map(renderThreadLink)}
-                {!archivedThreads.length && <p className="muted side-empty">还没有已归档的迭代</p>}
-              </nav>
-            </div>
-            <div
-              className="thread-pane thread-pane-create"
-              aria-hidden={threadListPane !== "create"}
-              inert={threadListPane !== "create" ? true : undefined}
-            >
-              <div className="thread-create-pane">
-                <div className="thread-create-card" aria-label="发起新迭代">
-                  <label className="thread-create-field">
-                    <input
-                      ref={newThreadInputRef}
-                      type="text"
-                      name="title"
-                      aria-label="迭代主题"
-                      value={newThreadTitle}
-                      onChange={(event) => setNewThreadTitle(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          submitNewThread();
-                        }
-                        if (event.key === "Escape") cancelNewThread();
-                      }}
-                      maxLength={160}
-                      placeholder="输入新迭代主题"
-                      disabled={busy}
-                      autoComplete="off"
-                    />
-                  </label>
-                  <label className="thread-create-field">
-                    背景
-                    <textarea
-                      rows={3}
-                      maxLength={20000}
-                      placeholder="这次协作的背景与已知约束"
-                      value={newThreadBackground}
-                      disabled={busy}
-                      onChange={(event) => setNewThreadBackground(event.target.value)}
-                    />
-                  </label>
-                  <label className="thread-create-field">
-                    目标
-                    <textarea
-                      rows={2}
-                      maxLength={20000}
-                      placeholder="本轮希望达成什么"
-                      value={newThreadGoal}
-                      disabled={busy}
-                      onChange={(event) => setNewThreadGoal(event.target.value)}
-                    />
-                  </label>
-                  <div className="thread-create-actions">
-                    <button type="button" disabled={busy} onClick={cancelNewThread}>
-                      取消
-                    </button>
-                    <button
-                      type="button"
-                      className="primary"
-                      disabled={busy}
-                      onClick={submitNewThread}
-                    >
-                      {busy ? "正在处理…" : "确认"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="sidebar-bottom">
-          <button
-            className="sidebar-card sidebar-project-management"
-            title={`项目基础信息、人类成员、连接器与 Agent（${AGENT_LEVEL_LABELS.l1} / ${AGENT_LEVEL_LABELS.l2}）`}
-            aria-label="项目管理"
-            disabled={!projectId}
-            onClick={() => setProjectManagementOpen(true)}
-          >
-            <span className="sidebar-card-icon">
-              {currentProject ? (
-                <ProjectMark name={currentProject.name} image={currentProject.image} size={30} />
-              ) : (
-                <SidebarIcon kind="project" />
-              )}
-            </span>
-            <span className="sidebar-card-copy">
-              项目管理<small>成员、连接器与 Agent</small>
-            </span>
-            <span className="sidebar-card-action" aria-hidden="true">
-              ›
-            </span>
-          </button>
-          <button
-            className="sidebar-card sidebar-monitor"
-            title="查看所有小祥的运行状态"
-            aria-label="小祥监控"
-            disabled={!projectId}
-            onClick={() => setMonitorOpen(true)}
-          >
-            <span className="sidebar-card-icon">
-              <SidebarIcon kind="monitor" />
-            </span>
-            <span className="sidebar-card-copy">
-              小祥监控<small>调度、执行与知识整理</small>
-            </span>
-            <span className="sidebar-card-action" aria-hidden="true">
-              ›
-            </span>
-          </button>
-          <button
-            className="sidebar-card sidebar-profile"
-            title={`${user.name} · 设置`}
-            aria-label={`${user.name} · 设置`}
-            onClick={() => open("profile")}
-          >
-            <span className="avatar">
-              {user.avatar ? (
-                <img loading="lazy" decoding="async" src={user.avatar} alt="" />
-              ) : (
-                user.name[0]
-              )}
-            </span>
-            <span className="sidebar-card-copy">
-              {user.name}
-              <small>{user.motto || user.username}</small>
-            </span>
-            <span className="sidebar-card-action" aria-hidden="true">
-              <UiIcon name="settings" size={14} />
-            </span>
-          </button>
-        </div>
-      </aside>
+      <WorkspaceTopbar {...topbarProps} />
+      <WorkspaceSidebar {...sidebarProps} />
       <main
         className={`main ${fileDragOver ? "file-drag-over" : ""}`}
         onDragOver={(e) => {
@@ -3001,91 +1571,7 @@ export function WorkspaceApp() {
           <div className="chat-drop-hint">松开以上传至项目缓存（今日日期文件夹）</div>
         )}
         <header className="workspace-top-strip">
-          <div className="conversation-heading">
-            {thread && (
-              <span className="conversation-log-group">
-                <div className="conversation-views" role="tablist" aria-label="会话视图">
-                  <button
-                    type="button"
-                    role="tab"
-                    className="conversation-view"
-                    aria-selected={threadView === "chat"}
-                    onClick={() => setThreadView("chat")}
-                  >
-                    <UiIcon name="chat" size={13} />
-                    对话
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    className="conversation-view"
-                    aria-selected={threadView === "trajectory"}
-                    data-live={coordinatorLogLabel !== COORDINATOR_LOG_IDLE_LABEL || undefined}
-                    title={
-                      coordinatorLogLabel === COORDINATOR_LOG_IDLE_LABEL
-                        ? "查看轨迹"
-                        : coordinatorLogLabel
-                    }
-                    onClick={() => setThreadView("trajectory")}
-                  >
-                    {coordinatorLogLabel !== COORDINATOR_LOG_IDLE_LABEL && (
-                      <span className="conversation-log-pulse" aria-hidden="true" />
-                    )}
-                    <UiIcon name="trajectory" size={13} />
-                    轨迹
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    className="conversation-view"
-                    aria-selected={threadView === "brief"}
-                    onClick={() => setThreadView("brief")}
-                  >
-                    <UiIcon name="info" size={13} />
-                    背景与目标
-                  </button>
-                </div>
-                {coordinatorLogLabel !== COORDINATOR_LOG_IDLE_LABEL && (
-                  <span className="conversation-view-status" aria-live="polite">
-                    {coordinatorLogLabel}
-                  </span>
-                )}
-                {liveCoordinator && active && (
-                  <button
-                    type="button"
-                    className="conversation-log-stop"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(async () => {
-                        await api(
-                          `/threads/${threadId}/replies/${liveCoordinator.message_id}/stop`,
-                          {},
-                        );
-                        await refresh();
-                      })
-                    }
-                  >
-                    <UiIcon name="stop" size={12} />
-                    停止
-                  </button>
-                )}
-              </span>
-            )}
-          </div>
-          {thread?.contextUsage && (
-            <div className="conversation-header-actions" role="group" aria-label="会话信息">
-              <ContextMeter
-                key={threadId}
-                usage={thread.contextUsage}
-                writable={active}
-                onCompact={async () => {
-                  await api(`/threads/${threadId}/context/compact`, {});
-                  await refresh();
-                  showTip("已提交上下文压缩");
-                }}
-              />
-            </div>
-          )}
+          <ConversationHeader {...conversationHeaderProps} />
         </header>
         {error && !modal && (
           <div className="error banner" role="alert">
@@ -3113,676 +1599,58 @@ export function WorkspaceApp() {
             </div>
           </div>
         ) : !thread ? (
-          <div className="welcome">
-            {projectId ? (
-              <>
-                <div className="welcome-heading">
-                  <CoThreadLogo className="welcome-logo" title="共序" />
-                  <h1>先从一轮讨论开始吧</h1>
-                </div>
-                <p>为这个项目发起一次新的讨论。</p>
-                <button className="primary" onClick={openNewThreadPane}>
-                  <UiIcon name="plus" size={14} />
-                  发起新迭代
-                </button>
-              </>
-            ) : (
-              <>
-                <div className="welcome-heading">
-                  <CoThreadLogo className="welcome-logo" title="共序" />
-                  <h1>先选个项目吧</h1>
-                </div>
-                {availableProjects.length ? (
-                  <>
-                    <p>最近加入的项目</p>
-                    <div className="welcome-projects">
-                      {availableProjects.slice(0, 3).map((project) => (
-                        <button
-                          type="button"
-                          className="welcome-project-card"
-                          key={project.id}
-                          onClick={() => updateProjectTab(project.id, "open")}
-                          disabled={busy}
-                        >
-                          <strong>
-                            <ProjectMark name={project.name} image={project.image} size={18} />
-                            <span>{project.name}</span>
-                          </strong>
-                          <span>{project.description || "暂无项目简介"}</span>
-                          <small>加入于 {localDate(project.joined_at)}</small>
-                        </button>
-                      ))}
-                      {availableProjects.length > 3 && (
-                        <button
-                          type="button"
-                          className="welcome-more-card"
-                          onClick={showProjectPicker}
-                          disabled={busy}
-                        >
-                          <span>
-                            更多
-                            <br />
-                            项目
-                          </span>
-                        </button>
-                      )}
-                    </div>
-                    <div className="welcome-create-row">
-                      <button
-                        type="button"
-                        className="welcome-create"
-                        onClick={() => open("project")}
-                        disabled={busy}
-                      >
-                        <UiIcon name="plus" size={14} />
-                        新建我的项目
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="welcome-actions welcome-actions-empty">
-                      <button type="button" onClick={showProjectPicker} disabled={busy}>
-                        <UiIcon name="inbox" size={14} />
-                        导入项目
-                      </button>
-                    </div>
-                    <div className="welcome-create-row">
-                      <button
-                        type="button"
-                        className="welcome-create"
-                        onClick={() => open("project")}
-                        disabled={busy}
-                      >
-                        <UiIcon name="plus" size={14} />
-                        新建我的项目
-                      </button>
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-          </div>
+          <WorkspaceWelcome {...welcomeProps} />
         ) : (
           <>
-            <div className="conversation-stage" hidden={threadView !== "chat"}>
-              <MessageNavigator
-                key={threadId}
-                messages={chatMessages}
-                container={conversationRef}
-                onNavigate={navigateMessage}
-              />
-              <div
-                className="conversation"
-                aria-live="polite"
-                ref={conversationRef}
-                onScroll={(e) => {
-                  const el = e.currentTarget;
-                  followConversation.current =
-                    el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-                  if (
-                    el.scrollTop < 80 &&
-                    !followConversation.current &&
-                    Date.now() > navigationUntil.current
-                  )
-                    void loadHistory();
-                }}
-              >
-                {thread.status === "archived" && thread.archive_snapshot && (
-                  <div className="archive-card">
-                    <span className="eyebrow">迭代归档</span>
-                    <h3>本迭代已归档</h3>
-                    {thread.archive_snapshot.conclusion ? (
-                      <p>{thread.archive_snapshot.conclusion}</p>
-                    ) : null}
-                    <small>
-                      讨论、审核与引用的历史版本已固定保存；项目长期总结由知识库管理员整理。
-                    </small>
-                    <button
-                      type="button"
-                      onClick={() => setArchiveDialog({ id: thread.id, title: thread.title })}
-                    >
-                      查看归档与交接记录
-                    </button>
-                  </div>
-                )}
-                {thread.page?.hasMore && (
-                  <button
-                    type="button"
-                    disabled={historyLoading}
-                    onClick={() => void loadHistory()}
-                  >
-                    <UiIcon name="history" size={13} />
-                    {historyLoading ? "正在加载历史消息…" : "加载更早的消息"}
-                  </button>
-                )}
-                <div className="timeline-start">
-                  <span>一次迭代，一段共同的上下文</span>
-                </div>
-                {!thread.messages.length && (
-                  <div className="conversation-empty">
-                    <h3>说说这次想解决的问题</h3>
-                    <p>分享背景、目标或一个还没有答案的问题。</p>
-                  </div>
-                )}
-                {timeline.map((m, index) => {
-                  const continuesTurn = continuesCoordinatorTurn(
-                    m,
-                    timeline[index - 1],
-                    thread.replies,
-                  );
-                  const lastOfTurn = isLastCoordinatorTurnPost(m, timeline, thread.replies);
-                  const usageReply =
-                    m.source === "assistant"
-                      ? usageReplyForMessage(m, thread.replies, timeline)
-                      : null;
-                  return (
-                    <React.Fragment key={m.render_key || m.id}>
-                      <article
-                        data-message-id={m.id}
-                        className={`message ${m.author_id === user.id && m.source !== "assistant" ? "own" : ""} ${continuesTurn ? "turn-continue" : ""} ${unreadMention(m, thread.last_read_sequence, user) ? "mention-unread" : ""}`}
-                        key={m.render_key || m.id}
-                        onContextMenu={(event) => {
-                          if (
-                            (event.target as HTMLElement).closest(
-                              ".message-author-hit, .message-avatar-hit, .message-actions, a, button",
-                            )
-                          )
-                            return;
-                          openMessageMenu(event, m);
-                        }}
-                      >
-                        <span
-                          className={`avatar ${m.source === "assistant" ? "ai" : ""} ${m.source === "assistant" || m.author_id !== user.id ? "message-avatar-hit" : ""}`}
-                          aria-hidden={continuesTurn || undefined}
-                          onContextMenu={(event) => {
-                            if (continuesTurn) return;
-                            if (m.source !== "assistant" && m.author_id === user.id) return;
-                            event.preventDefault();
-                            event.stopPropagation();
-                            setMessageMenu(null);
-                            mentionAuthor(m);
-                          }}
-                        >
-                          {!continuesTurn &&
-                            (m.source === "assistant" ? (
-                              <img
-                                loading="lazy"
-                                decoding="async"
-                                src={AGENT_MEMBER.avatar}
-                                alt=""
-                              />
-                            ) : messageAvatar(m) ? (
-                              <img
-                                loading="lazy"
-                                decoding="async"
-                                src={messageAvatar(m) || undefined}
-                                alt=""
-                              />
-                            ) : (
-                              m.author[0]
-                            ))}
-                        </span>
-                        <div className="message-content">
-                          {!continuesTurn && (
-                            <div className="message-meta">
-                              {unreadMention(m, thread.last_read_sequence, user) && (
-                                <span className="mention-flag">未读提及</span>
-                              )}
-                              <span
-                                className={`message-author ${m.source === "assistant" || m.author_id !== user.id ? "message-author-hit" : ""}`}
-                                onContextMenu={(event) => {
-                                  if (m.source !== "assistant" && m.author_id === user.id) return;
-                                  event.preventDefault();
-                                  event.stopPropagation();
-                                  setMessageMenu(null);
-                                  mentionAuthor(m);
-                                }}
-                              >
-                                <strong>
-                                  <IdentityName
-                                    role={
-                                      m.source === "assistant"
-                                        ? AGENT_MEMBER.identity_tags[0]
-                                        : m.author_role
-                                    }
-                                    name={m.source === "assistant" ? AGENT_MEMBER.name : m.author}
-                                  />
-                                </strong>
-                                {messageMotto(m) && (
-                                  <small>
-                                    {m.source === "assistant"
-                                      ? messageMotto(m)
-                                      : Array.from(messageMotto(m)).slice(0, 15).join("")}
-                                  </small>
-                                )}
-                              </span>
-                              {m.source === "local_ai" && (
-                                <span className="source-label">
-                                  <UiIcon name="connector" size={11} />
-                                  通过本地 AI 提交
-                                </span>
-                              )}
-                              {m.source === "system" && (
-                                <span className="source-label">
-                                  <UiIcon name="list" size={11} />
-                                  协作记录
-                                </span>
-                              )}
-                            </div>
-                          )}
-                          {m.source === "assistant" &&
-                            thread.replies
-                              .filter((reply) => {
-                                if (isExecutorReply(reply))
-                                  return (
-                                    m.agent_task_id === reply.message_id || reply.reply_id === m.id
-                                  );
-                                return (
-                                  reply.status === "failed" &&
-                                  m.id === `agent-task:${reply.message_id}`
-                                );
-                              })
-                              .map((reply) => (
-                                <React.Fragment key={reply.message_id}>
-                                  {renderAgentRound(reply)}
-                                </React.Fragment>
-                              ))}
-                          {!!m.quotes?.length && (
-                            <div className="message-quotes">
-                              {m.quotes.map((q) => {
-                                const imageRefs = (q.refs || []).filter((id) => {
-                                  const version = detail?.versions.find((item) => item.id === id);
-                                  return version && isImageFile(version);
-                                });
-                                return (
-                                  <div key={q.id} className="message-quote">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        void run(async () => {
-                                          const result = await api(
-                                            `/threads/${threadId}/messages/${q.id}`,
-                                          );
-                                          setQuotePreview(result.message);
-                                        })
-                                      }
-                                    >
-                                      <strong>
-                                        {q.source === "assistant" ? AGENT_MEMBER.name : q.author}
-                                      </strong>
-                                      <span title={clipQuote(q.body, 240)}>
-                                        {clipQuote(q.body) || (imageRefs.length ? "图片" : "")}
-                                      </span>
-                                    </button>
-                                    {!!imageRefs.length && (
-                                      <div className="message-quote-thumbs">
-                                        {imageRefs.map(renderRef)}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                          <div className="message-text">
-                            {thread.updates
-                              ?.filter((update) => update.message_id === m.id)
-                              .map((update) => (
-                                <p className="source-label" key={update.message_id}>
-                                  {update.delivered_at
-                                    ? "已更新当前任务"
-                                    : "已关联到当前任务，等待助手接收"}
-                                </p>
-                              ))}
-                            <MessageMarkdown body={m.body} />
-                          </div>
-                          {renderMessageAttachments(m)}
-                          {!!m.body.trim() && !m.id.startsWith("agent-reception:") && (
-                            <div className="message-actions">
-                              {m.author_id === user.id && m.source !== "assistant" && (
-                                <time className="message-action-time">{time(m.created_at)}</time>
-                              )}
-                              <button
-                                type="button"
-                                title={copiedMessage === m.id ? "已复制" : "复制"}
-                                aria-label={copiedMessage === m.id ? "已复制" : "复制"}
-                                onClick={() => void copyMessage(m)}
-                              >
-                                <svg
-                                  width="16"
-                                  height="16"
-                                  viewBox="0 0 20 20"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="1.4"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden="true"
-                                >
-                                  {copiedMessage === m.id ? (
-                                    <path d="m4 10 4 4 8-8" />
-                                  ) : (
-                                    <>
-                                      <rect x="3" y="7" width="11" height="11" rx="4" />
-                                      <path d="M7 4a4 4 0 0 1 4-3h3a4 4 0 0 1 4 4v5a4 4 0 0 1-2 3.5" />
-                                    </>
-                                  )}
-                                </svg>
-                              </button>
-                              <button
-                                type="button"
-                                title="引用"
-                                aria-label="引用"
-                                disabled={!canQuoteMessage(m)}
-                                onClick={() => quoteMessage(m)}
-                              >
-                                <svg
-                                  width="16"
-                                  height="16"
-                                  viewBox="0 0 20 20"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="1.4"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden="true"
-                                >
-                                  <path d="M8 5H3v6h5V5Zm9 0h-5v6h5V5ZM8 11c0 3-2 4-4 4m13-4c0 3-2 4-4 4" />
-                                </svg>
-                              </button>
-                              {usageReply && (
-                                <MessageUsage
-                                  record={usageReply}
-                                  finishedAt={usageReply.finished_at || m.created_at}
-                                  allowClockFallback={isExecutorReply(usageReply)}
-                                />
-                              )}
-                              {(m.author_id !== user.id || m.source === "assistant") &&
-                                (!coordinatorTurnId(m, thread.replies) ||
-                                  (lastOfTurn &&
-                                    !continuesCoordinatorTurn(
-                                      {
-                                        source: "assistant",
-                                        agent_task_id: liveCoordinator?.message_id,
-                                      },
-                                      m,
-                                      thread.replies,
-                                    ))) && (
-                                  <time className="message-action-time">{time(m.created_at)}</time>
-                                )}
-                            </div>
-                          )}
-                        </div>
-                        {m.delivery_status === "sending" && (
-                          <span
-                            className="message-delivery-control sending"
-                            role="status"
-                            aria-label="正在发送"
-                            title="正在发送"
-                          />
-                        )}
-                        {m.delivery_status === "failed" && (
-                          <button
-                            type="button"
-                            className="message-delivery-control failed"
-                            aria-label="重新发送"
-                            title={m.delivery_error || "重新发送"}
-                            onClick={() =>
-                              void persistOptimisticMessage(
-                                threadId,
-                                m.id,
-                                {
-                                  body: m.body,
-                                  refs: m.refs,
-                                  folderRefs: m.folder_refs || [],
-                                  quoteIds: (m.quotes || []).map((quote) => quote.id),
-                                  clientMessageId: m.id.slice("optimistic:".length),
-                                  dialogueMode,
-                                },
-                                m.quotes || [],
-                              )
-                            }
-                          >
-                            <svg
-                              width="17"
-                              height="17"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="1.8"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden="true"
-                            >
-                              <path d="M20 11a8 8 0 1 0-2.3 5.7" />
-                              <path d="M20 4v7h-7" />
-                            </svg>
-                          </button>
-                        )}
-                      </article>
-                    </React.Fragment>
-                  );
-                })}
-                {coordinatorDraft &&
-                  (() => {
-                    const draftContinues = continuesCoordinatorTurn(
-                      { source: "assistant", agent_task_id: liveCoordinator?.message_id },
-                      timeline[timeline.length - 1],
-                      thread.replies,
-                    );
-                    return (
-                      <article
-                        className={`message${draftContinues ? " turn-continue" : ""}`}
-                        data-message-id={`live-coordinator:${liveCoordinator?.message_id}`}
-                        aria-live="polite"
-                      >
-                        <span className="avatar ai" aria-hidden={draftContinues || undefined}>
-                          {!draftContinues && (
-                            <img loading="lazy" decoding="async" src={AGENT_MEMBER.avatar} alt="" />
-                          )}
-                        </span>
-                        <div className="message-content">
-                          {!draftContinues && (
-                            <div className="message-meta">
-                              <span className="message-author">
-                                <strong>
-                                  <IdentityName
-                                    role={AGENT_MEMBER.identity_tags[0]}
-                                    name={AGENT_MEMBER.name}
-                                  />
-                                </strong>
-                              </span>
-                            </div>
-                          )}
-                          <div className="message-text">
-                            <StreamingMarkdown active text={coordinatorDraft} />
-                          </div>
-                        </div>
-                      </article>
-                    );
-                  })()}
-                {thread.runs
-                  .filter((r) => r.status === "running")
-                  .map((r) => (
-                    <div className="run-progress" role="status" key={r.id}>
-                      <strong>✧ {r.progress || "正在执行"}</strong>
-                      <span>
-                        已用时 <RunElapsed createdAt={r.created_at} /> 秒
-                      </span>
-                      <small>你可以继续讨论或刷新页面，任务会在后台运行。</small>
-                    </div>
-                  ))}
-                {thread.runs[0] && ["failed", "interrupted"].includes(thread.runs[0].status) && (
-                  <div className="reply-status failed" role="alert">
-                    {thread.runs[0].output} 可重新发起任务。
-                  </div>
-                )}
-              </div>
-              <div className="composer-area" ref={composerAreaRef}>
-                <div className="composer-toolbar">
-                  <div className="conversation-task-pool-wrap">
-                    <button
-                      type="button"
-                      className="conversation-task-pool"
-                      aria-haspopup="dialog"
-                      aria-expanded={taskDialogOpen}
-                      aria-label={
-                        latestMyTask ? `打开本迭代任务，${latestMyTask.title}` : "打开本迭代任务"
-                      }
-                      onClick={() => setTaskDialogOpen(true)}
-                    >
-                      <span className="conversation-task-pool-head">
-                        <span className="conversation-task-pool-label">任务</span>
-                      </span>
-                      {latestMyTask ? (
-                        <span
-                          className="conversation-task-preview"
-                          data-status={latestMyTask.status}
-                          title={latestMyTask.title}
-                        >
-                          <span className="conversation-task-list-status" aria-hidden="true">
-                            <i />
-                          </span>
-                          <span className="conversation-task-list-main">
-                            <span className="conversation-task-list-number">
-                              {formatTaskThreadNumber(latestMyTask.thread_number)}
-                            </span>
-                            <strong>{latestMyTask.title}</strong>
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="conversation-task-empty">暂无与我有关的任务</span>
-                      )}
-                    </button>
-                  </div>
-                </div>
-                {active ? (
-                  <Suspense
-                    fallback={
-                      <div className="composer-loading" role="status">
-                        正在加载输入框…
-                      </div>
-                    }
-                  >
-                    {!!quotedMessages.length && (
-                      <div className="composer-quotes">
-                        {quotedMessages.map((q) => (
-                          <div key={q.id}>
-                            <span title={clipQuote(q.body, 240)}>
-                              引用 {q.source === "assistant" ? AGENT_MEMBER.name : q.author}：
-                              {clipQuote(q.body)}
-                            </span>
-                            <button
-                              type="button"
-                              aria-label="取消引用"
-                              onClick={() =>
-                                setQuotedMessages((items) =>
-                                  items.filter((item) => item.id !== q.id),
-                                )
-                              }
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <ChatComposer
-                      key={projectId + ":" + threadId}
-                      projectId={projectId}
-                      threadId={threadId}
-                      onController={registerComposer}
-                      refs={refs}
-                      setRefs={setRefs}
-                      folderRefs={folderRefs}
-                      setFolderRefs={setFolderRefs}
-                      versions={detail?.versions || []}
-                      folders={detail?.folders || []}
-                      members={detail?.members || []}
-                      currentUserId={user.id}
-                      busy={busy}
-                      uploadTarget={uploadTarget}
-                      onRefresh={refresh}
-                      dialogueMode={dialogueMode}
-                      onDialogueModeChange={applyDialogueMode}
-                      onSend={async (body) => {
-                        const targetThreadId = threadId;
-                        const selectedRefs = [...refs];
-                        const selectedFolderRefs = [...folderRefs];
-                        const selectedQuotes = [...quotedMessages];
-                        const accepted = await sendOptimisticMessage(
-                          targetThreadId,
-                          body,
-                          selectedRefs,
-                          selectedFolderRefs,
-                          selectedQuotes,
-                        );
-                        if (accepted) {
-                          setQuotedMessages([]);
-                          setRefs([]);
-                          setFolderRefs([]);
-                        }
-                        return accepted;
-                      }}
-                    />
-                  </Suspense>
-                ) : (
-                  <div className="readonly">
-                    {thread.status === "archived"
-                      ? "此迭代已归档。历史讨论与文档可以继续查阅，也可以引用到新的迭代。"
-                      : thread.status === "archiving"
-                        ? "此迭代正在归档，消息、任务与背景目标已冻结。"
-                        : "你正在以只读成员身份查看此迭代。"}
-                    {thread.status === "archiving" && (
-                      <button
-                        type="button"
-                        onClick={() => setArchiveDialog({ id: thread.id, title: thread.title })}
-                      >
-                        审查归档方案
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
+            <ConversationStage {...stageProps} />
             {threadView === "trajectory" && threadId && (
               <div className="conversation-stage conversation-stage-trajectory">
-                <AgentTrajectory
-                  key={threadId}
-                  scope={{ type: "thread", id: threadId }}
-                  api={api}
-                />
+                <Suspense fallback={<p className="muted">正在加载轨迹…</p>}>
+                  <AgentTrajectory
+                    key={threadId}
+                    scope={{ type: "thread", id: threadId }}
+                    api={api}
+                  />
+                </Suspense>
               </div>
             )}
             {threadView === "brief" && (
               <div className="conversation-stage conversation-stage-brief">
-                <ThreadBrief key={thread.id} thread={thread} writable={active} onSaved={refresh} />
+                <Suspense fallback={<p className="muted">正在加载简报…</p>}>
+                  <ThreadBrief
+                    key={thread.id}
+                    thread={thread}
+                    writable={active}
+                    onSaved={refresh}
+                  />
+                </Suspense>
               </div>
             )}
           </>
         )}
       </main>
       {archiveDialog && (
-        <ThreadArchiveDialog
-          key={archiveDialog.id}
-          threadId={archiveDialog.id}
-          title={archiveDialog.title}
-          onClose={() => setArchiveDialog(null)}
-          onChanged={async (status, nextThreadId) => {
-            threadCache.current.clear();
-            await refresh();
-            if (nextThreadId) setThreadId(nextThreadId);
-            setThreadListPane(nextThreadId || status === "active" ? "active" : "archived");
-            showTip(
-              status === "active"
-                ? "归档已撤回，可以继续协作"
-                : nextThreadId
-                  ? "迭代已归档，承接迭代已创建"
-                  : "迭代已归档",
-            );
-          }}
-        />
+        <Suspense fallback={null}>
+          <ThreadArchiveDialog
+            key={archiveDialog.id}
+            threadId={archiveDialog.id}
+            title={archiveDialog.title}
+            onClose={() => setArchiveDialog(null)}
+            onChanged={async (status, nextThreadId) => {
+              threadCache.current.clear();
+              await refresh();
+              if (nextThreadId) setThreadId(nextThreadId);
+              setThreadListPane(nextThreadId || status === "active" ? "active" : "archived");
+              showTip(
+                status === "active"
+                  ? "归档已撤回，可以继续协作"
+                  : nextThreadId
+                    ? "迭代已归档，承接迭代已创建"
+                    : "迭代已归档",
+              );
+            }}
+          />
+        </Suspense>
       )}
       <aside
         className={`context-panel context-doc-browser ${contextOpen ? "context-open" : ""}`}
@@ -3859,833 +1727,54 @@ export function WorkspaceApp() {
         ) : null}
       </aside>
       {taskDialogOpen && (
-        <ModalBackdrop
+        <TaskListDialog
+          key={`${user.id}:${projectId}:${threadId}`}
+          selection={taskSelection}
+          tasks={taskPool}
+          taskCreateOpen={taskCreateOpen}
           onClose={() => {
             closeTaskCreate();
             setTaskDialogOpen(false);
-            setTaskListSearch("");
           }}
-          enabled={!taskCreateOpen}
-        >
-          {(close) => (
-            <section
-              className="task-pool-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="task-pool-dialog-title"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <header className="task-pool-dialog-header">
-                <div>
-                  <span>当前迭代任务</span>
-                  <h2 id="task-pool-dialog-title">
-                    {detail?.threads.find((item) => item.id === threadId)?.title || "未选择迭代"}
-                  </h2>
-                </div>
-                <DialogClose autoFocus onClick={close} label="关闭本迭代任务" />
-              </header>
-              <div className="task-pool-dialog-body">
-                <aside className="task-pool-dialog-list">
-                  <div className="task-pool-list-toolbar">
-                    <label className="task-pool-search">
-                      <UiIcon name="search" size={13} />
-                      <input
-                        type="search"
-                        value={taskListSearch}
-                        placeholder="搜索任务"
-                        aria-label="搜索任务编号、标题或成员"
-                        autoComplete="off"
-                        onChange={(event) => setTaskListSearch(event.target.value)}
-                      />
-                    </label>
-                    <div className="task-scope-capsule" role="tablist" aria-label="任务范围">
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={taskMine}
-                        onClick={() => setTaskMine(true)}
-                      >
-                        我的
-                      </button>
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={!taskMine}
-                        onClick={() => setTaskMine(false)}
-                      >
-                        全部
-                      </button>
-                    </div>
-                  </div>
-                  <div className="task-pool-list">
-                    {visibleTasks.map((task) => {
-                      return (
-                        <button
-                          type="button"
-                          className="task-pool-item"
-                          aria-current={selectedTaskId === task.id ? "true" : undefined}
-                          key={task.id}
-                          onClick={() => openTask(task.id)}
-                        >
-                          <span className="task-pool-item-heading">
-                            <span>
-                              <strong>{task.title}</strong>
-                              <small
-                                title={`${taskSourceLabel(task)} → ${taskTargetLabel(task)} → ${taskExecutorLabel(task)}`}
-                              >
-                                {taskSourceLabel(task)} → {taskTargetLabel(task)} →{" "}
-                                {taskExecutorLabel(task)}
-                              </small>
-                            </span>
-                            <span className="task-pool-item-side">
-                              <i data-status={task.status}>{labelWorkflowStatus(task.status)}</i>
-                              <TaskCreatedTime value={task.created_at} />
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                    {!scopedTasks.length && (
-                      <p className="panel-empty">
-                        {taskMine ? "暂无与我有关的任务。" : "当前迭代暂无任务。"}
-                      </p>
-                    )}
-                    {!!scopedTasks.length && !visibleTasks.length && (
-                      <p className="panel-empty">没有匹配的任务。</p>
-                    )}
-                  </div>
-                  {active && (
-                    <button
-                      type="button"
-                      className="task-create-dock"
-                      onClick={() => openTaskCreate()}
-                    >
-                      <UiIcon name="plus" size={12} />
-                      新建任务
-                    </button>
-                  )}
-                </aside>
-                <div className="task-pool-dialog-detail">
-                  {selectedTaskId ? (
-                    (() => {
-                      const task = taskDetail;
-                      const isTarget =
-                        active &&
-                        task?.target_type === "human_member" &&
-                        task.target_id === user.id;
-                      const isSource =
-                        active &&
-                        !!task &&
-                        (task.source_user_id === user.id ||
-                          (task.created_by_type === "human_member" &&
-                            task.created_by_id === user.id));
-                      const canTransfer =
-                        !!task &&
-                        isTarget &&
-                        [
-                          "awaiting_acceptance",
-                          "assigned",
-                          "pending_assignment",
-                          "pending_start",
-                          "queued",
-                          "waiting",
-                          "blocked",
-                        ].includes(task.status);
-                      const openQuestion = task?.questions.find(
-                        (question) =>
-                          question.status === "open" && question.source_user_id === user.id,
-                      );
-                      const canReviewRejection =
-                        active &&
-                        !!task &&
-                        task.status === "rejected" &&
-                        task.rejectionReview.rejected &&
-                        !task.rejectionReview.resolved &&
-                        task.rejectionReview.reviewer_type === "human_member" &&
-                        task.rejectionReview.reviewer_id === user.id;
-                      const targetName =
-                        detail?.members.find((member) => member.id === task?.target_id)?.name ||
-                        (task?.target_type === "l2_session" ? "小祥" : "未指派");
-                      return (
-                        <div className="task-detail">
-                          {!task || task.id !== selectedTaskId ? (
-                            <p className="muted">正在读取任务详情…</p>
-                          ) : (
-                            <>
-                              <header>
-                                <div className="task-detail-title">
-                                  <h3>{task.title}</h3>
-                                  <div className="task-detail-id">
-                                    <span>
-                                      任务 ID：<code>{task.id}</code>
-                                    </span>
-                                    <button
-                                      type="button"
-                                      title={copiedTaskId === task.id ? "已复制" : "复制任务信息"}
-                                      aria-label={
-                                        copiedTaskId === task.id ? "已复制任务信息" : "复制任务信息"
-                                      }
-                                      onClick={() => void copyTaskInfo(task)}
-                                    >
-                                      <UiIcon
-                                        name={copiedTaskId === task.id ? "check" : "copy"}
-                                        size={12}
-                                      />
-                                    </button>
-                                  </div>
-                                </div>
-                                <div className="task-detail-header-actions">
-                                  <span data-status={task.status}>
-                                    {labelWorkflowStatus(task.status)}
-                                  </span>
-                                </div>
-                              </header>
-                              <dl className="task-detail-meta">
-                                <div>
-                                  <dt>任务来源</dt>
-                                  <dd>{taskSourceLabel(task)}</dd>
-                                </div>
-                                <div>
-                                  <dt>任务类型</dt>
-                                  <dd>
-                                    {task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}
-                                  </dd>
-                                </div>
-                                <div>
-                                  <dt>责任主体</dt>
-                                  <dd>{targetName}</dd>
-                                </div>
-                                <div>
-                                  <dt>任务执行</dt>
-                                  <dd>{taskExecutorLabel(task)}</dd>
-                                </div>
-                              </dl>
-                              <section>
-                                <h4>任务目标</h4>
-                                <p>{task.goal}</p>
-                                {task.constraints && (
-                                  <>
-                                    <h4>约束</h4>
-                                    <p>{task.constraints}</p>
-                                  </>
-                                )}
-                                {(() => {
-                                  const parseIds = (
-                                    value: string[] | string | null | undefined,
-                                  ) => {
-                                    if (Array.isArray(value))
-                                      return value.filter((id) => typeof id === "string" && id);
-                                    if (typeof value === "string") {
-                                      try {
-                                        const parsed = JSON.parse(value);
-                                        return Array.isArray(parsed)
-                                          ? parsed.filter((id) => typeof id === "string" && id)
-                                          : [];
-                                      } catch {
-                                        return [];
-                                      }
-                                    }
-                                    return [];
-                                  };
-                                  const refs = parseIds(task.document_refs);
-                                  const folderRefs = parseIds(task.folder_refs);
-                                  return refs.length || folderRefs.length ? (
-                                    <>
-                                      {folderRefs.length ? (
-                                        <>
-                                          <h4>引用文件夹</h4>
-                                          <div className="references">
-                                            {folderRefs.map((id) => {
-                                              const folder = detail?.folders.find(
-                                                (item) => item.id === id,
-                                              );
-                                              return (
-                                                <span className="ref" key={id}>
-                                                  {folder
-                                                    ? libraryFolderPath(
-                                                        id,
-                                                        detail?.folders || [],
-                                                      ) || folder.name
-                                                    : id}
-                                                </span>
-                                              );
-                                            })}
-                                          </div>
-                                        </>
-                                      ) : null}
-                                      {refs.length ? (
-                                        <>
-                                          <h4>引用文档</h4>
-                                          <div className="references">{refs.map(renderRef)}</div>
-                                        </>
-                                      ) : null}
-                                    </>
-                                  ) : null;
-                                })()}
-                              </section>
-                              {active && openQuestion && (
-                                <section className="task-question">
-                                  <h4>需要你回答</h4>
-                                  <p>{openQuestion.question}</p>
-                                  <textarea
-                                    value={taskAnswer}
-                                    onChange={(event) => setTaskAnswer(event.target.value)}
-                                    placeholder="输入回答"
-                                  />
-                                  <button
-                                    type="button"
-                                    className="primary"
-                                    disabled={taskActionBusy || !taskAnswer.trim()}
-                                    onClick={() =>
-                                      void performTaskAction(async () => {
-                                        await api(`/task-questions/${openQuestion.id}/answer`, {
-                                          answer: taskAnswer,
-                                        });
-                                        setTaskAnswer("");
-                                      }, "回答已提交")
-                                    }
-                                  >
-                                    提交回答
-                                  </button>
-                                </section>
-                              )}
-                              {isTarget && task.status === "awaiting_acceptance" && (
-                                <section className="task-actions-section">
-                                  <h4>确认任务</h4>
-                                  {projectConnectorBound ? (
-                                    <select
-                                      value={
-                                        taskExecutionMode === "auto"
-                                          ? "member_connector"
-                                          : taskExecutionMode
-                                      }
-                                      onChange={(event) =>
-                                        setTaskExecutionMode(
-                                          event.target.value as typeof taskExecutionMode,
-                                        )
-                                      }
-                                    >
-                                      <option value="member_connector">下发本地执行器</option>
-                                      <option value="human_direct">由本人执行</option>
-                                    </select>
-                                  ) : (
-                                    <p className="muted">
-                                      当前账号未连接本项目本地执行器，确认后由本人执行。
-                                    </p>
-                                  )}
-                                  <div className="task-action-buttons">
-                                    <button
-                                      type="button"
-                                      disabled={taskActionBusy}
-                                      onClick={() =>
-                                        void performTaskAction(
-                                          () => api(`/tasks/${task.id}/reject`, {}, "POST"),
-                                          "已拒绝任务",
-                                        )
-                                      }
-                                    >
-                                      <UiIcon name="reject" size={13} />
-                                      拒绝
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="primary"
-                                      disabled={taskActionBusy}
-                                      onClick={() =>
-                                        void performTaskAction(
-                                          () =>
-                                            api(
-                                              `/tasks/${task.id}/accept`,
-                                              {
-                                                mode: projectConnectorBound
-                                                  ? taskExecutionMode === "human_direct"
-                                                    ? "human_direct"
-                                                    : "member_connector"
-                                                  : "human_direct",
-                                              },
-                                              "POST",
-                                            ),
-                                          "已确认任务",
-                                        )
-                                      }
-                                    >
-                                      <UiIcon name="check" size={13} />
-                                      确认
-                                    </button>
-                                  </div>
-                                </section>
-                              )}
-                              {isSource && task.status === "awaiting_acceptance" && (
-                                <section className="task-actions-section">
-                                  <h4>来源操作</h4>
-                                  <button
-                                    type="button"
-                                    disabled={taskActionBusy}
-                                    onClick={() =>
-                                      void performTaskAction(
-                                        () => api(`/tasks/${task.id}/cancel`, {}, "POST"),
-                                        "任务已取消",
-                                      )
-                                    }
-                                  >
-                                    <UiIcon name="close" size={13} />
-                                    取消
-                                  </button>
-                                </section>
-                              )}
-                              {canReviewRejection && (
-                                <section className="task-actions-section task-rejection-review">
-                                  <h4>任务已被拒绝</h4>
-                                  <p>
-                                    {[...task.assignmentHistory]
-                                      .reverse()
-                                      .find((event) => event.event_type === "rejected")?.reason ||
-                                      "目标成员拒绝了这个任务。"}
-                                  </p>
-                                  <textarea
-                                    value={taskReopenGoal}
-                                    onChange={(event) => setTaskReopenGoal(event.target.value)}
-                                    placeholder="修改任务目标与验收标准"
-                                  />
-                                  <textarea
-                                    value={taskReopenConstraints}
-                                    onChange={(event) =>
-                                      setTaskReopenConstraints(event.target.value)
-                                    }
-                                    placeholder="修改约束（可选）"
-                                  />
-                                  <div className="task-action-buttons">
-                                    <button
-                                      type="button"
-                                      disabled={taskActionBusy}
-                                      onClick={() =>
-                                        void performTaskAction(
-                                          () =>
-                                            api(
-                                              `/tasks/${task.id}/acknowledge-rejection`,
-                                              {},
-                                              "POST",
-                                            ),
-                                          "已确认拒绝结果",
-                                        )
-                                      }
-                                    >
-                                      知道了
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="primary"
-                                      disabled={taskActionBusy || !taskReopenGoal.trim()}
-                                      onClick={() =>
-                                        void performTaskAction(
-                                          () =>
-                                            api(
-                                              `/tasks/${task.id}/reopen`,
-                                              {
-                                                goal: taskReopenGoal.trim(),
-                                                constraints: taskReopenConstraints,
-                                              },
-                                              "POST",
-                                            ),
-                                          "任务已重新发起",
-                                        )
-                                      }
-                                    >
-                                      修改后重新发起
-                                    </button>
-                                  </div>
-                                </section>
-                              )}
-                              {canTransfer && (
-                                <section className="task-actions-section">
-                                  <h4>转交任务</h4>
-                                  <select
-                                    value={taskTransferTarget}
-                                    onChange={(event) => setTaskTransferTarget(event.target.value)}
-                                  >
-                                    <option value="">选择新的责任主体</option>
-                                    <option value="l2_session">小祥</option>
-                                    {detail?.members
-                                      .filter(
-                                        (member) =>
-                                          member.id !== user.id &&
-                                          member.kind !== "l1" &&
-                                          member.kind !== "l2" &&
-                                          member.id !== AGENT_MEMBER.id &&
-                                          member.role !== "viewer",
-                                      )
-                                      .map((member) => (
-                                        <option key={member.id} value={member.id}>
-                                          {member.name}
-                                        </option>
-                                      ))}
-                                  </select>
-                                  <button
-                                    type="button"
-                                    disabled={taskActionBusy || !taskTransferTarget}
-                                    onClick={() =>
-                                      void performTaskAction(
-                                        () =>
-                                          api(
-                                            `/tasks/${task.id}/reassign`,
-                                            taskTransferTarget === "l2_session"
-                                              ? { targetType: "l2_session" }
-                                              : {
-                                                  targetType: "human_member",
-                                                  targetUserId: taskTransferTarget,
-                                                },
-                                            "POST",
-                                          ),
-                                        "任务已转交",
-                                      )
-                                    }
-                                  >
-                                    <UiIcon name="transfer" size={13} />
-                                    确认转交
-                                  </button>
-                                </section>
-                              )}
-                              {isTarget &&
-                                task.execution_agent_type === "human_self" &&
-                                !endedTask(task.status) &&
-                                task.status !== "awaiting_acceptance" && (
-                                  <section className="task-actions-section">
-                                    <h4>进度与结果</h4>
-                                    <textarea
-                                      value={taskResult}
-                                      onChange={(event) => setTaskResult(event.target.value)}
-                                      placeholder="结果摘要"
-                                    />
-                                    <div className="task-status-actions">
-                                      <button
-                                        type="button"
-                                        disabled={taskActionBusy}
-                                        onClick={() =>
-                                          void performTaskAction(
-                                            () =>
-                                              api(
-                                                `/tasks/${task.id}`,
-                                                {
-                                                  status: "abandoned",
-                                                  resultSummary: taskResult || "已放弃",
-                                                },
-                                                "PATCH",
-                                              ),
-                                            "任务已放弃",
-                                          )
-                                        }
-                                      >
-                                        <UiIcon name="abandon" size={13} />
-                                        放弃
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="primary"
-                                        disabled={taskActionBusy}
-                                        onClick={() =>
-                                          void performTaskAction(
-                                            () =>
-                                              api(
-                                                `/tasks/${task.id}`,
-                                                {
-                                                  status: "completed",
-                                                  resultSummary: taskResult || "已完成",
-                                                },
-                                                "PATCH",
-                                              ),
-                                            "任务已完成",
-                                          )
-                                        }
-                                      >
-                                        <UiIcon name="complete" size={13} />
-                                        完成
-                                      </button>
-                                    </div>
-                                  </section>
-                                )}
-                              {(() => {
-                                const timeline = taskDetailTimeline(task);
-                                const visibleTimeline = timeline.filter(
-                                  (item) => taskTimelineFilters[item.kind],
-                                );
-                                const pageSize = taskTimelinePageSize;
-                                const pageCount = Math.max(
-                                  1,
-                                  Math.ceil(visibleTimeline.length / pageSize),
-                                );
-                                const page = Math.min(taskTimelinePage, pageCount - 1);
-                                const pageItems = visibleTimeline.slice(
-                                  page * pageSize,
-                                  (page + 1) * pageSize,
-                                );
-                                const filterLabels: { kind: TaskTimelineKind; label: string }[] = [
-                                  { kind: "member_update", label: "成员动态" },
-                                  { kind: "status_change", label: "状态变化" },
-                                  { kind: "assignment", label: "指派变更" },
-                                  { kind: "execution", label: "执行轮次" },
-                                ];
-                                return timeline.length ? (
-                                  <section className="task-timeline-section">
-                                    <div className="task-timeline-header">
-                                      <h4>任务时间线</h4>
-                                      <div
-                                        className="task-timeline-filters"
-                                        aria-label="任务时间线筛选"
-                                      >
-                                        {filterLabels.map(({ kind, label }) => (
-                                          <label key={kind}>
-                                            <input
-                                              type="checkbox"
-                                              checked={taskTimelineFilters[kind]}
-                                              onChange={(event) => {
-                                                setTaskTimelineFilters((current) => ({
-                                                  ...current,
-                                                  [kind]: event.target.checked,
-                                                }));
-                                                setTaskTimelinePage(0);
-                                              }}
-                                            />
-                                            {label}
-                                          </label>
-                                        ))}
-                                      </div>
-                                    </div>
-                                    {pageItems.length ? (
-                                      <div className="task-history task-change-log task-timeline-list">
-                                        {pageItems.map((item, index) => (
-                                          <div
-                                            className={`task-change-item task-timeline-item-${item.kind}${index === 0 && page === 0 ? " is-latest" : ""}`}
-                                            key={item.key}
-                                          >
-                                            <i className="task-change-marker" aria-hidden="true" />
-                                            <div className="task-change-content">
-                                              <div className="task-change-heading">
-                                                <strong>{item.title}</strong>
-                                                <span>
-                                                  {item.kind === "execution"
-                                                    ? executionRunLabel(
-                                                        {
-                                                          executor_type: item.actorType,
-                                                          executor_id: item.actorId,
-                                                          executor_label: item.actorName,
-                                                          status: "",
-                                                          progress: null,
-                                                          result_summary: null,
-                                                          error: null,
-                                                          created_at: item.at,
-                                                          id: item.key,
-                                                        },
-                                                        task,
-                                                      )
-                                                    : statusActorLabel(
-                                                        {
-                                                          actor_type: item.actorType,
-                                                          actor_id: item.actorId,
-                                                          actor_name: item.actorName,
-                                                        },
-                                                        task,
-                                                      )}{" "}
-                                                  · {time(item.at)}
-                                                </span>
-                                              </div>
-                                              {item.body && (
-                                                <small className="task-timeline-body">
-                                                  {item.body}
-                                                </small>
-                                              )}
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <p className="muted task-timeline-empty">
-                                        当前筛选条件下暂无记录。
-                                      </p>
-                                    )}
-                                    {visibleTimeline.length > 0 && (
-                                      <PaginationControl
-                                        className="task-timeline-pagination"
-                                        total={visibleTimeline.length}
-                                        currentPage={page + 1}
-                                        pageSize={pageSize}
-                                        pageSizeOptions={[10, 12, 20, 50]}
-                                        onPageChange={(next) => setTaskTimelinePage(next - 1)}
-                                        onPageSizeChange={(next) => {
-                                          setTaskTimelinePageSize(next);
-                                          setTaskTimelinePage(0);
-                                        }}
-                                        ariaLabel="任务时间线分页"
-                                      />
-                                    )}
-                                  </section>
-                                ) : null;
-                              })()}
-                            </>
-                          )}
-                          {taskActionError && !taskCreateOpen && (
-                            <p className="project-settings-error" role="alert">
-                              {taskActionError}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })()
-                  ) : (
-                    <p className="panel-empty">选择左侧任务，查看详情和操作。</p>
-                  )}
-                </div>
-              </div>
-            </section>
-          )}
-        </ModalBackdrop>
+          onChanged={refreshProjectTasks}
+          detail={detail}
+          projectId={projectId}
+          threadId={threadId}
+          user={user}
+          active={!!active}
+          openTaskCreate={openTaskCreate}
+          renderRef={renderRef}
+          projectConnectorBound={projectConnectorBound}
+          time={time}
+          mcpEndpoint={health?.mcpEndpoint || "/mcp"}
+        />
       )}
-      {taskCreateOpen && (
-        <ModalBackdrop
-          className="task-create-backdrop"
+      {taskCreateRequest && (
+        <TaskCreateDialog
+          key={`${user.id}:${projectId}:${threadId}:${taskCreateRequest.id}`}
+          projectId={projectId}
+          threadId={threadId}
+          writable={!!active}
+          user={user}
+          detail={detail}
+          initialRefId={taskCreateRequest.refId}
+          initialFolderId={taskCreateRequest.folderId}
           onClose={closeTaskCreate}
-          enabled={!taskActionBusy}
-        >
-          {(close) => (
-            <section
-              className="task-create-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="task-create-dialog-title"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <header>
-                <div>
-                  <span>当前迭代</span>
-                  <h2 id="task-create-dialog-title">新建人类任务</h2>
-                  <p>
-                    {detail?.threads.find((item) => item.id === threadId)?.title || "未选择迭代"}
-                  </p>
-                </div>
-                <DialogClose onClick={close} disabled={taskActionBusy} label="关闭新建任务" />
-              </header>
-              <form
-                className="task-create-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (!taskCreateTitle.trim() || !taskCreateGoal.trim() || !taskCreateTarget)
-                    return;
-                  void performTaskAction(async () => {
-                    const created = await api(`/projects/${projectId}/tasks`, {
-                      title: taskCreateTitle.trim(),
-                      goal: taskCreateGoal.trim(),
-                      constraints: taskCreateConstraints.trim() || undefined,
-                      refs: taskCreateRefs,
-                      folderRefs: taskCreateFolderRefs,
-                      targetType: "human_member",
-                      targetUserId: taskCreateTarget,
-                      threadId,
-                    });
-                    closeTaskCreate();
-                    setSelectedTaskId(created.id);
-                  }, "任务已创建");
-                }}
-              >
-                <div className="task-create-fields">
-                  <label>
-                    标题
-                    <input
-                      autoFocus
-                      value={taskCreateTitle}
-                      onChange={(event) => setTaskCreateTitle(event.target.value)}
-                      placeholder="任务标题"
-                      maxLength={240}
-                    />
-                  </label>
-                  <label>
-                    任务目标与验收标准
-                    <textarea
-                      value={taskCreateGoal}
-                      onChange={(event) => setTaskCreateGoal(event.target.value)}
-                      placeholder="说明要完成什么、怎样算完成"
-                      maxLength={20000}
-                    />
-                  </label>
-                  <label>
-                    约束（可选）
-                    <textarea
-                      value={taskCreateConstraints}
-                      onChange={(event) => setTaskCreateConstraints(event.target.value)}
-                      placeholder="范围、禁止事项或依赖"
-                      maxLength={20000}
-                    />
-                  </label>
-                  <div className="task-create-library">
-                    <LibraryPickerField
-                      label="引用正式文件"
-                      buttonLabel="选择文件或文件夹"
-                      dialogTitle="选择正式文件"
-                      dialogDescription="可同时选择文件和文件夹。选中文件夹后，其中已选文件会自动收进该文件夹。"
-                      folders={detail?.folders || []}
-                      files={detail?.versions || []}
-                      rootKinds={["project_official"]}
-                      allowFiles
-                      allowFolders
-                      multiple
-                      value={{ fileIds: taskCreateRefs, folderIds: taskCreateFolderRefs }}
-                      onChange={(next) => {
-                        setTaskCreateRefs(next.fileIds);
-                        setTaskCreateFolderRefs(next.folderIds);
-                      }}
-                      searchPlaceholder="搜索正式文件或文件夹"
-                      emptyLabel="暂无可引用的正式文件"
-                    />
-                  </div>
-                  <label>
-                    指派成员
-                    <select
-                      value={taskCreateTarget}
-                      onChange={(event) => setTaskCreateTarget(event.target.value)}
-                    >
-                      <option value="">选择指派成员</option>
-                      {detail?.members
-                        .filter(
-                          (member) =>
-                            member.kind !== "l1" &&
-                            member.kind !== "l2" &&
-                            member.id !== AGENT_MEMBER.id &&
-                            member.role !== "viewer",
-                        )
-                        .map((member) => (
-                          <option key={member.id} value={member.id}>
-                            {member.name}
-                            {member.id === user?.id ? "（我）" : ""}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  {taskActionError && (
-                    <p className="project-settings-error" role="alert">
-                      {taskActionError}
-                    </p>
-                  )}
-                </div>
-                <div className="task-create-actions">
-                  <button type="button" disabled={taskActionBusy} onClick={close}>
-                    取消
-                  </button>
-                  <button
-                    type="submit"
-                    className="primary"
-                    disabled={
-                      taskActionBusy ||
-                      !taskCreateTitle.trim() ||
-                      !taskCreateGoal.trim() ||
-                      !taskCreateTarget
-                    }
-                  >
-                    <UiIcon name="plus" size={13} />
-                    创建正式任务
-                  </button>
-                </div>
-              </form>
-            </section>
-          )}
-        </ModalBackdrop>
+          onCreated={(taskId) => {
+            if (
+              currentContext.current.projectId !== projectId ||
+              currentContext.current.threadId !== threadId
+            )
+              return;
+            setTaskCreateRequest((current) =>
+              current?.id === taskCreateRequest.id ? null : current,
+            );
+            setTaskSelection((current) => ({ id: current.id + 1, taskId }));
+            void refreshProjectTasks().catch(() =>
+              showTip("任务已创建，列表刷新失败，请稍后重试", "error"),
+            );
+          }}
+        />
       )}
       {quotePreview && (
         <ModalBackdrop onClose={() => setQuotePreview(null)} enabled={!imagePreview}>
@@ -4703,19 +1792,9 @@ export function WorkspaceApp() {
               <strong>
                 {quotePreview.source === "assistant" ? AGENT_MEMBER.name : quotePreview.author}
               </strong>
-              <Markdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  img: () => <span>（图片链接）</span>,
-                  a: ({ href, children }) => (
-                    <a href={href} target="_blank" rel="noopener noreferrer">
-                      {children}
-                    </a>
-                  ),
-                }}
-              >
-                {quotePreview.body}
-              </Markdown>
+              <Suspense fallback={quotePreview.body}>
+                <QuoteMarkdown body={quotePreview.body} />
+              </Suspense>
               {renderMessageAttachments(quotePreview)}
             </section>
           )}
@@ -4732,12 +1811,14 @@ export function WorkspaceApp() {
         />
       )}
       {imagePreview && (
-        <ImagePreviewDialog
-          id={imagePreview.id}
-          title={imagePreview.title}
-          filename={imagePreview.filename}
-          onClose={() => setImagePreview(null)}
-        />
+        <Suspense fallback={null}>
+          <ImagePreviewDialog
+            id={imagePreview.id}
+            title={imagePreview.title}
+            filename={imagePreview.filename}
+            onClose={() => setImagePreview(null)}
+          />
+        </Suspense>
       )}
       {projectManagementOpen && projectId && (
         <Suspense fallback={null}>
@@ -4792,7 +1873,9 @@ export function WorkspaceApp() {
         </Suspense>
       )}
       {agentLogScope && (
-        <AgentLogDialog scope={agentLogScope} api={api} onClose={() => setAgentLogScope(null)} />
+        <Suspense fallback={null}>
+          <AgentLogDialog scope={agentLogScope} api={api} onClose={() => setAgentLogScope(null)} />
+        </Suspense>
       )}
       {connectorAuthorizationId && (
         <Suspense fallback={null}>
@@ -4818,264 +1901,19 @@ export function WorkspaceApp() {
           }}
         />
       )}
-      {modal && (
-        <ModalBackdrop onClose={() => setModal(null)} enabled={!busy}>
-          {(close) => (
-            <section
-              className={`modal ${["profile", "settings", "password", "email", "mcp"].includes(modal) ? "workspace-settings space-dialog" : ""}`}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="modal-title"
-            >
-              <div
-                className={`modal-header${["profile", "settings", "password", "email", "mcp"].includes(modal) ? " space-dialog-header" : ""}`}
-              >
-                <div>
-                  {["profile", "settings", "password", "email", "mcp"].includes(modal) && (
-                    <span>工作空间</span>
-                  )}
-                  <h2 id="modal-title">
-                    {
-                      {
-                        project: "创建项目",
-                        profile: "个人设置",
-                        settings: "个人设置",
-                        password: "个人设置",
-                        email: "个人设置",
-                        mcp: "个人设置",
-                        run: "在沙箱中执行",
-                      }[modal]
-                    }
-                  </h2>
-                </div>
-                <DialogClose disabled={busy} onClick={close} label="关闭" />
-              </div>
-              <div
-                className={
-                  ["profile", "settings", "password", "email", "mcp"].includes(modal)
-                    ? "settings-layout space-dialog-body"
-                    : undefined
-                }
-              >
-                {["profile", "settings", "password", "email", "mcp"].includes(modal) && (
-                  <nav className="settings-nav space-dialog-nav" aria-label="个人设置">
-                    <a href="/admin">
-                      <span className="ui-icon-text">
-                        <UiIcon name="shield" size={14} />
-                        进入管理空间
-                      </span>
-                      <UiIcon name="next" size={12} />
-                    </a>
-                    {(
-                      [
-                        ["profile", "个人资料", "human"],
-                        ["password", "修改密码", "lock"],
-                        ["mcp", "MCP 配置", "key"],
-                        ["settings", "退出/切换", "logout"],
-                      ] as const
-                    ).map(([value, label, icon]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        aria-current={modal === value ? "page" : undefined}
-                        disabled={busy}
-                        onClick={() => open(value as Modal)}
-                      >
-                        <span className="ui-icon-text">
-                          <UiIcon name={icon as UiIconName} size={14} />
-                          {label}
-                        </span>
-                      </button>
-                    ))}
-                  </nav>
-                )}
-                <form
-                  key={modal}
-                  className={
-                    ["profile", "settings", "password", "email", "mcp"].includes(modal)
-                      ? "space-dialog-content"
-                      : undefined
-                  }
-                  onSubmit={submitModal}
-                >
-                  {["profile", "settings", "password", "email", "mcp"].includes(modal) && (
-                    <div className="settings-content-heading">
-                      <p>
-                        {modal === "settings"
-                          ? "这台浏览器可以记住多个账号。切换只点右侧按钮；退出并清除账号会清掉这台设备上的登录信息。"
-                          : modal === "mcp"
-                            ? "跨 Windows、macOS 和 Linux 使用共序 MCP，并管理本账号的本地执行器。"
-                            : "管理你的通用账号"}
-                      </p>
-                    </div>
-                  )}
-                  {modal === "profile" && (
-                    <ProfileFields
-                      user={user}
-                      avatar={profileAvatar}
-                      busy={busy}
-                      api={api}
-                      onProfile={(profile) => {
-                        setUser(profile);
-                        updateSavedAccountProfile(profile);
-                        setSavedAccounts(listSavedAccounts());
-                      }}
-                      onUpload={(file) =>
-                        void run(async () => {
-                          setProfileAvatar(await prepareAvatar(file));
-                        })
-                      }
-                      onRemove={() => setProfileAvatar(null)}
-                    />
-                  )}
-                  {modal === "settings" && (
-                    <div className="settings-logout-panel">
-                      <AccountSwitchList
-                        accounts={savedAccounts}
-                        currentId={user.id}
-                        busy={busy}
-                        onSwitch={(account) => void run(() => switchSavedAccount(account))}
-                        onLogout={() => void run(logoutCurrent)}
-                        onClear={(account) => void run(() => forgetSavedLogin(account.id))}
-                      />
-                      <button
-                        type="button"
-                        className="account-login-another"
-                        disabled={busy}
-                        onClick={() => void run(loginAnother)}
-                      >
-                        <UiIcon name="login" size={13} />
-                        登录其他账号
-                      </button>
-                    </div>
-                  )}
-                  {modal === "project" && (
-                    <>
-                      <ProjectImageField image={projectImage} busy={busy} onChange={setProjectImage} />
-                      <label>
-                        项目名称
-                        <input
-                          name="name"
-                          maxLength={120}
-                          autoFocus
-                          required
-                          placeholder="例如：共序产品研发"
-                        />
-                      </label>
-                      <label>
-                        项目简介
-                        <textarea
-                          name="description"
-                          maxLength={4000}
-                          placeholder="这个项目要达成什么目标？"
-                        />
-                      </label>
-                    </>
-                  )}
-                  {modal === "password" && (
-                    <>
-                      <div className="settings-identity">
-                        <strong>{user.name}</strong>
-                        <small>
-                          用户名：{user.username}
-                          {user.email ? ` · ${user.email}` : " · 未绑定邮箱"}
-                        </small>
-                      </div>
-                      <label>
-                        当前密码
-                        <input
-                          name="currentPassword"
-                          type="password"
-                          required
-                          autoComplete="current-password"
-                        />
-                      </label>
-                      <PasswordField label="新密码" autoComplete="new-password" required />
-                      <p className="muted">修改后，其他登录会话和 AI 令牌会失效。</p>
-                    </>
-                  )}
-                  {modal === "email" && (
-                    <Suspense fallback={<p className="muted">正在加载…</p>}>
-                      <EmailBinding
-                        email={user.email}
-                        api={api}
-                        onBound={(profile) => {
-                          setUser(profile);
-                        }}
-                      />
-                    </Suspense>
-                  )}
-                  {modal === "mcp" && (
-                    <Suspense fallback={<p className="muted">正在加载…</p>}>
-                      <McpSettings
-                        api={api}
-                        endpoint={health?.mcpEndpoint || "/mcp"}
-                        connectors={connectors}
-                        connectorsReady={connectorsReady}
-                        projectId={projectId}
-                        onConnectorsChanged={refreshConnectors}
-                      />
-                    </Suspense>
-                  )}
-                  {modal === "run" && (
-                    <>
-                      <p>
-                        使用临时沙箱执行。当前讨论和最近 40
-                        个文档版本会复制到沙箱，需要保留的成果请保存到文档库。
-                      </p>
-                      <label>
-                        命令
-                        <textarea
-                          name="command"
-                          required
-                          maxLength={8000}
-                          defaultValue="pwd && ls -la"
-                        />
-                      </label>
-                      <p className="muted">
-                        context.json 保存讨论，manifest.json
-                        保存文档目录。运行结果将保留在当前迭代。
-                      </p>
-                    </>
-                  )}
-                  {error && (
-                    <div className="error" role="alert">
-                      {error}
-                    </div>
-                  )}
-                  {(modal === "profile" ||
-                    modal === "password" ||
-                    modal === "project" ||
-                    modal === "run") && (
-                    <div className="modal-footer">
-                      {!["profile", "password"].includes(modal) && (
-                        <button type="button" disabled={busy} onClick={close}>
-                          <UiIcon name="close" size={13} />
-                          关闭
-                        </button>
-                      )}
-                      <button className="primary" disabled={busy}>
-                        <UiIcon name={busy ? "running" : "save"} size={13} />
-                        {busy ? "正在处理…" : modal === "profile" ? "保存资料" : "确认"}
-                      </button>
-                    </div>
-                  )}
-                </form>
-              </div>
-            </section>
-          )}
-        </ModalBackdrop>
-      )}
+      <WorkspaceModals {...modalsProps} />
       {threadDeleteConfirm ? (
-        <DeleteConfirmDialog
-          title="删除已归档迭代"
-          body={`将永久删除「${threadDeleteConfirm.title}」及其讨论、文档与执行记录，且无法恢复。`}
-          confirmLabel="确认删除"
-          danger
-          confirmDisabled={busy}
-          onClose={() => setThreadDeleteConfirm(null)}
-          onConfirm={confirmDeleteArchivedThread}
-        />
+        <Suspense fallback={null}>
+          <DeleteConfirmDialog
+            title="删除已归档迭代"
+            body={`将永久删除「${threadDeleteConfirm.title}」及其讨论、文档与执行记录，且无法恢复。`}
+            confirmLabel="确认删除"
+            danger
+            confirmDisabled={busy}
+            onClose={() => setThreadDeleteConfirm(null)}
+            onConfirm={confirmDeleteArchivedThread}
+          />
+        </Suspense>
       ) : null}
     </div>
   );

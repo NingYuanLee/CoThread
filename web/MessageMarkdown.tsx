@@ -1,12 +1,9 @@
-import React, { memo } from "react";
+import { memo } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { openVersion } from "./message-markdown-opener";
 
-const openVersion = { current: (_id: string) => {} };
-
-export function bindMessageMarkdownOpener(open: (id: string) => void) {
-  openVersion.current = open;
-}
+export { bindMessageMarkdownOpener } from "./message-markdown-opener";
 
 function versionIdFromHref(href?: string) {
   try {

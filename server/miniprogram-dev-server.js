@@ -448,11 +448,19 @@ export function devServerTokenMatches(row, token) {
  * member. Cookie auth matters for HMR: bundler clients build their own socket
  * URL and will not carry a token query parameter.
  */
-export async function authorizeDevServerUpgrade(db, req, projectId, row, url) {
+export async function authorizeDevServerUpgrade(
+  db,
+  req,
+  projectId,
+  row,
+  url,
+  isActive = () => true,
+) {
+  if (!isActive()) return false;
   if (devServerTokenMatches(row, url.searchParams.get("token"))) return true;
   try {
     const user = await authenticate(db, req);
-    if (!user) return false;
+    if (!user || !isActive()) return false;
     const [member] = await query(
       db,
       `SELECT m.role FROM members m JOIN projects p ON p.id=m.project_id
@@ -563,58 +571,107 @@ export async function proxyDevServerRequest(service, projectId, serverId, req, r
  * dev server so HMR works through the proxy.
  */
 export function registerDevServerUpgrade(server, db) {
-  server.on("upgrade", async (req, socket, head) => {
+  const connections = new Set();
+  const pending = new Set();
+  let stopped = false;
+  let stopping;
+  server.on("upgrade", (req, socket, head) => {
+    // Install before the first await: a reset during authorization is normal.
+    socket.on("error", () => {});
     let match;
     try {
       match = new URL(req.url, "http://127.0.0.1").pathname.match(DEV_SERVER_PROXY_PATTERN);
     } catch {
       match = null;
     }
-    if (!match) {
+    if (stopped || !match) {
       socket.destroy();
       return;
     }
     const [, projectId, serverId] = match;
-    try {
-      const [row] = await query(
-        db,
-        `SELECT id,project_id,port,status,token_hash FROM miniprogram_dev_servers WHERE id=?`,
-        [serverId],
-      );
-      if (!row || row.project_id !== projectId || !["starting", "running"].includes(row.status)) {
-        socket.destroy();
-        return;
-      }
-      const url = new URL(req.url, "http://127.0.0.1");
-      if (!(await authorizeDevServerUpgrade(db, req, projectId, row, url))) {
-        socket.destroy();
-        return;
-      }
-      await touchDevServer(db, serverId);
-      const upstream = netConnect(Number(row.port), "127.0.0.1", () => {
-        const headerLines = [`GET ${req.url} HTTP/1.1`];
-        const headers = { ...req.headers, host: `127.0.0.1:${row.port}` };
-        for (const [key, value] of Object.entries(headers)) {
-          if (Array.isArray(value)) for (const item of value) headerLines.push(`${key}: ${item}`);
-          else if (value !== undefined) headerLines.push(`${key}: ${value}`);
-        }
-        upstream.write(`${headerLines.join("\r\n")}\r\n\r\n`);
-        if (head?.length) upstream.write(head);
-        socket.pipe(upstream);
-        upstream.pipe(socket);
-      });
-      const fail = () => {
-        try {
-          socket.destroy();
-        } catch {}
-        upstream.destroy();
-      };
-      upstream.on("error", fail);
-      socket.on("error", fail);
-    } catch {
+    let upstream;
+    let closed = false;
+    const buffered = [];
+    let bufferedBytes = head?.length || 0;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      connections.delete(close);
+      buffered.length = 0;
       socket.destroy();
-    }
+      upstream?.destroy();
+    };
+    const alive = () => !stopped && !closed && !socket.destroyed && !socket.readableEnded;
+    const buffer = (chunk) => {
+      bufferedBytes += chunk.length;
+      // Bound data received while an asynchronous authorization is pending.
+      if (bufferedBytes > 1024 * 1024) return close();
+      buffered.push(chunk);
+    };
+    connections.add(close);
+    socket.on("error", close);
+    socket.once("end", close);
+    socket.once("close", close);
+    socket.on("data", buffer);
+    // Observe EOF during authorization, retaining bytes for the eventual pipe.
+    socket.resume();
+    if (bufferedBytes > 1024 * 1024) close();
+    const work = (async () => {
+      try {
+        if (!alive()) return close();
+        const [row] = await query(
+          db,
+          `SELECT id,project_id,port,status,token_hash FROM miniprogram_dev_servers WHERE id=?`,
+          [serverId],
+        );
+        if (
+          !alive() ||
+          !row ||
+          row.project_id !== projectId ||
+          !["starting", "running"].includes(row.status)
+        )
+          return close();
+        const url = new URL(req.url, "http://127.0.0.1");
+        const authorized = await authorizeDevServerUpgrade(db, req, projectId, row, url, alive);
+        if (!alive() || !authorized) return close();
+        await touchDevServer(db, serverId);
+        if (!alive()) return close();
+        upstream = netConnect(Number(row.port), "127.0.0.1", () => {
+          if (!alive()) return close();
+          socket.pause();
+          socket.off("data", buffer);
+          const headerLines = [`GET ${req.url} HTTP/1.1`];
+          const headers = { ...req.headers, host: `127.0.0.1:${row.port}` };
+          for (const [key, value] of Object.entries(headers)) {
+            if (Array.isArray(value)) for (const item of value) headerLines.push(`${key}: ${item}`);
+            else if (value !== undefined) headerLines.push(`${key}: ${value}`);
+          }
+          upstream.write(`${headerLines.join("\r\n")}\r\n\r\n`);
+          if (head?.length) upstream.write(head);
+          for (const chunk of buffered) upstream.write(chunk);
+          buffered.length = 0;
+          socket.pipe(upstream);
+          upstream.pipe(socket);
+        });
+        upstream.on("error", close);
+        upstream.once("end", close);
+        upstream.once("close", close);
+      } catch {
+        close();
+      }
+    })();
+    pending.add(work);
+    void work.then(() => pending.delete(work));
   });
+  return () => {
+    if (stopping) return stopping;
+    stopped = true;
+    const done = Promise.withResolvers();
+    stopping = done.promise;
+    for (const close of [...connections]) close();
+    void Promise.all([...pending]).then(done.resolve);
+    return stopping;
+  };
 }
 
 /** Probe whether the recorded port actually answers (used by the status view). */

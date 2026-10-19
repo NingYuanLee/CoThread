@@ -99,7 +99,13 @@ export function AdminRoles({
       />
       {node.label}
       <small>
-        {alwaysOpen(node) ? "全员开放" : node.type === "menu" ? "菜单" : node.type === "page" ? "页面" : "功能"}
+        {alwaysOpen(node)
+          ? "全员开放"
+          : node.type === "menu"
+            ? "菜单"
+            : node.type === "page"
+              ? "页面"
+              : "功能"}
       </small>
     </label>
   );
@@ -137,7 +143,11 @@ export function AdminRoles({
           {error}
         </div>
       )}
-      {loading && <p className="admin-empty" role="status">正在加载角色…</p>}
+      {loading && (
+        <p className="admin-empty" role="status">
+          正在加载角色…
+        </p>
+      )}
       {draft && (
         <AdminDialog
           title={draft.id ? "编辑角色" : "新增角色"}
@@ -233,98 +243,96 @@ export function AdminRoles({
             </thead>
             <tbody>
               {visibleRoles.map((role) => (
-                  <tr key={role.id}>
-                    <td>
-                      <strong>{role.name}</strong>
-                      <small>
-                        {role.description ||
-                          (role.code === "super_admin" ? "由超级管理员账号标记识别" : "暂无说明")}
-                      </small>
-                    </td>
-                    <td>
-                      <span className="status-badge">
-                        {role.scope === "project"
-                          ? "项目内置"
-                          : role.is_builtin
-                            ? "平台内置"
-                            : "平台自定义"}
-                      </span>
-                    </td>
-                    <td>
+                <tr key={role.id}>
+                  <td>
+                    <strong>{role.name}</strong>
+                    <small>
+                      {role.description ||
+                        (role.code === "super_admin" ? "由超级管理员账号标记识别" : "暂无说明")}
+                    </small>
+                  </td>
+                  <td>
+                    <span className="status-badge">
                       {role.scope === "project"
-                        ? role.description
-                        : role.code === "super_admin"
-                          ? "全部菜单 · 页面 · 功能"
-                          : `${role.permissions.length} 项权限`}
-                      {role.scope === "platform" && role.code !== "super_admin" && (
-                        <small>
-                          {ADMIN_PERMISSION_TREE.flatMap((menu) => menu.children || [])
-                            .filter((page) => role.permissions.includes(page.key))
-                            .map((page) => page.label)
-                            .join("、") || "未配置页面"}
-                        </small>
-                      )}
-                      {role.scope === "project" && (
-                        <small>管理入口：项目管理 → 项目成员</small>
-                      )}
-                    </td>
-                    <td>{role.member_count}</td>
-                    <td>
-                      {role.scope === "platform" && !role.is_builtin ? (
-                        <div className="admin-table-actions">
-                          <button onClick={() => setDetail(role)}>详情</button>
-                          {canManage && (
-                            <>
-                              <button
-                                disabled={
-                                  busy || role.permissions.some((key) => !permissions.includes(key))
-                                }
-                                onClick={() => {
-                                  setDraft({
-                                    id: role.id,
-                                    name: role.name,
-                                    description: role.description,
-                                    permissions: role.permissions,
-                                  });
-                                }}
-                              >
-                                编辑
-                              </button>
-                              <button
-                                disabled={
-                                  busy ||
-                                  Number(role.member_count) > 0 ||
-                                  role.permissions.some((key) => !permissions.includes(key))
-                                }
-                                onClick={() =>
-                                  setConfirmation({
-                                    title: "删除角色",
-                                    message: `删除未分配的角色「${role.name}」？`,
-                                    confirm: async () => {
-                                      await api(`/admin/roles/${role.id}`, {}, "DELETE");
-                                      showTip("角色已删除");
-                                    },
-                                  })
-                                }
-                              >
-                                删除
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      ) : (
-                        "系统内置"
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                        ? "项目内置"
+                        : role.is_builtin
+                          ? "平台内置"
+                          : "平台自定义"}
+                    </span>
+                  </td>
+                  <td>
+                    {role.scope === "project"
+                      ? role.description
+                      : role.code === "super_admin"
+                        ? "全部菜单 · 页面 · 功能"
+                        : `${role.permissions.length} 项权限`}
+                    {role.scope === "platform" && role.code !== "super_admin" && (
+                      <small>
+                        {ADMIN_PERMISSION_TREE.flatMap((menu) => menu.children || [])
+                          .filter((page) => role.permissions.includes(page.key))
+                          .map((page) => page.label)
+                          .join("、") || "未配置页面"}
+                      </small>
+                    )}
+                    {role.scope === "project" && <small>管理入口：项目管理 → 项目成员</small>}
+                  </td>
+                  <td>{role.member_count}</td>
+                  <td>
+                    {role.scope === "platform" && !role.is_builtin ? (
+                      <div className="admin-table-actions">
+                        <button onClick={() => setDetail(role)}>详情</button>
+                        {canManage && (
+                          <>
+                            <button
+                              disabled={
+                                busy || role.permissions.some((key) => !permissions.includes(key))
+                              }
+                              onClick={() => {
+                                setDraft({
+                                  id: role.id,
+                                  name: role.name,
+                                  description: role.description,
+                                  permissions: role.permissions,
+                                });
+                              }}
+                            >
+                              编辑
+                            </button>
+                            <button
+                              disabled={
+                                busy ||
+                                Number(role.member_count) > 0 ||
+                                role.permissions.some((key) => !permissions.includes(key))
+                              }
+                              onClick={() =>
+                                setConfirmation({
+                                  title: "删除角色",
+                                  message: `删除未分配的角色「${role.name}」？`,
+                                  confirm: async () => {
+                                    await api(`/admin/roles/${role.id}`, {}, "DELETE");
+                                    showTip("角色已删除");
+                                  },
+                                })
+                              }
+                            >
+                              删除
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    ) : (
+                      "系统内置"
+                    )}
+                  </td>
+                </tr>
+              ))}
               {!loading && !filteredRoles.length && (
-                  <tr>
-                    <td colSpan={5} className="admin-empty">
-                      没有符合筛选条件的角色
-                    </td>
-                  </tr>
-                )}
+                <tr>
+                  <td colSpan={5} className="admin-empty">
+                    没有符合筛选条件的角色
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

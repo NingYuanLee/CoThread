@@ -25,7 +25,7 @@
 
 ## ECS 发布（失败不替换正式版）
 
-新版本解压到 `/opt/cothread/releases/<id>`，在临时端口探活 `/api/health`；**通过后**才把 `/opt/cothread/current` 原子切到新目录并 `systemctl restart cothread`。探活失败则删除本轮 release，`current` 与线上进程不动。共享 `.env`、`.local` 在 `/opt/cothread/`，不随 release 覆盖。
+新版本解压到 `/opt/cothread/releases/<id>`，在临时端口探活 `/api/health`；**通过后**才把 `/opt/cothread/current` 原子切到新目录并 `systemctl restart cothread`。探活失败则删除本轮 release，`current` 与线上进程不动。发布脚本只认 `"status":"ok"`，它表示进程和数据库可读，不表示执行器正在干活。同一响应里的 `executor.ready` 才表示本进程持有执行器锁。任务排队看本机 `GET /api/health/work`（仅回环地址），不要把它放进发布探活，避免执行器抖动导致整站切换失败。共享 `.env`、`.local` 在 `/opt/cothread/`，不随 release 覆盖。
 
 本地：配置 `.env.deploy.local`（可复制 `.env.deploy.local.example`）后执行 `npm run deploy:ecs`（等同 `build` + `ecs-pack`，并写入 `.code_deploy/last-deploy.json`）。再用 Cursor 阿里云 MCP `OOS_CodeDeploy` 按清单上传，或在 ECS 上 `RELEASE_TGZ=... bash scripts/ecs-promote.sh`。仅打包可加 `--pack-only`。
 

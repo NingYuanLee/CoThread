@@ -1,3 +1,4 @@
+import { finishAgentEvent } from "./thread-activity.js";
 import { documentTool } from "./documents/index.js";
 import { z } from "zod/v3";
 import { redactSecrets } from "./model-config.js";
@@ -1323,11 +1324,10 @@ export function createAgentTools(
         name === "capture_preview_screenshot" && result.screenshotArtifactId
           ? { ...result, contentBase64: undefined }
           : result;
-      await query(
-        service.db,
-        "UPDATE agent_events SET status='completed',output=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?",
-        [JSON.stringify(eventOutput).slice(0, 30000), event.insertId],
-      );
+      await finishAgentEvent(service.db, event.insertId, {
+        status: "completed",
+        output: JSON.stringify(eventOutput).slice(0, 30000),
+      });
       if (name !== "report_task") await progress("工具已完成，Agent 正在继续处理");
       if (effectiveRole === "executor" && callerSessionId)
         await query(
@@ -1344,11 +1344,7 @@ export function createAgentTools(
           : String(error.stderr || error.message || "工具失败");
       message = redactSecrets(message);
       message = message.slice(-2000);
-      await query(
-        service.db,
-        "UPDATE agent_events SET status='failed',output=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?",
-        [message, event.insertId],
-      );
+      await finishAgentEvent(service.db, event.insertId, { status: "failed", output: message });
       throw new HttpError(error.status || 400, message);
     }
   };

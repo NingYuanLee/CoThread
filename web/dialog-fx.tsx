@@ -105,8 +105,7 @@ export function DialogClose({
  */
 function modalPortalHost(): HTMLElement {
   const openDialogs = Array.from(document.querySelectorAll("dialog[open]")).filter(
-    (node): node is HTMLDialogElement =>
-      node instanceof HTMLDialogElement && node.isConnected,
+    (node): node is HTMLDialogElement => node instanceof HTMLDialogElement && node.isConnected,
   );
   return openDialogs.at(-1) ?? document.body;
 }

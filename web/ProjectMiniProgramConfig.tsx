@@ -114,8 +114,13 @@ export function ProjectMiniProgramConfig({
 }) {
   const [config, setConfig] = useState<MiniProgramConfig | null>(null);
   const [draft, setDraft] = useState<MiniProgramConfig | null>(null);
-  const [publishableKeys, setPublishableKeys] = useState<Record<EnvironmentKind, string>>({ development: "", production: "" });
-  const [savedPublishableKeys, setSavedPublishableKeys] = useState<Record<EnvironmentKind, string>>({ development: "", production: "" });
+  const [publishableKeys, setPublishableKeys] = useState<Record<EnvironmentKind, string>>({
+    development: "",
+    production: "",
+  });
+  const [savedPublishableKeys, setSavedPublishableKeys] = useState<Record<EnvironmentKind, string>>(
+    { development: "", production: "" },
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [checks, setChecks] = useState<VerifyCheck[] | null>(null);
@@ -126,12 +131,17 @@ export function ProjectMiniProgramConfig({
   // CloudBase 凭据拆成两个字段：控制台给的就是两段独立的值，拼在一起容易出错。
   const [cbPair, setCbPair] = useState({ secretId: "", secretKey: "" });
   const [secretBusy, setSecretBusy] = useState<string | null>(null);
-  const [authSettings, setAuthSettings] = useState<Record<EnvironmentKind, CloudbaseAuthSettings | null>>({ development: null, production: null });
-  const [adminAccounts, setAdminAccounts] = useState<Record<EnvironmentKind, CloudbaseAdminAccount | null>>({ development: null, production: null });
+  const [authSettings, setAuthSettings] = useState<
+    Record<EnvironmentKind, CloudbaseAuthSettings | null>
+  >({ development: null, production: null });
+  const [adminAccounts, setAdminAccounts] = useState<
+    Record<EnvironmentKind, CloudbaseAdminAccount | null>
+  >({ development: null, production: null });
   const [authBusy, setAuthBusy] = useState(false);
   const [adminBusy, setAdminBusy] = useState(false);
   const [adminDraft, setAdminDraft] = useState({ username: "", password: "", confirmPassword: "" });
-  const [selectedCloudbaseEnvironment, setSelectedCloudbaseEnvironment] = useState<EnvironmentKind>("development");
+  const [selectedCloudbaseEnvironment, setSelectedCloudbaseEnvironment] =
+    useState<EnvironmentKind>("development");
 
   const apply = (next: MiniProgramConfig) => {
     setConfig(next);
@@ -155,10 +165,13 @@ export function ProjectMiniProgramConfig({
         };
         setPublishableKeys(keys);
         setSavedPublishableKeys(keys);
-        const loadExtra = (path: string) => Promise.race([
-          api(path),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("CloudBase 配置读取超时")), 8000)),
-        ]);
+        const loadExtra = (path: string) =>
+          Promise.race([
+            api(path),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("CloudBase 配置读取超时")), 8000),
+            ),
+          ]);
         const extra = await Promise.allSettled([
           loadExtra(`/projects/${projectId}/cloudbase/auth-settings?environment=development`),
           loadExtra(`/projects/${projectId}/cloudbase/auth-settings?environment=production`),
@@ -191,11 +204,15 @@ export function ProjectMiniProgramConfig({
     setAuthBusy(true);
     setError("");
     try {
-      const next = await api(`/projects/${projectId}/cloudbase/auth-settings`, {
-        environment: selectedCloudbaseEnvironment,
-        ...changes,
-        ...(selectedCloudbaseEnvironment === "production" ? { confirmProduction: true } : {}),
-      }, "PUT");
+      const next = await api(
+        `/projects/${projectId}/cloudbase/auth-settings`,
+        {
+          environment: selectedCloudbaseEnvironment,
+          ...changes,
+          ...(selectedCloudbaseEnvironment === "production" ? { confirmProduction: true } : {}),
+        },
+        "PUT",
+      );
       setAuthSettings((previous) => ({ ...previous, [selectedCloudbaseEnvironment]: next }));
       showTip("CloudBase 登录方式已同步");
     } catch (cause) {
@@ -206,19 +223,27 @@ export function ProjectMiniProgramConfig({
   };
 
   const saveAdminAccount = async () => {
-    if (!adminDraft.username.trim() || adminDraft.password.length < 8 || adminDraft.password !== adminDraft.confirmPassword) {
+    if (
+      !adminDraft.username.trim() ||
+      adminDraft.password.length < 8 ||
+      adminDraft.password !== adminDraft.confirmPassword
+    ) {
       setError("请填写账号、至少 8 位密码，并确认两次密码一致");
       return;
     }
     setAdminBusy(true);
     setError("");
     try {
-      const next = await api(`/projects/${projectId}/cloudbase/admin-account`, {
-        environment: selectedCloudbaseEnvironment,
-        username: adminDraft.username.trim(),
-        password: adminDraft.password,
-        ...(selectedCloudbaseEnvironment === "production" ? { confirmProduction: true } : {}),
-      }, "PUT");
+      const next = await api(
+        `/projects/${projectId}/cloudbase/admin-account`,
+        {
+          environment: selectedCloudbaseEnvironment,
+          username: adminDraft.username.trim(),
+          password: adminDraft.password,
+          ...(selectedCloudbaseEnvironment === "production" ? { confirmProduction: true } : {}),
+        },
+        "PUT",
+      );
       setAdminAccounts((previous) => ({ ...previous, [selectedCloudbaseEnvironment]: next }));
       setAdminDraft({ username: "", password: "", confirmPassword: "" });
       showTip("Admin 首个账号已同步到 CloudBase");
@@ -248,8 +273,18 @@ export function ProjectMiniProgramConfig({
     setBusy(true);
     setError("");
     try {
-      const configChanged = ["appId", "appName", "entryPage", "cloudbaseEnvs", "adminDeploy", "wechatCi"]
-        .some((field) => JSON.stringify(draft[field as keyof MiniProgramConfig]) !== JSON.stringify(config[field as keyof MiniProgramConfig]));
+      const configChanged = [
+        "appId",
+        "appName",
+        "entryPage",
+        "cloudbaseEnvs",
+        "adminDeploy",
+        "wechatCi",
+      ].some(
+        (field) =>
+          JSON.stringify(draft[field as keyof MiniProgramConfig]) !==
+          JSON.stringify(config[field as keyof MiniProgramConfig]),
+      );
       if (configChanged) {
         const next = await api(
           `/projects/${projectId}/miniprogram-config`,
@@ -361,22 +396,83 @@ export function ProjectMiniProgramConfig({
     return (
       <div className="miniprogram-secret" key={kind}>
         <div className="miniprogram-secret-head">
-          <span><UiIcon name="key" size={13} /> {meta.label}</span>
-          {state.configured ? <small className="miniprogram-secret-on">已保存 {state.hint || ""}</small> : <small className="muted">未配置</small>}
+          <span>
+            <UiIcon name="key" size={13} /> {meta.label}
+          </span>
+          {state.configured ? (
+            <small className="miniprogram-secret-on">已保存 {state.hint || ""}</small>
+          ) : (
+            <small className="muted">未配置</small>
+          )}
         </div>
         <p className="muted miniprogram-note">{meta.hint}</p>
         {readOnly ? null : meta.mode === "pair" ? (
           <div className="miniprogram-secret-actions miniprogram-secret-pair">
-            <input type="text" value={cbPair.secretId} placeholder={state.configured ? "SecretId（重新输入以替换）" : "SecretId"} autoComplete="off" spellCheck={false} onChange={(event) => setCbPair((previous) => ({ ...previous, secretId: event.target.value }))} />
-            <input type="password" value={cbPair.secretKey} placeholder={state.configured ? "SecretKey（重新输入以替换）" : "SecretKey"} autoComplete="new-password" onChange={(event) => setCbPair((previous) => ({ ...previous, secretKey: event.target.value }))} />
-            <button type="button" disabled={secretBusy === kind || !cbPair.secretId.trim() || !cbPair.secretKey.trim()} onClick={() => void saveSecret(kind)}>{state.configured ? "替换" : "保存"}</button>
-            {state.configured ? <button type="button" className="miniprogram-danger" disabled={secretBusy === kind} onClick={() => void clearSecret(kind)}>清除</button> : null}
+            <input
+              type="text"
+              value={cbPair.secretId}
+              placeholder={state.configured ? "SecretId（重新输入以替换）" : "SecretId"}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) =>
+                setCbPair((previous) => ({ ...previous, secretId: event.target.value }))
+              }
+            />
+            <input
+              type="password"
+              value={cbPair.secretKey}
+              placeholder={state.configured ? "SecretKey（重新输入以替换）" : "SecretKey"}
+              autoComplete="new-password"
+              onChange={(event) =>
+                setCbPair((previous) => ({ ...previous, secretKey: event.target.value }))
+              }
+            />
+            <button
+              type="button"
+              disabled={secretBusy === kind || !cbPair.secretId.trim() || !cbPair.secretKey.trim()}
+              onClick={() => void saveSecret(kind)}
+            >
+              {state.configured ? "替换" : "保存"}
+            </button>
+            {state.configured ? (
+              <button
+                type="button"
+                className="miniprogram-danger"
+                disabled={secretBusy === kind}
+                onClick={() => void clearSecret(kind)}
+              >
+                清除
+              </button>
+            ) : null}
           </div>
         ) : (
           <div className="miniprogram-secret-actions">
-            <input type="password" value={secretDrafts[kind]} placeholder={state.configured ? "重新输入以替换" : meta.placeholder} autoComplete="new-password" onChange={(event) => setSecretDrafts((previous) => ({ ...previous, [kind]: event.target.value }))} />
-            <button type="button" disabled={secretBusy === kind || !secretDrafts[kind]} onClick={() => void saveSecret(kind)}>{state.configured ? "替换" : "保存"}</button>
-            {state.configured ? <button type="button" className="miniprogram-danger" disabled={secretBusy === kind} onClick={() => void clearSecret(kind)}>清除</button> : null}
+            <input
+              type="password"
+              value={secretDrafts[kind]}
+              placeholder={state.configured ? "重新输入以替换" : meta.placeholder}
+              autoComplete="new-password"
+              onChange={(event) =>
+                setSecretDrafts((previous) => ({ ...previous, [kind]: event.target.value }))
+              }
+            />
+            <button
+              type="button"
+              disabled={secretBusy === kind || !secretDrafts[kind]}
+              onClick={() => void saveSecret(kind)}
+            >
+              {state.configured ? "替换" : "保存"}
+            </button>
+            {state.configured ? (
+              <button
+                type="button"
+                className="miniprogram-danger"
+                disabled={secretBusy === kind}
+                onClick={() => void clearSecret(kind)}
+              >
+                清除
+              </button>
+            ) : null}
           </div>
         )}
       </div>
@@ -469,15 +565,20 @@ export function ProjectMiniProgramConfig({
               disabled={readOnly || busy}
               autoComplete="off"
               spellCheck={false}
-              onChange={(event) => setPublishableKeys((previous) => ({ ...previous, [kind]: event.target.value }))}
+              onChange={(event) =>
+                setPublishableKeys((previous) => ({ ...previous, [kind]: event.target.value }))
+              }
             />
           </div>
         ))}
         <p className="muted miniprogram-note">
-          开发预览使用开发环境；体验版上传、Admin 与其他正式发布使用生产环境。生产环境的环境 ID 或 Publishable Key 留空时，对应项沿用开发环境。
+          开发预览使用开发环境；体验版上传、Admin 与其他正式发布使用生产环境。生产环境的环境 ID 或
+          Publishable Key 留空时，对应项沿用开发环境。
         </p>
         <p className="muted miniprogram-note">
-          真机云函数调用要求此处的微信 AppID 已开通并关联对应云环境，或已获得环境所属小程序的共享授权。腾讯云控制台创建的环境须先与微信小程序绑定；Web 预览登录成功不能证明微信端有调用权限。
+          真机云函数调用要求此处的微信 AppID
+          已开通并关联对应云环境，或已获得环境所属小程序的共享授权。腾讯云控制台创建的环境须先与微信小程序绑定；Web
+          预览登录成功不能证明微信端有调用权限。
         </p>
         {renderSecret("cloudbase_credential")}
       </section>
@@ -508,42 +609,108 @@ export function ProjectMiniProgramConfig({
           </ul>
         ) : null}
         <p className="muted miniprogram-note">
-          连接测试会用服务端凭据只读查询 CloudBase 云函数，并向微信请求生成预览码来验证上传私钥；不会上传正式版本，也无法验证当前 AppID 在真机上的云函数调用权限。两项测试通过后，小程序工作区自动开放。
+          连接测试会用服务端凭据只读查询 CloudBase
+          云函数，并向微信请求生成预览码来验证上传私钥；不会上传正式版本，也无法验证当前 AppID
+          在真机上的云函数调用权限。两项测试通过后，小程序工作区自动开放。
         </p>
       </section>
 
       <section className="miniprogram-config-section cloudbase-auth-settings">
         <div className="miniprogram-section-heading-row">
           <h4>④ CloudBase 身份认证</h4>
-          <select value={selectedCloudbaseEnvironment} disabled={readOnly || authBusy || adminBusy} onChange={(event) => setSelectedCloudbaseEnvironment(event.target.value as EnvironmentKind)}>
+          <select
+            value={selectedCloudbaseEnvironment}
+            disabled={readOnly || authBusy || adminBusy}
+            onChange={(event) =>
+              setSelectedCloudbaseEnvironment(event.target.value as EnvironmentKind)
+            }
+          >
             <option value="development">开发环境</option>
             <option value="production">生产环境</option>
           </select>
         </div>
         {selectedAuth ? (
           <>
-            <p className="muted miniprogram-note">直接同步到 {selectedAuth.envId}。生产环境修改需要明确确认，密码不会回显或写入源码。</p>
+            <p className="muted miniprogram-note">
+              直接同步到 {selectedAuth.envId}。生产环境修改需要明确确认，密码不会回显或写入源码。
+            </p>
             <div className="cloudbase-auth-switches">
-              {([
-                ["anonymousLogin", "匿名登录（开发预览静默登录）"],
-                ["usernameLogin", "用户名密码登录"],
-                ["emailLogin", "邮箱登录"],
-                ["phoneNumberLogin", "手机号登录"],
-              ] as const).map(([key, label]) => (
-                <label key={key} className="cloudbase-auth-switch"><input type="checkbox" checked={Boolean(selectedAuth[key])} disabled={readOnly || authBusy} onChange={(event) => void updateAuthSettings({ [key]: event.target.checked })} /><span>{label}</span></label>
+              {(
+                [
+                  ["anonymousLogin", "匿名登录（开发预览静默登录）"],
+                  ["usernameLogin", "用户名密码登录"],
+                  ["emailLogin", "邮箱登录"],
+                  ["phoneNumberLogin", "手机号登录"],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="cloudbase-auth-switch">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(selectedAuth[key])}
+                    disabled={readOnly || authBusy}
+                    onChange={(event) => void updateAuthSettings({ [key]: event.target.checked })}
+                  />
+                  <span>{label}</span>
+                </label>
               ))}
             </div>
             <div className="cloudbase-admin-account">
-              <div><strong>Admin 首个账号</strong><small>{selectedAdmin?.configured ? `已配置：${selectedAdmin.username}` : "尚未配置"}</small></div>
-              {!readOnly ? <div className="cloudbase-admin-fields">
-                <input type="text" value={adminDraft.username} placeholder="用户名或邮箱" autoComplete="username" onChange={(event) => setAdminDraft((previous) => ({ ...previous, username: event.target.value }))} />
-                <input type="password" value={adminDraft.password} placeholder="新密码（至少 8 位）" autoComplete="new-password" onChange={(event) => setAdminDraft((previous) => ({ ...previous, password: event.target.value }))} />
-                <input type="password" value={adminDraft.confirmPassword} placeholder="确认密码" autoComplete="new-password" onChange={(event) => setAdminDraft((previous) => ({ ...previous, confirmPassword: event.target.value }))} />
-                <button type="button" disabled={adminBusy} onClick={() => void saveAdminAccount()}>{adminBusy ? "同步中…" : selectedAdmin?.configured ? "重置并同步" : "创建并同步"}</button>
-              </div> : null}
+              <div>
+                <strong>Admin 首个账号</strong>
+                <small>
+                  {selectedAdmin?.configured ? `已配置：${selectedAdmin.username}` : "尚未配置"}
+                </small>
+              </div>
+              {!readOnly ? (
+                <div className="cloudbase-admin-fields">
+                  <input
+                    type="text"
+                    value={adminDraft.username}
+                    placeholder="用户名或邮箱"
+                    autoComplete="username"
+                    onChange={(event) =>
+                      setAdminDraft((previous) => ({ ...previous, username: event.target.value }))
+                    }
+                  />
+                  <input
+                    type="password"
+                    value={adminDraft.password}
+                    placeholder="新密码（至少 8 位）"
+                    autoComplete="new-password"
+                    onChange={(event) =>
+                      setAdminDraft((previous) => ({ ...previous, password: event.target.value }))
+                    }
+                  />
+                  <input
+                    type="password"
+                    value={adminDraft.confirmPassword}
+                    placeholder="确认密码"
+                    autoComplete="new-password"
+                    onChange={(event) =>
+                      setAdminDraft((previous) => ({
+                        ...previous,
+                        confirmPassword: event.target.value,
+                      }))
+                    }
+                  />
+                  <button
+                    type="button"
+                    disabled={adminBusy}
+                    onClick={() => void saveAdminAccount()}
+                  >
+                    {adminBusy
+                      ? "同步中…"
+                      : selectedAdmin?.configured
+                        ? "重置并同步"
+                        : "创建并同步"}
+                  </button>
+                </div>
+              ) : null}
             </div>
           </>
-        ) : <p className="muted">正在读取 CloudBase 身份配置…</p>}
+        ) : (
+          <p className="muted">正在读取 CloudBase 身份配置…</p>
+        )}
       </section>
     </div>
   );

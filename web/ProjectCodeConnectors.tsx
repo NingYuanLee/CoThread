@@ -44,9 +44,15 @@ function repoTitle(label: string) {
   const value = String(label || "").trim();
   if (!value) return "未命名仓库";
   const orgId = /^[a-f0-9]{16,}$/i;
-  const spaced = value.split(/\s+\/\s+/).map((part) => part.trim()).filter(Boolean);
+  const spaced = value
+    .split(/\s+\/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
   if (spaced.length > 1 && orgId.test(spaced[0])) return spaced.slice(1).join(" / ");
-  const parts = value.split("/").map((part) => part.trim()).filter(Boolean);
+  const parts = value
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean);
   if (parts.length > 1 && orgId.test(parts[0])) return parts.slice(1).join("/");
   if (spaced.length > 1) return spaced[spaced.length - 1];
   return parts[parts.length - 1] || value;
@@ -64,37 +70,52 @@ export function ProjectCodeConnectors({
   const [config, setConfig] = useState<CodeConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({ github: "", yunxiao: "" });
-  const [revealed, setRevealed] = useState<Record<string, boolean>>({ github: false, yunxiao: false });
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({
+    github: false,
+    yunxiao: false,
+  });
   // Chrome ignores autocomplete=off on password fields; keep readonly until focus so it won't autofill.
-  const [tokenLocked, setTokenLocked] = useState<Record<string, boolean>>({ github: true, yunxiao: true });
+  const [tokenLocked, setTokenLocked] = useState<Record<string, boolean>>({
+    github: true,
+    yunxiao: true,
+  });
   const [orgDraft, setOrgDraft] = useState("");
   const [activeKind, setActiveKind] = useState<ConnectorKind>("yunxiao");
-  const [repoState, setRepoState] = useState<Record<string, {
-    loading: boolean;
-    search: string;
-    items: PlatformRepo[];
-    selected: Record<string, PlatformRepo>;
-    loaded: boolean;
-    error: string | null;
-  }>>({});
+  const [repoState, setRepoState] = useState<
+    Record<
+      string,
+      {
+        loading: boolean;
+        search: string;
+        items: PlatformRepo[];
+        selected: Record<string, PlatformRepo>;
+        loaded: boolean;
+        error: string | null;
+      }
+    >
+  >({});
 
   const reload = async () => {
-    const next = await api(`/projects/${projectId}/code-connectors`) as CodeConfig;
+    const next = (await api(`/projects/${projectId}/code-connectors`)) as CodeConfig;
     setConfig(next);
     setOrgDraft(next.connectors.yunxiao.organizationId || "");
     setRevealed({ github: false, yunxiao: false });
     setTokenLocked({ github: true, yunxiao: true });
     const nextDrafts: Record<string, string> = { github: "", yunxiao: "" };
     if (canManage) {
-      await Promise.all((["github", "yunxiao"] as const).map(async (kind) => {
-        if (!next.connectors[kind].hasToken) return;
-        try {
-          const revealedToken = await api(`/projects/${projectId}/code-connectors/${kind}/token`) as { token: string };
-          nextDrafts[kind] = revealedToken.token || "";
-        } catch {
-          nextDrafts[kind] = "";
-        }
-      }));
+      await Promise.all(
+        (["github", "yunxiao"] as const).map(async (kind) => {
+          if (!next.connectors[kind].hasToken) return;
+          try {
+            const revealedToken = (await api(
+              `/projects/${projectId}/code-connectors/${kind}/token`,
+            )) as { token: string };
+            nextDrafts[kind] = revealedToken.token || "";
+          } catch {
+            nextDrafts[kind] = "";
+          }
+        }),
+      );
     }
     setDrafts(nextDrafts);
     setRepoState((previous) => {
@@ -145,7 +166,11 @@ export function ProjectCodeConnectors({
       } else if (kind === "yunxiao") {
         body.organizationId = orgDraft.trim() || null;
       }
-      const next = await api(`/projects/${projectId}/code-connectors/${kind}`, body, "PUT") as CodeConfig;
+      const next = (await api(
+        `/projects/${projectId}/code-connectors/${kind}`,
+        body,
+        "PUT",
+      )) as CodeConfig;
       setConfig(next);
       if (token) {
         setDrafts((value) => ({ ...value, [kind]: token }));
@@ -173,7 +198,11 @@ export function ProjectCodeConnectors({
       const body: Record<string, unknown> = { enabled };
       if (token) body.token = token;
       if (kind === "yunxiao") body.organizationId = orgDraft.trim() || null;
-      const next = await api(`/projects/${projectId}/code-connectors/${kind}`, body, "PUT") as CodeConfig;
+      const next = (await api(
+        `/projects/${projectId}/code-connectors/${kind}`,
+        body,
+        "PUT",
+      )) as CodeConfig;
       setConfig(next);
       if (token) setDrafts((value) => ({ ...value, [kind]: token }));
       setTokenLocked((value) => ({ ...value, [kind]: true }));
@@ -213,11 +242,18 @@ export function ProjectCodeConnectors({
     }));
     try {
       // Always fetch the full platform list; search filters locally after load.
-      const result = await api(`/projects/${projectId}/code-connectors/${kind}/repositories`) as {
+      const result = (await api(`/projects/${projectId}/code-connectors/${kind}/repositories`)) as {
         repositories: PlatformRepo[];
       };
       setRepoState((previous) => {
-        const current = previous[kind] || { selected: {}, items: [], search: "", loaded: false, error: null, loading: false };
+        const current = previous[kind] || {
+          selected: {},
+          items: [],
+          search: "",
+          loaded: false,
+          error: null,
+          loading: false,
+        };
         const selected = { ...current.selected };
         for (const item of result.repositories) {
           if (item.selected) selected[item.externalId] = item;
@@ -238,7 +274,13 @@ export function ProjectCodeConnectors({
       setRepoState((previous) => ({
         ...previous,
         [kind]: {
-          ...(previous[kind] || { selected: {}, items: [], search: "", loaded: false, loading: false }),
+          ...(previous[kind] || {
+            selected: {},
+            items: [],
+            search: "",
+            loaded: false,
+            loading: false,
+          }),
           loading: false,
           error: (error as Error).message,
         },
@@ -285,13 +327,17 @@ export function ProjectCodeConnectors({
     }
     setBusy(true);
     try {
-      const next = await api(`/projects/${projectId}/code-connectors/${kind}/scope`, {
-        repositories: repositories.map((item) => ({
-          externalId: item.externalId,
-          label: item.label,
-          remoteUrl: item.remoteUrl,
-        })),
-      }, "PUT") as CodeConfig;
+      const next = (await api(
+        `/projects/${projectId}/code-connectors/${kind}/scope`,
+        {
+          repositories: repositories.map((item) => ({
+            externalId: item.externalId,
+            label: item.label,
+            remoteUrl: item.remoteUrl,
+          })),
+        },
+        "PUT",
+      )) as CodeConfig;
       setConfig(next);
       const selected: Record<string, PlatformRepo> = {};
       for (const remote of next.remotes.filter((item) => item.platform === kind)) {
@@ -324,7 +370,6 @@ export function ProjectCodeConnectors({
     }
   };
 
-
   if (!config) return <p className="muted">正在加载连接器配置…</p>;
 
   const kind = activeKind;
@@ -337,11 +382,14 @@ export function ProjectCodeConnectors({
     ? []
     : !filter
       ? scope.items
-      : scope.items.filter((repo) => (
-        repo.label.toLowerCase().includes(filter)
-        || repo.remoteUrl.toLowerCase().includes(filter)
-        || String(repo.description || "").toLowerCase().includes(filter)
-      ));
+      : scope.items.filter(
+          (repo) =>
+            repo.label.toLowerCase().includes(filter) ||
+            repo.remoteUrl.toLowerCase().includes(filter) ||
+            String(repo.description || "")
+              .toLowerCase()
+              .includes(filter),
+        );
   const tabCounts = {
     yunxiao: config.remotes.filter((remote) => remote.platform === "yunxiao").length,
     github: config.remotes.filter((remote) => remote.platform === "github").length,
@@ -426,14 +474,20 @@ export function ProjectCodeConnectors({
                       setTokenLocked((value) => ({ ...value, [kind]: true }));
                     }
                   }}
-                  onChange={(event) => setDrafts((value) => ({ ...value, [kind]: event.target.value }))}
+                  onChange={(event) =>
+                    setDrafts((value) => ({ ...value, [kind]: event.target.value }))
+                  }
                 />
                 <button
                   type="button"
                   className="pcc-secret-toggle"
                   disabled={busy || !drafts[kind]}
-                  title={!drafts[kind] ? "暂无令牌可显示" : revealed[kind] ? "隐藏令牌" : "显示令牌"}
-                  aria-label={!drafts[kind] ? "暂无令牌可显示" : revealed[kind] ? "隐藏令牌" : "显示令牌"}
+                  title={
+                    !drafts[kind] ? "暂无令牌可显示" : revealed[kind] ? "隐藏令牌" : "显示令牌"
+                  }
+                  aria-label={
+                    !drafts[kind] ? "暂无令牌可显示" : revealed[kind] ? "隐藏令牌" : "显示令牌"
+                  }
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => toggleTokenReveal(kind)}
                 >
@@ -469,7 +523,15 @@ export function ProjectCodeConnectors({
                   disabled={busy || !item.hasToken}
                   title="保存组织 ID"
                   aria-label="保存组织 ID"
-                  onClick={() => void saveConnector("yunxiao", item.enabled, undefined, orgDraft.trim() || null, "已保存云效组织 ID")}
+                  onClick={() =>
+                    void saveConnector(
+                      "yunxiao",
+                      item.enabled,
+                      undefined,
+                      orgDraft.trim() || null,
+                      "已保存云效组织 ID",
+                    )
+                  }
                 >
                   <UiIcon name="save" size={14} />
                 </button>
@@ -486,13 +548,21 @@ export function ProjectCodeConnectors({
                   placeholder={scope?.loaded ? "筛选已拉取的仓库…" : "先拉取，再在此筛选"}
                   value={scope?.search || ""}
                   disabled={busy || !item.enabled}
-                  onChange={(event) => setRepoState((previous) => ({
-                    ...previous,
-                    [kind]: {
-                      ...(previous[kind] || { selected: {}, items: [], loaded: false, loading: false, error: null }),
-                      search: event.target.value,
-                    },
-                  }))}
+                  onChange={(event) =>
+                    setRepoState((previous) => ({
+                      ...previous,
+                      [kind]: {
+                        ...(previous[kind] || {
+                          selected: {},
+                          items: [],
+                          loaded: false,
+                          loading: false,
+                          error: null,
+                        }),
+                        search: event.target.value,
+                      },
+                    }))
+                  }
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
@@ -519,7 +589,9 @@ export function ProjectCodeConnectors({
                   onClick={() => void saveScope(kind as GitKind)}
                 >
                   <UiIcon name="check" size={14} />
-                  {selectedCount > 0 ? <span className="pcc-icon-count">{selectedCount}</span> : null}
+                  {selectedCount > 0 ? (
+                    <span className="pcc-icon-count">{selectedCount}</span>
+                  ) : null}
                 </button>
                 {scope?.loaded || scope?.error ? (
                   <button
@@ -538,7 +610,9 @@ export function ProjectCodeConnectors({
               {!item.enabled ? (
                 <p className="muted">启用连接器后可拉取并勾选仓库。</p>
               ) : scope?.error ? (
-                <p className="error" role="alert">{scope.error}</p>
+                <p className="error" role="alert">
+                  {scope.error}
+                </p>
               ) : !scope?.loaded ? (
                 <p className="muted">先点下载拉取全部仓库，再在搜索框里筛选；保存或关闭可收起。</p>
               ) : !scope.items.length ? (
@@ -557,7 +631,12 @@ export function ProjectCodeConnectors({
                         ? `显示 ${visibleRepos.length} / ${scope.items.length} · 已勾选 ${selectedCount}`
                         : `可选仓库 ${scope.items.length} 个 · 已勾选 ${selectedCount}`}
                     </small>
-                    <button type="button" className="pcc-text-btn" disabled={busy} onClick={() => closeRepos(kind as GitKind)}>
+                    <button
+                      type="button"
+                      className="pcc-text-btn"
+                      disabled={busy}
+                      onClick={() => closeRepos(kind as GitKind)}
+                    >
                       收起
                     </button>
                   </div>
@@ -568,7 +647,12 @@ export function ProjectCodeConnectors({
                       return (
                         <li key={repo.externalId}>
                           <label className={`pcc-repo-item${checked ? " selected" : ""}`}>
-                            <input type="checkbox" checked={checked} disabled={busy} onChange={() => toggleRepo(kind as GitKind, repo)} />
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={busy}
+                              onChange={() => toggleRepo(kind as GitKind, repo)}
+                            />
                             <span className="pcc-repo-copy">
                               <span className="pcc-repo-title">
                                 <strong title={repo.label}>{title}</strong>
@@ -586,36 +670,43 @@ export function ProjectCodeConnectors({
 
               {!scope?.loaded && configuredCount > 0 ? (
                 <ul className="pcc-repo-list pcc-repo-selected">
-                  {config.remotes.filter((remote) => remote.platform === kind).map((remote) => (
-                    <li key={remote.id}>
-                      <div className="pcc-repo-item pcc-repo-item-plain">
-                        <span className="pcc-repo-copy">
-                          <span className="pcc-repo-title">
-                            <strong title={remote.label}>{repoTitle(remote.label)}</strong>
-                            <em className="pcc-repo-badge">已选</em>
+                  {config.remotes
+                    .filter((remote) => remote.platform === kind)
+                    .map((remote) => (
+                      <li key={remote.id}>
+                        <div className="pcc-repo-item pcc-repo-item-plain">
+                          <span className="pcc-repo-copy">
+                            <span className="pcc-repo-title">
+                              <strong title={remote.label}>{repoTitle(remote.label)}</strong>
+                              <em className="pcc-repo-badge">已选</em>
+                            </span>
+                            <small title={remote.remoteUrl}>{remote.remoteUrl}</small>
                           </span>
-                          <small title={remote.remoteUrl}>{remote.remoteUrl}</small>
-                        </span>
-                      </div>
-                    </li>
-                  ))}
+                        </div>
+                      </li>
+                    ))}
                 </ul>
               ) : null}
             </div>
           </>
         ) : (
           <div className="pcc-scope">
-            <p className="muted">仅项目管理可修改。当前{item.enabled ? "已启用" : "未启用"}，范围 {configuredCount} 个。</p>
-            {config.remotes.filter((remote) => remote.platform === kind).map((remote) => (
-              <div className="pcc-repo-item pcc-repo-item-plain" key={remote.id}>
-                <span className="pcc-repo-copy">
-                  <span className="pcc-repo-title">
-                    <strong title={remote.label}>{repoTitle(remote.label)}</strong>
+            <p className="muted">
+              仅项目管理可修改。当前{item.enabled ? "已启用" : "未启用"}，范围 {configuredCount}{" "}
+              个。
+            </p>
+            {config.remotes
+              .filter((remote) => remote.platform === kind)
+              .map((remote) => (
+                <div className="pcc-repo-item pcc-repo-item-plain" key={remote.id}>
+                  <span className="pcc-repo-copy">
+                    <span className="pcc-repo-title">
+                      <strong title={remote.label}>{repoTitle(remote.label)}</strong>
+                    </span>
+                    <small title={remote.remoteUrl}>{remote.remoteUrl}</small>
                   </span>
-                  <small title={remote.remoteUrl}>{remote.remoteUrl}</small>
-                </span>
-              </div>
-            ))}
+                </div>
+              ))}
           </div>
         )}
       </section>

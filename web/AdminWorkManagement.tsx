@@ -344,7 +344,10 @@ export function AdminWorkManagement({
           pageSize={data?.pageSize ?? pageSize}
           pageSizeOptions={[10, 20, 30, 50, 100]}
           onPageChange={setPage}
-          onPageSizeChange={(next) => { setPageSize(next); setPage(1); }}
+          onPageSizeChange={(next) => {
+            setPageSize(next);
+            setPage(1);
+          }}
           disabled={loading}
           ariaLabel={kind === "iterations" ? "迭代列表分页" : "任务列表分页"}
         />
@@ -382,16 +385,18 @@ export function AdminWorkManagement({
                 </tr>
               </thead>
               <tbody>
-                {detail.events.slice((detailEventsPage - 1) * detailPageSize, detailEventsPage * detailPageSize).map((event: any) => (
-                  <tr key={event.id}>
-                    <td>
-                      {labels[event.from_status] || event.from_status} →{" "}
-                      {labels[event.to_status] || event.to_status}
-                    </td>
-                    <td>{event.reason || event.note || "—"}</td>
-                    <td>{dateTime(event.created_at)}</td>
-                  </tr>
-                ))}
+                {detail.events
+                  .slice((detailEventsPage - 1) * detailPageSize, detailEventsPage * detailPageSize)
+                  .map((event: any) => (
+                    <tr key={event.id}>
+                      <td>
+                        {labels[event.from_status] || event.from_status} →{" "}
+                        {labels[event.to_status] || event.to_status}
+                      </td>
+                      <td>{event.reason || event.note || "—"}</td>
+                      <td>{dateTime(event.created_at)}</td>
+                    </tr>
+                  ))}
                 {!detail.events.length && (
                   <tr>
                     <td colSpan={3} className="admin-empty">
@@ -402,7 +407,21 @@ export function AdminWorkManagement({
               </tbody>
             </table>
           </div>
-          {detail.events.length > 0 && <PaginationControl total={detail.events.length} currentPage={detailEventsPage} pageSize={detailPageSize} pageSizeOptions={[10, 20, 50]} onPageChange={setDetailEventsPage} onPageSizeChange={(size) => { setDetailPageSize(size); setDetailEventsPage(1); setDetailUpdatesPage(1); }} ariaLabel="任务状态记录分页" />}
+          {detail.events.length > 0 && (
+            <PaginationControl
+              total={detail.events.length}
+              currentPage={detailEventsPage}
+              pageSize={detailPageSize}
+              pageSizeOptions={[10, 20, 50]}
+              onPageChange={setDetailEventsPage}
+              onPageSizeChange={(size) => {
+                setDetailPageSize(size);
+                setDetailEventsPage(1);
+                setDetailUpdatesPage(1);
+              }}
+              ariaLabel="任务状态记录分页"
+            />
+          )}
           <h4>进度记录</h4>
           <div className="admin-table-wrap">
             <table className="admin-table">
@@ -413,12 +432,17 @@ export function AdminWorkManagement({
                 </tr>
               </thead>
               <tbody>
-                {detail.updates.slice((detailUpdatesPage - 1) * detailPageSize, detailUpdatesPage * detailPageSize).map((update: any) => (
-                  <tr key={update.id}>
-                    <td>{update.body || update.content || update.summary || update.kind}</td>
-                    <td>{dateTime(update.created_at)}</td>
-                  </tr>
-                ))}
+                {detail.updates
+                  .slice(
+                    (detailUpdatesPage - 1) * detailPageSize,
+                    detailUpdatesPage * detailPageSize,
+                  )
+                  .map((update: any) => (
+                    <tr key={update.id}>
+                      <td>{update.body || update.content || update.summary || update.kind}</td>
+                      <td>{dateTime(update.created_at)}</td>
+                    </tr>
+                  ))}
                 {!detail.updates.length && (
                   <tr>
                     <td colSpan={2} className="admin-empty">
@@ -429,7 +453,21 @@ export function AdminWorkManagement({
               </tbody>
             </table>
           </div>
-          {detail.updates.length > 0 && <PaginationControl total={detail.updates.length} currentPage={detailUpdatesPage} pageSize={detailPageSize} pageSizeOptions={[10, 20, 50]} onPageChange={setDetailUpdatesPage} onPageSizeChange={(size) => { setDetailPageSize(size); setDetailEventsPage(1); setDetailUpdatesPage(1); }} ariaLabel="任务进度记录分页" />}
+          {detail.updates.length > 0 && (
+            <PaginationControl
+              total={detail.updates.length}
+              currentPage={detailUpdatesPage}
+              pageSize={detailPageSize}
+              pageSizeOptions={[10, 20, 50]}
+              onPageChange={setDetailUpdatesPage}
+              onPageSizeChange={(size) => {
+                setDetailPageSize(size);
+                setDetailEventsPage(1);
+                setDetailUpdatesPage(1);
+              }}
+              ariaLabel="任务进度记录分页"
+            />
+          )}
         </AdminDialog>
       )}
     </section>

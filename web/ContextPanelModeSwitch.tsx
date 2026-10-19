@@ -16,7 +16,11 @@ export function ContextPanelModeSwitch({
   const active = rightSidebarModeFromDialogue(dialogueMode);
   return (
     <div className="context-panel-mode-bar workspace-top-strip">
-      <nav className="conversation-views context-panel-mode-views" role="tablist" aria-label="右侧栏模式">
+      <nav
+        className="conversation-views context-panel-mode-views"
+        role="tablist"
+        aria-label="右侧栏模式"
+      >
         <button
           type="button"
           role="tab"

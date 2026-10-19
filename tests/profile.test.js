@@ -16,16 +16,12 @@ test("personal profiles persist, validate input, and only allow the current brow
       other = randomUUID();
     const password = "Profile-test-password!";
     for (const userId of [id, other])
-      await query(
-        database.db,
-        "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-        [
-          userId,
-          `${userId}@example.com`,
-          "Original",
-          await hashPassword(password),
-        ],
-      );
+      await query(database.db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+        userId,
+        `${userId}@example.com`,
+        "Original",
+        await hashPassword(password),
+      ]);
     const session = await issueCredential(database.db, id, "session", "test");
     const api = await issueCredential(database.db, id, "api", "test");
     const base = `http://127.0.0.1:${server.address().port}/api`;
@@ -66,17 +62,13 @@ test("personal profiles persist, validate input, and only allow the current brow
     const message = (await service.context(actor, thread.id)).messages[0];
     assert.equal(message.author_role, "设计");
     assert.equal(message.author, "新姓名");
-    assert.deepEqual(
-      (
-        await request(
-          "/login",
-          { email: `${id}@example.com`, password },
-          {},
-          "POST",
-        )
-      ).body,
-      saved.body,
-    );
+    // 登录会额外下发 sessionToken（浏览器据此保存多账号），资料接口不下发；
+    // 因此只比较资料字段，并单独断言登录确实带回了会话令牌。
+    const login = (await request("/login", { email: `${id}@example.com`, password }, {}, "POST"))
+      .body;
+    const { sessionToken: loginToken, ...loginProfile } = login;
+    assert.ok(loginToken, "登录应返回 sessionToken");
+    assert.deepEqual(loginProfile, saved.body);
     for (const invalid of [
       { name: "  " },
       { name: "a".repeat(81) },
@@ -88,15 +80,11 @@ test("personal profiles persist, validate input, and only allow the current brow
       { avatar: "x".repeat(700001) },
       { id: other },
     ]) {
-      assert.equal(
-        (await request("/me", { ...profile, ...invalid })).status,
-        400,
-      );
+      assert.equal((await request("/me", { ...profile, ...invalid })).status, 400);
     }
     assert.equal((await request("/me", profile, {})).status, 401);
     assert.equal(
-      (await request("/me", profile, { Authorization: `Bearer ${api.token}` }))
-        .status,
+      (await request("/me", profile, { Authorization: `Bearer ${api.token}` })).status,
       403,
     );
     const [untouched] = await query(
@@ -116,10 +104,7 @@ test("personal profiles persist, validate input, and only allow the current brow
     assert.equal(cleared.status, 200);
     assert.equal((await request("/me")).body.avatar, null);
     assert.deepEqual((await request("/me")).body.identity_tags, []);
-    assert.equal(
-      (await service.context(actor, thread.id)).messages[0].author_role,
-      null,
-    );
+    assert.equal((await service.context(actor, thread.id)).messages[0].author_role, null);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await database.close();

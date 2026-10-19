@@ -1,8 +1,7 @@
 import { l1TaskLabel } from "../shared/agent-label.js";
 
 export type AgentLogScope =
-  | { type: "project"; id: string; task: string }
-  | { type: "thread" | "task"; id: string };
+  { type: "project"; id: string; task: string } | { type: "thread" | "task"; id: string };
 export type AgentLogEvent = {
   id: string;
   agentType: "l1" | "l2" | "dsh_l3";
@@ -79,17 +78,28 @@ export function turnRunMode(events: AgentLogEvent[]): "light" | "dsh" | null {
   if (!events.length) return null;
   if (events.every((event) => event.agentType === "l1")) return null;
   if (events.some((event) => event.tool === "participation_judge")) return "light";
-  if (events.some((event) =>
-    event.agentType === "dsh_l3"
-    || event.tool === "agent_run"
-    || event.tool === "dsh_l3"
-    || event.tool === "thinking"
-  )) return "dsh";
-  if (events.some((event) =>
-    !REPLY_PHASE.has(event.tool) && event.tool !== "user_input" && event.tool !== "participation_judge"
-  )) return "dsh";
+  if (
+    events.some(
+      (event) =>
+        event.agentType === "dsh_l3" ||
+        event.tool === "agent_run" ||
+        event.tool === "dsh_l3" ||
+        event.tool === "thinking",
+    )
+  )
+    return "dsh";
+  if (
+    events.some(
+      (event) =>
+        !REPLY_PHASE.has(event.tool) &&
+        event.tool !== "user_input" &&
+        event.tool !== "participation_judge",
+    )
+  )
+    return "dsh";
   // Reply-only L2 rows without a judge marker: treat as light (pre-tag opportunistic or pure ack).
-  if (events.every((event) => event.agentType === "l2" && REPLY_PHASE.has(event.tool))) return "light";
+  if (events.every((event) => event.agentType === "l2" && REPLY_PHASE.has(event.tool)))
+    return "light";
   return "dsh";
 }
 
@@ -103,8 +113,10 @@ export function timestamp(value: string) {
 }
 
 export function formatClock(value: string) {
-  return new Date(value.includes("T") ? value : value.replace(" ", "T") + "Z")
-    .toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return new Date(value.includes("T") ? value : value.replace(" ", "T") + "Z").toLocaleString(
+    "zh-CN",
+    { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" },
+  );
 }
 
 export function eventKind(event: AgentLogEvent): TimelineKind {
@@ -121,7 +133,13 @@ export function eventKind(event: AgentLogEvent): TimelineKind {
 export const TIMELINE_LANES: TimelineKind[] = ["user", "message", "tool", "reply"];
 
 export function kindLabel(kind: TimelineKind) {
-  return kind === "user" ? "输入" : kind === "message" ? "思考" : kind === "reply" ? "正文" : "工具";
+  return kind === "user"
+    ? "输入"
+    : kind === "message"
+      ? "思考"
+      : kind === "reply"
+        ? "正文"
+        : "工具";
 }
 
 export function rowKindLabel(event: AgentLogEvent | null, input: AgentLogInput | null) {
@@ -138,11 +156,18 @@ function laneFor(kind: TimelineKind): 0 | 1 | 2 | 3 {
 }
 
 function isModelTurn(event: AgentLogEvent) {
-  return MODEL_PHASE.has(event.tool) || REPLY_PHASE.has(event.tool)
-    || (event.agentType === "l1" && (event.tool === "model_run" || event.tool === "validate_result"));
+  return (
+    MODEL_PHASE.has(event.tool) ||
+    REPLY_PHASE.has(event.tool) ||
+    (event.agentType === "l1" && (event.tool === "model_run" || event.tool === "validate_result"))
+  );
 }
 
-export function buildTimeline(events: AgentLogEvent[], inputs: AgentLogInput[], now: number): TimelineModel | null {
+export function buildTimeline(
+  events: AgentLogEvent[],
+  inputs: AgentLogInput[],
+  now: number,
+): TimelineModel | null {
   const raw: TimelineSpan[] = [
     ...inputs.map((input) => {
       const start = timestamp(input.createdAt);
@@ -161,7 +186,11 @@ export function buildTimeline(events: AgentLogEvent[], inputs: AgentLogInput[], 
     ...events.map((event) => {
       const kind = eventKind(event);
       const start = timestamp(event.createdAt);
-      const finished = event.finishedAt ? timestamp(event.finishedAt) : (event.status === "running" ? now : start);
+      const finished = event.finishedAt
+        ? timestamp(event.finishedAt)
+        : event.status === "running"
+          ? now
+          : start;
       return {
         id: event.id,
         event,
@@ -180,7 +209,8 @@ export function buildTimeline(events: AgentLogEvent[], inputs: AgentLogInput[], 
   let coveredUntil: number | null = null;
   const offsetById = new Map<string, number>();
   for (const span of raw) {
-    if (coveredUntil !== null && span.start > coveredUntil) removedIdle += span.start - coveredUntil;
+    if (coveredUntil !== null && span.start > coveredUntil)
+      removedIdle += span.start - coveredUntil;
     offsetById.set(span.id, removedIdle);
     coveredUntil = coveredUntil === null ? span.end : Math.max(coveredUntil, span.end);
   }
@@ -209,7 +239,8 @@ function ledgerInputText(event: AgentLogEvent | null, input: AgentLogInput | nul
 
 function ledgerOutputText(event: AgentLogEvent | null) {
   if (!event) return "";
-  if (event.tool === "thinking" || (event.agentType === "l1" && event.tool === "model_run")) return "";
+  if (event.tool === "thinking" || (event.agentType === "l1" && event.tool === "model_run"))
+    return "";
   if (event.status === "failed") return event.error || "失败";
   if (event.agentType === "l1" && event.tool === "validate_result") return "校验通过";
   if (REPLY_PHASE.has(event.tool)) return event.preview || "";
@@ -323,6 +354,7 @@ export function prettyPayload(value: string | null | undefined) {
 export function inspectorTabsFor(kind: TimelineKind, tool?: string): string[] {
   if (kind === "user") return ["概述", "输入", "计时"];
   if (tool === "thinking" || tool === "model_run") return ["概述", "思考", "计时"];
-  if (tool === "assistant_text" || tool === "assistant_final" || tool === "validate_result") return ["概述", "输出", "计时"];
+  if (tool === "assistant_text" || tool === "assistant_final" || tool === "validate_result")
+    return ["概述", "输出", "计时"];
   return ["概述", "参数", "结果", "计时"];
 }

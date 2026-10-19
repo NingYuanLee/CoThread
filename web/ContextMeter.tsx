@@ -1,7 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { ContextUsage } from "../shared/context.js";
 import { UiIcon } from "./ui-icon";
-import { DialogClose, animateDialogClose, onDialogBackdropClick, onDialogCancel } from "./dialog-fx";
+import {
+  DialogClose,
+  animateDialogClose,
+  onDialogBackdropClick,
+  onDialogCancel,
+} from "./dialog-fx";
 
 const tokens = (value: number) =>
   value >= 1_000_000
@@ -24,14 +29,9 @@ export function ContextMeter({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const progress = Math.min(100, (usage.used / usage.limit) * 100);
-  const composition = usage.categories.reduce(
-    (sum, category) => sum + category.tokens,
-    0,
-  );
+  const composition = usage.categories.reduce((sum, category) => sum + category.tokens, 0);
   const compacting =
-    sending ||
-    usage.automaticCompacting ||
-    ["queued", "running"].includes(usage.compactStatus);
+    sending || usage.automaticCompacting || ["queued", "running"].includes(usage.compactStatus);
   useEffect(() => {
     if (open) dialog.current?.showModal();
   }, [open]);
@@ -92,13 +92,10 @@ export function ContextMeter({
           aria-valuemax={100}
         >
           <span style={{ width: `${progress}%` }} />
-          <i
-            style={{ left: `${(usage.autoCompactAt / usage.limit) * 100}%` }}
-          />
+          <i style={{ left: `${(usage.autoCompactAt / usage.limit) * 100}%` }} />
         </div>
         <p className="context-threshold">
-          达到 {tokens(usage.autoCompactAt)} 时自动压缩 · 容量{" "}
-          {tokens(usage.limit)}
+          达到 {tokens(usage.autoCompactAt)} 时自动压缩 · 容量 {tokens(usage.limit)}
         </p>
         <h3>上下文组成</h3>
         <div className="context-composition" aria-hidden="true">
@@ -121,10 +118,7 @@ export function ContextMeter({
               </span>
               <span>≈ {tokens(category.tokens)}</span>
               <strong>
-                {composition
-                  ? ((category.tokens / composition) * 100).toFixed(1)
-                  : "0.0"}
-                %
+                {composition ? ((category.tokens / composition) * 100).toFixed(1) : "0.0"}%
               </strong>
             </li>
           ))}

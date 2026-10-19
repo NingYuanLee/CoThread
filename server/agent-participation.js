@@ -1,3 +1,4 @@
+import { insertCompletedAgentEvent } from "./thread-activity.js";
 import { setTimeout as delay } from "node:timers/promises";
 import { modelConfig, modelResponse, modelUsage, responseText } from "./model-config.js";
 import { saveReplyUsage } from "./agent-usage.js";
@@ -42,7 +43,9 @@ export const OPPORTUNISTIC_BODY_CHARS = 240;
 export const OPPORTUNISTIC_MAX_TOKENS = 768;
 
 export function compactParticipationBody(body, limit = OPPORTUNISTIC_BODY_CHARS) {
-  const text = String(body || "").replace(/\s+/g, " ").trim();
+  const text = String(body || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (text.length <= limit) return text;
   return `${text.slice(0, Math.max(0, limit - 1))}…`;
 }
@@ -61,12 +64,14 @@ export function normalizeParticipationDecision(decision) {
   if (!decision || typeof decision.respond !== "boolean") {
     throw new Error("Invalid participation decision");
   }
-  const message =
-    typeof decision.message === "string" ? decision.message.trim() : "";
+  const message = typeof decision.message === "string" ? decision.message.trim() : "";
   if (decision.respond && !message) {
     throw new Error("Invalid participation decision");
   }
-  return { respond: decision.respond, message: decision.respond ? message.slice(0, 20000) : undefined };
+  return {
+    respond: decision.respond,
+    message: decision.respond ? message.slice(0, 20000) : undefined,
+  };
 }
 
 export function deferSilenceProgress(reason) {
@@ -188,7 +193,10 @@ export async function isReplyingToAssistant(db, threadId, burst) {
  */
 export function isShortAssistantDirectedFollowUp(burst) {
   if (!burst?.length || burst.length > 3) return false;
-  const text = burst.map((row) => String(row.body || "").trim()).filter(Boolean).join("\n");
+  const text = burst
+    .map((row) => String(row.body || "").trim())
+    .filter(Boolean)
+    .join("\n");
   if (!text || text.length > 80) return false;
   // Clearly addressing someone else, not 小祥.
   if (/(^|[^\p{L}\p{N}_@])@(?!小祥\b)[\p{L}\p{N}_]/u.test(text)) return false;
@@ -198,11 +206,18 @@ export function isShortAssistantDirectedFollowUp(burst) {
 /** Pure ack / receipt — humans usually do not answer these. */
 export function isPureAcknowledgement(burstOrText) {
   const text = Array.isArray(burstOrText)
-    ? burstOrText.map((row) => String(row.body || "").trim()).filter(Boolean).join("\n")
+    ? burstOrText
+        .map((row) => String(row.body || "").trim())
+        .filter(Boolean)
+        .join("\n")
     : String(burstOrText || "").trim();
   if (!text || text.length > 40) return false;
   if (/(^|[^\p{L}\p{N}_@])@[\p{L}\p{N}_]/u.test(text)) return false;
-  if (/[?？]|吗|么|呢|为啥|为什么|怎么|能不能|可不可以|帮|做|看一下|沉默|不说话|回我|在吗|在么/.test(text)) {
+  if (
+    /[?？]|吗|么|呢|为啥|为什么|怎么|能不能|可不可以|帮|做|看一下|沉默|不说话|回我|在吗|在么/.test(
+      text,
+    )
+  ) {
     return false;
   }
   return /^(好的?|收到了?|嗯+|哦+|噢+|ok|OK|行|可以|记下了|知道了|了解|明白了?|那就这样|先这样|我就当你记下了)([，,。.!！…\s].*)?$/u.test(
@@ -231,7 +246,10 @@ export function burstAddressesAgent(burst) {
 /** Nudges/complaints clearly aimed at 小祥 staying quiet. */
 export function isAgentDirectedComplaint(burst) {
   if (!burst?.length) return false;
-  const text = burst.map((row) => String(row.body || "").trim()).filter(Boolean).join("\n");
+  const text = burst
+    .map((row) => String(row.body || "").trim())
+    .filter(Boolean)
+    .join("\n");
   if (!text || text.length > 120) return false;
   if (/(^|[^\p{L}\p{N}_@])@(?!小祥\b)[\p{L}\p{N}_]/u.test(text)) return false;
   return /一直沉默|别沉默|又不说话|又不回|不说话了|怎么不回|为啥不回|为什么不回|为啥一直|没回我|不回应|你在吗|你在么|挂了吗|挂了\s*$|装死|理我/u.test(
@@ -263,13 +281,17 @@ export function mustOpportunisticReply(burst, { replyingToAssistant = false } = 
  */
 export function needsFullAgentWork(burst) {
   if (!burst?.length) return false;
-  const text = burst.map((row) => String(row.body || "").trim()).filter(Boolean).join("\n");
+  const text = burst
+    .map((row) => String(row.body || "").trim())
+    .filter(Boolean)
+    .join("\n");
   if (!text || text.length < 6) return false;
   if (/(^|[^\p{L}\p{N}_@])@(?!小祥\b)[\p{L}\p{N}_]/u.test(text)) return false;
 
   const asks =
-    /(?:帮我|麻烦|请你|请|拜托|能否|能不能|可以帮|给我|我要|我想要|需要你|劳驾|麻烦你)/u.test(text)
-    || /(?:做一下|弄一下|整一下|看一下|查一下|改一下|写一下)/u.test(text);
+    /(?:帮我|麻烦|请你|请|拜托|能否|能不能|可以帮|给我|我要|我想要|需要你|劳驾|麻烦你)/u.test(
+      text,
+    ) || /(?:做一下|弄一下|整一下|看一下|查一下|改一下|写一下)/u.test(text);
 
   const work = [
     /总结|梳理|整理|汇总|归纳|提炼|综述|纪要|会议纪要|复盘|排期/,
@@ -299,7 +321,10 @@ export function needsFullAgentWork(burst) {
  */
 export function isNegativeMood(burst) {
   if (!burst?.length) return false;
-  const text = burst.map((row) => String(row.body || "").trim()).filter(Boolean).join("\n");
+  const text = burst
+    .map((row) => String(row.body || "").trim())
+    .filter(Boolean)
+    .join("\n");
   if (!text || text.length < 4 || text.length > 240) return false;
   if (/(^|[^\p{L}\p{N}_@])@(?!小祥\b)[\p{L}\p{N}_]/u.test(text)) return false;
   // Mild silence nudges stay on the short-ack path.
@@ -337,11 +362,12 @@ export function briefAssistantFollowUpAck(burst) {
 /** Same member, same text, no @, nobody else in between. */
 export const REPEATED_SAME_CONTENT_REPLY_AFTER = 3;
 
-const MENTIONS_ANYONE =
-  /(?:^|[^\p{L}\p{N}_@])@[\p{L}\p{N}_]/u;
+const MENTIONS_ANYONE = /(?:^|[^\p{L}\p{N}_@])@[\p{L}\p{N}_]/u;
 
 export function normalizeBurstBody(body) {
-  return String(body || "").trim().replace(/\s+/g, " ");
+  return String(body || "")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 /** Trailing run of identical messages from one author without @ or interrupters. */
@@ -375,8 +401,7 @@ export function briefSoloRunAck(burst) {
 
 export async function absorbOpportunisticBurst(conn, burstIds, replyId, anchorMessageId) {
   for (const messageId of burstIds) {
-    const progress =
-      messageId === anchorMessageId ? "已参与讨论" : "已并入本次参与";
+    const progress = messageId === anchorMessageId ? "已参与讨论" : "已并入本次参与";
     await query(
       conn,
       `UPDATE assistant_replies SET participation='reply',status='completed',progress=?,reply_id=?,error=NULL,
@@ -453,9 +478,10 @@ export async function composeOpportunisticParticipation(
   });
   const forceBriefAck = (burst) => ({
     respond: true,
-    message: needsSoloRunReply(burst) && !burstAddressesAgent(burst) && !isAgentDirectedComplaint(burst)
-      ? briefSoloRunAck(burst)
-      : briefAssistantFollowUpAck(burst),
+    message:
+      needsSoloRunReply(burst) && !burstAddressesAgent(burst) && !isAgentDirectedComplaint(burst)
+        ? briefSoloRunAck(burst)
+        : briefAssistantFollowUpAck(burst),
   });
 
   for (let revision = 0; revision < OPPORTUNISTIC_MAX_REVISIONS; revision++) {
@@ -481,11 +507,15 @@ export async function composeOpportunisticParticipation(
     }
     const replyingToAssistant = await isReplyingToAssistant(db, threadId, burst);
     const soloRunNeedsReply = needsSoloRunReply(burst);
-    const namedOrComplaining =
-      burstAddressesAgent(burst) || isAgentDirectedComplaint(burst);
+    const namedOrComplaining = burstAddressesAgent(burst) || isAgentDirectedComplaint(burst);
     const mustReply = mustOpportunisticReply(burst, { replyingToAssistant });
     // Hard silence: pure "好的/收到" after we just spoke — do not ping-pong.
-    if (replyingToAssistant && isPureAcknowledgement(burst) && !namedOrComplaining && !soloRunNeedsReply) {
+    if (
+      replyingToAssistant &&
+      isPureAcknowledgement(burst) &&
+      !namedOrComplaining &&
+      !soloRunNeedsReply
+    ) {
       return withUsage({
         respond: false,
         deferred: undefined,
@@ -608,16 +638,12 @@ export async function persistOpportunisticParticipationArtifacts(
       [messageId],
     );
 
-    await query(
-      db,
-      "INSERT IGNORE INTO agent_sessions(thread_id,session_id) VALUES(?,UUID())",
-      [threadId],
-    );
-    const [session] = await query(
-      db,
-      "SELECT session_id FROM agent_sessions WHERE thread_id=?",
-      [threadId],
-    );
+    await query(db, "INSERT IGNORE INTO agent_sessions(thread_id,session_id) VALUES(?,UUID())", [
+      threadId,
+    ]);
+    const [session] = await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [
+      threadId,
+    ]);
     if (!session?.session_id) return;
 
     const durationUs = Math.max(0, modelMs) * 1000;
@@ -628,24 +654,33 @@ export async function persistOpportunisticParticipationArtifacts(
       revisions: decision.revisions ?? 0,
       burstCount: decision.burstIds?.length ?? 1,
       calls: decision.usage?.calls ?? 0,
-      fullModeInvite: !!(decision.message && /@小祥/.test(decision.message) && /完整模式/.test(decision.message)),
+      fullModeInvite: !!(
+        decision.message &&
+        /@小祥/.test(decision.message) &&
+        /完整模式/.test(decision.message)
+      ),
     });
     const judgeOutput = decision.respond
-      ? (/完整模式/.test(decision.message || "") ? "提醒 @ 完整模式" : "决定参与")
+      ? /完整模式/.test(decision.message || "")
+        ? "提醒 @ 完整模式"
+        : "决定参与"
       : `决定沉默${decision.deferred ? `（${decision.deferred}）` : ""}`;
-    await query(
-      db,
-      `INSERT INTO agent_events(message_id,agent_session_id,tool,status,input,output,created_at,finished_at)
-       VALUES(?,?,'participation_judge','completed',?,?,DATE_SUB(UTC_TIMESTAMP(3), INTERVAL ? MICROSECOND),UTC_TIMESTAMP(3))`,
-      [messageId, session.session_id, input, judgeOutput, durationUs],
-    );
+    await insertCompletedAgentEvent(db, {
+      messageId,
+      sessionId: session.session_id,
+      tool: "participation_judge",
+      input,
+      output: judgeOutput,
+      durationUs,
+    });
     if (decision.respond && decision.message) {
-      await query(
-        db,
-        `INSERT INTO agent_events(message_id,agent_session_id,tool,status,input,output,finished_at)
-         VALUES(?,?,'assistant_final','completed','{}',?,UTC_TIMESTAMP(3))`,
-        [messageId, session.session_id, String(decision.message).slice(0, 4000)],
-      );
+      await insertCompletedAgentEvent(db, {
+        messageId,
+        sessionId: session.session_id,
+        tool: "assistant_final",
+        input: "{}",
+        output: String(decision.message).slice(0, 4000),
+      });
     }
   } catch (error) {
     console.error("Opportunistic participation artifacts failed", {
@@ -664,9 +699,7 @@ const PARTICIPATION_REVISE_SYSTEM =
   '群聊助理小祥。未发出的回复需按新消息改稿或 {"respond":false}。点名/催沉默/mustReply=true 应保留短回；实活需求或对方情绪不佳时，应提醒 @小祥 走完整模式，不要承诺自己马上开干。只返回 JSON。';
 
 export async function decideParticipation(context, request = fetch) {
-  const messages =
-    context.modelMessages ||
-    compactParticipationMessages(context.messages || []);
+  const messages = context.modelMessages || compactParticipationMessages(context.messages || []);
   const integrateBurst = compactParticipationMessages(
     (context.integrateBurst || []).map(({ author, body }) => ({
       author,

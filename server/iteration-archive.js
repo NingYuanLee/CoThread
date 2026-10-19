@@ -1,36 +1,48 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
-import { query, transaction } from "./db.js";
+import { markInTransaction, query, transaction } from "./db.js";
 import { HttpError } from "./http-error.js";
 import { lockIteration } from "./iteration-state.js";
 import { latestVersionsByFolderRoots } from "./documents/index.js";
 import { modelResponse, responseText } from "./model-config.js";
 import { publishWork } from "./work-events.js";
 import { nativeHistoryFromLiveHome } from "./l3-session.js";
-import { sessionLockName } from "./session-lock.js";
+import { acquireSessionLock } from "./session-lock.js";
 
 const ended = new Set(["completed", "failed", "cancelled", "rejected", "abandoned", "superseded"]);
 
 async function archiveAdmission(db, threadId, operation) {
-  const conn = await db.getConnection();
-  let acquired = false;
+  const lock = await acquireSessionLock(db, threadId);
+  if (!lock) throw new HttpError(409, "当前迭代上下文或 Agent 仍在运行，请等待执行结束后再归档");
+  const conn = lock.connection;
+  let began = false,
+    failed = false,
+    rollbackFailed = false;
   try {
-    const [lock] = await query(conn, "SELECT GET_LOCK(?,0) acquired", [sessionLockName(threadId)]);
-    acquired = Number(lock.acquired) === 1;
-    if (!acquired)
-      throw new HttpError(409, "当前迭代上下文或 Agent 仍在运行，请等待执行结束后再归档");
     await conn.beginTransaction();
+    began = true;
+    markInTransaction(conn, true);
     const result = await operation(conn);
     await conn.commit();
     return result;
   } catch (error) {
-    await conn.rollback();
+    failed = true;
+    if (began) {
+      try {
+        await conn.rollback();
+      } catch (rollbackError) {
+        rollbackFailed = true;
+        console.error("Archive rollback failed", { code: rollbackError?.code });
+      }
+    }
     throw error;
   } finally {
+    markInTransaction(conn, false);
     try {
-      if (acquired) await query(conn, "SELECT RELEASE_LOCK(?)", [sessionLockName(threadId)]);
-    } finally {
-      conn.release();
+      await lock.release({ discard: !began || rollbackFailed });
+    } catch (releaseError) {
+      if (!failed) throw releaseError;
+      console.error("Archive lock release failed", { code: releaseError?.code });
     }
   }
 }
@@ -38,14 +50,19 @@ export const archiveJson = (value) => (typeof value === "string" ? JSON.parse(va
 
 function archiveText(value, maximum) {
   const text = Array.isArray(value)
-    ? value.map((item) => typeof item === "string" ? item : JSON.stringify(item)).filter(Boolean).join("\n")
+    ? value
+        .map((item) => (typeof item === "string" ? item : JSON.stringify(item)))
+        .filter(Boolean)
+        .join("\n")
     : String(value ?? "");
   return Array.from(text.trim()).slice(0, maximum).join("");
 }
 
 /** 未完成事项：勾选后作为新迭代的任务交接过去。 */
 function archivePriority(value) {
-  const raw = String(value?.priority ?? value?.rank ?? value?.level ?? "").trim().toLowerCase();
+  const raw = String(value?.priority ?? value?.rank ?? value?.level ?? "")
+    .trim()
+    .toLowerCase();
   if (["1", "高", "high", "p1"].includes(raw)) return 1;
   if (["3", "低", "low", "p3"].includes(raw)) return 3;
   const number = Number(raw);
@@ -57,31 +74,37 @@ function archiveItems(value) {
   if (!Array.isArray(value)) return [];
   return value
     .map((item) => {
-      const normalized = typeof item === "string"
-        ? { title: archiveText(item, 240), detail: "" }
-        : {
-            title: archiveText(item?.title ?? item?.item ?? item?.name, 240),
-            detail: archiveText(item?.detail ?? item?.note ?? item?.description, 2000),
-            choice: itemChoice(item),
-            priority: archivePriority(item),
-          };
+      const normalized =
+        typeof item === "string"
+          ? { title: archiveText(item, 240), detail: "" }
+          : {
+              title: archiveText(item?.title ?? item?.item ?? item?.name, 240),
+              detail: archiveText(item?.detail ?? item?.note ?? item?.description, 2000),
+              choice: itemChoice(item),
+              priority: archivePriority(item),
+            };
       return { ...normalized, suggestion: normalized.choice || "archive" };
     })
     .filter((item) => item.title);
 }
 
 function archiveDisposition(value) {
-  const raw = String(value?.disposition ?? value?.decision ?? "").trim().toLowerCase();
+  const raw = String(value?.disposition ?? value?.decision ?? "")
+    .trim()
+    .toLowerCase();
   if (["background", "背景", "录入新背景", "录入新迭代背景"].includes(raw)) return "background";
   if (["retain", "留档", "keep", "archive", "仅归档结束", "仅归档"].includes(raw)) return "retain";
-  if (["handoff", "交接", "transfer", "task", "生成新任务", "生成新迭代任务"].includes(raw)) return "handoff";
+  if (["handoff", "交接", "transfer", "task", "生成新任务", "生成新迭代任务"].includes(raw))
+    return "handoff";
   // 模型漏给或给了无法识别的取值时按 retain 兜底（与 taskChoices 的默认一致），
   // 否则整份草案会被 schema 拒绝并无限重试；人类仍会在确认阶段调整。
   return "retain";
 }
 
 function itemChoice(item) {
-  const raw = String(item?.choice ?? "").trim().toLowerCase();
+  const raw = String(item?.choice ?? "")
+    .trim()
+    .toLowerCase();
   if (["task", "handoff", "生成新任务", "生成新迭代任务"].includes(raw)) return "task";
   if (["background", "录入新背景", "录入新迭代背景", "背景"].includes(raw)) return "background";
   if (["archive", "retain", "仅归档结束", "仅归档", "留档"].includes(raw)) return "archive";
@@ -91,7 +114,9 @@ function itemChoice(item) {
 }
 
 function appendBackgroundEntries(background, entries) {
-  const missing = entries.filter((item) => item.title && !String(background || "").includes(item.title));
+  const missing = entries.filter(
+    (item) => item.title && !String(background || "").includes(item.title),
+  );
   if (!missing.length) return background || "";
   const block = missing
     .map((item) => (item.detail ? "- " + item.title + "：" + item.detail : "- " + item.title))
@@ -107,25 +132,37 @@ export function normalizeArchivePlan(value) {
     ...value,
     conclusion: archiveText(value.conclusion, 20000),
     notes: archiveText(value.notes, 20000),
-    nextIteration: next && typeof next === "object" && !Array.isArray(next) ? {
-      title: archiveText(next.title, 160),
-      background: archiveText(next.background, 20000),
-      goal: archiveText(next.goal, 20000),
-      items: archiveItems(next.items),
-    } : next,
-    taskDecisions: Array.isArray(value.taskDecisions) ? value.taskDecisions.map((item) => {
-      const disposition = archiveDisposition(item);
-      const suggestion = itemChoice({ choice: item?.suggestion }) === "archive" && item?.suggestion == null
-        ? (disposition === "handoff" ? "task" : disposition === "background" ? "background" : "archive")
-        : itemChoice({ choice: item?.suggestion || (disposition === "handoff" ? "task" : disposition) });
-      return {
-        ...item,
-        disposition,
-        reason: archiveText(item?.reason, 2000),
-        priority: archivePriority(item),
-        suggestion,
-      };
-    }) : value.taskDecisions,
+    nextIteration:
+      next && typeof next === "object" && !Array.isArray(next)
+        ? {
+            title: archiveText(next.title, 160),
+            background: archiveText(next.background, 20000),
+            goal: archiveText(next.goal, 20000),
+            items: archiveItems(next.items),
+          }
+        : next,
+    taskDecisions: Array.isArray(value.taskDecisions)
+      ? value.taskDecisions.map((item) => {
+          const disposition = archiveDisposition(item);
+          const suggestion =
+            itemChoice({ choice: item?.suggestion }) === "archive" && item?.suggestion == null
+              ? disposition === "handoff"
+                ? "task"
+                : disposition === "background"
+                  ? "background"
+                  : "archive"
+              : itemChoice({
+                  choice: item?.suggestion || (disposition === "handoff" ? "task" : disposition),
+                });
+          return {
+            ...item,
+            disposition,
+            reason: archiveText(item?.reason, 2000),
+            priority: archivePriority(item),
+            suggestion,
+          };
+        })
+      : value.taskDecisions,
   };
 }
 
@@ -365,7 +402,10 @@ async function archiveSessionView(db, thread, workflow) {
   let messages = [];
   if (session?.session_id) {
     try {
-      messages = await nativeHistoryFromLiveHome("l1-iteration_archive-" + thread.project_id, session.session_id);
+      messages = await nativeHistoryFromLiveHome(
+        "l1-iteration_archive-" + thread.project_id,
+        session.session_id,
+      );
     } catch {
       messages = [];
     }
@@ -473,11 +513,15 @@ const continuationSchema = z.object({
     background: z.string().max(20000).default(""),
     goal: z.string().max(20000).default(""),
   }),
-  decisions: z.array(z.object({
-    title: z.string().max(240),
-    detail: z.string().max(2000).default(""),
-    choice: z.enum(["archive", "background", "task"]),
-  })).max(200),
+  decisions: z
+    .array(
+      z.object({
+        title: z.string().max(240),
+        detail: z.string().max(2000).default(""),
+        choice: z.enum(["archive", "background", "task"]),
+      }),
+    )
+    .max(200),
 });
 
 function fallbackContinuation(input) {
@@ -497,27 +541,31 @@ export async function suggestArchiveContinuation(service, user, threadId, input,
   const carried = data.decisions.filter((item) => item.choice !== "archive");
   if (!carried.length) return fallbackContinuation(data);
   try {
-    const raw = await modelResponse({
-      scope: "knowledge",
-      maxTokens: 1200,
-      reasoningEffort: "none",
-      signal: AbortSignal.timeout(20000),
-      messages: [
-        {
-          role: "system",
-          content: "你在整理迭代归档的承接方案。根据本轮结论和人类对未完成项的选择，改写下一迭代的名称、背景、目标。choice=archive 的项不要写入下一轮。choice=background 的项要自然写进 background，保留关键事实。choice=task 的项要体现在 goal，说明下一轮要完成这些事，不要写成已经完成。保留原草案里仍然有效的信息。只返回 JSON：{\"title\":\"\",\"background\":\"\",\"goal\":\"\"}。title 不超过 40 个字。",
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            conclusion: data.conclusion,
-            notes: data.notes,
-            current: data.nextIteration,
-            decisions: data.decisions,
-          }),
-        },
-      ],
-    }, request);
+    const raw = await modelResponse(
+      {
+        scope: "knowledge",
+        maxTokens: 1200,
+        reasoningEffort: "none",
+        signal: AbortSignal.timeout(20000),
+        messages: [
+          {
+            role: "system",
+            content:
+              '你在整理迭代归档的承接方案。根据本轮结论和人类对未完成项的选择，改写下一迭代的名称、背景、目标。choice=archive 的项不要写入下一轮。choice=background 的项要自然写进 background，保留关键事实。choice=task 的项要体现在 goal，说明下一轮要完成这些事，不要写成已经完成。保留原草案里仍然有效的信息。只返回 JSON：{"title":"","background":"","goal":""}。title 不超过 40 个字。',
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              conclusion: data.conclusion,
+              notes: data.notes,
+              current: data.nextIteration,
+              decisions: data.decisions,
+            }),
+          },
+        ],
+      },
+      request,
+    );
     const text = responseText(raw) || "";
     const start = text.indexOf("{");
     const end = text.lastIndexOf("}");
@@ -538,12 +586,16 @@ export async function suggestArchiveContinuation(service, user, threadId, input,
 
 const prioritySchema = z.object({
   conclusion: z.string().max(20000).default(""),
-  decisions: z.array(z.object({
-    key: z.string().max(80),
-    title: z.string().max(240),
-    detail: z.string().max(2000).default(""),
-    kind: z.enum(["task", "item"]),
-  })).max(200),
+  decisions: z
+    .array(
+      z.object({
+        key: z.string().max(80),
+        title: z.string().max(240),
+        detail: z.string().max(2000).default(""),
+        kind: z.enum(["task", "item"]),
+      }),
+    )
+    .max(200),
 });
 
 export async function suggestArchivePriorities(service, user, threadId, input, request = fetch) {
@@ -558,19 +610,26 @@ export async function suggestArchivePriorities(service, user, threadId, input, r
     suggestion: "archive",
   }));
   try {
-    const raw = await modelResponse({
-      scope: "knowledge",
-      maxTokens: 1200,
-      reasoningEffort: "none",
-      signal: AbortSignal.timeout(20000),
-      messages: [
-        {
-          role: "system",
-          content: "你在帮人类决定未完成项怎么交接。把每项分成 priority 1高、2中、3低，并给 suggestion：archive仅归档结束、background录入新背景、task生成新任务。高优先是阻塞下一轮或必须继续做的；中优先应该承接但不是阻塞；低优先可以随本轮结束，或只值得记进背景。必须继续执行、有验收口径的建议 task；只是约束、决定或事实的建议 background；已过时或不值得下一轮的建议 archive。必须覆盖每个 key，不要新增。只返回 JSON：{\"decisions\":[{\"key\":\"\",\"priority\":1,\"suggestion\":\"task\"}]}",
-        },
-        { role: "user", content: JSON.stringify({ conclusion: data.conclusion, decisions: data.decisions }) },
-      ],
-    }, request);
+    const raw = await modelResponse(
+      {
+        scope: "knowledge",
+        maxTokens: 1200,
+        reasoningEffort: "none",
+        signal: AbortSignal.timeout(20000),
+        messages: [
+          {
+            role: "system",
+            content:
+              '你在帮人类决定未完成项怎么交接。把每项分成 priority 1高、2中、3低，并给 suggestion：archive仅归档结束、background录入新背景、task生成新任务。高优先是阻塞下一轮或必须继续做的；中优先应该承接但不是阻塞；低优先可以随本轮结束，或只值得记进背景。必须继续执行、有验收口径的建议 task；只是约束、决定或事实的建议 background；已过时或不值得下一轮的建议 archive。必须覆盖每个 key，不要新增。只返回 JSON：{"decisions":[{"key":"","priority":1,"suggestion":"task"}]}',
+          },
+          {
+            role: "user",
+            content: JSON.stringify({ conclusion: data.conclusion, decisions: data.decisions }),
+          },
+        ],
+      },
+      request,
+    );
     const text = responseText(raw) || "";
     const start = text.indexOf("{");
     const end = text.lastIndexOf("}");
@@ -593,29 +652,42 @@ export async function suggestArchivePriorities(service, user, threadId, input, r
 }
 
 export async function reviseArchiveSummary(service, user, threadId, input, request = fetch) {
-  const data = z.object({
-    workflowId: z.string().uuid(),
-    comment: z.string().trim().min(1).max(4000),
-  }).parse(input);
+  const data = z
+    .object({
+      workflowId: z.string().uuid(),
+      comment: z.string().trim().min(1).max(4000),
+    })
+    .parse(input);
   const workflow = await readArchiveWorkflow(service, user, threadId);
   if (!workflow?.canManage) throw new HttpError(403, "仅迭代创建人或项目负责人可以操作迭代归档");
-  if (workflow.status !== "ready" || workflow.id !== data.workflowId) throw new HttpError(409, "归档方案尚未就绪");
+  if (workflow.status !== "ready" || workflow.id !== data.workflowId)
+    throw new HttpError(409, "归档方案尚未就绪");
   let conclusion = workflow.conclusion;
   try {
-    const raw = await modelResponse({
-      scope: "knowledge",
-      maxTokens: 2000,
-      reasoningEffort: "none",
-      signal: AbortSignal.timeout(25000),
-      messages: [
-        {
-          role: "system",
-          content: "你在按人类修改意见改写迭代总结。输出 Markdown 正文，不要代码围栏。保留仍有效的事实，按意见增删改，不要把未完成写成已完成。",
-        },
-        { role: "user", content: JSON.stringify({ summary: workflow.conclusion, comment: data.comment }) },
-      ],
-    }, request);
-    const text = (responseText(raw) || "").replace(/^```(?:markdown|md)?\s*/i, "").replace(/\s*```$/, "").trim();
+    const raw = await modelResponse(
+      {
+        scope: "knowledge",
+        maxTokens: 2000,
+        reasoningEffort: "none",
+        signal: AbortSignal.timeout(25000),
+        messages: [
+          {
+            role: "system",
+            content:
+              "你在按人类修改意见改写迭代总结。输出 Markdown 正文，不要代码围栏。保留仍有效的事实，按意见增删改，不要把未完成写成已完成。",
+          },
+          {
+            role: "user",
+            content: JSON.stringify({ summary: workflow.conclusion, comment: data.comment }),
+          },
+        ],
+      },
+      request,
+    );
+    const text = (responseText(raw) || "")
+      .replace(/^```(?:markdown|md)?\s*/i, "")
+      .replace(/\s*```$/, "")
+      .trim();
     if (text) conclusion = text.slice(0, 20000);
   } catch (error) {
     console.error("Archive summary revise failed", {
@@ -624,10 +696,15 @@ export async function reviseArchiveSummary(service, user, threadId, input, reque
     });
     conclusion = (workflow.conclusion + "\n\n## 修改意见\n" + data.comment).slice(0, 20000);
   }
-  const [row] = await query(service.db, "SELECT plan FROM iteration_archive_workflows WHERE id=?", [data.workflowId]);
+  const [row] = await query(service.db, "SELECT plan FROM iteration_archive_workflows WHERE id=?", [
+    data.workflowId,
+  ]);
   const plan = archiveJson(row?.plan) || {};
   plan.conclusion = conclusion;
-  await query(service.db, "UPDATE iteration_archive_workflows SET plan=? WHERE id=?", [JSON.stringify(plan), data.workflowId]);
+  await query(service.db, "UPDATE iteration_archive_workflows SET plan=? WHERE id=?", [
+    JSON.stringify(plan),
+    data.workflowId,
+  ]);
   return { conclusion };
 }
 
@@ -721,7 +798,9 @@ export async function confirmIterationArchive(service, user, threadId, input) {
     })
     .parse(input);
   const taskItems = data.nextIteration.items.filter((item) => itemChoice(item) === "task");
-  const backgroundItems = data.nextIteration.items.filter((item) => itemChoice(item) === "background");
+  const backgroundItems = data.nextIteration.items.filter(
+    (item) => itemChoice(item) === "background",
+  );
   const result = await transaction(service.db, async (conn) => {
     const thread = await lockIteration(conn, threadId);
     await authorized(service, conn, user, thread);
@@ -744,10 +823,14 @@ export async function confirmIterationArchive(service, user, threadId, input) {
       open.some((task) => !choices.has(task.id))
     )
       throw new HttpError(400, "请为每个未完成项选择去向，不得包含其他任务");
-    const backgroundTasks = open.filter((task) => choices.get(task.id)?.disposition === "background");
+    const backgroundTasks = open.filter(
+      (task) => choices.get(task.id)?.disposition === "background",
+    );
     if (
       !data.createNextIteration &&
-      (data.taskDecisions.some((choice) => choice.disposition === "handoff" || choice.disposition === "background") ||
+      (data.taskDecisions.some(
+        (choice) => choice.disposition === "handoff" || choice.disposition === "background",
+      ) ||
         taskItems.length ||
         backgroundItems.length)
     )
@@ -762,7 +845,11 @@ export async function confirmIterationArchive(service, user, threadId, input) {
       ...backgroundItems,
     ]);
     if (data.createNextIteration) {
-      if (!data.nextIteration.title.trim() || !carriedBackground.trim() || !data.nextIteration.goal.trim())
+      if (
+        !data.nextIteration.title.trim() ||
+        !carriedBackground.trim() ||
+        !data.nextIteration.goal.trim()
+      )
         throw new HttpError(400, "请填写承接迭代的名称、背景与目标");
       nextThreadId = randomUUID();
       nextSessionId = randomUUID();
@@ -864,7 +951,7 @@ export async function confirmIterationArchive(service, user, threadId, input) {
         document_refs,folder_refs,target_type,target_id,status,claimed_by_type,claimed_by_id,
         execution_mode,execution_agent_type)
         VALUES(?,?,?,?,?,'human_member',?,'human_member',?,'formal',?,?,'[]','[]',?,?,
-        ?,?,?,?,'dsh_l3','dsh_l3')`,
+        ?,?,?,'dsh_l3','dsh_l3')`,
         [
           itemTaskId,
           thread.project_id,
@@ -912,7 +999,7 @@ export async function confirmIterationArchive(service, user, threadId, input) {
     };
     await query(
       conn,
-      "UPDATE threads SET status='archived',archive_snapshot=?,archived_at=UTC_TIMESTAMP(3) WHERE id=?",
+      "UPDATE threads SET status='archived',archive_snapshot=?,archived_at=UTC_TIMESTAMP(3),last_active_at=GREATEST(last_active_at,UTC_TIMESTAMP(3)) WHERE id=?",
       [JSON.stringify(snapshot), threadId],
     );
     await query(

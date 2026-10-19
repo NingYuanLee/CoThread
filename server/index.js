@@ -1,3 +1,4 @@
+import { interruptRunningSandboxRuns } from "./thread-activity.js";
 import express from "express";
 import { createServer as createHttpServer } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
@@ -6,6 +7,8 @@ import { createDatabase, query } from "./db.js";
 import { createApp } from "./app.js";
 import { registerDevServerUpgrade } from "./miniprogram-dev-server.js";
 import { startReplyWorker } from "./replies.js";
+import { createShutdown } from "./shutdown.js";
+import { stopLiveOutputStreams } from "./agent-live-output.js";
 import { migrate } from "../scripts/migrate.js";
 import {
   DatabasePolicyError,
@@ -119,7 +122,7 @@ if (production) {
 const port = Number(process.env.PORT || LISTEN_PORT);
 const host = listenHost;
 // Admin预览的 HMR 走 WebSocket；升级请求按项目开发服务器登记表转发。
-registerDevServerUpgrade(server, db);
+const stopDevServerUpgrades = registerDevServerUpgrade(server, db);
 server.listen(port, host);
 await new Promise((resolve, reject) => {
   server.once("listening", resolve);
@@ -144,11 +147,7 @@ if (vite) {
     }
   })();
 }
-if (allowWrites)
-  await query(
-    workDb,
-    "UPDATE sandbox_runs SET status='interrupted',output='服务重启，执行结果未确认；沙箱按超时回收。',finished_at=UTC_TIMESTAMP(3) WHERE status='running'",
-  );
+if (allowWrites) await interruptRunningSandboxRuns(workDb);
 const stopReplyWorker = allowWrites ? await startReplyWorker(workDb, db) : () => {};
 
 // 第三方库会产生无人 await 的 rejected promise——已实测两次把整个 API 直接杀死：
@@ -167,12 +166,18 @@ process.on("uncaughtException", (error) => {
   process.exit(1);
 });
 
-for (const signal of ["SIGINT", "SIGTERM"])
-  process.on(signal, () => {
-    stopReplyWorker();
-    server.close(async () => {
-      await vite?.close();
-      await Promise.all([db.end(), workDb.end()]);
-      process.exit(0);
+const shutdown = createShutdown({
+  stopWorker: stopReplyWorker,
+  closeServer: () => {
+    const httpClosed = new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
     });
-  });
+    const streamsClosed = stopLiveOutputStreams(db).then(() => server.closeIdleConnections());
+    return Promise.all([httpClosed, streamsClosed, stopDevServerUpgrades()]);
+  },
+  closeResources: async () => {
+    await vite?.close();
+    await Promise.all([db.end(), workDb.end()]);
+  },
+});
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, shutdown);

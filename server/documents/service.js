@@ -435,6 +435,19 @@ export class DocumentsService {
         );
         if (existing) return { ...existing, reused: true };
       }
+      if (agentMessageId) {
+        const [sameHash] = await query(
+          db,
+          `SELECT v.id, v.artifact_id artifactId, v.version, v.sha256
+           FROM document_change_logs l
+           JOIN versions v ON v.id=l.version_id
+           WHERE l.message_id=? AND v.sha256=?
+           ORDER BY l.created_at DESC
+           LIMIT 1`,
+          [agentMessageId, sha256],
+        );
+        if (sameHash) return { ...sameHash, reused: true };
+      }
       await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [thread.project_id]);
       const sourceFile = chatUpload || options.silent;
       const generatedByTask =

@@ -1,55 +1,76 @@
 import { query } from "./db.js";
 import { Service } from "./service.js";
 import { agentFailureCode } from "./agent-errors.js";
-import { discussionHasActiveCoordinator, sessionLockName } from "./session-lock.js";
+import { acquireSessionLock, discussionHasActiveCoordinator } from "./session-lock.js";
 
 // The main context observes every member message without generating a reply.
 // DSH updates metering here; compaction stays on the idle compression lane so
 // L2 can take the session lock without waiting out a 240s compact.
 export async function synchronizeDiscussionContext(db, threadId, openRuntime) {
-  const connection = await db.getConnection();
-  const key = sessionLockName(threadId);
-  let locked = false, runtime;
+  let lock, runtime;
   try {
-    const [lock] = await query(connection, "SELECT GET_LOCK(?,0) acquired", [key]);
-    if (Number(lock.acquired) !== 1) return false;
-    locked = true;
+    lock = await acquireSessionLock(db, threadId);
+    if (!lock) return false;
     if (await discussionHasActiveCoordinator(db, threadId)) return false;
-    const [pending] = await query(db,
+    const [pending] = await query(
+      db,
       `SELECT t.created_by,s.seen_sequence FROM threads t LEFT JOIN agent_sessions s ON s.thread_id=t.id
        WHERE t.id=? AND t.status='active' AND COALESCE(s.compact_status,'idle')<>'running'
        AND (COALESCE(s.compact_status,'idle')<>'failed' OR s.updated_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 5 MINUTE))
-       AND EXISTS(SELECT 1 FROM messages m WHERE m.thread_id=t.id AND m.sequence>COALESCE(s.seen_sequence,0))`, [threadId]);
+       AND EXISTS(SELECT 1 FROM messages m WHERE m.thread_id=t.id AND m.sequence>COALESCE(s.seen_sequence,0))`,
+      [threadId],
+    );
     if (!pending) return false;
     const user = { id: pending.created_by, kind: "session" };
-    const context = await new Service(db).context(user, threadId, db, { display: true, after: String(pending.seen_sequence || 0), limit: 200 });
+    const context = await new Service(db).context(user, threadId, db, {
+      display: true,
+      after: String(pending.seen_sequence || 0),
+      limit: 200,
+    });
     // Coordinator acknowledgements are not native DSH turns: observe them too.
     context.replies = [];
     const open = openRuntime || (await import("./agent.js")).openAgentRuntime;
-    runtime = await open(context, { db, user, job: { thread_id: threadId, kind: "context_sync" }, autoCompact: false, sessionLockHeld: true });
+    runtime = await open(context, {
+      db,
+      user,
+      job: { thread_id: threadId, kind: "context_sync" },
+      autoCompact: false,
+      sessionLockHeld: true,
+    });
     await runtime.close(true);
     runtime = undefined;
-    await query(db, "UPDATE agent_sessions SET compact_status='idle',compact_error=NULL WHERE thread_id=? AND compact_status='failed'", [threadId]);
+    await query(
+      db,
+      "UPDATE agent_sessions SET compact_status='idle',compact_error=NULL WHERE thread_id=? AND compact_status='failed'",
+      [threadId],
+    );
     return true;
   } catch (error) {
     if (runtime) await runtime.close().catch(() => {});
-    await query(db, "UPDATE agent_sessions SET compact_status='failed',compact_error=?,updated_at=UTC_TIMESTAMP(3) WHERE thread_id=?",
-      [`上下文同步未完成，聊天记录仍完整保留。（${agentFailureCode(error)}）`, threadId]);
+    await query(
+      db,
+      "UPDATE agent_sessions SET compact_status='failed',compact_error=?,updated_at=UTC_TIMESTAMP(3) WHERE thread_id=?",
+      [`上下文同步未完成，聊天记录仍完整保留。（${agentFailureCode(error)}）`, threadId],
+    );
     console.error("Discussion context sync failed", { type: error?.name || "Error" });
     return false;
   } finally {
-    if (locked) await query(connection, "SELECT RELEASE_LOCK(?)", [key]);
-    connection.release();
+    await lock?.release();
   }
 }
 
 export async function synchronizeNextDiscussion(db, threadId, openRuntime) {
-  const candidates = threadId ? [{ id: threadId }] : await query(db,
-    `SELECT t.id FROM threads t LEFT JOIN agent_sessions s ON s.thread_id=t.id
+  const candidates = threadId
+    ? [{ id: threadId }]
+    : await query(
+        db,
+        `SELECT t.id FROM threads t LEFT JOIN agent_sessions s ON s.thread_id=t.id
      WHERE t.status='active' AND COALESCE(s.compact_status,'idle')<>'running'
      AND (COALESCE(s.compact_status,'idle')<>'failed' OR s.updated_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 5 MINUTE))
      AND EXISTS(SELECT 1 FROM messages m WHERE m.thread_id=t.id AND m.sequence>COALESCE(s.seen_sequence,0))
-     ORDER BY COALESCE(s.updated_at,t.created_at) LIMIT 10`);
-  for (const candidate of candidates) if (await synchronizeDiscussionContext(db, candidate.id, openRuntime)) return true;
+     ORDER BY COALESCE(s.updated_at,t.created_at) LIMIT 10`,
+      );
+  for (const candidate of candidates)
+    if (await synchronizeDiscussionContext(db, candidate.id, openRuntime)) return true;
   return false;
 }

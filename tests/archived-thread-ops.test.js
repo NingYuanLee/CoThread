@@ -1,4 +1,4 @@
-import { completeArchiveRequest } from "./archive-helper.js";
+import { completeArchiveRequest, archiveAppOptions } from "./archive-helper.js";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -33,7 +33,7 @@ async function request(path, data, credential, method) {
 
 before(async () => {
   database = await testDatabase();
-  server = createApp(database.db).listen(0, "127.0.0.1");
+  server = createApp(database.db, archiveAppOptions).listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   base = `http://127.0.0.1:${server.address().port}`;
   const password = "test-password-" + randomUUID();

@@ -8,6 +8,7 @@ import { UiIcon, type UiIconName } from "./ui-icon";
 import { ADMIN_PERMISSION_TREE, MY_WORK_MENU } from "../shared/admin-permissions.js";
 import { applyUiTheme } from "./apply-ui-theme";
 import { CoThreadLogo, PanelIcon } from "./workspace-chrome";
+import "./workspace.css";
 import "./admin.css";
 
 type Access = {
@@ -21,7 +22,15 @@ const myPages = MY_WORK_MENU.children || [];
 const pages = [...myPages, ...rolePages];
 const menus = [MY_WORK_MENU, ...ADMIN_PERMISSION_TREE];
 const workPages = ["iterations", "tasks", "my-iterations", "my-tasks"];
-const listPages = ["projects", "accounts", "account-changes", "account-logins", "plugins", "roles", "my-projects"];
+const listPages = [
+  "projects",
+  "accounts",
+  "account-changes",
+  "account-logins",
+  "plugins",
+  "roles",
+  "my-projects",
+];
 const readPage = () => window.location.pathname.split("/")[2] || "";
 
 export function AdminApp() {
@@ -111,51 +120,53 @@ export function AdminApp() {
           </button>
         </div>
         <nav aria-label="管理空间菜单">
-          {menus.filter(
-            (item) =>
-              access.permissions.includes(item.key) &&
-              item.children?.some((child) => access.permissions.includes(child.key)),
-          ).map((item) => (
-            <div className="admin-nav-group" key={item.key}>
-              <button
-                className="admin-nav-heading"
-                aria-expanded={!collapsed.includes(item.key)}
-                onClick={() =>
-                  setCollapsed(
-                    collapsed.includes(item.key)
-                      ? collapsed.filter((key) => key !== item.key)
-                      : [...collapsed, item.key],
-                  )
-                }
-              >
-                <UiIcon name={item.icon as UiIconName} size={17} />
-                <span>{item.label}</span>
-                <UiIcon
-                  name={collapsed.includes(item.key) ? "chevronUp" : "chevronDown"}
-                  size={12}
-                />
-              </button>
-              {(!leftOpen || !collapsed.includes(item.key)) &&
-                item.children
-                  ?.filter((child) => access.permissions.includes(child.key))
-                  .map((child) => (
-                    <a
-                      key={child.key}
-                      href={`/admin/${child.key}`}
-                      aria-current={page === child.key ? "page" : undefined}
-                      title={child.label}
-                      aria-label={child.label}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        go(child.key);
-                      }}
-                    >
-                      <UiIcon name={child.icon as UiIconName} size={16} />
-                      <span>{child.label}</span>
-                    </a>
-                  ))}
-            </div>
-          ))}
+          {menus
+            .filter(
+              (item) =>
+                access.permissions.includes(item.key) &&
+                item.children?.some((child) => access.permissions.includes(child.key)),
+            )
+            .map((item) => (
+              <div className="admin-nav-group" key={item.key}>
+                <button
+                  className="admin-nav-heading"
+                  aria-expanded={!collapsed.includes(item.key)}
+                  onClick={() =>
+                    setCollapsed(
+                      collapsed.includes(item.key)
+                        ? collapsed.filter((key) => key !== item.key)
+                        : [...collapsed, item.key],
+                    )
+                  }
+                >
+                  <UiIcon name={item.icon as UiIconName} size={17} />
+                  <span>{item.label}</span>
+                  <UiIcon
+                    name={collapsed.includes(item.key) ? "chevronUp" : "chevronDown"}
+                    size={12}
+                  />
+                </button>
+                {(!leftOpen || !collapsed.includes(item.key)) &&
+                  item.children
+                    ?.filter((child) => access.permissions.includes(child.key))
+                    .map((child) => (
+                      <a
+                        key={child.key}
+                        href={`/admin/${child.key}`}
+                        aria-current={page === child.key ? "page" : undefined}
+                        title={child.label}
+                        aria-label={child.label}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          go(child.key);
+                        }}
+                      >
+                        <UiIcon name={child.icon as UiIconName} size={16} />
+                        <span>{child.label}</span>
+                      </a>
+                    ))}
+              </div>
+            ))}
         </nav>
       </aside>
       <div className="admin-main">
@@ -199,9 +210,14 @@ export function AdminApp() {
             </span>
           </div>
         </header>
-        <main className={`admin-content ${workPages.includes(page) ? "admin-content-work" : ""} ${listPages.includes(page) ? "admin-content-list" : ""}`}>
+        <main
+          className={`admin-content ${workPages.includes(page) ? "admin-content-work" : ""} ${listPages.includes(page) ? "admin-content-list" : ""}`}
+        >
           {allowed ? (
-            <div className={`admin-content-card ${workPages.includes(page) ? "admin-content-work-card" : ""} ${listPages.includes(page) ? "admin-content-list-card" : ""}`} key={`${page}-${refresh}-${page.startsWith("account-") ? auditQuery : ""}`}>
+            <div
+              className={`admin-content-card ${workPages.includes(page) ? "admin-content-work-card" : ""} ${listPages.includes(page) ? "admin-content-list-card" : ""}`}
+              key={`${page}-${refresh}-${page.startsWith("account-") ? auditQuery : ""}`}
+            >
               {["projects", "accounts", "plugins"].includes(page) && (
                 <SystemManagement
                   section={page as "projects" | "accounts" | "plugins"}

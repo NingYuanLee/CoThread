@@ -74,11 +74,7 @@ const OPERATORS: Record<FilterType, Array<{ value: string; label: string }>> = {
     { value: "lte", label: "不晚于" },
     ...EXISTS,
   ],
-  null: [
-    { value: "eq", label: "为空" },
-    { value: "neq", label: "不为空" },
-    ...EXISTS,
-  ],
+  null: [{ value: "eq", label: "为空" }, { value: "neq", label: "不为空" }, ...EXISTS],
   json: [...COMMON, ...EXISTS],
   array: [
     { value: "any_eq", label: "等于任意一个" },
@@ -99,7 +95,12 @@ function newGroup(join: FilterJoin = "and"): DatabaseFilterGroup {
 
 function cloneFilter(value: DatabaseFilterSpec | null): DatabaseFilterSpec {
   return value?.groups.length
-    ? { groups: value.groups.map((group) => ({ ...group, conditions: group.conditions.map((row) => ({ ...row })) })) }
+    ? {
+        groups: value.groups.map((group) => ({
+          ...group,
+          conditions: group.conditions.map((row) => ({ ...row })),
+        })),
+      }
     : { groups: [newGroup()] };
 }
 
@@ -130,7 +131,10 @@ function normalizeValue(condition: DatabaseFilterCondition) {
           throw new Error(`字段 ${condition.field} 需要有效的 JSON 数组`);
         }
       } else {
-        values = raw.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean);
+        values = raw
+          .split(/[,，\n]/)
+          .map((item) => item.trim())
+          .filter(Boolean);
       }
     }
     if (!values.length) throw new Error(`字段 ${condition.field} 至少需要一个条件值`);
@@ -138,7 +142,8 @@ function normalizeValue(condition: DatabaseFilterCondition) {
     if (itemType === "number") {
       return values.map((item) => {
         const number = Number(item);
-        if (!Number.isFinite(number)) throw new Error(`字段 ${condition.field} 的数组项需要是有效数字`);
+        if (!Number.isFinite(number))
+          throw new Error(`字段 ${condition.field} 的数组项需要是有效数字`);
         return number;
       });
     }
@@ -222,7 +227,10 @@ export function DatabaseFilterBuilder({
   const [error, setError] = useState("");
   const fieldListId = useMemo(() => `database-fields-${id()}`, []);
 
-  const updateGroup = (groupId: string, update: (group: DatabaseFilterGroup) => DatabaseFilterGroup) =>
+  const updateGroup = (
+    groupId: string,
+    update: (group: DatabaseFilterGroup) => DatabaseFilterGroup,
+  ) =>
     setDraft((current) => ({
       groups: current.groups.map((group) => (group.id === groupId ? update(group) : group)),
     }));
@@ -251,7 +259,9 @@ export function DatabaseFilterBuilder({
   return (
     <div className="database-filter-builder">
       <datalist id={fieldListId}>
-        {fieldOptions.map((field) => <option key={field} value={field} />)}
+        {fieldOptions.map((field) => (
+          <option key={field} value={field} />
+        ))}
       </datalist>
       <div className="database-filter-groups">
         {draft.groups.map((group, groupIndex) => (
@@ -263,7 +273,10 @@ export function DatabaseFilterBuilder({
                   aria-label={`第 ${groupIndex + 1} 个分组的连接方式`}
                   value={group.join}
                   onChange={(event) =>
-                    updateGroup(group.id, (current) => ({ ...current, join: event.target.value as FilterJoin }))
+                    updateGroup(group.id, (current) => ({
+                      ...current,
+                      join: event.target.value as FilterJoin,
+                    }))
                   }
                 >
                   <option value="and">且</option>
@@ -276,12 +289,16 @@ export function DatabaseFilterBuilder({
               {group.conditions.map((condition, conditionIndex) => {
                 const noValue = !needsValue(condition.operator) || condition.type === "null";
                 const booleanValue = condition.type === "boolean";
-                const booleanArray = condition.type === "array" && condition.arrayItemType === "boolean";
+                const booleanArray =
+                  condition.type === "array" && condition.arrayItemType === "boolean";
                 const booleanArrayValues = Array.isArray(condition.value)
                   ? condition.value.map(String)
                   : [];
                 return (
-                  <div className={`database-filter-row${condition.type === "array" ? " is-array" : ""}`} key={condition.id}>
+                  <div
+                    className={`database-filter-row${condition.type === "array" ? " is-array" : ""}`}
+                    key={condition.id}
+                  >
                     {conditionIndex === 0 ? (
                       <span className="database-filter-where">条件</span>
                     ) : (
@@ -289,7 +306,9 @@ export function DatabaseFilterBuilder({
                         aria-label="条件连接方式"
                         value={condition.join}
                         onChange={(event) =>
-                          updateCondition(group.id, condition.id, { join: event.target.value as FilterJoin })
+                          updateCondition(group.id, condition.id, {
+                            join: event.target.value as FilterJoin,
+                          })
                         }
                       >
                         <option value="and">且</option>
@@ -302,7 +321,9 @@ export function DatabaseFilterBuilder({
                       aria-label="字段名"
                       placeholder="请输入字段名"
                       value={condition.field}
-                      onChange={(event) => updateCondition(group.id, condition.id, { field: event.target.value })}
+                      onChange={(event) =>
+                        updateCondition(group.id, condition.id, { field: event.target.value })
+                      }
                     />
                     <select
                       aria-label="字段类型"
@@ -318,7 +339,9 @@ export function DatabaseFilterBuilder({
                       }}
                     >
                       {TYPE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
                       ))}
                     </select>
                     {condition.type === "array" ? (
@@ -334,23 +357,33 @@ export function DatabaseFilterBuilder({
                         }}
                       >
                         {ARRAY_ITEM_TYPES.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
                         ))}
                       </select>
                     ) : null}
                     <select
                       aria-label="筛选条件"
                       value={condition.operator}
-                      onChange={(event) => updateCondition(group.id, condition.id, { operator: event.target.value })}
+                      onChange={(event) =>
+                        updateCondition(group.id, condition.id, { operator: event.target.value })
+                      }
                     >
                       {OPERATORS[condition.type].map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
                       ))}
                     </select>
                     {noValue ? (
                       <span className="database-filter-no-value">无需填写值</span>
                     ) : booleanArray ? (
-                      <div className="database-filter-boolean-values" role="group" aria-label="条件值">
+                      <div
+                        className="database-filter-boolean-values"
+                        role="group"
+                        aria-label="条件值"
+                      >
                         {["true", "false"].map((item) => {
                           const selected = booleanArrayValues.includes(item);
                           return (
@@ -359,11 +392,13 @@ export function DatabaseFilterBuilder({
                               key={item}
                               className={selected ? "is-selected" : ""}
                               aria-pressed={selected}
-                              onClick={() => updateCondition(group.id, condition.id, {
-                                value: selected
-                                  ? booleanArrayValues.filter((value) => value !== item)
-                                  : [...booleanArrayValues, item],
-                              })}
+                              onClick={() =>
+                                updateCondition(group.id, condition.id, {
+                                  value: selected
+                                    ? booleanArrayValues.filter((value) => value !== item)
+                                    : [...booleanArrayValues, item],
+                                })
+                              }
                             >
                               {item.toUpperCase()}
                             </button>
@@ -374,7 +409,9 @@ export function DatabaseFilterBuilder({
                       <select
                         aria-label="条件值"
                         value={String(condition.value ?? "true")}
-                        onChange={(event) => updateCondition(group.id, condition.id, { value: event.target.value })}
+                        onChange={(event) =>
+                          updateCondition(group.id, condition.id, { value: event.target.value })
+                        }
                       >
                         <option value="true">TRUE</option>
                         <option value="false">FALSE</option>
@@ -385,7 +422,9 @@ export function DatabaseFilterBuilder({
                         aria-label="条件值"
                         placeholder={valuePlaceholder(condition)}
                         value={String(condition.value ?? "")}
-                        onChange={(event) => updateCondition(group.id, condition.id, { value: event.target.value })}
+                        onChange={(event) =>
+                          updateCondition(group.id, condition.id, { value: event.target.value })
+                        }
                       />
                     )}
                     <button
@@ -409,7 +448,12 @@ export function DatabaseFilterBuilder({
               <div className="database-filter-group-actions">
                 <button
                   type="button"
-                  onClick={() => updateGroup(group.id, (current) => ({ ...current, conditions: [...current.conditions, newCondition()] }))}
+                  onClick={() =>
+                    updateGroup(group.id, (current) => ({
+                      ...current,
+                      conditions: [...current.conditions, newCondition()],
+                    }))
+                  }
                 >
                   <UiIcon name="plus" size={14} />
                   添加条件
@@ -418,7 +462,11 @@ export function DatabaseFilterBuilder({
                   <button
                     type="button"
                     className="database-filter-delete-group"
-                    onClick={() => setDraft((current) => ({ groups: current.groups.filter((item) => item.id !== group.id) }))}
+                    onClick={() =>
+                      setDraft((current) => ({
+                        groups: current.groups.filter((item) => item.id !== group.id),
+                      }))
+                    }
                   >
                     <UiIcon name="trash" size={13} />
                     删除分组
@@ -439,11 +487,21 @@ export function DatabaseFilterBuilder({
       </button>
       {error ? <p className="miniprogram-config-error">{error}</p> : null}
       <footer className="database-filter-footer">
-        <button type="button" onClick={() => { setDraft({ groups: [newGroup()] }); setError(""); }}>
+        <button
+          type="button"
+          onClick={() => {
+            setDraft({ groups: [newGroup()] });
+            setError("");
+          }}
+        >
           清空
         </button>
-        <button type="button" onClick={onCancel}>取消</button>
-        <button type="button" className="primary" onClick={apply}>应用</button>
+        <button type="button" onClick={onCancel}>
+          取消
+        </button>
+        <button type="button" className="primary" onClick={apply}>
+          应用
+        </button>
       </footer>
     </div>
   );

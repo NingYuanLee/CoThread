@@ -1,33 +1,37 @@
 import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
-import { Fragment, memo, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type SVGProps } from "react";
-import { createPortal } from "react-dom";
-import { FileIcon } from "@react-symbols/icons/utils";
+import { memo, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
-  Document,
-  Markdown as MarkdownFile,
-  Notebook,
-  Python,
-  Text,
-} from "@react-symbols/icons/files";
-import { CodePreview } from "./office-preview";
-import { fileDisplayName } from "../shared/document-name.js";
+  ClosedFolderIcon,
+  LibraryFileIcon,
+  OpenFolderIcon,
+  TreeIcon,
+  isImageFilename,
+} from "./document-icons";
 import { LIBRARY_ROOT_KINDS, folderRootKind } from "./document-library";
 import { ProjectContentPanel } from "./ProjectContentPanel";
 import { UiIcon } from "./ui-icon";
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { ModalBackdrop } from "./dialog-fx";
 import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
 import { showTip } from "./Tip";
 import { MCP_OFFICIAL_LIBRARY_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
 import { uploadFileWithIntegrity } from "./file-upload";
-import { createResourceCache } from "../shared/resource-cache.js";
-import { DocumentTabList, type DocumentTabListItem } from "./DocumentTabList";
+import { type DocumentTabListItem } from "./DocumentTabList";
+import { DocumentsTabbar } from "./DocumentsTabbar";
+import { CodeLibraryRoot } from "./CodeLibraryRoot";
+import { buildDocumentTabMenuItems } from "./document-tab-menu";
+import { DocumentFileRow } from "./DocumentFileRow";
+import { LibraryRootRow } from "./LibraryRootRow";
+import { DocumentTree } from "./DocumentTree";
+import { DocumentMainPanel } from "./DocumentMainPanel";
+import { useDocumentPreviewSource } from "./use-document-preview-source";
+import { resolveBrowserNavigation as resolveBrowserNavigationImpl } from "./document-browser-navigation";
+import { downloadFolderArchive } from "./folder-download";
 import { StaticDocumentPreview } from "./StaticDocumentPreview";
 import { DocumentChangeLogDialog } from "./DocumentChangeLogDialog";
-import { HtmlBrowserToolbar, type HtmlBrowserFile, type HtmlDeviceMode } from "./HtmlBrowserToolbar";
+import { type HtmlDeviceMode } from "./HtmlBrowserToolbar";
 import { HtmlPreviewFrame } from "./HtmlPreviewFrame";
 import { DOC_PREVIEW_DEFAULT_DEVICE_ID } from "./MiniProgramDeviceShell";
-import { HtmlBrowserEmptyState } from "./HtmlBrowserEmptyState";
 import { DocumentFileInfoDialog, type DocumentFileInfoRow } from "./DocumentFileInfoDialog";
 import { DocumentFileActionCapsule } from "./DocumentFileActionCapsule";
 import { DocumentPreviewBreadcrumb } from "./DocumentPreviewBreadcrumb";
@@ -40,1210 +44,63 @@ import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { BranchVersionDialog } from "./BranchVersionDialog";
 import { DocumentPreviewContent } from "./DocumentPreviewContent";
 import { DocumentLibraryExplorer } from "./DocumentLibraryExplorer";
-import { wechatFileIcons } from "./wechat-file-icons";
 
-type BrowserTab = {
-  key: string;
-  versionId: string;
-  url: string;
-  loadUrl: string;
-  label: string;
-};
-
-/** 开始页签的固定 id（文档页签是版本 id、HTML 页签带 key 前缀，不会撞车）。 */
-const START_TAB_ID = "start";
-
-const officeIcons = {
-  odt: Document,
-  rtf: Document,
-  odp: Notebook,
-  md: MarkdownFile,
-  markdown: MarkdownFile,
-  txt: Text,
-  log: Text,
-  env: Text,
-  ini: Text,
-  conf: Text,
-  toml: Text,
-  py: Python,
-  ...wechatFileIcons,
-};
-
-function isSvgFilename(fileName: string) {
-  return /\.svg$/i.test(fileName);
-}
-
-function isImageFilename(fileName: string) {
-  return /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(fileName);
-}
-
-function OfficeFileIcon({ fileName, ...props }: { fileName: string } & SVGProps<SVGSVGElement>) {
-  const extension = fileName.toLowerCase().split(".").pop() || "";
-  const isPresentation = extension === "ppt" || extension === "pptx";
-  const isDocument = extension === "doc" || extension === "docx";
-  if (!isPresentation && !isDocument) {
-    return (
-      <FileIcon
-        fileName={fileName}
-        editFileExtensionData={officeIcons}
-        autoAssign
-        {...props}
-      />
-    );
-  }
-
-  const accent = isPresentation ? "#d24726" : "#185abd";
-  const mark = isPresentation ? "P" : "W";
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      {...props}
-      aria-hidden={props["aria-hidden"] ?? true}
-    >
-      <path d="M5 2.75h8.7L19 8.05v13.2H5z" fill="#fff" stroke={accent} strokeWidth="1.4" />
-      <path d="M13.7 2.75v5.3H19" fill={accent} opacity=".18" />
-      <path d="M13.7 2.75v5.3H19" stroke={accent} strokeWidth="1.4" strokeLinejoin="round" />
-      <rect x="3" y="10.2" width="9.2" height="9.2" rx="1.5" fill={accent} />
-      <text x="7.6" y="17.05" fill="#fff" fontFamily="Arial, sans-serif" fontSize="6.8" fontWeight="700" textAnchor="middle">
-        {mark}
-      </text>
-    </svg>
-  );
-}
-
-function LibraryFileIcon({
-  fileName,
-  versionId,
-  className,
-  width,
-  height,
-}: {
-  fileName: string;
-  versionId: string;
-  className?: string;
-  width?: number;
-  height?: number;
-}) {
-  const [failed, setFailed] = useState(false);
-  if (versionId && isSvgFilename(fileName) && !failed) {
-    return (
-      <img
-        src={`/api/versions/${versionId}/source`}
-        alt=""
-        className={className}
-        width={width}
-        height={height}
-        aria-hidden="true"
-        onError={() => setFailed(true)}
-      />
-    );
-  }
-  return (
-    <OfficeFileIcon
-      fileName={fileName}
-      className={className}
-      aria-hidden="true"
-      width={width}
-      height={height}
-    />
-  );
-}
-
-const TEXT_PREVIEW_LIMIT = 1_048_576;
-const TEXT_PREVIEW_NAME = /\.(md|markdown|txt|json|py|js|mjs|cjs|ts|tsx|jsx|css|scss|less|sql|xml|yaml|yml|sh|bash|log|env|ini|conf|toml|properties|gitignore)$/i;
-
-function formatFileSize(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes < 0) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-async function readVersionText(versionId: string, byteSize = 0, signal?: AbortSignal) {
-  const truncated = byteSize > TEXT_PREVIEW_LIMIT;
-  const path = truncated
-    ? `/api/versions/${versionId}/source?limit=${TEXT_PREVIEW_LIMIT}`
-    : `/api/versions/${versionId}/source`;
-  const response = await apiFetch(path, signal ? { signal } : {});
-  if (!response.ok) {
-    const body = await readJsonResponse(response, path).catch(() => null);
-    throw new Error(body?.error || `源码读取失败（${response.status}）`);
-  }
-  return { text: await response.text(), truncated, byteSize };
-}
-
-type DocumentViewCacheEntry = {
-  kind: string;
-  mime: string;
-  text?: string;
-  bytes?: Uint8Array;
-  truncated?: boolean;
-  byteSize?: number;
-};
-
-// Version IDs are immutable document snapshots. Keep a small in-memory cache so
-// switching between already-open files does not re-read their content.
-const documentViewCache = createResourceCache<DocumentViewCacheEntry>(8);
-
-function LibraryFileMenu({
-  menuId,
-  openMenuId,
-  onOpenMenuChange,
-  disabled,
-  canRename,
-  canDelete,
-  canSaveToOfficial,
-  canViewOfficial,
-  saveToOfficialDisabled,
-  saveToOfficialTitle,
-  onAddToConversation,
-  onAddToTask,
-  onDownload,
-  onRename,
-  onDelete,
-  onSaveToOfficial,
-  onViewOfficial,
-}: {
-  menuId: string;
-  openMenuId: string | null;
-  onOpenMenuChange: (id: string | null) => void;
-  disabled?: boolean;
-  canRename?: boolean;
-  canDelete?: boolean;
-  canSaveToOfficial?: boolean;
-  canViewOfficial?: boolean;
-  saveToOfficialDisabled?: boolean;
-  saveToOfficialTitle?: string;
-  onAddToConversation?: () => void;
-  onAddToTask?: () => void;
-  onDownload: () => void;
-  onRename?: () => void;
-  onDelete?: () => void;
-  onSaveToOfficial?: () => void;
-  onViewOfficial?: () => void;
-}) {
-  const open = openMenuId === menuId;
-  const anchorRef = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => {
-      if (event.button !== 0) return;
-      if (!anchorRef.current?.contains(event.target as Node)) onOpenMenuChange(null);
-    };
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
-  }, [open, onOpenMenuChange]);
-  const close = () => onOpenMenuChange(null);
-  const hasLeadItems = Boolean(onAddToConversation || onAddToTask);
-  const hasDeleteItem = Boolean(canDelete && onDelete);
-  return (
-    <span className="tree-folder-menu-anchor" ref={anchorRef}>
-      <button
-        type="button"
-        className={`tree-menu-trigger${open ? " active" : ""}`}
-        title="文件操作"
-        aria-label="文件操作"
-        aria-expanded={open}
-        aria-haspopup="menu"
-        disabled={disabled}
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpenMenuChange(open ? null : menuId);
-        }}
-      >
-        <TreeIcon kind="actions" />
-      </button>
-      {open ? (
-        <div className="library-folder-menu" role="menu" onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>
-          {onAddToConversation ? (
-            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onAddToConversation(); close(); }}>
-              <TreeIcon kind="addToChat" />
-              <span>添加到会话</span>
-            </button>
-          ) : null}
-          {onAddToTask ? (
-            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onAddToTask(); close(); }}>
-              <TreeIcon kind="addToTask" />
-              <span>添加到任务</span>
-            </button>
-          ) : null}
-          {hasLeadItems ? <div className="library-folder-menu-sep" role="separator" /> : null}
-          <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onDownload(); close(); }}>
-            <TreeIcon kind="download" />
-            <span>下载</span>
-          </button>
-          {canRename && onRename ? (
-            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onRename(); close(); }}>
-              <TreeIcon kind="rename" />
-              <span>重命名</span>
-            </button>
-          ) : null}
-          {canViewOfficial && onViewOfficial ? (
-            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onViewOfficial(); close(); }}>
-              <TreeIcon kind="preview" />
-              <span>查看正式文件</span>
-            </button>
-          ) : canSaveToOfficial && onSaveToOfficial ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              disabled={saveToOfficialDisabled}
-              title={saveToOfficialTitle}
-              onClick={() => {
-                if (saveToOfficialDisabled) return;
-                onSaveToOfficial();
-                close();
-              }}
-            >
-              <TreeIcon kind="saveOfficial" />
-              <span>另存至正式文件</span>
-            </button>
-          ) : null}
-          {hasDeleteItem ? <div className="library-folder-menu-sep" role="separator" /> : null}
-          {canDelete && onDelete ? (
-            <button type="button" role="menuitem" className="library-folder-menu-item danger" onClick={() => { onDelete(); close(); }}>
-              <TreeIcon kind="trash" />
-              <span>删除</span>
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </span>
-  );
-}
-
-function OfficialFolderMenu({
-  menuId,
-  openMenuId,
-  onOpenMenuChange,
-  disabled,
-  isRoot,
-  onAddToConversation,
-  onAddToTask,
-  onUpload,
-  onDownload,
-  canDownload,
-  downloadProgress,
-  onNewFolder,
-  onRename,
-  onDelete,
-  onCopyProjectInfo,
-  onExplain,
-}: {
-  menuId: string;
-  openMenuId: string | null;
-  onOpenMenuChange: (id: string | null) => void;
-  disabled?: boolean;
-  isRoot?: boolean;
-  onAddToConversation?: () => void;
-  onAddToTask?: () => void;
-  onUpload?: () => void;
-  onDownload?: () => void;
-  canDownload?: boolean;
-  downloadProgress?: number | null;
-  onNewFolder?: () => void;
-  onRename?: () => void;
-  onDelete?: () => void;
-  onCopyProjectInfo?: () => void;
-  onExplain?: () => void;
-}) {
-  const open = openMenuId === menuId;
-  const anchorRef = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => {
-      if (event.button !== 0) return;
-      if (!anchorRef.current?.contains(event.target as Node)) onOpenMenuChange(null);
-    };
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
-  }, [open, onOpenMenuChange]);
-  const close = () => onOpenMenuChange(null);
-  const hasLeadItems = Boolean(onExplain || onAddToConversation || onAddToTask);
-  const hasMainItems = Boolean(onDownload || onUpload || onCopyProjectInfo || onNewFolder || (!isRoot && onRename));
-  const hasDeleteItem = Boolean(!isRoot && onDelete);
-  return (
-    <span className="tree-folder-menu-anchor" ref={anchorRef}>
-      <button
-        type="button"
-        className={`tree-menu-trigger${open ? " active" : ""}`}
-        title="文件夹操作"
-        aria-label="文件夹操作"
-        aria-expanded={open}
-        aria-haspopup="menu"
-        disabled={disabled}
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpenMenuChange(open ? null : menuId);
-        }}
-      >
-        <TreeIcon kind="actions" />
-      </button>
-      {open ? (
-        <div className="library-folder-menu" role="menu" onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>
-          {onExplain ? (
-            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onExplain(); close(); }}>
-              <TreeIcon kind="info" />
-              <span>文件夹说明</span>
-            </button>
-          ) : null}
-          {onAddToConversation ? (
-            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onAddToConversation(); close(); }}>
-              <TreeIcon kind="addToChat" />
-              <span>添加到会话</span>
-            </button>
-          ) : null}
-          {onAddToTask ? (
-            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onAddToTask(); close(); }}>
-              <TreeIcon kind="addToTask" />
-              <span>添加到任务</span>
-            </button>
-          ) : null}
-          {hasLeadItems && (hasMainItems || hasDeleteItem) ? <div className="library-folder-menu-sep" role="separator" /> : null}
-          {onDownload ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              disabled={!canDownload || downloadProgress !== undefined && downloadProgress !== null}
-              title={canDownload ? "下载文件夹内文件" : "文件夹内没有文件"}
-              aria-busy={downloadProgress !== undefined && downloadProgress !== null}
-              onClick={() => {
-                if (canDownload && (downloadProgress === undefined || downloadProgress === null)) {
-                  onDownload();
-                  close();
-                }
-              }}
-            >
-              <TreeIcon kind="download" />
-              <span>
-                {downloadProgress !== undefined && downloadProgress !== null
-                  ? downloadProgress > 0 ? `下载压缩包 ${downloadProgress}%` : "正在准备压缩包…"
-                  : "下载压缩包"}
-              </span>
-            </button>
-          ) : null}
-          {onUpload ? (
-            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onUpload(); close(); }}>
-              <TreeIcon kind="upload" />
-              <span>上传文件</span>
-            </button>
-          ) : null}
-          {onCopyProjectInfo ? (
-            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onCopyProjectInfo(); close(); }}>
-              <TreeIcon kind="copy" />
-              <span>复制项目信息</span>
-            </button>
-          ) : null}
-          {onNewFolder ? (
-            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onNewFolder(); close(); }}>
-              <TreeIcon kind="newFolder" />
-              <span>新建文件夹</span>
-            </button>
-          ) : null}
-          {!isRoot && onRename ? (
-            <button type="button" role="menuitem" className="library-folder-menu-item" onClick={() => { onRename(); close(); }}>
-              <TreeIcon kind="rename" />
-              <span>重命名</span>
-            </button>
-          ) : null}
-          {hasDeleteItem ? <div className="library-folder-menu-sep" role="separator" /> : null}
-          {!isRoot && onDelete ? (
-            <button type="button" role="menuitem" className="library-folder-menu-item danger" onClick={() => { onDelete(); close(); }}>
-              <TreeIcon kind="trash" />
-              <span>删除</span>
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </span>
-  );
-}
-
-function TreeIcon({ kind, className }: { kind: string; className?: string }) {
-  const paths: Record<string, string | string[]> = {
-    folder: "M3 7h6.5l2 2H21v11H3Z",
-    globe: [
-      "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z",
-      "M3 12h18",
-      "M12 3c2.2 2.4 3.3 5.4 3.3 9S14.2 18.6 12 21",
-      "M12 3C9.8 5.4 8.7 8.4 8.7 12s1.1 6.6 3.3 9",
-    ],
-    file: "M6 3h8l4 4v14H6Z M14 3v5h5",
-    expand: "m9 6 6 6-6 6",
-    collapse: "m6 9 6 6 6-6",
-    newFolder: "M3 7h6.5l2 2H21v11H3Z M12 12.5v5 M9.5 15h5",
-    newFile: "M6 3h8l4 4v14H6Z M9 14h6 M12 11v6",
-    upload: "M12 16V3 M7 8l5-5 5 5 M4 15v6h16v-6",
-    trash: "M4 6h16 M9 6V3h6v3 M6 6l1 15h10l1-15 M10 10v7 M14 10v7",
-    back: "m9 5-6 7 6 7 M3 12h18",
-    rename: "M4 20h8 M15.2 4.8 19.2 8.8 8.5 19.5 4.5 20.5 5.5 16.5Z M13.8 6.2 17.8 10.2",
-    sortType: "M4 6h10 M4 12h7 M4 18h4 M17 5v14 M14 16l3 3 3-3",
-    sortModified: "M12 8v5l3 2 M21 12a9 9 0 1 1-2.6-6.35 M21 4v6h-6",
-    organize: [
-      "M12 3.2 13.6 8.4 18.8 10 13.6 11.6 12 16.8 10.4 11.6 5.2 10 10.4 8.4Z",
-      "M18.4 14.6 19.2 16.7 21.3 17.5 19.2 18.3 18.4 20.4 17.6 18.3 15.5 17.5 17.6 16.7Z",
-    ],
-    actions: "M5 7h14M5 12h14M5 17h14",
-    download: "M12 3v12 M8 11l4 4 4-4 M4 21h16",
-    share: "M14 4h6v6 M20 4 12 12 M19 14v5H5V5h5",
-    restore: "M4 12a8 8 0 1 0 2.3-5.7 M4 4v6h6",
-    addToChat: "M4 5h16v10H8l-4 4Z M8 10h8",
-    addToTask: "M9 5H4v14h16V9 M14 4h6v6 M17 4v6 M14 7h6 M8 13h8 M8 17h5",
-    copy: ["M8 8h11v11H8z", "M5 16V5h11"],
-    info: ["M12 4a8 8 0 1 1 0 16 8 8 0 0 1 0-16", "M12 11v5", "M12 8h.01"],
-    refresh: "M21 12a9 9 0 1 1-3.2-6.9 M21 3v6h-6",
-    history: "M12 8v5l3 2 M21 12a9 9 0 1 1-2.6-6.35 M21 4v6h-6",
-    closeFile: "M6 6l12 12 M18 6 6 18",
-    closeOthers: ["M6 6l12 12 M18 6 6 18", "M4 20h16"],
-    closeRight: ["M6 6l12 12 M18 6 6 18", "M20 20V10"],
-    closeLeft: ["M6 6l12 12 M18 6 6 18", "M4 20V10"],
-  };
-  const glyph = paths[kind] || paths.file;
-  const d = Array.isArray(glyph) ? glyph : [glyph];
-  return (
-    <svg
-      aria-hidden="true"
-      className={className ? `tree-icon ${className}` : "tree-icon"}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {d.map((path) => (
-        <path key={path} d={path} />
-      ))}
-    </svg>
-  );
-}
-
-type TabMenuItem = {
-  key: string;
-  label: string;
-  icon: string;
-  disabled?: boolean;
-  disabledTitle?: string;
-  separatorBefore?: boolean;
-  onRun: () => void;
-};
-
-function TabContextMenu({
-  x,
-  y,
-  items,
-  onDismiss,
-  onMouseEnter,
-  onMouseLeave,
-  className,
-}: {
-  x: number;
-  y: number;
-  items: TabMenuItem[];
-  onDismiss: () => void;
-  onMouseEnter?: () => void;
-  onMouseLeave?: () => void;
-  className?: string;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [box, setBox] = useState({ left: x, top: y });
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const viewWidth = window.visualViewport?.width ?? document.documentElement.clientWidth;
-    const viewHeight = window.visualViewport?.height ?? document.documentElement.clientHeight;
-    const offsetLeft = window.visualViewport?.offsetLeft ?? 0;
-    const offsetTop = window.visualViewport?.offsetTop ?? 0;
-    let left = x;
-    if (x + rect.width > offsetLeft + viewWidth - 8) left = x - rect.width;
-    let top = y;
-    if (y + rect.height > offsetTop + viewHeight - 8) top = y - rect.height;
-    left = Math.min(Math.max(offsetLeft + 8, left), Math.max(offsetLeft + 8, offsetLeft + viewWidth - rect.width - 8));
-    top = Math.min(Math.max(offsetTop + 8, top), Math.max(offsetTop + 8, offsetTop + viewHeight - rect.height - 8));
-    setBox((previous) => (previous.left === left && previous.top === top ? previous : { left, top }));
-  }, [x, y]);
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) onDismiss();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onDismiss();
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onDismiss]);
-  const run = (item: TabMenuItem) => {
-    if (item.disabled) return;
-    item.onRun();
-    onDismiss();
-  };
-  return createPortal(
-    <div
-      ref={ref}
-      className={`library-folder-menu doc-browser-tab-menu${className ? ` ${className}` : ""}`}
-      role="menu"
-      style={{ left: box.left, top: box.top }}
-      onContextMenu={(event) => event.preventDefault()}
-      onClick={(event) => event.stopPropagation()}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-    >
-      {items.map((item) => (
-        <Fragment key={item.key}>
-          {item.separatorBefore ? <div className="doc-browser-tab-menu-sep" role="separator" /> : null}
-          <button
-            type="button"
-            role="menuitem"
-            className="library-folder-menu-item"
-            disabled={item.disabled}
-            title={item.disabled ? item.disabledTitle : undefined}
-            onClick={() => run(item)}
-          >
-            <TreeIcon kind={item.icon} />
-            <span>{item.label}</span>
-          </button>
-        </Fragment>
-      ))}
-    </div>,
-    document.body,
-  );
-}
-
-type FileContextMenuKind = "html" | "image" | "other" | "selection";
-
-type TextSelectionSnapshot = {
-  root: HTMLElement;
-  startPath: number[];
-  startOffset: number;
-  endPath: number[];
-  endOffset: number;
-  rects: Array<{ left: number; right: number; top: number; bottom: number }>;
-};
-
-type PendingTextSelection = {
-  snapshot: TextSelectionSnapshot;
-  text: string;
-};
-
-function getNodePath(root: Node, target: Node) {
-  const path: number[] = [];
-  let current: Node | null = target;
-  while (current && current !== root) {
-    const parent: Node | null = current.parentNode;
-    if (!parent) return null;
-    const index = Array.prototype.indexOf.call(parent.childNodes, current);
-    if (index < 0) return null;
-    path.unshift(index);
-    current = parent;
-  }
-  return current === root ? path : null;
-}
-
-function resolveNodePath(root: Node, path: number[]) {
-  let current: Node = root;
-  for (const index of path) {
-    const next = current.childNodes[index];
-    if (!next) return null;
-    current = next;
-  }
-  return current;
-}
-
-function DocumentFileContextMenu({
-  x,
-  y,
-  kind,
-  onOpenBrowser,
-  onCopyAddress,
-  onCopyImage,
-  onAddToConversation,
-  onDownload,
-  onDismiss,
-}: {
-  x: number;
-  y: number;
-  kind: FileContextMenuKind;
-  onOpenBrowser?: () => void;
-  onCopyAddress?: () => void;
-  onCopyImage?: () => void;
-  onAddToConversation?: () => void;
-  onDownload: () => void;
-  onDismiss: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [box, setBox] = useState({ left: x, top: y });
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const rect = element.getBoundingClientRect();
-    const viewportWidth = window.visualViewport?.width ?? document.documentElement.clientWidth;
-    const viewportHeight = window.visualViewport?.height ?? document.documentElement.clientHeight;
-    const offsetLeft = window.visualViewport?.offsetLeft ?? 0;
-    const offsetTop = window.visualViewport?.offsetTop ?? 0;
-    const left = Math.min(
-      Math.max(offsetLeft + 8, x),
-      Math.max(offsetLeft + 8, offsetLeft + viewportWidth - rect.width - 8),
-    );
-    const top = Math.min(
-      Math.max(offsetTop + 8, y),
-      Math.max(offsetTop + 8, offsetTop + viewportHeight - rect.height - 8),
-    );
-    setBox((previous) => (previous.left === left && previous.top === top ? previous : { left, top }));
-  }, [x, y]);
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) onDismiss();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onDismiss();
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [onDismiss]);
-  const run = (action?: () => void) => {
-    action?.();
-    onDismiss();
-  };
-  return createPortal(
-    <div
-      ref={ref}
-      className="library-folder-menu document-context-menu"
-      role="menu"
-      style={{ left: box.left, top: box.top }}
-      onContextMenu={(event) => event.preventDefault()}
-      onClick={(event) => event.stopPropagation()}
-    >
-      {kind === "html" && onOpenBrowser ? (
-        <button type="button" role="menuitem" className="library-folder-menu-item" onMouseDown={(event) => event.preventDefault()} onClick={() => run(onOpenBrowser)}>
-          <TreeIcon kind="preview" />
-          <span>在浏览器打开</span>
-        </button>
-      ) : null}
-      {kind === "image" && onCopyAddress ? (
-        <button type="button" role="menuitem" className="library-folder-menu-item" onMouseDown={(event) => event.preventDefault()} onClick={() => run(onCopyAddress)}>
-          <TreeIcon kind="share" />
-          <span>复制地址</span>
-        </button>
-      ) : null}
-      {kind === "image" && onCopyImage ? (
-        <button type="button" role="menuitem" className="library-folder-menu-item" onMouseDown={(event) => event.preventDefault()} onClick={() => run(onCopyImage)}>
-          <TreeIcon kind="copy" />
-          <span>复制图片</span>
-        </button>
-      ) : null}
-      {kind === "selection" && onCopyAddress ? (
-        <button type="button" role="menuitem" className="library-folder-menu-item" onMouseDown={(event) => event.preventDefault()} onClick={() => run(onCopyAddress)}>
-          <TreeIcon kind="copy" />
-          <span>复制</span>
-        </button>
-      ) : null}
-      {kind === "selection" && onAddToConversation ? (
-        <button type="button" role="menuitem" className="library-folder-menu-item" onMouseDown={(event) => event.preventDefault()} onClick={() => run(onAddToConversation)}>
-          <TreeIcon kind="addToChat" />
-          <span>添加到对话</span>
-        </button>
-      ) : null}
-      {kind !== "selection" ? (
-        <button type="button" role="menuitem" className="library-folder-menu-item" onMouseDown={(event) => event.preventDefault()} onClick={() => run(onDownload)}>
-          <TreeIcon kind="download" />
-          <span>下载</span>
-        </button>
-      ) : null}
-    </div>,
-    document.body,
-  );
-}
-
-function TextSelectionContextMenu({
-  x,
-  y,
-  onCopy,
-  onAddToConversation,
-  onDismiss,
-}: {
-  x: number;
-  y: number;
-  onCopy: () => void;
-  onAddToConversation: () => void;
-  onDismiss: () => void;
-}) {
-  return (
-    <DocumentFileContextMenu
-      x={x}
-      y={y}
-      kind="selection"
-      onDownload={onDismiss}
-      onDismiss={onDismiss}
-      onCopyAddress={onCopy}
-      onAddToConversation={onAddToConversation}
-    />
-  );
-}
-
-function TreeDepth({ depth }: { depth: number }) {
-  return <span className="tree-depth" style={{ width: depth * 14 }} aria-hidden="true" />;
-}
-
-function ClosedFolderIcon({ className }: { className?: string } = {}) {
-  return (
-    <svg
-      aria-hidden="true"
-      className={className ? `tree-icon ${className}` : "tree-icon"}
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3.4 19.6V6.9c0-.9.7-1.6 1.6-1.6h4c.4 0 .8.16 1.05.44L11.6 7.5h7.4c.9 0 1.6.7 1.6 1.6v10.5c0 .9-.7 1.6-1.6 1.6H5c-.9 0-1.6-.7-1.6-1.6Z" />
-    </svg>
-  );
-}
-
-function OpenFolderIcon({ className }: { className?: string } = {}) {
-  return (
-    <svg
-      aria-hidden="true"
-      className={className ? `tree-icon ${className}` : "tree-icon"}
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3.2 9.2V7.1c0-.9.7-1.6 1.6-1.6h3.5c.4 0 .8.15 1.05.42L10.7 7.4h8.1c.9 0 1.6.7 1.6 1.6v1.1" />
-      <path d="M3.15 10.7h17.7c.8 0 1.4.74 1.23 1.52l-1.58 7.05A1.7 1.7 0 0 1 18.85 20.8H5.15a1.7 1.7 0 0 1-1.65-1.53l-1.58-7.05A1.26 1.26 0 0 1 3.15 10.7Z" />
-    </svg>
-  );
-}
-
-function FolderToggle({
-  name,
-  expanded,
-  disabled,
-  onToggle,
-  icon,
-}: {
-  name: string;
-  expanded: boolean;
-  disabled?: boolean;
-  onToggle: () => void;
-  /** Always shown when idle (collapsed or expanded); hover still shows expand/collapse. */
-  icon?: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className={`tree-toggle tree-folder-toggle${expanded ? " expanded" : ""}${icon ? " has-custom-icon" : ""}`}
-      disabled={disabled}
-      aria-label={`${expanded ? "折叠" : "展开"} ${name}`}
-      onClick={onToggle}
-    >
-      <span className="folder-toggle-icon icon-idle">
-        {icon ?? (expanded ? <OpenFolderIcon /> : <ClosedFolderIcon />)}
-      </span>
-      <span className="folder-toggle-icon icon-hover">
-        <TreeIcon kind={expanded ? "collapse" : "expand"} />
-      </span>
-    </button>
-  );
-}
-
-export type LibraryVersion = {
-  id: string;
-  artifact_id: string;
-  folder_id?: string | null;
-  source_type?: "member_upload" | "cache_saved" | "output_saved" | "recycle_restored" | null;
-  source_artifact_id?: string | null;
-  saved_official_artifact_id?: string | null;
-  folder_thread_id?: string | null;
-  folder_kind?: string | null;
-  deleted_at?: string | null;
-  artifact_deleted_at?: string | null;
-  version_deleted_at?: string | null;
-  recycle_path?: { id: string; name: string }[] | string | null;
-  created_at?: string;
-  batch_id?: string | null;
-  updated_at?: string;
-  title: string;
-  version: number;
-  filename: string;
-  mime?: string | null;
-  review: string | null;
-  byte_size: number;
-  author: string;
-  thread_id: string;
-};
-
-type LibraryFolder = {
-  id: string;
-  parent_id: string | null;
-  name: string;
-  updated_at?: string;
-  system_key?: string | null;
-  thread_id?: string | null;
-  folder_kind?: string | null;
-};
-type DocumentChange = {
-  id: string;
-  action: string;
-  source: string;
-  actor_type?: string;
-  actor_name?: string | null;
-  artifact_title?: string | null;
-  version_filename?: string | null;
-  folder_name?: string | null;
-  details?: Record<string, unknown>;
-  created_at: string;
-};
-type DocumentChangePage = {
-  hasMore: boolean;
-  total: number;
-  totalPages: number;
-  currentPage: number;
-  pageSize: number;
-  before: string | null;
-  beforeId: string | null;
-};
-type DocumentChangeFilters = { from: string; to: string; fileName: string; action: string; limit: string };
-
-const documentChangeLabels: Record<string, string> = {
-  document_uploaded: "上传正式文件", cache_uploaded: "上传对话缓存",
-  artifact_published: "发布沙箱产物", version_branched: "创建新版", document_saved_to_official: "另存为正式文件",
-  document_renamed: "重命名文档", document_moved: "移动文档",
-  document_deleted: "删除文档", document_restored: "恢复文档",
-  version_deleted: "删除版本", version_restored: "恢复版本",
-  folder_created: "创建文件夹", folder_renamed: "重命名文件夹",
-  folder_moved: "移动文件夹", folder_deleted: "删除文件夹",
-  recycle_emptied: "清空回收站",
-};
-
-const officialSourceTypeLabels: Record<string, string> = {
-  member_upload: "成员上传",
-  cache_saved: "缓存另存",
-  output_saved: "沙箱另存",
-  recycle_restored: "回收站恢复",
-};
-const fileAreaTypeLabels: Record<string, string> = {
-  project_official: "正式文件",
-  project_cache: "对话缓存",
-  project_outputs: "沙箱产物",
-};
-const documentChangeSources: Record<string, string> = { ui: "界面", mcp: "MCP", agent: "Agent", system: "系统" };
-const documentChangeActions = Object.entries(documentChangeLabels);
-
-function fileLabel(version: LibraryVersion) {
-  return fileDisplayName(version);
-}
-
-function TreeOverflowLabel({ text }: { text: string }) {
-  const wrapRef = useRef<HTMLSpanElement>(null);
-  const textRef = useRef<HTMLSpanElement>(null);
-  const [distance, setDistance] = useState(0);
-  const measure = () => {
-    const wrap = wrapRef.current;
-    const node = textRef.current;
-    if (!wrap || !node) return;
-    setDistance(Math.max(0, Math.ceil(node.scrollWidth - wrap.clientWidth)));
-  };
-  useLayoutEffect(() => {
-    measure();
-  }, [text]);
-  useEffect(() => {
-    const wrap = wrapRef.current;
-    if (!wrap || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(wrap);
-    return () => observer.disconnect();
-  }, []);
-  return (
-    <span
-      ref={wrapRef}
-      className={`tree-overflow${distance > 0 ? " is-overflow" : ""}`}
-      style={distance > 0
-        ? {
-            "--tree-overflow": `${distance}px`,
-            "--tree-overflow-ms": `${Math.min(8000, Math.max(1600, distance * 18))}ms`,
-          } as CSSProperties
-        : undefined}
-      onMouseEnter={measure}
-    >
-      <span ref={textRef} className="tree-overflow-text">{text}</span>
-    </span>
-  );
-}
-
-function isUnversionedArea(kind: string | null) {
-  return kind === "project_official" || kind === "project_cache";
-}
-
-function documentStatusLabel(version: LibraryVersion, area: string | null) {
-  if (area === "project_official" || version.review === "confirmed" || version.review === "approved") return "已确认";
-  if (area === "project_cache" || area === "project_outputs") return "草稿";
-  if (version.review === "changes_requested") return "需要修改";
-  return "待确认";
-}
-
-function officialTitleWithVersion(name: string, versionNumber: string) {
-  const raw = name.trim() || "文档";
-  const base = raw.replace(/\s+v\d+$/i, "").trim() || raw;
-  return `${base} v${versionNumber}`.slice(0, 160);
-}
-
-function recyclePathNodes(item: LibraryVersion) {
-  const value = item.recycle_path;
-  const rows = typeof value === "string" ? (() => { try { return JSON.parse(value); } catch { return []; } })() : value;
-  return Array.isArray(rows) ? rows.filter((node) => node?.name) : [];
-}
-
-function recyclePathLabel(item: LibraryVersion, folders: LibraryFolder[]) {
-  const saved = recyclePathNodes(item).map((node) => node.name);
-  if (saved.length) return saved.join(" / ");
-  const names: string[] = [];
-  let current = folders.find((folder) => folder.id === item.folder_id) || null;
-  while (current) {
-    names.unshift(current.name);
-    current = folders.find((folder) => folder.id === current?.parent_id) || null;
-  }
-  return names.join(" / ");
-}
-
-const ROOT_DISPLAY_ORDER = [...LIBRARY_ROOT_KINDS];
-const ROOT_LABELS: Record<(typeof LIBRARY_ROOT_KINDS)[number], string> = {
-  project_official: "正式文件",
-  project_outputs: "沙箱产物",
-  project_cache: "对话缓存",
-  project_miniprogram: "小程序",
-};
-const ROOT_GUIDES: Record<(typeof LIBRARY_ROOT_KINDS)[number], string> = {
-  project_official: "项目的正式资料库。成员可以在这里上传、建文件夹、整理和归档确认后的文件；对话缓存和沙箱产物经确认后，也可以另存进来作为正式版本。",
-  project_outputs: "小祥在沙箱里生成、修改并发布的成果。对话框附件不会进这里。成员可以预览、下载、确认，或把已确认版本另存为正式文件。",
-  project_cache: "对话框或连接器随消息上传的临时资料，按日期放进子文件夹。对小祥只读，改完应另存为沙箱产物；确认后也可以另存为正式文件。",
-  project_miniprogram: "小程序全栈工作区。固定包含小程序源文件、小程序 Web 产物、PC 管理后台和云函数四个子目录；源码可在此预览，也可交给 Dimina 编译后在「小程序云开发」面板实时运行。",
-};
-
-const CODE_LIBRARY_ROOT_ID = "code-library-root";
-const CODE_LIBRARY_ROOT_NAME = "连接器";
-const CODE_LIBRARY_GUIDE = "连接器是平台能力；勾选的仓库是本项目范围。此处仅展示连接与范围状态，不浏览源码内容。鉴权走平台连接器令牌。L2 与子 Agent 在需要时可只读查阅。";
-
-type CodeConnectorState = {
-  kind: "github" | "yunxiao";
-  enabled: boolean;
-  hasToken: boolean;
-  tokenHint: string | null;
-  organizationId?: string | null;
-};
-
-type CodeRemoteState = {
-  id: string;
-  platform?: "github" | "yunxiao" | null;
-  label: string;
-  remoteUrl: string;
-};
-
-type CodeLibraryConfig = {
-  connectors: { github: CodeConnectorState; yunxiao: CodeConnectorState };
-  remotes: CodeRemoteState[];
-};
-
-type CodeLibraryNode =
-  | { type: "connector"; id: string; platform: "github" | "yunxiao"; name: string; lines: string[]; remotes: Array<{ id: string; name: string; lines: string[] }> }
-  | { type: "orphan"; id: string; name: string; lines: string[] };
-
-const CODE_PLATFORM_LABELS = { github: "GitHub", yunxiao: "云效 Codeup" } as const;
-const CODE_PLATFORM_ICONS = { github: "github", yunxiao: "yunxiao" } as const;
-
-/** Hide Yunxiao organization id prefixes like "60de7a…/group/repo" or "60de7a… / repo". */
-function codeRemoteDisplayName(label: string) {
-  const value = String(label || "").trim();
-  if (!value) return "未命名仓库";
-  const orgId = /^[a-f0-9]{16,}$/i;
-  const spaced = value.split(/\s+\/\s+/).map((part) => part.trim()).filter(Boolean);
-  if (spaced.length > 1 && orgId.test(spaced[0])) return spaced.slice(1).join(" / ");
-  const parts = value.split("/").map((part) => part.trim()).filter(Boolean);
-  if (parts.length > 1 && orgId.test(parts[0])) return parts.slice(1).join("/");
-  return value;
-}
-
-function codeLibraryEntries(config: CodeLibraryConfig | null): CodeLibraryNode[] {
-  if (!config) return [];
-  const entries: CodeLibraryNode[] = [];
-  const usedRemoteIds = new Set<string>();
-  for (const kind of ["github", "yunxiao"] as const) {
-    const item = config.connectors[kind];
-    const remotes = config.remotes.filter((remote) => remote.platform === kind);
-    if (!item?.enabled && !item?.hasToken && !remotes.length) continue;
-    for (const remote of remotes) usedRemoteIds.add(remote.id);
-    const lines = [
-      item?.enabled ? "能力：已启用" : item?.hasToken ? "能力：已保存令牌，未启用" : "能力：未配置",
-      item?.hasToken ? `令牌：已配置${item.tokenHint ? `（${item.tokenHint}）` : ""}` : "令牌：未配置",
-      remotes.length ? `范围：已勾选 ${remotes.length} 个仓库` : "范围：尚未勾选仓库",
-    ];
-    if (kind === "yunxiao") {
-      lines.push(item?.organizationId ? `组织 ID：${item.organizationId}` : "组织 ID：未配置");
-    }
-    entries.push({
-      type: "connector",
-      id: `code-connector-${kind}`,
-      platform: kind,
-      name: CODE_PLATFORM_LABELS[kind],
-      lines,
-      remotes: remotes.map((remote) => ({
-        id: `code-remote-${remote.id}`,
-        name: codeRemoteDisplayName(remote.label),
-        lines: [`地址：${remote.remoteUrl}`, "范围仓库 · 鉴权走平台连接器"],
-      })),
-    });
-  }
-  for (const remote of config.remotes) {
-    if (usedRemoteIds.has(remote.id)) continue;
-    entries.push({
-      type: "orphan",
-      id: `code-remote-${remote.id}`,
-      name: codeRemoteDisplayName(remote.label),
-      lines: [`地址：${remote.remoteUrl}`, "范围仓库"],
-    });
-  }
-  return entries;
-}
-
-function documentSourceLabel(item: LibraryVersion, folders: LibraryFolder[]) {
-  const kind = folderRootKind(item.folder_id, folders);
-  const area =
-    kind && kind in ROOT_LABELS
-      ? ROOT_LABELS[kind as (typeof LIBRARY_ROOT_KINDS)[number]]
-      : "文档库";
-  const path = recyclePathLabel(item, folders);
-  if (!path) return area;
-  if (path === area || path.startsWith(`${area} /`)) return path;
-  return `${area} / ${path}`;
-}
-
-function formatVersionCode(createdAt?: string, fallback?: number) {
-  if (!createdAt) return fallback == null ? "—" : String(fallback);
-  const value = createdAt.includes("T") ? createdAt : createdAt.replace(" ", "T") + "Z";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return fallback == null ? "—" : String(fallback);
-  const pad = (part: number) => String(part).padStart(2, "0");
-  return String(date.getFullYear() % 100).padStart(2, "0") + pad(date.getMonth() + 1) + pad(date.getDate()) + pad(date.getHours()) + pad(date.getMinutes()) + pad(date.getSeconds());
-}
-
-function versionCodeForRows(version: LibraryVersion, rows: LibraryVersion[]) {
-  const batchRows = version.batch_id
-    ? rows.filter((row) => row.batch_id === version.batch_id)
-    : [version];
-  const earliest = batchRows
-    .map((row) => row.created_at)
-    .filter((value): value is string => Boolean(value))
-    .sort()[0];
-  return formatVersionCode(earliest || version.created_at, version.version);
-}
-
-const DOCUMENT_TREE_STATE_KEY = "cothread-document-tree-open";
-const DOCUMENT_TREE_WIDTH_KEY = "cothread-document-tree-width";
-const TREE_WIDTH_DEFAULT = 240;
-const TREE_WIDTH_MIN = 220;
-const TREE_WIDTH_MAX = 560;
-
-function readStoredBoolean(key: string, fallback: boolean) {
-  try {
-    const value = localStorage.getItem(key);
-    return value === null ? fallback : value === "true";
-  } catch {
-    return fallback;
-  }
-}
-
-function readStoredTreeWidth() {
-  try {
-    const value = Number(localStorage.getItem(DOCUMENT_TREE_WIDTH_KEY));
-    if (!Number.isFinite(value)) return TREE_WIDTH_DEFAULT;
-    return Math.min(Math.max(Math.round(value), TREE_WIDTH_MIN), TREE_WIDTH_MAX);
-  } catch {
-    return TREE_WIDTH_DEFAULT;
-  }
-}
-
-const DEFAULT_OFFICIAL_FOLDER_NAME = "新建文件夹";
-
-export function suggestOfficialFolderName(
-  _parentId?: string,
-  _folders?: LibraryFolder[],
-) {
-  return DEFAULT_OFFICIAL_FOLDER_NAME;
-}
-
-function resolveLibraryRoot(
-  kind: (typeof LIBRARY_ROOT_KINDS)[number],
-  folders: LibraryFolder[],
-): LibraryFolder | undefined {
-  const modern = folders.find(
-    (f) => f.folder_kind === kind && !f.thread_id && !f.parent_id,
-  );
-  if (modern) return modern;
-  if (kind === "project_official")
-    return folders.find((f) => f.folder_kind === "project_official" && !f.parent_id);
-  return undefined;
-}
-
-export function isInProjectLibrary(
-  folderId: string | null | undefined,
-  folders: LibraryFolder[],
-) {
-  return folderRootKind(folderId, folders) !== null;
-}
-
-export function isLibraryTreeVersion(
-  item: LibraryVersion,
-  folders: LibraryFolder[],
-) {
-  if (isInProjectLibrary(item.folder_id, folders)) return true;
-  return Boolean(item.deleted_at && (item.recycle_path || !item.folder_id));
-}
-
-export function organizableDocuments(
-  versions: LibraryVersion[],
-  folders: LibraryFolder[],
-) {
-  const officialRoot = resolveLibraryRoot("project_official", folders);
-  if (!officialRoot) return [];
-  const officialFolderIds = new Set<string>([officialRoot.id]);
-  const walk = (parentId: string) => {
-    for (const folder of folders) {
-      if (folder.parent_id !== parentId) continue;
-      officialFolderIds.add(folder.id);
-      walk(folder.id);
-    }
-  };
-  walk(officialRoot.id);
-  const latest = new Map<string, LibraryVersion>();
-  for (const item of versions) {
-    if (item.deleted_at || !item.folder_id || !officialFolderIds.has(item.folder_id))
-      continue;
-    const prev = latest.get(item.artifact_id);
-    if (!prev || item.version > prev.version) latest.set(item.artifact_id, item);
-  }
-  return [...latest.values()];
-}
+import {
+  type BrowserTab,
+  START_TAB_ID,
+  TEXT_PREVIEW_NAME,
+  formatFileSize,
+  documentViewCache,
+  readVersionText,
+} from "./document-view-internals";
+import {
+  DocumentFileContextMenu,
+  TextSelectionContextMenu,
+  getNodePath,
+  resolveNodePath,
+  type FileContextMenuKind,
+  type PendingTextSelection,
+  type TabMenuItem,
+  type TextSelectionSnapshot,
+} from "./document-context-menus";
+import {
+  CODE_LIBRARY_GUIDE,
+  CODE_LIBRARY_ROOT_ID,
+  CODE_LIBRARY_ROOT_NAME,
+  DOCUMENT_TREE_STATE_KEY,
+  DOCUMENT_TREE_WIDTH_KEY,
+  ROOT_DISPLAY_ORDER,
+  ROOT_GUIDES,
+  ROOT_LABELS,
+  TREE_WIDTH_MAX,
+  TREE_WIDTH_MIN,
+  codeLibraryEntries,
+  documentChangeActions,
+  documentChangeLabels,
+  documentChangeSources,
+  documentSourceLabel,
+  documentStatusLabel,
+  fileAreaTypeLabels,
+  fileLabel,
+  isInProjectLibrary,
+  isLibraryTreeVersion,
+  isUnversionedArea,
+  officialSourceTypeLabels,
+  officialTitleWithVersion,
+  organizableDocuments,
+  readStoredBoolean,
+  readStoredTreeWidth,
+  resolveLibraryRoot,
+  suggestOfficialFolderName,
+  versionCodeForRows,
+  type CodeLibraryConfig,
+  type DocumentChange,
+  type DocumentChangeFilters,
+  type DocumentChangePage,
+  type LibraryFolder,
+  type LibraryVersion,
+} from "./document-labels";
+export type { LibraryVersion } from "./document-labels";
 export const Documents = memo(function Documents({
   onReview,
   onRequestRevision,
@@ -1252,8 +109,6 @@ export const Documents = memo(function Documents({
   mcpEndpoint,
   threadId,
   writable,
-  currentUserId,
-  owner,
   iterationWritable = false,
   folders,
   onRefresh,
@@ -1268,7 +123,6 @@ export const Documents = memo(function Documents({
   organizationJobs = [],
   codeSourcesTick = 0,
   documentFullscreen = false,
-  onDocumentFullscreenChange,
   documentFocus = 0,
 }: {
   onReview?: (versionId: string, decision: string, comment?: string) => Promise<void>;
@@ -2079,66 +933,14 @@ export const Documents = memo(function Documents({
     .filter((item) => !item.deleted_at && /\.html?$/i.test(item.filename || ""))
     .map((item) => ({ id: item.id, filename: item.filename, address: browserFileAddress(item) }));
   const activeBrowserTab = browserTabs.find((tab) => tab.key === browserSelected) || null;
-  const resolveBrowserNavigation = (href: string, tab: BrowserTab) => {
-    let parsed: URL;
-    try {
-      parsed = new URL(href, window.location.href);
-    } catch {
-      return { href, versionId: tab.versionId, address: href, label: tab.label };
-    }
-    const match = parsed.pathname.match(/^\/api\/versions\/([^/]+)\/preview(?:\/(.*))?$/);
-    if (!match) {
-      const pathname = parsed.pathname.split("/").filter(Boolean).pop() || parsed.hostname || "新页面";
-      return { href: parsed.href, versionId: tab.versionId, address: parsed.href, label: pathname };
-    }
-    const root = libraryVersions.find((item) => item.id === match[1])
-      || versions.find((item) => item.id === match[1]);
-    if (!root) return { href: parsed.href, versionId: tab.versionId, address: parsed.href, label: tab.label };
-    let assetPath = decodeURIComponent(match[2] || "").replace(/^~t~[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\/?/, "");
-    if (!assetPath) {
-      return {
-        href: parsed.href,
-        versionId: root.id,
-        address: `${browserFileAddress(root)}${parsed.hash}`,
-        label: root.filename,
-      };
-    }
-    const rootName = String(root.filename || "").replace(/\\/g, "/");
-    const rootDir = rootName.includes("/") ? rootName.slice(0, rootName.lastIndexOf("/")) : "";
-    const parts = [...rootDir.split("/"), ...assetPath.split("/")].filter(Boolean);
-    const normalized: string[] = [];
-    for (const part of parts) {
-      if (part === ".") continue;
-      if (part === "..") normalized.pop();
-      else normalized.push(part);
-    }
-    const relativePath = normalized.join("/");
-    const rootFolderId = root.folder_id;
-    const folderRelativePath = (folderId: string | null | undefined) => {
-      const names: string[] = [];
-      let current = libraryFolders.find((folder) => folder.id === folderId) || null;
-      while (current && current.id !== rootFolderId) {
-        names.unshift(current.name);
-        current = libraryFolders.find((folder) => folder.id === current?.parent_id) || null;
-      }
-      return current?.id === rootFolderId ? names.join("/") : null;
-    };
-    const target = libraryVersions.find((item) => {
-      const folderPath = folderRelativePath(item.folder_id);
-      const candidate = folderPath ? `${folderPath}/${item.filename}` : item.filename;
-      return candidate === relativePath || item.filename === relativePath;
-    }) || libraryVersions.find((item) => item.folder_id === rootFolderId && item.filename === normalized[normalized.length - 1]);
-    if (!target) {
-      const displayPath = `${browserFileAddress(root)} / ${relativePath}${parsed.hash}`;
-      return { href: parsed.href, versionId: tab.versionId, address: displayPath, label: normalized[normalized.length - 1] || tab.label };
-    }
-    return {
-      href: parsed.href,
-      versionId: target.id,
-      address: `${browserFileAddress(target)}${parsed.hash}`,
-      label: target.filename,
-    };
+  const browserNavigationCtx = {
+    libraryVersions,
+    versions,
+    libraryFolders,
+    browserFileAddress,
   };
+  const resolveBrowserNavigation = (href: string, tab: BrowserTab) =>
+    resolveBrowserNavigationImpl(href, tab, browserNavigationCtx);
   const handleBrowserNavigation = (href: string) => {
     if (!activeBrowserTab) return;
     const navigation = resolveBrowserNavigation(href, activeBrowserTab);
@@ -2192,109 +994,15 @@ export const Documents = memo(function Documents({
     .filter((v) =>
       `${v.title} ${v.filename}`.toLowerCase().includes(deferredFilter.toLowerCase()),
     );
-  useEffect(() => {
-    let alive = true;
-    let objectUrl = "";
-    const cached = selected ? documentViewCache.get(selected) : undefined;
-    const publishCached = (entry: DocumentViewCacheEntry) => {
-      if (entry.kind === "image" && entry.bytes) {
-        const buffer = entry.bytes.buffer.slice(
-          entry.bytes.byteOffset,
-          entry.bytes.byteOffset + entry.bytes.byteLength,
-        ) as ArrayBuffer;
-        objectUrl = URL.createObjectURL(new Blob([buffer], { type: entry.mime }));
-        setView({ kind: "image", url: objectUrl, mime: entry.mime });
-      } else {
-        setView({ ...entry });
-      }
-    };
-    if (!cached) setView(null);
-    setError("");
-    setImagePreview(null);
-    setFileInfoOpen(false);
-    if (!selected) return () => { alive = false; };
-    if (cached) {
-      publishCached(cached);
-      return () => { alive = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-    }
-    const load = async () => {
-      const metadataResponse = await apiFetch(`/api/versions/${selected}?metadata=1`);
-      const metadata = await readJsonResponse(metadataResponse, `/api/versions/${selected}?metadata=1`);
-      const name = String(metadata.filename || "").toLowerCase();
-      if (!alive) return;
-      if (name.endsWith(".pdf")) {
-        const response = await apiFetch(`/api/versions/${selected}/preview-data`);
-        const value = await readJsonResponse(response, `/api/versions/${selected}/preview-data`);
-        const bytes = Uint8Array.from(atob(value.contentBase64), (c) => c.charCodeAt(0));
-        const entry = { kind: "pdf", bytes, mime: "application/pdf" } satisfies DocumentViewCacheEntry;
-        documentViewCache.update(selected, () => entry);
-        setView(entry);
-        return;
-      }
-      if (name.endsWith(".html") || name.endsWith(".htm")) {
-        const entry = {
-          kind: "html",
-          mime: String(metadata.mime || "text/html"),
-          byteSize: Number(metadata.byte_size) || 0,
-        } satisfies DocumentViewCacheEntry;
-        documentViewCache.update(selected, () => entry);
-        setView(entry);
-        return;
-      }
-      const imageMime: Record<string, string> = {
-        png: "image/png",
-        jpg: "image/jpeg",
-        jpeg: "image/jpeg",
-        gif: "image/gif",
-        webp: "image/webp",
-        svg: "image/svg+xml",
-      };
-      const extension = name.split(".").pop() || "";
-      const mime = String(metadata.mime || "");
-      if (
-        imageMime[extension]
-        || name.endsWith(".docx")
-        || name.endsWith(".xlsx")
-        || name.endsWith(".csv")
-        || name.endsWith(".pptx")
-      ) {
-        const response = await apiFetch(`/api/versions/${selected}`);
-        const v = await readJsonResponse(response, `/api/versions/${selected}`);
-        if (!alive) return;
-        const bytes = Uint8Array.from(atob(v.contentBase64), (c) => c.charCodeAt(0));
-        if (imageMime[extension]) {
-          const entry = { kind: "image", bytes, mime: imageMime[extension] } satisfies DocumentViewCacheEntry;
-          documentViewCache.update(selected, () => entry);
-          publishCached(entry);
-        } else {
-          const kind = name.endsWith(".docx") ? "docx" : name.endsWith(".xlsx") || name.endsWith(".csv") ? "xlsx" : "pptx";
-          const entry = { kind, bytes, mime: String(v.mime || mime || "application/octet-stream") } satisfies DocumentViewCacheEntry;
-          documentViewCache.update(selected, () => entry);
-          setView(entry);
-        }
-        return;
-      }
-      if (mime.startsWith("text/") || TEXT_PREVIEW_NAME.test(name)) {
-        const loaded = await readVersionText(selected, Number(metadata.byte_size) || 0);
-        if (!alive) return;
-        const entry = {
-          kind: name.endsWith(".md") || name.endsWith(".markdown") ? "markdown" : "text",
-          text: loaded.text,
-          mime: mime || "text/plain",
-          truncated: loaded.truncated,
-          byteSize: loaded.byteSize,
-        } satisfies DocumentViewCacheEntry;
-        documentViewCache.update(selected, () => entry);
-        setView(entry);
-        return;
-      }
-      const entry = { kind: "download", mime: mime || "application/octet-stream" } satisfies DocumentViewCacheEntry;
-      documentViewCache.update(selected, () => entry);
-      setView(entry);
-    };
-    load().catch((e) => { if (alive) setError(e.message); });
-    return () => { alive = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [selected, previewReload]);
+  const previewSourceContext = {
+    selected,
+    previewReload,
+    setView,
+    setError,
+    setImagePreview,
+    setFileInfoOpen,
+  };
+  useDocumentPreviewSource(previewSourceContext);
   useEffect(() => {
     const htmlDocumentMode = activeTool === "files";
     if (!selected || view?.kind !== "html" || (!htmlDocumentMode && previewMode !== "text") || view.text != null) return;
@@ -2390,53 +1098,15 @@ export const Documents = memo(function Documents({
     );
     return { folderCount: ids.size - 1, fileCount: files.size };
   };
-  const downloadFolder = async (folder: LibraryFolder) => {
-    if (downloadingFolderId) return;
-    setDownloadingFolderId(folder.id);
-    setDownloadProgress(0);
-    setActionError("");
-    try {
-      const response = await apiFetch(`/api/projects/${projectId}/folders/${folder.id}/download`);
-      if (!response.ok) {
-        const body = await readJsonResponse(response, "文件夹压缩包下载").catch(() => null);
-        throw new Error(body?.error || `下载失败（${response.status}）`);
-      }
-      if (!response.body) throw new Error("下载失败：浏览器不支持读取下载进度");
-      const total = Number(response.headers.get("Content-Length")) || 0;
-      const reader = response.body.getReader();
-      const chunks: ArrayBuffer[] = [];
-      let received = 0;
-      while (true) {
-        const part = await reader.read();
-        if (part.done) break;
-        if (!part.value) continue;
-        const chunk = part.value.slice();
-        chunks.push(chunk.buffer as ArrayBuffer);
-        received += part.value.length;
-        if (total) setDownloadProgress(Math.min(99, Math.round(received / total * 100)));
-      }
-      const blob = new Blob(chunks, { type: "application/zip" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${folder.name || "文件夹"}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      setDownloadProgress(100);
-      showTip("压缩包已开始下载");
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : "压缩包下载失败";
-      setActionError(detail);
-      showTip(detail, "error");
-    } finally {
-      window.setTimeout(() => {
-        setDownloadingFolderId(null);
-        setDownloadProgress(null);
-      }, 400);
-    }
+  const folderDownloadCtx = {
+    projectId,
+    downloadingFolderId,
+    setDownloadingFolderId,
+    setDownloadProgress,
+    setActionError,
   };
+  const downloadFolder = (folder: LibraryFolder) =>
+    downloadFolderArchive(folder, folderDownloadCtx);
   const deleteFile = (item: LibraryVersion) => {
     setDeleteConfirm({ type: "file", item });
   };
@@ -2583,306 +1253,117 @@ export const Documents = memo(function Documents({
       selectFolder(target.item.parent_id || officialRoot?.id || null);
     }, "文件夹已删除");
   };
+  const fileRowProps = {
+    version,
+    libraryFolders,
+    writable,
+    pending,
+    trash,
+    organizing,
+    draggedArtifactId,
+    openFileMenuId,
+    setOpenFileMenuId,
+    setOpenFolderMenuId,
+    setDraggedArtifactId,
+    setDropTargetFolderId,
+    setFolderId,
+    setFileContextMenu,
+    setSelectionContextMenu,
+    setTabMenu,
+    onSelect,
+    onReference,
+    onAddToTask,
+    canEditOfficial,
+    canManageFile,
+    showSaveToOfficial,
+    canSaveToOfficial,
+    saveToOfficialHint,
+    linkedOfficialVersion,
+    fileAreaKind,
+    selectDocument,
+    startRenameFile,
+    deleteFile,
+    restoreFile,
+    saveFileToOfficial,
+  };
   const fileRow = (v: LibraryVersion, depth: number) => (
-    <div
-      className={`tree-file ${version?.artifact_id === v.artifact_id ? "selected" : ""}${draggedArtifactId === v.artifact_id ? " dragging" : ""}`}
-      key={v.artifact_id}
-      role="treeitem"
-      aria-selected={version?.artifact_id === v.artifact_id}
-      draggable={canEditOfficial(v) && !pending}
-      onDragStart={(event) => {
-        if (!canEditOfficial(v)) return;
-        setOpenFileMenuId(null);
-        setOpenFolderMenuId(null);
-        event.dataTransfer.setData("application/x-cothread-artifact", v.artifact_id);
-        event.dataTransfer.effectAllowed = "move";
-        setDraggedArtifactId(v.artifact_id);
-      }}
-      onDragEnd={() => {
-        setDraggedArtifactId(null);
-        setDropTargetFolderId(null);
-      }}
-      onContextMenu={(event) => {
-        if (trash || pending) return;
-        event.preventDefault();
-        event.stopPropagation();
-        selectDocument(v.id);
-        setFolderId(v.folder_id || null);
-        setFileContextMenu(null);
-        setSelectionContextMenu(null);
-        setOpenFileMenuId(null);
-        setOpenFolderMenuId(null);
-        setOpenFileMenuId(v.artifact_id);
-        setTabMenu(null);
-      }}
-    >
-      <TreeDepth depth={depth} />
-      <button
-        className="tree-name"
-        data-tooltip="false"
-        aria-label={fileLabel(v)}
-        disabled={organizing && folderRootKind(v.folder_id, libraryFolders) === "project_official"}
-        onClick={() => {
-          selectDocument(v.id);
-          setFolderId(v.folder_id || null);
-        }}
-      >
-        <span className="tree-file-indent" />
-        <LibraryFileIcon
-          fileName={v.filename}
-          versionId={v.id}
-          className="tree-icon file-type-icon"
-          width={16}
-          height={16}
-        />
-        <span className="tree-file-copy">
-          <TreeOverflowLabel text={fileLabel(v)} />
-          {trash && recyclePathLabel(v, libraryFolders) ? <small>{recyclePathLabel(v, libraryFolders)}</small> : null}
-        </span>
-      </button>
-      {trash && writable ? (
-        <button
-          type="button"
-          className="tree-restore"
-          title="原路恢复"
-          aria-label="原路恢复"
-          disabled={pending}
-          onClick={() => restoreFile(v)}
-        >
-          <TreeIcon kind="restore" />
-        </button>
-      ) : !trash ? (
-        <span className="tree-row-actions">
-        <LibraryFileMenu
-          menuId={v.artifact_id}
-          openMenuId={openFileMenuId}
-          onOpenMenuChange={(id) => {
-            setOpenFileMenuId(id);
-            if (id) {
-              setOpenFolderMenuId(null);
-              setTabMenu(null);
-            }
-          }}
-          disabled={pending}
-          canRename={canManageFile(v)}
-          canDelete={canManageFile(v)}
-          canSaveToOfficial={showSaveToOfficial(v) && !linkedOfficialVersion(v)}
-          canViewOfficial={Boolean(linkedOfficialVersion(v))}
-          saveToOfficialDisabled={!canSaveToOfficial(v)}
-          saveToOfficialTitle={saveToOfficialHint(v)}
-          onAddToConversation={onReference ? () => onReference(v.id) : undefined}
-          onAddToTask={onAddToTask && fileAreaKind(v) === "project_official" && !v.deleted_at
-            ? () => onAddToTask(v.id) : undefined}
-          onDownload={() => {
-            window.open(`/api/versions/${v.id}/download`, "_blank", "noopener,noreferrer");
-          }}
-          onRename={() => startRenameFile(v)}
-          onDelete={() => deleteFile(v)}
-          onSaveToOfficial={() => saveFileToOfficial(v)}
-          onViewOfficial={() => {
-            const official = linkedOfficialVersion(v);
-            if (official) onSelect(official.id);
-          }}
-        />
-        </span>
-      ) : null}
-    </div>
+    <DocumentFileRow {...fileRowProps} v={v} depth={depth} />
   );
-  const tree = (parent: string | null, depth = 0): React.ReactNode => (
-    <>
-      {libraryFolders
-        .filter((f) => f.parent_id === parent)
-        .sort(
-          (a, b) =>
-            (sort === "modified" ? modified(a, b) : 0) ||
-            collator.compare(a.name, b.name) ||
-            a.id.localeCompare(b.id),
-        )
-        .map((f) => (
-          <div key={f.id} role="treeitem" aria-expanded={!collapsed.has(f.id)}>
-            <div
-              className={`tree-folder${dropTargetFolderId === f.id ? " drop-target" : ""}${draggedFolderId === f.id ? " dragging" : ""}`}
-              draggable={canDragOfficialFolder(f) && !pending}
-              onDragStart={(event) => {
-                if (!canDragOfficialFolder(f)) return;
-                setOpenFileMenuId(null);
-                setOpenFolderMenuId(null);
-                event.dataTransfer.setData("application/x-cothread-folder", f.id);
-                event.dataTransfer.effectAllowed = "move";
-                setDraggedFolderId(f.id);
-              }}
-              onDragEnd={() => {
-                setDraggedFolderId(null);
-                setDropTargetFolderId(null);
-              }}
-              onContextMenu={(event) => {
-                const canManage = canManageOfficialFolders
-                  && folderRootKind(f.id, libraryFolders) === "project_official"
-                  && !f.system_key
-                  && f.folder_kind !== "project_official";
-                const hasMenu = canManage
-                  || subtreeStats(f.id).fileCount > 0
-                  || Boolean(onAddFolderToTask && folderRootKind(f.id, libraryFolders) === "project_official");
-                if (!hasMenu || pending) return;
-                event.preventDefault();
-                event.stopPropagation();
-                setOpenFolderMenuId(f.id);
-                setOpenFileMenuId(null);
-                setTabMenu(null);
-              }}
-              {...(canManageOfficialFolders
-                && folderRootKind(f.id, libraryFolders) === "project_official"
-                && !f.system_key
-                ? folderDropHandlers(f.id)
-                : {})}
-            >
-              <TreeDepth depth={depth} />
-              <FolderToggle
-                name={f.name}
-                expanded={!collapsed.has(f.id)}
-                disabled={organizing && folderRootKind(f.id, libraryFolders) === "project_official"}
-                onToggle={() => toggleFolder(f.id)}
-              />
-              <button
-                type="button"
-                className="tree-name"
-                data-tooltip="false"
-                aria-label={f.name}
-                disabled={organizing && folderRootKind(f.id, libraryFolders) === "project_official"}
-                onClick={() => toggleFolder(f.id)}
-              >
-                <TreeOverflowLabel text={f.name} />
-              </button>
-              {((canManageOfficialFolders
-                && folderRootKind(f.id, libraryFolders) === "project_official"
-                && !f.system_key
-                && f.folder_kind !== "project_official")
-                || subtreeStats(f.id).fileCount > 0
-                || (onAddFolderToTask && folderRootKind(f.id, libraryFolders) === "project_official")) ? (
-                <span className="tree-row-actions">
-                <OfficialFolderMenu
-                  menuId={f.id}
-                  openMenuId={openFolderMenuId}
-                  onOpenMenuChange={(id) => {
-                    setOpenFolderMenuId(id);
-                    if (id) {
-                      setOpenFileMenuId(null);
-                      setTabMenu(null);
-                    }
-                  }}
-                  disabled={pending}
-                  onAddToConversation={onReferenceFolder && subtreeStats(f.id).fileCount > 0
-                    ? () => onReferenceFolder(f.id) : undefined}
-                  onAddToTask={onAddFolderToTask && folderRootKind(f.id, libraryFolders) === "project_official"
-                    ? () => onAddFolderToTask(f.id) : undefined}
-                  onDownload={() => downloadFolder(f)}
-                  canDownload={subtreeStats(f.id).fileCount > 0}
-                  downloadProgress={downloadingFolderId === f.id ? downloadProgress : null}
-                  onUpload={canManageOfficialFolders && folderRootKind(f.id, libraryFolders) === "project_official" && !f.system_key
-                    ? () => {
-                      selectFolder(f.id);
-                      uploadInputRef.current?.click();
-                    } : undefined}
-                  onNewFolder={canManageOfficialFolders && folderRootKind(f.id, libraryFolders) === "project_official" && !f.system_key
-                    ? () => openNewFolder(f.id) : undefined}
-                  onRename={canManageOfficialFolders && folderRootKind(f.id, libraryFolders) === "project_official" && !f.system_key
-                    ? () => openRenameFolder(f) : undefined}
-                  onDelete={canManageOfficialFolders && folderRootKind(f.id, libraryFolders) === "project_official" && !f.system_key
-                    ? () => deleteFolder(f) : undefined}
-                />
-                </span>
-              ) : null}
-            </div>
-            {!collapsed.has(f.id) && (
-              <div role="group">{tree(f.id, depth + 1)}</div>
-            )}
-          </div>
-        ))}
-      {artifacts
-        .filter((v) => (v.folder_id || null) === parent)
-        .map((v) => fileRow(v, depth))}
-    </>
+  const treeProps = {
+    fileRow,
+    artifacts,
+    libraryFolders,
+    sort,
+    collapsed,
+    setCollapsed,
+    dropTargetFolderId,
+    setDropTargetFolderId,
+    draggedFolderId,
+    setDraggedFolderId,
+    pending,
+    setPending,
+    openFolderMenuId,
+    setOpenFolderMenuId,
+    setOpenFileMenuId,
+    setTabMenu,
+    downloadingFolderId,
+    setDownloadingFolderId,
+    downloadProgress,
+    setDownloadProgress,
+    uploadInputRef,
+    collator,
+    modified,
+    organizing,
+    canManageOfficialFolders,
+    canDragOfficialFolder,
+    onReferenceFolder,
+    onAddFolderToTask,
+    folderDropHandlers,
+    subtreeStats,
+    toggleFolder,
+    selectFolder,
+    openNewFolder,
+    openRenameFolder,
+    deleteFolder,
+    downloadFolder,
+  };
+  const tree = (parent: string | null, depth = 0): ReactNode => (
+    <DocumentTree {...treeProps} parent={parent} depth={depth} renderSelf={tree} />
   );
+  const libraryRootRowProps = {
+    collapsed,
+    setCollapsed,
+    dropTargetFolderId,
+    setDropTargetFolderId,
+    pending,
+    setPending,
+    openFolderMenuId,
+    setOpenFolderMenuId,
+    setOpenFileMenuId,
+    setTabMenu,
+    setOrganizeOpen,
+    setFolderGuideKind,
+    downloadingFolderId,
+    setDownloadingFolderId,
+    downloadProgress,
+    setDownloadProgress,
+    writable,
+    organizing,
+    canManageOfficialFolders,
+    uploadInputRef,
+    onReferenceFolder,
+    onAddFolderToTask,
+    folderDropHandlers,
+    subtreeStats,
+    toggleFolder,
+    selectFolder,
+    openNewFolder,
+    copyProjectInfo,
+    downloadFolder,
+    tree,
+  };
   const renderLibraryRoot = (root: LibraryFolder) => (
-    <div key={root.id} role="treeitem" aria-expanded={!collapsed.has(root.id)}>
-      <div
-        className={`tree-folder tree-library-root${dropTargetFolderId === root.id ? " drop-target" : ""}`}
-        {...(root.folder_kind === "project_official" && canManageOfficialFolders
-          ? folderDropHandlers(root.id)
-          : {})}
-        onContextMenu={(event) => {
-          if (pending) return;
-          event.preventDefault();
-          event.stopPropagation();
-          setOpenFolderMenuId(root.id);
-          setOpenFileMenuId(null);
-          setTabMenu(null);
-        }}
-      >
-        <FolderToggle
-          name={ROOT_LABELS[root.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number]] || root.name}
-          expanded={!collapsed.has(root.id)}
-          disabled={root.folder_kind === "project_official" && organizing}
-          onToggle={() => toggleFolder(root.id)}
-        />
-        <button
-          type="button"
-          className="tree-name"
-          data-tooltip="false"
-          aria-label={ROOT_LABELS[root.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number]] || root.name}
-          disabled={root.folder_kind === "project_official" && organizing}
-          onClick={() => toggleFolder(root.id)}
-        >
-          <TreeOverflowLabel text={ROOT_LABELS[root.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number]] || root.name} />
-        </button>
-        <span className="tree-root-actions tree-row-actions">
-            {root.folder_kind === "project_official" && writable ? (
-              <button
-                type="button"
-                className="tree-organize"
-                title="正式文件整理"
-                aria-label="正式文件整理"
-                disabled={organizing || pending}
-                onClick={() => setOrganizeOpen(true)}
-              >
-                <TreeIcon kind="organize" />
-              </button>
-            ) : null}
-            <OfficialFolderMenu
-                menuId={root.id}
-                openMenuId={openFolderMenuId}
-                onOpenMenuChange={(id) => {
-                  setOpenFolderMenuId(id);
-                  if (id) {
-                    setOpenFileMenuId(null);
-                    setTabMenu(null);
-                  }
-                }}
-                disabled={pending}
-                isRoot
-                onExplain={() => {
-                  const kind = root.folder_kind as (typeof LIBRARY_ROOT_KINDS)[number];
-                  if (kind in ROOT_GUIDES) setFolderGuideKind(kind);
-                }}
-                onAddToConversation={onReferenceFolder && subtreeStats(root.id).fileCount > 0
-                  ? () => onReferenceFolder(root.id) : undefined}
-                onAddToTask={onAddFolderToTask && root.folder_kind === "project_official"
-                  ? () => onAddFolderToTask(root.id) : undefined}
-                onDownload={subtreeStats(root.id).fileCount > 0 ? () => downloadFolder(root) : undefined}
-                canDownload={subtreeStats(root.id).fileCount > 0}
-                downloadProgress={downloadingFolderId === root.id ? downloadProgress : null}
-                onUpload={root.folder_kind === "project_official" && canManageOfficialFolders ? () => {
-                  selectFolder(root.id);
-                  uploadInputRef.current?.click();
-                } : undefined}
-                onNewFolder={root.folder_kind === "project_official" && canManageOfficialFolders
-                  ? () => openNewFolder(root.id) : undefined}
-                onCopyProjectInfo={root.folder_kind === "project_official" ? () => void copyProjectInfo() : undefined}
-              />
-          </span>
-      </div>
-      {!collapsed.has(root.id) ? <div role="group">{tree(root.id, 1)}</div> : null}
-    </div>
+    <LibraryRootRow key={root.id} {...libraryRootRowProps} root={root} />
   );
   const openCodeFolderMenu = (event: ReactMouseEvent, menuId: string) => {
     if (pending) return;
@@ -2905,131 +1386,16 @@ export const Documents = memo(function Documents({
     disabled: pending,
     isRoot: true as const,
   });
-  const renderCodeLibraryRoot = () => (
-    <div key={CODE_LIBRARY_ROOT_ID} role="treeitem" aria-expanded={!collapsed.has(CODE_LIBRARY_ROOT_ID)}>
-      <div
-        className="tree-folder tree-library-root tree-code-library-root"
-        onContextMenu={(event) => openCodeFolderMenu(event, CODE_LIBRARY_ROOT_ID)}
-      >
-        <FolderToggle
-          name={CODE_LIBRARY_ROOT_NAME}
-          expanded={!collapsed.has(CODE_LIBRARY_ROOT_ID)}
-          onToggle={() => toggleFolder(CODE_LIBRARY_ROOT_ID)}
-        />
-        <button
-          type="button"
-          className="tree-name"
-          data-tooltip="false"
-          aria-label={CODE_LIBRARY_ROOT_NAME}
-          onClick={() => toggleFolder(CODE_LIBRARY_ROOT_ID)}
-        >
-          <TreeOverflowLabel text={CODE_LIBRARY_ROOT_NAME} />
-        </button>
-        <span className="tree-root-actions tree-row-actions">
-          <OfficialFolderMenu
-            {...codeFolderMenuProps(CODE_LIBRARY_ROOT_ID)}
-            onExplain={() => setCodeGuideId(CODE_LIBRARY_ROOT_ID)}
-          />
-        </span>
-      </div>
-      {!collapsed.has(CODE_LIBRARY_ROOT_ID) ? (
-        <div role="group">
-          {codeEntries.map((entry) => (
-            entry.type === "orphan" ? (
-              <div key={entry.id} role="treeitem">
-                <div
-                  className="tree-folder tree-code-source-folder tree-code-leaf"
-                  onContextMenu={(event) => openCodeFolderMenu(event, entry.id)}
-                >
-                  <TreeDepth depth={1} />
-                  <span className="tree-code-leaf-icon" aria-hidden="true">
-                    <ClosedFolderIcon />
-                  </span>
-                  <button
-                    type="button"
-                    className="tree-name"
-                    data-tooltip="false"
-                    aria-label={entry.name}
-                    onClick={() => setCodeGuideId(entry.id)}
-                  >
-                    <TreeOverflowLabel text={entry.name} />
-                  </button>
-                  <span className="tree-root-actions tree-row-actions">
-                    <OfficialFolderMenu
-                      {...codeFolderMenuProps(entry.id)}
-                      onExplain={() => setCodeGuideId(entry.id)}
-                    />
-                  </span>
-                </div>
-              </div>
-            ) : (
-            <div key={entry.id} role="treeitem" aria-expanded={!collapsed.has(entry.id)}>
-              <div
-                className="tree-folder tree-code-source-folder"
-                onContextMenu={(event) => openCodeFolderMenu(event, entry.id)}
-              >
-                <TreeDepth depth={1} />
-                <FolderToggle
-                  name={entry.name}
-                  expanded={!collapsed.has(entry.id)}
-                  onToggle={() => toggleFolder(entry.id)}
-                  icon={<UiIcon name={CODE_PLATFORM_ICONS[entry.platform]} size={16} />}
-                />
-                <button
-                  type="button"
-                  className="tree-name"
-                  data-tooltip="false"
-                  aria-label={entry.name}
-                  onClick={() => toggleFolder(entry.id)}
-                >
-                  <TreeOverflowLabel text={entry.name} />
-                </button>
-                <span className="tree-root-actions tree-row-actions">
-                  <OfficialFolderMenu
-                    {...codeFolderMenuProps(entry.id)}
-                    onExplain={() => setCodeGuideId(entry.id)}
-                  />
-                </span>
-              </div>
-              {!collapsed.has(entry.id) ? (
-                <div role="group" className="tree-code-source-notes">
-                  {entry.remotes.map((remote) => (
-                    <div key={remote.id} role="treeitem">
-                      <div
-                        className="tree-folder tree-code-source-folder tree-code-leaf"
-                        onContextMenu={(event) => openCodeFolderMenu(event, remote.id)}
-                      >
-                        <TreeDepth depth={2} />
-                        <span className="tree-code-leaf-icon" aria-hidden="true">
-                          <ClosedFolderIcon />
-                        </span>
-                        <button
-                          type="button"
-                          className="tree-name"
-                          data-tooltip="false"
-                          aria-label={remote.name}
-                          onClick={() => setCodeGuideId(remote.id)}
-                        >
-                          <TreeOverflowLabel text={remote.name} />
-                        </button>
-                        <span className="tree-root-actions tree-row-actions">
-                          <OfficialFolderMenu
-                            {...codeFolderMenuProps(remote.id)}
-                            onExplain={() => setCodeGuideId(remote.id)}
-                          />
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            )
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
+  const codeLibraryRootProps = {
+    collapsed,
+    setCollapsed,
+    setCodeGuideId,
+    codeEntries,
+    openCodeFolderMenu,
+    toggleFolder,
+    codeFolderMenuProps,
+  };
+  const renderCodeLibraryRoot = () => <CodeLibraryRoot {...codeLibraryRootProps} />;
   const uploadInput = (
     <input
       ref={uploadInputRef}
@@ -3307,170 +1673,65 @@ export const Documents = memo(function Documents({
       </button>
     </div>
   );
-  const mainPanel = (
-    <main
-      ref={mainPanelRef}
-      className={`${renaming || newFolder || renamingFolder || savingOfficial ? "library-operation" : ""} doc-browser-main`}
-      onMouseDown={handleDocumentMouseDown}
-      onContextMenu={handleDocumentContextMenu}
-    >
-            {newFolder && (
-              <form className="library-form" onSubmit={(event) => {
-                event.preventDefault();
-                if (!officialFolderParentId) return;
-                void act(async () => {
-                  const name = newFolderName.trim()
-                    || suggestOfficialFolderName(officialFolderParentId, libraryFolders);
-                  const created = await change(
-                    `/projects/${projectId}/folders`,
-                    { name, parentId: officialFolderParentId },
-                    "POST",
-                  );
-                  setNewFolder(false);
-                  setFolderId(created.id);
-                  setCollapsed((previous) => {
-                    const next = new Set(previous);
-                    next.delete(officialFolderParentId);
-                    return next;
-                  });
-                }, "文件夹已创建");
-              }}>
-                <h3>新建子文件夹</h3>
-                <p className="muted">将创建在正式文件区内（当前选中的文件夹下）。</p>
-                <label>文件夹名称<input autoFocus maxLength={160} placeholder={`留空则使用「${DEFAULT_OFFICIAL_FOLDER_NAME}」`} value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} /></label>
-                <div><button type="submit" className="primary" disabled={pending || !officialFolderParentId}>{pending ? "创建中…" : "创建"}</button><button type="button" disabled={pending} onClick={() => setNewFolder(false)}>取消</button></div>
-              </form>
-            )}
-            {renamingFolder && selectedLibraryFolder && (
-              <form className="library-form" onSubmit={(event) => {
-                event.preventDefault();
-                void act(async () => {
-                  await change(
-                    `/projects/${projectId}/folders/${selectedLibraryFolder.id}`,
-                    { name: renameFolderName },
-                    "PATCH",
-                  );
-                  setRenamingFolder(false);
-                }, "文件夹已重命名");
-              }}>
-                <h3>重命名文件夹</h3>
-                <label>名称<input autoFocus required maxLength={160} value={renameFolderName} onChange={(event) => setRenameFolderName(event.target.value)} /></label>
-                <div><button type="submit" className="primary" disabled={pending}>{pending ? "保存中…" : "保存"}</button><button type="button" disabled={pending} onClick={() => setRenamingFolder(false)}>取消</button></div>
-              </form>
-            )}
-            {renaming && version && (
-              <form className="library-form" onSubmit={(event) => {
-                event.preventDefault();
-                void act(async () => {
-                  await change(`/projects/${projectId}/artifacts/${version.artifact_id}`, { name: renameName }, "PATCH");
-                  setRenaming(false);
-                }, "文档已重命名");
-              }}>
-                <h3>重命名文档</h3>
-                <label>名称<input autoFocus required maxLength={160} value={renameName} onChange={(event) => setRenameName(event.target.value)} /></label>
-                <div><button type="submit" className="primary" disabled={pending}>{pending ? "保存中…" : "保存"}</button><button type="button" disabled={pending} onClick={() => setRenaming(false)}>取消</button></div>
-              </form>
-            )}
-            {savingOfficial && (
-              <form className="library-form" onSubmit={(event) => {
-                event.preventDefault();
-                const picked = confirmedOutputVersions(savingOfficial).find((row) => row.id === saveOfficialVersionId);
-                if (!picked || !saveOfficialTitle.trim()) return;
-                void act(async () => {
-                  await change(
-                    `/projects/${projectId}/versions/${picked.id}/save-to-official`,
-                    { title: saveOfficialTitle.trim() },
-                  );
-                  setSavingOfficial(null);
-                }, "已另存至正式文件");
-              }}>
-                <h3>另存至正式文件</h3>
-                <p className="muted">只能另存已确认的产物版本；存入后名称默认带版本号，可再修改。</p>
-                <label>
-                  选择版本
-                  <select
-                    aria-label="另存的产物版本"
-                    value={saveOfficialVersionId}
-                    onChange={(event) => {
-                      const nextId = event.target.value;
-                      setSaveOfficialVersionId(nextId);
-                      const picked = confirmedOutputVersions(savingOfficial).find((row) => row.id === nextId);
-                      if (picked) setSaveOfficialTitle(officialTitleWithVersion(savingOfficial.title, versionCodeForRows(picked, versions)));
-                    }}
-                  >
-                    {confirmedOutputVersions(savingOfficial).map((row) => (
-                      <option key={row.id} value={row.id}>
-                        v{versionCodeForRows(row, versions)} · 已确认
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  正式文件名称
-                  <input
-                    autoFocus
-                    required
-                    maxLength={160}
-                    value={saveOfficialTitle}
-                    onChange={(event) => setSaveOfficialTitle(event.target.value)}
-                  />
-                </label>
-                <div>
-                  <button type="submit" className="primary" disabled={pending || !saveOfficialVersionId || !saveOfficialTitle.trim()}>
-                    {pending ? "另存中…" : "另存"}
-                  </button>
-                  <button type="button" disabled={pending} onClick={() => setSavingOfficial(null)}>取消</button>
-                </div>
-              </form>
-            )}
-            {!renaming && !newFolder && !renamingFolder && !savingOfficial && (startActive ? (
-                startPageContent
-              ) : activeTool === "browser" && !activeBrowserTab?.versionId ? (
-                <div className="doc-browser-view doc-browser-browser-empty-view">
-                  <div className="document-preview doc-browser-preview">
-                    <HtmlBrowserEmptyState
-                      files={htmlBrowserFiles}
-                      addressQuery={browserAddressQuery}
-                      onAddressQueryChange={setBrowserAddressQuery}
-                      onSelectFile={openBrowserTab}
-                      deviceMode={browserDeviceMode}
-                      onDeviceModeChange={setBrowserDeviceMode}
-                      focusAddressKey={
-                        activeBrowserTab?.key === browserAddressFocusKey ? browserAddressFocusKey : ""
-                      }
-                      onAddressFocused={() => setBrowserAddressFocusKey("")}
-                    />
-                  </div>
-                </div>
-              ) : version ? (
-                <>
-                  {version.deleted_at && (
-                    <p className="muted doc-browser-notice">
-                      已移入回收站{recyclePathLabel(version, libraryFolders) ? `，原路径：${recyclePathLabel(version, libraryFolders)}` : ""}。历史引用仍可查看，原路恢复后回到原来的文件夹。
-                    </p>
-                  )}
-                  {error && <div className="error doc-browser-error">{error}</div>}
-                  <div className="doc-browser-view">
-                    {browserFileBreadcrumb}
-                    {fileActionCapsule ? (
-                      <div className="doc-browser-preview-chrome">{fileActionCapsule}</div>
-                    ) : null}
-                    <div className="document-preview doc-browser-preview">
-                      {!view && !error && <p className="muted doc-browser-loading">正在读取文档…</p>}
-                      {previewContent}
-                    </div>
-                  </div>
-                  <footer className="doc-browser-bottombar">
-                    {browserVersionHistorySelect}
-                    {reviewActions}
-                    {browserSourceActions}
-                  </footer>
-                </>
-              ) : (
-                startPageContent
-              ))}
-          </main>
-  );
+  const mainPanelProps = {
+    mainPanelRef,
+    renaming,
+    setRenaming,
+    renameName,
+    setRenameName,
+    newFolder,
+    setNewFolder,
+    newFolderName,
+    setNewFolderName,
+    renamingFolder,
+    setRenamingFolder,
+    renameFolderName,
+    setRenameFolderName,
+    savingOfficial,
+    setSavingOfficial,
+    saveOfficialVersionId,
+    setSaveOfficialVersionId,
+    saveOfficialTitle,
+    setSaveOfficialTitle,
+    pending,
+    setPending,
+    error,
+    setError,
+    activeTool,
+    setActiveTool,
+    browserAddressQuery,
+    setBrowserAddressQuery,
+    browserDeviceMode,
+    setBrowserDeviceMode,
+    browserAddressFocusKey,
+    setBrowserAddressFocusKey,
+    projectId,
+    libraryFolders,
+    versions,
+    version,
+    selectedLibraryFolder,
+    officialFolderParentId,
+    startActive,
+    view,
+    setCollapsed,
+    setFolderId,
+    startPageContent,
+    previewContent,
+    browserFileBreadcrumb,
+    fileActionCapsule,
+    browserVersionHistorySelect,
+    reviewActions,
+    browserSourceActions,
+    activeBrowserTab,
+    htmlBrowserFiles,
+    act,
+    change,
+    openBrowserTab,
+    confirmedOutputVersions,
+    handleDocumentMouseDown,
+    handleDocumentContextMenu,
+  };
+  const mainPanel = <DocumentMainPanel {...mainPanelProps} />;
   const organizeDialog = organizeOpen ? (
           <LibraryOrganizeDialog
             organizing={organizing}
@@ -3661,156 +1922,34 @@ export const Documents = memo(function Documents({
     else closeTab(id);
   };
   // 页签右键菜单：文档页签、HTML 阅览页签、开始页签各有各自适用的动作。
-  const buildTabMenuItems = (id: string): TabMenuItem[] => {
-    if (id === START_TAB_ID) {
-      return [
-        {
-          key: "tree",
-          label: treeOpen ? "隐藏文件树" : "打开文件树",
-          icon: "folder",
-          onRun: () => (treeOpen ? setTreeOpen(false) : openDocumentTree()),
-        },
-        {
-          key: "new-html",
-          label: "打开新HTML阅览页",
-          icon: "newFile",
-          onRun: createBrowserNewTab,
-        },
-        {
-          key: "close",
-          label: "关闭开始页签",
-          icon: "closeFile",
-          separatorBefore: true,
-          disabled: !hasContentTabs,
-          disabledTitle: "没有其它页签时开始页签不可关闭",
-          onRun: closeStartTab,
-        },
-      ];
-    }
-    const browserIndex = browserTabs.findIndex((tab) => tab.key === id);
-    if (browserIndex >= 0) {
-      const tab = browserTabs[browserIndex];
-      const hasPage = Boolean(tab.versionId);
-      const noPageTitle = "该阅览页还没打开页面";
-      return [
-        {
-          key: "reload",
-          label: "刷新",
-          icon: "refresh",
-          disabled: !hasPage,
-          disabledTitle: noPageTitle,
-          onRun: () => {
-            if (browserSelected !== tab.key) selectBrowserTab(tab.key);
-            setPreviewReload((value) => value + 1);
-          },
-        },
-        {
-          key: "external",
-          label: "在电脑浏览器中打开",
-          icon: "share",
-          disabled: !hasPage,
-          disabledTitle: noPageTitle,
-          onRun: () => {
-            window.open(tab.loadUrl || `/api/versions/${tab.versionId}/preview/`, "_blank", "noopener,noreferrer");
-          },
-        },
-        {
-          key: "copy",
-          label: "复制地址",
-          icon: "copy",
-          disabled: !hasPage,
-          disabledTitle: noPageTitle,
-          onRun: () => void copyBrowserTabAddress(tab),
-        },
-        {
-          key: "close",
-          label: "关闭阅览页",
-          icon: "closeFile",
-          separatorBefore: true,
-          onRun: () => closeBrowserTab(tab.key),
-        },
-        {
-          key: "close-others",
-          label: "关闭其它阅览页",
-          icon: "closeOthers",
-          disabled: browserTabs.length <= 1,
-          onRun: () => closeOtherBrowserTabs(tab.key),
-        },
-        {
-          key: "close-right",
-          label: "关闭右侧阅览页",
-          icon: "closeRight",
-          disabled: browserIndex >= browserTabs.length - 1,
-          onRun: () => closeBrowserTabsDirection(tab.key, "right"),
-        },
-        {
-          key: "close-left",
-          label: "关闭左侧阅览页",
-          icon: "closeLeft",
-          disabled: browserIndex === 0,
-          onRun: () => closeBrowserTabsDirection(tab.key, "left"),
-        },
-      ];
-    }
-    const index = openTabs.indexOf(id);
-    if (index < 0) return [];
-    return [
-      {
-        key: "reload",
-        label: "刷新",
-        icon: "refresh",
-        onRun: () => {
-          if (id !== selected) onSelect(id);
-          setPreviewReload((value) => value + 1);
-          void onRefresh();
-        },
-      },
-      {
-        key: "download",
-        label: "下载",
-        icon: "download",
-        onRun: () => {
-          window.open(`/api/versions/${id}/download`, "_blank", "noopener,noreferrer");
-        },
-      },
-      {
-        key: "add-to-chat",
-        label: "添加到对话",
-        icon: "addToChat",
-        disabled: !onReference,
-        disabledTitle: "当前迭代不可添加到对话",
-        onRun: () => onReference?.(id),
-      },
-      {
-        key: "close",
-        label: "关闭文件",
-        icon: "closeFile",
-        separatorBefore: true,
-        onRun: () => closeTab(id),
-      },
-      {
-        key: "close-others",
-        label: "关闭其它文件",
-        icon: "closeOthers",
-        disabled: openTabs.length <= 1,
-        onRun: () => closeOtherTabs(id),
-      },
-      {
-        key: "close-right",
-        label: "关闭右侧文件",
-        icon: "closeRight",
-        disabled: index >= openTabs.length - 1,
-        onRun: () => closeTabsDirection(id, "right"),
-      },
-      {
-        key: "close-left",
-        label: "关闭左侧文件",
-        icon: "closeLeft",
-        disabled: index === 0,
-        onRun: () => closeTabsDirection(id, "left"),
-      },
-    ];
+  const tabMenuContext = {
+    treeOpen,
+    setTreeOpen,
+    openDocumentTree,
+    hasContentTabs,
+    openTabs,
+    setOpenTabs,
+    browserTabs,
+    setBrowserTabs,
+    browserSelected,
+    setBrowserSelected,
+    setPreviewReload,
+    selected,
+    onSelect,
+    onRefresh,
+    onReference,
+    createBrowserNewTab,
+    closeStartTab,
+    selectBrowserTab,
+    copyBrowserTabAddress,
+    closeBrowserTab,
+    closeOtherBrowserTabs,
+    closeBrowserTabsDirection,
+    closeTab,
+    closeOtherTabs,
+    closeTabsDirection,
   };
+  const buildTabMenuItems = (id: string) => buildDocumentTabMenuItems(id, tabMenuContext);
   // 所有页签（文档 / HTML 阅览页 / 开始）都提供右键菜单。
   const openContentTabContextMenu = (event: ReactMouseEvent, id: string) => {
     if (!buildTabMenuItems(id).length) return;
@@ -3827,91 +1966,28 @@ export const Documents = memo(function Documents({
     }
     openDocumentTree();
   };
-  const contentTabbar = (
-    <div
-      className="doc-browser-tabbar"
-      onContextMenu={(event) => {
-        if ((event.target as HTMLElement).closest(".doc-browser-tab")) return;
-        // 空白处右键：优先当前页签，否则退回最后一个页签；一个页签都没有就不弹菜单。
-        const fallback = openTabs[openTabs.length - 1]
-          ?? browserTabs[browserTabs.length - 1]?.key
-          ?? (startOpen ? START_TAB_ID : null);
-        const id = activeTabId ?? fallback;
-        if (!id) return;
-        openContentTabContextMenu(event, id);
-      }}
-    >
-      <DocumentTabList
-        ariaLabel="打开的文档与 HTML 页签"
-        emptyLabel={null}
-        tabs={contentTabs}
-        selected={activeTabId}
-        onSelect={selectContentTab}
-        onClose={closeContentTab}
-        onContextMenu={openContentTabContextMenu}
-        suffix={startOpen ? null : (
-          <button
-            type="button"
-            className="doc-browser-new-tab"
-            aria-label={treeToggleActive ? "打开新HTML阅览页" : "新建"}
-            aria-haspopup={treeToggleActive ? undefined : "menu"}
-            aria-expanded={newTabMenu ? true : undefined}
-            title={treeToggleActive ? "打开新HTML阅览页" : "新建"}
-            onClick={(event) => {
-              if (treeToggleActive) {
-                setNewTabMenu(null);
-                createBrowserNewTab();
-                return;
-              }
-              setNewTabMenu({ x: event.clientX, y: event.clientY });
-            }}
-          >
-            <UiIcon name="plus" size={16} />
-          </button>
-        )}
-      />
-      {tabMenu && tabMenuItems.length ? (
-        <TabContextMenu
-          x={tabMenu.x}
-          y={tabMenu.y}
-          items={tabMenuItems}
-          onDismiss={() => setTabMenu(null)}
-        />
-      ) : null}
-      {newTabMenu ? (
-        <TabContextMenu
-          x={newTabMenu.x}
-          y={newTabMenu.y}
-          className="doc-browser-new-tab-menu"
-          onDismiss={() => setNewTabMenu(null)}
-          items={[
-            {
-              key: "tree",
-              label: "打开文件树",
-              icon: "folder",
-              onRun: openDocumentTree,
-            },
-            {
-              key: "html",
-              label: "打开新HTML阅览页",
-              icon: "globe",
-              onRun: createBrowserNewTab,
-            },
-          ]}
-        />
-      ) : null}
-      <button
-        type="button"
-        className={`doc-browser-tree-toggle${treeToggleActive ? " active" : ""}`}
-        title={treeToggleActive ? "隐藏文件树" : "显示文件树"}
-        aria-label={treeToggleActive ? "隐藏文件树" : "显示文件树"}
-        aria-pressed={treeToggleActive}
-        onClick={toggleTree}
-      >
-        {treeToggleActive ? <OpenFolderIcon /> : <ClosedFolderIcon />}
-      </button>
-    </div>
-  );
+  const tabbarProps = {
+    openTabs,
+    setOpenTabs,
+    browserTabs,
+    setBrowserTabs,
+    startOpen,
+    activeTabId,
+    treeToggleActive,
+    tabMenu,
+    setTabMenu,
+    tabMenuItems,
+    newTabMenu,
+    setNewTabMenu,
+    contentTabs,
+    openContentTabContextMenu,
+    selectContentTab,
+    closeContentTab,
+    createBrowserNewTab,
+    openDocumentTree,
+    toggleTree,
+  };
+  const contentTabbar = <DocumentsTabbar {...tabbarProps} />;
   return (
     <div className="library-embedded doc-browser">
       <section className={`library doc-browser-shell${activeTool === "browser" ? " browser-tool-active" : ""}`} aria-label="项目文档库">

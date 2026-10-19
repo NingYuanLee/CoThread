@@ -35,9 +35,11 @@ test("default run route always uses the local runner", async () => {
   const database = await testDatabase();
   try {
     const user = { id: randomUUID(), kind: "session" };
-    await query(database.db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
-      user.id, `${user.id}@example.com`, "本机执行验证",
-    ]);
+    await query(
+      database.db,
+      "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [user.id, `${user.id}@example.com`, "本机执行验证"],
+    );
     const service = new Service(database.db);
     const project = await service.createProject(user, { name: "本机执行" });
     const thread = await service.createThread(user, project.id, { title: "命令" });
@@ -47,4 +49,27 @@ test("default run route always uses the local runner", async () => {
   } finally {
     await database.close();
   }
+});
+
+test("killing a local sandbox stops running commands, not just its files", async () => {
+  const sandbox = await LocalSandbox.create();
+  const root = "/home/user/cothread/kill-test";
+  await sandbox.files.makeDir(root);
+  let settled = null;
+  const started = Date.now();
+  const running = sandbox.commands
+    .run("sleep 30; printf late > late.txt", { cwd: root, timeoutMs: 60000 })
+    .then((result) => {
+      settled = result;
+      return result;
+    });
+  // 等命令真正起来再回收，避免「还没 spawn 就 kill」把这条用例测空。
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  await sandbox.kill();
+  await running;
+  const elapsed = Date.now() - started;
+  assert.ok(settled, "回收后命令应当已经结束");
+  assert.notEqual(settled.exitCode, 0, "被回收的命令不应算成功");
+  assert.ok(elapsed < 15000, `回收应在数秒内结束命令，实际 ${elapsed}ms`);
+  await assert.rejects(sandbox.readFile(`${root}/late.txt`), "工作区应已删除");
 });

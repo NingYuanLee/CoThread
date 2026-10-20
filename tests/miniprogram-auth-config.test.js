@@ -29,8 +29,8 @@ async function configureProject(database, projectId) {
   await query(
     database.db,
     `INSERT INTO project_miniprogram_config
-       (project_id,enabled,app_id,cloudbase_envs,status)
-     VALUES(?,1,'wx1234567890abcdef',?,'incomplete')`,
+       (project_id,enabled,cloudbase_envs,status)
+     VALUES(?,1,?,'incomplete')`,
     [
       projectId,
       JSON.stringify({
@@ -38,6 +38,12 @@ async function configureProject(database, projectId) {
         production: { envId: "prod-env", region: null },
       }),
     ],
+  );
+  await query(
+    database.db,
+    `INSERT INTO project_miniprogram_apps(id,project_id,name,app_id,role)
+     VALUES(?,?,NULL,'wx1234567890abcdef','main')`,
+    [randomUUID(), projectId],
   );
 }
 
@@ -139,7 +145,10 @@ test("Publishable Key endpoint leaves phone authorization unchanged", async () =
       miniprogramWechatPhone: true,
     });
     const password = `test-${randomUUID()}`;
-    await query(database.db, "UPDATE users SET password_hash=? WHERE id=?", [await hashPassword(password), user.id]);
+    await query(database.db, "UPDATE users SET password_hash=? WHERE id=?", [
+      await hashPassword(password),
+      user.id,
+    ]);
     server = createApp(database.db).listen(0, "127.0.0.1");
     await new Promise((resolve) => server.once("listening", resolve));
     const base = `http://127.0.0.1:${server.address().port}`;
@@ -149,22 +158,31 @@ test("Publishable Key endpoint leaves phone authorization unchanged", async () =
       body: JSON.stringify({ email: `${user.id}@test.com`, password }),
     });
     assert.equal(login.status, 200);
-    const cookie = login.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
+    const cookie = login.headers
+      .getSetCookie()
+      .map((value) => value.split(";")[0])
+      .join("; ");
     const key = "k".repeat(1024);
-    const response = await fetch(`${base}/api/projects/${project.id}/miniprogram-auth-config/publishable-key`, {
-      method: "PUT",
-      headers: { "content-type": "application/json", Cookie: cookie },
-      body: JSON.stringify({ environment: "development", cloudbasePublishableKey: key }),
-    });
+    const response = await fetch(
+      `${base}/api/projects/${project.id}/miniprogram-auth-config/publishable-key`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json", Cookie: cookie },
+        body: JSON.stringify({ environment: "development", cloudbasePublishableKey: key }),
+      },
+    );
     assert.equal(response.status, 200);
     const saved = await response.json();
     assert.equal(saved.miniprogram.publishableKey, key);
     assert.equal(saved.miniprogram.wechatPhoneAuthorization, true);
-    const cleared = await fetch(`${base}/api/projects/${project.id}/miniprogram-auth-config/publishable-key`, {
-      method: "PUT",
-      headers: { "content-type": "application/json", Cookie: cookie },
-      body: JSON.stringify({ environment: "development", cloudbasePublishableKey: null }),
-    });
+    const cleared = await fetch(
+      `${base}/api/projects/${project.id}/miniprogram-auth-config/publishable-key`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json", Cookie: cookie },
+        body: JSON.stringify({ environment: "development", cloudbasePublishableKey: null }),
+      },
+    );
     assert.equal(cleared.status, 200);
     const afterClear = await cleared.json();
     assert.equal(afterClear.miniprogram.publishableKey, null);

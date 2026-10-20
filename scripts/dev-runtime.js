@@ -19,11 +19,10 @@ export function resolveDevPorts(env = process.env) {
   return { uiPort, apiPort, vitePort };
 }
 
-export function openDevBrowser(url, {
-  spawnFn = spawn,
-  platform = process.platform,
-  env = process.env,
-} = {}) {
+export function openDevBrowser(
+  url,
+  { spawnFn = spawn, platform = process.platform, env = process.env } = {},
+) {
   if (env.COTHREAD_NO_BROWSER === "1" || env.CI) return false;
   let parsed;
   try {
@@ -34,11 +33,16 @@ export function openDevBrowser(url, {
   if (!/^https?:$/i.test(parsed.protocol)) return false;
   if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") return false;
   const target = parsed.toString();
-  const child = platform === "win32"
-    ? spawnFn("cmd", ["/c", "start", "", target], { stdio: "ignore", detached: true, windowsHide: true })
-    : platform === "darwin"
-      ? spawnFn("open", [target], { stdio: "ignore", detached: true })
-      : spawnFn("xdg-open", [target], { stdio: "ignore", detached: true });
+  const child =
+    platform === "win32"
+      ? spawnFn("cmd", ["/c", "start", "", target], {
+          stdio: "ignore",
+          detached: true,
+          windowsHide: true,
+        })
+      : platform === "darwin"
+        ? spawnFn("open", [target], { stdio: "ignore", detached: true })
+        : spawnFn("xdg-open", [target], { stdio: "ignore", detached: true });
   child?.unref?.();
   return true;
 }
@@ -55,7 +59,9 @@ export function isOurDevProcess(commandLine, projectRoot) {
 }
 
 export function looksLikeTrackedDevCommand(commandLine) {
-  const line = String(commandLine || "").toLowerCase().replaceAll("/", "\\");
+  const line = String(commandLine || "")
+    .toLowerCase()
+    .replaceAll("/", "\\");
   return [
     "server\\index.js",
     "scripts\\vite-app.mjs",
@@ -100,22 +106,28 @@ export function pidsListeningOn(port) {
       ],
       { encoding: "utf8", windowsHide: true },
     );
-    return [...new Set(
+    return [
+      ...new Set(
+        (result.stdout || "")
+          .trim()
+          .split(/\s+/)
+          .map(Number)
+          .filter((pid) => Number.isInteger(pid) && pid > 0),
+      ),
+    ];
+  }
+  const result = spawnSync("lsof", ["-t", `-iTCP:${Number(port)}`, "-sTCP:LISTEN"], {
+    encoding: "utf8",
+  });
+  return [
+    ...new Set(
       (result.stdout || "")
         .trim()
         .split(/\s+/)
         .map(Number)
         .filter((pid) => Number.isInteger(pid) && pid > 0),
-    )];
-  }
-  const result = spawnSync("lsof", ["-t", `-iTCP:${Number(port)}`, "-sTCP:LISTEN"], { encoding: "utf8" });
-  return [...new Set(
-    (result.stdout || "")
-      .trim()
-      .split(/\s+/)
-      .map(Number)
-      .filter((pid) => Number.isInteger(pid) && pid > 0),
-  )];
+    ),
+  ];
 }
 
 export function stopPid(pid) {
@@ -125,7 +137,9 @@ export function stopPid(pid) {
     spawnSync("taskkill", ["/PID", String(id), "/T", "/F"], { stdio: "ignore", windowsHide: true });
     return;
   }
-  try { process.kill(id, "SIGTERM"); } catch {}
+  try {
+    process.kill(id, "SIGTERM");
+  } catch {}
 }
 
 export function portIsFree(port, host = "127.0.0.1") {
@@ -160,7 +174,9 @@ export function writeDevPids(projectRoot, pids) {
 }
 
 export function clearDevPids(projectRoot) {
-  try { unlinkSync(pidFilePath(projectRoot)); } catch (error) {
+  try {
+    unlinkSync(pidFilePath(projectRoot));
+  } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
 }
@@ -219,31 +235,38 @@ function collectSavedPids(projectRoot) {
   return pids;
 }
 
+function describeOldProcess(target) {
+  const where = target.port ? `，占用端口 ${target.port}` : "";
+  const command = target.command ? `：${target.command}` : "";
+  return `发现旧进程 ${target.pid}${where}${command}`;
+}
+
 export async function stopDevServices({
   projectRoot,
   uiPort,
   apiPort,
   vitePort,
   host = "127.0.0.1",
+  onStop,
 } = {}) {
   const root = resolve(projectRoot);
-  const stopped = new Set();
+  const targets = [];
+  const seen = new Set();
+  const add = (pid, { port, command } = {}) => {
+    if (pid === process.pid || seen.has(pid)) return;
+    seen.add(pid);
+    targets.push({ pid, port, command: command || "" });
+  };
   for (const pid of collectSavedPids(root)) {
     const command = processCommandLine(pid);
-    if (pid !== process.pid && looksLikeTrackedDevCommand(command)) {
-      console.log(`停止旧进程 ${pid}：${command}`);
-      stopPid(pid);
-      stopped.add(pid);
-    }
+    if (looksLikeTrackedDevCommand(command)) add(pid, { command });
   }
   for (const port of [uiPort, apiPort, vitePort]) {
     for (const pid of pidsListeningOn(port)) {
-      if (pid === process.pid || stopped.has(pid)) continue;
+      if (pid === process.pid || seen.has(pid)) continue;
       const command = processCommandLine(pid);
       if (isOurDevProcess(command, root) || looksLikeTrackedDevCommand(command)) {
-        console.log(`释放端口 ${port}，停止本项目进程 ${pid}`);
-        stopPid(pid);
-        stopped.add(pid);
+        add(pid, { port, command });
         continue;
       }
       throw new Error(
@@ -251,20 +274,29 @@ export async function stopDevServices({
       );
     }
   }
-  await waitUntilPortFree(uiPort, host);
-  await waitUntilPortFree(apiPort, host);
-  await waitUntilPortFree(vitePort, host);
+  if (!targets.length) console.log("未发现需要停止的旧进程。");
+  else {
+    for (const target of targets) console.log(describeOldProcess(target));
+    await onStop?.(targets);
+    for (const target of targets) stopPid(target.pid);
+    await waitUntilPortFree(uiPort, host);
+    await waitUntilPortFree(apiPort, host);
+    await waitUntilPortFree(vitePort, host);
+    for (const target of targets) console.log(`已停止旧进程 ${target.pid}。`);
+  }
   clearDevPids(root);
-  if (stopped.size) {
+  if (targets.length) {
     const appPidFile = resolve(root, ".local/app.pid");
     if (existsSync(appPidFile)) {
       const appPid = readNumericPid(appPidFile);
-      if (!appPid || stopped.has(appPid) || !processCommandLine(appPid)) {
-        try { unlinkSync(appPidFile); } catch (error) {
+      if (!appPid || seen.has(appPid) || !processCommandLine(appPid)) {
+        try {
+          unlinkSync(appPidFile);
+        } catch (error) {
           if (error.code !== "ENOENT") throw error;
         }
       }
     }
   }
-  return [...stopped];
+  return targets.map((target) => target.pid);
 }

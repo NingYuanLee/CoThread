@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { apply } from "../runtime/cothread-tools.mjs";
+import { apply } from "../dsh-layer/cothread-tools.mjs";
 
 test("all project tools register with valid SDK schemas without a profile filter", () => {
   const previous = process.env.COTHREAD_ALLOWED_TOOLS;

@@ -30,7 +30,9 @@ const root = await mysql.createConnection({
 });
 const db = await createDatabase(url.href);
 const target = "cothread_restore_" + randomBytes(8).toString("hex");
-const backups = (await readdir(".local/backups")).filter((x) => x.endsWith(".sql")).sort();
+const backups = (await readdir(".local/backups"))
+  .filter((name) => /^cothread-.+\.sql$/.test(name))
+  .sort();
 if (!backups.length) throw new Error("请先运行 npm run db:backup");
 try {
   await root.query(`CREATE DATABASE \`${target}\` CHARACTER SET utf8mb4`);

@@ -40,7 +40,7 @@ test("project activity key ignores library rows and follows revision", () => {
         id: "u1",
         role: "member",
         name: "甲",
-        connector: { online: true, bound: true, lastSeenAt: "2026-10-14 00:00:00" },
+        localExecutor: { online: true, bound: true, lastSeenAt: "2026-10-14 00:00:00" },
       },
     ],
     folders: [{ id: "f1" }],

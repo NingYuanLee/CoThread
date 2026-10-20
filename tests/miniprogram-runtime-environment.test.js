@@ -45,21 +45,33 @@ test("preview channels use development and release channels use production", () 
 });
 
 test("production Publishable Key overrides the development fallback", () => {
-  const resolved = resolveMiniprogramRuntime({
-    ...runtime,
-    authConfigs: {
-      ...runtime.authConfigs,
-      production: { miniprogram: { publishableKey: "pk-prod" } },
+  const resolved = resolveMiniprogramRuntime(
+    {
+      ...runtime,
+      authConfigs: {
+        ...runtime.authConfigs,
+        production: { miniprogram: { publishableKey: "pk-prod" } },
+      },
     },
-  }, "admin_publish");
+    "admin_publish",
+  );
   assert.equal(resolved.auth.admin.publishableKey, "pk-prod");
 });
 
-test("a channel refuses to run when its CloudBase environment is not configured", () => {
-  assert.throws(
-    () => resolveMiniprogramRuntime({ cloudbaseEnvs: {} }, "wechat_upload"),
-    (error) => error.status === 409 && /生产环境/.test(error.message),
-  );
+test("Dimina and WeChat upload run without a CloudBase environment", () => {
+  for (const channel of ["dimina", "wechat_preview", "wechat_upload"]) {
+    const resolved = resolveMiniprogramRuntime({ cloudbaseEnvs: {} }, channel);
+    assert.equal(resolved.cloudbase, null);
+  }
+});
+
+test("Admin preview and publish still require a CloudBase environment", () => {
+  for (const channel of ["admin_preview", "admin_publish"]) {
+    assert.throws(
+      () => resolveMiniprogramRuntime({ cloudbaseEnvs: {} }, channel),
+      (error) => error.status === 409 && /CloudBase/.test(error.message),
+    );
+  }
 });
 
 test("release channels share development when production is not configured", () => {

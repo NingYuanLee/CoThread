@@ -15,6 +15,9 @@ const ENVIRONMENT_LABELS = {
   production: "生产环境",
 };
 
+/** Admin 预览、Admin 发布必须有 CloudBase。Dimina 和微信上传可以是纯前端。 */
+const CLOUD_REQUIRED_CHANNELS = new Set(["admin_preview", "admin_development", "admin_publish"]);
+
 /** Resolve one delivery channel to a configured, non-secret CloudBase runtime. */
 export function resolveMiniprogramRuntime(runtime, channel, environmentOverride = null) {
   const defaultEnvironment = MINIPROGRAM_RUNTIME_CHANNELS[channel];
@@ -24,14 +27,30 @@ export function resolveMiniprogramRuntime(runtime, channel, environmentOverride 
   const inherited = environment === "production" && !configured.production?.envId;
   const envId = (inherited ? configured.development : configured[environment])?.envId;
   if (!envId) {
-    throw new HttpError(
-      409,
-      `尚未配置${ENVIRONMENT_LABELS[environment] || environment}的 CloudBase 环境 ID（渠道：${channel}）`,
-    );
+    if (CLOUD_REQUIRED_CHANNELS.has(channel)) {
+      throw new HttpError(
+        409,
+        `尚未配置${ENVIRONMENT_LABELS[environment] || environment}的 CloudBase 环境 ID（渠道：${channel}）。Admin 预览和静态托管需要 CloudBase`,
+      );
+    }
+    return Object.freeze({
+      version: 1,
+      channel,
+      environment,
+      cloudbase: null,
+      auth: Object.freeze({
+        miniprogram: Object.freeze({ openIdLogin: false, phoneAuth: false, publishableKey: null }),
+        admin: Object.freeze({ passwordLogin: false, publishableKey: null }),
+      }),
+    });
   }
   const authConfig = runtime?.authConfigs?.[environment] || {};
-  const publishableKey = authConfig.miniprogram?.publishableKey ||
-    (environment === "production" ? runtime?.authConfigs?.development?.miniprogram?.publishableKey : null) || null;
+  const publishableKey =
+    authConfig.miniprogram?.publishableKey ||
+    (environment === "production"
+      ? runtime?.authConfigs?.development?.miniprogram?.publishableKey
+      : null) ||
+    null;
   return Object.freeze({
     version: 1,
     channel,
@@ -79,7 +98,7 @@ export function injectMiniprogramRuntimeSource(source, path, runtimeConfig) {
     `  var runtime = Object.freeze(${serialized});\n` +
     `  root.__COTHREAD_RUNTIME__ = runtime;\n` +
     `  var cloud = root.wx && root.wx.cloud;\n` +
-    `  if (cloud && typeof cloud.init === "function") {\n` +
+    `  if (runtime.cloudbase && runtime.cloudbase.envId && cloud && typeof cloud.init === "function") {\n` +
     `    cloud.init({ env: runtime.cloudbase.envId, traceUser: true });\n` +
     `  }\n` +
     `})(typeof globalThis !== "undefined" ? globalThis : this);\n`;
@@ -91,7 +110,10 @@ export function injectAdminRuntimeHtml(source, runtimeConfig) {
   const html = Buffer.from(source).toString("utf8");
   const script = `<script>window.__COTHREAD_RUNTIME__=Object.freeze(${jsonForInlineScript(runtimeConfig)});</script>`;
   if (runtimeConfig.channel === "admin_preview" && /<head\b[^>]*>/i.test(html)) {
-    return Buffer.from(html.replace(/<head\b[^>]*>/i, (head) => `${head}${script}`), "utf8");
+    return Buffer.from(
+      html.replace(/<head\b[^>]*>/i, (head) => `${head}${script}`),
+      "utf8",
+    );
   }
   const closingHead = html.search(/<\/head\s*>/i);
   const output =

@@ -4,7 +4,7 @@ export const THREAD_SIDE_COLLECTIONS = Object.freeze([
   "replies",
   "updates",
   "requests",
-  "connectorTasks",
+  "localExecutorTasks",
 ]);
 
 // Tokens are usable only with the in-memory snapshot that received them.

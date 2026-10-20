@@ -12,7 +12,7 @@ import { type SavedAccount } from "./saved-accounts";
 import { UiIcon, type UiIconName } from "./ui-icon";
 import { api } from "./workspace-api";
 import type { Modal } from "./workspace-types";
-import type { ConnectorDevice } from "./ConnectorPanel";
+import type { LocalExecutorDevice } from "./LocalExecutorPanel";
 import type { PersonalProfile } from "./ProfileFields";
 
 const EmailBinding = lazy(() =>
@@ -52,7 +52,7 @@ export type WorkspaceModalsProps = {
   projectImage: string | null;
   setProjectImage: Dispatch<SetStateAction<string | null>>;
   health: { dshEnabled: boolean; mcpEndpoint?: string } | null;
-  connectors: ConnectorDevice[];
+  localExecutors: LocalExecutorDevice[];
   connectorsReady: boolean;
   run: (task: () => Promise<void>) => Promise<void>;
   switchSavedAccount: (account: SavedAccount) => Promise<void>;
@@ -78,7 +78,7 @@ export function WorkspaceModals({
   projectImage,
   setProjectImage,
   health,
-  connectors,
+  localExecutors,
   connectorsReady,
   run,
   switchSavedAccount,
@@ -291,7 +291,7 @@ export function WorkspaceModals({
                       <McpSettings
                         api={api}
                         endpoint={health?.mcpEndpoint || "/mcp"}
-                        connectors={connectors}
+                        localExecutors={localExecutors}
                         connectorsReady={connectorsReady}
                         projectId={projectId}
                         onConnectorsChanged={refreshConnectors}

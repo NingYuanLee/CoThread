@@ -141,31 +141,31 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
     if (actor.type === "human_member" && mode === "auto") {
       const [bound] = await query(
         conn,
-        `SELECT c.id FROM connectors c JOIN connector_projects cp ON cp.connector_id=c.id
+        `SELECT c.id FROM local_executors c JOIN local_executor_projects cp ON cp.local_executor_id=c.id
         WHERE c.user_id=? AND cp.project_id=? AND c.revoked_at IS NULL LIMIT 1`,
         [actor.id, task.project_id],
       );
-      mode = bound ? "member_connector" : "human_direct";
+      mode = bound ? "member_local_executor" : "human_direct";
     }
-    if (actor.type === "human_member" && !["human_direct", "member_connector"].includes(mode))
+    if (actor.type === "human_member" && !["human_direct", "member_local_executor"].includes(mode))
       throw new HttpError(400, "人类执行方式无效");
     const [connector] =
-      actor.type === "human_member" && mode === "member_connector"
+      actor.type === "human_member" && mode === "member_local_executor"
         ? await query(
             conn,
-            `SELECT c.id FROM connectors c
-      JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=?
+            `SELECT c.id FROM local_executors c
+      JOIN local_executor_projects cp ON cp.local_executor_id=c.id AND cp.project_id=?
       WHERE c.user_id=? AND c.revoked_at IS NULL ORDER BY c.last_seen_at DESC LIMIT 1`,
             [task.project_id, actor.id],
           )
         : [];
-    if (actor.type === "human_member" && mode === "member_connector" && !connector) {
+    if (actor.type === "human_member" && mode === "member_local_executor" && !connector) {
       // 区分「没有本地执行器 / 本地执行器离线 / 在线但未绑定当前项目」，提示成员该去做什么。
       const [state] = await query(
         conn,
         `SELECT COUNT(*) total,
         SUM(c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND)) online
-        FROM connectors c WHERE c.user_id=? AND c.revoked_at IS NULL`,
+        FROM local_executors c WHERE c.user_id=? AND c.revoked_at IS NULL`,
         [actor.id],
       );
       if (!Number(state?.total))
@@ -185,14 +185,14 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
     }
     const executionType =
       actor.type === "human_member"
-        ? mode === "member_connector"
-          ? "human_connector"
+        ? mode === "member_local_executor"
+          ? "human_local_executor"
           : "human_self"
         : "dsh_l3";
     const nextStatus =
       executionType === "human_self"
         ? "running"
-        : executionType === "human_connector"
+        : executionType === "human_local_executor"
           ? "pending_start"
           : "running";
     const runStatus = executionType === "human_self" ? "running" : "queued";
@@ -208,35 +208,35 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
         actor.id,
         mode,
         executionType,
-        executionType === "human_connector" ? connector.id : actor.id,
+        executionType === "human_local_executor" ? connector.id : actor.id,
         taskId,
       ],
     );
     await query(
       conn,
-      `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,executor_id,executor_member_id,connector_id,status,started_at)
+      `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,executor_id,executor_member_id,local_executor_id,status,started_at)
       SELECT UUID(),id,revision,?,?,?,?,?,IF(?='running',UTC_TIMESTAMP(3),NULL) FROM agent_tasks WHERE id=?`,
       [
         executionType,
-        executionType === "human_connector" ? connector.id : actor.id,
-        executionType === "human_connector" ? actor.id : null,
-        executionType === "human_connector" ? connector.id : null,
+        executionType === "human_local_executor" ? connector.id : actor.id,
+        executionType === "human_local_executor" ? actor.id : null,
+        executionType === "human_local_executor" ? connector.id : null,
         runStatus,
         runStatus,
         taskId,
       ],
     );
-    if (executionType === "human_connector") {
+    if (executionType === "human_local_executor") {
       const [existingAdapter] = await query(
         conn,
-        "SELECT id FROM connector_tasks WHERE agent_task_id=? FOR UPDATE",
+        "SELECT id FROM local_executor_tasks WHERE agent_task_id=? FOR UPDATE",
         [taskId],
       );
       if (!existingAdapter) {
         const [binding] = await query(
           conn,
-          `SELECT cp.policy,cp.allow_git_push FROM connector_projects cp
-          WHERE cp.connector_id=? AND cp.project_id=?`,
+          `SELECT cp.policy,cp.allow_git_push FROM local_executor_projects cp
+          WHERE cp.local_executor_id=? AND cp.project_id=?`,
           [connector.id, task.project_id],
         );
         if (!binding) throw new HttpError(409, "本地执行器未关联当前项目");
@@ -248,8 +248,8 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
         );
         await query(
           conn,
-          `INSERT INTO connector_tasks
-          (id,agent_task_id,connector_id,project_id,thread_id,message_id,requested_by,assigned_to,member_id_snapshot,instruction,policy,allow_git_push,status,progress)
+          `INSERT INTO local_executor_tasks
+          (id,agent_task_id,local_executor_id,project_id,thread_id,message_id,requested_by,assigned_to,member_id_snapshot,instruction,policy,allow_git_push,status,progress)
           VALUES(UUID(),?,?,?,?,?,?,?,?,?,?,?, 'queued','等待本地执行器领取')`,
           [
             taskId,
@@ -272,7 +272,7 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
       taskId,
       task.status,
       actor,
-      executionType === "human_connector"
+      executionType === "human_local_executor"
         ? "成员接受任务，交给本地执行器执行"
         : executionType === "human_self"
           ? "成员接受任务，由本人完成"

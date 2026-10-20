@@ -22,9 +22,8 @@ const VALID_APP_ID = "wx1234567890abcdef";
 const PNG_HEADER = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 /**
- * `verifyProjectMiniProgramConfig` 的连接测试会真的调 provider：微信侧生成一次预览、
- * CloudBase 侧读一次云函数列表。用仓库既有的 provider 注入点换成假实现，让实时检查
- * 确定性地通过，而不是依赖外网凭据。
+ * 连接测试会真的调 provider：微信侧生成一次预览、CloudBase 侧读一次云函数列表。
+ * 用仓库既有的 provider 注入点换成假实现，让实时检查确定性地通过。
  */
 function installProviderSeams() {
   setWechatCiFactory(async () => ({
@@ -39,6 +38,12 @@ function installProviderSeams() {
   }));
   setCloudbaseManagerFactory(async () => ({
     functions: { listFunctions: async () => [] },
+    env: {
+      describeEnvs: async () => ({
+        EnvList: [{ EnvId: "dev-env", Alias: "开发", Source: "miniapp" }],
+      }),
+      describeEnvInfo: async () => ({ EnvInfo: { UserInfo: { WxAppId: "wx1234567890abcdef" } } }),
+    },
   }));
 }
 
@@ -155,7 +160,7 @@ test("config status advances with secrets and reflects missing credentials", asy
     // Complete but never verified.
     assert.equal(config.status, "incomplete");
 
-    // Clearing a credential falls back to credential_expired.
+    // Clearing the credential also drops the saved environments.
     config = await deleteProjectMiniProgramSecret(
       service,
       user,
@@ -163,7 +168,55 @@ test("config status advances with secrets and reflects missing credentials", asy
       "cloudbase_credential",
     );
     assert.equal(config.secrets.cloudbase_credential.configured, false);
-    assert.equal(config.status, "credential_expired");
+    assert.deepEqual(config.cloudbaseEnvs, {});
+    assert.equal(config.status, "incomplete");
+  } finally {
+    await database.close();
+  }
+});
+
+test("wechat upload key file stores the file name, not key material", async () => {
+  const database = await testDatabase();
+  try {
+    const { user, service, project } = await seed(database);
+    const saved = await saveProjectMiniProgramSecret(
+      service,
+      user,
+      project.id,
+      "wechat_upload_key",
+      {
+        value: TEST_WECHAT_PRIVATE_KEY,
+        fileName: "private.wx1234567890abcdef.key",
+      },
+    );
+    assert.equal(saved.secrets.wechat_upload_key.configured, true);
+    assert.equal(saved.secrets.wechat_upload_key.hint, "private.wx1234567890abcdef.key");
+    assert.equal(saved.secrets.wechat_upload_key.hint.includes("PRIVATE"), false);
+
+    const stripped = await saveProjectMiniProgramSecret(
+      service,
+      user,
+      project.id,
+      "wechat_upload_key",
+      {
+        value: TEST_WECHAT_PRIVATE_KEY,
+        fileName: "C:\\secrets\\private.wx1234567890abcdef.key",
+      },
+    );
+    assert.equal(stripped.secrets.wechat_upload_key.hint, "private.wx1234567890abcdef.key");
+
+    const runtime = await loadProjectMiniProgramRuntime(service, project.id);
+    assert.match(runtime.secrets.wechat_upload_key, /BEGIN PRIVATE KEY/);
+    assert.equal(runtime.secrets.wechat_upload_key.includes("private.wx"), false);
+
+    await assert.rejects(
+      () =>
+        saveProjectMiniProgramSecret(service, user, project.id, "wechat_upload_key", {
+          value: "not-a-key",
+          fileName: "bad.key",
+        }),
+      (error) => error.status === 400,
+    );
   } finally {
     await database.close();
   }
@@ -189,7 +242,7 @@ test("verify reports local checks and defers live connectivity checks", async ()
     let result = await verifyProjectMiniProgramConfig(service, user, project.id);
     assert.equal(result.status, "verify_failed");
     const failedIds = result.checks.filter((check) => check.status === "failed").map((c) => c.id);
-    assert.deepEqual(failedIds.sort(), ["cloudbase_credential", "wechat_credential"]);
+    assert.deepEqual(failedIds.sort(), ["wechat_credential"]);
 
     await saveProjectMiniProgramSecret(service, user, project.id, "wechat_upload_key", {
       value: TEST_WECHAT_PRIVATE_KEY,
@@ -203,14 +256,13 @@ test("verify reports local checks and defers live connectivity checks", async ()
     assert.equal(result.error, null);
     // 实时检查由注入的假 provider 完成，必须记 passed；未配置的 Admin 生产版才是 pending。
     const live = result.checks
-      .filter((check) => ["cloudbase_credential", "wechat_credential"].includes(check.id))
+      .filter((check) => check.id === "wechat_credential")
       .map((check) => check.status);
-    assert.deepEqual(live, ["passed", "passed"]);
-    const pending = result.checks
-      .filter((check) => check.status === "pending")
-      .map((c) => c.id)
-      .sort();
-    assert.deepEqual(pending, ["admin_deploy"]);
+    assert.deepEqual(live, ["passed"]);
+    assert.equal(
+      result.checks.some((check) => String(check.id).startsWith("cloudbase")),
+      false,
+    );
 
     const config = await readProjectMiniProgramConfig(service, user, project.id);
     assert.equal(config.status, "verified");
@@ -243,18 +295,17 @@ test("verify fails when the AppID is cleared after a verified save", async () =>
       "verified",
     );
 
-    const config = await saveProjectMiniProgramConfig(service, user, project.id, {
-      enabled: true,
-      appId: null,
-      cloudbaseEnvs: { development: { envId: "dev-env" } },
-    });
-    // Saving resets verification state.
-    assert.equal(config.status, "incomplete");
-    assert.equal(config.lastVerifiedAt, null);
-    assert.equal(
-      (await verifyProjectMiniProgramConfig(service, user, project.id)).status,
-      "verify_failed",
+    await assert.rejects(
+      () =>
+        saveProjectMiniProgramConfig(service, user, project.id, {
+          enabled: true,
+          appId: null,
+          cloudbaseEnvs: { development: { envId: "dev-env" } },
+        }),
+      (error) => error.status === 409 && /AppID/.test(error.message),
     );
+    const config = await readProjectMiniProgramConfig(service, user, project.id);
+    assert.equal(config.appId, VALID_APP_ID);
   } finally {
     clearProviderSeams();
     await database.close();
@@ -413,8 +464,9 @@ test("a CloudBase key pair can be submitted as two fields", async () => {
       { secretId: "AKIDtwofieldtest000001", secretKey: "two-field-secret-key" },
     );
     assert.equal(config.secrets.cloudbase_credential.configured, true);
-    // The hint shows the SecretId tail, not the tail of a JSON blob (`r"}`).
-    assert.equal(config.secrets.cloudbase_credential.hint, "********0001");
+    assert.equal(config.secrets.cloudbase_credential.hint, "AKIDtwofieldtest000001");
+    assert.equal(config.secrets.cloudbase_credential.secretId, "AKIDtwofieldtest000001");
+    assert.equal(JSON.stringify(config).includes("two-field-secret-key"), false);
 
     // The stored value is the canonical JSON the runtime parses into a key pair.
     const runtime = await loadProjectMiniProgramRuntime(service, project.id);
@@ -451,11 +503,57 @@ test("a CloudBase key pair can be submitted as two fields", async () => {
     // 保存下来的密钥对会被真的送到 provider 做一次只读列举（由注入的假实现完成），
     // 因此这里既不是 "pending" 也不是 "failed"。
     const result = await verifyProjectMiniProgramConfig(service, user, project.id);
-    const check = result.checks.find((entry) => entry.id === "cloudbase_credential");
-    assert.equal(check.status, "passed");
-    assert.match(check.detail, /已成功读取开发环境云函数列表/);
+    assert.equal(
+      result.checks.some((entry) => entry.id === "cloudbase_credential"),
+      false,
+    );
   } finally {
     clearProviderSeams();
+    await database.close();
+  }
+});
+
+test("AppID and upload key are stored on the default main app", async () => {
+  const database = await testDatabase();
+  try {
+    const { user, service, project } = await seed(database);
+    const config = await saveProjectMiniProgramConfig(service, user, project.id, {
+      appId: VALID_APP_ID,
+      appName: "主小程序",
+      entryPage: "pages/index/index",
+      cloudbaseEnvs: { development: { envId: "dev-env" } },
+    });
+    assert.equal(config.appId, VALID_APP_ID);
+    assert.equal(config.appName, "主小程序");
+    assert.equal(config.apps.length, 1);
+    assert.equal(config.apps[0].role, "main");
+    assert.equal(config.apps[0].isDefault, true);
+
+    const withKey = await saveProjectMiniProgramSecret(
+      service,
+      user,
+      project.id,
+      "wechat_upload_key",
+      {
+        value: "upload-key-material",
+      },
+    );
+    assert.equal(withKey.secrets.wechat_upload_key.configured, true);
+    const [appKey] = await query(
+      database.db,
+      `SELECT s.kind FROM project_miniprogram_app_secrets s
+       JOIN project_miniprogram_apps a ON a.id=s.miniprogram_app_id
+       WHERE a.project_id=? AND a.role='main'`,
+      [project.id],
+    );
+    assert.equal(appKey.kind, "wechat_upload_key");
+    const legacy = await query(
+      database.db,
+      "SELECT kind FROM project_miniprogram_secrets WHERE project_id=? AND kind='wechat_upload_key'",
+      [project.id],
+    );
+    assert.equal(legacy.length, 0);
+  } finally {
     await database.close();
   }
 });

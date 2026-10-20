@@ -13,7 +13,10 @@ import { registerRequestParts } from "./request-parts.js";
 import { currentTiming, requestTiming } from "./request-timing.js";
 import { sendVerificationEmail as deliverVerificationEmail } from "./email-delivery.js";
 import { createHumanChallenge as generateHumanChallenge } from "./human-challenge.js";
-import { registerConnectorBrowserRoutes, registerConnectorPublicRoutes } from "./connectors.js";
+import {
+  registerLocalExecutorBrowserRoutes,
+  registerLocalExecutorPublicRoutes,
+} from "./local-executors.js";
 import { jsonBodyLimit } from "./json-body-limit.js";
 import { appOrigins } from "./runtime-config.js";
 import { EXECUTOR_LOCK_NAME, executorStatus } from "./replies.js";
@@ -33,11 +36,11 @@ async function defaultExecutorHolderReader(target, lockName = EXECUTOR_LOCK_NAME
 function executorReady(local, holderConnectionId, lockError) {
   return Boolean(
     local.active &&
-      !local.lostReason &&
-      !lockError &&
-      holderConnectionId != null &&
-      local.connectionId != null &&
-      Number(holderConnectionId) === Number(local.connectionId),
+    !local.lostReason &&
+    !lockError &&
+    holderConnectionId != null &&
+    local.connectionId != null &&
+    Number(holderConnectionId) === Number(local.connectionId),
   );
 }
 
@@ -79,7 +82,7 @@ export function createApp(
     return parser;
   };
   app.use((req, res, next) => parseJson(jsonBodyLimit(req.method, req.path))(req, res, next));
-  registerConnectorPublicRoutes(app, db, service);
+  registerLocalExecutorPublicRoutes(app, db, service);
   app.get("/api/health", async (req, res) => {
     await query(db, "SELECT 1");
     // 多实例部署时，谁在跑执行器是运维最关心的事实：本实例状态取自进程内登记，
@@ -159,7 +162,7 @@ export function createApp(
     next();
   });
   registerRequestParts(app, db);
-  registerConnectorBrowserRoutes(app, db, service);
+  registerLocalExecutorBrowserRoutes(app, db, service);
   account.registerRoutes(app);
   registerAdminRoutes(app, { db, service });
   registerProjectWorkspaceRoutes(app, { db, service });

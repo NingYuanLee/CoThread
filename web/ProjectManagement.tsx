@@ -16,7 +16,7 @@ import {
 } from "./dialog-fx";
 import { showTip } from "./Tip";
 
-type ProjectConnector = {
+type LocalExecutorDevice = {
   id: string;
   name: string;
   platform?: string;
@@ -41,7 +41,7 @@ type ProjectMember = {
   role?: string;
   kind?: "human" | "l1" | "l2";
   identity_tags?: string[];
-  connector?: ProjectConnector | null;
+  localExecutor?: LocalExecutorDevice | null;
 };
 
 type ProjectDetail = {
@@ -97,7 +97,22 @@ export function ProjectManagement({
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [tab, setTab] = useState<"info" | "members" | "connectors" | "miniprogram">("info");
+  const [tab, setTab] = useState<"info" | "members" | "connectors" | "miniprogram" | "cloudbase">(
+    "info",
+  );
+  const [miniprogramAppId, setMiniprogramAppId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!detail?.id) return undefined;
+    let alive = true;
+    api("/projects/" + detail.id + "/miniprogram-config")
+      .then((value) => {
+        if (alive) setMiniprogramAppId(value?.appId || null);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [detail?.id, api]);
   const [memberScope, setMemberScope] = useState<"humans" | "agents">("humans");
   const [memberSearch, setMemberSearch] = useState("");
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
@@ -119,7 +134,7 @@ export function ProjectManagement({
     (member) => member.kind === "l2" || member.id === AGENT_L2_MEMBER.id,
   ) || { ...AGENT_L2_MEMBER, kind: "l2" as const };
   const matchesSearch = (member: ProjectMember) =>
-    `${member.name} ${member.username || ""} ${member.email} ${member.bound_email || ""} ${member.connector?.name || ""}`
+    `${member.name} ${member.username || ""} ${member.email} ${member.bound_email || ""} ${member.localExecutor?.name || ""}`
       .toLowerCase()
       .includes(memberSearch.toLowerCase());
   const visibleHumans = humans.filter(matchesSearch);
@@ -204,7 +219,23 @@ export function ProjectManagement({
             >
               <span className="ui-icon-text">
                 <UiIcon name="smartphone" size={14} />
-                小程序与云开发
+                小程序
+              </span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={tab === "cloudbase" ? "active" : ""}
+              aria-selected={tab === "cloudbase"}
+              disabled={!miniprogramAppId}
+              title={miniprogramAppId ? "配置绑定到当前小程序的 CloudBase" : "请先配置小程序"}
+              onClick={() => {
+                if (miniprogramAppId) setTab("cloudbase");
+              }}
+            >
+              <span className="ui-icon-text">
+                <UiIcon name="layers" size={14} />
+                CloudBase
               </span>
             </button>
           </nav>
@@ -259,6 +290,17 @@ export function ProjectManagement({
                 projectId={detail?.id || ""}
                 canManage={canManage}
                 api={api}
+                section="miniprogram"
+                onIdentity={(identity) => setMiniprogramAppId(identity.appId)}
+              />
+            ) : tab === "cloudbase" ? (
+              <ProjectMiniProgramConfig
+                key={detail?.id}
+                projectId={detail?.id || ""}
+                canManage={canManage}
+                api={api}
+                section="cloudbase"
+                onIdentity={(identity) => setMiniprogramAppId(identity.appId)}
               />
             ) : (
               <>
@@ -443,11 +485,11 @@ function HumanMemberRow({
         </div>
         <small className="member-user-id">用户ID：{member.user_number ?? member.id}</small>
         {member.motto ? <small className="member-motto">{member.motto}</small> : null}
-        {member.connector ? (
+        {member.localExecutor ? (
           <small className="member-motto">
             本地执行器：
-            {member.connector.bound
-              ? member.connector.online
+            {member.localExecutor.bound
+              ? member.localExecutor.online
                 ? "本项目在线"
                 : "已绑定，离线"
               : "已授权，未绑定本项目"}

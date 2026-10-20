@@ -15,12 +15,14 @@ import { HttpError } from "./service.js";
 const FUNCTION_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,58}$/;
 const TIMER_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,59}$/;
 const MAX_TIMER_TRIGGERS = 10;
-const TIMER_MANIFEST = z.array(
-  z.object({
-    name: z.string().trim().regex(TIMER_NAME),
-    schedule: z.string().trim().min(1).max(128),
-  }),
-).max(MAX_TIMER_TRIGGERS);
+const TIMER_MANIFEST = z
+  .array(
+    z.object({
+      name: z.string().trim().regex(TIMER_NAME),
+      schedule: z.string().trim().min(1).max(128),
+    }),
+  )
+  .max(MAX_TIMER_TRIGGERS);
 
 function parseTimerManifest(value) {
   const timers = TIMER_MANIFEST.parse(value);
@@ -37,7 +39,7 @@ function parseTimerManifest(value) {
 
 function functionName(value) {
   const name = String(value || "").trim();
-  if (!FUNCTION_NAME.test(name)) throw new HttpError(400, "云函数名称格式不正确");
+  if (!FUNCTION_NAME.test(name)) throw new HttpError(400, "CloudBase 云函数名称格式不正确");
   return name;
 }
 
@@ -113,7 +115,7 @@ export async function loadCloudbaseFunctionSource(service, projectId, functionVa
   const name = functionName(functionValue);
   const snapshot = await miniprogramSnapshot(service.db, projectId);
   const files = miniprogramFilesUnderPath(snapshot.areas.miniprogram_server?.files || [], name);
-  if (!files.length) throw new HttpError(409, `云函数 ${name} 在服务端目录中没有源码`);
+  if (!files.length) throw new HttpError(409, `CloudBase 云函数 ${name} 在服务端目录中没有源码`);
   const rows = await query(
     service.db,
     `SELECT id,content FROM versions WHERE id IN (${files.map(() => "?").join(",")})`,
@@ -127,35 +129,38 @@ export async function loadCloudbaseFunctionSource(service, projectId, functionVa
   }));
   const byPath = new Map(packageFiles.map((file) => [file.path, file.content]));
   if (!byPath.get("index.js")?.length) {
-    throw new HttpError(409, `云函数 ${name} 缺少 index.js`);
+    throw new HttpError(409, `CloudBase 云函数 ${name} 缺少 index.js`);
   }
   if (!byPath.get("package.json")?.length) {
-    throw new HttpError(409, `云函数 ${name} 缺少 package.json`);
+    throw new HttpError(409, `CloudBase 云函数 ${name} 缺少 package.json`);
   }
   if (!byPath.get("cloudbase.json")?.length) {
-    throw new HttpError(409, `云函数 ${name} 缺少 cloudbase.json`);
+    throw new HttpError(409, `CloudBase 云函数 ${name} 缺少 cloudbase.json`);
   }
   let packageDocument;
   let manifest;
   try {
     packageDocument = JSON.parse(byPath.get("package.json").toString("utf8"));
   } catch {
-    throw new HttpError(409, `云函数 ${name} 的 package.json 不是合法 JSON`);
+    throw new HttpError(409, `CloudBase 云函数 ${name} 的 package.json 不是合法 JSON`);
   }
   if (!packageDocument || typeof packageDocument !== "object" || Array.isArray(packageDocument)) {
-    throw new HttpError(409, `云函数 ${name} 的 package.json 必须是 JSON 对象`);
+    throw new HttpError(409, `CloudBase 云函数 ${name} 的 package.json 必须是 JSON 对象`);
   }
   try {
     manifest = FUNCTION_MANIFEST.parse(JSON.parse(byPath.get("cloudbase.json").toString("utf8")));
   } catch {
-    throw new HttpError(409, `云函数 ${name} 的 cloudbase.json 配置无效`);
+    throw new HttpError(409, `CloudBase 云函数 ${name} 的 cloudbase.json 配置无效`);
   }
   let timers = null;
   if (byPath.has("timers.json")) {
     try {
       timers = parseTimerManifest(JSON.parse(byPath.get("timers.json").toString("utf8")));
     } catch {
-      throw new HttpError(409, `云函数 ${name} 的 timers.json 不是合法的 7 字段 Cron 配置`);
+      throw new HttpError(
+        409,
+        `CloudBase 云函数 ${name} 的 timers.json 不是合法的 7 字段 Cron 配置`,
+      );
     }
   }
   return {
@@ -174,7 +179,7 @@ async function deployCloudbaseFunctionSource(service, projectId, environment, so
   for (const file of source.files) zip.file(file.path, file.content);
   const base64Code = await zip.generateAsync({ type: "base64", compression: "DEFLATE" });
   const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
-  const result = await callProvider("部署云函数", () =>
+  const result = await callProvider("部署 CloudBase 云函数", () =>
     manager.functions.createFunction({
       func: {
         name: source.name,
@@ -188,16 +193,15 @@ async function deployCloudbaseFunctionSource(service, projectId, environment, so
       base64Code,
     }),
   );
-  let detail = await callProvider(`读取云函数 ${source.name}`, () =>
+  let detail = await callProvider(`读取 CloudBase 云函数 ${source.name}`, () =>
     manager.functions.getFunctionDetail(source.name),
   );
-  const timerSync = source.timers === null ? null : await syncCloudbaseFunctionTimers(
-    manager,
-    source.name,
-    source.timers || [],
-  );
+  const timerSync =
+    source.timers === null
+      ? null
+      : await syncCloudbaseFunctionTimers(manager, source.name, source.timers || []);
   if (timerSync) {
-    detail = await callProvider(`读取云函数 ${source.name} 的最新状态`, () =>
+    detail = await callProvider(`读取 CloudBase 云函数 ${source.name} 的最新状态`, () =>
       manager.functions.getFunctionDetail(source.name),
     );
   }
@@ -213,7 +217,7 @@ async function deployCloudbaseFunctionSource(service, projectId, environment, so
 }
 
 async function syncCloudbaseFunctionTimers(manager, name, desiredTimers) {
-  const currentDetail = await callProvider(`读取云函数 ${name} 的定时触发器`, () =>
+  const currentDetail = await callProvider(`读取 CloudBase 云函数 ${name} 的定时触发器`, () =>
     manager.functions.getFunctionDetail(name),
   );
   const current = (currentDetail?.Triggers || currentDetail?.triggers || [])
@@ -256,9 +260,10 @@ function timerTrigger(trigger) {
       // Older provider responses may return the cron expression directly.
     }
   }
-  const schedule = scheduleValue && typeof scheduleValue === "object"
-    ? scheduleValue.cron || scheduleValue.Cron || scheduleValue.expression || ""
-    : scheduleValue;
+  const schedule =
+    scheduleValue && typeof scheduleValue === "object"
+      ? scheduleValue.cron || scheduleValue.Cron || scheduleValue.expression || ""
+      : scheduleValue;
   return {
     name: String(trigger?.TriggerName || trigger?.name || ""),
     type: "timer",
@@ -296,14 +301,16 @@ export async function listCloudbaseFunctions(service, user, projectId, input = {
   await service.member(user, projectId, false);
   const environment = String(input.environment || "development");
   const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
-  const rows = await callProvider("列举云函数", () => manager.functions.listFunctions(100, 0));
+  const rows = await callProvider("列举 CloudBase 云函数", () =>
+    manager.functions.listFunctions(100, 0),
+  );
   const functions = await Promise.all(
     (rows || []).map(async (row) => {
       const name = row.FunctionName || row.name;
       if (!name) return null;
       let detail = null;
       try {
-        detail = await callProvider(`读取云函数 ${name}`, () =>
+        detail = await callProvider(`读取 CloudBase 云函数 ${name}`, () =>
           manager.functions.getFunctionDetail(name),
         );
       } catch (error) {
@@ -342,10 +349,15 @@ export async function deployDevelopmentCloudbaseFunction(
         .regex(/^[A-Za-z0-9_.-]+$/)
         .default("index.main"),
       timeout: z.number().int().min(1).max(900).default(10),
-      timers: z.array(z.object({
-        name: z.string().trim().regex(TIMER_NAME),
-        schedule: z.string().trim().min(1).max(128),
-      })).max(MAX_TIMER_TRIGGERS).optional(),
+      timers: z
+        .array(
+          z.object({
+            name: z.string().trim().regex(TIMER_NAME),
+            schedule: z.string().trim().min(1).max(128),
+          }),
+        )
+        .max(MAX_TIMER_TRIGGERS)
+        .optional(),
     })
     .parse(input || {});
   const packageDocument = packageDocumentFor(name, data.packageJson);
@@ -372,10 +384,7 @@ export async function createCloudbaseTimer(service, user, projectId, functionVal
   const data = z
     .object({
       environment: z.enum(["development", "production"]).default("development"),
-      name: z
-        .string()
-        .trim()
-        .regex(TIMER_NAME),
+      name: z.string().trim().regex(TIMER_NAME),
       schedule: z.string().trim().min(1).max(128),
     })
     .parse(input || {});
@@ -383,7 +392,7 @@ export async function createCloudbaseTimer(service, user, projectId, functionVal
     throw new HttpError(400, "Cron 表达式需要 7 个字段：秒 分 时 日 月 星期 年");
   }
   const { manager, envId } = await getCloudbaseManager(service, projectId, data.environment);
-  const detail = await callProvider(`读取云函数 ${name}`, () =>
+  const detail = await callProvider(`读取 CloudBase 云函数 ${name}`, () =>
     manager.functions.getFunctionDetail(name),
   );
   const timers = (detail?.Triggers || detail?.triggers || []).map(timerTrigger).filter(Boolean);
@@ -391,7 +400,7 @@ export async function createCloudbaseTimer(service, user, projectId, functionVal
     throw new HttpError(409, `定时触发器 ${data.name} 已存在`);
   }
   if (timers.length >= MAX_TIMER_TRIGGERS) {
-    throw new HttpError(409, `一个云函数最多可配置 ${MAX_TIMER_TRIGGERS} 个定时触发器`);
+    throw new HttpError(409, `一个 CloudBase 云函数最多可配置 ${MAX_TIMER_TRIGGERS} 个定时触发器`);
   }
   await callProvider("创建定时任务", () =>
     manager.functions.createFunctionTriggers(name, [
@@ -435,7 +444,7 @@ export async function promoteCloudbaseFunction(service, actor, projectId, reques
   const target = resolveCloudbaseEnv(runtime, "production");
   const workspaceSource = await loadCloudbaseFunctionSource(service, projectId, name);
   if (request.sourceHash && request.sourceHash !== workspaceSource.sourceHash) {
-    throw new HttpError(409, "云函数源码已变化，请重新提交发布申请");
+    throw new HttpError(409, "CloudBase 云函数源码已变化，请重新提交发布申请");
   }
   const result = await deployCloudbaseFunctionSource(
     service,

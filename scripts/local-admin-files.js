@@ -11,18 +11,17 @@ export function loginMemoText({ email, password }) {
     `初始邮箱：${email}`,
     `初始密码：${password}`,
     "",
-    "可在账号设置中修改密码，修改后以新密码为准。程序不会改库里的已有密码。",
+    "本地 npm run dev 每次启动都会把超级管理员密码重置为这一条，并在终端打印明文。",
     "",
   ].join("\n");
 }
 
 export async function writeLocalAdminFiles({ email, password }) {
   try {
-    await writeFile(
-      initialAdminPath,
-      `${JSON.stringify({ email, password }, null, 2)}\n`,
-      { flag: "wx", mode: 0o600 },
-    );
+    await writeFile(initialAdminPath, `${JSON.stringify({ email, password }, null, 2)}\n`, {
+      flag: "wx",
+      mode: 0o600,
+    });
   } catch (error) {
     if (error.code !== "EEXIST") throw error;
   }

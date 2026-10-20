@@ -1647,6 +1647,7 @@ export const Documents = memo(function Documents({
   // 开始页签（也是「什么都没打开」时的默认内容）：两个入口按钮。
   const startPageContent = (
     <div className="library-empty">
+      <UiIcon name="compass" size={48} className="doc-browser-start-mark" />
       <button
         type="button"
         className="doc-browser-start-card"

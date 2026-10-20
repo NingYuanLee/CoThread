@@ -191,11 +191,11 @@ export async function contextOperation(
   const reviewsQuery = revisionMatched
     ? Promise.resolve([])
     : query(
-    db,
-    `SELECT r.*,u.name reviewer FROM reviews r JOIN versions v ON v.id=r.version_id
+        db,
+        `SELECT r.*,u.name reviewer FROM reviews r JOIN versions v ON v.id=r.version_id
       JOIN users u ON u.id=r.reviewer_id WHERE v.thread_id=? ORDER BY r.created_at,r.id`,
-    [threadId],
-  );
+        [threadId],
+      );
   // Chat uses progress and failure diagnostics; full readers retain every log.
   const runResults = includeRunResults
     ? "output"
@@ -203,18 +203,18 @@ export async function contextOperation(
   const runsQuery = revisionMatched
     ? Promise.resolve([])
     : query(
-    db,
-    `SELECT id,kind,status,${runResults},progress,created_at,finished_at FROM sandbox_runs WHERE thread_id=? ORDER BY created_at DESC LIMIT 20`,
-    [threadId],
-  );
+        db,
+        `SELECT id,kind,status,${runResults},progress,created_at,finished_at FROM sandbox_runs WHERE thread_id=? ORDER BY created_at DESC LIMIT 20`,
+        [threadId],
+      );
   const repliesQuery = revisionMatched
     ? Promise.resolve([])
     : query(
-    db,
-    `SELECT r.message_id,m.author_id,m.created_at started_at,r.status,r.error,r.reply_id,r.progress,r.participation,r.parent_message_id,r.dispatch_ready,r.agent_slot,r.finished_at,r.first_response_at,r.usage_stats FROM assistant_replies r
+        db,
+        `SELECT r.message_id,m.author_id,m.created_at started_at,r.status,r.error,r.reply_id,r.progress,r.participation,r.parent_message_id,r.dispatch_ready,r.agent_slot,r.finished_at,r.first_response_at,r.usage_stats FROM assistant_replies r
       JOIN messages m ON m.id=r.message_id WHERE m.thread_id=? ORDER BY m.sequence`,
-    [threadId],
-  );
+        [threadId],
+      );
   const eventsQuery = query(
     db,
     `SELECT e.id,e.message_id,e.tool,e.status,e.created_at,e.finished_at,
@@ -231,33 +231,33 @@ export async function contextOperation(
   const updatesQuery = revisionMatched
     ? Promise.resolve([])
     : query(
-    db,
-    `SELECT u.message_id,u.task_message_id,u.delivered_at FROM agent_task_updates u
+        db,
+        `SELECT u.message_id,u.task_message_id,u.delivered_at FROM agent_task_updates u
        JOIN messages m ON m.id=u.message_id WHERE m.thread_id=? ORDER BY m.sequence`,
-    [threadId],
-  );
+        [threadId],
+      );
   const requestsQuery = revisionMatched
     ? Promise.resolve([])
     : query(
-    db,
-    `SELECT q.message_id,q.status,q.response_id,q.error,q.first_response_at,q.usage_stats FROM agent_requests q JOIN messages m ON m.id=q.message_id
+        db,
+        `SELECT q.message_id,q.status,q.response_id,q.error,q.first_response_at,q.usage_stats FROM agent_requests q JOIN messages m ON m.id=q.message_id
        WHERE m.thread_id=? ORDER BY m.sequence`,
-    [threadId],
-  );
-  const connectorTaskResults = includeConnectorResults
+        [threadId],
+      );
+  const localExecutorTaskResults = includeConnectorResults
     ? "t.output,t.diff"
     : "NULL output,NULL diff";
-  const connectorTasksQuery = revisionMatched
+  const localExecutorTasksQuery = revisionMatched
     ? Promise.resolve([])
     : query(
-    db,
-    `SELECT t.id,t.message_id,t.requested_by,t.assigned_to,t.status,t.policy,t.allow_git_push allowGitPush,t.progress,t.agent_kind agentKind,t.error,${connectorTaskResults},
+        db,
+        `SELECT t.id,t.message_id,t.requested_by,t.assigned_to,t.status,t.policy,t.allow_git_push allowGitPush,t.progress,t.agent_kind agentKind,t.error,${localExecutorTaskResults},
       CASE WHEN ? IN (t.requested_by,t.assigned_to) THEN t.instruction ELSE NULL END instruction,
-      t.created_at,t.started_at,t.finished_at,c.id connector_id,c.name connector_name,u.name connector_owner_name
-      FROM connector_tasks t JOIN connectors c ON c.id=t.connector_id JOIN users u ON u.id=c.user_id
+      t.created_at,t.started_at,t.finished_at,c.id local_executor_id,c.name local_executor_name,u.name local_executor_owner_name
+      FROM local_executor_tasks t JOIN local_executors c ON c.id=t.local_executor_id JOIN users u ON u.id=c.user_id
       WHERE t.thread_id=? ORDER BY t.created_at,t.id`,
-    [user.id, threadId],
-  );
+        [user.id, threadId],
+      );
   const pendingQuery = display
     ? query(
         db,
@@ -277,7 +277,7 @@ export async function contextOperation(
     updates,
     requests,
     pending,
-    connectorTasks,
+    localExecutorTasks,
   ] = await Promise.all([
     display ? selected : messagesQuery,
     reviewsQuery,
@@ -288,7 +288,7 @@ export async function contextOperation(
     updatesQuery,
     requestsQuery,
     pendingQuery,
-    connectorTasksQuery,
+    localExecutorTasksQuery,
   ]);
   const withQuotes = await attachMessageQuotes(db, [
     ...new Map([...(pending || []), ...messages].map((m) => [m.id, parseMessageRow(m)])).values(),
@@ -325,7 +325,7 @@ export async function contextOperation(
     })),
     updates,
     requests,
-    connectorTasks,
+    localExecutorTasks,
   };
   if (revisionMatched)
     return {
@@ -335,7 +335,7 @@ export async function contextOperation(
       replies: [],
       updates: [],
       requests: [],
-      connectorTasks: [],
+      localExecutorTasks: [],
       sideState: { mode: "unchanged", token: sideState },
     };
   return display

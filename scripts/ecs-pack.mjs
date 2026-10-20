@@ -3,14 +3,17 @@
  * 用法：node scripts/ecs-pack.mjs
  * 产出：.code_deploy/release/cothread-release-<utc>.tgz
  */
-import { mkdir, access } from "node:fs/promises";
+import { mkdir, access, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = join(root, ".code_deploy", "release");
-const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+const stamp = new Date()
+  .toISOString()
+  .replace(/[-:]/g, "")
+  .replace(/\.\d+Z$/, "Z");
 const outFile = join(outDir, `cothread-release-${stamp}.tgz`);
 
 await access(join(root, "dist")).catch(() => {
@@ -18,6 +21,10 @@ await access(join(root, "dist")).catch(() => {
   process.exit(1);
 });
 await mkdir(outDir, { recursive: true });
+await writeFile(
+  join(root, ".code_deploy", "请勿手改.txt"),
+  "本目录是阿里云 CodeDeploy 和 ecs-pack 的固定产物目录，不是项目配置。可以整目录删除后重新打包，不要手改里面的清单。\n",
+);
 
 const paths = [
   "package.json",
@@ -27,7 +34,7 @@ const paths = [
   "shared",
   "scripts",
   "migrations",
-  "runtime",
+  "dsh-layer",
   "public",
   "index.html",
   "vite.config.mjs",

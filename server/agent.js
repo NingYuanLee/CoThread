@@ -36,10 +36,12 @@ export function isCorruptSessionLog(error) {
   const message = String(error?.message || error || "");
   return (
     /corrupt session log/i.test(message) ||
+    /stored log is corrupt/i.test(message) ||
     /无效会话快照/.test(message) ||
     // DSH 0.2 refuses historical session formats it cannot migrate (the artifact
     // itself stays intact but unusable), so the one-shot reset path applies too.
     /cannot acquire a system head/i.test(message) ||
+    /protected first surface head/i.test(message) ||
     /source v0 artifact remains unchanged/i.test(message) ||
     /unsupported session format/i.test(message)
   );
@@ -435,7 +437,7 @@ export async function openAgentRuntime(context, options) {
       dshHome: home,
       processCwd: home,
       cwd: home,
-      patches: [modelPatch, assetPath("runtime/agent-patch.yml"), patch],
+      patches: [modelPatch, assetPath("dsh-layer/agent-patch.yml"), patch],
       env,
       provider: "cothread-compatible",
       model: configuredModel.model,

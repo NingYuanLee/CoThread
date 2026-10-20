@@ -17,11 +17,20 @@ import {
 export const MINIPROGRAM_TABS = [
   { id: "preview", label: "Dimina预览", icon: "smartphone" },
   { id: "admin", label: "Admin预览", icon: "monitor" },
-  { id: "database", label: "云数据库", icon: "layers" },
-  { id: "storage", label: "云存储", icon: "folder" },
-  { id: "server", label: "云函数", icon: "server" },
+  { id: "database", label: "CloudBase 云数据库", icon: "layers" },
+  { id: "storage", label: "CloudBase 云存储", icon: "folder" },
+  { id: "server", label: "CloudBase 云函数", icon: "server" },
   { id: "deploy", label: "生产发布", icon: "upload" },
 ] as const;
+
+/** 只标在绑定 CloudBase 的能力上，不标预览壳和审批流本身。 */
+export function CloudBaseTag({ title = "该能力绑定 CloudBase" }: { title?: string }) {
+  return (
+    <span className="cloudbase-tag" title={title}>
+      CloudBase
+    </span>
+  );
+}
 
 export type MiniProgramTabId = (typeof MINIPROGRAM_TABS)[number]["id"];
 
@@ -252,6 +261,8 @@ export type DeploymentRow = {
   url: string | null;
   publishedAt: string | null;
   createdAt: string | null;
+  operatorName?: string | null;
+  recordKind?: "deployment" | "build";
 };
 
 export type CloudbaseTimer = {
@@ -309,10 +320,11 @@ export function TablePagination({
 }
 
 export const DEPLOY_TARGET_LABELS: Record<string, string> = {
+  app_preview: "Dimina 编译",
   wechat_preview: "开发版预览",
   wechat_upload: "体验版上传",
-  cloudbase_static: "Admin 静态托管",
-  cloudbase_function: "云函数",
+  cloudbase_static: "CloudBase 静态托管",
+  cloudbase_function: "CloudBase 云函数",
 };
 
 export const DEVELOPMENT_ENVIRONMENT = "development";
@@ -361,15 +373,23 @@ export function DeploymentRecordList({
           <div className="miniprogram-deploy-row">
             <button type="button" onClick={() => onOpen(row.id)}>
               <span
-                className={`miniprogram-status ${row.status === "succeeded" ? "ok" : "failed"}`}
+                className={`miniprogram-status ${
+                  row.status === "succeeded" ? "ok" : row.status === "failed" ? "failed" : ""
+                }`}
               >
-                {row.status === "succeeded" ? "成功" : "失败"}
+                {row.status === "succeeded"
+                  ? "成功"
+                  : row.status === "failed"
+                    ? "失败"
+                    : row.status === "running" || row.status === "queued"
+                      ? "进行中"
+                      : row.status}
               </span>
               <span className="miniprogram-deploy-target">
                 {DEPLOY_TARGET_LABELS[row.target] || row.target}
               </span>
               <span className="miniprogram-deploy-version">{row.version || "—"}</span>
-              <span className="muted">{row.publishedAt || row.createdAt || ""}</span>
+              <span className="muted">{formatRecordTime(row.publishedAt || row.createdAt)}</span>
             </button>
             {adminHostingUrl(row) ? (
               <a
@@ -522,9 +542,28 @@ export type PreviewMeta = {
 
 export function formatBuildTime(value: string | null | undefined) {
   if (!value) return "尚未编译";
-  const date = new Date(value);
+  const raw = String(value).trim();
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? raw : raw.replace(" ", "T") + "Z";
+  const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleTimeString("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+export function formatRecordTime(value: string | null | undefined) {
+  if (!value) return "";
+  const raw = String(value).trim();
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? raw : raw.replace(" ", "T") + "Z";
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return raw;
+  return date.toLocaleString("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,

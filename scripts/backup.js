@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { mkdir, stat, rename, unlink } from "node:fs/promises";
+import { mkdir, readdir, stat, rename, unlink } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
-import { resolve, join } from "node:path";
+import { basename, resolve, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { resolveDatabaseTarget, resolveTargetDatabaseUrl } from "../server/database-policy.js";
 const targetName = resolveDatabaseTarget();
@@ -59,4 +59,11 @@ try {
   throw error;
 }
 await rename(target + ".partial", target);
+const kept = basename(target);
+for (const name of await readdir(directory)) {
+  const olderDump = name.startsWith("cothread-") && name.endsWith(".sql") && name !== kept;
+  const stalePartial = name.endsWith(".partial");
+  if (!olderDump && !stalePartial) continue;
+  await unlink(join(directory, name));
+}
 console.log(`完整备份已生成：${target} (${(await stat(target)).size} bytes)`);

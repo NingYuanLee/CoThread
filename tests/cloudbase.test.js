@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
+import "./miniprogram-ready.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import {
@@ -507,7 +508,13 @@ function fakeManager(calls, { failCollections } = {}) {
           return {
             async getLoginConfig() {
               calls.push({ op: "getLoginConfig" });
-              return { AnonymousLogin: false, UserNameLogin: true, EmailLogin: false, PhoneNumberLogin: false, RequestId: "login-1" };
+              return {
+                AnonymousLogin: false,
+                UserNameLogin: true,
+                EmailLogin: false,
+                PhoneNumberLogin: false,
+                RequestId: "login-1",
+              };
             },
             async modifyLoginConfig(payload) {
               calls.push({ op: "modifyLoginConfig", payload });
@@ -517,16 +524,35 @@ function fakeManager(calls, { failCollections } = {}) {
         },
         getUserService() {
           return {
-            async getEndUserList() { calls.push({ op: "getEndUserList" }); return { Users: [] }; },
-            async createEndUser(payload) { calls.push({ op: "createEndUser", payload }); return { RequestId: "user-1", User: { UUID: "u-1" } }; },
-            async modifyEndUser(payload) { calls.push({ op: "modifyEndUser", payload }); return { RequestId: "user-2" }; },
+            async getEndUserList() {
+              calls.push({ op: "getEndUserList" });
+              return { Users: [] };
+            },
+            async createEndUser(payload) {
+              calls.push({ op: "createEndUser", payload });
+              return { RequestId: "user-1", User: { UUID: "u-1" } };
+            },
+            async modifyEndUser(payload) {
+              calls.push({ op: "modifyEndUser", payload });
+              return { RequestId: "user-2" };
+            },
           };
         },
         getFunctionService() {
-          return { async invokeFunction(name, data) { calls.push({ op: "invokeFunction", name, data }); return { Result: "ok" }; } };
+          return {
+            async invokeFunction(name, data) {
+              calls.push({ op: "invokeFunction", name, data });
+              return { Result: "ok" };
+            },
+          };
         },
         getLogService() {
-          return { async searchClsLog(params) { calls.push({ op: "searchClsLog", params }); return { LogResults: { Results: [] }, RequestId: "log-1" }; } };
+          return {
+            async searchClsLog(params) {
+              calls.push({ op: "searchClsLog", params });
+              return { LogResults: { Results: [] }, RequestId: "log-1" };
+            },
+          };
         },
       };
     },
@@ -601,13 +627,23 @@ test("auth settings, first Admin account, function invoke and logs use the manag
     const { user, service, project } = await seed(database);
     const auth = await readCloudbaseAuthSettings(service, user, project.id, "development");
     assert.equal(auth.anonymousLogin, false);
-    const updated = await updateCloudbaseAuthSettings(service, user, project.id, { anonymousLogin: true });
+    const updated = await updateCloudbaseAuthSettings(service, user, project.id, {
+      anonymousLogin: true,
+    });
     assert.equal(updated.environment, "development");
-    const admin = await saveCloudbaseAdminAccount(service, user, project.id, { username: "admin@test.local", password: "password123" });
+    const admin = await saveCloudbaseAdminAccount(service, user, project.id, {
+      username: "admin@test.local",
+      password: "password123",
+    });
     assert.equal(admin.configured, true);
-    const invoked = await invokeCloudbaseFunction(service, user, project.id, { name: "crud-demo", data: { action: "list" } });
+    const invoked = await invokeCloudbaseFunction(service, user, project.id, {
+      name: "crud-demo",
+      data: { action: "list" },
+    });
     assert.equal(invoked.result.Result, "ok");
-    const logs = await searchCloudbaseFunctionLogs(service, user, project.id, { name: "crud-demo" });
+    const logs = await searchCloudbaseFunctionLogs(service, user, project.id, {
+      name: "crud-demo",
+    });
     assert.deepEqual(logs.result.LogResults.Results, []);
     assert.ok(calls.some((call) => call.op === "modifyLoginConfig"));
     assert.ok(calls.some((call) => call.op === "createEndUser"));

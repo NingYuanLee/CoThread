@@ -260,7 +260,7 @@ export async function archiveBlockers(conn, threadId) {
     ],
     [
       "本地执行器",
-      `SELECT id,instruction title FROM connector_tasks WHERE thread_id=? AND status IN ('running','paused','completed_pending_notification','failed_pending_notification') LIMIT 10`,
+      `SELECT id,instruction title FROM local_executor_tasks WHERE thread_id=? AND status IN ('running','paused','completed_pending_notification','failed_pending_notification') LIMIT 10`,
     ],
     [
       "工具调用",
@@ -896,7 +896,7 @@ export async function confirmIterationArchive(service, user, threadId, input) {
         );
         await query(
           conn,
-          "UPDATE connector_tasks SET thread_id=? WHERE agent_task_id=? AND status IN ('queued','awaiting_approval')",
+          "UPDATE local_executor_tasks SET thread_id=? WHERE agent_task_id=? AND status IN ('queued','awaiting_approval')",
           [nextThreadId, task.id],
         );
         if (choice.assigneeUserId) {
@@ -1024,7 +1024,7 @@ export async function confirmIterationArchive(service, user, threadId, input) {
     );
     await query(
       conn,
-      "UPDATE connector_tasks SET status='cancelled',finished_at=UTC_TIMESTAMP(3),error='迭代已归档，任务留档' WHERE thread_id=? AND status IN ('queued','awaiting_approval')",
+      "UPDATE local_executor_tasks SET status='cancelled',finished_at=UTC_TIMESTAMP(3),error='迭代已归档，任务留档' WHERE thread_id=? AND status IN ('queued','awaiting_approval')",
       [threadId],
     );
     await enqueue(conn, thread, workflow, "memory", user.id);

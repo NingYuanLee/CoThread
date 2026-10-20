@@ -270,7 +270,7 @@ export async function postMessageOperation(service, user, threadId, input) {
       quoteIds: z.array(id).max(10).default([]),
       clientMessageId: id.optional(),
       mentionAgent: z.boolean().default(false),
-      dialogueMode: z.enum(["default", "chat", "cloudbase"]).default("default"),
+      dialogueMode: z.enum(["default", "chat", "miniprogram", "cloudbase"]).default("default"),
       files: z
         .array(
           z.object({
@@ -364,8 +364,8 @@ export async function postMessageOperation(service, user, threadId, input) {
       if (user.kind === "api") {
         const [onlineConnector] = await query(
           db,
-          `SELECT c.id FROM connectors c
-            JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=?
+          `SELECT c.id FROM local_executors c
+            JOIN local_executor_projects cp ON cp.local_executor_id=c.id AND cp.project_id=?
             WHERE c.user_id=? AND c.revoked_at IS NULL
               AND c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND) LIMIT 1`,
           [thread.project_id, user.id],

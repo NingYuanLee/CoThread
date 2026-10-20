@@ -1,6 +1,7 @@
 import { query } from "./db.js";
 import { Service } from "./service.js";
 import { agentFailureCode } from "./agent-errors.js";
+import { redactSecrets } from "./model-config.js";
 import { acquireSessionLock, discussionHasActiveCoordinator } from "./session-lock.js";
 
 // The main context observes every member message without generating a reply.
@@ -52,7 +53,18 @@ export async function synchronizeDiscussionContext(db, threadId, openRuntime) {
       "UPDATE agent_sessions SET compact_status='failed',compact_error=?,updated_at=UTC_TIMESTAMP(3) WHERE thread_id=?",
       [`上下文同步未完成，聊天记录仍完整保留。（${agentFailureCode(error)}）`, threadId],
     );
-    console.error("Discussion context sync failed", { type: error?.name || "Error" });
+    const data = error?.data;
+    const dataText =
+      data == null ? "" : typeof data === "string" ? data : data.message || data.code || "";
+    console.error("Discussion context sync failed", {
+      threadId,
+      type: error?.name || "Error",
+      code: error?.code,
+      stage: error?.agentStage,
+      diagnostic: redactSecrets(
+        `${error?.message || error}${dataText ? ` | ${dataText}` : ""}`,
+      ).slice(-1000),
+    });
     return false;
   } finally {
     await lock?.release();

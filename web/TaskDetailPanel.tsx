@@ -60,7 +60,7 @@ export function TaskDetailPanel({
   const [taskActionError, setTaskActionError] = useState("");
   const [copiedTaskId, setCopiedTaskId] = useState("");
   const [taskExecutionMode, setTaskExecutionMode] = useState<
-    "auto" | "human_direct" | "member_connector"
+    "auto" | "human_direct" | "member_local_executor"
   >("auto");
   const [taskTransferTarget, setTaskTransferTarget] = useState("");
   const [taskResult, setTaskResult] = useState("");
@@ -376,13 +376,15 @@ export function TaskDetailPanel({
                       {projectConnectorBound ? (
                         <select
                           value={
-                            taskExecutionMode === "auto" ? "member_connector" : taskExecutionMode
+                            taskExecutionMode === "auto"
+                              ? "member_local_executor"
+                              : taskExecutionMode
                           }
                           onChange={(event) =>
                             setTaskExecutionMode(event.target.value as typeof taskExecutionMode)
                           }
                         >
-                          <option value="member_connector">下发本地执行器</option>
+                          <option value="member_local_executor">下发本地执行器</option>
                           <option value="human_direct">由本人执行</option>
                         </select>
                       ) : (
@@ -415,7 +417,7 @@ export function TaskDetailPanel({
                                     mode: projectConnectorBound
                                       ? taskExecutionMode === "human_direct"
                                         ? "human_direct"
-                                        : "member_connector"
+                                        : "member_local_executor"
                                       : "human_direct",
                                   },
                                   "POST",

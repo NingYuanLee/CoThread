@@ -40,8 +40,8 @@ export const RELEASE_STUCK_MINUTES = positiveIntEnv("MINIPROGRAM_RELEASE_STUCK_M
 
 export const RELEASE_TARGET_LABELS = {
   wechat_upload: "微信上传",
-  cloudbase_static: "Admin 静态托管",
-  cloudbase_function: "服务端云函数",
+  cloudbase_static: "CloudBase 静态托管",
+  cloudbase_function: "CloudBase 云函数",
 };
 
 const TARGET = z.enum(RELEASE_TARGETS);
@@ -212,13 +212,18 @@ export async function submitReleaseRequest(service, actor, projectId, input = {}
     throw new HttpError(400, "上传微信版本必须填写版本号");
   }
   if (data.target === "cloudbase_function" && !data.resourceName) {
-    throw new HttpError(400, "发布服务端云函数必须指定函数名称");
+    throw new HttpError(400, "发布 CloudBase 云函数必须指定函数名称");
   }
   const snapshot = await miniprogramSnapshot(service.db, projectId);
   const sourceHash = releaseSourceHash(snapshot, data.target, data.resourceName);
   if (!sourceHash) throw new HttpError(409, "对应发布区域的源码为空，无法申请发布");
 
   await sweepReleaseRequests(service.db, projectId);
+  const [mainApp] = await query(
+    service.db,
+    "SELECT id FROM project_miniprogram_apps WHERE project_id=? AND role='main' LIMIT 1",
+    [projectId],
+  );
   return transaction(service.db, async (conn) => {
     const [existing] = await query(
       conn,
@@ -235,12 +240,13 @@ export async function submitReleaseRequest(service, actor, projectId, input = {}
     await query(
       conn,
       `INSERT INTO miniprogram_release_requests
-         (id,project_id,target,environment,version,resource_name,release_note,source_hash,status,
+         (id,project_id,miniprogram_app_id,target,environment,version,resource_name,release_note,source_hash,status,
           requested_by,requested_by_kind,created_at,updated_at)
-       VALUES(?,?,?,?,?,?,?,?,'pending',?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))`,
+       VALUES(?,?,?,?,?,?,?,?,?,'pending',?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))`,
       [
         id,
         projectId,
+        data.target === "wechat_upload" ? mainApp?.id || null : null,
         data.target,
         // Column is NOT NULL; empty string encodes "unspecified".
         data.target === "cloudbase_static" ? "production" : data.environment || "",
@@ -415,7 +421,7 @@ export async function submitReleaseApplication(service, actor, projectId, input 
   const seen = new Set();
   for (const item of data.items) {
     if (item.target === "cloudbase_function" && !item.resourceName) {
-      throw new HttpError(400, "发布服务端云函数必须指定函数名称");
+      throw new HttpError(400, "发布 CloudBase 云函数必须指定函数名称");
     }
     if (item.target !== "cloudbase_function" && item.resourceName) {
       throw new HttpError(400, "Admin 生产版不能指定资源名称");
@@ -432,6 +438,11 @@ export async function submitReleaseApplication(service, actor, projectId, input 
     return { ...item, sourceHash };
   });
   await sweepReleaseRequests(service.db, projectId);
+  const [mainApp] = await query(
+    service.db,
+    "SELECT id FROM project_miniprogram_apps WHERE project_id=? AND role='main' LIMIT 1",
+    [projectId],
+  );
 
   const applicationId = randomUUID();
   await transaction(service.db, async (conn) => {
@@ -450,13 +461,14 @@ export async function submitReleaseApplication(service, actor, projectId, input 
       await query(
         conn,
         `INSERT INTO miniprogram_release_requests
-           (id,batch_id,project_id,target,environment,version,resource_name,release_note,source_hash,status,
+           (id,batch_id,project_id,miniprogram_app_id,target,environment,version,resource_name,release_note,source_hash,status,
             requested_by,requested_by_kind,created_at,updated_at)
-         VALUES(?,?,?,?,?,NULL,?,?,?,'pending',?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))`,
+         VALUES(?,?,?,?,?,?,NULL,?,?,?,'pending',?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))`,
         [
           randomUUID(),
           applicationId,
           projectId,
+          item.target === "wechat_upload" ? mainApp?.id || null : null,
           item.target,
           item.target === "cloudbase_static" ? "production" : data.environment,
           item.resourceName || null,

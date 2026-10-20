@@ -46,7 +46,7 @@ export function threadPollKey(thread) {
     join(thread.runs, (run) => [run.id, run.status, run.progress, run.output].join("\t")),
     join(thread.updates, (update) => [update.message_id, update.delivered_at].join("\t")),
     join(thread.reviews, (review) => [review.id, review.decision, review.version_id].join("\t")),
-    join(thread.connectorTasks, (task) =>
+    join(thread.localExecutorTasks, (task) =>
       [task.id, task.status, task.progress, task.error].join("\t"),
     ),
     usage
@@ -92,9 +92,9 @@ export function projectActivityKey(detail) {
         member.name,
         member.motto,
         member.avatar,
-        member.connector?.online,
-        member.connector?.bound,
-        member.connector?.lastSeenAt,
+        member.localExecutor?.online,
+        member.localExecutor?.bound,
+        member.localExecutor?.lastSeenAt,
       ].join("\t"),
     ),
   ].join("\n");

@@ -3,20 +3,20 @@ import { createMcpInstallGuide } from "../shared/mcp-guide.js";
 import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";
 import { UiIcon, type UiIconName } from "./ui-icon";
 import { showTip } from "./Tip";
-import { ConnectorAccountSection, type ConnectorDevice } from "./ConnectorPanel";
+import { LocalExecutorAccountSection, type LocalExecutorDevice } from "./LocalExecutorPanel";
 
 type Api = (path: string, data?: unknown, method?: string) => Promise<any>;
 export function McpSettings({
   api,
   endpoint,
-  connectors,
+  localExecutors,
   connectorsReady,
   projectId,
   onConnectorsChanged,
 }: {
   api: Api;
   endpoint: string;
-  connectors: ConnectorDevice[];
+  localExecutors: LocalExecutorDevice[];
   connectorsReady: boolean;
   projectId: string;
   onConnectorsChanged: () => Promise<void>;
@@ -188,8 +188,8 @@ export function McpSettings({
           安装文档含当前账号令牌。为安全起见，粘贴到对话或其他环境后请重置令牌，并在客户端手动替换配置。
         </p>
       </section>
-      <ConnectorAccountSection
-        devices={connectors}
+      <LocalExecutorAccountSection
+        devices={localExecutors}
         ready={connectorsReady}
         projectId={projectId}
         api={api}

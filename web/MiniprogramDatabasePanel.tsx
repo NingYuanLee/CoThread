@@ -90,7 +90,7 @@ export function MiniprogramDatabasePanel({
           <div
             className="miniprogram-admin-toolbar miniprogram-database-toolbar"
             role="toolbar"
-            aria-label="云数据库工具栏"
+            aria-label="CloudBase 云数据库工具栏"
           >
             <button
               type="button"
@@ -118,7 +118,11 @@ export function MiniprogramDatabasePanel({
                 ))}
               </select>
             </div>
-            <div className="miniprogram-database-environment" role="group" aria-label="数据库环境">
+            <div
+              className="miniprogram-database-environment"
+              role="group"
+              aria-label="CloudBase 数据库环境"
+            >
               {(["development", "production"] as const).map((environment) => {
                 const info = cbEnvironments.find((item) => item.kind === environment);
                 const selected = dbEnvironment === environment;

@@ -21,16 +21,15 @@ const rolePages = ADMIN_PERMISSION_TREE.flatMap((menu) => menu.children || []);
 const myPages = MY_WORK_MENU.children || [];
 const pages = [...myPages, ...rolePages];
 const menus = [MY_WORK_MENU, ...ADMIN_PERMISSION_TREE];
-const workPages = ["iterations", "tasks", "my-iterations", "my-tasks"];
-const listPages = [
-  "projects",
-  "accounts",
+const workPages = [
+  "iterations",
+  "tasks",
+  "my-iterations",
+  "my-tasks",
   "account-changes",
   "account-logins",
-  "plugins",
-  "roles",
-  "my-projects",
 ];
+const listPages = ["projects", "accounts", "plugins", "roles", "my-projects"];
 const readPage = () => window.location.pathname.split("/")[2] || "";
 
 export function AdminApp() {

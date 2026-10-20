@@ -1,6 +1,6 @@
 import { DIALOGUE_MODES, normalizeDialogueMode } from "../shared/dialogue-mode.js";
 
-export type DialogueMode = "default" | "chat" | "cloudbase";
+export type DialogueMode = "default" | "chat" | "miniprogram" | "cloudbase";
 
 const STORAGE_KEY = "cothread-dialogue-mode-by-thread";
 

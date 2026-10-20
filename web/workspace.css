@@ -523,27 +523,39 @@ button.dialog-close:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 18px;
-  width: min(calc(100% - 48px), 480px);
-  margin: auto;
+  gap: 10px;
+  width: min(calc(100% - 48px), 320px);
+  margin-top: 14vh;
+  margin-right: auto;
+  margin-bottom: auto;
+  margin-left: auto;
   box-sizing: border-box;
   color: var(--c-9aa68a);
   text-align: center;
 }
 
-/* 开始页的两个入口：仿参考图的大卡片（左图标 + 标题与说明）。
+.library-empty .doc-browser-start-mark {
+  align-self: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 4px;
+  color: var(--c-8a958d, #8a958d);
+  opacity: 0.34;
+}
+
+/* 开始页的两个入口：左图标 + 标题与说明。尺寸与 Admin 未启动时的入口卡一致。
    选择器带上 .library-empty 是为了压过全局的 button:has(> .ui-icon) 居中规则。 */
 .library-empty .doc-browser-start-card {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 18px;
+  gap: 10px;
   width: 100%;
-  min-height: 84px;
-  padding: 20px 22px;
+  min-height: 52px;
+  padding: 8px 12px;
   box-sizing: border-box;
   border: 1px solid var(--c-dce3d9);
-  border-radius: 14px;
+  border-radius: 10px;
   background: var(--c-fff);
   color: var(--c-354238);
   text-align: left;
@@ -556,8 +568,8 @@ button.dialog-close:hover:not(:disabled) {
 
 .library-empty .doc-browser-start-card .doc-browser-start-card-icon {
   flex: none;
-  width: 28px;
-  height: 28px;
+  width: 16px;
+  height: 16px;
   color: var(--c-526d46);
 }
 
@@ -565,18 +577,18 @@ button.dialog-close:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
 
 .library-empty .doc-browser-start-card-copy strong {
-  font-size: 15px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--c-263b2b);
 }
 
 .library-empty .doc-browser-start-card-copy small {
-  font-size: 12px;
+  font-size: 10px;
   color: var(--c-8a958d, #8a958d);
 }
 
@@ -8471,33 +8483,33 @@ body.col-resizing .app-shell > .context-panel {
 
 .mcp-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
-.mcp-connector-list { display: grid; gap: 8px; }
+.mcp-local-executor-list { display: grid; gap: 8px; }
 
-.mcp-connector { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--c-e5ebe3, #e5ebe3); border-radius: 4px; background: var(--c-fff); }
+.mcp-local-executor { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--c-e5ebe3, #e5ebe3); border-radius: 4px; background: var(--c-fff); }
 
-.mcp-connector-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mcp-local-executor-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
 
-.mcp-connector-main > i { flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--c-abb0aa); }
+.mcp-local-executor-main > i { flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--c-abb0aa); }
 
-.mcp-connector-main > i.online { background: var(--c-4d8c58); }
+.mcp-local-executor-main > i.online { background: var(--c-4d8c58); }
 
-.mcp-connector-copy { display: grid; flex: 1; gap: 3px; min-width: 0; }
+.mcp-local-executor-copy { display: grid; flex: 1; gap: 3px; min-width: 0; }
 
-.mcp-connector-copy strong { overflow: hidden; color: var(--c-39463b, #39463b); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-local-executor-copy strong { overflow: hidden; color: var(--c-39463b, #39463b); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 
-.mcp-connector-copy small { color: var(--c-707b72, #707b72); font-size: 11px; line-height: 1.45; }
+.mcp-local-executor-copy small { color: var(--c-707b72, #707b72); font-size: 11px; line-height: 1.45; }
 
-.mcp-connector-unbind { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 7px 9px; font-size: 11px; }
+.mcp-local-executor-unbind { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 7px 9px; font-size: 11px; }
 
-.mcp-connector-confirm { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; border: 1px solid var(--c-eadfd6, #eadfd6); border-radius: 4px; background: var(--c-fbf7f4, #fbf7f4); }
+.mcp-local-executor-confirm { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; border: 1px solid var(--c-eadfd6, #eadfd6); border-radius: 4px; background: var(--c-fbf7f4, #fbf7f4); }
 
-.mcp-connector-confirm p { margin: 0; color: var(--c-6f5c54, #6f5c54); font-size: 11px; line-height: 1.45; }
+.mcp-local-executor-confirm p { margin: 0; color: var(--c-6f5c54, #6f5c54); font-size: 11px; line-height: 1.45; }
 
-.mcp-connector-confirm > div { display: flex; justify-content: flex-end; gap: 6px; }
+.mcp-local-executor-confirm > div { display: flex; justify-content: flex-end; gap: 6px; }
 
-.mcp-connector-confirm button { min-height: 26px; padding: 0 9px; border: 1px solid var(--c-d8dfd4); border-radius: 4px; background: var(--c-fff); color: var(--c-4c5b42); font-size: 11px; }
+.mcp-local-executor-confirm button { min-height: 26px; padding: 0 9px; border: 1px solid var(--c-d8dfd4); border-radius: 4px; background: var(--c-fff); color: var(--c-4c5b42); font-size: 11px; }
 
-.mcp-connector-confirm button.danger { border-color: var(--c-d7b4a8, #d7b4a8); background: var(--c-8a4a3b, #8a4a3b); color: var(--c-fff); }
+.mcp-local-executor-confirm button.danger { border-color: var(--c-d7b4a8, #d7b4a8); background: var(--c-8a4a3b, #8a4a3b); color: var(--c-fff); }
 
 .mcp-warning { display: flex; align-items: flex-start; gap: 6px; margin: 2px 0 0; color: var(--c-81764f); font-size: 11px; line-height: 1.5; }
 
@@ -8539,7 +8551,7 @@ body.col-resizing .app-shell > .context-panel {
 .mcp-token-row { align-items: stretch; flex-wrap: wrap; }
 .mcp-token-row code { flex-basis: 100%; }
 .mcp-capability-list { grid-template-columns: 1fr; }
-.mcp-connector-main { flex-wrap: wrap; }
+.mcp-local-executor-main { flex-wrap: wrap; }
 }
 
 @media (max-width: 560px) {
@@ -10384,7 +10396,7 @@ body.col-resizing .app-shell > .context-panel {
   overflow-wrap: anywhere;
 }
 
-.connector-authorization-dialog {
+.local-executor-authorization-dialog {
   width: min(480px, calc(100vw - 28px));
   border: 1px solid var(--c-dfe5dd);
   border-radius: 6px;
@@ -10394,26 +10406,26 @@ body.col-resizing .app-shell > .context-panel {
   box-shadow: 0 12px 37px rgba(31, 42, 31, .2);
 }
 
-.connector-authorization-dialog::backdrop { background: rgba(25, 31, 26, .44); }
+.local-executor-authorization-dialog::backdrop { background: rgba(25, 31, 26, .44); }
 
-.connector-authorization-dialog header,
-.connector-authorization-dialog section,
-.connector-authorization-dialog dl,
-.connector-authorization-dialog footer { padding: 18px 20px; margin: 0; }
+.local-executor-authorization-dialog header,
+.local-executor-authorization-dialog section,
+.local-executor-authorization-dialog dl,
+.local-executor-authorization-dialog footer { padding: 18px 20px; margin: 0; }
 
-.connector-authorization-dialog header { border-bottom: 1px solid var(--c-e6ebe4); }
+.local-executor-authorization-dialog header { border-bottom: 1px solid var(--c-e6ebe4); }
 
-.connector-authorization-dialog header small { color: var(--c-748071); }
+.local-executor-authorization-dialog header small { color: var(--c-748071); }
 
-.connector-authorization-dialog header h2 { margin: 4px 0 0; font-size: 18px; }
+.local-executor-authorization-dialog header h2 { margin: 4px 0 0; font-size: 18px; }
 
-.connector-authorization-dialog dl > div { display: grid; grid-template-columns: 72px 1fr; gap: 12px; padding: 9px 0; }
+.local-executor-authorization-dialog dl > div { display: grid; grid-template-columns: 72px 1fr; gap: 12px; padding: 9px 0; }
 
-.connector-authorization-dialog dt { color: var(--c-758073); }
+.local-executor-authorization-dialog dt { color: var(--c-758073); }
 
-.connector-authorization-dialog dd { margin: 0; overflow-wrap: anywhere; }
+.local-executor-authorization-dialog dd { margin: 0; overflow-wrap: anywhere; }
 
-.connector-authorization-dialog footer { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--c-e6ebe4); }
+.local-executor-authorization-dialog footer { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--c-e6ebe4); }
 
 /* PDF document reader */
 .pdf-preview {

@@ -1,14 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { apply as applyProjectTools } from "../runtime/cothread-tools.mjs";
+import { apply as applyProjectTools } from "../dsh-layer/cothread-tools.mjs";
 
 test("the L2 runtime is composed from DSH AgentTeam plugins", async () => {
-  const patch = await readFile(new URL("../runtime/agent-patch.yml", import.meta.url), "utf8");
-  const tools = await readFile(new URL("../runtime/cothread-tools.mjs", import.meta.url), "utf8");
-  const skills = await readFile(new URL("../runtime/cothread-skills.mjs", import.meta.url), "utf8");
+  const patch = await readFile(new URL("../dsh-layer/agent-patch.yml", import.meta.url), "utf8");
+  const tools = await readFile(new URL("../dsh-layer/cothread-tools.mjs", import.meta.url), "utf8");
+  const skills = await readFile(
+    new URL("../dsh-layer/cothread-skills.mjs", import.meta.url),
+    "utf8",
+  );
   const systemPrompt = await readFile(
-    new URL("../runtime/cothread-system-prompt.mjs", import.meta.url),
+    new URL("../dsh-layer/cothread-system-prompt.mjs", import.meta.url),
     "utf8",
   );
   const agent = await readFile(new URL("../server/agent.js", import.meta.url), "utf8");
@@ -62,7 +65,7 @@ test("the L2 runtime is composed from DSH AgentTeam plugins", async () => {
 });
 
 test("L1 denies every installed tool and MCP tools are a build-time manifest", async () => {
-  const l1Tools = await readFile(new URL("../runtime/l1-tools.mjs", import.meta.url), "utf8");
+  const l1Tools = await readFile(new URL("../dsh-layer/l1-tools.mjs", import.meta.url), "utf8");
   const l1Agent = await readFile(new URL("../server/l1-agent.js", import.meta.url), "utf8");
   const runtimeConfig = await readFile(
     new URL("../server/dsh-runtime-config.js", import.meta.url),
@@ -71,7 +74,7 @@ test("L1 denies every installed tool and MCP tools are a build-time manifest", a
   const mcp = await import("../server/mcp.js");
   assert.match(l1Tools, /ctx\.tools\.guard\(\(\) =>/);
   assert.match(l1Agent, /l1RuntimePatch/);
-  assert.match(runtimeConfig, /runtime\/l1-tools\.mjs/);
+  assert.match(runtimeConfig, /dsh-layer\/l1-tools\.mjs/);
   assert.ok(Object.isFrozen(mcp.MCP_TOOL_NAMES));
   assert.deepEqual(mcp.MCP_TOOL_NAMES, [
     "get_connection_guide",
@@ -116,7 +119,7 @@ test("L1 denies every installed tool and MCP tools are a build-time manifest", a
 
 test("the coordinator has no one-shot reply or execute decision route", async () => {
   const source = await readFile(new URL("../server/coordinator.js", import.meta.url), "utf8");
-  const tools = await readFile(new URL("../runtime/cothread-tools.mjs", import.meta.url), "utf8");
+  const tools = await readFile(new URL("../dsh-layer/cothread-tools.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(source, /decideDispatch|resolveCoordinatorDecision|decisionSchema/);
   assert.match(source, /runCoordinatorAgent/);
   assert.match(source, /runtime\.harness\.run/);
@@ -130,7 +133,7 @@ test("the coordinator has no one-shot reply or execute decision route", async ()
 
 test("stable L2 and L3 roles live only in the system prompt plugin", async () => {
   const [{ SYSTEM_PROMPTS }, coordinator, agent] = await Promise.all([
-    import("../runtime/cothread-plugin-registry.mjs"),
+    import("../dsh-layer/cothread-plugin-registry.mjs"),
     readFile(new URL("../server/coordinator.js", import.meta.url), "utf8"),
     readFile(new URL("../server/agent.js", import.meta.url), "utf8"),
   ]);

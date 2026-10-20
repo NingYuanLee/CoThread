@@ -1,9 +1,8 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { createServer } from "node:http";
 import { connect as netConnect } from "node:net";
-import { extname, resolve } from "node:path";
+import { extname } from "node:path";
 import { z } from "zod/v3";
 import { query } from "./db.js";
 import { HttpError } from "./service.js";
@@ -14,6 +13,7 @@ import {
   injectAdminRuntimeHtml,
   resolveMiniprogramRuntime,
 } from "./miniprogram-runtime-environment.js";
+import { CLOUD_BROWSER_SDK_ASSET, readCloudBrowserSdk } from "./cloud-backend.js";
 
 /**
  * Admin preview dev servers.
@@ -45,8 +45,6 @@ const HOP_BY_HOP = new Set([
 ]);
 
 const managedServers = new Map();
-const cloudbaseBrowserSdkPath = resolve(import.meta.dirname, "../public/sdk/cloudbase.esm.js");
-let cloudbaseBrowserSdk;
 const CONTENT_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -62,14 +60,6 @@ const CONTENT_TYPES = {
   ".woff": "font/woff",
   ".woff2": "font/woff2",
 };
-
-function getCloudbaseBrowserSdk() {
-  if (!cloudbaseBrowserSdk) {
-    cloudbaseBrowserSdk = readFileSync(cloudbaseBrowserSdkPath);
-    if (!cloudbaseBrowserSdk.length) throw new Error("CloudBase 浏览器 SDK bundle 为空");
-  }
-  return cloudbaseBrowserSdk;
-}
 
 export function normalizeDevServerPort(value) {
   const port = Number(value);
@@ -116,8 +106,8 @@ async function readAdminAssets(service, projectId) {
   }
   // The SDK is a platform runtime dependency. Keep it outside the Admin
   // source area so large bundles do not have to pass through write_source.
-  if (!assets.has("sdk/cloudbase.esm.js")) {
-    assets.set("sdk/cloudbase.esm.js", getCloudbaseBrowserSdk());
+  if (!assets.has(CLOUD_BROWSER_SDK_ASSET)) {
+    assets.set(CLOUD_BROWSER_SDK_ASSET, readCloudBrowserSdk());
   }
   if (!assets.has("index.html")) throw new HttpError(409, "Admin 根目录缺少 index.html");
   assets.set("index.html", injectAdminRuntimeHtml(assets.get("index.html"), runtimeConfig));
@@ -135,22 +125,67 @@ function listen(server, port) {
   return new Promise((resolve, reject) => {
     const fail = (error) => reject(error);
     server.once("error", fail);
-    server.listen(port || 0, "127.0.0.1", () => {
+    server.listen({ port: port || 0, host: "127.0.0.1", exclusive: true }, () => {
       server.off("error", fail);
       resolve(server.address().port);
     });
   });
 }
 
-/** Start or restart a server owned by CoThread and backed by the current Admin build. */
-export async function startMiniprogramDevServer(service, projectId, serverId = null) {
+async function otherPreviewHoldsPort(db, port, selfId) {
+  for (const [id, running] of managedServers) {
+    if (id === selfId) continue;
+    const address = typeof running.address === "function" ? running.address() : null;
+    if (address && Number(address.port) === Number(port)) return true;
+  }
+  const rows = await query(
+    db,
+    `SELECT id FROM miniprogram_dev_servers
+     WHERE port=? AND id<>? AND status IN ('starting','running') LIMIT 1`,
+    [port, selfId],
+  );
+  return rows.length > 0;
+}
+
+async function choosePreviewPort(db, server, port, selfId) {
+  const preferred = port && !(await otherPreviewHoldsPort(db, port, selfId)) ? Number(port) : 0;
+  if (!preferred) return listen(server, 0);
+  try {
+    return await listen(server, preferred);
+  } catch (error) {
+    if (error?.code !== "EADDRINUSE") throw error;
+    return listen(server, 0);
+  }
+}
+
+/**
+ * 这条预览已经在本进程里监听时直接交还，避免反复关掉自己再启动。
+ * 只有调用方明确要求重启时才回收自己的套接字；别人占着端口就换一个空端口。
+ */
+export async function startMiniprogramDevServer(service, projectId, serverId = null, options = {}) {
+  const force = options?.force === true;
   const id = serverId || randomUUID();
   const existing = serverId ? await readDevServer(service.db, projectId, serverId) : null;
+  if (!force && existing) {
+    const running = managedServers.get(existing.id);
+    const address = typeof running?.address === "function" ? running.address() : null;
+    if (address?.port) {
+      const runtime = await loadProjectMiniProgramRuntime(service, projectId);
+      const runtimeConfig = resolveMiniprogramRuntime(runtime, "admin_preview");
+      return {
+        id: existing.id,
+        port: address.port,
+        status: "running",
+        proxyBase: devServerProxyBase(projectId, existing.id),
+        restarted: false,
+        alreadyRunning: true,
+        environment: runtimeConfig.environment,
+        envId: runtimeConfig.cloudbase.envId,
+      };
+    }
+  }
   const { assets, spaFallback, runtimeConfig } = await readAdminAssets(service, projectId);
   await closeManagedServer(id);
-  if (existing && (await probeDevServer(existing.port, 400)).reachable) {
-    throw new HttpError(409, "该端口由外部任务进程占用，无法从这里重启；请先在原任务中停止服务");
-  }
   const proxyBase = devServerProxyBase(projectId, id);
   const server = createServer((req, res) => {
     let pathname = "/";
@@ -178,7 +213,7 @@ export async function startMiniprogramDevServer(service, projectId, serverId = n
     res.end(body);
   });
   try {
-    const port = await listen(server, existing?.port || 0);
+    const port = await choosePreviewPort(service.db, server, existing?.port || 0, id);
     managedServers.set(id, server);
     if (existing) {
       await query(
@@ -404,6 +439,27 @@ export async function touchDevServer(db, serverId) {
 }
 
 /** Stop servers nobody has looked at for too long. */
+/**
+ * 共序进程在宿主机启动或退出时调用一次：只关掉本进程托管的预览，
+ * 并把仍标记为启动中/运行中的记录改为已停止。不结束其它程序。
+ */
+export async function stopCoThreadPreviewServers(db) {
+  const rows = await query(
+    db,
+    "SELECT id FROM miniprogram_dev_servers WHERE status IN ('starting','running')",
+  );
+  await Promise.all(rows.map((row) => closeManagedServer(row.id)));
+  if (!rows.length) return 0;
+  const result = await query(
+    db,
+    `UPDATE miniprogram_dev_servers
+     SET status='stopped', stopped_at=UTC_TIMESTAMP(3),
+         last_error='共序进程重启，预览已停止'
+     WHERE status IN ('starting','running')`,
+  );
+  return Number(result?.affectedRows) || rows.length;
+}
+
 export async function recycleIdleDevServers(db, idleMs = DEV_SERVER_IDLE_MS) {
   const seconds = Math.max(30, Math.round(idleMs / 1000));
   const stale = await query(
@@ -483,10 +539,10 @@ export async function proxyDevServerRequest(service, projectId, serverId, req, r
   try {
     requestedPath = new URL(req.originalUrl || req.url || "/", "http://127.0.0.1").pathname;
   } catch {}
-  const sdkPath = `${devServerProxyBase(projectId, serverId)}sdk/cloudbase.esm.js`;
+  const sdkPath = `${devServerProxyBase(projectId, serverId)}${CLOUD_BROWSER_SDK_ASSET}`;
   const isSdkRequest = requestedPath === sdkPath;
   const servePlatformSdk = () => {
-    const body = getCloudbaseBrowserSdk();
+    const body = readCloudBrowserSdk();
     res.writeHead(200, {
       "Content-Type": "text/javascript; charset=utf-8",
       "Content-Length": body.length,

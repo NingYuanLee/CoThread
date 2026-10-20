@@ -13,15 +13,15 @@ export const mentions = (text, value) => {
   const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(^|[^\\p{L}\\p{N}_@])@${escaped}(?=$|[^\\p{L}\\p{N}_@])`, "u").test(text);
 };
-export function preferredConnectorJoin() {
+export function preferredLocalExecutorJoin() {
   return `LEFT JOIN (
     SELECT c.id, c.user_id, c.name, c.platform, c.version, c.last_seen_at,
       ROW_NUMBER() OVER (
         PARTITION BY c.user_id
-        ORDER BY IF(bp.connector_id IS NULL, 1, 0), c.last_seen_at DESC, c.created_at DESC, c.id
+        ORDER BY IF(bp.local_executor_id IS NULL, 1, 0), c.last_seen_at DESC, c.created_at DESC, c.id
       ) rn
-    FROM connectors c
-    LEFT JOIN connector_projects bp ON bp.connector_id = c.id AND bp.project_id = ?
+    FROM local_executors c
+    LEFT JOIN local_executor_projects bp ON bp.local_executor_id = c.id AND bp.project_id = ?
     WHERE c.revoked_at IS NULL
   ) c ON c.user_id = u.id AND c.rn = 1`;
 }

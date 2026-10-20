@@ -9,7 +9,8 @@ import { spawnSync } from "node:child_process";
 test("server assets resolve beside the module when cwd is outside the release", async () => {
   const root = await mkdtemp(join(tmpdir(), "cothread-assets-"));
   try {
-    const serverDir = join(root, "server"), assets = join(root, "runtime");
+    const serverDir = join(root, "server"),
+      assets = join(root, "dsh-layer");
     const elsewhere = join(root, "elsewhere");
     await mkdir(serverDir, { recursive: true });
     await mkdir(assets, { recursive: true });
@@ -17,10 +18,18 @@ test("server assets resolve beside the module when cwd is outside the release", 
     await writeFile(join(assets, "agent-patch.yml"), "x");
     const entry = join(serverDir, "assets.mjs");
     await copyFile(new URL("../server/assets.js", import.meta.url), entry);
-    const result = spawnSync(process.execPath, ["--input-type=module", "-e",
-      `import { assetPath } from ${JSON.stringify(pathToFileURL(entry).href)}; console.log(assetPath('runtime'));`],
-      { cwd: elsewhere, encoding: "utf8", timeout: 10000 });
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `import { assetPath } from ${JSON.stringify(pathToFileURL(entry).href)}; console.log(assetPath('dsh-layer'));`,
+      ],
+      { cwd: elsewhere, encoding: "utf8", timeout: 10000 },
+    );
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout.trim(), assets);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

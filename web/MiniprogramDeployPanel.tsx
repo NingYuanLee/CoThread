@@ -264,7 +264,7 @@ export function MiniprogramDeployPanel({
                   />
                   <span>
                     <strong>Admin 生产版</strong>
-                    <small>静态网站托管 · Admin 根目录</small>
+                    <small>CloudBase 静态网站托管 · Admin 根目录</small>
                   </span>
                 </label>
                 {releaseFunctions.map((item) => {
@@ -284,7 +284,7 @@ export function MiniprogramDeployPanel({
                       />
                       <span>
                         <strong>{item.name}</strong>
-                        <small>云函数 · {item.runtime || item.status}</small>
+                        <small>CloudBase 云函数 · {item.runtime || item.status}</small>
                       </span>
                     </label>
                   );
@@ -295,7 +295,7 @@ export function MiniprogramDeployPanel({
                   <dl className="miniprogram-meta">
                     <div>
                       <dt>发布方式</dt>
-                      <dd>静态网站托管</dd>
+                      <dd>CloudBase 静态网站托管</dd>
                     </div>
                     <div>
                       <dt>发布环境</dt>

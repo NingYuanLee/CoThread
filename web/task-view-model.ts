@@ -62,7 +62,7 @@ export function taskViewModel(
     }
     if (task.execution_agent_type === "human_self")
       return memberName(task.claimed_by_id || task.target_id) || "成员本人";
-    if (task.execution_agent_type === "human_connector") return "本地执行器";
+    if (task.execution_agent_type === "human_local_executor") return "本地执行器";
     if (task.target_type === "human_member") {
       if (task.status === "awaiting_acceptance") return "待责任成员确认";
       if (task.status === "pending_start") return "待本地执行器启动";
@@ -109,7 +109,7 @@ export function taskViewModel(
       );
     }
     if (run.executor_type === "human_self") return memberName(run.executor_id) || "成员本人";
-    if (run.executor_type === "human_connector") {
+    if (run.executor_type === "human_local_executor") {
       const ownerName =
         run.executor_member_name || run.executor_owner_name || memberName(task.target_id);
       return ownerName ? `${ownerName}（本地执行器）` : "本地执行器成员";
@@ -130,8 +130,8 @@ export function taskViewModel(
     if (event.actor_type === "human_member_mcp")
       return `${memberName(event.actor_id) || "成员"}（MCP）`;
     if (
-      event.actor_type === "human_member_connector_mcp" ||
-      event.actor_type === "human_member_connector"
+      event.actor_type === "human_member_local_executor_mcp" ||
+      event.actor_type === "human_member_local_executor"
     )
       return `${event.actor_name || memberName(event.actor_id) || memberName(task?.target_id) || "成员"}（本地执行器）`;
     if (event.actor_type === "l2_session") return "L2-小祥";
@@ -151,7 +151,7 @@ export function taskViewModel(
       }
       return "子 Agent";
     }
-    if (event.actor_type === "connector")
+    if (event.actor_type === "local_executor")
       return `${event.actor_name || memberName(task?.target_id) || "成员"}（本地执行器）`;
     return "系统";
   };

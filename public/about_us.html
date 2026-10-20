@@ -164,7 +164,7 @@
       <li><a href="#flow">流程</a></li>
       <li><a href="#arch">架构</a></li>
       <li><a href="#start">快速开始</a></li>
-      <li><a href="/docs.html">文档</a></li>
+      <li><a href="/docs.html">使用手册</a></li>
       <li><a class="cta" href="https://cothread.z2l.top">打开共序</a></li>
     </ul>
   </div>
@@ -183,7 +183,7 @@
     </p>
     <div class="btns">
       <a class="btn primary" href="https://cothread.z2l.top">打开线上工作台</a>
-      <a class="btn ghost" href="/docs.html">阅读文档</a>
+      <a class="btn ghost" href="/docs.html">阅读使用手册</a>
     </div>
     <div class="stats">
       <div class="stat"><b>三栏</b><span>迭代列表 · 群聊 · 文档浏览器</span></div>
@@ -217,7 +217,7 @@
         <p>项目下全迭代共享文档库。正式文件、对话缓存、任务产物分开放。产物保存为不可覆盖版本（SHA-256）；上传和 Agent 发布都不等于审批通过。确认后的缓存或产物要另存为正式文件，不随归档自动复制。</p>
       </div>
     </div>
-    <p class="note">本页是价值宣传。克隆仓库后的命令看 README；概念、工作台、MCP 与部署细则看 <a href="/docs.html">文档</a>。本页不接入后端，也不包含任何真实令牌或账号信息。</p>
+    <p class="note">本页是价值宣传。怎么使用看 <a href="/docs.html">使用手册</a>；克隆仓库后的命令和部署看 README。本页不接入后端，也不包含任何真实令牌或账号信息。</p>
   </section>
 
   <section id="workspace" class="wrap">
@@ -260,7 +260,7 @@
         <span class="tag">联动右侧栏</span>
       </div>
     </div>
-    <p class="note">细则（必回/可沉默规则、与右侧栏切换关系）见 <a href="/docs.html#dialogue-mode">文档 · 对话模式</a>。</p>
+    <p class="note">什么时候会接话、和右侧栏怎么联动，见 <a href="/docs.html#dialogue-mode">使用手册 · 对话模式</a>。</p>
   </section>
 
   <section id="cloudbase" class="wrap">
@@ -275,7 +275,7 @@
       <div class="step reveal"><div class="n">群聊</div><h3>与小祥协作</h3><p>云开发模式下 @ 小祥 可派子 Agent 改小程序相关文件并调用受控云开发工具（查库、写库、云函数、云存储等）。密钥不出群聊，只由服务端按项目配置解密使用。</p></div>
       <div class="step reveal"><div class="n">边界</div><h3>仍需本地工具的场景</h3><p>连接测试会校验 CloudBase 与预览码，不代替真机全部权限。复杂调试仍可用本地执行器 + 微信开发者工具；共序侧重资料、讨论与云端执行在同一工作台闭环。</p></div>
     </div>
-    <p class="note">逐步配置说明见 <a href="/docs.html#miniprogram">文档 · 小程序云开发</a>。</p>
+    <p class="note">逐步配置说明见 <a href="/docs.html#miniprogram">使用手册 · 小程序云开发</a>。</p>
   </section>
 
   <!-- 能力 -->
@@ -406,12 +406,12 @@
         <div class="kicker">Project layout</div>
         <pre><span class="c"># 项目结构</span>
 web/               React 工作台
-public/            静态页（关于我们、文档）
+public/            静态页（关于我们、使用手册）
 server/            HTTP API、权限、MCP、沙箱路由
-runtime/           DSH 运行时插件与 patch
+dsh-layer/         共序加在官方 DSH 上的定制层
 migrations/        版本化 MySQL 结构
 scripts/           迁移、ECS 发布与打包
-.local/            本机数据与密钥（不入库）</pre>
+.local/            本机数据与密钥，删除等于丢数据</pre>
         <ul class="list ok">
           <li>文档版本不可覆盖，消息引用精确到具体版本号</li>
           <li>归档先出方案，人确认后才锁定本轮并记录任务去向</li>
@@ -447,7 +447,7 @@ npm run dev
           <li><b>npm run app:start / app:stop</b>：Windows 下启动本地库并后台运行生产版</li>
           <li>安装 Docker 的机器可用 <b>compose.yaml</b>（mysql:8.4.9），但不要与便携版同时占用 3307</li>
         </ul>
-        <p class="note">细则、MCP 分片上传与部署步骤见 <a href="/docs.html">文档</a>。共序 MCP 由本地执行器在授权后写入 Cursor / Codex / Claude Code，无需手抄令牌。</p>
+        <p class="note">怎么把本机助手接上，见 <a href="/docs.html#local-executor">使用手册 · 本机助手</a>。授权后会写入 Cursor / Codex / Claude Code，无需手抄令牌。安装和部署看 README。</p>
       </div>
     </div>
   </section>
@@ -488,7 +488,7 @@ npm run dev
 <footer>
   <div class="wrap foot">
     <div><b>共序 CoThread</b> · 让每次讨论都有承接，让每个决定都有出处</div>
-    <div>价值宣传 · <a href="/docs.html" style="color:inherit">文档</a> · README 快捷使用 · <a href="https://cothread.z2l.top" style="color:inherit">cothread.z2l.top</a></div>
+    <div>价值宣传 · <a href="/docs.html" style="color:inherit">使用手册</a> · README 快捷使用 · <a href="https://cothread.z2l.top" style="color:inherit">cothread.z2l.top</a></div>
   </div>
 </footer>
 

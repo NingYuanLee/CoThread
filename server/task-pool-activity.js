@@ -36,9 +36,9 @@ export async function recordTaskStatusChange(conn, taskId, fromStatus, actor, re
   let actorName = null;
   if (
     [
-      "human_member_connector",
+      "human_member_local_executor",
       "human_member",
-      "human_member_connector_mcp",
+      "human_member_local_executor_mcp",
       "human_member_mcp",
     ].includes(actorType)
   ) {
@@ -55,7 +55,7 @@ export async function recordTaskStatusChange(conn, taskId, fromStatus, actor, re
   }
   await query(
     conn,
-    `INSERT INTO agent_task_status_events(task_id,from_status,to_status,actor_type,actor_id,actor_connector_id,actor_name_snapshot,reason)
+    `INSERT INTO agent_task_status_events(task_id,from_status,to_status,actor_type,actor_id,actor_local_executor_id,actor_name_snapshot,reason)
     VALUES(?,?,?,?,?,?,?,?)`,
     [
       taskId,
@@ -76,8 +76,8 @@ export async function listTaskStatusEvents(db, taskId) {
     db,
     `SELECT e.*,COALESCE(e.actor_name_snapshot,member_user.name,connector_user.name) actor_name
     FROM agent_task_status_events e
-    LEFT JOIN users member_user ON e.actor_type IN ('human_member','human_member_connector','human_member_mcp','human_member_connector_mcp') AND member_user.id=e.actor_id
-    LEFT JOIN connectors connector ON connector.id=COALESCE(e.actor_connector_id,IF(e.actor_type='connector',e.actor_id,NULL))
+    LEFT JOIN users member_user ON e.actor_type IN ('human_member','human_member_local_executor','human_member_mcp','human_member_local_executor_mcp') AND member_user.id=e.actor_id
+    LEFT JOIN local_executors connector ON connector.id=COALESCE(e.actor_local_executor_id,IF(e.actor_type='local_executor',e.actor_id,NULL))
     LEFT JOIN users connector_user ON connector_user.id=connector.user_id
     WHERE e.task_id=? ORDER BY e.id`,
     [taskId],
@@ -110,7 +110,7 @@ export async function listAssignmentEvents(db, taskId) {
     `SELECT e.*,COALESCE(member_user.name,connector_user.name) actor_name
     FROM agent_task_assignment_events e
     LEFT JOIN users member_user ON e.changed_by_type='human_member' AND member_user.id=e.changed_by_id
-    LEFT JOIN connectors connector ON e.changed_by_type='connector' AND connector.id=e.changed_by_id
+    LEFT JOIN local_executors connector ON e.changed_by_type='local_executor' AND connector.id=e.changed_by_id
     LEFT JOIN users connector_user ON connector_user.id=connector.user_id
     WHERE e.task_id=? ORDER BY e.id`,
     [taskId],
@@ -122,7 +122,7 @@ export async function listTaskExecutionRuns(db, taskId) {
     db,
     `SELECT r.*,owner.name executor_owner_name,member.name executor_member_name
     FROM agent_task_execution_runs r
-    LEFT JOIN connectors connector ON r.executor_type='human_connector' AND connector.id=r.executor_id
+    LEFT JOIN local_executors connector ON r.executor_type='human_local_executor' AND connector.id=r.executor_id
     LEFT JOIN users owner ON owner.id=COALESCE(r.executor_member_id,connector.user_id)
     LEFT JOIN users member ON member.id=r.executor_member_id
     WHERE r.task_id=? ORDER BY r.created_at DESC`,

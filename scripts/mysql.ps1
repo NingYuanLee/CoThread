@@ -94,7 +94,10 @@ function Test-MysqlPort {
   }
 }
 $alreadyRunning = Test-MysqlPort
-if (!$alreadyRunning) { Start-Process -FilePath $mysqld -ArgumentList "`"--defaults-file=$config`"" -WindowStyle Hidden }
+if (!$alreadyRunning) {
+  Write-Output '本机便携版 MySQL 未在 127.0.0.1:3307 监听，正在启动…'
+  Start-Process -FilePath $mysqld -ArgumentList "`"--defaults-file=$config`"" -WindowStyle Hidden
+}
 $ready = $false
 for ($i = 0; $i -lt 30; $i++) {
   if (Test-MysqlPort) { $ready = $true; break }

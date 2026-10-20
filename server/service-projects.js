@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { ensureProjectLibraryRoots } from "./documents/index.js";
-import { fail, id, title, preferredConnectorJoin } from "./service-support.js";
+import { fail, id, title, preferredLocalExecutorJoin } from "./service-support.js";
 
 export async function projectChangeOperation(
   service,
@@ -199,12 +199,12 @@ export async function projectOperation(
   const membersQuery = query(
     service.db,
     `SELECT u.id,u.user_number,u.username,u.name,COALESCE(u.username,u.email) email,u.email bound_email,${display ? "CONCAT('/api/projects/',m.project_id,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) avatar" : "u.avatar"},u.motto,u.identity_tags,m.role,
-        c.id connector_id,c.name connector_name,c.platform connector_platform,c.version connector_version,c.last_seen_at connector_last_seen_at,
-        CASE WHEN c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND) THEN 1 ELSE 0 END connector_online,
-        CASE WHEN cp.connector_id IS NULL THEN 0 ELSE 1 END connector_bound
+        c.id local_executor_id,c.name local_executor_name,c.platform local_executor_platform,c.version local_executor_version,c.last_seen_at local_executor_last_seen_at,
+        CASE WHEN c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND) THEN 1 ELSE 0 END local_executor_online,
+        CASE WHEN cp.local_executor_id IS NULL THEN 0 ELSE 1 END local_executor_bound
        FROM members m JOIN users u ON u.id=m.user_id
-       ${preferredConnectorJoin()}
-       LEFT JOIN connector_projects cp ON cp.connector_id=c.id AND cp.project_id=m.project_id
+       ${preferredLocalExecutorJoin()}
+       LEFT JOIN local_executor_projects cp ON cp.local_executor_id=c.id AND cp.project_id=m.project_id
        WHERE m.project_id=?`,
     [projectId, projectId],
   );
@@ -240,27 +240,27 @@ export async function projectOperation(
     members: [
       ...members.map((row) => {
         const {
-          connector_id,
-          connector_name,
-          connector_platform,
-          connector_version,
-          connector_last_seen_at,
-          connector_online,
-          connector_bound,
+          local_executor_id,
+          local_executor_name,
+          local_executor_platform,
+          local_executor_version,
+          local_executor_last_seen_at,
+          local_executor_online,
+          local_executor_bound,
           ...member
         } = row;
         return {
           ...member,
           kind: "human",
-          connector: connector_id
+          localExecutor: local_executor_id
             ? {
-                id: connector_id,
-                name: connector_name,
-                platform: connector_platform,
-                version: connector_version,
-                online: !!Number(connector_online),
-                bound: !!Number(connector_bound),
-                lastSeenAt: connector_last_seen_at,
+                id: local_executor_id,
+                name: local_executor_name,
+                platform: local_executor_platform,
+                version: local_executor_version,
+                online: !!Number(local_executor_online),
+                bound: !!Number(local_executor_bound),
+                lastSeenAt: local_executor_last_seen_at,
               }
             : null,
         };

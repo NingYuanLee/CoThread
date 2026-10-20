@@ -41,6 +41,8 @@ test("context accounting excludes already retained discussion and native replies
   assert.ok(usage.used > 200);
   assert.equal(usage.categories.find((c) => c.key === "summary").tokens, 50);
   assert.equal(contextUsage(null, [], []).used, 0);
+  assert.deepEqual(pendingMessages(undefined, 0, undefined), []);
+  assert.deepEqual(pendingMessages(null, 0, null), []);
 });
 
 test(
@@ -96,19 +98,10 @@ test(
     const patch = join(home, "test.yml");
     await writeFile(
       patch,
-      `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n    - id: test-sdk-server\n      name: ${JSON.stringify(pathToFileURL(resolve("runtime/sdk-resume.mjs")).href)}\n      inject: [sdkAppStartup, loader]\n    - id: project-tools\n      name: ${JSON.stringify(pathToFileURL(resolve("runtime/cothread-tools.mjs")).href)}\n- id: llm-deepseek\n  config:\n    baseURL: 'http://127.0.0.1:${server.address().port}/v1'\n    apiKeyEnv: COTHREAD_TEST_KEY\n    defaultContextWindow: ${CONTEXT_LIMIT}\n    maxTokens: 8192\n    models: [{id: context-test, contextWindow: ${CONTEXT_LIMIT}}]\n`,
+      `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n    - id: test-sdk-server\n      name: ${JSON.stringify(pathToFileURL(resolve("dsh-layer/sdk-resume.mjs")).href)}\n      inject: [sdkAppStartup, loader]\n    - id: project-tools\n      name: ${JSON.stringify(pathToFileURL(resolve("dsh-layer/cothread-tools.mjs")).href)}\n- id: llm-deepseek\n  config:\n    baseURL: 'http://127.0.0.1:${server.address().port}/v1'\n    apiKeyEnv: COTHREAD_TEST_KEY\n    defaultContextWindow: ${CONTEXT_LIMIT}\n    maxTokens: 8192\n    models: [{id: context-test, contextWindow: ${CONTEXT_LIMIT}}]\n`,
     );
     const env = {};
-    for (const key of [
-      "SystemRoot",
-      "WINDIR",
-      "PATH",
-      "Path",
-      "TEMP",
-      "TMP",
-      "COMSPEC",
-      "PATHEXT",
-    ])
+    for (const key of ["SystemRoot", "WINDIR", "PATH", "Path", "TEMP", "TMP", "COMSPEC", "PATHEXT"])
       if (process.env[key]) env[key] = process.env[key];
     const make = (resume = "") =>
       new DeepSeekHarness({
@@ -116,7 +109,7 @@ test(
         dshHome: home,
         cwd: home,
         processCwd: home,
-        patches: [resolve("runtime/agent-patch.yml"), patch],
+        patches: [resolve("dsh-layer/agent-patch.yml"), patch],
         env: {
           ...env,
           HOME: home,
@@ -131,11 +124,7 @@ test(
     let harness = make();
     const sessionId = randomUUID();
     const request = (method, params = {}) =>
-      harness.client.request(
-        `cothread/${method}`,
-        { sessionId, ...params },
-        60000,
-      );
+      harness.client.request(`cothread/${method}`, { sessionId, ...params }, 60000);
     try {
       await harness.start();
       await request("observe", { messages: ["短会话，不需要压缩。"] });
@@ -146,10 +135,7 @@ test(
       assert.equal(requests.length, 0, "short contexts must not make a wasteful summary request");
       assert.deepEqual(await request("history"), shortHistory);
       await request("observe", {
-        messages: [
-          "项目代号 ALPHA。" + "old discussion ".repeat(24000),
-          "最新问题：验证方案。",
-        ],
+        messages: ["项目代号 ALPHA。" + "old discussion ".repeat(24000), "最新问题：验证方案。"],
       });
       const before = await request("context");
       assert.ok(before.used > 64000);
@@ -181,10 +167,7 @@ test(
       assert.equal(isolated.used, 0);
 
       await request("observe", {
-        messages: Array.from(
-          { length: 21 },
-          (_, i) => `${i}: ` + "history ".repeat(22500),
-        ),
+        messages: Array.from({ length: 21 }, (_, i) => `${i}: ` + "history ".repeat(22500)),
       });
       const pressure = await request("context");
       assert.ok(pressure.used >= AUTO_COMPACT_AT, String(pressure.used));
@@ -208,9 +191,7 @@ test(
         "compacted history must be used on the next model call",
       );
       await request("observe", {
-        messages: Array.from({ length: 21 }, () =>
-          "more history ".repeat(15000),
-        ),
+        messages: Array.from({ length: 21 }, () => "more history ".repeat(15000)),
       });
       assert.ok((await request("context")).used >= AUTO_COMPACT_AT);
       await harness.run("继续第二轮", { sessionId });
@@ -228,27 +209,42 @@ test(
       void running.catch(gate.entered.reject);
       await gate.entered.promise;
       try {
-        const payload = { mode: "steer", messages: [{ id: "correction-1", text: "LATEST_REQUIREMENT_B" }] };
+        const payload = {
+          mode: "steer",
+          messages: [{ id: "correction-1", text: "LATEST_REQUIREMENT_B" }],
+        };
         assert.deepEqual((await request("updates", payload)).accepted, ["correction-1"]);
         assert.deepEqual((await request("updates", payload)).accepted, ["correction-1"]);
-      } finally { gate.release.resolve(); }
+      } finally {
+        gate.release.resolve();
+      }
       await running;
       const steeredRequest = JSON.stringify(requests.at(-1).messages);
       assert.ok(steeredRequest.includes("LATEST_REQUIREMENT_B"));
       assert.equal(steeredRequest.split("LATEST_REQUIREMENT_B").length - 1, 1);
-      assert.deepEqual((await request("updates", { mode: "steer", messages: [{ id: "late-idle", text: "late" }] })).accepted, []);
+      assert.deepEqual(
+        (await request("updates", { mode: "steer", messages: [{ id: "late-idle", text: "late" }] }))
+          .accepted,
+        [],
+      );
       const childId = randomUUID();
       await harness.client.request("cothread/seed", {
-        sessionId: childId, messages: await request("history"),
+        sessionId: childId,
+        messages: await request("history"),
       });
       const childHistory = await harness.client.request("cothread/history", { sessionId: childId });
-      assert.ok(JSON.stringify(childHistory).includes("ALPHA"), "child inherits the retained summary without rereading the discussion");
+      assert.ok(
+        JSON.stringify(childHistory).includes("ALPHA"),
+        "child inherits the retained summary without rereading the discussion",
+      );
       await request("observe", {
         autoCompact: true,
         messages: Array.from({ length: 21 }, () => "member discussion ".repeat(12000)),
       });
-      assert.ok((await request("context")).used < AUTO_COMPACT_AT,
-        "observing new member messages triggers compaction before any reply is requested");
+      assert.ok(
+        (await request("context")).used < AUTO_COMPACT_AT,
+        "observing new member messages triggers compaction before any reply is requested",
+      );
     } finally {
       await harness.close();
       await new Promise((done) => server.close(done));

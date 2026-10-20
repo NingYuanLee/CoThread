@@ -1,12 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Readable, Writable } from "node:stream";
 import { createServer } from "node:http";
 import { testDatabase } from "./database.js";
+import "./miniprogram-ready.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
-import { saveProjectMiniProgramConfig, saveProjectMiniProgramSecret } from "../server/miniprogram-config.js";
+import {
+  saveProjectMiniProgramConfig,
+  saveProjectMiniProgramSecret,
+} from "../server/miniprogram-config.js";
 import { publishMiniprogramSourceFile } from "../server/miniprogram-workspace.js";
 import {
   devServerProxyBase,
@@ -41,22 +46,28 @@ async function seed(database, { enabled = true } = {}) {
     cloudbaseEnvs: { development: { envId: "dev-env-admin" } },
   });
   if (enabled) {
-    await saveProjectMiniProgramSecret(service, user, project.id, "wechat_upload_key", { value: "test-key" });
+    await saveProjectMiniProgramSecret(service, user, project.id, "wechat_upload_key", {
+      value: "test-key",
+    });
     await saveProjectMiniProgramSecret(service, user, project.id, "cloudbase_credential", {
       value: JSON.stringify({ secretId: "AKIDtest000000", secretKey: "test-key" }),
     });
-    await query(database.db,
+    await query(
+      database.db,
       "UPDATE project_miniprogram_config SET last_verified_at=UTC_TIMESTAMP(3),last_verify_error=NULL WHERE project_id=?",
-      [project.id]);
+      [project.id],
+    );
   }
   return { user, service, project };
 }
 
 async function registerListeningServer(service, user, projectId, port) {
   // Model a task-owned listener surviving a page/service restart.
-  await query(service.db,
+  await query(
+    service.db,
     "INSERT INTO miniprogram_dev_servers(id,project_id,port,status) VALUES(?,?,?,'stopped')",
-    [randomUUID(), projectId, port]);
+    [randomUUID(), projectId, port],
+  );
   return registerMiniprogramDevServer(service, user, projectId, { port });
 }
 
@@ -75,7 +86,9 @@ class FakeResponse extends Writable {
   }
   writeHead(code, headers) {
     this.statusCode = code;
-    this.headers = Object.fromEntries(Object.entries(headers || {}).map(([key, value]) => [key.toLowerCase(), value]));
+    this.headers = Object.fromEntries(
+      Object.entries(headers || {}).map(([key, value]) => [key.toLowerCase(), value]),
+    );
     this.headersSent = true;
     return this;
   }
@@ -240,10 +253,14 @@ test("managed Admin preview can start, restart and stop a real server", async ()
     assert.ok(fallback.bodyBuffer.length > 1_000_000);
     const projectSdk = Buffer.from("// project bundle\nexport default { init() {} };\n");
     await publishMiniprogramSourceFile(database.db, user, project.id, {
-      area: "miniprogram_admin", path: "sdk/cloudbase.esm.js", content: projectSdk,
+      area: "miniprogram_admin",
+      path: "sdk/cloudbase.esm.js",
+      content: projectSdk,
     });
 
-    const restarted = await startMiniprogramDevServer(service, project.id, started.id);
+    const restarted = await startMiniprogramDevServer(service, project.id, started.id, {
+      force: true,
+    });
     assert.equal(restarted.restarted, true);
     assert.equal(restarted.status, "running");
     assert.equal((await probeDevServer(restarted.port)).reachable, true);
@@ -258,6 +275,126 @@ test("managed Admin preview can start, restart and stop a real server", async ()
   }
 });
 
+test("restart leaves another process on the old port and binds a new one", async () => {
+  const database = await testDatabase();
+  let squatter = null;
+  let serverId = null;
+  let service = null;
+  let projectId = null;
+  try {
+    const seeded = await seed(database);
+    service = seeded.service;
+    projectId = seeded.project.id;
+    await publishMiniprogramSourceFile(database.db, seeded.user, projectId, {
+      area: "miniprogram_admin",
+      path: "index.html",
+      content: Buffer.from("<!doctype html><h1>managed admin preview</h1>"),
+      mime: "text/html",
+    });
+    const started = await startMiniprogramDevServer(service, projectId);
+    serverId = started.id;
+    await stopMiniprogramDevServer(service, projectId, serverId);
+    squatter = spawn(
+      process.execPath,
+      [
+        "-e",
+        "require('http').createServer((q,r)=>r.end('squatter')).listen(" +
+          started.port +
+          ",'127.0.0.1')",
+      ],
+      { stdio: "ignore" },
+    );
+    let occupied = false;
+    for (let i = 0; i < 40; i += 1) {
+      if ((await probeDevServer(started.port, 200)).reachable) {
+        occupied = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(occupied, true);
+    const restarted = await startMiniprogramDevServer(service, projectId, serverId);
+    assert.notEqual(restarted.port, started.port);
+    assert.equal(squatter.exitCode, null);
+    const squatterPage = await probeDevServer(started.port, 400);
+    assert.equal(squatterPage.reachable, true);
+    const page = new FakeResponse();
+    await proxyDevServerRequest(
+      service,
+      projectId,
+      serverId,
+      fakeRequest(restarted.proxyBase),
+      page,
+    );
+    assert.match(page.bodyBuffer.toString("utf8"), /managed admin preview/);
+    assert.equal((await probeDevServer(restarted.port)).reachable, true);
+  } finally {
+    if (squatter && squatter.exitCode == null && !squatter.killed) squatter.kill();
+    if (service && serverId) {
+      await stopMiniprogramDevServer(service, projectId, serverId).catch(() => {});
+    }
+    await database.close();
+  }
+});
+test("restarting one project does not take another project's preview port", async () => {
+  const database = await testDatabase();
+  let service = null;
+  let firstId = null;
+  let secondId = null;
+  let firstProject = null;
+  let secondProject = null;
+  try {
+    const seeded = await seed(database);
+    service = seeded.service;
+    const user = seeded.user;
+    firstProject = seeded.project.id;
+    const second = await service.createProject(user, { name: "项目乙" });
+    secondProject = second.id;
+    await saveProjectMiniProgramConfig(service, user, secondProject, {
+      enabled: true,
+      appId: VALID_APP_ID,
+      cloudbaseEnvs: { development: { envId: "dev-env-admin" } },
+    });
+    await saveProjectMiniProgramSecret(service, user, secondProject, "wechat_upload_key", {
+      value: "test-key",
+    });
+    await saveProjectMiniProgramSecret(service, user, secondProject, "cloudbase_credential", {
+      value: JSON.stringify({ secretId: "AKIDtest000000", secretKey: "test-key" }),
+    });
+    await query(
+      database.db,
+      "UPDATE project_miniprogram_config SET last_verified_at=UTC_TIMESTAMP(3),last_verify_error=NULL WHERE project_id=?",
+      [secondProject],
+    );
+    for (const projectId of [firstProject, secondProject]) {
+      await publishMiniprogramSourceFile(database.db, user, projectId, {
+        area: "miniprogram_admin",
+        path: "index.html",
+        content: Buffer.from("<!doctype html><h1>" + projectId + "</h1>"),
+        mime: "text/html",
+      });
+    }
+    const startedA = await startMiniprogramDevServer(service, firstProject);
+    firstId = startedA.id;
+    const startedB = await startMiniprogramDevServer(service, secondProject);
+    secondId = startedB.id;
+    assert.notEqual(startedA.port, startedB.port);
+    await query(database.db, "UPDATE miniprogram_dev_servers SET port=? WHERE id=?", [
+      startedB.port,
+      firstId,
+    ]);
+    const restarted = await startMiniprogramDevServer(service, firstProject, firstId);
+    assert.notEqual(restarted.port, startedB.port);
+    assert.equal((await probeDevServer(startedB.port)).reachable, true);
+    assert.equal((await probeDevServer(restarted.port)).reachable, true);
+  } finally {
+    if (service && firstId)
+      await stopMiniprogramDevServer(service, firstProject, firstId).catch(() => {});
+    if (service && secondId)
+      await stopMiniprogramDevServer(service, secondProject, secondId).catch(() => {});
+    await database.close();
+  }
+});
 test("idle dev servers are recycled and marked stopped", async () => {
   const database = await testDatabase();
   const db = database.db;
@@ -396,19 +533,34 @@ test("the Admin proxy falls back for missing SDKs and preserves project SDK byte
       assert.equal(response.headers["x-cothread-runtime-asset"], "cloudbase-js-sdk");
       missingStatus = 404;
       const notFound = new FakeResponse();
-      await proxyDevServerRequest(service, project.id, registered.id,
-        fakeRequest(`${registered.proxyBase}sdk/cloudbase.esm.js`), notFound);
+      await proxyDevServerRequest(
+        service,
+        project.id,
+        registered.id,
+        fakeRequest(`${registered.proxyBase}sdk/cloudbase.esm.js`),
+        notFound,
+      );
       assert.deepEqual(notFound.bodyBuffer, response.bodyBuffer);
       missingStatus = 503;
       const unavailable = new FakeResponse();
-      await proxyDevServerRequest(service, project.id, registered.id,
-        fakeRequest(`${registered.proxyBase}sdk/cloudbase.esm.js`), unavailable);
+      await proxyDevServerRequest(
+        service,
+        project.id,
+        registered.id,
+        fakeRequest(`${registered.proxyBase}sdk/cloudbase.esm.js`),
+        unavailable,
+      );
       assert.equal(unavailable.statusCode, 503);
       assert.equal(unavailable.headers["x-cothread-runtime-asset"], undefined);
       sdkBody = Buffer.from("// project build\r\nexport default { init() {} };\r\n");
       const projectResponse = new FakeResponse();
-      await proxyDevServerRequest(service, project.id, registered.id,
-        fakeRequest(`${registered.proxyBase}sdk/cloudbase.esm.js?build=original`), projectResponse);
+      await proxyDevServerRequest(
+        service,
+        project.id,
+        registered.id,
+        fakeRequest(`${registered.proxyBase}sdk/cloudbase.esm.js?build=original`),
+        projectResponse,
+      );
       assert.deepEqual(projectResponse.bodyBuffer, sdkBody);
       assert.equal(projectResponse.headers["x-cothread-runtime-asset"], undefined);
     } finally {
@@ -444,9 +596,13 @@ test("a dead dev server port reports 502 instead of hanging", async () => {
     assert.match(res.body.error, /无法连接开发服务器/);
     let row;
     for (let attempt = 0; attempt < 20; attempt += 1) {
-      [row] = await query(database.db, "SELECT status,last_error FROM miniprogram_dev_servers WHERE id=?", [registered.id]);
+      [row] = await query(
+        database.db,
+        "SELECT status,last_error FROM miniprogram_dev_servers WHERE id=?",
+        [registered.id],
+      );
       if (row.status === "failed") break;
-      await new Promise(resolve => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 20));
     }
     assert.equal(row.status, "failed");
     assert.match(row.last_error, /代理失败/);

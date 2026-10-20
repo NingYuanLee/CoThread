@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
-import { capabilityProfile, pluginManagementLevel } from "../runtime/cothread-plugin-registry.mjs";
+import {
+  capabilityProfile,
+  pluginManagementLevel,
+} from "../dsh-layer/cothread-plugin-registry.mjs";
 
 const levels = ["l1", "l2", "l3"];
 const levelSchema = z.enum(levels);

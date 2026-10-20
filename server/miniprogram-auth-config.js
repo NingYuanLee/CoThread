@@ -1,5 +1,6 @@
 import { z } from "zod/v3";
 import { query } from "./db.js";
+import { decryptToken, encryptToken } from "./credential-vault.js";
 import { HttpError } from "./service.js";
 
 const environmentSchema = z.enum(["development", "production"]);
@@ -28,13 +29,13 @@ function readiness(ready, missing = []) {
 async function contextFor(db, projectId, environment) {
   const [project] = await query(
     db,
-    "SELECT app_id,cloudbase_envs FROM project_miniprogram_config WHERE project_id=?",
+    `SELECT a.app_id, c.cloudbase_envs FROM project_miniprogram_config c LEFT JOIN project_miniprogram_apps a ON a.project_id=c.project_id AND a.role='main' WHERE c.project_id=?`,
     [projectId],
   );
   const cloudbaseEnvs = parseJson(project?.cloudbase_envs, {});
   const [auth] = await query(
     db,
-    "SELECT cloudbase_publishable_key FROM project_miniprogram_auth_config WHERE project_id=? AND environment=?",
+    "SELECT cloudbase_publishable_key,cloudbase_server_api_key FROM project_miniprogram_auth_config WHERE project_id=? AND environment=?",
     [projectId, environment],
   );
   return {
@@ -61,6 +62,7 @@ function configView(projectId, environment, row, context) {
       appId: context.appId,
       cloudbaseEnvId: context.cloudbaseEnvId,
       publishableKey: context.publishableKey,
+      serverApiKeyConfigured: Boolean(row?.cloudbase_server_api_key),
       readiness: readiness(baseMissing.length === 0, baseMissing),
     },
     admin: {
@@ -77,7 +79,7 @@ export async function readMiniprogramAuthConfig(service, actor, projectId, input
   const [row] = await query(
     service.db,
     `SELECT miniprogram_wechat_phone,updated_at
-       ,cloudbase_publishable_key
+       ,cloudbase_publishable_key,cloudbase_server_api_key
      FROM project_miniprogram_auth_config WHERE project_id=? AND environment=?`,
     [projectId, environment],
   );
@@ -145,8 +147,31 @@ export async function readMiniprogramAuthRuntime(db, projectId) {
   return result;
 }
 
+async function storedServerApiKey(projectId, key) {
+  if (key == null || key === "") return null;
+  return encryptToken(String(key), "project:" + projectId);
+}
+
 /** Persist or clear one environment's Publishable Key without changing auth policy. */
-export async function saveMiniprogramPublishableKey(db, projectId, environment, key, updatedBy = null) {
+export async function readEnvironmentServerApiKey(db, projectId, environment) {
+  const parsedEnvironment = environmentSchema.parse(environment);
+  const [row] = await query(
+    db,
+    "SELECT cloudbase_server_api_key FROM project_miniprogram_auth_config WHERE project_id=? AND environment=?",
+    [projectId, parsedEnvironment],
+  );
+  if (!row?.cloudbase_server_api_key) return null;
+  return decryptToken(row.cloudbase_server_api_key, "project:" + projectId);
+}
+
+export async function saveMiniprogramPublishableKey(
+  db,
+  projectId,
+  environment,
+  key,
+  updatedBy = null,
+  serverApiKey,
+) {
   const parsedEnvironment = environmentSchema.parse(environment);
   const publishableKey = z.string().trim().min(1).max(16384).nullable().parse(key);
   await query(
@@ -157,18 +182,49 @@ export async function saveMiniprogramPublishableKey(db, projectId, environment, 
      VALUES(?,?,0,?,0,0,0,?,?,?)
      ON DUPLICATE KEY UPDATE cloudbase_publishable_key=VALUES(cloudbase_publishable_key),
        updated_by=VALUES(updated_by),updated_at=UTC_TIMESTAMP(3)`,
-    [projectId, parsedEnvironment, publishableKey, JSON.stringify({ channel: "default", dailyLimit: -1 }), JSON.stringify({ scope: "snsapi_userinfo" }), updatedBy],
+    [
+      projectId,
+      parsedEnvironment,
+      publishableKey,
+      JSON.stringify({ channel: "default", dailyLimit: -1 }),
+      JSON.stringify({ scope: "snsapi_userinfo" }),
+      updatedBy,
+    ],
   );
+  if (serverApiKey !== undefined) {
+    const stored =
+      serverApiKey == null || serverApiKey === ""
+        ? null
+        : await encryptToken(String(serverApiKey), "project:" + projectId);
+    await query(
+      db,
+      "UPDATE project_miniprogram_auth_config SET cloudbase_server_api_key=?,updated_at=UTC_TIMESTAMP(3) WHERE project_id=? AND environment=?",
+      [stored, projectId, parsedEnvironment],
+    );
+  }
   return publishableKey;
 }
 
 /** Update the L3-controlled mini-program phone-auth policy for one environment. */
-export async function setMiniprogramPhoneAuthForAgent(db, projectId, environment, enabled, updatedBy = null) {
+export async function setMiniprogramPhoneAuthForAgent(
+  db,
+  projectId,
+  environment,
+  enabled,
+  updatedBy = null,
+) {
   const parsedEnvironment = environmentSchema.parse(environment);
-  const [project] = await query(db, "SELECT app_id,cloudbase_envs FROM project_miniprogram_config WHERE project_id=?", [projectId]);
+  const [project] = await query(
+    db,
+    "SELECT a.app_id, c.cloudbase_envs FROM project_miniprogram_config c LEFT JOIN project_miniprogram_apps a ON a.project_id=c.project_id AND a.role='main' WHERE c.project_id=?",
+    [projectId],
+  );
   const envs = parseJson(project?.cloudbase_envs, {});
-  const envId = envs?.[parsedEnvironment]?.envId || (parsedEnvironment === "production" ? envs?.development?.envId : null);
-  if (enabled && (!project?.app_id || !envId)) throw new HttpError(400, "开启手机号授权前请先配置小程序 AppID 和 CloudBase 环境");
+  const envId =
+    envs?.[parsedEnvironment]?.envId ||
+    (parsedEnvironment === "production" ? envs?.development?.envId : null);
+  if (enabled && (!project?.app_id || !envId))
+    throw new HttpError(400, "开启手机号授权前请先配置小程序 AppID 和 CloudBase 环境");
   await query(
     db,
     `INSERT INTO project_miniprogram_auth_config
@@ -177,7 +233,14 @@ export async function setMiniprogramPhoneAuthForAgent(db, projectId, environment
      VALUES(?,?,?,NULL,0,0,0,?,?,?)
      ON DUPLICATE KEY UPDATE miniprogram_wechat_phone=VALUES(miniprogram_wechat_phone),
        updated_by=VALUES(updated_by),updated_at=UTC_TIMESTAMP(3)`,
-    [projectId, parsedEnvironment, enabled ? 1 : 0, JSON.stringify({ channel: "default", dailyLimit: -1 }), JSON.stringify({ scope: "snsapi_userinfo" }), updatedBy],
+    [
+      projectId,
+      parsedEnvironment,
+      enabled ? 1 : 0,
+      JSON.stringify({ channel: "default", dailyLimit: -1 }),
+      JSON.stringify({ scope: "snsapi_userinfo" }),
+      updatedBy,
+    ],
   );
   return { environment: parsedEnvironment, phoneAuth: Boolean(enabled), envId };
 }

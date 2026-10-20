@@ -37,7 +37,11 @@ import {
   assertExternalAdmitted,
   isExecutorEpochLost,
 } from "./executor-fence.js";
-import { CHAT_DIALOGUE_STEERING, CLOUDBASE_DIALOGUE_STEERING } from "../shared/dialogue-mode.js";
+import {
+  CHAT_DIALOGUE_STEERING,
+  CLOUDBASE_DIALOGUE_STEERING,
+  MINIPROGRAM_DIALOGUE_STEERING,
+} from "../shared/dialogue-mode.js";
 
 const brief = (value, limit = 1200) => (typeof value === "string" ? value.slice(0, limit) : null);
 const parseRefs = (value) => (typeof value === "string" ? JSON.parse(value) : value || []);
@@ -431,7 +435,7 @@ ${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己�
 请根据结果向成员回报；也可 inspect_task 或 send_message 追问仍在跑的子 Agent，拿到回复后决定帮一把还是换人。${startedNote}${dispatchInstruction}不要推给平台，不要在沙箱写 SQL。先说话再行动。做完就停。`
           : `当前项目：${context.project_id}；当前迭代：${job.thread_id}；触发消息：${job.message_id}。
 本次唤醒：成员消息。上下文：${JSON.stringify(context.promptContext || context)}
-${job.dialogue_mode === "cloudbase" ? `${CLOUDBASE_DIALOGUE_STEERING}\n` : ""}${job.dialogue_mode === "chat" ? `${CHAT_DIALOGUE_STEERING}\n` : ""}先用可见正文回应理解或答复；催进度时 inspect_task 或 send_message 问子 Agent，拿到回复再决定帮一把还是换人。Ask 辅助任务没有空闲子 Agent 就不要 create_task，自己处理。沙箱 formal 无空闲子 Agent 可先建成 pending_assignment；有空闲则创建为执行中，create_task 会尽量在同一次调用内启动并绑定子 Agent。若 create_task 仍返回 needsDispatch=true 且无 execution_agent_id，请在同一轮立刻 dsh_l3，prompt 第一行写 TASK_ID。见到 execution_agent_id 之前不要说已经派人。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。做完就停。`;
+${job.dialogue_mode === "miniprogram" ? `${MINIPROGRAM_DIALOGUE_STEERING}\n` : ""}${job.dialogue_mode === "cloudbase" ? `${CLOUDBASE_DIALOGUE_STEERING}\n` : ""}${job.dialogue_mode === "chat" ? `${CHAT_DIALOGUE_STEERING}\n` : ""}先用可见正文回应理解或答复；催进度时 inspect_task 或 send_message 问子 Agent，拿到回复再决定帮一把还是换人。Ask 辅助任务没有空闲子 Agent 就不要 create_task，自己处理。沙箱 formal 无空闲子 Agent 可先建成 pending_assignment；有空闲则创建为执行中，create_task 会尽量在同一次调用内启动并绑定子 Agent。若 create_task 仍返回 needsDispatch=true 且无 execution_agent_id，请在同一轮立刻 dsh_l3，prompt 第一行写 TASK_ID。见到 execution_agent_id 之前不要说已经派人。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。做完就停。`;
     const steeredMessageIds = new Set();
     const mergedMessageIds = new Set();
     let steeringBusy = false;
@@ -1148,6 +1152,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
       "UPDATE agent_sessions SET steering_epoch=steering_epoch+1,task_revision=task_revision+1,last_processed_sequence=?,convergence_state='active',replanning_count=0,wait_reason=NULL,convergence_until=NULL WHERE thread_id=?",
       [job.sequence, job.thread_id],
     );
+    // Idle wakes do not reload discussion, but runtime ingest always filters these arrays.
     const context =
       job.kind === "l3_idle"
         ? {
@@ -1155,6 +1160,8 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
             title: thread.title,
             background: thread.background || "",
             goal: thread.goal || "",
+            messages: [],
+            replies: [],
           }
         : await dispatchContext(db, thread, job);
     const loaded = performance.now();

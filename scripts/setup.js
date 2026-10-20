@@ -3,6 +3,10 @@ import { randomBytes } from "node:crypto";
 import { parseEnv } from "node:util";
 import { writeLocalAdminFiles, ensureLoginMemoFromJson } from "./local-admin-files.js";
 await mkdir(".local", { recursive: true });
+await writeFile(
+  ".local/请勿删除.txt",
+  "本目录是本机 MySQL 数据、沙箱、密钥和初始管理员。删除等于丢数据。不入库。\n",
+);
 try {
   await readFile(".env");
   await ensureLoginMemoFromJson();
@@ -41,15 +45,19 @@ try {
   await writeLocalAdminFiles({ email: "admin@cothread.local", password: adminPassword });
   const modelDefaults = {};
   const baselineValue = (field) =>
-    source[`MODEL_${field}`] || source[`COORDINATOR_MODEL_${field}`] || source[`EXECUTOR_MODEL_${field}`] || "";
+    source[`MODEL_${field}`] ||
+    source[`COORDINATOR_MODEL_${field}`] ||
+    source[`EXECUTOR_MODEL_${field}`] ||
+    "";
   // MODEL_* is the shared runtime route (L2 + L3); KNOWLEDGE_MODEL_* overrides
   // it for L1. Legacy COORDINATOR_*/EXECUTOR_* values migrate into the baseline.
   for (const prefix of ["MODEL", "KNOWLEDGE_MODEL"]) {
     for (const field of ["BASE_URL", "API_KEY"])
       modelDefaults[`${prefix}_${field}`] = source[`${prefix}_${field}`] || baselineValue(field);
-    modelDefaults[prefix] = prefix === "MODEL"
-      ? source.MODEL || source.COORDINATOR_MODEL || source.EXECUTOR_MODEL || ""
-      : source.KNOWLEDGE_MODEL || source.MODEL || "";
+    modelDefaults[prefix] =
+      prefix === "MODEL"
+        ? source.MODEL || source.COORDINATOR_MODEL || source.EXECUTOR_MODEL || ""
+        : source.KNOWLEDGE_MODEL || source.MODEL || "";
   }
   const output = env
     .split("\n")

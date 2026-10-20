@@ -72,6 +72,10 @@ export function createDevProgress({
   let draining = false;
   const pending = [];
   const releaseHooks = [];
+  // Object dumps span several stdout lines. Hold the bar until the block closes
+  // so a TTY repaint cannot land between fields.
+  const logBlocks = new Map();
+  const logBlockHooks = [];
 
   function terminalColumns() {
     return tty ? Number(stream.columns) || 0 : 0;
@@ -104,8 +108,33 @@ export function createDevProgress({
     stream.write(`${line}\n`);
   }
 
+  function logBlockOpen() {
+    return logBlocks.size > 0;
+  }
+
+  function syncLogBlock(extra) {
+    if (!Number.isInteger(extra?.blockDepth)) return;
+    const channel = extra.channel ?? "";
+    const depth = extra.blockDepth;
+    if (depth > 0) logBlocks.set(channel, depth);
+    else logBlocks.delete(channel);
+    for (const hook of logBlockHooks) hook(channel, depth);
+  }
+
+  function releaseLogBlock(channel) {
+    if (!logBlocks.delete(channel)) return;
+    if (!logBlockOpen() && !halted && !finished && errorLock == null) {
+      paint();
+      startMotion();
+    }
+  }
+
+  function paintIfIdle(silent) {
+    if (!silent && !finished && !halted && !logBlockOpen()) paint();
+  }
+
   function paint() {
-    if (halted || finished || errorLock != null) return;
+    if (halted || finished || errorLock != null || logBlockOpen()) return;
     const opts = {
       frame,
       animated: animate && !finished && percent < 100,
@@ -113,7 +142,8 @@ export function createDevProgress({
     let shown = label;
     const cols = terminalColumns();
     if (cols) {
-      const render = (text) => decorate(renderDevProgress(percent, text, opts), { kind: "progress" });
+      const render = (text) =>
+        decorate(renderDevProgress(percent, text, opts), { kind: "progress" });
       let guard = 0;
       while (shown && visibleWidth(render(shown)) >= cols && guard < 200) {
         shown = [...shown].slice(0, -1).join("");
@@ -157,27 +187,42 @@ export function createDevProgress({
     }
   }
 
+  function eraseLiveProgress() {
+    if (!(tty && lastWidth)) return;
+    stream.write(`\r${" ".repeat(lastWidth)}\r`);
+    lastWidth = 0;
+  }
+
   function itemChannel(item) {
     return item.type === "error" ? item.channel : item.extra?.channel;
   }
 
   function writeNote(text, extra = {}, { silent = false } = {}) {
+    syncLogBlock(extra);
     const raw = String(text ?? "")
       .replaceAll("\r\n", "\n")
       .replaceAll("\r", "\n");
+    if (extra.passthrough) {
+      const line = raw.replace(/\n+$/u, "");
+      if (!line.trim()) return;
+      eraseLiveProgress();
+      stream.write(`${line}\n`);
+      paintIfIdle(silent);
+      return;
+    }
     if (extra.continuation) {
-      commitCursor();
+      eraseLiveProgress();
       writeFittedContinuation(raw);
-      if (!silent && !finished && !halted) paint();
+      paintIfIdle(silent);
       return;
     }
     const line = raw.includes("\n") ? raw.replace(/\n+$/u, "") : raw.replaceAll(/\s+/g, " ").trim();
     if (!line.trim()) return;
-    commitCursor();
+    eraseLiveProgress();
     stream.write(
       `${decorate(line, { kind: extra.kind || inferDevLogKind(line), level: extra.level })}\n`,
     );
-    if (!silent && !finished && !halted) paint();
+    paintIfIdle(silent);
   }
 
   function lockError(channel) {
@@ -264,6 +309,10 @@ export function createDevProgress({
     endError,
     errorChannel() {
       return errorLock;
+    },
+    releaseLogBlock,
+    onLogBlock(hook) {
+      logBlockHooks.push(hook);
     },
     onRelease(hook) {
       releaseHooks.push(hook);
@@ -483,7 +532,12 @@ export function attachChildOutput(
         progress.writeError(record.text, { channel, continuation: record.continuation });
         continue;
       }
-      progress.note(record.text, { channel, continuation: record.continuation });
+      progress.note(record.text, {
+        channel,
+        continuation: record.continuation,
+        blockDepth: record.blockDepth,
+        passthrough: record.passthrough,
+      });
     }
   }
 
@@ -518,10 +572,25 @@ export function attachChildOutput(
     state.timer = schedule(() => onSettle(state), settleMs);
   }
 
+  function disarmBlock(state) {
+    if (state.blockTimer == null) return;
+    cancel(state.blockTimer);
+    state.blockTimer = undefined;
+  }
+
+  function armBlock(state) {
+    disarmBlock(state);
+    state.blockTimer = schedule(() => {
+      state.blockTimer = undefined;
+      progress.releaseLogBlock(state.id);
+    }, settleMs);
+  }
+
   function flushState(state, { resume = false } = {}) {
     if (state.flushed) return;
     state.flushed = true;
     disarm(state);
+    disarmBlock(state);
     if (state.buffer) {
       const tail = state.buffer;
       state.buffer = "";
@@ -529,11 +598,19 @@ export function attachChildOutput(
     }
     emitRecords(state.id, state.parser.finish());
     progress.endError(state.id, { resume });
+    progress.releaseLogBlock(state.id);
   }
 
   function flushAll() {
     for (const state of states) flushState(state, { resume: false });
   }
+
+  progress.onLogBlock?.((channel, depth) => {
+    const state = states.find((item) => item.id === channel);
+    if (!state || state.flushed) return;
+    if (depth > 0) armBlock(state);
+    else disarmBlock(state);
+  });
 
   for (const stream of [child.stdout, child.stderr]) {
     if (!stream) continue;
@@ -542,6 +619,7 @@ export function attachChildOutput(
       parser: createDevOutputParser(),
       buffer: "",
       timer: undefined,
+      blockTimer: undefined,
       extends: 0,
       flushed: false,
     };

@@ -1,7 +1,6 @@
 import { HttpError } from "./service.js";
 import { uploadMiniprogram } from "./wechat-ci.js";
-import { deployAdminHosting } from "./cloudbase-hosting.js";
-import { promoteCloudbaseFunction } from "./cloudbase-functions.js";
+import { deployAdminHosting, promoteCloudbaseFunction } from "./cloud-backend.js";
 
 /**
  * 发布审批流的执行入口。

@@ -220,7 +220,7 @@ export async function findRunningBuild(db, projectId, kind) {
 export async function buildMiniprogramPreview(service, actor, projectId, options = {}) {
   const kind = "app_preview";
   const runtime = await loadProjectMiniProgramRuntime(service, projectId);
-  if (!runtime.enabled) throw new HttpError(409, "小程序工作区尚未通过连接测试");
+  if (!runtime.enabled) throw new HttpError(409, "尚未配置微信小程序 AppID");
   if (!runtime.appId) throw new HttpError(409, "尚未配置微信小程序 AppID");
   const runtimeConfig = resolveMiniprogramRuntime(runtime, "dimina");
 
@@ -249,11 +249,12 @@ export async function buildMiniprogramPreview(service, actor, projectId, options
   const buildId = randomUUID();
   await query(
     service.db,
-    `INSERT INTO miniprogram_builds(id,project_id,kind,source_hash,source_snapshot,status,runtime_version,created_by,started_at)
-     VALUES(?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3))`,
+    `INSERT INTO miniprogram_builds(id,project_id,miniprogram_app_id,kind,source_hash,source_snapshot,status,runtime_version,created_by,started_at)
+     VALUES(?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3))`,
     [
       buildId,
       projectId,
+      runtime.miniprogramAppId || null,
       kind,
       buildSourceHash,
       JSON.stringify({
@@ -426,13 +427,17 @@ export async function listMiniprogramBuilds(
   const size = Math.min(Math.max(Number(limit) || 20, 1), 100);
   const rows = await query(
     service.db,
-    `SELECT id,kind,source_hash,status,output_folder_id,output_version_id,runtime_version,error_code,
-       created_by,created_at,started_at,finished_at
-     FROM miniprogram_builds WHERE project_id=? AND kind=?
-     ORDER BY created_at DESC LIMIT ${size}`,
+    `SELECT b.id,b.kind,b.source_hash,b.status,b.output_folder_id,b.output_version_id,b.runtime_version,b.error_code,
+       b.created_by,b.created_at,b.started_at,b.finished_at,u.name AS operator_name
+     FROM miniprogram_builds b
+     LEFT JOIN users u ON u.id=b.created_by
+     WHERE b.project_id=? AND b.kind=?
+     ORDER BY b.created_at DESC LIMIT ${size}`,
     [projectId, kind],
   );
-  return { builds: rows.map(redactBuild) };
+  return {
+    builds: rows.map((row) => ({ ...redactBuild(row), operatorName: row.operator_name || null })),
+  };
 }
 
 export async function readMiniprogramBuild(service, user, projectId, buildId) {
@@ -473,9 +478,7 @@ export async function readMiniprogramPreviewMeta(service, user, projectId) {
   await service.member(user, projectId, false);
   const runtime = await loadProjectMiniProgramRuntime(service, projectId);
   const snapshot = await miniprogramSnapshot(service.db, projectId);
-  const runtimeConfig = runtime.cloudbaseEnvs?.development?.envId
-    ? resolveMiniprogramRuntime(runtime, "dimina")
-    : null;
+  const runtimeConfig = runtime.appId ? resolveMiniprogramRuntime(runtime, "dimina") : null;
   const buildSourceHash = runtimeConfig
     ? runtimeBuildHash(snapshot.sourceHash, runtimeConfig)
     : null;

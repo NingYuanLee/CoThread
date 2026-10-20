@@ -28,7 +28,7 @@ export const DEV_LOG_KINDS = {
 
 const ANSI_PATTERN = /\u001b\[[0-9;]*m/g;
 const HIGHLIGHT_PATTERN =
-  /(https?:\/\/[^\s]+)|(\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b)|([\w.+-]+@[\w.-]+\.[A-Za-z][A-Za-z0-9-]*)|(:\d{2,5}\b)|(\b\d{1,3}%)|([█▓▒]+)|(░+)|(共序)|(已就绪|已启动|浏览器可打开)|(\.local(?:\/[\w.-]+)*)/g;
+  /(https?:\/\/[^\s]+)|(\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b)|([\w.+-]+@[\w.-]+\.[A-Za-z][A-Za-z0-9-]*)|(:\d{2,5}\b)|(\b\d{1,3}%)|([█▓▒]+)|(░+)|(共序)|(已就绪|已启动|浏览器可打开)|(\.local(?:\/[\w.-]+)*)|(?:(?<=密码：)|^)([A-Za-z0-9]{16})$/g;
 
 export function stripAnsi(text) {
   return String(text || "").replace(ANSI_PATTERN, "");
@@ -166,17 +166,20 @@ export function inferDevLogKind(text) {
   if (/^\[[█▓▒░▄▅▃▂━─][^\]]*\]\s+\d+%/.test(line)) return "progress";
   if (/欢迎使用共序/.test(line)) return "hello";
   if (/已就绪|浏览器可打开|已打开浏览器/.test(line)) return "ready";
-  if (/可忽略|未找到 Git Bash|警告/.test(line)) return "warn";
-  if (/失败|已退出|未能启动|Error:|\bE[A-Z]{3,}\b|超时/.test(line)) return "error";
+  if (/可忽略|未找到 Git Bash|警告|\bskipped\b|\bunavailable\b/i.test(line)) return "warn";
   if (
-    /正在确认|已运行于|DATABASE_URL|停止旧进程|释放端口|等待接口|等待 Vite|等待网关|核对接口|需要 Node|\.env|已停止/.test(
+    /失败|已退出|未能启动|Error:|\bE[A-Z]{3,}\b|超时|\bfailed\b|\bcrashed\b|\bcorrupt\b/i.test(line)
+  )
+    return "error";
+  if (
+    /正在确认|正在检查|已运行于|DATABASE_URL|开发数据库目标|停止旧进程|释放端口|未发现需要停止的旧进程|发现旧进程|已有超级管理员|初始超级管理员已创建|跳过初始超级管理员|重置密码|初始密码|^[A-Za-z0-9]{16}$|等待接口|等待 Server|等待 Vite|等待网关|核对接口|核对 Server|核对网关|需要 Node|\.env|已停止/.test(
       line,
     )
   ) {
     return "check";
   }
   if (
-    /已启动|正在启动|启动 API|启动开发网关|编译 |正在预热|已预热|数据库：|执行器：|本地数据库和专用账号/.test(
+    /已启动|正在启动|启动 API|启动 Server|启动开发网关|编译 |预热|正在预热|已预热|数据库：|执行器：|本地数据库和专用账号/.test(
       line,
     )
   ) {
@@ -194,7 +197,21 @@ export function highlightDevLogBody(body, { color = false } = {}) {
   if (!color || !body) return body;
   return String(body).replace(
     HIGHLIGHT_PATTERN,
-    (token, url, host, email, port, percent, filled, empty) => {
+    (
+      token,
+      url,
+      host,
+      email,
+      port,
+      percent,
+      filled,
+      empty,
+      _brand,
+      _status,
+      _localPath,
+      password,
+    ) => {
+      if (password) return `${BOLD}\x1b[33m${token}${RESET}`;
       if (url || host) return `${BOLD}${UNDERLINE}${READY}${token}${RESET}`;
       if (email || port || percent) return `${BOLD}${ART}${token}${RESET}`;
       if (filled) return `${ART}${token}${RESET}`;
@@ -213,11 +230,18 @@ export function isDevLogContinuation(text) {
 
 export function updateDevLogBlockDepth(depth, text) {
   let next = Math.max(0, Number(depth) || 0);
-  for (const ch of String(text ?? "")) {
+  // CSI color codes contain "[" but never a matching "]". Count only visible text.
+  for (const ch of stripAnsi(text)) {
     if (ch === "{" || ch === "[") next += 1;
     else if (ch === "}" || ch === "]") next = Math.max(0, next - 1);
   }
   return next;
+}
+
+/** Vite's own logger already prints a timestamp and [vite]. Don't wrap it again. */
+export function isViteDevLog(text) {
+  const line = stripAnsi(text).trim();
+  return /^(?:上午|下午)?\s*\d{1,2}:\d{2}:\d{2}(?:\s*[ap]m)?\s+\[vite\](?!\w)/i.test(line);
 }
 
 const ERROR_HEAD_RE =
@@ -302,9 +326,12 @@ export function createDevOutputParser() {
 
   function asNormal(line) {
     if (!String(line).trim() && blockDepth === 0) return [];
+    if (blockDepth === 0 && isViteDevLog(line)) {
+      return [{ role: "log", text: line, continuation: false, passthrough: true, blockDepth: 0 }];
+    }
     const continuation = blockDepth > 0 || isDevLogContinuation(line);
     blockDepth = updateDevLogBlockDepth(blockDepth, line);
-    return [{ role: "log", text: line, continuation }];
+    return [{ role: "log", text: line, continuation, blockDepth }];
   }
 
   function appendError(line, first = false) {
@@ -483,9 +510,7 @@ export function formatDevLogLine(
     const nextWidth = budget - 2;
     if (firstWidth >= 8 && visibleWidth(head) > firstWidth) {
       const [first, ...rest] = wrapPlainText(head, firstWidth, nextWidth);
-      const lines = [
-        first ? `${prefix}${gap}${highlightDevLogBody(first, { color })}` : prefix,
-      ];
+      const lines = [first ? `${prefix}${gap}${highlightDevLogBody(first, { color })}` : prefix];
       for (const part of rest) {
         if (!part) continue;
         lines.push(highlightDevLogBody(`  ${part}`, { color }));

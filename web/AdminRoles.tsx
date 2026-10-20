@@ -51,6 +51,7 @@ export function AdminRoles({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(30);
   const [detail, setDetail] = useState<Role | null>(null);
+  const [viewing, setViewing] = useState<Role | null>(null);
   const [confirmation, setConfirmation] = useState<AdminConfirmation | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -89,6 +90,30 @@ export function AdminRoles({
   };
   const alwaysOpen = (node: AdminPermissionNode) =>
     node.type === "page" && IMPLICIT_ADMIN_PERMISSIONS.includes(node.key);
+  const readonlyCheckbox = (
+    node: AdminPermissionNode,
+    grantedAll: boolean,
+    granted: Set<string>,
+  ) => (
+    <label key={node.key} className={`permission-node permission-${node.type}`}>
+      <input
+        type="checkbox"
+        checked={grantedAll || alwaysOpen(node) || granted.has(node.key)}
+        disabled
+        readOnly
+      />
+      {node.label}
+      <small>
+        {alwaysOpen(node)
+          ? "全员开放"
+          : node.type === "menu"
+            ? "菜单"
+            : node.type === "page"
+              ? "页面"
+              : "功能"}
+      </small>
+    </label>
+  );
   const checkbox = (node: AdminPermissionNode) => (
     <label key={node.key} className={`permission-node permission-${node.type}`}>
       <input
@@ -321,7 +346,9 @@ export function AdminRoles({
                         )}
                       </div>
                     ) : (
-                      "系统内置"
+                      <div className="admin-table-actions">
+                        <button onClick={() => setViewing(role)}>查看</button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -392,6 +419,62 @@ export function AdminRoles({
               </tbody>
             </table>
           </div>
+        </AdminDialog>
+      )}
+      {viewing && (
+        <AdminDialog title={`${viewing.name} · 查看`} onClose={() => setViewing(null)}>
+          {(close) => {
+            const grantedAll = viewing.code === "super_admin";
+            const granted = new Set(viewing.permissions);
+            return (
+              <div className="admin-editor" aria-readonly="true">
+                <p>
+                  {`${viewing.scope === "project" ? "项目内置" : "平台内置"}角色只能查看，不能修改或删除。当前 ${viewing.member_count} 名成员。`}
+                </p>
+                <div className="admin-form-grid">
+                  <label>
+                    角色名称
+                    <input readOnly value={viewing.name} />
+                  </label>
+                  <label>
+                    说明
+                    <input readOnly value={viewing.description || "暂无说明"} />
+                  </label>
+                </div>
+                {viewing.scope === "platform" ? (
+                  <>
+                    <h4>
+                      权限树 <small>菜单 → 页面 → 功能，只读</small>
+                    </h4>
+                    <div className="permission-tree">
+                      {ADMIN_PERMISSION_TREE.map((menu) => (
+                        <fieldset key={menu.key} disabled>
+                          <legend>{readonlyCheckbox(menu, grantedAll, granted)}</legend>
+                          {menu.children?.map((page) => (
+                            <div className="permission-page-block" key={page.key}>
+                              {readonlyCheckbox(page, grantedAll, granted)}
+                              <div className="permission-functions">
+                                {page.children?.map((fn) =>
+                                  readonlyCheckbox(fn, grantedAll, granted),
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </fieldset>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p>此角色只在项目成员中生效，不使用平台权限树。管理入口：项目管理 → 项目成员。</p>
+                )}
+                <div className="admin-editor-actions">
+                  <button type="button" onClick={close}>
+                    关闭
+                  </button>
+                </div>
+              </div>
+            );
+          }}
         </AdminDialog>
       )}
       <AdminConfirmDialog

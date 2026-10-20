@@ -10,6 +10,9 @@ import { setTimeout as delay, setImmediate as turn } from "node:timers/promises"
 import { transformSync } from "esbuild";
 
 const require = createRequire(import.meta.url);
+// The transformed module requires siblings such as ./executor-fence.js.
+// Resolve those from server/, not from this test file.
+const serverRequire = createRequire(new URL("../server/local-sandbox.js", import.meta.url));
 const code = transformSync(
   readFileSync(new URL("../server/local-sandbox.js", import.meta.url), "utf8"),
   { format: "cjs" },
@@ -32,6 +35,7 @@ function provider(hooks = {}, processHooks = {}) {
     require(name) {
       if (name === "node:fs/promises") return { ...filesystem, ...hooks };
       if (name === "node:child_process") return { ...processes, ...processHooks };
+      if (name.startsWith(".")) return serverRequire(name);
       return require(name);
     },
   });

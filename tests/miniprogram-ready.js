@@ -1,6 +1,23 @@
 import { query } from "../server/db.js";
+import { setCloudbaseManagerFactory } from "../server/cloudbase.js";
 import { saveProjectMiniProgramSecret } from "../server/miniprogram-config.js";
 import { publishMiniprogramSourceFile } from "../server/miniprogram-workspace.js";
+
+setCloudbaseManagerFactory(async () => ({
+  env: {
+    describeEnvs: async (params) => ({
+      EnvList: [
+        {
+          EnvId: params?.EnvId || "dev-env",
+          Alias: "开发",
+          Region: "ap-shanghai",
+          Source: "miniapp",
+        },
+      ],
+    }),
+    describeEnvInfo: async () => ({ EnvInfo: { UserInfo: {} } }),
+  },
+}));
 
 const TEST_WECHAT_KEY = "-----BEGIN PRIVATE KEY-----\ntest-key\n-----END PRIVATE KEY-----";
 
@@ -12,7 +29,7 @@ MIIEvQIBADANBgkqhkiG9w0BAQEFAASCfakeKeyMaterialForTests
 /**
  * 铺一份最小小程序源码。
  *
- * 连接测试里用 `previewMiniprogram` 验证微信上传私钥，而它会先要求源码目录非空，
+ * 连接测试里用 previewMiniprogram 验证代码上传密钥，而它会先要求源码目录非空，
  * 否则直接以「源文件目录为空」失败，走不到 provider 调用。
  */
 export async function seedMinimalMiniprogramApp(db, projectId, createdBy) {

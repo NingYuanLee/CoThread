@@ -58,8 +58,10 @@ const ProjectManagement = lazy(() =>
 const AgentMonitor = lazy(() =>
   import("./AgentMonitor").then((module) => ({ default: module.AgentMonitor })),
 );
-const ConnectorAuthorization = lazy(() =>
-  import("./ConnectorAuthorization").then((module) => ({ default: module.ConnectorAuthorization })),
+const LocalExecutorAuthorization = lazy(() =>
+  import("./LocalExecutorAuthorization").then((module) => ({
+    default: module.LocalExecutorAuthorization,
+  })),
 );
 import { applyUiTheme } from "./apply-ui-theme";
 import { DEFAULT_UI_THEME } from "../shared/ui-theme.js";
@@ -70,7 +72,7 @@ const AgentTrajectory = lazy(() =>
 const AgentLogDialog = lazy(() =>
   import("./AgentLogDialog").then((module) => ({ default: module.AgentLogDialog })),
 );
-import type { ConnectorDevice } from "./ConnectorPanel";
+import type { LocalExecutorDevice } from "./LocalExecutorPanel";
 import { createResourceCache } from "../shared/resource-cache.js";
 import { mergeThread } from "../shared/thread-window.js";
 import { readThreadPages } from "../shared/thread-reader.js";
@@ -220,7 +222,7 @@ export function WorkspaceApp() {
     (value.replies.some((r) => ["queued", "running"].includes(r.status)) ||
       !!value.requests?.some((r) => ["queued", "running"].includes(r.status)) ||
       ["queued", "running"].includes(value.contextUsage?.compactStatus) ||
-      value.connectorTasks?.some((task) =>
+      value.localExecutorTasks?.some((task) =>
         [
           "awaiting_approval",
           "queued",
@@ -334,23 +336,27 @@ export function WorkspaceApp() {
   const [codeSourcesTick, setCodeSourcesTick] = useState(0);
   const [agentLogScope, setAgentLogScope] = useState<AgentLogScope | null>(null);
   const [urlRevision, setUrlRevision] = useState(0);
-  const connectorAuthorizationParams = new URLSearchParams(location.search);
-  const connectorAuthorizationId =
-    urlRevision >= 0 ? connectorAuthorizationParams.get("connectorAuthorization") || "" : "";
-  const connectorCallbackPort = connectorAuthorizationParams.get("connectorCallbackPort") || "";
+  const localExecutorAuthorizationParams = new URLSearchParams(location.search);
+  const localExecutorAuthorizationId =
+    urlRevision >= 0
+      ? localExecutorAuthorizationParams.get("localExecutorAuthorization") || ""
+      : "";
+  const localExecutorCallbackPort =
+    localExecutorAuthorizationParams.get("localExecutorCallbackPort") || "";
   const connectorCallbackSecret =
     new URLSearchParams(location.hash.slice(1)).get("connectorCallbackSecret") || "";
-  const connectorAuthorizationApi = useCallback(
+  const localExecutorAuthorizationApi = useCallback(
     (path: string, data?: unknown, method?: string) => api(path, data, method),
     [],
   );
-  const closeConnectorAuthorization = () => {
+  const closeLocalExecutorAuthorization = () => {
     const url = new URL(location.href);
-    url.searchParams.delete("connectorAuthorization");
+    url.searchParams.delete("localExecutorAuthorization");
+    url.searchParams.delete("localExecutorCallbackPort");
     window.history.replaceState(null, "", url.pathname + url.search + url.hash);
     setUrlRevision((value) => value + 1);
   };
-  const [connectors, setConnectors] = useState<ConnectorDevice[]>([]);
+  const [localExecutors, setConnectors] = useState<LocalExecutorDevice[]>([]);
   const [connectorsReady, setConnectorsReady] = useState(false);
   const [documentId, setDocumentId] = useState("");
   const [documentFocus, setDocumentFocus] = useState(0);
@@ -465,18 +471,23 @@ export function WorkspaceApp() {
     (mode: DialogueMode) => {
       setDialogueMode(mode);
       if (threadId) writeThreadDialogueMode(threadId, mode);
-      if (mode === "cloudbase") setContextOpen(true);
+      if (mode === "cloudbase" || mode === "miniprogram") setContextOpen(true);
     },
     [threadId],
   );
   const applyContextPanelMode = useCallback(
     (panelMode: "standard" | "cloudbase") => {
       if (panelMode === "cloudbase") {
-        applyDialogueMode("cloudbase");
+        setDialogueMode((current) => {
+          if (current === "miniprogram") return current;
+          if (threadId) writeThreadDialogueMode(threadId, "cloudbase");
+          return "cloudbase";
+        });
+        setContextOpen(true);
         return;
       }
       setDialogueMode((current) => {
-        if (current !== "cloudbase") return current;
+        if (current !== "cloudbase" && current !== "miniprogram") return current;
         if (threadId) writeThreadDialogueMode(threadId, "default");
         return "default";
       });
@@ -615,7 +626,7 @@ export function WorkspaceApp() {
     !!active &&
     !m.id.startsWith("optimistic:") &&
     !(m.id.startsWith("agent-task:") && !m.quoteTargetId);
-  const projectConnectorBound = connectors.some((device) =>
+  const projectConnectorBound = localExecutors.some((device) =>
     device.projects?.some((item) => item.projectId === projectId),
   );
   const { latestMyTask } = taskViewModel(taskPool, detail, user, threadId);
@@ -640,7 +651,7 @@ export function WorkspaceApp() {
     setTaskCreateRequest(null);
   }, [threadId, projectId, user?.id]);
   const refreshConnectors = async () => {
-    setConnectors(await api("/connectors"));
+    setConnectors(await api("/local-executors"));
     setConnectorsReady(true);
   };
   const run = async (fn: () => Promise<void>) => {
@@ -728,7 +739,7 @@ export function WorkspaceApp() {
     let alive = true;
     const load = async () => {
       try {
-        const devices = await api("/connectors");
+        const devices = await api("/local-executors");
         if (alive) {
           setConnectors((current) => (sameSnapshot(current, devices) ? current : devices));
           setConnectorsReady(true);
@@ -800,7 +811,7 @@ export function WorkspaceApp() {
     threadId,
     thread?.messages.length,
     thread?.events.length,
-    thread?.connectorTasks?.map((task) => `${task.id}:${task.status}`).join(","),
+    thread?.localExecutorTasks?.map((task) => `${task.id}:${task.status}`).join(","),
     Object.values(liveOutput)
       .map((o) => `${o.message_id}:${o.revision}`)
       .join(","),
@@ -1521,7 +1532,7 @@ export function WorkspaceApp() {
     projectImage,
     setProjectImage,
     health,
-    connectors,
+    localExecutors,
     connectorsReady,
     run,
     switchSavedAccount,
@@ -1680,7 +1691,7 @@ export function WorkspaceApp() {
             onDocumentFullscreenChange={handleDocumentFullscreenChange}
           />
         )}
-        {projectId && dialogueMode === "cloudbase" ? (
+        {projectId && (dialogueMode === "cloudbase" || dialogueMode === "miniprogram") ? (
           <Suspense fallback={<p className="muted">正在加载小程序云开发…</p>}>
             <div className="library-embedded miniprogram-sidebar-embedded doc-browser-shell">
               <MiniProgramWorkspace
@@ -1877,14 +1888,14 @@ export function WorkspaceApp() {
           <AgentLogDialog scope={agentLogScope} api={api} onClose={() => setAgentLogScope(null)} />
         </Suspense>
       )}
-      {connectorAuthorizationId && (
+      {localExecutorAuthorizationId && (
         <Suspense fallback={null}>
-          <ConnectorAuthorization
-            id={connectorAuthorizationId}
-            callbackPort={connectorCallbackPort}
+          <LocalExecutorAuthorization
+            id={localExecutorAuthorizationId}
+            callbackPort={localExecutorCallbackPort}
             callbackSecret={connectorCallbackSecret}
-            api={connectorAuthorizationApi}
-            onDone={closeConnectorAuthorization}
+            api={localExecutorAuthorizationApi}
+            onDone={closeLocalExecutorAuthorization}
           />
         </Suspense>
       )}

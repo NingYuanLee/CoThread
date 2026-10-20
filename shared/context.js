@@ -66,14 +66,18 @@ export function discussionText(message) {
   });
 }
 
-export function pendingMessages(messages, seenSequence, replies = []) {
+export function pendingMessages(messages = [], seenSequence, replies = []) {
+  const list = Array.isArray(messages) ? messages : [];
+  const replyList = Array.isArray(replies) ? replies : [];
   const nativeReplies = new Set(
-    replies.filter((reply) => !reply.parent_message_id).map((reply) => reply.reply_id).filter(Boolean),
+    replyList
+      .filter((reply) => !reply.parent_message_id)
+      .map((reply) => reply.reply_id)
+      .filter(Boolean),
   );
-  return messages.filter(
+  return list.filter(
     (message) =>
-      BigInt(message.sequence) > BigInt(seenSequence || 0) &&
-      !nativeReplies.has(message.id),
+      BigInt(message.sequence) > BigInt(seenSequence || 0) && !nativeReplies.has(message.id),
   );
 }
 
@@ -86,13 +90,9 @@ export function contextUsage(session, messages, replies) {
     messages,
     stats?.seenSequence ?? session?.seen_sequence,
     replies,
-  ).reduce(
-    (sum, message) => sum + Math.ceil(discussionText(message).length / 4) + 8,
-    0,
-  );
+  ).reduce((sum, message) => sum + Math.ceil(discussionText(message).length / 4) + 8, 0);
   const limit = stats?.limit || CONTEXT_LIMIT;
-  const autoCompactAt =
-    stats?.autoCompactAt ?? Math.floor(limit * AUTO_COMPACT_RATIO);
+  const autoCompactAt = stats?.autoCompactAt ?? Math.floor(limit * AUTO_COMPACT_RATIO);
   return {
     limit,
     autoCompactAt,
@@ -100,13 +100,14 @@ export function contextUsage(session, messages, replies) {
     estimated: pending > 0 || stats?.estimated !== false,
     categories: CONTEXT_CATEGORIES.map((item) => ({
       ...item,
-      tokens:
-        item.key === "pending" ? pending : stats?.categories?.[item.key] || 0,
+      tokens: item.key === "pending" ? pending : stats?.categories?.[item.key] || 0,
     })),
     measuredAt: stats?.measuredAt || null,
     compactions: stats?.compactions || 0,
     lastCompactedAt: stats?.lastCompactedAt || null,
-    automaticCompacting: session?.compact_status !== "failed" && !!stats?.compacting &&
+    automaticCompacting:
+      session?.compact_status !== "failed" &&
+      !!stats?.compacting &&
       Date.now() - Date.parse(stats?.measuredAt || "") < 300000,
     compactStatus: session?.compact_status || "idle",
     compactError: session?.compact_error || null,

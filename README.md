@@ -8,9 +8,9 @@
 |------|------|------|
 | **关于我们** | 价值宣传与产品介绍 | 工作台登录页，或 `/about_us.html` |
 | **本 README** | 克隆仓库后的快捷使用 | 本文件 |
-| **Docs** | 概念、工作台、归档交接、管理空间、上传、MCP、连接器、部署细则 | 运行后打开 `/docs.html` |
+| **使用手册** | 功能与运转规则：对话模式、文档版本、任务、小程序、归档、权限、本机助手 | 运行后打开 `/docs.html` |
 
-工程师向的架构备忘：[`docs/architecture.md`](docs/architecture.md)、[`docs/admin-platform.md`](docs/admin-platform.md)、[`docs/iteration-archive.md`](docs/iteration-archive.md)、[`docs/cloud-environment.md`](docs/cloud-environment.md)。当前版本见工作台；首版面向小团队单实例试用。生产部署在阿里云 ECS（见下方「部署」）。
+文档分三处，见 [`docs/README.md`](docs/README.md)。工程说明在 [`docs/engineering/`](docs/engineering/)，由 Agent 维护，不要删除；相关改动要回写对应说明，并更新 [`docs/README.md`](docs/README.md) 的目录。产品资料在 [`docs/product/`](docs/product/)。当前版本见工作台；首版面向小团队单实例试用。生产部署在阿里云 ECS（见下方「部署」）。
 
 ## 本机启动
 
@@ -28,7 +28,7 @@ npm run dev
 
 打开 <http://localhost:3100>。首次 `setup` 把初始账号写进 `.local/initial-admin.json` 和 `.local/登录信息.txt`。登录可用用户名或已绑定邮箱。
 
-本机工作文件默认在 `.local/sandboxes`。命令以当前 Windows 账号执行，只应跑可信任务。`.env` 不入库；`npm run setup` 不覆盖已有 `.env`。部署差异见 [云端配置](docs/cloud-environment.md)。
+本机工作文件默认在 `.local/sandboxes`。命令以当前 Windows 账号执行，只应跑可信任务。`.env` 不入库；`npm run setup` 不覆盖已有 `.env`。部署差异见 [云端配置](docs/engineering/05-cloud-environment.md)。
 
 ```powershell
 npm run mysql:stop
@@ -38,7 +38,7 @@ npm start
 npm test                 # 须独立测试库（TEST_DATABASE_HOST_* + TEST_DATABASE_AUTH），禁止清日常库
 npm run db:backup
 npm run db:restore-check
-npm run connector:build
+npm run windows-client:build
 npm run setup:preview-browser   # Agent 视觉验收（HTML/文档预览截图）所需 Chromium
 ```
 
@@ -48,26 +48,29 @@ npm run setup:preview-browser   # Agent 视觉验收（HTML/文档预览截图�
 
 `npm test` 会清空目标库全部表后重新迁移，绝不能指向生产库或正在用的 `cothread` / `cothread_dev`。
 
-## 接下来看 Docs
+## 接下来看使用手册
 
-工作台怎么摆、**三种对话模式**（自由发言 / 有问必答 / 小程序云开发）、**迭代归档与交接**、**管理空间**、**账号 / 站内信 / 项目图片**、**小程序云开发配置与右侧六个页签**、文档三区、按需参与、上下文压缩、分片上传与 SHA-256、MCP、连接器和部署，都在 **`/docs.html`**（锚点 `#dialogue-mode`、`#archive`、`#admin`、`#account`、`#miniprogram`）。不要在 README 里找长篇细则。
+功能全图和运转规则（对话模式、按需参与、文档版本、任务、小程序发布、归档、权限、本机助手）在 **`/docs.html`**（锚点 `#dialogue-mode`、`#archive`、`#admin`、`#account`、`#miniprogram`）。不要在 README 里找这些说明。安装和服务器发布仍以本文件和 `docs/engineering/` 为准。
 
 单文件上限 **20 MiB**（网页与 MCP 分片）。MCP 宿主约 10KB 参数截断时，大于 6144 字节的文件必须走 `start_file_upload` → `upload_file_chunk` → `complete_file_upload`。
 
 ## 项目结构
 
 ```text
+index.html           工作台壳，Vite 入口，不是文档
 web/                 React 工作台
-public/              静态页（about_us.html、docs.html）
+public/              原样发布的静态源：/about_us.html、/docs.html（使用手册）
+dist/                npm run build 的产物，不要手改
 server/              HTTP API、权限、协作业务、MCP、沙箱路由
-runtime/             DSH 运行时插件、patch 与打包脚本
+dsh-layer/           共序加在官方 DSH 上的定制层，不是 Agent 本身
 migrations/          版本化 MySQL 结构
-scripts/             安装初始化、迁移、ECS 发布、连接器构建
+scripts/             安装初始化、迁移、ECS 发布、本地执行器构建
 tests/               真实数据库集成测试
-docs/                架构与部署备忘（给工程师）
-.local/              本机 MySQL、数据、私有配置（不入库）
+docs/                文档总目录。engineering/ 是工程说明，product/ 是产品资料。使用手册是 public/docs.html
+.local/              本机 MySQL、沙箱和密钥。删除等于丢数据，不入库
+.code_deploy/        发版产物，不是配置。可整目录删除后重新打包，不要手改清单
 ```
 
 ## 部署
 
-生产环境为阿里云 ECS 单实例 + RDS：`npm run build && node scripts/ecs-pack.mjs` 打包，再用 `scripts/ecs-promote.sh` 解压到 `releases/<id>`、探活后原子切换 `current` 并 `systemctl restart cothread`。变量清单见 [云端配置](docs/cloud-environment.md)。
+生产环境为阿里云 ECS 单实例 + RDS：`npm run build && node scripts/ecs-pack.mjs` 打包，再用 `scripts/ecs-promote.sh` 解压到 `releases/<id>`、探活后原子切换 `current` 并 `systemctl restart cothread`。变量清单见 [云端配置](docs/engineering/05-cloud-environment.md)。

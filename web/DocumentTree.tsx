@@ -3,6 +3,7 @@
  * 数据与回调由 Documents 打包成 props 传入；parent / depth 逐层传入。
  */
 import {
+  Fragment,
   type Dispatch,
   type HTMLAttributes,
   type ReactNode,
@@ -235,7 +236,11 @@ export function DocumentTree(props: DocumentTreeProps) {
             {!collapsed.has(f.id) && <div role="group">{renderSelf(f.id, depth + 1)}</div>}
           </div>
         ))}
-      {artifacts.filter((v) => (v.folder_id || null) === parent).map((v) => fileRow(v, depth))}
+      {artifacts
+        .filter((v) => (v.folder_id || null) === parent)
+        .map((v) => (
+          <Fragment key={v.id}>{fileRow(v, depth)}</Fragment>
+        ))}
     </>
   );
 }

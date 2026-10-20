@@ -18,8 +18,10 @@ import { miniprogramSnapshot } from "./miniprogram-workspace.js";
  * WeChat release path (miniprogram-ci).
  *
  * Two hard rules:
- *  1. The upload private key exists on disk only for the duration of one call
- *     and is written to a throwaway directory with owner-only permissions.
+ *  1. miniprogram-ci receives the upload key as a privateKey string. It is not
+ *     written out as a .key file for the library to read back. The only on-disk
+ *     copy is the short-lived runner request in a throwaway directory, mode
+ *     0o600, deleted when the call ends.
  *  2. Nothing that reaches a log, an event row or a response may contain the
  *     key material, so every provider message passes through redactSecrets.
  *
@@ -162,19 +164,19 @@ async function materializeProject(db, projectId, appId, dir, runtimeConfig) {
 
 /**
  * WeChat's console gives the upload key as a bare base64 body (usually PKCS#1
- * `RSAPrivateKey`), while miniprogram-ci/OpenSSL needs a real PEM. Writing the
+ * `RSAPrivateKey`), while miniprogram-ci/OpenSSL needs a real PEM. Passing the
  * raw text produced `DECODER routines::unsupported` (errCode 20002), so the key
  * is normalized here: a PEM is passed through, a bare body is wrapped in the
  * header that actually parses.
  */
 export function normalizeWechatPrivateKey(value) {
   const raw = String(value || "").trim();
-  if (!raw) throw new HttpError(409, "尚未配置微信上传私钥");
+  if (!raw) throw new HttpError(409, "尚未配置代码上传密钥");
   if (raw.includes("-----BEGIN")) return raw.endsWith("\n") ? raw : `${raw}\n`;
 
   const body = raw.replace(/\s+/g, "");
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(body)) {
-    throw new HttpError(400, "微信上传私钥既不是 PEM，也不是合法的 base64 内容");
+    throw new HttpError(400, "代码上传密钥既不是 PEM，也不是合法的 base64 内容");
   }
   const asPem = (label) =>
     `-----BEGIN ${label}-----\n${(body.match(/.{1,64}/g) || []).join("\n")}\n-----END ${label}-----\n`;
@@ -190,14 +192,8 @@ export function normalizeWechatPrivateKey(value) {
   }
   throw new HttpError(
     400,
-    "微信上传私钥无法解析：既不是 PKCS#8（PRIVATE KEY）也不是 PKCS#1（RSA PRIVATE KEY）；请从微信公众平台重新下载上传密钥",
+    "代码上传密钥无法解析：既不是 PKCS#8（PRIVATE KEY）也不是 PKCS#1（RSA PRIVATE KEY）；请从微信公众平台重新下载上传密钥",
   );
-}
-
-async function writePrivateKey(dir, keyText) {
-  const path = join(dir, "cothread-wechat-upload.key");
-  await writeFile(path, normalizeWechatPrivateKey(keyText), { mode: 0o600 });
-  return path;
 }
 
 let ciFactoryOverride = null;
@@ -218,7 +214,7 @@ export function setWechatCiRunner(path) {
 
 export function wechatCiRunnerPath() {
   if (runnerOverride) return runnerOverride;
-  return join(dirname(fileURLToPath(import.meta.url)), "..", "runtime", "wechat-ci-runner.mjs");
+  return join(dirname(fileURLToPath(import.meta.url)), "wechat-ci-runner.mjs");
 }
 
 /**
@@ -286,7 +282,7 @@ async function executeReleaseStep(prepared, request) {
       appid: prepared.runtime.appId,
       type: "miniProgram",
       projectPath: prepared.dir,
-      privateKeyPath: join(prepared.dir, "cothread-wechat-upload.key"),
+      privateKey: request.privateKey,
       ignores: ["node_modules/**/*"],
     });
     if (request.action === "preview") {
@@ -321,7 +317,7 @@ async function executeReleaseStep(prepared, request) {
 
   const requestPath = join(prepared.dir, "ci-request.json");
   const resultPath = join(prepared.dir, "ci-result.json");
-  await writeFile(requestPath, JSON.stringify(request), "utf8");
+  await writeFile(requestPath, JSON.stringify(request), { encoding: "utf8", mode: 0o600 });
   const outcome = await runIsolatedStep({
     requestPath,
     resultPath,
@@ -343,14 +339,16 @@ async function executeReleaseStep(prepared, request) {
 
 async function prepareRelease(service, projectId, channel, { allowUnverified = false } = {}) {
   const runtime = await loadProjectMiniProgramRuntime(service, projectId);
-  if (!runtime.enabled && !allowUnverified) throw new HttpError(409, "小程序工作区尚未通过连接测试");
+  if (!runtime.enabled && !allowUnverified)
+    throw new HttpError(409, "小程序工作区尚未通过连接测试");
   if (!runtime.appId) throw new HttpError(409, "尚未配置微信小程序 AppID");
   const runtimeConfig = resolveMiniprogramRuntime(runtime, channel);
-  const privateKey = runtime.secrets?.wechat_upload_key;
-  if (!privateKey) throw new HttpError(409, "尚未配置微信上传私钥");
-  if (Buffer.byteLength(privateKey, "utf8") > WECHAT_KEY_MAX_BYTES) {
-    throw new HttpError(413, "微信上传私钥超出体积上限");
+  const storedKey = runtime.secrets?.wechat_upload_key;
+  if (!storedKey) throw new HttpError(409, "尚未配置代码上传密钥");
+  if (Buffer.byteLength(storedKey, "utf8") > WECHAT_KEY_MAX_BYTES) {
+    throw new HttpError(413, "代码上传密钥超出体积上限");
   }
+  const privateKey = normalizeWechatPrivateKey(storedKey);
   const settings = readWechatCiSettings(runtime);
   const dir = await mkdtemp(join(tmpdir(), "cothread-wechat-"));
   try {
@@ -383,11 +381,12 @@ async function recordDeployment(db, entry) {
   await query(
     db,
     `INSERT INTO miniprogram_deployments
-       (id,project_id,target,environment,version,url,source_hash,status,log,published_by,published_at,created_at)
-     VALUES(?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))`,
+       (id,project_id,miniprogram_app_id,target,environment,version,url,source_hash,status,log,published_by,published_at,created_at)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))`,
     [
       id,
       entry.projectId,
+      entry.miniprogramAppId || null,
       entry.target,
       entry.environment || "wechat",
       entry.version || null,
@@ -406,9 +405,11 @@ export async function listMiniprogramDeployments(service, user, projectId, { lim
   const size = Math.min(Math.max(Number(limit) || 20, 1), 100);
   const rows = await query(
     service.db,
-    `SELECT id,target,environment,version,url,source_hash,status,published_by,published_at,confirmed_by,confirmed_at,created_at
-     FROM miniprogram_deployments WHERE project_id=?
-     ORDER BY created_at DESC LIMIT ${size}`,
+    `SELECT d.id,d.target,d.environment,d.version,d.url,d.source_hash,d.status,d.published_by,d.published_at,d.confirmed_by,d.confirmed_at,d.created_at,u.name AS operator_name
+     FROM miniprogram_deployments d
+     LEFT JOIN users u ON u.id=d.published_by
+     WHERE d.project_id=?
+     ORDER BY d.created_at DESC LIMIT ${size}`,
     [projectId],
   );
   return {
@@ -421,6 +422,7 @@ export async function listMiniprogramDeployments(service, user, projectId, { lim
       sourceHash: row.source_hash,
       status: row.status,
       publishedBy: row.published_by,
+      operatorName: row.operator_name || null,
       publishedAt: row.published_at,
       confirmedBy: row.confirmed_by,
       confirmedAt: row.confirmed_at,
@@ -443,7 +445,6 @@ export async function previewMiniprogram(service, actor, projectId, input = {}, 
   const startedAt = Date.now();
   let log = "";
   try {
-    const privateKeyPath = await writePrivateKey(prepared.dir, prepared.privateKey);
     const qrcodeOutputDest = join(prepared.dir, "preview-qrcode.png");
     const desc = buildReleaseDesc(prepared.settings.descTemplate, {
       desc: data.desc,
@@ -453,7 +454,7 @@ export async function previewMiniprogram(service, actor, projectId, input = {}, 
       action: "preview",
       appid: prepared.runtime.appId,
       projectPath: prepared.dir,
-      privateKeyPath,
+      privateKey: prepared.privateKey,
       qrcodeOutputDest,
       desc: desc || "共序预览",
       robot: data.robot ? clampRobot(data.robot) : prepared.settings.robotPreview,
@@ -481,6 +482,7 @@ export async function previewMiniprogram(service, actor, projectId, input = {}, 
 
     const deploymentId = await recordDeployment(service.db, {
       projectId,
+      miniprogramAppId: prepared.runtime.miniprogramAppId,
       target: "wechat_preview",
       environment: prepared.runtimeConfig.environment,
       version: null,
@@ -494,7 +496,7 @@ export async function previewMiniprogram(service, actor, projectId, input = {}, 
       status: "succeeded",
       appId: prepared.runtime.appId,
       environment: prepared.runtimeConfig.environment,
-      envId: prepared.runtimeConfig.cloudbase.envId,
+      envId: prepared.runtimeConfig.cloudbase?.envId || null,
       projectConfigSynthesized: prepared.synthesized,
       sourceHash: prepared.snapshot.sourceHash,
       desc: desc || "共序预览",
@@ -507,6 +509,7 @@ export async function previewMiniprogram(service, actor, projectId, input = {}, 
     const detail = redactSecrets(error?.message || String(error), [prepared.privateKey]);
     await recordDeployment(service.db, {
       projectId,
+      miniprogramAppId: prepared.runtime.miniprogramAppId,
       target: "wechat_preview",
       environment: prepared.runtimeConfig.environment,
       sourceHash: prepared.snapshot?.sourceHash || null,
@@ -535,7 +538,6 @@ export async function uploadMiniprogram(service, actor, projectId, input = {}) {
   const startedAt = Date.now();
   let log = "";
   try {
-    const privateKeyPath = await writePrivateKey(prepared.dir, prepared.privateKey);
     const desc = buildReleaseDesc(prepared.settings.descTemplate, {
       desc: data.desc,
       version: data.version,
@@ -544,7 +546,7 @@ export async function uploadMiniprogram(service, actor, projectId, input = {}) {
       action: "upload",
       appid: prepared.runtime.appId,
       projectPath: prepared.dir,
-      privateKeyPath,
+      privateKey: prepared.privateKey,
       version: data.version,
       desc: desc || `v${data.version}`,
       robot: data.robot ? clampRobot(data.robot) : prepared.settings.robotUpload,
@@ -555,6 +557,7 @@ export async function uploadMiniprogram(service, actor, projectId, input = {}) {
 
     const deploymentId = await recordDeployment(service.db, {
       projectId,
+      miniprogramAppId: prepared.runtime.miniprogramAppId,
       target: "wechat_upload",
       environment: prepared.runtimeConfig.environment,
       version: data.version,
@@ -568,7 +571,7 @@ export async function uploadMiniprogram(service, actor, projectId, input = {}) {
       status: "succeeded",
       appId: prepared.runtime.appId,
       environment: prepared.runtimeConfig.environment,
-      envId: prepared.runtimeConfig.cloudbase.envId,
+      envId: prepared.runtimeConfig.cloudbase?.envId || null,
       version: data.version,
       desc: desc || `v${data.version}`,
       projectConfigSynthesized: prepared.synthesized,
@@ -580,6 +583,7 @@ export async function uploadMiniprogram(service, actor, projectId, input = {}) {
     const detail = redactSecrets(error?.message || String(error), [prepared.privateKey]);
     await recordDeployment(service.db, {
       projectId,
+      miniprogramAppId: prepared.runtime.miniprogramAppId,
       target: "wechat_upload",
       environment: prepared.runtimeConfig.environment,
       version: data.version,

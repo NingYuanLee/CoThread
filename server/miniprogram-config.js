@@ -11,13 +11,14 @@ export const MINIPROGRAM_ENVIRONMENTS = ["development", "production"];
 export const MINIPROGRAM_SECRET_KINDS = ["wechat_upload_key", "cloudbase_credential"];
 export const MINIPROGRAM_ADMIN_TARGETS = ["cloudbase_static"];
 
+/** Dimina 预览和微信上传只要求已保存 AppID，不要求 CloudBase 或连接测试。 */
 export function isMiniProgramWorkspaceReady(config) {
-  return computeConfigStatus(config) === "verified";
+  return Boolean(config?.appId);
 }
 
 export const MINIPROGRAM_SECRET_LABELS = {
-  wechat_upload_key: "微信上传私钥",
-  cloudbase_credential: "CloudBase 凭据",
+  wechat_upload_key: "代码上传密钥",
+  cloudbase_credential: "腾讯云子用户的API密钥",
 };
 
 const ENVIRONMENT = z.enum(MINIPROGRAM_ENVIRONMENTS);
@@ -34,6 +35,19 @@ function hintOf(secret) {
   return value.length <= 4
     ? "****"
     : `${"*".repeat(Math.min(8, value.length - 4))}${value.slice(-4)}`;
+}
+
+/** Show the uploaded key's file name, never a slice of the key material. */
+function wechatKeyFileHint(fileName) {
+  const base = String(fileName || "")
+    .split(/[/\\]/)
+    .pop()
+    .trim();
+  const safe = base
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/[<>:"|?*]/g, "")
+    .slice(0, 120);
+  return safe || null;
 }
 
 const cloudbaseEnvSchema = z.object({
@@ -164,11 +178,15 @@ function secretState(row) {
 export function computeConfigStatus({ appId, cloudbaseEnvs, secrets, verifyError, verifiedAt }) {
   const hasAppId = Boolean(appId);
   const hasEnv = Boolean(cloudbaseEnvs?.development?.envId);
-  if (!hasAppId && !hasEnv) return "unconfigured";
-  if (!hasAppId || !hasEnv) return "incomplete";
   const hasWechatKey = secrets?.wechat_upload_key?.configured;
   const hasCloudbaseKey = secrets?.cloudbase_credential?.configured;
-  if (!hasWechatKey || !hasCloudbaseKey) return "credential_expired";
+  const cloudStarted = hasEnv || hasCloudbaseKey;
+  if (!hasAppId && !cloudStarted && !hasWechatKey) return "unconfigured";
+  if (!hasAppId) return "incomplete";
+  if (!hasWechatKey) return "credential_expired";
+  // CloudBase 整段留空是合法的纯前端小程序。一旦填了环境或凭据，两边都得齐。
+  if (cloudStarted && !hasCloudbaseKey) return "credential_expired";
+  if (cloudStarted && !hasEnv) return "incomplete";
   if (verifyError) return "verify_failed";
   if (verifiedAt) return "verified";
   return "incomplete";
@@ -181,14 +199,212 @@ export function redactedSecretState(rows) {
 }
 
 /** Derived status from a stored config row plus current credential state. */
-function deriveStatusFromRow(row, secrets) {
+function deriveStatusFromRow(row, secrets, appId) {
   return computeConfigStatus({
-    appId: row.app_id,
+    appId,
     cloudbaseEnvs: parseJsonColumn(row.cloudbase_envs) || {},
     secrets,
     verifyError: row.last_verify_error,
     verifiedAt: row.last_verified_at,
   });
+}
+
+/** The one main miniprogram. Branch rows are ignored until a later phase. */
+async function readMainApp(db, projectId) {
+  const [row] = await query(
+    db,
+    "SELECT id,project_id,name,app_id,entry_page,wechat_ci,role,branched_from_app_id,sort_order FROM project_miniprogram_apps WHERE project_id=? AND role='main' LIMIT 1",
+    [projectId],
+  );
+  return row || null;
+}
+
+function presentApp(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    role: row.role,
+    name: row.name || null,
+    appId: row.app_id,
+    entryPage: row.entry_page || null,
+    wechatCi: parseJsonColumn(row.wechat_ci),
+    branchedFromAppId: row.branched_from_app_id || null,
+    isDefault: row.role === "main",
+  };
+}
+
+/** App secret wins. A key saved before any AppID still lives on the project row. */
+async function readWechatKeyRow(db, projectId, mainApp) {
+  if (mainApp) {
+    const [row] = await query(
+      db,
+      "SELECT ciphertext,hint,updated_at,updated_by FROM project_miniprogram_app_secrets WHERE miniprogram_app_id=? AND kind='wechat_upload_key'",
+      [mainApp.id],
+    );
+    if (row) return row;
+  }
+  const [legacy] = await query(
+    db,
+    "SELECT ciphertext,hint,updated_at,updated_by FROM project_miniprogram_secrets WHERE project_id=? AND kind='wechat_upload_key'",
+    [projectId],
+  );
+  return legacy || null;
+}
+
+function splitCloudbaseCredential(payload) {
+  const text = String(payload || "").trim();
+  if (!text) return { secretId: null, secretKey: null, sessionToken: null };
+  if (text.startsWith("{")) {
+    const parsed = JSON.parse(text);
+    return {
+      secretId: String(parsed.secretId || parsed.SecretId || "").trim() || null,
+      secretKey: String(parsed.secretKey || parsed.SecretKey || "").trim() || null,
+      sessionToken: String(parsed.sessionToken || parsed.token || "").trim() || null,
+    };
+  }
+  const separator = text.includes(":") ? ":" : text.includes(",") ? "," : "";
+  if (!separator) return { secretId: null, secretKey: null, sessionToken: null };
+  const [secretId, ...rest] = text.split(separator);
+  return {
+    secretId: secretId.trim() || null,
+    secretKey: rest.join(separator).trim() || null,
+    sessionToken: null,
+  };
+}
+
+function reattachSecretId(decrypted, hint) {
+  let parsed;
+  try {
+    parsed = JSON.parse(decrypted);
+  } catch {
+    return decrypted;
+  }
+  if (parsed.secretId || parsed.SecretId) return decrypted;
+  const secretId = hint && !String(hint).startsWith("*") ? String(hint) : "";
+  if (!secretId) return decrypted;
+  return JSON.stringify({ ...parsed, secretId });
+}
+
+function publicSecretId(payload) {
+  const text = String(payload || "").trim();
+  if (!text) return null;
+  if (text.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(text);
+      const secretId = String(parsed.secretId || parsed.SecretId || "").trim();
+      return secretId || null;
+    } catch {
+      return null;
+    }
+  }
+  const separator = text.includes(":") ? ":" : text.includes(",") ? "," : "";
+  if (!separator) return null;
+  return text.split(separator)[0].trim() || null;
+}
+
+async function secretView(db, projectId, mainApp) {
+  const rows = await readSecretRows(db, projectId);
+  const state = redactedSecretState(rows);
+  state.wechat_upload_key = secretState(await readWechatKeyRow(db, projectId, mainApp));
+  const credential = rows.get("cloudbase_credential");
+  if (credential?.hint && !String(credential.hint).startsWith("*")) {
+    state.cloudbase_credential = { ...state.cloudbase_credential, secretId: credential.hint };
+  } else if (credential?.ciphertext) {
+    try {
+      const payload = await decryptToken(credential.ciphertext, vaultId(projectId));
+      state.cloudbase_credential = {
+        ...state.cloudbase_credential,
+        secretId: publicSecretId(payload),
+      };
+    } catch {
+      state.cloudbase_credential = { ...state.cloudbase_credential, secretId: null };
+    }
+  }
+  return state;
+}
+
+async function moveProjectWechatKeyToApp(db, projectId, appRowId) {
+  const [kept] = await query(
+    db,
+    "SELECT id FROM project_miniprogram_app_secrets WHERE miniprogram_app_id=? AND kind='wechat_upload_key'",
+    [appRowId],
+  );
+  if (kept) {
+    await query(
+      db,
+      "DELETE FROM project_miniprogram_secrets WHERE project_id=? AND kind='wechat_upload_key'",
+      [projectId],
+    );
+    return;
+  }
+  const [legacy] = await query(
+    db,
+    "SELECT ciphertext,hint,updated_by FROM project_miniprogram_secrets WHERE project_id=? AND kind='wechat_upload_key'",
+    [projectId],
+  );
+  if (!legacy) return;
+  await query(
+    db,
+    "INSERT INTO project_miniprogram_app_secrets(id,miniprogram_app_id,kind,ciphertext,hint,updated_by,updated_at) VALUES(?,?,'wechat_upload_key',?,?,?,UTC_TIMESTAMP(3))",
+    [randomUUID(), appRowId, legacy.ciphertext, legacy.hint, legacy.updated_by],
+  );
+  await query(
+    db,
+    "DELETE FROM project_miniprogram_secrets WHERE project_id=? AND kind='wechat_upload_key'",
+    [projectId],
+  );
+}
+
+/** Clearing the AppID must not drop a key that was already stored on the app. */
+async function moveAppWechatKeyToProject(db, projectId, appRowId) {
+  const [appKey] = await query(
+    db,
+    "SELECT ciphertext,hint,updated_by FROM project_miniprogram_app_secrets WHERE miniprogram_app_id=? AND kind='wechat_upload_key'",
+    [appRowId],
+  );
+  if (!appKey) return;
+  const [legacy] = await query(
+    db,
+    "SELECT id FROM project_miniprogram_secrets WHERE project_id=? AND kind='wechat_upload_key'",
+    [projectId],
+  );
+  if (!legacy) {
+    await query(
+      db,
+      "INSERT INTO project_miniprogram_secrets(id,project_id,kind,ciphertext,hint,updated_by,updated_at) VALUES(?,?,'wechat_upload_key',?,?,?,UTC_TIMESTAMP(3))",
+      [randomUUID(), projectId, appKey.ciphertext, appKey.hint, appKey.updated_by],
+    );
+  }
+}
+
+async function upsertMainApp(db, projectId, { appId, appName, entryPage, wechatCi }) {
+  const existing = await readMainApp(db, projectId);
+  if (!appId) {
+    if (!existing) return null;
+    await moveAppWechatKeyToProject(db, projectId, existing.id);
+    await query(db, "DELETE FROM project_miniprogram_apps WHERE id=?", [existing.id]);
+    return null;
+  }
+  const name = appName ? String(appName).trim() || null : null;
+  const entry = entryPage || null;
+  const ci = wechatCi ? JSON.stringify(wechatCi) : null;
+  if (existing) {
+    await query(
+      db,
+      "UPDATE project_miniprogram_apps SET name=?,app_id=?,entry_page=?,wechat_ci=?,main_project_id=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?",
+      [name, appId, entry, ci, projectId, existing.id],
+    );
+    await moveProjectWechatKeyToApp(db, projectId, existing.id);
+    return existing.id;
+  }
+  const id = randomUUID();
+  await query(
+    db,
+    "INSERT INTO project_miniprogram_apps(id,project_id,name,app_id,entry_page,wechat_ci,role,main_project_id,sort_order) VALUES(?,?,?,?,?,?,'main',?,0)",
+    [id, projectId, name, appId, entry, ci, projectId],
+  );
+  await moveProjectWechatKeyToApp(db, projectId, id);
+  return id;
 }
 
 /**
@@ -199,12 +415,17 @@ function deriveStatusFromRow(row, secrets) {
 async function persistDerivedStatus(db, projectId) {
   const [row] = await query(
     db,
-    `SELECT enabled,app_id,cloudbase_envs,last_verified_at,last_verify_error
+    `SELECT enabled,cloudbase_envs,last_verified_at,last_verify_error
      FROM project_miniprogram_config WHERE project_id=?`,
     [projectId],
   );
   if (!row) return null;
-  const status = deriveStatusFromRow(row, redactedSecretState(await readSecretRows(db, projectId)));
+  const mainApp = await readMainApp(db, projectId);
+  const status = deriveStatusFromRow(
+    row,
+    await secretView(db, projectId, mainApp),
+    mainApp?.app_id || null,
+  );
   await query(db, "UPDATE project_miniprogram_config SET status=?,enabled=? WHERE project_id=?", [
     status,
     status === "verified" ? 1 : 0,
@@ -219,23 +440,26 @@ export async function readProjectMiniProgramConfig(service, user, projectId) {
   await migrateLegacyAdminDist(service.db, projectId);
   const [row] = await query(
     service.db,
-    `SELECT project_id,enabled,app_id,app_name,entry_page,version_policy,cloudbase_envs,admin_deploy,
-       wechat_ci,status,last_verified_at,last_verify_error,updated_at
+    `SELECT project_id,enabled,version_policy,cloudbase_envs,admin_deploy,
+       status,last_verified_at,last_verify_error,updated_at
      FROM project_miniprogram_config WHERE project_id=?`,
     [projectId],
   );
-  const secrets = redactedSecretState(await readSecretRows(service.db, projectId));
+  const mainApp = await readMainApp(service.db, projectId);
+  const app = presentApp(mainApp);
+  const secrets = await secretView(service.db, projectId, mainApp);
   if (!row) {
     return {
       projectId,
       enabled: false,
-      appId: null,
-      appName: null,
-      entryPage: null,
+      appId: app?.appId || null,
+      appName: app?.name || null,
+      entryPage: app?.entryPage || null,
       versionPolicy: "manual",
       cloudbaseEnvs: {},
       adminDeploy: null,
-      wechatCi: null,
+      wechatCi: app?.wechatCi || null,
+      apps: app ? [app] : [],
       status: "unconfigured",
       lastVerifiedAt: null,
       lastVerifyError: null,
@@ -243,17 +467,18 @@ export async function readProjectMiniProgramConfig(service, user, projectId) {
       secrets,
     };
   }
-  const status = deriveStatusFromRow(row, secrets);
+  const status = deriveStatusFromRow(row, secrets, app?.appId || null);
   return {
     projectId,
-    enabled: status === "verified",
-    appId: row.app_id || null,
-    appName: row.app_name || null,
-    entryPage: row.entry_page || null,
+    enabled: Boolean(app?.appId),
+    appId: app?.appId || null,
+    appName: app?.name || null,
+    entryPage: app?.entryPage || null,
     versionPolicy: row.version_policy || "manual",
     cloudbaseEnvs: parseJsonColumn(row.cloudbase_envs) || {},
     adminDeploy: readAdminDeploy(row.admin_deploy),
-    wechatCi: parseJsonColumn(row.wechat_ci),
+    wechatCi: app?.wechatCi || null,
+    apps: app ? [app] : [],
     // Derived on read so a credential change is reflected without a stale column.
     status,
     lastVerifiedAt: row.last_verified_at || null,
@@ -268,11 +493,18 @@ export async function saveProjectMiniProgramConfig(service, user, projectId, inp
   const data = configSchema.parse(input || {});
   const appId = normalizeAppId(data.appId);
   const cloudbaseEnvs = normalizeCloudbaseEnvs(data.cloudbaseEnvs);
+  if (!appId && (cloudbaseEnvs.development || cloudbaseEnvs.production)) {
+    throw new HttpError(409, "请先保存 AppID，再配置 CloudBase。环境会绑定到这个小程序");
+  }
+  if (appId && (cloudbaseEnvs.development || cloudbaseEnvs.production)) {
+    const { assertCloudbaseEnvironmentsMatchApp } = await import("./cloudbase.js");
+    await assertCloudbaseEnvironmentsMatchApp(service, projectId, appId, cloudbaseEnvs);
+  }
   const adminDeploy = normalizeAdminDeploy(data.adminDeploy);
   const wechatCi = normalizeWechatCi(data.wechatCi);
 
-  const secretRows = await readSecretRows(service.db, projectId);
-  const secrets = redactedSecretState(secretRows);
+  const existingApp = await readMainApp(service.db, projectId);
+  const secrets = await secretView(service.db, projectId, existingApp);
   const status = computeConfigStatus({
     appId,
     cloudbaseEnvs,
@@ -285,26 +517,28 @@ export async function saveProjectMiniProgramConfig(service, user, projectId, inp
   await query(
     service.db,
     `INSERT INTO project_miniprogram_config
-       (project_id,enabled,app_id,app_name,entry_page,version_policy,cloudbase_envs,admin_deploy,wechat_ci,status,created_by,updated_at)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3))
+       (project_id,enabled,version_policy,cloudbase_envs,admin_deploy,status,created_by,updated_at)
+     VALUES(?,?,?,?,?,?,?,UTC_TIMESTAMP(3))
      ON DUPLICATE KEY UPDATE
-       enabled=VALUES(enabled),app_id=VALUES(app_id),app_name=VALUES(app_name),entry_page=VALUES(entry_page),
-       version_policy=VALUES(version_policy),cloudbase_envs=VALUES(cloudbase_envs),admin_deploy=VALUES(admin_deploy),
-       wechat_ci=VALUES(wechat_ci),status=VALUES(status),last_verified_at=NULL,last_verify_error=NULL`,
+       enabled=VALUES(enabled),version_policy=VALUES(version_policy),
+       cloudbase_envs=VALUES(cloudbase_envs),admin_deploy=VALUES(admin_deploy),
+       status=VALUES(status),last_verified_at=NULL,last_verify_error=NULL`,
     [
       projectId,
       0,
-      appId,
-      data.appName || null,
-      data.entryPage || null,
       data.versionPolicy || "manual",
       JSON.stringify(cloudbaseEnvs),
       adminDeploy ? JSON.stringify(adminDeploy) : null,
-      wechatCi ? JSON.stringify(wechatCi) : null,
       status,
       user.id,
     ],
   );
+  await upsertMainApp(service.db, projectId, {
+    appId,
+    appName: data.appName || null,
+    entryPage: data.entryPage || null,
+    wechatCi,
+  });
 
   // Configuring the workspace is what materializes its folders.
   await ensureMiniprogramWorkspace(service.db, projectId);
@@ -336,6 +570,12 @@ export async function saveAdminProductionConfig(service, user, projectId, input)
 export async function saveProjectMiniProgramSecret(service, user, projectId, rawKind, input) {
   await service.member(user, projectId, true, service.db, true);
   const kind = SECRET_KIND.parse(rawKind);
+  if (kind === "cloudbase_credential" && !input?.clear) {
+    const boundApp = await readMainApp(service.db, projectId);
+    if (!boundApp?.app_id) {
+      throw new HttpError(409, "请先保存微信 AppID，再配置 CloudBase 凭据。环境会绑定到这个小程序");
+    }
+  }
   const data = z
     .object({
       value: z.string().min(1).max(MAX_SECRET_BYTES).optional(),
@@ -344,6 +584,8 @@ export async function saveProjectMiniProgramSecret(service, user, projectId, raw
       secretId: z.string().trim().min(1).max(256).optional(),
       secretKey: z.string().trim().min(1).max(1024).optional(),
       sessionToken: z.string().trim().max(MAX_SECRET_BYTES).optional(),
+      // 界面改为上传密钥文件后带上原始文件名，只用于提示，不参与签名。
+      fileName: z.string().trim().max(255).optional(),
       clear: z.boolean().optional(),
     })
     .parse(input || {});
@@ -366,26 +608,79 @@ export async function saveProjectMiniProgramSecret(service, user, projectId, raw
     const composed = { secretId: data.secretId, secretKey: data.secretKey };
     if (data.sessionToken) composed.sessionToken = data.sessionToken;
     payload = JSON.stringify(composed);
-    // 提示串取 SecretId 尾四位：整段 JSON 的尾四位（`or"}`）没有任何辨识价值。
-    hint = hintOf(data.secretId);
+    hint = data.secretId;
+  }
+  if (!data.clear && kind === "cloudbase_credential" && payload) {
+    let split;
+    try {
+      split = splitCloudbaseCredential(payload);
+    } catch {
+      throw new HttpError(400, "腾讯云子用户的API密钥格式无法识别");
+    }
+    if (!split.secretId || !split.secretKey) {
+      throw new HttpError(400, "请同时提供 SecretId 与 SecretKey");
+    }
+    hint = split.secretId;
+    const stored = { secretKey: split.secretKey };
+    if (split.sessionToken) stored.sessionToken = split.sessionToken;
+    payload = JSON.stringify(stored);
   }
 
+  // 带文件名的是密钥文件上传：先归一化成 miniprogram-ci 能用的 PEM，提示只留文件名。
+  if (!data.clear && kind === "wechat_upload_key" && data.fileName) {
+    if (!payload) throw new HttpError(400, "请提供代码上传密钥文件");
+    const { normalizeWechatPrivateKey } = await import("./wechat-ci.js");
+    payload = normalizeWechatPrivateKey(payload);
+    const fileHint = wechatKeyFileHint(data.fileName);
+    if (!fileHint) throw new HttpError(400, "密钥文件名无效");
+    hint = fileHint;
+  }
+
+  if (!data.clear && kind === "cloudbase_credential" && payload) {
+    const boundApp = await readMainApp(service.db, projectId);
+    const { assertCredentialListsEnvironments } = await import("./cloudbase.js");
+    await assertCredentialListsEnvironments(payload, boundApp?.app_id || null);
+  }
+
+  const mainApp = kind === "wechat_upload_key" ? await readMainApp(service.db, projectId) : null;
   const [existing] = await query(
     service.db,
-    "SELECT id FROM project_miniprogram_secrets WHERE project_id=? AND kind=?",
-    [projectId, kind],
+    mainApp
+      ? "SELECT id FROM project_miniprogram_app_secrets WHERE miniprogram_app_id=? AND kind=?"
+      : "SELECT id FROM project_miniprogram_secrets WHERE project_id=? AND kind=?",
+    [mainApp ? mainApp.id : projectId, kind],
   );
   if (data.clear) {
+    if (mainApp) {
+      await query(
+        service.db,
+        "DELETE FROM project_miniprogram_app_secrets WHERE miniprogram_app_id=? AND kind='wechat_upload_key'",
+        [mainApp.id],
+      );
+    }
     await query(
       service.db,
       "DELETE FROM project_miniprogram_secrets WHERE project_id=? AND kind=?",
       [projectId, kind],
     );
-    await query(
-      service.db,
-      "UPDATE project_miniprogram_config SET last_verified_at=NULL,last_verify_error=NULL WHERE project_id=?",
-      [projectId],
-    );
+    if (kind === "cloudbase_credential") {
+      await query(
+        service.db,
+        "UPDATE project_miniprogram_config SET cloudbase_envs='{}',last_verified_at=NULL,last_verify_error=NULL,updated_at=UTC_TIMESTAMP(3) WHERE project_id=?",
+        [projectId],
+      );
+      await query(
+        service.db,
+        "UPDATE project_miniprogram_auth_config SET cloudbase_publishable_key=NULL,cloudbase_server_api_key=NULL,updated_at=UTC_TIMESTAMP(3) WHERE project_id=?",
+        [projectId],
+      );
+    } else {
+      await query(
+        service.db,
+        "UPDATE project_miniprogram_config SET last_verified_at=NULL,last_verify_error=NULL WHERE project_id=?",
+        [projectId],
+      );
+    }
     await persistDerivedStatus(service.db, projectId);
     return readProjectMiniProgramConfig(service, user, projectId);
   }
@@ -394,7 +689,30 @@ export async function saveProjectMiniProgramSecret(service, user, projectId, raw
     throw new HttpError(400, `${MINIPROGRAM_SECRET_LABELS[kind]}超过 ${MAX_SECRET_BYTES} 字节上限`);
   }
   const ciphertext = await encryptToken(payload, vaultId(projectId));
-  if (existing) {
+  if (mainApp) {
+    if (existing) {
+      await query(
+        service.db,
+        `UPDATE project_miniprogram_app_secrets
+         SET ciphertext=?,hint=?,updated_by=?,updated_at=UTC_TIMESTAMP(3)
+         WHERE miniprogram_app_id=? AND kind='wechat_upload_key'`,
+        [ciphertext, hint, user.id, mainApp.id],
+      );
+    } else {
+      await query(
+        service.db,
+        `INSERT INTO project_miniprogram_app_secrets
+           (id,miniprogram_app_id,kind,ciphertext,hint,updated_by,updated_at)
+         VALUES(?,?,'wechat_upload_key',?,?,?,UTC_TIMESTAMP(3))`,
+        [randomUUID(), mainApp.id, ciphertext, hint, user.id],
+      );
+    }
+    await query(
+      service.db,
+      "DELETE FROM project_miniprogram_secrets WHERE project_id=? AND kind='wechat_upload_key'",
+      [projectId],
+    );
+  } else if (existing) {
     await query(
       service.db,
       `UPDATE project_miniprogram_secrets SET ciphertext=?,hint=?,updated_by=?,updated_at=UTC_TIMESTAMP(3)
@@ -422,15 +740,38 @@ export async function saveProjectMiniProgramSecret(service, user, projectId, raw
 export async function deleteProjectMiniProgramSecret(service, user, projectId, rawKind) {
   await service.member(user, projectId, true, service.db, true);
   const kind = SECRET_KIND.parse(rawKind);
+  if (kind === "wechat_upload_key") {
+    const mainApp = await readMainApp(service.db, projectId);
+    if (mainApp) {
+      await query(
+        service.db,
+        "DELETE FROM project_miniprogram_app_secrets WHERE miniprogram_app_id=? AND kind='wechat_upload_key'",
+        [mainApp.id],
+      );
+    }
+  }
   await query(service.db, "DELETE FROM project_miniprogram_secrets WHERE project_id=? AND kind=?", [
     projectId,
     kind,
   ]);
-  await query(
-    service.db,
-    "UPDATE project_miniprogram_config SET last_verified_at=NULL,last_verify_error=NULL WHERE project_id=?",
-    [projectId],
-  );
+  if (kind === "cloudbase_credential") {
+    await query(
+      service.db,
+      "UPDATE project_miniprogram_config SET cloudbase_envs='{}',last_verified_at=NULL,last_verify_error=NULL,updated_at=UTC_TIMESTAMP(3) WHERE project_id=?",
+      [projectId],
+    );
+    await query(
+      service.db,
+      "UPDATE project_miniprogram_auth_config SET cloudbase_publishable_key=NULL,cloudbase_server_api_key=NULL,updated_at=UTC_TIMESTAMP(3) WHERE project_id=?",
+      [projectId],
+    );
+  } else {
+    await query(
+      service.db,
+      "UPDATE project_miniprogram_config SET last_verified_at=NULL,last_verify_error=NULL WHERE project_id=?",
+      [projectId],
+    );
+  }
   await persistDerivedStatus(service.db, projectId);
   return readProjectMiniProgramConfig(service, user, projectId);
 }
@@ -444,29 +785,23 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
   await service.member(user, projectId, true, service.db, true);
   const [row] = await query(
     service.db,
-    `SELECT enabled,app_id,cloudbase_envs,admin_deploy FROM project_miniprogram_config WHERE project_id=?`,
+    `SELECT enabled,cloudbase_envs,admin_deploy FROM project_miniprogram_config WHERE project_id=?`,
     [projectId],
   );
   if (!row) throw new HttpError(409, "请先保存小程序与云开发配置");
-  const cloudbaseEnvs = parseJsonColumn(row.cloudbase_envs) || {};
-  const adminDeploy = readAdminDeploy(row.admin_deploy);
-  const secrets = redactedSecretState(await readSecretRows(service.db, projectId));
+  const mainApp = await readMainApp(service.db, projectId);
+  const secrets = await secretView(service.db, projectId, mainApp);
 
   const checks = [];
   const push = (id, label, status, detail) => checks.push({ id, label, status, detail });
 
-  if (row.app_id) push("wechat_appid", "小程序 AppID", "passed", "格式正确");
+  if (mainApp?.app_id) push("wechat_appid", "小程序 AppID", "passed", "格式正确");
   else push("wechat_appid", "小程序 AppID", "failed", "尚未填写 AppID");
 
   if (!secrets.wechat_upload_key.configured) {
-    push("wechat_credential", "微信上传私钥", "failed", "尚未上传上传私钥");
-  } else if (!row.app_id || !cloudbaseEnvs.development?.envId) {
-    push(
-      "wechat_credential",
-      "微信上传私钥",
-      "pending",
-      "补齐 AppID 和 CloudBase 开发环境后才能测试微信预览",
-    );
+    push("wechat_credential", "代码上传密钥", "failed", "尚未上传代码上传密钥");
+  } else if (!mainApp?.app_id) {
+    push("wechat_credential", "代码上传密钥", "pending", "补齐 AppID 后才能测试微信预览");
   } else {
     try {
       const { previewMiniprogram } = await import("./wechat-ci.js");
@@ -477,83 +812,20 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
         { desc: "CoThread 工作区连接验证" },
         { allowUnverified: true },
       );
-      push("wechat_credential", "微信上传私钥", "passed", "已向微信生成体验版预览；未上传正式版本");
+      push(
+        "wechat_credential",
+        "代码上传密钥",
+        "passed",
+        "已向微信生成预览。这不是体验版，也未上传正式版本",
+      );
     } catch (error) {
       push(
         "wechat_credential",
-        "微信上传私钥",
+        "代码上传密钥",
         "failed",
-        `微信预览模拟失败：${String(error?.message || error).slice(0, 240)}`,
+        "微信预览失败：" + String(error?.message || error).slice(0, 240),
       );
     }
-  }
-
-  if (cloudbaseEnvs.development?.envId) {
-    push(
-      "cloudbase_env",
-      "CloudBase 开发环境",
-      "passed",
-      `环境 ID ${cloudbaseEnvs.development.envId}`,
-    );
-  } else {
-    push("cloudbase_env", "CloudBase 开发环境", "failed", "尚未配置开发环境");
-  }
-
-  if (secrets.cloudbase_credential.configured) {
-    // Say which kind of credential is stored: a CloudBase Auth token looks valid in
-    // the console but cannot sign Tencent Cloud management calls at all, and the
-    // provider's own error ("missing secretId or secretKey") explains nothing.
-    // Dynamic import on purpose: cloudbase.js already imports this module, so a
-    // static import here would create a cycle.
-    const { classifyCloudbaseCredential, cloudbaseAuthTokenGuidance } =
-      await import("./cloudbase.js");
-    // `secrets` above is the redacted view; classification needs the plaintext.
-    const decrypted = await loadProjectMiniProgramRuntime(service, projectId);
-    const info = classifyCloudbaseCredential(decrypted.secrets?.cloudbase_credential);
-    if (info.kind === "keypair" || info.kind === "sts") {
-      try {
-        const { getCloudbaseManager } = await import("./cloudbase.js");
-        const { manager } = await getCloudbaseManager(service, projectId, "development");
-        await manager.functions.listFunctions(1, 0);
-        push(
-          "cloudbase_credential",
-          "CloudBase 凭据",
-          "passed",
-          "已成功读取开发环境云函数列表（只读测试）",
-        );
-      } catch (error) {
-        push(
-          "cloudbase_credential",
-          "CloudBase 凭据",
-          "failed",
-          `CloudBase 只读测试失败：${String(error?.message || error).slice(0, 240)}`,
-        );
-      }
-    } else if (info.kind === "auth_token") {
-      push("cloudbase_credential", "CloudBase 凭据", "failed", cloudbaseAuthTokenGuidance(info));
-    } else if (info.kind === "missing") {
-      push("cloudbase_credential", "CloudBase 凭据", "failed", "尚未配置 CloudBase 凭据");
-    } else {
-      push(
-        "cloudbase_credential",
-        "CloudBase 凭据",
-        "failed",
-        "已保存的内容既不是 API 密钥对（secretId:secretKey），也不是可识别的 CloudBase 令牌；请核对后重新粘贴",
-      );
-    }
-  } else {
-    push("cloudbase_credential", "CloudBase 凭据", "failed", "尚未配置 CloudBase 凭据");
-  }
-
-  if (!adminDeploy) {
-    push("admin_deploy", "Admin 生产版", "pending", "尚未在 Admin预览服务中配置生产版");
-  } else {
-    push(
-      "admin_deploy",
-      "Admin 生产版",
-      "passed",
-      `静态网站托管 · 生产环境 · ${adminDeploy.hostingPath}`,
-    );
   }
 
   const failed = checks.filter((check) => check.status === "failed");
@@ -587,23 +859,31 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
 export async function loadProjectMiniProgramRuntime(service, projectId) {
   const [row] = await query(
     service.db,
-    `SELECT enabled,app_id,app_name,entry_page,cloudbase_envs,admin_deploy,wechat_ci,last_verified_at,last_verify_error
+    `SELECT enabled,cloudbase_envs,admin_deploy,last_verified_at,last_verify_error
      FROM project_miniprogram_config WHERE project_id=?`,
     [projectId],
   );
   if (!row) throw new HttpError(409, "请先保存小程序与云开发配置");
+  const mainApp = await readMainApp(service.db, projectId);
   const secretRows = await readSecretRows(service.db, projectId);
+  const wechatKey = await readWechatKeyRow(service.db, projectId, mainApp);
   const secrets = {};
   for (const kind of MINIPROGRAM_SECRET_KINDS) {
-    const secret = secretRows.get(kind);
-    secrets[kind] = secret?.ciphertext
-      ? await decryptToken(secret.ciphertext, vaultId(projectId))
-      : null;
+    const secret = kind === "wechat_upload_key" ? wechatKey : secretRows.get(kind);
+    if (!secret?.ciphertext) {
+      secrets[kind] = null;
+    } else {
+      const decrypted = await decryptToken(secret.ciphertext, vaultId(projectId));
+      secrets[kind] =
+        kind === "cloudbase_credential" ? reattachSecretId(decrypted, secret.hint) : decrypted;
+    }
   }
+  const app = presentApp(mainApp);
   return {
     projectId,
+    miniprogramAppId: app?.id || null,
     enabled: isMiniProgramWorkspaceReady({
-      appId: row.app_id,
+      appId: app?.appId || null,
       cloudbaseEnvs: parseJsonColumn(row.cloudbase_envs) || {},
       secrets: Object.fromEntries(
         Object.entries(secrets).map(([kind, value]) => [kind, { configured: Boolean(value) }]),
@@ -611,12 +891,12 @@ export async function loadProjectMiniProgramRuntime(service, projectId) {
       verifyError: row.last_verify_error,
       verifiedAt: row.last_verified_at,
     }),
-    appId: row.app_id || null,
-    appName: row.app_name || null,
-    entryPage: row.entry_page || null,
+    appId: app?.appId || null,
+    appName: app?.name || null,
+    entryPage: app?.entryPage || null,
     cloudbaseEnvs: parseJsonColumn(row.cloudbase_envs) || {},
     adminDeploy: readAdminDeploy(row.admin_deploy),
-    wechatCi: parseJsonColumn(row.wechat_ci),
+    wechatCi: app?.wechatCi || null,
     authConfigs: await readMiniprogramAuthRuntime(service.db, projectId),
     secrets,
   };

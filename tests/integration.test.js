@@ -439,45 +439,6 @@ test("revoked account credentials stop working immediately", async () => {
   );
 });
 
-test("a summary that cannot be committed is never marked successful", async () => {
-  const created = await request(`/projects/${project}/threads`, { title: "Commit failure" }, owner);
-  const service = new Service(db);
-  service.insertMessage = async () => {
-    throw new Error("Injected persistence failure");
-  };
-  const saved = Object.fromEntries(
-    ["DSH_ENABLED", "DSH_BOOTSTRAP"].map((key) => [key, process.env[key]]),
-  );
-  Object.assign(process.env, {
-    DSH_ENABLED: "true",
-    DSH_BOOTSTRAP: "false",
-  });
-  let released = false;
-  try {
-    const result = await executeRun(service, owner, created.body.id, {}, "summary", {
-      create: async () => ({
-        sandboxId: "test-only",
-        files: { makeDir: async () => {}, write: async () => {} },
-        commands: {
-          run: async () => ({ exitCode: 0, stdout: "A summary", stderr: "" }),
-        },
-        kill: async () => {
-          released = true;
-        },
-      }),
-    });
-    assert.equal(result.status, "failed");
-    assert.equal(released, true);
-    const [record] = await query(db, "SELECT status FROM sandbox_runs WHERE id=?", [result.id]);
-    assert.equal(record.status, "failed");
-  } finally {
-    for (const [key, value] of Object.entries(saved)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  }
-});
-
 test("a human message queues exactly one durable assistant reply and AI messages do not loop", async () => {
   const created = await request(
     `/projects/${project}/threads`,

@@ -230,8 +230,10 @@ export async function migrate(
           .filter(Boolean);
         for (const [index, statement] of statements.entries()) {
           try {
-            // CREATE TRIGGER 不能走预处理协议（ER_UNSUPPORTED_PS）。
-            if (/^CREATE\s+TRIGGER\b/i.test(statement)) await conn.query(statement);
+            // CREATE/DROP TRIGGER 不能走预处理协议（ER_UNSUPPORTED_PS）。
+            // 文件开头的注释会粘在第一条语句上，先剥掉再判断。
+            const executable = withoutLeadingComments(statement);
+            if (/^(CREATE|DROP)\s+TRIGGER\b/i.test(executable)) await conn.query(statement);
             else await query(conn, statement);
           } catch (error) {
             if (

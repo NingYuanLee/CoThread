@@ -47,17 +47,20 @@ async function insertSideRows(db, spec) {
     const slice = messageIds.slice(offset, offset + batch);
     await query(
       db,
-      "INSERT INTO assistant_replies(message_id,status,participation) VALUES " + slice.map(() => "(?,'completed','reply')").join(","),
+      "INSERT INTO assistant_replies(message_id,status,participation) VALUES " +
+        slice.map(() => "(?,'completed','reply')").join(","),
       slice,
     );
     await query(
       db,
-      "INSERT INTO agent_requests(message_id,status) VALUES " + slice.map(() => "(?,'completed')").join(","),
+      "INSERT INTO agent_requests(message_id,status) VALUES " +
+        slice.map(() => "(?,'completed')").join(","),
       slice,
     );
     await query(
       db,
-      "INSERT INTO agent_task_updates(message_id,task_message_id) VALUES " + slice.map(() => "(?,?)").join(","),
+      "INSERT INTO agent_task_updates(message_id,task_message_id) VALUES " +
+        slice.map(() => "(?,?)").join(","),
       slice.flatMap((id) => [id, id]),
     );
   }
@@ -78,7 +81,8 @@ async function insertSideRows(db, spec) {
     const slice = messageIds.slice(offset, offset + batch);
     await query(
       db,
-      "INSERT INTO reviews(id,version_id,reviewer_id,decision,comment) VALUES " + slice.map(() => "(?,?,?,'approved','ok')").join(","),
+      "INSERT INTO reviews(id,version_id,reviewer_id,decision,comment) VALUES " +
+        slice.map(() => "(?,?,?,'approved','ok')").join(","),
       slice.flatMap(() => [randomUUID(), versionId, authorId]),
     );
   }
@@ -86,16 +90,24 @@ async function insertSideRows(db, spec) {
   const token = (randomUUID() + randomUUID()).replaceAll("-", "");
   await query(
     db,
-    "INSERT INTO connectors(id,user_id,name,platform,version,token_hash) VALUES(?,?,?,?,?,?)",
+    "INSERT INTO local_executors(id,user_id,name,platform,version,token_hash) VALUES(?,?,?,?,?,?)",
     [connectorId, authorId, "measure", "win", "0", token],
   );
   for (let offset = 0; offset < messageIds.length; offset += batch) {
     const slice = messageIds.slice(offset, offset + batch);
     await query(
       db,
-      "INSERT INTO connector_tasks(id,connector_id,project_id,thread_id,message_id,requested_by,assigned_to,instruction,policy,status) VALUES " +
+      "INSERT INTO local_executor_tasks(id,local_executor_id,project_id,thread_id,message_id,requested_by,assigned_to,instruction,policy,status) VALUES " +
         slice.map(() => "(?,?,?,?,?,?,?,'measure','unrestricted','completed')").join(","),
-      slice.flatMap((id) => [randomUUID(), connectorId, projectId, threadId, id, authorId, authorId]),
+      slice.flatMap((id) => [
+        randomUUID(),
+        connectorId,
+        projectId,
+        threadId,
+        id,
+        authorId,
+        authorId,
+      ]),
     );
   }
 }
@@ -122,7 +134,7 @@ async function timeChat(service, user, threadId) {
       replies: payload.replies?.length || 0,
       updates: payload.updates?.length || 0,
       requests: payload.requests?.length || 0,
-      connectorTasks: payload.connectorTasks?.length || 0,
+      localExecutorTasks: payload.localExecutorTasks?.length || 0,
     };
   }
   return {

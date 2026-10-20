@@ -220,8 +220,8 @@ export function WorkspaceTopbar({
           href="/docs.html"
           target="_blank"
           rel="noopener noreferrer"
-          title="共序文档"
-          aria-label="共序文档"
+          title="使用手册"
+          aria-label="使用手册"
         >
           <UiIcon name="book" size={20} />
         </a>

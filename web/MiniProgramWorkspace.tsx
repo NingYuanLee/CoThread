@@ -124,6 +124,7 @@ export function MiniProgramWorkspace({
   const [uploadVersion, setUploadVersion] = useState("");
   const [uploadDesc, setUploadDesc] = useState("");
   const [deployments, setDeployments] = useState<DeploymentRow[]>([]);
+  const [previewBuilds, setPreviewBuilds] = useState<DeploymentRow[]>([]);
   const [openDeploymentId, setOpenDeploymentId] = useState("");
   const [deploymentLog, setDeploymentLog] = useState("");
   const [releaseApplications, setReleaseApplications] = useState<ReleaseApplication[]>([]);
@@ -300,13 +301,13 @@ export function MiniProgramWorkspace({
       const response = await request(
         `/api/projects/${projectId}/cloudbase/functions?environment=${functionEnvironment}`,
       );
-      const data = (await readJsonResponse(response, "云函数列表")) as {
+      const data = (await readJsonResponse(response, "CloudBase 云函数列表")) as {
         functions: CloudbaseFunction[];
       };
       setServerFunctions(data.functions || []);
     } catch (cause) {
       setServerFunctions([]);
-      setServerError(cause instanceof Error ? cause.message : "读取云函数失败");
+      setServerError(cause instanceof Error ? cause.message : "读取 CloudBase 云函数失败");
     } finally {
       setServerBusy(false);
     }
@@ -317,13 +318,13 @@ export function MiniProgramWorkspace({
       const response = await request(
         `/api/projects/${projectId}/cloudbase/functions?environment=development`,
       );
-      const data = (await readJsonResponse(response, "待发布云函数")) as {
+      const data = (await readJsonResponse(response, "待发布 CloudBase 云函数")) as {
         functions: CloudbaseFunction[];
       };
       setReleaseFunctions(data.functions || []);
     } catch (cause) {
       setReleaseFunctions([]);
-      setReleaseError(cause instanceof Error ? cause.message : "读取待发布云函数失败");
+      setReleaseError(cause instanceof Error ? cause.message : "读取待发布 CloudBase 云函数失败");
     }
   }, [projectId, request]);
 
@@ -398,14 +399,17 @@ export function MiniProgramWorkspace({
     }
   };
 
-  const startAdminServer = async (serverId?: string) => {
+  const startAdminServer = async (serverId?: string, force = false) => {
     setAdminBusy(true);
     setAdminError("");
     try {
       const response = await request(`/api/projects/${projectId}/miniprogram/dev-servers/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(serverId ? { serverId } : {}),
+        body: JSON.stringify({
+          ...(serverId ? { serverId } : {}),
+          ...(force ? { force: true } : {}),
+        }),
       });
       await readJsonResponse(response, serverId ? "重启后台预览服务" : "开启后台预览服务");
       setAdminFrameKey((value) => value + 1);
@@ -498,13 +502,45 @@ export function MiniProgramWorkspace({
 
   const loadDeployments = useCallback(async () => {
     try {
-      const response = await request(`/api/projects/${projectId}/miniprogram/deployments`);
+      const response = await request(
+        `/api/projects/${projectId}/miniprogram/deployments?limit=100`,
+      );
       const data = (await readJsonResponse(response, "发布记录")) as {
         deployments: DeploymentRow[];
       };
       setDeployments(data.deployments || []);
     } catch {
       setDeployments([]);
+    }
+    try {
+      const response = await request(
+        `/api/projects/${projectId}/miniprogram/builds?kind=app_preview&limit=100`,
+      );
+      const data = (await readJsonResponse(response, "编译记录")) as {
+        builds: Array<{
+          id: string;
+          status: string;
+          createdAt: string | null;
+          finishedAt: string | null;
+          operatorName?: string | null;
+        }>;
+      };
+      setPreviewBuilds(
+        (data.builds || []).map((build) => ({
+          id: build.id,
+          target: "app_preview",
+          environment: "development",
+          status: build.status,
+          version: null,
+          url: null,
+          publishedAt: build.finishedAt,
+          createdAt: build.createdAt,
+          operatorName: build.operatorName || null,
+          recordKind: "build" as const,
+        })),
+      );
+    } catch {
+      setPreviewBuilds([]);
     }
   }, [projectId, request]);
 
@@ -729,7 +765,12 @@ export function MiniProgramWorkspace({
     setOpenDeploymentId(id);
     setDeploymentLog("正在读取…");
     try {
-      const response = await request(`/api/projects/${projectId}/miniprogram/deployments/${id}`);
+      const build = previewBuilds.some((row) => row.id === id);
+      const response = await request(
+        build
+          ? `/api/projects/${projectId}/miniprogram/builds/${id}`
+          : `/api/projects/${projectId}/miniprogram/deployments/${id}`,
+      );
       const data = (await readJsonResponse(response, "发布记录详情")) as { log: string };
       setDeploymentLog(data.log || "（无日志）");
     } catch (cause) {
@@ -944,19 +985,6 @@ export function MiniProgramWorkspace({
           ? "请检查错误信息后重新启动服务。"
           : "重新开启后可继续预览 Admin 根目录。"
     : "开启服务后即可在当前页签预览 Admin 根目录。";
-  const adminPendingTitle = activeAdminServer
-    ? activeAdminServer.status === "failed"
-      ? "开发服务器启动失败"
-      : activeAdminServer.status === "stopped"
-        ? "开发服务器已停止"
-        : "开发服务器启动中"
-    : "还没有 Admin 开发服务器";
-  const adminPendingDetail = activeAdminServer
-    ? activeAdminServer.error ||
-      (activeAdminServer.status === "stopped"
-        ? "请重新启动 Admin 开发服务器，并登记新的预览服务。"
-        : `子 Agent 需用 --base=${activeAdminServer.proxyBase} 启动开发服务器，再标记为 running。`)
-    : "子 Agent 在任务中用 miniprogram_register_admin_preview 登记端口并启动开发服务器后，这里会实时显示管理后台。";
   const selectedReleaseApplication = releaseApplications.find(
     (application) => application.id === releaseDetailId,
   );
@@ -976,9 +1004,12 @@ export function MiniProgramWorkspace({
     (releasePage + 1) * releasePageSize,
   );
   const releaseHasNext = (releasePage + 1) * releasePageSize < visibleReleaseApplications.length;
-  const wechatDeployments = deployments.filter(
-    (row) => row.target === "wechat_preview" || row.target === "wechat_upload",
-  );
+  const wechatDeployments = [
+    ...previewBuilds,
+    ...deployments.filter(
+      (row) => row.target === "wechat_preview" || row.target === "wechat_upload",
+    ),
+  ].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   const adminFrontendDeployments = deployments.filter(
     (row) => row.environment === "production" && row.target === "cloudbase_static",
   );
@@ -1025,10 +1056,12 @@ export function MiniProgramWorkspace({
       });
       await readJsonResponse(response, "小程序编译");
       setMeta(await loadMeta());
+      await loadDeployments();
     } catch (cause) {
       setBuildError(cause instanceof Error ? cause.message : "编译失败");
       try {
         setMeta(await loadMeta());
+        await loadDeployments();
       } catch {}
     } finally {
       setBuilding(false);
@@ -1254,8 +1287,6 @@ export function MiniProgramWorkspace({
     activeAdminServer,
     adminStatusLabel,
     adminStatusTone,
-    adminPendingTitle,
-    adminPendingDetail,
     adminServiceTitle,
     adminServiceDescription,
     adminFrameRef,
@@ -1292,6 +1323,17 @@ export function MiniProgramWorkspace({
                   role="tab"
                   className="doc-browser-tab-open"
                   aria-selected={tab === item.id}
+                  disabled={
+                    !devEnv &&
+                    (item.id === "admin" ||
+                      item.id === "database" ||
+                      item.id === "storage" ||
+                      item.id === "server" ||
+                      item.id === "deploy")
+                  }
+                  title={
+                    !devEnv && item.id !== "preview" ? "需要先配置 CloudBase 开发环境" : undefined
+                  }
                   onClick={() => setTab(item.id)}
                 >
                   <UiIcon name={item.icon} size={13} />
@@ -1310,6 +1352,15 @@ export function MiniProgramWorkspace({
               role="tab"
               className={tab === item.id ? "active" : ""}
               aria-selected={tab === item.id}
+              disabled={
+                !devEnv &&
+                (item.id === "admin" ||
+                  item.id === "database" ||
+                  item.id === "storage" ||
+                  item.id === "server" ||
+                  item.id === "deploy")
+              }
+              title={!devEnv && item.id !== "preview" ? "需要先配置 CloudBase 开发环境" : undefined}
               onClick={() => setTab(item.id)}
             >
               <UiIcon name={item.icon} size={13} />
@@ -1340,8 +1391,8 @@ export function MiniProgramWorkspace({
         {error ? <p className="miniprogram-config-error">{error}</p> : null}
         {!enabled ? (
           <p className="miniprogram-workspace-notice">
-            请在「项目管理 →
-            小程序与云开发」完成①②配置，然后运行连接测试；验证通过后工作区会自动开放。
+            请在「项目管理 → 小程序」填写微信 AppID。CloudBase 单独配置；不配时 Admin
+            预览、云数据库、云存储、云函数和静态托管不可用。
           </p>
         ) : null}
 

@@ -212,6 +212,18 @@
   background: var(--c-f0f3ed);
   color: var(--c-8b9689);
 }
+.cloudbase-tag {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--c-e8f0e1);
+  color: var(--c-516747);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.6;
+}
 
 /* Dimina 预览画布 */
 .miniprogram-canvas-shell {
@@ -478,11 +490,56 @@
 .miniprogram-config-section:last-child {
   border-bottom: 0;
 }
+.miniprogram-config-divider {
+  margin: 14px 0 12px;
+  border: 0;
+  border-top: 1px solid var(--c-e7eae7);
+}
 .miniprogram-config-section h4 {
   margin: 0 0 8px;
   font-size: 12px;
   font-weight: 600;
   color: var(--c-344f65);
+}
+.miniprogram-confirm-dialog {
+  width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--c-e7eae7);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--c-fff);
+  color: var(--c-27362f);
+}
+.miniprogram-confirm-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.miniprogram-confirm-dialog h2 {
+  margin: 0;
+  font-size: 14px;
+}
+.miniprogram-confirm-dialog p {
+  margin: 12px 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.miniprogram-confirm-dialog .miniprogram-config-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.miniprogram-key-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.miniprogram-key-heading h4 {
+  margin: 0;
+}
+.miniprogram-key-heading .miniprogram-field-doc {
+  margin: 0;
 }
 .miniprogram-field {
   display: flex;
@@ -496,7 +553,84 @@
   font-size: 12px;
   color: var(--c-5e6c56);
 }
+.miniprogram-field > .miniprogram-field-with-action {
+  flex: 1;
+  width: auto;
+}
+.miniprogram-field-with-action {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.miniprogram-field-with-action > input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0;
+  padding: 6px 58px 6px 9px;
+  border: 1px solid var(--c-d8e1d3);
+  border-radius: 5px;
+  background: var(--c-fafbfa);
+  font-size: 12px;
+}
+.miniprogram-field-upload {
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  transform: translateY(-50%);
+  margin: 0;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--c-e8f0e1);
+  color: var(--c-27362f);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.miniprogram-field-upload:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.miniprogram-field-file {
+  display: none !important;
+}
+.miniprogram-field-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  margin: -2px 0 7px 102px;
+  padding: 0 8px 0 3px;
+  border: 1px solid var(--c-27362f);
+  border-radius: 11px;
+  background: var(--c-e8f0e1);
+  color: var(--c-27362f);
+  font-size: 12px;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+.miniprogram-field-doc-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--c-27362f);
+  color: var(--c-fff);
+  font-size: 11px;
+  font-weight: 650;
+}
+.miniprogram-field-doc:hover {
+  background: var(--c-dfe5d9);
+}
+.miniprogram-field-doc:focus-visible {
+  outline: 2px solid var(--c-27362f);
+  outline-offset: 2px;
+}
 .miniprogram-field > input[type="text"],
+.miniprogram-field > input[type="password"],
 .miniprogram-field > select,
 .miniprogram-secret-actions > input {
   flex: 1;
@@ -505,8 +639,18 @@
   padding: 6px 9px;
   border: 1px solid var(--c-d8e1d3);
   border-radius: 5px;
-  background: var(--c-fafbfa);
+  background: transparent;
   font-size: 12px;
+}
+.miniprogram-field > input:disabled,
+.miniprogram-field > input[readonly] {
+  background: var(--c-e8f0e1);
+  color: var(--c-5e6c56);
+  border-color: var(--c-e7eae7);
+  cursor: default;
+}
+.cloudbase-admin-fields input {
+  background: transparent;
 }
 .miniprogram-field-check {
   align-items: flex-start;
@@ -550,7 +694,7 @@
 }
 .miniprogram-env-grid {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 92px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   margin-bottom: 7px;
@@ -563,19 +707,20 @@
   font-size: 11px;
   font-weight: 600;
 }
-.miniprogram-env-grid > input {
+.miniprogram-env-grid > input,
+.miniprogram-env-grid > select {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
   padding: 6px 9px;
   border: 1px solid var(--c-d8e1d3);
   border-radius: 5px;
-  background: var(--c-fafbfa);
+  background: transparent;
   font-size: 12px;
 }
 @media (max-width: 520px) {
   .miniprogram-env-grid {
-    grid-template-columns: 72px minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: 72px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
     gap: 5px;
   }
 }
@@ -870,9 +1015,82 @@
   overflow: hidden;
   background: var(--c-f8faf8);
 }
-.miniprogram-admin-preview > .miniprogram-panel-pending {
-  align-self: flex-start;
-  margin: 14px;
+.miniprogram-admin-preview.is-idle {
+  background: var(--doc-browser-active-surface);
+}
+/* 服务未启动：与标准模式开始页签同一套入口卡片，尺寸保持一致。 */
+.miniprogram-admin-start-mark {
+  align-self: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 4px;
+  color: var(--c-8a958d, #8a958d);
+  opacity: 0.34;
+}
+.miniprogram-admin-start {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  width: min(calc(100% - 48px), 320px);
+  margin-top: 14vh;
+  margin-right: auto;
+  margin-bottom: auto;
+  margin-left: auto;
+  box-sizing: border-box;
+}
+.miniprogram-admin-preview > .miniprogram-admin-start .miniprogram-admin-start-card {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--c-dce3d9);
+  border-radius: 10px;
+  background: var(--c-fff);
+  color: var(--c-354238);
+  text-align: left;
+}
+.miniprogram-admin-preview > .miniprogram-admin-start .miniprogram-admin-start-card:hover:not(:disabled) {
+  border-color: var(--c-b8c9b2, #b8c9b2);
+  background: var(--c-f3f7f1, #f3f7f1);
+}
+.miniprogram-admin-preview > .miniprogram-admin-start .miniprogram-admin-start-card:disabled,
+.miniprogram-admin-preview > .miniprogram-admin-start .miniprogram-admin-start-card:disabled:hover {
+  background: var(--c-fff);
+  border-color: var(--c-dce3d9);
+}
+.miniprogram-admin-preview > .miniprogram-admin-start .miniprogram-admin-start-card > .ui-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--c-526d46);
+}
+.miniprogram-admin-start-card-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+.miniprogram-admin-start-card-copy strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-263b2b);
+}
+.miniprogram-admin-start-card-copy small {
+  font-size: 10px;
+  color: var(--c-8a958d, #8a958d);
+}
+.miniprogram-admin-start-card-copy strong,
+.miniprogram-admin-start-card-copy small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .miniprogram-admin-frame {
   display: block;
@@ -3145,12 +3363,58 @@
 }
 
 /* CloudBase 凭据拆成 SecretId / SecretKey 两个输入 */
+.miniprogram-secret-rows .miniprogram-field > .miniprogram-secret-actions {
+  display: flex;
+  flex: 1;
+  width: auto;
+  gap: 8px;
+  margin-top: 0;
+  align-items: center;
+}
 .miniprogram-secret-pair {
   flex-wrap: wrap;
 }
 .miniprogram-secret-pair input {
   flex: 1 1 200px;
   min-width: 160px;
+}
+
+/* 微信上传密钥：选文件，而不是把 .key 内容粘进密码框 */
+.miniprogram-secret-file {
+  align-items: center;
+}
+.miniprogram-file-pick {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 9px;
+  border: 1px dashed var(--c-c3d3b6);
+  border-radius: 5px;
+  background: var(--c-fafbfa);
+  color: var(--c-5e6c56);
+  font-size: 12px;
+  cursor: pointer;
+  overflow: hidden;
+}
+.miniprogram-file-pick input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.miniprogram-file-pick span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.miniprogram-file-pick.is-chosen {
+  color: var(--c-27362f);
+  border-style: solid;
 }
 
 /* 身份授权列表 */
@@ -3426,6 +3690,157 @@
   flex-direction: column;
   width: min(560px, calc(100vw - 32px));
   max-height: min(82vh, 720px);
+}
+.library-organize-dialog.miniprogram-dialog.miniprogram-records-dialog {
+  width: min(680px, calc(100vw - 32px));
+  height: min(640px, calc(100vh - 48px));
+}
+.miniprogram-records-dialog .miniprogram-dialog-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+.miniprogram-records-dialog .miniprogram-deploy-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 4px 0 0;
+}
+.miniprogram-records-filters {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.miniprogram-records-filters select,
+.miniprogram-records-filters input {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 2px 6px;
+  border: 1px solid var(--c-d8e1d3);
+  border-radius: 4px;
+  background: var(--c-fff);
+  color: var(--c-27362f);
+  font: inherit;
+  font-size: 11px;
+}
+.miniprogram-records-filters select:nth-of-type(1) {
+  width: 96px;
+}
+.miniprogram-records-filters select:nth-of-type(2) {
+  width: 128px;
+}
+.miniprogram-records-filters select:nth-of-type(3) {
+  width: 120px;
+}
+.miniprogram-records-filters label input {
+  width: 168px;
+}
+.miniprogram-records-filters label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  color: var(--c-69756c);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.miniprogram-records-filters label input {
+  display: inline-block;
+  margin: 0;
+}
+.miniprogram-records-filters > button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--c-d8e1d3);
+  border-radius: 4px;
+  background: var(--c-fff);
+  color: var(--c-27362f);
+  font: inherit;
+  font-size: 11px;
+  line-height: 24px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.miniprogram-records-dialog .miniprogram-production-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.miniprogram-records-dialog .miniprogram-table-pagination {
+  flex: 0 0 auto;
+  margin-top: 0;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--c-e7eae7);
+}
+.miniprogram-records-table {
+  min-width: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.miniprogram-records-dialog .miniprogram-records-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--c-f0f3ed);
+}
+.miniprogram-records-dialog .miniprogram-records-table th,
+.miniprogram-records-dialog .miniprogram-records-table td {
+  padding: 3px 8px;
+  line-height: 1.3;
+}
+.miniprogram-records-dialog .miniprogram-records-table td:nth-child(6) button {
+  min-height: 22px;
+  padding: 1px 8px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.miniprogram-records-dialog .miniprogram-records-table th:nth-child(1),
+.miniprogram-records-dialog .miniprogram-records-table td:nth-child(1) {
+  width: 72px;
+}
+.miniprogram-records-dialog .miniprogram-records-table th:nth-child(2),
+.miniprogram-records-dialog .miniprogram-records-table td:nth-child(2) {
+  width: 132px;
+}
+.miniprogram-records-dialog .miniprogram-records-table th:nth-child(3),
+.miniprogram-records-dialog .miniprogram-records-table td:nth-child(3) {
+  width: auto;
+}
+.miniprogram-records-dialog .miniprogram-records-table th:nth-child(4),
+.miniprogram-records-dialog .miniprogram-records-table td:nth-child(4) {
+  width: 108px;
+  white-space: nowrap;
+}
+.miniprogram-records-dialog .miniprogram-records-table th:nth-child(5),
+.miniprogram-records-dialog .miniprogram-records-table td:nth-child(5) {
+  width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.miniprogram-records-dialog .miniprogram-records-table th:nth-child(6),
+.miniprogram-records-dialog .miniprogram-records-table td:nth-child(6) {
+  width: 88px;
+  white-space: nowrap;
+  text-align: right;
+}
+.miniprogram-records-dialog .miniprogram-records-table td:nth-child(2),
+.miniprogram-records-dialog .miniprogram-records-table td:nth-child(3) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-organize-dialog.miniprogram-dialog.miniprogram-log-dialog {
+  width: min(720px, calc(100vw - 32px));
+}
+pre.miniprogram-doc-result.miniprogram-log-dialog-body {
+  height: 440px;
+  max-height: 440px;
+  margin: 0;
 }
 .library-organize-dialog.miniprogram-dialog > header {
   flex: 0 0 auto;

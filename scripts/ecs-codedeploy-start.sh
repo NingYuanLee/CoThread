@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OOS CodeDeploy 启动脚本：在 ECS 上执行 ecs-promote（与 docs/cloud-environment.md 一致）。
+# OOS CodeDeploy 启动脚本：在 ECS 上执行 ecs-promote（与 docs/engineering/05-cloud-environment.md 一致）。
 set -euo pipefail
 export PATH=/usr/local/bin:/usr/bin:$PATH
 

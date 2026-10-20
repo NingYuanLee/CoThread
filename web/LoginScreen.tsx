@@ -53,7 +53,7 @@ export function LoginScreen({ onLogin }: { onLogin: (user: PersonalProfile) => v
       <EmailAuth api={api} onLogin={onLogin} />
       <nav className="login-links">
         <a href="/docs.html" target="_blank" rel="noopener noreferrer">
-          文档
+          使用手册
         </a>
         <a href="/about_us.html" target="_blank" rel="noopener noreferrer">
           关于我们

@@ -17,7 +17,7 @@ import {
   loadProjectWikiIndexes,
   queueDocumentMemory,
 } from "./project-memory.js";
-import { connectorTool } from "./connectors.js";
+import { localExecutorTool } from "./local-executors.js";
 import {
   acknowledgeTaskRejection,
   askTaskQuestion,
@@ -66,11 +66,10 @@ import {
   invokeCloudbaseFunction,
   searchCloudbaseFunctionLogs,
   updateCloudbaseAuthSettings,
-} from "./cloudbase.js";
-import {
   deployDevelopmentCloudbaseFunction,
+  listCloudbaseAccountEnvironments,
   listCloudbaseFunctions,
-} from "./cloudbase-functions.js";
+} from "./cloud-backend.js";
 import { previewMiniprogram, uploadMiniprogram } from "./wechat-ci.js";
 import { listReleaseRequests, submitReleaseRequest } from "./release-requests.js";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
@@ -93,7 +92,7 @@ function l2Actor(job, l2SessionId) {
       : null;
   const statusActorType =
     authorizedByUserId && job.interaction_source === "connector_mcp"
-      ? "human_member_connector_mcp"
+      ? "human_member_local_executor_mcp"
       : authorizedByUserId && job.interaction_source === "mcp"
         ? "human_member_mcp"
         : undefined;
@@ -117,7 +116,7 @@ const titles = {
   project_context: "读取",
   read_document: "读取",
   record_document_summary: "记录摘要",
-  list_local_connectors: "查看",
+  list_local_executors: "查看",
   list_project_code_sources: "查看代码源",
   list_code_refs: "查看分支",
   list_code_tree: "查看目录",
@@ -148,12 +147,12 @@ const titles = {
   miniprogram_report_admin_preview: "上报后台预览",
   miniprogram_submit_release: "提交发布申请",
   miniprogram_release_status: "查看发布申请",
-  cloudbase_db_query: "查询云数据库",
-  cloudbase_db_manage: "管理云数据库",
-  cloudbase_db_write: "写入云数据库",
-  cloudbase_function_manage: "管理云函数",
-  cloudbase_storage_upload: "上传云存储",
-  cloudbase_storage_manage: "管理云存储",
+  cloudbase_db_query: "查询 CloudBase 数据库",
+  cloudbase_db_manage: "管理 CloudBase 数据库",
+  cloudbase_db_write: "写入 CloudBase 数据库",
+  cloudbase_function_manage: "管理 CloudBase 云函数",
+  cloudbase_storage_upload: "上传 CloudBase 存储",
+  cloudbase_storage_manage: "管理 CloudBase 存储",
   wechat_preview: "生成微信预览",
   miniprogram_upload_experience: "上传微信体验版",
   // Internal: harness create_task auto-dispatch binds the spawned L3. Not model-facing.
@@ -177,6 +176,7 @@ const L3_EXECUTION_TOOLS = new Set([
 
 const MINIPROGRAM_READ_TOOLS = ["miniprogram_list_source", "miniprogram_read_source"];
 const CLOUDBASE_TOOL_NAMES = [
+  "cloudbase_list_environments",
   "cloudbase_auth_config",
   "cloudbase_auth_config_update",
   "cloudbase_db_query",
@@ -392,13 +392,14 @@ export function createAgentTools(
         "recover_task",
         "ask_task_question",
         "capture_preview_screenshot",
-        "list_local_connectors",
+        "list_local_executors",
         "list_project_code_sources",
         "list_code_refs",
         "list_code_tree",
         "read_code_file",
         "bind_task_l3",
         ...MINIPROGRAM_READ_TOOLS,
+        ...CLOUDBASE_TOOL_NAMES,
       ].includes(name)
     )
       throw new HttpError(403, "L2 当前不能直接执行该工具");
@@ -619,8 +620,8 @@ export function createAgentTools(
         if (!result?.execution_agent_id) throw new HttpError(409, "排队任务未能绑定到本次子 Agent");
       } else if (["list_documents", "manage_document", "manage_folder"].includes(name)) {
         result = await documentTool(service, user, name, args, job);
-      } else if (name === "list_local_connectors") {
-        result = await connectorTool(service, user, name, args, job, thread);
+      } else if (name === "list_local_executors") {
+        result = await localExecutorTool(service, user, name, args, job, thread);
       } else if (name === "list_project_code_sources") {
         result = await agentListCodeSources(service.db, thread.project_id);
       } else if (name === "list_code_refs") {
@@ -1024,7 +1025,7 @@ export function createAgentTools(
             ? z.string().trim().max(64).parse(args.resourceName)
             : undefined;
           if (target === "cloudbase_function" && !resourceName) {
-            throw new HttpError(400, "发布服务端云函数必须指定 resourceName");
+            throw new HttpError(400, "发布 CloudBase 云函数必须指定 resourceName");
           }
           const releaseNote = args.releaseNote
             ? z.string().trim().max(512).parse(args.releaseNote)
@@ -1057,14 +1058,13 @@ export function createAgentTools(
           };
         }
       } else if (CLOUDBASE_TOOL_NAMES.includes(name)) {
-        if (effectiveRole !== "executor") {
-          throw new HttpError(403, "只有子 Agent 可以调用云开发数据面工具");
-        }
         await requireMiniprogramWorkspace(service, thread.project_id);
         // Agents are confined to the development environment.
         const environment = assertAgentEnvironment(args.environment);
         await progress(label);
-        if (name === "cloudbase_auth_config") {
+        if (name === "cloudbase_list_environments") {
+          result = await listCloudbaseAccountEnvironments(service, user, thread.project_id);
+        } else if (name === "cloudbase_auth_config") {
           const auth = runtime.authConfigs?.[environment] || {};
           result = {
             environment,

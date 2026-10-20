@@ -1,0 +1,142 @@
+import React, { useEffect, useRef, useState } from "react";
+import { UiIcon } from "./ui-icon";
+import { showTip } from "./Tip";
+
+type Authorization = {
+  id: string;
+  name: string;
+  platform: string;
+  version: string;
+  approved_at: string | null;
+  denied_at: string | null;
+  consumed_at: string | null;
+};
+
+export function LocalExecutorAuthorization({
+  id,
+  callbackPort,
+  callbackSecret,
+  api,
+  onDone,
+}: {
+  id: string;
+  callbackPort: string;
+  callbackSecret: string;
+  api: (path: string, data?: unknown, method?: string) => Promise<any>;
+  onDone: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [authorization, setAuthorization] = useState<Authorization | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    dialog.current?.showModal();
+    void api(`/local-executor-authorizations-v2/${id}`)
+      .then(setAuthorization)
+      .catch((cause) => setError((cause as Error).message));
+  }, [id, api]);
+  const decide = async (approved: boolean) => {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api(`/local-executor-authorizations-v2/${id}/decision`, {
+        approved,
+        callbackSecret,
+      });
+      let delivered = false;
+      for (let attempt = 0; attempt < 10 && !delivered; attempt++) {
+        try {
+          const response = await fetch(
+            `http://127.0.0.1:${callbackPort}/local-executor-authorization`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ authorizationId: id, callbackSecret, ...result }),
+            },
+          );
+          delivered = response.ok;
+        } catch {}
+        if (!delivered) await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      if (!delivered) throw new Error("未能通知本地执行器，请保持本地执行器开启后重试授权");
+      if (approved) {
+        setAuthorization(
+          (current) => current && { ...current, approved_at: new Date().toISOString() },
+        );
+        showTip("本地执行器已授权");
+      } else {
+        showTip("已拒绝本地执行器授权");
+        onDone();
+      }
+    } catch (cause) {
+      const detail = (cause as Error).message;
+      setError(detail);
+      showTip(detail, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <dialog
+      ref={dialog}
+      className="local-executor-authorization-dialog"
+      onCancel={(event) => event.preventDefault()}
+    >
+      <header>
+        <div>
+          <small>本地执行器</small>
+          <h2>授权本地执行器</h2>
+        </div>
+      </header>
+      {authorization?.approved_at ? (
+        <section className="local-executor-authorization-result">
+          <strong>授权完成</strong>
+          <p>可以返回本地执行器选择项目和本地目录。</p>
+          <button type="button" className="primary" onClick={onDone}>
+            <UiIcon name="check" size={13} />
+            完成
+          </button>
+        </section>
+      ) : (
+        <>
+          <dl>
+            <div>
+              <dt>电脑</dt>
+              <dd>{authorization?.name || "-"}</dd>
+            </div>
+            <div>
+              <dt>系统</dt>
+              <dd>
+                {authorization ? `${authorization.platform} · v${authorization.version}` : "-"}
+              </dd>
+            </div>
+            <div>
+              <dt>权限</dt>
+              <dd>查看账号项目；仅在你为项目选择本地目录后领取任务</dd>
+            </div>
+          </dl>
+          {error && (
+            <p className="project-settings-error" role="alert">
+              {error}
+            </p>
+          )}
+          <footer>
+            <button type="button" disabled={busy} onClick={() => void decide(false)}>
+              <UiIcon name="reject" size={13} />
+              拒绝
+            </button>
+            <button
+              type="button"
+              className="primary"
+              disabled={busy || !authorization}
+              onClick={() => void decide(true)}
+            >
+              <UiIcon name="check" size={13} />
+              {busy ? "正在授权…" : "确认授权"}
+            </button>
+          </footer>
+        </>
+      )}
+    </dialog>
+  );
+}

@@ -9,15 +9,15 @@ import {
   packageVersion,
   pluginManagementLevel,
   readNearbyPackageVersion,
-} from "../runtime/cothread-plugin-registry.mjs";
-import { apply as applyTools } from "../runtime/cothread-tools.mjs";
+} from "../dsh-layer/cothread-plugin-registry.mjs";
+import { apply as applyTools } from "../dsh-layer/cothread-tools.mjs";
 import { readFileSync } from "node:fs";
 
 const appVersion = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 ).version;
 const samePackage = (declared, composed) =>
-  declared.startsWith("runtime/")
+  declared.startsWith("dsh-layer/")
     ? String(composed).replaceAll("\\", "/").includes(declared)
     : composed === declared;
 

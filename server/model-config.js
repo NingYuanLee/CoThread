@@ -6,21 +6,29 @@ const MODEL_SCOPES = Object.freeze({
   executor: "EXECUTOR_MODEL",
 });
 const BASELINE_MODEL = "MODEL";
-const REASONING_EFFORTS = new Set(["off", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
+const REASONING_EFFORTS = new Set([
+  "off",
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultra",
+]);
 
 export function modelContextWindow(scope = "coordinator") {
   return CONTEXT_LIMITS[scope] || CONTEXT_LIMITS.coordinator;
 }
 
 export function modelOutputLimit(config) {
-  return /deepseek/iu.test(config?.model || "")
-    ? 384 * 1024
-    : 128 * 1024;
+  return /deepseek/iu.test(config?.model || "") ? 384 * 1024 : 128 * 1024;
 }
 
 /**
  * DSH 0.2 reserves the request output cap inside the model's context window and
- * subtracts its compaction headroom (`headroomTokens` in runtime/*-patch.yml).
+ * subtracts its compaction headroom (`headroomTokens` in dsh-layer/*-patch.yml).
  * Keep the advertised cap inside the window so DSH's own pressure threshold
  * survives and still lands on the shared 70% budget.
  */
@@ -28,13 +36,14 @@ export const DSH_COMPACTION_HEADROOM_TOKENS = 8_192;
 
 export function dshModelMaxTokens(config, scope = "executor") {
   const window = modelContextWindow(scope);
-  const ceiling =
-    window - DSH_COMPACTION_HEADROOM_TOKENS - Math.floor(window * AUTO_COMPACT_RATIO);
+  const ceiling = window - DSH_COMPACTION_HEADROOM_TOKENS - Math.floor(window * AUTO_COMPACT_RATIO);
   return Math.max(1_024, Math.min(modelOutputLimit(config), ceiling));
 }
 
 function reasoningOptions(config) {
-  return { reasoning: { effort: config.reasoningEffort === "off" ? "none" : config.reasoningEffort } };
+  return {
+    reasoning: { effort: config.reasoningEffort === "off" ? "none" : config.reasoningEffort },
+  };
 }
 
 export function normalizeModelBaseUrl(value) {
@@ -61,24 +70,40 @@ export function modelConfig(scope = "coordinator", env = process.env) {
   // runtime route used by both coordinator and delegated L3 agents. Keep the
   // old coordinator/executor variables as a migration fallback, but prefer
   // the new MODEL_* baseline whenever it is present.
-  const prefix = scope === "knowledge"
-    ? (env[scopedPrefix]?.trim() || env[`${scopedPrefix}_BASE_URL`]?.trim() || env[`${scopedPrefix}_API_KEY`]?.trim()
-      ? scopedPrefix : BASELINE_MODEL)
-    : (env[BASELINE_MODEL]?.trim() || env[`${BASELINE_MODEL}_BASE_URL`]?.trim() || env[`${BASELINE_MODEL}_API_KEY`]?.trim()
-      ? BASELINE_MODEL : scopedPrefix);
+  const prefix =
+    scope === "knowledge"
+      ? env[scopedPrefix]?.trim() ||
+        env[`${scopedPrefix}_BASE_URL`]?.trim() ||
+        env[`${scopedPrefix}_API_KEY`]?.trim()
+        ? scopedPrefix
+        : BASELINE_MODEL
+      : env[BASELINE_MODEL]?.trim() ||
+          env[`${BASELINE_MODEL}_BASE_URL`]?.trim() ||
+          env[`${BASELINE_MODEL}_API_KEY`]?.trim()
+        ? BASELINE_MODEL
+        : scopedPrefix;
   const key = (field) => `${prefix}_${field}`;
   const missing = [key("BASE_URL"), key("API_KEY"), prefix].filter((name) => !env[name]?.trim());
-  if (missing.length)
-    throw new Error(`Model is not configured: missing ${missing.join(", ")}`);
+  if (missing.length) throw new Error(`Model is not configured: missing ${missing.join(", ")}`);
   const baseUrl = normalizeModelBaseUrl(env[key("BASE_URL")]);
   const configuredModel = env[prefix].trim();
   const separator = configuredModel.lastIndexOf("@");
   const hasEffort = separator > 0;
   const model = (hasEffort ? configuredModel.slice(0, separator) : configuredModel).trim();
-  const reasoningEffort = (hasEffort ? configuredModel.slice(separator + 1) : (prefix === BASELINE_MODEL || scope === "coordinator" ? "low" : "medium")).trim().toLowerCase();
+  const reasoningEffort = (
+    hasEffort
+      ? configuredModel.slice(separator + 1)
+      : prefix === BASELINE_MODEL || scope === "coordinator"
+        ? "low"
+        : "medium"
+  )
+    .trim()
+    .toLowerCase();
   if (!model) throw new Error(`${prefix} must include a model name`);
   if (!REASONING_EFFORTS.has(reasoningEffort))
-    throw new Error(`${prefix} reasoning effort must be one of: off, none, minimal, low, medium, high, xhigh, max, ultra`);
+    throw new Error(
+      `${prefix} reasoning effort must be one of: off, none, minimal, low, medium, high, xhigh, max, ultra`,
+    );
   return {
     baseUrl,
     responsesUrl: `${baseUrl}/responses`,
@@ -89,7 +114,13 @@ export function modelConfig(scope = "coordinator", env = process.env) {
 }
 
 export async function modelResponse(
-  { messages, maxTokens, scope = "coordinator", reasoningEffort, signal = AbortSignal.timeout(60000) },
+  {
+    messages,
+    maxTokens,
+    scope = "coordinator",
+    reasoningEffort,
+    signal = AbortSignal.timeout(60000),
+  },
   request = fetch,
 ) {
   const config = modelConfig(scope);
@@ -127,7 +158,13 @@ export async function modelResponse(
 }
 
 export async function modelResponseStream(
-  { messages, maxTokens, scope = "coordinator", signal = AbortSignal.timeout(60000), onText = () => {} },
+  {
+    messages,
+    maxTokens,
+    scope = "coordinator",
+    signal = AbortSignal.timeout(60000),
+    onText = () => {},
+  },
   request = fetch,
 ) {
   const config = modelConfig(scope);
@@ -149,14 +186,18 @@ export async function modelResponseStream(
   if (!contentType.includes("text/event-stream") || !response.body?.getReader) {
     const data = JSON.parse(await response.text());
     if (data?.status === "incomplete")
-      throw new Error(`Model response incomplete (${data.incomplete_details?.reason || "unknown"})`);
+      throw new Error(
+        `Model response incomplete (${data.incomplete_details?.reason || "unknown"})`,
+      );
     const text = responseText(data);
     if (text) onText(text);
     return { data, text };
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "", text = "", completed;
+  let buffer = "",
+    text = "",
+    completed;
   const consume = (line) => {
     if (!line.startsWith("data:")) return;
     const payload = line.slice(5).trim();
@@ -167,8 +208,11 @@ export async function modelResponseStream(
       onText(event.delta);
     } else if (event.type === "response.completed") completed = event.response;
     else if (event.type === "response.incomplete")
-      throw new Error(`Model response incomplete (${event.response?.incomplete_details?.reason || "unknown"})`);
-    else if (event.type === "error") throw new Error(`Model stream failed (${event.message || event.code || "unknown"})`);
+      throw new Error(
+        `Model response incomplete (${event.response?.incomplete_details?.reason || "unknown"})`,
+      );
+    else if (event.type === "error")
+      throw new Error(`Model stream failed (${event.message || event.code || "unknown"})`);
   };
   while (true) {
     const { value, done } = await reader.read();
@@ -180,47 +224,66 @@ export async function modelResponseStream(
   }
   if (buffer.trim()) consume(buffer.trim());
   const finalText = responseText(completed);
-  if (!text && finalText) { text = finalText; onText(finalText); }
+  if (!text && finalText) {
+    text = finalText;
+    onText(finalText);
+  }
   return { data: completed || {}, text };
 }
 
 export function responseText(response) {
   if (typeof response?.output_text === "string") return response.output_text;
   return (response?.output || [])
-    .flatMap((item) => item?.type === "message" ? item.content || [] : [])
+    .flatMap((item) => (item?.type === "message" ? item.content || [] : []))
     .filter((content) => content?.type === "output_text" && typeof content.text === "string")
     .map((content) => content.text)
     .join("");
 }
 
 export function modelUsage(usage) {
-  return usage ? {
-    inputTokens: Math.max(0, (usage.input_tokens || 0) - (usage.input_tokens_details?.cached_tokens || 0)),
-    cacheReadTokens: usage.input_tokens_details?.cached_tokens || 0,
-    cacheWriteTokens: usage.input_tokens_details?.cache_write_tokens || 0,
-    outputTokens: usage.output_tokens || 0,
-    reasoningTokens: usage.output_tokens_details?.reasoning_tokens ?? null,
-    totalTokens: usage.total_tokens || (usage.input_tokens || 0) + (usage.output_tokens || 0),
-    calls: 1,
-  } : null;
+  return usage
+    ? {
+        inputTokens: Math.max(
+          0,
+          (usage.input_tokens || 0) - (usage.input_tokens_details?.cached_tokens || 0),
+        ),
+        cacheReadTokens: usage.input_tokens_details?.cached_tokens || 0,
+        cacheWriteTokens: usage.input_tokens_details?.cache_write_tokens || 0,
+        outputTokens: usage.output_tokens || 0,
+        reasoningTokens: usage.output_tokens_details?.reasoning_tokens ?? null,
+        totalTokens: usage.total_tokens || (usage.input_tokens || 0) + (usage.output_tokens || 0),
+        calls: 1,
+      }
+    : null;
 }
 
 export function dshModelPatch(config = modelConfig("executor"), scope = "executor") {
   const configuredEffort = config.reasoningEffort || "medium";
   const reasoning = ["off", "none"].includes(configuredEffort)
-    ? "off" : configuredEffort === "ultra" ? "max" : configuredEffort;
+    ? "off"
+    : configuredEffort === "ultra"
+      ? "max"
+      : configuredEffort;
   const maxReasoning = configuredEffort === "ultra" ? "ultra" : "max";
   const window = modelContextWindow(scope);
   // L1 is a background maintenance turn. The provider default waits 5 minutes
   // with no tokens and retries 5 times, which pins the UI on 整理中 when
   // inference is busy or silent. Fail that route within about 90 seconds.
-  const knowledgeDeadline = scope === "knowledge" ? `\n            streamIdleTimeoutMs: 90000\n            retryPolicy:\n              mode: normal\n              maxRetries: 1\n              backoff:\n                initialDelayMs: 1000\n                maxDelayMs: 5000` : "";
+  const knowledgeDeadline =
+    scope === "knowledge"
+      ? `\n            streamIdleTimeoutMs: 90000\n            retryPolicy:\n              mode: normal\n              maxRetries: 1\n              backoff:\n                initialDelayMs: 1000\n                maxDelayMs: 5000`
+      : "";
   return `- id: llm-deepseek\n  disabled: true\n- insert:\n    - id: llm-cothread-compatible\n      name: '@deepseek-ai/dsh-llm-pi-ai'\n      config:\n        providers:\n          cothread-compatible:\n            displayName: CoThread\n            apiKeyEnv: MODEL_API_KEY\n            api: openai-responses\n            baseURL: ${JSON.stringify(config.baseUrl)}\n            reasoning: ${reasoning}${knowledgeDeadline}\n            models:\n              - id: ${JSON.stringify(config.model)}\n                name: ${JSON.stringify(config.model)}\n                contextWindow: ${window}\n                maxTokens: ${dshModelMaxTokens(config, scope)}\n                reasoningEfforts:\n                  off: none\n                  minimal: minimal\n                  low: low\n                  medium: medium\n                  high: high\n                  xhigh: xhigh\n                  max: ${maxReasoning}\n`;
 }
 
 export function redactSecrets(value, env = process.env) {
   let result = String(value || "");
-  for (const key of ["KNOWLEDGE_MODEL_API_KEY", "COORDINATOR_MODEL_API_KEY", "EXECUTOR_MODEL_API_KEY", "MODEL_API_KEY"])
+  for (const key of [
+    "KNOWLEDGE_MODEL_API_KEY",
+    "COORDINATOR_MODEL_API_KEY",
+    "EXECUTOR_MODEL_API_KEY",
+    "MODEL_API_KEY",
+  ])
     if (env[key]) result = result.split(env[key]).join("[REDACTED]");
   return result;
 }

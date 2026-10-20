@@ -1,5 +1,6 @@
 import { queueL1ContextCompression, readL1TaskSession } from "../l1-context.js";
-import { registerMiniprogramCloudbaseRoutes } from "./miniprogram-cloudbase.js";
+import { registerCloudbaseRoutes } from "./cloudbase-routes.js";
+import { registerMiniprogramRoutes } from "./miniprogram.js";
 import { readVisualArtifact } from "../visual-artifacts.js";
 import { queueDocumentOrganization } from "../document-organization.js";
 import { queueL1MemoryRun } from "../project-memory.js";
@@ -73,35 +74,6 @@ import {
   stopMiniprogramDevServer,
   updateMiniprogramDevServer,
 } from "../miniprogram-dev-server.js";
-import { readAdminProductionUrl } from "../cloudbase-hosting.js";
-import {
-  addCloudbaseDocument,
-  cloudbaseFileUrls,
-  createCloudbaseDirectory,
-  deleteCloudbaseFiles,
-  deleteCloudbaseStorageEntry,
-  queryCloudbaseDocuments,
-  readCloudbaseEnvironments,
-  removeCloudbaseDocument,
-  resetCloudbaseClients,
-  getCloudbaseFileDownload,
-  listCloudbaseCollections,
-  listCloudbaseFiles,
-  updateCloudbaseDocument,
-  uploadCloudbaseFile,
-  ensureCloudbasePublishableKey,
-  readCloudbaseAuthSettings,
-  updateCloudbaseAuthSettings,
-  readCloudbaseAdminAccount,
-  saveCloudbaseAdminAccount,
-  invokeCloudbaseFunction,
-  searchCloudbaseFunctionLogs,
-} from "../cloudbase.js";
-import {
-  createCloudbaseTimer,
-  deleteCloudbaseTimer,
-  listCloudbaseFunctions,
-} from "../cloudbase-functions.js";
 import {
   listMiniprogramDeployments,
   previewMiniprogram,
@@ -315,7 +287,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     if (!task) throw new HttpError(404, "任务不存在");
     await service.member(req.user, task.project_id);
     const data = z
-      .object({ mode: z.enum(["auto", "human_direct", "member_connector"]).default("auto") })
+      .object({ mode: z.enum(["auto", "human_direct", "member_local_executor"]).default("auto") })
       .parse(req.body);
     const accepted = await acceptTask(
       db,
@@ -496,7 +468,8 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     }
     res.json(reassigned);
   });
-  registerMiniprogramCloudbaseRoutes(app, { db, service });
+  registerMiniprogramRoutes(app, { db, service });
+  registerCloudbaseRoutes(app, { service });
   app.patch("/api/projects/:id", async (req, res) =>
     res.json(await service.updateProject(req.user, req.params.id, req.body)),
   );

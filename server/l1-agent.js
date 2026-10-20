@@ -170,7 +170,7 @@ async function openL1Harness(db, projectId, session, scope, options = {}) {
     dshHome: home,
     processCwd: home,
     cwd: home,
-    patches: [modelPatch, assetPath("runtime/l1-agent-patch.yml"), runtimePatch],
+    patches: [modelPatch, assetPath("dsh-layer/l1-agent-patch.yml"), runtimePatch],
     env,
     provider: "cothread-compatible",
     model: configuredModel.model,

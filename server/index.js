@@ -5,8 +5,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { createDatabase, query } from "./db.js";
 import { createApp } from "./app.js";
-import { registerDevServerUpgrade } from "./miniprogram-dev-server.js";
+import { registerDevServerUpgrade, stopCoThreadPreviewServers } from "./miniprogram-dev-server.js";
 import { startReplyWorker } from "./replies.js";
+import { resolveSandboxProvider, sandboxProviderName } from "./sandbox-provider.js";
 import { createShutdown } from "./shutdown.js";
 import { stopLiveOutputStreams } from "./agent-live-output.js";
 import { migrate } from "../scripts/migrate.js";
@@ -65,6 +66,11 @@ await query(db, "SELECT 1");
 const allowWrites = productionWriteAllowed(process.env, { production });
 if (allowWrites) await migrate(db, undefined, { seedAdmin: true });
 else console.warn(`数据库目标=${databaseTarget}：非生产进程跳过迁移和管理员初始化。`);
+const releasedPreviews = await stopCoThreadPreviewServers(db).catch((error) => {
+  console.warn("启动时停止共序预览端口失败:", error?.message || error);
+  return 0;
+});
+if (releasedPreviews) console.log(`共序重启：已停止 ${releasedPreviews} 个 Admin 预览`);
 const app = createApp(db);
 let vite;
 let server;
@@ -129,11 +135,9 @@ await new Promise((resolve, reject) => {
   server.once("error", reject);
 });
 const origin = production ? APP_ORIGIN : `http://127.0.0.1:${port}`;
-const sandbox = "本机 .local/sandboxes";
-console.log(apiOnly ? `共序接口已启动：http://${host}:${port}` : `共序已启动：${origin}`);
-console.log(
-  `数据库：${databaseHost}${databaseUrl.port ? `:${databaseUrl.port}` : ""}  沙箱：${sandbox}  执行器：进程内常驻`,
-);
+const sandboxName = sandboxProviderName(resolveSandboxProvider());
+const sandbox = sandboxName === "local" ? "本机 .local/sandboxes" : sandboxName;
+console.log(apiOnly ? `coThread Server 已启动：http://${host}:${port}` : `共序已启动：${origin}`);
 if (vite) {
   void (async () => {
     try {
@@ -149,6 +153,9 @@ if (vite) {
 }
 if (allowWrites) await interruptRunningSandboxRuns(workDb);
 const stopReplyWorker = allowWrites ? await startReplyWorker(workDb, db) : () => {};
+console.log(
+  `数据库：${databaseHost}${databaseUrl.port ? `:${databaseUrl.port}` : ""}  沙箱：${sandbox}  执行器：${allowWrites ? "进程内常驻" : "未启动"}`,
+);
 
 // 第三方库会产生无人 await 的 rejected promise——已实测两次把整个 API 直接杀死：
 // miniprogram-ci（微信上传）与 @cloudbase/node-sdk（凭据缺少 secretId/secretKey 时）。
@@ -173,7 +180,12 @@ const shutdown = createShutdown({
       server.close((error) => (error ? reject(error) : resolve()));
     });
     const streamsClosed = stopLiveOutputStreams(db).then(() => server.closeIdleConnections());
-    return Promise.all([httpClosed, streamsClosed, stopDevServerUpgrades()]);
+    return Promise.all([
+      httpClosed,
+      streamsClosed,
+      stopDevServerUpgrades(),
+      stopCoThreadPreviewServers(db).catch(() => 0),
+    ]);
   },
   closeResources: async () => {
     await vite?.close();

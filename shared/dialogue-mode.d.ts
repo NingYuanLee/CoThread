@@ -1,4 +1,4 @@
-export type DialogueMode = "default" | "chat" | "cloudbase";
+export type DialogueMode = "default" | "chat" | "miniprogram" | "cloudbase";
 
 export const DIALOGUE_MODES: DialogueMode[];
 
@@ -16,6 +16,8 @@ export const RIGHT_SIDEBAR_MODE_LABELS: Record<string, string>;
 export const RIGHT_SIDEBAR_MODE_UI: Record<string, { icon: string; label: string }>;
 
 export function rightSidebarModeFromDialogue(dialogueMode: unknown): string;
+
+export const MINIPROGRAM_DIALOGUE_STEERING: string;
 
 export const CLOUDBASE_DIALOGUE_STEERING: string;
 

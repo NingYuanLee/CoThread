@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
 import { testDatabase } from "./database.js";
+import "./miniprogram-ready.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import {
@@ -159,13 +160,13 @@ test("bundle validation rejects an incomplete resource pack", () => {
   assert.equal(validateBundlePaths([]).ok, false);
 });
 
-test("build refuses when the workspace is not enabled", async () => {
+test("build does not require a connection test when the AppID is saved", async () => {
   const database = await testDatabase();
   try {
     const { user, service, project } = await seed(database, { enabled: false });
     await assert.rejects(
       () => buildMiniprogramPreview(service, user, project.id, {}),
-      (error) => error.status === 409 && /尚未通过连接测试/.test(error.message),
+      (error) => error.status === 409 && !/尚未通过连接测试|CloudBase 环境/.test(error.message),
     );
   } finally {
     await database.close();

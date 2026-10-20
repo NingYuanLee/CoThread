@@ -124,7 +124,7 @@ export type MonitorData = {
     member_id: string;
     name: string;
     nodes: {
-      executor_type: "human_self" | "human_connector";
+      executor_type: "human_self" | "human_local_executor";
       executor_id: string | null;
       online: boolean;
       configured?: boolean;
@@ -147,7 +147,7 @@ export type MonitorData = {
     last_action_at: string | null;
     update_count: number;
     contextUsage?: ContextUsage;
-    executor_type?: "dsh_l3" | "human_self" | "human_connector";
+    executor_type?: "dsh_l3" | "human_self" | "human_local_executor";
     executor_id?: string | null;
     target_type?: string | null;
     target_id?: string | null;
@@ -176,7 +176,7 @@ export type MonitorData = {
     claimed_by_id: string | null;
     created_by_type: string;
     created_by_id: string;
-    executor_type: "dsh_l3" | "human_self" | "human_connector" | null;
+    executor_type: "dsh_l3" | "human_self" | "human_local_executor" | null;
     executor_id: string | null;
     progress: string | null;
     result_summary: string | null;

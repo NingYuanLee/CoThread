@@ -118,7 +118,13 @@ function fakeCi(calls, { failUpload, failPreview, writeQr = true } = {}) {
   return {
     Project: class Project {
       constructor(options) {
-        calls.push({ op: "Project", options: { ...options, privateKeyPath: "[path]" } });
+        calls.push({
+          op: "Project",
+          options: {
+            ...options,
+            privateKey: options.privateKey?.includes("PRIVATE KEY") ? "[key]" : options.privateKey,
+          },
+        });
         this.options = options;
       }
     },
@@ -266,10 +272,11 @@ test("preview generates a QR code, records the deployment and cleans up", async 
     assert.match(Buffer.from(result.qrcodeBase64, "base64").toString("utf8"), /PNG-BYTES/);
     assert.equal(result.desc, "验收预览");
 
-    // The private key is handed to CI from a temp path, never from the project.
+    // The private key is handed to CI as a string, not via a temp key file.
     const projectCall = calls.find((call) => call.op === "Project");
     assert.equal(projectCall.options.appid, VALID_APP_ID);
-    assert.equal(projectCall.options.privateKeyPath, "[path]");
+    assert.equal(projectCall.options.privateKey, "[key]");
+    assert.equal(projectCall.options.privateKeyPath, undefined);
     assert.match(calls.find((call) => call.op === "preview").appSource, /dev-env-wx/);
 
     const [row] = await query(

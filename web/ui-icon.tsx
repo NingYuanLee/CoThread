@@ -19,6 +19,7 @@ export type UiIconName =
   | "compass"
   | "compress"
   | "connector"
+  | "localExecutor"
   | "copy"
   | "detail"
   | "download"
@@ -132,6 +133,7 @@ const GLYPHS: Record<GlyphName, string[]> = {
   compass: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "m15.6 8.4-1.7 5.5-5.5 1.7 1.7-5.5Z"],
   compress: ["M8 4H4v4", "M16 4h4v4", "M8 20H4v-4", "M16 20h4v-4", "M9 9h6v6H9z"],
   connector: ["M8 12h8M9 8V5m6 3V5M7 8h10v5a5 5 0 0 1-10 0V8Z", "M12 18v3"],
+  localExecutor: ["M8 12h8M9 8V5m6 3V5M7 8h10v5a5 5 0 0 1-10 0V8Z", "M12 18v3"],
   copy: ["M8 8h11v11H8z", "M5 16V5h11"],
   detail: [
     "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z",

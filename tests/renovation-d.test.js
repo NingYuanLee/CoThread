@@ -41,7 +41,7 @@ async function connector(userId, { seenSql = "UTC_TIMESTAMP(3)", name = "本机"
   const id = randomUUID();
   await query(
     db,
-    `INSERT INTO connectors(id,user_id,device_id,name,platform,version,token_hash,last_seen_at)
+    `INSERT INTO local_executors(id,user_id,device_id,name,platform,version,token_hash,last_seen_at)
      VALUES(?,?,?,?,'windows','1.0.0',?,${seenSql})`,
     [id, userId, id, name, randomUUID().replaceAll("-", "") + randomUUID().replaceAll("-", "")],
   );
@@ -58,7 +58,7 @@ test("chat thread list no longer aggregates messages events or runs", () => {
   assert.equal(projectFn.includes("t.last_active_at"), true);
 });
 
-test("one user with two connectors appears once and keeps the project-bound device", async () => {
+test("one user with two local_executors appears once and keeps the project-bound device", async () => {
   const user = await member();
   const project = await service.createProject(user, { name: "连接器去重" });
   const bound = await connector(user.id, {
@@ -68,16 +68,16 @@ test("one user with two connectors appears once and keeps the project-bound devi
   const recent = await connector(user.id, { name: "刚在线" });
   await query(
     db,
-    "INSERT INTO connector_projects(connector_id,project_id,policy,allow_git_push) VALUES(?,?,'unrestricted',FALSE)",
+    "INSERT INTO local_executor_projects(local_executor_id,project_id,policy,allow_git_push) VALUES(?,?,'unrestricted',FALSE)",
     [bound, project.id],
   );
   const detail = await service.project(user, project.id, { includeLibrary: false });
   const humans = detail.members.filter((row) => row.kind === "human");
   assert.equal(humans.length, 1);
   assert.equal(humans[0].id, user.id);
-  assert.equal(humans[0].connector.id, bound);
-  assert.equal(humans[0].connector.bound, true);
-  assert.notEqual(humans[0].connector.id, recent);
+  assert.equal(humans[0].localExecutor.id, bound);
+  assert.equal(humans[0].localExecutor.bound, true);
+  assert.notEqual(humans[0].localExecutor.id, recent);
   const monitor = await service.agentMonitor(user, project.id);
   assert.equal(monitor.humanAgents.length, 1);
   assert.equal(monitor.humanAgents[0].nodes[1].executor_id, bound);

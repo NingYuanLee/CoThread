@@ -4,7 +4,7 @@
 import { type Dispatch, type RefObject, type SetStateAction } from "react";
 import { MiniProgramDeviceShell } from "./MiniProgramDeviceShell";
 import {
-  PendingPanel,
+  CloudBaseTag,
   WorkspaceDialog,
   type AdminDeviceMode,
   type AdminServer,
@@ -20,8 +20,6 @@ export type MiniprogramAdminPanelProps = {
   activeAdminServer: AdminServer | undefined;
   adminStatusLabel: string;
   adminStatusTone: string;
-  adminPendingTitle: string;
-  adminPendingDetail: string;
   adminServiceTitle: string;
   adminServiceDescription: string;
   adminFrameRef: RefObject<HTMLIFrameElement | null>;
@@ -39,7 +37,7 @@ export type MiniprogramAdminPanelProps = {
   setAdminError: Dispatch<SetStateAction<string>>;
   adminBusy: boolean;
   setAdminBusy: Dispatch<SetStateAction<boolean>>;
-  startAdminServer: (serverId?: string) => Promise<void>;
+  startAdminServer: (serverId?: string, force?: boolean) => Promise<void>;
   stopAdminServer: (serverId: string) => Promise<void>;
   loadAdminServers: () => Promise<void>;
 };
@@ -51,8 +49,6 @@ export function MiniprogramAdminPanel({
   activeAdminServer,
   adminStatusLabel,
   adminStatusTone,
-  adminPendingTitle,
-  adminPendingDetail,
   adminServiceTitle,
   adminServiceDescription,
   adminFrameRef,
@@ -72,80 +68,93 @@ export function MiniprogramAdminPanel({
   stopAdminServer,
   loadAdminServers,
 }: MiniprogramAdminPanelProps) {
+  const adminStarting = activeAdminServer?.status === "starting";
+  const adminStartDisabled = adminBusy || !writable || adminStarting;
+  const adminStartCopy = !writable
+    ? { title: "无法开启预览", detail: "当前账号对该项目只读" }
+    : adminBusy
+      ? { title: "正在处理…", detail: "请稍候，状态更新后会自动显示" }
+      : !activeAdminServer
+        ? { title: "开启 Admin 预览", detail: "在当前页签启动本地预览服务" }
+        : adminStarting
+          ? { title: "预览服务启动中", detail: "就绪后会自动显示管理后台" }
+          : activeAdminServer.status === "failed"
+            ? {
+                title: "重新启动预览",
+                detail: adminError || activeAdminServer.error || "查看错误后再次启动",
+              }
+            : { title: "重新开启预览", detail: "继续预览 Admin 根目录" };
   return (
     <>
       {tab === "admin" ? (
         <section className="miniprogram-panel miniprogram-admin-panel">
-          <div className="miniprogram-admin-toolbar" role="toolbar" aria-label="Admin预览工具栏">
-            <button
-              type="button"
-              className="miniprogram-preview-icon-button"
-              aria-label={adminPreviewRunning ? "重新加载 Admin预览" : "开启 Admin预览服务"}
-              title={adminPreviewRunning ? "重新加载" : "开启 Admin预览服务"}
-              onClick={() => {
-                if (adminPreviewRunning) {
-                  setAdminFrameKey((value) => value + 1);
-                  return;
-                }
-                setAdminDialogOpen(true);
-              }}
-            >
-              <UiIcon name={adminPreviewRunning ? "refresh" : "play"} size={14} />
-            </button>
-            <div
-              className="miniprogram-admin-address"
-              title={activeAdminServer?.proxyBase || "Admin预览服务未连接"}
-            >
-              <UiIcon name="globe" size={13} />
-              <span>{activeAdminServer?.proxyBase || "Admin预览服务未连接"}</span>
-            </div>
-            <div className="miniprogram-admin-device-controls" role="group" aria-label="预览设备">
+          {adminPreviewRunning ? (
+            <div className="miniprogram-admin-toolbar" role="toolbar" aria-label="Admin预览工具栏">
               <button
                 type="button"
-                className={`miniprogram-preview-icon-button${adminDeviceMode === "desktop" ? " is-active" : ""}`}
-                aria-label="电脑模式"
-                aria-pressed={adminDeviceMode === "desktop"}
-                title="电脑模式"
-                disabled={!adminPreviewRunning}
-                onClick={() => setAdminDeviceMode("desktop")}
+                className="miniprogram-preview-icon-button"
+                aria-label="重新加载 Admin预览"
+                title="重新加载"
+                onClick={() => setAdminFrameKey((value) => value + 1)}
               >
-                <UiIcon name="monitor" size={14} />
+                <UiIcon name="refresh" size={14} />
+              </button>
+              <div className="miniprogram-admin-address" title={activeAdminServer?.proxyBase}>
+                <UiIcon name="globe" size={13} />
+                <span>{activeAdminServer?.proxyBase}</span>
+              </div>
+              <CloudBaseTag title="Admin 预览里的云调用绑定 CloudBase 开发环境" />
+              <div className="miniprogram-admin-device-controls" role="group" aria-label="预览设备">
+                <button
+                  type="button"
+                  className={
+                    "miniprogram-preview-icon-button" +
+                    (adminDeviceMode === "desktop" ? " is-active" : "")
+                  }
+                  aria-label="电脑模式"
+                  aria-pressed={adminDeviceMode === "desktop"}
+                  title="电脑模式"
+                  onClick={() => setAdminDeviceMode("desktop")}
+                >
+                  <UiIcon name="monitor" size={14} />
+                </button>
+                <button
+                  type="button"
+                  className={
+                    "miniprogram-preview-icon-button" +
+                    (adminDeviceMode === "mobile" ? " is-active" : "")
+                  }
+                  aria-label="手机模式"
+                  aria-pressed={adminDeviceMode === "mobile"}
+                  title="手机模式"
+                  onClick={() => setAdminDeviceMode("mobile")}
+                >
+                  <UiIcon name="smartphone" size={14} />
+                </button>
+              </div>
+              <button
+                type="button"
+                className="miniprogram-preview-icon-button"
+                aria-label="在电脑浏览器中打开"
+                title="在电脑浏览器中打开"
+                onClick={() => {
+                  if (!activeAdminServer?.proxyBase) return;
+                  window.open(activeAdminServer.proxyBase, "_blank", "noopener,noreferrer");
+                }}
+              >
+                <UiIcon name="share" size={14} />
               </button>
               <button
                 type="button"
-                className={`miniprogram-preview-icon-button${adminDeviceMode === "mobile" ? " is-active" : ""}`}
-                aria-label="手机模式"
-                aria-pressed={adminDeviceMode === "mobile"}
-                title="手机模式"
-                disabled={!adminPreviewRunning}
-                onClick={() => setAdminDeviceMode("mobile")}
+                className="miniprogram-preview-icon-button"
+                aria-label="Admin预览服务"
+                title={`Admin预览服务 · ${adminStatusLabel}`}
+                onClick={() => setAdminDialogOpen(true)}
               >
-                <UiIcon name="smartphone" size={14} />
+                <UiIcon name="server" size={14} />
               </button>
             </div>
-            <button
-              type="button"
-              className="miniprogram-preview-icon-button"
-              aria-label="在电脑浏览器中打开"
-              title="在电脑浏览器中打开"
-              disabled={!adminPreviewRunning}
-              onClick={() => {
-                if (!activeAdminServer?.proxyBase) return;
-                window.open(activeAdminServer.proxyBase, "_blank", "noopener,noreferrer");
-              }}
-            >
-              <UiIcon name="share" size={14} />
-            </button>
-            <button
-              type="button"
-              className="miniprogram-preview-icon-button"
-              aria-label="Admin预览服务"
-              title={`Admin预览服务 · ${adminStatusLabel}`}
-              onClick={() => setAdminDialogOpen(true)}
-            >
-              <UiIcon name="server" size={14} />
-            </button>
-          </div>
+          ) : null}
 
           {activeAdminServer?.status === "running" ? (
             adminDeviceMode === "mobile" ? (
@@ -179,8 +188,35 @@ export function MiniprogramAdminPanel({
               </div>
             )
           ) : (
-            <div className="miniprogram-admin-preview">
-              <PendingPanel icon="monitor" title={adminPendingTitle} detail={adminPendingDetail} />
+            <div className="miniprogram-admin-preview is-idle">
+              <div className="miniprogram-admin-start">
+                <UiIcon name="monitor" size={48} className="miniprogram-admin-start-mark" />
+                <button
+                  type="button"
+                  className="miniprogram-admin-start-card"
+                  disabled={adminStartDisabled}
+                  title={adminStartCopy.detail}
+                  onClick={() => void startAdminServer(activeAdminServer?.id)}
+                >
+                  <UiIcon name={adminBusy ? "refresh" : "play"} size={16} />
+                  <span className="miniprogram-admin-start-card-copy">
+                    <strong>{adminStartCopy.title}</strong>
+                    <small>{adminStartCopy.detail}</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="miniprogram-admin-start-card"
+                  title="端口、地址和运行信息"
+                  onClick={() => setAdminDialogOpen(true)}
+                >
+                  <UiIcon name="server" size={16} />
+                  <span className="miniprogram-admin-start-card-copy">
+                    <strong>查看服务状态</strong>
+                    <small>端口、地址和运行信息</small>
+                  </span>
+                </button>
+              </div>
             </div>
           )}
 
@@ -234,7 +270,12 @@ export function MiniprogramAdminPanel({
                       type="button"
                       className="primary"
                       disabled={adminBusy || !writable}
-                      onClick={() => void startAdminServer(activeAdminServer?.id)}
+                      onClick={() =>
+                        void startAdminServer(
+                          activeAdminServer?.id,
+                          activeAdminServer?.status === "running",
+                        )
+                      }
                     >
                       <UiIcon
                         name={activeAdminServer?.status === "running" ? "refresh" : "play"}

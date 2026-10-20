@@ -197,7 +197,7 @@ export function AccountAuditList({ kind, permissions }: { kind: Kind; permission
           </tbody>
         </table>
       </div>
-      <div className="admin-pagination">
+      <footer className="admin-pagination">
         <PaginationControl
           total={data?.total ?? 0}
           currentPage={page}
@@ -211,7 +211,7 @@ export function AccountAuditList({ kind, permissions }: { kind: Kind; permission
           disabled={loading}
           ariaLabel={changes ? "变更记录分页" : "登录记录分页"}
         />
-      </div>
+      </footer>
     </section>
   );
 }

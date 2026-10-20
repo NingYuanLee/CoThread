@@ -304,7 +304,7 @@ export type Thread = {
     response_id: string | null;
     error: string | null;
   }[];
-  connectorTasks: LocalTask[];
+  localExecutorTasks: LocalTask[];
   side_revision?: number | string;
   sideState?: { mode: "snapshot" | "unchanged"; token: string };
   events: {

@@ -26,7 +26,7 @@ export function ensureLocalMysql() {
   }
   const script = resolve(projectRoot, "scripts/mysql.ps1");
   if (!existsSync(script)) throw new Error("缺少 scripts/mysql.ps1");
-  console.log("正在确认本机便携版 MySQL（127.0.0.1:3307）…");
+  console.log("正在检查本机便携版 MySQL（127.0.0.1:3307）是否在监听…");
   const result = spawnSync(
     "powershell",
     ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "start"],

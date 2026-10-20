@@ -1,9 +1,22 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  DialogClose,
+  animateDialogClose,
+  onDialogBackdropClick,
+  onDialogCancel,
+} from "./dialog-fx";
 import { UiIcon } from "./ui-icon";
 import { showTip } from "./Tip";
 import "./miniprogram.css";
 
 type EnvironmentKind = "development" | "production";
+
+type AccountEnvironment = {
+  envId: string;
+  alias: string | null;
+  region: string | null;
+  source: string | null;
+};
 
 type CloudbaseEnv = { envId: string; region: string | null };
 
@@ -13,7 +26,12 @@ type WechatCi = {
   descTemplate: string | null;
 };
 
-type SecretState = { configured: boolean; hint: string | null; updatedAt: string | null };
+type SecretState = {
+  configured: boolean;
+  hint: string | null;
+  updatedAt: string | null;
+  secretId?: string | null;
+};
 
 type MiniProgramConfig = {
   projectId: string;
@@ -78,15 +96,13 @@ const ENVIRONMENT_LABELS: Record<EnvironmentKind, string> = {
 
 const SECRET_META = {
   wechat_upload_key: {
-    label: "微信上传私钥",
-    hint: "miniprogram-ci 使用的上传密钥文件内容；仅后端加密保存，不写入项目文件。",
-    placeholder: "粘贴 private.<appid>.key 文件内容",
-    mode: "single" as const,
+    label: "代码上传密钥",
+    hint: "选择微信公众平台下载的上传密钥文件（private.<AppID>.key）。文件内容只在后端加密保存，不写入项目文件。",
+    mode: "file" as const,
   },
   cloudbase_credential: {
-    label: "CloudBase 凭据",
+    label: "腾讯云子用户的API密钥",
     hint: "腾讯云 API 密钥对（控制台「访问管理 → API 密钥管理」）。环境级最小权限凭据；L3 只能通过受控工具使用，不会拿到明文。",
-    placeholder: "SecretId",
     mode: "pair" as const,
   },
 } as const;
@@ -103,14 +119,71 @@ const CHECK_LABEL: Record<VerifyCheck["status"], string> = {
   pending: "待实测",
 };
 
+function ClearCredentialDialog({
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    dialog.current?.showModal();
+  }, []);
+  return (
+    <dialog
+      ref={dialog}
+      className="miniprogram-confirm-dialog"
+      aria-labelledby="clear-credential-title"
+      onCancel={onDialogCancel(() => {
+        if (!busy) onClose();
+      })}
+      onClick={onDialogBackdropClick(onClose, () => !busy)}
+    >
+      <header>
+        <h2 id="clear-credential-title">删除并清空配置</h2>
+        <DialogClose
+          onClick={() => {
+            if (!busy) animateDialogClose(dialog.current, onClose);
+          }}
+          label="关闭"
+          disabled={busy}
+        />
+      </header>
+      <p>
+        确认后删除腾讯云子用户的 API 密钥，并清空已选环境和 Publishable Key。小程序 AppID
+        和代码上传密钥不会删除。
+      </p>
+      <div className="miniprogram-config-actions">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => animateDialogClose(dialog.current, onClose)}
+        >
+          取消
+        </button>
+        <button type="button" className="miniprogram-danger" disabled={busy} onClick={onConfirm}>
+          {busy ? "删除中…" : "确认删除"}
+        </button>
+      </div>
+    </dialog>
+  );
+}
+
 export function ProjectMiniProgramConfig({
   projectId,
   canManage,
   api,
+  section,
+  onIdentity,
 }: {
   projectId: string;
   canManage: boolean;
   api: (path: string, data?: unknown, method?: string) => Promise<any>;
+  section: "miniprogram" | "cloudbase";
+  onIdentity?: (identity: { appId: string | null; appName: string | null }) => void;
 }) {
   const [config, setConfig] = useState<MiniProgramConfig | null>(null);
   const [draft, setDraft] = useState<MiniProgramConfig | null>(null);
@@ -121,13 +194,26 @@ export function ProjectMiniProgramConfig({
   const [savedPublishableKeys, setSavedPublishableKeys] = useState<Record<EnvironmentKind, string>>(
     { development: "", production: "" },
   );
+  const [serverApiKeys, setServerApiKeys] = useState<Record<EnvironmentKind, string>>({
+    development: "",
+    production: "",
+  });
+  const [serverApiKeyConfigured, setServerApiKeyConfigured] = useState<
+    Record<EnvironmentKind, boolean>
+  >({
+    development: false,
+    production: false,
+  });
+  const [serverApiKeyDirty, setServerApiKeyDirty] = useState<Record<EnvironmentKind, boolean>>({
+    development: false,
+    production: false,
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [checks, setChecks] = useState<VerifyCheck[] | null>(null);
-  const [secretDrafts, setSecretDrafts] = useState<Record<string, string>>({
-    wechat_upload_key: "",
-    cloudbase_credential: "",
-  });
+  // 微信上传密钥是公众平台下载的文件，不让用户把内容粘进密码框。
+  const [keyFile, setKeyFile] = useState<File | null>(null);
+  const keyFileInput = useRef<HTMLInputElement | null>(null);
   // CloudBase 凭据拆成两个字段：控制台给的就是两段独立的值，拼在一起容易出错。
   const [cbPair, setCbPair] = useState({ secretId: "", secretKey: "" });
   const [secretBusy, setSecretBusy] = useState<string | null>(null);
@@ -142,11 +228,53 @@ export function ProjectMiniProgramConfig({
   const [adminDraft, setAdminDraft] = useState({ username: "", password: "", confirmPassword: "" });
   const [selectedCloudbaseEnvironment, setSelectedCloudbaseEnvironment] =
     useState<EnvironmentKind>("development");
+  const [accountEnvs, setAccountEnvs] = useState<AccountEnvironment[]>([]);
+  const [accountEnvError, setAccountEnvError] = useState("");
+  const [accountEnvBusy, setAccountEnvBusy] = useState(false);
+  const [confirmClearCredential, setConfirmClearCredential] = useState(false);
+  const [envListReload, setEnvListReload] = useState(0);
 
   const apply = (next: MiniProgramConfig) => {
     setConfig(next);
     setDraft(next);
+    onIdentity?.({ appId: next.appId, appName: next.appName });
   };
+
+  useEffect(() => {
+    if (
+      section !== "cloudbase" ||
+      !draft?.appId ||
+      !draft.secrets.cloudbase_credential.configured
+    ) {
+      return undefined;
+    }
+    let alive = true;
+    setAccountEnvBusy(true);
+    setAccountEnvError("");
+    api("/projects/" + projectId + "/cloudbase/account-environments")
+      .then((value) => {
+        if (!alive) return;
+        setAccountEnvs(value?.environments || []);
+      })
+      .catch((cause) => {
+        if (!alive) return;
+        setAccountEnvs([]);
+        setAccountEnvError(cause instanceof Error ? cause.message : "环境列表读取失败");
+      })
+      .finally(() => {
+        if (alive) setAccountEnvBusy(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [
+    section,
+    projectId,
+    api,
+    draft?.appId,
+    draft?.secrets.cloudbase_credential.configured,
+    envListReload,
+  ]);
 
   useEffect(() => {
     let alive = true;
@@ -165,6 +293,12 @@ export function ProjectMiniProgramConfig({
         };
         setPublishableKeys(keys);
         setSavedPublishableKeys(keys);
+        setServerApiKeyConfigured({
+          development: Boolean(developmentAuth.miniprogram?.serverApiKeyConfigured),
+          production: Boolean(productionAuth.miniprogram?.serverApiKeyConfigured),
+        });
+        setServerApiKeys({ development: "", production: "" });
+        setServerApiKeyDirty({ development: false, production: false });
         const loadExtra = (path: string) =>
           Promise.race([
             api(path),
@@ -258,12 +392,15 @@ export function ProjectMiniProgramConfig({
     setDraft((previous) => (previous ? { ...previous, ...changes } : previous));
   };
 
-  const setEnv = (kind: EnvironmentKind, envId: string) => {
+  const setEnv = (kind: EnvironmentKind, envId: string, region: string | null = null) => {
     setDraft((previous) => {
       if (!previous) return previous;
       const envs = { ...previous.cloudbaseEnvs };
       if (!envId.trim()) delete envs[kind];
-      else envs[kind] = { envId, region: envs[kind]?.region ?? null };
+      else envs[kind] = { envId, region: region ?? envs[kind]?.region ?? null };
+      setServerApiKeys((keys) => ({ ...keys, [kind]: "" }));
+      setServerApiKeyConfigured((flags) => ({ ...flags, [kind]: false }));
+      setServerApiKeyDirty((flags) => ({ ...flags, [kind]: true }));
       return { ...previous, cloudbaseEnvs: envs };
     });
   };
@@ -302,13 +439,24 @@ export function ProjectMiniProgramConfig({
       }
       for (const environment of Object.keys(ENVIRONMENT_LABELS) as EnvironmentKind[]) {
         const key = publishableKeys[environment].trim();
-        if (key === savedPublishableKeys[environment]) continue;
+        const apiKey = serverApiKeys[environment].trim();
+        const apiDirty = serverApiKeyDirty[environment];
+        if (key === savedPublishableKeys[environment] && !apiDirty) continue;
         await api(
           `/projects/${projectId}/miniprogram-auth-config/publishable-key`,
-          { environment, cloudbasePublishableKey: key || null },
+          {
+            environment,
+            cloudbasePublishableKey: key || null,
+            ...(apiDirty ? { cloudbaseServerApiKey: apiKey || null } : {}),
+          },
           "PUT",
         );
         setSavedPublishableKeys((previous) => ({ ...previous, [environment]: key }));
+        if (apiDirty) {
+          setServerApiKeyConfigured((flags) => ({ ...flags, [environment]: Boolean(apiKey) }));
+          setServerApiKeys((keys) => ({ ...keys, [environment]: "" }));
+          setServerApiKeyDirty((flags) => ({ ...flags, [environment]: false }));
+        }
       }
       showTip("已保存小程序与云开发配置");
     } catch (cause) {
@@ -318,22 +466,54 @@ export function ProjectMiniProgramConfig({
     }
   };
 
-  const saveSecret = async (kind: "wechat_upload_key" | "cloudbase_credential") => {
-    const body =
-      kind === "cloudbase_credential"
-        ? cbPair.secretId.trim() && cbPair.secretKey.trim()
+  const saveSecret = async (
+    kind: "wechat_upload_key" | "cloudbase_credential",
+    file?: File | null,
+  ) => {
+    setError("");
+    let body:
+      { value: string; fileName?: string } | { secretId: string; secretKey: string } | null = null;
+    const picked = file || keyFile;
+    if (kind === "cloudbase_credential") {
+      body =
+        cbPair.secretId.trim() && cbPair.secretKey.trim()
           ? { secretId: cbPair.secretId.trim(), secretKey: cbPair.secretKey.trim() }
-          : null
-        : secretDrafts[kind]
-          ? { value: secretDrafts[kind] }
           : null;
+    } else if (picked) {
+      let text = "";
+      try {
+        text = await picked.text();
+      } catch {
+        setError("密钥文件读取失败");
+        return;
+      }
+      if (!text.trim()) {
+        setError("密钥文件是空的");
+        return;
+      }
+      if (text.includes("\0")) {
+        setError("密钥文件不是文本私钥，请选择微信公众平台下载的 .key 文件");
+        return;
+      }
+      if (new TextEncoder().encode(text).byteLength > 64 * 1024) {
+        setError("密钥文件超过 64KB");
+        return;
+      }
+      body = { value: text, fileName: picked.name };
+    }
     if (!body) return;
     setSecretBusy(kind);
-    setError("");
     try {
       const next = await api(`/projects/${projectId}/miniprogram-secrets/${kind}`, body, "PUT");
       apply(next as MiniProgramConfig);
-      setSecretDrafts((previous) => ({ ...previous, [kind]: "" }));
+      if (kind === "cloudbase_credential") {
+        setConfirmClearCredential(false);
+        setPublishableKeys({ development: "", production: "" });
+        setSavedPublishableKeys({ development: "", production: "" });
+        setAccountEnvs([]);
+      }
+      setKeyFile(null);
+      if (keyFileInput.current) keyFileInput.current.value = "";
       setCbPair({ secretId: "", secretKey: "" });
       showTip(`已保存${SECRET_META[kind].label}`);
     } catch (cause) {
@@ -353,7 +533,18 @@ export function ProjectMiniProgramConfig({
         "DELETE",
       );
       apply(next as MiniProgramConfig);
-      showTip(`已清除${SECRET_META[kind].label}`);
+      if (kind === "cloudbase_credential") {
+        setConfirmClearCredential(false);
+        setPublishableKeys({ development: "", production: "" });
+        setSavedPublishableKeys({ development: "", production: "" });
+        setServerApiKeys({ development: "", production: "" });
+        setServerApiKeyConfigured({ development: false, production: false });
+        setServerApiKeyDirty({ development: false, production: false });
+        setAccountEnvs([]);
+        showTip("已删除腾讯云子用户的API密钥，并清空环境、Publishable Key 和服务端 API Key");
+      } else {
+        showTip("已清除" + SECRET_META[kind].label);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "凭据清除失败");
     } finally {
@@ -393,101 +584,157 @@ export function ProjectMiniProgramConfig({
   const renderSecret = (kind: keyof typeof SECRET_META) => {
     const meta = SECRET_META[kind];
     const state = draft.secrets[kind];
-    return (
-      <div className="miniprogram-secret" key={kind}>
-        <div className="miniprogram-secret-head">
-          <span>
-            <UiIcon name="key" size={13} /> {meta.label}
-          </span>
-          {state.configured ? (
-            <small className="miniprogram-secret-on">已保存 {state.hint || ""}</small>
-          ) : (
-            <small className="muted">未配置</small>
-          )}
+    if (meta.mode === "file") {
+      return (
+        <div key={kind}>
+          <label className="miniprogram-field">
+            <span>{meta.label}</span>
+            <span className="miniprogram-field-with-action">
+              <input
+                type="text"
+                readOnly
+                value={state.configured ? state.hint || "已保存" : ""}
+                placeholder="未上传"
+                title={meta.hint}
+                disabled={readOnly}
+              />
+              {readOnly ? null : (
+                <button
+                  type="button"
+                  className="miniprogram-field-upload"
+                  disabled={secretBusy === kind}
+                  onClick={() => keyFileInput.current?.click()}
+                >
+                  {secretBusy === kind ? "上传中…" : "上传"}
+                </button>
+              )}
+              <input
+                ref={keyFileInput}
+                className="miniprogram-field-file"
+                type="file"
+                accept=".key,.pem,.txt,text/plain"
+                tabIndex={-1}
+                aria-hidden="true"
+                onChange={(event) => {
+                  const picked = event.target.files?.[0] || null;
+                  setKeyFile(picked);
+                  if (picked) void saveSecret(kind, picked);
+                }}
+              />
+            </span>
+          </label>
+          <a
+            className="miniprogram-field-doc"
+            href="https://developers.weixin.qq.com/miniprogram/dev/devtools/ci.html"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="miniprogram-ci 官方文档"
+            title="miniprogram-ci 官方文档"
+          >
+            <span className="miniprogram-field-doc-mark" aria-hidden="true">
+              ?
+            </span>
+            miniprogram-ci 官方文档
+          </a>
         </div>
-        <p className="muted miniprogram-note">{meta.hint}</p>
-        {readOnly ? null : meta.mode === "pair" ? (
-          <div className="miniprogram-secret-actions miniprogram-secret-pair">
-            <input
-              type="text"
-              value={cbPair.secretId}
-              placeholder={state.configured ? "SecretId（重新输入以替换）" : "SecretId"}
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(event) =>
-                setCbPair((previous) => ({ ...previous, secretId: event.target.value }))
-              }
-            />
-            <input
-              type="password"
-              value={cbPair.secretKey}
-              placeholder={state.configured ? "SecretKey（重新输入以替换）" : "SecretKey"}
-              autoComplete="new-password"
-              onChange={(event) =>
-                setCbPair((previous) => ({ ...previous, secretKey: event.target.value }))
-              }
-            />
-            <button
-              type="button"
-              disabled={secretBusy === kind || !cbPair.secretId.trim() || !cbPair.secretKey.trim()}
-              onClick={() => void saveSecret(kind)}
-            >
-              {state.configured ? "替换" : "保存"}
-            </button>
-            {state.configured ? (
-              <button
-                type="button"
-                className="miniprogram-danger"
-                disabled={secretBusy === kind}
-                onClick={() => void clearSecret(kind)}
-              >
-                清除
-              </button>
-            ) : null}
+      );
+    }
+    return (
+      <div key={kind}>
+        {readOnly ? (
+          <p className="muted miniprogram-note">
+            {state.configured ? "已保存 " + (state.hint || "") : "未配置"}
+          </p>
+        ) : meta.mode === "pair" ? (
+          <div className="miniprogram-secret-rows">
+            <label className="miniprogram-field">
+              <span>SecretId</span>
+              <input
+                type="text"
+                value={state.configured ? state.secretId || "" : cbPair.secretId}
+                placeholder="SecretId"
+                autoComplete="off"
+                spellCheck={false}
+                readOnly={state.configured}
+                disabled={state.configured}
+                onChange={(event) =>
+                  setCbPair((previous) => ({ ...previous, secretId: event.target.value }))
+                }
+              />
+            </label>
+            <label className="miniprogram-field">
+              <span>SecretKey</span>
+              <input
+                type="password"
+                value={state.configured ? "********" : cbPair.secretKey}
+                placeholder="SecretKey"
+                autoComplete="new-password"
+                readOnly={state.configured}
+                disabled={state.configured}
+                onChange={(event) =>
+                  setCbPair((previous) => ({ ...previous, secretKey: event.target.value }))
+                }
+              />
+            </label>
+            <div className="miniprogram-field">
+              <span />
+              <span className="miniprogram-secret-actions">
+                {state.configured ? (
+                  <>
+                    <button
+                      type="button"
+                      className="miniprogram-danger"
+                      disabled={secretBusy === kind}
+                      onClick={() => setConfirmClearCredential(true)}
+                    >
+                      删除并清空配置
+                    </button>
+                    <button
+                      type="button"
+                      disabled={accountEnvBusy}
+                      onClick={() => setEnvListReload((value) => value + 1)}
+                    >
+                      {accountEnvBusy ? "刷新中…" : "刷新可用环境列表"}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={
+                      secretBusy === kind || !cbPair.secretId.trim() || !cbPair.secretKey.trim()
+                    }
+                    onClick={() => void saveSecret(kind)}
+                  >
+                    {secretBusy === kind ? "获取中…" : "获取环境并保存"}
+                  </button>
+                )}
+              </span>
+            </div>
           </div>
-        ) : (
-          <div className="miniprogram-secret-actions">
-            <input
-              type="password"
-              value={secretDrafts[kind]}
-              placeholder={state.configured ? "重新输入以替换" : meta.placeholder}
-              autoComplete="new-password"
-              onChange={(event) =>
-                setSecretDrafts((previous) => ({ ...previous, [kind]: event.target.value }))
-              }
-            />
-            <button
-              type="button"
-              disabled={secretBusy === kind || !secretDrafts[kind]}
-              onClick={() => void saveSecret(kind)}
-            >
-              {state.configured ? "替换" : "保存"}
-            </button>
-            {state.configured ? (
-              <button
-                type="button"
-                className="miniprogram-danger"
-                disabled={secretBusy === kind}
-                onClick={() => void clearSecret(kind)}
-              >
-                清除
-              </button>
-            ) : null}
-          </div>
-        )}
+        ) : null}
       </div>
     );
   };
 
   return (
     <div className="miniprogram-config">
+      {confirmClearCredential ? (
+        <ClearCredentialDialog
+          busy={secretBusy === "cloudbase_credential"}
+          onClose={() => setConfirmClearCredential(false)}
+          onConfirm={() => void clearSecret("cloudbase_credential")}
+        />
+      ) : null}
       <div className="miniprogram-config-head">
         <div>
           <h3>
-            <UiIcon name="smartphone" size={15} /> 小程序与云开发
+            <UiIcon name={section === "cloudbase" ? "layers" : "smartphone"} size={15} />{" "}
+            {section === "cloudbase" ? "CloudBase" : "小程序"}
           </h3>
           <p className="muted">
-            来源与凭据在此配置；上传私钥和 CloudBase 凭据由后端加密保存，L3 通过受控工具使用。
+            {section === "cloudbase"
+              ? "环境、凭据和登录方式。不配也可以做纯前端小程序；Admin 预览、云数据库、云存储、云函数和静态托管需要这里。"
+              : "微信身份、Dimina 预览和体验版上传。不依赖 CloudBase。上传私钥只在后端加密保存。"}
           </p>
         </div>
         <span className={`miniprogram-status ${statusTone}`}>
@@ -500,218 +747,309 @@ export function ProjectMiniProgramConfig({
         <p className="miniprogram-config-error">上次验证：{draft.lastVerifyError}</p>
       ) : null}
 
-      <section className="miniprogram-config-section">
-        <h4>① 小程序身份</h4>
-        <label className="miniprogram-field">
-          <span>微信 AppID</span>
-          <input
-            type="text"
-            value={draft.appId || ""}
-            placeholder="wx1234567890abcdef"
-            disabled={readOnly}
-            autoComplete="off"
-            onChange={(event) => patch({ appId: event.target.value })}
-          />
-        </label>
-        <label className="miniprogram-field">
-          <span>小程序名称</span>
-          <input
-            type="text"
-            value={draft.appName || ""}
-            disabled={readOnly}
-            autoComplete="off"
-            onChange={(event) => patch({ appName: event.target.value })}
-          />
-        </label>
-        <label className="miniprogram-field">
-          <span>默认预览页面</span>
-          <input
-            type="text"
-            value={draft.entryPage || ""}
-            placeholder="pages/index/index"
-            disabled={readOnly}
-            autoComplete="off"
-            onChange={(event) => patch({ entryPage: event.target.value })}
-          />
-        </label>
-        {renderSecret("wechat_upload_key")}
-      </section>
-
-      <section className="miniprogram-config-section">
-        <h4>② CloudBase 环境</h4>
-        <div className="miniprogram-env-grid miniprogram-env-grid-head" aria-hidden="true">
-          <span />
-          <span>环境 ID</span>
-          <span>Publishable Key</span>
-        </div>
-        {(Object.keys(ENVIRONMENT_LABELS) as EnvironmentKind[]).map((kind) => (
-          <div className="miniprogram-env-grid" key={kind}>
-            <span>{ENVIRONMENT_LABELS[kind]}</span>
+      {section === "miniprogram" ? (
+        <section className="miniprogram-config-section">
+          <label className="miniprogram-field">
+            <span>AppID</span>
             <input
               type="text"
-              aria-label={`${ENVIRONMENT_LABELS[kind]} ID`}
-              value={draft.cloudbaseEnvs[kind]?.envId || ""}
-              placeholder={kind === "development" ? "必填" : "留空沿用开发环境"}
+              value={draft.appId || ""}
+              placeholder="wx1234567890abcdef"
               disabled={readOnly}
               autoComplete="off"
-              onChange={(event) => setEnv(kind, event.target.value)}
+              onChange={(event) => patch({ appId: event.target.value })}
             />
+          </label>
+          <label className="miniprogram-field">
+            <span>小程序名称</span>
             <input
               type="text"
-              aria-label={`${ENVIRONMENT_LABELS[kind]} Publishable Key`}
-              value={publishableKeys[kind]}
-              maxLength={16384}
-              placeholder={kind === "development" ? "粘贴 Publishable Key" : "留空沿用开发环境"}
-              disabled={readOnly || busy}
+              value={draft.appName || ""}
+              disabled={readOnly}
               autoComplete="off"
-              spellCheck={false}
-              onChange={(event) =>
-                setPublishableKeys((previous) => ({ ...previous, [kind]: event.target.value }))
-              }
+              onChange={(event) => patch({ appName: event.target.value })}
             />
+          </label>
+          <label className="miniprogram-field">
+            <span>默认启动首页</span>
+            <input
+              type="text"
+              value={draft.entryPage || ""}
+              placeholder="pages/index/index"
+              disabled={readOnly}
+              autoComplete="off"
+              onChange={(event) => patch({ entryPage: event.target.value })}
+            />
+          </label>
+          {renderSecret("wechat_upload_key")}
+        </section>
+      ) : null}
+
+      {section === "cloudbase" && draft && !draft.appId ? (
+        <p className="miniprogram-config-error">
+          请先在「小程序」页保存微信 AppID。CloudBase 环境会绑定到那个小程序，不能单独配置。
+        </p>
+      ) : null}
+      {section === "cloudbase" && draft?.appId ? (
+        <section className="miniprogram-config-section">
+          <div className="miniprogram-key-heading">
+            <h4>腾讯云子用户的API密钥</h4>
+            <a
+              className="miniprogram-field-doc"
+              href="https://cloud.tencent.com/document/product/598/13674"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="创建腾讯云子用户"
+              title="创建腾讯云子用户"
+            >
+              <span className="miniprogram-field-doc-mark" aria-hidden="true">
+                ?
+              </span>
+              创建子用户
+            </a>
           </div>
-        ))}
-        <p className="muted miniprogram-note">
-          开发预览使用开发环境；体验版上传、Admin 与其他正式发布使用生产环境。生产环境的环境 ID 或
-          Publishable Key 留空时，对应项沿用开发环境。
-        </p>
-        <p className="muted miniprogram-note">
-          真机云函数调用要求此处的微信 AppID
-          已开通并关联对应云环境，或已获得环境所属小程序的共享授权。腾讯云控制台创建的环境须先与微信小程序绑定；Web
-          预览登录成功不能证明微信端有调用权限。
-        </p>
-        {renderSecret("cloudbase_credential")}
-      </section>
-
-      <section className="miniprogram-config-section">
-        <h4>③ 连接测试</h4>
-        <div className="miniprogram-config-actions">
-          {readOnly ? null : (
-            <button type="button" disabled={busy} onClick={() => void save()}>
-              {busy ? "处理中…" : "保存配置"}
-            </button>
-          )}
-          <button type="button" disabled={busy} onClick={() => void verify()}>
-            <UiIcon name="shield" size={13} /> 连接测试
-          </button>
-        </div>
-        {checks ? (
-          <ul className="miniprogram-checks">
-            {checks.map((check) => (
-              <li key={check.id} data-status={check.status}>
-                <span className="miniprogram-check-name">
-                  <UiIcon name={CHECK_ICON[check.status]} size={12} /> {check.label}
-                </span>
-                <span className="miniprogram-check-detail">{check.detail}</span>
-                <span className="miniprogram-check-state">{CHECK_LABEL[check.status]}</span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        <p className="muted miniprogram-note">
-          连接测试会用服务端凭据只读查询 CloudBase
-          云函数，并向微信请求生成预览码来验证上传私钥；不会上传正式版本，也无法验证当前 AppID
-          在真机上的云函数调用权限。两项测试通过后，小程序工作区自动开放。
-        </p>
-      </section>
-
-      <section className="miniprogram-config-section cloudbase-auth-settings">
-        <div className="miniprogram-section-heading-row">
-          <h4>④ CloudBase 身份认证</h4>
-          <select
-            value={selectedCloudbaseEnvironment}
-            disabled={readOnly || authBusy || adminBusy}
-            onChange={(event) =>
-              setSelectedCloudbaseEnvironment(event.target.value as EnvironmentKind)
-            }
-          >
-            <option value="development">开发环境</option>
-            <option value="production">生产环境</option>
-          </select>
-        </div>
-        {selectedAuth ? (
-          <>
-            <p className="muted miniprogram-note">
-              直接同步到 {selectedAuth.envId}。生产环境修改需要明确确认，密码不会回显或写入源码。
-            </p>
-            <div className="cloudbase-auth-switches">
-              {(
-                [
-                  ["anonymousLogin", "匿名登录（开发预览静默登录）"],
-                  ["usernameLogin", "用户名密码登录"],
-                  ["emailLogin", "邮箱登录"],
-                  ["phoneNumberLogin", "手机号登录"],
-                ] as const
-              ).map(([key, label]) => (
-                <label key={key} className="cloudbase-auth-switch">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(selectedAuth[key])}
-                    disabled={readOnly || authBusy}
-                    onChange={(event) => void updateAuthSettings({ [key]: event.target.checked })}
-                  />
-                  <span>{label}</span>
-                </label>
-              ))}
-            </div>
-            <div className="cloudbase-admin-account">
-              <div>
-                <strong>Admin 首个账号</strong>
-                <small>
-                  {selectedAdmin?.configured ? `已配置：${selectedAdmin.username}` : "尚未配置"}
-                </small>
+          {renderSecret("cloudbase_credential")}
+          {draft.secrets.cloudbase_credential.configured ? (
+            <>
+              <hr className="miniprogram-config-divider" />
+              <h4>CloudBase环境</h4>
+              <p className="muted miniprogram-note">
+                {accountEnvBusy
+                  ? "正在读取环境列表…"
+                  : accountEnvError ||
+                    (accountEnvs.length
+                      ? "请选择开发环境和生产环境。生产环境留空则沿用开发环境。"
+                      : "这个凭据下没有可用环境。")}
+              </p>
+              <div className="miniprogram-env-grid miniprogram-env-grid-head" aria-hidden="true">
+                <span />
+                <span>环境</span>
+                <span>Publishable Key</span>
+                <span>服务端 API Key</span>
               </div>
-              {!readOnly ? (
-                <div className="cloudbase-admin-fields">
+              {(Object.keys(ENVIRONMENT_LABELS) as EnvironmentKind[]).map((kind) => (
+                <div className="miniprogram-env-grid" key={kind}>
+                  <span>{ENVIRONMENT_LABELS[kind]}</span>
+                  <select
+                    aria-label={ENVIRONMENT_LABELS[kind]}
+                    value={draft.cloudbaseEnvs[kind]?.envId || ""}
+                    disabled={
+                      readOnly || !draft.secrets.cloudbase_credential.configured || accountEnvBusy
+                    }
+                    onChange={(event) => {
+                      const envId = event.target.value;
+                      const match = accountEnvs.find((item) => item.envId === envId);
+                      setEnv(kind, envId, match?.region || null);
+                    }}
+                  >
+                    <option value="">
+                      {kind === "production" ? "留空沿用开发环境" : "不使用 CloudBase"}
+                    </option>
+                    {draft.cloudbaseEnvs[kind]?.envId &&
+                    !accountEnvs.some((item) => item.envId === draft.cloudbaseEnvs[kind]?.envId) ? (
+                      <option value={draft.cloudbaseEnvs[kind]?.envId}>
+                        {draft.cloudbaseEnvs[kind]?.envId}
+                      </option>
+                    ) : null}
+                    {accountEnvs.map((item) => (
+                      <option key={item.envId} value={item.envId}>
+                        {(item.alias ? item.alias + " · " : "") + item.envId}
+                      </option>
+                    ))}
+                  </select>
                   <input
                     type="text"
-                    value={adminDraft.username}
-                    placeholder="用户名或邮箱"
-                    autoComplete="username"
-                    onChange={(event) =>
-                      setAdminDraft((previous) => ({ ...previous, username: event.target.value }))
+                    aria-label={`${ENVIRONMENT_LABELS[kind]} Publishable Key`}
+                    value={publishableKeys[kind]}
+                    maxLength={16384}
+                    placeholder={
+                      kind === "development" ? "粘贴 Publishable Key" : "留空沿用开发环境"
                     }
-                  />
-                  <input
-                    type="password"
-                    value={adminDraft.password}
-                    placeholder="新密码（至少 8 位）"
-                    autoComplete="new-password"
+                    disabled={readOnly || busy}
+                    autoComplete="off"
+                    spellCheck={false}
                     onChange={(event) =>
-                      setAdminDraft((previous) => ({ ...previous, password: event.target.value }))
-                    }
-                  />
-                  <input
-                    type="password"
-                    value={adminDraft.confirmPassword}
-                    placeholder="确认密码"
-                    autoComplete="new-password"
-                    onChange={(event) =>
-                      setAdminDraft((previous) => ({
+                      setPublishableKeys((previous) => ({
                         ...previous,
-                        confirmPassword: event.target.value,
+                        [kind]: event.target.value,
                       }))
                     }
                   />
-                  <button
-                    type="button"
-                    disabled={adminBusy}
-                    onClick={() => void saveAdminAccount()}
-                  >
-                    {adminBusy
-                      ? "同步中…"
-                      : selectedAdmin?.configured
-                        ? "重置并同步"
-                        : "创建并同步"}
+                  <input
+                    type="password"
+                    aria-label={ENVIRONMENT_LABELS[kind] + " 服务端 API Key"}
+                    value={serverApiKeys[kind]}
+                    maxLength={16384}
+                    placeholder={
+                      !draft.cloudbaseEnvs[kind]?.envId
+                        ? "先选择环境"
+                        : serverApiKeyConfigured[kind]
+                          ? "已保存，留空不修改"
+                          : "这个环境的服务端 API Key"
+                    }
+                    disabled={readOnly || busy || !draft.cloudbaseEnvs[kind]?.envId}
+                    autoComplete="new-password"
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setServerApiKeys((previous) => ({ ...previous, [kind]: value }));
+                      setServerApiKeyDirty((previous) => ({ ...previous, [kind]: true }));
+                    }}
+                  />
+                </div>
+              ))}
+              <p className="muted miniprogram-note">
+                留空则没有 CloudBase。Admin 预览、云数据库、云存储、云函数和静态托管都不可用。Dimina
+                预览和微信上传不受影响。生产环境留空时沿用开发环境。
+              </p>
+              <p className="muted miniprogram-note">
+                真机 CloudBase 云函数调用要求小程序页里的微信 AppID
+                已关联这个环境，或已获得同主体的环境共享。不同主体不能共用一个环境。
+              </p>
+              {readOnly ? null : (
+                <div className="miniprogram-config-actions">
+                  <button type="button" disabled={busy} onClick={() => void save()}>
+                    {busy ? "处理中…" : "保存配置"}
                   </button>
                 </div>
-              ) : null}
-            </div>
-          </>
-        ) : (
-          <p className="muted">正在读取 CloudBase 身份配置…</p>
-        )}
-      </section>
+              )}
+            </>
+          ) : null}
+        </section>
+      ) : null}
+
+      {section === "miniprogram" ? (
+        <section className="miniprogram-config-section">
+          <h4>微信连接测试</h4>
+          <div className="miniprogram-config-actions">
+            {readOnly ? null : (
+              <button type="button" disabled={busy} onClick={() => void save()}>
+                {busy ? "处理中…" : "保存配置"}
+              </button>
+            )}
+            <button type="button" disabled={busy} onClick={() => void verify()}>
+              <UiIcon name="shield" size={13} /> 连接测试
+            </button>
+          </div>
+          {checks ? (
+            <ul className="miniprogram-checks">
+              {checks
+                .filter((check) => check.id.startsWith("wechat"))
+                .map((check) => (
+                  <li key={check.id} data-status={check.status}>
+                    <span className="miniprogram-check-name">
+                      <UiIcon name={CHECK_ICON[check.status]} size={12} /> {check.label}
+                    </span>
+                    <span className="miniprogram-check-detail">{check.detail}</span>
+                    <span className="miniprogram-check-state">{CHECK_LABEL[check.status]}</span>
+                  </li>
+                ))}
+            </ul>
+          ) : null}
+          <p className="muted miniprogram-note">
+            向微信生成一次预览来核对代码上传密钥和 AppID。这不是体验版，也不上传正式版本。不需要
+            CloudBase。
+          </p>
+        </section>
+      ) : null}
+      {section === "cloudbase" && draft?.appId && draft.secrets.cloudbase_credential.configured ? (
+        <section className="miniprogram-config-section cloudbase-auth-settings">
+          <div className="miniprogram-section-heading-row">
+            <h4>CloudBase 身份认证</h4>
+            <select
+              value={selectedCloudbaseEnvironment}
+              disabled={readOnly || authBusy || adminBusy}
+              onChange={(event) =>
+                setSelectedCloudbaseEnvironment(event.target.value as EnvironmentKind)
+              }
+            >
+              <option value="development">开发环境</option>
+              <option value="production">生产环境</option>
+            </select>
+          </div>
+          {selectedAuth ? (
+            <>
+              <p className="muted miniprogram-note">
+                直接同步到 {selectedAuth.envId}。生产环境修改需要明确确认，密码不会回显或写入源码。
+              </p>
+              <div className="cloudbase-auth-switches">
+                {(
+                  [
+                    ["anonymousLogin", "匿名登录（开发预览静默登录）"],
+                    ["usernameLogin", "用户名密码登录"],
+                    ["emailLogin", "邮箱登录"],
+                    ["phoneNumberLogin", "手机号登录"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key} className="cloudbase-auth-switch">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selectedAuth[key])}
+                      disabled={readOnly || authBusy}
+                      onChange={(event) => void updateAuthSettings({ [key]: event.target.checked })}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="cloudbase-admin-account">
+                <div>
+                  <strong>Admin 首个账号</strong>
+                  <small>
+                    {selectedAdmin?.configured ? `已配置：${selectedAdmin.username}` : "尚未配置"}
+                  </small>
+                </div>
+                {!readOnly ? (
+                  <div className="cloudbase-admin-fields">
+                    <input
+                      type="text"
+                      value={adminDraft.username}
+                      placeholder="用户名或邮箱"
+                      autoComplete="username"
+                      onChange={(event) =>
+                        setAdminDraft((previous) => ({ ...previous, username: event.target.value }))
+                      }
+                    />
+                    <input
+                      type="password"
+                      value={adminDraft.password}
+                      placeholder="新密码（至少 8 位）"
+                      autoComplete="new-password"
+                      onChange={(event) =>
+                        setAdminDraft((previous) => ({ ...previous, password: event.target.value }))
+                      }
+                    />
+                    <input
+                      type="password"
+                      value={adminDraft.confirmPassword}
+                      placeholder="确认密码"
+                      autoComplete="new-password"
+                      onChange={(event) =>
+                        setAdminDraft((previous) => ({
+                          ...previous,
+                          confirmPassword: event.target.value,
+                        }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      disabled={adminBusy}
+                      onClick={() => void saveAdminAccount()}
+                    >
+                      {adminBusy
+                        ? "同步中…"
+                        : selectedAdmin?.configured
+                          ? "重置并同步"
+                          : "创建并同步"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <p className="muted">正在读取 CloudBase 身份配置…</p>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }

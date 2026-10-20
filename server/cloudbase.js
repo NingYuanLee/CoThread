@@ -187,7 +187,7 @@ export function resolveCloudbaseEnv(runtime, environment = "development") {
   return { kind, envId: env.envId, region: env.region || null, inherited };
 }
 
-async function defaultClientFactory({ envId, credential }) {
+async function defaultClientFactory({ envId, credential, accessKey }) {
   let mod;
   try {
     mod = await import("@cloudbase/node-sdk");
@@ -196,9 +196,12 @@ async function defaultClientFactory({ envId, credential }) {
   }
   const tcb = mod.default ?? mod;
   const options = { env: envId };
-  if (credential.secretId) options.secretId = credential.secretId;
-  if (credential.secretKey) options.secretKey = credential.secretKey;
-  if (credential.sessionToken) options.sessionToken = credential.sessionToken;
+  if (accessKey) options.accessKey = accessKey;
+  else {
+    if (credential?.secretId) options.secretId = credential.secretId;
+    if (credential?.secretKey) options.secretKey = credential.secretKey;
+    if (credential?.sessionToken) options.sessionToken = credential.sessionToken;
+  }
   return tcb.init(options);
 }
 
@@ -234,10 +237,22 @@ export async function getCloudbaseClient(service, projectId, environment = "deve
   if (!credentialText) throw new HttpError(409, "尚未配置 CloudBase 凭据");
   const key = clientKey(projectId, target.envId);
   if (clients.has(key)) return { client: clients.get(key), ...target };
-  assertUsableCloudbaseCredential(credentialText);
-  const credential = parseCloudbaseCredential(credentialText);
   const factory = clientFactoryOverride || defaultClientFactory;
-  const client = await factory({ envId: target.envId, credential, region: target.region });
+  const { readEnvironmentServerApiKey } = await import("./miniprogram-auth-config.js");
+  const accessKey = await readEnvironmentServerApiKey(service.db, projectId, target.kind);
+  let credential = null;
+  if (!clientFactoryOverride) {
+    if (!accessKey) throw new HttpError(409, "尚未配置该 CloudBase 环境的服务端 API Key");
+  } else {
+    assertUsableCloudbaseCredential(credentialText);
+    credential = parseCloudbaseCredential(credentialText);
+  }
+  const client = await factory({
+    envId: target.envId,
+    credential,
+    accessKey,
+    region: target.region,
+  });
   clients.set(key, client);
   return { client, ...target };
 }
@@ -247,6 +262,122 @@ export async function getCloudbaseClient(service, projectId, environment = "deve
  * unless a caller actually exercises the client, so we never claim a health
  * check we did not perform.
  */
+/**
+ * DescribeEnvs does not return the WeChat AppID. Miniapp-sourced environments
+ * are the ones created for the mini program bound to this Tencent Cloud account.
+ * If none are marked miniapp, return the whole account list.
+ */
+export function presentAccountEnvironments(envList, appId) {
+  const items = (Array.isArray(envList) ? envList : [])
+    .map((env) => ({
+      envId: String(env?.EnvId || env?.envId || "").trim(),
+      alias: env?.Alias ? String(env.Alias) : null,
+      region: env?.Region ? String(env.Region) : null,
+      source: env?.Source ? String(env.Source) : null,
+      status: env?.Status || env?.EnvStatus ? String(env.Status || env.EnvStatus) : null,
+    }))
+    .filter((env) => env.envId);
+  return {
+    appId: appId || null,
+    environments: items,
+    limitedToMiniapp: false,
+  };
+}
+
+async function listEnvironmentsForCredential(credentialText, appId, knownEnvId = null) {
+  assertUsableCloudbaseCredential(credentialText);
+  const credential = parseCloudbaseCredential(credentialText);
+  const factory = managerFactoryOverride || defaultManagerFactory;
+  const manager = await factory({ envId: knownEnvId, credential });
+  const describeEnvs = manager?.env?.describeEnvs;
+  if (typeof describeEnvs !== "function") {
+    if (managerFactoryOverride) return { skipped: true, ...presentAccountEnvironments([], appId) };
+    throw new HttpError(502, "CloudBase 管理面未提供环境列表接口");
+  }
+  const listed = await callProvider("读取环境列表", () =>
+    describeEnvs.call(manager.env, { WxAppId: appId }),
+  );
+  return { skipped: false, ...presentAccountEnvironments(listed?.EnvList, appId) };
+}
+
+export async function assertCredentialListsEnvironments(credentialText, appId, knownEnvId = null) {
+  const listed = await listEnvironmentsForCredential(credentialText, appId, knownEnvId);
+  if (listed.skipped) return listed;
+  if (!listed.environments.length) {
+    throw new HttpError(409, "这个凭据没有拉到 CloudBase 环境，不能保存");
+  }
+  return listed;
+}
+
+export async function listCloudbaseAccountEnvironments(service, user, projectId) {
+  await service.member(user, projectId, false);
+  const runtime = await loadProjectMiniProgramRuntime(service, projectId);
+  if (!runtime.appId) throw new HttpError(409, "请先保存 AppID，再读取 CloudBase 环境");
+  const credentialText = runtime.secrets?.cloudbase_credential;
+  if (!credentialText) throw new HttpError(409, "尚未配置 CloudBase 凭据");
+  const listed = await listEnvironmentsForCredential(
+    credentialText,
+    runtime.appId,
+    runtime.cloudbaseEnvs?.development?.envId || null,
+  );
+  return presentAccountEnvironments(listed.environments, runtime.appId);
+}
+
+/**
+ * An environment matches when describeEnvs({ WxAppId }) includes it.
+ * That covers the owner and any shared environment WeChat returns for this AppID.
+ * Owner WxAppId is only extra detail when the environment is not in that list.
+ */
+export async function assertCloudbaseEnvironmentsMatchApp(
+  service,
+  projectId,
+  appId,
+  cloudbaseEnvs,
+) {
+  const envIds = [
+    ...new Set(
+      [cloudbaseEnvs?.development?.envId, cloudbaseEnvs?.production?.envId].filter(Boolean),
+    ),
+  ];
+  if (!envIds.length) return;
+  const runtime = await loadProjectMiniProgramRuntime(service, projectId);
+  const credentialText = runtime.secrets?.cloudbase_credential;
+  if (!credentialText) return;
+  assertUsableCloudbaseCredential(credentialText);
+  const credential = parseCloudbaseCredential(credentialText);
+  const factory = managerFactoryOverride || defaultManagerFactory;
+  const manager = await factory({
+    envId: cloudbaseEnvs?.development?.envId || runtime.cloudbaseEnvs?.development?.envId || null,
+    credential,
+  });
+  const describeEnvInfo = manager?.env?.describeEnvInfo;
+  const describeEnvs = manager?.env?.describeEnvs;
+  for (const envId of envIds) {
+    let ownerAppId = "";
+    if (typeof describeEnvInfo === "function") {
+      const info = await callProvider("核对环境所属小程序", () =>
+        describeEnvInfo.call(manager.env, { EnvId: envId }),
+      );
+      ownerAppId = String(info?.EnvInfo?.UserInfo?.WxAppId || "").trim();
+    }
+    let found = false;
+    if (typeof describeEnvs === "function") {
+      const listed = await callProvider("核对环境是否可供当前小程序使用", () =>
+        describeEnvs.call(manager.env, { WxAppId: appId, EnvId: envId }),
+      );
+      found = (listed?.EnvList || []).some(
+        (env) => String(env?.EnvId || env?.envId || "").trim() === envId,
+      );
+    }
+    if (found) continue;
+    const ownerNote = ownerAppId && ownerAppId !== appId ? "，其主人小程序是 " + ownerAppId : "";
+    throw new HttpError(
+      409,
+      "环境 " + envId + " 不在 AppID " + appId + " 可用的环境中" + ownerNote,
+    );
+  }
+}
+
 export async function readCloudbaseEnvironments(service, user, projectId) {
   await service.member(user, projectId, false);
   const runtime = await loadProjectMiniProgramRuntime(service, projectId);
@@ -521,13 +652,15 @@ async function defaultManagerFactory({ envId, credential }) {
     throw new HttpError(503, "服务端未安装 CloudBase 管理面 SDK（@cloudbase/manager-node）");
   }
   const CloudBase = mod.default ?? mod;
-  const options = { envId };
+  const options = {};
+  if (envId) options.envId = envId;
   if (credential.secretId) options.secretId = credential.secretId;
   if (credential.secretKey) options.secretKey = credential.secretKey;
   if (credential.token || credential.sessionToken) {
     options.token = credential.token || credential.sessionToken;
   }
-  return CloudBase.init(options);
+  // init() 是单例，第一次的密钥会被后面的保存复用，错误密钥也能拉到环境。
+  return new CloudBase(options);
 }
 
 export async function getCloudbaseManager(service, projectId, environment = "development") {
@@ -553,7 +686,11 @@ export async function getCloudbaseManager(service, projectId, environment = "dev
  * publish key when CloudBase has not created one yet. The secretId/secretKey
  * used by manager-node stay inside this server function.
  */
-export async function ensureCloudbasePublishableKey(service, projectId, environment = "development") {
+export async function ensureCloudbasePublishableKey(
+  service,
+  projectId,
+  environment = "development",
+) {
   const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
   const env = manager.currentEnvironment();
   const api = env.getEnvService();
@@ -561,16 +698,34 @@ export async function ensureCloudbasePublishableKey(service, projectId, environm
     api.describeApiKeyList({ KeyType: "publish_key", Limit: 10, Offset: 0 }),
   );
   const existing = (listed?.Data || [])[0];
-  if (existing?.ApiKey) return { environment, envId, keyId: existing.KeyId || null, publishableKey: existing.ApiKey, created: false };
+  if (existing?.ApiKey)
+    return {
+      environment,
+      envId,
+      keyId: existing.KeyId || null,
+      publishableKey: existing.ApiKey,
+      created: false,
+    };
   const created = await callProvider("创建 CloudBase Publishable Key", () =>
     api.createApiKey({ KeyType: "publish_key" }),
   );
   if (!created?.ApiKey) throw new HttpError(502, "CloudBase 创建 Publishable Key 未返回明文");
-  return { environment, envId, keyId: created.KeyId || null, publishableKey: created.ApiKey, created: true };
+  return {
+    environment,
+    envId,
+    keyId: created.KeyId || null,
+    publishableKey: created.ApiKey,
+    created: true,
+  };
 }
 
 /** Read CloudBase end-user login switches without exposing provider credentials. */
-export async function readCloudbaseAuthSettings(service, user, projectId, environment = "development") {
+export async function readCloudbaseAuthSettings(
+  service,
+  user,
+  projectId,
+  environment = "development",
+) {
   await service.member(user, projectId, false);
   const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
   const config = await callProvider("查询 CloudBase 登录配置", () =>
@@ -597,15 +752,23 @@ export async function updateCloudbaseAuthSettings(service, user, projectId, inpu
   const current = await readCloudbaseAuthSettings(service, user, projectId, environment);
   const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
   const payload = {
-    PhoneNumberLogin: input.phoneNumberLogin === undefined ? current.phoneNumberLogin : Boolean(input.phoneNumberLogin),
+    PhoneNumberLogin:
+      input.phoneNumberLogin === undefined
+        ? current.phoneNumberLogin
+        : Boolean(input.phoneNumberLogin),
     EmailLogin: input.emailLogin === undefined ? current.emailLogin : Boolean(input.emailLogin),
-    UserNameLogin: input.usernameLogin === undefined ? current.usernameLogin : Boolean(input.usernameLogin),
-    AnonymousLogin: input.anonymousLogin === undefined ? current.anonymousLogin : Boolean(input.anonymousLogin),
+    UserNameLogin:
+      input.usernameLogin === undefined ? current.usernameLogin : Boolean(input.usernameLogin),
+    AnonymousLogin:
+      input.anonymousLogin === undefined ? current.anonymousLogin : Boolean(input.anonymousLogin),
   };
   const result = await callProvider("更新 CloudBase 登录配置", () =>
     manager.currentEnvironment().getEnvService().modifyLoginConfig(payload),
   );
-  return { ...(await readCloudbaseAuthSettings(service, user, projectId, environment)), requestId: result?.RequestId || null };
+  return {
+    ...(await readCloudbaseAuthSettings(service, user, projectId, environment)),
+    requestId: result?.RequestId || null,
+  };
 }
 
 /**
@@ -636,28 +799,55 @@ export async function saveCloudbaseAdminAccount(service, user, projectId, input 
   if (!/^[^\s@]+(?:@[^\s@]+)?$/.test(username) || username.length < 3 || username.length > 128) {
     throw new HttpError(400, "Admin 账号须为至少 3 位的用户名或邮箱");
   }
-  if (password.length < 8 || password.length > 128) throw new HttpError(400, "Admin 密码长度须为 8 到 128 位");
+  if (password.length < 8 || password.length > 128)
+    throw new HttpError(400, "Admin 密码长度须为 8 到 128 位");
   const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
-  const users = await callProvider("查询 CloudBase 用户", () => manager.currentEnvironment().getUserService().getEndUserList({ limit: 100, offset: 0 }));
+  const users = await callProvider("查询 CloudBase 用户", () =>
+    manager.currentEnvironment().getUserService().getEndUserList({ limit: 100, offset: 0 }),
+  );
   assertCloudbaseManagementResult(users, "查询 CloudBase 用户");
-  const existing = (users?.Users || []).find((item) => String(item?.Username || item?.UserName || item?.username || item?.Email || item?.email || "").toLowerCase() === username.toLowerCase());
+  const existing = (users?.Users || []).find(
+    (item) =>
+      String(
+        item?.Username || item?.UserName || item?.username || item?.Email || item?.email || "",
+      ).toLowerCase() === username.toLowerCase(),
+  );
   let result;
   if (existing?.UUID || existing?.Uuid || existing?.UUId || existing?.uuid) {
     const uuid = existing.UUID || existing.Uuid || existing.UUId || existing.uuid;
-    result = await callProvider("重置 CloudBase Admin 密码", () => manager.currentEnvironment().getUserService().modifyEndUser({ uuid, username, password }));
+    result = await callProvider("重置 CloudBase Admin 密码", () =>
+      manager.currentEnvironment().getUserService().modifyEndUser({ uuid, username, password }),
+    );
   } else {
-    result = await callProvider("创建 CloudBase Admin 账号", () => manager.currentEnvironment().getUserService().createEndUser({ username, password }));
+    result = await callProvider("创建 CloudBase Admin 账号", () =>
+      manager.currentEnvironment().getUserService().createEndUser({ username, password }),
+    );
   }
   assertCloudbaseManagementResult(result, "同步 CloudBase Admin 账号");
   return { environment, envId, username, configured: true, requestId: result?.RequestId || null };
 }
 
-export async function readCloudbaseAdminAccount(service, user, projectId, environment = "development") {
+export async function readCloudbaseAdminAccount(
+  service,
+  user,
+  projectId,
+  environment = "development",
+) {
   await service.member(user, projectId, false);
   const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
-  const users = await callProvider("查询 CloudBase Admin 账号", () => manager.currentEnvironment().getUserService().getEndUserList({ limit: 100, offset: 0 }));
-  const admin = (users?.Users || []).find((item) => item?.Username || item?.UserName || item?.username || item?.Email || item?.email);
-  return { environment, envId, configured: Boolean(admin), username: admin?.Username || admin?.UserName || admin?.username || admin?.Email || admin?.email || null };
+  const users = await callProvider("查询 CloudBase Admin 账号", () =>
+    manager.currentEnvironment().getUserService().getEndUserList({ limit: 100, offset: 0 }),
+  );
+  const admin = (users?.Users || []).find(
+    (item) => item?.Username || item?.UserName || item?.username || item?.Email || item?.email,
+  );
+  return {
+    environment,
+    envId,
+    configured: Boolean(admin),
+    username:
+      admin?.Username || admin?.UserName || admin?.username || admin?.Email || admin?.email || null,
+  };
 }
 
 /** Invoke a deployed Event cloud function through the management plane. */
@@ -665,9 +855,15 @@ export async function invokeCloudbaseFunction(service, user, projectId, input = 
   await service.member(user, projectId, false);
   const environment = input.environment || "development";
   const name = String(input.name || "").trim();
-  if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(name)) throw new HttpError(400, "云函数名称非法");
+  if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(name))
+    throw new HttpError(400, "CloudBase 云函数名称非法");
   const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
-  const result = await callProvider("调用云函数", () => manager.currentEnvironment().getFunctionService().invokeFunction(name, input.data && typeof input.data === "object" ? input.data : {}));
+  const result = await callProvider("调用 CloudBase 云函数", () =>
+    manager
+      .currentEnvironment()
+      .getFunctionService()
+      .invokeFunction(name, input.data && typeof input.data === "object" ? input.data : {}),
+  );
   return { environment, envId, name, result };
 }
 
@@ -676,17 +872,24 @@ export async function searchCloudbaseFunctionLogs(service, user, projectId, inpu
   await service.member(user, projectId, false);
   const environment = input.environment || "development";
   const name = String(input.name || "").trim();
-  if (!name) throw new HttpError(400, "缺少云函数名称");
+  if (!name) throw new HttpError(400, "缺少 CloudBase 云函数名称");
   const end = input.endTime || new Date().toISOString().slice(0, 19).replace("T", " ");
-  const start = input.startTime || new Date(Date.now() - 15 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
+  const start =
+    input.startTime ||
+    new Date(Date.now() - 15 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
   const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
-  const result = await callProvider("查询云函数日志", () => manager.currentEnvironment().getLogService().searchClsLog({
-    queryString: input.queryString || `functionName:${name}`,
-    StartTime: start,
-    EndTime: end,
-    Limit: Math.min(100, Math.max(1, Number(input.limit) || 50)),
-    Sort: input.sort === "asc" ? "asc" : "desc",
-  }));
+  const result = await callProvider("查询 CloudBase 云函数日志", () =>
+    manager
+      .currentEnvironment()
+      .getLogService()
+      .searchClsLog({
+        queryString: input.queryString || `functionName:${name}`,
+        StartTime: start,
+        EndTime: end,
+        Limit: Math.min(100, Math.max(1, Number(input.limit) || 50)),
+        Sort: input.sort === "asc" ? "asc" : "desc",
+      }),
+  );
   return { environment, envId, name, startTime: start, endTime: end, result };
 }
 

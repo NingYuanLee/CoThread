@@ -109,13 +109,13 @@ export function MiniprogramServerPanel({
           <div
             className="miniprogram-admin-toolbar miniprogram-function-addressbar"
             role="toolbar"
-            aria-label="云函数工具栏"
+            aria-label="CloudBase 云函数工具栏"
           >
             <button
               type="button"
               className="miniprogram-preview-icon-button"
-              title="刷新云函数"
-              aria-label="刷新云函数"
+              title="刷新 CloudBase 云函数"
+              aria-label="刷新 CloudBase 云函数"
               disabled={serverBusy}
               onClick={() => void Promise.all([loadServerFunctions(), loadDeployments()])}
             >
@@ -127,11 +127,15 @@ export function MiniprogramServerPanel({
                 type="search"
                 value={functionSearch}
                 placeholder="按函数名搜索"
-                aria-label="按函数名搜索云函数"
+                aria-label="按函数名搜索 CloudBase 云函数"
                 onChange={(event) => setFunctionSearch(event.target.value)}
               />
             </label>
-            <div className="miniprogram-database-environment" role="group" aria-label="云函数环境">
+            <div
+              className="miniprogram-database-environment"
+              role="group"
+              aria-label="CloudBase 云函数环境"
+            >
               {(["development", "production"] as const).map((environment) => {
                 const info = cbEnvironments.find((item) => item.kind === environment);
                 const selected = functionEnvironment === environment;
@@ -164,7 +168,7 @@ export function MiniprogramServerPanel({
           </div>
           {serverError ? <p className="miniprogram-config-error">{serverError}</p> : null}
           <div className="miniprogram-table-content miniprogram-server-content">
-            <section className="miniprogram-server-functions" aria-label="云函数列表">
+            <section className="miniprogram-server-functions" aria-label="CloudBase 云函数列表">
               {pagedFunctions.length ? (
                 <div className="miniprogram-function-table-wrap">
                   <table className="miniprogram-function-table">
@@ -241,7 +245,9 @@ export function MiniprogramServerPanel({
                 </div>
               ) : serverBusy ? null : (
                 <p className="muted miniprogram-note">
-                  {functionSearch.trim() ? "没有匹配的云函数。" : "当前环境没有云函数。"}
+                  {functionSearch.trim()
+                    ? "没有匹配的 CloudBase 云函数。"
+                    : "当前环境没有 CloudBase 云函数。"}
                 </p>
               )}
               {selectedTimerFunction ? (
@@ -350,14 +356,14 @@ export function MiniprogramServerPanel({
                         </label>
                         <p className="muted miniprogram-timer-help">
                           {timerLimitReached && !timerEditingName
-                            ? "已达到每个云函数 10 个触发器的上限。"
+                            ? "已达到每个 CloudBase 云函数 10 个触发器的上限。"
                             : timerNameDuplicate && !timerEditingName
-                              ? "该名称已用于当前云函数。"
+                              ? "该名称已用于当前 CloudBase 云函数。"
                               : timerName && !timerNameValid
                                 ? "名称须以字母开头，只能包含字母、数字、- 和 _，最多 60 个字符。"
                                 : timerSchedule && !timerScheduleValid
                                   ? "Cron 需要 7 个字段：秒 分 时 日 月 星期 年。"
-                                  : "每个云函数最多 10 个；Cron 为 7 个字段：秒 分 时 日 月 星期 年。"}
+                                  : "每个 CloudBase 云函数最多 10 个；Cron 为 7 个字段：秒 分 时 日 月 星期 年。"}
                         </p>
                         {timerError ? (
                           <p className="miniprogram-config-error">{timerError}</p>

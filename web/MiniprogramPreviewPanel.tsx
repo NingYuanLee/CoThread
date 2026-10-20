@@ -2,13 +2,16 @@
  * 小程序工作区的 Dimina 预览页：预览服务、设备框、刷新菜单与微信预览/上传记录。
  * 数据与回调由父组件打包成 props 传入。
  */
-import { type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import {
-  DeploymentRecordList,
+  DEPLOY_TARGET_LABELS,
   PendingPanel,
   PreviewCanvas,
+  TABLE_PAGE_SIZE,
+  TablePagination,
   WorkspaceDialog,
   formatBuildTime,
+  formatRecordTime,
   type DeploymentRow,
   type MiniProgramTabId,
   type PreviewMeta,
@@ -66,6 +69,7 @@ export function MiniprogramPreviewPanel({
   meta,
   previewRoute,
   buildError,
+  setBuildError,
   building,
   reloadKey,
   setReloadKey,
@@ -87,9 +91,62 @@ export function MiniprogramPreviewPanel({
   uploadWechatVersion,
   wechatDeployments,
   openDeploymentId,
+  setOpenDeploymentId,
   deploymentLog,
+  setDeploymentLog,
   openDeployment,
 }: MiniprogramPreviewPanelProps) {
+  const [recordPage, setRecordPage] = useState(0);
+  const [recordPageSize, setRecordPageSize] = useState(TABLE_PAGE_SIZE);
+  const [recordStatus, setRecordStatus] = useState("");
+  const [recordType, setRecordType] = useState("");
+  const [recordOperator, setRecordOperator] = useState("");
+  const [recordFrom, setRecordFrom] = useState("");
+  const [recordTo, setRecordTo] = useState("");
+  const [appliedRecordFilter, setAppliedRecordFilter] = useState({
+    status: "",
+    type: "",
+    operator: "",
+    from: "",
+    to: "",
+  });
+  const recordOperators = Array.from(
+    new Set(wechatDeployments.map((row) => row.operatorName || "").filter(Boolean)),
+  ).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const filteredRecords = wechatDeployments.filter((row) => {
+    if (appliedRecordFilter.status === "succeeded" && row.status !== "succeeded") return false;
+    if (appliedRecordFilter.status === "failed" && row.status !== "failed") return false;
+    if (
+      appliedRecordFilter.status === "running" &&
+      row.status !== "running" &&
+      row.status !== "queued"
+    )
+      return false;
+    if (appliedRecordFilter.type && row.target !== appliedRecordFilter.type) return false;
+    if (appliedRecordFilter.operator && (row.operatorName || "") !== appliedRecordFilter.operator)
+      return false;
+    const raw = String(row.publishedAt || row.createdAt || "").trim();
+    const normalized = raw
+      ? /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)
+        ? raw
+        : raw.replace(" ", "T") + "Z"
+      : "";
+    const at = normalized ? new Date(normalized).getTime() : Number.NaN;
+    if (
+      appliedRecordFilter.from &&
+      (Number.isNaN(at) || at < new Date(appliedRecordFilter.from).getTime())
+    )
+      return false;
+    if (
+      appliedRecordFilter.to &&
+      (Number.isNaN(at) || at > new Date(appliedRecordFilter.to).getTime())
+    )
+      return false;
+    return true;
+  });
+  const recordStart = recordPage * recordPageSize;
+  const recordRows = filteredRecords.slice(recordStart, recordStart + recordPageSize);
+  const recordHasNext = recordStart + recordPageSize < filteredRecords.length;
   return (
     <>
       {tab === "preview" ? (
@@ -113,14 +170,20 @@ export function MiniprogramPreviewPanel({
                   <button
                     type="button"
                     role="menuitem"
-                    disabled={!enabled || building}
-                    onClick={() => {
+                    disabled={building}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
                       setRefreshMenuOpen(false);
+                      if (!enabled) {
+                        setBuildError("请先在「项目管理 → 小程序」保存微信 AppID，再编译预览。");
+                        return;
+                      }
                       void rebuild(false);
                     }}
                   >
                     <UiIcon name="play" size={13} />
-                    {building ? "编译中…" : meta?.runnable ? "重新编译" : "编译并预览"}
+                    {building ? "编译中…" : "重新编译"}
                   </button>
                   <button
                     type="button"
@@ -137,9 +200,15 @@ export function MiniprogramPreviewPanel({
                   <button
                     type="button"
                     role="menuitem"
-                    disabled={building || !meta?.runnable}
-                    onClick={() => {
+                    disabled={building}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
                       setRefreshMenuOpen(false);
+                      if (!enabled) {
+                        setBuildError("请先在「项目管理 → 小程序」保存微信 AppID，再编译预览。");
+                        return;
+                      }
                       void rebuild(true);
                     }}
                   >
@@ -279,14 +348,176 @@ export function MiniprogramPreviewPanel({
           ) : null}
 
           {openAction === "records" ? (
-            <WorkspaceDialog title="微信小程序发布记录" onClose={() => setOpenAction(null)}>
-              <DeploymentRecordList
-                rows={wechatDeployments}
-                openDeploymentId={openDeploymentId}
-                deploymentLog={deploymentLog}
-                emptyText="还没有微信小程序发布记录。"
-                onOpen={(id) => void openDeployment(id)}
-              />
+            <WorkspaceDialog
+              className="miniprogram-records-dialog"
+              title="编译与发布记录"
+              onClose={() => setOpenAction(null)}
+            >
+              <div className="miniprogram-table-content miniprogram-deploy-content">
+                <div className="miniprogram-records-filters">
+                  <select
+                    aria-label="状态"
+                    value={recordStatus}
+                    onChange={(event) => setRecordStatus(event.target.value)}
+                  >
+                    <option value="">全部状态</option>
+                    <option value="succeeded">成功</option>
+                    <option value="failed">失败</option>
+                    <option value="running">进行中</option>
+                  </select>
+                  <select
+                    aria-label="类型"
+                    value={recordType}
+                    onChange={(event) => setRecordType(event.target.value)}
+                  >
+                    <option value="">全部类型</option>
+                    <option value="app_preview">Dimina 编译</option>
+                    <option value="wechat_preview">开发版预览</option>
+                    <option value="wechat_upload">体验版上传</option>
+                  </select>
+                  <select
+                    aria-label="操作人"
+                    value={recordOperator}
+                    onChange={(event) => setRecordOperator(event.target.value)}
+                  >
+                    <option value="">全部操作人</option>
+                    {recordOperators.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                  <label>
+                    开始
+                    <input
+                      type="datetime-local"
+                      aria-label="开始时间"
+                      value={recordFrom}
+                      onChange={(event) => setRecordFrom(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    结束
+                    <input
+                      type="datetime-local"
+                      aria-label="结束时间"
+                      value={recordTo}
+                      onChange={(event) => setRecordTo(event.target.value)}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAppliedRecordFilter({
+                        status: recordStatus,
+                        type: recordType,
+                        operator: recordOperator,
+                        from: recordFrom,
+                        to: recordTo,
+                      });
+                      setRecordPage(0);
+                    }}
+                  >
+                    查询
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRecordStatus("");
+                      setRecordType("");
+                      setRecordOperator("");
+                      setRecordFrom("");
+                      setRecordTo("");
+                      setAppliedRecordFilter({
+                        status: "",
+                        type: "",
+                        operator: "",
+                        from: "",
+                        to: "",
+                      });
+                      setRecordPage(0);
+                    }}
+                  >
+                    重置
+                  </button>
+                </div>
+                <div className="miniprogram-production-table-wrap">
+                  <table className="miniprogram-production-table miniprogram-records-table">
+                    <thead>
+                      <tr>
+                        <th>状态</th>
+                        <th>类型</th>
+                        <th>版本</th>
+                        <th>时间</th>
+                        <th>操作人</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recordRows.map((row) => (
+                        <tr key={row.id}>
+                          <td>
+                            {row.status === "succeeded"
+                              ? "成功"
+                              : row.status === "failed"
+                                ? "失败"
+                                : row.status === "running" || row.status === "queued"
+                                  ? "进行中"
+                                  : row.status}
+                          </td>
+                          <td>{DEPLOY_TARGET_LABELS[row.target] || row.target}</td>
+                          <td>{row.version || "—"}</td>
+                          <td>{formatRecordTime(row.publishedAt || row.createdAt) || "—"}</td>
+                          <td>{row.operatorName || "—"}</td>
+                          <td>
+                            <button type="button" onClick={() => void openDeployment(row.id)}>
+                              日志
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {!filteredRecords.length ? (
+                        <tr>
+                          <td className="miniprogram-production-empty" colSpan={6}>
+                            {wechatDeployments.length
+                              ? "没有符合筛选条件的记录。"
+                              : "还没有编译或发布记录。"}
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+                <TablePagination
+                  page={recordPage}
+                  pageSize={recordPageSize}
+                  total={filteredRecords.length}
+                  hasNext={recordHasNext}
+                  onPageChange={setRecordPage}
+                  onPageSizeChange={(pageSize) => {
+                    setRecordPageSize(pageSize);
+                    setRecordPage(0);
+                  }}
+                />
+              </div>
+              {openDeploymentId ? (
+                <WorkspaceDialog
+                  className="miniprogram-log-dialog"
+                  title={
+                    (DEPLOY_TARGET_LABELS[
+                      wechatDeployments.find((row) => row.id === openDeploymentId)?.target || ""
+                    ] || "记录") + "日志"
+                  }
+                  onClose={() => {
+                    setOpenDeploymentId("");
+                    setDeploymentLog("");
+                  }}
+                >
+                  <pre className="miniprogram-doc-result miniprogram-log-dialog-body">
+                    {deploymentLog}
+                  </pre>
+                </WorkspaceDialog>
+              ) : null}
             </WorkspaceDialog>
           ) : null}
         </section>

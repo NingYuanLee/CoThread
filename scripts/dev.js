@@ -54,6 +54,21 @@ function bindConsoleToProgress(progress) {
   console.warn = write;
 }
 
+async function announceInitialAdmin() {
+  const { createDatabase } = await import("../server/db.js");
+  const { prepareDevSuperAdmin } = await import("./seed.js");
+  const db = await createDatabase();
+  try {
+    await prepareDevSuperAdmin(db);
+    return true;
+  } catch (error) {
+    if (error.code === "ER_NO_SUCH_TABLE" || error.code === "ER_BAD_DB_ERROR") return false;
+    throw error;
+  } finally {
+    await db.end();
+  }
+}
+
 function requireNodeVersion() {
   const [major, minor] = process.versions.node.split(".").map(Number);
   if (major > 22 || (major === 22 && minor >= 19)) return;
@@ -93,13 +108,13 @@ if (portIndex >= 0) {
     logToConsole("未找到 .env。请先运行 npm run setup。", { level: "error", kind: "error" });
     process.exit(1);
   }
+  let databaseTarget;
   try {
-    const databaseTarget = resolveDatabaseTarget(process.env);
+    databaseTarget = resolveDatabaseTarget(process.env);
     resolveDatabasePolicy({
       databaseUrl: resolveTargetDatabaseUrl(process.env),
       host: listenHost,
     });
-    logToConsole(`开发数据库目标：${databaseTarget}`);
   } catch (error) {
     if (error instanceof DatabasePolicyError) {
       logToConsole(error.message, { level: "error" });
@@ -111,10 +126,21 @@ if (portIndex >= 0) {
   const host = listenHost;
   const progress = createDevProgress({ banner: true });
   bindConsoleToProgress(progress);
-  progress.set(4, "停止旧进程");
-  await stopDevServices({ projectRoot, uiPort, apiPort, vitePort, host });
-  progress.set(10, "确认数据库");
+  progress.set(4, "检查旧进程");
+  await stopDevServices({
+    projectRoot,
+    uiPort,
+    apiPort,
+    vitePort,
+    host,
+    onStop() {
+      progress.set(7, "停止旧进程");
+    },
+  });
+  progress.note(`开发数据库目标：${databaseTarget}`, { kind: "check" });
+  progress.set(10, "检查数据库");
   ensureLocalMysql();
+  if (await announceInitialAdmin()) process.env.COTHREAD_ADMIN_ANNOUNCED = "1";
 
   const apiEntry = resolve(projectRoot, "server/index.js");
   const viteEntry = resolve(projectRoot, "scripts/vite-app.mjs");
@@ -142,7 +168,7 @@ if (portIndex >= 0) {
     COTHREAD_DB_TARGET: process.env.COTHREAD_DB_TARGET || "dev",
     NO_PROXY: [process.env.NO_PROXY, "127.0.0.1", "localhost", "::1"].filter(Boolean).join(","),
   };
-  progress.set(16, "启动 API 与 Vite");
+  progress.set(16, "启动 Server 与 Vite");
   api = spawn(process.execPath, ["--env-file-if-exists=.env", apiEntry, "--api-only"], {
     cwd: projectRoot,
     env: {
@@ -175,22 +201,22 @@ if (portIndex >= 0) {
   });
   api.on("exit", (code) => {
     if (shuttingDown) return;
-    progress.fail("API 进程已退出。");
+    progress.fail("Server 进程已退出。");
     stopChildren();
     process.exit(code ?? 1);
   });
   vite.on("exit", (code) => {
     if (shuttingDown) return;
-    progress.fail("前端进程已退出。");
+    progress.fail("Vite 进程已退出。");
     stopChildren();
     process.exit(code ?? 1);
   });
   try {
     let apiPercent = 18;
-    progress.set(apiPercent, "等待接口就绪");
+    progress.set(apiPercent, "等待 Server 就绪");
     await waitForHttp(`http://127.0.0.1:${apiPort}/api/health`, 60000, () => {
       apiPercent = Math.min(32, apiPercent + 0.5);
-      progress.set(apiPercent, "等待接口就绪");
+      progress.set(apiPercent, "等待 Server 就绪");
     });
     let vitePercent = 34;
     progress.set(vitePercent, "等待 Vite 监听");
@@ -208,11 +234,11 @@ if (portIndex >= 0) {
       gatePercent = Math.min(57, gatePercent + 0.4);
       progress.set(gatePercent, "等待网关首页");
     });
-    progress.set(58, "编译浏览器入口");
+    progress.set(58, "预热浏览器入口");
     try {
       await warmDevFrontend(`http://127.0.0.1:${uiPort}`, {
         onProgress({ completed, path }) {
-          progress.set(warmupCrawlPercent(completed), `编译 ${path}`);
+          progress.set(warmupCrawlPercent(completed), `预热 ${path}`);
         },
       });
     } catch (error) {
@@ -220,7 +246,7 @@ if (portIndex >= 0) {
       // API、网关与 Vite 一起关掉——那会让「服务莫名其妙消失」，比首屏慢更糟。
       progress.set(85, `前端预热未完成：${error.message}；服务继续运行，首屏可能较慢`);
     }
-    progress.set(99, "核对接口通路");
+    progress.set(99, "核对网关转发");
     await waitForHttp(`http://127.0.0.1:${uiPort}/api/health`);
   } catch (error) {
     progress.fail(error.message);
@@ -228,7 +254,7 @@ if (portIndex >= 0) {
     process.exit(1);
   }
   progress.finish(
-    `共序开发已就绪：http://${host}:${uiPort}  →  API :${apiPort}  Vite :${vitePort}`,
+    `共序开发已就绪：http://${host}:${uiPort}  →  Server :${apiPort}  Vite :${vitePort}`,
   );
   openDevBrowser(`http://${host}:${uiPort}/`);
 }

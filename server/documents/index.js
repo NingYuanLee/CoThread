@@ -4,7 +4,7 @@
  * 边界约定（由 scripts/check-boundaries.mjs 强制）：
  * 1. 只有本目录下的代码可以 INSERT/UPDATE `artifacts`、`versions`、`document_folders`、
  *    `version_recycle`、`file_uploads`、`document_change_logs`、`document_change_snapshots`。
- * 2. 本目录不得 import 业务模块（`service.js`、`agent*.js`、`coordinator*.js`、`dsh-*`、`runtime/**`）。
+ * 2. 本目录不得 import 业务模块（`service.js`、`agent*.js`、`coordinator*.js`、`dsh-*`、`dsh-layer/**`）。
  *    需要协作时由调用方把 `service` 作为参数传进来，而不是反向 import。
  * 3. `server/` 下其余代码只能从本文件导入（`from "./documents/index.js"`），不得深引用内部文件。
  *

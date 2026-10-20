@@ -11,7 +11,7 @@ import {
   normalizeL1Task,
 } from "../shared/agent-label.js";
 import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.js";
-import { fail, id, preferredConnectorJoin } from "./service-support.js";
+import { fail, id, preferredLocalExecutorJoin } from "./service-support.js";
 
 export async function agentMonitorOperation(service, user, projectId) {
   await service.member(user, projectId);
@@ -182,7 +182,7 @@ export async function agentMonitorOperation(service, user, projectId) {
   ]);
   const humanAgents = await query(
     service.db,
-    `SELECT u.id member_id,u.name,CASE WHEN c.id IS NULL THEN 0 ELSE 1 END connector_configured,CASE WHEN c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND) THEN 1 ELSE 0 END connector_online,c.id connector_id FROM members m JOIN users u ON u.id=m.user_id ${preferredConnectorJoin()} WHERE m.project_id=?`,
+    `SELECT u.id member_id,u.name,CASE WHEN c.id IS NULL THEN 0 ELSE 1 END local_executor_configured,CASE WHEN c.last_seen_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 45 SECOND) THEN 1 ELSE 0 END local_executor_online,c.id local_executor_id FROM members m JOIN users u ON u.id=m.user_id ${preferredLocalExecutorJoin()} WHERE m.project_id=?`,
     [projectId, projectId],
   );
   const memberMemory = memberQueue[0] || {};
@@ -362,10 +362,10 @@ export async function agentMonitorOperation(service, user, projectId) {
       nodes: [
         { executor_type: "human_self", executor_id: row.member_id, online: true },
         {
-          executor_type: "human_connector",
-          executor_id: row.connector_id,
-          online: !!Number(row.connector_online),
-          configured: !!Number(row.connector_configured),
+          executor_type: "human_local_executor",
+          executor_id: row.local_executor_id,
+          online: !!Number(row.local_executor_online),
+          configured: !!Number(row.local_executor_configured),
         },
       ],
     })),

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { HarnessSdkJsonRpcServer } from "@deepseek-ai/dsh-sdk-jsonrpc-server";
-import { startContinuableL3 } from "../runtime/sdk-resume.mjs";
+import { startContinuableL3 } from "../dsh-layer/sdk-resume.mjs";
 
 test("dispatch starts one continuable L3 with the task prompt", async () => {
   const calls = [];
@@ -13,10 +13,14 @@ test("dispatch starts one continuable L3 with the task prompt", async () => {
       },
     },
   };
-  const started = await startContinuableL3(ctx, { options: {}, status: "running" }, {
-    label: "待启动的沙箱任务",
-    prompt: "TASK_ID: abc\n去做",
-  });
+  const started = await startContinuableL3(
+    ctx,
+    { options: {}, status: "running" },
+    {
+      label: "待启动的沙箱任务",
+      prompt: "TASK_ID: abc\n去做",
+    },
+  );
   assert.equal(started.childId, "child-1");
   assert.equal(calls.length, 1);
   assert.equal(calls[0].provider, "spawn");
@@ -27,8 +31,14 @@ test("dispatch starts one continuable L3 with the task prompt", async () => {
 
 test("dispatch refuses an empty prompt or a runtime that cannot start children", async () => {
   const ctx = { subagents: { startContinuable: async () => ({ childId: "child-1" }) } };
-  await assert.rejects(startContinuableL3(ctx, { status: "running" }, { prompt: "  " }), /缺少任务说明/);
-  await assert.rejects(startContinuableL3({}, { status: "running" }, { prompt: "TASK_ID: abc" }), /不能启动 L3/);
+  await assert.rejects(
+    startContinuableL3(ctx, { status: "running" }, { prompt: "  " }),
+    /缺少任务说明/,
+  );
+  await assert.rejects(
+    startContinuableL3({}, { status: "running" }, { prompt: "TASK_ID: abc" }),
+    /不能启动 L3/,
+  );
 });
 
 test("idle parents spawn through runMaintenance instead of opening a model turn", async () => {
@@ -88,7 +98,10 @@ test("running parents that fail direct spawn wait idle then use runMaintenance",
   const parent = {
     status: "running",
     options: {},
-    whenIdle: async () => { calls.push("whenIdle"); parent.status = "idle"; },
+    whenIdle: async () => {
+      calls.push("whenIdle");
+      parent.status = "idle";
+    },
     runMaintenance: async (task) => {
       calls.push("maintenance");
       return task(AbortSignal.timeout(1000));
@@ -121,7 +134,7 @@ test("dispatch-l3 prefers the live parent agent over getOrCreateSession", async 
     sessions: new Map([["live-l2", { handle: { agent: staleParent }, cothreadRepaired: true }]]),
     sessionCreations: new Map(),
     ctx: {
-      agents: { get: (id) => id === "live-l2" ? liveParent : undefined },
+      agents: { get: (id) => (id === "live-l2" ? liveParent : undefined) },
       subagents: {
         startContinuable: async (spec) => {
           calls.push(spec.request.parent);
@@ -132,7 +145,9 @@ test("dispatch-l3 prefers the live parent agent over getOrCreateSession", async 
     getOrCreateSession: async () => ({ handle: { agent: staleParent }, cothreadRepaired: true }),
   };
   const started = await HarnessSdkJsonRpcServer.prototype.handleRequest.call(
-    server, "cothread/dispatch-l3", {
+    server,
+    "cothread/dispatch-l3",
+    {
       sessionId: "live-l2",
       label: "待启动",
       prompt: "TASK_ID: abc\n去做",
@@ -153,20 +168,31 @@ test("context for a live L3 measures that child instead of creating a session", 
     sessions: new Map(),
     sessionCreations: new Map(),
     ctx: {
-      agents: { get: (id) => id === "child-1" ? { session } : undefined },
+      agents: { get: (id) => (id === "child-1" ? { session } : undefined) },
       tokenMeter: {
-        measure: () => ({ totalTokens: 4321, baseline: { kind: "usage" }, surfaceDeltaTokens: 0, nodes: [] }),
+        measure: () => ({
+          totalTokens: 4321,
+          baseline: { kind: "usage" },
+          surfaceDeltaTokens: 0,
+          nodes: [],
+        }),
       },
     },
-    getOrCreateSession: async () => { throw new Error("create-called"); },
+    getOrCreateSession: async () => {
+      throw new Error("create-called");
+    },
   };
   const stats = await HarnessSdkJsonRpcServer.prototype.handleRequest.call(
-    server, "cothread/context", { sessionId: "child-1" },
+    server,
+    "cothread/context",
+    { sessionId: "child-1" },
   );
   assert.equal(stats.used, 4321);
   assert.equal(stats.limit, 1_000_000);
   await assert.rejects(
-    HarnessSdkJsonRpcServer.prototype.handleRequest.call(server, "cothread/context", { sessionId: "missing" }),
+    HarnessSdkJsonRpcServer.prototype.handleRequest.call(server, "cothread/context", {
+      sessionId: "missing",
+    }),
     /Agent session not found/,
   );
 });

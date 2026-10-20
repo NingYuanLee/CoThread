@@ -38,7 +38,7 @@ const ACTOR_TYPE: Record<string, string> = {
   l2_session: "迭代级Agent（L2）",
   dsh_l3: "子 Agent",
   human_self: "成员本人",
-  human_connector: "本地执行器",
+  human_local_executor: "本地执行器",
 };
 
 export const AGENT_LEVEL_LABELS = {

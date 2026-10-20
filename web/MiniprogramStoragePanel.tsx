@@ -86,7 +86,7 @@ export function MiniprogramStoragePanel({
           <div
             className="miniprogram-admin-toolbar miniprogram-storage-addressbar"
             role="toolbar"
-            aria-label="云存储工具栏"
+            aria-label="CloudBase 云存储工具栏"
           >
             <button
               type="button"
@@ -118,7 +118,11 @@ export function MiniprogramStoragePanel({
                 );
               })}
             </nav>
-            <div className="miniprogram-database-environment" role="group" aria-label="云存储环境">
+            <div
+              className="miniprogram-database-environment"
+              role="group"
+              aria-label="CloudBase 云存储环境"
+            >
               {(["development", "production"] as const).map((environment) => {
                 const info = cbEnvironments.find((item) => item.kind === environment);
                 const selected = storageEnvironment === environment;

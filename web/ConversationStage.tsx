@@ -326,7 +326,7 @@ export function ConversationStage({
                         </span>
                         {m.source === "local_ai" && (
                           <span className="source-label">
-                            <UiIcon name="connector" size={11} />
+                            <UiIcon name="localExecutor" size={11} />
                             通过本地 AI 提交
                           </span>
                         )}

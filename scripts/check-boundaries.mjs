@@ -5,7 +5,7 @@
  * 1. 文档内核是唯一写者：`server/` 下 `server/documents/**` 之外的代码不得
  *    INSERT/UPDATE/DELETE 文档相关表。
  * 2. 内核不依赖业务：`server/documents/**` 不得 import `service.js`、`agent*.js`、
- *    `coordinator*.js`、`dsh-*`、`../runtime/**`（需要协作者时由调用方传参）。
+ *    `coordinator*.js`、`dsh-*`、`../dsh-layer/**`（需要协作者时由调用方传参）。
  * 3. Agent 单向依赖：只有 `server/app.js` 与 `server/coordinator.js` 可以 import `agent.js`。
  * 4. 内核深引用禁令：`server/` 下非内核代码只能从 `./documents/index.js` 导入内核能力，
  *    不得引用内核内部文件（测试文件不受本规则约束）。
@@ -15,6 +15,8 @@
  *    禁止通过静态或动态 import 引入业务写入副作用。
  * 8. 拆分后的 Service/任务领域模块不得反向依赖兼容门面；领域模块之间必须无循环依赖。
  * 9. MySQL 命名锁只由 named-lock.js 获取/释放，统一不确定连接的销毁与释放去重。
+ * 10. CloudBase 适配层只允许被 cloud-backend.js 和适配层内部引用。
+ *     业务代码走 cloud-backend.js；`@cloudbase/*` 只允许在 cloudbase.js 加载。
  *
  * 用法：node scripts/check-boundaries.mjs
  */
@@ -39,7 +41,7 @@ const WRITE_RE = new RegExp(
   "i",
 );
 const KERNEL_FORBIDDEN_RE =
-  /from\s+["'][^"']*\/(service|agent|agent-tools|agent-session|coordinator|coordinator-events|dsh-[a-z-]*)\.js["']|from\s+["'][^"']*\/runtime\//;
+  /from\s+["'][^"']*\/(service|agent|agent-tools|agent-session|coordinator|coordinator-events|dsh-[a-z-]*)\.js["']|from\s+["'][^"']*\/dsh-layer\//;
 const AGENT_IMPORT_RE = /from\s+["']\.\/agent\.js["']/;
 const DEEP_KERNEL_RE = /from\s+["'][^"']*\/?documents\/(?!index\.js)[a-z-]+\.js["']/;
 /**
@@ -116,6 +118,30 @@ for (const file of walk(serverDir)) {
         at,
         `深引用内核内部文件，应改为 documents/index.js：${line.trim().slice(0, 100)}`,
       ]);
+    const cloudAdapterFiles = new Set([
+      "server/cloudbase.js",
+      "server/cloudbase-filter.js",
+      "server/cloudbase-functions.js",
+      "server/cloudbase-hosting.js",
+      "server/cloud-backend.js",
+    ]);
+    if (
+      !cloudAdapterFiles.has(rel(file)) &&
+      /from\s+["'](?:\.\.\/|\.\/)cloudbase(?:-filter|-functions|-hosting)?\.js["']/.test(line)
+    ) {
+      violations.push([10, at, `云能力必须经 cloud-backend.js：${line.trim().slice(0, 100)}`]);
+    }
+    if (
+      rel(file) !== "server/cloudbase.js" &&
+      /@cloudbase\//.test(line) &&
+      !/^\s*(\/\/|\*)/.test(line)
+    ) {
+      violations.push([
+        10,
+        at,
+        `CloudBase SDK 只能在 cloudbase.js 加载：${line.trim().slice(0, 100)}`,
+      ]);
+    }
   });
 }
 

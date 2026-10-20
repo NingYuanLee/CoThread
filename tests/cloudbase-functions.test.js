@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
+import "./miniprogram-ready.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import {
@@ -41,7 +42,10 @@ async function seed(database, { withProduction = true } = {}) {
   return { user, service, project };
 }
 
-function manager(calls, triggers = [{ TriggerName: "daily", Type: "timer", TriggerDesc: "0 0 9 * * * *" }]) {
+function manager(
+  calls,
+  triggers = [{ TriggerName: "daily", Type: "timer", TriggerDesc: "0 0 9 * * * *" }],
+) {
   return {
     functions: {
       async listFunctions() {
@@ -132,25 +136,35 @@ test("one function lists multiple timers and rejects duplicate, excess, and shor
   try {
     const { user, service, project } = await seed(database);
     const listed = await listCloudbaseFunctions(service, user, project.id);
-    assert.deepEqual(listed.functions[0].timers.map((timer) => timer.name), ["daily", "weekly"]);
+    assert.deepEqual(
+      listed.functions[0].timers.map((timer) => timer.name),
+      ["daily", "weekly"],
+    );
     await assert.rejects(
       createCloudbaseTimer(service, user, project.id, "dailyReport", {
-        name: "daily", schedule: "0 0 9 * * * *",
+        name: "daily",
+        schedule: "0 0 9 * * * *",
       }),
       (error) => error.status === 409 && /已存在/.test(error.message),
     );
     await assert.rejects(
       createCloudbaseTimer(service, user, project.id, "dailyReport", {
-        name: "newTimer", schedule: "0 9 * * *",
+        name: "newTimer",
+        schedule: "0 9 * * *",
       }),
       (error) => error.status === 400 && /7 个字段/.test(error.message),
     );
-    triggers.push(...Array.from({ length: 8 }, (_, index) => ({
-      TriggerName: `extra${index}`, Type: "timer", TriggerDesc: "0 0 9 * * * *",
-    })));
+    triggers.push(
+      ...Array.from({ length: 8 }, (_, index) => ({
+        TriggerName: `extra${index}`,
+        Type: "timer",
+        TriggerDesc: "0 0 9 * * * *",
+      })),
+    );
     await assert.rejects(
       createCloudbaseTimer(service, user, project.id, "dailyReport", {
-        name: "eleventh", schedule: "0 0 9 * * * *",
+        name: "eleventh",
+        schedule: "0 0 9 * * * *",
       }),
       (error) => error.status === 409 && /最多/.test(error.message),
     );
@@ -227,19 +241,31 @@ test("L3 deployment persists and synchronizes development timer manifests", asyn
   setCloudbaseManagerFactory(async () => manager(calls));
   try {
     const { user, service, project } = await seed(database);
-    const result = await deployDevelopmentCloudbaseFunction(service, user, project.id, "dailyReport", {
-      code: "exports.main = async () => ({ ok: true });",
-      timers: [{ name: "weekly", schedule: "0 0 9 * * MON *" }],
-    });
+    const result = await deployDevelopmentCloudbaseFunction(
+      service,
+      user,
+      project.id,
+      "dailyReport",
+      {
+        code: "exports.main = async () => ({ ok: true });",
+        timers: [{ name: "weekly", schedule: "0 0 9 * * MON *" }],
+      },
+    );
     const snapshot = await miniprogramSnapshot(database.db, project.id);
-    assert.ok(snapshot.areas.miniprogram_server.files.some((file) => file.path === "dailyReport/timers.json"));
+    assert.ok(
+      snapshot.areas.miniprogram_server.files.some(
+        (file) => file.path === "dailyReport/timers.json",
+      ),
+    );
     assert.deepEqual(result.timerSync, {
       created: ["weekly"],
       deleted: ["daily"],
       desired: [{ name: "weekly", schedule: "0 0 9 * * MON *" }],
     });
     assert.ok(calls.some((call) => call.op === "deleteTimer" && call.triggerName === "daily"));
-    assert.ok(calls.some((call) => call.op === "createTimer" && call.triggers[0].name === "weekly"));
+    assert.ok(
+      calls.some((call) => call.op === "createTimer" && call.triggers[0].name === "weekly"),
+    );
   } finally {
     resetCloudbaseClients();
     setCloudbaseManagerFactory(null);

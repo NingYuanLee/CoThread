@@ -10,9 +10,7 @@ const compact = (value) =>
 function pathLabel(value) {
   const path = clean(value);
   const filename = path.split(/[\\/]/).pop() || path;
-  return compact(
-    path.length > 42 && filename !== path ? "…/" + filename : path,
-  );
+  return compact(path.length > 42 && filename !== path ? "…/" + filename : path);
 }
 // Only classify an unambiguous script invocation. Shell pipelines, inline code,
 // modules and compound commands remain commands; never infer a web tool here.
@@ -38,8 +36,7 @@ function scriptPath(command) {
     if (/^python/.test(runner) && words[index] === "-u") index++;
     return extensions[runner].test(words[index] || "") ? words[index] : null;
   }
-  return /^\.?\.?[\\/]/.test(words[0] || "") &&
-    /\.(py|js|mjs|cjs|sh|rb|pl)$/i.test(words[0])
+  return /^\.?\.?[\\/]/.test(words[0] || "") && /\.(py|js|mjs|cjs|sh|rb|pl)$/i.test(words[0])
     ? words[0]
     : null;
 }
@@ -54,14 +51,45 @@ export function describeAgentAction(tool, args = {}, result = {}) {
     isPath = false,
     full;
   switch (tool) {
-    case "list_documents": action="查看文档目录"; break;
-    case "manage_document": action=({rename:"重命名文档",move:"移动文档",delete:args.scope==='version'?"删除指定版本":"删除全部版本",restore:args.scope==='version'?"恢复指定版本":"恢复文档"})[args.action] || "整理文档";object=args.name||args.versionId||args.artifactId;break;
-    case "manage_folder": action=({create:"新建文件夹",rename:"重命名文件夹",move:"移动文件夹",delete:"删除文件夹"})[args.action] || "整理文件夹";object=args.name||args.folderId;break;
-    case "list_messages": action = "读取消息列表"; object = result.title || "会话消息"; break;
-    case "read_message": action = "读取消息原文"; object = "指定消息"; break;
-    case "list_members": action = "查看成员列表"; break;
-    case "read_member": action = "读取成员详情"; object = result.name || "项目成员"; break;
-    case "web_fetch": action = "读取网页"; object = args.url || result.url || "公开网页"; break;
+    case "list_documents":
+      action = "查看文档目录";
+      break;
+    case "manage_document":
+      action =
+        {
+          rename: "重命名文档",
+          move: "移动文档",
+          delete: args.scope === "version" ? "删除指定版本" : "删除全部版本",
+          restore: args.scope === "version" ? "恢复指定版本" : "恢复文档",
+        }[args.action] || "整理文档";
+      object = args.name || args.versionId || args.artifactId;
+      break;
+    case "manage_folder":
+      action =
+        { create: "新建文件夹", rename: "重命名文件夹", move: "移动文件夹", delete: "删除文件夹" }[
+          args.action
+        ] || "整理文件夹";
+      object = args.name || args.folderId;
+      break;
+    case "list_messages":
+      action = "读取消息列表";
+      object = result.title || "会话消息";
+      break;
+    case "read_message":
+      action = "读取消息原文";
+      object = "指定消息";
+      break;
+    case "list_members":
+      action = "查看成员列表";
+      break;
+    case "read_member":
+      action = "读取成员详情";
+      object = result.name || "项目成员";
+      break;
+    case "web_fetch":
+      action = "读取网页";
+      object = args.url || result.url || "公开网页";
+      break;
     case "thinking":
       action = "思考";
       break;
@@ -82,7 +110,7 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       action = "记录文档摘要";
       object = result.title || args.versionId || "项目文档";
       break;
-    case "list_local_connectors":
+    case "list_local_executors":
       action = "查看本地执行器";
       break;
     case "list_project_code_sources":
@@ -192,8 +220,7 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       object = args.versionId || "文档版本";
       break;
     case "sandbox_command": {
-      const command =
-        typeof args.command === "string" ? args.command.trim() : "";
+      const command = typeof args.command === "string" ? args.command.trim() : "";
       const script = scriptPath(command);
       action = script ? "运行脚本" : "运行命令";
       object = script || command.split(/\r?\n/)[0] || "命令";
@@ -203,9 +230,7 @@ export function describeAgentAction(tool, args = {}, result = {}) {
     }
   }
   object = clean(object);
-  const suffix = ["read_document", "publish_artifact"].includes(tool)
-    ? version
-    : "";
+  const suffix = ["read_document", "publish_artifact"].includes(tool) ? version : "";
   return {
     action,
     target: (isPath ? pathLabel(object) : compact(object)) + suffix,

@@ -15,7 +15,7 @@ COPY --from=build --chown=node:node /app/server ./server
 COPY --from=build --chown=node:node /app/shared ./shared
 COPY --from=build --chown=node:node /app/scripts ./scripts
 COPY --from=build --chown=node:node /app/migrations ./migrations
-COPY --from=build --chown=node:node /app/runtime ./runtime
+COPY --from=build --chown=node:node /app/dsh-layer ./dsh-layer
 RUN mkdir -p /app/.local && chown node:node /app/.local
 USER node
 EXPOSE 3100

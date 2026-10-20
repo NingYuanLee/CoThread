@@ -493,18 +493,22 @@ export async function saveProjectMiniProgramConfig(service, user, projectId, inp
   const data = configSchema.parse(input || {});
   const appId = normalizeAppId(data.appId);
   const cloudbaseEnvs = normalizeCloudbaseEnvs(data.cloudbaseEnvs);
+  const existingApp = await readMainApp(service.db, projectId);
+  const secrets = await secretView(service.db, projectId, existingApp);
   if (!appId && (cloudbaseEnvs.development || cloudbaseEnvs.production)) {
     throw new HttpError(409, "请先保存 AppID，再配置 CloudBase。环境会绑定到这个小程序");
   }
-  if (appId && (cloudbaseEnvs.development || cloudbaseEnvs.production)) {
+  if (
+    appId &&
+    (cloudbaseEnvs.development || cloudbaseEnvs.production) &&
+    secrets.cloudbase_credential?.configured
+  ) {
     const { assertCloudbaseEnvironmentsMatchApp } = await import("./cloudbase.js");
     await assertCloudbaseEnvironmentsMatchApp(service, projectId, appId, cloudbaseEnvs);
   }
   const adminDeploy = normalizeAdminDeploy(data.adminDeploy);
   const wechatCi = normalizeWechatCi(data.wechatCi);
 
-  const existingApp = await readMainApp(service.db, projectId);
-  const secrets = await secretView(service.db, projectId, existingApp);
   const status = computeConfigStatus({
     appId,
     cloudbaseEnvs,
@@ -639,7 +643,10 @@ export async function saveProjectMiniProgramSecret(service, user, projectId, raw
   if (!data.clear && kind === "cloudbase_credential" && payload) {
     const boundApp = await readMainApp(service.db, projectId);
     const { assertCredentialListsEnvironments } = await import("./cloudbase.js");
-    await assertCredentialListsEnvironments(payload, boundApp?.app_id || null);
+    await assertCredentialListsEnvironments(
+      reattachSecretId(payload, hint),
+      boundApp?.app_id || null,
+    );
   }
 
   const mainApp = kind === "wechat_upload_key" ? await readMainApp(service.db, projectId) : null;

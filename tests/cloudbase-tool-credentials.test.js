@@ -151,12 +151,14 @@ test("CloudBase tools inject the credential each call needs", async () => {
     await searchCloudbaseFunctionLogs(service, user, project.id, { name: "echo" });
     await listCloudbaseAccountEnvironments(service, user, project.id);
 
-    assert.equal(clientCalls.length, 5);
+    // Calls in the same project environment reuse one data-plane client.
+    assert.equal(clientCalls.length, 1);
     for (const call of clientCalls) {
       assert.equal(call.accessKey, SERVER_API_KEY);
       assert.equal(call.envId, "dev-env");
     }
-    assert.equal(managerCalls.length, 5);
+    // Management operations share a manager; account enumeration uses its own.
+    assert.equal(managerCalls.length, 2);
     for (const call of managerCalls) {
       assert.equal(call.credential.secretId, SECRET_ID);
       assert.equal(call.credential.secretKey, SECRET_KEY);

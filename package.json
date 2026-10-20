@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.19"
+    "node": ">=22.22.3"
   },
   "scripts": {
     "dev": "node --env-file-if-exists=.env scripts/dev.js",

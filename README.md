@@ -14,7 +14,7 @@
 
 ## 本机启动
 
-需要 Node.js 22.19+。本地 MySQL 为 Oracle 官方 MySQL 8.4.9 Windows ZIP 版，不注册系统服务，监听 `127.0.0.1:3307`。Agent 命令依赖 Git Bash。
+需要 Node.js 22.22.3+。本地 MySQL 为 Oracle 官方 MySQL 8.4.9 Windows ZIP 版，不注册系统服务，监听 `127.0.0.1:3307`。Agent 命令依赖 Git Bash。
 
 首次：
 

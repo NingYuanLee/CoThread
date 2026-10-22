@@ -92,6 +92,10 @@ bash -n scripts/ecs-codedeploy-start.sh
 
 2026-10-22 首次发布 execution `exec-e93c9ca9d0544d73bf6c` 因上述执行器锁冲突失败，未上线目录 `/opt/cothread/releases/20261022T062155Z` 已由脚本删除。失败后独立核对 `current` 仍为 `/opt/cothread/releases/20261020T153349Z`，systemd 仍 active，健康状态 ok 且正式执行器 ready。修复后的真实探活子进程回归通过；不以这项本地结果代替重新发布的线上验收。
 
+2026-10-22 重发已确认上线：代码提交 `ef18998`，execution `exec-8729747ea87445cfb905`、revision `rev-31ab39fb69f148cc979d`，OOS 为 `Released`、执行为 `Success`；实际 `current` 为 `/opt/cothread/releases/20261022T063614Z`，systemd 为 active，启动时间北京时间 14:37:35。临时探活保留旧执行器锁且自身 ready 为 false，正式切换后新执行器 ready 为 true（7 个执行槽）。内置浏览器访问带提交号的首页，登录页正常；页面引用 `index-DN2dSsvq.js`、`index-CjxCJK9E.css`，与本地构建一致；公开健康接口为 ok 且执行器就绪。未在本轮全量验收登录后的业务。发布包 `cothread-release-20261022T063458Z.tgz` 的 SHA-256 为 `708e26fe123f59375b9d4e47a8e6dc9b8a622add625c73b05360a1b291134697`，515 个文件与打包时本地内容逐字节一致，且不含本机 AGENTS、凭据或运行目录。验收凭据及截图保存在本地 `.code_deploy/verification/`。
+
+本轮生产 `npm ci` 完成，但安装日志的依赖审计报告 99 条告警（3 low、48 moderate、42 high、6 critical）；未在本轮自动升级依赖或验证各告警的生产可达性，不能把安装及功能回归通过等同于依赖审计整改完成。
+
 ### 发布前测试中暴露的配置问题
 
 - `sandbox_runs` 的 `runs_side_*` 触发器会更新 `threads.side_revision`，因此同一条 `UPDATE sandbox_runs JOIN threads` 或删除沙箱记录时引用 `threads`，会触发 MySQL `ER_CANT_UPDATE_USED_TABLE_IN_SF_OR_TRG`。已确认症状包括命令结束状态不能落库、随后的归档返回 409，以及集成清理钩子失败后连接未释放。`finishSandboxRun` 和启动中断清理改为同一事务内分开更新沙箱记录和活跃时间；已有事务连接使用保存点，第二次写入失败且调用方捕获错误时也不能提交半条完成记录。中断清理先锁定本次运行记录，活跃时间取这些记录的 `finished_at` 并保持单调；归档冻结语句不变。测试清理先查询迭代 ID，再删除沙箱记录，并在 `finally` 释放数据库。不要改写 113/114 等已应用迁移来绕过冲突。

@@ -643,18 +643,114 @@ function projectTuiArgs(kind, root) {
   throw new Error("未知的本机 Agent");
 }
 
-// 通过 cmd start /wait 拿到窗口进程：子进程退出即窗口关闭；Windows Terminal 为默认终端时同样成立。
+// 新控制台负责交互；隐藏的父进程等待真实退出码，不经过 cmd start 的退出码包装。
+function agentWindowLaunch(launcher, args, { root, title, pauseOnExit = true }) {
+  let file = launcher.file;
+  let argv = [...launcher.prefix, ...args];
+  if (file.toLowerCase() === comSpec().toLowerCase() && argv[2] === "/c") {
+    file = argv[3];
+    argv = argv.slice(4);
+  }
+  const environment = {};
+  let commandLine;
+  if (/\.(?:cmd|bat)$/i.test(file) || !path.isAbsolute(file)) {
+    const values = [file, ...argv];
+    if (values.some((value) => /["\r\n]/.test(value)))
+      throw new Error("批处理 Agent 的启动参数不能包含双引号或换行");
+    const words = values.map((value, index) => {
+      const name = `COTHREAD_TUI_ARG_${index}`;
+      environment[name] = value;
+      return `"%${name}%"`;
+    });
+    file = comSpec();
+    commandLine = `/d /v:off /s /c "${words.join(" ")}"`;
+  } else {
+    // 使用 Windows CRT 的规则，避免 PowerShell 5.1 再次拆分参数。
+    commandLine = argv
+      .map(
+        (value) =>
+          `"${String(value)
+            .replace(/(\\*)"/g, '$1$1\\"')
+            .replace(/(\\+)$/, "$1$1")}"`,
+      )
+      .join(" ");
+  }
+  const payload = Buffer.from(
+    JSON.stringify({ file, commandLine, environment, root, title }),
+    "utf8",
+  ).toString("base64");
+  const script = `
+$ErrorActionPreference = 'Stop'
+$data = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')))
+$started = [DateTime]::UtcNow
+$code = 1
+try {
+  Set-Location -LiteralPath $data.root
+  $Host.UI.RawUI.WindowTitle = $data.title
+  $info = New-Object System.Diagnostics.ProcessStartInfo
+  $info.FileName = $data.file
+  $info.Arguments = $data.commandLine
+  $info.WorkingDirectory = $data.root
+  $info.UseShellExecute = $false
+  foreach ($entry in $data.environment.PSObject.Properties) { $info.EnvironmentVariables[$entry.Name] = [string]$entry.Value }
+  $agentProcess = [System.Diagnostics.Process]::Start($info)
+  $agentProcess.WaitForExit()
+  $code = $agentProcess.ExitCode
+} catch {
+  Write-Host $_.Exception.Message -ForegroundColor Red
+}
+if (${pauseOnExit ? "$true" : "$false"} -and ($code -ne 0 -or ([DateTime]::UtcNow - $started).TotalSeconds -lt 5)) {
+  Write-Host "Agent 已退出（代码 $code）。请记录上方报错，按任意键关闭窗口。" -ForegroundColor Yellow
+  try { [void][Console]::ReadKey($true) } catch {}
+}
+exit $code
+`;
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  const parent = `$ErrorActionPreference='Stop'; try { $child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand','${encoded}') -Wait -PassThru; exit $child.ExitCode } catch { exit 1 }`;
+  return {
+    file: "powershell.exe",
+    args: [
+      "-NoProfile",
+      "-NonInteractive",
+      "-EncodedCommand",
+      Buffer.from(parent, "utf16le").toString("base64"),
+    ],
+  };
+}
+
+function interactiveAgentLauncher(
+  kind,
+  launcher = agentLauncher(kind),
+  desktopBins = path.join(process.env.LOCALAPPDATA || "", "OpenAI", "Codex", "bin"),
+) {
+  const relative = path.relative(desktopBins, launcher.file);
+  const parts = relative.split(path.sep);
+  const desktopCodex =
+    path.isAbsolute(launcher.file) &&
+    !path.isAbsolute(relative) &&
+    parts.length === 2 &&
+    parts[0] !== ".." &&
+    parts[1].toLowerCase() === "codex.exe";
+  // 桌面版随附的 CLI 没有独立安装包，交互会话须绕过共享 daemon 的包加载。
+  if (kind === "codex" && desktopCodex)
+    return { ...launcher, prefix: ["--no-daemon", ...launcher.prefix] };
+  return launcher;
+}
+
 function spawnAgentWindow(
   kind,
   args,
   { root, env, title = `CoThread 任务 - ${agentLabel(kind)}` },
 ) {
-  const launcher = agentLauncher(kind);
-  return spawn(
-    comSpec(),
-    ["/d", "/c", "start", title, "/wait", launcher.file, ...launcher.prefix, ...args],
-    { cwd: root, windowsHide: true, stdio: "ignore", env: env || process.env },
-  );
+  const launch = agentWindowLaunch(interactiveAgentLauncher(kind), args, { root, title });
+  const environment = { ...(env || process.env) };
+  delete environment.PSModulePath;
+  return spawn(launch.file, launch.args, {
+    cwd: root,
+    windowsHide: true,
+    stdio: "ignore",
+    env: environment,
+  });
 }
 
 function parseCursorChatId(output) {
@@ -2148,6 +2244,8 @@ module.exports = {
   AGENTS,
   addDetachedWorktree,
   agentLaunchArgs,
+  agentWindowLaunch,
+  interactiveAgentLauncher,
   projectTuiArgs,
   applyWorktreeToRepo,
   checkPrerequisites,

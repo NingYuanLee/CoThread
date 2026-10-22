@@ -13,6 +13,8 @@ const {
   AGENTS,
   addDetachedWorktree,
   agentLaunchArgs,
+  agentWindowLaunch,
+  interactiveAgentLauncher,
   projectTuiArgs,
   applyWorktreeToRepo,
   createAuthorizationCallback,
@@ -186,6 +188,97 @@ test("project TUI launch stays outside task session arguments", () => {
   assert.deepEqual(projectTuiArgs("codex", "C:\\repo"), ["-C", "C:\\repo"]);
   assert.deepEqual(projectTuiArgs("claude", "C:\\repo"), []);
 });
+
+test("desktop Codex uses no-daemon for new, resumed, and project TUI sessions only", () => {
+  const desktopBins = resolve("desktop-codex", "bin");
+  const launcher = { file: join(desktopBins, "runtime-id", "codex.exe"), prefix: [] };
+  const interactive = interactiveAgentLauncher("codex", launcher, desktopBins);
+  const root = resolve("project");
+  for (const args of [
+    agentLaunchArgs("codex", { root, prompt: "任务提示" }),
+    agentLaunchArgs("codex", { root, sessionId: "session-id", resume: true }),
+    projectTuiArgs("codex", root),
+  ]) {
+    assert.deepEqual([...interactive.prefix, ...args], ["--no-daemon", ...args]);
+  }
+  assert.deepEqual(launcher.prefix, [], "ordinary version and MCP launches retain their arguments");
+  for (const file of [
+    join(desktopBins, "..", "standalone", "codex.exe"),
+    join(`${desktopBins}-other`, "runtime-id", "codex.exe"),
+    join(desktopBins, "codex.exe"),
+    "codex",
+    "codex.cmd",
+  ]) {
+    const standalone = { file, prefix: [] };
+    assert.equal(interactiveAgentLauncher("codex", standalone, desktopBins), standalone);
+  }
+  assert.equal(interactiveAgentLauncher("claude", launcher, desktopBins), launcher);
+});
+
+test(
+  "Windows TUI window receives a console, literal arguments, and real exit status",
+  {
+    skip: process.platform !== "win32",
+    timeout: 30000,
+  },
+  async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cothread TUI 中文 & "));
+    try {
+      const probe = join(dir, "probe.cjs");
+      const output = join(dir, "result.json");
+      await writeFile(
+        probe,
+        `
+const fs = require('node:fs');
+fs.writeFileSync(process.argv[2], JSON.stringify({args:process.argv.slice(3),cwd:process.cwd(),tty:[process.stdin.isTTY,process.stdout.isTTY,process.stderr.isTTY]}));
+setTimeout(() => process.exit(7), 600);
+`,
+      );
+      const args = [
+        output,
+        "中文参数 with spaces",
+        "literal & echo unsafe",
+        "%PATH% ! value",
+        "a;b|c",
+      ];
+      const shim = join(dir, "agent shim.cmd");
+      await writeFile(
+        shim,
+        `@echo off\r\n"${process.execPath}" "%~dp0probe.cjs" %*\r\nexit /b %errorlevel%\r\n`,
+      );
+      for (const [launcher, agentArgs] of [
+        [{ file: process.execPath, prefix: [] }, [probe, ...args]],
+        [{ file: shim, prefix: [] }, args],
+      ]) {
+        const launch = agentWindowLaunch(launcher, agentArgs, {
+          root: dir,
+          title: "共序 TUI test & diagnostic",
+          pauseOnExit: false,
+        });
+        const started = Date.now();
+        const result = spawnSync(launch.file, launch.args, {
+          cwd: dir,
+          windowsHide: true,
+          stdio: "ignore",
+          timeout: 20000,
+        });
+        assert.ifError(result.error);
+        assert.equal(
+          result.status,
+          7,
+          "must propagate Agent exit code instead of cmd start success",
+        );
+        assert.ok(Date.now() - started >= 600, "must wait for the actual Agent process");
+        const actual = JSON.parse(await readFile(output, "utf8"));
+        assert.deepEqual(actual.args, args.slice(1));
+        assert.equal(actual.cwd.toLowerCase(), dir.toLowerCase());
+        assert.deepEqual(actual.tty, [true, true, true]);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
+);
 
 test("task card keeps the original instruction and asks for MCP progress reports", () => {
   const task = {

@@ -25,6 +25,8 @@
 
 ### 模型配置同步与上游故障检查
 
+自平台模型配置功能上线后，有 `platform_model_settings` 记录时以数据库为准；无记录才使用下述环境变量规则。管理员从 `/admin/model-settings` 查看当前来源、版本和分层覆盖，并通过“校验并保存”启用数据库配置。发布不会自动把环境变量写入配置表，也不会替换已有密钥。已有数据库记录损坏或无法解密时明确报错，不回退环境变量。首次保存仍需填写模型 API 密钥；必须保留服务器原有 `CREDENTIAL_ENCRYPTION_KEY`。
+
 代码发布不会同步本机 `.env`：发布包排除该文件，release 的 `.env` 始终链接 `/opt/cothread/.env`。修改本机模型地址、密钥或模型名后，必须单独核对服务器的有效配置；不要以本机配置一致推断生产一致。`MODEL_*` 优先供 L2/L3 共用，未配置时各自回退旧 `COORDINATOR_MODEL_*` / `EXECUTOR_MODEL_*`；L1 只在未填写 `KNOWLEDGE_MODEL_*` 时继承 `MODEL_*`，不会继续继承旧 coordinator 配置。因此只有旧变量的环境不能直接删除 L1 覆盖。迁移时先补齐完整 `MODEL_*` 三项，再按需保留完整 L1 覆盖，并清理旧变量以避免误判。
 
 2026-10-22 成员认识整理故障已核实：本机三层使用相同 DeepSeek 地址、模型和密钥，但 ECS 仍保留旧变量，L1/L3 指向另一兼容网关。项目维护日志中上下文准备和 DSH 启动成功，模型执行连续返回 503；从同一 ECS 对 L1 专用 Responses 接口做最小请求，得到 502 `Upstream authentication failed`，默认 coordinator 路由同类请求返回 200。该证据确认旧专用上游鉴权链路存在故障，未确认网关内部具体哪项凭据失效。
@@ -59,6 +61,8 @@
    上述 npm 10 预检用于覆盖本次生产安装问题；后续应按目标 ECS 的 npm 主版本选择。`--dry-run` 只验证安装计划，不代表包下载和安装脚本已成功。
 4. 核对项目及依赖的 Node 要求和 ECS 实际版本。本次 `@dimina/compiler@1.2.2` 要求至少 `22.22.3`，ECS 原为 `22.19.0`。[启动钩子](../../scripts/ecs-codedeploy-start.sh)已加入版本检查：需要升级时，将固定版本安装到 `/opt/cothread/node-runtime-22.22.3`，验证可执行文件后再切换 `/usr/local/bin/node`，并保留 `node.previous`。以后依赖提高要求时，须同步核对 `package.json`、钩子和本文，不能只忽略 `EBADENGINE`。
 5. 有迁移时，先在独立测试库验证完整迁移链，并检查已有生产库的升级路径。本次 114 号迁移错误更新了已被 046 号迁移删除的 `agent_capabilities`、`agent_capability_contracts`，直到独立 MySQL 验证才发现。修复尚未上线的迁移；不要随意改写已应用迁移或手工重写校验和。触发器语句需按[迁移执行器](../../scripts/migrate.js)的处理方式执行。
+
+   平台模型配置的 118 号迁移仅新增单例配置表，初始不写配置。新版本探活也会应用该迁移；若随后回切旧代码，可保留新增表，不执行删除表或重写迁移记录。旧代码不会读取此表，因此启用数据库模型配置后再回切旧代码，会重新采用服务器环境变量，恢复前须核对两者。
 6. 远端测试库出现 `PROTOCOL_CONNECTION_LOST` 时，先区分连接故障与业务断言失败。可使用本机已安装的 MySQL 和专用测试库（本次为 `127.0.0.1:3307/cothread_deploy_test`），仅向测试子进程注入 `TEST_DATABASE_HOST_PUBLIC`、`TEST_DATABASE_AUTH`。凭据从现有本地配置读取，不打印、不提交；`npm test` 会清空目标测试库，不能指向生产或日常开发库。
 7. 完成最终构建后再打包。推荐 `npm run deploy:ecs`；只有确认 `dist/` 对应最终前端源码时，才用 `npm run deploy:ecs -- --pack-only`。不要并行构建和打包；源码、锁文件或发布钩子改动后都应重打包。清单由[打包入口](../../scripts/ecs-deploy.mjs)生成，不手改 `.code_deploy/last-deploy.json`，发布期间也不要继续修改待上传源码。
 8. 提交并推送待发布修改，确认远端分支 HEAD 与本地一致；记录提交号、产物文件名及 SHA-256，再进入上传步骤。
@@ -88,6 +92,8 @@ bash -n scripts/ecs-codedeploy-start.sh
 
 定位执行问题时，从本次父 execution 的部署任务进入实例子执行，再读取 `deployCurrentRevision` 的状态、输出和实际命令。本次层级为 `<execution>.t0005.i0001`；任务名称和层级应按实际返回发现，不把后缀当作永久 API 契约。应用分组摘要不足以说明启动命令是否真正运行。
 
+在 ECS 用独立 `node --input-type=module` 脚本只读核对数据库时，显式设置 `COTHREAD_DB_TARGET=prod`；独立脚本不会自动继承 `server/index.js --production` 的目标推断。否则会报“缺少或无效的 COTHREAD_DB_TARGET”，这不代表正式网站的数据库连接失败。诊断只打印布尔状态、迁移名称及脱敏配置，不输出数据库认证串或模型密钥。
+
 ### 发布完成的验收证据
 
 1. OOS 分组为 `Released`，对应 execution 为 `Success`；执行输出应出现本轮 `PKG`、新 release 目录、临时探活通过、`current` 切换和正式端口健康结果。
@@ -106,6 +112,12 @@ bash -n scripts/ecs-codedeploy-start.sh
 
 本轮生产 `npm ci` 完成，但安装日志的依赖审计报告 99 条告警（3 low、48 moderate、42 high、6 critical）；未在本轮自动升级依赖或验证各告警的生产可达性，不能把安装及功能回归通过等同于依赖审计整改完成。
 
+2026-10-22 平台模型配置功能已上线：代码提交 `f9f0cb5`，execution `exec-37563ca724c6491e9c99`、revision `rev-54788ea227a0418ebb9b`，OOS 为 `Released`、执行为 `Success`。实际目录 `/opt/cothread/releases/20261022T110306Z`，systemd active，启动时间北京时间 19:04:28。临时端口探活通过且保留旧执行器锁，切换后正式执行器 ready、7 个执行槽；19:05 核对排队 0、运行 0。生产从 117 号迁移升级至 118 号，配置表已创建且初始 0 行，脱敏有效配置仍来自原服务器环境变量：L1/L2/L3 均为 DeepSeek 地址及 `deepseek-flash`，L1 medium、其余 low；密钥与环境文件未替换。后续在管理页首次保存才启用数据库配置。
+
+本轮发布包 `cothread-release-20261022T110214Z.tgz` 的 SHA-256 为 `956b69cc556f0f844210ce0d9842525d7838554fe55fdcb5659e09c8c53af361`，519 个文件与打包时本地内容逐字节一致，无 AGENTS、凭据、运行目录或 Windows 客户端文件；线上 `platform-model-settings.js`、`model-config.js`、`agent.js`、118 号迁移及 `dist/index.html` 的 SHA-256 与本地一致。浏览器导航至带提交号的模型配置入口，未登录时正确展示登录页；实际引用 `index-CuJp67JR.js`、`index-CjxCJK9E.css`，与本地一致；公开健康接口 `status: ok`、`executor.ready: true`。无可用线上登录会话，未在本轮操作登录后的管理表单、保存真实供应商配置或发送测试消息。
+
+本轮验证：352 项无数据库测试、构建、格式与各架构门禁通过，npm 10 生产安装计划预检通过；针对性数据库回归 33 项通过，提交前补充的模型配置与会话锁检查 9 项通过，关闭竞态的最终会话锁复跑 7 项通过，各组有重叠，不相加作为总数。独立测试库应用完整 118 条迁移；没有再次运行全量集成测试。本轮 `npm ci --omit=dev` 安装 2266 个包并仍报告上述 99 条依赖告警。脱敏验收凭据与截图保存在本地 `.code_deploy/verification/model-settings-20261022/`。
+
 ### 发布前测试中暴露的配置问题
 
 - `sandbox_runs` 的 `runs_side_*` 触发器会更新 `threads.side_revision`，因此同一条 `UPDATE sandbox_runs JOIN threads` 或删除沙箱记录时引用 `threads`，会触发 MySQL `ER_CANT_UPDATE_USED_TABLE_IN_SF_OR_TRG`。已确认症状包括命令结束状态不能落库、随后的归档返回 409，以及集成清理钩子失败后连接未释放。`finishSandboxRun` 和启动中断清理改为同一事务内分开更新沙箱记录和活跃时间；已有事务连接使用保存点，第二次写入失败且调用方捕获错误时也不能提交半条完成记录。中断清理先锁定本次运行记录，活跃时间取这些记录的 `finished_at` 并保持单调；归档冻结语句不变。测试清理先查询迭代 ID，再删除沙箱记录，并在 `finally` 释放数据库。不要改写 113/114 等已应用迁移来绕过冲突。
@@ -119,7 +131,7 @@ bash -n scripts/ecs-codedeploy-start.sh
 
 本地 `.env` 仅保留 `.env.example` 中列出的必要项。监听 `0.0.0.0:3100`、站点 `https://cothread.z2l.top`、HTTPS 时 Secure Cookie 已在代码写死，不必再配。
 
-任务在 `.local/sandboxes` 中执行。生产推理有两路：`KNOWLEDGE_MODEL_*` 用于 L1 知识整理，`MODEL_*` 作为 L2 调度和实际 L3 派活的共享基线。旧的 `COORDINATOR_MODEL_*` / `EXECUTOR_MODEL_*` 仅作为迁移兼容变量；模型字段可写成 `模型名@推理强度`，省略推理强度时基线默认使用 `low`。推理强度可取 `off`、`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`、`ultra`。
+任务在 `.local/sandboxes` 中执行。数据库模型配置默认由 L1、L2 与实际 L3 派活共用，可单独覆盖 L1。仅在没有数据库配置时，`KNOWLEDGE_MODEL_*` 用于 L1 知识整理，`MODEL_*` 作为 L2 调度和实际 L3 派活的共享基线。旧的 `COORDINATOR_MODEL_*` / `EXECUTOR_MODEL_*` 仅作为迁移兼容变量；环境变量模型字段可写成 `模型名@推理强度`，省略推理强度时基线默认使用 `low`。推理强度可取 `off`、`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`、`ultra`；管理页用独立选项设置推理强度。
 
 模型调用统一使用 OpenAI Responses API。各套 `*_MODEL_BASE_URL` 是服务商提供的 API 基础地址，程序不会擅自补 `/v1`；Responses 适配器只在该地址后追加 `/responses`。命令以应用进程的操作系统账号在 `.local/sandboxes` 中执行，不具备容器级隔离；生产环境只有这一条执行路径。
 

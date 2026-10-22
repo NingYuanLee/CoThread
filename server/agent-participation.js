@@ -1,6 +1,12 @@
 import { insertCompletedAgentEvent } from "./thread-activity.js";
 import { setTimeout as delay } from "node:timers/promises";
-import { modelConfig, modelResponse, modelUsage, responseText } from "./model-config.js";
+import {
+  capturedModelUsage,
+  modelConfig,
+  modelResponse,
+  modelUsage,
+  responseText,
+} from "./model-config.js";
 import { saveReplyUsage } from "./agent-usage.js";
 import { query } from "./db.js";
 
@@ -467,14 +473,18 @@ export async function composeOpportunisticParticipation(
   let throughSequence = 0;
   let usageTotals = null;
   let modelDurationMs = 0;
+  let modelAccounting = null;
+  let modelCapture = null;
   const recordDecideMeta = (raw) => {
     if (raw?.usage) usageTotals = mergeParticipationUsage(usageTotals, raw.usage);
     if (Number.isFinite(raw?.durationMs)) modelDurationMs += Math.max(0, raw.durationMs);
+    if (!modelAccounting && raw?.modelAccounting?.model) modelAccounting = raw.modelAccounting;
   };
   const withUsage = (decision) => ({
     ...decision,
     usage: usageTotals,
     executionDurationMs: Math.round(modelDurationMs),
+    modelAccounting: modelAccounting || decision.modelAccounting || null,
   });
   const forceBriefAck = (burst) => ({
     respond: true,
@@ -533,7 +543,9 @@ export async function composeOpportunisticParticipation(
     );
     let decision;
     try {
+      if (decide === decideParticipation) modelCapture ||= modelConfig("coordinator");
       const raw = await decide({
+        modelCapture,
         title,
         messages: compactParticipationMessages(history.reverse()),
         integrateBurst: compactParticipationMessages(
@@ -617,7 +629,6 @@ export async function persistOpportunisticParticipationArtifacts(
     return;
   }
   try {
-    const configured = modelConfig("coordinator");
     const modelMs = Math.round(
       Number.isFinite(decision.executionDurationMs)
         ? decision.executionDurationMs
@@ -626,8 +637,7 @@ export async function persistOpportunisticParticipationArtifacts(
     if (decision.usage || modelMs > 0) {
       await saveReplyUsage(db, messageId, {
         ...(decision.usage || {}),
-        model: configured.model,
-        reasoningEffort: "none",
+        ...(decision.modelAccounting || {}),
         executionDurationMs: Math.max(0, modelMs),
       });
     }
@@ -710,9 +720,11 @@ export async function decideParticipation(context, request = fetch) {
   // Burst is already the tip of `messages`; only resend on revise to highlight new lines.
   const revising = context.revision > 0 || !!context.previousDraft;
   const started = performance.now();
+  const configured = context.modelCapture || modelConfig("coordinator");
   const data = await modelResponse(
     {
       scope: "coordinator",
+      config: configured,
       // Tiny JSON judgment: turn reasoning off so low max_output_tokens is not eaten by CoT.
       maxTokens: OPPORTUNISTIC_MAX_TOKENS,
       reasoningEffort: "none",
@@ -748,6 +760,7 @@ export async function decideParticipation(context, request = fetch) {
   return {
     ...normalizeParticipationDecision(decision),
     usage: modelUsage(data?.usage),
+    modelAccounting: capturedModelUsage(configured, { reasoningEffort: "none" }),
     durationMs: Math.round(performance.now() - started),
   };
 }

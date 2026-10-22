@@ -15,7 +15,14 @@ import { deliverTaskUpdates } from "./agent-updates.js";
 import { hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.js";
 import { createUsageMeter, saveReplyUsage } from "./agent-usage.js";
 import { publishWork } from "./work-events.js";
-import { dshModelMaxTokens, dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
+import {
+  capturedModelUsage,
+  coordinatorReuseDecision,
+  dshModelMaxTokens,
+  dshModelPatch,
+  modelForLaunch,
+  redactSecrets,
+} from "./model-config.js";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { agentRuntimePatch } from "./dsh-runtime-config.js";
 import { persistL3ContextStats } from "./l3-session.js";
@@ -81,8 +88,24 @@ export async function resetAgentSessionStore(db, job) {
 
 export async function acquireCoordinatorRuntime(context, { db, job, user, createHarness } = {}) {
   const key = job.thread_id;
-  const existing = coordinatorRuntimes.get(key);
-  if (existing?.runtime) {
+  let existing = coordinatorRuntimes.get(key);
+  if (existing?.closing) {
+    await existing.closing;
+    existing = coordinatorRuntimes.get(key);
+  }
+  const reuse = existing?.runtime
+    ? coordinatorReuseDecision(existing.runtime.modelCapture, {
+        activeChildren: !!existing.runtime.hasActiveChildren?.(),
+      })
+    : "keep";
+  if (reuse === "wait") {
+    const error = new Error("模型配置已更新，等待此迭代正在运行的子任务结束后切换");
+    error.code = "L2_SESSION_BUSY";
+    throw error;
+  }
+  if (existing?.runtime && reuse === "replace") {
+    await retireCoordinatorRuntime(key, existing);
+  } else if (existing?.runtime) {
     clearTimeout(existing.idleTimer);
     existing.idleTimer = undefined;
     try {
@@ -147,6 +170,34 @@ export async function parkCoordinatorRuntime(threadId, runtime, completed = true
     entry.idleTimer.unref?.();
   };
   scheduleIdleClose();
+}
+
+function retireCoordinatorRuntime(threadId, entry) {
+  if (entry.closing) return entry.closing;
+  clearTimeout(entry.idleTimer);
+  entry.idleTimer = undefined;
+  // Keep the entry until checkpointing and process shutdown finish. The next
+  // acquisition must not restore the same session directory concurrently.
+  entry.closing = entry.runtime
+    .close(true)
+    .catch(() => {})
+    .finally(() => {
+      if (coordinatorRuntimes.get(threadId) === entry) coordinatorRuntimes.delete(threadId);
+    });
+  return entry.closing;
+}
+
+export function releaseIdleStaleCoordinatorRuntimes() {
+  for (const [threadId, entry] of coordinatorRuntimes) {
+    if (!entry.idleTimer) continue;
+    if (
+      coordinatorReuseDecision(entry.runtime?.modelCapture, {
+        activeChildren: !!entry.runtime?.hasActiveChildren?.(),
+      }) !== "replace"
+    )
+      continue;
+    void retireCoordinatorRuntime(threadId, entry);
+  }
 }
 
 export { discardCoordinatorRuntime };
@@ -379,7 +430,11 @@ export async function openAgentRuntime(context, options) {
     const patch = join(home, "tools.yml");
     const modelPatch = join(home, "model.yml");
     await writeFile(patch, agentRuntimePatch());
-    const configuredModel = modelConfig(role);
+    const parentCapture =
+      role === "executor" && job?.thread_id
+        ? coordinatorRuntimes.get(job.thread_id)?.runtime?.modelCapture
+        : null;
+    const configuredModel = modelForLaunch(role, parentCapture);
     await writeFile(modelPatch, dshModelPatch(configuredModel, role));
     // Never inherit database or unrelated application secrets into the Agent process.
     const env = {};
@@ -738,6 +793,7 @@ export async function openAgentRuntime(context, options) {
         activeChildren,
         watchChildren,
         hasActiveChildren: () => activeChildren.size > 0,
+        modelCapture: configuredModel,
       };
     } catch (error) {
       error.agentStage = agentStage;
@@ -838,11 +894,9 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
     clearInterval(cancellationTimer);
     await polling;
     if (modelStarted !== undefined) {
-      const configuredModel = modelConfig("coordinator");
       await saveReplyUsage(db, job.message_id, {
         ...usageMeter.result(),
-        model: configuredModel.model,
-        reasoningEffort: configuredModel.reasoningEffort,
+        ...capturedModelUsage(runtime.modelCapture),
         executionDurationMs: Math.round((modelFinished ?? performance.now()) - modelStarted),
       }).catch((error) => console.error("Usage persistence failed", { type: error.name }));
     }

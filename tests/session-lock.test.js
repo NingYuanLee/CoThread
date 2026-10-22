@@ -11,7 +11,12 @@ import {
   parkCoordinatorRuntime,
   resetAgentSessionStore,
   invalidateCoordinatorRuntime,
+  releaseIdleStaleCoordinatorRuntimes,
 } from "../server/agent.js";
+import {
+  installPlatformModelSettings,
+  clearPlatformModelSettings,
+} from "../server/model-config.js";
 import { acquireSessionLock, discussionHasActiveCoordinator } from "../server/session-lock.js";
 
 let database, db, service;
@@ -197,6 +202,93 @@ test("parked L2 runtime is dropped when the durable session id rotates", async (
   } finally {
     if (threadId) await invalidateCoordinatorRuntime(threadId);
     if (second) await second.close().catch(() => {});
+  }
+});
+
+test("model switching waits for the retired harness to close before restoring its session", async () => {
+  let threadId, releaseClose;
+  const blockedClose = new Promise((resolve) => {
+    releaseClose = resolve;
+  });
+  let closeStarted;
+  const closing = new Promise((resolve) => {
+    closeStarted = resolve;
+  });
+  try {
+    const route = {
+      baseUrl: "https://model.test/v1",
+      model: "old-model",
+      reasoningEffort: "low",
+      apiKey: "test-key",
+    };
+    installPlatformModelSettings({ version: 1, default: route });
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
+      user.id,
+      `${user.id}@test.com`,
+      "成员",
+    ]);
+    const project = await service.createProject(user, { name: "模型切换并发" });
+    const thread = await service.createThread(user, project.id, { title: "L2" });
+    threadId = thread.id;
+    const context = await service.context(user, threadId);
+    let starts = 0;
+    const createHarness = () => {
+      const index = ++starts;
+      return {
+        start: async () => {},
+        close: async () => {
+          if (index === 1) {
+            closeStarted();
+            await blockedClose;
+          }
+        },
+        client: { request: async () => ({ used: 0, categories: {} }) },
+      };
+    };
+    const first = await acquireCoordinatorRuntime(context, {
+      db,
+      user,
+      job: { thread_id: threadId },
+      createHarness,
+    });
+    await parkCoordinatorRuntime(threadId, first);
+    installPlatformModelSettings({ version: 2, default: { ...route, model: "new-model" } });
+    first.activeChildren.add("running-child");
+    await assert.rejects(
+      acquireCoordinatorRuntime(context, {
+        db,
+        user,
+        job: { thread_id: threadId },
+        createHarness,
+      }),
+      { code: "L2_SESSION_BUSY" },
+    );
+    assert.equal(starts, 1, "a running child keeps its original harness alive");
+    first.activeChildren.delete("running-child");
+    releaseIdleStaleCoordinatorRuntimes();
+    await closing;
+    let acquired = false;
+    const pending = acquireCoordinatorRuntime(context, {
+      db,
+      user,
+      job: { thread_id: threadId },
+      createHarness,
+    }).then((runtime) => {
+      acquired = true;
+      return runtime;
+    });
+    await delay(30);
+    assert.equal(acquired, false);
+    assert.equal(starts, 1);
+    releaseClose();
+    const next = await pending;
+    assert.equal(next.modelCapture.model, "new-model");
+    assert.equal(starts, 2);
+  } finally {
+    releaseClose();
+    if (threadId) await invalidateCoordinatorRuntime(threadId);
+    clearPlatformModelSettings();
   }
 });
 

@@ -29,6 +29,11 @@ import {
   createPromptSkill,
   updatePromptSkill,
 } from "../agent-capabilities.js";
+import {
+  loadPlatformModelSettings,
+  platformModelSettingsView,
+  savePlatformModelSettings,
+} from "../platform-model-settings.js";
 
 /** 管理域路由。守卫与全部 /api/admin 端点集中在此，注册顺序与原先一致。 */
 export function registerAdminRoutes(app, { db, service }) {
@@ -193,5 +198,12 @@ export function registerAdminRoutes(app, { db, service }) {
   );
   app.delete("/api/admin/plugins/skills/:id", async (req, res) =>
     res.json(await archivePromptSkill(service, req.user, req.params.id)),
+  );
+  app.get("/api/admin/model-settings", async (_req, res) => {
+    await loadPlatformModelSettings(db);
+    res.json(platformModelSettingsView());
+  });
+  app.put("/api/admin/model-settings", async (req, res) =>
+    res.json(await savePlatformModelSettings(db, req.user, req.body)),
   );
 }

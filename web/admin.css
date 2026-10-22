@@ -1071,6 +1071,68 @@
 .admin-editor {
   margin: 0;
 }
+.model-settings {
+  max-width: 1080px;
+}
+.model-settings-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.model-settings-heading h2 {
+  margin: 0;
+}
+.model-settings-heading p {
+  margin: 8px 0 16px;
+}
+.model-settings-current {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin: 8px 0 20px;
+}
+.model-settings-current > div {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--c-edf0e8);
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.model-settings-current small {
+  opacity: 0.75;
+}
+.model-settings-override {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+.model-settings-override input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+}
+.model-settings .admin-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 16px 0;
+}
+.model-settings-validation {
+  margin-right: auto;
+  font-size: 12px;
+  align-self: center;
+}
+@media (max-width: 680px) {
+  .model-settings .admin-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .model-settings .admin-editor-actions {
+    flex-wrap: wrap;
+  }
+}
 .admin-project-create-identity {
   display: flex;
   align-items: center;

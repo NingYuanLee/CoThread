@@ -4,7 +4,7 @@ import { Service } from "./service.js";
 import { AGENT_L2_MEMBER, mentionsAgent } from "../shared/agent-member.js";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { loadProjectMembers } from "./project-memory.js";
-import { modelConfig, redactSecrets } from "./model-config.js";
+import { capturedModelUsage, redactSecrets } from "./model-config.js";
 import { createUsageMeter, saveReplyUsage } from "./agent-usage.js";
 import {
   acquireCoordinatorRuntime,
@@ -722,11 +722,9 @@ ${job.dialogue_mode === "miniprogram" ? `${MINIPROGRAM_DIALOGUE_STEERING}\n` : "
       if (!job.message_id) return;
       try {
         const usage = usageMeter.result() || {};
-        const configuredModel = modelConfig("coordinator");
         await saveReplyUsage(db, job.message_id, {
           ...usage,
-          model: configuredModel.model,
-          reasoningEffort: configuredModel.reasoningEffort,
+          ...capturedModelUsage(runtime.modelCapture),
           executionDurationMs: Math.round(modelDurationMs),
         });
       } catch (error) {

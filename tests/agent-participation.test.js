@@ -37,7 +37,14 @@ afterEach(async () => {
 });
 
 test("unmentioned discussion reaches the model, which can choose silence or participation with a message", async () => {
-  const keys = ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL", "COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY", "COORDINATOR_MODEL"];
+  const keys = [
+    "MODEL_BASE_URL",
+    "MODEL_API_KEY",
+    "MODEL",
+    "COORDINATOR_MODEL_BASE_URL",
+    "COORDINATOR_MODEL_API_KEY",
+    "COORDINATOR_MODEL",
+  ];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   // The shared MODEL_* baseline takes precedence; clear it so the legacy
   // coordinator route under test is the one that resolves.
@@ -653,7 +660,14 @@ test("persist opportunistic artifacts writes usage_stats and L2 trajectory event
   const projectId = randomUUID();
   const threadId = randomUUID();
   const messageId = randomUUID();
-  const keys = ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL", "COORDINATOR_MODEL", "COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY"];
+  const keys = [
+    "MODEL_BASE_URL",
+    "MODEL_API_KEY",
+    "MODEL",
+    "COORDINATOR_MODEL",
+    "COORDINATOR_MODEL_BASE_URL",
+    "COORDINATOR_MODEL_API_KEY",
+  ];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   for (const key of ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL"]) delete process.env[key];
   Object.assign(process.env, {
@@ -696,6 +710,8 @@ test("persist opportunistic artifacts writes usage_stats and L2 trajectory event
       [messageId, "reply", "completed"],
     );
 
+    // Saving a completed call must retain its captured model after a config change.
+    process.env.COORDINATOR_MODEL = "later-active-model";
     await persistOpportunisticParticipationArtifacts(db, {
       messageId,
       threadId,
@@ -715,6 +731,11 @@ test("persist opportunistic artifacts writes usage_stats and L2 trajectory event
           calls: 1,
         },
         executionDurationMs: 420,
+        modelAccounting: {
+          model: "test-opportunistic-model",
+          reasoningEffort: "none",
+          settingsVersion: 7,
+        },
       },
     });
 
@@ -727,6 +748,7 @@ test("persist opportunistic artifacts writes usage_stats and L2 trajectory event
       typeof reply.usage_stats === "string" ? JSON.parse(reply.usage_stats) : reply.usage_stats;
     assert.equal(usage.model, "test-opportunistic-model");
     assert.equal(usage.reasoningEffort, "none");
+    assert.equal(usage.settingsVersion, 7);
     assert.equal(usage.totalTokens, 110);
     assert.equal(usage.executionDurationMs, 420);
     assert.ok(reply.first_response_at);

@@ -11,6 +11,7 @@ import { resolveSandboxProvider, sandboxProviderName } from "./sandbox-provider.
 import { createShutdown } from "./shutdown.js";
 import { stopLiveOutputStreams } from "./agent-live-output.js";
 import { migrate } from "../scripts/migrate.js";
+import { loadPlatformModelSettings, platformModelSettingsView } from "./platform-model-settings.js";
 import {
   DatabasePolicyError,
   productionWriteAllowed,
@@ -69,6 +70,17 @@ await query(db, "SELECT 1");
 const allowWrites = productionWriteAllowed(process.env, { production });
 if (allowWrites) await migrate(db, undefined, { seedAdmin: true });
 else console.warn(`数据库目标=${databaseTarget}：非生产进程跳过迁移和管理员初始化。`);
+await loadPlatformModelSettings(db);
+{
+  const modelView = platformModelSettingsView();
+  console.log(
+    modelView.unreadable
+      ? `模型配置不可用：${modelView.error}`
+      : modelView.configured
+        ? `模型配置：数据库 v${modelView.version}`
+        : "模型配置：环境变量（数据库尚无记录）",
+  );
+}
 let releasedPreviews = 0;
 if (!healthProbe) {
   releasedPreviews = await stopCoThreadPreviewServers(db).catch((error) => {

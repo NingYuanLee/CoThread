@@ -51,6 +51,14 @@ test("admin request permissions fail closed and separate read and action access"
   assert.equal(adminPermissionForRequest("POST", "/plugins/skills"), "plugins.create");
   assert.equal(adminPermissionForRequest("PATCH", "/plugins/skills/example"), "plugins.update");
   assert.equal(adminPermissionForRequest("DELETE", "/plugins/skills/example"), "plugins.archive");
+  assert.equal(adminPermissionForRequest("GET", "/model-settings"), "model-settings");
+  assert.equal(adminPermissionForRequest("PUT", "/model-settings"), "model-settings.update");
+  assert.equal(adminPermissionForRequest("POST", "/model-settings"), false);
+  assert.deepEqual(expandAdminPermissions(["model-settings.update"]), [
+    "platform",
+    "model-settings",
+    "model-settings.update",
+  ]);
   assert.equal(adminPermissionForRequest("PUT", "/roles/example"), false);
   assert.equal(adminPermissionForRequest("POST", "/access"), false);
   assert.equal(adminPermissionForRequest("GET", "/unregistered"), false);

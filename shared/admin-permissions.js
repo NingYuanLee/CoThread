@@ -55,6 +55,7 @@ export const ADMIN_PERMISSION_TREE = [
         ["update", "编辑 Skill"],
         ["archive", "归档 Skill"],
       ]),
+      page("model-settings", "模型配置", "settings", [["update", "保存模型配置"]]),
     ],
   },
 ];
@@ -120,7 +121,8 @@ export function adminPermissionForRequest(method, path) {
         : false;
   if (method === "GET" && /^\/accounts\/[^/]+\/role-options$/.test(path)) return "roles.assign";
   if (method === "GET" && /^\/accounts\/[^/]+\/avatar$/.test(path)) return "accounts";
-  if (method === "GET" && /^\/projects\/[^/]+\/members\/[^/]+\/avatar$/.test(path)) return "projects";
+  if (method === "GET" && /^\/projects\/[^/]+\/members\/[^/]+\/avatar$/.test(path))
+    return "projects";
   if (method === "GET" && /^\/projects\/[^/]+\/image$/.test(path)) return null;
   if (/^\/accounts\/[^/]+\/roles$/.test(path)) return method === "PUT" ? "roles.assign" : false;
   if (method === "GET" && (path === "/account-changes" || path === "/account-logins"))
@@ -140,5 +142,7 @@ export function adminPermissionForRequest(method, path) {
   if (method === "POST" && path === "/plugins/skills") return "plugins.create";
   if (/^\/plugins\/skills\/[^/]+$/.test(path))
     return method === "PATCH" ? "plugins.update" : method === "DELETE" ? "plugins.archive" : false;
+  if (path === "/model-settings")
+    return method === "GET" ? "model-settings" : method === "PUT" ? "model-settings.update" : false;
   return false;
 }

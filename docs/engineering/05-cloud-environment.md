@@ -23,6 +23,16 @@
 
 `CREDENTIAL_ENCRYPTION_KEY` 与 `MEMORY_MAINTENANCE_TOKEN` 须人工配置并长期固定；`npm run setup` 不会生成它们。迁移已有部署时保留原有令牌加密密钥（环境变量，或将已有 `.local/credential-encryption.key` 的 32 字节二进制内容编码为 base64），否则无法解密原来的账号令牌。不要提交密钥；也不要在运行时自动新建密钥文件。
 
+### 模型配置同步与上游故障检查
+
+代码发布不会同步本机 `.env`：发布包排除该文件，release 的 `.env` 始终链接 `/opt/cothread/.env`。修改本机模型地址、密钥或模型名后，必须单独核对服务器的有效配置；不要以本机配置一致推断生产一致。`MODEL_*` 优先供 L2/L3 共用，未配置时各自回退旧 `COORDINATOR_MODEL_*` / `EXECUTOR_MODEL_*`；L1 只在未填写 `KNOWLEDGE_MODEL_*` 时继承 `MODEL_*`，不会继续继承旧 coordinator 配置。因此只有旧变量的环境不能直接删除 L1 覆盖。迁移时先补齐完整 `MODEL_*` 三项，再按需保留完整 L1 覆盖，并清理旧变量以避免误判。
+
+2026-10-22 成员认识整理故障已核实：本机三层使用相同 DeepSeek 地址、模型和密钥，但 ECS 仍保留旧变量，L1/L3 指向另一兼容网关。项目维护日志中上下文准备和 DSH 启动成功，模型执行连续返回 503；从同一 ECS 对 L1 专用 Responses 接口做最小请求，得到 502 `Upstream authentication failed`，默认 coordinator 路由同类请求返回 200。该证据确认旧专用上游鉴权链路存在故障，未确认网关内部具体哪项凭据失效。
+
+恢复时先确认本机执行器没有运行或排队任务，备份服务器原配置（仅在服务器保留且限制权限），只同步模型相关变量，保留数据库、加密密钥和其他配置，然后重启 systemd 服务。凭据应通过安全传输或加密载荷传送，不能放入发布包、命令日志或诊断输出。若新配置无法启动或模型校验失败，恢复本轮备份并重启；服务健康只证明进程和数据库恢复，还须验证真实整理任务。
+
+本轮曾尝试仅删除 L1 覆盖，因服务器缺少完整 `MODEL_*` 基线而未通过模型配置校验，已立即恢复原配置；随后按本机配置同步完整基线及 L1 覆盖。最终服务 active、健康接口 ok、执行器 ready；项目 `aab430a9-52af-463f-b0de-543efea6f40a` 的成员整理 run `536dbdb4-e750-49dd-ab22-99c9b914fda6` 于北京时间 15:54:45 完成，处理 2 项且 error 为空。此次为生产配置修复，无代码包发布或数据库迁移；不代表其他项目和全部业务已验收。
+
 构建命令：`npm ci && npm run build`。常驻 `npm start` 与本地 `npm run dev` 启动时会应用未执行的迁移并尝试写入超级管理员（需 `.local/initial-admin.json` 或 `ADMIN_EMAIL`/`ADMIN_PASSWORD`）。也可单独运行 `npm run db:migrate`。当前版本运行单个应用实例。
 
 ## ECS 发布

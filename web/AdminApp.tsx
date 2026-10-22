@@ -12,6 +12,7 @@ import { AccountAuditList } from "./AccountAuditList";
 import { AdminAccountMenu } from "./AdminAccountMenu";
 import { AdminWorkManagement } from "./AdminWorkManagement";
 import { AdminRoles } from "./AdminRoles";
+import { ModelSettings } from "./ModelSettings";
 import { LoginScreen } from "./LoginScreen";
 import { Notifications } from "./Notifications";
 import { ThemePicker } from "./ThemePicker";
@@ -382,6 +383,9 @@ export function AdminApp() {
                     await loadAccess();
                   }}
                 />
+              )}
+              {page === "model-settings" && (
+                <ModelSettings api={api} permissions={access.permissions} />
               )}
             </div>
           ) : (

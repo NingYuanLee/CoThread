@@ -1,9 +1,11 @@
 import { FloatingPanel } from "./FloatingPanel";
+import { labelReasoningEffort } from "./ui-labels";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FloatingPortal } from "./FloatingPortal";
 export type UsageStats = {
   model?: string;
   reasoningEffort?: string;
+  settingsVersion?: number | null;
   inputTokens?: number;
   outputTokens?: number;
   cacheReadTokens?: number;
@@ -135,6 +137,10 @@ export function MessageUsage({
     open === "usage"
       ? [
           ["模型", usage.model || "未记录"],
+          ["推理强度", labelReasoningEffort(usage.reasoningEffort)],
+          ...(typeof usage.settingsVersion === "number"
+            ? [["配置版本", String(usage.settingsVersion)]]
+            : []),
           ["缓存命中", cacheHit],
           ["未缓存输入", tokens(usage.inputTokens)],
           ["缓存读取", tokens(usage.cacheReadTokens)],

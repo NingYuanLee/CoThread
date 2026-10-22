@@ -13,7 +13,7 @@ const STORED_INCOMPLETE = "数据库模型配置不完整，已停止回退到�
 
 /** Per-attempt cap. A hung provider must fail the probe instead of replacing config. */
 export const MODEL_PROBE_ATTEMPT_MS = 12_000;
-/** Budget for one route's three probes (normal, stream, L1 structured output). */
+/** Budget for one route's three probes (normal, stream, 老翁 structured output). */
 export const MODEL_PROBE_BUDGET_MS = 36_000;
 
 let activeSnapshot = null;
@@ -224,7 +224,7 @@ export function coordinatorReuseDecision(capture, { activeChildren = false } = {
   return "keep";
 }
 
-/** Child work of a stale running coordinator stays on that capture. L1 does not. */
+/** Child work of a stale running coordinator stays on that capture. 老翁 does not. */
 export function modelForLaunch(scope = "coordinator", parentCapture = null) {
   if (
     parentCapture?.routeIdentity &&
@@ -512,7 +512,7 @@ const L1_PROBE_SCHEMA = {
 };
 
 async function probeStructured(config, request, budget) {
-  const stage = "L1 结构化输出";
+  const stage = "老翁 结构化输出";
   const signal = probeSignal(budget);
   let response;
   try {
@@ -563,10 +563,10 @@ async function probeStructured(config, request, budget) {
   try {
     parsed = JSON.parse(responseText(data));
   } catch {
-    throw new Error("模型校验失败（L1 结构化输出）：返回内容不是 JSON");
+    throw new Error("模型校验失败（老翁 结构化输出）：返回内容不是 JSON");
   }
   if (!parsed || parsed.ok !== true || Object.keys(parsed).length !== 1)
-    throw new Error("模型校验失败（L1 结构化输出）：返回的 JSON 不是 {ok:true}");
+    throw new Error("模型校验失败（老翁 结构化输出）：返回的 JSON 不是 {ok:true}");
 }
 
 /**
@@ -735,7 +735,7 @@ export function dshModelPatch(config = modelConfig("executor"), scope = "executo
       : configuredEffort;
   const maxReasoning = configuredEffort === "ultra" ? "ultra" : "max";
   const window = modelContextWindow(scope);
-  // L1 is a background maintenance turn. The provider default waits 5 minutes
+  // 老翁 is a background maintenance turn. The provider default waits 5 minutes
   // with no tokens and retries 5 times, which pins the UI on 整理中 when
   // inference is busy or silent. Fail that route within about 90 seconds.
   const knowledgeDeadline =

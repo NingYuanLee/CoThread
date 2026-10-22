@@ -134,7 +134,7 @@ export function taskViewModel(
       event.actor_type === "human_member_local_executor"
     )
       return `${event.actor_name || memberName(event.actor_id) || memberName(task?.target_id) || "成员"}（本地执行器）`;
-    if (event.actor_type === "l2_session") return "L2-小祥";
+    if (event.actor_type === "l2_session") return "小祥-小祥";
     if (event.actor_type === "dsh_l3") {
       // Timeline items pack the label into actor_name; status history also has actor_name_snapshot.
       if (event.actor_name_snapshot || event.actor_name)

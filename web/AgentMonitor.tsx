@@ -248,7 +248,7 @@ export function AgentMonitor({
                 <div className="monitor-models" aria-label="模型路由">
                   <span className="monitor-models-label">模型路由</span>
                   <span>
-                    知识整理（L1）：{data.models.knowledge.model} ·{" "}
+                    知识整理（老翁）：{data.models.knowledge.model} ·{" "}
                     {data.models.knowledge.reasoningEffort}
                   </span>
                   <span>

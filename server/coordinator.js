@@ -37,11 +37,7 @@ import {
   assertExternalAdmitted,
   isExecutorEpochLost,
 } from "./executor-fence.js";
-import {
-  CHAT_DIALOGUE_STEERING,
-  CLOUDBASE_DIALOGUE_STEERING,
-  MINIPROGRAM_DIALOGUE_STEERING,
-} from "../shared/dialogue-mode.js";
+import { buildDiscussionTurn } from "../shared/prompt-blocks.js";
 
 const brief = (value, limit = 1200) => (typeof value === "string" ? value.slice(0, limit) : null);
 const parseRefs = (value) => (typeof value === "string" ? JSON.parse(value) : value || []);
@@ -56,7 +52,7 @@ function messageRecord(message, members, versions, quoteIds, folders) {
   const mentions = members.filter((member) =>
     member.aliases.some((alias) => isMentioned(message.body, alias)),
   );
-  // Keep folderRefs as folders only. Expanding them into files made L2 re-attach
+  // Keep folderRefs as folders only. Expanding them into files made 小祥 re-attach
   // every document under the folder when creating tasks.
   const seen = new Set();
   const files = [];
@@ -394,7 +390,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         } catch (error) {
           launchFailed.push(row.id);
           const diagnostic = redactSecrets(error?.message || error).slice(0, 500);
-          console.error("L3 launch failed", {
+          console.error("子 Agent launch failed", {
             taskId: row.id,
             type: error?.name || "Error",
             diagnostic: diagnostic.slice(-1000),
@@ -422,20 +418,26 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
     const dispatchInstruction =
       failedNote ||
       "payload 里的 pendingTasks 由系统按任务 id 启动子 Agent，不要为了绑定再调用 dsh_l3。需要换人或恢复原会话时才用 dsh_l3 或 send_message，prompt 第一行写 TASK_ID。";
-    const prompt =
-      job.kind === "l3_idle"
-        ? `当前项目：${context.project_id}；当前迭代：${job.thread_id}。
-本次唤醒：处理待指派或交接任务。${JSON.stringify(job.payload || {})}
-本轮背景与目标：${JSON.stringify({ background: context.background || "", goal: context.goal || "" })}
-${startedNote}${dispatchInstruction}没有待指派任务就停。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。`
-        : job.kind === "child_result"
-          ? `当前项目：${context.project_id}；当前迭代：${job.thread_id}。
-本次唤醒：下属交活。${JSON.stringify(job.payload || {})}
-当前上下文：${JSON.stringify(context.promptContext || context)}
-请根据结果向成员回报；也可 inspect_task 或 send_message 追问仍在跑的子 Agent，拿到回复后决定帮一把还是换人。${startedNote}${dispatchInstruction}不要推给平台，不要在沙箱写 SQL。先说话再行动。做完就停。`
-          : `当前项目：${context.project_id}；当前迭代：${job.thread_id}；触发消息：${job.message_id}。
-本次唤醒：成员消息。上下文：${JSON.stringify(context.promptContext || context)}
-${job.dialogue_mode === "miniprogram" ? `${MINIPROGRAM_DIALOGUE_STEERING}\n` : ""}${job.dialogue_mode === "cloudbase" ? `${CLOUDBASE_DIALOGUE_STEERING}\n` : ""}${job.dialogue_mode === "chat" ? `${CHAT_DIALOGUE_STEERING}\n` : ""}先用可见正文回应理解或答复；催进度时 inspect_task 或 send_message 问子 Agent，拿到回复再决定帮一把还是换人。Ask 辅助任务没有空闲子 Agent 就不要 create_task，自己处理。沙箱 formal 无空闲子 Agent 可先建成 pending_assignment；有空闲则创建为执行中，create_task 会尽量在同一次调用内启动并绑定子 Agent。若 create_task 仍返回 needsDispatch=true 且无 execution_agent_id，请在同一轮立刻 dsh_l3，prompt 第一行写 TASK_ID。见到 execution_agent_id 之前不要说已经派人。不要自己做沙箱工作。没有要对成员说的话时返回 NO_VISIBLE_MESSAGE。做完就停。`;
+    const sourceRequestId =
+      job.kind === "member_message"
+        ? job.message_id
+        : job.payload?.sourceMessageId || job.message_id || null;
+    const turn = buildDiscussionTurn({
+      projectId: context.project_id,
+      iterationId: job.thread_id,
+      iterationTitle: context.promptContext?.iteration?.title || context.title || "",
+      background: context.promptContext?.iteration?.background ?? context.background ?? "",
+      goal: context.promptContext?.iteration?.goal ?? context.goal ?? "",
+      dialogueMode: job.dialogue_mode,
+      sourceRequestId,
+      wakeKind: job.kind || "member_message",
+      notes: [startedNote, dispatchInstruction].filter(Boolean).join(""),
+      dataText:
+        job.kind === "l3_idle"
+          ? JSON.stringify(job.payload || {})
+          : JSON.stringify(context.promptContext || context),
+    });
+    const prompt = turn.prompt;
     const steeredMessageIds = new Set();
     const mergedMessageIds = new Set();
     let steeringBusy = false;
@@ -474,14 +476,21 @@ ${job.dialogue_mode === "miniprogram" ? `${MINIPROGRAM_DIALOGUE_STEERING}\n` : "
       try {
         const rows = await query(
           db,
-          "SELECT m.id,m.sequence,m.author_id,m.body,m.refs,m.folder_refs,m.source,u.name author FROM messages m JOIN users u ON u.id=m.author_id LEFT JOIN agent_requests q ON q.message_id=m.id WHERE m.thread_id=? AND m.source='human' AND m.sequence>? AND (q.status='queued' OR q.status IS NULL) ORDER BY m.sequence LIMIT 20",
+          "SELECT m.id,m.sequence,m.author_id,m.body,m.refs,m.folder_refs,m.source,u.name author,q.dialogue_mode FROM messages m JOIN users u ON u.id=m.author_id LEFT JOIN agent_requests q ON q.message_id=m.id WHERE m.thread_id=? AND m.source='human' AND m.sequence>? AND (q.status='queued' OR q.status IS NULL) ORDER BY m.sequence LIMIT 20",
           [job.thread_id, lastSteeredSequence.toString()],
         );
         if (!rows.length) return;
-        const meaningful = rows.filter(isMeaningfulUpdate);
+        if (!job.dialogue_mode || job.dialogue_mode === "unknown") return;
+        const compatible = [];
+        for (const row of rows) {
+          if (row.dialogue_mode !== job.dialogue_mode) break;
+          compatible.push(row);
+        }
+        if (!compatible.length) return;
+        const meaningful = compatible.filter(isMeaningfulUpdate);
         if (!meaningful.length) {
-          for (const row of rows) mergedMessageIds.add(row.id);
-          lastSteeredSequence = BigInt(rows.at(-1).sequence);
+          for (const row of compatible) mergedMessageIds.add(row.id);
+          lastSteeredSequence = BigInt(compatible.at(-1).sequence);
           return;
         }
         const accepted = await runtime.request("updates", {
@@ -497,7 +506,7 @@ ${job.dialogue_mode === "miniprogram" ? `${MINIPROGRAM_DIALOGUE_STEERING}\n` : "
           })),
         });
         const acceptedIds = new Set(accepted.accepted || []);
-        for (const row of rows) {
+        for (const row of compatible) {
           if (meaningful.includes(row) && !acceptedIds.has(row.id)) break;
           mergedMessageIds.add(row.id);
           if (acceptedIds.has(row.id)) steeredMessageIds.add(row.id);
@@ -556,7 +565,7 @@ ${job.dialogue_mode === "miniprogram" ? `${MINIPROGRAM_DIALOGUE_STEERING}\n` : "
           await finishAgentEvent(db, runEventId, { status: "failed", onlyStatuses: ["running"] });
           childRunEvents.delete(childId);
         }
-        // Best-effort stop: an unbound L3 must not keep burning tools against a ghost task.
+        // Best-effort stop: an unbound 子 Agent must not keep burning tools against a ghost task.
         try {
           await runtime.request("interrupt", { sessionId: childId });
         } catch {}
@@ -654,7 +663,7 @@ ${job.dialogue_mode === "miniprogram" ? `${MINIPROGRAM_DIALOGUE_STEERING}\n` : "
           await runtime.request("context", { sessionId: childId }),
         );
       } catch (error) {
-        console.error("L3 context sample skipped", {
+        console.error("子 Agent context sample skipped", {
           type: error?.name || "Error",
           diagnostic: redactSecrets(error?.message || error).slice(-1000),
         });
@@ -666,7 +675,7 @@ ${job.dialogue_mode === "miniprogram" ? `${MINIPROGRAM_DIALOGUE_STEERING}\n` : "
           await runtime.request("history", { sessionId: childId }),
         );
       } catch (error) {
-        console.error("L3 session snapshot skipped", {
+        console.error("子 Agent session snapshot skipped", {
           type: error?.name || "Error",
           diagnostic: redactSecrets(error?.message || error).slice(-1000),
         });
@@ -681,7 +690,7 @@ ${job.dialogue_mode === "miniprogram" ? `${MINIPROGRAM_DIALOGUE_STEERING}\n` : "
           await runtime.request("context", { sessionId: childId }),
         );
       } catch (error) {
-        console.error("L3 context sample skipped", {
+        console.error("子 Agent context sample skipped", {
           type: error?.name || "Error",
           diagnostic: redactSecrets(error?.message || error).slice(-1000),
         });
@@ -736,7 +745,7 @@ ${job.dialogue_mode === "miniprogram" ? `${MINIPROGRAM_DIALOGUE_STEERING}\n` : "
         notification.method === "session.event" ? notification.params?.sessionId : null;
       if (callerSessionId && callerSessionId !== runtime.session.session_id) {
         ensureChildThinking(callerSessionId)?.notify(notification);
-        // Any child session event (thinking / tool / text) renews L3 liveness.
+        // Any child session event (thinking / tool / text) renews 子 Agent liveness.
         void touchL3InferenceHeartbeat(db, callerSessionId).catch(() => {});
       } else runtime.thinking.notify(notification);
       lifecycle = lifecycle
@@ -815,7 +824,7 @@ ${job.dialogue_mode === "miniprogram" ? `${MINIPROGRAM_DIALOGUE_STEERING}\n` : "
                 if (binding)
                   await attachChildTask(binding.childId, binding.taskId, binding.parentEventId);
               }
-              // create_task queues an unbound run; launch L3 in the same turn instead of
+              // create_task queues an unbound run; launch 子 Agent in the same turn instead of
               // waiting for finishCoordinatorDispatch → l3_idle → another wake.
               // Host-bridge tool results sometimes omit sessionId; treat missing as parent.
               if (!callerSessionId || callerSessionId === runtime.session.session_id) {
@@ -1024,16 +1033,27 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
           "SELECT sequence FROM messages WHERE thread_id=? ORDER BY sequence DESC LIMIT 1",
           [thread.id],
         );
+        const sourceRequestId = nextEvent.message_id || payload.sourceMessageId || null;
+        let dialogueMode = "unknown";
+        if (sourceRequestId) {
+          const [request] = await query(
+            conn,
+            "SELECT dialogue_mode FROM agent_requests WHERE message_id=?",
+            [sourceRequestId],
+          );
+          if (request?.dialogue_mode) dialogueMode = request.dialogue_mode;
+        }
         return {
           kind: nextEvent.kind,
           event_id: nextEvent.id,
           thread_id: nextEvent.thread_id,
-          message_id: nextEvent.message_id || payload.sourceMessageId || null,
+          message_id: sourceRequestId,
           author_id: payload.sourceUserId || null,
           sequence: latest?.sequence || 0,
           body: "",
           payload,
           task_id: nextEvent.task_id,
+          dialogue_mode: dialogueMode,
         };
       }
       if (nextMessage?.reply_status && !["queued", "running"].includes(nextMessage.reply_status)) {
@@ -1205,7 +1225,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
     await transaction(db, async (conn) => {
       await assertCurrentExecutorEpoch(conn);
       if (job.kind === "child_result" || job.kind === "l3_idle") {
-        // Append a follow-up when L2 has something new to say. Identical bodies from
+        // Append a follow-up when 小祥 has something new to say. Identical bodies from
         // onVisibleText must not create a second chat bubble.
         if (visible) {
           const posted = await insertUniqueAssistantMessage(
@@ -1261,7 +1281,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
       for (const messageId of result?.mergedMessageIds || []) {
         await query(
           conn,
-          "UPDATE assistant_replies SET status='completed',participation='reply',reply_id=?,progress='已并入当前 L2 处理周期',finished_at=UTC_TIMESTAMP(3) WHERE message_id=? AND status='queued'",
+          "UPDATE assistant_replies SET status='completed',participation='reply',reply_id=?,progress='已并入当前 小祥 处理周期',finished_at=UTC_TIMESTAMP(3) WHERE message_id=? AND status='queued'",
           [responseId, messageId],
         );
         await query(
@@ -1335,7 +1355,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
     });
   } finally {
     // Finish the request/event first (above), then park. Parking must not keep
-    // agent_requests='running' while live L3 still occupies the harness RPC.
+    // agent_requests='running' while live 子 Agent still occupies the harness RPC.
     if (parkRuntime) {
       try {
         await parkCoordinatorRuntime(job.thread_id, parkRuntime, true);

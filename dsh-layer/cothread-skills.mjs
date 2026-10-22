@@ -16,6 +16,10 @@ export function apply(ctx) {
   ctx.systemPrompt.section({
     name: "cothread:database-skills",
     order: 850,
-    text: (context) => String(skills[agentLevel(context)] || ""),
+    text: (context) => {
+      const level = agentLevel(context);
+      if (level !== "l1" && typeof skills.l2 === "string") return String(skills.l2);
+      return String(skills[level] || "");
+    },
   });
 }

@@ -5,7 +5,7 @@
 <script>document.documentElement.classList.add("js");</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>共序 CoThread · 让每次讨论都有承接，让每个决定都有出处</title>
-<meta name="description" content="共序 CoThread —— 面向小团队的协作工作台。项目是长期工作空间，一次迭代对应一个群聊；文档与云开发侧栏管成果，小祥 L2 调度与子 Agent 执行，创建人或项目负责人确认归档后再交接。">
+<meta name="description" content="共序 CoThread —— 面向小团队的协作工作台。项目是长期工作空间，一次迭代对应一个群聊；文档与云开发侧栏管成果。老翁维护项目知识，小祥在群聊里协作，也可委派子 Agent 执行。创建人或项目负责人确认归档后再交接。">
 <style>
   :root{
     --bg:#070a12;
@@ -178,7 +178,7 @@
     <p class="lead">
       共序把讨论、执行和文档版本绑在同一条时间线上。
       一次部署就是一家公司（服务独立、数据库隔离）；公司下管项目，项目下管迭代，迭代下管任务。
-      一次迭代就是一个群聊，可选三种对话模式；右侧在文档库与 CloudBase 工作台之间切换。
+      一次迭代就是一个群聊，可选四种对话模式；右侧在文档库与 CloudBase 工作台之间切换。
       内置助手「小祥」在沙箱里干活。一轮结束时，创建人或项目负责人确认归档方案，未完成事项可以留在本轮，或交给下一迭代。
     </p>
     <div class="btns">
@@ -228,7 +228,7 @@
     </div>
     <div class="flow">
       <div class="step reveal"><div class="n">左侧</div><h3>迭代与项目管理</h3><p>列出当前项目的迭代，标出未读、未读 @ 和归档中。可查看已归档。铃铛是站内信。底部打开「项目管理」和「小祥 Agent 监控」；个人设置可进入管理空间。</p></div>
-      <div class="step reveal"><div class="n">中间</div><h3>迭代群聊</h3><p>输入框可选对话模式，可 @ 成员、引用文件版本或文件夹、上传当天对话缓存。页签可看轨迹和背景与目标，也可打开本迭代任务。群顶可查看二级上下文用量与压缩。</p></div>
+      <div class="step reveal"><div class="n">中间</div><h3>迭代群聊</h3><p>输入框可选对话模式，可 @ 成员、引用文件版本或文件夹、上传当天对话缓存。页签可看轨迹和背景与目标，也可打开本迭代任务。群顶可查看小祥上下文用量与压缩。</p></div>
       <div class="step reveal"><div class="n">右侧</div><h3>文档与云开发</h3><p>标准模式：一棵树浏览正式文件、对话缓存与沙箱产物，预览 Markdown、代码、图片、PDF 与 Office。云开发模式：Dimina/Admin 预览、云数据库、云存储、云函数与发布（需在项目管理配置小程序）。</p></div>
       <div class="step reveal"><div class="n">边界</div><h3>谁能改什么</h3><p>缓存只来自对话框或 MCP 上传；产物只由 Agent 生成（含按缓存修改后的结果）。人不能在这两区直接改内容，可查看、引用、下载、审核、重命名、回收。「需要修改」会弹窗填意见后发到当前群聊。</p></div>
     </div>
@@ -237,10 +237,10 @@
   <section id="dialogue" class="wrap">
     <div class="reveal">
       <div class="kicker">Dialogue mode</div>
-      <h2>三种对话模式</h2>
+      <h2>四种对话模式</h2>
       <p class="sub">在迭代群聊输入框左下角「+」选择。每个迭代单独记忆（本浏览器本地保存）；你发出的消息会带上当前模式，小祥按模式决定是否必回、能否改文件/开任务，以及是否按云开发语境理解需求。非默认模式时输入框旁会显示彩色标签，可一键恢复「自由发言」。</p>
     </div>
-    <div class="cards g3">
+    <div class="cards g2">
       <div class="card reveal">
         <div class="ico">👥</div>
         <h3>自由发言</h3>
@@ -252,6 +252,12 @@
         <h3>有问必答</h3>
         <p>每条成员消息都会得到回复，适合答疑、读资料、对口径。助手只能查询与说明，不能创建/更新任务，不能改文档库、沙箱产物或云资源。</p>
         <span class="tag">必回 · 只读</span>
+      </div>
+      <div class="card reveal">
+        <div class="ico">📱</div>
+        <h3>仅小程序</h3>
+        <p>围绕微信小程序源码、Dimina 预览和微信上传协作，不采用 CloudBase 云函数、云数据库和云存储开发流程。</p>
+        <span class="tag">小程序开发</span>
       </div>
       <div class="card reveal">
         <div class="ico">📱</div>
@@ -289,7 +295,7 @@
       <div class="card reveal">
         <div class="ico">🔐</div>
         <h3>成员与权限</h3>
-        <p>用户名或已绑定邮箱登录。这台浏览器可记住最多 8 个账号并快捷切换。公司目录只有人类（含超管）。项目内是项目主、项目管理、成员或只读；本地执行器与 L1、L2 挂在项目上，不进公司目录。侧栏有站内信：@我的、加入项目、移出项目。</p>
+        <p>用户名或已绑定邮箱登录。这台浏览器可记住最多 8 个账号并快捷切换。公司目录只有人类（含超管）。项目内是项目主、项目管理、成员或只读；本地执行器与老翁、小祥挂在项目上，不进公司目录。侧栏有站内信：@我的、加入项目、移出项目。</p>
         <span class="tag">Agent 不进公司目录</span>
       </div>
       <div class="card reveal">
@@ -306,9 +312,9 @@
       </div>
       <div class="card reveal">
         <div class="ico">🤖</div>
-        <h3>小祥：对外一个名字，对内分工</h3>
-        <p>群聊里 @ 的是小祥（L2 调度）。L1「老翁」在后台维护知识库与归档总结；重活由 L2 派给最多 7 个并行子 Agent。多人讨论默认按需参与，未 @ 时可沉默；「有问必答」模式则必回且仅只读查询。</p>
-        <span class="tag">监控页可看内部职责</span>
+        <h3>老翁与小祥</h3>
+        <p>老翁和小祥是两名不分等级的 Agent 成员。老翁负责认识成员、整理与摘要文档、归档和维护项目知识，不进群聊。小祥在群聊里协作，可以直接使用工具，也可以委派最多 7 个子 Agent。子 Agent 使用小祥的插件和 Skills；改派别人名下的任务，仍要这一轮里的人授权。多人讨论默认按需参与，未 @ 时可沉默；「有问必答」则必回，且只能查询。</p>
+        <span class="tag">子 Agent 不单列成员</span>
       </div>
       <div class="card reveal">
         <div class="ico">📦</div>
@@ -337,7 +343,7 @@
       <div class="card reveal">
         <div class="ico">🗂️</div>
         <h3>管理空间</h3>
-        <p>个人设置进入 <code>/admin</code>。每个成员都能看「我的工作」。工作管理、组织管理和平台管理按角色开放：项目结项、成员与角色、插件都在这里，不另建账号。</p>
+        <p>个人设置进入 <code>/admin</code>。每个成员都能看「我的工作」。组织工作、账号权限和平台管理按角色开放：项目结项、成员与角色、插件和模型配置都在这里，不另建账号。</p>
         <span class="tag">我的工作人人可看</span>
       </div>
       <div class="card reveal">
@@ -358,7 +364,7 @@
     </div>
     <div class="flow">
       <div class="step reveal"><div class="n">STEP 01</div><h3>讨论与澄清</h3><p>在迭代群聊里提出需求、@ 小祥或交给本机 Agent，引用已有版本。上下文由消息序号和引用关系固定下来。</p></div>
-      <div class="step reveal"><div class="n">STEP 02</div><h3>小祥执行</h3><p>L2 判断是否开跑并派子 Agent；子 Agent 在独立沙箱改文件、跑命令，HTML 等可视化产物需截图验收。忙时会说明，重活需明确 @小祥 进入完整调度。</p></div>
+      <div class="step reveal"><div class="n">STEP 02</div><h3>小祥执行</h3><p>小祥可以直接使用工具，或委派最多 7 个子 Agent。子 Agent 在独立沙箱改文件、跑命令，HTML 等可视化产物需截图验收。忙时会说明；要进入完整调度，需明确 @小祥。</p></div>
       <div class="step reveal"><div class="n">STEP 03</div><h3>发布沙箱产物</h3><p>云端 Agent 成果进入项目沙箱产物（含 SHA-256）。对话附件只进缓存，正式文件独立上传。本地 AI 令牌不能审批，也不能归档。</p></div>
       <div class="step reveal"><div class="n">STEP 04</div><h3>确认归档与交接</h3><p>创建人或项目负责人发起归档。运行中的任务和助手会挡住开始。人审完方案后再锁定；未完成事项可留下或交给下一迭代。文档库仍给后续迭代共用。</p></div>
     </div>
@@ -369,7 +375,7 @@
     <div class="reveal">
       <div class="kicker">Architecture</div>
       <h2>架构与存储</h2>
-      <p class="sub">一家公司对应一次独立部署和一套数据库。项目、迭代、任务层层收纳；人类成员、本地执行器与三级 Agent 挂在不同层，互不混进公司目录。</p>
+      <p class="sub">一家公司对应一次独立部署和一套数据库。项目、迭代、任务层层收纳；项目里的人类成员与老翁、小祥协作，本地执行器属于人类成员，子 Agent 与小祥共享插件和 Skills。</p>
     </div>
     <div class="cards g2" style="margin-bottom:28px">
       <div class="card reveal">
@@ -379,8 +385,8 @@
       </div>
       <div class="card reveal">
         <div class="ico">👥</div>
-        <h3>角色层级</h3>
-        <p>成员管理仅人类（含超管）。项目角色是项目主、项目管理、成员、只读；本地执行器、L1 与 L2 挂在项目上。子 Agent 隶属于 L2，不单独列成员；对外聊天身份仍是小祥。</p>
+        <h3>成员与分工</h3>
+        <p>成员管理仅人类（含超管）。项目角色是项目主、项目管理、成员、只读。老翁与小祥是两名不分等级的 Agent，和本地执行器一样挂在项目上。子 Agent 由小祥委派，不单独列成员，并与小祥共享插件和 Skills。</p>
       </div>
     </div>
     <div class="arch">

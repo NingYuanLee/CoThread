@@ -79,7 +79,7 @@ test("plugin registry version reads fall back to a nearby package.json", () => {
   );
 });
 
-test("L2 and L3 receive different model-facing tool schemas", () => {
+test("小祥 and child agents receive the same model-facing tool schemas", () => {
   const previous = {
     all: process.env.COTHREAD_ALLOWED_TOOLS,
     levels: process.env.COTHREAD_ALLOWED_TOOLS_BY_LEVEL,
@@ -96,15 +96,15 @@ test("L2 and L3 receive different model-facing tool schemas", () => {
     assert.ok(!byLevel.l2.includes("list_project_design_sources"));
     assert.ok(!byLevel.l3.includes("read_design_dsl"));
     assert.ok(!capabilityProfile("l1").allowedTools.includes("read_code_file"));
-    // Miniprogram development: L2 may inspect source, only L3 may write or build.
+    // Shared plugins include source inspection, writing and builds.
     assert.ok(byLevel.l2.includes("miniprogram_list_source"));
     assert.ok(byLevel.l2.includes("miniprogram_read_source"));
-    assert.ok(!byLevel.l2.includes("miniprogram_write_source"));
-    assert.ok(!byLevel.l2.includes("miniprogram_build_preview"));
+    assert.ok(byLevel.l2.includes("miniprogram_write_source"));
+    assert.ok(byLevel.l2.includes("miniprogram_build_preview"));
     assert.ok(byLevel.l3.includes("miniprogram_write_source"));
     assert.ok(byLevel.l3.includes("miniprogram_build_preview"));
     assert.ok(byLevel.l3.includes("miniprogram_upload_experience"));
-    assert.ok(!byLevel.l2.includes("miniprogram_upload_experience"));
+    assert.ok(byLevel.l2.includes("miniprogram_upload_experience"));
     assert.deepEqual(
       capabilityProfile("l1").allowedTools.filter((tool) => tool.startsWith("miniprogram")),
       [],
@@ -113,8 +113,8 @@ test("L2 and L3 receive different model-facing tool schemas", () => {
     // level may ever approve or reject — that stays with the project owner in the UI.
     assert.ok(byLevel.l3.includes("miniprogram_submit_release"));
     assert.ok(byLevel.l3.includes("miniprogram_release_status"));
-    assert.ok(!byLevel.l2.includes("miniprogram_submit_release"));
-    assert.ok(!byLevel.l2.includes("miniprogram_release_status"));
+    assert.ok(byLevel.l2.includes("miniprogram_submit_release"));
+    assert.ok(byLevel.l2.includes("miniprogram_release_status"));
     for (const level of ["l1", "l2", "l3"])
       for (const tool of capabilityProfile(level).allowedTools)
         if (tool.includes("release"))
@@ -149,25 +149,15 @@ test("L2 and L3 receive different model-facing tool schemas", () => {
           },
         },
       });
-    assert.ok(!restrictions.primary.includes("sandbox_command"));
-    assert.ok(!restrictions.primary.includes("publish_artifact"));
+    assert.deepEqual(restrictions.child, restrictions.primary);
     for (const name of [
+      "sandbox_command",
+      "publish_artifact",
+      "report_task",
       "create_task",
-      "reassign_task",
-      "resolve_task_rejection",
-      "recover_task",
-      "inspect_task",
-      "ask_task_question",
       "dsh_l3",
-      "send_message",
-      "interrupt_agent",
-      "list_agents",
     ])
-      assert.ok(!restrictions.child.includes(name), name);
-    assert.ok(restrictions.child.includes("sandbox_command"));
-    assert.ok(restrictions.child.includes("publish_artifact"));
-    assert.ok(restrictions.child.includes("report_task"));
-    assert.ok(!restrictions.primary.includes("report_task"));
+      assert.ok(restrictions.primary.includes(name), name);
   } finally {
     for (const [key, value] of Object.entries(previous)) {
       const envKey = {

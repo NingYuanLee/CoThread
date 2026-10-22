@@ -190,7 +190,7 @@ export function pendingDetail(
   return {
     id: task.task_id,
     title: task.title,
-    typeLabel: task.task_type === "assist_l2" ? "辅助 L2" : "正式任务",
+    typeLabel: task.task_type === "assist_l2" ? "辅助任务" : "正式任务",
     statusLabel: labelWorkflowStatus(task.task_status),
     tone: poolTone(task),
     goal: task.goal,

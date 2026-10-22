@@ -456,7 +456,7 @@ test("a human message queues exactly one durable assistant reply and AI messages
   );
   const threadId = created.body.id;
   const members = (await request(`/projects/${project}`, undefined, owner)).body.members;
-  assert.equal(members.filter((m) => m.id === "agent-assistant" && m.name === "小祥").length, 1);
+  assert.equal(members.filter((m) => m.id === "agent-assistant" && m.name === "老翁").length, 1);
   const sent = await request(
     `/threads/${threadId}/messages`,
     { body: "@Agent助手 你好", autoReply: false },

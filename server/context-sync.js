@@ -6,7 +6,7 @@ import { acquireSessionLock, discussionHasActiveCoordinator } from "./session-lo
 
 // The main context observes every member message without generating a reply.
 // DSH updates metering here; compaction stays on the idle compression lane so
-// L2 can take the session lock without waiting out a 240s compact.
+// 小祥 can take the session lock without waiting out a 240s compact.
 export async function synchronizeDiscussionContext(db, threadId, openRuntime) {
   let lock, runtime;
   try {

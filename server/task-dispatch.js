@@ -11,6 +11,7 @@ import { recordTaskStatusChange } from "./task-pool-activity.js";
 import { MAX_L3 } from "./task-policy.js";
 import { documentsForTaskInstruction } from "./task-documents.js";
 import { getTask } from "./task-queries.js";
+import { buildChildTaskBrief } from "../shared/prompt-blocks.js";
 export async function busyL3Count(conn, l2SessionId) {
   const [row] = await query(
     conn,
@@ -74,10 +75,25 @@ export async function l3LaunchPrompt(db, taskId) {
     task.document_refs,
     task.folder_refs,
   );
+  let dialogueMode = null;
+  if (task.source_message_id) {
+    const [request] = await query(
+      db,
+      "SELECT dialogue_mode FROM agent_requests WHERE message_id=?",
+      [task.source_message_id],
+    );
+    dialogueMode = request?.dialogue_mode || null;
+  }
+  const brief = buildChildTaskBrief({
+    taskId: task.id,
+    dialogueMode,
+    sourceRequestId: task.source_message_id || null,
+    instruction: composeTaskInstruction(task, documents, folders),
+  });
   return {
     task,
     label: String(task.title || "任务").slice(0, 80),
-    prompt: `TASK_ID: ${task.id}\n${composeTaskInstruction(task, documents, folders)}`,
+    prompt: brief.prompt,
   };
 }
 

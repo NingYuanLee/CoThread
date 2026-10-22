@@ -280,7 +280,7 @@ function ProjectSummaryDialog({
           <p className="project-summary-text">{summary.summary}</p>
         ) : (
           <p className="monitor-empty">
-            还没有项目长期总结。归档迭代后，项目级Agent（L1）会把该轮结论沉淀到这里。
+            还没有项目长期总结。归档迭代后，老翁会把该轮结论沉淀到这里。
           </p>
         )}
       </div>

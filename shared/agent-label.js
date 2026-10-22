@@ -131,15 +131,15 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       break;
     case "dsh_l3":
       action = "启动子 Agent";
-      object = args.taskId || "DSH L3";
+      object = args.taskId || "DSH 子 Agent";
       break;
     case "send_message":
       action = "续接子 Agent";
-      object = args.agentId || "DSH L3";
+      object = args.agentId || "DSH 子 Agent";
       break;
     case "interrupt_agent":
       action = "中断子 Agent";
-      object = args.agentId || "DSH L3";
+      object = args.agentId || "DSH 子 Agent";
       break;
     case "list_agents":
       action = "查看 AgentTeam";

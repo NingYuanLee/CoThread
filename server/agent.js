@@ -24,6 +24,7 @@ import {
   redactSecrets,
 } from "./model-config.js";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
+import { SYSTEM_PROMPTS } from "../dsh-layer/cothread-plugin-registry.mjs";
 import { agentRuntimePatch } from "./dsh-runtime-config.js";
 import { persistL3ContextStats } from "./l3-session.js";
 import { touchL3InferenceHeartbeat } from "./task-pool.js";
@@ -63,7 +64,7 @@ async function discardCoordinatorRuntime(threadId, runtime) {
   if (runtime) await runtime.close(false).catch(() => {});
 }
 
-/** Drop any parked L2 runtime for this iteration. Session-id rotations must never leave a stale in-memory L2. */
+/** Drop any parked 小祥 runtime for this iteration. Session-id rotations must never leave a stale in-memory 小祥. */
 export async function invalidateCoordinatorRuntime(threadId) {
   if (!threadId) return;
   const entry = coordinatorRuntimes.get(threadId);
@@ -113,7 +114,7 @@ export async function acquireCoordinatorRuntime(context, { db, job, user, create
         key,
       ]);
       if (!row?.session_id || row.session_id !== existing.runtime.session?.session_id) {
-        const error = new Error("L2 session rotated");
+        const error = new Error("小祥 session rotated");
         error.code = "L2_SESSION_ROTATED";
         throw error;
       }
@@ -305,7 +306,7 @@ export async function openAgentRuntime(context, options) {
   if (!job.parent_message_id && !sessionLockHeld && job.thread_id) {
     sessionLock = await acquireSessionLock(db, job.thread_id, 30);
     if (!sessionLock) {
-      const error = new Error("L2 session is busy");
+      const error = new Error("小祥 session is busy");
       error.code = "L2_SESSION_BUSY";
       error.agentStage = "start";
       throw error;
@@ -314,7 +315,7 @@ export async function openAgentRuntime(context, options) {
   if (spec.kind === "l3" && spec.id && !sessionLockHeld) {
     sessionLock = await acquireSessionLock(db, spec.homeId, 30);
     if (!sessionLock) {
-      const error = new Error("L3 session is busy");
+      const error = new Error("子 Agent session is busy");
       error.code = "L3_SESSION_BUSY";
       error.agentStage = "start";
       throw error;
@@ -322,13 +323,16 @@ export async function openAgentRuntime(context, options) {
   }
   let handedOff = false;
   try {
+    const sharedCapabilities = await loadAgentCapabilityProfile(db, "l2");
+    const childCapabilities = {
+      ...sharedCapabilities,
+      level: "l3",
+      systemPrompt: SYSTEM_PROMPTS.l3.prompt,
+    };
     const capabilityProfiles =
       role === "coordinator"
-        ? {
-            l2: await loadAgentCapabilityProfile(db, "l2"),
-            l3: await loadAgentCapabilityProfile(db, "l3"),
-          }
-        : { l3: await loadAgentCapabilityProfile(db, "l3") };
+        ? { l2: sharedCapabilities, l3: childCapabilities }
+        : { l3: childCapabilities };
     const capabilityProfile =
       role === "coordinator" ? capabilityProfiles.l2 : capabilityProfiles.l3;
     const runtimeRoot = agentRuntimeRoot();
@@ -336,7 +340,7 @@ export async function openAgentRuntime(context, options) {
     await mkdir(home, { recursive: true });
     // MySQL is authoritative. Restore only session records into a dedicated host orchestration directory.
     // A truncated/corrupt checkpoint (e.g. missing session header after failed compaction) must not
-    // permanently block L2; fall through to the one-shot reset path below.
+    // permanently block 小祥; fall through to the one-shot reset path below.
     if (session.checkpoint) {
       const files = JSON.parse(
         gunzipSync(session.checkpoint, {
@@ -382,11 +386,11 @@ export async function openAgentRuntime(context, options) {
             ? "l2"
             : "l3";
       // Internal harness helpers (not model-facing). create_task auto-dispatch
-      // binds the spawned L3 through bind_task_l3; it must not require a
+      // binds the spawned 子 Agent through bind_task_l3; it must not require a
       // capability-profile allowlist entry or the model could also call it.
       const internalBridgeTools = new Set(["bind_task_l3"]);
       if (!internalBridgeTools.has(name) && !capabilityProfiles[level].allowedTools.includes(name))
-        throw new HttpError(403, `${level.toUpperCase()} 未启用该插件能力`);
+        throw new HttpError(403, "当前成员未启用该插件能力");
       return executeTool(name, args, caller);
     };
     let accepting = true;
@@ -588,10 +592,10 @@ export async function openAgentRuntime(context, options) {
           `UPDATE ${sessionRow.table} SET context_stats=? WHERE ${sessionRow.key}=?`,
           [JSON.stringify({ ...stats, seenSequence }), sessionRow.id],
         );
-        // Never await live L3 meters on the shared harness RPC. A long child tool
-        // can serialize behind parent park/bind and leave the next L2 turn queued
-        // as 「等待处理」for the whole L3 run. watchChildren / retainOrForgetChild
-        // still capture durable L3 stats when the child settles.
+        // Never await live 子 Agent meters on the shared harness RPC. A long child tool
+        // can serialize behind parent park/bind and leave the next 小祥 turn queued
+        // as 「等待处理」for the whole 子 Agent run. watchChildren / retainOrForgetChild
+        // still capture durable 子 Agent stats when the child settles.
         // Heartbeat is independent of context RPC so a hung meter cannot freeze liveness.
         for (const childId of [...activeChildren]) {
           void touchL3InferenceHeartbeat(db, childId).catch(() => {});
@@ -629,15 +633,15 @@ export async function openAgentRuntime(context, options) {
     const park = async (completed = true) => {
       running.delete(job.message_id);
       await thinking.close(completed ? "completed" : "failed");
-      // Unlock before any harness RPC so a follow-up member message can claim L2
-      // while L3 is still running on this keepalive runtime.
+      // Unlock before any harness RPC so a follow-up member message can claim 小祥
+      // while 子 Agent is still running on this keepalive runtime.
       if (sessionLock) {
         const lock = sessionLock;
         sessionLock = undefined;
         await lock.release();
       }
       if (activeChildren.size) {
-        // Live L3 shares this harness. Do not await in-flight sampling or parent
+        // Live 子 Agent shares this harness. Do not await in-flight sampling or parent
         // history RPCs that can stall behind child tools; checkpoint the last
         // known transcript. Metering continues via the idle interval and
         // retainOrForgetChild when the child settles.
@@ -658,7 +662,7 @@ export async function openAgentRuntime(context, options) {
       if (!job.parent_message_id && !sessionLock && job.thread_id) {
         sessionLock = await acquireSessionLock(db, job.thread_id, 30);
         if (!sessionLock) {
-          const error = new Error("L2 session is busy");
+          const error = new Error("小祥 session is busy");
           error.code = "L2_SESSION_BUSY";
           error.agentStage = "start";
           throw error;
@@ -751,7 +755,7 @@ export async function openAgentRuntime(context, options) {
           try {
             while (activeChildren.size) {
               const notification = await sub.next();
-              // Parent L2 chunks already arrive via harness.run. Replaying the
+              // Parent 小祥 chunks already arrive via harness.run. Replaying the
               // session tree would duplicate every visible character.
               if (
                 notification?.method === "session.event" &&

@@ -922,7 +922,7 @@ export async function confirmIterationArchive(service, user, threadId, input) {
       }
     }
     // 勾选的未完成事项作为新迭代的正式任务交接过去，去向与 handoff 任务一致：
-    // 目标为该迭代的 L2 会话，状态待指派，执行者留给 L2 决定。
+    // 目标为该迭代的 小祥 会话，状态待指派，执行者留给 小祥 决定。
     let itemNumber = Number(
       (
         await query(

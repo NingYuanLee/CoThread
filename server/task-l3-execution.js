@@ -123,7 +123,7 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
       "SELECT session_id FROM agent_sessions WHERE session_id=? FOR UPDATE",
       [l2SessionId],
     );
-    if (!session) throw new HttpError(404, "L2 session 不存在");
+    if (!session) throw new HttpError(404, "小祥 session 不存在");
     // subagent.started and tool/result both call bind; the second pass must not look like failure.
     const [already] = await query(
       conn,
@@ -147,7 +147,8 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
         AND r.status IN ('running','waiting')`,
       [l2SessionId],
     );
-    if (Number(capacity.active) >= 7) throw new HttpError(409, "当前 L2 已有 7 个运行中的子 Agent");
+    if (Number(capacity.active) >= 7)
+      throw new HttpError(409, "当前 小祥 已有 7 个运行中的子 Agent");
     if (taskId) {
       const [task] = await query(
         conn,
@@ -155,7 +156,7 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
         AND task_type IN ('assist_l2','formal') FOR UPDATE`,
         [taskId],
       );
-      if (!task) throw new HttpError(404, "当前 L2 没有这个可委派任务");
+      if (!task) throw new HttpError(404, "当前 小祥 没有这个可委派任务");
       await adoptCurrentIterationL2(conn, task, l2SessionId);
       if (!["pending_assignment", "queued", "running"].includes(task.status))
         throw new HttpError(409, "任务当前不可启动子 Agent");
@@ -203,8 +204,13 @@ export async function bindDshL3Execution(db, l2SessionId, childSessionId, taskId
     const executorLabel = stickyL3Label(childSessionId, known);
     await query(
       conn,
-      `UPDATE agent_task_execution_runs SET executor_id=?,status='running',
-      executor_label=?,started_at=COALESCE(started_at,UTC_TIMESTAMP(3)),heartbeat_at=UTC_TIMESTAMP(3) WHERE id=?`,
+      `UPDATE agent_task_execution_runs r
+      JOIN agent_tasks t ON t.id=r.task_id
+      LEFT JOIN agent_requests q ON q.message_id=t.source_message_id
+      SET r.executor_id=?,r.status='running',r.executor_label=?,
+      r.started_at=COALESCE(r.started_at,UTC_TIMESTAMP(3)),r.heartbeat_at=UTC_TIMESTAMP(3),
+      r.source_message_id=t.source_message_id,r.dialogue_mode=q.dialogue_mode
+      WHERE r.id=?`,
       [childSessionId, executorLabel, run.run_id],
     );
     await query(
@@ -435,10 +441,10 @@ export async function settleDshL3Execution(db, l2SessionId, childSessionId, noti
         AND status NOT IN ('completed','failed','cancelled','rejected','abandoned','superseded')`,
         [
           taskStatus === "completed"
-            ? "辅助子 Agent 已返回结果，等待 L2 汇总"
+            ? "辅助子 Agent 已返回结果，等待 小祥 汇总"
             : taskStatus === "blocked"
               ? "辅助子 Agent 阻塞暂停，等待处理"
-              : "辅助子 Agent 执行失败，等待 L2 处理",
+              : "辅助子 Agent 执行失败，等待 小祥 处理",
           run.source_task_id,
         ],
       );
@@ -551,8 +557,8 @@ export async function recoverInterruptedDshL3Executions(db) {
     WHERE r.executor_type='dsh_l3' AND r.status IN ('running','waiting')`,
   );
   return interruptDshL3Candidates(db, runs, {
-    reason: "服务重启，子 Agent 中断，等待 L2 重新评估",
-    progress: "服务重启，等待 L2 重新指派",
+    reason: "服务重启，子 Agent 中断，等待 小祥 重新评估",
+    progress: "服务重启，等待 小祥 重新指派",
   });
 }
 
@@ -571,7 +577,7 @@ export async function recoverStaleDshL3Executions(
   );
   return interruptDshL3Candidates(db, runs, {
     age,
-    reason: `子 Agent 心跳超时（≥${age}s），等待 L2 重新评估`,
-    progress: "心跳超时，等待 L2 重新指派",
+    reason: `子 Agent 心跳超时（≥${age}s），等待 小祥 重新评估`,
+    progress: "心跳超时，等待 小祥 重新指派",
   });
 }

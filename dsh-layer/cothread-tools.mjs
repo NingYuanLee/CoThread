@@ -44,7 +44,7 @@ export function apply(ctx) {
     ],
     [
       "inspect_task",
-      "查看当前迭代某任务的执行快照：状态、心跳、最近工具、失败分类、失败指纹、重试预算和建议下一步。自己责任（L2 或已派子 Agent）随时可看；成员名下任务须本轮人类成员账号授权。失败先分类：平台错误不要换人，重复平台错误应阻塞；执行错误先给原来的子 Agent 反馈后再决定是否换人。",
+      "查看当前迭代某任务的执行快照：状态、心跳、最近工具、失败分类、失败指纹、重试预算和建议下一步。自己责任（小祥或已派子 Agent）随时可看；成员名下任务须本轮人类成员账号授权。失败先分类：平台错误不要换人，重复平台错误应阻塞；执行错误先给原来的子 Agent 反馈后再决定是否换人。",
       { taskId: { type: "string", required: true } },
     ],
     [
@@ -61,7 +61,7 @@ export function apply(ctx) {
     ],
     [
       "report_task",
-      "子 Agent 结束前必须调用：向 L2 交活。status=completed|failed|blocked。无论成败都要交一份真实摘要；调用后不要再继续干活。",
+      "子 Agent 结束前必须调用：向小祥交活。status=completed|failed|blocked。无论成败都要交一份真实摘要；调用后不要再继续干活。",
       {
         taskId: { type: "string" },
         status: { type: "string", required: true },
@@ -72,7 +72,7 @@ export function apply(ctx) {
     ],
     [
       "reassign_task",
-      "把任务转交给项目人类成员或当前迭代 L2。自己责任的任务可在 L2 与子 Agent 之间转交；转给人类或转交成员名下任务须本轮人类成员账号授权。assist_l2 不能转给人类。",
+      "把任务转交给项目人类成员或当前迭代的小祥。自己责任的任务可在小祥与子 Agent 之间转交；转给人类或转交成员名下任务须本轮人类成员账号授权。assist_l2 不能转给人类。",
       {
         taskId: { type: "string", required: true },
         targetType: { type: "string", required: true },
@@ -112,7 +112,7 @@ export function apply(ctx) {
     ],
     [
       "create_task",
-      "创建项目任务。assist_l2 为 Ask 只读辅助：必须有空闲子 Agent，创建即执行中，工具会在同一次调用内尽量启动并绑定子 Agent；没有空闲子 Agent 时不要创建。目标为本 L2 的 formal 为沙箱任务：有空闲则执行中并由工具尽量自动绑定子 Agent，否则 pending_assignment。若返回仍带 needsDispatch=true 且无 execution_agent_id，再在同一轮 dsh_l3，prompt 第一行写 TASK_ID。给人的 formal 只能指派人类成员，须本轮授权，状态待确认。资料引用：成员只要文件夹时只传 folderRefs（正式文件文件夹 ID，最多 30 个），不要把文件夹展开成 documentRefs；只有成员明确点名个别文档时才另传 documentRefs（正式文件版本 ID，最多 30 个）。执行方用 list_documents({folderId, recursive:true}) 读取目录。不要为小祥自己就能完成的回复建任务。",
+      "创建项目任务。assist_l2 为 Ask 只读辅助：必须有空闲子 Agent，创建即执行中，工具会在同一次调用内尽量启动并绑定子 Agent；没有空闲子 Agent 时不要创建。目标为小祥自己的 formal 为沙箱任务：有空闲则执行中并由工具尽量自动绑定子 Agent，否则 pending_assignment。若返回仍带 needsDispatch=true 且无 execution_agent_id，再在同一轮 dsh_l3，prompt 第一行写 TASK_ID。给人的 formal 只能指派人类成员，须本轮授权，状态待确认。资料引用：成员只要文件夹时只传 folderRefs（正式文件文件夹 ID，最多 30 个），不要把文件夹展开成 documentRefs；只有成员明确点名个别文档时才另传 documentRefs（正式文件版本 ID，最多 30 个）。执行方用 list_documents({folderId, recursive:true}) 读取目录。不要为小祥自己就能完成的回复建任务。",
       {
         taskType: { type: "string", required: true },
         title: { type: "string", required: true },
@@ -187,7 +187,7 @@ export function apply(ctx) {
     ],
     [
       "project_context",
-      "读取一级小祥维护的项目 Wiki 目录：成员、成员认识索引、所有迭代、文档版本和已有版本摘要；已有摘要足够时可直接复用，无需再次读取正文。",
+      "读取老翁维护的项目 Wiki 目录：成员、成员认识索引、所有迭代、文档版本和已有版本摘要；已有摘要足够时可直接复用，无需再次读取正文。",
       {},
     ],
     [
@@ -199,7 +199,7 @@ export function apply(ctx) {
     ],
     [
       "record_document_summary",
-      "把文档版本绑定到当前任务，并向一级小祥提交待定期整理的摘要候选。首次提交前必须通过 read_document 读取该版本；若 project_context 已有正式摘要，则直接复用并建立任务关联，无需重复读取正文。",
+      "把文档版本绑定到当前任务，并向老翁提交待定期整理的摘要候选。首次提交前必须通过 read_document 读取该版本；若 project_context 已有正式摘要，则直接复用并建立任务关联，无需重复读取正文。",
       {
         versionId: { type: "string", required: true },
         summary: { type: "string", required: true },
@@ -301,7 +301,7 @@ export function apply(ctx) {
     ],
     [
       "miniprogram_list_source",
-      "列出项目小程序工作区的四个固定目录及其中的源码文件（相对路径、大小、哈希），并返回完整云开发流程、环境和认证约束。Cothread 是交付工作台：人类目标由 L2 拆解，子 Agent 应自主完成源码持久化、development 同步、预览验证和发布申请，不要把步骤重新交回人类。先调用本工具理解流程：原生小程序源码持久化后必须调用 miniprogram_build_preview，由 Dimina 编译成 Web 预览；Admin 预览必须调用 miniprogram_register_admin_preview 并在宿主机或任务沙箱启动带 --base 的开发服务器。两种预览在代码和 CloudBase 配置正确、对应 development 云函数已部署且权限通过时都可以调用云函数。生产小程序和 Admin 静态站必须提交发布申请；生产环境要切换 envId、Publishable Key、认证、规则和云函数版本。业务运行时直连 CloudBase，共序服务端只负责源码、配置、发布和管理面操作。开发小程序必须使用 signInWithOpenId，按配置使用 signInWithPhoneAuth；Admin 使用 signInWithPassword，不要自行实现 code2Session 或自建 token。写入或编译前先调用本工具。",
+      "列出项目小程序工作区的四个固定目录及其中的源码文件（相对路径、大小、哈希），并返回完整云开发流程、环境和认证约束。Cothread 是交付工作台：人类目标由小祥拆解，子 Agent 应自主完成源码持久化、development 同步、预览验证和发布申请，不要把步骤重新交回人类。先调用本工具理解流程：原生小程序源码持久化后必须调用 miniprogram_build_preview，由 Dimina 编译成 Web 预览；Admin 预览必须调用 miniprogram_register_admin_preview 并在宿主机或任务沙箱启动带 --base 的开发服务器。两种预览在代码和 CloudBase 配置正确、对应 development 云函数已部署且权限通过时都可以调用云函数。生产小程序和 Admin 静态站必须提交发布申请；生产环境要切换 envId、Publishable Key、认证、规则和云函数版本。业务运行时直连 CloudBase，共序服务端只负责源码、配置、发布和管理面操作。开发小程序必须使用 signInWithOpenId，按配置使用 signInWithPhoneAuth；Admin 使用 signInWithPassword，不要自行实现 code2Session 或自建 token。写入或编译前先调用本工具。",
       {},
     ],
     [
@@ -544,7 +544,7 @@ export function apply(ctx) {
               },
         async execute(args, exec) {
           const result = await bridgeTool(name, args, exec.agent?.id || null);
-          // Same-turn auto-dispatch: spawn L3 in-process under the live parent
+          // Same-turn auto-dispatch: spawn 子 Agent in-process under the live parent
           // (identical to explicit dsh_l3). Post-turn JSON-RPC dispatch-l3 is a
           // fallback only; three production rounds showed it does not bind.
           if (
@@ -602,7 +602,10 @@ export function apply(ctx) {
     const primaryId = process.env.COTHREAD_PRIMARY_AGENT_ID || "";
     const level =
       primaryLevel === "l2" && primaryId && agent.id !== primaryId ? "l3" : primaryLevel;
-    const names = configuredByLevel[level];
+    const sharedWorkerTools = Array.isArray(configuredByLevel.l2)
+      ? configuredByLevel.l2
+      : configuredByLevel.l3;
+    const names = level === "l1" ? configuredByLevel.l1 : sharedWorkerTools;
     if (Array.isArray(names)) agent.ctx.tools.restrict({ allow: names });
   });
 }

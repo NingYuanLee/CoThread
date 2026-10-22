@@ -18,7 +18,7 @@ import { CLOUD_BROWSER_SDK_ASSET, readCloudBrowserSdk } from "./cloud-backend.js
 /**
  * Admin preview dev servers.
  *
- * The dev server itself runs inside the L3 sandbox (for the local executor that
+ * The dev server itself runs inside the 子 Agent sandbox (for the local executor that
  * is the host machine); CoThread only records where it listens and proxies to
  * it. Because bundlers emit absolute asset URLs, the dev server must be started
  * with the returned `proxyBase` as its public base path — Vite accepts
@@ -257,7 +257,7 @@ export async function startMiniprogramDevServer(service, projectId, serverId = n
 
 /**
  * Register (or replace) the project's Admin preview dev server. The caller —
- * an L3 task or the project owner — must have already started the process in
+ * an 子 Agent task or the project owner — must have already started the process in
  * its sandbox; this records where it listens and hands back the base path the
  * bundler must be configured with.
  */
@@ -304,7 +304,7 @@ export async function registerMiniprogramDevServer(service, actor, projectId, in
      WHERE project_id=? AND status IN ('starting','running')`,
     [projectId],
   );
-  // 归属约定：task_id / runtime_id 由执行侧（L3 经 agent-tools.js）写入，本模块只当
+  // 归属约定：task_id / runtime_id 由执行侧（子 Agent 经 agent-tools.js）写入，本模块只当
   // 黑盒存回与透传，不用它们做任何业务判断。这样小程序板块的 schema 不复制执行模型。
   if (samePort) {
     await query(

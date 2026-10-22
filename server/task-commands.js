@@ -35,7 +35,7 @@ export async function createTask(db, input) {
     throw new HttpError(400, "任务缺少项目、标题或目标");
   if (input.taskType === "assist_l2") {
     if (input.createdByType !== "l2_session" || input.targetType !== "l2_session")
-      throw new HttpError(403, "L2 辅助任务只能由 L2 创建并交给 L2 子 Agent");
+      throw new HttpError(403, "辅助任务只能由小祥创建并交给子 Agent");
   } else if (input.taskType !== "formal") throw new HttpError(400, "任务类型无效");
   if (!new Set(["human_member", "l2_session", "task"]).has(input.sourceType))
     throw new HttpError(400, "任务来源无效");
@@ -95,15 +95,15 @@ export async function createTask(db, input) {
     if (input.targetType === "l2_session") {
       if (input.originThreadId) {
         const current = await currentThreadL2Session(conn, input.originThreadId, input.projectId);
-        if (!current) throw new HttpError(400, "任务目标不是当前项目迭代的 L2");
+        if (!current) throw new HttpError(400, "任务目标不是当前项目迭代的 小祥");
         // Refuse to stamp tasks onto a rotated DB session while the live caller is still the old id.
-        // That mismatch is what produces "已安排" + unbound L3 ghosts.
+        // That mismatch is what produces "已安排" + unbound 子 Agent ghosts.
         if (
           input.createdByType === "l2_session" &&
           input.createdById &&
           input.createdById !== current.session_id
         )
-          throw new HttpError(409, "L2 会话已轮换，请重试本轮调度");
+          throw new HttpError(409, "小祥 会话已轮换，请重试本轮调度");
         targetId = current.session_id;
       } else {
         const [target] = await query(
@@ -112,7 +112,7 @@ export async function createTask(db, input) {
           WHERE s.session_id=? AND t.project_id=?`,
           [input.targetId, input.projectId],
         );
-        if (!target) throw new HttpError(400, "任务目标不是当前项目迭代的 L2");
+        if (!target) throw new HttpError(400, "任务目标不是当前项目迭代的 小祥");
       }
     }
     const idle = input.targetType === "l2_session" ? await idleL3Count(conn, targetId) : 0;

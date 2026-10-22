@@ -1,6 +1,6 @@
 // Identifiers are selected here, never taken from tool input.
-// L2 is one project role; each iteration keeps its own durable discussion session.
-// L3 keeps one durable DSH session per task; the sandbox stays per task.
+// 小祥 is one project role; each iteration keeps its own durable discussion session.
+// 子 Agent keeps one durable DSH session per task; the sandbox stays per task.
 export function agentSession(scope) {
   const job = typeof scope === "string" ? { thread_id: scope } : scope;
   if (job.parent_message_id) {

@@ -8,7 +8,7 @@ import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
  * Two deliberate boundaries:
  *  1. Credentials never leave the server. Callers pass a project id; the
  *     adapter decrypts the stored credential itself.
- *  2. L3 defaults to the development environment only. Other environments must
+ *  2. 子 Agent defaults to the development environment only. Other environments must
  *     be requested explicitly and are validated against the project config.
  *
  * The data plane (documents, files) uses the official server SDK. Enumeration
@@ -621,7 +621,7 @@ export async function deleteCloudbaseStorageEntry(service, user, projectId, inpu
 }
 
 /**
- * L3-facing guard: agents are limited to the development environment unless the
+ * 子 Agent-facing guard: agents are limited to the development environment unless the
  * project explicitly allows more. Kept explicit so the rule is auditable.
  */
 export function assertAgentEnvironment(environment) {
@@ -629,7 +629,7 @@ export function assertAgentEnvironment(environment) {
   if (!CLOUDBASE_AGENT_ENVIRONMENTS.includes(kind)) {
     throw new HttpError(
       403,
-      `L3 只能操作${CLOUDBASE_AGENT_ENVIRONMENTS.map(cloudbaseEnvironmentLabel).join("、")}；请由项目负责人在界面中操作`,
+      `子 Agent 只能操作${CLOUDBASE_AGENT_ENVIRONMENTS.map(cloudbaseEnvironmentLabel).join("、")}；请由项目负责人在界面中操作`,
     );
   }
   return kind;
@@ -639,7 +639,7 @@ export function assertAgentEnvironment(environment) {
  * 管理面：列举集合与存储文件
  *
  * node-sdk 只有数据面（读写文档、上传下载文件），列举属于管理面，必须用
- * @cloudbase/manager-node。仅通过 HTTP 暴露给项目成员，不作为 L3 工具开放。
+ * @cloudbase/manager-node。仅通过 HTTP 暴露给项目成员，不作为 子 Agent 工具开放。
  * ------------------------------------------------------------------ */
 
 const managers = new Map();

@@ -41,7 +41,7 @@ export async function adoptCurrentIterationL2(conn, task, l2SessionId) {
     l2SessionId,
   ]);
   if (!session || !task.origin_thread_id || task.origin_thread_id !== session.thread_id)
-    throw new HttpError(404, "当前 L2 没有这个可委派任务");
+    throw new HttpError(404, "当前 小祥 没有这个可委派任务");
   await query(
     conn,
     "UPDATE agent_tasks SET target_id=?,claimed_by_type='l2_session',claimed_by_id=? WHERE id=?",
@@ -77,7 +77,7 @@ export async function assertHumanMemberAuthorization(
 }
 
 export async function assertL2CanOperateTask(conn, actor, task) {
-  if (actor?.type !== "l2_session") throw new HttpError(403, "只有当前迭代的 L2 可以跨任务安排");
+  if (actor?.type !== "l2_session") throw new HttpError(403, "只有当前迭代的 小祥 可以跨任务安排");
   const [session] = await query(
     conn,
     `SELECT s.thread_id, t.project_id FROM agent_sessions s JOIN threads t ON t.id=s.thread_id
@@ -87,14 +87,14 @@ export async function assertL2CanOperateTask(conn, actor, task) {
   if (!session) {
     if (task.origin_thread_id) {
       const current = await currentThreadL2Session(conn, task.origin_thread_id, task.project_id);
-      if (current) throw new HttpError(409, "L2 会话已轮换，请重试本轮调度");
+      if (current) throw new HttpError(409, "小祥 会话已轮换，请重试本轮调度");
     }
-    throw new HttpError(403, "当前 L2 不能操作其他项目的任务");
+    throw new HttpError(403, "当前 小祥 不能操作其他项目的任务");
   }
   if (session.project_id !== task.project_id)
-    throw new HttpError(403, "当前 L2 不能操作其他项目的任务");
+    throw new HttpError(403, "当前 小祥 不能操作其他项目的任务");
   if (!task.origin_thread_id || task.origin_thread_id !== session.thread_id)
-    throw new HttpError(403, "当前 L2 只能安排本迭代锁定的任务");
+    throw new HttpError(403, "当前 小祥 只能安排本迭代锁定的任务");
   if (!isL2OwnResponsibility(task))
     await assertHumanMemberAuthorization(conn, task.project_id, actor);
 }

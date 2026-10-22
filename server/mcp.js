@@ -441,7 +441,7 @@ export function createMcpServer(service, user, afterMessage) {
   );
   register(
     "get_l1_status",
-    "读取项目级 Agent（L1）状态：会话 lastError、文档/成员摘要队列积压、最近 run 与失败记录。用于诊断「文档摘要失败」。",
+    "读取项目级 Agent（老翁）状态：会话 lastError、文档/成员摘要队列积压、最近 run 与失败记录。用于诊断「文档摘要失败」。",
     {
       projectId: z.string().uuid(),
     },
@@ -449,7 +449,7 @@ export function createMcpServer(service, user, afterMessage) {
   );
   register(
     "list_l1_runs",
-    "列出 L1 维护 run 历史。task 可选 document_memory / member_memory / document_organization / iteration_archive；status 可选 queued/running/completed/failed。",
+    "列出 老翁 维护 run 历史。task 可选 document_memory / member_memory / document_organization / iteration_archive；status 可选 queued/running/completed/failed。",
     {
       projectId: z.string().uuid(),
       task: z.string().max(40).optional(),
@@ -470,7 +470,7 @@ export function createMcpServer(service, user, afterMessage) {
   );
   register(
     "get_l1_logs",
-    "读取指定 L1 维护任务的执行轨迹（阶段、状态、错误）。task 必填：document_memory / member_memory / document_organization / iteration_archive。",
+    "读取指定 老翁 维护任务的执行轨迹（阶段、状态、错误）。task 必填：document_memory / member_memory / document_organization / iteration_archive。",
     {
       projectId: z.string().uuid(),
       task: z.enum([
@@ -485,7 +485,7 @@ export function createMcpServer(service, user, afterMessage) {
   );
   register(
     "retry_l1_task",
-    "将 L1 维护任务重新排队。task=document_memory 会唤醒文档摘要队列；member_memory 唤醒成员发言；iteration_archive 需已归档迭代（可传 threadId）。不发群聊消息。",
+    "将 老翁 维护任务重新排队。task=document_memory 会唤醒文档摘要队列；member_memory 唤醒成员发言；iteration_archive 需已归档迭代（可传 threadId）。不发群聊消息。",
     {
       projectId: z.string().uuid(),
       task: z.enum(["member_memory", "document_memory", "iteration_archive"]),

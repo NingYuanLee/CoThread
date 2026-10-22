@@ -124,7 +124,7 @@ export async function processNextL3ContextCompression(db, options = {}) {
           job.message_id,
         ],
       );
-      console.error("L3 context compression failed", { type: error.name });
+      console.error("子 Agent context compression failed", { type: error.name });
     }
     return true;
   } finally {

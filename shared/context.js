@@ -2,9 +2,9 @@
  * Soft context budgets. Billing is per-turn tokens — a huge window on a
  * long-lived session only delays compaction and makes later turns costlier.
  *
- *   L2 coordinator — long-lived iteration chat: keep tight (256K)
- *   L3 executor    — use-and-done task runs: keep full 1M (tool/files may spike)
- *   L1 knowledge   — use-and-done maintenance: keep full 1M (large doc corpora)
+ *   小祥 coordinator — long-lived iteration chat: keep tight (256K)
+ *   子 Agent executor    — use-and-done task runs: keep full 1M (tool/files may spike)
+ *   老翁 knowledge   — use-and-done maintenance: keep full 1M (large doc corpora)
  * Light opportunistic participation stays tiny and does not use these budgets.
  */
 export const CONTEXT_LIMITS = Object.freeze({
@@ -37,9 +37,9 @@ export function contextBudgetFromEnv(env = process.env) {
   return contextBudget(env.COTHREAD_PRIMARY_AGENT_LEVEL || "l2");
 }
 
-/** Default / L2 UI meter ceiling. */
+/** Default / 小祥 UI meter ceiling. */
 export const CONTEXT_LIMIT = CONTEXT_LIMITS.coordinator;
-/** Default / L2 auto-compact threshold. */
+/** Default / 小祥 auto-compact threshold. */
 export const AUTO_COMPACT_AT = contextBudget("coordinator").autoCompactAt;
 
 export const CONTEXT_CATEGORIES = [

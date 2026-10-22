@@ -104,7 +104,7 @@ const SECRET_META = {
   },
   cloudbase_credential: {
     label: "腾讯云子用户的API密钥",
-    hint: "腾讯云 API 密钥对（控制台「访问管理 → API 密钥管理」）。环境级最小权限凭据；L3 只能通过受控工具使用，不会拿到明文。",
+    hint: "腾讯云 API 密钥对（控制台「访问管理 → API 密钥管理」）。环境级最小权限凭据；子 Agent 只能通过受控工具使用，不会拿到明文。",
     mode: "pair" as const,
   },
 } as const;

@@ -447,7 +447,7 @@ test("assist tasks start running and return a compact result to their source tas
   assert.equal(wakeup.kind, "child_result");
   assert.equal(wakeup.status, "queued");
   const [source] = await query(db, "SELECT progress FROM agent_tasks WHERE id=?", [formal.id]);
-  assert.equal(source.progress, "辅助子 Agent 已返回结果，等待 L2 汇总");
+  assert.equal(source.progress, "辅助子 Agent 已返回结果，等待 小祥 汇总");
   const [update] = await query(
     db,
     "SELECT body FROM agent_task_pool_updates WHERE task_id=? ORDER BY created_at DESC LIMIT 1",
@@ -1152,7 +1152,7 @@ test("completing an assist task without an L3 voids the task instead of keeping 
   );
   assert.equal(run.status, "cancelled");
   assert.equal(run.executor_id, null);
-  assert.match(run.error, /L3 未启动/);
+  assert.match(run.error, /子 Agent 未启动/);
 });
 
 test("an unbound L3 can claim a queued assist task when writing completion", async () => {

@@ -96,7 +96,7 @@ import {
 import { executeRelease } from "../release-executor.js";
 
 /**
- * 项目工作区路由：项目、任务、文件上传、小程序与 CloudBase、代码来源、L1 上下文。
+ * 项目工作区路由：项目、任务、文件上传、小程序与 CloudBase、代码来源、老翁 上下文。
  * 注册点与原先内联时一致：在鉴权中间件之后、末尾 404 之前。
  */
 export function registerProjectWorkspaceRoutes(app, { db, service }) {
@@ -435,7 +435,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
       .parse(req.body);
     let targetId = data.targetUserId;
     if (data.targetType === "l2_session") {
-      if (!task.origin_thread_id) throw new HttpError(409, "项目级任务需要先关联迭代才能转给 L2");
+      if (!task.origin_thread_id) throw new HttpError(409, "项目级任务需要先关联迭代才能转给 小祥");
       await query(db, "INSERT IGNORE INTO agent_sessions(thread_id,session_id) VALUES(?,UUID())", [
         task.origin_thread_id,
       ]);

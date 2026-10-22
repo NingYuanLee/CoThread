@@ -2,7 +2,7 @@
 
 export const targetTypes = new Set(["human_member", "l2_session"]);
 
-export const FOREIGN_TASK_AUTH = "非本 L2 责任的任务需要人类成员账号明确授权";
+export const FOREIGN_TASK_AUTH = "非本 小祥 责任的任务需要人类成员账号明确授权";
 
 export const ASSIGN_HUMAN_AUTH = "把任务指派给人类成员需要人类成员账号明确授权";
 

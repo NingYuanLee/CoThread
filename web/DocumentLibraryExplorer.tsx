@@ -125,7 +125,7 @@ export function DocumentLibraryExplorer({
       <div className="file-explorer-scroll" aria-busy={pending}>
         <div role="tree" aria-label="项目文档库">
           {organizing ? (
-            <p className="muted">项目级Agent（L1）正在整理正式文件，正式文件区暂时不可操作。</p>
+            <p className="muted">老翁正在整理正式文件，正式文件区暂时不可操作。</p>
           ) : null}
           {treeContent}
         </div>

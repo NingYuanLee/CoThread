@@ -12,7 +12,7 @@
 
 工程说明：
 
-- [01-architecture.md](engineering/01-architecture.md)：协作层级、存储、Agent、沙箱边界
+- [01-architecture.md](engineering/01-architecture.md)：协作结构、存储、Agent 成员、共享插件和沙箱边界
 - [02-iteration-archive.md](engineering/02-iteration-archive.md)：归档状态机和接口
 - [03-admin-platform.md](engineering/03-admin-platform.md)：管理空间页面和权限
 - [04-miniprogram-release-approval.md](engineering/04-miniprogram-release-approval.md)：小程序生产发布审批
@@ -20,5 +20,10 @@
 - [06-chat-side-state-protocol.md](engineering/06-chat-side-state-protocol.md)：聊天侧表快照指纹
 - [07-request-timing.md](engineering/07-request-timing.md)：接口耗时怎么读
 - [08-security-dependencies.md](engineering/08-security-dependencies.md)：有意保留的依赖风险
+
+- [08-feedback-tips.md](engineering/08-feedback-tips.md)：统一提示、撤销与反馈行为
+- [09-dialogs-and-overlays.md](engineering/09-dialogs-and-overlays.md)：弹窗与浮层约定
+- [10-theme-system.md](engineering/10-theme-system.md)：主题与生成产物
+- [11-agent-prompt-context.md](engineering/11-agent-prompt-context.md)：六段提示词、来源模式、持久会话及调用预览的改造契约（实现与验收状态见正文）
 
 用户能看见的行为变了，同时改 `public/docs.html` 和对应的工程说明。只改内部实现时只改工程说明。表结构以 `migrations/` 为准。长期产品资料放进 `product/`。一次测量、复盘或待办不要留在 `docs/`。

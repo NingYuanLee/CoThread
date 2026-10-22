@@ -29,7 +29,7 @@ export async function reassignTask(db, taskId, actor, target, reason, messageId)
     else if (task.target_type !== actor.type || task.target_id !== actor.id)
       throw new HttpError(403, "只有当前任务目标可以转交任务");
     if (task.task_type === "assist_l2" && target.type !== "l2_session")
-      throw new HttpError(403, "L2 辅助任务不能转交给其他责任主体");
+      throw new HttpError(403, "小祥 辅助任务不能转交给其他责任主体");
     if (l2Operator && target.type === "human_member")
       await assertHumanMemberAuthorization(conn, task.project_id, actor, ASSIGN_HUMAN_AUTH);
     const reassignable = new Set([
@@ -68,7 +68,7 @@ export async function reassignTask(db, taskId, actor, target, reason, messageId)
       if (!member) throw new HttpError(400, "任务目标不是当前项目的可执行成员");
     } else if (task.origin_thread_id) {
       const current = await currentThreadL2Session(conn, task.origin_thread_id, task.project_id);
-      if (!current) throw new HttpError(400, "任务目标不是当前项目迭代的 L2");
+      if (!current) throw new HttpError(400, "任务目标不是当前项目迭代的 小祥");
       target = { ...target, id: current.session_id };
     } else {
       const [session] = await query(
@@ -77,7 +77,7 @@ export async function reassignTask(db, taskId, actor, target, reason, messageId)
         WHERE s.session_id=? AND t.project_id=?`,
         [target.id, task.project_id],
       );
-      if (!session) throw new HttpError(400, "任务目标不是当前项目迭代的 L2");
+      if (!session) throw new HttpError(400, "任务目标不是当前项目迭代的 小祥");
     }
     const status =
       target.type === "human_member"

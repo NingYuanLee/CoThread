@@ -115,7 +115,7 @@ export function taskTimeline<M extends TimelineMessage, R extends Reply>(
         (m.agent_task_id === reply.message_id || m.id === reply.reply_id),
     );
     const executor = isExecutorReply(reply);
-    // L2 model returns are group-facing messages. Do not fold them into a process row.
+    // 小祥 model returns are group-facing messages. Do not fold them into a process row.
     if (!executor && (parts.length || !hasActivity(reply))) continue;
     if (!parts.length && !hasActivity(reply)) continue;
     const receptionId = requests.find((r) => r.message_id === reply.message_id)?.response_id;

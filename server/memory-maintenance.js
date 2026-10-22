@@ -12,17 +12,23 @@ export function assertMemoryMaintenanceAuth(authorizationHeader) {
     throw new HttpError(401, "知识库维护凭据无效");
 }
 
-/** Requeue L1 runs left running after a killed cloud-function / agent request. */
+/** Requeue 老翁 runs left running after a killed cloud-function / agent request. */
 export async function recoverStaleL1Runs(db, { olderThanMinutes = 10 } = {}) {
-  const result = await query(db, `UPDATE agent_l1_runs
+  const result = await query(
+    db,
+    `UPDATE agent_l1_runs
     SET status='queued',started_at=NULL,error='维护超时中断，将自动重试。'
     WHERE status='running' AND started_at < DATE_SUB(UTC_TIMESTAMP(3), INTERVAL ? MINUTE)`,
-  [olderThanMinutes]);
+    [olderThanMinutes],
+  );
   return Number(result?.affectedRows || 0);
 }
 
-/** Drain up to maxBatches of L1 / organization / compaction work. Used by cron and manual kicks. */
-export async function runMemoryMaintenance(db, { maxBatches = 25, projectId = null, task = null } = {}) {
+/** Drain up to maxBatches of 老翁 / organization / compaction work. Used by cron and manual kicks. */
+export async function runMemoryMaintenance(
+  db,
+  { maxBatches = 25, projectId = null, task = null } = {},
+) {
   await recoverStaleL1Runs(db);
   let processed = 0;
   while (processed < maxBatches) {
@@ -33,10 +39,11 @@ export async function runMemoryMaintenance(db, { maxBatches = 25, projectId = nu
         task: task || undefined,
       });
     } else {
-      worked = await processNextDocumentOrganization(db)
-        || await processNextProjectMemory(db)
-        || await processNextL1ContextCompression(db)
-        || await processNextL3ContextCompression(db);
+      worked =
+        (await processNextDocumentOrganization(db)) ||
+        (await processNextProjectMemory(db)) ||
+        (await processNextL1ContextCompression(db)) ||
+        (await processNextL3ContextCompression(db));
     }
     if (!worked) break;
     processed++;

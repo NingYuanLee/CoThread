@@ -134,7 +134,7 @@ export async function processNextL1ContextCompression(db, options = {}) {
           job.id,
         ],
       );
-      console.error("L1 context compression failed", { type: error.name });
+      console.error("老翁 context compression failed", { type: error.name });
     }
     return true;
   } finally {

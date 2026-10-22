@@ -34,9 +34,7 @@ export function LibraryOrganizeDialog({
             closeLabel="关闭"
           />
           <DialogBody>
-            <p>
-              由项目级Agent（L1）在后台归类与命名正式文件；整理期间正式文件区不可上传、另存或修改。
-            </p>
+            <p>由老翁在后台归类与命名正式文件；整理期间正式文件区不可上传、另存或修改。</p>
             {organizing ? <p className="muted">正在排队或执行中…</p> : null}
             {error ? (
               <div className="error" role="alert">

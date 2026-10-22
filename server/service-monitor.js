@@ -250,8 +250,8 @@ export async function agentMonitorOperation(service, user, projectId) {
     generatedAt: new Date().toISOString(),
     models: {
       knowledge: modelSummary("knowledge"),
-      // Production inference has two routes: L1 knowledge and the shared
-      // coordinator/L3 runtime. Keep the legacy coordinator/executor keys
+      // Production inference has two routes: 老翁 knowledge and the shared
+      // coordinator/子 Agent runtime. Keep the legacy coordinator/executor keys
       // for older clients, but expose the shared route explicitly.
       runtime: modelSummary("coordinator"),
       coordinator: modelSummary("coordinator"),
@@ -543,7 +543,7 @@ export async function agentLogsOperation(service, user, scopeType, scopeId, { ta
       "SELECT session_id FROM agent_sessions WHERE thread_id=?",
       [scopeId],
     );
-    titleText = `${thread.title} · 二级小祥轨迹`;
+    titleText = `${thread.title} · 小祥轨迹`;
     rows = session
       ? await query(
           service.db,

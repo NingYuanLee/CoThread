@@ -137,9 +137,10 @@ test("stable L2 and L3 roles live only in the system prompt plugin", async () =>
     readFile(new URL("../server/coordinator.js", import.meta.url), "utf8"),
     readFile(new URL("../server/agent.js", import.meta.url), "utf8"),
   ]);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /二级小祥/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /你是当前迭代会话的小祥/);
+  assert.doesNotMatch(SYSTEM_PROMPTS.l2.prompt, /一级小祥|二级小祥|三级小祥/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /葫芦小金刚/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /不能使用沙箱/);
+  assert.match(SYSTEM_PROMPTS.l2.prompt, /使用相同的插件与 Skills/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /自己能答的短问题/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /本迭代锁定/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /没有空闲子 Agent 时禁止创建/);
@@ -149,16 +150,17 @@ test("stable L2 and L3 roles live only in the system prompt plugin", async () =>
   assert.match(SYSTEM_PROMPTS.l2.prompt, /人类成员账号/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /send_message 当面问/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /pendingTasks/);
-  assert.match(SYSTEM_PROMPTS.l3.prompt, /上级追问进度/);
+  assert.match(SYSTEM_PROMPTS.l3.prompt, /小祥追问进度/);
   assert.doesNotMatch(SYSTEM_PROMPTS.l2.prompt, /辅助工作必须先创建/);
   assert.match(SYSTEM_PROMPTS.l2.prompt, /寒暄只回一句/);
   assert.doesNotMatch(SYSTEM_PROMPTS.l2.prompt, /wait_for_updates|finish_turn|post_message/);
-  assert.match(SYSTEM_PROMPTS.l3.prompt, /二级小祥派出的子 Agent/);
+  assert.match(SYSTEM_PROMPTS.l3.prompt, /小祥派出的子 Agent/);
+  assert.doesNotMatch(SYSTEM_PROMPTS.l3.prompt, /一级小祥|二级小祥|三级小祥/);
   assert.match(SYSTEM_PROMPTS.l3.prompt, /不要自称小祥/);
   assert.match(SYSTEM_PROMPTS.l3.prompt, /publish_artifact/);
   assert.match(SYSTEM_PROMPTS.l3.prompt, /report_task/);
   assert.doesNotMatch(SYSTEM_PROMPTS.l3.prompt, /40 次工具调用/);
-  assert.match(agent, /Parent L2 chunks already arrive via harness.run/);
-  assert.doesNotMatch(coordinator, /COORDINATOR_PERSONA|你是当前迭代会话的二级小祥|葫芦小金刚/);
-  assert.doesNotMatch(agent, /你是共序项目中的助理|你是三级小祥|二级小祥派出的子 Agent/);
+  assert.match(agent, /Parent 小祥 chunks already arrive via harness.run/);
+  assert.doesNotMatch(coordinator, /COORDINATOR_PERSONA|你是当前迭代会话的小祥|葫芦小金刚/);
+  assert.doesNotMatch(agent, /你是共序项目中的助理|你是三级小祥|小祥派出的子 Agent/);
 });

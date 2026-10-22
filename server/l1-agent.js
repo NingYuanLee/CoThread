@@ -12,6 +12,7 @@ import { l1RuntimePatch } from "./dsh-runtime-config.js";
 import { L1_MAINTENANCE_TASKS, normalizeL1Task } from "../shared/agent-label.js";
 import { contextBudget } from "../shared/context.js";
 import { saveVisualArtifact } from "./visual-artifacts.js";
+import { buildMaintenanceTurn } from "../shared/prompt-blocks.js";
 
 const L1_CONTEXT_BUDGET = contextBudget("knowledge");
 
@@ -19,7 +20,7 @@ export { L1_MAINTENANCE_TASKS, normalizeL1Task };
 
 export function l1SessionScope(task, { projectId } = {}) {
   const normalized = normalizeL1Task(task);
-  if (!projectId) throw new Error("L1 会话缺少项目 ID");
+  if (!projectId) throw new Error("老翁 会话缺少项目 ID");
   if (!L1_MAINTENANCE_TASKS.includes(normalized)) throw new Error("未知的维护任务");
   return { task: normalized, scopeId: projectId };
 }
@@ -40,7 +41,7 @@ async function saveCheckpoint(db, sessionRowId, home, modelMessages) {
   if (modelMessages)
     files["_cothread_context.json"] = Buffer.from(JSON.stringify(modelMessages)).toString("base64");
   const checkpoint = gzipSync(JSON.stringify(files));
-  if (checkpoint.length > 10 * 1024 * 1024) throw new Error("L1 会话快照超过 10 MiB");
+  if (checkpoint.length > 10 * 1024 * 1024) throw new Error("老翁 会话快照超过 10 MiB");
   await query(db, "UPDATE agent_project_sessions SET checkpoint=? WHERE id=?", [
     checkpoint,
     sessionRowId,
@@ -71,7 +72,7 @@ function providerFailure(result) {
 
 function parseJsonResponse(text) {
   const source = String(text || "").trim();
-  if (!source) throw new SyntaxError("L1 返回空内容，无法解析 JSON");
+  if (!source) throw new SyntaxError("老翁 返回空内容，无法解析 JSON");
   const fenced = source.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1]?.trim();
   const candidate = fenced || source;
   try {
@@ -97,7 +98,7 @@ function parseJsonResponse(text) {
       }
     }
     const hint = candidate.slice(0, 120).replace(/\s+/g, " ");
-    throw new SyntaxError(`L1 返回无法解析的 JSON: ${error.message}; preview=${hint}`);
+    throw new SyntaxError(`老翁 返回无法解析的 JSON: ${error.message}; preview=${hint}`);
   }
 }
 
@@ -270,7 +271,7 @@ export async function runL1Task(db, projectId, task, input, schema, options = {}
         try {
           await requestCompact(harness, session.session_id, true);
         } catch (error) {
-          console.error("Automatic L1 compaction skipped", {
+          console.error("Automatic 老翁 compaction skipped", {
             type: error?.name || "Error",
             diagnostic: redactSecrets(error?.message || error).slice(-1000),
           });
@@ -287,7 +288,12 @@ export async function runL1Task(db, projectId, task, input, schema, options = {}
           source: "l1_visual_verification",
         });
       }
-      const prompt = `维护任务类型：${scope.task}\n项目 ID：${projectId}${eventThreadId ? `\n迭代 ID：${eventThreadId}` : ""}\n任务输入：${JSON.stringify(input)}\n严格返回任务要求的 JSON。`;
+      const prompt = buildMaintenanceTurn({
+        projectId,
+        workType: scope.task,
+        iterationId: eventThreadId,
+        input,
+      }).prompt;
       const promptInput = options.image
         ? [
             { type: "text", text: prompt },

@@ -375,7 +375,7 @@ export async function queueL1MemoryRun(service, user, { projectId, task, threadI
     return { id, status: "queued" };
   });
   publishWork(service.db);
-  // Manual / MCP retries run a bounded number of L1 batches inline instead of
+  // Manual / MCP retries run a bounded number of 老翁 batches inline instead of
   // waiting for the wake worker; failures stay on the run row.
   try {
     const { runMemoryMaintenance } = await import("./memory-maintenance.js");
@@ -385,7 +385,7 @@ export async function queueL1MemoryRun(service, user, { projectId, task, threadI
       task: queuedTask,
     });
   } catch (error) {
-    console.error("L1 memory kick failed", {
+    console.error("老翁 memory kick failed", {
       type: error?.name || "Error",
       message: String(error?.message || error).slice(0, 300),
     });
@@ -578,7 +578,7 @@ export async function summarizeProjectMembers(db, context, options = {}) {
     "member_memory",
     {
       instructions:
-        "返回 {memberSummaries:[{memberId,understanding,statementSummary}]}。understanding 只记录该成员的说话风格、习惯或喜好，不写事实、决定、承诺或待办。statementSummary 是该成员本人发言的浓缩摘要，供二级代替翻历史、节省 token、加快反应，只归纳事实、决定、偏好承诺、分工和待办。两份文本都只依据成员自己说过的话；不吸收他人评价，不猜测心理，不记录无意义寒暄。没有可写内容时对应字段留空。",
+        "返回 {memberSummaries:[{memberId,understanding,statementSummary}]}。understanding 只记录该成员的说话风格、习惯或喜好，不写事实、决定、承诺或待办。statementSummary 是该成员本人发言的浓缩摘要，供小祥代替翻历史、节省 token、加快反应，只归纳事实、决定、偏好承诺、分工和待办。两份文本都只依据成员自己说过的话；不吸收他人评价，不猜测心理，不记录无意义寒暄。没有可写内容时对应字段留空。",
       ...context,
     },
     memoryDecisionSchema,

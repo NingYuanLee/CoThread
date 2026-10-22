@@ -5,6 +5,11 @@ import { redactSecrets } from "./model-config.js";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { posix } from "node:path";
 import { query } from "./db.js";
+import {
+  controlFromExecutionRun,
+  parentDialogueMode,
+  writeDeniedReason,
+} from "../shared/request-control.js";
 import { digest } from "./auth.js";
 import { storedContentType } from "./documents/index.js";
 import { HttpError } from "./service.js";
@@ -155,25 +160,9 @@ const titles = {
   cloudbase_storage_manage: "管理 CloudBase 存储",
   wechat_preview: "生成微信预览",
   miniprogram_upload_experience: "上传微信体验版",
-  // Internal: harness create_task auto-dispatch binds the spawned L3. Not model-facing.
+  // Internal: harness create_task auto-dispatch binds the spawned 子 Agent. Not model-facing.
   bind_task_l3: "绑定执行者",
 };
-const L3_EXECUTION_TOOLS = new Set([
-  "sandbox_command",
-  "sandbox_read",
-  "sandbox_write",
-  "publish_artifact",
-  "branch_artifact",
-  "capture_preview_screenshot",
-  "report_task",
-  "miniprogram_write_source",
-  "miniprogram_build_preview",
-  "miniprogram_register_admin_preview",
-  "miniprogram_report_admin_preview",
-  "wechat_preview",
-  "miniprogram_upload_experience",
-]);
-
 const MINIPROGRAM_READ_TOOLS = ["miniprogram_list_source", "miniprogram_read_source"];
 const CLOUDBASE_TOOL_NAMES = [
   "cloudbase_list_environments",
@@ -352,80 +341,45 @@ export function createAgentTools(
       role === "coordinator" && callerSessionId && callerSessionId !== l2SessionId
         ? "executor"
         : role;
-    if (effectiveRole !== "executor" && L3_EXECUTION_TOOLS.has(name)) {
-      const live = await liveDshL3Run(service.db, {
-        sessionId: callerSessionId,
-        threadId: job.thread_id,
-      });
-      if (live) {
-        effectiveRole = "executor";
-        callerSessionId = callerSessionId || live.executor_id;
-      }
-    }
     const thread = await assertJob(service, user, job, {
       role: effectiveRole,
       sessionId: callerSessionId,
     });
     if (!titles[name]) throw new HttpError(400, "未知工具");
-    if (job.dialogue_mode === "chat" && CHAT_DIALOGUE_BLOCKED_TOOLS.has(name)) {
-      throw new HttpError(403, "当前为 Chat 只读对话模式，不能执行写入或任务类操作");
-    }
-    if (
-      effectiveRole === "coordinator" &&
-      ![
-        "list_documents",
-        "list_messages",
-        "read_message",
-        "list_members",
-        "read_member",
-        "project_context",
-        "read_document",
-        "record_document_summary",
-        "read_iteration",
-        "update_iteration_context",
-        "list_project_tasks",
-        "inspect_task",
-        "create_task",
-        "update_task",
-        "reassign_task",
-        "resolve_task_rejection",
-        "recover_task",
-        "ask_task_question",
-        "capture_preview_screenshot",
-        "list_local_executors",
-        "list_project_code_sources",
-        "list_code_refs",
-        "list_code_tree",
-        "read_code_file",
-        "bind_task_l3",
-        ...MINIPROGRAM_READ_TOOLS,
-        ...CLOUDBASE_TOOL_NAMES,
-      ].includes(name)
-    )
-      throw new HttpError(403, "L2 当前不能直接执行该工具");
-    if (
-      effectiveRole === "executor" &&
-      [
-        "create_task",
-        "reassign_task",
-        "resolve_task_rejection",
-        "recover_task",
-        "inspect_task",
-        "ask_task_question",
-      ].includes(name)
-    )
-      throw new HttpError(403, "子 Agent 只能执行已分派的工作，不能管理 L2 生命周期或创建新任务");
     let agentTaskId = null;
+    let activeRun = null;
     if (effectiveRole === "executor" && callerSessionId) {
-      const [activeRun] = await query(
+      [activeRun] = await query(
         service.db,
-        `SELECT task_id FROM agent_task_execution_runs
-        WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting')
-        ORDER BY created_at DESC LIMIT 1`,
+        `SELECT r.task_id,r.source_message_id,r.dialogue_mode,
+        t.source_message_id task_source_message_id,q.dialogue_mode request_dialogue_mode
+        FROM agent_task_execution_runs r
+        JOIN agent_tasks t ON t.id=r.task_id
+        LEFT JOIN agent_requests q ON q.message_id=COALESCE(r.source_message_id,t.source_message_id)
+        WHERE r.executor_type='dsh_l3' AND r.executor_id=? AND r.status IN ('running','waiting')
+        ORDER BY r.created_at DESC LIMIT 1`,
         [callerSessionId],
       );
       agentTaskId = activeRun?.task_id || null;
     }
+    const dialogueMode =
+      effectiveRole === "executor" && callerSessionId
+        ? controlFromExecutionRun(activeRun).dialogueMode
+        : parentDialogueMode(job);
+    const denied = dialogueMode ? writeDeniedReason(dialogueMode) : null;
+    if (denied && CHAT_DIALOGUE_BLOCKED_TOOLS.has(name)) throw new HttpError(403, denied);
+    // Shared plugins retain the caller's task scope and never inherit a human authorization.
+    const taskActor = async (taskId) => {
+      if (effectiveRole !== "executor") return l2Actor(job, l2SessionId);
+      if (!callerSessionId || !agentTaskId) throw new HttpError(403, "请先绑定当前执行任务");
+      await ensureDshL3CanUpdate(service.db, l2SessionId, callerSessionId, taskId || agentTaskId);
+      return {
+        ...l2Actor(job, l2SessionId),
+        authorizedByUserId: null,
+        statusActorType: undefined,
+        statusActorId: undefined,
+      };
+    };
     const event = await query(
       service.db,
       "INSERT INTO agent_events(message_id,agent_session_id,agent_task_id,tool,status,input) VALUES(?,?,?,?,'running',?)",
@@ -460,7 +414,7 @@ export function createAgentTools(
         result = await inspectIterationTask(
           service.db,
           z.string().uuid().parse(args.taskId),
-          l2Actor(job, l2SessionId),
+          await taskActor(args.taskId),
         );
       } else if (name === "update_task") {
         const taskId = z.string().uuid().parse(args.taskId);
@@ -504,7 +458,7 @@ export function createAgentTools(
         result = await reassignTask(
           service.db,
           z.string().uuid().parse(args.taskId),
-          l2Actor(job, l2SessionId),
+          await taskActor(args.taskId),
           {
             type: z.enum(["human_member", "l2_session"]).parse(args.targetType),
             id: z.string().uuid().parse(args.targetId),
@@ -513,7 +467,7 @@ export function createAgentTools(
         );
       } else if (name === "resolve_task_rejection") {
         const taskId = z.string().uuid().parse(args.taskId);
-        const actor = l2Actor(job, l2SessionId);
+        const actor = await taskActor(taskId);
         const action = z.enum(["acknowledge", "reopen"]).parse(args.action);
         result =
           action === "acknowledge"
@@ -528,7 +482,7 @@ export function createAgentTools(
         result = await recoverAbnormalTask(
           service.db,
           z.string().uuid().parse(args.taskId),
-          l2Actor(job, l2SessionId),
+          await taskActor(args.taskId),
           {
             action: z.enum(["restart", "cancel", "clear_binding"]).parse(args.action),
             title: z.string().trim().min(1).max(240).optional().parse(args.title),
@@ -550,7 +504,7 @@ export function createAgentTools(
         result = await askTaskQuestion(
           service.db,
           taskId,
-          l2Actor(job, l2SessionId),
+          await taskActor(taskId),
           z.string().trim().min(1).max(4000).parse(args.question),
           target.source_user_id,
           job.message_id,
@@ -565,6 +519,7 @@ export function createAgentTools(
           job.message_id,
         );
       } else if (name === "create_task") {
+        const actor = await taskActor();
         const taskType = z.enum(["assist_l2", "formal"]).parse(args.taskType);
         const targetType =
           taskType === "assist_l2"
@@ -575,13 +530,13 @@ export function createAgentTools(
         result = await createTask(service.db, {
           projectId: thread.project_id,
           originThreadId: job.thread_id,
-          sourceType: args.sourceType || "human_member",
-          sourceUserId: args.sourceUserId || job.author_id,
+          sourceType: effectiveRole === "executor" ? "task" : args.sourceType || "human_member",
+          sourceUserId: effectiveRole === "executor" ? null : args.sourceUserId || job.author_id,
           sourceMessageId: args.sourceMessageId || job.message_id,
-          sourceTaskId: args.sourceTaskId || null,
-          createdByType: effectiveRole === "coordinator" ? "l2_session" : "system",
+          sourceTaskId: effectiveRole === "executor" ? agentTaskId : args.sourceTaskId || null,
+          createdByType: "l2_session",
           createdById: l2SessionId || job.message_id,
-          authorizedByUserId: l2Actor(job, l2SessionId).authorizedByUserId,
+          authorizedByUserId: actor.authorizedByUserId,
           taskType,
           title: z.string().trim().min(1).max(240).parse(args.title),
           goal: z.string().trim().min(1).max(20000).parse(args.goal),
@@ -600,7 +555,7 @@ export function createAgentTools(
           targetType,
           targetId,
         });
-        // Harness create_task auto-spawns L3 in-process (same window as dsh_l3).
+        // Harness create_task auto-spawns 子 Agent in-process (same window as dsh_l3).
         // Attach the launch prompt so the tool can startContinuable without another round-trip.
         if (result?.needsDispatch && result.id) {
           const launch = await l3LaunchPrompt(service.db, result.id);
@@ -613,7 +568,7 @@ export function createAgentTools(
           }
         }
       } else if (name === "bind_task_l3") {
-        if (!l2SessionId) throw new HttpError(409, "当前没有可绑定的 L2 会话");
+        if (!l2SessionId) throw new HttpError(409, "当前没有可绑定的 小祥 会话");
         const taskId = z.string().uuid().parse(args.taskId);
         const childSessionId = z.string().uuid().parse(args.childSessionId);
         result = await bindDshL3Execution(service.db, l2SessionId, childSessionId, taskId);
@@ -692,8 +647,7 @@ export function createAgentTools(
                 args.before,
               );
       } else if (name === "update_iteration_context") {
-        if (effectiveRole !== "coordinator")
-          throw new HttpError(403, "只有当前迭代调度角色可以更新背景与目标");
+        if (effectiveRole === "executor") await taskActor();
         const data = z
           .object({
             background: z.string().max(20000).optional(),
@@ -747,8 +701,6 @@ export function createAgentTools(
               throw new HttpError(403, "文档不属于当前项目");
             result = await captureDocumentPreview(service, user, versionId);
           } else {
-            if (effectiveRole !== "executor")
-              throw new HttpError(403, "只有子 Agent 可以截图沙箱 HTML");
             const sandbox = await getSandbox(service.db, sandboxScope, progress);
             const relative = z.string().min(1).max(240).parse(args.path);
             await safeRemotePath(sandbox, root, relative);
@@ -832,9 +784,6 @@ export function createAgentTools(
           summary: sharedBefore?.summary || summary,
         };
       } else if (MINIPROGRAM_TOOL_NAMES.includes(name)) {
-        if (effectiveRole !== "executor" && !MINIPROGRAM_READ_TOOLS.includes(name)) {
-          throw new HttpError(403, "只有子 Agent 可以写入小程序源码或触发小程序编译");
-        }
         const runtime = await requireMiniprogramWorkspace(service, thread.project_id);
         await progress(label);
         if (name === "miniprogram_list_source") {
@@ -866,7 +815,7 @@ export function createAgentTools(
             },
             workflow: {
               operatingModel:
-                "Cothread 是小程序与配套 Admin 的云开发工作台：人类用自然语言提出目标，L2 负责拆解和验收，子 Agent 通过本组工具读写源码、部署 development、预览并提交生产发布申请。子 Agent 不应把步骤重新交回人类，也不应绕过源码持久化直接在宿主机临时修改结果。",
+                "Cothread 是小程序与配套 Admin 的云开发工作台：人类用自然语言提出目标，小祥负责拆解和验收，子 Agent 通过本组工具读写源码、部署 development、预览并提交生产发布申请。子 Agent 不应把步骤重新交回人类，也不应绕过源码持久化直接在宿主机临时修改结果。",
               rule: "业务运行时直连 CloudBase；共序服务端只负责源码、配置、发布和管理面操作。",
               development: {
                 miniProgram:

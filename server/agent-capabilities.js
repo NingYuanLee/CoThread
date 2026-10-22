@@ -7,8 +7,17 @@ import {
   pluginManagementLevel,
 } from "../dsh-layer/cothread-plugin-registry.mjs";
 
-const levels = ["l1", "l2", "l3"];
-const levelSchema = z.enum(levels);
+const storedLevels = ["l1", "l2", "l3"];
+const managementLevels = ["l1", "l2"];
+const levelSchema = z.enum(storedLevels);
+
+function storedSkillLevel(agentLevel) {
+  return agentLevel === "l3" ? "l2" : agentLevel;
+}
+
+function skillLevelsFor(level) {
+  return level === "l1" ? ["l1"] : ["l2", "l3"];
+}
 const skillInput = z
   .object({
     name: z.string().trim().min(1).max(120),
@@ -27,7 +36,7 @@ const skillView = (row) => ({
   id: row.id,
   name: row.name,
   description: row.description,
-  agentLevel: row.agent_level,
+  agentLevel: storedSkillLevel(row.agent_level),
   prompt: row.prompt,
   source: "custom",
   enabled: !!Number(row.enabled),
@@ -40,11 +49,11 @@ const skillView = (row) => ({
 
 export async function adminPluginManagement(service, user) {
   await requireAdmin(service, user, "plugins");
-  let assembledByLevel = Object.fromEntries(levels.map((level) => [level, null]));
+  let assembledByLevel = Object.fromEntries(managementLevels.map((level) => [level, null]));
   try {
     const { dshComposition } = await import("./dsh-runtime-config.js");
     assembledByLevel = Object.fromEntries(
-      levels.map((level) => [
+      managementLevels.map((level) => [
         level,
         new Set(
           dshComposition(level)
@@ -64,9 +73,11 @@ export async function adminPluginManagement(service, user) {
     ORDER BY FIELD(s.agent_level,'l1','l2','l3'),s.updated_at DESC,s.id`,
   );
   return {
-    levels: levels.map((level) => ({
+    levels: managementLevels.map((level) => ({
       ...pluginManagementLevel(level, assembledByLevel[level]),
-      skills: skills.filter((row) => row.agent_level === level).map(skillView),
+      skills: skills
+        .filter((row) => skillLevelsFor(level).includes(row.agent_level))
+        .map(skillView),
     })),
   };
 }
@@ -74,6 +85,7 @@ export async function adminPluginManagement(service, user) {
 export async function createPromptSkill(service, user, input) {
   await requireAdmin(service, user, "plugins.create");
   const data = skillInput.parse(input);
+  const agentLevel = storedSkillLevel(data.agentLevel);
   return transaction(service.db, async (db) => {
     const skillId = randomUUID();
     await query(
@@ -85,7 +97,7 @@ export async function createPromptSkill(service, user, input) {
         skillId,
         data.name,
         data.description,
-        data.agentLevel,
+        agentLevel,
         data.prompt,
         data.enabled,
         user.id,
@@ -97,7 +109,7 @@ export async function createPromptSkill(service, user, input) {
       `INSERT INTO agent_prompt_skill_versions
       (skill_id,version,name,description,agent_level,prompt,enabled,source,created_by)
       VALUES(?,1,?,?,?,?,?,'custom',?)`,
-      [skillId, data.name, data.description, data.agentLevel, data.prompt, data.enabled, user.id],
+      [skillId, data.name, data.description, agentLevel, data.prompt, data.enabled, user.id],
     );
     await query(
       db,
@@ -107,7 +119,7 @@ export async function createPromptSkill(service, user, input) {
         randomUUID(),
         user.id,
         skillId,
-        JSON.stringify({ agentLevel: data.agentLevel, name: data.name, enabled: data.enabled }),
+        JSON.stringify({ agentLevel, name: data.name, enabled: data.enabled }),
       ],
     );
     return { id: skillId, version: 1 };
@@ -118,6 +130,7 @@ export async function updatePromptSkill(service, user, skillId, input) {
   await requireAdmin(service, user, "plugins.update");
   z.string().uuid().parse(skillId);
   const data = skillInput.parse(input);
+  const agentLevel = storedSkillLevel(data.agentLevel);
   return transaction(service.db, async (db) => {
     const [current] = await query(
       db,
@@ -133,7 +146,7 @@ export async function updatePromptSkill(service, user, skillId, input) {
       [
         data.name,
         data.description,
-        data.agentLevel,
+        agentLevel,
         data.prompt,
         data.enabled,
         version,
@@ -151,7 +164,7 @@ export async function updatePromptSkill(service, user, skillId, input) {
         version,
         data.name,
         data.description,
-        data.agentLevel,
+        agentLevel,
         data.prompt,
         data.enabled,
         user.id,
@@ -166,7 +179,7 @@ export async function updatePromptSkill(service, user, skillId, input) {
         user.id,
         skillId,
         JSON.stringify({
-          agentLevel: data.agentLevel,
+          agentLevel,
           name: data.name,
           enabled: data.enabled,
           version,
@@ -199,11 +212,12 @@ export async function archivePromptSkill(service, user, skillId) {
 export async function loadAgentCapabilityProfile(db, levelValue) {
   const level = levelSchema.parse(levelValue);
   const profile = capabilityProfile(level);
+  const owners = skillLevelsFor(level);
   const skills = await query(
     db,
     `SELECT id,name,prompt FROM agent_prompt_skills
-    WHERE agent_level=? AND source='custom' AND enabled=TRUE AND archived_at IS NULL ORDER BY created_at,id`,
-    [level],
+    WHERE agent_level IN (${owners.map(() => "?").join(",")}) AND source='custom' AND enabled=TRUE AND archived_at IS NULL ORDER BY created_at,id`,
+    owners,
   );
   const activeSkills = skills;
   const instructions = activeSkills.length

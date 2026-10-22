@@ -180,7 +180,7 @@ export const ROOT_GUIDES: Record<(typeof LIBRARY_ROOT_KINDS)[number], string> = 
 export const CODE_LIBRARY_ROOT_ID = "code-library-root";
 export const CODE_LIBRARY_ROOT_NAME = "连接器";
 export const CODE_LIBRARY_GUIDE =
-  "连接器是平台能力；勾选的仓库是本项目范围。此处仅展示连接与范围状态，不浏览源码内容。鉴权走平台连接器令牌。L2 与子 Agent 在需要时可只读查阅。";
+  "连接器是平台能力；勾选的仓库是本项目范围。此处仅展示连接与范围状态，不浏览源码内容。鉴权走平台连接器令牌。小祥与子 Agent 在需要时可只读查阅。";
 
 export type CodeConnectorState = {
   kind: "github" | "yunxiao";

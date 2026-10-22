@@ -1,6 +1,6 @@
 const L3_DISPATCH_STATUSES = ["pending_assignment", "queued", "running", "waiting"];
 const L3_DISPATCH_HINT =
-  "任务已定，create_task 会尽量在同一次调用内启动并绑定 L3。见到 execution_agent_id 之前不要对成员说已经派人干活。";
+  "任务已定，create_task 会尽量在同一次调用内启动并绑定 子 Agent。见到 execution_agent_id 之前不要对成员说已经派人干活。";
 
 export function parseDocumentRefs(value) {
   if (value == null || value === "") return [];

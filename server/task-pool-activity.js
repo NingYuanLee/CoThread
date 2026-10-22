@@ -1,6 +1,6 @@
 import { query } from "./db.js";
 
-/** Sticky L3 nickname index: first appearance on the thread keeps 大娃/二娃/… forever. */
+/** Sticky 子 Agent nickname index: first appearance on the thread keeps 大娃/二娃/… forever. */
 export async function stickyL3ExecutorIds(conn, originThreadId) {
   if (!originThreadId) return [];
   const rows = await query(

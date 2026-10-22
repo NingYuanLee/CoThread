@@ -191,7 +191,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
     )
       throw new HttpError(409, "已结束任务不能取消");
     const interruptedAgentId = task.execution_agent_id || null;
-    const reason = update.reason || (action === "cancel" ? "L2 取消任务" : "L2 重新安排任务");
+    const reason = update.reason || (action === "cancel" ? "小祥 取消任务" : "小祥 重新安排任务");
     const dispatchL3 =
       task.target_type === "l2_session" ||
       task.execution_agent_type === "dsh_l3" ||
@@ -279,7 +279,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       conn,
       `UPDATE agent_task_execution_runs SET status='cancelled',error=?,
       finished_at=UTC_TIMESTAMP(3) WHERE task_id=? AND status IN ('queued','running','waiting')`,
-      [action === "cancel" ? "任务被 L2 取消" : "任务由 L2 重新安排", taskId],
+      [action === "cancel" ? "任务被 小祥 取消" : "任务由 小祥 重新安排", taskId],
     );
     if (action === "cancel") {
       await query(
@@ -330,7 +330,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       await query(
         conn,
         `UPDATE agent_tasks SET title=COALESCE(?,title),goal=COALESCE(?,goal),constraints=IF(?,?,constraints),
-        status='awaiting_acceptance',progress='L2 已重新安排，等待目标成员确认',result_summary=NULL,
+        status='awaiting_acceptance',progress='小祥 已重新安排，等待目标成员确认',result_summary=NULL,
         claimed_by_type=NULL,claimed_by_id=NULL,accepted_by_type=NULL,accepted_by_id=NULL,accepted_at=NULL,
         execution_mode=NULL,execution_agent_type=NULL,execution_agent_id=NULL,finished_at=NULL,revision=revision+1 WHERE id=?`,
         [

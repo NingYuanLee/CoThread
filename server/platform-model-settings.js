@@ -194,10 +194,10 @@ export async function savePlatformModelSettings(db, user, body, deps = {}) {
   let knowledgeCipher = existing?.knowledge_api_key_ciphertext || null;
   const submittedKnowledgeKey = input.knowledgeApiKey.trim();
   if (input.knowledgeOverride) {
-    knowledgeBaseUrl = httpUrl(input.knowledgeBaseUrl, "L1 模型地址");
-    knowledgeModel = modelName(input.knowledgeModel, "L1 模型");
+    knowledgeBaseUrl = httpUrl(input.knowledgeBaseUrl, "老翁 模型地址");
+    knowledgeModel = modelName(input.knowledgeModel, "老翁 模型");
     knowledgeEffort = input.knowledgeReasoningEffort;
-    if (!knowledgeEffort) throw new HttpError(400, "请选择 L1 模型的推理强度");
+    if (!knowledgeEffort) throw new HttpError(400, "请选择 老翁 模型的推理强度");
     const knowledgeKey =
       submittedKnowledgeKey ||
       (existing?.knowledge_api_key_ciphertext
@@ -205,10 +205,10 @@ export async function savePlatformModelSettings(db, user, body, deps = {}) {
             decrypt,
             existing.knowledge_api_key_ciphertext,
             AAD_KNOWLEDGE,
-            "L1 模型密钥",
+            "老翁 模型密钥",
           )
         : "");
-    if (!knowledgeKey) throw new HttpError(400, "L1 独立覆盖需要填写 API 密钥");
+    if (!knowledgeKey) throw new HttpError(400, "老翁 独立覆盖需要填写 API 密钥");
     knowledge = routeFrom(knowledgeBaseUrl, knowledgeModel, knowledgeEffort, knowledgeKey);
     knowledgeCipher = submittedKnowledgeKey
       ? await encrypt(knowledgeKey, AAD_KNOWLEDGE)

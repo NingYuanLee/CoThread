@@ -1,7 +1,12 @@
 import { recordMessageActivity } from "./thread-activity.js";
 import { attachMessageQuotes } from "./message-quotes.js";
 import { markThreadRead as saveThreadRead, threadReadSummary } from "./thread-reads.js";
-import { AGENT_L2_MEMBER, AGENT_MEMBER, mentionsAgent } from "../shared/agent-member.js";
+import {
+  AGENT_L1_PROFILE,
+  AGENT_L2_MEMBER,
+  AGENT_MEMBER,
+  mentionsAgent,
+} from "../shared/agent-member.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
@@ -226,10 +231,10 @@ export async function conversationMembersOperation(service, user, projectId, mem
   if (memberId === AGENT_MEMBER.id)
     return {
       id: AGENT_MEMBER.id,
-      name: AGENT_MEMBER.name,
+      name: AGENT_L1_PROFILE.nickname,
       role: AGENT_MEMBER.role,
       kind: "l1",
-      identity_tags: AGENT_MEMBER.identity_tags,
+      identity_tags: ["知识管理员"],
     };
   if (memberId === AGENT_L2_MEMBER.id)
     return {

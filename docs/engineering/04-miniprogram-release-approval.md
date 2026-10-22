@@ -11,30 +11,30 @@ Admin 与服务端的生产发布属于生产动作，实现为**申请 → 批�
 
 走审批的目标（后续新增发布目标默认都要走）：
 
-| 目标                                               | 是否走审批                                      |
-| -------------------------------------------------- | ----------------------------------------------- |
-| `wechat_upload`（上传微信体验版）                  | 否，有项目写权限即可直接上传                    |
-| `cloudbase_static`（Admin 生产版静态托管）         | 是                                              |
-| `wechat_preview`（生成开发版预览二维码）           | 否，保持现状                                    |
-| CloudBase 数据面写操作（文档增删改、文件上传删除） | 否，保持现状（开发环境；生产环境尚未开放给 L3） |
+| 目标                                               | 是否走审批                                            |
+| -------------------------------------------------- | ----------------------------------------------------- |
+| `wechat_upload`（上传微信体验版）                  | 否，有项目写权限即可直接上传                          |
+| `cloudbase_static`（Admin 生产版静态托管）         | 是                                                    |
+| `wechat_preview`（生成开发版预览二维码）           | 否，保持现状                                          |
+| CloudBase 数据面写操作（文档增删改、文件上传删除） | 否，保持现状（开发环境；生产环境尚未开放给 子 Agent） |
 
 ## 角色
 
 | 角色                 | 能做什么                                                             |
 | -------------------- | -------------------------------------------------------------------- |
-| L3（Agent）          | 创建申请、查看自己申请的状态、撤回自己的申请；**不能批准、不能执行** |
+| 子 Agent（Agent）    | 创建申请、查看自己申请的状态、撤回自己的申请；**不能批准、不能执行** |
 | 项目负责人（owner）  | 批准、拒绝、取消、直接执行自己发起的申请                             |
 | 项目成员（非 owner） | 只读查看申请与记录                                                   |
 | 只读成员（viewer）   | 只读                                                                 |
 
-**不能自我批准**：申请人与批准人不能是同一个账号——**L3 发起的申请只能由 owner 批准**。
+**不能自我批准**：申请人与批准人不能是同一个账号——**子 Agent 发起的申请只能由 owner 批准**。
 owner 自己发起的申请允许自我批准（见下方已确认决定 ②）。
 
 ## 状态机
 
 ```
                     ┌─────────────┐
-   L3/owner 提交 ──► │   pending   │
+   子 Agent/owner 提交 ──► │   pending   │
                     └──────┬──────┘
                            │
         ┌──────────────────┼──────────────────┬───────────────┐
@@ -107,16 +107,16 @@ CREATE TABLE IF NOT EXISTS miniprogram_release_requests (
 
 ## 接口
 
-| 方法与路径                                                               | 权限          | 说明                                       |
-| ------------------------------------------------------------------------ | ------------- | ------------------------------------------ |
-| `POST /api/projects/:id/miniprogram/release-requests`                    | 成员（含 L3） | 提交申请，返回申请详情                     |
-| `GET /api/projects/:id/miniprogram/release-requests`                     | 成员          | 列表（含状态、申请人、源码哈希是否已过期） |
-| `GET /api/projects/:id/miniprogram/release-requests/:requestId`          | 成员          | 详情                                       |
-| `POST /api/projects/:id/miniprogram/release-requests/:requestId/approve` | **owner**     | 批准并执行                                 |
-| `POST /api/projects/:id/miniprogram/release-requests/:requestId/reject`  | **owner**     | 拒绝（需理由）                             |
-| `POST /api/projects/:id/miniprogram/release-requests/:requestId/cancel`  | 申请人        | 撤回自己的申请                             |
+| 方法与路径                                                               | 权限                | 说明                                       |
+| ------------------------------------------------------------------------ | ------------------- | ------------------------------------------ |
+| `POST /api/projects/:id/miniprogram/release-requests`                    | 成员（含 子 Agent） | 提交申请，返回申请详情                     |
+| `GET /api/projects/:id/miniprogram/release-requests`                     | 成员                | 列表（含状态、申请人、源码哈希是否已过期） |
+| `GET /api/projects/:id/miniprogram/release-requests/:requestId`          | 成员                | 详情                                       |
+| `POST /api/projects/:id/miniprogram/release-requests/:requestId/approve` | **owner**           | 批准并执行                                 |
+| `POST /api/projects/:id/miniprogram/release-requests/:requestId/reject`  | **owner**           | 拒绝（需理由）                             |
+| `POST /api/projects/:id/miniprogram/release-requests/:requestId/cancel`  | 申请人              | 撤回自己的申请                             |
 
-L3 工具（`miniprogram_development` 能力内新增两个）：
+子 Agent 工具（`miniprogram_development` 能力内新增两个）：
 
 - `miniprogram_submit_release` → 提交申请，返回申请 ID 与当前状态；**不执行发布**
 - `miniprogram_release_status` → 查询自己申请的状态
@@ -137,13 +137,13 @@ L3 工具（`miniprogram_development` 能力内新增两个）：
 | 批准时目标已不存在（如环境配置被删） | 申请转 `failed`，日志记录原因                                                                                   |
 | 同一目标已有 `pending`               | 409 + 已有申请 ID                                                                                               |
 | 非 owner 调批准/拒绝                 | 403                                                                                                             |
-| 申请人自我批准                       | L3 申请必须由 owner 批准；owner 自己发起的申请可以自批                                                          |
+| 申请人自我批准                       | 子 Agent 申请必须由 owner 批准；owner 自己发起的申请可以自批                                                    |
 | 执行中进程崩溃                       | 申请停留在 `executing`；下次读取超过 30 分钟未更新则转 `failed`，提示可能已上传、请到微信后台核实（不自动重试） |
 | 撤回后的申请                         | 终态，不可再批准                                                                                                |
 
 ## 已确认的决定
 
 1. **仅生产发布走审批**：Admin 静态托管与服务端云函数需要审批；微信体验版由有写权限的成员直接上传，提审与正式发布由微信后台控制。
-2. **允许 owner 自我批准**：符合当前单实例小团队定位。L3 发起的申请仍然只能由 owner 批准，
-   L3 自己永远不能批准自己（或任何）申请。
+2. **允许 owner 自我批准**：符合当前单实例小团队定位。子 Agent 发起的申请仍然只能由 owner 批准，
+   子 Agent 自己永远不能批准自己（或任何）申请。
 3. **有效期 24 小时**：`pending` 超过 24 小时转 `expired`，需重新提交。

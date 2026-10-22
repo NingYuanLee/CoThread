@@ -205,7 +205,7 @@ export async function saveMiniprogramPublishableKey(
   return publishableKey;
 }
 
-/** Update the L3-controlled mini-program phone-auth policy for one environment. */
+/** Update the 子 Agent-controlled mini-program phone-auth policy for one environment. */
 export async function setMiniprogramPhoneAuthForAgent(
   db,
   projectId,

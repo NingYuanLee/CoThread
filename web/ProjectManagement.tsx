@@ -119,6 +119,7 @@ export function ProjectManagement({
     (member) => member.kind === "l1" || member.id === AGENT_MEMBER.id,
   ) || {
     ...AGENT_MEMBER,
+    name: AGENT_L1_PROFILE.nickname,
     kind: "l1" as const,
     nickname: AGENT_L1_PROFILE.nickname,
     title: AGENT_L1_PROFILE.title,
@@ -134,11 +135,11 @@ export function ProjectManagement({
   const visibleHumans = humans.filter(matchesSearch);
   const agentSearch = memberSearch.toLowerCase();
   const l1Visible =
-    `${projectAgent.nickname || AGENT_L1_PROFILE.nickname} ${projectAgent.name} L1 老翁 ${AGENT_LEVEL_LABELS.l1}`
+    `${projectAgent.nickname || AGENT_L1_PROFILE.nickname} ${projectAgent.name} 老翁 ${AGENT_LEVEL_LABELS.l1}`
       .toLowerCase()
       .includes(agentSearch);
   const l2Visible =
-    `${iterationAgent.nickname || AGENT_L2_MEMBER.nickname} ${iterationAgent.name} L2 ${AGENT_LEVEL_LABELS.l2}`
+    `${iterationAgent.nickname || AGENT_L2_MEMBER.nickname} ${iterationAgent.name} 小祥 ${AGENT_LEVEL_LABELS.l2}`
       .toLowerCase()
       .includes(agentSearch);
   const agentVisibleCount = Number(l1Visible) + Number(l2Visible);
@@ -300,9 +301,9 @@ export function ProjectManagement({
               <>
                 <div className="settings-content-heading">
                   <p>
-                    项目成员含人类成员与 Agent（{AGENT_LEVEL_LABELS.l1}、{AGENT_LEVEL_LABELS.l2}
-                    ）。本地执行器隶属于人类成员，不单独列成员；{AGENT_LEVEL_LABELS.l3} 隶属于
-                    L2，也不单独列。L2 是项目内同一角色，各迭代只是独立会话。
+                    项目成员含人类成员、{AGENT_LEVEL_LABELS.l1}和{AGENT_LEVEL_LABELS.l2}
+                    。本地执行器隶属于人类成员，不单独列成员；{AGENT_LEVEL_LABELS.l3}
+                    继承小祥的插件和 Skills，也不单独列成员。小祥在各迭代使用独立会话。
                   </p>
                 </div>
                 <SlideSwitch
@@ -393,11 +394,11 @@ export function ProjectManagement({
                         <div className="member-copy">
                           <div className="member-name-row">
                             <strong>{projectAgent.nickname || AGENT_L1_PROFILE.nickname}</strong>
-                            <RoleBadge role="L1" />
+                            <RoleBadge role="Agent" />
                             <RoleBadge role="项目知识库" />
                           </div>
                           <small className="member-user-id">
-                            {projectAgent.title || AGENT_L1_PROFILE.title}；对用户仍显示为小祥
+                            {projectAgent.title || AGENT_L1_PROFILE.title}
                           </small>
                           {projectAgent.motto ? (
                             <small className="member-motto">{projectAgent.motto}</small>
@@ -418,7 +419,7 @@ export function ProjectManagement({
                         <div className="member-copy">
                           <div className="member-name-row">
                             <strong>{iterationAgent.name}</strong>
-                            <RoleBadge role="L2" />
+                            <RoleBadge role="Agent" />
                             <RoleBadge role="任务调度" />
                           </div>
                           <small className="member-user-id">
@@ -426,7 +427,7 @@ export function ProjectManagement({
                             ；项目内同一角色，各迭代使用独立会话
                           </small>
                           <small className="member-motto">
-                            L3 隶属于本层执行，不单独列成员
+                            子 Agent 与小祥共用插件和 Skills，不单独列为成员
                             {iterationAgent.motto ? ` · ${iterationAgent.motto}` : ""}
                           </small>
                         </div>

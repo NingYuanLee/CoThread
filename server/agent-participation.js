@@ -88,7 +88,7 @@ export function deferSilenceProgress(reason) {
   return "已保持沉默";
 }
 
-/** Structured payload for non-L2 participation judgments (visible in dev logs, not in chat). */
+/** Structured payload for non-小祥 participation judgments (visible in dev logs, not in chat). */
 export function participationDecisionLogPayload({
   messageId,
   threadId,
@@ -615,9 +615,9 @@ export async function composeOpportunisticParticipation(
 }
 
 /**
- * Persist light-path (non-harness) participation usage, timing, and L2 trajectory events.
+ * Persist light-path (non-harness) participation usage, timing, and 小祥 trajectory events.
  * Uses the thread's agent_sessions.session_id when present; otherwise creates a UUID binder
- * so events still appear under「二级小祥轨迹」without opening a DSH harness.
+ * so events still appear under「小祥轨迹」without opening a DSH harness.
  */
 export async function persistOpportunisticParticipationArtifacts(
   db,

@@ -268,6 +268,9 @@ export async function projectOperation(
       {
         ...AGENT_MEMBER,
         kind: "l1",
+        name: AGENT_L1_PROFILE.nickname,
+        avatar: AGENT_L1_PROFILE.avatar,
+        identity_tags: ["知识管理员"],
         nickname: AGENT_L1_PROFILE.nickname,
         title: AGENT_L1_PROFILE.title,
         display_avatar: AGENT_L1_PROFILE.avatar,

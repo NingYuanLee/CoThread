@@ -35,15 +35,15 @@ const REASONING_EFFORT: Record<string, string> = {
 
 const ACTOR_TYPE: Record<string, string> = {
   human_member: "人类成员",
-  l2_session: "迭代级Agent（L2）",
+  l2_session: "小祥",
   dsh_l3: "子 Agent",
   human_self: "成员本人",
   human_local_executor: "本地执行器",
 };
 
 export const AGENT_LEVEL_LABELS = {
-  l1: "项目级Agent（L1）",
-  l2: "迭代级Agent（L2）",
+  l1: "老翁",
+  l2: "小祥",
   l3: "子 Agent",
 } as const;
 

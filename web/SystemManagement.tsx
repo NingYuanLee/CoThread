@@ -57,7 +57,7 @@ type AdminAccount = {
     image?: string | null;
   }[];
 };
-type AgentLevel = "l1" | "l2" | "l3";
+type AgentLevel = "l1" | "l2";
 type PromptSkill = {
   id: string;
   name: string;
@@ -155,7 +155,7 @@ const dateTime = (value: string) => utcDate(value).toLocaleString("zh-CN");
 function SystemPromptContent({ level }: { level: PluginLevel }) {
   return (
     <>
-      <p>{level.systemPrompt?.description || "当前层级尚未登记系统提示词。"}</p>
+      <p>{level.systemPrompt?.description || "当前成员尚未登记系统提示词。"}</p>
       {level.systemPrompt && (
         <>
           <pre className="admin-prompt">{level.systemPrompt.prompt}</pre>
@@ -269,7 +269,7 @@ function PluginInventory({
                 </td>
                 <td>
                   {plugin.callable ? "可调用" : "不可调用"}
-                  <small>{plugin.exposed ? "本层已暴露" : "本层未暴露"}</small>
+                  <small>{plugin.exposed ? "该成员可用" : "该成员不可用"}</small>
                 </td>
                 <td>
                   <button onClick={() => setDetail(plugin)}>详情</button>
@@ -887,7 +887,7 @@ export function SystemManagement({
           />
           <SelectField
             dense
-            label="Agent 层级"
+            label="成员"
             value={agentLevel}
             onChange={(value) => {
               setAgentLevel(value as AgentLevel);
@@ -895,9 +895,8 @@ export function SystemManagement({
               setPage(1);
             }}
             options={[
-              { value: "l1", label: "L1" },
-              { value: "l2", label: "L2" },
-              { value: "l3", label: "子 Agent" },
+              { value: "l1", label: "老翁" },
+              { value: "l2", label: "小祥" },
             ]}
           />
           <SelectField
@@ -940,6 +939,7 @@ export function SystemManagement({
             重置
           </button>
         </form>
+        <p className="muted">配置对象只有老翁和小祥。子 Agent 使用与小祥相同的插件和 Skills。</p>
         {pluginType === "skill" && can("plugins.create") && (
           <div className="admin-list-actions">
             <button

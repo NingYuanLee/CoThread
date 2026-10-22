@@ -23,7 +23,7 @@ export function closeEndedTaskRuns(conn, taskId, taskStatus) {
     conn,
     `UPDATE agent_task_execution_runs r
     JOIN agent_tasks t ON t.id=r.task_id
-    SET r.error=IF(r.executor_type='dsh_l3' AND r.status='queued',COALESCE(r.error,'任务已结束，L3 未启动'),r.error),
+    SET r.error=IF(r.executor_type='dsh_l3' AND r.status='queued',COALESCE(r.error,'任务已结束，子 Agent 未启动'),r.error),
         r.status=IF(r.executor_type='dsh_l3' AND r.status='queued','cancelled',IF(r.executor_type='dsh_l3' AND ?='cancelled','interrupted',?)),
         r.progress=COALESCE(r.progress,t.progress),
         r.result_summary=COALESCE(r.result_summary,t.result_summary),
@@ -39,7 +39,7 @@ export async function repairMisclosedHumanExecutionRuns(conn) {
     conn,
     `SELECT DISTINCT t.id FROM agent_tasks t
     JOIN agent_task_execution_runs r ON r.task_id=t.id
-    WHERE r.executor_type IN ('human_self','human_local_executor') AND r.error='任务已结束，L3 未启动'
+    WHERE r.executor_type IN ('human_self','human_local_executor') AND r.error IN ('任务已结束，L3 未启动','任务已结束，子 Agent 未启动')
       AND t.status IN ('completed','failed','cancelled','rejected','abandoned','superseded') ORDER BY t.id`,
   );
   let repaired = 0;
@@ -54,7 +54,7 @@ export async function repairMisclosedHumanExecutionRuns(conn) {
         r.result_summary=COALESCE(r.result_summary,t.result_summary),
         r.finished_at=COALESCE(r.finished_at,t.finished_at,UTC_TIMESTAMP(3))
     WHERE r.executor_type IN ('human_self','human_local_executor') AND r.status='cancelled'
-      AND r.error='任务已结束，L3 未启动' AND t.status IN ('completed','failed') AND t.id=?`,
+      AND r.error IN ('任务已结束，L3 未启动','任务已结束，子 Agent 未启动') AND t.status IN ('completed','failed') AND t.id=?`,
         [task.id],
       );
       const cancelled = await query(
@@ -63,7 +63,7 @@ export async function repairMisclosedHumanExecutionRuns(conn) {
     JOIN agent_tasks t ON t.id=r.task_id
     SET r.error=NULL
     WHERE r.executor_type IN ('human_self','human_local_executor')
-      AND r.error='任务已结束，L3 未启动' AND t.status IN ('cancelled','rejected','abandoned','superseded') AND t.id=?`,
+      AND r.error IN ('任务已结束，L3 未启动','任务已结束，子 Agent 未启动') AND t.status IN ('cancelled','rejected','abandoned','superseded') AND t.id=?`,
         [task.id],
       );
       return (completed.affectedRows || 0) + (cancelled.affectedRows || 0);
@@ -85,7 +85,7 @@ export async function reconcileEndedTaskRuns(db) {
     `SELECT r.id FROM agent_task_execution_runs r
     JOIN agent_tasks t ON t.id=r.task_id
     WHERE r.executor_type IN ('human_self','human_local_executor')
-      AND r.error='任务已结束，L3 未启动'
+      AND r.error IN ('任务已结束，L3 未启动','任务已结束，子 Agent 未启动')
       AND ((r.status='cancelled' AND t.status IN ('completed','failed'))
         OR t.status IN ('cancelled','rejected','abandoned','superseded'))`,
   );

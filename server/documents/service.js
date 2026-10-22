@@ -174,7 +174,7 @@ export class DocumentsService {
       WHERE project_id=? AND scope='project' AND status IN ('queued','running') LIMIT 1`,
       [projectId],
     );
-    if (job) fail(409, "一级小祥正在整理正式文件，正式文件区暂时不可操作");
+    if (job) fail(409, "老翁正在整理正式文件，正式文件区暂时不可操作");
   }
   async assertDocumentScopeAvailable(db, projectId, folderId = null) {
     if (!folderId) {

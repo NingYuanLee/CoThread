@@ -29,7 +29,7 @@ export function taskDetailTimeline(
           event.event_type === "transferred" &&
           event.from_target_type === "l2_session" &&
           event.to_target_type === "l2_session" &&
-          /L2 会话已更新/.test(event.reason || "")
+          /(?:L2|小祥) 会话已更新/.test(event.reason || "")
         ),
     )
     .map((event) => ({

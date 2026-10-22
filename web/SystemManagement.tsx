@@ -12,6 +12,7 @@ import { ProjectImageField } from "./ProjectSettings";
 import { TextField } from "./TextField";
 import { TextAreaField } from "./TextAreaField";
 import { SelectField } from "./SelectField";
+import { visibleAgentText } from "../shared/agent-label.js";
 
 type Api = (path: string, data?: unknown, method?: string) => Promise<any>;
 type AdminProject = {
@@ -158,7 +159,7 @@ function SystemPromptContent({ level }: { level: PluginLevel }) {
       <p>{level.systemPrompt?.description || "当前成员尚未登记系统提示词。"}</p>
       {level.systemPrompt && (
         <>
-          <pre className="admin-prompt">{level.systemPrompt.prompt}</pre>
+          <pre className="admin-prompt">{visibleAgentText(level.systemPrompt.prompt)}</pre>
           <h4>注入来源</h4>
           <div className="admin-table-wrap">
             <table className="admin-table">
@@ -171,7 +172,7 @@ function SystemPromptContent({ level }: { level: PluginLevel }) {
                 {level.systemPrompt.sourceFiles.map((source) => (
                   <tr key={source}>
                     <td>
-                      <code>{source}</code>
+                      <code>{visibleAgentText(source)}</code>
                     </td>
                   </tr>
                 ))}
@@ -206,7 +207,7 @@ function SystemPromptContent({ level }: { level: PluginLevel }) {
                 </td>
                 <td>
                   {variable.description}
-                  <small>{variable.source}</small>
+                  <small>{visibleAgentText(variable.source)}</small>
                 </td>
               </tr>
             ))}
@@ -256,7 +257,7 @@ function PluginInventory({
               <tr key={plugin.key}>
                 <td>
                   <strong>{plugin.name}</strong>
-                  <small>{plugin.packageName}</small>
+                  <small>{visibleAgentText(plugin.packageName)}</small>
                 </td>
                 <td className="admin-nowrap">{plugin.version}</td>
                 <td>
@@ -303,10 +304,10 @@ function PluginInventory({
       {detail && (
         <AdminDialog title={detail.name} onClose={() => setDetail(null)}>
           <p>
-            {detail.pluginId} · {detail.kind.toUpperCase()} · v{detail.version}
+            {visibleAgentText(detail.pluginId)} · {detail.kind.toUpperCase()} · v{detail.version}
           </p>
           <p>
-            <code>{detail.packageName}</code>
+            <code>{visibleAgentText(detail.packageName)}</code>
           </p>
           <h4>提供的能力</h4>
           <div className="admin-table-wrap">
@@ -324,7 +325,9 @@ function PluginInventory({
                   <tr key={capability.key}>
                     <td>
                       {capability.name}
-                      <small>{capability.toolNames.join("、")}</small>
+                      <small>
+                        {capability.toolNames.map((name) => visibleAgentText(name)).join("、")}
+                      </small>
                     </td>
                     <td>{capability.type.toUpperCase()}</td>
                     <td>

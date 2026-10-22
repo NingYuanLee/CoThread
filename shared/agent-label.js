@@ -269,3 +269,25 @@ export function normalizeL1Task(task) {
 export function l1TaskLabel(task) {
   return L1_TASK_LABELS[task] || (task ? String(task) : "");
 }
+
+const VISIBLE_AGENT_TEXT = [
+  ["cothread-l1-tool-policy", "老翁工具策略"],
+  ["cothread-l1-policy", "老翁工具策略"],
+  ["dsh-layer/l1-tools.mjs", "老翁工具策略"],
+  ["server/l1-agent.js", "老翁维护"],
+  ["COTHREAD_SKILLS_BY_LEVEL.l1", "老翁 Skill 配置"],
+  ["COTHREAD_SKILLS_BY_LEVEL.l2", "小祥 Skill 配置"],
+  ["COTHREAD_SKILLS_BY_LEVEL.l3", "子 Agent Skill 配置"],
+  ["runL1Task", "老翁维护任务"],
+  ["assist_l2", "辅助任务"],
+  ["dsh_l3", "子 Agent 调度"],
+  ["l2_session", "小祥"],
+  ["l1_session", "老翁"],
+];
+
+/** 管理页展示用。不改任务类型、工具名或历史兼容键。 */
+export function visibleAgentText(value) {
+  let text = String(value ?? "");
+  for (const [from, to] of VISIBLE_AGENT_TEXT) text = text.split(from).join(to);
+  return text;
+}

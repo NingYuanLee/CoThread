@@ -149,14 +149,83 @@ test("dev server proxy base and pattern agree with the reserved route", () => {
   );
 });
 
+/** 只写调用方给出的配置，不补凭据，也不写连接测试时间。 */
+async function seedConfigured(database, config, name = "后台预览") {
+  const user = { id: randomUUID(), kind: "session" };
+  await query(
+    database.db,
+    "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+    [user.id, `${user.id}@test.com`, "负责人"],
+  );
+  const service = new Service(database.db);
+  const project = await service.createProject(user, { name });
+  await saveProjectMiniProgramConfig(service, user, project.id, config);
+  return { user, service, project };
+}
+
+async function devServerRows(database, projectId) {
+  return query(database.db, "SELECT id FROM miniprogram_dev_servers WHERE project_id=?", [
+    projectId,
+  ]);
+}
+
 test("registering a dev server needs an enabled workspace", async () => {
   const database = await testDatabase();
   try {
-    const { user, service, project } = await seed(database, { enabled: false });
+    const { user, service, project } = await seedConfigured(database, {
+      appId: "",
+      cloudbaseEnvs: {},
+    });
     await assert.rejects(
       () => registerMiniprogramDevServer(service, user, project.id, { port: 5173 }),
       (error) => error.status === 409 && /请先配置/.test(error.message),
     );
+    assert.equal((await devServerRows(database, project.id)).length, 0);
+  } finally {
+    await database.close();
+  }
+});
+
+test("registering a dev server rejects an AppID without a CloudBase development environment", async () => {
+  const database = await testDatabase();
+  try {
+    const { user, service, project } = await seedConfigured(database, {
+      appId: VALID_APP_ID,
+      cloudbaseEnvs: {},
+    });
+    await assert.rejects(
+      () => registerMiniprogramDevServer(service, user, project.id, { port: 5173 }),
+      (error) => error.status === 409 && /尚未配置开发环境的 CloudBase 环境 ID/.test(error.message),
+    );
+    assert.equal((await devServerRows(database, project.id)).length, 0);
+  } finally {
+    await database.close();
+  }
+});
+
+test("registering a dev server does not require a connection test when AppID and development are saved", async () => {
+  const database = await testDatabase();
+  try {
+    const { user, service, project } = await seedConfigured(database, {
+      appId: VALID_APP_ID,
+      cloudbaseEnvs: { development: { envId: "dev-env-admin" } },
+    });
+    const [config] = await query(
+      database.db,
+      "SELECT last_verified_at FROM project_miniprogram_config WHERE project_id=?",
+      [project.id],
+    );
+    assert.equal(config.last_verified_at, null);
+    const registered = await registerMiniprogramDevServer(service, user, project.id, {
+      port: 5191,
+    });
+    assert.equal(registered.status, "starting");
+    assert.equal(registered.port, 5191);
+    assert.equal(registered.environment, "development");
+    assert.equal(registered.envId, "dev-env-admin");
+    const rows = await devServerRows(database, project.id);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].id, registered.id);
   } finally {
     await database.close();
   }

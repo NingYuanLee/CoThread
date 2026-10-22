@@ -343,18 +343,15 @@ test("a credential failure is still recorded as a failed deployment", async () =
         spaFallback: true,
       },
     });
-    await saveProjectMiniProgramSecret(service, owner, project.id, "cloudbase_credential", {
-      // 凭据"存在但不可用"：工作区就绪判定只看有没有，具体缺什么由 provider 侧报。
-      value: JSON.stringify({ secretId: "AKIDnocred0000000000" }),
-    });
-    await markMiniProgramWorkspaceVerified(service, owner, project.id);
+    // 只有 SecretId、没有 SecretKey 的凭据在保存时就被拒绝，不能落库。
+    // 这里不写凭据，发布才会在管理面客户端处因缺少 CloudBase 凭据失败，并留下记录。
+    // 工作区启用由 AppID 派生，不补验证时间，也不让夹具写入一套可用密钥。
     await ensureMiniprogramWorkspace(database.db, project.id);
     await put(database.db, owner, project.id, "index.html", "<html></html>");
 
     await assert.rejects(
       () => deployAdminHosting(service, owner, project.id, { target: "cloudbase_static" }),
-      // 就绪判定只要求"凭据存在"，不可用的凭据在 provider 侧按 400 拒（缺失才是 409）。
-      (error) => [400, 409].includes(error.status) && /CloudBase 凭据/.test(error.message),
+      (error) => error.status === 409 && /尚未配置 CloudBase 凭据/.test(error.message),
     );
     // The failure must be visible in the publish history, not silently dropped.
     const [row] = await query(
@@ -363,7 +360,7 @@ test("a credential failure is still recorded as a failed deployment", async () =
       [project.id],
     );
     assert.equal(row.status, "failed");
-    assert.match(row.log, /CloudBase 凭据/);
+    assert.match(row.log, /尚未配置 CloudBase 凭据/);
   } finally {
     resetCloudbaseClients();
     await database.close();

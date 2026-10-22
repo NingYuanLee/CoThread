@@ -179,6 +179,7 @@ test("wechat upload key file stores the file name, not key material", async () =
   const database = await testDatabase();
   try {
     const { user, service, project } = await seed(database);
+    await saveProjectMiniProgramConfig(service, user, project.id, { appId: VALID_APP_ID });
     const saved = await saveProjectMiniProgramSecret(
       service,
       user,
@@ -357,10 +358,11 @@ test("admin deploy config is normalized and validated", async () => {
       () =>
         saveProjectMiniProgramConfig(service, user, project.id, {
           enabled: true,
+          appId: VALID_APP_ID,
           cloudbaseEnvs: { development: { envId: "dev-env" } },
           adminDeploy: { target: "cloudbase_static", hostingPath: "/../etc" },
         }),
-      (error) => error.status === 400,
+      (error) => error.status === 400 && /托管路径/.test(error.message),
     );
   } finally {
     await database.close();

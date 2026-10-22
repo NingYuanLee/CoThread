@@ -50,18 +50,20 @@ async function seed(database, { withKey = true, withAppId = true } = {}) {
   await saveProjectMiniProgramConfig(service, user, project.id, {
     enabled: true,
     appId: withAppId ? VALID_APP_ID : null,
-    cloudbaseEnvs: {
-      development: { envId: "dev-env-wx" },
-      production: { envId: "prod-env-wx" },
-    },
+    // 未保存 AppID 时不能绑定云环境，缺 AppID 的负向夹具保持空配置。
+    cloudbaseEnvs: withAppId
+      ? {
+          development: { envId: "dev-env-wx" },
+          production: { envId: "prod-env-wx" },
+        }
+      : {},
   });
   if (withKey) {
     await saveProjectMiniProgramSecret(service, user, project.id, "wechat_upload_key", {
       value: PRIVATE_KEY,
     });
   }
-  // 工作区"已启用"= AppID + development 环境 + 两个凭据 + 连接测试通过。
-  // 只在夹具本来就意图构造"可用工作区"时补齐；缺 key / 缺 AppID 的负向用例保持不变。
+  // 正向夹具补齐云凭据供环境相关测试使用；缺 key / 缺 AppID 的负向用例不补。
   if (withKey && withAppId) {
     await saveProjectMiniProgramSecret(service, user, project.id, "cloudbase_credential", {
       secretId: "AKIDwechcitest0000000",
@@ -220,7 +222,7 @@ test("preview needs AppID and a private key, with actionable errors", async () =
           {},
           { allowUnverified: true },
         ),
-      (error) => error.status === 409 && /上传私钥/.test(error.message),
+      (error) => error.status === 409 && /代码上传密钥/.test(error.message),
     );
     const noApp = await seed(database, { withAppId: false });
     await assert.rejects(

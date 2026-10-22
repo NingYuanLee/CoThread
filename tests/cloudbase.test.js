@@ -802,12 +802,15 @@ test("management clients are cached per environment and cleared on reset", async
   });
   try {
     const { user, service, project } = await seed(database);
+    // Saving the credential lists environments through this factory. That call
+    // is not the cached management client listCloudbaseCollections reuses.
+    const baseline = created;
     await listCloudbaseCollections(service, user, project.id, {});
     await listCloudbaseCollections(service, user, project.id, {});
-    assert.equal(created, 1, "the same environment reuses one manager");
+    assert.equal(created, baseline + 1, "the same environment reuses one manager");
     resetCloudbaseClients(project.id);
     await listCloudbaseCollections(service, user, project.id, {});
-    assert.equal(created, 2, "reset discards cached managers too");
+    assert.equal(created, baseline + 2, "reset discards cached managers too");
   } finally {
     resetCloudbaseClients();
     setCloudbaseManagerFactory(null);

@@ -497,7 +497,7 @@ export async function readMiniprogramPreviewMeta(service, user, projectId) {
     enabled: runtime.enabled,
     sourceHash: snapshot.sourceHash,
     environment: runtimeConfig?.environment || "development",
-    envId: runtimeConfig?.cloudbase.envId || null,
+    envId: runtimeConfig?.cloudbase?.envId || null,
     sourceFileCount: (snapshot.areas.miniprogram_source?.files || []).length,
     build: build ? redactBuild(build) : null,
     runnable: Boolean(current && build?.output_version_id && runtime.appId),

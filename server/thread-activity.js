@@ -75,17 +75,70 @@ export function interruptRunningAgentEvents(db) {
   );
 }
 
+const INTERRUPTED_SANDBOX_OUTPUT = "服务重启，执行结果未确认；沙箱按超时回收。";
+
+// runs_side_* 已在 sandbox_runs 变更时写 threads。同一条语句再写 threads 会得到
+// ER_CANT_UPDATE_USED_TABLE_IN_SF_OR_TRG。结束状态与活跃时间放在同一事务里，
+// 活跃时间取本次 finished_at；失败则回到保存点，不留下已结束但未推进排序的记录。
+// 不改归档确认那条 UPDATE：冻结仍由 status、快照、archived_at、last_active_at 一次写入。
+async function sandboxActivity(db, fn) {
+  const run = async (conn) => {
+    await conn.query("SAVEPOINT sandbox_activity");
+    try {
+      const result = await fn(conn);
+      await conn.query("RELEASE SAVEPOINT sandbox_activity");
+      return result;
+    } catch (error) {
+      try {
+        await conn.query("ROLLBACK TO SAVEPOINT sandbox_activity");
+        await conn.query("RELEASE SAVEPOINT sandbox_activity");
+      } catch (rollbackError) {
+        const code = rollbackError?.code;
+        console.error("Sandbox activity savepoint rollback failed", {
+          code: typeof code === "string" ? code : undefined,
+        });
+      }
+      throw error;
+    }
+  };
+  return typeof db.getConnection === "function" ? transaction(db, run) : run(db);
+}
+
 export function finishSandboxRun(db, runId, { status, output, progress }) {
-  return query(
-    db,
-    "UPDATE sandbox_runs r JOIN threads t ON t.id=r.thread_id SET r.status=?,r.output=?,r.progress=?,r.finished_at=UTC_TIMESTAMP(3),t.last_active_at=GREATEST(t.last_active_at,UTC_TIMESTAMP(3)) WHERE r.id=?",
-    [status, output, progress, runId],
-  );
+  return sandboxActivity(db, async (conn) => {
+    const result = await query(
+      conn,
+      "UPDATE sandbox_runs SET status=?,output=?,progress=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?",
+      [status, output, progress, runId],
+    );
+    await query(
+      conn,
+      "UPDATE threads t JOIN sandbox_runs r ON r.id=? AND r.thread_id=t.id AND r.finished_at IS NOT NULL SET t.last_active_at=GREATEST(t.last_active_at,r.finished_at)",
+      [runId],
+    );
+    return result;
+  });
 }
 
 export function interruptRunningSandboxRuns(db) {
-  return query(
-    db,
-    "UPDATE sandbox_runs r JOIN threads t ON t.id=r.thread_id SET r.status='interrupted',r.output='服务重启，执行结果未确认；沙箱按超时回收。',r.finished_at=UTC_TIMESTAMP(3),t.last_active_at=GREATEST(t.last_active_at,UTC_TIMESTAMP(3)) WHERE r.status='running'",
-  );
+  return sandboxActivity(db, async (conn) => {
+    const running = await query(
+      conn,
+      "SELECT id FROM sandbox_runs WHERE status='running' FOR UPDATE",
+    );
+    if (!running.length) return { affectedRows: 0 };
+    const ids = running.map((row) => row.id);
+    const marks = ids.map(() => "?").join(",");
+    const result = await query(
+      conn,
+      `UPDATE sandbox_runs SET status='interrupted',output=?,finished_at=UTC_TIMESTAMP(3) WHERE status='running' AND id IN (${marks})`,
+      [INTERRUPTED_SANDBOX_OUTPUT, ...ids],
+    );
+    await query(
+      conn,
+      `UPDATE threads t JOIN (SELECT thread_id, MAX(finished_at) finished_at FROM sandbox_runs WHERE id IN (${marks}) AND finished_at IS NOT NULL GROUP BY thread_id) r ON r.thread_id=t.id SET t.last_active_at=GREATEST(t.last_active_at,r.finished_at)`,
+      ids,
+    );
+    return result;
+  });
 }

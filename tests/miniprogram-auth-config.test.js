@@ -60,6 +60,7 @@ test("login config defaults expose readiness and keep default methods enabled", 
       appId: null,
       cloudbaseEnvId: null,
       publishableKey: null,
+      serverApiKeyConfigured: false,
       readiness: {
         ready: false,
         missing: ["小程序 AppID", "development CloudBase 环境"],

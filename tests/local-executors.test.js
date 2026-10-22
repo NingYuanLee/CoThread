@@ -69,7 +69,7 @@ async function pair(user, name, allowGitPush = false) {
   assert.equal(paired.status, 201);
   const connector = { id: paired.body.id, token: paired.body.token, name };
   const bound = await request(
-    `/connector/projects/${projectId}`,
+    `/local-executor/projects/${projectId}`,
     { allowGitPush },
     connector,
     "PUT",
@@ -125,7 +125,7 @@ test("group local tasks target one online member and require that member's appro
   assert.match(authorization.body.verificationUrl, /localExecutorAuthorization=/);
   assert.equal(
     (
-      await request(`/connector/v2/authorizations/${randomUUID()}/poll`, {
+      await request(`/local-executor/v2/authorizations/${randomUUID()}/poll`, {
         pollToken: authorization.body.pollToken,
       })
     ).status,
@@ -133,7 +133,7 @@ test("group local tasks target one online member and require that member's appro
   );
   assert.equal(
     (
-      await request(`/connector/v2/authorizations/${authorization.body.id}/poll`, {
+      await request(`/local-executor/v2/authorizations/${authorization.body.id}/poll`, {
         pollToken: "x".repeat(32),
       })
     ).status,
@@ -159,9 +159,12 @@ test("group local tasks target one online member and require that member's appro
   );
   assert.equal(authorized.status, 200);
   assert.match(authorized.body.token, /^ctc_/);
-  const consumed = await request(`/connector/v2/authorizations/${authorization.body.id}/poll`, {
-    pollToken: authorization.body.pollToken,
-  });
+  const consumed = await request(
+    `/local-executor/v2/authorizations/${authorization.body.id}/poll`,
+    {
+      pollToken: authorization.body.pollToken,
+    },
+  );
   assert.equal(consumed.status, 409);
 
   const deniedAuthorization = await request("/local-executor/v2/authorizations", {
@@ -179,7 +182,7 @@ test("group local tasks target one online member and require that member's appro
   );
   assert.equal(
     (
-      await request(`/connector/authorizations/${deniedAuthorization.body.id}/poll`, {
+      await request(`/local-executor/authorizations/${deniedAuthorization.body.id}/poll`, {
         pollToken: deniedAuthorization.body.pollToken,
       })
     ).status,
@@ -198,7 +201,7 @@ test("group local tasks target one online member and require that member's appro
   assert.equal(expiredUpdate.affectedRows, 1);
   assert.equal(
     (
-      await request(`/connector/authorizations/${expiredAuthorization.body.id}/poll`, {
+      await request(`/local-executor/authorizations/${expiredAuthorization.body.id}/poll`, {
         pollToken: expiredAuthorization.body.pollToken,
       })
     ).status,
@@ -225,7 +228,7 @@ test("group local tasks target one online member and require that member's appro
   assert.equal(
     (
       await request(
-        `/connector/projects/${secondProjectId}`,
+        `/local-executor/projects/${secondProjectId}`,
         {
           allowGitPush: false,
         },
@@ -311,25 +314,35 @@ test("group local tasks target one online member and require that member's appro
   );
 
   const claims = await Promise.all([
-    request(`/connector/tasks/${task.id}/claim`, {}, fallbackConnector),
-    request(`/connector/tasks/${task.id}/claim`, {}, fallbackConnector),
+    request(`/local-executor/tasks/${task.id}/claim`, {}, fallbackConnector),
+    request(`/local-executor/tasks/${task.id}/claim`, {}, fallbackConnector),
   ]);
   assert.equal(claims.filter((result) => result.status === 200).length, 1);
   const claimed = claims.find((result) => result.status === 200).body.task;
   assert.equal(claimed.id, task.id);
   assert.ok(claimed.leaseToken);
   assert.equal(
-    (await request(`/connector/tasks/${task.id}/control`, { action: "pause" }, fallbackConnector))
-      .body.status,
+    (
+      await request(
+        `/local-executor/tasks/${task.id}/control`,
+        { action: "pause" },
+        fallbackConnector,
+      )
+    ).body.status,
     "paused",
   );
   assert.equal(
-    (await request(`/connector/tasks/${task.id}/control`, { action: "resume" }, fallbackConnector))
-      .body.status,
+    (
+      await request(
+        `/local-executor/tasks/${task.id}/control`,
+        { action: "resume" },
+        fallbackConnector,
+      )
+    ).body.status,
     "running",
   );
   const wrongConnector = await request(
-    `/connector/tasks/${task.id}`,
+    `/local-executor/tasks/${task.id}`,
     {
       leaseToken: claimed.leaseToken,
       status: "completed",
@@ -339,10 +352,10 @@ test("group local tasks target one online member and require that member's appro
     "PATCH",
   );
   assert.equal(wrongConnector.status, 409);
-  const stoppedByExecutor = await request(`/connector-tasks/${task.id}/cancel`, {}, fallback);
+  const stoppedByExecutor = await request(`/local-executor-tasks/${task.id}/cancel`, {}, fallback);
   assert.equal(stoppedByExecutor.status, 200);
   const cancelledHeartbeat = await request(
-    `/connector/tasks/${task.id}`,
+    `/local-executor/tasks/${task.id}`,
     {
       leaseToken: claimed.leaseToken,
       status: "running",
@@ -360,7 +373,7 @@ test("group local tasks target one online member and require that member's appro
     [task.id],
   );
   const notified = await request(
-    `/connector/tasks/${task.id}/control`,
+    `/local-executor/tasks/${task.id}/control`,
     { action: "notify" },
     fallbackConnector,
   );
@@ -413,7 +426,7 @@ test("group local tasks target one online member and require that member's appro
     directCreated.body.id,
   ]);
   const directClaim = await request(
-    `/connector/tasks/${directTask.id}/claim`,
+    `/local-executor/tasks/${directTask.id}/claim`,
     {},
     fallbackConnector,
   );
@@ -421,7 +434,7 @@ test("group local tasks target one online member and require that member's appro
   assert.equal(
     (
       await request(
-        `/connector/tasks/${directTask.id}`,
+        `/local-executor/tasks/${directTask.id}`,
         {
           leaseToken: directClaim.body.task.leaseToken,
           status: "completed",
@@ -448,12 +461,12 @@ test("group local tasks target one online member and require that member's appro
     notifiedTask.response_message_id,
     directCompletion.id,
   ]);
-  await db.query(
-    await readFile(
-      new URL("../migrations/035_connector_result_author.sql", import.meta.url),
-      "utf8",
-    ),
+  const legacyAuthorRepair = await readFile(
+    new URL("../migrations/035_connector_result_author.sql", import.meta.url),
+    "utf8",
   );
+  // 114 已将表改名；仍验证 035 的作者纠正逻辑，不重写已应用的迁移文件。
+  await db.query(legacyAuthorRepair.replace(/\bconnector_tasks\b/g, "local_executor_tasks"));
   const correctedMessages = await query(db, "SELECT author_id FROM messages WHERE id IN (?,?)", [
     notifiedTask.response_message_id,
     directCompletion.id,
@@ -526,13 +539,13 @@ test("local_executors renew expired paused leases for interactive sessions and f
   assert.equal(listed.body[0].projectId, projectId);
   assert.equal(listed.body[0].agentKind, null);
 
-  const claimed = await request(`/connector/tasks/${task.id}/claim`, {}, developerConnector);
+  const claimed = await request(`/local-executor/tasks/${task.id}/claim`, {}, developerConnector);
   assert.equal(claimed.status, 200);
   assert.equal(claimed.body.task.status, "running");
   assert.equal(claimed.body.task.resumed, false);
   const firstLease = claimed.body.task.leaseToken;
   const running = await request(
-    `/connector/tasks/${task.id}`,
+    `/local-executor/tasks/${task.id}`,
     {
       leaseToken: firstLease,
       status: "running",
@@ -545,7 +558,7 @@ test("local_executors renew expired paused leases for interactive sessions and f
   assert.equal(running.status, 200);
   // 窗口关闭：连接器回写 paused，服务端保留 agentKind。
   const paused = await request(
-    `/connector/tasks/${task.id}`,
+    `/local-executor/tasks/${task.id}`,
     {
       leaseToken: firstLease,
       status: "paused",
@@ -569,7 +582,7 @@ test("local_executors renew expired paused leases for interactive sessions and f
 
   // 租约仍有效时不能重领；过期后同一连接器可重领，其他连接器不可。
   assert.equal(
-    (await request(`/connector/tasks/${task.id}/claim`, {}, developerConnector)).status,
+    (await request(`/local-executor/tasks/${task.id}/claim`, {}, developerConnector)).status,
     409,
   );
   await query(
@@ -578,10 +591,10 @@ test("local_executors renew expired paused leases for interactive sessions and f
     [task.id],
   );
   assert.equal(
-    (await request(`/connector/tasks/${task.id}/claim`, {}, bystanderConnector)).status,
+    (await request(`/local-executor/tasks/${task.id}/claim`, {}, bystanderConnector)).status,
     409,
   );
-  const reclaimed = await request(`/connector/tasks/${task.id}/claim`, {}, developerConnector);
+  const reclaimed = await request(`/local-executor/tasks/${task.id}/claim`, {}, developerConnector);
   assert.equal(reclaimed.status, 200);
   assert.equal(reclaimed.body.task.status, "paused");
   assert.equal(reclaimed.body.task.resumed, true);
@@ -594,7 +607,7 @@ test("local_executors renew expired paused leases for interactive sessions and f
   assert.equal(
     (
       await request(
-        `/connector/tasks/${task.id}`,
+        `/local-executor/tasks/${task.id}`,
         {
           leaseToken: firstLease,
           status: "paused",
@@ -608,7 +621,7 @@ test("local_executors renew expired paused leases for interactive sessions and f
 
   // 「继续」后回到 running，「完成并通知」直接 completed 并发出结案消息。
   const resumed = await request(
-    `/connector/tasks/${task.id}`,
+    `/local-executor/tasks/${task.id}`,
     {
       leaseToken: reclaimed.body.task.leaseToken,
       status: "running",
@@ -619,7 +632,7 @@ test("local_executors renew expired paused leases for interactive sessions and f
   );
   assert.equal(resumed.body.status, "running");
   const completed = await request(
-    `/connector/tasks/${task.id}`,
+    `/local-executor/tasks/${task.id}`,
     {
       leaseToken: reclaimed.body.task.leaseToken,
       status: "completed",
@@ -767,8 +780,8 @@ test("abandoning then retrying on the connector reopens the pool task and every 
 
   // 本机放弃：连接器记录取消，任务池进入已放弃。
   assert.equal(
-    (await request(`/connector/tasks/${task.id}/control`, { action: "abandon" }, connector)).body
-      .status,
+    (await request(`/local-executor/tasks/${task.id}/control`, { action: "abandon" }, connector))
+      .body.status,
     "cancelled",
   );
   assert.equal(
@@ -777,7 +790,7 @@ test("abandoning then retrying on the connector reopens the pool task and every 
   );
   // 重试：任务池任务重新待开始并新开执行记录。
   assert.equal(
-    (await request(`/connector/tasks/${task.id}/control`, { action: "retry" }, connector)).body
+    (await request(`/local-executor/tasks/${task.id}/control`, { action: "retry" }, connector)).body
       .status,
     "queued",
   );
@@ -788,10 +801,10 @@ test("abandoning then retrying on the connector reopens the pool task and every 
   assert.equal(reopened.body.executionRuns[0].status, "queued");
   assert.equal(reopened.body.executionRuns[1].status, "cancelled");
 
-  const claimed = await request(`/connector/tasks/${task.id}/claim`, {}, connector);
+  const claimed = await request(`/local-executor/tasks/${task.id}/claim`, {}, connector);
   assert.equal(claimed.status, 200);
   const completed = await request(
-    `/connector/tasks/${task.id}`,
+    `/local-executor/tasks/${task.id}`,
     {
       leaseToken: claimed.body.task.leaseToken,
       status: "completed",
@@ -859,7 +872,7 @@ test("reconnecting the same account keeps project bindings so a retried task can
   const [task] = await query(db, "SELECT id FROM local_executor_tasks WHERE agent_task_id=?", [
     created.body.id,
   ]);
-  const claimed = await request(`/connector/tasks/${task.id}/claim`, {}, connector);
+  const claimed = await request(`/local-executor/tasks/${task.id}/claim`, {}, connector);
   assert.equal(claimed.status, 200);
 
   const pairing = await request("/local-executors/pairings", {}, developer);
@@ -882,7 +895,7 @@ test("reconnecting the same account keeps project bindings so a retried task can
   );
 
   const retry = await request(
-    `/connector/tasks/${task.id}/control`,
+    `/local-executor/tasks/${task.id}/control`,
     { action: "retry" },
     reconnected,
   );
@@ -898,7 +911,7 @@ test("reconnecting the same account keeps project bindings so a retried task can
   await query(db, "DELETE FROM local_executor_projects WHERE local_executor_id=?", [
     reconnected.id,
   ]);
-  const reclaimed = await request(`/connector/tasks/${task.id}/claim`, {}, reconnected);
+  const reclaimed = await request(`/local-executor/tasks/${task.id}/claim`, {}, reconnected);
   assert.equal(reclaimed.status, 200);
   assert.equal(reclaimed.body.task.resumed, false);
   const rebound = await request("/local-executor/projects", undefined, reconnected);
@@ -914,7 +927,7 @@ test("connector heartbeat stores computer name and OS version", async () => {
   ]);
   const connector = await pair(owner, "旧电脑名");
   const heartbeat = await request(
-    `/connector/projects?version=0.2.0&name=${encodeURIComponent("DESKTOP-ABC")}&platform=${encodeURIComponent("Windows 11（10.0.26200）")}`,
+    `/local-executor/projects?version=0.2.0&name=${encodeURIComponent("DESKTOP-ABC")}&platform=${encodeURIComponent("Windows 11（10.0.26200）")}`,
     undefined,
     connector,
   );

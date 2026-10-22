@@ -79,47 +79,56 @@ beforeEach(async () => {
 });
 
 after(async () => {
-  await new Promise((resolve) => server.close(resolve));
-  await query(db, "DELETE FROM notifications");
-  for (const projectId of projectIds) {
-    await query(db, "DELETE FROM project_change_logs WHERE project_id=?", [projectId]);
-    await query(
-      db,
-      "DELETE r FROM reviews r JOIN versions v ON v.id=r.version_id JOIN artifacts a ON a.id=v.artifact_id WHERE a.project_id=?",
-      [projectId],
-    );
-    await query(
-      db,
-      "DELETE s FROM sandbox_runs s JOIN threads t ON t.id=s.thread_id WHERE t.project_id=?",
-      [projectId],
-    );
-    await query(
-      db,
-      "DELETE m FROM messages m JOIN threads t ON t.id=m.thread_id WHERE t.project_id=?",
-      [projectId],
-    );
-    await query(
-      db,
-      "DELETE v FROM versions v JOIN artifacts a ON a.id=v.artifact_id WHERE a.project_id=?",
-      [projectId],
-    );
-    await query(db, "DELETE FROM artifacts WHERE project_id=?", [projectId]);
-    await query(db, "UPDATE document_folders SET parent_id=NULL WHERE project_id=?", [projectId]);
-    await query(db, "DELETE FROM document_folders WHERE project_id=?", [projectId]);
-    await query(db, "DELETE FROM threads WHERE project_id=?", [projectId]);
-    await query(db, "DELETE FROM members WHERE project_id=?", [projectId]);
-    await query(db, "DELETE FROM projects WHERE id=?", [projectId]);
+  try {
+    if (server) await new Promise((resolve) => server.close(resolve));
+    if (!db) return;
+    await query(db, "DELETE FROM notifications");
+    for (const projectId of projectIds) {
+      await query(db, "DELETE FROM project_change_logs WHERE project_id=?", [projectId]);
+      await query(
+        db,
+        "DELETE r FROM reviews r JOIN versions v ON v.id=r.version_id JOIN artifacts a ON a.id=v.artifact_id WHERE a.project_id=?",
+        [projectId],
+      );
+      const threadIds = (
+        await query(db, "SELECT id FROM threads WHERE project_id=?", [projectId])
+      ).map((row) => row.id);
+      // 删除语句不能引用 threads：runs_side_ad 会更新 threads。
+      if (threadIds.length)
+        await query(
+          db,
+          `DELETE FROM sandbox_runs WHERE thread_id IN (${threadIds.map(() => "?").join(",")})`,
+          threadIds,
+        );
+      await query(
+        db,
+        "DELETE m FROM messages m JOIN threads t ON t.id=m.thread_id WHERE t.project_id=?",
+        [projectId],
+      );
+      await query(
+        db,
+        "DELETE v FROM versions v JOIN artifacts a ON a.id=v.artifact_id WHERE a.project_id=?",
+        [projectId],
+      );
+      await query(db, "DELETE FROM artifacts WHERE project_id=?", [projectId]);
+      await query(db, "UPDATE document_folders SET parent_id=NULL WHERE project_id=?", [projectId]);
+      await query(db, "DELETE FROM document_folders WHERE project_id=?", [projectId]);
+      await query(db, "DELETE FROM threads WHERE project_id=?", [projectId]);
+      await query(db, "DELETE FROM members WHERE project_id=?", [projectId]);
+      await query(db, "DELETE FROM projects WHERE id=?", [projectId]);
+    }
+    for (const id of userIds) {
+      await query(db, "DELETE FROM login_logs WHERE user_id=?", [id]);
+      await query(db, "DELETE FROM account_change_logs WHERE target_user_id=? OR actor_user_id=?", [
+        id,
+        id,
+      ]);
+      await query(db, "DELETE FROM credentials WHERE user_id=?", [id]);
+      await query(db, "DELETE FROM users WHERE id=?", [id]);
+    }
+  } finally {
+    await database?.close();
   }
-  for (const id of userIds) {
-    await query(db, "DELETE FROM login_logs WHERE user_id=?", [id]);
-    await query(db, "DELETE FROM account_change_logs WHERE target_user_id=? OR actor_user_id=?", [
-      id,
-      id,
-    ]);
-    await query(db, "DELETE FROM credentials WHERE user_id=?", [id]);
-    await query(db, "DELETE FROM users WHERE id=?", [id]);
-  }
-  await database.close();
 });
 test("authentication, project scope, origin validation, and viewer permissions", async () => {
   assert.equal((await request("/projects")).status, 401);

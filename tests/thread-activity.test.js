@@ -64,6 +64,7 @@ test("an activity failure rolls back event and sandbox completion atomically", a
   const f = await fixture(),
     eventId = await event(f.message.id),
     runId = await run(f);
+  const [revision] = await query(db, "SELECT side_revision FROM threads WHERE id=?", [f.thread.id]);
   await blockActivity();
   await assert.rejects(
     () => finishAgentEvent(db, eventId, { status: "completed", output: "done" }),
@@ -83,6 +84,13 @@ test("an activity failure rolls back event and sandbox completion atomically", a
   assert.equal(r.status, "running");
   assert.equal(r.finished_at, null);
   assert.equal(r.output, null);
+  assert.equal(
+    String(
+      (await query(db, "SELECT side_revision FROM threads WHERE id=?", [f.thread.id]))[0]
+        .side_revision,
+    ),
+    String(revision.side_revision),
+  );
 });
 
 test("message and completed-event inserts roll back if their activity update fails", async () => {
@@ -116,6 +124,52 @@ test("message and completed-event inserts roll back if their activity update fai
   );
 });
 
+test("sandbox completion reuses its caller's transaction and bumps side revision once", async () => {
+  const f = await fixture();
+  const runId = await run(f);
+  const [before] = await query(db, "SELECT side_revision,last_active_at FROM threads WHERE id=?", [
+    f.thread.id,
+  ]);
+  await assert.rejects(
+    () =>
+      transaction(db, async (conn) => {
+        await finishSandboxRun(conn, runId, {
+          status: "succeeded",
+          output: "done",
+          progress: "完成",
+        });
+        const [runRow] = await query(
+          conn,
+          "SELECT status,finished_at FROM sandbox_runs WHERE id=?",
+          [runId],
+        );
+        const [thread] = await query(
+          conn,
+          "SELECT side_revision,last_active_at FROM threads WHERE id=?",
+          [f.thread.id],
+        );
+        assert.equal(runRow.status, "succeeded");
+        assert.equal(String(thread.last_active_at), String(runRow.finished_at));
+        assert.equal(Number(thread.side_revision), Number(before.side_revision) + 1);
+        throw new Error("rollback caller");
+      }),
+    /rollback caller/,
+  );
+  const [runRow] = await query(
+    db,
+    "SELECT status,finished_at,output FROM sandbox_runs WHERE id=?",
+    [runId],
+  );
+  const [after] = await query(db, "SELECT side_revision,last_active_at FROM threads WHERE id=?", [
+    f.thread.id,
+  ]);
+  assert.equal(runRow.status, "running");
+  assert.equal(runRow.finished_at, null);
+  assert.equal(runRow.output, null);
+  assert.equal(String(after.side_revision), String(before.side_revision));
+  assert.equal(String(after.last_active_at), String(before.last_active_at));
+});
+
 test("completed-event insertion reuses its caller's transaction", async () => {
   const f = await fixture();
   await assert.rejects(
@@ -141,6 +195,37 @@ test("completed-event insertion reuses its caller's transaction", async () => {
   );
 });
 
+test("a rejected sandbox activity update can be caught without committing partial completion", async () => {
+  const f = await fixture();
+  const runId = await run(f);
+  await query(db, "UPDATE threads SET last_active_at='2000-01-01' WHERE id=?", [f.thread.id]);
+  const [before] = await query(db, "SELECT side_revision FROM threads WHERE id=?", [f.thread.id]);
+  await db.query(
+    "CREATE TRIGGER qa_block_activity BEFORE UPDATE ON threads FOR EACH ROW BEGIN IF NOT (NEW.last_active_at <=> OLD.last_active_at) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='activity blocked'; END IF; END",
+  );
+  await transaction(db, async (conn) => {
+    await assert.rejects(
+      () =>
+        finishSandboxRun(conn, runId, { status: "succeeded", output: "done", progress: "完成" }),
+      /activity blocked/,
+    );
+    await query(conn, "UPDATE users SET name='事务仍可提交' WHERE id=?", [f.user.id]);
+  });
+  const [row] = await query(db, "SELECT status,finished_at,output FROM sandbox_runs WHERE id=?", [
+    runId,
+  ]);
+  assert.deepEqual(row, { status: "running", finished_at: null, output: null });
+  const [thread] = await query(db, "SELECT side_revision,last_active_at FROM threads WHERE id=?", [
+    f.thread.id,
+  ]);
+  assert.equal(String(thread.side_revision), String(before.side_revision));
+  assert.match(String(thread.last_active_at), /^2000-01-01/);
+  assert.equal(
+    (await query(db, "SELECT name FROM users WHERE id=?", [f.user.id]))[0].name,
+    "事务仍可提交",
+  );
+});
+
 test("startup cleanup advances only affected threads and preserves a later activity time", async () => {
   const f = await fixture();
   const other = await service.createThread(f.user, f.project.id, { title: "已完成记录" });
@@ -159,6 +244,15 @@ test("startup cleanup advances only affected threads and preserves a later activ
     other.id,
   ]);
   await query(db, "UPDATE threads SET last_active_at='2099-01-01' WHERE id=?", [future.id]);
+  const revisions = Object.fromEntries(
+    (
+      await query(db, "SELECT id,side_revision FROM threads WHERE id IN (?,?,?)", [
+        f.thread.id,
+        other.id,
+        future.id,
+      ])
+    ).map((row) => [row.id, row.side_revision]),
+  );
   await interruptRunningAgentEvents(db);
   const [e] = await query(
     db,
@@ -170,12 +264,25 @@ test("startup cleanup advances only affected threads and preserves a later activ
   await interruptRunningSandboxRuns(db);
   const [r] = await query(db, "SELECT status,finished_at FROM sandbox_runs WHERE id=?", [runId]);
   assert.equal(r.status, "interrupted");
-  const [updated] = await query(db, "SELECT last_active_at FROM threads WHERE id=?", [f.thread.id]);
+  const [updated] = await query(db, "SELECT last_active_at,side_revision FROM threads WHERE id=?", [
+    f.thread.id,
+  ]);
   assert.equal(String(updated.last_active_at), String(r.finished_at));
   const [idle] = await query(db, "SELECT last_active_at FROM threads WHERE id=?", [other.id]);
   assert.match(String(idle.last_active_at), /^2000-01-01/);
-  const [later] = await query(db, "SELECT last_active_at FROM threads WHERE id=?", [future.id]);
+  const [later] = await query(db, "SELECT last_active_at,side_revision FROM threads WHERE id=?", [
+    future.id,
+  ]);
   assert.match(String(later.last_active_at), /^2099-01-01/);
+  assert.equal(Number(updated.side_revision), Number(revisions[f.thread.id]) + 1);
+  assert.equal(
+    String(
+      (await query(db, "SELECT side_revision FROM threads WHERE id=?", [other.id]))[0]
+        .side_revision,
+    ),
+    String(revisions[other.id]),
+  );
+  assert.equal(Number(later.side_revision), Number(revisions[future.id]) + 1);
 });
 
 test("conditional event completion does not change a terminal event or its thread", async () => {

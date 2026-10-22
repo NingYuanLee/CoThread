@@ -1,0 +1,576 @@
+:root {
+  /* 输入类控件统一间距标准（上下堆叠） */
+  --field-gap: 12px;
+}
+
+/* 输入类控件外型组：Field + TextField / TextAreaField / SelectField。
+   材质与动效沿用 overlays.css 的公共浮层令牌，此处只定义布局与状态。 */
+
+.field {
+  box-sizing: border-box;
+  /* 边框用文字色混合：浅色主题得到浅灰线，深色主题得到浅色线，
+     避免固定 token 在深色主题下与输入框底色重合而不可见。 */
+  --field-border: color-mix(in srgb, var(--c-27362f) 20%, transparent);
+  --field-border-hover: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --field-border-focus: var(--c-70916f);
+  --field-border-error: var(--c-a3332d);
+  /* 深色主题下统一提高边框亮度（见文末 ink/night 覆盖）。 */
+  --field-label: var(--c-657369);
+  --field-text: var(--c-29382e);
+  /* 控件自身透明，透出所在容器的底色。 */
+  --field-surface: transparent;
+  /* 浮动 label 压线时用于"擦掉"边框线的遮罩色，需与容器底色一致。 */
+  --field-mask: var(--c-fff);
+  display: block;
+  /* 控件自身不设外边距，间距由容器统一提供（见 :root 的 --field-gap）。 */
+  margin: 0;
+}
+
+.field-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* 控件本体：显式重置全局 input/textarea/select 规则（style.css:99/111/118），
+   避免继承 width/border/padding/background/box-shadow 后再被覆盖时出现层叠意外。 */
+.field .field-control .field-input,
+.field .field-control .field-textarea,
+.field .field-control .field-select {
+
+  box-sizing: border-box;
+
+  display: block;
+
+  width: 100%;
+
+  min-width: 0;
+
+  margin: 0;
+
+  border: 1px solid transparent;
+
+  border-radius: var(--radius-control);
+
+  /* 输入框底色与页面背景一致，形成"凹陷"而非"白块"的观感。 */
+  background: var(--field-surface);
+
+  /* 上下对称：浮动 label 绝对定位压在外边框上，不占内部空间，
+     因此不需要预留上内边距。高度固定 36px，边框是两侧合计 1px 的发丝线。 */
+  padding: 6px 8px;
+
+  /* 统一三种控件的高度，避免下拉比输入框矮一截。 */
+  min-height: 36px;
+
+  color: var(--field-text);
+
+  font: inherit;
+
+  font-size: 13px;
+
+  line-height: 22px;
+
+  text-align: left;
+
+  vertical-align: middle;
+
+  outline: none;
+
+  box-shadow: none;
+
+  appearance: none;
+
+  -webkit-appearance: none;
+
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+
+  --stroke-radius: calc((var(--radius-control)) * 2);}
+.field-control {
+  --stroke: var(--field-border);
+  --stroke-radius: calc(var(--field-flush-radius, var(--radius-control)) * 2);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+.field-control::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 200%;
+  height: 200%;
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: solid;
+  border-color: var(--stroke);
+  border-width: 1px;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+  z-index: 1;
+}
+
+
+/* 未上浮时 label 本身就是占位。原生 placeholder 会叠在同一位置，先藏起来。 */
+.field:not(.is-floating) :is(.field-input, .field-textarea)::placeholder {
+  color: transparent;
+}
+
+.field.is-floating :is(.field-input, .field-textarea)::placeholder {
+  color: var(--field-label);
+}
+
+.field .field-control .field-textarea {
+  /* 重置全局 textarea 规则（style.css:118 的 resize/min-height/line-height）。
+     最小高度由 rows 计算（TextAreaField 注入 --field-textarea-min），未传 rows 时回退 72px。 */
+  padding: 8px;
+  resize: vertical;
+  min-height: var(--field-textarea-min, 72px);
+  line-height: 22px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* label 浮动：无内容时留在框内当占位，有内容/聚焦/报警时上移压线并缩小。
+   选择器刻意写成 .field .field-label 提高特异性（0,2,0），
+   否则会输给 style.css 里后加载的裸 label 规则（0,0,1）。 */
+.field .field-label {
+  position: absolute;
+  z-index: 2;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%) scale(1);
+  transform-origin: left center;
+  /* 重置全局 label 规则（style.css:124 的 display/margin/font-size/color，
+     以及 style.css:131 的 label input 后代规则），否则绝对定位会被下推或字号被改写。 */
+  display: inline-block;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  font-family: inherit;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 16px;
+  letter-spacing: normal;
+  text-align: left;
+  text-transform: none;
+  vertical-align: baseline;
+  color: var(--field-label);
+  pointer-events: none;
+  transition:
+    top 0.15s,
+    transform 0.15s,
+    font-size 0.15s,
+    color 0.15s;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field .field-textarea + .field-label {
+  /* textarea 高度不固定，用固定顶部偏移而非垂直居中：
+     8px padding + 1.6 行高的一半 ≈ 18px。 */
+  top: 18px;
+  transform: none;
+}
+
+.field.is-floating .field-label,
+.field.field--active .field-label,
+.field.field--error .field-label {
+  /* 压线方案：label 骑在边框线上，用与输入框同色的背景遮住线，
+     避免断口/像素差。背景色随状态变化（--field-surface）。 */
+  top: 0;
+  transform: translateY(-50%) scale(0.75);
+  transform-origin: left center;
+  color: var(--field-border-focus);
+  background: var(--field-mask);
+  padding: 0 4px;
+  left: 6px;
+}
+
+.field .field-textarea + .field-label.is-floating,
+.field.field--active .field-textarea + .field-label {
+  top: 0;
+  transform: translateY(-50%) scale(0.75);
+  transform-origin: left center;
+}
+
+.field.field--error .field-label {
+  color: var(--field-border-error);
+}
+
+/* 鼠标悬停不改变输入框背景色。 */
+.field .field-control .field-input:hover,
+.field .field-control .field-textarea:hover,
+.field .field-control .field-select:hover {
+  background: var(--field-surface);
+  border-color: transparent;
+}
+.field-control:has(.field-input:hover, .field-textarea:hover, .field-select:hover) {
+  --stroke: var(--field-border-hover);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+
+.field.field--active .field-control {
+  --stroke: var(--field-border-focus);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+.field.field--active .field-control .field-input,
+.field.field--active .field-control .field-textarea,
+.field.field--active .field-control .field-select {
+  border-color: transparent;
+
+  box-shadow: none;
+
+  background: var(--field-surface);
+}
+
+.field.field--error .field-control {
+  --stroke: var(--field-border-error);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+.field.field--error .field-control .field-input,
+.field.field--error .field-control .field-textarea,
+.field.field--error .field-control .field-select {
+  border-color: transparent;
+}
+
+.field.field--disabled .field-control .field-input,
+.field.field--disabled .field-control .field-textarea,
+.field.field--disabled .field-control .field-select {
+  background: var(--c-edf2ec);
+  color: var(--c-8a988f);
+  cursor: not-allowed;
+}
+
+.field.field--disabled {
+  --field-surface: var(--c-edf2ec);
+  --field-mask: var(--c-edf2ec);
+  /* 禁用态额外降低透明度，与可编辑态区分。 */
+  opacity: 0.85;
+}
+
+.field.field--disabled .field-label {
+  color: var(--c-8a988f);
+}
+
+.field-message {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--field-label);
+}
+
+.field-message--error {
+  color: var(--field-border-error);
+}
+
+/* 右侧自定义按钮区：相对控件定位 + 固定高度。
+   绝对定位不参与父容器高度计算，按钮字号/内边距再怎么变，
+   控件高度始终是 36px，不会被撑高或压扁。 */
+.field-action {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  height: 28px;
+  z-index: 1;
+}
+
+.field-action > :is(button, a, label) {
+  position: relative;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* 为按钮预留右侧空间，避免文字被覆盖。 */
+.field:has(.field-action) .field-control .field-input,
+.field:has(.field-action) .field-control .field-select {
+  padding-right: 104px;
+}
+
+/* 下拉触发器 */
+/* 选择器写成 .field .field-select 提高特异性（0,2,0）：
+   style.css 的 button:has(> .ui-icon) 会把 display 改成 inline-flex 并把
+   justify-content 设为 center，导致值居中显示。这里必须显式重置。 */
+.field .field-control .field-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.field-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-select-value.is-empty {
+  display: block;
+  min-height: 1em;
+}
+
+/* 下拉箭头：使用公共 chevronDown 图标，展开时旋转 180°。 */
+.field-select-arrow {
+  flex-shrink: 0;
+  color: var(--field-label);
+  transition: transform 0.18s var(--overlay-enter-easing, ease);
+}
+
+.field-select-arrow.is-open {
+  transform: rotate(180deg);
+}
+
+.field.field--disabled .field-select-arrow {
+  color: var(--c-8a988f);
+}
+
+/* 选项列表：容器材质来自 FloatingPanel，这里只排布选项 */
+.field-select-panel {
+  min-width: 140px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.field-select-option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  box-shadow: none;
+  color: var(--c-27362f);
+  font-size: 12px;
+  line-height: 17px;
+  text-align: left;
+  cursor: pointer;
+
+  --stroke-radius: calc((var(--radius-control)) * 2);}
+
+.field-select-option.is-active,
+.field-select-option:hover {
+  background: color-mix(in srgb, var(--c-27362f) 7%, transparent);
+}
+
+.field-select-option.is-selected {
+  color: var(--c-426b4b);
+  font-weight: 600;
+}
+
+.field-select-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 搜索模式：触发器本身是输入框，右侧保留箭头 */
+.field-select-search {
+  padding-right: 28px;
+  cursor: text;
+}
+
+/* 搜索模式的图标定位在输入框右侧。 */
+.field-select-arrow-search {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.field-select-arrow-search.is-open {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.field-select-empty {
+  margin: 0;
+  padding: 10px;
+  font-size: 13px;
+  color: var(--field-label);
+  text-align: center;
+}
+
+/* 间距规范（唯一标准 12px）：
+   1. grid / flex 堆叠容器用 gap: var(--field-gap, 12px)；
+   2. 普通块级容器（弹窗正文、资料页等）用相邻兄弟 margin-top: var(--field-gap, 12px)。
+   控件自身不再设置上下外边距，避免两套机制叠加。 */
+.dialog-body > .field + .field,
+.dialog-body > .field + label,
+.dialog-body > label + .field,
+.profile-fields > .field + .field,
+.profile-fields > .field + label,
+.profile-fields > label + .field,
+.profile-fields > :not(.field) + .field,
+.dialog-body > :not(.field) + .field,
+/* PasswordField 外层包了 .password-field，也要参与同一套间距标准。 */
+.field + .password-field,
+.password-field + .field,
+.password-field + .password-field {
+  margin-top: var(--field-gap, 12px);
+}
+
+.dialog-form-scroll > .field + .field,
+.dialog-form-scroll > :not(.field) + .field {
+  margin-top: var(--field-gap, 12px);
+}
+
+/* 紧凑尺寸：用于筛选栏、工具栏等 30px 高的密集区域。
+   只压缩控件本身，label 浮动比例保持不变。 */
+.field--dense .field-control .field-input,
+.field--dense .field-control .field-textarea,
+.field--dense .field-control .field-select {
+  padding: 4px 8px;
+  min-height: 30px;
+  line-height: 20px;
+}
+
+.field--dense .field-control .field-select {
+  min-height: 30px;
+}
+
+.field--dense .field-control .field-textarea {
+  min-height: var(--field-textarea-min, 56px);
+  padding: 6px 8px;
+}
+
+.field--dense:has(.field-action) .field-control .field-input {
+  padding-right: 96px;
+}
+
+/* 深色主题：深底上 20% 的线仍然偏暗，提高一档亮度保证未聚焦时也能看清边框。 */
+:root[data-theme="ink"] .field,
+:root[data-theme="night"] .field {
+  --field-border: color-mix(in srgb, var(--c-27362f) 36%, transparent);
+  --field-border-hover: color-mix(in srgb, var(--c-27362f) 54%, transparent);
+}
+
+/* label 未浮起时它在框内充当占位，此时隐藏原生 placeholder，避免两段文案重叠。 */
+/* 只有"label 落在框内充当占位"时，才需要隐藏原生 placeholder。
+   无 label 的控件必须保留 placeholder，否则空态是一片空白。 */
+.field:has(.field-label):not(.is-floating) .field-control .field-input::placeholder,
+.field:has(.field-label):not(.is-floating) .field-control .field-textarea::placeholder {
+  color: transparent;
+}
+
+/* 可清空下拉的清除按钮：不嵌套在触发器内部，绝对定位在箭头左侧。 */
+.field-select-clear {
+  position: absolute;
+  right: 26px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--field-label);
+  cursor: pointer;
+  z-index: 2;
+
+  --stroke-radius: calc((var(--radius-control)) * 2);}
+
+.field-select-clear:hover {
+  background: color-mix(in srgb, var(--c-27362f) 12%, transparent);
+  color: var(--c-27362f);
+}
+
+.field--dense .field-select-clear {
+  right: 24px;
+}
+
+/* 为清除按钮与箭头预留右侧空间。 */
+.field:has(.field-select-clear) .field-control .field-select {
+  padding-right: 46px;
+}
+
+.field--dense:has(.field-select-clear) .field-control .field-select {
+  padding-right: 42px;
+}
+
+/* 控件内左侧图标：绝对定位，不参与布局；有图标时正文与浮动 label 一起右移。 */
+.field-control .field-icon {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  color: var(--field-label);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.field:has(.field-icon) .field-control .field-input,
+.field:has(.field-icon) .field-control .field-select {
+  padding-left: 28px;
+}
+
+.field--dense:has(.field-icon) .field-control .field-input,
+.field--dense:has(.field-icon) .field-control .field-select {
+  padding-left: 26px;
+}
+
+/* label 未浮起时在框内充当占位，需要避开图标。 */
+.field:has(.field-icon):not(.is-floating) .field-label {
+  left: 28px;
+}
+
+.field--dense:has(.field-icon):not(.is-floating) .field-label {
+  left: 26px;
+}
+
+/* ===== flush 变体 =====
+   高度、字号、圆角全部由使用处的 CSS 变量决定，用于把控件嵌进既有工具栏/筛选条时
+   保持原有尺寸（25px、28px 等），也常配合"不显示 label"的用法。 */
+.field--flush .field-control .field-input,
+.field--flush .field-control .field-select,
+.field--flush .field-control .field-textarea {
+  height: var(--field-flush-height, 28px);
+  min-height: 0;
+  padding: 0 9px;
+  border-radius: var(--field-flush-radius, var(--radius-control));
+  font-size: var(--field-flush-font, 12px);
+  line-height: calc(var(--field-flush-height, 28px) - 2px);
+
+  --stroke-radius: calc((var(--field-flush-radius, var(--radius-control))) * 2);}
+
+.field--flush.field--active .field-control .field-input,
+.field--flush.field--active .field-control .field-select {
+  box-shadow: none;
+}

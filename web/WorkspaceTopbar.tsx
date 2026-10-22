@@ -202,7 +202,7 @@ export function WorkspaceTopbar({
             disabled={busy}
             onClick={showProjectPicker}
           >
-            ＋
+            <UiIcon name="plus" size={16} />
           </button>
         </nav>
         <a
@@ -243,6 +243,15 @@ export function WorkspaceTopbar({
             }
           }}
         />
+        <a
+          className="sidebar-toggle workspace-help-link workspace-space-switch"
+          href="/admin"
+          title="切换到管理空间"
+          aria-label="切换到管理空间"
+        >
+          <UiIcon name="transfer" size={14} />
+          <span>管理空间</span>
+        </a>
         <button
           className="sidebar-toggle"
           aria-label={

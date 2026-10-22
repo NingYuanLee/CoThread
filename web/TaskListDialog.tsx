@@ -1,13 +1,15 @@
+import { DialogHeader } from "./DialogHeader";
 /** 任务列表拥有筛选和选择；详情面板独立管理轮询、操作草稿和提交状态。 */
 import { TaskDetailPanel } from "./TaskDetailPanel";
 import { useEffect, useState, type ReactNode } from "react";
 import { taskViewModel } from "./task-view-model";
 
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { ModalBackdrop } from "./dialog-fx";
 
 import { TaskCreatedTime } from "./LiveClock";
 
 import { labelWorkflowStatus } from "./ui-labels";
+import { SlideSwitch } from "./SlideSwitch";
 import { UiIcon } from "./ui-icon";
 
 import type { AgentTask, Detail } from "./workspace-types";
@@ -67,15 +69,16 @@ export function TaskListDialog({
           aria-labelledby="task-pool-dialog-title"
           onClick={(event) => event.stopPropagation()}
         >
-          <header className="task-pool-dialog-header">
-            <div>
-              <span>当前迭代任务</span>
-              <h2 id="task-pool-dialog-title">
-                {detail?.threads.find((item) => item.id === threadId)?.title || "未选择迭代"}
-              </h2>
-            </div>
-            <DialogClose autoFocus onClick={close} label="关闭本迭代任务" />
-          </header>
+          <DialogHeader
+            title={
+              <>{detail?.threads.find((item) => item.id === threadId)?.title || "未选择迭代"}</>
+            }
+            titleId="task-pool-dialog-title"
+            subtitle={<>当前迭代任务</>}
+            onClose={close}
+            closeLabel="关闭本迭代任务"
+            autoFocusClose
+          />
           <div className="task-pool-dialog-body">
             <aside className="task-pool-dialog-list">
               <div className="task-pool-list-toolbar">
@@ -90,24 +93,15 @@ export function TaskListDialog({
                     onChange={(event) => setTaskListSearch(event.target.value)}
                   />
                 </label>
-                <div className="task-scope-capsule" role="tablist" aria-label="任务范围">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={taskMine}
-                    onClick={() => setTaskMine(true)}
-                  >
-                    我的
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={!taskMine}
-                    onClick={() => setTaskMine(false)}
-                  >
-                    全部
-                  </button>
-                </div>
+                <SlideSwitch
+                  label="任务范围"
+                  value={taskMine ? "mine" : "all"}
+                  onChange={(next) => setTaskMine(next === "mine")}
+                  items={[
+                    { value: "mine", label: "我的" },
+                    { value: "all", label: "全部" },
+                  ]}
+                />
               </div>
               <div className="task-pool-list">
                 {visibleTasks.map((task) => {
@@ -147,7 +141,11 @@ export function TaskListDialog({
                 )}
               </div>
               {active && (
-                <button type="button" className="task-create-dock" onClick={() => openTaskCreate()}>
+                <button
+                  type="button"
+                  className="task-create-dock primary"
+                  onClick={() => openTaskCreate()}
+                >
                   <UiIcon name="plus" size={12} />
                   新建任务
                 </button>

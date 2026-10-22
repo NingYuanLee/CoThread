@@ -1,3 +1,5 @@
+import { RefreshButton } from "./IconButton";
+import { SelectField } from "./SelectField";
 /**
  * 小程序工作区的云数据库页：环境、集合、筛选与分页查询。
  */
@@ -15,6 +17,7 @@ import {
   type DatabaseEnvironment,
   type MiniProgramTabId,
 } from "./miniprogram-internals";
+import { SlideSwitch } from "./SlideSwitch";
 import { UiIcon } from "./ui-icon";
 
 export type MiniprogramDatabasePanelProps = {
@@ -92,40 +95,39 @@ export function MiniprogramDatabasePanel({
             role="toolbar"
             aria-label="CloudBase 云数据库工具栏"
           >
-            <button
+            <RefreshButton
               type="button"
               className="miniprogram-preview-icon-button"
               title={`刷新${dbEnvironment === "production" ? "生产" : "开发"}环境集合`}
               aria-label={`刷新${dbEnvironment === "production" ? "生产" : "开发"}环境集合`}
               disabled={browseBusy !== null}
               onClick={() => void loadCollections()}
-            >
-              <UiIcon name="refresh" size={14} />
-            </button>
+              label={`刷新${dbEnvironment === "production" ? "生产" : "开发"}环境集合`}
+            />
             <div className="miniprogram-admin-address miniprogram-database-address">
               <UiIcon name="layers" size={13} />
-              <select
+              <SelectField
+                flush
+                containerClassName="miniprogram-database-collection-field"
                 aria-label="集合"
                 value={dbCollection}
                 disabled={browseBusy === "collections" || !collections.length}
-                onChange={(event) => openDocumentCollection(event.target.value)}
-              >
-                {collections.length ? null : <option value="">暂无集合</option>}
-                {collections.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => openDocumentCollection(value)}
+                options={
+                  collections.length
+                    ? collections.map((name) => ({ value: name, label: name }))
+                    : [{ value: "", label: "暂无集合" }]
+                }
+              />
             </div>
-            <div
+            <SlideSwitch
               className="miniprogram-database-environment"
-              role="group"
-              aria-label="CloudBase 数据库环境"
-            >
-              {(["development", "production"] as const).map((environment) => {
+              size="compact"
+              label="CloudBase 数据库环境"
+              value={dbEnvironment}
+              onChange={switchDatabaseEnvironment}
+              items={(["development", "production"] as const).map((environment) => {
                 const info = cbEnvironments.find((item) => item.kind === environment);
-                const selected = dbEnvironment === environment;
                 const label = environment === "production" ? "生产环境" : "开发环境";
                 const unavailable = Boolean(cbEnvironments.length && !info?.configured);
                 const title = info?.inherited
@@ -133,21 +135,14 @@ export function MiniprogramDatabasePanel({
                   : info?.envId
                     ? `${label} ${info.envId}`
                     : `${label}未配置`;
-                return (
-                  <button
-                    type="button"
-                    key={environment}
-                    className={selected ? "is-selected" : ""}
-                    aria-pressed={selected}
-                    title={title}
-                    disabled={browseBusy !== null || unavailable}
-                    onClick={() => switchDatabaseEnvironment(environment)}
-                  >
-                    {label}
-                  </button>
-                );
+                return {
+                  value: environment,
+                  label,
+                  title,
+                  disabled: browseBusy !== null || unavailable,
+                };
               })}
-            </div>
+            />
             <button
               type="button"
               className={`miniprogram-preview-icon-button ${databaseFilterCount(dbFilter) ? "is-active" : ""}`}

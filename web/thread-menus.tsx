@@ -1,5 +1,6 @@
+import { ContextMenu } from "./ContextMenu";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { FloatingPortal } from "./FloatingPortal";
 import { UiIcon } from "./ui-icon";
 
 export function MessageContextMenu({
@@ -47,52 +48,50 @@ export function MessageContextMenu({
     const onPointerDown = (event: PointerEvent) => {
       if (!ref.current?.contains(event.target as Node)) onDismiss();
     };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onDismiss();
-    };
     document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKey);
+
     return () => {
       document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKey);
     };
   }, [onDismiss]);
   const run = (action: () => void) => {
     action();
     onDismiss();
   };
-  return createPortal(
-    <div
-      ref={ref}
-      className="library-folder-menu doc-browser-tab-menu message-context-menu"
-      role="menu"
-      style={{ left: box.left, top: box.top }}
-      onContextMenu={(event) => event.preventDefault()}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <button
-        type="button"
-        role="menuitem"
-        className="library-folder-menu-item"
-        onClick={() => run(onCopy)}
+  return (
+    <FloatingPortal>
+      <ContextMenu
+        onDismiss={onDismiss}
+        ref={ref}
+        className="library-folder-menu doc-browser-tab-menu message-context-menu"
+        role="menu"
+        style={{ left: box.left, top: box.top }}
+        onContextMenu={(event) => event.preventDefault()}
+        onClick={(event) => event.stopPropagation()}
       >
-        <span>复制</span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className="library-folder-menu-item"
-        disabled={!canQuote}
-        title={canQuote ? undefined : "当前消息不可引用"}
-        onClick={() => {
-          if (!canQuote) return;
-          run(onQuote);
-        }}
-      >
-        <span>引用</span>
-      </button>
-    </div>,
-    document.body,
+        <button
+          type="button"
+          role="menuitem"
+          className="library-folder-menu-item"
+          onClick={() => run(onCopy)}
+        >
+          <span>复制</span>
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          className="library-folder-menu-item"
+          disabled={!canQuote}
+          title={canQuote ? undefined : "当前消息不可引用"}
+          onClick={() => {
+            if (!canQuote) return;
+            run(onQuote);
+          }}
+        >
+          <span>引用</span>
+        </button>
+      </ContextMenu>
+    </FloatingPortal>
   );
 }
 
@@ -161,7 +160,8 @@ export function ThreadIterationMenu({
         <ThreadMoreIcon />
       </button>
       {open ? (
-        <div
+        <ContextMenu
+          onDismiss={dismiss}
           className="library-folder-menu thread-row-menu"
           role="menu"
           onClick={(event) => event.stopPropagation()}
@@ -240,7 +240,7 @@ export function ThreadIterationMenu({
               <span>{copyLabel}</span>
             </button>
           ) : null}
-        </div>
+        </ContextMenu>
       ) : null}
     </span>
   );

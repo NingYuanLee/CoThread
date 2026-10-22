@@ -1,6 +1,41 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { ContextMenu } from "./ContextMenu";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from "react";
+import { FloatingPortal } from "./FloatingPortal";
 import { TreeIcon } from "./document-icons";
+
+function useAnchoredMenu(open: boolean, anchorRef: RefObject<HTMLElement | null>) {
+  const [tick, setTick] = useState(0);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => setTick((value) => value + 1);
+    window.addEventListener("resize", place);
+    document.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      document.removeEventListener("scroll", place, true);
+    };
+  }, [open, anchorRef]);
+  void tick;
+  const anchor = anchorRef.current;
+  if (!open || !anchor) return { position: "fixed", visibility: "hidden" } satisfies CSSProperties;
+  const rect = anchor.getBoundingClientRect();
+  const width = 180;
+  let left = rect.right - width;
+  if (left < 8) left = Math.max(8, rect.left);
+  if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
+  let top = rect.bottom + 4;
+  if (top > window.innerHeight - 96) top = Math.max(8, rect.top - 96);
+  return { position: "fixed", left, top, right: "auto" } satisfies CSSProperties;
+}
+
 export function LibraryFileMenu({
   menuId,
   openMenuId,
@@ -40,6 +75,7 @@ export function LibraryFileMenu({
 }) {
   const open = openMenuId === menuId;
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const menuStyle = useAnchoredMenu(open, anchorRef);
   useEffect(() => {
     if (!open) return;
     const close = (event: MouseEvent) => {
@@ -70,113 +106,118 @@ export function LibraryFileMenu({
         <TreeIcon kind="actions" />
       </button>
       {open ? (
-        <div
-          className="library-folder-menu"
-          role="menu"
-          onClick={(event) => event.stopPropagation()}
-          onContextMenu={(event) => event.preventDefault()}
-        >
-          {onAddToConversation ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              onClick={() => {
-                onAddToConversation();
-                close();
-              }}
-            >
-              <TreeIcon kind="addToChat" />
-              <span>添加到会话</span>
-            </button>
-          ) : null}
-          {onAddToTask ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              onClick={() => {
-                onAddToTask();
-                close();
-              }}
-            >
-              <TreeIcon kind="addToTask" />
-              <span>添加到任务</span>
-            </button>
-          ) : null}
-          {hasLeadItems ? <div className="library-folder-menu-sep" role="separator" /> : null}
-          <button
-            type="button"
-            role="menuitem"
-            className="library-folder-menu-item"
-            onClick={() => {
-              onDownload();
-              close();
-            }}
+        <FloatingPortal>
+          <ContextMenu
+            onDismiss={close}
+            className="library-folder-menu"
+            role="menu"
+            style={menuStyle}
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.preventDefault()}
           >
-            <TreeIcon kind="download" />
-            <span>下载</span>
-          </button>
-          {canRename && onRename ? (
+            {onAddToConversation ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                onClick={() => {
+                  onAddToConversation();
+                  close();
+                }}
+              >
+                <TreeIcon kind="addToChat" />
+                <span>添加到会话</span>
+              </button>
+            ) : null}
+            {onAddToTask ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                onClick={() => {
+                  onAddToTask();
+                  close();
+                }}
+              >
+                <TreeIcon kind="addToTask" />
+                <span>添加到任务</span>
+              </button>
+            ) : null}
+            {hasLeadItems ? <div className="library-folder-menu-sep" role="separator" /> : null}
             <button
               type="button"
               role="menuitem"
               className="library-folder-menu-item"
               onClick={() => {
-                onRename();
+                onDownload();
                 close();
               }}
             >
-              <TreeIcon kind="rename" />
-              <span>重命名</span>
+              <TreeIcon kind="download" />
+              <span>下载</span>
             </button>
-          ) : null}
-          {canViewOfficial && onViewOfficial ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              onClick={() => {
-                onViewOfficial();
-                close();
-              }}
-            >
-              <TreeIcon kind="preview" />
-              <span>查看正式文件</span>
-            </button>
-          ) : canSaveToOfficial && onSaveToOfficial ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              disabled={saveToOfficialDisabled}
-              title={saveToOfficialTitle}
-              onClick={() => {
-                if (saveToOfficialDisabled) return;
-                onSaveToOfficial();
-                close();
-              }}
-            >
-              <TreeIcon kind="saveOfficial" />
-              <span>另存至正式文件</span>
-            </button>
-          ) : null}
-          {hasDeleteItem ? <div className="library-folder-menu-sep" role="separator" /> : null}
-          {canDelete && onDelete ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item danger"
-              onClick={() => {
-                onDelete();
-                close();
-              }}
-            >
-              <TreeIcon kind="trash" />
-              <span>删除</span>
-            </button>
-          ) : null}
-        </div>
+            {canRename && onRename ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                onClick={() => {
+                  onRename();
+                  close();
+                }}
+              >
+                <TreeIcon kind="rename" />
+                <span>重命名</span>
+              </button>
+            ) : null}
+            {canViewOfficial && onViewOfficial ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                onClick={() => {
+                  onViewOfficial();
+                  close();
+                }}
+              >
+                <TreeIcon kind="preview" />
+                <span>查看正式文件</span>
+              </button>
+            ) : canSaveToOfficial && onSaveToOfficial ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                disabled={saveToOfficialDisabled}
+                title={saveToOfficialTitle}
+                onClick={() => {
+                  if (saveToOfficialDisabled) return;
+                  onSaveToOfficial();
+                  close();
+                }}
+              >
+                <TreeIcon kind="saveOfficial" />
+                <span>另存至正式文件</span>
+              </button>
+            ) : null}
+            {hasDeleteItem ? <div className="library-folder-menu-sep" role="separator" /> : null}
+            {canDelete && onDelete ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item danger"
+                onClick={() => {
+                  onDelete();
+                  close();
+                }}
+              >
+                <TreeIcon kind="trash" />
+                <span>删除</span>
+              </button>
+            ) : null}
+          </ContextMenu>
+        </FloatingPortal>
       ) : null}
     </span>
   );
@@ -219,6 +260,7 @@ export function OfficialFolderMenu({
 }) {
   const open = openMenuId === menuId;
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const menuStyle = useAnchoredMenu(open, anchorRef);
   useEffect(() => {
     if (!open) return;
     const close = (event: MouseEvent) => {
@@ -252,156 +294,164 @@ export function OfficialFolderMenu({
         <TreeIcon kind="actions" />
       </button>
       {open ? (
-        <div
-          className="library-folder-menu"
-          role="menu"
-          onClick={(event) => event.stopPropagation()}
-          onContextMenu={(event) => event.preventDefault()}
-        >
-          {onExplain ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              onClick={() => {
-                onExplain();
-                close();
-              }}
-            >
-              <TreeIcon kind="info" />
-              <span>文件夹说明</span>
-            </button>
-          ) : null}
-          {onAddToConversation ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              onClick={() => {
-                onAddToConversation();
-                close();
-              }}
-            >
-              <TreeIcon kind="addToChat" />
-              <span>添加到会话</span>
-            </button>
-          ) : null}
-          {onAddToTask ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              onClick={() => {
-                onAddToTask();
-                close();
-              }}
-            >
-              <TreeIcon kind="addToTask" />
-              <span>添加到任务</span>
-            </button>
-          ) : null}
-          {hasLeadItems && (hasMainItems || hasDeleteItem) ? (
-            <div className="library-folder-menu-sep" role="separator" />
-          ) : null}
-          {onDownload ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              disabled={
-                !canDownload || (downloadProgress !== undefined && downloadProgress !== null)
-              }
-              title={canDownload ? "下载文件夹内文件" : "文件夹内没有文件"}
-              aria-busy={downloadProgress !== undefined && downloadProgress !== null}
-              onClick={() => {
-                if (canDownload && (downloadProgress === undefined || downloadProgress === null)) {
-                  onDownload();
+        <FloatingPortal>
+          <ContextMenu
+            onDismiss={close}
+            className="library-folder-menu"
+            role="menu"
+            style={menuStyle}
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            {onExplain ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                onClick={() => {
+                  onExplain();
                   close();
+                }}
+              >
+                <TreeIcon kind="info" />
+                <span>文件夹说明</span>
+              </button>
+            ) : null}
+            {onAddToConversation ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                onClick={() => {
+                  onAddToConversation();
+                  close();
+                }}
+              >
+                <TreeIcon kind="addToChat" />
+                <span>添加到会话</span>
+              </button>
+            ) : null}
+            {onAddToTask ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                onClick={() => {
+                  onAddToTask();
+                  close();
+                }}
+              >
+                <TreeIcon kind="addToTask" />
+                <span>添加到任务</span>
+              </button>
+            ) : null}
+            {hasLeadItems && (hasMainItems || hasDeleteItem) ? (
+              <div className="library-folder-menu-sep" role="separator" />
+            ) : null}
+            {onDownload ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                disabled={
+                  !canDownload || (downloadProgress !== undefined && downloadProgress !== null)
                 }
-              }}
-            >
-              <TreeIcon kind="download" />
-              <span>
-                {downloadProgress !== undefined && downloadProgress !== null
-                  ? downloadProgress > 0
-                    ? `下载压缩包 ${downloadProgress}%`
-                    : "正在准备压缩包…"
-                  : "下载压缩包"}
-              </span>
-            </button>
-          ) : null}
-          {onUpload ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              onClick={() => {
-                onUpload();
-                close();
-              }}
-            >
-              <TreeIcon kind="upload" />
-              <span>上传文件</span>
-            </button>
-          ) : null}
-          {onCopyProjectInfo ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              onClick={() => {
-                onCopyProjectInfo();
-                close();
-              }}
-            >
-              <TreeIcon kind="copy" />
-              <span>复制项目信息</span>
-            </button>
-          ) : null}
-          {onNewFolder ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              onClick={() => {
-                onNewFolder();
-                close();
-              }}
-            >
-              <TreeIcon kind="newFolder" />
-              <span>新建文件夹</span>
-            </button>
-          ) : null}
-          {!isRoot && onRename ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              onClick={() => {
-                onRename();
-                close();
-              }}
-            >
-              <TreeIcon kind="rename" />
-              <span>重命名</span>
-            </button>
-          ) : null}
-          {hasDeleteItem ? <div className="library-folder-menu-sep" role="separator" /> : null}
-          {!isRoot && onDelete ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item danger"
-              onClick={() => {
-                onDelete();
-                close();
-              }}
-            >
-              <TreeIcon kind="trash" />
-              <span>删除</span>
-            </button>
-          ) : null}
-        </div>
+                title={canDownload ? "下载文件夹内文件" : "文件夹内没有文件"}
+                aria-busy={downloadProgress !== undefined && downloadProgress !== null}
+                onClick={() => {
+                  if (
+                    canDownload &&
+                    (downloadProgress === undefined || downloadProgress === null)
+                  ) {
+                    onDownload();
+                    close();
+                  }
+                }}
+              >
+                <TreeIcon kind="download" />
+                <span>
+                  {downloadProgress !== undefined && downloadProgress !== null
+                    ? downloadProgress > 0
+                      ? `下载压缩包 ${downloadProgress}%`
+                      : "正在准备压缩包…"
+                    : "下载压缩包"}
+                </span>
+              </button>
+            ) : null}
+            {onUpload ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                onClick={() => {
+                  onUpload();
+                  close();
+                }}
+              >
+                <TreeIcon kind="upload" />
+                <span>上传文件</span>
+              </button>
+            ) : null}
+            {onCopyProjectInfo ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                onClick={() => {
+                  onCopyProjectInfo();
+                  close();
+                }}
+              >
+                <TreeIcon kind="copy" />
+                <span>复制项目信息</span>
+              </button>
+            ) : null}
+            {onNewFolder ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                onClick={() => {
+                  onNewFolder();
+                  close();
+                }}
+              >
+                <TreeIcon kind="newFolder" />
+                <span>新建文件夹</span>
+              </button>
+            ) : null}
+            {!isRoot && onRename ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                onClick={() => {
+                  onRename();
+                  close();
+                }}
+              >
+                <TreeIcon kind="rename" />
+                <span>重命名</span>
+              </button>
+            ) : null}
+            {hasDeleteItem ? <div className="library-folder-menu-sep" role="separator" /> : null}
+            {!isRoot && onDelete ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item danger"
+                onClick={() => {
+                  onDelete();
+                  close();
+                }}
+              >
+                <TreeIcon kind="trash" />
+                <span>删除</span>
+              </button>
+            ) : null}
+          </ContextMenu>
+        </FloatingPortal>
       ) : null}
     </span>
   );
@@ -464,14 +514,10 @@ export function TabContextMenu({
     const onPointerDown = (event: PointerEvent) => {
       if (!ref.current?.contains(event.target as Node)) onDismiss();
     };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onDismiss();
-    };
     document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKey);
+
     return () => {
       document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKey);
     };
   }, [onDismiss]);
   const run = (item: TabMenuItem) => {
@@ -479,37 +525,39 @@ export function TabContextMenu({
     item.onRun();
     onDismiss();
   };
-  return createPortal(
-    <div
-      ref={ref}
-      className={`library-folder-menu doc-browser-tab-menu${className ? ` ${className}` : ""}`}
-      role="menu"
-      style={{ left: box.left, top: box.top }}
-      onContextMenu={(event) => event.preventDefault()}
-      onClick={(event) => event.stopPropagation()}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-    >
-      {items.map((item) => (
-        <Fragment key={item.key}>
-          {item.separatorBefore ? (
-            <div className="doc-browser-tab-menu-sep" role="separator" />
-          ) : null}
-          <button
-            type="button"
-            role="menuitem"
-            className="library-folder-menu-item"
-            disabled={item.disabled}
-            title={item.disabled ? item.disabledTitle : undefined}
-            onClick={() => run(item)}
-          >
-            <TreeIcon kind={item.icon} />
-            <span>{item.label}</span>
-          </button>
-        </Fragment>
-      ))}
-    </div>,
-    document.body,
+  return (
+    <FloatingPortal>
+      <ContextMenu
+        onDismiss={onDismiss}
+        ref={ref}
+        className={`library-folder-menu doc-browser-tab-menu${className ? ` ${className}` : ""}`}
+        role="menu"
+        style={{ left: box.left, top: box.top }}
+        onContextMenu={(event) => event.preventDefault()}
+        onClick={(event) => event.stopPropagation()}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+      >
+        {items.map((item) => (
+          <Fragment key={item.key}>
+            {item.separatorBefore ? (
+              <div className="doc-browser-tab-menu-sep" role="separator" />
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              className="library-folder-menu-item"
+              disabled={item.disabled}
+              title={item.disabled ? item.disabledTitle : undefined}
+              onClick={() => run(item)}
+            >
+              <TreeIcon kind={item.icon} />
+              <span>{item.label}</span>
+            </button>
+          </Fragment>
+        ))}
+      </ContextMenu>
+    </FloatingPortal>
   );
 }
 
@@ -600,103 +648,101 @@ export function DocumentFileContextMenu({
     const onPointerDown = (event: PointerEvent) => {
       if (!ref.current?.contains(event.target as Node)) onDismiss();
     };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onDismiss();
-    };
     document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKeyDown);
+
     return () => {
       document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKeyDown);
     };
   }, [onDismiss]);
   const run = (action?: () => void) => {
     action?.();
     onDismiss();
   };
-  return createPortal(
-    <div
-      ref={ref}
-      className="library-folder-menu document-context-menu"
-      role="menu"
-      style={{ left: box.left, top: box.top }}
-      onContextMenu={(event) => event.preventDefault()}
-      onClick={(event) => event.stopPropagation()}
-    >
-      {kind === "html" && onOpenBrowser ? (
-        <button
-          type="button"
-          role="menuitem"
-          className="library-folder-menu-item"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => run(onOpenBrowser)}
-        >
-          <TreeIcon kind="preview" />
-          <span>在浏览器打开</span>
-        </button>
-      ) : null}
-      {kind === "image" && onCopyAddress ? (
-        <button
-          type="button"
-          role="menuitem"
-          className="library-folder-menu-item"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => run(onCopyAddress)}
-        >
-          <TreeIcon kind="share" />
-          <span>复制地址</span>
-        </button>
-      ) : null}
-      {kind === "image" && onCopyImage ? (
-        <button
-          type="button"
-          role="menuitem"
-          className="library-folder-menu-item"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => run(onCopyImage)}
-        >
-          <TreeIcon kind="copy" />
-          <span>复制图片</span>
-        </button>
-      ) : null}
-      {kind === "selection" && onCopyAddress ? (
-        <button
-          type="button"
-          role="menuitem"
-          className="library-folder-menu-item"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => run(onCopyAddress)}
-        >
-          <TreeIcon kind="copy" />
-          <span>复制</span>
-        </button>
-      ) : null}
-      {kind === "selection" && onAddToConversation ? (
-        <button
-          type="button"
-          role="menuitem"
-          className="library-folder-menu-item"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => run(onAddToConversation)}
-        >
-          <TreeIcon kind="addToChat" />
-          <span>添加到对话</span>
-        </button>
-      ) : null}
-      {kind !== "selection" ? (
-        <button
-          type="button"
-          role="menuitem"
-          className="library-folder-menu-item"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => run(onDownload)}
-        >
-          <TreeIcon kind="download" />
-          <span>下载</span>
-        </button>
-      ) : null}
-    </div>,
-    document.body,
+  return (
+    <FloatingPortal>
+      <ContextMenu
+        onDismiss={onDismiss}
+        ref={ref}
+        className="library-folder-menu document-context-menu"
+        role="menu"
+        style={{ left: box.left, top: box.top }}
+        onContextMenu={(event) => event.preventDefault()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {kind === "html" && onOpenBrowser ? (
+          <button
+            type="button"
+            role="menuitem"
+            className="library-folder-menu-item"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => run(onOpenBrowser)}
+          >
+            <TreeIcon kind="preview" />
+            <span>在浏览器打开</span>
+          </button>
+        ) : null}
+        {kind === "image" && onCopyAddress ? (
+          <button
+            type="button"
+            role="menuitem"
+            className="library-folder-menu-item"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => run(onCopyAddress)}
+          >
+            <TreeIcon kind="share" />
+            <span>复制地址</span>
+          </button>
+        ) : null}
+        {kind === "image" && onCopyImage ? (
+          <button
+            type="button"
+            role="menuitem"
+            className="library-folder-menu-item"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => run(onCopyImage)}
+          >
+            <TreeIcon kind="copy" />
+            <span>复制图片</span>
+          </button>
+        ) : null}
+        {kind === "selection" && onCopyAddress ? (
+          <button
+            type="button"
+            role="menuitem"
+            className="library-folder-menu-item"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => run(onCopyAddress)}
+          >
+            <TreeIcon kind="copy" />
+            <span>复制</span>
+          </button>
+        ) : null}
+        {kind === "selection" && onAddToConversation ? (
+          <button
+            type="button"
+            role="menuitem"
+            className="library-folder-menu-item"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => run(onAddToConversation)}
+          >
+            <TreeIcon kind="addToChat" />
+            <span>添加到对话</span>
+          </button>
+        ) : null}
+        {kind !== "selection" ? (
+          <button
+            type="button"
+            role="menuitem"
+            className="library-folder-menu-item"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => run(onDownload)}
+          >
+            <TreeIcon kind="download" />
+            <span>下载</span>
+          </button>
+        ) : null}
+      </ContextMenu>
+    </FloatingPortal>
   );
 }
 

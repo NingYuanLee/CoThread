@@ -1,6 +1,14 @@
+import { DialogFooter } from "./DialogFooter";
+import { TextField } from "./TextField";
+import { TextAreaField } from "./TextAreaField";
+import { RefreshButton } from "./IconButton";
+import { DialogBody } from "./DialogBody";
+import { DialogHeader } from "./DialogHeader";
+import { useTipError } from "./Tip";
 import React, { useEffect, useRef, useState } from "react";
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { Dialog, ModalBackdrop } from "./dialog-fx";
 import { MarkdownDocumentPreview } from "./MarkdownDocumentPreview";
+import { SlideSwitch } from "./SlideSwitch";
 import { UiIcon } from "./ui-icon";
 import { api } from "./workspace-api";
 
@@ -111,7 +119,7 @@ export function ThreadArchiveDialog({
   const executed = useRef(false);
 
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError();
   const [pollVersion, setPollVersion] = useState(0);
   const initialized = useRef("");
   const changed = useRef(onChanged);
@@ -457,14 +465,35 @@ export function ThreadArchiveDialog({
           aria-modal="true"
           aria-labelledby="thread-archive-title"
         >
-          <header className="thread-archive-header">
-            <div>
-              <span className="eyebrow">项目知识库管理员 · 迭代归档</span>
-              <h2 id="thread-archive-title">归档与交接</h2>
-              <p>{title}</p>
-            </div>
-            <DialogClose onClick={close} disabled={busy} label="关闭归档方案" />
-          </header>
+          <DialogHeader
+            title={<>归档与交接</>}
+            titleId="thread-archive-title"
+            subtitle={<>{title}</>}
+            leftExtra={
+              <>
+                <div>
+                  <span className="eyebrow">项目知识库管理员 · 迭代归档</span>
+                </div>
+              </>
+            }
+            onClose={close}
+            disabled={busy}
+            closeLabel="关闭归档方案"
+            actions={
+              <>
+                {step === 1 &&
+                  workflow &&
+                  ["preparing", "failed", "ready"].includes(workflow.status) && (
+                    <RefreshButton
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setPollVersion((value) => value + 1)}
+                      label="刷新归档方案"
+                    />
+                  )}
+              </>
+            }
+          />
           {workflow && workflow.status !== "cancelled" && (
             <ol className="archive-steps" aria-label="归档步骤">
               {STEPS.map((label, index) => {
@@ -533,26 +562,32 @@ export function ThreadArchiveDialog({
               <div className="archive-step-panel">
                 {step === 2 && (
                   <section className="archive-summary-review">
-                    <span className="doc-view-mode" role="group" aria-label="总结显示">
-                      <button
-                        type="button"
-                        className={summaryMode === "preview" ? "active" : ""}
-                        aria-pressed={summaryMode === "preview"}
-                        onClick={() => setSummaryMode("preview")}
-                      >
-                        <UiIcon name="preview" size={12} />
-                        预览
-                      </button>
-                      <button
-                        type="button"
-                        className={summaryMode === "edit" ? "active" : ""}
-                        aria-pressed={summaryMode === "edit"}
-                        onClick={() => setSummaryMode("edit")}
-                      >
-                        <UiIcon name="edit" size={12} />
-                        编辑
-                      </button>
-                    </span>
+                    <SlideSwitch
+                      size="compact"
+                      label="总结显示"
+                      value={summaryMode}
+                      onChange={setSummaryMode}
+                      items={[
+                        {
+                          value: "preview",
+                          label: (
+                            <>
+                              <UiIcon name="preview" size={12} />
+                              预览
+                            </>
+                          ),
+                        },
+                        {
+                          value: "edit",
+                          label: (
+                            <>
+                              <UiIcon name="edit" size={12} />
+                              编辑
+                            </>
+                          ),
+                        },
+                      ]}
+                    />
                     {summaryMode === "preview" ? (
                       <div className="archive-summary-preview">
                         <MarkdownDocumentPreview
@@ -564,12 +599,12 @@ export function ThreadArchiveDialog({
                         />
                       </div>
                     ) : (
-                      <textarea
+                      <TextAreaField
+                        label="迭代总结"
                         disabled={!editable}
                         className="archive-summary"
                         rows={8}
                         maxLength={20000}
-                        aria-label="迭代总结"
                         value={draft.conclusion}
                         onChange={(e) => setDraft({ ...draft, conclusion: e.target.value })}
                       />
@@ -761,50 +796,44 @@ export function ThreadArchiveDialog({
                       已按前面的选择调整。录入新迭代背景 {backgroundCount} 项，生成新迭代任务{" "}
                       {taskCount} 项。可再改后确认。
                     </p>
-                    <label>
-                      迭代名称
-                      <input
-                        disabled={!editable}
-                        maxLength={160}
-                        value={draft.nextIteration.title}
-                        onChange={(e) =>
-                          setDraft({
-                            ...draft,
-                            nextIteration: { ...draft.nextIteration, title: e.target.value },
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      背景
-                      <textarea
-                        disabled={!editable}
-                        rows={6}
-                        maxLength={20000}
-                        value={draft.nextIteration.background}
-                        onChange={(e) =>
-                          setDraft({
-                            ...draft,
-                            nextIteration: { ...draft.nextIteration, background: e.target.value },
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      目标
-                      <textarea
-                        disabled={!editable}
-                        rows={3}
-                        maxLength={20000}
-                        value={draft.nextIteration.goal}
-                        onChange={(e) =>
-                          setDraft({
-                            ...draft,
-                            nextIteration: { ...draft.nextIteration, goal: e.target.value },
-                          })
-                        }
-                      />
-                    </label>
+                    <TextField
+                      label="迭代名称"
+                      disabled={!editable}
+                      maxLength={160}
+                      value={draft.nextIteration.title}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          nextIteration: { ...draft.nextIteration, title: e.target.value },
+                        })
+                      }
+                    />
+                    <TextAreaField
+                      label="背景"
+                      disabled={!editable}
+                      rows={6}
+                      maxLength={20000}
+                      value={draft.nextIteration.background}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          nextIteration: { ...draft.nextIteration, background: e.target.value },
+                        })
+                      }
+                    />
+                    <TextAreaField
+                      label="目标"
+                      disabled={!editable}
+                      rows={3}
+                      maxLength={20000}
+                      value={draft.nextIteration.goal}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          nextIteration: { ...draft.nextIteration, goal: e.target.value },
+                        })
+                      }
+                    />
                     <div className="archive-assign">
                       <p className="muted">任务清单</p>
                       <table className="archive-assign-table">
@@ -897,11 +926,6 @@ export function ThreadArchiveDialog({
                 )}
               </div>
             )}
-            {error && (
-              <p className="form-error" role="alert">
-                {error}
-              </p>
-            )}
             {workflow && !workflow.canManage && (
               <p className="muted">仅迭代创建人或项目负责人可以撤回或确认归档。</p>
             )}
@@ -931,17 +955,7 @@ export function ThreadArchiveDialog({
                 上一步
               </button>
             )}
-            {step === 1 &&
-              workflow &&
-              ["preparing", "failed", "ready"].includes(workflow.status) && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setPollVersion((value) => value + 1)}
-                >
-                  刷新
-                </button>
-              )}
+
             {step === 1 && workflow?.canManage && workflow.status === "failed" && (
               <button
                 className="primary"
@@ -969,25 +983,33 @@ export function ThreadArchiveDialog({
             )}
           </footer>
           {confirmOpen && (
-            <div className="archive-detail-layer">
+            <Dialog
+              onRequestClose={() => setConfirmOpen(false)}
+              className="archive-detail-layer"
+              shell
+            >
               <section
                 className="archive-detail-dialog"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="archive-confirm-title"
               >
-                <header>
-                  <h3 id="archive-confirm-title">确认归档</h3>
-                  <DialogClose onClick={() => setConfirmOpen(false)} label="关闭确认" />
-                </header>
-                <p>
-                  {needsNext
-                    ? "确认后将归档本轮，并创建承接迭代「" +
-                      (draft?.nextIteration.title.trim() || "未命名") +
-                      "」。此操作不能撤销。"
-                    : "确认后将归档本轮，不会创建承接迭代。此操作不能撤销。"}
-                </p>
-                <footer>
+                <DialogHeader
+                  title={<>确认归档</>}
+                  titleId="archive-confirm-title"
+                  onClose={() => setConfirmOpen(false)}
+                  closeLabel="关闭确认"
+                />
+                <DialogBody>
+                  <p>
+                    {needsNext
+                      ? "确认后将归档本轮，并创建承接迭代「" +
+                        (draft?.nextIteration.title.trim() || "未命名") +
+                        "」。此操作不能撤销。"
+                      : "确认后将归档本轮，不会创建承接迭代。此操作不能撤销。"}
+                  </p>
+                </DialogBody>
+                <DialogFooter>
                   <button type="button" onClick={() => setConfirmOpen(false)}>
                     取消
                   </button>
@@ -1002,33 +1024,38 @@ export function ThreadArchiveDialog({
                   >
                     确认
                   </button>
-                </footer>
+                </DialogFooter>
               </section>
-            </div>
+            </Dialog>
           )}
           {reviseOpen && (
-            <div className="archive-detail-layer">
+            <Dialog
+              onRequestClose={() => setReviseOpen(false)}
+              className="archive-detail-layer"
+              shell
+            >
               <section
                 className="archive-detail-dialog"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="archive-revise-title"
               >
-                <header>
-                  <h3 id="archive-revise-title">AI修改</h3>
-                  <DialogClose onClick={() => setReviseOpen(false)} label="关闭修改意见" />
-                </header>
-                <label>
-                  修改意见
-                  <textarea
+                <DialogHeader
+                  title={<>AI修改</>}
+                  titleId="archive-revise-title"
+                  onClose={() => setReviseOpen(false)}
+                  closeLabel="关闭修改意见"
+                />
+                <DialogBody>
+                  <TextAreaField
+                    label="修改意见"
                     rows={6}
                     maxLength={4000}
                     value={reviseComment}
-                    placeholder="说明要改的地方"
                     onChange={(e) => setReviseComment(e.target.value)}
                   />
-                </label>
-                <footer>
+                </DialogBody>
+                <DialogFooter>
                   <button type="button" onClick={() => setReviseOpen(false)}>
                     取消
                   </button>
@@ -1040,31 +1067,39 @@ export function ThreadArchiveDialog({
                   >
                     确认修改
                   </button>
-                </footer>
+                </DialogFooter>
               </section>
-            </div>
+            </Dialog>
           )}
           {detailEdit && (
-            <div className="archive-detail-layer">
+            <Dialog
+              onRequestClose={() => setDetailEdit(null)}
+              className="archive-detail-layer"
+              shell
+            >
               <section
                 className="archive-detail-dialog"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="archive-detail-title"
               >
-                <header>
-                  <h3 id="archive-detail-title">{detailEdit.title}</h3>
-                  <DialogClose onClick={() => setDetailEdit(null)} label="关闭详情" />
-                </header>
-                <textarea
-                  rows={8}
-                  maxLength={2000}
-                  disabled={!editable}
-                  aria-label={detailEdit.title + " 详情"}
-                  value={detailEdit.text}
-                  onChange={(e) => setDetailEdit({ ...detailEdit, text: e.target.value })}
+                <DialogHeader
+                  title={<>{detailEdit.title}</>}
+                  titleId="archive-detail-title"
+                  onClose={() => setDetailEdit(null)}
+                  closeLabel="关闭详情"
                 />
-                <footer>
+                <DialogBody>
+                  <TextAreaField
+                    label="详情"
+                    rows={8}
+                    maxLength={2000}
+                    disabled={!editable}
+                    value={detailEdit.text}
+                    onChange={(e) => setDetailEdit({ ...detailEdit, text: e.target.value })}
+                  />
+                </DialogBody>
+                <DialogFooter>
                   <button type="button" onClick={() => setDetailEdit(null)}>
                     取消
                   </button>
@@ -1093,9 +1128,9 @@ export function ThreadArchiveDialog({
                   >
                     保存
                   </button>
-                </footer>
+                </DialogFooter>
               </section>
-            </div>
+            </Dialog>
           )}
         </section>
       )}

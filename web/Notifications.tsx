@@ -1,12 +1,10 @@
+import { RefreshButton } from "./IconButton";
+import { DialogHeader } from "./DialogHeader";
+import { useTipError } from "./Tip";
 import React, { useEffect, useRef, useState } from "react";
 import { UiIcon } from "./ui-icon";
 import { ProjectMark } from "./ProjectMark";
-import {
-  DialogClose,
-  animateDialogClose,
-  onDialogBackdropClick,
-  onDialogCancel,
-} from "./dialog-fx";
+import { Dialog, animateDialogClose } from "./dialog-fx";
 import { PaginationControl } from "./PaginationControl";
 
 type Kind = "all" | "mention" | "member_added" | "member_removed";
@@ -56,7 +54,7 @@ export function Notifications({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(12);
   const [selectedId, setSelectedId] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError();
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [reload, setReload] = useState(0);
@@ -131,9 +129,6 @@ export function Notifications({
       document.removeEventListener("visibilitychange", resume);
     };
   }, [open, kind, currentPage, pageSize, reload]);
-  useEffect(() => {
-    if (open) dialog.current?.showModal();
-  }, [open]);
   const close = () => animateDialogClose(dialog.current, () => setOpen(false));
   const act = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -199,23 +194,33 @@ export function Notifications({
           <span className="notification-count">{page.unread > 99 ? "99+" : page.unread}</span>
         )}
       </button>
-      <dialog
+      <Dialog
+        active={open}
+        onRequestClose={() => setOpen(false)}
         ref={dialog}
         className="notification-dialog"
         aria-labelledby="notification-title"
-        onCancel={onDialogCancel(() => setOpen(false))}
-        onClick={onDialogBackdropClick(() => setOpen(false))}
-        onClose={() => {
-          setOpen(false);
-          bell.current?.focus();
-        }}
       >
-        <div className="notification-heading">
-          <h2 id="notification-title">
-            站内信 <small>{page.unread} 条未读</small>
-          </h2>
-          <DialogClose onClick={close} label="关闭站内信" />
-        </div>
+        <DialogHeader
+          title={<>站内信 </>}
+          titleId="notification-title"
+          subtitle={<>{page.unread}条未读</>}
+          onClose={close}
+          closeLabel="关闭站内信"
+          actions={
+            <>
+              <RefreshButton
+                pending={loading}
+                disabled={busy || loading}
+                onClick={() => {
+                  setSelectedId("");
+                  setReload((v) => v + 1);
+                }}
+                label="刷新站内信"
+              />
+            </>
+          }
+        />
         <div className="notification-toolbar">
           <div className="notification-tabs" role="tablist" aria-label="站内信类型">
             {tabs.map((item, index) => (
@@ -252,16 +257,6 @@ export function Notifications({
           </div>
           <div className="notification-tools">
             <button
-              disabled={busy || loading}
-              onClick={() => {
-                setSelectedId("");
-                setReload((v) => v + 1);
-              }}
-            >
-              <UiIcon name="refresh" size={12} />
-              刷新
-            </button>
-            <button
               disabled={busy || !page.unread}
               onClick={() =>
                 void act(async () => {
@@ -275,11 +270,6 @@ export function Notifications({
             </button>
           </div>
         </div>
-        {error && (
-          <p role="alert" className="notification-error">
-            {error}
-          </p>
-        )}
         <div
           id="notice-panel"
           role="tabpanel"
@@ -295,7 +285,7 @@ export function Notifications({
             <div className="notification-rows">
               {loading ? (
                 <p className="notification-empty">正在加载…</p>
-              ) : !page.items.length ? (
+              ) : !page.items.length && !error ? (
                 <p className="notification-empty">暂无此类站内信</p>
               ) : (
                 page.items.map((notice) => (
@@ -393,7 +383,7 @@ export function Notifications({
             )}
           </section>
         </div>
-      </dialog>
+      </Dialog>
     </>
   );
 }

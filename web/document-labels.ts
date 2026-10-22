@@ -174,7 +174,7 @@ export const ROOT_GUIDES: Record<(typeof LIBRARY_ROOT_KINDS)[number], string> = 
   project_cache:
     "对话框或连接器随消息上传的临时资料，按日期放进子文件夹。对小祥只读，改完应另存为沙箱产物；确认后也可以另存为正式文件。",
   project_miniprogram:
-    "小程序全栈工作区。固定包含小程序源文件、小程序 Web 产物、PC 管理后台和云函数四个子目录；源码可在此预览，也可交给 Dimina 编译后在「小程序云开发」面板实时运行。",
+    "小程序全栈工作区。固定包含小程序源文件、小程序 Web 产物、PC 管理后台和云函数四个子目录；源码可在此预览，也可交给 Dimina 编译后在「CloudBase」面板实时运行。",
 };
 
 export const CODE_LIBRARY_ROOT_ID = "code-library-root";

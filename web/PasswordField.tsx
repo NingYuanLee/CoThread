@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { TextField } from "./TextField";
 
 function passwordLevel(password: string) {
   if (!password) return { key: "", label: "", bars: 0 };
@@ -25,20 +26,18 @@ export function PasswordField({
   const level = passwordLevel(password);
   return (
     <div className="password-field">
-      <label>
-        {label}
-        <input
-          {...props}
-          name={name}
-          type="password"
-          minLength={8}
-          maxLength={200}
-          onChange={(event) => {
-            setPassword(event.target.value);
-            props.onChange?.(event);
-          }}
-        />
-      </label>
+      <TextField
+        {...props}
+        label={label}
+        name={name}
+        type="password"
+        minLength={8}
+        maxLength={200}
+        onChange={(event) => {
+          setPassword(event.target.value);
+          props.onChange?.(event);
+        }}
+      />
       <div className="password-strength" data-level={level.key} aria-live="polite">
         <span className={level.bars >= 1 ? "active" : ""} />
         <span className={level.bars >= 2 ? "active" : ""} />

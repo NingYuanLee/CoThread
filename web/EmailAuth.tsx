@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { TextField } from "./TextField";
 import { HumanVerification } from "./HumanVerification";
 import { ResendCountdown } from "./ResendCountdown";
 import { PasswordField } from "./PasswordField";
+import { SlideSwitch } from "./SlideSwitch";
 import { UiIcon } from "./ui-icon";
-import { showTip } from "./Tip";
+import { showTip, useTipError } from "./Tip";
 import { AccountSwitchList } from "./AccountSwitchList";
 import {
   acceptSessionResult,
@@ -23,7 +25,7 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
   const [mode, setMode] = useState<Mode>("login");
   const [challengeId, setChallengeId] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError, setInlineError] = useTipError();
   const [notice, setNotice] = useState("");
   const [humanProof, setHumanProof] = useState({ humanChallengeId: "", humanAnswer: "" });
   const [humanRefresh, setHumanRefresh] = useState(0);
@@ -31,16 +33,37 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
   const [sentAt, setSentAt] = useState(0);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [accounts, setAccounts] = useState<SavedAccount[]>(() => listSavedAccounts());
+  const [loginView, setLoginView] = useState<"quick" | "password">(() =>
+    listSavedAccounts().length ? "quick" : "password",
+  );
+  const loginViewTouched = useRef(false);
   const [identifierDefault, setIdentifierDefault] = useState(
     () => takeLoginHint() || "admin@cothread.local",
   );
+  const latestAccount = accounts[0] ?? null;
+  const showQuickLogin = mode === "login" && loginView === "quick" && latestAccount != null;
+  const showPasswordLogin = () => {
+    loginViewTouched.current = true;
+    setLoginView("password");
+  };
+  const showQuickEntry = () => {
+    loginViewTouched.current = true;
+    setLoginView("quick");
+  };
   useEffect(() => {
     const notice = takeLoginNotice();
-    if (notice) setError(notice);
+    if (notice) setInlineError(notice);
     void mergeKnownAccounts(api)
       .then(setAccounts)
       .catch(() => setAccounts(listSavedAccounts()));
   }, []);
+  useEffect(() => {
+    if (!accounts.length) {
+      setLoginView("password");
+      return;
+    }
+    if (!loginViewTouched.current) setLoginView("quick");
+  }, [accounts]);
   const refreshHumanStatus = async (refreshChallenge = false) => {
     const result = await api("/human-verification/status?scope=auth");
     setHumanRequired(result.required);
@@ -113,7 +136,6 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
       }
     } catch (cause) {
       setError((cause as Error).message);
-      showTip((cause as Error).message, "error");
       if (!challengeId) {
         try {
           await refreshHumanStatus(humanRequired);
@@ -128,6 +150,7 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
   const switchAccount = async (account: SavedAccount) => {
     if (!account.token) {
       setIdentifierDefault(account.email || account.username);
+      showPasswordLogin();
       setError("该账号需要重新登录");
       return;
     }
@@ -143,6 +166,7 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
         setAccounts(listSavedAccounts());
         setIdentifierDefault(account.email || account.username);
         setLoginHint(account.email || account.username);
+        showPasswordLogin();
         setError("该账号登录已过期，请重新登录");
       } else {
         setError((cause as Error).message);
@@ -162,71 +186,92 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
       }}
     >
       <span className="eyebrow">工作空间</span>
-      <div className="auth-mode-tabs" role="tablist" aria-label="账号入口">
-        {(["login", "register", "recover"] as Mode[]).map((value) => (
-          <button
-            key={value}
-            type="button"
-            role="tab"
-            aria-selected={mode === value}
-            className={mode === value ? "active" : ""}
-            onClick={() => switchMode(value)}
-          >
-            {value === "login" ? (
+      <SlideSwitch
+        className="auth-mode-tabs"
+        stretch
+        reselect
+        label="账号入口"
+        value={mode}
+        onChange={switchMode}
+        items={[
+          {
+            value: "login",
+            label: (
               <>
                 <UiIcon name="login" size={13} />
                 登录
               </>
-            ) : value === "register" ? (
+            ),
+          },
+          {
+            value: "register",
+            label: (
               <>
                 <UiIcon name="userPlus" size={13} />
                 注册
               </>
-            ) : (
+            ),
+          },
+          {
+            value: "recover",
+            label: (
               <>
                 <UiIcon name="key" size={13} />
                 重置密码
               </>
-            )}
-          </button>
-        ))}
-      </div>
+            ),
+          },
+        ]}
+      />
       <h2>
         {mode === "login" ? "回到共同的上下文" : mode === "register" ? "创建共序账号" : "重置密码"}
       </h2>
-      {(challengeId || mode !== "login") && (
+      {(challengeId || mode !== "login" || !showQuickLogin) && (
         <p>
           {challengeId
             ? "输入邮箱中收到的验证码"
             : mode === "register"
               ? "验证邮箱后完成注册"
-              : "通过已绑定邮箱重置密码"}
+              : mode === "recover"
+                ? "通过已绑定邮箱重置密码"
+                : "使用用户名或邮箱登录"}
         </p>
       )}
-      {mode === "login" && accounts.length > 0 && (
-        <AccountSwitchList
-          variant="tiles"
-          accounts={accounts}
-          busy={busy}
-          onSwitch={(account) => void switchAccount(account)}
-        />
+      {showQuickLogin && latestAccount && (
+        <div className="login-quick">
+          <AccountSwitchList
+            variant="tiles"
+            accounts={[latestAccount]}
+            busy={busy}
+            onSwitch={(account) => void switchAccount(account)}
+          />
+          <button
+            type="button"
+            className="login-switch-account"
+            disabled={busy}
+            onClick={showPasswordLogin}
+          >
+            切换其它账号
+          </button>
+        </div>
       )}
-      {mode === "login" && (
+      {mode === "login" && !showQuickLogin && (
         <>
-          <label>
-            用户名或邮箱
-            <input
-              key={identifierDefault}
-              name="identifier"
-              defaultValue={identifierDefault}
-              autoComplete="username"
-              required
-            />
-          </label>
-          <label>
-            密码
-            <input name="password" type="password" autoComplete="current-password" required />
-          </label>
+          <TextField
+            key={identifierDefault}
+            label="用户名或邮箱"
+            name="identifier"
+            defaultValue={identifierDefault}
+            autoComplete="username"
+            required
+          />
+          <TextField
+            label="密码"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            required
+          />
           <label className="remember-device">
             <input type="checkbox" name="rememberDevice" />
             在当前设备记住登录信息
@@ -235,35 +280,31 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
       )}
       {mode === "register" && !challengeId && (
         <>
-          <label>
-            邮箱
-            <input
-              name="email"
-              defaultValue={draft.email || ""}
-              type="email"
-              autoComplete="email"
-              required
-            />
-          </label>
+          <TextField
+            label="邮箱"
+            name="email"
+            defaultValue={draft.email || ""}
+            type="email"
+            autoComplete="email"
+            required
+          />
           <PasswordField autoComplete="new-password" required />
         </>
       )}
       {mode === "recover" && !challengeId && (
         <>
-          <label>
-            已绑定邮箱
-            <input
-              name="email"
-              defaultValue={draft.email || ""}
-              type="email"
-              autoComplete="email"
-              required
-            />
-          </label>
+          <TextField
+            label="已绑定邮箱"
+            name="email"
+            defaultValue={draft.email || ""}
+            type="email"
+            autoComplete="email"
+            required
+          />
           <PasswordField label="新密码" autoComplete="new-password" required />
         </>
       )}
-      {humanRequired && !challengeId && (
+      {humanRequired && !challengeId && !showQuickLogin && (
         <HumanVerification
           api={api}
           purpose="auth"
@@ -273,17 +314,15 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
       )}
       {challengeId && (
         <>
-          <label>
-            验证码
-            <input
-              name="code"
-              inputMode="numeric"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              autoComplete="one-time-code"
-              required
-            />
-          </label>
+          <TextField
+            label="验证码"
+            name="code"
+            inputMode="numeric"
+            pattern="[0-9]{6}"
+            maxLength={6}
+            autoComplete="one-time-code"
+            required
+          />
           <ResendCountdown
             sentAt={sentAt}
             onResend={() => {
@@ -299,32 +338,34 @@ export function EmailAuth({ api, onLogin }: { api: Api; onLogin: (user: any) => 
           {notice}
         </div>
       )}
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
+      {!showQuickLogin && (
+        <button
+          className="primary"
+          disabled={
+            busy ||
+            (humanRequired &&
+              !challengeId &&
+              (!humanProof.humanChallengeId || !humanProof.humanAnswer))
+          }
+        >
+          <UiIcon
+            name={busy ? "running" : mode === "login" ? "login" : challengeId ? "check" : "email"}
+            size={14}
+          />
+          {busy
+            ? "正在处理…"
+            : mode === "login"
+              ? "进入工作空间"
+              : challengeId
+                ? "确认"
+                : "发送验证码"}
+        </button>
       )}
-      <button
-        className="primary"
-        disabled={
-          busy ||
-          (humanRequired &&
-            !challengeId &&
-            (!humanProof.humanChallengeId || !humanProof.humanAnswer))
-        }
-      >
-        <UiIcon
-          name={busy ? "running" : mode === "login" ? "login" : challengeId ? "check" : "email"}
-          size={14}
-        />
-        {busy
-          ? "正在处理…"
-          : mode === "login"
-            ? "进入工作空间"
-            : challengeId
-              ? "确认"
-              : "发送验证码"}
-      </button>
+      {mode === "login" && !showQuickLogin && latestAccount && (
+        <button type="button" className="login-switch-quick" onClick={showQuickEntry}>
+          切换快捷登录
+        </button>
+      )}
     </form>
   );
 }

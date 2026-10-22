@@ -14,6 +14,7 @@ export type UiIconName =
   | "chevronUp"
   | "clock"
   | "close"
+  | "cloud"
   | "code"
   | "complete"
   | "compass"
@@ -49,9 +50,12 @@ export type UiIconName =
   | "login"
   | "logout"
   | "megaphone"
+  | "messageCircle"
+  | "messageQuestion"
   | "members"
   | "monitor"
   | "mention"
+  | "miniprogram"
   | "next"
   | "offline"
   | "online"
@@ -105,8 +109,9 @@ const IMAGE_ICONS = {
 } as const satisfies Partial<Record<UiIconName, string>>;
 
 type GlyphName = Exclude<UiIconName, keyof typeof IMAGE_ICONS>;
+type Glyph = string | { d: string; fill?: true };
 
-const GLYPHS: Record<GlyphName, string[]> = {
+const GLYPHS: Record<GlyphName, Glyph[]> = {
   abandon: ["M5 4v16", "M5 5h9l-1.5 4L14 13H5"],
   archive: ["M3 7h18v3H3z", "M5 10v10h14V10", "M10 14h4"],
   blocked: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "m8 8 8 8"],
@@ -128,6 +133,8 @@ const GLYPHS: Record<GlyphName, string[]> = {
   chevronUp: ["m6 15 6-6 6 6"],
   clock: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "M12 7v5l3 2"],
   close: ["m6 6 12 12M6 18 18 6"],
+  // Lucide cloud, ISC. https://lucide.dev/icons/cloud
+  cloud: ["M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"],
   code: ["m8 8-4 4 4 4", "m16 8 4 4-4 4"],
   complete: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "m8 12 3 3 5-6"],
   compass: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "m15.6 8.4-1.7 5.5-5.5 1.7 1.7-5.5Z"],
@@ -177,11 +184,26 @@ const GLYPHS: Record<GlyphName, string[]> = {
   layers: ["M12 3 3 8l9 5 9-5-9-5Z", "M3 14l9 5 9-5"],
   layout: ["M4 5h16v14H4z", "M10 5v14M4 11h16"],
   library: ["M4 5h3v15H4z", "M9 5h3v15H9z", "M14 7l6-1v15l-6 1V7Z"],
-  list: ["M8 7h12M8 12h12M8 17h12", "M4 7h.01M4 12h.01M4 17h.01"],
+  list: [
+    "M10 6h10M10 12h10M10 18h10",
+    { d: "M3.3 4.4a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2z", fill: true },
+    { d: "M3.3 10.4a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2z", fill: true },
+    { d: "M3.3 16.4a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2z", fill: true },
+  ],
   lock: ["M8 11V8a4 4 0 0 1 8 0v3", "M6 11h12v10H6z"],
   login: ["M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4", "M10 17l5-5-5-5", "M15 12H3"],
   logout: ["M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4", "M16 17l5-5-5-5", "M21 12H9"],
   megaphone: ["M4 10v4h3l6 4V6L7 10H4Z", "M16.5 8.5a4 4 0 0 1 0 7"],
+  // Lucide message-circle, ISC. https://lucide.dev/icons/message-circle
+  messageCircle: [
+    "M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719",
+  ],
+  // Lucide message-circle-question-mark, ISC. https://lucide.dev/icons/message-circle-question-mark
+  messageQuestion: [
+    "M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719",
+    "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3",
+    "M12 17h.01",
+  ],
   members: [
     "M16 12a3.5 3.5 0 1 0-3.5-3.5A3.5 3.5 0 0 0 16 12Z",
     "M8.5 13a3 3 0 1 0-3-3 3 3 0 0 0 3 3Z",
@@ -192,6 +214,11 @@ const GLYPHS: Record<GlyphName, string[]> = {
   mention: [
     "M16.5 12a4.5 4.5 0 1 1-1.3-3.2",
     "M16.5 12v1.2a1.8 1.8 0 0 0 3.6 0V12a8 8 0 1 0-3.2 6.4",
+  ],
+  // IconPark weixin-mini-app, Apache-2.0, scaled to the 24 grid. https://github.com/bytedance/IconPark
+  miniprogram: [
+    "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z",
+    "M14.5 12C14.994 12 15.478 11.853 15.889 11.579C16.3 11.304 16.621 10.914 16.81 10.457C16.999 10 17.048 9.497 16.952 9.012C16.856 8.527 16.617 8.082 16.268 7.732C15.918 7.383 15.473 7.145 14.988 7.048C14.503 6.952 14 7.001 13.543 7.19C13.087 7.38 12.696 7.7 12.421 8.111C12.147 8.522 12 9.006 12 9.5V14.5C12 14.994 11.853 15.478 11.579 15.889C11.304 16.3 10.914 16.621 10.457 16.81C10 16.999 9.497 17.048 9.012 16.952C8.527 16.856 8.082 16.617 7.732 16.268C7.383 15.918 7.145 15.473 7.048 14.988C6.952 14.503 7.001 14 7.19 13.543C7.38 13.087 7.7 12.696 8.111 12.421C8.522 12.147 9.006 12 9.5 12",
   ],
   next: ["m9 6 6 6-6 6"],
   offline: ["M8 12h8M9 8V5m6 3V5M7 8h10v5a5 5 0 0 1-10 0V8Z", "M12 18v3", "m5 5 14 14"],
@@ -358,9 +385,18 @@ export function UiIcon({
       strokeLinejoin={filled ? undefined : "round"}
       aria-hidden="true"
     >
-      {GLYPHS[name as GlyphName].map((d) => (
-        <path key={d} d={d} />
-      ))}
+      {GLYPHS[name as GlyphName].map((glyph) => {
+        const d = typeof glyph === "string" ? glyph : glyph.d;
+        const fill = typeof glyph === "string" ? false : glyph.fill;
+        return (
+          <path
+            key={d}
+            d={d}
+            fill={fill ? "currentColor" : undefined}
+            stroke={fill ? "none" : undefined}
+          />
+        );
+      })}
     </svg>
   );
 }

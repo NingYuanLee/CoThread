@@ -11,16 +11,43 @@
 }
 .admin-sidebar {
   box-sizing: border-box;
+
   width: 238px;
+
   flex-shrink: 0;
+
   display: flex;
+
   flex-direction: column;
+
   padding: 0 var(--sidebar-gutter) 10px;
+
   background: var(--c-f0f3ed);
-  border-right: 1px solid var(--c-e0e6dc);
+
+  border-right: 1px solid transparent;
+
   transition: width 160ms cubic-bezier(0.32, 0.08, 0.24, 1);
+
   overflow: hidden;
+  position: relative;
+  --stroke: var(--c-e0e6dc);
 }
+.admin-sidebar::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
 .admin-sidebar .sidebar-brand {
   margin-bottom: 8px;
 }
@@ -56,10 +83,12 @@
   height: 32px;
   margin: 2px 0;
   padding: 0 10px 0 26px;
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   color: var(--c-687360);
   text-decoration: none;
   white-space: nowrap;
+
+  --stroke-radius: calc((var(--radius-control)) * 2);
 }
 .admin-nav-group a:hover {
   background: var(--c-e9eee5);
@@ -139,39 +168,79 @@
 .admin-topbar-actions a {
   text-decoration: none;
 }
-.admin-account-icon {
+.admin-account-trigger {
+  padding: 0;
+}
+.admin-account-avatar {
+  width: 22px;
+  height: 22px;
+  flex-basis: 22px;
   border-radius: 6px;
-  background: var(--c-e9eee5);
+  font-size: 11px;
+}
+.admin-account-menu.library-folder-menu {
+  position: fixed;
+  top: 0;
+  right: auto;
+  z-index: 80;
+  min-width: 148px;
+}
+.admin-account-menu .library-folder-menu-item {
+  justify-content: flex-start;
 }
 .admin-content {
   flex: 1;
   min-height: 0;
   overflow: auto;
   padding: 18px;
+  background: var(--c-fcfdfb);
 }
 .admin-content-card {
   background: var(--c-fff);
-  border: 1px solid var(--c-e0e6dc);
-  border-radius: 8px;
+
+  border: 1px solid transparent;
+
+  border-radius: var(--radius-control);
+
   padding: 16px;
+  position: relative;
+  --stroke: var(--c-e0e6dc);
+
+  --stroke-radius: calc((var(--radius-control)) * 2);
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
-.admin-content-work {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+.admin-content-card::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
 }
+
+.admin-content-work,
 .admin-content-list {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.admin-content-work-card {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+/* 单列表页：内容区统一留白。底边不留，分页行再贴回左、右、下。 */
+.admin-content.admin-content-work,
+.admin-content.admin-content-list {
+  --admin-page-inset: 18px;
+  --admin-filter-pad: 16px;
+  padding: var(--admin-page-inset) var(--admin-page-inset) 0;
 }
+.admin-content-work-card,
 .admin-content-list-card {
   flex: 1;
   min-height: 0;
@@ -179,16 +248,124 @@
   flex-direction: column;
   overflow: hidden;
 }
+.admin-content-work .admin-content-work-card,
+.admin-content-list .admin-content-list-card {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  overflow: visible;
+
+  --stroke-radius: 0;
+}
+.admin-content-list .admin-content-list-card::after,
+.admin-content-work .admin-content-work-card::after {
+  content: none;
+}
 .admin-content-list-card > .admin-manager,
-.admin-content-list-card > .admin-roles {
+.admin-content-list-card > .admin-roles,
+.admin-content-work-card > .admin-work {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
-.admin-content-list-card .admin-table-wrap {
+/* 原内容卡片的边框只留给筛选区。说明文字留在边框外。 */
+.admin-content-list-card .admin-filters,
+.admin-content-work-card .admin-filters {
+  flex: 0 0 auto;
+
+  box-sizing: border-box;
+
+  margin: 0;
+
+  padding: 12px var(--admin-filter-pad, 16px);
+
+  background: var(--c-fff);
+
+  border: 1px solid transparent;
+
+  border-radius: var(--radius-control);
+  position: relative;
+  --stroke: var(--c-e0e6dc);
+
+  --stroke-radius: calc((var(--radius-control)) * 2);
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+.admin-content-list-card .admin-filters::after,
+.admin-content-work-card .admin-filters::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
+.admin-content-list-card .admin-list-note + .admin-filters,
+.admin-content-work-card .admin-list-note + .admin-filters {
+  margin-top: 12px;
+}
+.admin-content-list-card .admin-list-note,
+.admin-content-work-card .admin-list-note {
+  flex: 0 0 auto;
+  margin: 12px 0 0;
+}
+.admin-content-list-card > .admin-manager > .admin-list-note:first-child,
+.admin-content-list-card > .admin-roles > .admin-list-note:first-child,
+.admin-content-work-card > .admin-work > .admin-list-note:first-child {
+  margin-top: 0;
+}
+/* 表格是独立圆角卡片，左右留白由内容区内边距提供。 */
+.admin-content-list-card .admin-table-wrap,
+.admin-content-work-card .admin-table-wrap {
   flex: 1 1 auto;
   min-height: 0;
+  margin: 12px 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: var(--c-fff);
+  position: relative;
+  --stroke: var(--c-e0e6dc);
+
+  --stroke-radius: calc((var(--radius-control)) * 2);
+  /* clip 会禁掉滚动，clip-margin 又会让圆角裁不住表格。 */
+  overflow: auto;
+  border-color: var(--stroke);
+}
+.admin-content-list-card .admin-table-wrap::after,
+.admin-content-work-card .admin-table-wrap::after {
+  content: none;
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+.admin-content-list-card .admin-table :is(th, td):first-child,
+.admin-content-work-card .admin-table :is(th, td):first-child {
+  padding-left: var(--admin-filter-pad, 16px);
+}
+.admin-content-list-card .admin-table :is(th, td):last-child,
+.admin-content-work-card .admin-table :is(th, td):last-child {
+  padding-right: var(--admin-filter-pad, 16px);
 }
 .admin-filters {
   display: flex;
@@ -197,64 +374,113 @@
   flex-wrap: wrap;
   margin-bottom: 14px;
 }
-.admin-search {
-  margin: 0;
+/* 新增类操作独立成区：夹在筛选卡片和列表之间，本身透明、无边框。 */
+.admin-content-list-card .admin-list-actions,
+.admin-content-work-card .admin-list-actions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 7px;
-  border: 1px solid var(--c-dde5d7);
-  border-radius: 5px;
-  height: 30px;
-  padding: 0 9px;
-  min-width: 180px;
-  flex: 1;
-  background: var(--c-fff);
+  justify-content: flex-start;
+  gap: 8px;
   box-sizing: border-box;
-}
-.admin-search .ui-icon {
-  flex-shrink: 0;
-  color: var(--c-73806f);
-}
-.admin-shell .admin-search input {
+  margin: 12px 0 0;
+  padding: 4px 0;
+  background: transparent;
   border: 0;
   border-radius: 0;
-  padding: 0;
-  margin: 0;
-  width: 100%;
-  height: 28px;
-  min-width: 0;
-  background: transparent;
-  outline: none;
   box-shadow: none;
-  font: inherit;
 }
-.admin-search:focus-within {
-  border-color: var(--c-668052);
-  box-shadow: 0 0 0 2px var(--c-e9eee5);
+.admin-content-list-card .admin-list-actions::before,
+.admin-content-list-card .admin-list-actions::after,
+.admin-content-work-card .admin-list-actions::before,
+.admin-content-work-card .admin-list-actions::after {
+  content: none;
 }
-.admin-filters select {
-  width: auto;
-  min-width: 112px;
-  max-width: 220px;
+/* 筛选区控件固定宽度：不随行宽自动撑开，也不按内容伸缩。 */
+.admin-filters .field {
+  flex: 0 0 auto;
+  width: 168px;
+  min-width: 168px;
+  max-width: 168px;
+}
+
+/* 操作按钮组靠右：让第一个按钮吃掉剩余空间，后面的按钮自然贴右。 */
+.admin-filters > button:first-of-type,
+.admin-filters > .admin-filters-actions {
+  margin-left: auto;
+}
+
+/* 搜索框宽一档，仍保持固定。 */
+.admin-filters > .admin-search-field {
+  width: 280px;
+  min-width: 280px;
+  max-width: 280px;
+  flex: 0 0 280px;
+}
+
+.admin-filters .field .field-select {
+  width: 100%;
+}
+
+.admin-filters .field {
+  margin: 0;
 }
 .admin-content button,
 .admin-dialog-body button {
   display: inline-flex;
+
   align-items: center;
+
   justify-content: center;
+
   gap: 5px;
+
   height: 30px;
+
   padding: 0 10px;
-  border: 1px solid var(--c-dde5d7);
-  border-radius: 5px;
+
+  border: 1px solid transparent;
+
+  border-radius: var(--radius-control);
+
   background: var(--c-fff);
+
   color: var(--c-516747);
+
   font: inherit;
+
   font-size: 12px;
+
   line-height: normal;
+
   white-space: nowrap;
+
   box-shadow: none;
+  position: relative;
+  --stroke: var(--c-dde5d7);
+
+  --stroke-radius: calc((var(--radius-control)) * 2);
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
+.admin-content button::after,
+.admin-dialog-body button::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
 .admin-content button:hover:not(:disabled),
 .admin-dialog-body button:hover:not(:disabled) {
   background: var(--c-f0f3ed);
@@ -262,8 +488,15 @@
 .admin-content button.primary,
 .admin-dialog-body button.primary {
   background: var(--c-516747);
+
   color: var(--c-fff);
-  border-color: var(--c-516747);
+
+  --stroke: var(--c-516747);
+
+  border-color: transparent;
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
 .admin-content button.primary:hover:not(:disabled),
 .admin-dialog-body button.primary:hover:not(:disabled) {
@@ -283,39 +516,90 @@
 .admin-dialog input:not([type="checkbox"]),
 .admin-dialog select {
   height: 30px;
+
   box-sizing: border-box;
+
   margin: 0;
+
   padding: 0 9px;
+
   border: 1px solid var(--c-dde5d7);
-  border-radius: 5px;
+
+  border-radius: var(--radius-control);
+
   background: var(--c-fff);
+
   color: inherit;
+
   font: inherit;
+
   font-size: 12px;
+
+  --stroke-radius: calc((var(--radius-control)) * 2);
 }
 .admin-dialog textarea {
   width: 100%;
+
   min-height: 120px;
+
   padding: 9px;
+
   box-sizing: border-box;
+
   border: 1px solid var(--c-dde5d7);
-  border-radius: 5px;
+
+  border-radius: var(--radius-control);
+
   background: var(--c-fff);
+
   color: inherit;
+
   font: inherit;
+
   resize: vertical;
+
   line-height: 1.7;
+
+  --stroke-radius: calc((var(--radius-control)) * 2);
 }
-.admin-shell :is(button, a, select):focus-visible,
-.admin-dialog :is(button, input, textarea, select):focus-visible {
+.admin-shell :is(button, a):focus-visible,
+.admin-dialog button:focus-visible {
   outline: 2px solid var(--c-668052);
   outline-offset: 2px;
 }
+.admin-shell select:focus-visible,
+.admin-dialog :is(input, textarea, select):focus-visible {
+  outline: none;
+  outline-offset: 0;
+  box-shadow: none;
+}
 .admin-table-wrap {
   overflow: auto;
-  border: 1px solid var(--c-e0e6dc);
-  border-radius: 5px;
+
+  border: 1px solid var(--stroke);
+
+  border-radius: var(--radius-control);
+  position: relative;
+  --stroke: var(--c-e0e6dc);
+
+  --stroke-radius: calc((var(--radius-control)) * 2);
 }
+.admin-table-wrap::after {
+  content: none;
+  position: absolute;
+  inset: 0;
+
+  width: auto;
+  height: auto;
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: none;
+}
+
 .admin-table {
   width: 100%;
   min-width: 620px;
@@ -326,13 +610,41 @@
 }
 .admin-table th {
   padding: 9px 10px;
+
   text-align: left;
+
   font-weight: 500;
+
   color: var(--c-73806f);
+
   background: var(--c-f7f9f3);
-  border-bottom: 1px solid var(--c-e0e6dc);
+
+  border-bottom: 1px solid transparent;
+
   white-space: nowrap;
+  position: relative;
+  --stroke: var(--c-e0e6dc);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
+.admin-table th::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  width: auto;
+  height: 0;
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: 0 0 1px;
+  transform: none;
+}
+
 .admin-table thead th {
   position: sticky;
   top: 0;
@@ -340,10 +652,35 @@
 }
 .admin-table td {
   padding: 10px 10px;
-  border-bottom: 1px solid var(--c-edf0e8);
+
+  border-bottom: 1px solid transparent;
+
   vertical-align: middle;
+
   overflow-wrap: anywhere;
+  position: relative;
+  --stroke: var(--c-edf0e8);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
+.admin-table td::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  width: auto;
+  height: 0;
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: 0 0 1px;
+  transform: none;
+}
+
 .admin-table tbody tr:last-child td {
   border-bottom: 0;
 }
@@ -423,6 +760,8 @@
   height: 30px;
   border-radius: 6px;
   object-fit: cover;
+
+  --stroke-radius: 12px;
 }
 .admin-project-person {
   display: inline-flex;
@@ -533,41 +872,69 @@
   color: var(--c-73806f);
   font-size: 11px;
 }
-.admin-work > .admin-pagination {
-  flex: 0 0 auto;
-  margin: 14px 0 0;
-  padding: 8px 16px 8px;
-  margin-inline: -16px;
-  margin-bottom: -16px;
-  background: var(--c-fff);
-}
-.admin-content-list-card .admin-pagination {
-  flex: 0 0 auto;
-  margin: 12px -16px -16px;
-  padding: 8px 16px;
-  background: var(--c-fff);
-}
+/* 分页行贴内容区左、右、下边，不随表格滚动。控件文字与表格首列对齐。 */
+.admin-content-list-card .admin-pagination,
+.admin-content-work-card .admin-pagination,
 .admin-content-list-card .admin-manager > .pagination-control,
 .admin-content-list-card .admin-roles > .pagination-control {
   flex: 0 0 auto;
-  margin: 12px -16px -16px;
-  width: auto;
-  padding: 8px 16px;
+
+  box-sizing: border-box;
+
+  width: calc(100% + 2 * var(--admin-page-inset, 18px));
+
+  margin: 0 calc(var(--admin-page-inset, 18px) * -1);
+
+  padding: 8px calc(var(--admin-page-inset, 18px) + var(--admin-filter-pad, 16px));
+
   background: var(--c-fff);
+
+  border: 0;
+
+  border-top: 1px solid transparent;
+
+  border-radius: 0;
+  position: relative;
+  --stroke: var(--c-e0e6dc);
+
+  --stroke-radius: 0;
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+.admin-content-list-card .admin-pagination::after,
+.admin-content-work-card .admin-pagination::after,
+.admin-content-list-card .admin-manager > .pagination-control::after,
+.admin-content-list-card .admin-roles > .pagination-control::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
+.admin-content-list-card .admin-pagination > .pagination-control,
+.admin-content-work-card .admin-pagination > .pagination-control {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+
+  --stroke-radius: 0;
 }
 .admin-dialog .admin-table-wrap {
   min-height: 0;
   overflow: visible;
-}
-.admin-content-work-card > .admin-work {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.admin-content-work-card .admin-work > .admin-table-wrap {
-  flex: 1 1 auto;
-  min-height: 0;
 }
 .admin-pagination > div {
   display: flex;
@@ -582,14 +949,44 @@
 }
 .admin-tabs {
   display: flex;
+
   gap: 3px;
+
   padding: 2px;
-  border: 1px solid var(--c-dde5d7);
+
+  border: 1px solid transparent;
+
   border-radius: 5px;
+
   background: var(--c-f7f9f3);
+
   height: 30px;
+
   box-sizing: border-box;
+  position: relative;
+  --stroke: var(--c-dde5d7);
+
+  --stroke-radius: 10px;
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
+.admin-tabs::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
 .admin-tabs button {
   height: 24px;
   border: 0;
@@ -603,7 +1000,6 @@
   font-weight: 500;
 }
 .modal.admin-dialog {
-  width: min(780px, 100%);
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -613,10 +1009,34 @@
 }
 .admin-dialog > .modal-header {
   flex-shrink: 0;
+
   padding: 18px 24px 12px;
+
   gap: 16px;
-  border-bottom: 1px solid var(--c-edf0e8);
+
+  border-bottom: 1px solid transparent;
+  position: relative;
+  --stroke: var(--c-edf0e8);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
+.admin-dialog > .modal-header::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
 .admin-dialog > .modal-header h2 {
   margin: 0;
   overflow-wrap: anywhere;
@@ -651,6 +1071,19 @@
 .admin-editor {
   margin: 0;
 }
+.admin-project-create-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.admin-project-create-identity .project-image-field {
+  flex: 0 0 auto;
+  margin: 0;
+}
+.admin-project-create-identity > .field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .admin-editor > label:not(.permission-node),
 .admin-form-grid > label {
   display: grid;
@@ -671,23 +1104,76 @@
 }
 .admin-editor-actions {
   display: flex;
+
   justify-content: flex-end;
+
   gap: 8px;
+
   margin-top: 22px;
+
   padding-top: 16px;
-  border-top: 1px solid var(--c-edf0e8);
+
+  border-top: 1px solid transparent;
+  position: relative;
+  --stroke: var(--c-edf0e8);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
+.admin-editor-actions::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
 .permission-tree {
   display: grid;
   gap: 12px;
 }
 .permission-tree fieldset {
-  border: 1px solid var(--c-dde5d7);
+  border: 1px solid transparent;
+
   padding: 0 14px 10px;
+
   border-radius: 5px;
+
   background: var(--c-fff);
+
   min-width: 0;
+  position: relative;
+  --stroke: var(--c-dde5d7);
+
+  --stroke-radius: 10px;
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
+.permission-tree fieldset::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
 .permission-node {
   display: flex;
   gap: 7px;
@@ -710,9 +1196,31 @@
   font-weight: 600;
 }
 .permission-page-block {
-  border-top: 1px solid var(--c-edf0e8);
+  border-top: 1px solid transparent;
+
   padding-left: 8px;
+  position: relative;
+  --stroke: var(--c-edf0e8);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
+.permission-page-block::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
 .permission-functions {
   padding-left: 21px;
   display: flex;
@@ -721,14 +1229,44 @@
 }
 .admin-prompt {
   white-space: pre-wrap;
+
   overflow-wrap: anywhere;
+
   padding: 14px;
+
   background: var(--c-f7f9f3);
-  border: 1px solid var(--c-e0e6dc);
+
+  border: 1px solid transparent;
+
   border-radius: 5px;
+
   font-size: 12px;
+
   line-height: 1.8;
+  position: relative;
+  --stroke: var(--c-e0e6dc);
+
+  --stroke-radius: 10px;
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
+.admin-prompt::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
 .admin-prewrap {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -740,6 +1278,8 @@
   background: var(--c-f7f9f3);
   border-radius: 5px;
   font-size: 18px;
+
+  --stroke-radius: 10px;
 }
 .admin-boot,
 .admin-denied {
@@ -772,17 +1312,9 @@
   .admin-content-card {
     padding: 12px;
   }
-  .admin-work > .admin-pagination {
-    margin-inline: -12px;
-    margin-bottom: -12px;
-    padding-inline: 12px;
-  }
-  .admin-content-list-card .admin-pagination,
-  .admin-content-list-card .admin-manager > .pagination-control,
-  .admin-content-list-card .admin-roles > .pagination-control {
-    margin-inline: -12px;
-    margin-bottom: -12px;
-    padding-inline: 12px;
+  .admin-content.admin-content-list,
+  .admin-content.admin-content-work {
+    --admin-page-inset: 12px;
   }
   .admin-sidebar {
     width: 210px;
@@ -793,9 +1325,6 @@
   }
   .admin-topbar-actions {
     gap: 4px;
-  }
-  .admin-search {
-    flex-basis: 100%;
   }
   .admin-form-grid {
     grid-template-columns: 1fr;
@@ -808,32 +1337,12 @@
     --admin-dialog-pad-block: 16px;
     --admin-dialog-pad-inline: 16px;
   }
-  .admin-dialog-body > .pagination-control:last-child {
-    bottom: 0;
-    margin: 12px -16px 0;
-    padding: 8px 16px;
-  }
-  .admin-dialog-body:has(> .pagination-control:last-child) {
-    padding-bottom: 0;
-  }
   .admin-pagination {
     flex-wrap: wrap;
   }
 }
 
 /* 从 style.css 移出：只被管理页使用，避免进入登录首屏。 */
-.admin-dialog-body > .pagination-control:last-child {
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
-  margin: 12px -24px 0;
-  padding: 8px 24px;
-  border-top: 1px solid var(--c-e0e6dc);
-  background: var(--c-fafbf9);
-}
-.admin-dialog-body:has(> .pagination-control:last-child) {
-  padding-bottom: 0;
-}
 .admin-manager {
   min-width: 0;
 }
@@ -858,13 +1367,42 @@
 }
 .admin-create-form {
   display: grid;
+
   gap: 9px;
+
   margin-bottom: 16px;
+
   padding: 14px;
-  border: 1px solid var(--c-e2e8dd);
-  border-radius: 5px;
+
+  border: 1px solid transparent;
+
+  border-radius: var(--radius-control);
+
   background: var(--c-f8faf6);
+  position: relative;
+  --stroke: var(--c-e2e8dd);
+
+  --stroke-radius: calc((var(--radius-control)) * 2);
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
+.admin-create-form::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
 .admin-create-form textarea {
   min-height: 64px;
 }
@@ -872,11 +1410,53 @@
   justify-self: end;
 }
 .admin-list {
-  border-top: 1px solid var(--c-e5e9e2);
+  border-top: 1px solid transparent;
+  position: relative;
+  --stroke: var(--c-e5e9e2);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
+.admin-list::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
 .admin-row {
-  border-bottom: 1px solid var(--c-e5e9e2);
+  border-bottom: 1px solid transparent;
+  position: relative;
+  --stroke: var(--c-e5e9e2);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
+.admin-row::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
 .admin-row-main {
   display: flex;
   align-items: center;
@@ -934,9 +1514,19 @@
 }
 .admin-row-detail .audit-heading {
   margin-top: 8px;
+
   padding-top: 10px;
-  border-top: 1px solid var(--c-e7ebe5);
+
+  border-top: 1px solid transparent;
 }
 .admin-row-detail .audit-entry {
   align-items: flex-start;
+}
+
+/* 筛选栏搜索字段：固定 280px，同样不随行宽伸缩。 */
+.admin-filters > .admin-search-field {
+  flex: 0 0 280px;
+  width: 280px;
+  min-width: 280px;
+  max-width: 280px;
 }

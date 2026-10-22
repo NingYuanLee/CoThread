@@ -1,3 +1,4 @@
+import { RefreshButton } from "./IconButton";
 /**
  * 小程序工作区的云存储页：目录导航、上传、新建文件夹与文件操作。
  */
@@ -12,6 +13,8 @@ import {
   type MiniProgramTabId,
   type StorageFile,
 } from "./miniprogram-internals";
+import { TextField } from "./TextField";
+import { SlideSwitch } from "./SlideSwitch";
 import { UiIcon } from "./ui-icon";
 
 export type MiniprogramStoragePanelProps = {
@@ -88,16 +91,15 @@ export function MiniprogramStoragePanel({
             role="toolbar"
             aria-label="CloudBase 云存储工具栏"
           >
-            <button
+            <RefreshButton
               type="button"
               className="miniprogram-preview-icon-button"
               title="刷新当前文件夹"
               aria-label="刷新当前文件夹"
               disabled={browseBusy !== null || storageActionBusy !== null}
               onClick={() => void browseStorage(browsePath)}
-            >
-              <UiIcon name="refresh" size={14} />
-            </button>
+              label="刷新当前文件夹"
+            />
             <nav
               className="miniprogram-admin-address miniprogram-storage-breadcrumbs"
               aria-label="文件夹路径"
@@ -118,40 +120,29 @@ export function MiniprogramStoragePanel({
                 );
               })}
             </nav>
-            <div
+            <SlideSwitch
               className="miniprogram-database-environment"
-              role="group"
-              aria-label="CloudBase 云存储环境"
-            >
-              {(["development", "production"] as const).map((environment) => {
+              size="compact"
+              label="CloudBase 云存储环境"
+              value={storageEnvironment}
+              onChange={(environment) => {
+                setStorageEnvironment(environment);
+                setStoragePage(0);
+              }}
+              items={(["development", "production"] as const).map((environment) => {
                 const info = cbEnvironments.find((item) => item.kind === environment);
-                const selected = storageEnvironment === environment;
                 const label = environment === "production" ? "生产环境" : "开发环境";
                 const unavailable = Boolean(cbEnvironments.length && !info?.configured);
-                return (
-                  <button
-                    type="button"
-                    key={environment}
-                    className={selected ? "is-selected" : ""}
-                    aria-pressed={selected}
-                    title={
-                      info?.inherited
-                        ? `${label}（共用开发环境）`
-                        : `${label}${info?.envId ? ` ${info.envId}` : "未配置"}`
-                    }
-                    disabled={browseBusy !== null || storageActionBusy !== null || unavailable}
-                    onClick={() => {
-                      if (!selected) {
-                        setStorageEnvironment(environment);
-                        setStoragePage(0);
-                      }
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
+                return {
+                  value: environment,
+                  label,
+                  title: info?.inherited
+                    ? `${label}（共用开发环境）`
+                    : `${label}${info?.envId ? ` ${info.envId}` : "未配置"}`,
+                  disabled: browseBusy !== null || storageActionBusy !== null || unavailable,
+                };
               })}
-            </div>
+            />
             <button
               type="button"
               className="miniprogram-preview-icon-button"
@@ -296,30 +287,34 @@ export function MiniprogramStoragePanel({
             ) : null}
           </div>
           {newFolderOpen ? (
-            <WorkspaceDialog title="新建文件夹" onClose={() => setNewFolderOpen(false)}>
-              <label className="miniprogram-field miniprogram-field-column">
-                <span>文件夹名称</span>
-                <input
-                  value={newFolderName}
-                  autoFocus
-                  onChange={(event) => setNewFolderName(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void createStorageFolder();
-                  }}
-                />
-              </label>
-              <div className="miniprogram-config-actions miniprogram-storage-dialog-actions">
-                <button type="button" onClick={() => setNewFolderOpen(false)}>
-                  取消
-                </button>
-                <button
-                  type="button"
-                  disabled={!newFolderName.trim() || storageActionBusy !== null}
-                  onClick={() => void createStorageFolder()}
-                >
-                  {storageActionBusy === "create" ? "创建中…" : "创建"}
-                </button>
-              </div>
+            <WorkspaceDialog
+              bodyInset
+              title="新建文件夹"
+              onClose={() => setNewFolderOpen(false)}
+              footer={
+                <>
+                  <button type="button" onClick={() => setNewFolderOpen(false)}>
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!newFolderName.trim() || storageActionBusy !== null}
+                    onClick={() => void createStorageFolder()}
+                  >
+                    {storageActionBusy === "create" ? "创建中…" : "创建"}
+                  </button>
+                </>
+              }
+            >
+              <TextField
+                label="文件夹名称"
+                value={newFolderName}
+                autoFocus
+                onChange={(event) => setNewFolderName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void createStorageFolder();
+                }}
+              />
             </WorkspaceDialog>
           ) : null}
         </section>

@@ -423,6 +423,20 @@ test("context history paginates previous content and real reviewers without acce
   );
   await service.updateThread(creator, thread.id, { background: "背景 12", goal: "目标 12" });
   assert.equal((await service.listIterationContextChanges(creator, thread.id)).total, 12);
+  const matched = await service.listIterationContextChanges(creator, thread.id, {
+    q: "调整备注 3",
+  });
+  assert.equal(matched.total, 1);
+  assert.equal(matched.items[0].reason, "调整备注 3");
+  assert.equal(
+    (await service.listIterationContextChanges(creator, thread.id, { review: "reviewed" })).total,
+    1,
+  );
+  assert.equal(
+    (await service.listIterationContextChanges(creator, thread.id, { review: "pending" })).total,
+    11,
+  );
+  await assert.rejects(service.listIterationContextChanges(creator, thread.id, { review: "nope" }));
   await assert.rejects(service.listIterationContextChanges(creator, thread.id, { pageSize: 51 }));
   const outsider = { id: randomUUID(), kind: "session" };
   await assert.rejects(service.listIterationContextChanges(outsider, thread.id), { status: 403 });

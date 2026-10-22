@@ -1,10 +1,12 @@
+import { DialogHeader } from "./DialogHeader";
+import { DialogFooter } from "./DialogFooter";
 /**
  * 小程序工作区的内部件：类型、存储路径与分页/预览等纯函数，以及若干叶子组件。
  * 主组件 MiniProgramWorkspace 从这里取用，保持原有行为。
  */
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { UiIcon, type UiIconName } from "./ui-icon";
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { ModalBackdrop } from "./dialog-fx";
 import { PaginationControl } from "./PaginationControl";
 import {
   MiniProgramDeviceShell,
@@ -187,14 +189,26 @@ export function PendingPanel({
  */
 export function WorkspaceDialog({
   title,
+  subtitle,
   onClose,
   children,
   className = "",
+  bodyInset = false,
+  actions,
+  footer,
+  footerPagination = false,
+  filters,
 }: {
   title: string;
+  subtitle?: React.ReactNode;
   onClose: () => void;
   children: React.ReactNode;
   className?: string;
+  bodyInset?: boolean;
+  actions?: React.ReactNode;
+  footer?: React.ReactNode;
+  footerPagination?: boolean;
+  filters?: React.ReactNode;
 }) {
   const titleId = useId();
   return (
@@ -206,11 +220,19 @@ export function WorkspaceDialog({
           aria-modal="true"
           aria-labelledby={titleId}
         >
-          <header>
-            <h3 id={titleId}>{title}</h3>
-            <DialogClose onClick={close} label={`关闭${title}`} />
-          </header>
-          <div className="miniprogram-dialog-body">{children}</div>
+          <DialogHeader
+            title={<>{title}</>}
+            subtitle={subtitle}
+            titleId={titleId}
+            actions={actions}
+            onClose={close}
+            closeLabel={`关闭${title}`}
+          />
+          {filters}
+          <div className={`miniprogram-dialog-body${bodyInset ? " dialog-plain-body" : ""}`}>
+            {children}
+          </div>
+          {footer != null && <DialogFooter pagination={footerPagination}>{footer}</DialogFooter>}
         </section>
       )}
     </ModalBackdrop>

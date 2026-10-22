@@ -1,7 +1,12 @@
+import { DialogFooter } from "./DialogFooter";
+import { TextField } from "./TextField";
+import { TextAreaField } from "./TextAreaField";
+import { SelectField } from "./SelectField";
+import { RefreshButton } from "./IconButton";
 import { useEffect, useState } from "react";
 import { api } from "./workspace-api";
 import { UiIcon } from "./ui-icon";
-import { showTip } from "./Tip";
+import { showTip, useTipError } from "./Tip";
 import { AdminDialog } from "./AdminDialog";
 import { PaginationControl } from "./PaginationControl";
 import { ProjectMark } from "./ProjectMark";
@@ -68,7 +73,7 @@ export function AdminWorkManagement({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(30);
   const [revision, setRevision] = useState(0);
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError();
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<WorkItem | null>(null);
   const [detail, setDetail] = useState<any>(null);
@@ -112,7 +117,6 @@ export function AdminWorkManagement({
       await work();
     } catch (e) {
       setError((e as Error).message);
-      showTip((e as Error).message, "error");
     } finally {
       setBusy(false);
     }
@@ -132,56 +136,54 @@ export function AdminWorkManagement({
           setQuery(search);
         }}
       >
-        <label className="admin-search">
-          <UiIcon name="search" size={16} />
-          <input
-            aria-label="搜索名称或项目"
-            placeholder="搜索名称或项目，按回车查询"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </label>
-        <select
-          aria-label="所属项目"
+        <TextField
+          dense
+          containerClassName="admin-search-field"
+          label="搜索"
+          icon={<UiIcon name="search" size={16} />}
+          placeholder="名称或项目，按回车查询"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <SelectField
+          dense
+          label="所属项目"
+          placeholder="全部项目"
           value={projectId}
-          onChange={(event) => {
-            setProjectId(event.target.value);
+          onChange={(next) => {
+            setProjectId(next);
             setPage(1);
           }}
-        >
-          <option value="">全部项目</option>
-          {data?.projects.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="工作状态"
+          options={(data?.projects || []).map((project) => ({
+            value: project.id,
+            label: project.name,
+          }))}
+        />
+        <SelectField
+          dense
+          label="工作状态"
+          placeholder="全部状态"
           value={status}
-          onChange={(event) => {
-            setStatus(event.target.value);
+          onChange={(next) => {
+            setStatus(next);
+            setPage(1);
+          }}
+          options={states.map((key) => ({ value: key, label: labels[key] }))}
+        />
+        <button type="submit">查询</button>
+        <button
+          type="button"
+          onClick={() => {
+            setSearch("");
+            setQuery("");
+            setProjectId("");
+            setStatus("");
             setPage(1);
           }}
         >
-          <option value="">全部状态</option>
-          {states.map((key) => (
-            <option key={key} value={key}>
-              {labels[key]}
-            </option>
-          ))}
-        </select>
-        <button type="submit">查询</button>
-        <button type="button" onClick={() => setRevision(revision + 1)} disabled={loading}>
-          <UiIcon name="refresh" size={14} />
-          刷新
+          重置
         </button>
       </form>
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
       {draft && (
         <AdminDialog
           title={kind === "iterations" ? "修改迭代名称" : "修改任务资料"}
@@ -205,40 +207,33 @@ export function AdminWorkManagement({
                 });
               }}
             >
-              {error && (
-                <div className="error" role="alert">
-                  {error}
-                </div>
-              )}
-              <label>
-                名称
-                <input
+              <div className="dialog-form-scroll admin-editor-fields">
+                <TextField
+                  label="名称"
                   autoFocus
                   required
                   maxLength={kind === "iterations" ? 160 : 240}
                   value={draft.title}
                   onChange={(event) => setDraft({ ...draft, title: event.target.value })}
                 />
-              </label>
-              {kind === "tasks" && (
-                <label>
-                  任务目标
-                  <textarea
+                {kind === "tasks" && (
+                  <TextAreaField
+                    label="任务目标"
                     required
                     maxLength={20000}
                     value={draft.goal || ""}
                     onChange={(event) => setDraft({ ...draft, goal: event.target.value })}
                   />
-                </label>
-              )}
-              <div className="admin-editor-actions">
+                )}
+              </div>
+              <DialogFooter>
                 <button type="button" disabled={busy} onClick={close}>
                   取消
                 </button>
                 <button className="primary" disabled={busy}>
                   保存
                 </button>
-              </div>
+              </DialogFooter>
             </form>
           )}
         </AdminDialog>
@@ -330,6 +325,7 @@ export function AdminWorkManagement({
             正在加载…
           </p>
         ) : (
+          !error &&
           !data?.items.length && (
             <p className="admin-empty">
               没有符合筛选条件的{kind === "iterations" ? "迭代" : "任务"}

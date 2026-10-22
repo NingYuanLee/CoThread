@@ -1,72 +1,222 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { forwardRef, useCallback, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { overlayDuration, type OverlayDirection, type OverlayLayoutStyle } from "./overlay-motion";
 
-const DIALOG_OUT_MS = 150;
-
-function prefersReducedMotion() {
-  return (
-    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
+const stack: HTMLDialogElement[] = [];
+const controllers = new WeakMap<HTMLDialogElement, (after?: () => void) => void>();
+let previousOverflow = "";
+function topDialog() {
+  return stack.filter((dialog) => dialog.isConnected && dialog.open).at(-1);
+}
+function register(dialog: HTMLDialogElement) {
+  if (stack.includes(dialog)) return;
+  if (!stack.length) {
+    previousOverflow = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+  }
+  stack.push(dialog);
+}
+function unregister(dialog: HTMLDialogElement) {
+  const index = stack.indexOf(dialog);
+  if (index < 0) return;
+  stack.splice(index, 1);
+  if (!stack.length) document.documentElement.style.overflow = previousOverflow;
+}
+function reducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-export function animateDialogClose(el: HTMLDialogElement | null, after?: () => void) {
-  if (!el) {
-    after?.();
-    return;
+export type DialogProps = Omit<
+  React.DialogHTMLAttributes<HTMLDialogElement>,
+  "children" | "open" | "onCancel" | "onClose" | "style"
+> & {
+  style?: OverlayLayoutStyle;
+  onRequestClose: () => void;
+  children: React.ReactNode | ((close: () => void) => React.ReactNode);
+  enabled?: boolean;
+  closeOnBackdrop?: boolean;
+  closeOnEscape?: boolean;
+  /** Full viewport wrapper for existing modal panels. */
+  shell?: boolean;
+  active?: boolean;
+  direction?: OverlayDirection;
+};
+
+/** One native top-layer, focus, nesting and close lifecycle for every modal. */
+export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(function Dialog(
+  {
+    children,
+    onRequestClose,
+    enabled = true,
+    closeOnBackdrop = true,
+    closeOnEscape = true,
+    shell = false,
+    active = true,
+    direction = "up",
+    className = "",
+    onClick,
+    onKeyDown,
+    onPointerDown,
+    ...props
+  },
+  forwardedRef,
+) {
+  const node = useRef<HTMLDialogElement | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const wasActive = useRef(false);
+  if (active && !wasActive.current) {
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   }
-  if (!el.open) {
-    after?.();
-    return;
-  }
-  if (el.classList.contains("is-closing")) return;
-  if (prefersReducedMotion()) {
-    el.close();
-    after?.();
-    return;
-  }
-  el.classList.add("is-closing");
-  let done = false;
-  const finish = (event?: AnimationEvent) => {
-    if (done) return;
-    if (event && (event.target !== el || !String(event.animationName).includes("dialog-out")))
-      return;
-    done = true;
-    el.removeEventListener("animationend", finish as EventListener);
-    window.clearTimeout(timer);
+  wasActive.current = active;
+  const config = useRef({ onRequestClose, enabled, closeOnBackdrop, closeOnEscape });
+  config.current = { onRequestClose, enabled, closeOnBackdrop, closeOnEscape };
+  const closing = useRef(false);
+  const notified = useRef(false);
+  const timer = useRef<number | undefined>(undefined);
+  const afterClose = useRef<(() => void) | undefined>(undefined);
+  const backdropStart = useRef(false);
+  const finish = useCallback(() => {
+    const el = node.current;
+    if (!el || notified.current) return;
+    notified.current = true;
+    window.clearTimeout(timer.current);
     el.classList.remove("is-closing");
     if (el.open) el.close();
-    after?.();
+    unregister(el);
+    (afterClose.current ?? config.current.onRequestClose)();
+  }, []);
+  const requestClose = useCallback(
+    (after?: () => void) => {
+      const el = node.current;
+      if (!el || !config.current.enabled || closing.current || topDialog() !== el) return;
+      closing.current = true;
+      afterClose.current = after;
+      if (reducedMotion()) return finish();
+      el.classList.add("is-closing");
+      timer.current = window.setTimeout(finish, overlayDuration());
+    },
+    [finish],
+  );
+  const setNode = useCallback(
+    (el: HTMLDialogElement | null) => {
+      node.current = el;
+      if (typeof forwardedRef === "function") forwardedRef(el);
+      else if (forwardedRef) forwardedRef.current = el;
+    },
+    [forwardedRef],
+  );
+  useLayoutEffect(() => {
+    const el = node.current;
+    if (!el || !active) return;
+    const returnFocus = opener.current;
+    notified.current = false;
+    closing.current = false;
+    afterClose.current = undefined;
+    controllers.set(el, requestClose);
+    el.showModal();
+    register(el);
+    el.dataset.dialogDepth = String(stack.length);
+    return () => {
+      window.clearTimeout(timer.current);
+      controllers.delete(el);
+      if (el.open) el.close();
+      unregister(el);
+      const top = topDialog();
+      if (returnFocus?.isConnected && (!top || top.contains(returnFocus))) {
+        returnFocus.focus({ preventScroll: true });
+      }
+    };
+  }, [requestClose, active]);
+  const isBackdrop = (target: EventTarget, x: number, y: number) => {
+    const el = node.current;
+    if (!el || target !== el) return false;
+    if (shell) return true;
+    const rect = el.getBoundingClientRect();
+    return x < rect.left || x > rect.right || y < rect.top || y > rect.bottom;
   };
-  el.addEventListener("animationend", finish as EventListener);
-  const timer = window.setTimeout(() => finish(), DIALOG_OUT_MS + 40);
-}
+  return active
+    ? createPortal(
+        <dialog
+          {...props}
+          data-overlay={shell ? "dialog-shell" : "dialog"}
+          data-direction={direction}
+          role={shell ? "presentation" : props.role}
+          ref={setNode}
+          className={`${className}${shell ? " dialog-shell" : ""}`.trim()}
+          onCancel={(event) => {
+            if (event.target !== event.currentTarget) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (config.current.closeOnEscape) requestClose();
+          }}
+          onClose={(event) => {
+            if (event.target === event.currentTarget && !notified.current) finish();
+          }}
+          onAnimationEnd={(event) => {
+            props.onAnimationEnd?.(event);
+            const ownPanel =
+              event.target === event.currentTarget ||
+              (shell && (event.target as HTMLElement).parentElement === event.currentTarget);
+            if (closing.current && ownPanel && event.animationName === "overlay-out") finish();
+          }}
+          onPointerDown={(event) => {
+            backdropStart.current = isBackdrop(event.target, event.clientX, event.clientY);
+            onPointerDown?.(event);
+          }}
+          onClick={(event) => {
+            onClick?.(event);
+            if (
+              !event.defaultPrevented &&
+              backdropStart.current &&
+              config.current.closeOnBackdrop &&
+              isBackdrop(event.target, event.clientX, event.clientY)
+            )
+              requestClose();
+            backdropStart.current = false;
+          }}
+          onKeyDown={(event) => {
+            if (topDialog() !== event.currentTarget) return;
+            onKeyDown?.(event);
+            if (event.defaultPrevented) return;
+            if (event.key === "Escape") event.stopPropagation();
+            if (event.key !== "Tab") return;
+            event.stopPropagation();
+            const nodes = Array.from(
+              event.currentTarget.querySelectorAll<HTMLElement>(
+                "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]",
+              ),
+            ).filter(
+              (el) => el.tabIndex >= 0 && el.getClientRects().length && !el.closest("[inert]"),
+            );
+            const first = nodes[0],
+              last = nodes.at(-1);
+            if (!first) {
+              event.preventDefault();
+              event.currentTarget.focus();
+            } else if (
+              event.shiftKey &&
+              (document.activeElement === first ||
+                !event.currentTarget.contains(document.activeElement))
+            ) {
+              event.preventDefault();
+              last?.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          }}
+        >
+          {typeof children === "function" ? children(() => requestClose()) : children}
+        </dialog>,
+        document.body,
+      )
+    : null;
+});
 
-export function onDialogCancel(onClose: () => void) {
-  return (event: React.SyntheticEvent<HTMLDialogElement>) => {
-    if (event.target !== event.currentTarget) {
-      event.preventDefault();
-      return;
-    }
-    event.preventDefault();
-    animateDialogClose(event.currentTarget, onClose);
-  };
-}
-
-export function onDialogBackdropClick(onClose: () => void, canClose?: () => boolean) {
-  return (event: React.MouseEvent<HTMLDialogElement>) => {
-    const dialog = event.currentTarget;
-    if (event.target !== dialog) return;
-    if (canClose && !canClose()) return;
-    const rect = dialog.getBoundingClientRect();
-    if (
-      event.clientX >= rect.left &&
-      event.clientX <= rect.right &&
-      event.clientY >= rect.top &&
-      event.clientY <= rect.bottom
-    )
-      return;
-    animateDialogClose(dialog, onClose);
-  };
+/** Compatibility entry: existing close buttons use the same controller and busy gate. */
+export function animateDialogClose(el: HTMLDialogElement | null, after?: () => void) {
+  if (!el) return;
+  controllers.get(el)?.(after);
 }
 
 export function DialogClose({
@@ -95,21 +245,7 @@ export function DialogClose({
   );
 }
 
-/**
- * 浮层该挂在谁下面。
- *
- * 原生 `<dialog>` 用 `showModal()` 打开后会进入 top layer，同时把 layer 之外的
- * 内容变成 inert；此时把浮层 portal 到 `document.body`，浮层既画不出来也点不到
- * ——「小程序云开发」里再次打开的弹窗被挡住就是这个原因。所以优先挂进最上层
- * 打开着的 `<dialog>`，只有页面上没有对话框时才用 body。
- */
-function modalPortalHost(): HTMLElement {
-  const openDialogs = Array.from(document.querySelectorAll("dialog[open]")).filter(
-    (node): node is HTMLDialogElement => node instanceof HTMLDialogElement && node.isConnected,
-  );
-  return openDialogs.at(-1) ?? document.body;
-}
-
+/** Compatibility layout adapter; every former custom modal now uses Dialog. */
 export function ModalBackdrop({
   onClose,
   children,
@@ -123,72 +259,15 @@ export function ModalBackdrop({
   closeOnBackdrop?: boolean;
   enabled?: boolean;
 }) {
-  const [closing, setClosing] = useState(false);
-  const closingRef = useRef(false);
-  const onCloseRef = useRef(onClose);
-  const enabledRef = useRef(enabled);
-  onCloseRef.current = onClose;
-  enabledRef.current = enabled;
-  const finish = () => {
-    if (!closingRef.current) return;
-    closingRef.current = false;
-    onCloseRef.current();
-  };
-  const requestClose = () => {
-    if (!enabledRef.current || closingRef.current) return;
-    if (prefersReducedMotion()) {
-      onCloseRef.current();
-      return;
-    }
-    closingRef.current = true;
-    setClosing(true);
-  };
-  const nodeRef = useRef<HTMLDivElement>(null);
-  const [hostVersion, setHostVersion] = useState(0);
-  // 父级 dialog 可能在同一轮提交里关掉。宿主断开后改挂到仍在文档里的层。
-  const hostRef = useRef<HTMLElement | null>(null);
-  if (!hostRef.current?.isConnected) hostRef.current = modalPortalHost();
-  useLayoutEffect(() => {
-    if (hostRef.current?.isConnected) return;
-    hostRef.current = modalPortalHost();
-    setHostVersion((value) => value + 1);
-  }, [hostVersion]);
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      const layers = Array.from(document.querySelectorAll(".modal-backdrop:not(.is-closing)"));
-      if (layers.at(-1) !== nodeRef.current) return;
-      event.preventDefault();
-      event.stopPropagation();
-      requestClose();
-    };
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, []);
-  useEffect(() => {
-    if (!closing) return;
-    const timer = window.setTimeout(finish, DIALOG_OUT_MS + 40);
-    return () => window.clearTimeout(timer);
-  }, [closing]);
-  return createPortal(
-    <div
-      ref={nodeRef}
-      className={`modal-backdrop ${className} ${closing ? "is-closing" : ""}`.trim()}
-      onClick={
-        closeOnBackdrop
-          ? (event) => {
-              if (event.target === event.currentTarget) requestClose();
-            }
-          : undefined
-      }
-      onAnimationEnd={(event) => {
-        if (!closing || event.target !== event.currentTarget) return;
-        if (!String(event.animationName).includes("dialog-backdrop-out")) return;
-        finish();
-      }}
+  return (
+    <Dialog
+      shell
+      className={`modal-backdrop ${className}`.trim()}
+      onRequestClose={onClose}
+      enabled={enabled}
+      closeOnBackdrop={closeOnBackdrop}
     >
-      {typeof children === "function" ? children(requestClose) : children}
-    </div>,
-    hostRef.current,
+      {children}
+    </Dialog>
   );
 }

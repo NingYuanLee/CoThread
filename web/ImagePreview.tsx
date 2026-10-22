@@ -1,5 +1,6 @@
+import { DialogHeader } from "./DialogHeader";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { ModalBackdrop } from "./dialog-fx";
 import { UiIcon } from "./ui-icon";
 import {
   clampImageZoom,
@@ -176,37 +177,43 @@ export function ImagePreviewDialog({
             }
           }}
         >
-          <header className="image-preview-dialog-header">
-            <strong title={title}>{title}</strong>
-            <div className="image-preview-tools">
-              {status ? (
-                <span className="image-preview-status" role="status">
-                  {status}
-                </span>
-              ) : null}
-              <button type="button" title="缩小" aria-label="缩小" onClick={() => zoomBy(-1)}>
-                <UiIcon name="zoomOut" size={16} />
-              </button>
-              <button type="button" title="放大" aria-label="放大" onClick={() => zoomBy(1)}>
-                <UiIcon name="zoomIn" size={16} />
-              </button>
-              <span className="image-preview-scale">
-                {Math.round(clampImageZoom(scale) * 100)}%
-              </span>
-              <button
-                type="button"
-                title="复制图片"
-                aria-label="复制图片"
-                onClick={() => void copyImage()}
-              >
-                <UiIcon name="copy" size={16} />
-              </button>
-              <button type="button" title="下载" aria-label="下载" onClick={downloadImage}>
-                <UiIcon name="download" size={16} />
-              </button>
-              <DialogClose autoFocus onClick={close} label="关闭预览" />
-            </div>
-          </header>
+          <DialogHeader
+            title={<>{title}</>}
+            actions={
+              <>
+                <div className="image-preview-tools">
+                  {status ? (
+                    <span className="image-preview-status" role="status">
+                      {status}
+                    </span>
+                  ) : null}
+                  <button type="button" title="缩小" aria-label="缩小" onClick={() => zoomBy(-1)}>
+                    <UiIcon name="zoomOut" size={16} />
+                  </button>
+                  <button type="button" title="放大" aria-label="放大" onClick={() => zoomBy(1)}>
+                    <UiIcon name="zoomIn" size={16} />
+                  </button>
+                  <span className="image-preview-scale">
+                    {Math.round(clampImageZoom(scale) * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    title="复制图片"
+                    aria-label="复制图片"
+                    onClick={() => void copyImage()}
+                  >
+                    <UiIcon name="copy" size={16} />
+                  </button>
+                  <button type="button" title="下载" aria-label="下载" onClick={downloadImage}>
+                    <UiIcon name="download" size={16} />
+                  </button>
+                </div>
+              </>
+            }
+            onClose={close}
+            closeLabel="关闭预览"
+            autoFocusClose
+          />
           <div
             ref={viewportRef}
             className={`image-preview-stage${dragging ? " is-dragging" : ""}`}

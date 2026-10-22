@@ -1,8 +1,21 @@
+import { DialogFilters } from "./DialogFilters";
+import { TextField } from "./TextField";
+import { SelectField } from "./SelectField";
+import { RefreshButton } from "./IconButton";
+import { ContextMenu } from "./ContextMenu";
+import { FloatingPortal } from "./FloatingPortal";
 /**
  * 小程序工作区的 Dimina 预览页：预览服务、设备框、刷新菜单与微信预览/上传记录。
  * 数据与回调由父组件打包成 props 传入。
  */
-import { useState, type Dispatch, type RefObject, type SetStateAction } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+} from "react";
 import {
   DEPLOY_TARGET_LABELS,
   PendingPanel,
@@ -61,6 +74,13 @@ export type MiniprogramPreviewPanelProps = {
   openDeployment: (id: string) => Promise<void>;
 };
 
+function recordStatusTone(status: string): string {
+  if (status === "succeeded") return "ok";
+  if (status === "failed") return "failed";
+  if (status === "running" || status === "queued") return "warning";
+  return "muted";
+}
+
 export function MiniprogramPreviewPanel({
   tab,
   writable,
@@ -96,6 +116,26 @@ export function MiniprogramPreviewPanel({
   setDeploymentLog,
   openDeployment,
 }: MiniprogramPreviewPanelProps) {
+  const [refreshMenuBox, setRefreshMenuBox] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!refreshMenuOpen) return;
+    const place = () => {
+      const anchor = refreshMenuRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const width = 164;
+      let left = rect.left;
+      if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
+      setRefreshMenuBox({ left, top: rect.bottom + 5 });
+    };
+    place();
+    window.addEventListener("resize", place);
+    document.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      document.removeEventListener("scroll", place, true);
+    };
+  }, [refreshMenuOpen, refreshMenuRef]);
   const [recordPage, setRecordPage] = useState(0);
   const [recordPageSize, setRecordPageSize] = useState(TABLE_PAGE_SIZE);
   const [recordStatus, setRecordStatus] = useState("");
@@ -153,7 +193,7 @@ export function MiniprogramPreviewPanel({
         <section className="miniprogram-panel miniprogram-preview-panel">
           <div className="miniprogram-preview-toolbar" role="toolbar" aria-label="小程序预览工具栏">
             <div className="miniprogram-preview-refresh" ref={refreshMenuRef}>
-              <button
+              <RefreshButton
                 type="button"
                 className="miniprogram-preview-icon-button"
                 aria-label="刷新与编译"
@@ -162,60 +202,71 @@ export function MiniprogramPreviewPanel({
                 title="刷新与编译"
                 disabled={building}
                 onClick={() => setRefreshMenuOpen((value) => !value)}
-              >
-                <UiIcon name="refresh" size={14} />
-              </button>
+                label="刷新与编译"
+              />
               {refreshMenuOpen ? (
-                <div className="miniprogram-preview-refresh-menu" role="menu">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    disabled={building}
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setRefreshMenuOpen(false);
-                      if (!enabled) {
-                        setBuildError("请先在「项目管理 → 小程序」保存微信 AppID，再编译预览。");
-                        return;
-                      }
-                      void rebuild(false);
+                <FloatingPortal>
+                  <ContextMenu
+                    onDismiss={() => setRefreshMenuOpen(false)}
+                    className={`miniprogram-preview-refresh-menu${refreshMenuBox ? "" : " is-positioning"}`}
+                    role="menu"
+                    style={{
+                      position: "fixed",
+                      left: refreshMenuBox?.left ?? 0,
+                      top: refreshMenuBox?.top ?? 0,
                     }}
+                    onPointerDown={(event) => event.stopPropagation()}
                   >
-                    <UiIcon name="play" size={13} />
-                    {building ? "编译中…" : "重新编译"}
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    disabled={building}
-                    onClick={() => {
-                      setRefreshMenuOpen(false);
-                      setReloadKey((value) => value + 1);
-                    }}
-                  >
-                    <UiIcon name="refresh" size={13} />
-                    重新加载
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    disabled={building}
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setRefreshMenuOpen(false);
-                      if (!enabled) {
-                        setBuildError("请先在「项目管理 → 小程序」保存微信 AppID，再编译预览。");
-                        return;
-                      }
-                      void rebuild(true);
-                    }}
-                  >
-                    <UiIcon name="restore" size={13} />
-                    强制重新编译
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={building}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setRefreshMenuOpen(false);
+                        if (!enabled) {
+                          setBuildError("请先在「项目管理 → 小程序」保存微信 AppID，再编译预览。");
+                          return;
+                        }
+                        void rebuild(false);
+                      }}
+                    >
+                      <UiIcon name="play" size={13} />
+                      {building ? "编译中…" : "重新编译"}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={building}
+                      onClick={() => {
+                        setRefreshMenuOpen(false);
+                        setReloadKey((value) => value + 1);
+                      }}
+                    >
+                      <UiIcon name="refresh" size={13} />
+                      重新加载
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={building}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setRefreshMenuOpen(false);
+                        if (!enabled) {
+                          setBuildError("请先在「项目管理 → 小程序」保存微信 AppID，再编译预览。");
+                          return;
+                        }
+                        void rebuild(true);
+                      }}
+                    >
+                      <UiIcon name="restore" size={13} />
+                      强制重新编译
+                    </button>
+                  </ContextMenu>
+                </FloatingPortal>
               ) : null}
             </div>
             <div className="miniprogram-preview-route" title={previewRoute}>
@@ -275,7 +326,22 @@ export function MiniprogramPreviewPanel({
             )}
           </div>
           {openAction === "wechat" ? (
-            <WorkspaceDialog title="微信发布" onClose={() => setOpenAction(null)}>
+            <WorkspaceDialog
+              bodyInset
+              title="微信发布"
+              onClose={() => setOpenAction(null)}
+              footer={
+                <>
+                  <button
+                    type="button"
+                    disabled={wechatBusy !== null || !uploadVersion}
+                    onClick={() => void uploadWechatVersion()}
+                  >
+                    {wechatBusy === "upload" ? "上传中…" : "上传体验版"}
+                  </button>
+                </>
+              }
+            >
               <div className="miniprogram-config-actions">
                 <button
                   type="button"
@@ -307,35 +373,21 @@ export function MiniprogramPreviewPanel({
               <h5>上传体验版</h5>
               {writable ? (
                 <>
-                  <div className="miniprogram-field">
-                    <span>上传版本号</span>
-                    <input
-                      type="text"
-                      value={uploadVersion}
-                      placeholder="1.0.0"
-                      autoComplete="off"
-                      onChange={(event) => setUploadVersion(event.target.value)}
-                    />
-                  </div>
-                  <div className="miniprogram-field">
-                    <span>版本说明</span>
-                    <input
-                      type="text"
-                      value={uploadDesc}
-                      placeholder="本次更新内容"
-                      autoComplete="off"
-                      onChange={(event) => setUploadDesc(event.target.value)}
-                    />
-                  </div>
-                  <div className="miniprogram-config-actions">
-                    <button
-                      type="button"
-                      disabled={wechatBusy !== null || !uploadVersion}
-                      onClick={() => void uploadWechatVersion()}
-                    >
-                      {wechatBusy === "upload" ? "上传中…" : "上传体验版"}
-                    </button>
-                  </div>
+                  <TextField
+                    label="上传版本号"
+                    value={uploadVersion}
+                    placeholder="1.0.0"
+                    autoComplete="off"
+                    onChange={(event) => setUploadVersion(event.target.value)}
+                  />
+                  <TextField
+                    label="版本说明"
+                    value={uploadDesc}
+                    placeholder="本次更新内容"
+                    autoComplete="off"
+                    onChange={(event) => setUploadDesc(event.target.value)}
+                  />
+
                   <p className="muted miniprogram-note">
                     上传后生成微信体验版，不代表已提交审核；提审与正式发布仍需在微信后台完成。微信还要求调用方
                     IP 在白名单内。
@@ -349,98 +401,120 @@ export function MiniprogramPreviewPanel({
 
           {openAction === "records" ? (
             <WorkspaceDialog
-              className="miniprogram-records-dialog"
+              className="miniprogram-records-dialog dialog-list"
               title="编译与发布记录"
               onClose={() => setOpenAction(null)}
-            >
-              <div className="miniprogram-table-content miniprogram-deploy-content">
-                <div className="miniprogram-records-filters">
-                  <select
-                    aria-label="状态"
-                    value={recordStatus}
-                    onChange={(event) => setRecordStatus(event.target.value)}
-                  >
-                    <option value="">全部状态</option>
-                    <option value="succeeded">成功</option>
-                    <option value="failed">失败</option>
-                    <option value="running">进行中</option>
-                  </select>
-                  <select
-                    aria-label="类型"
-                    value={recordType}
-                    onChange={(event) => setRecordType(event.target.value)}
-                  >
-                    <option value="">全部类型</option>
-                    <option value="app_preview">Dimina 编译</option>
-                    <option value="wechat_preview">开发版预览</option>
-                    <option value="wechat_upload">体验版上传</option>
-                  </select>
-                  <select
-                    aria-label="操作人"
-                    value={recordOperator}
-                    onChange={(event) => setRecordOperator(event.target.value)}
-                  >
-                    <option value="">全部操作人</option>
-                    {recordOperators.map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                  <label>
-                    开始
-                    <input
-                      type="datetime-local"
+              footerPagination
+              footer={
+                <TablePagination
+                  page={recordPage}
+                  pageSize={recordPageSize}
+                  total={filteredRecords.length}
+                  hasNext={recordHasNext}
+                  onPageChange={setRecordPage}
+                  onPageSizeChange={(pageSize) => {
+                    setRecordPageSize(pageSize);
+                    setRecordPage(0);
+                  }}
+                />
+              }
+              filters={
+                <DialogFilters
+                  label="编译与发布记录筛选"
+                  onQuery={() => {
+                    setAppliedRecordFilter({
+                      status: recordStatus,
+                      type: recordType,
+                      operator: recordOperator,
+                      from: recordFrom,
+                      to: recordTo,
+                    });
+                    setRecordPage(0);
+                  }}
+                  onReset={() => {
+                    setRecordStatus("");
+                    setRecordType("");
+                    setRecordOperator("");
+                    setRecordFrom("");
+                    setRecordTo("");
+                    setAppliedRecordFilter({
+                      status: "",
+                      type: "",
+                      operator: "",
+                      from: "",
+                      to: "",
+                    });
+                    setRecordPage(0);
+                  }}
+                >
+                  <div className="dialog-filter-item">
+                    <span>状态</span>
+                    <SelectField
+                      clearable
+                      aria-label="状态"
+                      value={recordStatus}
+                      onChange={(value) => setRecordStatus(value)}
+                      placeholder="全部状态"
+                      options={[
+                        { value: "", label: "全部状态" },
+                        { value: "succeeded", label: "成功" },
+                        { value: "failed", label: "失败" },
+                        { value: "running", label: "进行中" },
+                      ]}
+                    />
+                  </div>
+                  <div className="dialog-filter-item">
+                    <span>类型</span>
+                    <SelectField
+                      clearable
+                      aria-label="类型"
+                      value={recordType}
+                      onChange={(value) => setRecordType(value)}
+                      placeholder="全部类型"
+                      options={[
+                        { value: "", label: "全部类型" },
+                        { value: "app_preview", label: "Dimina 编译" },
+                        { value: "wechat_preview", label: "开发版预览" },
+                        { value: "wechat_upload", label: "体验版上传" },
+                      ]}
+                    />
+                  </div>
+                  <div className="dialog-filter-item">
+                    <span>操作人</span>
+                    <SelectField
+                      clearable
+                      aria-label="操作人"
+                      value={recordOperator}
+                      onChange={(value) => setRecordOperator(value)}
+                      placeholder="全部操作人"
+                      options={[
+                        { value: "", label: "全部操作人" },
+                        ...recordOperators.map((name) => ({ value: name, label: name })),
+                      ]}
+                    />
+                  </div>
+                  <div className="dialog-filter-item">
+                    <span>开始</span>
+                    <TextField
                       aria-label="开始时间"
+                      type="datetime-local"
                       value={recordFrom}
                       onChange={(event) => setRecordFrom(event.target.value)}
                     />
-                  </label>
-                  <label>
-                    结束
-                    <input
-                      type="datetime-local"
+                  </div>
+                  <div className="dialog-filter-item">
+                    <span>结束</span>
+                    <TextField
                       aria-label="结束时间"
+                      type="datetime-local"
                       value={recordTo}
                       onChange={(event) => setRecordTo(event.target.value)}
                     />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAppliedRecordFilter({
-                        status: recordStatus,
-                        type: recordType,
-                        operator: recordOperator,
-                        from: recordFrom,
-                        to: recordTo,
-                      });
-                      setRecordPage(0);
-                    }}
-                  >
-                    查询
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRecordStatus("");
-                      setRecordType("");
-                      setRecordOperator("");
-                      setRecordFrom("");
-                      setRecordTo("");
-                      setAppliedRecordFilter({
-                        status: "",
-                        type: "",
-                        operator: "",
-                        from: "",
-                        to: "",
-                      });
-                      setRecordPage(0);
-                    }}
-                  >
-                    重置
-                  </button>
-                </div>
+                  </div>
+                </DialogFilters>
+              }
+            >
+              <div className="miniprogram-table-content miniprogram-deploy-content">
                 <div className="miniprogram-production-table-wrap">
                   <table className="miniprogram-production-table miniprogram-records-table">
                     <thead>
@@ -457,13 +531,15 @@ export function MiniprogramPreviewPanel({
                       {recordRows.map((row) => (
                         <tr key={row.id}>
                           <td>
-                            {row.status === "succeeded"
-                              ? "成功"
-                              : row.status === "failed"
-                                ? "失败"
-                                : row.status === "running" || row.status === "queued"
-                                  ? "进行中"
-                                  : row.status}
+                            <span className={`miniprogram-status ${recordStatusTone(row.status)}`}>
+                              {row.status === "succeeded"
+                                ? "成功"
+                                : row.status === "failed"
+                                  ? "失败"
+                                  : row.status === "running" || row.status === "queued"
+                                    ? "进行中"
+                                    : row.status}
+                            </span>
                           </td>
                           <td>{DEPLOY_TARGET_LABELS[row.target] || row.target}</td>
                           <td>{row.version || "—"}</td>
@@ -488,17 +564,6 @@ export function MiniprogramPreviewPanel({
                     </tbody>
                   </table>
                 </div>
-                <TablePagination
-                  page={recordPage}
-                  pageSize={recordPageSize}
-                  total={filteredRecords.length}
-                  hasNext={recordHasNext}
-                  onPageChange={setRecordPage}
-                  onPageSizeChange={(pageSize) => {
-                    setRecordPageSize(pageSize);
-                    setRecordPage(0);
-                  }}
-                />
               </div>
               {openDeploymentId ? (
                 <WorkspaceDialog

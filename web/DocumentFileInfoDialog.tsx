@@ -1,4 +1,5 @@
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { DialogHeader } from "./DialogHeader";
+import { ModalBackdrop } from "./dialog-fx";
 
 export type DocumentFileInfoRow = {
   label: string;
@@ -21,20 +22,24 @@ export function DocumentFileInfoDialog({
           aria-modal="true"
           aria-labelledby="document-file-info-title"
         >
-          <header>
-            <h3 id="document-file-info-title">文件信息</h3>
-            <DialogClose onClick={close} label="关闭" />
-          </header>
-          <table className="document-file-info-table">
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.label}>
-                  <th scope="row">{row.label}</th>
-                  <td>{row.value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DialogHeader
+            title={<>文件信息</>}
+            titleId="document-file-info-title"
+            onClose={close}
+            closeLabel="关闭"
+          />
+          <div className="dialog-scroll-region">
+            <table className="document-file-info-table">
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.label}>
+                    <th scope="row">{row.label}</th>
+                    <td>{row.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
     </ModalBackdrop>

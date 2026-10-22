@@ -1,5 +1,38 @@
-import { useEffect, useRef, useState } from "react";
+import { RefreshButton } from "./IconButton";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { FloatingPortal } from "./FloatingPortal";
 import { UiIcon } from "./ui-icon";
+
+const HTML_FILE_OPTIONS_GAP = 6;
+const HTML_FILE_OPTIONS_MAX_HEIGHT = 260;
+
+/** 地址栏和预览壳都是 overflow: clip/hidden，下拉必须脱离它们再定位。 */
+function placeHtmlFileOptions(anchor: HTMLElement | null): CSSProperties {
+  if (!anchor) return { position: "fixed", visibility: "hidden" };
+  const rect = anchor.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom - HTML_FILE_OPTIONS_GAP;
+  const spaceAbove = rect.top - HTML_FILE_OPTIONS_GAP;
+  const openUp = spaceBelow < 160 && spaceAbove > spaceBelow;
+  const maxHeight = Math.max(
+    80,
+    Math.min(HTML_FILE_OPTIONS_MAX_HEIGHT, openUp ? spaceAbove : spaceBelow),
+  );
+  return openUp
+    ? {
+        position: "fixed",
+        left: rect.left,
+        width: rect.width,
+        maxHeight,
+        bottom: window.innerHeight - rect.top + HTML_FILE_OPTIONS_GAP,
+      }
+    : {
+        position: "fixed",
+        left: rect.left,
+        width: rect.width,
+        maxHeight,
+        top: rect.bottom + HTML_FILE_OPTIONS_GAP,
+      };
+}
 
 export type HtmlDeviceMode = "desktop" | "mobile";
 export type HtmlBrowserFile = { id: string; filename: string; address: string };
@@ -31,7 +64,9 @@ export function HtmlBrowserToolbar({
   onAddressFocused?: () => void;
 }) {
   const [focused, setFocused] = useState(false);
+  const [optionsTick, setOptionsTick] = useState(0);
   const addressWrapRef = useRef<HTMLDivElement>(null);
+  const optionsRef = useRef<HTMLDivElement>(null);
   const addressInputRef = useRef<HTMLInputElement>(null);
   const onAddressFocusedRef = useRef(onAddressFocused);
   onAddressFocusedRef.current = onAddressFocused;
@@ -46,10 +81,27 @@ export function HtmlBrowserToolbar({
   useEffect(() => {
     if (!focused) return;
     const closeOnOutsidePointerDown = (event: PointerEvent) => {
-      if (!addressWrapRef.current?.contains(event.target as Node)) setFocused(false);
+      const target = event.target as Node;
+      if (addressWrapRef.current?.contains(target) || optionsRef.current?.contains(target)) return;
+      setFocused(false);
     };
     document.addEventListener("pointerdown", closeOnOutsidePointerDown);
     return () => document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
+  }, [focused]);
+  useLayoutEffect(() => {
+    if (!focused) return;
+    const anchor = addressWrapRef.current;
+    if (!anchor) return;
+    const place = () => setOptionsTick((tick) => tick + 1);
+    const observer = new ResizeObserver(place);
+    observer.observe(anchor);
+    window.addEventListener("resize", place);
+    document.addEventListener("scroll", place, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", place);
+      document.removeEventListener("scroll", place, true);
+    };
   }, [focused]);
   const query = addressQuery;
   const matches = files
@@ -64,16 +116,15 @@ export function HtmlBrowserToolbar({
   return (
     <div className="doc-html-browser-toolbar-shell">
       <div className="doc-html-browser-toolbar" role="toolbar" aria-label="HTML 浏览器工具栏">
-        <button
+        <RefreshButton
           type="button"
           className="doc-html-browser-action"
           title="刷新页面"
           aria-label="刷新页面"
           onClick={onReload}
           disabled={!onReload}
-        >
-          <UiIcon name="refresh" size={14} />
-        </button>
+          label="刷新页面"
+        />
         <div
           ref={addressWrapRef}
           className={`doc-html-browser-address-wrap${focused ? " focused" : ""}`}
@@ -101,32 +152,37 @@ export function HtmlBrowserToolbar({
             title={filename || "搜索 HTML 文件"}
           />
           {focused ? (
-            <div
-              className="doc-html-browser-address-options"
-              role="listbox"
-              aria-label="HTML 文件候选"
-            >
-              {matches.length ? (
-                matches.map((file) => (
-                  <button
-                    key={file.id}
-                    type="button"
-                    role="option"
-                    aria-selected={file.address === addressQuery}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      onSelectFile(file.id);
-                      setFocused(false);
-                    }}
-                  >
-                    <UiIcon name="code" size={13} />
-                    <span>{file.address}</span>
-                  </button>
-                ))
-              ) : (
-                <span className="doc-html-browser-address-empty">没有匹配的 HTML 文件</span>
-              )}
-            </div>
+            <FloatingPortal>
+              <div
+                ref={optionsRef}
+                className="doc-html-browser-address-options"
+                role="listbox"
+                aria-label="HTML 文件候选"
+                style={placeHtmlFileOptions(addressWrapRef.current)}
+                data-options-tick={optionsTick}
+              >
+                {matches.length ? (
+                  matches.map((file) => (
+                    <button
+                      key={file.id}
+                      type="button"
+                      role="option"
+                      aria-selected={file.address === addressQuery}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        onSelectFile(file.id);
+                        setFocused(false);
+                      }}
+                    >
+                      <UiIcon name="code" size={13} />
+                      <span>{file.address}</span>
+                    </button>
+                  ))
+                ) : (
+                  <span className="doc-html-browser-address-empty">没有匹配的 HTML 文件</span>
+                )}
+              </div>
+            </FloatingPortal>
           ) : null}
         </div>
         <div className="doc-html-device-controls" role="group" aria-label="预览设备">

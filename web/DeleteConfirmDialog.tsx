@@ -1,4 +1,7 @@
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { DialogFooter } from "./DialogFooter";
+import { DialogBody } from "./DialogBody";
+import { DialogHeader } from "./DialogHeader";
+import { ModalBackdrop } from "./dialog-fx";
 import { UiIcon } from "./ui-icon";
 
 export function DeleteConfirmDialog({
@@ -27,12 +30,16 @@ export function DeleteConfirmDialog({
           aria-modal="true"
           aria-labelledby="library-delete-title"
         >
-          <header>
-            <h3 id="library-delete-title">{title}</h3>
-            <DialogClose onClick={close} label="关闭" />
-          </header>
-          <p>{body}</p>
-          <div className="library-organize-actions">
+          <DialogHeader
+            title={<>{title}</>}
+            titleId="library-delete-title"
+            onClose={close}
+            closeLabel="关闭"
+          />
+          <DialogBody>
+            <p>{body}</p>
+          </DialogBody>
+          <DialogFooter>
             <button type="button" onClick={close}>
               取消
             </button>
@@ -45,7 +52,7 @@ export function DeleteConfirmDialog({
               <UiIcon name="trash" size={13} />
               {confirmLabel}
             </button>
-          </div>
+          </DialogFooter>
         </section>
       )}
     </ModalBackdrop>

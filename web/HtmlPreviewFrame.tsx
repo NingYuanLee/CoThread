@@ -11,7 +11,7 @@ import {
 } from "./HtmlBrowserToolbar";
 // 手机模式与 Dimina / Admin 预览共用同一份机型表与机模，类名走的还是 miniprogram-*，
 // 样式表必须随本组件一起加载：不能依赖小程序工作台那条懒加载链路，
-// 没开过「小程序云开发」时它会缺席，机模会裸奔。
+// 没开过「CloudBase」时它会缺席，机模会裸奔。
 import {
   MiniProgramPhoneFrame,
   PREVIEW_DEVICE_GROUPS,

@@ -37,9 +37,7 @@ export function DocumentChangeLogList({
         aria-busy={loading}
       >
         {error ? (
-          <p className="error document-change-log-state" role="alert">
-            {error}
-          </p>
+          <p className="muted document-change-log-state">操作日志读取失败，请重试。</p>
         ) : changes.length ? (
           changes.map((item) => (
             <article className="document-change-log-item" key={item.id}>

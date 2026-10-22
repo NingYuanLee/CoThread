@@ -1,12 +1,17 @@
+import { DialogFilters } from "./DialogFilters";
+import { DialogFooter } from "./DialogFooter";
 import React, { useEffect, useState } from "react";
 import { UiIcon } from "./ui-icon";
-import { showTip } from "./Tip";
+import { showTip, useTipError } from "./Tip";
 import { AdminRoleAssignment } from "./AdminRoleAssignment";
 import { AdminDialog, AdminConfirmDialog, type AdminConfirmation } from "./AdminDialog";
 import { PaginationControl } from "./PaginationControl";
 import { ProjectMark } from "./ProjectMark";
 import { actionNames, changeSummary, type ChangeLog } from "./change-log";
 import { ProjectImageField } from "./ProjectSettings";
+import { TextField } from "./TextField";
+import { TextAreaField } from "./TextAreaField";
+import { SelectField } from "./SelectField";
 
 type Api = (path: string, data?: unknown, method?: string) => Promise<any>;
 type AdminProject = {
@@ -382,21 +387,55 @@ function RecordDetails({
   onProjectRolesRecovered: () => Promise<void>;
 }) {
   const [listPage, setListPage] = useState(1);
+  const [keyword, setKeyword] = useState("");
+  const [appliedKeyword, setAppliedKeyword] = useState("");
   const [listPageSize, setListPageSize] = useState(10);
   const project = item as AdminProject,
     account = item as AdminAccount;
   const related = isProject ? project.members : account.projects;
   const listItems: any[] =
     section === "related" ? related : isProject && section === "changes" ? project.changes : [];
-  const visibleListItems = listItems.slice((listPage - 1) * listPageSize, listPage * listPageSize);
+  const filteredListItems = listItems.filter((value) =>
+    (section === "related"
+      ? `${value.name} ${value.username || ""}`
+      : `${actionNames[value.action] || value.action} ${value.actor || ""} ${changeSummary(value)}`
+    )
+      .toLocaleLowerCase()
+      .includes(appliedKeyword.toLocaleLowerCase()),
+  );
+  const visibleListItems = filteredListItems.slice(
+    (listPage - 1) * listPageSize,
+    listPage * listPageSize,
+  );
   useEffect(() => {
     setListPage(1);
+    setKeyword("");
+    setAppliedKeyword("");
   }, [item.id, section]);
   const projectLeader = isProject
     ? project.members.find((member) => member.id === project.project_leader_id)
     : undefined;
   return (
     <>
+      {section !== "details" && (
+        <DialogFilters
+          label="详情列表筛选"
+          keyword={{
+            value: keyword,
+            onChange: setKeyword,
+            placeholder: section === "changes" ? "搜索操作、操作人或说明" : "搜索名称或用户名",
+          }}
+          onQuery={() => {
+            setAppliedKeyword(keyword.trim());
+            setListPage(1);
+          }}
+          onReset={() => {
+            setKeyword("");
+            setAppliedKeyword("");
+            setListPage(1);
+          }}
+        />
+      )}
       {section === "details" && (
         <dl className="admin-info-grid">
           <dt>{isProject ? "项目名称" : "姓名"}</dt>
@@ -498,138 +537,146 @@ function RecordDetails({
       )}
       {section === "related" && (
         <>
-          <div className="admin-table-wrap">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>{isProject ? "成员" : "项目"}</th>
-                  <th>{isProject ? "用户名" : "状态"}</th>
-                  <th>{isProject ? "项目角色" : "账号角色"}</th>
-                  {isProject && (
-                    <>
-                      <th>加入时间</th>
-                      <th>角色变更时间</th>
-                    </>
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {visibleListItems.map((value: any) => (
-                  <tr key={value.id}>
-                    <td>
-                      {isProject ? (
-                        <span className="admin-project-member-cell">
-                          <MemberAvatar account={{ name: value.name, avatar: value.avatar }} />
-                          <span className="admin-project-member-copy">
-                            <span className="admin-project-member-name">{value.name}</span>
-                            {value.id === project.created_by && (
-                              <span className="admin-project-creator-badge">项目创始人</span>
-                            )}
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="admin-project-person">
-                          <ProjectMark name={value.name} image={value.image} size={22} />
-                          <span>{value.name}</span>
-                        </span>
-                      )}
-                    </td>
-                    <td>{isProject ? value.username : value.archived_at ? "已结项" : "正常"}</td>
-                    <td
-                      className={
-                        isProject
-                          ? `admin-project-role admin-project-role-${value.role}`
-                          : undefined
-                      }
-                    >
-                      {(
-                        {
-                          project_leader: "项目主",
-                          project_admin: "项目管理",
-                          member: "成员",
-                          viewer: "只读成员",
-                        } as Record<string, string>
-                      )[value.role] || value.role}
-                    </td>
+          <div className="dialog-form-scroll">
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>{isProject ? "成员" : "项目"}</th>
+                    <th>{isProject ? "用户名" : "状态"}</th>
+                    <th>{isProject ? "项目角色" : "账号角色"}</th>
                     {isProject && (
                       <>
-                        <td>{dateTime(value.joined_at)}</td>
-                        <td>{dateTime(value.role_changed_at)}</td>
+                        <th>加入时间</th>
+                        <th>角色变更时间</th>
                       </>
                     )}
                   </tr>
-                ))}
-                {!related.length && (
-                  <tr>
-                    <td colSpan={isProject ? 5 : 3} className="admin-empty">
-                      暂无记录
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {visibleListItems.map((value: any) => (
+                    <tr key={value.id}>
+                      <td>
+                        {isProject ? (
+                          <span className="admin-project-member-cell">
+                            <MemberAvatar account={{ name: value.name, avatar: value.avatar }} />
+                            <span className="admin-project-member-copy">
+                              <span className="admin-project-member-name">{value.name}</span>
+                              {value.id === project.created_by && (
+                                <span className="admin-project-creator-badge">项目创始人</span>
+                              )}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="admin-project-person">
+                            <ProjectMark name={value.name} image={value.image} size={22} />
+                            <span>{value.name}</span>
+                          </span>
+                        )}
+                      </td>
+                      <td>{isProject ? value.username : value.archived_at ? "已结项" : "正常"}</td>
+                      <td
+                        className={
+                          isProject
+                            ? `admin-project-role admin-project-role-${value.role}`
+                            : undefined
+                        }
+                      >
+                        {(
+                          {
+                            project_leader: "项目主",
+                            project_admin: "项目管理",
+                            member: "成员",
+                            viewer: "只读成员",
+                          } as Record<string, string>
+                        )[value.role] || value.role}
+                      </td>
+                      {isProject && (
+                        <>
+                          <td>{dateTime(value.joined_at)}</td>
+                          <td>{dateTime(value.role_changed_at)}</td>
+                        </>
+                      )}
+                    </tr>
+                  ))}
+                  {!filteredListItems.length && (
+                    <tr>
+                      <td colSpan={isProject ? 5 : 3} className="admin-empty">
+                        暂无记录
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-          {listItems.length > 0 && (
-            <PaginationControl
-              total={listItems.length}
-              currentPage={listPage}
-              pageSize={listPageSize}
-              pageSizeOptions={[10, 20, 50]}
-              onPageChange={setListPage}
-              onPageSizeChange={(size) => {
-                setListPageSize(size);
-                setListPage(1);
-              }}
-              ariaLabel="详情关联列表分页"
-            />
+          {filteredListItems.length > 0 && (
+            <DialogFooter pagination>
+              <PaginationControl
+                total={filteredListItems.length}
+                currentPage={listPage}
+                pageSize={listPageSize}
+                pageSizeOptions={[10, 20, 50]}
+                onPageChange={setListPage}
+                onPageSizeChange={(size) => {
+                  setListPageSize(size);
+                  setListPage(1);
+                }}
+                ariaLabel="详情关联列表分页"
+              />
+            </DialogFooter>
           )}
         </>
       )}
       {isProject && section === "changes" && (
         <>
-          <div className="admin-table-wrap">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>操作</th>
-                  <th>操作人</th>
-                  <th>时间</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleListItems.map((change, index) => (
-                  <tr key={index}>
-                    <td>
-                      {actionNames[change.action] || change.action}
-                      {changeSummary(change) && <small>{changeSummary(change)}</small>}
-                    </td>
-                    <td>{change.actor}</td>
-                    <td>{dateTime(change.created_at)}</td>
-                  </tr>
-                ))}
-                {!project.changes.length && (
+          <div className="dialog-form-scroll">
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <thead>
                   <tr>
-                    <td colSpan={3} className="admin-empty">
-                      暂无变更记录
-                    </td>
+                    <th>操作</th>
+                    <th>操作人</th>
+                    <th>时间</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {visibleListItems.map((change, index) => (
+                    <tr key={index}>
+                      <td>
+                        {actionNames[change.action] || change.action}
+                        {changeSummary(change) && <small>{changeSummary(change)}</small>}
+                      </td>
+                      <td>{change.actor}</td>
+                      <td>{dateTime(change.created_at)}</td>
+                    </tr>
+                  ))}
+                  {!filteredListItems.length && (
+                    <tr>
+                      <td colSpan={3} className="admin-empty">
+                        暂无变更记录
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-          {listItems.length > 0 && (
-            <PaginationControl
-              total={listItems.length}
-              currentPage={listPage}
-              pageSize={listPageSize}
-              pageSizeOptions={[10, 20, 50]}
-              onPageChange={setListPage}
-              onPageSizeChange={(size) => {
-                setListPageSize(size);
-                setListPage(1);
-              }}
-              ariaLabel="变更记录分页"
-            />
+          {filteredListItems.length > 0 && (
+            <DialogFooter pagination>
+              <PaginationControl
+                total={filteredListItems.length}
+                currentPage={listPage}
+                pageSize={listPageSize}
+                pageSizeOptions={[10, 20, 50]}
+                onPageChange={setListPage}
+                onPageSizeChange={(size) => {
+                  setListPageSize(size);
+                  setListPage(1);
+                }}
+                ariaLabel="变更记录分页"
+              />
+            </DialogFooter>
           )}
         </>
       )}
@@ -661,16 +708,12 @@ function LegacyProjectLeaderRecovery({
   if (!candidates.length) return <p>没有可用于恢复负责人的人类成员。</p>;
   return (
     <div className="admin-table-actions">
-      <label>
-        初始负责人
-        <select value={userId} onChange={(event) => setUserId(event.target.value)}>
-          {candidates.map((member) => (
-            <option key={member.id} value={member.id}>
-              {member.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <SelectField
+        label="初始负责人"
+        value={userId}
+        onChange={setUserId}
+        options={candidates.map((member) => ({ value: member.id, label: member.name }))}
+      />
       <button
         disabled={saving || !userId}
         onClick={() => {
@@ -736,7 +779,7 @@ export function SystemManagement({
   const [editingProject, setEditingProject] = useState<AdminProject | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError();
   const [confirmation, setConfirmation] = useState<AdminConfirmation | null>(null);
   const [password, setPassword] = useState<{
     name: string;
@@ -782,18 +825,12 @@ export function SystemManagement({
     } catch (e) {
       const message = (e as Error).message;
       setError(message);
-      showTip(message, "error");
     } finally {
       setBusy(false);
     }
   };
   const loginDetails = (value: { username: string; value: string }) =>
     `网站：${document.title}\n访问地址：${window.location.origin}\n用户名：${value.username}\n密码：${value.value}`;
-  const feedback = error && (
-    <div className="error" role="alert">
-      {error}
-    </div>
-  );
   const confirmDialog = (
     <AdminConfirmDialog
       confirmation={confirmation}
@@ -829,64 +866,84 @@ export function SystemManagement({
     );
     return (
       <div className="admin-manager">
-        <div className="admin-filters">
-          <label className="admin-search">
-            <UiIcon name="search" size={14} />
-            <input
-              aria-label="搜索插件或Skill"
-              placeholder="搜索插件或 Skill"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-            />
-          </label>
-          <select
-            aria-label="Agent 层级"
-            value={agentLevel}
+        <form
+          className="admin-filters"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setPage(1);
+          }}
+        >
+          <TextField
+            dense
+            containerClassName="admin-search-field"
+            label="搜索"
+            icon={<UiIcon name="search" size={14} />}
+            placeholder="插件或 Skill"
+            value={search}
             onChange={(e) => {
-              setAgentLevel(e.target.value as AgentLevel);
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+          />
+          <SelectField
+            dense
+            label="Agent 层级"
+            value={agentLevel}
+            onChange={(value) => {
+              setAgentLevel(value as AgentLevel);
               setSearch("");
               setPage(1);
             }}
-          >
-            <option value="l1">L1</option>
-            <option value="l2">L2</option>
-            <option value="l3">子 Agent</option>
-          </select>
-          <select
-            aria-label="插件类型"
+            options={[
+              { value: "l1", label: "L1" },
+              { value: "l2", label: "L2" },
+              { value: "l3", label: "子 Agent" },
+            ]}
+          />
+          <SelectField
+            dense
+            label="插件类型"
             value={pluginType}
-            onChange={(e) => {
-              setPluginType(e.target.value as PluginView);
+            onChange={(value) => {
+              setPluginType(value as PluginView);
+              setSearch("");
+              setStatus("all");
+              setPage(1);
+            }}
+            options={pluginViews.map((view) => ({ value: view.id, label: view.label }))}
+          />
+          {pluginType === "skill" && (
+            <SelectField
+              dense
+              label="状态"
+              value={status}
+              onChange={(value) => {
+                setStatus(value);
+                setPage(1);
+              }}
+              options={[
+                { value: "all", label: "全部状态" },
+                { value: "active", label: "已启用" },
+                { value: "inactive", label: "已停用" },
+              ]}
+            />
+          )}
+          <button type="submit">查询</button>
+          <button
+            type="button"
+            onClick={() => {
               setSearch("");
               setStatus("all");
               setPage(1);
             }}
           >
-            {pluginViews.map((view) => (
-              <option key={view.id} value={view.id}>
-                {view.label}
-              </option>
-            ))}
-          </select>
-          {pluginType === "skill" && (
-            <select
-              aria-label="Skill 状态"
-              value={status}
-              onChange={(e) => {
-                setStatus(e.target.value);
-                setPage(1);
-              }}
-            >
-              <option value="all">全部状态</option>
-              <option value="active">已启用</option>
-              <option value="inactive">已停用</option>
-            </select>
-          )}
-          {pluginType === "skill" && can("plugins.create") && (
+            重置
+          </button>
+        </form>
+        {pluginType === "skill" && can("plugins.create") && (
+          <div className="admin-list-actions">
             <button
+              type="button"
               className="primary"
               onClick={() =>
                 setSkillDraft({ name: "", description: "", prompt: "", enabled: false })
@@ -895,9 +952,8 @@ export function SystemManagement({
               <UiIcon name="plus" size={13} />
               新增 Skill
             </button>
-          )}
-        </div>
-        {feedback}
+          </div>
+        )}
         {loading ? (
           <p className="admin-empty" role="status">
             正在加载…
@@ -1023,50 +1079,45 @@ export function SystemManagement({
                   void action(saveSkill, skillDraft.id ? "Skill 已保存" : "Skill 已创建");
                 }}
               >
-                {feedback}
-                <label>
-                  名称
-                  <input
+                <div className="dialog-form-scroll">
+                  <TextField
+                    label="名称"
                     autoFocus
                     required
                     maxLength={120}
                     value={skillDraft.name}
                     onChange={(e) => setSkillDraft({ ...skillDraft, name: e.target.value })}
                   />
-                </label>
-                <label>
-                  说明
-                  <input
+                  <TextField
+                    label="说明"
                     maxLength={500}
                     value={skillDraft.description}
                     onChange={(e) => setSkillDraft({ ...skillDraft, description: e.target.value })}
                   />
-                </label>
-                <label>
-                  提示词
-                  <textarea
+                  <TextAreaField
+                    label="提示词"
                     required
                     maxLength={30000}
                     value={skillDraft.prompt}
                     onChange={(e) => setSkillDraft({ ...skillDraft, prompt: e.target.value })}
                   />
-                </label>
-                <label className="permission-node">
-                  <input
-                    type="checkbox"
-                    checked={skillDraft.enabled}
-                    onChange={(e) => setSkillDraft({ ...skillDraft, enabled: e.target.checked })}
-                  />
-                  启用此 Skill
-                </label>
-                <div className="admin-editor-actions">
+                  <label className="permission-node">
+                    <input
+                      type="checkbox"
+                      checked={skillDraft.enabled}
+                      onChange={(e) => setSkillDraft({ ...skillDraft, enabled: e.target.checked })}
+                    />
+                    启用此 Skill
+                  </label>
+                </div>
+                <DialogFooter>
                   <button type="button" disabled={busy} onClick={close}>
                     取消
                   </button>
                   <button className="primary" disabled={busy}>
                     保存 Skill
                   </button>
-                </div>
+                </DialogFooter>
               </form>
             )}
           </AdminDialog>
@@ -1131,33 +1182,55 @@ export function SystemManagement({
   return (
     <div className="admin-manager">
       {notice && <p className="admin-list-note">{notice}</p>}
-      <div className="admin-filters">
-        <label className="admin-search">
-          <UiIcon name="search" size={14} />
-          <input
-            aria-label="搜索项目或成员"
-            placeholder={isProject ? "搜索项目名称、简介或项目创始人" : "搜索姓名、用户名或用户 ID"}
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-          />
-        </label>
-        <select
-          aria-label="状态筛选"
-          value={status}
+      <form
+        className="admin-filters"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setPage(1);
+        }}
+      >
+        <TextField
+          dense
+          containerClassName="admin-search-field"
+          label="搜索"
+          icon={<UiIcon name="search" size={14} />}
+          placeholder={isProject ? "项目名称、简介或创始人" : "姓名、用户名或用户 ID"}
+          value={search}
           onChange={(e) => {
-            setStatus(e.target.value);
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+        />
+        <SelectField
+          dense
+          label="状态"
+          value={status}
+          onChange={(value) => {
+            setStatus(value);
+            setPage(1);
+          }}
+          options={[
+            { value: "all", label: "全部状态" },
+            { value: "active", label: "正常" },
+            { value: "inactive", label: isProject ? "已结项" : "已停用" },
+          ]}
+        />
+        <button type="submit">查询</button>
+        <button
+          type="button"
+          onClick={() => {
+            setSearch("");
+            setStatus("all");
             setPage(1);
           }}
         >
-          <option value="all">全部状态</option>
-          <option value="active">正常</option>
-          <option value="inactive">{isProject ? "已结项" : "已停用"}</option>
-        </select>
-        {can(`${section}.create`) && (
+          重置
+        </button>
+      </form>
+      {can(`${section}.create`) && (
+        <div className="admin-list-actions">
           <button
+            type="button"
             className="primary"
             onClick={() => {
               setCreateImage(null);
@@ -1167,16 +1240,15 @@ export function SystemManagement({
             <UiIcon name="plus" size={13} />
             {isProject ? "新增项目" : "新增成员"}
           </button>
-        )}
-      </div>
-      {feedback}
+        </div>
+      )}
       <div className="admin-table-wrap" aria-busy={loading}>
         <table className={`admin-table ${isProject ? "" : "admin-member-table"}`}>
           <thead>
             <tr>
               {!isProject && <th className="admin-avatar-column">头像</th>}
               <th>{isProject ? "项目名称" : "成员"}</th>
-              <th>{isProject ? "项目创始人" : "用户名"}</th>
+              {!isProject && <th>用户名</th>}
               {isProject && <th>项目主</th>}
               <th>{isProject ? "管理员 / 总成员" : "加入项目"}</th>
               <th>状态</th>
@@ -1210,25 +1282,14 @@ export function SystemManagement({
                         )}
                         <span>{item.name}</span>
                       </button>
-                      <small>
-                        {isProject
-                          ? project.description || "暂无简介"
-                          : `用户 ID：${account.user_number}`}
-                      </small>
+                      {!isProject && <small>用户 ID：{account.user_number}</small>}
                     </td>
-                    <td>
-                      {isProject ? (
-                        <span className="admin-project-person">
-                          <MemberAvatar
-                            account={{ name: project.creator, avatar: project.creator_avatar }}
-                          />
-                          <span className="admin-nowrap">{project.creator}</span>
-                        </span>
-                      ) : (
+                    {!isProject && (
+                      <td>
                         <span className="admin-nowrap">{account.username}</span>
-                      )}
-                      {!isProject && <small>{account.email || "未绑定邮箱"}</small>}
-                    </td>
+                        <small>{account.email || "未绑定邮箱"}</small>
+                      </td>
+                    )}
                     {isProject && (
                       <td>
                         {project.project_leader_id ? (
@@ -1308,33 +1369,41 @@ export function SystemManagement({
                           (isProject || !account.is_super_admin) && (
                             <button
                               disabled={busy || (!isProject && account.id === currentUserId)}
-                              onClick={() =>
+                              onClick={() => {
+                                const archiveProject = async () => {
+                                  await api(`/admin/projects/${item.id}/archive`, {}, "PATCH");
+                                  await onProjectsChanged();
+                                  await load();
+                                };
+                                const restoreProject = async () => {
+                                  await api(`/admin/projects/${item.id}/restore`, {}, "PATCH");
+                                  await onProjectsChanged();
+                                  await load();
+                                };
+                                const toggleMember = async () => {
+                                  await api(
+                                    `/admin/accounts/${item.id}/status`,
+                                    { disabled: !inactive },
+                                    "PATCH",
+                                  );
+                                  await load();
+                                };
+                                if (isProject && !inactive) {
+                                  setConfirmation({
+                                    title: "结项确认",
+                                    message: `确定将项目「${project.name}」结项？结项后项目进入只读，工作空间不再显示。`,
+                                    confirm: async () => {
+                                      await archiveProject();
+                                      showTip("项目已结项");
+                                    },
+                                  });
+                                  return;
+                                }
                                 void action(
-                                  async () => {
-                                    if (isProject) {
-                                      await api(
-                                        `/admin/projects/${item.id}/${inactive ? "restore" : "archive"}`,
-                                        {},
-                                        "PATCH",
-                                      );
-                                      await onProjectsChanged();
-                                    } else
-                                      await api(
-                                        `/admin/accounts/${item.id}/status`,
-                                        { disabled: !inactive },
-                                        "PATCH",
-                                      );
-                                    await load();
-                                  },
-                                  isProject
-                                    ? inactive
-                                      ? "项目已恢复"
-                                      : "项目已结项"
-                                    : inactive
-                                      ? "成员已恢复"
-                                      : "成员已停用",
-                                )
-                              }
+                                  isProject ? restoreProject : toggleMember,
+                                  isProject ? "项目已恢复" : inactive ? "成员已恢复" : "成员已停用",
+                                );
+                              }}
                             >
                               {inactive ? "恢复" : isProject ? "结项" : "停用"}
                             </button>
@@ -1374,7 +1443,11 @@ export function SystemManagement({
               })}
             {(loading || !visibleItems.length) && (
               <tr>
-                <td colSpan={7} className="admin-empty" role={loading ? "status" : undefined}>
+                <td
+                  colSpan={isProject ? 6 : 7}
+                  className="admin-empty"
+                  role={loading ? "status" : undefined}
+                >
                   {loading ? "正在加载…" : `没有符合筛选条件的${isProject ? "项目" : "成员"}`}
                 </td>
               </tr>
@@ -1399,6 +1472,7 @@ export function SystemManagement({
       </div>
       {detailItem && (
         <AdminDialog
+          className="dialog-list"
           title={`${detailItem.name} · ${detailSection === "details" ? (isProject ? "项目详情" : "成员详情") : detailSection === "related" ? (isProject ? "项目成员" : "加入的项目") : "变更记录"}`}
           onClose={() => setExpanded("")}
         >
@@ -1441,33 +1515,30 @@ export function SystemManagement({
                 }, "项目信息已保存");
               }}
             >
-              {feedback}
-              <label>
-                项目名称
-                <input
+              <div className="dialog-form-scroll">
+                <TextField
+                  label="项目名称"
                   autoFocus
                   required
                   name="name"
                   maxLength={120}
                   defaultValue={editingProject.name}
                 />
-              </label>
-              <label>
-                项目简介
-                <textarea
+                <TextAreaField
+                  label="项目简介"
                   name="description"
                   maxLength={4000}
                   defaultValue={editingProject.description || ""}
                 />
-              </label>
-              <div className="admin-editor-actions">
+              </div>
+              <DialogFooter>
                 <button type="button" disabled={busy} onClick={close}>
                   取消
                 </button>
                 <button className="primary" disabled={busy}>
                   保存
                 </button>
-              </div>
+              </DialogFooter>
             </form>
           )}
         </AdminDialog>
@@ -1502,33 +1573,39 @@ export function SystemManagement({
                 void action(() => create(form), isProject ? "项目已创建" : "成员已创建");
               }}
             >
-              {feedback}
-              <label>
-                {isProject ? "项目名称" : "姓名"}
-                <input autoFocus required name="name" maxLength={isProject ? 120 : 80} />
-              </label>
-              {isProject ? (
-                <>
-                  <ProjectImageField image={createImage} busy={busy} onChange={setCreateImage} />
-                  <label>
-                    项目简介
-                    <textarea name="description" maxLength={4000} placeholder="选填" />
-                  </label>
-                </>
-              ) : (
-                <label>
-                  用户名
-                  <input required name="username" maxLength={80} />
-                </label>
-              )}
-              <div className="admin-editor-actions">
+              <div className="dialog-form-scroll">
+                {isProject ? (
+                  <>
+                    <div className="admin-project-create-identity">
+                      <ProjectImageField
+                        image={createImage}
+                        busy={busy}
+                        onChange={setCreateImage}
+                      />
+                      <TextField label="项目名称" autoFocus required name="name" maxLength={120} />
+                    </div>
+                    <TextAreaField
+                      label="项目简介"
+                      name="description"
+                      maxLength={4000}
+                      placeholder="选填"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <TextField label="姓名" autoFocus required name="name" maxLength={80} />
+                    <TextField label="用户名" required name="username" maxLength={80} />
+                  </>
+                )}
+              </div>
+              <DialogFooter>
                 <button type="button" disabled={busy} onClick={close}>
                   取消
                 </button>
                 <button className="primary" disabled={busy}>
                   确认新增
                 </button>
-              </div>
+              </DialogFooter>
             </form>
           )}
         </AdminDialog>

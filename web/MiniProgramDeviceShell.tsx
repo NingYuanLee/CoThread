@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 // 机模外观全部来自 miniprogram-* 类名，样式表必须随本组件一起加载，
-// 不能依赖「小程序云开发」那条懒加载链路。
+// 不能依赖「CloudBase」那条懒加载链路。
 import "./miniprogram.css";
 
 export type PreviewDevice = {

@@ -1,3 +1,4 @@
+import { RefreshButton } from "./IconButton";
 /**
  * 小程序工作区的云函数页：函数列表、触发器（定时器）管理与函数部署记录。
  * 数据与回调由父组件打包成 props 传入。
@@ -12,6 +13,8 @@ import {
   type DeploymentRow,
   type MiniProgramTabId,
 } from "./miniprogram-internals";
+import { TextField } from "./TextField";
+import { SlideSwitch } from "./SlideSwitch";
 import { UiIcon } from "./ui-icon";
 
 export type MiniprogramServerPanelProps = {
@@ -111,60 +114,49 @@ export function MiniprogramServerPanel({
             role="toolbar"
             aria-label="CloudBase 云函数工具栏"
           >
-            <button
+            <RefreshButton
               type="button"
               className="miniprogram-preview-icon-button"
               title="刷新 CloudBase 云函数"
               aria-label="刷新 CloudBase 云函数"
               disabled={serverBusy}
               onClick={() => void Promise.all([loadServerFunctions(), loadDeployments()])}
-            >
-              <UiIcon name="refresh" size={14} />
-            </button>
-            <label className="miniprogram-function-search">
-              <UiIcon name="search" size={13} />
-              <input
-                type="search"
-                value={functionSearch}
-                placeholder="按函数名搜索"
-                aria-label="按函数名搜索 CloudBase 云函数"
-                onChange={(event) => setFunctionSearch(event.target.value)}
-              />
-            </label>
-            <div
+              label="刷新 CloudBase 云函数"
+            />
+            <TextField
+              flush
+              containerClassName="miniprogram-function-search-field"
+              icon={<UiIcon name="search" size={13} />}
+              type="search"
+              value={functionSearch}
+              placeholder="按函数名搜索"
+              aria-label="按函数名搜索 CloudBase 云函数"
+              onChange={(event) => setFunctionSearch(event.target.value)}
+            />
+            <SlideSwitch
               className="miniprogram-database-environment"
-              role="group"
-              aria-label="CloudBase 云函数环境"
-            >
-              {(["development", "production"] as const).map((environment) => {
+              size="compact"
+              label="CloudBase 云函数环境"
+              value={functionEnvironment}
+              onChange={(environment) => {
+                setFunctionEnvironment(environment);
+                setFunctionPage(0);
+                setTimerFunctionName("");
+              }}
+              items={(["development", "production"] as const).map((environment) => {
                 const info = cbEnvironments.find((item) => item.kind === environment);
-                const selected = functionEnvironment === environment;
                 const label = environment === "production" ? "生产环境" : "开发环境";
                 const unavailable = Boolean(cbEnvironments.length && !info?.configured);
-                return (
-                  <button
-                    type="button"
-                    key={environment}
-                    className={selected ? "is-selected" : ""}
-                    aria-pressed={selected}
-                    title={
-                      info?.inherited
-                        ? `${label}（共用开发环境）`
-                        : `${label}${info?.envId ? ` ${info.envId}` : "未配置"}`
-                    }
-                    disabled={serverBusy || unavailable}
-                    onClick={() => {
-                      if (selected) return;
-                      setFunctionEnvironment(environment);
-                      setFunctionPage(0);
-                      setTimerFunctionName("");
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
+                return {
+                  value: environment,
+                  label,
+                  title: info?.inherited
+                    ? `${label}（共用开发环境）`
+                    : `${label}${info?.envId ? ` ${info.envId}` : "未配置"}`,
+                  disabled: serverBusy || unavailable,
+                };
               })}
-            </div>
+            />
           </div>
           {serverError ? <p className="miniprogram-config-error">{serverError}</p> : null}
           <div className="miniprogram-table-content miniprogram-server-content">
@@ -324,51 +316,10 @@ export function MiniprogramServerPanel({
                     <WorkspaceDialog
                       title={timerEditingName ? "修改定时触发器" : "新增定时触发器"}
                       onClose={() => setTimerEditorOpen(false)}
+                      bodyInset
                       className="miniprogram-timer-editor-dialog"
-                    >
-                      <div className="miniprogram-timer-form">
-                        <label>
-                          <span>名称</span>
-                          <input
-                            aria-label="定时触发器名称"
-                            value={timerName}
-                            maxLength={60}
-                            placeholder="例如 dailyReport"
-                            disabled={!writable || (!timerEditingName && timerLimitReached)}
-                            onChange={(event) => {
-                              setTimerName(event.target.value);
-                              setTimerError("");
-                            }}
-                          />
-                        </label>
-                        <label>
-                          <span>Cron 表达式</span>
-                          <input
-                            aria-label="Cron 表达式"
-                            value={timerSchedule}
-                            placeholder="0 0 9 * * * *"
-                            disabled={!writable || (!timerEditingName && timerLimitReached)}
-                            onChange={(event) => {
-                              setTimerSchedule(event.target.value);
-                              setTimerError("");
-                            }}
-                          />
-                        </label>
-                        <p className="muted miniprogram-timer-help">
-                          {timerLimitReached && !timerEditingName
-                            ? "已达到每个 CloudBase 云函数 10 个触发器的上限。"
-                            : timerNameDuplicate && !timerEditingName
-                              ? "该名称已用于当前 CloudBase 云函数。"
-                              : timerName && !timerNameValid
-                                ? "名称须以字母开头，只能包含字母、数字、- 和 _，最多 60 个字符。"
-                                : timerSchedule && !timerScheduleValid
-                                  ? "Cron 需要 7 个字段：秒 分 时 日 月 星期 年。"
-                                  : "每个 CloudBase 云函数最多 10 个；Cron 为 7 个字段：秒 分 时 日 月 星期 年。"}
-                        </p>
-                        {timerError ? (
-                          <p className="miniprogram-config-error">{timerError}</p>
-                        ) : null}
-                        <div className="miniprogram-config-actions">
+                      footer={
+                        <>
                           <button type="button" onClick={() => setTimerEditorOpen(false)}>
                             取消
                           </button>
@@ -386,35 +337,81 @@ export function MiniprogramServerPanel({
                           >
                             {timerEditingName ? "保存修改" : "创建"}
                           </button>
-                        </div>
+                        </>
+                      }
+                    >
+                      <div className="miniprogram-timer-form">
+                        <TextField
+                          label="名称"
+                          aria-label="定时触发器名称"
+                          value={timerName}
+                          maxLength={60}
+                          placeholder="例如 dailyReport"
+                          disabled={!writable || (!timerEditingName && timerLimitReached)}
+                          onChange={(event) => {
+                            setTimerName(event.target.value);
+                            setTimerError("");
+                          }}
+                        />
+                        <TextField
+                          label="Cron 表达式"
+                          aria-label="Cron 表达式"
+                          value={timerSchedule}
+                          placeholder="0 0 9 * * * *"
+                          disabled={!writable || (!timerEditingName && timerLimitReached)}
+                          onChange={(event) => {
+                            setTimerSchedule(event.target.value);
+                            setTimerError("");
+                          }}
+                        />
+                        <p className="muted miniprogram-timer-help">
+                          {timerLimitReached && !timerEditingName
+                            ? "已达到每个 CloudBase 云函数 10 个触发器的上限。"
+                            : timerNameDuplicate && !timerEditingName
+                              ? "该名称已用于当前 CloudBase 云函数。"
+                              : timerName && !timerNameValid
+                                ? "名称须以字母开头，只能包含字母、数字、- 和 _，最多 60 个字符。"
+                                : timerSchedule && !timerScheduleValid
+                                  ? "Cron 需要 7 个字段：秒 分 时 日 月 星期 年。"
+                                  : "每个 CloudBase 云函数最多 10 个；Cron 为 7 个字段：秒 分 时 日 月 星期 年。"}
+                        </p>
+                        {timerError ? (
+                          <p className="miniprogram-config-error">{timerError}</p>
+                        ) : null}
                       </div>
                     </WorkspaceDialog>
                   ) : null}
                 </WorkspaceDialog>
               ) : null}
               {selectedTimerFunction && timerToDelete ? (
-                <WorkspaceDialog title="删除定时触发器" onClose={() => setTimerToDelete(null)}>
+                <WorkspaceDialog
+                  bodyInset
+                  title="删除定时触发器"
+                  onClose={() => setTimerToDelete(null)}
+                  footer={
+                    <>
+                      <button type="button" onClick={() => setTimerToDelete(null)}>
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        className="miniprogram-danger"
+                        disabled={serverBusy}
+                        onClick={() => {
+                          const triggerName = timerToDelete;
+                          setTimerToDelete(null);
+                          void disableTimer(selectedTimerFunction.name, triggerName);
+                        }}
+                      >
+                        删除触发器
+                      </button>
+                    </>
+                  }
+                >
                   <p>
                     删除后，{selectedTimerFunction.name} 将不再按「{timerToDelete}
                     」的规则定时执行。
                   </p>
-                  <div className="miniprogram-config-actions">
-                    <button type="button" onClick={() => setTimerToDelete(null)}>
-                      取消
-                    </button>
-                    <button
-                      type="button"
-                      className="miniprogram-danger"
-                      disabled={serverBusy}
-                      onClick={() => {
-                        const triggerName = timerToDelete;
-                        setTimerToDelete(null);
-                        void disableTimer(selectedTimerFunction.name, triggerName);
-                      }}
-                    >
-                      删除触发器
-                    </button>
-                  </div>
                 </WorkspaceDialog>
               ) : null}
               <TablePagination

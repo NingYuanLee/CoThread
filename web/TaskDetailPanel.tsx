@@ -7,6 +7,8 @@ import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { libraryFolderPath } from "./document-library";
 
 import { PaginationControl } from "./PaginationControl";
+import { SelectField } from "./SelectField";
+import { TextAreaField } from "./TextAreaField";
 import { labelWorkflowStatus } from "./ui-labels";
 import { UiIcon } from "./ui-icon";
 import { api } from "./workspace-api";
@@ -348,7 +350,8 @@ export function TaskDetailPanel({
                     <section className="task-question">
                       <h4>需要你回答</h4>
                       <p>{openQuestion.question}</p>
-                      <textarea
+                      <TextAreaField
+                        aria-label="回答"
                         value={taskAnswer}
                         onChange={(event) => setTaskAnswer(event.target.value)}
                         placeholder="输入回答"
@@ -374,19 +377,21 @@ export function TaskDetailPanel({
                     <section className="task-actions-section">
                       <h4>确认任务</h4>
                       {projectConnectorBound ? (
-                        <select
+                        <SelectField
+                          aria-label="任务执行方式"
                           value={
                             taskExecutionMode === "auto"
                               ? "member_local_executor"
                               : taskExecutionMode
                           }
-                          onChange={(event) =>
-                            setTaskExecutionMode(event.target.value as typeof taskExecutionMode)
+                          onChange={(next) =>
+                            setTaskExecutionMode(next as typeof taskExecutionMode)
                           }
-                        >
-                          <option value="member_local_executor">下发本地执行器</option>
-                          <option value="human_direct">由本人执行</option>
-                        </select>
+                          options={[
+                            { value: "member_local_executor", label: "下发本地执行器" },
+                            { value: "human_direct", label: "由本人执行" },
+                          ]}
+                        />
                       ) : (
                         <p className="muted">当前账号未连接本项目本地执行器，确认后由本人执行。</p>
                       )}
@@ -459,12 +464,14 @@ export function TaskDetailPanel({
                           .find((event) => event.event_type === "rejected")?.reason ||
                           "目标成员拒绝了这个任务。"}
                       </p>
-                      <textarea
+                      <TextAreaField
+                        aria-label="任务目标与验收标准"
                         value={taskReopenGoal}
                         onChange={(event) => setTaskReopenGoal(event.target.value)}
                         placeholder="修改任务目标与验收标准"
                       />
-                      <textarea
+                      <TextAreaField
+                        aria-label="任务约束"
                         value={taskReopenConstraints}
                         onChange={(event) => setTaskReopenConstraints(event.target.value)}
                         placeholder="修改约束（可选）"
@@ -509,27 +516,25 @@ export function TaskDetailPanel({
                   {canTransfer && (
                     <section className="task-actions-section">
                       <h4>转交任务</h4>
-                      <select
+                      <SelectField
+                        aria-label="责任主体"
                         value={taskTransferTarget}
-                        onChange={(event) => setTaskTransferTarget(event.target.value)}
-                      >
-                        <option value="">选择新的责任主体</option>
-                        <option value="l2_session">小祥</option>
-                        {detail?.members
-                          .filter(
-                            (member) =>
-                              member.id !== user.id &&
-                              member.kind !== "l1" &&
-                              member.kind !== "l2" &&
-                              member.id !== AGENT_MEMBER.id &&
-                              member.role !== "viewer",
-                          )
-                          .map((member) => (
-                            <option key={member.id} value={member.id}>
-                              {member.name}
-                            </option>
-                          ))}
-                      </select>
+                        onChange={setTaskTransferTarget}
+                        options={[
+                          { value: "", label: "选择新的责任主体" },
+                          { value: "l2_session", label: "小祥" },
+                          ...(detail?.members ?? [])
+                            .filter(
+                              (member) =>
+                                member.id !== user.id &&
+                                member.kind !== "l1" &&
+                                member.kind !== "l2" &&
+                                member.id !== AGENT_MEMBER.id &&
+                                member.role !== "viewer",
+                            )
+                            .map((member) => ({ value: member.id, label: member.name })),
+                        ]}
+                      />
                       <button
                         type="button"
                         disabled={taskActionBusy || !taskTransferTarget}
@@ -561,7 +566,8 @@ export function TaskDetailPanel({
                     task.status !== "awaiting_acceptance" && (
                       <section className="task-actions-section">
                         <h4>进度与结果</h4>
-                        <textarea
+                        <TextAreaField
+                          aria-label="结果摘要"
                           value={taskResult}
                           onChange={(event) => setTaskResult(event.target.value)}
                           placeholder="结果摘要"
@@ -718,11 +724,6 @@ export function TaskDetailPanel({
                     ) : null;
                   })()}
                 </>
-              )}
-              {taskActionError && !taskCreateOpen && (
-                <p className="project-settings-error" role="alert">
-                  {taskActionError}
-                </p>
               )}
             </div>
           );

@@ -7,11 +7,13 @@
  * 数据与回调由父组件打包成 props 传入。
  */
 import { type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
-import { ProjectMark } from "./ProjectMark";
 import { AGENT_LEVEL_LABELS } from "./ui-labels";
+import { SlideSwitch } from "./SlideSwitch";
 import { UiIcon } from "./ui-icon";
+import { TextAreaField } from "./TextAreaField";
+import { TextField } from "./TextField";
 import { CoThreadLogo, PanelIcon, SidebarIcon } from "./workspace-chrome";
-import type { Modal, Project } from "./workspace-types";
+import type { Modal } from "./workspace-types";
 import type { PersonalProfile } from "./ProfileFields";
 
 export type WorkspaceSidebarProps<T> = {
@@ -32,7 +34,6 @@ export type WorkspaceSidebarProps<T> = {
   submitNewThread: () => void;
   busy: boolean;
   projectId: string;
-  currentProject: Project | undefined;
   /** 侧栏只负责遍历渲染，迭代结构由父组件决定，因此对元素类型保持泛型。 */
   activeThreads: T[];
   archivedThreads: T[];
@@ -67,7 +68,6 @@ export function WorkspaceSidebar<T>({
   projectId,
   open,
   setProjectManagementOpen,
-  currentProject,
   setMonitorOpen,
   user,
 }: WorkspaceSidebarProps<T>) {
@@ -97,43 +97,48 @@ export function WorkspaceSidebar<T>({
         </div>
         <div className="section-label">
           {leftOpen ? (
-            <div className="thread-list-capsule sidebar-label" role="group" aria-label="迭代列表">
-              <div className="thread-list-capsule-tabs" role="tablist" aria-label="迭代范围">
-                <button
-                  type="button"
-                  role="tab"
-                  className="thread-list-capsule-tab"
-                  aria-selected={threadListPane === "active"}
-                  onClick={() => setThreadListPane("active")}
-                >
-                  <UiIcon name="chat" size={11} />
-                  <span>活跃中</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  className="thread-list-capsule-tab"
-                  aria-selected={threadListPane === "archived"}
-                  onClick={() => setThreadListPane("archived")}
-                >
-                  <UiIcon name="archive" size={11} />
-                  <span>已归档</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  className="thread-list-capsule-tab"
-                  title="新迭代"
-                  aria-label="新迭代"
-                  aria-selected={threadListPane === "create"}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={openNewThreadPane}
-                >
-                  <UiIcon name="send" size={11} />
-                  <span className="sidebar-create-label">新迭代</span>
-                </button>
-              </div>
-            </div>
+            <SlideSwitch
+              className="thread-list-capsule sidebar-label"
+              size="dense"
+              stretch
+              reselect
+              label="迭代范围"
+              value={threadListPane}
+              onChange={(next) => {
+                if (next === "create") openNewThreadPane();
+                else setThreadListPane(next);
+              }}
+              items={[
+                {
+                  value: "active",
+                  label: (
+                    <>
+                      <UiIcon name="chat" size={11} />
+                      <span>活跃中</span>
+                    </>
+                  ),
+                },
+                {
+                  value: "archived",
+                  label: (
+                    <>
+                      <UiIcon name="archive" size={11} />
+                      <span>已归档</span>
+                    </>
+                  ),
+                },
+                {
+                  value: "create",
+                  title: "新迭代",
+                  label: (
+                    <>
+                      <UiIcon name="send" size={11} />
+                      <span className="sidebar-create-label">新迭代</span>
+                    </>
+                  ),
+                },
+              ]}
+            />
           ) : (
             <button
               ref={railCreateRef}
@@ -185,49 +190,47 @@ export function WorkspaceSidebar<T>({
             >
               <div className="thread-create-pane">
                 <div className="thread-create-card" aria-label="发起新迭代">
-                  <label className="thread-create-field">
-                    <input
-                      ref={newThreadInputRef}
-                      type="text"
-                      name="title"
-                      aria-label="迭代主题"
-                      value={newThreadTitle}
-                      onChange={(event) => setNewThreadTitle(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          submitNewThread();
-                        }
-                        if (event.key === "Escape") cancelNewThread();
-                      }}
-                      maxLength={160}
-                      placeholder="输入新迭代主题"
-                      disabled={busy}
-                      autoComplete="off"
-                    />
-                  </label>
-                  <label className="thread-create-field">
-                    背景
-                    <textarea
-                      rows={3}
-                      maxLength={20000}
-                      placeholder="这次协作的背景与已知约束"
-                      value={newThreadBackground}
-                      disabled={busy}
-                      onChange={(event) => setNewThreadBackground(event.target.value)}
-                    />
-                  </label>
-                  <label className="thread-create-field">
-                    目标
-                    <textarea
-                      rows={2}
-                      maxLength={20000}
-                      placeholder="本轮希望达成什么"
-                      value={newThreadGoal}
-                      disabled={busy}
-                      onChange={(event) => setNewThreadGoal(event.target.value)}
-                    />
-                  </label>
+                  <TextField
+                    ref={newThreadInputRef}
+                    label="迭代主题"
+                    type="text"
+                    name="title"
+                    aria-label="迭代主题"
+                    value={newThreadTitle}
+                    onChange={(event) => setNewThreadTitle(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        submitNewThread();
+                      }
+                      if (event.key === "Escape") cancelNewThread();
+                    }}
+                    maxLength={160}
+                    placeholder="输入新迭代主题"
+                    disabled={busy}
+                    autoComplete="off"
+                    dense
+                  />
+                  <TextAreaField
+                    label="背景"
+                    rows={3}
+                    maxLength={20000}
+                    placeholder="这次协作的背景与已知约束"
+                    value={newThreadBackground}
+                    disabled={busy}
+                    onChange={(event) => setNewThreadBackground(event.target.value)}
+                    dense
+                  />
+                  <TextAreaField
+                    label="目标"
+                    rows={2}
+                    maxLength={20000}
+                    placeholder="本轮希望达成什么"
+                    value={newThreadGoal}
+                    disabled={busy}
+                    onChange={(event) => setNewThreadGoal(event.target.value)}
+                    dense
+                  />
                   <div className="thread-create-actions">
                     <button type="button" disabled={busy} onClick={cancelNewThread}>
                       取消
@@ -255,17 +258,13 @@ export function WorkspaceSidebar<T>({
             onClick={() => setProjectManagementOpen(true)}
           >
             <span className="sidebar-card-icon">
-              {currentProject ? (
-                <ProjectMark name={currentProject.name} image={currentProject.image} size={30} />
-              ) : (
-                <SidebarIcon kind="project" />
-              )}
+              <SidebarIcon kind="project" />
             </span>
             <span className="sidebar-card-copy">
               项目管理<small>成员、连接器与 Agent</small>
             </span>
             <span className="sidebar-card-action" aria-hidden="true">
-              ›
+              <UiIcon name="next" size={18} />
             </span>
           </button>
           <button
@@ -282,7 +281,7 @@ export function WorkspaceSidebar<T>({
               小祥监控<small>调度、执行与知识整理</small>
             </span>
             <span className="sidebar-card-action" aria-hidden="true">
-              ›
+              <UiIcon name="next" size={18} />
             </span>
           </button>
           <button
@@ -303,7 +302,7 @@ export function WorkspaceSidebar<T>({
               <small>{user.motto || user.username}</small>
             </span>
             <span className="sidebar-card-action" aria-hidden="true">
-              <UiIcon name="settings" size={14} />
+              <UiIcon name="next" size={18} />
             </span>
           </button>
         </div>

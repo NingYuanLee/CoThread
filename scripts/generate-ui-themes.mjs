@@ -4,13 +4,14 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cssPath = join(root, "web/style.css");
-const themePath = join(root, "web/theme.css");
+/* 输出路径可用环境变量覆盖：校验脚本会生成到临时文件再比对，避免误改仓库文件。 */
+const themePath = process.env.THEME_OUT || join(root, "web/theme.css");
+/* 调色板基准值来源：web/theme-palette.css 是唯一真源。 */
+const palettePath = join(root, "web/theme-palette.css");
 
 const recipes = [
   { id: "forest" },
-  { id: "ocean", hue: 210, sat: 1.08 },
   { id: "tech", hue: 222, sat: 1.52 },
-  { id: "mist", hue: 168, sat: 0.92 },
   { id: "dusk", hue: 268, sat: 0.95 },
   { id: "sand", hue: 32, sat: 0.82 },
   { id: "ink", hue: 128, sat: 0.78, dark: true },
@@ -19,8 +20,7 @@ const recipes = [
 
 function parseHex(raw) {
   let hex = raw.slice(1);
-  if (hex.length === 3 || hex.length === 4)
-    hex = [...hex].map((c) => c + c).join("");
+  if (hex.length === 3 || hex.length === 4) hex = [...hex].map((c) => c + c).join("");
   const hasAlpha = hex.length === 8;
   const rgb = hex.slice(0, 6);
   const a = hasAlpha ? parseInt(hex.slice(6), 16) / 255 : 1;
@@ -54,8 +54,7 @@ function rgbToHsl(r, g, b) {
   if (max === min) return { h: 0, s: 0, l };
   const d = max - min;
   const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-  let h =
-    max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  let h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
   return { h: h * 60, s, l };
 }
 
@@ -138,19 +137,20 @@ function tokenName(raw) {
   return `--c-${raw.slice(1).toLowerCase()}`;
 }
 
-let css = readFileSync(cssPath, "utf8");
-if (!css.includes("var(--c-")) {
-  css = css.replace(
-    /(?<!var\()#([0-9a-fA-F]{3,8})\b/g,
-    (raw) => `var(${tokenName(raw)}, ${raw})`,
-  );
-  css = css.replace(/(?<![-\w])background:\s*white\b/g, "background: var(--c-fff, #fff)");
-  writeFileSync(cssPath, css);
+/* 基准调色板来自 web/theme-palette.css。 */
+const paletteCss = readFileSync(palettePath, "utf8");
+const paletteBlock = paletteCss.match(/:root\s*\{([\s\S]*?)\n\}/);
+if (!paletteBlock) {
+  throw new Error("web/theme-palette.css 缺少 :root { … } 调色板块");
 }
 
 const originals = new Map();
-for (const match of css.matchAll(/var\(--c-([0-9a-fA-F]{3,8}),\s*(#[0-9a-fA-F]{3,8})\)/g))
-  originals.set(match[1].toLowerCase(), match[2]);
+for (const match of paletteBlock[1].matchAll(/(--c-([0-9a-fA-F]{3,8})):\s*(#[0-9a-fA-F]{3,8});/g))
+  originals.set(match[2].toLowerCase(), match[3]);
+
+if (!originals.size) {
+  throw new Error("调色板为空：请检查 web/theme-palette.css 的 --c-* 定义");
+}
 
 const blocks = recipes.map((recipe) => {
   const lines = [...originals.entries()].map(([key, raw]) => {
@@ -158,7 +158,10 @@ const blocks = recipes.map((recipe) => {
     const next = formatColor(remap(parsed, recipe), parsed.short);
     return `  --c-${key}: ${next};`;
   });
-  const selector = recipe.id === "forest" ? ":root,\nhtml[data-theme=\"forest\"]" : `html[data-theme="${recipe.id}"]`;
+  const selector =
+    recipe.id === "forest"
+      ? ':root,\nhtml[data-theme="forest"]'
+      : `html[data-theme="${recipe.id}"]`;
   const extra = `${recipe.dark ? "\n  color-scheme: dark;" : ""}\n  --icon: ${formatColor(remap(parseHex("#73806f"), recipe), false)};\n  --logo-ink: ${logoPaint("#f3f6ec", recipe)};\n  --logo-accent: ${logoPaint("#b7d295", recipe)};`;
   return `${selector} {${extra}\n${lines.join("\n")}\n}`;
 });

@@ -1,0 +1,368 @@
+/*
+ * 深色主题微调层（手工维护）。
+ *
+ * 为什么单独成文件：web/theme.css 由 scripts/generate-ui-themes.mjs 生成，
+ * 手写进去的调整会在下次生成时被覆盖，所以深色主题的提亮 / 分层 / 语义色
+ * 统一放在这里，并在 main.tsx 中于 theme.css 之后引入。
+ */
+
+/* ===== 1. 表面明度阶梯：页面 < 卡片 < 控件 < 弱底 ===== */
+html[data-theme="night"] {
+  --c-f8faf8: #17181a;
+  --c-f8faf6: #1c1d20;
+  --c-f7f9f6: #1c1d20;
+  --c-f7f9f5: #1c1d20;
+  --c-f7f9f4: #1c1d20;
+  --c-f7f9f3: #1c1d20;
+  --c-fafbfa: #212226;
+  --c-fafbf9: #212226;
+  --c-f4f7f2: #1f2125;
+  --c-f0f3ed: #1e2024;
+  --c-fff: #2c2f34;
+  --c-eef2ea: #26292e;
+  --c-e9eee5: #24272c;
+  --c-e8f0e1: #23262b;
+}
+
+html[data-theme="ink"] {
+  --c-f8faf8: #141a15;
+  --c-f8faf6: #1a211a;
+  --c-f7f9f6: #1a211a;
+  --c-f7f9f5: #1a211a;
+  --c-f7f9f4: #1a211a;
+  --c-f7f9f3: #1a211a;
+  --c-fafbfa: #1e271f;
+  --c-fafbf9: #1e271f;
+  --c-f4f7f2: #1c241d;
+  --c-f0f3ed: #1b221c;
+  --c-fff: #273228;
+  --c-eef2ea: #222c23;
+  --c-e9eee5: #202a21;
+  --c-e8f0e1: #1f2920;
+}
+
+/* 页面基面（原主题把底色写死在主题块里，这里覆盖成阶梯里的最底色）。 */
+html[data-theme="night"],
+html[data-theme="night"] body,
+html[data-theme="night"] #root {
+  background: #17181a;
+}
+
+html[data-theme="ink"],
+html[data-theme="ink"] body,
+html[data-theme="ink"] #root {
+  background: #141a15;
+}
+
+/* 任务条用的两档底色：常态与悬停都要比输入框略亮，避免深色下变成"洞"。 */
+html[data-theme="night"] {
+  --c-f1f5eb: #34383e;
+  --c-eef2e9: #3a3f46;
+}
+
+html[data-theme="ink"] {
+  --c-f1f5eb: #303a31;
+  --c-eef2e9: #374238;
+}
+
+/* ===== 2. 边框：用正文色混合，随主题自动保持对比 ===== */
+html:is([data-theme="ink"], [data-theme="night"]) {
+  --c-e7eae7: color-mix(in srgb, var(--c-27362f) 24%, transparent);
+  --c-e5e9e2: color-mix(in srgb, var(--c-27362f) 24%, transparent);
+  --c-e3e7e3: color-mix(in srgb, var(--c-27362f) 24%, transparent);
+  --c-e8ece5: color-mix(in srgb, var(--c-27362f) 24%, transparent);
+  --c-eef1ee: color-mix(in srgb, var(--c-27362f) 24%, transparent);
+  --c-edf0e8: color-mix(in srgb, var(--c-27362f) 24%, transparent);
+  --c-dce3d9: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-d8e1d3: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-e2e9d6: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-e0e6dc: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-dfe5d9: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-dfe5da: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-dde5d7: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-e1e7da: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-e1e6dc: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-dce4d4: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-dfe5db: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-dfe5dc: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-dfe6d9: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-e4e9df: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-e2e9da: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-dce7d3: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-e7eddf: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-d9e1d9: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-c3d0b6: color-mix(in srgb, var(--c-27362f) 40%, transparent);
+  --c-cad6c3: color-mix(in srgb, var(--c-27362f) 40%, transparent);
+  --c-b7c9ad: color-mix(in srgb, var(--c-27362f) 48%, transparent);
+  --c-c3d3b6: color-mix(in srgb, var(--c-27362f) 48%, transparent);
+  --c-f3f7f1: #2a2e33;
+  --c-b8c9b2: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+  --c-8a958d: #b9bdc2;
+}
+
+/* ===== 3. 文字与图标接近白色 ===== */
+html:is([data-theme="ink"], [data-theme="night"]) {
+  --icon: #cfd2d6;
+  --c-27362f: #e9eaeb;
+  --c-4a524c: #d9dbde;
+  --c-5e6c56: #d8dadd;
+  --c-516747: #d3d6d9;
+  --c-54704e: #d3d6d9;
+  --c-395d40: #d3d6d9;
+  --c-69756c: #d2d5d8;
+  --c-73806f: #d0d3d7;
+  --c-758073: #d0d3d7;
+  --c-8b9689: #ced1d5;
+  --c-8b9683: #ced1d5;
+  --c-858c87: #ced1d5;
+  --c-6d756f: #ced1d5;
+  --c-354238: #d6d9dc;
+}
+
+/* ===== 4. 状态语义色（不参与中性化） ===== */
+html:is([data-theme="ink"], [data-theme="night"]) {
+  --c-e5f0e2: #14301b;
+  --c-4a7547: #7fd694;
+  --c-4c8b55: #6fce87;
+  --c-dfeee0: #1d3a24;
+  --c-f7efd9: #33290f;
+  --c-856b2f: #e6c169;
+  --c-bd9441: #e2b24f;
+  --c-f6e5e1: #3a1a16;
+  --c-a04e42: #f09184;
+  --c-b75b4d: #e2705f;
+  --c-eff7ea: #16301f;
+  --c-537047: #7fd694;
+  --c-b8cfad: #2f5a3b;
+  --c-d7d9d4: color-mix(in srgb, var(--c-27362f) 30%, transparent);
+  --c-7e837b: #b9bdc2;
+  --c-f3f4f2: #22252a;
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) .miniprogram-status {
+  background: #26292e;
+  color: #cfd3d8;
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) .miniprogram-status.ok {
+  background: #16301f;
+  color: #7fd694;
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) .miniprogram-status.warning {
+  background: #33290f;
+  color: #e6c169;
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) .miniprogram-status.failed {
+  background: #3a1a16;
+  color: #f09184;
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) .miniprogram-status.muted {
+  background: #26292e;
+  color: #b9bdc2;
+}
+
+/* ===== 5. 强调色：night 用蓝色，ink 保留绿色 ===== */
+/* Logo 方块填色走 currentColor。深色里 --c-395d40 被提成近白给文字用，不能改那个 token。 */
+html:is([data-theme="ink"], [data-theme="night"]) {
+  --logo-ink: #f3f6ec;
+  --logo-accent: #c5d8fb;
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) :is(.brand-logo, .welcome-logo, .sidebar-logo) {
+  color: #2563eb;
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) :is(.brand-logo, .welcome-logo) {
+  filter: drop-shadow(0 4px 7px rgba(37, 99, 235, 0.28));
+}
+
+/* 管理空间左侧菜单与工作空间侧栏同一套表面：未选中灰字，悬停用弱底，选中用卡片底。 */
+html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-heading,
+html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-group a {
+  color: var(--c-7f8b7d);
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-group a:hover {
+  background: var(--c-e9eee5);
+  color: var(--c-27362f);
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-group a[aria-current="page"],
+html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-group a[aria-current="page"]:hover {
+  color: var(--c-27362f);
+  background: var(--c-fff);
+}
+
+
+html[data-theme="night"] {
+  --c-426b4b: #2f6feb;
+  --c-33563b: #2563eb;
+  --c-3f5945: #2f6feb;
+  --c-67835b: #3b82f6;
+  --c-4a7251: #60a5fa;
+  --primary-hover-bg: #2563eb;
+}
+
+html[data-theme="ink"] {
+  --c-426b4b: #3f6a45;
+  --c-33563b: #35593b;
+  --primary-hover-bg: #35593b;
+}
+
+/* 强调色按钮：白字、无描边。 */
+html:is([data-theme="ink"], [data-theme="night"])
+  :is(
+    button.primary,
+    .welcome-create,
+    .miniprogram-dialog-actions button:last-child,
+    .database-filter-footer button.primary,
+    .admin-content button.primary,
+    .admin-dialog-body button.primary,
+    .account-login-another,
+    .agent-log-row > span:first-child
+  ) {
+
+  color: #fff !important;
+
+  --stroke: transparent;
+
+  border-color: transparent;
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+
+html:is([data-theme="ink"], [data-theme="night"])
+  :is(.admin-content, .admin-dialog-body, .database-filter-footer)
+  button.primary,
+html:is([data-theme="ink"], [data-theme="night"])
+  :is(.admin-filters, .dialog-filters)
+  button[type="submit"] {
+  background: var(--c-426b4b);
+  color: #fff !important;
+  --stroke: transparent;
+  border-color: transparent;
+}
+
+html:is([data-theme="ink"], [data-theme="night"])
+  :is(.admin-content, .admin-dialog-body, .database-filter-footer)
+  button.primary:hover:not(:disabled),
+html:is([data-theme="ink"], [data-theme="night"])
+  :is(.admin-filters, .dialog-filters)
+  button[type="submit"]:hover:not(:disabled) {
+  background: var(--primary-hover-bg);
+}
+
+/* 选中的项目页签用强调色底。 */
+html:is([data-theme="ink"], [data-theme="night"]) .project-tab.selected,
+html:is([data-theme="ink"], [data-theme="night"]) .project-tab.pinned.selected {
+  background: var(--c-426b4b);
+  color: #fff !important;
+}
+
+/* ===== 6. 危险操作按钮：淡红底 + 红字 ===== */
+:root {
+  --danger-tint-bg: color-mix(in srgb, #e5484d 15%, transparent);
+  --danger-tint-bg-hover: color-mix(in srgb, #e5484d 24%, transparent);
+  --danger-tint-border: color-mix(in srgb, #e5484d 34%, transparent);
+  --danger-tint-text: #f2757a;
+}
+
+html:is([data-theme="ink"], [data-theme="night"])
+  :is(
+    .miniprogram-danger,
+    .miniprogram-storage-row-actions .is-danger,
+    .thread-archive-footer button.danger,
+    .library-organize-actions button.danger,
+    .mcp-local-executor-confirm button.danger;
+  ) {
+
+  background: var(--danger-tint-bg);
+
+  color: var(--danger-tint-text) !important;
+
+  --stroke: var(--danger-tint-border);
+
+  border-color: transparent;
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+
+html:is([data-theme="ink"], [data-theme="night"])
+  :is(
+    .miniprogram-danger,
+    .miniprogram-storage-row-actions .is-danger,
+    .thread-archive-footer button.danger,
+    .library-organize-actions button.danger,
+    .mcp-local-executor-confirm button.danger;
+  ):hover:not(:disabled) {
+  background: var(--danger-tint-bg-hover);
+}
+
+/* ===== 7. 只靠阴影的浮起面板：补可见边框 ===== */
+html:is([data-theme="ink"], [data-theme="night"])
+  :is(.context-panel.context-open, .composer.chat-composer) {
+
+  border: 1px solid transparent;
+  position: relative;
+  --stroke: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+html:is([data-theme="ink"], [data-theme="night"]) :is(.context-panel.context-open, .composer.chat-composer)::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
+
+html:is([data-theme="ink"], [data-theme="night"]) aside.file-explorer.doc-browser-tree {
+
+  border-left: 1px solid transparent;
+  position: relative;
+  --stroke: color-mix(in srgb, var(--c-27362f) 34%, transparent);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+html:is([data-theme="ink"], [data-theme="night"]) aside.file-explorer.doc-browser-tree::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
+/* 对话模式芯片底色已是强调色半透明。深色里原强调色字对比不够，提亮后再叠在透底上。 */
+html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip {
+  color: color-mix(in srgb, var(--mode-accent) 38%, #fff);
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-icon svg,
+html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-clear,
+html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-clear svg {
+  color: inherit;
+}

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { TextField } from "./TextField";
 
 type Proof = { humanChallengeId: string; humanAnswer: string };
 
@@ -49,33 +50,31 @@ export function HumanVerification({
 
   return (
     <div className="human-verification">
-      <label>
-        人类验证
-        <div className="human-verification-row">
-          <input
-            value={answer}
-            onChange={(event) => update(event.target.value)}
-            maxLength={6}
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="输入图片字符"
-            required
-          />
-          <button
-            type="button"
-            className="captcha-image"
-            onClick={() => void load()}
-            title="刷新验证码"
-            disabled={loading}
-          >
-            {image ? (
-              <img src={image} alt="图片验证码" />
-            ) : (
-              <span>{loading ? "加载中" : "重新加载"}</span>
-            )}
-          </button>
-        </div>
-      </label>
+      <div className="human-verification-row">
+        <TextField
+          label="人类验证"
+          value={answer}
+          onChange={(event) => update(event.target.value)}
+          maxLength={6}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="输入图片字符"
+          required
+        />
+        <button
+          type="button"
+          className="captcha-image"
+          onClick={() => void load()}
+          title="刷新验证码"
+          disabled={loading}
+        >
+          {image ? (
+            <img src={image} alt="图片验证码" />
+          ) : (
+            <span>{loading ? "加载中" : "重新加载"}</span>
+          )}
+        </button>
+      </div>
       {error && (
         <small className="captcha-error" role="alert">
           {error}

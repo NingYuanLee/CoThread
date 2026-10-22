@@ -1,34 +1,27 @@
-import { useEffect, useRef } from "react";
+import { DialogHeader } from "./DialogHeader";
+import { DialogFilters } from "./DialogFilters";
+import { useRef, useState } from "react";
 
-import {
-  DialogClose,
-  animateDialogClose,
-  onDialogBackdropClick,
-  onDialogCancel,
-} from "./dialog-fx";
+import { Dialog, animateDialogClose } from "./dialog-fx";
 import type { HistoryColumn, HistoryRow, L3Detail } from "./agent-monitor-types";
 
 import { State } from "./agent-monitor-cards";
 export function L3TaskDetailDialog({ detail, onClose }: { detail: L3Detail; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
   return (
-    <dialog
+    <Dialog
+      onRequestClose={onClose}
       ref={dialog}
       className="l3-task-detail-dialog"
       aria-labelledby="l3-task-detail-title"
-      onCancel={onDialogCancel(onClose)}
-      onClick={onDialogBackdropClick(onClose)}
     >
-      <header className="agent-monitor-header">
-        <div>
-          <span>任务详情</span>
-          <h2 id="l3-task-detail-title">{detail.title}</h2>
-        </div>
-        <DialogClose onClick={() => animateDialogClose(dialog.current, onClose)} label="关闭详情" />
-      </header>
+      <DialogHeader
+        title={<>{detail.title}</>}
+        titleId="l3-task-detail-title"
+        subtitle={<>任务详情</>}
+        onClose={() => animateDialogClose(dialog.current, onClose)}
+        closeLabel="关闭详情"
+      />
       <div className="l3-task-detail-body task-detail">
         <header>
           <div>
@@ -78,7 +71,7 @@ export function L3TaskDetailDialog({ detail, onClose }: { detail: L3Detail; onCl
           </section>
         ) : null}
       </div>
-    </dialog>
+    </Dialog>
   );
 }
 export function L1HistoryDialog({
@@ -96,28 +89,39 @@ export function L1HistoryDialog({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const hasActions = rows.some((row) => row.actions);
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
+  const [keyword, setKeyword] = useState("");
+  const [search, setSearch] = useState("");
+  const visibleRows = rows.filter((row) =>
+    columns
+      .map((column) => row.cells[column.key] || "")
+      .join(" ")
+      .toLocaleLowerCase()
+      .includes(search.toLocaleLowerCase()),
+  );
   return (
-    <dialog
+    <Dialog
+      onRequestClose={onClose}
       ref={dialog}
       className="l3-task-detail-dialog l1-history-dialog"
       aria-labelledby="l1-history-title"
-      onCancel={onDialogCancel(onClose)}
-      onClick={onDialogBackdropClick(onClose)}
     >
-      <header className="agent-monitor-header">
-        <div>
-          <span>历史记录</span>
-          <h2 id="l1-history-title">{title}</h2>
-        </div>
-        <DialogClose
-          onClick={() => animateDialogClose(dialog.current, onClose)}
-          label="关闭历史记录"
-        />
-      </header>
-      <div className="l1-history-body">
+      <DialogHeader
+        title={<>{title}</>}
+        titleId="l1-history-title"
+        subtitle={<>历史记录</>}
+        onClose={() => animateDialogClose(dialog.current, onClose)}
+        closeLabel="关闭历史记录"
+      />
+      <DialogFilters
+        label="历史记录筛选"
+        keyword={{ value: keyword, onChange: setKeyword, placeholder: "搜索历史记录" }}
+        onQuery={() => setSearch(keyword.trim())}
+        onReset={() => {
+          setKeyword("");
+          setSearch("");
+        }}
+      />
+      <div className="l1-history-body dialog-scroll-region">
         <table className="l1-history-table">
           <thead>
             <tr>
@@ -128,7 +132,7 @@ export function L1HistoryDialog({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {visibleRows.map((row) => (
               <tr key={row.id}>
                 {columns.map((column) => (
                   <td key={column.key}>
@@ -142,16 +146,16 @@ export function L1HistoryDialog({
                 {hasActions ? <td className="l1-history-actions">{row.actions}</td> : null}
               </tr>
             ))}
-            {!rows.length && (
+            {!visibleRows.length && (
               <tr>
                 <td className="monitor-empty" colSpan={columns.length + (hasActions ? 1 : 0)}>
-                  {empty}
+                  {search ? "没有符合条件的历史记录" : empty}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-    </dialog>
+    </Dialog>
   );
 }

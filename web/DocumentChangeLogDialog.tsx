@@ -1,9 +1,12 @@
+import { DialogFilters } from "./DialogFilters";
+import { SelectField } from "./SelectField";
+import { DialogHeader } from "./DialogHeader";
+import { DialogFooter } from "./DialogFooter";
 import {
   DocumentChangeDateRangePicker,
   type DocumentChangeDateRange,
 } from "./DocumentChangeDateRangePicker";
 import { DocumentChangeLogList, type DocumentChange } from "./DocumentChangeLogList";
-import { DialogClose } from "./dialog-fx";
 import { PaginationControl } from "./PaginationControl";
 
 export type DocumentChangeLogFilters = DocumentChangeDateRange & {
@@ -48,39 +51,40 @@ export function DocumentChangeLogDialog({
 }) {
   return (
     <section
-      className="library-organize-dialog document-change-log-dialog"
+      className="library-organize-dialog document-change-log-dialog dialog-list"
       role="dialog"
       aria-modal="true"
       aria-labelledby="document-change-log-title"
     >
-      <header className="library-organize-header">
-        <div>
-          <span>项目文档库</span>
-          <h3 id="document-change-log-title">文档操作日志</h3>
-        </div>
-        <DialogClose onClick={close} label="关闭文档操作日志" />
-      </header>
-      <form
-        className="document-change-log-filters"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onApply();
+      <DialogHeader
+        title={<>文档操作日志</>}
+        titleId="document-change-log-title"
+        subtitle={<>项目文档库</>}
+        onClose={close}
+        closeLabel="关闭文档操作日志"
+      />
+      <DialogFilters
+        label="文档操作日志筛选"
+        onQuery={onApply}
+        onReset={onReset}
+        keyword={{
+          label: "文件名",
+          value: draft.fileName,
+          placeholder: "搜索文档标题或文件名",
+          onChange: (fileName) => onDraftChange({ ...draft, fileName }),
         }}
       >
-        <label>
+        <div className="dialog-filter-item">
           <span>操作类型</span>
-          <select
+          <SelectField
+            clearable
+            aria-label="操作类型"
             value={draft.action}
-            onChange={(event) => onDraftChange({ ...draft, action: event.target.value })}
-          >
-            <option value="">全部操作</option>
-            {actions.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={(action) => onDraftChange({ ...draft, action })}
+            placeholder="全部操作"
+            options={actions.map(([value, label]) => ({ value, label }))}
+          />
+        </div>
         <label className="document-change-log-date-range">
           <span>日期范围</span>
           <DocumentChangeDateRangePicker
@@ -88,22 +92,7 @@ export function DocumentChangeLogDialog({
             onChange={(range) => onDraftChange({ ...draft, ...range })}
           />
         </label>
-        <label className="document-change-log-file-filter">
-          <span>文件名</span>
-          <input
-            type="search"
-            value={draft.fileName}
-            placeholder="搜索文档标题或文件名"
-            onChange={(event) => onDraftChange({ ...draft, fileName: event.target.value })}
-          />
-        </label>
-        <div className="document-change-log-filter-actions">
-          <button type="submit">应用筛选</button>
-          <button type="button" className="secondary" onClick={onReset}>
-            重置
-          </button>
-        </div>
-      </form>
+      </DialogFilters>
       <DocumentChangeLogList
         changes={changes}
         loading={loading}
@@ -111,7 +100,7 @@ export function DocumentChangeLogDialog({
         actionLabels={actionLabels}
         sourceLabels={sourceLabels}
       />
-      <footer className="document-change-log-pagination">
+      <DialogFooter pagination>
         <PaginationControl
           total={page.total}
           currentPage={page.currentPage}
@@ -121,7 +110,7 @@ export function DocumentChangeLogDialog({
           onPageSizeChange={(size) => onLimitChange(String(size))}
           ariaLabel="文档操作日志分页"
         />
-      </footer>
+      </DialogFooter>
     </section>
   );
 }

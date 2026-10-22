@@ -1,3 +1,4 @@
+import { DialogHeader } from "./DialogHeader";
 import { useEffect, useRef, useState } from "react";
 import { AgentActivity } from "./AgentActivity";
 
@@ -7,12 +8,8 @@ import { ContextMeter } from "./ContextMeter";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { useAgentLiveOutput } from "./useAgentLiveOutput";
 
-import {
-  DialogClose,
-  animateDialogClose,
-  onDialogBackdropClick,
-  onDialogCancel,
-} from "./dialog-fx";
+import { Dialog, animateDialogClose } from "./dialog-fx";
+import { useTipError } from "./Tip";
 import type { TaskSessionData } from "./agent-monitor-types";
 
 export function TaskSessionDialog({
@@ -41,12 +38,9 @@ export function TaskSessionDialog({
   const dialog = useRef<HTMLDialogElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<TaskSessionData | null>(null);
-  const [error, setError] = useState("");
+  const [, setError] = useTipError();
   const liveRows = useAgentLiveOutput(live?.threadId || "", !!live);
   const liveOutput = live ? liveRows[live.messageId] : undefined;
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -74,34 +68,38 @@ export function TaskSessionDialog({
   const pending = data?.pending || [];
   const events = data?.events || [];
   return (
-    <dialog
+    <Dialog
+      onRequestClose={onClose}
       ref={dialog}
       className="l3-task-detail-dialog l3-task-session-dialog"
       aria-labelledby="l3-task-session-title"
-      onCancel={onDialogCancel(onClose)}
-      onClick={onDialogBackdropClick(onClose)}
     >
-      <header className="agent-monitor-header l3-task-session-header">
-        <div>
-          <span>{kicker}</span>
-          <h2 id="l3-task-session-title">{title}</h2>
-          {data?.progress ? <small>{data.progress}</small> : null}
-        </div>
-        <div className="l3-task-session-tools">
-          <ContextMeter
-            usage={usage}
-            writable={!data?.running}
-            onCompact={async () => {
-              await api(compactPath, compactBody || {});
-              setData(await api(path));
-            }}
-          />
-          <DialogClose
-            onClick={() => animateDialogClose(dialog.current, onClose)}
-            label="关闭任务会话"
-          />
-        </div>
-      </header>
+      <DialogHeader
+        title={<>{title}</>}
+        titleId="l3-task-session-title"
+        subtitle={
+          <>
+            {kicker}
+            {data?.progress ? <small>{data.progress}</small> : null}
+          </>
+        }
+        actions={
+          <>
+            <div className="l3-task-session-tools">
+              <ContextMeter
+                usage={usage}
+                writable={!data?.running}
+                onCompact={async () => {
+                  await api(compactPath, compactBody || {});
+                  setData(await api(path));
+                }}
+              />
+            </div>
+          </>
+        }
+        onClose={() => animateDialogClose(dialog.current, onClose)}
+        closeLabel="关闭任务会话"
+      />
       <div className="l3-task-session-body" ref={list}>
         {!data?.messages.length &&
           !pending.length &&
@@ -152,17 +150,7 @@ export function TaskSessionDialog({
             />
           </div>
         ) : null}
-        {data?.error && (
-          <p className="error" role="alert">
-            {data.error}
-          </p>
-        )}
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
       </div>
-    </dialog>
+    </Dialog>
   );
 }

@@ -1,4 +1,7 @@
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { DialogFooter } from "./DialogFooter";
+import { DialogBody } from "./DialogBody";
+import { DialogHeader } from "./DialogHeader";
+import { ModalBackdrop } from "./dialog-fx";
 
 export function CodeGuideDialog({
   title,
@@ -20,24 +23,28 @@ export function CodeGuideDialog({
           aria-modal="true"
           aria-labelledby="code-guide-title"
         >
-          <header>
-            <h3 id="code-guide-title">{title} · 文件夹说明</h3>
-            <DialogClose onClick={close} label="关闭文件夹说明" />
-          </header>
-          {lines ? (
-            <ul className="folder-guide-lines">
-              {lines.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>{body}</p>
-          )}
-          <div className="library-organize-actions">
+          <DialogHeader
+            title={<>{title} · 文件夹说明</>}
+            titleId="code-guide-title"
+            onClose={close}
+            closeLabel="关闭文件夹说明"
+          />
+          <DialogBody>
+            {lines ? (
+              <ul className="folder-guide-lines">
+                {lines.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>{body}</p>
+            )}
+          </DialogBody>
+          <DialogFooter>
             <button type="button" className="primary" onClick={close}>
               知道了
             </button>
-          </div>
+          </DialogFooter>
         </section>
       )}
     </ModalBackdrop>

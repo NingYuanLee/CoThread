@@ -1,6 +1,9 @@
+import { DialogFooter } from "./DialogFooter";
+import { DialogHeader } from "./DialogHeader";
+import { Dialog } from "./dialog-fx";
 import React, { useEffect, useRef, useState } from "react";
 import { UiIcon } from "./ui-icon";
-import { showTip } from "./Tip";
+import { showTip, useTipError } from "./Tip";
 
 type Authorization = {
   id: string;
@@ -28,9 +31,8 @@ export function LocalExecutorAuthorization({
   const dialog = useRef<HTMLDialogElement>(null);
   const [authorization, setAuthorization] = useState<Authorization | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError({ duration: 0 });
   useEffect(() => {
-    dialog.current?.showModal();
     void api(`/local-executor-authorizations-v2/${id}`)
       .then(setAuthorization)
       .catch((cause) => setError((cause as Error).message));
@@ -71,32 +73,39 @@ export function LocalExecutorAuthorization({
     } catch (cause) {
       const detail = (cause as Error).message;
       setError(detail);
-      showTip(detail, "error");
     } finally {
       setBusy(false);
     }
   };
   return (
-    <dialog
+    <Dialog
+      enabled={!busy}
+      onRequestClose={onDone}
+      closeOnEscape={false}
+      closeOnBackdrop={false}
       ref={dialog}
       className="local-executor-authorization-dialog"
-      onCancel={(event) => event.preventDefault()}
     >
-      <header>
-        <div>
-          <small>本地执行器</small>
-          <h2>授权本地执行器</h2>
-        </div>
-      </header>
+      <DialogHeader
+        title="授权本地执行器"
+        subtitle="本地执行器"
+        icon={<UiIcon name="localExecutor" size={24} />}
+        onClose={onDone}
+        disabled={busy}
+      />
       {authorization?.approved_at ? (
-        <section className="local-executor-authorization-result">
-          <strong>授权完成</strong>
-          <p>可以返回本地执行器选择项目和本地目录。</p>
-          <button type="button" className="primary" onClick={onDone}>
-            <UiIcon name="check" size={13} />
-            完成
-          </button>
-        </section>
+        <>
+          <section className="local-executor-authorization-result dialog-scroll-region">
+            <strong>授权完成</strong>
+            <p>可以返回本地执行器选择项目和本地目录。</p>
+          </section>
+          <DialogFooter>
+            <button type="button" className="primary" onClick={onDone}>
+              <UiIcon name="check" size={13} />
+              完成
+            </button>
+          </DialogFooter>
+        </>
       ) : (
         <>
           <dl>
@@ -115,12 +124,7 @@ export function LocalExecutorAuthorization({
               <dd>查看账号项目；仅在你为项目选择本地目录后领取任务</dd>
             </div>
           </dl>
-          {error && (
-            <p className="project-settings-error" role="alert">
-              {error}
-            </p>
-          )}
-          <footer>
+          <DialogFooter>
             <button type="button" disabled={busy} onClick={() => void decide(false)}>
               <UiIcon name="reject" size={13} />
               拒绝
@@ -134,9 +138,9 @@ export function LocalExecutorAuthorization({
               <UiIcon name="check" size={13} />
               {busy ? "正在授权…" : "确认授权"}
             </button>
-          </footer>
+          </DialogFooter>
         </>
       )}
-    </dialog>
+    </Dialog>
   );
 }

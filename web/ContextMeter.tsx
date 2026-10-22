@@ -1,12 +1,13 @@
-import React, { useEffect, useRef, useState } from "react";
+import { DialogFooter } from "./DialogFooter";
+import { DialogBody } from "./DialogBody";
+import { DialogHeader } from "./DialogHeader";
+import { FloatingPanel } from "./FloatingPanel";
+import { FloatingPortal } from "./FloatingPortal";
+import { useTipError } from "./Tip";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ContextUsage } from "../shared/context.js";
 import { UiIcon } from "./ui-icon";
-import {
-  DialogClose,
-  animateDialogClose,
-  onDialogBackdropClick,
-  onDialogCancel,
-} from "./dialog-fx";
+import { Dialog, animateDialogClose } from "./dialog-fx";
 
 const tokens = (value: number) =>
   value >= 1_000_000
@@ -15,7 +16,15 @@ const tokens = (value: number) =>
       ? `${(value / 1000).toFixed(value < 10000 ? 1 : 0)}K`
       : String(value);
 
-export function ContextMeter({
+function percentLabel(used: number, limit: number) {
+  if (!limit) return "0%";
+  const raw = (used / limit) * 100;
+  if (raw > 0 && raw < 1) return "<1%";
+  return `${Math.min(100, Math.round(raw))}%`;
+}
+
+/** 聊天输入框下方的上下文入口：百分比胶囊，点开上弹用量明细。 */
+function FooterContextMeter({
   usage,
   writable,
   onCompact,
@@ -24,18 +33,197 @@ export function ContextMeter({
   writable: boolean;
   onCompact: () => Promise<void>;
 }) {
+  const root = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const anchor = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useTipError();
+  const progress = Math.min(100, usage.limit ? (usage.used / usage.limit) * 100 : 0);
+  const shown = usage.categories.filter((category) => category.tokens > 0);
+  const compacting =
+    sending || usage.automaticCompacting || ["queued", "running"].includes(usage.compactStatus);
+  const label = compacting ? "压缩中" : percentLabel(usage.used, usage.limit);
+  useLayoutEffect(() => {
+    if (!open || !panel.current || !anchor.current) return;
+    const anchorBox = anchor.current.getBoundingClientRect();
+    const panelBox = panel.current.getBoundingClientRect();
+    const left = anchorBox.left + anchorBox.width / 2 - panelBox.width / 2;
+    setPosition({
+      left: Math.max(8, Math.min(left, window.innerWidth - panelBox.width - 8)),
+      top:
+        anchorBox.top >= panelBox.height + 16
+          ? anchorBox.top - panelBox.height - 8
+          : Math.max(8, Math.min(anchorBox.bottom + 8, window.innerHeight - panelBox.height - 8)),
+    });
+  }, [open, usage]);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!root.current?.contains(target) && !panel.current?.contains(target)) setOpen(false);
+    };
+    const scroll = (event: Event) => {
+      if (!panel.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    window.addEventListener("scroll", scroll, true);
+    window.addEventListener("resize", scroll);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      window.removeEventListener("scroll", scroll, true);
+      window.removeEventListener("resize", scroll);
+    };
+  }, [open]);
+  return (
+    <div className="composer-context-meter" ref={root}>
+      <button
+        ref={anchor}
+        type="button"
+        className={`context-meter context-meter-footer ${usage.used >= usage.autoCompactAt ? "near-limit" : ""}`}
+        aria-label={`查看上下文用量：${usage.estimated ? "约 " : ""}${tokens(usage.used)} / ${tokens(usage.limit)}，已用 ${percentLabel(usage.used, usage.limit)}`}
+        title={
+          compacting
+            ? "上下文压缩中"
+            : `上下文 ${usage.estimated ? "≈ " : ""}${tokens(usage.used)} / ${tokens(usage.limit)}`
+        }
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span
+          className="context-meter-icon"
+          aria-hidden="true"
+          style={{
+            background: `conic-gradient(currentColor ${progress}%, var(--c-e1e7da, #e1e7da) 0)`,
+          }}
+        >
+          <span />
+        </span>
+        <span>{label}</span>
+      </button>
+      {open && (
+        <FloatingPortal>
+          <FloatingPanel
+            onDismiss={() => setOpen(false)}
+            ref={panel}
+            direction="up"
+            style={position}
+            className="context-usage-popover"
+            role="dialog"
+            aria-label="会话上下文"
+          >
+            <header>
+              <span>上下文已用 {percentLabel(usage.used, usage.limit)}</span>
+              <strong>
+                {usage.estimated ? "≈ " : ""}
+                {tokens(usage.used)} / {tokens(usage.limit)}
+              </strong>
+            </header>
+            <div className="context-foot-track" aria-hidden="true">
+              {shown.map((category) => (
+                <span
+                  key={category.key}
+                  style={{
+                    width: `${usage.limit ? (category.tokens / usage.limit) * 100 : 0}%`,
+                    background: category.color,
+                  }}
+                />
+              ))}
+            </div>
+            {shown.length ? (
+              <ul className="context-foot-categories">
+                {shown.map((category) => (
+                  <li key={category.key}>
+                    <span className="context-category-label">
+                      <i style={{ background: category.color }} />
+                      {category.label}
+                    </span>
+                    <span>
+                      {usage.estimated ? "≈ " : ""}
+                      {tokens(category.tokens)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="context-foot-empty">当前还没有计入的上下文。</p>
+            )}
+            <p className="context-foot-note">达到 {tokens(usage.autoCompactAt)} 时自动压缩</p>
+            {usage.compactStatus === "completed" && usage.compactResult && (
+              <p className="context-result" role="status">
+                {usage.compactResult.changed
+                  ? `压缩完成：${tokens(usage.compactResult.before)} → ${tokens(usage.compactResult.after)}`
+                  : usage.compactResult.reason === "not_smaller"
+                    ? "本次摘要未减少用量，已保留原上下文。"
+                    : "当前上下文较短，暂无可进一步压缩的内容。"}
+              </p>
+            )}
+            {usage.compactError && (
+              <p className="error" role="alert">
+                {usage.compactError}
+              </p>
+            )}
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
+            <button
+              type="button"
+              className="primary context-foot-compact"
+              disabled={!writable || compacting || !usage.used}
+              onClick={async () => {
+                setSending(true);
+                setError("");
+                try {
+                  await onCompact();
+                } catch (cause) {
+                  setError((cause as Error).message);
+                } finally {
+                  setSending(false);
+                }
+              }}
+            >
+              <UiIcon name="compress" size={13} />
+              {usage.compactStatus === "queued"
+                ? "等待上下文处理…"
+                : compacting
+                  ? "正在压缩…"
+                  : "立即压缩"}
+            </button>
+          </FloatingPanel>
+        </FloatingPortal>
+      )}
+    </div>
+  );
+}
+
+export function ContextMeter({
+  usage,
+  writable,
+  onCompact,
+  variant = "header",
+}: {
+  usage: ContextUsage;
+  writable: boolean;
+  onCompact: () => Promise<void>;
+  /** header：任务会话里的胶囊弹窗。footer：聊天输入框下方的百分比胶囊。 */
+  variant?: "header" | "footer";
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError();
   const progress = Math.min(100, (usage.used / usage.limit) * 100);
   const composition = usage.categories.reduce((sum, category) => sum + category.tokens, 0);
   const compacting =
     sending || usage.automaticCompacting || ["queued", "running"].includes(usage.compactStatus);
-  useEffect(() => {
-    if (open) dialog.current?.showModal();
-  }, [open]);
   const close = () => animateDialogClose(dialog.current, () => setOpen(false));
+  if (variant === "footer") {
+    return <FooterContextMeter usage={usage} writable={writable} onCompact={onCompact} />;
+  }
   return (
     <>
       <button
@@ -60,93 +248,94 @@ export function ContextMeter({
             : `上下文 ${usage.estimated ? "≈ " : ""}${tokens(usage.used)} / ${tokens(usage.limit)}`}
         </span>
       </button>
-      <dialog
+      <Dialog
+        active={open}
+        onRequestClose={() => setOpen(false)}
         ref={dialog}
         className="context-usage-dialog"
         aria-labelledby="context-usage-title"
-        onCancel={onDialogCancel(() => setOpen(false))}
-        onClose={() => setOpen(false)}
-        onClick={onDialogBackdropClick(() => setOpen(false))}
       >
-        <div className="context-dialog-heading">
-          <div>
-            <h2 id="context-usage-title">会话上下文</h2>
-            <p>此会话独立使用一套上下文</p>
+        <DialogHeader
+          title={<>会话上下文</>}
+          titleId="context-usage-title"
+          subtitle={<>此会话独立使用一套上下文</>}
+          onClose={close}
+          closeLabel="关闭上下文详情"
+        />
+        <DialogBody>
+          <div className="context-total">
+            <strong>
+              {usage.estimated && "≈ "}
+              {tokens(usage.used)}
+            </strong>
+            <span>/ {tokens(usage.limit)} 词元</span>
+            <small>{((usage.used / usage.limit) * 100).toFixed(1)}% 已使用</small>
           </div>
-          <DialogClose onClick={close} label="关闭上下文详情" />
-        </div>
-        <div className="context-total">
-          <strong>
-            {usage.estimated && "≈ "}
-            {tokens(usage.used)}
-          </strong>
-          <span>/ {tokens(usage.limit)} 词元</span>
-          <small>{((usage.used / usage.limit) * 100).toFixed(1)}% 已使用</small>
-        </div>
-        <div
-          className="context-capacity"
-          role="progressbar"
-          aria-label="上下文已使用比例"
-          aria-valuenow={Math.round(progress)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          <span style={{ width: `${progress}%` }} />
-          <i style={{ left: `${(usage.autoCompactAt / usage.limit) * 100}%` }} />
-        </div>
-        <p className="context-threshold">
-          达到 {tokens(usage.autoCompactAt)} 时自动压缩 · 容量 {tokens(usage.limit)}
-        </p>
-        <h3>上下文组成</h3>
-        <div className="context-composition" aria-hidden="true">
-          {usage.categories.map((category) => (
-            <span
-              key={category.key}
-              style={{
-                width: `${composition ? (category.tokens / composition) * 100 : 0}%`,
-                background: category.color,
-              }}
-            />
-          ))}
-        </div>
-        <ul className="context-categories">
-          {usage.categories.map((category) => (
-            <li key={category.key}>
-              <span className="context-category-label">
-                <i style={{ background: category.color }} />
-                {category.label}
-              </span>
-              <span>≈ {tokens(category.tokens)}</span>
-              <strong>
-                {composition ? ((category.tokens / composition) * 100).toFixed(1) : "0.0"}%
-              </strong>
-            </li>
-          ))}
-        </ul>
-        <p className="context-explanation">
-          组成占比按当前模型上下文估算，与模型计量的总用量可能有差异。文件只在被读取后计入，不包含整个文档库。
-        </p>
-        {usage.lastCompactedAt && (
-          <p className="context-last">
-            已压缩 {usage.compactions} 次 · 最近{" "}
-            {new Date(usage.lastCompactedAt).toLocaleString("zh-CN")}
+          <div
+            className="context-capacity"
+            role="progressbar"
+            aria-label="上下文已使用比例"
+            aria-valuenow={Math.round(progress)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <span style={{ width: `${progress}%` }} />
+            <i style={{ left: `${(usage.autoCompactAt / usage.limit) * 100}%` }} />
+          </div>
+          <p className="context-threshold">
+            达到 {tokens(usage.autoCompactAt)} 时自动压缩 · 容量 {tokens(usage.limit)}
           </p>
-        )}
-        {usage.compactStatus === "completed" && usage.compactResult && (
-          <p className="context-result" role="status">
-            {usage.compactResult.changed
-              ? `压缩完成：${tokens(usage.compactResult.before)} → ${tokens(usage.compactResult.after)}`
-              : usage.compactResult.reason === "not_smaller"
-                ? "本次摘要未减少用量，已保留原上下文。"
-                : "当前上下文较短，暂无可进一步压缩的内容。"}
+          <h3>上下文组成</h3>
+          <div className="context-composition" aria-hidden="true">
+            {usage.categories.map((category) => (
+              <span
+                key={category.key}
+                style={{
+                  width: `${composition ? (category.tokens / composition) * 100 : 0}%`,
+                  background: category.color,
+                }}
+              />
+            ))}
+          </div>
+          <ul className="context-categories">
+            {usage.categories.map((category) => (
+              <li key={category.key}>
+                <span className="context-category-label">
+                  <i style={{ background: category.color }} />
+                  {category.label}
+                </span>
+                <span>≈ {tokens(category.tokens)}</span>
+                <strong>
+                  {composition ? ((category.tokens / composition) * 100).toFixed(1) : "0.0"}%
+                </strong>
+              </li>
+            ))}
+          </ul>
+          <p className="context-explanation">
+            组成占比按当前模型上下文估算，与模型计量的总用量可能有差异。文件只在被读取后计入，不包含整个文档库。
           </p>
-        )}
-        {(error || usage.compactError) && (
-          <p className="error" role="alert">
-            {error || usage.compactError}
-          </p>
-        )}
-        <div className="context-dialog-footer">
+          {usage.lastCompactedAt && (
+            <p className="context-last">
+              已压缩 {usage.compactions} 次 · 最近{" "}
+              {new Date(usage.lastCompactedAt).toLocaleString("zh-CN")}
+            </p>
+          )}
+          {usage.compactStatus === "completed" && usage.compactResult && (
+            <p className="context-result" role="status">
+              {usage.compactResult.changed
+                ? `压缩完成：${tokens(usage.compactResult.before)} → ${tokens(usage.compactResult.after)}`
+                : usage.compactResult.reason === "not_smaller"
+                  ? "本次摘要未减少用量，已保留原上下文。"
+                  : "当前上下文较短，暂无可进一步压缩的内容。"}
+            </p>
+          )}
+          {usage.compactError && (
+            <p className="error" role="alert">
+              {usage.compactError}
+            </p>
+          )}
+        </DialogBody>
+        <DialogFooter>
           <p>保留关键结论与近期内容，聊天记录和文档完整保留。</p>
           <button
             type="button"
@@ -171,8 +360,8 @@ export function ContextMeter({
                 ? "正在压缩…"
                 : "立即压缩"}
           </button>
-        </div>
-      </dialog>
+        </DialogFooter>
+      </Dialog>
     </>
   );
 }

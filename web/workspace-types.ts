@@ -306,6 +306,7 @@ export type Thread = {
   }[];
   localExecutorTasks: LocalTask[];
   side_revision?: number | string;
+  toolDurationMs?: number;
   sideState?: { mode: "snapshot" | "unchanged"; token: string };
   events: {
     id: string;

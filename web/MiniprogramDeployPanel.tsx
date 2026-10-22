@@ -1,3 +1,6 @@
+import { RefreshButton } from "./IconButton";
+import { TextField } from "./TextField";
+import { TextAreaField } from "./TextAreaField";
 /**
  * 小程序工作区的生产发布页：发布申请、审核流转与部署记录。
  * 数据与回调由父组件打包成 props 传入。
@@ -115,7 +118,7 @@ export function MiniprogramDeployPanel({
               role="toolbar"
               aria-label="生产发布工具栏"
             >
-              <button
+              <RefreshButton
                 type="button"
                 className="miniprogram-preview-icon-button"
                 aria-label="刷新生产发布记录"
@@ -128,19 +131,18 @@ export function MiniprogramDeployPanel({
                     loadDeployments(),
                   ])
                 }
-              >
-                <UiIcon name="refresh" size={14} />
-              </button>
-              <label className="miniprogram-function-search">
-                <UiIcon name="search" size={13} />
-                <input
-                  type="search"
-                  value={releaseSearch}
-                  placeholder="按发布内容搜索"
-                  aria-label="按发布内容搜索"
-                  onChange={(event) => setReleaseSearch(event.target.value)}
-                />
-              </label>
+                label="刷新生产发布记录"
+              />
+              <TextField
+                flush
+                containerClassName="miniprogram-function-search-field"
+                icon={<UiIcon name="search" size={13} />}
+                type="search"
+                value={releaseSearch}
+                placeholder="按发布内容搜索"
+                aria-label="按发布内容搜索"
+                onChange={(event) => setReleaseSearch(event.target.value)}
+              />
               <button
                 type="button"
                 className="miniprogram-toolbar-button"
@@ -245,7 +247,31 @@ export function MiniprogramDeployPanel({
           </section>
 
           {releaseCreateOpen ? (
-            <WorkspaceDialog title="新建生产发布" onClose={() => setReleaseCreateOpen(false)}>
+            <WorkspaceDialog
+              bodyInset
+              title="新建生产发布"
+              className="miniprogram-release-dialog"
+              onClose={() => setReleaseCreateOpen(false)}
+              footer={
+                <>
+                  <button
+                    type="button"
+                    disabled={releaseBusy !== ""}
+                    onClick={() => setReleaseCreateOpen(false)}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!writable || !releaseSelection.length || releaseBusy !== ""}
+                    onClick={() => void submitReleaseApplication()}
+                  >
+                    <UiIcon name="upload" size={13} />
+                    {releaseBusy === "submit" ? "提交中…" : "提交审批"}
+                  </button>
+                </>
+              }
+            >
               <p className="muted miniprogram-note">
                 选择本次要发布到生产环境的内容，提交后由项目主审批。
               </p>
@@ -306,17 +332,15 @@ export function MiniprogramDeployPanel({
                       <dd>Admin 根目录</dd>
                     </div>
                   </dl>
-                  <label className="miniprogram-field miniprogram-admin-hosting-path">
-                    <span>托管路径</span>
-                    <input
-                      type="text"
-                      value={adminProductionPath}
-                      placeholder="/admin/"
-                      disabled={releaseBusy !== ""}
-                      autoComplete="off"
-                      onChange={(event) => setAdminProductionPath(event.target.value)}
-                    />
-                  </label>
+                  <TextField
+                    label="托管路径"
+                    containerClassName="miniprogram-admin-hosting-path"
+                    value={adminProductionPath}
+                    placeholder="/admin/"
+                    disabled={releaseBusy !== ""}
+                    autoComplete="off"
+                    onChange={(event) => setAdminProductionPath(event.target.value)}
+                  />
                   {adminProductionAddress ? (
                     <a
                       className="miniprogram-admin-production-url"
@@ -330,38 +354,73 @@ export function MiniprogramDeployPanel({
                   ) : null}
                 </section>
               ) : null}
-              <label className="miniprogram-field miniprogram-field-column miniprogram-production-note">
-                <span>发布说明</span>
-                <textarea
-                  rows={4}
-                  value={releaseNote}
-                  placeholder="本次生产发布内容（可选）"
-                  onChange={(event) => setReleaseNote(event.target.value)}
-                />
-              </label>
+              <TextAreaField
+                label="发布说明"
+                containerClassName="miniprogram-production-note"
+                rows={4}
+                value={releaseNote}
+                placeholder="本次生产发布内容（可选）"
+                onChange={(event) => setReleaseNote(event.target.value)}
+              />
               {releaseError ? <p className="miniprogram-config-error">{releaseError}</p> : null}
-              <div className="miniprogram-dialog-actions">
-                <button
-                  type="button"
-                  disabled={releaseBusy !== ""}
-                  onClick={() => setReleaseCreateOpen(false)}
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  disabled={!writable || !releaseSelection.length || releaseBusy !== ""}
-                  onClick={() => void submitReleaseApplication()}
-                >
-                  <UiIcon name="upload" size={13} />
-                  {releaseBusy === "submit" ? "提交中…" : "提交审批"}
-                </button>
-              </div>
             </WorkspaceDialog>
           ) : null}
 
           {selectedReleaseApplication ? (
-            <WorkspaceDialog title="生产发布详情" onClose={() => setReleaseDetailId("")}>
+            <WorkspaceDialog
+              bodyInset
+              title="生产发布详情"
+              className="miniprogram-release-dialog"
+              onClose={() => setReleaseDetailId("")}
+              footer={
+                selectedReleaseApplication.status === "pending" ? (
+                  <>
+                    {owner ? (
+                      <>
+                        <button
+                          type="button"
+                          className="miniprogram-approve"
+                          disabled={releaseBusy !== "" || selectedReleaseApplication.sourceChanged}
+                          onClick={() =>
+                            void decideReleaseApplication(selectedReleaseApplication, "approve")
+                          }
+                        >
+                          <UiIcon name="check" size={13} />
+                          {releaseBusy === `approve:${selectedReleaseApplication.id}`
+                            ? "发布中…"
+                            : "通过并发布"}
+                        </button>
+                        <button
+                          type="button"
+                          className="miniprogram-danger"
+                          disabled={releaseBusy !== ""}
+                          onClick={() => {
+                            setRejectingId(selectedReleaseApplication.id);
+                            setRejectReason("");
+                          }}
+                        >
+                          <UiIcon name="reject" size={13} />
+                          拒绝
+                        </button>
+                      </>
+                    ) : null}
+                    {selectedReleaseApplication.requestedBy === currentUserId ? (
+                      <button
+                        type="button"
+                        className="miniprogram-danger"
+                        disabled={releaseBusy !== ""}
+                        onClick={() => void cancelReleaseApplication(selectedReleaseApplication)}
+                      >
+                        <UiIcon name="abandon" size={13} />
+                        {releaseBusy === `cancel:${selectedReleaseApplication.id}`
+                          ? "放弃中…"
+                          : "放弃发布"}
+                      </button>
+                    ) : null}
+                  </>
+                ) : null
+              }
+            >
               <div className="miniprogram-production-detail-head">
                 <span
                   className={`miniprogram-status ${releaseStatusTone(selectedReleaseApplication.status)}`}
@@ -426,63 +485,16 @@ export function MiniprogramDeployPanel({
               </section>
               {releaseError ? <p className="miniprogram-config-error">{releaseError}</p> : null}
               {releaseNotice ? <p className="muted miniprogram-note">{releaseNotice}</p> : null}
-              {selectedReleaseApplication.status === "pending" ? (
-                <div className="miniprogram-production-detail-actions">
-                  {owner ? (
-                    <>
-                      <button
-                        type="button"
-                        className="miniprogram-approve"
-                        disabled={releaseBusy !== "" || selectedReleaseApplication.sourceChanged}
-                        onClick={() =>
-                          void decideReleaseApplication(selectedReleaseApplication, "approve")
-                        }
-                      >
-                        <UiIcon name="check" size={13} />
-                        {releaseBusy === `approve:${selectedReleaseApplication.id}`
-                          ? "发布中…"
-                          : "通过并发布"}
-                      </button>
-                      <button
-                        type="button"
-                        className="miniprogram-danger"
-                        disabled={releaseBusy !== ""}
-                        onClick={() => {
-                          setRejectingId(selectedReleaseApplication.id);
-                          setRejectReason("");
-                        }}
-                      >
-                        <UiIcon name="reject" size={13} />
-                        拒绝
-                      </button>
-                    </>
-                  ) : null}
-                  {selectedReleaseApplication.requestedBy === currentUserId ? (
-                    <button
-                      type="button"
-                      className="miniprogram-danger"
-                      disabled={releaseBusy !== ""}
-                      onClick={() => void cancelReleaseApplication(selectedReleaseApplication)}
-                    >
-                      <UiIcon name="abandon" size={13} />
-                      {releaseBusy === `cancel:${selectedReleaseApplication.id}`
-                        ? "放弃中…"
-                        : "放弃发布"}
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
+
               {selectedReleaseApplication.status === "pending" &&
               rejectingId === selectedReleaseApplication.id ? (
                 <div className="miniprogram-approval-reject">
-                  <label className="miniprogram-field">
-                    <span>拒绝理由</span>
-                    <input
-                      value={rejectReason}
-                      placeholder="必填，会记录到本次发布"
-                      onChange={(event) => setRejectReason(event.target.value)}
-                    />
-                  </label>
+                  <TextField
+                    label="拒绝理由"
+                    value={rejectReason}
+                    placeholder="必填，会记录到本次发布"
+                    onChange={(event) => setRejectReason(event.target.value)}
+                  />
                   <button
                     type="button"
                     className="miniprogram-danger"

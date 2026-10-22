@@ -1,3 +1,4 @@
+import { DialogHeader } from "./DialogHeader";
 import React, { useEffect, useRef, useState } from "react";
 import { AGENT_L1_PROFILE, AGENT_L2_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
 import { AGENT_LEVEL_LABELS } from "./ui-labels";
@@ -7,13 +8,9 @@ import { ProjectSettings } from "./ProjectSettings";
 import { ProjectMark } from "./ProjectMark";
 import { ProjectCodeConnectors } from "./ProjectCodeConnectors";
 import { ProjectMiniProgramConfig } from "./ProjectMiniProgramConfig";
+import { SlideSwitch } from "./SlideSwitch";
 import { UiIcon } from "./ui-icon";
-import {
-  DialogClose,
-  animateDialogClose,
-  onDialogBackdropClick,
-  onDialogCancel,
-} from "./dialog-fx";
+import { Dialog, animateDialogClose } from "./dialog-fx";
 import { showTip } from "./Tip";
 
 type LocalExecutorDevice = {
@@ -116,9 +113,6 @@ export function ProjectManagement({
   const [memberScope, setMemberScope] = useState<"humans" | "agents">("humans");
   const [memberSearch, setMemberSearch] = useState("");
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
 
   const humans = (detail?.members || []).filter(isHumanMember);
   const projectAgent = (detail?.members || []).find(
@@ -151,26 +145,24 @@ export function ProjectManagement({
 
   return (
     <>
-      <dialog
+      <Dialog
+        onRequestClose={onClose}
         ref={dialog}
         className="project-management-dialog space-dialog"
         aria-labelledby="project-management-title"
-        onCancel={onDialogCancel(onClose)}
-        onClick={onDialogBackdropClick(onClose)}
       >
-        <header className="space-dialog-header">
-          <div className="space-dialog-heading">
-            <ProjectMark name={detail?.name || "项目"} image={detail?.image} size={36} />
-            <div>
-              <span>工作空间</span>
-              <h2 id="project-management-title">项目管理</h2>
-            </div>
-          </div>
-          <DialogClose
-            onClick={() => animateDialogClose(dialog.current, onClose)}
-            label="关闭项目管理"
-          />
-        </header>
+        <DialogHeader
+          title={<>项目管理</>}
+          titleId="project-management-title"
+          icon={
+            <>
+              <ProjectMark name={detail?.name || "项目"} image={detail?.image} size={36} />
+            </>
+          }
+          subtitle={<>工作空间</>}
+          onClose={() => animateDialogClose(dialog.current, onClose)}
+          closeLabel="关闭项目管理"
+        />
         <div className="project-management-body space-dialog-body">
           <nav className="project-management-tabs space-dialog-nav" aria-label="项目管理">
             <button
@@ -239,45 +231,47 @@ export function ProjectManagement({
               </span>
             </button>
           </nav>
-          <div className="project-management-content space-dialog-content">
+          <div
+            className={`project-management-content space-dialog-content${tab === "info" ? " is-settings" : ""}`}
+          >
             {tab === "info" ? (
-              <>
-                <div className="settings-content-heading">
-                  <p>维护当前项目的图片、名称和简介。</p>
-                </div>
-                {detail ? (
-                  <ProjectSettings
-                    key={detail.id}
-                    projectId={detail.id}
-                    name={detail.name}
-                    description={detail.description || ""}
-                    image={detail.image}
-                    createdAt={localDate(detail.created_at)}
-                    creatorName={detail.created_by_name || "未知"}
-                    canManage={canManage}
-                    longTermSummary={detail.longTermSummary}
-                    onSave={async ({ name, description, image }) => {
-                      const updated = await api(
-                        `/projects/${detail.id}`,
-                        {
-                          name,
-                          description,
-                          ...(image !== undefined ? { image } : {}),
-                        },
-                        "PATCH",
-                      );
-                      onProjectRenamed({
-                        id: updated.id,
-                        name: updated.name,
-                        description: updated.description,
-                        image: updated.image,
-                      });
-                    }}
-                  />
-                ) : (
+              detail ? (
+                <ProjectSettings
+                  key={detail.id}
+                  projectId={detail.id}
+                  name={detail.name}
+                  description={detail.description || ""}
+                  image={detail.image}
+                  createdAt={localDate(detail.created_at)}
+                  creatorName={detail.created_by_name || "未知"}
+                  canManage={canManage}
+                  longTermSummary={detail.longTermSummary}
+                  onSave={async ({ name, description, image }) => {
+                    const updated = await api(
+                      `/projects/${detail.id}`,
+                      {
+                        name,
+                        description,
+                        ...(image !== undefined ? { image } : {}),
+                      },
+                      "PATCH",
+                    );
+                    onProjectRenamed({
+                      id: updated.id,
+                      name: updated.name,
+                      description: updated.description,
+                      image: updated.image,
+                    });
+                  }}
+                />
+              ) : (
+                <div className="project-settings-scroll">
+                  <div className="settings-content-heading">
+                    <p>维护当前项目的图片、名称和简介。</p>
+                  </div>
                   <p className="muted">正在加载基本信息…</p>
-                )}
-              </>
+                </div>
+              )
             ) : tab === "connectors" ? (
               detail ? (
                 <ProjectCodeConnectors projectId={detail.id} canManage={canManage} api={api} />
@@ -304,29 +298,40 @@ export function ProjectManagement({
               />
             ) : (
               <>
-                <p className="muted project-member-note">
-                  项目成员含人类成员与 Agent（{AGENT_LEVEL_LABELS.l1}、{AGENT_LEVEL_LABELS.l2}
-                  ）。本地执行器隶属于人类成员，不单独列成员；{AGENT_LEVEL_LABELS.l3} 隶属于
-                  L2，也不单独列。L2 是项目内同一角色，各迭代只是独立会话。
-                </p>
-                <div className="member-scope" role="tablist" aria-label="项目成员分类">
-                  <button
-                    type="button"
-                    className={memberScope === "humans" ? "active" : ""}
-                    onClick={() => setMemberScope("humans")}
-                  >
-                    <UiIcon name="human" size={13} />
-                    人类成员<small>{humans.length}</small>
-                  </button>
-                  <button
-                    type="button"
-                    className={memberScope === "agents" ? "active" : ""}
-                    onClick={() => setMemberScope("agents")}
-                  >
-                    <UiIcon name="sparkle" size={13} />
-                    Agent成员<small>2</small>
-                  </button>
+                <div className="settings-content-heading">
+                  <p>
+                    项目成员含人类成员与 Agent（{AGENT_LEVEL_LABELS.l1}、{AGENT_LEVEL_LABELS.l2}
+                    ）。本地执行器隶属于人类成员，不单独列成员；{AGENT_LEVEL_LABELS.l3} 隶属于
+                    L2，也不单独列。L2 是项目内同一角色，各迭代只是独立会话。
+                  </p>
                 </div>
+                <SlideSwitch
+                  className="member-scope"
+                  stretch
+                  label="项目成员分类"
+                  value={memberScope}
+                  onChange={setMemberScope}
+                  items={[
+                    {
+                      value: "humans",
+                      label: (
+                        <>
+                          <UiIcon name="human" size={13} />
+                          人类成员<small>{humans.length}</small>
+                        </>
+                      ),
+                    },
+                    {
+                      value: "agents",
+                      label: (
+                        <>
+                          <UiIcon name="sparkle" size={13} />
+                          Agent成员<small>2</small>
+                        </>
+                      ),
+                    },
+                  ]}
+                />
                 <input
                   className="member-search"
                   type="search"
@@ -434,7 +439,7 @@ export function ProjectManagement({
             )}
           </div>
         </div>
-      </dialog>
+      </Dialog>
       {memberPickerOpen && detail && (
         <MemberPicker
           projectId={detail.id}

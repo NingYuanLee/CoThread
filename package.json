@@ -24,14 +24,16 @@
     "mysql:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql.ps1 stop",
     "test": "node --env-file-if-exists=.env --test --test-concurrency=1 tests/*.test.js",
     "test:unit": "node scripts/test-unit.js",
-    "lint": "node scripts/lint.js && node scripts/check-boundaries.mjs",
-    "lint:boundaries": "node scripts/check-boundaries.mjs",
+    "lint": "node scripts/lint.js && node scripts/check-boundaries.mjs && node scripts/check-overlays.mjs && node scripts/check-field-resets.mjs && node scripts/check-field-usage.mjs && node scripts/check-theme-generated.mjs",
+    "lint:boundaries": "node scripts/check-boundaries.mjs && node scripts/check-overlays.mjs && node scripts/check-field-resets.mjs",
     "mysql:sync-dev-user": "node --env-file-if-exists=.env scripts/mysql-sync-dev-user.js",
     "app:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 start",
     "app:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 stop",
     "seed:preview-fixtures": "node --env-file-if-exists=.env scripts/seed-document-preview-fixtures.mjs",
     "setup:preview-browser": "playwright install chromium",
-    "ipgeo:import": "node --env-file-if-exists=.env scripts/import-ip-geolocations.js"
+    "ipgeo:import": "node --env-file-if-exists=.env scripts/import-ip-geolocations.js",
+    "theme:fallback": "node scripts/generate-theme-fallback-map.mjs",
+    "theme": "node scripts/generate-ui-themes.mjs"
   },
   "dependencies": {
     "@cloudbase/js-sdk": "^3.10.1",
@@ -70,6 +72,7 @@
     "express": "^5.1.0",
     "js-yaml": "^4.3.2",
     "jszip": "^3.10.2",
+    "lucide-react": "^1.60.0",
     "mermaid": "^12.0.0",
     "miniprogram-ci": "^2.1.48",
     "mysql2": "^3.14.0",

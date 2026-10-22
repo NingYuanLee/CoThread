@@ -13,7 +13,7 @@ import { ProjectContentPanel } from "./ProjectContentPanel";
 import { UiIcon } from "./ui-icon";
 import { ModalBackdrop } from "./dialog-fx";
 import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
-import { showTip } from "./Tip";
+import { showTip , useTipError } from "./Tip";
 import { MCP_OFFICIAL_LIBRARY_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
 import { uploadFileWithIntegrity } from "./file-upload";
 import { type DocumentTabListItem } from "./DocumentTabList";
@@ -286,7 +286,7 @@ export const Documents = memo(function Documents({
   const [pending, setPending] = useState(false);
   const [pendingLabel, setPendingLabel] = useState("正在更新文档树…");
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  const [actionError, setActionError] = useState("");
+  const [actionError, setActionError] = useTipError();
   const copyProjectInfo = async () => {
     const official = libraryRoots.find((f) => f.folder_kind === "project_official");
     const targetFolderId = official && folderId && folderRootKind(folderId, libraryFolders) === "project_official"
@@ -306,7 +306,6 @@ export const Documents = memo(function Documents({
       showTip("项目信息已复制");
     } catch {
       setActionError("无法自动复制项目信息，请检查剪贴板权限后重试。");
-      showTip("无法自动复制项目信息，请检查剪贴板权限后重试。", "error");
     }
   };
   const [renaming, setRenaming] = useState(false);
@@ -421,7 +420,6 @@ export const Documents = memo(function Documents({
     } catch (e) {
       const detail = (e as Error).message;
       setActionError(detail);
-      showTip(detail, "error");
     } finally {
       setPending(false);
       setUploadProgress(null);
@@ -443,7 +441,7 @@ export const Documents = memo(function Documents({
   } | null>(null);
   const [imagePreview, setImagePreview] = useState<ImagePreviewSource | null>(null);
   const [fileInfoOpen, setFileInfoOpen] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError();
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [browserTabs, setBrowserTabs] = useState<BrowserTab[]>([]);
   const [browserSelected, setBrowserSelected] = useState("");
@@ -2063,4 +2061,3 @@ export const Documents = memo(function Documents({
     </div>
   );
 });
-

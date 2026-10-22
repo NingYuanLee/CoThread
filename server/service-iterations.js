@@ -35,25 +35,32 @@ export function confirmIterationArchiveOperation(service, user, threadId, input)
 }
 
 export async function listIterationContextChangesOperation(service, user, threadId, input = {}) {
-  const { page, pageSize } = z
+  const { page, pageSize, q, review } = z
     .object({
       page: z.coerce.number().int().min(1).max(1000000).default(1),
       pageSize: z.coerce.number().int().min(1).max(50).default(10),
+      q: z.string().trim().max(200).optional().default(""),
+      review: z.enum(["all", "reviewed", "pending"]).optional().default("all"),
     })
     .parse(input);
   await service.thread(user, threadId);
-  const [count] = await query(
-    service.db,
-    "SELECT COUNT(*) total FROM iteration_context_changes WHERE thread_id=?",
-    [threadId],
-  );
+  const filters = ["c.thread_id=?"];
+  const params = [threadId];
+  if (q) {
+    const like = `%${q.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+    filters.push(
+      `(IFNULL(u.name,'') LIKE ? ESCAPE '\\\\' OR IFNULL(r.name,'') LIKE ? ESCAPE '\\\\' OR c.reason LIKE ? ESCAPE '\\\\' OR (c.source='agent' AND '迭代 Agent' LIKE ? ESCAPE '\\\\') OR (c.source<>'agent' AND u.id IS NULL AND '已离开成员' LIKE ? ESCAPE '\\\\') OR JSON_UNQUOTE(JSON_EXTRACT(c.before_context, '$.background')) LIKE ? ESCAPE '\\\\' OR JSON_UNQUOTE(JSON_EXTRACT(c.before_context, '$.goal')) LIKE ? ESCAPE '\\\\')`,
+    );
+    params.push(like, like, like, like, like, like, like);
+  }
+  if (review === "reviewed") filters.push("c.reviewed_by IS NOT NULL");
+  if (review === "pending") filters.push("c.reviewed_by IS NULL");
+  const where = `FROM iteration_context_changes c LEFT JOIN users u ON u.id=c.changed_by LEFT JOIN users r ON r.id=c.reviewed_by WHERE ${filters.join(" AND ")}`;
+  const [count] = await query(service.db, `SELECT COUNT(*) total ${where}`, params);
   const rows = await query(
     service.db,
-    `SELECT c.*,u.name initiator_name,r.name reviewer_name
-      FROM iteration_context_changes c LEFT JOIN users u ON u.id=c.changed_by
-      LEFT JOIN users r ON r.id=c.reviewed_by WHERE c.thread_id=?
-      ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?`,
-    [threadId, pageSize, (page - 1) * pageSize],
+    `SELECT c.*,u.name initiator_name,r.name reviewer_name ${where} ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?`,
+    [...params, pageSize, (page - 1) * pageSize],
   );
   const context = (value) => (typeof value === "string" ? JSON.parse(value) : value);
   return {
@@ -267,6 +274,13 @@ export async function contextOperation(
         [threadId, threadId],
       )
     : Promise.resolve(null);
+  const toolDurationQuery = query(
+    db,
+    `SELECT COALESCE(SUM(GREATEST(TIMESTAMPDIFF(MICROSECOND, e.created_at, e.finished_at),0)),0) ms
+     FROM agent_events e JOIN messages m ON m.id=e.message_id
+     WHERE m.thread_id=? AND e.finished_at IS NOT NULL AND e.tool<>'thinking'`,
+    [threadId],
+  );
   const [
     messages,
     reviews,
@@ -278,6 +292,7 @@ export async function contextOperation(
     requests,
     pending,
     localExecutorTasks,
+    toolDurationRows,
   ] = await Promise.all([
     display ? selected : messagesQuery,
     reviewsQuery,
@@ -289,6 +304,7 @@ export async function contextOperation(
     requestsQuery,
     pendingQuery,
     localExecutorTasksQuery,
+    toolDurationQuery,
   ]);
   const withQuotes = await attachMessageQuotes(db, [
     ...new Map([...(pending || []), ...messages].map((m) => [m.id, parseMessageRow(m)])).values(),
@@ -326,6 +342,7 @@ export async function contextOperation(
     updates,
     requests,
     localExecutorTasks,
+    toolDurationMs: Number(toolDurationRows?.[0]?.ms || 0) / 1000,
   };
   if (revisionMatched)
     return {

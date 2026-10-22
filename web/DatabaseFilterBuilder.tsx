@@ -1,5 +1,8 @@
+import { DialogFooter } from "./DialogFooter";
 import React, { useMemo, useState } from "react";
 import { UiIcon } from "./ui-icon";
+import { SelectField } from "./SelectField";
+import { TextField } from "./TextField";
 
 type ScalarFilterType = "string" | "number" | "boolean";
 type FilterType = ScalarFilterType | "date" | "null" | "json" | "array";
@@ -257,236 +260,242 @@ export function DatabaseFilterBuilder({
   };
 
   return (
-    <div className="database-filter-builder">
-      <datalist id={fieldListId}>
-        {fieldOptions.map((field) => (
-          <option key={field} value={field} />
-        ))}
-      </datalist>
-      <div className="database-filter-groups">
-        {draft.groups.map((group, groupIndex) => (
-          <React.Fragment key={group.id}>
-            {groupIndex ? (
-              <div className="database-filter-group-join">
-                <span />
-                <select
-                  aria-label={`第 ${groupIndex + 1} 个分组的连接方式`}
-                  value={group.join}
-                  onChange={(event) =>
-                    updateGroup(group.id, (current) => ({
-                      ...current,
-                      join: event.target.value as FilterJoin,
-                    }))
-                  }
-                >
-                  <option value="and">且</option>
-                  <option value="or">或</option>
-                </select>
-                <span />
-              </div>
-            ) : null}
-            <section className="database-filter-group" aria-label={`筛选分组 ${groupIndex + 1}`}>
-              {group.conditions.map((condition, conditionIndex) => {
-                const noValue = !needsValue(condition.operator) || condition.type === "null";
-                const booleanValue = condition.type === "boolean";
-                const booleanArray =
-                  condition.type === "array" && condition.arrayItemType === "boolean";
-                const booleanArrayValues = Array.isArray(condition.value)
-                  ? condition.value.map(String)
-                  : [];
-                return (
-                  <div
-                    className={`database-filter-row${condition.type === "array" ? " is-array" : ""}`}
-                    key={condition.id}
-                  >
-                    {conditionIndex === 0 ? (
-                      <span className="database-filter-where">条件</span>
-                    ) : (
-                      <select
-                        aria-label="条件连接方式"
-                        value={condition.join}
-                        onChange={(event) =>
-                          updateCondition(group.id, condition.id, {
-                            join: event.target.value as FilterJoin,
-                          })
-                        }
-                      >
-                        <option value="and">且</option>
-                        <option value="or">或</option>
-                      </select>
-                    )}
-                    <input
-                      type="text"
-                      list={fieldListId}
-                      aria-label="字段名"
-                      placeholder="请输入字段名"
-                      value={condition.field}
-                      onChange={(event) =>
-                        updateCondition(group.id, condition.id, { field: event.target.value })
-                      }
-                    />
-                    <select
-                      aria-label="字段类型"
-                      value={condition.type}
-                      onChange={(event) => {
-                        const type = event.target.value as FilterType;
-                        updateCondition(group.id, condition.id, {
-                          type,
-                          operator: OPERATORS[type][0].value,
-                          arrayItemType: type === "array" ? "string" : undefined,
-                          value: type === "boolean" ? "true" : "",
-                        });
-                      }}
+    <div className="database-filter-builder dialog-footer-layout">
+      <div className="dialog-form-scroll">
+        <datalist id={fieldListId}>
+          {fieldOptions.map((field) => (
+            <option key={field} value={field} />
+          ))}
+        </datalist>
+        <div className="database-filter-groups">
+          {draft.groups.map((group, groupIndex) => (
+            <React.Fragment key={group.id}>
+              {groupIndex ? (
+                <div className="database-filter-group-join">
+                  <span />
+                  <SelectField
+                    dense
+                    aria-label={`第 ${groupIndex + 1} 个分组的连接方式`}
+                    value={group.join}
+                    onChange={(value) =>
+                      updateGroup(group.id, (current) => ({
+                        ...current,
+                        join: value as FilterJoin,
+                      }))
+                    }
+                    options={[
+                      { value: "and", label: "且" },
+                      { value: "or", label: "或" },
+                    ]}
+                  />
+                  <span />
+                </div>
+              ) : null}
+              <section className="database-filter-group" aria-label={`筛选分组 ${groupIndex + 1}`}>
+                {group.conditions.map((condition, conditionIndex) => {
+                  const noValue = !needsValue(condition.operator) || condition.type === "null";
+                  const booleanValue = condition.type === "boolean";
+                  const booleanArray =
+                    condition.type === "array" && condition.arrayItemType === "boolean";
+                  const booleanArrayValues = Array.isArray(condition.value)
+                    ? condition.value.map(String)
+                    : [];
+                  return (
+                    <div
+                      className={`database-filter-row${condition.type === "array" ? " is-array" : ""}`}
+                      key={condition.id}
                     >
-                      {TYPE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    {condition.type === "array" ? (
-                      <select
-                        aria-label="数组元素类型"
-                        value={condition.arrayItemType || "string"}
-                        onChange={(event) => {
-                          const arrayItemType = event.target.value as ScalarFilterType;
-                          updateCondition(group.id, condition.id, {
-                            arrayItemType,
-                            value: arrayItemType === "boolean" ? ["true"] : "",
-                          });
-                        }}
-                      >
-                        {ARRAY_ITEM_TYPES.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : null}
-                    <select
-                      aria-label="筛选条件"
-                      value={condition.operator}
-                      onChange={(event) =>
-                        updateCondition(group.id, condition.id, { operator: event.target.value })
-                      }
-                    >
-                      {OPERATORS[condition.type].map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    {noValue ? (
-                      <span className="database-filter-no-value">无需填写值</span>
-                    ) : booleanArray ? (
-                      <div
-                        className="database-filter-boolean-values"
-                        role="group"
-                        aria-label="条件值"
-                      >
-                        {["true", "false"].map((item) => {
-                          const selected = booleanArrayValues.includes(item);
-                          return (
-                            <button
-                              type="button"
-                              key={item}
-                              className={selected ? "is-selected" : ""}
-                              aria-pressed={selected}
-                              onClick={() =>
-                                updateCondition(group.id, condition.id, {
-                                  value: selected
-                                    ? booleanArrayValues.filter((value) => value !== item)
-                                    : [...booleanArrayValues, item],
-                                })
-                              }
-                            >
-                              {item.toUpperCase()}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : booleanValue ? (
-                      <select
-                        aria-label="条件值"
-                        value={String(condition.value ?? "true")}
+                      {conditionIndex === 0 ? (
+                        <span className="database-filter-where">条件</span>
+                      ) : (
+                        <SelectField
+                          dense
+                          aria-label="条件连接方式"
+                          value={condition.join}
+                          onChange={(value) =>
+                            updateCondition(group.id, condition.id, {
+                              join: value as FilterJoin,
+                            })
+                          }
+                          options={[
+                            { value: "and", label: "且" },
+                            { value: "or", label: "或" },
+                          ]}
+                        />
+                      )}
+                      <TextField
+                        dense
+                        list={fieldListId}
+                        aria-label="字段名"
+                        placeholder="请输入字段名"
+                        value={condition.field}
                         onChange={(event) =>
-                          updateCondition(group.id, condition.id, { value: event.target.value })
-                        }
-                      >
-                        <option value="true">TRUE</option>
-                        <option value="false">FALSE</option>
-                      </select>
-                    ) : (
-                      <input
-                        type={condition.type === "date" ? "datetime-local" : "text"}
-                        aria-label="条件值"
-                        placeholder={valuePlaceholder(condition)}
-                        value={String(condition.value ?? "")}
-                        onChange={(event) =>
-                          updateCondition(group.id, condition.id, { value: event.target.value })
+                          updateCondition(group.id, condition.id, { field: event.target.value })
                         }
                       />
-                    )}
-                    <button
-                      type="button"
-                      className="database-filter-remove"
-                      aria-label="删除条件"
-                      title="删除条件"
-                      disabled={group.conditions.length === 1}
-                      onClick={() =>
-                        updateGroup(group.id, (current) => ({
-                          ...current,
-                          conditions: current.conditions.filter((item) => item.id !== condition.id),
-                        }))
-                      }
-                    >
-                      <UiIcon name="close" size={14} />
-                    </button>
-                  </div>
-                );
-              })}
-              <div className="database-filter-group-actions">
-                <button
-                  type="button"
-                  onClick={() =>
-                    updateGroup(group.id, (current) => ({
-                      ...current,
-                      conditions: [...current.conditions, newCondition()],
-                    }))
-                  }
-                >
-                  <UiIcon name="plus" size={14} />
-                  添加条件
-                </button>
-                {draft.groups.length > 1 ? (
+                      <SelectField
+                        dense
+                        aria-label="字段类型"
+                        value={condition.type}
+                        onChange={(value) => {
+                          const type = value as FilterType;
+                          updateCondition(group.id, condition.id, {
+                            type,
+                            operator: OPERATORS[type][0].value,
+                            arrayItemType: type === "array" ? "string" : undefined,
+                            value: type === "boolean" ? "true" : "",
+                          });
+                        }}
+                        options={TYPE_OPTIONS.map((option) => ({
+                          value: option.value,
+                          label: option.label,
+                        }))}
+                      />
+                      {condition.type === "array" ? (
+                        <SelectField
+                          dense
+                          aria-label="数组元素类型"
+                          value={condition.arrayItemType || "string"}
+                          onChange={(value) => {
+                            const arrayItemType = value as ScalarFilterType;
+                            updateCondition(group.id, condition.id, {
+                              arrayItemType,
+                              value: arrayItemType === "boolean" ? ["true"] : "",
+                            });
+                          }}
+                          options={ARRAY_ITEM_TYPES.map((option) => ({
+                            value: option.value,
+                            label: option.label,
+                          }))}
+                        />
+                      ) : null}
+                      <SelectField
+                        dense
+                        aria-label="筛选条件"
+                        value={condition.operator}
+                        onChange={(value) =>
+                          updateCondition(group.id, condition.id, { operator: value })
+                        }
+                        options={OPERATORS[condition.type].map((option) => ({
+                          value: option.value,
+                          label: option.label,
+                        }))}
+                      />
+                      {noValue ? (
+                        <span className="database-filter-no-value">无需填写值</span>
+                      ) : booleanArray ? (
+                        <div
+                          className="database-filter-boolean-values"
+                          role="group"
+                          aria-label="条件值"
+                        >
+                          {["true", "false"].map((item) => {
+                            const selected = booleanArrayValues.includes(item);
+                            return (
+                              <button
+                                type="button"
+                                key={item}
+                                className={selected ? "is-selected" : ""}
+                                aria-pressed={selected}
+                                onClick={() =>
+                                  updateCondition(group.id, condition.id, {
+                                    value: selected
+                                      ? booleanArrayValues.filter((value) => value !== item)
+                                      : [...booleanArrayValues, item],
+                                  })
+                                }
+                              >
+                                {item.toUpperCase()}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : booleanValue ? (
+                        <SelectField
+                          dense
+                          aria-label="条件值"
+                          value={String(condition.value ?? "true")}
+                          onChange={(value) => updateCondition(group.id, condition.id, { value })}
+                          options={[
+                            { value: "true", label: "TRUE" },
+                            { value: "false", label: "FALSE" },
+                          ]}
+                        />
+                      ) : (
+                        <TextField
+                          dense
+                          type={condition.type === "date" ? "datetime-local" : "text"}
+                          aria-label="条件值"
+                          placeholder={valuePlaceholder(condition)}
+                          value={String(condition.value ?? "")}
+                          onChange={(event) =>
+                            updateCondition(group.id, condition.id, { value: event.target.value })
+                          }
+                        />
+                      )}
+                      <button
+                        type="button"
+                        className="database-filter-remove"
+                        aria-label="删除条件"
+                        title="删除条件"
+                        disabled={group.conditions.length === 1}
+                        onClick={() =>
+                          updateGroup(group.id, (current) => ({
+                            ...current,
+                            conditions: current.conditions.filter(
+                              (item) => item.id !== condition.id,
+                            ),
+                          }))
+                        }
+                      >
+                        <UiIcon name="close" size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
+                <div className="database-filter-group-actions">
                   <button
                     type="button"
-                    className="database-filter-delete-group"
                     onClick={() =>
-                      setDraft((current) => ({
-                        groups: current.groups.filter((item) => item.id !== group.id),
+                      updateGroup(group.id, (current) => ({
+                        ...current,
+                        conditions: [...current.conditions, newCondition()],
                       }))
                     }
                   >
-                    <UiIcon name="trash" size={13} />
-                    删除分组
+                    <UiIcon name="plus" size={14} />
+                    添加条件
                   </button>
-                ) : null}
-              </div>
-            </section>
-          </React.Fragment>
-        ))}
+                  {draft.groups.length > 1 ? (
+                    <button
+                      type="button"
+                      className="database-filter-delete-group"
+                      onClick={() =>
+                        setDraft((current) => ({
+                          groups: current.groups.filter((item) => item.id !== group.id),
+                        }))
+                      }
+                    >
+                      <UiIcon name="trash" size={13} />
+                      删除分组
+                    </button>
+                  ) : null}
+                </div>
+              </section>
+            </React.Fragment>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="database-filter-add-group"
+          onClick={() => setDraft((current) => ({ groups: [...current.groups, newGroup()] }))}
+        >
+          <UiIcon name="plus" size={14} />
+          添加分组
+        </button>
+        {error ? <p className="miniprogram-config-error">{error}</p> : null}
       </div>
-      <button
-        type="button"
-        className="database-filter-add-group"
-        onClick={() => setDraft((current) => ({ groups: [...current.groups, newGroup()] }))}
-      >
-        <UiIcon name="plus" size={14} />
-        添加分组
-      </button>
-      {error ? <p className="miniprogram-config-error">{error}</p> : null}
-      <footer className="database-filter-footer">
+      <DialogFooter>
         <button
           type="button"
           onClick={() => {
@@ -502,7 +511,7 @@ export function DatabaseFilterBuilder({
         <button type="button" className="primary" onClick={apply}>
           应用
         </button>
-      </footer>
+      </DialogFooter>
     </div>
   );
 }

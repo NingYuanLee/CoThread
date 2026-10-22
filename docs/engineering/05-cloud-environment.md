@@ -1,5 +1,7 @@
 # 云端环境变量
 
+维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-10-22；已核对现有构建、打包、启动及停止钩子，发布结果见下方验收记录。
+
 应用后端需要常驻 Node.js 进程（Node.js 22.22.3+，推荐 24）、MySQL 网络连接及可写的 `.local` 目录。只发布 `dist/` 静态文件无法运行 API、MCP 和后台 Agent；生产环境固定为阿里云 ECS 单实例 + RDS，本机开发用便携版 MySQL。
 
 在 ECS 上把变量配置到后端运行环境（`/opt/cothread/.env`）。无需上传真实 `.env`；`npm start`、`npm run db:migrate`、`npm run db:seed` 和 `npm run db:backup` 允许该文件不存在。本地存在 `.env` 时仍会读取，环境里已设置的同名变量优先。
@@ -23,11 +25,76 @@
 
 构建命令：`npm ci && npm run build`。常驻 `npm start` 与本地 `npm run dev` 启动时会应用未执行的迁移并尝试写入超级管理员（需 `.local/initial-admin.json` 或 `ADMIN_EMAIL`/`ADMIN_PASSWORD`）。也可单独运行 `npm run db:migrate`。当前版本运行单个应用实例。
 
-## ECS 发布（失败不替换正式版）
+## ECS 发布
 
-新版本解压到 `/opt/cothread/releases/<id>`，在临时端口探活 `/api/health`；**通过后**才把 `/opt/cothread/current` 原子切到新目录并 `systemctl restart cothread`。探活失败则删除本轮 release，`current` 与线上进程不动。发布脚本只认 `"status":"ok"`，它表示进程和数据库可读，不表示执行器正在干活。同一响应里的 `executor.ready` 才表示本进程持有执行器锁。任务排队看本机 `GET /api/health/work`（仅回环地址），不要把它放进发布探活，避免执行器抖动导致整站切换失败。共享 `.env`、`.local` 在 `/opt/cothread/`，不随 release 覆盖。
+新版本解压到 `/opt/cothread/releases/<id>`，在临时端口探活 `/api/health`；**通过后**才把 `/opt/cothread/current` 原子切到新目录并 `systemctl restart cothread`。临时探活失败时，脚本清理本轮 release，`current` 与正式进程不切换。发布脚本只认 `"status":"ok"`，它表示进程和数据库可读，不表示执行器正在干活。同一响应里的 `executor.ready` 才表示本进程持有执行器锁。任务排队看本机 `GET /api/health/work`（仅回环地址），不要把它放进发布探活，避免执行器抖动导致整站切换失败。共享 `.env`、`.local` 在 `/opt/cothread/`，不随 release 覆盖。
+
+失败保护有两个边界：临时探活启动也会应用共享数据库迁移，**不切换代码不等于数据库已回滚**；切换后正式端口探活失败时，脚本会报错，但 `current` 已指向新版本，**不会自动回切**。恢复前先核对实际 `current`、systemd 状态和已执行的迁移，确认旧代码与新表结构兼容后再决定恢复方式。依赖安装失败也可能留下未上线的 release 目录，应按执行日志确认状态。
 
 本地：配置 `.env.deploy.local`（可复制 `.env.deploy.local.example`）后执行 `npm run deploy:ecs`（等同 `build` + `ecs-pack`，并写入 `.code_deploy/last-deploy.json`）。再用 Cursor 阿里云 MCP `OOS_CodeDeploy` 按清单上传，或在 ECS 上 `RELEASE_TGZ=... bash scripts/ecs-promote.sh`。仅打包可加 `--pack-only`。
+
+### 发布前按顺序核查
+
+1. 检查 `git status` 与目标分支，核实未跟踪文件来源，再暂存提交。截图、运行时附件、`.env`、私钥及生成目录不应混入代码；本地临时文件可用 `.git/info/exclude` 排除并保留原文件。本次曾出现 504 个根目录哈希名称图片，约 130 MB，抽查为界面截图。
+2. 先运行 `npm run lint`、`npm run test:unit` 和 `npm run build`。类型声明必须与运行时代码一致，组件回调的参数也要覆盖实际调用。格式化后，源码匹配测试应容许换行与空白变化，不能靠恢复旧排版让断言通过。
+
+   2026-10-22 首轮 340 项无数据库测试有 2 项 DSH `sdk-minimal` 初始化超时；将 `context-runtime.test.js`、`model-runtime-config.test.js` 用 `node --test --test-concurrency=1` 单独复跑，3 项均通过。未确认超时根因，不能据此声称并发运行已稳定。构建还发现两个菜单调用用内联 `visibility`，超出 `OverlayLayoutStyle` 白名单；改为公共 `.is-positioning` 状态规则，保留锚点测量前隐藏行为后构建通过。
+3. 单独验证生产依赖锁文件。开发机已有 `node_modules` 时构建通过，不能证明 ECS 能执行 `npm ci`。锁文件不同步时，在本地同步后提交，避免在 ECS 上改成 `npm install` 绕过锁定：
+
+   ```powershell
+   npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+   npx --yes npm@10.9.8 ci --omit=dev --dry-run --ignore-scripts --no-audit --no-fund
+   ```
+
+   上述 npm 10 预检用于覆盖本次生产安装问题；后续应按目标 ECS 的 npm 主版本选择。`--dry-run` 只验证安装计划，不代表包下载和安装脚本已成功。
+4. 核对项目及依赖的 Node 要求和 ECS 实际版本。本次 `@dimina/compiler@1.2.2` 要求至少 `22.22.3`，ECS 原为 `22.19.0`。[启动钩子](../../scripts/ecs-codedeploy-start.sh)已加入版本检查：需要升级时，将固定版本安装到 `/opt/cothread/node-runtime-22.22.3`，验证可执行文件后再切换 `/usr/local/bin/node`，并保留 `node.previous`。以后依赖提高要求时，须同步核对 `package.json`、钩子和本文，不能只忽略 `EBADENGINE`。
+5. 有迁移时，先在独立测试库验证完整迁移链，并检查已有生产库的升级路径。本次 114 号迁移错误更新了已被 046 号迁移删除的 `agent_capabilities`、`agent_capability_contracts`，直到独立 MySQL 验证才发现。修复尚未上线的迁移；不要随意改写已应用迁移或手工重写校验和。触发器语句需按[迁移执行器](../../scripts/migrate.js)的处理方式执行。
+6. 远端测试库出现 `PROTOCOL_CONNECTION_LOST` 时，先区分连接故障与业务断言失败。可使用本机已安装的 MySQL 和专用测试库（本次为 `127.0.0.1:3307/cothread_deploy_test`），仅向测试子进程注入 `TEST_DATABASE_HOST_PUBLIC`、`TEST_DATABASE_AUTH`。凭据从现有本地配置读取，不打印、不提交；`npm test` 会清空目标测试库，不能指向生产或日常开发库。
+7. 完成最终构建后再打包。推荐 `npm run deploy:ecs`；只有确认 `dist/` 对应最终前端源码时，才用 `npm run deploy:ecs -- --pack-only`。不要并行构建和打包；源码、锁文件或发布钩子改动后都应重打包。清单由[打包入口](../../scripts/ecs-deploy.mjs)生成，不手改 `.code_deploy/last-deploy.json`，发布期间也不要继续修改待上传源码。
+8. 提交并推送待发布修改，确认远端分支 HEAD 与本地一致；记录提交号、产物文件名及 SHA-256，再进入上传步骤。
+
+### Alibaba MCP 调用与失败重试
+
+先用 `LOCAL_AnalyzeDeployStack` 确认项目类型。目标实例、地域、应用和分组须来自已确认的发布配置，不通过枚举 ECS 临时挑选。本项目使用 `ecs-promote`、共享目录和 systemd，调用 `OOS_CodeDeploy` 时应将清单中的 `applicationStart`、`applicationStop` **一起传入**，不能换成通用的 `npm start` 启停命令。`releaseTgz` 对应 `file_path`，`objectName` 对应 `object_name`。
+
+**停止钩子不能调用顶层 `exit 0`。** 本次 OOS 将停止与启动钩子拼接到同一个 shell；停止钩子提前退出后，上传和执行仍被记录为成功，启动钩子却完全没运行，正式版本一直停在 10 月 15 日。[停止钩子](../../scripts/ecs-codedeploy-stop.sh)现在使用 `:`，由 [ecs-promote.sh](../../scripts/ecs-promote.sh)负责探活后切换。修改钩子后，可在 Git Bash 检查后续命令仍能执行，预期输出 `HOOK_CONTINUES`：
+
+```bash
+{ cat scripts/ecs-codedeploy-stop.sh; printf '\nprintf HOOK_CONTINUES\n'; } | bash
+bash -n scripts/ecs-codedeploy-start.sh
+```
+
+`OOS_CodeDeploy` 返回 HTTP 200 只表示发布请求已受理。随后调用 `OOS_GetDeployStatus`，同时检查应用分组状态和本次执行状态；即使出现 `Released`，仍须完成下一节的实际版本核对。
+
+| 现象 | 本次确认的原因 | 下次处理方式 |
+| --- | --- | --- |
+| `Released`，但页面资源及 `current` 仍是旧版本 | 停止钩子的 `exit 0` 终止了拼接后的整个脚本 | 先看 `deployCurrentRevision` 输出及组合命令，检查停止钩子，避免反复上传同一包 |
+| `npm ci` 报 `EUSAGE`，锁文件中 `postcss-selector-parser@7.1.6` 不满足 `7.1.7` | 已有本地依赖掩盖锁文件不一致 | 本地同步锁文件并做生产安装预检，提交、推送、重打包后重试 |
+| `EBADENGINE` | ECS Node 低于编译器要求 | 核对版本检查及独立运行时安装结果，验证新 Node 后再切换 |
+| `ReleaseWaiting`，新发布报 `DeployFailed.ApplicationGroup` | 上一轮执行因 `FailurePause` 停在失败处 | 先读取失败子任务，修复原因，再取消那一条已确认失败的 execution，之后重新调用 CodeDeploy；不删除应用分组、不新建 ECS |
+| 发布停留在 `Releasing` | 可能仍在下载和安装依赖 | 看安装进度及子任务状态；本次安装 2265 个包约用 2 分钟，包含下载重试。日志仍在推进时不要重复部署 |
+| Alibaba `LOCAL_RunShellScript` 一直无结果 | 本次分别达到 30 秒、120 秒超时 | 说明已试路径；必要时用本机已安装的 Alibaba SDK 和既有环境凭据读取 OOS/ECS 诊断信息。不要把 AK/SK、临时签名 OSS URL 写入文档或日志；发布入口仍用 MCP CodeDeploy |
+
+定位执行问题时，从本次父 execution 的部署任务进入实例子执行，再读取 `deployCurrentRevision` 的状态、输出和实际命令。本次层级为 `<execution>.t0005.i0001`；任务名称和层级应按实际返回发现，不把后缀当作永久 API 契约。应用分组摘要不足以说明启动命令是否真正运行。
+
+### 发布完成的验收证据
+
+1. OOS 分组为 `Released`，对应 execution 为 `Success`；执行输出应出现本轮 `PKG`、新 release 目录、临时探活通过、`current` 切换和正式端口健康结果。
+2. 在 ECS 核对 `readlink -f /opt/cothread/current`，并用 `systemctl show cothread -p ActiveState -p ExecMainStartTimestamp` 确认服务运行且启动时间属于本轮发布。
+3. 浏览器导航到 `https://cothread.z2l.top/?release=<提交号>`，读取页面快照，检查登录页能加载；对照页面实际引用的 JS/CSS 文件名与本地 `dist/index.html`。查询参数用于减少旧页面缓存干扰，不能代替哈希核对。
+4. 浏览器访问 `https://cothread.z2l.top/api/health?release=<提交号>`，确认 `status: ok`；正式切换后还需确认 `executor.ready: true`，才能说明执行器已就绪。登录页和健康接口通过不等于登录后全部业务功能已验收。
+5. 将提交号、产物 SHA-256、OOS execution/revision、实际 release 目录、资源哈希和验收时间写入本地发布凭据（本次位于 `.code_deploy/verification/`，不进 Git）。测试结果分别记录构建、单元、针对性回归和完整集成测试，不合并成笼统的“全部通过”。
+
+本次确认上线的示例（2026-10-20，北京时间 23:35）：提交 `3d9b175`，execution `exec-09645b0d951c44b68268`，revision `rev-df93d45eec644199a30c`，实际目录 `/opt/cothread/releases/20261020T153349Z`；JS 为 `index-B_3USerl.js`，CSS 为 `index-DYaTvJio.css`，健康状态为 `ok` 且执行器就绪。构建、格式与架构检查通过，327 项单元测试和 7 项 CloudBase 针对性回归通过；**完整集成测试曾失败，修复后未完成全量复跑**。
+
+2026-10-22 发布前核查：格式、架构、浮层、输入控件及主题产物门禁通过，生产 npm 10 锁文件 dry-run 通过；340 项无数据库测试中首轮 338 项通过，另 2 项初始化超时后串行复跑通过；独立本地 `cothread_deploy_test` 中 30 项归档及增量状态回归通过。本轮无数据库迁移改动，未执行完整集成测试。浏览器实测本地项目列表、状态下拉、详情全屏切换及新增表单输入/取消；这些结果不代表全部业务验收。
+
+### 发布前测试中暴露的配置问题
+
+- 小程序模式在运行时代码中已存在，`shared/dialogue-mode.d.ts` 却未声明 `miniprogram`；Admin 启动回调还漏了实际使用的 `force` 参数。先以 `tsc` 结果校验声明和调用契约，再打包。
+- VM 测试转换 `server/local-sandbox.js` 后，`./executor-fence.js` 必须相对生产模块解析，使用 `createRequire(new URL("../server/local-sandbox.js", import.meta.url))`；相对测试文件解析会报模块不存在。格式化导致的换行变化，应修正测试的空白匹配，不改变生产行为。
+- 首次保存 CloudBase 配置时，不能先加载尚不存在的完整运行时配置；已有凭据配置好后才核对环境与 AppID 的归属。凭据保存将 SecretId 留在提示字段、SecretKey 加密存储，调用凭据校验前必须重新拼回完整凭据，不能拿仅含 SecretKey 的存储载荷去校验。实现见[小程序配置](../../server/miniprogram-config.js)。
+- CloudBase SDK 工厂按项目环境缓存，不能断言每个操作都新建实例。本次凭据注入测试覆盖的调用应复用 1 个数据面客户端，管理操作复用 manager、账号环境枚举单独创建，共 2 个 manager；见[凭据回归测试](../../tests/cloudbase-tool-credentials.test.js)。
 
 本地 `.env` 仅保留 `.env.example` 中列出的必要项。监听 `0.0.0.0:3100`、站点 `https://cothread.z2l.top`、HTTPS 时 Secure Cookie 已在代码写死，不必再配。
 

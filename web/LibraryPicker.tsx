@@ -1,3 +1,5 @@
+import { DialogFooter } from "./DialogFooter";
+import { DialogHeader } from "./DialogHeader";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { fileDisplayName } from "../shared/document-name.js";
@@ -7,7 +9,7 @@ import {
   folderRootKind,
   libraryFolderPath,
 } from "./document-library";
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { ModalBackdrop } from "./dialog-fx";
 import { UiIcon } from "./ui-icon";
 
 export type LibraryPickerFolder = {
@@ -623,17 +625,18 @@ export function LibraryPickerDialog({
           aria-labelledby="library-picker-dialog-title"
           onClick={(event) => event.stopPropagation()}
         >
-          <header>
-            <div>
-              <h2 id="library-picker-dialog-title">{title}</h2>
-              {description ? <p>{description}</p> : null}
-            </div>
-            <DialogClose onClick={close} label="关闭文档选择" />
-          </header>
+          <DialogHeader
+            title={<>{title}</>}
+            titleId="library-picker-dialog-title"
+            subtitle={<>{description}</>}
+
+            onClose={close}
+            closeLabel="关闭文档选择"
+          />
           <div className="library-picker-dialog-body">
             <LibraryPicker {...pickerProps} value={draft} onChange={setDraft} />
           </div>
-          <div className="library-picker-dialog-actions">
+          <DialogFooter>
             <button type="button" onClick={close}>
               取消
             </button>
@@ -647,7 +650,7 @@ export function LibraryPickerDialog({
             >
               {confirmLabel}
             </button>
-          </div>
+          </DialogFooter>
         </section>
       )}
     </ModalBackdrop>,

@@ -1,15 +1,20 @@
+import { DialogFooter } from "./DialogFooter";
+import { DialogHeader } from "./DialogHeader";
 /**
  * 新建人类任务弹窗：标题、目标与验收标准、约束、引用文件与指派成员。
  * 弹窗拥有表单草稿和提交状态，父组件只提供上下文、初始引用和完成通知。
  */
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { ModalBackdrop } from "./dialog-fx";
 import { UiIcon } from "./ui-icon";
 import { api } from "./workspace-api";
 import type { Detail } from "./workspace-types";
 import type { PersonalProfile } from "./ProfileFields";
 import { showTip } from "./Tip";
+import { TextField } from "./TextField";
+import { TextAreaField } from "./TextAreaField";
+import { SelectField } from "./SelectField";
 
 const LibraryPickerField = lazy(() =>
   import("./LibraryPicker").then((module) => ({ default: module.LibraryPickerField })),
@@ -103,44 +108,44 @@ export function TaskCreateDialog({
           aria-labelledby="task-create-dialog-title"
           onClick={(event) => event.stopPropagation()}
         >
-          <header>
-            <div>
-              <span>当前迭代</span>
-              <h2 id="task-create-dialog-title">新建人类任务</h2>
-              <p>{detail?.threads.find((item) => item.id === threadId)?.title || "未选择迭代"}</p>
-            </div>
-            <DialogClose onClick={close} disabled={taskActionBusy} label="关闭新建任务" />
-          </header>
+          <DialogHeader
+            title={<>新建人类任务</>}
+            titleId="task-create-dialog-title"
+            subtitle={
+              <>{detail?.threads.find((item) => item.id === threadId)?.title || "未选择迭代"}</>
+            }
+            leftExtra={
+              <>
+                <div>
+                  <span>当前迭代</span>
+                </div>
+              </>
+            }
+            onClose={close}
+            disabled={taskActionBusy}
+            closeLabel="关闭新建任务"
+          />
           <form className="task-create-form" onSubmit={(event) => void submit(event)}>
             <div className="task-create-fields">
-              <label>
-                标题
-                <input
-                  autoFocus
-                  value={taskCreateTitle}
-                  onChange={(event) => setTaskCreateTitle(event.target.value)}
-                  placeholder="任务标题"
-                  maxLength={240}
-                />
-              </label>
-              <label>
-                任务目标与验收标准
-                <textarea
-                  value={taskCreateGoal}
-                  onChange={(event) => setTaskCreateGoal(event.target.value)}
-                  placeholder="说明要完成什么、怎样算完成"
-                  maxLength={20000}
-                />
-              </label>
-              <label>
-                约束（可选）
-                <textarea
-                  value={taskCreateConstraints}
-                  onChange={(event) => setTaskCreateConstraints(event.target.value)}
-                  placeholder="范围、禁止事项或依赖"
-                  maxLength={20000}
-                />
-              </label>
+              <TextField
+                label="标题"
+                autoFocus
+                value={taskCreateTitle}
+                onChange={(event) => setTaskCreateTitle(event.target.value)}
+                maxLength={240}
+              />
+              <TextAreaField
+                label="任务目标与验收标准"
+                value={taskCreateGoal}
+                onChange={(event) => setTaskCreateGoal(event.target.value)}
+                maxLength={20000}
+              />
+              <TextAreaField
+                label="约束（可选）"
+                value={taskCreateConstraints}
+                onChange={(event) => setTaskCreateConstraints(event.target.value)}
+                maxLength={20000}
+              />
               <div className="task-create-library">
                 <Suspense fallback={<p className="muted">正在加载文件选择…</p>}>
                   <LibraryPickerField
@@ -164,36 +169,26 @@ export function TaskCreateDialog({
                   />
                 </Suspense>
               </div>
-              <label>
-                指派成员
-                <select
-                  value={taskCreateTarget}
-                  onChange={(event) => setTaskCreateTarget(event.target.value)}
-                >
-                  <option value="">选择指派成员</option>
-                  {detail?.members
-                    .filter(
-                      (member) =>
-                        member.kind !== "l1" &&
-                        member.kind !== "l2" &&
-                        member.id !== AGENT_MEMBER.id &&
-                        member.role !== "viewer",
-                    )
-                    .map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {member.name}
-                        {member.id === user?.id ? "（我）" : ""}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              {taskActionError && (
-                <p className="project-settings-error" role="alert">
-                  {taskActionError}
-                </p>
-              )}
+              <SelectField
+                label="指派成员"
+                placeholder="选择指派成员"
+                value={taskCreateTarget}
+                onChange={setTaskCreateTarget}
+                options={(detail?.members || [])
+                  .filter(
+                    (member) =>
+                      member.kind !== "l1" &&
+                      member.kind !== "l2" &&
+                      member.id !== AGENT_MEMBER.id &&
+                      member.role !== "viewer",
+                  )
+                  .map((member) => ({
+                    value: member.id,
+                    label: `${member.name}${member.id === user?.id ? "（我）" : ""}`,
+                  }))}
+              />
             </div>
-            <div className="task-create-actions">
+            <DialogFooter>
               <button type="button" disabled={taskActionBusy} onClick={close}>
                 取消
               </button>
@@ -211,7 +206,7 @@ export function TaskCreateDialog({
                 <UiIcon name="plus" size={13} />
                 创建正式任务
               </button>
-            </div>
+            </DialogFooter>
           </form>
         </section>
       )}

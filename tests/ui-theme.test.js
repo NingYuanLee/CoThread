@@ -11,11 +11,16 @@ test("each account can persist and restore its own UI theme", async () => {
   const server = createApp(database.db).listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   try {
-    const first = randomUUID(), second = randomUUID();
+    const first = randomUUID(),
+      second = randomUUID();
     const password = "Theme-test-password!";
     for (const userId of [first, second])
-      await query(database.db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-        [userId, `${userId}@example.com`, "主题用户", await hashPassword(password)]);
+      await query(database.db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+        userId,
+        `${userId}@example.com`,
+        "主题用户",
+        await hashPassword(password),
+      ]);
     const sessionA = await issueCredential(database.db, first, "session", "test");
     const sessionB = await issueCredential(database.db, second, "session", "test");
     const apiToken = await issueCredential(database.db, first, "api", "test");
@@ -29,16 +34,28 @@ test("each account can persist and restore its own UI theme", async () => {
       return { status: response.status, body: await response.json() };
     };
     assert.equal((await request("/me", undefined, sessionA.token)).body.ui_theme, "forest");
-    const saved = await request("/me/theme", { theme: "ocean" }, sessionA.token);
+    const saved = await request("/me/theme", { theme: "dusk" }, sessionA.token);
     assert.equal(saved.status, 200);
-    assert.equal(saved.body.ui_theme, "ocean");
-    assert.equal((await request("/workspace", undefined, sessionA.token)).body.user.ui_theme, "ocean");
+    assert.equal(saved.body.ui_theme, "dusk");
+    assert.equal(
+      (await request("/workspace", undefined, sessionA.token)).body.user.ui_theme,
+      "dusk",
+    );
     assert.equal((await request("/me", undefined, sessionB.token)).body.ui_theme, "forest");
-    assert.equal((await request("/me/theme", { theme: "ink" }, sessionB.token)).body.ui_theme, "ink");
-    assert.equal((await request("/me", undefined, sessionA.token)).body.ui_theme, "ocean");
+    assert.equal(
+      (await request("/me/theme", { theme: "ink" }, sessionB.token)).body.ui_theme,
+      "ink",
+    );
+    assert.equal((await request("/me", undefined, sessionA.token)).body.ui_theme, "dusk");
     assert.equal((await request("/me/theme", { theme: "unknown" }, sessionA.token)).status, 400);
-    assert.equal((await request("/me/theme", { theme: "tech" }, sessionA.token)).body.ui_theme, "tech");
-    assert.equal((await request("/me/theme", { theme: "night" }, sessionB.token)).body.ui_theme, "night");
+    assert.equal(
+      (await request("/me/theme", { theme: "tech" }, sessionA.token)).body.ui_theme,
+      "tech",
+    );
+    assert.equal(
+      (await request("/me/theme", { theme: "night" }, sessionB.token)).body.ui_theme,
+      "night",
+    );
     assert.equal((await request("/me", undefined, sessionA.token)).body.ui_theme, "tech");
     const apiResponse = await fetch(`${base}/me/theme`, {
       method: "PATCH",

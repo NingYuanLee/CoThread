@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode, RefObject } from "react";
+import { TextField } from "./TextField";
 
 export function DocumentLibraryExplorer({
   treeWidth,
@@ -73,7 +74,10 @@ export function DocumentLibraryExplorer({
       />
       <div className="file-explorer-top">
         <div className="tree-filter-bar">
-          <input
+          <TextField
+            flush
+            containerClassName="tree-filter-field"
+            label="搜索"
             ref={fileSearchRef}
             type="search"
             name="cothread-document-tree-filter"
@@ -128,16 +132,6 @@ export function DocumentLibraryExplorer({
         {trash && !artifacts.length ? <p className="muted">回收站是空的。</p> : null}
         {!artifacts.length && !libraryFolders.length && !trash ? (
           <p className="muted">文档库尚无文件。</p>
-        ) : null}
-        {organizationError ? (
-          <div className="error" role="alert">
-            {organizationError}
-          </div>
-        ) : null}
-        {actionError ? (
-          <div className="error" role="alert">
-            {actionError}
-          </div>
         ) : null}
       </div>
       <footer className="library-explorer-footer">

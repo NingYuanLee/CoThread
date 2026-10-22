@@ -1,10 +1,9 @@
+import { DialogFilters } from "./DialogFilters";
+import { DialogFooter } from "./DialogFooter";
+import { DialogBody } from "./DialogBody";
+import { DialogHeader } from "./DialogHeader";
 import { useEffect, useRef, useState } from "react";
-import {
-  DialogClose,
-  animateDialogClose,
-  onDialogBackdropClick,
-  onDialogCancel,
-} from "./dialog-fx";
+import { Dialog, animateDialogClose } from "./dialog-fx";
 import { UiIcon } from "./ui-icon";
 import { ProjectActionIcon } from "./workspace-chrome";
 import type { Project } from "./workspace-types";
@@ -28,8 +27,8 @@ export function ProjectPicker({
   const dialog = useRef<HTMLDialogElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
+  const [keyword, setKeyword] = useState("");
   useEffect(() => {
-    dialog.current?.showModal();
     searchInput.current?.focus();
   }, []);
   const results = projects.filter(
@@ -38,63 +37,66 @@ export function ProjectPicker({
       `${p.name} ${p.description}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
   );
   return (
-    <dialog
+    <Dialog
+      onRequestClose={onClose}
+      enabled={!busy}
       ref={dialog}
-      className="project-picker"
+      className="project-picker dialog-list"
       aria-labelledby="project-picker-title"
-      onCancel={onDialogCancel(onClose)}
-      onClick={onDialogBackdropClick(onClose, () => !busy)}
     >
-      <div className="modal-header">
-        <h2 id="project-picker-title">添加项目</h2>
-        <DialogClose
-          disabled={busy}
-          onClick={() => animateDialogClose(dialog.current, onClose)}
-          label="关闭项目列表"
-        />
-      </div>
-      <input
-        ref={searchInput}
-        autoFocus
-        type="search"
-        aria-label="搜索项目"
-        placeholder="搜索项目名称或简介"
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
+      <DialogHeader
+        title={<>添加项目</>}
+        titleId="project-picker-title"
+        onClose={() => animateDialogClose(dialog.current, onClose)}
+        disabled={busy}
+        closeLabel="关闭项目列表"
       />
-      <p className="project-picker-hint">选择项目导入到你的页签区。</p>
-      <div className="project-picker-list">
-        {results.map((p) => (
-          <article className="project-picker-card" key={p.id}>
-            <div>
-              <strong>
-                <ProjectMark name={p.name} image={p.image} size={28} />
-                <span>{p.name}</span>
-              </strong>
-              <p>{p.description || "暂无项目简介"}</p>
-            </div>
-            <button
-              disabled={busy}
-              title={`导入 ${p.name}`}
-              aria-label={`导入 ${p.name}`}
-              onClick={() => onImport(p.id)}
-            >
-              <ProjectActionIcon action="import" />
-            </button>
-          </article>
-        ))}
-        {!results.length && (
-          <p className="project-picker-empty">
-            {search.trim() ? "没有找到匹配的项目" : "暂无可导入的项目"}
-          </p>
-        )}
-      </div>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      <div className="project-picker-footer">
+      <DialogFilters
+        label="项目列表筛选"
+        keyword={{
+          value: keyword,
+          onChange: setKeyword,
+          placeholder: "搜索项目名称或简介",
+          inputRef: searchInput,
+          autoFocus: true,
+        }}
+        onQuery={() => setSearch(keyword.trim())}
+        onReset={() => {
+          setKeyword("");
+          setSearch("");
+        }}
+        disabled={busy}
+      />
+      <DialogBody>
+        <p className="project-picker-hint">选择项目导入到你的页签区。</p>
+        <div className="project-picker-list">
+          {results.map((p) => (
+            <article className="project-picker-card" key={p.id}>
+              <div>
+                <strong>
+                  <ProjectMark name={p.name} image={p.image} size={28} />
+                  <span>{p.name}</span>
+                </strong>
+                <p>{p.description || "暂无项目简介"}</p>
+              </div>
+              <button
+                disabled={busy}
+                title={`导入 ${p.name}`}
+                aria-label={`导入 ${p.name}`}
+                onClick={() => onImport(p.id)}
+              >
+                <ProjectActionIcon action="import" />
+              </button>
+            </article>
+          ))}
+          {!results.length && (
+            <p className="project-picker-empty">
+              {search.trim() ? "没有找到匹配的项目" : "暂无可导入的项目"}
+            </p>
+          )}
+        </div>
+      </DialogBody>
+      <DialogFooter>
         <button
           type="button"
           className="project-picker-create"
@@ -102,16 +104,13 @@ export function ProjectPicker({
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            // 创建浮层会 portal 到当前打开的 dialog。先关掉再交给父级打开，
-            // 否则浮层挂进即将卸载的对话框，点击后什么都看不到。
-            if (dialog.current?.open) dialog.current.close();
-            onCreate();
+            animateDialogClose(dialog.current, onCreate);
           }}
         >
           <UiIcon name="plus" size={14} />
           新建我的项目
         </button>
-      </div>
-    </dialog>
+      </DialogFooter>
+    </Dialog>
   );
 }

@@ -36,6 +36,9 @@ import { MessageNavigator } from "./MessageNavigator";
 import { IdentityName } from "./Identity";
 import { MessageUsage } from "./MessageUsage";
 import { RunElapsed } from "./LiveClock";
+import { ContextMeter } from "./ContextMeter";
+import { SessionUsage } from "./SessionUsage";
+import { showTip } from "./Tip";
 import { api } from "./workspace-api";
 import { clipQuote } from "./workspace-format";
 import { isImageFile } from "../shared/document-name.js";
@@ -601,6 +604,7 @@ export function ConversationStage({
                 onClick={() => onOpenTasks()}
               >
                 <span className="conversation-task-pool-head">
+                  <UiIcon name="list" size={15} className="conversation-task-pool-icon" />
                   <span className="conversation-task-pool-label">任务</span>
                 </span>
                 {latestMyTask ? (
@@ -609,10 +613,8 @@ export function ConversationStage({
                     data-status={latestMyTask.status}
                     title={latestMyTask.title}
                   >
-                    <span className="conversation-task-list-status" aria-hidden="true">
-                      <i />
-                    </span>
                     <span className="conversation-task-list-main">
+                      <i className="conversation-task-list-dot" aria-hidden="true" />
                       <span className="conversation-task-list-number">
                         {formatTaskThreadNumber(latestMyTask.thread_number)}
                       </span>
@@ -706,6 +708,22 @@ export function ConversationStage({
               )}
             </div>
           )}
+          {thread.contextUsage ? (
+            <div className="composer-context">
+              <SessionUsage thread={thread} />
+              <ContextMeter
+                key={threadId}
+                variant="footer"
+                usage={thread.contextUsage}
+                writable={active}
+                onCompact={async () => {
+                  await api(`/threads/${threadId}/context/compact`, {});
+                  await refresh();
+                  showTip("已提交上下文压缩");
+                }}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
     </>

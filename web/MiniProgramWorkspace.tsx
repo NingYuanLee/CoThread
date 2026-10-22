@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { readJsonResponse } from "../shared/json-response.js";
 import { UiIcon } from "./ui-icon";
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { ModalBackdrop } from "./dialog-fx";
 import { databaseFilterCount, type DatabaseFilterSpec } from "./DatabaseFilterBuilder";
-import { showTip } from "./Tip";
+import { showTip, useTipError } from "./Tip";
 import {
   PREVIEW_DEFAULT_DEVICE_ID,
   PREVIEW_DEVICES,
@@ -61,7 +61,7 @@ export function MiniProgramWorkspace({
 }) {
   const [tab, setTab] = useState<MiniProgramTabId>(() => readStoredTab(projectId));
   const [config, setConfig] = useState<MiniProgramConfig | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError();
   const [meta, setMeta] = useState<PreviewMeta | null>(null);
   const [openAction, setOpenAction] = useState<"wechat" | "records" | null>(null);
   const [refreshMenuOpen, setRefreshMenuOpen] = useState(false);
@@ -967,24 +967,6 @@ export function MiniProgramWorkspace({
     ? ADMIN_STATUS_TONES[activeAdminServer.status]
     : "muted";
   const adminPreviewRunning = activeAdminServer?.status === "running";
-  const adminServiceTitle = activeAdminServer
-    ? activeAdminServer.status === "running"
-      ? "预览服务正在运行"
-      : activeAdminServer.status === "starting"
-        ? "预览服务正在启动"
-        : activeAdminServer.status === "failed"
-          ? "预览服务启动失败"
-          : "预览服务已停止"
-    : "尚未启动预览服务";
-  const adminServiceDescription = activeAdminServer
-    ? activeAdminServer.status === "running"
-      ? "Admin 根目录已通过 CoThread 宿主机提供实时预览。"
-      : activeAdminServer.status === "starting"
-        ? "服务正在启动，状态就绪后预览会自动显示。"
-        : activeAdminServer.status === "failed"
-          ? "请检查错误信息后重新启动服务。"
-          : "重新开启后可继续预览 Admin 根目录。"
-    : "开启服务后即可在当前页签预览 Admin 根目录。";
   const selectedReleaseApplication = releaseApplications.find(
     (application) => application.id === releaseDetailId,
   );
@@ -1287,8 +1269,6 @@ export function MiniProgramWorkspace({
     activeAdminServer,
     adminStatusLabel,
     adminStatusTone,
-    adminServiceTitle,
-    adminServiceDescription,
     adminFrameRef,
     adminFrameKey,
     setAdminFrameKey,
@@ -1388,7 +1368,6 @@ export function MiniProgramWorkspace({
         }`}
         role="tabpanel"
       >
-        {error ? <p className="miniprogram-config-error">{error}</p> : null}
         {!enabled ? (
           <p className="miniprogram-workspace-notice">
             请在「项目管理 → 小程序」填写微信 AppID。CloudBase 单独配置；不配时 Admin

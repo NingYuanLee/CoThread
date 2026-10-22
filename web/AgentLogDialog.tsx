@@ -1,11 +1,9 @@
+import { DialogHeader } from "./DialogHeader";
+import { FloatingPanel } from "./FloatingPanel";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AGENT_LEVEL_LABELS, formatDurationMs, labelAgentEventStatus } from "./ui-labels";
-import {
-  DialogClose,
-  animateDialogClose,
-  onDialogBackdropClick,
-  onDialogCancel,
-} from "./dialog-fx";
+import { Dialog, animateDialogClose } from "./dialog-fx";
+import { useTipError } from "./Tip";
 import { l1TaskLabel } from "../shared/agent-label.js";
 import {
   type AgentLogData,
@@ -47,7 +45,7 @@ export function AgentTrajectory({
   const track = useRef<HTMLDivElement>(null);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
   const [data, setData] = useState<AgentLogData | null>(null);
-  const [error, setError] = useState("");
+  const [, setError] = useTipError();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [view, setView] = useState<{ start: number; end: number } | null>(null);
@@ -306,7 +304,7 @@ export function AgentTrajectory({
               resetView();
             }}
           >
-            {!data && !error && <span className="agent-log-empty">正在加载轨迹…</span>}
+            {!data && <span className="agent-log-empty">正在加载轨迹…</span>}
             {data && !timeline && <span className="agent-log-empty">无计时数据</span>}
             {timeline &&
               domain &&
@@ -572,7 +570,7 @@ export function AgentTrajectory({
         </aside>
       </div>
       {hover && (
-        <div
+        <FloatingPanel
           className="agent-log-tooltip"
           style={{ left: hover.x + 12, top: hover.y + 12 }}
           role="tooltip"
@@ -587,12 +585,7 @@ export function AgentTrajectory({
               ? formatDurationMs(hover.span.event.durationMs)
               : formatClock(hover.span.input?.createdAt || "")}
           </span>
-        </div>
-      )}
-      {error && (
-        <p className="monitor-error" role="alert">
-          {error}
-        </p>
+        </FloatingPanel>
       )}
     </div>
   );
@@ -608,25 +601,21 @@ export function AgentLogDialog({
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
   return (
-    <dialog
+    <Dialog
+      onRequestClose={onClose}
       ref={dialog}
       className="agent-log-dialog"
       aria-labelledby="agent-log-dialog-title"
-      onCancel={onDialogCancel(onClose)}
-      onClick={onDialogBackdropClick(onClose)}
     >
-      <header className="agent-monitor-header">
-        <div>
-          <span>DSH 轨迹</span>
-          <h2 id="agent-log-dialog-title">轨迹</h2>
-        </div>
-        <DialogClose onClick={() => animateDialogClose(dialog.current, onClose)} label="关闭轨迹" />
-      </header>
+      <DialogHeader
+        title={<>轨迹</>}
+        titleId="agent-log-dialog-title"
+        subtitle={<>DSH 轨迹</>}
+        onClose={() => animateDialogClose(dialog.current, onClose)}
+        closeLabel="关闭轨迹"
+      />
       <AgentTrajectory scope={scope} api={api} />
-    </dialog>
+    </Dialog>
   );
 }

@@ -1,23 +1,27 @@
 import React, { useEffect, useState } from "react";
+import { TextField } from "./TextField";
+import { DialogFooter } from "./DialogFooter";
 import { HumanVerification } from "./HumanVerification";
 import { ResendCountdown } from "./ResendCountdown";
 import { UiIcon } from "./ui-icon";
-import { showTip } from "./Tip";
+import { showTip, useTipError } from "./Tip";
 
 export function EmailBinding({
   email,
   api,
   onBound,
+  inDialog = false,
 }: {
   email: string | null;
   api: (path: string, data?: unknown, method?: string) => Promise<any>;
   onBound: (profile: any) => void;
+  inDialog?: boolean;
 }) {
   const [challengeId, setChallengeId] = useState("");
   const [address, setAddress] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError();
   const [humanProof, setHumanProof] = useState({ humanChallengeId: "", humanAnswer: "" });
   const [humanRefresh, setHumanRefresh] = useState(0);
   const [humanRequired, setHumanRequired] = useState(false);
@@ -53,7 +57,6 @@ export function EmailBinding({
       }
     } catch (cause) {
       setError((cause as Error).message);
-      showTip((cause as Error).message, "error");
       if (!challengeId) {
         try {
           await refreshHumanStatus(humanRequired);
@@ -65,23 +68,21 @@ export function EmailBinding({
       setBusy(false);
     }
   };
-  return (
-    <section className="email-binding">
+  const content = (
+    <>
       <div>
         <strong>{email ? "更换绑定邮箱" : "绑定邮箱"}</strong>
         <small>{email ? `当前邮箱：${email}` : "绑定后可使用邮箱登录和找回密码"}</small>
       </div>
       {!challengeId ? (
         <>
-          <label>
-            新邮箱
-            <input
-              type="email"
-              value={address}
-              onChange={(event) => setAddress(event.target.value)}
-              autoComplete="email"
-            />
-          </label>
+          <TextField
+            label="新邮箱"
+            type="email"
+            value={address}
+            onChange={(event) => setAddress(event.target.value)}
+            autoComplete="email"
+          />
           {humanRequired && (
             <HumanVerification
               api={api}
@@ -96,18 +97,16 @@ export function EmailBinding({
           <p className="auth-notice">
             收件服务器已接受发往 {address} 的验证码邮件，请在 10 分钟内输入。
           </p>
-          <label>
-            邮箱验证码
-            <input
-              value={code}
-              onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-              inputMode="numeric"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              autoComplete="one-time-code"
-              autoFocus
-            />
-          </label>
+          <TextField
+            label="邮箱验证码"
+            value={code}
+            onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+            inputMode="numeric"
+            pattern="[0-9]{6}"
+            maxLength={6}
+            autoComplete="one-time-code"
+            autoFocus
+          />
           <button
             type="button"
             className="text-action"
@@ -131,11 +130,10 @@ export function EmailBinding({
           />
         </div>
       )}
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
+    </>
+  );
+  const action = (
+    <>
       <button
         type="button"
         disabled={
@@ -150,6 +148,21 @@ export function EmailBinding({
         <UiIcon name={challengeId ? "check" : "email"} size={13} />
         {busy ? "处理中…" : challengeId ? "确认绑定" : "发送邮箱验证码"}
       </button>
+    </>
+  );
+  return (
+    <section className={`email-binding${inDialog ? " dialog-footer-layout" : ""}`}>
+      {inDialog ? (
+        <>
+          <div className="dialog-form-scroll">{content}</div>
+          <DialogFooter>{action}</DialogFooter>
+        </>
+      ) : (
+        <>
+          {content}
+          {action}
+        </>
+      )}
     </section>
   );
 }

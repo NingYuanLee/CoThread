@@ -1,10 +1,16 @@
+import { DialogFooter } from "./DialogFooter";
+import { ImageField } from "./ImageField";
+import { DialogBody } from "./DialogBody";
+import { DialogHeader } from "./DialogHeader";
 import React, { useState } from "react";
 import { IDENTITY_TAGS } from "../shared/profile.js";
 import { roleIcon, UiIcon } from "./ui-icon";
 import { EmailBinding } from "./EmailBinding";
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { ModalBackdrop } from "./dialog-fx";
 import { updateSavedAccountProfile } from "./saved-accounts";
 import { showTip } from "./Tip";
+import { TextField } from "./TextField";
+import { SelectField } from "./SelectField";
 
 export type PersonalProfile = {
   id: string;
@@ -116,37 +122,16 @@ export function ProfileFields({
   return (
     <fieldset className="profile-fields" disabled={busy}>
       <div className="profile-identity">
-        <div className="profile-avatar-slot">
-          <label className="profile-avatar-hit">
-            <span className="avatar profile-avatar-preview">
-              {avatar ? <img src={avatar} alt="" /> : user.name[0]}
-              <span className="profile-avatar-mask" aria-hidden="true">
-                <UiIcon name="camera" size={20} />
-              </span>
-            </span>
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              aria-label={avatar ? "更换头像" : "上传头像"}
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                event.currentTarget.value = "";
-                if (file) onUpload(file);
-              }}
-            />
-          </label>
-          {avatar && (
-            <button
-              type="button"
-              className="profile-avatar-remove"
-              onClick={onRemove}
-              aria-label="移除头像"
-              title="移除头像"
-            >
-              <UiIcon name="close" size={11} />
-            </button>
-          )}
-        </div>
+        <ImageField
+          value={avatar}
+          fallbackText={user.name[0]}
+          uploadLabel="上传头像"
+          changeLabel="更换头像"
+          removeLabel="移除头像"
+          disabled={busy}
+          onSelect={onUpload}
+          onRemove={onRemove}
+        />
         <div className="profile-identity-fields">
           <span className="profile-email-field profile-id-row">
             <span className="profile-id-label">ID：</span>
@@ -156,14 +141,13 @@ export function ProfileFields({
             </button>
           </span>
           <div className="profile-name-row">
-            <input
+            <TextField
               name="name"
+              label="姓名"
               defaultValue={user.name}
               required
               maxLength={80}
               autoComplete="name"
-              aria-label="姓名"
-              placeholder="姓名"
             />
             <button
               type="button"
@@ -187,22 +171,19 @@ export function ProfileFields({
               )}
             </button>
           </div>
-          <input
-            name="motto"
-            defaultValue={user.motto}
-            maxLength={15}
-            aria-label="座右铭"
-            placeholder="座右铭"
-          />
+          <TextField name="motto" label="座右铭" defaultValue={user.motto} maxLength={15} />
           {role ? <input type="hidden" name="identity_tags" value={role} /> : null}
         </div>
       </div>
-      <div className="profile-email-row">
-        <span>用户名</span>
-        <span className="profile-email-field">
-          <span>{user.username}</span>
+      <TextField
+        label="用户名"
+        value={user.username}
+        readOnly
+        containerClassName="profile-readonly-field"
+        action={
           <button
             type="button"
+            className="profile-field-action"
             onClick={() => {
               setUsernameDraft(user.username);
               setPasswordDraft("");
@@ -212,19 +193,21 @@ export function ProfileFields({
             <UiIcon name="edit" size={13} />
             修改
           </button>
-        </span>
-      </div>
-      <div className="profile-email-row">
-        <span>绑定邮箱</span>
-        <span className={user.email ? "profile-email-field" : "profile-email-field is-empty"}>
-          <span>{user.email || "未绑定"}</span>
-          <button type="button" onClick={() => setEmailOpen(true)}>
+        }
+      />
+      <TextField
+        label="绑定邮箱"
+        value={user.email || "未绑定"}
+        readOnly
+        hint="绑定后可使用邮箱登录和找回密码"
+        containerClassName="profile-readonly-field"
+        action={
+          <button type="button" className="profile-field-action" onClick={() => setEmailOpen(true)}>
             <UiIcon name="email" size={13} />
-            {user.email ? "更换绑定" : "绑定邮箱"}
+            {user.email ? "更换" : "绑定邮箱"}
           </button>
-        </span>
-        <small>绑定后可使用邮箱登录和找回密码</small>
-      </div>
+        }
+      />
       {roleOpen && (
         <ModalBackdrop onClose={() => setRoleOpen(false)}>
           {(close) => (
@@ -234,41 +217,47 @@ export function ProfileFields({
               aria-modal="true"
               aria-labelledby="profile-role-title"
             >
-              <div className="modal-header">
-                <h2 id="profile-role-title">选择岗位</h2>
-                <DialogClose onClick={close} label="关闭选择岗位" />
-              </div>
-              <div className="profile-role-options">
-                {IDENTITY_TAGS.map((tag) => {
-                  const icon = roleIcon(tag);
-                  return (
-                    <button
-                      key={tag}
-                      type="button"
-                      data-role={tag}
-                      aria-pressed={role === tag}
-                      onClick={() => {
-                        setRole(tag);
-                        close();
-                      }}
-                    >
-                      {icon ? <UiIcon name={icon} size={12} /> : null}
-                      {tag}
-                    </button>
-                  );
-                })}
-              </div>
+              <DialogHeader
+                title={<>选择岗位</>}
+                titleId="profile-role-title"
+                onClose={close}
+                closeLabel="关闭选择岗位"
+              />
+              <DialogBody>
+                <div className="profile-role-options">
+                  {IDENTITY_TAGS.map((tag) => {
+                    const icon = roleIcon(tag);
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        data-role={tag}
+                        aria-pressed={role === tag}
+                        onClick={() => {
+                          setRole(tag);
+                          close();
+                        }}
+                      >
+                        {icon ? <UiIcon name={icon} size={12} /> : null}
+                        {tag}
+                      </button>
+                    );
+                  })}
+                </div>
+              </DialogBody>
               {role ? (
-                <button
-                  type="button"
-                  className="profile-role-clear"
-                  onClick={() => {
-                    setRole("");
-                    close();
-                  }}
-                >
-                  暂不设置
-                </button>
+                <DialogFooter>
+                  <button
+                    type="button"
+                    className="profile-role-clear"
+                    onClick={() => {
+                      setRole("");
+                      close();
+                    }}
+                  >
+                    暂不设置
+                  </button>
+                </DialogFooter>
               ) : null}
             </section>
           )}
@@ -283,34 +272,34 @@ export function ProfileFields({
               aria-modal="true"
               aria-labelledby="profile-username-title"
             >
-              <div className="modal-header">
-                <h2 id="profile-username-title">修改用户名</h2>
-                <DialogClose onClick={close} label="关闭修改用户名" />
-              </div>
-              <label>
-                用户名
-                <input
+              <DialogHeader
+                title={<>修改用户名</>}
+                titleId="profile-username-title"
+                onClose={close}
+                closeLabel="关闭修改用户名"
+              />
+              <DialogBody>
+                <TextField
+                  label="用户名"
                   value={usernameDraft}
                   maxLength={80}
                   autoComplete="username"
                   onChange={(event) => setUsernameDraft(event.target.value)}
                 />
-              </label>
-              <label>
-                当前密码
-                <input
+                <TextField
+                  label="当前密码"
                   type="password"
                   value={passwordDraft}
                   maxLength={200}
                   autoComplete="current-password"
                   onChange={(event) => setPasswordDraft(event.target.value)}
                 />
-              </label>
-              <div className="modal-footer">
+              </DialogBody>
+              <DialogFooter>
                 <button type="button" className="primary" onClick={() => void saveUsername(close)}>
                   保存
                 </button>
-              </div>
+              </DialogFooter>
             </section>
           )}
         </ModalBackdrop>
@@ -324,11 +313,14 @@ export function ProfileFields({
               aria-modal="true"
               aria-labelledby="email-bind-title"
             >
-              <div className="modal-header">
-                <h2 id="email-bind-title">{user.email ? "更换绑定邮箱" : "绑定邮箱"}</h2>
-                <DialogClose onClick={close} label="关闭绑定邮箱" />
-              </div>
+              <DialogHeader
+                title={<>{user.email ? "更换绑定邮箱" : "绑定邮箱"}</>}
+                titleId="email-bind-title"
+                onClose={close}
+                closeLabel="关闭绑定邮箱"
+              />
               <EmailBinding
+                inDialog
                 email={user.email}
                 api={api}
                 onBound={(profile) => {

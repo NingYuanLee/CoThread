@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { SelectField } from "./SelectField";
+import { TextField } from "./TextField";
 
 export type PaginationControlProps = {
   total: number | null;
@@ -66,30 +68,27 @@ export function PaginationControl({
       setPageInput(String(page));
     }
   };
+  const sizeOptions = [...new Set([...pageSizeOptions, pageSize])]
+    .sort((a, b) => a - b)
+    .map((size) => ({ value: String(size), label: `${size} 条` }));
 
   return (
     <nav className={`pagination-control ${className}`} aria-label={ariaLabel}>
       <span className="pagination-control-summary">共 {total === null ? "—" : total} 条</span>
       {onPageSizeChange && (
-        <label className="pagination-control-size">
-          <select
+        <div className="pagination-control-size">
+          <SelectField
             aria-label="每页条数"
-            value={pageSize}
+            value={String(pageSize)}
             disabled={disabled}
-            onChange={(event) => {
+            flush
+            options={sizeOptions}
+            onChange={(value) => {
               setPageInput(String(page));
-              onPageSizeChange(Number(event.target.value));
+              onPageSizeChange(Number(value));
             }}
-          >
-            {[...new Set([...pageSizeOptions, pageSize])]
-              .sort((a, b) => a - b)
-              .map((size) => (
-                <option key={size} value={size}>
-                  {size} 条
-                </option>
-              ))}
-          </select>
-        </label>
+          />
+        </div>
       )}
       <div className="pagination-control-pages">
         <button
@@ -129,44 +128,40 @@ export function PaginationControl({
           commitPageInput();
         }}
       >
-        <label>
-          <span>跳至</span>
-          <input
-            aria-label="跳转到页码"
-            type="number"
-            inputMode="numeric"
-            step="1"
-            min="1"
-            max={totalPages ?? undefined}
-            value={pageInput}
-            disabled={disabled}
-            onBlur={commitPageInput}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                commitPageInput();
-              }
-            }}
-            onChange={(event) => {
-              const value = event.target.value;
-              if (value === "") {
-                setPageInput("");
-                return;
-              }
-              const number = Number(value);
-              if (Number.isFinite(number))
-                setPageInput(
-                  String(
-                    Math.max(
-                      1,
-                      Math.min(totalPages ?? Number.MAX_SAFE_INTEGER, Math.trunc(number)),
-                    ),
-                  ),
-                );
-            }}
-          />
-          <span> / {totalPages ?? "—"} 页</span>
-        </label>
+        <span>跳至</span>
+        <TextField
+          aria-label="跳转到页码"
+          type="number"
+          inputMode="numeric"
+          step={1}
+          min={1}
+          max={totalPages ?? undefined}
+          value={pageInput}
+          disabled={disabled}
+          flush
+          onBlur={commitPageInput}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitPageInput();
+            }
+          }}
+          onChange={(event) => {
+            const value = event.target.value;
+            if (value === "") {
+              setPageInput("");
+              return;
+            }
+            const number = Number(value);
+            if (Number.isFinite(number))
+              setPageInput(
+                String(
+                  Math.max(1, Math.min(totalPages ?? Number.MAX_SAFE_INTEGER, Math.trunc(number))),
+                ),
+              );
+          }}
+        />
+        <span> / {totalPages ?? "—"} 页</span>
       </form>
     </nav>
   );

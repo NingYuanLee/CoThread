@@ -1,5 +1,6 @@
+import { FloatingPanel } from "./FloatingPanel";
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { FloatingPortal } from "./FloatingPortal";
 
 type Message = { id: string; source: string; body: string; author: string };
 
@@ -130,19 +131,17 @@ export const MessageNavigator = memo(function MessageNavigator({
           );
         })}
       </div>
-      {hovered !== null &&
-        tooltip &&
-        members[hovered] &&
-        createPortal(
-          <span
+      {hovered !== null && tooltip && members[hovered] && (
+        <FloatingPortal>
+          <FloatingPanel
             className="message-navigator-preview"
             aria-hidden="true"
             style={{ left: tooltip.left, top: tooltip.top }}
           >
             {preview(members[hovered].body) || "附件"}
-          </span>,
-          document.body,
-        )}
+          </FloatingPanel>
+        </FloatingPortal>
+      )}
     </nav>
   );
 });

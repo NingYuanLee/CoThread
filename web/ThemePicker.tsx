@@ -1,13 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+import { DialogHeader } from "./DialogHeader";
+import React, { useRef, useState } from "react";
 import { UI_THEMES, normalizeUiTheme } from "../shared/ui-theme.js";
 import { applyUiTheme } from "./apply-ui-theme";
-import {
-  DialogClose,
-  animateDialogClose,
-  onDialogBackdropClick,
-  onDialogCancel,
-} from "./dialog-fx";
-import { showTip } from "./Tip";
+import { Dialog, animateDialogClose } from "./dialog-fx";
+import { showTip, useTipError } from "./Tip";
 
 export function ThemePicker({
   theme,
@@ -21,12 +17,9 @@ export function ThemePicker({
   const current = normalizeUiTheme(theme);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError();
   const dialog = useRef<HTMLDialogElement>(null);
   const button = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (open) dialog.current?.showModal();
-  }, [open]);
   const close = () => animateDialogClose(dialog.current, () => setOpen(false));
   const choose = async (id: string) => {
     if (id === current || busy) return;
@@ -41,7 +34,6 @@ export function ThemePicker({
       applyUiTheme(current);
       const detail = (cause as Error).message;
       setError(detail);
-      showTip(detail, "error");
     } finally {
       setBusy(false);
     }
@@ -73,29 +65,20 @@ export function ThemePicker({
           <circle cx="11.5" cy="15.5" r="1" fill="currentColor" stroke="none" />
         </svg>
       </button>
-      <dialog
+      <Dialog
+        active={open}
+        onRequestClose={() => setOpen(false)}
         ref={dialog}
         className="theme-dialog"
         aria-labelledby="theme-dialog-title"
-        onCancel={onDialogCancel(() => setOpen(false))}
-        onClick={onDialogBackdropClick(() => setOpen(false))}
-        onClose={() => {
-          setOpen(false);
-          button.current?.focus();
-        }}
       >
-        <div className="theme-dialog-header">
-          <div>
-            <h2 id="theme-dialog-title">选择主题</h2>
-            <p>配色保存在当前账号，换设备登录后仍会使用这套主题。</p>
-          </div>
-          <DialogClose onClick={close} label="关闭主题选择" />
-        </div>
-        {error && (
-          <p role="alert" className="theme-dialog-error">
-            {error}
-          </p>
-        )}
+        <DialogHeader
+          title={<>选择主题</>}
+          titleId="theme-dialog-title"
+          subtitle={<>配色保存在当前账号，换设备登录后仍会使用这套主题。</>}
+          onClose={close}
+          closeLabel="关闭主题选择"
+        />
         <div className="theme-grid" role="listbox" aria-label="可用主题">
           {UI_THEMES.map((item) => (
             <button
@@ -117,7 +100,7 @@ export function ThemePicker({
             </button>
           ))}
         </div>
-      </dialog>
+      </Dialog>
     </>
   );
 }

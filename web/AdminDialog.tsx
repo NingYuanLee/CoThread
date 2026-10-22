@@ -1,67 +1,58 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
+import { DialogFooter } from "./DialogFooter";
+import { DialogHeader, type DialogHeaderProps } from "./DialogHeader";
+import { useId, type ReactNode } from "react";
+import { ModalBackdrop } from "./dialog-fx";
 
 export function AdminDialog({
   title,
   onClose,
   busy = false,
   children,
+  subtitle,
+  icon,
+  leftExtra,
+  actions,
+  footer,
+  footerPagination = false,
+  className = "",
 }: {
   title: string;
   onClose: () => void;
   busy?: boolean;
   children: ReactNode | ((close: () => void) => ReactNode);
-}) {
+  footer?: ReactNode;
+  footerPagination?: boolean;
+  className?: string;
+} & Pick<DialogHeaderProps, "subtitle" | "icon" | "leftExtra" | "actions">) {
   const titleId = useId();
-  const dialogRef = useRef<HTMLElement>(null);
-  const returnFocusRef = useRef(document.activeElement as HTMLElement | null);
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog && !dialog.contains(document.activeElement)) {
-      (
-        dialog.querySelector("input:not([disabled]), button:not([disabled])") as HTMLElement | null
-      )?.focus();
-    }
-    return () => {
-      if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
-    };
-  }, []);
+
   return (
     <ModalBackdrop onClose={onClose} enabled={!busy}>
-      {(close) => (
-        <section
-          ref={dialogRef}
-          className="modal admin-dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-          onKeyDown={(event) => {
-            if (event.key !== "Tab") return;
-            const nodes = Array.from(
-              event.currentTarget.querySelectorAll<HTMLElement>(
-                "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]",
-              ),
-            );
-            const first = nodes[0],
-              last = nodes.at(-1);
-            if (event.shiftKey && document.activeElement === first) {
-              event.preventDefault();
-              last?.focus();
-            } else if (!event.shiftKey && document.activeElement === last) {
-              event.preventDefault();
-              first?.focus();
-            }
-          }}
-        >
-          <header className="modal-header">
-            <h2 id={titleId}>{title}</h2>
-            <DialogClose onClick={close} disabled={busy} label="关闭" />
-          </header>
-          <div className="admin-dialog-body">
-            {typeof children === "function" ? children(close) : children}
-          </div>
-        </section>
-      )}
+      {(close) => {
+        const content = typeof children === "function" ? children(close) : children;
+        return (
+          <section
+            className={`modal admin-dialog ${className}`.trim()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+          >
+            <DialogHeader
+              subtitle={subtitle}
+              icon={icon}
+              leftExtra={leftExtra}
+              actions={actions}
+              title={<>{title}</>}
+              titleId={titleId}
+              onClose={close}
+              disabled={busy}
+              closeLabel="关闭"
+            />
+            <div className="admin-dialog-body">{content}</div>
+            {footer != null && <DialogFooter pagination={footerPagination}>{footer}</DialogFooter>}
+          </section>
+        );
+      }}
     </ModalBackdrop>
   );
 }
@@ -81,11 +72,18 @@ export function AdminConfirmDialog({
 }) {
   return (
     confirmation && (
-      <AdminDialog title={confirmation.title} onClose={onClose} busy={busy}>
+      <AdminDialog
+        className="admin-confirm-dialog"
+        title={confirmation.title}
+        onClose={onClose}
+        busy={busy}
+      >
         {(close) => (
           <>
-            <p>{confirmation.message}</p>
-            <div className="admin-editor-actions">
+            <div className="dialog-form-scroll">
+              <p>{confirmation.message}</p>
+            </div>
+            <DialogFooter>
               <button disabled={busy} onClick={close}>
                 取消
               </button>
@@ -101,7 +99,7 @@ export function AdminConfirmDialog({
               >
                 确认
               </button>
-            </div>
+            </DialogFooter>
           </>
         )}
       </AdminDialog>

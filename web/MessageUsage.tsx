@@ -1,5 +1,6 @@
+import { FloatingPanel } from "./FloatingPanel";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { FloatingPortal } from "./FloatingPortal";
 export type UsageStats = {
   model?: string;
   reasoningEffort?: string;
@@ -169,9 +170,10 @@ export function MessageUsage({
           <span>{kind === "usage" ? `用量 ${compact}` : `用时 ${duration(elapsed)}`}</span>
         </button>
       ))}
-      {open &&
-        createPortal(
-          <div
+      {open && (
+        <FloatingPortal>
+          <FloatingPanel
+            onDismiss={() => setOpen(null)}
             ref={panel}
             style={position}
             className={`message-usage-popover ${open}`}
@@ -191,9 +193,9 @@ export function MessageUsage({
                 </React.Fragment>
               ))}
             </dl>
-          </div>,
-          document.body,
-        )}
+          </FloatingPanel>
+        </FloatingPortal>
+      )}
     </div>
   );
 }

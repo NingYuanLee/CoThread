@@ -1,12 +1,14 @@
+import { DialogFooter } from "./DialogFooter";
+import { FileField } from "./FileField";
+import { TextField } from "./TextField";
+import { SelectField } from "./SelectField";
+import { RefreshButton } from "./IconButton";
+import { DialogBody } from "./DialogBody";
+import { DialogHeader } from "./DialogHeader";
 import React, { useEffect, useRef, useState } from "react";
-import {
-  DialogClose,
-  animateDialogClose,
-  onDialogBackdropClick,
-  onDialogCancel,
-} from "./dialog-fx";
+import { Dialog, animateDialogClose } from "./dialog-fx";
 import { UiIcon } from "./ui-icon";
-import { showTip } from "./Tip";
+import { showTip, useTipError } from "./Tip";
 import "./miniprogram.css";
 
 type EnvironmentKind = "development" | "production";
@@ -129,34 +131,32 @@ function ClearCredentialDialog({
   onConfirm: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
   return (
-    <dialog
+    <Dialog
+      onRequestClose={() => {
+        if (!busy) onClose();
+      }}
+      enabled={!busy}
       ref={dialog}
       className="miniprogram-confirm-dialog"
       aria-labelledby="clear-credential-title"
-      onCancel={onDialogCancel(() => {
-        if (!busy) onClose();
-      })}
-      onClick={onDialogBackdropClick(onClose, () => !busy)}
     >
-      <header>
-        <h2 id="clear-credential-title">删除并清空配置</h2>
-        <DialogClose
-          onClick={() => {
-            if (!busy) animateDialogClose(dialog.current, onClose);
-          }}
-          label="关闭"
-          disabled={busy}
-        />
-      </header>
-      <p>
-        确认后删除腾讯云子用户的 API 密钥，并清空已选环境和 Publishable Key。小程序 AppID
-        和代码上传密钥不会删除。
-      </p>
-      <div className="miniprogram-config-actions">
+      <DialogHeader
+        title={<>删除并清空配置</>}
+        titleId="clear-credential-title"
+        onClose={() => {
+          if (!busy) animateDialogClose(dialog.current, onClose);
+        }}
+        disabled={busy}
+        closeLabel="关闭"
+      />
+      <DialogBody>
+        <p>
+          确认后删除腾讯云子用户的 API 密钥，并清空已选环境和 Publishable Key。小程序 AppID
+          和代码上传密钥不会删除。
+        </p>
+      </DialogBody>
+      <DialogFooter>
         <button
           type="button"
           disabled={busy}
@@ -167,8 +167,8 @@ function ClearCredentialDialog({
         <button type="button" className="miniprogram-danger" disabled={busy} onClick={onConfirm}>
           {busy ? "删除中…" : "确认删除"}
         </button>
-      </div>
-    </dialog>
+      </DialogFooter>
+    </Dialog>
   );
 }
 
@@ -209,7 +209,7 @@ export function ProjectMiniProgramConfig({
     production: false,
   });
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError();
   const [checks, setChecks] = useState<VerifyCheck[] | null>(null);
   // 微信上传密钥是公众平台下载的文件，不让用户把内容粘进密码框。
   const [keyFile, setKeyFile] = useState<File | null>(null);
@@ -576,7 +576,7 @@ export function ProjectMiniProgramConfig({
     }
   };
 
-  if (error && !draft) return <p className="muted">{error}</p>;
+  if (error && !draft) return <p className="muted">小程序配置读取失败，请稍后重试。</p>;
   if (!draft) return <p className="muted">正在加载小程序配置…</p>;
 
   const readOnly = !canManage;
@@ -587,42 +587,20 @@ export function ProjectMiniProgramConfig({
     if (meta.mode === "file") {
       return (
         <div key={kind}>
-          <label className="miniprogram-field">
-            <span>{meta.label}</span>
-            <span className="miniprogram-field-with-action">
-              <input
-                type="text"
-                readOnly
-                value={state.configured ? state.hint || "已保存" : ""}
-                placeholder="未上传"
-                title={meta.hint}
-                disabled={readOnly}
-              />
-              {readOnly ? null : (
-                <button
-                  type="button"
-                  className="miniprogram-field-upload"
-                  disabled={secretBusy === kind}
-                  onClick={() => keyFileInput.current?.click()}
-                >
-                  {secretBusy === kind ? "上传中…" : "上传"}
-                </button>
-              )}
-              <input
-                ref={keyFileInput}
-                className="miniprogram-field-file"
-                type="file"
-                accept=".key,.pem,.txt,text/plain"
-                tabIndex={-1}
-                aria-hidden="true"
-                onChange={(event) => {
-                  const picked = event.target.files?.[0] || null;
-                  setKeyFile(picked);
-                  if (picked) void saveSecret(kind, picked);
-                }}
-              />
-            </span>
-          </label>
+          <FileField
+            label={meta.label}
+            value={state.configured ? state.hint || "已保存" : ""}
+            placeholder="未上传"
+            accept=".key,.pem,.txt,text/plain"
+            title={meta.hint}
+            disabled={readOnly}
+            busy={secretBusy === kind}
+            actionLabel="上传"
+            onSelect={(file) => {
+              setKeyFile(file);
+              void saveSecret(kind, file);
+            }}
+          />
           <a
             className="miniprogram-field-doc"
             href="https://developers.weixin.qq.com/miniprogram/dev/devtools/ci.html"
@@ -647,37 +625,29 @@ export function ProjectMiniProgramConfig({
           </p>
         ) : meta.mode === "pair" ? (
           <div className="miniprogram-secret-rows">
-            <label className="miniprogram-field">
-              <span>SecretId</span>
-              <input
-                type="text"
-                value={state.configured ? state.secretId || "" : cbPair.secretId}
-                placeholder="SecretId"
-                autoComplete="off"
-                spellCheck={false}
-                readOnly={state.configured}
-                disabled={state.configured}
-                onChange={(event) =>
-                  setCbPair((previous) => ({ ...previous, secretId: event.target.value }))
-                }
-              />
-            </label>
-            <label className="miniprogram-field">
-              <span>SecretKey</span>
-              <input
-                type="password"
-                value={state.configured ? "********" : cbPair.secretKey}
-                placeholder="SecretKey"
-                autoComplete="new-password"
-                readOnly={state.configured}
-                disabled={state.configured}
-                onChange={(event) =>
-                  setCbPair((previous) => ({ ...previous, secretKey: event.target.value }))
-                }
-              />
-            </label>
+            <TextField
+              label="SecretId"
+              value={state.configured ? state.secretId || "" : cbPair.secretId}
+              autoComplete="off"
+              spellCheck={false}
+              readOnly={state.configured}
+              disabled={state.configured}
+              onChange={(event) =>
+                setCbPair((previous) => ({ ...previous, secretId: event.target.value }))
+              }
+            />
+            <TextField
+              label="SecretKey"
+              type="password"
+              value={state.configured ? "********" : cbPair.secretKey}
+              autoComplete="new-password"
+              readOnly={state.configured}
+              disabled={state.configured}
+              onChange={(event) =>
+                setCbPair((previous) => ({ ...previous, secretKey: event.target.value }))
+              }
+            />
             <div className="miniprogram-field">
-              <span />
               <span className="miniprogram-secret-actions">
                 {state.configured ? (
                   <>
@@ -689,13 +659,13 @@ export function ProjectMiniProgramConfig({
                     >
                       删除并清空配置
                     </button>
-                    <button
+                    <RefreshButton
+                      pending={accountEnvBusy}
                       type="button"
                       disabled={accountEnvBusy}
                       onClick={() => setEnvListReload((value) => value + 1)}
-                    >
-                      {accountEnvBusy ? "刷新中…" : "刷新可用环境列表"}
-                    </button>
+                      label="刷新可用环境列表"
+                    />
                   </>
                 ) : (
                   <button
@@ -726,12 +696,8 @@ export function ProjectMiniProgramConfig({
         />
       ) : null}
       <div className="miniprogram-config-head">
-        <div>
-          <h3>
-            <UiIcon name={section === "cloudbase" ? "layers" : "smartphone"} size={15} />{" "}
-            {section === "cloudbase" ? "CloudBase" : "小程序"}
-          </h3>
-          <p className="muted">
+        <div className="settings-content-heading">
+          <p>
             {section === "cloudbase"
               ? "环境、凭据和登录方式。不配也可以做纯前端小程序；Admin 预览、云数据库、云存储、云函数和静态托管需要这里。"
               : "微信身份、Dimina 预览和体验版上传。不依赖 CloudBase。上传私钥只在后端加密保存。"}
@@ -742,45 +708,35 @@ export function ProjectMiniProgramConfig({
         </span>
       </div>
 
-      {error ? <p className="miniprogram-config-error">{error}</p> : null}
       {draft.lastVerifyError ? (
         <p className="miniprogram-config-error">上次验证：{draft.lastVerifyError}</p>
       ) : null}
 
       {section === "miniprogram" ? (
         <section className="miniprogram-config-section">
-          <label className="miniprogram-field">
-            <span>AppID</span>
-            <input
-              type="text"
-              value={draft.appId || ""}
-              placeholder="wx1234567890abcdef"
-              disabled={readOnly}
-              autoComplete="off"
-              onChange={(event) => patch({ appId: event.target.value })}
-            />
-          </label>
-          <label className="miniprogram-field">
-            <span>小程序名称</span>
-            <input
-              type="text"
-              value={draft.appName || ""}
-              disabled={readOnly}
-              autoComplete="off"
-              onChange={(event) => patch({ appName: event.target.value })}
-            />
-          </label>
-          <label className="miniprogram-field">
-            <span>默认启动首页</span>
-            <input
-              type="text"
-              value={draft.entryPage || ""}
-              placeholder="pages/index/index"
-              disabled={readOnly}
-              autoComplete="off"
-              onChange={(event) => patch({ entryPage: event.target.value })}
-            />
-          </label>
+          <TextField
+            label="AppID"
+            value={draft.appId || ""}
+            hint="例如 wx1234567890abcdef"
+            disabled={readOnly}
+            autoComplete="off"
+            onChange={(event) => patch({ appId: event.target.value })}
+          />
+          <TextField
+            label="小程序名称"
+            value={draft.appName || ""}
+            disabled={readOnly}
+            autoComplete="off"
+            onChange={(event) => patch({ appName: event.target.value })}
+          />
+          <TextField
+            label="默认启动首页"
+            value={draft.entryPage || ""}
+            hint="例如 pages/index/index"
+            disabled={readOnly}
+            autoComplete="off"
+            onChange={(event) => patch({ entryPage: event.target.value })}
+          />
           {renderSecret("wechat_upload_key")}
         </section>
       ) : null}
@@ -821,82 +777,83 @@ export function ProjectMiniProgramConfig({
                       ? "请选择开发环境和生产环境。生产环境留空则沿用开发环境。"
                       : "这个凭据下没有可用环境。")}
               </p>
-              <div className="miniprogram-env-grid miniprogram-env-grid-head" aria-hidden="true">
-                <span />
-                <span>环境</span>
-                <span>Publishable Key</span>
-                <span>服务端 API Key</span>
+              <div className="miniprogram-env-cards">
+                {(Object.keys(ENVIRONMENT_LABELS) as EnvironmentKind[]).map((kind) => {
+                  const currentEnvId = draft.cloudbaseEnvs[kind]?.envId || "";
+                  const orphanEnvId =
+                    currentEnvId && !accountEnvs.some((item) => item.envId === currentEnvId)
+                      ? currentEnvId
+                      : "";
+                  const envOptions = [
+                    {
+                      value: "",
+                      label: kind === "production" ? "留空沿用开发环境" : "不使用 CloudBase",
+                    },
+                    ...(orphanEnvId ? [{ value: orphanEnvId, label: orphanEnvId }] : []),
+                    ...accountEnvs.map((item) => ({
+                      value: item.envId,
+                      label: (item.alias ? item.alias + " · " : "") + item.envId,
+                    })),
+                  ];
+                  return (
+                    <div className="miniprogram-env-card" key={kind}>
+                      <h4>{ENVIRONMENT_LABELS[kind]}</h4>
+                      <SelectField
+                        label="云环境"
+                        aria-label={ENVIRONMENT_LABELS[kind]}
+                        value={currentEnvId}
+                        disabled={
+                          readOnly ||
+                          !draft.secrets.cloudbase_credential.configured ||
+                          accountEnvBusy
+                        }
+                        onChange={(envId) => {
+                          const match = accountEnvs.find((item) => item.envId === envId);
+                          setEnv(kind, envId, match?.region || null);
+                        }}
+                        options={envOptions}
+                      />
+                      <TextField
+                        label="Publishable Key"
+                        aria-label={`${ENVIRONMENT_LABELS[kind]} Publishable Key`}
+                        value={publishableKeys[kind]}
+                        maxLength={16384}
+                        hint={kind === "development" ? "粘贴 Publishable Key" : "留空沿用开发环境"}
+                        disabled={readOnly || busy}
+                        autoComplete="off"
+                        spellCheck={false}
+                        onChange={(event) =>
+                          setPublishableKeys((previous) => ({
+                            ...previous,
+                            [kind]: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        label="服务端 API Key"
+                        type="password"
+                        aria-label={ENVIRONMENT_LABELS[kind] + " 服务端 API Key"}
+                        value={serverApiKeys[kind]}
+                        maxLength={16384}
+                        hint={
+                          !currentEnvId
+                            ? "先选择环境"
+                            : serverApiKeyConfigured[kind]
+                              ? "已保存，留空不修改"
+                              : "这个环境的服务端 API Key"
+                        }
+                        disabled={readOnly || busy || !currentEnvId}
+                        autoComplete="new-password"
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setServerApiKeys((previous) => ({ ...previous, [kind]: value }));
+                          setServerApiKeyDirty((previous) => ({ ...previous, [kind]: true }));
+                        }}
+                      />
+                    </div>
+                  );
+                })}
               </div>
-              {(Object.keys(ENVIRONMENT_LABELS) as EnvironmentKind[]).map((kind) => (
-                <div className="miniprogram-env-grid" key={kind}>
-                  <span>{ENVIRONMENT_LABELS[kind]}</span>
-                  <select
-                    aria-label={ENVIRONMENT_LABELS[kind]}
-                    value={draft.cloudbaseEnvs[kind]?.envId || ""}
-                    disabled={
-                      readOnly || !draft.secrets.cloudbase_credential.configured || accountEnvBusy
-                    }
-                    onChange={(event) => {
-                      const envId = event.target.value;
-                      const match = accountEnvs.find((item) => item.envId === envId);
-                      setEnv(kind, envId, match?.region || null);
-                    }}
-                  >
-                    <option value="">
-                      {kind === "production" ? "留空沿用开发环境" : "不使用 CloudBase"}
-                    </option>
-                    {draft.cloudbaseEnvs[kind]?.envId &&
-                    !accountEnvs.some((item) => item.envId === draft.cloudbaseEnvs[kind]?.envId) ? (
-                      <option value={draft.cloudbaseEnvs[kind]?.envId}>
-                        {draft.cloudbaseEnvs[kind]?.envId}
-                      </option>
-                    ) : null}
-                    {accountEnvs.map((item) => (
-                      <option key={item.envId} value={item.envId}>
-                        {(item.alias ? item.alias + " · " : "") + item.envId}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    aria-label={`${ENVIRONMENT_LABELS[kind]} Publishable Key`}
-                    value={publishableKeys[kind]}
-                    maxLength={16384}
-                    placeholder={
-                      kind === "development" ? "粘贴 Publishable Key" : "留空沿用开发环境"
-                    }
-                    disabled={readOnly || busy}
-                    autoComplete="off"
-                    spellCheck={false}
-                    onChange={(event) =>
-                      setPublishableKeys((previous) => ({
-                        ...previous,
-                        [kind]: event.target.value,
-                      }))
-                    }
-                  />
-                  <input
-                    type="password"
-                    aria-label={ENVIRONMENT_LABELS[kind] + " 服务端 API Key"}
-                    value={serverApiKeys[kind]}
-                    maxLength={16384}
-                    placeholder={
-                      !draft.cloudbaseEnvs[kind]?.envId
-                        ? "先选择环境"
-                        : serverApiKeyConfigured[kind]
-                          ? "已保存，留空不修改"
-                          : "这个环境的服务端 API Key"
-                    }
-                    disabled={readOnly || busy || !draft.cloudbaseEnvs[kind]?.envId}
-                    autoComplete="new-password"
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      setServerApiKeys((previous) => ({ ...previous, [kind]: value }));
-                      setServerApiKeyDirty((previous) => ({ ...previous, [kind]: true }));
-                    }}
-                  />
-                </div>
-              ))}
               <p className="muted miniprogram-note">
                 留空则没有 CloudBase。Admin 预览、云数据库、云存储、云函数和静态托管都不可用。Dimina
                 预览和微信上传不受影响。生产环境留空时沿用开发环境。
@@ -953,19 +910,17 @@ export function ProjectMiniProgramConfig({
       ) : null}
       {section === "cloudbase" && draft?.appId && draft.secrets.cloudbase_credential.configured ? (
         <section className="miniprogram-config-section cloudbase-auth-settings">
-          <div className="miniprogram-section-heading-row">
-            <h4>CloudBase 身份认证</h4>
-            <select
-              value={selectedCloudbaseEnvironment}
-              disabled={readOnly || authBusy || adminBusy}
-              onChange={(event) =>
-                setSelectedCloudbaseEnvironment(event.target.value as EnvironmentKind)
-              }
-            >
-              <option value="development">开发环境</option>
-              <option value="production">生产环境</option>
-            </select>
-          </div>
+          <h4>CloudBase 身份认证</h4>
+          <SelectField
+            label="同步环境"
+            value={selectedCloudbaseEnvironment}
+            disabled={readOnly || authBusy || adminBusy}
+            options={[
+              { value: "development", label: "开发环境" },
+              { value: "production", label: "生产环境" },
+            ]}
+            onChange={(value) => setSelectedCloudbaseEnvironment(value as EnvironmentKind)}
+          />
           {selectedAuth ? (
             <>
               <p className="muted miniprogram-note">
@@ -999,49 +954,61 @@ export function ProjectMiniProgramConfig({
                   </small>
                 </div>
                 {!readOnly ? (
-                  <div className="cloudbase-admin-fields">
-                    <input
-                      type="text"
-                      value={adminDraft.username}
-                      placeholder="用户名或邮箱"
-                      autoComplete="username"
-                      onChange={(event) =>
-                        setAdminDraft((previous) => ({ ...previous, username: event.target.value }))
-                      }
-                    />
-                    <input
-                      type="password"
-                      value={adminDraft.password}
-                      placeholder="新密码（至少 8 位）"
-                      autoComplete="new-password"
-                      onChange={(event) =>
-                        setAdminDraft((previous) => ({ ...previous, password: event.target.value }))
-                      }
-                    />
-                    <input
-                      type="password"
-                      value={adminDraft.confirmPassword}
-                      placeholder="确认密码"
-                      autoComplete="new-password"
-                      onChange={(event) =>
-                        setAdminDraft((previous) => ({
-                          ...previous,
-                          confirmPassword: event.target.value,
-                        }))
-                      }
-                    />
-                    <button
-                      type="button"
-                      disabled={adminBusy}
-                      onClick={() => void saveAdminAccount()}
-                    >
-                      {adminBusy
-                        ? "同步中…"
-                        : selectedAdmin?.configured
-                          ? "重置并同步"
-                          : "创建并同步"}
-                    </button>
-                  </div>
+                  <>
+                    <div className="cloudbase-admin-fields">
+                      <TextField
+                        label="管理员账号"
+                        value={adminDraft.username}
+                        hint="用户名或邮箱"
+                        autoComplete="username"
+                        onChange={(event) =>
+                          setAdminDraft((previous) => ({
+                            ...previous,
+                            username: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        label="新密码"
+                        type="password"
+                        value={adminDraft.password}
+                        hint="至少 8 位"
+                        autoComplete="new-password"
+                        onChange={(event) =>
+                          setAdminDraft((previous) => ({
+                            ...previous,
+                            password: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        label="确认密码"
+                        type="password"
+                        value={adminDraft.confirmPassword}
+                        hint="再输入一次新密码"
+                        autoComplete="new-password"
+                        onChange={(event) =>
+                          setAdminDraft((previous) => ({
+                            ...previous,
+                            confirmPassword: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="miniprogram-config-actions">
+                      <button
+                        type="button"
+                        disabled={adminBusy}
+                        onClick={() => void saveAdminAccount()}
+                      >
+                        {adminBusy
+                          ? "同步中…"
+                          : selectedAdmin?.configured
+                            ? "重置并同步"
+                            : "创建并同步"}
+                      </button>
+                    </div>
+                  </>
                 ) : null}
               </div>
             </>

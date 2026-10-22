@@ -65,7 +65,6 @@ export async function downloadFolderArchive(
   } catch (error) {
     const detail = error instanceof Error ? error.message : "压缩包下载失败";
     setActionError(detail);
-    showTip(detail, "error");
   } finally {
     window.setTimeout(() => {
       setDownloadingFolderId(null);

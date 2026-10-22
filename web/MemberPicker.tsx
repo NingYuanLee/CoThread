@@ -1,12 +1,10 @@
+import { DialogFilters } from "./DialogFilters";
+import { DialogHeader } from "./DialogHeader";
 import React, { useEffect, useRef, useState } from "react";
 import { UiIcon } from "./ui-icon";
-import {
-  DialogClose,
-  animateDialogClose,
-  onDialogBackdropClick,
-  onDialogCancel,
-} from "./dialog-fx";
-import { showTip } from "./Tip";
+import { Dialog, animateDialogClose } from "./dialog-fx";
+import { showTip, useTipError } from "./Tip";
+import { SelectField } from "./SelectField";
 
 export function MemberPicker({
   projectId,
@@ -24,15 +22,26 @@ export function MemberPicker({
     { id: string; username: string; name: string; email: string | null; avatar?: string | null }[]
   >([]);
   const [search, setSearch] = useState("");
+  const [keyword, setKeyword] = useState("");
   const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useTipError();
   const [role, setRole] = useState<"member" | "viewer">("member");
   const load = () => api(`/users?projectId=${encodeURIComponent(projectId)}`).then(setAccounts);
   useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
-  useEffect(() => {
-    void load().catch((e) => setError(e.message));
+    let active = true;
+    setLoading(true);
+    setError("");
+    void load()
+      .catch((e) => {
+        if (active) setError(e.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [projectId]);
   const visible = accounts.filter((account) =>
     `${account.name} ${account.username} ${account.email || ""}`
@@ -41,40 +50,44 @@ export function MemberPicker({
   );
   const close = () => animateDialogClose(dialog.current, onClose);
   return (
-    <dialog
+    <Dialog
+      onRequestClose={onClose}
+      enabled={!busy}
       ref={dialog}
-      className="modal member-picker"
+      className="modal member-picker dialog-list"
       aria-labelledby="member-picker-title"
-      onCancel={onDialogCancel(onClose)}
-      onClick={onDialogBackdropClick(onClose, () => !busy)}
     >
-      <div className="modal-header">
-        <h2 id="member-picker-title">添加项目成员</h2>
-        <DialogClose onClick={close} label="关闭" disabled={!!busy} />
-      </div>
-      <input
-        autoFocus
-        className="member-search"
-        aria-label="搜索系统账号"
-        placeholder="搜索姓名或邮箱"
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
+      <DialogHeader
+        title={<>添加项目成员</>}
+        titleId="member-picker-title"
+        onClose={close}
+        disabled={!!busy}
+        closeLabel="关闭"
       />
-      <label className="member-role-select">
-        加入后角色
-        <select
-          value={role}
-          onChange={(event) => setRole(event.target.value as "member" | "viewer")}
-        >
-          <option value="member">普通成员（可编辑）</option>
-          <option value="viewer">只读成员（仅查看）</option>
-        </select>
-      </label>
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
+      <DialogFilters
+        label="成员列表筛选"
+        keyword={{
+          value: keyword,
+          onChange: setKeyword,
+          placeholder: "搜索姓名、用户名或邮箱",
+          autoFocus: true,
+        }}
+        onQuery={() => setSearch(keyword.trim())}
+        onReset={() => {
+          setKeyword("");
+          setSearch("");
+        }}
+        disabled={!!busy}
+      />
+      <SelectField
+        label="加入后角色"
+        value={role}
+        onChange={(next) => setRole(next as "member" | "viewer")}
+        options={[
+          { value: "member", label: "普通成员（可编辑）" },
+          { value: "viewer", label: "只读成员（仅查看）" },
+        ]}
+      />
       <div className="member-picker-list">
         {visible.map((account) => (
           <div className="member" key={account.id}>
@@ -103,7 +116,6 @@ export function MemberPicker({
                   })
                   .catch((e) => {
                     setError(e.message);
-                    showTip(e.message, "error");
                   })
                   .finally(() => setBusy(""));
               }}
@@ -119,8 +131,15 @@ export function MemberPicker({
             </button>
           </div>
         ))}
-        {!visible.length && <p className="empty-state">没有可添加的系统账号</p>}
+        {loading && (
+          <p role="status" className="empty-state">
+            正在加载账号…
+          </p>
+        )}
+        {!loading && !error && !visible.length && (
+          <p className="empty-state">没有可添加的系统账号</p>
+        )}
       </div>
-    </dialog>
+    </Dialog>
   );
 }

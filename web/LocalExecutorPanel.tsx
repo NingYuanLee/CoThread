@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { UiIcon } from "./ui-icon";
-import { showTip } from "./Tip";
+import { showTip, useTipError } from "./Tip";
 
 export type LocalExecutorDevice = {
   id: string;
@@ -47,7 +47,7 @@ export function LocalExecutorAccountSection({
   onChanged: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError();
   const [confirmId, setConfirmId] = useState("");
   const rows = [...devices].sort(
     (a, b) =>
@@ -66,7 +66,6 @@ export function LocalExecutorAccountSection({
     } catch (cause) {
       const detail = (cause as Error).message;
       setError(detail);
-      showTip(detail, "error");
     } finally {
       setBusy(false);
     }
@@ -143,11 +142,6 @@ export function LocalExecutorAccountSection({
             );
           })}
         </div>
-      )}
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
       )}
     </section>
   );

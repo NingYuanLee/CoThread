@@ -1,13 +1,32 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { api } from "./workspace-api";
 import { SystemManagement } from "./SystemManagement";
 import { AccountAuditList } from "./AccountAuditList";
+import { AdminAccountMenu } from "./AdminAccountMenu";
 import { AdminWorkManagement } from "./AdminWorkManagement";
 import { AdminRoles } from "./AdminRoles";
+import { LoginScreen } from "./LoginScreen";
+import { Notifications } from "./Notifications";
+import { ThemePicker } from "./ThemePicker";
 import { UiIcon, type UiIconName } from "./ui-icon";
+import { WorkspaceModals } from "./WorkspaceModals";
 import { ADMIN_PERMISSION_TREE, MY_WORK_MENU } from "../shared/admin-permissions.js";
+import { DEFAULT_UI_THEME } from "../shared/ui-theme.js";
 import { applyUiTheme } from "./apply-ui-theme";
+import type { LocalExecutorDevice } from "./LocalExecutorPanel";
+import type { PersonalProfile } from "./ProfileFields";
+import { showTip } from "./Tip";
+import { useAccountSession } from "./use-account-session";
 import { CoThreadLogo, PanelIcon } from "./workspace-chrome";
+import { submitWorkspaceModal } from "./workspace-modal-submit";
+import type { Modal, Project } from "./workspace-types";
 import "./workspace.css";
 import "./admin.css";
 
@@ -41,24 +60,58 @@ export function AdminApp() {
   const [leftOpen, setLeftOpen] = useState(
     () => localStorage.getItem("admin-left-open") !== "false",
   );
-  const [refresh, setRefresh] = useState(0);
+  const [profileReady, setProfileReady] = useState(false);
+  const [accountModal, setAccountModal] = useState<Modal>(null);
+  const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [projectImage, setProjectImage] = useState<string | null>(null);
+  const [health, setHealth] = useState<{ dshEnabled: boolean; mcpEndpoint?: string } | null>(null);
+  const [localExecutors, setLocalExecutors] = useState<LocalExecutorDevice[]>([]);
+  const [connectorsReady, setConnectorsReady] = useState(false);
+  const seenAccount = useRef<string | null>(null);
+  const {
+    user,
+    savedAccounts,
+    acceptProfile,
+    forgetSavedLogin,
+    logoutCurrent,
+    loginAnother,
+    switchSavedAccount,
+  } = useAccountSession();
   const loadAccess = useCallback(async () => {
     const next = await api("/admin/access");
     setAccess(next);
     return next as Access;
   }, []);
   useEffect(() => {
-    void loadAccess().catch((e) => setError(e.message));
+    void loadAccess().catch((cause) => {
+      if ((cause as { status?: number }).status === 401) return;
+      setError((cause as Error).message);
+    });
     void api("/me")
-      .then((user) => applyUiTheme(user.ui_theme))
-      .catch(() => {});
+      .then((profile: PersonalProfile) => {
+        acceptProfile(profile);
+        applyUiTheme(profile.ui_theme || DEFAULT_UI_THEME);
+      })
+      .catch((cause) => {
+        if ((cause as { status?: number }).status !== 401) setError((cause as Error).message);
+      })
+      .finally(() => setProfileReady(true));
     const onPop = () => {
       setPage(readPage());
       setAuditQuery(window.location.search);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [loadAccess]);
+  }, [acceptProfile, loadAccess]);
+  useEffect(() => {
+    if (!user) return;
+    applyUiTheme(user.ui_theme || DEFAULT_UI_THEME);
+    if (seenAccount.current && seenAccount.current !== user.id) {
+      void loadAccess().catch((cause) => setError((cause as Error).message));
+    }
+    seenAccount.current = user.id;
+  }, [loadAccess, user]);
   useEffect(() => {
     if (access && !page) {
       const first =
@@ -84,8 +137,16 @@ export function AdminApp() {
     setAuditQuery(search);
     setPage(key);
   };
-  if (error || !access)
-    return (
+  if (!user || !profileReady || !access || error)
+    return profileReady && !user && !error ? (
+      <LoginScreen
+        onLogin={(profile) => {
+          acceptProfile(profile);
+          applyUiTheme(profile.ui_theme || DEFAULT_UI_THEME);
+          void loadAccess().catch((cause) => setError((cause as Error).message));
+        }}
+      />
+    ) : (
       <main className="admin-boot">
         <UiIcon name="shield" size={36} />
         <h1>管理空间</h1>
@@ -94,6 +155,28 @@ export function AdminApp() {
         <a href="/">返回工作空间</a>
       </main>
     );
+  const accountTitle = `${user.name} · ${access.isSuperAdmin ? "超级管理员" : access.roles.map((role) => role.name).join("、") || "成员"}`;
+  const runAccount = async (task: () => Promise<void>) => {
+    setAccountBusy(true);
+    try {
+      await task();
+    } catch (cause) {
+      showTip((cause as Error).message, "error");
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+  const refreshConnectors = async () => {
+    const [devices, status] = await Promise.all([
+      api("/local-executors"),
+      api("/health").catch(() => null),
+    ]);
+    setLocalExecutors(devices);
+    if (status) setHealth(status);
+    setConnectorsReady(true);
+  };
+  const ignoreProjects: Dispatch<SetStateAction<Project[]>> = () => {};
+  const ignoreProjectId: Dispatch<SetStateAction<string>> = () => {};
   return (
     <div className={`admin-shell ${leftOpen ? "" : "left-closed"}`}>
       <aside className="admin-sidebar">
@@ -182,31 +265,63 @@ export function AdminApp() {
           <div className="admin-topbar-actions">
             <a
               className="sidebar-toggle workspace-help-link"
-              href="/"
-              aria-label="返回工作空间"
-              title="返回工作空间"
+              href="/about_us.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="关于我们"
+              aria-label="关于我们"
             >
-              <UiIcon name="layout" size={18} />
+              <UiIcon name="info" size={20} />
             </a>
-            <button
-              className="sidebar-toggle"
-              aria-label="刷新权限与列表"
-              title="刷新权限与列表"
-              onClick={() => {
-                void loadAccess()
-                  .then(() => setRefresh((value) => value + 1))
-                  .catch((e) => setError(e.message));
+            <a
+              className="sidebar-toggle workspace-help-link"
+              href="/docs.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="使用手册"
+              aria-label="使用手册"
+            >
+              <UiIcon name="book" size={20} />
+            </a>
+            <ThemePicker
+              theme={user.ui_theme || DEFAULT_UI_THEME}
+              api={api}
+              onChange={acceptProfile}
+            />
+            <Notifications
+              key={access.user.id}
+              api={api}
+              onOpen={(target) => {
+                try {
+                  const selection: { projectId?: string; threadId?: string } = {};
+                  if (typeof target?.projectId === "string") selection.projectId = target.projectId;
+                  if (typeof target?.threadId === "string" && target.threadId)
+                    selection.threadId = target.threadId;
+                  sessionStorage.setItem("cothread-selection", JSON.stringify(selection));
+                } catch {
+                  /* 选择写不进去时仍回到工作空间 */
+                }
+                window.location.assign("/");
               }}
+            />
+            <a
+              className="sidebar-toggle workspace-help-link workspace-space-switch"
+              href="/"
+              aria-label="切换到工作空间"
+              title="切换到工作空间"
             >
-              <UiIcon name="refresh" size={18} />
-            </button>
-            <span
-              className="sidebar-toggle admin-account-icon"
-              aria-label={access.user.name}
-              title={`${access.user.name} · ${access.isSuperAdmin ? "超级管理员" : access.roles.map((role) => role.name).join("、") || "成员"}`}
-            >
-              <UiIcon name="members" size={18} />
-            </span>
+              <UiIcon name="transfer" size={14} />
+              <span>工作空间</span>
+            </a>
+            <AdminAccountMenu
+              user={user}
+              title={accountTitle}
+              busy={accountBusy}
+              onOpen={(panel) => {
+                if (panel === "profile") setProfileAvatar(user.avatar ?? null);
+                setAccountModal(panel);
+              }}
+            />
           </div>
         </header>
         <main
@@ -215,7 +330,7 @@ export function AdminApp() {
           {allowed ? (
             <div
               className={`admin-content-card ${workPages.includes(page) ? "admin-content-work-card" : ""} ${listPages.includes(page) ? "admin-content-list-card" : ""}`}
-              key={`${page}-${refresh}-${page.startsWith("account-") ? auditQuery : ""}`}
+              key={`${page}-${user.id}-${page.startsWith("account-") ? auditQuery : ""}`}
             >
               {["projects", "accounts", "plugins"].includes(page) && (
                 <SystemManagement
@@ -283,6 +398,53 @@ export function AdminApp() {
           )}
         </main>
       </div>
+      <WorkspaceModals
+        modal={accountModal}
+        setModal={setAccountModal}
+        open={(value) => {
+          if (value === "profile") setProfileAvatar(user.avatar ?? null);
+          if (value === "mcp")
+            void refreshConnectors().catch((cause) => showTip((cause as Error).message, "error"));
+          setAccountModal(value);
+        }}
+        busy={accountBusy}
+        submitModal={(event) =>
+          submitWorkspaceModal(
+            {
+              modal: accountModal,
+              run: runAccount,
+              refresh: async () => {},
+              profileAvatar,
+              projectImage,
+              threadId: "",
+              acceptProfile,
+              setProjects: ignoreProjects,
+              setProjectId: ignoreProjectId,
+              setModal: setAccountModal,
+            },
+            event,
+          )
+        }
+        error=""
+        projectId=""
+        refreshConnectors={refreshConnectors}
+        user={user}
+        acceptProfile={acceptProfile}
+        profileAvatar={profileAvatar}
+        setProfileAvatar={setProfileAvatar}
+        savedAccounts={savedAccounts}
+        projectImage={projectImage}
+        setProjectImage={setProjectImage}
+        health={health}
+        localExecutors={localExecutors}
+        connectorsReady={connectorsReady}
+        run={runAccount}
+        switchSavedAccount={switchSavedAccount}
+        logoutCurrent={logoutCurrent}
+        forgetSavedLogin={forgetSavedLogin}
+        loginAnother={loginAnother}
+        settingsSpaceLabel="管理空间"
+      />
     </div>
   );
 }

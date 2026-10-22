@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createMcpInstallGuide } from "../shared/mcp-guide.js";
 import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";
 import { UiIcon, type UiIconName } from "./ui-icon";
-import { showTip } from "./Tip";
+import { showTip, useTipError } from "./Tip";
 import { LocalExecutorAccountSection, type LocalExecutorDevice } from "./LocalExecutorPanel";
 
 type Api = (path: string, data?: unknown, method?: string) => Promise<any>;
@@ -24,7 +24,7 @@ export function McpSettings({
   const [credential, setCredential] = useState<{ token: string; expiresAt: string } | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError();
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState<"token" | "guide" | "">("");
   const copyTimer = useRef(0);
@@ -79,7 +79,6 @@ export function McpSettings({
       showTip(message);
     } catch {
       setError("无法写入剪贴板，请检查浏览器权限后重试");
-      showTip("无法写入剪贴板，请检查浏览器权限后重试", "error");
     }
   };
   const reset = async () => {
@@ -101,7 +100,6 @@ export function McpSettings({
     } catch (cause) {
       const detail = (cause as Error).message;
       setError(detail);
-      showTip(detail, "error");
     } finally {
       setBusy(false);
     }
@@ -174,11 +172,6 @@ export function McpSettings({
                   {notice}
                 </p>
               )}
-              {error && (
-                <p className="error" role="alert">
-                  {error}
-                </p>
-              )}
             </>
           )
         )}
@@ -233,11 +226,6 @@ export function McpSettings({
           ))}
         </div>
       </section>
-      {!credential && error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
     </div>
   );
 }

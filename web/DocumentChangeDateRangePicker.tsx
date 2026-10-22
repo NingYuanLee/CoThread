@@ -1,3 +1,4 @@
+import { FloatingPanel } from "./FloatingPanel";
 import { useEffect, useRef, useState } from "react";
 import { UiIcon } from "./ui-icon";
 
@@ -81,7 +82,8 @@ export function DocumentChangeDateRangePicker({
         <UiIcon name="layout" size={14} />
       </button>
       {open ? (
-        <div
+        <FloatingPanel
+          onDismiss={() => setOpen(false)}
           className="document-change-log-date-range-popover"
           role="dialog"
           aria-label="选择日期范围"
@@ -151,7 +153,7 @@ export function DocumentChangeDateRangePicker({
               </button>
             )}
           </div>
-        </div>
+        </FloatingPanel>
       ) : null}
     </div>
   );

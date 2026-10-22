@@ -1,0 +1,1525 @@
+:root {
+  /* 圆角只调这两个值。
+     --radius-control：按钮（含图标按钮）、卡片（含聊天气泡、会话条、任务条）、输入框
+     --radius-overlay：弹窗、悬浮面板、菜单、下拉和提示 */
+  --radius-control: 12px;
+  --radius-overlay: 10px;
+  --overlay-dialog-radius: var(--radius-overlay);
+  --overlay-panel-radius: var(--radius-overlay);
+  --overlay-menu-radius: var(--radius-overlay);
+  --overlay-tip-radius: var(--radius-overlay);
+  --overlay-dialog-padding: 0px;
+  --overlay-panel-padding: 14px;
+  --overlay-menu-padding: 6px;
+  --overlay-select-panel-padding: 4px;
+  --overlay-select-panel-radius: var(--radius-overlay);
+  --overlay-select-panel-offset: 4px;
+  --overlay-body-padding: 20px;
+  --overlay-header-bg: color-mix(in srgb, var(--c-f8faf8) 66%, transparent);
+  --overlay-header-blur: blur(28px) saturate(180%);
+  --overlay-enter-duration: 190ms;
+  --overlay-exit-duration: 190ms;
+  --overlay-tip-duration: 240ms;
+  --overlay-enter-easing: cubic-bezier(0.22, 1, 0.36, 1);
+  --overlay-exit-easing: cubic-bezier(0.4, 0, 1, 1);
+  /* 浮层玻璃。跟随主题色，不改提示条自己的数值。 */
+  --overlay-glass-bg: color-mix(in srgb, var(--c-f8faf8) 82%, transparent);
+  --overlay-glass-bg-float: color-mix(in srgb, var(--c-f8faf8) 76%, transparent);
+  --overlay-glass-bg-nested: color-mix(in srgb, var(--c-f8faf8) 90%, transparent);
+  --overlay-glass-fallback: var(--c-f8faf8);
+  --overlay-glass-border: color-mix(in srgb, var(--c-27362f) 14%, transparent);
+  --overlay-glass-border-float: color-mix(in srgb, var(--c-27362f) 10%, transparent);
+  --overlay-glass-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--c-f8faf8) 85%, transparent), 0 16px 44px rgb(0 0 0 / 18%);
+  --overlay-glass-shadow-float:
+    inset 0 1px 0 color-mix(in srgb, var(--c-f8faf8) 85%, transparent), 0 8px 22px rgb(0 0 0 / 14%);
+  --overlay-glass-blur: blur(18px) saturate(150%);
+  --overlay-mask: rgb(15 20 18 / 10%);
+  --overlay-mask-nested: rgb(15 20 18 / 6%);
+  --overlay-mask-blur: blur(6px);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --overlay-glass-bg: var(--overlay-glass-fallback);
+    --overlay-glass-bg-float: var(--overlay-glass-fallback);
+    --overlay-glass-bg-nested: var(--overlay-glass-fallback);
+    --overlay-header-bg: var(--overlay-glass-fallback);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --overlay-glass-bg: var(--overlay-glass-fallback);
+    --overlay-glass-bg-float: var(--overlay-glass-fallback);
+    --overlay-glass-bg-nested: var(--overlay-glass-fallback);
+    --overlay-header-bg: var(--overlay-glass-fallback);
+    --overlay-header-blur: none;
+    --overlay-glass-blur: none;
+    --overlay-mask-blur: none;
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --overlay-glass-bg: Canvas;
+    --overlay-glass-bg-float: Canvas;
+    --overlay-glass-bg-nested: Canvas;
+    --overlay-header-bg: Canvas;
+    --overlay-header-blur: none;
+    --overlay-glass-border: CanvasText;
+    --overlay-glass-border-float: CanvasText;
+    --overlay-glass-shadow: none;
+    --overlay-glass-shadow-float: none;
+    --overlay-glass-blur: none;
+    --overlay-mask: Canvas;
+    --overlay-mask-nested: Canvas;
+    --overlay-mask-blur: none;
+  }
+}
+
+.tip-host {
+  position: fixed;
+  inset: max(72px, calc(env(safe-area-inset-top) + 24px)) max(18px, env(safe-area-inset-right)) auto
+    auto;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  width: max-content;
+  max-width: min(340px, calc(100vw - 36px));
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+  pointer-events: none;
+}
+.tip-host:popover-open {
+  display: flex;
+}
+.tip-host::backdrop {
+  background: transparent;
+  pointer-events: none;
+}
+.tip-toolbar {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  height: 28px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+.tip-toolbar.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.tip-close-all {
+
+  display: block;
+
+  height: 28px;
+
+  padding: 3px 10px;
+
+  border: 1px solid transparent;
+
+  border-radius: var(--overlay-tip-radius);
+
+  background: var(--overlay-glass-bg-float);
+
+  color: var(--c-27362f);
+
+  backdrop-filter: var(--overlay-glass-blur);
+
+  -webkit-backdrop-filter: var(--overlay-glass-blur);
+
+  font-size: 12px;
+
+  line-height: 20px;
+  position: relative;
+  --stroke: var(--overlay-glass-border-float);
+
+  --stroke-radius: calc((var(--overlay-tip-radius)) * 2);
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+.tip-close-all::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
+.tip-close-all:hover {
+  background: var(--c-f8faf8);
+}
+.tip-close-all:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.tip-slot {
+  flex: none;
+  width: max-content;
+  max-width: 100%;
+  margin-bottom: 10px;
+  transition:
+    height var(--overlay-tip-duration) ease,
+    margin-bottom var(--overlay-tip-duration) ease;
+}
+.tip-slot:last-child {
+  margin-bottom: 0;
+}
+.tip-item {
+
+  pointer-events: auto;
+
+  display: flex;
+
+  align-items: center;
+
+  gap: 10px;
+
+  width: max-content;
+
+  max-width: 100%;
+
+  min-height: 46px;
+
+  padding: 10px 12px;
+
+  border: 1px solid transparent;
+
+  border-radius: calc(var(--overlay-tip-radius) * 2);
+
+  background: var(--overlay-glass-bg-float);
+
+  color: var(--c-27362f);
+
+  backdrop-filter: var(--overlay-glass-blur);
+
+  -webkit-backdrop-filter: var(--overlay-glass-blur);
+
+  box-shadow: var(--overlay-glass-shadow-float);
+
+  font-size: 13px;
+
+  line-height: 20px;
+  position: relative;
+  --stroke: var(--overlay-glass-border-float);
+
+  --stroke-radius: calc((calc(var(--overlay-tip-radius) * 2)) * 2);
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+.tip-item::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
+.tip-item.is-leaving {
+  pointer-events: none;
+  animation: tip-out var(--overlay-tip-duration) ease forwards;
+}
+.tip-icon {
+  flex: none;
+  color: var(--tip-ink);
+}
+.tip-message {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tip-item.is-multiline {
+  align-items: flex-start;
+}
+.tip-item.is-multiline .tip-icon {
+  margin-top: 3px;
+}
+.tip-item.is-multiline .tip-message {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.tip-success {
+  --tip-ink: var(--c-4d7642);
+}
+.tip-error {
+  --tip-ink: var(--c-a3332d);
+}
+.tip-warning {
+  --tip-ink: var(--c-7b5c20);
+}
+.tip-info {
+  --tip-ink: #286a9a;
+}
+.tip-countdown {
+  flex: none;
+  color: var(--icon);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tip-undo {
+  flex: none;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+
+  --stroke-radius: calc((var(--radius-control)) * 2);}
+.tip-undo:hover {
+  color: #1d4ed8;
+  background: #2563eb12;
+}
+.tip-copy,
+.tip-dismiss {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--icon);
+
+  --stroke-radius: calc((var(--radius-control)) * 2);}
+.tip-dismiss:hover {
+  color: var(--c-27362f);
+  background: color-mix(in srgb, var(--c-27362f) 7%, transparent);
+}
+.tip-copy {
+  color: #2563eb;
+}
+.tip-copy:hover {
+  background: #2563eb12;
+}
+.tip-copy.is-failed {
+  color: var(--c-a3332d);
+}
+.tip-undo:focus-visible,
+.tip-copy:focus-visible,
+.tip-dismiss:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.tip-copy:disabled,
+.tip-dismiss:disabled {
+  opacity: 0.35;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tip-slot,
+  .tip-toolbar {
+    transition: none;
+  }
+  .tip-item,
+  .tip-item.is-leaving {
+    animation: none;
+  }
+}
+
+@keyframes tip-out {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(var(--overlay-x, 100%), var(--overlay-y, 0px), 0);
+  }
+}
+/* Component-owned rules are deliberately locked against business page overrides. */
+[data-direction] {
+  --overlay-x: 0px;
+  --overlay-y: 12px;
+}
+[data-direction="up"] {
+  --overlay-y: -12px;
+}
+[data-direction="left"] {
+  --overlay-x: -16px;
+  --overlay-y: 0px;
+}
+[data-direction="right"] {
+  --overlay-x: 16px;
+  --overlay-y: 0px;
+}
+[data-direction="none"] {
+  --overlay-x: 0px;
+  --overlay-y: 0px;
+}
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+    translate: var(--overlay-x) var(--overlay-y);
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes overlay-out {
+  from {
+    opacity: 1;
+    translate: 0 0;
+  }
+  to {
+    opacity: 0;
+    translate: var(--overlay-x) var(--overlay-y);
+  }
+}
+@keyframes overlay-mask-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes overlay-mask-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+html
+  body
+  :is(
+    [data-overlay="dialog"],
+    [data-overlay="dialog-shell"] > :not(.tip-host, .floating-layer-host, .overlay-exit-host)
+  ) {
+
+  padding: var(--overlay-dialog-padding) !important;
+
+  border: 1px solid var(--stroke) !important;
+
+  border-radius: var(--overlay-dialog-radius) !important;
+
+  background: var(--overlay-glass-bg) !important;
+
+  box-shadow: var(--overlay-glass-shadow) !important;
+
+  backdrop-filter: var(--overlay-glass-blur) !important;
+
+  -webkit-backdrop-filter: var(--overlay-glass-blur) !important;
+
+  background-clip: padding-box !important;
+
+  animation: overlay-in var(--overlay-enter-duration) var(--overlay-enter-easing) both !important;
+  position: relative;
+  --stroke: var(--overlay-glass-border);
+
+  --stroke-radius: calc(var(--overlay-dialog-radius) * 2);
+}
+html body :is( [data-overlay="dialog"], [data-overlay="dialog-shell"] > :not(.tip-host, .floating-layer-host, .overlay-exit-host) )::after {
+  content: none;
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: inherit;
+  transform: none;
+}
+
+html
+  body
+  :is(
+    [data-overlay="dialog"].is-closing,
+    [data-overlay="dialog-shell"].is-closing
+      > :not(.tip-host, .floating-layer-host, .overlay-exit-host)
+  ) {
+  animation: overlay-out var(--overlay-exit-duration) var(--overlay-exit-easing) forwards !important;
+  pointer-events: none;
+}
+html body dialog[data-overlay="dialog-shell"] {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  overflow: auto;
+  transform: none;
+  animation: none !important;
+
+  --stroke-radius: 0;}
+html body dialog[data-overlay]::backdrop {
+  background: var(--overlay-mask) !important;
+  backdrop-filter: var(--overlay-mask-blur) !important;
+  -webkit-backdrop-filter: var(--overlay-mask-blur) !important;
+  animation: overlay-mask-in var(--overlay-enter-duration) ease both !important;
+}
+html body dialog[data-dialog-depth]:not([data-dialog-depth="1"])::backdrop {
+  background: var(--overlay-mask-nested) !important;
+}
+html body dialog[data-overlay].is-closing::backdrop {
+  animation: overlay-mask-out var(--overlay-exit-duration) ease forwards !important;
+}
+html body :is([data-overlay="panel"], [data-overlay="menu"]) {
+
+  padding: var(--overlay-panel-padding) !important;
+
+  border: 1px solid transparent !important;
+
+  border-radius: var(--overlay-panel-radius) !important;
+
+  background: var(--overlay-glass-bg-float) !important;
+
+  box-shadow: var(--overlay-glass-shadow-float) !important;
+
+  backdrop-filter: var(--overlay-glass-blur) !important;
+
+  -webkit-backdrop-filter: var(--overlay-glass-blur) !important;
+
+  background-clip: padding-box !important;
+
+  animation: overlay-in var(--overlay-enter-duration) var(--overlay-enter-easing) both !important;
+  position: relative;
+  --stroke: var(--overlay-glass-border-float);
+  --stroke-radius: calc(var(--overlay-panel-radius) * 2);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+html body :is([data-overlay="panel"], [data-overlay="menu"])::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
+/* 含输入类控件外型组的弹窗：背景层与输入框同色（白），
+   避免输入框与承载层出现色差。变量仍集中在本文件维护。 */
+html body :is(dialog[data-overlay], [data-overlay="dialog-shell"]):has(.field) {
+  --overlay-glass-bg: var(--c-fff);
+}
+
+html body [data-overlay="menu"] {
+  border-radius: var(--overlay-menu-radius) !important;
+  padding: var(--overlay-menu-padding) !important;
+  --stroke-radius: calc(var(--overlay-menu-radius) * 2);
+}
+/* 这些浮层用视口坐标定位。上面的 position: relative 会盖掉 fixed，
+   块级盒子就被撑成门户全宽，发丝线也跟着拉满。 */
+html body :is(.doc-browser-tab-menu, .document-context-menu, .message-navigator-preview, .composer-mode-menu, .miniprogram-preview-refresh-menu) {
+  position: fixed;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  right: auto;
+  box-sizing: border-box;
+}
+
+/* 输入类控件下拉面板：比菜单更紧凑的内边距与圆角，变量仍集中在本文件维护。 */
+html body .field-select-panel {
+  padding: var(--overlay-select-panel-padding) !important;
+  border-radius: var(--overlay-select-panel-radius) !important;
+  /* 下拉紧贴触发器下边缘：动画位移同步缩短，避免起点落进输入框内部。 */
+  --overlay-y: calc(-1 * var(--overlay-select-panel-offset));
+
+  --stroke-radius: calc(var(--overlay-select-panel-radius) * 2);
+}
+html body [data-overlay="menu"] [role="menuitem"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-control);
+  box-shadow: none;
+  background: transparent;
+  color: var(--c-27362f);
+  font-size: 13px;
+  text-align: left;
+
+  --stroke-radius: calc((var(--radius-control)) * 2);}
+html body [data-overlay="menu"] [role="menuitem"]:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--c-27362f) 7%, transparent);
+}
+html body [data-overlay="menu"] [role="menuitem"].danger {
+  color: var(--c-a3332d);
+}
+html body .overlay-exiting[data-overlay] {
+  animation: overlay-out var(--overlay-exit-duration) var(--overlay-exit-easing) forwards !important;
+  pointer-events: none !important;
+}
+.overlay-exit-host {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+  pointer-events: none;
+}
+.overlay-exit-host::backdrop {
+  background: transparent;
+  pointer-events: none;
+}
+.dialog-plain-body {
+  display: block !important;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--overlay-body-padding) !important;
+}
+.dialog-plain-body > :first-child {
+  margin-top: 0;
+}
+.dialog-plain-body > :last-child {
+  margin-bottom: 0;
+}
+/* A fixed header/footer frame. Only the middle region may scroll. */
+html
+  body
+  :is([data-overlay="dialog"], [data-overlay="dialog-shell"] > [role="dialog"]):has(
+    .dialog-footer
+  ) {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+}
+html
+  body
+  :is([data-overlay="dialog"], [data-overlay="dialog-shell"] > [role="dialog"]):has(.dialog-footer)
+  > :is(
+    .dialog-plain-body,
+    .dialog-scroll-region,
+    .theme-grid,
+    .member-picker-list,
+    .library-picker-dialog-body,
+    .admin-dialog-body,
+    .thread-brief-editor,
+    .miniprogram-dialog-body
+  ) {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow: auto !important;
+}
+html
+  body
+  :is([data-overlay="dialog"], [data-overlay="dialog-shell"] > [role="dialog"]):has(.dialog-footer)
+  > form:has(.dialog-footer),
+html body :is(.admin-dialog-body, .dialog-plain-body):has(> form .dialog-footer),
+html body :is(.admin-dialog-body, .dialog-plain-body):has(> .dialog-footer),
+html body :is(.admin-dialog-body, .dialog-plain-body) > form:has(.dialog-footer) {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+}
+html body .dialog-form-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--overlay-body-padding);
+  overflow: auto;
+}
+html body .admin-editor-fields {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+html body .admin-dialog-body:has(.dialog-footer),
+html body .miniprogram-dialog-body:has(.dialog-footer),
+html body .dialog-footer-layout {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+}
+html body .admin-dialog-body:has(.dialog-footer)::before {
+  display: none;
+}
+html body .admin-dialog-body:not(:has(.dialog-footer)) > .dialog-form-scroll {
+  padding: 0;
+}
+html body .task-create-fields {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+html body .email-bind-dialog > .email-binding.dialog-footer-layout {
+  margin: 0;
+  border: 0;
+}
+html body .local-executor-authorization-dialog:has(.dialog-footer) > dl {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+html body .dialog-footer {
+
+  display: flex !important;
+
+  align-items: center !important;
+
+  justify-content: space-between !important;
+
+  flex: 0 0 auto !important;
+
+  align-self: stretch !important;
+
+  min-width: 0 !important;
+
+  gap: 16px !important;
+
+  position: relative !important;
+
+  inset: auto !important;
+
+  box-sizing: border-box !important;
+
+  width: 100% !important;
+
+  max-width: none !important;
+
+  min-height: 46px !important;
+
+  margin: 0 !important;
+
+  padding: 8px 20px !important;
+
+  border: 0 !important;
+
+  border-top: 1px solid transparent !important;
+
+  border-radius: 0 !important;
+
+  background: var(--overlay-header-bg) !important;
+
+  backdrop-filter: var(--overlay-header-blur) !important;
+
+  -webkit-backdrop-filter: var(--overlay-header-blur) !important;
+  --stroke: var(--overlay-glass-border-float);
+
+  --stroke-radius: 0;
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+html body .dialog-footer::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  width: auto;
+  height: 0;
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: solid;
+  border-color: var(--stroke);
+  border-width: 1px 0 0;
+  border-radius: 0;
+  transform: none;
+}
+
+html body .dialog-footer-left {
+  min-width: 0;
+  color: var(--c-73806f);
+  font-size: 12px;
+}
+html body .dialog-footer-actions {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  flex-wrap: wrap;
+  gap: 8px !important;
+  margin-left: auto;
+}
+html body .dialog-footer-pagination {
+  width: 100%;
+  min-width: 0;
+}
+html body .dialog-footer-pagination > :is(.pagination-control, .miniprogram-table-pagination) {
+  width: 100%;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+
+  --stroke-radius: 0;}
+html body .dialog-fullscreen:has(.dialog-footer) {
+  max-height: none !important;
+}
+html body button.overlay-icon-button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 30px !important;
+  min-width: 30px !important;
+  max-width: 30px !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  flex: 0 0 30px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: var(--radius-control) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--c-73806f) !important;
+  cursor: pointer;
+
+  --stroke-radius: calc((var(--radius-control)) * 2);}
+html body button.overlay-icon-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c-27362f) 7%, transparent) !important;
+  color: var(--c-27362f) !important;
+}
+html body button.overlay-icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+@keyframes overlay-icon-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.overlay-icon-spinning {
+  animation: overlay-icon-spin 0.9s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .overlay-icon-spinning {
+    animation: none;
+  }
+}
+/* The surface has no inset; the title bar and content own their own spacing. */
+html body .dialog-header {
+
+  box-sizing: border-box !important;
+
+  display: flex !important;
+
+  flex: 0 0 auto !important;
+
+  align-items: center !important;
+
+  justify-content: space-between !important;
+
+  flex-wrap: nowrap !important;
+
+  gap: 20px !important;
+
+  min-height: 48px !important;
+
+  width: 100% !important;
+
+  margin: 0 !important;
+
+  padding: 8px 20px !important;
+
+  border: 0 !important;
+
+  border-bottom: 1px solid transparent !important;
+
+  border-radius: 0 !important;
+
+  background: var(--overlay-header-bg) !important;
+
+  backdrop-filter: var(--overlay-header-blur) !important;
+
+  -webkit-backdrop-filter: var(--overlay-header-blur) !important;
+
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--c-fff) 48%, transparent) !important;
+  position: relative;
+  --stroke: var(--overlay-glass-border-float);
+
+  --stroke-radius: 0;
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+html body .dialog-header::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
+html
+  body
+  :is([data-overlay="dialog"], [data-overlay="dialog-shell"] > [role="dialog"]):not(
+    .dialog-fullscreen
+  )
+  .dialog-header {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+html body .dialog-header.is-dragging {
+  cursor: grabbing;
+}
+html.dialog-dragging,
+html.dialog-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+html body .dialog-header-left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  min-width: 0 !important;
+  flex: 1 !important;
+}
+html body .dialog-header-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 30px !important;
+  height: 30px !important;
+  flex: 0 0 30px !important;
+  color: var(--c-4f6257) !important;
+}
+html body .dialog-header-titles {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  gap: 2px !important;
+  min-width: 0 !important;
+}
+html body .dialog-header .dialog-header-title {
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 14px !important;
+  line-height: 20px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+  color: var(--c-27362f) !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+html body .dialog-header .dialog-header-subtitle {
+  display: flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 11px !important;
+  line-height: 16px !important;
+  color: var(--c-73806f) !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+html body .dialog-header-extra {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+}
+html body .dialog-header-actions,
+html body .dialog-header-custom-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-shrink: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+html body .dialog-header .dialog-header-control {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  flex: 0 0 30px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: var(--radius-control) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--c-73806f) !important;
+
+  --stroke-radius: calc((var(--radius-control)) * 2);}
+html body .dialog-header .dialog-header-control:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c-27362f) 7%, transparent) !important;
+  color: var(--c-27362f) !important;
+}
+html
+  body
+  :is([data-overlay="dialog"], [data-overlay="dialog-shell"] > [role="dialog"]).dialog-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100dvw !important;
+  height: 100dvh !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  box-sizing: border-box;
+  overflow: auto;
+
+  --stroke-radius: 0;}
+@media (prefers-reduced-motion: reduce) {
+  html body [data-overlay],
+  html body [data-overlay="dialog-shell"] > *,
+  html body dialog[data-overlay]::backdrop,
+  html body dialog[data-overlay].is-closing::backdrop {
+    animation: none !important;
+  }
+}
+/* Single-list dialogs use one filter layout and action pair. */
+html body .dialog-filters {
+
+  display: flex !important;
+
+  flex: 0 0 auto !important;
+
+  flex-wrap: wrap;
+
+  align-items: flex-end !important;
+
+  gap: 12px !important;
+
+  min-width: 0;
+
+  margin: 0 !important;
+
+  padding: 16px 20px !important;
+
+  border: 0;
+
+  border-bottom: 1px solid var(--stroke);
+
+  max-height: min(280px, 40dvh);
+
+  overflow: auto;
+  position: relative;
+  --stroke: var(--overlay-glass-border-float);
+}
+html body .dialog-filters::after {
+  content: none;
+  position: absolute;
+  inset: 0;
+
+  width: auto;
+  height: auto;
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  transform: none;
+
+}
+
+html body .dialog-filters > label {
+  display: flex !important;
+  flex-direction: column;
+  flex: 0 1 160px;
+  gap: 6px !important;
+  min-width: 0;
+  max-width: 100%;
+  height: auto !important;
+  margin: 0 !important;
+  font-size: 12px;
+}
+html body .dialog-filters > .dialog-filter-keyword {
+  /* 关键词字段用 TextField：容器只负责宽度，label 由控件自己渲染。 */
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 280px;
+  width: 280px;
+  min-width: 280px;
+  max-width: 280px;
+}
+
+html body .dialog-filters > .dialog-filter-keyword .field {
+  margin: 0 !important;
+}
+html body .dialog-filters > label:has(input[type="datetime-local"]) {
+  flex-basis: 210px;
+}
+/* 无 label 的输入控件容器：与筛选栏 label 项同布局。 */
+html body .dialog-filters > .dialog-filter-item {
+  display: flex !important;
+  flex-direction: column;
+  flex: 0 0 168px;
+  width: 168px;
+  max-width: 168px;
+  gap: 6px !important;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0 !important;
+  font-size: 12px;
+}
+html body .dialog-filters > .dialog-filter-item .field {
+  margin: 0 !important;
+}
+
+html body .dialog-filters > .document-change-log-date-range {
+  flex-basis: 260px;
+}
+html body .dialog-filters :is(input, select),
+html body .dialog-filters .document-change-log-date-range-trigger {
+
+  box-sizing: border-box;
+
+  width: 100% !important;
+
+  min-width: 0 !important;
+
+  height: 36px !important;
+
+  margin: 0 !important;
+
+  padding: 0 10px;
+
+  border: 1px solid var(--overlay-glass-border);
+
+  border-radius: var(--radius-control);
+
+  background: var(--c-fff);
+
+  color: var(--c-27362f);
+
+  font: inherit;
+
+  --stroke-radius: calc((var(--radius-control)) * 2);}
+html body .dialog-filters > label > span {
+  color: var(--c-73806f);
+  font-size: 11px;
+}
+html body .dialog-filter-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+html body .dialog-filter-actions > button {
+  box-sizing: border-box;
+  min-width: 64px;
+  height: 36px;
+  margin: 0;
+  padding: 0 14px;
+  font-size: 12px;
+}
+html body .admin-dialog-body:has(> .dialog-filters) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+html body .admin-dialog-body:has(> .dialog-filters)::before {
+  display: none;
+}
+html body .admin-dialog-body > .dialog-filters ~ .dialog-form-scroll {
+  padding: var(--overlay-body-padding);
+}
+@media (max-width: 520px) {
+  html body .dialog-filters > label {
+    flex: 1 1 160px;
+  }
+  html body .dialog-filters > .dialog-filter-keyword {
+    flex-basis: 100%;
+  }
+}
+/* Dialog dimensions are content-specific, with one viewport boundary. */
+:root {
+  --overlay-dialog-gap: 24px;
+  --overlay-dialog-viewport-width: calc(100dvw - 2 * var(--overlay-dialog-gap));
+  --overlay-dialog-viewport-height: calc(100dvh - 2 * var(--overlay-dialog-gap));
+}
+html
+  body
+  :is([data-overlay="dialog"], [data-overlay="dialog-shell"] > [role="dialog"]):not(
+    .dialog-fullscreen
+  ) {
+  box-sizing: border-box;
+  width: min(var(--overlay-dialog-width, 560px), var(--overlay-dialog-viewport-width));
+  height: var(--overlay-dialog-height, fit-content);
+  min-width: min(var(--overlay-dialog-min-width, 320px), var(--overlay-dialog-viewport-width));
+  min-height: min(var(--overlay-dialog-min-height, 0px), var(--overlay-dialog-viewport-height));
+  max-width: min(var(--overlay-dialog-max-width, 1440px), var(--overlay-dialog-viewport-width));
+  max-height: min(var(--overlay-dialog-max-height, 840px), var(--overlay-dialog-viewport-height));
+  margin: auto;
+}
+/* Short confirmations and account forms shrink to their contents. */
+html body :is(.library-organize-dialog, .profile-username-dialog, .miniprogram-confirm-dialog) {
+  --overlay-dialog-width: 440px;
+}
+html body :is(.email-bind-dialog, .profile-role-dialog) {
+  --overlay-dialog-width: 480px;
+}
+html body :is(.local-executor-authorization-dialog, .context-usage-dialog) {
+  --overlay-dialog-width: 520px;
+}
+html body :is(.library-form, .miniprogram-dialog),
+html body .library-organize-dialog:where(:has(textarea)) {
+  --overlay-dialog-width: 560px;
+}
+html body .archive-detail-dialog {
+  --overlay-dialog-width: 600px;
+}
+html body .thread-brief-dialog {
+  --overlay-dialog-width: 680px;
+}
+html body .task-create-dialog {
+  --overlay-dialog-width: 760px;
+}
+html body .admin-dialog {
+  --overlay-dialog-width: 800px;
+}
+html body .admin-dialog:has(.admin-editor) {
+  --overlay-dialog-width: 640px;
+}
+html body .admin-dialog:has(.permission-tree) {
+  --overlay-dialog-width: 800px;
+}
+html body .admin-dialog:has(.admin-table) {
+  --overlay-dialog-width: 960px;
+}
+/* Lists grow with rows, then scroll inside the fixed title/filter/footer frame. */
+html body :is(.member-picker, .theme-dialog) {
+  --overlay-dialog-width: 640px;
+  --overlay-dialog-max-height: 740px;
+}
+html body .project-picker {
+  --overlay-dialog-width: 800px;
+  --overlay-dialog-max-height: 740px;
+}
+html
+  body
+  :is(
+    .library-picker-dialog,
+    .document-file-info-dialog,
+    .project-summary-dialog,
+    .quoted-message-dialog,
+    .l3-task-detail-dialog
+  ) {
+  --overlay-dialog-width: 720px;
+  --overlay-dialog-max-height: 760px;
+}
+html body .l1-history-dialog {
+  --overlay-dialog-width: 960px;
+  --overlay-dialog-max-height: 680px;
+}
+html body .document-change-log-dialog {
+  --overlay-dialog-width: 1120px;
+  --overlay-dialog-max-height: 760px;
+}
+html body .miniprogram-records-dialog {
+  --overlay-dialog-width: 1200px;
+  --overlay-dialog-max-height: 740px;
+}
+html body .miniprogram-filter-dialog {
+  --overlay-dialog-width: 960px;
+  --overlay-dialog-max-height: 820px;
+}
+html body :is(.miniprogram-timer-dialog, .miniprogram-timer-editor-dialog) {
+  --overlay-dialog-width: 640px;
+}
+html body .miniprogram-release-dialog {
+  --overlay-dialog-width: 720px;
+}
+html body .miniprogram-log-dialog {
+  --overlay-dialog-width: 960px;
+  --overlay-dialog-max-height: 740px;
+}
+/* 设置弹窗与项目管理弹窗使用不透明白底，避免玻璃透过造成各页签色差。 */
+html body :is(.workspace-settings, .project-management-dialog) {
+  --overlay-glass-bg: var(--c-fff);
+  --overlay-glass-bg-float: var(--c-fff);
+  --overlay-glass-bg-nested: var(--c-fff);
+}
+
+/* Split panes, timelines and canvases need a stable working area. */
+html body :is(.project-management-dialog, .workspace-settings) {
+  --overlay-dialog-width: 1040px;
+  --overlay-dialog-height: min(740px, var(--overlay-dialog-viewport-height));
+  --overlay-dialog-min-height: 420px;
+}
+html body .thread-archive-dialog {
+  --overlay-dialog-width: 1040px;
+}
+html body .notification-dialog {
+  --overlay-dialog-width: 1120px;
+  --overlay-dialog-height: min(740px, var(--overlay-dialog-viewport-height));
+  --overlay-dialog-min-height: 420px;
+}
+html body :is(.task-pool-dialog, .agent-monitor, .agent-log-dialog) {
+  --overlay-dialog-width: 1280px;
+  --overlay-dialog-height: min(800px, var(--overlay-dialog-viewport-height));
+  --overlay-dialog-min-height: 440px;
+  --overlay-dialog-max-height: 900px;
+}
+html body .l3-task-session-dialog {
+  --overlay-dialog-width: 960px;
+  --overlay-dialog-height: min(760px, var(--overlay-dialog-viewport-height));
+}
+html body .l3-event-log-dialog {
+  --overlay-dialog-height: min(680px, var(--overlay-dialog-viewport-height));
+}
+html body .image-preview-dialog {
+  --overlay-dialog-width: 1200px;
+  --overlay-dialog-height: min(840px, var(--overlay-dialog-viewport-height));
+  --overlay-dialog-min-height: 320px;
+}
+html body .miniprogram-workbench-dialog {
+  --overlay-dialog-width: 1440px;
+  --overlay-dialog-height: min(880px, var(--overlay-dialog-viewport-height));
+  --overlay-dialog-min-height: 440px;
+  --overlay-dialog-max-height: 960px;
+}
+@media (max-width: 600px), (max-height: 500px) {
+  :root {
+    --overlay-dialog-gap: 12px;
+  }
+}
+
+html body .admin-dialog.admin-confirm-dialog,
+html body .archive-detail-dialog:where(:not(:has(textarea))) {
+  --overlay-dialog-width: 440px;
+}
+html body .folder-guide-dialog {
+  --overlay-dialog-width: 560px;
+}
+html body .dialog-scroll-region {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+/* Single-list dialogs grow from their rows. The list owns overflow once the
+   viewport is full; the dialog surface itself never becomes a second scroller. */
+html
+  body
+  :is(
+    .member-picker,
+    .project-picker,
+    .document-change-log-dialog,
+    .miniprogram-records-dialog,
+    .l1-history-dialog,
+    .admin-dialog:has(.admin-table)
+  ) {
+  display: flex;
+  flex-direction: column;
+  --overlay-dialog-height: fit-content;
+  overflow: hidden !important;
+}
+html
+  body
+  :is(.member-picker, .project-picker, .document-change-log-dialog, .miniprogram-records-dialog)
+  :is(
+    .member-picker-list,
+    .project-picker-list,
+    .document-change-log-list,
+    .miniprogram-production-table-wrap
+  ) {
+  flex: 1 1 auto;
+  min-height: min(180px, 20dvh);
+  max-height: none;
+  overflow: auto;
+}
+html body .document-change-log-dialog > .document-change-log-list,
+html body .miniprogram-records-dialog .miniprogram-production-table-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+html body [data-overlay="dialog"].project-picker:has(.dialog-footer) > .dialog-plain-body,
+html
+  body
+  [data-overlay="dialog-shell"]
+  > .miniprogram-records-dialog:has(.dialog-footer)
+  > .miniprogram-dialog-body,
+html body .miniprogram-records-dialog .miniprogram-deploy-content,
+html body .admin-dialog:has(.admin-table) > .admin-dialog-body,
+html body .admin-dialog:has(.admin-table) .dialog-form-scroll {
+  display: flex !important;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+html body .document-change-log-dialog > .document-change-log-list {
+  overflow: hidden;
+}
+html body .document-change-log-dialog .document-change-log-rows {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+html body .l1-history-body,
+html body .admin-dialog .admin-table-wrap {
+  flex: 1 1 auto;
+  min-height: min(180px, 20dvh);
+  overflow: auto;
+}
+html body .document-change-log-dialog .document-change-log-list-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--overlay-header-bg);
+  backdrop-filter: var(--overlay-header-blur);
+  -webkit-backdrop-filter: var(--overlay-header-blur);
+}
+html body :is(.miniprogram-records-table, .l1-history-table, .admin-dialog .admin-table) thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--overlay-header-bg);
+}
+html body .document-file-info-dialog {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+html body :is(.member-picker, .project-picker, .library-picker-dialog, .l1-history-dialog) {
+  --overlay-dialog-min-width: 480px;
+}
+html body :is(.document-change-log-dialog, .miniprogram-records-dialog) {
+  --overlay-dialog-min-width: 640px;
+}
+html body :is(.thread-brief-dialog, .task-create-dialog, .admin-dialog:has(.admin-editor)) {
+  --overlay-dialog-min-width: 360px;
+}
+html
+  body
+  :is(
+    .task-pool-dialog,
+    .agent-monitor,
+    .agent-log-dialog,
+    .notification-dialog,
+    .project-management-dialog,
+    .workspace-settings,
+    .miniprogram-workbench-dialog
+  ) {
+  --overlay-dialog-min-width: 640px;
+}
+
+/* ===== 单列表弹窗 =====
+   列表容器固定高度并内部滚动，表头吸顶；弹窗高度由这段固定列表决定，
+   数据再多也只出滚动条，不会把弹窗撑高。 */
+html body .dialog-list .admin-table-wrap,
+html body .dialog-list .miniprogram-production-table-wrap,
+html body .dialog-list .document-change-log-rows,
+html body .dialog-list .member-picker-list,
+html body .dialog-list .project-picker-list {
+  height: var(--dialog-list-height, 360px);
+  max-height: var(--dialog-list-height, 360px);
+  overflow: auto;
+}
+
+html body .dialog-list .admin-table thead th,
+html body .dialog-list .miniprogram-production-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--c-fff);
+}
+
+/* body 与中间容器不再滚动，滚动只发生在列表里。 */
+html body .dialog-list > .admin-dialog-body,
+html body .dialog-list > .miniprogram-dialog-body,
+html body .dialog-list .dialog-form-scroll,
+html body .dialog-list .miniprogram-table-content {
+  overflow: hidden !important;
+  min-height: 0;
+}
+
+/* 列表容器本身不额外留白，紧贴筛选与分页。 */
+html body .dialog-list .dialog-form-scroll {
+  padding: 0;
+}
+
+/* 筛选与分页固定在弹窗两端。 */
+html body .dialog-list > .admin-dialog-body > .dialog-filters,
+html body .dialog-list > .admin-dialog-body > .dialog-footer,
+html body .dialog-list > .dialog-filters,
+html body .dialog-list > .dialog-footer {
+  flex: 0 0 auto;
+}
+[data-overlay="panel"].is-positioning,
+[data-overlay="menu"].is-positioning {
+  visibility: hidden;
+}

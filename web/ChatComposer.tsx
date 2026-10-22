@@ -1,3 +1,6 @@
+import { ContextMenu } from "./ContextMenu";
+import { FloatingPortal } from "./FloatingPortal";
+import { useTipError } from "./Tip";
 import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -25,6 +28,26 @@ import { wechatFileIcons } from "./wechat-file-icons";
 import { DIALOGUE_MODE_UI, DIALOGUE_MODES } from "../shared/dialogue-mode.js";
 import type { UiIconName } from "./ui-icon";
 import type { DialogueMode } from "./dialogue-mode-storage";
+import type { CSSProperties } from "react";
+
+function placePopover(
+  anchor: HTMLElement | null,
+  options: { width: number; gap: number; maxHeight: number },
+): CSSProperties {
+  if (!anchor) return { position: "fixed", visibility: "hidden" };
+  const rect = anchor.getBoundingClientRect();
+  const width = Math.min(options.width, Math.max(rect.width, 240), window.innerWidth - 16);
+  let left = rect.left;
+  if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
+  const maxHeight = Math.max(120, Math.min(options.maxHeight, rect.top - 16));
+  return {
+    position: "fixed",
+    left,
+    width,
+    maxHeight,
+    bottom: window.innerHeight - rect.top + options.gap,
+  };
+}
 
 type FileVersion = {
   id: string;
@@ -153,7 +176,7 @@ export function ChatComposer({
   const [message, setMessage] = useState("");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [imagePreview, setImagePreview] = useState<ImagePreviewSource | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError();
   const [trigger, setTrigger] = useState<{
     symbol: string;
     query: string;
@@ -181,7 +204,71 @@ export function ChatComposer({
   const sending = useRef(false);
   const suppressSlashTrigger = useRef(false);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const [modeMenuBox, setModeMenuBox] = useState<{ left: number; bottom: number } | null>(null);
   const modeMenuRef = useRef<HTMLDivElement>(null);
+  const modeMenuPanelRef = useRef<HTMLDivElement>(null);
+  const modeButtonRef = useRef<HTMLButtonElement>(null);
+  const inputWrapRef = useRef<HTMLDivElement>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
+  const shortcutsRef = useRef<HTMLDivElement>(null);
+  const [shortcutsFit, setShortcutsFit] = useState(true);
+  useLayoutEffect(() => {
+    if (!onDialogueModeChange) return;
+    const footer = footerRef.current;
+    const track = shortcutsRef.current;
+    if (!footer || !track) return;
+    let alive = true;
+    const measure = () => {
+      if (!alive) return;
+      const anchor = footer.querySelector<HTMLElement>(".composer-mode-anchor");
+      const send = footer.querySelector<HTMLElement>(".composer-send");
+      if (!anchor || !send) return;
+      const styles = getComputedStyle(footer);
+      const gap = Number.parseFloat(styles.columnGap || styles.gap) || 0;
+      const chip = footer.querySelector<HTMLElement>(".composer-mode-chip");
+      let chipW = 0;
+      if (chip) {
+        const label = chip.querySelector<HTMLElement>(".composer-mode-chip-label");
+        const icon = chip.querySelector<HTMLElement>(".composer-mode-chip-icon");
+        const clear = chip.querySelector<HTMLElement>(".composer-mode-chip-clear");
+        const chipStyles = getComputedStyle(chip);
+        const padX =
+          (Number.parseFloat(chipStyles.paddingLeft) || 0) +
+          (Number.parseFloat(chipStyles.paddingRight) || 0);
+        const borderX =
+          (Number.parseFloat(chipStyles.borderLeftWidth) || 0) +
+          (Number.parseFloat(chipStyles.borderRightWidth) || 0);
+        const innerGap = Number.parseFloat(chipStyles.columnGap || chipStyles.gap) || 0;
+        const parts = [icon, label, clear].flatMap((el) => {
+          if (!el) return [];
+          const elStyles = getComputedStyle(el);
+          const marginX =
+            (Number.parseFloat(elStyles.marginLeft) || 0) +
+            (Number.parseFloat(elStyles.marginRight) || 0);
+          return [el.scrollWidth + marginX];
+        });
+        chipW =
+          borderX +
+          padX +
+          parts.reduce((sum, w) => sum + w, 0) +
+          innerGap * Math.max(0, parts.length - 1);
+        const max = Number.parseFloat(chipStyles.maxWidth);
+        if (Number.isFinite(max) && max > 0) chipW = Math.min(chipW, max);
+      }
+      const available =
+        footer.clientWidth - anchor.offsetWidth - send.offsetWidth - chipW - gap * (chip ? 3 : 2);
+      const next = track.scrollWidth <= available + 1;
+      setShortcutsFit((prev) => (prev === next ? prev : next));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(footer);
+    if (document.fonts?.ready) void document.fonts.ready.then(measure);
+    return () => {
+      alive = false;
+      observer.disconnect();
+    };
+  }, [onDialogueModeChange, dialogueMode]);
   const currentRefs = useRef(refs);
   currentRefs.current = refs;
   useEffect(
@@ -194,11 +281,34 @@ export function ChatComposer({
   useEffect(() => {
     if (!modeMenuOpen) return;
     const close = (event: MouseEvent) => {
-      if (modeMenuRef.current?.contains(event.target as Node)) return;
+      const target = event.target as Node;
+      if (modeMenuRef.current?.contains(target) || modeMenuPanelRef.current?.contains(target))
+        return;
       setModeMenuOpen(false);
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
+  }, [modeMenuOpen]);
+  useLayoutEffect(() => {
+    if (!modeMenuOpen) return;
+    const place = () => {
+      const button = modeButtonRef.current;
+      const menu = modeMenuPanelRef.current;
+      if (!button) return;
+      const rect = button.getBoundingClientRect();
+      const menuWidth = menu?.offsetWidth ?? 280;
+      let left = rect.left;
+      if (left + menuWidth > window.innerWidth - 8)
+        left = Math.max(8, window.innerWidth - 8 - menuWidth);
+      setModeMenuBox({ left, bottom: window.innerHeight - rect.top + 6 });
+    };
+    place();
+    window.addEventListener("resize", place);
+    document.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      document.removeEventListener("scroll", place, true);
+    };
   }, [modeMenuOpen]);
   const update = (key: string, value: Partial<Upload>) => {
     if (alive.current)
@@ -577,57 +687,60 @@ export function ChatComposer({
             ))}
           </div>
         )}
-        <div className="chat-input-wrap">
+        <div className="chat-input-wrap" ref={inputWrapRef}>
           {trigger && (
-            <div
-              ref={picker}
-              className="composer-picker"
-              role="listbox"
-              id="composer-picker"
-              aria-label={trigger.symbol === "/" ? "选择项目文件或文件夹" : "选择项目成员"}
-            >
-              <small>{trigger.symbol === "/" ? "项目文件与文件夹" : "项目成员"}</small>
-              {options.map((option, i) => (
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={i === index}
-                  id={`composer-option-${i}`}
-                  key={`${option.kind}:${option.id}`}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => choose(option)}
-                >
-                  {trigger.symbol === "/" ? (
-                    option.kind === "folder" ? (
-                      <UiIcon name="folder" size={20} />
-                    ) : (
-                      <FileIcon
-                        fileName={option.label}
-                        editFileExtensionData={wechatFileIcons}
-                        autoAssign
-                        width={20}
-                        height={20}
-                      />
-                    )
-                  ) : (
-                    <span className="mention-avatar">
-                      {"avatar" in option && option.avatar ? (
-                        <img src={option.avatar} alt="" />
+            <FloatingPortal>
+              <div
+                ref={picker}
+                className="composer-picker"
+                style={placePopover(inputWrapRef.current, { width: 360, gap: 8, maxHeight: 240 })}
+                role="listbox"
+                id="composer-picker"
+                aria-label={trigger.symbol === "/" ? "选择项目文件或文件夹" : "选择项目成员"}
+              >
+                <small>{trigger.symbol === "/" ? "项目文件与文件夹" : "项目成员"}</small>
+                {options.map((option, i) => (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={i === index}
+                    id={`composer-option-${i}`}
+                    key={`${option.kind}:${option.id}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => choose(option)}
+                  >
+                    {trigger.symbol === "/" ? (
+                      option.kind === "folder" ? (
+                        <UiIcon name="folder" size={20} />
                       ) : (
-                        option.label[0]
-                      )}
+                        <FileIcon
+                          fileName={option.label}
+                          editFileExtensionData={wechatFileIcons}
+                          autoAssign
+                          width={20}
+                          height={20}
+                        />
+                      )
+                    ) : (
+                      <span className="mention-avatar">
+                        {"avatar" in option && option.avatar ? (
+                          <img src={option.avatar} alt="" />
+                        ) : (
+                          option.label[0]
+                        )}
+                      </span>
+                    )}
+                    <span>
+                      {option.label}
+                      <small>{option.detail}</small>
                     </span>
-                  )}
-                  <span>
-                    {option.label}
-                    <small>{option.detail}</small>
-                  </span>
-                </button>
-              ))}
-              {!options.length && (
-                <p>没有匹配的{trigger.symbol === "/" ? "文件或文件夹" : "成员"}</p>
-              )}
-            </div>
+                  </button>
+                ))}
+                {!options.length && (
+                  <p>没有匹配的{trigger.symbol === "/" ? "文件或文件夹" : "成员"}</p>
+                )}
+              </div>
+            </FloatingPortal>
           )}
           <textarea
             rows={2}
@@ -685,28 +798,37 @@ export function ChatComposer({
             }}
           />
         </div>
-        {error && (
-          <div className="error" role="alert">
-            {error}
-          </div>
-        )}
-        <div className="composer-footer">
+        <div className="composer-footer" ref={footerRef}>
           {onDialogueModeChange ? (
-            <div className="composer-mode-row">
-              <div className="composer-mode-anchor" ref={modeMenuRef}>
-                <button
-                  type="button"
-                  className="composer-mode-toggle"
-                  aria-label={`对话模式：${DIALOGUE_MODE_UI[dialogueMode].label}`}
-                  aria-expanded={modeMenuOpen}
-                  aria-haspopup="menu"
-                  title={`对话模式：${DIALOGUE_MODE_UI[dialogueMode].label}`}
-                  onClick={() => setModeMenuOpen((open) => !open)}
-                >
-                  <UiIcon name="plus" size={18} />
-                </button>
-                {modeMenuOpen ? (
-                  <div className="composer-mode-menu" role="menu" aria-label="对话模式">
+            <div className="composer-mode-anchor" ref={modeMenuRef}>
+              <button
+                ref={modeButtonRef}
+                type="button"
+                className="composer-mode-toggle"
+                aria-label={`对话模式：${DIALOGUE_MODE_UI[dialogueMode].label}`}
+                aria-expanded={modeMenuOpen}
+                aria-haspopup="menu"
+                title={`对话模式：${DIALOGUE_MODE_UI[dialogueMode].label}`}
+                onClick={() => setModeMenuOpen((open) => !open)}
+              >
+                <UiIcon name="plus" size={18} />
+              </button>
+              {modeMenuOpen ? (
+                <FloatingPortal>
+                  <ContextMenu
+                    ref={modeMenuPanelRef}
+                    onDismiss={() => setModeMenuOpen(false)}
+                    className={`composer-mode-menu${modeMenuBox ? "" : " is-positioning"}`}
+                    role="menu"
+                    aria-label="对话模式"
+                    style={{
+                      position: "fixed",
+                      left: modeMenuBox?.left ?? 0,
+                      bottom: modeMenuBox?.bottom ?? 0,
+                      width: "max-content",
+                      maxWidth: "min(360px, calc(100vw - 16px))",
+                    }}
+                  >
                     {DIALOGUE_MODES.map((mode) => {
                       const meta = DIALOGUE_MODE_UI[mode];
                       return (
@@ -732,37 +854,44 @@ export function ChatComposer({
                         </button>
                       );
                     })}
-                  </div>
-                ) : null}
-              </div>
-              {dialogueMode !== "default" ? (
-                <div
-                  className={`composer-mode-chip composer-mode-chip-${dialogueMode}`}
-                  style={
-                    {
-                      "--mode-accent": DIALOGUE_MODE_UI[dialogueMode].accent,
-                      "--mode-surface": DIALOGUE_MODE_UI[dialogueMode].surface,
-                    } as React.CSSProperties
-                  }
-                >
-                  <span className="composer-mode-chip-icon" aria-hidden="true">
-                    <UiIcon name={DIALOGUE_MODE_UI[dialogueMode].icon as UiIconName} size={16} />
-                  </span>
-                  <span className="composer-mode-chip-label">
-                    {DIALOGUE_MODE_UI[dialogueMode].label}
-                  </span>
-                  <button
-                    type="button"
-                    className="composer-mode-chip-clear"
-                    aria-label={`退出 ${DIALOGUE_MODE_UI[dialogueMode].label}，恢复${DIALOGUE_MODE_UI.default.label}`}
-                    title={`恢复${DIALOGUE_MODE_UI.default.label}`}
-                    onClick={() => onDialogueModeChange("default")}
-                  >
-                    <UiIcon name="close" size={12} />
-                  </button>
-                </div>
+                  </ContextMenu>
+                </FloatingPortal>
               ) : null}
-              <div className="composer-prompt-shortcuts">
+            </div>
+          ) : null}
+          {onDialogueModeChange && dialogueMode !== "default" ? (
+            <div
+              className={`composer-mode-chip composer-mode-chip-${dialogueMode}`}
+              style={
+                {
+                  "--mode-accent": DIALOGUE_MODE_UI[dialogueMode].accent,
+                  "--mode-surface": DIALOGUE_MODE_UI[dialogueMode].surface,
+                } as React.CSSProperties
+              }
+            >
+              <span className="composer-mode-chip-icon" aria-hidden="true">
+                <UiIcon name={DIALOGUE_MODE_UI[dialogueMode].icon as UiIconName} size={16} />
+              </span>
+              <span className="composer-mode-chip-label">
+                {DIALOGUE_MODE_UI[dialogueMode].label}
+              </span>
+              <button
+                type="button"
+                className="composer-mode-chip-clear"
+                aria-label={`退出 ${DIALOGUE_MODE_UI[dialogueMode].label}，恢复${DIALOGUE_MODE_UI.default.label}`}
+                title={`恢复${DIALOGUE_MODE_UI.default.label}`}
+                onClick={() => onDialogueModeChange("default")}
+              >
+                <UiIcon name="close" size={12} />
+              </button>
+            </div>
+          ) : null}
+          {onDialogueModeChange ? (
+            <div
+              className={`composer-footer-shortcuts${shortcutsFit ? "" : " is-hidden"}`}
+              aria-hidden={shortcutsFit ? undefined : true}
+            >
+              <div className="composer-prompt-shortcuts" ref={shortcutsRef}>
                 <button
                   type="button"
                   className="composer-prompt-shortcut"
@@ -792,9 +921,14 @@ export function ChatComposer({
               </div>
             </div>
           ) : null}
-          <button className="primary" disabled={busy || pending || !message.trim()}>
+          <button
+            className="primary composer-send"
+            type="submit"
+            aria-label={pending ? "上传中" : busy ? "处理中" : "发送"}
+            title={pending ? "上传中…" : busy ? "处理中…" : "发送"}
+            disabled={busy || pending || !message.trim()}
+          >
             <UiIcon name="send" size={17} />
-            {pending ? "上传中…" : busy ? "处理中…" : "发送"}
           </button>
         </div>
       </form>

@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { TextField } from "./TextField";
 import { api } from "./workspace-api";
 import { UiIcon } from "./ui-icon";
 import { PaginationControl } from "./PaginationControl";
+import { useTipError } from "./Tip";
 import { actionNames, changeSummary } from "./change-log";
 
 type Kind = "account-changes" | "account-logins";
@@ -53,7 +55,7 @@ export function AccountAuditList({ kind, permissions }: { kind: Kind; permission
   const [pageSize, setPageSize] = useState(30);
   const [data, setData] = useState<AuditList | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [, setError] = useTipError();
   const restricted = data ? !data.canViewAll : !permissions.includes(`${kind}.view-all`);
   useEffect(() => {
     const controller = new AbortController();
@@ -94,16 +96,16 @@ export function AccountAuditList({ kind, permissions }: { kind: Kind; permission
           apply(userNumber);
         }}
       >
-        <label className="admin-search">
-          <UiIcon name="search" size={14} />
-          <input
-            aria-label="用户 ID"
-            inputMode="numeric"
-            placeholder="用户 ID"
-            value={userNumber}
-            onChange={(event) => setUserNumber(event.target.value.replace(/\D/g, "").slice(0, 10))}
-          />
-        </label>
+        <TextField
+          dense
+          containerClassName="admin-search-field"
+          label="用户 ID"
+          icon={<UiIcon name="search" size={14} />}
+          inputMode="numeric"
+          placeholder="输入用户 ID"
+          value={userNumber}
+          onChange={(event) => setUserNumber(event.target.value.replace(/\D/g, "").slice(0, 10))}
+        />
         <button type="submit">查询</button>
         <button
           type="button"
@@ -115,11 +117,6 @@ export function AccountAuditList({ kind, permissions }: { kind: Kind; permission
           重置
         </button>
       </form>
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
       <div className="admin-table-wrap" aria-busy={loading}>
         <table className="admin-table">
           <thead>

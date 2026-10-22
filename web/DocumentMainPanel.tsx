@@ -1,3 +1,9 @@
+import { DialogFooter } from "./DialogFooter";
+import { TextField } from "./TextField";
+import { SelectField } from "./SelectField";
+import { DialogBody } from "./DialogBody";
+import { DialogHeader } from "./DialogHeader";
+import { Dialog } from "./dialog-fx";
 /**
  * 文档库主面板：重命名 / 新建文件夹表单、预览区、源码与开始页。
  * 数据与回调由 Documents 打包成 props 传入。
@@ -152,198 +158,265 @@ export function DocumentMainPanel({
   return (
     <main
       ref={mainPanelRef}
-      className={`${renaming || newFolder || renamingFolder || savingOfficial ? "library-operation" : ""} doc-browser-main`}
+      className="doc-browser-main"
       onMouseDown={handleDocumentMouseDown}
       onContextMenu={handleDocumentContextMenu}
     >
       {newFolder && (
-        <form
-          className="library-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!officialFolderParentId) return;
-            void act(async () => {
-              const name =
-                newFolderName.trim() ||
-                suggestOfficialFolderName(officialFolderParentId, libraryFolders);
-              const created = await change(
-                `/projects/${projectId}/folders`,
-                { name, parentId: officialFolderParentId },
-                "POST",
-              );
-              setNewFolder(false);
-              setFolderId(created.id);
-              setCollapsed((previous) => {
-                const next = new Set(previous);
-                next.delete(officialFolderParentId);
-                return next;
-              });
-            }, "文件夹已创建");
-          }}
+        <Dialog
+          active={!!newFolder}
+          shell
+          onRequestClose={() => setNewFolder(false)}
+          closeOnBackdrop={!pending}
+          enabled={!pending}
+          className="library-operation"
         >
-          <h3>新建子文件夹</h3>
-          <p className="muted">将创建在正式文件区内（当前选中的文件夹下）。</p>
-          <label>
-            文件夹名称
-            <input
-              autoFocus
-              maxLength={160}
-              placeholder={`留空则使用「${DEFAULT_OFFICIAL_FOLDER_NAME}」`}
-              value={newFolderName}
-              onChange={(event) => setNewFolderName(event.target.value)}
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="document-operation-title-1"
+            className="library-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!officialFolderParentId) return;
+              void act(async () => {
+                const name =
+                  newFolderName.trim() ||
+                  suggestOfficialFolderName(officialFolderParentId, libraryFolders);
+                const created = await change(
+                  `/projects/${projectId}/folders`,
+                  { name, parentId: officialFolderParentId },
+                  "POST",
+                );
+                setNewFolder(false);
+                setFolderId(created.id);
+                setCollapsed((previous) => {
+                  const next = new Set(previous);
+                  next.delete(officialFolderParentId);
+                  return next;
+                });
+              }, "文件夹已创建");
+            }}
+          >
+            <DialogHeader
+              title="新建子文件夹"
+              titleId="document-operation-title-1"
+              subtitle="将创建在正式文件区内（当前选中的文件夹下）。"
+              onClose={() => setNewFolder(false)}
+              disabled={pending}
             />
-          </label>
-          <div>
-            <button type="submit" className="primary" disabled={pending || !officialFolderParentId}>
-              {pending ? "创建中…" : "创建"}
-            </button>
-            <button type="button" disabled={pending} onClick={() => setNewFolder(false)}>
-              取消
-            </button>
-          </div>
-        </form>
+            <DialogBody>
+              <TextField
+                label="文件夹名称"
+                autoFocus
+                maxLength={160}
+                placeholder={`留空则使用「${DEFAULT_OFFICIAL_FOLDER_NAME}」`}
+                value={newFolderName}
+                onChange={(event) => setNewFolderName(event.target.value)}
+              />
+            </DialogBody>
+            <DialogFooter>
+              <button
+                type="submit"
+                className="primary"
+                disabled={pending || !officialFolderParentId}
+              >
+                {pending ? "创建中…" : "创建"}
+              </button>
+              <button type="button" disabled={pending} onClick={() => setNewFolder(false)}>
+                取消
+              </button>
+            </DialogFooter>
+          </form>
+        </Dialog>
       )}
       {renamingFolder && selectedLibraryFolder && (
-        <form
-          className="library-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void act(async () => {
-              await change(
-                `/projects/${projectId}/folders/${selectedLibraryFolder.id}`,
-                { name: renameFolderName },
-                "PATCH",
-              );
-              setRenamingFolder(false);
-            }, "文件夹已重命名");
-          }}
+        <Dialog
+          active={!!renamingFolder}
+          shell
+          onRequestClose={() => setRenamingFolder(false)}
+          closeOnBackdrop={!pending}
+          enabled={!pending}
+          className="library-operation"
         >
-          <h3>重命名文件夹</h3>
-          <label>
-            名称
-            <input
-              autoFocus
-              required
-              maxLength={160}
-              value={renameFolderName}
-              onChange={(event) => setRenameFolderName(event.target.value)}
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="document-operation-title-2"
+            className="library-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void act(async () => {
+                await change(
+                  `/projects/${projectId}/folders/${selectedLibraryFolder.id}`,
+                  { name: renameFolderName },
+                  "PATCH",
+                );
+                setRenamingFolder(false);
+              }, "文件夹已重命名");
+            }}
+          >
+            <DialogHeader
+              title="重命名文件夹"
+              titleId="document-operation-title-2"
+              onClose={() => setRenamingFolder(false)}
+              disabled={pending}
             />
-          </label>
-          <div>
-            <button type="submit" className="primary" disabled={pending}>
-              {pending ? "保存中…" : "保存"}
-            </button>
-            <button type="button" disabled={pending} onClick={() => setRenamingFolder(false)}>
-              取消
-            </button>
-          </div>
-        </form>
+            <DialogBody>
+              <TextField
+                label="名称"
+                autoFocus
+                required
+                maxLength={160}
+                value={renameFolderName}
+                onChange={(event) => setRenameFolderName(event.target.value)}
+              />
+            </DialogBody>
+            <DialogFooter>
+              <button type="submit" className="primary" disabled={pending}>
+                {pending ? "保存中…" : "保存"}
+              </button>
+              <button type="button" disabled={pending} onClick={() => setRenamingFolder(false)}>
+                取消
+              </button>
+            </DialogFooter>
+          </form>
+        </Dialog>
       )}
       {renaming && version && (
-        <form
-          className="library-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void act(async () => {
-              await change(
-                `/projects/${projectId}/artifacts/${version.artifact_id}`,
-                { name: renameName },
-                "PATCH",
-              );
-              setRenaming(false);
-            }, "文档已重命名");
-          }}
+        <Dialog
+          active={!!renaming}
+          shell
+          onRequestClose={() => setRenaming(false)}
+          closeOnBackdrop={!pending}
+          enabled={!pending}
+          className="library-operation"
         >
-          <h3>重命名文档</h3>
-          <label>
-            名称
-            <input
-              autoFocus
-              required
-              maxLength={160}
-              value={renameName}
-              onChange={(event) => setRenameName(event.target.value)}
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="document-operation-title-3"
+            className="library-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void act(async () => {
+                await change(
+                  `/projects/${projectId}/artifacts/${version.artifact_id}`,
+                  { name: renameName },
+                  "PATCH",
+                );
+                setRenaming(false);
+              }, "文档已重命名");
+            }}
+          >
+            <DialogHeader
+              title="重命名文档"
+              titleId="document-operation-title-3"
+              onClose={() => setRenaming(false)}
+              disabled={pending}
             />
-          </label>
-          <div>
-            <button type="submit" className="primary" disabled={pending}>
-              {pending ? "保存中…" : "保存"}
-            </button>
-            <button type="button" disabled={pending} onClick={() => setRenaming(false)}>
-              取消
-            </button>
-          </div>
-        </form>
+            <DialogBody>
+              <TextField
+                label="名称"
+                autoFocus
+                required
+                maxLength={160}
+                value={renameName}
+                onChange={(event) => setRenameName(event.target.value)}
+              />
+            </DialogBody>
+            <DialogFooter>
+              <button type="submit" className="primary" disabled={pending}>
+                {pending ? "保存中…" : "保存"}
+              </button>
+              <button type="button" disabled={pending} onClick={() => setRenaming(false)}>
+                取消
+              </button>
+            </DialogFooter>
+          </form>
+        </Dialog>
       )}
       {savingOfficial && (
-        <form
-          className="library-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const picked = confirmedOutputVersions(savingOfficial).find(
-              (row) => row.id === saveOfficialVersionId,
-            );
-            if (!picked || !saveOfficialTitle.trim()) return;
-            void act(async () => {
-              await change(`/projects/${projectId}/versions/${picked.id}/save-to-official`, {
-                title: saveOfficialTitle.trim(),
-              });
-              setSavingOfficial(null);
-            }, "已另存至正式文件");
-          }}
+        <Dialog
+          active={!!savingOfficial}
+          shell
+          onRequestClose={() => setSavingOfficial(null)}
+          closeOnBackdrop={!pending}
+          enabled={!pending}
+          className="library-operation"
         >
-          <h3>另存至正式文件</h3>
-          <p className="muted">只能另存已确认的产物版本；存入后名称默认带版本号，可再修改。</p>
-          <label>
-            选择版本
-            <select
-              aria-label="另存的产物版本"
-              value={saveOfficialVersionId}
-              onChange={(event) => {
-                const nextId = event.target.value;
-                setSaveOfficialVersionId(nextId);
-                const picked = confirmedOutputVersions(savingOfficial).find(
-                  (row) => row.id === nextId,
-                );
-                if (picked)
-                  setSaveOfficialTitle(
-                    officialTitleWithVersion(
-                      savingOfficial.title,
-                      versionCodeForRows(picked, versions),
-                    ),
-                  );
-              }}
-            >
-              {confirmedOutputVersions(savingOfficial).map((row) => (
-                <option key={row.id} value={row.id}>
-                  v{versionCodeForRows(row, versions)} · 已确认
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            正式文件名称
-            <input
-              autoFocus
-              required
-              maxLength={160}
-              value={saveOfficialTitle}
-              onChange={(event) => setSaveOfficialTitle(event.target.value)}
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="document-operation-title-4"
+            className="library-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const picked = confirmedOutputVersions(savingOfficial).find(
+                (row) => row.id === saveOfficialVersionId,
+              );
+              if (!picked || !saveOfficialTitle.trim()) return;
+              void act(async () => {
+                await change(`/projects/${projectId}/versions/${picked.id}/save-to-official`, {
+                  title: saveOfficialTitle.trim(),
+                });
+                setSavingOfficial(null);
+              }, "已另存至正式文件");
+            }}
+          >
+            <DialogHeader
+              title="另存至正式文件"
+              titleId="document-operation-title-4"
+              subtitle="只能另存已确认的产物版本；存入后名称默认带版本号，可再修改。"
+              onClose={() => setSavingOfficial(null)}
+              disabled={pending}
             />
-          </label>
-          <div>
-            <button
-              type="submit"
-              className="primary"
-              disabled={pending || !saveOfficialVersionId || !saveOfficialTitle.trim()}
-            >
-              {pending ? "另存中…" : "另存"}
-            </button>
-            <button type="button" disabled={pending} onClick={() => setSavingOfficial(null)}>
-              取消
-            </button>
-          </div>
-        </form>
+            <DialogBody>
+              <SelectField
+                label="选择版本"
+                aria-label="另存的产物版本"
+                value={saveOfficialVersionId}
+                onChange={(nextId) => {
+                  setSaveOfficialVersionId(nextId);
+                  const picked = confirmedOutputVersions(savingOfficial).find(
+                    (row) => row.id === nextId,
+                  );
+                  if (picked)
+                    setSaveOfficialTitle(
+                      officialTitleWithVersion(
+                        savingOfficial.title,
+                        versionCodeForRows(picked, versions),
+                      ),
+                    );
+                }}
+                options={confirmedOutputVersions(savingOfficial).map((row) => ({
+                  value: row.id,
+                  label: `v${versionCodeForRows(row, versions)} · 已确认`,
+                }))}
+              />
+              <TextField
+                label="正式文件名称"
+                autoFocus
+                required
+                maxLength={160}
+                value={saveOfficialTitle}
+                onChange={(event) => setSaveOfficialTitle(event.target.value)}
+              />
+            </DialogBody>
+            <DialogFooter>
+              <button
+                type="submit"
+                className="primary"
+                disabled={pending || !saveOfficialVersionId || !saveOfficialTitle.trim()}
+              >
+                {pending ? "另存中…" : "另存"}
+              </button>
+              <button type="button" disabled={pending} onClick={() => setSavingOfficial(null)}>
+                取消
+              </button>
+            </DialogFooter>
+          </form>
+        </Dialog>
       )}
       {!renaming &&
         !newFolder &&
@@ -379,7 +452,6 @@ export function DocumentMainPanel({
                 。历史引用仍可查看，原路恢复后回到原来的文件夹。
               </p>
             )}
-            {error && <div className="error doc-browser-error">{error}</div>}
             <div className="doc-browser-view">
               {browserFileBreadcrumb}
               {fileActionCapsule ? (

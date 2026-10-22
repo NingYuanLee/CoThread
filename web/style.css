@@ -1,5 +1,8 @@
+@import "./overlays.css";
+@import "./field.css";
 /* 登录、启动和提示所需的基础样式。工作台样式在 workspace.css。 */
 :root {
+  /* 控件圆角 --radius-control、弹窗/悬浮面板圆角 --radius-overlay，定义在 overlays.css。 */
   font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
   color: var(--c-27362f);
   background: var(--c-f8faf8);
@@ -18,6 +21,15 @@ body {
   margin: 0;
 }
 
+/* 滚动条外观与群聊区 .conversation 一致：细条、主题色滑块、透明轨道。
+   不设 scrollbar-gutter，避免横滑条和未留空档的布局被撑开。
+   :where 特异性为 0，.message-navigator-rail 的隐藏规则仍然有效。
+   小程序页面在 pageFrame iframe 内，不受这条影响。 */
+:where(html, body, body *) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-dfe4d8) transparent;
+}
+
 button,
 input,
 textarea,
@@ -33,13 +45,42 @@ a {
 }
 
 button {
+
   cursor: pointer;
-  border: 1px solid var(--c-dde4de);
+
+  border: 1px solid transparent;
+
   background: var(--c-fff);
+
   color: var(--c-4f6257);
-  border-radius: 5px;
+
+  border-radius: var(--radius-control);
+
   padding: 8px 12px;
+  position: relative;
+  --stroke: var(--c-dde4de);
+
+  --stroke-radius: calc((var(--radius-control)) * 2);
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
+button::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
 
 button:hover {
   background: var(--c-edf2ec);
@@ -87,9 +128,17 @@ a:hover {
 }
 
 .primary {
+
   background: var(--c-426b4b);
+
   color: white;
-  border-color: var(--c-426b4b);
+
+  --stroke: var(--c-426b4b);
+
+  border-color: transparent;
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
 
 .primary:hover {
@@ -99,20 +148,47 @@ a:hover {
 input,
 textarea,
 select {
+
   width: 100%;
+
   border: 1px solid var(--c-d9e1d9);
-  border-radius: 5px;
+
+  border-radius: var(--radius-control);
+
   background: var(--c-fff);
+
   padding: 11px;
+
   color: var(--c-29382e);
+
+  outline: none;
+
+  --stroke-radius: calc((var(--radius-control)) * 2);}
+
+/* :focus-visible 必须单独写。浏览器原生描边挂在 :focus-visible（特异性高于裸元素），
+   只在 input 上写 outline:none 压不住。聚焦只改边框色，不要外圈光晕。 */
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible {
+  outline: none;
+  outline-offset: 0;
+}
+
+/* 单独一条：写进上面的选择器列表会让不认识该伪类的浏览器丢掉整条规则。 */
+input:-moz-focusring,
+textarea:-moz-focusring,
+select:-moz-focusring {
   outline: none;
 }
 
 input:focus,
 textarea:focus,
 select:focus {
+
   border-color: var(--c-70916f);
-  box-shadow: 0 0 0 3px var(--c-eaf0e8);
 }
 
 textarea {
@@ -150,7 +226,7 @@ label select {
   height: 36px;
   flex: 0 0 auto;
   color: var(--c-395d40);
-  filter: drop-shadow(0 4px 7px rgba(47, 77, 53, .18));
+  filter: drop-shadow(0 4px 7px rgba(47, 77, 53, 0.18));
 }
 
 .brand small {
@@ -175,81 +251,44 @@ label select {
 }
 
 .error {
+
   background: var(--c-fff0ec);
+
   color: var(--c-a24b3d);
+
   padding: 12px 16px;
-  border: 1px solid var(--c-f3d8d0);
+
+  border: 1px solid transparent;
+
   border-radius: 6px;
+
   font-size: 13px;
+
   overflow-wrap: anywhere;
-}
+  position: relative;
+  --stroke: var(--c-f3d8d0);
 
-.tip-host {
-  position: fixed;
-  inset: 18px auto auto 50%;
-  z-index: 2147483000;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  width: max-content;
-  max-width: min(420px, calc(100vw - 24px));
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  overflow: visible;
-  transform: translateX(-50%);
+  --stroke-radius: 12px;
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+.error::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
   pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
 }
 
-.tip-host:popover-open { display: flex; }
-
-.tip-item {
-  pointer-events: auto;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  min-width: 220px;
-  max-width: min(420px, calc(100vw - 24px));
-  padding: 10px 12px;
-  border: 1px solid var(--c-dde4d8);
-  border-radius: 10px;
-  background: var(--c-fafbf9);
-  color: var(--c-34402f);
-  box-shadow: 0 10px 28px var(--c-17231133);
-  font-size: 13px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-  animation: tip-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.tip-item.is-leaving {
-  pointer-events: none;
-  animation: tip-out 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
-}
-
-.tip-item .ui-icon { flex: none; margin-top: 1px; }
-
-.tip-item span { flex: 1; min-width: 0; }
-
-.tip-dismiss {
-  flex: none;
-  margin: -2px -4px 0 0;
-  padding: 2px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  opacity: 0.55;
-}
-
-.tip-dismiss:hover { opacity: 1; background: var(--c-e9f0e1); }
-
-@media (prefers-reduced-motion: reduce) {
-.tip-item,
-  .tip-item.is-leaving { animation: none; }
-}
 
 .login {
   min-height: 100vh;
@@ -264,7 +303,15 @@ label select {
   padding: 40px;
 }
 
-.auth-particles { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; pointer-events: none; filter: saturate(1.08) contrast(1.03); }
+.auth-particles {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  filter: saturate(1.08) contrast(1.03);
+}
 
 .login-story {
   --spot-x: 50%;
@@ -272,7 +319,7 @@ label select {
   max-width: 580px;
   position: relative;
   isolation: isolate;
-  transition: transform .28s ease;
+  transition: transform 0.28s ease;
 }
 
 .login-story::before {
@@ -280,15 +327,22 @@ label select {
   position: absolute;
   z-index: -1;
   inset: -54px -72px;
-  background: radial-gradient(circle 210px at calc(var(--spot-x) + 72px) calc(var(--spot-y) + 54px), rgba(255,255,255,.72), rgba(183,210,149,.12) 45%, transparent 76%);
+  background: radial-gradient(
+    circle 210px at calc(var(--spot-x) + 72px) calc(var(--spot-y) + 54px),
+    rgba(255, 255, 255, 0.72),
+    rgba(183, 210, 149, 0.12) 45%,
+    transparent 76%
+  );
   opacity: 0;
-  transition: opacity .3s ease;
+  transition: opacity 0.3s ease;
   pointer-events: none;
 }
 
 .login-story .brand {
   margin-bottom: 62px;
-  text-shadow: 0 1px 1px rgba(255,255,255,.9), 0 6px 14px rgba(41,60,39,.18);
+  text-shadow:
+    0 1px 1px rgba(255, 255, 255, 0.9),
+    0 6px 14px rgba(41, 60, 39, 0.18);
 }
 
 .login-story h1 {
@@ -297,13 +351,18 @@ label select {
   letter-spacing: 3px;
   line-height: 1.45;
   margin: 25px 0;
-  text-shadow: 0 1px 0 rgba(255,255,255,.9), 0 4px 8px rgba(48,66,44,.14), 0 12px 21px rgba(48,66,44,.1);
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9),
+    0 4px 8px rgba(48, 66, 44, 0.14),
+    0 12px 21px rgba(48, 66, 44, 0.1);
 }
 
 .login-story p {
   line-height: 2.1;
   color: var(--c-7a8b7b);
-  text-shadow: 0 1px 0 rgba(255,255,255,.95), 0 4px 7px rgba(58,73,54,.13);
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.95),
+    0 4px 7px rgba(58, 73, 54, 0.13);
 }
 
 .story-tags {
@@ -312,7 +371,9 @@ label select {
   color: var(--c-698164);
   font-size: 12px;
   margin-top: 45px;
-  text-shadow: 0 1px 0 var(--c-fff), 0 3px 6px rgba(46,73,43,.16);
+  text-shadow:
+    0 1px 0 var(--c-fff),
+    0 3px 6px rgba(46, 73, 43, 0.16);
 }
 
 .story-tags span {
@@ -322,43 +383,106 @@ label select {
 }
 
 .login-card {
+
   --spot-x: 50%;
+
   --spot-y: 35%;
+
   position: relative;
-  background: radial-gradient(circle 230px at var(--spot-x) var(--spot-y), rgba(238,247,230,.88), transparent 72%), rgba(255,255,255,.94);
+
+  background:
+    radial-gradient(
+      circle 230px at var(--spot-x) var(--spot-y),
+      rgba(238, 247, 230, 0.88),
+      transparent 72%
+    ),
+    rgba(255, 255, 255, 0.94);
+
   padding: 42px;
+
   width: 410px;
-  box-shadow: 0 1px 1px rgba(255,255,255,.9) inset, 0 14px 36px rgba(54,66,48,.14), 0 4px 11px rgba(54,66,48,.08);
-  border: 1px solid rgba(207, 216, 201, .92);
-  border-radius: 6px;
+
+  box-shadow:
+    0 1px 1px rgba(255, 255, 255, 0.9) inset,
+    0 14px 36px rgba(54, 66, 48, 0.14),
+    0 4px 11px rgba(54, 66, 48, 0.08);
+
+  border: 1px solid var(--stroke);
+
+  border-radius: var(--radius-control);
+
   backdrop-filter: blur(12px);
+
   max-height: calc(100dvh - 40px);
+
   overflow-y: auto;
-  transition: transform .28s ease, box-shadow .28s ease, border-color .28s ease;
+
+  transition:
+    transform 0.28s ease,
+    box-shadow 0.28s ease,
+    border-color 0.28s ease;
+  --stroke: rgba(207, 216, 201, 0.92);
+
+  --stroke-radius: calc((var(--radius-control)) * 2);}
+.login-card::after {
+  content: none;
+  position: absolute;
+  inset: 0;
+
+  width: auto;
+  height: auto;
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: none;
+
 }
 
+
 @media (hover: hover) and (pointer: fine) {
-.login-story:hover { transform: translateY(-2px); }
-.login-story:hover::before { opacity: 1; }
-.login-card:hover {
-    transform: translateY(-3px);
-    border-color: rgba(183, 202, 172, .96);
-    box-shadow: 0 1px 1px rgba(255,255,255,.92) inset, 0 18px 41px rgba(54,66,48,.17), 0 6px 14px rgba(54,66,48,.1);
+  .login-story:hover {
+    transform: translateY(-2px);
   }
+  .login-story:hover::before {
+    opacity: 1;
+  }
+  .login-card:hover {
+
+    transform: translateY(-3px);
+
+    --stroke: rgba(183, 202, 172, 0.96);
+
+    border-color: transparent;
+
+    box-shadow:
+      0 1px 1px rgba(255, 255, 255, 0.92) inset,
+      0 18px 41px rgba(54, 66, 48, 0.17),
+      0 6px 14px rgba(54, 66, 48, 0.1);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
 }
 
 .login-card h2 {
   font-size: 21px;
   font-weight: 500;
   margin: 12px 0 5px;
-  text-shadow: 0 1px 0 var(--c-fff), 0 3px 7px rgba(45,60,42,.16);
+  text-shadow:
+    0 1px 0 var(--c-fff),
+    0 3px 7px rgba(45, 60, 42, 0.16);
 }
 
 .login-card p {
   color: var(--c-98a093);
   font-size: 13px;
   margin: 0;
-  text-shadow: 0 1px 0 rgba(255,255,255,.9), 0 2px 5px rgba(54,66,48,.1);
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9),
+    0 2px 5px rgba(54, 66, 48, 0.1);
 }
 
 .login-card .primary {
@@ -372,13 +496,42 @@ label select {
   color: var(--c-a2aba0);
 }
 
-.login-card > label, .login-card .password-field > label, .login-card .human-verification > label { margin: 12px 0 0; font-size: 12px; text-shadow: 0 1px 0 var(--c-fff), 0 2px 4px rgba(47,64,44,.12); }
+.login-card > label,
+.login-card .password-field > label,
+.login-card .human-verification .field {
+  margin: 12px 0 0;
+  font-size: 12px;
+  text-shadow:
+    0 1px 0 var(--c-fff),
+    0 2px 4px rgba(47, 64, 44, 0.12);
+}
 
-.login-card label input { min-height: 40px; margin-top: 5px; padding: 9px 10px; }
+/* Field 自身 margin 为 0，间距由容器提供。登录卡里浮动 label 会向上压线，
+   没有上边距就会叠到标题或上一个输入框上。 */
+.login-card > .field,
+.login-card > .password-field {
+  margin-top: var(--field-gap, 12px);
+}
 
-.login-card .error { margin-top: 10px; padding: 9px 11px; }
+/* 有内容时 label 骑在边框上，会顶到上一行提示。空字段的 label 在框内，保持原间距。 */
+.login-card > p + .field.is-floating {
+  margin-top: 18px;
+}
 
-.login-card .auth-notice { margin-top: 10px; }
+.login-card label input {
+  min-height: 40px;
+  margin-top: 5px;
+  padding: 9px 10px;
+}
+
+.login-card .error {
+  margin-top: 10px;
+  padding: 9px 11px;
+}
+
+.login-card .auth-notice {
+  margin-top: 10px;
+}
 
 .login-links {
   position: absolute;
@@ -391,68 +544,238 @@ label select {
 }
 
 .login-links a {
+
   display: inline-flex;
+
   align-items: center;
+
   min-height: 40px;
+
   padding: 0 18px;
-  border: 1px solid var(--c-7a9a6e);
+
+  border: 1px solid transparent;
+
   border-radius: 999px;
-  background: rgba(255, 255, 255, .96);
+
+  background: rgba(255, 255, 255, 0.96);
+
   color: var(--c-2f4a2c);
+
   font-size: 14px;
+
   font-weight: 600;
-  letter-spacing: .06em;
+
+  letter-spacing: 0.06em;
+
   text-decoration: none;
-  box-shadow: 0 6px 15px rgba(54, 66, 48, .14);
+
+  box-shadow: 0 6px 15px rgba(54, 66, 48, 0.14);
+  position: relative;
+  --stroke: var(--c-7a9a6e);
+
+  --stroke-radius: 1998px;
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
+.login-links a::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
 
 .login-links a:hover {
-  border-color: var(--c-54704e);
+
+  --stroke: var(--c-54704e);
+
+  border-color: transparent;
+
   background: var(--c-f2f8ed);
+
   color: var(--c-243a22);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
 
-.auth-mode-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin: 13px 0 17px; padding: 3px; border: 1px solid var(--c-dfe5da); border-radius: 5px; background: var(--c-f2f5ef); }
+.auth-mode-tabs {
+  margin: 13px 0 17px;
+}
 
-.auth-mode-tabs button { min-width: 0; padding: 8px 5px; border: 0; border-radius: 4px; background: transparent; color: var(--c-7c8678); font-size: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.auth-notice {
 
-.auth-mode-tabs button.active { background: var(--c-fff); color: var(--c-33432f); box-shadow: 0 1px 3px rgba(53, 68, 47, .1); }
+  margin-top: 12px;
 
-.auth-notice { margin-top: 12px; padding: 9px 11px; border: 1px solid var(--c-cbdabe); border-radius: 4px; background: var(--c-f2f8ed); color: var(--c-52684a); font-size: 12px; }
+  padding: 9px 11px;
 
-.password-field { display: grid; gap: 5px; }
+  border: 1px solid transparent;
 
-.password-strength { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: center; gap: 5px; min-height: 18px; }
+  border-radius: 4px;
 
-.password-strength > span { height: 4px; border-radius: 1px; background: var(--c-dfe3de); }
+  background: var(--c-f2f8ed);
 
-.password-strength small { min-width: 88px; color: var(--c-818981); font-size: 11px; text-align: right; }
+  color: var(--c-52684a);
 
-.password-strength[data-level="danger"] > span.active { background: var(--c-c85b54); }
+  font-size: 12px;
+  position: relative;
+  --stroke: var(--c-cbdabe);
 
-.password-strength[data-level="danger"] small { color: var(--c-a9443e); }
+  --stroke-radius: 8px;
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+.auth-notice::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
 
-.password-strength[data-level="normal"] > span.active { background: var(--c-c69236); }
 
-.password-strength[data-level="normal"] small { color: var(--c-8a651f); }
+.password-field {
+  display: grid;
+  gap: 5px;
+}
 
-.password-strength[data-level="safe"] > span.active { background: var(--c-5d8b55); }
+.password-strength {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: center;
+  gap: 5px;
+  min-height: 18px;
+}
 
-.password-strength[data-level="safe"] small { color: var(--c-497343); }
+/* 强度不走主题色相：危险红、一般黄、安全绿。只加透明度叠在表面上，色相不变。 */
+.password-strength > span {
+  height: 4px;
+  border-radius: 1px;
+  background: color-mix(in srgb, #8d948c 34%, transparent);
 
-.human-verification { display: grid; gap: 4px; }
+  --stroke-radius: 2px;}
 
-.human-verification-row { display: grid; grid-template-columns: minmax(0, 1fr) 126px; gap: 8px; align-items: stretch; margin-top: 6px; }
+.password-strength small {
+  min-width: 88px;
+  color: color-mix(in srgb, #6f776e 78%, transparent);
+  font-size: 11px;
+  text-align: right;
+}
 
-.human-verification-row input { min-width: 0; margin: 0; }
+.password-strength[data-level="danger"] > span.active {
+  background: color-mix(in srgb, #e5484d 82%, transparent);
+}
 
-.captcha-image { width: 126px; height: 42px; padding: 0; overflow: hidden; border: 1px solid var(--c-dce3d6); border-radius: 4px; background: var(--c-f5f6f2); }
+.password-strength[data-level="danger"] small {
+  color: #e5484d;
+}
 
-.captcha-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.password-strength[data-level="normal"] > span.active {
+  background: color-mix(in srgb, #e2a325 86%, transparent);
+}
 
-.captcha-image span { font-size: 11px; color: var(--c-788271); }
+.password-strength[data-level="normal"] small {
+  color: #e2a325;
+}
 
-.captcha-error { color: var(--c-a64c42); font-size: 11px; }
+.password-strength[data-level="safe"] > span.active {
+  background: color-mix(in srgb, #2f9e44 82%, transparent);
+}
+
+.password-strength[data-level="safe"] small {
+  color: #2f9e44;
+}
+
+.human-verification {
+  display: grid;
+  gap: 4px;
+}
+
+.human-verification-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 126px;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.human-verification-row input {
+  min-width: 0;
+  margin: 0;
+}
+
+.captcha-image {
+
+  width: 126px;
+
+  height: 42px;
+
+  padding: 0;
+
+  overflow: hidden;
+
+  border: 1px solid transparent;
+
+  border-radius: 4px;
+
+  background: var(--c-f5f6f2);
+  position: relative;
+  --stroke: var(--c-dce3d6);
+
+  --stroke-radius: 8px;}
+.captcha-image::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
+
+.captcha-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.captcha-image span {
+  font-size: 11px;
+  color: var(--c-788271);
+}
+
+.captcha-error {
+  color: var(--c-a64c42);
+  font-size: 11px;
+}
 
 .avatar {
   width: 32px;
@@ -465,7 +788,8 @@ label select {
   background: var(--c-e9ecdf);
   color: var(--c-7b866a);
   font-size: 12px;
-}
+
+  --stroke-radius: 14px;}
 
 :root {
   --workspace-top-strip-height: 36px;
@@ -489,28 +813,28 @@ summary {
 }
 
 @media (max-width: 1150px) {
-.brand small {
+  .brand small {
     display: none;
   }
 }
 
 @media (max-width: 900px) {
-.login {
+  .login {
     gap: 35px;
   }
-.login-story h1 {
+  .login-story h1 {
     font-size: 38px;
   }
 }
 
 @media (max-width: 620px) {
-.login {
+  .login {
     padding: 25px;
   }
-.login-story {
+  .login-story {
     display: none;
   }
-.login-card {
+  .login-card {
     padding: 26px 30px;
     width: 100%;
   }
@@ -529,7 +853,11 @@ summary {
   initial-value: 420px;
 }
 
-.account-switch-list { display: grid; gap: 8px; margin: 4px 0 16px; }
+.account-switch-list {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 16px;
+}
 
 .account-switch-item {
   display: flex;
@@ -537,54 +865,175 @@ summary {
   gap: 10px;
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid var(--c-e2e8dd);
-  border-radius: 6px;
-  background: var(--c-fff);
+  /* 不用描边分隔：靠底色区分区块，避免"带框卡片"的 AI 味。 */
+  border: 0;
+  border-radius: 8px;
+  background: var(--c-f8faf8);
   text-align: left;
+
+  --stroke-radius: 16px;}
+
+.account-switch-item.current {
+  background: var(--c-edf2ec);
+  /* inset 竖条同样去掉，当前账号只靠底色深浅区分。 */
+  box-shadow: none;
 }
 
-.account-switch-item.current { border-color: var(--c-7d9a6e); background: var(--c-e3ead9); box-shadow: inset 3px 0 0 var(--c-58714d); }
-
-.account-switch-actions { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
-
-.account-switch-action {
+.account-switch-actions {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
+}
+
+.account-switch-action {
+
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  gap: 4px;
+
+  flex-shrink: 0;
+
   margin: 0;
+
   padding: 5px 8px;
-  border: 1px solid var(--c-e8d7d0);
+
+  border: 1px solid transparent;
+
   border-radius: 4px;
+
   background: var(--c-fff8f5);
+
   color: var(--c-aa6655);
+
   font-size: 12px;
+
+  white-space: nowrap;
+  position: relative;
+  --stroke: var(--c-e8d7d0);
+
+  --stroke-radius: 8px;
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+.account-switch-action::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
+
+.account-switch-action:hover:not(:disabled) {
+  background: var(--c-fff1ec);
+}
+
+.account-switch-item .avatar {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  font-size: 13px;
+}
+
+.account-switch-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.account-switch-copy strong,
+.account-switch-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.account-switch-action:hover:not(:disabled) { background: var(--c-fff1ec); }
+.account-switch-copy small {
+  color: var(--c-8b9683);
+  font-size: 11px;
+}
 
-.account-switch-item .avatar { width: 32px; height: 32px; flex: 0 0 32px; font-size: 13px; }
+.account-switch-item em {
+  flex-shrink: 0;
+  color: var(--c-607957);
+  font-size: 11px;
+  font-style: normal;
+}
 
-.account-switch-copy { display: grid; min-width: 0; flex: 1; gap: 2px; }
+.account-switch-item.current em {
+  color: var(--c-8b9683);
+}
 
-.account-switch-copy strong,
-.account-switch-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.login-card .account-switch-list {
+  margin-top: 14px;
+}
 
-.account-switch-copy small { color: var(--c-8b9683); font-size: 11px; }
+.login-card .login-quick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 18px;
+}
 
-.account-switch-item em { flex-shrink: 0; color: var(--c-607957); font-size: 11px; font-style: normal; }
+.login-card .login-quick .account-switch-list {
+  margin-top: 0;
+}
 
-.account-switch-item.current em { color: var(--c-8b9683); }
+.login-card .login-switch-account {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 18px;
+}
 
-.login-card .account-switch-list { margin-top: 14px; }
+.login-card .login-switch-quick {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--c-698164);
+  font-size: 13px;
+  box-shadow: none;
+  --stroke: transparent;
+}
+
+.login-card .login-switch-quick::after {
+  content: none;
+}
+
+.login-card .login-switch-quick:hover {
+  background: transparent;
+  color: var(--c-2f4a2c);
+  text-decoration: underline;
+}
 
 .account-switch-list.tiles {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 2px;
+}
+
+.login-card .account-switch-list.tiles {
+  flex-direction: column;
+  align-items: center;
 }
 
 .account-switch-title {
@@ -595,26 +1044,74 @@ summary {
   letter-spacing: 0.02em;
 }
 
-.account-switch-tile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  width: 64px;
-  min-height: 0;
-  margin: 0;
-  padding: 6px 4px 5px;
-  border: 1px solid var(--c-d9e1d9);
-  border-radius: 6px;
-  background: var(--c-fff);
-  color: var(--c-33432f);
-  box-shadow: none;
-  line-height: 1.2;
+.login-card .account-switch-title {
+  text-align: center;
 }
 
+.account-switch-tile {
+
+  display: flex;
+
+  flex-direction: column;
+
+  align-items: center;
+
+  gap: 4px;
+
+  width: 64px;
+
+  min-height: 0;
+
+  margin: 0;
+
+  padding: 6px 4px 5px;
+
+  border: 1px solid transparent;
+
+  border-radius: 6px;
+
+  background: var(--c-fff);
+
+  color: var(--c-33432f);
+
+  box-shadow: none;
+
+  line-height: 1.2;
+  position: relative;
+  --stroke: var(--c-d9e1d9);
+
+  --stroke-radius: 12px;
+  overflow: clip;
+  overflow-clip-margin: 12px;
+}
+.account-switch-tile::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
+
 .account-switch-tile:hover:not(:disabled) {
-  border-color: var(--c-b7c9a8);
+
+  --stroke: var(--c-b7c9a8);
+
+  border-color: transparent;
+
   background: var(--c-f8faf6);
+
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
 
 .account-switch-tile .avatar {
@@ -623,7 +1120,8 @@ summary {
   flex: 0 0 28px;
   border-radius: 7px;
   font-size: 12px;
-}
+
+  --stroke-radius: 14px;}
 
 .account-switch-tile strong {
   max-width: 100%;
@@ -644,7 +1142,9 @@ summary {
   font-size: 12px;
 }
 
-.login-card .remember-device + .primary { margin-top: 12px; }
+.login-card .remember-device + .primary {
+  margin-top: 12px;
+}
 
 .login-card .remember-device input {
   width: 14px;
@@ -659,7 +1159,8 @@ summary {
   height: 100%;
   object-fit: cover;
   border-radius: inherit;
-}
+
+  --stroke-radius: calc((inherit) * 2);}
 
 [data-role="管理"] {
   --role-ink: var(--c-8b3d24);
@@ -713,14 +1214,4 @@ summary {
   --role-ink: var(--c-64707b);
   --role-bg: var(--c-f2f4f6);
   --role-border: var(--c-cdd3d8);
-}
-
-@keyframes tip-in {
-  from { opacity: 0; transform: translate3d(0, -8px, 0); }
-  to { opacity: 1; transform: translate3d(0, 0, 0); }
-}
-
-@keyframes tip-out {
-  from { opacity: 1; transform: translate3d(0, 0, 0); }
-  to { opacity: 0; transform: translate3d(0, -8px, 0); }
 }

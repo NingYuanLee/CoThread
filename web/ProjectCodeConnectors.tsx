@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
+import { SlideSwitch } from "./SlideSwitch";
 import { UiIcon } from "./ui-icon";
+import { TextField } from "./TextField";
 import { showTip } from "./Tip";
 
 type ConnectorKind = "github" | "yunxiao";
@@ -397,28 +399,31 @@ export function ProjectCodeConnectors({
 
   return (
     <div className="project-code-connectors">
-      <p className="muted project-member-note">
-        连接器是能力（平台令牌），开关控制是否启用；勾选的仓库是本项目范围。可拉取平台仓库后勾选保存。
-      </p>
-
-      <div className="pcc-tabs" role="tablist" aria-label="项目连接器平台">
-        {TAB_ORDER.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            role="tab"
-            className={activeKind === tab ? "active" : undefined}
-            aria-selected={activeKind === tab}
-            onClick={() => setActiveKind(tab)}
-          >
-            <span className="pcc-tab-label">
-              <UiIcon name={TAB_ICONS[tab]} size={14} />
-              <span>{LABELS[tab]}</span>
-            </span>
-            {tabCounts[tab] > 0 ? <em className="pcc-tab-count">{tabCounts[tab]}</em> : null}
-          </button>
-        ))}
+      <div className="settings-content-heading">
+        <p>
+          连接器是能力（平台令牌），开关控制是否启用；勾选的仓库是本项目范围。可拉取平台仓库后勾选保存。
+        </p>
       </div>
+
+      <SlideSwitch
+        className="pcc-tabs"
+        stretch
+        label="项目连接器平台"
+        value={activeKind}
+        onChange={setActiveKind}
+        items={TAB_ORDER.map((tab) => ({
+          value: tab,
+          label: (
+            <>
+              <span className="pcc-tab-label">
+                <UiIcon name={TAB_ICONS[tab]} size={14} />
+                <span>{LABELS[tab]}</span>
+              </span>
+              {tabCounts[tab] > 0 ? <em className="pcc-tab-count">{tabCounts[tab]}</em> : null}
+            </>
+          ),
+        }))}
+      />
 
       <section className="pcc-tab-panel" role="tabpanel" aria-label={LABELS[kind]}>
         <div className="panel-heading">
@@ -451,49 +456,51 @@ export function ProjectCodeConnectors({
         {canManage ? (
           <>
             <div className="pcc-inline-row">
-              <div className="pcc-secret-field">
-                <input
-                  type={revealed[kind] ? "text" : "password"}
-                  name={`cothread-connector-token-${kind}`}
-                  autoComplete="new-password"
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  data-lpignore="true"
-                  data-1p-ignore="true"
-                  data-bwignore="true"
-                  data-form-type="other"
-                  aria-label={`${LABELS[kind]} 访问令牌`}
-                  placeholder={item.hasToken ? "已保存令牌（可点眼睛查看）" : "粘贴平台访问令牌"}
-                  value={drafts[kind]}
-                  disabled={busy}
-                  readOnly={tokenLocked[kind] !== false}
-                  onFocus={() => setTokenLocked((value) => ({ ...value, [kind]: false }))}
-                  onBlur={() => {
-                    if (!drafts[kind] && !revealed[kind]) {
-                      setTokenLocked((value) => ({ ...value, [kind]: true }));
+              <TextField
+                dense
+                containerClassName="pcc-inline-field"
+                type={revealed[kind] ? "text" : "password"}
+                label="访问令牌"
+                name={`cothread-connector-token-${kind}`}
+                autoComplete="new-password"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
+                data-form-type="other"
+                placeholder={item.hasToken ? "已保存令牌（可点眼睛查看）" : "粘贴平台访问令牌"}
+                value={drafts[kind]}
+                disabled={busy}
+                readOnly={tokenLocked[kind] !== false}
+                onFocus={() => setTokenLocked((value) => ({ ...value, [kind]: false }))}
+                onBlur={() => {
+                  if (!drafts[kind] && !revealed[kind]) {
+                    setTokenLocked((value) => ({ ...value, [kind]: true }));
+                  }
+                }}
+                onChange={(event) =>
+                  setDrafts((value) => ({ ...value, [kind]: event.target.value }))
+                }
+                action={
+                  <button
+                    type="button"
+                    className="pcc-secret-toggle"
+                    disabled={busy || !drafts[kind]}
+                    title={
+                      !drafts[kind] ? "暂无令牌可显示" : revealed[kind] ? "隐藏令牌" : "显示令牌"
                     }
-                  }}
-                  onChange={(event) =>
-                    setDrafts((value) => ({ ...value, [kind]: event.target.value }))
-                  }
-                />
-                <button
-                  type="button"
-                  className="pcc-secret-toggle"
-                  disabled={busy || !drafts[kind]}
-                  title={
-                    !drafts[kind] ? "暂无令牌可显示" : revealed[kind] ? "隐藏令牌" : "显示令牌"
-                  }
-                  aria-label={
-                    !drafts[kind] ? "暂无令牌可显示" : revealed[kind] ? "隐藏令牌" : "显示令牌"
-                  }
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => toggleTokenReveal(kind)}
-                >
-                  <UiIcon name="eye" size={14} />
-                </button>
-              </div>
+                    aria-label={
+                      !drafts[kind] ? "暂无令牌可显示" : revealed[kind] ? "隐藏令牌" : "显示令牌"
+                    }
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => toggleTokenReveal(kind)}
+                  >
+                    <UiIcon name="eye" size={14} />
+                  </button>
+                }
+              />
               <button
                 type="button"
                 className="primary pcc-icon-btn"
@@ -508,11 +515,13 @@ export function ProjectCodeConnectors({
 
             {kind === "yunxiao" ? (
               <div className="pcc-inline-row">
-                <input
+                <TextField
+                  dense
+                  containerClassName="pcc-inline-field"
+                  label="云效组织 ID"
                   name="cothread-yunxiao-organization-id"
                   autoComplete="off"
-                  aria-label="云效组织 ID"
-                  placeholder="组织 ID（中心版必填，可从云效地址 /organization/ 后复制）"
+                  placeholder="中心版必填，可从云效地址 /organization/ 后复制"
                   value={orgDraft}
                   disabled={busy}
                   onChange={(event) => setOrgDraft(event.target.value)}
@@ -610,9 +619,7 @@ export function ProjectCodeConnectors({
               {!item.enabled ? (
                 <p className="muted">启用连接器后可拉取并勾选仓库。</p>
               ) : scope?.error ? (
-                <p className="error" role="alert">
-                  {scope.error}
-                </p>
+                <p className="muted">仓库列表读取失败，请重试。</p>
               ) : !scope?.loaded ? (
                 <p className="muted">先点下载拉取全部仓库，再在搜索框里筛选；保存或关闭可收起。</p>
               ) : !scope.items.length ? (

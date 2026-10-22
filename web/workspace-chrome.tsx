@@ -8,7 +8,7 @@ export function CoThreadLogo({ className, title }: { className?: string; title?:
       role={title ? "img" : "presentation"}
     >
       {title ? <title>{title}</title> : null}
-      <rect width="64" height="64" rx="13" fill="currentColor" />
+      <rect width="64" height="64" rx="25.6" fill="currentColor" />
       <path
         d="M44 19H29C20.7 19 14 25.7 14 34s6.7 15 15 15h15"
         stroke="var(--logo-ink, #F3F6EC)"

@@ -1,3 +1,5 @@
+import { DialogBody } from "./DialogBody";
+import { DialogHeader } from "./DialogHeader";
 import { useConversationSelection } from "./use-conversation-selection";
 import { useAccountSession } from "./use-account-session";
 import { useProjectTasks } from "./use-project-tasks";
@@ -81,8 +83,8 @@ import { sameSnapshot } from "../shared/poll-signature.js";
 import { MessageContextMenu } from "./thread-menus";
 import { labelReasoningEffort } from "./ui-labels";
 import { UiIcon } from "./ui-icon";
-import { DialogClose, ModalBackdrop } from "./dialog-fx";
-import { showTip } from "./Tip";
+import { ModalBackdrop } from "./dialog-fx";
+import { showTip, useTipError } from "./Tip";
 const DeleteConfirmDialog = lazy(() =>
   import("./DeleteConfirmDialog").then((module) => ({ default: module.DeleteConfirmDialog })),
 );
@@ -236,7 +238,7 @@ export function WorkspaceApp() {
   const pendingWork = hasPendingWork(thread);
   const liveOutput = useAgentLiveOutput(threadId, pendingWork);
   const wakeThreadPoll = useRef<(() => void) | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useTipError();
   const [modal, setModal] = useState<Modal>(null);
   const [busy, setBusy] = useState(false);
   const composerApi = useRef<ComposerController | null>(null);
@@ -323,7 +325,6 @@ export function WorkspaceApp() {
       showTip(selectedText.trim() ? "已复制选中文本" : "消息已复制");
     } catch {
       setError("复制失败，请检查剪贴板权限。");
-      showTip("复制失败，请检查剪贴板权限。", "error");
     }
   };
   useEffect(() => {
@@ -959,7 +960,6 @@ export function WorkspaceApp() {
       showTip("会话信息已复制");
     } catch {
       setError("无法自动复制会话信息，请检查剪贴板权限后重试。");
-      showTip("无法自动复制会话信息，请检查剪贴板权限后重试。", "error");
     }
   };
   const archiveActiveThread = (target: { id: string; title: string }) =>
@@ -1511,7 +1511,6 @@ export function WorkspaceApp() {
     projectId,
     open,
     setProjectManagementOpen,
-    currentProject,
     setMonitorOpen,
     user,
   };
@@ -1584,12 +1583,6 @@ export function WorkspaceApp() {
         <header className="workspace-top-strip">
           <ConversationHeader {...conversationHeaderProps} />
         </header>
-        {error && !modal && (
-          <div className="error banner" role="alert">
-            {error}
-            <button onClick={() => setError("")}>×</button>
-          </div>
-        )}
         {!thread && projectId && (!detail || threadId) ? (
           <div className="conversation-loading" role="status" aria-live="polite" aria-busy="true">
             <p>{threadId ? "正在加载会话…" : "正在加载项目…"}</p>
@@ -1692,7 +1685,7 @@ export function WorkspaceApp() {
           />
         )}
         {projectId && (dialogueMode === "cloudbase" || dialogueMode === "miniprogram") ? (
-          <Suspense fallback={<p className="muted">正在加载小程序云开发…</p>}>
+          <Suspense fallback={<p className="muted">正在加载 CloudBase…</p>}>
             <div className="library-embedded miniprogram-sidebar-embedded doc-browser-shell">
               <MiniProgramWorkspace
                 projectId={projectId}
@@ -1797,16 +1790,21 @@ export function WorkspaceApp() {
               aria-label="引用消息原文"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="quoted-message-dialog-header">
-                <DialogClose autoFocus onClick={close} label="关闭原文" />
-              </div>
-              <strong>
-                {quotePreview.source === "assistant" ? AGENT_MEMBER.name : quotePreview.author}
-              </strong>
-              <Suspense fallback={quotePreview.body}>
-                <QuoteMarkdown body={quotePreview.body} />
-              </Suspense>
-              {renderMessageAttachments(quotePreview)}
+              <DialogHeader
+                title={
+                  quotePreview.source === "assistant" ? AGENT_MEMBER.name : quotePreview.author
+                }
+                subtitle="引用消息原文"
+                onClose={close}
+                autoFocusClose
+                closeLabel="关闭原文"
+              />
+              <DialogBody>
+                <Suspense fallback={quotePreview.body}>
+                  <QuoteMarkdown body={quotePreview.body} />
+                </Suspense>
+                {renderMessageAttachments(quotePreview)}
+              </DialogBody>
             </section>
           )}
         </ModalBackdrop>

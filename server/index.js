@@ -27,6 +27,9 @@ import {
 
 const production = isProductionProcess();
 const apiOnly = process.argv.includes("--api-only");
+// 临时探活与正式服务共用数据库。此模式保留迁移、静态资源与 /api/health，
+// 但不启动执行器，也不在启动或退出时清理预览和沙箱运行状态。
+const healthProbe = process.argv.includes("--health-probe");
 const listenHost = resolveListenHost({ production, env: process.env });
 let databaseTarget;
 let databaseUrl;
@@ -66,10 +69,13 @@ await query(db, "SELECT 1");
 const allowWrites = productionWriteAllowed(process.env, { production });
 if (allowWrites) await migrate(db, undefined, { seedAdmin: true });
 else console.warn(`数据库目标=${databaseTarget}：非生产进程跳过迁移和管理员初始化。`);
-const releasedPreviews = await stopCoThreadPreviewServers(db).catch((error) => {
-  console.warn("启动时停止共序预览端口失败:", error?.message || error);
-  return 0;
-});
+let releasedPreviews = 0;
+if (!healthProbe) {
+  releasedPreviews = await stopCoThreadPreviewServers(db).catch((error) => {
+    console.warn("启动时停止共序预览端口失败:", error?.message || error);
+    return 0;
+  });
+}
 if (releasedPreviews) console.log(`共序重启：已停止 ${releasedPreviews} 个 Admin 预览`);
 const app = createApp(db);
 let vite;
@@ -151,10 +157,11 @@ if (vite) {
     }
   })();
 }
-if (allowWrites) await interruptRunningSandboxRuns(workDb);
-const stopReplyWorker = allowWrites ? await startReplyWorker(workDb, db) : () => {};
+const runExecutor = allowWrites && !healthProbe;
+if (runExecutor) await interruptRunningSandboxRuns(workDb);
+const stopReplyWorker = runExecutor ? await startReplyWorker(workDb, db) : () => {};
 console.log(
-  `数据库：${databaseHost}${databaseUrl.port ? `:${databaseUrl.port}` : ""}  沙箱：${sandbox}  执行器：${allowWrites ? "进程内常驻" : "未启动"}`,
+  `数据库：${databaseHost}${databaseUrl.port ? `:${databaseUrl.port}` : ""}  沙箱：${sandbox}  执行器：${runExecutor ? "进程内常驻" : "未启动"}${healthProbe ? "（健康探活）" : ""}`,
 );
 
 // 第三方库会产生无人 await 的 rejected promise——已实测两次把整个 API 直接杀死：
@@ -184,7 +191,7 @@ const shutdown = createShutdown({
       httpClosed,
       streamsClosed,
       stopDevServerUpgrades(),
-      stopCoThreadPreviewServers(db).catch(() => 0),
+      ...(healthProbe ? [] : [stopCoThreadPreviewServers(db).catch(() => 0)]),
     ]);
   },
   closeResources: async () => {

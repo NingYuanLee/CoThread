@@ -98,7 +98,7 @@ trap 'stop_probe' EXIT
 echo "在端口 $HEALTH_PORT 探活新版本（不影响 $PROD_PORT）…"
 (
   cd "$RELEASE_DIR"
-  PORT="$HEALTH_PORT" nohup node --env-file-if-exists=.env server/index.js --production \
+  PORT="$HEALTH_PORT" nohup node --env-file-if-exists=.env server/index.js --production --health-probe \
     >"$LOG_DIR/release-${release_id}.log" 2>&1 &
   echo $! >"$LOG_DIR/release-${release_id}.pid"
 )

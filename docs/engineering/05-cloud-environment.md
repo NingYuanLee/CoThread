@@ -27,7 +27,7 @@
 
 ## ECS 发布
 
-新版本解压到 `/opt/cothread/releases/<id>`，在临时端口探活 `/api/health`；**通过后**才把 `/opt/cothread/current` 原子切到新目录并 `systemctl restart cothread`。临时探活失败时，脚本清理本轮 release，`current` 与正式进程不切换。发布脚本只认 `"status":"ok"`，它表示进程和数据库可读，不表示执行器正在干活。同一响应里的 `executor.ready` 才表示本进程持有执行器锁。任务排队看本机 `GET /api/health/work`（仅回环地址），不要把它放进发布探活，避免执行器抖动导致整站切换失败。共享 `.env`、`.local` 在 `/opt/cothread/`，不随 release 覆盖。
+新版本解压到 `/opt/cothread/releases/<id>`，在临时端口以 `--production --health-probe` 启动并探活 `/api/health`；**通过后**才把 `/opt/cothread/current` 原子切到新目录并 `systemctl restart cothread`。探活进程保留迁移和生产静态/API 路径，但不启动后台执行器，不打断沙箱记录，也不在启动或退出时停止 Admin 预览。临时探活失败时，脚本清理本轮 release，`current` 与正式进程不切换。发布脚本只认 `"status":"ok"`，它表示进程和数据库可读，不表示执行器正在干活；探活进程的 `executor.ready: false` 是预期结果，锁应仍归正式进程。正式切换后才核查新进程 `executor.ready: true`。任务排队看本机 `GET /api/health/work`（仅回环地址），不要把它放进发布探活，避免执行器抖动导致整站切换失败。共享 `.env`、`.local` 在 `/opt/cothread/`，不随 release 覆盖。
 
 失败保护有两个边界：临时探活启动也会应用共享数据库迁移，**不切换代码不等于数据库已回滚**；切换后正式端口探活失败时，脚本会报错，但 `current` 已指向新版本，**不会自动回切**。恢复前先核对实际 `current`、systemd 状态和已执行的迁移，确认旧代码与新表结构兼容后再决定恢复方式。依赖安装失败也可能留下未上线的 release 目录，应按执行日志确认状态。
 
@@ -72,6 +72,7 @@ bash -n scripts/ecs-codedeploy-start.sh
 | `npm ci` 报 `EUSAGE`，锁文件中 `postcss-selector-parser@7.1.6` 不满足 `7.1.7` | 已有本地依赖掩盖锁文件不一致 | 本地同步锁文件并做生产安装预检，提交、推送、重打包后重试 |
 | `EBADENGINE` | ECS Node 低于编译器要求 | 核对版本检查及独立运行时安装结果，验证新 Node 后再切换 |
 | `ReleaseWaiting`，新发布报 `DeployFailed.ApplicationGroup` | 上一轮执行因 `FailurePause` 停在失败处 | 先读取失败子任务，修复原因，再取消那一条已确认失败的 execution，之后重新调用 CodeDeploy；不删除应用分组、不新建 ECS |
+| 临时探活报 `EXECUTOR_ALREADY_RUNNING`，随后 `ReleaseWaiting` | 2026-10-22 临时生产进程也启动了 worker，与正式进程争抢 `cothread-executor` 锁 | 使用 `--health-probe`，同时跳过启动/退出的预览及沙箱清理；不能靠提前停止正式服务来让探活抢锁。已新增真实子进程回归，验证已有执行器锁与运行记录在探活启动、健康读取和正常退出后均保持不变 |
 | 发布停留在 `Releasing` | 可能仍在下载和安装依赖 | 看安装进度及子任务状态；本次安装 2265 个包约用 2 分钟，包含下载重试。日志仍在推进时不要重复部署 |
 | Alibaba `LOCAL_RunShellScript` 一直无结果 | 本次分别达到 30 秒、120 秒超时 | 说明已试路径；必要时用本机已安装的 Alibaba SDK 和既有环境凭据读取 OOS/ECS 诊断信息。不要把 AK/SK、临时签名 OSS URL 写入文档或日志；发布入口仍用 MCP CodeDeploy |
 
@@ -88,6 +89,8 @@ bash -n scripts/ecs-codedeploy-start.sh
 本次确认上线的示例（2026-10-20，北京时间 23:35）：提交 `3d9b175`，execution `exec-09645b0d951c44b68268`，revision `rev-df93d45eec644199a30c`，实际目录 `/opt/cothread/releases/20261020T153349Z`；JS 为 `index-B_3USerl.js`，CSS 为 `index-DYaTvJio.css`，健康状态为 `ok` 且执行器就绪。构建、格式与架构检查通过，327 项单元测试和 7 项 CloudBase 针对性回归通过；**完整集成测试曾失败，修复后未完成全量复跑**。
 
 2026-10-22 发布前核查：格式、架构、浮层、输入控件及主题产物门禁通过，生产 npm 10 锁文件 dry-run 通过；340 项无数据库测试中首轮 338 项通过，另 2 项初始化超时后串行复跑通过。独立本地 `cothread_deploy_test` 完整首轮测试共 738 项，721 项通过、17 项失败（含集成清理钩子）。修复后分别复验通过：集成/构建/活跃时间 37 项、补充的沙箱及事务回滚 10 项、开发服务器 15 项、本地执行器 5 项、CloudBase/认证配置/微信预览 66 项；这些组有重叠，不能相加作为独立用例总数。首轮失败项均已覆盖，未再执行一次完整测试集。本轮无数据库迁移改动。浏览器实测本地项目列表、状态下拉、详情全屏切换、新增表单输入/取消、对话模式菜单键盘导航和会话统计浮层；这些结果不代表全部业务验收。
+
+2026-10-22 首次发布 execution `exec-e93c9ca9d0544d73bf6c` 因上述执行器锁冲突失败，未上线目录 `/opt/cothread/releases/20261022T062155Z` 已由脚本删除。失败后独立核对 `current` 仍为 `/opt/cothread/releases/20261020T153349Z`，systemd 仍 active，健康状态 ok 且正式执行器 ready。修复后的真实探活子进程回归通过；不以这项本地结果代替重新发布的线上验收。
 
 ### 发布前测试中暴露的配置问题
 

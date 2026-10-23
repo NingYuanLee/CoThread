@@ -92,7 +92,7 @@ bash -n scripts/ecs-codedeploy-start.sh
 | 临时探活报 `EXECUTOR_ALREADY_RUNNING`，随后 `ReleaseWaiting`                  | 2026-10-22 临时生产进程也启动了 worker，与正式进程争抢 `cothread-executor` 锁 | 使用 `--health-probe`，同时跳过启动/退出的预览及沙箱清理；不能靠提前停止正式服务来让探活抢锁。已新增真实子进程回归，验证已有执行器锁与运行记录在探活启动、健康读取和正常退出后均保持不变 |
 | 发布停留在 `Releasing`                                                        | 可能仍在下载和安装依赖                                                        | 看安装进度及子任务状态；本次安装 2265 个包约用 2 分钟，包含下载重试。日志仍在推进时不要重复部署                                                                                          |
 | Alibaba `LOCAL_RunShellScript` 一直无结果                                     | 本次分别达到 30 秒、120 秒超时                                                | 说明已试路径；必要时用本机已安装的 Alibaba SDK 和既有环境凭据读取 OOS/ECS 诊断信息。不要把 AK/SK、临时签名 OSS URL 写入文档或日志；发布入口仍用 MCP CodeDeploy                           |
-| MCP 与 Tea SDK 调 ECS/OOS 报 `SSLEOFError`                                    | 2026-10-23 同一主机用 curl 和 `requests` 能握手并得到 HTTP 400，Tea 签名请求在握手阶段被对端断开。约 4 小时后同一 SDK 重试成功，未改调用方式 | 不要改用通用 `npm start`。没有 execution 前视为未上传。curl 可达后可以隔一段时间用原 SDK 重试，并重新打包当时的 HEAD |
+| MCP 与 Tea SDK 调 ECS/OOS 报 `SSLEOFError`                                    | 2026-10-23 上午 curl 能握手并得到 HTTP 400，Tea 签名请求在握手阶段被对端断开；约 4 小时后同一 SDK 重试成功。当天下午 curl 仍返回 HTTP 400，但立刻重试的状态查询和 CodeDeploy 仍是 `SSLEOFError` | 不要改用通用 `npm start`。没有 execution 前视为未上传。curl 可达后可以隔一段时间用原 SDK 重试，并重新打包当时的 HEAD |
 
 定位执行问题时，从本次父 execution 的部署任务进入实例子执行，再读取 `deployCurrentRevision` 的状态、输出和实际命令。本次层级为 `<execution>.t0005.i0001`；任务名称和层级应按实际返回发现，不把后缀当作永久 API 契约。应用分组摘要不足以说明启动命令是否真正运行。
 
@@ -125,6 +125,10 @@ bash -n scripts/ecs-codedeploy-start.sh
 2026-10-23 第一次发布中止：当时 HEAD 为 `09e9141`，包 `cothread-release-20261022T185031Z.tgz` 的 SHA-256 为 `49151d5744bde0438a73ed1e558f4d6f98169b79d93dc47be1d2ba98530af679`。MCP 与本机 Tea SDK 在查询 ECS 和读取 OOS 应用时都收到 `SSLEOFError`，没有 execution，生产仍停在 `f9f0cb5`。这份包没有上传。
 
 同日稍后 TLS 恢复，按当时 HEAD `ee8f41d` 重新打包并上线。该提交包含本机 Agent 窗口退出码，以及管理页把历史等级键显示为老翁、小祥、子 Agent；其后的文档提交不改变运行包。格式与架构门禁通过；360 项无数据库测试首轮 358 项通过，沙箱准入和后台命令两项在单独复跑时通过，未再跑全量集成测试。npm 10 生产安装计划预检通过。上线包 `cothread-release-20261023T000849Z.tgz` 的 SHA-256 为 `9cf23eeb585f169fd6684040629b32d923edf0e1ee26178d3988cb684868d763`。OOS 分组为 `Released`，execution `exec-7f97c4c9e3624ef1b957` 为 `Success`，revision `rev-8005e4bccaaf496d8875`。公开健康接口 `status: ok`，执行器 ready，锁获取时间为 UTC `2026-10-23T00:11:08.130Z`（北京时间 08:11:08），7 个执行槽。未登录首页正常，引用 `index-BFuw8kiw.js` 与 `index-CjxCJK9E.css`，与本地 `dist/index.html` 一致。没有登录后的业务验收，也没有在服务器上读取 `current` 符号链接。119 号迁移包含在该包中，发布脚本会在切换前应用未执行迁移；本轮没有单独查询生产迁移表，不能把进程健康写成已看见新列。
+
+2026-10-23 下午第二次发布中止：代码提交 `0aa528d` 已推送。包 `cothread-release-20261023T060834Z.tgz` 的 SHA-256 为 `21b5fdb5bdff313b8284947b38274b6a211cb605e3ec8bcc097d8f1466119586`。`LOCAL_AnalyzeDeployStack` 识别为 npm/nodejs，Node 要求 `>=22.22.3`。curl 访问 OOS 与 ECS 均完成 TLS 校验并返回 HTTP 400。随后 MCP `OOS_GetDeployStatus` 两次、`OOS_CodeDeploy` 一次都在握手阶段收到 `SSLEOFError`：状态查询打到 OOS，CodeDeploy 打到 ECS 的实例查询。没有 execution，没有上传。公开健康接口仍为 ok，执行器 ready，锁获取时间仍是 UTC `2026-10-23T00:11:08.130Z`，说明本轮没有重启正式进程。首页资源仍是 `index-BFuw8kiw.js` 与 `index-CjxCJK9E.css`；这次前端源码未改，本地 `dist/index.html` 也是这两个文件，因此哈希一致不能证明新的服务端代码已上线。
+
+这次发布前：格式与架构门禁通过。小祥参与相关 22 项在本机 `127.0.0.1:3307/cothread_test` 通过。360 项无数据库测试首轮 356 项通过；单独串行复跑后，沙箱准入通过，原生上下文压缩和模型路由仍因 `sdk-minimal` 初始化超时失败，超时命令的后代写入用例单独复跑仍失败。这些失败文件不在 `0aa528d` 中。npm 10 生产安装计划预检通过。没有再跑全量集成测试。
 
 ### 发布前测试中暴露的配置问题
 

@@ -92,7 +92,7 @@ bash -n scripts/ecs-codedeploy-start.sh
 | 临时探活报 `EXECUTOR_ALREADY_RUNNING`，随后 `ReleaseWaiting`                  | 2026-10-22 临时生产进程也启动了 worker，与正式进程争抢 `cothread-executor` 锁 | 使用 `--health-probe`，同时跳过启动/退出的预览及沙箱清理；不能靠提前停止正式服务来让探活抢锁。已新增真实子进程回归，验证已有执行器锁与运行记录在探活启动、健康读取和正常退出后均保持不变 |
 | 发布停留在 `Releasing`                                                        | 可能仍在下载和安装依赖                                                        | 看安装进度及子任务状态；本次安装 2265 个包约用 2 分钟，包含下载重试。日志仍在推进时不要重复部署                                                                                          |
 | Alibaba `LOCAL_RunShellScript` 一直无结果                                     | 本次分别达到 30 秒、120 秒超时                                                | 说明已试路径；必要时用本机已安装的 Alibaba SDK 和既有环境凭据读取 OOS/ECS 诊断信息。不要把 AK/SK、临时签名 OSS URL 写入文档或日志；发布入口仍用 MCP CodeDeploy                           |
-| MCP 与 Tea SDK 调 ECS/OOS 报 `SSLEOFError`                                    | 2026-10-23 上午 curl 能握手并得到 HTTP 400，Tea 签名请求在握手阶段被对端断开；约 4 小时后同一 SDK 重试成功。当天下午 curl 仍返回 HTTP 400，但立刻重试的状态查询和 CodeDeploy 仍是 `SSLEOFError` | 不要改用通用 `npm start`。没有 execution 前视为未上传。curl 可达后可以隔一段时间用原 SDK 重试，并重新打包当时的 HEAD |
+| MCP 与 Tea SDK 调 ECS/OOS 报 `SSLEOFError`                                    | 2026-10-23 上午 curl 能握手并得到 HTTP 400，Tea 签名请求在握手阶段被对端断开；约 4 小时后同一 SDK 重试成功。当天下午 curl 仍返回 HTTP 400，立刻重试仍是 `SSLEOFError`。同一虚拟环境里新开的 Python 能握手，已运行的 MCP 进程不能；稍后同一次会话里原调用恢复成功 | 不要改用通用 `npm start`。没有 execution 前视为未上传。curl 可达后可以隔一段时间用原 SDK 重试，并重新打包当时的 HEAD |
 
 定位执行问题时，从本次父 execution 的部署任务进入实例子执行，再读取 `deployCurrentRevision` 的状态、输出和实际命令。本次层级为 `<execution>.t0005.i0001`；任务名称和层级应按实际返回发现，不把后缀当作永久 API 契约。应用分组摘要不足以说明启动命令是否真正运行。
 
@@ -129,6 +129,8 @@ bash -n scripts/ecs-codedeploy-start.sh
 2026-10-23 下午第二次发布中止：代码提交 `0aa528d` 已推送。包 `cothread-release-20261023T060834Z.tgz` 的 SHA-256 为 `21b5fdb5bdff313b8284947b38274b6a211cb605e3ec8bcc097d8f1466119586`。`LOCAL_AnalyzeDeployStack` 识别为 npm/nodejs，Node 要求 `>=22.22.3`。curl 访问 OOS 与 ECS 均完成 TLS 校验并返回 HTTP 400。随后 MCP `OOS_GetDeployStatus` 两次、`OOS_CodeDeploy` 一次都在握手阶段收到 `SSLEOFError`：状态查询打到 OOS，CodeDeploy 打到 ECS 的实例查询。没有 execution，没有上传。公开健康接口仍为 ok，执行器 ready，锁获取时间仍是 UTC `2026-10-23T00:11:08.130Z`，说明本轮没有重启正式进程。首页资源仍是 `index-BFuw8kiw.js` 与 `index-CjxCJK9E.css`；这次前端源码未改，本地 `dist/index.html` 也是这两个文件，因此哈希一致不能证明新的服务端代码已上线。
 
 这次发布前：格式与架构门禁通过。小祥参与相关 22 项在本机 `127.0.0.1:3307/cothread_test` 通过。360 项无数据库测试首轮 356 项通过；单独串行复跑后，沙箱准入通过，原生上下文压缩和模型路由仍因 `sdk-minimal` 初始化超时失败，超时命令的后代写入用例单独复跑仍失败。这些失败文件不在 `0aa528d` 中。npm 10 生产安装计划预检通过。没有再跑全量集成测试。
+
+同日下午 TLS 恢复后，用上述同一包和原来的 `ecs-promote` 启停钩子上传成功，没有改成通用 `npm start`。OOS 分组为 `Released`，execution `exec-6035811341fb421d8396` 为 `Success`，revision `rev-6fcdbb4a6fa84757855e`，完成时间 UTC `2026-10-23T06:39:25Z`。只读命令看到 `current` 为 `/opt/cothread/releases/20261023T063607Z`，systemd 为 active，启动时间北京时间 14:37:36，Node 为 `v22.22.3`。公开健康接口 `status: ok`，执行器 ready，锁获取时间 UTC `2026-10-23T06:37:38.510Z`，7 个执行槽。线上 `agent-participation.js` 含固定提醒「需要麻烦你再@小祥，我才会真的开始。」。浏览器打开带提交号的首页，登录页正常；资源仍是 `index-BFuw8kiw.js` 与 `index-CjxCJK9E.css`，与本地 `dist/index.html` 一致。控制台有一条模块 MIME 报错，对应首页内联的 `data:application/octet-stream` 预加载，主脚本和样式都是 200；未登录时 `/api/me` 返回 401。没有登录后的业务验收，也没有查询生产迁移表。状态接口没有带回 `ecs-promote` 的标准输出，目录、进程和源码是另一次只读命令核对的。
 
 ### 发布前测试中暴露的配置问题
 

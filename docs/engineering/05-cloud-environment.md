@@ -1,6 +1,6 @@
 # 云端环境变量
 
-维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-10-23；已核对现有构建、打包、启动及停止钩子。本轮代码已推送但未上线，原因见下方中止记录。
+维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-10-23；已核对现有构建、打包、启动及停止钩子。当天第一次上传因 TLS 握手失败中止，稍后重试已上线，见下方验收记录。
 
 应用后端需要常驻 Node.js 进程（Node.js 22.22.3+，推荐 24）、MySQL 网络连接及可写的 `.local` 目录。只发布 `dist/` 静态文件无法运行 API、MCP 和后台 Agent；生产环境固定为阿里云 ECS 单实例 + RDS，本机开发用便携版 MySQL。
 
@@ -92,7 +92,7 @@ bash -n scripts/ecs-codedeploy-start.sh
 | 临时探活报 `EXECUTOR_ALREADY_RUNNING`，随后 `ReleaseWaiting`                  | 2026-10-22 临时生产进程也启动了 worker，与正式进程争抢 `cothread-executor` 锁 | 使用 `--health-probe`，同时跳过启动/退出的预览及沙箱清理；不能靠提前停止正式服务来让探活抢锁。已新增真实子进程回归，验证已有执行器锁与运行记录在探活启动、健康读取和正常退出后均保持不变 |
 | 发布停留在 `Releasing`                                                        | 可能仍在下载和安装依赖                                                        | 看安装进度及子任务状态；本次安装 2265 个包约用 2 分钟，包含下载重试。日志仍在推进时不要重复部署                                                                                          |
 | Alibaba `LOCAL_RunShellScript` 一直无结果                                     | 本次分别达到 30 秒、120 秒超时                                                | 说明已试路径；必要时用本机已安装的 Alibaba SDK 和既有环境凭据读取 OOS/ECS 诊断信息。不要把 AK/SK、临时签名 OSS URL 写入文档或日志；发布入口仍用 MCP CodeDeploy                           |
-| MCP 与 Tea SDK 调 ECS/OOS 报 `SSLEOFError`                                    | 2026-10-23 同一主机用 curl 和 `requests` 能握手并得到 HTTP 400，Tea/urllib3 的签名请求在握手阶段被对端断开 | 不要改用通用 `npm start` 重试。先用 curl 或 `requests` 确认 API 仍可达，再重试 MCP；未出现 execution 前不要认为已经上传 |
+| MCP 与 Tea SDK 调 ECS/OOS 报 `SSLEOFError`                                    | 2026-10-23 同一主机用 curl 和 `requests` 能握手并得到 HTTP 400，Tea 签名请求在握手阶段被对端断开。约 4 小时后同一 SDK 重试成功，未改调用方式 | 不要改用通用 `npm start`。没有 execution 前视为未上传。curl 可达后可以隔一段时间用原 SDK 重试，并重新打包当时的 HEAD |
 
 定位执行问题时，从本次父 execution 的部署任务进入实例子执行，再读取 `deployCurrentRevision` 的状态、输出和实际命令。本次层级为 `<execution>.t0005.i0001`；任务名称和层级应按实际返回发现，不把后缀当作永久 API 契约。应用分组摘要不足以说明启动命令是否真正运行。
 
@@ -122,7 +122,9 @@ bash -n scripts/ecs-codedeploy-start.sh
 
 本轮验证：352 项无数据库测试、构建、格式与各架构门禁通过，npm 10 生产安装计划预检通过；针对性数据库回归 33 项通过，提交前补充的模型配置与会话锁检查 9 项通过，关闭竞态的最终会话锁复跑 7 项通过，各组有重叠，不相加作为总数。独立测试库应用完整 118 条迁移；没有再次运行全量集成测试。本轮 `npm ci --omit=dev` 安装 2266 个包并仍报告上述 99 条依赖告警。脱敏验收凭据与截图保存在本地 `.code_deploy/verification/model-settings-20261022/`。
 
-2026-10-23 发布中止，生产仍停在上一节的 `f9f0cb5`。已推送 `09e9141`（含本机 Agent 窗口退出码，以及管理页把历史等级键显示为老翁、小祥、子 Agent）。格式与架构门禁通过；360 项无数据库测试首轮 358 项通过，沙箱准入和后台命令两项在单独复跑时通过，未再跑全量集成测试。npm 10 生产安装计划预检通过。构建并打包 `cothread-release-20261022T185031Z.tgz`，SHA-256 为 `49151d5744bde0438a73ed1e558f4d6f98169b79d93dc47be1d2ba98530af679`。119 号迁移只新增执行记录的可空来源消息和对话模式，尚未应用到生产。MCP `OOS_CodeDeploy` 与本机 Tea SDK 在查询 ECS、读取 OOS 应用时都在 TLS 握手阶段收到 `SSLEOFError`；同一时刻 curl 与 `requests` 访问这两个域名能完成握手并得到 HTTP 400。没有 execution id，`current` 未切换。下次发布须重新打包当前 HEAD，不能假定这份未上传的包仍然对应远端最新提交。
+2026-10-23 第一次发布中止：当时 HEAD 为 `09e9141`，包 `cothread-release-20261022T185031Z.tgz` 的 SHA-256 为 `49151d5744bde0438a73ed1e558f4d6f98169b79d93dc47be1d2ba98530af679`。MCP 与本机 Tea SDK 在查询 ECS 和读取 OOS 应用时都收到 `SSLEOFError`，没有 execution，生产仍停在 `f9f0cb5`。这份包没有上传。
+
+同日稍后 TLS 恢复，按当时 HEAD `ee8f41d` 重新打包并上线。该提交包含本机 Agent 窗口退出码，以及管理页把历史等级键显示为老翁、小祥、子 Agent；其后的文档提交不改变运行包。格式与架构门禁通过；360 项无数据库测试首轮 358 项通过，沙箱准入和后台命令两项在单独复跑时通过，未再跑全量集成测试。npm 10 生产安装计划预检通过。上线包 `cothread-release-20261023T000849Z.tgz` 的 SHA-256 为 `9cf23eeb585f169fd6684040629b32d923edf0e1ee26178d3988cb684868d763`。OOS 分组为 `Released`，execution `exec-7f97c4c9e3624ef1b957` 为 `Success`，revision `rev-8005e4bccaaf496d8875`。公开健康接口 `status: ok`，执行器 ready，锁获取时间为 UTC `2026-10-23T00:11:08.130Z`（北京时间 08:11:08），7 个执行槽。未登录首页正常，引用 `index-BFuw8kiw.js` 与 `index-CjxCJK9E.css`，与本地 `dist/index.html` 一致。没有登录后的业务验收，也没有在服务器上读取 `current` 符号链接。119 号迁移包含在该包中，发布脚本会在切换前应用未执行迁移；本轮没有单独查询生产迁移表，不能把进程健康写成已看见新列。
 
 ### 发布前测试中暴露的配置问题
 

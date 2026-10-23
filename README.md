@@ -52,7 +52,7 @@ npm run setup:preview-browser   # Agent 视觉验收（HTML/文档预览截图�
 
 ## 接下来看使用手册
 
-功能全图和运转规则（对话模式、按需参与、文档版本、任务、小程序发布、归档、权限、本机助手）在 **`/docs.html`**（锚点 `#dialogue-mode`、`#archive`、`#admin`、`#account`、`#miniprogram`）。不要在 README 里找这些说明。安装和服务器发布仍以本文件和 `docs/engineering/` 为准。
+功能全图和运转规则（对话模式、按需参与、文档版本、任务、小程序发布、归档、权限、本机助手）在 **`/docs.html`**（锚点 `#dialogue-mode`、`#participation`、`#archive`、`#admin`、`#account`、`#miniprogram`）。不要在 README 里找这些说明。多人项目里，句首「小祥，」和 @小祥 一样进入完整回复；没点名时要写文档、改代码或派任务，轻量回复不会假装开工，会请你再 @ 一次。安装和服务器发布仍以本文件和 `docs/engineering/` 为准。
 
 单文件上限 **20 MiB**（网页与 MCP 分片）。MCP 宿主约 10KB 参数截断时，大于 6144 字节的文件必须走 `start_file_upload` → `upload_file_chunk` → `complete_file_upload`。
 

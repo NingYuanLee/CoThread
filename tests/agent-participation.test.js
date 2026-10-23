@@ -19,7 +19,10 @@ import {
   needsFullAgentWork,
   isNegativeMood,
   shouldInviteFullMode,
-  briefFullModeInvite,
+  promisesFullModeWork,
+  lightContextTooLong,
+  fitLightContextWindow,
+  OPPORTUNISTIC_CONTEXT_CHAR_BUDGET,
   persistOpportunisticParticipationArtifacts,
   OPPORTUNISTIC_SETTLE_MS,
 } from "../server/agent-participation.js";
@@ -206,8 +209,29 @@ test("normalizeParticipationDecision accepts boolean legacy doubles", () => {
   assert.equal(isNegativeMood([{ body: "别糊弄我，有没有用" }]), true);
   assert.equal(isNegativeMood([{ body: "你为啥一直沉默" }]), false);
   assert.equal(shouldInviteFullMode([{ body: "你倒是干活啊" }]), true);
-  assert.match(briefFullModeInvite([{ body: "你倒是干活啊" }]), /@小祥|完整模式/);
-  assert.match(briefFullModeInvite([{ body: "别糊弄我，有没有用" }]), /着急|完整模式/);
+  assert.equal(promisesFullModeWork("我这就开始写文档"), true);
+  assert.equal(promisesFullModeWork("你 @小祥 一下，我就可以开工。"), true);
+  assert.equal(promisesFullModeWork("升级完整模式"), true);
+  assert.equal(promisesFullModeWork("哈哈，这次赶上了。"), false);
+  assert.equal(promisesFullModeWork("在的，你说。"), false);
+  assert.equal(lightContextTooLong([{ body: "短" }, { body: "也短" }]), false);
+  assert.equal(
+    lightContextTooLong([{ body: "长".repeat(OPPORTUNISTIC_CONTEXT_CHAR_BUDGET + 1) }]),
+    true,
+  );
+  const fitted = fitLightContextWindow([
+    { body: "新" },
+    { body: "次新" },
+    { body: "旧".repeat(OPPORTUNISTIC_CONTEXT_CHAR_BUDGET) },
+  ]);
+  assert.deepEqual(
+    fitted.map((row) => row.body),
+    ["次新", "新"],
+  );
+  assert.equal(
+    fitLightContextWindow([{ body: "长".repeat(OPPORTUNISTIC_CONTEXT_CHAR_BUDGET + 1) }]),
+    null,
+  );
   const author = "user-a";
   assert.equal(
     needsSoloRunReply([
@@ -596,7 +620,7 @@ test("prior soft silences stay in the burst so same-content ×3 still fires", as
   }
 });
 
-test("work requests invite @小祥 for full mode instead of fake start", async () => {
+test("work requests draft a short reply, then append the fixed full-mode reminder", async () => {
   const userId = randomUUID();
   const projectId = randomUUID();
   const threadId = randomUUID();
@@ -648,9 +672,227 @@ test("work requests invite @小祥 for full mode instead of fake start", async (
     });
     assert.equal(result.respond, true);
     assert.equal(result.escalate, undefined);
-    assert.match(result.message, /@小祥/);
-    assert.match(result.message, /完整模式/);
+    assert.equal(result.message, "需要麻烦你再@小祥，我才会真的开始。");
+    assert.equal(decideCalls, 1);
+  } finally {
+  }
+});
+
+test("a promised short reply is held, then gets the fixed full-mode reminder", async () => {
+  const userId = randomUUID();
+  const projectId = randomUUID();
+  const threadId = randomUUID();
+  const messageId = randomUUID();
+  try {
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      userId,
+      `promise-${userId}@example.com`,
+      "Promise",
+      "x",
+    ]);
+    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)", [
+      projectId,
+      "Promise project",
+      "",
+      userId,
+    ]);
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)", [
+      projectId,
+      userId,
+      "owner",
+    ]);
+    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)", [
+      threadId,
+      projectId,
+      "Promise thread",
+      userId,
+    ]);
+    await query(
+      db,
+      "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs) VALUES(?,?,?,?,?,'[]','[]')",
+      [messageId, threadId, userId, "human", "那你看着办"],
+    );
+    await query(
+      db,
+      "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
+      [messageId, "pending", "running"],
+    );
+    const result = await composeOpportunisticParticipation(db, {
+      title: "Promise thread",
+      threadId,
+      messageId,
+      decide: async () => ({ respond: true, message: "我这就开始写。" }),
+    });
+    assert.equal(result.respond, true);
+    assert.equal(result.escalate, undefined);
+    assert.equal(result.message, "需要麻烦你再@小祥，我才会真的开始。");
+  } finally {
+  }
+});
+
+test("a work request replaces a non-promising draft instead of stacking the reminder", async () => {
+  const userId = randomUUID();
+  const projectId = randomUUID();
+  const threadId = randomUUID();
+  const messageId = randomUUID();
+  try {
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      userId,
+      `replace-${userId}@example.com`,
+      "Replace",
+      "x",
+    ]);
+    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)", [
+      projectId,
+      "Replace project",
+      "",
+      userId,
+    ]);
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)", [
+      projectId,
+      userId,
+      "owner",
+    ]);
+    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)", [
+      threadId,
+      projectId,
+      "Replace thread",
+      userId,
+    ]);
+    await query(
+      db,
+      "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs) VALUES(?,?,?,?,?,'[]','[]')",
+      [messageId, threadId, userId, "human", "帮我总结最近20轮对话并生成分析文档"],
+    );
+    await query(
+      db,
+      "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
+      [messageId, "pending", "running"],
+    );
+    const result = await composeOpportunisticParticipation(db, {
+      title: "Replace thread",
+      threadId,
+      messageId,
+      decide: async () => ({ respond: true, message: "好，周报我按这周讨论来写。" }),
+    });
+    assert.equal(result.respond, true);
+    assert.equal(result.message, "需要麻烦你再@小祥，我才会真的开始。");
+    assert.equal(result.message.includes("周报"), false);
+  } finally {
+  }
+});
+
+test("an uncertain short reply appends the reminder only when the second judgment asks", async () => {
+  const userId = randomUUID();
+  const projectId = randomUUID();
+  const threadId = randomUUID();
+  const messageId = randomUUID();
+  try {
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      userId,
+      `append-${userId}@example.com`,
+      "Append",
+      "x",
+    ]);
+    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)", [
+      projectId,
+      "Append project",
+      "",
+      userId,
+    ]);
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)", [
+      projectId,
+      userId,
+      "owner",
+    ]);
+    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)", [
+      threadId,
+      projectId,
+      "Append thread",
+      userId,
+    ]);
+    await query(
+      db,
+      "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs) VALUES(?,?,?,?,?,'[]','[]')",
+      [messageId, threadId, userId, "human", "今天先随便聊聊"],
+    );
+    await query(
+      db,
+      "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
+      [messageId, "pending", "running"],
+    );
+    const reminded = await composeOpportunisticParticipation(db, {
+      title: "Append thread",
+      threadId,
+      messageId,
+      decide: async () => ({ respond: true, message: "哈哈，确实。" }),
+      decideReminder: async () => ({ remind: true }),
+    });
+    assert.equal(reminded.message, "哈哈，确实。需要麻烦你再@小祥，我才会真的开始。");
+    const plain = await composeOpportunisticParticipation(db, {
+      title: "Append thread",
+      threadId,
+      messageId,
+      decide: async () => ({ respond: true, message: "哈哈，确实。" }),
+      decideReminder: async () => ({ remind: false }),
+    });
+    assert.equal(plain.message, "哈哈，确实。");
+  } finally {
+  }
+});
+
+test("a long recent window stays silent without asking the model", async () => {
+  const userId = randomUUID();
+  const projectId = randomUUID();
+  const threadId = randomUUID();
+  const messageId = randomUUID();
+  try {
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      userId,
+      `long-${userId}@example.com`,
+      "Long",
+      "x",
+    ]);
+    await query(db, "INSERT INTO projects(id,name,description,created_by) VALUES(?,?,?,?)", [
+      projectId,
+      "Long project",
+      "",
+      userId,
+    ]);
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,?)", [
+      projectId,
+      userId,
+      "owner",
+    ]);
+    await query(db, "INSERT INTO threads(id,project_id,title,created_by) VALUES(?,?,?,?)", [
+      threadId,
+      projectId,
+      "Long thread",
+      userId,
+    ]);
+    await query(
+      db,
+      "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs) VALUES(?,?,?,?,?,'[]','[]')",
+      [messageId, threadId, userId, "human", "长".repeat(OPPORTUNISTIC_CONTEXT_CHAR_BUDGET + 1)],
+    );
+    await query(
+      db,
+      "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
+      [messageId, "pending", "running"],
+    );
+    let decideCalls = 0;
+    const result = await composeOpportunisticParticipation(db, {
+      title: "Long thread",
+      threadId,
+      messageId,
+      decide: async () => {
+        decideCalls += 1;
+        return { respond: true, message: "我看到了。" };
+      },
+    });
     assert.equal(decideCalls, 0);
+    assert.equal(result.respond, false);
+    assert.equal(result.deferred, "context_too_long");
   } finally {
   }
 });

@@ -34,5 +34,10 @@ export const SUMMARY_REQUEST =
 export const TASK_CREATE_REQUEST =
   "@小祥 请根据当前群聊上下文帮我创建合适的任务：先简要说明你的理解与拟创建的任务要点，再执行创建；信息不足时先向我确认，不要臆造需求。";
 export function mentionsAgent(text) {
-  return /(?:^|[^\p{L}\p{N}_@])@(?:小祥|Agent\s*助手)(?=$|[\s\p{P}\p{S}])/iu.test(text);
+  const body = String(text || "").trim();
+  if (!body) return false;
+  if (/(?:^|[^\p{L}\p{N}_@])@(?:小祥|Agent\s*助手)(?=$|[\s\p{P}\p{S}])/iu.test(body)) {
+    return true;
+  }
+  return /^(?:小祥)(?:\s*[，,：:]\s*|\s+)/u.test(body);
 }

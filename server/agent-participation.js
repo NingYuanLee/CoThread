@@ -9,6 +9,7 @@ import {
 } from "./model-config.js";
 import { saveReplyUsage } from "./agent-usage.js";
 import { query } from "./db.js";
+import { mentionsAgent } from "../shared/agent-member.js";
 
 const USAGE_TOKEN_KEYS = [
   "inputTokens",
@@ -41,19 +42,46 @@ export const OPPORTUNISTIC_MAX_REVISIONS = 4;
 export const OPPORTUNISTIC_SETTLE_MS = 400;
 /** Participation judgment is a small JSON call; do not use the full 60s agent budget. */
 export const OPPORTUNISTIC_MODEL_TIMEOUT_MS = 20000;
-/** Recent chat rows for light-path judgment — enough to follow the thread. */
+/** Recent chat rows for light-path judgment. The window shrinks until it fits. */
 export const OPPORTUNISTIC_HISTORY_LIMIT = 12;
-/** Per-message body cap in the light-path prompt. */
-export const OPPORTUNISTIC_BODY_CHARS = 240;
+/**
+ * Total normalized chars of the light-judgment window.
+ * Shrink the newest slice until it fits. Silence only when the latest message alone exceeds this.
+ */
+export const OPPORTUNISTIC_CONTEXT_CHAR_BUDGET = 4000;
 /** One short Chinese sentence JSON; leave modest headroom. */
 export const OPPORTUNISTIC_MAX_TOKENS = 768;
 
-export function compactParticipationBody(body, limit = OPPORTUNISTIC_BODY_CHARS) {
-  const text = String(body || "")
+export function compactParticipationBody(body) {
+  return String(body || "")
     .replace(/\s+/g, " ")
     .trim();
-  if (text.length <= limit) return text;
-  return `${text.slice(0, Math.max(0, limit - 1))}…`;
+}
+
+export function lightContextChars(rows) {
+  return (rows || []).reduce((sum, row) => sum + compactParticipationBody(row.body).length, 0);
+}
+
+/** True when the recent window is too long to judge without cutting it. */
+export function lightContextTooLong(rows, budget = OPPORTUNISTIC_CONTEXT_CHAR_BUDGET) {
+  return lightContextChars(rows) > budget;
+}
+
+/**
+ * Newest-first rows. Shrink from the history limit down to 1 until the newest slice fits.
+ * Returns chronological messages, or null when even the latest one is over budget.
+ */
+export function fitLightContextWindow(
+  rows,
+  { limit = OPPORTUNISTIC_HISTORY_LIMIT, budget = OPPORTUNISTIC_CONTEXT_CHAR_BUDGET } = {},
+) {
+  const newestFirst = rows || [];
+  const max = Math.min(limit, newestFirst.length);
+  for (let count = max; count >= 1; count--) {
+    const window = newestFirst.slice(0, count);
+    if (!lightContextTooLong(window, budget)) return window.slice().reverse();
+  }
+  return newestFirst.length ? null : [];
 }
 
 export function compactParticipationMessages(rows) {
@@ -85,6 +113,7 @@ export function deferSilenceProgress(reason) {
   if (reason === "still_changing") return "讨论仍在变化，撤回未发出的回复";
   if (reason === "revised_silent") return "看到后续发言后选择不发出";
   if (reason === "judge_failed") return "参与判断暂时失败，本轮保持沉默";
+  if (reason === "context_too_long") return "近期讨论过长，轻量判断保持沉默";
   return "已保持沉默";
 }
 
@@ -232,17 +261,10 @@ export function isPureAcknowledgement(burstOrText) {
 }
 
 /**
- * Bare vocative "小祥，…" / "小祥 …" counts as addressing her even without @.
- * Full @小祥 still goes through mentionsAgent on the postMessage path.
+ * @小祥 and a leading "小祥，" are the same address. Both open full mode at intake.
  */
 export function addressesAgent(text) {
-  const body = String(text || "").trim();
-  if (!body) return false;
-  if (/(?:^|[^\p{L}\p{N}_@])@(?:小祥|Agent\s*助手)(?=$|[\s\p{P}\p{S}])/iu.test(body)) {
-    return true;
-  }
-  // Leading vocative only — avoid matching "和小祥一起…".
-  return /^(?:小祥)(?:\s*[，,：:]\s*|\s+)/u.test(body);
+  return mentionsAgent(text);
 }
 
 export function burstAddressesAgent(burst) {
@@ -282,8 +304,8 @@ export function mustOpportunisticReply(burst, { replyingToAssistant = false } = 
 }
 
 /**
- * Work-shaped asks the light path cannot fulfill. Invite @小祥 for full mode
- * instead of promising "我这就开始" or auto-running the harness.
+ * Work-shaped asks the light path must not pretend to start.
+ * The short reply keeps a fixed reminder instead of opening full mode.
  */
 export function needsFullAgentWork(burst) {
   if (!burst?.length) return false;
@@ -322,8 +344,8 @@ export function needsFullAgentWork(burst) {
 }
 
 /**
- * Speaker sounds frustrated / impatient with 小祥 or the stall —
- * invite full mode rather than another empty light ack.
+ * Speaker sounds frustrated / impatient with 小祥 or the stall.
+ * The light path replaces its draft with the fixed @ reminder and does not open full mode.
  */
 export function isNegativeMood(burst) {
   if (!burst?.length) return false;
@@ -346,12 +368,19 @@ export function shouldInviteFullMode(burst) {
   return needsFullAgentWork(burst) || isNegativeMood(burst);
 }
 
-/** Light-path copy: steer to an explicit @ so full mode starts intentionally. */
-export function briefFullModeInvite(burst) {
-  if (isNegativeMood(burst) && !needsFullAgentWork(burst)) {
-    return "听得出你有点着急。要认真接着干的话，@小祥 一下就能开完整模式。";
-  }
-  return "这类事要走完整模式（读会话、写文档/改代码/派活）。你 @小祥 一下，我就可以开工。";
+/**
+ * Light reply that already agrees to do the work, or tells the member to @ again.
+ * The promise is dropped and replaced by the fixed reminder.
+ */
+export function promisesFullModeWork(text) {
+  const body = String(text || "").trim();
+  if (!body) return false;
+  if (body === "升级完整模式") return true;
+  if (/完整模式/u.test(body) && /@\s*小祥/u.test(body)) return true;
+  if (body.length > 280) return false;
+  return /我(?:现在|这)?就(?:去|来|开始|开工|处理|写|做|改|查|整理|总结|梳理|派)|我马上(?:开始|开工|处理|写|做|去)|马上(?:开始|开工)|就可以开工|可以开工|着手(?:做|写|改|处理)|我来(?:帮你|处理|做|写|改|查|整理|总结|梳理|分析|生成|派|安排)|交给我(?:来)?(?:处理|做|写|改)|我(?:会|来)帮你(?:写|做|改|整理|总结|梳理|生成|派)/u.test(
+    body,
+  );
 }
 
 export function briefAssistantFollowUpAck(burst) {
@@ -451,7 +480,7 @@ export async function silenceOpportunisticBurst(conn, burstIds, reason) {
  */
 export async function composeOpportunisticParticipation(
   db,
-  { title, threadId, messageId, decide = decideParticipation },
+  { title, threadId, messageId, decide = decideParticipation, decideReminder },
 ) {
   if (await isWithinOpportunisticQuietPeriod(db, threadId)) {
     const burst = await loadOpportunisticBurst(db, threadId);
@@ -493,6 +522,42 @@ export async function composeOpportunisticParticipation(
         ? briefSoloRunAck(burst)
         : briefAssistantFollowUpAck(burst),
   });
+  const finishReply = async (decision, burst) => {
+    if (!decision?.respond || !decision.message) return decision;
+    let remind = reminderNeededByRule(burst, decision.message);
+    try {
+      if (!remind && decideReminder) {
+        const judged = await decideReminder({ draft: decision.message, burst });
+        remind = typeof judged === "boolean" ? judged : !!judged?.remind;
+        if (judged?.usage || Number.isFinite(judged?.durationMs)) recordDecideMeta(judged);
+      } else if (!remind && decide === decideParticipation) {
+        const judged = await decideFullModeReminder({
+          modelCapture,
+          draft: decision.message,
+          burst: compactParticipationMessages(
+            (burst || []).map(({ author, body }) => ({ author, source: "human", body })),
+          ),
+        });
+        recordDecideMeta(judged);
+        remind = !!judged?.remind;
+      }
+    } catch (error) {
+      console.error("Full-mode reminder judgment failed", {
+        threadId,
+        messageId,
+        type: error?.name || "Error",
+        diagnostic: String(error?.message || error).slice(-1000),
+      });
+      remind = reminderNeededByRule(burst, decision.message);
+    }
+    if (!remind) return decision;
+    const replace = shouldInviteFullMode(burst) || promisesFullModeWork(decision.message);
+    return {
+      ...decision,
+      message: appendFullModeReminder(decision.message, { replace }),
+      reminded: true,
+    };
+  };
 
   for (let revision = 0; revision < OPPORTUNISTIC_MAX_REVISIONS; revision++) {
     const burst = await loadOpportunisticBurst(db, threadId);
@@ -505,16 +570,6 @@ export async function composeOpportunisticParticipation(
       });
     }
     throughSequence = burst[burst.length - 1].sequence;
-    // Work asks or frustrated tone: invite @小祥 for full mode.
-    if (shouldInviteFullMode(burst)) {
-      return withUsage({
-        respond: true,
-        message: briefFullModeInvite(burst),
-        burstIds: burst.map((row) => row.id),
-        revisions: revision,
-        throughSequence,
-      });
-    }
     const replyingToAssistant = await isReplyingToAssistant(db, threadId, burst);
     const soloRunNeedsReply = needsSoloRunReply(burst);
     const namedOrComplaining = burstAddressesAgent(burst) || isAgentDirectedComplaint(burst);
@@ -534,20 +589,46 @@ export async function composeOpportunisticParticipation(
       });
     }
     // Always let the model phrase the reply; hard rules only force respond / fallback copy.
-    const history = await query(
+    const historyDesc = await query(
       db,
       `SELECT m.body,m.source,u.name author FROM messages m
        JOIN users u ON u.id=m.author_id
        WHERE m.thread_id=? AND m.sequence<=? ORDER BY m.sequence DESC LIMIT ?`,
       [threadId, throughSequence, OPPORTUNISTIC_HISTORY_LIMIT],
     );
+    // Drop older rows until the newest slice fits. Silence only if the latest message itself does not.
+    const history = fitLightContextWindow(historyDesc);
+    if (!history) {
+      if (!mustReply) {
+        return withUsage({
+          respond: false,
+          deferred: "context_too_long",
+          burstIds: burst.map((row) => row.id),
+          revisions: revision,
+          throughSequence,
+        });
+      }
+      const ack = forceBriefAck(burst);
+      const replace = shouldInviteFullMode(burst) || promisesFullModeWork(ack.message);
+      const message = reminderNeededByRule(burst, ack.message)
+        ? appendFullModeReminder(ack.message, { replace })
+        : ack.message;
+      return withUsage({
+        respond: true,
+        message,
+        reminded: message !== ack.message,
+        burstIds: burst.map((row) => row.id),
+        revisions: revision,
+        throughSequence,
+      });
+    }
     let decision;
     try {
       if (decide === decideParticipation) modelCapture ||= modelConfig("coordinator");
       const raw = await decide({
         modelCapture,
         title,
-        messages: compactParticipationMessages(history.reverse()),
+        messages: compactParticipationMessages(history),
         integrateBurst: compactParticipationMessages(
           burst.map(({ author, body }) => ({ author, source: "human", body })),
         ),
@@ -596,9 +677,10 @@ export async function composeOpportunisticParticipation(
     const latest = await latestHumanSequence(db, threadId);
     if (BigInt(latest) > BigInt(throughSequence)) continue;
 
+    const finished = await finishReply(decision, burst);
     return withUsage({
-      ...decision,
-      deferred: decision.respond ? undefined : revision > 0 ? "revised_silent" : undefined,
+      ...finished,
+      deferred: finished.respond ? undefined : revision > 0 ? "revised_silent" : undefined,
       burstIds: burst.map((row) => row.id),
       revisions: revision,
       throughSequence,
@@ -665,14 +747,13 @@ export async function persistOpportunisticParticipationArtifacts(
       burstCount: decision.burstIds?.length ?? 1,
       calls: decision.usage?.calls ?? 0,
       fullModeInvite: !!(
-        decision.message &&
-        /@小祥/.test(decision.message) &&
-        /完整模式/.test(decision.message)
+        decision.reminded ||
+        (decision.message && decision.message.includes(FULL_MODE_REMINDER))
       ),
     });
     const judgeOutput = decision.respond
-      ? /完整模式/.test(decision.message || "")
-        ? "提醒 @ 完整模式"
+      ? decision.reminded || (decision.message || "").includes(FULL_MODE_REMINDER)
+        ? "提醒再 @小祥"
         : "决定参与"
       : `决定沉默${decision.deferred ? `（${decision.deferred}）` : ""}`;
     await insertCompletedAgentEvent(db, {
@@ -703,10 +784,27 @@ export async function persistOpportunisticParticipationArtifacts(
 }
 
 const PARTICIPATION_SYSTEM =
-  '群聊助理小祥。未 @ 时判断是否插话。默认少说（互聊/确认/闲聊沉默）。点名小祥、催沉默、紧跟你说话的点评追问、同内容连发×3 须短回一句。若成员要写文档/总结/改代码/派任务，或语气明显着急/不满，不要假装开工或空应声，应提醒对方 @小祥 以启动完整模式。只返回 JSON：{"respond":false} 或 {"respond":true,"message":"一句中文"}。不要承诺每条都回。';
+  '群聊助理小祥。未 @ 时判断是否插话。默认少说（互聊/确认/闲聊沉默）。点名小祥、催沉默、紧跟你说话的点评追问、同内容连发×3 须短回一句。只写这句回复本身，不要提 @、不要提完整模式、不要加使用说明。只返回 JSON：{"respond":false} 或 {"respond":true,"message":"一句中文"}。不要承诺每条都回。';
 
 const PARTICIPATION_REVISE_SYSTEM =
-  '群聊助理小祥。未发出的回复需按新消息改稿或 {"respond":false}。点名/催沉默/mustReply=true 应保留短回；实活需求或对方情绪不佳时，应提醒 @小祥 走完整模式，不要承诺自己马上开干。只返回 JSON。';
+  '群聊助理小祥。未发出的回复需按新消息改稿或 {"respond":false}。点名/催沉默/mustReply=true 应保留短回。只改回复本身，不要提 @，不要提完整模式。只返回 JSON。';
+
+export const FULL_MODE_REMINDER = "需要麻烦你再@小祥，我才会真的开始。";
+
+export function appendFullModeReminder(message, { replace = false } = {}) {
+  const text = String(message || "").trim();
+  if (!text || replace || promisesFullModeWork(text)) return FULL_MODE_REMINDER;
+  if (text.includes(FULL_MODE_REMINDER) || text.includes("我才会真的开始")) return text;
+  const end = /[。！？!?…]$/u.test(text) ? "" : "。";
+  return text + end + FULL_MODE_REMINDER;
+}
+
+export function reminderNeededByRule(burst, draft) {
+  return shouldInviteFullMode(burst) || promisesFullModeWork(draft);
+}
+
+const REMINDER_SYSTEM =
+  '看尚未发出的短回复，判断要不要在句尾补固定提醒「需要麻烦你再@小祥，我才会真的开始。」。人类在要实活（写文档、总结、改代码、派任务）或催开工，而这句在答应、许诺、或没说自己做不了时，返回 {"remind":true}。纯社交、确认、点名招呼返回 {"remind":false}。不要改写回复。只返回 JSON。';
 
 export async function decideParticipation(context, request = fetch) {
   const messages = context.modelMessages || compactParticipationMessages(context.messages || []);
@@ -759,6 +857,44 @@ export async function decideParticipation(context, request = fetch) {
   }
   return {
     ...normalizeParticipationDecision(decision),
+    usage: modelUsage(data?.usage),
+    modelAccounting: capturedModelUsage(configured, { reasoningEffort: "none" }),
+    durationMs: Math.round(performance.now() - started),
+  };
+}
+
+export async function decideFullModeReminder(context, request = fetch) {
+  const started = performance.now();
+  const configured = context.modelCapture || modelConfig("coordinator");
+  const data = await modelResponse(
+    {
+      scope: "coordinator",
+      config: configured,
+      maxTokens: 128,
+      reasoningEffort: "none",
+      signal: AbortSignal.timeout(OPPORTUNISTIC_MODEL_TIMEOUT_MS),
+      messages: [
+        { role: "system", content: REMINDER_SYSTEM },
+        {
+          role: "user",
+          content: JSON.stringify({
+            draft: compactParticipationBody(context.draft),
+            burst: context.burst || [],
+          }),
+        },
+      ],
+    },
+    request,
+  );
+  let parsed;
+  try {
+    parsed = JSON.parse(responseText(data) || "null");
+  } catch {
+    throw new Error("Invalid reminder decision");
+  }
+  if (!parsed || typeof parsed.remind !== "boolean") throw new Error("Invalid reminder decision");
+  return {
+    remind: parsed.remind,
     usage: modelUsage(data?.usage),
     modelAccounting: capturedModelUsage(configured, { reasoningEffort: "none" }),
     durationMs: Math.round(performance.now() - started),

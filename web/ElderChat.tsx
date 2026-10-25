@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useComposerStageMetrics } from "./use-composer-stage";
 import { AGENT_LAOWENG_PROFILE } from "../shared/agent-member.js";
 import { MessageNavigator } from "./MessageNavigator";
+import { ScrollToLatest } from "./ScrollToLatest";
 import { useStickToBottom } from "./use-stick-to-bottom";
 import { AgentToolIcon } from "./AgentToolIcon";
 import type { PersonalProfile } from "./ProfileFields";
@@ -738,6 +739,11 @@ export function ElderChat({
               </div>
             )}
           </div>
+          <ScrollToLatest
+            conversationRef={conversationRef}
+            followRef={followConversation}
+            token={view === "chat" ? roomKey : ""}
+          />
         </>
       )}
     </section>

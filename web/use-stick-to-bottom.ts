@@ -2,7 +2,7 @@
  * 对话区贴底：刷新后 Markdown 和输入框会比占位更高，只在数据到达时滚一次会停在半路。
  * 跟随开启时，内容高度或输入框让出的底边距再变，就再贴一次。人主动离开底部后不再拽回去。
  */
-import { useLayoutEffect, useRef, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 const NEAR_BOTTOM = 100;
 const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
@@ -106,4 +106,40 @@ export function useStickToBottom(
       window.removeEventListener("keydown", markKeys);
     };
   }, [token, containerRef, followRef]);
+}
+
+/**
+ * 是否贴着底部：给「回到最新」按钮用。离开底部超过阈值就浮出来，滚回底部就收起。
+ * 阈值和贴底逻辑保持一致，避免按钮和自动跟随互相打架。
+ */
+export function useAtBottom(containerRef: RefObject<HTMLElement | null>, token: string) {
+  const [atBottom, setAtBottom] = useState(true);
+  useLayoutEffect(() => {
+    if (!token) return;
+    const container = containerRef.current;
+    if (!(container instanceof HTMLElement)) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      setAtBottom(gapBelow(container) <= NEAR_BOTTOM);
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    update();
+    const content = container.querySelector(":scope > .conversation-stream");
+    const sizes = new ResizeObserver(schedule);
+    sizes.observe(container);
+    if (content instanceof HTMLElement) sizes.observe(content);
+    container.addEventListener("scroll", schedule, { passive: true });
+    void document.fonts?.ready.then(() => {
+      schedule();
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      sizes.disconnect();
+      container.removeEventListener("scroll", schedule);
+    };
+  }, [token, containerRef]);
+  return atBottom;
 }

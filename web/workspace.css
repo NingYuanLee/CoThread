@@ -43437,4 +43437,57 @@ html[data-theme="ink"] {
   transform-origin: 0 0;
 }
 
+/* 底栏上方的「回到最新」：上翻历史时浮出来，点一下回到底部。
+   位置跟着量出来的底栏高度与滚动条宽度走，输入框变高或分成两栏都不会压住输入区。 */
+.scroll-to-latest {
+  position: absolute;
+  right: calc(var(--chat-edge, 24px) + 8px + var(--chat-scrollbar, 0px));
+  bottom: calc(var(--composer-height, 0px) + 10px);
+  z-index: 9;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 11px 5px 9px;
+  border: 1px solid var(--c-e7eae7);
+  border-radius: 999px;
+  background: var(--c-fff);
+  color: var(--c-526d42);
+  font-size: 12px;
+  line-height: 1.2;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--c-27362f) 18%, transparent);
+  animation: scroll-to-latest-in 160ms ease-out;
 
+  --stroke-radius: 999px;
+}
+
+.scroll-to-latest:hover {
+  background: var(--c-f0f3ed);
+  color: var(--c-354f2a);
+}
+
+.scroll-to-latest:focus-visible {
+  outline: 2px solid var(--c-62855a);
+  outline-offset: 2px;
+}
+
+.scroll-to-latest .ui-icon {
+  flex-shrink: 0;
+}
+
+@keyframes scroll-to-latest-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-to-latest {
+    animation: none;
+  }
+}

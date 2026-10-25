@@ -38,6 +38,7 @@ import {
   usageReplyForMessage,
 } from "./chat-timeline";
 import { MessageNavigator } from "./MessageNavigator";
+import { ScrollToLatest } from "./ScrollToLatest";
 import { useStickToBottom } from "./use-stick-to-bottom";
 import { IdentityName } from "./Identity";
 import { MessageUsage } from "./MessageUsage";
@@ -893,6 +894,11 @@ export function ConversationStage({
             </div>
           ) : null}
         </div>
+        <ScrollToLatest
+          conversationRef={conversationRef}
+          followRef={followConversation}
+          token={threadView + ":" + threadId}
+        />
       </div>
     </>
   );

@@ -168,3 +168,5 @@ bash -n scripts/ecs-codedeploy-start.sh
 模型调用统一使用 OpenAI Responses API。各套 `*_MODEL_BASE_URL` 是服务商提供的 API 基础地址，程序不会擅自补 `/v1`；Responses 适配器只在该地址后追加 `/responses`。命令以应用进程的操作系统账号在 `.local/sandboxes` 中执行，不具备容器级隔离；生产环境只有这一条执行路径。
 
 本地首次账号由 `npm run setup` 生成至 `.local/initial-admin.json`，不进入版本库；`npm run db:seed` 读取它完成数据库账号初始化。之后每次 `npm run dev` 启动都会把本机超级管理员密码重置为固定值 **`cothread-dev`**（需要临时换口令时设 `DEV_ADMIN_PASSWORD`），写入 `.local/initial-admin.json` 与登录备忘；该重置只在 `COTHREAD_DB_TARGET=dev` 且数据库在本机时执行，生产初始化仍走 `ADMIN_PASSWORD`（至少 12 位）。ECS 空库可临时设置 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD` 完成初始化，已有账号只依赖数据库。
+
+2026-10-25 本轮发布尝试：提交 `a8b1804` 已推送；串行全量测试 `npm test` 在本机独立测试库 `127.0.0.1:3307/cothread_test` 上 867/867 通过，`npm run lint` 与 `npm run build` 通过。打包产物 `cothread-release-20261025T153518Z.tgz`，SHA-256 为 `3792537080173787BB834F566337C5D07D0DA15BC35ADF05554F390E649E0F5B`。随后两次 `OOS_CodeDeploy` 均在调用 `ecs.cn-hangzhou.aliyuncs.com` 时收到 `SSLEOFError`，`OOS_GetLastDeploymentInfo` 仍为上一轮 20:52 部署，没有本轮 execution、上传或线上切换；本轮发布失败，待阿里云 MCP/网络握手恢复后从同一清单重试。

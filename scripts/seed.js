@@ -43,12 +43,13 @@ function assertLocalDevDatabase() {
   }
 }
 
+const DEV_ADMIN_PASSWORD = "cothread-dev";
+
 async function devAdminPassword() {
   const { email } = await resolveInitialAdminCredentials();
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-  const bytes = randomBytes(16);
-  let password = "";
-  for (let i = 0; i < bytes.length; i += 1) password += alphabet[bytes[i] % alphabet.length];
+  // 本机开发每次启动都把超级管理员密码重置成固定值，方便直接登录；
+  // 需要临时换口令时用 DEV_ADMIN_PASSWORD 覆盖。仅 dev + 本机库会走到这里。
+  const password = process.env.DEV_ADMIN_PASSWORD || DEV_ADMIN_PASSWORD;
   const login = email || "admin@cothread.local";
   await writeFile(initialAdminPath, `${JSON.stringify({ email: login, password }, null, 2)}\n`);
   return { email: login, password };

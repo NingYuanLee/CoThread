@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// 并行跑测试：无数据库的 87 个文件单独一路，带库文件按 TEST_SHARD_DATABASES 分片。
-// 默认只用当前 TEST_DATABASE_HOST_PUBLIC 里的库，因此得到「DB 一路 + 无库一路」。
-// 多给几个测试库即可线性加速，例如 TEST_SHARD_DATABASES=cothread_test,cothread_test_2。
+// 并行跑测试：无数据库的 87 个文件单独一路，带库文件按测试库分片。
+// 默认自动发现本机 cothread_test、cothread_test_2… 这些库并发使用；
+// 也可用 TEST_SHARD_DATABASES=cothread_test,cothread_test_2 显式指定。
 import { spawn } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import mysql from "mysql2/promise";
 
 const env = process.env;
 const hostPublic = String(env.TEST_DATABASE_HOST_PUBLIC || "").trim();
@@ -14,10 +15,43 @@ if (!hostPublic)
 const slash = hostPublic.lastIndexOf("/");
 const hostPort = hostPublic.slice(0, slash);
 const defaultDb = hostPublic.slice(slash + 1);
-const dbs = String(env.TEST_SHARD_DATABASES || defaultDb)
-  .split(",")
-  .map((name) => name.trim())
-  .filter(Boolean);
+async function discoverShardDatabases() {
+  // 本机可能已经建好 cothread_test、cothread_test_2…；默认全部用上。
+  // 只认这个前缀，避免误清 cothread_prompt_test 之类的独立测试库。
+  const [user, ...rest] = String(env.TEST_DATABASE_AUTH || "").split(":");
+  const password = rest.join(":");
+  if (!user) return [defaultDb];
+  const [host, port] = hostPort.split(":");
+  try {
+    const connection = await mysql.createConnection({
+      host,
+      port: Number(port || 3306),
+      user,
+      password,
+    });
+    try {
+      const [rows] = await connection.query(
+        "SELECT SCHEMA_NAME name FROM information_schema.SCHEMATA WHERE SCHEMA_NAME LIKE 'cothread\\_test%'",
+      );
+      const found = rows
+        .map((row) => row.name ?? row.SCHEMA_NAME)
+        .filter((name) => /^cothread_test(?:_\d+)?$/.test(name))
+        .sort();
+      return found.length ? found : [defaultDb];
+    } finally {
+      await connection.end();
+    }
+  } catch {
+    return [defaultDb];
+  }
+}
+
+const dbs = env.TEST_SHARD_DATABASES
+  ? String(env.TEST_SHARD_DATABASES)
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean)
+  : await discoverShardDatabases();
 const tests = readdirSync("tests")
   .filter((name) => name.endsWith(".test.js"))
   .map((name) => {

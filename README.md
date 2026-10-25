@@ -28,7 +28,7 @@ npm run dev
 
 之后日常只需 `npm run dev`。它会在正式库指向 `127.0.0.1:3307`（`DATABASE_HOST_*` 或遗留 `DATABASE_URL`）时拉起便携版 MySQL，执行未跑过的迁移、写入超级管理员（若尚未存在），再启动 API（默认 `3101`）、Vite（默认 `3102`）和 `3100` 上的开发网关（`/api`、`/mcp` 转到 API，其余转到 Vite）。再次执行会先停掉占用这些端口的本项目旧进程；也可用 `npm run dev:stop`。默认监听 `0.0.0.0` 时可连 RDS；仅在强制 loopback 监听时才会拒绝远端库，确需覆盖时设 `COTHREAD_ALLOW_REMOTE_DB=1`。
 
-就绪后自行用浏览器打开 <http://localhost:3100>（`npm run dev` 不再自动拉起默认浏览器）。首次 `setup` 把初始账号写进 `.local/initial-admin.json` 和 `.local/登录信息.txt`。登录可用用户名或已绑定邮箱。
+就绪后自行用浏览器打开 <http://localhost:3100>（`npm run dev` 不再自动拉起默认浏览器）。首次 `setup` 把初始账号写进 `.local/initial-admin.json` 和 `.local/登录信息.txt`。之后每次 `npm run dev` 都会把本机超级管理员密码重置为固定值 `cothread-dev`（需要临时换口令时设 `DEV_ADMIN_PASSWORD`），只在 dev 目标 + 本机库时生效。登录可用用户名或已绑定邮箱。
 
 本机工作文件默认在 `.local/sandboxes`。命令以当前 Windows 账号执行，只应跑可信任务。`.env` 不入库；`npm run setup` 不覆盖已有 `.env`。部署差异见 [云端配置](docs/engineering/05-cloud-environment.md)。
 
@@ -38,6 +38,7 @@ npm run dev:stop
 npm run build
 npm start
 npm test                 # 须独立测试库（TEST_DATABASE_HOST_* + TEST_DATABASE_AUTH），禁止清日常库
+npm run test:shards      # 同上配置；本机有多个 cothread_test* 库时自动分片并行
 npm run db:backup
 npm run db:restore-check
 npm run windows-client:build

@@ -185,8 +185,12 @@ export async function migrate(
   if (!schemaUpToDate) {
     const conn = await db.getConnection();
     let locked = false;
+    let migrationLock = "cothread_migrate";
     try {
-      const [lock] = await query(conn, "SELECT GET_LOCK('cothread_migrate',30) acquired");
+      // 锁按库隔离：同一库的并发迁移仍然串行，不同库（如并行测试分片）互不阻塞。
+      const [current] = await query(conn, "SELECT DATABASE() name");
+      migrationLock = `cothread_migrate:${current.name || "default"}`.slice(0, 64);
+      const [lock] = await query(conn, "SELECT GET_LOCK(?,30) acquired", [migrationLock]);
       if (Number(lock.acquired) !== 1) throw new Error("数据库迁移锁超时");
       locked = true;
       await query(
@@ -256,7 +260,7 @@ export async function migrate(
       }
     } finally {
       try {
-        if (locked) await query(conn, "SELECT RELEASE_LOCK('cothread_migrate')");
+        if (locked) await query(conn, "SELECT RELEASE_LOCK(?)", [migrationLock]);
       } finally {
         conn.release();
       }

@@ -23,6 +23,7 @@
     "mysql:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql.ps1 start",
     "mysql:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql.ps1 stop",
     "test": "node --env-file-if-exists=.env --test --test-concurrency=1 tests/*.test.js",
+    "test:shards": "node --env-file-if-exists=.env scripts/test-shards.mjs",
     "test:unit": "node scripts/test-unit.js",
     "lint": "node scripts/lint.js && node scripts/check-boundaries.mjs && node scripts/check-overlays.mjs && node scripts/check-field-resets.mjs && node scripts/check-field-usage.mjs && node scripts/check-theme-generated.mjs",
     "lint:boundaries": "node scripts/check-boundaries.mjs && node scripts/check-overlays.mjs && node scripts/check-field-resets.mjs",

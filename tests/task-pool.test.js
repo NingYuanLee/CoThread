@@ -8,36 +8,36 @@ import {
   acknowledgeTaskRejection,
   answerTaskQuestion,
   askTaskQuestion,
-  bindDshL3Execution,
+  bindChildAgentExecution,
   cancelTask,
   composeTaskInstruction,
   createTask,
-  ensureDshL3CanUpdate,
+  ensureChildAgentCanUpdate,
   finishCoordinatorDispatch,
   getTask,
   inspectIterationTask,
-  l3LaunchPrompt,
+  childLaunchPrompt,
   listTaskExecutionRuns,
   listTaskStatusEvents,
   listTasks,
   reassignTask,
   recoverAbnormalTask,
-  recoverInterruptedDshL3Executions,
-  recoverStaleDshL3Executions,
+  recoverInterruptedChildAgentExecutions,
+  recoverStaleChildAgentExecutions,
   reconcileEndedTaskRuns,
   rejectTask,
   reopenRejectedTask,
-  settleDshL3Execution,
+  settleChildAgentExecution,
   taskRejectionReview,
-  tasksAwaitingL3Launch,
-  touchL3InferenceHeartbeat,
-  touchL3RunHeartbeat,
+  tasksAwaitingChildLaunch,
+  touchChildInferenceHeartbeat,
+  touchChildRunHeartbeat,
   updateTask,
 } from "../server/task-pool.js";
 import { testDatabase } from "./database.js";
-import { childBindingFromToolResult } from "../server/l3-binding.js";
+import { childBindingFromToolResult } from "../server/child-agent-binding.js";
 
-let database, db, service, project, thread, users, l2SessionId, reportHostId;
+let database, db, service, project, thread, users, xiaoxiangSessionId, reportHostId;
 
 before(async () => {
   database = await testDatabase();
@@ -62,10 +62,10 @@ before(async () => {
       user.id,
     ]);
   thread = await service.createThread(users[0], project.id, { title: "任务池迭代" });
-  l2SessionId = randomUUID();
+  xiaoxiangSessionId = randomUUID();
   await query(db, "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?)", [
     thread.id,
-    l2SessionId,
+    xiaoxiangSessionId,
   ]);
   reportHostId = randomUUID();
   await query(
@@ -83,7 +83,7 @@ after(async () => {
   await database?.close();
 });
 
-const reportL3 = (childId, summary, status = "completed") =>
+const reportChild = (childId, summary, status = "completed") =>
   query(
     db,
     `INSERT INTO agent_events(message_id,agent_session_id,tool,status,input) VALUES(?,?,?,'completed',?)`,
@@ -96,8 +96,8 @@ const formalTask = (targetId, overrides = {}) =>
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     authorizedByUserId: users[0].id,
     taskType: "formal",
     title: "完成验收任务",
@@ -110,8 +110,8 @@ const formalTask = (targetId, overrides = {}) =>
 test("task source, creator, target, claimant and executor remain separate", async () => {
   const task = await formalTask(users[1].id);
   assert.equal(task.source_user_id, users[0].id);
-  assert.equal(task.created_by_type, "l2_session");
-  assert.equal(task.created_by_id, l2SessionId);
+  assert.equal(task.created_by_type, "xiaoxiang");
+  assert.equal(task.created_by_id, xiaoxiangSessionId);
   assert.equal(task.target_id, users[1].id);
   assert.equal(task.claimed_by_id, null);
   assert.equal(task.execution_agent_type, null);
@@ -183,7 +183,7 @@ test("online connector is the automatic executor and creates an adapter", async 
   assert.equal(adapter.status, "queued");
 });
 
-test("human self execution follows the task instead of cancelling as an unbound L3", async () => {
+test("human self execution follows the task instead of cancelling as an unbound 子 Agent", async () => {
   const direct = await formalTask(users[1].id, { title: "本人直接完成" });
   const accepted = await acceptTask(
     db,
@@ -237,7 +237,7 @@ test("human self execution follows the task instead of cancelling as an unbound 
   assert.equal(doneRun.result_summary, "已交付");
 });
 
-test("historical human runs cancelled as unbound L3 are repaired to the task outcome", async () => {
+test("historical human runs cancelled as unbound 子 Agent are repaired to the task outcome", async () => {
   const completed = await formalTask(users[1].id, { title: "历史误标完成" });
   await acceptTask(db, completed.id, { type: "human_member", id: users[1].id }, "human_direct");
   await query(
@@ -248,7 +248,7 @@ test("historical human runs cancelled as unbound L3 are repaired to the task out
   );
   await query(
     db,
-    `UPDATE agent_task_execution_runs SET status='cancelled',error='任务已结束，L3 未启动',
+    `UPDATE agent_task_execution_runs SET status='cancelled',error='任务已结束，子 Agent 未启动',
     result_summary=NULL WHERE task_id=?`,
     [completed.id],
   );
@@ -261,7 +261,7 @@ test("historical human runs cancelled as unbound L3 are repaired to the task out
   );
   await query(
     db,
-    `UPDATE agent_task_execution_runs SET status='cancelled',error='任务已结束，L3 未启动' WHERE task_id=?`,
+    `UPDATE agent_task_execution_runs SET status='cancelled',error='任务已结束，子 Agent 未启动' WHERE task_id=?`,
     [cancelled.id],
   );
   assert.ok(await reconcileEndedTaskRuns(db));
@@ -331,18 +331,18 @@ test("explicit connector mode explains what blocks it", async () => {
   await query(db, "DELETE FROM local_executors WHERE id=?", [connectorId]);
 });
 
-test("current human target can transfer a task to the iteration L2", async () => {
+test("current human target can transfer a task to the iteration 小祥", async () => {
   const task = await formalTask(users[1].id, { title: "转给小祥" });
   const reassigned = await reassignTask(
     db,
     task.id,
     { type: "human_member", id: users[1].id },
-    { type: "l2_session", id: l2SessionId },
+    { type: "xiaoxiang", id: xiaoxiangSessionId },
     "交给小祥处理",
   );
-  assert.equal(reassigned.target_type, "l2_session");
-  assert.equal(reassigned.target_id, l2SessionId);
-  assert.equal(reassigned.claimed_by_id, l2SessionId);
+  assert.equal(reassigned.target_type, "xiaoxiang");
+  assert.equal(reassigned.target_id, xiaoxiangSessionId);
+  assert.equal(reassigned.claimed_by_id, xiaoxiangSessionId);
   assert.equal(reassigned.status, "running");
   const runs = await query(
     db,
@@ -354,24 +354,24 @@ test("current human target can transfer a task to the iteration L2", async () =>
   assert.equal(runs[0].executor_id, null);
 });
 
-test("L2 can transfer formal work but cannot hand an assist task to a human", async () => {
+test("小祥 can transfer formal work but cannot hand an assist task to a human", async () => {
   const formal = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     taskType: "formal",
-    title: "L2 转交正式任务",
+    title: "小祥 转交正式任务",
     goal: "交给成员执行",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const transferred = await reassignTask(
     db,
     formal.id,
-    { type: "l2_session", id: l2SessionId, authorizedByUserId: users[0].id },
+    { type: "xiaoxiang", id: xiaoxiangSessionId, authorizedByUserId: users[0].id },
     { type: "human_member", id: users[2].id },
     "更适合由成员完成",
   );
@@ -383,19 +383,19 @@ test("L2 can transfer formal work but cannot hand an assist task to a human", as
     originThreadId: thread.id,
     sourceType: "task",
     sourceTaskId: formal.id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "不可外转的辅助任务",
-    goal: "保持 L2 私有",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    goal: "保持 小祥 私有",
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   await assert.rejects(
     reassignTask(
       db,
       assist.id,
-      { type: "l2_session", id: l2SessionId },
+      { type: "xiaoxiang", id: xiaoxiangSessionId },
       { type: "human_member", id: users[1].id },
     ),
     { status: 403 },
@@ -408,33 +408,33 @@ test("assist tasks start running and return a compact result to their source tas
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     taskType: "formal",
-    title: "L2 正式任务",
+    title: "小祥 正式任务",
     goal: "汇总辅助分析",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const assist = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "task",
     sourceTaskId: formal.id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "查验资料",
     goal: "只返回关键结论",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const childId = randomUUID();
-  const running = await bindDshL3Execution(db, l2SessionId, childId, assist.id);
+  const running = await bindChildAgentExecution(db, xiaoxiangSessionId, childId, assist.id);
   assert.equal(running.status, "running");
   assert.equal(running.execution_agent_id, childId);
-  await reportL3(childId, "结论与验证结果");
-  const completed = await settleDshL3Execution(db, l2SessionId, childId, {
+  await reportChild(childId, "结论与验证结果");
+  const completed = await settleChildAgentExecution(db, xiaoxiangSessionId, childId, {
     status: "ok",
     stopReason: "completed",
     lastAssistantMessage: [{ type: "text", text: "结论与验证结果" }],
@@ -456,51 +456,56 @@ test("assist tasks start running and return a compact result to their source tas
   assert.match(update.body, /结论与验证结果/);
 });
 
-test("L3 that stops without report_task is settled as failed and still wakes L2", async () => {
+test("子 Agent that stops without report_task is settled as blocked and still wakes 小祥", async () => {
   const assist = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "未交活",
     goal: "必须失败",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const childId = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, childId, assist.id);
-  const settled = await settleDshL3Execution(db, l2SessionId, childId, {
+  await bindChildAgentExecution(db, xiaoxiangSessionId, childId, assist.id);
+  const settled = await settleChildAgentExecution(db, xiaoxiangSessionId, childId, {
     status: "ok",
     stopReason: "completed",
     lastAssistantMessage: [{ type: "text", text: "我其实没干完" }],
   });
-  assert.equal(settled.status, "failed");
+  // 任务层不再有失败：未回报结果收敛为阻塞，原因/恢复条件落在任务上；执行轮次仍记 failed 供诊断。
+  assert.equal(settled.status, "blocked");
   assert.equal(settled.result_summary, "我其实没干完");
+  assert.equal(settled.blocked_reason, "未回报结果");
+  assert.match(settled.resume_condition, /外部条件恢复/);
+  const runs = await listTaskExecutionRuns(db, assist.id);
+  assert.equal(runs[0].status, "failed");
   const [event] = await query(
     db,
     "SELECT payload FROM coordinator_events WHERE task_id=? AND kind='child_result'",
     [assist.id],
   );
   const payload = typeof event.payload === "string" ? JSON.parse(event.payload) : event.payload;
-  assert.equal(payload.status, "failed");
+  assert.equal(payload.status, "blocked");
 });
 
-test("assist work is running before a DSH L3 child is bound", async () => {
+test("assist work is running before a DSH 子 Agent child is bound", async () => {
   const assist = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "尚未启动的辅助任务",
     goal: "创建后即为执行中",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const queuedMonitor = await service.agentMonitor(users[0], project.id);
   const pool = queuedMonitor.taskPool.find((row) => row.task_id === assist.id);
@@ -513,7 +518,7 @@ test("assist work is running before a DSH L3 child is bound", async () => {
   );
 
   const childId = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, childId, assist.id);
+  await bindChildAgentExecution(db, xiaoxiangSessionId, childId, assist.id);
   const live = await service.agentMonitor(users[0], project.id);
   const bound = live.executors.find((row) => row.task_id === assist.id);
   assert.equal(bound.executor_id, childId);
@@ -521,30 +526,30 @@ test("assist work is running before a DSH L3 child is bound", async () => {
   assert.equal(bound.status, "running");
 });
 
-test("blocked L3 report keeps task blocked and does not mark the workflow completed", async () => {
+test("blocked 子 Agent report keeps task blocked and does not mark the workflow completed", async () => {
   const formal = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     taskType: "formal",
     title: "等待源码",
     goal: "没有仓库则阻塞",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const childId = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, childId, formal.id);
+  await bindChildAgentExecution(db, xiaoxiangSessionId, childId, formal.id);
   await updateTask(
     db,
     formal.id,
-    { type: "dsh_l3", id: childId },
+    { type: "child_agent", id: childId },
     {
       status: "blocked",
       resultSummary: "等源码",
-      progress: "L3 已阻塞",
+      progress: "子 Agent 已阻塞",
     },
   );
   const [closedRun] = await query(
@@ -553,8 +558,8 @@ test("blocked L3 report keeps task blocked and does not mark the workflow comple
     [formal.id],
   );
   assert.equal(closedRun.status, "completed");
-  await reportL3(childId, "等源码", "blocked");
-  const blocked = await settleDshL3Execution(db, l2SessionId, childId, {
+  await reportChild(childId, "等源码", "blocked");
+  const blocked = await settleChildAgentExecution(db, xiaoxiangSessionId, childId, {
     status: "ok",
     stopReason: "completed",
     lastAssistantMessage: [{ type: "text", text: "等源码" }],
@@ -570,22 +575,22 @@ test("blocked L3 report keeps task blocked and does not mark the workflow comple
   assert.equal(!!executor.execution_active, false);
 });
 
-test("L2 can inspect a live L3 run and is told how to ask or replace it", async () => {
+test("小祥 can inspect a live 子 Agent run and is told how to ask or replace it", async () => {
   const assist = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "追问进度",
     goal: "执行中可询问",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const childId = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, childId, assist.id);
+  await bindChildAgentExecution(db, xiaoxiangSessionId, childId, assist.id);
   await query(
     db,
     `INSERT INTO agent_events(message_id,agent_session_id,tool,status,input,output)
@@ -593,8 +598,8 @@ test("L2 can inspect a live L3 run and is told how to ask or replace it", async 
     [reportHostId, childId, "sandbox_write", JSON.stringify({ path: "a.md" })],
   );
   const snapshot = await inspectIterationTask(db, assist.id, {
-    type: "l2_session",
-    id: l2SessionId,
+    type: "xiaoxiang",
+    id: xiaoxiangSessionId,
   });
   assert.equal(snapshot.live, true);
   assert.equal(snapshot.askVia.agentId, childId);
@@ -606,22 +611,22 @@ test("L2 can inspect a live L3 run and is told how to ask or replace it", async 
   );
 });
 
-test("a formal task owned by L2 can run on a resumable DSH child", async () => {
+test("a formal task owned by 小祥 can run on a resumable DSH child", async () => {
   const formal = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     taskType: "formal",
     title: "正式云端执行",
-    goal: "由 L2 的 DSH L3 完成",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    goal: "由 小祥 的 DSH 子 Agent 完成",
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const childId = randomUUID();
-  const running = await bindDshL3Execution(db, l2SessionId, childId, formal.id);
+  const running = await bindChildAgentExecution(db, xiaoxiangSessionId, childId, formal.id);
   assert.equal(running.status, "running");
   assert.equal(running.task_type, "formal");
   assert.equal(running.execution_agent_id, childId);
@@ -632,13 +637,13 @@ test("a formal task owned by L2 can run on a resumable DSH child", async () => {
   );
   assert.deepEqual(run, {
     task_revision: formal.revision,
-    executor_type: "dsh_l3",
+    executor_type: "child_agent",
     executor_id: childId,
     status: "running",
   });
 
-  await reportL3(childId, "正式任务结果摘要");
-  const completed = await settleDshL3Execution(db, l2SessionId, childId, {
+  await reportChild(childId, "正式任务结果摘要");
+  const completed = await settleChildAgentExecution(db, xiaoxiangSessionId, childId, {
     status: "ok",
     stopReason: "completed",
     lastAssistantMessage: [{ type: "text", text: "正式任务结果摘要" }],
@@ -661,13 +666,13 @@ test("a formal task owned by L2 can run on a resumable DSH child", async () => {
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     taskType: "formal",
     title: "同来源后续任务",
-    goal: "优先续接熟悉该成员的 L3",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    goal: "优先续接熟悉该成员的 子 Agent",
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const listed = await listTasks(db, project.id, { limit: 200 });
   assert.equal(listed.find((task) => task.id === related.id).preferred_execution_agent_id, childId);
@@ -708,7 +713,7 @@ test("the latest human transferor can acknowledge or revise a rejected task", as
   assert.equal(reopened.status, "awaiting_acceptance");
   assert.equal(reopened.goal, "补充清晰验收标准后重新执行");
   assert.equal(reopened.source_user_id, users[0].id);
-  assert.equal(reopened.created_by_id, l2SessionId);
+  assert.equal(reopened.created_by_id, xiaoxiangSessionId);
   assert.equal((await taskRejectionReview(db, task.id)).resolved, true);
 
   const acknowledgedTask = await formalTask(users[1].id, { title: "仅确认拒绝" });
@@ -719,8 +724,8 @@ test("the latest human transferor can acknowledge or revise a rejected task", as
     "当前无法承担",
   );
   await acknowledgeTaskRejection(db, acknowledgedTask.id, {
-    type: "l2_session",
-    id: l2SessionId,
+    type: "xiaoxiang",
+    id: xiaoxiangSessionId,
     authorizedByUserId: users[0].id,
   });
   assert.equal((await taskRejectionReview(db, acknowledgedTask.id)).resolved, true);
@@ -759,7 +764,7 @@ test("every status transition is logged with who changed it and why", async () =
       event.reason,
     ]),
     [
-      [null, "awaiting_acceptance", "l2_session", l2SessionId, "任务创建"],
+      [null, "awaiting_acceptance", "xiaoxiang", xiaoxiangSessionId, "任务创建"],
       ["awaiting_acceptance", "rejected", "human_member", users[2].id, "验收目标不够明确"],
       ["rejected", "awaiting_acceptance", "human_member", users[1].id, "已补充验收标准"],
       ["awaiting_acceptance", "running", "human_member", users[2].id, "成员接受任务，由本人完成"],
@@ -768,24 +773,24 @@ test("every status transition is logged with who changed it and why", async () =
   );
 });
 
-test("only the latest source member can answer an L2 task question", async () => {
+test("only the latest source member can answer an 小祥 task question", async () => {
   const task = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     taskType: "formal",
     title: "需要澄清",
     goal: "等待来源人确认",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const question = await askTaskQuestion(
     db,
     task.id,
-    { type: "l2_session", id: l2SessionId },
+    { type: "xiaoxiang", id: xiaoxiangSessionId },
     "验收标准是什么？",
     users[0].id,
   );
@@ -809,14 +814,14 @@ test("the latest human transferor answers questions without overwriting the orig
     db,
     task.id,
     { type: "human_member", id: users[1].id },
-    { type: "l2_session", id: l2SessionId },
+    { type: "xiaoxiang", id: xiaoxiangSessionId },
     "由小祥继续",
   );
   assert.equal(transferred.source_user_id, users[0].id);
   const question = await askTaskQuestion(
     db,
     task.id,
-    { type: "l2_session", id: l2SessionId },
+    { type: "xiaoxiang", id: xiaoxiangSessionId },
     "由谁确认？",
     users[0].id,
   );
@@ -834,58 +839,58 @@ test("the latest human transferor answers questions without overwriting the orig
   assert.equal(answered.status, "answered");
 });
 
-test("service recovery requeues interrupted L3 work without repeating completed tasks", async () => {
+test("service recovery requeues interrupted 子 Agent work without repeating completed tasks", async () => {
   const runningAssist = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "中断任务",
     goal: "恢复后重新评估",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
-  await bindDshL3Execution(db, l2SessionId, randomUUID(), runningAssist.id);
+  await bindChildAgentExecution(db, xiaoxiangSessionId, randomUUID(), runningAssist.id);
   const runningFormal = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     taskType: "formal",
     title: "可续接的中断任务",
-    goal: "恢复原 DSH L3",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    goal: "恢复原 DSH 子 Agent",
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const formalChild = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, formalChild, runningFormal.id);
+  await bindChildAgentExecution(db, xiaoxiangSessionId, formalChild, runningFormal.id);
   const completedAssist = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "已完成任务",
     goal: "不能重复",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const completedChild = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, completedChild, completedAssist.id);
-  await reportL3(completedChild, "已完成");
-  await settleDshL3Execution(db, l2SessionId, completedChild, {
+  await bindChildAgentExecution(db, xiaoxiangSessionId, completedChild, completedAssist.id);
+  await reportChild(completedChild, "已完成");
+  await settleChildAgentExecution(db, xiaoxiangSessionId, completedChild, {
     status: "ok",
     stopReason: "completed",
     lastAssistantMessage: [{ type: "text", text: "已完成" }],
   });
-  assert.ok((await recoverInterruptedDshL3Executions(db)) >= 2);
+  assert.ok((await recoverInterruptedChildAgentExecutions(db)) >= 2);
   const recoveredRuns = await query(
     db,
     "SELECT status,task_revision FROM agent_task_execution_runs WHERE task_id=? ORDER BY created_at,id",
@@ -935,16 +940,16 @@ test("inference heartbeat renews liveness and rewrites tool-done progress", asyn
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     taskType: "formal",
     title: "心跳续命",
     goal: "推理期不应停在工具已完成",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const childId = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, childId, task.id);
+  await bindChildAgentExecution(db, xiaoxiangSessionId, childId, task.id);
   await query(
     db,
     `UPDATE agent_task_execution_runs
@@ -952,7 +957,7 @@ test("inference heartbeat renews liveness and rewrites tool-done progress", asyn
     WHERE executor_id=?`,
     [childId],
   );
-  assert.equal(await touchL3InferenceHeartbeat(db, childId), true);
+  assert.equal(await touchChildInferenceHeartbeat(db, childId), true);
   const [run] = await query(
     db,
     `SELECT progress,
@@ -962,7 +967,7 @@ test("inference heartbeat renews liveness and rewrites tool-done progress", asyn
   );
   assert.equal(run.progress, "正在调用模型");
   assert.ok(Number(run.age_seconds) <= 5);
-  assert.equal(await touchL3RunHeartbeat(db, childId), true);
+  assert.equal(await touchChildRunHeartbeat(db, childId), true);
   const [again] = await query(
     db,
     "SELECT progress FROM agent_task_execution_runs WHERE executor_id=?",
@@ -971,38 +976,38 @@ test("inference heartbeat renews liveness and rewrites tool-done progress", asyn
   assert.equal(again.progress, "正在调用模型");
 });
 
-test("stale L3 heartbeat recovery interrupts only timed-out runs", async () => {
+test("stale 子 Agent heartbeat recovery interrupts only timed-out runs", async () => {
   const fresh = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     taskType: "formal",
     title: "新鲜心跳",
     goal: "不应被回收",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const freshChild = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, freshChild, fresh.id);
+  await bindChildAgentExecution(db, xiaoxiangSessionId, freshChild, fresh.id);
 
   const stale = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     taskType: "formal",
     title: "陈旧心跳",
     goal: "应被回收",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const staleChild = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, staleChild, stale.id);
+  await bindChildAgentExecution(db, xiaoxiangSessionId, staleChild, stale.id);
   await query(
     db,
     `UPDATE agent_task_execution_runs
@@ -1012,7 +1017,7 @@ test("stale L3 heartbeat recovery interrupts only timed-out runs", async () => {
     [staleChild],
   );
 
-  assert.equal(await recoverStaleDshL3Executions(db, { staleAfterSeconds: 600 }), 1);
+  assert.equal(await recoverStaleChildAgentExecutions(db, { staleAfterSeconds: 600 }), 1);
 
   const [freshTask] = await query(db, "SELECT status FROM agent_tasks WHERE id=?", [fresh.id]);
   const [staleTask] = await query(db, "SELECT status,progress FROM agent_tasks WHERE id=?", [
@@ -1038,10 +1043,10 @@ test("stale L3 heartbeat recovery interrupts only timed-out runs", async () => {
   assert.equal(staleRun.status, "interrupted");
   assert.match(staleRun.error, /心跳超时/);
   const replacement = randomUUID();
-  const rebound = await bindDshL3Execution(db, l2SessionId, replacement, stale.id);
+  const rebound = await bindChildAgentExecution(db, xiaoxiangSessionId, replacement, stale.id);
   assert.equal(rebound.execution_agent_id, replacement);
   assert.equal(
-    await settleDshL3Execution(db, l2SessionId, staleChild, {
+    await settleChildAgentExecution(db, xiaoxiangSessionId, staleChild, {
       status: "error",
       stopReason: "aborted",
       lastAssistantMessage: [],
@@ -1052,7 +1057,7 @@ test("stale L3 heartbeat recovery interrupts only timed-out runs", async () => {
   await recoverAbnormalTask(
     db,
     stale.id,
-    { type: "l2_session", id: l2SessionId },
+    { type: "xiaoxiang", id: xiaoxiangSessionId },
     { action: "cancel" },
   );
 });
@@ -1063,13 +1068,13 @@ test("updating a queued assist task cancels stale revisions and only binds the c
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "修订后执行",
     goal: "只允许最新 revision 执行",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const [oldRun] = await query(
     db,
@@ -1079,7 +1084,7 @@ test("updating a queued assist task cancels stale revisions and only binds the c
   const revised = await updateTask(
     db,
     assist.id,
-    { type: "l2_session", id: l2SessionId },
+    { type: "xiaoxiang", id: xiaoxiangSessionId },
     {
       status: "queued",
       progress: "约束已更新",
@@ -1097,7 +1102,7 @@ test("updating a queued assist task cancels stale revisions and only binds the c
   assert.notEqual(current.id, oldRun.id);
 
   const childId = randomUUID();
-  const bound = await bindDshL3Execution(db, l2SessionId, childId, assist.id);
+  const bound = await bindChildAgentExecution(db, xiaoxiangSessionId, childId, assist.id);
   assert.equal(bound.execution_agent_id, childId);
   assert.equal(
     bound.revision,
@@ -1120,28 +1125,28 @@ test("updating a queued assist task cancels stale revisions and only binds the c
   assert.equal(refreshedRuns.find((run) => run.id === current.id).executor_id, childId);
 });
 
-test("completing an assist task without an L3 voids the task instead of keeping it completed", async () => {
+test("completing an assist task without an 子 Agent voids the task instead of keeping it completed", async () => {
   const assist = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
-    title: "L2 直接完成",
-    goal: "不启动 L3",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
+    title: "小祥 直接完成",
+    goal: "不启动 子 Agent",
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const closed = await updateTask(
     db,
     assist.id,
-    { type: "l2_session", id: l2SessionId },
+    { type: "xiaoxiang", id: xiaoxiangSessionId },
     {
       status: "completed",
-      progress: "已由 L2 关闭",
-      resultSummary: "无需 L3",
+      progress: "已由 小祥 关闭",
+      resultSummary: "无需 子 Agent",
     },
   );
   assert.equal(closed.status, "cancelled");
@@ -1155,26 +1160,26 @@ test("completing an assist task without an L3 voids the task instead of keeping 
   assert.match(run.error, /子 Agent 未启动/);
 });
 
-test("an unbound L3 can claim a queued assist task when writing completion", async () => {
+test("an unbound 子 Agent can claim a queued assist task when writing completion", async () => {
   const assist = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "完成后补绑定",
-    goal: "L3 先干活再回写",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    goal: "子 Agent 先干活再回写",
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const childId = randomUUID();
-  await ensureDshL3CanUpdate(db, l2SessionId, childId, assist.id);
+  await ensureChildAgentCanUpdate(db, xiaoxiangSessionId, childId, assist.id);
   const completed = await updateTask(
     db,
     assist.id,
-    { type: "l2_session", id: l2SessionId },
+    { type: "xiaoxiang", id: xiaoxiangSessionId },
     {
       status: "completed",
       progress: "产物已提交",
@@ -1192,24 +1197,24 @@ test("an unbound L3 can claim a queued assist task when writing completion", asy
   assert.equal(run.status, "completed");
 });
 
-test("L2 can restart failed, stuck queued and stuck running tasks in this iteration", async () => {
-  const actor = { type: "l2_session", id: l2SessionId };
+test("小祥 can restart failed, stuck queued and stuck running tasks in this iteration", async () => {
+  const actor = { type: "xiaoxiang", id: xiaoxiangSessionId };
   const failed = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "失败后重启",
     goal: "必须重跑",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const failedChild = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, failedChild, failed.id);
-  await settleDshL3Execution(db, l2SessionId, failedChild, {
+  await bindChildAgentExecution(db, xiaoxiangSessionId, failedChild, failed.id);
+  await settleChildAgentExecution(db, xiaoxiangSessionId, failedChild, {
     status: "ok",
     stopReason: "completed",
     lastAssistantMessage: [{ type: "text", text: "没交活" }],
@@ -1220,7 +1225,7 @@ test("L2 can restart failed, stuck queued and stuck running tasks in this iterat
   });
   assert.equal(restartedFailed.status, "running");
   assert.equal(restartedFailed.interruptedAgentId, failedChild);
-  const rebound = await bindDshL3Execution(db, l2SessionId, randomUUID(), failed.id);
+  const rebound = await bindChildAgentExecution(db, xiaoxiangSessionId, randomUUID(), failed.id);
   assert.equal(rebound.status, "running");
 
   const queued = await createTask(db, {
@@ -1228,13 +1233,13 @@ test("L2 can restart failed, stuck queued and stuck running tasks in this iterat
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "排队卡住",
     goal: "重新派发",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const restartedQueued = await recoverAbnormalTask(db, queued.id, actor, { action: "restart" });
   assert.equal(restartedQueued.status, "running");
@@ -1247,20 +1252,20 @@ test("L2 can restart failed, stuck queued and stuck running tasks in this iterat
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "执行卡住",
     goal: "打断后重跑",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const runningChild = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, runningChild, running.id);
+  await bindChildAgentExecution(db, xiaoxiangSessionId, runningChild, running.id);
   const restartedRunning = await recoverAbnormalTask(db, running.id, actor, { action: "restart" });
   assert.equal(restartedRunning.status, "running");
   assert.equal(restartedRunning.interruptedAgentId, runningChild);
-  const stale = await settleDshL3Execution(db, l2SessionId, runningChild, {
+  const stale = await settleChildAgentExecution(db, xiaoxiangSessionId, runningChild, {
     status: "error",
     stopReason: "aborted",
     lastAssistantMessage: [{ type: "text", text: "旧进程结束" }],
@@ -1269,22 +1274,22 @@ test("L2 can restart failed, stuck queued and stuck running tasks in this iterat
   assert.equal((await getTask(db, running.id)).status, "running");
 });
 
-test("repeated platform failures block before another executor is dispatched", async () => {
+test("platform failures block before another executor is dispatched", async () => {
   const task = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "平台错误恢复",
     goal: "验证同一执行者恢复与平台错误阻塞",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const childId = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, childId, task.id);
+  await bindChildAgentExecution(db, xiaoxiangSessionId, childId, task.id);
   const platformEvent = () =>
     query(
       db,
@@ -1294,26 +1299,32 @@ test("repeated platform failures block before another executor is dispatched", a
     );
 
   await platformEvent();
-  const first = await settleDshL3Execution(db, l2SessionId, childId, {
+  const first = await settleChildAgentExecution(db, xiaoxiangSessionId, childId, {
     status: "error",
     stopReason: "error",
     lastAssistantMessage: [{ type: "text", text: "发布失败" }],
   });
-  assert.equal(first.status, "failed");
+  // 新契约：首次平台失败即把任务收敛为 blocked；同一平台错误且环境未变时不得再换执行者。
+  assert.equal(first.status, "blocked");
   assert.equal(first.failure_class, "platform_blocked");
   assert.equal(first.retry_count, 1);
 
-  const blocked = await recoverAbnormalTask(
-    db,
-    task.id,
-    { type: "l2_session", id: l2SessionId },
-    {
-      action: "restart",
-      reason: "平台错误再次出现",
-    },
+  await assert.rejects(
+    recoverAbnormalTask(
+      db,
+      task.id,
+      { type: "xiaoxiang", id: xiaoxiangSessionId },
+      {
+        action: "restart",
+        reason: "平台错误再次出现",
+      },
+    ),
+    { status: 409, message: /外部条件恢复|environmentChanged/ },
   );
-  assert.equal(blocked.status, "blocked");
-  assert.equal(blocked.interruptedAgentId, childId);
+  const blockedTask = await getTask(db, task.id);
+  assert.equal(blockedTask.status, "blocked");
+  assert.equal(blockedTask.execution_agent_id, childId);
+  assert.ok(blockedTask.blocked_reason);
   assert.equal(
     (await listTaskExecutionRuns(db, task.id)).filter((run) => run.executor_id).length,
     1,
@@ -1323,30 +1334,30 @@ test("repeated platform failures block before another executor is dispatched", a
     recoverAbnormalTask(
       db,
       task.id,
-      { type: "l2_session", id: l2SessionId },
+      { type: "xiaoxiang", id: xiaoxiangSessionId },
       { action: "restart" },
     ),
     { status: 409, message: /外部条件恢复|environmentChanged/ },
   );
 });
 
-test("an executor failure resumes the same L3 before replacement is considered", async () => {
+test("an executor failure resumes the same 子 Agent before replacement is considered", async () => {
   const task = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "同执行者恢复",
-    goal: "验证先恢复原 L3",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    goal: "验证先恢复原 子 Agent",
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const childId = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, childId, task.id);
-  await settleDshL3Execution(db, l2SessionId, childId, {
+  await bindChildAgentExecution(db, xiaoxiangSessionId, childId, task.id);
+  await settleChildAgentExecution(db, xiaoxiangSessionId, childId, {
     status: "error",
     stopReason: "error",
     lastAssistantMessage: [{ type: "text", text: "执行失败" }],
@@ -1354,33 +1365,33 @@ test("an executor failure resumes the same L3 before replacement is considered",
   const recovered = await recoverAbnormalTask(
     db,
     task.id,
-    { type: "l2_session", id: l2SessionId },
+    { type: "xiaoxiang", id: xiaoxiangSessionId },
     { action: "restart" },
   );
   assert.equal(recovered.recovery.strategy, "resume_same_executor_first");
   assert.equal(recovered.recovery.executorId, childId);
-  const rebound = await bindDshL3Execution(db, l2SessionId, childId, task.id);
+  const rebound = await bindChildAgentExecution(db, xiaoxiangSessionId, childId, task.id);
   assert.equal(rebound.execution_agent_id, childId);
   assert.equal(rebound.executor_switch_count, 0);
 });
 
 test("binding recovery clear_binding is idempotent and concurrent bind has one winner", async () => {
-  const actor = { type: "l2_session", id: l2SessionId };
+  const actor = { type: "xiaoxiang", id: xiaoxiangSessionId };
   const task = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     taskType: "formal",
     title: "幂等清槽位",
     goal: "不能重复创建 run 或消耗预算",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   const oldChild = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, oldChild, task.id);
+  await bindChildAgentExecution(db, xiaoxiangSessionId, oldChild, task.id);
   const first = await recoverAbnormalTask(db, task.id, actor, { action: "clear_binding" });
   assert.equal(first.execution_agent_id, null);
   assert.equal(first.needsDispatch, true);
@@ -1396,16 +1407,21 @@ test("binding recovery clear_binding is idempotent and concurrent bind has one w
   assert.equal(runs.filter((run) => run.status === "queued" && run.executor_id === null).length, 1);
   const attempts = await Promise.allSettled(
     [randomUUID(), randomUUID()].map((child) =>
-      bindDshL3Execution(db, l2SessionId, child, task.id),
+      bindChildAgentExecution(db, xiaoxiangSessionId, child, task.id),
     ),
   );
   assert.equal(attempts.filter((r) => r.status === "fulfilled").length, 1);
   const rejected = attempts.find((r) => r.status === "rejected");
   assert.equal(rejected.reason.status, 409);
-  assert.match(rejected.reason.message, /L3_BINDING_OCCUPIED/);
+  assert.match(rejected.reason.message, /CHILD_BINDING_OCCUPIED/);
   const winner = attempts.find((r) => r.status === "fulfilled").value;
   assert.equal(winner.executor_switch_count, 1);
-  const again = await bindDshL3Execution(db, l2SessionId, winner.execution_agent_id, task.id);
+  const again = await bindChildAgentExecution(
+    db,
+    xiaoxiangSessionId,
+    winner.execution_agent_id,
+    task.id,
+  );
   assert.equal(again.executor_switch_count, 1);
   const snapshot = await inspectIterationTask(db, task.id, actor);
   assert.equal(snapshot.binding_status, "bound");
@@ -1415,24 +1431,24 @@ test("binding recovery clear_binding is idempotent and concurrent bind has one w
 });
 
 test("binding recovery stale scan cannot clear a renewed heartbeat or replacement", async () => {
-  const actor = { type: "l2_session", id: l2SessionId };
+  const actor = { type: "xiaoxiang", id: xiaoxiangSessionId };
   for (const replace of [false, true]) {
     const task = await createTask(db, {
       projectId: project.id,
       originThreadId: thread.id,
       sourceType: "human_member",
       sourceUserId: users[0].id,
-      createdByType: "l2_session",
-      createdById: l2SessionId,
+      createdByType: "xiaoxiang",
+      createdById: xiaoxiangSessionId,
       taskType: "formal",
       title: "扫描与清理竞态",
       goal: "保护已续命和已接管任务",
-      targetType: "l2_session",
-      targetId: l2SessionId,
+      targetType: "xiaoxiang",
+      targetId: xiaoxiangSessionId,
     });
     const oldChild = randomUUID();
     let currentChild = oldChild;
-    await bindDshL3Execution(db, l2SessionId, oldChild, task.id);
+    await bindChildAgentExecution(db, xiaoxiangSessionId, oldChild, task.id);
     await query(
       db,
       `UPDATE agent_task_execution_runs SET heartbeat_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 11 MINUTE)
@@ -1449,13 +1465,13 @@ test("binding recovery stale scan cannot clear a renewed heartbeat or replacemen
           if (replace) {
             await recoverAbnormalTask(db, task.id, actor, { action: "restart" });
             currentChild = randomUUID();
-            await bindDshL3Execution(db, l2SessionId, currentChild, task.id);
-          } else await touchL3RunHeartbeat(db, oldChild);
+            await bindChildAgentExecution(db, xiaoxiangSessionId, currentChild, task.id);
+          } else await touchChildRunHeartbeat(db, oldChild);
         }
         return result;
       },
     };
-    assert.equal(await recoverStaleDshL3Executions(racingDb, { staleAfterSeconds: 600 }), 0);
+    assert.equal(await recoverStaleChildAgentExecutions(racingDb, { staleAfterSeconds: 600 }), 0);
     assert.equal(scanned, true);
     const current = await getTask(db, task.id);
     assert.equal(current.status, "running");
@@ -1465,23 +1481,23 @@ test("binding recovery stale scan cannot clear a renewed heartbeat or replacemen
 });
 
 test("binding recovery failed resume leaves slot free for replacement in 20 cycles", async () => {
-  const actor = { type: "l2_session", id: l2SessionId };
+  const actor = { type: "xiaoxiang", id: xiaoxiangSessionId };
   for (let i = 0; i < 20; i++) {
     const task = await createTask(db, {
       projectId: project.id,
       originThreadId: thread.id,
       sourceType: "human_member",
       sourceUserId: users[0].id,
-      createdByType: "l2_session",
-      createdById: l2SessionId,
+      createdByType: "xiaoxiang",
+      createdById: xiaoxiangSessionId,
       taskType: "formal",
       title: `续接失败 ${i + 1}`,
       goal: "失败不能预占槽位",
-      targetType: "l2_session",
-      targetId: l2SessionId,
+      targetType: "xiaoxiang",
+      targetId: xiaoxiangSessionId,
     });
     const oldChild = randomUUID();
-    await bindDshL3Execution(db, l2SessionId, oldChild, task.id);
+    await bindChildAgentExecution(db, xiaoxiangSessionId, oldChild, task.id);
     const recovered = await recoverAbnormalTask(db, task.id, actor, { action: "restart" });
     assert.equal(recovered.execution_agent_id, null);
     assert.equal(recovered.recovery.created_run_id, null);
@@ -1492,15 +1508,16 @@ test("binding recovery failed resume leaves slot free for replacement in 20 cycl
       },
       "continuable subagents require session query",
     );
-    if (binding) await bindDshL3Execution(db, l2SessionId, binding.childId, binding.taskId);
+    if (binding)
+      await bindChildAgentExecution(db, xiaoxiangSessionId, binding.childId, binding.taskId);
     assert.equal((await getTask(db, task.id)).execution_agent_id, null);
     const newChild = randomUUID();
-    const rebound = await bindDshL3Execution(db, l2SessionId, newChild, task.id);
+    const rebound = await bindChildAgentExecution(db, xiaoxiangSessionId, newChild, task.id);
     assert.equal(rebound.execution_agent_id, newChild);
     assert.equal(rebound.retry_count, 0);
     assert.equal(rebound.executor_switch_count, 1);
     assert.equal(
-      await settleDshL3Execution(db, l2SessionId, oldChild, {
+      await settleChildAgentExecution(db, xiaoxiangSessionId, oldChild, {
         status: "error",
         stopReason: "aborted",
         lastAssistantMessage: [],
@@ -1517,18 +1534,18 @@ test("retry budget exhaustion blocks before another executor can be dispatched",
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "预算耗尽",
     goal: "达到预算后停止调度",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   await query(db, "UPDATE agent_tasks SET max_retry_count=1 WHERE id=?", [task.id]);
   const childId = randomUUID();
-  await bindDshL3Execution(db, l2SessionId, childId, task.id);
-  const failed = await settleDshL3Execution(db, l2SessionId, childId, {
+  await bindChildAgentExecution(db, xiaoxiangSessionId, childId, task.id);
+  const failed = await settleChildAgentExecution(db, xiaoxiangSessionId, childId, {
     status: "error",
     stopReason: "error",
     lastAssistantMessage: [{ type: "text", text: "执行失败" }],
@@ -1539,27 +1556,27 @@ test("retry budget exhaustion blocks before another executor can be dispatched",
     recoverAbnormalTask(
       db,
       task.id,
-      { type: "l2_session", id: l2SessionId },
+      { type: "xiaoxiang", id: xiaoxiangSessionId },
       { action: "restart" },
     ),
     { status: 409, message: /外部条件恢复|重试预算/ },
   );
 });
 
-test("a rotated L2 session recasts queued assist work so dsh_l3 can bind", async () => {
+test("a rotated 小祥 session recasts queued assist work so child_agent can bind", async () => {
   const staleSession = randomUUID();
   const assist = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "旧会话排队",
     goal: "会话轮换后仍能开工",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   await query(db, "UPDATE agent_tasks SET target_id=?,claimed_by_id=?,created_by_id=? WHERE id=?", [
     staleSession,
@@ -1572,15 +1589,15 @@ test("a rotated L2 session recasts queued assist work so dsh_l3 can bind", async
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
     title: "创建时写了旧目标",
-    goal: "应落到当前 L2",
-    targetType: "l2_session",
+    goal: "应落到当前 小祥",
+    targetType: "xiaoxiang",
     targetId: staleSession,
   });
-  assert.equal(created.target_id, l2SessionId);
+  assert.equal(created.target_id, xiaoxiangSessionId);
   assert.equal(created.needsDispatch, true);
   assert.equal(created.started, false);
 
@@ -1590,12 +1607,12 @@ test("a rotated L2 session recasts queued assist work so dsh_l3 can bind", async
       originThreadId: thread.id,
       sourceType: "human_member",
       sourceUserId: users[0].id,
-      createdByType: "l2_session",
+      createdByType: "xiaoxiang",
       createdById: staleSession,
-      taskType: "assist_l2",
-      title: "陈旧 L2 禁止建单",
+      taskType: "assist",
+      title: "陈旧 小祥 禁止建单",
       goal: "caller 与 DB 不一致时应拒绝",
-      targetType: "l2_session",
+      targetType: "xiaoxiang",
       targetId: staleSession,
     }),
     { status: 409, message: /会话已轮换/ },
@@ -1604,21 +1621,21 @@ test("a rotated L2 session recasts queued assist work so dsh_l3 can bind", async
   const recovered = await recoverAbnormalTask(
     db,
     assist.id,
-    { type: "l2_session", id: l2SessionId },
+    { type: "xiaoxiang", id: xiaoxiangSessionId },
     { action: "restart" },
   );
   assert.equal(recovered.status, "running");
-  assert.equal(recovered.target_id, l2SessionId);
-  assert.equal(recovered.claimed_by_id, l2SessionId);
+  assert.equal(recovered.target_id, xiaoxiangSessionId);
+  assert.equal(recovered.claimed_by_id, xiaoxiangSessionId);
   assert.equal(recovered.needsDispatch, true);
   assert.match(recovered.progress, /尚未绑定子 Agent/);
 
   const childId = randomUUID();
-  const bound = await bindDshL3Execution(db, l2SessionId, childId, assist.id);
+  const bound = await bindChildAgentExecution(db, xiaoxiangSessionId, childId, assist.id);
   assert.equal(bound.status, "running");
-  assert.equal(bound.target_id, l2SessionId);
+  assert.equal(bound.target_id, xiaoxiangSessionId);
   assert.equal(bound.execution_agent_id, childId);
-  const again = await bindDshL3Execution(db, l2SessionId, childId, assist.id);
+  const again = await bindChildAgentExecution(db, xiaoxiangSessionId, childId, assist.id);
   assert.equal(again.execution_agent_id, childId);
   const assignment = await query(
     db,
@@ -1629,21 +1646,23 @@ test("a rotated L2 session recasts queued assist work so dsh_l3 can bind", async
     assignment.every((event) => event.event_type !== "transferred"),
     true,
   );
-  await updateTask(
+  // 任务层已取消 failed：updateTask 把调用方传入的 failed 收敛为 blocked，状态事件记收敛后的值。
+  const updated = await updateTask(
     db,
     assist.id,
-    { type: "dsh_l3", id: childId },
-    { status: "failed", progress: "L3 交活失败", resultSummary: "提交被拒" },
+    { type: "child_agent", id: childId },
+    { status: "failed", progress: "子 Agent 交活失败", resultSummary: "提交被拒" },
   );
+  assert.equal(updated.status, "blocked");
   const status = await listTaskStatusEvents(db, assist.id);
-  assert.equal(status.at(-1).actor_type, "dsh_l3");
+  assert.equal(status.at(-1).actor_type, "child_agent");
   assert.equal(status.at(-1).actor_id, childId);
-  assert.equal(status.at(-1).to_status, "failed");
+  assert.equal(status.at(-1).to_status, "blocked");
   assert.match(status.at(-1).reason, /交活失败|提交被拒/);
 });
 
-test("L2 can arrange member-owned tasks in this iteration but not other iterations", async () => {
-  const actor = { type: "l2_session", id: l2SessionId, authorizedByUserId: users[0].id };
+test("小祥 can arrange member-owned tasks in this iteration but not other iterations", async () => {
+  const actor = { type: "xiaoxiang", id: xiaoxiangSessionId, authorizedByUserId: users[0].id };
   const humanTask = await formalTask(users[1].id, { title: "成员卡住的任务" });
   await acceptTask(db, humanTask.id, { type: "human_member", id: users[1].id }, "human_direct");
   await updateTask(
@@ -1666,23 +1685,23 @@ test("L2 can arrange member-owned tasks in this iteration but not other iteratio
   assert.equal(cancelled.status, "cancelled");
 
   const otherThread = await service.createThread(users[0], project.id, { title: "另一迭代" });
-  const otherL2 = randomUUID();
+  const otherXiaoxiang = randomUUID();
   await query(db, "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?)", [
     otherThread.id,
-    otherL2,
+    otherXiaoxiang,
   ]);
   const foreign = await createTask(db, {
     projectId: project.id,
     originThreadId: otherThread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: otherL2,
-    taskType: "assist_l2",
+    createdByType: "xiaoxiang",
+    createdById: otherXiaoxiang,
+    taskType: "assist",
     title: "外迭代任务",
-    goal: "不能被本迭代 L2 改",
-    targetType: "l2_session",
-    targetId: otherL2,
+    goal: "不能被本迭代 小祥 改",
+    targetType: "xiaoxiang",
+    targetId: otherXiaoxiang,
   });
   await assert.rejects(recoverAbnormalTask(db, foreign.id, actor, { action: "restart" }), {
     status: 403,
@@ -1703,12 +1722,12 @@ test("L2 can arrange member-owned tasks in this iteration but not other iteratio
   );
 });
 
-test("L2 needs an executable human member account this turn to touch foreign work", async () => {
-  const own = { type: "l2_session", id: l2SessionId };
-  const authorized = { type: "l2_session", id: l2SessionId, authorizedByUserId: users[2].id };
+test("小祥 needs an executable human member account this turn to touch foreign work", async () => {
+  const own = { type: "xiaoxiang", id: xiaoxiangSessionId };
+  const authorized = { type: "xiaoxiang", id: xiaoxiangSessionId, authorizedByUserId: users[2].id };
   const agentAccount = {
-    type: "l2_session",
-    id: l2SessionId,
+    type: "xiaoxiang",
+    id: xiaoxiangSessionId,
     authorizedByUserId: "agent-assistant",
   };
   const humanTask = await formalTask(users[1].id, { title: "需授权的成员任务" });
@@ -1732,8 +1751,8 @@ test("L2 needs an executable human member account this turn to touch foreign wor
       originThreadId: thread.id,
       sourceType: "human_member",
       sourceUserId: users[0].id,
-      createdByType: "l2_session",
-      createdById: l2SessionId,
+      createdByType: "xiaoxiang",
+      createdById: xiaoxiangSessionId,
       taskType: "formal",
       title: "未授权派给人",
       goal: "不能派",
@@ -1747,13 +1766,13 @@ test("L2 needs an executable human member account this turn to touch foreign wor
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     taskType: "formal",
     title: "自己的正式任务",
     goal: "转给人类也要授权",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   await assert.rejects(
     reassignTask(db, ownFormal.id, own, { type: "human_member", id: users[1].id }, "未授权转人"),
@@ -1777,8 +1796,8 @@ test("L2 needs an executable human member account this turn to touch foreign wor
   ]);
   await assert.rejects(
     inspectIterationTask(db, humanTask.id, {
-      type: "l2_session",
-      id: l2SessionId,
+      type: "xiaoxiang",
+      id: xiaoxiangSessionId,
       authorizedByUserId: viewerId,
     }),
     { status: 403, message: /人类成员账号明确授权/ },
@@ -1797,8 +1816,8 @@ test("L2 needs an executable human member account this turn to touch foreign wor
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     authorizedByUserId: users[2].id,
     taskType: "formal",
     title: "授权后派给人",
@@ -1817,7 +1836,7 @@ test("L2 needs an executable human member account this turn to touch foreign wor
   assert.equal(handed.target_id, users[1].id);
 });
 
-test("unbound L3 reservations occupy slots and return to the queue after the turn", async () => {
+test("unbound 子 Agent reservations occupy slots and return to the queue after the turn", async () => {
   const isolated = await service.createThread(users[0], project.id, { title: "槽位预留" });
   const sessionId = randomUUID();
   await query(db, "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?)", [
@@ -1830,12 +1849,12 @@ test("unbound L3 reservations occupy slots and return to the queue after the tur
       originThreadId: isolated.id,
       sourceType: "human_member",
       sourceUserId: users[0].id,
-      createdByType: "l2_session",
+      createdByType: "xiaoxiang",
       createdById: sessionId,
       taskType,
       title,
       goal: "占一个未绑定槽位",
-      targetType: "l2_session",
+      targetType: "xiaoxiang",
       targetId: sessionId,
     });
   const reserved = [];
@@ -1843,7 +1862,7 @@ test("unbound L3 reservations occupy slots and return to the queue after the tur
   assert.ok(reserved.every((task) => task.status === "running"));
   const overflow = await reserve("多出来的正式任务");
   assert.equal(overflow.status, "pending_assignment");
-  await assert.rejects(reserve("多出来的辅助任务", "assist_l2"), {
+  await assert.rejects(reserve("多出来的辅助任务", "assist"), {
     status: 409,
     message: /没有空闲子 Agent/,
   });
@@ -1856,7 +1875,7 @@ test("unbound L3 reservations occupy slots and return to the queue after the tur
   assert.equal(again.enqueued, false);
   const idleEvents = await query(
     db,
-    "SELECT payload FROM coordinator_events WHERE kind='l3_idle' AND thread_id=?",
+    "SELECT payload FROM coordinator_events WHERE kind='child_idle' AND thread_id=?",
     [isolated.id],
   );
   assert.equal(idleEvents.length, 1);
@@ -1864,19 +1883,19 @@ test("unbound L3 reservations occupy slots and return to the queue after the tur
     typeof idleEvents[0].payload === "string"
       ? JSON.parse(idleEvents[0].payload)
       : idleEvents[0].payload;
-  assert.equal(payload.idleL3Count, 7);
+  assert.equal(payload.idleChildCount, 7);
   assert.equal(payload.pendingTasks.length, 7);
   const kept = await reserve("已经绑定的任务");
   const childId = randomUUID();
-  await bindDshL3Execution(db, sessionId, childId, kept.id);
+  await bindChildAgentExecution(db, sessionId, childId, kept.id);
   const untouched = await finishCoordinatorDispatch(db, isolated.id, { enqueueIdle: false });
   assert.equal(untouched.released, 0);
   assert.equal((await getTask(db, kept.id)).status, "running");
   assert.equal((await getTask(db, kept.id)).execution_agent_id, childId);
 });
 
-test("decided tasks can be launched by id and disappear once an L3 is bound", async () => {
-  const isolated = await service.createThread(users[0], project.id, { title: "系统启动 L3" });
+test("decided tasks can be launched by id and disappear once an 子 Agent is bound", async () => {
+  const isolated = await service.createThread(users[0], project.id, { title: "系统启动 子 Agent" });
   const sessionId = randomUUID();
   await query(db, "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?)", [
     isolated.id,
@@ -1887,46 +1906,46 @@ test("decided tasks can be launched by id and disappear once an L3 is bound", as
     originThreadId: isolated.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
+    createdByType: "xiaoxiang",
     createdById: sessionId,
     taskType: "formal",
     title: "待启动的沙箱任务",
     goal: "由系统启动",
-    targetType: "l2_session",
+    targetType: "xiaoxiang",
     targetId: sessionId,
   });
   await finishCoordinatorDispatch(db, isolated.id, { enqueueIdle: false });
   assert.equal((await getTask(db, task.id)).status, "pending_assignment");
-  const waiting = await tasksAwaitingL3Launch(db, sessionId);
+  const waiting = await tasksAwaitingChildLaunch(db, sessionId);
   assert.deepEqual(
     waiting.map((row) => row.id),
     [task.id],
   );
-  const launch = await l3LaunchPrompt(db, task.id);
+  const launch = await childLaunchPrompt(db, task.id);
   assert.match(launch.prompt, new RegExp(`^TASK_ID: ${task.id}`));
   assert.equal(launch.label, "待启动的沙箱任务");
   const childId = randomUUID();
-  await bindDshL3Execution(db, sessionId, childId, task.id);
-  assert.deepEqual(await tasksAwaitingL3Launch(db, sessionId), []);
-  assert.equal(await l3LaunchPrompt(db, task.id), null);
+  await bindChildAgentExecution(db, sessionId, childId, task.id);
+  assert.deepEqual(await tasksAwaitingChildLaunch(db, sessionId), []);
+  assert.equal(await childLaunchPrompt(db, task.id), null);
 });
 
-test("assist tasks cannot be created when every L3 is busy", async () => {
+test("assist tasks cannot be created when every 子 Agent is busy", async () => {
   const occupy = async () => {
     const task = await createTask(db, {
       projectId: project.id,
       originThreadId: thread.id,
       sourceType: "human_member",
       sourceUserId: users[0].id,
-      createdByType: "l2_session",
-      createdById: l2SessionId,
-      taskType: "assist_l2",
-      title: "占住 L3",
+      createdByType: "xiaoxiang",
+      createdById: xiaoxiangSessionId,
+      taskType: "assist",
+      title: "占住 子 Agent",
       goal: "占槽",
-      targetType: "l2_session",
-      targetId: l2SessionId,
+      targetType: "xiaoxiang",
+      targetId: xiaoxiangSessionId,
     });
-    await bindDshL3Execution(db, l2SessionId, randomUUID(), task.id);
+    await bindChildAgentExecution(db, xiaoxiangSessionId, randomUUID(), task.id);
     return task;
   };
   const busy = [];
@@ -1944,13 +1963,13 @@ test("assist tasks cannot be created when every L3 is busy", async () => {
       originThreadId: thread.id,
       sourceType: "human_member",
       sourceUserId: users[0].id,
-      createdByType: "l2_session",
-      createdById: l2SessionId,
-      taskType: "assist_l2",
+      createdByType: "xiaoxiang",
+      createdById: xiaoxiangSessionId,
+      taskType: "assist",
       title: "第 8 个辅助",
       goal: "应当失败",
-      targetType: "l2_session",
-      targetId: l2SessionId,
+      targetType: "xiaoxiang",
+      targetId: xiaoxiangSessionId,
     }),
     { status: 409, message: /没有空闲子 Agent/ },
   );
@@ -1959,13 +1978,13 @@ test("assist tasks cannot be created when every L3 is busy", async () => {
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
     taskType: "formal",
     title: "沙箱待指派",
     goal: "没有空闲也可以创建",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
   assert.equal(pending.status, "pending_assignment");
   assert.equal(pending.needsDispatch, true);
@@ -1973,23 +1992,23 @@ test("assist tasks cannot be created when every L3 is busy", async () => {
     db,
     `SELECT r.executor_id FROM agent_task_execution_runs r
     JOIN agent_tasks t ON t.id=r.task_id
-    WHERE t.target_id=? AND r.executor_type='dsh_l3' AND r.status IN ('running','waiting')
+    WHERE t.target_id=? AND r.executor_type='child_agent' AND r.status IN ('running','waiting')
     ORDER BY r.created_at LIMIT 1`,
-    [l2SessionId],
+    [xiaoxiangSessionId],
   );
   const [idleBefore] = await query(
     db,
-    "SELECT COUNT(*) n FROM coordinator_events WHERE kind='l3_idle' AND thread_id=?",
+    "SELECT COUNT(*) n FROM coordinator_events WHERE kind='child_idle' AND thread_id=?",
     [thread.id],
   );
-  const settled = await settleDshL3Execution(db, l2SessionId, live.executor_id, {
+  const settled = await settleChildAgentExecution(db, xiaoxiangSessionId, live.executor_id, {
     status: "ok",
     stopReason: "completed",
     lastAssistantMessage: [{ type: "text", text: "让出槽位" }],
   });
   const [idleAfter] = await query(
     db,
-    "SELECT COUNT(*) n FROM coordinator_events WHERE kind='l3_idle' AND thread_id=?",
+    "SELECT COUNT(*) n FROM coordinator_events WHERE kind='child_idle' AND thread_id=?",
     [thread.id],
   );
   assert.equal(Number(idleAfter.n), Number(idleBefore.n));
@@ -2000,13 +2019,13 @@ test("assist tasks cannot be created when every L3 is busy", async () => {
   );
   const payload =
     typeof childEvent.payload === "string" ? JSON.parse(childEvent.payload) : childEvent.payload;
-  assert.ok(payload.idleL3Count >= 1);
+  assert.ok(payload.idleChildCount >= 1);
   assert.ok(payload.pendingAssignment >= 1);
   assert.equal(
     payload.pendingTasks.length,
-    Math.min(payload.pendingAssignment, payload.idleL3Count),
+    Math.min(payload.pendingAssignment, payload.idleChildCount),
   );
-  const bound = await bindDshL3Execution(db, l2SessionId, randomUUID(), pending.id);
+  const bound = await bindChildAgentExecution(db, xiaoxiangSessionId, randomUUID(), pending.id);
   assert.equal(bound.status, "running");
 });
 
@@ -2071,8 +2090,8 @@ test("human tasks can only reference official document versions", async () => {
   });
   assert.deepEqual(created.document_refs, [uploaded.id]);
   const snapshot = await inspectIterationTask(db, created.id, {
-    type: "l2_session",
-    id: l2SessionId,
+    type: "xiaoxiang",
+    id: xiaoxiangSessionId,
     authorizedByUserId: users[0].id,
   });
   assert.deepEqual(snapshot.task.document_refs, [uploaded.id]);
@@ -2109,8 +2128,8 @@ test("human tasks can only reference official document versions", async () => {
   });
   assert.deepEqual(withFolder.folder_refs, [folderId]);
   const folderSnapshot = await inspectIterationTask(db, withFolder.id, {
-    type: "l2_session",
-    id: l2SessionId,
+    type: "xiaoxiang",
+    id: xiaoxiangSessionId,
     authorizedByUserId: users[0].id,
   });
   assert.deepEqual(folderSnapshot.task.folder_refs, [folderId]);
@@ -2153,7 +2172,7 @@ test("human tasks can only reference official document versions", async () => {
   assert.equal(stripped.document_refs.includes(nestedDoc.id), false);
 });
 
-test("L3 nicknames stay sticky across tasks on the same thread", async () => {
+test("子 Agent nicknames stay sticky across tasks on the same thread", async () => {
   const isolated = await service.createThread(users[0], project.id, { title: "粘性命名" });
   const sessionId = randomUUID();
   await query(db, "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?)", [
@@ -2166,18 +2185,18 @@ test("L3 nicknames stay sticky across tasks on the same thread", async () => {
     originThreadId: isolated.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
+    createdByType: "xiaoxiang",
     createdById: sessionId,
     taskType: "formal",
     title: "先派大娃",
     goal: "第一个执行者应固定为大娃",
-    targetType: "l2_session",
+    targetType: "xiaoxiang",
     targetId: sessionId,
   });
   const firstChild = randomUUID();
-  await bindDshL3Execution(db, sessionId, firstChild, first.id);
-  await reportL3(firstChild, "大娃交活");
-  await settleDshL3Execution(db, sessionId, firstChild, {
+  await bindChildAgentExecution(db, sessionId, firstChild, first.id);
+  await reportChild(firstChild, "大娃交活");
+  await settleChildAgentExecution(db, sessionId, firstChild, {
     status: "ok",
     stopReason: "completed",
     lastAssistantMessage: [{ type: "text", text: "done" }],
@@ -2190,16 +2209,16 @@ test("L3 nicknames stay sticky across tasks on the same thread", async () => {
     originThreadId: isolated.id,
     sourceType: "human_member",
     sourceUserId: users[0].id,
-    createdByType: "l2_session",
+    createdByType: "xiaoxiang",
     createdById: sessionId,
     taskType: "formal",
     title: "再派二娃",
     goal: "第二个执行者应是二娃，且不抢走大娃",
-    targetType: "l2_session",
+    targetType: "xiaoxiang",
     targetId: sessionId,
   });
   const secondChild = randomUUID();
-  await bindDshL3Execution(db, sessionId, secondChild, second.id);
+  await bindChildAgentExecution(db, sessionId, secondChild, second.id);
   const secondRuns = await listTaskExecutionRuns(db, second.id);
   assert.equal(secondRuns.find((run) => run.executor_id === secondChild)?.executor_label, "二娃");
 

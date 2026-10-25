@@ -3,10 +3,9 @@
  * 注册点与原先内联时一致：在鉴权中间件之后、末尾 404 之前。
  */
 import { streamLiveOutput } from "../agent-live-output.js";
-import { SUMMARY_REQUEST } from "../../shared/agent-member.js";
 import { queueContextCompression } from "../queue-context.js";
-import { queueL3ContextCompression } from "../l3-context.js";
-import { appendL3TaskSession, readL3TaskSession } from "../l3-session.js";
+import { queueChildContextCompression } from "../child-agent-context.js";
+import { appendChildTaskSession, readChildTaskSession } from "../child-agent-session.js";
 import {
   kickArchiveDraft,
   reviseArchiveSummary,
@@ -45,7 +44,12 @@ export function registerProjectRuntimeRoutes(
     ),
   );
   app.get("/api/threads/:id/agent-logs", async (req, res) =>
-    res.json(await service.agentLogs(req.user, "thread", req.params.id)),
+    res.json(
+      await service.agentLogs(req.user, "thread", req.params.id, {
+        before: req.query.before || null,
+        limit: req.query.limit,
+      }),
+    ),
   );
   app.get("/api/threads/:id/events/:eventId", async (req, res) => {
     await service.thread(req.user, req.params.id, false, db, { display: true });
@@ -158,9 +162,22 @@ export function registerProjectRuntimeRoutes(
     await startArchiveDraft(service, thread.project_id);
     return res.json(result);
   });
-  app.post("/api/threads/:id/archive/confirm", async (req, res) =>
-    res.json(await service.confirmIterationArchive(req.user, req.params.id, req.body)),
-  );
+  app.post("/api/threads/:id/archive/confirm", async (req, res) => {
+    const result = await service.confirmIterationArchive(req.user, req.params.id, req.body);
+    const thread = await service.thread(req.user, req.params.id);
+    const { syncThreadDiscussionMemory } = await import("../discussion-memory.js");
+    await syncThreadDiscussionMemory(service.db, {
+      projectId: thread.project_id,
+      threadId: req.params.id,
+      createdBy: req.user.id,
+    }).catch(() => {});
+    const { syncTaskMemory } = await import("../task-memory.js");
+    await syncTaskMemory(service.db, {
+      projectId: thread.project_id,
+      createdBy: req.user.id,
+    }).catch(() => {});
+    res.json(result);
+  });
   app.get("/api/threads/:id/context-changes", async (req, res) =>
     res.json(await service.listIterationContextChanges(req.user, req.params.id, req.query)),
   );
@@ -275,24 +292,23 @@ export function registerProjectRuntimeRoutes(
       )(service, req.user, req.params.id, req.body),
     ),
   );
-  app.post("/api/threads/:id/summary", async (req, res) => {
-    if (req.user.kind !== "session") throw new HttpError(403, "需要人工登录");
-    const message = await service.postMessage(req.user, req.params.id, {
-      body: SUMMARY_REQUEST,
-    });
-    res.status(202).json({ ...message, status: "queued" });
+  app.post("/api/threads/:id/summary", async () => {
+    throw new HttpError(
+      410,
+      "「帮我梳理讨论」已下线：讨论由老翁自动沉淀为讨论记忆，不再通过 @小祥 触发",
+    );
   });
   app.post("/api/threads/:id/context/compact", async (req, res) => {
     res.status(202).json(await queueContextCompression(service, req.user, req.params.id));
   });
   app.get("/api/threads/:id/replies/:messageId/session", async (req, res) =>
-    res.json(await readL3TaskSession(service, req.user, req.params.id, req.params.messageId)),
+    res.json(await readChildTaskSession(service, req.user, req.params.id, req.params.messageId)),
   );
   app.post("/api/threads/:id/replies/:messageId/session", async (req, res) =>
     res
       .status(202)
       .json(
-        await appendL3TaskSession(
+        await appendChildTaskSession(
           service,
           req.user,
           req.params.id,
@@ -305,7 +321,7 @@ export function registerProjectRuntimeRoutes(
     res
       .status(202)
       .json(
-        await queueL3ContextCompression(service, req.user, req.params.id, req.params.messageId),
+        await queueChildContextCompression(service, req.user, req.params.id, req.params.messageId),
       ),
   );
   app.post("/api/threads/:id/replies/:messageId/retry", async (req, res) =>

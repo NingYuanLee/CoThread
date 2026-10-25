@@ -10,6 +10,21 @@ const WorkspaceApp = lazy(() =>
 );
 const AdminApp = lazy(() => import("./AdminApp").then((module) => ({ default: module.AdminApp })));
 
+async function enterApp() {
+  const path = window.location.pathname;
+  const stay = new URLSearchParams(window.location.search).get("stay") === "workspace";
+  const atRoot = path === "/" || path === "";
+  if (atRoot && !stay) {
+    const landing = await api("/me/landing");
+    if (landing?.destination === "org") {
+      window.location.assign("/admin/my-orgs");
+      return false;
+    }
+  }
+  void loadWorkspaceApp();
+  return true;
+}
+
 export function App() {
   const [phase, setPhase] = useState<"boot" | "login" | "app">("boot");
   const [error, setError] = useState("");
@@ -17,10 +32,11 @@ export function App() {
   useEffect(() => {
     const controller = new AbortController();
     void api("/me", undefined, undefined, controller.signal)
-      .then(() => {
-        void loadWorkspaceApp();
-        setPhase("app");
-      })
+      .then(() =>
+        enterApp().then((stay) => {
+          if (stay !== false) setPhase("app");
+        }),
+      )
       .catch((cause) => {
         if (controller.signal.aborted) return;
         if ((cause as { status?: number }).status === 401) {
@@ -42,7 +58,9 @@ export function App() {
     return (
       <LoginScreen
         onLogin={(_user: PersonalProfile) => {
-          setPhase("app");
+          void enterApp().then((stay) => {
+            if (stay !== false) setPhase("app");
+          });
         }}
       />
     );

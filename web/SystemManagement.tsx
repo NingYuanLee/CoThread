@@ -58,7 +58,7 @@ type AdminAccount = {
     image?: string | null;
   }[];
 };
-type AgentLevel = "l1" | "l2";
+type AgentLevel = "laoweng" | "xiaoxiang";
 type PromptSkill = {
   id: string;
   name: string;
@@ -792,7 +792,7 @@ export function SystemManagement({
     initial?: boolean;
   } | null>(null);
   const [plugins, setPlugins] = useState<PluginManagementData | null>(null);
-  const [agentLevel, setAgentLevel] = useState<AgentLevel>("l1");
+  const [agentLevel, setAgentLevel] = useState<AgentLevel>("laoweng");
   const [pluginType, setPluginType] = useState<PluginView>("dsh");
   const [skillDraft, setSkillDraft] = useState<SkillDraft | null>(null);
   const [skillDetail, setSkillDetail] = useState<PromptSkill | null>(null);
@@ -898,8 +898,8 @@ export function SystemManagement({
               setPage(1);
             }}
             options={[
-              { value: "l1", label: "老翁" },
-              { value: "l2", label: "小祥" },
+              { value: "laoweng", label: "老翁" },
+              { value: "xiaoxiang", label: "小祥" },
             ]}
           />
           <SelectField

@@ -5,7 +5,7 @@ import { HttpError } from "./http-error.js";
 
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 
-import { isL2OwnResponsibility } from "./task-pool-helpers.js";
+import { isXiaoxiangOwnResponsibility } from "./task-pool-helpers.js";
 
 import { targetTypes, FOREIGN_TASK_AUTH } from "./task-policy.js";
 export function assertTarget(type, id) {
@@ -14,8 +14,8 @@ export function assertTarget(type, id) {
 }
 
 export function assertActorCanUpdateTask(task, actor) {
-  if (actor?.type === "dsh_l3") {
-    if (task.execution_agent_type !== "dsh_l3" || task.execution_agent_id !== actor.id)
+  if (actor?.type === "child_agent") {
+    if (task.execution_agent_type !== "child_agent" || task.execution_agent_id !== actor.id)
       throw new HttpError(403, "只有当前任务目标可以更新任务");
     return;
   }
@@ -23,7 +23,7 @@ export function assertActorCanUpdateTask(task, actor) {
     throw new HttpError(403, "只有当前任务目标可以更新任务");
 }
 
-export async function currentThreadL2Session(conn, threadId, projectId) {
+export async function currentThreadXiaoxiangSession(conn, threadId, projectId) {
   if (!threadId) return null;
   const [row] = await query(
     conn,
@@ -34,24 +34,24 @@ export async function currentThreadL2Session(conn, threadId, projectId) {
   return row || null;
 }
 
-export async function adoptCurrentIterationL2(conn, task, l2SessionId) {
-  if (!task || task.target_type !== "l2_session") return task;
-  if (task.target_id === l2SessionId) return task;
+export async function adoptCurrentIterationXiaoxiang(conn, task, xiaoxiangSessionId) {
+  if (!task || task.target_type !== "xiaoxiang") return task;
+  if (task.target_id === xiaoxiangSessionId) return task;
   const [session] = await query(conn, "SELECT thread_id FROM agent_sessions WHERE session_id=?", [
-    l2SessionId,
+    xiaoxiangSessionId,
   ]);
   if (!session || !task.origin_thread_id || task.origin_thread_id !== session.thread_id)
     throw new HttpError(404, "当前 小祥 没有这个可委派任务");
   await query(
     conn,
-    "UPDATE agent_tasks SET target_id=?,claimed_by_type='l2_session',claimed_by_id=? WHERE id=?",
-    [l2SessionId, l2SessionId, task.id],
+    "UPDATE agent_tasks SET target_id=?,claimed_by_type='xiaoxiang',claimed_by_id=? WHERE id=?",
+    [xiaoxiangSessionId, xiaoxiangSessionId, task.id],
   );
   return {
     ...task,
-    target_id: l2SessionId,
-    claimed_by_type: "l2_session",
-    claimed_by_id: l2SessionId,
+    target_id: xiaoxiangSessionId,
+    claimed_by_type: "xiaoxiang",
+    claimed_by_id: xiaoxiangSessionId,
   };
 }
 
@@ -76,8 +76,8 @@ export async function assertHumanMemberAuthorization(
   throw new HttpError(403, message);
 }
 
-export async function assertL2CanOperateTask(conn, actor, task) {
-  if (actor?.type !== "l2_session") throw new HttpError(403, "只有当前迭代的 小祥 可以跨任务安排");
+export async function assertXiaoxiangCanOperateTask(conn, actor, task) {
+  if (actor?.type !== "xiaoxiang") throw new HttpError(403, "只有当前迭代的 小祥 可以跨任务安排");
   const [session] = await query(
     conn,
     `SELECT s.thread_id, t.project_id FROM agent_sessions s JOIN threads t ON t.id=s.thread_id
@@ -86,7 +86,11 @@ export async function assertL2CanOperateTask(conn, actor, task) {
   );
   if (!session) {
     if (task.origin_thread_id) {
-      const current = await currentThreadL2Session(conn, task.origin_thread_id, task.project_id);
+      const current = await currentThreadXiaoxiangSession(
+        conn,
+        task.origin_thread_id,
+        task.project_id,
+      );
       if (current) throw new HttpError(409, "小祥 会话已轮换，请重试本轮调度");
     }
     throw new HttpError(403, "当前 小祥 不能操作其他项目的任务");
@@ -95,6 +99,6 @@ export async function assertL2CanOperateTask(conn, actor, task) {
     throw new HttpError(403, "当前 小祥 不能操作其他项目的任务");
   if (!task.origin_thread_id || task.origin_thread_id !== session.thread_id)
     throw new HttpError(403, "当前 小祥 只能安排本迭代锁定的任务");
-  if (!isL2OwnResponsibility(task))
+  if (!isXiaoxiangOwnResponsibility(task))
     await assertHumanMemberAuthorization(conn, task.project_id, actor);
 }

@@ -1,9 +1,9 @@
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { startContinuableL3 } from "./sdk-resume.mjs";
+import { startChildAgent } from "./sdk-resume.mjs";
 
 export const name = "cothread-project-tools";
 // subagents is required so create_task can startContinuable in-process
-// (same path as explicit dsh_l3). Without it: "cannot get property subagents without inject".
+// (same path as explicit child_agent). Without it: "cannot get property subagents without inject".
 export const inject = ["tools", "agents", "subagents"];
 
 /** Fingerprint so production验收 can confirm this build is live. */
@@ -39,12 +39,12 @@ export function apply(ctx) {
     ],
     [
       "list_project_tasks",
-      "读取当前迭代锁定的任务池。返回 idleL3Count（空闲子 Agent 数）和 tasks。待指派是 pending_assignment。不含其他迭代的任务。",
+      "读取当前迭代锁定的任务池。返回 idleChildCount（空闲子 Agent 数）和 tasks。待指派是 pending_assignment。不含其他迭代的任务。",
       { status: { type: "string" }, targetId: { type: "string" }, limit: { type: "number" } },
     ],
     [
       "inspect_task",
-      "查看当前迭代某任务的执行快照：状态、心跳、最近工具、失败分类、失败指纹、重试预算和建议下一步。自己责任（小祥或已派子 Agent）随时可看；成员名下任务须本轮人类成员账号授权。失败先分类：平台错误不要换人，重复平台错误应阻塞；执行错误先给原来的子 Agent 反馈后再决定是否换人。",
+      "查看当前迭代某任务的执行快照：状态、心跳、最近工具、失败分类、失败指纹、重试预算和建议下一步。自己责任（小祥或已派子 Agent）随时可看；成员名下任务须本轮人类成员账号授权。失败先分类：平台错误不要换人，重复平台错误应阻塞并上报来源人；执行错误先给原来的子 Agent 反馈后再决定是否换人。任务层只有「已阻塞」没有「已失败」：阻塞带原因与重试预算，预算内小祥可自行改派/补指令。",
       { taskId: { type: "string", required: true } },
     ],
     [
@@ -61,7 +61,7 @@ export function apply(ctx) {
     ],
     [
       "report_task",
-      "子 Agent 结束前必须调用：向小祥交活。status=completed|failed|blocked。无论成败都要交一份真实摘要；调用后不要再继续干活。",
+      "子 Agent 结束前必须调用：向小祥交活。status=completed|blocked（任务层没有 failed 这一说法：执行失败也报 blocked，并在 reason 里写清阻塞原因）。不论完成还是受阻都要交一份真实摘要；调用后不要再继续干活。",
       {
         taskId: { type: "string" },
         status: { type: "string", required: true },
@@ -72,7 +72,7 @@ export function apply(ctx) {
     ],
     [
       "reassign_task",
-      "把任务转交给项目人类成员或当前迭代的小祥。自己责任的任务可在小祥与子 Agent 之间转交；转给人类或转交成员名下任务须本轮人类成员账号授权。assist_l2 不能转给人类。",
+      "把任务转交给项目人类成员或当前迭代的小祥。自己责任的任务可在小祥与子 Agent 之间转交；转给人类或转交成员名下任务须本轮人类成员账号授权。assist 不能转给人类。",
       {
         taskId: { type: "string", required: true },
         targetType: { type: "string", required: true },
@@ -94,7 +94,7 @@ export function apply(ctx) {
     ],
     [
       "recover_task",
-      "安排异常任务。自己责任的子 Agent 任务随时可处理；成员名下任务须本轮人类成员账号授权。失败先检查 failureClass、failureSignature 和 retryPolicy：同一平台错误不要换人，重复平台错误必须阻塞；执行错误先让原来的子 Agent 带反馈重试，只有达到同一执行者上限、客观验收仍失败或会话不可恢复时才换子 Agent。action=restart：有空闲子 Agent 则为执行中并立刻恢复或指派，否则待指派；返回 interruptedAgentId 时先对该 agent_id 调用 send_message，要求继续当前 TASK_ID，这是同一执行者优先恢复路径。只有 send_message 明确失败、会话不可恢复或达到执行者上限后才 dsh_l3 换人。被阻塞任务只有外部条件确实改变时才传 environmentChanged=true。对人的任务会回到待确认。见到 execution_agent_id 之前不要声称已派人干活。action=clear_binding 幂等释放子 Agent 槽位，仅排队、不唤醒旧执行者；返回 noop=true 表示已经释放，不消耗重试预算。action=cancel 取消该任务。不要在沙箱里直连数据库。",
+      "安排异常任务。自己责任的子 Agent 任务随时可处理；成员名下任务须本轮人类成员账号授权。失败先检查 failureClass、failureSignature 和 retryPolicy：同一平台错误不要换人，重复平台错误必须阻塞；执行错误先让原来的子 Agent 带反馈重试，只有达到同一执行者上限、客观验收仍失败或会话不可恢复时才换子 Agent。action=restart：有空闲子 Agent 则为执行中并立刻恢复或指派，否则待指派；返回 interruptedAgentId 时先对该 agent_id 调用 send_message，要求继续当前 TASK_ID，这是同一执行者优先恢复路径。只有 send_message 明确失败、会话不可恢复或达到执行者上限后才 child_agent 换人。被阻塞任务只有外部条件确实改变时才传 environmentChanged=true。对人的任务会回到待确认。见到 execution_agent_id 之前不要声称已派人干活。action=clear_binding 幂等释放子 Agent 槽位，仅排队、不唤醒旧执行者；返回 noop=true 表示已经释放，不消耗重试预算。action=cancel 取消该任务。不要在沙箱里直连数据库。",
       {
         taskId: { type: "string", required: true },
         action: { type: "string", required: true },
@@ -112,11 +112,12 @@ export function apply(ctx) {
     ],
     [
       "create_task",
-      "创建项目任务。assist_l2 为 Ask 只读辅助：必须有空闲子 Agent，创建即执行中，工具会在同一次调用内尽量启动并绑定子 Agent；没有空闲子 Agent 时不要创建。目标为小祥自己的 formal 为沙箱任务：有空闲则执行中并由工具尽量自动绑定子 Agent，否则 pending_assignment。若返回仍带 needsDispatch=true 且无 execution_agent_id，再在同一轮 dsh_l3，prompt 第一行写 TASK_ID。给人的 formal 只能指派人类成员，须本轮授权，状态待确认。资料引用：成员只要文件夹时只传 folderRefs（正式文件文件夹 ID，最多 30 个），不要把文件夹展开成 documentRefs；只有成员明确点名个别文档时才另传 documentRefs（正式文件版本 ID，最多 30 个）。执行方用 list_documents({folderId, recursive:true}) 读取目录。不要为小祥自己就能完成的回复建任务。",
+      "创建项目任务。assist 为 Ask 只读辅助：必须有空闲子 Agent，创建即执行中，工具会在同一次调用内尽量启动并绑定子 Agent；没有空闲子 Agent 时不要创建。目标为小祥自己的 formal 为沙箱任务：有空闲则执行中并由工具尽量自动绑定子 Agent，否则 pending_assignment。若返回仍带 needsDispatch=true 且无 execution_agent_id，再在同一轮 child_agent，prompt 第一行写 TASK_ID。给人的 formal 只能指派人类成员，须本轮授权，状态待确认。资料引用：成员只要文件夹时只传 folderRefs（正式文件文件夹 ID，最多 30 个），不要把文件夹展开成 documentRefs；只有成员明确点名个别文档时才另传 documentRefs（正式文件版本 ID，最多 30 个）。执行方用 list_documents({folderId, recursive:true}) 读取目录。不要为小祥自己就能完成的回复建任务。人设：7 个固定人设（大娃/二娃/三娃/四娃/五娃/六娃/七娃，key 为 p1~p7）目前只有名字占位、没有配置专长差异，默认都交给大娃（p1），不需要按任务内容区分；只有明确需要换个人设时才传 persona。创建前先看当前进行中/等待中的任务（list_tasks），若新任务与它们相关性高（会改同一文件、同一模块或做同一件事），不要并行，改为等对方完成或并入同一任务后再建。同一个人设可以并行多个任务，但相关任务必须串行。",
       {
         taskType: { type: "string", required: true },
         title: { type: "string", required: true },
         goal: { type: "string", required: true },
+        persona: { type: "string" },
         constraints: { type: "string" },
         documentRefs: { type: "array" },
         folderRefs: { type: "array" },
@@ -180,6 +181,18 @@ export function apply(ctx) {
       },
     ],
     ["list_members", "会话资料：读取当前项目成员列表，只含ID、名称、角色，不含头像。", {}],
+    [
+      "search_memory",
+      "项目记忆：检索五类记忆（发言/文档/任务/讨论/项目整体），返回摘要与出处。问「以前说过什么、做过什么决策、承诺过什么」时先用它；可按成员、对象类型、状态收窄，depth 控制沿关系展开跳数。",
+      {
+        query: { type: "string" },
+        subjects: { type: "array" },
+        aboutUserId: { type: "string" },
+        status: { type: "string" },
+        depth: { type: "number" },
+        limit: { type: "number" },
+      },
+    ],
     [
       "read_member",
       "项目记忆：读取单个成员的名称、角色、个性签名、身份标签和小祥对该成员的持久化认识，不含头像或凭据。",
@@ -482,14 +495,30 @@ export function apply(ctx) {
         limit: { type: "number" },
       },
     ],
+    [
+      "web_search",
+      "搜索公开网页，调用 DeepSeek 官方 Search 接口。query 必填。可选 count（1 到 50，不传则官方默认 10）、ori_question、localization、need_content。原样返回官方结果，不截断、不减少条数。不要用搜索结果改写项目资料。",
+      {
+        query: { type: "string", required: true },
+        count: { type: "number" },
+        ori_question: { type: "string" },
+        localization: { type: "string" },
+        need_content: { type: "boolean" },
+      },
+    ],
+    [
+      "web_fetch",
+      "抓取一个公开 http 或 https 网页，调用 DeepSeek 官方 Fetch 接口。只传 url。返回标题和完整 Markdown 正文，不截断。",
+      {
+        url: { type: "string", required: true },
+      },
+    ],
   ];
-  // Public URL fetching is provided by DSH's SSRF-protected HTTP provider
-  // rather than the CoThread bridge. Keep it available while blocking every
-  // other installed tool that is outside this execution profile.
+  // web_search and web_fetch are bridged so they use the configured DeepSeek key.
+  // Block every other installed tool that is outside this execution profile.
   const builtIn = new Set([
     ...definitions.map((d) => d[0]),
-    "web_fetch",
-    "dsh_l3",
+    "child_agent",
     "send_message",
     "interrupt_agent",
     "list_agents",
@@ -510,102 +539,110 @@ export function apply(ctx) {
     allowed.has(call.name ?? call.tool?.name ?? "") ? undefined : "仅允许共序项目工具",
   );
   for (const [name, description, parameters] of definitions.filter(([name]) => allowed.has(name)))
-    ctx.tools.register(
-      defineTool({
-        name,
-        description,
-        parameters,
-        output:
-          name === "capture_preview_screenshot"
-            ? {
-                schema: {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: {
-                    source: { type: "string", required: true },
-                    filename: { type: "string", required: true },
-                    mime: { type: "string", required: true },
-                    contentBase64: { type: "string", required: true },
-                    path: { type: "string" },
-                    versionId: { type: "string" },
+    try {
+      ctx.tools.register(
+        defineTool({
+          name,
+          description,
+          parameters,
+          output:
+            name === "capture_preview_screenshot"
+              ? {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      source: { type: "string", required: true },
+                      filename: { type: "string", required: true },
+                      mime: { type: "string", required: true },
+                      contentBase64: { type: "string", required: true },
+                      path: { type: "string" },
+                      versionId: { type: "string" },
+                    },
                   },
+                  render: (_args, value) => [
+                    {
+                      type: "text",
+                      text: `已生成视觉验收截图：${value.filename}（来源：${value.source}）`,
+                    },
+                    { type: "image", data: value.contentBase64, mimeType: value.mime },
+                  ],
+                }
+              : {
+                  schema: { type: "string" },
+                  render: (_args, value) => [{ type: "text", text: value }],
                 },
-                render: (_args, value) => [
+          async execute(args, exec) {
+            const result = await bridgeTool(name, args, exec.agent?.id || null);
+            // Same-turn auto-dispatch: spawn 子 Agent in-process under the live parent
+            // (identical to explicit child_agent). Post-turn JSON-RPC dispatch-child is a
+            // fallback only; three production rounds showed it does not bind.
+            if (
+              name === "create_task" &&
+              result?.needsDispatch &&
+              result.dispatchPrompt &&
+              exec.agent
+            ) {
+              let childId = null;
+              // Use the plugin ctx (inject includes subagents). Preferring
+              // exec.agent.ctx re-triggered "cannot get property subagents without
+              // inject" — agent scopes do not declare that service.
+              try {
+                const started = await startChildAgent(ctx, exec.agent, {
+                  label: result.dispatchLabel || result.title || "任务",
+                  prompt: result.dispatchPrompt,
+                  signal: exec.signal,
+                  persona: result.dispatchPersona,
+                });
+                childId = started.childId;
+                const bound = await bridgeTool(
+                  "bind_child_agent",
                   {
-                    type: "text",
-                    text: `已生成视觉验收截图：${value.filename}（来源：${value.source}）`,
+                    taskId: result.id,
+                    childSessionId: childId,
                   },
-                  { type: "image", data: value.contentBase64, mimeType: value.mime },
-                ],
+                  exec.agent.id,
+                );
+                return JSON.stringify({
+                  ...bound,
+                  needsDispatch: false,
+                  started: true,
+                  autoDispatched: true,
+                  dispatchBuild: AUTO_DISPATCH_BUILD,
+                });
+              } catch (error) {
+                if (childId) {
+                  try {
+                    ctx.subagents.interrupt(childId, { kind: "parent" });
+                  } catch {}
+                }
+                return JSON.stringify({
+                  ...result,
+                  autoDispatched: false,
+                  dispatchBuild: AUTO_DISPATCH_BUILD,
+                  dispatchError: String(error?.message || error).slice(0, 500),
+                });
               }
-            : {
-                schema: { type: "string" },
-                render: (_args, value) => [{ type: "text", text: value }],
-              },
-        async execute(args, exec) {
-          const result = await bridgeTool(name, args, exec.agent?.id || null);
-          // Same-turn auto-dispatch: spawn 子 Agent in-process under the live parent
-          // (identical to explicit dsh_l3). Post-turn JSON-RPC dispatch-l3 is a
-          // fallback only; three production rounds showed it does not bind.
-          if (
-            name === "create_task" &&
-            result?.needsDispatch &&
-            result.dispatchPrompt &&
-            exec.agent
-          ) {
-            let childId = null;
-            // Use the plugin ctx (inject includes subagents). Preferring
-            // exec.agent.ctx re-triggered "cannot get property subagents without
-            // inject" — agent scopes do not declare that service.
-            try {
-              const started = await startContinuableL3(ctx, exec.agent, {
-                label: result.dispatchLabel || result.title || "任务",
-                prompt: result.dispatchPrompt,
-                signal: exec.signal,
-              });
-              childId = started.childId;
-              const bound = await bridgeTool(
-                "bind_task_l3",
-                {
-                  taskId: result.id,
-                  childSessionId: childId,
-                },
-                exec.agent.id,
-              );
-              return JSON.stringify({
-                ...bound,
-                needsDispatch: false,
-                started: true,
-                autoDispatched: true,
-                dispatchBuild: AUTO_DISPATCH_BUILD,
-              });
-            } catch (error) {
-              if (childId) {
-                try {
-                  ctx.subagents.interrupt(childId, { kind: "parent" });
-                } catch {}
-              }
-              return JSON.stringify({
-                ...result,
-                autoDispatched: false,
-                dispatchBuild: AUTO_DISPATCH_BUILD,
-                dispatchError: String(error?.message || error).slice(0, 500),
-              });
             }
-          }
-          return name === "capture_preview_screenshot" ? result : JSON.stringify(result);
-        },
-      }),
-    );
+            return name === "capture_preview_screenshot" ? result : JSON.stringify(result);
+          },
+        }),
+      );
+    } catch (error) {
+      // A duplicate name must not unload the rest of the project tools.
+      if (!String(error?.message || error).includes("already registered")) throw error;
+    }
   ctx.on?.("agent/created", ({ agent }) => {
-    const primaryLevel = process.env.COTHREAD_PRIMARY_AGENT_LEVEL || "l3";
+    const primaryLevel = process.env.COTHREAD_PRIMARY_AGENT_LEVEL || "child_agent";
     const primaryId = process.env.COTHREAD_PRIMARY_AGENT_ID || "";
     const level =
-      primaryLevel === "l2" && primaryId && agent.id !== primaryId ? "l3" : primaryLevel;
-    const sharedWorkerTools = Array.isArray(configuredByLevel.l2)
-      ? configuredByLevel.l2
-      : configuredByLevel.l3;
-    const names = level === "l1" ? configuredByLevel.l1 : sharedWorkerTools;
+      primaryLevel === "xiaoxiang" && primaryId && agent.id !== primaryId
+        ? "child_agent"
+        : primaryLevel;
+    const sharedWorkerTools = Array.isArray(configuredByLevel.xiaoxiang)
+      ? configuredByLevel.xiaoxiang
+      : configuredByLevel.child_agent;
+    const names = level === "laoweng" ? configuredByLevel.laoweng : sharedWorkerTools;
     if (Array.isArray(names)) agent.ctx.tools.restrict({ allow: names });
   });
 }

@@ -105,6 +105,10 @@ export function TaskListDialog({
               </div>
               <div className="task-pool-list">
                 {visibleTasks.map((task) => {
+                  const subtitle =
+                    task.status === "blocked" && task.blocked_reason?.trim()
+                      ? task.blocked_reason.trim()
+                      : `${taskSourceLabel(task)} → ${taskTargetLabel(task)} → ${taskExecutorLabel(task)}`;
                   return (
                     <button
                       type="button"
@@ -116,12 +120,7 @@ export function TaskListDialog({
                       <span className="task-pool-item-heading">
                         <span>
                           <strong>{task.title}</strong>
-                          <small
-                            title={`${taskSourceLabel(task)} → ${taskTargetLabel(task)} → ${taskExecutorLabel(task)}`}
-                          >
-                            {taskSourceLabel(task)} → {taskTargetLabel(task)} →{" "}
-                            {taskExecutorLabel(task)}
-                          </small>
+                          <small title={subtitle}>{subtitle}</small>
                         </span>
                         <span className="task-pool-item-side">
                           <i data-status={task.status}>{labelWorkflowStatus(task.status)}</i>

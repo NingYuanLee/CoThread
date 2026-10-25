@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsAgent, SUMMARY_REQUEST, TASK_CREATE_REQUEST } from "../shared/agent-member.js";
+import { mentionsAgent, TASK_CREATE_REQUEST } from "../shared/agent-member.js";
 
 test("only a complete Agent mention explicitly requires a reply", () => {
   for (const text of [
@@ -12,7 +12,6 @@ test("only a complete Agent mention explicitly requires a reply", () => {
     "@Agent 助手 请看看",
     "小祥，帮我写文档",
     "小祥 你好",
-    SUMMARY_REQUEST,
     TASK_CREATE_REQUEST,
   ])
     assert.equal(mentionsAgent(text), true, text);

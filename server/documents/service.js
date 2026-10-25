@@ -415,17 +415,17 @@ export class DocumentsService {
           [agentMessageId],
         );
         const liveReply = ["queued", "running"].includes(reply?.status);
-        let liveL3 = false;
+        let liveChild = false;
         if (!liveReply && options.executorSessionId) {
           const [run] = await query(
             db,
             `SELECT id FROM agent_task_execution_runs
-            WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting') LIMIT 1`,
+            WHERE executor_type='child_agent' AND executor_id=? AND status IN ('running','waiting') LIMIT 1`,
             [options.executorSessionId],
           );
-          liveL3 = !!run;
+          liveChild = !!run;
         }
-        if (!liveReply && !liveL3) fail(409, "Agent 任务已停止，不能继续提交");
+        if (!liveReply && !liveChild) fail(409, "Agent 任务已停止，不能继续提交");
       }
       if (exportKey) {
         const [existing] = await query(
@@ -596,21 +596,22 @@ export class DocumentsService {
     };
     return options.db ? save(options.db) : transaction(this.db, save);
   }
-  async version(user, versionId, { includeContent = true, maxBytes = 0 } = {}) {
+  async version(user, versionId, { includeContent = true, maxBytes = 0, byteOffset = 0 } = {}) {
     id.parse(versionId);
     const limit = Math.min(Math.max(0, Math.trunc(Number(maxBytes) || 0)), 1_048_576);
+    const offset = Math.max(0, Math.trunc(Number(byteOffset) || 0));
     const metaColumns =
       "v.id,v.artifact_id,v.thread_id,v.version,v.filename,v.mime,v.sha256,v.byte_size,v.note,v.created_by,v.created_at";
     const versionColumns = !includeContent
       ? metaColumns
       : limit
-        ? `${metaColumns},SUBSTRING(v.content, 1, ?) AS content`
+        ? `${metaColumns},SUBSTRING(v.content, ?, ?) AS content`
         : "v.*";
     const [version] = await query(
       this.db,
       `SELECT ${versionColumns},a.project_id,a.title,a.folder_id,f.thread_id folder_thread_id,f.folder_kind
        FROM versions v JOIN artifacts a ON a.id=v.artifact_id LEFT JOIN document_folders f ON f.id=a.folder_id WHERE v.id=?`,
-      limit && includeContent ? [limit, versionId] : [versionId],
+      limit && includeContent ? [offset + 1, limit, versionId] : [versionId],
     );
     if (!version) fail(404, "文档版本不存在");
     await this.member(user, version.project_id);

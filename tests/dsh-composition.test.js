@@ -27,7 +27,7 @@ test("DSH compositions and the code registry match in both directions", () => {
   assert.equal(new Set(keys).size, keys.length, "duplicate plugin keys");
   assert.equal(new Set(ids).size, ids.length, "duplicate plugin IDs");
   const declared = new Map(DSH_PLUGINS.map((plugin) => [plugin.pluginId, plugin]));
-  for (const level of ["l1", "l2", "l3"]) {
+  for (const level of ["laoweng", "xiaoxiang", "child_agent"]) {
     const composition = dshComposition(level);
     const assembled = new Set(
       composition.filter((entry) => entry.assembled).map((entry) => entry.id),
@@ -62,8 +62,8 @@ test("plugin registry versions follow package metadata", () => {
     assert.equal(plugin.version, packageVersion(plugin.packageName), plugin.pluginId);
   const query = DSH_PLUGINS.find((plugin) => plugin.key === "dsh-session-query");
   assert.equal(query?.packageName, "@deepseek-ai/dsh-session-query");
-  assert.equal(query?.policies.l2, "required");
-  assert.equal(query?.policies.l3, "required");
+  assert.equal(query?.policies.xiaoxiang, "required");
+  assert.equal(query?.policies.child_agent, "required");
 });
 
 test("plugin registry version reads fall back to a nearby package.json", () => {
@@ -88,34 +88,34 @@ test("小祥 and child agents receive the same model-facing tool schemas", () =>
   };
   try {
     const byLevel = {
-      l2: capabilityProfile("l2").allowedTools,
-      l3: capabilityProfile("l3").allowedTools,
+      xiaoxiang: capabilityProfile("xiaoxiang").allowedTools,
+      child_agent: capabilityProfile("child_agent").allowedTools,
     };
-    assert.ok(byLevel.l2.includes("list_project_code_sources"));
-    assert.ok(byLevel.l3.includes("read_code_file"));
-    assert.ok(!byLevel.l2.includes("list_project_design_sources"));
-    assert.ok(!byLevel.l3.includes("read_design_dsl"));
-    assert.ok(!capabilityProfile("l1").allowedTools.includes("read_code_file"));
+    assert.ok(byLevel.xiaoxiang.includes("list_project_code_sources"));
+    assert.ok(byLevel.child_agent.includes("read_code_file"));
+    assert.ok(!byLevel.xiaoxiang.includes("list_project_design_sources"));
+    assert.ok(!byLevel.child_agent.includes("read_design_dsl"));
+    assert.ok(!capabilityProfile("laoweng").allowedTools.includes("read_code_file"));
     // Shared plugins include source inspection, writing and builds.
-    assert.ok(byLevel.l2.includes("miniprogram_list_source"));
-    assert.ok(byLevel.l2.includes("miniprogram_read_source"));
-    assert.ok(byLevel.l2.includes("miniprogram_write_source"));
-    assert.ok(byLevel.l2.includes("miniprogram_build_preview"));
-    assert.ok(byLevel.l3.includes("miniprogram_write_source"));
-    assert.ok(byLevel.l3.includes("miniprogram_build_preview"));
-    assert.ok(byLevel.l3.includes("miniprogram_upload_experience"));
-    assert.ok(byLevel.l2.includes("miniprogram_upload_experience"));
+    assert.ok(byLevel.xiaoxiang.includes("miniprogram_list_source"));
+    assert.ok(byLevel.xiaoxiang.includes("miniprogram_read_source"));
+    assert.ok(byLevel.xiaoxiang.includes("miniprogram_write_source"));
+    assert.ok(byLevel.xiaoxiang.includes("miniprogram_build_preview"));
+    assert.ok(byLevel.child_agent.includes("miniprogram_write_source"));
+    assert.ok(byLevel.child_agent.includes("miniprogram_build_preview"));
+    assert.ok(byLevel.child_agent.includes("miniprogram_upload_experience"));
+    assert.ok(byLevel.xiaoxiang.includes("miniprogram_upload_experience"));
     assert.deepEqual(
-      capabilityProfile("l1").allowedTools.filter((tool) => tool.startsWith("miniprogram")),
+      capabilityProfile("laoweng").allowedTools.filter((tool) => tool.startsWith("miniprogram")),
       [],
     );
-    // Release approval flow: L3 may submit a request and read its status, but no
+    // Release approval flow: 子 Agent may submit a request and read its status, but no
     // level may ever approve or reject — that stays with the project owner in the UI.
-    assert.ok(byLevel.l3.includes("miniprogram_submit_release"));
-    assert.ok(byLevel.l3.includes("miniprogram_release_status"));
-    assert.ok(byLevel.l2.includes("miniprogram_submit_release"));
-    assert.ok(byLevel.l2.includes("miniprogram_release_status"));
-    for (const level of ["l1", "l2", "l3"])
+    assert.ok(byLevel.child_agent.includes("miniprogram_submit_release"));
+    assert.ok(byLevel.child_agent.includes("miniprogram_release_status"));
+    assert.ok(byLevel.xiaoxiang.includes("miniprogram_submit_release"));
+    assert.ok(byLevel.xiaoxiang.includes("miniprogram_release_status"));
+    for (const level of ["laoweng", "xiaoxiang", "child_agent"])
       for (const tool of capabilityProfile(level).allowedTools)
         if (tool.includes("release"))
           assert.ok(
@@ -123,10 +123,10 @@ test("小祥 and child agents receive the same model-facing tool schemas", () =>
             `${level} must not expose an approval tool (${tool})`,
           );
     process.env.COTHREAD_ALLOWED_TOOLS = JSON.stringify([
-      ...new Set([...byLevel.l2, ...byLevel.l3]),
+      ...new Set([...byLevel.xiaoxiang, ...byLevel.child_agent]),
     ]);
     process.env.COTHREAD_ALLOWED_TOOLS_BY_LEVEL = JSON.stringify(byLevel);
-    process.env.COTHREAD_PRIMARY_AGENT_LEVEL = "l2";
+    process.env.COTHREAD_PRIMARY_AGENT_LEVEL = "xiaoxiang";
     process.env.COTHREAD_PRIMARY_AGENT_ID = "primary";
     let created;
     applyTools({
@@ -136,7 +136,7 @@ test("小祥 and child agents receive the same model-facing tool schemas", () =>
       },
     });
     const restrictions = {};
-    for (const id of ["primary", "child"])
+    for (const id of ["primary", "child_agent"])
       created({
         agent: {
           id,
@@ -149,13 +149,13 @@ test("小祥 and child agents receive the same model-facing tool schemas", () =>
           },
         },
       });
-    assert.deepEqual(restrictions.child, restrictions.primary);
+    assert.deepEqual(restrictions.child_agent, restrictions.primary);
     for (const name of [
       "sandbox_command",
       "publish_artifact",
       "report_task",
       "create_task",
-      "dsh_l3",
+      "child_agent",
     ])
       assert.ok(restrictions.primary.includes(name), name);
   } finally {

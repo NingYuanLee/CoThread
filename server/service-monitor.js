@@ -6,11 +6,13 @@ import { taskExecutionSnapshot } from "./task-pool-activity.js";
 import {
   describeAgentAction,
   formatAgentAction,
-  L1_MAINTENANCE_TASKS,
-  l1TaskLabel,
-  normalizeL1Task,
+  LAOWENG_MAINTENANCE_TASKS,
+  laowengTaskLabel,
+  normalizeLaowengTask,
 } from "../shared/agent-label.js";
 import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.js";
+import { capabilityProfile, SYSTEM_PROMPTS } from "../dsh-layer/cothread-plugin-registry.mjs";
+import { COTHREAD_SYSTEM_TEXT } from "../shared/prompt-blocks.js";
 import { fail, id, preferredLocalExecutorJoin } from "./service-support.js";
 
 export async function agentMonitorOperation(service, user, projectId) {
@@ -24,7 +26,7 @@ export async function agentMonitorOperation(service, user, projectId) {
     documentQueue,
     memberSummary,
     documentSummary,
-    l1Sessions,
+    laowengSessions,
     coordinators,
     executors,
     taskExecutions,
@@ -34,9 +36,9 @@ export async function agentMonitorOperation(service, user, projectId) {
     archives,
     archivePlans,
     archiveLast,
-    l1Runs,
-    l1RunLast,
-    l2Sessions,
+    laowengRuns,
+    laowengRunLast,
+    xiaoxiangSessions,
   ] = await Promise.all([
     query(
       service.db,
@@ -92,7 +94,7 @@ export async function agentMonitorOperation(service, user, projectId) {
           COALESCE((SELECT COUNT(*) FROM agent_requests q JOIN messages m ON m.id=q.message_id
             WHERE m.thread_id=t.id AND q.status='running'),0) running_requests,
           ((SELECT COUNT(*) FROM agent_task_execution_runs er JOIN agent_tasks et ON et.id=er.task_id
-            WHERE et.origin_thread_id=t.id AND er.executor_type='dsh_l3' AND er.status IN ('running','waiting'))
+            WHERE et.origin_thread_id=t.id AND er.executor_type='child_agent' AND er.status IN ('running','waiting'))
           +(SELECT COUNT(*) FROM assistant_replies ar JOIN messages am ON am.id=ar.message_id
             WHERE am.thread_id=t.id AND ar.execution_active=TRUE)) active_executors,
           COALESCE((SELECT MAX(COALESCE(q.first_response_at,m.created_at)) FROM messages m
@@ -122,7 +124,7 @@ export async function agentMonitorOperation(service, user, projectId) {
     query(
       service.db,
       `SELECT e.id,e.message_id,e.agent_session_id,e.tool,e.status,e.created_at,e.finished_at,
-          m.thread_id,t.title thread_title,s.session_id l2_session_id,LEFT(e.input,16000) input
+          m.thread_id,t.title thread_title,s.session_id xiaoxiang_id,LEFT(e.input,16000) input
           FROM agent_events e JOIN messages m ON m.id=e.message_id
           JOIN threads t ON t.id=m.thread_id LEFT JOIN agent_sessions s ON s.thread_id=m.thread_id
           WHERE t.project_id=? ORDER BY e.id DESC LIMIT 300`,
@@ -164,12 +166,12 @@ export async function agentMonitorOperation(service, user, projectId) {
     query(
       service.db,
       `SELECT id,task,thread_id,trigger_source,status,agent_called,had_updates,item_count,error,created_at,started_at,finished_at
-          FROM agent_l1_runs WHERE project_id=? ORDER BY created_at DESC LIMIT 80`,
+          FROM agent_laoweng_runs WHERE project_id=? ORDER BY created_at DESC LIMIT 80`,
       [projectId],
     ),
     query(
       service.db,
-      `SELECT task,MAX(finished_at) last_at FROM agent_l1_runs
+      `SELECT task,MAX(finished_at) last_at FROM agent_laoweng_runs
           WHERE project_id=? AND status='completed' GROUP BY task`,
       [projectId],
     ),
@@ -195,9 +197,9 @@ export async function agentMonitorOperation(service, user, projectId) {
   };
   const latest = (...values) =>
     values.filter(Boolean).sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || null;
-  const memberRunLast = l1RunLast.find((row) => row.task === "member_memory")?.last_at || null;
+  const memberRunLast = laowengRunLast.find((row) => row.task === "member_memory")?.last_at || null;
   const documentRunLast = latest(
-    ...l1RunLast
+    ...laowengRunLast
       .filter((row) =>
         ["document_memory", "project_document_memory", "iteration_document_memory"].includes(
           row.task,
@@ -205,7 +207,7 @@ export async function agentMonitorOperation(service, user, projectId) {
       )
       .map((row) => row.last_at),
   );
-  const mapL1Run = (row) => ({
+  const mapLaowengRun = (row) => ({
     id: row.id,
     task: row.task,
     thread_id: row.thread_id || null,
@@ -231,7 +233,7 @@ export async function agentMonitorOperation(service, user, projectId) {
     lastFinishedAt: row.last_finished_at || null,
     contextUsage: contextUsage(row, [], []),
   });
-  const headingSession = [...l1Sessions].sort((left, right) => {
+  const headingSession = [...laowengSessions].sort((left, right) => {
     const running = (value) => (value.status === "running" ? 1 : 0);
     if (running(right) !== running(left)) return running(right) - running(left);
     return (
@@ -239,12 +241,12 @@ export async function agentMonitorOperation(service, user, projectId) {
       new Date(left.last_finished_at || left.last_started_at || 0).getTime()
     );
   })[0];
-  const archiveRuns = l1Runs.filter(
+  const archiveRuns = laowengRuns.filter(
     (row) => row.task === "iteration_archive" || row.task === "thread_archive",
   );
   const archiveSession =
-    l1Sessions.find((session) => session.task === "iteration_archive" && !session.thread_id) ||
-    l1Sessions.find((session) => session.task === "iteration_archive") ||
+    laowengSessions.find((session) => session.task === "iteration_archive" && !session.thread_id) ||
+    laowengSessions.find((session) => session.task === "iteration_archive") ||
     {};
   return {
     generatedAt: new Date().toISOString(),
@@ -264,7 +266,7 @@ export async function agentMonitorOperation(service, user, projectId) {
       lastError: headingSession?.last_error || null,
       lastStartedAt: headingSession?.last_started_at || null,
       lastFinishedAt: headingSession?.last_finished_at || null,
-      sessions: l1Sessions.map(mapSession),
+      sessions: laowengSessions.map(mapSession),
       memberPending: Number(memberMemory.pending || 0),
       documentPending: Number(documentMemory.pending || 0),
       ready: Number(memberMemory.ready || 0) + Number(documentMemory.ready || 0),
@@ -288,17 +290,17 @@ export async function agentMonitorOperation(service, user, projectId) {
       iterationDocumentPending: 0,
       iterationDocumentLastAt: null,
       iterationDocumentNextAt: null,
-      memberRuns: l1Runs.filter((row) => row.task === "member_memory").map(mapL1Run),
+      memberRuns: laowengRuns.filter((row) => row.task === "member_memory").map(mapLaowengRun),
       projectDocumentRuns: [],
       iterationDocumentRuns: [],
-      documentRuns: l1Runs
+      documentRuns: laowengRuns
         .filter(
           (row) =>
             row.task === "document_memory" ||
             row.task === "project_document_memory" ||
             row.task === "iteration_document_memory",
         )
-        .map(mapL1Run),
+        .map(mapLaowengRun),
       organizationLastAt: organizationLast[0]?.last_at || null,
       organizationJobs: organizationJobs.map((row) => ({
         id: row.id,
@@ -323,7 +325,7 @@ export async function agentMonitorOperation(service, user, projectId) {
         conclusion: row.conclusion || "",
         contextUsage: contextUsage(archiveSession, [], []),
         sessionStatus: archiveSession.status || "idle",
-        runs: archiveRuns.filter((run) => run.thread_id === row.id).map(mapL1Run),
+        runs: archiveRuns.filter((run) => run.thread_id === row.id).map(mapLaowengRun),
       })),
       archiveHistory: [
         ...archivePlans.map((row) => ({
@@ -347,7 +349,7 @@ export async function agentMonitorOperation(service, user, projectId) {
       ].sort((left, right) => new Date(right.occurredAt || 0) - new Date(left.occurredAt || 0)),
     },
     coordinators: coordinators.map((row) => {
-      const session = l2Sessions.find((item) => item.thread_id === row.id) || {};
+      const session = xiaoxiangSessions.find((item) => item.thread_id === row.id) || {};
       return {
         ...row,
         queued_requests: Number(row.queued_requests),
@@ -387,7 +389,9 @@ export async function agentMonitorOperation(service, user, projectId) {
         thread_title: row.thread_title,
         agent_session_id: row.agent_session_id,
         agent_type:
-          row.agent_session_id && row.agent_session_id !== row.l2_session_id ? "dsh_l3" : "l2",
+          row.agent_session_id && row.agent_session_id !== row.xiaoxiang_id
+            ? "child_agent"
+            : "xiaoxiang",
         tool: row.tool,
         action,
         status: row.status,
@@ -401,7 +405,7 @@ export async function agentMonitorOperation(service, user, projectId) {
     executors: [
       ...executors.map((row) => ({
         ...row,
-        executor_type: "dsh_l3",
+        executor_type: "child_agent",
         update_count: Number(row.update_count),
         contextUsage: contextUsage(row, [], []),
       })),
@@ -425,6 +429,7 @@ export async function agentMonitorOperation(service, user, projectId) {
         update_count: 0,
         executor_type: row.executor_type,
         executor_id: row.executor_id,
+        persona: row.persona || null,
         target_type: row.target_type,
         target_id: row.target_id,
         task_type: row.task_type,
@@ -440,13 +445,138 @@ export async function agentMonitorOperation(service, user, projectId) {
   };
 }
 
-export async function agentLogsOperation(service, user, scopeType, scopeId, { task } = {}) {
+/**
+ * 轨迹「系统」步骤要展示的提示词和可用工具，必须与运行时真正下发的那份同源，不能在接口里另写：
+ * A 段提示词 = 共享底线（dsh-layer/cothread-system-prompt.mjs 的 cothread:system）
+ * + 角色段（同插件的 cothread:agent-role，取值来自 SYSTEM_PROMPTS）；
+ * 工具名单来自同一份能力配置的 allowedTools，execute 闸门就是按它校验的。
+ * 取不到就省略字段，不凭印象补。
+ */
+/** context_notice 的 output 是 JSON：取出 kind 供轨迹行标来源。 */
+/** 上下文行预览：有块名就列块名，没有就退回注入原文。 */
+function contextPreview(input, output) {
+  try {
+    const meta = JSON.parse(output || "{}");
+    const names = Array.isArray(meta?.blocks)
+      ? meta.blocks.map((block) => String(block?.name || "")).filter(Boolean)
+      : [];
+    // 增量轮次只补变化的资料：行首标出来，免得和全量注入混淆。
+    const prefix = meta?.delta ? "增量注入" : "";
+    if (meta?.summary && names.length)
+      return `${prefix ? prefix + " · " : ""}${meta.summary}：${names.join(" · ")}`;
+  } catch {
+    // output 不是 JSON 就按原文显示
+  }
+  return String(input || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function noticeKindOf(value) {
+  try {
+    const parsed = JSON.parse(value || "{}");
+    return typeof parsed.kind === "string" && parsed.kind ? parsed.kind : null;
+  } catch {
+    return null;
+  }
+}
+
+function scopeAgentContext(level) {
+  const rolePrompt = SYSTEM_PROMPTS[level]?.prompt;
+  // 和 DSH 一样按「段」交代系统提示词是怎么拼起来的：名称、顺序、来源、正文。
+  const systemSections = [
+    {
+      name: "cothread:system",
+      order: 790,
+      source: "dsh-layer/cothread-system-prompt.mjs",
+      text: COTHREAD_SYSTEM_TEXT,
+    },
+    ...(rolePrompt
+      ? [
+          {
+            name: "cothread:agent-role",
+            order: 800,
+            source: `SYSTEM_PROMPTS.${level}`,
+            text: rolePrompt,
+          },
+        ]
+      : []),
+  ];
+  return {
+    ...(rolePrompt ? { systemPrompt: [COTHREAD_SYSTEM_TEXT, rolePrompt].join("\n\n") } : {}),
+    systemSections,
+    tools: capabilityProfile(level).allowedTools,
+  };
+}
+
+/**
+ * assistant_replies 只按「触发消息」保存整轮 usage_stats，没有逐事件用量。
+ * 因此只把整轮用量挂到该轮收尾的 assistant_final 上，其余事件不挂：
+ * 前端按事件累加 tokens，重复挂载会把同一轮算多次。关联不上就省略。
+ */
+function eventUsageFromReply(stats) {
+  let value = stats;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!value || typeof value !== "object") return null;
+  const usage = {};
+  for (const key of [
+    "inputTokens",
+    "outputTokens",
+    "totalTokens",
+    "cacheReadTokens",
+    "cacheWriteTokens",
+    "settingsVersion",
+    "calls",
+  ])
+    if (Number.isSafeInteger(value[key]) && value[key] >= 0) usage[key] = value[key];
+  if (typeof value.model === "string" && value.model) usage.model = value.model.slice(0, 60);
+  if (typeof value.reasoningEffort === "string" && value.reasoningEffort)
+    usage.reasoningEffort = value.reasoningEffort.slice(0, 20);
+  // usage_stats 里没有 modelMs，宁缺勿造。
+  return Object.keys(usage).length ? usage : null;
+}
+
+async function replyUsageByMessage(db, messageIds) {
+  const ids = [...new Set(messageIds.filter(Boolean))];
+  if (!ids.length) return new Map();
+  const rows = await query(
+    db,
+    `SELECT message_id,usage_stats FROM assistant_replies
+      WHERE message_id IN (${ids.map(() => "?").join(",")})`,
+    ids,
+  );
+  return new Map(
+    rows.filter((row) => row.usage_stats).map((row) => [row.message_id, row.usage_stats]),
+  );
+}
+
+export async function agentLogsOperation(
+  service,
+  user,
+  scopeType,
+  scopeId,
+  { task, before = null, limit = 60 } = {},
+) {
+  // 轨迹分页：默认最近一页；before 是最老一条事件的 id，继续往前取历史。
+  const pageSize = Math.min(Math.max(Number(limit) || 60, 10), 200);
+  const cursor = before ? Number(before) : null;
+  const hasCursor = Number.isSafeInteger(cursor) && cursor > 0;
+  let hasMore = false;
   const duration = (row) =>
     row.finished_at
       ? Math.max(0, new Date(row.finished_at).getTime() - new Date(row.created_at).getTime())
       : null;
+  // 任务类工具（派发子 Agent、追问进度、转交、重安排）入参只有任务 id；
+  // 直接显示 UUID 看不懂，这里批量取任务标题，标签用标题代替 id。
+  let taskTitles = new Map();
   const labelFor = (row) => {
-    if (row.agent_type === "l1")
+    if (row.agent_type === "laoweng")
       return {
         action:
           {
@@ -463,20 +593,36 @@ export async function agentLogsOperation(service, user, scopeType, scopeId, { ta
     try {
       args = typeof row.input === "string" ? JSON.parse(row.input) : row.input || {};
     } catch {}
+    // 子 Agent 的注入与系统提示词：和群聊同一种叫法，别落到「执行任务」。
+    if (row.tool === "system_prompt") return { action: "系统提示词", target: "" };
+    if (row.tool === "context_notice") return { action: "注入上下文", target: "" };
     if (["thinking", "assistant_text", "assistant_final"].includes(row.tool))
       return {
         action: row.tool === "thinking" ? "思考" : "正文",
         target: "",
       };
-    const label = describeAgentAction(row.tool, args);
-    return { action: formatAgentAction(row.tool, args), target: label.target || "" };
+    const taskId = row.task_id || (typeof args.taskId === "string" ? args.taskId : "");
+    const title = taskId ? taskTitles.get(String(taskId)) : "";
+    // 有标题时把 id 从入参里摘掉，避免「启动子 Agent <uuid>」这种标签。
+    const labeled = title
+      ? describeAgentAction(row.tool, { ...args, taskId: undefined })
+      : describeAgentAction(row.tool, args);
+    return { action: labeled.action, target: title || labeled.target || "" };
   };
-  const collectInputs = (rows) => {
+  const collectInputs = async (rows) => {
     const seen = new Set();
     const inputs = [];
     for (const row of [...rows].reverse()) {
       if (!row.message_id || !row.user_created_at || seen.has(row.message_id)) continue;
       seen.add(row.message_id);
+      let refs = row.user_refs;
+      if (typeof refs === "string") {
+        try {
+          refs = JSON.parse(refs);
+        } catch {
+          refs = [];
+        }
+      }
       inputs.push({
         id: `user:${row.message_id}`,
         messageId: row.message_id,
@@ -484,80 +630,185 @@ export async function agentLogsOperation(service, user, scopeType, scopeId, { ta
         preview: String(row.user_preview || "")
           .replace(/\s+/g, " ")
           .trim(),
+        body: String(row.user_body ?? ""),
+        // 这一轮用哪种对话模式（default/chat/miniprogram/cloudbase）；没有 agent_requests 记录时为 null。
+        dialogueMode: row.dialogue_mode || null,
+        files: [],
+        // 老翁维护任务的输入是调度给它的任务，不是用户提问；再区分定时自动与手动「立即整理」。
+        ...(row.agent_type === "laoweng"
+          ? { from: row.trigger_source === "user" ? "manual" : "scheduled" }
+          : {}),
+        refIds: Array.isArray(refs) ? refs.map(String) : [],
       });
     }
+    // 附件是按版本 id 引用的，批量取回名字与类型，预览里才能列出文件。
+    const refIds = [...new Set(inputs.flatMap((input) => input.refIds))];
+    if (refIds.length) {
+      const files = await query(
+        service.db,
+        `SELECT id, filename, mime, byte_size FROM versions WHERE id IN (${refIds.map(() => "?").join(",")})`,
+        refIds,
+      );
+      const byId = new Map(
+        files.map((file) => [
+          String(file.id),
+          {
+            id: String(file.id),
+            name: String(file.filename || ""),
+            mime: file.mime ? String(file.mime) : null,
+            size: file.byte_size == null ? null : Number(file.byte_size),
+          },
+        ]),
+      );
+      for (const input of inputs)
+        input.files = input.refIds.map((id) => byId.get(id)).filter(Boolean);
+    }
+    for (const input of inputs) delete input.refIds;
     return inputs;
   };
+  /**
+   * 子 Agent 的输入是小祥写的任务书（TASK_ID + TaskBrief），不是群里的用户消息。
+   * 派活时把任务书落成了 context_notice 事件，这里取最近一条作为「输入」行。
+   */
+  const collectTaskInputs = async (taskId) => {
+    const candidates = await query(
+      service.db,
+      `SELECT id,message_id,input,output,created_at FROM agent_events
+        WHERE agent_task_id=? AND tool='context_notice' ORDER BY id DESC LIMIT 5`,
+      [taskId],
+    );
+    const trace = candidates.find((row) => {
+      try {
+        return JSON.parse(row.output || "{}")?.kind === "cothread-child-context";
+      } catch {
+        return false;
+      }
+    });
+    if (!trace) return [];
+    const body = String(trace.input || "");
+    return [
+      {
+        id: `task:${taskId}`,
+        messageId: trace.message_id,
+        createdAt: trace.created_at,
+        preview: body.split("\n")[0].slice(0, 200),
+        body,
+        dialogueMode: null,
+        files: [],
+        // 轨迹据此把这一行标成「小祥派活」而不是「用户」。
+        from: "coordinator",
+      },
+    ];
+  };
   const taskEventScope = `EXISTS (SELECT 1 FROM agent_task_execution_runs owner_run
-          WHERE owner_run.task_id=? AND owner_run.executor_type='dsh_l3'
+          WHERE owner_run.task_id=? AND owner_run.executor_type='child_agent'
             AND owner_run.executor_id=e.agent_session_id)
           AND (e.agent_task_id=? OR (e.agent_task_id IS NULL AND EXISTS (
             SELECT 1 FROM agent_task_execution_runs timed_run WHERE timed_run.task_id=?
-              AND timed_run.executor_type='dsh_l3' AND timed_run.executor_id=e.agent_session_id
+              AND timed_run.executor_type='child_agent' AND timed_run.executor_id=e.agent_session_id
               AND e.created_at>=COALESCE(timed_run.started_at,timed_run.created_at)
               AND e.created_at<=COALESCE(timed_run.finished_at,UTC_TIMESTAMP(3)))))`;
   let titleText;
   let rows;
+  // 只有 thread 作用域能按触发消息关联到小祥那一轮的整轮用量。
+  let replyUsage = new Map();
   if (scopeType === "project") {
     const project = await service.project(user, scopeId);
-    const scopedTask = normalizeL1Task(task);
-    if (!L1_MAINTENANCE_TASKS.includes(scopedTask)) fail(400, "请指定维护任务");
-    titleText = `${project.name} · ${l1TaskLabel(scopedTask)}`;
+    const scopedTask = normalizeLaowengTask(task);
+    if (!LAOWENG_MAINTENANCE_TASKS.includes(scopedTask)) fail(400, "请指定维护任务");
+    titleText = `${project.name} · ${laowengTaskLabel(scopedTask)}`;
     rows = await query(
       service.db,
-      `SELECT e.id,e.agent_session_id,e.task,e.thread_id,e.phase tool,e.status,e.created_at,e.finished_at,e.error,
+      `SELECT e.id,e.agent_session_id,e.task,e.thread_id,e.phase tool,e.status,e.summary,e.trigger_source,e.created_at,e.finished_at,e.error,
         a.id visual_artifact_id
         FROM agent_project_events e LEFT JOIN agent_visual_artifacts a ON a.agent_project_event_id=e.id
         WHERE e.project_id=? AND e.task=? ORDER BY e.id DESC LIMIT 300`,
       [scopeId, scopedTask],
     );
-    const l1RunOf = new Map();
-    const l1FirstIds = new Set();
-    const l1SeenRuns = new Set();
-    let l1Run = 0;
+    const laowengRunOf = new Map();
+    const laowengFirstIds = new Set();
+    const laowengSeenRuns = new Set();
+    let laowengRun = 0;
     for (const row of [...rows].sort((left, right) => Number(left.id) - Number(right.id))) {
-      if (row.tool === "prepare_context") l1Run += 1;
-      const runId = String(Math.max(l1Run, 1));
-      l1RunOf.set(String(row.id), runId);
-      if (!l1SeenRuns.has(runId)) {
-        l1SeenRuns.add(runId);
-        l1FirstIds.add(String(row.id));
+      if (row.tool === "prepare_context") laowengRun += 1;
+      const runId = String(Math.max(laowengRun, 1));
+      laowengRunOf.set(String(row.id), runId);
+      if (!laowengSeenRuns.has(runId)) {
+        laowengSeenRuns.add(runId);
+        laowengFirstIds.add(String(row.id));
       }
     }
     rows = rows.map((row) => {
-      const messageId = `l1:${l1RunOf.get(String(row.id))}`;
+      const messageId = `laoweng:${laowengRunOf.get(String(row.id))}`;
       return {
         ...row,
-        agent_type: "l1",
+        agent_type: "laoweng",
         task_id: null,
         message_id: messageId,
         thread_id: null,
-        user_preview: l1TaskLabel(row.task),
-        user_created_at: l1FirstIds.has(String(row.id)) ? row.created_at : null,
+        user_preview: laowengTaskLabel(row.task),
+        user_created_at: laowengFirstIds.has(String(row.id)) ? row.created_at : null,
       };
     });
   } else if (scopeType === "thread") {
     const thread = await service.thread(user, scopeId);
-    const [session] = await query(
+    titleText = `${thread.title} · 小祥轨迹`;
+    // 轨迹按迭代聚合，不按会话过滤：小祥每次运行都会换一个 DSH session_id，
+    // agent_sessions.session_id 只是当前那一个，拿它当条件会让轨迹恒为空。
+    // 子 Agent 的事件也挂在同一条触发消息上（coordinator 写库时用 job.message_id），
+    // 必须排除它们自己的会话，否则小祥轨迹里会混进 cloudbase_* / sandbox_* 等子 Agent 工具记录：
+    // 子 Agent 会话登记在 agent_child_sessions，执行期还记录在 agent_task_execution_runs.executor_id。
+    // 小祥自己 tool='child_agent' 的派发记录用的是小祥会话，不会被这两条排除掉。
+    rows = await query(
       service.db,
-      "SELECT session_id FROM agent_sessions WHERE thread_id=?",
+      `SELECT e.id,e.agent_session_id,e.agent_task_id task_id,e.tool,e.status,
+        e.created_at,e.finished_at,e.input,e.message_id,e.turn_id,m.thread_id,LEFT(m.body,240) user_preview,m.body user_body,m.refs user_refs,m.created_at user_created_at,
+        q.dialogue_mode dialogue_mode,
+        a.id visual_artifact_id,
+        CASE WHEN e.tool IN ('assistant_text','assistant_final') THEN LEFT(e.output,240) END output_preview,
+        CASE WHEN e.tool='context_notice' THEN LEFT(e.input,240) END notice_input,
+        CASE WHEN e.tool='context_notice' THEN e.output END notice_output
+        FROM agent_events e JOIN messages m ON m.id=e.message_id
+        LEFT JOIN agent_requests q ON q.message_id=m.id
+        LEFT JOIN agent_visual_artifacts a ON a.agent_event_id=e.id
+        WHERE m.thread_id=?
+          AND NOT EXISTS (SELECT 1 FROM agent_child_sessions child_session
+            WHERE child_session.session_id=e.agent_session_id)
+          AND NOT EXISTS (SELECT 1 FROM agent_task_execution_runs child_run
+            WHERE child_run.executor_type='child_agent' AND child_run.executor_id=e.agent_session_id)
+          ${hasCursor ? "AND e.id<?" : ""}
+        ORDER BY e.id DESC LIMIT ${pageSize + 1}`,
+      hasCursor ? [scopeId, cursor] : [scopeId],
+    );
+    hasMore = rows.length > pageSize;
+    rows = rows.slice(0, pageSize);
+    replyUsage = await replyUsageByMessage(
+      service.db,
+      rows.map((row) => row.message_id),
+    );
+    // 轮次 = 轮锚（turn_id，旧数据回落到触发消息）在迭代里的顺序：不受分页影响，翻页不会整体重编号。
+    const anchorRows = await query(
+      service.db,
+      `SELECT COALESCE(e.turn_id,e.message_id) anchor, MIN(m.sequence) seq, MIN(e.created_at) at
+        FROM agent_events e JOIN messages m ON m.id=e.message_id
+        WHERE m.thread_id=?
+          AND NOT EXISTS (SELECT 1 FROM agent_child_sessions child_session
+            WHERE child_session.session_id=e.agent_session_id)
+          AND NOT EXISTS (SELECT 1 FROM agent_task_execution_runs child_run
+            WHERE child_run.executor_type='child_agent' AND child_run.executor_id=e.agent_session_id)
+        GROUP BY anchor ORDER BY seq, at`,
       [scopeId],
     );
-    titleText = `${thread.title} · 小祥轨迹`;
-    rows = session
-      ? await query(
-          service.db,
-          `SELECT e.id,e.agent_session_id,e.agent_task_id task_id,e.tool,e.status,
-        e.created_at,e.finished_at,e.input,e.message_id,m.thread_id,LEFT(m.body,240) user_preview,m.created_at user_created_at,
-        a.id visual_artifact_id,
-        CASE WHEN e.tool IN ('assistant_text','assistant_final') THEN LEFT(e.output,240) END output_preview
-        FROM agent_events e JOIN messages m ON m.id=e.message_id
-        LEFT JOIN agent_visual_artifacts a ON a.agent_event_id=e.id
-        WHERE m.thread_id=? AND e.agent_session_id=? ORDER BY e.id DESC LIMIT 300`,
-          [scopeId, session.session_id],
-        )
-      : [];
-    rows = rows.map((row) => ({ ...row, agent_type: "l2" }));
+    const turnOfAnchor = new Map(anchorRows.map((row, index) => [String(row.anchor), index + 1]));
+    rows = rows.map((row) => {
+      const anchor = String(row.turn_id || row.message_id);
+      return {
+        ...row,
+        agent_type: "xiaoxiang",
+        turn_key: anchor,
+        turn_no: turnOfAnchor.get(anchor) ?? null,
+      };
+    });
   } else if (scopeType === "task") {
     const [task] = await query(
       service.db,
@@ -570,35 +821,80 @@ export async function agentLogsOperation(service, user, scopeType, scopeId, { ta
     rows = await query(
       service.db,
       `SELECT DISTINCT e.id,e.agent_session_id,? task_id,e.tool,e.status,
-        e.created_at,e.finished_at,e.input,e.message_id,m.thread_id,LEFT(m.body,240) user_preview,m.created_at user_created_at,
+        e.created_at,e.finished_at,e.input,e.message_id,m.thread_id,LEFT(m.body,240) user_preview,m.body user_body,m.refs user_refs,m.created_at user_created_at,
         a.id visual_artifact_id,
-        CASE WHEN e.tool IN ('assistant_text','assistant_final') THEN LEFT(e.output,240) END output_preview
+        CASE WHEN e.tool IN ('assistant_text','assistant_final') THEN LEFT(e.output,240) END output_preview,
+        CASE WHEN e.tool='context_notice' THEN LEFT(e.input,240) END notice_input,
+        CASE WHEN e.tool='context_notice' THEN e.output END notice_output
         FROM agent_events e JOIN messages m ON m.id=e.message_id
         LEFT JOIN agent_visual_artifacts a ON a.agent_event_id=e.id
-        WHERE ${taskEventScope}
-        ORDER BY e.id DESC LIMIT 300`,
-      [scopeId, scopeId, scopeId, scopeId],
+        WHERE ${taskEventScope}${hasCursor ? " AND e.id<?" : ""}
+        ORDER BY e.id DESC LIMIT ${pageSize + 1}`,
+      hasCursor
+        ? [scopeId, scopeId, scopeId, scopeId, cursor]
+        : [scopeId, scopeId, scopeId, scopeId],
     );
-    rows = rows.map((row) => ({ ...row, agent_type: "dsh_l3" }));
+    hasMore = rows.length > pageSize;
+    rows = rows.slice(0, pageSize);
+    rows = rows.map((row) => ({ ...row, agent_type: "child_agent" }));
   } else fail(400, "未知日志作用域");
+  const taskIds = [
+    ...new Set(
+      rows
+        .map((row) => {
+          if (row.task_id) return String(row.task_id);
+          try {
+            const args = typeof row.input === "string" ? JSON.parse(row.input) : row.input || {};
+            return typeof args.taskId === "string" ? args.taskId : "";
+          } catch {
+            return "";
+          }
+        })
+        .filter(Boolean),
+    ),
+  ];
+  if (taskIds.length) {
+    const tasks = await query(
+      service.db,
+      `SELECT id,title FROM agent_tasks WHERE id IN (${taskIds.map(() => "?").join(",")})`,
+      taskIds,
+    );
+    taskTitles = new Map(tasks.map((item) => [String(item.id), String(item.title || "")]));
+  }
+  // 作用域决定层次：老翁维护任务、小祥、子 Agent 各自取自己那份提示词与工具名单。
+  const agentLevel =
+    scopeType === "project" ? "laoweng" : scopeType === "thread" ? "xiaoxiang" : "child_agent";
   return {
     scopeType,
     scopeId,
     title: titleText,
-    inputs: collectInputs(rows),
+    page: { hasMore, before: rows[rows.length - 1]?.id || null },
+    ...scopeAgentContext(agentLevel),
+    inputs: scopeType === "task" ? await collectTaskInputs(scopeId) : await collectInputs(rows),
     events: rows.map((row) => {
       const label = labelFor(row);
-      const preview = ["assistant_text", "assistant_final"].includes(row.tool)
-        ? String(row.output_preview || "")
-            .replace(/\s+/g, " ")
-            .trim()
-        : "";
+      // 整轮用量只落在收尾的 assistant_final 上，其它事件没有可关联的用量。
+      const usage =
+        row.tool === "assistant_final" ? eventUsageFromReply(replyUsage.get(row.message_id)) : null;
+      const preview =
+        row.agent_type === "laoweng"
+          ? String(row.summary || "")
+              .replace(/\s+/g, " ")
+              .trim()
+          : ["assistant_text", "assistant_final"].includes(row.tool)
+            ? String(row.output_preview || "")
+                .replace(/\s+/g, " ")
+                .trim()
+            : row.tool === "context_notice"
+              ? contextPreview(row.notice_input, row.notice_output)
+              : "";
       return {
         id: String(row.id),
         agentType: row.agent_type,
         agentSessionId: row.agent_session_id,
         taskId: row.task_id || null,
         messageId: row.message_id || null,
+        turnKey: row.turn_key || null,
         threadId: row.thread_id || null,
         tool: row.tool,
         action: label.action,
@@ -607,12 +903,15 @@ export async function agentLogsOperation(service, user, scopeType, scopeId, { ta
         createdAt: row.created_at,
         finishedAt: row.finished_at,
         durationMs: duration(row),
+        ...(usage ? { usage } : {}),
         ...(preview ? { preview } : {}),
+        ...(row.turn_no ? { turn: row.turn_no } : {}),
+        ...(row.tool === "context_notice" ? { noticeKind: noticeKindOf(row.notice_output) } : {}),
         ...(row.visual_artifact_id
           ? { screenshotUrl: `/api/agent-visual-artifacts/${row.visual_artifact_id}` }
           : {}),
-        ...(row.agent_type === "l1" && row.task ? { task: row.task } : {}),
-        ...(row.agent_type === "l1" && row.error ? { error: row.error } : {}),
+        ...(row.agent_type === "laoweng" && row.task ? { task: row.task } : {}),
+        ...(row.agent_type === "laoweng" && row.error ? { error: row.error } : {}),
       };
     }),
   };
@@ -663,11 +962,11 @@ export async function agentLogEventOperation(service, user, scopeType, scopeId, 
       service.db,
       `SELECT e.*,a.id visual_artifact_id FROM agent_events e
         LEFT JOIN agent_visual_artifacts a ON a.agent_event_id=e.id WHERE e.id=? AND EXISTS (SELECT 1 FROM agent_task_execution_runs owner_run
-          WHERE owner_run.task_id=? AND owner_run.executor_type='dsh_l3'
+          WHERE owner_run.task_id=? AND owner_run.executor_type='child_agent'
             AND owner_run.executor_id=e.agent_session_id)
           AND (e.agent_task_id=? OR (e.agent_task_id IS NULL AND EXISTS (
             SELECT 1 FROM agent_task_execution_runs timed_run WHERE timed_run.task_id=?
-              AND timed_run.executor_type='dsh_l3' AND timed_run.executor_id=e.agent_session_id
+              AND timed_run.executor_type='child_agent' AND timed_run.executor_id=e.agent_session_id
               AND e.created_at>=COALESCE(timed_run.started_at,timed_run.created_at)
               AND e.created_at<=COALESCE(timed_run.finished_at,UTC_TIMESTAMP(3)))))`,
       [id, scopeId, scopeId, scopeId],

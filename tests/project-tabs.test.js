@@ -13,53 +13,41 @@ test("project tabs persist per user, restore opening order, and never remove pro
     const viewer = { id: randomUUID(), kind: "session" };
     const outsider = { id: randomUUID(), kind: "session" };
     for (const user of [owner, viewer, outsider]) {
-      await query(
-        database.db,
-        "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-        [user.id, `${user.id}@example.com`, "Tabs test", "unused"],
-      );
+      await query(database.db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+        user.id,
+        `${user.id}@example.com`,
+        "Tabs test",
+        "unused",
+      ]);
     }
     const first = await service.createProject(owner, { name: "First" });
     const second = await service.createProject(owner, { name: "Second" });
-    await query(
-      database.db,
-      "UPDATE members SET tab_opened_at=? WHERE project_id=?",
-      ["2026-01-01 00:00:00", first.id],
-    );
-    await query(
-      database.db,
-      "UPDATE members SET tab_opened_at=? WHERE project_id=?",
-      ["2026-01-02 00:00:00", second.id],
-    );
-    const visible = (rows) =>
-      rows.filter((p) => p.tab_visible).map((p) => p.id);
-    assert.deepEqual(visible(await service.projects(owner)), [
-      second.id,
+    await query(database.db, "UPDATE members SET tab_opened_at=? WHERE project_id=?", [
+      "2026-01-01 00:00:00",
       first.id,
     ]);
+    await query(database.db, "UPDATE members SET tab_opened_at=? WHERE project_id=?", [
+      "2026-01-02 00:00:00",
+      second.id,
+    ]);
+    const visible = (rows) => rows.filter((p) => p.tab_visible).map((p) => p.id);
+    assert.deepEqual(visible(await service.projects(owner)), [second.id, first.id]);
     const openingTime = (await service.projects(owner)).find(
       (p) => p.id === first.id,
     ).tab_opened_at;
+    assert.deepEqual(visible(await service.updateProjectTab(owner, first.id, { action: "pin" })), [
+      first.id,
+      second.id,
+    ]);
     assert.deepEqual(
-      visible(
-        await service.updateProjectTab(owner, first.id, { action: "pin" }),
-      ),
-      [first.id, second.id],
-    );
-    assert.deepEqual(
-      visible(
-        await service.updateProjectTab(owner, first.id, { action: "close" }),
-      ),
+      visible(await service.updateProjectTab(owner, first.id, { action: "close" })),
       [first.id, second.id],
     );
     const unpinned = await service.updateProjectTab(owner, first.id, {
       action: "unpin",
     });
     assert.deepEqual(visible(unpinned), [second.id, first.id]);
-    assert.equal(
-      unpinned.find((p) => p.id === first.id).tab_opened_at,
-      openingTime,
-    );
+    assert.equal(unpinned.find((p) => p.id === first.id).tab_opened_at, openingTime);
     await service.updateProjectTab(owner, first.id, { action: "pin" });
     await service.updateProjectTab(owner, second.id, { action: "pin" });
     assert.deepEqual(
@@ -74,11 +62,7 @@ test("project tabs persist per user, restore opening order, and never remove pro
       first.id,
       second.id,
     ]);
-    for (const projectIds of [
-      [first.id],
-      [first.id, first.id],
-      [first.id, randomUUID()],
-    ]) {
+    for (const projectIds of [[first.id], [first.id, first.id], [first.id, randomUUID()]]) {
       await assert.rejects(service.reorderProjectTabs(owner, { projectIds }), {
         status: 409,
       });
@@ -90,16 +74,10 @@ test("project tabs persist per user, restore opening order, and never remove pro
       { status: 409 },
     );
     await assert.rejects(
-      service.reorderProjectTabs(
-        { ...owner, kind: "api" },
-        { projectIds: [first.id, second.id] },
-      ),
+      service.reorderProjectTabs({ ...owner, kind: "api" }, { projectIds: [first.id, second.id] }),
       { status: 403 },
     );
-    assert.deepEqual(visible(await service.projects(owner)), [
-      first.id,
-      second.id,
-    ]);
+    assert.deepEqual(visible(await service.projects(owner)), [first.id, second.id]);
     assert.deepEqual(
       visible(
         await service.reorderProjectTabs(owner, {
@@ -111,74 +89,58 @@ test("project tabs persist per user, restore opening order, and never remove pro
     await service.updateProjectTab(owner, first.id, { action: "unpin" });
     await service.updateProjectTab(owner, second.id, { action: "unpin" });
     assert.equal(
-      (await service.projects(owner)).find((p) => p.id === first.id)
-        .tab_opened_at,
+      (await service.projects(owner)).find((p) => p.id === first.id).tab_opened_at,
       openingTime,
     );
-    await assert.rejects(
-      service.reorderProjectTabs(owner, { projectIds: [first.id, second.id] }),
-      { status: 409 },
-    );
-    assert.deepEqual(
-      visible(
-        await service.updateProjectTab(owner, first.id, { action: "open" }),
-      ),
-      [second.id, first.id],
-    );
+    await assert.rejects(service.reorderProjectTabs(owner, { projectIds: [first.id, second.id] }), {
+      status: 409,
+    });
+    assert.deepEqual(visible(await service.updateProjectTab(owner, first.id, { action: "open" })), [
+      second.id,
+      first.id,
+    ]);
 
-    await query(
-      database.db,
-      "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'viewer')",
-      [first.id, viewer.id],
-    );
+    await query(database.db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'viewer')", [
+      first.id,
+      viewer.id,
+    ]);
     assert.deepEqual(visible(await service.projects(viewer)), []);
     assert.deepEqual(
-      visible(
-        await service.updateProjectTab(viewer, first.id, { action: "open" }),
-      ),
+      visible(await service.updateProjectTab(viewer, first.id, { action: "open" })),
       [first.id],
     );
     await service.updateProjectTab(viewer, first.id, { action: "pin" });
     await service.reorderProjectTabs(viewer, { projectIds: [first.id] });
     assert.ok((await service.projects(owner)).every((p) => !p.tab_pinned_at));
     assert.deepEqual(
-      visible(
-        await service.updateProjectTab(owner, first.id, { action: "close" }),
-      ),
+      visible(await service.updateProjectTab(owner, first.id, { action: "close" })),
       [second.id],
     );
     assert.ok((await service.projects(viewer))[0].tab_pinned_at);
     assert.equal((await service.project(owner, first.id)).name, "First");
-    assert.deepEqual(visible(await new Service(database.db).projects(owner)), [
+    assert.deepEqual(visible(await new Service(database.db).projects(owner)), [second.id]);
+    // 页签顺序按首次打开时间（tab_opened_at）倒序；open 用 COALESCE 保留首次进入时间，
+    // 因此关闭后再打开会回到原来的位置，而不是置顶。
+    assert.deepEqual(visible(await service.updateProjectTab(owner, first.id, { action: "open" })), [
       second.id,
+      first.id,
     ]);
-    assert.deepEqual(
-      visible(
-        await service.updateProjectTab(owner, first.id, { action: "open" }),
-      ),
-      [first.id, second.id],
-    );
     await service.updateProjectTab(owner, first.id, { action: "close" });
     assert.deepEqual(
-      visible(
-        await service.updateProjectTab(owner, second.id, { action: "close" }),
-      ),
+      visible(await service.updateProjectTab(owner, second.id, { action: "close" })),
       [],
     );
     assert.equal((await service.projects(owner)).length, 2);
-    await assert.rejects(
-      service.updateProjectTab(outsider, first.id, { action: "open" }),
-      { status: 403 },
-    );
+    await assert.rejects(service.updateProjectTab(outsider, first.id, { action: "open" }), {
+      status: 403,
+    });
     await assert.rejects(
       service.updateProjectTab({ ...owner, kind: "api" }, first.id, {
         action: "open",
       }),
       { status: 403 },
     );
-    await assert.rejects(
-      service.updateProjectTab(owner, first.id, { action: "delete" }),
-    );
+    await assert.rejects(service.updateProjectTab(owner, first.id, { action: "delete" }));
   } finally {
     await database.close();
   }

@@ -132,6 +132,11 @@ export function DialogHeader({
   } | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [dragging, setDragging] = useState(false);
+  /* 初始就带 dialog-fullscreen 的弹窗（项目记忆）要让按钮一上来就是「退出全屏」。 */
+  useEffect(() => {
+    const surface = header.current?.closest<HTMLElement>('[role="dialog"], dialog');
+    if (surface?.classList.contains("dialog-fullscreen")) setExpanded(true);
+  }, []);
   const toggleFullscreen = () => {
     const surface = header.current?.closest<HTMLElement>('[role="dialog"], dialog');
     if (!surface) return;

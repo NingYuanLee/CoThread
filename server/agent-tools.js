@@ -2,6 +2,7 @@ import { finishAgentEvent } from "./thread-activity.js";
 import { documentTool } from "./documents/index.js";
 import { z } from "zod/v3";
 import { redactSecrets } from "./model-config.js";
+import { deepseekFetch, deepseekSearch } from "./deepseek-web.js";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { posix } from "node:path";
 import { query } from "./db.js";
@@ -13,6 +14,7 @@ import {
 import { digest } from "./auth.js";
 import { storedContentType } from "./documents/index.js";
 import { HttpError } from "./service.js";
+import { messageTurnIdForJob } from "./coordinator-turn.js";
 import { modelDiscussion, modelProject } from "./model-context.js";
 import { agentSession } from "./agent-session.js";
 import { acquireSandbox, safeRemotePath, shellQuote } from "./agent-sandbox.js";
@@ -26,12 +28,14 @@ import { localExecutorTool } from "./local-executors.js";
 import {
   acknowledgeTaskRejection,
   askTaskQuestion,
-  bindDshL3Execution,
+  bindChildAgentExecution,
   createTask,
-  ensureDshL3CanUpdate,
-  idleL3Count,
+  ensureChildAgentCanUpdate,
+  idleChildCount,
   inspectIterationTask,
-  l3LaunchPrompt,
+  childLaunchPrompt,
+  childTaskBrief,
+  recordChildLaunchTrace,
   listTasks,
   reassignTask,
   recoverAbnormalTask,
@@ -90,7 +94,7 @@ import {
 import { saveVisualArtifact } from "./visual-artifacts.js";
 import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.js";
 
-function l2Actor(job, l2SessionId) {
+function xiaoxiangActor(job, xiaoxiangSessionId) {
   const authorizedByUserId =
     job.kind !== "child_result" && job.author_id && job.author_id !== AGENT_MEMBER.id
       ? job.author_id
@@ -102,8 +106,8 @@ function l2Actor(job, l2SessionId) {
         ? "human_member_mcp"
         : undefined;
   return {
-    type: "l2_session",
-    id: l2SessionId,
+    type: "xiaoxiang",
+    id: xiaoxiangSessionId,
     authorizedByUserId,
     statusActorType,
     statusActorId: statusActorType ? authorizedByUserId : undefined,
@@ -118,6 +122,7 @@ const titles = {
   read_message: "读取",
   list_members: "读取",
   read_member: "读取",
+  search_memory: "检索记忆",
   project_context: "读取",
   read_document: "读取",
   record_document_summary: "记录摘要",
@@ -160,8 +165,10 @@ const titles = {
   cloudbase_storage_manage: "管理 CloudBase 存储",
   wechat_preview: "生成微信预览",
   miniprogram_upload_experience: "上传微信体验版",
+  web_search: "搜索网页",
+  web_fetch: "阅读网页",
   // Internal: harness create_task auto-dispatch binds the spawned 子 Agent. Not model-facing.
-  bind_task_l3: "绑定执行者",
+  bind_child_agent: "绑定执行者",
 };
 const MINIPROGRAM_READ_TOOLS = ["miniprogram_list_source", "miniprogram_read_source"];
 const CLOUDBASE_TOOL_NAMES = [
@@ -220,7 +227,7 @@ const CHAT_DIALOGUE_BLOCKED_TOOLS = new Set([
   "resolve_task_rejection",
   "recover_task",
   "ask_task_question",
-  "bind_task_l3",
+  "bind_child_agent",
   "sandbox_command",
   "sandbox_write",
   "publish_artifact",
@@ -238,7 +245,25 @@ const CHAT_DIALOGUE_BLOCKED_TOOLS = new Set([
   "cloudbase_storage_upload",
   "cloudbase_storage_manage",
   "cloudbase_auth_config_update",
+  "cloudbase_function_call",
 ]);
+
+/** Chat 只读和仅小程序的工具拒绝。读工具不在这里。 */
+export function dialogueToolDenyReason(dialogueMode, name) {
+  if (
+    (name === "web_search" || name === "web_fetch") &&
+    dialogueMode &&
+    dialogueMode !== "default"
+  ) {
+    return "只有完整调度可以搜索和阅读网页";
+  }
+  if (dialogueMode === "miniprogram" && CLOUDBASE_TOOL_NAMES.includes(name)) {
+    return "当前为仅小程序模式，不能使用 CloudBase";
+  }
+  const denied = dialogueMode ? writeDeniedReason(dialogueMode) : null;
+  if (denied && CHAT_DIALOGUE_BLOCKED_TOOLS.has(name)) return denied;
+  return null;
+}
 
 /** Reject miniprogram tool use until the project has enabled the workspace. */
 async function requireMiniprogramWorkspace(service, projectId) {
@@ -270,12 +295,12 @@ function miniprogramToolSummary(snapshot) {
   };
 }
 
-export async function liveDshL3Run(db, { sessionId, threadId } = {}) {
+export async function liveChildAgentRun(db, { sessionId, threadId } = {}) {
   if (sessionId) {
     const [owned] = await query(
       db,
       `SELECT executor_id FROM agent_task_execution_runs
-      WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting') LIMIT 1`,
+      WHERE executor_type='child_agent' AND executor_id=? AND status IN ('running','waiting') LIMIT 1`,
       [sessionId],
     );
     if (owned) return owned;
@@ -285,7 +310,7 @@ export async function liveDshL3Run(db, { sessionId, threadId } = {}) {
       db,
       `SELECT r.executor_id FROM agent_task_execution_runs r
       JOIN agent_tasks t ON t.id=r.task_id
-      WHERE t.origin_thread_id=? AND r.executor_type='dsh_l3' AND r.status IN ('running','waiting')
+      WHERE t.origin_thread_id=? AND r.executor_type='child_agent' AND r.status IN ('running','waiting')
       ORDER BY r.heartbeat_at DESC, r.created_at DESC LIMIT 1`,
       [threadId],
     );
@@ -298,7 +323,7 @@ export async function assertJob(service, user, job, { role, sessionId } = {}) {
   const thread = await service.thread(user, job.thread_id);
   await service.member(user, thread.project_id, true);
   if (thread.status !== "active") throw new HttpError(409, "任务已停止或迭代已归档");
-  const live = await liveDshL3Run(service.db, { sessionId, threadId: job.thread_id });
+  const live = await liveChildAgentRun(service.db, { sessionId, threadId: job.thread_id });
   if (role === "executor" && live) return thread;
   if (job.kind === "child_result") return thread;
   const [record] = await query(
@@ -324,7 +349,7 @@ export function createAgentTools(
   service,
   user,
   job,
-  { getSandbox, role = "executor", l2SessionId } = {},
+  { getSandbox, role = "executor", xiaoxiangSessionId } = {},
 ) {
   getSandbox ||= acquireSandbox;
   const progress = (text) =>
@@ -338,7 +363,7 @@ export function createAgentTools(
   return async (name, args, caller = {}) => {
     let callerSessionId = caller.sessionId || null;
     let effectiveRole =
-      role === "coordinator" && callerSessionId && callerSessionId !== l2SessionId
+      role === "coordinator" && callerSessionId && callerSessionId !== xiaoxiangSessionId
         ? "executor"
         : role;
     const thread = await assertJob(service, user, job, {
@@ -356,7 +381,7 @@ export function createAgentTools(
         FROM agent_task_execution_runs r
         JOIN agent_tasks t ON t.id=r.task_id
         LEFT JOIN agent_requests q ON q.message_id=COALESCE(r.source_message_id,t.source_message_id)
-        WHERE r.executor_type='dsh_l3' AND r.executor_id=? AND r.status IN ('running','waiting')
+        WHERE r.executor_type='child_agent' AND r.executor_id=? AND r.status IN ('running','waiting')
         ORDER BY r.created_at DESC LIMIT 1`,
         [callerSessionId],
       );
@@ -366,15 +391,20 @@ export function createAgentTools(
       effectiveRole === "executor" && callerSessionId
         ? controlFromExecutionRun(activeRun).dialogueMode
         : parentDialogueMode(job);
-    const denied = dialogueMode ? writeDeniedReason(dialogueMode) : null;
-    if (denied && CHAT_DIALOGUE_BLOCKED_TOOLS.has(name)) throw new HttpError(403, denied);
+    const denied = dialogueToolDenyReason(dialogueMode, name);
+    if (denied) throw new HttpError(403, denied);
     // Shared plugins retain the caller's task scope and never inherit a human authorization.
     const taskActor = async (taskId) => {
-      if (effectiveRole !== "executor") return l2Actor(job, l2SessionId);
+      if (effectiveRole !== "executor") return xiaoxiangActor(job, xiaoxiangSessionId);
       if (!callerSessionId || !agentTaskId) throw new HttpError(403, "请先绑定当前执行任务");
-      await ensureDshL3CanUpdate(service.db, l2SessionId, callerSessionId, taskId || agentTaskId);
+      await ensureChildAgentCanUpdate(
+        service.db,
+        xiaoxiangSessionId,
+        callerSessionId,
+        taskId || agentTaskId,
+      );
       return {
-        ...l2Actor(job, l2SessionId),
+        ...xiaoxiangActor(job, xiaoxiangSessionId),
         authorizedByUserId: null,
         statusActorType: undefined,
         statusActorId: undefined,
@@ -385,7 +415,7 @@ export function createAgentTools(
       "INSERT INTO agent_events(message_id,agent_session_id,agent_task_id,tool,status,input) VALUES(?,?,?,?,'running',?)",
       [
         job.message_id,
-        callerSessionId || l2SessionId || null,
+        callerSessionId || xiaoxiangSessionId || null,
         agentTaskId,
         name,
         JSON.stringify(args).slice(0, 16000),
@@ -397,14 +427,47 @@ export function createAgentTools(
       await query(
         service.db,
         `UPDATE agent_task_execution_runs SET progress=?,heartbeat_at=UTC_TIMESTAMP(3)
-       WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting')`,
+       WHERE executor_type='child_agent' AND executor_id=? AND status IN ('running','waiting')`,
         [label, callerSessionId],
       );
     try {
       let result;
-      if (name === "list_project_tasks") {
+      if (name === "web_search") {
+        const queryText = z.string().trim().min(1).max(128).parse(args.query);
+        const count =
+          args.count === undefined || args.count === null
+            ? undefined
+            : z.number().int().min(1).max(50).parse(args.count);
+        const oriQuestionRaw = args.ori_question ?? args.question;
+        const oriQuestion =
+          oriQuestionRaw === undefined ||
+          oriQuestionRaw === null ||
+          String(oriQuestionRaw).trim() === ""
+            ? undefined
+            : z.string().max(128).parse(String(oriQuestionRaw));
+        const localization =
+          args.localization === undefined ||
+          args.localization === null ||
+          String(args.localization).trim() === ""
+            ? undefined
+            : z.string().parse(String(args.localization));
+        const needContent =
+          args.need_content === undefined || args.need_content === null
+            ? undefined
+            : z.boolean().parse(args.need_content);
         result = {
-          idleL3Count: await idleL3Count(service.db, l2SessionId),
+          results: await deepseekSearch(queryText, {
+            count,
+            oriQuestion,
+            localization,
+            needContent,
+          }),
+        };
+      } else if (name === "web_fetch") {
+        result = await deepseekFetch(z.string().trim().min(1).max(8192).parse(args.url));
+      } else if (name === "list_project_tasks") {
+        result = {
+          idleChildCount: await idleChildCount(service.db, xiaoxiangSessionId),
           tasks: await listTasks(service.db, thread.project_id, {
             ...args,
             originThreadId: thread.id,
@@ -419,14 +482,14 @@ export function createAgentTools(
       } else if (name === "update_task") {
         const taskId = z.string().uuid().parse(args.taskId);
         if (effectiveRole === "executor") {
-          await ensureDshL3CanUpdate(service.db, l2SessionId, callerSessionId, taskId);
+          await ensureChildAgentCanUpdate(service.db, xiaoxiangSessionId, callerSessionId, taskId);
         }
         result = await updateTask(
           service.db,
           taskId,
           effectiveRole === "executor"
-            ? { type: "dsh_l3", id: callerSessionId }
-            : l2Actor(job, l2SessionId),
+            ? { type: "child_agent", id: callerSessionId }
+            : xiaoxiangActor(job, xiaoxiangSessionId),
           args,
         );
       } else if (name === "report_task") {
@@ -435,22 +498,24 @@ export function createAgentTools(
           .string()
           .uuid()
           .parse(args.taskId || agentTaskId);
-        await ensureDshL3CanUpdate(service.db, l2SessionId, callerSessionId, taskId);
-        const status = z.enum(["completed", "failed", "blocked"]).parse(args.status);
+        await ensureChildAgentCanUpdate(service.db, xiaoxiangSessionId, callerSessionId, taskId);
+        // 任务层只有「已完成」与「已阻塞」：子 Agent 上报 failed 一律收敛成 blocked，原因保留在进度里。
+        const reported = z.enum(["completed", "failed", "blocked"]).parse(args.status);
+        const status = reported === "failed" ? "blocked" : reported;
         const reason = z.string().max(500).optional().parse(args.reason);
         result = await updateTask(
           service.db,
           taskId,
-          { type: "dsh_l3", id: callerSessionId },
+          { type: "child_agent", id: callerSessionId },
           {
             status,
             resultSummary: z.string().trim().min(1).max(20000).parse(args.summary),
             artifactRefs: args.artifactRefs,
             progress:
-              status === "completed"
+              reported === "completed"
                 ? "子 Agent 已交活"
-                : status === "failed"
-                  ? reason || "子 Agent 交活失败"
+                : reported === "failed"
+                  ? `子 Agent 交活失败：${reason || "未回报原因"}`
                   : reason || "子 Agent 已阻塞",
           },
         );
@@ -460,7 +525,7 @@ export function createAgentTools(
           z.string().uuid().parse(args.taskId),
           await taskActor(args.taskId),
           {
-            type: z.enum(["human_member", "l2_session"]).parse(args.targetType),
+            type: z.enum(["human_member", "xiaoxiang"]).parse(args.targetType),
             id: z.string().uuid().parse(args.targetId),
           },
           z.string().trim().max(1000).optional().parse(args.reason),
@@ -517,16 +582,21 @@ export function createAgentTools(
           [],
           "assistant",
           job.message_id,
+          undefined,
+          "cloud",
+          null,
+          [],
+          messageTurnIdForJob(job),
         );
       } else if (name === "create_task") {
         const actor = await taskActor();
-        const taskType = z.enum(["assist_l2", "formal"]).parse(args.taskType);
+        const taskType = z.enum(["assist", "formal"]).parse(args.taskType);
         const targetType =
-          taskType === "assist_l2"
-            ? "l2_session"
-            : z.enum(["human_member", "l2_session"]).parse(args.targetType);
+          taskType === "assist"
+            ? "xiaoxiang"
+            : z.enum(["human_member", "xiaoxiang"]).parse(args.targetType);
         const targetId =
-          taskType === "assist_l2" ? l2SessionId : z.string().uuid().parse(args.targetId);
+          taskType === "assist" ? xiaoxiangSessionId : z.string().uuid().parse(args.targetId);
         result = await createTask(service.db, {
           projectId: thread.project_id,
           originThreadId: job.thread_id,
@@ -534,10 +604,11 @@ export function createAgentTools(
           sourceUserId: effectiveRole === "executor" ? null : args.sourceUserId || job.author_id,
           sourceMessageId: args.sourceMessageId || job.message_id,
           sourceTaskId: effectiveRole === "executor" ? agentTaskId : args.sourceTaskId || null,
-          createdByType: "l2_session",
-          createdById: l2SessionId || job.message_id,
+          createdByType: "xiaoxiang",
+          createdById: xiaoxiangSessionId || job.message_id,
           authorizedByUserId: actor.authorizedByUserId,
           taskType,
+          persona: args.persona == null ? undefined : z.string().trim().max(16).parse(args.persona),
           title: z.string().trim().min(1).max(240).parse(args.title),
           goal: z.string().trim().min(1).max(20000).parse(args.goal),
           constraints: args.constraints,
@@ -555,24 +626,39 @@ export function createAgentTools(
           targetType,
           targetId,
         });
-        // Harness create_task auto-spawns 子 Agent in-process (same window as dsh_l3).
+        // Harness create_task auto-spawns 子 Agent in-process (same window as child_agent).
         // Attach the launch prompt so the tool can startContinuable without another round-trip.
         if (result?.needsDispatch && result.id) {
-          const launch = await l3LaunchPrompt(service.db, result.id);
+          const launch = await childLaunchPrompt(service.db, result.id);
           if (launch?.prompt) {
             result = {
               ...result,
               dispatchPrompt: launch.prompt,
               dispatchLabel: launch.label,
+              dispatchPersona: launch.personaPrompt || undefined,
             };
           }
         }
-      } else if (name === "bind_task_l3") {
-        if (!l2SessionId) throw new HttpError(409, "当前没有可绑定的 小祥 会话");
+      } else if (name === "bind_child_agent") {
+        if (!xiaoxiangSessionId) throw new HttpError(409, "当前没有可绑定的小祥会话");
         const taskId = z.string().uuid().parse(args.taskId);
         const childSessionId = z.string().uuid().parse(args.childSessionId);
-        result = await bindDshL3Execution(service.db, l2SessionId, childSessionId, taskId);
+        result = await bindChildAgentExecution(
+          service.db,
+          xiaoxiangSessionId,
+          childSessionId,
+          taskId,
+        );
         if (!result?.execution_agent_id) throw new HttpError(409, "排队任务未能绑定到本次子 Agent");
+        // 手动派活同样补轨迹：任务书 + 子 Agent 系统提示词，口径与自动派发一致。
+        const boundBrief = await childTaskBrief(service.db, taskId);
+        if (boundBrief)
+          await recordChildLaunchTrace(service.db, {
+            taskId,
+            messageId: job.message_id,
+            childSessionId,
+            brief: boundBrief,
+          });
       } else if (["list_documents", "manage_document", "manage_folder"].includes(name)) {
         result = await documentTool(service, user, name, args, job);
       } else if (name === "list_local_executors") {
@@ -618,6 +704,23 @@ export function createAgentTools(
           (versionId) => allowedVersions.has(versionId),
         );
         Object.assign(result, wiki);
+      } else if (name === "search_memory") {
+        const { searchProjectMemory } = await import("./memory-search.js");
+        result = await searchProjectMemory(service.db, thread.project_id, {
+          query:
+            args.query === undefined ? undefined : z.string().trim().max(200).parse(args.query),
+          subjects: Array.isArray(args.subjects) ? args.subjects : undefined,
+          aboutUserId: args.aboutUserId ? z.string().uuid().parse(args.aboutUserId) : undefined,
+          status: args.status
+            ? z.enum(["draft", "current", "superseded", "all"]).parse(args.status)
+            : undefined,
+          depth:
+            args.depth === undefined ? undefined : z.number().int().min(0).max(3).parse(args.depth),
+          limit:
+            args.limit === undefined
+              ? undefined
+              : z.number().int().min(1).max(50).parse(args.limit),
+        });
       } else if (["list_members", "read_member"].includes(name)) {
         result = await service.conversationMembers(
           user,
@@ -687,7 +790,9 @@ export function createAgentTools(
         result = { ...result, savedToProject: true };
       } else if (name === "capture_preview_screenshot") {
         if (!visualVerificationEnabled(effectiveRole === "executor" ? "executor" : "coordinator")) {
-          result = visualVerificationSkip(effectiveRole === "executor" ? "l3" : "l2");
+          result = visualVerificationSkip(
+            effectiveRole === "executor" ? "child_agent" : "xiaoxiang",
+          );
         } else {
           const source = z
             .enum(["document_tree", "document_preview", "sandbox_html"])
@@ -1258,7 +1363,15 @@ export function createAgentTools(
                 digest(`${job.message_id}:${artifactId || title}:${digest(content)}`),
                 job.message_id,
                 false,
-                { executorSessionId: effectiveRole === "executor" ? callerSessionId : undefined },
+                {
+                  // A live child agent can publish even when the caller carries no
+                  // session id (the parent 小祥 reply may already be finished).
+                  executorSessionId:
+                    effectiveRole === "executor"
+                      ? callerSessionId
+                      : (await liveChildAgentRun(service.db, { threadId: job.thread_id }))
+                          ?.executor_id,
+                },
               );
               result = {
                 ...result,
@@ -1282,7 +1395,7 @@ export function createAgentTools(
         await query(
           service.db,
           `UPDATE agent_task_execution_runs SET progress=?,heartbeat_at=UTC_TIMESTAMP(3)
-         WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting')`,
+         WHERE executor_type='child_agent' AND executor_id=? AND status IN ('running','waiting')`,
           [`${label}已完成 · 正在调用模型`, callerSessionId],
         );
       return result;

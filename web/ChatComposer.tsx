@@ -6,9 +6,8 @@ import { apiFetch } from "./api-fetch";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { folderDisplayName, folderRootKind, libraryFolderPath } from "./document-library";
 import {
-  AGENT_L2_MEMBER,
+  AGENT_XIAOXIANG_MEMBER,
   AGENT_MEMBER,
-  SUMMARY_REQUEST,
   TASK_CREATE_REQUEST,
 } from "../shared/agent-member.js";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
@@ -25,7 +24,7 @@ import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
 import { FILE_MAX_BYTES } from "../shared/upload-limits.js";
 import { uploadFileWithIntegrity } from "./file-upload";
 import { wechatFileIcons } from "./wechat-file-icons";
-import { DIALOGUE_MODE_UI, DIALOGUE_MODES } from "../shared/dialogue-mode.js";
+import { DIALOGUE_MODE_UI, SELECTABLE_DIALOGUE_MODES } from "../shared/dialogue-mode.js";
 import type { UiIconName } from "./ui-icon";
 import type { DialogueMode } from "./dialogue-mode-storage";
 import type { CSSProperties } from "react";
@@ -154,6 +153,11 @@ export function ChatComposer({
   dialogueMode = "default",
   onDialogueModeChange,
   onController,
+  groupPrompts = true,
+  mentions = true,
+  modes,
+  mode,
+  onModeChange,
 }: {
   projectId: string;
   threadId: string;
@@ -172,7 +176,25 @@ export function ChatComposer({
   dialogueMode?: DialogueMode;
   onDialogueModeChange?: (mode: DialogueMode) => void;
   onController?: (controller: ComposerController | null, threadId?: string) => void;
+  groupPrompts?: boolean;
+  /** 为 false 时输入 @ 不弹出成员列表，只当普通文字。 */
+  mentions?: boolean;
+  modes?: {
+    id: string;
+    icon: string;
+    accent: string;
+    surface: string;
+    label: string;
+    summary: string;
+  }[];
+  mode?: string;
+  onModeChange?: (mode: string) => void;
 }) {
+  const modeChoices = modes?.length
+    ? modes
+    : SELECTABLE_DIALOGUE_MODES.map((id) => ({ id, ...DIALOGUE_MODE_UI[id] }));
+  const selectedModeId = modes?.length ? mode || modeChoices[0]?.id : dialogueMode;
+  const selectedMode = modeChoices.find((item) => item.id === selectedModeId) || modeChoices[0];
   const [message, setMessage] = useState("");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [imagePreview, setImagePreview] = useState<ImagePreviewSource | null>(null);
@@ -421,9 +443,15 @@ export function ChatComposer({
   const detect = (text: string, caret: number) => {
     // 键盘输入：光标前以 @ 或 / 结尾即触发（与改前一致，可在已有文字后直接触发）
     // 粘贴：onPaste 置 suppressSlashTrigger，避免正文里的 / 弹出文件选择器
-    const match = suppressSlashTrigger.current
-      ? /(@)([^\s/@]*)$/.exec(text.slice(0, caret))
-      : /([/@])([^\s/@]*)$/.exec(text.slice(0, caret));
+    // mentions 为 false 时 @ 不当触发符，问老翁里输入 @ 不列出成员
+    const pattern = !mentions
+      ? suppressSlashTrigger.current
+        ? null
+        : /(\/)([^\s/@]*)$/
+      : suppressSlashTrigger.current
+        ? /(@)([^\s/@]*)$/
+        : /([/@])([^\s/@]*)$/;
+    const match = pattern ? pattern.exec(text.slice(0, caret)) : null;
     suppressSlashTrigger.current = false;
     setTrigger(
       match
@@ -459,7 +487,9 @@ export function ChatComposer({
   );
   const mentionMembers = useMemo(
     () =>
-      members.filter((m) => m.kind !== "l1" && m.id !== AGENT_MEMBER.id && m.id !== currentUserId),
+      members.filter(
+        (m) => m.kind !== "laoweng" && m.id !== AGENT_MEMBER.id && m.id !== currentUserId,
+      ),
     [members, currentUserId],
   );
   const fileChoices = useMemo(
@@ -495,13 +525,18 @@ export function ChatComposer({
         id: m.id,
         kind: "member" as const,
         label: m.name,
-        detail: m.id === AGENT_L2_MEMBER.id ? AGENT_L2_MEMBER.identity_tags[0] : m.email,
+        detail:
+          m.id === AGENT_XIAOXIANG_MEMBER.id ? AGENT_XIAOXIANG_MEMBER.identity_tags[0] : m.email,
         avatar:
-          m.id === AGENT_L2_MEMBER.id ? m.avatar || AGENT_L2_MEMBER.avatar : m.avatar || undefined,
+          m.id === AGENT_XIAOXIANG_MEMBER.id
+            ? m.avatar || AGENT_XIAOXIANG_MEMBER.avatar
+            : m.avatar || undefined,
       })),
     [mentionMembers],
   );
-  const options = (trigger?.symbol === "/" ? [...fileChoices, ...folderChoices] : memberChoices)
+  const options = (
+    trigger?.symbol === "/" ? [...fileChoices, ...folderChoices] : mentions ? memberChoices : []
+  )
     .filter((o) =>
       `${o.label} ${o.detail}`.toLowerCase().includes(trigger?.query.toLowerCase() || ""),
     )
@@ -537,7 +572,7 @@ export function ChatComposer({
       trigger.symbol === "@" ? mentionMembers.find((m) => m.id === option.id) : undefined;
     const mentionLabel =
       selectedMember &&
-      selectedMember.id !== AGENT_L2_MEMBER.id &&
+      selectedMember.id !== AGENT_XIAOXIANG_MEMBER.id &&
       mentionMembers.filter((m) => m.name === selectedMember.name).length > 1
         ? selectedMember.email
         : option.label;
@@ -752,7 +787,11 @@ export function ChatComposer({
               trigger && options[index] ? `composer-option-${index}` : undefined
             }
             value={message}
-            placeholder="写下想法… / 引用文件或文件夹，@ 提及成员；可拖拽或粘贴文件"
+            placeholder={
+              mentions
+                ? "写下想法… / 引用文件或文件夹，@ 提及成员；可拖拽或粘贴文件"
+                : "写下想法… / 引用文件或文件夹；可拖拽或粘贴文件"
+            }
             maxLength={20000}
             onChange={(e) => {
               setMessage(e.target.value);
@@ -799,16 +838,16 @@ export function ChatComposer({
           />
         </div>
         <div className="composer-footer" ref={footerRef}>
-          {onDialogueModeChange ? (
+          {onDialogueModeChange || modes?.length ? (
             <div className="composer-mode-anchor" ref={modeMenuRef}>
               <button
                 ref={modeButtonRef}
                 type="button"
                 className="composer-mode-toggle"
-                aria-label={`对话模式：${DIALOGUE_MODE_UI[dialogueMode].label}`}
+                aria-label={`${modes?.length ? "询问范围" : "对话模式"}：${selectedMode?.label || ""}`}
                 aria-expanded={modeMenuOpen}
                 aria-haspopup="menu"
-                title={`对话模式：${DIALOGUE_MODE_UI[dialogueMode].label}`}
+                title={`${modes?.length ? "询问范围" : "对话模式"}：${selectedMode?.label || ""}`}
                 onClick={() => setModeMenuOpen((open) => !open)}
               >
                 <UiIcon name="plus" size={18} />
@@ -820,7 +859,7 @@ export function ChatComposer({
                     onDismiss={() => setModeMenuOpen(false)}
                     className={`composer-mode-menu${modeMenuBox ? "" : " is-positioning"}`}
                     role="menu"
-                    aria-label="对话模式"
+                    aria-label={modes?.length ? "询问范围" : "对话模式"}
                     style={{
                       position: "fixed",
                       left: modeMenuBox?.left ?? 0,
@@ -829,18 +868,18 @@ export function ChatComposer({
                       maxWidth: "min(360px, calc(100vw - 16px))",
                     }}
                   >
-                    {DIALOGUE_MODES.map((mode) => {
-                      const meta = DIALOGUE_MODE_UI[mode];
+                    {modeChoices.map((meta) => {
                       return (
                         <button
                           type="button"
                           role="menuitemradio"
-                          aria-checked={dialogueMode === mode}
-                          className={`composer-mode-option composer-mode-option-${mode}${dialogueMode === mode ? " is-active" : ""}`}
-                          key={mode}
+                          aria-checked={selectedModeId === meta.id}
+                          className={`composer-mode-option composer-mode-option-${meta.id}${selectedModeId === meta.id ? " is-active" : ""}`}
+                          key={meta.id}
                           style={{ "--mode-accent": meta.accent } as React.CSSProperties}
                           onClick={() => {
-                            onDialogueModeChange(mode);
+                            if (modes?.length) onModeChange?.(meta.id);
+                            else onDialogueModeChange?.(meta.id as DialogueMode);
                             setModeMenuOpen(false);
                           }}
                         >
@@ -859,52 +898,53 @@ export function ChatComposer({
               ) : null}
             </div>
           ) : null}
-          {onDialogueModeChange && dialogueMode !== "default" ? (
+          {selectedMode &&
+          (modes?.length
+            ? selectedModeId !== modeChoices[0]?.id
+            : onDialogueModeChange && dialogueMode !== "default") ? (
             <div
-              className={`composer-mode-chip composer-mode-chip-${dialogueMode}`}
+              className={`composer-mode-chip composer-mode-chip-${selectedMode.id}`}
               style={
                 {
-                  "--mode-accent": DIALOGUE_MODE_UI[dialogueMode].accent,
-                  "--mode-surface": DIALOGUE_MODE_UI[dialogueMode].surface,
+                  "--mode-accent": selectedMode.accent,
+                  "--mode-surface": selectedMode.surface,
                 } as React.CSSProperties
               }
             >
               <span className="composer-mode-chip-icon" aria-hidden="true">
-                <UiIcon name={DIALOGUE_MODE_UI[dialogueMode].icon as UiIconName} size={16} />
+                <UiIcon name={selectedMode.icon as UiIconName} size={16} />
               </span>
-              <span className="composer-mode-chip-label">
-                {DIALOGUE_MODE_UI[dialogueMode].label}
-              </span>
-              <button
-                type="button"
-                className="composer-mode-chip-clear"
-                aria-label={`退出 ${DIALOGUE_MODE_UI[dialogueMode].label}，恢复${DIALOGUE_MODE_UI.default.label}`}
-                title={`恢复${DIALOGUE_MODE_UI.default.label}`}
-                onClick={() => onDialogueModeChange("default")}
-              >
-                <UiIcon name="close" size={12} />
-              </button>
+              <span className="composer-mode-chip-label">{selectedMode.label}</span>
+              {(() => {
+                // 老翁的询问范围也有「恢复默认」：当前项目 是默认项。
+                const fallbackLabel = modes?.length
+                  ? modeChoices[0]?.label || "当前项目"
+                  : DIALOGUE_MODE_UI.default.label;
+                return (
+                  <button
+                    type="button"
+                    className="composer-mode-chip-clear"
+                    aria-label={`退出 ${selectedMode.label}，恢复${fallbackLabel}`}
+                    title={`恢复${fallbackLabel}`}
+                    onClick={() => {
+                      if (modes?.length) {
+                        const fallbackId = modeChoices[0]?.id;
+                        if (fallbackId) onModeChange?.(fallbackId);
+                      } else onDialogueModeChange?.("default");
+                    }}
+                  >
+                    <UiIcon name="close" size={12} />
+                  </button>
+                );
+              })()}
             </div>
           ) : null}
-          {onDialogueModeChange ? (
+          {onDialogueModeChange && groupPrompts ? (
             <div
               className={`composer-footer-shortcuts${shortcutsFit ? "" : " is-hidden"}`}
               aria-hidden={shortcutsFit ? undefined : true}
             >
               <div className="composer-prompt-shortcuts" ref={shortcutsRef}>
-                <button
-                  type="button"
-                  className="composer-prompt-shortcut"
-                  disabled={busy}
-                  title="预填 @小祥，基于当前群聊上下文梳理讨论"
-                  onClick={() => {
-                    setMessage(SUMMARY_REQUEST);
-                    requestAnimationFrame(() => input.current?.focus());
-                  }}
-                >
-                  <UiIcon name="sparkle" size={16} />
-                  帮我梳理群聊
-                </button>
                 <button
                   type="button"
                   className="composer-prompt-shortcut"

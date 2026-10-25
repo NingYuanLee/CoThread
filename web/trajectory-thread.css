@@ -1,0 +1,787 @@
+/**
+ * 轨迹样式（群聊 thread 新增 + 面板基础）。
+ *
+ * 背景：web/workspace.css 在 2026-10-24 被误截断，恢复时只找回了旧版轨迹样式，
+ * 与当前 AgentLogDialog 的 JSX（轮次徽标、请求圆点、分页签、内容块）不匹配。
+ * 按 Lead 的要求，轨迹相关的样式以本文件为准：这里既包含群聊新增块
+ * （轮次对话模式标签、工具折叠组、上下文压缩行），也包含轨迹面板/步骤/详情的基础布局，
+ * 不再依赖 workspace.css 里可能缺失的旧类。
+ *
+ * 不写回 workspace.css，避免和其他人的改动互相覆盖；本文件在 AgentLogDialog 内引入，
+ * 加载顺序晚于 workspace.css，同名规则以这里为准。
+ */
+
+/* ===== 轨迹配色：主题无关，浅色/深色共用，避免夜间把色阶映射成灰白 ===== */
+:root {
+  --c-context-green: #57b07a;
+  --c-trajectory-system: #8a9482;
+  --c-trajectory-user: #4d7ec8;
+  --c-trajectory-assistant: #a07fc0;
+  --c-trajectory-tool: #e08a3d;
+  --c-trajectory-subtool: #b9662a;
+  --c-trajectory-request: #8a9482;
+}
+
+/* ===== 面板骨架 ===== */
+.trajectory-panel {
+  --trajectory-accent: var(--c-6f8b60, #6f8b60);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--c-fff, #fff);
+  font-size: 11px;
+}
+
+/* 三条泳道：输入 / 模型 / 工具，共用一条时间轴 */
+.trajectory-lanes {
+  padding: 5px 10px 7px;
+  border-bottom: 1px solid var(--c-eef1ee, #eef1ee);
+}
+
+.trajectory-lane {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+}
+
+.trajectory-lane-label {
+  color: var(--c-8a9482, #8a9482);
+  font-size: 10px;
+  line-height: 1;
+  text-align: right;
+}
+
+.trajectory-lane-track {
+  position: relative;
+  height: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.trajectory-span {
+  position: absolute;
+  top: 0;
+  height: 5px;
+  min-width: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 1px;
+  background: var(--c-8a9482, #8a9482);
+  cursor: pointer;
+  opacity: 0.82;
+}
+
+.trajectory-span:hover { opacity: 1; }
+
+.trajectory-span[data-current] {
+  opacity: 1;
+  box-shadow: 0 0 0 1px var(--c-27362f, #27362f);
+}
+
+.trajectory-span[data-kind="system"] { background: var(--c-trajectory-system); }
+.trajectory-span[data-kind="user"] { background: var(--c-trajectory-user); }
+.trajectory-span[data-kind="context"] { background: var(--c-context-green); }
+.trajectory-span[data-kind="request"] { background: var(--c-trajectory-request); }
+.trajectory-span[data-kind="assistant"] { background: var(--c-trajectory-assistant); }
+.trajectory-span[data-kind="tool"] { background: var(--c-trajectory-tool); }
+.trajectory-span[data-kind="subtool"] { background: var(--c-trajectory-subtool); }
+
+/* 左右两栏：步骤列表 + 步骤详情 */
+.trajectory-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.trajectory-steps {
+  min-height: 0;
+  /* 步骤行都是单行、超长文本走省略号，横向不该出现滚动条；只纵向滚。 */
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 3px 0 12px;
+  /* 分隔线用内阴影画：给滚动容器加 border 会让内容宽度多 1px，出现横向滚动条。 */
+  box-shadow: inset -1px 0 0 var(--c-eef1ee, #eef1ee);
+}
+
+/* ===== 步骤行：左侧留出「第几轮」的位置 ===== */
+.trajectory-step {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 3px 10px 3px 58px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trajectory-step:hover { background: var(--c-f7f9f5, #f7f9f5); }
+
+.trajectory-step[data-current] {
+  background: color-mix(in srgb, var(--c-6f8b60, #6f8b60) 13%, transparent);
+}
+
+.trajectory-step[data-current]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--c-6f8b60, #6f8b60);
+}
+
+.trajectory-turn-badge {
+  position: absolute;
+  left: 8px;
+  top: 3px;
+  margin: 0;
+  color: var(--c-8a9482, #8a9482);
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+/* 不同类型 = 不同颜色的标签，类型名加粗 */
+.trajectory-step-kind {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border-radius: 2px;
+  color: var(--kind-fg);
+  background: var(--kind-bg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+}
+
+.trajectory-step {
+  --kind-fg: var(--c-trajectory-system);
+  --kind-bg: color-mix(in srgb, var(--c-trajectory-system) 16%, transparent);
+}
+
+/* 恢复后的 workspace.css 里还留着按类型直接设色的旧规则（优先级更高），这里用同等优先级覆盖 */
+.trajectory-step[data-kind] .trajectory-step-kind {
+  color: var(--kind-fg);
+  background: var(--kind-bg);
+}
+
+.trajectory-step[data-kind="user"] {
+  --kind-fg: var(--c-trajectory-user);
+  --kind-bg: color-mix(in srgb, var(--c-trajectory-user) 15%, transparent);
+}
+
+.trajectory-step[data-kind="context"] {
+  --kind-fg: var(--c-context-green);
+  --kind-bg: color-mix(in srgb, var(--c-context-green) 16%, transparent);
+}
+
+.trajectory-step[data-kind="assistant"] {
+  --kind-fg: var(--c-trajectory-assistant);
+  --kind-bg: color-mix(in srgb, var(--c-trajectory-assistant) 16%, transparent);
+}
+
+.trajectory-step[data-kind="tool"] {
+  --kind-fg: var(--c-trajectory-tool);
+  --kind-bg: color-mix(in srgb, var(--c-trajectory-tool) 15%, transparent);
+}
+
+.trajectory-step[data-kind="subtool"] {
+  --kind-fg: var(--c-trajectory-subtool);
+  --kind-bg: color-mix(in srgb, var(--c-trajectory-subtool) 12%, transparent);
+}
+
+.trajectory-step[data-error] .trajectory-step-kind {
+  --kind-fg: var(--c-a24b3d, #a24b3d);
+  --kind-bg: color-mix(in srgb, var(--c-a24b3d, #a24b3d) 15%, transparent);
+}
+
+.trajectory-step-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trajectory-step-text em {
+  color: var(--c-8a9482, #8a9482);
+  font-style: normal;
+}
+
+/* 请求圆点：独立按钮，落在本行与上一行之间的空隙里，命中区 15px */
+.trajectory-step-wrap {
+  position: relative;
+}
+
+.trajectory-request-dot {
+  position: absolute;
+  left: 36px;
+  top: 0;
+  z-index: 2;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.trajectory-request-dot::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid var(--c-9fb0a2, #9fb0a2);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.trajectory-request-dot:hover::before {
+  border-color: var(--c-6f8b60, #6f8b60);
+  background: color-mix(in srgb, var(--c-6f8b60, #6f8b60) 18%, transparent);
+}
+
+.trajectory-request-dot[data-on]::before {
+  border-color: var(--c-6f8b60, #6f8b60);
+  background: var(--c-6f8b60, #6f8b60);
+}
+
+/* ===== 右侧详情 ===== */
+.trajectory-detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--c-fff, #fff);
+}
+
+.trajectory-panel .trajectory-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--c-eef1ee, #eef1ee);
+}
+
+.trajectory-panel .trajectory-detail-head::after { content: none; }
+
+.trajectory-panel .trajectory-detail-head strong {
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.trajectory-panel .trajectory-detail-head small {
+  flex: 1;
+  min-width: 0;
+  color: var(--c-8a9482, #8a9482);
+  font-size: 10px;
+}
+
+.trajectory-panel .trajectory-detail-close {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--c-8a9482, #8a9482);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.trajectory-panel .trajectory-detail-close:hover {
+  background: var(--c-f7f9f5, #f7f9f5);
+  color: var(--c-27362f, #27362f);
+}
+
+/* 标签：干净的文字 + 选中底杠（无圆角、无逐项边框） */
+.trajectory-tabs {
+  display: flex;
+  gap: 14px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--c-eef1ee, #eef1ee);
+  overflow-x: auto;
+}
+
+.trajectory-tabs button {
+  position: relative;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 6px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--c-8a9482, #8a9482);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.trajectory-tabs button:hover { color: var(--c-27362f, #27362f); }
+
+.trajectory-tabs button[aria-selected="true"] { color: var(--c-27362f, #27362f); }
+
+.trajectory-tabs button[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  top: auto;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  height: 2px;
+  border: 0;
+  border-radius: 0;
+  background: var(--c-6f8b60, #6f8b60);
+}
+
+.trajectory-tab-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px 14px;
+}
+
+.trajectory-tab-body pre {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.trajectory-tab-body dl { margin: 0; }
+
+.trajectory-tab-body dl > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.trajectory-tab-body dt { color: var(--c-8a9482, #8a9482); }
+.trajectory-tab-body dd { margin: 0; overflow-wrap: anywhere; }
+
+/* 概述里可点的行：来源 / 预览 */
+.trajectory-tab-body dd .trajectory-overview-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--c-4d7ec8, #4d7ec8);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trajectory-tab-body dd .trajectory-overview-link:hover { text-decoration: underline; }
+
+.trajectory-empty {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--c-8a9482, #8a9482);
+  font-size: 11px;
+}
+
+/* 上下文的「来源」页：只显示格式化后的 JSON，可折行不横向滚动 */
+/* 彩色 JSON：键 / 字符串 / 数字 / 布尔与 null */
+.trajectory-json-key { color: #3c72c3; }
+.trajectory-json-string { color: #5c7d4f; }
+.trajectory-json-number { color: #a8682b; }
+.trajectory-json-literal { color: #9a4740; }
+
+/* 夜间主题：同样的语义，换成深底上能看清的亮色 */
+html[data-theme="night"] .trajectory-json-key { color: #79b8ff; }
+html[data-theme="night"] .trajectory-json-string { color: #a8d8a0; }
+html[data-theme="night"] .trajectory-json-number { color: #f0b37e; }
+html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
+
+.trajectory-json {
+  margin: 0;
+  padding: 8px 12px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 用户预览里的文件列表 */
+.trajectory-file-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trajectory-file-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.trajectory-file-name {
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  word-break: break-all;
+}
+
+.trajectory-file-meta {
+  flex: 0 0 auto;
+  color: var(--c-8a9482, #8a9482);
+  white-space: nowrap;
+}
+
+/* 原始内容：按内容块列出 thing / text / tool-call */
+.trajectory-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.trajectory-block-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.trajectory-block-no { font-weight: 700; }
+
+.trajectory-block-type {
+  padding: 0 4px;
+  border-radius: 2px;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.trajectory-block[data-type="thing"] .trajectory-block-type {
+  background: color-mix(in srgb, var(--c-8a6ea3) 20%, transparent);
+}
+
+.trajectory-block[data-type="text"] .trajectory-block-type {
+  background: color-mix(in srgb, var(--c-3d8a5b) 18%, transparent);
+}
+
+.trajectory-block[data-type="tool-call"] .trajectory-block-type {
+  background: color-mix(in srgb, var(--c-4d7ec8) 18%, transparent);
+}
+
+.trajectory-block-name {
+  color: var(--c-5e6c56, #5e6c56);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.trajectory-block pre {
+  max-height: 260px;
+  margin: 3px 0 0;
+  padding: 5px 7px;
+  overflow: auto;
+  border-radius: 4px;
+  background: var(--c-f7f9f5, #f7f9f5);
+  font-size: 11px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 助手预览：思考默认收起，正文与工具清单依次排开 */
+.trajectory-think { margin: 0 0 10px; }
+
+.trajectory-think > summary {
+  color: var(--c-8a9482, #8a9482);
+  font-size: 11px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.trajectory-think > summary::-webkit-details-marker { display: none; }
+
+.trajectory-think > summary::before {
+  content: "▸";
+  margin-right: 4px;
+}
+
+.trajectory-think[open] > summary::before { content: "▾"; }
+.trajectory-think > summary:hover { color: var(--c-27362f, #27362f); }
+.trajectory-think > summary em { font-style: normal; }
+
+.trajectory-think pre {
+  max-height: 320px;
+  margin: 2px 0 0;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.trajectory-preview-block h4 {
+  margin: 12px 0 4px;
+  color: var(--c-8a9482, #8a9482);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.trajectory-assistant-preview > .trajectory-think + .trajectory-preview-block h4 { margin-top: 0; }
+
+.trajectory-preview-block pre {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.trajectory-step-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trajectory-step-tools button {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--c-e7eae7, #e7eae7);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trajectory-step-tools button:hover {
+  border-color: var(--c-6f8b60, #6f8b60);
+  background: var(--c-f7f9f5, #f7f9f5);
+}
+
+.trajectory-step-tools-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+}
+
+.trajectory-step-tools-meta {
+  margin-left: auto;
+  color: var(--c-8a9482, #8a9482);
+  font-size: 10px;
+}
+
+/* 分栏（问老翁）里变窄时：步骤列表在上，详情在下 */
+@container (max-width: 760px) {
+  .trajectory-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 232px);
+  }
+
+  .trajectory-steps {
+    box-shadow: inset 0 -1px 0 var(--c-e7eae7, #e7eae7);
+  }
+}
+
+/* ===== 新增：轮次头部的对话模式标签 ===== */
+.trajectory-turn-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.trajectory-turn-mode .ui-icon { flex: 0 0 auto; }
+
+/* ===== 新增：工具折叠组（默认一行「已完成」，展开后每个工具一行） ===== */
+.trajectory-tool-group {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px 2px 58px;
+}
+
+.trajectory-tool-group:hover { background: var(--c-f7f9f5, #f7f9f5); }
+
+.trajectory-tool-fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--c-5e6c56, #5e6c56);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trajectory-tool-fold:hover { color: var(--c-3c463a, #3c463a); }
+
+.trajectory-tool-fold-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--c-6f8b60, #6f8b60);
+}
+
+.trajectory-tool-group[data-status="running"] .trajectory-tool-fold-icon { color: var(--c-8a9482, #8a9482); }
+.trajectory-tool-group[data-status="failed"] .trajectory-tool-fold-icon { color: var(--c-b4432f, #b4432f); }
+
+.trajectory-tool-fold-label { color: var(--c-3c463a, #3c463a); }
+.trajectory-tool-group[data-status="running"] .trajectory-tool-fold-label { color: var(--c-8a9482, #8a9482); }
+.trajectory-tool-group[data-status="failed"] .trajectory-tool-fold-label { color: var(--c-b4432f, #b4432f); }
+
+.trajectory-tool-fold-hint {
+  flex: 0 0 auto;
+  color: var(--c-8b9689, #8b9689);
+  font-size: 10px;
+}
+
+.trajectory-tool-fold-chevron {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--c-8a9482, #8a9482);
+}
+
+/* 整行宽的子块用 padding 缩进：flex-basis:100% 再加 margin 会横向撑出滚动条 */
+.trajectory-tool-list {
+  flex: 1 0 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  box-sizing: border-box;
+  margin: 2px 0 4px;
+  padding-left: 19px;
+}
+
+.trajectory-tool-item { margin: 0; }
+
+.trajectory-tool-item > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  color: var(--c-5e6c56, #5e6c56);
+  font-size: 12px;
+  line-height: 1.6;
+  cursor: pointer;
+  list-style: none;
+}
+
+.trajectory-tool-item > summary::-webkit-details-marker { display: none; }
+
+/* 行内 details 的展开指示：不占工具图标的位置 */
+.trajectory-tool-item > summary::before {
+  content: "▸";
+  flex: 0 0 auto;
+  color: var(--c-8a9482, #8a9482);
+  font-size: 9px;
+}
+
+.trajectory-tool-item[open] > summary::before { content: "▾"; }
+.trajectory-tool-item > summary:hover { color: var(--c-27362f, #27362f); }
+
+.trajectory-tool-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+}
+
+.trajectory-tool-status {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--c-8a9482, #8a9482);
+  font-size: 10px;
+}
+
+.trajectory-tool-item[data-status="failed"] .trajectory-tool-status { color: var(--c-b4432f, #b4432f); }
+
+.trajectory-tool-payload {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 6px 19px;
+}
+
+.trajectory-tool-payload-label {
+  color: var(--c-8a9482, #8a9482);
+  font-size: 10px;
+}
+
+.trajectory-tool-payload pre {
+  max-height: 220px;
+  margin: 0 0 4px;
+  padding: 4px 6px;
+  overflow: auto;
+  border-radius: 4px;
+  background: var(--c-f7f9f5, #f7f9f5);
+  color: var(--c-3c463a, #3c463a);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.trajectory-tool-loading {
+  margin: 0;
+  color: var(--c-8a9482, #8a9482);
+  font-size: 11px;
+}
+
+/* ===== 上下文压缩：平铺一行，黄色「压缩」文字标签，不伸缩、不用图标 ===== */
+.trajectory-compact-tag {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 2px;
+  background: #fdf1cf;
+  color: #9a6b12;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+html[data-theme="night"] .trajectory-compact-tag {
+  background: #4a3a12;
+  color: #f0c96b;
+}
+

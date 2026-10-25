@@ -217,7 +217,7 @@ test("POST approve/reject reject non-owner members", async () => {
 });
 
 test("POST cancel is limited to the requester", async () => {
-  // 成员可以提交申请（提交只需成员身份，L3 同理）。
+  // 成员可以提交申请（提交只需成员身份，子 Agent 同理）。
   const created = await submit(memberCookie, { target: "cloudbase_static" });
   assert.equal(created.status, 201);
   const { id, requestedBy } = await created.json();

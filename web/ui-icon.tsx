@@ -5,6 +5,7 @@ export type UiIconName =
   | "archive"
   | "blocked"
   | "book"
+  | "browser"
   | "camera"
   | "branch"
   | "chat"
@@ -28,6 +29,7 @@ export type UiIconName =
   | "email"
   | "expand"
   | "eye"
+  | "eyeOff"
   | "failed"
   | "filter"
   | "folder"
@@ -86,6 +88,7 @@ export type UiIconName =
   | "sparkle"
   | "star"
   | "stop"
+  | "target"
   | "task"
   | "trajectory"
   | "transfer"
@@ -152,6 +155,13 @@ const GLYPHS: Record<GlyphName, Glyph[]> = {
   email: ["M4 6h16v12H4z", "m4 7 8 6 8-6"],
   expand: ["M9 4H4v5", "M15 4h5v5", "M9 20H4v-5", "M15 20h5v-5"],
   eye: ["M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z", "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"],
+  // Lucide eye-off, ISC. https://lucide.dev/icons/eye-off
+  eyeOff: [
+    "M10.7 5.1A10.9 10.9 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-1.7 2.7",
+    "M6.6 6.6A13.4 13.4 0 0 0 2 12s3 7 10 7a10.9 10.9 0 0 0 5.4-1.4",
+    "M2 2l20 20",
+    "M9.9 9.9a3 3 0 0 0 4.2 4.2",
+  ],
   failed: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "m9 9 6 6m0-6-6 6"],
   filter: ["M4 6h16l-6 7v5l-4 2v-7L4 6Z"],
   folder: ["M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"],
@@ -173,6 +183,11 @@ const GLYPHS: Record<GlyphName, Glyph[]> = {
     "M3 12h18",
     "M12 3c2.2 2.4 3.3 5.4 3.3 9S14.2 18.6 12 21",
     "M12 3C9.8 5.4 8.7 8.4 8.7 12s1.1 6.6 3.3 9",
+  ],
+  browser: [
+    "M4 5.5h16a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-11a2 2 0 0 1 2-2Z",
+    "M2 9.5h20",
+    "M6 7.4h.01",
   ],
   history: ["M12 8v5l3 2", "M21 12a9 9 0 1 1-2.6-6.35", "M21 4v6h-6"],
   home: ["M4 11 12 4l8 7", "M6 10.5V20h12v-9.5", "M10 20v-5h4v5"],
@@ -276,6 +291,12 @@ const GLYPHS: Record<GlyphName, Glyph[]> = {
   ],
   star: ["M12 3 14.5 9.5 21.5 10.2 16.3 14.8 18 21.5 12 18 6 21.5 7.7 14.8 2.5 10.2 9.5 9.5Z"],
   stop: ["M7 7h10v10H7z"],
+  // Lucide target, ISC. https://lucide.dev/icons/target
+  target: [
+    "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z",
+    "M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z",
+    "M12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z",
+  ],
   task: ["M9 6h11v14H4V6h3", "M8 4h4v3H8z", "m8 13 2 2 5-5"],
   trajectory: ["M3 12h5l2.5-7 4 14 2.5-7H21"],
   transfer: ["M7 8H3l4-4", "M3 8h12a5 5 0 0 1 5 5", "M17 16h4l-4 4", "M21 16H9a5 5 0 0 1-5-5"],
@@ -306,8 +327,8 @@ const ROLE_ICONS: Record<string, UiIconName> = {
   产品: "layers",
   前端: "layout",
   后端: "server",
-  L1: "book",
-  L2: "sparkle",
+  老翁: "book",
+  小祥: "sparkle",
   项目知识库: "library",
   任务调度: "iteration",
   创建人: "star",
@@ -325,6 +346,7 @@ const WORKFLOW_ICONS: Record<string, UiIconName> = {
   queued: "clock",
   waiting: "pause",
   blocked: "blocked",
+  ignored: "eyeOff",
   running: "running",
   completed: "checkCircle",
   failed: "failed",

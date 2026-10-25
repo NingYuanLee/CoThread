@@ -1592,3 +1592,170 @@
   min-width: 280px;
   max-width: 280px;
 }
+
+.org-structure {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.org-structure-error {
+  margin: 0;
+}
+.org-structure-panes {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  gap: 12px;
+}
+.org-structure-tree,
+.org-structure-detail {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-fff);
+  border: 1px solid var(--c-e0e6dc);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.org-structure-toolbar,
+.org-structure-heading {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--c-edf0e8);
+}
+.org-structure-toolbar {
+  align-items: center;
+}
+.org-structure-heading h2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.org-structure-heading p {
+  margin: 4px 0 0;
+  color: var(--c-73806f);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.org-structure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.org-structure-nodes,
+.org-structure-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.org-structure-nodes {
+  padding: 4px 0 8px;
+}
+.org-structure .org-structure-node,
+.org-structure .org-structure-node:hover:not(:disabled) {
+  display: flex;
+  width: 100%;
+  height: auto;
+  min-height: 32px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding-top: 6px;
+  padding-right: 12px;
+  padding-bottom: 6px;
+  text-align: left;
+  font-weight: 500;
+  --stroke: transparent;
+}
+.org-structure .org-structure-node::after {
+  content: none;
+}
+.org-structure .org-structure-node:hover:not(:disabled) {
+  background: var(--c-f7f9f3);
+}
+.org-structure .org-structure-node.is-selected,
+.org-structure .org-structure-node.is-selected:hover:not(:disabled) {
+  background: var(--c-e9eee5);
+  color: var(--c-395d40);
+}
+.org-structure .org-structure-node.is-archived,
+.org-structure .org-structure-node.is-archived:hover:not(:disabled) {
+  color: var(--c-8b9689);
+}
+.org-structure-node-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.org-structure-archived {
+  flex: 0 0 auto;
+  color: var(--c-8b9689);
+  font-size: 11px;
+}
+.org-structure-section {
+  padding: 12px 12px 0;
+}
+.org-structure-section h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.org-structure-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.org-structure-table {
+  margin: 0 0 12px;
+  border: 1px solid var(--c-e0e6dc);
+  border-radius: var(--radius-control);
+  overflow: auto;
+  background: var(--c-fff);
+}
+.org-structure-empty {
+  margin: 0;
+  padding: 28px 16px;
+  color: var(--c-8b9689);
+  font-size: 12px;
+  line-height: 1.7;
+}
+@media (max-width: 860px) {
+  .org-structure-panes {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+  .org-structure-tree {
+    max-height: 320px;
+  }
+}
+
+/* 工作状态筛选有 16 个选项：面板本体保持裁剪（发丝外框依赖 overflow: clip），
+   超出高度改由内部选项列表滚动，避免后半段状态既看不到也点不到。 */
+html body .field-select-panel > [role="listbox"] {
+  max-height: calc(220px - 2 * var(--overlay-select-panel-padding, 6px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}

@@ -2,6 +2,8 @@ export type DialogueMode = "default" | "chat" | "miniprogram" | "cloudbase";
 
 export const DIALOGUE_MODES: DialogueMode[];
 
+export const SELECTABLE_DIALOGUE_MODES: DialogueMode[];
+
 export const DIALOGUE_MODE_LABELS: Record<DialogueMode, string>;
 
 export const DIALOGUE_MODE_UI: Record<

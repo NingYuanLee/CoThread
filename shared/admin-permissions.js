@@ -17,6 +17,11 @@ export const ADMIN_PERMISSION_TREE = [
     icon: "project",
     type: "menu",
     children: [
+      page("orgs", "组织架构", "members", [
+        ["update", "维护组织树"],
+        ["assign", "安排人员"],
+        ["link", "设置项目归属"],
+      ]),
       page("projects", "项目管理", "project", [
         ["create", "新增项目"],
         ["update", "编辑项目信息"],
@@ -73,6 +78,7 @@ export const MY_WORK_MENU = {
   type: "menu",
   children: [
     { key: "my-projects", label: "我的项目", icon: "project", type: "page", children: [] },
+    { key: "my-orgs", label: "我的组织", icon: "inbox", type: "page", children: [] },
     { key: "my-iterations", label: "我的迭代", icon: "iteration", type: "page", children: [] },
     { key: "my-tasks", label: "我的任务", icon: "task", type: "page", children: [] },
   ],
@@ -144,5 +150,11 @@ export function adminPermissionForRequest(method, path) {
     return method === "PATCH" ? "plugins.update" : method === "DELETE" ? "plugins.archive" : false;
   if (path === "/model-settings")
     return method === "GET" ? "model-settings" : method === "PUT" ? "model-settings.update" : false;
+  if (method === "GET" && (path === "/orgs" || /^\/orgs\/[^/]+$/.test(path))) return "orgs";
+  if (method === "POST" && path === "/orgs") return "orgs.update";
+  if (method === "PATCH" && /^\/orgs\/[^/]+$/.test(path)) return "orgs.update";
+  if (method === "POST" && /^\/orgs\/[^/]+\/archive$/.test(path)) return "orgs.update";
+  if (method === "PUT" && /^\/orgs\/[^/]+\/members$/.test(path)) return "orgs.assign";
+  if (method === "POST" && /^\/projects\/[^/]+\/org-links$/.test(path)) return "orgs.link";
   return false;
 }

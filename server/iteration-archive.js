@@ -6,8 +6,10 @@ import { lockIteration } from "./iteration-state.js";
 import { latestVersionsByFolderRoots } from "./documents/index.js";
 import { modelResponse, responseText } from "./model-config.js";
 import { publishWork } from "./work-events.js";
-import { nativeHistoryFromLiveHome } from "./l3-session.js";
+import { nativeHistoryFromLiveHome } from "./child-agent-session.js";
 import { acquireSessionLock } from "./session-lock.js";
+import { recordArchivePages } from "./wiki-pages.js";
+import { listIterationMemoryDrafts, settleIterationMemory } from "./memory-timeline.js";
 
 const ended = new Set(["completed", "failed", "cancelled", "rejected", "abandoned", "superseded"]);
 
@@ -291,7 +293,7 @@ async function enqueue(conn, thread, workflow, phase, userId) {
   const id = randomUUID();
   await query(
     conn,
-    `INSERT INTO agent_l1_runs(id,project_id,thread_id,task,trigger_source,requested_by,archive_workflow_id,archive_token,archive_phase)
+    `INSERT INTO agent_laoweng_runs(id,project_id,thread_id,task,trigger_source,requested_by,archive_workflow_id,archive_token,archive_phase)
     VALUES(?,?,?,'iteration_archive','user',?,?,?,?)`,
     [id, thread.project_id, thread.id, userId, workflow.id, workflow.run_token, phase],
   );
@@ -327,7 +329,7 @@ async function archiveDraftOrphaned(db, workflowId) {
   if (!stale || !Number(stale.old)) return false;
   const [live] = await query(
     db,
-    `SELECT id FROM agent_l1_runs WHERE archive_workflow_id=?
+    `SELECT id FROM agent_laoweng_runs WHERE archive_workflow_id=?
     AND (status='running' OR (status='queued' AND created_at > DATE_SUB(NOW(), INTERVAL 300 SECOND)))
     LIMIT 1`,
     [workflowId],
@@ -368,6 +370,12 @@ export async function readArchiveWorkflow(service, user, threadId) {
     nextIteration: plan.nextIteration || { title: "", background: "", goal: "" },
     error: row.error || null,
     nextThreadId: row.next_thread_id || null,
+    // 本轮范围内的记忆草稿：归档确认前让人逐条校准，勾选的会在同一事务里转正。
+    memoryDrafts: await listIterationMemoryDrafts(service.db, {
+      projectId: thread.project_id,
+      threadId,
+      workflowId: row.id,
+    }),
     session: await archiveSessionView(service.db, thread, row),
     members: await query(
       service.db,
@@ -403,7 +411,7 @@ async function archiveSessionView(db, thread, workflow) {
   if (session?.session_id) {
     try {
       messages = await nativeHistoryFromLiveHome(
-        "l1-iteration_archive-" + thread.project_id,
+        "laoweng-iteration_archive-" + thread.project_id,
         session.session_id,
       );
     } catch {
@@ -737,7 +745,7 @@ export async function cancelIterationArchive(service, user, threadId, input) {
     await query(conn, "UPDATE threads SET status='active' WHERE id=?", [threadId]);
     await query(
       conn,
-      "UPDATE agent_l1_runs SET status='failed',error='归档已撤回',finished_at=UTC_TIMESTAMP(3) WHERE archive_workflow_id=? AND status='queued'",
+      "UPDATE agent_laoweng_runs SET status='failed',error='归档已撤回',finished_at=UTC_TIMESTAMP(3) WHERE archive_workflow_id=? AND status='queued'",
       [workflowId],
     );
     return { status: "active" };
@@ -774,6 +782,8 @@ export async function confirmIterationArchive(service, user, threadId, input) {
     .extend({
       workflowId: z.string().uuid(),
       createNextIteration: z.boolean(),
+      // 清算清单里人勾选确认的本轮草稿；不传则全部保留为 draft。
+      confirmedEntryIds: z.array(z.string().uuid()).max(500).default([]),
       taskDecisions: z
         .array(
           z.object({
@@ -806,7 +816,17 @@ export async function confirmIterationArchive(service, user, threadId, input) {
     await authorized(service, conn, user, thread);
     const workflow = await workflowFor(conn, threadId, data.workflowId);
     if (thread.status === "archived" && workflow.status === "completed")
-      return { status: "archived", nextThreadId: workflow.next_thread_id || null };
+      return {
+        status: "archived",
+        nextThreadId: workflow.next_thread_id || null,
+        settlement: await settleIterationMemory(conn, {
+          projectId: thread.project_id,
+          threadId,
+          userId: user.id,
+          workflowId: workflow.id,
+          apply: false,
+        }),
+      };
     if (thread.status !== "archiving" || workflow.status !== "ready")
       throw new HttpError(409, "归档方案尚未就绪或已失效");
     await assertIdle(conn, threadId);
@@ -871,7 +891,7 @@ export async function confirmIterationArchive(service, user, threadId, input) {
       ]);
     }
     let number = 0,
-      l2Handoffs = 0;
+      xiaoxiangHandoffs = 0;
     for (const task of open) {
       const choice = choices.get(task.id);
       await query(
@@ -911,8 +931,8 @@ export async function confirmIterationArchive(service, user, threadId, input) {
             "UPDATE agent_tasks SET target_type='human_member',target_id=?,status='awaiting_acceptance',claimed_by_type=NULL,claimed_by_id=NULL,execution_agent_id=NULL WHERE id=?",
             [choice.assigneeUserId, task.id],
           );
-        } else if (task.target_type === "l2_session") {
-          l2Handoffs++;
+        } else if (task.target_type === "xiaoxiang") {
+          xiaoxiangHandoffs++;
           await query(
             conn,
             "UPDATE agent_tasks SET target_id=?,claimed_by_id=?,execution_agent_id=NULL,status='pending_assignment' WHERE id=?",
@@ -951,7 +971,7 @@ export async function confirmIterationArchive(service, user, threadId, input) {
         document_refs,folder_refs,target_type,target_id,status,claimed_by_type,claimed_by_id,
         execution_mode,execution_agent_type)
         VALUES(?,?,?,?,?,'human_member',?,'human_member',?,'formal',?,?,'[]','[]',?,?,
-        ?,?,?,'dsh_l3','dsh_l3')`,
+        ?,?,?,'child_agent','child_agent')`,
         [
           itemTaskId,
           thread.project_id,
@@ -962,10 +982,10 @@ export async function confirmIterationArchive(service, user, threadId, input) {
           user.id,
           item.title.slice(0, 240),
           (item.detail || item.title).slice(0, 20000),
-          assignee ? "human_member" : "l2_session",
+          assignee ? "human_member" : "xiaoxiang",
           assignee || nextSessionId,
           assignee ? "awaiting_acceptance" : "pending_assignment",
-          assignee ? null : "l2_session",
+          assignee ? null : "xiaoxiang",
           assignee ? null : nextSessionId,
         ],
       );
@@ -1028,10 +1048,10 @@ export async function confirmIterationArchive(service, user, threadId, input) {
       [threadId],
     );
     await enqueue(conn, thread, workflow, "memory", user.id);
-    if (l2Handoffs)
+    if (xiaoxiangHandoffs)
       await query(
         conn,
-        "INSERT INTO coordinator_events(id,thread_id,kind,status,payload) VALUES(?,?,'l3_idle','queued',?)",
+        "INSERT INTO coordinator_events(id,thread_id,kind,status,payload) VALUES(?,?,'child_idle','queued',?)",
         [
           randomUUID(),
           nextThreadId,
@@ -1043,7 +1063,23 @@ export async function confirmIterationArchive(service, user, threadId, input) {
           }),
         ],
       );
-    return { status: "archived", nextThreadId };
+    await recordArchivePages(conn, {
+      projectId: thread.project_id,
+      threadTitle: thread.title,
+      workflowId: workflow.id,
+      userId: user.id,
+      conclusion: data.conclusion,
+      notes: data.notes,
+      taskDecisions: data.taskDecisions,
+    });
+    const settlement = await settleIterationMemory(conn, {
+      projectId: thread.project_id,
+      threadId,
+      userId: user.id,
+      workflowId: workflow.id,
+      confirmedEntryIds: data.confirmedEntryIds,
+    });
+    return { status: "archived", nextThreadId, settlement };
   });
   publishWork(service.db, threadId);
   if (result.nextThreadId) publishWork(service.db, result.nextThreadId);

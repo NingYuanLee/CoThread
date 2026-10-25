@@ -5,14 +5,19 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { insertUniqueAssistantMessage } from "../server/assistant-post.js";
-import { l3ExecutorName, stickyActorIds } from "../web/ui-labels.ts";
+import { childExecutorName, stickyActorIds } from "../web/ui-labels.ts";
 
 test("insertUniqueAssistantMessage posts the same body only once under concurrency", async () => {
-  const database = await testDatabase(), db = database.db, service = new Service(db);
+  const database = await testDatabase(),
+    db = database.db,
+    service = new Service(db);
   try {
     const user = { id: randomUUID(), kind: "session" };
-    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
-      [user.id, `${user.id}@test.com`, "成员"]);
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
+      user.id,
+      `${user.id}@test.com`,
+      "成员",
+    ]);
     const project = await service.createProject(user, { name: "幂等发言" });
     const thread = await service.createThread(user, project.id, { title: "去重" });
     const trigger = await service.postMessage(user, thread.id, { body: "@小祥 测一下" });
@@ -23,16 +28,18 @@ test("insertUniqueAssistantMessage posts the same body only once under concurren
       insertUniqueAssistantMessage(service, db, user, thread.id, body, trigger.id),
     ]);
     assert.equal(new Set(posts.map((item) => item.id)).size, 1);
-    const rows = await query(db,
+    const rows = await query(
+      db,
       "SELECT id FROM messages WHERE agent_task_id=? AND source='assistant' AND body=?",
-      [trigger.id, body]);
+      [trigger.id, body],
+    );
     assert.equal(rows.length, 1);
   } finally {
     await database.close();
   }
 });
 
-test("stickyActorIds keeps first-seen L3 names when a newer task appears first in the pool", () => {
+test("stickyActorIds keeps first-seen 子 Agent names when a newer task appears first in the pool", () => {
   const older = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
   const newer = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
   // Pool often returns newest-first; sticky order must still prefer first appearance.
@@ -41,6 +48,6 @@ test("stickyActorIds keeps first-seen L3 names when a newer task appears first i
     { id: older, at: "2026-09-23 08:29:00" },
   ]);
   assert.deepEqual(ids, [older, newer]);
-  assert.equal(l3ExecutorName(older, ids), "大娃");
-  assert.equal(l3ExecutorName(newer, ids), "二娃");
+  assert.equal(childExecutorName(older, ids), "大娃");
+  assert.equal(childExecutorName(newer, ids), "二娃");
 });

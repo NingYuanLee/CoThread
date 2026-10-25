@@ -10,14 +10,6 @@ import {
   runWithExecutorFence,
 } from "./executor-fence.js";
 import { Service, HttpError } from "./service.js";
-import {
-  decideParticipation,
-  composeOpportunisticParticipation,
-  absorbOpportunisticBurst,
-  silenceOpportunisticBurst,
-  logParticipationDecision,
-  persistOpportunisticParticipationArtifacts,
-} from "./agent-participation.js";
 import { claimReply } from "./reply-dispatch.js";
 import { pendingTaskUpdates } from "./agent-updates.js";
 import { setTimeout as delay } from "node:timers/promises";
@@ -25,16 +17,19 @@ import { synchronizeNextDiscussion } from "./context-sync.js";
 import { processNextCoordinator } from "./coordinator.js";
 import { publishWork, subscribeWork, startWakeWorker } from "./work-events.js";
 import { processNextProjectMemory } from "./project-memory.js";
-import { processNextDocumentOrganization } from "./document-organization-run.js";
 import { processNextContextCompression, refreshNextContextStats } from "./context-compression.js";
-import { processNextL1ContextCompression } from "./l1-context.js";
-import { processNextL3ContextCompression } from "./l3-context.js";
+import { processNextLaowengContextCompression } from "./laoweng-context.js";
+import { processNextChildContextCompression } from "./child-agent-context.js";
 import { redactSecrets } from "./model-config.js";
 import { logAgentTiming } from "./agent-timing-log.js";
-import { recoverInterruptedDshL3Executions, recoverStaleDshL3Executions } from "./task-pool.js";
+import {
+  recoverInterruptedChildAgentExecutions,
+  recoverStaleChildAgentExecutions,
+} from "./task-pool.js";
 
-export async function processNextReply(db, generate, decide = decideParticipation, threadId) {
-  const job = await claimReply(db, threadId, { allowUnrouted: !!generate });
+// decide 已废弃。pending 参与判断只由 processNextCoordinator 处理，这里不领取。
+export async function processNextReply(db, generate, _decide = undefined, threadId) {
+  const job = await claimReply(db, threadId, { allowUnrouted: !!generate, skipPending: true });
   if (!job) return false;
   const service = new Service(db);
   const user = { id: job.author_id, kind: "session" };
@@ -53,78 +48,6 @@ export async function processNextReply(db, generate, decide = decideParticipatio
     });
     if (context.status !== "active") throw new HttpError(409, "迭代已归档");
     context.messages = context.messages.filter((m) => BigInt(m.sequence) <= BigInt(job.sequence));
-    if (job.participation === "pending") {
-      const judgedAt = performance.now();
-      const decision = await composeOpportunisticParticipation(db, {
-        title: context.title,
-        threadId: job.thread_id,
-        messageId: job.message_id,
-        decide,
-      });
-      const burstIds = decision.burstIds?.length ? decision.burstIds : [job.message_id];
-      if (!decision.respond) {
-        await transaction(db, async (conn) => {
-          await silenceOpportunisticBurst(conn, burstIds, decision.deferred);
-        });
-        const wallDurationMs = performance.now() - judgedAt;
-        await persistOpportunisticParticipationArtifacts(db, {
-          messageId: job.message_id,
-          threadId: job.thread_id,
-          decision,
-          wallDurationMs,
-        });
-        logParticipationDecision({
-          messageId: job.message_id,
-          threadId: job.thread_id,
-          decision,
-          durationMs: wallDurationMs,
-        });
-        return true;
-      }
-      // Immediate integrated paraphrase — do not wait for the full Agent path.
-      if (decision.message) {
-        await transaction(db, async (conn) => {
-          await service.thread(user, job.thread_id, true, conn);
-          const [current] = await query(
-            conn,
-            "SELECT status FROM assistant_replies WHERE message_id=? FOR UPDATE",
-            [job.message_id],
-          );
-          if (current?.status !== "running") return;
-          const reply = await service.insertMessage(
-            conn,
-            user,
-            job.thread_id,
-            decision.message,
-            [],
-            "assistant",
-            job.message_id,
-          );
-          await absorbOpportunisticBurst(conn, burstIds, reply.id, job.message_id);
-        });
-        const wallDurationMs = performance.now() - judgedAt;
-        await persistOpportunisticParticipationArtifacts(db, {
-          messageId: job.message_id,
-          threadId: job.thread_id,
-          decision,
-          wallDurationMs,
-        });
-        logParticipationDecision({
-          messageId: job.message_id,
-          threadId: job.thread_id,
-          decision,
-          durationMs: wallDurationMs,
-        });
-        return true;
-      }
-      // Legacy test doubles may return respond:true without message; continue Agent.
-      const legacy = await query(
-        db,
-        "UPDATE assistant_replies SET participation='reply',status='running',progress=? WHERE message_id=? AND status='running'",
-        ["准备参与讨论", job.message_id],
-      );
-      if (!legacy.affectedRows) return true;
-    }
     if (!generate) {
       runtime = await (await import("./agent.js")).openAgentRuntime(context, { db, job, user });
       context.modelMessages = await runtime.request("history");
@@ -174,6 +97,11 @@ export async function processNextReply(db, generate, decide = decideParticipatio
           await query(
             conn,
             "UPDATE assistant_replies SET status='completed',progress='已完成',reply_id=?,finished_at=UTC_TIMESTAMP(3) WHERE message_id=?",
+            [reply.id, job.message_id],
+          );
+          await query(
+            conn,
+            "UPDATE agent_requests SET status='completed',response_id=? WHERE message_id=? AND status IN ('queued','running')",
             [reply.id, job.message_id],
           );
           return true;
@@ -279,7 +207,7 @@ export async function startReplyWorker(
     } catch {
       // 状态登记失败不影响执行器启动。
     }
-    await recoverInterruptedDshL3Executions(db);
+    await recoverInterruptedChildAgentExecutions(db);
     // A crash may leave live metering newer than the durable checkpoint.
     await query(
       db,
@@ -315,7 +243,7 @@ export async function startReplyWorker(
     );
     await query(
       db,
-      `UPDATE agent_l1_runs SET status='failed',error='服务重启，维护任务已中断。',
+      `UPDATE agent_laoweng_runs SET status='failed',error='服务重启，维护任务已中断。',
       finished_at=UTC_TIMESTAMP(3) WHERE status='running'`,
     );
     await query(
@@ -362,13 +290,12 @@ export async function startReplyWorker(
       run(() => processNextProjectMemory(laneDb, { task: "member_memory" })),
       run(() => processNextProjectMemory(laneDb, { task: "document_memory" })),
       run(() => processNextProjectMemory(laneDb, { task: "iteration_archive" })),
-      run(() => processNextDocumentOrganization(laneDb)),
-      run(async () => (await recoverStaleDshL3Executions(laneDb)) > 0),
+      run(async () => (await recoverStaleChildAgentExecutions(laneDb)) > 0),
       run(
         async () =>
           (await processNextContextCompression(laneDb)) ||
-          (await processNextL1ContextCompression(laneDb)) ||
-          (await processNextL3ContextCompression(laneDb)) ||
+          (await processNextLaowengContextCompression(laneDb)) ||
+          (await processNextChildContextCompression(laneDb)) ||
           (await synchronizeNextDiscussion(laneDb)) ||
           (await refreshNextContextStats(laneDb)),
       ),

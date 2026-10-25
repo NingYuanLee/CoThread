@@ -9,10 +9,12 @@ export function apply(ctx) {
     const parsed = JSON.parse(process.env.COTHREAD_SYSTEM_PROMPTS_BY_LEVEL || "{}");
     if (parsed && typeof parsed === "object") prompts = parsed;
   } catch {}
-  const primaryLevel = process.env.COTHREAD_PRIMARY_AGENT_LEVEL || "l3";
+  const primaryLevel = process.env.COTHREAD_PRIMARY_AGENT_LEVEL || "child_agent";
   const primaryId = process.env.COTHREAD_PRIMARY_AGENT_ID || "";
   const levelFor = (context) =>
-    primaryLevel === "l2" && primaryId && context.agent?.id !== primaryId ? "l3" : primaryLevel;
+    primaryLevel === "xiaoxiang" && primaryId && context.agent?.id !== primaryId
+      ? "child_agent"
+      : primaryLevel;
   // A 段：部署期稳定。不放入项目、迭代、对话模式或任务输入。
   ctx.systemPrompt.section({
     name: "cothread:system",

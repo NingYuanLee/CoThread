@@ -38,7 +38,7 @@ import { DocumentPreviewBreadcrumb } from "./DocumentPreviewBreadcrumb";
 import { DocumentVersionHistorySelect, type DocumentVersionHistoryOption } from "./DocumentVersionHistorySelect";
 import { DocumentSourceActions } from "./DocumentSourceActions";
 import { DocumentReviewActions } from "./DocumentReviewActions";
-import { FolderGuideDialog, LibraryOrganizeDialog } from "./LibraryOrganizeDialog";
+import { FolderGuideDialog } from "./LibraryOrganizeDialog";
 import { CodeGuideDialog } from "./CodeGuideDialog";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { BranchVersionDialog } from "./BranchVersionDialog";
@@ -87,7 +87,6 @@ import {
   isUnversionedArea,
   officialSourceTypeLabels,
   officialTitleWithVersion,
-  organizableDocuments,
   readStoredBoolean,
   readStoredTreeWidth,
   resolveLibraryRoot,
@@ -172,9 +171,7 @@ export const Documents = memo(function Documents({
     (job) => job.scope === "project" && !job.thread_id,
   );
   const organizing = !!(organization && ["queued", "running"].includes(organization.status));
-  const canOrganizeOfficial = organizableDocuments(libraryVersions, libraryFolders).length > 0;
   const officialWritable = writable && !organizing;
-  const [organizeOpen, setOrganizeOpen] = useState(false);
   const [folderGuideKind, setFolderGuideKind] = useState<(typeof LIBRARY_ROOT_KINDS)[number] | null>(null);
   const [codeGuideId, setCodeGuideId] = useState<string | null>(null);
   const [codeConfig, setCodeConfig] = useState<CodeLibraryConfig | null>(null);
@@ -1148,11 +1145,6 @@ export const Documents = memo(function Documents({
       );
     }, "已另存至正式文件");
   };
-  const triggerOrganize = () => act(async () => {
-    await change(`/projects/${projectId}/documents/organize`, {});
-    onSelect("");
-    setOrganizeOpen(false);
-  }, "已提交正式文件整理");
   const isOfficialDropFolder = (targetFolderId: string) =>
     folderRootKind(targetFolderId, libraryFolders) === "project_official";
   const moveArtifactToFolder = (artifactId: string, targetFolderId: string) => {
@@ -1339,13 +1331,11 @@ export const Documents = memo(function Documents({
     setOpenFolderMenuId,
     setOpenFileMenuId,
     setTabMenu,
-    setOrganizeOpen,
     setFolderGuideKind,
     downloadingFolderId,
     setDownloadingFolderId,
     downloadProgress,
     setDownloadProgress,
-    writable,
     organizing,
     canManageOfficialFolders,
     uploadInputRef,
@@ -1664,7 +1654,7 @@ export const Documents = memo(function Documents({
         className="doc-browser-start-card"
         onClick={createBrowserNewTab}
       >
-        <TreeIcon kind="globe" className="doc-browser-start-card-icon" />
+        <TreeIcon kind="browser" className="doc-browser-start-card-icon" />
         <span className="doc-browser-start-card-copy">
           <strong>打开新HTML页签</strong>
           <small>在项目里打开一个 HTML 页面</small>
@@ -1731,16 +1721,6 @@ export const Documents = memo(function Documents({
     handleDocumentContextMenu,
   };
   const mainPanel = <DocumentMainPanel {...mainPanelProps} />;
-  const organizeDialog = organizeOpen ? (
-          <LibraryOrganizeDialog
-            organizing={organizing}
-            pending={pending}
-            canOrganize={canOrganizeOfficial}
-            error={organization?.status === "failed" ? organization.error || "上次整理失败，可重试。" : undefined}
-            onClose={() => setOrganizeOpen(false)}
-            onOrganize={() => void triggerOrganize()}
-          />
-        ) : null;
   const folderGuideDialog = folderGuideKind ? (
           <FolderGuideDialog
             title={`${ROOT_LABELS[folderGuideKind]} · 文件夹说明`}
@@ -1878,10 +1858,10 @@ export const Documents = memo(function Documents({
         id: tab.key,
         label: tab.label,
         title: tab.url || tab.label,
-        // 还没打开具体页面的 HTML 阅览页签用地球图标，与「打开新HTML页签」入口一致。
+        // 还没打开具体页面的 HTML 阅览页签用浏览器窗口图标，与「打开新HTML页签」入口一致。
         icon: item
           ? <LibraryFileIcon fileName={item.filename} versionId={item.id} className="tree-icon file-type-icon" width={14} height={14} />
-          : <UiIcon name="globe" size={14} />,
+          : <UiIcon name="browser" size={14} />,
         // 第一项 HTML 页签在文档页签之后加一条分隔线，让同一栏里的两类页签可区分。
         className: index === 0 && openTabs.length ? "doc-browser-tab-html" : undefined,
       };
@@ -2024,7 +2004,6 @@ export const Documents = memo(function Documents({
           explorer={activeTool === "files" && treeOpen ? explorer : null}
           mainPanel={mainPanel}
         />
-        {organizeDialog}
         {folderGuideDialog}
         {codeGuideDialog}
         {deleteConfirmDialog}

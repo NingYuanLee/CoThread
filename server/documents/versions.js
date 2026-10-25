@@ -65,6 +65,33 @@ export async function createVersion(
      VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
     [id, artifactId, threadId, version, filename, mime, content, sha256, byteSize, note, createdBy],
   );
+  {
+    // 项目记忆候选：只有正式文件区的新版本才算事件型信号；失败不影响建档。
+    const [signalArtifact] = await query(
+      db,
+      `SELECT a.project_id,f.folder_kind FROM artifacts a
+       LEFT JOIN document_folders f ON f.id=a.folder_id WHERE a.id=?`,
+      [artifactId],
+    );
+    if (signalArtifact?.project_id && signalArtifact.folder_kind === "project_official") {
+      const { noteProjectMemorySignal } = await import("../project-memory.js");
+      await noteProjectMemorySignal(
+        db,
+        signalArtifact.project_id,
+        "document_version",
+        id,
+        String(note || filename || "").slice(0, 120),
+        { urgent: true },
+      ).catch(() => {});
+      const { syncDocumentMemory } = await import("../document-memory.js");
+      await syncDocumentMemory(db, {
+        projectId: signalArtifact.project_id,
+        artifactId,
+        versionId: id,
+        createdBy,
+      }).catch(() => {});
+    }
+  }
   return id;
 }
 

@@ -88,8 +88,33 @@ function validId(value) {
  * 结束一个子进程。Git Bash 会派生子进程，Windows 上按进程树结束更稳；
  * POSIX 使用独立进程组；必须先结束整棵树，再让调用方回收目录。
  */
+function toBashPath(filePath) {
+  const normalized = resolve(filePath);
+  const match = /^([A-Za-z]):[\\/](.*)$/.exec(normalized);
+  if (!match) return normalized.replaceAll("\\", "/");
+  return `/${match[1].toLowerCase()}/${match[2].replaceAll("\\", "/")}`;
+}
+
+// Git Bash 的后台作业在 Windows 上常常不是 bash.exe 的子进程，taskkill /T 杀不到。
+// 同壳里的 trap 用的是 MSYS pid，可以。停文件让那个壳自己收作业，然后再强杀剩余进程。
+async function requestShellStop(child) {
+  if (!child?.stopFile || child.stopRequested) return;
+  child.stopRequested = true;
+  try {
+    await writeFile(child.stopFile, "1");
+  } catch {
+    // 文件写不进去时仍走下面的进程树终止。
+  }
+  const started = Date.now();
+  while (child.exitCode === null && child.signalCode === null && Date.now() - started < 1500) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 async function terminate(child) {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  await requestShellStop(child);
+  if (child.exitCode !== null || child.signalCode !== null) return;
   // Windows 上 Git Bash 会派生子进程，先按进程树杀一次；
   // 无论哪条路都要再兜底强杀本进程，避免 taskkill 不可用时杀不掉。
   if (process.platform === "win32" && child.pid) {
@@ -187,9 +212,22 @@ class LocalSandboxInstance {
       `${this.commandPath(virtualPrefix)}/`,
     );
     // Git Bash 的 ps 不支持 --ppid，pkill 也不在 PATH。set -m 后 jobs -p 能看到后台作业。
-    // 进程被强杀时 trap 不会跑，那条路仍靠下面的进程树终止。
+    // Windows 上强杀不会跑 trap，而且后台 sleep 的父进程常常不是这只 bash。
+    // 停文件由同一只壳里的循环转成 SIGTERM，trap 再用 MSYS pid 收作业。
+    const stopFile = `${this.root}${sep}.command-stop-${randomUUID()}`;
+    const stopBash = toBashPath(stopFile).replaceAll("'", "");
     const wrapped =
-      "set -m; trap 'kill -9 $(jobs -p) >/dev/null 2>&1 || true' EXIT; " + rewritten;
+      process.platform === "win32"
+        ? [
+            "set -m",
+            "trap 'kill -9 $(jobs -p) >/dev/null 2>&1 || true; if [ -n \"$_cothread_watch\" ]; then kill -9 $_cothread_watch >/dev/null 2>&1 || true; fi' EXIT INT TERM",
+            "_cothread_shell=$$",
+            `(while true; do if [ -f '${stopBash}' ]; then kill -TERM $_cothread_shell >/dev/null 2>&1 || true; exit 0; fi; sleep 0.2; done) >/dev/null 2>&1 &`,
+            "_cothread_watch=$!",
+            "disown $_cothread_watch >/dev/null 2>&1 || true",
+            rewritten,
+          ].join("\n")
+        : "set -m; trap 'kill -9 $(jobs -p) >/dev/null 2>&1 || true' EXIT; " + rewritten;
     let child;
     try {
       child = spawn(bashExecutable(), ["-lc", wrapped], {
@@ -202,6 +240,7 @@ class LocalSandboxInstance {
     } catch (error) {
       return { exitCode: 1, stdout: "", stderr: String(error.message || error) };
     }
+    if (process.platform === "win32") child.stopFile = stopFile;
     this.children.add(child);
     return new Promise((settle) => {
       const streams = {

@@ -10,23 +10,31 @@ import { showTip, useTipError } from "./Tip";
 import { AdminDialog } from "./AdminDialog";
 import { PaginationControl } from "./PaginationControl";
 import { ProjectMark } from "./ProjectMark";
+import { labelWorkflowStatus } from "./ui-labels";
 
-const labels: Record<string, string> = {
+const ITERATION_STATUS_LABELS: Record<string, string> = {
   active: "进行中",
   archived: "已归档",
-  draft: "草稿",
-  awaiting_acceptance: "待确认",
-  queued: "排队中",
-  assigned: "已分配",
-  running: "执行中",
-  waiting: "等待中",
-  blocked: "已阻塞",
-  completed: "已完成",
-  failed: "失败",
-  cancelled: "已取消",
-  superseded: "已替代",
-  rejected: "已拒绝",
 };
+
+/** 任务状态筛选的完整清单；标签统一走 labelWorkflowStatus。 */
+const TASK_STATUSES = [
+  "draft",
+  "pending_assignment",
+  "awaiting_acceptance",
+  "pending_start",
+  "queued",
+  "assigned",
+  "running",
+  "waiting",
+  "blocked",
+  "completed",
+  "cancelled",
+  "rejected",
+  "abandoned",
+  "superseded",
+  "ignored",
+] as const;
 type WorkItem = {
   id: string;
   title: string;
@@ -121,10 +129,10 @@ export function AdminWorkManagement({
       setBusy(false);
     }
   };
-  const states =
-    kind === "iterations"
-      ? ["active", "archived"]
-      : Object.keys(labels).filter((key) => !["active", "archived"].includes(key));
+  const states: string[] =
+    kind === "iterations" ? Object.keys(ITERATION_STATUS_LABELS) : [...TASK_STATUSES];
+  const statusLabel = (key: string) =>
+    kind === "iterations" ? ITERATION_STATUS_LABELS[key] || key : labelWorkflowStatus(key);
   return (
     <section className="admin-work">
       {notice && <p className="admin-list-note">{notice}</p>}
@@ -168,7 +176,7 @@ export function AdminWorkManagement({
             setStatus(next);
             setPage(1);
           }}
-          options={states.map((key) => ({ value: key, label: labels[key] }))}
+          options={states.map((key) => ({ value: key, label: statusLabel(key) }))}
         />
         <button type="submit">查询</button>
         <button
@@ -280,9 +288,9 @@ export function AdminWorkManagement({
                   </td>
                   <td>
                     <span
-                      className={`status-badge ${["archived", "failed", "cancelled", "blocked"].includes(item.status) ? "inactive" : ""}`}
+                      className={`status-badge ${["archived", "failed", "cancelled", "blocked", "ignored"].includes(item.status) ? "inactive" : ""}`}
                     >
-                      {labels[item.status] || item.status}
+                      {statusLabel(item.status)}
                     </span>
                   </td>
                   <td className="admin-date">{dateTime(item.created_at)}</td>
@@ -354,7 +362,7 @@ export function AdminWorkManagement({
           <p className="admin-list-note">
             <ProjectMark name={detail.project_name} image={detail.project_image} size={16} />
             {detail.project_name} · {detail.iteration_title || "未关联迭代"} ·{" "}
-            {labels[detail.status] || detail.status}
+            {statusLabel(detail.status)}
           </p>
           <h4>任务目标</h4>
           <p className="admin-prewrap">{detail.goal}</p>
@@ -386,8 +394,8 @@ export function AdminWorkManagement({
                   .map((event: any) => (
                     <tr key={event.id}>
                       <td>
-                        {labels[event.from_status] || event.from_status} →{" "}
-                        {labels[event.to_status] || event.to_status}
+                        {event.from_status ? statusLabel(event.from_status) : "—"} →{" "}
+                        {statusLabel(event.to_status)}
                       </td>
                       <td>{event.reason || event.note || "—"}</td>
                       <td>{dateTime(event.created_at)}</td>

@@ -2,7 +2,7 @@ import React from "react";
 
 import type { ContextUsage } from "../shared/context.js";
 
-export type L1Run = {
+export type LaowengRun = {
   id: string;
   task: string;
   thread_id?: string | null;
@@ -16,7 +16,7 @@ export type L1Run = {
   started_at: string | null;
   finished_at: string | null;
 };
-export type L1Session = {
+export type LaowengSession = {
   id: string;
   task: string;
   threadId: string | null;
@@ -66,11 +66,11 @@ export type MonitorData = {
     iterationDocumentPending: number;
     iterationDocumentLastAt: string | null;
     iterationDocumentNextAt: string | null;
-    memberRuns: L1Run[];
-    projectDocumentRuns: L1Run[];
-    iterationDocumentRuns: L1Run[];
-    documentRuns: L1Run[];
-    sessions: L1Session[];
+    memberRuns: LaowengRun[];
+    projectDocumentRuns: LaowengRun[];
+    iterationDocumentRuns: LaowengRun[];
+    documentRuns: LaowengRun[];
+    sessions: LaowengSession[];
     organizationLastAt: string | null;
     organizationJobs: {
       id: string;
@@ -92,7 +92,7 @@ export type MonitorData = {
       conclusion: string;
       contextUsage?: ContextUsage;
       sessionStatus?: string;
-      runs?: L1Run[];
+      runs?: LaowengRun[];
     }[];
     archiveHistory?: {
       id: string;
@@ -147,11 +147,13 @@ export type MonitorData = {
     last_action_at: string | null;
     update_count: number;
     contextUsage?: ContextUsage;
-    executor_type?: "dsh_l3" | "human_self" | "human_local_executor";
+    executor_type?: "child_agent" | "human_self" | "human_local_executor";
     executor_id?: string | null;
+    /** 固定人设 key（p1~p7）：槽位按人设归属，会话仍是一次任务一个 id。 */
+    persona?: string | null;
     target_type?: string | null;
     target_id?: string | null;
-    task_type?: "assist_l2" | "formal";
+    task_type?: "assist" | "formal";
     source_type?: string;
     created_by_type?: string;
     created_by_id?: string;
@@ -165,7 +167,7 @@ export type MonitorData = {
     origin_thread_id?: string | null;
     title: string;
     goal: string;
-    task_type: "assist_l2" | "formal";
+    task_type: "assist" | "formal";
     task_status: string;
     run_status: string | null;
     source_type: string;
@@ -176,8 +178,10 @@ export type MonitorData = {
     claimed_by_id: string | null;
     created_by_type: string;
     created_by_id: string;
-    executor_type: "dsh_l3" | "human_self" | "human_local_executor" | null;
+    executor_type: "child_agent" | "human_self" | "human_local_executor" | null;
     executor_id: string | null;
+    persona?: string | null;
+    run_persona?: string | null;
     progress: string | null;
     result_summary: string | null;
     artifact_refs: unknown[] | string | null;
@@ -192,7 +196,7 @@ export type MonitorData = {
     thread_id: string;
     thread_title: string;
     agent_session_id: string | null;
-    agent_type: "l2" | "dsh_l3";
+    agent_type: "xiaoxiang" | "child_agent";
     tool: string;
     action: string;
     status: "running" | "completed" | "failed";
@@ -202,7 +206,7 @@ export type MonitorData = {
   }[];
 };
 export type WorkflowTone = "idle" | "running" | "waiting" | "failed" | "blocked";
-export type L3Detail = {
+export type ChildDetail = {
   id: string;
   title: string;
   typeLabel: string;
@@ -234,5 +238,9 @@ export type TaskSessionData = {
   }[];
   pending?: { id: string; author: string; body: string; createdAt: string }[];
 };
-export type SessionTarget =
-  { kind: "l1"; task: string } | { kind: "l3"; title: string; threadId: string; messageId: string };
+export type SessionTarget = {
+  kind: "child_agent";
+  title: string;
+  threadId: string;
+  messageId: string;
+};

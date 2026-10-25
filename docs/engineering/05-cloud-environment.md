@@ -1,6 +1,6 @@
 # 云端环境变量
 
-维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-10-23；已核对现有构建、打包、启动及停止钩子。当天第一次上传因 TLS 握手失败中止，稍后重试已上线，见下方验收记录。
+维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-10-25；已核对构建、打包、启动及停止钩子，并把本轮预发布测试暴露的 CSS、输入控件和契约缺陷合并到文末问题清单。当天验收记录见下方。
 
 应用后端需要常驻 Node.js 进程（Node.js 22.22.3+，推荐 24）、MySQL 网络连接及可写的 `.local` 目录。只发布 `dist/` 静态文件无法运行 API、MCP 和后台 Agent；生产环境固定为阿里云 ECS 单实例 + RDS，本机开发用便携版 MySQL。
 
@@ -13,8 +13,8 @@
 | `DATABASE_AUTH`                                                            | 正式库账号密码，合写为 `user:password`（仅按第一个冒号拆分）                                                  |
 | `TEST_DATABASE_HOST_INTERNAL` / `TEST_DATABASE_HOST_PUBLIC`                | 测试库内网 / 外网地址，格式 `host:port/dbname`                                                                |
 | `TEST_DATABASE_AUTH`                                                       | 测试库 `user:password`；`npm test` 会整库清表，勿指向正式库名                                                 |
-| `MODEL_BASE_URL` / `MODEL_API_KEY` / `MODEL`                               | 小祥 调度与 子 Agent 派活共用的默认模型：OpenAI Responses 兼容接口根地址、密钥、`模型名` 或 `模型名@推理强度` |
-| `KNOWLEDGE_MODEL_BASE_URL` / `KNOWLEDGE_MODEL_API_KEY` / `KNOWLEDGE_MODEL` | 可选的 老翁 知识整理模型覆盖；未设置时继承 `MODEL_*`                                                          |
+| `MODEL_BASE_URL` / `MODEL_API_KEY` / `MODEL`                               | 小祥调度与 子 Agent 派活共用的默认模型：OpenAI Responses 兼容接口根地址、密钥、`模型名` 或 `模型名@推理强度` |
+| `KNOWLEDGE_MODEL_BASE_URL` / `KNOWLEDGE_MODEL_API_KEY` / `KNOWLEDGE_MODEL` | 可选的老翁知识整理模型覆盖；未设置时继承 `MODEL_*`                                                          |
 | `CREDENTIAL_ENCRYPTION_KEY`                                                | 固定的 32 字节随机密钥，使用 base64 编码；跨重部署保持一致                                                    |
 | `ADMIN_EMAIL`、`ADMIN_PASSWORD`                                            | 空库初始化账号时使用；密码至少 12 位，不能为 `CHANGE_ME`                                                      |
 | `SMTP_URL`                                                                 | SMTP 连接地址，例如 `smtps://账号:授权码@服务器:465`；账号和授权码中的特殊字符需 URL 编码                     |
@@ -27,13 +27,13 @@
 
 自平台模型配置功能上线后，有 `platform_model_settings` 记录时以数据库为准；无记录才使用下述环境变量规则。管理员从 `/admin/model-settings` 查看当前来源、版本和分层覆盖，并通过“校验并保存”启用数据库配置。发布不会自动把环境变量写入配置表，也不会替换已有密钥。已有数据库记录损坏或无法解密时明确报错，不回退环境变量。首次保存仍需填写模型 API 密钥；必须保留服务器原有 `CREDENTIAL_ENCRYPTION_KEY`。
 
-代码发布不会同步本机 `.env`：发布包排除该文件，release 的 `.env` 始终链接 `/opt/cothread/.env`。修改本机模型地址、密钥或模型名后，必须单独核对服务器的有效配置；不要以本机配置一致推断生产一致。`MODEL_*` 优先供 小祥/子 Agent 共用，未配置时各自回退旧 `COORDINATOR_MODEL_*` / `EXECUTOR_MODEL_*`；老翁 只在未填写 `KNOWLEDGE_MODEL_*` 时继承 `MODEL_*`，不会继续继承旧 coordinator 配置。因此只有旧变量的环境不能直接删除 老翁 覆盖。迁移时先补齐完整 `MODEL_*` 三项，再按需保留完整 老翁 覆盖，并清理旧变量以避免误判。
+代码发布不会同步本机 `.env`：发布包排除该文件，release 的 `.env` 始终链接 `/opt/cothread/.env`。修改本机模型地址、密钥或模型名后，必须单独核对服务器的有效配置；不要以本机配置一致推断生产一致。`MODEL_*` 优先供 小祥/子 Agent 共用，未配置时各自回退旧 `COORDINATOR_MODEL_*` / `EXECUTOR_MODEL_*`；老翁只在未填写 `KNOWLEDGE_MODEL_*` 时继承 `MODEL_*`，不会继续继承旧 coordinator 配置。因此只有旧变量的环境不能直接删除老翁覆盖。迁移时先补齐完整 `MODEL_*` 三项，再按需保留完整老翁覆盖，并清理旧变量以避免误判。
 
-2026-10-22 成员认识整理故障已核实：本机三层使用相同 DeepSeek 地址、模型和密钥，但 ECS 仍保留旧变量，老翁/子 Agent 指向另一兼容网关。项目维护日志中上下文准备和 DSH 启动成功，模型执行连续返回 503；从同一 ECS 对 老翁 专用 Responses 接口做最小请求，得到 502 `Upstream authentication failed`，默认 coordinator 路由同类请求返回 200。该证据确认旧专用上游鉴权链路存在故障，未确认网关内部具体哪项凭据失效。
+2026-10-22 成员认识整理故障已核实：本机三层使用相同 DeepSeek 地址、模型和密钥，但 ECS 仍保留旧变量，老翁/子 Agent 指向另一兼容网关。项目维护日志中上下文准备和 DSH 启动成功，模型执行连续返回 503；从同一 ECS 对老翁专用 Responses 接口做最小请求，得到 502 `Upstream authentication failed`，默认 coordinator 路由同类请求返回 200。该证据确认旧专用上游鉴权链路存在故障，未确认网关内部具体哪项凭据失效。
 
 恢复时先确认本机执行器没有运行或排队任务，备份服务器原配置（仅在服务器保留且限制权限），只同步模型相关变量，保留数据库、加密密钥和其他配置，然后重启 systemd 服务。凭据应通过安全传输或加密载荷传送，不能放入发布包、命令日志或诊断输出。若新配置无法启动或模型校验失败，恢复本轮备份并重启；服务健康只证明进程和数据库恢复，还须验证真实整理任务。
 
-本轮曾尝试仅删除 老翁 覆盖，因服务器缺少完整 `MODEL_*` 基线而未通过模型配置校验，已立即恢复原配置；随后按本机配置同步完整基线及 老翁 覆盖。最终服务 active、健康接口 ok、执行器 ready；项目 `aab430a9-52af-463f-b0de-543efea6f40a` 的成员整理 run `536dbdb4-e750-49dd-ab22-99c9b914fda6` 于北京时间 15:54:45 完成，处理 2 项且 error 为空。此次为生产配置修复，无代码包发布或数据库迁移；不代表其他项目和全部业务已验收。
+本轮曾尝试仅删除老翁覆盖，因服务器缺少完整 `MODEL_*` 基线而未通过模型配置校验，已立即恢复原配置；随后按本机配置同步完整基线及 老翁 覆盖。最终服务 active、健康接口 ok、执行器 ready；项目 `aab430a9-52af-463f-b0de-543efea6f40a` 的成员整理 run `536dbdb4-e750-49dd-ab22-99c9b914fda6` 于北京时间 15:54:45 完成，处理 2 项且 error 为空。此次为生产配置修复，无代码包发布或数据库迁移；不代表其他项目和全部业务已验收。
 
 构建命令：`npm ci && npm run build`。常驻 `npm start` 与本地 `npm run dev` 启动时会应用未执行的迁移并尝试写入超级管理员（需 `.local/initial-admin.json` 或 `ADMIN_EMAIL`/`ADMIN_PASSWORD`）。也可单独运行 `npm run db:migrate`。当前版本运行单个应用实例。
 
@@ -92,7 +92,7 @@ bash -n scripts/ecs-codedeploy-start.sh
 | 临时探活报 `EXECUTOR_ALREADY_RUNNING`，随后 `ReleaseWaiting`                  | 2026-10-22 临时生产进程也启动了 worker，与正式进程争抢 `cothread-executor` 锁 | 使用 `--health-probe`，同时跳过启动/退出的预览及沙箱清理；不能靠提前停止正式服务来让探活抢锁。已新增真实子进程回归，验证已有执行器锁与运行记录在探活启动、健康读取和正常退出后均保持不变 |
 | 发布停留在 `Releasing`                                                        | 可能仍在下载和安装依赖                                                        | 看安装进度及子任务状态；本次安装 2265 个包约用 2 分钟，包含下载重试。日志仍在推进时不要重复部署                                                                                          |
 | Alibaba `LOCAL_RunShellScript` 一直无结果                                     | 本次分别达到 30 秒、120 秒超时                                                | 说明已试路径；必要时用本机已安装的 Alibaba SDK 和既有环境凭据读取 OOS/ECS 诊断信息。不要把 AK/SK、临时签名 OSS URL 写入文档或日志；发布入口仍用 MCP CodeDeploy                           |
-| MCP 与 Tea SDK 调 ECS/OOS 报 `SSLEOFError`                                    | 2026-10-23 上午 curl 能握手并得到 HTTP 400，Tea 签名请求在握手阶段被对端断开；约 4 小时后同一 SDK 重试成功。当天下午 curl 仍返回 HTTP 400，立刻重试仍是 `SSLEOFError`。同一虚拟环境里新开的 Python 能握手，已运行的 MCP 进程不能；稍后同一次会话里原调用恢复成功 | 不要改用通用 `npm start`。没有 execution 前视为未上传。curl 可达后可以隔一段时间用原 SDK 重试，并重新打包当时的 HEAD |
+| MCP 与 Tea SDK 调 ECS/OOS 报 `SSLEOFError`                                    | 2026-10-23 上午 curl 能握手并得到 HTTP 400，Tea 签名请求在握手阶段被对端断开；约 4 小时后同一 SDK 重试成功。当天下午 curl 仍返回 HTTP 400，立刻重试仍是 `SSLEOFError`。同一虚拟环境里新开的 Python 能握手，已运行的 MCP 进程不能；稍后同一次会话里原调用恢复成功。本机 TUN 把 `*.aliyuncs.com` 解析到 `198.18.0.0/15` | 不要改用通用 `npm start`。没有 execution 前视为未上传。桌面配置改为用该虚拟环境的 `python.exe` 启动 `C:/Users/liyun/.dsh/profiles/desktop/alibaba-fakeip/launch.py`：只在阿里云域名落到该网段时改用公共 DoH 的真实地址，TLS 仍用原主机名。2026-10-23 实测该包装解析到公网地址，TLS 1.3 握手后对端返回 HTTP 400。已运行的 MCP 要等下次重启 App 才走这条路径。发布入口仍是 MCP `OOS_CodeDeploy` |
 
 定位执行问题时，从本次父 execution 的部署任务进入实例子执行，再读取 `deployCurrentRevision` 的状态、输出和实际命令。本次层级为 `<execution>.t0005.i0001`；任务名称和层级应按实际返回发现，不把后缀当作永久 API 契约。应用分组摘要不足以说明启动命令是否真正运行。
 
@@ -143,9 +143,19 @@ bash -n scripts/ecs-codedeploy-start.sh
 - 首次保存 CloudBase 配置时，不能先加载尚不存在的完整运行时配置；已有凭据配置好后才核对环境与 AppID 的归属。凭据保存将 SecretId 留在提示字段、SecretKey 加密存储，调用凭据校验前必须重新拼回完整凭据，不能拿仅含 SecretKey 的存储载荷去校验。实现见[小程序配置](../../server/miniprogram-config.js)。
 - CloudBase SDK 工厂按项目环境缓存，不能断言每个操作都新建实例。本次凭据注入测试覆盖的调用应复用 1 个数据面客户端，管理操作复用 manager、账号环境枚举单独创建，共 2 个 manager；见[凭据回归测试](../../tests/cloudbase-tool-credentials.test.js)。
 
+- 2026-10-25 预发布测试暴露并已修复的源码缺陷（不是测试过期；修复后按文件单独复跑，再跑一次全量）：
+  - `server/mcp.js` 的 `get_connection_guide` 处理器引用了只在 `createMcpServer` 作用域声明的 `instructions`，调用时抛 ReferenceError 并返回 `isError`，连带 3 个 MCP 用例失败；改为 `mcpInstructionsForSource(user.mcpSource)`。
+  - `publish_artifact` 在没有 caller session 时不识别仍在运行的子 Agent，父回复结束后子 Agent 提交被 409「Agent 任务已停止」拒绝；`agent-tools` 需用 `liveChildAgentRun` 解析 `executorSessionId`。
+  - `classifyTaskFailure` 首行 `status === "blocked"` 短路，而 settle 已把失败收敛成 blocked，导致 `platform_blocked` 永不生效、平台错误被误判可自动重试；分类必须传原始失败来源，显式报 blocked 时仍短路。
+  - `saveMemberUnderstandings` 只在 upsert 里比较 `through_sequence`，但发言记忆页已先写入 wiki，再按「wiki 是事实」回写旧摘要缓存，过期摘要仍会覆盖新摘要；应在入口按 through_sequence 整批跳过。
+- 2026-10-25 前端检查项：`web/workspace.css` 在 2026-10-24 截断恢复后混入 79 处与 `overlays.css` 同值的 `--overlay-*` 定义，以及 85 处缺 `@` 的 `media (...)` / `supports (...)`；后者让新增响应式规则全部失效。整条规则删除时必须连选择器头一起删，否则留下悬空 `:is(`，PostCSS 报 `Unclosed bracket`，dev 与 `vite build` 同时失败；本次两处悬空头就是这样暴露的。同类笔误还有选择器尾部多余分号（`theme-overrides.css` 与 `workspace.css` 的 `:is(... button.danger;)`）和 `supports not (...)` 漏 `@`，esbuild 只报 `Unexpected ";"`/`Unexpected "("` 警告、构建仍 exit 0，必须看构建日志而不是只看退出码。`npm run lint` 不解析 CSS 括号，删除后必须再用 `postcss.parse`（或直接 `npm run build`）验证，并在浏览器按 1600/1000/700/640 宽度核对：本次实测侧栏 255/210，模型设置 640 时单列。
+- 2026-10-25 新增页面直接写原生 `input/select/textarea` 会被 `check-field-usage` 拦下；改走 `TextField/TextAreaField/SelectField`，紧凑高度用 `flush/dense` 加作用域变量，不要登记白名单绕过。主题产物过期用 `npm run theme:fallback` 重新生成。
+- 2026-10-25 契约同步项（改测试期望即可，不放宽断言）：MCP 工具清单新增 `search_memory`；任务失败态收敛为 `blocked`，执行轮次仍记 `failed`；事件用量新增 `cacheReadTokens`；项目页签 `open` 改为 `COALESCE`，重开保持原位。
+- 2026-10-25 时间与批量：全量 `npm test` 这次 867 项、单轮约 62 分钟（CloudBase 与 Admin 预览类每条 20–25 秒），失败明细在套件结束才输出，中途只能看日志增量。lint 的 Prettier 只检查改动集，改动多时先对全部改动文件 `prettier --write`（本次 243 个文件）；`--env-file-if-exists=.env` 必须带上，否则会出现「Model is not configured」假失败。
+
 本地 `.env` 仅保留 `.env.example` 中列出的必要项。监听 `0.0.0.0:3100`、站点 `https://cothread.z2l.top`、HTTPS 时 Secure Cookie 已在代码写死，不必再配。
 
-任务在 `.local/sandboxes` 中执行。数据库模型配置默认由 老翁、小祥 与实际 子 Agent 派活共用，可单独覆盖 老翁。仅在没有数据库配置时，`KNOWLEDGE_MODEL_*` 用于 老翁 知识整理，`MODEL_*` 作为 小祥 调度和实际 子 Agent 派活的共享基线。旧的 `COORDINATOR_MODEL_*` / `EXECUTOR_MODEL_*` 仅作为迁移兼容变量；环境变量模型字段可写成 `模型名@推理强度`，省略推理强度时基线默认使用 `low`。推理强度可取 `off`、`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`、`ultra`；管理页用独立选项设置推理强度。
+任务在 `.local/sandboxes` 中执行。数据库模型配置默认由老翁、小祥与实际子 Agent 派活共用，可单独覆盖 老翁。仅在没有数据库配置时，`KNOWLEDGE_MODEL_*` 用于老翁知识整理，`MODEL_*` 作为 小祥调度和实际 子 Agent 派活的共享基线。旧的 `COORDINATOR_MODEL_*` / `EXECUTOR_MODEL_*` 仅作为迁移兼容变量；环境变量模型字段可写成 `模型名@推理强度`，省略推理强度时基线默认使用 `low`。推理强度可取 `off`、`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`、`ultra`；管理页用独立选项设置推理强度。
 
 模型调用统一使用 OpenAI Responses API。各套 `*_MODEL_BASE_URL` 是服务商提供的 API 基础地址，程序不会擅自补 `/v1`；Responses 适配器只在该地址后追加 `/responses`。命令以应用进程的操作系统账号在 `.local/sandboxes` 中执行，不具备容器级隔离；生产环境只有这一条执行路径。
 

@@ -46,7 +46,8 @@ export function sessionUsage(replies = [], toolDurationMs = null) {
     if (!recorded) continue;
     totals.hasUsage = true;
     totals.rounds += 1;
-    totals.steps += usage.calls || 0;
+    // 步数口径与轨迹一致（一次模型响应一步）；旧数据只有 calls 时回落到它。
+    totals.steps += Number.isFinite(usage.steps) ? usage.steps : usage.calls || 0;
     totals.inputTokens += usage.inputTokens || 0;
     totals.outputTokens += usage.outputTokens || 0;
     totals.cacheReadTokens += usage.cacheReadTokens || 0;

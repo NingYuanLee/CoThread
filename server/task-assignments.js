@@ -12,25 +12,32 @@ import { ASSIGN_HUMAN_AUTH, TASK_ENDED } from "./task-policy.js";
 import { documentsForTaskInstruction } from "./task-documents.js";
 import {
   assertTarget,
-  currentThreadL2Session,
+  currentThreadXiaoxiangSession,
   assertHumanMemberAuthorization,
-  assertL2CanOperateTask,
+  assertXiaoxiangCanOperateTask,
 } from "./task-access.js";
 import { getTask } from "./task-queries.js";
-import { idleL3Count } from "./task-dispatch.js";
+import { idleChildCount } from "./task-dispatch.js";
 export async function reassignTask(db, taskId, actor, target, reason, messageId) {
   assertTarget(target.type, target.id);
   const result = await transaction(db, async (conn) => {
     await lockTaskIteration(conn, taskId);
     const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
     if (!task) throw new HttpError(404, "任务不存在");
-    const l2Operator = actor.type === "l2_session";
-    if (l2Operator) await assertL2CanOperateTask(conn, actor, task);
-    else if (task.target_type !== actor.type || task.target_id !== actor.id)
-      throw new HttpError(403, "只有当前任务目标可以转交任务");
-    if (task.task_type === "assist_l2" && target.type !== "l2_session")
+    const xiaoxiangOperator = actor.type === "xiaoxiang";
+    const sourceOperator =
+      actor.type === "human_member" &&
+      (task.source_user_id === actor.id ||
+        (task.created_by_type === "human_member" && task.created_by_id === actor.id));
+    if (xiaoxiangOperator) await assertXiaoxiangCanOperateTask(conn, actor, task);
+    else if (
+      (task.target_type !== actor.type || task.target_id !== actor.id) &&
+      !(sourceOperator && task.status === "blocked")
+    )
+      throw new HttpError(403, "只有当前任务目标或已阻塞任务的来源人可以转交任务");
+    if (task.task_type === "assist" && target.type !== "xiaoxiang")
       throw new HttpError(403, "小祥 辅助任务不能转交给其他责任主体");
-    if (l2Operator && target.type === "human_member")
+    if (xiaoxiangOperator && target.type === "human_member")
       await assertHumanMemberAuthorization(conn, task.project_id, actor, ASSIGN_HUMAN_AUTH);
     const reassignable = new Set([
       "pending_assignment",
@@ -41,12 +48,12 @@ export async function reassignTask(db, taskId, actor, target, reason, messageId)
       "waiting",
       "blocked",
     ]);
-    if (l2Operator)
+    if (xiaoxiangOperator)
       ["running", "failed", "cancelled", "abandoned", "rejected"].forEach((status) =>
         reassignable.add(status),
       );
     if (!reassignable.has(task.status)) throw new HttpError(409, "当前任务状态不能转交");
-    if (l2Operator) {
+    if (xiaoxiangOperator) {
       await query(
         conn,
         `UPDATE agent_task_questions SET status='cancelled' WHERE task_id=? AND status='open'`,
@@ -67,7 +74,11 @@ export async function reassignTask(db, taskId, actor, target, reason, messageId)
       );
       if (!member) throw new HttpError(400, "任务目标不是当前项目的可执行成员");
     } else if (task.origin_thread_id) {
-      const current = await currentThreadL2Session(conn, task.origin_thread_id, task.project_id);
+      const current = await currentThreadXiaoxiangSession(
+        conn,
+        task.origin_thread_id,
+        task.project_id,
+      );
       if (!current) throw new HttpError(400, "任务目标不是当前项目迭代的 小祥");
       target = { ...target, id: current.session_id };
     } else {
@@ -82,13 +93,14 @@ export async function reassignTask(db, taskId, actor, target, reason, messageId)
     const status =
       target.type === "human_member"
         ? "awaiting_acceptance"
-        : (await idleL3Count(conn, target.id)) >= 1
+        : (await idleChildCount(conn, target.id)) >= 1
           ? "running"
           : "pending_assignment";
     await query(
       conn,
       `UPDATE agent_tasks SET target_type=?,target_id=?,claimed_by_type=NULL,claimed_by_id=NULL,
-      execution_agent_type=NULL,execution_agent_id=NULL,execution_mode=NULL,status=?,revision=revision+1 WHERE id=?`,
+      execution_agent_type=NULL,execution_agent_id=NULL,execution_mode=NULL,status=?,
+      blocked_reason=NULL,resume_condition=NULL,finished_at=NULL,revision=revision+1 WHERE id=?`,
       [target.type, target.id, status, taskId],
     );
     await query(
@@ -108,17 +120,17 @@ export async function reassignTask(db, taskId, actor, target, reason, messageId)
         messageId || null,
       ],
     );
-    if (target.type === "l2_session") {
+    if (target.type === "xiaoxiang") {
       await query(
         conn,
-        "UPDATE agent_tasks SET claimed_by_type='l2_session',claimed_by_id=?,execution_mode='dsh_l3',execution_agent_type='dsh_l3' WHERE id=?",
+        "UPDATE agent_tasks SET claimed_by_type='xiaoxiang',claimed_by_id=?,execution_mode='child_agent',execution_agent_type='child_agent' WHERE id=?",
         [target.id, taskId],
       );
       if (status === "running") {
         await query(
           conn,
           `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,status)
-          SELECT UUID(),id,revision,'dsh_l3','queued' FROM agent_tasks WHERE id=?`,
+          SELECT UUID(),id,revision,'child_agent','queued' FROM agent_tasks WHERE id=?`,
           [taskId],
         );
       }
@@ -188,7 +200,7 @@ export async function acceptTask(db, taskId, actor, mode = "auto") {
         ? mode === "member_local_executor"
           ? "human_local_executor"
           : "human_self"
-        : "dsh_l3";
+        : "child_agent";
     const nextStatus =
       executionType === "human_self"
         ? "running"
@@ -361,6 +373,95 @@ export async function cancelTask(db, taskId, actor, reason) {
       [reason || "任务来源人取消任务", taskId],
     );
     await recordTaskStatusChange(conn, taskId, task.status, actor, reason || "任务来源人取消任务");
+    return getTask(conn, taskId);
+  });
+  if (result.origin_thread_id) publishWork(db, result.origin_thread_id);
+  return result;
+}
+
+/** 来源人把已阻塞任务标记为不再跟进；可在之后恢复为已阻塞。 */
+export async function ignoreTask(db, taskId, actor, reason) {
+  const result = await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
+    const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
+    if (!task) throw new HttpError(404, "任务不存在");
+    if (task.status !== "blocked")
+      throw new HttpError(409, "只有已阻塞任务可以由来源人标记为已忽略");
+    const source =
+      actor.type === "human_member" &&
+      (task.source_user_id === actor.id ||
+        (task.created_by_type === "human_member" && task.created_by_id === actor.id));
+    if (!source) throw new HttpError(403, "只有任务来源人可以将已阻塞任务标记为已忽略");
+    await query(
+      conn,
+      "UPDATE agent_tasks SET status='ignored',progress=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?",
+      [reason || "任务来源人忽略已阻塞任务", taskId],
+    );
+    await recordTaskStatusChange(
+      conn,
+      taskId,
+      task.status,
+      actor,
+      reason || "任务来源人忽略已阻塞任务",
+    );
+    return getTask(conn, taskId);
+  });
+  if (result.origin_thread_id) publishWork(db, result.origin_thread_id);
+  return result;
+}
+
+/** 来源人把已忽略任务恢复成已阻塞，继续跟进。 */
+/** 来源人在「已阻塞」任务上补充目标/约束后直接改派：一次动作替代“重开再转交”两步。 */
+export async function redirectBlockedTask(
+  db,
+  taskId,
+  actor,
+  { goal, constraints, reason, target },
+) {
+  await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
+    const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
+    if (!task) throw new HttpError(404, "任务不存在");
+    if (task.status !== "blocked") throw new HttpError(409, "只有已阻塞任务可以补充内容后改派");
+    const source =
+      actor.type === "human_member" &&
+      (task.source_user_id === actor.id ||
+        (task.created_by_type === "human_member" && task.created_by_id === actor.id));
+    if (!source) throw new HttpError(403, "只有任务来源人可以补充内容后改派");
+    await query(
+      conn,
+      `UPDATE agent_tasks SET goal=COALESCE(?,goal),constraints=IF(?,?,constraints),
+      blocked_reason=NULL,resume_condition=NULL,revision=revision+1 WHERE id=?`,
+      [goal || null, constraints !== undefined, constraints ?? null, taskId],
+    );
+  });
+  return reassignTask(db, taskId, actor, target, reason);
+}
+
+export async function restoreIgnoredTask(db, taskId, actor, reason) {
+  const result = await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
+    const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
+    if (!task) throw new HttpError(404, "任务不存在");
+    if (task.status !== "ignored")
+      throw new HttpError(409, "只有已忽略任务可以由来源人恢复为已阻塞");
+    const source =
+      actor.type === "human_member" &&
+      (task.source_user_id === actor.id ||
+        (task.created_by_type === "human_member" && task.created_by_id === actor.id));
+    if (!source) throw new HttpError(403, "只有任务来源人可以将已忽略任务恢复为已阻塞");
+    await query(
+      conn,
+      "UPDATE agent_tasks SET status='blocked',progress=?,finished_at=NULL WHERE id=?",
+      [reason || "任务来源人恢复已阻塞任务", taskId],
+    );
+    await recordTaskStatusChange(
+      conn,
+      taskId,
+      task.status,
+      actor,
+      reason || "任务来源人恢复已忽略任务",
+    );
     return getTask(conn, taskId);
   });
   if (result.origin_thread_id) publishWork(db, result.origin_thread_id);

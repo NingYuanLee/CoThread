@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from "react";
+import React from "react";
 
 import { UiIcon } from "./ui-icon";
 
@@ -25,7 +25,7 @@ export function State({ tone, children }: { tone: WorkflowTone; children: React.
     </span>
   );
 }
-export function L3TaskCard({
+export function ChildTaskCard({
   title,
   meta,
   tone,
@@ -47,7 +47,10 @@ export function L3TaskCard({
   onSession?: () => void;
 }) {
   return (
-    <article className={`executor-row l3-task-card${settled ? " is-settled" : ""}`} style={style}>
+    <article
+      className={`executor-row child-task-card${settled ? " is-settled" : ""}`}
+      style={style}
+    >
       <div className="executor-title">
         <span className="executor-name">
           <strong title={title}>{title}</strong>
@@ -55,7 +58,7 @@ export function L3TaskCard({
         </span>
         <State tone={tone}>{status}</State>
       </div>
-      <div className="l3-task-actions">
+      <div className="child-task-actions">
         <button type="button" onClick={onDetail}>
           <UiIcon name="detail" size={12} />
           详情
@@ -124,38 +127,5 @@ export function CoordinatorStatusIcon({ busy, archived }: { busy: boolean; archi
       )}
       <title>{label}</title>
     </svg>
-  );
-}
-export function OverflowTitle({ text }: { text: string }) {
-  const wrap = useRef<HTMLSpanElement>(null);
-  const inner = useRef<HTMLSpanElement>(null);
-  const [overflow, setOverflow] = useState(0);
-  const measure = () => {
-    const box = wrap.current;
-    const label = inner.current;
-    if (!box || !label) return;
-    const maxWidth = label.style.maxWidth;
-    label.style.maxWidth = "none";
-    const extra = Math.ceil(label.scrollWidth - box.clientWidth);
-    label.style.maxWidth = maxWidth;
-    setOverflow(extra > 1 ? extra : 0);
-  };
-  useLayoutEffect(measure, [text]);
-  return (
-    <strong
-      ref={wrap}
-      className={`coordinator-title${overflow ? " is-overflow" : ""}`}
-      style={
-        overflow
-          ? ({
-              "--scroll-distance": `-${overflow}px`,
-              "--scroll-duration": `${Math.min(8, Math.max(1.2, overflow / 42))}s`,
-            } as React.CSSProperties)
-          : undefined
-      }
-      onMouseEnter={measure}
-    >
-      <span ref={inner}>{text}</span>
-    </strong>
   );
 }

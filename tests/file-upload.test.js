@@ -28,11 +28,19 @@ async function mcp(name, args) {
       Accept: "application/json, text/event-stream",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name, arguments: args },
+    }),
   });
   assert.equal(response.status, 200);
   const result = (await response.json()).result;
-  return { error: !!result.isError, data: result.isError ? result.content[0].text : JSON.parse(result.content[0].text) };
+  return {
+    error: !!result.isError,
+    data: result.isError ? result.content[0].text : JSON.parse(result.content[0].text),
+  };
 }
 
 before(async () => {
@@ -44,13 +52,21 @@ before(async () => {
   const password = "test-password-" + randomUUID();
   const email = `${userId}@example.com`;
   await query(database.db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
-    userId, email, "上传测试", await hashPassword(password),
+    userId,
+    email,
+    "上传测试",
+    await hashPassword(password),
   ]);
-  cookie = (await fetch(`${base}/api/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  })).headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
+  cookie = (
+    await fetch(`${base}/api/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    })
+  ).headers
+    .getSetCookie()
+    .map((value) => value.split(";")[0])
+    .join("; ");
   projectId = (await api("/projects", { name: "Upload target" })).body.id;
   threadId = (await api(`/projects/${projectId}/threads`, { title: "Upload iteration" })).body.id;
   token = (await api("/tokens", {})).body.token;
@@ -119,27 +135,68 @@ test("chunked MCP upload reconstructs a 24KB UTF-8 spec with matching sha256", a
     });
     assert.equal(part.error, false, part.data);
   }
-  const done = await mcp("complete_file_upload", { uploadId: started.data.uploadId, sha256: sha(bytes) });
+  const done = await mcp("complete_file_upload", {
+    uploadId: started.data.uploadId,
+    sha256: sha(bytes),
+  });
   assert.equal(done.error, false, done.data);
   assert.equal(done.data.byteSize, bytes.length);
   assert.equal(done.data.sha256, sha(bytes));
-  const downloaded = await mcp("get_document_version", { versionId: done.data.id });
-  assert.equal(downloaded.data.sha256, sha(bytes));
-  assert.equal(Buffer.from(downloaded.data.contentBase64, "base64").equals(bytes), true);
+  const parts = [];
+  let offset = 0;
+  for (let guard = 0; guard < 20; guard++) {
+    const downloaded = await mcp("get_document_version", { versionId: done.data.id, offset });
+    assert.equal(downloaded.error, false, downloaded.data);
+    assert.equal(downloaded.data.sha256, sha(bytes));
+    assert.equal(downloaded.data.byte_size, bytes.length);
+    const chunk = Buffer.from(downloaded.data.contentBase64, "base64");
+    assert.equal(chunk.length, downloaded.data.returned);
+    assert.equal(chunk.length <= FILE_CHUNK_SIZE, true);
+    assert.equal(sha(chunk), downloaded.data.chunkSha256);
+    assert.equal(downloaded.data.offset, offset);
+    parts.push(chunk);
+    if (downloaded.data.complete) {
+      assert.equal(downloaded.data.nextOffset, null);
+      break;
+    }
+    assert.equal(downloaded.data.nextOffset, offset + chunk.length);
+    offset = downloaded.data.nextOffset;
+  }
+  assert.equal(Buffer.concat(parts).equals(bytes), true);
+  assert.ok(parts.length > 1);
+  const resumed = await mcp("get_document_version", {
+    versionId: done.data.id,
+    offset: FILE_CHUNK_SIZE,
+  });
+  assert.equal(resumed.error, false, resumed.data);
+  assert.equal(
+    Buffer.from(resumed.data.contentBase64, "base64").equals(
+      bytes.subarray(FILE_CHUNK_SIZE, FILE_CHUNK_SIZE * 2),
+    ),
+    true,
+  );
+  const past = await mcp("get_document_version", {
+    versionId: done.data.id,
+    offset: bytes.length + 1,
+  });
+  assert.equal(past.error, true);
+  assert.match(String(past.data), /偏移已经超过文件大小/);
 });
 
 test("HTTP chunked upload accepts zip bytes and does not overwrite same-name files", async () => {
   const bytes = Buffer.from("PK\u0003\u0004" + "payload");
-  const started = (await api("/file-uploads", {
-    kind: "official_file",
-    projectId,
-    title: "bundle",
-    filename: "bundle.zip",
-    mime: "application/zip; charset=binary",
-    byteSize: bytes.length,
-    sha256: sha(bytes),
-    chunkSize: FILE_CHUNK_SIZE,
-  })).body;
+  const started = (
+    await api("/file-uploads", {
+      kind: "official_file",
+      projectId,
+      title: "bundle",
+      filename: "bundle.zip",
+      mime: "application/zip; charset=binary",
+      byteSize: bytes.length,
+      sha256: sha(bytes),
+      chunkSize: FILE_CHUNK_SIZE,
+    })
+  ).body;
   assert.ok(started.uploadId);
   await api(`/file-uploads/${started.uploadId}/chunks`, {
     index: 0,

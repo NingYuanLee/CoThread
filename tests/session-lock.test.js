@@ -44,7 +44,7 @@ test("test database reset preserves the migrated user-number reservation", async
   assert.equal(Number(user.user_number), 100001);
 });
 
-test("L2 runtime does not compact below the auto-compact threshold, and a compact RPC failure does not kill the turn", async () => {
+test("小祥 runtime does not compact below the auto-compact threshold, and a compact RPC failure does not kill the turn", async () => {
   let runtime;
   try {
     const user = { id: randomUUID(), kind: "session" };
@@ -54,7 +54,7 @@ test("L2 runtime does not compact below the auto-compact threshold, and a compac
       "成员",
     ]);
     const project = await service.createProject(user, { name: "压缩失败隔离" });
-    const thread = await service.createThread(user, project.id, { title: "L2 会话" });
+    const thread = await service.createThread(user, project.id, { title: "小祥 会话" });
     const context = await service.context(user, thread.id);
     const methods = [];
     let used = 12;
@@ -105,7 +105,7 @@ test("L2 runtime does not compact below the auto-compact threshold, and a compac
   }
 });
 
-test("a corrupt L2 session log is discarded and the runtime starts fresh", async () => {
+test("a corrupt 小祥 session log is discarded and the runtime starts fresh", async () => {
   let runtime;
   try {
     const user = { id: randomUUID(), kind: "session" };
@@ -115,7 +115,7 @@ test("a corrupt L2 session log is discarded and the runtime starts fresh", async
       "成员",
     ]);
     const project = await service.createProject(user, { name: "损坏会话" });
-    const thread = await service.createThread(user, project.id, { title: "L2" });
+    const thread = await service.createThread(user, project.id, { title: "小祥" });
     const context = await service.context(user, thread.id);
     await query(db, "UPDATE agent_sessions SET checkpoint=? WHERE thread_id=?", [
       Buffer.from("stale"),
@@ -153,7 +153,7 @@ test("a corrupt L2 session log is discarded and the runtime starts fresh", async
   }
 });
 
-test("parked L2 runtime is dropped when the durable session id rotates", async () => {
+test("parked 小祥 runtime is dropped when the durable session id rotates", async () => {
   let threadId;
   let second;
   try {
@@ -164,7 +164,7 @@ test("parked L2 runtime is dropped when the durable session id rotates", async (
       "成员",
     ]);
     const project = await service.createProject(user, { name: "会话轮换" });
-    const thread = await service.createThread(user, project.id, { title: "L2" });
+    const thread = await service.createThread(user, project.id, { title: "小祥" });
     threadId = thread.id;
     const context = await service.context(user, thread.id);
     let closed = 0;
@@ -229,7 +229,7 @@ test("model switching waits for the retired harness to close before restoring it
       "成员",
     ]);
     const project = await service.createProject(user, { name: "模型切换并发" });
-    const thread = await service.createThread(user, project.id, { title: "L2" });
+    const thread = await service.createThread(user, project.id, { title: "小祥" });
     threadId = thread.id;
     const context = await service.context(user, threadId);
     let starts = 0;
@@ -262,7 +262,7 @@ test("model switching waits for the retired harness to close before restoring it
         job: { thread_id: threadId },
         createHarness,
       }),
-      { code: "L2_SESSION_BUSY" },
+      { code: "XIAOXIANG_SESSION_BUSY" },
     );
     assert.equal(starts, 1, "a running child keeps its original harness alive");
     first.activeChildren.delete("running-child");
@@ -292,7 +292,7 @@ test("model switching waits for the retired harness to close before restoring it
   }
 });
 
-test("context sync yields while the coordinator holds the L2 session", async () => {
+test("context sync yields while the coordinator holds the 小祥 session", async () => {
   try {
     const user = { id: randomUUID(), kind: "session" };
     await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
@@ -331,7 +331,7 @@ test("context sync yields while the coordinator holds the L2 session", async () 
   }
 });
 
-test("park with a live L3 child does not wait on that child's context RPC", async () => {
+test("park with a live 子 Agent child does not wait on that child's context RPC", async () => {
   let runtime;
   try {
     const user = { id: randomUUID(), kind: "session" };
@@ -341,7 +341,7 @@ test("park with a live L3 child does not wait on that child's context RPC", asyn
       "成员",
     ]);
     const project = await service.createProject(user, { name: "停驻不堵" });
-    const thread = await service.createThread(user, project.id, { title: "L2" });
+    const thread = await service.createThread(user, project.id, { title: "小祥" });
     const context = await service.context(user, thread.id);
     let childContextCalls = 0;
     const createHarness = () => ({
@@ -349,7 +349,7 @@ test("park with a live L3 child does not wait on that child's context RPC", asyn
       close: async () => {},
       client: {
         request: async (method, params = {}) => {
-          if (method === "cothread/context" && params.sessionId === "live-l3") {
+          if (method === "cothread/context" && params.sessionId === "live-child") {
             childContextCalls += 1;
             await new Promise(() => {});
           }
@@ -364,7 +364,7 @@ test("park with a live L3 child does not wait on that child's context RPC", asyn
       job: { thread_id: thread.id, message_id: randomUUID() },
       createHarness,
     });
-    runtime.activeChildren.add("live-l3");
+    runtime.activeChildren.add("live-child");
     const parked = runtime.park(true);
     assert.equal(
       await Promise.race([parked.then(() => "parked"), delay(200, "waiting")]),

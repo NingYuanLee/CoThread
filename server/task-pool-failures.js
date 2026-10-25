@@ -54,7 +54,7 @@ export async function taskRetryStats(conn, taskId, signature, executorId) {
   const [distinct] = await query(
     conn,
     `SELECT COUNT(DISTINCT executor_id) count FROM agent_task_execution_runs
-    WHERE task_id=? AND executor_type='dsh_l3' AND executor_id IS NOT NULL`,
+    WHERE task_id=? AND executor_type='child_agent' AND executor_id IS NOT NULL`,
     [taskId],
   );
   return {

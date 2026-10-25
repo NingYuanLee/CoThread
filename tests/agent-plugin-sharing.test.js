@@ -7,8 +7,8 @@ import {
 import { dshComposition } from "../server/dsh-runtime-config.js";
 
 test("小祥 and delegated agents expose the same plugin and tool catalog", () => {
-  const parent = capabilityProfile("l2");
-  const child = capabilityProfile("l3");
+  const parent = capabilityProfile("xiaoxiang");
+  const child = capabilityProfile("child_agent");
   assert.deepEqual([...child.allowedTools].sort(), [...parent.allowedTools].sort());
   assert.deepEqual([...child.enabledKeys].sort(), [...parent.enabledKeys].sort());
   const visible = (id) =>
@@ -16,6 +16,6 @@ test("小祥 and delegated agents expose the same plugin and tool catalog", () =
       .plugins.filter((plugin) => plugin.exposed && plugin.effectiveEnabled)
       .map((plugin) => plugin.pluginId)
       .sort();
-  assert.deepEqual(visible("l3"), visible("l2"));
-  assert.deepEqual(dshComposition("l3"), dshComposition("l2"));
+  assert.deepEqual(visible("child_agent"), visible("xiaoxiang"));
+  assert.deepEqual(dshComposition("child_agent"), dshComposition("xiaoxiang"));
 });

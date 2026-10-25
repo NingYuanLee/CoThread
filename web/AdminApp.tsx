@@ -13,6 +13,8 @@ import { AdminAccountMenu } from "./AdminAccountMenu";
 import { AdminWorkManagement } from "./AdminWorkManagement";
 import { AdminRoles } from "./AdminRoles";
 import { ModelSettings } from "./ModelSettings";
+import { OrgStructure } from "./OrgStructure";
+import { OrgHome } from "./OrgHome";
 import { LoginScreen } from "./LoginScreen";
 import { Notifications } from "./Notifications";
 import { ThemePicker } from "./ThemePicker";
@@ -49,7 +51,7 @@ const workPages = [
   "account-changes",
   "account-logins",
 ];
-const listPages = ["projects", "accounts", "plugins", "roles", "my-projects"];
+const listPages = ["projects", "accounts", "plugins", "roles", "my-projects", "orgs"];
 const readPage = () => window.location.pathname.split("/")[2] || "";
 
 export function AdminApp() {
@@ -352,6 +354,7 @@ export function AdminApp() {
               {(page === "iterations" || page === "tasks") && (
                 <AdminWorkManagement kind={page} permissions={access.permissions} />
               )}
+              {page === "my-orgs" && <OrgHome api={api} />}
               {page === "my-projects" && (
                 <SystemManagement
                   section="projects"
@@ -387,6 +390,7 @@ export function AdminApp() {
               {page === "model-settings" && (
                 <ModelSettings api={api} permissions={access.permissions} />
               )}
+              {page === "orgs" && <OrgStructure api={api} permissions={access.permissions} />}
             </div>
           ) : (
             <section className="admin-denied">

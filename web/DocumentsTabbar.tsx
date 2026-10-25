@@ -120,7 +120,7 @@ export function DocumentsTabbar({
             {
               key: "html",
               label: "打开新HTML阅览页",
-              icon: "globe",
+              icon: "browser",
               onRun: createBrowserNewTab,
             },
           ]}

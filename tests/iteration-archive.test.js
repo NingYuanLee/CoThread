@@ -169,6 +169,15 @@ test("knowledge administrator prepares a draft, then confirmed handoff preserves
   const result = await service.confirmIterationArchive(leader, thread.id, body);
   const again = await service.confirmIterationArchive(leader, thread.id, body);
   assert.equal(again.nextThreadId, result.nextThreadId);
+  const wikiPages = await query(
+    db,
+    "SELECT kind FROM wiki_pages WHERE project_id=? ORDER BY kind",
+    [project.id],
+  );
+  assert.deepEqual(
+    wikiPages.map((page) => page.kind),
+    ["decision", "retro"],
+  );
   const [moved] = await query(db, "SELECT * FROM agent_tasks WHERE id=?", [task.id]);
   assert.equal(moved.origin_thread_id, result.nextThreadId);
   assert.equal(moved.original_thread_id, thread.id);
@@ -331,7 +340,7 @@ test("archive draft and final memory reuse the knowledge administrator's existin
     JSON.stringify(draft({ snapshot: { tasks: [] } })),
     JSON.stringify({ summary: "最终确认后才更新知识库" }),
   ];
-  const l1Options = {
+  const laowengOptions = {
     model: {
       baseUrl: "http://127.0.0.1:1/v1",
       apiKey: "test",
@@ -350,7 +359,7 @@ test("archive draft and final memory reuse the knowledge administrator's existin
   await processNextProjectMemory(db, {
     projectId: project.id,
     task: "iteration_archive",
-    l1Options,
+    laowengOptions,
   });
   const workflow = await service.readArchiveWorkflow(creator, thread.id);
   assert.equal(workflow.status, "ready");
@@ -358,7 +367,7 @@ test("archive draft and final memory reuse the knowledge administrator's existin
   await processNextProjectMemory(db, {
     projectId: project.id,
     task: "iteration_archive",
-    l1Options,
+    laowengOptions,
   });
   assert.equal(sessions.length, 2);
   assert.equal(sessions[0], sessions[1]);
@@ -513,7 +522,7 @@ test("a draft whose run died becomes retryable instead of staying in preparing",
   const workflow = await service.readArchiveWorkflow(creator, thread.id);
   await query(
     db,
-    "UPDATE agent_l1_runs SET status='failed',error='服务重启，维护任务已中断。' WHERE archive_workflow_id=?",
+    "UPDATE agent_laoweng_runs SET status='failed',error='服务重启，维护任务已中断。' WHERE archive_workflow_id=?",
     [workflow.id],
   );
   await query(
@@ -540,7 +549,7 @@ test("a draft queued but never claimed becomes retryable", async () => {
   const workflow = await service.readArchiveWorkflow(creator, thread.id);
   await query(
     db,
-    "UPDATE agent_l1_runs SET created_at=DATE_SUB(NOW(), INTERVAL 10 MINUTE) WHERE archive_workflow_id=?",
+    "UPDATE agent_laoweng_runs SET created_at=DATE_SUB(NOW(), INTERVAL 10 MINUTE) WHERE archive_workflow_id=?",
     [workflow.id],
   );
   await query(
@@ -551,9 +560,11 @@ test("a draft queued but never claimed becomes retryable", async () => {
   const stuck = await service.readArchiveWorkflow(creator, thread.id);
   assert.equal(stuck.status, "failed");
   assert.match(stuck.error || "", /重新梳理/);
-  const runs = await query(db, "SELECT status FROM agent_l1_runs WHERE archive_workflow_id=?", [
-    workflow.id,
-  ]);
+  const runs = await query(
+    db,
+    "SELECT status FROM agent_laoweng_runs WHERE archive_workflow_id=?",
+    [workflow.id],
+  );
   assert.deepEqual(
     runs.map((row) => row.status),
     ["queued"],
@@ -615,7 +626,7 @@ test("checked unfinished items become tasks in the next iteration", async () => 
   assert.equal(created[0].title, "确认定时触发器是否生效");
   assert.equal(created[0].goal, "timers 列表为空，需平台确认");
   assert.equal(created[0].status, "pending_assignment");
-  assert.equal(created[0].target_type, "l2_session");
+  assert.equal(created[0].target_type, "xiaoxiang");
   assert.equal(Number(created[0].thread_number), 1);
   const [session] = await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [
     confirmed.nextThreadId,

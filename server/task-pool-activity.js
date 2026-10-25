@@ -1,13 +1,13 @@
 import { query } from "./db.js";
 
 /** Sticky 子 Agent nickname index: first appearance on the thread keeps 大娃/二娃/… forever. */
-export async function stickyL3ExecutorIds(conn, originThreadId) {
+export async function stickyChildExecutorIds(conn, originThreadId) {
   if (!originThreadId) return [];
   const rows = await query(
     conn,
     `SELECT r.executor_id FROM agent_task_execution_runs r
     JOIN agent_tasks t ON t.id=r.task_id
-    WHERE t.origin_thread_id=? AND r.executor_type='dsh_l3' AND r.executor_id IS NOT NULL
+    WHERE t.origin_thread_id=? AND r.executor_type='child_agent' AND r.executor_id IS NOT NULL
     GROUP BY r.executor_id
     ORDER BY MIN(r.created_at), MIN(r.id)`,
     [originThreadId],
@@ -15,12 +15,12 @@ export async function stickyL3ExecutorIds(conn, originThreadId) {
   return rows.map((row) => row.executor_id);
 }
 
-export const L3_EXECUTOR_NAMES = ["大娃", "二娃", "三娃", "四娃", "五娃", "六娃", "七娃"];
+export const CHILD_EXECUTOR_NAMES = ["大娃", "二娃", "三娃", "四娃", "五娃", "六娃", "七娃"];
 
-export function stickyL3Label(executorId, knownIds) {
+export function stickyChildLabel(executorId, knownIds) {
   if (!executorId) return null;
   const index = knownIds.indexOf(executorId);
-  if (index >= 0 && index < L3_EXECUTOR_NAMES.length) return L3_EXECUTOR_NAMES[index];
+  if (index >= 0 && index < CHILD_EXECUTOR_NAMES.length) return CHILD_EXECUTOR_NAMES[index];
   return `子 Agent-${String(executorId).slice(0, 8)}`;
 }
 
@@ -45,13 +45,13 @@ export async function recordTaskStatusChange(conn, taskId, fromStatus, actor, re
     const [user] = await query(conn, "SELECT name FROM users WHERE id=?", [actorId]);
     actorName = user?.name || null;
   }
-  if (actorType === "dsh_l3") {
+  if (actorType === "child_agent") {
     const [task] = await query(conn, "SELECT origin_thread_id FROM agent_tasks WHERE id=?", [
       taskId,
     ]);
-    const known = await stickyL3ExecutorIds(conn, task?.origin_thread_id);
+    const known = await stickyChildExecutorIds(conn, task?.origin_thread_id);
     if (actorId && !known.includes(actorId)) known.push(actorId);
-    actorName = stickyL3Label(actorId, known);
+    actorName = stickyChildLabel(actorId, known);
   }
   await query(
     conn,
@@ -68,6 +68,23 @@ export async function recordTaskStatusChange(conn, taskId, fromStatus, actor, re
       reason ? String(reason).slice(0, 500) : null,
     ],
   );
+  {
+    // 项目记忆候选：任务状态变更属于事件型信号，立即排队并允许触发结算。
+    const [signalTask] = await query(conn, "SELECT project_id,title FROM agent_tasks WHERE id=?", [
+      taskId,
+    ]);
+    if (signalTask?.project_id) {
+      const { noteProjectMemorySignal } = await import("./project-memory.js");
+      await noteProjectMemorySignal(
+        conn,
+        signalTask.project_id,
+        "task",
+        taskId,
+        (signalTask.title || "") + " → " + row.status,
+        { urgent: true },
+      ).catch(() => {});
+    }
+  }
   return row.status;
 }
 
@@ -83,12 +100,14 @@ export async function listTaskStatusEvents(db, taskId) {
     [taskId],
   );
   const [task] = await query(db, "SELECT origin_thread_id FROM agent_tasks WHERE id=?", [taskId]);
-  const l3Ids = await stickyL3ExecutorIds(db, task?.origin_thread_id);
+  const childIds = await stickyChildExecutorIds(db, task?.origin_thread_id);
   return rows.map((row) => ({
     ...row,
     actor_name_snapshot:
       row.actor_name_snapshot ||
-      (row.actor_type === "dsh_l3" && row.actor_id ? stickyL3Label(row.actor_id, l3Ids) : null),
+      (row.actor_type === "child_agent" && row.actor_id
+        ? stickyChildLabel(row.actor_id, childIds)
+        : null),
   }));
 }
 
@@ -97,7 +116,7 @@ export async function taskExecutionSnapshot(db, projectId) {
     db,
     `SELECT t.id task_id,t.origin_thread_id,t.title,t.goal,t.task_type,t.status task_status,t.source_type,t.source_user_id,
     t.created_by_type,t.created_by_id,t.target_type,t.target_id,t.claimed_by_type,t.claimed_by_id,t.execution_mode,t.execution_agent_type,
-    t.result_summary,t.artifact_refs,r.id run_id,r.status run_status,r.executor_type,r.executor_id,r.progress,r.started_at,r.finished_at
+    t.persona,r.persona run_persona,t.result_summary,t.artifact_refs,r.id run_id,r.status run_status,r.executor_type,r.executor_id,r.progress,r.started_at,r.finished_at
     FROM agent_tasks t LEFT JOIN agent_task_execution_runs r ON r.id=(SELECT x.id FROM agent_task_execution_runs x WHERE x.task_id=t.id ORDER BY x.created_at DESC LIMIT 1)
     WHERE t.project_id=? ORDER BY t.updated_at DESC LIMIT 200`,
     [projectId],
@@ -129,13 +148,13 @@ export async function listTaskExecutionRuns(db, taskId) {
     [taskId],
   );
   const [task] = await query(db, "SELECT origin_thread_id FROM agent_tasks WHERE id=?", [taskId]);
-  const ids = await stickyL3ExecutorIds(db, task?.origin_thread_id);
+  const ids = await stickyChildExecutorIds(db, task?.origin_thread_id);
   return rows.map((row) => ({
     ...row,
     executor_label:
       row.executor_label ||
-      (row.executor_type === "dsh_l3" && row.executor_id
-        ? stickyL3Label(row.executor_id, ids)
+      (row.executor_type === "child_agent" && row.executor_id
+        ? stickyChildLabel(row.executor_id, ids)
         : null),
   }));
 }

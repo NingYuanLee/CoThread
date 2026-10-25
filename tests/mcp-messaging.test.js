@@ -254,35 +254,35 @@ test("MCP discovers the target, uploads source files first, then sends refs + te
   assert.equal(downloaded.data.contentBase64, file().contentBase64);
 });
 
-test("MCP L1 status/queue/logs and retry work with account token", async () => {
-  const status = await mcp("get_l1_status", { projectId });
+test("MCP 老翁 status/queue/logs and retry work with account token", async () => {
+  const status = await mcp("get_laoweng_status", { projectId });
   assert.equal(status.error, false);
   assert.equal(status.data.projectId, projectId);
   assert.ok("documentQueue" in status.data);
   assert.ok("memberQueue" in status.data);
   assert.ok(Array.isArray(status.data.recentRuns));
   assert.ok(Array.isArray(status.data.failedRuns));
-  const denied = await mcp("get_l1_status", { projectId: foreignProjectId });
+  const denied = await mcp("get_laoweng_status", { projectId: foreignProjectId });
   assert.equal(denied.error, true);
-  const queue = await mcp("list_l1_document_queue", { projectId, limit: 20 });
+  const queue = await mcp("list_laoweng_document_queue", { projectId, limit: 20 });
   assert.equal(queue.error, false);
   assert.equal(queue.data.projectId, projectId);
   assert.ok(Array.isArray(queue.data.items));
-  const runs = await mcp("list_l1_runs", { projectId, task: "document_memory", limit: 10 });
+  const runs = await mcp("list_laoweng_runs", { projectId, task: "document_memory", limit: 10 });
   assert.equal(runs.error, false);
   assert.ok(Array.isArray(runs.data));
-  const logs = await mcp("get_l1_logs", { projectId, task: "document_memory" });
+  const logs = await mcp("get_laoweng_logs", { projectId, task: "document_memory" });
   assert.equal(logs.error, false);
   assert.equal(logs.data.scopeType, "project");
   assert.ok(Array.isArray(logs.data.events));
-  const retry = await mcp("retry_l1_task", { projectId, task: "document_memory" });
+  const retry = await mcp("retry_laoweng_task", { projectId, task: "document_memory" });
   assert.equal(retry.error, false);
   assert.ok(retry.data.id);
-  // queueL1MemoryRun 会同步 kick 维护，空队列时可能已 completed。
+  // queueLaowengMemoryRun 会同步 kick 维护，空队列时可能已 completed。
   assert.ok(["queued", "running", "completed", "failed"].includes(retry.data.status));
   const guide = await mcp("get_connection_guide", {});
-  assert.match(guide.data.instructions, /get_l1_status/);
-  assert.match(guide.data.instructions, /retry_l1_task/);
+  assert.match(guide.data.instructions, /get_laoweng_status/);
+  assert.match(guide.data.instructions, /retry_laoweng_task/);
 });
 
 test("bad second file, wrong-project reference, oversize file and archived thread never leave partial uploads", async () => {

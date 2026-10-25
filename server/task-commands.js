@@ -9,7 +9,7 @@ import { query, transaction } from "./db.js";
 import { HttpError } from "./http-error.js";
 import { publishWork } from "./work-events.js";
 
-import { withL3DispatchGate } from "./task-pool-helpers.js";
+import { withChildDispatchGate } from "./task-pool-helpers.js";
 import { recordTaskStatusChange } from "./task-pool-activity.js";
 
 import { closeEndedTaskRuns } from "./task-pool-recovery.js";
@@ -22,24 +22,28 @@ import {
 import {
   assertTarget,
   assertActorCanUpdateTask,
-  currentThreadL2Session,
+  currentThreadXiaoxiangSession,
   assertHumanMemberAuthorization,
-  assertL2CanOperateTask,
+  assertXiaoxiangCanOperateTask,
 } from "./task-access.js";
 import { getTask } from "./task-queries.js";
-import { idleL3Count } from "./task-dispatch.js";
+import { idleChildCount } from "./task-dispatch.js";
+import { DEFAULT_PERSONA_KEY, personaByKey } from "../shared/agent-personas.js";
 export async function createTask(db, input) {
   const id = input.id || randomUUID();
   if (!input.originThreadId) throw new HttpError(400, "任务必须属于一个迭代");
   if (!input.projectId || !input.title || !input.goal)
     throw new HttpError(400, "任务缺少项目、标题或目标");
-  if (input.taskType === "assist_l2") {
-    if (input.createdByType !== "l2_session" || input.targetType !== "l2_session")
+  if (input.taskType === "assist") {
+    if (input.createdByType !== "xiaoxiang" || input.targetType !== "xiaoxiang")
       throw new HttpError(403, "辅助任务只能由小祥创建并交给子 Agent");
   } else if (input.taskType !== "formal") throw new HttpError(400, "任务类型无效");
-  if (!new Set(["human_member", "l2_session", "task"]).has(input.sourceType))
+  if (!new Set(["human_member", "xiaoxiang", "task"]).has(input.sourceType))
     throw new HttpError(400, "任务来源无效");
-  if (!new Set(["human_member", "l2_session", "system"]).has(input.createdByType))
+  const personaInput = input.persona == null ? null : personaByKey(input.persona);
+  if (input.persona != null && !personaInput) throw new HttpError(400, "任务人设无效");
+  const persona = personaInput?.key || DEFAULT_PERSONA_KEY;
+  if (!new Set(["human_member", "xiaoxiang", "system"]).has(input.createdByType))
     throw new HttpError(400, "任务创建者无效");
   if (
     input.createdByType === "human_member" &&
@@ -48,7 +52,7 @@ export async function createTask(db, input) {
   )
     throw new HttpError(400, "人类成员创建的任务只能指派给人类成员");
   if (input.targetType) assertTarget(input.targetType, input.targetId);
-  if (input.createdByType === "l2_session" && input.targetType === "human_member")
+  if (input.createdByType === "xiaoxiang" && input.targetType === "human_member")
     await assertHumanMemberAuthorization(db, input.projectId, input, ASSIGN_HUMAN_AUTH);
   await transaction(db, async (conn) => {
     await assertIterationWritable(conn, input.originThreadId, input.projectId);
@@ -92,14 +96,18 @@ export async function createTask(db, input) {
       folderRefs,
     );
     let targetId = input.targetId || null;
-    if (input.targetType === "l2_session") {
+    if (input.targetType === "xiaoxiang") {
       if (input.originThreadId) {
-        const current = await currentThreadL2Session(conn, input.originThreadId, input.projectId);
+        const current = await currentThreadXiaoxiangSession(
+          conn,
+          input.originThreadId,
+          input.projectId,
+        );
         if (!current) throw new HttpError(400, "任务目标不是当前项目迭代的 小祥");
         // Refuse to stamp tasks onto a rotated DB session while the live caller is still the old id.
         // That mismatch is what produces "已安排" + unbound 子 Agent ghosts.
         if (
-          input.createdByType === "l2_session" &&
+          input.createdByType === "xiaoxiang" &&
           input.createdById &&
           input.createdById !== current.session_id
         )
@@ -115,13 +123,13 @@ export async function createTask(db, input) {
         if (!target) throw new HttpError(400, "任务目标不是当前项目迭代的 小祥");
       }
     }
-    const idle = input.targetType === "l2_session" ? await idleL3Count(conn, targetId) : 0;
-    if (input.taskType === "assist_l2" && idle < 1)
+    const idle = input.targetType === "xiaoxiang" ? await idleChildCount(conn, targetId) : 0;
+    if (input.taskType === "assist" && idle < 1)
       throw new HttpError(409, "当前没有空闲子 Agent，不能创建辅助任务，请自行处理");
-    const startL3Now =
-      input.targetType === "l2_session" &&
+    const startChildNow =
+      input.targetType === "xiaoxiang" &&
       idle >= 1 &&
-      (input.taskType === "assist_l2" || input.taskType === "formal");
+      (input.taskType === "assist" || input.taskType === "formal");
     let threadNumber = null;
     if (input.originThreadId) {
       await query(conn, "SELECT id FROM threads WHERE id=? FOR UPDATE", [input.originThreadId]);
@@ -137,17 +145,17 @@ export async function createTask(db, input) {
     const initialStatus =
       input.targetType === "human_member"
         ? "awaiting_acceptance"
-        : startL3Now
+        : startChildNow
           ? "running"
-          : input.targetType === "l2_session"
+          : input.targetType === "xiaoxiang"
             ? "pending_assignment"
             : "draft";
     await query(
       conn,
       `INSERT INTO agent_tasks
       (id,project_id,origin_thread_id,thread_number,source_type,source_user_id,source_agent_session_id,source_message_id,source_task_id,
-       created_by_type,created_by_id,task_type,title,goal,constraints,document_refs,folder_refs,target_type,target_id,status)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       created_by_type,created_by_id,task_type,title,goal,constraints,document_refs,folder_refs,target_type,target_id,status,persona)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         id,
         input.projectId,
@@ -169,23 +177,24 @@ export async function createTask(db, input) {
         input.targetType || null,
         targetId,
         initialStatus,
+        persona,
       ],
     );
     await query(conn, "UPDATE agent_tasks SET original_thread_id=? WHERE id=?", [
       input.originThreadId,
       id,
     ]);
-    if (input.targetType === "l2_session") {
+    if (input.targetType === "xiaoxiang") {
       await query(
         conn,
-        "UPDATE agent_tasks SET claimed_by_type='l2_session',claimed_by_id=?,execution_mode='dsh_l3',execution_agent_type='dsh_l3' WHERE id=?",
+        "UPDATE agent_tasks SET claimed_by_type='xiaoxiang',claimed_by_id=?,execution_mode='child_agent',execution_agent_type='child_agent' WHERE id=?",
         [targetId, id],
       );
-      if (startL3Now) {
+      if (startChildNow) {
         await query(
           conn,
           `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,status)
-          SELECT UUID(),id,revision,'dsh_l3','queued' FROM agent_tasks WHERE id=?`,
+          SELECT UUID(),id,revision,'child_agent','queued' FROM agent_tasks WHERE id=?`,
           [id],
         );
       }
@@ -214,7 +223,7 @@ export async function createTask(db, input) {
     );
   });
   if (input.originThreadId) publishWork(db, input.originThreadId);
-  return withL3DispatchGate(await getTask(db, id));
+  return withChildDispatchGate(await getTask(db, id));
 }
 
 export async function updateTask(db, taskId, actor, update) {
@@ -224,6 +233,8 @@ export async function updateTask(db, taskId, actor, update) {
     if (!task) throw new HttpError(404, "任务不存在");
     assertActorCanUpdateTask(task, actor);
     let nextStatus = update.status || task.status;
+    // 任务层取消失败：任何调用方（子 Agent、本地执行器、网页）传 failed 都收敛为已阻塞。
+    if (nextStatus === "failed") nextStatus = "blocked";
     if (!TASK_UPDATE_STATUSES.includes(nextStatus)) throw new HttpError(400, "任务状态无效");
     if (TASK_ENDED.includes(task.status)) throw new HttpError(409, "任务已经结束");
     if (
@@ -234,7 +245,7 @@ export async function updateTask(db, taskId, actor, update) {
     )
       throw new HttpError(409, "由本人执行的任务只能放弃或完成");
     if (
-      task.task_type === "assist_l2" &&
+      task.task_type === "assist" &&
       ["completed", "failed"].includes(nextStatus) &&
       !task.execution_agent_id
     ) {
@@ -244,8 +255,8 @@ export async function updateTask(db, taskId, actor, update) {
     }
     const redispatchDsh =
       ["queued", "pending_assignment"].includes(nextStatus) &&
-      task.target_type === "l2_session" &&
-      (task.task_type === "assist_l2" || task.execution_agent_type === "dsh_l3");
+      task.target_type === "xiaoxiang" &&
+      (task.task_type === "assist" || task.execution_agent_type === "child_agent");
     await query(
       conn,
       `UPDATE agent_tasks SET status=?,progress=COALESCE(?,progress),result_summary=COALESCE(?,result_summary),
@@ -273,7 +284,7 @@ export async function updateTask(db, taskId, actor, update) {
         await query(
           conn,
           `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,status)
-          SELECT UUID(),id,revision,'dsh_l3','queued' FROM agent_tasks WHERE id=?`,
+          SELECT UUID(),id,revision,'child_agent','queued' FROM agent_tasks WHERE id=?`,
           [taskId],
         );
       }
@@ -283,7 +294,7 @@ export async function updateTask(db, taskId, actor, update) {
         `UPDATE agent_task_execution_runs SET status=?,
         progress=COALESCE(?,progress),result_summary=COALESCE(?,result_summary),
         started_at=COALESCE(started_at,UTC_TIMESTAMP(3))
-        WHERE task_id=? AND executor_type<>'dsh_l3' AND status IN ('queued','running','waiting')`,
+        WHERE task_id=? AND executor_type<>'child_agent' AND status IN ('queued','running','waiting')`,
         [nextStatus, update.progress || null, update.resultSummary || null, taskId],
       );
     }
@@ -336,7 +347,7 @@ export async function askTaskQuestion(db, taskId, actor, question, sourceUserId,
   await lockTaskIteration(db, taskId);
   const task = await getTask(db, taskId);
   if (!task) throw new HttpError(404, "任务不存在");
-  await assertL2CanOperateTask(db, actor, task);
+  await assertXiaoxiangCanOperateTask(db, actor, task);
   const [open] = await query(
     db,
     "SELECT id FROM agent_task_questions WHERE task_id=? AND status='open' LIMIT 1",
@@ -396,7 +407,7 @@ export async function answerTaskQuestion(db, questionId, actor, answer, messageI
       [question.task_id],
     );
     const resume =
-      task?.target_type === "l2_session" && !task.execution_agent_id
+      task?.target_type === "xiaoxiang" && !task.execution_agent_id
         ? "pending_assignment"
         : "running";
     await query(

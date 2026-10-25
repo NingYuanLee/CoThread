@@ -5,7 +5,7 @@ const STATUS_LABEL = {
   awaiting_acceptance: "待确认",
   pending_start: "待开始",
   assigned: "已指派",
-  queued: "待指派",
+  queued: "排队中",
   waiting: "等待中",
   blocked: "已阻塞",
   running: "执行中",
@@ -16,6 +16,7 @@ const STATUS_LABEL = {
   abandoned: "已放弃",
   superseded: "已取代",
   paused: "已暂停",
+  ignored: "已忽略",
 };
 
 export function taskStatusLabel(status) {

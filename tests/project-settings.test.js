@@ -87,13 +87,16 @@ test("member management requires the project leader or a project admin", async (
     );
     const roster = await service.project(creator, project.id);
     const agent = roster.members.find((m) => m.id === AGENT_MEMBER.id);
-    assert.equal(agent?.kind, "l1");
+    assert.equal(agent?.kind, "laoweng");
     assert.equal(agent?.nickname, "老翁");
-    const l2 = roster.members.find((m) => m.kind === "l2");
-    assert.equal(l2?.id, "agent-l2");
-    assert.equal(l2?.nickname, "任务调度员");
+    const xiaoxiang = roster.members.find((m) => m.kind === "xiaoxiang");
+    assert.equal(xiaoxiang?.id, "agent-xiaoxiang");
+    assert.equal(xiaoxiang?.nickname, "任务调度员");
     assert.ok(roster.members.some((m) => m.id === creator.id && m.kind === "human"));
-    assert.equal(roster.members.filter((m) => m.kind === "l1" || m.kind === "l2").length, 2);
+    assert.equal(
+      roster.members.filter((m) => m.kind === "laoweng" || m.kind === "xiaoxiang").length,
+      2,
+    );
   } finally {
     await database.close();
   }

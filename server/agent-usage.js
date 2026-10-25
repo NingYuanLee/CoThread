@@ -30,6 +30,20 @@ export function mergeUsageStats(prior, usage) {
 }
 // DSH reports disjoint input/cache buckets. Reasoning is part of output.
 // A chunk and its final message describe the same attempt; retry starts a new one.
+const STREAM_TOKEN_TYPES = new Set(["reasoning-chunks", "text-chunks", "tool-call-chunks"]);
+
+/** First token time carried on the settled assistant message when live chunks have no timestamp. */
+export function firstTokenTime(stream) {
+  if (!Array.isArray(stream)) return null;
+  let earliest = null;
+  for (const item of stream) {
+    if (!item || !STREAM_TOKEN_TYPES.has(item.type) || !Number.isFinite(item.time0)) continue;
+    if (Array.isArray(item.texts) && !item.texts.some(Boolean)) continue;
+    if (earliest == null || item.time0 < earliest) earliest = item.time0;
+  }
+  return earliest;
+}
+
 export function createUsageMeter() {
   let last,
     totals = {
@@ -66,6 +80,7 @@ export function createUsageMeter() {
       )
         step.first = event.time;
       if (sameStep && event.type === "assistant/message" && Number.isFinite(event.time)) {
+        if (step.first == null) step.first = firstTokenTime(data.stream);
         if (step.first !== null) {
           timing.ttftMs += Math.max(0, step.first - step.start);
           timing.ttftSteps++;
@@ -129,6 +144,26 @@ export function createUsageMeter() {
         : null;
     },
   };
+}
+
+/** 把本轮用量写到该轮最后一帖，唤醒续报轮也有自己的用量与用时。 */
+export async function saveTurnUsage(db, threadId, turnId, usage) {
+  if (!threadId || !turnId || !usage) return;
+  await transaction(db, async (conn) => {
+    const [row] = await query(
+      conn,
+      `SELECT id,turn_usage FROM messages
+       WHERE thread_id=? AND source='assistant' AND (turn_id=? OR (turn_id IS NULL AND agent_task_id=?))
+       ORDER BY sequence DESC LIMIT 1`,
+      [threadId, turnId, turnId],
+    );
+    if (!row) return;
+    const prior = typeof row.turn_usage === "string" ? JSON.parse(row.turn_usage) : row.turn_usage;
+    await query(conn, "UPDATE messages SET turn_usage=? WHERE id=?", [
+      JSON.stringify(mergeUsageStats(prior, usage)),
+      row.id,
+    ]);
+  });
 }
 
 export async function saveReplyUsage(db, messageId, usage) {

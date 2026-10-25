@@ -782,7 +782,7 @@ test("a work request replaces a non-promising draft instead of stacking the remi
   }
 });
 
-test("an uncertain short reply appends the reminder only when the second judgment asks", async () => {
+test("an uncertain short reply stays unchanged when rules do not require a reminder", async () => {
   const userId = randomUUID();
   const projectId = randomUUID();
   const threadId = randomUUID();
@@ -821,22 +821,14 @@ test("an uncertain short reply appends the reminder only when the second judgmen
       "INSERT INTO assistant_replies(message_id,participation,status) VALUES(?,?,?)",
       [messageId, "pending", "running"],
     );
-    const reminded = await composeOpportunisticParticipation(db, {
-      title: "Append thread",
-      threadId,
-      messageId,
-      decide: async () => ({ respond: true, message: "哈哈，确实。" }),
-      decideReminder: async () => ({ remind: true }),
-    });
-    assert.equal(reminded.message, "哈哈，确实。需要麻烦你再@小祥，我才会真的开始。");
     const plain = await composeOpportunisticParticipation(db, {
       title: "Append thread",
       threadId,
       messageId,
       decide: async () => ({ respond: true, message: "哈哈，确实。" }),
-      decideReminder: async () => ({ remind: false }),
     });
     assert.equal(plain.message, "哈哈，确实。");
+    assert.equal(plain.reminded, undefined);
   } finally {
   }
 });
@@ -897,7 +889,7 @@ test("a long recent window stays silent without asking the model", async () => {
   }
 });
 
-test("persist opportunistic artifacts writes usage_stats and L2 trajectory events", async () => {
+test("persist opportunistic artifacts writes usage_stats and 小祥 trajectory events", async () => {
   const userId = randomUUID();
   const projectId = randomUUID();
   const threadId = randomUUID();

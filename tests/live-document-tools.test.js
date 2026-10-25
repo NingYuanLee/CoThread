@@ -11,7 +11,7 @@ import {
 } from "../server/agent-live-output.js";
 import { documentTool } from "../server/documents/document-tools.js";
 import { createAgentTools } from "../server/agent-tools.js";
-import { bindDshL3Execution, createTask } from "../server/task-pool.js";
+import { bindChildAgentExecution, createTask } from "../server/task-pool.js";
 let database, service, user, project, thread, message, job;
 before(async () => {
   database = await testDatabase();
@@ -210,36 +210,36 @@ test("document tools create folders, rename/move/recycle files and enforce stopp
   );
 });
 
-test("L3 can publish after the parent L2 reply has already finished", async () => {
+test("子 Agent can publish after the parent 小祥 reply has already finished", async () => {
   const db = database.db;
-  const l2SessionId = randomUUID();
+  const xiaoxiangSessionId = randomUUID();
   const childId = randomUUID();
   await query(db, "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?)", [
     thread.id,
-    l2SessionId,
+    xiaoxiangSessionId,
   ]);
   const assist = await createTask(db, {
     projectId: project.id,
     originThreadId: thread.id,
     sourceType: "human_member",
     sourceUserId: user.id,
-    createdByType: "l2_session",
-    createdById: l2SessionId,
-    taskType: "assist_l2",
-    title: "L2 结束后仍可提交",
+    createdByType: "xiaoxiang",
+    createdById: xiaoxiangSessionId,
+    taskType: "assist",
+    title: "小祥 结束后仍可提交",
     goal: "发布不依赖父回复 running",
-    targetType: "l2_session",
-    targetId: l2SessionId,
+    targetType: "xiaoxiang",
+    targetId: xiaoxiangSessionId,
   });
-  await bindDshL3Execution(db, l2SessionId, childId, assist.id);
+  await bindChildAgentExecution(db, xiaoxiangSessionId, childId, assist.id);
   await query(db, "UPDATE assistant_replies SET status='completed' WHERE message_id=?", [
     message.id,
   ]);
   const data = {
-    title: "L3 产物",
-    filename: "l3.txt",
+    title: "子 Agent 产物",
+    filename: "child.txt",
     mime: "text/plain",
-    contentBase64: Buffer.from("from-l3").toString("base64"),
+    contentBase64: Buffer.from("from-child").toString("base64"),
   };
   await assert.rejects(
     service.submitVersion({ ...user, kind: "agent" }, thread.id, data, undefined, message.id),
@@ -257,11 +257,11 @@ test("L3 can publish after the parent L2 reply has already finished", async () =
   assert.ok(published.id);
   const tools = createAgentTools(service, user, job, {
     role: "coordinator",
-    l2SessionId,
+    xiaoxiangSessionId,
     getSandbox: async () => ({
       virtualPath: (path) => path,
       files: { makeDir: async () => {}, write: async () => {} },
-      readFile: async () => Buffer.from("from-l3-tool"),
+      readFile: async () => Buffer.from("from-child-tool"),
       commands: { run: async () => ({ stdout: "", stderr: "", exitCode: 0 }) },
     }),
   });

@@ -60,7 +60,7 @@ test("coordinator waits for a concurrent claim instead of declaring a queued dis
     assert.equal("content" in withQuote.messages.at(-1).quotes[0], false);
     assert.equal(withQuote.promptContext.latestMessage.mentions.length, 0);
     assert.deepEqual(withQuote.promptContext.history.messages[0].mentions, [
-      { id: "agent-l2", name: "小祥" },
+      { id: "agent-xiaoxiang", name: "小祥" },
     ]);
     assert.deepEqual(
       withQuote.promptContext.members.map((member) => member.name),
@@ -109,7 +109,7 @@ test("coordinator waits for a concurrent claim instead of declaring a queued dis
   }
 });
 
-test("child_result events wake L2 and post the visible follow-up", async () => {
+test("child_result events wake 小祥 and post the visible follow-up", async () => {
   try {
     const user = { id: randomUUID(), kind: "session" };
     await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
@@ -176,7 +176,7 @@ test("child_result events wake L2 and post the visible follow-up", async () => {
   }
 });
 
-test("child_result still posts when the source message already has earlier L2 replies", async () => {
+test("child_result still posts when the source message already has earlier 小祥 replies", async () => {
   try {
     const user = { id: randomUUID(), kind: "session" };
     await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
@@ -187,7 +187,7 @@ test("child_result still posts when the source message already has earlier L2 re
     const project = await service.createProject(user, { name: "交活补帖" });
     const created = await service.createThread(user, project.id, { title: "任务" });
     const thread = await service.thread(user, created.id);
-    const trigger = await service.postMessage(user, thread.id, { body: "@小祥 验证 L3" });
+    const trigger = await service.postMessage(user, thread.id, { body: "@小祥 验证 子 Agent" });
     await query(db, "UPDATE agent_requests SET status='completed' WHERE message_id=?", [
       trigger.id,
     ]);
@@ -201,7 +201,7 @@ test("child_result still posts when the source message already has earlier L2 re
       db,
       user,
       thread.id,
-      "已安排验证，系统即将启动 L3。",
+      "已安排验证，系统即将启动 子 Agent。",
       [],
       "assistant",
       trigger.id,
@@ -210,7 +210,7 @@ test("child_result still posts when the source message already has earlier L2 re
       db,
       user,
       thread.id,
-      "L3 已启动执行。",
+      "子 Agent 已启动执行。",
       [],
       "assistant",
       trigger.id,
@@ -225,8 +225,8 @@ test("child_result still posts when the source message already has earlier L2 re
         randomUUID(),
         JSON.stringify({
           status: "completed",
-          title: "验证 L3",
-          resultSummary: "L3_PROBE_OK",
+          title: "验证 子 Agent",
+          resultSummary: "CHILD_PROBE_OK",
           sourceMessageId: trigger.id,
           sourceUserId: user.id,
         }),
@@ -234,7 +234,7 @@ test("child_result still posts when the source message already has earlier L2 re
     );
     assert.equal(
       await processNextCoordinator(db, thread.id, async () => ({
-        finalResponse: "大娃已跑完：L3_PROBE_OK，退出码 0。",
+        finalResponse: "大娃已跑完：CHILD_PROBE_OK，退出码 0。",
         mergedMessageIds: [],
       })),
       true,
@@ -245,7 +245,7 @@ test("child_result still posts when the source message already has earlier L2 re
       [trigger.id],
     );
     assert.equal(posts.length, 3);
-    assert.equal(posts.at(-1).body, "大娃已跑完：L3_PROBE_OK，退出码 0。");
+    assert.equal(posts.at(-1).body, "大娃已跑完：CHILD_PROBE_OK，退出码 0。");
   } finally {
   }
 });
@@ -270,12 +270,12 @@ test("a coordinator turn that leaves pending work enqueues one idle dispatch", a
       originThreadId: created.id,
       sourceType: "human_member",
       sourceUserId: user.id,
-      createdByType: "l2_session",
+      createdByType: "xiaoxiang",
       createdById: sessionId,
       taskType: "formal",
       title: "还没派出去",
       goal: "回合结束应退回待指派",
-      targetType: "l2_session",
+      targetType: "xiaoxiang",
       targetId: sessionId,
     });
     assert.equal(task.status, "running");
@@ -296,7 +296,7 @@ test("a coordinator turn that leaves pending work enqueues one idle dispatch", a
     assert.equal(released.status, "pending_assignment");
     const idle = await query(
       db,
-      "SELECT payload FROM coordinator_events WHERE thread_id=? AND kind='l3_idle'",
+      "SELECT payload FROM coordinator_events WHERE thread_id=? AND kind='child_idle'",
       [created.id],
     );
     assert.equal(idle.length, 1);
@@ -312,7 +312,7 @@ test("a coordinator turn that leaves pending work enqueues one idle dispatch", a
     );
     const still = await query(
       db,
-      "SELECT id FROM coordinator_events WHERE thread_id=? AND kind='l3_idle'",
+      "SELECT id FROM coordinator_events WHERE thread_id=? AND kind='child_idle'",
       [created.id],
     );
     assert.equal(still.length, 1);
@@ -320,7 +320,7 @@ test("a coordinator turn that leaves pending work enqueues one idle dispatch", a
   }
 });
 
-test("a new member message is claimed while a prior L2 turn still waits on L3", async () => {
+test("a new member message is claimed while a prior 小祥 turn still waits on 子 Agent", async () => {
   try {
     const user = { id: randomUUID(), kind: "session" };
     await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
@@ -328,10 +328,10 @@ test("a new member message is claimed while a prior L2 turn still waits on L3", 
       `${user.id}@test.com`,
       "成员",
     ]);
-    const project = await service.createProject(user, { name: "L3 执行中接待" });
+    const project = await service.createProject(user, { name: "子 Agent 执行中接待" });
     const created = await service.createThread(user, project.id, { title: "并发" });
     const thread = await service.thread(user, created.id);
-    const first = await service.postMessage(user, thread.id, { body: "@小祥 先派一个 L3" });
+    const first = await service.postMessage(user, thread.id, { body: "@小祥 先派一个 子 Agent" });
     await query(db, "UPDATE agent_requests SET status='completed' WHERE message_id=?", [first.id]);
     await query(
       db,
@@ -428,7 +428,7 @@ test("identical visible text is posted only once for child_result", async () => 
   }
 });
 
-test("L2 session busy requeues the member message instead of failing", async () => {
+test("小祥 session busy requeues the member message instead of failing", async () => {
   try {
     const user = { id: randomUUID(), kind: "session" };
     await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
@@ -440,8 +440,8 @@ test("L2 session busy requeues the member message instead of failing", async () 
     const created = await service.createThread(user, project.id, { title: "锁冲突" });
     const thread = await service.thread(user, created.id);
     const message = await service.postMessage(user, thread.id, { body: "@小祥 还在吗" });
-    const busy = new Error("L2 session is busy");
-    busy.code = "L2_SESSION_BUSY";
+    const busy = new Error("小祥 session is busy");
+    busy.code = "XIAOXIANG_SESSION_BUSY";
     assert.equal(
       await processNextCoordinator(db, thread.id, async () => {
         throw busy;

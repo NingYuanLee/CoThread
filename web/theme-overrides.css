@@ -179,6 +179,11 @@ html:is([data-theme="ink"], [data-theme="night"]) :is(.brand-logo, .welcome-logo
   filter: drop-shadow(0 4px 7px rgba(37, 99, 235, 0.28));
 }
 
+/* 流式状态行：浅色主题跟随主题主色，深色主题统一用蓝色。 */
+html:is([data-theme="ink"], [data-theme="night"]) .streaming-status {
+  color: #60a5fa;
+}
+
 /* 管理空间左侧菜单与工作空间侧栏同一套表面：未选中灰字，悬停用弱底，选中用卡片底。 */
 html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-heading,
 html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-group a {
@@ -277,7 +282,7 @@ html:is([data-theme="ink"], [data-theme="night"])
     .miniprogram-storage-row-actions .is-danger,
     .thread-archive-footer button.danger,
     .library-organize-actions button.danger,
-    .mcp-local-executor-confirm button.danger;
+    .mcp-local-executor-confirm button.danger
   ) {
 
   background: var(--danger-tint-bg);
@@ -298,7 +303,7 @@ html:is([data-theme="ink"], [data-theme="night"])
     .miniprogram-storage-row-actions .is-danger,
     .thread-archive-footer button.danger,
     .library-organize-actions button.danger,
-    .mcp-local-executor-confirm button.danger;
+    .mcp-local-executor-confirm button.danger
   ):hover:not(:disabled) {
   background: var(--danger-tint-bg-hover);
 }
@@ -365,4 +370,34 @@ html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-icon svg,
 html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-clear,
 html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-clear svg {
   color: inherit;
+}
+
+/* 深色下引用聚合块用蓝底，和浅色的灰绿底区分开。 */
+html:is([data-theme="ink"], [data-theme="night"]) button.cite-source {
+  background: #1d4f91;
+  color: #e8f1ff;
+  --stroke: #3b82f6;
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) button.cite-source:hover,
+html:is([data-theme="ink"], [data-theme="night"]) button.cite-source[aria-expanded="true"] {
+  background: #2563eb;
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) button.cite-source .cite-count {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) a.web-link:not(.cite-mark) {
+  color: #7eb6ff;
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) a.cite-mark,
+html:is([data-theme="ink"], [data-theme="night"]) .cite-panel .cite-index {
+  color: var(--c-426b4b);
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) .cite-panel button:hover {
+  background: rgba(47, 111, 235, 0.28);
 }

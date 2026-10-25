@@ -1,5 +1,9 @@
 import { attachThreadReads } from "./thread-reads.js";
-import { AGENT_L1_PROFILE, AGENT_L2_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
+import {
+  AGENT_LAOWENG_PROFILE,
+  AGENT_XIAOXIANG_MEMBER,
+  AGENT_MEMBER,
+} from "../shared/agent-member.js";
 import { modelConfig } from "./model-config.js";
 import { projectImageSchema, projectImageUrl, projectImageUrlSql } from "./project-image.js";
 import { randomUUID } from "node:crypto";
@@ -91,7 +95,7 @@ export async function updateProjectTabOperation(service, user, projectId, input)
   await service.member(user, projectId);
   const { action } = z.object({ action: z.enum(["open", "close", "pin", "unpin"]) }).parse(input);
   const updates = {
-    open: "tab_opened_at=IF(tab_visible,tab_opened_at,UTC_TIMESTAMP(6)),tab_visible=TRUE",
+    open: "tab_opened_at=COALESCE(tab_opened_at,UTC_TIMESTAMP(6)),tab_visible=TRUE",
     close: "tab_visible=FALSE",
     pin: "tab_pinned_at=UTC_TIMESTAMP(6)",
     unpin: "tab_pinned_at=NULL",
@@ -221,19 +225,15 @@ export async function projectOperation(
   const libraryVersions = includeLibrary ? service.mapLibraryVersions(versions, folders) : [];
   const knowledgeModel = modelConfig("knowledge");
   const coordinatorModel = modelConfig("coordinator");
-  const [projectSummary] = await query(
-    service.db,
-    `SELECT s.summary,s.updated_at,t.title last_thread_title
-      FROM agent_project_summaries s LEFT JOIN threads t ON t.id=s.last_thread_id WHERE s.project_id=?`,
-    [projectId],
-  );
+  const { loadProjectSummary } = await import("./project-memory.js");
+  const projectSummary = await loadProjectSummary(service.db, projectId);
   return {
     ...project,
     longTermSummary: projectSummary
       ? {
           summary: projectSummary.summary,
-          updatedAt: projectSummary.updated_at,
-          lastThreadTitle: projectSummary.last_thread_title || null,
+          updatedAt: projectSummary.updatedAt,
+          lastThreadTitle: projectSummary.lastThreadTitle || null,
         }
       : null,
     threads: await attachThreadReads(service.db, user.id, threads),
@@ -267,18 +267,18 @@ export async function projectOperation(
       }),
       {
         ...AGENT_MEMBER,
-        kind: "l1",
-        name: AGENT_L1_PROFILE.nickname,
-        avatar: AGENT_L1_PROFILE.avatar,
+        kind: "laoweng",
+        name: AGENT_LAOWENG_PROFILE.nickname,
+        avatar: AGENT_LAOWENG_PROFILE.avatar,
         identity_tags: ["知识管理员"],
-        nickname: AGENT_L1_PROFILE.nickname,
-        title: AGENT_L1_PROFILE.title,
-        display_avatar: AGENT_L1_PROFILE.avatar,
+        nickname: AGENT_LAOWENG_PROFILE.nickname,
+        title: AGENT_LAOWENG_PROFILE.title,
+        display_avatar: AGENT_LAOWENG_PROFILE.avatar,
         motto: `${knowledgeModel.model} · ${knowledgeModel.reasoningEffort}`,
       },
       {
-        ...AGENT_L2_MEMBER,
-        kind: "l2",
+        ...AGENT_XIAOXIANG_MEMBER,
+        kind: "xiaoxiang",
         motto: `${coordinatorModel.model} · ${coordinatorModel.reasoningEffort}`,
       },
     ],

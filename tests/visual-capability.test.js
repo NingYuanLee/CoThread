@@ -5,5 +5,5 @@ import { visualVerificationEnabled, visualVerificationSkip } from "../server/vis
 test("visual verification can be skipped for text-only model declarations", () => {
   assert.equal(visualVerificationEnabled("executor", { EXECUTOR_MODEL_VISION: "false" }), false);
   assert.equal(visualVerificationEnabled("executor", { EXECUTOR_MODEL_VISION: "true" }), true);
-  assert.equal(visualVerificationSkip("l3").reason, "model_no_image_input");
+  assert.equal(visualVerificationSkip("child_agent").reason, "model_no_image_input");
 });

@@ -12,7 +12,7 @@
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
         provider: spawn
-        toolName: dsh_l3
+        toolName: child_agent
         backgroundMode: continuable
         maxDepth: 1
     - id: subagent-control
@@ -38,9 +38,10 @@
     - id: tool-web
       name: '@deepseek-ai/dsh-tool-web'
       config:
-        fetch: true
+        # 共序自己注册 web_search / web_fetch，直连官方 /v1/tools/search 与 /v1/tools/fetch。
+        # 这里再注册同名工具会让整包项目工具加载失败，小祥就看不到 web_search。
+        fetch: false
         search: false
-        searchTimeoutMs: 60000
 - id: persistent-bash
   disabled: true
 - id: persistent-pwsh

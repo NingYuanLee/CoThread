@@ -2,8 +2,8 @@ import { recordMessageActivity } from "./thread-activity.js";
 import { attachMessageQuotes } from "./message-quotes.js";
 import { markThreadRead as saveThreadRead, threadReadSummary } from "./thread-reads.js";
 import {
-  AGENT_L1_PROFILE,
-  AGENT_L2_MEMBER,
+  AGENT_LAOWENG_PROFILE,
+  AGENT_XIAOXIANG_MEMBER,
   AGENT_MEMBER,
   mentionsAgent,
 } from "../shared/agent-member.js";
@@ -29,6 +29,7 @@ export async function insertMessageOperation(
   executionTarget = "cloud",
   executionTargetUserId = null,
   folderRefs = [],
+  turnId = null,
 ) {
   if (typeof db.getConnection === "function") {
     return iterationState.withIterationWrite(db, threadId, (conn) =>
@@ -44,13 +45,14 @@ export async function insertMessageOperation(
         executionTarget,
         executionTargetUserId,
         folderRefs,
+        turnId,
       ),
     );
   }
   await iterationState.assertIterationWritable(db, threadId);
   const inserted = await query(
     db,
-    "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs,agent_task_id,execution_target,execution_target_user_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
+    "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs,agent_task_id,execution_target,execution_target_user_id,turn_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
     [
       messageId,
       threadId,
@@ -62,9 +64,24 @@ export async function insertMessageOperation(
       agentTaskId,
       executionTarget,
       executionTargetUserId,
+      turnId,
     ],
   );
   await recordMessageActivity(db, messageId);
+  if (text && source !== "system") {
+    // 项目记忆候选：只排队，不调模型；失败不影响发消息。
+    const [signalThread] = await query(db, "SELECT project_id FROM threads WHERE id=?", [threadId]);
+    if (signalThread?.project_id) {
+      const { noteProjectMemorySignal } = await import("./project-memory.js");
+      await noteProjectMemorySignal(
+        db,
+        signalThread.project_id,
+        "message",
+        messageId,
+        String(text).slice(0, 120),
+      ).catch(() => {});
+    }
+  }
   if (source !== "system") {
     const [thread] = await query(db, "SELECT project_id,title FROM threads WHERE id=?", [threadId]);
     const members = await query(
@@ -154,7 +171,7 @@ export async function listMessagesOperation(service, user, threadId, input = {})
     }
     const rows = await query(
       service.db,
-      `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.folder_refs,m.author_id,u.name author,m.created_at
+      `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.folder_refs,m.author_id,m.turn_id,u.name author,m.created_at
         FROM messages m JOIN users u ON u.id=m.author_id WHERE m.thread_id=? AND NOT (m.source='human' AND m.agent_task_id IS NOT NULL) AND m.sequence>?
         ORDER BY m.sequence ASC LIMIT ?`,
       [threadId, anchor.sequence, args.limit + 1],
@@ -189,7 +206,7 @@ export async function listMessagesOperation(service, user, threadId, input = {})
   }
   const rows = await query(
     service.db,
-    `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.folder_refs,m.author_id,u.name author,m.created_at
+    `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.folder_refs,m.author_id,m.turn_id,u.name author,m.created_at
       FROM messages m JOIN users u ON u.id=m.author_id WHERE m.thread_id=? AND NOT (m.source='human' AND m.agent_task_id IS NOT NULL)${sequence ? " AND m.sequence<?" : ""}
       ORDER BY m.sequence DESC LIMIT ?`,
     [threadId, ...(sequence ? [sequence] : []), args.limit + 1],
@@ -213,7 +230,7 @@ export async function readMessageOperation(service, user, threadId, messageId, b
   z.number().int().min(0).max(20).parse(before);
   const [row] = await query(
     service.db,
-    `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.folder_refs,m.author_id,u.name author,m.created_at
+    `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.folder_refs,m.author_id,m.turn_id,u.name author,m.created_at
       FROM messages m JOIN users u ON u.id=m.author_id WHERE m.id=? AND m.thread_id=?`,
     [messageId, threadId],
   );
@@ -231,18 +248,18 @@ export async function conversationMembersOperation(service, user, projectId, mem
   if (memberId === AGENT_MEMBER.id)
     return {
       id: AGENT_MEMBER.id,
-      name: AGENT_L1_PROFILE.nickname,
+      name: AGENT_LAOWENG_PROFILE.nickname,
       role: AGENT_MEMBER.role,
-      kind: "l1",
+      kind: "laoweng",
       identity_tags: ["知识管理员"],
     };
-  if (memberId === AGENT_L2_MEMBER.id)
+  if (memberId === AGENT_XIAOXIANG_MEMBER.id)
     return {
-      id: AGENT_L2_MEMBER.id,
-      name: AGENT_L2_MEMBER.name,
-      role: AGENT_L2_MEMBER.role,
-      kind: "l2",
-      identity_tags: AGENT_L2_MEMBER.identity_tags,
+      id: AGENT_XIAOXIANG_MEMBER.id,
+      name: AGENT_XIAOXIANG_MEMBER.name,
+      role: AGENT_XIAOXIANG_MEMBER.role,
+      kind: "xiaoxiang",
+      identity_tags: AGENT_XIAOXIANG_MEMBER.identity_tags,
     };
   if (memberId) id.parse(memberId);
   const rows = await query(
@@ -258,10 +275,10 @@ export async function conversationMembersOperation(service, user, projectId, mem
   return [
     ...rows.map((row) => ({ ...row, kind: "human" })),
     {
-      id: AGENT_L2_MEMBER.id,
-      name: AGENT_L2_MEMBER.name,
-      role: AGENT_L2_MEMBER.role,
-      kind: "l2",
+      id: AGENT_XIAOXIANG_MEMBER.id,
+      name: AGENT_XIAOXIANG_MEMBER.name,
+      role: AGENT_XIAOXIANG_MEMBER.role,
+      kind: "xiaoxiang",
     },
   ];
 }
@@ -291,6 +308,8 @@ export async function postMessageOperation(service, user, threadId, input) {
         .default([]),
     })
     .parse(input);
+  if (data.dialogueMode === "chat")
+    fail(400, "有问必答已改为项目里和老翁的私聊，群聊不能再选这个模式");
   if (data.refs.length + data.files.length > 30)
     fail(400, "一条消息最多关联 30 个文档版本（含上传文件）");
   if (

@@ -1,529 +1,1379 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>共序使用手册 · CoThread</title>
-<meta name="description" content="共序使用手册：功能全图与运转规则。面向已经会用、想弄清每项能力为什么这样工作的人。">
-<style>
-  :root{
-    --bg:#070a12; --bg-soft:#0a0e18; --card:rgba(255,255,255,.035);
-    --line:rgba(140,170,255,.16); --line-strong:rgba(140,170,255,.34);
-    --txt:#e8eefc; --txt-dim:#95a3c0; --txt-mute:#6b7897;
-    --cyan:#48e5ff; --tocw:272px; --radius:14px; --header-h:58px;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  html{scroll-padding-top:calc(var(--header-h) + 16px)}
-  body{
-    background:var(--bg);color:var(--txt);
-    font-family:"Inter","Segoe UI",system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
-    line-height:1.7;-webkit-font-smoothing:antialiased;
-  }
-  a{color:var(--cyan);text-decoration:none}
-  a:hover{text-decoration:underline}
-  code,pre{font-family:"JetBrains Mono",Consolas,"Courier New",monospace}
-  code{font-size:.9em;color:#9fd7ff;background:rgba(72,229,255,.08);padding:.1em .4em;border-radius:5px}
-  pre{background:#050810;border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow-x:auto;
-    font-size:12.5px;color:#9fd7ff;line-height:1.8;margin:14px 0 18px}
-  table{width:100%;border-collapse:collapse;font-size:13.8px;margin:14px 0 22px}
-  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
-  th{background:rgba(255,255,255,.04);color:var(--txt-dim);font-weight:650}
-  header{position:sticky;top:0;z-index:60;backdrop-filter:blur(14px);
-    background:rgba(7,10,18,.88);border-bottom:1px solid var(--line)}
-  .nav{padding:0 22px;height:var(--header-h);display:flex;align-items:center;justify-content:space-between;gap:16px}
-  .brand{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--txt);text-decoration:none}
-  .brand:hover{text-decoration:none}
-  .brand img{width:28px;height:28px}
-  .brand small{font-weight:500;color:var(--txt-mute);letter-spacing:.14em;font-size:11px;text-transform:uppercase}
-  .nav-links{display:flex;align-items:center;gap:18px;list-style:none;font-size:13.5px}
-  .nav-links a{color:var(--txt-dim);text-decoration:none}
-  .nav-links a:hover,.nav-links a.here{color:var(--cyan);text-decoration:none}
-  .nav-links .cta{color:var(--txt);border:1px solid var(--line-strong);padding:6px 12px;border-radius:999px}
-  .layout{display:grid;grid-template-columns:var(--tocw) minmax(0,1fr);align-items:start;min-height:calc(100vh - var(--header-h))}
-  .toc{
-    position:sticky;top:var(--header-h);height:calc(100vh - var(--header-h));
-    overflow:auto;padding:18px 12px 36px 16px;
-    background:var(--bg-soft);border-right:1px solid var(--line);
-    scrollbar-width:thin;scrollbar-color:rgba(140,170,255,.25) transparent;
-  }
-  .toc-title{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt-mute);margin:2px 8px 14px;font-weight:650}
-  .toc-group + .toc-group{margin-top:4px;padding-top:10px;border-top:1px solid rgba(140,170,255,.08)}
-  .toc-group > summary{
-    list-style:none;cursor:pointer;user-select:none;
-    display:flex;align-items:center;justify-content:flex-start;gap:8px;
-    margin:0 4px 6px;padding:4px 8px;border-radius:8px;
-    color:var(--txt-mute);font-size:11.5px;letter-spacing:.08em;font-weight:700;
-  }
-  .toc-group > summary::-webkit-details-marker{display:none}
-  .toc-group > summary:hover{color:var(--txt);background:rgba(255,255,255,.04)}
-  .toc-group > summary::after{
-    content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;
-    transform:rotate(45deg);opacity:.7;transition:transform .15s ease;
-  }
-  .toc-group:not([open]) > summary::after{transform:rotate(-45deg);margin-top:3px}
-  .toc-group.on > summary{color:var(--cyan)}
-  .toc ul{list-style:none;margin:0;padding:0}
-  .toc li{margin:0}
-  .toc a{
-    display:block;color:var(--txt-dim);text-decoration:none;font-size:13.4px;line-height:1.35;
-    padding:7px 10px 7px 12px;border-radius:8px;border-left:2px solid transparent;
-  }
-  .toc a:hover{color:var(--txt);background:rgba(255,255,255,.045);text-decoration:none}
-  .toc a.active{
-    color:#d9fbff;border-left-color:var(--cyan);
-    background:linear-gradient(90deg,rgba(72,229,255,.16),rgba(72,229,255,.04));
-    font-weight:650;
-  }
-  .toc a.ancestor{color:var(--txt);background:rgba(255,255,255,.03)}
-  .toc li ul{
-    margin:2px 0 6px 12px;padding-left:10px;
-    border-left:1px solid rgba(140,170,255,.18);
-  }
-  .toc li ul a{font-size:12.7px;padding:5px 10px 5px 10px;color:#7f8eab}
-  .main{min-width:0}
-  .article{max-width:820px;padding:32px 48px 40px;min-width:0}
-  .kicker{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--cyan);font-weight:600}
-  h1{font-size:clamp(26px,3.2vw,36px);letter-spacing:-.02em;margin:8px 0 12px;font-weight:740}
-  h2{font-size:22px;margin:42px 0 12px;padding-top:8px;font-weight:700;letter-spacing:-.01em}
-  h3{font-size:16.5px;margin:26px 0 8px;font-weight:650}
-  .article p, .article li{color:var(--txt-dim);font-size:15px}
-  .article p{margin-bottom:12px}
-  .article ul,.article ol{margin:0 0 16px 1.2em}
-  .article li{margin-bottom:6px}
-  .lead{font-size:16.5px;max-width:720px}
-  .note{margin:16px 0 22px;border-left:2px solid var(--line-strong);padding:4px 0 4px 14px;color:var(--txt-mute);font-size:13.4px}
-  .card{border:1px solid var(--line);background:var(--card);border-radius:var(--radius);padding:16px 18px;margin:14px 0 20px}
-  .toc-toggle{display:none}
-  footer{border-top:1px solid var(--line);padding:22px 48px 48px;color:var(--txt-mute);font-size:13px;max-width:820px}
-  footer .inner{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
-  @media(max-width:960px){
-    .layout{display:block}
-    .toc-toggle{
-      display:flex;align-items:center;justify-content:space-between;width:100%;
-      position:sticky;top:var(--header-h);z-index:55;
-      border:0;border-bottom:1px solid var(--line);background:var(--bg-soft);color:var(--txt);
-      padding:12px 18px;font-size:13px;cursor:pointer;
-    }
-    .toc{
-      display:none;position:fixed;top:calc(var(--header-h) + 46px);left:0;bottom:0;
-      width:min(86vw,300px);height:auto;z-index:70;
-      box-shadow:16px 0 40px rgba(0,0,0,.45);
-    }
-    .toc.open{display:block}
-    .article,footer{padding-left:20px;padding-right:20px;max-width:none}
-  }
-</style>
-</head>
-<body>
-<header>
-  <div class="nav">
-    <a class="brand" href="/about_us.html"><img src="/cothread-logo.svg" alt="">共序 <small>Manual</small></a>
-    <ul class="nav-links">
-      <li><a href="/about_us.html">关于我们</a></li>
-      <li><a class="here" href="/docs.html">使用手册</a></li>
-      <li><a class="cta" href="/">进入工作台</a></li>
-    </ul>
-  </div>
-</header>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>共序使用手册 · CoThread</title>
+    <meta
+      name="description"
+      content="共序使用手册：功能全图与运转规则。面向已经会用、想弄清每项能力为什么这样工作的人。"
+    />
+    <style>
+      :root {
+        --bg: #070a12;
+        --bg-soft: #0a0e18;
+        --card: rgba(255, 255, 255, 0.035);
+        --line: rgba(140, 170, 255, 0.16);
+        --line-strong: rgba(140, 170, 255, 0.34);
+        --txt: #e8eefc;
+        --txt-dim: #95a3c0;
+        --txt-mute: #6b7897;
+        --cyan: #48e5ff;
+        --tocw: 272px;
+        --radius: 14px;
+        --header-h: 58px;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html {
+        scroll-padding-top: calc(var(--header-h) + 16px);
+      }
+      body {
+        background: var(--bg);
+        color: var(--txt);
+        font-family:
+          "Inter",
+          "Segoe UI",
+          system-ui,
+          -apple-system,
+          "PingFang SC",
+          "Microsoft YaHei",
+          sans-serif;
+        line-height: 1.7;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: var(--cyan);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      code,
+      pre {
+        font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
+      }
+      code {
+        font-size: 0.9em;
+        color: #9fd7ff;
+        background: rgba(72, 229, 255, 0.08);
+        padding: 0.1em 0.4em;
+        border-radius: 5px;
+      }
+      pre {
+        background: #050810;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px 16px;
+        overflow-x: auto;
+        font-size: 12.5px;
+        color: #9fd7ff;
+        line-height: 1.8;
+        margin: 14px 0 18px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13.8px;
+        margin: 14px 0 22px;
+      }
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 8px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--txt-dim);
+        font-weight: 650;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 60;
+        backdrop-filter: blur(14px);
+        background: rgba(7, 10, 18, 0.88);
+        border-bottom: 1px solid var(--line);
+      }
+      .nav {
+        padding: 0 22px;
+        height: var(--header-h);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+        color: var(--txt);
+        text-decoration: none;
+      }
+      .brand:hover {
+        text-decoration: none;
+      }
+      .brand img {
+        width: 28px;
+        height: 28px;
+      }
+      .brand small {
+        font-weight: 500;
+        color: var(--txt-mute);
+        letter-spacing: 0.14em;
+        font-size: 11px;
+        text-transform: uppercase;
+      }
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        list-style: none;
+        font-size: 13.5px;
+      }
+      .nav-links a {
+        color: var(--txt-dim);
+        text-decoration: none;
+      }
+      .nav-links a:hover,
+      .nav-links a.here {
+        color: var(--cyan);
+        text-decoration: none;
+      }
+      .nav-links .cta {
+        color: var(--txt);
+        border: 1px solid var(--line-strong);
+        padding: 6px 12px;
+        border-radius: 999px;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: var(--tocw) minmax(0, 1fr);
+        align-items: start;
+        min-height: calc(100vh - var(--header-h));
+      }
+      .toc {
+        position: sticky;
+        top: var(--header-h);
+        height: calc(100vh - var(--header-h));
+        overflow: auto;
+        padding: 18px 12px 36px 16px;
+        background: var(--bg-soft);
+        border-right: 1px solid var(--line);
+        scrollbar-width: thin;
+        scrollbar-color: rgba(140, 170, 255, 0.25) transparent;
+      }
+      .toc-title {
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--txt-mute);
+        margin: 2px 8px 14px;
+        font-weight: 650;
+      }
+      .toc-group + .toc-group {
+        margin-top: 4px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(140, 170, 255, 0.08);
+      }
+      .toc-group > summary {
+        list-style: none;
+        cursor: pointer;
+        user-select: none;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 8px;
+        margin: 0 4px 6px;
+        padding: 4px 8px;
+        border-radius: 8px;
+        color: var(--txt-mute);
+        font-size: 11.5px;
+        letter-spacing: 0.08em;
+        font-weight: 700;
+      }
+      .toc-group > summary::-webkit-details-marker {
+        display: none;
+      }
+      .toc-group > summary:hover {
+        color: var(--txt);
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .toc-group > summary::after {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-right: 1.5px solid currentColor;
+        border-bottom: 1.5px solid currentColor;
+        transform: rotate(45deg);
+        opacity: 0.7;
+        transition: transform 0.15s ease;
+      }
+      .toc-group:not([open]) > summary::after {
+        transform: rotate(-45deg);
+        margin-top: 3px;
+      }
+      .toc-group.on > summary {
+        color: var(--cyan);
+      }
+      .toc ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .toc li {
+        margin: 0;
+      }
+      .toc a {
+        display: block;
+        color: var(--txt-dim);
+        text-decoration: none;
+        font-size: 13.4px;
+        line-height: 1.35;
+        padding: 7px 10px 7px 12px;
+        border-radius: 8px;
+        border-left: 2px solid transparent;
+      }
+      .toc a:hover {
+        color: var(--txt);
+        background: rgba(255, 255, 255, 0.045);
+        text-decoration: none;
+      }
+      .toc a.active {
+        color: #d9fbff;
+        border-left-color: var(--cyan);
+        background: linear-gradient(90deg, rgba(72, 229, 255, 0.16), rgba(72, 229, 255, 0.04));
+        font-weight: 650;
+      }
+      .toc a.ancestor {
+        color: var(--txt);
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .toc li ul {
+        margin: 2px 0 6px 12px;
+        padding-left: 10px;
+        border-left: 1px solid rgba(140, 170, 255, 0.18);
+      }
+      .toc li ul a {
+        font-size: 12.7px;
+        padding: 5px 10px 5px 10px;
+        color: #7f8eab;
+      }
+      .main {
+        min-width: 0;
+      }
+      .article {
+        max-width: 820px;
+        padding: 32px 48px 40px;
+        min-width: 0;
+      }
+      .kicker {
+        font-size: 12px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--cyan);
+        font-weight: 600;
+      }
+      h1 {
+        font-size: clamp(26px, 3.2vw, 36px);
+        letter-spacing: -0.02em;
+        margin: 8px 0 12px;
+        font-weight: 740;
+      }
+      h2 {
+        font-size: 22px;
+        margin: 42px 0 12px;
+        padding-top: 8px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      h3 {
+        font-size: 16.5px;
+        margin: 26px 0 8px;
+        font-weight: 650;
+      }
+      .article p,
+      .article li {
+        color: var(--txt-dim);
+        font-size: 15px;
+      }
+      .article p {
+        margin-bottom: 12px;
+      }
+      .article ul,
+      .article ol {
+        margin: 0 0 16px 1.2em;
+      }
+      .article li {
+        margin-bottom: 6px;
+      }
+      .lead {
+        font-size: 16.5px;
+        max-width: 720px;
+      }
+      .note {
+        margin: 16px 0 22px;
+        border-left: 2px solid var(--line-strong);
+        padding: 4px 0 4px 14px;
+        color: var(--txt-mute);
+        font-size: 13.4px;
+      }
+      .card {
+        border: 1px solid var(--line);
+        background: var(--card);
+        border-radius: var(--radius);
+        padding: 16px 18px;
+        margin: 14px 0 20px;
+      }
+      .toc-toggle {
+        display: none;
+      }
+      footer {
+        border-top: 1px solid var(--line);
+        padding: 22px 48px 48px;
+        color: var(--txt-mute);
+        font-size: 13px;
+        max-width: 820px;
+      }
+      footer .inner {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      @media (max-width: 960px) {
+        .layout {
+          display: block;
+        }
+        .toc-toggle {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          width: 100%;
+          position: sticky;
+          top: var(--header-h);
+          z-index: 55;
+          border: 0;
+          border-bottom: 1px solid var(--line);
+          background: var(--bg-soft);
+          color: var(--txt);
+          padding: 12px 18px;
+          font-size: 13px;
+          cursor: pointer;
+        }
+        .toc {
+          display: none;
+          position: fixed;
+          top: calc(var(--header-h) + 46px);
+          left: 0;
+          bottom: 0;
+          width: min(86vw, 300px);
+          height: auto;
+          z-index: 70;
+          box-shadow: 16px 0 40px rgba(0, 0, 0, 0.45);
+        }
+        .toc.open {
+          display: block;
+        }
+        .article,
+        footer {
+          padding-left: 20px;
+          padding-right: 20px;
+          max-width: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="nav">
+        <a class="brand" href="/about_us.html"
+          ><img src="/cothread-logo.svg" alt="" />共序 <small>Manual</small></a
+        >
+        <ul class="nav-links">
+          <li><a href="/about_us.html">关于我们</a></li>
+          <li><a class="here" href="/docs.html">使用手册</a></li>
+          <li><a class="cta" href="/">进入工作台</a></li>
+        </ul>
+      </div>
+    </header>
 
-<button class="toc-toggle" type="button" id="tocToggle">目录</button>
-<div class="layout">
-  <nav class="toc" id="toc" aria-label="使用手册目录">
-    <p class="toc-title">目录</p>
-    <details class="toc-group" open>
-      <summary>总览</summary>
-      <ul>
-        <li><a href="#how-to-read">这份手册写给谁</a>
-          <ul><li><a href="#principles">四条运转原则</a></li></ul>
-        </li>
-        <li><a href="#model">四层对象</a></li>
-        <li><a href="#roles">人、老翁、小祥</a></li>
-      </ul>
-    </details>
-    <details class="toc-group" open>
-      <summary>对话</summary>
-      <ul>
-        <li><a href="#workspace">工作台对应什么</a></li>
-        <li><a href="#dialogue-mode">四种对话模式</a>
-          <ul><li><a href="#participation">按需参与</a></li></ul>
-        </li>
-        <li><a href="#context">上下文与压缩</a></li>
-      </ul>
-    </details>
-    <details class="toc-group" open>
-      <summary>成果与任务</summary>
-      <ul>
-        <li><a href="#library">文档库四区</a>
+    <button class="toc-toggle" type="button" id="tocToggle">目录</button>
+    <div class="layout">
+      <nav class="toc" id="toc" aria-label="使用手册目录">
+        <p class="toc-title">目录</p>
+        <details class="toc-group" open>
+          <summary>总览</summary>
           <ul>
-            <li><a href="#versions">版本与审核</a></li>
-            <li><a href="#upload-web">上传与预览</a></li>
+            <li>
+              <a href="#how-to-read">这份手册写给谁</a>
+              <ul>
+                <li><a href="#principles">四条运转原则</a></li>
+              </ul>
+            </li>
+            <li><a href="#model">四层对象</a></li>
+            <li><a href="#roles">人、老翁、小祥</a></li>
           </ul>
-        </li>
-        <li><a href="#tasks">任务如何被安排</a>
-          <ul><li><a href="#two-runners">云端与本机</a></li></ul>
-        </li>
-      </ul>
-    </details>
-    <details class="toc-group" open>
-      <summary>小程序与收尾</summary>
-      <ul>
-        <li><a href="#miniprogram">CloudBase</a>
+        </details>
+        <details class="toc-group" open>
+          <summary>对话</summary>
           <ul>
-            <li><a href="#miniprogram-config">凭据放在项目上</a></li>
-            <li><a href="#miniprogram-workspace">右侧工作台</a></li>
-            <li><a href="#miniprogram-release">谁可以发布</a></li>
+            <li><a href="#workspace">工作台对应什么</a></li>
+            <li>
+              <a href="#dialogue-mode">四种对话模式</a>
+              <ul>
+                <li><a href="#participation">按需参与</a></li>
+              </ul>
+            </li>
+            <li><a href="#context">上下文与压缩</a></li>
           </ul>
-        </li>
-        <li><a href="#archive">归档与交接</a></li>
-      </ul>
-    </details>
-    <details class="toc-group" open>
-      <summary>权限与边界</summary>
-      <ul>
-        <li><a href="#account">账号与通知</a></li>
-        <li><a href="#admin">两套权限</a>
-          <ul><li><a href="#model-settings">模型配置</a></li></ul>
-        </li>
-        <li><a href="#local-executor">本机助手与连接</a></li>
-        <li><a href="#limits">有意不做的事</a></li>
-        <li><a href="#deploy-local">安装不在这里</a></li>
-      </ul>
-    </details>
-  </nav>
-  <div class="main">
-  <article class="article">
-    <div class="kicker">User guide</div>
-    <h1>共序使用手册</h1>
-    <p class="lead">这本手册给已经会用协作工具、想弄清共序有哪些功能、以及这些功能按什么规则运转的人。界面尽量少让人学；这里不把「第一次点哪里」当成正文，而是说明每项能力在维持什么、何时生效、何时故意不生效。产品介绍见<a href="/about_us.html">关于我们</a>。</p>
-    <p class="note">当前是一套服务上的小团队。下面写的是使用者能碰到的行为。安装、数据库和服务器发布不在这里。</p>
+        </details>
+        <details class="toc-group" open>
+          <summary>成果与任务</summary>
+          <ul>
+            <li>
+              <a href="#library">文档库四区</a>
+              <ul>
+                <li><a href="#versions">版本与审核</a></li>
+                <li><a href="#upload-web">上传与预览</a></li>
+              </ul>
+            </li>
+            <li>
+              <a href="#memory">项目记忆</a>
+              <ul>
+                <li><a href="#memory-settlement">迭代归档时清算</a></li>
+              </ul>
+            </li>
+            <li>
+              <a href="#tasks">任务如何被安排</a>
+              <ul>
+                <li><a href="#two-runners">云端与本机</a></li>
+              </ul>
+            </li>
+          </ul>
+        </details>
+        <details class="toc-group" open>
+          <summary>小程序与收尾</summary>
+          <ul>
+            <li>
+              <a href="#miniprogram">CloudBase</a>
+              <ul>
+                <li><a href="#miniprogram-config">凭据放在项目上</a></li>
+                <li><a href="#miniprogram-workspace">右侧工作台</a></li>
+                <li><a href="#miniprogram-release">谁可以发布</a></li>
+              </ul>
+            </li>
+            <li><a href="#archive">归档与交接</a></li>
+          </ul>
+        </details>
+        <details class="toc-group" open>
+          <summary>权限与边界</summary>
+          <ul>
+            <li><a href="#account">账号与通知</a></li>
+            <li>
+              <a href="#admin">两套权限</a>
+              <ul>
+                <li><a href="#model-settings">模型配置</a></li>
+              </ul>
+            </li>
+            <li><a href="#local-executor">本机助手与连接</a></li>
+            <li><a href="#limits">有意不做的事</a></li>
+            <li><a href="#deploy-local">安装不在这里</a></li>
+          </ul>
+        </details>
+      </nav>
+      <div class="main">
+        <article class="article">
+          <div class="kicker">User guide</div>
+          <h1>共序使用手册</h1>
+          <p class="lead">
+            这本手册给已经会用协作工具、想弄清共序有哪些功能、以及这些功能按什么规则运转的人。界面尽量少让人学；这里不把「第一次点哪里」当成正文，而是说明每项能力在维持什么、何时生效、何时故意不生效。产品介绍见<a
+              href="/about_us.html"
+              >关于我们</a
+            >。
+          </p>
+          <p class="note">
+            当前是一套服务上的小团队。下面写的是使用者能碰到的行为。安装、数据库和服务器发布不在这里。
+          </p>
 
-    <h2 id="how-to-read">这份手册写给谁</h2>
-    <p>会用，和知道系统在守什么，不是一回事。共序把很多判断做成了默认行为：没被 @ 可以不说话，上传了也不算通过，停止了也不能把已经写出的文件收回来。这些不是界面没做完，而是规则。弄清规则之后，才知道该把一件事放进群、放进任务、放进正式文件，还是留到归档时再决定。</p>
+          <h2 id="how-to-read">这份手册写给谁</h2>
+          <p>
+            会用，和知道系统在守什么，不是一回事。共序把很多判断做成了默认行为：没被 @
+            可以不说话，上传了也不算通过，停止了也不能把已经写出的文件收回来。这些不是界面没做完，而是规则。弄清规则之后，才知道该把一件事放进群、放进任务、放进正式文件，还是留到归档时再决定。
+          </p>
 
-    <h3 id="principles">四条运转原则</h3>
-    <div class="card">
-      <ol>
-        <li><strong>过程与成果分开。</strong>群是这一轮的过程。文档库是项目的成果。结束一轮讨论不会把文档库清掉，也不会自动把草稿晋升成正式文件。</li>
-        <li><strong>引用锁版本。</strong>消息和任务引用的是当时那一版。文件后来改了，旧消息打开的仍是它引用的那一版。决定可以回溯，是因为引用没有被后来的保存覆盖。</li>
-        <li><strong>助手可以做，确认权在人。</strong>上传、发布到沙箱产物、整理出归档方案、提交生产发布，都只是提出或执行。通过、归档确认、生产批准，必须由有权的人做。小祥不能代确认、代批准、代清空回收站。</li>
-        <li><strong>身份和会话不混用。</strong>知识整理、群里调度、具体执行、你自己电脑上的仓库，各用各的会话和权限。一个迭代的上下文不会变成另一个迭代的记忆；本机助手以你的成员身份连接，不会反过来把服务器密钥带下去。</li>
-      </ol>
+          <h3 id="principles">四条运转原则</h3>
+          <div class="card">
+            <ol>
+              <li>
+                <strong>过程与成果分开。</strong
+                >群是这一轮的过程。文档库是项目的成果。结束一轮讨论不会把文档库清掉，也不会自动把草稿晋升成正式文件。
+              </li>
+              <li>
+                <strong>引用锁版本。</strong
+                >消息和任务引用的是当时那一版。文件后来改了，旧消息打开的仍是它引用的那一版。决定可以回溯，是因为引用没有被后来的保存覆盖。
+              </li>
+              <li>
+                <strong>助手可以做，确认权在人。</strong
+                >上传、发布到沙箱产物、整理出归档方案、提交生产发布，都只是提出或执行。通过、归档确认、生产批准，必须由有权的人做。小祥不能代确认、代批准、代清空回收站。
+              </li>
+              <li>
+                <strong>身份和会话不混用。</strong
+                >知识整理、群里调度、具体执行、你自己电脑上的仓库，各用各的会话和权限。一个迭代的上下文不会变成另一个迭代的记忆；本机助手以你的成员身份连接，不会反过来把服务器密钥带下去。
+              </li>
+            </ol>
+          </div>
+
+          <h2 id="model">四层对象</h2>
+          <p>
+            一次部署是一家公司自己的空间：账号、项目和文件都在这套服务里，和其他部署无关。公司里面再切三层，是为了让「长期要留的」和「这一轮正在吵的」不要放在同一个生命周期里。
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>对象</th>
+                <th>生命周期</th>
+                <th>为什么单独成一层</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>项目</td>
+                <td>长期</td>
+                <td>
+                  成员、文档库、小程序凭据、代码仓库连接、项目长期总结都挂在项目上。换一轮讨论不应该把这些拆掉
+                </td>
+              </tr>
+              <tr>
+                <td>迭代</td>
+                <td>一轮讨论</td>
+                <td>
+                  消息、背景与目标、这一轮的小祥会话、任务编号都属于这一轮。结束时可以冻结，而不冻结整个项目
+                </td>
+              </tr>
+              <tr>
+                <td>任务</td>
+                <td>一件可派、可确认、可执行的工作</td>
+                <td>
+                  群消息是说法，任务是可追踪的执行。交接到下一轮时，任务身份还在，只换展示编号和所属迭代
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            顶栏是项目。左侧是这个项目的各轮迭代，分「活跃中」和「已归档」。中间才是这一轮的群。右侧是项目级成果：标准模式下是文档库，CloudBase
+            模式下是这一轮要用的运行与发布面板。凭据仍在项目上，不在某一轮消息里。
+          </p>
+
+          <h2 id="roles">人、老翁、小祥</h2>
+          <p>
+            公司账号目录只包含人类；项目成员中另有老翁和小祥两名 Agent。Agent
+            不占人类账号，停用、重置密码和平台角色分配只对人类账号生效。
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>谁</th>
+                <th>挂在哪</th>
+                <th>负责什么</th>
+                <th>不负责什么</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>老翁</td>
+                <td>整个项目。四件维护各有一套可接续的会话，不进某一轮群聊</td>
+                <td>
+                  认识成员怎么说话、给文档做事实摘要、整理正式文件的归类和命名、在归档时写方案并在人确认后更新项目长期总结
+                </td>
+                <td>不进群，也不出现在 @ 列表里。不代替人做归档确认</td>
+              </tr>
+              <tr>
+                <td>小祥</td>
+                <td>项目里的一名 Agent，与老翁不分等级；每一轮迭代单独一套会话</td>
+                <td>
+                  在群里协作。可以直接使用工具，也可以把工作委派给最多 7 个子
+                  Agent，再把结果说回群里
+                </td>
+                <td>
+                  不把子 Agent
+                  当成成员。把任务派给某人，或改别人名下的任务，必须有人类授权。不在「有问必答」里改任何东西
+                </td>
+              </tr>
+              <tr>
+                <td>子 Agent</td>
+                <td>小祥委派的执行槽，每个任务自己的会话</td>
+                <td>
+                  改文件、跑受控命令、按授权动云资源。使用小祥的插件和
+                  Skills。结束前必须向小祥交活，成功失败都算交
+                </td>
+                <td>不叫小祥，不单独列在成员里，不能自己批准发布或确认归档，也不能扩大任务归属</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            老翁和小祥没有上下级。老翁做知识维护，小祥做群聊协作，两边不共用同一次思考。老翁的四件维护（认识成员、文档摘要、迭代归档、项目记忆）在「小祥监控」里分别有卡片：同项目多次做同一件，接的是同一套上下文。每一轮的小祥互不看见对方的会话。子
+            Agent
+            第一次可以带着这一轮的快照出发，之后只接收这条任务上追加的要求，不再把整段群聊灌进去。
+          </p>
+          <p>
+            一轮里同时执行的云端子 Agent 最多 7
+            个。这是并发槽，不是成员名额，不表示成员等级。槽满了，沙箱正式任务会停在待指派，有空位再继续；不会悄悄多开第
+            8 个。子 Agent 用的插件和 Skills 与小祥相同。
+          </p>
+          <p>
+            项目里的身份和管理空间里的平台角色是两套账，见<a href="#admin">两套权限</a
+            >。项目侧：一个项目只有一位项目主，由现任转移。项目管理由项目主指定，不能同时又是项目主，也不能从只读成员直接提升。归档只属于这轮迭代的创建人或当前项目主，项目管理不能单凭身份归档。
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>项目身份</th>
+                <th>边界</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>项目主</td>
+                <td>
+                  项目资料、成员、连接器、小程序凭据；可转移项目主；可发起、撤回、重试、确认归档；可批准生产发布
+                </td>
+              </tr>
+              <tr>
+                <td>项目管理</td>
+                <td>协助项目内管理。不能单独归档，不能移走或改写项目主</td>
+              </tr>
+              <tr>
+                <td>成员</td>
+                <td>讨论、上传、建任务、引用文档、在授权范围内使用云开发工作台</td>
+              </tr>
+              <tr>
+                <td>只读成员</td>
+                <td>看讨论和文档。不能发言、上传、改任务、改密钥</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h2 id="workspace">工作台对应什么</h2>
+          <p>三栏不是装饰，是三套状态的入口。</p>
+          <ul>
+            <li>
+              <strong>左侧</strong>选轮次。未读条数和未读 @
+              标在迭代上。归档过程中会标「归档中」。底部「项目管理」维护项目级事实（基础信息、项目成员、连接器、小程序与云开发）。「小祥监控」看老翁四件维护、各轮小祥、执行槽和上下文，不在这里改群。
+            </li>
+            <li>
+              <strong>中间</strong
+              >是这一轮。三个页签分工不同：「对话」是人能引用的发言；「轨迹」是这一轮助手实际调用过什么，用来核对它做过的事，不是第二套聊天；「背景与目标」是这一轮的方向，进行中可改并留下变更记录，归档一开始就冻结。
+            </li>
+            <li>
+              <strong>右侧</strong
+              >是成果与运行。「标准模式」浏览文档库，「CloudBase」打开运行时面板。两者和对话模式联动，见下文。全屏和拖宽度只改变看的方式，不改变文件属于项目这一事实。
+            </li>
+          </ul>
+          <p>
+            背景与目标谁都能在进行中提议，但写入要有原因。小祥只有在事实清楚、而且当前不是有问必答时，才能自己更新，并且必须写下原因。记录按时间留下改之前的内容；还没有审核者时显示「未审核」。这不是一条审批流，只是让方向变化可追溯。
+          </p>
+          <p>
+            输入框左下角的「+」选择的是<strong>下一条消息</strong>的约束，不是把整轮永久改成另一种产品。模式记在这台浏览器的这一轮上，换设备要重选。快捷语「帮我创建任务」只是预填一条
+            @ 小祥的草稿，发送之后仍按普通消息和当前模式处理。
+          </p>
+
+          <h2 id="dialogue-mode">四种对话模式</h2>
+          <p>
+            模式是发给小祥的约束，不是皮肤。服务端按你发出的那一条记录模式。选错模式时，能力会真的消失，而不是只少一个按钮。
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>模式</th>
+                <th>约束</th>
+                <th>适合</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>自由发言</strong></td>
+                <td>默认参与规则。可以沉默，也可以走完整调度：写文档、派任务、进沙箱</td>
+                <td>日常把事情做完</td>
+              </tr>
+              <tr>
+                <td><strong>有问必答</strong></td>
+                <td>
+                  每条成员消息都要回。工具被收成只读：不能建或改任务，不能改文档、沙箱、小程序源码和云资源。也不能改背景与目标
+                </td>
+                <td>对口径、查已经存在的资料，防止顺手改库</td>
+              </tr>
+              <tr>
+                <td><strong>仅小程序</strong></td>
+                <td>
+                  按微信小程序理解本次需求，做源码、Dimina 预览与微信上传；不采用 CloudBase 开发流程
+                </td>
+                <td>不涉及云函数、云数据库或云存储的小程序工作</td>
+              </tr>
+              <tr>
+                <td><strong>CloudBase</strong></td>
+                <td>
+                  按微信小程序和腾讯云开发理解需求，并打开右侧工作台。子 Agent
+                  只能用这个项目已经配好并测通的云能力
+                </td>
+                <td>改小程序、查云、准备发布</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            对话模式与右侧「标准模式 /
+            CloudBase」联动。选择「仅小程序」或「CloudBase」会打开右侧工作台；在右侧选择 CloudBase
+            时，已有的「仅小程序」模式保持不变，其余模式会切到
+            CloudBase。从右侧切回标准模式时，「仅小程序」和「CloudBase」都回到自由发言。是否只读以发送消息时的模式为准，不能仅凭侧栏是否打开判断。密钥不会因为开了侧栏就出现在群正文里。
+          </p>
+
+          <h3 id="participation">按需参与</h3>
+          <p>
+            只有自由发言、项目里不只有你一个人、而且你没有明确 @
+            小祥时，才会先判断要不要张嘴。判断的目的是让群还像人在讨论：不是每句「好的」都插入一段助手发言，也不是该干活时只回「我这就开始」。
+          </p>
+          <ul>
+            <li>
+              <strong>直接进入完整回复，不再先问要不要参与</strong>：明确 @
+              小祥；句首写成「小祥，…」或「小祥
+              …」；或者当时项目里只有你一个人类和助手。人类人数按项目成员算，不按在线人数，也不把老翁、小祥、子
+              Agent 算成人。单独一个「小祥」不算点名。
+            </li>
+            <li>
+              <strong>硬规则，必须短回</strong>：催它为什么不说话；同一内容连发满 3
+              次；紧跟它上一条发言的短评（感谢、追问、夸一句）。单纯的「好的」「收到」不算短评。
+            </li>
+            <li>
+              <strong>可以不回</strong>：纯确认；它刚说过话之后大约 60
+              秒里的闲聊。上面的硬规则可以打断这 60 秒。
+            </li>
+            <li>
+              <strong>轻量回复</strong
+              >：只把眼下的讨论收成一句理解，不启动完整调度，也不打开沙箱。要写文档、总结、改代码、派任务，或催它开工时，这句先不发出：草稿如果已经在答应，或者这件事本身就是实活，整句换成「需要麻烦你再@小祥，我才会真的开始。」不再把许诺和提醒叠在一起。拿不准时再问一次，需要才把这句接在后面。轻量路径不会因此升级成完整调度。
+            </li>
+          </ul>
+          <p>
+            一段连发只会落下一条可见回复，并把其间还没被回答的消息吸收进去。它先起草，发出前若又来了新消息，就改稿或不发。模型嘴里说「以后每条都回」不作数，规则不以聊天承诺改写。沉默只留下内部状态，群里没有那条消息，沙箱也不启动。本机助手或小祥自己发出的消息不会再触发一轮回复，避免自己和自己循环。
+          </p>
+
+          <h3 id="context">上下文与压缩</h3>
+          <p>
+            上下文是模型这一次能看见的工作记忆，不是群记录本身。群消息、任务和文档都在库里；上下文是从中装进这一次会话的那一份。
+          </p>
+          <p>
+            每一轮小祥有一份长期会话，容量按调度来设计：默认大约 25.6 万
+            token，用到约七成就自动压缩，而不是拖到模型极限再一次性丢掉前面。老翁的维护会话和子
+            Agent 的任务会话是做完就结束的，单次可以顶到大约 100 万
+            token，用来扛一轮大批量整理或一次长任务。按需参与的那一下轻量判断不走这些预算。它先看最近
+            12 条：正文合计超过 4000
+            字，就从最旧的一条开始丢掉，直到装得下；只剩最新一条仍然超过，就不再叫模型，直接不插话。点名、催沉默、连发和短跟帖仍用短句，不把过长正文交出去。没超限时全文进入判断，不再把每条截短。
+          </p>
+          <p>
+            对话区展示的是这一轮小祥的用量。组成大致是：系统指令、工具定义、成员讨论、助手回复、文件与工具结果、压缩摘要、还没装进去的新消息。没被读过的文档正文不占这份用量。展示用的是估算，用来判断挤不挤，不是账单上的精确扣费。
+          </p>
+          <p>
+            压缩把较早的内容换成一段摘要，并保留最近一段原文（调度会话大约留 3.2 万
+            token）。群聊、轨迹、维护记录和文档都不删。自动压缩发生在下一轮开始前，以及执行步骤之间。你点「立即压缩」只是排队：当前这轮跑完才执行，快照真正写完才算压缩完成，失败可以再试。所以压缩改变的是助手接下来怎么回忆，不是你们已经说过的话。
+          </p>
+
+          <h2 id="library">文档库四区</h2>
+          <p>
+            一个项目的所有迭代共用一套文档库。分成四区，是为了把「人刚丢进来的」「助手做出来的」「已经认账的」「小程序工程」从权限上拆开。混在一个文件夹里，就无法同时满足只读、可发布、可确认。
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>区</th>
+                <th>谁可以往里放</th>
+                <th>原则</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>对话缓存</td>
+                <td>人在对话框上传，或本机助手随消息送入。按北京时间的自然日进日期文件夹</td>
+                <td>
+                  对人可引用、下载、审核、软删除。不能在库里改正文。小祥不能往这里新增，避免助手把草稿伪装成你的附件
+                </td>
+              </tr>
+              <tr>
+                <td>沙箱产物</td>
+                <td>主要是云端执行：在沙箱里生成、修改后发布</td>
+                <td>
+                  对话框附件进不了这里。人可以预览、下载、确认、另存，不能把聊天附件直接丢进产物区冒充执行结果
+                </td>
+              </tr>
+              <tr>
+                <td>正式文件</td>
+                <td>人上传，或把已确认的缓存、产物另存进来</td>
+                <td>
+                  这是认账之后的资料。不按版本号往同一条上叠加；同目录同名会变成「名称
+                  (2)」，不覆盖。不走「需要修改」那条打回流程
+                </td>
+              </tr>
+              <tr>
+                <td>小程序</td>
+                <td>小程序工程的固定工作区</td>
+                <td>
+                  四个子目录是稳定的：小程序源文件、小程序 Web 产物、PC
+                  管理后台、云函数。预览和发布读的是这里，不是某条聊天附件
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            正式文件整理已于 2026-10-25
+            下线：入口关闭，正式文件区不再因整理而锁定，历史整理记录仍可查看。文档摘要是另一件事：给正式文件、沙箱产物和对话缓存写事实摘要，供以后的助手查阅，不代替你确认文件。
+          </p>
+          <p>
+            项目长期总结在项目管理的基础信息里看。它不是聊天记录的复制。归档方案准备阶段不写它；只有人确认归档之后，才排队给老翁把这一轮的结论沉淀进去。所以总结里出现的内容，应是已经认过的结论，而不是草案。
+          </p>
+
+          <h3 id="versions">版本与审核</h3>
+          <p>
+            引用锁的是版本标识，不是「当前这个文件名」。群消息和任务可以引用文件版本，也可以引用文件夹；文件夹引用展示的是文件夹本身，不会自动把里面的清单展开。一条消息最多引用
+            30 个文件。要看文件夹里现在有什么，应在文档树里打开，而不是假定旧消息会跟着更新。
+          </p>
+          <p>
+            上传成功和助手发布成功，状态都不是「已通过」。点「需要修改」必须写意见，确认后发到<strong>当前这一轮</strong>：沙箱产物
+            @ 小祥；对话缓存如果不是你传的就 @ 上传者，是你传的则 @
+            小祥。这样打回的是「谁该改」，而不是在库里直接覆盖。
+          </p>
+          <p>
+            已确认的缓存或产物要进入正式文件，必须显式「另存为正式文件」。归档不会替你做这次复制。删除是软删除，回收站在文件树底部。永久清空时：没有被消息或任务引用的文件会真正删掉；仍被引用的版本留下内容，历史消息还能打开，但不能再恢复到树上。小祥和本机连接都不能清空回收站，避免助手把审计痕迹清掉。
+          </p>
+          <p>
+            在输入框里去掉一个还没发送的已有项目文件，只是取消引用。去掉一个刚上传的附件，则会把那个缓存文件送进回收站。发送之后，文件留在文档库，不随消息滚动消失。
+          </p>
+
+          <h3 id="upload-web">上传与预览</h3>
+          <p>
+            对话框选文件或粘贴文件，进入当天的对话缓存。正式文件区的上传菜单进入正式文件，可以指定子文件夹。单文件上限
+            20
+            MiB。网页上传会在合并后核对整份内容，传了一半的字节不会入库。从本机助手上传较大文件时也一样：连接会自动分片再核对整份，是为了防止中途被截断后还显示成一份正常文件。你不需要自己切，也不需要手算校验值。
+          </p>
+          <p>
+            群正文按 Markdown
+            显示表格和任务列表，但图片不嵌进对话，只显示「图片链接」。指向本站某一版文档的链接在侧栏打开那一版，外链新窗口打开。文档预览覆盖文本和代码、图片、PDF、Word、Excel、PowerPoint。Markdown
+            不执行里面的原始网页，也不加载外部图片。没有在线编辑：要改内容，就产生新的文件或新的产物，而不是在预览里改旧版本。
+          </p>
+
+          <h2 id="memory">项目记忆</h2>
+          <p>
+            项目记忆是项目级的沉淀，不是文档库里的一类文件。它由老翁整理：日常群聊里的结论、任务变更、正式文件的新版本都会进入待整理队列，老翁按节奏把它们写成条目。人只做两件事——确认某一条，或指出某一条不准确。没有「自己写知识页」这一步；右侧栏原来的「知识页」面板已经下线，问老翁回答里的引用会直接打开项目记忆并定位到那一条。
+          </p>
+          <p>打开后是左右六四开，左边读、右边找：</p>
+          <table>
+            <thead>
+              <tr>
+                <th>区域</th>
+                <th>给谁</th>
+                <th>看到什么</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>左栏 导读</td>
+                <td>刚加入的人</td>
+                <td>这个项目做过什么、现在到哪一步、先读哪几条，以及最近一次归档后的更新</td>
+              </tr>
+              <tr>
+                <td>右栏 时间轴</td>
+                <td>参与过、想回忆的人</td>
+                <td>
+                  圆点串起时间轴，每条先显示时间和类型，下面是标题卡片，可以搜索；点一条弹出详情
+                </td>
+              </tr>
+              <tr>
+                <td>记忆详情</td>
+                <td>要核对的人</td>
+                <td>正文、出处、所属迭代的结论与任务去向，以及确认、纠错</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            条目有三种状态。<strong>草稿</strong>是进行区：老翁日常整理出来、可能还没定的内容。<strong>现行</strong>是沉淀区：经过人确认的内容。<strong>被替代</strong>是退场的旧结论，保留可查。问老翁只用现行条目回答，草稿不参与。时间轴顶部可以按状态筛选，默认只看草稿和现行的，要翻旧结论再勾上被替代。
+          </p>
+          <p>
+            确认和纠错都会再问一次：确认这条记忆会转成现行、以后问老翁用它回答；纠错会把它标成待裁决，老翁下次结算时参考你写的备注。两个弹窗右上角都能切全屏，关闭用右上角的叉或
+            Esc。
+          </p>
+          <p>
+            入口在左侧「项目记忆」。第一次进入某个项目时会自动打开一次，关掉就回到群聊，之后随时可以从左侧打开；从组织主页点项目会直接落在项目记忆。每次归档之后如果有新变化，入口会提示。
+          </p>
+          <h3 id="memory-settlement">迭代归档时清算</h3>
+          <p>
+            每轮迭代归档时，除了写下这一轮的结论，还会对记忆做一次清算：归档确认页会列出这一轮整理出的草稿，勾选的当场转为现行；互相冲突的标成待裁决，被取代的条目退场。没勾的草稿不会自动转正，也不会卡住归档，会留在进行区并计数提示。确认完成后会显示清算结果：转正几条、保留几条、替代几条、待裁决几条。
+          </p>
+          <p>
+            项目归档等于关账：项目从工作台消失，项目记忆随项目一起封存，成员不能再打开或修改；要接着用，由管理员恢复项目。
+          </p>
+
+          <h2 id="tasks">任务如何被安排</h2>
+          <p>
+            任务是可派发的工作，不是群里的一句话。每一轮内部有展示编号，上限
+            9999。交接后底层仍是同一件任务（来源、产物、执行历史都留着），只是在新一轮重新编号。所以「这件活换了一轮」和「新开了一件活」能分开。
+          </p>
+          <p>三种来源，调度方式不同：</p>
+          <ul>
+            <li>
+              <strong>辅助任务</strong
+              >：小祥要问一句或做一段不落成正式沙箱发布的查询。当时必须有空闲执行槽，创建后直接执行。
+            </li>
+            <li>
+              <strong>沙箱正式任务</strong
+              >：要改项目文档或在云端做完并发布。有空槽就执行，没有就待指派，槽空出来再接，不用人再点一次。
+            </li>
+            <li>
+              <strong>人类任务</strong
+              >：先待确认。被指派的人拒绝，或发起人取消，就结束。确认之后由本人做，或下发到这个人在本项目已授权的本地执行器。创建时可以带上正式文件版本，最多
+              30 个。
+            </li>
+          </ul>
+          <p>
+            小祥可以随时安排自己负责、或已经派给子 Agent
+            的任务。把任务派给某个人，或改动别人名下的任务，必须这一轮里有人类明确授权。子 Agent
+            围绕绑定任务工作，可以使用共享工具，但不能扩大任务归属或借用人类授权。对人的任务如果要重来，会回到待确认，而不是直接在对方电脑上再跑一遍。
+          </p>
+          <p>
+            状态用来区分「还没人接」「在跑」「在等」「已经结束」。你会看到待指派、待确认、待开始、执行中、等待中、阻塞，以及已拒绝、已放弃、已完成、已取消、已失败。状态变化和本机执行器的汇报，会在来源迭代
+            @
+            任务来源人。结束态不再启动还排着队的工作；归档时，没跑起来的待确认、待指派和阻塞任务可以由人决定留下或交接，见<a
+              href="#archive"
+              >归档</a
+            >。
+          </p>
+          <p>
+            「复制任务信息」「复制会话信息」「复制项目信息」把连接地址、项目、迭代、任务和调用约束复制出去，是为了让本机助手对准这一件，而不是凭聊天猜
+            ID。点停止只停止还没做完的过程，不能撤销已经发生的外部操作，也不能收回已经保存的版本。
+          </p>
+
+          <h3 id="two-runners">云端与本机</h3>
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+                <th>云端沙箱</th>
+                <th>本机执行器</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>信任边界</td>
+                <td>
+                  共序服务器上的工作副本。单次命令最长约 90
+                  秒，输出有长度限制。工作副本不保证永久保留，留存靠发布进文档库
+                </td>
+                <td>你的 Windows 账号。没有容器隔离，能碰到这个账号能碰到的东西。只跑可信任务</td>
+              </tr>
+              <tr>
+                <td>谁启动</td>
+                <td>小祥自己用工具，或委派子 Agent。一轮同时最多 7 个子 Agent</td>
+                <td>群里交给本机助手后，被指派的人确认，才锁到一台已授权的电脑</td>
+              </tr>
+              <tr>
+                <td>适合</td>
+                <td>项目文档、受控命令、已配置的 CloudBase</td>
+                <td>成员电脑上的 Git 仓库</td>
+              </tr>
+              <tr>
+                <td>结果</td>
+                <td>回到同一轮的任务和群</td>
+                <td>回到同一轮。完成时可以附上 Git 差异</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            涉及页面或可视化结果时，云端完成前要用受控截图看实际画面，不能只用命令是否报错来代替。截图只渲染这个项目的文档和当前任务沙箱里的页面，不看你的桌面，也不打开任意网址。
+          </p>
+
+          <h2 id="miniprogram">CloudBase</h2>
+          <p>
+            小程序能力拆成两半：<strong>项目上的身份和密钥</strong>，以及<strong>某一轮里的预览、数据和发布操作</strong>。源码在文档库的小程序区，不在聊天附件里。这样换一轮讨论时，AppID
+            和云环境不用重配，而某一轮的群不会变成全项目的发布开关。
+          </p>
+
+          <h3 id="miniprogram-config">凭据放在项目上</h3>
+          <p>入口是「项目管理 → 小程序与云开发」，项目主或有管理权限的成员可写，只读成员只能看。</p>
+          <ol>
+            <li>
+              <strong>小程序身份</strong
+              >：AppID、名称、默认预览路径。上传私钥保存后不再以明文出现在文档树或群里。
+            </li>
+            <li>
+              <strong>两套云环境</strong>：开发和生产各自的环境 ID 与 Publishable
+              Key。生产可留空并沿用开发，但含义不同：开发预览走开发环境；体验版上传、Admin
+              和正式发布走生产环境。另有一套接口凭据供服务器代调，不交给浏览器长期保存。
+            </li>
+            <li>
+              <strong>连接测试</strong
+              >：用凭据做只读核对，并向微信要一次预览校验私钥。通过后工作台才开放。它不上传正式版，也不代替微信侧把
+              AppID 和云环境授权绑好。
+            </li>
+            <li>
+              <strong>身份认证</strong>（可选）：按环境同步匿名、用户名、邮箱、手机号登录，并准备
+              Admin 的第一个账号。改生产环境会再确认一次。
+            </li>
+          </ol>
+          <p>
+            页头的通过或失败是上次测试的结果。密钥配错时，工作台不开放，而不是开放了再在群里报一串密钥。
+          </p>
+
+          <h3 id="miniprogram-workspace">右侧工作台</h3>
+          <p>
+            连接测试通过，且这一轮处于云开发对话模式（或你点了右侧「CloudBase」）时，右侧六个页签是运行面，不是第二套配置：
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>页签</th>
+                <th>在看什么</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Dimina预览</td>
+                <td>按页面路径和机型跑界面；可出开发版预览码、上传体验版</td>
+              </tr>
+              <tr>
+                <td>Admin预览</td>
+                <td>管理端页面的开发预览，配合身份认证登录。这里管的是预览服务，不是生产发布单</td>
+              </tr>
+              <tr>
+                <td>云数据库</td>
+                <td>按开发或生产环境看集合和文档</td>
+              </tr>
+              <tr>
+                <td>云存储</td>
+                <td>云存储里的对象</td>
+              </tr>
+              <tr>
+                <td>云函数</td>
+                <td>函数列表与相关操作</td>
+              </tr>
+              <tr>
+                <td>生产发布</td>
+                <td>Admin 静态站和云函数的审批单，不是体验版上传</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            页签和机型记在这台浏览器，方便刷新后续上看。在云开发模式下 @ 小祥，子 Agent
+            可以改小程序区里的文件，并调用已授权的云能力。有问必答打开同一侧栏也不能写。
+          </p>
+
+          <h3 id="miniprogram-release">谁可以发布</h3>
+          <p>
+            体验版和生产发布故意拆开。体验版是给真机看的测试包：有项目写权限就可以在
+            Dimina预览里上传，不进共序审批。提审和正式上线仍在微信后台，共序不代点。上传体验版不等于提交审核。
+          </p>
+          <p>
+            Admin
+            生产静态站和云函数会作用到生产环境，所以走审批。新建申请时勾选目标和说明。待审批由项目主批准或拒绝；批准后立即执行，没有「已批准待人去点发布」的中间态。申请人在待审批时可以放弃自己的申请。小祥可以替人提交和查看，不能批准。项目主自己提交的可以自己批；小祥提交的只能由项目主批。
+          </p>
+          <ul>
+            <li>
+              申请绑的是提交时的源码。待审批期间源码变了，这张单失效，必须重提。否则会批准旧说明、发出新代码。
+            </li>
+            <li>待审批超过 24 小时失效。</li>
+            <li>同一项目、同一发布目标，同时只能有一张待审批。</li>
+            <li>执行失败不自动重试。原因留在申请和发布记录里，避免失败被下一张单悄悄盖掉。</li>
+          </ul>
+
+          <h2 id="archive">归档与交接</h2>
+          <p>
+            归档冻结的是这一轮的过程，不是项目。发起人只能是这轮迭代的创建人或当前项目主。开始前会检查还有没有在跑的任务、助手回合、执行器、工具、沙箱或上下文压缩；有的话保持进行中，并告诉你卡在哪。检查和「又启动一个任务」用的是同一把锁，避免一边开始归档、一边又跑起来。
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>状态</th>
+                <th>写入</th>
+                <th>人要做什么</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>进行中</td>
+                <td>消息、任务、背景与目标都可以按权限变</td>
+                <td>正常协作</td>
+              </tr>
+              <tr>
+                <td>归档中</td>
+                <td>这一轮的普通写入冻结。文档库不冻结</td>
+                <td>
+                  老翁根据冻结时的讨论、引用版本和任务快照整理方案。创建人或项目主可调整、撤回或确认。整理失败可重试或撤回，撤回回到进行中
+                </td>
+              </tr>
+              <tr>
+                <td>已归档</td>
+                <td>只读</td>
+                <td>回看结论和每件未完成事项的去向。旧版本仍可被新一轮引用</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            方案准备阶段只产出草案，不改项目长期总结，也不往原群里写业务消息。人必须对全部未完成事项做决定，不能漏一件、也不能混进别人的任务。每件三选一：
+          </p>
+          <ul>
+            <li>
+              <strong>仅归档</strong>：留在这一轮，业务状态保持原样，只是不再启动还排着队的工作。
+            </li>
+            <li><strong>录入新迭代背景</strong>：写进承接迭代的背景，不生成任务。</li>
+            <li>
+              <strong>生成新迭代任务</strong
+              >：任务身份、产物和执行历史延续，新一轮重新编号，调度改由新一轮的小祥负责。
+            </li>
+          </ul>
+          <p>
+            没有要交接的任务时，可以只归档、不建下一轮。只要有任务要交接，就必须有承接迭代，否则任务会失去所属轮次。确认在一次提交里做完：固定人的决定、标记留下的任务、把交接任务挪到新轮并收口旧队列、把原迭代标成已归档，然后才排队更新长期总结。重复确认不会再建一轮。撤回和确认只会成功一个；晚到的整理结果不能写回已经撤回或已经被替换的那一版方案。小祥不能代替人按确认。
+          </p>
+
+          <h2 id="account">账号与通知</h2>
+          <p>
+            登录标识是用户名，或已经绑定的邮箱。注册、绑定、更换邮箱、重置密码都用 10
+            分钟内有效的邮箱验证码。邮箱不用于邀请进项目；进项目是成员关系，不是邮箱域名。
+          </p>
+          <p>
+            「在当前设备记住登录信息」只存在这台浏览器，最多 8
+            个账号，供登录页快捷进入和个人设置里切换、退出、清除。它不是服务器上的受信任设备列表。换浏览器或清站点数据就要重新登录。头像上限
+            5 MiB，和文档的 20 MiB 分开算。
+          </p>
+          <p>
+            站内信是成员关系和对你的点名，不是第二套聊天。分类为全部、@我的、加入项目、移出项目。迭代上的未读是「你还没读到的消息条数」；读到最新后未读清零，该位置及以前的
+            @ 通知标为已读。@ 可以点姓名、用户名或邮箱；输入
+            <code>@</code> 列出当前能提到的人。老翁不在这个列表里。
+          </p>
+          <p>
+            项目图片（PNG、JPEG、WebP，不超过 512
+            KiB）是项目的识别标记，没有图或加载失败时用名称首字。它出现在项目列表和站内信里，不参与文档版本。
+          </p>
+          <p>顶栏主题只改变这台界面的外观。书本图标是本手册。</p>
+
+          <h2 id="admin">两套权限</h2>
+          <p>
+            项目身份决定你在某一个项目里能写什么。平台角色决定你在管理空间里能看哪些菜单、能按哪些按钮。同一个人可以两边都有，但不会自动打通：项目主不会因此变成超级管理员；超级管理员也不等于每个项目的项目主。
+          </p>
+          <p>
+            管理空间用同一套登录。每个人都有「我的工作」（我的项目、我的迭代、我的任务），角色关不掉，而且只读。没有别的权限时，只能看到与自己有关的范围：你加入的项目、其中的迭代，以及你创建、作为来源、被指派、承接或确认的任务。
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>菜单</th>
+                <th>能决定什么</th>
+                <th>不能决定什么</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>我的工作</td>
+                <td>跨项目查看自己的项目、迭代、任务，可筛选</td>
+                <td>不能在这里改状态。接受、转派、执行、取消仍回工作台</td>
+              </tr>
+              <tr>
+                <td>组织工作</td>
+                <td>跨项目看项目、迭代、任务。项目可新增、结项、恢复。进行中的迭代可改名称</td>
+                <td>
+                  运行中或已结束的任务、已结项项目、已归档迭代，不能在这里改资料。工作台里的结项按钮尚未开放，结项只在这里
+                </td>
+              </tr>
+              <tr>
+                <td>账号权限</td>
+                <td>账号的新增、停用、恢复、重置密码、分配角色。角色按菜单、页面、功能授权</td>
+                <td>
+                  变更记录和登录记录人人可开；没有「查看全部」时只看自己的账号。重置密码会使该账号现有登录失效
+                </td>
+              </tr>
+              <tr>
+                <td>平台管理</td>
+                <td>
+                  插件管理只配置老翁和小祥。自定义 Skill 可以新建、编辑、启停、归档。模型配置见下
+                </td>
+                <td>
+                  Skill
+                  只是追加的提示词。不能新增工具，不能放宽原来的权限，也不能写成一段会执行的代码。子
+                  Agent 没有单独的配置对象
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            超级管理员拥有全部平台权限，不必再挂角色。普通成员默认没有组织工作、账号管理和平台管理。多角色取并集。只勾选页面是只读，不含新增和编辑；只勾选菜单则进不了页面。每次请求都重新读权限，撤销后下一次就生效，不用等重新登录。
+          </p>
+          <h3 id="model-settings">模型配置</h3>
+          <p>
+            入口在管理空间的平台管理，地址是
+            <code>/admin/model-settings</code
+            >。打开页面需要「模型配置」权限；保存需要另外的「保存模型配置」。没有保存权限时可以看当前生效项，不能改。
+          </p>
+          <p>
+            页面标出来源、版本和更新时间。还没有已保存配置时，来源是环境变量；校验通过并保存成功后，改为已保存的配置。默认模型同时给老翁、小祥和子
+            Agent。可以勾选「老翁使用独立模型」，单独写老翁的地址、模型名和推理强度。
+          </p>
+          <p>
+            API
+            密钥加密保存，页面不回显。已经配过时，输入框留空就是沿用已存密钥。第一次保存必须填写默认密钥。老翁改成独立模型、且还没有为他存过密钥时，老翁的密钥也要填。
+          </p>
+          <p>
+            点「校验并保存」时，默认模型要通过普通响应、完整流式响应和结构化输出三项检查；启用老翁独立模型时，该模型也要通过同样的检查。校验没通过，继续用保存前的配置。校验已经通过、但保存没有成功，同样保留旧配置，不会换成半截新值。若别人刚保存过，会提示「模型配置已被更新，请刷新后再保存」。先点「重新读取」，看到新的来源、版本和时间，再保存。
+          </p>
+          <p>
+            切换模型不用重启服务。已经在跑的工作保留它启动时捕获的模型。同一迭代里还有子任务在跑时，这一轮的新请求会等那些子任务结束后再换模型。服务把当前生效的配置留在内存里给后续请求用，不是每一次模型调用都去库里查一遍。
+          </p>
+          <p>
+            插件管理里的对象只有老翁和小祥。以前记在子 Agent 名下的 Skills
+            会合并显示在小祥配置中，历史记录保留。之后子 Agent 继续用小祥的插件和
+            Skills，不能在这里单独加一套工具或权限。
+          </p>
+          <p>
+            委派出去的管理员不能发出超出自己范围的权限，不能改比自己更高的角色或账号，也不能给自己改角色。不能停用自己的超级管理员身份，也不能停用最后一位仍有效的超级管理员。结项后的项目只读，工作台列表不再出现。
+          </p>
+          <p>
+            连接器在项目管理里，不在管理空间。目前可登记 GitHub 和云效
+            Codeup，把外部仓库指到这个项目。令牌是否已配置会显示，明文不回显。修改需要项目管理权限。本机执行器用的是你电脑上的仓库路径；连接器解决的是「项目认识哪个远程仓库」，不是代替本机执行器。
+          </p>
+
+          <h2 id="local-executor">本机助手与连接</h2>
+          <p id="mcp">
+            本机助手解决的是云端沙箱碰不到你的 Git 仓库。Windows
+            本地执行器由管理员在系统外分发，网页不提供安装包。一个账号同时只保留一台执行器，可以绑多个项目。每个项目选仓库，可选仓库内路径；路径只留在你的电脑上。
+          </p>
+          <p>
+            授权之后有两套凭证，用途不同。设备凭证只让这台执行器和共序说话。账号凭证让 Cursor、Codex
+            或 Claude Code
+            以<strong>你的成员身份</strong>读写共序，所以它能做的事不会超过你在这个项目里的权限：只读成员不能上传或发言，归档中的迭代不能改。执行器把连接写进助手，个人设置的
+            MCP
+            配置里可以查看已授权设备并解除绑定。怀疑泄露时在执行器里重置账号凭证，旧的立即失效。不要把凭证抄进群。
+          </p>
+          <p>
+            「交给本机
+            Agent」并不自动在你电脑上开工。项目里要有可编辑成员的执行器在线，任务还要被指派的人确认，然后才锁到一台设备。开始时按当前版本做独立的
+            Git
+            工作副本，再打开助手，第一条就是这张任务。你在窗口里打字并批准它要用的工具。关窗口不是完成，任务变为暂停，执行器可以续上。完成或失败由你在执行器里点；完成可以带回
+            Git 差异。
+          </p>
+          <p id="upload-mcp">
+            通过这条连接，助手可以读项目和这一轮的上下文、列文档、下载某一版、发群消息、分片上传、接受或拒绝派给它的任务、汇报进度。它不能创建一套新的审批、不能确认归档、不能批准生产发布、不能清空回收站。上传和改任务默认不会自动在群里再发一条；只有明确发消息才会出现在对话里，而且这种消息不会把小祥再叫醒一圈。
+          </p>
+
+          <h2 id="limits">有意不做的事</h2>
+          <ul>
+            <li>
+              没有在线编辑、没有全文搜索、没有对象存储。文件字节在这套服务的库里，单文件 20 MiB。
+            </li>
+            <li>没有单点登录，没有手机推送。通知是站内信。</li>
+            <li>没有多台服务器一起抢着跑任务。停止不能回滚已完成的外部副作用。</li>
+            <li>自定义 Skill 不能变成新工具或新权限。</li>
+            <li>工作台不能结项。结项与恢复在管理空间，结项后项目从工作台消失并只读。</li>
+            <li>体验版不是生产发布。生产发布不是微信提审。</li>
+            <li>云端命令约 90 秒封顶。本机执行没有隔离，只适用于可信任务。</li>
+          </ul>
+
+          <h2 id="deploy-local">安装和发布不在这本手册里</h2>
+          <p id="quick-start">日常使用不需要安装命令。</p>
+          <p id="deploy-server">要在自己的机器上把这套服务跑起来，看仓库 README。</p>
+          <p id="deploy-ecs">
+            服务器变量和线上发布看
+            <code>docs/engineering/05-cloud-environment.md</code>。内部实现的契约在
+            <code>docs/engineering/</code>，那是改代码时用的，不是这本手册的续篇。
+          </p>
+        </article>
+        <footer>
+          <div class="inner">
+            <div>共序 CoThread · 使用手册</div>
+            <div><a href="/about_us.html">关于我们</a> · <a href="/">工作台</a></div>
+          </div>
+        </footer>
+      </div>
     </div>
 
-    <h2 id="model">四层对象</h2>
-    <p>一次部署是一家公司自己的空间：账号、项目和文件都在这套服务里，和其他部署无关。公司里面再切三层，是为了让「长期要留的」和「这一轮正在吵的」不要放在同一个生命周期里。</p>
-    <table>
-      <thead><tr><th>对象</th><th>生命周期</th><th>为什么单独成一层</th></tr></thead>
-      <tbody>
-        <tr><td>项目</td><td>长期</td><td>成员、文档库、小程序凭据、代码仓库连接、项目长期总结都挂在项目上。换一轮讨论不应该把这些拆掉</td></tr>
-        <tr><td>迭代</td><td>一轮讨论</td><td>消息、背景与目标、这一轮的小祥会话、任务编号都属于这一轮。结束时可以冻结，而不冻结整个项目</td></tr>
-        <tr><td>任务</td><td>一件可派、可确认、可执行的工作</td><td>群消息是说法，任务是可追踪的执行。交接到下一轮时，任务身份还在，只换展示编号和所属迭代</td></tr>
-      </tbody>
-    </table>
-    <p>顶栏是项目。左侧是这个项目的各轮迭代，分「活跃中」和「已归档」。中间才是这一轮的群。右侧是项目级成果：标准模式下是文档库，CloudBase 模式下是这一轮要用的运行与发布面板。凭据仍在项目上，不在某一轮消息里。</p>
-
-    <h2 id="roles">人、老翁、小祥</h2>
-    <p>公司账号目录只包含人类；项目成员中另有老翁和小祥两名 Agent。Agent 不占人类账号，停用、重置密码和平台角色分配只对人类账号生效。</p>
-    <table>
-      <thead><tr><th>谁</th><th>挂在哪</th><th>负责什么</th><th>不负责什么</th></tr></thead>
-      <tbody>
-        <tr><td>老翁</td><td>整个项目。四件维护各有一套可接续的会话，不进某一轮群聊</td><td>认识成员怎么说话、给文档做事实摘要、整理正式文件的归类和命名、在归档时写方案并在人确认后更新项目长期总结</td><td>不进群，也不出现在 @ 列表里。不代替人做归档确认</td></tr>
-        <tr><td>小祥</td><td>项目里的一名 Agent，与老翁不分等级；每一轮迭代单独一套会话</td><td>在群里协作。可以直接使用工具，也可以把工作委派给最多 7 个子 Agent，再把结果说回群里</td><td>不把子 Agent 当成成员。把任务派给某人，或改别人名下的任务，必须有人类授权。不在「有问必答」里改任何东西</td></tr>
-        <tr><td>子 Agent</td><td>小祥委派的执行槽，每个任务自己的会话</td><td>改文件、跑受控命令、按授权动云资源。使用小祥的插件和 Skills。结束前必须向小祥交活，成功失败都算交</td><td>不叫小祥，不单独列在成员里，不能自己批准发布或确认归档，也不能扩大任务归属</td></tr>
-      </tbody>
-    </table>
-    <p>老翁和小祥没有上下级。老翁做知识维护，小祥做群聊协作，两边不共用同一次思考。老翁的四件维护（认识成员、文档摘要、正式文件整理、迭代归档）在「小祥监控」里分别有卡片：同项目多次做同一件，接的是同一套上下文。每一轮的小祥互不看见对方的会话。子 Agent 第一次可以带着这一轮的快照出发，之后只接收这条任务上追加的要求，不再把整段群聊灌进去。</p>
-    <p>一轮里同时执行的云端子 Agent 最多 7 个。这是并发槽，不是成员名额，不表示成员等级。槽满了，沙箱正式任务会停在待指派，有空位再继续；不会悄悄多开第 8 个。子 Agent 用的插件和 Skills 与小祥相同。</p>
-    <p>项目里的身份和管理空间里的平台角色是两套账，见<a href="#admin">两套权限</a>。项目侧：一个项目只有一位项目主，由现任转移。项目管理由项目主指定，不能同时又是项目主，也不能从只读成员直接提升。归档只属于这轮迭代的创建人或当前项目主，项目管理不能单凭身份归档。</p>
-    <table>
-      <thead><tr><th>项目身份</th><th>边界</th></tr></thead>
-      <tbody>
-        <tr><td>项目主</td><td>项目资料、成员、连接器、小程序凭据；可转移项目主；可发起、撤回、重试、确认归档；可批准生产发布</td></tr>
-        <tr><td>项目管理</td><td>协助项目内管理。不能单独归档，不能移走或改写项目主</td></tr>
-        <tr><td>成员</td><td>讨论、上传、建任务、引用文档、在授权范围内使用云开发工作台</td></tr>
-        <tr><td>只读成员</td><td>看讨论和文档。不能发言、上传、改任务、改密钥</td></tr>
-      </tbody>
-    </table>
-
-    <h2 id="workspace">工作台对应什么</h2>
-    <p>三栏不是装饰，是三套状态的入口。</p>
-    <ul>
-      <li><strong>左侧</strong>选轮次。未读条数和未读 @ 标在迭代上。归档过程中会标「归档中」。底部「项目管理」维护项目级事实（基础信息、项目成员、连接器、小程序与云开发）。「小祥监控」看老翁四件维护、各轮小祥、执行槽和上下文，不在这里改群。</li>
-      <li><strong>中间</strong>是这一轮。三个页签分工不同：「对话」是人能引用的发言；「轨迹」是这一轮助手实际调用过什么，用来核对它做过的事，不是第二套聊天；「背景与目标」是这一轮的方向，进行中可改并留下变更记录，归档一开始就冻结。</li>
-      <li><strong>右侧</strong>是成果与运行。「标准模式」浏览文档库，「CloudBase」打开运行时面板。两者和对话模式联动，见下文。全屏和拖宽度只改变看的方式，不改变文件属于项目这一事实。</li>
-    </ul>
-    <p>背景与目标谁都能在进行中提议，但写入要有原因。小祥只有在事实清楚、而且当前不是有问必答时，才能自己更新，并且必须写下原因。记录按时间留下改之前的内容；还没有审核者时显示「未审核」。这不是一条审批流，只是让方向变化可追溯。</p>
-    <p>输入框左下角的「+」选择的是<strong>下一条消息</strong>的约束，不是把整轮永久改成另一种产品。模式记在这台浏览器的这一轮上，换设备要重选。快捷语「帮我梳理群聊」「帮我创建任务」只是预填一条 @ 小祥的草稿，发送之后仍按普通消息和当前模式处理。</p>
-
-    <h2 id="dialogue-mode">四种对话模式</h2>
-    <p>模式是发给小祥的约束，不是皮肤。服务端按你发出的那一条记录模式。选错模式时，能力会真的消失，而不是只少一个按钮。</p>
-    <table>
-      <thead><tr><th>模式</th><th>约束</th><th>适合</th></tr></thead>
-      <tbody>
-        <tr><td><strong>自由发言</strong></td><td>默认参与规则。可以沉默，也可以走完整调度：写文档、派任务、进沙箱</td><td>日常把事情做完</td></tr>
-        <tr><td><strong>有问必答</strong></td><td>每条成员消息都要回。工具被收成只读：不能建或改任务，不能改文档、沙箱、小程序源码和云资源。也不能改背景与目标</td><td>对口径、查已经存在的资料，防止顺手改库</td></tr>
-        <tr><td><strong>仅小程序</strong></td><td>按微信小程序理解本次需求，做源码、Dimina 预览与微信上传；不采用 CloudBase 开发流程</td><td>不涉及云函数、云数据库或云存储的小程序工作</td></tr>
-        <tr><td><strong>CloudBase</strong></td><td>按微信小程序和腾讯云开发理解需求，并打开右侧工作台。子 Agent 只能用这个项目已经配好并测通的云能力</td><td>改小程序、查云、准备发布</td></tr>
-      </tbody>
-    </table>
-    <p>对话模式与右侧「标准模式 / CloudBase」联动。选择「仅小程序」或「CloudBase」会打开右侧工作台；在右侧选择 CloudBase 时，已有的「仅小程序」模式保持不变，其余模式会切到 CloudBase。从右侧切回标准模式时，「仅小程序」和「CloudBase」都回到自由发言。是否只读以发送消息时的模式为准，不能仅凭侧栏是否打开判断。密钥不会因为开了侧栏就出现在群正文里。</p>
-
-    <h3 id="participation">按需参与</h3>
-    <p>只有自由发言、项目里不只有你一个人、而且你没有明确 @ 小祥时，才会先判断要不要张嘴。判断的目的是让群还像人在讨论：不是每句「好的」都插入一段助手发言，也不是该干活时只回「我这就开始」。</p>
-    <ul>
-      <li><strong>直接进入完整回复，不再先问要不要参与</strong>：明确 @ 小祥；句首写成「小祥，…」或「小祥 …」；或者当时项目里只有你一个人类和助手。人类人数按项目成员算，不按在线人数，也不把老翁、小祥、子 Agent 算成人。单独一个「小祥」不算点名。</li>
-      <li><strong>硬规则，必须短回</strong>：催它为什么不说话；同一内容连发满 3 次；紧跟它上一条发言的短评（感谢、追问、夸一句）。单纯的「好的」「收到」不算短评。</li>
-      <li><strong>可以不回</strong>：纯确认；它刚说过话之后大约 60 秒里的闲聊。上面的硬规则可以打断这 60 秒。</li>
-      <li><strong>轻量回复</strong>：只把眼下的讨论收成一句理解，不启动完整调度，也不打开沙箱。要写文档、总结、改代码、派任务，或催它开工时，这句先不发出：草稿如果已经在答应，或者这件事本身就是实活，整句换成「需要麻烦你再@小祥，我才会真的开始。」不再把许诺和提醒叠在一起。拿不准时再问一次，需要才把这句接在后面。轻量路径不会因此升级成完整调度。</li>
-    </ul>
-    <p>一段连发只会落下一条可见回复，并把其间还没被回答的消息吸收进去。它先起草，发出前若又来了新消息，就改稿或不发。模型嘴里说「以后每条都回」不作数，规则不以聊天承诺改写。沉默只留下内部状态，群里没有那条消息，沙箱也不启动。本机助手或小祥自己发出的消息不会再触发一轮回复，避免自己和自己循环。</p>
-
-    <h3 id="context">上下文与压缩</h3>
-    <p>上下文是模型这一次能看见的工作记忆，不是群记录本身。群消息、任务和文档都在库里；上下文是从中装进这一次会话的那一份。</p>
-    <p>每一轮小祥有一份长期会话，容量按调度来设计：默认大约 25.6 万 token，用到约七成就自动压缩，而不是拖到模型极限再一次性丢掉前面。老翁的维护会话和子 Agent 的任务会话是做完就结束的，单次可以顶到大约 100 万 token，用来扛一轮大批量整理或一次长任务。按需参与的那一下轻量判断不走这些预算。它先看最近 12 条：正文合计超过 4000 字，就从最旧的一条开始丢掉，直到装得下；只剩最新一条仍然超过，就不再叫模型，直接不插话。点名、催沉默、连发和短跟帖仍用短句，不把过长正文交出去。没超限时全文进入判断，不再把每条截短。</p>
-    <p>对话区展示的是这一轮小祥的用量。组成大致是：系统指令、工具定义、成员讨论、助手回复、文件与工具结果、压缩摘要、还没装进去的新消息。没被读过的文档正文不占这份用量。展示用的是估算，用来判断挤不挤，不是账单上的精确扣费。</p>
-    <p>压缩把较早的内容换成一段摘要，并保留最近一段原文（调度会话大约留 3.2 万 token）。群聊、轨迹、维护记录和文档都不删。自动压缩发生在下一轮开始前，以及执行步骤之间。你点「立即压缩」只是排队：当前这轮跑完才执行，快照真正写完才算压缩完成，失败可以再试。所以压缩改变的是助手接下来怎么回忆，不是你们已经说过的话。</p>
-
-    <h2 id="library">文档库四区</h2>
-    <p>一个项目的所有迭代共用一套文档库。分成四区，是为了把「人刚丢进来的」「助手做出来的」「已经认账的」「小程序工程」从权限上拆开。混在一个文件夹里，就无法同时满足只读、可发布、可确认。</p>
-    <table>
-      <thead><tr><th>区</th><th>谁可以往里放</th><th>原则</th></tr></thead>
-      <tbody>
-        <tr><td>对话缓存</td><td>人在对话框上传，或本机助手随消息送入。按北京时间的自然日进日期文件夹</td><td>对人可引用、下载、审核、软删除。不能在库里改正文。小祥不能往这里新增，避免助手把草稿伪装成你的附件</td></tr>
-        <tr><td>沙箱产物</td><td>主要是云端执行：在沙箱里生成、修改后发布</td><td>对话框附件进不了这里。人可以预览、下载、确认、另存，不能把聊天附件直接丢进产物区冒充执行结果</td></tr>
-        <tr><td>正式文件</td><td>人上传，或把已确认的缓存、产物另存进来</td><td>这是认账之后的资料。不按版本号往同一条上叠加；同目录同名会变成「名称 (2)」，不覆盖。不走「需要修改」那条打回流程</td></tr>
-        <tr><td>小程序</td><td>小程序工程的固定工作区</td><td>四个子目录是稳定的：小程序源文件、小程序 Web 产物、PC 管理后台、云函数。预览和发布读的是这里，不是某条聊天附件</td></tr>
-      </tbody>
-    </table>
-    <p>正式文件可以排队给老翁做「正式文件整理」：归类和命名，不在群里插一条进度。整理进行时，正式文件区锁定写入（上传、另存、恢复和再次整理），避免人在整理中途又改了目录。文档摘要是另一件事：给正式文件、沙箱产物和对话缓存写事实摘要，供以后的助手查阅，不代替你确认文件。</p>
-    <p>项目长期总结在项目管理的基础信息里看。它不是聊天记录的复制。归档方案准备阶段不写它；只有人确认归档之后，才排队给老翁把这一轮的结论沉淀进去。所以总结里出现的内容，应是已经认过的结论，而不是草案。</p>
-
-    <h3 id="versions">版本与审核</h3>
-    <p>引用锁的是版本标识，不是「当前这个文件名」。群消息和任务可以引用文件版本，也可以引用文件夹；文件夹引用展示的是文件夹本身，不会自动把里面的清单展开。一条消息最多引用 30 个文件。要看文件夹里现在有什么，应在文档树里打开，而不是假定旧消息会跟着更新。</p>
-    <p>上传成功和助手发布成功，状态都不是「已通过」。点「需要修改」必须写意见，确认后发到<strong>当前这一轮</strong>：沙箱产物 @ 小祥；对话缓存如果不是你传的就 @ 上传者，是你传的则 @ 小祥。这样打回的是「谁该改」，而不是在库里直接覆盖。</p>
-    <p>已确认的缓存或产物要进入正式文件，必须显式「另存为正式文件」。归档不会替你做这次复制。删除是软删除，回收站在文件树底部。永久清空时：没有被消息或任务引用的文件会真正删掉；仍被引用的版本留下内容，历史消息还能打开，但不能再恢复到树上。小祥和本机连接都不能清空回收站，避免助手把审计痕迹清掉。</p>
-    <p>在输入框里去掉一个还没发送的已有项目文件，只是取消引用。去掉一个刚上传的附件，则会把那个缓存文件送进回收站。发送之后，文件留在文档库，不随消息滚动消失。</p>
-
-    <h3 id="upload-web">上传与预览</h3>
-    <p>对话框选文件或粘贴文件，进入当天的对话缓存。正式文件区的上传菜单进入正式文件，可以指定子文件夹。单文件上限 20 MiB。网页上传会在合并后核对整份内容，传了一半的字节不会入库。从本机助手上传较大文件时也一样：连接会自动分片再核对整份，是为了防止中途被截断后还显示成一份正常文件。你不需要自己切，也不需要手算校验值。</p>
-    <p>群正文按 Markdown 显示表格和任务列表，但图片不嵌进对话，只显示「图片链接」。指向本站某一版文档的链接在侧栏打开那一版，外链新窗口打开。文档预览覆盖文本和代码、图片、PDF、Word、Excel、PowerPoint。Markdown 不执行里面的原始网页，也不加载外部图片。没有在线编辑：要改内容，就产生新的文件或新的产物，而不是在预览里改旧版本。</p>
-
-    <h2 id="tasks">任务如何被安排</h2>
-    <p>任务是可派发的工作，不是群里的一句话。每一轮内部有展示编号，上限 9999。交接后底层仍是同一件任务（来源、产物、执行历史都留着），只是在新一轮重新编号。所以「这件活换了一轮」和「新开了一件活」能分开。</p>
-    <p>三种来源，调度方式不同：</p>
-    <ul>
-      <li><strong>辅助任务</strong>：小祥要问一句或做一段不落成正式沙箱发布的查询。当时必须有空闲执行槽，创建后直接执行。</li>
-      <li><strong>沙箱正式任务</strong>：要改项目文档或在云端做完并发布。有空槽就执行，没有就待指派，槽空出来再接，不用人再点一次。</li>
-      <li><strong>人类任务</strong>：先待确认。被指派的人拒绝，或发起人取消，就结束。确认之后由本人做，或下发到这个人在本项目已授权的本地执行器。创建时可以带上正式文件版本，最多 30 个。</li>
-    </ul>
-    <p>小祥可以随时安排自己负责、或已经派给子 Agent 的任务。把任务派给某个人，或改动别人名下的任务，必须这一轮里有人类明确授权。子 Agent 围绕绑定任务工作，可以使用共享工具，但不能扩大任务归属或借用人类授权。对人的任务如果要重来，会回到待确认，而不是直接在对方电脑上再跑一遍。</p>
-    <p>状态用来区分「还没人接」「在跑」「在等」「已经结束」。你会看到待指派、待确认、待开始、执行中、等待中、阻塞，以及已拒绝、已放弃、已完成、已取消、已失败。状态变化和本机执行器的汇报，会在来源迭代 @ 任务来源人。结束态不再启动还排着队的工作；归档时，没跑起来的待确认、待指派和阻塞任务可以由人决定留下或交接，见<a href="#archive">归档</a>。</p>
-    <p>「复制任务信息」「复制会话信息」「复制项目信息」把连接地址、项目、迭代、任务和调用约束复制出去，是为了让本机助手对准这一件，而不是凭聊天猜 ID。点停止只停止还没做完的过程，不能撤销已经发生的外部操作，也不能收回已经保存的版本。</p>
-
-    <h3 id="two-runners">云端与本机</h3>
-    <table>
-      <thead><tr><th></th><th>云端沙箱</th><th>本机执行器</th></tr></thead>
-      <tbody>
-        <tr><td>信任边界</td><td>共序服务器上的工作副本。单次命令最长约 90 秒，输出有长度限制。工作副本不保证永久保留，留存靠发布进文档库</td><td>你的 Windows 账号。没有容器隔离，能碰到这个账号能碰到的东西。只跑可信任务</td></tr>
-        <tr><td>谁启动</td><td>小祥自己用工具，或委派子 Agent。一轮同时最多 7 个子 Agent</td><td>群里交给本机助手后，被指派的人确认，才锁到一台已授权的电脑</td></tr>
-        <tr><td>适合</td><td>项目文档、受控命令、已配置的 CloudBase</td><td>成员电脑上的 Git 仓库</td></tr>
-        <tr><td>结果</td><td>回到同一轮的任务和群</td><td>回到同一轮。完成时可以附上 Git 差异</td></tr>
-      </tbody>
-    </table>
-    <p>涉及页面或可视化结果时，云端完成前要用受控截图看实际画面，不能只用命令是否报错来代替。截图只渲染这个项目的文档和当前任务沙箱里的页面，不看你的桌面，也不打开任意网址。</p>
-
-    <h2 id="miniprogram">CloudBase</h2>
-    <p>小程序能力拆成两半：<strong>项目上的身份和密钥</strong>，以及<strong>某一轮里的预览、数据和发布操作</strong>。源码在文档库的小程序区，不在聊天附件里。这样换一轮讨论时，AppID 和云环境不用重配，而某一轮的群不会变成全项目的发布开关。</p>
-
-    <h3 id="miniprogram-config">凭据放在项目上</h3>
-    <p>入口是「项目管理 → 小程序与云开发」，项目主或有管理权限的成员可写，只读成员只能看。</p>
-    <ol>
-      <li><strong>小程序身份</strong>：AppID、名称、默认预览路径。上传私钥保存后不再以明文出现在文档树或群里。</li>
-      <li><strong>两套云环境</strong>：开发和生产各自的环境 ID 与 Publishable Key。生产可留空并沿用开发，但含义不同：开发预览走开发环境；体验版上传、Admin 和正式发布走生产环境。另有一套接口凭据供服务器代调，不交给浏览器长期保存。</li>
-      <li><strong>连接测试</strong>：用凭据做只读核对，并向微信要一次预览校验私钥。通过后工作台才开放。它不上传正式版，也不代替微信侧把 AppID 和云环境授权绑好。</li>
-      <li><strong>身份认证</strong>（可选）：按环境同步匿名、用户名、邮箱、手机号登录，并准备 Admin 的第一个账号。改生产环境会再确认一次。</li>
-    </ol>
-    <p>页头的通过或失败是上次测试的结果。密钥配错时，工作台不开放，而不是开放了再在群里报一串密钥。</p>
-
-    <h3 id="miniprogram-workspace">右侧工作台</h3>
-    <p>连接测试通过，且这一轮处于云开发对话模式（或你点了右侧「CloudBase」）时，右侧六个页签是运行面，不是第二套配置：</p>
-    <table>
-      <thead><tr><th>页签</th><th>在看什么</th></tr></thead>
-      <tbody>
-        <tr><td>Dimina预览</td><td>按页面路径和机型跑界面；可出开发版预览码、上传体验版</td></tr>
-        <tr><td>Admin预览</td><td>管理端页面的开发预览，配合身份认证登录。这里管的是预览服务，不是生产发布单</td></tr>
-        <tr><td>云数据库</td><td>按开发或生产环境看集合和文档</td></tr>
-        <tr><td>云存储</td><td>云存储里的对象</td></tr>
-        <tr><td>云函数</td><td>函数列表与相关操作</td></tr>
-        <tr><td>生产发布</td><td>Admin 静态站和云函数的审批单，不是体验版上传</td></tr>
-      </tbody>
-    </table>
-    <p>页签和机型记在这台浏览器，方便刷新后续上看。在云开发模式下 @ 小祥，子 Agent 可以改小程序区里的文件，并调用已授权的云能力。有问必答打开同一侧栏也不能写。</p>
-
-    <h3 id="miniprogram-release">谁可以发布</h3>
-    <p>体验版和生产发布故意拆开。体验版是给真机看的测试包：有项目写权限就可以在 Dimina预览里上传，不进共序审批。提审和正式上线仍在微信后台，共序不代点。上传体验版不等于提交审核。</p>
-    <p>Admin 生产静态站和云函数会作用到生产环境，所以走审批。新建申请时勾选目标和说明。待审批由项目主批准或拒绝；批准后立即执行，没有「已批准待人去点发布」的中间态。申请人在待审批时可以放弃自己的申请。小祥可以替人提交和查看，不能批准。项目主自己提交的可以自己批；小祥提交的只能由项目主批。</p>
-    <ul>
-      <li>申请绑的是提交时的源码。待审批期间源码变了，这张单失效，必须重提。否则会批准旧说明、发出新代码。</li>
-      <li>待审批超过 24 小时失效。</li>
-      <li>同一项目、同一发布目标，同时只能有一张待审批。</li>
-      <li>执行失败不自动重试。原因留在申请和发布记录里，避免失败被下一张单悄悄盖掉。</li>
-    </ul>
-
-    <h2 id="archive">归档与交接</h2>
-    <p>归档冻结的是这一轮的过程，不是项目。发起人只能是这轮迭代的创建人或当前项目主。开始前会检查还有没有在跑的任务、助手回合、执行器、工具、沙箱或上下文压缩；有的话保持进行中，并告诉你卡在哪。检查和「又启动一个任务」用的是同一把锁，避免一边开始归档、一边又跑起来。</p>
-    <table>
-      <thead><tr><th>状态</th><th>写入</th><th>人要做什么</th></tr></thead>
-      <tbody>
-        <tr><td>进行中</td><td>消息、任务、背景与目标都可以按权限变</td><td>正常协作</td></tr>
-        <tr><td>归档中</td><td>这一轮的普通写入冻结。文档库不冻结</td><td>老翁根据冻结时的讨论、引用版本和任务快照整理方案。创建人或项目主可调整、撤回或确认。整理失败可重试或撤回，撤回回到进行中</td></tr>
-        <tr><td>已归档</td><td>只读</td><td>回看结论和每件未完成事项的去向。旧版本仍可被新一轮引用</td></tr>
-      </tbody>
-    </table>
-    <p>方案准备阶段只产出草案，不改项目长期总结，也不往原群里写业务消息。人必须对全部未完成事项做决定，不能漏一件、也不能混进别人的任务。每件三选一：</p>
-    <ul>
-      <li><strong>仅归档</strong>：留在这一轮，业务状态保持原样，只是不再启动还排着队的工作。</li>
-      <li><strong>录入新迭代背景</strong>：写进承接迭代的背景，不生成任务。</li>
-      <li><strong>生成新迭代任务</strong>：任务身份、产物和执行历史延续，新一轮重新编号，调度改由新一轮的小祥负责。</li>
-    </ul>
-    <p>没有要交接的任务时，可以只归档、不建下一轮。只要有任务要交接，就必须有承接迭代，否则任务会失去所属轮次。确认在一次提交里做完：固定人的决定、标记留下的任务、把交接任务挪到新轮并收口旧队列、把原迭代标成已归档，然后才排队更新长期总结。重复确认不会再建一轮。撤回和确认只会成功一个；晚到的整理结果不能写回已经撤回或已经被替换的那一版方案。小祥不能代替人按确认。</p>
-
-    <h2 id="account">账号与通知</h2>
-    <p>登录标识是用户名，或已经绑定的邮箱。注册、绑定、更换邮箱、重置密码都用 10 分钟内有效的邮箱验证码。邮箱不用于邀请进项目；进项目是成员关系，不是邮箱域名。</p>
-    <p>「在当前设备记住登录信息」只存在这台浏览器，最多 8 个账号，供登录页快捷进入和个人设置里切换、退出、清除。它不是服务器上的受信任设备列表。换浏览器或清站点数据就要重新登录。头像上限 5 MiB，和文档的 20 MiB 分开算。</p>
-    <p>站内信是成员关系和对你的点名，不是第二套聊天。分类为全部、@我的、加入项目、移出项目。迭代上的未读是「你还没读到的消息条数」；读到最新后未读清零，该位置及以前的 @ 通知标为已读。@ 可以点姓名、用户名或邮箱；输入 <code>@</code> 列出当前能提到的人。老翁不在这个列表里。</p>
-    <p>项目图片（PNG、JPEG、WebP，不超过 512 KiB）是项目的识别标记，没有图或加载失败时用名称首字。它出现在项目列表和站内信里，不参与文档版本。</p>
-    <p>顶栏主题只改变这台界面的外观。书本图标是本手册。</p>
-
-    <h2 id="admin">两套权限</h2>
-    <p>项目身份决定你在某一个项目里能写什么。平台角色决定你在管理空间里能看哪些菜单、能按哪些按钮。同一个人可以两边都有，但不会自动打通：项目主不会因此变成超级管理员；超级管理员也不等于每个项目的项目主。</p>
-    <p>管理空间用同一套登录。每个人都有「我的工作」（我的项目、我的迭代、我的任务），角色关不掉，而且只读。没有别的权限时，只能看到与自己有关的范围：你加入的项目、其中的迭代，以及你创建、作为来源、被指派、承接或确认的任务。</p>
-    <table>
-      <thead><tr><th>菜单</th><th>能决定什么</th><th>不能决定什么</th></tr></thead>
-      <tbody>
-        <tr><td>我的工作</td><td>跨项目查看自己的项目、迭代、任务，可筛选</td><td>不能在这里改状态。接受、转派、执行、取消仍回工作台</td></tr>
-        <tr><td>组织工作</td><td>跨项目看项目、迭代、任务。项目可新增、结项、恢复。进行中的迭代可改名称</td><td>运行中或已结束的任务、已结项项目、已归档迭代，不能在这里改资料。工作台里的结项按钮尚未开放，结项只在这里</td></tr>
-        <tr><td>账号权限</td><td>账号的新增、停用、恢复、重置密码、分配角色。角色按菜单、页面、功能授权</td><td>变更记录和登录记录人人可开；没有「查看全部」时只看自己的账号。重置密码会使该账号现有登录失效</td></tr>
-        <tr><td>平台管理</td><td>插件管理只配置老翁和小祥。自定义 Skill 可以新建、编辑、启停、归档。模型配置见下</td><td>Skill 只是追加的提示词。不能新增工具，不能放宽原来的权限，也不能写成一段会执行的代码。子 Agent 没有单独的配置对象</td></tr>
-      </tbody>
-    </table>
-    <p>超级管理员拥有全部平台权限，不必再挂角色。普通成员默认没有组织工作、账号管理和平台管理。多角色取并集。只勾选页面是只读，不含新增和编辑；只勾选菜单则进不了页面。每次请求都重新读权限，撤销后下一次就生效，不用等重新登录。</p>
-    <h3 id="model-settings">模型配置</h3>
-    <p>入口在管理空间的平台管理，地址是 <code>/admin/model-settings</code>。打开页面需要「模型配置」权限；保存需要另外的「保存模型配置」。没有保存权限时可以看当前生效项，不能改。</p>
-    <p>页面标出来源、版本和更新时间。还没有已保存配置时，来源是环境变量；校验通过并保存成功后，改为已保存的配置。默认模型同时给老翁、小祥和子 Agent。可以勾选「老翁使用独立模型」，单独写老翁的地址、模型名和推理强度。</p>
-    <p>API 密钥加密保存，页面不回显。已经配过时，输入框留空就是沿用已存密钥。第一次保存必须填写默认密钥。老翁改成独立模型、且还没有为他存过密钥时，老翁的密钥也要填。</p>
-    <p>点「校验并保存」时，默认模型要通过普通响应、完整流式响应和结构化输出三项检查；启用老翁独立模型时，该模型也要通过同样的检查。校验没通过，继续用保存前的配置。校验已经通过、但保存没有成功，同样保留旧配置，不会换成半截新值。若别人刚保存过，会提示「模型配置已被更新，请刷新后再保存」。先点「重新读取」，看到新的来源、版本和时间，再保存。</p>
-    <p>切换模型不用重启服务。已经在跑的工作保留它启动时捕获的模型。同一迭代里还有子任务在跑时，这一轮的新请求会等那些子任务结束后再换模型。服务把当前生效的配置留在内存里给后续请求用，不是每一次模型调用都去库里查一遍。</p>
-    <p>插件管理里的对象只有老翁和小祥。以前记在子 Agent 名下的 Skills 会合并显示在小祥配置中，历史记录保留。之后子 Agent 继续用小祥的插件和 Skills，不能在这里单独加一套工具或权限。</p>
-    <p>委派出去的管理员不能发出超出自己范围的权限，不能改比自己更高的角色或账号，也不能给自己改角色。不能停用自己的超级管理员身份，也不能停用最后一位仍有效的超级管理员。结项后的项目只读，工作台列表不再出现。</p>
-    <p>连接器在项目管理里，不在管理空间。目前可登记 GitHub 和云效 Codeup，把外部仓库指到这个项目。令牌是否已配置会显示，明文不回显。修改需要项目管理权限。本机执行器用的是你电脑上的仓库路径；连接器解决的是「项目认识哪个远程仓库」，不是代替本机执行器。</p>
-
-    <h2 id="local-executor">本机助手与连接</h2>
-    <p id="mcp">本机助手解决的是云端沙箱碰不到你的 Git 仓库。Windows 本地执行器由管理员在系统外分发，网页不提供安装包。一个账号同时只保留一台执行器，可以绑多个项目。每个项目选仓库，可选仓库内路径；路径只留在你的电脑上。</p>
-    <p>授权之后有两套凭证，用途不同。设备凭证只让这台执行器和共序说话。账号凭证让 Cursor、Codex 或 Claude Code 以<strong>你的成员身份</strong>读写共序，所以它能做的事不会超过你在这个项目里的权限：只读成员不能上传或发言，归档中的迭代不能改。执行器把连接写进助手，个人设置的 MCP 配置里可以查看已授权设备并解除绑定。怀疑泄露时在执行器里重置账号凭证，旧的立即失效。不要把凭证抄进群。</p>
-    <p>「交给本机 Agent」并不自动在你电脑上开工。项目里要有可编辑成员的执行器在线，任务还要被指派的人确认，然后才锁到一台设备。开始时按当前版本做独立的 Git 工作副本，再打开助手，第一条就是这张任务。你在窗口里打字并批准它要用的工具。关窗口不是完成，任务变为暂停，执行器可以续上。完成或失败由你在执行器里点；完成可以带回 Git 差异。</p>
-    <p id="upload-mcp">通过这条连接，助手可以读项目和这一轮的上下文、列文档、下载某一版、发群消息、分片上传、接受或拒绝派给它的任务、汇报进度。它不能创建一套新的审批、不能确认归档、不能批准生产发布、不能清空回收站。上传和改任务默认不会自动在群里再发一条；只有明确发消息才会出现在对话里，而且这种消息不会把小祥再叫醒一圈。</p>
-
-    <h2 id="limits">有意不做的事</h2>
-    <ul>
-      <li>没有在线编辑、没有全文搜索、没有对象存储。文件字节在这套服务的库里，单文件 20 MiB。</li>
-      <li>没有单点登录，没有手机推送。通知是站内信。</li>
-      <li>没有多台服务器一起抢着跑任务。停止不能回滚已完成的外部副作用。</li>
-      <li>自定义 Skill 不能变成新工具或新权限。</li>
-      <li>工作台不能结项。结项与恢复在管理空间，结项后项目从工作台消失并只读。</li>
-      <li>体验版不是生产发布。生产发布不是微信提审。</li>
-      <li>云端命令约 90 秒封顶。本机执行没有隔离，只适用于可信任务。</li>
-    </ul>
-
-    <h2 id="deploy-local">安装和发布不在这本手册里</h2>
-    <p id="quick-start">日常使用不需要安装命令。</p>
-    <p id="deploy-server">要在自己的机器上把这套服务跑起来，看仓库 README。</p>
-    <p id="deploy-ecs">服务器变量和线上发布看 <code>docs/engineering/05-cloud-environment.md</code>。内部实现的契约在 <code>docs/engineering/</code>，那是改代码时用的，不是这本手册的续篇。</p>
-  </article>
-  <footer>
-    <div class="inner">
-      <div>共序 CoThread · 使用手册</div>
-      <div><a href="/about_us.html">关于我们</a> · <a href="/">工作台</a></div>
-    </div>
-  </footer>
-  </div>
-</div>
-
-<script>
-(function () {
-  var toc = document.getElementById("toc");
-  var toggle = document.getElementById("tocToggle");
-  var links = toc.querySelectorAll("a[href^='#']");
-  var groups = toc.querySelectorAll(".toc-group");
-  var pinUntil = 0;
-  var sections = [];
-  if (toggle) toggle.addEventListener("click", function () {
-    toc.classList.toggle("open");
-    toggle.textContent = toc.classList.contains("open") ? "收起目录" : "目录";
-  });
-  for (var i = 0; i < links.length; i++) {
-    var id = links[i].getAttribute("href").slice(1);
-    var el = document.getElementById(id);
-    if (el) sections.push({ id: id, el: el, link: links[i] });
-    links[i].addEventListener("click", function (e) {
-      var hid = this.getAttribute("href").slice(1);
-      var target = document.getElementById(hid);
-      if (!target) return;
-      e.preventDefault();
-      history.replaceState(null, "", "#" + hid);
-      pinUntil = Date.now() + 700;
-      setActive(hid);
-      toc.classList.remove("open");
-      if (toggle) toggle.textContent = "目录";
-      var top = target.getBoundingClientRect().top + window.scrollY - 74;
-      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-    });
-  }
-  function setActive(id) {
-    var active = null;
-    for (var j = 0; j < links.length; j++) {
-      var on = links[j].getAttribute("href") === "#" + id;
-      links[j].classList.toggle("active", on);
-      links[j].classList.remove("ancestor");
-      if (on) active = links[j];
-    }
-    if (active) {
-      var parent = active.parentElement && active.parentElement.parentElement;
-      if (parent && parent.previousElementSibling && parent.previousElementSibling.tagName === "A") {
-        parent.previousElementSibling.classList.add("ancestor");
-      }
-      var group = active.closest(".toc-group");
-      for (var g = 0; g < groups.length; g++) {
-        groups[g].classList.toggle("on", groups[g] === group);
-        if (groups[g] === group) groups[g].open = true;
-      }
-      var box = toc.getBoundingClientRect();
-      var row = active.getBoundingClientRect();
-      if (row.top < box.top + 24 || row.bottom > box.bottom - 24) {
-        active.scrollIntoView({ block: "nearest" });
-      }
-    }
-  }
-  function onScroll() {
-    if (Date.now() < pinUntil) return;
-    var marker = 88;
-    var current = sections[0] && sections[0].id;
-    for (var k = 0; k < sections.length; k++) {
-      if (sections[k].el.getBoundingClientRect().top <= marker) current = sections[k].id;
-    }
-    if (current) setActive(current);
-  }
-  window.addEventListener("scroll", onScroll, { passive: true });
-  onScroll();
-  if (location.hash) {
-    var start = document.getElementById(location.hash.slice(1));
-    if (start) {
-      setActive(location.hash.slice(1));
-      var y = start.getBoundingClientRect().top + window.scrollY - 74;
-      window.scrollTo(0, Math.max(0, y));
-    }
-  }
-})();
-</script>
-</body>
+    <script>
+      (function () {
+        var toc = document.getElementById("toc");
+        var toggle = document.getElementById("tocToggle");
+        var links = toc.querySelectorAll("a[href^='#']");
+        var groups = toc.querySelectorAll(".toc-group");
+        var pinUntil = 0;
+        var sections = [];
+        if (toggle)
+          toggle.addEventListener("click", function () {
+            toc.classList.toggle("open");
+            toggle.textContent = toc.classList.contains("open") ? "收起目录" : "目录";
+          });
+        for (var i = 0; i < links.length; i++) {
+          var id = links[i].getAttribute("href").slice(1);
+          var el = document.getElementById(id);
+          if (el) sections.push({ id: id, el: el, link: links[i] });
+          links[i].addEventListener("click", function (e) {
+            var hid = this.getAttribute("href").slice(1);
+            var target = document.getElementById(hid);
+            if (!target) return;
+            e.preventDefault();
+            history.replaceState(null, "", "#" + hid);
+            pinUntil = Date.now() + 700;
+            setActive(hid);
+            toc.classList.remove("open");
+            if (toggle) toggle.textContent = "目录";
+            var top = target.getBoundingClientRect().top + window.scrollY - 74;
+            window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+          });
+        }
+        function setActive(id) {
+          var active = null;
+          for (var j = 0; j < links.length; j++) {
+            var on = links[j].getAttribute("href") === "#" + id;
+            links[j].classList.toggle("active", on);
+            links[j].classList.remove("ancestor");
+            if (on) active = links[j];
+          }
+          if (active) {
+            var parent = active.parentElement && active.parentElement.parentElement;
+            if (
+              parent &&
+              parent.previousElementSibling &&
+              parent.previousElementSibling.tagName === "A"
+            ) {
+              parent.previousElementSibling.classList.add("ancestor");
+            }
+            var group = active.closest(".toc-group");
+            for (var g = 0; g < groups.length; g++) {
+              groups[g].classList.toggle("on", groups[g] === group);
+              if (groups[g] === group) groups[g].open = true;
+            }
+            var box = toc.getBoundingClientRect();
+            var row = active.getBoundingClientRect();
+            if (row.top < box.top + 24 || row.bottom > box.bottom - 24) {
+              active.scrollIntoView({ block: "nearest" });
+            }
+          }
+        }
+        function onScroll() {
+          if (Date.now() < pinUntil) return;
+          var marker = 88;
+          var current = sections[0] && sections[0].id;
+          for (var k = 0; k < sections.length; k++) {
+            if (sections[k].el.getBoundingClientRect().top <= marker) current = sections[k].id;
+          }
+          if (current) setActive(current);
+        }
+        window.addEventListener("scroll", onScroll, { passive: true });
+        onScroll();
+        if (location.hash) {
+          var start = document.getElementById(location.hash.slice(1));
+          if (start) {
+            setActive(location.hash.slice(1));
+            var y = start.getBoundingClientRect().top + window.scrollY - 74;
+            window.scrollTo(0, Math.max(0, y));
+          }
+        }
+      })();
+    </script>
+  </body>
 </html>

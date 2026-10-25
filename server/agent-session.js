@@ -5,7 +5,7 @@ export function agentSession(scope) {
   const job = typeof scope === "string" ? { thread_id: scope } : scope;
   if (job.parent_message_id) {
     return {
-      kind: "l3",
+      kind: "child_agent",
       table: "agent_child_sessions",
       key: "message_id",
       id: job.message_id,
@@ -17,7 +17,7 @@ export function agentSession(scope) {
     };
   }
   return {
-    kind: "l2",
+    kind: "xiaoxiang",
     table: "agent_sessions",
     key: "thread_id",
     id: job.thread_id,

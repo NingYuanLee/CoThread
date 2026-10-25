@@ -14,8 +14,10 @@
  * - 字节与上传：startFileUpload / putFileUploadChunk / completeFileUpload / decodeUploadedBytes / verifyBytes
  * - 预览与审计：previewContentType / resolveStoredMime / asPreviewHtml / recordDocumentChange / listDocumentChanges
  * - 工具面：documentTool / documentToolSchemas
+ * - 正文读取：isDocumentText / readDocumentContent（不写库，不返回二进制字节）
  */
 export * from "./library.js";
+export * from "./read-text.js";
 export * from "./project-library.js";
 export * from "./document-tools.js";
 export * from "./document-audit.js";

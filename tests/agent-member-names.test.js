@@ -19,8 +19,8 @@ test("project Agent members have distinct names while discussion requests still 
     const service = new Service(db);
     const project = await service.createProject(user, { name: "Agent 成员身份" });
     const roster = await service.project(user, project.id);
-    const knowledge = roster.members.find((member) => member.kind === "l1");
-    const coordinator = roster.members.find((member) => member.kind === "l2");
+    const knowledge = roster.members.find((member) => member.kind === "laoweng");
+    const coordinator = roster.members.find((member) => member.kind === "xiaoxiang");
     assert.equal(knowledge.name, "老翁");
     assert.equal(coordinator.name, "小祥");
     assert.notEqual(knowledge.id, coordinator.id);
@@ -55,8 +55,8 @@ test("小祥 shares configured and legacy child Skills with its delegated agents
     const parentSkill = randomUUID(),
       legacyChildSkill = randomUUID();
     for (const [id, owner, name] of [
-      [parentSkill, "l2", "共享交付约定"],
-      [legacyChildSkill, "l3", "历史执行约定"],
+      [parentSkill, "xiaoxiang", "共享交付约定"],
+      [legacyChildSkill, "child_agent", "历史执行约定"],
     ]) {
       await query(
         db,
@@ -64,8 +64,8 @@ test("小祥 shares configured and legacy child Skills with its delegated agents
         [id, name, "测试共享Skill", owner, `${name}：只报告真实验证结果。`, admin.id, admin.id],
       );
     }
-    const parent = await loadAgentCapabilityProfile(db, "l2");
-    const child = await loadAgentCapabilityProfile(db, "l3");
+    const parent = await loadAgentCapabilityProfile(db, "xiaoxiang");
+    const child = await loadAgentCapabilityProfile(db, "child_agent");
     assert.deepEqual(
       parent.skills.map((skill) => skill.id).sort(),
       [parentSkill, legacyChildSkill].sort(),
@@ -77,7 +77,7 @@ test("小祥 shares configured and legacy child Skills with its delegated agents
     assert.deepEqual([...child.allowedTools].sort(), [...parent.allowedTools].sort());
     const view = await adminPluginManagement(new Service(db), admin);
     assert.equal(view.levels.length, 2);
-    const configured = view.levels.find((agent) => agent.id === "l2");
+    const configured = view.levels.find((agent) => agent.id === "xiaoxiang");
     assert.ok(configured);
     assert.deepEqual(
       configured.skills.map((skill) => skill.id).sort(),

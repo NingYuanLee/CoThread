@@ -3,26 +3,32 @@ import { DialogFilters } from "./DialogFilters";
 import { useRef, useState } from "react";
 
 import { Dialog, animateDialogClose } from "./dialog-fx";
-import type { HistoryColumn, HistoryRow, L3Detail } from "./agent-monitor-types";
+import type { HistoryColumn, HistoryRow, ChildDetail } from "./agent-monitor-types";
 
 import { State } from "./agent-monitor-cards";
-export function L3TaskDetailDialog({ detail, onClose }: { detail: L3Detail; onClose: () => void }) {
+export function ChildTaskDetailDialog({
+  detail,
+  onClose,
+}: {
+  detail: ChildDetail;
+  onClose: () => void;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   return (
     <Dialog
       onRequestClose={onClose}
       ref={dialog}
-      className="l3-task-detail-dialog"
-      aria-labelledby="l3-task-detail-title"
+      className="child-task-detail-dialog"
+      aria-labelledby="child-task-detail-title"
     >
       <DialogHeader
         title={<>{detail.title}</>}
-        titleId="l3-task-detail-title"
+        titleId="child-task-detail-title"
         subtitle={<>任务详情</>}
         onClose={() => animateDialogClose(dialog.current, onClose)}
         closeLabel="关闭详情"
       />
-      <div className="l3-task-detail-body task-detail">
+      <div className="child-task-detail-body task-detail">
         <header>
           <div>
             <small>{detail.typeLabel}</small>
@@ -74,7 +80,7 @@ export function L3TaskDetailDialog({ detail, onClose }: { detail: L3Detail; onCl
     </Dialog>
   );
 }
-export function L1HistoryDialog({
+export function LaowengHistoryDialog({
   title,
   columns,
   rows,
@@ -102,12 +108,12 @@ export function L1HistoryDialog({
     <Dialog
       onRequestClose={onClose}
       ref={dialog}
-      className="l3-task-detail-dialog l1-history-dialog"
-      aria-labelledby="l1-history-title"
+      className="child-task-detail-dialog laoweng-history-dialog"
+      aria-labelledby="laoweng-history-title"
     >
       <DialogHeader
         title={<>{title}</>}
-        titleId="l1-history-title"
+        titleId="laoweng-history-title"
         subtitle={<>历史记录</>}
         onClose={() => animateDialogClose(dialog.current, onClose)}
         closeLabel="关闭历史记录"
@@ -121,8 +127,8 @@ export function L1HistoryDialog({
           setSearch("");
         }}
       />
-      <div className="l1-history-body dialog-scroll-region">
-        <table className="l1-history-table">
+      <div className="laoweng-history-body dialog-scroll-region">
+        <table className="laoweng-history-table">
           <thead>
             <tr>
               {columns.map((column) => (
@@ -143,7 +149,7 @@ export function L1HistoryDialog({
                     )}
                   </td>
                 ))}
-                {hasActions ? <td className="l1-history-actions">{row.actions}</td> : null}
+                {hasActions ? <td className="laoweng-history-actions">{row.actions}</td> : null}
               </tr>
             ))}
             {!visibleRows.length && (

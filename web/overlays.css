@@ -1274,8 +1274,7 @@ html
     .library-picker-dialog,
     .document-file-info-dialog,
     .project-summary-dialog,
-    .quoted-message-dialog,
-    .l3-task-detail-dialog
+    .quoted-message-dialog
   ) {
   --overlay-dialog-width: 720px;
   --overlay-dialog-max-height: 760px;
@@ -1322,6 +1321,12 @@ html body :is(.project-management-dialog, .workspace-settings) {
 html body .thread-archive-dialog {
   --overlay-dialog-width: 1040px;
 }
+html body .thread-brief-page-dialog {
+  --overlay-dialog-width: 1120px;
+  --overlay-dialog-height: min(820px, var(--overlay-dialog-viewport-height));
+  --overlay-dialog-min-height: 460px;
+  --overlay-dialog-min-width: 640px;
+}
 html body .notification-dialog {
   --overlay-dialog-width: 1120px;
   --overlay-dialog-height: min(740px, var(--overlay-dialog-viewport-height));
@@ -1332,13 +1337,6 @@ html body :is(.task-pool-dialog, .agent-monitor, .agent-log-dialog) {
   --overlay-dialog-height: min(800px, var(--overlay-dialog-viewport-height));
   --overlay-dialog-min-height: 440px;
   --overlay-dialog-max-height: 900px;
-}
-html body .l3-task-session-dialog {
-  --overlay-dialog-width: 960px;
-  --overlay-dialog-height: min(760px, var(--overlay-dialog-viewport-height));
-}
-html body .l3-event-log-dialog {
-  --overlay-dialog-height: min(680px, var(--overlay-dialog-viewport-height));
 }
 html body .image-preview-dialog {
   --overlay-dialog-width: 1200px;

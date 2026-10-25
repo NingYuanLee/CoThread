@@ -126,6 +126,11 @@ export function TreeIcon({ kind, className }: { kind: string; className?: string
       "M12 3c2.2 2.4 3.3 5.4 3.3 9S14.2 18.6 12 21",
       "M12 3C9.8 5.4 8.7 8.4 8.7 12s1.1 6.6 3.3 9",
     ],
+    browser: [
+      "M4 5.5h16a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-11a2 2 0 0 1 2-2Z",
+      "M2 9.5h20",
+      "M6 7.4h.01",
+    ],
     file: "M6 3h8l4 4v14H6Z M14 3v5h5",
     expand: "m9 6 6 6-6 6",
     collapse: "m6 9 6 6 6-6",

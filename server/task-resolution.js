@@ -5,7 +5,7 @@ import { query, transaction } from "./db.js";
 import { HttpError } from "./http-error.js";
 import { publishWork } from "./work-events.js";
 
-import { parseDocumentRefs, withL3DispatchGate } from "./task-pool-helpers.js";
+import { parseDocumentRefs, withChildDispatchGate } from "./task-pool-helpers.js";
 import { recordTaskStatusChange } from "./task-pool-activity.js";
 
 import {
@@ -15,9 +15,9 @@ import {
   MAX_DISTINCT_EXECUTORS,
   arrangeableStatuses,
 } from "./task-policy.js";
-import { adoptCurrentIterationL2, assertL2CanOperateTask } from "./task-access.js";
+import { adoptCurrentIterationXiaoxiang, assertXiaoxiangCanOperateTask } from "./task-access.js";
 import { getTask } from "./task-queries.js";
-import { idleL3Count } from "./task-dispatch.js";
+import { idleChildCount } from "./task-dispatch.js";
 export async function rejectionReviewActor(db, taskId, conn = db) {
   const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=?", [taskId]);
   if (!task) throw new HttpError(404, "任务不存在");
@@ -39,8 +39,8 @@ export async function rejectionReviewActor(db, taskId, conn = db) {
     ? { type: "human_member", id: priorHuman.changed_by_id }
     : task.created_by_type === "human_member"
       ? { type: "human_member", id: task.created_by_id }
-      : task.created_by_type === "l2_session"
-        ? { type: "l2_session", id: task.created_by_id }
+      : task.created_by_type === "xiaoxiang"
+        ? { type: "xiaoxiang", id: task.created_by_id }
         : task.source_user_id
           ? { type: "human_member", id: task.source_user_id }
           : null;
@@ -61,8 +61,8 @@ export async function assertRejectionReviewer(review, actor, conn) {
   if (!review.rejected || review.task.status !== "rejected")
     throw new HttpError(409, "任务没有待处理的拒绝结果");
   if (review.resolved) throw new HttpError(409, "拒绝结果已经处理");
-  if (actor.type === "l2_session") {
-    await assertL2CanOperateTask(conn, actor, review.task);
+  if (actor.type === "xiaoxiang") {
+    await assertXiaoxiangCanOperateTask(conn, actor, review.task);
     return;
   }
   if (!review.reviewer || review.reviewer.type !== actor.type || review.reviewer.id !== actor.id)
@@ -104,14 +104,14 @@ export async function reopenRejectedTask(db, taskId, actor, update = {}) {
     const nextStatus =
       review.task.target_type === "human_member"
         ? "awaiting_acceptance"
-        : (await idleL3Count(conn, review.task.target_id)) >= 1
+        : (await idleChildCount(conn, review.task.target_id)) >= 1
           ? "running"
           : "pending_assignment";
     await query(
       conn,
       `UPDATE agent_tasks SET title=COALESCE(?,title),goal=COALESCE(?,goal),constraints=IF(?,?,constraints),
-      status=?,claimed_by_type=IF(target_type='l2_session','l2_session',NULL),
-      claimed_by_id=IF(target_type='l2_session',target_id,NULL),accepted_by_type=NULL,accepted_by_id=NULL,accepted_at=NULL,
+      status=?,claimed_by_type=IF(target_type='xiaoxiang','xiaoxiang',NULL),
+      claimed_by_id=IF(target_type='xiaoxiang',target_id,NULL),accepted_by_type=NULL,accepted_by_id=NULL,accepted_at=NULL,
       execution_mode=NULL,execution_agent_type=NULL,execution_agent_id=NULL,progress=NULL,result_summary=NULL,artifact_refs=NULL,
       finished_at=NULL,revision=revision+1 WHERE id=?`,
       [
@@ -129,16 +129,16 @@ export async function reopenRejectedTask(db, taskId, actor, update = {}) {
       finished_at=UTC_TIMESTAMP(3) WHERE task_id=? AND status IN ('queued','running','waiting')`,
       [taskId],
     );
-    if (nextStatus === "running" && review.task.target_type === "l2_session") {
+    if (nextStatus === "running" && review.task.target_type === "xiaoxiang") {
       await query(
         conn,
-        `UPDATE agent_tasks SET execution_mode='dsh_l3',execution_agent_type='dsh_l3' WHERE id=?`,
+        `UPDATE agent_tasks SET execution_mode='child_agent',execution_agent_type='child_agent' WHERE id=?`,
         [taskId],
       );
       await query(
         conn,
         `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,status)
-        SELECT UUID(),id,revision,'dsh_l3','queued' FROM agent_tasks WHERE id=?`,
+        SELECT UUID(),id,revision,'child_agent','queued' FROM agent_tasks WHERE id=?`,
         [taskId],
       );
     }
@@ -182,7 +182,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
     await lockTaskIteration(conn, taskId);
     const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
     if (!task) throw new HttpError(404, "任务不存在");
-    await assertL2CanOperateTask(conn, actor, task);
+    await assertXiaoxiangCanOperateTask(conn, actor, task);
     if (task.status === "superseded" || !arrangeableStatuses.has(task.status))
       throw new HttpError(409, "当前任务不能再安排");
     if (
@@ -192,18 +192,18 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       throw new HttpError(409, "已结束任务不能取消");
     const interruptedAgentId = task.execution_agent_id || null;
     const reason = update.reason || (action === "cancel" ? "小祥 取消任务" : "小祥 重新安排任务");
-    const dispatchL3 =
-      task.target_type === "l2_session" ||
-      task.execution_agent_type === "dsh_l3" ||
-      task.task_type === "assist_l2";
+    const dispatchChild =
+      task.target_type === "xiaoxiang" ||
+      task.execution_agent_type === "child_agent" ||
+      task.task_type === "assist";
     const environmentChanged = update.environmentChanged === true;
     if (action === "clear_binding") {
-      if (!dispatchL3) throw new HttpError(409, "只有子 Agent 任务可以清理执行者绑定");
+      if (!dispatchChild) throw new HttpError(409, "只有子 Agent 任务可以清理执行者绑定");
       if (
         !task.execution_agent_id &&
         ["running", "queued", "pending_assignment"].includes(task.status)
       ) {
-        return withL3DispatchGate(await getTask(conn, taskId), {
+        return withChildDispatchGate(await getTask(conn, taskId), {
           action,
           noop: true,
           interruptedAgentId: null,
@@ -211,11 +211,23 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
         });
       }
     }
+    // 阻塞的任务不再只能等人：执行失败型阻塞（有原因/签名）且自动重试预算未耗尽时，
+    // 小祥可以先自己重新安排（补指令、换执行者），预算耗尽或同一平台错误重复才必须上报来源人。
+    const retryableBlocked =
+      task.status === "blocked" &&
+      Boolean(task.blocked_reason || task.failure_signature) &&
+      Number(task.retry_count || 0) < Number(task.max_retry_count || MAX_TASK_RETRIES) &&
+      !(
+        task.failure_class === "platform_blocked" &&
+        task.failure_signature &&
+        Number(task.failure_environment_revision || 0) === Number(task.environment_revision || 0)
+      );
     if (
       action !== "cancel" &&
       action !== "clear_binding" &&
       task.status === "blocked" &&
-      !environmentChanged
+      !environmentChanged &&
+      !retryableBlocked
     ) {
       throw new HttpError(
         409,
@@ -243,7 +255,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
         actor,
         `检测到相同平台错误，停止换执行者并阻塞：${task.failure_signature}`,
       );
-      return withL3DispatchGate(await getTask(conn, taskId), {
+      return withChildDispatchGate(await getTask(conn, taskId), {
         action: "blocked",
         interruptedAgentId,
       });
@@ -265,7 +277,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
         actor,
         "达到任务自动重试预算，停止自动调度",
       );
-      return withL3DispatchGate(await getTask(conn, taskId), {
+      return withChildDispatchGate(await getTask(conn, taskId), {
         action: "blocked",
         interruptedAgentId,
       });
@@ -288,10 +300,10 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
         execution_agent_id=NULL,finished_at=UTC_TIMESTAMP(3),revision=revision+1 WHERE id=?`,
         [reason, update.resultSummary || reason, taskId],
       );
-    } else if (dispatchL3) {
-      await adoptCurrentIterationL2(conn, task, actor.id);
-      const idle = await idleL3Count(conn, actor.id);
-      if (action === "restart" && task.task_type === "assist_l2" && idle < 1)
+    } else if (dispatchChild) {
+      await adoptCurrentIterationXiaoxiang(conn, task, actor.id);
+      const idle = await idleChildCount(conn, actor.id);
+      if (action === "restart" && task.task_type === "assist" && idle < 1)
         throw new HttpError(409, "当前没有空闲子 Agent，不能重新安排辅助任务");
       const nextStatus =
         action === "clear_binding"
@@ -302,8 +314,8 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       await query(
         conn,
         `UPDATE agent_tasks SET title=COALESCE(?,title),goal=COALESCE(?,goal),constraints=IF(?,?,constraints),
-        status=?,progress=?,result_summary=NULL,
-        execution_mode=COALESCE(execution_mode,'dsh_l3'),execution_agent_type=COALESCE(execution_agent_type,'dsh_l3'),
+        status=?,progress=?,result_summary=NULL,blocked_reason=NULL,resume_condition=NULL,
+        execution_mode=COALESCE(execution_mode,'child_agent'),execution_agent_type=COALESCE(execution_agent_type,'child_agent'),
         execution_agent_id=NULL,preferred_executor_id=COALESCE(preferred_executor_id,?),
         environment_revision=environment_revision+IF(?,1,0),finished_at=NULL,revision=revision+1 WHERE id=?`,
         [
@@ -322,7 +334,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
         await query(
           conn,
           `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,status)
-          SELECT UUID(),id,revision,'dsh_l3','queued' FROM agent_tasks WHERE id=?`,
+          SELECT UUID(),id,revision,'child_agent','queued' FROM agent_tasks WHERE id=?`,
           [taskId],
         );
       }
@@ -330,7 +342,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       await query(
         conn,
         `UPDATE agent_tasks SET title=COALESCE(?,title),goal=COALESCE(?,goal),constraints=IF(?,?,constraints),
-        status='awaiting_acceptance',progress='小祥 已重新安排，等待目标成员确认',result_summary=NULL,
+        status='awaiting_acceptance',progress='小祥 已重新安排，等待目标成员确认',result_summary=NULL,blocked_reason=NULL,resume_condition=NULL,
         claimed_by_type=NULL,claimed_by_id=NULL,accepted_by_type=NULL,accepted_by_id=NULL,accepted_at=NULL,
         execution_mode=NULL,execution_agent_type=NULL,execution_agent_id=NULL,finished_at=NULL,revision=revision+1 WHERE id=?`,
         [
@@ -343,7 +355,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
       );
     }
     await recordTaskStatusChange(conn, taskId, task.status, actor, reason);
-    return withL3DispatchGate(await getTask(conn, taskId), {
+    return withChildDispatchGate(await getTask(conn, taskId), {
       action,
       interruptedAgentId,
       recovery: interruptedAgentId
@@ -368,7 +380,7 @@ export async function recoverAbnormalTask(db, taskId, actor, update = {}) {
 export async function inspectIterationTask(db, taskId, actor) {
   const task = await getTask(db, taskId);
   if (!task) throw new HttpError(404, "任务不存在");
-  await assertL2CanOperateTask(db, actor, task);
+  await assertXiaoxiangCanOperateTask(db, actor, task);
   const [run] = await query(
     db,
     `SELECT id,status,progress,result_summary,error,executor_type,executor_id,
@@ -390,7 +402,7 @@ export async function inspectIterationTask(db, taskId, actor) {
   const [bindingEvent] = await query(
     db,
     `SELECT status,output,created_at FROM agent_events
-    WHERE agent_task_id=? AND tool IN ('bind_task_l3','dsh_l3') ORDER BY id DESC LIMIT 1`,
+    WHERE agent_task_id=? AND tool IN ('bind_child_agent','child_agent') ORDER BY id DESC LIMIT 1`,
     [taskId],
   );
   const lastBindingError =

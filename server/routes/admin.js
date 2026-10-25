@@ -34,6 +34,15 @@ import {
   platformModelSettingsView,
   savePlatformModelSettings,
 } from "../platform-model-settings.js";
+import {
+  archiveOrganization,
+  changeProjectOrganizationLink,
+  createOrganization,
+  getOrganization,
+  listOrganizations,
+  setOrganizationMember,
+  updateOrganization,
+} from "../organizations.js";
 
 /** 管理域路由。守卫与全部 /api/admin 端点集中在此，注册顺序与原先一致。 */
 export function registerAdminRoutes(app, { db, service }) {
@@ -205,5 +214,24 @@ export function registerAdminRoutes(app, { db, service }) {
   });
   app.put("/api/admin/model-settings", async (req, res) =>
     res.json(await savePlatformModelSettings(db, req.user, req.body)),
+  );
+  app.get("/api/admin/orgs", async (req, res) => res.json(await listOrganizations(db, req.user)));
+  app.post("/api/admin/orgs", async (req, res) =>
+    res.status(201).json(await createOrganization(db, req.user, req.body)),
+  );
+  app.get("/api/admin/orgs/:id", async (req, res) =>
+    res.json(await getOrganization(db, req.user, req.params.id)),
+  );
+  app.patch("/api/admin/orgs/:id", async (req, res) =>
+    res.json(await updateOrganization(db, req.user, req.params.id, req.body)),
+  );
+  app.post("/api/admin/orgs/:id/archive", async (req, res) =>
+    res.json(await archiveOrganization(db, req.user, req.params.id)),
+  );
+  app.put("/api/admin/orgs/:id/members", async (req, res) =>
+    res.json(await setOrganizationMember(db, req.user, req.params.id, req.body)),
+  );
+  app.post("/api/admin/projects/:id/org-links", async (req, res) =>
+    res.json(await changeProjectOrganizationLink(db, req.user, req.params.id, req.body)),
   );
 }

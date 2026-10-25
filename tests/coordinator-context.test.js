@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { apply as applyProjectTools } from "../dsh-layer/cothread-tools.mjs";
 
-test("the L2 runtime is composed from DSH AgentTeam plugins", async () => {
+test("the 小祥 runtime is composed from DSH AgentTeam plugins", async () => {
   const patch = await readFile(new URL("../dsh-layer/agent-patch.yml", import.meta.url), "utf8");
   const tools = await readFile(new URL("../dsh-layer/cothread-tools.mjs", import.meta.url), "utf8");
   const skills = await readFile(
@@ -64,24 +64,32 @@ test("the L2 runtime is composed from DSH AgentTeam plugins", async () => {
   assert.match(skills, /context\.agent\?\.id/);
 });
 
-test("L1 denies every installed tool and MCP tools are a build-time manifest", async () => {
-  const l1Tools = await readFile(new URL("../dsh-layer/l1-tools.mjs", import.meta.url), "utf8");
-  const l1Agent = await readFile(new URL("../server/l1-agent.js", import.meta.url), "utf8");
+test("老翁 denies every installed tool and MCP tools are a build-time manifest", async () => {
+  const laowengTools = await readFile(
+    new URL("../dsh-layer/laoweng-tools.mjs", import.meta.url),
+    "utf8",
+  );
+  const laowengAgent = await readFile(
+    new URL("../server/laoweng-agent.js", import.meta.url),
+    "utf8",
+  );
   const runtimeConfig = await readFile(
     new URL("../server/dsh-runtime-config.js", import.meta.url),
     "utf8",
   );
   const mcp = await import("../server/mcp.js");
-  assert.match(l1Tools, /ctx\.tools\.guard\(\(\) =>/);
-  assert.match(l1Agent, /l1RuntimePatch/);
-  assert.match(runtimeConfig, /dsh-layer\/l1-tools\.mjs/);
+  assert.match(laowengTools, /ctx\.tools\.guard\(\(\) =>/);
+  assert.match(laowengAgent, /laowengRuntimePatch/);
+  assert.match(runtimeConfig, /dsh-layer\/laoweng-tools\.mjs/);
   assert.ok(Object.isFrozen(mcp.MCP_TOOL_NAMES));
   assert.deepEqual(mcp.MCP_TOOL_NAMES, [
     "get_connection_guide",
     "list_projects",
     "get_project_context",
     "get_member",
+    "search_memory",
     "list_documents",
+    "read_document",
     "list_document_changes",
     "get_document_version",
     "manage_document",
@@ -100,11 +108,11 @@ test("L1 denies every installed tool and MCP tools are a build-time manifest", a
     "accept_task",
     "reject_task",
     "update_task",
-    "get_l1_status",
-    "list_l1_runs",
-    "list_l1_document_queue",
-    "get_l1_logs",
-    "retry_l1_task",
+    "get_laoweng_status",
+    "list_laoweng_runs",
+    "list_laoweng_document_queue",
+    "get_laoweng_logs",
+    "retry_laoweng_task",
   ]);
   for (const hidden of [
     "create_task",
@@ -131,35 +139,46 @@ test("the coordinator has no one-shot reply or execute decision route", async ()
   assert.doesNotMatch(tools, /exec\.concludeTurn\(\)/);
 });
 
-test("stable L2 and L3 roles live only in the system prompt plugin", async () => {
+test("stable 小祥 and 子 Agent roles live only in the system prompt plugin", async () => {
   const [{ SYSTEM_PROMPTS }, coordinator, agent] = await Promise.all([
     import("../dsh-layer/cothread-plugin-registry.mjs"),
     readFile(new URL("../server/coordinator.js", import.meta.url), "utf8"),
     readFile(new URL("../server/agent.js", import.meta.url), "utf8"),
   ]);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /你是当前迭代会话的小祥/);
-  assert.doesNotMatch(SYSTEM_PROMPTS.l2.prompt, /一级小祥|二级小祥|三级小祥/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /葫芦小金刚/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /使用相同的插件与 Skills/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /自己能答的短问题/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /本迭代锁定/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /没有空闲子 Agent 时禁止创建/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /不要对成员说已经派人干活/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /只传 folderRefs，不要把目录下文件展开进 documentRefs/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /自己责任/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /人类成员账号/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /send_message 当面问/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /pendingTasks/);
-  assert.match(SYSTEM_PROMPTS.l3.prompt, /小祥追问进度/);
-  assert.doesNotMatch(SYSTEM_PROMPTS.l2.prompt, /辅助工作必须先创建/);
-  assert.match(SYSTEM_PROMPTS.l2.prompt, /寒暄只回一句/);
-  assert.doesNotMatch(SYSTEM_PROMPTS.l2.prompt, /wait_for_updates|finish_turn|post_message/);
-  assert.match(SYSTEM_PROMPTS.l3.prompt, /小祥派出的子 Agent/);
-  assert.doesNotMatch(SYSTEM_PROMPTS.l3.prompt, /一级小祥|二级小祥|三级小祥/);
-  assert.match(SYSTEM_PROMPTS.l3.prompt, /不要自称小祥/);
-  assert.match(SYSTEM_PROMPTS.l3.prompt, /publish_artifact/);
-  assert.match(SYSTEM_PROMPTS.l3.prompt, /report_task/);
-  assert.doesNotMatch(SYSTEM_PROMPTS.l3.prompt, /40 次工具调用/);
+  assert.match(SYSTEM_PROMPTS.xiaoxiang.prompt, /你是当前迭代会话的小祥/);
+  assert.doesNotMatch(SYSTEM_PROMPTS.xiaoxiang.prompt, /一级小祥|二级小祥|三级小祥/);
+  assert.match(SYSTEM_PROMPTS.xiaoxiang.prompt, /葫芦小金刚/);
+  assert.ok(
+    SYSTEM_PROMPTS.xiaoxiang.prompt.indexOf("不得靠换人绕过") <
+      SYSTEM_PROMPTS.xiaoxiang.prompt.indexOf("表达风格不能改写上面的规则"),
+  );
+  assert.ok(
+    SYSTEM_PROMPTS.xiaoxiang.prompt.indexOf("表达风格不能改写上面的规则") <
+      SYSTEM_PROMPTS.xiaoxiang.prompt.indexOf("葫芦小金刚"),
+  );
+  assert.match(SYSTEM_PROMPTS.xiaoxiang.prompt, /使用相同的插件与 Skills/);
+  assert.match(SYSTEM_PROMPTS.xiaoxiang.prompt, /自己能答的短问题/);
+  assert.match(SYSTEM_PROMPTS.xiaoxiang.prompt, /本迭代锁定/);
+  assert.match(SYSTEM_PROMPTS.xiaoxiang.prompt, /没有空闲子 Agent 时禁止创建/);
+  assert.match(SYSTEM_PROMPTS.xiaoxiang.prompt, /不要对成员说已经派人干活/);
+  assert.match(
+    SYSTEM_PROMPTS.xiaoxiang.prompt,
+    /只传 folderRefs，不要把目录下文件展开进 documentRefs/,
+  );
+  assert.match(SYSTEM_PROMPTS.xiaoxiang.prompt, /自己责任/);
+  assert.match(SYSTEM_PROMPTS.xiaoxiang.prompt, /人类成员账号/);
+  assert.match(SYSTEM_PROMPTS.xiaoxiang.prompt, /send_message 当面问/);
+  assert.match(SYSTEM_PROMPTS.xiaoxiang.prompt, /pendingTasks/);
+  assert.match(SYSTEM_PROMPTS.child_agent.prompt, /小祥追问进度/);
+  assert.doesNotMatch(SYSTEM_PROMPTS.xiaoxiang.prompt, /辅助工作必须先创建/);
+  assert.match(SYSTEM_PROMPTS.xiaoxiang.prompt, /寒暄只回一句/);
+  assert.doesNotMatch(SYSTEM_PROMPTS.xiaoxiang.prompt, /wait_for_updates|finish_turn|post_message/);
+  assert.match(SYSTEM_PROMPTS.child_agent.prompt, /小祥派出的子 Agent/);
+  assert.doesNotMatch(SYSTEM_PROMPTS.child_agent.prompt, /一级小祥|二级小祥|三级小祥/);
+  assert.match(SYSTEM_PROMPTS.child_agent.prompt, /不要自称小祥/);
+  assert.match(SYSTEM_PROMPTS.child_agent.prompt, /publish_artifact/);
+  assert.match(SYSTEM_PROMPTS.child_agent.prompt, /report_task/);
+  assert.doesNotMatch(SYSTEM_PROMPTS.child_agent.prompt, /40 次工具调用/);
   assert.match(agent, /Parent 小祥 chunks already arrive via harness.run/);
   assert.doesNotMatch(coordinator, /COORDINATOR_PERSONA|你是当前迭代会话的小祥|葫芦小金刚/);
   assert.doesNotMatch(agent, /你是共序项目中的助理|你是三级小祥|小祥派出的子 Agent/);

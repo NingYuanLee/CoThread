@@ -358,7 +358,7 @@
   padding-top: calc(50.336px - 20px);
 }
 .miniprogram-dimina-canvas
-  .dimina-native-webview:not(.dimina-native-webview--custom-nav);
+  .dimina-native-webview:not(.dimina-native-webview--custom-nav)
   .dimina-native-webview__body {
   padding-top: calc(100.672px - 20px);
 }
@@ -1671,7 +1671,7 @@
 }
 
 .miniprogram-admin-preview
-  > .miniprogram-admin-start;
+  > .miniprogram-admin-start
   .miniprogram-admin-start-card:hover:not(:disabled) {
 
   --stroke: var(--c-b8c9b2, #b8c9b2);
@@ -6436,7 +6436,7 @@ pre.miniprogram-doc-result.miniprogram-log-dialog-body {
   .miniprogram-admin-toolbar
   .miniprogram-function-search,
 .miniprogram-sidebar-embedded.doc-browser-shell
-  .miniprogram-admin-toolbar;
+  .miniprogram-admin-toolbar
   .miniprogram-toolbar-button {
 
   --stroke: var(--c-dce3d9);
@@ -6451,7 +6451,7 @@ pre.miniprogram-doc-result.miniprogram-log-dialog-body {
   overflow-clip-margin: 12px;
 }
 .miniprogram-sidebar-embedded.doc-browser-shell
-  .miniprogram-admin-toolbar;
+  .miniprogram-admin-toolbar
   .miniprogram-toolbar-button {
   color: var(--c-27362f);
 }

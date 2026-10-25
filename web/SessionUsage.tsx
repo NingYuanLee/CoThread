@@ -2,6 +2,7 @@ import { FloatingPanel } from "./FloatingPanel";
 import { FloatingPortal } from "./FloatingPortal";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { sessionUsage } from "../shared/session-usage.js";
+import { sessionUsageRecords } from "./chat-timeline";
 import type { Thread } from "./workspace-types";
 
 const duration = (ms: number | null) => {
@@ -64,11 +65,24 @@ const eventDurationMs = (events: Thread["events"]) => {
   return total;
 };
 
-export function SessionUsage({ thread }: { thread: Thread }) {
+export function SessionUsage({
+  thread,
+  rounds,
+  steps,
+}: {
+  thread: Thread;
+  /** 老翁这类「整段会话一个累计用量」的场景：轮次与步数由调用方给，不能靠 replies 计数。 */
+  rounds?: number;
+  steps?: number;
+}) {
+  // 小祥自己跑过的每一轮都算（含子 Agent 完工唤醒），不含子 Agent 自己的执行用量。
   const stats = sessionUsage(
-    thread.replies,
+    sessionUsageRecords(thread.replies || [], thread.turnUsage || []),
     thread.toolDurationMs ?? eventDurationMs(thread.events),
   );
+  // 轮次口径与轨迹页一致：有事件记录的触发消息数，而不是「有用途量记录的回复数」。
+  const shownRounds = rounds ?? (thread.trajectoryRounds || stats.rounds);
+  const shownSteps = steps ?? stats.steps;
   const root = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const anchor = useRef<HTMLButtonElement | null>(null);
@@ -109,8 +123,8 @@ export function SessionUsage({ thread }: { thread: Thread }) {
   if (!visible) return null;
   const speed = stats.tps == null ? "未记录" : `${Math.round(stats.tps)} 词元/秒`;
   const timeLabel = [
-    `${stats.rounds} 轮`,
-    stats.steps ? `${stats.steps} 步` : "",
+    `${shownRounds} 轮`,
+    shownSteps ? `${shownSteps} 步` : "",
     stats.tps == null ? "" : `${Math.round(stats.tps)} 词元/秒`,
   ]
     .filter(Boolean)

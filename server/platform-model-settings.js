@@ -18,6 +18,7 @@ import {
 
 const AAD_DEFAULT = "platform-model:default";
 const AAD_KNOWLEDGE = "platform-model:knowledge";
+const AAD_SEARCH = "platform-model:search";
 const VERSION_CONFLICT = "模型配置已被更新，请刷新后再保存";
 let loadGeneration = 0;
 
@@ -34,6 +35,7 @@ const draftSchema = z
     knowledgeModel: z.string().trim().max(191).optional().default(""),
     knowledgeReasoningEffort: effort.optional(),
     knowledgeApiKey: z.string().max(4096).optional().default(""),
+    searchApiKey: z.string().max(4096).optional().default(""),
   })
   .strict();
 
@@ -69,6 +71,7 @@ function snapshotFromParts({
   defaultRoute,
   knowledge,
   knowledgeKeyRetained,
+  searchApiKey,
 }) {
   return {
     id,
@@ -76,6 +79,7 @@ function snapshotFromParts({
     updatedAt,
     updatedBy,
     knowledgeKeyRetained: !!knowledgeKeyRetained,
+    searchApiKey: searchApiKey || "",
     default: defaultRoute,
     knowledge,
   };
@@ -90,7 +94,10 @@ async function plaintextKey(decrypt, ciphertext, aad, label) {
   }
 }
 
-function auditDetails(input, { apiKeyUpdated, knowledgeApiKeyUpdated, version }) {
+function auditDetails(
+  input,
+  { apiKeyUpdated, knowledgeApiKeyUpdated, searchApiKeyUpdated, version },
+) {
   return {
     version,
     baseUrl: input.baseUrl,
@@ -102,6 +109,7 @@ function auditDetails(input, { apiKeyUpdated, knowledgeApiKeyUpdated, version })
     knowledgeModel: input.knowledgeOverride ? input.knowledgeModel : null,
     knowledgeReasoningEffort: input.knowledgeOverride ? input.knowledgeReasoningEffort : null,
     knowledgeApiKeyUpdated,
+    searchApiKeyUpdated,
   };
 }
 
@@ -134,6 +142,9 @@ export async function loadPlatformModelSettings(db, deps = {}) {
   };
   try {
     const apiKey = await decrypt(row.api_key_ciphertext, AAD_DEFAULT);
+    const searchApiKey = row.search_api_key_ciphertext
+      ? await decrypt(row.search_api_key_ciphertext, AAD_SEARCH)
+      : "";
     let knowledge = null;
     if (Number(row.knowledge_override)) {
       knowledge = routeFrom(
@@ -148,6 +159,7 @@ export async function loadPlatformModelSettings(db, deps = {}) {
       defaultRoute: routeFrom(row.base_url, row.model_name, row.reasoning_effort, apiKey),
       knowledge,
       knowledgeKeyRetained: !Number(row.knowledge_override) && !!row.knowledge_api_key_ciphertext,
+      searchApiKey,
     });
     if (generation === loadGeneration) installPlatformModelSettings(snapshot);
     return snapshot;
@@ -192,6 +204,20 @@ export async function savePlatformModelSettings(db, user, body, deps = {}) {
   let knowledgeModel = null;
   let knowledgeEffort = null;
   let knowledgeCipher = existing?.knowledge_api_key_ciphertext || null;
+  const submittedSearchKey = input.searchApiKey.trim();
+  let searchCipher = existing?.search_api_key_ciphertext || null;
+  let searchApiKey = "";
+  if (submittedSearchKey) {
+    searchApiKey = submittedSearchKey;
+    searchCipher = await encrypt(searchApiKey, AAD_SEARCH);
+  } else if (existing?.search_api_key_ciphertext) {
+    searchApiKey = await plaintextKey(
+      decrypt,
+      existing.search_api_key_ciphertext,
+      AAD_SEARCH,
+      "网页搜索密钥",
+    );
+  }
   const submittedKnowledgeKey = input.knowledgeApiKey.trim();
   if (input.knowledgeOverride) {
     knowledgeBaseUrl = httpUrl(input.knowledgeBaseUrl, "老翁 模型地址");
@@ -219,7 +245,7 @@ export async function savePlatformModelSettings(db, user, body, deps = {}) {
     ? await encrypt(defaultKey, AAD_DEFAULT)
     : existing.api_key_ciphertext;
 
-  const secrets = [defaultKey, knowledge?.apiKey].filter(Boolean);
+  const secrets = [defaultKey, knowledge?.apiKey, searchApiKey].filter(Boolean);
   const budget = AbortSignal.timeout((knowledge ? 2 : 1) * MODEL_PROBE_BUDGET_MS);
   try {
     await probe(defaultRoute, request, { signal: budget });
@@ -237,6 +263,7 @@ export async function savePlatformModelSettings(db, user, body, deps = {}) {
 
   const apiKeyUpdated = !!submittedDefaultKey;
   const knowledgeApiKeyUpdated = !!(input.knowledgeOverride && submittedKnowledgeKey);
+  const searchApiKeyUpdated = !!submittedSearchKey;
   const nextVersion = Number(existing?.version || 0) + 1;
   const id = existing?.id || randomUUID();
   const details = auditDetails(
@@ -248,11 +275,12 @@ export async function savePlatformModelSettings(db, user, body, deps = {}) {
       knowledgeModel,
       knowledgeReasoningEffort: knowledgeEffort,
     },
-    { apiKeyUpdated, knowledgeApiKeyUpdated, version: nextVersion },
+    { apiKeyUpdated, knowledgeApiKeyUpdated, searchApiKeyUpdated, version: nextVersion },
   );
   if (
     JSON.stringify(details).includes(defaultKey) ||
-    (knowledge?.apiKey && JSON.stringify(details).includes(knowledge.apiKey))
+    (knowledge?.apiKey && JSON.stringify(details).includes(knowledge.apiKey)) ||
+    (searchApiKey && JSON.stringify(details).includes(searchApiKey))
   )
     throw new HttpError(500, "审计记录包含密钥，已中止保存");
 
@@ -267,8 +295,8 @@ export async function savePlatformModelSettings(db, user, body, deps = {}) {
           `INSERT INTO platform_model_settings
            (id,singleton,version,base_url,model_name,reasoning_effort,api_key_ciphertext,
             knowledge_override,knowledge_base_url,knowledge_model_name,knowledge_reasoning_effort,
-            knowledge_api_key_ciphertext,updated_at,updated_by)
-           VALUES (?,1,1,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3),?)`,
+            knowledge_api_key_ciphertext,search_api_key_ciphertext,updated_at,updated_by)
+           VALUES (?,1,1,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3),?)`,
           [
             id,
             baseUrl,
@@ -280,6 +308,7 @@ export async function savePlatformModelSettings(db, user, body, deps = {}) {
             knowledgeModel,
             knowledgeEffort,
             input.knowledgeOverride ? knowledgeCipher : knowledgeCipher,
+            searchCipher,
             user.id,
           ],
         );
@@ -289,7 +318,7 @@ export async function savePlatformModelSettings(db, user, body, deps = {}) {
           `UPDATE platform_model_settings
            SET version=version+1,base_url=?,model_name=?,reasoning_effort=?,api_key_ciphertext=?,
                knowledge_override=?,knowledge_base_url=?,knowledge_model_name=?,knowledge_reasoning_effort=?,
-               knowledge_api_key_ciphertext=?,updated_at=UTC_TIMESTAMP(3),updated_by=?
+               knowledge_api_key_ciphertext=?,search_api_key_ciphertext=?,updated_at=UTC_TIMESTAMP(3),updated_by=?
            WHERE id=? AND version=?`,
           [
             baseUrl,
@@ -301,6 +330,7 @@ export async function savePlatformModelSettings(db, user, body, deps = {}) {
             input.knowledgeOverride ? knowledgeModel : null,
             input.knowledgeOverride ? knowledgeEffort : null,
             knowledgeCipher,
+            searchCipher,
             user.id,
             current.id,
             current.version,

@@ -2,6 +2,7 @@ import { RIGHT_SIDEBAR_MODE_UI, rightSidebarModeFromDialogue } from "../shared/d
 import { UiIcon, type UiIconName } from "./ui-icon";
 import type { DialogueMode } from "./dialogue-mode-storage";
 
+/** 右侧栏模式：标准文档树 / CloudBase。知识页面板已下线，引用改为打开项目记忆详情。 */
 export function ContextPanelModeSwitch({
   dialogueMode,
   onSelect,

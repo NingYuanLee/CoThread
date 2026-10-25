@@ -8,8 +8,8 @@ export function formatAgentAction(
   args?: Record<string, unknown>,
   result?: Record<string, unknown>,
 ): string;
-export const L1_TASK_LABELS: Record<string, string>;
-export const L1_MAINTENANCE_TASKS: string[];
-export function normalizeL1Task(task?: string | null): string;
-export function l1TaskLabel(task?: string | null): string;
+export const LAOWENG_TASK_LABELS: Record<string, string>;
+export const LAOWENG_MAINTENANCE_TASKS: string[];
+export function normalizeLaowengTask(task?: string | null): string;
+export function laowengTaskLabel(task?: string | null): string;
 export function visibleAgentText(value?: string | null): string;

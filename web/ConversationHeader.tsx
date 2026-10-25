@@ -1,8 +1,8 @@
 /**
- * 会话头部：对话/轨迹视图切换、停止当前执行。
+ * 会话头部：群聊/轨迹视图切换、老翁单聊/轨迹切换、停止当前执行。
  * 数据与回调由 WorkspaceApp 打包成 props 传入。
  */
-import { type Dispatch, type SetStateAction } from "react";
+import React, { type Dispatch, type SetStateAction } from "react";
 import { COORDINATOR_LOG_IDLE_LABEL } from "./agent-label";
 import { UiIcon } from "./ui-icon";
 import { api } from "./workspace-api";
@@ -10,8 +10,8 @@ import type { Thread } from "./workspace-types";
 
 export type ConversationHeaderProps = {
   thread: Thread | null;
-  threadView: "chat" | "trajectory" | "brief";
-  setThreadView: Dispatch<SetStateAction<"chat" | "trajectory" | "brief">>;
+  threadView: "chat" | "trajectory";
+  setThreadView: Dispatch<SetStateAction<"chat" | "trajectory">>;
   coordinatorLogLabel: string;
   liveCoordinator: Thread["replies"][number] | undefined;
   active: boolean;
@@ -19,6 +19,11 @@ export type ConversationHeaderProps = {
   threadId: string;
   run: (task: () => Promise<void>) => Promise<void>;
   refresh: () => Promise<void>;
+  elderOpen: boolean;
+  setElderOpen: Dispatch<SetStateAction<boolean>>;
+  elderView: "chat" | "trajectory";
+  setElderView: Dispatch<SetStateAction<"chat" | "trajectory">>;
+  onElderSplitPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
 };
 
 export function ConversationHeader({
@@ -32,9 +37,19 @@ export function ConversationHeader({
   threadId,
   run,
   refresh,
+  elderOpen,
+  setElderOpen,
+  elderView,
+  setElderView,
+  onElderSplitPointerDown,
 }: ConversationHeaderProps) {
+  const elderSplit = !!thread && elderOpen;
   return (
-    <div className="conversation-heading">
+    <div
+      className={
+        elderSplit ? "conversation-heading conversation-heading-split" : "conversation-heading"
+      }
+    >
       {thread && (
         <span className="conversation-log-group">
           <div className="conversation-views" role="tablist" aria-label="会话视图">
@@ -45,8 +60,8 @@ export function ConversationHeader({
               aria-selected={threadView === "chat"}
               onClick={() => setThreadView("chat")}
             >
-              <UiIcon name="chat" size={13} />
-              对话
+              <UiIcon name="users" size={13} />
+              群聊
             </button>
             <button
               type="button"
@@ -66,16 +81,6 @@ export function ConversationHeader({
               )}
               <UiIcon name="trajectory" size={13} />
               轨迹
-            </button>
-            <button
-              type="button"
-              role="tab"
-              className="conversation-view"
-              aria-selected={threadView === "brief"}
-              onClick={() => setThreadView("brief")}
-            >
-              <UiIcon name="info" size={13} />
-              背景与目标
             </button>
           </div>
           {coordinatorLogLabel !== COORDINATOR_LOG_IDLE_LABEL && (
@@ -99,6 +104,51 @@ export function ConversationHeader({
               停止
             </button>
           )}
+        </span>
+      )}
+      {elderSplit && (
+        <div
+          className="conversation-heading-divider"
+          aria-hidden="true"
+          title="拖拽调整群聊与问老翁宽度"
+          onPointerDown={onElderSplitPointerDown}
+        />
+      )}
+      {thread && (
+        <span className={elderSplit ? "elder-heading-side" : "conversation-heading-end"}>
+          {elderSplit && (
+            <div className="conversation-views" role="tablist" aria-label="老翁视图">
+              <button
+                type="button"
+                role="tab"
+                className="conversation-view"
+                aria-selected={elderView === "chat"}
+                onClick={() => setElderView("chat")}
+              >
+                <UiIcon name="human" size={13} />
+                单聊
+              </button>
+              <button
+                type="button"
+                role="tab"
+                className="conversation-view"
+                aria-selected={elderView === "trajectory"}
+                onClick={() => setElderView("trajectory")}
+              >
+                <UiIcon name="trajectory" size={13} />
+                轨迹
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            className="ask-elder"
+            aria-pressed={elderOpen}
+            onClick={() => setElderOpen((open) => !open)}
+          >
+            <UiIcon name="messageQuestion" size={13} />
+            问老翁
+          </button>
         </span>
       )}
     </div>

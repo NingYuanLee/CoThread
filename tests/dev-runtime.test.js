@@ -2,7 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isOurDevProcess, looksLikeTrackedDevCommand, openDevBrowser, resolveDevPorts, waitForHttp } from "../scripts/dev-runtime.js";
+import {
+  isOurDevProcess,
+  looksLikeTrackedDevCommand,
+  resolveDevPorts,
+  waitForHttp,
+} from "../scripts/dev-runtime.js";
 import { createDevProxyAgent, isApiPath, startDevGateway } from "../scripts/dev-gateway.js";
 import http from "node:http";
 import net from "node:net";
@@ -27,26 +32,12 @@ test("dev gateway treats MCP query strings as API traffic", () => {
 
 test("dev ports default to 3100/3101/3102", () => {
   assert.deepEqual(resolveDevPorts({}), { uiPort: 3100, apiPort: 3101, vitePort: 3102 });
-  assert.deepEqual(resolveDevPorts({ PORT: "3200" }), { uiPort: 3200, apiPort: 3201, vitePort: 3202 });
+  assert.deepEqual(resolveDevPorts({ PORT: "3200" }), {
+    uiPort: 3200,
+    apiPort: 3201,
+    vitePort: 3202,
+  });
   assert.throws(() => resolveDevPorts({ PORT: "3100", API_PORT: "3100" }), /不能相同/);
-});
-
-test("ready browser opener only launches local urls", () => {
-  const calls = [];
-  const spawnFn = (...args) => {
-    calls.push(args);
-    return { unref() {} };
-  };
-  assert.equal(openDevBrowser("http://127.0.0.1:3100/", { spawnFn, platform: "win32", env: {} }), true);
-  assert.equal(calls[0][0], "cmd");
-  assert.deepEqual(calls[0][1], ["/c", "start", "", "http://127.0.0.1:3100/"]);
-  assert.equal(openDevBrowser("https://example.com", { spawnFn, platform: "win32", env: {} }), false);
-  assert.equal(openDevBrowser("http://127.0.0.1:3100/", { spawnFn, platform: "win32", env: { CI: "1" } }), false);
-  assert.equal(openDevBrowser("http://127.0.0.1:3100/", {
-    spawnFn,
-    platform: "darwin",
-    env: { COTHREAD_NO_BROWSER: "1" },
-  }), false);
 });
 
 test("only this repo's server or vite command lines are reclaimable", () => {
@@ -54,7 +45,10 @@ test("only this repo's server or vite command lines are reclaimable", () => {
   assert.equal(isOurDevProcess(`node ${viteEntry}`, root), true);
   assert.equal(isOurDevProcess("node D:\\other-app\\server\\index.js --api-only", root), false);
   assert.equal(isOurDevProcess("", root), false);
-  assert.equal(looksLikeTrackedDevCommand("node.exe --env-file=.env server/index.js --api-only"), true);
+  assert.equal(
+    looksLikeTrackedDevCommand("node.exe --env-file=.env server/index.js --api-only"),
+    true,
+  );
   assert.equal(looksLikeTrackedDevCommand("node.exe scripts/dev.js"), true);
   assert.equal(looksLikeTrackedDevCommand("node.exe other.js"), false);
 });
@@ -141,12 +135,15 @@ test("dev gateway forwards a small JSON POST body to the API", async () => {
     vitePort: await freePort(),
   });
   try {
-    const response = await fetch(`http://127.0.0.1:${gatewayPort}/api/projects/demo/documents/upload`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: payload,
-      signal: AbortSignal.timeout(4000),
-    });
+    const response = await fetch(
+      `http://127.0.0.1:${gatewayPort}/api/projects/demo/documents/upload`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+        signal: AbortSignal.timeout(4000),
+      },
+    );
     assert.equal(response.status, 200);
     assert.equal(received, payload);
     assert.deepEqual(await response.json(), { ok: true, bytes: payload.length });
@@ -183,4 +180,3 @@ test("dev gateway reuses sockets when forwarding many Vite requests", async () =
     backend.close();
   }
 });
-

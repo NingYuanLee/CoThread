@@ -1,5 +1,25 @@
 export const LEFT_SIDEBAR_STATE_KEY = "cothread-left-sidebar-open";
 export const RIGHT_SIDEBAR_STATE_KEY = "cothread-right-sidebar-open";
+export const ELDER_SPLIT_RATIO_KEY = "cothread-elder-split-ratio";
+
+export function readStoredElderSplitRatio() {
+  try {
+    const value = Number(localStorage.getItem(ELDER_SPLIT_RATIO_KEY));
+    if (Number.isFinite(value) && value >= 10 && value <= 90) return value / 100;
+  } catch {}
+  return null;
+}
+
+/** 群聊所占宽度比例。窄屏每侧至少约 28%，宽屏每侧至少 240px。 */
+export function clampElderSplitRatio(ratio: number, width: number) {
+  if (!Number.isFinite(ratio)) return 0.5;
+  const safe = Math.min(0.9, Math.max(0.1, ratio));
+  if (!Number.isFinite(width) || width <= 0) return safe;
+  const minRatio = Math.min(240, width * 0.28) / width;
+  const maxRatio = 1 - minRatio;
+  if (!(maxRatio > minRatio)) return 0.5;
+  return Math.min(maxRatio, Math.max(minRatio, safe));
+}
 
 export function readStoredBoolean(key: string, fallback: boolean) {
   try {

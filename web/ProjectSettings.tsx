@@ -257,7 +257,7 @@ function ProjectSummaryDialog({
     <Dialog
       onRequestClose={onClose}
       ref={dialog}
-      className="l3-task-detail-dialog project-summary-dialog"
+      className="child-task-detail-dialog project-summary-dialog"
       aria-labelledby="project-summary-title"
     >
       <DialogHeader

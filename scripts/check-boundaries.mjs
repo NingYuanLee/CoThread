@@ -69,7 +69,7 @@ for (const file of walk(serverDir)) {
   const source = readFileSync(file, "utf8");
   const lines = source.split(/\r?\n/);
   if (
-    /^server\/(?:service-(?:access|members|projects|monitor|iterations|messages|support|notification-operations)|task-(?:policy|access|documents|queries|dispatch|commands|assignments|resolution|l3-execution))\.js$/.test(
+    /^server\/(?:service-(?:access|members|projects|monitor|iterations|messages|support|notification-operations)|task-(?:policy|access|documents|queries|dispatch|commands|assignments|resolution|child-execution))\.js$/.test(
       rel(file),
     )
   ) {

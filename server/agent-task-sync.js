@@ -10,7 +10,8 @@ function taskStatus(status) {
   if (status === "running") return "running";
   if (status === "paused") return "waiting";
   if (status === "completed" || status === "completed_pending_notification") return "completed";
-  if (status === "failed" || status === "failed_pending_notification") return "failed";
+  // 任务层不再有失败：本地执行器失败收敛为「已阻塞」，原因写进 blocked_reason。
+  if (status === "failed" || status === "failed_pending_notification") return "blocked";
   if (status === "cancelled" || status === "interrupted" || status === "stopped_pending_approval")
     return "abandoned";
   return "pending_start";
@@ -31,7 +32,7 @@ export async function syncLocalExecutorTask(conn, localExecutorTask, { publish =
   const runStatus =
     next === "completed"
       ? "completed"
-      : next === "failed"
+      : next === "blocked"
         ? "failed"
         : next === "abandoned" || next === "cancelled"
           ? "cancelled"
@@ -62,12 +63,15 @@ export async function syncLocalExecutorTask(conn, localExecutorTask, { publish =
   ]);
   await query(
     conn,
-    `UPDATE agent_tasks SET status=?,progress=?,result_summary=?,finished_at=IF(? IN ('completed','failed','cancelled','abandoned','rejected'),COALESCE(finished_at,UTC_TIMESTAMP(3)),finished_at),
-    revision=revision+1 WHERE id=? AND status NOT IN ('completed','failed','cancelled','rejected','abandoned','superseded')`,
+    `UPDATE agent_tasks SET status=?,progress=?,result_summary=?,blocked_reason=IF(?='blocked',COALESCE(?,blocked_reason),NULL),
+    finished_at=IF(? IN ('completed','blocked','cancelled','abandoned','rejected'),COALESCE(finished_at,UTC_TIMESTAMP(3)),finished_at),
+    revision=revision+1 WHERE id=? AND status NOT IN ('completed','blocked','failed','cancelled','rejected','abandoned','superseded')`,
     [
       next,
       localExecutorTask.progress || null,
       localExecutorTask.output || localExecutorTask.error || null,
+      next,
+      localExecutorTask.error || localExecutorTask.progress || null,
       next,
       localExecutorTask.agent_task_id,
     ],

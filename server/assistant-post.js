@@ -16,6 +16,7 @@ export async function insertUniqueAssistantMessage(
   threadId,
   body,
   agentTaskId,
+  turnId = null,
 ) {
   const text = String(body || "")
     .trim()
@@ -36,11 +37,37 @@ export async function insertUniqueAssistantMessage(
       );
       if (existing) return existing;
     }
-    return service.insertMessage(conn, user, threadId, text, [], "assistant", agentTaskId);
+    return service.insertMessage(
+      conn,
+      user,
+      threadId,
+      text,
+      [],
+      "assistant",
+      agentTaskId,
+      undefined,
+      "cloud",
+      null,
+      [],
+      turnId,
+    );
   };
 
   if (!agentTaskId) {
-    return service.insertMessage(dbOrConn, user, threadId, text, [], "assistant", null);
+    return service.insertMessage(
+      dbOrConn,
+      user,
+      threadId,
+      text,
+      [],
+      "assistant",
+      null,
+      undefined,
+      "cloud",
+      null,
+      [],
+      turnId,
+    );
   }
   if (isPool(dbOrConn)) return transaction(dbOrConn, run);
   return run(dbOrConn);

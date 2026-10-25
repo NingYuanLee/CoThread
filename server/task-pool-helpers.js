@@ -1,5 +1,5 @@
-const L3_DISPATCH_STATUSES = ["pending_assignment", "queued", "running", "waiting"];
-const L3_DISPATCH_HINT =
+const CHILD_DISPATCH_STATUSES = ["pending_assignment", "queued", "running", "waiting"];
+const CHILD_DISPATCH_HINT =
   "任务已定，create_task 会尽量在同一次调用内启动并绑定 子 Agent。见到 execution_agent_id 之前不要对成员说已经派人干活。";
 
 export function parseDocumentRefs(value) {
@@ -46,21 +46,21 @@ export function withParsedTask(task) {
   };
 }
 
-export function isL2OwnResponsibility(task) {
+export function isXiaoxiangOwnResponsibility(task) {
   return (
-    task.task_type === "assist_l2" ||
-    task.target_type === "l2_session" ||
-    task.execution_agent_type === "dsh_l3"
+    task.task_type === "assist" ||
+    task.target_type === "xiaoxiang" ||
+    task.execution_agent_type === "child_agent"
   );
 }
 
-export function withL3DispatchGate(task, extra = {}) {
+export function withChildDispatchGate(task, extra = {}) {
   if (!task) return extra;
   const needsDispatch =
-    L3_DISPATCH_STATUSES.includes(task.status) &&
-    isL2OwnResponsibility(task) &&
+    CHILD_DISPATCH_STATUSES.includes(task.status) &&
+    isXiaoxiangOwnResponsibility(task) &&
     !task.execution_agent_id;
   return needsDispatch
-    ? { ...task, ...extra, needsDispatch: true, started: false, dispatchHint: L3_DISPATCH_HINT }
+    ? { ...task, ...extra, needsDispatch: true, started: false, dispatchHint: CHILD_DISPATCH_HINT }
     : { ...task, ...extra };
 }

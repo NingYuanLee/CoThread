@@ -1,17 +1,25 @@
-import { documentTool, documentToolSchemas } from "./documents/index.js";
+import {
+  DOCUMENT_TEXT_READ_MAX,
+  documentTool,
+  documentToolSchemas,
+  isDocumentText,
+  readDocumentContent,
+} from "./documents/index.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createHash } from "node:crypto";
 import { z } from "zod/v3";
 import { MCP_SERVER_NAME, mcpInstructionsForSource } from "../shared/mcp-guide.js";
 import { modelDiscussion, modelProject } from "./model-context.js";
 import {
-  getL1Status,
-  listL1DocumentQueue,
-  listL1Runs,
+  getLaowengStatus,
+  listLaowengDocumentQueue,
+  listLaowengRuns,
   loadMemberUnderstanding,
-  queueL1MemoryRun,
+  queueLaowengMemoryRun,
+  queueProjectMemoryRun,
 } from "./project-memory.js";
-import { normalizeL1Task } from "../shared/agent-label.js";
+import { normalizeLaowengTask } from "../shared/agent-label.js";
 import { listDocumentChanges } from "./documents/index.js";
 import {
   acceptTask,
@@ -25,7 +33,8 @@ import {
   updateTask,
 } from "./task-pool.js";
 import { MCP_CAPABILITIES, MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js";
-import { MCP_INLINE_BASE64_MAX } from "../shared/upload-limits.js";
+import { searchProjectMemory } from "./memory-search.js";
+import { FILE_CHUNK_SIZE, FILE_MAX_BYTES, MCP_INLINE_BASE64_MAX } from "../shared/upload-limits.js";
 import { completeFileUpload, putFileUploadChunk, startFileUpload } from "./documents/index.js";
 
 export { MCP_TOOL_NAMES };
@@ -38,6 +47,14 @@ const mcpInlineBase64 = z
   );
 const mcpSha256 = z.string().regex(/^[0-9a-fA-F]{64}$/, "sha256 必须是 64 位十六进制");
 
+function sliceVersionBytes(content, start, take) {
+  const raw = Buffer.isBuffer(content) ? content : Buffer.from(content || "");
+  if (raw.length === take) return raw;
+  if (raw.length >= start + take) return raw.subarray(start, start + take);
+  if (raw.length > take) return raw.subarray(0, take);
+  return raw;
+}
+
 function mcpErrorText(error) {
   if (error instanceof z.ZodError)
     return error.issues
@@ -47,31 +64,14 @@ function mcpErrorText(error) {
   return "请求失败，请检查输入与权限";
 }
 
-export function createMcpServer(service, user, afterMessage) {
-  const instructions = mcpInstructionsForSource(user.mcpSource);
-  const server = new McpServer({ name: MCP_SERVER_NAME, version: "0.3.0" }, { instructions });
+export function mcpToolDefinitions(service, user, afterMessage) {
   const registered = new Set();
+  const tools = [];
   const register = (name, description, schema, fn) => {
     if (!MCP_TOOL_NAMES.includes(name) || registered.has(name))
       throw new Error(`MCP tool is not declared by the CoThread build: ${name}`);
     registered.add(name);
-    return server.registerTool(name, { description, inputSchema: schema }, async (args) => {
-      try {
-        return {
-          content: [{ type: "text", text: JSON.stringify(await fn(args)) }],
-        };
-      } catch (error) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: mcpErrorText(error),
-            },
-          ],
-        };
-      }
-    });
+    tools.push({ name, description, schema, fn });
   };
   const taskFor = async (taskId, write = false) => {
     const task = await getTask(service.db, taskId);
@@ -97,7 +97,7 @@ export function createMcpServer(service, user, afterMessage) {
     "get_connection_guide",
     "首次使用先调用：读取会话定位、上传分片与 SHA-256 校验、发消息、引用、@助手、权限和错误处理。超过 6144 字节的文件必须走 start_file_upload。无需安装 SKILL。",
     {},
-    () => ({ instructions }),
+    () => ({ instructions: mcpInstructionsForSource(user.mcpSource) }),
   );
   register(
     "list_projects",
@@ -139,6 +139,25 @@ export function createMcpServer(service, user, afterMessage) {
         statementSummary: understanding?.statementSummary || null,
         understandingUpdatedAt: understanding?.understandingUpdatedAt || null,
       };
+    },
+  );
+  register(
+    "search_memory",
+    "按对象类型、成员或关键词检索项目记忆（发言/文档/任务/讨论/项目整体），返回标题、摘要、出处与直接关系，不返回长正文。问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文档」先用它。",
+    {
+      projectId: z.string().uuid(),
+      query: z.string().max(200).optional(),
+      subject: z.enum(["utterance", "document", "task", "discussion", "project"]).optional(),
+      aboutUserId: z.string().uuid().optional(),
+      depth: z.number().int().min(0).max(2).optional(),
+      limit: z.number().int().min(1).max(50).optional(),
+    },
+    async ({ projectId, subject, ...filters }) => {
+      await service.member(user, projectId, false);
+      return searchProjectMemory(service.db, projectId, {
+        ...filters,
+        subjects: subject ? [subject] : undefined,
+      });
     },
   );
   register(
@@ -203,13 +222,92 @@ export function createMcpServer(service, user, afterMessage) {
     (a) => service.readMessage(user, a.threadId, a.messageId, a.before),
   );
   register(
+    "read_document",
+    "读取文档版本的文本正文。versionId 来自 list_documents 或消息引用。offset 为起始字符，limit 默认 6000、最大 8000。返回正文、总字符数和是否截断；截断时用 nextOffset 继续。二进制只返回类型、大小和哈希，不返回原始字节。原始字节用 get_document_version 按片下载。",
+    {
+      versionId: z.string().uuid(),
+      offset: z
+        .number()
+        .int()
+        .min(0)
+        .max(20_000_000)
+        .describe("文本起始字符偏移，从 0 开始")
+        .optional(),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(DOCUMENT_TEXT_READ_MAX)
+        .describe("本次返回的最大字符数，默认 6000，最大 8000")
+        .optional(),
+    },
+    async ({ versionId, offset, limit }) => {
+      const meta = await service.version(user, versionId, { includeContent: false });
+      if (!isDocumentText(meta.mime, meta.filename))
+        return readDocumentContent(meta, { offset, limit });
+      const full = await service.version(user, versionId);
+      return readDocumentContent(full, { offset, limit });
+    },
+  );
+  register(
     "get_document_version",
-    "下载一个不可变文档版本，返回内容 base64 与元数据。",
-    { versionId: z.string().uuid() },
-    async (a) => {
-      const v = await service.version(user, a.versionId);
-      const { content, ...meta } = v;
-      return { ...meta, contentBase64: content.toString("base64") };
+    "按字节分片下载不可变文档版本，断点续下用 offset。每次最多 6144 字节，与上传分片相同，Base64 约 8KB。返回本片 contentBase64、整文件 sha256、本片 chunkSha256、nextOffset 和 complete。省略 offset 从 0 开始，直到 complete 为 true。读文本正文用 read_document，不要把分片 Base64 当阅读结果。",
+    {
+      versionId: z.string().uuid(),
+      offset: z
+        .number()
+        .int()
+        .min(0)
+        .max(FILE_MAX_BYTES)
+        .describe("起始字节，从 0 开始。续下时传入上次返回的 nextOffset")
+        .optional(),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(FILE_CHUNK_SIZE)
+        .describe("本片字节数，默认并最多 6144")
+        .optional(),
+    },
+    async ({ versionId, offset, limit }) => {
+      const start = offset ?? 0;
+      const size = limit ?? FILE_CHUNK_SIZE;
+      const head = await service.version(user, versionId, { includeContent: false });
+      const { content: ignored, ...meta } = head;
+      const total =
+        meta.byte_size == null ? Buffer.byteLength(ignored || "") : Number(meta.byte_size);
+      if (start > total) {
+        const error = new Error("偏移已经超过文件大小");
+        error.status = 400;
+        throw error;
+      }
+      const take = Math.min(size, total - start);
+      let bytes = Buffer.alloc(0);
+      if (take > 0) {
+        const row = await service.version(user, versionId, {
+          includeContent: true,
+          maxBytes: take,
+          byteOffset: start,
+        });
+        bytes = sliceVersionBytes(row.content, start, take);
+      }
+      const returned = bytes.length;
+      if (returned !== take) {
+        const error = new Error("文档分片长度不符");
+        error.status = 500;
+        throw error;
+      }
+      const complete = start + returned >= total;
+      return {
+        ...meta,
+        contentBase64: bytes.toString("base64"),
+        offset: start,
+        limit: size,
+        returned,
+        nextOffset: complete ? null : start + returned,
+        complete,
+        chunkSha256: createHash("sha256").update(bytes).digest("hex"),
+      };
     },
   );
   register(
@@ -440,37 +538,37 @@ export function createMcpServer(service, user, afterMessage) {
     },
   );
   register(
-    "get_l1_status",
+    "get_laoweng_status",
     "读取项目级 Agent（老翁）状态：会话 lastError、文档/成员摘要队列积压、最近 run 与失败记录。用于诊断「文档摘要失败」。",
     {
       projectId: z.string().uuid(),
     },
-    async ({ projectId }) => getL1Status(service, user, projectId),
+    async ({ projectId }) => getLaowengStatus(service, user, projectId),
   );
   register(
-    "list_l1_runs",
-    "列出 老翁 维护 run 历史。task 可选 document_memory / member_memory / document_organization / iteration_archive；status 可选 queued/running/completed/failed。",
+    "list_laoweng_runs",
+    "列出 老翁 维护 run 历史（agent_laoweng_runs）。task 可选 member_memory / document_memory / iteration_archive / project_memory；status 可选 queued/running/completed/failed。文档整理不写这张表，运行记录在文档整理作业里，轨迹仍可用 get_laoweng_logs 读。",
     {
       projectId: z.string().uuid(),
       task: z.string().max(40).optional(),
       status: z.string().max(40).optional(),
       limit: z.number().int().min(1).max(100).optional(),
     },
-    async (a) => listL1Runs(service, user, a),
+    async (a) => listLaowengRuns(service, user, a),
   );
   register(
-    "list_l1_document_queue",
+    "list_laoweng_document_queue",
     "列出文档摘要队列中的待处理版本（文件名、就绪时间、是否已有摘要）。readyOnly=true 只看已到点可跑的项。",
     {
       projectId: z.string().uuid(),
       limit: z.number().int().min(1).max(200).optional(),
       readyOnly: z.boolean().optional(),
     },
-    async (a) => listL1DocumentQueue(service, user, a),
+    async (a) => listLaowengDocumentQueue(service, user, a),
   );
   register(
-    "get_l1_logs",
-    "读取指定 老翁 维护任务的执行轨迹（阶段、状态、错误）。task 必填：document_memory / member_memory / document_organization / iteration_archive。",
+    "get_laoweng_logs",
+    "读取指定老翁维护任务的执行轨迹（阶段、状态、错误）。task 必填：member_memory / document_memory / document_organization / iteration_archive / project_memory。",
     {
       projectId: z.string().uuid(),
       task: z.enum([
@@ -478,25 +576,89 @@ export function createMcpServer(service, user, afterMessage) {
         "document_memory",
         "document_organization",
         "iteration_archive",
+        "project_memory",
       ]),
     },
     async ({ projectId, task }) =>
-      service.agentLogs(user, "project", projectId, { task: normalizeL1Task(task) }),
+      service.agentLogs(user, "project", projectId, { task: normalizeLaowengTask(task) }),
   );
   register(
-    "retry_l1_task",
-    "将 老翁 维护任务重新排队。task=document_memory 会唤醒文档摘要队列；member_memory 唤醒成员发言；iteration_archive 需已归档迭代（可传 threadId）。不发群聊消息。",
+    "retry_laoweng_task",
+    "将 老翁 维护任务重新排队。task=document_memory 会唤醒文档摘要队列；member_memory 唤醒成员发言；iteration_archive 需已归档迭代（可传 threadId）；project_memory 立即做一次项目记忆结算。不发群聊消息。",
     {
       projectId: z.string().uuid(),
-      task: z.enum(["member_memory", "document_memory", "iteration_archive"]),
+      task: z.enum(["member_memory", "document_memory", "iteration_archive", "project_memory"]),
       threadId: z.string().uuid().optional(),
     },
     async ({ projectId, task, threadId }) =>
-      queueL1MemoryRun(service, user, { projectId, task, threadId }),
+      task === "project_memory"
+        ? queueProjectMemoryRun(service, user, projectId)
+        : queueLaowengMemoryRun(service, user, { projectId, task, threadId }),
   );
   if (registered.size !== MCP_TOOL_NAMES.length)
     throw new Error("CoThread MCP tool manifest is incomplete");
+  return tools;
+}
+
+function zodFieldToParam(field, required) {
+  const typeName = field?._def?.typeName;
+  if (typeName === "ZodOptional" || typeName === "ZodDefault" || typeName === "ZodNullable")
+    return zodFieldToParam(field._def.innerType, false);
+  let param;
+  if (typeName === "ZodNumber") param = { type: "number" };
+  else if (typeName === "ZodBoolean") param = { type: "boolean" };
+  else if (typeName === "ZodEnum") param = { type: "string", enum: field._def.values };
+  else if (typeName === "ZodArray")
+    param = { type: "array", items: zodFieldToParam(field._def.type, true) };
+  else param = { type: "string" };
+  if (required) param.required = true;
+  if (field?.description) param.description = field.description;
+  return param;
+}
+
+function zodObjectToParams(schema) {
+  const parameters = {};
+  for (const [key, field] of Object.entries(schema || {}))
+    parameters[key] = zodFieldToParam(field, true);
+  return parameters;
+}
+
+export function mcpReadToolSpecs() {
+  const access = new Map(MCP_CAPABILITIES.map((item) => [item.name, item.access]));
+  return mcpToolDefinitions(null, { mcpSource: "spec" })
+    .filter((tool) => access.get(tool.name) === "read")
+    .map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: zodObjectToParams(tool.schema),
+    }));
+}
+
+export function createMcpServer(service, user, afterMessage) {
+  const instructions = mcpInstructionsForSource(user.mcpSource);
+  const server = new McpServer({ name: MCP_SERVER_NAME, version: "0.3.0" }, { instructions });
+  for (const tool of mcpToolDefinitions(service, user, afterMessage)) {
+    server.registerTool(
+      tool.name,
+      { description: tool.description, inputSchema: tool.schema },
+      async (args) => {
+        try {
+          return { content: [{ type: "text", text: JSON.stringify(await tool.fn(args)) }] };
+        } catch (error) {
+          return { isError: true, content: [{ type: "text", text: mcpErrorText(error) }] };
+        }
+      },
+    );
+  }
   return server;
+}
+
+export async function callMcpTool(service, sessionUser, name, args) {
+  const access = MCP_CAPABILITIES.find((item) => item.name === name)?.access;
+  if (access !== "read") throw new Error("老翁只能只读查阅");
+  const tool = mcpToolDefinitions(service, sessionUser).find((item) => item.name === name);
+  if (!tool) throw new Error("没有这个工具");
+  return tool.fn(args || {});
 }
 
 export async function handleMcp(req, res, service, afterMessage) {

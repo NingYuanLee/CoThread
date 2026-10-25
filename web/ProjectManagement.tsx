@@ -1,6 +1,10 @@
 import { DialogHeader } from "./DialogHeader";
 import React, { useEffect, useRef, useState } from "react";
-import { AGENT_L1_PROFILE, AGENT_L2_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
+import {
+  AGENT_LAOWENG_PROFILE,
+  AGENT_XIAOXIANG_MEMBER,
+  AGENT_MEMBER,
+} from "../shared/agent-member.js";
 import { AGENT_LEVEL_LABELS } from "./ui-labels";
 import { RoleBadge } from "./Identity";
 import { MemberPicker } from "./MemberPicker";
@@ -36,7 +40,7 @@ type ProjectMember = {
   motto?: string | null;
   user_number?: string | number;
   role?: string;
-  kind?: "human" | "l1" | "l2";
+  kind?: "human" | "laoweng" | "xiaoxiang";
   identity_tags?: string[];
   localExecutor?: LocalExecutorDevice | null;
 };
@@ -60,10 +64,10 @@ type ProjectDetail = {
 
 function isHumanMember(member: ProjectMember) {
   return (
-    member.kind !== "l1" &&
-    member.kind !== "l2" &&
+    member.kind !== "laoweng" &&
+    member.kind !== "xiaoxiang" &&
     member.id !== AGENT_MEMBER.id &&
-    member.id !== AGENT_L2_MEMBER.id
+    member.id !== AGENT_XIAOXIANG_MEMBER.id
   );
 }
 
@@ -116,33 +120,33 @@ export function ProjectManagement({
 
   const humans = (detail?.members || []).filter(isHumanMember);
   const projectAgent = (detail?.members || []).find(
-    (member) => member.kind === "l1" || member.id === AGENT_MEMBER.id,
+    (member) => member.kind === "laoweng" || member.id === AGENT_MEMBER.id,
   ) || {
     ...AGENT_MEMBER,
-    name: AGENT_L1_PROFILE.nickname,
-    kind: "l1" as const,
-    nickname: AGENT_L1_PROFILE.nickname,
-    title: AGENT_L1_PROFILE.title,
-    display_avatar: AGENT_L1_PROFILE.avatar,
+    name: AGENT_LAOWENG_PROFILE.nickname,
+    kind: "laoweng" as const,
+    nickname: AGENT_LAOWENG_PROFILE.nickname,
+    title: AGENT_LAOWENG_PROFILE.title,
+    display_avatar: AGENT_LAOWENG_PROFILE.avatar,
   };
   const iterationAgent = (detail?.members || []).find(
-    (member) => member.kind === "l2" || member.id === AGENT_L2_MEMBER.id,
-  ) || { ...AGENT_L2_MEMBER, kind: "l2" as const };
+    (member) => member.kind === "xiaoxiang" || member.id === AGENT_XIAOXIANG_MEMBER.id,
+  ) || { ...AGENT_XIAOXIANG_MEMBER, kind: "xiaoxiang" as const };
   const matchesSearch = (member: ProjectMember) =>
     `${member.name} ${member.username || ""} ${member.email} ${member.bound_email || ""} ${member.localExecutor?.name || ""}`
       .toLowerCase()
       .includes(memberSearch.toLowerCase());
   const visibleHumans = humans.filter(matchesSearch);
   const agentSearch = memberSearch.toLowerCase();
-  const l1Visible =
-    `${projectAgent.nickname || AGENT_L1_PROFILE.nickname} ${projectAgent.name} 老翁 ${AGENT_LEVEL_LABELS.l1}`
+  const laowengVisible =
+    `${projectAgent.nickname || AGENT_LAOWENG_PROFILE.nickname} ${projectAgent.name} 老翁 ${AGENT_LEVEL_LABELS.laoweng}`
       .toLowerCase()
       .includes(agentSearch);
-  const l2Visible =
-    `${iterationAgent.nickname || AGENT_L2_MEMBER.nickname} ${iterationAgent.name} 小祥 ${AGENT_LEVEL_LABELS.l2}`
+  const xiaoxiangVisible =
+    `${iterationAgent.nickname || AGENT_XIAOXIANG_MEMBER.nickname} ${iterationAgent.name} 小祥 ${AGENT_LEVEL_LABELS.xiaoxiang}`
       .toLowerCase()
       .includes(agentSearch);
-  const agentVisibleCount = Number(l1Visible) + Number(l2Visible);
+  const agentVisibleCount = Number(laowengVisible) + Number(xiaoxiangVisible);
 
   return (
     <>
@@ -301,8 +305,8 @@ export function ProjectManagement({
               <>
                 <div className="settings-content-heading">
                   <p>
-                    项目成员含人类成员、{AGENT_LEVEL_LABELS.l1}和{AGENT_LEVEL_LABELS.l2}
-                    。本地执行器隶属于人类成员，不单独列成员；{AGENT_LEVEL_LABELS.l3}
+                    项目成员含人类成员、{AGENT_LEVEL_LABELS.laoweng}和{AGENT_LEVEL_LABELS.xiaoxiang}
+                    。本地执行器隶属于人类成员，不单独列成员；{AGENT_LEVEL_LABELS.child_agent}
                     继承小祥的插件和 Skills，也不单独列成员。小祥在各迭代使用独立会话。
                   </p>
                 </div>
@@ -381,24 +385,26 @@ export function ProjectManagement({
                     <div className="panel-heading">
                       <span>本项目 Agent 成员</span>
                     </div>
-                    {l1Visible ? (
+                    {laowengVisible ? (
                       <div className="member">
                         <span className="avatar">
                           <img
                             loading="lazy"
                             decoding="async"
-                            src={projectAgent.display_avatar || AGENT_L1_PROFILE.avatar}
+                            src={projectAgent.display_avatar || AGENT_LAOWENG_PROFILE.avatar}
                             alt=""
                           />
                         </span>
                         <div className="member-copy">
                           <div className="member-name-row">
-                            <strong>{projectAgent.nickname || AGENT_L1_PROFILE.nickname}</strong>
+                            <strong>
+                              {projectAgent.nickname || AGENT_LAOWENG_PROFILE.nickname}
+                            </strong>
                             <RoleBadge role="Agent" />
                             <RoleBadge role="项目知识库" />
                           </div>
                           <small className="member-user-id">
-                            {projectAgent.title || AGENT_L1_PROFILE.title}
+                            {projectAgent.title || AGENT_LAOWENG_PROFILE.title}
                           </small>
                           {projectAgent.motto ? (
                             <small className="member-motto">{projectAgent.motto}</small>
@@ -406,13 +412,13 @@ export function ProjectManagement({
                         </div>
                       </div>
                     ) : null}
-                    {l2Visible ? (
+                    {xiaoxiangVisible ? (
                       <div className="member">
                         <span className="avatar">
                           <img
                             loading="lazy"
                             decoding="async"
-                            src={iterationAgent.avatar || AGENT_L2_MEMBER.avatar}
+                            src={iterationAgent.avatar || AGENT_XIAOXIANG_MEMBER.avatar}
                             alt=""
                           />
                         </span>
@@ -423,7 +429,7 @@ export function ProjectManagement({
                             <RoleBadge role="任务调度" />
                           </div>
                           <small className="member-user-id">
-                            {iterationAgent.nickname || AGENT_L2_MEMBER.nickname}
+                            {iterationAgent.nickname || AGENT_XIAOXIANG_MEMBER.nickname}
                             ；项目内同一角色，各迭代使用独立会话
                           </small>
                           <small className="member-motto">
@@ -525,7 +531,7 @@ function HumanMemberRow({
       detail &&
       member.id !== detail.project_leader_id &&
       member.id !== AGENT_MEMBER.id &&
-      member.id !== AGENT_L2_MEMBER.id &&
+      member.id !== AGENT_XIAOXIANG_MEMBER.id &&
       member.role === "member" ? (
         <button
           disabled={busy}
@@ -549,7 +555,7 @@ function HumanMemberRow({
       detail &&
       member.id !== detail.project_leader_id &&
       member.id !== AGENT_MEMBER.id &&
-      member.id !== AGENT_L2_MEMBER.id &&
+      member.id !== AGENT_XIAOXIANG_MEMBER.id &&
       member.role === "viewer" ? (
         <button
           disabled={busy}

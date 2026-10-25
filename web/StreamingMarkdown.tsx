@@ -1,13 +1,10 @@
 import React, { memo, useEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { MessageAnchor } from "./message-link";
 const components: Components = {
   img: () => <span>（图片链接）</span>,
-  a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer">
-      {children}
-    </a>
-  ),
+  a: ({ href, children }) => <MessageAnchor href={href}>{children}</MessageAnchor>,
 };
 // Reveal only text already received. Keep a short, bounded visual buffer for
 // database/poll batches; completed output and phase replacements are immediate.

@@ -156,7 +156,7 @@ test(
       assert.equal(restored.compactions, 1);
       const isolatedId = randomUUID();
       // New probe sessions are opened via observe (create); bare context on an
-      // unknown id stays rejected so torn-down L3 meters are not overwritten.
+      // unknown id stays rejected so torn-down 子 Agent meters are not overwritten.
       await harness.client.request("cothread/observe", {
         sessionId: isolatedId,
         messages: [],

@@ -86,6 +86,14 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       action = "读取成员详情";
       object = result.name || "项目成员";
       break;
+    case "search_memory":
+      action = "检索项目记忆";
+      object = args.query || "项目记忆";
+      break;
+    case "web_search":
+      action = "搜索网页";
+      object = args.query || "公开网页";
+      break;
     case "web_fetch":
       action = "读取网页";
       object = args.url || result.url || "公开网页";
@@ -129,7 +137,7 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       object = args.path || "代码文件";
       isPath = true;
       break;
-    case "dsh_l3":
+    case "child_agent":
       action = "启动子 Agent";
       object = args.taskId || "DSH 子 Agent";
       break;
@@ -242,35 +250,49 @@ export function formatAgentAction(tool, args = {}, result = {}) {
   return label.action + (label.target ? " " + label.target : "");
 }
 
-export const L1_TASK_LABELS = {
+export const LAOWENG_TASK_LABELS = {
   member_memory: "成员发言",
   document_memory: "文档摘要",
   project_document_memory: "文档摘要",
   iteration_document_memory: "文档摘要",
-  document_organization: "文档整理",
+  document_organization: "文档整理（已下线）",
   iteration_archive: "迭代归档",
   thread_archive: "迭代归档",
+  project_memory: "项目记忆",
 };
 
-export const L1_MAINTENANCE_TASKS = [
+export const LAOWENG_MAINTENANCE_TASKS = [
   "member_memory",
   "document_memory",
   "document_organization",
   "iteration_archive",
+  "project_memory",
 ];
 
-export function normalizeL1Task(task) {
+export function normalizeLaowengTask(task) {
   if (["document_memory", "project_document_memory", "iteration_document_memory"].includes(task))
     return "document_memory";
   if (task === "thread_archive") return "iteration_archive";
   return task || "";
 }
 
-export function l1TaskLabel(task) {
-  return L1_TASK_LABELS[task] || (task ? String(task) : "");
+export function laowengTaskLabel(task) {
+  return LAOWENG_TASK_LABELS[task] || (task ? String(task) : "");
 }
 
 const VISIBLE_AGENT_TEXT = [
+  ["dsh-layer/laoweng-tools.mjs", "老翁工具策略"],
+  ["server/laoweng-agent.js", "老翁维护"],
+  ["COTHREAD_SKILLS_BY_LEVEL.laoweng", "老翁 Skill 配置"],
+  ["COTHREAD_SKILLS_BY_LEVEL.xiaoxiang", "小祥 Skill 配置"],
+  ["COTHREAD_SKILLS_BY_LEVEL.child_agent", "子 Agent Skill 配置"],
+  ["runLaowengTask", "老翁维护任务"],
+  ["get_l1_status", "老翁状态"],
+  ["list_l1_document_queue", "老翁文档队列"],
+  ["list_l1_runs", "老翁维护记录"],
+  ["get_l1_logs", "老翁日志"],
+  ["retry_l1_task", "重试老翁任务"],
+  ["child_agent", "子 Agent 调度"],
   ["cothread-l1-tool-policy", "老翁工具策略"],
   ["cothread-l1-policy", "老翁工具策略"],
   ["dsh-layer/l1-tools.mjs", "老翁工具策略"],
@@ -285,7 +307,7 @@ const VISIBLE_AGENT_TEXT = [
   ["l1_session", "老翁"],
 ];
 
-/** 管理页展示用。不改任务类型、工具名或历史兼容键。 */
+/** 管理页展示用。现行键是 laoweng、xiaoxiang、child_agent；这里只把历史文本翻成成员名。 */
 export function visibleAgentText(value) {
   let text = String(value ?? "");
   for (const [from, to] of VISIBLE_AGENT_TEXT) text = text.split(from).join(to);

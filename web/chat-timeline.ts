@@ -1,3 +1,5 @@
+import type { UsageStats } from "./MessageUsage";
+
 export type TimelineMessage = {
   id: string;
   sequence: string;
@@ -5,6 +7,8 @@ export type TimelineMessage = {
   body: string;
   refs: string[];
   agent_task_id?: string | null;
+  turn_id?: string | null;
+  turn_usage?: UsageStats | string | null;
   render_key?: string;
 };
 type Reply = {
@@ -31,18 +35,21 @@ function parseUsageStats(record?: { usage_stats?: unknown }) {
 }
 
 export function coordinatorTurnId<R extends Reply>(
-  message: Pick<TimelineMessage, "source" | "agent_task_id"> | undefined,
+  message: Pick<TimelineMessage, "source" | "agent_task_id" | "turn_id"> | undefined,
   replies: R[],
 ) {
   if (!message || !message.agent_task_id || (message.source && message.source !== "assistant"))
     return null;
   const reply = replies.find((item) => item.message_id === message.agent_task_id);
-  return reply && !isExecutorReply(reply) ? message.agent_task_id : null;
+  if (!reply || isExecutorReply(reply)) return null;
+  // 一次协调者 run 一条轮：子 Agent 完工唤醒的续报带独立 turn_id，
+  // 没有 turn_id 的历史消息回落到 agent_task_id。
+  return message.turn_id || message.agent_task_id;
 }
 
 export function continuesCoordinatorTurn<R extends Reply>(
-  message: Pick<TimelineMessage, "source" | "agent_task_id">,
-  previous: Pick<TimelineMessage, "source" | "agent_task_id"> | undefined,
+  message: Pick<TimelineMessage, "source" | "agent_task_id" | "turn_id">,
+  previous: Pick<TimelineMessage, "source" | "agent_task_id" | "turn_id"> | undefined,
   replies: R[],
 ) {
   const turnId = coordinatorTurnId(message, replies);
@@ -50,7 +57,7 @@ export function continuesCoordinatorTurn<R extends Reply>(
 }
 
 export function isLastCoordinatorTurnPost<
-  M extends Pick<TimelineMessage, "id" | "source" | "agent_task_id">,
+  M extends Pick<TimelineMessage, "id" | "source" | "agent_task_id" | "turn_id">,
   R extends Reply,
 >(message: M, timeline: M[], replies: R[]) {
   const turnId = coordinatorTurnId(message, replies);
@@ -62,20 +69,74 @@ export function isLastCoordinatorTurnPost<
   return false;
 }
 
+// 同一轮小祥的多段群聊发言里，只有最后一帖收尾，其余都是过程发言。
+export function isCoordinatorProcessPost<
+  M extends Pick<TimelineMessage, "id" | "source" | "agent_task_id" | "turn_id">,
+  R extends Reply,
+>(message: M, timeline: M[], replies: R[]) {
+  return (
+    !!coordinatorTurnId(message, replies) && !isLastCoordinatorTurnPost(message, timeline, replies)
+  );
+}
+
 export function usageReplyForMessage<R extends Reply & { usage_stats?: unknown }>(
-  message: Pick<TimelineMessage, "id" | "source" | "agent_task_id">,
+  message: Pick<TimelineMessage, "id" | "source" | "agent_task_id" | "turn_id">,
   replies: R[],
-  timeline: Pick<TimelineMessage, "id" | "source" | "agent_task_id">[] = [],
+  timeline: Pick<TimelineMessage, "id" | "source" | "agent_task_id" | "turn_id">[] = [],
 ) {
   const reply =
     (message.agent_task_id && replies.find((item) => item.message_id === message.agent_task_id)) ||
     replies.find((item) => item.reply_id === message.id);
   if (!reply) return null;
   if (isExecutorReply(reply)) return reply;
+  // 子 Agent 完工唤醒的续报是独立一轮，本轮没有用量记录，不能把原轮用量搬过来。
+  if (message.turn_id && message.turn_id !== message.agent_task_id) return null;
   if (["queued", "running"].includes(String(reply.status || ""))) return null;
   if (timeline.length && !isLastCoordinatorTurnPost(message, timeline, replies)) return null;
   const usage = parseUsageStats(reply);
   return usage.totalTokens != null || Number.isFinite(usage.executionDurationMs) ? reply : null;
+}
+
+/**
+ * 底部会话统计的取数：小祥自己跑过的每一轮都算（人类触发、子 Agent 完工唤醒等都算），
+ * 但不含子 Agent 自己的执行用量（执行器任务行），同一轮只算一次。
+ */
+export function sessionUsageRecords<
+  R extends Reply & { usage_stats?: unknown },
+  T extends { turn_id: string; usage_stats?: unknown },
+>(replies: R[] = [], turnUsage: T[] = []) {
+  const covered = new Set(turnUsage.map((row) => row.turn_id));
+  return [
+    ...replies.filter((reply) => !covered.has(reply.message_id) && !isExecutorReply(reply)),
+    ...turnUsage,
+  ];
+}
+
+/**
+ * 本轮用量：优先取该轮任一帖上的 turn_usage（用量可能落在收尾前的最后一帖，
+ * 之后同轮还可能再补一条），历史消息回落到 reply 口径。
+ */
+export function turnUsageForMessage<
+  M extends Pick<TimelineMessage, "id" | "source" | "agent_task_id" | "turn_id" | "turn_usage">,
+  R extends Reply & { usage_stats?: unknown },
+>(message: M, timeline: M[], replies: R[]) {
+  if (message.source !== "assistant" || !(message.turn_id || message.agent_task_id)) return null;
+  const turnId = coordinatorTurnId(message, replies);
+  // 执行器任务行不是协调者轮，沿用 reply 口径（含用量）。
+  if (!turnId) return usageReplyForMessage(message, replies, timeline);
+  if (timeline.length && !isLastCoordinatorTurnPost(message, timeline, replies)) return null;
+  for (let index = timeline.length - 1; index >= 0; index -= 1) {
+    if (coordinatorTurnId(timeline[index], replies) !== turnId) continue;
+    const own = timeline[index].turn_usage;
+    if (own && Object.keys(parseUsageStats({ usage_stats: own })).length)
+      return {
+        usage_stats: own,
+        finished_at: null as string | null,
+        parent_message_id: null as string | null,
+        agent_slot: null as number | null,
+      };
+  }
+  return usageReplyForMessage(message, replies, timeline);
 }
 
 export function liveCoordinatorDraft(

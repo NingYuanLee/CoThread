@@ -18,11 +18,11 @@ export const AUTO_COMPACT_RATIO = 0.7;
 
 export function contextBudget(scopeOrLevel = "coordinator") {
   const key =
-    scopeOrLevel === "l2" || scopeOrLevel === "coordinator"
+    scopeOrLevel === "xiaoxiang" || scopeOrLevel === "coordinator"
       ? "coordinator"
-      : scopeOrLevel === "l3" || scopeOrLevel === "executor"
+      : scopeOrLevel === "child_agent" || scopeOrLevel === "executor"
         ? "executor"
-        : scopeOrLevel === "l1" || scopeOrLevel === "knowledge"
+        : scopeOrLevel === "laoweng" || scopeOrLevel === "knowledge"
           ? "knowledge"
           : "coordinator";
   const limit = CONTEXT_LIMITS[key];
@@ -34,7 +34,7 @@ export function contextBudget(scopeOrLevel = "coordinator") {
 }
 
 export function contextBudgetFromEnv(env = process.env) {
-  return contextBudget(env.COTHREAD_PRIMARY_AGENT_LEVEL || "l2");
+  return contextBudget(env.COTHREAD_PRIMARY_AGENT_LEVEL || "xiaoxiang");
 }
 
 /** Default / 小祥 UI meter ceiling. */

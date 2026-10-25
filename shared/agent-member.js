@@ -9,17 +9,17 @@ export const AGENT_MEMBER = Object.freeze({
   role: "agent",
 });
 /** 老翁维护项目知识，与参与讨论的小祥是两名成员。 */
-export const AGENT_L1_PROFILE = Object.freeze({
+export const AGENT_LAOWENG_PROFILE = Object.freeze({
   nickname: "老翁",
   title: "项目知识库管理员",
   avatar: "/agent-avatars/grandpa.jpg",
 });
 /**
- * 小祥 是项目内同一角色（任务调度员），不是按迭代各算一名成员。
+ * 小祥是项目内同一角色（任务调度员），不是按迭代各算一名成员。
  * 各迭代只是该角色的独立 DSH 会话；子 Agent 隶属于 小祥，不单独列成员。
  */
-export const AGENT_L2_MEMBER = Object.freeze({
-  id: "agent-l2",
+export const AGENT_XIAOXIANG_MEMBER = Object.freeze({
+  id: "agent-xiaoxiang",
   user_number: 100001,
   name: "小祥",
   nickname: "任务调度员",
@@ -29,8 +29,6 @@ export const AGENT_L2_MEMBER = Object.freeze({
   email: "迭代调度与任务分派",
   role: "agent",
 });
-export const SUMMARY_REQUEST =
-  "@小祥 请直接基于当前群聊已有上下文帮我梳理讨论，按已确认事项、待决策问题、下一步与负责人整理。不重新读取整个会话，不虚构共识。";
 export const TASK_CREATE_REQUEST =
   "@小祥 请根据当前群聊上下文帮我创建合适的任务：先简要说明你的理解与拟创建的任务要点，再执行创建；信息不足时先向我确认，不要臆造需求。";
 export function mentionsAgent(text) {

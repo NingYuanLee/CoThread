@@ -19,17 +19,17 @@ export function EventLogDialog({
     <Dialog
       onRequestClose={onClose}
       ref={dialog}
-      className="agent-log-dialog l3-event-log-dialog"
-      aria-labelledby="l3-event-log-title"
+      className="agent-log-dialog child-event-log-dialog"
+      aria-labelledby="child-event-log-title"
     >
       <DialogHeader
         title={<>轨迹</>}
-        titleId="l3-event-log-title"
+        titleId="child-event-log-title"
         subtitle={<>DSH 轨迹</>}
         onClose={() => animateDialogClose(dialog.current, onClose)}
         closeLabel="关闭轨迹"
       />
-      <div className="monitor-log-list l3-event-log-body">
+      <div className="monitor-log-list child-event-log-body">
         {events.map((event) => (
           <article className="monitor-log-row" key={event.id}>
             <span className={`monitor-log-icon ${event.status}`} aria-hidden="true" />

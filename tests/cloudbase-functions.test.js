@@ -176,7 +176,7 @@ test("one function lists multiple timers and rejects duplicate, excess, and shor
   }
 });
 
-test("L3 deployment creates or updates only a development function from source", async () => {
+test("子 Agent deployment creates or updates only a development function from source", async () => {
   const database = await testDatabase();
   const calls = [];
   setCloudbaseManagerFactory(async () => manager(calls));
@@ -235,7 +235,7 @@ test("L3 deployment creates or updates only a development function from source",
   }
 });
 
-test("L3 deployment persists and synchronizes development timer manifests", async () => {
+test("子 Agent deployment persists and synchronizes development timer manifests", async () => {
   const database = await testDatabase();
   const calls = [];
   setCloudbaseManagerFactory(async () => manager(calls));

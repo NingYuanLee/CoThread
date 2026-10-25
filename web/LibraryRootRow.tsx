@@ -10,7 +10,7 @@ import {
   type SetStateAction,
 } from "react";
 import { OfficialFolderMenu } from "./document-context-menus";
-import { TreeIcon, TreeOverflowLabel } from "./document-icons";
+import { TreeOverflowLabel } from "./document-icons";
 import { LIBRARY_ROOT_KINDS } from "./document-library";
 import { ROOT_GUIDES, ROOT_LABELS, type LibraryFolder } from "./document-labels";
 import { FolderToggle } from "./document-view-internals";
@@ -27,13 +27,11 @@ export type LibraryRootRowProps = {
   setOpenFolderMenuId: Dispatch<SetStateAction<string | null>>;
   setOpenFileMenuId: Dispatch<SetStateAction<string | null>>;
   setTabMenu: Dispatch<SetStateAction<{ id: string; x: number; y: number } | null>>;
-  setOrganizeOpen: Dispatch<SetStateAction<boolean>>;
   setFolderGuideKind: Dispatch<SetStateAction<(typeof LIBRARY_ROOT_KINDS)[number] | null>>;
   downloadingFolderId: string | null;
   setDownloadingFolderId: Dispatch<SetStateAction<string | null>>;
   downloadProgress: number | null;
   setDownloadProgress: Dispatch<SetStateAction<number | null>>;
-  writable: boolean;
   organizing: boolean;
   canManageOfficialFolders: boolean;
   uploadInputRef: RefObject<HTMLInputElement | null>;
@@ -58,11 +56,9 @@ export function LibraryRootRow({
   setOpenFolderMenuId,
   setOpenFileMenuId,
   setTabMenu,
-  setOrganizeOpen,
   setFolderGuideKind,
   downloadingFolderId,
   downloadProgress,
-  writable,
   organizing,
   canManageOfficialFolders,
   uploadInputRef,
@@ -114,18 +110,6 @@ export function LibraryRootRow({
           />
         </button>
         <span className="tree-root-actions tree-row-actions">
-          {root.folder_kind === "project_official" && writable ? (
-            <button
-              type="button"
-              className="tree-organize"
-              title="正式文件整理"
-              aria-label="正式文件整理"
-              disabled={organizing || pending}
-              onClick={() => setOrganizeOpen(true)}
-            >
-              <TreeIcon kind="organize" />
-            </button>
-          ) : null}
           <OfficialFolderMenu
             menuId={root.id}
             openMenuId={openFolderMenuId}

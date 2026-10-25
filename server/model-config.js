@@ -24,7 +24,11 @@ let activeFailureMeta = null;
 const activatedModelSecrets = new Set();
 
 export function installPlatformModelSettings(snapshot) {
-  for (const key of [snapshot?.default?.apiKey, snapshot?.knowledge?.apiKey])
+  for (const key of [
+    snapshot?.default?.apiKey,
+    snapshot?.knowledge?.apiKey,
+    snapshot?.searchApiKey,
+  ])
     if (key) activatedModelSecrets.add(key);
   activeFailure = null;
   activeFailureMeta = null;
@@ -306,6 +310,7 @@ export function presentPlatformModelSettings(env = process.env) {
       executor: null,
       sourcesDiffer: false,
       knowledgeKeyRetained: false,
+      searchKeyConfigured: false,
     };
   }
   const knowledge = inspectScope("knowledge", env);
@@ -338,7 +343,12 @@ export function presentPlatformModelSettings(env = process.env) {
     executor: sameExecutor ? null : executor,
     sourcesDiffer,
     knowledgeKeyRetained: !!activeSnapshot?.knowledgeKeyRetained,
+    searchKeyConfigured: !!activeSnapshot?.searchApiKey,
   };
+}
+
+export function platformSearchApiKey() {
+  return activeSnapshot?.searchApiKey || "";
 }
 
 function probeSignal(budget) {
@@ -504,7 +514,7 @@ async function probeStream(config, request, budget) {
   if (!text.trim()) throw new Error("模型校验失败（流式 Responses）：没有返回文本");
 }
 
-const L1_PROBE_SCHEMA = {
+const LAOWENG_PROBE_SCHEMA = {
   type: "object",
   properties: { ok: { type: "boolean" } },
   required: ["ok"],
@@ -533,7 +543,7 @@ async function probeStructured(config, request, budget) {
               type: "json_schema",
               name: "l1_probe",
               strict: true,
-              schema: L1_PROBE_SCHEMA,
+              schema: LAOWENG_PROBE_SCHEMA,
             },
           },
         },

@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -17,34 +17,6 @@ export function resolveDevPorts(env = process.env) {
     throw new Error("PORT、API_PORT、VITE_PORT 不能相同");
   }
   return { uiPort, apiPort, vitePort };
-}
-
-export function openDevBrowser(
-  url,
-  { spawnFn = spawn, platform = process.platform, env = process.env } = {},
-) {
-  if (env.COTHREAD_NO_BROWSER === "1" || env.CI) return false;
-  let parsed;
-  try {
-    parsed = new URL(String(url || ""));
-  } catch {
-    return false;
-  }
-  if (!/^https?:$/i.test(parsed.protocol)) return false;
-  if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") return false;
-  const target = parsed.toString();
-  const child =
-    platform === "win32"
-      ? spawnFn("cmd", ["/c", "start", "", target], {
-          stdio: "ignore",
-          detached: true,
-          windowsHide: true,
-        })
-      : platform === "darwin"
-        ? spawnFn("open", [target], { stdio: "ignore", detached: true })
-        : spawnFn("xdg-open", [target], { stdio: "ignore", detached: true });
-  child?.unref?.();
-  return true;
 }
 
 export function pidFilePath(projectRoot) {

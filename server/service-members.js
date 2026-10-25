@@ -1,4 +1,4 @@
-import { AGENT_L2_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
+import { AGENT_XIAOXIANG_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
@@ -28,7 +28,7 @@ export async function removeMemberOperation(service, user, projectId, userId) {
     await service.projectManager(user, projectId, db);
     // 系统 Agent 的 id 是固定哨兵值而不是 uuid，必须先于格式校验拦下，
     // 否则只会返回 400「Invalid uuid」，给不出「系统 Agent 不能被移出」的准确答复。
-    if ([AGENT_MEMBER.id, AGENT_L2_MEMBER.id].includes(userId))
+    if ([AGENT_MEMBER.id, AGENT_XIAOXIANG_MEMBER.id].includes(userId))
       fail(409, "项目负责人和系统 Agent 不能被移出项目");
     id.parse(userId);
     const [target] = await query(
@@ -39,7 +39,7 @@ export async function removeMemberOperation(service, user, projectId, userId) {
       [projectId, userId],
     );
     if (
-      [AGENT_MEMBER.id, AGENT_L2_MEMBER.id].includes(userId) ||
+      [AGENT_MEMBER.id, AGENT_XIAOXIANG_MEMBER.id].includes(userId) ||
       target?.project_leader_id === userId
     )
       fail(409, "项目负责人和系统 Agent 不能被移出项目");
@@ -73,7 +73,8 @@ export async function transferProjectLeaderOperation(service, user, projectId, i
   id.parse(projectId);
   const { userId } = z.object({ userId: id }).parse(input);
   if (userId === user.id) fail(409, "该成员已经是项目负责人");
-  if ([AGENT_MEMBER.id, AGENT_L2_MEMBER.id].includes(userId)) fail(409, "项目负责人必须是人类成员");
+  if ([AGENT_MEMBER.id, AGENT_XIAOXIANG_MEMBER.id].includes(userId))
+    fail(409, "项目负责人必须是人类成员");
   return transaction(service.db, async (db) => {
     await service.projectLeader(user, projectId, db, { lock: true });
     const [target] = await query(
@@ -111,7 +112,8 @@ export async function addProjectAdminOperation(service, user, projectId, input) 
   if (user.kind !== "session") fail(403, "请使用成员账号管理项目管理员");
   id.parse(projectId);
   const { userId } = z.object({ userId: id }).parse(input);
-  if ([AGENT_MEMBER.id, AGENT_L2_MEMBER.id].includes(userId)) fail(409, "项目管理员必须是人类成员");
+  if ([AGENT_MEMBER.id, AGENT_XIAOXIANG_MEMBER.id].includes(userId))
+    fail(409, "项目管理员必须是人类成员");
   return transaction(service.db, async (db) => {
     await service.projectLeader(user, projectId, db, { lock: true });
     const [target] = await query(
@@ -169,7 +171,8 @@ export async function removeProjectAdminOperation(service, user, projectId, user
 export async function recoverProjectLeaderOperation(service, user, projectId, input) {
   id.parse(projectId);
   const { userId } = z.object({ userId: id }).parse(input);
-  if ([AGENT_MEMBER.id, AGENT_L2_MEMBER.id].includes(userId)) fail(409, "项目负责人必须是人类成员");
+  if ([AGENT_MEMBER.id, AGENT_XIAOXIANG_MEMBER.id].includes(userId))
+    fail(409, "项目负责人必须是人类成员");
   return transaction(service.db, async (db) => {
     await service.systemAdmin(user, db);
     const [project] = await query(
@@ -325,7 +328,7 @@ export async function updateMemberRoleOperation(service, user, projectId, userId
   id.parse(projectId);
   id.parse(userId);
   const { role } = z.object({ role: z.enum(["member", "viewer"]) }).parse(input);
-  if ([AGENT_MEMBER.id, AGENT_L2_MEMBER.id].includes(userId))
+  if ([AGENT_MEMBER.id, AGENT_XIAOXIANG_MEMBER.id].includes(userId))
     fail(409, "系统 Agent 不支持切换项目成员角色");
   return transaction(service.db, async (db) => {
     await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);

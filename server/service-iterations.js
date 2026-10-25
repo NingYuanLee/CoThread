@@ -176,7 +176,7 @@ export async function contextOperation(
   // Avatars stay on /members/:id/avatar; event payloads stay on /events/:eventId.
   const messagesQuery = query(
     db,
-    `SELECT m.id,m.sequence,m.body,m.refs,m.folder_refs,m.source,m.execution_target,m.agent_task_id,m.created_at,u.name author,u.id author_id,CASE WHEN m.source='assistant' THEN NULL ELSE CONCAT('/api/projects/',?,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) END author_avatar,
+    `SELECT m.id,m.sequence,m.body,m.refs,m.folder_refs,m.source,m.execution_target,m.agent_task_id,m.turn_id,m.turn_usage,m.created_at,u.name author,u.id author_id,CASE WHEN m.source='assistant' THEN NULL ELSE CONCAT('/api/projects/',?,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) END author_avatar,
       JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags, '$[0]')) author_role
       FROM messages m JOIN users u ON u.id=m.author_id WHERE m.thread_id=? AND NOT (m.source='human' AND m.agent_task_id IS NOT NULL)${display && cursor ? ` AND m.sequence${before ? "<" : ">"}?` : ""} ORDER BY m.sequence${display && !after ? " DESC" : ""}${display ? ` LIMIT ${pageSize + 1}` : ""}`,
     [thread.project_id, threadId, ...(display && cursor ? [cursor] : [])],
@@ -278,7 +278,28 @@ export async function contextOperation(
     db,
     `SELECT COALESCE(SUM(GREATEST(TIMESTAMPDIFF(MICROSECOND, e.created_at, e.finished_at),0)),0) ms
      FROM agent_events e JOIN messages m ON m.id=e.message_id
-     WHERE m.thread_id=? AND e.finished_at IS NOT NULL AND e.tool<>'thinking'`,
+     WHERE m.thread_id=? AND e.finished_at IS NOT NULL AND e.tool<>'thinking'
+       AND NOT EXISTS (SELECT 1 FROM agent_child_sessions cs WHERE cs.session_id=e.agent_session_id)
+       AND NOT EXISTS (SELECT 1 FROM agent_task_execution_runs cr
+         WHERE cr.executor_type='child_agent' AND cr.executor_id=e.agent_session_id)`,
+    [threadId],
+  );
+  // 轮次口径与轨迹一致：有事件（=小祥真的跑过）的触发消息数，排除子 Agent 会话。
+  const trajectoryRoundsQuery = query(
+    db,
+    `SELECT COUNT(DISTINCT COALESCE(e.turn_id,e.message_id)) n
+     FROM agent_events e JOIN messages m ON m.id=e.message_id
+     WHERE m.thread_id=?
+       AND NOT EXISTS (SELECT 1 FROM agent_child_sessions cs WHERE cs.session_id=e.agent_session_id)
+       AND NOT EXISTS (SELECT 1 FROM agent_task_execution_runs cr
+         WHERE cr.executor_type='child_agent' AND cr.executor_id=e.agent_session_id)`,
+    [threadId],
+  );
+  // 每轮用量（含唤醒续报轮）：底部统计按轮汇总，没出现在 replies 里的轮也能算上。
+  const turnUsageQuery = query(
+    db,
+    `SELECT COALESCE(m.turn_id,m.id) turn_id,m.turn_usage usage_stats,m.created_at finished_at
+     FROM messages m WHERE m.thread_id=? AND m.turn_usage IS NOT NULL ORDER BY m.sequence`,
     [threadId],
   );
   const [
@@ -293,6 +314,8 @@ export async function contextOperation(
     pending,
     localExecutorTasks,
     toolDurationRows,
+    [trajectoryRoundsRow],
+    turnUsageRows,
   ] = await Promise.all([
     display ? selected : messagesQuery,
     reviewsQuery,
@@ -305,6 +328,8 @@ export async function contextOperation(
     pendingQuery,
     localExecutorTasksQuery,
     toolDurationQuery,
+    trajectoryRoundsQuery,
+    turnUsageQuery,
   ]);
   const withQuotes = await attachMessageQuotes(db, [
     ...new Map([...(pending || []), ...messages].map((m) => [m.id, parseMessageRow(m)])).values(),
@@ -343,6 +368,9 @@ export async function contextOperation(
     requests,
     localExecutorTasks,
     toolDurationMs: Number(toolDurationRows?.[0]?.ms || 0) / 1000,
+    // 底部统计的「N 轮」「N 步」用它，和轨迹页同口径。
+    trajectoryRounds: Number(trajectoryRoundsRow?.n || 0),
+    turnUsage: turnUsageRows,
   };
   if (revisionMatched)
     return {
@@ -353,6 +381,7 @@ export async function contextOperation(
       updates: [],
       requests: [],
       localExecutorTasks: [],
+      turnUsage: [],
       sideState: { mode: "unchanged", token: sideState },
     };
   return display

@@ -14,6 +14,7 @@ import { testDatabase } from "./database.js";
 import { createAgentTools } from "../server/agent-tools.js";
 import { relativePath } from "../server/agent-sandbox.js";
 import { processNextReply, retryReply } from "../server/replies.js";
+import { processNextCoordinator } from "../server/coordinator.js";
 import { processNextContextCompression } from "../server/context-compression.js";
 import { MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js";
 
@@ -110,6 +111,16 @@ after(async () => {
         "DELETE v FROM versions v JOIN artifacts a ON a.id=v.artifact_id WHERE a.project_id=?",
         [projectId],
       );
+      await query(db, "DELETE FROM agent_project_memory_queue WHERE project_id=?", [projectId]);
+      await query(db, "DELETE mr FROM memory_relations mr WHERE mr.project_id=?", [projectId]);
+      await query(
+        db,
+        "DELETE s FROM wiki_page_sources s JOIN wiki_pages p ON p.id=s.page_id WHERE p.project_id=?",
+        [projectId],
+      );
+      await query(db, "DELETE FROM wiki_pages WHERE project_id=?", [projectId]);
+      await query(db, "DELETE FROM memory_job_settings WHERE project_id=?", [projectId]);
+      await query(db, "DELETE FROM agent_laoweng_runs WHERE project_id=?", [projectId]);
       await query(db, "DELETE FROM artifacts WHERE project_id=?", [projectId]);
       await query(db, "UPDATE document_folders SET parent_id=NULL WHERE project_id=?", [projectId]);
       await query(db, "DELETE FROM document_folders WHERE project_id=?", [projectId]);
@@ -479,19 +490,22 @@ test("a human message queues exactly one durable assistant reply and AI messages
   assert.equal(replied.body.messages.filter((m) => m.source === "assistant").length, 1);
   let decisions = 0;
   assert.equal(
-    await processNextReply(
+    await processNextCoordinator(
       db,
+      threadId,
       async () => {
         throw new Error("Silent observation must not execute Agent");
       },
-      async (context) => {
-        decisions++;
-        const burst = context.integrateBurst || [];
-        const lastHuman =
-          burst.at(-1) ||
-          [...(context.messages || [])].reverse().find((row) => row.source === "human");
-        assert.equal(lastHuman?.body, "later context should not leak backwards");
-        return false;
+      {
+        decide: async (context) => {
+          decisions++;
+          const burst = context.integrateBurst || [];
+          const lastHuman =
+            burst.at(-1) ||
+            [...(context.messages || [])].reverse().find((row) => row.source === "human");
+          assert.equal(lastHuman?.body, "later context should not leak backwards");
+          return false;
+        },
       },
     ),
     true,
@@ -530,20 +544,29 @@ test("a human message queues exactly one durable assistant reply and AI messages
 });
 
 test("summary shortcut and same-member additions share one task and execution record", async () => {
+  const localProject = (await request("/projects", { name: "Retired summary shortcut" }, owner))
+    .body.id;
+  projectIds.push(localProject);
   const created = await request(
-    `/projects/${project}/threads`,
+    `/projects/${localProject}/threads`,
     { title: "Separate Agent rounds" },
     owner,
   );
   const threadId = created.body.id;
-  const first = await request(`/threads/${threadId}/summary`, {}, owner);
+  const retired = await request(`/threads/${threadId}/summary`, {}, owner);
+  assert.equal(retired.status, 410);
+  // 老翁自动沉淀讨论；这里只验证「同一成员追加消息仍归同一任务」的旧行为，
+  // 因此直接走服务层发一条普通提及消息，等价于下线前的 summary 快捷语。
+  const first = {
+    status: 201,
+    body: await new Service(db).postMessage(owner, threadId, { body: "@Agent助手 请梳理讨论" }),
+  };
   const second = await request(
     `/threads/${threadId}/messages`,
     { body: "@Agent助手 补充下一步" },
     owner,
   );
-  assert.equal(first.status, 202);
-  assert.equal(first.body.status, "queued");
+  assert.equal(first.status, 201, JSON.stringify(first.body));
   assert.equal(second.body.updatedTaskId, first.body.id);
   for (const trigger of [first.body.id]) {
     await processNextReply(db, async (context, { job }) => {
@@ -616,12 +639,13 @@ test("a lone project member gets direct replies without mentions; adding a silen
   await request(`/threads/${threadId}/messages`, { body: "我再补充一点" }, owner);
   context = (await request(`/threads/${threadId}`, undefined, owner)).body;
   assert.equal(context.replies[1].participation, "pending");
-  await processNextReply(
+  await processNextCoordinator(
     db,
+    threadId,
     async () => {
       throw new Error("Silent observation must not reply");
     },
-    async () => false,
+    { decide: async () => false },
   );
   await request(`/threads/${threadId}/messages`, { body: "@Agent助手 请回答" }, owner);
   context = (await request(`/threads/${threadId}`, undefined, owner)).body;
@@ -644,16 +668,19 @@ test("unmentioned messages can prompt participation and cancellation prevents ex
   const threadId = created.body.id;
   await request(`/threads/${threadId}/messages`, { body: "谁能帮忙澄清这个问题？" }, owner);
   let executions = 0;
-  await processNextReply(
+  await processNextCoordinator(
     db,
+    threadId,
     async () => {
       executions++;
       return "不应再走完整 Agent";
     },
-    async () => ({
-      respond: true,
-      message: "我理解你是在请人帮忙澄清这个问题。",
-    }),
+    {
+      decide: async () => ({
+        respond: true,
+        message: "我理解你是在请人帮忙澄清这个问题。",
+      }),
+    },
   );
   let context = (await request(`/threads/${threadId}`, undefined, owner)).body;
   assert.equal(executions, 0);
@@ -664,16 +691,19 @@ test("unmentioned messages can prompt participation and cancellation prevents ex
     "我理解你是在请人帮忙澄清这个问题。",
   );
   const next = await request(`/threads/${threadId}/messages`, { body: "进一步讨论" }, owner);
-  await processNextReply(
+  await processNextCoordinator(
     db,
+    threadId,
     async () => {
       throw new Error("Cancelled observation must not execute");
     },
-    async () => {
-      await query(db, "UPDATE assistant_replies SET status='cancelled' WHERE message_id=?", [
-        next.body.id,
-      ]);
-      return true;
+    {
+      decide: async () => {
+        await query(db, "UPDATE assistant_replies SET status='cancelled' WHERE message_id=?", [
+          next.body.id,
+        ]);
+        return false;
+      },
     },
   );
   context = (await request(`/threads/${threadId}`, undefined, owner)).body;
@@ -792,6 +822,25 @@ test("context compression is scoped, durable, retryable, and preserves discussio
   context = (await request(`/threads/${threadId}`, undefined, owner)).body;
   assert.equal(context.contextUsage.compactStatus, "failed");
   assert.ok(!context.contextUsage.compactError.includes("private"));
+  // 压缩成功/失败都要在群聊轨迹里留一条 tool='context_compact' 的事件。
+  const compactEvents = () =>
+    query(
+      db,
+      `SELECT e.status,e.input,e.output FROM agent_events e JOIN messages m ON m.id=e.message_id
+        WHERE m.thread_id=? AND e.tool='context_compact' ORDER BY e.id`,
+      [threadId],
+    );
+  const [failedCompact] = await compactEvents();
+  assert.equal(failedCompact.status, "failed");
+  assert.deepEqual(Object.keys(JSON.parse(failedCompact.input)).sort(), [
+    "after",
+    "before",
+    "changed",
+    "reason",
+  ]);
+  assert.equal(JSON.parse(failedCompact.input).reason, "failed");
+  assert.equal(JSON.parse(failedCompact.input).changed, false);
+  assert.ok(failedCompact.output.includes("上下文压缩"));
   await request(route, {}, owner);
   let persisted = false;
   await processNextContextCompression(db, async (context, options) => {
@@ -815,6 +864,20 @@ test("context compression is scoped, durable, retryable, and preserves discussio
     after: 2000,
     changed: true,
   });
+  const compactEventList = await compactEvents();
+  assert.equal(compactEventList.length, 2);
+  assert.equal(compactEventList[0].status, "failed");
+  assert.equal(compactEventList[1].status, "completed");
+  assert.deepEqual(JSON.parse(compactEventList[1].input), {
+    before: 50000,
+    after: 2000,
+    changed: true,
+    reason: null,
+  });
+  assert.equal(compactEventList[1].output, "压缩完成：50K → 2K");
+  // 群聊轨迹接口要能读到压缩步骤（App 的「轨迹」页直接消费这个接口）。
+  const trajectory = await request(`/threads/${threadId}/agent-logs`, undefined, owner);
+  assert.ok(trajectory.body.events.some((event) => event.tool === "context_compact"));
   assert.equal(context.messages.length, 1);
   assert.equal(context.messages[0].body, "保留这个决定与聊天记录");
   assert.equal(
@@ -1253,4 +1316,106 @@ test("chat attachments persist privately until sent and the system folder only p
   );
   await archiveRequest(`/threads/${thread}/archive`, { conclusion: "Upload verified" }, owner);
   assert.equal((await request(`/threads/${thread}/attachments`, payload, owner)).status, 409);
+});
+
+test("project memory job routes: settings, retry, discussion and permissions", async () => {
+  const created = await request("/projects", { name: "Memory routes" }, owner);
+  assert.equal(created.status, 201);
+  const projectId = created.body.id;
+  projectIds.push(projectId);
+
+  const list = await request(`/projects/${projectId}/memory/jobs`, undefined, owner);
+  assert.equal(list.status, 200);
+  assert.equal(list.body.length, 5);
+  const jobsForOutsider = await request(`/projects/${projectId}/memory/jobs`, undefined, outsider);
+  assert.equal(jobsForOutsider.status, 403);
+
+  const patched = await request(
+    `/projects/${projectId}/memory/jobs/project_memory`,
+    { triggerThreshold: 7, enabled: false },
+    owner,
+    "PATCH",
+  );
+  assert.equal(patched.status, 200);
+  assert.equal(patched.body.enabled, false);
+  assert.equal(patched.body.triggerThreshold, 7);
+  const afterPatch = await request(`/projects/${projectId}/memory/jobs`, undefined, owner);
+  assert.equal(afterPatch.body.find((job) => job.key === "project_memory").enabled, false);
+
+  const reset = await request(
+    `/projects/${projectId}/memory/jobs/project_memory`,
+    undefined,
+    owner,
+    "DELETE",
+  );
+  assert.equal(reset.status, 200);
+  assert.equal(reset.body.enabled, true);
+  assert.equal(reset.body.triggerThreshold, 40);
+
+  const taskRetry = await request(
+    `/projects/${projectId}/memory/jobs/task_memory/retry`,
+    {},
+    owner,
+  );
+  assert.equal(taskRetry.status, 202);
+  assert.ok(taskRetry.body.distributionId);
+  const discussionRetry = await request(
+    `/projects/${projectId}/memory/jobs/discussion_memory/retry`,
+    {},
+    owner,
+  );
+  assert.equal(discussionRetry.status, 409, "没有已归档迭代时拒绝补跑");
+  const retry = await request(`/projects/${projectId}/memory/jobs/member_memory/retry`, {}, owner);
+  assert.equal(retry.status, 202);
+  assert.equal(retry.body.task, "member_memory");
+
+  const thread = await request(`/projects/${projectId}/threads`, { title: "记忆路由迭代" }, owner);
+  const threadId = thread.body.id;
+  await request(`/threads/${threadId}/messages`, { body: "先做记忆" }, owner);
+  const discussion = await request(
+    `/projects/${projectId}/memory/discussion/${threadId}`,
+    {},
+    owner,
+  );
+  assert.equal(discussion.status, 202);
+  assert.ok(discussion.body.pageId);
+
+  const memory = await request(`/projects/${projectId}/memory`, undefined, owner);
+  const discussionEntry = memory.body.entries.find((entry) => entry.subject === "discussion");
+  const projectEntry = memory.body.entries.find((entry) => entry.subject === "project");
+  assert.ok(discussionEntry, "讨论记忆应存在");
+  assert.ok(projectEntry, "项目整体记忆应存在");
+
+  const relation = await request(
+    `/projects/${projectId}/memory/relations`,
+    {
+      fromPageId: projectEntry.id,
+      toPageId: discussionEntry.id,
+      relation: "relates",
+      note: "集成",
+    },
+    owner,
+  );
+  assert.equal(relation.status, 201);
+  const patchedEntry = await request(
+    `/projects/${projectId}/memory/entries/${discussionEntry.id}`,
+    { subject: "task" },
+    owner,
+    "PATCH",
+  );
+  assert.equal(patchedEntry.status, 200);
+  assert.equal(patchedEntry.body.subject, "task");
+  const relationForbidden = await request(
+    `/projects/${projectId}/memory/relations`,
+    { fromPageId: projectEntry.id, toPageId: discussionEntry.id, relation: "relates" },
+    viewer,
+  );
+  assert.equal(relationForbidden.status, 403);
+  const deletedRelation = await request(
+    `/projects/${projectId}/memory/relations/${relation.body.id}`,
+    undefined,
+    owner,
+    "DELETE",
+  );
+  assert.equal(deletedRelation.status, 200);
 });

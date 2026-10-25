@@ -53,7 +53,28 @@ export function markInTransaction(conn, active) {
   if (conn) conn[IN_TRANSACTION] = active;
 }
 
+// 死锁 / 锁等待超时：MySQL 已回滚这条语句，单条自动提交语句重试是安全的。
+// 事务里的语句不能这样重试（回滚边界不在这里），交给调用方重跑整个事务。
+const RETRYABLE_LOCK_ERRORS = new Set(["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"]);
+
 async function execute(db, sql, params) {
+  try {
+    return await executeOnce(db, sql, params);
+  } catch (error) {
+    if (!RETRYABLE_LOCK_ERRORS.has(error.code) || db?.[IN_TRANSACTION]) throw error;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 40 * attempt));
+      try {
+        return await executeOnce(db, sql, params);
+      } catch (retryError) {
+        if (attempt === 2 || !RETRYABLE_LOCK_ERRORS.has(retryError.code)) throw retryError;
+      }
+    }
+    throw error;
+  }
+}
+
+async function executeOnce(db, sql, params) {
   try {
     const [rows] = await db.execute(sql, params);
     return rows;
@@ -87,6 +108,19 @@ export function discardConnection(connection) {
 }
 
 export async function transaction(pool, fn) {
+  // 死锁 / 锁等待超时会让整个事务回滚，重跑一遍事务是安全的；
+  // 只重试这两种错误，其它错误照常抛出，避免掩盖真实失败。
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await runTransactionOnce(pool, fn);
+    } catch (error) {
+      if (!RETRYABLE_LOCK_ERRORS.has(error.code) || attempt > 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 60 * attempt));
+    }
+  }
+}
+
+async function runTransactionOnce(pool, fn) {
   const conn = await pool.getConnection();
   let reusable = false;
   try {

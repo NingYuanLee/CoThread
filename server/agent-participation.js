@@ -480,7 +480,7 @@ export async function silenceOpportunisticBurst(conn, burstIds, reason) {
  */
 export async function composeOpportunisticParticipation(
   db,
-  { title, threadId, messageId, decide = decideParticipation, decideReminder },
+  { title, threadId, messageId, decide = decideParticipation },
 ) {
   if (await isWithinOpportunisticQuietPeriod(db, threadId)) {
     const burst = await loadOpportunisticBurst(db, threadId);
@@ -522,35 +522,9 @@ export async function composeOpportunisticParticipation(
         ? briefSoloRunAck(burst)
         : briefAssistantFollowUpAck(burst),
   });
-  const finishReply = async (decision, burst) => {
+  const finishReply = (decision, burst) => {
     if (!decision?.respond || !decision.message) return decision;
-    let remind = reminderNeededByRule(burst, decision.message);
-    try {
-      if (!remind && decideReminder) {
-        const judged = await decideReminder({ draft: decision.message, burst });
-        remind = typeof judged === "boolean" ? judged : !!judged?.remind;
-        if (judged?.usage || Number.isFinite(judged?.durationMs)) recordDecideMeta(judged);
-      } else if (!remind && decide === decideParticipation) {
-        const judged = await decideFullModeReminder({
-          modelCapture,
-          draft: decision.message,
-          burst: compactParticipationMessages(
-            (burst || []).map(({ author, body }) => ({ author, source: "human", body })),
-          ),
-        });
-        recordDecideMeta(judged);
-        remind = !!judged?.remind;
-      }
-    } catch (error) {
-      console.error("Full-mode reminder judgment failed", {
-        threadId,
-        messageId,
-        type: error?.name || "Error",
-        diagnostic: String(error?.message || error).slice(-1000),
-      });
-      remind = reminderNeededByRule(burst, decision.message);
-    }
-    if (!remind) return decision;
+    if (!reminderNeededByRule(burst, decision.message)) return decision;
     const replace = shouldInviteFullMode(burst) || promisesFullModeWork(decision.message);
     return {
       ...decision,
@@ -677,7 +651,7 @@ export async function composeOpportunisticParticipation(
     const latest = await latestHumanSequence(db, threadId);
     if (BigInt(latest) > BigInt(throughSequence)) continue;
 
-    const finished = await finishReply(decision, burst);
+    const finished = finishReply(decision, burst);
     return withUsage({
       ...finished,
       deferred: finished.respond ? undefined : revision > 0 ? "revised_silent" : undefined,
@@ -803,9 +777,6 @@ export function reminderNeededByRule(burst, draft) {
   return shouldInviteFullMode(burst) || promisesFullModeWork(draft);
 }
 
-const REMINDER_SYSTEM =
-  '看尚未发出的短回复，判断要不要在句尾补固定提醒「需要麻烦你再@小祥，我才会真的开始。」。人类在要实活（写文档、总结、改代码、派任务）或催开工，而这句在答应、许诺、或没说自己做不了时，返回 {"remind":true}。纯社交、确认、点名招呼返回 {"remind":false}。不要改写回复。只返回 JSON。';
-
 export async function decideParticipation(context, request = fetch) {
   const messages = context.modelMessages || compactParticipationMessages(context.messages || []);
   const integrateBurst = compactParticipationMessages(
@@ -857,44 +828,6 @@ export async function decideParticipation(context, request = fetch) {
   }
   return {
     ...normalizeParticipationDecision(decision),
-    usage: modelUsage(data?.usage),
-    modelAccounting: capturedModelUsage(configured, { reasoningEffort: "none" }),
-    durationMs: Math.round(performance.now() - started),
-  };
-}
-
-export async function decideFullModeReminder(context, request = fetch) {
-  const started = performance.now();
-  const configured = context.modelCapture || modelConfig("coordinator");
-  const data = await modelResponse(
-    {
-      scope: "coordinator",
-      config: configured,
-      maxTokens: 128,
-      reasoningEffort: "none",
-      signal: AbortSignal.timeout(OPPORTUNISTIC_MODEL_TIMEOUT_MS),
-      messages: [
-        { role: "system", content: REMINDER_SYSTEM },
-        {
-          role: "user",
-          content: JSON.stringify({
-            draft: compactParticipationBody(context.draft),
-            burst: context.burst || [],
-          }),
-        },
-      ],
-    },
-    request,
-  );
-  let parsed;
-  try {
-    parsed = JSON.parse(responseText(data) || "null");
-  } catch {
-    throw new Error("Invalid reminder decision");
-  }
-  if (!parsed || typeof parsed.remind !== "boolean") throw new Error("Invalid reminder decision");
-  return {
-    remind: parsed.remind,
     usage: modelUsage(data?.usage),
     modelAccounting: capturedModelUsage(configured, { reasoningEffort: "none" }),
     durationMs: Math.round(performance.now() - started),

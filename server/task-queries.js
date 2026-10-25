@@ -36,9 +36,9 @@ export async function listTasks(
     TIMESTAMPDIFF(SECOND, r.started_at, UTC_TIMESTAMP(3)) run_elapsed_seconds,
     COALESCE(t.preferred_executor_id,IF(t.task_type='formal',t.execution_agent_id,NULL),
     (SELECT previous.execution_agent_id FROM agent_tasks previous
-      WHERE previous.id<>t.id AND previous.target_type='l2_session' AND previous.target_id=t.target_id
+      WHERE previous.id<>t.id AND previous.target_type='xiaoxiang' AND previous.target_id=t.target_id
         AND previous.task_type='formal' AND previous.status='completed'
-        AND previous.execution_agent_type='dsh_l3' AND previous.execution_agent_id IS NOT NULL
+        AND previous.execution_agent_type='child_agent' AND previous.execution_agent_id IS NOT NULL
         AND ((t.source_user_id IS NOT NULL AND previous.source_user_id=t.source_user_id)
           OR (t.source_task_id IS NOT NULL AND previous.source_task_id=t.source_task_id))
       ORDER BY previous.finished_at DESC,previous.updated_at DESC LIMIT 1)) preferred_execution_agent_id

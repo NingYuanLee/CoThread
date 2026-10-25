@@ -1,6 +1,7 @@
 import { memo } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { MessageAnchor } from "./message-link";
 import { openVersion } from "./message-markdown-opener";
 
 export { bindMessageMarkdownOpener } from "./message-markdown-opener";
@@ -19,14 +20,20 @@ const components: Components = {
   img: () => <span>（图片链接）</span>,
   a: ({ href, children }) => {
     const versionId = versionIdFromHref(href);
+    const text = Array.isArray(children)
+      ? children.join("")
+      : typeof children === "string" || typeof children === "number"
+        ? String(children)
+        : "";
+    const cite = !versionId && /^\d+$/.test(text.trim());
     return versionId ? (
       <button type="button" className="ref" onClick={() => openVersion.current(versionId)}>
         {children}
       </button>
     ) : (
-      <a href={href} target="_blank" rel="noopener noreferrer">
+      <MessageAnchor href={href} cite={cite}>
         {children}
-      </a>
+      </MessageAnchor>
     );
   },
 };

@@ -2,9 +2,9 @@
 
 import {
   composeTaskInstruction,
-  isL2OwnResponsibility,
+  isXiaoxiangOwnResponsibility,
   parseDocumentRefs,
-  withL3DispatchGate,
+  withChildDispatchGate,
   withParsedTask,
 } from "./task-pool-helpers.js";
 import {
@@ -12,11 +12,11 @@ import {
   listTaskExecutionRuns,
   listTaskStatusEvents,
   listTaskUpdates,
-  L3_EXECUTOR_NAMES,
+  CHILD_EXECUTOR_NAMES,
   mergeTaskActivity,
   recordTaskStatusChange,
-  stickyL3ExecutorIds,
-  stickyL3Label,
+  stickyChildExecutorIds,
+  stickyChildLabel,
   taskExecutionSnapshot,
 } from "./task-pool-activity.js";
 import { classifyTaskFailure } from "./task-pool-failures.js";
@@ -28,21 +28,21 @@ import {
 } from "./task-pool-recovery.js";
 export {
   composeTaskInstruction,
-  isL2OwnResponsibility,
+  isXiaoxiangOwnResponsibility,
   parseDocumentRefs,
-  withL3DispatchGate,
+  withChildDispatchGate,
   withParsedTask,
 };
 export {
-  L3_EXECUTOR_NAMES,
+  CHILD_EXECUTOR_NAMES,
   listAssignmentEvents,
   listTaskExecutionRuns,
   listTaskStatusEvents,
   listTaskUpdates,
   mergeTaskActivity,
   recordTaskStatusChange,
-  stickyL3ExecutorIds,
-  stickyL3Label,
+  stickyChildExecutorIds,
+  stickyChildLabel,
   taskExecutionSnapshot,
 };
 export { classifyTaskFailure };
@@ -53,18 +53,20 @@ export {
   voidSelfHandledAssistTasks,
 };
 export {
-  touchL3RunHeartbeat,
-  touchL3InferenceHeartbeat,
-  bindDshL3Execution,
-  ensureDshL3CanUpdate,
-  settleDshL3Execution,
-  recoverInterruptedDshL3Executions,
-  recoverStaleDshL3Executions,
-} from "./task-l3-execution.js";
+  touchChildRunHeartbeat,
+  touchChildInferenceHeartbeat,
+  bindChildAgentExecution,
+  ensureChildAgentCanUpdate,
+  settleChildAgentExecution,
+  recoverInterruptedChildAgentExecutions,
+  recoverStaleChildAgentExecutions,
+} from "./task-child-execution.js";
 export {
-  idleL3Count,
-  tasksAwaitingL3Launch,
-  l3LaunchPrompt,
+  idleChildCount,
+  tasksAwaitingChildLaunch,
+  childLaunchPrompt,
+  childTaskBrief,
+  recordChildLaunchTrace,
   finishCoordinatorDispatch,
 } from "./task-dispatch.js";
 export {
@@ -75,7 +77,16 @@ export {
   answerTaskQuestion,
 } from "./task-commands.js";
 export { getTask, listTasks, listTaskQuestions } from "./task-queries.js";
-export { reassignTask, acceptTask, claimTask, rejectTask, cancelTask } from "./task-assignments.js";
+export {
+  reassignTask,
+  acceptTask,
+  claimTask,
+  rejectTask,
+  cancelTask,
+  ignoreTask,
+  redirectBlockedTask,
+  restoreIgnoredTask,
+} from "./task-assignments.js";
 export {
   taskRejectionReview,
   acknowledgeTaskRejection,
@@ -84,11 +95,11 @@ export {
   inspectIterationTask,
 } from "./task-resolution.js";
 export {
-  MAX_L3,
-  L3_LIVE_RUN,
+  MAX_Child,
+  CHILD_LIVE_RUN,
   TASK_ENDED,
   MAX_TASK_RETRIES,
   MAX_EXECUTOR_ATTEMPTS,
   MAX_DISTINCT_EXECUTORS,
-  L3_STALE_HEARTBEAT_SECONDS,
+  CHILD_STALE_HEARTBEAT_SECONDS,
 } from "./task-policy.js";

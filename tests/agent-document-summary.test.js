@@ -230,7 +230,7 @@ test("scheduled document memory merges a project's ready documents into one run"
     assert.equal(await processNextProjectMemory(db, { summarizeDocument }), false);
     const runs = await query(
       db,
-      "SELECT item_count,agent_called,had_updates,status,result FROM agent_l1_runs WHERE project_id=? AND task='document_memory'",
+      "SELECT item_count,agent_called,had_updates,status,result FROM agent_laoweng_runs WHERE project_id=? AND task='document_memory'",
       [project.id],
     );
     assert.equal(runs.length, 1);
@@ -313,7 +313,7 @@ test("non-text documents without a candidate summary are parked instead of retri
     assert.equal(Number(queued[0].parked), 1);
     const runs = await query(
       db,
-      "SELECT item_count,agent_called,had_updates,result FROM agent_l1_runs WHERE project_id=? AND task='document_memory'",
+      "SELECT item_count,agent_called,had_updates,result FROM agent_laoweng_runs WHERE project_id=? AND task='document_memory'",
       [project.id],
     );
     assert.equal(runs.length, 1);
@@ -329,7 +329,7 @@ test("non-text documents without a candidate summary are parked instead of retri
         (
           await query(
             db,
-            "SELECT COUNT(*) count FROM agent_l1_runs WHERE project_id=? AND task='document_memory'",
+            "SELECT COUNT(*) count FROM agent_laoweng_runs WHERE project_id=? AND task='document_memory'",
             [project.id],
           )
         )[0].count,

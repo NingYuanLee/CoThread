@@ -14,6 +14,7 @@ import { TextAreaField } from "./TextAreaField";
 import { TextField } from "./TextField";
 import { CoThreadLogo, PanelIcon, SidebarIcon } from "./workspace-chrome";
 import type { Modal } from "./workspace-types";
+import type { MemoryCounts } from "./ProjectMemory";
 import type { PersonalProfile } from "./ProfileFields";
 
 export type WorkspaceSidebarProps<T> = {
@@ -40,6 +41,8 @@ export type WorkspaceSidebarProps<T> = {
   renderThreadLink: (thread: T) => ReactNode;
   open: (value: Modal) => void;
   setProjectManagementOpen: Dispatch<SetStateAction<boolean>>;
+  setMemoryOpen: Dispatch<SetStateAction<boolean>>;
+  memoryCounts: MemoryCounts | null;
   setMonitorOpen: Dispatch<SetStateAction<boolean>>;
   /** 父组件在渲染侧栏前已用 early return 排除了未登录状态。 */
   user: PersonalProfile;
@@ -68,9 +71,16 @@ export function WorkspaceSidebar<T>({
   projectId,
   open,
   setProjectManagementOpen,
+  setMemoryOpen,
+  memoryCounts,
   setMonitorOpen,
   user,
 }: WorkspaceSidebarProps<T>) {
+  /* 入口小点与弹窗内的提示一致：有草稿、待裁决或上次进入后的更新就提醒。 */
+  const memorySignal = Boolean(
+    memoryCounts &&
+    (memoryCounts.drafts + memoryCounts.disputes > 0 || memoryCounts.updatedSinceEntry > 0),
+  );
   return (
     <>
       <aside className="sidebar">
@@ -252,7 +262,7 @@ export function WorkspaceSidebar<T>({
         <div className="sidebar-bottom">
           <button
             className="sidebar-card sidebar-project-management"
-            title={`项目基础信息、人类成员、连接器与 Agent（${AGENT_LEVEL_LABELS.l1} / ${AGENT_LEVEL_LABELS.l2}）`}
+            title={`项目基础信息、人类成员、连接器与 Agent（${AGENT_LEVEL_LABELS.laoweng} / ${AGENT_LEVEL_LABELS.xiaoxiang}）`}
             aria-label="项目管理"
             disabled={!projectId}
             onClick={() => setProjectManagementOpen(true)}
@@ -263,6 +273,31 @@ export function WorkspaceSidebar<T>({
             <span className="sidebar-card-copy">
               项目管理<small>成员、连接器与 Agent</small>
             </span>
+            <span className="sidebar-card-action" aria-hidden="true">
+              <UiIcon name="next" size={18} />
+            </span>
+          </button>
+          <button
+            className="sidebar-card sidebar-project-memory"
+            title="项目记忆：导读、时间线与记忆条目"
+            aria-label="项目记忆"
+            disabled={!projectId}
+            onClick={() => setMemoryOpen(true)}
+          >
+            <span className="sidebar-card-icon">
+              <UiIcon name="book" size={18} />
+            </span>
+            <span className="sidebar-card-copy">
+              项目记忆<small>导读、时间线与条目</small>
+            </span>
+            {memorySignal ? (
+              <span
+                className="sidebar-card-memory-dot"
+                role="img"
+                aria-label="有新的项目记忆"
+                title="有草稿、争议或进入后的更新"
+              />
+            ) : null}
             <span className="sidebar-card-action" aria-hidden="true">
               <UiIcon name="next" size={18} />
             </span>

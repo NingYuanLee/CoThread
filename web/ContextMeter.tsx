@@ -151,18 +151,20 @@ function FooterContextMeter({
               <p className="context-foot-empty">当前还没有计入的上下文。</p>
             )}
             <p className="context-foot-note">达到 {tokens(usage.autoCompactAt)} 时自动压缩</p>
-            {usage.compactStatus === "completed" && usage.compactResult && (
+            {usage.compactStatus === "completed" && usage.compactResult && !sending && (
               <p className="context-result" role="status">
                 {usage.compactResult.changed
                   ? `压缩完成：${tokens(usage.compactResult.before)} → ${tokens(usage.compactResult.after)}`
                   : usage.compactResult.reason === "not_smaller"
                     ? "本次摘要未减少用量，已保留原上下文。"
-                    : "当前上下文较短，暂无可进一步压缩的内容。"}
+                    : usage.compactResult.reason === "already_small"
+                      ? "当前上下文较短，暂无可进一步压缩的内容。"
+                      : "历史已压到最短，暂无可压缩的区段。"}
               </p>
             )}
             {usage.compactError && (
-              <p className="error" role="alert">
-                {usage.compactError}
+              <p className="error" role="alert" title={usage.compactError}>
+                {clipError(usage.compactError)}
               </p>
             )}
             {error && (
@@ -173,7 +175,7 @@ function FooterContextMeter({
             <button
               type="button"
               className="primary context-foot-compact"
-              disabled={!writable || compacting || !usage.used}
+              disabled={!writable || compacting || !usage.used || nothingToCompact(usage)}
               onClick={async () => {
                 setSending(true);
                 setError("");
@@ -198,6 +200,28 @@ function FooterContextMeter({
       )}
     </div>
   );
+}
+
+// 上一次压缩没有改动、之后对话也没有让用量长回来：这时再点也是白跑。
+function nothingToCompact(usage: ContextUsage) {
+  const result = usage.compactResult;
+  if (usage.compactStatus !== "completed" || !result) return false;
+  const after = typeof result.after === "number" ? result.after : null;
+  // 上一次确实压小了：还能再压（摘要之上还有更早的段落），按钮保持可用。
+  if (after !== null && typeof result.before === "number" && after < result.before) return false;
+  // 上一次没压动：之后的对话没让用量涨回来就不再允许点。
+  if (after !== null) return Math.abs(usage.used - after) < 512;
+  return usage.used < 4096;
+}
+
+// 压缩失败的原始报错会带整条日志路径，浮窗里只留能看懂的那一段。
+function clipError(text: string) {
+  const flat = String(text || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const cut = flat.search(/\s*\(raw log|\s*session \"/);
+  const head = cut > 0 ? flat.slice(0, cut) : flat;
+  return head.length > 160 ? `${head.slice(0, 160)}…` : head;
 }
 
 export function ContextMeter({
@@ -340,7 +364,7 @@ export function ContextMeter({
           <button
             type="button"
             className="primary"
-            disabled={!writable || compacting || !usage.used}
+            disabled={!writable || compacting || !usage.used || nothingToCompact(usage)}
             onClick={async () => {
               setSending(true);
               setError("");

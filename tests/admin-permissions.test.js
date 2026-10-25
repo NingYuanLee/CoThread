@@ -62,4 +62,16 @@ test("admin request permissions fail closed and separate read and action access"
   assert.equal(adminPermissionForRequest("PUT", "/roles/example"), false);
   assert.equal(adminPermissionForRequest("POST", "/access"), false);
   assert.equal(adminPermissionForRequest("GET", "/unregistered"), false);
+  assert.equal(adminPermissionForRequest("GET", "/orgs"), "orgs");
+  assert.equal(adminPermissionForRequest("GET", "/orgs/example"), "orgs");
+  assert.equal(adminPermissionForRequest("POST", "/orgs"), "orgs.update");
+  assert.equal(adminPermissionForRequest("PATCH", "/orgs/example"), "orgs.update");
+  assert.equal(adminPermissionForRequest("POST", "/orgs/example/archive"), "orgs.update");
+  assert.equal(adminPermissionForRequest("PUT", "/orgs/example/members"), "orgs.assign");
+  assert.equal(adminPermissionForRequest("POST", "/projects/example/org-links"), "orgs.link");
+  assert.equal(adminPermissionForRequest("GET", "/orgs/example/members"), false);
+  assert.equal(adminPermissionForRequest("DELETE", "/orgs/example"), false);
+  assert.deepEqual(expandAdminPermissions(["orgs"]), ["work", "orgs"]);
+  assert.deepEqual(expandAdminPermissions(["orgs.update"]), ["work", "orgs", "orgs.update"]);
+  assert.deepEqual(expandAdminPermissions(["orgs.link"]), ["work", "orgs", "orgs.link"]);
 });

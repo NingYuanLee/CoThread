@@ -1,9 +1,10 @@
 import { DialogBody } from "./DialogBody";
 import { DialogHeader } from "./DialogHeader";
+import { useComposerStageMetrics } from "./use-composer-stage";
 import { useConversationSelection } from "./use-conversation-selection";
 import { useAccountSession } from "./use-account-session";
 import { useProjectTasks } from "./use-project-tasks";
-import { taskViewModel } from "./task-view-model";
+import { useThreadTaskStats } from "./use-thread-task-stats";
 import React, {
   lazy,
   Suspense,
@@ -23,7 +24,7 @@ const QuoteMarkdown = lazy(() =>
 );
 import type { ComposerController } from "./ChatComposer";
 
-import { AGENT_L2_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
+import { AGENT_XIAOXIANG_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
 import { MCP_CONVERSATION_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
 import { WorkspaceModals } from "./WorkspaceModals";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
@@ -40,6 +41,9 @@ import { WorkspaceWelcome } from "./WorkspaceWelcome";
 import { ConversationHeader } from "./ConversationHeader";
 import { TaskCreateDialog } from "./TaskCreateDialog";
 import { ConversationStage } from "./ConversationStage";
+import { ElderChat } from "./ElderChat";
+import { CitationSources } from "./CitationSources";
+import { citeGroupId, webCitationsInBody } from "../shared/citations.js";
 import { coordinatorLogButtonLabel, COORDINATOR_LOG_IDLE_LABEL } from "./agent-label";
 const Documents = lazy(() =>
   import("./Documents").then((module) => ({ default: module.Documents })),
@@ -57,6 +61,10 @@ import {
 const ProjectManagement = lazy(() =>
   import("./ProjectManagement").then((module) => ({ default: module.ProjectManagement })),
 );
+const ProjectMemory = lazy(() =>
+  import("./ProjectMemory").then((module) => ({ default: module.ProjectMemory })),
+);
+import type { MemoryCounts } from "./ProjectMemory";
 const AgentMonitor = lazy(() =>
   import("./AgentMonitor").then((module) => ({ default: module.AgentMonitor })),
 );
@@ -67,7 +75,7 @@ const LocalExecutorAuthorization = lazy(() =>
 );
 import { applyUiTheme } from "./apply-ui-theme";
 import { DEFAULT_UI_THEME } from "../shared/ui-theme.js";
-import type { AgentLogScope } from "./agent-trajectory";
+import type { AgentLogScope } from "./trajectory-model";
 const AgentTrajectory = lazy(() =>
   import("./AgentLogDialog").then((module) => ({ default: module.AgentTrajectory })),
 );
@@ -91,8 +99,8 @@ const DeleteConfirmDialog = lazy(() =>
 const ThreadArchiveDialog = lazy(() =>
   import("./ThreadArchiveDialog").then((module) => ({ default: module.ThreadArchiveDialog })),
 );
-const ThreadBrief = lazy(() =>
-  import("./ThreadBrief").then((module) => ({ default: module.ThreadBrief })),
+const ThreadBriefDialog = lazy(() =>
+  import("./ThreadBriefDialog").then((module) => ({ default: module.ThreadBriefDialog })),
 );
 const ImagePreviewDialog = lazy(() =>
   import("./ImagePreview").then((module) => ({ default: module.ImagePreviewDialog })),
@@ -107,10 +115,13 @@ import {
 } from "./optimistic-messages";
 import { apiFetch } from "./api-fetch";
 import {
+  ELDER_SPLIT_RATIO_KEY,
   LEFT_SIDEBAR_STATE_KEY,
   RIGHT_SIDEBAR_STATE_KEY,
+  clampElderSplitRatio,
   localDate,
   readStoredBoolean,
+  readStoredElderSplitRatio,
 } from "./workspace-format";
 
 import { ProjectPicker } from "./ProjectPicker";
@@ -188,7 +199,7 @@ export function WorkspaceApp() {
     } catch {}
     return usage.model
       ? `${usage.model} · ${labelReasoningEffort(usage.reasoningEffort)}`
-      : detail?.members.find((member) => member.id === AGENT_L2_MEMBER.id)?.motto || "";
+      : detail?.members.find((member) => member.id === AGENT_XIAOXIANG_MEMBER.id)?.motto || "";
   };
   const readThread = (id: string, signal: AbortSignal): Promise<Thread> =>
     readThreadPages<Thread>(
@@ -211,7 +222,9 @@ export function WorkspaceApp() {
   const detail =
     loadedDetail?.id === projectId ? loadedDetail : projectCache.current.get(projectId) || null;
   const [threadId, setThreadId] = useState("");
-  const [threadView, setThreadView] = useState<"chat" | "trajectory" | "brief">("chat");
+  const [threadView, setThreadView] = useState<"chat" | "trajectory">("chat");
+  const [elderOpen, setElderOpen] = useState(false);
+  const [elderView, setElderView] = useState<"chat" | "trajectory">("chat");
   useEffect(() => {
     setThreadView("chat");
   }, [threadId]);
@@ -334,6 +347,8 @@ export function WorkspaceApp() {
   }, [copiedMessage]);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [projectManagementOpen, setProjectManagementOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [memoryCounts, setMemoryCounts] = useState<MemoryCounts | null>(null);
   const [codeSourcesTick, setCodeSourcesTick] = useState(0);
   const [agentLogScope, setAgentLogScope] = useState<AgentLogScope | null>(null);
   const [urlRevision, setUrlRevision] = useState(0);
@@ -363,6 +378,8 @@ export function WorkspaceApp() {
   const [documentFocus, setDocumentFocus] = useState(0);
   const shellRef = useRef<HTMLDivElement>(null);
   const panelWidthRef = useRef<number | null>(null);
+  const [elderSplitRatio, setElderSplitRatio] = useState<number | null>(readStoredElderSplitRatio);
+  const elderSplitRef = useRef(elderSplitRatio);
   const documentActions = useRef({
     refresh: async () => {},
     review: async (_id: string, _decision: string, _comment?: string) => {},
@@ -404,45 +421,34 @@ export function WorkspaceApp() {
     const width = panelWidthRef.current;
     if (width) shell.style.setProperty("--right-panel", width + "px");
     else shell.style.removeProperty("--right-panel");
+    const split = elderSplitRef.current;
+    if (split == null) shell.style.removeProperty("--chat-elder-split");
+    else {
+      const main = shell.querySelector(":scope > main");
+      const mainWidth = main?.getBoundingClientRect().width ?? 0;
+      const ratio = mainWidth > 0 ? clampElderSplitRatio(split, mainWidth) : split;
+      elderSplitRef.current = ratio;
+      shell.style.setProperty("--chat-elder-split", `${ratio * 100}%`);
+    }
   });
   const conversationRef = useRef<HTMLDivElement>(null);
   const composerAreaRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const composer = composerAreaRef.current;
-    const conversation = conversationRef.current;
-    const stage = composer?.closest(".conversation-stage");
-    if (!(composer instanceof HTMLElement) || !(stage instanceof HTMLElement)) return;
-    const sync = () => {
-      const hidden = composer.hidden || !composer.offsetParent;
-      stage.style.setProperty("--composer-height", `${hidden ? 0 : composer.offsetHeight}px`);
-      let gutter = 0;
-      if (conversation) {
-        gutter = Math.max(0, conversation.offsetWidth - conversation.clientWidth);
-        if (!gutter && conversation.scrollHeight > conversation.clientHeight) gutter = 12;
-      }
-      stage.style.setProperty("--chat-scrollbar", `${gutter}px`);
-    };
-    sync();
-    const observer = new ResizeObserver(sync);
-    observer.observe(composer);
-    const mutations = new MutationObserver(sync);
-    if (conversation) {
-      observer.observe(conversation);
-      mutations.observe(conversation, { childList: true });
-    }
-    return () => {
-      observer.disconnect();
-      mutations.disconnect();
-      stage.style.removeProperty("--composer-height");
-      stage.style.removeProperty("--chat-scrollbar");
-    };
-  }, [threadId, threadView, Boolean(thread)]);
+  useComposerStageMetrics(
+    composerAreaRef,
+    conversationRef,
+    `${threadId}:${threadView}:${thread ? 1 : 0}`,
+  );
   const navigationUntil = useRef(0);
   const navigateMessage = useCallback(() => {
     followConversation.current = false;
     navigationUntil.current = Date.now() + 1500;
   }, []);
   const followConversation = useRef(true);
+  const followedThread = useRef(threadId);
+  if (followedThread.current !== threadId) {
+    followedThread.current = threadId;
+    followConversation.current = true;
+  }
   const uploadTarget = useRef<((files: File[]) => void) | null>(null);
   const [fileDragOver, setFileDragOver] = useState(false);
   const [leftOpen, setLeftOpen] = useState(() => readStoredBoolean(LEFT_SIDEBAR_STATE_KEY, false));
@@ -450,6 +456,7 @@ export function WorkspaceApp() {
     readStoredBoolean(RIGHT_SIDEBAR_STATE_KEY, false),
   );
   const [dialogueMode, setDialogueMode] = useState<DialogueMode>("default");
+  const [memoryFocusId, setMemoryFocusId] = useState("");
   const [documentFullscreen, setDocumentFullscreen] = useState(false);
   useEffect(() => {
     try {
@@ -531,7 +538,27 @@ export function WorkspaceApp() {
     }
     showDocument(id);
   };
+  const revealSidebar = () => {
+    if (dialogueMode === "cloudbase" || dialogueMode === "miniprogram")
+      applyDialogueMode("default");
+    setContextOpen(true);
+  };
+  const openCitedDocument = (id: string) => {
+    revealSidebar();
+    const version =
+      detail?.versions.find((item) => item.id === id) ||
+      detail?.versions.find((item) => item.artifact_id === id && !item.deleted_at);
+    if (version) showDocument(version.id);
+  };
+  /* 引用不再跳右侧知识页，改为打开项目记忆并聚焦该条详情。 */
+  const openCitedWiki = (id: string) => {
+    if (!id) return;
+    setQuotePreview(null);
+    setMemoryFocusId(id);
+    setMemoryOpen(true);
+  };
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const [briefDialogOpen, setBriefDialogOpen] = useState(false);
   const [taskSelection, setTaskSelection] = useState({ id: 0, taskId: "" });
   const { tasks: taskPool, refresh: refreshProjectTasks } = useProjectTasks(
     projectId,
@@ -592,12 +619,12 @@ export function WorkspaceApp() {
     let label = isAssistant ? AGENT_MEMBER.name : m.author;
     if (!isAssistant) {
       const mentionMembers = (detail?.members || []).filter(
-        (member) => member.kind !== "l1" && member.id !== AGENT_MEMBER.id,
+        (member) => member.kind !== "laoweng" && member.id !== AGENT_MEMBER.id,
       );
       const selectedMember = mentionMembers.find((member) => member.id === m.author_id);
       if (
         selectedMember &&
-        selectedMember.id !== AGENT_L2_MEMBER.id &&
+        selectedMember.id !== AGENT_XIAOXIANG_MEMBER.id &&
         mentionMembers.filter((member) => member.name === selectedMember.name).length > 1
       ) {
         label = selectedMember.email;
@@ -630,7 +657,7 @@ export function WorkspaceApp() {
   const projectConnectorBound = localExecutors.some((device) =>
     device.projects?.some((item) => item.projectId === projectId),
   );
-  const { latestMyTask } = taskViewModel(taskPool, detail, user, threadId);
+  const taskStats = useThreadTaskStats(projectId, threadId);
   const openTaskDialog = (taskId = "") => {
     setTaskSelection((current) => ({ id: current.id + 1, taskId }));
     setTaskDialogOpen(true);
@@ -764,6 +791,29 @@ export function WorkspaceApp() {
     if (!projects.some((p) => p.id === projectId && p.tab_visible))
       setProjectId(projects.find((p) => p.tab_visible)?.id || "");
   }, [projects, projectId]);
+  /* 左侧入口小点：接口不可用时静默降级为无小点，不打扰主流程。 */
+  const refreshMemoryCounts = useCallback(() => {
+    if (!projectId) {
+      setMemoryCounts(null);
+      return;
+    }
+    void api(`/projects/${projectId}/memory/counts`)
+      .then((counts: Partial<MemoryCounts> | null) => {
+        if (!counts || typeof counts !== "object") {
+          setMemoryCounts(null);
+          return;
+        }
+        setMemoryCounts({
+          drafts: Number(counts.drafts) || 0,
+          disputes: Number(counts.disputes) || 0,
+          updatedSinceEntry: Number(counts.updatedSinceEntry) || 0,
+        });
+      })
+      .catch(() => setMemoryCounts(null));
+  }, [projectId]);
+  useEffect(() => {
+    refreshMemoryCounts();
+  }, [refreshMemoryCounts, user?.id]);
   const projectActivityContext = {
     projectId,
     user,
@@ -805,19 +855,6 @@ export function WorkspaceApp() {
   useEffect(() => {
     if (pendingWork) wakeThreadPoll.current?.();
   }, [threadId, pendingWork]);
-  useEffect(() => {
-    const container = conversationRef.current;
-    if (container && followConversation.current) container.scrollTop = container.scrollHeight;
-  }, [
-    threadId,
-    thread?.messages.length,
-    thread?.events.length,
-    thread?.localExecutorTasks?.map((task) => `${task.id}:${task.status}`).join(","),
-    Object.values(liveOutput)
-      .map((o) => `${o.message_id}:${o.revision}`)
-      .join(","),
-    thread?.replies.filter((r) => r.status === "queued" || r.status === "running").length,
-  ]);
   const currentContext = useRef({ projectId, threadId });
   currentContext.current = { projectId, threadId };
   const refresh = async () => {
@@ -1023,6 +1060,44 @@ export function WorkspaceApp() {
         setProjectPickerOpen(false);
       }
     });
+  /* 组织主页直达与首次进入共用同一个标记，避免同一次启动重复打开。 */
+  const autoOpenedMemory = useRef(new Set<string>());
+  const memoryRequestHandled = useRef(false);
+  /* /?projectId=<id>&memory=1：切到该项目、按需打开页签，然后清掉 URL 参数。 */
+  useEffect(() => {
+    if (memoryRequestHandled.current || loading || !user) return;
+    if (!projects.length) return;
+    memoryRequestHandled.current = true;
+    const params = new URLSearchParams(location.search);
+    const requestedProjectId = params.get("projectId") || "";
+    const wantsMemory = params.get("memory") === "1";
+    if (!requestedProjectId && !wantsMemory) return;
+    const target = requestedProjectId
+      ? projects.find((item) => item.id === requestedProjectId)
+      : null;
+    if (target) {
+      autoOpenedMemory.current.add(target.id);
+      if (target.tab_visible) setProjectId(target.id);
+      else updateProjectTab(target.id, "open");
+    }
+    if (wantsMemory && (target || !requestedProjectId)) setMemoryOpen(true);
+    const url = new URL(location.href);
+    url.searchParams.delete("projectId");
+    url.searchParams.delete("memory");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    setUrlRevision((value) => value + 1);
+  }, [loading, user?.id, projects, projectId]);
+  /* 新人首次进入：该项目 tab_opened_at 为空时自动打开记忆，并记为已打开。 */
+  useEffect(() => {
+    if (loading || !user || !projectId) return;
+    const project = projects.find((item) => item.id === projectId) as
+      (Project & { tab_opened_at?: string | null }) | undefined;
+    if (!project || project.tab_opened_at) return;
+    if (autoOpenedMemory.current.has(projectId)) return;
+    autoOpenedMemory.current.add(projectId);
+    setMemoryOpen(true);
+    updateProjectTab(projectId, "open");
+  }, [loading, user?.id, projectId, projects]);
   const showProjectPicker = () =>
     void run(async () => {
       setProjects(await api("/projects"));
@@ -1251,32 +1326,58 @@ export function WorkspaceApp() {
   const renderAgentRound = (reply: Thread["replies"][number]) => (
     <AgentRoundView {...agentRoundProps} reply={reply} />
   );
-  const renderFolderRef = (folderId: string) => {
-    const folder = detail?.folders.find((item) => item.id === folderId);
-    const label = folder
-      ? libraryFolderPath(folderId, detail?.folders || []) || folderDisplayName(folder)
-      : folderId;
-    return (
-      <button
-        key={`folder:${folderId}`}
-        type="button"
-        className="ref ref-folder"
-        title={label}
-        onClick={() => setContextOpen(true)}
-      >
-        <UiIcon name="folder" size={12} /> {label}
-      </button>
-    );
-  };
-  const renderMessageAttachments = (message: { refs?: string[]; folder_refs?: string[] }) => {
+  const renderMessageAttachments = (message: {
+    refs?: string[];
+    folder_refs?: string[];
+    body?: string;
+    source?: string;
+  }) => {
     const folders = message.folder_refs || [];
     const files = message.refs || [];
-    if (!folders.length && !files.length) return null;
+    const images = files.filter((id) => {
+      const version = detail?.versions.find((item) => item.id === id);
+      return version && isImageFile(version);
+    });
+    const docs = files.filter((id) => !images.includes(id));
+    const items = [
+      ...folders.map((id) => {
+        const folder = detail?.folders.find((item) => item.id === id);
+        const label = folder
+          ? libraryFolderPath(id, detail?.folders || []) || folderDisplayName(folder)
+          : id;
+        return {
+          id: "folder:" + id,
+          kind: "folder",
+          label,
+          title: label,
+          target: id,
+          pageId: null,
+        };
+      }),
+      ...docs.map((id) => {
+        const version = detail?.versions.find((item) => item.id === id);
+        const label = versionRefLabel(id, version);
+        return { id, kind: "document", label, title: label, target: id, pageId: null };
+      }),
+      ...(message.source === "assistant" ? webCitationsInBody(message.body || "") : []),
+    ];
+    if (!images.length && !items.length) return null;
     return (
-      <div className="references">
-        {folders.map(renderFolderRef)}
-        {files.map(renderRef)}
-      </div>
+      <>
+        {!!images.length && <div className="references">{images.map(renderRef)}</div>}
+        <CitationSources
+          items={items}
+          onActivate={(item) => {
+            const group = citeGroupId(item.kind);
+            if (group === "web" && item.target)
+              window.open(item.target, "_blank", "noopener,noreferrer");
+            else if (group === "document" && item.target) openCitedDocument(item.target);
+            else if (group === "folder") revealSidebar();
+            else if (group === "thread" && item.target) setThreadId(item.target);
+            else if (group === "wiki") openCitedWiki(item.pageId || item.target || "");
+          }}
+        />
+      </>
     );
   };
   const renderRef = (ref: string) => {
@@ -1318,6 +1419,48 @@ export function WorkspaceApp() {
   const threads = detail?.threads || [];
   const activeThreads = threads.filter((t) => t.status === "active" || t.status === "archiving");
   const archivedThreads = threads.filter((t) => t.status === "archived");
+  const elderSplitWidth = () =>
+    shellRef.current?.querySelector(":scope > main")?.getBoundingClientRect().width ?? 0;
+  const persistElderSplit = (ratio: number) => {
+    elderSplitRef.current = ratio;
+    setElderSplitRatio(ratio);
+    shellRef.current?.style.setProperty("--chat-elder-split", `${ratio * 100}%`);
+    try {
+      localStorage.setItem(ELDER_SPLIT_RATIO_KEY, String(Math.round(ratio * 1000) / 10));
+    } catch {}
+  };
+  const startElderSplitDrag = (event: React.PointerEvent) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const shell = shellRef.current;
+    const width = elderSplitWidth();
+    if (!shell || width <= 0) return;
+    const startX = event.clientX;
+    const startRatio = elderSplitRef.current ?? 0.5;
+    let ratio = startRatio;
+    const separator = shell.querySelector(".conversation-split-divider");
+    const onMove = (move: PointerEvent) => {
+      ratio = clampElderSplitRatio(startRatio + (move.clientX - startX) / width, width);
+      elderSplitRef.current = ratio;
+      shell.style.setProperty("--chat-elder-split", `${ratio * 100}%`);
+      separator?.setAttribute("aria-valuenow", String(Math.round(ratio * 100)));
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      document.body.classList.remove("col-resizing");
+      if (ratio !== startRatio) persistElderSplit(ratio);
+    };
+    document.body.classList.add("col-resizing");
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
+  const nudgeElderSplit = (delta: number) => {
+    const width = elderSplitWidth();
+    persistElderSplit(clampElderSplitRatio((elderSplitRef.current ?? 0.5) + delta, width));
+  };
   const conversationHeaderProps = {
     thread,
     threadView,
@@ -1329,6 +1472,11 @@ export function WorkspaceApp() {
     threadId,
     run,
     refresh,
+    elderOpen,
+    setElderOpen,
+    elderView,
+    setElderView,
+    onElderSplitPointerDown: startElderSplitDrag,
   };
   const welcomeProps = {
     projectId,
@@ -1421,6 +1569,8 @@ export function WorkspaceApp() {
   const stageProps = {
     selection,
     onOpenTasks: () => openTaskDialog(),
+    onOpenBrief: () => setBriefDialogOpen(true),
+    briefDialogOpen,
     onOpenArchive: setArchiveDialog,
     threadView,
     threadId,
@@ -1444,7 +1594,7 @@ export function WorkspaceApp() {
     timeline,
     detail,
     liveCoordinator,
-    latestMyTask,
+    taskStats,
     active,
     coordinatorDraft,
     openMessageMenu,
@@ -1511,6 +1661,8 @@ export function WorkspaceApp() {
     projectId,
     open,
     setProjectManagementOpen,
+    setMemoryOpen,
+    memoryCounts,
     setMonitorOpen,
     user,
   };
@@ -1539,6 +1691,31 @@ export function WorkspaceApp() {
     forgetSavedLogin,
     loginAnother,
   };
+  // 老翁打开时，群聊/轨迹视图都留在左半区，右侧始终是问老翁。
+  const threadTrajectoryView =
+    threadView === "trajectory" && threadId ? (
+      <div className="conversation-stage conversation-stage-trajectory">
+        <Suspense fallback={<p className="muted">正在加载轨迹…</p>}>
+          <AgentTrajectory key={threadId} scope={{ type: "thread", id: threadId }} api={api} />
+        </Suspense>
+      </div>
+    ) : null;
+  const elderPane =
+    projectId && user ? (
+      <ElderChat
+        api={api}
+        projectId={projectId}
+        threadId={threadId}
+        user={user}
+        members={detail?.members || []}
+        versions={detail?.versions || []}
+        folders={detail?.folders || []}
+        view={elderView}
+        onOpenThread={setThreadId}
+        onOpenDocument={openCitedDocument}
+        onOpenWiki={openCitedWiki}
+      />
+    ) : null;
   return (
     <div
       ref={shellRef}
@@ -1552,7 +1729,7 @@ export function WorkspaceApp() {
       <WorkspaceTopbar {...topbarProps} />
       <WorkspaceSidebar {...sidebarProps} />
       <main
-        className={`main ${fileDragOver ? "file-drag-over" : ""}`}
+        className={`main ${fileDragOver ? "file-drag-over" : ""}${elderOpen && thread ? " elder-split" : ""}`}
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes("Files")) {
             e.preventDefault();
@@ -1606,29 +1783,40 @@ export function WorkspaceApp() {
           <WorkspaceWelcome {...welcomeProps} />
         ) : (
           <>
-            <ConversationStage {...stageProps} />
-            {threadView === "trajectory" && threadId && (
-              <div className="conversation-stage conversation-stage-trajectory">
-                <Suspense fallback={<p className="muted">正在加载轨迹…</p>}>
-                  <AgentTrajectory
-                    key={threadId}
-                    scope={{ type: "thread", id: threadId }}
-                    api={api}
-                  />
-                </Suspense>
+            {elderOpen && thread ? (
+              <div className="conversation-split">
+                <div className="conversation-split-left">
+                  <div className="conversation-body" hidden={threadView !== "chat"}>
+                    <ConversationStage {...stageProps} />
+                  </div>
+                  {threadTrajectoryView}
+                </div>
+                <div
+                  className="conversation-split-divider"
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="拖拽调整群聊与问老翁宽度"
+                  aria-valuemin={10}
+                  aria-valuemax={90}
+                  aria-valuenow={Math.round((elderSplitRatio ?? 0.5) * 100)}
+                  tabIndex={0}
+                  title="拖拽调整宽度"
+                  onPointerDown={startElderSplitDrag}
+                  onKeyDown={(event) => {
+                    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                    event.preventDefault();
+                    nudgeElderSplit(event.key === "ArrowLeft" ? -0.02 : 0.02);
+                  }}
+                />
+                {elderPane}
               </div>
-            )}
-            {threadView === "brief" && (
-              <div className="conversation-stage conversation-stage-brief">
-                <Suspense fallback={<p className="muted">正在加载简报…</p>}>
-                  <ThreadBrief
-                    key={thread.id}
-                    thread={thread}
-                    writable={active}
-                    onSaved={refresh}
-                  />
-                </Suspense>
-              </div>
+            ) : (
+              <>
+                <div className="conversation-body" hidden={threadView !== "chat"}>
+                  <ConversationStage {...stageProps} />
+                </div>
+                {threadTrajectoryView}
+              </>
             )}
           </>
         )}
@@ -1753,6 +1941,17 @@ export function WorkspaceApp() {
           mcpEndpoint={health?.mcpEndpoint || "/mcp"}
         />
       )}
+      {briefDialogOpen && thread && (
+        <Suspense fallback={null}>
+          <ThreadBriefDialog
+            key={thread.id}
+            thread={thread}
+            writable={!!active}
+            onClose={() => setBriefDialogOpen(false)}
+            onSaved={refresh}
+          />
+        </Suspense>
+      )}
       {taskCreateRequest && (
         <TaskCreateDialog
           key={`${user.id}:${projectId}:${threadId}:${taskCreateRequest.id}`}
@@ -1876,11 +2075,28 @@ export function WorkspaceApp() {
             projectId={projectId}
             projectName={detail?.name || currentProject?.name || "当前项目"}
             projectImage={detail?.image || currentProject?.image}
+            threadId={threadId}
             api={api}
             onClose={() => setMonitorOpen(false)}
           />
         </Suspense>
       )}
+      {memoryOpen && projectId && user ? (
+        <Suspense fallback={null}>
+          <ProjectMemory
+            projectId={projectId}
+            api={api}
+            canWrite={writable}
+            focusId={memoryFocusId}
+            onCountsChange={setMemoryCounts}
+            onClose={() => {
+              setMemoryOpen(false);
+              setMemoryFocusId("");
+              refreshMemoryCounts();
+            }}
+          />
+        </Suspense>
+      ) : null}
       {agentLogScope && (
         <Suspense fallback={null}>
           <AgentLogDialog scope={agentLogScope} api={api} onClose={() => setAgentLogScope(null)} />

@@ -49,8 +49,8 @@ try {
     source[`COORDINATOR_MODEL_${field}`] ||
     source[`EXECUTOR_MODEL_${field}`] ||
     "";
-  // MODEL_* is the shared runtime route (L2 + L3); KNOWLEDGE_MODEL_* overrides
-  // it for L1. Legacy COORDINATOR_*/EXECUTOR_* values migrate into the baseline.
+  // MODEL_* is the shared runtime route (小祥 + 子 Agent); KNOWLEDGE_MODEL_* overrides
+  // it for 老翁. Legacy COORDINATOR_*/EXECUTOR_* values migrate into the baseline.
   for (const prefix of ["MODEL", "KNOWLEDGE_MODEL"]) {
     for (const field of ["BASE_URL", "API_KEY"])
       modelDefaults[`${prefix}_${field}`] = source[`${prefix}_${field}`] || baselineValue(field);

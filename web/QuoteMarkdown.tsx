@@ -1,5 +1,6 @@
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { MessageAnchor } from "./message-link";
 
 export function QuoteMarkdown({ body }: { body: string }) {
   return (
@@ -7,11 +8,7 @@ export function QuoteMarkdown({ body }: { body: string }) {
       remarkPlugins={[remarkGfm]}
       components={{
         img: () => <span>（图片链接）</span>,
-        a: ({ href, children }) => (
-          <a href={href} target="_blank" rel="noopener noreferrer">
-            {children}
-          </a>
-        ),
+        a: ({ href, children }) => <MessageAnchor href={href}>{children}</MessageAnchor>,
       }}
     >
       {body}

@@ -1,11 +1,13 @@
+import { createHash } from "node:crypto";
 import { finishAgentEvent } from "./thread-activity.js";
 import { query, transaction } from "./db.js";
+import { clearPromptState, readPromptState, writePromptState } from "./thread-prompt-state.js";
 import { Service } from "./service.js";
-import { AGENT_L2_MEMBER, mentionsAgent } from "../shared/agent-member.js";
+import { AGENT_XIAOXIANG_MEMBER, mentionsAgent } from "../shared/agent-member.js";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { loadProjectMembers } from "./project-memory.js";
 import { capturedModelUsage, redactSecrets } from "./model-config.js";
-import { createUsageMeter, saveReplyUsage } from "./agent-usage.js";
+import { createUsageMeter, saveReplyUsage, saveTurnUsage } from "./agent-usage.js";
 import {
   acquireCoordinatorRuntime,
   discardCoordinatorRuntime,
@@ -13,17 +15,20 @@ import {
 } from "./agent.js";
 import { discussionText } from "../shared/context.js";
 import {
-  bindDshL3Execution,
+  bindChildAgentExecution,
   finishCoordinatorDispatch,
-  l3LaunchPrompt,
-  settleDshL3Execution,
-  tasksAwaitingL3Launch,
-  touchL3InferenceHeartbeat,
+  childLaunchPrompt,
+  recordChildLaunchTrace,
+  settleChildAgentExecution,
+  tasksAwaitingChildLaunch,
+  touchChildInferenceHeartbeat,
 } from "./task-pool.js";
 import { trackThinking } from "./agent-thinking.js";
-import { childBindingFromToolResult } from "./l3-binding.js";
+import { childBindingFromToolResult } from "./child-agent-binding.js";
 import { insertUniqueAssistantMessage } from "./assistant-post.js";
-import { persistL3ContextStats, persistL3RunCheckpoint } from "./l3-session.js";
+import { messageTurnIdForJob } from "./coordinator-turn.js";
+import { countTurnSteps } from "../shared/turn-steps.js";
+import { persistChildContextStats, persistChildRunCheckpoint } from "./child-agent-session.js";
 import {
   composeOpportunisticParticipation,
   absorbOpportunisticBurst,
@@ -37,7 +42,12 @@ import {
   assertExternalAdmitted,
   isExecutorEpochLost,
 } from "./executor-fence.js";
-import { buildDiscussionTurn } from "../shared/prompt-blocks.js";
+import {
+  buildDiscussionTurn,
+  COTHREAD_SYSTEM_TEXT,
+  stablePrefixDigest,
+} from "../shared/prompt-blocks.js";
+import { SYSTEM_PROMPTS } from "../dsh-layer/cothread-plugin-registry.mjs";
 
 const brief = (value, limit = 1200) => (typeof value === "string" ? value.slice(0, limit) : null);
 const parseRefs = (value) => (typeof value === "string" ? JSON.parse(value) : value || []);
@@ -65,7 +75,11 @@ function messageRecord(message, members, versions, quoteIds, folders) {
     messageId: message.id,
     sequence: String(message.sequence),
     author: assistant
-      ? { id: AGENT_L2_MEMBER.id, name: AGENT_L2_MEMBER.name, role: AGENT_L2_MEMBER.role }
+      ? {
+          id: AGENT_XIAOXIANG_MEMBER.id,
+          name: AGENT_XIAOXIANG_MEMBER.name,
+          role: AGENT_XIAOXIANG_MEMBER.role,
+        }
       : { id: message.author_id, name: message.author, role: message.author_role },
     createdAt: message.created_at,
     source: message.source,
@@ -143,9 +157,11 @@ export async function dispatchContext(db, thread, job) {
       WHERE m.thread_id=? ORDER BY m.sequence,s.updated_at`,
       [job.thread_id],
     ),
-    query(db, "SELECT summary FROM agent_project_summaries WHERE project_id=?", [
-      thread.project_id,
-    ]),
+    (async () => {
+      const { loadProjectSummary } = await import("./project-memory.js");
+      const summary = await loadProjectSummary(db, thread.project_id);
+      return summary ? [{ summary: summary.summary }] : [];
+    })(),
   ]);
   const members = [
     ...memberRows.map((member) => ({
@@ -154,9 +170,9 @@ export async function dispatchContext(db, thread, job) {
       aliases: [...new Set([member.name, member.email].filter(Boolean))],
     })),
     {
-      id: AGENT_L2_MEMBER.id,
-      name: AGENT_L2_MEMBER.name,
-      aliases: [AGENT_L2_MEMBER.name, "Agent助手"],
+      id: AGENT_XIAOXIANG_MEMBER.id,
+      name: AGENT_XIAOXIANG_MEMBER.name,
+      aliases: [AGENT_XIAOXIANG_MEMBER.name, "Agent助手"],
     },
   ];
   const versions = new Map(
@@ -209,10 +225,10 @@ export async function dispatchContext(db, thread, job) {
         BigInt(member.pending_through_sequence || 0) > BigInt(member.through_sequence || 0),
     })),
     {
-      id: AGENT_L2_MEMBER.id,
-      name: AGENT_L2_MEMBER.name,
-      projectRole: AGENT_L2_MEMBER.role,
-      identityTag: AGENT_L2_MEMBER.identity_tags[0],
+      id: AGENT_XIAOXIANG_MEMBER.id,
+      name: AGENT_XIAOXIANG_MEMBER.name,
+      projectRole: AGENT_XIAOXIANG_MEMBER.role,
+      identityTag: AGENT_XIAOXIANG_MEMBER.identity_tags[0],
       signature: "",
       messageCount: 0,
       understanding: null,
@@ -338,7 +354,7 @@ export async function dispatchContext(db, thread, job) {
         goal: thread.goal || "",
       },
       event:
-        job.kind === "child_result" || job.kind === "l3_idle"
+        job.kind === "child_result" || job.kind === "child_idle"
           ? { kind: job.kind, ...job.payload }
           : { kind: "member_message", messageId: job.message_id },
       projectSummary: projectSummaryRows[0]?.summary || null,
@@ -356,30 +372,89 @@ export async function dispatchContext(db, thread, job) {
   };
 }
 
+/**
+ * 请求数据只带「会话里还没有的」那部分：
+ * - 迭代资料已由 IterationInfo 给出，不再重复；
+ * - messages 是整条迭代的正文，每轮重发等于把历史重复一遍，一律不发；
+ * - 热会话（小祥 DSH 会话还活着）自己保留历史，history 也不发；
+ * - 冷会话（首次运行或服务重启后）补最近 15 条，避免新会话缺上下文。
+ */
+/** 增量注入最多连续几轮：超过就重发一次全量，避免压缩/漂移把资料丢干净。 */
+const PROMPT_DELTA_MAX_SKIPS = 6;
+
+/** 压缩状态的指纹：压缩过就必须重发全量资料，否则会话历史里可能已经没有它们了。 */
+async function compactionStamp(db, threadId) {
+  const [row] = await query(
+    db,
+    "SELECT compact_status,compact_result FROM agent_sessions WHERE thread_id=?",
+    [threadId],
+  ).catch(() => [null]);
+  if (!row) return "none";
+  return createHash("sha256")
+    .update(`${row.compact_status || ""}|${row.compact_result || ""}`)
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function promptDataForTurn(payload, warmSession) {
+  if (!payload || typeof payload !== "object") return payload ?? {};
+  const {
+    iteration: _iteration,
+    messages: _messages,
+    // 项目摘要与成员资料已经单独成 A 段块（稳定前缀），这里不再重复。
+    projectSummary: _summary,
+    members: _members,
+    history,
+    latestMessage,
+    ...rest
+  } = payload;
+  return warmSession ? { ...rest, latestMessage } : { ...rest, latestMessage, history };
+}
+
 export async function runCoordinatorAgent(context, { db, job, user }) {
   const runtime = await acquireCoordinatorRuntime(context, { db, job, user });
+  // acquire 成功复用会话才算热会话（会话轮换或新开时一定会重建，历史必须随 prompt 发）。
+  const warmSession = Boolean(runtime.reused);
   let completed = false;
+  let lastEventId = 0;
   try {
+    // 本轮写入轨迹的第一条事件之前的位置：收尾时把这次运行的事件标成同一轮。
+    if (job.message_id) {
+      const [maxEvent] = await query(
+        db,
+        "SELECT COALESCE(MAX(id),0) id FROM agent_events WHERE message_id=?",
+        [job.message_id],
+      );
+      lastEventId = Number(maxEvent?.id || 0);
+    }
     const launched = [];
     const launchFailed = [];
     let inflightLaunch = null;
-    const launchAwaitingL3 = async () => {
-      const waiting = await tasksAwaitingL3Launch(db, runtime.session.session_id);
+    const launchAwaitingChild = async () => {
+      const waiting = await tasksAwaitingChildLaunch(db, runtime.session.session_id);
       for (const row of waiting) {
-        const launch = await l3LaunchPrompt(db, row.id);
+        const launch = await childLaunchPrompt(db, row.id);
         if (!launch) continue;
         inflightLaunch = { taskId: row.id };
         try {
-          const started = await runtime.request("dispatch-l3", {
+          const started = await runtime.request("dispatch-child", {
             label: launch.label,
             prompt: launch.prompt,
+            persona: launch.personaPrompt || undefined,
           });
-          const bound = await bindDshL3Execution(
+          const bound = await bindChildAgentExecution(
             db,
             runtime.session.session_id,
             started.childId,
             row.id,
           );
+          if (bound?.execution_agent_id)
+            await recordChildLaunchTrace(db, {
+              taskId: row.id,
+              messageId: job.message_id,
+              childSessionId: started.childId,
+              brief: launch,
+            });
           if (!bound?.execution_agent_id) {
             try {
               await runtime.request("interrupt", { sessionId: started.childId });
@@ -406,22 +481,44 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         }
       }
     };
-    if (job.kind === "child_result" || job.kind === "l3_idle" || job.kind === "member_message") {
-      await launchAwaitingL3();
+    if (job.kind === "child_result" || job.kind === "child_idle" || job.kind === "member_message") {
+      await launchAwaitingChild();
     }
     const startedNote = launched.length
-      ? `系统已启动这些任务的子 Agent：${launched.map((item) => item.taskId).join("，")}。不要再为它们调用 dsh_l3。`
+      ? `系统已启动这些任务的子 Agent：${launched.map((item) => item.taskId).join("，")}。不要再为它们调用 child_agent。`
       : "";
     const failedNote = launchFailed.length
-      ? `这些任务系统没能启动，请立刻 dsh_l3，prompt 第一行写 TASK_ID：${launchFailed.join("，")}。`
+      ? `这些任务系统没能启动，请立刻 child_agent，prompt 第一行写 TASK_ID：${launchFailed.join("，")}。`
       : "";
     const dispatchInstruction =
       failedNote ||
-      "payload 里的 pendingTasks 由系统按任务 id 启动子 Agent，不要为了绑定再调用 dsh_l3。需要换人或恢复原会话时才用 dsh_l3 或 send_message，prompt 第一行写 TASK_ID。";
+      "payload 里的 pendingTasks 由系统按任务 id 启动子 Agent，不要为了绑定再调用 child_agent。需要换人或恢复原会话时才用 child_agent 或 send_message，prompt 第一行写 TASK_ID。";
     const sourceRequestId =
       job.kind === "member_message"
         ? job.message_id
         : job.payload?.sourceMessageId || job.message_id || null;
+    // 来源请求与最新消息固定放在 prompt 最后一块：前面全是可缓存的资料。
+    const turnData =
+      job.kind === "child_idle"
+        ? job.payload || {}
+        : promptDataForTurn(context.promptContext || context, warmSession);
+    const latestMessageForTurn = turnData?.latestMessage ?? null;
+    const turnDataText =
+      job.kind === "child_idle"
+        ? JSON.stringify(turnData)
+        : JSON.stringify((({ latestMessage: _latest, ...rest }) => rest)(turnData));
+    // 增量注入资格：同一会话 + 资料版本没变 + 压缩状态没变 + 没连续增量超限。
+    const promptSessionId = runtime.session?.session_id || null;
+    const previousPromptState = readPromptState(job.thread_id);
+    const compactStamp = await compactionStamp(db, job.thread_id);
+    const deltaEligible = Boolean(
+      warmSession &&
+      promptSessionId &&
+      previousPromptState &&
+      previousPromptState.sessionId === promptSessionId &&
+      previousPromptState.compactStamp === compactStamp &&
+      (previousPromptState.skips ?? 0) < PROMPT_DELTA_MAX_SKIPS,
+    );
     const turn = buildDiscussionTurn({
       projectId: context.project_id,
       iterationId: job.thread_id,
@@ -432,12 +529,99 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       sourceRequestId,
       wakeKind: job.kind || "member_message",
       notes: [startedNote, dispatchInstruction].filter(Boolean).join(""),
-      dataText:
-        job.kind === "l3_idle"
-          ? JSON.stringify(job.payload || {})
-          : JSON.stringify(context.promptContext || context),
+      projectSummary: context.promptContext?.projectSummary || "",
+      // 花名册只放稳定身份字段，成员认识单独走 D 段，稳定前缀才不会每轮抖。
+      members: (context.promptContext?.members || []).map((member) => ({
+        id: member.id,
+        name: member.name,
+        projectRole: member.projectRole,
+        identityTag: member.identityTag,
+        signature: member.signature,
+      })),
+      memberMemory: (context.promptContext?.members || [])
+        .filter((member) => member.understanding || member.statementSummary || member.messageCount)
+        .map((member) => ({
+          id: member.id,
+          name: member.name,
+          messageCount: member.messageCount,
+          understanding: member.understanding,
+          statementSummary: member.statementSummary,
+          understandingThroughSequence: member.understandingThroughSequence,
+          understandingRefreshPending: member.understandingRefreshPending,
+        })),
+      latestMessage: latestMessageForTurn,
+      dataText: turnDataText,
+      sent: deltaEligible ? previousPromptState : null,
     });
     const prompt = turn.prompt;
+    // 记住这一轮已经下发过哪些资料，下一轮据此只补变化部分。
+    writePromptState(job.thread_id, {
+      sessionId: promptSessionId,
+      compactStamp,
+      blocks: turn.sentState?.blocks || {},
+      members: turn.sentState?.members || {},
+      skips: deltaEligible ? (previousPromptState?.skips ?? 0) + 1 : 0,
+    });
+    // cothread 的系统提示词会随服务端补丁变化：同一会话的下一轮可能拿到新版本，
+    // 所以逐轮记录本轮真正生效的系统提示词，轨迹里每轮都能对上。
+    if (job.message_id) {
+      const systemText = [COTHREAD_SYSTEM_TEXT, SYSTEM_PROMPTS?.xiaoxiang?.prompt]
+        .filter(Boolean)
+        .join("\n\n");
+      if (systemText)
+        await query(
+          db,
+          "INSERT INTO agent_events(message_id,agent_session_id,agent_task_id,tool,status,input,output,created_at,finished_at) VALUES(?,?,?,'system_prompt','completed',?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))",
+          [
+            job.message_id,
+            runtime.session.session_id,
+            job.task_id || null,
+            systemText.slice(0, 4000),
+            JSON.stringify({
+              kind: "cothread-system-prompt",
+              form: "system",
+              summary: "本轮系统提示词",
+            }).slice(0, 4000),
+          ],
+        ).catch((error) =>
+          console.error("System prompt persistence failed", { type: error?.name || "Error" }),
+        );
+    }
+    // 本轮真实注入模型的上下文：项目资料、迭代资料、对话模式、唤醒原因、请求数据。
+    // 记的是实际发出去的那份 prompt，轨迹里的「上下文」行据此显示，不是事后补的描述。
+    if (job.message_id) {
+      await query(
+        db,
+        "INSERT INTO agent_events(message_id,agent_session_id,agent_task_id,tool,status,input,output,created_at,finished_at) VALUES(?,?,?,'context_notice','completed',?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))",
+        [
+          job.message_id,
+          runtime.session.session_id,
+          job.task_id || null,
+          prompt.slice(0, 4000),
+          JSON.stringify({
+            kind: "cothread-turn-context",
+            form: "notice",
+            summary: deltaEligible
+              ? "只补变化部分"
+              : "摘要 / 成员 / 项目 / 迭代 / 对话模式 / 唤醒 / 请求数据",
+            // 本轮实际注入的 prompt 字符数：用来核对有没有把同一份资料带两遍。
+            promptChars: prompt.length,
+            // 稳定前缀（A 段）的摘要：相邻几轮相同才说明缓存前缀没被打乱。
+            stablePrefix: stablePrefixDigest(turn.blocks || []),
+            // 本轮是不是增量注入（省略了没有变化的资料块）。
+            delta: deltaEligible,
+            blocks: (turn.blocks || []).map((block) => ({
+              name: block.name,
+              trust: block.trust,
+              version: block.version,
+              chars: block.text.length,
+            })),
+          }).slice(0, 4000),
+        ],
+      ).catch((error) =>
+        console.error("Turn context persistence failed", { type: error?.name || "Error" }),
+      );
+    }
     const steeredMessageIds = new Set();
     const mergedMessageIds = new Set();
     let steeringBusy = false;
@@ -588,7 +772,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           db,
           `SELECT t.id FROM agent_task_execution_runs r
           JOIN agent_tasks t ON t.id=r.task_id
-          WHERE t.target_type='l2_session' AND t.target_id=? AND r.executor_type='dsh_l3'
+          WHERE t.target_type='xiaoxiang' AND t.target_id=? AND r.executor_type='child_agent'
             AND r.status='queued' AND r.executor_id IS NULL AND r.task_revision=t.revision
           ORDER BY r.created_at`,
           [runtime.session.session_id],
@@ -598,22 +782,22 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           : await query(
               db,
               `SELECT t.id FROM agent_tasks t
-          WHERE t.target_type='l2_session' AND t.target_id=? AND t.status='pending_assignment'
+          WHERE t.target_type='xiaoxiang' AND t.target_id=? AND t.status='pending_assignment'
           ORDER BY t.created_at`,
               [runtime.session.session_id],
             );
         if (pending.length !== 1) {
           return failBind(
             pending.length
-              ? "dsh_l3 prompt 缺少 TASK_ID，当前有多条待指派任务，无法自动绑定"
-              : "没有可绑定的任务。有空闲子 Agent 时 create_task 后必须带 TASK_ID 调用 dsh_l3；待指派任务也要带 TASK_ID。",
+              ? "child_agent prompt 缺少 TASK_ID，当前有多条待指派任务，无法自动绑定"
+              : "没有可绑定的任务。有空闲子 Agent 时 create_task 后必须带 TASK_ID 调用 child_agent；待指派任务也要带 TASK_ID。",
           );
         }
         bindId = pending[0].id;
       }
       let task = null;
       try {
-        task = await bindDshL3Execution(db, runtime.session.session_id, childId, bindId);
+        task = await bindChildAgentExecution(db, runtime.session.session_id, childId, bindId);
       } catch (error) {
         if (error?.status === 409 || error?.status === 404) return failBind(error.message);
         throw error;
@@ -638,7 +822,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       const finished = finishedChildren.get(childId);
       if (finished) {
         finishedChildren.delete(childId);
-        const settled = await settleDshL3Execution(
+        const settled = await settleChildAgentExecution(
           db,
           runtime.session.session_id,
           childId,
@@ -657,7 +841,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       // Sample while the live child is still reachable. Measuring after teardown
       // can create an empty session and persist used:0 over a good mid-run sample.
       try {
-        await persistL3ContextStats(
+        await persistChildContextStats(
           db,
           childId,
           await runtime.request("context", { sessionId: childId }),
@@ -669,7 +853,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         });
       }
       try {
-        await persistL3RunCheckpoint(
+        await persistChildRunCheckpoint(
           db,
           childId,
           await runtime.request("history", { sessionId: childId }),
@@ -684,7 +868,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       // send_message can cold-resume the same continuable child.
       await runtime.request("compact", { sessionId: childId, automatic: false }).catch(() => {});
       try {
-        await persistL3ContextStats(
+        await persistChildContextStats(
           db,
           childId,
           await runtime.request("context", { sessionId: childId }),
@@ -696,9 +880,9 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         });
       }
     };
-    const nativeTools = new Set(["dsh_l3", "send_message", "interrupt_agent", "list_agents"]);
+    const nativeTools = new Set(["child_agent", "send_message", "interrupt_agent", "list_agents"]);
     const nativeEventInput = (name, args) =>
-      name === "dsh_l3"
+      name === "child_agent"
         ? { taskId: taskIdFromPrompt(args.prompt) }
         : name === "send_message"
           ? { agentId: args.agent_id || null, taskId: taskIdFromPrompt(args.message) }
@@ -730,12 +914,40 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
     const persistCoordinatorUsage = async () => {
       if (!job.message_id) return;
       try {
-        const usage = usageMeter.result() || {};
-        await saveReplyUsage(db, job.message_id, {
-          ...usage,
+        const usage = {
+          ...(usageMeter.result() || {}),
           ...capturedModelUsage(runtime.modelCapture),
           executionDurationMs: Math.round(modelDurationMs),
-        });
+        };
+        // 本轮步数按轨迹口径（一次模型响应一步）落库，底部统计据此汇总。
+        if (job.message_id) {
+          const runTools = await query(
+            db,
+            `SELECT e.tool FROM agent_events e
+             WHERE e.message_id=? AND e.id>?
+               AND NOT EXISTS (SELECT 1 FROM agent_child_sessions cs WHERE cs.session_id=e.agent_session_id)
+               AND NOT EXISTS (SELECT 1 FROM agent_task_execution_runs cr
+                 WHERE cr.executor_type='child_agent' AND cr.executor_id=e.agent_session_id)
+             ORDER BY e.id`,
+            [job.message_id, lastEventId],
+          );
+          usage.steps = countTurnSteps(runTools);
+        }
+        const turnId = messageTurnIdForJob(job);
+        // 唤醒续报是独立一轮：用量记到这一轮上，不并进原始那一轮。
+        if (job.kind === "child_result" || job.kind === "child_idle") {
+          await saveTurnUsage(db, job.thread_id, turnId, usage);
+        } else {
+          await saveReplyUsage(db, job.message_id, usage);
+          await saveTurnUsage(db, job.thread_id, turnId, usage);
+        }
+        // 轨迹事件同样按轮归档：轨迹页与底部轮次统计据此把续报算作新的一轮。
+        if (job.message_id && turnId)
+          await query(
+            db,
+            "UPDATE agent_events SET turn_id=? WHERE message_id=? AND turn_id IS NULL AND id>?",
+            [turnId, job.message_id, lastEventId],
+          );
       } catch (error) {
         console.error("Usage persistence failed", { type: error?.name || "Error" });
       }
@@ -746,7 +958,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       if (callerSessionId && callerSessionId !== runtime.session.session_id) {
         ensureChildThinking(callerSessionId)?.notify(notification);
         // Any child session event (thinking / tool / text) renews 子 Agent liveness.
-        void touchL3InferenceHeartbeat(db, callerSessionId).catch(() => {});
+        void touchChildInferenceHeartbeat(db, callerSessionId).catch(() => {});
       } else runtime.thinking.notify(notification);
       lifecycle = lifecycle
         .then(async () => {
@@ -767,7 +979,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
                 const [activeRun] = await query(
                   db,
                   `SELECT task_id FROM agent_task_execution_runs
-                WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting')
+                WHERE executor_type='child_agent' AND executor_id=? AND status IN ('running','waiting')
                 ORDER BY created_at DESC LIMIT 1`,
                   [callerSessionId],
                 );
@@ -793,11 +1005,11 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
               });
               if (
                 callerSessionId === runtime.session.session_id &&
-                ["dsh_l3", "send_message"].includes(event.data.name)
+                ["child_agent", "send_message"].includes(event.data.name)
               ) {
                 toolTasks.set(event.data.callId, {
                   taskId: taskIdFromPrompt(
-                    event.data.name === "dsh_l3" ? args.prompt : args.message,
+                    event.data.name === "child_agent" ? args.prompt : args.message,
                   ),
                   childId: event.data.name === "send_message" ? args.agent_id : null,
                   parentEventId: inserted.insertId,
@@ -825,10 +1037,10 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
                   await attachChildTask(binding.childId, binding.taskId, binding.parentEventId);
               }
               // create_task queues an unbound run; launch 子 Agent in the same turn instead of
-              // waiting for finishCoordinatorDispatch → l3_idle → another wake.
+              // waiting for finishCoordinatorDispatch → child_idle → another wake.
               // Host-bridge tool results sometimes omit sessionId; treat missing as parent.
               if (!callerSessionId || callerSessionId === runtime.session.session_id) {
-                await launchAwaitingL3();
+                await launchAwaitingChild();
               }
             }
           } else if (
@@ -850,7 +1062,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
             const [alreadyBound] = await query(
               db,
               `SELECT task_id FROM agent_task_execution_runs
-            WHERE executor_type='dsh_l3' AND executor_id=? AND status IN ('running','waiting') LIMIT 1`,
+            WHERE executor_type='child_agent' AND executor_id=? AND status IN ('running','waiting') LIMIT 1`,
               [childId],
             );
             if (alreadyBound) {
@@ -896,7 +1108,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
               });
               childRunEvents.delete(childId);
             }
-            const settled = await settleDshL3Execution(
+            const settled = await settleChildAgentExecution(
               db,
               runtime.session.session_id,
               childId,
@@ -927,7 +1139,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         activeChildren.add(item.childId);
         ensureChildThinking(item.childId, item.taskId);
       }
-      if (job.kind === "l3_idle" && launched.length && !launchFailed.length) {
+      if (job.kind === "child_idle" && launched.length && !launchFailed.length) {
         if (activeChildren.size)
           runtime.watchChildren?.(handleAgentTeamNotification, () => lifecycle);
         completed = true;
@@ -941,9 +1153,9 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       }
       result = await runCoordinatorTurn(prompt);
       await lifecycle;
-      // RPC to dispatch-l3 is serialized behind harness.run, so this is where
+      // RPC to dispatch-child is serialized behind harness.run, so this is where
       // create_task-era launches actually execute (parent idle + runMaintenance).
-      await launchAwaitingL3();
+      await launchAwaitingChild();
       for (const item of launched) {
         activeChildren.add(item.childId);
         ensureChildThinking(item.childId, item.taskId);
@@ -971,7 +1183,12 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
   }
 }
 
-export async function processNextCoordinator(db, threadId, runAgent = runCoordinatorAgent) {
+export async function processNextCoordinator(
+  db,
+  threadId,
+  runAgent = runCoordinatorAgent,
+  options = {},
+) {
   const candidates = threadId
     ? [{ thread_id: threadId }]
     : await query(
@@ -1075,7 +1292,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
   }
   if (!job) return false;
   if (job.alreadyHandled) return true;
-  if ((job.kind === "child_result" || job.kind === "l3_idle") && !job.author_id) {
+  if ((job.kind === "child_result" || job.kind === "child_idle") && !job.author_id) {
     const [member] = await query(
       db,
       `SELECT u.id FROM members m JOIN users u ON u.id=m.user_id
@@ -1104,6 +1321,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
           title: thread.title,
           threadId: job.thread_id,
           messageId: job.message_id,
+          ...(options.decide ? { decide: options.decide } : {}),
         });
       } catch (error) {
         console.error("Opportunistic participation crashed", {
@@ -1140,6 +1358,11 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
           [],
           "assistant",
           job.message_id,
+          undefined,
+          "cloud",
+          null,
+          [],
+          messageTurnIdForJob(job),
         );
         await absorbOpportunisticBurst(conn, burstIds, reply.id, job.message_id);
       });
@@ -1158,7 +1381,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
       });
       return true;
     }
-    if (job.kind !== "child_result" && job.kind !== "l3_idle") {
+    if (job.kind !== "child_result" && job.kind !== "child_idle") {
       await query(
         db,
         "UPDATE assistant_replies SET status='running',progress=? WHERE message_id=? AND status='queued'",
@@ -1172,7 +1395,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
     );
     // Idle wakes do not reload discussion, but runtime ingest always filters these arrays.
     const context =
-      job.kind === "l3_idle"
+      job.kind === "child_idle"
         ? {
             project_id: thread.project_id,
             title: thread.title,
@@ -1224,7 +1447,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
     let responseId = posts[0]?.id || null;
     await transaction(db, async (conn) => {
       await assertCurrentExecutorEpoch(conn);
-      if (job.kind === "child_result" || job.kind === "l3_idle") {
+      if (job.kind === "child_result" || job.kind === "child_idle") {
         // Append a follow-up when 小祥 has something new to say. Identical bodies from
         // onVisibleText must not create a second chat bubble.
         if (visible) {
@@ -1235,6 +1458,7 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
             job.thread_id,
             visible,
             job.message_id,
+            messageTurnIdForJob(job),
           );
           if (posted) responseId = posted.id;
         }
@@ -1294,12 +1518,12 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
   } catch (error) {
     if (isExecutorEpochLost(error)) throw error;
     const retryableBusy =
-      error?.code === "L2_SESSION_BUSY" ||
-      error?.code === "L3_SESSION_BUSY" ||
+      error?.code === "XIAOXIANG_SESSION_BUSY" ||
+      error?.code === "CHILD_SESSION_BUSY" ||
       /session is busy/i.test(String(error?.message || ""));
     await transaction(db, async (conn) => {
       await assertCurrentExecutorEpoch(conn);
-      if (job.kind === "child_result" || job.kind === "l3_idle") {
+      if (job.kind === "child_result" || job.kind === "child_idle") {
         if (retryableBusy) {
           await query(
             conn,
@@ -1346,6 +1570,10 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
         job.message_id,
       ]);
     });
+    // 本轮没跑完：增量基线不可信（资料可能没真正下发），下一轮退回全量。
+    // 这里在 processNextCoordinator 的失败分支，completed 属于 runCoordinatorAgent 的作用域，
+    // 不能跨函数读取；失败即视为没跑完。
+    await clearPromptState(job.thread_id);
     console.error("Coordinator request failed", {
       messageId: job.message_id,
       type: error?.name || "Error",
@@ -1360,12 +1588,22 @@ export async function processNextCoordinator(db, threadId, runAgent = runCoordin
       try {
         await parkCoordinatorRuntime(job.thread_id, parkRuntime, true);
       } catch (error) {
-        console.error("Coordinator runtime park failed", { type: error?.name || "Error" });
+        console.error("Coordinator runtime park failed", {
+          type: error?.name || "Error",
+          code: error?.code || null,
+          diagnostic: redactSecrets(error?.message || error).slice(-600),
+          stack: redactSecrets(error?.stack || "")
+            .split("\n")
+            .slice(0, 6)
+            .join(" | "),
+        });
         await discardCoordinatorRuntime(job.thread_id, parkRuntime).catch(() => {});
       }
     }
     try {
-      await finishCoordinatorDispatch(db, job.thread_id, { enqueueIdle: job.kind !== "l3_idle" });
+      await finishCoordinatorDispatch(db, job.thread_id, {
+        enqueueIdle: job.kind !== "child_idle",
+      });
     } catch (error) {
       console.error("Coordinator dispatch follow-up failed", {
         type: error?.name || "Error",

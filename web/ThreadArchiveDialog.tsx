@@ -4,7 +4,7 @@ import { TextAreaField } from "./TextAreaField";
 import { RefreshButton } from "./IconButton";
 import { DialogBody } from "./DialogBody";
 import { DialogHeader } from "./DialogHeader";
-import { useTipError } from "./Tip";
+import { showTip, useTipError } from "./Tip";
 import React, { useEffect, useRef, useState } from "react";
 import { Dialog, ModalBackdrop } from "./dialog-fx";
 import { MarkdownDocumentPreview } from "./MarkdownDocumentPreview";
@@ -70,10 +70,20 @@ type ArchiveWorkflow = {
   nextThreadId?: string;
   session?: { phase?: string; messages?: { role: string; text: string }[] };
   members?: { id: string; name: string }[];
+  /** 本轮范围内的记忆草稿：归档确认时逐条校准。 */
+  memoryDrafts?: { id: string; kind: string; status?: string; title: string; preview?: string }[];
 };
 type ArchiveStep = 1 | 2 | 3 | 4 | 5;
 
 const STEPS = ["AI分析整理", "迭代总结审查", "需决策事项", "新迭代承接", "AI操作执行"] as const;
+
+const MEMORY_KIND_LABELS: Record<string, string> = {
+  guide: "指南",
+  decision: "决策",
+  retro: "复盘",
+  glossary: "术语",
+  status: "当前状态",
+};
 
 const archiveItemsOf = (value: ArchiveWorkflow) =>
   (value.nextIteration?.items || []).map((item) => ({
@@ -120,6 +130,7 @@ export function ThreadArchiveDialog({
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useTipError();
+  const [memoryConfirms, setMemoryConfirms] = useState<string[]>([]);
   const [pollVersion, setPollVersion] = useState(0);
   const initialized = useRef("");
   const changed = useRef(onChanged);
@@ -211,6 +222,7 @@ export function ThreadArchiveDialog({
                 }),
               ),
               notes: draft.notes,
+              confirmedEntryIds: memoryConfirms,
               createNextIteration: withNext,
               nextIteration: {
                 ...draft.nextIteration,
@@ -231,6 +243,20 @@ export function ThreadArchiveDialog({
         setStep(1);
         setPollVersion((value) => value + 1);
       } else {
+        // 迭代归档同时清算项目记忆：让人当场看到结果，不必再去记忆弹窗里数。
+        if (action === "confirm" && result?.settlement) {
+          const settlement = result.settlement;
+          showTip(
+            "记忆清算：转正 " +
+              Number(settlement.promoted || 0) +
+              " · 保留草稿 " +
+              Number(settlement.keptDraft || 0) +
+              " · 替代 " +
+              Number(settlement.superseded || 0) +
+              " · 待裁决 " +
+              Number(settlement.disputed || 0),
+          );
+        }
         await changed.current(action === "cancel" ? "active" : "archived", result?.nextThreadId);
         onClose();
       }
@@ -771,6 +797,68 @@ export function ThreadArchiveDialog({
                         );
                       });
                     })()}
+                  </section>
+                )}
+                {step === 4 && workflow && (
+                  <section className="archive-memory-verify">
+                    <p className="muted">
+                      本轮整理出的记忆草稿共 {(workflow.memoryDrafts || []).length}{" "}
+                      条。勾选的会在归档时转为现行；
+                      不勾的保留为草稿，之后可以在项目记忆里随时确认。
+                    </p>
+                    {(workflow.memoryDrafts || []).length ? (
+                      <>
+                        <div className="archive-memory-verify-actions">
+                          <button
+                            type="button"
+                            disabled={!editable}
+                            onClick={() =>
+                              setMemoryConfirms(
+                                (workflow.memoryDrafts || []).map((item) => item.id),
+                              )
+                            }
+                          >
+                            全选
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!editable || !memoryConfirms.length}
+                            onClick={() => setMemoryConfirms([])}
+                          >
+                            清空
+                          </button>
+                        </div>
+                        <ul className="archive-memory-verify-list">
+                          {(workflow.memoryDrafts || []).map((item) => (
+                            <li key={item.id}>
+                              <label>
+                                <input
+                                  type="checkbox"
+                                  disabled={!editable}
+                                  checked={memoryConfirms.includes(item.id)}
+                                  onChange={(event) =>
+                                    setMemoryConfirms((current) =>
+                                      event.target.checked
+                                        ? [...new Set([...current, item.id])]
+                                        : current.filter((id) => id !== item.id),
+                                    )
+                                  }
+                                />
+                                <span className="archive-memory-kind">
+                                  {MEMORY_KIND_LABELS[item.kind] || item.kind}
+                                </span>
+                                <span>{item.title}</span>
+                              </label>
+                              {item.preview ? (
+                                <small className="muted">{item.preview}</small>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <p className="muted">这一轮没有需要校准的记忆草稿。</p>
+                    )}
                   </section>
                 )}
                 {step === 4 && !needsNext && (

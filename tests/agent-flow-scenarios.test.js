@@ -71,11 +71,13 @@ test("intake routes mention, vocative, chat, and solo member into full mode", as
   }
 
   const chatRoom = await projectWith(owner, [other]);
-  const chat = await service.postMessage(owner, chatRoom.thread.id, {
-    body: "随便聊聊",
-    dialogueMode: "chat",
-  });
-  assert.equal(await participationOf(chat.id), "reply", "chat 模式");
+  await assert.rejects(
+    service.postMessage(owner, chatRoom.thread.id, {
+      body: "随便聊聊",
+      dialogueMode: "chat",
+    }),
+    (error) => error.status === 400,
+  );
 
   const soloOwner = await person("丙");
   const solo = await projectWith(soloOwner);

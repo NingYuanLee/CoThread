@@ -21,15 +21,15 @@ export function taskDetailTimeline(
     reopened: "重新发起",
   };
   const targetLabel = (type: string | null, id: string | null) =>
-    type === "l2_session" ? "小祥" : type === "human_member" ? memberName(id) || "成员" : "";
+    type === "xiaoxiang" ? "小祥" : type === "human_member" ? memberName(id) || "成员" : "";
   const items: (TaskTimelineItem & { transition?: string })[] = task.assignmentHistory
     .filter(
       (event) =>
         !(
           event.event_type === "transferred" &&
-          event.from_target_type === "l2_session" &&
-          event.to_target_type === "l2_session" &&
-          /(?:L2|小祥) 会话已更新/.test(event.reason || "")
+          event.from_target_type === "xiaoxiang" &&
+          event.to_target_type === "xiaoxiang" &&
+          /(?:小祥|小祥) 会话已更新/.test(event.reason || "")
         ),
     )
     .map((event) => ({

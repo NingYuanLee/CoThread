@@ -21,8 +21,12 @@ export function agentRuntimePatch() {
   return `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n${pluginRow("cothread-sdk-server", "dsh-layer/sdk-resume.mjs", "[sdkAppStartup, loader]")}${pluginRow("cothread-project-tools", "dsh-layer/cothread-tools.mjs")}${pluginRow("cothread-system-prompt", "dsh-layer/cothread-system-prompt.mjs")}${pluginRow("cothread-visual-verification", "dsh-layer/cothread-visual-verification.mjs")}${pluginRow("cothread-db-skills", "dsh-layer/cothread-skills.mjs")}`;
 }
 
-export function l1RuntimePatch() {
-  return `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n${pluginRow("cothread-sdk-server", "dsh-layer/sdk-resume.mjs", "[sdkAppStartup, loader]")}${pluginRow("cothread-l1-tool-policy", "dsh-layer/l1-tools.mjs")}${pluginRow("cothread-system-prompt", "dsh-layer/cothread-system-prompt.mjs")}${pluginRow("cothread-visual-verification", "dsh-layer/cothread-visual-verification.mjs")}${pluginRow("cothread-db-skills", "dsh-layer/cothread-skills.mjs")}`;
+export function laowengRuntimePatch() {
+  return `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n${pluginRow("cothread-sdk-server", "dsh-layer/sdk-resume.mjs", "[sdkAppStartup, loader]")}${pluginRow("cothread-laoweng-tool-policy", "dsh-layer/laoweng-tools.mjs")}${pluginRow("cothread-system-prompt", "dsh-layer/cothread-system-prompt.mjs")}${pluginRow("cothread-visual-verification", "dsh-layer/cothread-visual-verification.mjs")}${pluginRow("cothread-db-skills", "dsh-layer/cothread-skills.mjs")}`;
+}
+
+export function elderRuntimePatch() {
+  return `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n${pluginRow("cothread-sdk-server", "dsh-layer/sdk-resume.mjs", "[sdkAppStartup, loader]")}${pluginRow("cothread-elder-ask-tools", "dsh-layer/elder-ask-tools.mjs")}${pluginRow("cothread-system-prompt", "dsh-layer/cothread-system-prompt.mjs")}${pluginRow("cothread-db-skills", "dsh-layer/cothread-skills.mjs")}`;
 }
 
 export function dshComposition(level) {
@@ -30,11 +34,12 @@ export function dshComposition(level) {
   const profile = loadProfile("cothread", "sdk-minimal", dshManifest, inspectionHome, {
     userLayer: false,
   });
-  const staticPatch = level === "l1" ? "dsh-layer/l1-agent-patch.yml" : "dsh-layer/agent-patch.yml";
-  const dynamicPatch = level === "l1" ? l1RuntimePatch() : agentRuntimePatch();
+  const staticPatch =
+    level === "laoweng" ? "dsh-layer/laoweng-agent-patch.yml" : "dsh-layer/agent-patch.yml";
+  const dynamicPatch = level === "laoweng" ? laowengRuntimePatch() : agentRuntimePatch();
   const layers = [
     ...profile.layers.map((layer) => layer.patches),
-    loadYaml(dshModelPatch(inspectionModel, level === "l1" ? "knowledge" : "coordinator")),
+    loadYaml(dshModelPatch(inspectionModel, level === "laoweng" ? "knowledge" : "coordinator")),
     loadOverlayPatches("cothread", assetPath(staticPatch)),
     loadYaml(dynamicPatch),
   ];

@@ -1,14 +1,16 @@
 const WORKFLOW_STATUS: Record<string, string> = {
+  draft: "草稿",
   pending_assignment: "待指派",
   awaiting_acceptance: "待确认",
   pending_start: "待开始",
   assigned: "已指派",
-  queued: "待指派",
+  queued: "排队中",
   waiting: "等待中",
   blocked: "已阻塞",
+  ignored: "已忽略",
   running: "执行中",
   completed: "已完成",
-  failed: "已失败",
+  failed: "已阻塞",
   cancelled: "已取消",
   rejected: "已拒绝",
   abandoned: "已放弃",
@@ -35,16 +37,16 @@ const REASONING_EFFORT: Record<string, string> = {
 
 const ACTOR_TYPE: Record<string, string> = {
   human_member: "人类成员",
-  l2_session: "小祥",
-  dsh_l3: "子 Agent",
+  xiaoxiang: "小祥",
+  child_agent: "子 Agent",
   human_self: "成员本人",
   human_local_executor: "本地执行器",
 };
 
 export const AGENT_LEVEL_LABELS = {
-  l1: "老翁",
-  l2: "小祥",
-  l3: "子 Agent",
+  laoweng: "老翁",
+  xiaoxiang: "小祥",
+  child_agent: "子 Agent",
 } as const;
 
 const AGENT_EVENT_STATUS: Record<string, string> = {
@@ -89,7 +91,15 @@ export function formatActorRef(
   return id ? `${label}：${id}` : label;
 }
 
-export const L3_EXECUTOR_NAMES = ["大娃", "二娃", "三娃", "四娃", "五娃", "六娃", "七娃"] as const;
+export const CHILD_EXECUTOR_NAMES = [
+  "大娃",
+  "二娃",
+  "三娃",
+  "四娃",
+  "五娃",
+  "六娃",
+  "七娃",
+] as const;
 
 export function uniqueActorIds(values: Array<string | null | undefined>): string[] {
   const ids: string[] = [];
@@ -114,12 +124,12 @@ export function stickyActorIds(
   );
 }
 
-export function l3ExecutorName(
+export function childExecutorName(
   executorId: string | null | undefined,
   knownIds: Array<string | null | undefined>,
 ): string | null {
   if (!executorId) return null;
   const index = uniqueActorIds(knownIds).indexOf(executorId);
-  if (index >= 0 && index < L3_EXECUTOR_NAMES.length) return L3_EXECUTOR_NAMES[index];
+  if (index >= 0 && index < CHILD_EXECUTOR_NAMES.length) return CHILD_EXECUTOR_NAMES[index];
   return "子 Agent";
 }

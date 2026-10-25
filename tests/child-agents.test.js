@@ -11,9 +11,9 @@ import { openAgentRuntime, stopAgent } from "../server/agent.js";
 import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.js";
 import { agentSession } from "../server/agent-session.js";
 import {
-  processNextL3ContextCompression,
-  queueL3ContextCompression,
-} from "../server/l3-context.js";
+  processNextChildContextCompression,
+  queueChildContextCompression,
+} from "../server/child-agent-context.js";
 import { deliverTaskUpdates } from "../server/agent-updates.js";
 import { pendingMessages } from "../shared/context.js";
 import { processNextCoordinator } from "../server/coordinator.js";
@@ -53,11 +53,11 @@ async function fixture(count = 2) {
   };
 }
 
-test("L3 DSH context is keyed by task while the sandbox stays per task", () => {
+test("子 Agent DSH context is keyed by task while the sandbox stays per task", () => {
   const threadId = "thread-a";
-  const l2 = agentSession({ thread_id: threadId });
-  assert.equal(l2.kind, "l2");
-  assert.equal(l2.id, threadId);
+  const xiaoxiang = agentSession({ thread_id: threadId });
+  assert.equal(xiaoxiang.kind, "xiaoxiang");
+  assert.equal(xiaoxiang.id, threadId);
   const first = agentSession({
     thread_id: threadId,
     parent_message_id: "task-1",
@@ -70,7 +70,7 @@ test("L3 DSH context is keyed by task while the sandbox stays per task", () => {
     agent_slot: 3,
     message_id: "task-2",
   });
-  assert.equal(first.kind, "l3");
+  assert.equal(first.kind, "child_agent");
   assert.equal(first.homeId, "task-1");
   assert.notEqual(first.homeId, second.homeId);
   assert.equal(first.workspaceId, "task-1");
@@ -154,32 +154,32 @@ test("project monitor reports knowledge, coordinators and isolated execution slo
   assert.equal(monitor.executors.find((item) => item.task_id === task.id).agent_slot, 1);
   assert.equal(monitor.executors.find((item) => item.task_id === task.id).execution_active, 1);
 
-  const l2SessionId = randomUUID();
+  const xiaoxiangSessionId = randomUUID();
   const childSessionId = randomUUID();
   await query(
     db,
     "INSERT INTO agent_sessions(thread_id,session_id) VALUES(?,?) ON DUPLICATE KEY UPDATE session_id=VALUES(session_id)",
-    [thread.id, l2SessionId],
+    [thread.id, xiaoxiangSessionId],
   );
   await query(
     db,
     `INSERT INTO agent_events(message_id,agent_session_id,tool,status,input,output,finished_at)
     VALUES(?,?,'list_agents','completed','{\"scope\":\"children\"}','private raw output',UTC_TIMESTAMP(3)),
       (?,?,'sandbox_command','failed','{\"command\":\"contains a secret\"}','secret output',UTC_TIMESTAMP(3))`,
-    [task.id, l2SessionId, task.id, childSessionId],
+    [task.id, xiaoxiangSessionId, task.id, childSessionId],
   );
   const logged = await service.agentMonitor(users[0], project.id);
-  const l2Log = logged.eventLog.find((event) => event.tool === "list_agents");
-  const l3Log = logged.eventLog.find(
+  const xiaoxiangLog = logged.eventLog.find((event) => event.tool === "list_agents");
+  const childLog = logged.eventLog.find(
     (event) => event.tool === "sandbox_command" && event.agent_session_id === childSessionId,
   );
-  assert.equal(l2Log.agent_type, "l2");
-  assert.equal(l2Log.action, "查看 AgentTeam children");
-  assert.equal(l3Log.agent_type, "dsh_l3");
-  assert.equal(l3Log.status, "failed");
-  assert.ok(l3Log.duration_ms >= 0);
-  assert.equal("input" in l3Log, false);
-  assert.equal("output" in l3Log, false);
+  assert.equal(xiaoxiangLog.agent_type, "xiaoxiang");
+  assert.equal(xiaoxiangLog.action, "查看 AgentTeam children");
+  assert.equal(childLog.agent_type, "child_agent");
+  assert.equal(childLog.status, "failed");
+  assert.ok(childLog.duration_ms >= 0);
+  assert.equal("input" in childLog, false);
+  assert.equal("output" in childLog, false);
 
   await assert.rejects(service.agentMonitor({ id: randomUUID(), kind: "session" }, project.id), {
     status: 403,
@@ -280,7 +280,7 @@ test("runtime checkpoints, sandboxes, steering and stop stay scoped to the child
   const { users, thread, post } = await fixture();
   await post(0);
   const main = await claimReply(db, thread.id);
-  // Force the first claimed job onto the L2 discussion session for this isolation check.
+  // Force the first claimed job onto the 小祥 discussion session for this isolation check.
   main.parent_message_id = null;
   await post(1);
   const child = await claimReply(db, thread.id);
@@ -372,7 +372,7 @@ test("runtime checkpoints, sandboxes, steering and stop stay scoped to the child
   }
 });
 
-test("L3 task context is reported on the monitor and accepts a manual compact", async () => {
+test("子 Agent task context is reported on the monitor and accepts a manual compact", async () => {
   const { users, project, thread, post } = await fixture();
   await post(0);
   await claimReply(db, thread.id);
@@ -419,10 +419,10 @@ test("L3 task context is reported on the monitor and accepts a manual compact", 
   const monitor = await service.agentMonitor(users[0], project.id);
   const usage = monitor.executors.find((item) => item.task_id === child.message_id);
   assert.equal(usage.contextUsage.used, 910000);
-  const queued = await queueL3ContextCompression(service, users[0], thread.id, child.message_id);
+  const queued = await queueChildContextCompression(service, users[0], thread.id, child.message_id);
   assert.equal(queued.status, "queued");
   assert.equal(
-    await processNextL3ContextCompression(db, { threadId: thread.id, createHarness }),
+    await processNextChildContextCompression(db, { threadId: thread.id, createHarness }),
     true,
   );
   assert.equal(compactCalls.at(-1).automatic, undefined);

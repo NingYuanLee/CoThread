@@ -8,12 +8,12 @@ export const AGENT_MEMBER: {
   readonly email: string;
   readonly role: string;
 };
-export const AGENT_L1_PROFILE: {
+export const AGENT_LAOWENG_PROFILE: {
   readonly nickname: string;
   readonly title: string;
   readonly avatar: string;
 };
-export const AGENT_L2_MEMBER: {
+export const AGENT_XIAOXIANG_MEMBER: {
   readonly id: string;
   readonly user_number: number;
   readonly name: string;
@@ -24,6 +24,5 @@ export const AGENT_L2_MEMBER: {
   readonly email: string;
   readonly role: string;
 };
-export const SUMMARY_REQUEST: string;
 export const TASK_CREATE_REQUEST: string;
 export function mentionsAgent(text: string): boolean;

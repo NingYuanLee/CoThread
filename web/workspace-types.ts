@@ -57,7 +57,7 @@ export type Detail = Project & {
     email: string;
     bound_email?: string | null;
     role: string;
-    kind?: "human" | "l1" | "l2";
+    kind?: "human" | "laoweng" | "xiaoxiang";
     nickname?: string | null;
     title?: string | null;
     display_avatar?: string | null;
@@ -113,6 +113,7 @@ export type LocalTask = {
     | "completed"
     | "failed"
     | "cancelled"
+    | "ignored"
     | "interrupted";
 };
 
@@ -133,7 +134,7 @@ export type AgentTask = {
   thread_number: number | null;
   title: string;
   goal: string;
-  task_type: "assist_l2" | "formal";
+  task_type: "assist" | "formal";
   status: string;
   source_type: string;
   source_user_id: string | null;
@@ -146,9 +147,26 @@ export type AgentTask = {
   execution_agent_type: string | null;
   execution_agent_id: string | null;
   progress: string | null;
+  blocked_reason?: string | null;
+  resume_condition?: string | null;
+  retry_count?: number | null;
+  max_retry_count?: number | null;
   result_summary: string | null;
   created_at: string;
   updated_at: string;
+};
+
+/** 本迭代任务统计的一个口径（仅待确认与已阻塞）。 */
+export type TaskStatusCounts = {
+  awaiting_acceptance: number;
+  blocked: number;
+};
+
+/** 本迭代任务统计：来源人是我 / 指派给我 / 全部任务。 */
+export type TaskStatusStats = {
+  source: TaskStatusCounts;
+  target: TaskStatusCounts;
+  all: TaskStatusCounts;
 };
 
 export type AgentTaskDetail = AgentTask & {
@@ -264,6 +282,8 @@ export type Thread = {
     author_avatar?: string | null;
     author_role?: string | null;
     agent_task_id?: string | null;
+    turn_id?: string | null;
+    turn_usage?: UsageStats | string | null;
     quoteTargetId?: string;
     render_key?: string;
     delivery_status?: "sending" | "failed";
@@ -307,6 +327,14 @@ export type Thread = {
   localExecutorTasks: LocalTask[];
   side_revision?: number | string;
   toolDurationMs?: number;
+  /** 有轨迹记录的轮数（有事件、且非子 Agent 会话）；底部统计与轨迹页同口径。 */
+  trajectoryRounds?: number;
+  /** 每轮用量（一次 run 一条，含子 Agent 完工续报轮）：底部统计按轮汇总。 */
+  turnUsage?: {
+    turn_id: string;
+    usage_stats: UsageStats | string | null;
+    finished_at?: string | null;
+  }[];
   sideState?: { mode: "snapshot" | "unchanged"; token: string };
   events: {
     id: string;

@@ -142,7 +142,7 @@ test("ordinary tool calls do not hide already streamed group text", async () => 
   assert.deepEqual(published, ["给成员看。", "已进入等待。"]);
 });
 
-test("conversation log button follows the live L2 event name", () => {
+test("conversation log button follows the live 小祥 event name", () => {
   const replies = [
     { message_id: "m1", parent_message_id: null, status: "completed", progress: null },
   ];

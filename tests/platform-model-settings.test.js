@@ -19,7 +19,7 @@ import {
 afterEach(() => clearPlatformModelSettings());
 
 const secret = "platform-secret-value";
-const knowledgeSecret = "platform-l1-secret";
+const knowledgeSecret = "platform-laoweng-secret";
 
 function memoryDb() {
   let row = null;
@@ -41,13 +41,14 @@ function memoryDb() {
         knowledge_model_name: params[7],
         knowledge_reasoning_effort: params[8],
         knowledge_api_key_ciphertext: params[9],
+        search_api_key_ciphertext: params[10],
         updated_at: "2026-10-22 00:00:00.000",
-        updated_by: params[10],
+        updated_by: params[11],
       };
       return [{ affectedRows: 1 }];
     }
     if (text.startsWith("UPDATE platform_model_settings")) {
-      if (!row || Number(row.version) !== Number(params[11])) return [{ affectedRows: 0 }];
+      if (!row || Number(row.version) !== Number(params[12])) return [{ affectedRows: 0 }];
       row = {
         ...row,
         version: Number(row.version) + 1,
@@ -60,7 +61,8 @@ function memoryDb() {
         knowledge_model_name: params[6],
         knowledge_reasoning_effort: params[7],
         knowledge_api_key_ciphertext: params[8],
-        updated_by: params[9],
+        search_api_key_ciphertext: params[9],
+        updated_by: params[10],
       };
       return [{ affectedRows: 1 }];
     }
@@ -158,7 +160,7 @@ test("saved settings override the environment and do not echo keys", async () =>
   }
 });
 
-test("L1 override is probed separately and L2 stays on the default route", async () => {
+test("老翁 override is probed separately and 小祥 stays on the default route", async () => {
   const db = memoryDb();
   const probed = okProbe();
   const view = await savePlatformModelSettings(
@@ -166,8 +168,8 @@ test("L1 override is probed separately and L2 stays on the default route", async
     user,
     draft({
       knowledgeOverride: true,
-      knowledgeBaseUrl: "https://l1.test/v1/responses",
-      knowledgeModel: "l1-model",
+      knowledgeBaseUrl: "https://laoweng.test/v1/responses",
+      knowledgeModel: "laoweng-model",
       knowledgeReasoningEffort: "high",
       knowledgeApiKey: knowledgeSecret,
     }),
@@ -180,10 +182,10 @@ test("L1 override is probed separately and L2 stays on the default route", async
   );
   assert.deepEqual(
     probed.calls.map((call) => call.model),
-    ["unified-model", "l1-model"],
+    ["unified-model", "laoweng-model"],
   );
-  assert.equal(modelConfig("knowledge").model, "l1-model");
-  assert.equal(modelConfig("knowledge").baseUrl, "https://l1.test/v1");
+  assert.equal(modelConfig("knowledge").model, "laoweng-model");
+  assert.equal(modelConfig("knowledge").baseUrl, "https://laoweng.test/v1");
   assert.equal(modelConfig("executor").model, "unified-model");
   assert.equal(view.knowledge.inherited, false);
   assert.equal(JSON.stringify(view).includes(knowledgeSecret), false);
@@ -349,10 +351,10 @@ test("running work keeps its captured route and usage identity", () => {
       apiKey: "new-key",
     },
     knowledge: {
-      baseUrl: "https://l1.test/v1",
-      model: "l1-model",
+      baseUrl: "https://laoweng.test/v1",
+      model: "laoweng-model",
       reasoningEffort: "medium",
-      apiKey: "l1-key",
+      apiKey: "laoweng-key",
     },
   });
   assert.equal(coordinatorReuseDecision(captured, { activeChildren: true }), "wait");
@@ -360,7 +362,7 @@ test("running work keeps its captured route and usage identity", () => {
   assert.equal(coordinatorReuseDecision(modelConfig("coordinator")), "keep");
   assert.equal(modelForLaunch("executor", captured).model, "old-model");
   assert.equal(modelForLaunch("coordinator", captured).apiKey, "old-key");
-  assert.equal(modelForLaunch("knowledge", captured).model, "l1-model");
+  assert.equal(modelForLaunch("knowledge", captured).model, "laoweng-model");
   assert.equal(modelConfig("executor").model, "new-model");
   assert.equal(
     redactSecrets("late provider error: old-key and new-key"),
@@ -377,7 +379,7 @@ test("running work keeps its captured route and usage identity", () => {
   assert.equal(merged.calls, 2);
 });
 
-test("compatibility probe requires a normal response, a stream, and L1 JSON", async () => {
+test("compatibility probe requires a normal response, a stream, and 老翁 JSON", async () => {
   const config = {
     baseUrl: "https://probe.test/v1",
     responsesUrl: "https://probe.test/v1/responses",

@@ -1,9 +1,38 @@
-import { queueL1ContextCompression, readL1TaskSession } from "../l1-context.js";
+import { queueLaowengContextCompression, readLaowengTaskSession } from "../laoweng-context.js";
 import { registerCloudbaseRoutes } from "./cloudbase-routes.js";
 import { registerMiniprogramRoutes } from "./miniprogram.js";
 import { readVisualArtifact } from "../visual-artifacts.js";
-import { queueDocumentOrganization } from "../document-organization.js";
-import { queueL1MemoryRun } from "../project-memory.js";
+import { getWikiPage, listWikiPages } from "../wiki-pages.js";
+import {
+  confirmMemoryEntry,
+  flagMemoryEntry,
+  readProjectMemory,
+  readProjectMemoryCounts,
+} from "../memory-timeline.js";
+import { listMemoryJobs, resetMemoryJobSettings, updateMemoryJobSettings } from "../memory-jobs.js";
+import {
+  askCompanyQuestion,
+  askOrgQuestion,
+  askWebQuestion,
+  askWikiQuestion,
+  listCompanyQuestions,
+  listOrgQuestions,
+  listWebQuestions,
+  listWikiQuestions,
+} from "../wiki-questions.js";
+import {
+  createCompanyGuide,
+  createOrgGuide,
+  readCompanyCatalog,
+  readOrgShelf,
+} from "../org-shelf.js";
+import {
+  queueLaowengMemoryRun,
+  queueProjectMemoryRun,
+  retryMemoryJob,
+  updateMemoryEntryMeta,
+} from "../project-memory.js";
+import { createMemoryRelation, deleteMemoryRelation } from "../memory-graph.js";
 import { emptyLibraryRecycle, libraryChange } from "../documents/index.js";
 import { countDocumentChanges, listDocumentChanges } from "../documents/index.js";
 import { z } from "zod/v3";
@@ -16,6 +45,7 @@ import {
   cancelTask,
   createTask,
   getTask,
+  ignoreTask,
   listAssignmentEvents,
   answerTaskQuestion,
   listTaskExecutionRuns,
@@ -25,11 +55,14 @@ import {
   listTasks,
   mergeTaskActivity,
   reassignTask,
+  redirectBlockedTask,
   rejectTask,
   reopenRejectedTask,
+  restoreIgnoredTask,
   taskRejectionReview,
   updateTask,
 } from "../task-pool.js";
+import { threadTaskStats } from "../task-stats.js";
 import {
   mentionTaskSourceNotice,
   taskSourceMentionToken,
@@ -99,6 +132,36 @@ import { executeRelease } from "../release-executor.js";
  * 项目工作区路由：项目、任务、文件上传、小程序与 CloudBase、代码来源、老翁 上下文。
  * 注册点与原先内联时一致：在鉴权中间件之后、末尾 404 之前。
  */
+async function respondElderAsk(req, res, run) {
+  if (!String(req.headers.accept || "").includes("text/event-stream")) {
+    res.status(201).json(await run());
+    return;
+  }
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+  const send = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    if (typeof res.flush === "function") res.flush();
+  };
+  try {
+    await run((progress) =>
+      send("progress", {
+        text: progress?.text || "",
+        trace: progress?.trace || [],
+        usage: progress?.usage || null,
+        contextUsage: progress?.contextUsage || null,
+      }),
+    );
+    send("done", {});
+  } catch (error) {
+    send("error", { message: error?.message || "老翁没有答上" });
+  } finally {
+    res.end();
+  }
+}
+
 export function registerProjectWorkspaceRoutes(app, { db, service }) {
   app.get("/api/projects", async (req, res) => res.json(await service.projects(req.user)));
   app.post("/api/projects", async (req, res) =>
@@ -112,6 +175,215 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
       }),
     ),
   );
+  app.get("/api/orgs/mine", async (req, res) => {
+    const rows = await query(
+      service.db,
+      "SELECT o.id, o.name, m.kind FROM org_members m JOIN organizations o ON o.id=m.org_id WHERE m.user_id=? ORDER BY m.kind, o.name",
+      [req.user.id],
+    );
+    res.json({ orgs: rows });
+  });
+  app.get("/api/orgs/:id/shelf", async (req, res) =>
+    res.json(await readOrgShelf(service, req.user, req.params.id)),
+  );
+  app.post("/api/orgs/:id/guides", async (req, res) =>
+    res.status(201).json(await createOrgGuide(service, req.user, req.params.id, req.body)),
+  );
+  app.get("/api/orgs/:id/wiki-questions", async (req, res) =>
+    res.json(await listOrgQuestions(service, req.user, req.params.id)),
+  );
+  app.post("/api/orgs/:id/wiki-questions", async (req, res) =>
+    respondElderAsk(req, res, (onProgress) =>
+      askOrgQuestion(service, req.user, req.params.id, req.body, { onProgress }),
+    ),
+  );
+  app.get("/api/company/catalog", async (req, res) =>
+    res.json(await readCompanyCatalog(service, req.user)),
+  );
+  app.post("/api/company/guides", async (req, res) =>
+    res.status(201).json(await createCompanyGuide(service, req.user, req.body)),
+  );
+  app.get("/api/company/wiki-questions", async (req, res) =>
+    res.json(await listCompanyQuestions(service, req.user, req.query.projectId || null)),
+  );
+  app.post("/api/company/wiki-questions", async (req, res) =>
+    respondElderAsk(req, res, (onProgress) =>
+      askCompanyQuestion(service, req.user, req.body, { onProgress }),
+    ),
+  );
+  app.get("/api/network/wiki-questions", async (req, res) =>
+    res.json(await listWebQuestions(service, req.user, req.query.projectId || null)),
+  );
+  app.post("/api/network/wiki-questions", async (req, res) =>
+    respondElderAsk(req, res, (onProgress) =>
+      askWebQuestion(service, req.user, req.body, { onProgress }),
+    ),
+  );
+  app.get("/api/wiki-sessions/events/:id", async (req, res) => {
+    const [event] = await query(
+      db,
+      `SELECT e.tool, e.input, e.output, e.status FROM wiki_session_events e
+        JOIN wiki_sessions s ON s.id=e.session_row_id
+        WHERE e.id=? AND s.user_id=?`,
+      [req.params.id, req.user.id],
+    );
+    if (!event) throw new HttpError(404, "没有这条轨迹");
+    // 理解/说明是纯文本步骤：早期记录把正文写进 input，统一按 output 返回。
+    const textStep = ["understanding", "assistant_text", "assistant_final"].includes(event.tool);
+    const input = textStep ? "" : event.input || "";
+    let output = textStep ? event.output || event.input || "" : event.output || "";
+    // 本轮上下文也按 DSH 的注入形状交代来源：kind / form / summary 在字段最前面，
+    // 后面才是这次注入带来的具体值（范围、会话、词元占用等）。
+    if (event.tool === "context_sync") {
+      let detail = {};
+      try {
+        const parsed = JSON.parse(event.output || "{}");
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) detail = parsed;
+      } catch {
+        detail = {};
+      }
+      output = JSON.stringify(
+        {
+          kind: "cothread:turn-context",
+          form: "input",
+          summary: String(event.input || "")
+            .replace(/\s+/g, " ")
+            .trim(),
+          ...detail,
+        },
+        null,
+        2,
+      );
+    }
+    res.json({ input, output, error: event.status === "failed" ? event.output || "" : "" });
+  });
+  app.get("/api/wiki-sessions/agent-logs", async (req, res) => {
+    const { elderAgentLogs } = await import("../wiki-session.js");
+    res.json(
+      await elderAgentLogs(
+        db,
+        req.user,
+        String(req.query.scope || "project"),
+        { projectId: req.query.projectId || null, orgId: req.query.orgId || null },
+        { before: req.query.before || null, limit: req.query.limit },
+      ),
+    );
+  });
+  app.post("/api/wiki-sessions/compact", async (req, res) => {
+    const { beginElderCompaction } = await import("../wiki-session.js");
+    // 压缩要起一个 DSH 运行、调模型总结历史，通常几十秒；等它返回会让浏览器
+    // 和反代先超时。这里先同步置好 running，再让压缩在后台跑，前端按
+    // compactStatus 轮询到结束。
+    const { job, result } = await beginElderCompaction(db, req.user, req.body?.scope || "project", {
+      projectId: req.body?.projectId || null,
+      orgId: req.body?.orgId || null,
+    });
+    job?.catch((error) => console.error("老翁压缩失败:", error?.message || error));
+    res.status(202).json(result || { status: "running" });
+  });
+  app.get("/api/projects/:id/wiki-questions", async (req, res) =>
+    res.json(await listWikiQuestions(service, req.user, req.params.id)),
+  );
+  app.post("/api/projects/:id/wiki-questions", async (req, res) =>
+    respondElderAsk(req, res, (onProgress) =>
+      askWikiQuestion(service, req.user, req.params.id, req.body, { onProgress }),
+    ),
+  );
+  app.get("/api/projects/:id/wiki-pages", async (req, res) =>
+    res.json(await listWikiPages(service, req.user, req.params.id, String(req.query.q || ""))),
+  );
+  // 知识页不再接受人手写：人只在「项目记忆」里确认与纠错。
+  app.post("/api/projects/:id/wiki-pages", async () => {
+    throw new HttpError(409, "知识页已并入项目记忆：确认或纠错请用项目记忆");
+  });
+  app.get("/api/projects/:id/wiki-pages/:pageId", async (req, res) =>
+    res.json(await getWikiPage(service, req.user, req.params.id, req.params.pageId)),
+  );
+  app.patch("/api/projects/:id/wiki-pages/:pageId", async () => {
+    throw new HttpError(409, "知识页已并入项目记忆：正文不再直接编辑，发现不准确请纠错");
+  });
+  app.get("/api/projects/:id/memory", async (req, res) =>
+    res.json(await readProjectMemory(service, req.user, req.params.id)),
+  );
+  app.get("/api/projects/:id/memory/counts", async (req, res) =>
+    res.json(await readProjectMemoryCounts(service, req.user, req.params.id)),
+  );
+  app.get("/api/projects/:id/memory/jobs", async (req, res) => {
+    await service.member(req.user, req.params.id);
+    res.json(await listMemoryJobs(db, req.params.id));
+  });
+  app.patch("/api/projects/:id/memory/jobs/:key", async (req, res) => {
+    await service.member(req.user, req.params.id, true);
+    res.json(
+      await updateMemoryJobSettings(db, req.params.id, req.params.key, req.body, req.user.id),
+    );
+  });
+  app.delete("/api/projects/:id/memory/jobs/:key", async (req, res) => {
+    await service.member(req.user, req.params.id, true);
+    res.json(await resetMemoryJobSettings(db, req.params.id, req.params.key));
+  });
+  app.post("/api/projects/:id/memory/backfill", async (req, res) => {
+    await service.member(req.user, req.params.id, true);
+    const { backfillProjectMemory } = await import("../memory-backfill.js");
+    res.json(
+      await backfillProjectMemory(service.db, {
+        projectId: req.params.id,
+        createdBy: req.user.id,
+      }),
+    );
+  });
+  app.post("/api/projects/:id/memory/relations", async (req, res) => {
+    await service.member(req.user, req.params.id, true);
+    const { fromPageId, toPageId, relation, note } = req.body || {};
+    const row = await createMemoryRelation(db, {
+      projectId: req.params.id,
+      fromPageId,
+      toPageId,
+      relation,
+      note,
+      createdBy: req.user.id,
+    });
+    res.status(201).json(row);
+  });
+  app.delete("/api/projects/:id/memory/relations/:relationId", async (req, res) => {
+    await service.member(req.user, req.params.id, true);
+    await deleteMemoryRelation(db, { projectId: req.params.id, relationId: req.params.relationId });
+    res.json({ deleted: true });
+  });
+  app.patch("/api/projects/:id/memory/entries/:entryId", async (req, res) =>
+    res.json(
+      await updateMemoryEntryMeta(
+        service,
+        req.user,
+        req.params.id,
+        req.params.entryId,
+        req.body || {},
+      ),
+    ),
+  );
+  app.post("/api/projects/:id/memory/discussion/:threadId", async (req, res) => {
+    await service.member(req.user, req.params.id, true);
+    const { syncThreadDiscussionMemory } = await import("../discussion-memory.js");
+    res.status(202).json(
+      (await syncThreadDiscussionMemory(service.db, {
+        projectId: req.params.id,
+        threadId: req.params.threadId,
+        createdBy: req.user.id,
+      })) || { skipped: true },
+    );
+  });
+  app.post("/api/projects/:id/memory/jobs/:key/retry", async (req, res) =>
+    res.status(202).json(await retryMemoryJob(service, req.user, req.params.id, req.params.key)),
+  );
+  app.post("/api/projects/:id/memory/entries/:entryId/confirm", async (req, res) =>
+    res.json(await confirmMemoryEntry(service, req.user, req.params.id, req.params.entryId)),
+  );
+  app.post("/api/projects/:id/memory/entries/:entryId/flag", async (req, res) =>
+    res.json(await flagMemoryEntry(service, req.user, req.params.id, req.params.entryId, req.body)),
+  );
+  app.post("/api/projects/:id/memory/refresh", async (req, res) =>
+    res.status(202).json(await queueProjectMemoryRun(service, req.user, req.params.id)),
+  );
   app.get("/api/projects/:id/library", async (req, res) => {
     await service.member(req.user, req.params.id);
     await migrateLegacyAdminDist(db, req.params.id);
@@ -124,6 +396,8 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     res.json(
       await service.agentLogs(req.user, "project", req.params.id, {
         task: req.query.task,
+        before: req.query.before || null,
+        limit: req.query.limit,
       }),
     ),
   );
@@ -136,6 +410,11 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
         limit: req.query.limit,
       }),
     );
+  });
+  app.get("/api/projects/:id/task-stats", async (req, res) => {
+    await service.member(req.user, req.params.id);
+    const data = z.object({ threadId: z.string().uuid() }).parse(req.query);
+    res.json(await threadTaskStats(db, req.params.id, data.threadId, req.user.id));
   });
   app.get("/api/projects/:id/document-changes", async (req, res) => {
     await service.member(req.user, req.params.id);
@@ -195,7 +474,12 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     });
   });
   app.get("/api/tasks/:id/agent-logs", async (req, res) =>
-    res.json(await service.agentLogs(req.user, "task", req.params.id)),
+    res.json(
+      await service.agentLogs(req.user, "task", req.params.id, {
+        before: req.query.before || null,
+        limit: req.query.limit,
+      }),
+    ),
   );
   app.get("/api/tasks/:id/events/:eventId", async (req, res) =>
     res.json(await service.agentLogEvent(req.user, "task", req.params.id, req.params.eventId)),
@@ -346,6 +630,100 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     );
     res.json(cancelled);
   });
+  app.post("/api/tasks/:id/ignore", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id);
+    if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const data = z.object({ reason: z.string().trim().max(1000).optional() }).parse(req.body || {});
+    const ignored = await ignoreTask(
+      db,
+      task.id,
+      { type: "human_member", id: req.user.id },
+      data.reason,
+    );
+    await mentionTaskSourceNotice(
+      service,
+      db,
+      req.user,
+      task,
+      `任务事件：${req.user.name || "当前成员"}将已阻塞任务「${task.title}」标记为已忽略。`,
+    );
+    res.json(ignored);
+  });
+  app.post("/api/tasks/:id/restore-ignored", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id);
+    if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const data = z.object({ reason: z.string().trim().max(1000).optional() }).parse(req.body || {});
+    const restored = await restoreIgnoredTask(
+      db,
+      task.id,
+      { type: "human_member", id: req.user.id },
+      data.reason,
+    );
+    await mentionTaskSourceNotice(
+      service,
+      db,
+      req.user,
+      task,
+      `任务事件：${req.user.name || "当前成员"}将已忽略任务「${task.title}」恢复为已阻塞。`,
+    );
+    res.json(restored);
+  });
+  app.post("/api/tasks/:id/redirect", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id);
+    if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const data = z
+      .object({
+        goal: z.string().trim().min(1).max(20000).optional(),
+        constraints: z.string().max(20000).optional(),
+        reason: z.string().trim().max(1000).optional(),
+        targetType: z.enum(["human_member", "xiaoxiang"]),
+        targetUserId: z.string().uuid().optional(),
+      })
+      .parse(req.body);
+    let targetId = data.targetUserId;
+    if (data.targetType === "xiaoxiang") {
+      if (!task.origin_thread_id) throw new HttpError(409, "项目级任务需要先关联迭代才能派给 小祥");
+      await query(db, "INSERT IGNORE INTO agent_sessions(thread_id,session_id) VALUES(?,UUID())", [
+        task.origin_thread_id,
+      ]);
+      targetId = (
+        await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [
+          task.origin_thread_id,
+        ])
+      )[0]?.session_id;
+    }
+    if (!targetId) throw new HttpError(400, "请选择新的责任主体");
+    const redirected = await redirectBlockedTask(
+      db,
+      task.id,
+      { type: "human_member", id: req.user.id },
+      {
+        goal: data.goal,
+        constraints: data.constraints,
+        reason: data.reason,
+        target: { type: data.targetType, id: targetId },
+      },
+    );
+    if (task.origin_thread_id) {
+      const targetName =
+        data.targetType === "xiaoxiang"
+          ? "小祥"
+          : (await query(db, "SELECT name FROM users WHERE id=?", [targetId]))[0]?.name ||
+            "另一位成员";
+      const body = `任务事件：${req.user.name || "当前成员"}补充了阻塞任务「${task.title}」的内容并改派给${targetName}${data.reason ? `，说明：${data.reason}` : ""}。`;
+      const mentioned = withTaskSourceMention(await taskSourceMentionToken(db, task), body);
+      if (data.targetType === "xiaoxiang")
+        await service.postMessage(req.user, task.origin_thread_id, { body: `@小祥 ${mentioned}` });
+      else await mentionTaskSourceNotice(service, db, req.user, task, body);
+    }
+    res.json(redirected);
+  });
   app.post("/api/tasks/:id/acknowledge-rejection", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const task = await getTask(db, req.params.id);
@@ -427,14 +805,14 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     await service.member(req.user, task.project_id);
     const data = z
       .object({
-        targetType: z.enum(["human_member", "l2_session"]).default("human_member"),
+        targetType: z.enum(["human_member", "xiaoxiang"]).default("human_member"),
         targetUserId: z.string().uuid().optional(),
         reason: z.string().trim().max(1000).optional(),
         messageId: z.string().uuid().optional(),
       })
       .parse(req.body);
     let targetId = data.targetUserId;
-    if (data.targetType === "l2_session") {
+    if (data.targetType === "xiaoxiang") {
       if (!task.origin_thread_id) throw new HttpError(409, "项目级任务需要先关联迭代才能转给 小祥");
       await query(db, "INSERT IGNORE INTO agent_sessions(thread_id,session_id) VALUES(?,UUID())", [
         task.origin_thread_id,
@@ -456,13 +834,13 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     );
     if (task.origin_thread_id) {
       const targetName =
-        data.targetType === "l2_session"
+        data.targetType === "xiaoxiang"
           ? "小祥"
           : (await query(db, "SELECT name FROM users WHERE id=?", [targetId]))[0]?.name ||
             "另一位成员";
       const body = `任务事件：${req.user.name || "当前成员"}将任务「${task.title}」转交给${targetName}${data.reason ? `，原因：${data.reason}` : ""}。`;
       const mentioned = withTaskSourceMention(await taskSourceMentionToken(db, task), body);
-      if (data.targetType === "l2_session")
+      if (data.targetType === "xiaoxiang")
         await service.postMessage(req.user, task.origin_thread_id, { body: `@小祥 ${mentioned}` });
       else await mentionTaskSourceNotice(service, db, req.user, task, body);
     }
@@ -544,17 +922,15 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
       ),
     ),
   );
-  app.post("/api/projects/:id/documents/organize", async (req, res) =>
-    res
-      .status(202)
-      .json(await queueDocumentOrganization(service, req.user, { projectId: req.params.id })),
-  );
+  app.post("/api/projects/:id/documents/organize", async () => {
+    throw new HttpError(410, "文档整理已下线");
+  });
   app.post("/api/projects/:id/recycle/empty", async (req, res) =>
     res.json(await emptyLibraryRecycle(service, req.user, req.params.id)),
   );
   app.post("/api/projects/:id/member-memory", async (req, res) =>
     res.status(202).json(
-      await queueL1MemoryRun(service, req.user, {
+      await queueLaowengMemoryRun(service, req.user, {
         projectId: req.params.id,
         task: "member_memory",
       }),
@@ -562,7 +938,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   );
   app.post("/api/projects/:id/document-memory", async (req, res) =>
     res.status(202).json(
-      await queueL1MemoryRun(service, req.user, {
+      await queueLaowengMemoryRun(service, req.user, {
         projectId: req.params.id,
         task: "document_memory",
       }),
@@ -570,7 +946,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   );
   app.post("/api/projects/:id/project-document-memory", async (req, res) =>
     res.status(202).json(
-      await queueL1MemoryRun(service, req.user, {
+      await queueLaowengMemoryRun(service, req.user, {
         projectId: req.params.id,
         task: "document_memory",
       }),
@@ -578,7 +954,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   );
   app.post("/api/projects/:id/iteration-document-memory", async (req, res) =>
     res.status(202).json(
-      await queueL1MemoryRun(service, req.user, {
+      await queueLaowengMemoryRun(service, req.user, {
         projectId: req.params.id,
         task: "document_memory",
       }),
@@ -586,20 +962,20 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   );
   app.post("/api/projects/:id/iteration-archive", async (req, res) =>
     res.status(202).json(
-      await queueL1MemoryRun(service, req.user, {
+      await queueLaowengMemoryRun(service, req.user, {
         projectId: req.params.id,
         task: "iteration_archive",
         threadId: req.body?.threadId,
       }),
     ),
   );
-  app.get("/api/projects/:id/l1-sessions/:task", async (req, res) =>
-    res.json(await readL1TaskSession(service, req.user, req.params.id, req.params.task)),
+  app.get("/api/projects/:id/laoweng-sessions/:task", async (req, res) =>
+    res.json(await readLaowengTaskSession(service, req.user, req.params.id, req.params.task)),
   );
-  app.post("/api/projects/:id/l1-context/compact", async (req, res) =>
+  app.post("/api/projects/:id/laoweng-context/compact", async (req, res) =>
     res
       .status(202)
-      .json(await queueL1ContextCompression(service, req.user, req.params.id, req.body?.task)),
+      .json(await queueLaowengContextCompression(service, req.user, req.params.id, req.body?.task)),
   );
   app.post("/api/projects/:id/members", async (req, res) =>
     res.status(201).json(await service.addMember(req.user, req.params.id, req.body)),

@@ -7,6 +7,7 @@ import { resolve, join, dirname, sep } from "node:path";
 import { assetPath } from "./assets.js";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { query } from "./db.js";
+import { contextInjectionFromEvent } from "../shared/context-injection.js";
 import { Service, HttpError } from "./service.js";
 import { createAgentTools } from "./agent-tools.js";
 import { releaseSandbox } from "./agent-sandbox.js";
@@ -25,12 +26,14 @@ import {
 } from "./model-config.js";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { SYSTEM_PROMPTS } from "../dsh-layer/cothread-plugin-registry.mjs";
+import { COTHREAD_SYSTEM_TEXT } from "../shared/prompt-blocks.js";
 import { agentRuntimePatch } from "./dsh-runtime-config.js";
-import { persistL3ContextStats } from "./l3-session.js";
-import { touchL3InferenceHeartbeat } from "./task-pool.js";
+import { persistChildContextStats } from "./child-agent-session.js";
+import { touchChildInferenceHeartbeat } from "./task-pool.js";
 import { acquireSessionLock } from "./session-lock.js";
 import { logAgentTiming } from "./agent-timing-log.js";
 import { insertUniqueAssistantMessage } from "./assistant-post.js";
+import { messageTurnIdForJob } from "./coordinator-turn.js";
 
 const running = new Map();
 const coordinatorRuntimes = new Map();
@@ -77,8 +80,8 @@ export async function invalidateCoordinatorRuntime(threadId) {
 export async function resetAgentSessionStore(db, job) {
   const spec = agentSession(job);
   // Rotate the durable session id only after killing any parked coordinator that still
-  // holds the old id; otherwise create_task stamps the new id while dsh_l3 binds the old one.
-  if (spec.kind === "l2") await invalidateCoordinatorRuntime(spec.id);
+  // holds the old id; otherwise create_task stamps the new id while child_agent binds the old one.
+  if (spec.kind === "xiaoxiang") await invalidateCoordinatorRuntime(spec.id);
   await query(
     db,
     `UPDATE ${spec.table} SET checkpoint=NULL,session_id=?,context_stats=NULL WHERE ${spec.key}=?`,
@@ -101,7 +104,7 @@ export async function acquireCoordinatorRuntime(context, { db, job, user, create
     : "keep";
   if (reuse === "wait") {
     const error = new Error("模型配置已更新，等待此迭代正在运行的子任务结束后切换");
-    error.code = "L2_SESSION_BUSY";
+    error.code = "XIAOXIANG_SESSION_BUSY";
     throw error;
   }
   if (existing?.runtime && reuse === "replace") {
@@ -115,11 +118,13 @@ export async function acquireCoordinatorRuntime(context, { db, job, user, create
       ]);
       if (!row?.session_id || row.session_id !== existing.runtime.session?.session_id) {
         const error = new Error("小祥 session rotated");
-        error.code = "L2_SESSION_ROTATED";
+        error.code = "XIAOXIANG_SESSION_ROTATED";
         throw error;
       }
       await existing.runtime.bindTurn({ job, user, context });
       existing.db = db;
+      // 复用成功：会话里已经有历史，prompt 不必再发一遍。
+      existing.runtime.reused = true;
       return existing.runtime;
     } catch (error) {
       coordinatorRuntimes.delete(key);
@@ -138,6 +143,8 @@ export async function acquireCoordinatorRuntime(context, { db, job, user, create
     keepalive: true,
     createHarness,
   });
+  // 新开会话：历史不在会话里，prompt 要带上最近一段。
+  runtime.reused = false;
   coordinatorRuntimes.set(key, { runtime, db });
   return runtime;
 }
@@ -307,34 +314,34 @@ export async function openAgentRuntime(context, options) {
     sessionLock = await acquireSessionLock(db, job.thread_id, 30);
     if (!sessionLock) {
       const error = new Error("小祥 session is busy");
-      error.code = "L2_SESSION_BUSY";
+      error.code = "XIAOXIANG_SESSION_BUSY";
       error.agentStage = "start";
       throw error;
     }
   }
-  if (spec.kind === "l3" && spec.id && !sessionLockHeld) {
+  if (spec.kind === "child_agent" && spec.id && !sessionLockHeld) {
     sessionLock = await acquireSessionLock(db, spec.homeId, 30);
     if (!sessionLock) {
       const error = new Error("子 Agent session is busy");
-      error.code = "L3_SESSION_BUSY";
+      error.code = "CHILD_SESSION_BUSY";
       error.agentStage = "start";
       throw error;
     }
   }
   let handedOff = false;
   try {
-    const sharedCapabilities = await loadAgentCapabilityProfile(db, "l2");
+    const sharedCapabilities = await loadAgentCapabilityProfile(db, "xiaoxiang");
     const childCapabilities = {
       ...sharedCapabilities,
-      level: "l3",
-      systemPrompt: SYSTEM_PROMPTS.l3.prompt,
+      level: "child_agent",
+      systemPrompt: SYSTEM_PROMPTS.child_agent.prompt,
     };
     const capabilityProfiles =
       role === "coordinator"
-        ? { l2: sharedCapabilities, l3: childCapabilities }
-        : { l3: childCapabilities };
+        ? { xiaoxiang: sharedCapabilities, child_agent: childCapabilities }
+        : { child_agent: childCapabilities };
     const capabilityProfile =
-      role === "coordinator" ? capabilityProfiles.l2 : capabilityProfiles.l3;
+      role === "coordinator" ? capabilityProfiles.xiaoxiang : capabilityProfiles.child_agent;
     const runtimeRoot = agentRuntimeRoot();
     const home = resolve(runtimeRoot, spec.homeId);
     await mkdir(home, { recursive: true });
@@ -368,6 +375,7 @@ export async function openAgentRuntime(context, options) {
                 job.thread_id,
                 text,
                 job.message_id,
+                messageTurnIdForJob(job),
               );
               if (posted) publishWork(db, job.thread_id);
             },
@@ -376,19 +384,19 @@ export async function openAgentRuntime(context, options) {
     let thinking = trackThinking(db, job.message_id, session.session_id, thinkingOptions);
     const executeTool = createAgentTools(service, actor, job, {
       role,
-      l2SessionId: session.session_id,
+      xiaoxiangSessionId: session.session_id,
     });
     const execute = (name, args, caller = {}) => {
       const level =
         role === "coordinator" && caller.sessionId && caller.sessionId !== session.session_id
-          ? "l3"
+          ? "child_agent"
           : role === "coordinator"
-            ? "l2"
-            : "l3";
+            ? "xiaoxiang"
+            : "child_agent";
       // Internal harness helpers (not model-facing). create_task auto-dispatch
-      // binds the spawned 子 Agent through bind_task_l3; it must not require a
+      // binds the spawned 子 Agent through bind_child_agent; it must not require a
       // capability-profile allowlist entry or the model could also call it.
-      const internalBridgeTools = new Set(["bind_task_l3"]);
+      const internalBridgeTools = new Set(["bind_child_agent"]);
       if (!internalBridgeTools.has(name) && !capabilityProfiles[level].allowedTools.includes(name))
         throw new HttpError(403, "当前成员未启用该插件能力");
       return executeTool(name, args, caller);
@@ -486,7 +494,7 @@ export async function openAgentRuntime(context, options) {
           ]),
         ),
       ),
-      COTHREAD_PRIMARY_AGENT_LEVEL: role === "coordinator" ? "l2" : "l3",
+      COTHREAD_PRIMARY_AGENT_LEVEL: role === "coordinator" ? "xiaoxiang" : "child_agent",
       COTHREAD_PRIMARY_AGENT_ID: session.session_id,
       HOME: home,
       USERPROFILE: home,
@@ -598,9 +606,9 @@ export async function openAgentRuntime(context, options) {
         // still capture durable 子 Agent stats when the child settles.
         // Heartbeat is independent of context RPC so a hung meter cannot freeze liveness.
         for (const childId of [...activeChildren]) {
-          void touchL3InferenceHeartbeat(db, childId).catch(() => {});
+          void touchChildInferenceHeartbeat(db, childId).catch(() => {});
           void request("context", { sessionId: childId })
-            .then((childStats) => persistL3ContextStats(db, childId, childStats))
+            .then((childStats) => persistChildContextStats(db, childId, childStats))
             .catch(() => {});
         }
       })().finally(() => {
@@ -663,7 +671,7 @@ export async function openAgentRuntime(context, options) {
         sessionLock = await acquireSessionLock(db, job.thread_id, 30);
         if (!sessionLock) {
           const error = new Error("小祥 session is busy");
-          error.code = "L2_SESSION_BUSY";
+          error.code = "XIAOXIANG_SESSION_BUSY";
           error.agentStage = "start";
           throw error;
         }
@@ -830,11 +838,53 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
   let completed = false;
   let polling = Promise.resolve();
   const usageMeter = createUsageMeter();
+  // DSH 的上下文注入是带 source 的 user/message：正文进预览，source 进来源。
+  const injections = [];
   let modelStarted, modelFinished;
   try {
-    const prompt = `当前项目 ID：${context.project_id}。迭代 ID：${job.thread_id}。沙箱工作区 /home/user/cothread/${agentSession(job).workspaceId}。
-请回应当前上下文中 ID 为 ${job.message_id} 的成员消息，并结合该成员对当前任务的追加要求更新工作。追加要求属于同一任务，不应作为新任务排队，也不要重复已完成的操作。请简洁回应，不擅自扩展任务。梳理讨论时直接分析已有上下文，不要为了梳理再次调用 read_iteration 读取整个会话；只有用户明确要求核查缺失的原文时才按页读取。其他实现、分析文件或产出内容，应实际调用工具完成并保存结果。`;
+    // 本轮真正发给模型的上下文：范围、工作区与应答约束。
+    // 它还承担「告诉模型回哪条消息、不许扩展任务」的硬约束，是编排里必要的注入，不是展示用的装饰。
+    const turnContext = `当前项目 ID：${context.project_id}。迭代 ID：${job.thread_id}。沙箱工作区 /home/user/cothread/${agentSession(job).workspaceId}。`;
+    const turnInstruction = `请回应当前上下文中 ID 为 ${job.message_id} 的成员消息，并结合该成员对当前任务的追加要求更新工作。追加要求属于同一任务，不应作为新任务排队，也不要重复已完成的操作。请简洁回应，不擅自扩展任务。梳理讨论时直接分析已有上下文，不要为了梳理再次调用 read_iteration 读取整个会话；只有用户明确要求核查缺失的原文时才按页读取。其他实现、分析文件或产出内容，应实际调用工具完成并保存结果。`;
+    const prompt = `${turnContext}\n${turnInstruction}`;
     await progress("Agent 正在分析请求");
+    // 注入的上下文在模型调用前落成轨迹事件，和小祥的工具调用进同一份 agent_events：
+    // 轨迹里的「上下文」行就是这段真实注入，而不是事后补出来的说明。
+    await query(
+      db,
+      "INSERT INTO agent_events(message_id,agent_session_id,agent_task_id,tool,status,input,output,created_at,finished_at) VALUES(?,?,?,'context_notice','completed',?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))",
+      [
+        job.message_id,
+        session.session_id,
+        job.task_id || null,
+        turnContext.slice(0, 4000),
+        JSON.stringify({
+          kind: "cothread-turn-context",
+          form: "notice",
+          summary: "项目 / 迭代 / 工作区与应答约束",
+        }).slice(0, 4000),
+      ],
+    ).catch((error) => console.error("Turn context persistence failed", { type: error.name }));
+    // 同一次运行的系统提示词也逐轮落库：重启服务或改补丁后，下一轮的系统提示词会变。
+    const systemText = [COTHREAD_SYSTEM_TEXT, capabilityProfile?.systemPrompt]
+      .filter(Boolean)
+      .join("\n\n");
+    if (systemText)
+      await query(
+        db,
+        "INSERT INTO agent_events(message_id,agent_session_id,agent_task_id,tool,status,input,output,created_at,finished_at) VALUES(?,?,?,'system_prompt','completed',?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))",
+        [
+          job.message_id,
+          session.session_id,
+          job.task_id || null,
+          systemText.slice(0, 4000),
+          JSON.stringify({
+            kind: "cothread-system-prompt",
+            form: "system",
+            summary: "本轮系统提示词",
+          }).slice(0, 4000),
+        ],
+      ).catch((error) => console.error("System prompt persistence failed", { type: error.name }));
     await deliverTaskUpdates(db, job, runtime, "observe");
     const result = await Promise.race([
       new Promise((_, reject) => {
@@ -872,8 +922,12 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
           if (
             notification.method === "session.event" &&
             notification.params?.sessionId === session.session_id
-          )
-            usageMeter.notify(notification.params.event);
+          ) {
+            const event = notification.params.event;
+            usageMeter.notify(event);
+            const injection = contextInjectionFromEvent(event);
+            if (injection) injections.push(injection);
+          }
           thinking.notify(notification);
         },
       })),
@@ -890,6 +944,22 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
       throw new Error("Agent 未返回最终结果");
     }
     await thinking.close("completed", result.finalResponse);
+    // 注入的上下文记成轨迹事件，和小祥的工具调用进同一份 agent_events。
+    for (const injection of injections) {
+      await query(
+        db,
+        "INSERT INTO agent_events(message_id,agent_session_id,agent_task_id,tool,status,input,output,created_at,finished_at) VALUES(?,?,?,'context_notice','completed',?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))",
+        [
+          job.message_id,
+          session.session_id,
+          job.task_id || null,
+          injection.text.slice(0, 4000),
+          JSON.stringify(injection.source).slice(0, 4000),
+        ],
+      ).catch((error) =>
+        console.error("Context injection persistence failed", { type: error.name }),
+      );
+    }
     completed = true;
     await progress("正在保存 Agent 会话");
     await runtime.sample();

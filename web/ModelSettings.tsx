@@ -28,6 +28,7 @@ type SettingsView = {
   executor?: RouteView | null;
   sourcesDiffer: boolean;
   knowledgeKeyRetained: boolean;
+  searchKeyConfigured?: boolean;
 };
 
 type Draft = {
@@ -40,6 +41,7 @@ type Draft = {
   knowledgeModel: string;
   knowledgeReasoningEffort: string;
   knowledgeApiKey: string;
+  searchApiKey: string;
 };
 
 const emptyDraft = (): Draft => ({
@@ -52,6 +54,7 @@ const emptyDraft = (): Draft => ({
   knowledgeModel: "",
   knowledgeReasoningEffort: "medium",
   knowledgeApiKey: "",
+  searchApiKey: "",
 });
 
 function draftFrom(view: SettingsView): Draft {
@@ -67,6 +70,7 @@ function draftFrom(view: SettingsView): Draft {
     knowledgeModel: override ? knowledge?.model || "" : "",
     knowledgeReasoningEffort: override ? knowledge?.reasoningEffort || "medium" : "medium",
     knowledgeApiKey: "",
+    searchApiKey: "",
   };
 }
 
@@ -247,6 +251,17 @@ export function ModelSettings({ api, permissions }: { api: WorkspaceApi; permiss
               : "首次保存需填写密钥"
           }
           onChange={(event) => patch({ apiKey: event.target.value })}
+        />
+        <TextField
+          label="网页搜索密钥"
+          type="password"
+          autoComplete="new-password"
+          value={draft.searchApiKey}
+          disabled={locked}
+          placeholder={
+            view.searchKeyConfigured ? "已配置，留空则继续使用" : "供完整调度和全网检索使用"
+          }
+          onChange={(event) => patch({ searchApiKey: event.target.value })}
         />
       </div>
       <div>

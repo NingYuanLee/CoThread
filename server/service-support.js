@@ -7,6 +7,7 @@ export const parseMessageRow = (m) => ({
   ...m,
   refs: json(m.refs) || [],
   folder_refs: json(m.folder_refs) || [],
+  turn_usage: m.turn_usage == null ? null : json(m.turn_usage),
 });
 export const mentions = (text, value) => {
   if (!value) return false;

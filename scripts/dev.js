@@ -24,7 +24,6 @@ import {
   stopPid,
   waitForHttp,
   writeDevPids,
-  openDevBrowser,
 } from "./dev-runtime.js";
 import { resolveListenHost } from "../server/runtime-config.js";
 
@@ -256,5 +255,4 @@ if (portIndex >= 0) {
   progress.finish(
     `共序开发已就绪：http://${host}:${uiPort}  →  Server :${apiPort}  Vite :${vitePort}`,
   );
-  openDevBrowser(`http://${host}:${uiPort}/`);
 }

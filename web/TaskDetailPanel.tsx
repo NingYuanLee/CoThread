@@ -69,6 +69,11 @@ export function TaskDetailPanel({
   const [taskAnswer, setTaskAnswer] = useState("");
   const [taskReopenGoal, setTaskReopenGoal] = useState("");
   const [taskReopenConstraints, setTaskReopenConstraints] = useState("");
+  const [taskRedirectOpen, setTaskRedirectOpen] = useState(false);
+  const [taskRedirectGoal, setTaskRedirectGoal] = useState("");
+  const [taskRedirectConstraints, setTaskRedirectConstraints] = useState("");
+  const [taskRedirectReason, setTaskRedirectReason] = useState("");
+  const [taskRedirectTarget, setTaskRedirectTarget] = useState("");
 
   const mounted = useRef(true);
   const selected = useRef(selectedTaskId);
@@ -206,6 +211,20 @@ export function TaskDetailPanel({
     }
   };
 
+  const assigneeOptions = [
+    { value: "", label: "选择新的责任主体" },
+    { value: "xiaoxiang", label: "小祥" },
+    ...(detail?.members ?? [])
+      .filter(
+        (member) =>
+          member.id !== user.id &&
+          member.kind !== "laoweng" &&
+          member.kind !== "xiaoxiang" &&
+          member.id !== AGENT_MEMBER.id &&
+          member.role !== "viewer",
+      )
+      .map((member) => ({ value: member.id, label: member.name })),
+  ];
   return (
     <div className="task-pool-dialog-detail">
       {selectedTaskId ? (
@@ -243,7 +262,20 @@ export function TaskDetailPanel({
             task.rejectionReview.reviewer_id === user.id;
           const targetName =
             detail?.members.find((member) => member.id === task?.target_id)?.name ||
-            (task?.target_type === "l2_session" ? "小祥" : "未指派");
+            (task?.target_type === "xiaoxiang" ? "小祥" : "未指派");
+          const blockedText =
+            task?.status === "blocked"
+              ? (task.blocked_reason || task.resume_condition || task.progress || "").trim()
+              : "";
+          const retryCount = typeof task?.retry_count === "number" ? task.retry_count : null;
+          const maxRetryCount =
+            typeof task?.max_retry_count === "number" ? task.max_retry_count : null;
+          const retryLabel =
+            retryCount === null
+              ? ""
+              : maxRetryCount === null
+                ? `已重试 ${retryCount} 次`
+                : `已重试 ${retryCount}/${maxRetryCount} 次`;
           return (
             <div className="task-detail">
               {!task || task.id !== selectedTaskId ? (
@@ -278,7 +310,7 @@ export function TaskDetailPanel({
                     </div>
                     <div>
                       <dt>任务类型</dt>
-                      <dd>{task.task_type === "assist_l2" ? "辅助任务" : "正式任务"}</dd>
+                      <dd>{task.task_type === "assist" ? "辅助任务" : "正式任务"}</dd>
                     </div>
                     <div>
                       <dt>责任主体</dt>
@@ -346,6 +378,13 @@ export function TaskDetailPanel({
                       ) : null;
                     })()}
                   </section>
+                  {task.status === "blocked" && (
+                    <div className="task-blocked-section" role="group" aria-label="阻塞原因">
+                      <h4>阻塞原因</h4>
+                      <p>{blockedText || "未记录阻塞原因"}</p>
+                      {retryLabel && <small className="task-blocked-retry">{retryLabel}</small>}
+                    </div>
+                  )}
                   {active && openQuestion && (
                     <section className="task-question">
                       <h4>需要你回答</h4>
@@ -437,24 +476,139 @@ export function TaskDetailPanel({
                       </div>
                     </section>
                   )}
-                  {isSource && task.status === "awaiting_acceptance" && (
-                    <section className="task-actions-section">
-                      <h4>来源操作</h4>
-                      <button
-                        type="button"
-                        disabled={taskActionBusy}
-                        onClick={() =>
-                          void performTaskAction(
-                            () => api(`/tasks/${task.id}/cancel`, {}, "POST"),
-                            "任务已取消",
-                          )
-                        }
-                      >
-                        <UiIcon name="close" size={13} />
-                        取消
-                      </button>
-                    </section>
-                  )}
+                  {isSource &&
+                    ["awaiting_acceptance", "blocked", "ignored"].includes(task.status) && (
+                      <section className="task-actions-section">
+                        <h4>来源操作</h4>
+                        <div className="task-action-buttons">
+                          {task.status === "awaiting_acceptance" && (
+                            <button
+                              type="button"
+                              disabled={taskActionBusy}
+                              onClick={() =>
+                                void performTaskAction(
+                                  () => api(`/tasks/${task.id}/cancel`, {}, "POST"),
+                                  "任务已取消",
+                                )
+                              }
+                            >
+                              <UiIcon name="close" size={13} />
+                              取消
+                            </button>
+                          )}
+                          {task.status === "blocked" && (
+                            <button
+                              type="button"
+                              disabled={taskActionBusy}
+                              onClick={() =>
+                                void performTaskAction(
+                                  () => api(`/tasks/${task.id}/ignore`, {}, "POST"),
+                                  "任务已忽略",
+                                )
+                              }
+                            >
+                              <UiIcon name="eyeOff" size={13} />
+                              改为已忽略
+                            </button>
+                          )}
+                          {task.status === "blocked" && (
+                            <button
+                              type="button"
+                              aria-expanded={taskRedirectOpen}
+                              aria-controls="task-redirect-panel"
+                              disabled={taskActionBusy}
+                              onClick={() => {
+                                if (!taskRedirectOpen) {
+                                  setTaskRedirectGoal(task.goal || "");
+                                  setTaskRedirectConstraints(task.constraints || "");
+                                  setTaskRedirectReason("");
+                                  setTaskRedirectTarget("");
+                                }
+                                setTaskRedirectOpen((current) => !current);
+                              }}
+                            >
+                              <UiIcon name="transfer" size={13} />
+                              补充内容后改派
+                            </button>
+                          )}
+                          {task.status === "ignored" && (
+                            <button
+                              type="button"
+                              disabled={taskActionBusy}
+                              onClick={() =>
+                                void performTaskAction(
+                                  () => api(`/tasks/${task.id}/restore-ignored`, {}, "POST"),
+                                  "任务已恢复",
+                                )
+                              }
+                            >
+                              <UiIcon name="restore" size={13} />
+                              恢复为已阻塞
+                            </button>
+                          )}
+                        </div>
+                        {task.status === "blocked" && taskRedirectOpen && (
+                          <div className="task-redirect-panel" id="task-redirect-panel">
+                            <TextAreaField
+                              label="任务目标"
+                              value={taskRedirectGoal}
+                              onChange={(event) => setTaskRedirectGoal(event.target.value)}
+                              placeholder="任务目标与验收标准"
+                            />
+                            <TextAreaField
+                              label="约束"
+                              value={taskRedirectConstraints}
+                              onChange={(event) => setTaskRedirectConstraints(event.target.value)}
+                              placeholder="约束（可选）"
+                            />
+                            <TextAreaField
+                              label="补充说明"
+                              value={taskRedirectReason}
+                              onChange={(event) => setTaskRedirectReason(event.target.value)}
+                              placeholder="补充给执行方的说明"
+                            />
+                            <SelectField
+                              aria-label="改派责任主体"
+                              value={taskRedirectTarget}
+                              onChange={setTaskRedirectTarget}
+                              options={assigneeOptions}
+                            />
+                            <div className="task-action-buttons">
+                              <button
+                                type="button"
+                                className="primary"
+                                disabled={
+                                  taskActionBusy || !taskRedirectGoal.trim() || !taskRedirectTarget
+                                }
+                                onClick={() =>
+                                  void performTaskAction(async () => {
+                                    await api(
+                                      `/tasks/${task.id}/redirect`,
+                                      {
+                                        goal: taskRedirectGoal.trim(),
+                                        constraints: taskRedirectConstraints,
+                                        reason: taskRedirectReason.trim(),
+                                        ...(taskRedirectTarget === "xiaoxiang"
+                                          ? { targetType: "xiaoxiang" }
+                                          : {
+                                              targetType: "human_member",
+                                              targetUserId: taskRedirectTarget,
+                                            }),
+                                      },
+                                      "POST",
+                                    );
+                                    setTaskRedirectOpen(false);
+                                  }, "任务已补充并改派")
+                                }
+                              >
+                                <UiIcon name="check" size={13} />
+                                确认改派
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </section>
+                    )}
                   {canReviewRejection && (
                     <section className="task-actions-section task-rejection-review">
                       <h4>任务已被拒绝</h4>
@@ -520,20 +674,7 @@ export function TaskDetailPanel({
                         aria-label="责任主体"
                         value={taskTransferTarget}
                         onChange={setTaskTransferTarget}
-                        options={[
-                          { value: "", label: "选择新的责任主体" },
-                          { value: "l2_session", label: "小祥" },
-                          ...(detail?.members ?? [])
-                            .filter(
-                              (member) =>
-                                member.id !== user.id &&
-                                member.kind !== "l1" &&
-                                member.kind !== "l2" &&
-                                member.id !== AGENT_MEMBER.id &&
-                                member.role !== "viewer",
-                            )
-                            .map((member) => ({ value: member.id, label: member.name })),
-                        ]}
+                        options={assigneeOptions}
                       />
                       <button
                         type="button"
@@ -543,8 +684,8 @@ export function TaskDetailPanel({
                             () =>
                               api(
                                 `/tasks/${task.id}/reassign`,
-                                taskTransferTarget === "l2_session"
-                                  ? { targetType: "l2_session" }
+                                taskTransferTarget === "xiaoxiang"
+                                  ? { targetType: "xiaoxiang" }
                                   : {
                                       targetType: "human_member",
                                       targetUserId: taskTransferTarget,

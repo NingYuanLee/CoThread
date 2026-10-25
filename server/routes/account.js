@@ -8,6 +8,7 @@ import { verifyPassword, issueCredential, hashPassword } from "../auth.js";
 import { query, transaction } from "../db.js";
 import { HttpError } from "../service.js";
 import { personalProfile, profileSchema } from "../profile.js";
+import { loginLanding } from "../org-shelf.js";
 import { UI_THEMES, normalizeUiTheme } from "../../shared/ui-theme.js";
 import { resolveIpLocation } from "../ip-location.js";
 import { randomUUID } from "node:crypto";
@@ -541,6 +542,9 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
           [req.user.id],
         );
         res.json(personalProfile(profile));
+      });
+      app.get("/api/me/landing", async (req, res) => {
+        res.json(await loginLanding(db, req.user));
       });
       app.post("/api/email/bind/request", async (req, res) => {
         if (req.user.kind !== "session") throw new HttpError(403, "请在浏览器中绑定邮箱");

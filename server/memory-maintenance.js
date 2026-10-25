@@ -1,7 +1,6 @@
-import { processNextDocumentOrganization } from "./document-organization-run.js";
 import { processNextProjectMemory } from "./project-memory.js";
-import { processNextL1ContextCompression } from "./l1-context.js";
-import { processNextL3ContextCompression } from "./l3-context.js";
+import { processNextLaowengContextCompression } from "./laoweng-context.js";
+import { processNextChildContextCompression } from "./child-agent-context.js";
 import { query } from "./db.js";
 import { HttpError } from "./service.js";
 
@@ -13,10 +12,10 @@ export function assertMemoryMaintenanceAuth(authorizationHeader) {
 }
 
 /** Requeue 老翁 runs left running after a killed cloud-function / agent request. */
-export async function recoverStaleL1Runs(db, { olderThanMinutes = 10 } = {}) {
+export async function recoverStaleLaowengRuns(db, { olderThanMinutes = 10 } = {}) {
   const result = await query(
     db,
-    `UPDATE agent_l1_runs
+    `UPDATE agent_laoweng_runs
     SET status='queued',started_at=NULL,error='维护超时中断，将自动重试。'
     WHERE status='running' AND started_at < DATE_SUB(UTC_TIMESTAMP(3), INTERVAL ? MINUTE)`,
     [olderThanMinutes],
@@ -24,12 +23,12 @@ export async function recoverStaleL1Runs(db, { olderThanMinutes = 10 } = {}) {
   return Number(result?.affectedRows || 0);
 }
 
-/** Drain up to maxBatches of 老翁 / organization / compaction work. Used by cron and manual kicks. */
+/** Drain up to maxBatches of 老翁 / compaction work. Used by cron and manual kicks. */
 export async function runMemoryMaintenance(
   db,
   { maxBatches = 25, projectId = null, task = null } = {},
 ) {
-  await recoverStaleL1Runs(db);
+  await recoverStaleLaowengRuns(db);
   let processed = 0;
   while (processed < maxBatches) {
     let worked = false;
@@ -40,10 +39,9 @@ export async function runMemoryMaintenance(
       });
     } else {
       worked =
-        (await processNextDocumentOrganization(db)) ||
         (await processNextProjectMemory(db)) ||
-        (await processNextL1ContextCompression(db)) ||
-        (await processNextL3ContextCompression(db));
+        (await processNextLaowengContextCompression(db)) ||
+        (await processNextChildContextCompression(db));
     }
     if (!worked) break;
     processed++;

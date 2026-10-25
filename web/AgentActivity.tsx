@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from "react";
-const StreamingMarkdown = lazy(() =>
-  import("./StreamingMarkdown").then((module) => ({ default: module.StreamingMarkdown })),
+const MessageMarkdown = lazy(() =>
+  import("./MessageMarkdown").then((module) => ({ default: module.MessageMarkdown })),
 );
 import { AgentEvent } from "./AgentEvent";
 import { AgentToolIcon } from "./AgentToolIcon";
@@ -127,13 +127,26 @@ export function AgentActivity({
           strokeLinejoin="round"
           aria-hidden="true"
         >
-          <path d={open ? "m3 7 3-3 3 3" : "m4.5 3 3 3-3 3"} />
+          <path d={open ? "m3 7 3-3 3 3" : "m3 5 3 3 3-3"} />
         </svg>
       )}
     </>
   );
   return (
     <div className="agent-trace" data-open={revealed && hasContent}>
+      {expanded || !hasContent ? (
+        <div className="agent-status-line">{statusLine}</div>
+      ) : (
+        <button
+          className="agent-status-line"
+          type="button"
+          aria-expanded={open}
+          title={`${current}；点击展开或收起过程`}
+          onClick={() => setOpen(!open)}
+        >
+          {statusLine}
+        </button>
+      )}
       {revealed && hasContent && (
         <div className="agent-activity-items">
           {remaining.map((e) => {
@@ -152,10 +165,7 @@ export function AgentActivity({
                 >
                   <div className="message-text">
                     <Suspense fallback={live || texts[e.id] || ""}>
-                      <StreamingMarkdown
-                        active={active && e.status === "running"}
-                        text={live || texts[e.id] || ""}
-                      />
+                      <MessageMarkdown body={live || texts[e.id] || ""} />
                     </Suspense>
                   </div>
                 </div>
@@ -188,7 +198,7 @@ export function AgentActivity({
             <div className={`agent-phase ${output.content ? "text" : "thinking"}`}>
               <div className="message-text">
                 <Suspense fallback={output.content || output.reasoning}>
-                  <StreamingMarkdown active={active} text={output.content || output.reasoning} />
+                  <MessageMarkdown body={output.content || output.reasoning || ""} />
                 </Suspense>
               </div>
             </div>
@@ -196,19 +206,6 @@ export function AgentActivity({
           {!!output?.truncated && <small>当前阶段的展示内容已达到长度上限。</small>}
           {error && <p role="status">{error}</p>}
         </div>
-      )}
-      {expanded || !hasContent ? (
-        <div className="agent-status-line">{statusLine}</div>
-      ) : (
-        <button
-          className="agent-status-line"
-          type="button"
-          aria-expanded={open}
-          title={`${current}；点击展开或收起过程`}
-          onClick={() => setOpen(!open)}
-        >
-          {statusLine}
-        </button>
       )}
     </div>
   );

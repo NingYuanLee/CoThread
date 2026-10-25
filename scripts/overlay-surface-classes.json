@@ -12,9 +12,6 @@
   "document-file-info-dialog",
   "image-preview-dialog",
   "l1-history-dialog",
-  "l3-event-log-dialog",
-  "l3-task-detail-dialog",
-  "l3-task-session-dialog",
   "library-folder-menu",
   "library-form",
   "library-organize-dialog",
@@ -39,5 +36,6 @@
   "theme-dialog",
   "thread-archive-dialog",
   "thread-brief-dialog",
+  "thread-brief-page-dialog",
   "thread-row-menu"
 ]

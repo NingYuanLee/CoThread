@@ -5,6 +5,68 @@ import { acquireSessionLock, discussionHasActiveCoordinator } from "./session-lo
 
 export { queueContextCompression } from "./queue-context.js";
 
+/** 轨迹行里的词元写法，和前端 shortTokens 一致：11800 → 11.8K。 */
+function compactTokens(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return "0";
+  return amount >= 1000 ? `${Math.round(amount / 100) / 10}K` : String(Math.round(amount));
+}
+
+/** 压缩结果的一句话文案，和老翁轨迹、上下文仪表保持一致。 */
+function compactResultText(result) {
+  if (result?.changed === true && Number(result.after) < Number(result.before))
+    return `压缩完成：${compactTokens(result.before)} → ${compactTokens(result.after)}`;
+  if (result?.reason === "not_smaller") return "本次压缩未减少用量";
+  if (result?.reason === "already_small") return "上下文较短，无需压缩";
+  return "本次压缩未减少用量";
+}
+
+/**
+ * 群聊（迭代）轨迹要能看到每次上下文压缩：完成或失败后写一条 agent_event，
+ * tool='context_compact'，input={before,after,changed,reason}，output 是一句中文结果，
+ * 供轨迹把压缩当成一个步骤展示。
+ * 事件挂在「这轮要处理的那条消息」上：优先取 seen_sequence 之前最后一条 human 消息；
+ * 写失败只记日志，不能影响压缩流程本身。
+ */
+async function recordContextCompactEvent(db, threadId, { sessionId, result, error }) {
+  try {
+    const [session] = await query(
+      db,
+      "SELECT seen_sequence,session_id FROM agent_sessions WHERE thread_id=?",
+      [threadId],
+    );
+    const seen = Number(session?.seen_sequence || 0);
+    const [message] = await query(
+      db,
+      `SELECT id FROM messages WHERE thread_id=? AND source='human'${seen ? " AND sequence<=?" : ""}
+       ORDER BY sequence DESC LIMIT 1`,
+      seen ? [threadId, seen] : [threadId],
+    );
+    if (!message) return;
+    const before = result ? Number(result.before) : null;
+    const after = result ? Number(result.after) : null;
+    await query(
+      db,
+      `INSERT INTO agent_events(message_id,agent_session_id,tool,status,input,output,created_at,finished_at)
+       VALUES(?,?,'context_compact',?,?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))`,
+      [
+        message.id,
+        sessionId || session?.session_id || null,
+        error ? "failed" : "completed",
+        JSON.stringify({
+          before: Number.isFinite(before) ? before : null,
+          after: Number.isFinite(after) ? after : null,
+          changed: result?.changed === true,
+          reason: error ? "failed" : result?.reason || null,
+        }),
+        error || compactResultText(result),
+      ],
+    );
+  } catch (cause) {
+    console.error("Context compact event skipped", { type: cause?.name || "Error" });
+  }
+}
+
 export async function processNextContextCompression(db, openRuntime, threadId) {
   const [candidate] = await query(
     db,
@@ -65,6 +127,7 @@ async function compressClaimedDiscussion(db, openRuntime, threadId) {
       sessionLockHeld: true,
     });
     const result = await runtime.request("compact");
+    const runtimeSessionId = runtime.session?.session_id || null;
     await runtime.close(true);
     runtime = undefined;
     await query(
@@ -72,20 +135,25 @@ async function compressClaimedDiscussion(db, openRuntime, threadId) {
       "UPDATE agent_sessions SET compact_status='completed',compact_result=?,compact_error=NULL WHERE thread_id=?",
       [JSON.stringify(result), job.thread_id],
     );
+    await recordContextCompactEvent(db, job.thread_id, { sessionId: runtimeSessionId, result });
   } catch (error) {
+    const runtimeSessionId = runtime?.session?.session_id || null;
     if (runtime) await runtime.close().catch(() => {});
+    const compactError =
+      error instanceof HttpError
+        ? error.message
+        : /timeout|timed out|abort|cancel/i.test(`${error?.name} ${error?.message}`)
+          ? "上下文压缩超时，已停止。聊天记录和文件仍保留，可以重试。"
+          : "上下文压缩未完成，任务已退出。聊天记录和文件仍保留，可以重试。";
     await query(
       db,
       "UPDATE agent_sessions SET compact_status='failed',compact_error=? WHERE thread_id=?",
-      [
-        error instanceof HttpError
-          ? error.message
-          : /timeout|timed out|abort|cancel/i.test(`${error.name} ${error.message}`)
-            ? "上下文压缩超时，已停止。聊天记录和文件仍保留，可以重试。"
-            : "上下文压缩未完成，任务已退出。聊天记录和文件仍保留，可以重试。",
-        job.thread_id,
-      ],
+      [compactError, job.thread_id],
     );
+    await recordContextCompactEvent(db, job.thread_id, {
+      sessionId: runtimeSessionId,
+      error: compactError,
+    });
     console.error("Context compression failed", { type: error.name });
   }
   return true;

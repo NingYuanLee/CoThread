@@ -130,7 +130,7 @@ export async function listMyWork(db, user, kind, input) {
   const rows = await query(
     db,
     `SELECT w.id,w.title,w.status,w.project_id,w.created_at,p.name project_name,p.archived_at project_archived_at,${projectImageUrlSql("p.id", "/api/admin/my/projects")} project_image,
-    ${iterations ? "w.archived_at,u.name creator,(SELECT COUNT(*) FROM agent_tasks t WHERE t.origin_thread_id=w.id) task_count" : "w.goal,w.progress,w.result_summary,w.updated_at,w.task_type,w.origin_thread_id,w.thread_number,t.title iteration_title,COALESCE(u.name,CASE w.claimed_by_type WHEN 'dsh_l3' THEN '子 Agent' WHEN 'l2_session' THEN '小祥' END) assignee"}
+    ${iterations ? "w.archived_at,u.name creator,(SELECT COUNT(*) FROM agent_tasks t WHERE t.origin_thread_id=w.id) task_count" : "w.goal,w.progress,w.result_summary,w.updated_at,w.task_type,w.origin_thread_id,w.thread_number,t.title iteration_title,COALESCE(u.name,CASE w.claimed_by_type WHEN 'child_agent' THEN '子 Agent' WHEN 'xiaoxiang' THEN '小祥' END) assignee"}
     FROM ${from} ${iterations ? "LEFT JOIN users u ON u.id=w.created_by" : "LEFT JOIN threads t ON t.id=w.origin_thread_id LEFT JOIN users u ON u.id=COALESCE(w.claimed_by_id,w.target_id)"}
     ${clause} ORDER BY w.created_at DESC,w.id LIMIT ${data.pageSize} OFFSET ${(data.page - 1) * data.pageSize}`,
     params,
@@ -142,7 +142,13 @@ export async function listMyWork(db, user, kind, input) {
      ORDER BY p.name,p.id`,
     [user.id],
   );
-  return { items: rows, total: Number(count.total), page: data.page, pageSize: data.pageSize, projects };
+  return {
+    items: rows,
+    total: Number(count.total),
+    page: data.page,
+    pageSize: data.pageSize,
+    projects,
+  };
 }
 
 export async function myTaskDetail(db, user, taskId) {

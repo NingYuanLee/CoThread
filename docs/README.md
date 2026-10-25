@@ -25,5 +25,11 @@
 - [09-dialogs-and-overlays.md](engineering/09-dialogs-and-overlays.md)：弹窗与浮层约定
 - [10-theme-system.md](engineering/10-theme-system.md)：主题与生成产物
 - [11-agent-prompt-context.md](engineering/11-agent-prompt-context.md)：六段提示词、来源模式、持久会话及调用预览的改造契约（实现与验收状态见正文）
+- [12-project-memory.md](engineering/12-project-memory.md)：项目记忆（老翁持续整理、双区条目、迭代清算、全屏弹窗入口）的实现契约
+- [13-laoweng-workloads.md](engineering/13-laoweng-workloads.md)：老翁的工作面、五类维护任务、项目记忆写入场景、调度与接口
 
 用户能看见的行为变了，同时改 `public/docs.html` 和对应的工程说明。只改内部实现时只改工程说明。表结构以 `migrations/` 为准。长期产品资料放进 `product/`。一次测量、复盘或待办不要留在 `docs/`。
+
+产品资料：
+
+- [knowledge-base-plan.md](product/knowledge-base-plan.md)：知识库总计划。只定范围和顺序，不是已上线行为。

@@ -1,13 +1,79 @@
 // Adapter for the pinned DSH 0.2.0-rc.2 SDK: its named-session path creates
 // a new session even when a durable record exists. Resume that record explicitly.
-import { HarnessSdkJsonRpcServer, inject as sdkInject } from "@deepseek-ai/dsh-sdk-jsonrpc-server";
+import { JsonRpcLineTransport } from "@deepseek-ai/dsh-sdk-protocol";
+import {
+  Config,
+  HarnessSdkJsonRpcServer,
+  inject as sdkInject,
+} from "@deepseek-ai/dsh-sdk-jsonrpc-server";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { parentAgentOptionsForDelegation } from "@deepseek-ai/dsh-subagent";
 import { measureContext } from "./context-meter.mjs";
 import { repairContext, transcriptBlocks } from "./repair-context.mjs";
-export { Config, apply } from "@deepseek-ai/dsh-sdk-jsonrpc-server";
+export { Config };
 export const name = "cothread-sdk-server";
 export const inject = [...sdkInject, "tokenMeter", "compaction"];
+
+class StreamingSdkServer extends HarnessSdkJsonRpcServer {
+  constructor(ctx, transport, options) {
+    super(ctx, transport, options);
+    this.disposers.push(
+      ctx.on("agent/assistant-stream", (payload) => {
+        const chunk = payload?.frame?.chunk;
+        const sessionId = payload?.agent?.session?.id;
+        if (!sessionId || typeof chunk?.text !== "string" || !chunk.text) return;
+        if (chunk.type !== "text-delta" && chunk.type !== "reasoning-delta") return;
+        this.transport.notify("session.event", {
+          sessionId: String(sessionId),
+          event: {
+            type: "assistant/chunk",
+            data: { chunk: { type: chunk.type, text: chunk.text } },
+          },
+        });
+      }),
+    );
+  }
+}
+
+export function apply(ctx, config) {
+  const rootFiber = ctx.root.fiber;
+  const input = config.input ?? process.stdin;
+  const output = config.output ?? process.stdout;
+  const exit =
+    config.exit ??
+    ((code) => {
+      process.exit(code);
+    });
+  const transport = new JsonRpcLineTransport(input, output);
+  const server = new StreamingSdkServer(ctx, transport, {
+    maxTokensAsSuccess: config.maxTokensAsSuccess,
+  });
+  let exitTask;
+  const disposeAndExit = () => {
+    exitTask ??= (async () => {
+      await Promise.allSettled([Promise.resolve().then(() => transport.flush())]);
+      await Promise.allSettled([Promise.resolve().then(() => rootFiber.dispose())]);
+      exit(0);
+    })();
+    return exitTask;
+  };
+  transport.onRequest(async (method, params) => {
+    if (method === "initialize") await ctx.get("loader")?.await();
+    const result = await server.handleRequest(method, params);
+    if (method === "shutdown")
+      setImmediate(() => {
+        disposeAndExit();
+      });
+    return result;
+  });
+  ctx.effect(() => {
+    transport.start();
+    return async () => {
+      await server.shutdown();
+      transport.close();
+    };
+  }, "jsonrpc.serve");
+}
 
 function liveAgent(server, sessionId) {
   if (!sessionId) return undefined;
@@ -20,7 +86,7 @@ function liveDelegatedAgent(server, method, params) {
     return undefined;
   const sessionId = params?.sessionId;
   // Prefer the in-registry agent when this server has not materialized a
-  // session record yet (typical for live L3 children under the L2 harness).
+  // session record yet (typical for live 子 Agent children under the 小祥 harness).
   if (!sessionId || server.sessions?.get(sessionId) || server.sessionCreations?.get(sessionId))
     return undefined;
   return liveAgent(server, sessionId);
@@ -55,17 +121,17 @@ async function compactMeasuredSession(server, agent, params) {
   };
 }
 
-export async function startContinuableL3(ctx, parent, { label, prompt, signal } = {}) {
+export async function startChildAgent(ctx, parent, { label, prompt, signal, persona } = {}) {
   const text = String(prompt || "").trim();
-  if (!text) throw new Error("L3 启动缺少任务说明");
+  if (!text) throw new Error("子 Agent 启动缺少任务说明");
   let subagents;
   try {
     subagents = ctx?.subagents;
   } catch (error) {
     // Cordis throws on undeclared inject even under optional chaining.
-    throw new Error(`当前运行时不能启动 L3（${error?.message || error}）`);
+    throw new Error(`当前运行时不能启动 子 Agent（${error?.message || error}）`);
   }
-  if (!subagents?.startContinuable) throw new Error("当前运行时不能启动 L3");
+  if (!subagents?.startContinuable) throw new Error("当前运行时不能启动 子 Agent");
   const title = String(label || "任务").slice(0, 80);
   let agentOptions;
   try {
@@ -83,11 +149,12 @@ export async function startContinuableL3(ctx, parent, { label, prompt, signal } 
         prompt: [{ type: "text", text }],
         parent,
         ...(agentOptions ? { agentOptions } : {}),
+        ...(persona ? { persona: String(persona) } : {}),
         maxDepth: 1,
       },
       signal: spawnSignal,
     });
-    if (!started?.childId) throw new Error("L3 启动没有返回会话");
+    if (!started?.childId) throw new Error("子 Agent 启动没有返回会话");
     return { childId: started.childId };
   };
   const waitIdle = async () => {
@@ -96,7 +163,7 @@ export async function startContinuableL3(ctx, parent, { label, prompt, signal } 
   };
   const viaMaintenance = async () => {
     if (typeof parent?.runMaintenance !== "function") {
-      throw new Error("当前父会话缺少 runMaintenance，无法在 idle 期派发 L3");
+      throw new Error("当前父会话缺少 runMaintenance，无法在 idle 期派发 子 Agent");
     }
     return parent.runMaintenance((maintenanceSignal) => {
       const linked =
@@ -116,7 +183,7 @@ export async function startContinuableL3(ctx, parent, { label, prompt, signal } 
         return await viaMaintenance();
       } catch (maintError) {
         throw new Error(
-          `L3 启动失败（running 直拉: ${directError?.message || directError}; idle 维护: ${maintError?.message || maintError})`,
+          `子 Agent 启动失败（running 直拉: ${directError?.message || directError}; idle 维护: ${maintError?.message || maintError})`,
         );
       }
     }
@@ -129,7 +196,7 @@ export async function startContinuableL3(ctx, parent, { label, prompt, signal } 
       return await spawn(outer);
     } catch (spawnError) {
       throw new Error(
-        `L3 启动失败（idle 维护: ${maintError?.message || maintError}; 直拉: ${spawnError?.message || spawnError})`,
+        `子 Agent 启动失败（idle 维护: ${maintError?.message || maintError}; 直拉: ${spawnError?.message || spawnError})`,
       );
     }
   }
@@ -140,10 +207,10 @@ const handleRequest = HarnessSdkJsonRpcServer.prototype.handleRequest;
 function sessionContextLevel(sessionId) {
   const primary = process.env.COTHREAD_PRIMARY_AGENT_ID;
   if (primary && sessionId && sessionId !== primary) return "executor";
-  return process.env.COTHREAD_PRIMARY_AGENT_LEVEL === "l3" ||
+  return process.env.COTHREAD_PRIMARY_AGENT_LEVEL === "child_agent" ||
     process.env.COTHREAD_PRIMARY_AGENT_LEVEL === "executor"
     ? "executor"
-    : process.env.COTHREAD_PRIMARY_AGENT_LEVEL === "l1" ||
+    : process.env.COTHREAD_PRIMARY_AGENT_LEVEL === "laoweng" ||
         process.env.COTHREAD_PRIMARY_AGENT_LEVEL === "knowledge"
       ? "knowledge"
       : "coordinator";
@@ -158,7 +225,8 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (method, params
       "cothread/compact",
       "cothread/history",
       "cothread/updates",
-      "cothread/dispatch-l3",
+      "cothread/dispatch-child",
+      "cothread/surface",
     ].includes(method)
   )
     return handleRequest.call(this, method, params);
@@ -166,11 +234,11 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (method, params
   if (delegated) {
     if (method === "cothread/history") return delegated.session.deriveMessages();
     if (method === "cothread/compact") return compactMeasuredSession(this, delegated, params);
-    // Live subagents are always L3 executors under the L2 harness.
+    // Live subagents are always 子 Agent executors under the 小祥 harness.
     return measureContext(this.ctx, delegated.session, { level: "executor" });
   }
   // context/history for an unknown id must not invent an empty session — that
-  // overwrites L3 run meters with used:0 after the live child has torn down.
+  // overwrites 子 Agent run meters with used:0 after the live child has torn down.
   // Exception: the harness primary resume id must reach createSession → agents.resume.
   if (
     (method === "cothread/context" || method === "cothread/history") &&
@@ -250,13 +318,37 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (method, params
     }
   }
   if (method === "cothread/compact") return compactMeasuredSession(this, agent, params);
-  if (method === "cothread/dispatch-l3") {
-    // dsh_l3 tool passes the live parent; getOrCreateSession can return a
+  if (method === "cothread/dispatch-child") {
+    // child_agent tool passes the live parent; getOrCreateSession can return a
     // different handle that startContinuable will not admit under the running team.
     const parent = liveAgent(this, params.sessionId) || agent;
-    return startContinuableL3(this.ctx, parent, params);
+    return startChildAgent(this.ctx, parent, params);
   }
   if (method === "cothread/history") return agent.session.deriveMessages();
+  // Diagnostics for "manual compaction found no range": surface sizes must agree
+  // with what the compactor prices, so print both per-node and per-message views.
+  if (method === "cothread/surface") {
+    const measured = this.ctx.tokenMeter.measure(agent.session);
+    return {
+      totalTokens: measured.totalTokens,
+      surfaceNodes: agent.session.surface.nodes.length,
+      nodes: measured.nodes.map((node, index) => {
+        const event = agent.session.eventAt(node.seq);
+        return {
+          index,
+          seq: node.seq,
+          type: event?.type ?? null,
+          tokens: node.tokens ?? node.heuristicTokens ?? null,
+          sourceKind: event?.data?.source?.kind ?? null,
+          chars: JSON.stringify(event?.data ?? "").length,
+        };
+      }),
+      messages: agent.session.deriveMessages().map((message) => ({
+        role: message.role ?? null,
+        chars: JSON.stringify(message.content ?? "").length,
+      })),
+    };
+  }
   return measureContext(this.ctx, agent.session, { level: sessionContextLevel(params.sessionId) });
 };
 HarnessSdkJsonRpcServer.prototype.createSession = async function (sessionId) {

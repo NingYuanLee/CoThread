@@ -5,7 +5,7 @@ import { mentionsAgent } from "../shared/agent-member.js";
 // One visible assistant coordinates up to seven concurrent execution contexts.
 export const MAX_THREAD_AGENTS = 7;
 
-export async function claimReply(db, threadId, { allowUnrouted = true } = {}) {
+export async function claimReply(db, threadId, { allowUnrouted = true, skipPending = false } = {}) {
   const candidates = threadId
     ? [{ thread_id: threadId }]
     : await query(
@@ -44,6 +44,7 @@ export async function claimReply(db, threadId, { allowUnrouted = true } = {}) {
         [thread.id],
       );
       const next = queued.find((row) => {
+        if (skipPending && row.participation === "pending") return false;
         if (active.some((task) => task.author_id === row.author_id)) return false;
         if (row.agent_slot && active.some((task) => task.agent_slot === row.agent_slot))
           return false;

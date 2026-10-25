@@ -177,8 +177,8 @@ export function TaskCreateDialog({
                 options={(detail?.members || [])
                   .filter(
                     (member) =>
-                      member.kind !== "l1" &&
-                      member.kind !== "l2" &&
+                      member.kind !== "laoweng" &&
+                      member.kind !== "xiaoxiang" &&
                       member.id !== AGENT_MEMBER.id &&
                       member.role !== "viewer",
                   )

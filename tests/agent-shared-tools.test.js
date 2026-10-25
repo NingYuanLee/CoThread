@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { createAgentTools } from "../server/agent-tools.js";
-import { createTask, bindDshL3Execution } from "../server/task-pool.js";
+import { createTask, bindChildAgentExecution } from "../server/task-pool.js";
 
 test("小祥 can execute shared sandbox tools while member and Chat permissions remain enforced", async () => {
   const database = await testDatabase();
@@ -32,7 +32,7 @@ test("小祥 can execute shared sandbox tools while member and Chat permissions 
     let calls = 0;
     const options = {
       role: "coordinator",
-      l2SessionId: thread.id,
+      xiaoxiangSessionId: thread.id,
       getSandbox: async () => ({
         commands: {
           run: async () => {
@@ -117,22 +117,22 @@ test("shared task tools allow a bound child to inspect its work without borrowin
       originThreadId: thread.id,
       sourceType: "human_member",
       sourceUserId: user.id,
-      createdByType: "l2_session",
+      createdByType: "xiaoxiang",
       createdById: sessionId,
       taskType: "formal",
       title: "执行工作",
       goal: "检查范围",
-      targetType: "l2_session",
+      targetType: "xiaoxiang",
       targetId: sessionId,
     };
     const own = await createTask(db, taskInput);
-    await bindDshL3Execution(db, sessionId, childId, own.id);
+    await bindChildAgentExecution(db, sessionId, childId, own.id);
     const other = await createTask(db, { ...taskInput, title: "其他工作" });
     const call = createAgentTools(
       service,
       user,
       { thread_id: thread.id, message_id: message.id, author_id: user.id },
-      { role: "coordinator", l2SessionId: sessionId },
+      { role: "coordinator", xiaoxiangSessionId: sessionId },
     );
     const caller = { sessionId: childId };
     const inspected = await call("inspect_task", { taskId: own.id }, caller);
@@ -159,7 +159,7 @@ test("shared task tools allow a bound child to inspect its work without borrowin
       "create_task",
       {
         taskType: "formal",
-        targetType: "l2_session",
+        targetType: "xiaoxiang",
         targetId: sessionId,
         title: "关联后续工作",
         goal: "保持任务来源",
@@ -173,7 +173,7 @@ test("shared task tools allow a bound child to inspect its work without borrowin
     );
     assert.equal(stored.source_type, "task");
     assert.equal(stored.source_task_id, own.id);
-    assert.equal(stored.created_by_type, "l2_session");
+    assert.equal(stored.created_by_type, "xiaoxiang");
   } finally {
     await database.close();
   }
@@ -200,23 +200,25 @@ test("a child keeps the dialogue mode pinned at bind time after the shared job c
     ]);
     const message = await service.postMessage(user, thread.id, {
       body: "@小祥 只读问答",
-      dialogueMode: "chat",
     });
+    await query(db, "UPDATE agent_requests SET dialogue_mode='chat' WHERE message_id=?", [
+      message.id,
+    ]);
     const task = await createTask(db, {
       projectId: project.id,
       originThreadId: thread.id,
       sourceType: "human_member",
       sourceUserId: user.id,
       sourceMessageId: message.id,
-      createdByType: "l2_session",
+      createdByType: "xiaoxiang",
       createdById: sessionId,
       taskType: "formal",
       title: "只读来源任务",
       goal: "不能因为父会话切到 default 就写入",
-      targetType: "l2_session",
+      targetType: "xiaoxiang",
       targetId: sessionId,
     });
-    await bindDshL3Execution(db, sessionId, childId, task.id);
+    await bindChildAgentExecution(db, sessionId, childId, task.id);
     const [pinned] = await query(
       db,
       "SELECT source_message_id,dialogue_mode FROM agent_task_execution_runs WHERE executor_id=?",
@@ -227,7 +229,7 @@ test("a child keeps the dialogue mode pinned at bind time after the shared job c
     const job = { thread_id: thread.id, message_id: message.id, dialogue_mode: "chat" };
     const call = createAgentTools(service, user, job, {
       role: "coordinator",
-      l2SessionId: sessionId,
+      xiaoxiangSessionId: sessionId,
       getSandbox: async () => ({
         commands: { run: async () => ({ exitCode: 0, stdout: "wrote", stderr: "" }) },
       }),

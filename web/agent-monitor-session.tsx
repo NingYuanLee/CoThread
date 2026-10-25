@@ -71,12 +71,12 @@ export function TaskSessionDialog({
     <Dialog
       onRequestClose={onClose}
       ref={dialog}
-      className="l3-task-detail-dialog l3-task-session-dialog"
-      aria-labelledby="l3-task-session-title"
+      className="child-task-detail-dialog child-task-session-dialog"
+      aria-labelledby="child-task-session-title"
     >
       <DialogHeader
         title={<>{title}</>}
-        titleId="l3-task-session-title"
+        titleId="child-task-session-title"
         subtitle={
           <>
             {kicker}
@@ -85,7 +85,7 @@ export function TaskSessionDialog({
         }
         actions={
           <>
-            <div className="l3-task-session-tools">
+            <div className="child-task-session-tools">
               <ContextMeter
                 usage={usage}
                 writable={!data?.running}
@@ -100,7 +100,7 @@ export function TaskSessionDialog({
         onClose={() => animateDialogClose(dialog.current, onClose)}
         closeLabel="关闭任务会话"
       />
-      <div className="l3-task-session-body" ref={list}>
+      <div className="child-task-session-body" ref={list}>
         {!data?.messages.length &&
           !pending.length &&
           !events.length &&
@@ -109,7 +109,7 @@ export function TaskSessionDialog({
             <p className="monitor-empty">{data?.running ? "正在写入原生会话…" : emptyIdle}</p>
           )}
         {data?.messages.map((message) => (
-          <article key={message.id} className={`l3-task-session-msg ${message.role}`}>
+          <article key={message.id} className={`child-task-session-msg ${message.role}`}>
             <small>{roleLabel(message.role)}</small>
             <div className="message-text">
               <StreamingMarkdown active={false} text={message.text} />
@@ -120,7 +120,7 @@ export function TaskSessionDialog({
           (data?.events || [])
             .filter((event) => event.screenshotUrl)
             .map((event) => (
-              <article key={`screenshot-${event.id}`} className="l3-task-session-msg assistant">
+              <article key={`screenshot-${event.id}`} className="child-task-session-msg assistant">
                 <small>视觉验收 · {event.tool}</small>
                 <img
                   className="agent-screenshot-preview"
@@ -131,13 +131,13 @@ export function TaskSessionDialog({
               </article>
             ))}
         {pending.map((item) => (
-          <article key={item.id} className="l3-task-session-msg pending">
+          <article key={item.id} className="child-task-session-msg pending">
             <small>{item.author} · 待纳入</small>
             <pre>{item.body}</pre>
           </article>
         ))}
         {data && (events.length || liveOutput?.content || liveOutput?.reasoning) ? (
-          <div className="l3-task-session-live">
+          <div className="child-task-session-live">
             <AgentActivity
               threadId={live?.threadId || ""}
               messageId={live?.messageId || ""}

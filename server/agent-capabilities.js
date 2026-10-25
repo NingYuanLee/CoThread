@@ -7,16 +7,16 @@ import {
   pluginManagementLevel,
 } from "../dsh-layer/cothread-plugin-registry.mjs";
 
-const storedLevels = ["l1", "l2", "l3"];
-const managementLevels = ["l1", "l2"];
+const storedLevels = ["laoweng", "xiaoxiang", "child_agent"];
+const managementLevels = ["laoweng", "xiaoxiang"];
 const levelSchema = z.enum(storedLevels);
 
 function storedSkillLevel(agentLevel) {
-  return agentLevel === "l3" ? "l2" : agentLevel;
+  return agentLevel === "child_agent" ? "xiaoxiang" : agentLevel;
 }
 
 function skillLevelsFor(level) {
-  return level === "l1" ? ["l1"] : ["l2", "l3"];
+  return level === "laoweng" ? ["laoweng"] : ["xiaoxiang", "child_agent"];
 }
 const skillInput = z
   .object({
@@ -70,7 +70,7 @@ export async function adminPluginManagement(service, user) {
     `SELECT s.*,creator.name created_by_name,editor.name updated_by_name
     FROM agent_prompt_skills s LEFT JOIN users creator ON creator.id=s.created_by LEFT JOIN users editor ON editor.id=s.updated_by
     WHERE s.archived_at IS NULL AND s.source='custom'
-    ORDER BY FIELD(s.agent_level,'l1','l2','l3'),s.updated_at DESC,s.id`,
+    ORDER BY FIELD(s.agent_level,'laoweng','xiaoxiang','child_agent'),s.updated_at DESC,s.id`,
   );
   return {
     levels: managementLevels.map((level) => ({

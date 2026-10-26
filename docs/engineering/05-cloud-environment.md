@@ -1,6 +1,6 @@
 # 云端环境变量
 
-维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-10-25；已核对构建、打包、启动及停止钩子，并把本轮预发布测试暴露的 CSS、输入控件和契约缺陷合并到文末问题清单。当天验收记录见下方。
+维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-10-26；构建、打包、ecs-promote 启停钩子和上线验收步骤仍适用。公网测试库主机名会落到 198.18.0.0/15，本机 3307 上已没有名为 cothread_test 的库。当天验收记录见文末。
 
 应用后端需要常驻 Node.js 进程（Node.js 22.22.3+，推荐 24）、MySQL 网络连接及可写的 `.local` 目录。只发布 `dist/` 静态文件无法运行 API、MCP 和后台 Agent；生产环境固定为阿里云 ECS 单实例 + RDS，本机开发用便携版 MySQL。
 
@@ -66,7 +66,7 @@
 
    平台模型配置的 118 号迁移仅新增单例配置表，初始不写配置。新版本探活也会应用该迁移；若随后回切旧代码，可保留新增表，不执行删除表或重写迁移记录。旧代码不会读取此表，因此启用数据库模型配置后再回切旧代码，会重新采用服务器环境变量，恢复前须核对两者。
 
-6. 远端测试库出现 `PROTOCOL_CONNECTION_LOST` 时，先区分连接故障与业务断言失败。可使用本机已安装的 MySQL 和专用测试库（当前本机可用的是 `127.0.0.1:3307/cothread_test` 及 `_2` 到 `_5`；`cothread_deploy_test` 若未单独授权不可直接使用），仅向测试子进程注入 `TEST_DATABASE_HOST_PUBLIC`、`TEST_DATABASE_AUTH`。凭据从现有本地配置读取，不打印、不提交；`npm test` 会清空目标测试库，不能指向生产或日常开发库。本机 RDS 测试地址若解析到 `198.18.0.0/15` 且无对应路由，应切换到这些独立本机测试库，不要把 DNS/握手失败记成业务回归。
+6. 远端测试库出现 `PROTOCOL_CONNECTION_LOST` 时，先区分连接故障与业务断言失败。`.env` 里的公网测试主机名在 2026-10-26 解析到 `198.18.30.123`，整轮 431 项都是连接丢失、0 项断言失败，不能记成业务回归。本机 `127.0.0.1:3307` 当时没有名为 `cothread_test` 的库，仍有 `cothread_test_2` 到 `_5`；本机 `cothread` 账号能写 `_2`，RDS 的 `TEST_DATABASE_AUTH` 不能连这些本机库。只向测试子进程注入 `TEST_DATABASE_HOST_PUBLIC` 和本机账号的 `TEST_DATABASE_AUTH`，凭据从现有本地配置读取，不打印、不提交。`npm test` 会清空目标测试库，不能指向生产库或 `cothread_dev`。`cothread_deploy_test` 若未单独授权不可直接使用。
 7. 完成最终构建后再打包。推荐 `npm run deploy:ecs`；只有确认 `dist/` 对应最终前端源码时，才用 `npm run deploy:ecs -- --pack-only`。不要并行构建和打包；源码、锁文件或发布钩子改动后都应重打包。清单由[打包入口](../../scripts/ecs-deploy.mjs)生成，不手改 `.code_deploy/last-deploy.json`，发布期间也不要继续修改待上传源码。
 8. 提交并推送待发布修改，确认远端分支 HEAD 与本地一致；记录提交号、产物文件名及 SHA-256，再进入上传步骤。
 
@@ -159,6 +159,7 @@ bash -n scripts/ecs-codedeploy-start.sh
 - 2026-10-25 全量测试 83 分钟的根因与修复：`tests/database.js` 原来逐表 `TRUNCATE` 重置（104 张表，每张表多次 fsync）。全量套件共 222 次重置，磁盘压力大时单次从 4 s 恶化到 21 s，实测每次重置约 8,000 次同步落盘，占总时长约 94%。改为单事务 `DELETE`（`FOREIGN_KEY_CHECKS=0` 下 102 张表，提交后一次 `ALTER TABLE users AUTO_INCREMENT`）：同压力下单次 20.5 s → 1.6 s、fsync 3,775 → 68；全量 83.3 → 15.5 分钟，15–30 s 区间的用例从 162 项降到 1 项。注意 `DELETE` 不复位其他表的自增（`TRUNCATE` 会），测试不应依赖它们从 1 开始；`ip_geolocations` 与 `schema_migrations` 仍跳过。曾尝试进程内共享连接池把 222 次压到每文件一次，但池的 socket 持有事件循环、`beforeExit` 不触发，会让 `node --test` 子进程挂死，已放弃；要再减少重置次数只能把具体文件改成显式 `before/after`。本机测试实例另可设 `innodb_flush_log_at_trx_commit=2`、`sync_binlog=0` 继续降 fsync（只对测试实例，不改生产）。
 - 2026-10-25 并行分片：`scripts/test-shards.mjs`（`npm run test:shards`）按「导入 `tests/database.js` 的文件」分到各自测试库，其余无库文件单独一路并发跑；仍要求 `TEST_DATABASE_HOST_PUBLIC=<host:port>/<db>` 与 `TEST_DATABASE_AUTH`，没有 `TEST_SHARD_DATABASES` 时只用当前库（于是得到 2 路）。默认会自动发现本机 `cothread_test`、`cothread_test_2`… 这些库并全部用上（只认这个前缀，不动 `cothread_prompt_test` 等独立库），也可用 `TEST_SHARD_DATABASES` 显式指定。本机已建 `cothread_test_2`…`cothread_test_5`：`cothread` 账号没有全局 `CREATE`，是用 root（`.local/mysql-client.ini`）执行 `CREATE DATABASE` + `GRANT ALL PRIVILEGES ON `cothread_test_N`.* TO 'cothread'@'127.0.0.1'` 建的；再要加库沿用同样方式。并行分片实测 6 路 **69 秒**跑完 867 项（403+464），迁移锁已按库名隔离，同库仍串行。正式发布证据仍以串行 `npm test` 为准，并行用于本地快速反馈。
 - 2026-10-25 契约同步项（改测试期望即可，不放宽断言）：MCP 工具清单新增 `search_memory`；任务失败态收敛为 `blocked`，执行轮次仍记 `failed`；事件用量新增 `cacheReadTokens`；项目页签 `open` 改为 `COALESCE`，重开保持原位。
+- 2026-10-26 图片文档摘要：`image/*` 且有内容时不再走非文本远期挂起，但空正文清理原先写在送摘要之前，PNG 队列会被直接删除。清理条件必须排除已识别的图片；没有候选摘要的非图片二进制仍挂起 30 天。老翁工具策略只放行 `beijing_time`，日志里的可用工具名单也要断言这个唯一例外，不能再期望空数组。
 - 2026-10-25 时间与批量：全量 867 项，同一棵树改前 83.3 分钟；快速重置后 `npm test` 串行 15.5 分钟，`npm run test:shards` 并行 **4.2 分钟**（94 个带库文件 + 87 个无库文件两路，403+464 全过）。失败明细在套件结束才输出，中途只能看日志增量。lint 的 Prettier 只检查改动集，改动多时先对全部改动文件 `prettier --write`（本次 243 个文件）；`--env-file-if-exists=.env` 必须带上，否则会出现「Model is not configured」假失败。
 
 本地 `.env` 仅保留 `.env.example` 中列出的必要项。监听 `0.0.0.0:3100`、站点 `https://cothread.z2l.top`、HTTPS 时 Secure Cookie 已在代码写死，不必再配。
@@ -171,4 +172,10 @@ bash -n scripts/ecs-codedeploy-start.sh
 
 2026-10-25 本轮发布尝试：提交 `a8b1804` 已推送；串行全量测试 `npm test` 在本机独立测试库 `127.0.0.1:3307/cothread_test` 上 867/867 通过，`npm run lint` 与 `npm run build` 通过。打包产物 `cothread-release-20261025T153518Z.tgz`，SHA-256 为 `3792537080173787BB834F566337C5D07D0DA15BC35ADF05554F390E649E0F5B`。随后两次 `OOS_CodeDeploy` 均在调用 `ecs.cn-hangzhou.aliyuncs.com` 时收到 `SSLEOFError`，`OOS_GetLastDeploymentInfo` 仍为上一轮 20:52 部署，没有本轮 execution、上传或线上切换；本轮发布失败，待阿里云 MCP/网络握手恢复后从同一清单重试。
 
-2026-10-26 重试发布成功：基于 HEAD `5f2bf48` 重新打包为 `cothread-release-20251025T171951Z.tgz`，SHA-256 为 `267734BB30C12F9B2FDAD3C74204179A1ABDF0EDB427665DD2CD9BF3CC69BA80`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A17413-9F9A-5E00-B4B0-FC20A3654397`，execution `exec-c20864df889c4245affa`，revision `rev-711046387c8e4ec18f16`；随后 `OOS_GetLastDeploymentInfo` 更新为北京时间 2026-10-26 01:20:03。公网 `/api/health?release=5f2bf48` 返回 200，`status: ok`、数据库可读、`executor.ready: true`、6 个执行槽，`acquiredAt` 为 UTC `2026-10-25T17:21:50.949Z`；首页 200，资源为 `index-J2fKTV83.js` 与 `index-CDMWY8e8.css`。OOS 状态查询在完成后再次出现 `SSLEOFError`，但不影响上述 execution、last-deployment、健康接口和资源验收证据。
+2026-10-26 重试发布成功：基于 HEAD `5f2bf48` 重新打包为 `cothread-release-20261025T171951Z.tgz`，SHA-256 为 `267734BB30C12F9B2FDAD3C74204179A1ABDF0EDB427665DD2CD9BF3CC69BA80`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A17413-9F9A-5E00-B4B0-FC20A3654397`，execution `exec-c20864df889c4245affa`，revision `rev-711046387c8e4ec18f16`；随后 `OOS_GetLastDeploymentInfo` 更新为北京时间 2026-10-26 01:20:03。公网 `/api/health?release=5f2bf48` 返回 200，`status: ok`、数据库可读、`executor.ready: true`、6 个执行槽，`acquiredAt` 为 UTC `2026-10-25T17:21:50.949Z`；首页 200，资源为 `index-J2fKTV83.js` 与 `index-CDMWY8e8.css`。OOS 状态查询在完成后再次出现 `SSLEOFError`，但不影响上述 execution、last-deployment、健康接口和资源验收证据。
+
+2026-10-26 下午发布，一次上线：代码提交 `d16c713` 已推送，远端 HEAD 一致。发布前 `npm run lint` 通过；npm 10.9.8 的 `npm ci --omit=dev --dry-run` 通过。无数据库测试首轮 409/410，失败项是老翁工具策略已改为只放行 `beijing_time`，断言锁定该例外后通过。全量测试先误连公网测试库，431 项连接丢失、没有断言失败；改到本机 `127.0.0.1:3307/cothread_test_2` 后首轮 872/874。两处都是源码问题：图片队列被空正文清理删除，老翁日志仍期望空工具名单。修复后复跑 875/875，耗时约 290 秒。停止钩子续行输出 `HOOK_CONTINUES`，启动钩子 `bash -n` 通过。`LOCAL_AnalyzeDeployStack` 识别到 npm 与 Docker，发布仍按 nodejs 和 `ecs-promote`，没有改成通用 `npm start`。
+
+包 `cothread-release-20261026T082038Z.tgz`，6,026,482 字节，SHA-256 `7fe1f6aacfb17613858e3552b367bb8a4d6d17d0122de54d679de950fd93b4a0`。包内含 145–147 号迁移和 `ecs-promote`，不含 `AGENTS.md`、`.env`、`.local`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A1774D-2C08-5287-8C2B-DF808844A295`。分组随后为 `Released`，execution `exec-e19d683ed8684217b70a` 成功（8/8，0 失败），revision `rev-e7970bffaa714f60b589`，结束于 UTC `2026-10-26T08:23:51Z`。调用前分组已是上一轮 `Released`，没有 `FailurePause`。本地 `OOS_GetLastDeploymentInfo` 这次没有上次记录，状态以 `OOS_GetDeployStatus` 为准。
+
+线上 `current` 为 `/opt/cothread/releases/20261026T082207Z`。systemd 为 active，启动时间北京时间 16:23:28，MainPID 203948，Node `v22.22.3`。`current/.env` 与 `current/.local` 分别指向 `/opt/cothread/.env`、`/opt/cothread/.local`。生产 `schema_migrations` 已有 145、146、147。公网 `/api/health?release=d16c713` 返回 200，`status: ok`，执行器 ready，6 个执行槽，`acquiredAt` 为 UTC `2026-10-26T08:23:30.182Z`。首页 200，资源为 `index-BkFGwKKA.js` 与 `index-CbkAb91Q.css`，与本地 `dist/index.html` 一致。没有登录后的业务验收，也没有浏览器实机点击。

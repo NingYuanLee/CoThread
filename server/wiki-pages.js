@@ -5,11 +5,10 @@ import { HttpError } from "./http-error.js";
 import { refreshParticipantBriefs } from "./wiki-briefs.js";
 import { projectArchived } from "./memory-timeline.js";
 
-const kinds = ["guide", "decision", "retro", "glossary", "status"];
 const sourceKinds = ["message", "document_version", "task", "archive"];
 const pageId = z.string().uuid();
 const pageSelect = [
-  "p.id,p.project_id projectId,p.kind,p.title,p.body,p.status,",
+  "p.id,p.project_id projectId,p.subject_type subject,p.memory_subtype subtype,p.title,p.body,p.status,",
   "p.created_by createdBy,p.updated_by updatedBy,p.created_at createdAt,p.updated_at updatedAt",
 ].join(" ");
 
@@ -17,7 +16,8 @@ function mapPage(row) {
   return {
     id: row.id,
     projectId: row.projectId,
-    kind: row.kind,
+    subject: row.subject || null,
+    subtype: row.subtype || null,
     title: row.title,
     body: row.body,
     status: row.status,
@@ -60,7 +60,7 @@ export async function getWikiPage(service, user, projectId, id) {
     `SELECT ${pageSelect} FROM wiki_pages p WHERE p.id=? AND p.project_id=?`,
     [id, projectId],
   );
-  if (!row) throw new HttpError(404, "知识页不存在");
+  if (!row) throw new HttpError(404, "记忆条目不存在");
   const sources = await query(
     service.db,
     "SELECT id, source_kind sourceKind, source_id sourceId, label FROM wiki_page_sources WHERE page_id=? ORDER BY created_at, id",
@@ -75,7 +75,6 @@ export async function createWikiPage(service, user, projectId, input) {
     throw new HttpError(409, "项目已归档，项目记忆已封存，只能查看");
   const data = z
     .object({
-      kind: z.enum(kinds),
       title: z.string().trim().min(1).max(160),
       body: z.string().max(60000),
     })
@@ -83,8 +82,8 @@ export async function createWikiPage(service, user, projectId, input) {
   const id = randomUUID();
   await query(
     service.db,
-    "INSERT INTO wiki_pages(id,project_id,kind,title,body,status,created_by,updated_by) VALUES(?,?,?,?,?,'current',?,?)",
-    [id, projectId, data.kind, data.title, data.body, user.id, user.id],
+    "INSERT INTO wiki_pages(id,project_id,title,body,status,created_by,updated_by) VALUES(?,?,?,?,'current',?,?)",
+    [id, projectId, data.title, data.body, user.id, user.id],
   );
   await query(
     service.db,
@@ -94,7 +93,7 @@ export async function createWikiPage(service, user, projectId, input) {
       projectId,
       user.id,
       "wiki_page_created",
-      JSON.stringify({ pageId: id, kind: data.kind, title: data.title }),
+      JSON.stringify({ pageId: id, title: data.title }),
     ],
   );
   await refreshParticipantBriefs(service.db, { id, projectId, title: data.title });
@@ -105,8 +104,17 @@ async function insertCompiled(conn, page) {
   const id = randomUUID();
   await query(
     conn,
-    "INSERT INTO wiki_pages(id,project_id,kind,title,body,status,created_by,updated_by) VALUES(?,?,?,?,?,'current',?,?)",
-    [id, page.projectId, page.kind, page.title.slice(0, 160), page.body, page.userId, page.userId],
+    "INSERT INTO wiki_pages(id,project_id,subject_type,memory_subtype,title,body,status,created_by,updated_by) VALUES(?,?,?,?,?,?,'current',?,?)",
+    [
+      id,
+      page.projectId,
+      page.subject,
+      page.subtype,
+      page.title.slice(0, 160),
+      page.body,
+      page.userId,
+      page.userId,
+    ],
   );
   await query(
     conn,
@@ -169,13 +177,15 @@ export async function recordArchivePages(conn, input) {
   };
   const retroId = await insertCompiled(conn, {
     ...shared,
-    kind: "retro",
+    subject: "discussion",
+    subtype: "problem_review",
     title: titleBase + " · 复盘",
     body: retroBody,
   });
   const decisionId = await insertCompiled(conn, {
     ...shared,
-    kind: "decision",
+    subject: "project",
+    subtype: "iteration_archived",
     title: titleBase + " · 决策",
     body: decisionBody,
   });

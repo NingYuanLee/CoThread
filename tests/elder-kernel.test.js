@@ -6,8 +6,9 @@ import { elderPrompt, elderToolNames, runElderQuestion } from "../server/elder-k
 
 test("elder questions use the DSH kernel, say the understanding first, and keep web tools for web scope", async () => {
   const read = MCP_CAPABILITIES.filter((item) => item.access === "read").map((item) => item.name);
-  assert.deepEqual(elderToolNames("project"), ["search_knowledge", ...read]);
-  assert.deepEqual(elderToolNames("web"), ["search_knowledge", ...read, "web_search", "web_fetch"]);
+  assert.deepEqual(elderToolNames("project"), ["beijing_time", ...read]);
+  assert.deepEqual(elderToolNames("web"), ["beijing_time", ...read, "web_search", "web_fetch"]);
+  assert.equal(elderToolNames("project").includes("search_knowledge"), false);
   assert.equal(elderToolNames("project").includes("post_message"), false);
   assert.equal(
     mcpReadToolSpecs().some(
@@ -24,8 +25,17 @@ test("elder questions use the DSH kernel, say the understanding first, and keep 
   assert.match(elderPrompt("口令在哪", "project"), /不要以「我理解：」开头/);
   assert.match(elderPrompt("口令在哪", "project"), /get_project_context/);
   assert.match(elderPrompt("口令在哪", "project"), /read_document/);
+  assert.match(elderPrompt("口令在哪", "project"), /关键发言/);
+  assert.match(elderPrompt("口令在哪", "project"), /里程碑/);
+  assert.equal(/知识页|search_knowledge|北京时间/.test(elderPrompt("口令在哪", "project")), false);
   assert.match(elderPrompt("口令在哪", "project"), /不要用 get_document_version 读正文/);
   assert.match(elderPrompt("口令在哪", "project"), /没有打开具体迭代/);
+  assert.match(elderPrompt("口令在哪", "project"), /三种范围/);
+  assert.match(elderPrompt("口令在哪", "project"), /当前项目（本轮）/);
+  assert.match(elderPrompt("口令在哪", "project"), /你不能自己换/);
+  assert.match(elderPrompt("口令在哪", "company"), /所属全部（本轮）/);
+  assert.match(elderPrompt("口令在哪", "web"), /全网检索（本轮）/);
+  assert.equal(/当前项目（本轮）/.test(elderPrompt("口令在哪", "web")), false);
   assert.match(
     elderPrompt("口令在哪", "project", {
       id: "11111111-1111-4111-8111-111111111111",

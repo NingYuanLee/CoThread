@@ -5,11 +5,7 @@ import { readJsonResponse } from "../shared/json-response.js";
 import { apiFetch } from "./api-fetch";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { folderDisplayName, folderRootKind, libraryFolderPath } from "./document-library";
-import {
-  AGENT_XIAOXIANG_MEMBER,
-  AGENT_MEMBER,
-  TASK_CREATE_REQUEST,
-} from "../shared/agent-member.js";
+import { AGENT_XIAOXIANG_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { FileIcon } from "@react-symbols/icons/utils";
 import {
@@ -153,7 +149,6 @@ export function ChatComposer({
   dialogueMode = "default",
   onDialogueModeChange,
   onController,
-  groupPrompts = true,
   mentions = true,
   modes,
   mode,
@@ -176,7 +171,6 @@ export function ChatComposer({
   dialogueMode?: DialogueMode;
   onDialogueModeChange?: (mode: DialogueMode) => void;
   onController?: (controller: ComposerController | null, threadId?: string) => void;
-  groupPrompts?: boolean;
   /** 为 false 时输入 @ 不弹出成员列表，只当普通文字。 */
   mentions?: boolean;
   modes?: {
@@ -231,66 +225,6 @@ export function ChatComposer({
   const modeMenuPanelRef = useRef<HTMLDivElement>(null);
   const modeButtonRef = useRef<HTMLButtonElement>(null);
   const inputWrapRef = useRef<HTMLDivElement>(null);
-  const footerRef = useRef<HTMLDivElement>(null);
-  const shortcutsRef = useRef<HTMLDivElement>(null);
-  const [shortcutsFit, setShortcutsFit] = useState(true);
-  useLayoutEffect(() => {
-    if (!onDialogueModeChange) return;
-    const footer = footerRef.current;
-    const track = shortcutsRef.current;
-    if (!footer || !track) return;
-    let alive = true;
-    const measure = () => {
-      if (!alive) return;
-      const anchor = footer.querySelector<HTMLElement>(".composer-mode-anchor");
-      const send = footer.querySelector<HTMLElement>(".composer-send");
-      if (!anchor || !send) return;
-      const styles = getComputedStyle(footer);
-      const gap = Number.parseFloat(styles.columnGap || styles.gap) || 0;
-      const chip = footer.querySelector<HTMLElement>(".composer-mode-chip");
-      let chipW = 0;
-      if (chip) {
-        const label = chip.querySelector<HTMLElement>(".composer-mode-chip-label");
-        const icon = chip.querySelector<HTMLElement>(".composer-mode-chip-icon");
-        const clear = chip.querySelector<HTMLElement>(".composer-mode-chip-clear");
-        const chipStyles = getComputedStyle(chip);
-        const padX =
-          (Number.parseFloat(chipStyles.paddingLeft) || 0) +
-          (Number.parseFloat(chipStyles.paddingRight) || 0);
-        const borderX =
-          (Number.parseFloat(chipStyles.borderLeftWidth) || 0) +
-          (Number.parseFloat(chipStyles.borderRightWidth) || 0);
-        const innerGap = Number.parseFloat(chipStyles.columnGap || chipStyles.gap) || 0;
-        const parts = [icon, label, clear].flatMap((el) => {
-          if (!el) return [];
-          const elStyles = getComputedStyle(el);
-          const marginX =
-            (Number.parseFloat(elStyles.marginLeft) || 0) +
-            (Number.parseFloat(elStyles.marginRight) || 0);
-          return [el.scrollWidth + marginX];
-        });
-        chipW =
-          borderX +
-          padX +
-          parts.reduce((sum, w) => sum + w, 0) +
-          innerGap * Math.max(0, parts.length - 1);
-        const max = Number.parseFloat(chipStyles.maxWidth);
-        if (Number.isFinite(max) && max > 0) chipW = Math.min(chipW, max);
-      }
-      const available =
-        footer.clientWidth - anchor.offsetWidth - send.offsetWidth - chipW - gap * (chip ? 3 : 2);
-      const next = track.scrollWidth <= available + 1;
-      setShortcutsFit((prev) => (prev === next ? prev : next));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(footer);
-    if (document.fonts?.ready) void document.fonts.ready.then(measure);
-    return () => {
-      alive = false;
-      observer.disconnect();
-    };
-  }, [onDialogueModeChange, dialogueMode]);
   const currentRefs = useRef(refs);
   currentRefs.current = refs;
   useEffect(
@@ -837,7 +771,7 @@ export function ChatComposer({
             }}
           />
         </div>
-        <div className="composer-footer" ref={footerRef}>
+        <div className="composer-footer">
           {onDialogueModeChange || modes?.length ? (
             <div className="composer-mode-anchor" ref={modeMenuRef}>
               <button
@@ -937,28 +871,6 @@ export function ChatComposer({
                   </button>
                 );
               })()}
-            </div>
-          ) : null}
-          {onDialogueModeChange && groupPrompts ? (
-            <div
-              className={`composer-footer-shortcuts${shortcutsFit ? "" : " is-hidden"}`}
-              aria-hidden={shortcutsFit ? undefined : true}
-            >
-              <div className="composer-prompt-shortcuts" ref={shortcutsRef}>
-                <button
-                  type="button"
-                  className="composer-prompt-shortcut"
-                  disabled={busy}
-                  title="预填 @小祥，根据群聊上下文创建任务"
-                  onClick={() => {
-                    setMessage(TASK_CREATE_REQUEST);
-                    requestAnimationFrame(() => input.current?.focus());
-                  }}
-                >
-                  <UiIcon name="task" size={16} />
-                  帮我创建任务
-                </button>
-              </div>
             </div>
           ) : null}
           <button

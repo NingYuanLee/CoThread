@@ -2,44 +2,11 @@ import { query } from "./db.js";
 import { MEMORY_JOBS, MEMORY_JOB_KEYS } from "../shared/memory-jobs.js";
 import { HttpError } from "./service.js";
 
-export async function loadMemoryJobSetting(db, projectId, key) {
-  const [row] = await query(
-    db,
-    `SELECT job_key jobKey,enabled,trigger_threshold triggerThreshold,prompt
-     FROM memory_job_settings WHERE project_id=? AND job_key=?`,
-    [projectId, key],
-  );
-  return row || null;
-}
-
-async function loadSettingRows(db, projectId) {
-  const rows = await query(
-    db,
-    `SELECT job_key jobKey,enabled,trigger_threshold triggerThreshold,prompt,updated_at updatedAt
-     FROM memory_job_settings WHERE project_id=?`,
-    [projectId],
-  );
-  return new Map(rows.map((row) => [row.jobKey, row]));
-}
-
-function withSetting(job, setting) {
-  const prompt = String(setting?.prompt || "").trim();
-  return {
-    ...job,
-    enabled: setting ? Boolean(setting.enabled) : true,
-    triggerThreshold: setting?.triggerThreshold ?? job.batch ?? null,
-    prompt: prompt || job.prompt,
-    promptOverridden: Boolean(prompt),
-    settingsUpdatedAt: setting?.updatedAt || null,
-  };
-}
-
 /**
- * 管理空间用的记忆作业视图：默认口径 + 项目级覆盖 + 最近一次运行 + 待处理积压。
- * 只读，不触发任何作业。
+ * 管理空间用的记忆作业视图：默认口径 + 最近一次运行 + 待处理积压。
+ * 口径不可按项目调整。只读，不触发任何作业。
  */
 export async function listMemoryJobs(db, projectId) {
-  const settings = await loadSettingRows(db, projectId);
   const runs = await query(
     db,
     `SELECT id,task,thread_id threadId,trigger_source triggerSource,status,
@@ -105,7 +72,7 @@ export async function listMemoryJobs(db, projectId) {
     discussion_memory: null,
   };
   return MEMORY_JOBS.map((job) => ({
-    ...withSetting(job, settings.get(job.key)),
+    ...job,
     backlog: backlog[job.key] ?? null,
     backlogNote: backlog[job.key] === null ? "随项目记忆结算触发，无独立队列" : "",
     lastRun: lastByTask.get(job.key) || null,
@@ -117,55 +84,17 @@ export async function listMemoryJobs(db, projectId) {
   }));
 }
 
-function parseThreshold(value) {
-  if (value === undefined || value === null || value === "") return null;
-  const number = Number(value);
-  if (!Number.isInteger(number) || number < 0 || number > 1000)
-    throw new HttpError(400, "触发阈值应为 0 到 1000 的整数");
-  return number;
+function rejectJobAdjustment(key) {
+  if (!MEMORY_JOB_KEYS.includes(key)) throw new HttpError(400, "没有这个记忆作业");
+  throw new HttpError(409, "记忆作业口径使用默认，不能调整");
 }
 
-/** 改项目级口径：只允许该项目的写成员，字段缺省表示保持原值。 */
-export async function updateMemoryJobSettings(db, projectId, key, patch = {}, userId = null) {
-  if (!MEMORY_JOB_KEYS.includes(key)) throw new HttpError(400, "没有这个记忆作业");
-  const [existing] = await query(
-    db,
-    "SELECT enabled,trigger_threshold triggerThreshold,prompt FROM memory_job_settings WHERE project_id=? AND job_key=?",
-    [projectId, key],
-  );
-  const patchThreshold = parseThreshold(patch.triggerThreshold);
-  const enabled =
-    patch.enabled === undefined
-      ? existing
-        ? Boolean(existing.enabled)
-        : true
-      : Boolean(patch.enabled);
-  const threshold =
-    patch.triggerThreshold === undefined ? (existing?.triggerThreshold ?? null) : patchThreshold;
-  let prompt = existing?.prompt ?? null;
-  if (patch.prompt !== undefined) {
-    const text = String(patch.prompt ?? "").trim();
-    prompt = text ? text.slice(0, 2000) : null;
-  }
-  await query(
-    db,
-    `INSERT INTO memory_job_settings(project_id,job_key,enabled,trigger_threshold,prompt,updated_by)
-     VALUES(?,?,?,?,?,?)
-     ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),trigger_threshold=VALUES(trigger_threshold),
-       prompt=VALUES(prompt),updated_by=VALUES(updated_by)`,
-    [projectId, key, enabled, threshold, prompt, userId],
-  );
-  const jobs = await listMemoryJobs(db, projectId);
-  return jobs.find((job) => job.key === key);
+/** 口径固定为默认，不再接受项目级覆盖。 */
+export async function updateMemoryJobSettings(_db, _projectId, key) {
+  rejectJobAdjustment(key);
 }
 
-/** 回滚到默认口径。 */
-export async function resetMemoryJobSettings(db, projectId, key) {
-  if (!MEMORY_JOB_KEYS.includes(key)) throw new HttpError(400, "没有这个记忆作业");
-  await query(db, "DELETE FROM memory_job_settings WHERE project_id=? AND job_key=?", [
-    projectId,
-    key,
-  ]);
-  const jobs = await listMemoryJobs(db, projectId);
-  return jobs.find((job) => job.key === key);
+/** 没有可回滚的项目级口径。 */
+export async function resetMemoryJobSettings(_db, _projectId, key) {
+  rejectJobAdjustment(key);
 }

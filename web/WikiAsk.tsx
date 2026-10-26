@@ -65,7 +65,9 @@ export function WikiAsk({
 
   return (
     <div className="wiki-ask">
-      <p>这里只有你和老翁。回答依据本项目的知识页，不会发到群里，也不会改任务或文档。</p>
+      <p>
+        这里只有你和老翁。回答依据本项目的现行记忆和只读资料，不会发到群里，也不会改任务或文档。
+      </p>
       {error && <p role="alert">{error}</p>}
       <ul>
         {turns.map((turn) => (

@@ -10,6 +10,7 @@ import { Dialog, ModalBackdrop } from "./dialog-fx";
 import { MarkdownDocumentPreview } from "./MarkdownDocumentPreview";
 import { SlideSwitch } from "./SlideSwitch";
 import { UiIcon } from "./ui-icon";
+import { MEMORY_SUBTYPE_LABELS } from "../shared/memory-taxonomy.js";
 import { api } from "./workspace-api";
 
 type Decision = {
@@ -71,19 +72,17 @@ type ArchiveWorkflow = {
   session?: { phase?: string; messages?: { role: string; text: string }[] };
   members?: { id: string; name: string }[];
   /** 本轮范围内的记忆草稿：归档确认时逐条校准。 */
-  memoryDrafts?: { id: string; kind: string; status?: string; title: string; preview?: string }[];
+  memoryDrafts?: {
+    id: string;
+    subtype?: string | null;
+    status?: string;
+    title: string;
+    preview?: string;
+  }[];
 };
 type ArchiveStep = 1 | 2 | 3 | 4 | 5;
 
 const STEPS = ["AI分析整理", "迭代总结审查", "需决策事项", "新迭代承接", "AI操作执行"] as const;
-
-const MEMORY_KIND_LABELS: Record<string, string> = {
-  guide: "指南",
-  decision: "决策",
-  retro: "复盘",
-  glossary: "术语",
-  status: "当前状态",
-};
 
 const archiveItemsOf = (value: ArchiveWorkflow) =>
   (value.nextIteration?.items || []).map((item) => ({
@@ -498,7 +497,7 @@ export function ThreadArchiveDialog({
             leftExtra={
               <>
                 <div>
-                  <span className="eyebrow">项目知识库管理员 · 迭代归档</span>
+                  <span className="eyebrow">项目记忆维护 · 迭代归档</span>
                 </div>
               </>
             }
@@ -571,7 +570,7 @@ export function ThreadArchiveDialog({
                     : workflow?.session?.messages || []
                   ).map((message, index) => (
                     <article key={index} className={"archive-session-line is-" + message.role}>
-                      <small>{message.role === "assistant" ? "知识库管理员" : "整理"}</small>
+                      <small>{message.role === "assistant" ? "老翁" : "整理"}</small>
                       <p>{message.text}</p>
                     </article>
                   ))}
@@ -845,7 +844,9 @@ export function ThreadArchiveDialog({
                                   }
                                 />
                                 <span className="archive-memory-kind">
-                                  {MEMORY_KIND_LABELS[item.kind] || item.kind}
+                                  {item.subtype
+                                    ? MEMORY_SUBTYPE_LABELS[item.subtype] || item.subtype
+                                    : "未细分"}
                                 </span>
                                 <span>{item.title}</span>
                               </label>

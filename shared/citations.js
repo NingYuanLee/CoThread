@@ -1,5 +1,5 @@
 const GROUP_LABEL = {
-  wiki: "知识页",
+  wiki: "项目记忆",
   document: "项目文档",
   thread: "迭代",
   web: "公开网页",

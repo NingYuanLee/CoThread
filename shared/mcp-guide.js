@@ -34,13 +34,20 @@ export function mcpInstructionsForSource() {
   return MCP_INSTRUCTIONS;
 }
 
-export const MCP_CONVERSATION_COPY_INSTRUCTION = `先调用 get_iteration_context 确认此迭代。大于 ${FILE_CHUNK_SIZE} 字节的文件必须 start_file_upload → upload_file_chunk → complete_file_upload，并带原始字节 SHA-256；不要一次提交整包 Base64。小文件才可用 upload_cache_draft 或 upload_official_file。发消息用 post_message.refs 引用版本 ID，用 folderRefs 引用文件夹。`;
+// 复制载荷统一标准：所有「复制…信息」入口都走 formatMcpCopyPayload，
+// 只带定位用的 ID（server 是连接地址），不带项目/迭代/任务的名称；
+// 字段顺序固定，只按作用域追加必要字段，instruction 全场景相同。
+export const MCP_COPY_INSTRUCTION = `先调用 get_connection_guide 读取协议；按上面的 ID（projectId / threadId / taskId）定位，ID 以此处为准，不要凭聊天猜。`;
 
-export const MCP_OFFICIAL_LIBRARY_COPY_INSTRUCTION = `先调用 get_project_context 确认此项目。上传正式文件：大于 ${FILE_CHUNK_SIZE} 字节必须 start_file_upload（kind=official_file）→ upload_file_chunk → complete_file_upload，并带原始字节 SHA-256；不要一次提交整包 Base64。小文件才可用 upload_official_file。folderId 用下面给出的正式文件目录，省略则进根目录。同名不覆盖。上传不发群聊消息。`;
+const COPY_PAYLOAD_FIELDS = ["server", "projectId", "threadId", "taskId"];
 
-export const MCP_TASK_COPY_INSTRUCTION = `先调用 get_task 确认此任务。folder_refs 是文件夹 ID，用返回的 folder_contents 或 list_documents({projectId, folderId, recursive:true}) 读取其下子目录和文件，不要把文件夹当成单个文件。只通过 get_task / list_tasks 读取；执行闭环用 accept_task、reject_task、update_task，只改变任务状态，不自动发群聊。创建、取消、转交、拒绝处理、重新发起不通过普通 MCP。`;
-
-export function formatMcpCopyPayload(payload) {
+export function formatMcpCopyPayload(fields) {
+  const payload = {};
+  for (const key of COPY_PAYLOAD_FIELDS) {
+    const value = fields?.[key];
+    if (value !== undefined && value !== null && value !== "") payload[key] = value;
+  }
+  payload.instruction = MCP_COPY_INSTRUCTION;
   return JSON.stringify(payload, null, 2);
 }
 

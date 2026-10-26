@@ -127,7 +127,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
   );
   register(
     "get_member",
-    "读取单个项目成员的资料和项目级成员认识。",
+    "读取单个项目成员的资料，以及按其关键发言整理的摘要。不做性格或能力评价。",
     { projectId: z.string().uuid(), memberId: z.string().min(1) },
     async ({ projectId, memberId }) => {
       const member = await service.conversationMembers(user, projectId, memberId);
@@ -143,7 +143,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
   );
   register(
     "search_memory",
-    "按对象类型、成员或关键词检索项目记忆（发言/文档/任务/讨论/项目整体），返回标题、摘要、出处与直接关系，不返回长正文。问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文档」先用它。",
+    "按一级类型、成员或关键词检索现行项目记忆。一级类型：关键发言 utterance、主要文档 document、重要任务 task、核心议题 discussion、里程碑 project。返回标题、摘要、出处和直接关系，不返回长正文。问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文档」先用它。",
     {
       projectId: z.string().uuid(),
       query: z.string().max(200).optional(),
@@ -547,7 +547,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
   );
   register(
     "list_laoweng_runs",
-    "列出 老翁 维护 run 历史（agent_laoweng_runs）。task 可选 member_memory / document_memory / iteration_archive / project_memory；status 可选 queued/running/completed/failed。文档整理不写这张表，运行记录在文档整理作业里，轨迹仍可用 get_laoweng_logs 读。",
+    "列出老翁维护 run 历史（agent_laoweng_runs）。task 可选 member_memory / document_memory / iteration_archive / project_memory；status 可选 queued/running/completed/failed。文档整理已下线，不在这张表里；只有明确要查历史轨迹时，才用 get_laoweng_logs 的 document_organization。",
     {
       projectId: z.string().uuid(),
       task: z.string().max(40).optional(),
@@ -568,7 +568,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
   );
   register(
     "get_laoweng_logs",
-    "读取指定老翁维护任务的执行轨迹（阶段、状态、错误）。task 必填：member_memory / document_memory / document_organization / iteration_archive / project_memory。",
+    "读取指定老翁维护任务的执行轨迹（阶段、状态、错误）。当前任务用 member_memory（成员发言）、document_memory（文档摘要）、iteration_archive（迭代归档）、project_memory（项目记忆结算）。document_organization（文档整理）已下线，只有明确要查历史轨迹时才传，不要把它当成还能做的事。",
     {
       projectId: z.string().uuid(),
       task: z.enum([

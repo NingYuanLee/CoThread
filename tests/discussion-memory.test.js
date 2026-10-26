@@ -11,7 +11,6 @@ import {
   upsertDiscussionMemory,
   discussionMemoryMarkdown,
 } from "../server/discussion-memory.js";
-import { updateMemoryJobSettings } from "../server/memory-jobs.js";
 import { applyProjectMemoryResult } from "../server/project-memory.js";
 
 async function setup() {
@@ -63,20 +62,13 @@ async function insertPage(
   db,
   projectId,
   userId,
-  {
-    subject = null,
-    aboutUserId = null,
-    kind = "status",
-    title = "条目",
-    body = "## 内容",
-    status = "current",
-  } = {},
+  { subject = null, aboutUserId = null, title = "条目", body = "## 内容", status = "current" } = {},
 ) {
   const id = randomUUID();
   await query(
     db,
-    "INSERT INTO wiki_pages(id,project_id,subject_type,about_user_id,kind,title,body,status,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?)",
-    [id, projectId, subject, aboutUserId, kind, title, body, status, userId, userId],
+    "INSERT INTO wiki_pages(id,project_id,subject_type,about_user_id,title,body,status,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?)",
+    [id, projectId, subject, aboutUserId, title, body, status, userId, userId],
   );
   return id;
 }
@@ -213,7 +205,7 @@ test("结算写讨论记忆时自动连参与者的发言记忆", async () => {
           {
             op: "create",
             subject: "discussion",
-            kind: "status",
+            subtype: "requirements",
             title: "先做记忆还是先做检索",
             body: "## 议题\n先做记忆",
             sourceIds: [queueFirst, queueSecond],
@@ -308,19 +300,18 @@ test("宽窗口：整迭代讨论沉淀为一条讨论记忆，连参与者并�
     assert.equal(pages.length, 1);
     assert.ok(first && second);
 
-    await updateMemoryJobSettings(
+    await query(
       db,
-      project.id,
-      "discussion_memory",
-      { enabled: false },
-      owner.id,
+      "INSERT INTO memory_job_settings(project_id,job_key,enabled,updated_by) VALUES(?, 'discussion_memory', 0, ?)",
+      [project.id, owner.id],
     );
-    const disabled = await syncThreadDiscussionMemory(db, {
+    const ignored = await syncThreadDiscussionMemory(db, {
       projectId: project.id,
       threadId: thread,
       createdBy: owner.id,
     });
-    assert.equal(disabled.skipped, true);
+    assert.equal(ignored.pageId, result.pageId);
+    assert.notEqual(ignored.skipped, true);
   } finally {
     await database.close();
   }

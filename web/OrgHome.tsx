@@ -51,7 +51,7 @@ export function OrgHome({
   return (
     <div className="org-home">
       <p>
-        主办项目只显示页的链接。参与项目只有短简报，没有正文。公司目录不自动抄项目知识页。回答不会自动发到群里。
+        主办项目只显示记忆条目标题。参与项目只有短简报，没有正文。公司目录不自动抄项目记忆。回答不会自动发到群里。
       </p>
       <p>
         <a href="/?stay=workspace">进入工作台</a>

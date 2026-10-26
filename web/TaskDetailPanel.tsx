@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { taskViewModel } from "./task-view-model";
 import { showTip } from "./Tip";
-import { MCP_TASK_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
+import { taskCopyInfo } from "./task-copy";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 
 import { libraryFolderPath } from "./document-library";
@@ -74,6 +74,7 @@ export function TaskDetailPanel({
   const [taskRedirectConstraints, setTaskRedirectConstraints] = useState("");
   const [taskRedirectReason, setTaskRedirectReason] = useState("");
   const [taskRedirectTarget, setTaskRedirectTarget] = useState("");
+  const [dockMoreOpen, setDockMoreOpen] = useState(false);
 
   const mounted = useRef(true);
   const selected = useRef(selectedTaskId);
@@ -96,21 +97,8 @@ export function TaskDetailPanel({
   } = taskViewModel(tasks, detail, user, threadId);
   const copyTaskInfo = async (task: AgentTask) => {
     if (!projectId || detail?.id !== projectId) return;
-    const originThreadId = task.origin_thread_id || threadId;
-    const iteration =
-      detail?.threads.find((item) => item.id === originThreadId)?.title || undefined;
-    const info = formatMcpCopyPayload({
-      server: `${location.origin}${mcpEndpoint}`,
-      project: detail?.name,
-      projectId,
-      iteration,
-      threadId: originThreadId,
-      task: task.title,
-      taskId: task.id,
-      instruction: MCP_TASK_COPY_INSTRUCTION,
-    });
     try {
-      await navigator.clipboard.writeText(info);
+      await navigator.clipboard.writeText(taskCopyInfo({ projectId, threadId, mcpEndpoint }, task));
       setCopiedTaskId(task.id);
       showTip("任务信息已复制");
     } catch {
@@ -276,6 +264,23 @@ export function TaskDetailPanel({
               : maxRetryCount === null
                 ? `已重试 ${retryCount} 次`
                 : `已重试 ${retryCount}/${maxRetryCount} 次`;
+          const showQuestion = Boolean(active && openQuestion);
+          const showAccept = Boolean(isTarget && task?.status === "awaiting_acceptance");
+          const showSourceOps = Boolean(
+            isSource && task && ["awaiting_acceptance", "blocked", "ignored"].includes(task.status),
+          );
+          const showProgress = Boolean(
+            isTarget &&
+            task &&
+            task.execution_agent_type === "human_self" &&
+            !endedTask(task.status) &&
+            task.status !== "awaiting_acceptance",
+          );
+          const hasPrimary =
+            showQuestion || showAccept || showProgress || Boolean(canReviewRejection);
+          const hasSecondary =
+            showAccept || showSourceOps || showProgress || Boolean(canReviewRejection);
+          const hasDock = hasPrimary || hasSecondary || Boolean(canTransfer);
           return (
             <div className="task-detail">
               {!task || task.id !== selectedTaskId ? (
@@ -321,549 +326,597 @@ export function TaskDetailPanel({
                       <dd>{taskExecutorLabel(task)}</dd>
                     </div>
                   </dl>
-                  <section>
-                    <h4>任务目标</h4>
-                    <p>{task.goal}</p>
-                    {task.constraints && (
-                      <>
-                        <h4>约束</h4>
-                        <p>{task.constraints}</p>
-                      </>
+                  <div className="task-detail-scroll">
+                    <section>
+                      <h4>任务目标</h4>
+                      <p>{task.goal}</p>
+                      {task.constraints && (
+                        <>
+                          <h4>约束</h4>
+                          <p>{task.constraints}</p>
+                        </>
+                      )}
+                      {(() => {
+                        const parseIds = (value: string[] | string | null | undefined) => {
+                          if (Array.isArray(value))
+                            return value.filter((id) => typeof id === "string" && id);
+                          if (typeof value === "string") {
+                            try {
+                              const parsed = JSON.parse(value);
+                              return Array.isArray(parsed)
+                                ? parsed.filter((id) => typeof id === "string" && id)
+                                : [];
+                            } catch {
+                              return [];
+                            }
+                          }
+                          return [];
+                        };
+                        const refs = parseIds(task.document_refs);
+                        const folderRefs = parseIds(task.folder_refs);
+                        return refs.length || folderRefs.length ? (
+                          <>
+                            {folderRefs.length ? (
+                              <>
+                                <h4>引用文件夹</h4>
+                                <div className="references">
+                                  {folderRefs.map((id) => {
+                                    const folder = detail?.folders.find((item) => item.id === id);
+                                    return (
+                                      <span className="ref" key={id}>
+                                        {folder
+                                          ? libraryFolderPath(id, detail?.folders || []) ||
+                                            folder.name
+                                          : id}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </>
+                            ) : null}
+                            {refs.length ? (
+                              <>
+                                <h4>引用文档</h4>
+                                <div className="references">{refs.map(renderRef)}</div>
+                              </>
+                            ) : null}
+                          </>
+                        ) : null;
+                      })()}
+                    </section>
+                    {task.status === "blocked" && (
+                      <div className="task-blocked-section" role="group" aria-label="阻塞原因">
+                        <h4>阻塞原因</h4>
+                        <p>{blockedText || "未记录阻塞原因"}</p>
+                        {retryLabel && <small className="task-blocked-retry">{retryLabel}</small>}
+                      </div>
                     )}
                     {(() => {
-                      const parseIds = (value: string[] | string | null | undefined) => {
-                        if (Array.isArray(value))
-                          return value.filter((id) => typeof id === "string" && id);
-                        if (typeof value === "string") {
-                          try {
-                            const parsed = JSON.parse(value);
-                            return Array.isArray(parsed)
-                              ? parsed.filter((id) => typeof id === "string" && id)
-                              : [];
-                          } catch {
-                            return [];
-                          }
-                        }
-                        return [];
-                      };
-                      const refs = parseIds(task.document_refs);
-                      const folderRefs = parseIds(task.folder_refs);
-                      return refs.length || folderRefs.length ? (
-                        <>
-                          {folderRefs.length ? (
-                            <>
-                              <h4>引用文件夹</h4>
-                              <div className="references">
-                                {folderRefs.map((id) => {
-                                  const folder = detail?.folders.find((item) => item.id === id);
-                                  return (
-                                    <span className="ref" key={id}>
-                                      {folder
-                                        ? libraryFolderPath(id, detail?.folders || []) ||
-                                          folder.name
-                                        : id}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            </>
-                          ) : null}
-                          {refs.length ? (
-                            <>
-                              <h4>引用文档</h4>
-                              <div className="references">{refs.map(renderRef)}</div>
-                            </>
-                          ) : null}
-                        </>
+                      const timeline = taskDetailTimeline(task);
+                      const visibleTimeline = timeline.filter(
+                        (item) => taskTimelineFilters[item.kind],
+                      );
+                      const pageSize = taskTimelinePageSize;
+                      const pageCount = Math.max(1, Math.ceil(visibleTimeline.length / pageSize));
+                      const page = Math.min(taskTimelinePage, pageCount - 1);
+                      const pageItems = visibleTimeline.slice(
+                        page * pageSize,
+                        (page + 1) * pageSize,
+                      );
+                      const filterLabels: { kind: TaskTimelineKind; label: string }[] = [
+                        { kind: "member_update", label: "成员动态" },
+                        { kind: "status_change", label: "状态变化" },
+                        { kind: "assignment", label: "指派变更" },
+                        { kind: "execution", label: "执行轮次" },
+                      ];
+                      return timeline.length ? (
+                        <section className="task-timeline-section">
+                          <div className="task-timeline-header">
+                            <h4>任务时间线</h4>
+                            <div className="task-timeline-filters" aria-label="任务时间线筛选">
+                              {filterLabels.map(({ kind, label }) => (
+                                <label key={kind}>
+                                  <input
+                                    type="checkbox"
+                                    checked={taskTimelineFilters[kind]}
+                                    onChange={(event) => {
+                                      setTaskTimelineFilters((current) => ({
+                                        ...current,
+                                        [kind]: event.target.checked,
+                                      }));
+                                      setTaskTimelinePage(0);
+                                    }}
+                                  />
+                                  {label}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          {pageItems.length ? (
+                            <div className="task-history task-change-log task-timeline-list">
+                              {pageItems.map((item, index) => (
+                                <div
+                                  className={`task-change-item task-timeline-item-${item.kind}${index === 0 && page === 0 ? " is-latest" : ""}`}
+                                  key={item.key}
+                                >
+                                  <i className="task-change-marker" aria-hidden="true" />
+                                  <div className="task-change-content">
+                                    <div className="task-change-heading">
+                                      <strong>{item.title}</strong>
+                                      <span>
+                                        {item.kind === "execution"
+                                          ? executionRunLabel(
+                                              {
+                                                executor_type: item.actorType,
+                                                executor_id: item.actorId,
+                                                executor_label: item.actorName,
+                                                status: "",
+                                                progress: null,
+                                                result_summary: null,
+                                                error: null,
+                                                created_at: item.at,
+                                                id: item.key,
+                                              },
+                                              task,
+                                            )
+                                          : statusActorLabel(
+                                              {
+                                                actor_type: item.actorType,
+                                                actor_id: item.actorId,
+                                                actor_name: item.actorName,
+                                              },
+                                              task,
+                                            )}{" "}
+                                        · {time(item.at)}
+                                      </span>
+                                    </div>
+                                    {item.body && (
+                                      <small className="task-timeline-body">{item.body}</small>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="muted task-timeline-empty">当前筛选条件下暂无记录。</p>
+                          )}
+                          {visibleTimeline.length > 0 && (
+                            <PaginationControl
+                              className="task-timeline-pagination"
+                              total={visibleTimeline.length}
+                              currentPage={page + 1}
+                              pageSize={pageSize}
+                              pageSizeOptions={[10, 12, 20, 50]}
+                              onPageChange={(next) => setTaskTimelinePage(next - 1)}
+                              onPageSizeChange={(next) => {
+                                setTaskTimelinePageSize(next);
+                                setTaskTimelinePage(0);
+                              }}
+                              ariaLabel="任务时间线分页"
+                            />
+                          )}
+                        </section>
                       ) : null;
                     })()}
-                  </section>
-                  {task.status === "blocked" && (
-                    <div className="task-blocked-section" role="group" aria-label="阻塞原因">
-                      <h4>阻塞原因</h4>
-                      <p>{blockedText || "未记录阻塞原因"}</p>
-                      {retryLabel && <small className="task-blocked-retry">{retryLabel}</small>}
-                    </div>
-                  )}
-                  {active && openQuestion && (
-                    <section className="task-question">
-                      <h4>需要你回答</h4>
-                      <p>{openQuestion.question}</p>
-                      <TextAreaField
-                        aria-label="回答"
-                        value={taskAnswer}
-                        onChange={(event) => setTaskAnswer(event.target.value)}
-                        placeholder="输入回答"
-                      />
-                      <button
-                        type="button"
-                        className="primary"
-                        disabled={taskActionBusy || !taskAnswer.trim()}
-                        onClick={() =>
-                          void performTaskAction(async () => {
-                            await api(`/task-questions/${openQuestion.id}/answer`, {
-                              answer: taskAnswer,
-                            });
-                            setTaskAnswer("");
-                          }, "回答已提交")
-                        }
-                      >
-                        提交回答
-                      </button>
-                    </section>
-                  )}
-                  {isTarget && task.status === "awaiting_acceptance" && (
-                    <section className="task-actions-section">
-                      <h4>确认任务</h4>
-                      {projectConnectorBound ? (
-                        <SelectField
-                          aria-label="任务执行方式"
-                          value={
-                            taskExecutionMode === "auto"
-                              ? "member_local_executor"
-                              : taskExecutionMode
-                          }
-                          onChange={(next) =>
-                            setTaskExecutionMode(next as typeof taskExecutionMode)
-                          }
-                          options={[
-                            { value: "member_local_executor", label: "下发本地执行器" },
-                            { value: "human_direct", label: "由本人执行" },
-                          ]}
-                        />
-                      ) : (
-                        <p className="muted">当前账号未连接本项目本地执行器，确认后由本人执行。</p>
-                      )}
-                      <div className="task-action-buttons">
-                        <button
-                          type="button"
-                          disabled={taskActionBusy}
-                          onClick={() =>
-                            void performTaskAction(
-                              () => api(`/tasks/${task.id}/reject`, {}, "POST"),
-                              "已拒绝任务",
-                            )
-                          }
-                        >
-                          <UiIcon name="reject" size={13} />
-                          拒绝
-                        </button>
-                        <button
-                          type="button"
-                          className="primary"
-                          disabled={taskActionBusy}
-                          onClick={() =>
-                            void performTaskAction(
-                              () =>
-                                api(
-                                  `/tasks/${task.id}/accept`,
-                                  {
-                                    mode: projectConnectorBound
-                                      ? taskExecutionMode === "human_direct"
-                                        ? "human_direct"
-                                        : "member_local_executor"
-                                      : "human_direct",
-                                  },
-                                  "POST",
-                                ),
-                              "已确认任务",
-                            )
-                          }
-                        >
-                          <UiIcon name="check" size={13} />
-                          确认
-                        </button>
-                      </div>
-                    </section>
-                  )}
-                  {isSource &&
-                    ["awaiting_acceptance", "blocked", "ignored"].includes(task.status) && (
-                      <section className="task-actions-section">
-                        <h4>来源操作</h4>
-                        <div className="task-action-buttons">
-                          {task.status === "awaiting_acceptance" && (
-                            <button
-                              type="button"
-                              disabled={taskActionBusy}
-                              onClick={() =>
-                                void performTaskAction(
-                                  () => api(`/tasks/${task.id}/cancel`, {}, "POST"),
-                                  "任务已取消",
-                                )
-                              }
-                            >
-                              <UiIcon name="close" size={13} />
-                              取消
-                            </button>
+                  </div>
+                  {hasDock && task && (
+                    <footer
+                      className={`task-action-dock${hasPrimary && hasSecondary ? " can-collapse" : ""}`}
+                      aria-label="任务操作"
+                    >
+                      {(showQuestion ||
+                        canReviewRejection ||
+                        showAccept ||
+                        showProgress ||
+                        canTransfer ||
+                        (showSourceOps && task.status === "blocked" && taskRedirectOpen)) && (
+                        <div className="task-action-dock-forms">
+                          {showQuestion && openQuestion && (
+                            <div className="task-action-form">
+                              <p className="task-action-kicker">需要你回答</p>
+                              <p className="task-action-note">{openQuestion.question}</p>
+                              <TextAreaField
+                                aria-label="回答"
+                                value={taskAnswer}
+                                onChange={(event) => setTaskAnswer(event.target.value)}
+                                placeholder="输入回答"
+                              />
+                            </div>
                           )}
-                          {task.status === "blocked" && (
-                            <button
-                              type="button"
-                              disabled={taskActionBusy}
-                              onClick={() =>
-                                void performTaskAction(
-                                  () => api(`/tasks/${task.id}/ignore`, {}, "POST"),
-                                  "任务已忽略",
-                                )
-                              }
-                            >
-                              <UiIcon name="eyeOff" size={13} />
-                              改为已忽略
-                            </button>
+                          {canReviewRejection && (
+                            <div className="task-action-form">
+                              <p className="task-action-kicker">任务已被拒绝</p>
+                              <p className="task-action-note">
+                                {[...task.assignmentHistory]
+                                  .reverse()
+                                  .find((event) => event.event_type === "rejected")?.reason ||
+                                  "目标成员拒绝了这个任务。"}
+                              </p>
+                              <TextAreaField
+                                aria-label="任务目标与验收标准"
+                                value={taskReopenGoal}
+                                onChange={(event) => setTaskReopenGoal(event.target.value)}
+                                placeholder="修改任务目标与验收标准"
+                              />
+                              <TextAreaField
+                                aria-label="任务约束"
+                                value={taskReopenConstraints}
+                                onChange={(event) => setTaskReopenConstraints(event.target.value)}
+                                placeholder="修改约束（可选）"
+                              />
+                            </div>
                           )}
-                          {task.status === "blocked" && (
-                            <button
-                              type="button"
-                              aria-expanded={taskRedirectOpen}
-                              aria-controls="task-redirect-panel"
-                              disabled={taskActionBusy}
-                              onClick={() => {
-                                if (!taskRedirectOpen) {
-                                  setTaskRedirectGoal(task.goal || "");
-                                  setTaskRedirectConstraints(task.constraints || "");
-                                  setTaskRedirectReason("");
-                                  setTaskRedirectTarget("");
+                          {showAccept &&
+                            (projectConnectorBound ? (
+                              <SelectField
+                                aria-label="任务执行方式"
+                                value={
+                                  taskExecutionMode === "auto"
+                                    ? "member_local_executor"
+                                    : taskExecutionMode
                                 }
-                                setTaskRedirectOpen((current) => !current);
-                              }}
-                            >
-                              <UiIcon name="transfer" size={13} />
-                              补充内容后改派
-                            </button>
+                                onChange={(next) =>
+                                  setTaskExecutionMode(next as typeof taskExecutionMode)
+                                }
+                                options={[
+                                  { value: "member_local_executor", label: "下发本地执行器" },
+                                  { value: "human_direct", label: "由本人执行" },
+                                ]}
+                              />
+                            ) : (
+                              <p className="task-action-note">
+                                当前账号未连接本项目本地执行器，确认后由本人执行。
+                              </p>
+                            ))}
+                          {showProgress && (
+                            <TextAreaField
+                              aria-label="结果摘要"
+                              value={taskResult}
+                              onChange={(event) => setTaskResult(event.target.value)}
+                              placeholder="结果摘要"
+                            />
                           )}
-                          {task.status === "ignored" && (
-                            <button
-                              type="button"
-                              disabled={taskActionBusy}
-                              onClick={() =>
-                                void performTaskAction(
-                                  () => api(`/tasks/${task.id}/restore-ignored`, {}, "POST"),
-                                  "任务已恢复",
-                                )
-                              }
-                            >
-                              <UiIcon name="restore" size={13} />
-                              恢复为已阻塞
-                            </button>
-                          )}
-                        </div>
-                        {task.status === "blocked" && taskRedirectOpen && (
-                          <div className="task-redirect-panel" id="task-redirect-panel">
-                            <TextAreaField
-                              label="任务目标"
-                              value={taskRedirectGoal}
-                              onChange={(event) => setTaskRedirectGoal(event.target.value)}
-                              placeholder="任务目标与验收标准"
-                            />
-                            <TextAreaField
-                              label="约束"
-                              value={taskRedirectConstraints}
-                              onChange={(event) => setTaskRedirectConstraints(event.target.value)}
-                              placeholder="约束（可选）"
-                            />
-                            <TextAreaField
-                              label="补充说明"
-                              value={taskRedirectReason}
-                              onChange={(event) => setTaskRedirectReason(event.target.value)}
-                              placeholder="补充给执行方的说明"
-                            />
-                            <SelectField
-                              aria-label="改派责任主体"
-                              value={taskRedirectTarget}
-                              onChange={setTaskRedirectTarget}
-                              options={assigneeOptions}
-                            />
-                            <div className="task-action-buttons">
+                          {canTransfer && (
+                            <div className="task-action-transfer">
+                              <SelectField
+                                aria-label="责任主体"
+                                value={taskTransferTarget}
+                                onChange={setTaskTransferTarget}
+                                options={assigneeOptions}
+                              />
                               <button
                                 type="button"
-                                className="primary"
-                                disabled={
-                                  taskActionBusy || !taskRedirectGoal.trim() || !taskRedirectTarget
-                                }
+                                disabled={taskActionBusy || !taskTransferTarget}
                                 onClick={() =>
-                                  void performTaskAction(async () => {
-                                    await api(
-                                      `/tasks/${task.id}/redirect`,
-                                      {
-                                        goal: taskRedirectGoal.trim(),
-                                        constraints: taskRedirectConstraints,
-                                        reason: taskRedirectReason.trim(),
-                                        ...(taskRedirectTarget === "xiaoxiang"
+                                  void performTaskAction(
+                                    () =>
+                                      api(
+                                        `/tasks/${task.id}/reassign`,
+                                        taskTransferTarget === "xiaoxiang"
                                           ? { targetType: "xiaoxiang" }
                                           : {
                                               targetType: "human_member",
-                                              targetUserId: taskRedirectTarget,
-                                            }),
-                                      },
-                                      "POST",
-                                    );
-                                    setTaskRedirectOpen(false);
-                                  }, "任务已补充并改派")
+                                              targetUserId: taskTransferTarget,
+                                            },
+                                        "POST",
+                                      ),
+                                    "任务已转交",
+                                  )
                                 }
                               >
-                                <UiIcon name="check" size={13} />
-                                确认改派
+                                <UiIcon name="transfer" size={13} />
+                                确认转交
                               </button>
                             </div>
-                          </div>
-                        )}
-                      </section>
-                    )}
-                  {canReviewRejection && (
-                    <section className="task-actions-section task-rejection-review">
-                      <h4>任务已被拒绝</h4>
-                      <p>
-                        {[...task.assignmentHistory]
-                          .reverse()
-                          .find((event) => event.event_type === "rejected")?.reason ||
-                          "目标成员拒绝了这个任务。"}
-                      </p>
-                      <TextAreaField
-                        aria-label="任务目标与验收标准"
-                        value={taskReopenGoal}
-                        onChange={(event) => setTaskReopenGoal(event.target.value)}
-                        placeholder="修改任务目标与验收标准"
-                      />
-                      <TextAreaField
-                        aria-label="任务约束"
-                        value={taskReopenConstraints}
-                        onChange={(event) => setTaskReopenConstraints(event.target.value)}
-                        placeholder="修改约束（可选）"
-                      />
-                      <div className="task-action-buttons">
-                        <button
-                          type="button"
-                          disabled={taskActionBusy}
-                          onClick={() =>
-                            void performTaskAction(
-                              () => api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"),
-                              "已确认拒绝结果",
-                            )
-                          }
-                        >
-                          知道了
-                        </button>
-                        <button
-                          type="button"
-                          className="primary"
-                          disabled={taskActionBusy || !taskReopenGoal.trim()}
-                          onClick={() =>
-                            void performTaskAction(
-                              () =>
-                                api(
-                                  `/tasks/${task.id}/reopen`,
-                                  {
-                                    goal: taskReopenGoal.trim(),
-                                    constraints: taskReopenConstraints,
-                                  },
-                                  "POST",
-                                ),
-                              "任务已重新发起",
-                            )
-                          }
-                        >
-                          修改后重新发起
-                        </button>
-                      </div>
-                    </section>
-                  )}
-                  {canTransfer && (
-                    <section className="task-actions-section">
-                      <h4>转交任务</h4>
-                      <SelectField
-                        aria-label="责任主体"
-                        value={taskTransferTarget}
-                        onChange={setTaskTransferTarget}
-                        options={assigneeOptions}
-                      />
-                      <button
-                        type="button"
-                        disabled={taskActionBusy || !taskTransferTarget}
-                        onClick={() =>
-                          void performTaskAction(
-                            () =>
-                              api(
-                                `/tasks/${task.id}/reassign`,
-                                taskTransferTarget === "xiaoxiang"
-                                  ? { targetType: "xiaoxiang" }
-                                  : {
-                                      targetType: "human_member",
-                                      targetUserId: taskTransferTarget,
-                                    },
-                                "POST",
-                              ),
-                            "任务已转交",
-                          )
-                        }
-                      >
-                        <UiIcon name="transfer" size={13} />
-                        确认转交
-                      </button>
-                    </section>
-                  )}
-                  {isTarget &&
-                    task.execution_agent_type === "human_self" &&
-                    !endedTask(task.status) &&
-                    task.status !== "awaiting_acceptance" && (
-                      <section className="task-actions-section">
-                        <h4>进度与结果</h4>
-                        <TextAreaField
-                          aria-label="结果摘要"
-                          value={taskResult}
-                          onChange={(event) => setTaskResult(event.target.value)}
-                          placeholder="结果摘要"
-                        />
-                        <div className="task-status-actions">
-                          <button
-                            type="button"
-                            disabled={taskActionBusy}
-                            onClick={() =>
-                              void performTaskAction(
-                                () =>
-                                  api(
-                                    `/tasks/${task.id}`,
-                                    {
-                                      status: "abandoned",
-                                      resultSummary: taskResult || "已放弃",
-                                    },
-                                    "PATCH",
-                                  ),
-                                "任务已放弃",
-                              )
-                            }
-                          >
-                            <UiIcon name="abandon" size={13} />
-                            放弃
-                          </button>
-                          <button
-                            type="button"
-                            className="primary"
-                            disabled={taskActionBusy}
-                            onClick={() =>
-                              void performTaskAction(
-                                () =>
-                                  api(
-                                    `/tasks/${task.id}`,
-                                    {
-                                      status: "completed",
-                                      resultSummary: taskResult || "已完成",
-                                    },
-                                    "PATCH",
-                                  ),
-                                "任务已完成",
-                              )
-                            }
-                          >
-                            <UiIcon name="complete" size={13} />
-                            完成
-                          </button>
-                        </div>
-                      </section>
-                    )}
-                  {(() => {
-                    const timeline = taskDetailTimeline(task);
-                    const visibleTimeline = timeline.filter(
-                      (item) => taskTimelineFilters[item.kind],
-                    );
-                    const pageSize = taskTimelinePageSize;
-                    const pageCount = Math.max(1, Math.ceil(visibleTimeline.length / pageSize));
-                    const page = Math.min(taskTimelinePage, pageCount - 1);
-                    const pageItems = visibleTimeline.slice(page * pageSize, (page + 1) * pageSize);
-                    const filterLabels: { kind: TaskTimelineKind; label: string }[] = [
-                      { kind: "member_update", label: "成员动态" },
-                      { kind: "status_change", label: "状态变化" },
-                      { kind: "assignment", label: "指派变更" },
-                      { kind: "execution", label: "执行轮次" },
-                    ];
-                    return timeline.length ? (
-                      <section className="task-timeline-section">
-                        <div className="task-timeline-header">
-                          <h4>任务时间线</h4>
-                          <div className="task-timeline-filters" aria-label="任务时间线筛选">
-                            {filterLabels.map(({ kind, label }) => (
-                              <label key={kind}>
-                                <input
-                                  type="checkbox"
-                                  checked={taskTimelineFilters[kind]}
-                                  onChange={(event) => {
-                                    setTaskTimelineFilters((current) => ({
-                                      ...current,
-                                      [kind]: event.target.checked,
-                                    }));
-                                    setTaskTimelinePage(0);
-                                  }}
-                                />
-                                {label}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                        {pageItems.length ? (
-                          <div className="task-history task-change-log task-timeline-list">
-                            {pageItems.map((item, index) => (
-                              <div
-                                className={`task-change-item task-timeline-item-${item.kind}${index === 0 && page === 0 ? " is-latest" : ""}`}
-                                key={item.key}
-                              >
-                                <i className="task-change-marker" aria-hidden="true" />
-                                <div className="task-change-content">
-                                  <div className="task-change-heading">
-                                    <strong>{item.title}</strong>
-                                    <span>
-                                      {item.kind === "execution"
-                                        ? executionRunLabel(
-                                            {
-                                              executor_type: item.actorType,
-                                              executor_id: item.actorId,
-                                              executor_label: item.actorName,
-                                              status: "",
-                                              progress: null,
-                                              result_summary: null,
-                                              error: null,
-                                              created_at: item.at,
-                                              id: item.key,
-                                            },
-                                            task,
-                                          )
-                                        : statusActorLabel(
-                                            {
-                                              actor_type: item.actorType,
-                                              actor_id: item.actorId,
-                                              actor_name: item.actorName,
-                                            },
-                                            task,
-                                          )}{" "}
-                                      · {time(item.at)}
-                                    </span>
-                                  </div>
-                                  {item.body && (
-                                    <small className="task-timeline-body">{item.body}</small>
-                                  )}
-                                </div>
+                          )}
+                          {showSourceOps && task.status === "blocked" && taskRedirectOpen && (
+                            <div className="task-redirect-panel" id="task-redirect-panel">
+                              <TextAreaField
+                                label="任务目标"
+                                value={taskRedirectGoal}
+                                onChange={(event) => setTaskRedirectGoal(event.target.value)}
+                                placeholder="任务目标与验收标准"
+                              />
+                              <TextAreaField
+                                label="约束"
+                                value={taskRedirectConstraints}
+                                onChange={(event) => setTaskRedirectConstraints(event.target.value)}
+                                placeholder="约束（可选）"
+                              />
+                              <TextAreaField
+                                label="补充说明"
+                                value={taskRedirectReason}
+                                onChange={(event) => setTaskRedirectReason(event.target.value)}
+                                placeholder="补充给执行方的说明"
+                              />
+                              <SelectField
+                                aria-label="改派责任主体"
+                                value={taskRedirectTarget}
+                                onChange={setTaskRedirectTarget}
+                                options={assigneeOptions}
+                              />
+                              <div className="task-action-buttons">
+                                <button
+                                  type="button"
+                                  className="primary"
+                                  disabled={
+                                    taskActionBusy ||
+                                    !taskRedirectGoal.trim() ||
+                                    !taskRedirectTarget
+                                  }
+                                  onClick={() =>
+                                    void performTaskAction(async () => {
+                                      await api(
+                                        `/tasks/${task.id}/redirect`,
+                                        {
+                                          goal: taskRedirectGoal.trim(),
+                                          constraints: taskRedirectConstraints,
+                                          reason: taskRedirectReason.trim(),
+                                          ...(taskRedirectTarget === "xiaoxiang"
+                                            ? { targetType: "xiaoxiang" }
+                                            : {
+                                                targetType: "human_member",
+                                                targetUserId: taskRedirectTarget,
+                                              }),
+                                        },
+                                        "POST",
+                                      );
+                                      setTaskRedirectOpen(false);
+                                    }, "任务已补充并改派")
+                                  }
+                                >
+                                  <UiIcon name="check" size={13} />
+                                  确认改派
+                                </button>
                               </div>
-                            ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {(hasPrimary || hasSecondary) && (
+                        <div className="task-action-dock-bar">
+                          <div className="task-action-dock-side">
+                            {hasPrimary && hasSecondary && (
+                              <button
+                                type="button"
+                                className="task-action-more"
+                                aria-expanded={dockMoreOpen}
+                                aria-controls="task-action-secondary"
+                                onClick={() => setDockMoreOpen((current) => !current)}
+                              >
+                                更多
+                                <UiIcon
+                                  name={dockMoreOpen ? "chevronUp" : "chevronDown"}
+                                  size={13}
+                                />
+                              </button>
+                            )}
+                            <div
+                              className={`task-action-dock-secondary${dockMoreOpen ? " is-open" : ""}`}
+                              id="task-action-secondary"
+                            >
+                              {showAccept && (
+                                <button
+                                  type="button"
+                                  className="task-action-danger"
+                                  disabled={taskActionBusy}
+                                  onClick={() =>
+                                    void performTaskAction(
+                                      () => api(`/tasks/${task.id}/reject`, {}, "POST"),
+                                      "已拒绝任务",
+                                    )
+                                  }
+                                >
+                                  <UiIcon name="reject" size={13} />
+                                  拒绝
+                                </button>
+                              )}
+                              {showSourceOps && task.status === "awaiting_acceptance" && (
+                                <button
+                                  type="button"
+                                  className="task-action-danger"
+                                  disabled={taskActionBusy}
+                                  onClick={() =>
+                                    void performTaskAction(
+                                      () => api(`/tasks/${task.id}/cancel`, {}, "POST"),
+                                      "任务已取消",
+                                    )
+                                  }
+                                >
+                                  <UiIcon name="close" size={13} />
+                                  取消
+                                </button>
+                              )}
+                              {showProgress && (
+                                <button
+                                  type="button"
+                                  className="task-action-danger"
+                                  disabled={taskActionBusy}
+                                  onClick={() =>
+                                    void performTaskAction(
+                                      () =>
+                                        api(
+                                          `/tasks/${task.id}`,
+                                          {
+                                            status: "abandoned",
+                                            resultSummary: taskResult || "已放弃",
+                                          },
+                                          "PATCH",
+                                        ),
+                                      "任务已放弃",
+                                    )
+                                  }
+                                >
+                                  <UiIcon name="abandon" size={13} />
+                                  放弃
+                                </button>
+                              )}
+                              {showSourceOps && task.status === "blocked" && (
+                                <button
+                                  type="button"
+                                  disabled={taskActionBusy}
+                                  onClick={() =>
+                                    void performTaskAction(
+                                      () => api(`/tasks/${task.id}/ignore`, {}, "POST"),
+                                      "任务已忽略",
+                                    )
+                                  }
+                                >
+                                  <UiIcon name="eyeOff" size={13} />
+                                  改为已忽略
+                                </button>
+                              )}
+                              {showSourceOps && task.status === "blocked" && (
+                                <button
+                                  type="button"
+                                  aria-expanded={taskRedirectOpen}
+                                  aria-controls="task-redirect-panel"
+                                  disabled={taskActionBusy}
+                                  onClick={() => {
+                                    if (!taskRedirectOpen) {
+                                      setTaskRedirectGoal(task.goal || "");
+                                      setTaskRedirectConstraints(task.constraints || "");
+                                      setTaskRedirectReason("");
+                                      setTaskRedirectTarget("");
+                                    }
+                                    setTaskRedirectOpen((current) => !current);
+                                  }}
+                                >
+                                  <UiIcon name="transfer" size={13} />
+                                  补充内容后改派
+                                </button>
+                              )}
+                              {showSourceOps && task.status === "ignored" && (
+                                <button
+                                  type="button"
+                                  disabled={taskActionBusy}
+                                  onClick={() =>
+                                    void performTaskAction(
+                                      () => api(`/tasks/${task.id}/restore-ignored`, {}, "POST"),
+                                      "任务已恢复",
+                                    )
+                                  }
+                                >
+                                  <UiIcon name="restore" size={13} />
+                                  恢复为已阻塞
+                                </button>
+                              )}
+                              {canReviewRejection && (
+                                <button
+                                  type="button"
+                                  disabled={taskActionBusy}
+                                  onClick={() =>
+                                    void performTaskAction(
+                                      () =>
+                                        api(`/tasks/${task.id}/acknowledge-rejection`, {}, "POST"),
+                                      "已确认拒绝结果",
+                                    )
+                                  }
+                                >
+                                  知道了
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        ) : (
-                          <p className="muted task-timeline-empty">当前筛选条件下暂无记录。</p>
-                        )}
-                        {visibleTimeline.length > 0 && (
-                          <PaginationControl
-                            className="task-timeline-pagination"
-                            total={visibleTimeline.length}
-                            currentPage={page + 1}
-                            pageSize={pageSize}
-                            pageSizeOptions={[10, 12, 20, 50]}
-                            onPageChange={(next) => setTaskTimelinePage(next - 1)}
-                            onPageSizeChange={(next) => {
-                              setTaskTimelinePageSize(next);
-                              setTaskTimelinePage(0);
-                            }}
-                            ariaLabel="任务时间线分页"
-                          />
-                        )}
-                      </section>
-                    ) : null;
-                  })()}
+                          {hasPrimary && (
+                            <div className="task-action-dock-primary">
+                              {showQuestion && openQuestion && (
+                                <button
+                                  type="button"
+                                  className="primary"
+                                  disabled={taskActionBusy || !taskAnswer.trim()}
+                                  onClick={() =>
+                                    void performTaskAction(async () => {
+                                      await api(`/task-questions/${openQuestion.id}/answer`, {
+                                        answer: taskAnswer,
+                                      });
+                                      setTaskAnswer("");
+                                    }, "回答已提交")
+                                  }
+                                >
+                                  提交回答
+                                </button>
+                              )}
+                              {showAccept && (
+                                <button
+                                  type="button"
+                                  className="primary"
+                                  disabled={taskActionBusy}
+                                  onClick={() =>
+                                    void performTaskAction(
+                                      () =>
+                                        api(
+                                          `/tasks/${task.id}/accept`,
+                                          {
+                                            mode: projectConnectorBound
+                                              ? taskExecutionMode === "human_direct"
+                                                ? "human_direct"
+                                                : "member_local_executor"
+                                              : "human_direct",
+                                          },
+                                          "POST",
+                                        ),
+                                      "已确认任务",
+                                    )
+                                  }
+                                >
+                                  <UiIcon name="check" size={13} />
+                                  确认
+                                </button>
+                              )}
+                              {showProgress && (
+                                <button
+                                  type="button"
+                                  className="primary"
+                                  disabled={taskActionBusy}
+                                  onClick={() =>
+                                    void performTaskAction(
+                                      () =>
+                                        api(
+                                          `/tasks/${task.id}`,
+                                          {
+                                            status: "completed",
+                                            resultSummary: taskResult || "已完成",
+                                          },
+                                          "PATCH",
+                                        ),
+                                      "任务已完成",
+                                    )
+                                  }
+                                >
+                                  <UiIcon name="complete" size={13} />
+                                  完成
+                                </button>
+                              )}
+                              {canReviewRejection && (
+                                <button
+                                  type="button"
+                                  className="primary"
+                                  disabled={taskActionBusy || !taskReopenGoal.trim()}
+                                  onClick={() =>
+                                    void performTaskAction(
+                                      () =>
+                                        api(
+                                          `/tasks/${task.id}/reopen`,
+                                          {
+                                            goal: taskReopenGoal.trim(),
+                                            constraints: taskReopenConstraints,
+                                          },
+                                          "POST",
+                                        ),
+                                      "任务已重新发起",
+                                    )
+                                  }
+                                >
+                                  修改后重新发起
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </footer>
+                  )}
                 </>
               )}
             </div>

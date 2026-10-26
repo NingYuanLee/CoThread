@@ -1,6 +1,7 @@
 import { query } from "./db.js";
 import { memoryNeighborhood, noteMemoryRecall } from "./memory-graph.js";
 import { MEMORY_SUBJECT_LABELS, isMemorySubject } from "../shared/memory-kinds.js";
+import { MEMORY_SUBTYPE_LABELS } from "../shared/memory-taxonomy.js";
 
 const SOURCE_LABELS = {
   message: "群聊消息",
@@ -68,7 +69,7 @@ export async function searchProjectMemory(
     .trim()
     .slice(0, 200);
   const columns =
-    "id,subject_type subjectType,kind,title,body,status,about_user_id aboutUserId,recall_count recallCount,updated_at updatedAt";
+    "id,subject_type subjectType,memory_subtype subtype,title,body,status,about_user_id aboutUserId,recall_count recallCount,updated_at updatedAt";
   let rows = [];
   if (kw) {
     rows = await query(
@@ -102,7 +103,8 @@ export async function searchProjectMemory(
     pageId: row.id,
     subject: row.subjectType,
     subjectLabel: MEMORY_SUBJECT_LABELS[row.subjectType] || "",
-    kind: row.kind,
+    subtype: row.subtype || null,
+    subtypeLabel: MEMORY_SUBTYPE_LABELS[row.subtype] || "",
     title: row.title,
     excerpt: excerptOf(row.body),
     aboutUserId: row.aboutUserId || null,

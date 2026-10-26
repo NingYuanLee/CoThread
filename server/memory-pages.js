@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { query } from "./db.js";
+import { DEFAULT_MEMORY_SUBTYPES } from "../shared/memory-taxonomy.js";
 
 /**
  * 记忆条目的统一落页：按「对象类型 + 标题」找现行条目，有就更新、没有就新建，
@@ -8,7 +9,14 @@ import { query } from "./db.js";
 export async function upsertMemoryPage(
   db,
   projectId,
-  { subject, kind = "status", title, body, createdBy, sources = [] } = {},
+  {
+    subject,
+    subtype = DEFAULT_MEMORY_SUBTYPES[subject] || null,
+    title,
+    body,
+    createdBy,
+    sources = [],
+  } = {},
 ) {
   const clean = String(title || "")
     .trim()
@@ -24,18 +32,17 @@ export async function upsertMemoryPage(
   const pageId = existing?.id || randomUUID();
   const text = String(body || "").slice(0, 60000);
   if (existing) {
-    await query(db, "UPDATE wiki_pages SET body=?,kind=?,updated_by=? WHERE id=?", [
-      text,
-      kind,
-      createdBy || null,
-      pageId,
-    ]);
+    await query(
+      db,
+      "UPDATE wiki_pages SET body=?,memory_subtype=COALESCE(?,memory_subtype),updated_by=? WHERE id=?",
+      [text, subtype, createdBy || null, pageId],
+    );
   } else {
     await query(
       db,
-      `INSERT INTO wiki_pages(id,project_id,subject_type,kind,title,body,status,created_by,updated_by)
+      `INSERT INTO wiki_pages(id,project_id,subject_type,memory_subtype,title,body,status,created_by,updated_by)
        VALUES(?,?,?,?,?,?,'current',?,?)`,
-      [pageId, projectId, subject, kind, clean, text, createdBy || null, createdBy || null],
+      [pageId, projectId, subject, subtype, clean, text, createdBy || null, createdBy || null],
     );
   }
   for (const source of sources) {
@@ -79,7 +86,6 @@ export async function ensureProjectMemoryPage(db, { projectId, createdBy } = {})
   ].join("\n");
   return upsertMemoryPage(db, projectId, {
     subject: "project",
-    kind: "status",
     title: "项目整体：" + (project?.name || "项目"),
     body,
     createdBy,

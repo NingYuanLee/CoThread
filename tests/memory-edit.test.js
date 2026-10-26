@@ -24,7 +24,7 @@ async function insertPage(db, projectId, userId, { subject = null, title = "条�
   const id = randomUUID();
   await query(
     db,
-    "INSERT INTO wiki_pages(id,project_id,subject_type,kind,title,body,status,created_by,updated_by) VALUES(?,?,?, 'status',?,?,'current',?,?)",
+    "INSERT INTO wiki_pages(id,project_id,subject_type,title,body,status,created_by,updated_by) VALUES(?,?,?,?,?,'current',?,?)",
     [id, projectId, subject, title, "## 内容", userId, userId],
   );
   return id;

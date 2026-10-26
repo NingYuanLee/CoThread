@@ -88,7 +88,7 @@ test("管理视图返回最近运行与积压，且只读", async () => {
   }
 });
 
-test("项目级口径可覆盖与回滚", async () => {
+test("记忆作业口径固定为默认，不能调整", async () => {
   const database = await testDatabase();
   const db = database.db;
   try {
@@ -99,36 +99,35 @@ test("项目级口径可覆盖与回滚", async () => {
       owner.id + "@test.com",
       "负责人",
     ]);
-    const project = await service.createProject(owner, { name: "口径覆盖项目" });
-    const updated = await updateMemoryJobSettings(
-      db,
-      project.id,
-      "project_memory",
-      { enabled: false, triggerThreshold: 25, prompt: "先看决策，再看任务" },
-      owner.id,
+    const project = await service.createProject(owner, { name: "口径固定项目" });
+    const defaults = MEMORY_JOBS.find((job) => job.key === "project_memory");
+    await assert.rejects(
+      updateMemoryJobSettings(
+        db,
+        project.id,
+        "project_memory",
+        { enabled: false, triggerThreshold: 25, prompt: "先看决策，再看任务" },
+        owner.id,
+      ),
+      /不能调整/,
     );
-    assert.equal(updated.enabled, false);
-    assert.equal(updated.triggerThreshold, 25);
-    assert.equal(updated.prompt, "先看决策，再看任务");
-    assert.equal(updated.promptOverridden, true);
-    assert.ok(updated.settingsUpdatedAt);
-    const jobs = await listMemoryJobs(db, project.id);
-    assert.equal(jobs.find((job) => job.key === "project_memory").enabled, false);
-    assert.equal(jobs.find((job) => job.key === "member_memory").enabled, true);
     await assert.rejects(
       updateMemoryJobSettings(db, project.id, "not_a_job", {}, owner.id),
       /没有这个记忆作业/,
     );
-    const reset = await resetMemoryJobSettings(db, project.id, "project_memory");
-    assert.equal(reset.enabled, true);
-    assert.equal(reset.triggerThreshold, 40);
-    assert.equal(reset.promptOverridden, false);
+    await assert.rejects(resetMemoryJobSettings(db, project.id, "project_memory"), /不能调整/);
+    const jobs = await listMemoryJobs(db, project.id);
+    const projectJob = jobs.find((job) => job.key === "project_memory");
+    assert.equal(projectJob.prompt, defaults.prompt);
+    assert.equal(projectJob.trigger, defaults.trigger);
+    assert.equal(projectJob.promptOverridden, undefined);
+    assert.equal(projectJob.enabled, undefined);
   } finally {
     await database.close();
   }
 });
 
-test("停用与阈值覆盖会影响触发", async () => {
+test("库里残留的项目级口径不再改变触发", async () => {
   const database = await testDatabase();
   const db = database.db;
   try {
@@ -139,24 +138,21 @@ test("停用与阈值覆盖会影响触发", async () => {
       owner.id + "@test.com",
       "负责人",
     ]);
-    const project = await service.createProject(owner, { name: "口径生效项目" });
+    const project = await service.createProject(owner, { name: "口径不生效项目" });
     for (let index = 0; index < 2; index += 1)
       await query(
         db,
         "INSERT INTO agent_project_memory_queue(id,project_id,source_kind,source_id,hint) VALUES(?,?,'manual',?,'')",
         [randomUUID(), project.id, randomUUID()],
       );
-    assert.equal(await maybeQueueProjectMemoryRun(db, project.id, false), false);
-    await updateMemoryJobSettings(
+    await query(
       db,
-      project.id,
-      "project_memory",
-      { triggerThreshold: 2 },
-      owner.id,
+      "INSERT INTO memory_job_settings(project_id,job_key,enabled,trigger_threshold,updated_by) VALUES(?,?,?,?,?)",
+      [project.id, "project_memory", 0, 2, owner.id],
     );
-    assert.equal(await maybeQueueProjectMemoryRun(db, project.id, false), true);
-    await updateMemoryJobSettings(db, project.id, "project_memory", { enabled: false }, owner.id);
-    await assert.rejects(queueProjectMemoryRun(service, owner, project.id), /已停用/);
+    assert.equal(await maybeQueueProjectMemoryRun(db, project.id, false), false);
+    const queued = await queueProjectMemoryRun(service, owner, project.id);
+    assert.ok(queued);
   } finally {
     await database.close();
   }
@@ -184,9 +180,6 @@ test("重试按作业分派，无独立队列的作业拒绝", async () => {
       retryMemoryJob(service, owner, project.id, "not_a_job"),
       /没有这个记忆作业/,
     );
-    await updateMemoryJobSettings(db, project.id, "member_memory", { enabled: false }, owner.id);
-    await assert.rejects(retryMemoryJob(service, owner, project.id, "member_memory"), /已停用/);
-    await resetMemoryJobSettings(db, project.id, "member_memory");
     const run = await retryMemoryJob(service, owner, project.id, "member_memory");
     assert.equal(run.task, "member_memory");
     // 重试会内联跑一批维护任务，返回的 run 可能已结束（无模型环境下为 failed）。

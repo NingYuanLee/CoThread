@@ -27,13 +27,13 @@ async function insertPage(
   db,
   projectId,
   userId,
-  { subject = null, aboutUserId = null, kind = "status", title = "条目", body = "## 议题" } = {},
+  { subject = null, aboutUserId = null, title = "条目", body = "## 议题" } = {},
 ) {
   const id = randomUUID();
   await query(
     db,
-    "INSERT INTO wiki_pages(id,project_id,subject_type,about_user_id,kind,title,body,status,created_by,updated_by) VALUES(?,?,?,?,?,?,?,'current',?,?)",
-    [id, projectId, subject, aboutUserId, kind, title, body, userId, userId],
+    "INSERT INTO wiki_pages(id,project_id,subject_type,about_user_id,title,body,status,created_by,updated_by) VALUES(?,?,?,?,?,?,'current',?,?)",
+    [id, projectId, subject, aboutUserId, title, body, userId, userId],
   );
   return id;
 }
@@ -57,7 +57,7 @@ test("按对象类型和成员收窄", async () => {
 
     const speech = await searchProjectMemory(db, project.id, { subjects: ["utterance"] });
     assert.equal(speech.total, 1);
-    assert.equal(speech.entries[0].subjectLabel, "发言记忆");
+    assert.equal(speech.entries[0].subjectLabel, "关键发言");
     assert.equal(speech.entries[0].aboutUserId, speaker);
 
     const byMember = await searchProjectMemory(db, project.id, { aboutUserId: speaker });

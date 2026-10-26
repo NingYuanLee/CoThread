@@ -281,8 +281,8 @@ test("non-text documents without a candidate summary are parked instead of retri
       user,
       thread.id,
       {
-        title: "Admin 预览截图",
-        filename: "admin-index-full.png",
+        title: "二进制附件",
+        filename: "bundle.zip",
         contentBase64: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString("base64"),
       },
       undefined,
@@ -336,6 +336,80 @@ test("non-text documents without a candidate summary are parked instead of retri
       ),
       1,
     );
+  } finally {
+    await database.close();
+  }
+});
+
+test("image documents are summarized from their bytes instead of being parked or dropped", async () => {
+  const database = await testDatabase();
+  const db = database.db;
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
+      user.id,
+      `${user.id}@test.com`,
+      "成员",
+    ]);
+    const service = new Service(db);
+    const project = await service.createProject(user, { name: "图片文档摘要" });
+    const created = await service.createThread(user, project.id, { title: "截图" });
+    const thread = await service.thread(user, created.id);
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const version = await service.submitVersion(
+      user,
+      thread.id,
+      {
+        title: "Admin 预览截图",
+        filename: "admin-index-full.png",
+        contentBase64: png.toString("base64"),
+      },
+      undefined,
+      undefined,
+      false,
+      { silent: true },
+    );
+    await queueDocumentMemory(db, version.id);
+    await query(
+      db,
+      "UPDATE agent_document_memory_queue SET available_at=UTC_TIMESTAMP(3) WHERE version_id=?",
+      [version.id],
+    );
+    let seen = null;
+    assert.equal(
+      await processNextProjectMemory(db, {
+        summarizeDocument: async (input) => {
+          seen = input;
+          return "截图里是管理页";
+        },
+      }),
+      true,
+    );
+    assert.equal(seen?.image?.mimeType, "image/png");
+    assert.equal(seen.image.data, png.toString("base64"));
+    assert.equal(
+      Number(
+        (
+          await query(
+            db,
+            "SELECT COUNT(*) count FROM agent_document_memory_queue WHERE version_id=?",
+            [version.id],
+          )
+        )[0].count,
+      ),
+      0,
+    );
+    const runs = await query(
+      db,
+      "SELECT agent_called,result FROM agent_laoweng_runs WHERE project_id=? AND task='document_memory'",
+      [project.id],
+    );
+    assert.equal(runs.length, 1);
+    assert.equal(Number(runs[0].agent_called), 1);
+    const result = typeof runs[0].result === "string" ? JSON.parse(runs[0].result) : runs[0].result;
+    assert.equal(result.summarized, 1);
+    assert.equal(result.postponed || 0, 0);
+    assert.equal(result.drained || 0, 0);
   } finally {
     await database.close();
   }

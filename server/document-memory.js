@@ -3,6 +3,7 @@ import JSZip from "jszip";
 import sharp from "sharp";
 import { query } from "./db.js";
 import { createMemoryRelation } from "./memory-graph.js";
+import { DEFAULT_MEMORY_SUBTYPES } from "../shared/memory-taxonomy.js";
 
 const KIND_LABEL = { code: "代码", image: "图片", archive: "压缩包", text: "文本", other: "文件" };
 
@@ -152,6 +153,11 @@ export function documentGroupMarkdown({ folderName, members = [] } = {}) {
     "## 是什么",
     "「" + (folderName || "文档组") + "」下的文档组，共 " + members.length + " 个文件。",
     "",
+    "## 共享摘要",
+    "这些文件共同构成「" +
+      (folderName || "文档组") +
+      "」的正式资料集合；先结合下面的文件清单判断每份文件的职责，再按入口文件顺序阅读。",
+    "",
     "## 包含",
     list,
     "",
@@ -186,9 +192,9 @@ async function upsertPage(db, projectId, { title, body, createdBy, sources = [] 
   } else {
     await query(
       db,
-      `INSERT INTO wiki_pages(id,project_id,subject_type,kind,title,body,status,created_by,updated_by)
-       VALUES(?,?,'document','status',?,?,'current',?,?)`,
-      [pageId, projectId, clean, text, createdBy, createdBy],
+      `INSERT INTO wiki_pages(id,project_id,subject_type,memory_subtype,title,body,status,created_by,updated_by)
+       VALUES(?,?,'document',?,?,?,'current',?,?)`,
+      [pageId, projectId, DEFAULT_MEMORY_SUBTYPES.document, clean, text, createdBy, createdBy],
     );
   }
   for (const source of sources) {

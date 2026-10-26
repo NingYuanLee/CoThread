@@ -20,8 +20,8 @@ function jsonValue(value) {
 function mapEntry(row, sources, disputed, relations = []) {
   return {
     id: row.id,
-    kind: row.kind,
     subject: row.subject || null,
+    subtype: row.subtype || null,
     aboutUserId: row.aboutUserId || null,
     title: row.title,
     body: row.body,
@@ -74,7 +74,7 @@ export async function projectArchived(db, projectId) {
 export async function listIterationMemoryDrafts(db, { projectId, threadId, workflowId }) {
   const rows = await query(
     db,
-    `SELECT DISTINCT p.id,p.kind,p.title,p.body,p.status,p.updated_at updatedAt
+    `SELECT DISTINCT p.id,p.memory_subtype subtype,p.title,p.body,p.status,p.updated_at updatedAt
      FROM wiki_pages p JOIN wiki_page_sources s ON s.page_id=p.id
      WHERE p.project_id=? AND p.status='draft' AND (
        (s.source_kind='message' AND s.source_id IN (SELECT id FROM messages WHERE thread_id=?))
@@ -87,7 +87,7 @@ export async function listIterationMemoryDrafts(db, { projectId, threadId, workf
   );
   return rows.map((row) => ({
     id: row.id,
-    kind: row.kind,
+    subtype: row.subtype,
     status: row.status,
     title: row.title,
     preview: String(row.body || "").slice(0, 200),
@@ -143,7 +143,7 @@ async function loadRelations(db, projectId, pageIds) {
 async function readMemoryEntry(db, projectId, id) {
   const [row] = await query(
     db,
-    `SELECT p.id,p.kind,p.subject_type subject,p.about_user_id aboutUserId,p.title,p.body,p.status,
+    `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.about_user_id aboutUserId,p.title,p.body,p.status,
        p.created_by createdBy,p.updated_at updatedAt
     FROM wiki_pages p WHERE p.id=? AND p.project_id=?`,
     [id, projectId],
@@ -246,7 +246,7 @@ export async function readProjectMemory(service, user, projectId) {
     ),
     query(
       db,
-      `SELECT p.id,p.kind,p.subject_type subject,p.about_user_id aboutUserId,p.title,p.body,p.status,p.created_by createdBy,
+      `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.about_user_id aboutUserId,p.title,p.body,p.status,p.created_by createdBy,
         p.created_at createdAt,p.updated_at updatedAt
       FROM wiki_pages p WHERE p.project_id=?
       ORDER BY FIELD(p.status,'draft','current','superseded'),p.updated_at DESC,p.id`,

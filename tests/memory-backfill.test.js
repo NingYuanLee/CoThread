@@ -84,7 +84,7 @@ test("存量回填：旧摘要与未分类条目折算成五类记忆，重复�
     const legacyPageId = randomUUID();
     await query(
       db,
-      "INSERT INTO wiki_pages(id,project_id,subject_type,kind,title,body,status,created_by,updated_by) VALUES(?,?,NULL,'guide','历史指南','## 旧内容','current',?,?)",
+      "INSERT INTO wiki_pages(id,project_id,subject_type,title,body,status,created_by,updated_by) VALUES(?,?,NULL,'历史指南','## 旧内容','current',?,?)",
       [legacyPageId, project.id, owner.id, owner.id],
     );
     await query(

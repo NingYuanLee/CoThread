@@ -10,6 +10,9 @@ import { TaskCreatedTime } from "./LiveClock";
 
 import { labelWorkflowStatus } from "./ui-labels";
 import { SlideSwitch } from "./SlideSwitch";
+import { showTip } from "./Tip";
+import { taskCopyInfo } from "./task-copy";
+import { TaskItemContextMenu } from "./task-menus";
 import { UiIcon } from "./ui-icon";
 
 import type { AgentTask, Detail } from "./workspace-types";
@@ -52,12 +55,23 @@ export function TaskListDialog({
   const [taskMine, setTaskMine] = useState(true);
   const [taskListSearch, setTaskListSearch] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState(selection.taskId);
+  /** 列表项右键菜单：记录指针落点与被操作的任务，菜单本身渲染在弹窗内。 */
+  const [taskMenu, setTaskMenu] = useState<{ task: AgentTask; x: number; y: number } | null>(null);
   useEffect(() => {
     setSelectedTaskId(selection.taskId);
   }, [selection.id]);
   const { scopedTasks, visibleTasks, taskSourceLabel, taskTargetLabel, taskExecutorLabel } =
     taskViewModel(tasks, detail, user, threadId, taskMine, taskListSearch);
   const openTask = (taskId: string) => setSelectedTaskId(taskId);
+  const copyTaskInfo = async (task: AgentTask) => {
+    if (!projectId) return;
+    try {
+      await navigator.clipboard.writeText(taskCopyInfo({ projectId, threadId, mcpEndpoint }, task));
+      showTip("任务信息已复制");
+    } catch {
+      showTip("无法自动复制任务信息，请检查剪贴板权限后重试。", "error");
+    }
+  };
 
   return (
     <ModalBackdrop onClose={onClose} enabled={!taskCreateOpen}>
@@ -116,6 +130,19 @@ export function TaskListDialog({
                       aria-current={selectedTaskId === task.id ? "true" : undefined}
                       key={task.id}
                       onClick={() => openTask(task.id)}
+                      onContextMenu={(event) => {
+                        // 右键先选中该任务，菜单里的复制对象始终和右侧详情一致。
+                        event.preventDefault();
+                        event.stopPropagation();
+                        // 键盘菜单键触发时没有指针坐标，退回贴住列表项左上角。
+                        const box = event.currentTarget.getBoundingClientRect();
+                        setSelectedTaskId(task.id);
+                        setTaskMenu({
+                          task,
+                          x: event.clientX || box.left + 12,
+                          y: event.clientY || box.top + 12,
+                        });
+                      }}
                     >
                       <span className="task-pool-item-heading">
                         <span>
@@ -167,6 +194,14 @@ export function TaskListDialog({
               mcpEndpoint={mcpEndpoint}
             />
           </div>
+          {taskMenu ? (
+            <TaskItemContextMenu
+              x={taskMenu.x}
+              y={taskMenu.y}
+              onCopyTaskInfo={() => void copyTaskInfo(taskMenu.task)}
+              onDismiss={() => setTaskMenu(null)}
+            />
+          ) : null}
         </section>
       )}
     </ModalBackdrop>

@@ -171,12 +171,12 @@ test("knowledge administrator prepares a draft, then confirmed handoff preserves
   assert.equal(again.nextThreadId, result.nextThreadId);
   const wikiPages = await query(
     db,
-    "SELECT kind FROM wiki_pages WHERE project_id=? ORDER BY kind",
+    "SELECT memory_subtype subtype FROM wiki_pages WHERE project_id=? ORDER BY memory_subtype",
     [project.id],
   );
   assert.deepEqual(
-    wikiPages.map((page) => page.kind),
-    ["decision", "retro"],
+    wikiPages.map((page) => page.subtype),
+    ["iteration_archived", "problem_review"],
   );
   const [moved] = await query(db, "SELECT * FROM agent_tasks WHERE id=?", [task.id]);
   assert.equal(moved.origin_thread_id, result.nextThreadId);

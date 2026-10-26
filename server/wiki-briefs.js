@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { query } from "./db.js";
 
 function briefText(title) {
-  return ("《" + String(title || "知识页").trim() + "》有更新").slice(0, 160);
+  return ("《" + String(title || "记忆条目").trim() + "》有更新").slice(0, 160);
 }
 
 export async function refreshParticipantBriefs(conn, page) {
@@ -11,7 +11,7 @@ export async function refreshParticipantBriefs(conn, page) {
     "SELECT org_id FROM project_org_links WHERE project_id=? AND role='participant'",
     [page.projectId],
   );
-  const title = String(page.title || "知识页").slice(0, 160);
+  const title = String(page.title || "记忆条目").slice(0, 160);
   const brief = briefText(title);
   for (const org of orgs) {
     const [existing] = await query(
@@ -42,7 +42,7 @@ export async function backfillParticipantBriefs(conn, projectId, orgId) {
     [projectId],
   );
   for (const page of pages) {
-    const title = String(page.title || "知识页").slice(0, 160);
+    const title = String(page.title || "记忆条目").slice(0, 160);
     await query(
       conn,
       "INSERT INTO project_org_briefs(id,org_id,project_id,page_id,title,brief) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE title=VALUES(title), brief=VALUES(brief)",

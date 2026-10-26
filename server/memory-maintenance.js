@@ -8,7 +8,7 @@ export function assertMemoryMaintenanceAuth(authorizationHeader) {
   const configured = process.env.MEMORY_MAINTENANCE_TOKEN;
   const supplied = authorizationHeader || "";
   if (!configured || supplied !== `Bearer ${configured}`)
-    throw new HttpError(401, "知识库维护凭据无效");
+    throw new HttpError(401, "记忆维护凭据无效");
 }
 
 /** Requeue 老翁 runs left running after a killed cloud-function / agent request. */

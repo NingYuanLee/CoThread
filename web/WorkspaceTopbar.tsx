@@ -6,7 +6,7 @@
  * 工作台顶栏：项目页签与拖拽排序、项目选择、主题与通知、导入与管理入口。
  * 数据与回调由父组件打包成 props 传入。
  */
-import React, { type Dispatch, type RefObject, type SetStateAction } from "react";
+import React, { type Dispatch, type RefObject, type SetStateAction, useState } from "react";
 import { ProjectMark } from "./ProjectMark";
 import { Notifications } from "./Notifications";
 import { ThemePicker } from "./ThemePicker";
@@ -16,6 +16,9 @@ import { api } from "./workspace-api";
 import { PanelIcon, ProjectActionIcon } from "./workspace-chrome";
 import type { Project } from "./workspace-types";
 import type { PersonalProfile } from "./ProfileFields";
+import { projectCopyInfo } from "./project-copy";
+import { ProjectTabContextMenu } from "./project-menus";
+import { showTip } from "./Tip";
 
 export type WorkspaceTopbarProps = {
   visibleProjects: Project[];
@@ -37,6 +40,8 @@ export type WorkspaceTopbarProps = {
   updateProjectTab: (id: string, action: "open" | "close" | "pin" | "unpin") => void;
   showProjectPicker: () => void;
   busy: boolean;
+  /** MCP 端点的相对路径；右侧栏未就绪时退回 /mcp，保证复制出来的连接地址仍可用。 */
+  mcpEndpoint?: string;
   /** 父组件在渲染顶栏前已用 early return 排除了未登录状态。 */
   user: PersonalProfile;
   acceptProfile: (profile: PersonalProfile | null) => void;
@@ -65,6 +70,7 @@ export function WorkspaceTopbar({
   updateProjectTab,
   showProjectPicker,
   busy,
+  mcpEndpoint,
   user,
   acceptProfile,
   setProjects,
@@ -76,6 +82,16 @@ export function WorkspaceTopbar({
   setContextOpen,
   setDocumentFullscreen,
 }: WorkspaceTopbarProps) {
+  /** 项目页签右键菜单：记录指针落点与被操作的项目，菜单本身渲染在顶层浮层。 */
+  const [tabMenu, setTabMenu] = useState<{ project: Project; x: number; y: number } | null>(null);
+  const copyProjectInfo = async (project: Project) => {
+    try {
+      await navigator.clipboard.writeText(projectCopyInfo({ projectId: project.id, mcpEndpoint }));
+      showTip("项目信息已复制");
+    } catch {
+      showTip("无法自动复制项目信息，请检查剪贴板权限后重试。", "error");
+    }
+  };
   return (
     <>
       <header className="workspace-topbar">
@@ -142,6 +158,12 @@ export function WorkspaceTopbar({
                 onDragEnd={() => {
                   setDraggedProject("");
                   setProjectDrop(null);
+                }}
+                onContextMenu={(event) => {
+                  // 右键只针对这一页签开菜单，不切换当前项目，避免复制对象和页面状态互相牵扯。
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setTabMenu({ project: p, x: event.clientX, y: event.clientY });
                 }}
               >
                 {p.tab_pinned_at && (
@@ -269,6 +291,14 @@ export function WorkspaceTopbar({
           <PanelIcon side="right" />
         </button>
       </header>
+      {tabMenu ? (
+        <ProjectTabContextMenu
+          x={tabMenu.x}
+          y={tabMenu.y}
+          onCopyProjectInfo={() => void copyProjectInfo(tabMenu.project)}
+          onDismiss={() => setTabMenu(null)}
+        />
+      ) : null}
     </>
   );
 }

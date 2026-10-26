@@ -24,5 +24,4 @@ export const AGENT_XIAOXIANG_MEMBER: {
   readonly email: string;
   readonly role: string;
 };
-export const TASK_CREATE_REQUEST: string;
 export function mentionsAgent(text: string): boolean;

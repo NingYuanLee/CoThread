@@ -42,7 +42,6 @@ export type LibraryRootRowProps = {
   toggleFolder: (id: string) => void;
   selectFolder: (id: string | null) => void;
   openNewFolder: (targetId: string) => void;
-  copyProjectInfo: () => Promise<void>;
   downloadFolder: (folder: LibraryFolder) => Promise<void>;
   tree: (parent: string | null, depth?: number) => ReactNode;
 };
@@ -69,7 +68,6 @@ export function LibraryRootRow({
   toggleFolder,
   selectFolder,
   openNewFolder,
-  copyProjectInfo,
   downloadFolder,
   tree,
 }: LibraryRootRowProps) {
@@ -153,9 +151,6 @@ export function LibraryRootRow({
               root.folder_kind === "project_official" && canManageOfficialFolders
                 ? () => openNewFolder(root.id)
                 : undefined
-            }
-            onCopyProjectInfo={
-              root.folder_kind === "project_official" ? () => void copyProjectInfo() : undefined
             }
           />
         </span>

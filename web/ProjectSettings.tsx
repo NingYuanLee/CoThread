@@ -7,6 +7,7 @@ import { TextAreaField } from "./TextAreaField";
 import { prepareAvatar } from "./ProfileFields";
 import { Dialog, animateDialogClose } from "./dialog-fx";
 import { showTip, useTipError } from "./Tip";
+import { projectCopyInfo } from "./project-copy";
 
 export function ProjectImageField({
   image,
@@ -50,6 +51,7 @@ export function ProjectSettings({
   creatorName,
   canManage,
   longTermSummary,
+  mcpEndpoint,
   onSave,
 }: {
   projectId: string;
@@ -64,6 +66,7 @@ export function ProjectSettings({
     updatedAt: string | null;
     lastThreadTitle: string | null;
   } | null;
+  mcpEndpoint?: string;
   onSave: (input: { name: string; description: string; image?: string | null }) => Promise<void>;
 }) {
   const [draftName, setDraftName] = useState(name);
@@ -81,15 +84,15 @@ export function ProjectSettings({
     setDraftImage(undefined);
   }, [name, description, image]);
   const preview = draftImage === undefined ? image || null : draftImage;
-  const copyProjectId = async () => {
+  const copyProjectInfo = async () => {
     try {
-      await navigator.clipboard.writeText(projectId);
+      await navigator.clipboard.writeText(projectCopyInfo({ projectId, mcpEndpoint }));
       setCopiedId(true);
       window.clearTimeout(copyTimer.current);
       copyTimer.current = window.setTimeout(() => setCopiedId(false), 1600);
-      showTip("项目 ID 已复制");
+      showTip("项目信息已复制");
     } catch {
-      showTip("复制失败，请检查剪贴板权限。", "error");
+      showTip("无法自动复制项目信息，请检查剪贴板权限后重试。", "error");
     }
   };
   const nextName = draftName.trim();
@@ -167,9 +170,11 @@ export function ProjectSettings({
                   <button
                     type="button"
                     className="profile-id-copy"
-                    onClick={() => void copyProjectId()}
+                    title="复制项目信息"
+                    aria-label="复制项目信息"
+                    onClick={() => void copyProjectInfo()}
                   >
-                    {copiedId ? "已复制" : "复制"}
+                    {copiedId ? "已复制" : "复制项目信息"}
                   </button>
                 </span>
                 <TextField

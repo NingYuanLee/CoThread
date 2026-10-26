@@ -133,14 +133,97 @@ export function ThreadIterationMenu({
   onReviewArchive: () => void;
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuBox, setMenuBox] = useState<{ left: number; top: number } | null>(null);
+  /** 右键打开时的落点（相对卡片左上角），让菜单出现在鼠标位置。 */
+  const [pointerOrigin, setPointerOrigin] = useState<{ x: number; y: number } | null>(null);
+  const openMenuRef = useRef(onOpenChange);
+  openMenuRef.current = onOpenChange;
+  // 卡片右键打开同一个菜单：拦掉浏览器默认菜单，并记录卡片内相对落点，
+  // 这样列表滚动时菜单仍贴着卡片移动。
+  useEffect(() => {
+    const row = anchorRef.current?.closest<HTMLElement>(".thread-row");
+    if (!row) return;
+    const onContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+      const box = row.getBoundingClientRect();
+      setPointerOrigin({ x: event.clientX - box.left, y: event.clientY - box.top });
+      openMenuRef.current(true);
+    };
+    row.addEventListener("contextmenu", onContextMenu);
+    return () => row.removeEventListener("contextmenu", onContextMenu);
+  }, []);
+  // 卡片外层有列表滚动容器等多层 overflow 裁剪，菜单必须挂到顶层浮层，
+  // 再按视口夹取坐标：下方放不下就翻到卡片上方，避免被侧栏边缘截断。
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuBox(null);
+      return;
+    }
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    const place = () => {
+      const menu = menuRef.current;
+      const box = anchor.getBoundingClientRect();
+      const rowBox = anchor.closest(".thread-row")?.getBoundingClientRect() ?? box;
+      const width = menu?.offsetWidth ?? 0;
+      const height = menu?.offsetHeight ?? 0;
+      const viewWidth = window.visualViewport?.width ?? document.documentElement.clientWidth;
+      const viewHeight = window.visualViewport?.height ?? document.documentElement.clientHeight;
+      const offsetLeft = window.visualViewport?.offsetLeft ?? 0;
+      const offsetTop = window.visualViewport?.offsetTop ?? 0;
+      const gap = 6;
+      const edge = 8;
+      let left: number;
+      let top: number;
+      if (pointerOrigin) {
+        // 右键入口：以鼠标位置为锚点，放不下时向反方向展开。
+        const originX = rowBox.left + pointerOrigin.x;
+        const originY = rowBox.top + pointerOrigin.y;
+        left = originX;
+        top = originY;
+        if (originX + width > offsetLeft + viewWidth - edge) left = originX - width;
+        if (originY + height > offsetTop + viewHeight - edge) top = originY - height;
+      } else {
+        const fitsBelow = box.bottom + gap + height <= offsetTop + viewHeight - edge;
+        const fitsAbove = box.top - gap - height >= offsetTop + edge;
+        top = fitsBelow || !fitsAbove ? box.bottom + gap : box.top - gap - height;
+        left = box.right - width;
+      }
+      const next = {
+        left: Math.min(
+          Math.max(offsetLeft + edge, left),
+          Math.max(offsetLeft + edge, offsetLeft + viewWidth - width - edge),
+        ),
+        top: Math.min(
+          Math.max(offsetTop + edge, top),
+          Math.max(offsetTop + edge, offsetTop + viewHeight - height - edge),
+        ),
+      };
+      setMenuBox((previous) =>
+        previous && previous.left === next.left && previous.top === next.top ? previous : next,
+      );
+    };
+    place();
+    window.addEventListener("resize", place);
+    document.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      document.removeEventListener("scroll", place, true);
+    };
+  }, [open, pointerOrigin]);
   useEffect(() => {
     if (!open) return;
+    const row = anchorRef.current?.closest(".thread-row");
     const close = (event: MouseEvent) => {
-      if (event.button !== 0) return;
-      if (!anchorRef.current?.contains(event.target as Node)) onOpenChange(false);
+      const target = event.target as Node;
+      if (anchorRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      // 右键同一张卡片时交给 contextmenu 重新定位，不先关闭，避免关闭再打开闪一下。
+      if (event.button !== 0 && row?.contains(target)) return;
+      onOpenChange(false);
     };
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
   }, [open, onOpenChange]);
   const dismiss = () => onOpenChange(false);
   return (
@@ -154,93 +237,102 @@ export function ThreadIterationMenu({
         aria-haspopup="menu"
         onClick={(event) => {
           event.stopPropagation();
+          setPointerOrigin(null);
           onOpenChange(!open);
         }}
       >
         <ThreadMoreIcon />
       </button>
       {open ? (
-        <ContextMenu
-          onDismiss={dismiss}
-          className="library-folder-menu thread-row-menu"
-          role="menu"
-          onClick={(event) => event.stopPropagation()}
-          onContextMenu={(event) => event.preventDefault()}
-        >
-          {showReviewArchive ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              onClick={() => {
-                onReviewArchive();
-                dismiss();
-              }}
-            >
-              <UiIcon name="preview" size={14} />
-              <span>审查归档方案</span>
-            </button>
-          ) : null}
-          {showArchive ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              disabled={busy}
-              onClick={() => {
-                onArchive();
-                dismiss();
-              }}
-            >
-              <UiIcon name="archive" size={14} />
-              <span>归档迭代</span>
-            </button>
-          ) : null}
-          {showArchivedActions ? (
-            <>
+        <FloatingPortal>
+          <ContextMenu
+            ref={menuRef}
+            onDismiss={dismiss}
+            className={`library-folder-menu thread-row-menu${menuBox ? "" : " is-positioning"}`}
+            role="menu"
+            style={{
+              position: "fixed",
+              left: menuBox?.left ?? 0,
+              top: menuBox?.top ?? 0,
+            }}
+            onClick={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            {showReviewArchive ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="library-folder-menu-item"
+                onClick={() => {
+                  onReviewArchive();
+                  dismiss();
+                }}
+              >
+                <UiIcon name="preview" size={14} />
+                <span>审查归档方案</span>
+              </button>
+            ) : null}
+            {showArchive ? (
               <button
                 type="button"
                 role="menuitem"
                 className="library-folder-menu-item"
                 disabled={busy}
                 onClick={() => {
-                  onRestore();
+                  onArchive();
                   dismiss();
                 }}
               >
-                <UiIcon name="restore" size={14} />
-                <span>恢复迭代</span>
+                <UiIcon name="archive" size={14} />
+                <span>归档迭代</span>
               </button>
+            ) : null}
+            {showArchivedActions ? (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="library-folder-menu-item"
+                  disabled={busy}
+                  onClick={() => {
+                    onRestore();
+                    dismiss();
+                  }}
+                >
+                  <UiIcon name="restore" size={14} />
+                  <span>恢复迭代</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="library-folder-menu-item danger"
+                  disabled={busy}
+                  onClick={() => {
+                    onDelete();
+                    dismiss();
+                  }}
+                >
+                  <UiIcon name="trash" size={14} />
+                  <span>删除迭代</span>
+                </button>
+              </>
+            ) : null}
+            {!showArchivedActions ? (
               <button
                 type="button"
                 role="menuitem"
-                className="library-folder-menu-item danger"
-                disabled={busy}
+                className="library-folder-menu-item"
                 onClick={() => {
-                  onDelete();
+                  void onCopy();
                   dismiss();
                 }}
               >
-                <UiIcon name="trash" size={14} />
-                <span>删除迭代</span>
+                <UiIcon name="copy" size={14} />
+                <span>{copyLabel}</span>
               </button>
-            </>
-          ) : null}
-          {!showArchivedActions ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="library-folder-menu-item"
-              onClick={() => {
-                void onCopy();
-                dismiss();
-              }}
-            >
-              <UiIcon name="copy" size={14} />
-              <span>{copyLabel}</span>
-            </button>
-          ) : null}
-        </ContextMenu>
+            ) : null}
+          </ContextMenu>
+        </FloatingPortal>
       ) : null}
     </span>
   );

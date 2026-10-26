@@ -55,8 +55,8 @@ test("archive pages stay readable with sources and rewrite neither chat nor the 
     const listed = await listWikiPages(service, owner, project.id, "知识页");
     assert.equal(listed.canWrite, true);
     assert.equal(listed.pages.length, 2);
-    const retro = listed.pages.find((page) => page.kind === "retro");
-    const decision = listed.pages.find((page) => page.kind === "decision");
+    const retro = listed.pages.find((page) => page.subtype === "problem_review");
+    const decision = listed.pages.find((page) => page.subtype === "iteration_archived");
     assert.ok(retro.body.includes("这轮决定先做知识页"));
     assert.ok(decision.body.includes("留在原迭代"));
     // 正文只由归档生成，没有手写入口；读侧仍能看到出处。

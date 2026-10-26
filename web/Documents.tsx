@@ -14,7 +14,6 @@ import { UiIcon } from "./ui-icon";
 import { ModalBackdrop } from "./dialog-fx";
 import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
 import { showTip , useTipError } from "./Tip";
-import { MCP_OFFICIAL_LIBRARY_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
 import { uploadFileWithIntegrity } from "./file-upload";
 import { type DocumentTabListItem } from "./DocumentTabList";
 import { DocumentsTabbar } from "./DocumentsTabbar";
@@ -104,8 +103,6 @@ export const Documents = memo(function Documents({
   onReview,
   onRequestRevision,
   projectId,
-  projectName,
-  mcpEndpoint,
   threadId,
   writable,
   iterationWritable = false,
@@ -127,8 +124,6 @@ export const Documents = memo(function Documents({
   onReview?: (versionId: string, decision: string, comment?: string) => Promise<void>;
   onRequestRevision?: (versionId: string, target: "current" | "new", title?: string) => Promise<void>;
   projectId: string;
-  projectName?: string;
-  mcpEndpoint?: string;
   threadId?: string;
   writable: boolean;
   currentUserId: string;
@@ -284,27 +279,6 @@ export const Documents = memo(function Documents({
   const [pendingLabel, setPendingLabel] = useState("正在更新文档树…");
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [actionError, setActionError] = useTipError();
-  const copyProjectInfo = async () => {
-    const official = libraryRoots.find((f) => f.folder_kind === "project_official");
-    const targetFolderId = official && folderId && folderRootKind(folderId, libraryFolders) === "project_official"
-      ? folderId
-      : official?.id;
-    const targetFolder = libraryFolders.find((f) => f.id === targetFolderId);
-    try {
-      await navigator.clipboard.writeText(formatMcpCopyPayload({
-        server: `${location.origin}${mcpEndpoint || "/mcp"}`,
-        project: projectName,
-        projectId,
-        folder: targetFolder?.name || "正式文件",
-        folderId: targetFolderId,
-        instruction: MCP_OFFICIAL_LIBRARY_COPY_INSTRUCTION,
-      }));
-      setActionError("");
-      showTip("项目信息已复制");
-    } catch {
-      setActionError("无法自动复制项目信息，请检查剪贴板权限后重试。");
-    }
-  };
   const [renaming, setRenaming] = useState(false);
   const [renameName, setRenameName] = useState("");
   const [newFolder, setNewFolder] = useState(false);
@@ -1346,7 +1320,6 @@ export const Documents = memo(function Documents({
     toggleFolder,
     selectFolder,
     openNewFolder,
-    copyProjectInfo,
     downloadFolder,
     tree,
   };

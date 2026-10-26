@@ -81,6 +81,7 @@ export function ProjectManagement({
   refresh,
   onProjectRenamed,
   onClose,
+  mcpEndpoint,
 }: {
   detail: ProjectDetail | null;
   busy: boolean;
@@ -96,6 +97,7 @@ export function ProjectManagement({
     image?: string | null;
   }) => void;
   onClose: () => void;
+  mcpEndpoint?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [tab, setTab] = useState<"info" | "members" | "connectors" | "miniprogram" | "cloudbase">(
@@ -251,6 +253,7 @@ export function ProjectManagement({
                   creatorName={detail.created_by_name || "未知"}
                   canManage={canManage}
                   longTermSummary={detail.longTermSummary}
+                  mcpEndpoint={mcpEndpoint}
                   onSave={async ({ name, description, image }) => {
                     const updated = await api(
                       `/projects/${detail.id}`,
@@ -401,7 +404,7 @@ export function ProjectManagement({
                               {projectAgent.nickname || AGENT_LAOWENG_PROFILE.nickname}
                             </strong>
                             <RoleBadge role="Agent" />
-                            <RoleBadge role="项目知识库" />
+                            <RoleBadge role="项目记忆" />
                           </div>
                           <small className="member-user-id">
                             {projectAgent.title || AGENT_LAOWENG_PROFILE.title}

@@ -117,7 +117,6 @@
   pointer-events: auto;
 }
 .tip-close-all {
-
   display: block;
 
   height: 28px;
@@ -183,7 +182,6 @@
   margin-bottom: 0;
 }
 .tip-item {
-
   pointer-events: auto;
 
   display: flex;
@@ -300,7 +298,8 @@
   line-height: 20px;
   white-space: nowrap;
 
-  --stroke-radius: calc((var(--radius-control)) * 2);}
+  --stroke-radius: calc((var(--radius-control)) * 2);
+}
 .tip-undo:hover {
   color: #1d4ed8;
   background: #2563eb12;
@@ -318,7 +317,8 @@
   background: transparent;
   color: var(--icon);
 
-  --stroke-radius: calc((var(--radius-control)) * 2);}
+  --stroke-radius: calc((var(--radius-control)) * 2);
+}
 .tip-dismiss:hover {
   color: var(--c-27362f);
   background: color-mix(in srgb, var(--c-27362f) 7%, transparent);
@@ -425,7 +425,6 @@ html
     [data-overlay="dialog"],
     [data-overlay="dialog-shell"] > :not(.tip-host, .floating-layer-host, .overlay-exit-host)
   ) {
-
   padding: var(--overlay-dialog-padding) !important;
 
   border: 1px solid var(--stroke) !important;
@@ -448,7 +447,12 @@ html
 
   --stroke-radius: calc(var(--overlay-dialog-radius) * 2);
 }
-html body :is( [data-overlay="dialog"], [data-overlay="dialog-shell"] > :not(.tip-host, .floating-layer-host, .overlay-exit-host) )::after {
+html
+  body
+  :is(
+    [data-overlay="dialog"],
+    [data-overlay="dialog-shell"] > :not(.tip-host, .floating-layer-host, .overlay-exit-host)
+  )::after {
   content: none;
   position: absolute;
   inset: 0;
@@ -492,7 +496,8 @@ html body dialog[data-overlay="dialog-shell"] {
   transform: none;
   animation: none !important;
 
-  --stroke-radius: 0;}
+  --stroke-radius: 0;
+}
 html body dialog[data-overlay]::backdrop {
   background: var(--overlay-mask) !important;
   backdrop-filter: var(--overlay-mask-blur) !important;
@@ -506,7 +511,6 @@ html body dialog[data-overlay].is-closing::backdrop {
   animation: overlay-mask-out var(--overlay-exit-duration) ease forwards !important;
 }
 html body :is([data-overlay="panel"], [data-overlay="menu"]) {
-
   padding: var(--overlay-panel-padding) !important;
 
   border: 1px solid transparent !important;
@@ -561,7 +565,16 @@ html body [data-overlay="menu"] {
 }
 /* 这些浮层用视口坐标定位。上面的 position: relative 会盖掉 fixed，
    块级盒子就被撑成门户全宽，发丝线也跟着拉满。 */
-html body :is(.doc-browser-tab-menu, .document-context-menu, .message-navigator-preview, .composer-mode-menu, .miniprogram-preview-refresh-menu) {
+html
+  body
+  :is(
+    .doc-browser-tab-menu,
+    .document-context-menu,
+    .message-navigator-preview,
+    .composer-mode-menu,
+    .miniprogram-preview-refresh-menu,
+    .thread-row-menu
+  ) {
   position: fixed;
   width: max-content;
   max-width: calc(100vw - 16px);
@@ -593,7 +606,8 @@ html body [data-overlay="menu"] [role="menuitem"] {
   font-size: 13px;
   text-align: left;
 
-  --stroke-radius: calc((var(--radius-control)) * 2);}
+  --stroke-radius: calc((var(--radius-control)) * 2);
+}
 html body [data-overlay="menu"] [role="menuitem"]:is(:hover, :focus-visible) {
   background: color-mix(in srgb, var(--c-27362f) 7%, transparent);
 }
@@ -720,7 +734,6 @@ html body .local-executor-authorization-dialog:has(.dialog-footer) > dl {
   overflow: auto;
 }
 html body .dialog-footer {
-
   display: flex !important;
 
   align-items: center !important;
@@ -810,7 +823,8 @@ html body .dialog-footer-pagination > :is(.pagination-control, .miniprogram-tabl
   border-radius: 0 !important;
   background: transparent !important;
 
-  --stroke-radius: 0;}
+  --stroke-radius: 0;
+}
 html body .dialog-fullscreen:has(.dialog-footer) {
   max-height: none !important;
 }
@@ -832,7 +846,8 @@ html body button.overlay-icon-button {
   color: var(--c-73806f) !important;
   cursor: pointer;
 
-  --stroke-radius: calc((var(--radius-control)) * 2);}
+  --stroke-radius: calc((var(--radius-control)) * 2);
+}
 html body button.overlay-icon-button:hover:not(:disabled) {
   background: color-mix(in srgb, var(--c-27362f) 7%, transparent) !important;
   color: var(--c-27362f) !important;
@@ -856,7 +871,6 @@ html body button.overlay-icon-button:disabled {
 }
 /* The surface has no inset; the title bar and content own their own spacing. */
 html body .dialog-header {
-
   box-sizing: border-box !important;
 
   display: flex !important;
@@ -1015,7 +1029,8 @@ html body .dialog-header .dialog-header-control {
   box-shadow: none !important;
   color: var(--c-73806f) !important;
 
-  --stroke-radius: calc((var(--radius-control)) * 2);}
+  --stroke-radius: calc((var(--radius-control)) * 2);
+}
 html body .dialog-header .dialog-header-control:hover:not(:disabled) {
   background: color-mix(in srgb, var(--c-27362f) 7%, transparent) !important;
   color: var(--c-27362f) !important;
@@ -1036,7 +1051,8 @@ html
   box-sizing: border-box;
   overflow: auto;
 
-  --stroke-radius: 0;}
+  --stroke-radius: 0;
+}
 @media (prefers-reduced-motion: reduce) {
   html body [data-overlay],
   html body [data-overlay="dialog-shell"] > *,
@@ -1047,7 +1063,6 @@ html
 }
 /* Single-list dialogs use one filter layout and action pair. */
 html body .dialog-filters {
-
   display: flex !important;
 
   flex: 0 0 auto !important;
@@ -1087,7 +1102,6 @@ html body .dialog-filters::after {
   border-color: var(--stroke);
   border-width: inherit;
   transform: none;
-
 }
 
 html body .dialog-filters > label {
@@ -1139,7 +1153,6 @@ html body .dialog-filters > .document-change-log-date-range {
 }
 html body .dialog-filters :is(input, select),
 html body .dialog-filters .document-change-log-date-range-trigger {
-
   box-sizing: border-box;
 
   width: 100% !important;
@@ -1162,7 +1175,8 @@ html body .dialog-filters .document-change-log-date-range-trigger {
 
   font: inherit;
 
-  --stroke-radius: calc((var(--radius-control)) * 2);}
+  --stroke-radius: calc((var(--radius-control)) * 2);
+}
 html body .dialog-filters > label > span {
   color: var(--c-73806f);
   font-size: 11px;

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { query } from "./db.js";
 import { createMemoryRelation } from "./memory-graph.js";
+import { DEFAULT_MEMORY_SUBTYPES } from "../shared/memory-taxonomy.js";
 
 /** 话题归一键：标题去空白与标点后小写，用于跨迭代合并同一议题。 */
 export function discussionTopicKey(title) {
@@ -107,8 +108,17 @@ export async function upsertDiscussionMemory(
     pageId = randomUUID();
     await query(
       db,
-      "INSERT INTO wiki_pages(id,project_id,subject_type,kind,title,body,status,created_by,updated_by) VALUES(?,?,'discussion','status',?,?,?,?,?)",
-      [pageId, projectId, cleanTitle, bodyText, status, createdBy, createdBy],
+      "INSERT INTO wiki_pages(id,project_id,subject_type,memory_subtype,title,body,status,created_by,updated_by) VALUES(?,?,'discussion',?,?,?,?,?,?)",
+      [
+        pageId,
+        projectId,
+        DEFAULT_MEMORY_SUBTYPES.discussion,
+        cleanTitle,
+        bodyText,
+        status,
+        createdBy,
+        createdBy,
+      ],
     );
     created = true;
   } else if (bodyText && bodyText !== String(match.body || "")) {
@@ -154,9 +164,6 @@ function parseSnapshot(value) {
  */
 export async function syncThreadDiscussionMemory(db, { projectId, threadId, createdBy } = {}) {
   if (!projectId || !threadId) return null;
-  const { loadMemoryJobSetting } = await import("./memory-jobs.js");
-  const setting = await loadMemoryJobSetting(db, projectId, "discussion_memory");
-  if (setting && !setting.enabled) return { skipped: true };
   const [thread] = await query(
     db,
     `SELECT id,title,status,archive_snapshot archiveSnapshot FROM threads

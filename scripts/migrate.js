@@ -141,6 +141,23 @@ async function matchingExistingColumn(conn, statement) {
   );
 }
 
+// 列已被删除（或该库从未建过这列）时，DROP COLUMN 会报 ER_CANT_DROP_FIELD_OR_KEY。
+// 只有能确认目标列确实不存在才容忍，避免掩盖表名/列名写错或列仍存在等真实失败。
+async function matchingAbsentColumn(conn, statement) {
+  const match = withoutLeadingComments(statement).match(
+    /^ALTER\s+TABLE\s+`?(\w+)`?\s+DROP\s+COLUMN\s+`?(\w+)`?$/i,
+  );
+  if (!match) return false;
+  const [, table, column] = match;
+  const rows = await query(
+    conn,
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?`,
+    [table, column],
+  );
+  return rows.length === 0;
+}
+
 async function matchingExistingIndex(conn, statement) {
   const match = statement.match(
     /^CREATE\s+UNIQUE\s+INDEX\s+`?(\w+)`?\s+ON\s+`?(\w+)`?\s*\(\s*`?(\w+)`?\s*\)$/i,
@@ -246,6 +263,13 @@ export async function migrate(
             )
               continue;
             if (error.code === "ER_DUP_KEYNAME" && (await matchingExistingIndex(conn, statement)))
+              continue;
+            // DROP COLUMN 的幂等：146 起会出现「列已删过 / 从未有该列」的库。
+            // 确认列确实不存在后跳过，迁移回执照常写入。
+            if (
+              error.code === "ER_CANT_DROP_FIELD_OR_KEY" &&
+              (await matchingAbsentColumn(conn, statement))
+            )
               continue;
             error.migrationName = name;
             error.statementNumber = index + 1;

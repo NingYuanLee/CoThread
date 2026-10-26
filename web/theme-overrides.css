@@ -65,6 +65,17 @@ html[data-theme="ink"] {
   --c-eef2e9: #374238;
 }
 
+/* 条首「任务 / 目标」：深色下改用蓝色，比接近正文色的白灰更跳，
+   也与「待确认金 / 已阻塞红」的统计数字天然区分。亮色主题不受影响。 */
+html:is([data-theme="ink"], [data-theme="night"]) .conversation-task-pool-label,
+html:is([data-theme="ink"], [data-theme="night"]) .conversation-task-pool-icon {
+  color: #8ab4f8;
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) .conversation-task-pool-label:hover {
+  color: #b8d4ff;
+}
+
 /* ===== 2. 边框：用正文色混合，随主题自动保持对比 ===== */
 html:is([data-theme="ink"], [data-theme="night"]) {
   --c-e7eae7: color-mix(in srgb, var(--c-27362f) 24%, transparent);
@@ -400,4 +411,28 @@ html:is([data-theme="ink"], [data-theme="night"]) .cite-panel .cite-index {
 
 html:is([data-theme="ink"], [data-theme="night"]) .cite-panel button:hover {
   background: rgba(47, 111, 235, 0.28);
+}
+
+/* ===== 8. 问老翁按钮：深色下改用蓝色 ===== */
+/* 这个胶囊只引用了浅色 token，深色主题没覆盖它们，于是深色下回落到深绿字 + 浅描边，
+   压在近黑底上几乎看不清。改成蓝色系后与 logo、引用块、任务条首的深色蓝一致。 */
+html:is([data-theme="ink"], [data-theme="night"]) .ask-elder {
+  background: color-mix(in srgb, #2f6feb 18%, transparent);
+  border-color: color-mix(in srgb, #60a5fa 45%, transparent);
+  color: #8ab4f8;
+  /* 收掉全局 button::after 的 0.5px 发丝线：它在深色里是近黑，会压在蓝边上显脏。 */
+  --stroke: transparent;
+}
+
+html:is([data-theme="ink"], [data-theme="night"]) .ask-elder:hover {
+  background: color-mix(in srgb, #2f6feb 28%, transparent);
+  border-color: color-mix(in srgb, #60a5fa 62%, transparent);
+  color: #b8d4ff;
+}
+
+/* 分栏已打开：只把蓝底加深一档，保持胶囊轻量，不抢消息区。 */
+html:is([data-theme="ink"], [data-theme="night"]) .ask-elder[aria-pressed="true"] {
+  background: color-mix(in srgb, #2f6feb 36%, transparent);
+  border-color: color-mix(in srgb, #60a5fa 72%, transparent);
+  color: #dbeafe;
 }

@@ -3,10 +3,13 @@ export const LEGACY_MCP_SERVER_NAMES: readonly string[];
 export const MCP_INSTRUCTIONS: string;
 export const CONNECTOR_MCP_INSTRUCTIONS: string;
 export function mcpInstructionsForSource(source?: string): string;
-export const MCP_CONVERSATION_COPY_INSTRUCTION: string;
-export const MCP_OFFICIAL_LIBRARY_COPY_INSTRUCTION: string;
-export const MCP_TASK_COPY_INSTRUCTION: string;
-export function formatMcpCopyPayload(payload: Record<string, unknown>): string;
+export const MCP_COPY_INSTRUCTION: string;
+export function formatMcpCopyPayload(fields: {
+  server: string;
+  projectId: string;
+  threadId?: string;
+  taskId?: string;
+}): string;
 export function createMcpInstallGuide(options: {
   url: string;
   token: string;

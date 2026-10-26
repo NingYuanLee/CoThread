@@ -18,15 +18,15 @@ const pluginRow = (id, file, inject = "") =>
   `    - id: ${id}\n      name: ${JSON.stringify(pathToFileURL(assetPath(file)).href)}${inject ? `\n      inject: ${inject}` : ""}\n`;
 
 export function agentRuntimePatch() {
-  return `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n${pluginRow("cothread-sdk-server", "dsh-layer/sdk-resume.mjs", "[sdkAppStartup, loader]")}${pluginRow("cothread-project-tools", "dsh-layer/cothread-tools.mjs")}${pluginRow("cothread-system-prompt", "dsh-layer/cothread-system-prompt.mjs")}${pluginRow("cothread-visual-verification", "dsh-layer/cothread-visual-verification.mjs")}${pluginRow("cothread-db-skills", "dsh-layer/cothread-skills.mjs")}`;
+  return `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n${pluginRow("cothread-sdk-server", "dsh-layer/sdk-resume.mjs", "[sdkAppStartup, loader]")}${pluginRow("cothread-clock", "dsh-layer/cothread-clock.mjs")}${pluginRow("cothread-project-tools", "dsh-layer/cothread-tools.mjs")}${pluginRow("cothread-system-prompt", "dsh-layer/cothread-system-prompt.mjs")}${pluginRow("cothread-visual-verification", "dsh-layer/cothread-visual-verification.mjs")}${pluginRow("cothread-db-skills", "dsh-layer/cothread-skills.mjs")}`;
 }
 
 export function laowengRuntimePatch() {
-  return `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n${pluginRow("cothread-sdk-server", "dsh-layer/sdk-resume.mjs", "[sdkAppStartup, loader]")}${pluginRow("cothread-laoweng-tool-policy", "dsh-layer/laoweng-tools.mjs")}${pluginRow("cothread-system-prompt", "dsh-layer/cothread-system-prompt.mjs")}${pluginRow("cothread-visual-verification", "dsh-layer/cothread-visual-verification.mjs")}${pluginRow("cothread-db-skills", "dsh-layer/cothread-skills.mjs")}`;
+  return `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n${pluginRow("cothread-sdk-server", "dsh-layer/sdk-resume.mjs", "[sdkAppStartup, loader]")}${pluginRow("cothread-clock", "dsh-layer/cothread-clock.mjs")}${pluginRow("cothread-laoweng-tool-policy", "dsh-layer/laoweng-tools.mjs")}${pluginRow("cothread-system-prompt", "dsh-layer/cothread-system-prompt.mjs")}${pluginRow("cothread-visual-verification", "dsh-layer/cothread-visual-verification.mjs")}${pluginRow("cothread-db-skills", "dsh-layer/cothread-skills.mjs")}`;
 }
 
 export function elderRuntimePatch() {
-  return `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n${pluginRow("cothread-sdk-server", "dsh-layer/sdk-resume.mjs", "[sdkAppStartup, loader]")}${pluginRow("cothread-elder-ask-tools", "dsh-layer/elder-ask-tools.mjs")}${pluginRow("cothread-system-prompt", "dsh-layer/cothread-system-prompt.mjs")}${pluginRow("cothread-db-skills", "dsh-layer/cothread-skills.mjs")}`;
+  return `- id: sdk-jsonrpc-server\n  disabled: true\n- insert:\n${pluginRow("cothread-sdk-server", "dsh-layer/sdk-resume.mjs", "[sdkAppStartup, loader]")}${pluginRow("cothread-clock", "dsh-layer/cothread-clock.mjs")}${pluginRow("cothread-elder-ask-tools", "dsh-layer/elder-ask-tools.mjs")}${pluginRow("cothread-system-prompt", "dsh-layer/cothread-system-prompt.mjs")}${pluginRow("cothread-db-skills", "dsh-layer/cothread-skills.mjs")}`;
 }
 
 export function dshComposition(level) {

@@ -365,6 +365,7 @@ export async function elderAgentLogs(db, user, scope, ids, { before = null, limi
         {
           user_input: "提问",
           understanding: "理解",
+          // 工具已下线。旧轨迹里的调用仍显示这个名字。
           search_knowledge: "查阅资料",
           web_search: "搜索网页",
           web_fetch: "阅读网页",

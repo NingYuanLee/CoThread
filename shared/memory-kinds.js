@@ -1,6 +1,6 @@
 /**
  * 记忆即 wiki 的一种：正文统一 Markdown，存 wiki_pages。
- * 五类记忆是「记的是谁」的类型标签，不是目录层级；条目之间用 memory_relations 织网。
+ * 五类记忆是项目知识的语义类型标签，不是目录层级；条目之间用 memory_relations 织网。
  */
 export const MEMORY_SUBJECTS = Object.freeze([
   "utterance",
@@ -11,11 +11,11 @@ export const MEMORY_SUBJECTS = Object.freeze([
 ]);
 
 export const MEMORY_SUBJECT_LABELS = Object.freeze({
-  utterance: "发言记忆",
-  document: "文档记忆",
-  task: "任务记忆",
-  discussion: "讨论记忆",
-  project: "项目整体记忆",
+  utterance: "关键发言",
+  document: "主要文档",
+  task: "重要任务",
+  discussion: "核心议题",
+  project: "里程碑",
 });
 
 /**
@@ -41,11 +41,19 @@ export const MEMORY_DIRECTED_RELATIONS = Object.freeze(["derives", "supersedes"]
  * 要点、立场与主张、承诺与待办、引用提示。骨架是写作提示，不是字段校验。
  */
 export const MEMORY_SKELETONS = Object.freeze({
-  utterance: ["要点", "立场与主张", "承诺与待办", "引用提示"],
-  document: ["是什么", "关键版本", "变更要点", "何时该看"],
-  task: ["目标与约束", "决策", "结果", "失败与重试", "坑与成本", "返工"],
-  discussion: ["议题", "参与者与观点", "依据与来源", "已达成", "仍在争", "下一步与负责人"],
-  project: ["是什么", "现在到哪", "关键决策", "风险与依赖"],
+  utterance: ["发言背景", "要点", "立场与主张", "承诺与待办", "引用提示"],
+  document: ["是什么", "关键版本", "变更要点", "共享摘要", "何时该看"],
+  task: ["为什么重要", "目标与约束", "决策", "结果", "失败与重试", "坑与成本", "返工"],
+  discussion: [
+    "议题",
+    "群聊快照",
+    "参与者与观点",
+    "依据与来源",
+    "已达成",
+    "仍在争",
+    "下一步与负责人",
+  ],
+  project: ["里程碑", "发生时间", "背景与影响", "相关成员与迭代", "依据与来源"],
 });
 
 export function isMemorySubject(value) {

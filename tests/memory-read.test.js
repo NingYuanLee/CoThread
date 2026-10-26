@@ -30,7 +30,7 @@ async function insertPage(
   const id = randomUUID();
   await query(
     db,
-    "INSERT INTO wiki_pages(id,project_id,subject_type,about_user_id,kind,title,body,status,created_by,updated_by) VALUES(?,?,?,?,'status',?,?,'current',?,?)",
+    "INSERT INTO wiki_pages(id,project_id,subject_type,about_user_id,title,body,status,created_by,updated_by) VALUES(?,?,?,?,?,?,'current',?,?)",
     [id, projectId, subject, aboutUserId, title, body, userId, userId],
   );
   return id;

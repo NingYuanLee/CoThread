@@ -124,6 +124,17 @@ export async function updateThreadOperation(
           JSON.stringify(next),
         ],
       );
+    if (previous.background !== next.background || previous.goal !== next.goal) {
+      const { noteProjectMemorySignal } = await import("./project-memory.js");
+      await noteProjectMemorySignal(
+        db,
+        before.project_id,
+        "milestone",
+        randomUUID(),
+        `迭代「${before.title || threadId}」变更目标或背景`,
+        { urgent: true },
+      ).catch(() => {});
+    }
     return service.thread(user, threadId, false, db);
   });
 }
@@ -147,6 +158,15 @@ export async function createThreadOperation(service, user, projectId, input) {
       [threadId, projectId, data.title, user.id, data.background, data.goal],
     );
     await service.createIterationFolders(db, projectId, threadId, data.title);
+    const { noteProjectMemorySignal } = await import("./project-memory.js");
+    await noteProjectMemorySignal(
+      db,
+      projectId,
+      "milestone",
+      threadId,
+      `新建迭代「${data.title}」；背景：${data.background.slice(0, 180)}；目标：${data.goal.slice(0, 180)}`,
+      { urgent: true },
+    ).catch(() => {});
   });
   return { id: threadId, project_id: projectId, ...data };
 }

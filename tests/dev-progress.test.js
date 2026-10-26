@@ -50,6 +50,15 @@ test("key phrases urls and progress blocks are highlighted", () => {
   const password = highlightDevLogBody("xK7mP2qR9sLw4nQ8", { color: true });
   assert.match(password, /^\u001b\[1m\u001b\[33mxK7mP2qR9sLw4nQ8\u001b\[0m$/);
   assert.equal(stripAnsi(password), "xK7mP2qR9sLw4nQ8");
+  const resetPassword = highlightDevLogBody(
+    "已有超级管理员 admin@cothread.local 密码已重置：cothread-dev",
+    { color: true },
+  );
+  assert.match(resetPassword, /\u001b\[1m\u001b\[33mcothread-dev\u001b\[0m$/);
+  assert.equal(
+    stripAnsi(resetPassword),
+    "已有超级管理员 admin@cothread.local 密码已重置：cothread-dev",
+  );
 });
 
 test("startup lines are classified by kind", () => {

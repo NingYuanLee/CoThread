@@ -37,7 +37,7 @@ test("citations collapse by type and number public web pages", () => {
   const groups = groupCitations(items);
   assert.deepEqual(
     groups.map((group) => group.label + group.items.length),
-    ["知识页1", "项目文档1", "迭代2", "公开网页2", "其他2", "任务1", "公司指南1", "组织指南1"],
+    ["项目记忆1", "项目文档1", "迭代2", "公开网页2", "其他2", "任务1", "公司指南1", "组织指南1"],
   );
   assert.equal(citationTitle("第一轮 · 小祥 · 2条相关"), "第一轮 · 小祥");
   assert.equal(webMarkNumber(items, items[5]), 2);

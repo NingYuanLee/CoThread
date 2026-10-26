@@ -16,7 +16,8 @@
 共序插件：
 
 - `cothread-tools.mjs`：项目工具桥
-- `laoweng-tools.mjs`：老翁禁止调用工具
+- `cothread-clock.mjs`：北京时间工具
+- `laoweng-tools.mjs`：老翁只放行北京时间，其余工具仍禁止
 - `cothread-system-prompt.mjs`：按成员及任务身份注入提示词
 - `cothread-skills.mjs`：注入数据库 Skill
 - `cothread-visual-verification.mjs`：注入视觉验收要求

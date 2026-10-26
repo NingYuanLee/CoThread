@@ -27,7 +27,7 @@ export const MCP_CAPABILITIES = Object.freeze([
     name: "get_member",
     group: "项目与成员",
     title: "成员详情",
-    description: "读取单个项目成员资料和成员认识。",
+    description: "读取单个项目成员的资料，以及按其关键发言整理的摘要。",
     access: "read",
     icon: "human",
   },
@@ -36,7 +36,7 @@ export const MCP_CAPABILITIES = Object.freeze([
     group: "项目记忆",
     title: "检索项目记忆",
     description:
-      "按对象类型、成员或关键词检索项目记忆：发言、文档、任务、讨论、项目整体。返回标题、摘要、出处和直接关系，不返回长正文。问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文档」先用它。",
+      "按一级类型、成员或关键词检索现行项目记忆。一级类型：关键发言 utterance、主要文档 document、重要任务 task、核心议题 discussion、里程碑 project。返回标题、摘要、出处和直接关系，不返回长正文。问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文档」先用它。",
     access: "read",
     icon: "book",
   },
@@ -238,7 +238,8 @@ export const MCP_CAPABILITIES = Object.freeze([
     name: "get_laoweng_logs",
     group: "老翁 维护",
     title: "老翁 轨迹",
-    description: "读取指定老翁维护任务（成员发言/文档摘要/文档整理/迭代归档/项目记忆）的执行轨迹。",
+    description:
+      "读取指定老翁维护任务（成员发言、文档摘要、迭代归档、项目记忆）的执行轨迹。文档整理已下线，不把它当成当前能力。",
     access: "read",
     icon: "list",
   },

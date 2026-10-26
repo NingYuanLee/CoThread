@@ -32,13 +32,13 @@ async function insertPage(
   db,
   projectId,
   userId,
-  { subject = null, kind = "status", title = "条目", body = "## 议题" } = {},
+  { subject = null, title = "条目", body = "## 议题" } = {},
 ) {
   const id = randomUUID();
   await query(
     db,
-    "INSERT INTO wiki_pages(id,project_id,subject_type,kind,title,body,status,created_by,updated_by) VALUES(?,?,?,?,?,?,'current',?,?)",
-    [id, projectId, subject, kind, title, body, userId, userId],
+    "INSERT INTO wiki_pages(id,project_id,subject_type,title,body,status,created_by,updated_by) VALUES(?,?,?,?,?,'current',?,?)",
+    [id, projectId, subject, title, body, userId, userId],
   );
   return id;
 }
@@ -54,7 +54,7 @@ test("结算写入对象类型，召回统计只加计数", async () => {
           {
             op: "create",
             subject: "discussion",
-            kind: "status",
+            subtype: "requirements",
             title: "本轮讨论",
             body: "## 议题\n先做记忆",
             sourceIds: [],
@@ -195,8 +195,8 @@ test("发言记忆按项目成员维度存，只记说过什么", async () => {
           {
             op: "create",
             subject: "utterance",
+            subtype: "experience",
             aboutUserId: speaker,
-            kind: "status",
             title: "发言人对记忆的取舍",
             body: "## 要点\n先做记忆，再谈检索",
             sourceIds: [],
@@ -213,7 +213,7 @@ test("发言记忆按项目成员维度存，只记说过什么", async () => {
     );
     assert.equal(page.subjectType, "utterance");
     assert.equal(page.aboutUserId, speaker);
-    assert.equal(memorySubjectLabel("utterance"), "发言记忆");
+    assert.equal(memorySubjectLabel("utterance"), "关键发言");
   } finally {
     await database.close();
   }

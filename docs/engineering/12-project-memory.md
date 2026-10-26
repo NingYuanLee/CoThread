@@ -14,22 +14,16 @@
 
 | 记忆概念 | 复用对象                   | 说明                                                                                                                                                                                                |
 | -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 记忆条目 | `wiki_pages`               | kind 与 status 语义重定义；新增 `subject_type`（utterance/document/task/discussion/project）标明记的是谁；发言记忆用 `about_user_id` 指向说的是谁；`recall_count` / `last_recalled_at` 记召回活跃度 |
+| 记忆条目 | `wiki_pages`               | `subject_type` 是一级类型，`memory_subtype` 是受控二级类型；五类一级类型为关键发言/主要文档/重要任务/核心议题/里程碑；发言记忆用 `about_user_id` 指向说的是谁；`recall_count` / `last_recalled_at` 记召回活跃度。知识页时代的 `kind`（guide/decision/retro/glossary/status）已删除 |
 | 出处     | `wiki_page_sources`        | message / document_version / task / archive / thread（讨论记忆挂迭代）                                                                                                                              |
 | 关系     | `memory_relations`         | 记忆之间织网：`relates` 关联、`derives` 继承（单向防环）、`supersedes` 替代                                                                                                                         |
 | 导读     | `agent_project_summaries`  | 老翁维护，更新式，进入首页顶部                                                                                                                                                                      |
 | 时间线卡 | `threads.archive_snapshot` | 不可变，含 conclusion / taskDecisions / nextThreadId                                                                                                                                                |
 | 新人判定 | `members.tab_opened_at`    | 为空即从未进入；关闭页签不清除它                                                                                                                                                                    |
 
-### 2.1 五种页型的用途
+### 2.1 二级类型
 
-| kind              | 主要读者 | 产出方式                                               |
-| ----------------- | -------- | ------------------------------------------------------ |
-| `retro` 复盘      | 老成员   | 归档确认事务内自动生成，作为该轮时间线卡详情           |
-| `decision` 决策   | 两者     | 归档确认事务内生成；后续被推翻时 superseded 并保留历史 |
-| `status` 当前状态 | 新人     | 日常结算更新，构成导读的正文                           |
-| `guide` 指南      | 新人     | 日常结算或清算生成                                     |
-| `glossary` 术语   | 新人     | 日常结算生成                                           |
+页面上原来标知识页类型的位置，现在显示 `memory_subtype` 的中文名。归档确认仍生成两页，但不再用 `kind` 区分：复盘页是核心议题 / 问题复盘，决策页是里程碑 / 迭代归档。
 
 ### 2.2 status 状态机
 
@@ -74,7 +68,8 @@
   "entries": [
     {
       "id": "",
-      "kind": "status",
+      "subject": "project",
+      "subtype": "phase_change",
       "title": "",
       "body": "",
       "status": "current",
@@ -109,9 +104,9 @@
 
 - 任务名：`project_memory`，复用 `agent_laoweng_runs`（task 枚举扩展）与 `processNextProjectMemory` 分发。
 - 触发：候选队列达到阈值或静默到点、事件型（任务完成、正式文件新版本）、手动 refresh、归档清算后。
-- 输入：候选队列条目 + 现有条目索引（title / kind / status）+ 当前导读。
-- 输出 JSON：`{ "entries": [{ "op": "create|update|dispute", "entryId"?, "kind"?, "title"?, "body"?, "sourceIds": [] }], "summary": "..." }`。`kind` 只能是 `guide`/`decision`/`retro`/`glossary`/`status`，`entryId` 仅在 `update`/`dispute` 时必填；同主题按 `kind + title` 归并（没有独立 topic 字段）。导读不在这条任务的输出里，由迭代归档的 memory 阶段写 `agent_project_summaries`。
-- 幂等：队列唯一键（project_id, source_kind, source_id）防重复；同主题按 `kind + topic` 合并。
+- 输入：候选队列条目 + 现有条目索引（title / subtype / status）+ 当前导读。
+- 输出 JSON：`{ "entries": [{ "op": "create|update|dispute", "entryId"?, "subject"?, "subtype"?, "title"?, "body"?, "sourceIds": [] }], "summary": "..." }`。新建必须带 `subject` 与对应 `subtype`；`entryId` 仅在 `update`/`dispute` 时必填；同主题按 `subject + title` 归并。导读不在这条任务的输出里，由迭代归档的 memory 阶段写 `agent_project_summaries`。
+- 幂等：队列唯一键（project_id, source_kind, source_id）防重复；同主题按 `subject + title` 合并。
 - 零产出合法：`had_updates=false`，不写条目。
 - 失败：run 记 failed，可重试；条目写入在事务内，不留半成品。
 
@@ -141,7 +136,7 @@ CREATE TABLE agent_project_memory_queue (
 
 ## 6. 前端
 
-- 新组件 `web/ProjectMemory.tsx`：`Dialog` 默认带 `dialog-fullscreen`；内部左右 6:4——左栏导读（Markdown + 计数摘要 + 刷新），右栏时间轴：左侧圆点+竖线，右侧第一条为时间与类型、第二条为标题卡片，可搜索，点卡片打开二级「记忆详情」弹窗（正文、出处、所属迭代、确认/纠错）。窄屏（<960px）上下堆叠。
+- 新组件 `web/ProjectMemory.tsx`：`Dialog` 默认以普通窗口打开（右上角可手动切换全屏）；内部左右 6:4——左栏导读（Markdown + 计数摘要 + 刷新），右栏时间轴：记忆种类使用标准切换胶囊并默认选中「全部」，顺序为「里程碑、核心议题、重要任务、关键发言、主要文档、其它记忆」，关键词搜索与状态复选框放在同一行；可搜索，点卡片打开二级「记忆详情」弹窗（正文、出处、所属迭代、确认/纠错）。窄屏（<960px）上下堆叠。
 - 入口：`WorkspaceSidebar` 底部「项目记忆」卡片，与「项目管理」并列。
 - 首次自动打开：项目激活时若该用户的 `tab_opened_at` 为空 → 打开记忆并调用 `updateProjectTab(id, "open")`；之后不再自动打开。
 - 组织主页直达：`OrgHome` 的项目名改为链接 `/?projectId=<id>&memory=1`；`WorkspaceApp` 读取后清除参数。
@@ -175,7 +170,7 @@ CREATE TABLE agent_project_memory_queue (
 
 - 迁移 `132_project_memory_queue.sql`；队列表按 §5。
 - 迁移 `137_memory_subjects_and_relations.sql`：`wiki_pages` 增加 `subject_type`（五类记忆）、`recall_count`、`last_recalled_at`；`wiki_page_sources` 出处补 `thread`；新建 `memory_relations`（relates / derives / supersedes）。
-- `shared/memory-kinds.js`：五类记忆、中文标签、Markdown 骨架；`server/memory-graph.js`：建/删关系、单条直接关系、最多 3 跳召回、召回计数，继承成环返回 409。
+- `shared/memory-kinds.js`：五类记忆、中文标签、Markdown 骨架；里程碑由项目/成员/迭代变更入候选，核心议题保留群聊快照，主要文档补充图片识别与成组文件共享摘要；`server/memory-graph.js`：建/删关系、单条直接关系、最多 3 跳召回、召回计数，继承成环返回 409。
 - 结算写入带 `subject`：`project_memory` 输出的条目可指定对象类型，`applyProjectMemoryResult` 落 `subject_type`，`update` 时保留原值。
 - `server/memory-timeline.js`：读侧聚合、counts、confirm、flag、`settleIterationMemory`、争议推导 `disputedEntryIds`。
 - 记忆作业面板：五类口径、积压、最近运行、立即运行、调整口径、失败重试、讨论补跑、回填历史；每个维护作业可看轨迹（agent 日志）、运行历史、维护会话；老翁已不在一级监控页出现。
@@ -199,11 +194,11 @@ CREATE TABLE agent_project_memory_queue (
 - `shared/memory-jobs.js` + `server/memory-jobs.js`：五类记忆作业的触发、提示词、工具、完成标准、失败补救口径；管理视图 `GET /api/projects/:id/memory/jobs` 返回口径、最近一次 `agent_laoweng_runs` 与积压（发言/文档/项目队列），只读。
 - `server/memory-search.js`：`searchProjectMemory` 按对象类型 / 成员 / 关键词检索（ngram，未命中回退 LIKE），按关系展开 1 跳，返回出处并累计召回；MCP 只读工具 `search_memory` 已注册，问老翁经 `callMcpTool` 自动带 projectId 调用，引用映射到记忆出处（消息 / 文档版本 / 任务 / 迭代）。
 - `server/task-memory.js`：任务记忆聚合（耗时、重试、返工、坑，状态与执行者分布），提供 `loadTaskMemoryStats`、`importantTasks`、`taskMemoryMarkdown`、`taskDistributionMarkdown`；结算候选的任务信号已带执行者类型、执行次数、失败次数、重试与最近错误，按提示词拆成「重要任务单条 + 迭代任务分布」。
-- `server/discussion-memory.js` 另有 `syncThreadDiscussionMemory` 宽窗口版：扫一整个迭代的可见发言（≤500 条），生成/更新一条「讨论：<迭代名>」记忆，挂迭代与消息出处、连参与者发言记忆，并用 `derives` 继承到项目整体；归档确认后自动执行，也可 `POST /api/projects/:id/memory/discussion/:threadId` 手动补跑；受 `discussion_memory` 口径开关控制。
+- `server/discussion-memory.js` 另有 `syncThreadDiscussionMemory` 宽窗口版：扫一整个迭代的可见发言（≤500 条），生成/更新一条「讨论：<迭代名>」总结，群聊快照只作为模型上下文和消息出处保留，不直接复制进正文；同时连参与者发言记忆，并用 `derives` 继承到项目整体；归档确认后自动执行，也可 `POST /api/projects/:id/memory/discussion/:threadId` 手动补跑；受 `discussion_memory` 口径开关控制。
 - `server/discussion-memory.js`：讨论记忆写入原语——`upsertDiscussionMemory` 按话题归一键（标题去空白与标点）跨迭代合并、出处去重；`linkDiscussionParticipants` 从消息出处反查参与者，把各自发言记忆用 `relates` 连到讨论记忆；结算写 `subject=discussion` 条目后自动连边。
 - 老翁 `project_memory` 任务：`noteProjectMemorySignal` 轻标记、`maybeQueueProjectMemoryRun` 阈值/事件触发、`processNextMemorySettlement` 结算、`queueProjectMemoryRun` 手动刷新；任务已注册进 `LAOWENG_MAINTENANCE_TASKS`。
 - 三处轻标记：消息写入（`server/service-messages.js`）、任务状态变更（`server/task-pool-activity.js`）、正式文件新版本（`server/documents/versions.js`）。
-- 前端：`web/ProjectMemory.tsx` 全屏弹窗（7:3：导读 / 带搜索的倒序记忆时间轴 / 记忆详情二级弹窗）、左侧「项目记忆」卡片与小点、首次进入自动打开、`?projectId&memory=1` 直达；归档确认后提示清算摘要。
+- 前端：`web/ProjectMemory.tsx` 普通窗口弹窗（打开后可手动全屏；7:3：导读 / 带搜索的倒序记忆时间轴 / 记忆详情二级弹窗；种类筛选为默认「全部」的标准切换胶囊）、左侧「项目记忆」卡片与小点、首次进入自动打开、`?projectId&memory=1` 直达；归档确认后提示清算摘要。
 - 迭代清算的人工校准：归档详情返回本轮记忆草稿 `memoryDrafts`，归档确认页可逐条勾选，勾选的条目在确认事务里转正。
 - 项目归档封存：项目归档后成员失去项目访问权（`p.archived_at IS NULL` 权限门槛），记忆读写都不可达；确认/纠错/知识页写入另有 409 防御拦截。
 - 人不再手写知识页：知识页 HTTP 写接口下线；右侧栏「知识页」tab 一并下线，问老翁引用改为打开项目记忆并聚焦该条。

@@ -248,7 +248,6 @@ export async function syncTaskMemory(db, { projectId, createdBy } = {}) {
   const stats = await loadTaskMemoryStats(db, projectId);
   const distributionId = await upsertMemoryPage(db, projectId, {
     subject: "task",
-    kind: "status",
     title: "任务分布",
     body: taskDistributionMarkdown(stats),
     createdBy,
@@ -258,7 +257,6 @@ export async function syncTaskMemory(db, { projectId, createdBy } = {}) {
   for (const task of important) {
     const pageId = await upsertMemoryPage(db, projectId, {
       subject: "task",
-      kind: "retro",
       title: "任务：" + taskMemoryTitle(task),
       body: taskMemoryMarkdown(task),
       createdBy,

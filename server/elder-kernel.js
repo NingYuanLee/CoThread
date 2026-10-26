@@ -14,18 +14,36 @@ import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";
 import { dshModelMaxTokens, dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
 import { mcpReadToolSpecs } from "./mcp.js";
 
-const RANGE = {
-  project: "当前项目。只读查知识页、文档、迭代、消息、任务和成员。",
-  company: "所属全部。只读查提问者所在的项目和公司公开指南。",
-  org: "这个组织已发布的知识，不展开参与项目的正文。",
-  web: "全网检索。先查所属全部里的资料，需要时再用网页搜索和阅读。",
-};
+const ASKER_SCOPES = [
+  ["project", "当前项目", "只读查这个项目的项目记忆、文档、迭代、消息、任务和成员。"],
+  ["company", "所属全部", "只读查提问者所在的项目和公司公开指南。"],
+  [
+    "web",
+    "全网检索",
+    "先查所属全部里的资料，需要时再用网页搜索和阅读。只有这一档有 web_search 和 web_fetch。",
+  ],
+];
+
+function scopeInstruction(scope) {
+  if (scope === "org") return "询问范围：本组织已发布的指南，不展开参与项目的正文。";
+  const current = ASKER_SCOPES.some(([id]) => id === scope) ? scope : "project";
+  const label = ASKER_SCOPES.find(([id]) => id === current)[1];
+  return [
+    "问老翁有三种范围，由提问者在输入框切换，你不能自己换：",
+    ...ASKER_SCOPES.map(
+      ([id, name, detail]) => "- " + name + (id === current ? "（本轮）" : "") + "：" + detail,
+    ),
+    "本轮只按「" +
+      label +
+      "」查。另外两种没有放行；问题需要另一种时，请提问者自己切换，不要假装已经查过。",
+  ].join("\n");
+}
 
 const MCP_READ = MCP_CAPABILITIES.filter((item) => item.access === "read").map((item) => item.name);
 const MCP_TITLE = Object.fromEntries(MCP_CAPABILITIES.map((item) => [item.name, item.title]));
 
 export function elderToolNames(scope) {
-  const names = ["search_knowledge", ...MCP_READ];
+  const names = ["beijing_time", ...MCP_READ];
   if (scope === "web") names.push("web_search", "web_fetch");
   return names;
 }
@@ -40,7 +58,7 @@ function iterationFocusLine(focus) {
     title +
     "（threadId：" +
     id +
-    "）。同一项目里切换迭代不换这番对话，以本轮注入为准。没有点名别的迭代时，用 get_iteration_context 和 list_messages 优先看这次。询问范围仍按上一句，这次迭代是他正在看的背景。"
+    "）。同一项目里切换迭代不换这番对话，以本轮注入为准。没有点名别的迭代时，用 get_iteration_context 和 list_messages 优先看这次。询问范围仍按上面的本轮范围，这次迭代是他正在看的背景。"
   );
 }
 
@@ -55,11 +73,11 @@ export function elderInstruction(scope) {
     "先用一两句说出你对问题的理解，然后再调用工具。不要以「我理解：」开头。",
     "查阅时边做边说：每次工具前后用简短中文说明你在看什么、看到了什么。",
     "只能使用只读工具。不要改文档、建任务或往群里发言。",
-    "数量、清单、有哪些，用同名的 MCP 只读工具，例如 get_project_context。不要把整句拿去 search_knowledge。当前项目会自动带上 projectId。",
-    "问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文档」先用 search_memory 检索项目记忆；它返回摘要与出处，需要原话再按出处核对，不要凭印象编造。",
+    "数量、清单、有哪些，用对应的 MCP 只读工具，例如 get_project_context、list_documents、list_tasks、list_messages。当前项目会自动带上 projectId。",
+    "问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文档」先用 search_memory。subject 只能是 utterance（关键发言）、document（主要文档）、task（重要任务）、discussion（核心议题）、project（里程碑）。它只返回现行记忆的摘要和出处；要原话再按出处用 read_message 或 read_document 核对。不要凭印象编造，回答时用这五类名称。",
     "读项目文档正文用 read_document，传入 list_documents 或消息引用里的版本 ID。它返回文本和是否截断；截断时用返回的 nextOffset 作为 offset 续读。不要用 get_document_version 读正文，那个工具按字节分片下载原始文件，正文不会进入回答。",
     "没有查到就说明没有，不要编造。",
-    "询问范围：" + (RANGE[scope] || RANGE.project),
+    scopeInstruction(scope),
   ].join("\n");
 }
 

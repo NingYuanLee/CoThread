@@ -28,7 +28,7 @@ export const DEV_LOG_KINDS = {
 
 const ANSI_PATTERN = /\u001b\[[0-9;]*m/g;
 const HIGHLIGHT_PATTERN =
-  /(https?:\/\/[^\s]+)|(\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b)|([\w.+-]+@[\w.-]+\.[A-Za-z][A-Za-z0-9-]*)|(:\d{2,5}\b)|(\b\d{1,3}%)|([█▓▒]+)|(░+)|(共序)|(已就绪|已启动|浏览器可打开)|(\.local(?:\/[\w.-]+)*)|(?:(?<=密码：)|^)([A-Za-z0-9]{16})$/g;
+  /(https?:\/\/[^\s]+)|(\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b)|([\w.+-]+@[\w.-]+\.[A-Za-z][A-Za-z0-9-]*)|(:\d{2,5}\b)|(\b\d{1,3}%)|([█▓▒]+)|(░+)|(共序)|(已就绪|已启动|浏览器可打开)|(\.local(?:\/[\w.-]+)*)|((?:(?<=密码：)|(?<=密码已重置：))[A-Za-z0-9][^\s]*|^[A-Za-z0-9]{16})$/g;
 
 export function stripAnsi(text) {
   return String(text || "").replace(ANSI_PATTERN, "");

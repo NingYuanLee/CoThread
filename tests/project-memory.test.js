@@ -42,13 +42,13 @@ async function insertEntry(
   db,
   projectId,
   userId,
-  { kind = "guide", title = "条目", body = "正文", status = "draft" } = {},
+  { title = "条目", body = "正文", status = "draft" } = {},
 ) {
   const id = randomUUID();
   await query(
     db,
-    "INSERT INTO wiki_pages(id,project_id,kind,title,body,status,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?)",
-    [id, projectId, kind, title, body, status, userId, userId],
+    "INSERT INTO wiki_pages(id,project_id,title,body,status,created_by,updated_by) VALUES(?,?,?,?,?,?,?)",
+    [id, projectId, title, body, status, userId, userId],
   );
   return id;
 }
@@ -89,7 +89,8 @@ test("daily signals queue, then settle into draft entries with sources", async (
           entries: [
             {
               op: "create",
-              kind: "status",
+              subject: "project",
+              subtype: "phase_change",
               title: "当前状态",
               body: "## 现在\n\n先做项目记忆",
               sourceIds: context.candidates.map((candidate) => candidate.queueId),
@@ -105,12 +106,13 @@ test("daily signals queue, then settle into draft entries with sources", async (
 
     const pages = await query(
       db,
-      "SELECT id,status,kind FROM wiki_pages WHERE project_id=? AND subject_type IS NULL",
-      [project.id],
+      "SELECT id,status,subject_type subjectType,memory_subtype subtype FROM wiki_pages WHERE project_id=? AND title=?",
+      [project.id, "当前状态"],
     );
     assert.equal(pages.length, 1);
     assert.equal(pages[0].status, "draft");
-    assert.equal(pages[0].kind, "status");
+    assert.equal(pages[0].subjectType, "project");
+    assert.equal(pages[0].subtype, "phase_change");
     const [overallPage] = await query(
       db,
       "SELECT id FROM wiki_pages WHERE project_id=? AND subject_type='project'",
@@ -159,7 +161,6 @@ test("confirm promotes a draft once, flag records a dispute without editing", as
     );
 
     const draftId = await insertEntry(db, project.id, owner.id, {
-      kind: "decision",
       title: "决策",
       body: "原来如此",
     });

@@ -238,7 +238,6 @@ export function OfficialFolderMenu({
   onNewFolder,
   onRename,
   onDelete,
-  onCopyProjectInfo,
   onExplain,
 }: {
   menuId: string;
@@ -255,7 +254,6 @@ export function OfficialFolderMenu({
   onNewFolder?: () => void;
   onRename?: () => void;
   onDelete?: () => void;
-  onCopyProjectInfo?: () => void;
   onExplain?: () => void;
 }) {
   const open = openMenuId === menuId;
@@ -272,9 +270,7 @@ export function OfficialFolderMenu({
   }, [open, onOpenMenuChange]);
   const close = () => onOpenMenuChange(null);
   const hasLeadItems = Boolean(onExplain || onAddToConversation || onAddToTask);
-  const hasMainItems = Boolean(
-    onDownload || onUpload || onCopyProjectInfo || onNewFolder || (!isRoot && onRename),
-  );
+  const hasMainItems = Boolean(onDownload || onUpload || onNewFolder || (!isRoot && onRename));
   const hasDeleteItem = Boolean(!isRoot && onDelete);
   return (
     <span className="tree-folder-menu-anchor" ref={anchorRef}>
@@ -391,20 +387,6 @@ export function OfficialFolderMenu({
               >
                 <TreeIcon kind="upload" />
                 <span>上传文件</span>
-              </button>
-            ) : null}
-            {onCopyProjectInfo ? (
-              <button
-                type="button"
-                role="menuitem"
-                className="library-folder-menu-item"
-                onClick={() => {
-                  onCopyProjectInfo();
-                  close();
-                }}
-              >
-                <TreeIcon kind="copy" />
-                <span>复制项目信息</span>
               </button>
             ) : null}
             {onNewFolder ? (

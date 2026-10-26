@@ -25,7 +25,7 @@ const QuoteMarkdown = lazy(() =>
 import type { ComposerController } from "./ChatComposer";
 
 import { AGENT_XIAOXIANG_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
-import { MCP_CONVERSATION_COPY_INSTRUCTION, formatMcpCopyPayload } from "../shared/mcp-guide.js";
+import { formatMcpCopyPayload } from "../shared/mcp-guide.js";
 import { WorkspaceModals } from "./WorkspaceModals";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
 import { WorkspaceTopbar } from "./WorkspaceTopbar";
@@ -979,15 +979,11 @@ export function WorkspaceApp() {
   }, [leftOpen, threadListPane]);
   const copyConversationInfo = async (target?: { id: string; title: string }) => {
     const copyThreadId = target?.id ?? threadId;
-    const copyTitle = target?.title ?? thread?.title;
     if (!copyThreadId || !projectId || detail?.id !== projectId) return;
     const info = formatMcpCopyPayload({
       server: `${location.origin}${health?.mcpEndpoint || "/mcp"}`,
-      project: detail?.name,
       projectId,
-      iteration: copyTitle,
       threadId: copyThreadId,
-      instruction: MCP_CONVERSATION_COPY_INSTRUCTION,
     });
     try {
       await navigator.clipboard.writeText(info);
@@ -1014,7 +1010,7 @@ export function WorkspaceApp() {
       setThreadId((current) => resolveProjectThreadId(nextDetail.threads, current));
       await refresh();
       setArchiveDialog(target);
-      showTip("已进入归档中，知识库管理员正在梳理");
+      showTip("已进入归档中，老翁正在梳理");
     });
   const restoreArchivedThread = (target: { id: string }) =>
     void run(async () => {
@@ -1627,6 +1623,7 @@ export function WorkspaceApp() {
     updateProjectTab,
     showProjectPicker,
     busy,
+    mcpEndpoint: health?.mcpEndpoint || "/mcp",
     user,
     acceptProfile,
     setProjects,
@@ -1890,8 +1887,6 @@ export function WorkspaceApp() {
             <Documents
               key={projectId}
               projectId={projectId}
-              projectName={detail?.name}
-              mcpEndpoint={health?.mcpEndpoint || "/mcp"}
               threadId={threadId || undefined}
               writable={writable}
               currentUserId={user.id}
@@ -2035,6 +2030,7 @@ export function WorkspaceApp() {
             busy={busy}
             projectLeader={projectLeader}
             canManage={owner}
+            mcpEndpoint={health?.mcpEndpoint || "/mcp"}
             api={api}
             localDate={localDate}
             refresh={refresh}

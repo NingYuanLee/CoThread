@@ -329,7 +329,7 @@ const ROLE_ICONS: Record<string, UiIconName> = {
   后端: "server",
   老翁: "book",
   小祥: "sparkle",
-  项目知识库: "library",
+  项目记忆: "library",
   任务调度: "iteration",
   创建人: "star",
   只读: "eye",

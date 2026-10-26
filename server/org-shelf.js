@@ -58,7 +58,7 @@ export async function readOrgShelf(service, user, orgId) {
   for (const project of hosted) {
     const pages = await query(
       service.db,
-      "SELECT id, kind, title, status FROM wiki_pages WHERE project_id=? ORDER BY updated_at DESC, id",
+      "SELECT id, title, status FROM wiki_pages WHERE project_id=? ORDER BY updated_at DESC, id",
       [project.id],
     );
     projects.push({ id: project.id, name: project.name, pages });

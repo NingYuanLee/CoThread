@@ -84,8 +84,7 @@ export async function prepareDevSuperAdmin(db) {
   }
   await query(db, "UPDATE users SET password_hash=? WHERE id=?", [hash, existing.id]);
   await writeFile(loginMemoPath, loginMemoText({ email: email || existing.login, password }));
-  logAdmin(`已有超级管理员 ${existing.login} 密码已重置`);
-  logAdmin(password);
+  logAdmin(`已有超级管理员 ${existing.login} 密码已重置：${password}`);
   return true;
 }
 

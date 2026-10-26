@@ -1336,11 +1336,12 @@ test("project memory job routes: settings, retry, discussion and permissions", a
     owner,
     "PATCH",
   );
-  assert.equal(patched.status, 200);
-  assert.equal(patched.body.enabled, false);
-  assert.equal(patched.body.triggerThreshold, 7);
+  assert.equal(patched.status, 409);
   const afterPatch = await request(`/projects/${projectId}/memory/jobs`, undefined, owner);
-  assert.equal(afterPatch.body.find((job) => job.key === "project_memory").enabled, false);
+  const projectJob = afterPatch.body.find((job) => job.key === "project_memory");
+  assert.notEqual(projectJob.enabled, false);
+  assert.ok(!projectJob.promptOverridden);
+  assert.match(projectJob.prompt, /create/);
 
   const reset = await request(
     `/projects/${projectId}/memory/jobs/project_memory`,
@@ -1348,9 +1349,7 @@ test("project memory job routes: settings, retry, discussion and permissions", a
     owner,
     "DELETE",
   );
-  assert.equal(reset.status, 200);
-  assert.equal(reset.body.enabled, true);
-  assert.equal(reset.body.triggerThreshold, 40);
+  assert.equal(reset.status, 409);
 
   const taskRetry = await request(
     `/projects/${projectId}/memory/jobs/task_memory/retry`,

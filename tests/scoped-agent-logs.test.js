@@ -173,9 +173,9 @@ test("agent logs are isolated by project, iteration, and task without exposing r
       "preview" in xiaoxiang.events.find((event) => event.tool === "list_agents"),
       false,
     );
-    // 轨迹补字段：三个作用域各自带同源的 systemPrompt 与可用工具名单；老翁维护任务没有可调用工具。
-    assert.match(laoweng.systemPrompt, /项目知识管理员/);
-    assert.deepEqual(laoweng.tools, []);
+    // 轨迹补字段：三个作用域各自带同源的 systemPrompt 与可用工具名单；老翁维护任务只能调用 beijing_time。
+    assert.match(laoweng.systemPrompt, /项目记忆维护/);
+    assert.deepEqual(laoweng.tools, ["beijing_time"]);
     assert.match(xiaoxiang.systemPrompt, /小祥/);
     assert.ok(xiaoxiang.tools.includes("list_messages"));
     assert.equal(xiaoxiang.tools.includes("post_message"), false);

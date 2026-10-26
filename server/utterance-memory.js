@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { query } from "./db.js";
+import { DEFAULT_MEMORY_SUBTYPES } from "../shared/memory-taxonomy.js";
 
 const MAX_BODY = 20000;
 const MAX_SOURCES = 20;
@@ -65,9 +66,18 @@ export async function upsertUtteranceMemory(
     pageId = randomUUID();
     await query(
       db,
-      `INSERT INTO wiki_pages(id,project_id,subject_type,about_user_id,kind,title,body,status,created_by,updated_by)
-       VALUES(?,?,'utterance',?,'status',?,?,'current',?,?)`,
-      [pageId, projectId, memberId, title, body, createdBy, createdBy],
+      `INSERT INTO wiki_pages(id,project_id,subject_type,memory_subtype,about_user_id,title,body,status,created_by,updated_by)
+       VALUES(?,?,'utterance',?,?,?,?,'current',?,?)`,
+      [
+        pageId,
+        projectId,
+        DEFAULT_MEMORY_SUBTYPES.utterance,
+        memberId,
+        title,
+        body,
+        createdBy,
+        createdBy,
+      ],
     );
   } else {
     await query(db, "UPDATE wiki_pages SET title=?,body=?,updated_by=? WHERE id=?", [

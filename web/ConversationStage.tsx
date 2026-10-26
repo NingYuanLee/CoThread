@@ -287,9 +287,7 @@ export function ConversationStage({
                 {thread.archive_snapshot.conclusion ? (
                   <p>{thread.archive_snapshot.conclusion}</p>
                 ) : null}
-                <small>
-                  讨论、审核与引用的历史版本已固定保存；项目长期总结由知识库管理员整理。
-                </small>
+                <small>讨论、审核与引用的历史版本已固定保存；项目长期总结由老翁整理。</small>
                 <button
                   type="button"
                   onClick={() => onOpenArchive({ id: thread.id, title: thread.title })}

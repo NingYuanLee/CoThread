@@ -215,7 +215,10 @@ test("project members ask the elder privately and new group messages cannot sele
     );
     const elderLogs = await elderAgentLogs(db, owner, "project", { projectId: project.id });
     assert.match(elderLogs.systemPrompt, /只能使用只读工具/);
-    assert.ok(elderLogs.tools.includes("search_knowledge"));
+    assert.equal(elderLogs.tools.includes("search_knowledge"), false);
+    assert.ok(elderLogs.tools.includes("search_memory"));
+    assert.match(elderLogs.systemPrompt, /关键发言/);
+    assert.equal(/知识页/.test(elderLogs.systemPrompt), false);
     assert.ok(elderLogs.tools.includes("get_project_context"));
     assert.equal(elderLogs.tools.includes("post_message"), false);
     assert.equal(elderLogs.tools.includes("web_search"), false);

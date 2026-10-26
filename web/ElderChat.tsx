@@ -342,7 +342,7 @@ export function ElderChat({
                     ? "包含你所在项目里的只读内容，并查公司公开指南"
                     : scope === "web"
                       ? "包含所属全部，并联网搜索和阅读"
-                      : "只读查当前项目的知识页、文档、迭代、消息、任务和成员"}
+                      : "只读查当前项目的项目记忆、文档、迭代、消息、任务和成员"}
                 </span>
               </div>
               {error && <p role="alert">{error}</p>}
@@ -350,10 +350,10 @@ export function ElderChat({
                 <div className="conversation-empty">
                   <h3>
                     {scope === "company"
-                      ? "问问你所在项目的知识页、项目文档和公司公开指南"
+                      ? "问问你所在项目的记忆、项目文档和公司公开指南"
                       : scope === "web"
                         ? "在所属全部上再检索公开网页"
-                        : "问问当前项目的知识页和项目文档"}
+                        : "问问当前项目的记忆和项目文档"}
                   </h3>
                   <p>老翁会先说出理解，再边查边说。思考和查阅留在回答上面。</p>
                 </div>
@@ -670,7 +670,7 @@ export function ElderChat({
                     accent: "#426b4b",
                     surface: "#e7f0df",
                     label: "当前项目",
-                    summary: "只读查知识页、文档、迭代、消息、任务和成员",
+                    summary: "只读查项目记忆、文档、迭代、消息、任务和成员",
                   },
                   {
                     id: "company",
@@ -693,7 +693,6 @@ export function ElderChat({
                 onModeChange={(next) => {
                   if (next === "project" || next === "company" || next === "web") chooseScope(next);
                 }}
-                groupPrompts={false}
                 mentions={false}
                 onSend={async (body) => {
                   followConversation.current = true;

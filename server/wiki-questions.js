@@ -24,7 +24,7 @@ function responseReasoning(response) {
 }
 
 const MATERIAL_READS = {
-  wiki: ["search_wiki", "检索知识页", "read_wiki_page", "没有对上的现行页"],
+  wiki: ["search_wiki", "检索项目记忆", "read_wiki_page", "没有对上的现行记忆"],
   document: ["search_documents", "检索项目文档", "read_document", "没有对上的项目文档"],
   thread: ["search_threads", "检索迭代", "read_thread", "没有对上的迭代"],
   message: ["search_messages", "检索迭代消息", "read_message", "没有对上的消息"],
@@ -291,11 +291,11 @@ async function elderAnswer({ question, pages, onProgress }, request) {
           {
             role: "system",
             content:
-              "你是老翁，只根据给出的材料回答。材料可以是知识页、项目文档、迭代、迭代消息、任务和成员，全部只读。点明用到的标题。不要改文档、建任务或往群里发言。没有相关材料就说明没有。",
+              "你是老翁，只根据给出的材料回答。材料可以是现行项目记忆、项目文档、迭代、迭代消息、任务和成员，全部只读。点明用到的标题。不要改文档、建任务或往群里发言。没有相关材料就说明没有。",
           },
           {
             role: "user",
-            content: "问题：" + question + "\n\n" + (packed || "（没有检索到现行知识页）"),
+            content: "问题：" + question + "\n\n" + (packed || "（没有检索到现行记忆）"),
           },
         ],
         onText(delta) {
@@ -312,8 +312,8 @@ async function elderAnswer({ question, pages, onProgress }, request) {
     // 模型不可用时仍把对上的页交给提问者。
   }
   const fallback = !pages.length
-    ? "知识页里没有能对上的内容。"
-    : ["根据这些知识页：", ...pages.map((item) => "- " + item.page.title)].join("\n");
+    ? "没有对上的现行记忆。"
+    : ["根据这些记忆：", ...pages.map((item) => "- " + item.page.title)].join("\n");
   return { text: fallback, trace: elderTrace(question, pages, "") };
 }
 
@@ -487,7 +487,7 @@ const WIKI_KINDS = new Set(["wiki", "guide", "decision", "retro", "glossary", "s
 function kindFrom(item, label) {
   const pageKind = item.page?.kind;
   if (PAGE_KINDS.has(pageKind)) return pageKind;
-  const inferred = inferCitationKind(label, null);
+  const inferred = inferCitationKind(label, item.page?.id || null);
   if (inferred !== "other") return inferred;
   if (WIKI_KINDS.has(pageKind)) return "wiki";
   return "other";
@@ -875,7 +875,7 @@ async function webAnswer({ question, internal, results, note = "" }, request) {
           {
             role: "system",
             content:
-              "你是老翁。材料从内到外依次是用户所在项目的知识页、公司公开指南和公开网页，都可以用。点明用到的标题。都没有就说明没有。",
+              "你是老翁。材料从内到外依次是用户所在项目的现行记忆、公司公开指南和公开网页，都可以用。点明用到的标题。都没有就说明没有。",
           },
           { role: "user", content: "问题：" + question + "\n\n" + packed },
         ],

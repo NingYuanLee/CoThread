@@ -20,11 +20,23 @@ export async function projectChangeOperation(
   action,
   details = {},
 ) {
+  const changeId = randomUUID();
   await query(
     db,
     "INSERT INTO project_change_logs(id,project_id,actor_user_id,action,details) VALUES(?,?,?,?,?)",
-    [randomUUID(), projectId, actorUserId, action, JSON.stringify(details)],
+    [changeId, projectId, actorUserId, action, JSON.stringify(details)],
   );
+  // 项目级变更统一作为里程碑候选，具体是否值得长期保留交给 project_memory 结算。
+  const { noteProjectMemorySignal } = await import("./project-memory.js");
+  await noteProjectMemorySignal(
+    db,
+    projectId,
+    "milestone",
+    changeId,
+    `${action}：${JSON.stringify(details).slice(0, 220)}`,
+    { urgent: true },
+  ).catch(() => {});
+  return changeId;
 }
 
 export async function updateProjectOperation(service, user, projectId, input) {

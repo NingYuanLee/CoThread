@@ -183,7 +183,7 @@ export function apply(ctx) {
     ["list_members", "会话资料：读取当前项目成员列表，只含ID、名称、角色，不含头像。", {}],
     [
       "search_memory",
-      "项目记忆：检索五类记忆（发言/文档/任务/讨论/项目整体），返回摘要与出处。问「以前说过什么、做过什么决策、承诺过什么」时先用它；可按成员、对象类型、状态收窄，depth 控制沿关系展开跳数。",
+      "项目记忆：按一级类型检索现行记忆。类型为关键发言 utterance、主要文档 document、重要任务 task、核心议题 discussion、里程碑 project。返回摘要、出处和直接关系，不返回长正文。问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文档」时先用它；可按成员、对象类型、状态收窄，depth 控制沿关系展开跳数。",
       {
         query: { type: "string" },
         subjects: { type: "array" },
@@ -195,12 +195,12 @@ export function apply(ctx) {
     ],
     [
       "read_member",
-      "项目记忆：读取单个成员的名称、角色、个性签名、身份标签和小祥对该成员的持久化认识，不含头像或凭据。",
+      "项目记忆：读取单个成员的名称、角色、个性签名、身份标签，以及按其关键发言整理的摘要，不含头像或凭据。",
       { memberId: { type: "string", required: true } },
     ],
     [
       "project_context",
-      "读取老翁维护的项目 Wiki 目录：成员、成员认识索引、所有迭代、文档版本和已有版本摘要；已有摘要足够时可直接复用，无需再次读取正文。",
+      "读取项目上下文：成员、关键发言索引、所有迭代、文档版本和已有版本摘要；已有摘要足够时可直接复用，无需再次读取正文。",
       {},
     ],
     [
@@ -522,6 +522,7 @@ export function apply(ctx) {
     "send_message",
     "interrupt_agent",
     "list_agents",
+    "beijing_time",
   ]);
   let configured,
     configuredByLevel = {};

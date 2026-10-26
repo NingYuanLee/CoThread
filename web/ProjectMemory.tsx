@@ -1,10 +1,11 @@
 /**
- * 项目记忆：全屏六四布局弹窗。左栏导读（Markdown），右栏可搜索的记忆时间轴；
+ * 项目记忆：六四布局弹窗。左栏导读（Markdown），右栏可搜索的记忆时间轴；
  * 单条记忆点开二级详情弹窗看正文、出处、所属迭代与确认/纠错。
  * 数据契约见 docs/engineering/12-project-memory.md §3.1。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DialogHeader } from "./DialogHeader";
+import { Field } from "./Field";
 import { MarkdownDocumentPreview } from "./MarkdownDocumentPreview";
 import { SelectField } from "./SelectField";
 import { TextAreaField } from "./TextAreaField";
@@ -13,12 +14,11 @@ import { animateDialogClose, Dialog } from "./dialog-fx";
 import { showTip } from "./Tip";
 import { UiIcon } from "./ui-icon";
 import { relativeActivity } from "./workspace-format";
-import { AgentLogDialog } from "./AgentLogDialog";
-import type { AgentLogScope } from "./trajectory-model";
 import { LaowengHistoryDialog } from "./agent-monitor-history";
-import { LAOWENG_RUN_COLUMNS, laowengRunRows } from "./agent-monitor-model";
-import { TaskSessionDialog } from "./agent-monitor-session";
+import { LAOWENG_RUN_COLUMNS, laowengRunRows, runStatusLabel } from "./agent-monitor-model";
+import { MemoryJobSessionDialog } from "./MemoryJobSessionDialog";
 import type { LaowengRun } from "./agent-monitor-types";
+import { SlideSwitch } from "./SlideSwitch";
 
 export type MemoryCounts = { drafts: number; disputes: number; updatedSinceEntry: number };
 
@@ -33,7 +33,6 @@ type MemoryRelation = {
 };
 type MemoryEntry = {
   id: string;
-  kind?: string;
   title?: string;
   body?: string;
   status?: string;
@@ -43,6 +42,7 @@ type MemoryEntry = {
   disputed?: boolean;
   /** 五类记忆对象；历史条目可能为空。 */
   subject?: string | null;
+  subtype?: string | null;
   aboutUserId?: string | null;
   relations?: MemoryRelation[];
   sources?: MemorySource[];
@@ -65,10 +65,6 @@ type MemoryJob = {
   batch?: number;
   backlog?: number | null;
   backlogNote?: string;
-  enabled?: boolean;
-  triggerThreshold?: number | null;
-  promptOverridden?: boolean;
-  settingsUpdatedAt?: string | null;
   lastRun?: MemoryJobRun | null;
   recentRuns?: LaowengRun[];
   archivedThread?: { id: string; title?: string } | null;
@@ -120,13 +116,6 @@ type MemoryApi = (
 type MemoryPendingAction = { kind: "confirm" | "flag"; entry: MemoryEntry };
 
 const ZERO_COUNTS: MemoryCounts = { drafts: 0, disputes: 0, updatedSinceEntry: 0 };
-const KIND_LABEL: Record<string, string> = {
-  status: "当前状态",
-  decision: "决策",
-  guide: "指南",
-  glossary: "术语",
-  retro: "复盘",
-};
 const STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
   current: "现行",
@@ -142,6 +131,95 @@ const SUBJECT_LABEL: Record<string, string> = {
   project: "整体",
 };
 const SUBJECT_KEYS = ["utterance", "document", "task", "discussion", "project"] as const;
+const SUBTYPE_LABEL: Record<string, string> = {
+  project_origin: "项目初创",
+  member_change: "成员调整",
+  iteration_created: "迭代创建",
+  iteration_context_changed: "目标背景变更",
+  iteration_archived: "迭代归档",
+  phase_change: "阶段切换",
+  requirements: "需求讨论",
+  technical_decision: "技术决策",
+  product_decision: "产品决策",
+  risk_dispute: "风险争议",
+  problem_review: "问题复盘",
+  cross_iteration_topic: "跨迭代议题",
+  critical_delivery: "关键交付",
+  difficult_task: "困难任务",
+  blocked_task: "阻塞任务",
+  rework_task: "返工任务",
+  failed_task: "失败任务",
+  special_task: "专项任务",
+  key_judgment: "关键判断",
+  decision: "重要决策",
+  risk_alert: "风险提醒",
+  requirement_clarification: "需求澄清",
+  commitment: "承诺与分工",
+  experience: "经验分享",
+  requirements_document: "需求文档",
+  design_document: "设计文档",
+  technical_document: "技术方案",
+  api_document: "接口文档",
+  test_material: "测试材料",
+  operations_material: "运营材料",
+  reference_material: "参考资料",
+  resource_package: "资源包",
+  image_material: "图片资料",
+};
+const SUBTYPE_KEYS: Record<string, string[]> = {
+  project: [
+    "project_origin",
+    "member_change",
+    "iteration_created",
+    "iteration_context_changed",
+    "iteration_archived",
+    "phase_change",
+  ],
+  discussion: [
+    "requirements",
+    "technical_decision",
+    "product_decision",
+    "risk_dispute",
+    "problem_review",
+    "cross_iteration_topic",
+  ],
+  task: [
+    "critical_delivery",
+    "difficult_task",
+    "blocked_task",
+    "rework_task",
+    "failed_task",
+    "special_task",
+  ],
+  utterance: [
+    "key_judgment",
+    "decision",
+    "risk_alert",
+    "requirement_clarification",
+    "commitment",
+    "experience",
+  ],
+  document: [
+    "requirements_document",
+    "design_document",
+    "technical_document",
+    "api_document",
+    "test_material",
+    "operations_material",
+    "reference_material",
+    "resource_package",
+    "image_material",
+  ],
+};
+const SUBJECT_FILTER_ITEMS = [
+  { value: "all", label: "全部" },
+  { value: "project", label: "里程碑" },
+  { value: "discussion", label: "核心议题" },
+  { value: "task", label: "重要任务" },
+  { value: "utterance", label: "关键发言" },
+  { value: "document", label: "主要文档" },
+  { value: "", label: "其它记忆" },
+] as const;
 const RELATION_LABEL: Record<string, string> = {
   relates: "关联",
   derives: "继承",
@@ -226,20 +304,12 @@ export function ProjectMemory({
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError] = useState("");
   const [backfilling, setBackfilling] = useState(false);
-  const [logScope, setLogScope] = useState<AgentLogScope | null>(null);
   const [historyJob, setHistoryJob] = useState<MemoryJob | null>(null);
   const [sessionJob, setSessionJob] = useState<MemoryJob | null>(null);
   const [runningJob, setRunningJob] = useState("");
-  const [savingJob, setSavingJob] = useState("");
-  const [editingJob, setEditingJob] = useState<{
-    key: string;
-    enabled: boolean;
-    threshold: string;
-    prompt: string;
-  } | null>(null);
   const [statusFilter, setStatusFilter] = useState<string[]>(DEFAULT_STATUS_FILTER);
-  const [subjectFilter, setSubjectFilter] = useState<string[]>([]);
-  const [memberFilter, setMemberFilter] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState("all");
+  const [subtypeFilter, setSubtypeFilter] = useState<string[]>([]);
   const [pendingAction, setPendingAction] = useState<MemoryPendingAction | null>(null);
   const appliedFocus = useRef("");
   const editable = serverCanWrite ?? canWrite;
@@ -294,8 +364,8 @@ export function ProjectMemory({
     setQuery("");
     setSelectedId("");
     setStatusFilter(DEFAULT_STATUS_FILTER);
-    setSubjectFilter([]);
-    setMemberFilter("");
+    setSubjectFilter("all");
+    setSubtypeFilter([]);
     setPendingAction(null);
   }, [projectId]);
 
@@ -305,10 +375,6 @@ export function ProjectMemory({
         .filter((entry) => Boolean(entry) && typeof entry.id === "string")
         .slice()
         .sort((left, right) => timeOf(right.updatedAt) - timeOf(left.updatedAt)),
-    [data],
-  );
-  const members = useMemo(
-    () => (Array.isArray(data?.members) ? data.members : []).filter((item) => item?.id),
     [data],
   );
   const timeline = useMemo(
@@ -331,14 +397,16 @@ export function ProjectMemory({
     return entries.filter((entry) => {
       /* 状态复选框与搜索词同时生效（AND）。 */
       if (!statusFilter.includes(entry.status || "draft")) return false;
-      if (subjectFilter.length && !subjectFilter.includes(entry.subject || "")) return false;
-      if (memberFilter && entry.aboutUserId !== memberFilter) return false;
+      if (subjectFilter !== "all" && (entry.subject || "") !== subjectFilter) return false;
+      if (subtypeFilter.length && !subtypeFilter.includes(entry.subtype || "")) return false;
       if (!keyword) return true;
-      return [entry.title || "", KIND_LABEL[entry.kind || ""] || "", entry.kind || ""].some(
-        (value) => value.toLowerCase().includes(keyword),
-      );
+      return [
+        entry.title || "",
+        SUBTYPE_LABEL[entry.subtype || ""] || "",
+        entry.subtype || "",
+      ].some((value) => value.toLowerCase().includes(keyword));
     });
-  }, [entries, query, statusFilter, subjectFilter, memberFilter]);
+  }, [entries, query, statusFilter, subjectFilter, subtypeFilter]);
 
   /* 引用进来时聚焦单条详情：同一次打开只自动弹出一次，手动关掉详情不再弹。
      focusId 清空（关掉整个记忆弹窗）时重置去重，保证再点同一条引用能重新打开。 */
@@ -357,6 +425,16 @@ export function ProjectMemory({
     setStatusFilter((current) =>
       current.includes(status) ? current.filter((item) => item !== status) : [...current, status],
     );
+  };
+
+  const changeSubjectFilter = (value: string) => {
+    setSubjectFilter(value);
+    if (value !== "all") {
+      const available = SUBTYPE_KEYS[value] || [];
+      setSubtypeFilter((current) => current.filter((subtype) => available.includes(subtype)));
+    } else {
+      setSubtypeFilter([]);
+    }
   };
 
   const guideText = typeof data?.guide?.text === "string" ? data.guide.text.trim() : "";
@@ -430,44 +508,6 @@ export function ProjectMemory({
     }
   };
 
-  const saveJobSettings = async () => {
-    if (!editingJob || savingJob) return;
-    setSavingJob(editingJob.key);
-    try {
-      await api(
-        `/projects/${projectId}/memory/jobs/${editingJob.key}`,
-        {
-          enabled: editingJob.enabled,
-          triggerThreshold: editingJob.threshold === "" ? null : Number(editingJob.threshold),
-          prompt: editingJob.prompt,
-        },
-        "PATCH",
-      );
-      showTip("口径已保存");
-      setEditingJob(null);
-      await loadJobs();
-    } catch (cause) {
-      showTip(cause instanceof Error ? cause.message : "保存失败，请稍后重试", "error");
-    } finally {
-      setSavingJob("");
-    }
-  };
-
-  const resetJobSettings = async (key: string) => {
-    if (savingJob) return;
-    setSavingJob(key);
-    try {
-      await api(`/projects/${projectId}/memory/jobs/${key}`, undefined, "DELETE");
-      showTip("已回滚到默认口径");
-      setEditingJob(null);
-      await loadJobs();
-    } catch (cause) {
-      showTip(cause instanceof Error ? cause.message : "回滚失败，请稍后重试", "error");
-    } finally {
-      setSavingJob("");
-    }
-  };
-
   const retryJob = async (job: MemoryJob) => {
     if (runningJob) return;
     setRunningJob(job.key);
@@ -514,6 +554,16 @@ export function ProjectMemory({
       await load();
     } catch (cause) {
       showTip(cause instanceof Error ? cause.message : "更新对象类型失败", "error");
+    }
+  };
+
+  const changeSubtype = async (entryId: string, subtype: string | null) => {
+    try {
+      await api(`/projects/${projectId}/memory/entries/${entryId}`, { subtype }, "PATCH");
+      showTip("二级类型已更新");
+      await load();
+    } catch (cause) {
+      showTip(cause instanceof Error ? cause.message : "更新二级类型失败", "error");
     }
   };
 
@@ -651,7 +701,7 @@ export function ProjectMemory({
       <Dialog
         onRequestClose={onClose}
         ref={dialog}
-        className="project-memory-dialog dialog-fullscreen"
+        className="project-memory-dialog"
         aria-labelledby="project-memory-title"
       >
         <DialogHeader
@@ -748,24 +798,16 @@ export function ProjectMemory({
                   {jobs.length ? (
                     <ul className="memory-job-list">
                       {jobs.map((job) => (
-                        <li
-                          key={job.key}
-                          className="memory-job"
-                          data-enabled={job.enabled === false ? "false" : "true"}
-                        >
+                        <li key={job.key} className="memory-job">
                           <details>
                             <summary>
                               <strong>{job.label}</strong>
-                              {job.enabled === false ? (
-                                <small className="memory-job-off">已停用</small>
-                              ) : null}
                               <small>
                                 {job.backlog == null ? job.backlogNote : `积压 ${job.backlog}`}
                               </small>
-                              {job.promptOverridden ? <small>口径已改</small> : null}
                               <span data-run={job.lastRun?.status || "never"}>
                                 {job.lastRun
-                                  ? `${job.lastRun.status || "未知"}${job.lastRun.createdAt ? " · " + relativeActivity(job.lastRun.createdAt, Date.now()) : ""}`
+                                  ? `${job.lastRun.status ? runStatusLabel(job.lastRun.status) : "未知"}${job.lastRun.createdAt ? " · " + relativeActivity(job.lastRun.createdAt, Date.now()) : ""}`
                                   : "从未运行"}
                               </span>
                             </summary>
@@ -781,160 +823,63 @@ export function ProjectMemory({
                               <dt>提示词</dt>
                               <dd>{job.prompt}</dd>
                             </dl>
-                            {editingJob?.key === job.key ? (
-                              <div className="memory-job-edit">
-                                <label className="memory-job-toggle">
-                                  <input
-                                    type="checkbox"
-                                    checked={editingJob.enabled}
-                                    onChange={(event) =>
-                                      setEditingJob({
-                                        ...editingJob,
-                                        enabled: event.target.checked,
-                                      })
-                                    }
-                                  />
-                                  启用
-                                </label>
-                                <TextField
-                                  containerClassName="memory-job-threshold"
-                                  label="触发阈值"
-                                  type="number"
-                                  min={0}
-                                  max={1000}
-                                  flush
-                                  value={editingJob.threshold}
-                                  onChange={(event) =>
-                                    setEditingJob({ ...editingJob, threshold: event.target.value })
-                                  }
-                                />
-                                <TextAreaField
-                                  containerClassName="memory-job-prompt"
-                                  label="提示词覆盖"
-                                  rows={4}
-                                  dense
-                                  value={editingJob.prompt}
-                                  placeholder="留空表示使用默认提示词"
-                                  onChange={(event) =>
-                                    setEditingJob({ ...editingJob, prompt: event.target.value })
-                                  }
-                                />
-                                <div className="memory-job-edit-actions">
-                                  <button
-                                    type="button"
-                                    className="wiki-action"
-                                    disabled={savingJob !== ""}
-                                    onClick={() => void saveJobSettings()}
-                                  >
-                                    {savingJob === job.key ? "保存中…" : "保存"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="wiki-action"
-                                    disabled={savingJob !== ""}
-                                    onClick={() => void resetJobSettings(job.key)}
-                                  >
-                                    回滚默认
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="wiki-action"
-                                    onClick={() => setEditingJob(null)}
-                                  >
-                                    取消
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="memory-job-edit-actions">
+                            <div className="memory-job-edit-actions">
+                              <button
+                                type="button"
+                                className="wiki-action"
+                                disabled={runningJob !== "" || !jobRunPath[job.key]}
+                                onClick={() => void runJob(job)}
+                              >
+                                {jobRunPath[job.key]
+                                  ? runningJob === job.key
+                                    ? "提交中…"
+                                    : "立即运行"
+                                  : "随结算触发"}
+                              </button>
+                              {job.key === "discussion_memory" ? (
                                 <button
                                   type="button"
                                   className="wiki-action"
-                                  onClick={() =>
-                                    setEditingJob({
-                                      key: job.key,
-                                      enabled: job.enabled !== false,
-                                      threshold:
-                                        job.triggerThreshold == null
-                                          ? ""
-                                          : String(job.triggerThreshold),
-                                      prompt: job.promptOverridden ? job.prompt : "",
-                                    })
-                                  }
+                                  disabled={runningJob !== "" || !job.archivedThread}
+                                  onClick={() => void runDiscussionJob(job)}
                                 >
-                                  调整口径
+                                  {job.archivedThread ? "补跑最近归档迭代" : "暂无已归档迭代"}
                                 </button>
+                              ) : null}
+                              {[
+                                "member_memory",
+                                "document_memory",
+                                "iteration_archive",
+                                "project_memory",
+                              ].includes(job.key) ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="wiki-action"
+                                    onClick={() => setHistoryJob(job)}
+                                  >
+                                    历史记录
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="wiki-action"
+                                    onClick={() => setSessionJob(job)}
+                                  >
+                                    会话
+                                  </button>
+                                </>
+                              ) : null}
+                              {job.lastRun?.status === "failed" ? (
                                 <button
                                   type="button"
                                   className="wiki-action"
                                   disabled={runningJob !== "" || !jobRunPath[job.key]}
-                                  onClick={() => void runJob(job)}
+                                  onClick={() => void retryJob(job)}
                                 >
-                                  {jobRunPath[job.key]
-                                    ? runningJob === job.key
-                                      ? "提交中…"
-                                      : "立即运行"
-                                    : "随结算触发"}
+                                  重试失败运行
                                 </button>
-                                {job.key === "discussion_memory" ? (
-                                  <button
-                                    type="button"
-                                    className="wiki-action"
-                                    disabled={runningJob !== "" || !job.archivedThread}
-                                    onClick={() => void runDiscussionJob(job)}
-                                  >
-                                    {job.archivedThread ? "补跑最近归档迭代" : "暂无已归档迭代"}
-                                  </button>
-                                ) : null}
-                                {[
-                                  "member_memory",
-                                  "document_memory",
-                                  "iteration_archive",
-                                  "project_memory",
-                                ].includes(job.key) ? (
-                                  <>
-                                    <button
-                                      type="button"
-                                      className="wiki-action"
-                                      onClick={() =>
-                                        setLogScope({
-                                          type: "project",
-                                          id: projectId,
-                                          task: job.key,
-                                        })
-                                      }
-                                    >
-                                      轨迹
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="wiki-action"
-                                      onClick={() => setHistoryJob(job)}
-                                    >
-                                      历史记录
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="wiki-action"
-                                      disabled={runningJob !== ""}
-                                      onClick={() => setSessionJob(job)}
-                                    >
-                                      会话
-                                    </button>
-                                  </>
-                                ) : null}
-                                {job.lastRun?.status === "failed" ? (
-                                  <button
-                                    type="button"
-                                    className="wiki-action"
-                                    disabled={runningJob !== "" || !jobRunPath[job.key]}
-                                    onClick={() => void retryJob(job)}
-                                  >
-                                    重试失败运行
-                                  </button>
-                                ) : null}
-                              </div>
-                            )}
+                              ) : null}
+                            </div>
                           </details>
                         </li>
                       ))}
@@ -944,69 +889,61 @@ export function ProjectMemory({
                   )}
                 </div>
               </section>
-              <aside className="project-memory-side" aria-labelledby="project-memory-timeline">
-                <div className="project-memory-side-head">
-                  <h3 className="project-memory-section-title" id="project-memory-timeline">
-                    时间轴
-                  </h3>
+              <aside className="project-memory-side" aria-label="项目记忆条目">
+                <div className="project-memory-subject-row">
+                  <SlideSwitch
+                    label="按记忆种类筛选"
+                    value={subjectFilter}
+                    items={SUBJECT_FILTER_ITEMS}
+                    onChange={changeSubjectFilter}
+                    size="dense"
+                    className="project-memory-subject-switch"
+                  />
                   <small>
                     {filtered.length} / {entries.length}
                   </small>
                 </div>
-                <div className="project-memory-filters" role="group" aria-label="按状态筛选">
-                  {STATUS_KEYS.map((status) => (
-                    <label key={status} className="project-memory-filter" data-status={status}>
-                      <input
-                        type="checkbox"
-                        checked={statusFilter.includes(status)}
-                        onChange={() => toggleStatusFilter(status)}
-                      />
-                      <span>{STATUS_LABEL[status]}</span>
-                    </label>
-                  ))}
-                </div>
-                <div className="project-memory-filters" role="group" aria-label="按记忆类型筛选">
-                  {[...SUBJECT_KEYS, ""].map((subject) => (
-                    <label key={subject} className="project-memory-filter" data-subject={subject}>
-                      <input
-                        type="checkbox"
-                        checked={subjectFilter.includes(subject)}
-                        onChange={() =>
-                          setSubjectFilter((current) =>
-                            current.includes(subject)
-                              ? current.filter((value) => value !== subject)
-                              : [...current, subject],
-                          )
-                        }
-                      />
-                      <span>{SUBJECT_LABEL[subject] || "未分类"}</span>
-                    </label>
-                  ))}
-                </div>
-                {members.length ? (
-                  <select
-                    className="project-memory-member-filter"
-                    aria-label="按成员查看发言记忆"
-                    value={memberFilter}
-                    onChange={(event) => setMemberFilter(event.target.value)}
+                <div className="project-memory-filter-row">
+                  <Field
+                    label="二级类型"
+                    hasValue
+                    state={subjectFilter === "all" ? "disabled" : "idle"}
+                    dense
+                    className="project-memory-filter-control project-memory-filter-field"
                   >
-                    <option value="">全部成员</option>
-                    {members.map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {member.name || member.id}
-                      </option>
+                    <MemorySubtypeFilter
+                      value={subtypeFilter}
+                      options={SUBTYPE_KEYS[subjectFilter] || []}
+                      disabled={subjectFilter === "all"}
+                      onChange={setSubtypeFilter}
+                    />
+                  </Field>
+                  <div className="project-memory-filter-control project-memory-search">
+                    <TextField
+                      label="关键词"
+                      dense
+                      icon={<UiIcon name="search" size={13} />}
+                      value={query}
+                      aria-label="搜索记忆条目"
+                      placeholder="搜索标题或类型"
+                      onChange={(event) => setQuery(event.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="project-memory-filter-row project-memory-filter-row-secondary">
+                  <div className="project-memory-filters" role="group" aria-label="按状态筛选">
+                    {STATUS_KEYS.map((status) => (
+                      <label key={status} className="project-memory-filter" data-status={status}>
+                        <input
+                          type="checkbox"
+                          checked={statusFilter.includes(status)}
+                          onChange={() => toggleStatusFilter(status)}
+                        />
+                        <span>{STATUS_LABEL[status]}</span>
+                      </label>
                     ))}
-                  </select>
-                ) : null}
-                <TextField
-                  dense
-                  icon={<UiIcon name="search" size={13} />}
-                  containerClassName="project-memory-search"
-                  value={query}
-                  aria-label="搜索记忆条目"
-                  placeholder="搜索标题或类型"
-                  onChange={(event) => setQuery(event.target.value)}
-                />
+                  </div>
+                </div>
                 {filtered.length ? (
                   <ul className="project-memory-list">
                     {filtered.map((entry) => {
@@ -1033,7 +970,9 @@ export function ProjectMemory({
                                 {stampOf(entry.updatedAt) || "时间未知"}
                               </span>
                               <span className="wiki-kind">
-                                {KIND_LABEL[entry.kind || ""] || entry.kind || "条目"}
+                                {entry.subtype
+                                  ? SUBTYPE_LABEL[entry.subtype] || entry.subtype
+                                  : "未细分"}
                               </span>
                               <span className="project-memory-row-state" data-status={status}>
                                 {STATUS_LABEL[status] || status}
@@ -1074,6 +1013,7 @@ export function ProjectMemory({
           onCreateRelation={createRelation}
           onDeleteRelation={deleteRelation}
           onChangeSubject={changeSubject}
+          onChangeSubtype={changeSubtype}
           busy={busyId === selected.id}
           disputed={selectedDisputed}
           flagOpen={flagEntryId === selected.id}
@@ -1092,9 +1032,6 @@ export function ProjectMemory({
           onClose={() => setSelectedId("")}
         />
       ) : null}
-      {logScope ? (
-        <AgentLogDialog scope={logScope} api={api} onClose={() => setLogScope(null)} />
-      ) : null}
       {historyJob ? (
         <LaowengHistoryDialog
           title={historyJob.label}
@@ -1105,16 +1042,10 @@ export function ProjectMemory({
         />
       ) : null}
       {sessionJob ? (
-        <TaskSessionDialog
-          kicker="维护会话"
+        <MemoryJobSessionDialog
           title={sessionJob.label}
-          emptyIdle="这个维护 Agent 还没有会话内容。"
-          roleLabel={(role) =>
-            role === "assistant" ? "维护 Agent" : role === "system" ? "系统" : "任务输入"
-          }
-          path={`/projects/${projectId}/laoweng-sessions/${sessionJob.key}`}
-          compactPath={`/projects/${projectId}/laoweng-context/compact`}
-          compactBody={{ task: sessionJob.key }}
+          projectId={projectId}
+          task={sessionJob.key}
           api={api}
           onClose={() => setSessionJob(null)}
         />
@@ -1133,6 +1064,98 @@ export function ProjectMemory({
   );
 }
 
+function MemorySubtypeFilter({
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  value: string[];
+  options: string[];
+  disabled: boolean;
+  onChange: (value: string[]) => void;
+}) {
+  const filterRef = useRef<HTMLDetailsElement>(null);
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => setDraft(value), [value]);
+
+  useEffect(() => {
+    if (disabled) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const details = filterRef.current;
+      if (!details?.open || details.contains(event.target as Node)) return;
+      details.open = false;
+      onChange(draft);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [disabled, draft, onChange]);
+
+  const commitDraft = () => onChange(draft);
+  const toggle = (subtype: string) =>
+    setDraft((current) =>
+      current.includes(subtype)
+        ? current.filter((item) => item !== subtype)
+        : [...current, subtype],
+    );
+  return (
+    <details
+      ref={filterRef}
+      className={`project-memory-subtype-filter project-memory-multi-filter${disabled ? " is-disabled" : ""}`}
+      onToggle={(event) => {
+        if (event.currentTarget.open) setDraft(value);
+        else commitDraft();
+      }}
+    >
+      <summary
+        className="project-memory-multi-filter-input"
+        aria-label="按二级类型筛选"
+        aria-disabled={disabled}
+      >
+        <span className="project-memory-multi-filter-value">
+          {value.length ? `已选 ${value.length} 项` : "全部"}
+        </span>
+        <UiIcon name="chevronDown" size={16} className="project-memory-multi-filter-arrow" />
+      </summary>
+      {!disabled ? (
+        <div className="project-memory-subtype-options" role="group" aria-label="按二级类型筛选">
+          <div className="project-memory-subtype-batch-actions">
+            <label>
+              <input type="checkbox" checked={draft.length === 0} onChange={() => setDraft([])} />
+              <span>全部</span>
+            </label>
+            <button
+              type="button"
+              className="project-memory-subtype-action"
+              onClick={() =>
+                setDraft(
+                  draft.length === 0
+                    ? options
+                    : options.filter((subtype) => !draft.includes(subtype)),
+                )
+              }
+            >
+              <span aria-hidden="true">⇄</span>
+              <span>反选</span>
+            </button>
+          </div>
+          {options.map((subtype) => (
+            <label key={subtype}>
+              <input
+                type="checkbox"
+                checked={draft.includes(subtype)}
+                onChange={() => toggle(subtype)}
+              />
+              <span>{SUBTYPE_LABEL[subtype] || subtype}</span>
+            </label>
+          ))}
+        </div>
+      ) : null}
+    </details>
+  );
+}
+
 /** 二级弹窗：单条记忆的正文、出处、所属迭代与确认/纠错。 */
 function MemoryDetail({
   entry,
@@ -1143,6 +1166,7 @@ function MemoryDetail({
   onCreateRelation,
   onDeleteRelation,
   onChangeSubject,
+  onChangeSubtype,
   busy,
   disputed,
   flagOpen,
@@ -1167,6 +1191,7 @@ function MemoryDetail({
   }) => Promise<void>;
   onDeleteRelation: (relationId: string) => Promise<void>;
   onChangeSubject: (entryId: string, subject: string | null) => Promise<void>;
+  onChangeSubtype: (entryId: string, subtype: string | null) => Promise<void>;
   busy: boolean;
   disputed: boolean;
   flagOpen: boolean;
@@ -1181,7 +1206,6 @@ function MemoryDetail({
   const dialog = useRef<HTMLDialogElement>(null);
   const status = entry.status || "draft";
   const statusLabel = STATUS_LABEL[status] || status;
-  const kindLabel = KIND_LABEL[entry.kind || ""] || entry.kind || "记忆条目";
   const sources = (entry.sources || []).filter((source) => source?.label);
   const relations = entry.relations || [];
   const [relationKind, setRelationKind] = useState("relates");
@@ -1204,7 +1228,6 @@ function MemoryDetail({
         titleId="project-memory-detail-title"
         subtitle={
           <span className="project-memory-detail-meta">
-            <span className="wiki-kind">{kindLabel}</span>
             {canWrite ? (
               <SelectField
                 containerClassName="project-memory-subject-select"
@@ -1222,6 +1245,24 @@ function MemoryDetail({
               />
             ) : entry.subject ? (
               <span className="wiki-kind">{SUBJECT_LABEL[entry.subject] || entry.subject}</span>
+            ) : null}
+            {entry.subject && canWrite ? (
+              <SelectField
+                containerClassName="project-memory-subject-select"
+                aria-label="记忆二级类型"
+                flush
+                value={entry.subtype || ""}
+                options={[
+                  { value: "", label: "未细分" },
+                  ...(SUBTYPE_KEYS[entry.subject] || []).map((subtype) => ({
+                    value: subtype,
+                    label: SUBTYPE_LABEL[subtype] || subtype,
+                  })),
+                ]}
+                onChange={(value) => void onChangeSubtype(entry.id, value || null)}
+              />
+            ) : entry.subtype ? (
+              <span className="wiki-kind">{SUBTYPE_LABEL[entry.subtype] || entry.subtype}</span>
             ) : null}
             <span className="wiki-status" data-status={status}>
               {statusLabel}

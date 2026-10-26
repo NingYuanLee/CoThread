@@ -187,7 +187,7 @@ html:is([data-theme="ink"], [data-theme="night"]) :is(.brand-logo, .welcome-logo
 }
 
 html:is([data-theme="ink"], [data-theme="night"]) :is(.brand-logo, .welcome-logo) {
-  filter: drop-shadow(0 4px 7px rgba(37, 99, 235, 0.28));
+  filter: drop-shadow(0 0.286rem 0.5rem rgba(37, 99, 235, 0.28));
 }
 
 /* 流式状态行：浅色主题跟随主题主色，深色主题统一用蓝色。 */
@@ -248,7 +248,7 @@ html:is([data-theme="ink"], [data-theme="night"])
   border-color: transparent;
 
   overflow: clip;
-  overflow-clip-margin: 12px;
+  overflow-clip-margin: 0.857rem;
 }
 
 html:is([data-theme="ink"], [data-theme="night"])
@@ -305,7 +305,7 @@ html:is([data-theme="ink"], [data-theme="night"])
   border-color: transparent;
 
   overflow: clip;
-  overflow-clip-margin: 12px;
+  overflow-clip-margin: 0.857rem;
 }
 
 html:is([data-theme="ink"], [data-theme="night"])
@@ -328,7 +328,7 @@ html:is([data-theme="ink"], [data-theme="night"])
   --stroke: color-mix(in srgb, var(--c-27362f) 34%, transparent);
 
   overflow: clip;
-  overflow-clip-margin: 12px;
+  overflow-clip-margin: 0.857rem;
 }
 html:is([data-theme="ink"], [data-theme="night"]) :is(.context-panel.context-open, .composer.chat-composer)::after {
   content: "";
@@ -354,7 +354,7 @@ html:is([data-theme="ink"], [data-theme="night"]) aside.file-explorer.doc-browse
   --stroke: color-mix(in srgb, var(--c-27362f) 34%, transparent);
 
   overflow: clip;
-  overflow-clip-margin: 12px;
+  overflow-clip-margin: 0.857rem;
 }
 html:is([data-theme="ink"], [data-theme="night"]) aside.file-explorer.doc-browser-tree::after {
   content: "";

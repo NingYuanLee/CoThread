@@ -2,12 +2,25 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";
 import { callMcpTool, mcpReadToolSpecs } from "../server/mcp.js";
-import { elderPrompt, elderToolNames, runElderQuestion } from "../server/elder-kernel.js";
+import { apply } from "../dsh-layer/cothread-skills.mjs";
+import {
+  elderPrompt,
+  elderPromptWithSkills,
+  elderSkillsBinding,
+  elderToolNames,
+  runElderQuestion,
+} from "../server/elder-kernel.js";
 
 test("elder questions use the DSH kernel, say the understanding first, and keep web tools for web scope", async () => {
   const read = MCP_CAPABILITIES.filter((item) => item.access === "read").map((item) => item.name);
-  assert.deepEqual(elderToolNames("project"), ["beijing_time", ...read]);
-  assert.deepEqual(elderToolNames("web"), ["beijing_time", ...read, "web_search", "web_fetch"]);
+  assert.deepEqual(elderToolNames("project"), ["beijing_time", "miaowen_chat", ...read]);
+  assert.deepEqual(elderToolNames("web"), [
+    "beijing_time",
+    "miaowen_chat",
+    ...read,
+    "web_search",
+    "web_fetch",
+  ]);
   assert.equal(elderToolNames("project").includes("search_knowledge"), false);
   assert.equal(elderToolNames("project").includes("post_message"), false);
   assert.equal(
@@ -84,4 +97,65 @@ test("elder questions use the DSH kernel, say the understanding first, and keep 
   assert.equal(produced.trace[0].tool, "understanding");
   assert.match(produced.trace[0].text, /口令/);
   assert.equal(produced.text, "口令在第二页。");
+});
+
+test("问老翁把老翁已启用技能放进 knowledge 身份", async () => {
+  const instructions = "已启用的自定义 Skill\n### 腾讯广告妙问助手";
+  const binding = elderSkillsBinding(instructions);
+  const parsed = JSON.parse(binding.COTHREAD_SKILLS_BY_LEVEL);
+  assert.equal(parsed.knowledge, instructions);
+  const previous = {
+    skills: process.env.COTHREAD_SKILLS_BY_LEVEL,
+    level: process.env.COTHREAD_PRIMARY_AGENT_LEVEL,
+  };
+  let seenEnv = "";
+  let seenPrompt = "";
+  try {
+    process.env.COTHREAD_SKILLS_BY_LEVEL = binding.COTHREAD_SKILLS_BY_LEVEL;
+    process.env.COTHREAD_PRIMARY_AGENT_LEVEL = "knowledge";
+    let section;
+    apply({
+      systemPrompt: {
+        section(value) {
+          section = value;
+        },
+      },
+    });
+    assert.equal(section.text({ agent: { id: "elder" } }), instructions);
+    await runElderQuestion({
+      question: "腾讯广告怎么开户",
+      scope: "project",
+      skillInstructions: instructions,
+      model: {
+        apiKey: "test-key",
+        model: "test-model",
+        baseUrl: "https://example.invalid/v1",
+        reasoningEffort: "low",
+      },
+      lookup: async () => ({ text: "", materials: [] }),
+      createHarness: async (options) => {
+        seenEnv = options.env.COTHREAD_SKILLS_BY_LEVEL;
+        return {
+          start: async () => {},
+          run: async (value) => {
+            seenPrompt = value;
+            return { finalResponse: "可以。" };
+          },
+          close: async () => {},
+        };
+      },
+    });
+  } finally {
+    if (previous.skills === undefined) delete process.env.COTHREAD_SKILLS_BY_LEVEL;
+    else process.env.COTHREAD_SKILLS_BY_LEVEL = previous.skills;
+    if (previous.level === undefined) delete process.env.COTHREAD_PRIMARY_AGENT_LEVEL;
+    else process.env.COTHREAD_PRIMARY_AGENT_LEVEL = previous.level;
+  }
+  assert.equal(JSON.parse(seenEnv).knowledge, instructions);
+  assert.match(seenPrompt, /不要说自己没有这个技能/);
+  assert.match(seenPrompt, /腾讯广告妙问助手/);
+  assert.equal(
+    seenPrompt,
+    elderPromptWithSkills(elderPrompt("腾讯广告怎么开户", "project"), instructions),
+  );
 });

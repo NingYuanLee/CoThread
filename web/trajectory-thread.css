@@ -32,30 +32,30 @@
   min-height: 0;
   overflow: hidden;
   background: var(--c-fff, #fff);
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 
 /* 三条泳道：输入 / 模型 / 工具，共用一条时间轴 */
 .trajectory-lanes {
-  padding: 5px 10px 7px;
+  padding: 0.357rem 0.714rem 0.5rem;
   border-bottom: 1px solid var(--c-eef1ee, #eef1ee);
 }
 
 .trajectory-lane {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-columns: 1.714rem minmax(0, 1fr);
 }
 
 .trajectory-lane-label {
   color: var(--c-8a9482, #8a9482);
-  font-size: 10px;
+  font-size: 0.714rem;
   line-height: 1;
   text-align: right;
 }
 
 .trajectory-lane-track {
   position: relative;
-  height: 6px;
+  height: 0.429rem;
   min-width: 0;
   overflow: hidden;
 }
@@ -63,11 +63,11 @@
 .trajectory-span {
   position: absolute;
   top: 0;
-  height: 5px;
-  min-width: 2px;
+  height: 0.357rem;
+  min-width: 0.143rem;
   padding: 0;
   border: 0;
-  border-radius: 1px;
+  border-radius: 0.071rem;
   background: var(--c-8a9482, #8a9482);
   cursor: pointer;
   opacity: 0.82;
@@ -77,7 +77,7 @@
 
 .trajectory-span[data-current] {
   opacity: 1;
-  box-shadow: 0 0 0 1px var(--c-27362f, #27362f);
+  box-shadow: 0 0 0 0.071rem var(--c-27362f, #27362f);
 }
 
 .trajectory-span[data-kind="system"] { background: var(--c-trajectory-system); }
@@ -104,9 +104,9 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 3px 0 12px;
+  padding: 0.214rem 0 0.857rem;
   /* 分隔线用内阴影画：给滚动容器加 border 会让内容宽度多 1px，出现横向滚动条。 */
-  box-shadow: inset -1px 0 0 var(--c-eef1ee, #eef1ee);
+  box-shadow: inset -0.071rem 0 0 var(--c-eef1ee, #eef1ee);
 }
 
 /* ===== 步骤行：左侧留出「第几轮」的位置 ===== */
@@ -115,11 +115,11 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.429rem;
   width: 100%;
   max-width: 100%;
   margin: 0;
-  padding: 3px 10px 3px 58px;
+  padding: 0.214rem 0.714rem 0.214rem 4.143rem;
   border: 0;
   background: transparent;
   color: inherit;
@@ -140,31 +140,31 @@
   left: 0;
   top: 0;
   bottom: 0;
-  width: 2px;
+  width: 0.143rem;
   background: var(--c-6f8b60, #6f8b60);
 }
 
 .trajectory-turn-badge {
   position: absolute;
-  left: 8px;
-  top: 3px;
+  left: 0.571rem;
+  top: 0.214rem;
   margin: 0;
   color: var(--c-8a9482, #8a9482);
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 0.714rem;
+  line-height: 1rem;
   white-space: nowrap;
 }
 
 /* 不同类型 = 不同颜色的标签，类型名加粗 */
 .trajectory-step-kind {
   flex: 0 0 auto;
-  padding: 0 4px;
-  border-radius: 2px;
+  padding: 0 0.286rem;
+  border-radius: 0.143rem;
   color: var(--kind-fg);
   background: var(--kind-bg);
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 700;
-  line-height: 14px;
+  line-height: 1rem;
 }
 
 .trajectory-step {
@@ -228,11 +228,11 @@
 
 .trajectory-request-dot {
   position: absolute;
-  left: 36px;
+  left: 2.571rem;
   top: 0;
   z-index: 2;
-  width: 15px;
-  height: 15px;
+  width: 1.071rem;
+  height: 1.071rem;
   padding: 0;
   border: 0;
   background: transparent;
@@ -243,7 +243,7 @@
 .trajectory-request-dot::before {
   content: "";
   position: absolute;
-  inset: 4px;
+  inset: 0.286rem;
   border: 1px solid var(--c-9fb0a2, #9fb0a2);
   border-radius: 50%;
   background: transparent;
@@ -272,15 +272,15 @@
 .trajectory-panel .trajectory-detail-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  gap: 0.571rem;
+  padding: 0.429rem 0.857rem;
   border-bottom: 1px solid var(--c-eef1ee, #eef1ee);
 }
 
 .trajectory-panel .trajectory-detail-head::after { content: none; }
 
 .trajectory-panel .trajectory-detail-head strong {
-  font-size: 11px;
+  font-size: 0.786rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -289,19 +289,19 @@
   flex: 1;
   min-width: 0;
   color: var(--c-8a9482, #8a9482);
-  font-size: 10px;
+  font-size: 0.714rem;
 }
 
 .trajectory-panel .trajectory-detail-close {
   flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
+  width: 1.286rem;
+  height: 1.286rem;
   padding: 0;
   border: 0;
-  border-radius: 3px;
+  border-radius: 0.214rem;
   background: transparent;
   color: var(--c-8a9482, #8a9482);
-  font-size: 14px;
+  font-size: 1rem;
   line-height: 1;
   cursor: pointer;
 }
@@ -314,8 +314,8 @@
 /* 标签：干净的文字 + 选中底杠（无圆角、无逐项边框） */
 .trajectory-tabs {
   display: flex;
-  gap: 14px;
-  padding: 0 12px;
+  gap: 1rem;
+  padding: 0 0.857rem;
   border-bottom: 1px solid var(--c-eef1ee, #eef1ee);
   overflow-x: auto;
 }
@@ -324,13 +324,13 @@
   position: relative;
   flex: 0 0 auto;
   margin: 0;
-  padding: 6px 0;
+  padding: 0.429rem 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: var(--c-8a9482, #8a9482);
   font: inherit;
-  font-size: 11px;
+  font-size: 0.786rem;
   cursor: pointer;
 }
 
@@ -346,7 +346,7 @@
   right: 0;
   bottom: 0;
   width: auto;
-  height: 2px;
+  height: 0.143rem;
   border: 0;
   border-radius: 0;
   background: var(--c-6f8b60, #6f8b60);
@@ -356,13 +356,13 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 8px 12px 14px;
+  padding: 0.571rem 0.857rem 1rem;
 }
 
 .trajectory-tab-body pre {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 0.786rem;
   line-height: 1.65;
   white-space: pre-wrap;
   word-break: break-word;
@@ -372,9 +372,9 @@
 
 .trajectory-tab-body dl > div {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 6px;
-  padding: 2px 0;
+  grid-template-columns: 5.143rem minmax(0, 1fr);
+  gap: 0.429rem;
+  padding: 0.143rem 0;
 }
 
 .trajectory-tab-body dt { color: var(--c-8a9482, #8a9482); }
@@ -395,9 +395,9 @@
 
 .trajectory-empty {
   margin: 0;
-  padding: 10px 12px;
+  padding: 0.714rem 0.857rem;
   color: var(--c-8a9482, #8a9482);
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 
 /* 上下文的「来源」页：只显示格式化后的 JSON，可折行不横向滚动 */
@@ -415,9 +415,9 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 
 .trajectory-json {
   margin: 0;
-  padding: 8px 12px;
+  padding: 0.571rem 0.857rem;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 0.786rem;
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -433,8 +433,8 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 .trajectory-file-list li {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  padding: 2px 0;
+  gap: 0.714rem;
+  padding: 0.143rem 0;
 }
 
 .trajectory-file-name {
@@ -453,21 +453,21 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 .trajectory-blocks {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0.714rem;
 }
 
 .trajectory-block-head {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 0.429rem;
 }
 
 .trajectory-block-no { font-weight: 700; }
 
 .trajectory-block-type {
-  padding: 0 4px;
-  border-radius: 2px;
-  font-size: 9px;
+  padding: 0 0.286rem;
+  border-radius: 0.143rem;
+  font-size: 0.643rem;
   font-weight: 600;
 }
 
@@ -489,24 +489,24 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 }
 
 .trajectory-block pre {
-  max-height: 260px;
-  margin: 3px 0 0;
-  padding: 5px 7px;
+  max-height: 18.571rem;
+  margin: 0.214rem 0 0;
+  padding: 0.357rem 0.5rem;
   overflow: auto;
-  border-radius: 4px;
+  border-radius: 0.286rem;
   background: var(--c-f7f9f5, #f7f9f5);
-  font-size: 11px;
+  font-size: 0.786rem;
   line-height: 1.65;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 /* 助手预览：思考默认收起，正文与工具清单依次排开 */
-.trajectory-think { margin: 0 0 10px; }
+.trajectory-think { margin: 0 0 0.714rem; }
 
 .trajectory-think > summary {
   color: var(--c-8a9482, #8a9482);
-  font-size: 11px;
+  font-size: 0.786rem;
   cursor: pointer;
   list-style: none;
 }
@@ -515,7 +515,7 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 
 .trajectory-think > summary::before {
   content: "▸";
-  margin-right: 4px;
+  margin-right: 0.286rem;
 }
 
 .trajectory-think[open] > summary::before { content: "▾"; }
@@ -523,19 +523,19 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 .trajectory-think > summary em { font-style: normal; }
 
 .trajectory-think pre {
-  max-height: 320px;
-  margin: 2px 0 0;
+  max-height: 22.857rem;
+  margin: 0.143rem 0 0;
   overflow: auto;
-  font-size: 11px;
+  font-size: 0.786rem;
   line-height: 1.65;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .trajectory-preview-block h4 {
-  margin: 12px 0 4px;
+  margin: 0.857rem 0 0.286rem;
   color: var(--c-8a9482, #8a9482);
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 600;
 }
 
@@ -543,9 +543,9 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 
 .trajectory-preview-block pre {
   margin: 0;
-  max-height: 320px;
+  max-height: 22.857rem;
   overflow: auto;
-  font-size: 11px;
+  font-size: 0.786rem;
   line-height: 1.65;
   white-space: pre-wrap;
   word-break: break-word;
@@ -554,7 +554,7 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 .trajectory-step-tools {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0.286rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -562,11 +562,11 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 
 .trajectory-step-tools button {
   display: flex;
-  gap: 8px;
+  gap: 0.571rem;
   width: 100%;
-  padding: 4px 6px;
+  padding: 0.286rem 0.429rem;
   border: 1px solid var(--c-e7eae7, #e7eae7);
-  border-radius: 4px;
+  border-radius: 0.286rem;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -585,24 +585,24 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 
 .trajectory-step-tools-meta {
   margin-left: auto;
   color: var(--c-8a9482, #8a9482);
-  font-size: 10px;
+  font-size: 0.714rem;
 }
 
 /* 分栏（问老翁）里变窄时：步骤列表在上，详情在下 */
-@container (max-width: 760px) {
+@container (max-width: 54.286rem) {
   .trajectory-body {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(0, 232px);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 16.571rem);
   }
 
   .trajectory-steps {
-    box-shadow: inset 0 -1px 0 var(--c-e7eae7, #e7eae7);
+    box-shadow: inset 0 -0.071rem 0 var(--c-e7eae7, #e7eae7);
   }
 }
 
@@ -610,13 +610,13 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 .trajectory-turn-mode {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 0.214rem;
   flex: 0 0 auto;
-  padding: 0 5px;
-  border-radius: 3px;
-  font-size: 10px;
+  padding: 0 0.357rem;
+  border-radius: 0.214rem;
+  font-size: 0.714rem;
   font-weight: 600;
-  line-height: 15px;
+  line-height: 1.071rem;
   white-space: nowrap;
 }
 
@@ -628,8 +628,8 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  padding: 2px 10px 2px 58px;
+  gap: 0.286rem;
+  padding: 0.143rem 0.714rem 0.143rem 4.143rem;
 }
 
 .trajectory-tool-group:hover { background: var(--c-f7f9f5, #f7f9f5); }
@@ -637,15 +637,15 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 .trajectory-tool-fold {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.429rem;
   flex: 1 1 auto;
   min-width: 0;
-  padding: 2px 0;
+  padding: 0.143rem 0;
   border: 0;
   background: transparent;
   color: var(--c-5e6c56, #5e6c56);
   font: inherit;
-  font-size: 12px;
+  font-size: 0.857rem;
   line-height: 1.6;
   text-align: left;
   cursor: pointer;
@@ -670,7 +670,7 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 .trajectory-tool-fold-hint {
   flex: 0 0 auto;
   color: var(--c-8b9689, #8b9689);
-  font-size: 10px;
+  font-size: 0.714rem;
 }
 
 .trajectory-tool-fold-chevron {
@@ -684,10 +684,10 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
   flex: 1 0 100%;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0.071rem;
   box-sizing: border-box;
-  margin: 2px 0 4px;
-  padding-left: 19px;
+  margin: 0.143rem 0 0.286rem;
+  padding-left: 1.357rem;
 }
 
 .trajectory-tool-item { margin: 0; }
@@ -695,10 +695,10 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 .trajectory-tool-item > summary {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 0;
+  gap: 0.429rem;
+  padding: 0.143rem 0;
   color: var(--c-5e6c56, #5e6c56);
-  font-size: 12px;
+  font-size: 0.857rem;
   line-height: 1.6;
   cursor: pointer;
   list-style: none;
@@ -711,7 +711,7 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
   content: "▸";
   flex: 0 0 auto;
   color: var(--c-8a9482, #8a9482);
-  font-size: 9px;
+  font-size: 0.643rem;
 }
 
 .trajectory-tool-item[open] > summary::before { content: "▾"; }
@@ -723,14 +723,14 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 
 .trajectory-tool-status {
   margin-left: auto;
   flex: 0 0 auto;
   color: var(--c-8a9482, #8a9482);
-  font-size: 10px;
+  font-size: 0.714rem;
 }
 
 .trajectory-tool-item[data-status="failed"] .trajectory-tool-status { color: var(--c-b4432f, #b4432f); }
@@ -738,25 +738,25 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 .trajectory-tool-payload {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 2px 0 6px 19px;
+  gap: 0.143rem;
+  margin: 0.143rem 0 0.429rem 1.357rem;
 }
 
 .trajectory-tool-payload-label {
   color: var(--c-8a9482, #8a9482);
-  font-size: 10px;
+  font-size: 0.714rem;
 }
 
 .trajectory-tool-payload pre {
-  max-height: 220px;
-  margin: 0 0 4px;
-  padding: 4px 6px;
+  max-height: 15.714rem;
+  margin: 0 0 0.286rem;
+  padding: 0.286rem 0.429rem;
   overflow: auto;
-  border-radius: 4px;
+  border-radius: 0.286rem;
   background: var(--c-f7f9f5, #f7f9f5);
   color: var(--c-3c463a, #3c463a);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 0.786rem;
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -765,19 +765,19 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 .trajectory-tool-loading {
   margin: 0;
   color: var(--c-8a9482, #8a9482);
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 
 /* ===== 上下文压缩：平铺一行，黄色「压缩」文字标签，不伸缩、不用图标 ===== */
 .trajectory-compact-tag {
   flex: 0 0 auto;
-  padding: 0 5px;
-  border-radius: 2px;
+  padding: 0 0.357rem;
+  border-radius: 0.143rem;
   background: #fdf1cf;
   color: #9a6b12;
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 600;
-  line-height: 16px;
+  line-height: 1.143rem;
 }
 
 html[data-theme="night"] .trajectory-compact-tag {

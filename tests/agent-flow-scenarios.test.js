@@ -118,6 +118,7 @@ test("a short follow-up after 小祥 stays light and is sent as written", async 
       calls += 1;
       return { respond: true, message: "哈哈，这次赶上了。" };
     },
+    judgeReminder: async () => ({ remind: false }),
   });
   assert.equal(calls, 1);
   assert.equal(result.escalate, undefined);
@@ -203,6 +204,7 @@ test("an older oversized message is dropped and the newest short line is still j
       seen = (context.messages || []).map((row) => row.body);
       return { respond: true, message: "就这句我接着听。" };
     },
+    judgeReminder: async () => ({ remind: false }),
   });
   assert.equal(seen.includes("就看这句就行"), true);
   assert.equal(

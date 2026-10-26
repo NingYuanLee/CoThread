@@ -82,8 +82,8 @@ export function CoordinatorStatusIcon({ busy, archived }: { busy: boolean; archi
   return (
     <svg
       className={`coordinator-status${archived ? " is-archived" : busy ? " is-busy" : " is-idle"}`}
-      width="14"
-      height="14"
+      width="1rem"
+      height="1rem"
       viewBox="0 0 14 14"
       fill="none"
       aria-hidden="true"

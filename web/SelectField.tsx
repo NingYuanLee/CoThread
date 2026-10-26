@@ -11,6 +11,7 @@ import { Field, type FieldState } from "./Field";
 import { FloatingPanel } from "./FloatingPanel";
 import { FloatingPortal } from "./FloatingPortal";
 import { UiIcon } from "./ui-icon";
+import { scaleDesignPx } from "./apply-ui-scale";
 
 export type SelectOption = {
   value: string;
@@ -321,18 +322,23 @@ function panelStyle(anchor: HTMLElement | null): React.CSSProperties {
   if (!anchor) return { position: "fixed", left: 0, top: 0 };
   const rect = anchor.getBoundingClientRect();
   /* 面板至少与触发器同宽；窄触发器也给足最小宽度，避免选项被挤得换行。 */
-  const minWidth = Math.max(rect.width, 240);
-  const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - minWidth - 8));
+  const minWidth = Math.max(rect.width, scaleDesignPx(240));
+  const edge = scaleDesignPx(8);
+  const left = Math.min(
+    Math.max(edge, rect.left),
+    Math.max(edge, window.innerWidth - minWidth - edge),
+  );
   const spaceBelow = window.innerHeight - rect.bottom;
   const spaceAbove = rect.top;
   /* 分页条贴在视口底部时向下会超出屏幕，空间不够就翻到触发器上方。 */
-  const openUp = spaceBelow < 180 && spaceAbove > spaceBelow;
+  const openUp = spaceBelow < scaleDesignPx(180) && spaceAbove > spaceBelow;
+  const gap = scaleDesignPx(4);
   return {
     position: "fixed",
     left,
     /* 与触发器留 4px 视觉间隙，与 overlays.css 的 --overlay-select-panel-offset 保持一致。 */
-    top: openUp ? "auto" : rect.bottom + 4,
-    bottom: openUp ? window.innerHeight - rect.top + 4 : "auto",
+    top: openUp ? "auto" : rect.bottom + gap,
+    bottom: openUp ? window.innerHeight - rect.top + gap : "auto",
     minWidth,
   };
 }

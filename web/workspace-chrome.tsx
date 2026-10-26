@@ -35,8 +35,8 @@ export function CoThreadLogo({ className, title }: { className?: string; title?:
 export function PanelIcon({ side }: { side: "left" | "right" }) {
   return (
     <svg
-      width="18"
-      height="18"
+      width="1.286rem"
+      height="1.286rem"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -52,8 +52,8 @@ export function PanelIcon({ side }: { side: "left" | "right" }) {
 export function SidebarIcon({ kind }: { kind: "plus" | "monitor" | "project" | "connector" }) {
   return (
     <svg
-      width="18"
-      height="18"
+      width="1.286rem"
+      height="1.286rem"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -86,8 +86,8 @@ export function SidebarIcon({ kind }: { kind: "plus" | "monitor" | "project" | "
 export function ProjectActionIcon({ action }: { action: "pin" | "unpin" | "import" | "close" }) {
   return (
     <svg
-      width="16"
-      height="16"
+      width="1.143rem"
+      height="1.143rem"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

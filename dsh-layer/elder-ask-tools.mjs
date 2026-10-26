@@ -6,7 +6,13 @@ export const inject = ["tools"];
 async function bridgeTool(name, args, sessionId) {
   const response = await fetch(`${process.env.COTHREAD_BRIDGE_URL}/tool`, {
     method: "POST",
-    signal: AbortSignal.timeout(name === "web_search" || name === "web_fetch" ? 120000 : 20000),
+    signal: AbortSignal.timeout(
+      name === "miaowen_chat"
+        ? 180000
+        : name === "web_search" || name === "web_fetch"
+          ? 120000
+          : 20000,
+    ),
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${process.env.COTHREAD_BRIDGE_TOKEN}`,
@@ -20,6 +26,11 @@ async function bridgeTool(name, args, sessionId) {
 
 const mcpTools = JSON.parse(process.env.COTHREAD_MCP_TOOLS || "[]");
 const definitions = [
+  [
+    "miaowen_chat",
+    "用当前登录账号在个人设置里保存的妙问 API KEY，调用腾讯广告妙问。只传入要问的问题，不要索取或复述密钥。",
+    { query: { type: "string", required: true } },
+  ],
   [
     "web_search",
     "搜索公开网页，调用 DeepSeek 官方 Search 接口。可选 count（1 到 50，不传则官方默认 10）、ori_question、localization、need_content。原样返回官方结果。只有全网检索可以使用。",

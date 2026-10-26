@@ -9,8 +9,8 @@ export function AgentToolIcon({ category, status }: { category: string; status: 
     <svg
       className={`agent-tool-icon ${status}`}
       data-category={category}
-      width="15"
-      height="15"
+      width="1.071rem"
+      height="1.071rem"
       viewBox="0 0 20 20"
       fill="none"
       stroke="currentColor"

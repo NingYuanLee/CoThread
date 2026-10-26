@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { createPortal } from "react-dom";
 import { overlayDuration, type OverlayDirection } from "./overlay-motion";
 import { Check, CircleCheck, CircleX, Copy, Info, Timer, TriangleAlert, X } from "lucide-react";
+import { designPxToRem } from "../shared/ui-scale.js";
 
 export type TipKind = "success" | "error" | "warning" | "info";
 export type TipOptions = {
@@ -331,7 +332,7 @@ function TipCard({ tip }: { tip: TipItem }) {
         role={tip.kind === "error" ? "alert" : "status"}
         aria-atomic="true"
       >
-        <Icon className="tip-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
+        <Icon className="tip-icon" size={designPxToRem(18)} strokeWidth={1.8} aria-hidden="true" />
         <span className="tip-message" title={tip.multiline ? undefined : tip.message}>
           {tip.message}
         </span>
@@ -345,9 +346,9 @@ function TipCard({ tip }: { tip: TipItem }) {
             onClick={() => void copy()}
           >
             {copyState === "copied" ? (
-              <Check size={14} strokeWidth={1.8} aria-hidden="true" />
+              <Check size={designPxToRem(14)} strokeWidth={1.8} aria-hidden="true" />
             ) : (
-              <Copy size={14} strokeWidth={1.8} aria-hidden="true" />
+              <Copy size={designPxToRem(14)} strokeWidth={1.8} aria-hidden="true" />
             )}
           </button>
         )}
@@ -370,7 +371,7 @@ function TipCard({ tip }: { tip: TipItem }) {
           disabled={tip.leaving || running}
           onClick={() => dismissTip(tip.id)}
         >
-          <X size={14} strokeWidth={1.8} aria-hidden="true" />
+          <X size={designPxToRem(14)} strokeWidth={1.8} aria-hidden="true" />
         </button>
       </div>
     </div>

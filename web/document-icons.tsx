@@ -15,6 +15,14 @@ import {
   Text,
 } from "@react-symbols/icons/files";
 import { wechatFileIcons } from "./wechat-file-icons";
+import { designPxToRem } from "../shared/ui-scale.js";
+
+function scaleBox(width?: number | string, height?: number | string) {
+  return {
+    width: typeof width === "number" ? designPxToRem(width) : width,
+    height: typeof height === "number" ? designPxToRem(height) : height,
+  };
+}
 
 const officeIcons = {
   odt: Document,
@@ -40,13 +48,25 @@ export function isImageFilename(fileName: string) {
   return /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(fileName);
 }
 
-function OfficeFileIcon({ fileName, ...props }: { fileName: string } & SVGProps<SVGSVGElement>) {
+function OfficeFileIcon({
+  fileName,
+  width,
+  height,
+  ...props
+}: { fileName: string } & SVGProps<SVGSVGElement>) {
+  const box = scaleBox(width, height);
   const extension = fileName.toLowerCase().split(".").pop() || "";
   const isPresentation = extension === "ppt" || extension === "pptx";
   const isDocument = extension === "doc" || extension === "docx";
   if (!isPresentation && !isDocument) {
     return (
-      <FileIcon fileName={fileName} editFileExtensionData={officeIcons} autoAssign {...props} />
+      <FileIcon
+        fileName={fileName}
+        editFileExtensionData={officeIcons}
+        autoAssign
+        {...props}
+        {...box}
+      />
     );
   }
 
@@ -58,6 +78,7 @@ function OfficeFileIcon({ fileName, ...props }: { fileName: string } & SVGProps<
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       {...props}
+      {...box}
       aria-hidden={props["aria-hidden"] ?? true}
     >
       <path d="M5 2.75h8.7L19 8.05v13.2H5z" fill="#fff" stroke={accent} strokeWidth="1.4" />
@@ -99,8 +120,7 @@ export function LibraryFileIcon({
         src={`/api/versions/${versionId}/source`}
         alt=""
         className={className}
-        width={width}
-        height={height}
+        {...scaleBox(width, height)}
         aria-hidden="true"
         onError={() => setFailed(true)}
       />
@@ -111,8 +131,7 @@ export function LibraryFileIcon({
       fileName={fileName}
       className={className}
       aria-hidden="true"
-      width={width}
-      height={height}
+      {...scaleBox(width, height)}
     />
   );
 }
@@ -182,7 +201,7 @@ export function TreeIcon({ kind, className }: { kind: string; className?: string
 }
 
 export function TreeDepth({ depth }: { depth: number }) {
-  return <span className="tree-depth" style={{ width: depth * 14 }} aria-hidden="true" />;
+  return <span className="tree-depth" style={{ width: `${depth}rem` }} aria-hidden="true" />;
 }
 
 export function ClosedFolderIcon({ className }: { className?: string } = {}) {
@@ -191,8 +210,8 @@ export function ClosedFolderIcon({ className }: { className?: string } = {}) {
       aria-hidden="true"
       className={className ? `tree-icon ${className}` : "tree-icon"}
       viewBox="0 0 24 24"
-      width={16}
-      height={16}
+      width="1.143rem"
+      height="1.143rem"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.8"
@@ -210,8 +229,8 @@ export function OpenFolderIcon({ className }: { className?: string } = {}) {
       aria-hidden="true"
       className={className ? `tree-icon ${className}` : "tree-icon"}
       viewBox="0 0 24 24"
-      width={16}
-      height={16}
+      width="1.143rem"
+      height="1.143rem"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.8"

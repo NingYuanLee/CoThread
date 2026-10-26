@@ -1,4 +1,5 @@
 import yunxiaoMark from "./assets/yunxiao.png";
+import { designPxToRem } from "../shared/ui-scale.js";
 
 export type UiIconName =
   | "abandon"
@@ -379,14 +380,15 @@ export function UiIcon({
   size?: number;
   className?: string;
 }) {
+  const length = designPxToRem(size);
   const imageSrc = name in IMAGE_ICONS ? IMAGE_ICONS[name as keyof typeof IMAGE_ICONS] : undefined;
   if (imageSrc) {
     return (
       <img
         className={className ? `ui-icon ui-icon-image ${className}` : "ui-icon ui-icon-image"}
         src={imageSrc}
-        width={size}
-        height={size}
+        width={length}
+        height={length}
         alt=""
         draggable={false}
         aria-hidden="true"
@@ -397,8 +399,8 @@ export function UiIcon({
   return (
     <svg
       className={className ? `ui-icon ${className}` : "ui-icon"}
-      width={size}
-      height={size}
+      width={length}
+      height={length}
       viewBox="0 0 24 24"
       fill={filled ? "currentColor" : "none"}
       stroke={filled ? "none" : "currentColor"}

@@ -97,7 +97,7 @@ export function MessageContextMenu({
 
 function ThreadMoreIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <svg width="1rem" height="1rem" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <circle cx="12" cy="5" r="1.75" />
       <circle cx="12" cy="12" r="1.75" />
       <circle cx="12" cy="19" r="1.75" />

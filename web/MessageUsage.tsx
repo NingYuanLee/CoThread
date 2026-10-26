@@ -32,8 +32,8 @@ const tokens = (n?: number) => (n == null ? "未记录" : `${n.toLocaleString("z
 function MetricIcon({ kind }: { kind: "usage" | "time" }) {
   return (
     <svg
-      width="16"
-      height="16"
+      width="1.143rem"
+      height="1.143rem"
       viewBox="0 0 20 20"
       fill="none"
       stroke="currentColor"

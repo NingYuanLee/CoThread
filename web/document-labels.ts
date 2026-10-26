@@ -3,6 +3,7 @@
  */
 import { fileDisplayName } from "../shared/document-name.js";
 import { LIBRARY_ROOT_KINDS, folderRootKind } from "./document-library";
+import { scaleDesignPx } from "./apply-ui-scale";
 
 export type LibraryVersion = {
   id: string;
@@ -333,12 +334,15 @@ export function readStoredBoolean(key: string, fallback: boolean) {
 }
 
 export function readStoredTreeWidth() {
+  const min = scaleDesignPx(TREE_WIDTH_MIN);
+  const max = scaleDesignPx(TREE_WIDTH_MAX);
+  const fallback = scaleDesignPx(TREE_WIDTH_DEFAULT);
   try {
     const value = Number(localStorage.getItem(DOCUMENT_TREE_WIDTH_KEY));
-    if (!Number.isFinite(value)) return TREE_WIDTH_DEFAULT;
-    return Math.min(Math.max(Math.round(value), TREE_WIDTH_MIN), TREE_WIDTH_MAX);
+    if (!Number.isFinite(value)) return fallback;
+    return Math.min(Math.max(Math.round(value), min), max);
   } catch {
-    return TREE_WIDTH_DEFAULT;
+    return fallback;
   }
 }
 

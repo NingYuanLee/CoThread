@@ -25,7 +25,7 @@
     "test": "node --env-file-if-exists=.env --test --test-concurrency=1 tests/*.test.js",
     "test:shards": "node --env-file-if-exists=.env scripts/test-shards.mjs",
     "test:unit": "node scripts/test-unit.js",
-    "lint": "node scripts/lint.js && node scripts/check-boundaries.mjs && node scripts/check-overlays.mjs && node scripts/check-field-resets.mjs && node scripts/check-field-usage.mjs && node scripts/check-theme-generated.mjs",
+    "lint": "node scripts/lint.js && node scripts/check-boundaries.mjs && node scripts/check-overlays.mjs && node scripts/check-field-resets.mjs && node scripts/check-field-usage.mjs && node scripts/check-theme-generated.mjs && node scripts/check-ui-scale.mjs",
     "lint:boundaries": "node scripts/check-boundaries.mjs && node scripts/check-overlays.mjs && node scripts/check-field-resets.mjs",
     "mysql:sync-dev-user": "node --env-file-if-exists=.env scripts/mysql-sync-dev-user.js",
     "app:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 start",

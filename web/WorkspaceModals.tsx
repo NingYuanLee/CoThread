@@ -25,6 +25,9 @@ const EmailBinding = lazy(() =>
 const McpSettings = lazy(() =>
   import("./McpSettings").then((module) => ({ default: module.McpSettings })),
 );
+const SkillSettings = lazy(() =>
+  import("./SkillSettings").then((module) => ({ default: module.SkillSettings })),
+);
 const PasswordField = lazy(() =>
   import("./PasswordField").then((module) => ({ default: module.PasswordField })),
 );
@@ -99,7 +102,7 @@ export function WorkspaceModals({
         <ModalBackdrop onClose={() => setModal(null)} enabled={!busy}>
           {(close) => (
             <section
-              className={`modal ${["profile", "settings", "password", "email", "mcp"].includes(modal) ? "workspace-settings space-dialog" : ""}`}
+              className={`modal ${["profile", "settings", "password", "email", "mcp", "skills"].includes(modal) ? "workspace-settings space-dialog" : ""}`}
               role="dialog"
               aria-modal="true"
               aria-labelledby="modal-title"
@@ -115,6 +118,7 @@ export function WorkspaceModals({
                         password: "个人设置",
                         email: "个人设置",
                         mcp: "个人设置",
+                        skills: "个人设置",
                         run: "在沙箱中执行",
                       }[modal]
                     }
@@ -123,9 +127,9 @@ export function WorkspaceModals({
                 titleId="modal-title"
                 subtitle={
                   <>
-                    {["profile", "settings", "password", "email", "mcp"].includes(modal) && (
-                      <span>{settingsSpaceLabel}</span>
-                    )}
+                    {["profile", "settings", "password", "email", "mcp", "skills"].includes(
+                      modal,
+                    ) && <span>{settingsSpaceLabel}</span>}
                   </>
                 }
                 onClose={close}
@@ -134,18 +138,19 @@ export function WorkspaceModals({
               />
               <div
                 className={
-                  ["profile", "settings", "password", "email", "mcp"].includes(modal)
+                  ["profile", "settings", "password", "email", "mcp", "skills"].includes(modal)
                     ? "settings-layout space-dialog-body"
                     : "dialog-plain-body"
                 }
               >
-                {["profile", "settings", "password", "email", "mcp"].includes(modal) && (
+                {["profile", "settings", "password", "email", "mcp", "skills"].includes(modal) && (
                   <nav className="settings-nav space-dialog-nav" aria-label="个人设置">
                     {(
                       [
                         ["profile", "个人资料", "human"],
                         ["password", "修改密码", "lock"],
                         ["mcp", "MCP 配置", "key"],
+                        ["skills", "技能设置", "key"],
                         ["settings", "退出/切换", "logout"],
                       ] as const
                     ).map(([value, label, icon]) => (
@@ -167,21 +172,25 @@ export function WorkspaceModals({
                 <form
                   key={modal}
                   className={
-                    ["profile", "settings", "password", "email", "mcp"].includes(modal)
+                    ["profile", "settings", "password", "email", "mcp", "skills"].includes(modal)
                       ? "space-dialog-content"
                       : undefined
                   }
                   onSubmit={submitModal}
                 >
                   <div className="dialog-form-scroll">
-                    {["profile", "settings", "password", "email", "mcp"].includes(modal) && (
+                    {["profile", "settings", "password", "email", "mcp", "skills"].includes(
+                      modal,
+                    ) && (
                       <div className="settings-content-heading">
                         <p>
                           {modal === "settings"
                             ? "这台浏览器可以记住多个账号。切换只点右侧按钮；退出并清除账号会清掉这台设备上的登录信息。"
                             : modal === "mcp"
                               ? "跨 Windows、macOS 和 Linux 使用共序 MCP，并管理本账号的本地执行器。"
-                              : "管理你的通用账号"}
+                              : modal === "skills"
+                                ? "妙问等技能的钥匙只属于当前登录账号。问老翁调用时使用这里保存的 KEY，不会写到本机公共文件。"
+                                : "管理你的通用账号"}
                         </p>
                       </div>
                     )}
@@ -284,6 +293,11 @@ export function WorkspaceModals({
                             acceptProfile(profile);
                           }}
                         />
+                      </Suspense>
+                    )}
+                    {modal === "skills" && (
+                      <Suspense fallback={<p className="muted">正在加载技能设置…</p>}>
+                        <SkillSettings api={api} />
                       </Suspense>
                     )}
                     {modal === "mcp" && (

@@ -43,7 +43,7 @@ const MCP_READ = MCP_CAPABILITIES.filter((item) => item.access === "read").map((
 const MCP_TITLE = Object.fromEntries(MCP_CAPABILITIES.map((item) => [item.name, item.title]));
 
 export function elderToolNames(scope) {
-  const names = ["beijing_time", ...MCP_READ];
+  const names = ["beijing_time", "miaowen_chat", ...MCP_READ];
   if (scope === "web") names.push("web_search", "web_fetch");
   return names;
 }
@@ -72,7 +72,8 @@ export function elderInstruction(scope) {
     "你是老翁，运行在 DSH 中。这是和提问者的私聊。",
     "先用一两句说出你对问题的理解，然后再调用工具。不要以「我理解：」开头。",
     "查阅时边做边说：每次工具前后用简短中文说明你在看什么、看到了什么。",
-    "只能使用只读工具。不要改文档、建任务或往群里发言。",
+    "除 miaowen_chat 外，只能使用只读工具。不要改文档、建任务或往群里发言。",
+    "腾讯广告或妙问的问题用 miaowen_chat 提问。钥匙来自提问者个人设置里的技能设置，不要向用户索取密钥，也不要把它写进回答。",
     "数量、清单、有哪些，用对应的 MCP 只读工具，例如 get_project_context、list_documents、list_tasks、list_messages。当前项目会自动带上 projectId。",
     "问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文档」先用 search_memory。subject 只能是 utterance（关键发言）、document（主要文档）、task（重要任务）、discussion（核心议题）、project（里程碑）。它只返回现行记忆的摘要和出处；要原话再按出处用 read_message 或 read_document 核对。不要凭印象编造，回答时用这五类名称。",
     "读项目文档正文用 read_document，传入 list_documents 或消息引用里的版本 ID。它返回文本和是否截断；截断时用返回的 nextOffset 作为 offset 续读。不要用 get_document_version 读正文，那个工具按字节分片下载原始文件，正文不会进入回答。",
@@ -91,6 +92,41 @@ export function elderContextBlock(scope, focus) {
 
 export function elderPrompt(question, scope, focus) {
   return [elderContextBlock(scope, focus), "问题：" + question].join("\n");
+}
+
+/** 问老翁读的是每轮提示词，不是工具名单。技能正文必须写在这里。 */
+export function elderPromptWithSkills(prompt, instructions) {
+  const text = typeof instructions === "string" ? instructions.trim() : "";
+  if (!text) return prompt;
+  return [
+    prompt,
+    "已启用的老翁技能。问到技能名称、内容或用法时，直接依据下文回答，不要说自己没有这个技能。调用妙问只用 miaowen_chat。下文不增加其他工具。",
+    text,
+  ].join("\n\n");
+}
+
+/** 问老翁的运行身份是 knowledge，技能插件按这个键取正文。 */
+export function elderSkillsBinding(instructions) {
+  const text = typeof instructions === "string" ? instructions : "";
+  if (!text) return {};
+  return { COTHREAD_SKILLS_BY_LEVEL: JSON.stringify({ knowledge: text }) };
+}
+
+async function laowengSkillInstructions(db) {
+  if (!db) return "";
+  try {
+    const { loadAgentCapabilityProfile } = await import("./agent-capabilities.js");
+    const profile = await loadAgentCapabilityProfile(db, "laoweng");
+    return profile.instructions || "";
+  } catch (error) {
+    console.error("老翁技能没有装上", { type: error?.name || "Error" });
+    return "";
+  }
+}
+
+async function resolveElderSkillInstructions(db, skillInstructions) {
+  if (typeof skillInstructions === "string") return skillInstructions;
+  return laowengSkillInstructions(db);
 }
 
 function normalizeUsage(usage) {
@@ -197,7 +233,15 @@ async function sampleContext(harness, sessionId) {
   }
 }
 
-export async function compactElderHome({ home, sessionId, checkpoint, model, createHarness }) {
+export async function compactElderHome({
+  home,
+  sessionId,
+  checkpoint,
+  model,
+  createHarness,
+  db,
+  skillInstructions,
+}) {
   if (checkpoint) {
     const files = JSON.parse(
       gunzipSync(checkpoint, { maxOutputLength: 40 * 1024 * 1024 }).toString(),
@@ -211,6 +255,7 @@ export async function compactElderHome({ home, sessionId, checkpoint, model, cre
   const modelPatch = join(home, "model.yml");
   await writeFile(runtimePatch, elderRuntimePatch());
   await writeFile(modelPatch, dshModelPatch(configured, "knowledge"));
+  const skillText = await resolveElderSkillInstructions(db, skillInstructions);
   const env = {};
   for (const key of [
     "SystemRoot",
@@ -230,6 +275,7 @@ export async function compactElderHome({ home, sessionId, checkpoint, model, cre
     COTHREAD_RESUME_SESSION: sessionId,
     HOME: home,
     USERPROFILE: home,
+    ...elderSkillsBinding(skillText),
   });
   const harnessOptions = {
     profile: "sdk-minimal",
@@ -278,6 +324,8 @@ export async function runElderQuestion({
   model,
   persist,
   onProgress,
+  db,
+  skillInstructions,
 }) {
   const names = elderToolNames(scope);
   const prompt = elderPrompt(question, scope, focus);
@@ -377,7 +425,9 @@ export async function runElderQuestion({
             ? "搜索网页"
             : request.name === "web_fetch"
               ? "阅读网页"
-              : "查阅资料"),
+              : request.name === "miaowen_chat"
+                ? "妙问"
+                : "查阅资料"),
         status: "completed",
         input: String(
           request.args?.query || request.args?.url || request.args?.versionId || "",
@@ -416,6 +466,7 @@ export async function runElderQuestion({
     const modelPatch = join(home, "model.yml");
     await writeFile(runtimePatch, elderRuntimePatch());
     await writeFile(modelPatch, dshModelPatch(configured, "knowledge"));
+    const skillText = await resolveElderSkillInstructions(db, skillInstructions);
     const env = {};
     for (const key of [
       "SystemRoot",
@@ -439,6 +490,7 @@ export async function runElderQuestion({
       COTHREAD_RESUME_SESSION: resumeSessionId,
       HOME: home,
       USERPROFILE: home,
+      ...elderSkillsBinding(skillText),
     });
     const harnessOptions = {
       profile: "sdk-minimal",
@@ -459,7 +511,8 @@ export async function runElderQuestion({
         new (await import("@deepseek-ai/dsh-sdk-client")).DeepSeekHarness(harnessOptions));
     harness = await open(harnessOptions);
     await harness.start();
-    const result = await harness.run(prompt, {
+    const runPrompt = elderPromptWithSkills(prompt, skillText);
+    const result = await harness.run(runPrompt, {
       sessionId,
       onNotification: (note) => {
         const injection = contextInjectionFromEvent(note?.params?.event);
@@ -486,7 +539,8 @@ export async function runElderQuestion({
       materials,
       injections,
       // 真实注入的上下文原文，由记录层落成轨迹里的「上下文」事件。
-      contextBlock: elderContextBlock(scope, focus),
+      contextBlock: elderPromptWithSkills(elderContextBlock(scope, focus), skillText),
+      skillInstructions: skillText,
       sessionId,
       contextStats: contextStats?.used ? contextStats : null,
       checkpoint: persist ? await captureCheckpoint(home).catch(() => null) : null,

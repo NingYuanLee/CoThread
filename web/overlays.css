@@ -2,21 +2,21 @@
   /* 圆角只调这两个值。
      --radius-control：按钮（含图标按钮）、卡片（含聊天气泡、会话条、任务条）、输入框
      --radius-overlay：弹窗、悬浮面板、菜单、下拉和提示 */
-  --radius-control: 12px;
-  --radius-overlay: 10px;
+  --radius-control: 0.857rem;
+  --radius-overlay: 0.714rem;
   --overlay-dialog-radius: var(--radius-overlay);
   --overlay-panel-radius: var(--radius-overlay);
   --overlay-menu-radius: var(--radius-overlay);
   --overlay-tip-radius: var(--radius-overlay);
-  --overlay-dialog-padding: 0px;
-  --overlay-panel-padding: 14px;
-  --overlay-menu-padding: 6px;
-  --overlay-select-panel-padding: 4px;
+  --overlay-dialog-padding: 0;
+  --overlay-panel-padding: 1rem;
+  --overlay-menu-padding: 0.429rem;
+  --overlay-select-panel-padding: 0.286rem;
   --overlay-select-panel-radius: var(--radius-overlay);
-  --overlay-select-panel-offset: 4px;
-  --overlay-body-padding: 20px;
+  --overlay-select-panel-offset: 0.286rem;
+  --overlay-body-padding: 1.429rem;
   --overlay-header-bg: color-mix(in srgb, var(--c-f8faf8) 66%, transparent);
-  --overlay-header-blur: blur(28px) saturate(180%);
+  --overlay-header-blur: blur(2rem) saturate(180%);
   --overlay-enter-duration: 190ms;
   --overlay-exit-duration: 190ms;
   --overlay-tip-duration: 240ms;
@@ -30,13 +30,13 @@
   --overlay-glass-border: color-mix(in srgb, var(--c-27362f) 14%, transparent);
   --overlay-glass-border-float: color-mix(in srgb, var(--c-27362f) 10%, transparent);
   --overlay-glass-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--c-f8faf8) 85%, transparent), 0 16px 44px rgb(0 0 0 / 18%);
+    inset 0 0.071rem 0 color-mix(in srgb, var(--c-f8faf8) 85%, transparent), 0 1.143rem 3.143rem rgb(0 0 0 / 18%);
   --overlay-glass-shadow-float:
-    inset 0 1px 0 color-mix(in srgb, var(--c-f8faf8) 85%, transparent), 0 8px 22px rgb(0 0 0 / 14%);
-  --overlay-glass-blur: blur(18px) saturate(150%);
+    inset 0 0.071rem 0 color-mix(in srgb, var(--c-f8faf8) 85%, transparent), 0 0.571rem 1.571rem rgb(0 0 0 / 14%);
+  --overlay-glass-blur: blur(1.286rem) saturate(150%);
   --overlay-mask: rgb(15 20 18 / 10%);
   --overlay-mask-nested: rgb(15 20 18 / 6%);
-  --overlay-mask-blur: blur(6px);
+  --overlay-mask-blur: blur(0.429rem);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -80,14 +80,14 @@
 
 .tip-host {
   position: fixed;
-  inset: max(72px, calc(env(safe-area-inset-top) + 24px)) max(18px, env(safe-area-inset-right)) auto
+  inset: max(5.143rem, calc(env(safe-area-inset-top) + 1.714rem)) max(1.286rem, env(safe-area-inset-right)) auto
     auto;
   z-index: 2147483647;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   width: max-content;
-  max-width: min(340px, calc(100vw - 36px));
+  max-width: min(24.286rem, calc(100vw - 2.571rem));
   max-height: none;
   margin: 0;
   padding: 0;
@@ -106,8 +106,8 @@
 .tip-toolbar {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 10px);
-  height: 28px;
+  bottom: calc(100% + 0.714rem);
+  height: 2rem;
   opacity: 0;
   pointer-events: none;
   transition: opacity 150ms ease;
@@ -119,9 +119,9 @@
 .tip-close-all {
   display: block;
 
-  height: 28px;
+  height: 2rem;
 
-  padding: 3px 10px;
+  padding: 0.214rem 0.714rem;
 
   border: 1px solid transparent;
 
@@ -135,15 +135,15 @@
 
   -webkit-backdrop-filter: var(--overlay-glass-blur);
 
-  font-size: 12px;
+  font-size: 0.857rem;
 
-  line-height: 20px;
+  line-height: 1.429rem;
   position: relative;
   --stroke: var(--overlay-glass-border-float);
 
   --stroke-radius: calc((var(--overlay-tip-radius)) * 2);
   overflow: clip;
-  overflow-clip-margin: 12px;
+  overflow-clip-margin: 0.857rem;
 }
 .tip-close-all::after {
   content: "";
@@ -166,14 +166,14 @@
   background: var(--c-f8faf8);
 }
 .tip-close-all:focus-visible {
-  outline: 2px solid currentColor;
-  outline-offset: 2px;
+  outline: 0.143rem solid currentColor;
+  outline-offset: 0.143rem;
 }
 .tip-slot {
   flex: none;
   width: max-content;
   max-width: 100%;
-  margin-bottom: 10px;
+  margin-bottom: 0.714rem;
   transition:
     height var(--overlay-tip-duration) ease,
     margin-bottom var(--overlay-tip-duration) ease;
@@ -188,15 +188,15 @@
 
   align-items: center;
 
-  gap: 10px;
+  gap: 0.714rem;
 
   width: max-content;
 
   max-width: 100%;
 
-  min-height: 46px;
+  min-height: 3.286rem;
 
-  padding: 10px 12px;
+  padding: 0.714rem 0.857rem;
 
   border: 1px solid transparent;
 
@@ -212,15 +212,15 @@
 
   box-shadow: var(--overlay-glass-shadow-float);
 
-  font-size: 13px;
+  font-size: 0.929rem;
 
-  line-height: 20px;
+  line-height: 1.429rem;
   position: relative;
   --stroke: var(--overlay-glass-border-float);
 
   --stroke-radius: calc((calc(var(--overlay-tip-radius) * 2)) * 2);
   overflow: clip;
-  overflow-clip-margin: 12px;
+  overflow-clip-margin: 0.857rem;
 }
 .tip-item::after {
   content: "";
@@ -258,7 +258,7 @@
   align-items: flex-start;
 }
 .tip-item.is-multiline .tip-icon {
-  margin-top: 3px;
+  margin-top: 0.214rem;
 }
 .tip-item.is-multiline .tip-message {
   overflow: visible;
@@ -282,20 +282,20 @@
 .tip-countdown {
   flex: none;
   color: var(--icon);
-  font-size: 11px;
+  font-size: 0.786rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .tip-undo {
   flex: none;
-  padding: 2px 4px;
+  padding: 0.143rem 0.286rem;
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
   color: #2563eb;
-  font-size: 13px;
+  font-size: 0.929rem;
   font-weight: 600;
-  line-height: 20px;
+  line-height: 1.429rem;
   white-space: nowrap;
 
   --stroke-radius: calc((var(--radius-control)) * 2);
@@ -309,8 +309,8 @@
   flex: none;
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 1.714rem;
+  height: 1.714rem;
   padding: 0;
   border: 0;
   border-radius: var(--radius-control);
@@ -335,8 +335,8 @@
 .tip-undo:focus-visible,
 .tip-copy:focus-visible,
 .tip-dismiss:focus-visible {
-  outline: 2px solid currentColor;
-  outline-offset: 2px;
+  outline: 0.143rem solid currentColor;
+  outline-offset: 0.143rem;
 }
 .tip-copy:disabled,
 .tip-dismiss:disabled {
@@ -360,28 +360,28 @@
   }
   to {
     opacity: 0;
-    transform: translate3d(var(--overlay-x, 100%), var(--overlay-y, 0px), 0);
+    transform: translate3d(var(--overlay-x, 100%), var(--overlay-y, 0), 0);
   }
 }
 /* Component-owned rules are deliberately locked against business page overrides. */
 [data-direction] {
-  --overlay-x: 0px;
-  --overlay-y: 12px;
+  --overlay-x: 0;
+  --overlay-y: 0.857rem;
 }
 [data-direction="up"] {
-  --overlay-y: -12px;
+  --overlay-y: -0.857rem;
 }
 [data-direction="left"] {
-  --overlay-x: -16px;
-  --overlay-y: 0px;
+  --overlay-x: -1.143rem;
+  --overlay-y: 0;
 }
 [data-direction="right"] {
-  --overlay-x: 16px;
-  --overlay-y: 0px;
+  --overlay-x: 1.143rem;
+  --overlay-y: 0;
 }
 [data-direction="none"] {
-  --overlay-x: 0px;
-  --overlay-y: 0px;
+  --overlay-x: 0;
+  --overlay-y: 0;
 }
 @keyframes overlay-in {
   from {
@@ -533,7 +533,7 @@ html body :is([data-overlay="panel"], [data-overlay="menu"]) {
   --stroke-radius: calc(var(--overlay-panel-radius) * 2);
 
   overflow: clip;
-  overflow-clip-margin: 12px;
+  overflow-clip-margin: 0.857rem;
 }
 html body :is([data-overlay="panel"], [data-overlay="menu"])::after {
   content: "";
@@ -577,7 +577,7 @@ html
   ) {
   position: fixed;
   width: max-content;
-  max-width: calc(100vw - 16px);
+  max-width: calc(100vw - 1.143rem);
   right: auto;
   box-sizing: border-box;
 }
@@ -594,16 +594,16 @@ html body .field-select-panel {
 html body [data-overlay="menu"] [role="menuitem"] {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0.571rem;
   width: 100%;
   margin: 0;
-  padding: 8px 10px;
+  padding: 0.571rem 0.714rem;
   border: 0;
   border-radius: var(--radius-control);
   box-shadow: none;
   background: transparent;
   color: var(--c-27362f);
-  font-size: 13px;
+  font-size: 0.929rem;
   text-align: left;
 
   --stroke-radius: calc((var(--radius-control)) * 2);
@@ -701,7 +701,7 @@ html body .dialog-form-scroll {
 html body .admin-editor-fields {
   display: grid;
   align-content: start;
-  gap: 14px;
+  gap: 1rem;
 }
 html body .admin-dialog-body:has(.dialog-footer),
 html body .miniprogram-dialog-body:has(.dialog-footer),
@@ -746,7 +746,7 @@ html body .dialog-footer {
 
   min-width: 0 !important;
 
-  gap: 16px !important;
+  gap: 1.143rem !important;
 
   position: relative !important;
 
@@ -758,11 +758,11 @@ html body .dialog-footer {
 
   max-width: none !important;
 
-  min-height: 46px !important;
+  min-height: 3.286rem !important;
 
   margin: 0 !important;
 
-  padding: 8px 20px !important;
+  padding: 0.571rem 1.429rem !important;
 
   border: 0 !important;
 
@@ -779,7 +779,7 @@ html body .dialog-footer {
 
   --stroke-radius: 0;
   overflow: clip;
-  overflow-clip-margin: 12px;
+  overflow-clip-margin: 0.857rem;
 }
 html body .dialog-footer::after {
   content: "";
@@ -801,14 +801,14 @@ html body .dialog-footer::after {
 html body .dialog-footer-left {
   min-width: 0;
   color: var(--c-73806f);
-  font-size: 12px;
+  font-size: 0.857rem;
 }
 html body .dialog-footer-actions {
   display: flex !important;
   align-items: center !important;
   justify-content: flex-end !important;
   flex-wrap: wrap;
-  gap: 8px !important;
+  gap: 0.571rem !important;
   margin-left: auto;
 }
 html body .dialog-footer-pagination {
@@ -832,12 +832,12 @@ html body button.overlay-icon-button {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 30px !important;
-  min-width: 30px !important;
-  max-width: 30px !important;
-  height: 30px !important;
-  min-height: 30px !important;
-  flex: 0 0 30px !important;
+  width: 2.143rem !important;
+  min-width: 2.143rem !important;
+  max-width: 2.143rem !important;
+  height: 2.143rem !important;
+  min-height: 2.143rem !important;
+  flex: 0 0 2.143rem !important;
   padding: 0 !important;
   border: 0 !important;
   border-radius: var(--radius-control) !important;
@@ -883,15 +883,15 @@ html body .dialog-header {
 
   flex-wrap: nowrap !important;
 
-  gap: 20px !important;
+  gap: 1.429rem !important;
 
-  min-height: 48px !important;
+  min-height: 3.429rem !important;
 
   width: 100% !important;
 
   margin: 0 !important;
 
-  padding: 8px 20px !important;
+  padding: 0.571rem 1.429rem !important;
 
   border: 0 !important;
 
@@ -905,13 +905,13 @@ html body .dialog-header {
 
   -webkit-backdrop-filter: var(--overlay-header-blur) !important;
 
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--c-fff) 48%, transparent) !important;
+  box-shadow: inset 0 0.071rem 0 color-mix(in srgb, var(--c-fff) 48%, transparent) !important;
   position: relative;
   --stroke: var(--overlay-glass-border-float);
 
   --stroke-radius: 0;
   overflow: clip;
-  overflow-clip-margin: 12px;
+  overflow-clip-margin: 0.857rem;
 }
 html body .dialog-header::after {
   content: "";
@@ -951,7 +951,7 @@ html.dialog-dragging * {
 html body .dialog-header-left {
   display: flex !important;
   align-items: center !important;
-  gap: 12px !important;
+  gap: 0.857rem !important;
   min-width: 0 !important;
   flex: 1 !important;
 }
@@ -959,24 +959,24 @@ html body .dialog-header-icon {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 30px !important;
-  height: 30px !important;
-  flex: 0 0 30px !important;
+  width: 2.143rem !important;
+  height: 2.143rem !important;
+  flex: 0 0 2.143rem !important;
   color: var(--c-4f6257) !important;
 }
 html body .dialog-header-titles {
   display: flex !important;
   flex-direction: column !important;
   justify-content: center !important;
-  gap: 2px !important;
+  gap: 0.143rem !important;
   min-width: 0 !important;
 }
 html body .dialog-header .dialog-header-title {
   display: block !important;
   margin: 0 !important;
   padding: 0 !important;
-  font-size: 14px !important;
-  line-height: 20px !important;
+  font-size: 1rem !important;
+  line-height: 1.429rem !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
   color: var(--c-27362f) !important;
@@ -987,11 +987,11 @@ html body .dialog-header .dialog-header-title {
 html body .dialog-header .dialog-header-subtitle {
   display: flex !important;
   align-items: center !important;
-  gap: 5px !important;
+  gap: 0.357rem !important;
   margin: 0 !important;
   padding: 0 !important;
-  font-size: 11px !important;
-  line-height: 16px !important;
+  font-size: 0.786rem !important;
+  line-height: 1.143rem !important;
   color: var(--c-73806f) !important;
   min-width: 0 !important;
   overflow: hidden !important;
@@ -1001,14 +1001,14 @@ html body .dialog-header .dialog-header-subtitle {
 html body .dialog-header-extra {
   display: flex !important;
   align-items: center !important;
-  gap: 8px !important;
+  gap: 0.571rem !important;
   min-width: 0 !important;
 }
 html body .dialog-header-actions,
 html body .dialog-header-custom-actions {
   display: flex !important;
   align-items: center !important;
-  gap: 8px !important;
+  gap: 0.571rem !important;
   flex-shrink: 0 !important;
   margin: 0 !important;
   padding: 0 !important;
@@ -1017,10 +1017,10 @@ html body .dialog-header .dialog-header-control {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 30px !important;
-  height: 30px !important;
-  min-width: 30px !important;
-  flex: 0 0 30px !important;
+  width: 2.143rem !important;
+  height: 2.143rem !important;
+  min-width: 2.143rem !important;
+  flex: 0 0 2.143rem !important;
   padding: 0 !important;
   margin: 0 !important;
   border: 0 !important;
@@ -1071,19 +1071,19 @@ html body .dialog-filters {
 
   align-items: flex-end !important;
 
-  gap: 12px !important;
+  gap: 0.857rem !important;
 
   min-width: 0;
 
   margin: 0 !important;
 
-  padding: 16px 20px !important;
+  padding: 1.143rem 1.429rem !important;
 
   border: 0;
 
   border-bottom: 1px solid var(--stroke);
 
-  max-height: min(280px, 40dvh);
+  max-height: min(20rem, 40dvh);
 
   overflow: auto;
   position: relative;
@@ -1107,49 +1107,49 @@ html body .dialog-filters::after {
 html body .dialog-filters > label {
   display: flex !important;
   flex-direction: column;
-  flex: 0 1 160px;
-  gap: 6px !important;
+  flex: 0 1 11.429rem;
+  gap: 0.429rem !important;
   min-width: 0;
   max-width: 100%;
   height: auto !important;
   margin: 0 !important;
-  font-size: 12px;
+  font-size: 0.857rem;
 }
 html body .dialog-filters > .dialog-filter-keyword {
   /* 关键词字段用 TextField：容器只负责宽度，label 由控件自己渲染。 */
   display: flex;
   flex-direction: column;
-  flex: 0 0 280px;
-  width: 280px;
-  min-width: 280px;
-  max-width: 280px;
+  flex: 0 0 20rem;
+  width: 20rem;
+  min-width: 20rem;
+  max-width: 20rem;
 }
 
 html body .dialog-filters > .dialog-filter-keyword .field {
   margin: 0 !important;
 }
 html body .dialog-filters > label:has(input[type="datetime-local"]) {
-  flex-basis: 210px;
+  flex-basis: 15rem;
 }
 /* 无 label 的输入控件容器：与筛选栏 label 项同布局。 */
 html body .dialog-filters > .dialog-filter-item {
   display: flex !important;
   flex-direction: column;
-  flex: 0 0 168px;
-  width: 168px;
-  max-width: 168px;
-  gap: 6px !important;
+  flex: 0 0 12rem;
+  width: 12rem;
+  max-width: 12rem;
+  gap: 0.429rem !important;
   min-width: 0;
   max-width: 100%;
   margin: 0 !important;
-  font-size: 12px;
+  font-size: 0.857rem;
 }
 html body .dialog-filters > .dialog-filter-item .field {
   margin: 0 !important;
 }
 
 html body .dialog-filters > .document-change-log-date-range {
-  flex-basis: 260px;
+  flex-basis: 18.571rem;
 }
 html body .dialog-filters :is(input, select),
 html body .dialog-filters .document-change-log-date-range-trigger {
@@ -1159,11 +1159,11 @@ html body .dialog-filters .document-change-log-date-range-trigger {
 
   min-width: 0 !important;
 
-  height: 36px !important;
+  height: 2.571rem !important;
 
   margin: 0 !important;
 
-  padding: 0 10px;
+  padding: 0 0.714rem;
 
   border: 1px solid var(--overlay-glass-border);
 
@@ -1179,22 +1179,22 @@ html body .dialog-filters .document-change-log-date-range-trigger {
 }
 html body .dialog-filters > label > span {
   color: var(--c-73806f);
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 html body .dialog-filter-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
+  gap: 0.571rem;
   margin-left: auto;
 }
 html body .dialog-filter-actions > button {
   box-sizing: border-box;
-  min-width: 64px;
-  height: 36px;
+  min-width: 4.571rem;
+  height: 2.571rem;
   margin: 0;
-  padding: 0 14px;
-  font-size: 12px;
+  padding: 0 1rem;
+  font-size: 0.857rem;
 }
 html body .admin-dialog-body:has(> .dialog-filters) {
   display: flex;
@@ -1210,9 +1210,9 @@ html body .admin-dialog-body:has(> .dialog-filters)::before {
 html body .admin-dialog-body > .dialog-filters ~ .dialog-form-scroll {
   padding: var(--overlay-body-padding);
 }
-@media (max-width: 520px) {
+@media (max-width: 37.143rem) {
   html body .dialog-filters > label {
-    flex: 1 1 160px;
+    flex: 1 1 11.429rem;
   }
   html body .dialog-filters > .dialog-filter-keyword {
     flex-basis: 100%;
@@ -1220,7 +1220,7 @@ html body .admin-dialog-body > .dialog-filters ~ .dialog-form-scroll {
 }
 /* Dialog dimensions are content-specific, with one viewport boundary. */
 :root {
-  --overlay-dialog-gap: 24px;
+  --overlay-dialog-gap: 1.714rem;
   --overlay-dialog-viewport-width: calc(100dvw - 2 * var(--overlay-dialog-gap));
   --overlay-dialog-viewport-height: calc(100dvh - 2 * var(--overlay-dialog-gap));
 }
@@ -1230,57 +1230,57 @@ html
     .dialog-fullscreen
   ) {
   box-sizing: border-box;
-  width: min(var(--overlay-dialog-width, 560px), var(--overlay-dialog-viewport-width));
+  width: min(var(--overlay-dialog-width, 40rem), var(--overlay-dialog-viewport-width));
   height: var(--overlay-dialog-height, fit-content);
-  min-width: min(var(--overlay-dialog-min-width, 320px), var(--overlay-dialog-viewport-width));
-  min-height: min(var(--overlay-dialog-min-height, 0px), var(--overlay-dialog-viewport-height));
-  max-width: min(var(--overlay-dialog-max-width, 1440px), var(--overlay-dialog-viewport-width));
-  max-height: min(var(--overlay-dialog-max-height, 840px), var(--overlay-dialog-viewport-height));
+  min-width: min(var(--overlay-dialog-min-width, 22.857rem), var(--overlay-dialog-viewport-width));
+  min-height: min(var(--overlay-dialog-min-height, 0), var(--overlay-dialog-viewport-height));
+  max-width: min(var(--overlay-dialog-max-width, 102.857rem), var(--overlay-dialog-viewport-width));
+  max-height: min(var(--overlay-dialog-max-height, 60rem), var(--overlay-dialog-viewport-height));
   margin: auto;
 }
 /* Short confirmations and account forms shrink to their contents. */
 html body :is(.library-organize-dialog, .profile-username-dialog, .miniprogram-confirm-dialog) {
-  --overlay-dialog-width: 440px;
+  --overlay-dialog-width: 31.429rem;
 }
 html body :is(.email-bind-dialog, .profile-role-dialog) {
-  --overlay-dialog-width: 480px;
+  --overlay-dialog-width: 34.286rem;
 }
 html body :is(.local-executor-authorization-dialog, .context-usage-dialog) {
-  --overlay-dialog-width: 520px;
+  --overlay-dialog-width: 37.143rem;
 }
 html body :is(.library-form, .miniprogram-dialog),
 html body .library-organize-dialog:where(:has(textarea)) {
-  --overlay-dialog-width: 560px;
+  --overlay-dialog-width: 40rem;
 }
 html body .archive-detail-dialog {
-  --overlay-dialog-width: 600px;
+  --overlay-dialog-width: 42.857rem;
 }
 html body .thread-brief-dialog {
-  --overlay-dialog-width: 680px;
+  --overlay-dialog-width: 48.571rem;
 }
 html body .task-create-dialog {
-  --overlay-dialog-width: 760px;
+  --overlay-dialog-width: 54.286rem;
 }
 html body .admin-dialog {
-  --overlay-dialog-width: 800px;
+  --overlay-dialog-width: 57.143rem;
 }
 html body .admin-dialog:has(.admin-editor) {
-  --overlay-dialog-width: 640px;
+  --overlay-dialog-width: 45.714rem;
 }
 html body .admin-dialog:has(.permission-tree) {
-  --overlay-dialog-width: 800px;
+  --overlay-dialog-width: 57.143rem;
 }
 html body .admin-dialog:has(.admin-table) {
-  --overlay-dialog-width: 960px;
+  --overlay-dialog-width: 68.571rem;
 }
 /* Lists grow with rows, then scroll inside the fixed title/filter/footer frame. */
 html body :is(.member-picker, .theme-dialog) {
-  --overlay-dialog-width: 640px;
-  --overlay-dialog-max-height: 740px;
+  --overlay-dialog-width: 45.714rem;
+  --overlay-dialog-max-height: 52.857rem;
 }
 html body .project-picker {
-  --overlay-dialog-width: 800px;
-  --overlay-dialog-max-height: 740px;
+  --overlay-dialog-width: 57.143rem;
+  --overlay-dialog-max-height: 52.857rem;
 }
 html
   body
@@ -1290,34 +1290,34 @@ html
     .project-summary-dialog,
     .quoted-message-dialog
   ) {
-  --overlay-dialog-width: 720px;
-  --overlay-dialog-max-height: 760px;
+  --overlay-dialog-width: 51.429rem;
+  --overlay-dialog-max-height: 54.286rem;
 }
 html body .l1-history-dialog {
-  --overlay-dialog-width: 960px;
-  --overlay-dialog-max-height: 680px;
+  --overlay-dialog-width: 68.571rem;
+  --overlay-dialog-max-height: 48.571rem;
 }
 html body .document-change-log-dialog {
-  --overlay-dialog-width: 1120px;
-  --overlay-dialog-max-height: 760px;
+  --overlay-dialog-width: 80rem;
+  --overlay-dialog-max-height: 54.286rem;
 }
 html body .miniprogram-records-dialog {
-  --overlay-dialog-width: 1200px;
-  --overlay-dialog-max-height: 740px;
+  --overlay-dialog-width: 85.714rem;
+  --overlay-dialog-max-height: 52.857rem;
 }
 html body .miniprogram-filter-dialog {
-  --overlay-dialog-width: 960px;
-  --overlay-dialog-max-height: 820px;
+  --overlay-dialog-width: 68.571rem;
+  --overlay-dialog-max-height: 58.571rem;
 }
 html body :is(.miniprogram-timer-dialog, .miniprogram-timer-editor-dialog) {
-  --overlay-dialog-width: 640px;
+  --overlay-dialog-width: 45.714rem;
 }
 html body .miniprogram-release-dialog {
-  --overlay-dialog-width: 720px;
+  --overlay-dialog-width: 51.429rem;
 }
 html body .miniprogram-log-dialog {
-  --overlay-dialog-width: 960px;
-  --overlay-dialog-max-height: 740px;
+  --overlay-dialog-width: 68.571rem;
+  --overlay-dialog-max-height: 52.857rem;
 }
 /* 设置弹窗与项目管理弹窗使用不透明白底，避免玻璃透过造成各页签色差。 */
 html body :is(.workspace-settings, .project-management-dialog) {
@@ -1328,53 +1328,53 @@ html body :is(.workspace-settings, .project-management-dialog) {
 
 /* Split panes, timelines and canvases need a stable working area. */
 html body :is(.project-management-dialog, .workspace-settings) {
-  --overlay-dialog-width: 1040px;
-  --overlay-dialog-height: min(740px, var(--overlay-dialog-viewport-height));
-  --overlay-dialog-min-height: 420px;
+  --overlay-dialog-width: 74.286rem;
+  --overlay-dialog-height: min(52.857rem, var(--overlay-dialog-viewport-height));
+  --overlay-dialog-min-height: 30rem;
 }
 html body .thread-archive-dialog {
-  --overlay-dialog-width: 1040px;
+  --overlay-dialog-width: 74.286rem;
 }
 html body .thread-brief-page-dialog {
-  --overlay-dialog-width: 1120px;
-  --overlay-dialog-height: min(820px, var(--overlay-dialog-viewport-height));
-  --overlay-dialog-min-height: 460px;
-  --overlay-dialog-min-width: 640px;
+  --overlay-dialog-width: 80rem;
+  --overlay-dialog-height: min(58.571rem, var(--overlay-dialog-viewport-height));
+  --overlay-dialog-min-height: 32.857rem;
+  --overlay-dialog-min-width: 45.714rem;
 }
 html body .notification-dialog {
-  --overlay-dialog-width: 1120px;
-  --overlay-dialog-height: min(740px, var(--overlay-dialog-viewport-height));
-  --overlay-dialog-min-height: 420px;
+  --overlay-dialog-width: 80rem;
+  --overlay-dialog-height: min(52.857rem, var(--overlay-dialog-viewport-height));
+  --overlay-dialog-min-height: 30rem;
 }
 html body :is(.task-pool-dialog, .agent-monitor, .agent-log-dialog) {
-  --overlay-dialog-width: 1280px;
-  --overlay-dialog-height: min(800px, var(--overlay-dialog-viewport-height));
-  --overlay-dialog-min-height: 440px;
-  --overlay-dialog-max-height: 900px;
+  --overlay-dialog-width: 91.429rem;
+  --overlay-dialog-height: min(57.143rem, var(--overlay-dialog-viewport-height));
+  --overlay-dialog-min-height: 31.429rem;
+  --overlay-dialog-max-height: 64.286rem;
 }
 html body .image-preview-dialog {
-  --overlay-dialog-width: 1200px;
-  --overlay-dialog-height: min(840px, var(--overlay-dialog-viewport-height));
-  --overlay-dialog-min-height: 320px;
+  --overlay-dialog-width: 85.714rem;
+  --overlay-dialog-height: min(60rem, var(--overlay-dialog-viewport-height));
+  --overlay-dialog-min-height: 22.857rem;
 }
 html body .miniprogram-workbench-dialog {
-  --overlay-dialog-width: 1440px;
-  --overlay-dialog-height: min(880px, var(--overlay-dialog-viewport-height));
-  --overlay-dialog-min-height: 440px;
-  --overlay-dialog-max-height: 960px;
+  --overlay-dialog-width: 102.857rem;
+  --overlay-dialog-height: min(62.857rem, var(--overlay-dialog-viewport-height));
+  --overlay-dialog-min-height: 31.429rem;
+  --overlay-dialog-max-height: 68.571rem;
 }
-@media (max-width: 600px), (max-height: 500px) {
+@media (max-width: 42.857rem), (max-height: 35.714rem) {
   :root {
-    --overlay-dialog-gap: 12px;
+    --overlay-dialog-gap: 0.857rem;
   }
 }
 
 html body .admin-dialog.admin-confirm-dialog,
 html body .archive-detail-dialog:where(:not(:has(textarea))) {
-  --overlay-dialog-width: 440px;
+  --overlay-dialog-width: 31.429rem;
 }
 html body .folder-guide-dialog {
-  --overlay-dialog-width: 560px;
+  --overlay-dialog-width: 40rem;
 }
 html body .dialog-scroll-region {
   flex: 1 1 auto;
@@ -1409,7 +1409,7 @@ html
     .miniprogram-production-table-wrap
   ) {
   flex: 1 1 auto;
-  min-height: min(180px, 20dvh);
+  min-height: min(12.857rem, 20dvh);
   max-height: none;
   overflow: auto;
 }
@@ -1444,7 +1444,7 @@ html body .document-change-log-dialog .document-change-log-rows {
 html body .l1-history-body,
 html body .admin-dialog .admin-table-wrap {
   flex: 1 1 auto;
-  min-height: min(180px, 20dvh);
+  min-height: min(12.857rem, 20dvh);
   overflow: auto;
 }
 html body .document-change-log-dialog .document-change-log-list-head {
@@ -1467,13 +1467,13 @@ html body .document-file-info-dialog {
   overflow: hidden;
 }
 html body :is(.member-picker, .project-picker, .library-picker-dialog, .l1-history-dialog) {
-  --overlay-dialog-min-width: 480px;
+  --overlay-dialog-min-width: 34.286rem;
 }
 html body :is(.document-change-log-dialog, .miniprogram-records-dialog) {
-  --overlay-dialog-min-width: 640px;
+  --overlay-dialog-min-width: 45.714rem;
 }
 html body :is(.thread-brief-dialog, .task-create-dialog, .admin-dialog:has(.admin-editor)) {
-  --overlay-dialog-min-width: 360px;
+  --overlay-dialog-min-width: 25.714rem;
 }
 html
   body
@@ -1486,7 +1486,7 @@ html
     .workspace-settings,
     .miniprogram-workbench-dialog
   ) {
-  --overlay-dialog-min-width: 640px;
+  --overlay-dialog-min-width: 45.714rem;
 }
 
 /* ===== 单列表弹窗 =====
@@ -1497,8 +1497,8 @@ html body .dialog-list .miniprogram-production-table-wrap,
 html body .dialog-list .document-change-log-rows,
 html body .dialog-list .member-picker-list,
 html body .dialog-list .project-picker-list {
-  height: var(--dialog-list-height, 360px);
-  max-height: var(--dialog-list-height, 360px);
+  height: var(--dialog-list-height, 25.714rem);
+  max-height: var(--dialog-list-height, 25.714rem);
   overflow: auto;
 }
 

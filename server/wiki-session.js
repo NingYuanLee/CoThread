@@ -170,7 +170,11 @@ export async function recordElderRun(db, user, scope, ids, produced, startedAt) 
   if (question) trace.push({ tool: "user_input", status: "completed", text: question });
   // 系统提示词逐轮记录：服务端补丁更新或重启后，同一会话下一轮会拿到新版本。
   // 排在提问之后，轨迹按「提问」切轮时它才落进本轮。
-  const systemPromptText = [COTHREAD_SYSTEM_TEXT, elderInstruction(scope)]
+  const systemPromptText = [
+    produced.skillInstructions ? `已启用技能已写入本轮提示词。\n${produced.skillInstructions}` : "",
+    COTHREAD_SYSTEM_TEXT,
+    elderInstruction(scope),
+  ]
     .filter(Boolean)
     .join("\n\n");
   if (systemPromptText)
@@ -295,8 +299,19 @@ export async function elderAgentLogs(db, user, scope, ids, { before = null, limi
   // 系统提示词 = A 段共享底线（cothread-system-prompt 插件）+ elderPrompt 里与本轮提问无关的固定指令；
   // 工具 = runElderQuestion 实际放行的只读查阅工具（elderToolNames）。
   // 用量不返回：wiki_sessions.usage_json 是整间问答的累计值，归不到具体事件。
+  let skillText = "";
+  try {
+    const { loadAgentCapabilityProfile } = await import("./agent-capabilities.js");
+    skillText = (await loadAgentCapabilityProfile(db, "laoweng")).instructions || "";
+  } catch {}
   const scopeContext = {
-    systemPrompt: [COTHREAD_SYSTEM_TEXT, elderInstruction(scope)].join("\n\n"),
+    systemPrompt: [
+      skillText ? `已启用技能已写入本轮提示词。\n${skillText}` : "",
+      COTHREAD_SYSTEM_TEXT,
+      elderInstruction(scope),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
     systemSections: [
       {
         name: "cothread:system",
@@ -310,6 +325,16 @@ export async function elderAgentLogs(db, user, scope, ids, { before = null, limi
         source: "server/wiki-session.js elderInstruction",
         text: elderInstruction(scope),
       },
+      ...(skillText
+        ? [
+            {
+              name: "cothread:database-skills",
+              order: 810,
+              source: "server/wiki-session.js laoweng skills",
+              text: skillText,
+            },
+          ]
+        : []),
     ],
     tools: elderToolNames(scope),
   };
@@ -491,6 +516,7 @@ async function runElderCompaction(db, row, options) {
       checkpoint: row.checkpoint,
       model: options.model,
       createHarness: options.createHarness,
+      db,
     });
     const previous =
       typeof row.context_stats === "string"

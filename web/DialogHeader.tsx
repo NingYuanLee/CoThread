@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { Maximize2, Minimize2, X } from "lucide-react";
+import { designPxToRem } from "../shared/ui-scale.js";
 import { IconButton } from "./IconButton";
 
 const DRAG_PAD = 8;
@@ -239,7 +240,13 @@ export function DialogHeader({
         {fullscreen && (
           <IconButton
             label={expanded ? "退出全屏" : "全屏"}
-            icon={expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            icon={
+              expanded ? (
+                <Minimize2 size={designPxToRem(16)} />
+              ) : (
+                <Maximize2 size={designPxToRem(16)} />
+              )
+            }
             className="dialog-header-control"
             aria-label={expanded ? "退出全屏" : "全屏"}
             title={expanded ? "退出全屏" : "全屏"}
@@ -249,7 +256,7 @@ export function DialogHeader({
         )}
         <IconButton
           label={closeLabel}
-          icon={<X size={17} />}
+          icon={<X size={designPxToRem(17)} />}
           className="dialog-header-control"
           aria-label={closeLabel}
           title="关闭"

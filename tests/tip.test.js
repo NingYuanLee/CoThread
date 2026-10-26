@@ -57,6 +57,17 @@ function runtime({ reducedMotion = false } = {}) {
           );
           return motion.exports;
         }
+        if (name === "../shared/ui-scale.js") {
+          const scale = { exports: {} };
+          runInNewContext(
+            transformSync(readFileSync(new URL("../shared/ui-scale.js", import.meta.url), "utf8"), {
+              loader: "js",
+              format: "cjs",
+            }).code,
+            { module: scale, exports: scale.exports },
+          );
+          return scale.exports;
+        }
         if (name === "react") return react;
         if (name === "react-dom") return { createPortal: (children) => children };
         if (name === "lucide-react")

@@ -7,6 +7,9 @@ import "./theme-fallback-map.css";
 import { App } from "./App";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { TipHost } from "./Tip";
+import { applyUiScale } from "./apply-ui-scale";
+
+applyUiScale();
 
 createRoot(document.getElementById("root")!).render(
   <ErrorBoundary>

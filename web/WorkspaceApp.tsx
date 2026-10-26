@@ -37,6 +37,7 @@ import { useThreadActivity } from "./use-thread-activity";
 import { useThreadReadReceipt } from "./use-thread-read-receipt";
 import { submitWorkspaceModal } from "./workspace-modal-submit";
 import { ThreadRow } from "./ThreadRow";
+import { scaleDesignPx } from "./apply-ui-scale";
 import { WorkspaceWelcome } from "./WorkspaceWelcome";
 import { ConversationHeader } from "./ConversationHeader";
 import { TaskCreateDialog } from "./TaskCreateDialog";
@@ -1511,8 +1512,11 @@ export function WorkspaceApp() {
       document.querySelector(".context-panel")?.getBoundingClientRect().width ??
       420;
     const onMove = (move: PointerEvent) => {
-      const max = Math.max(320, Math.round(window.innerWidth * 0.6));
-      const next = Math.min(Math.max(startWidth + (startX - move.clientX), 220), max);
+      const max = Math.max(scaleDesignPx(320), Math.round(window.innerWidth * 0.6));
+      const next = Math.min(
+        Math.max(startWidth + (startX - move.clientX), scaleDesignPx(220)),
+        max,
+      );
       panelWidthRef.current = next;
       shellRef.current?.style.setProperty("--right-panel", next + "px");
     };

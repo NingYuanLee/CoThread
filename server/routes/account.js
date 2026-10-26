@@ -8,6 +8,11 @@ import { verifyPassword, issueCredential, hashPassword } from "../auth.js";
 import { query, transaction } from "../db.js";
 import { HttpError } from "../service.js";
 import { personalProfile, profileSchema } from "../profile.js";
+import {
+  clearUserSkillSecret,
+  listUserSkills,
+  saveUserSkillSecret,
+} from "../user-skill-credentials.js";
 import { loginLanding } from "../org-shelf.js";
 import { UI_THEMES, normalizeUiTheme } from "../../shared/ui-theme.js";
 import { resolveIpLocation } from "../ip-location.js";
@@ -542,6 +547,18 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
           [req.user.id],
         );
         res.json(personalProfile(profile));
+      });
+      app.get("/api/me/skills", async (req, res) => {
+        res.json({ skills: await listUserSkills(db, req.user.id) });
+      });
+      app.put("/api/me/skills/:skillKey", async (req, res) => {
+        const data = z.object({ token: z.string().max(200) }).parse(req.body);
+        await saveUserSkillSecret(db, req.user.id, req.params.skillKey, data.token);
+        res.json({ configured: true });
+      });
+      app.delete("/api/me/skills/:skillKey", async (req, res) => {
+        await clearUserSkillSecret(db, req.user.id, req.params.skillKey);
+        res.json({ configured: false });
       });
       app.get("/api/me/landing", async (req, res) => {
         res.json(await loginLanding(db, req.user));

@@ -11,6 +11,7 @@ import {
 import { LIBRARY_ROOT_KINDS, folderRootKind } from "./document-library";
 import { ProjectContentPanel } from "./ProjectContentPanel";
 import { UiIcon } from "./ui-icon";
+import { scaleDesignPx } from "./apply-ui-scale";
 import { ModalBackdrop } from "./dialog-fx";
 import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
 import { showTip , useTipError } from "./Tip";
@@ -495,8 +496,9 @@ export const Documents = memo(function Documents({
     const parentWidth = event.currentTarget.parentElement?.parentElement?.getBoundingClientRect().width
       || window.innerWidth;
     const onMove = (move: PointerEvent) => {
-      const max = Math.min(TREE_WIDTH_MAX, Math.max(TREE_WIDTH_MIN, Math.round(parentWidth - 72)));
-      setTreeWidth(Math.min(Math.max(startWidth + (startX - move.clientX), TREE_WIDTH_MIN), max));
+      const min = scaleDesignPx(TREE_WIDTH_MIN);
+      const max = Math.min(scaleDesignPx(TREE_WIDTH_MAX), Math.max(min, Math.round(parentWidth - scaleDesignPx(72))));
+      setTreeWidth(Math.min(Math.max(startWidth + (startX - move.clientX), min), max));
     };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
@@ -1380,8 +1382,8 @@ export const Documents = memo(function Documents({
   const explorer = (
     <DocumentLibraryExplorer
       treeWidth={treeWidth}
-      treeWidthMin={TREE_WIDTH_MIN}
-      treeWidthMax={TREE_WIDTH_MAX}
+      treeWidthMin={scaleDesignPx(TREE_WIDTH_MIN)}
+      treeWidthMax={scaleDesignPx(TREE_WIDTH_MAX)}
       fileSearchRef={fileSearchRef}
       filter={filter}
       sort={sort}

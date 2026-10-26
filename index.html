@@ -10,6 +10,25 @@
     try {
       var theme = localStorage.getItem("cothread-ui-theme");
       if (theme) document.documentElement.setAttribute("data-theme", theme);
+      var steps = ["100", "125", "150", "175", "200", "225", "250", "300"];
+      function nearestScale(percent) {
+        var best = "100";
+        var bestGap = 1e9;
+        for (var i = 0; i < steps.length; i++) {
+          var gap = Math.abs(Number(steps[i]) - percent);
+          if (gap < bestGap) {
+            bestGap = gap;
+            best = steps[i];
+          }
+        }
+        return best;
+      }
+      var ratio = window.devicePixelRatio;
+      var device = ratio > 0 ? nearestScale(ratio * 100) : "100";
+      var scale = localStorage.getItem("cothread-ui-scale");
+      if (scale === "high" || scale === "standard" || steps.indexOf(scale) < 0) scale = device;
+      document.documentElement.setAttribute("data-ui-scale", scale);
+      document.documentElement.style.setProperty("--ui-scale", String(Number(device) / Number(scale)));
     } catch (e) {}
   </script>
   <style>

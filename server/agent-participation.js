@@ -94,7 +94,8 @@ export function compactParticipationMessages(rows) {
 
 /** Normalize decide() results from production or test doubles. */
 export function normalizeParticipationDecision(decision) {
-  if (typeof decision === "boolean") return { respond: decision, message: undefined };
+  if (typeof decision === "boolean")
+    return { respond: decision, message: undefined, promise: false };
   if (!decision || typeof decision.respond !== "boolean") {
     throw new Error("Invalid participation decision");
   }
@@ -105,6 +106,7 @@ export function normalizeParticipationDecision(decision) {
   return {
     respond: decision.respond,
     message: decision.respond ? message.slice(0, 20000) : undefined,
+    promise: decision.promise === true,
   };
 }
 
@@ -339,8 +341,12 @@ export function needsFullAgentWork(burst) {
     /帮我(?:总结|梳理|整理|分析|生成|输出|写|做|查|改|修|实现|开发|派|看)|请(?:总结|梳理|生成|写|做|查)|生成文档|写文档|出报告|代码检查|派(?:一个?|个)?任务|派活|你倒是干活/.test(
       text,
     );
+  // 对小祥下命令即算实活，不枚举动词。问句（看到么、能不能）不算。
+  const imperative =
+    /帮我|麻烦你|麻烦|请你|请把|给我|为我|你现在|你马上|你立刻|你去|试着|尝试一下/u.test(text) &&
+    !/[?？么吗呢]/u.test(text);
 
-  return strong || (asks && work);
+  return strong || imperative || (asks && work);
 }
 
 /**
@@ -366,21 +372,6 @@ export function isNegativeMood(burst) {
 
 export function shouldInviteFullMode(burst) {
   return needsFullAgentWork(burst) || isNegativeMood(burst);
-}
-
-/**
- * Light reply that already agrees to do the work, or tells the member to @ again.
- * The promise is dropped and replaced by the fixed reminder.
- */
-export function promisesFullModeWork(text) {
-  const body = String(text || "").trim();
-  if (!body) return false;
-  if (body === "升级完整模式") return true;
-  if (/完整模式/u.test(body) && /@\s*小祥/u.test(body)) return true;
-  if (body.length > 280) return false;
-  return /我(?:现在|这)?就(?:去|来|开始|开工|处理|写|做|改|查|整理|总结|梳理|派)|我马上(?:开始|开工|处理|写|做|去)|马上(?:开始|开工)|就可以开工|可以开工|着手(?:做|写|改|处理)|我来(?:帮你|处理|做|写|改|查|整理|总结|梳理|分析|生成|派|安排)|交给我(?:来)?(?:处理|做|写|改)|我(?:会|来)帮你(?:写|做|改|整理|总结|梳理|生成|派)/u.test(
-    body,
-  );
 }
 
 export function briefAssistantFollowUpAck(burst) {
@@ -480,7 +471,13 @@ export async function silenceOpportunisticBurst(conn, burstIds, reason) {
  */
 export async function composeOpportunisticParticipation(
   db,
-  { title, threadId, messageId, decide = decideParticipation },
+  {
+    title,
+    threadId,
+    messageId,
+    decide = decideParticipation,
+    judgeReminder = judgeLightReplyReminder,
+  },
 ) {
   if (await isWithinOpportunisticQuietPeriod(db, threadId)) {
     const burst = await loadOpportunisticBurst(db, threadId);
@@ -522,13 +519,33 @@ export async function composeOpportunisticParticipation(
         ? briefSoloRunAck(burst)
         : briefAssistantFollowUpAck(burst),
   });
-  const finishReply = (decision, burst) => {
+  const finishReply = async (decision, burst) => {
     if (!decision?.respond || !decision.message) return decision;
-    if (!reminderNeededByRule(burst, decision.message)) return decision;
-    const replace = shouldInviteFullMode(burst) || promisesFullModeWork(decision.message);
+    if (reminderNeededByRule(burst)) {
+      return {
+        ...decision,
+        message: appendFullModeReminder(decision.message, { replace: true }),
+        reminded: true,
+      };
+    }
+    if (decision.message.includes(FULL_MODE_REMINDER)) return decision;
+    let verdict;
+    try {
+      verdict = await judgeReminder({ message: decision.message, modelCapture });
+      recordDecideMeta(verdict);
+    } catch (error) {
+      console.error("Light reply reminder judgment failed", {
+        threadId,
+        messageId,
+        type: error?.name || "Error",
+        diagnostic: String(error?.message || error).slice(-1000),
+      });
+      return decision;
+    }
+    if (verdict?.remind !== true) return decision;
     return {
       ...decision,
-      message: appendFullModeReminder(decision.message, { replace }),
+      message: FULL_MODE_REMINDER,
       reminded: true,
     };
   };
@@ -583,9 +600,8 @@ export async function composeOpportunisticParticipation(
         });
       }
       const ack = forceBriefAck(burst);
-      const replace = shouldInviteFullMode(burst) || promisesFullModeWork(ack.message);
-      const message = reminderNeededByRule(burst, ack.message)
-        ? appendFullModeReminder(ack.message, { replace })
+      const message = reminderNeededByRule(burst)
+        ? appendFullModeReminder(ack.message, { replace: true })
         : ack.message;
       return withUsage({
         respond: true,
@@ -651,7 +667,7 @@ export async function composeOpportunisticParticipation(
     const latest = await latestHumanSequence(db, threadId);
     if (BigInt(latest) > BigInt(throughSequence)) continue;
 
-    const finished = finishReply(decision, burst);
+    const finished = await finishReply(decision, burst);
     return withUsage({
       ...finished,
       deferred: finished.respond ? undefined : revision > 0 ? "revised_silent" : undefined,
@@ -763,18 +779,55 @@ const PARTICIPATION_SYSTEM =
 const PARTICIPATION_REVISE_SYSTEM =
   '群聊助理小祥。未发出的回复需按新消息改稿或 {"respond":false}。点名/催沉默/mustReply=true 应保留短回。只改回复本身，不要提 @，不要提完整模式。只返回 JSON。';
 
+const REMINDER_JUDGE_SYSTEM =
+  '判断群聊助理这条还没发出的轻量回复，要不要改成提醒用户再 @ 一次才会真的开始。只有这句是在答应接下来亲自去做一件具体的事时返回 {"remind":true}，不限用哪个动词。打招呼、在场、道谢、发表看法、拒绝动手、反问返回 {"remind":false}。只返回 JSON。';
+
 export const FULL_MODE_REMINDER = "需要麻烦你再@小祥，我才会真的开始。";
 
 export function appendFullModeReminder(message, { replace = false } = {}) {
   const text = String(message || "").trim();
-  if (!text || replace || promisesFullModeWork(text)) return FULL_MODE_REMINDER;
+  if (!text || replace) return FULL_MODE_REMINDER;
   if (text.includes(FULL_MODE_REMINDER) || text.includes("我才会真的开始")) return text;
   const end = /[。！？!?…]$/u.test(text) ? "" : "。";
   return text + end + FULL_MODE_REMINDER;
 }
 
-export function reminderNeededByRule(burst, draft) {
-  return shouldInviteFullMode(burst) || promisesFullModeWork(draft);
+export function reminderNeededByRule(burst) {
+  return shouldInviteFullMode(burst);
+}
+
+/** Second call: the draft already exists. Judge the reply text, not the user's words. */
+export async function judgeLightReplyReminder({ message, modelCapture } = {}, request = fetch) {
+  const text = String(message || "").trim();
+  if (!text || text.includes(FULL_MODE_REMINDER)) return { remind: false };
+  const started = performance.now();
+  const configured = modelCapture || modelConfig("coordinator");
+  const data = await modelResponse(
+    {
+      scope: "coordinator",
+      config: configured,
+      maxTokens: 64,
+      reasoningEffort: "none",
+      signal: AbortSignal.timeout(OPPORTUNISTIC_MODEL_TIMEOUT_MS),
+      messages: [
+        { role: "system", content: REMINDER_JUDGE_SYSTEM },
+        { role: "user", content: text },
+      ],
+    },
+    request,
+  );
+  let parsed;
+  try {
+    parsed = JSON.parse(responseText(data) || "null");
+  } catch {
+    throw new Error("Invalid reminder judgment");
+  }
+  return {
+    remind: parsed?.remind === true,
+    usage: modelUsage(data?.usage),
+    modelAccounting: capturedModelUsage(configured, { reasoningEffort: "none" }),
+    durationMs: Math.round(performance.now() - started),
+  };
 }
 
 export async function decideParticipation(context, request = fetch) {

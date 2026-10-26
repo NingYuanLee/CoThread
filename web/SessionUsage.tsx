@@ -29,8 +29,8 @@ const compactTokens = (value: number) =>
 function StatIcon({ kind }: { kind: "time" | "usage" }) {
   return (
     <svg
-      width="13"
-      height="13"
+      width="0.929rem"
+      height="0.929rem"
       viewBox="0 0 20 20"
       fill="none"
       stroke="currentColor"

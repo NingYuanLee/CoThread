@@ -349,4 +349,4 @@ export type Thread = {
 };
 
 export type Modal =
-  "profile" | "project" | "settings" | "password" | "email" | "mcp" | "run" | null;
+  "profile" | "project" | "settings" | "password" | "email" | "mcp" | "skills" | "run" | null;

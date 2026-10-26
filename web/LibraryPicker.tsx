@@ -65,8 +65,8 @@ function ClosedFolderIcon() {
       aria-hidden="true"
       className="tree-icon"
       viewBox="0 0 24 24"
-      width={16}
-      height={16}
+      width="1.143rem"
+      height="1.143rem"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.8"
@@ -84,8 +84,8 @@ function OpenFolderIcon() {
       aria-hidden="true"
       className="tree-icon"
       viewBox="0 0 24 24"
-      width={16}
-      height={16}
+      width="1.143rem"
+      height="1.143rem"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.8"

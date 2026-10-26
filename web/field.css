@@ -1,6 +1,6 @@
 :root {
   /* 输入类控件统一间距标准（上下堆叠） */
-  --field-gap: 12px;
+  --field-gap: 0.857rem;
 }
 
 /* 输入类控件外型组：Field + TextField / TextAreaField / SelectField。
@@ -61,18 +61,18 @@
 
   /* 上下对称：浮动 label 绝对定位压在外边框上，不占内部空间，
      因此不需要预留上内边距。高度固定 36px，边框是两侧合计 1px 的发丝线。 */
-  padding: 6px 8px;
+  padding: 0.429rem 0.571rem;
 
   /* 统一三种控件的高度，避免下拉比输入框矮一截。 */
-  min-height: 36px;
+  min-height: 2.571rem;
 
   color: var(--field-text);
 
   font: inherit;
 
-  font-size: 13px;
+  font-size: 0.929rem;
 
-  line-height: 22px;
+  line-height: 1.571rem;
 
   text-align: left;
 
@@ -96,7 +96,7 @@
   --stroke-radius: calc(var(--field-flush-radius, var(--radius-control)) * 2);
 
   overflow: clip;
-  overflow-clip-margin: 12px;
+  overflow-clip-margin: 0.857rem;
 }
 .field-control::after {
   content: "";
@@ -129,10 +129,10 @@
 .field .field-control .field-textarea {
   /* 重置全局 textarea 规则（style.css:118 的 resize/min-height/line-height）。
      最小高度由 rows 计算（TextAreaField 注入 --field-textarea-min），未传 rows 时回退 72px。 */
-  padding: 8px;
+  padding: 0.571rem;
   resize: vertical;
-  min-height: var(--field-textarea-min, 72px);
-  line-height: 22px;
+  min-height: var(--field-textarea-min, 5.143rem);
+  line-height: 1.571rem;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -144,7 +144,7 @@
 .field .field-label {
   position: absolute;
   z-index: 2;
-  left: 10px;
+  left: 0.714rem;
   top: 50%;
   transform: translateY(-50%) scale(1);
   transform-origin: left center;
@@ -152,13 +152,13 @@
      以及 style.css:131 的 label input 后代规则），否则绝对定位会被下推或字号被改写。 */
   display: inline-block;
   margin: 0;
-  padding: 0 2px;
+  padding: 0 0.143rem;
   border: 0;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 0.929rem;
   font-style: normal;
   font-weight: 400;
-  line-height: 16px;
+  line-height: 1.143rem;
   letter-spacing: normal;
   text-align: left;
   text-transform: none;
@@ -170,7 +170,7 @@
     transform 0.15s,
     font-size 0.15s,
     color 0.15s;
-  max-width: calc(100% - 24px);
+  max-width: calc(100% - 1.714rem);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -179,7 +179,7 @@
 .field .field-textarea + .field-label {
   /* textarea 高度不固定，用固定顶部偏移而非垂直居中：
      8px padding + 1.6 行高的一半 ≈ 18px。 */
-  top: 18px;
+  top: 1.286rem;
   transform: none;
 }
 
@@ -193,8 +193,8 @@
   transform-origin: left center;
   color: var(--field-border-focus);
   background: var(--field-mask);
-  padding: 0 4px;
-  left: 6px;
+  padding: 0 0.286rem;
+  left: 0.429rem;
 }
 
 .field .field-textarea + .field-label.is-floating,
@@ -219,14 +219,14 @@
   --stroke: var(--field-border-hover);
 
   overflow: clip;
-  overflow-clip-margin: 12px;
+  overflow-clip-margin: 0.857rem;
 }
 
 .field.field--active .field-control {
   --stroke: var(--field-border-focus);
 
   overflow: clip;
-  overflow-clip-margin: 12px;
+  overflow-clip-margin: 0.857rem;
 }
 .field.field--active .field-control .field-input,
 .field.field--active .field-control .field-textarea,
@@ -242,7 +242,7 @@
   --stroke: var(--field-border-error);
 
   overflow: clip;
-  overflow-clip-margin: 12px;
+  overflow-clip-margin: 0.857rem;
 }
 .field.field--error .field-control .field-input,
 .field.field--error .field-control .field-textarea,
@@ -270,8 +270,8 @@
 }
 
 .field-message {
-  margin: 6px 0 0;
-  font-size: 12px;
+  margin: 0.429rem 0 0;
+  font-size: 0.857rem;
   color: var(--field-label);
 }
 
@@ -284,12 +284,12 @@
    控件高度始终是 36px，不会被撑高或压扁。 */
 .field-action {
   position: absolute;
-  right: 4px;
+  right: 0.286rem;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
   align-items: center;
-  height: 28px;
+  height: 2rem;
   z-index: 1;
 }
 
@@ -299,12 +299,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  height: 28px;
-  min-height: 28px;
-  max-height: 28px;
-  padding: 0 10px;
-  font-size: 12px;
+  gap: 0.286rem;
+  height: 2rem;
+  min-height: 2rem;
+  max-height: 2rem;
+  padding: 0 0.714rem;
+  font-size: 0.857rem;
   line-height: 1;
   white-space: nowrap;
 }
@@ -312,7 +312,7 @@
 /* 为按钮预留右侧空间，避免文字被覆盖。 */
 .field:has(.field-action) .field-control .field-input,
 .field:has(.field-action) .field-control .field-select {
-  padding-right: 104px;
+  padding-right: 7.429rem;
 }
 
 /* 下拉触发器 */
@@ -323,8 +323,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  min-height: 36px;
+  gap: 0.571rem;
+  min-height: 2.571rem;
   cursor: pointer;
   text-align: left;
 }
@@ -357,8 +357,8 @@
 
 /* 选项列表：容器材质来自 FloatingPanel，这里只排布选项 */
 .field-select-panel {
-  min-width: 140px;
-  max-height: 220px;
+  min-width: 10rem;
+  max-height: 15.714rem;
   overflow-y: auto;
 }
 
@@ -367,14 +367,14 @@
   align-items: center;
   width: 100%;
   margin: 0;
-  padding: 4px 8px;
+  padding: 0.286rem 0.571rem;
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
   box-shadow: none;
   color: var(--c-27362f);
-  font-size: 12px;
-  line-height: 17px;
+  font-size: 0.857rem;
+  line-height: 1.214rem;
   text-align: left;
   cursor: pointer;
 
@@ -397,14 +397,14 @@
 
 /* 搜索模式：触发器本身是输入框，右侧保留箭头 */
 .field-select-search {
-  padding-right: 28px;
+  padding-right: 2rem;
   cursor: text;
 }
 
 /* 搜索模式的图标定位在输入框右侧。 */
 .field-select-arrow-search {
   position: absolute;
-  right: 10px;
+  right: 0.714rem;
   top: 50%;
   transform: translateY(-50%);
   pointer-events: none;
@@ -416,8 +416,8 @@
 
 .field-select-empty {
   margin: 0;
-  padding: 10px;
-  font-size: 13px;
+  padding: 0.714rem;
+  font-size: 0.929rem;
   color: var(--field-label);
   text-align: center;
 }
@@ -438,12 +438,12 @@
 .field + .password-field,
 .password-field + .field,
 .password-field + .password-field {
-  margin-top: var(--field-gap, 12px);
+  margin-top: var(--field-gap, 0.857rem);
 }
 
 .dialog-form-scroll > .field + .field,
 .dialog-form-scroll > :not(.field) + .field {
-  margin-top: var(--field-gap, 12px);
+  margin-top: var(--field-gap, 0.857rem);
 }
 
 /* 紧凑尺寸：用于筛选栏、工具栏等 30px 高的密集区域。
@@ -451,22 +451,22 @@
 .field--dense .field-control .field-input,
 .field--dense .field-control .field-textarea,
 .field--dense .field-control .field-select {
-  padding: 4px 8px;
-  min-height: 30px;
-  line-height: 20px;
+  padding: 0.286rem 0.571rem;
+  min-height: 2.143rem;
+  line-height: 1.429rem;
 }
 
 .field--dense .field-control .field-select {
-  min-height: 30px;
+  min-height: 2.143rem;
 }
 
 .field--dense .field-control .field-textarea {
-  min-height: var(--field-textarea-min, 56px);
-  padding: 6px 8px;
+  min-height: var(--field-textarea-min, 4rem);
+  padding: 0.429rem 0.571rem;
 }
 
 .field--dense:has(.field-action) .field-control .field-input {
-  padding-right: 96px;
+  padding-right: 6.857rem;
 }
 
 /* 深色主题：深底上 20% 的线仍然偏暗，提高一档亮度保证未聚焦时也能看清边框。 */
@@ -487,14 +487,14 @@
 /* 可清空下拉的清除按钮：不嵌套在触发器内部，绝对定位在箭头左侧。 */
 .field-select-clear {
   position: absolute;
-  right: 26px;
+  right: 1.857rem;
   top: 50%;
   transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 1.143rem;
+  height: 1.143rem;
   padding: 0;
   border: 0;
   border-radius: var(--radius-control);
@@ -511,22 +511,22 @@
 }
 
 .field--dense .field-select-clear {
-  right: 24px;
+  right: 1.714rem;
 }
 
 /* 为清除按钮与箭头预留右侧空间。 */
 .field:has(.field-select-clear) .field-control .field-select {
-  padding-right: 46px;
+  padding-right: 3.286rem;
 }
 
 .field--dense:has(.field-select-clear) .field-control .field-select {
-  padding-right: 42px;
+  padding-right: 3rem;
 }
 
 /* 控件内左侧图标：绝对定位，不参与布局；有图标时正文与浮动 label 一起右移。 */
 .field-control .field-icon {
   position: absolute;
-  left: 8px;
+  left: 0.571rem;
   top: 50%;
   transform: translateY(-50%);
   display: inline-flex;
@@ -538,21 +538,21 @@
 
 .field:has(.field-icon) .field-control .field-input,
 .field:has(.field-icon) .field-control .field-select {
-  padding-left: 28px;
+  padding-left: 2rem;
 }
 
 .field--dense:has(.field-icon) .field-control .field-input,
 .field--dense:has(.field-icon) .field-control .field-select {
-  padding-left: 26px;
+  padding-left: 1.857rem;
 }
 
 /* label 未浮起时在框内充当占位，需要避开图标。 */
 .field:has(.field-icon):not(.is-floating) .field-label {
-  left: 28px;
+  left: 2rem;
 }
 
 .field--dense:has(.field-icon):not(.is-floating) .field-label {
-  left: 26px;
+  left: 1.857rem;
 }
 
 /* ===== flush 变体 =====
@@ -561,12 +561,12 @@
 .field--flush .field-control .field-input,
 .field--flush .field-control .field-select,
 .field--flush .field-control .field-textarea {
-  height: var(--field-flush-height, 28px);
+  height: var(--field-flush-height, 2rem);
   min-height: 0;
-  padding: 0 9px;
+  padding: 0 0.643rem;
   border-radius: var(--field-flush-radius, var(--radius-control));
-  font-size: var(--field-flush-font, 12px);
-  line-height: calc(var(--field-flush-height, 28px) - 2px);
+  font-size: var(--field-flush-font, 0.857rem);
+  line-height: calc(var(--field-flush-height, 2rem) - 0.143rem);
 
   --stroke-radius: calc((var(--field-flush-radius, var(--radius-control))) * 2);}
 

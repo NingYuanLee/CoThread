@@ -10,6 +10,7 @@ import {
 } from "react";
 import { FloatingPortal } from "./FloatingPortal";
 import { TreeIcon } from "./document-icons";
+import { scaleDesignPx } from "./apply-ui-scale";
 
 function useAnchoredMenu(open: boolean, anchorRef: RefObject<HTMLElement | null>) {
   const [tick, setTick] = useState(0);
@@ -27,12 +28,15 @@ function useAnchoredMenu(open: boolean, anchorRef: RefObject<HTMLElement | null>
   const anchor = anchorRef.current;
   if (!open || !anchor) return { position: "fixed", visibility: "hidden" } satisfies CSSProperties;
   const rect = anchor.getBoundingClientRect();
-  const width = 180;
+  const width = scaleDesignPx(180);
+  const edge = scaleDesignPx(8);
   let left = rect.right - width;
-  if (left < 8) left = Math.max(8, rect.left);
-  if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
-  let top = rect.bottom + 4;
-  if (top > window.innerHeight - 96) top = Math.max(8, rect.top - 96);
+  if (left < edge) left = Math.max(edge, rect.left);
+  if (left + width > window.innerWidth - edge)
+    left = Math.max(edge, window.innerWidth - edge - width);
+  let top = rect.bottom + scaleDesignPx(4);
+  if (top > window.innerHeight - scaleDesignPx(96))
+    top = Math.max(edge, rect.top - scaleDesignPx(96));
   return { position: "fixed", left, top, right: "auto" } satisfies CSSProperties;
 }
 

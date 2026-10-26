@@ -1,8 +1,11 @@
 import { DialogHeader } from "./DialogHeader";
 import React, { useRef, useState } from "react";
 import { UI_THEMES, normalizeUiTheme } from "../shared/ui-theme.js";
+import { UI_SCALES, detectedUiScale } from "../shared/ui-scale.js";
 import { applyUiTheme } from "./apply-ui-theme";
+import { applyUiScale, readUiScale } from "./apply-ui-scale";
 import { Dialog, animateDialogClose } from "./dialog-fx";
+import { SelectField } from "./SelectField";
 import { showTip, useTipError } from "./Tip";
 
 export function ThemePicker({
@@ -15,6 +18,8 @@ export function ThemePicker({
   onChange: (profile: any) => void;
 }) {
   const current = normalizeUiTheme(theme);
+  const detected = detectedUiScale(window.devicePixelRatio);
+  const [scale, setScale] = useState(readUiScale);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useTipError();
@@ -51,8 +56,8 @@ export function ThemePicker({
         onClick={() => setOpen(true)}
       >
         <svg
-          width="20"
-          height="20"
+          width="1.429rem"
+          height="1.429rem"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -75,10 +80,32 @@ export function ThemePicker({
         <DialogHeader
           title={<>选择主题</>}
           titleId="theme-dialog-title"
-          subtitle={<>配色保存在当前账号，换设备登录后仍会使用这套主题。</>}
+          subtitle={<>配色保存在当前账号。显示大小只记在这台设备上。</>}
           onClose={close}
           closeLabel="关闭主题选择"
         />
+        <div className="theme-scale">
+          <SelectField
+            label="显示大小"
+            hint={
+              detected
+                ? "这台电脑读到的是 " +
+                  detected +
+                  "%。倍率＝电脑缩放÷所选缩放。选得一样就保持现在的样子；选得更低会更大。"
+                : "读不到这台电脑的缩放。没自定义过时用 100%。倍率＝电脑缩放÷所选缩放，读不到时按 100% 算。"
+            }
+            value={scale}
+            options={UI_SCALES.map((item) => ({
+              value: item.id,
+              label: detected && item.id === detected ? item.name + " (推荐)" : item.name,
+              keywords: item.hint,
+            }))}
+            onChange={(id) => {
+              setScale(applyUiScale(id, true));
+              showTip("显示大小已切换");
+            }}
+          />
+        </div>
         <div className="theme-grid" role="listbox" aria-label="可用主题">
           {UI_THEMES.map((item) => (
             <button

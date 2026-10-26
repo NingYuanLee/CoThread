@@ -90,8 +90,8 @@ export function CompactionRow({
         )}
         <svg
           className="agent-status-chevron"
-          width="12"
-          height="12"
+          width="0.857rem"
+          height="0.857rem"
           viewBox="0 0 12 12"
           fill="none"
           stroke="currentColor"

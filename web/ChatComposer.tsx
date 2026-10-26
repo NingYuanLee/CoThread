@@ -16,6 +16,7 @@ import {
   Text,
 } from "@react-symbols/icons/files";
 import { UiIcon } from "./ui-icon";
+import { scaleDesignPx } from "./apply-ui-scale";
 import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
 import { FILE_MAX_BYTES } from "../shared/upload-limits.js";
 import { uploadFileWithIntegrity } from "./file-upload";
@@ -31,10 +32,18 @@ function placePopover(
 ): CSSProperties {
   if (!anchor) return { position: "fixed", visibility: "hidden" };
   const rect = anchor.getBoundingClientRect();
-  const width = Math.min(options.width, Math.max(rect.width, 240), window.innerWidth - 16);
+  const width = Math.min(
+    options.width,
+    Math.max(rect.width, scaleDesignPx(240)),
+    window.innerWidth - scaleDesignPx(16),
+  );
   let left = rect.left;
-  if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
-  const maxHeight = Math.max(120, Math.min(options.maxHeight, rect.top - 16));
+  if (left + width > window.innerWidth - scaleDesignPx(8))
+    left = Math.max(scaleDesignPx(8), window.innerWidth - scaleDesignPx(8) - width);
+  const maxHeight = Math.max(
+    scaleDesignPx(120),
+    Math.min(options.maxHeight, rect.top - scaleDesignPx(16)),
+  );
   return {
     position: "fixed",
     left,

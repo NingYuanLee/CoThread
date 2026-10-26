@@ -19,7 +19,9 @@ import {
   needsFullAgentWork,
   isNegativeMood,
   shouldInviteFullMode,
-  promisesFullModeWork,
+  appendFullModeReminder,
+  reminderNeededByRule,
+  FULL_MODE_REMINDER,
   lightContextTooLong,
   fitLightContextWindow,
   OPPORTUNISTIC_CONTEXT_CHAR_BUDGET,
@@ -168,10 +170,12 @@ test("normalizeParticipationDecision accepts boolean legacy doubles", () => {
   assert.deepEqual(normalizeParticipationDecision(false), {
     respond: false,
     message: undefined,
+    promise: false,
   });
   assert.deepEqual(normalizeParticipationDecision(true), {
     respond: true,
     message: undefined,
+    promise: false,
   });
   assert.equal(deferSilenceProgress("still_changing"), "讨论仍在变化，撤回未发出的回复");
   assert.equal(deferSilenceProgress("revised_silent"), "看到后续发言后选择不发出");
@@ -209,11 +213,22 @@ test("normalizeParticipationDecision accepts boolean legacy doubles", () => {
   assert.equal(isNegativeMood([{ body: "别糊弄我，有没有用" }]), true);
   assert.equal(isNegativeMood([{ body: "你为啥一直沉默" }]), false);
   assert.equal(shouldInviteFullMode([{ body: "你倒是干活啊" }]), true);
-  assert.equal(promisesFullModeWork("我这就开始写文档"), true);
-  assert.equal(promisesFullModeWork("你 @小祥 一下，我就可以开工。"), true);
-  assert.equal(promisesFullModeWork("升级完整模式"), true);
-  assert.equal(promisesFullModeWork("哈哈，这次赶上了。"), false);
-  assert.equal(promisesFullModeWork("在的，你说。"), false);
+  assert.equal(needsFullAgentWork([{ body: "你现在尝试调用" }]), true);
+  assert.equal(needsFullAgentWork([{ body: "你现在把那份表理一理" }]), true);
+  assert.equal(needsFullAgentWork([{ body: "你能看到这个腾讯广告妙问助手技能么" }]), false);
+  assert.equal(needsFullAgentWork([{ body: "你好" }]), false);
+  assert.equal(reminderNeededByRule([{ body: "你好" }]), false);
+  assert.equal(reminderNeededByRule([{ body: "你现在尝试调用" }]), true);
+  assert.equal(
+    normalizeParticipationDecision({ respond: true, message: "你好，我来了。" }).promise,
+    false,
+  );
+  assert.equal(
+    normalizeParticipationDecision({ respond: true, message: "我这就去对账。", promise: true })
+      .promise,
+    true,
+  );
+  assert.equal(appendFullModeReminder("你好，我来了。", { replace: true }), FULL_MODE_REMINDER);
   assert.equal(lightContextTooLong([{ body: "短" }, { body: "也短" }]), false);
   assert.equal(
     lightContextTooLong([{ body: "长".repeat(OPPORTUNISTIC_CONTEXT_CHAR_BUDGET + 1) }]),
@@ -722,6 +737,7 @@ test("a promised short reply is held, then gets the fixed full-mode reminder", a
       threadId,
       messageId,
       decide: async () => ({ respond: true, message: "我这就开始写。" }),
+      judgeReminder: async () => ({ remind: true }),
     });
     assert.equal(result.respond, true);
     assert.equal(result.escalate, undefined);
@@ -826,6 +842,7 @@ test("an uncertain short reply stays unchanged when rules do not require a remin
       threadId,
       messageId,
       decide: async () => ({ respond: true, message: "哈哈，确实。" }),
+      judgeReminder: async () => ({ remind: false }),
     });
     assert.equal(plain.message, "哈哈，确实。");
     assert.equal(plain.reminded, undefined);

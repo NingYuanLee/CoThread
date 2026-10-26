@@ -180,8 +180,8 @@ export function Notifications({
         onClick={() => setOpen(true)}
       >
         <svg
-          width="20"
-          height="20"
+          width="1.429rem"
+          height="1.429rem"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"

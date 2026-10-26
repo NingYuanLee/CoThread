@@ -1,5 +1,6 @@
 import React from "react";
 import { RefreshCw } from "lucide-react";
+import { designPxToRem } from "../shared/ui-scale.js";
 
 export type IconButtonProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "children"> & {
   label: string;
@@ -40,7 +41,7 @@ export function RefreshButton({
       aria-busy={pending || undefined}
       icon={
         <RefreshCw
-          size={16}
+          size={designPxToRem(16)}
           strokeWidth={1.8}
           className={pending ? "overlay-icon-spinning" : undefined}
           aria-hidden="true"

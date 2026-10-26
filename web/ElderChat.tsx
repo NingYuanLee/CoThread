@@ -379,8 +379,8 @@ export function ElderChat({
                           }}
                         >
                           <svg
-                            width="16"
-                            height="16"
+                            width="1.143rem"
+                            height="1.143rem"
                             viewBox="0 0 20 20"
                             fill="none"
                             stroke="currentColor"
@@ -438,8 +438,8 @@ export function ElderChat({
                                 <span className="agent-current-step">已完成</span>
                                 <svg
                                   className="agent-status-chevron"
-                                  width="12"
-                                  height="12"
+                                  width="0.857rem"
+                                  height="0.857rem"
                                   viewBox="0 0 12 12"
                                   fill="none"
                                   stroke="currentColor"
@@ -535,8 +535,8 @@ export function ElderChat({
                             }}
                           >
                             <svg
-                              width="16"
-                              height="16"
+                              width="1.143rem"
+                              height="1.143rem"
                               viewBox="0 0 20 20"
                               fill="none"
                               stroke="currentColor"

@@ -522,8 +522,8 @@ export function ConversationStage({
                                 onClick={() => void copyMessage(m)}
                               >
                                 <svg
-                                  width="16"
-                                  height="16"
+                                  width="1.143rem"
+                                  height="1.143rem"
                                   viewBox="0 0 20 20"
                                   fill="none"
                                   stroke="currentColor"
@@ -550,8 +550,8 @@ export function ConversationStage({
                                 onClick={() => quoteMessage(m)}
                               >
                                 <svg
-                                  width="16"
-                                  height="16"
+                                  width="1.143rem"
+                                  height="1.143rem"
                                   viewBox="0 0 20 20"
                                   fill="none"
                                   stroke="currentColor"
@@ -609,8 +609,8 @@ export function ConversationStage({
                         }
                       >
                         <svg
-                          width="17"
-                          height="17"
+                          width="1.214rem"
+                          height="1.214rem"
                           viewBox="0 0 24 24"
                           fill="none"
                           stroke="currentColor"

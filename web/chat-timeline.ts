@@ -139,6 +139,94 @@ export function turnUsageForMessage<
   return usageReplyForMessage(message, replies, timeline);
 }
 
+export type ConversationTurnFact<R> = {
+  turnId: string | null;
+  continuesTurn: boolean;
+  lastOfTurn: boolean;
+  processPost: boolean;
+  usageReply:
+    | R
+    | {
+        usage_stats: unknown;
+        finished_at: string | null;
+        parent_message_id: null;
+        agent_slot: null;
+      }
+    | null;
+};
+
+// 一次扫完时间线。逐条调用 isLastCoordinatorTurnPost 会让每条消息再扫全表。
+export function conversationTurnFacts<
+  M extends Pick<TimelineMessage, "id" | "source" | "agent_task_id" | "turn_id" | "turn_usage">,
+  R extends Reply & { usage_stats?: unknown },
+>(timeline: M[], replies: R[]): ConversationTurnFact<R>[] {
+  const replyByMessageId = new Map<string, R>();
+  const replyByReplyId = new Map<string, R>();
+  for (const reply of replies) {
+    if (!replyByMessageId.has(reply.message_id)) replyByMessageId.set(reply.message_id, reply);
+    if (reply.reply_id && !replyByReplyId.has(reply.reply_id))
+      replyByReplyId.set(reply.reply_id, reply);
+  }
+  const turnIdOf = (message: M | undefined) => {
+    if (!message?.agent_task_id || (message.source && message.source !== "assistant")) return null;
+    const reply = replyByMessageId.get(message.agent_task_id);
+    if (!reply || isExecutorReply(reply)) return null;
+    return message.turn_id || message.agent_task_id;
+  };
+  const turnIds = timeline.map((message) => turnIdOf(message));
+  const lastIndexByTurn = new Map<string, number>();
+  turnIds.forEach((turnId, index) => {
+    if (turnId) lastIndexByTurn.set(turnId, index);
+  });
+  const usageOnTurn = new Map<string, ConversationTurnFact<R>["usageReply"]>();
+  for (const [turnId, end] of lastIndexByTurn) {
+    for (let index = end; index >= 0; index -= 1) {
+      if (turnIds[index] !== turnId) continue;
+      const own = timeline[index].turn_usage;
+      if (own && Object.keys(parseUsageStats({ usage_stats: own })).length) {
+        usageOnTurn.set(turnId, {
+          usage_stats: own,
+          finished_at: null,
+          parent_message_id: null,
+          agent_slot: null,
+        });
+        break;
+      }
+    }
+  }
+  const usageReply = (message: M, index: number) => {
+    if (message.source !== "assistant" || !(message.turn_id || message.agent_task_id)) return null;
+    const turnId = turnIds[index];
+    const reply =
+      (message.agent_task_id && replyByMessageId.get(message.agent_task_id)) ||
+      replyByReplyId.get(message.id) ||
+      null;
+    if (!turnId) {
+      if (!reply || !isExecutorReply(reply)) return null;
+      return reply;
+    }
+    if (lastIndexByTurn.get(turnId) !== index) return null;
+    const shared = usageOnTurn.get(turnId);
+    if (shared) return shared;
+    if (!reply || isExecutorReply(reply)) return null;
+    if (message.turn_id && message.turn_id !== message.agent_task_id) return null;
+    if (["queued", "running"].includes(String(reply.status || ""))) return null;
+    const usage = parseUsageStats(reply);
+    return usage.totalTokens != null || Number.isFinite(usage.executionDurationMs) ? reply : null;
+  };
+  return timeline.map((message, index) => {
+    const turnId = turnIds[index];
+    const lastOfTurn = !!turnId && lastIndexByTurn.get(turnId) === index;
+    return {
+      turnId,
+      continuesTurn: !!turnId && turnIds[index - 1] === turnId,
+      lastOfTurn,
+      processPost: !!turnId && !lastOfTurn,
+      usageReply: usageReply(message, index),
+    };
+  });
+}
+
 export function liveCoordinatorDraft(
   reply: { message_id: string; status: string } | undefined,
   live: { content?: string } | undefined,

@@ -54,7 +54,8 @@ html[data-theme="ink"] #root {
   background: #141a15;
 }
 
-/* 任务条用的两档底色：常态与悬停都要比输入框略亮，避免深色下变成"洞"。 */
+/* 任务条令牌仍给按钮悬停、置顶标签用，保持比页面略抬一点。
+   输入区本身的深浅在下面单独定，不再跟这组令牌走。 */
 html[data-theme="night"] {
   --c-f1f5eb: #34383e;
   --c-eef2e9: #3a3f46;
@@ -63,6 +64,132 @@ html[data-theme="night"] {
 html[data-theme="ink"] {
   --c-f1f5eb: #303a31;
   --c-eef2e9: #374238;
+}
+
+/* 深色输入区：对话框比页面浅一档，目标条和任务条比对话框深一档。
+   night 对齐参考图（页面 #181818、条 #282828、对话框 #363636）。
+   ink 保持同一明度差，只把中性灰换成绿灰。
+   条仍是半透明磨砂，只去掉上沿那条内高光。
+   不改 --c-fff：那个令牌是全局表面色。强制颜色模式留给系统色。 */
+@media (forced-colors: none) {
+  html[data-theme="night"] .composer.chat-composer {
+    background: #363636;
+  }
+
+  html[data-theme="night"] .composer.chat-composer textarea {
+    background: transparent;
+  }
+
+  html[data-theme="night"] .conversation-task-pool {
+    background: color-mix(in srgb, #282828 72%, transparent);
+    box-shadow: none;
+  }
+
+  html[data-theme="night"] .conversation-task-pool:hover {
+    background: color-mix(in srgb, #282828 84%, transparent);
+  }
+
+  html[data-theme="ink"] .composer.chat-composer {
+    background: #303a32;
+  }
+
+  html[data-theme="ink"] .composer.chat-composer textarea {
+    background: transparent;
+  }
+
+  html[data-theme="ink"] .conversation-task-pool {
+    background: color-mix(in srgb, #222c24 72%, transparent);
+    box-shadow: none;
+  }
+
+  html[data-theme="ink"] .conversation-task-pool:hover {
+    background: color-mix(in srgb, #222c24 84%, transparent);
+  }
+
+  /* @ / 选择面板、模式菜单和左侧当前迭代：深色里只把底提亮到对话框同色，不改字色、不加色相。 */
+  html[data-theme="night"] .composer-picker > button[aria-selected="true"],
+  html[data-theme="night"] .composer-picker > button:hover,
+  html[data-theme="night"] .composer-mode-menu .composer-mode-option.is-active,
+  html[data-theme="night"] .composer-mode-menu .composer-mode-option:hover:not(:disabled),
+  html[data-theme="night"] .thread-row.selected,
+  html[data-theme="night"] .thread-row.selected:hover,
+  html[data-theme="night"] .thread-row.selected:focus-within {
+    background: #363636;
+  }
+
+  html[data-theme="ink"] .composer-picker > button[aria-selected="true"],
+  html[data-theme="ink"] .composer-picker > button:hover,
+  html[data-theme="ink"] .composer-mode-menu .composer-mode-option.is-active,
+  html[data-theme="ink"] .composer-mode-menu .composer-mode-option:hover:not(:disabled),
+  html[data-theme="ink"] .thread-row.selected,
+  html[data-theme="ink"] .thread-row.selected:hover,
+  html[data-theme="ink"] .thread-row.selected:focus-within {
+    background: #303a32;
+  }
+
+  html[data-theme="night"] .composer-mode-menu .composer-mode-option.is-active .composer-mode-option-icon,
+  html[data-theme="ink"] .composer-mode-menu .composer-mode-option.is-active .composer-mode-option-icon {
+    background: transparent;
+  }
+
+  /* 顶栏图标、侧栏按钮、放大和嘴体：深色悬停原来落到比底还暗的令牌上，改成更浅的一档。 */
+  html[data-theme="night"]
+    :is(
+      .workspace-topbar .sidebar-toggle:hover:not(.workspace-space-switch),
+      .project-tabs .new-project-tab:hover:not(:disabled),
+      .project-tab-actions button:hover,
+      .sidebar .sidebar-toggle:hover,
+      .sidebar-brand-toggle:hover .sidebar-brand-control,
+      .sidebar-card:hover:not(:disabled),
+      .sidebar-rail-thread-create:hover
+    ) {
+    background: #464d58;
+    color: #e8eaee;
+  }
+
+  html[data-theme="night"] .project-tab.selected .project-tab-actions button:hover {
+    background: #5a616c;
+    color: #fff;
+  }
+
+  html[data-theme="night"]
+    :is(
+      .composer-resize-btn:hover,
+      .chat-composer .composer-mouthpiece:hover,
+      .chat-composer .composer-mode-toggle:hover:not(:disabled)
+    ) {
+    background: #545b66;
+    color: #e8eaee;
+  }
+
+  html[data-theme="ink"]
+    :is(
+      .workspace-topbar .sidebar-toggle:hover:not(.workspace-space-switch),
+      .project-tabs .new-project-tab:hover:not(:disabled),
+      .project-tab-actions button:hover,
+      .sidebar .sidebar-toggle:hover,
+      .sidebar-brand-toggle:hover .sidebar-brand-control,
+      .sidebar-card:hover:not(:disabled),
+      .sidebar-rail-thread-create:hover
+    ) {
+    background: #3e4b42;
+    color: #e7f0e9;
+  }
+
+  html[data-theme="ink"] .project-tab.selected .project-tab-actions button:hover {
+    background: #52705a;
+    color: #fff;
+  }
+
+  html[data-theme="ink"]
+    :is(
+      .composer-resize-btn:hover,
+      .chat-composer .composer-mouthpiece:hover,
+      .chat-composer .composer-mode-toggle:hover:not(:disabled)
+    ) {
+    background: #4c5c4e;
+    color: #e7f0e9;
+  }
 }
 
 /* 条首「任务 / 目标」：深色下改用蓝色，比接近正文色的白灰更跳，

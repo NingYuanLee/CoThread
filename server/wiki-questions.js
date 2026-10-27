@@ -9,7 +9,7 @@ import { runElderQuestion } from "./elder-kernel.js";
 import { elderPersist, elderRoomState, recordElderRun, wikiScopeKey } from "./wiki-session.js";
 import { callMcpTool } from "./mcp.js";
 import { runMiaowenChat } from "./miaowen-skill.js";
-import { readUserSkillSecret } from "./user-skill-credentials.js";
+import { injectEnvironmentVariables } from "./environment-variables.js";
 import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";
 import { inferCitationKind } from "../shared/citations.js";
 
@@ -174,10 +174,12 @@ async function openedIteration(service, user, projectId, threadId) {
 }
 
 async function answerWithKernel(service, user, scope, ids, question, options) {
-  const lookup = async (name, args) => {
+  const lookup = async (name, args, hooks) => {
     if (name === "miaowen_chat") {
-      const token = await readUserSkillSecret(service.db, user.id, "miaowen");
-      return runMiaowenChat(args, token);
+      const env = await injectEnvironmentVariables(service.db, [
+        { scope: "personal", ownerId: user.id, key: "miaowen", as: "MIAOWEN_API_KEY" },
+      ]);
+      return runMiaowenChat(args, env.MIAOWEN_API_KEY, { onProgress: hooks?.onProgress });
     }
     if (name === "web_search") {
       const results = await searchPublicWeb(String(args.query || question), options.request);

@@ -30,9 +30,11 @@
   --overlay-glass-border: color-mix(in srgb, var(--c-27362f) 14%, transparent);
   --overlay-glass-border-float: color-mix(in srgb, var(--c-27362f) 10%, transparent);
   --overlay-glass-shadow:
-    inset 0 0.071rem 0 color-mix(in srgb, var(--c-f8faf8) 85%, transparent), 0 1.143rem 3.143rem rgb(0 0 0 / 18%);
+    inset 0 0.071rem 0 color-mix(in srgb, var(--c-f8faf8) 85%, transparent),
+    0 1.143rem 3.143rem rgb(0 0 0 / 18%);
   --overlay-glass-shadow-float:
-    inset 0 0.071rem 0 color-mix(in srgb, var(--c-f8faf8) 85%, transparent), 0 0.571rem 1.571rem rgb(0 0 0 / 14%);
+    inset 0 0.071rem 0 color-mix(in srgb, var(--c-f8faf8) 85%, transparent),
+    0 0.571rem 1.571rem rgb(0 0 0 / 14%);
   --overlay-glass-blur: blur(1.286rem) saturate(150%);
   --overlay-mask: rgb(15 20 18 / 10%);
   --overlay-mask-nested: rgb(15 20 18 / 6%);
@@ -80,8 +82,8 @@
 
 .tip-host {
   position: fixed;
-  inset: max(5.143rem, calc(env(safe-area-inset-top) + 1.714rem)) max(1.286rem, env(safe-area-inset-right)) auto
-    auto;
+  inset: max(5.143rem, calc(env(safe-area-inset-top) + 1.714rem))
+    max(1.286rem, env(safe-area-inset-right)) auto auto;
   z-index: 2147483647;
   display: flex;
   flex-direction: column;
@@ -1248,9 +1250,12 @@ html body :is(.email-bind-dialog, .profile-role-dialog) {
 html body :is(.local-executor-authorization-dialog, .context-usage-dialog) {
   --overlay-dialog-width: 37.143rem;
 }
-html body :is(.library-form, .miniprogram-dialog),
+html body :is(.library-form, .miniprogram-dialog, .mouthpiece-dialog),
 html body .library-organize-dialog:where(:has(textarea)) {
   --overlay-dialog-width: 40rem;
+}
+html body .mouthpiece-dialog {
+  --overlay-dialog-max-height: 40rem;
 }
 html body .archive-detail-dialog {
   --overlay-dialog-width: 42.857rem;
@@ -1260,6 +1265,19 @@ html body .thread-brief-dialog {
 }
 html body .task-create-dialog {
   --overlay-dialog-width: 54.286rem;
+}
+html body .task-op-dialog {
+  --overlay-dialog-width: 40rem;
+}
+html body .task-op-dialog.is-confirm {
+  --overlay-dialog-width: 32rem;
+}
+html body .task-timeline-dialog {
+  --overlay-dialog-width: 48.571rem;
+  --overlay-dialog-max-height: 42rem;
+}
+html body .task-timeline-dialog:has(.dialog-footer) {
+  --overlay-dialog-height: min(42rem, var(--overlay-dialog-viewport-height));
 }
 html body .admin-dialog {
   --overlay-dialog-width: 57.143rem;

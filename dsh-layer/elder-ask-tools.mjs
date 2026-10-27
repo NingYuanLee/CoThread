@@ -6,9 +6,10 @@ export const inject = ["tools"];
 async function bridgeTool(name, args, sessionId) {
   const response = await fetch(`${process.env.COTHREAD_BRIDGE_URL}/tool`, {
     method: "POST",
+    // 妙问官方超时 10 分钟，桥上再留 1 分钟。
     signal: AbortSignal.timeout(
       name === "miaowen_chat"
-        ? 180000
+        ? 660000
         : name === "web_search" || name === "web_fetch"
           ? 120000
           : 20000,
@@ -28,8 +29,22 @@ const mcpTools = JSON.parse(process.env.COTHREAD_MCP_TOOLS || "[]");
 const definitions = [
   [
     "miaowen_chat",
-    "用当前登录账号在个人设置里保存的妙问 API KEY，调用腾讯广告妙问。只传入要问的问题，不要索取或复述密钥。",
-    { query: { type: "string", required: true } },
+    "用当前登录用户在个人设置里保存的妙问 API KEY，向腾讯广告妙问提问。query 用自然语言，写清账户、时间和对象。不要索取或复述密钥，也不要运行 node。attachments 只在用户给出公网 https 素材地址时传入，不能传本机路径。",
+    {
+      query: { type: "string", required: true },
+      attachments: {
+        type: "array",
+        description: "可选。每项含 content_type（IMAGE、VIDEO 或 AUDIO）和 https url。",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            content_type: { type: "string" },
+            url: { type: "string" },
+          },
+        },
+      },
+    },
   ],
   [
     "web_search",

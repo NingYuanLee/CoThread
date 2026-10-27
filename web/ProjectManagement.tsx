@@ -12,6 +12,7 @@ import { ProjectSettings } from "./ProjectSettings";
 import { ProjectMark } from "./ProjectMark";
 import { ProjectCodeConnectors } from "./ProjectCodeConnectors";
 import { ProjectMiniProgramConfig } from "./ProjectMiniProgramConfig";
+import { EnvironmentVariables } from "./EnvironmentVariables";
 import { SlideSwitch } from "./SlideSwitch";
 import { UiIcon } from "./ui-icon";
 import { Dialog, animateDialogClose } from "./dialog-fx";
@@ -100,9 +101,9 @@ export function ProjectManagement({
   mcpEndpoint?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [tab, setTab] = useState<"info" | "members" | "connectors" | "miniprogram" | "cloudbase">(
-    "info",
-  );
+  const [tab, setTab] = useState<
+    "info" | "env" | "members" | "connectors" | "miniprogram" | "cloudbase"
+  >("info");
   const [miniprogramAppId, setMiniprogramAppId] = useState<string | null>(null);
   useEffect(() => {
     if (!detail?.id) return undefined;
@@ -184,6 +185,20 @@ export function ProjectManagement({
                 基础信息
               </span>
             </button>
+            {canManage && (
+              <button
+                type="button"
+                className={tab === "env" ? "active" : ""}
+                aria-current={tab === "env" ? "page" : undefined}
+                aria-selected={tab === "env"}
+                onClick={() => setTab("env")}
+              >
+                <span className="ui-icon-text">
+                  <UiIcon name="key" size={14} />
+                  环境变量
+                </span>
+              </button>
+            )}
             <button
               type="button"
               className={tab === "members" ? "active" : ""}
@@ -279,6 +294,23 @@ export function ProjectManagement({
                   </div>
                   <p className="muted">正在加载基本信息…</p>
                 </div>
+              )
+            ) : tab === "env" && canManage ? (
+              detail ? (
+                <div className="project-settings-scroll">
+                  <div className="settings-content-heading">
+                    <p>
+                      仅项目负责人和项目管理员可以设置。变量字段由共序定义，这里只能填写值，不能新增或删除字段。模型不能直接读取这些值。
+                    </p>
+                  </div>
+                  <EnvironmentVariables
+                    api={api}
+                    basePath={`/projects/${detail.id}/environment-variables`}
+                    empty="当前没有可填写的项目环境变量。"
+                  />
+                </div>
+              ) : (
+                <p className="muted">正在加载环境变量…</p>
               )
             ) : tab === "connectors" ? (
               detail ? (

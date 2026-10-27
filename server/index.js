@@ -1,4 +1,5 @@
 import { interruptRunningSandboxRuns } from "./thread-activity.js";
+import { miaowenSkillLabel } from "./miaowen-skill.js";
 import express from "express";
 import { createServer as createHttpServer } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
@@ -172,6 +173,7 @@ if (vite) {
 const runExecutor = allowWrites && !healthProbe;
 if (runExecutor) await interruptRunningSandboxRuns(workDb);
 const stopReplyWorker = runExecutor ? await startReplyWorker(workDb, db) : () => {};
+console.log(miaowenSkillLabel());
 console.log(
   `数据库：${databaseHost}${databaseUrl.port ? `:${databaseUrl.port}` : ""}  沙箱：${sandbox}  执行器：${runExecutor ? "进程内常驻" : "未启动"}${healthProbe ? "（健康探活）" : ""}`,
 );

@@ -3,6 +3,7 @@
  * 注册点与原先内联时一致：在鉴权中间件之后、末尾 404 之前。
  */
 import { streamLiveOutput } from "../agent-live-output.js";
+import { draftMouthpiece } from "../mouthpiece.js";
 import { queueContextCompression } from "../queue-context.js";
 import { queueChildContextCompression } from "../child-agent-context.js";
 import { appendChildTaskSession, readChildTaskSession } from "../child-agent-session.js";
@@ -108,6 +109,9 @@ export function registerProjectRuntimeRoutes(
   );
   app.post("/api/threads/:id/messages", async (req, res) =>
     res.status(201).json(await service.postMessage(req.user, req.params.id, req.body)),
+  );
+  app.post("/api/projects/:id/mouthpiece", async (req, res) =>
+    res.json(await draftMouthpiece(service, req.user, req.params.id, req.body)),
   );
   app.post("/api/threads/:id/attachments", async (req, res) =>
     res

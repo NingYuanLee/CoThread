@@ -16,8 +16,14 @@ import React, {
 } from "react";
 import "./workspace.css";
 import { type UsageStats } from "./MessageUsage";
-import { useAgentLiveOutput } from "./useAgentLiveOutput";
-import { isExecutorReply, liveCoordinatorDraft, taskTimeline } from "./chat-timeline";
+import {
+  LiveOutputContext,
+  createLiveStore,
+  useLiveFeed,
+  useLivePresence,
+  type LiveStore,
+} from "./live-output-store";
+import { isExecutorReply, taskTimeline } from "./chat-timeline";
 import { bindMessageMarkdownOpener } from "./message-markdown-opener";
 const QuoteMarkdown = lazy(() =>
   import("./QuoteMarkdown").then((module) => ({ default: module.QuoteMarkdown })),
@@ -250,7 +256,12 @@ export function WorkspaceApp() {
         ].includes(task.status),
       ));
   const pendingWork = hasPendingWork(thread);
-  const liveOutput = useAgentLiveOutput(threadId, pendingWork);
+  const liveStoreRef = useRef<LiveStore | null>(null);
+  if (!liveStoreRef.current) liveStoreRef.current = createLiveStore();
+  const liveStore = liveStoreRef.current;
+  useLiveFeed(liveStore, threadId, pendingWork);
+  const livePresence = useLivePresence(liveStore);
+  const liveOutput = livePresence.startsWith(`${threadId}\0`) ? liveStore.getRows() : {};
   const wakeThreadPoll = useRef<(() => void) | null>(null);
   const [error, setError] = useTipError();
   const [modal, setModal] = useState<Modal>(null);
@@ -1293,11 +1304,6 @@ export function WorkspaceApp() {
   const liveCoordinator = thread?.replies.find(
     (reply) => !isExecutorReply(reply) && ["queued", "running"].includes(reply.status),
   );
-  const coordinatorDraft = liveCoordinatorDraft(
-    liveCoordinator,
-    liveCoordinator ? liveOutput[liveCoordinator.message_id] : undefined,
-    chatMessages,
-  );
   const timeline = thread
     ? taskTimeline(chatMessages, thread.replies, thread.requests || [], hasAgentActivity)
     : [];
@@ -1596,7 +1602,6 @@ export function WorkspaceApp() {
     liveCoordinator,
     taskStats,
     active,
-    coordinatorDraft,
     openMessageMenu,
     mentionAuthor,
     messageAvatar,
@@ -1718,428 +1723,434 @@ export function WorkspaceApp() {
       />
     ) : null;
   return (
-    <div
-      ref={shellRef}
-      className={
-        "app-shell " +
-        (leftOpen ? "" : "left-closed ") +
-        (contextOpen ? "" : "right-closed ") +
-        (documentFullscreen ? "document-fullscreen" : "")
-      }
-    >
-      <WorkspaceTopbar {...topbarProps} />
-      <WorkspaceSidebar {...sidebarProps} />
-      <main
-        className={`main ${fileDragOver ? "file-drag-over" : ""}${elderOpen && thread ? " elder-split" : ""}`}
-        onDragOver={(e) => {
-          if (e.dataTransfer.types.includes("Files")) {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = active ? "copy" : "none";
-            setFileDragOver(!!active);
-          }
-        }}
-        onDragLeave={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileDragOver(false);
-        }}
-        onDrop={(e) => {
-          if (e.dataTransfer.types.includes("Files")) {
-            e.preventDefault();
-            setFileDragOver(false);
-            if (active) uploadTarget.current?.(Array.from(e.dataTransfer.files));
-          }
-        }}
-        onPaste={(e) => {
-          if (active && e.clipboardData.files.length) {
-            e.preventDefault();
-            uploadTarget.current?.(Array.from(e.clipboardData.files));
-          }
-        }}
+    <LiveOutputContext.Provider value={liveStore}>
+      <div
+        ref={shellRef}
+        className={
+          "app-shell " +
+          (leftOpen ? "" : "left-closed ") +
+          (contextOpen ? "" : "right-closed ") +
+          (documentFullscreen ? "document-fullscreen" : "")
+        }
       >
-        {fileDragOver && (
-          <div className="chat-drop-hint">松开以上传至项目缓存（今日日期文件夹）</div>
-        )}
-        <header className="workspace-top-strip">
-          <ConversationHeader {...conversationHeaderProps} />
-        </header>
-        {!thread && projectId && (!detail || threadId) ? (
-          <div className="conversation-loading" role="status" aria-live="polite" aria-busy="true">
-            <p>{threadId ? "正在加载会话…" : "正在加载项目…"}</p>
-            <div className="conversation-skeleton">
-              <i />
-              <span />
-              <span />
+        <WorkspaceTopbar {...topbarProps} />
+        <WorkspaceSidebar {...sidebarProps} />
+        <main
+          className={`main ${fileDragOver ? "file-drag-over" : ""}${elderOpen && thread ? " elder-split" : ""}`}
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes("Files")) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = active ? "copy" : "none";
+              setFileDragOver(!!active);
+            }
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileDragOver(false);
+          }}
+          onDrop={(e) => {
+            if (e.dataTransfer.types.includes("Files")) {
+              e.preventDefault();
+              setFileDragOver(false);
+              if (active) uploadTarget.current?.(Array.from(e.dataTransfer.files));
+            }
+          }}
+          onPaste={(e) => {
+            if (active && e.clipboardData.files.length) {
+              e.preventDefault();
+              uploadTarget.current?.(Array.from(e.clipboardData.files));
+            }
+          }}
+        >
+          {fileDragOver && (
+            <div className="chat-drop-hint">松开以上传至项目缓存（今日日期文件夹）</div>
+          )}
+          <header className="workspace-top-strip">
+            <ConversationHeader {...conversationHeaderProps} />
+          </header>
+          {!thread && projectId && (!detail || threadId) ? (
+            <div className="conversation-loading" role="status" aria-live="polite" aria-busy="true">
+              <p>{threadId ? "正在加载会话…" : "正在加载项目…"}</p>
+              <div className="conversation-skeleton">
+                <i />
+                <span />
+                <span />
+              </div>
+              <div className="conversation-skeleton">
+                <i />
+                <span />
+                <span />
+              </div>
+              <div className="conversation-skeleton">
+                <i />
+                <span />
+                <span />
+              </div>
             </div>
-            <div className="conversation-skeleton">
-              <i />
-              <span />
-              <span />
-            </div>
-            <div className="conversation-skeleton">
-              <i />
-              <span />
-              <span />
-            </div>
-          </div>
-        ) : !thread ? (
-          <WorkspaceWelcome {...welcomeProps} />
-        ) : (
-          <>
-            {elderOpen && thread ? (
-              <div className="conversation-split">
-                <div className="conversation-split-left">
+          ) : !thread ? (
+            <WorkspaceWelcome {...welcomeProps} />
+          ) : (
+            <>
+              {elderOpen && thread ? (
+                <div className="conversation-split">
+                  <div className="conversation-split-left">
+                    <div className="conversation-body" hidden={threadView !== "chat"}>
+                      <ConversationStage {...stageProps} />
+                    </div>
+                    {threadTrajectoryView}
+                  </div>
+                  <div
+                    className="conversation-split-divider"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="拖拽调整群聊与问老翁宽度"
+                    aria-valuemin={10}
+                    aria-valuemax={90}
+                    aria-valuenow={Math.round((elderSplitRatio ?? 0.5) * 100)}
+                    tabIndex={0}
+                    title="拖拽调整宽度"
+                    onPointerDown={startElderSplitDrag}
+                    onKeyDown={(event) => {
+                      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                      event.preventDefault();
+                      nudgeElderSplit(event.key === "ArrowLeft" ? -0.02 : 0.02);
+                    }}
+                  />
+                  {elderPane}
+                </div>
+              ) : (
+                <>
                   <div className="conversation-body" hidden={threadView !== "chat"}>
                     <ConversationStage {...stageProps} />
                   </div>
                   {threadTrajectoryView}
-                </div>
-                <div
-                  className="conversation-split-divider"
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label="拖拽调整群聊与问老翁宽度"
-                  aria-valuemin={10}
-                  aria-valuemax={90}
-                  aria-valuenow={Math.round((elderSplitRatio ?? 0.5) * 100)}
-                  tabIndex={0}
-                  title="拖拽调整宽度"
-                  onPointerDown={startElderSplitDrag}
-                  onKeyDown={(event) => {
-                    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-                    event.preventDefault();
-                    nudgeElderSplit(event.key === "ArrowLeft" ? -0.02 : 0.02);
-                  }}
-                />
-                {elderPane}
-              </div>
-            ) : (
-              <>
-                <div className="conversation-body" hidden={threadView !== "chat"}>
-                  <ConversationStage {...stageProps} />
-                </div>
-                {threadTrajectoryView}
-              </>
-            )}
-          </>
+                </>
+              )}
+            </>
+          )}
+        </main>
+        {archiveDialog && (
+          <Suspense fallback={null}>
+            <ThreadArchiveDialog
+              key={archiveDialog.id}
+              threadId={archiveDialog.id}
+              title={archiveDialog.title}
+              onClose={() => setArchiveDialog(null)}
+              onChanged={async (status, nextThreadId) => {
+                threadCache.current.clear();
+                await refresh();
+                if (nextThreadId) setThreadId(nextThreadId);
+                setThreadListPane(nextThreadId || status === "active" ? "active" : "archived");
+                showTip(
+                  status === "active"
+                    ? "归档已撤回，可以继续协作"
+                    : nextThreadId
+                      ? "迭代已归档，承接迭代已创建"
+                      : "迭代已归档",
+                );
+              }}
+            />
+          </Suspense>
         )}
-      </main>
-      {archiveDialog && (
-        <Suspense fallback={null}>
-          <ThreadArchiveDialog
-            key={archiveDialog.id}
-            threadId={archiveDialog.id}
-            title={archiveDialog.title}
-            onClose={() => setArchiveDialog(null)}
-            onChanged={async (status, nextThreadId) => {
-              threadCache.current.clear();
-              await refresh();
-              if (nextThreadId) setThreadId(nextThreadId);
-              setThreadListPane(nextThreadId || status === "active" ? "active" : "archived");
-              showTip(
-                status === "active"
-                  ? "归档已撤回，可以继续协作"
-                  : nextThreadId
-                    ? "迭代已归档，承接迭代已创建"
-                    : "迭代已归档",
-              );
-            }}
-          />
-        </Suspense>
-      )}
-      <aside
-        className={`context-panel context-doc-browser ${contextOpen ? "context-open" : ""}`}
-        aria-hidden={!contextOpen}
-        inert={!contextOpen}
-      >
-        <div
-          className="panel-resize-handle"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="拖拽调整对话区与右侧栏宽度"
-          title="拖拽调整宽度"
-          onPointerDown={startPanelDrag}
-        />
-        <button
-          className="panel-close"
-          aria-label="关闭项目侧栏"
-          onClick={() => setContextOpen(false)}
+        <aside
+          className={`context-panel context-doc-browser ${contextOpen ? "context-open" : ""}`}
+          aria-hidden={!contextOpen}
+          inert={!contextOpen}
         >
-          <UiIcon name="close" size={12} />
-        </button>
-        {projectId && threadId && (
-          <ContextPanelModeSwitch
-            dialogueMode={dialogueMode}
-            onSelect={applyContextPanelMode}
-            documentFullscreen={documentFullscreen}
-            onDocumentFullscreenChange={handleDocumentFullscreenChange}
+          <div
+            className="panel-resize-handle"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="拖拽调整对话区与右侧栏宽度"
+            title="拖拽调整宽度"
+            onPointerDown={startPanelDrag}
           />
-        )}
-        {projectId && (dialogueMode === "cloudbase" || dialogueMode === "miniprogram") ? (
-          <Suspense fallback={<p className="muted">正在加载 CloudBase…</p>}>
-            <div className="library-embedded miniprogram-sidebar-embedded doc-browser-shell">
-              <MiniProgramWorkspace
+          <button
+            className="panel-close"
+            aria-label="关闭项目侧栏"
+            onClick={() => setContextOpen(false)}
+          >
+            <UiIcon name="close" size={12} />
+          </button>
+          {projectId && threadId && (
+            <ContextPanelModeSwitch
+              dialogueMode={dialogueMode}
+              onSelect={applyContextPanelMode}
+              documentFullscreen={documentFullscreen}
+              onDocumentFullscreenChange={handleDocumentFullscreenChange}
+            />
+          )}
+          {projectId && (dialogueMode === "cloudbase" || dialogueMode === "miniprogram") ? (
+            <Suspense fallback={<p className="muted">正在加载 CloudBase…</p>}>
+              <div className="library-embedded miniprogram-sidebar-embedded doc-browser-shell">
+                <MiniProgramWorkspace
+                  projectId={projectId}
+                  request={apiFetch}
+                  writable={writable}
+                  currentUserId={user.id}
+                  owner={owner}
+                  embeddedInSidebar
+                />
+              </div>
+            </Suspense>
+          ) : projectId ? (
+            <Suspense fallback={<p className="muted">正在加载文件树…</p>}>
+              <Documents
+                key={projectId}
                 projectId={projectId}
-                request={apiFetch}
+                threadId={threadId || undefined}
                 writable={writable}
                 currentUserId={user.id}
                 owner={owner}
-                embeddedInSidebar
+                iterationWritable={active}
+                folders={detail?.folders || EMPTY_FOLDERS}
+                versions={detail?.versions || EMPTY_VERSIONS}
+                organizationJobs={detail?.documentOrganizationJobs || EMPTY_JOBS}
+                codeSourcesTick={codeSourcesTick}
+                selected={documentId}
+                documentFocus={documentFocus}
+                onSelect={setDocumentId}
+                documentFullscreen={documentFullscreen}
+                onDocumentFullscreenChange={handleDocumentFullscreenChange}
+                onRefresh={refreshDocuments}
+                onReference={active ? referenceDocument : undefined}
+                onRequestRevision={active ? requestRevisionDocument : undefined}
+                onAddSelectionToConversation={active ? addSelectionDocument : undefined}
+                onReferenceFolder={active ? referenceFolderDocument : undefined}
+                onAddToTask={active ? addDocumentToTask : undefined}
+                onAddFolderToTask={active ? addFolderDocumentToTask : undefined}
+                onReview={active ? reviewDocument : undefined}
               />
-            </div>
+            </Suspense>
+          ) : null}
+        </aside>
+        {taskDialogOpen && (
+          <TaskListDialog
+            key={`${user.id}:${projectId}:${threadId}`}
+            selection={taskSelection}
+            tasks={taskPool}
+            taskCreateOpen={taskCreateOpen}
+            onClose={() => {
+              closeTaskCreate();
+              setTaskDialogOpen(false);
+            }}
+            onChanged={refreshProjectTasks}
+            detail={detail}
+            projectId={projectId}
+            threadId={threadId}
+            user={user}
+            active={!!active}
+            openTaskCreate={openTaskCreate}
+            renderRef={renderRef}
+            projectConnectorBound={projectConnectorBound}
+            time={time}
+            mcpEndpoint={health?.mcpEndpoint || "/mcp"}
+          />
+        )}
+        {briefDialogOpen && thread && (
+          <Suspense fallback={null}>
+            <ThreadBriefDialog
+              key={thread.id}
+              thread={thread}
+              writable={!!active}
+              onClose={() => setBriefDialogOpen(false)}
+              onSaved={refresh}
+            />
           </Suspense>
-        ) : projectId ? (
-          <Suspense fallback={<p className="muted">正在加载文件树…</p>}>
-            <Documents
-              key={projectId}
+        )}
+        {taskCreateRequest && (
+          <TaskCreateDialog
+            key={`${user.id}:${projectId}:${threadId}:${taskCreateRequest.id}`}
+            projectId={projectId}
+            threadId={threadId}
+            writable={!!active}
+            user={user}
+            detail={detail}
+            initialRefId={taskCreateRequest.refId}
+            initialFolderId={taskCreateRequest.folderId}
+            onClose={closeTaskCreate}
+            onCreated={(taskId) => {
+              if (
+                currentContext.current.projectId !== projectId ||
+                currentContext.current.threadId !== threadId
+              )
+                return;
+              setTaskCreateRequest((current) =>
+                current?.id === taskCreateRequest.id ? null : current,
+              );
+              setTaskSelection((current) => ({ id: current.id + 1, taskId }));
+              void refreshProjectTasks().catch(() =>
+                showTip("任务已创建，列表刷新失败，请稍后重试", "error"),
+              );
+            }}
+          />
+        )}
+        {quotePreview && (
+          <ModalBackdrop onClose={() => setQuotePreview(null)} enabled={!imagePreview}>
+            {(close) => (
+              <section
+                className="quoted-message-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-label="引用消息原文"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <DialogHeader
+                  title={
+                    quotePreview.source === "assistant" ? AGENT_MEMBER.name : quotePreview.author
+                  }
+                  subtitle="引用消息原文"
+                  onClose={close}
+                  autoFocusClose
+                  closeLabel="关闭原文"
+                />
+                <DialogBody>
+                  <Suspense fallback={quotePreview.body}>
+                    <QuoteMarkdown body={quotePreview.body} />
+                  </Suspense>
+                  {renderMessageAttachments(quotePreview)}
+                </DialogBody>
+              </section>
+            )}
+          </ModalBackdrop>
+        )}
+        {messageMenu && (
+          <MessageContextMenu
+            x={messageMenu.x}
+            y={messageMenu.y}
+            canQuote={canQuoteMessage(messageMenu.message)}
+            onCopy={() => void copyMessage(messageMenu.message, messageMenu.selectedText)}
+            onQuote={() => quoteMessage(messageMenu.message, messageMenu.selectedText)}
+            onDismiss={() => setMessageMenu(null)}
+          />
+        )}
+        {imagePreview && (
+          <Suspense fallback={null}>
+            <ImagePreviewDialog
+              id={imagePreview.id}
+              title={imagePreview.title}
+              filename={imagePreview.filename}
+              onClose={() => setImagePreview(null)}
+            />
+          </Suspense>
+        )}
+        {projectManagementOpen && projectId && (
+          <Suspense fallback={null}>
+            <ProjectManagement
+              detail={detail?.id === projectId ? detail : null}
+              busy={busy}
+              projectLeader={projectLeader}
+              canManage={owner}
+              mcpEndpoint={health?.mcpEndpoint || "/mcp"}
+              api={api}
+              localDate={localDate}
+              refresh={refresh}
+              onProjectRenamed={(updated) => {
+                setProjects((rows) =>
+                  rows.map((project) =>
+                    project.id === updated.id
+                      ? {
+                          ...project,
+                          name: updated.name,
+                          description: updated.description ?? project.description,
+                          image: updated.image === undefined ? project.image : updated.image,
+                        }
+                      : project,
+                  ),
+                );
+                setDetail((previous) =>
+                  previous && previous.id === updated.id
+                    ? {
+                        ...previous,
+                        name: updated.name,
+                        description: updated.description ?? previous.description,
+                        image: updated.image === undefined ? previous.image : updated.image,
+                      }
+                    : previous,
+                );
+              }}
+              onClose={() => {
+                setProjectManagementOpen(false);
+                setCodeSourcesTick((value) => value + 1);
+              }}
+            />
+          </Suspense>
+        )}
+        {monitorOpen && projectId && (
+          <Suspense fallback={null}>
+            <AgentMonitor
               projectId={projectId}
-              threadId={threadId || undefined}
-              writable={writable}
-              currentUserId={user.id}
-              owner={owner}
-              iterationWritable={active}
-              folders={detail?.folders || EMPTY_FOLDERS}
-              versions={detail?.versions || EMPTY_VERSIONS}
-              organizationJobs={detail?.documentOrganizationJobs || EMPTY_JOBS}
-              codeSourcesTick={codeSourcesTick}
-              selected={documentId}
-              documentFocus={documentFocus}
-              onSelect={setDocumentId}
-              documentFullscreen={documentFullscreen}
-              onDocumentFullscreenChange={handleDocumentFullscreenChange}
-              onRefresh={refreshDocuments}
-              onReference={active ? referenceDocument : undefined}
-              onRequestRevision={active ? requestRevisionDocument : undefined}
-              onAddSelectionToConversation={active ? addSelectionDocument : undefined}
-              onReferenceFolder={active ? referenceFolderDocument : undefined}
-              onAddToTask={active ? addDocumentToTask : undefined}
-              onAddFolderToTask={active ? addFolderDocumentToTask : undefined}
-              onReview={active ? reviewDocument : undefined}
+              projectName={detail?.name || currentProject?.name || "当前项目"}
+              projectImage={detail?.image || currentProject?.image}
+              threadId={threadId}
+              api={api}
+              onClose={() => setMonitorOpen(false)}
+            />
+          </Suspense>
+        )}
+        {memoryOpen && projectId && user ? (
+          <Suspense fallback={null}>
+            <ProjectMemory
+              projectId={projectId}
+              api={api}
+              canWrite={writable}
+              focusId={memoryFocusId}
+              onCountsChange={setMemoryCounts}
+              onClose={() => {
+                setMemoryOpen(false);
+                setMemoryFocusId("");
+                refreshMemoryCounts();
+              }}
             />
           </Suspense>
         ) : null}
-      </aside>
-      {taskDialogOpen && (
-        <TaskListDialog
-          key={`${user.id}:${projectId}:${threadId}`}
-          selection={taskSelection}
-          tasks={taskPool}
-          taskCreateOpen={taskCreateOpen}
-          onClose={() => {
-            closeTaskCreate();
-            setTaskDialogOpen(false);
-          }}
-          onChanged={refreshProjectTasks}
-          detail={detail}
-          projectId={projectId}
-          threadId={threadId}
-          user={user}
-          active={!!active}
-          openTaskCreate={openTaskCreate}
-          renderRef={renderRef}
-          projectConnectorBound={projectConnectorBound}
-          time={time}
-          mcpEndpoint={health?.mcpEndpoint || "/mcp"}
-        />
-      )}
-      {briefDialogOpen && thread && (
-        <Suspense fallback={null}>
-          <ThreadBriefDialog
-            key={thread.id}
-            thread={thread}
-            writable={!!active}
-            onClose={() => setBriefDialogOpen(false)}
-            onSaved={refresh}
-          />
-        </Suspense>
-      )}
-      {taskCreateRequest && (
-        <TaskCreateDialog
-          key={`${user.id}:${projectId}:${threadId}:${taskCreateRequest.id}`}
-          projectId={projectId}
-          threadId={threadId}
-          writable={!!active}
-          user={user}
-          detail={detail}
-          initialRefId={taskCreateRequest.refId}
-          initialFolderId={taskCreateRequest.folderId}
-          onClose={closeTaskCreate}
-          onCreated={(taskId) => {
-            if (
-              currentContext.current.projectId !== projectId ||
-              currentContext.current.threadId !== threadId
-            )
-              return;
-            setTaskCreateRequest((current) =>
-              current?.id === taskCreateRequest.id ? null : current,
-            );
-            setTaskSelection((current) => ({ id: current.id + 1, taskId }));
-            void refreshProjectTasks().catch(() =>
-              showTip("任务已创建，列表刷新失败，请稍后重试", "error"),
-            );
-          }}
-        />
-      )}
-      {quotePreview && (
-        <ModalBackdrop onClose={() => setQuotePreview(null)} enabled={!imagePreview}>
-          {(close) => (
-            <section
-              className="quoted-message-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-label="引用消息原文"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <DialogHeader
-                title={
-                  quotePreview.source === "assistant" ? AGENT_MEMBER.name : quotePreview.author
-                }
-                subtitle="引用消息原文"
-                onClose={close}
-                autoFocusClose
-                closeLabel="关闭原文"
-              />
-              <DialogBody>
-                <Suspense fallback={quotePreview.body}>
-                  <QuoteMarkdown body={quotePreview.body} />
-                </Suspense>
-                {renderMessageAttachments(quotePreview)}
-              </DialogBody>
-            </section>
-          )}
-        </ModalBackdrop>
-      )}
-      {messageMenu && (
-        <MessageContextMenu
-          x={messageMenu.x}
-          y={messageMenu.y}
-          canQuote={canQuoteMessage(messageMenu.message)}
-          onCopy={() => void copyMessage(messageMenu.message, messageMenu.selectedText)}
-          onQuote={() => quoteMessage(messageMenu.message, messageMenu.selectedText)}
-          onDismiss={() => setMessageMenu(null)}
-        />
-      )}
-      {imagePreview && (
-        <Suspense fallback={null}>
-          <ImagePreviewDialog
-            id={imagePreview.id}
-            title={imagePreview.title}
-            filename={imagePreview.filename}
-            onClose={() => setImagePreview(null)}
-          />
-        </Suspense>
-      )}
-      {projectManagementOpen && projectId && (
-        <Suspense fallback={null}>
-          <ProjectManagement
-            detail={detail?.id === projectId ? detail : null}
+        {agentLogScope && (
+          <Suspense fallback={null}>
+            <AgentLogDialog
+              scope={agentLogScope}
+              api={api}
+              onClose={() => setAgentLogScope(null)}
+            />
+          </Suspense>
+        )}
+        {localExecutorAuthorizationId && (
+          <Suspense fallback={null}>
+            <LocalExecutorAuthorization
+              id={localExecutorAuthorizationId}
+              callbackPort={localExecutorCallbackPort}
+              callbackSecret={connectorCallbackSecret}
+              api={localExecutorAuthorizationApi}
+              onDone={closeLocalExecutorAuthorization}
+            />
+          </Suspense>
+        )}
+        {projectPickerOpen && (
+          <ProjectPicker
+            projects={projects}
             busy={busy}
-            projectLeader={projectLeader}
-            canManage={owner}
-            mcpEndpoint={health?.mcpEndpoint || "/mcp"}
-            api={api}
-            localDate={localDate}
-            refresh={refresh}
-            onProjectRenamed={(updated) => {
-              setProjects((rows) =>
-                rows.map((project) =>
-                  project.id === updated.id
-                    ? {
-                        ...project,
-                        name: updated.name,
-                        description: updated.description ?? project.description,
-                        image: updated.image === undefined ? project.image : updated.image,
-                      }
-                    : project,
-                ),
-              );
-              setDetail((previous) =>
-                previous && previous.id === updated.id
-                  ? {
-                      ...previous,
-                      name: updated.name,
-                      description: updated.description ?? previous.description,
-                      image: updated.image === undefined ? previous.image : updated.image,
-                    }
-                  : previous,
-              );
-            }}
-            onClose={() => {
-              setProjectManagementOpen(false);
-              setCodeSourcesTick((value) => value + 1);
+            error={error}
+            onClose={() => setProjectPickerOpen(false)}
+            onImport={(id) => updateProjectTab(id, "open")}
+            onCreate={() => {
+              setProjectPickerOpen(false);
+              open("project");
             }}
           />
-        </Suspense>
-      )}
-      {monitorOpen && projectId && (
-        <Suspense fallback={null}>
-          <AgentMonitor
-            projectId={projectId}
-            projectName={detail?.name || currentProject?.name || "当前项目"}
-            projectImage={detail?.image || currentProject?.image}
-            threadId={threadId}
-            api={api}
-            onClose={() => setMonitorOpen(false)}
-          />
-        </Suspense>
-      )}
-      {memoryOpen && projectId && user ? (
-        <Suspense fallback={null}>
-          <ProjectMemory
-            projectId={projectId}
-            api={api}
-            canWrite={writable}
-            focusId={memoryFocusId}
-            onCountsChange={setMemoryCounts}
-            onClose={() => {
-              setMemoryOpen(false);
-              setMemoryFocusId("");
-              refreshMemoryCounts();
-            }}
-          />
-        </Suspense>
-      ) : null}
-      {agentLogScope && (
-        <Suspense fallback={null}>
-          <AgentLogDialog scope={agentLogScope} api={api} onClose={() => setAgentLogScope(null)} />
-        </Suspense>
-      )}
-      {localExecutorAuthorizationId && (
-        <Suspense fallback={null}>
-          <LocalExecutorAuthorization
-            id={localExecutorAuthorizationId}
-            callbackPort={localExecutorCallbackPort}
-            callbackSecret={connectorCallbackSecret}
-            api={localExecutorAuthorizationApi}
-            onDone={closeLocalExecutorAuthorization}
-          />
-        </Suspense>
-      )}
-      {projectPickerOpen && (
-        <ProjectPicker
-          projects={projects}
-          busy={busy}
-          error={error}
-          onClose={() => setProjectPickerOpen(false)}
-          onImport={(id) => updateProjectTab(id, "open")}
-          onCreate={() => {
-            setProjectPickerOpen(false);
-            open("project");
-          }}
-        />
-      )}
-      <WorkspaceModals {...modalsProps} />
-      {threadDeleteConfirm ? (
-        <Suspense fallback={null}>
-          <DeleteConfirmDialog
-            title="删除已归档迭代"
-            body={`将永久删除「${threadDeleteConfirm.title}」及其讨论、文档与执行记录，且无法恢复。`}
-            confirmLabel="确认删除"
-            danger
-            confirmDisabled={busy}
-            onClose={() => setThreadDeleteConfirm(null)}
-            onConfirm={confirmDeleteArchivedThread}
-          />
-        </Suspense>
-      ) : null}
-    </div>
+        )}
+        <WorkspaceModals {...modalsProps} />
+        {threadDeleteConfirm ? (
+          <Suspense fallback={null}>
+            <DeleteConfirmDialog
+              title="删除已归档迭代"
+              body={`将永久删除「${threadDeleteConfirm.title}」及其讨论、文档与执行记录，且无法恢复。`}
+              confirmLabel="确认删除"
+              danger
+              confirmDisabled={busy}
+              onClose={() => setThreadDeleteConfirm(null)}
+              onConfirm={confirmDeleteArchivedThread}
+            />
+          </Suspense>
+        ) : null}
+      </div>
+    </LiveOutputContext.Provider>
   );
 }

@@ -109,6 +109,99 @@ function withoutUnderstandingLabel(text: string) {
   return text.replace(/^(?:\s*我理解\s*[:：]\s*)+/, "");
 }
 
+function toolStepsOf(trace?: TraceStep[]) {
+  return (trace || []).filter(
+    (step) => step.tool !== "understanding" && step.tool !== "assistant_text",
+  );
+}
+
+function toolStatusLabel(status: string) {
+  if (status === "completed") return "完成";
+  if (status === "running") return "进行中";
+  if (status === "failed") return "失败";
+  return status;
+}
+
+function ElderToolTrace({
+  trace,
+  open,
+  onToggle,
+  forceOpen = false,
+}: {
+  trace?: TraceStep[];
+  open: boolean;
+  onToggle?: () => void;
+  forceOpen?: boolean;
+}) {
+  const steps = toolStepsOf(trace);
+  if (!steps.length) return null;
+  const expanded = forceOpen || open;
+  const running = steps.some((step) => step.status === "running");
+  return (
+    <div className="agent-round">
+      <div className="agent-trace" data-open={expanded ? "true" : "false"}>
+        <button
+          className="agent-status-line"
+          type="button"
+          aria-expanded={expanded}
+          title="点击展开或收起过程"
+          onClick={onToggle}
+        >
+          <span className="agent-current-step">{running ? "调用中" : "已完成"}</span>
+          <svg
+            className="agent-status-chevron"
+            width="0.857rem"
+            height="0.857rem"
+            viewBox="0 0 12 12"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d={expanded ? "m3 7 3-3 3 3" : "m3 5 3 3 3-3"} />
+          </svg>
+        </button>
+        {expanded && (
+          <div className="agent-activity-items">
+            {steps.map((step, index) =>
+              step.tool === "thinking" ? (
+                <div className="agent-phase thinking" key={index}>
+                  <div className="message-text">
+                    <Suspense fallback={step.text || ""}>
+                      <MessageMarkdown body={step.text || ""} />
+                    </Suspense>
+                  </div>
+                </div>
+              ) : (
+                <details
+                  key={step.tool + ":" + index}
+                  {...(step.status === "running" ? { open: true } : {})}
+                >
+                  <summary>
+                    <AgentToolIcon
+                      category="项目文档"
+                      status={step.status === "completed" ? "completed" : step.status}
+                    />
+                    <span className="agent-action-label">{step.label}</span>
+                    <small>{toolStatusLabel(step.status)}</small>
+                  </summary>
+                  {step.status === "running" && step.output && (
+                    <p className="agent-tool-progress">{step.output}</p>
+                  )}
+                  {step.status !== "running" && step.input && <pre>{step.input}</pre>}
+                  {step.status !== "running" && step.output && <pre>{step.output}</pre>}
+                </details>
+              ),
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function prefaceSteps(answer: Turn["answer"]) {
   const body = withoutUnderstandingLabel(answer?.body || "").trim();
   return (answer?.trace || []).filter((step) => {
@@ -412,90 +505,16 @@ export function ElderChat({
                             </Suspense>
                           </div>
                         ))}
-                        {!!turn.answer.trace?.some(
-                          (step) =>
-                            step.tool !== "understanding" &&
-                            step.tool !== "assistant_text" &&
-                            step.tool !== "thinking",
-                        ) && (
-                          <div className="agent-round">
-                            <div
-                              className="agent-trace"
-                              data-open={openTrace[turn.answer.id] ? "true" : "false"}
-                            >
-                              <button
-                                className="agent-status-line"
-                                type="button"
-                                aria-expanded={!!openTrace[turn.answer.id]}
-                                title="点击展开或收起过程"
-                                onClick={() =>
-                                  setOpenTrace((current) => ({
-                                    ...current,
-                                    [turn.answer!.id]: !current[turn.answer!.id],
-                                  }))
-                                }
-                              >
-                                <span className="agent-current-step">已完成</span>
-                                <svg
-                                  className="agent-status-chevron"
-                                  width="0.857rem"
-                                  height="0.857rem"
-                                  viewBox="0 0 12 12"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="1.4"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden="true"
-                                >
-                                  <path
-                                    d={openTrace[turn.answer.id] ? "m3 7 3-3 3 3" : "m3 5 3 3 3-3"}
-                                  />
-                                </svg>
-                              </button>
-                              {openTrace[turn.answer.id] && (
-                                <div className="agent-activity-items">
-                                  {turn.answer.trace
-                                    .filter(
-                                      (step) =>
-                                        step.tool !== "understanding" &&
-                                        step.tool !== "assistant_text",
-                                    )
-                                    .map((step, index) =>
-                                      step.tool === "thinking" ? (
-                                        <div className="agent-phase thinking" key={index}>
-                                          <div className="message-text">
-                                            <Suspense fallback={step.text || ""}>
-                                              <MessageMarkdown body={step.text || ""} />
-                                            </Suspense>
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        <details key={index}>
-                                          <summary>
-                                            <AgentToolIcon
-                                              category="项目文档"
-                                              status={
-                                                step.status === "completed"
-                                                  ? "completed"
-                                                  : step.status
-                                              }
-                                            />
-                                            <span className="agent-action-label">{step.label}</span>
-                                            <small>
-                                              {step.status === "completed" ? "完成" : step.status}
-                                            </small>
-                                          </summary>
-                                          {step.input && <pre>{step.input}</pre>}
-                                          {step.output && <pre>{step.output}</pre>}
-                                        </details>
-                                      ),
-                                    )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
+                        <ElderToolTrace
+                          trace={turn.answer.trace}
+                          open={!!openTrace[turn.answer.id]}
+                          onToggle={() =>
+                            setOpenTrace((current) => ({
+                              ...current,
+                              [turn.answer!.id]: !current[turn.answer!.id],
+                            }))
+                          }
+                        />
                         <div className="message-text">
                           <Suspense fallback={withoutUnderstandingLabel(turn.answer.body)}>
                             <MessageMarkdown
@@ -634,6 +653,7 @@ export function ElderChat({
                           />
                         </Suspense>
                       </div>
+                      <ElderToolTrace trace={live?.trace} open forceOpen />
                       <StreamingStatus />
                     </div>
                   </article>

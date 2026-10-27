@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useState } from "react";
+import { useLiveOutputRow } from "./live-output-store";
 const MessageMarkdown = lazy(() =>
-  import("./MessageMarkdown").then((module) => ({ default: module.MessageMarkdown })),
+  import("./MessageMarkdown").then((module) => ({ default: module.ThrottledMarkdown })),
 );
 import { AgentEvent } from "./AgentEvent";
 import { AgentToolIcon } from "./AgentToolIcon";
@@ -21,13 +22,13 @@ export function AgentActivity({
   threadId,
   messageId,
   events,
-  output,
   status,
   hasFinal,
   versions,
   threads,
   progress,
   expanded = false,
+  output: incoming,
 }: {
   threadId: string;
   messageId: string;
@@ -40,6 +41,8 @@ export function AgentActivity({
   progress?: string | null;
   expanded?: boolean;
 }) {
+  const stored = useLiveOutputRow(threadId, messageId);
+  const output = stored ?? incoming;
   const running = ["queued", "running"].includes(status);
   const [open, setOpen] = useState(false);
   const revealed = expanded || open;
@@ -165,7 +168,10 @@ export function AgentActivity({
                 >
                   <div className="message-text">
                     <Suspense fallback={live || texts[e.id] || ""}>
-                      <MessageMarkdown body={live || texts[e.id] || ""} />
+                      <MessageMarkdown
+                        body={live || texts[e.id] || ""}
+                        active={!!live && running}
+                      />
                     </Suspense>
                   </div>
                 </div>
@@ -198,7 +204,10 @@ export function AgentActivity({
             <div className={`agent-phase ${output.content ? "text" : "thinking"}`}>
               <div className="message-text">
                 <Suspense fallback={output.content || output.reasoning}>
-                  <MessageMarkdown body={output.content || output.reasoning || ""} />
+                  <MessageMarkdown
+                    body={output.content || output.reasoning || ""}
+                    active={running}
+                  />
                 </Suspense>
               </div>
             </div>

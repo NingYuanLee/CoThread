@@ -1,0 +1,24 @@
+/* 发送按钮左侧的 AI嘴替。footer 不换行：加号和模式在左，这个按钮贴着发送。 */
+.chat-composer .composer-mouthpiece {
+  margin-left: auto;
+  flex: 0 0 auto;
+  height: 2.429rem;
+  padding: 0 0.786rem;
+  font-size: 0.857rem;
+  white-space: nowrap;
+}
+
+.chat-composer .composer-footer .composer-send {
+  margin-left: 0.429rem;
+}
+
+.mouthpiece-status {
+  margin: 0 0 0.857rem;
+  color: var(--c-5c6658);
+  font-size: 0.929rem;
+  line-height: 1.55;
+}
+
+.mouthpiece-status.is-error {
+  color: var(--c-b75b4d);
+}

@@ -35,6 +35,13 @@ import {
 import { createMemoryRelation, deleteMemoryRelation } from "../memory-graph.js";
 import { emptyLibraryRecycle, libraryChange } from "../documents/index.js";
 import { countDocumentChanges, listDocumentChanges } from "../documents/index.js";
+import { projectManagerOperation } from "../service-access.js";
+import {
+  clearEnvironmentVariable,
+  listEnvironmentVariables,
+  readEnvironmentRemark,
+  setEnvironmentVariable,
+} from "../environment-variables.js";
 import { z } from "zod/v3";
 import { query } from "../db.js";
 import { HttpError } from "../service.js";
@@ -848,6 +855,32 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   });
   registerMiniprogramRoutes(app, { db, service });
   registerCloudbaseRoutes(app, { service });
+  app.get("/api/projects/:id/environment-variables", async (req, res) => {
+    await projectManagerOperation(service, req.user, req.params.id);
+    res.json({ variables: await listEnvironmentVariables(db, "project", req.params.id) });
+  });
+  app.get("/api/projects/:id/environment-variables/:key/remark", async (req, res) => {
+    await projectManagerOperation(service, req.user, req.params.id);
+    res.json({ markdown: await readEnvironmentRemark("project", req.params.key) });
+  });
+  app.put("/api/projects/:id/environment-variables/:key", async (req, res) => {
+    await projectManagerOperation(service, req.user, req.params.id);
+    const data = z.object({ value: z.string().max(4000) }).parse(req.body);
+    await setEnvironmentVariable(
+      db,
+      "project",
+      req.params.id,
+      req.params.key,
+      data.value,
+      req.user.id,
+    );
+    res.json({ configured: true });
+  });
+  app.delete("/api/projects/:id/environment-variables/:key", async (req, res) => {
+    await projectManagerOperation(service, req.user, req.params.id);
+    await clearEnvironmentVariable(db, "project", req.params.id, req.params.key);
+    res.json({ configured: false });
+  });
   app.patch("/api/projects/:id", async (req, res) =>
     res.json(await service.updateProject(req.user, req.params.id, req.body)),
   );

@@ -28,15 +28,12 @@ import React, {
   type SetStateAction,
 } from "react";
 import {
-  coordinatorTurnId,
   continuesCoordinatorTurn,
-  isCoordinatorProcessPost,
+  conversationTurnFacts,
   isExecutorReply,
-  isLastCoordinatorTurnPost,
-  turnUsageForMessage,
   liveCoordinatorDraft,
-  usageReplyForMessage,
 } from "./chat-timeline";
+import { useLiveOutputRow } from "./live-output-store";
 import { MessageNavigator } from "./MessageNavigator";
 import { ScrollToLatest } from "./ScrollToLatest";
 import { useStickToBottom } from "./use-stick-to-bottom";
@@ -64,8 +61,8 @@ import type { Detail, MessageQuote, TaskStatusStats, Thread } from "./workspace-
 const MessageMarkdown = lazy(() =>
   import("./MessageMarkdown").then((module) => ({ default: module.MessageMarkdown })),
 );
-const StreamingMarkdown = lazy(() =>
-  import("./StreamingMarkdown").then((module) => ({ default: module.StreamingMarkdown })),
+const ThrottledMarkdown = lazy(() =>
+  import("./MessageMarkdown").then((module) => ({ default: module.ThrottledMarkdown })),
 );
 const ChatComposer = lazy(() =>
   import("./ChatComposer").then((module) => ({ default: module.ChatComposer })),
@@ -118,7 +115,6 @@ export type ConversationStageProps = {
   liveCoordinator: Thread["replies"][number] | undefined;
   taskStats: TaskStatusStats | null;
   active: boolean;
-  coordinatorDraft: ReturnType<typeof liveCoordinatorDraft>;
   openMessageMenu: (event: ReactMouseEvent, message: ThreadMessage) => void;
   mentionAuthor: (message: ThreadMessage) => void;
   messageAvatar: (message: ThreadMessage) => string | null | undefined;
@@ -151,6 +147,102 @@ const TASK_STATS_GROUPS = [
   { key: "target", label: "指派给我" },
   { key: "all", label: "全部任务" },
 ] as const;
+
+function groupBy<T>(items: readonly T[] | undefined, key: (item: T) => string | null | undefined) {
+  const groups = new Map<string, T[]>();
+  for (const item of items || []) {
+    const id = key(item);
+    if (!id) continue;
+    const list = groups.get(id);
+    if (list) list.push(item);
+    else groups.set(id, [item]);
+  }
+  return groups;
+}
+
+function repliesByMessage(
+  timeline: { id: string; agent_task_id?: string | null }[],
+  replies: Thread["replies"],
+) {
+  const ids = new Set(timeline.map((message) => message.id));
+  const idsByTask = new Map<string, string[]>();
+  for (const message of timeline) {
+    if (!message.agent_task_id) continue;
+    const list = idsByTask.get(message.agent_task_id);
+    if (list) list.push(message.id);
+    else idsByTask.set(message.agent_task_id, [message.id]);
+  }
+  const grouped = new Map<string, Thread["replies"]>();
+  const push = (id: string, reply: Thread["replies"][number]) => {
+    const list = grouped.get(id);
+    if (list) list.push(reply);
+    else grouped.set(id, [reply]);
+  };
+  for (const reply of replies) {
+    if (isExecutorReply(reply)) {
+      const targets = new Set(idsByTask.get(reply.message_id) || []);
+      if (reply.reply_id && ids.has(reply.reply_id)) targets.add(reply.reply_id);
+      for (const id of targets) push(id, reply);
+    } else if (reply.status === "failed") {
+      const id = `agent-task:${reply.message_id}`;
+      if (ids.has(id)) push(id, reply);
+    }
+  }
+  return grouped;
+}
+
+function CoordinatorLiveDraft({
+  threadId,
+  reply,
+  messages,
+  previous,
+  replies,
+}: {
+  threadId: string;
+  reply: { message_id: string; status: string };
+  messages: Pick<ThreadMessage, "source" | "body" | "agent_task_id">[];
+  previous: ThreadMessage | undefined;
+  replies: Thread["replies"];
+}) {
+  const row = useLiveOutputRow(threadId, reply.message_id);
+  const draft = liveCoordinatorDraft(reply, row, messages);
+  if (!draft) return null;
+  const draftContinues = continuesCoordinatorTurn(
+    { source: "assistant", agent_task_id: reply.message_id },
+    previous,
+    replies,
+  );
+  return (
+    <article
+      className={`message${draftContinues ? " turn-continue" : ""}`}
+      data-message-id={`live-coordinator:${reply.message_id}`}
+      aria-live="polite"
+    >
+      <span className="avatar ai" aria-hidden={draftContinues || undefined}>
+        {!draftContinues && (
+          <img loading="lazy" decoding="async" src={AGENT_MEMBER.avatar} alt="" />
+        )}
+      </span>
+      <div className="message-content">
+        {!draftContinues && (
+          <div className="message-meta">
+            <span className="message-author">
+              <strong>
+                <IdentityName role={AGENT_MEMBER.identity_tags[0]} name={AGENT_MEMBER.name} />
+              </strong>
+            </span>
+          </div>
+        )}
+        <div className="message-text">
+          <Suspense fallback={draft}>
+            <ThrottledMarkdown body={draft} active />
+          </Suspense>
+        </div>
+        <StreamingStatus />
+      </div>
+    </article>
+  );
+}
 
 function taskStatsSummary(stats: TaskStatusStats | null): string {
   if (!stats) return "打开本迭代任务，任务统计加载中";
@@ -189,7 +281,6 @@ export function ConversationStage({
   liveCoordinator,
   taskStats,
   active,
-  coordinatorDraft,
   openMessageMenu,
   mentionAuthor,
   messageAvatar,
@@ -267,6 +358,14 @@ export function ConversationStage({
   }, [dialogueMode, lastMessageId]);
 
   if (!thread) return null;
+  const turnFacts = conversationTurnFacts(timeline, thread.replies);
+  const attachedReplies = repliesByMessage(timeline, thread.replies);
+  const updatesByMessage = groupBy(thread.updates, (update) => update.message_id);
+  const noticesByMessage = groupBy(modeNotices, (notice) => notice.after);
+  const compactionByMessage = groupBy(compaction.rows, (row) => row.after);
+  const imageVersionIds = new Set(
+    (detail?.versions || []).filter((version) => isImageFile(version)).map((version) => version.id),
+  );
   // 目标条复刻任务条：左边固定标题，右边给一句当前目标，先看再决定要不要进弹窗改。
   const goalPreview = thread.goal?.trim() || "";
   return (
@@ -312,28 +411,16 @@ export function ConversationStage({
               </div>
             )}
             {timeline.map((m, index) => {
-              const continuesTurn = continuesCoordinatorTurn(
-                m,
-                timeline[index - 1],
-                thread.replies,
-              );
-              const lastOfTurn = isLastCoordinatorTurnPost(m, timeline, thread.replies);
-              const usageReply =
-                m.source === "assistant" ? turnUsageForMessage(m, timeline, thread.replies) : null;
+              const fact = turnFacts[index];
+              const continuesTurn = fact.continuesTurn;
+              const lastOfTurn = fact.lastOfTurn;
+              const usageReply = fact.usageReply;
               // 同一轮只有收尾帖承载操作；中间过程发言留白，避免每段发言都重复复制/引用。
-              const processPost = isCoordinatorProcessPost(m, timeline, thread.replies);
+              const processPost = fact.processPost;
               const showsActionTime =
                 (m.author_id !== user.id || m.source === "assistant") &&
-                (!coordinatorTurnId(m, thread.replies) ||
-                  (lastOfTurn &&
-                    !continuesCoordinatorTurn(
-                      {
-                        source: "assistant",
-                        agent_task_id: liveCoordinator?.message_id,
-                      },
-                      m,
-                      thread.replies,
-                    )));
+                (!fact.turnId ||
+                  (lastOfTurn && fact.turnId !== (liveCoordinator?.message_id || null)));
               const showsMessageActions =
                 !!m.body.trim() &&
                 !m.id.startsWith("agent-reception:") &&
@@ -429,28 +516,17 @@ export function ConversationStage({
                         </div>
                       )}
                       {m.source === "assistant" &&
-                        thread.replies
-                          .filter((reply) => {
-                            if (isExecutorReply(reply))
-                              return (
-                                m.agent_task_id === reply.message_id || reply.reply_id === m.id
-                              );
-                            return (
-                              reply.status === "failed" && m.id === `agent-task:${reply.message_id}`
-                            );
-                          })
-                          .map((reply) => (
-                            <React.Fragment key={reply.message_id}>
-                              {renderAgentRound(reply)}
-                            </React.Fragment>
-                          ))}
+                        (attachedReplies.get(m.id) || []).map((reply) => (
+                          <React.Fragment key={reply.message_id}>
+                            {renderAgentRound(reply)}
+                          </React.Fragment>
+                        ))}
                       {!!m.quotes?.length && (
                         <div className="message-quotes">
                           {m.quotes.map((q) => {
-                            const imageRefs = (q.refs || []).filter((id) => {
-                              const version = detail?.versions.find((item) => item.id === id);
-                              return version && isImageFile(version);
-                            });
+                            const imageRefs = (q.refs || []).filter((id) =>
+                              imageVersionIds.has(id),
+                            );
                             return (
                               <div key={q.id} className="message-quote">
                                 <button
@@ -482,15 +558,13 @@ export function ConversationStage({
                         </div>
                       )}
                       <div className="message-text">
-                        {thread.updates
-                          ?.filter((update) => update.message_id === m.id)
-                          .map((update) => (
-                            <p className="source-label" key={update.message_id}>
-                              {update.delivered_at
-                                ? "已更新当前任务"
-                                : "已关联到当前任务，等待助手接收"}
-                            </p>
-                          ))}
+                        {(updatesByMessage.get(m.id) || []).map((update) => (
+                          <p className="source-label" key={update.message_id}>
+                            {update.delivered_at
+                              ? "已更新当前任务"
+                              : "已关联到当前任务，等待助手接收"}
+                          </p>
+                        ))}
                         <Suspense
                           fallback={
                             m.source === "assistant"
@@ -625,23 +699,19 @@ export function ConversationStage({
                       </button>
                     )}
                   </article>
-                  {modeNotices
-                    .filter((notice) => notice.after === m.id)
-                    .map((notice) => (
-                      <div className="mode-notice" key={notice.id}>
-                        <span>{notice.text}</span>
-                      </div>
-                    ))}
-                  {compaction.rows
-                    .filter((row) => row.after === m.id)
-                    .map((row) => (
-                      <CompactionRow
-                        key={row.id}
-                        item={row}
-                        open={!!compaction.open[row.id]}
-                        onToggle={() => compaction.toggle(row.id)}
-                      />
-                    ))}
+                  {(noticesByMessage.get(m.id) || []).map((notice) => (
+                    <div className="mode-notice" key={notice.id}>
+                      <span>{notice.text}</span>
+                    </div>
+                  ))}
+                  {(compactionByMessage.get(m.id) || []).map((row) => (
+                    <CompactionRow
+                      key={row.id}
+                      item={row}
+                      open={!!compaction.open[row.id]}
+                      onToggle={() => compaction.toggle(row.id)}
+                    />
+                  ))}
                 </React.Fragment>
               );
             })}
@@ -662,47 +732,15 @@ export function ConversationStage({
                   onToggle={() => compaction.toggle(row.id)}
                 />
               ))}
-            {coordinatorDraft &&
-              (() => {
-                const draftContinues = continuesCoordinatorTurn(
-                  { source: "assistant", agent_task_id: liveCoordinator?.message_id },
-                  timeline[timeline.length - 1],
-                  thread.replies,
-                );
-                return (
-                  <article
-                    className={`message${draftContinues ? " turn-continue" : ""}`}
-                    data-message-id={`live-coordinator:${liveCoordinator?.message_id}`}
-                    aria-live="polite"
-                  >
-                    <span className="avatar ai" aria-hidden={draftContinues || undefined}>
-                      {!draftContinues && (
-                        <img loading="lazy" decoding="async" src={AGENT_MEMBER.avatar} alt="" />
-                      )}
-                    </span>
-                    <div className="message-content">
-                      {!draftContinues && (
-                        <div className="message-meta">
-                          <span className="message-author">
-                            <strong>
-                              <IdentityName
-                                role={AGENT_MEMBER.identity_tags[0]}
-                                name={AGENT_MEMBER.name}
-                              />
-                            </strong>
-                          </span>
-                        </div>
-                      )}
-                      <div className="message-text">
-                        <Suspense fallback={coordinatorDraft}>
-                          <MessageMarkdown body={coordinatorDraft} />
-                        </Suspense>
-                      </div>
-                      <StreamingStatus />
-                    </div>
-                  </article>
-                );
-              })()}
+            {liveCoordinator ? (
+              <CoordinatorLiveDraft
+                threadId={threadId}
+                reply={liveCoordinator}
+                messages={chatMessages}
+                previous={timeline[timeline.length - 1]}
+                replies={thread.replies}
+              />
+            ) : null}
             {thread.runs
               .filter((r) => r.status === "running")
               .map((r) => (

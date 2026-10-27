@@ -73,7 +73,10 @@ export function elderInstruction(scope) {
     "先用一两句说出你对问题的理解，然后再调用工具。不要以「我理解：」开头。",
     "查阅时边做边说：每次工具前后用简短中文说明你在看什么、看到了什么。",
     "除 miaowen_chat 外，只能使用只读工具。不要改文档、建任务或往群里发言。",
-    "腾讯广告或妙问的问题用 miaowen_chat 提问。钥匙来自提问者个人设置里的技能设置，不要向用户索取密钥，也不要把它写进回答。",
+    "腾讯广告、微信广告、朋友圈广告、视频号广告、微信小店、妙问、开户、充值、审核、素材、报表、诊断、创意和投放，用 miaowen_chat。技能在共序进程内直接请求妙问，不要运行 node，不要读脚本，也不要另起服务。",
+    "妙问 API KEY 在提问者的个人环境变量里。你不能直接读取环境变量。调用 miaowen_chat 时，共序会在工具内部注入。未配置或失效时，请他到个人设置的「环境变量」填写以 sk-mw- 开头的 API KEY。不要让他把 KEY 发到对话里，也不要在回答里复述 KEY。",
+    "用户没有明确要求创建、修改或管理广告时，只通过妙问查询、分析和建议。",
+    "miaowen_chat 可能要几分钟。[RESULT] 之后的 Markdown 必须原样给出，保留 video、img、audio 标签和完整地址。有 [FEEDBACK_IDS] 时，在结尾用灰色小字注明会话 ID 和消息 ID。结果写明是阶段性结果时，要告诉提问者不完整并询问是否重试。本地文件不能预审；只有用户给出的 https 素材地址才能放进 attachments。",
     "数量、清单、有哪些，用对应的 MCP 只读工具，例如 get_project_context、list_documents、list_tasks、list_messages。当前项目会自动带上 projectId。",
     "问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文档」先用 search_memory。subject 只能是 utterance（关键发言）、document（主要文档）、task（重要任务）、discussion（核心议题）、project（里程碑）。它只返回现行记忆的摘要和出处；要原话再按出处用 read_message 或 read_document 核对。不要凭印象编造，回答时用这五类名称。",
     "读项目文档正文用 read_document，传入 list_documents 或消息引用里的版本 ID。它返回文本和是否截断；截断时用返回的 nextOffset 作为 offset 续读。不要用 get_document_version 读正文，那个工具按字节分片下载原始文件，正文不会进入回答。",
@@ -203,6 +206,9 @@ export function foldElderRun({ notifications = [], toolSteps = [], finalResponse
 
 async function listen(handler) {
   const bridge = createServer(handler);
+  // 妙问官方超时是 10 分钟。桥只负责收完一个很小的工具请求，真正等待发生在响应阶段。
+  bridge.timeout = 0;
+  bridge.requestTimeout = 12 * 60 * 1000;
   await new Promise((resolve) => bridge.listen(0, "127.0.0.1", resolve));
   return bridge;
 }
@@ -415,30 +421,67 @@ export async function runElderQuestion({
       }
       if (!names.includes(request.name)) throw new Error("老翁只能只读查阅");
       phaseTools = true;
-      const found = await lookup(request.name, request.args || {});
-      materials.push(...(found.materials || []));
-      toolSteps.push({
-        tool: request.name,
-        label:
-          MCP_TITLE[request.name] ||
-          (request.name === "web_search"
-            ? "搜索网页"
-            : request.name === "web_fetch"
-              ? "阅读网页"
-              : request.name === "miaowen_chat"
-                ? "妙问"
-                : "查阅资料"),
-        status: "completed",
-        input: String(
-          request.args?.query || request.args?.url || request.args?.versionId || "",
-        ).slice(0, 200),
-        output: String(found.text || "").slice(0, 1000),
+      const input = String(
+        request.args?.query || request.args?.url || request.args?.versionId || "",
+      ).slice(0, 200);
+      const label =
+        MCP_TITLE[request.name] ||
+        (request.name === "web_search"
+          ? "搜索网页"
+          : request.name === "web_fetch"
+            ? "阅读网页"
+            : request.name === "miaowen_chat"
+              ? "妙问"
+              : "查阅资料");
+      let runningIndex = -1;
+      const found = await lookup(request.name, request.args || {}, {
+        onProgress:
+          request.name === "miaowen_chat"
+            ? (line) => {
+                const output = String(line || "").slice(0, 500);
+                if (runningIndex < 0) {
+                  runningIndex = toolSteps.length;
+                  toolSteps.push({
+                    tool: request.name,
+                    label,
+                    status: "running",
+                    input,
+                    output,
+                  });
+                } else toolSteps[runningIndex].output = output;
+                publish();
+              }
+            : undefined,
       });
+      materials.push(...(found.materials || []));
+      const output = String(found.text || "").slice(0, 1000);
+      if (runningIndex >= 0) {
+        toolSteps[runningIndex].status = "completed";
+        toolSteps[runningIndex].output = output;
+      } else {
+        toolSteps.push({
+          tool: request.name,
+          label,
+          status: "completed",
+          input,
+          output,
+        });
+      }
       publish();
       res.end(JSON.stringify(found.text || ""));
     } catch (error) {
+      const message = String(error.message || "查阅失败").replace(
+        /sk-mw-[A-Za-z0-9_-]+/g,
+        "sk-mw-***",
+      );
+      const running = toolSteps.find((step) => step.status === "running");
+      if (running) {
+        running.status = "failed";
+        running.output = message.slice(0, 1000);
+        publish();
+      }
       res.writeHead(400);
-      res.end(JSON.stringify({ error: error.message || "查阅失败" }));
+      res.end(JSON.stringify({ error: message }));
     }
   });
   const home = persist?.home || (await mkdtemp(join(tmpdir(), "cothread-elder-")));

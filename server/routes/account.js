@@ -13,6 +13,12 @@ import {
   listUserSkills,
   saveUserSkillSecret,
 } from "../user-skill-credentials.js";
+import {
+  clearEnvironmentVariable,
+  listEnvironmentVariables,
+  readEnvironmentRemark,
+  setEnvironmentVariable,
+} from "../environment-variables.js";
 import { loginLanding } from "../org-shelf.js";
 import { UI_THEMES, normalizeUiTheme } from "../../shared/ui-theme.js";
 import { resolveIpLocation } from "../ip-location.js";
@@ -547,6 +553,30 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
           [req.user.id],
         );
         res.json(personalProfile(profile));
+      });
+      app.get("/api/me/environment-variables", async (req, res) => {
+        res.json({
+          variables: await listEnvironmentVariables(db, "personal", req.user.id),
+        });
+      });
+      app.get("/api/me/environment-variables/:key/remark", async (req, res) => {
+        res.json({ markdown: await readEnvironmentRemark("personal", req.params.key) });
+      });
+      app.put("/api/me/environment-variables/:key", async (req, res) => {
+        const data = z.object({ value: z.string().max(4000) }).parse(req.body);
+        await setEnvironmentVariable(
+          db,
+          "personal",
+          req.user.id,
+          req.params.key,
+          data.value,
+          req.user.id,
+        );
+        res.json({ configured: true });
+      });
+      app.delete("/api/me/environment-variables/:key", async (req, res) => {
+        await clearEnvironmentVariable(db, "personal", req.user.id, req.params.key);
+        res.json({ configured: false });
       });
       app.get("/api/me/skills", async (req, res) => {
         res.json({ skills: await listUserSkills(db, req.user.id) });

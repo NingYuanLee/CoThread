@@ -42,6 +42,9 @@ test("elder questions use the DSH kernel, say the understanding first, and keep 
   assert.match(elderPrompt("口令在哪", "project"), /里程碑/);
   assert.equal(/知识页|search_knowledge|北京时间/.test(elderPrompt("口令在哪", "project")), false);
   assert.match(elderPrompt("口令在哪", "project"), /不要用 get_document_version 读正文/);
+  assert.match(elderPrompt("口令在哪", "project"), /miaowen_chat/);
+  assert.match(elderPrompt("口令在哪", "project"), /环境变量/);
+  assert.match(elderPrompt("口令在哪", "project"), /不要运行 node/);
   assert.match(elderPrompt("口令在哪", "project"), /没有打开具体迭代/);
   assert.match(elderPrompt("口令在哪", "project"), /三种范围/);
   assert.match(elderPrompt("口令在哪", "project"), /当前项目（本轮）/);

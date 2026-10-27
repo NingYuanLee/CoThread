@@ -43,7 +43,7 @@ export function submitWorkspaceModal(
     setModal,
   } = ctx;
   event.preventDefault();
-  if (modal === "email" || modal === "skills" || modal === "mcp") return;
+  if (modal === "email" || modal === "env" || modal === "mcp") return;
   const form = new FormData(event.currentTarget);
   const value = (key: string) => String(form.get(key) || "");
   void run(async () => {

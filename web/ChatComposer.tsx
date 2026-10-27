@@ -22,6 +22,8 @@ import { FILE_MAX_BYTES } from "../shared/upload-limits.js";
 import { uploadFileWithIntegrity } from "./file-upload";
 import { wechatFileIcons } from "./wechat-file-icons";
 import { DIALOGUE_MODE_UI, SELECTABLE_DIALOGUE_MODES } from "../shared/dialogue-mode.js";
+import { MouthpieceDialog } from "./MouthpieceDialog";
+import "./mouthpiece.css";
 import type { UiIconName } from "./ui-icon";
 import type { DialogueMode } from "./dialogue-mode-storage";
 import type { CSSProperties } from "react";
@@ -210,6 +212,7 @@ export function ChatComposer({
   } | null>(null);
   const [index, setIndex] = useState(0);
   const [expanded, setExpanded] = useState(false);
+  const [mouthpiece, setMouthpiece] = useState<{ text: string; versionIds: string[] } | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     onController?.(
@@ -883,6 +886,39 @@ export function ChatComposer({
             </div>
           ) : null}
           <button
+            type="button"
+            className="composer-mouthpiece"
+            aria-haspopup="dialog"
+            aria-expanded={mouthpiece !== null}
+            aria-label="AI嘴替"
+            title={
+              pending
+                ? "附件上传完成后再用 AI嘴替"
+                : threadId.startsWith("elder:")
+                  ? "AI嘴替：有内容就润色，空着就按最近单聊起草"
+                  : "AI嘴替：有内容就润色，空着就按最近群聊起草"
+            }
+            disabled={pending}
+            onClick={() => {
+              if (pending) {
+                setError("附件还在上传，完成后再用 AI嘴替");
+                return;
+              }
+              const versionIds = [
+                ...new Set([
+                  ...uploads
+                    .filter((item) => item.id && !item.error)
+                    .map((item) => item.id as string),
+                  ...refs,
+                ]),
+              ].slice(0, 30);
+              setMouthpiece({ text: message, versionIds });
+            }}
+          >
+            <UiIcon name="sparkle" size={16} />
+            <span>AI嘴替</span>
+          </button>
+          <button
             className="primary composer-send"
             type="submit"
             aria-label={pending ? "上传中" : busy ? "处理中" : "发送"}
@@ -893,6 +929,24 @@ export function ChatComposer({
           </button>
         </div>
       </form>
+      {mouthpiece && (
+        <MouthpieceDialog
+          projectId={projectId}
+          scene={threadId.startsWith("elder:") ? "elder" : "group"}
+          threadId={threadId}
+          text={mouthpiece.text}
+          versionIds={mouthpiece.versionIds}
+          onClose={() => setMouthpiece(null)}
+          onConfirm={(next) => {
+            setMessage(next);
+            setMouthpiece(null);
+            requestAnimationFrame(() => {
+              input.current?.focus();
+              input.current?.setSelectionRange(next.length, next.length);
+            });
+          }}
+        />
+      )}
       {imagePreview && (
         <ImagePreviewDialog
           id={imagePreview.id}

@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   continuesCoordinatorTurn,
+  conversationTurnFacts,
   isCoordinatorProcessPost,
+  isLastCoordinatorTurnPost,
   liveCoordinatorDraft,
   sessionUsageRecords,
   taskTimeline,
@@ -397,4 +399,47 @@ test("concurrent child tasks keep their own reception anchors and results", () =
     rows.map((m) => m.id),
     ["user", "host", "agent-task:user", "user2", "host2", "agent-task:user2"],
   );
+});
+
+test("conversationTurnFacts matches the per-message turn helpers", () => {
+  const coordinator = {
+    message_id: "c1",
+    reply_id: "a2",
+    participation: "reply",
+    parent_message_id: null,
+    agent_slot: null,
+    status: "completed",
+    usage_stats: { totalTokens: 10 },
+  };
+  const executor = {
+    message_id: "ex",
+    reply_id: "a2",
+    participation: "reply",
+    parent_message_id: "c1",
+    agent_slot: 1,
+    status: "completed",
+    usage_stats: { totalTokens: 3 },
+  };
+  const timeline = [
+    message("u1"),
+    message("a1", "assistant", { agent_task_id: "c1", turn_id: "c1" }),
+    message("a2", "assistant", {
+      agent_task_id: "c1",
+      turn_id: "c1",
+      turn_usage: { totalTokens: 10 },
+    }),
+    message("agent-task:ex", "assistant", { agent_task_id: "ex" }),
+  ];
+  const replies = [coordinator, executor];
+  const facts = conversationTurnFacts(timeline, replies);
+  timeline.forEach((item, index) => {
+    const fact = facts[index];
+    assert.equal(fact.continuesTurn, continuesCoordinatorTurn(item, timeline[index - 1], replies));
+    assert.equal(fact.lastOfTurn, isLastCoordinatorTurnPost(item, timeline, replies));
+    assert.equal(fact.processPost, isCoordinatorProcessPost(item, timeline, replies));
+    assert.deepEqual(
+      fact.usageReply,
+      item.source === "assistant" ? turnUsageForMessage(item, timeline, replies) : null,
+    );
+  });
 });

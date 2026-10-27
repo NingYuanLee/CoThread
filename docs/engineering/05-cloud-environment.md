@@ -1,6 +1,6 @@
 # 云端环境变量
 
-维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-10-26 晚；构建、打包、ecs-promote 启停钩子和上线验收步骤仍适用。公网测试库主机名仍会落到 198.18.0.0/15，本机 3307 上没有名为 cothread_test 的库，全量测试用的是 cothread_test_2。当天验收记录见文末。
+维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-10-27；构建、打包、ecs-promote 启停钩子和上线验收步骤仍适用。公网测试库用的就是公网域名，本机系统 DNS 仍把它解析到 198.18.0.0/15；本机 3307 上没有名为 cothread_test 的库，仍有 cothread_test_2 到 _5。当天发布记录见文末。
 
 应用后端需要常驻 Node.js 进程（Node.js 22.22.3+，推荐 24）、MySQL 网络连接及可写的 `.local` 目录。只发布 `dist/` 静态文件无法运行 API、MCP 和后台 Agent；生产环境固定为阿里云 ECS 单实例 + RDS，本机开发用便携版 MySQL。
 
@@ -66,7 +66,7 @@
 
    平台模型配置的 118 号迁移仅新增单例配置表，初始不写配置。新版本探活也会应用该迁移；若随后回切旧代码，可保留新增表，不执行删除表或重写迁移记录。旧代码不会读取此表，因此启用数据库模型配置后再回切旧代码，会重新采用服务器环境变量，恢复前须核对两者。
 
-6. 远端测试库出现 `PROTOCOL_CONNECTION_LOST` 时，先区分连接故障与业务断言失败。`.env` 里的公网测试主机名在 2026-10-26 解析到 `198.18.30.123`，整轮 431 项都是连接丢失、0 项断言失败，不能记成业务回归。本机 `127.0.0.1:3307` 当时没有名为 `cothread_test` 的库，仍有 `cothread_test_2` 到 `_5`；本机 `cothread` 账号能写 `_2`，RDS 的 `TEST_DATABASE_AUTH` 不能连这些本机库。只向测试子进程注入 `TEST_DATABASE_HOST_PUBLIC` 和本机账号的 `TEST_DATABASE_AUTH`，凭据从现有本地配置读取，不打印、不提交。`npm test` 会清空目标测试库，不能指向生产库或 `cothread_dev`。`cothread_deploy_test` 若未单独授权不可直接使用。
+6. 远端测试库出现 `PROTOCOL_CONNECTION_LOST` 时，先区分连接故障与业务断言失败。测试配置用的已经是公网域名 `TEST_DATABASE_HOST_PUBLIC`，不是内网地址；本机 TUN 仍把该域名解析到 `198.18.0.0/15`，所以“改用公网域名”不能绕过假 IP。2026-10-26 该主机名解析到 `198.18.30.123`，整轮 431 项都是连接丢失、0 项断言失败，不能记成业务回归。2026-10-27 系统 `Resolve-DnsName` 与未打补丁的 `node` 仍分别得到 `198.18.124.171`、`198.18.124.172`。桌面插件 `dsh-real-ip` 只改当前进程的 `dns.lookup`：在测试进程启动时 `--import` 它的 `installProcessLookup` 后，同一公网域名不再落在 `198.18`，并且能连上 `cothread_test`。这个补丁不会传给测试里用干净 `env` 拉起的子进程，系统自带的 `Resolve-DnsName` 和 `mysql` 客户端也仍然看到假 IP。公网 RDS 上串行全量很慢：2026-10-27 一轮 900 项用了约 82 分钟，而本机 `cothread_test_2` 上一轮大约 6 分钟；慢的是跨网 SQL，不是 `DELETE` 重置被改回 `TRUNCATE`。本机 `127.0.0.1:3307` 没有名为 `cothread_test` 的库，仍有 `cothread_test_2` 到 `_5`；本机 `cothread` 账号能写 `_2`，RDS 的 `TEST_DATABASE_AUTH` 不能连这些本机库。要在本机库复跑时，只向测试子进程注入 `TEST_DATABASE_HOST_PUBLIC=127.0.0.1:3307/cothread_test_2` 和本机账号的 `TEST_DATABASE_AUTH`，凭据从现有本地配置读取，不打印、不提交。`npm test` 会清空目标测试库，不能指向生产库或 `cothread_dev`。`cothread_deploy_test` 若未单独授权不可直接使用。
 7. 完成最终构建后再打包。推荐 `npm run deploy:ecs`；只有确认 `dist/` 对应最终前端源码时，才用 `npm run deploy:ecs -- --pack-only`。不要并行构建和打包；源码、锁文件或发布钩子改动后都应重打包。清单由[打包入口](../../scripts/ecs-deploy.mjs)生成，不手改 `.code_deploy/last-deploy.json`，发布期间也不要继续修改待上传源码。
 8. 提交并推送待发布修改，确认远端分支 HEAD 与本地一致；记录提交号、产物文件名及 SHA-256，再进入上传步骤。
 
@@ -185,3 +185,9 @@ bash -n scripts/ecs-codedeploy-start.sh
 包 `cothread-release-20261026T105628Z.tgz`，6,041,175 字节，SHA-256 `8b1b9e83c7c1bf00317f549b4bf672fdcb610ada3da395f37d2b95381f3aefda`。包内文件名命中 `credential` 的是凭据相关源码和 148 号迁移，不含 `AGENTS.md`、`.env`、`.local`、`.code_deploy`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A177DB-AA54-5137-BD78-1C6BAA743214`。分组随后为 `Released`，execution `exec-4278ad6b78e64c08b9fe` 成功（8/8，0 失败），revision `rev-1eb7c537f165427098af`，结束于 UTC `2026-10-26T10:59:28Z`。执行输出中的 `current` 为 `/opt/cothread/releases/20261026T105745Z`，临时探活通过且执行器 ready 为 false，随后原子切换并输出正式健康结果。本轮没有另发只读命令核对 `readlink` 或 systemd。
 
 公网 `/api/health?release=5d34f17` 返回 200，`status: ok`，执行器 ready，6 个执行槽，`acquiredAt` 为 UTC `2026-10-26T10:59:07.676Z`，连接号与上一轮不同。首页 200，资源为 `index-t-XXItr1.js`（245,896 字节）与 `index-XhDaGcSi.css`（148,013 字节），与本地 `dist/index.html` 一致。没有查询生产迁移表，不能把进程健康写成已看见 148 号迁移。没有登录后的业务验收，也没有浏览器实机点击。这次文档提交在打包之后，不在已上线的包里。
+
+2026-10-27 发布已上线。本机约定不提交、不推送，包来自工作区而不是新的已推送提交；HEAD 仍是 `c23acc6`。`npm run lint` 在 Prettier 修完 6 个文件后通过。无数据库测试 435/435。公网 `cothread_test` 串行全量 900 项里 893 通过、6 失败、1 取消，约 82 分钟；失败是连接被对端关掉、10 秒唤醒超时，以及慢库上两项调度没有重叠（`maxActive` 为 1 而不是 2），不是这批改动的稳定断言失败。这 5 个文件改在本机 `127.0.0.1:3307/cothread_test_2` 复跑，35/35 通过，约 54 秒。npm 10.9.8 的 `npm ci --omit=dev --dry-run` 退出码为 0，安装计划末尾报告 `added 246 packages`，与上一轮线上实际安装 2266 个包不是同一口径，不能据此判断锁文件缺包；线上 `npm ci --omit=dev` 实际装了 2266 个包。停止钩子续行输出 `HOOK_CONTINUES`，启动钩子 `bash -n` 通过。`LOCAL_AnalyzeDeployStack` 同时识别到 npm 与 Docker，发布仍按 nodejs 和 `ecs-promote`，没有改成通用 `npm start`。调用前分组为 `Released`。
+
+包 `cothread-release-20261027T060436Z.tgz`，6,061,482 字节，SHA-256 `aaa18f52016fa8886a68e339c6b741635bce9d56cb9fe394a236cc6f1c52ea9a`。包内 623 个路径，含 149 号迁移和 `ecs-promote`，文件名没有命中 `AGENTS.md`、`.env`、`.local`、`.code_deploy`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A17C49-532B-5AAD-A1AE-040A1DFE6663`。分组随后为 `Released`，execution `exec-bb2757c25ab5423b9c15` 成功（8/8，0 失败），revision `rev-65cff04d8c554d54828a`，结束于 UTC `2026-10-27T07:37:57Z`。执行输出中的 `current` 为 `/opt/cothread/releases/20261027T073601Z`，Node `v22.22.3`，临时探活通过且执行器 ready 为 false，随后原子切换并输出正式健康结果。`npm audit` 报告 87 个漏洞，不据此判失败。本轮没有另发只读命令核对 `readlink` 或 systemd，也没有查询生产迁移表，不能把进程健康写成已看见 149 号迁移。
+
+公网 `/api/health?release=20261027T060436Z` 返回 200，`status: ok`，执行器 ready，6 个执行槽，`acquiredAt` 为 UTC `2026-10-27T07:37:43.984Z`，连接号 `541371476`。首页 200，资源为 `index-2Aoys13J.js` 与 `index-Dr8QidPK.css`，与本地 `dist/index.html` 一致。没有登录后的业务验收，也没有浏览器实机点击。这次文档更新在打包和上线之后，不在已上线的包里。

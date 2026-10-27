@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { MessageAnchor } from "./message-link";
@@ -45,3 +45,38 @@ export const MessageMarkdown = memo(function MessageMarkdown({ body }: { body: s
     </Markdown>
   );
 });
+
+const STREAM_MARKDOWN_MS = 120;
+
+// Parse a growing reply at a fixed cadence. Completed text is parsed immediately.
+export function ThrottledMarkdown({ body, active }: { body: string; active: boolean }) {
+  const [shown, setShown] = useState(body);
+  const latest = useRef(body);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const nextAt = useRef(0);
+  latest.current = body;
+  useEffect(() => {
+    if (!active) {
+      clearTimeout(timer.current);
+      timer.current = undefined;
+      nextAt.current = 0;
+      setShown(body);
+      return;
+    }
+    if (timer.current) return;
+    const wait = Math.max(0, nextAt.current - performance.now());
+    timer.current = setTimeout(() => {
+      timer.current = undefined;
+      nextAt.current = performance.now() + STREAM_MARKDOWN_MS;
+      setShown(latest.current);
+    }, wait);
+  }, [body, active]);
+  useEffect(
+    () => () => {
+      clearTimeout(timer.current);
+    },
+    [],
+  );
+  const text = !active || !body.startsWith(shown) ? body : shown;
+  return <MessageMarkdown body={text} />;
+}

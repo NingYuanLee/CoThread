@@ -147,7 +147,7 @@ export type ConversationTurnFact<R> = {
   usageReply:
     | R
     | {
-        usage_stats: unknown;
+        usage_stats: UsageStats | string | null;
         finished_at: string | null;
         parent_message_id: null;
         agent_slot: null;

@@ -214,18 +214,33 @@ class LocalSandboxInstance {
     // Git Bash 的 ps 不支持 --ppid，pkill 也不在 PATH。set -m 后 jobs -p 能看到后台作业。
     // Windows 上强杀不会跑 trap，而且后台 sleep 的父进程常常不是这只 bash。
     // 停文件由同一只壳里的循环转成 SIGTERM，trap 再用 MSYS pid 收作业。
+    // 前台命令会让 bash 把 INT/TERM 的 trap 推迟到该命令结束之后，停文件因此打断不了
+    // 正在执行的命令（只能等它跑完，或等 taskkill，而 taskkill /T 打不到 MSYS 派生的
+    // 前台子进程）。改成后台作业 + wait：wait 被信号打断时 trap 立即执行，再按进程组
+    // kill -9 收掉命令整棵树，kill 才能像容器 provider 那样真正停下命令。
     const stopFile = `${this.root}${sep}.command-stop-${randomUUID()}`;
     const stopBash = toBashPath(stopFile).replaceAll("'", "");
+    // 组语法要求至少一条命令，空命令用 : 占位，避免 { } 语法错误。
+    const commandBody = rewritten.trim() ? rewritten : ":";
     const wrapped =
       process.platform === "win32"
         ? [
             "set -m",
-            "trap 'kill -9 $(jobs -p) >/dev/null 2>&1 || true; if [ -n \"$_cothread_watch\" ]; then kill -9 $_cothread_watch >/dev/null 2>&1 || true; fi' EXIT INT TERM",
+            'trap \'_cothread_jobs=$(jobs -p); if [ -n "$_cothread_jobs" ]; then for _cothread_job in $_cothread_jobs; do kill -9 -- "-$_cothread_job" >/dev/null 2>&1 || kill -9 "$_cothread_job" >/dev/null 2>&1 || true; done; fi; if [ -n "$_cothread_watch" ]; then kill -9 "$_cothread_watch" >/dev/null 2>&1 || true; fi\' EXIT INT TERM',
             "_cothread_shell=$$",
             `(while true; do if [ -f '${stopBash}' ]; then kill -TERM $_cothread_shell >/dev/null 2>&1 || true; exit 0; fi; sleep 0.2; done) >/dev/null 2>&1 &`,
             "_cothread_watch=$!",
             "disown $_cothread_watch >/dev/null 2>&1 || true",
-            rewritten,
+            "{",
+            commandBody,
+            "} &",
+            "_cothread_command=$!",
+            'wait "$_cothread_command"',
+            "_cothread_status=$?",
+            // 命令返回后仍可能有它启动的后台作业，和原来的 EXIT trap 一样按组收掉，
+            // 不能让它们在命令结束后继续跑。
+            'kill -9 -- "-$_cothread_command" >/dev/null 2>&1 || true',
+            'exit "$_cothread_status"',
           ].join("\n")
         : "set -m; trap 'kill -9 $(jobs -p) >/dev/null 2>&1 || true' EXIT; " + rewritten;
     let child;

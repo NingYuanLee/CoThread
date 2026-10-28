@@ -48,9 +48,14 @@ import { HttpError } from "../service.js";
 import { completeFileUpload, putFileUploadChunk, startFileUpload } from "../documents/index.js";
 import {
   acceptTask,
+  acceptTaskCompletion,
   acknowledgeTaskRejection,
   cancelTask,
+  copyCancelledTask,
   createTask,
+  saveDraftTask,
+  submitDraftTask,
+  withdrawTaskToDraft,
   getTask,
   ignoreTask,
   listAssignmentEvents,
@@ -518,6 +523,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
         targetType: z.enum(["human_member"]).optional(),
         targetUserId: z.string().uuid(),
         threadId: z.string().uuid().optional(),
+        asDraft: z.boolean().optional(),
       })
       .parse(req.body);
     if (data.threadId) {
@@ -540,6 +546,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
       folderRefs: data.folderRefs,
       targetType: "human_member",
       targetId: data.targetUserId,
+      asDraft: data.asDraft === true,
     });
     res.status(201).json(task);
   });
@@ -595,6 +602,24 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     );
     res.json(accepted);
   });
+  app.post("/api/tasks/:id/accept-completion", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id);
+    if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const accepted = await acceptTaskCompletion(db, task.id, {
+      type: "human_member",
+      id: req.user.id,
+    });
+    if (task.origin_thread_id)
+      await service.postMessage(req.user, task.origin_thread_id, {
+        body: `任务事件：${req.user.name || "当前成员"}已验收任务「${task.title}」。`.slice(
+          0,
+          20000,
+        ),
+      });
+    res.json(accepted);
+  });
   app.post("/api/tasks/:id/reject", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const task = await getTask(db, req.params.id);
@@ -636,6 +661,84 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
       `任务事件：${req.user.name || "当前成员"}取消了任务「${task.title}」。`,
     );
     res.json(cancelled);
+  });
+  app.post("/api/tasks/:id/copy", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id);
+    if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const data = z
+      .object({
+        title: z.string().trim().min(1).max(240),
+        goal: z.string().trim().min(1).max(20000),
+        constraints: z.string().max(20000).optional(),
+        refs: z.array(z.string().uuid()).max(30).default([]),
+        folderRefs: z.array(z.string().uuid()).max(30).default([]),
+        targetUserId: z.string().uuid(),
+      })
+      .parse(req.body);
+    const created = await copyCancelledTask(
+      db,
+      task.id,
+      { type: "human_member", id: req.user.id },
+      data,
+    );
+    res.status(201).json(created);
+  });
+  const draftBody = z.object({
+    title: z.string().trim().min(1).max(240),
+    goal: z.string().trim().min(1).max(20000),
+    constraints: z.string().max(20000).optional(),
+    refs: z.array(z.string().uuid()).max(30).default([]),
+    folderRefs: z.array(z.string().uuid()).max(30).default([]),
+    targetUserId: z.string().uuid(),
+  });
+  app.post("/api/tasks/:id/save-draft", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id);
+    if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const data = draftBody.parse(req.body);
+    res.json(await saveDraftTask(db, task.id, { type: "human_member", id: req.user.id }, data));
+  });
+  app.post("/api/tasks/:id/submit", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id);
+    if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const data = draftBody.parse(req.body);
+    const submitted = await submitDraftTask(
+      db,
+      task.id,
+      { type: "human_member", id: req.user.id },
+      data,
+    );
+    await mentionTaskSourceNotice(
+      service,
+      db,
+      req.user,
+      task,
+      `任务事件：${req.user.name || "当前成员"}提交了正式任务「${data.title}」。`,
+    );
+    res.json(submitted);
+  });
+  app.post("/api/tasks/:id/withdraw", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    const task = await getTask(db, req.params.id);
+    if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id);
+    const withdrawn = await withdrawTaskToDraft(db, task.id, {
+      type: "human_member",
+      id: req.user.id,
+    });
+    await mentionTaskSourceNotice(
+      service,
+      db,
+      req.user,
+      task,
+      `任务事件：${req.user.name || "当前成员"}将待确认任务「${task.title}」撤为草稿。`,
+    );
+    res.json(withdrawn);
   });
   app.post("/api/tasks/:id/ignore", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");

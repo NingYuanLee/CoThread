@@ -1750,12 +1750,3 @@
     max-height: 22.857rem;
   }
 }
-
-/* 工作状态筛选有 16 个选项：面板本体保持裁剪（发丝外框依赖 overflow: clip），
-   超出高度改由内部选项列表滚动，避免后半段状态既看不到也点不到。 */
-html body .field-select-panel > [role="listbox"] {
-  max-height: calc(15.714rem - 2 * var(--overlay-select-panel-padding, 0.429rem));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-}

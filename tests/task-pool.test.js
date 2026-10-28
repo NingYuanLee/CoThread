@@ -10,7 +10,11 @@ import {
   askTaskQuestion,
   bindChildAgentExecution,
   cancelTask,
+  copyCancelledTask,
   composeTaskInstruction,
+  saveDraftTask,
+  submitDraftTask,
+  withdrawTaskToDraft,
   createTask,
   ensureChildAgentCanUpdate,
   finishCoordinatorDispatch,
@@ -2048,6 +2052,100 @@ test("the source member can cancel a waiting confirmation and the target can rej
     "现在做不了",
   );
   assert.equal(rejected.status, "rejected");
+});
+
+test("the original initiator can copy a cancelled task into a new formal task", async () => {
+  const original = await formalTask(users[1].id, {
+    title: "待复制",
+    goal: "原目标",
+    constraints: "保持接口不变",
+  });
+  const copyInput = {
+    title: "待复制（新）",
+    goal: "原目标，补一条验收",
+    constraints: "保持接口不变",
+    targetUserId: users[1].id,
+  };
+  await assert.rejects(
+    copyCancelledTask(db, original.id, { type: "human_member", id: users[0].id }, copyInput),
+    { status: 409 },
+  );
+  await cancelTask(db, original.id, { type: "human_member", id: users[0].id });
+  await assert.rejects(
+    copyCancelledTask(db, original.id, { type: "human_member", id: users[1].id }, copyInput),
+    { status: 403 },
+  );
+  const created = await copyCancelledTask(
+    db,
+    original.id,
+    { type: "human_member", id: users[0].id },
+    copyInput,
+  );
+  assert.notEqual(created.id, original.id);
+  assert.equal(created.status, "awaiting_acceptance");
+  assert.equal(created.source_task_id, original.id);
+  assert.equal(created.title, "待复制（新）");
+  assert.equal(created.goal, "原目标，补一条验收");
+  assert.equal(created.constraints, "保持接口不变");
+  assert.equal(created.created_by_type, "human_member");
+  assert.equal(created.created_by_id, users[0].id);
+  assert.equal(created.source_user_id, users[0].id);
+  assert.equal(created.target_id, users[1].id);
+  assert.equal(created.origin_thread_id, original.origin_thread_id);
+  const still = await getTask(db, original.id);
+  assert.equal(still.status, "cancelled");
+});
+
+test("the source member can save a draft, withdraw a pending task, and submit it", async () => {
+  const drafted = await formalTask(users[1].id, {
+    title: "先记草稿",
+    goal: "先不提交",
+    asDraft: true,
+  });
+  assert.equal(drafted.status, "draft");
+  const fields = {
+    title: "改过的草稿",
+    goal: "补充验收",
+    constraints: "先不打扰对方",
+    targetUserId: users[1].id,
+  };
+  await assert.rejects(
+    saveDraftTask(db, drafted.id, { type: "human_member", id: users[1].id }, fields),
+    { status: 403 },
+  );
+  const saved = await saveDraftTask(
+    db,
+    drafted.id,
+    { type: "human_member", id: users[0].id },
+    fields,
+  );
+  assert.equal(saved.status, "draft");
+  assert.equal(saved.title, "改过的草稿");
+  assert.equal(saved.goal, "补充验收");
+  assert.equal(saved.constraints, "先不打扰对方");
+  const submitted = await submitDraftTask(
+    db,
+    drafted.id,
+    { type: "human_member", id: users[0].id },
+    fields,
+  );
+  assert.equal(submitted.status, "awaiting_acceptance");
+  await assert.rejects(
+    withdrawTaskToDraft(db, drafted.id, { type: "human_member", id: users[1].id }),
+    { status: 403 },
+  );
+  const withdrawn = await withdrawTaskToDraft(db, drafted.id, {
+    type: "human_member",
+    id: users[0].id,
+  });
+  assert.equal(withdrawn.status, "draft");
+  assert.equal(withdrawn.title, "改过的草稿");
+  const cancelled = await cancelTask(db, drafted.id, { type: "human_member", id: users[0].id });
+  assert.equal(cancelled.status, "cancelled");
+  await assert.rejects(
+    submitDraftTask(db, drafted.id, { type: "human_member", id: users[0].id }, fields),
+    { status: 409 },
+  );
 });
 
 test("human tasks can only reference official document versions", async () => {

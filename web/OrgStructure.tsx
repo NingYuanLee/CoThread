@@ -863,6 +863,7 @@ export function OrgStructure({ api, permissions }: { api: WorkspaceApi; permissi
                     onChange={(event) => setOverlay({ ...overlay, name: event.target.value })}
                   />
                   <SelectField
+                    allOption={false}
                     label="上级组织"
                     value={overlay.parentId}
                     disabled={busy}
@@ -953,6 +954,7 @@ export function OrgStructure({ api, permissions }: { api: WorkspaceApi; permissi
                 )}
                 <p>将「{orgName}」移动到所选上级下面。不能移动到自身或下级组织。</p>
                 <SelectField
+                  allOption={false}
                   label="上级组织"
                   value={overlay.parentId}
                   disabled={busy}

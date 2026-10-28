@@ -373,6 +373,7 @@ export function DocumentMainPanel({
             />
             <DialogBody>
               <SelectField
+                allOption={false}
                 label="选择版本"
                 aria-label="另存的产物版本"
                 value={saveOfficialVersionId}

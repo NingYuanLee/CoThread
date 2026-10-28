@@ -11,8 +11,11 @@ function topDialog() {
 function register(dialog: HTMLDialogElement) {
   if (stack.includes(dialog)) return;
   if (!stack.length) {
-    previousOverflow = document.documentElement.style.overflow;
-    document.documentElement.style.overflow = "hidden";
+    const root = document.documentElement;
+    previousOverflow = root.style.overflow;
+    // 不要用 padding-right 去“补”滚动条。页面常常本来就没有滚动条，
+    // 多出来的右侧空白会把背景整体往左挤。
+    root.style.overflow = "hidden";
   }
   stack.push(dialog);
 }
@@ -21,6 +24,41 @@ function unregister(dialog: HTMLDialogElement) {
   if (index < 0) return;
   stack.splice(index, 1);
   if (!stack.length) document.documentElement.style.overflow = previousOverflow;
+}
+function animationName(animation: Animation) {
+  return "animationName" in animation ? String((animation as CSSAnimation).animationName) : "";
+}
+/** 入场还没播完就关闭时，从当前帧倒放，不要切到退场起点（那会先跳回全尺寸）。 */
+function reverseEntrance(el: HTMLElement, done: () => void) {
+  const running = el.getAnimations({ subtree: true }).filter((animation) => {
+    const name = animationName(animation);
+    return (
+      (name === "overlay-in" || name === "overlay-mask-in") && animation.playState === "running"
+    );
+  });
+  if (!running.length) return false;
+  let settled = false;
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    done();
+  };
+  let pending = 0;
+  for (const animation of running) {
+    if (!(Number(animation.currentTime ?? 0) > 0)) continue;
+    pending += 1;
+    animation.addEventListener(
+      "finish",
+      () => {
+        pending -= 1;
+        if (pending <= 0) settle();
+      },
+      { once: true },
+    );
+    animation.reverse();
+  }
+  if (pending === 0) settle();
+  return true;
 }
 function reducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -82,7 +120,7 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(function Dialog
     window.clearTimeout(timer.current);
     el.classList.remove("is-closing");
     if (el.open) el.close();
-    unregister(el);
+    // 滚动锁留到弹窗从文档里卸掉之后再放。提前放开时，对话框还占着高度，右侧滚动条会闪出来。
     (afterClose.current ?? config.current.onRequestClose)();
   }, []);
   const requestClose = useCallback(
@@ -92,6 +130,10 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(function Dialog
       closing.current = true;
       afterClose.current = after;
       if (reducedMotion()) return finish();
+      if (reverseEntrance(el, finish)) {
+        if (!notified.current) timer.current = window.setTimeout(finish, overlayDuration("enter"));
+        return;
+      }
       el.classList.add("is-closing");
       timer.current = window.setTimeout(finish, overlayDuration());
     },
@@ -113,8 +155,8 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(function Dialog
     closing.current = false;
     afterClose.current = undefined;
     controllers.set(el, requestClose);
-    el.showModal();
     register(el);
+    el.showModal();
     el.dataset.dialogDepth = String(stack.length);
     return () => {
       window.clearTimeout(timer.current);

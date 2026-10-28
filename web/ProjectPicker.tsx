@@ -13,6 +13,7 @@ export function ProjectPicker({
   projects,
   busy,
   error,
+  api,
   onClose,
   onImport,
   onCreate,
@@ -20,6 +21,7 @@ export function ProjectPicker({
   projects: Project[];
   busy: boolean;
   error: string;
+  api?: (path: string) => Promise<{ projects?: { id: string; chat: number; task: number }[] }>;
   onClose: () => void;
   onImport: (id: string) => void;
   onCreate: () => void;
@@ -28,9 +30,26 @@ export function ProjectPicker({
   const searchInput = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const [keyword, setKeyword] = useState("");
+  const [marks, setMarks] = useState<Record<string, { chat: number; task: number }>>({});
   useEffect(() => {
     searchInput.current?.focus();
   }, []);
+  useEffect(() => {
+    if (!api) return;
+    let alive = true;
+    api("/notifications?summary=1")
+      .then((page) => {
+        if (!alive) return;
+        const next: Record<string, { chat: number; task: number }> = {};
+        for (const row of page.projects || [])
+          next[row.id] = { chat: row.chat || 0, task: row.task || 0 };
+        setMarks(next);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [api, projects]);
   const results = projects.filter(
     (p) =>
       !p.tab_visible &&
@@ -76,6 +95,12 @@ export function ProjectPicker({
                 <strong>
                   <ProjectMark name={p.name} image={p.image} size={28} />
                   <span>{p.name}</span>
+                  {(marks[p.id]?.chat || 0) > 0 && (
+                    <span className="thread-unread is-mention">聊 {marks[p.id].chat}</span>
+                  )}
+                  {(marks[p.id]?.task || 0) > 0 && (
+                    <span className="thread-unread">任 {marks[p.id].task}</span>
+                  )}
                 </strong>
                 <p>{p.description || "暂无项目简介"}</p>
               </div>

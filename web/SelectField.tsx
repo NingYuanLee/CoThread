@@ -48,6 +48,13 @@ export type SelectFieldProps = {
   clearable?: boolean;
   /** 清空按钮的可访问名称，默认「清空」。 */
   clearLabel?: string;
+  /**
+   * 列表首位的「全部」。默认开启，选中后值为空字符串。
+   * 传 false 关闭（必填项、枚举不要出现「全部」）。传字符串则用作文案。
+   * 选项里已有空值、「all」或以「全部」开头的项时不重复插入。
+   * placeholder 以「全部」开头时，默认文案沿用它（如「全部项目」）。
+   */
+  allOption?: boolean | string;
 };
 
 /**
@@ -76,6 +83,7 @@ export const SelectField = forwardRef<HTMLInputElement | HTMLButtonElement, Sele
       flush,
       clearable = false,
       clearLabel = "清空",
+      allOption = true,
     },
     ref,
   ) {
@@ -87,15 +95,19 @@ export const SelectField = forwardRef<HTMLInputElement | HTMLButtonElement, Sele
     const anchor = useRef<HTMLButtonElement | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
     const listRef = useRef<HTMLDivElement | null>(null);
-    const selected = options.find((item) => item.value === value) ?? null;
+    const listed = useMemo(
+      () => prependAllOption(options, allOption, placeholder),
+      [options, allOption, placeholder],
+    );
+    const selected = listed.find((item) => item.value === value) ?? null;
 
     const filtered = useMemo(() => {
-      if (!searchable || !query.trim()) return options;
+      if (!searchable || !query.trim()) return listed;
       const needle = query.trim().toLowerCase();
-      return options.filter((item) =>
+      return listed.filter((item) =>
         `${item.label} ${item.keywords ?? ""}`.toLowerCase().includes(needle),
       );
-    }, [options, query, searchable]);
+    }, [listed, query, searchable]);
 
     const state: FieldState = disabled ? "disabled" : error ? "error" : open ? "active" : "idle";
 
@@ -317,6 +329,28 @@ export const SelectField = forwardRef<HTMLInputElement | HTMLButtonElement, Sele
     );
   },
 );
+
+function prependAllOption(
+  options: SelectOption[],
+  allOption: boolean | string,
+  placeholder: string,
+): SelectOption[] {
+  if (allOption === false) return options;
+  if (
+    options.some(
+      (item) => item.value === "" || item.value === "all" || item.label.startsWith("全部"),
+    )
+  ) {
+    return options;
+  }
+  const label =
+    typeof allOption === "string"
+      ? allOption
+      : placeholder.startsWith("全部")
+        ? placeholder
+        : "全部";
+  return [{ value: "", label }, ...options];
+}
 
 function panelStyle(anchor: HTMLElement | null): React.CSSProperties {
   if (!anchor) return { position: "fixed", left: 0, top: 0 };

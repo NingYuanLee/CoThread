@@ -31,6 +31,7 @@ const QuoteMarkdown = lazy(() =>
 import type { ComposerController } from "./ChatComposer";
 
 import { AGENT_XIAOXIANG_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
+import { quoteMentionLabel } from "./quote-mention";
 import { formatMcpCopyPayload } from "../shared/mcp-guide.js";
 import { WorkspaceModals } from "./WorkspaceModals";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
@@ -45,8 +46,9 @@ import { submitWorkspaceModal } from "./workspace-modal-submit";
 import { ThreadRow } from "./ThreadRow";
 import { scaleDesignPx } from "./apply-ui-scale";
 import { WorkspaceWelcome } from "./WorkspaceWelcome";
+import { NewThreadDialog } from "./NewThreadDialog";
 import { ConversationHeader } from "./ConversationHeader";
-import { TaskCreateDialog } from "./TaskCreateDialog";
+import { TaskCreateDialog, type TaskCreateCopy, type TaskDraftEdit } from "./TaskCreateDialog";
 import { ConversationStage } from "./ConversationStage";
 import { ElderChat } from "./ElderChat";
 import { CitationSources } from "./CitationSources";
@@ -138,6 +140,13 @@ const LoginScreen = lazy(() =>
 );
 import { useActionTooltips } from "./use-action-tooltips";
 import type { Detail, MessageQuote, Modal, Project, Thread, Version } from "./workspace-types";
+import {
+  placeProjectTab,
+  readProjectTabOrder,
+  rememberProjectTabOrder,
+  sortVisibleProjects,
+  type ProjectTabOrder,
+} from "./project-tab-order";
 
 import {
   type ThreadMessage,
@@ -147,6 +156,44 @@ import {
   selectionTextInside,
   resolveProjectThreadId,
 } from "./workspace-helpers";
+/** 固定页签在前；未固定按添加时间从左到右，刚打开或重新添加的在最右。 */
+function compareProjectTabs(left: Project, right: Project) {
+  const leftPinned = left.tab_pinned_at ? 0 : 1;
+  const rightPinned = right.tab_pinned_at ? 0 : 1;
+  if (leftPinned !== rightPinned) return leftPinned - rightPinned;
+  if (left.tab_pinned_at && right.tab_pinned_at && left.tab_pinned_at !== right.tab_pinned_at)
+    return left.tab_pinned_at < right.tab_pinned_at ? 1 : -1;
+  const leftOpened = left.tab_opened_at || left.created_at || "";
+  const rightOpened = right.tab_opened_at || right.created_at || "";
+  if (leftOpened !== rightOpened) return leftOpened < rightOpened ? -1 : 1;
+  if (left.created_at !== right.created_at) return left.created_at < right.created_at ? -1 : 1;
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+}
+
+/** Tab 在输入框、可编辑区和弹层里仍移动焦点，不拿去切迭代。 */
+function tabTypesOrOverlays(node: EventTarget | null) {
+  if (!(node instanceof Element)) return false;
+  if (
+    node.closest(
+      "dialog[open], [role='dialog'], [role='menu'], [role='listbox'], [data-overlay='menu']",
+    )
+  )
+    return true;
+  const field = node.closest("input, textarea, select, [contenteditable]");
+  if (field instanceof HTMLInputElement) {
+    if (
+      ["button", "checkbox", "radio", "submit", "reset", "file", "color", "range"].includes(
+        field.type,
+      )
+    )
+      return false;
+    return !field.disabled;
+  }
+  if (field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement)
+    return !field.disabled;
+  return node instanceof HTMLElement && node.isContentEditable;
+}
+
 export function WorkspaceApp() {
   useActionTooltips();
 
@@ -168,7 +215,11 @@ export function WorkspaceApp() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
-  const visibleProjects = projects.filter((p) => p.tab_visible);
+  const [tabOrder, setTabOrder] = useState<ProjectTabOrder>({ pinned: [], open: [] });
+  useEffect(() => {
+    setTabOrder(user?.id ? readProjectTabOrder(user.id) : { pinned: [], open: [] });
+  }, [user?.id]);
+  const visibleProjects = sortVisibleProjects(projects, tabOrder, compareProjectTabs);
   const currentProject = projects.find((item) => item.id === projectId);
   const availableProjects = projects
     .filter((p) => !p.tab_visible)
@@ -177,11 +228,7 @@ export function WorkspaceApp() {
         Date.parse(right.joined_at || right.created_at) -
         Date.parse(left.joined_at || left.created_at),
     );
-  const [draggedProject, setDraggedProject] = useState("");
-  const [projectDrop, setProjectDrop] = useState<{
-    id: string;
-    after: boolean;
-  } | null>(null);
+
   const projectCache = useRef(createResourceCache<Detail>());
   const threadCache = useRef(createResourceCache<Thread>());
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -445,6 +492,14 @@ export function WorkspaceApp() {
   });
   const conversationRef = useRef<HTMLDivElement>(null);
   const composerAreaRef = useRef<HTMLDivElement>(null);
+  // 进入迭代群聊后把滚动区变成焦点，方向键才能滚消息而不是停在页面上。
+  useLayoutEffect(() => {
+    if (threadView !== "chat" || !threadId || thread?.id !== threadId) return;
+    const node = conversationRef.current;
+    if (!(node instanceof HTMLElement)) return;
+    if (document.querySelector("dialog[open], [role='dialog']")) return;
+    node.focus({ preventScroll: true });
+  }, [threadId, threadView, thread?.id]);
   useComposerStageMetrics(
     composerAreaRef,
     conversationRef,
@@ -456,10 +511,24 @@ export function WorkspaceApp() {
     navigationUntil.current = Date.now() + 1500;
   }, []);
   const followConversation = useRef(true);
+  const holdUnread = useRef(false);
+  const preserveHistoryScroll = useRef(true);
   const followedThread = useRef(threadId);
   if (followedThread.current !== threadId) {
     followedThread.current = threadId;
     followConversation.current = true;
+    holdUnread.current = false;
+  }
+  // 只记「从一个迭代换到另一个」。项目切换或第一次进入不把空 id 当成上一次。
+  const previousThreadId = useRef("");
+  const threadCursor = useRef({ projectId, threadId });
+  if (threadCursor.current.projectId !== projectId) {
+    threadCursor.current = { projectId, threadId };
+    previousThreadId.current = "";
+  } else if (threadCursor.current.threadId !== threadId) {
+    if (threadCursor.current.threadId && threadId)
+      previousThreadId.current = threadCursor.current.threadId;
+    threadCursor.current = { projectId, threadId };
   }
   const uploadTarget = useRef<((files: File[]) => void) | null>(null);
   const [fileDragOver, setFileDragOver] = useState(false);
@@ -583,15 +652,33 @@ export function WorkspaceApp() {
     id: number;
     refId?: string;
     folderId?: string;
+    copyFrom?: TaskCreateCopy;
+    draftEdit?: TaskDraftEdit;
   } | null>(null);
   const taskCreateOpen = taskCreateRequest !== null;
-  const [threadListPane, setThreadListPane] = useState<"active" | "archived" | "create">("active");
+  const [threadListPane, setThreadListPane] = useState<"active" | "archived">("active");
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey)
+        return;
+      if (event.defaultPrevented || event.isComposing || tabTypesOrOverlays(event.target)) return;
+      if (document.querySelector("dialog[open], [role='dialog'], [data-overlay='menu']")) return;
+      const targetId = previousThreadId.current;
+      if (!targetId || targetId === threadId) return;
+      const row = detail?.threads.find((item) => item.id === targetId);
+      if (!row) return;
+      event.preventDefault();
+      setThreadId(row.id);
+      setThreadListPane(row.status === "archived" ? "archived" : "active");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [detail, threadId]);
+  const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [newThreadTitle, setNewThreadTitle] = useState("");
   const [newThreadBackground, setNewThreadBackground] = useState("");
   const [newThreadGoal, setNewThreadGoal] = useState("");
   const [archiveDialog, setArchiveDialog] = useState<{ id: string; title: string } | null>(null);
-  const newThreadInputRef = useRef<HTMLInputElement>(null);
-  const railCreateRef = useRef<HTMLButtonElement>(null);
   const [copiedThreadId, setCopiedThreadId] = useState("");
   const conversationCopyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(
@@ -625,25 +712,9 @@ export function WorkspaceApp() {
     focusComposer();
   };
   const mentionAuthor = (m: ThreadMessage) => {
-    if (!active) return;
-    const isAssistant = m.source === "assistant";
-    if (!isAssistant && m.author_id === user?.id) return;
-    let label = isAssistant ? AGENT_MEMBER.name : m.author;
-    if (!isAssistant) {
-      const mentionMembers = (detail?.members || []).filter(
-        (member) => member.kind !== "laoweng" && member.id !== AGENT_MEMBER.id,
-      );
-      const selectedMember = mentionMembers.find((member) => member.id === m.author_id);
-      if (
-        selectedMember &&
-        selectedMember.id !== AGENT_XIAOXIANG_MEMBER.id &&
-        mentionMembers.filter((member) => member.name === selectedMember.name).length > 1
-      ) {
-        label = selectedMember.email;
-      } else if (selectedMember) {
-        label = selectedMember.name;
-      }
-    }
+    if (!active || !user) return;
+    const label = quoteMentionLabel(m, detail?.members || [], user.id);
+    if (!label) return;
     const mention = "@" + label + " ";
     updateDraft((text) => {
       if (!text) return mention;
@@ -675,7 +746,12 @@ export function WorkspaceApp() {
     setTaskDialogOpen(true);
   };
   const openTask = (taskId: string) => openTaskDialog(taskId);
-  const openTaskCreate = (seed?: { refId?: string; folderId?: string }) => {
+  const openTaskCreate = (seed?: {
+    refId?: string;
+    folderId?: string;
+    copyFrom?: TaskCreateCopy;
+    draftEdit?: TaskDraftEdit;
+  }) => {
     if (!active) {
       showTip("当前迭代只读，暂不能创建任务", "error");
       return;
@@ -689,6 +765,7 @@ export function WorkspaceApp() {
     setTaskSelection((current) => ({ id: current.id + 1, taskId: "" }));
     setTaskDialogOpen(false);
     setTaskCreateRequest(null);
+    setNewThreadOpen(false);
   }, [threadId, projectId, user?.id]);
   const refreshConnectors = async () => {
     setConnectors(await api("/local-executors"));
@@ -845,6 +922,7 @@ export function WorkspaceApp() {
     historyRequest,
     wakeThreadPoll,
     followConversation,
+    holdUnread,
     readThread,
     hasPendingWork,
     setThread,
@@ -852,6 +930,7 @@ export function WorkspaceApp() {
     setError,
   };
   useThreadActivity(threadActivityContext);
+  const listedThread = detail?.threads.find((item) => item.id === threadId);
   const readReceiptContext = {
     user,
     threadId,
@@ -862,8 +941,11 @@ export function WorkspaceApp() {
     threadCache,
     setThread,
     setDetail,
+    listUnreadChat: listedThread?.unread_chat || 0,
+    listUnreadTask: listedThread?.unread_task || 0,
+    threadView,
   };
-  useThreadReadReceipt(readReceiptContext);
+  const catchUpThread = useThreadReadReceipt(readReceiptContext);
   useEffect(() => {
     if (pendingWork) wakeThreadPoll.current?.();
   }, [threadId, pendingWork]);
@@ -919,11 +1001,13 @@ export function WorkspaceApp() {
       const container = conversationRef.current;
       const oldHeight = container?.scrollHeight || 0,
         oldTop = container?.scrollTop || 0;
+      const preserve = preserveHistoryScroll.current;
       const merged = threadCache.current.update(id, (previous) =>
         mergeThread(previous, older, true),
       );
       followConversation.current = false;
       setThread(merged);
+      if (!preserve) return;
       requestAnimationFrame(() => {
         if (container && currentContext.current.threadId === id)
           container.scrollTop = oldTop + container.scrollHeight - oldHeight;
@@ -941,26 +1025,24 @@ export function WorkspaceApp() {
     setError("");
     setModal(value);
   };
-  const focusNewThreadInput = () => {
-    railCreateRef.current?.blur();
-    newThreadInputRef.current?.focus({ preventScroll: true });
-  };
-  const openNewThreadPane = () => {
+  const openNewThreadDialog = () => {
     setNewThreadTitle("");
     setNewThreadBackground("");
     setNewThreadGoal("");
-    setThreadListPane("create");
-    setLeftOpen(true);
+    setError("");
+    setNewThreadOpen(true);
   };
-  const cancelNewThread = () => {
+  const closeNewThreadDialog = () => {
     setNewThreadTitle("");
-    setThreadListPane("active");
+    setNewThreadBackground("");
+    setNewThreadGoal("");
+    setNewThreadOpen(false);
   };
   const submitNewThread = () =>
     void run(async () => {
       const title = newThreadTitle.trim();
       if (!title) {
-        newThreadInputRef.current?.focus();
+        showTip("请先填写迭代主题", "error");
         return;
       }
       if (!projectId) {
@@ -977,18 +1059,14 @@ export function WorkspaceApp() {
         goal: newThreadGoal.trim(),
       });
       setNewThreadTitle("");
+      setNewThreadBackground("");
+      setNewThreadGoal("");
+      setNewThreadOpen(false);
       setThreadListPane("active");
       setThreadId(t.id);
       setDetail(await api(`/projects/${projectId}?view=chat`));
       showTip("迭代已创建");
     });
-  useLayoutEffect(() => {
-    if (!leftOpen || threadListPane !== "create") return;
-    const id = window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => focusNewThreadInput());
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [leftOpen, threadListPane]);
   const copyConversationInfo = async (target?: { id: string; title: string }) => {
     const copyThreadId = target?.id ?? threadId;
     if (!copyThreadId || !projectId || detail?.id !== projectId) return;
@@ -1063,6 +1141,8 @@ export function WorkspaceApp() {
     void run(async () => {
       const rows = await api(`/projects/${id}/tab`, { action }, "PATCH");
       setProjects(rows);
+      if (user?.id && (action === "open" || action === "pin" || action === "unpin"))
+        setTabOrder(placeProjectTab(user.id, id, action));
       if (action === "open") {
         setProjectId(id);
         setProjectPickerOpen(false);
@@ -1111,21 +1191,40 @@ export function WorkspaceApp() {
       setProjects(await api("/projects"));
       setProjectPickerOpen(true);
     });
-  const reorderPinnedProject = (source: string, target: string, after: boolean) => {
+  const saveProjectTabOrder = (projectIds: string[], pinned: boolean) => {
+    if (!user?.id) return;
+    setTabOrder(rememberProjectTabOrder(user.id, pinned, projectIds));
+  };
+  const reorderProjectTab = (source: string, target: string, after: boolean) => {
     if (busy || source === target) return;
-    const pinnedIds = visibleProjects.filter((p) => p.tab_pinned_at).map((p) => p.id);
-    if (!pinnedIds.includes(source) || !pinnedIds.includes(target)) return;
-    const projectIds = pinnedIds.filter((id) => id !== source);
+    const sourceProject = visibleProjects.find((project) => project.id === source);
+    const targetProject = visibleProjects.find((project) => project.id === target);
+    if (!sourceProject || !targetProject) return;
+    const pinned = !!sourceProject.tab_pinned_at;
+    if (pinned !== !!targetProject.tab_pinned_at) return;
+    const ids = visibleProjects
+      .filter((project) => !!project.tab_pinned_at === pinned)
+      .map((project) => project.id);
+    const projectIds = ids.filter((id) => id !== source);
     projectIds.splice(projectIds.indexOf(target) + Number(after), 0, source);
-    if (projectIds.every((id, index) => id === pinnedIds[index])) return;
-    void run(async () => {
-      try {
-        setProjects(await api("/project-tabs/order", { projectIds }, "PATCH"));
-      } catch (error) {
-        setProjects(await api("/projects"));
-        throw error;
-      }
-    });
+    if (projectIds.every((id, index) => id === ids[index])) return;
+    saveProjectTabOrder(projectIds, pinned);
+  };
+  const commitProjectTabOrder = (projectIds: string[]) => {
+    if (busy || !projectIds.length) return;
+    const sample = visibleProjects.find((project) => project.id === projectIds[0]);
+    if (!sample) return;
+    const pinned = !!sample.tab_pinned_at;
+    const current = visibleProjects
+      .filter((project) => !!project.tab_pinned_at === pinned)
+      .map((project) => project.id);
+    if (
+      projectIds.length !== current.length ||
+      projectIds.some((id) => !current.includes(id)) ||
+      projectIds.every((id, index) => id === current[index])
+    )
+      return;
+    saveProjectTabOrder(projectIds, pinned);
   };
   const modalSubmitContext = {
     modal,
@@ -1464,8 +1563,12 @@ export function WorkspaceApp() {
     const width = elderSplitWidth();
     persistElderSplit(clampElderSplitRatio((elderSplitRef.current ?? 0.5) + delta, width));
   };
+  // 问老翁只要求选中项目且有登录人：项目还没有迭代时也能打开，左列放欢迎页。
+  const canAskElder = !!projectId && !!user;
+  const elderSplitOpen = canAskElder && elderOpen;
   const conversationHeaderProps = {
     thread,
+    canAskElder,
     threadView,
     setThreadView,
     coordinatorLogLabel,
@@ -1486,7 +1589,9 @@ export function WorkspaceApp() {
     busy,
     availableProjects,
     open,
-    openNewThreadPane,
+    openNewThreadDialog,
+    canAskElder,
+    onAskElder: () => setElderOpen((open) => !open),
     showProjectPicker,
     updateProjectTab,
   };
@@ -1591,10 +1696,14 @@ export function WorkspaceApp() {
     chatMessages,
     conversationRef,
     followConversation,
+    // 未读分割线滚动要用的 ref，必须跟 ConversationStage 一起传下去。
+    holdUnread,
+    preserveHistoryScroll,
     navigationUntil,
     composerAreaRef,
     navigateMessage,
     loadHistory,
+    catchUpThread,
     registerComposer,
     thread,
     timeline,
@@ -1624,11 +1733,8 @@ export function WorkspaceApp() {
     visibleProjects,
     projectId,
     setProjectId,
-    draggedProject,
-    setDraggedProject,
-    projectDrop,
-    setProjectDrop,
-    reorderPinnedProject,
+    reorderProjectTab,
+    commitProjectTabOrder,
     updateProjectTab,
     showProjectPicker,
     busy,
@@ -1649,21 +1755,10 @@ export function WorkspaceApp() {
     setLeftOpen,
     threadListPane,
     setThreadListPane,
-    openNewThreadPane,
-    railCreateRef,
+    openNewThreadDialog,
     activeThreads,
     renderThreadLink,
     archivedThreads,
-    newThreadInputRef,
-    newThreadTitle,
-    setNewThreadTitle,
-    submitNewThread,
-    cancelNewThread,
-    busy,
-    newThreadBackground,
-    setNewThreadBackground,
-    newThreadGoal,
-    setNewThreadGoal,
     projectId,
     open,
     setProjectManagementOpen,
@@ -1722,6 +1817,26 @@ export function WorkspaceApp() {
         onOpenWiki={openCitedWiki}
       />
     ) : null;
+  // 群聊 / 欢迎页与问老翁共用的分栏拖拽条。
+  const elderSplitDivider = (
+    <div
+      className="conversation-split-divider"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={thread ? "拖拽调整群聊与问老翁宽度" : "拖拽调整分栏宽度"}
+      aria-valuemin={10}
+      aria-valuemax={90}
+      aria-valuenow={Math.round((elderSplitRatio ?? 0.5) * 100)}
+      tabIndex={0}
+      title="拖拽调整宽度"
+      onPointerDown={startElderSplitDrag}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        nudgeElderSplit(event.key === "ArrowLeft" ? -0.02 : 0.02);
+      }}
+    />
+  );
   return (
     <LiveOutputContext.Provider value={liveStore}>
       <div
@@ -1736,7 +1851,7 @@ export function WorkspaceApp() {
         <WorkspaceTopbar {...topbarProps} />
         <WorkspaceSidebar {...sidebarProps} />
         <main
-          className={`main ${fileDragOver ? "file-drag-over" : ""}${elderOpen && thread ? " elder-split" : ""}`}
+          className={`main ${fileDragOver ? "file-drag-over" : ""}${elderSplitOpen ? " elder-split" : ""}`}
           onDragOver={(e) => {
             if (e.dataTransfer.types.includes("Files")) {
               e.preventDefault();
@@ -1787,10 +1902,20 @@ export function WorkspaceApp() {
               </div>
             </div>
           ) : !thread ? (
-            <WorkspaceWelcome {...welcomeProps} />
+            elderSplitOpen ? (
+              <div className="conversation-split">
+                <div className="conversation-split-left">
+                  <WorkspaceWelcome {...welcomeProps} />
+                </div>
+                {elderSplitDivider}
+                {elderPane}
+              </div>
+            ) : (
+              <WorkspaceWelcome {...welcomeProps} />
+            )
           ) : (
             <>
-              {elderOpen && thread ? (
+              {elderSplitOpen ? (
                 <div className="conversation-split">
                   <div className="conversation-split-left">
                     <div className="conversation-body" hidden={threadView !== "chat"}>
@@ -1798,23 +1923,7 @@ export function WorkspaceApp() {
                     </div>
                     {threadTrajectoryView}
                   </div>
-                  <div
-                    className="conversation-split-divider"
-                    role="separator"
-                    aria-orientation="vertical"
-                    aria-label="拖拽调整群聊与问老翁宽度"
-                    aria-valuemin={10}
-                    aria-valuemax={90}
-                    aria-valuenow={Math.round((elderSplitRatio ?? 0.5) * 100)}
-                    tabIndex={0}
-                    title="拖拽调整宽度"
-                    onPointerDown={startElderSplitDrag}
-                    onKeyDown={(event) => {
-                      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-                      event.preventDefault();
-                      nudgeElderSplit(event.key === "ArrowLeft" ? -0.02 : 0.02);
-                    }}
-                  />
+                  {elderSplitDivider}
                   {elderPane}
                 </div>
               ) : (
@@ -1828,6 +1937,19 @@ export function WorkspaceApp() {
             </>
           )}
         </main>
+        {newThreadOpen && (
+          <NewThreadDialog
+            title={newThreadTitle}
+            background={newThreadBackground}
+            goal={newThreadGoal}
+            busy={busy}
+            onTitleChange={setNewThreadTitle}
+            onBackgroundChange={setNewThreadBackground}
+            onGoalChange={setNewThreadGoal}
+            onClose={closeNewThreadDialog}
+            onSubmit={submitNewThread}
+          />
+        )}
         {archiveDialog && (
           <Suspense fallback={null}>
             <ThreadArchiveDialog
@@ -1967,6 +2089,8 @@ export function WorkspaceApp() {
             detail={detail}
             initialRefId={taskCreateRequest.refId}
             initialFolderId={taskCreateRequest.folderId}
+            copyFrom={taskCreateRequest.copyFrom}
+            draftEdit={taskCreateRequest.draftEdit}
             onClose={closeTaskCreate}
             onCreated={(taskId) => {
               if (
@@ -2129,6 +2253,7 @@ export function WorkspaceApp() {
             busy={busy}
             error={error}
             onClose={() => setProjectPickerOpen(false)}
+            api={api}
             onImport={(id) => updateProjectTab(id, "open")}
             onCreate={() => {
               setProjectPickerOpen(false);

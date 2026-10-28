@@ -9,7 +9,12 @@ import { composeTaskInstruction } from "./task-pool-helpers.js";
 import { recordTaskStatusChange } from "./task-pool-activity.js";
 
 import { ASSIGN_HUMAN_AUTH, TASK_ENDED } from "./task-policy.js";
-import { documentsForTaskInstruction } from "./task-documents.js";
+import {
+  assertDocumentRefs,
+  assertFolderRefs,
+  documentsForTaskInstruction,
+  stripDocumentRefsCoveredByFolders,
+} from "./task-documents.js";
 import {
   assertTarget,
   currentThreadXiaoxiangSession,
@@ -17,9 +22,12 @@ import {
   assertXiaoxiangCanOperateTask,
 } from "./task-access.js";
 import { getTask } from "./task-queries.js";
+import { createTask } from "./task-commands.js";
+import { notifyTaskAssigned } from "./inbox-task.js";
 import { idleChildCount } from "./task-dispatch.js";
 export async function reassignTask(db, taskId, actor, target, reason, messageId) {
   assertTarget(target.type, target.id);
+  let previousTargetId = null;
   const result = await transaction(db, async (conn) => {
     await lockTaskIteration(conn, taskId);
     const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
@@ -53,6 +61,7 @@ export async function reassignTask(db, taskId, actor, target, reason, messageId)
         reassignable.add(status),
       );
     if (!reassignable.has(task.status)) throw new HttpError(409, "当前任务状态不能转交");
+    previousTargetId = task.target_id;
     if (xiaoxiangOperator) {
       await query(
         conn,
@@ -136,6 +145,30 @@ export async function reassignTask(db, taskId, actor, target, reason, messageId)
       }
     }
     await recordTaskStatusChange(conn, taskId, task.status, actor, reason || "任务转交");
+    return getTask(conn, taskId);
+  });
+  if (result.origin_thread_id) publishWork(db, result.origin_thread_id);
+  await notifyTaskAssigned(db, result, previousTargetId);
+  return result;
+}
+
+export async function acceptTaskCompletion(db, taskId, actor) {
+  const result = await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
+    const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
+    if (!task) throw new HttpError(404, "任务不存在");
+    const source =
+      actor.type === "human_member" &&
+      (task.source_user_id === actor.id ||
+        (task.created_by_type === "human_member" && task.created_by_id === actor.id));
+    if (!source) throw new HttpError(403, "只有任务来源人可以验收");
+    if (task.status !== "completed") throw new HttpError(409, "只有待验收的任务可以验收");
+    await query(
+      conn,
+      "UPDATE agent_tasks SET status='accepted',finished_at=COALESCE(finished_at,UTC_TIMESTAMP(3)),revision=revision+1 WHERE id=?",
+      [taskId],
+    );
+    await recordTaskStatusChange(conn, taskId, "completed", actor, "来源验收通过");
     return getTask(conn, taskId);
   });
   if (result.origin_thread_id) publishWork(db, result.origin_thread_id);
@@ -360,13 +393,13 @@ export async function cancelTask(db, taskId, actor, reason) {
     await lockTaskIteration(conn, taskId);
     const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
     if (!task) throw new HttpError(404, "任务不存在");
-    if (task.status !== "awaiting_acceptance")
-      throw new HttpError(409, "只有待确认任务可以由来源人取消");
+    if (task.status !== "awaiting_acceptance" && task.status !== "draft")
+      throw new HttpError(409, "只有草稿或待确认任务可以由来源人取消");
     const source =
       actor.type === "human_member" &&
       (task.source_user_id === actor.id ||
         (task.created_by_type === "human_member" && task.created_by_id === actor.id));
-    if (!source) throw new HttpError(403, "只有任务来源人可以取消待确认任务");
+    if (!source) throw new HttpError(403, "只有任务来源人可以取消草稿或待确认任务");
     await query(
       conn,
       "UPDATE agent_tasks SET status='cancelled',progress=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?",
@@ -462,6 +495,181 @@ export async function restoreIgnoredTask(db, taskId, actor, reason) {
       actor,
       reason || "任务来源人恢复已忽略任务",
     );
+    return getTask(conn, taskId);
+  });
+  if (result.origin_thread_id) publishWork(db, result.origin_thread_id);
+  return result;
+}
+
+/** 原发起方把已取消任务复制成一条新的正式任务；原任务保持已取消。 */
+export async function copyCancelledTask(db, taskId, actor, input) {
+  const [task] = await query(db, "SELECT * FROM agent_tasks WHERE id=?", [taskId]);
+  if (!task) throw new HttpError(404, "任务不存在");
+  if (task.status !== "cancelled") throw new HttpError(409, "只有已取消的任务可以复制新建");
+  const source =
+    actor.type === "human_member" &&
+    (task.source_user_id === actor.id ||
+      (task.created_by_type === "human_member" && task.created_by_id === actor.id));
+  if (!source) throw new HttpError(403, "只有任务原发起方可以复制新建");
+  if (!task.origin_thread_id) throw new HttpError(409, "原任务没有所属迭代，不能复制新建");
+  return createTask(db, {
+    projectId: task.project_id,
+    originThreadId: task.origin_thread_id,
+    sourceType: "human_member",
+    sourceUserId: actor.id,
+    sourceTaskId: task.id,
+    createdByType: "human_member",
+    createdById: actor.id,
+    taskType: "formal",
+    title: input.title,
+    goal: input.goal,
+    constraints: input.constraints,
+    documentRefs: input.refs,
+    folderRefs: input.folderRefs,
+    targetType: "human_member",
+    targetId: input.targetUserId,
+    persona: task.persona || undefined,
+  });
+}
+
+function humanTaskSource(task, actor) {
+  return (
+    actor.type === "human_member" &&
+    (task.source_user_id === actor.id ||
+      (task.created_by_type === "human_member" && task.created_by_id === actor.id))
+  );
+}
+
+async function replaceHumanTaskContent(conn, task, input) {
+  const folderRefs = await assertFolderRefs(conn, task.project_id, input.folderRefs);
+  const documentRefs = await stripDocumentRefsCoveredByFolders(
+    conn,
+    task.project_id,
+    await assertDocumentRefs(conn, task.project_id, input.refs),
+    folderRefs,
+  );
+  const [target] = await query(
+    conn,
+    "SELECT user_id FROM members WHERE project_id=? AND user_id=? AND role<>'viewer'",
+    [task.project_id, input.targetUserId],
+  );
+  if (!target) throw new HttpError(400, "任务目标不是当前项目的可执行成员");
+  return { documentRefs, folderRefs };
+}
+
+/** 原发起方改草稿的标题、目标、约束、引用和责任人，状态仍是草稿。 */
+export async function saveDraftTask(db, taskId, actor, input) {
+  const result = await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
+    const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
+    if (!task) throw new HttpError(404, "任务不存在");
+    if (task.status !== "draft") throw new HttpError(409, "只有草稿可以保存");
+    if (!humanTaskSource(task, actor)) throw new HttpError(403, "只有任务原发起方可以保存草稿");
+    const { documentRefs, folderRefs } = await replaceHumanTaskContent(conn, task, input);
+    await query(
+      conn,
+      `UPDATE agent_tasks SET title=?,goal=?,constraints=?,document_refs=?,folder_refs=?,
+      target_type='human_member',target_id=?,revision=revision+1 WHERE id=?`,
+      [
+        input.title,
+        input.goal,
+        input.constraints || null,
+        JSON.stringify(documentRefs),
+        JSON.stringify(folderRefs),
+        input.targetUserId,
+        taskId,
+      ],
+    );
+    if (task.target_id !== input.targetUserId) {
+      await query(
+        conn,
+        `INSERT INTO agent_task_assignment_events
+        (task_id,event_type,from_target_type,from_target_id,to_target_type,to_target_id,changed_by_type,changed_by_id,reason)
+        VALUES(?,'transferred',?,?,?,?,?,?,?)`,
+        [
+          taskId,
+          task.target_type,
+          task.target_id,
+          "human_member",
+          input.targetUserId,
+          actor.type,
+          actor.id,
+          "草稿调整责任人",
+        ],
+      );
+    }
+    return getTask(conn, taskId);
+  });
+  if (result.origin_thread_id) publishWork(db, result.origin_thread_id);
+  return result;
+}
+
+/** 原发起方把草稿提交成待确认的正式任务。 */
+export async function submitDraftTask(db, taskId, actor, input) {
+  const result = await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
+    const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
+    if (!task) throw new HttpError(404, "任务不存在");
+    if (task.status !== "draft") throw new HttpError(409, "只有草稿可以提交为正式任务");
+    if (!humanTaskSource(task, actor)) throw new HttpError(403, "只有任务原发起方可以提交正式任务");
+    const { documentRefs, folderRefs } = await replaceHumanTaskContent(conn, task, input);
+    await query(
+      conn,
+      `UPDATE agent_tasks SET title=?,goal=?,constraints=?,document_refs=?,folder_refs=?,
+      target_type='human_member',target_id=?,status='awaiting_acceptance',progress=NULL,finished_at=NULL,
+      accepted_by_type=NULL,accepted_by_id=NULL,accepted_at=NULL,revision=revision+1 WHERE id=?`,
+      [
+        input.title,
+        input.goal,
+        input.constraints || null,
+        JSON.stringify(documentRefs),
+        JSON.stringify(folderRefs),
+        input.targetUserId,
+        taskId,
+      ],
+    );
+    if (task.target_id !== input.targetUserId) {
+      await query(
+        conn,
+        `INSERT INTO agent_task_assignment_events
+        (task_id,event_type,from_target_type,from_target_id,to_target_type,to_target_id,changed_by_type,changed_by_id,reason)
+        VALUES(?,'transferred',?,?,?,?,?,?,?)`,
+        [
+          taskId,
+          task.target_type,
+          task.target_id,
+          "human_member",
+          input.targetUserId,
+          actor.type,
+          actor.id,
+          "提交正式任务时调整责任人",
+        ],
+      );
+    }
+    await recordTaskStatusChange(conn, taskId, task.status, actor, "提交正式任务");
+    return getTask(conn, taskId);
+  });
+  if (result.origin_thread_id) publishWork(db, result.origin_thread_id);
+  return result;
+}
+
+/** 原发起方把待确认任务撤回到草稿，责任人不用再确认。 */
+export async function withdrawTaskToDraft(db, taskId, actor) {
+  const result = await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
+    const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
+    if (!task) throw new HttpError(404, "任务不存在");
+    if (task.status !== "awaiting_acceptance")
+      throw new HttpError(409, "只有待确认任务可以撤为草稿");
+    if (!humanTaskSource(task, actor))
+      throw new HttpError(403, "只有任务原发起方可以把任务撤为草稿");
+    await query(
+      conn,
+      `UPDATE agent_tasks SET status='draft',progress=NULL,finished_at=NULL,
+      accepted_by_type=NULL,accepted_by_id=NULL,accepted_at=NULL,revision=revision+1 WHERE id=?`,
+      [taskId],
+    );
+    await recordTaskStatusChange(conn, taskId, task.status, actor, "撤为草稿");
     return getTask(conn, taskId);
   });
   if (result.origin_thread_id) publishWork(db, result.origin_thread_id);

@@ -22,7 +22,7 @@ export type ProjectActivityContext = {
   pendingNotification: RefObject<{ projectId: string; threadId: string | null } | null>;
   setDetail: Dispatch<SetStateAction<Detail | null>>;
   setThreadId: Dispatch<SetStateAction<string>>;
-  setThreadListPane: Dispatch<SetStateAction<"active" | "archived" | "create">>;
+  setThreadListPane: Dispatch<SetStateAction<"active" | "archived">>;
   setError: Dispatch<SetStateAction<string>>;
 };
 
@@ -112,11 +112,11 @@ export function useProjectActivity(ctx: ProjectActivityContext) {
         inFlight = false;
         if (alive) {
           clearTimeout(timer);
-          timer = setTimeout(load, 30000);
+          timer = setTimeout(load, 3000);
         }
       }
     };
-    if (cached) timer = setTimeout(load, 30000);
+    if (cached) timer = setTimeout(load, 3000);
     else void load();
     document.addEventListener("visibilitychange", load);
     return () => {

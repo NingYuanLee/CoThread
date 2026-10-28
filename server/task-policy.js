@@ -12,6 +12,7 @@ export const CHILD_LIVE_RUN = ["queued", "running", "waiting"];
 
 export const TASK_ENDED = [
   "completed",
+  "accepted",
   "failed",
   "cancelled",
   "rejected",

@@ -107,6 +107,7 @@ export function MiniprogramDatabasePanel({
             <div className="miniprogram-admin-address miniprogram-database-address">
               <UiIcon name="layers" size={13} />
               <SelectField
+                allOption={false}
                 flush
                 containerClassName="miniprogram-database-collection-field"
                 aria-label="集合"

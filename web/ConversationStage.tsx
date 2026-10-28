@@ -37,6 +37,7 @@ import { useLiveOutputRow } from "./live-output-store";
 import { MessageNavigator } from "./MessageNavigator";
 import { ScrollToLatest } from "./ScrollToLatest";
 import { useStickToBottom } from "./use-stick-to-bottom";
+import { useUnreadEntry } from "./use-unread-entry";
 import { IdentityName } from "./Identity";
 import { MessageUsage } from "./MessageUsage";
 import { StreamingStatus } from "./StreamingStatus";
@@ -48,9 +49,11 @@ import { showTip } from "./Tip";
 import { api } from "./workspace-api";
 import { clipQuote } from "./workspace-format";
 import { isImageFile } from "../shared/document-name.js";
+import { splitSelfMentions } from "../shared/mentions.js";
 import { UiIcon } from "./ui-icon";
 import type { DialogueMode } from "./dialogue-mode-storage";
 import { DIALOGUE_MODE_UI } from "../shared/dialogue-mode.js";
+import { withQuoteMentions } from "./quote-mention";
 import { unreadMention, type ThreadMessage } from "./workspace-helpers";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { annotateWebCitations, webCitationsInBody } from "../shared/citations.js";
@@ -104,10 +107,13 @@ export type ConversationStageProps = {
   chatMessages: ThreadMessage[];
   conversationRef: RefObject<HTMLDivElement | null>;
   followConversation: RefObject<boolean>;
+  holdUnread: RefObject<boolean>;
+  preserveHistoryScroll: RefObject<boolean>;
   navigationUntil: RefObject<number>;
   composerAreaRef: RefObject<HTMLDivElement | null>;
   navigateMessage: () => void;
   loadHistory: () => Promise<void>;
+  catchUpThread: (sequence: string) => void;
   registerComposer: (controller: ComposerController | null, mountedThreadId?: string) => void;
   thread: Thread | null;
   timeline: ThreadMessage[];
@@ -143,9 +149,8 @@ export type ConversationStageProps = {
 };
 
 const TASK_STATS_GROUPS = [
-  { key: "source", label: "来源是我" },
-  { key: "target", label: "指派给我" },
-  { key: "all", label: "全部任务" },
+  { key: "source", label: "来源" },
+  { key: "target", label: "指派" },
 ] as const;
 
 function groupBy<T>(items: readonly T[] | undefined, key: (item: T) => string | null | undefined) {
@@ -191,18 +196,38 @@ function repliesByMessage(
   return grouped;
 }
 
+function SelfMentionText({
+  text,
+  user,
+}: {
+  text: string;
+  user: { name?: string | null; email?: string | null; username?: string | null };
+}) {
+  return splitSelfMentions(text, user).map((part, index) =>
+    part.mention ? (
+      <b className="mention-self" key={index}>
+        {part.text}
+      </b>
+    ) : (
+      part.text
+    ),
+  );
+}
+
 function CoordinatorLiveDraft({
   threadId,
   reply,
   messages,
   previous,
   replies,
+  mentionUser,
 }: {
   threadId: string;
   reply: { message_id: string; status: string };
   messages: Pick<ThreadMessage, "source" | "body" | "agent_task_id">[];
   previous: ThreadMessage | undefined;
   replies: Thread["replies"];
+  mentionUser: { name?: string | null; email?: string | null; username?: string | null };
 }) {
   const row = useLiveOutputRow(threadId, reply.message_id);
   const draft = liveCoordinatorDraft(reply, row, messages);
@@ -234,8 +259,8 @@ function CoordinatorLiveDraft({
           </div>
         )}
         <div className="message-text">
-          <Suspense fallback={draft}>
-            <ThrottledMarkdown body={draft} active />
+          <Suspense fallback={<SelfMentionText text={draft} user={mentionUser} />}>
+            <ThrottledMarkdown body={draft} active mentionUser={mentionUser} />
           </Suspense>
         </div>
         <StreamingStatus />
@@ -244,11 +269,18 @@ function CoordinatorLiveDraft({
   );
 }
 
+const TASK_STAT_FIELDS = [
+  { key: "pending", label: "待接受" },
+  { key: "active", label: "进行中" },
+  { key: "blocked", label: "已阻塞" },
+  { key: "review", label: "待验收" },
+] as const;
+
 function taskStatsSummary(stats: TaskStatusStats | null): string {
   if (!stats) return "打开本迭代任务，任务统计加载中";
-  const part = (label: string, counts: { awaiting_acceptance: number; blocked: number }) =>
-    `${label} 待确认${counts.awaiting_acceptance} 已阻塞${counts.blocked}`;
-  return `打开本迭代任务：${part("来源是我", stats.source)}；${part("指派给我", stats.target)}；${part("全部任务", stats.all)}`;
+  const part = (label: string, counts: TaskStatusStats["source"]) =>
+    TASK_STAT_FIELDS.map((field) => `${field.label}${counts[field.key]}`).join(" ");
+  return `打开本迭代任务：来源 ${part("来源", stats.source)}；指派 ${part("指派", stats.target)}`;
 }
 
 export function ConversationStage({
@@ -270,10 +302,13 @@ export function ConversationStage({
   chatMessages,
   conversationRef,
   followConversation,
+  holdUnread,
+  preserveHistoryScroll,
   navigationUntil,
   composerAreaRef,
   navigateMessage,
   loadHistory,
+  catchUpThread,
   registerComposer,
   thread,
   timeline,
@@ -320,6 +355,19 @@ export function ConversationStage({
         void loadHistory();
     },
   );
+  const unreadMessageId = useUnreadEntry({
+    threadId,
+    threadView,
+    thread,
+    timeline,
+    historyLoading,
+    loadHistory,
+    conversationRef,
+    followConversation,
+    holdUnread,
+    preserveHistoryScroll,
+    onCatchUp: catchUpThread,
+  });
 
   // 群聊上下文压缩：与问老翁同一套记录与轮询，压缩中禁发、无可压缩时按钮置灰。
   // 消息流按 timeline 渲染，压缩记录与模式提示也要挂到 timeline 的最后一条上。
@@ -377,7 +425,13 @@ export function ConversationStage({
           container={conversationRef}
           onNavigate={navigateMessage}
         />
-        <div className="conversation" aria-live="polite" ref={conversationRef}>
+        <div
+          className="conversation"
+          aria-live="polite"
+          aria-label="迭代消息"
+          tabIndex={-1}
+          ref={conversationRef}
+        >
           <div className="conversation-stream">
             {thread.status === "archived" && thread.archive_snapshot && (
               <div className="archive-card">
@@ -427,6 +481,11 @@ export function ConversationStage({
                 (!processPost || !!usageReply || showsActionTime);
               return (
                 <React.Fragment key={m.render_key || m.id}>
+                  {unreadMessageId === m.id && (
+                    <div className="unread-divider" data-unread-divider="" role="separator">
+                      <span>以下是新消息</span>
+                    </div>
+                  )}
                   <article
                     data-message-id={m.id}
                     className={`message ${m.author_id === user.id && m.source !== "assistant" ? "own" : ""} ${continuesTurn ? "turn-continue" : ""} ${unreadMention(m, thread.last_read_sequence, user) ? "mention-unread" : ""}`}
@@ -527,6 +586,7 @@ export function ConversationStage({
                             const imageRefs = (q.refs || []).filter((id) =>
                               imageVersionIds.has(id),
                             );
+                            const quoteText = clipQuote(q.body);
                             return (
                               <div key={q.id} className="message-quote">
                                 <button
@@ -544,7 +604,13 @@ export function ConversationStage({
                                     {q.source === "assistant" ? AGENT_MEMBER.name : q.author}
                                   </strong>
                                   <span title={clipQuote(q.body, 240)}>
-                                    {clipQuote(q.body) || (imageRefs.length ? "图片" : "")}
+                                    {quoteText ? (
+                                      <SelfMentionText text={quoteText} user={user} />
+                                    ) : imageRefs.length ? (
+                                      "图片"
+                                    ) : (
+                                      ""
+                                    )}
                                   </span>
                                 </button>
                                 {!!imageRefs.length && (
@@ -567,9 +633,14 @@ export function ConversationStage({
                         ))}
                         <Suspense
                           fallback={
-                            m.source === "assistant"
-                              ? annotateWebCitations(m.body, webCitationsInBody(m.body))
-                              : m.body
+                            <SelfMentionText
+                              text={
+                                m.source === "assistant"
+                                  ? annotateWebCitations(m.body, webCitationsInBody(m.body))
+                                  : m.body
+                              }
+                              user={user}
+                            />
                           }
                         >
                           <MessageMarkdown
@@ -578,6 +649,7 @@ export function ConversationStage({
                                 ? annotateWebCitations(m.body, webCitationsInBody(m.body))
                                 : m.body
                             }
+                            mentionUser={user}
                           />
                         </Suspense>
                       </div>
@@ -739,6 +811,7 @@ export function ConversationStage({
                 messages={chatMessages}
                 previous={timeline[timeline.length - 1]}
                 replies={thread.replies}
+                mentionUser={user}
               />
             ) : null}
             {thread.runs
@@ -773,7 +846,7 @@ export function ConversationStage({
               >
                 <span className="conversation-task-pool-head">
                   <UiIcon name="list" size={15} className="conversation-task-pool-icon" />
-                  <span className="conversation-task-pool-label">任务</span>
+                  <span className="conversation-task-pool-label">任务和聊天</span>
                 </span>
                 <span
                   className="conversation-task-stats"
@@ -783,26 +856,20 @@ export function ConversationStage({
                   {TASK_STATS_GROUPS.map((group) => (
                     <span className="conversation-task-stat" key={group.key}>
                       <span className="conversation-task-stat-label">{group.label}</span>
-                      <span
-                        className="conversation-task-stat-value"
-                        data-kind="awaiting_acceptance"
-                        data-zero={
-                          taskStats && taskStats[group.key].awaiting_acceptance > 0
-                            ? undefined
-                            : "true"
-                        }
-                      >
-                        {taskStats ? taskStats[group.key].awaiting_acceptance : 0}
-                      </span>
-                      <span
-                        className="conversation-task-stat-value"
-                        data-kind="blocked"
-                        data-zero={
-                          taskStats && taskStats[group.key].blocked > 0 ? undefined : "true"
-                        }
-                      >
-                        {taskStats ? taskStats[group.key].blocked : 0}
-                      </span>
+                      {TASK_STAT_FIELDS.map((field, index) => (
+                        <React.Fragment key={field.key}>
+                          {index > 0 && <span className="conversation-task-stat-dash">-</span>}
+                          <span className="conversation-task-stat-slot">
+                            <span
+                              className="conversation-task-stat-value"
+                              data-kind={field.key}
+                              title={field.label}
+                            >
+                              {taskStats ? taskStats[group.key][field.key] : 0}
+                            </span>
+                          </span>
+                        </React.Fragment>
+                      ))}
                     </span>
                   ))}
                 </span>
@@ -817,12 +884,12 @@ export function ConversationStage({
                 className="conversation-task-pool conversation-task-pool-attached"
                 aria-haspopup="dialog"
                 aria-expanded={briefDialogOpen}
-                title="查看迭代目标"
+                title="查看背景与目标"
                 onClick={onOpenBrief}
               >
                 <span className="conversation-task-pool-head">
                   <UiIcon name="target" size={15} className="conversation-task-pool-icon" />
-                  <span className="conversation-task-pool-label">目标</span>
+                  <span className="conversation-task-pool-label">背景与目标</span>
                 </span>
                 {goalPreview ? (
                   <span className="conversation-task-preview">
@@ -888,7 +955,7 @@ export function ConversationStage({
                   const selectedQuotes = [...quotedMessages];
                   const accepted = await sendOptimisticMessage(
                     targetThreadId,
-                    body,
+                    withQuoteMentions(body, selectedQuotes, detail?.members || [], user.id),
                     selectedRefs,
                     selectedFolderRefs,
                     selectedQuotes,

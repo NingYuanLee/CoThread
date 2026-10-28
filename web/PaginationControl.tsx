@@ -78,6 +78,7 @@ export function PaginationControl({
       {onPageSizeChange && (
         <div className="pagination-control-size">
           <SelectField
+            allOption={false}
             aria-label="每页条数"
             value={String(pageSize)}
             disabled={disabled}

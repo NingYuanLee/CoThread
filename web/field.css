@@ -355,11 +355,21 @@
   color: var(--c-8a988f);
 }
 
-/* 选项列表：容器材质来自 FloatingPanel，这里只排布选项 */
+/* 选项列表：容器材质来自 FloatingPanel，这里只排布选项。
+   面板本体必须保持 overlays 的 overflow: clip，发丝外框才画得出来。
+   纵向滚动放在内部 listbox：若在滚动容器上只写 overflow-y: auto，
+   overflow-x 会被算成 auto；选项按钮的发丝 ::after 比按钮宽约 1px，
+   就会冒出一条横向滚动条。 */
 .field-select-panel {
   min-width: 10rem;
   max-height: 15.714rem;
+}
+
+.field-select-panel > [role="listbox"] {
+  max-height: calc(15.714rem - 2 * var(--overlay-select-panel-padding, 0.286rem) - 0.143rem);
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .field-select-option {

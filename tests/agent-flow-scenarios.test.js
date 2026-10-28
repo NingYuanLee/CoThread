@@ -60,6 +60,7 @@ test("intake routes mention, vocative, chat, and solo member into full mode", as
   const cases = [
     ["今天先对一下进度", "pending"],
     ["@小祥 帮我写文档", "reply"],
+    ["@乙 @小祥 一起看一下", "reply"],
     ["小祥，帮我写文档", "reply"],
     ["小祥", "pending"],
     ["我和乙一起改，不找助手", "pending"],
@@ -123,6 +124,50 @@ test("a short follow-up after 小祥 stays light and is sent as written", async 
   assert.equal(calls, 1);
   assert.equal(result.escalate, undefined);
   assert.equal(result.message, "哈哈，这次赶上了。");
+});
+
+test("a message that @s someone else is ignored without asking the model", async () => {
+  const owner = await person("点名甲");
+  const other = await person("点名乙");
+  const { thread } = await projectWith(owner, [other]);
+  const named = await service.postMessage(owner, thread.id, { body: "@点名乙 你怎么看这个方案" });
+  assert.equal(await participationOf(named.id), "pending");
+  const result = await composeOpportunisticParticipation(db, {
+    title: "场景",
+    threadId: thread.id,
+    messageId: named.id,
+    decide: async () => {
+      throw new Error("明确艾特别人时不该斟酌是否参与");
+    },
+  });
+  assert.equal(result.respond, false);
+  assert.equal(result.deferred, "addressed_other");
+  assert.deepEqual(result.burstIds, [named.id]);
+});
+
+test("an @ to someone else is ignored even when a later @小祥 is still in the open burst", async () => {
+  const owner = await person("混段甲");
+  const other = await person("混段乙");
+  const { thread } = await projectWith(owner, [other]);
+  const named = await service.postMessage(owner, thread.id, { body: "@混段乙 你看" });
+  const xiaoxiangId = randomUUID();
+  await query(
+    db,
+    "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs) VALUES(?,?,?,'human',?,'[]','[]')",
+    [xiaoxiangId, thread.id, owner.id, "@小祥 在么"],
+  );
+  const result = await composeOpportunisticParticipation(db, {
+    title: "场景",
+    threadId: thread.id,
+    messageId: named.id,
+    decide: async () => {
+      throw new Error("段里已有 @小祥 时，@别人仍不该进入斟酌");
+    },
+  });
+  assert.equal(result.respond, false);
+  assert.equal(result.deferred, "addressed_other");
+  assert.equal(result.burstIds.includes(named.id), true);
+  assert.equal(result.burstIds.includes(xiaoxiangId), false);
 });
 
 test("a bare acknowledgement after 小祥 stays silent", async () => {

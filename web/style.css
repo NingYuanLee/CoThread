@@ -1164,56 +1164,58 @@ summary {
 
   --stroke-radius: calc((inherit) * 2);}
 
+/* 岗位色固定，不参与主题生成：近黑 / 墨玉下也保留各自的色相
+   （暗夜生成器会把紫、青等色相量化成蓝阶或灰阶，岗位就分不出来了）。 */
 [data-role="管理"] {
-  --role-ink: var(--c-8b3d24);
-  --role-bg: var(--c-fff0e5);
-  --role-border: var(--c-e9b698);
+  --role-ink: #8b3d24;
+  --role-bg: #fff0e5;
+  --role-border: #e9b698;
 }
 
 [data-role="运营"] {
-  --role-ink: var(--c-87600d);
-  --role-bg: var(--c-fff7d9);
-  --role-border: var(--c-dcc66c);
+  --role-ink: #87600d;
+  --role-bg: #fff7d9;
+  --role-border: #dcc66c;
 }
 
 [data-role="设计"] {
-  --role-ink: var(--c-a03670);
-  --role-bg: var(--c-fceaf4);
-  --role-border: var(--c-e4adc9);
+  --role-ink: #a03670;
+  --role-bg: #fceaf4;
+  --role-border: #e4adc9;
 }
 
 [data-role="产品"] {
-  --role-ink: var(--c-6440a5);
-  --role-bg: var(--c-f0eafa);
-  --role-border: var(--c-c5afe5);
+  --role-ink: #6440a5;
+  --role-bg: #f0eafa;
+  --role-border: #c5afe5;
 }
 
 [data-role="前端"] {
-  --role-ink: var(--c-225caf);
-  --role-bg: var(--c-eaf2ff);
-  --role-border: var(--c-a8c5ee);
+  --role-ink: #225caf;
+  --role-bg: #eaf2ff;
+  --role-border: #a8c5ee;
 }
 
 [data-role="后端"] {
-  --role-ink: var(--c-177261);
-  --role-bg: var(--c-e3f5ef);
-  --role-border: var(--c-9acfbf);
+  --role-ink: #177261;
+  --role-bg: #e3f5ef;
+  --role-border: #9acfbf;
 }
 
 [data-role="助理"] {
-  --role-ink: var(--c-48602e);
-  --role-bg: var(--c-edf3df);
-  --role-border: var(--c-b5c993);
+  --role-ink: #48602e;
+  --role-bg: #edf3df;
+  --role-border: #b5c993;
 }
 
 [data-role="创建人"] {
-  --role-ink: var(--c-7b5c20);
-  --role-bg: var(--c-fff7df);
-  --role-border: var(--c-dfc98b);
+  --role-ink: #7b5c20;
+  --role-bg: #fff7df;
+  --role-border: #dfc98b;
 }
 
 [data-role="只读"] {
-  --role-ink: var(--c-64707b);
-  --role-bg: var(--c-f2f4f6);
-  --role-border: var(--c-cdd3d8);
+  --role-ink: #64707b;
+  --role-bg: #f2f4f6;
+  --role-border: #cdd3d8;
 }

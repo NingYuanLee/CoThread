@@ -340,6 +340,7 @@ const ROLE_ICONS: Record<string, UiIconName> = {
 };
 
 const WORKFLOW_ICONS: Record<string, UiIconName> = {
+  draft: "edit",
   pending_assignment: "clock",
   awaiting_acceptance: "waiting",
   pending_start: "play",

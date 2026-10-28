@@ -20,6 +20,7 @@ import { HttpError } from "../service.js";
 import { retryReply } from "../reply-actions.js";
 import { signPreviewTicket, splitPreviewAssetPath } from "../../shared/preview-ticket.mjs";
 import { randomBytes } from "node:crypto";
+import { joinThreadViewing } from "../thread-presence.js";
 
 export function registerProjectRuntimeRoutes(
   app,
@@ -28,6 +29,28 @@ export function registerProjectRuntimeRoutes(
   app.post("/api/threads/:id/read", async (req, res) =>
     res.json(await service.markThreadRead(req.user, req.params.id, req.body || {})),
   );
+  app.get("/api/threads/:id/viewing", async (req, res) => {
+    await service.thread(req.user, req.params.id);
+    const leave = joinThreadViewing(req.user.id, req.params.id);
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    });
+    res.write(": in\n\n");
+    const beat = setInterval(() => {
+      res.write(": stay\n\n");
+    }, 15000);
+    let closed = false;
+    const done = () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(beat);
+      leave();
+    };
+    req.on("close", done);
+    res.on("close", done);
+  });
   app.get("/api/threads/:id", async (req, res) =>
     // Default to the lightweight chat payload. Full message lists without pagination
     // previously inlined avatars/tool I/O and could exceed tens of MiB on busy threads.

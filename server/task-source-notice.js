@@ -1,6 +1,7 @@
 import { query } from "./db.js";
 
 const STATUS_LABEL = {
+  draft: "草稿",
   pending_assignment: "待指派",
   awaiting_acceptance: "待确认",
   pending_start: "待开始",
@@ -9,7 +10,8 @@ const STATUS_LABEL = {
   waiting: "等待中",
   blocked: "已阻塞",
   running: "执行中",
-  completed: "已完成",
+  completed: "待验收",
+  accepted: "已结束",
   failed: "已失败",
   cancelled: "已取消",
   rejected: "已拒绝",
@@ -56,5 +58,19 @@ export async function mentionTaskSourceNotice(service, db, actor, task, body, op
   const source =
     options.source ||
     (actor.kind === "api" ? "local_ai" : actor.kind === "agent" ? "assistant" : "human");
-  return service.insertMessage(db, actor, task.origin_thread_id, text, options.refs || [], source);
+  return service.insertMessage(
+    db,
+    actor,
+    task.origin_thread_id,
+    text,
+    options.refs || [],
+    source,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { inbox: options.inbox || "skip" },
+  );
 }

@@ -1380,6 +1380,50 @@ label.reply-toggle input {
   margin-bottom: 0.643rem;
 }
 
+/* 新迭代入口独占一行，和下面的活跃/归档分段切换分开。 */
+.sidebar-create-bar {
+  display: flex;
+  margin-bottom: 0.571rem;
+}
+
+.sidebar-create-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.429rem;
+  box-sizing: border-box;
+  width: 100%;
+  /* 与下方 .slide-switch-dense 的 2rem 对齐，两行控件高度一致。 */
+  height: 2rem;
+  margin: 0;
+  padding: 0 0.714rem;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--c-e9eee5);
+  color: var(--c-395d40);
+  font-size: 0.929rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.sidebar-create-button:hover {
+  background: var(--c-dfe8d8);
+  color: var(--c-395d40);
+}
+
+.sidebar-create-button:focus-visible {
+  outline: 0.143rem solid color-mix(in srgb, var(--c-395d40) 45%, transparent);
+  outline-offset: 0.143rem;
+}
+
+.sidebar-create-button .ui-icon {
+  opacity: 0.85;
+}
+
 .sidebar nav {
   overflow: auto;
 }
@@ -1394,106 +1438,24 @@ label.reply-toggle input {
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  width: 300%;
+  width: 200%;
   height: 100%;
   transition: transform 0.38s cubic-bezier(0.32, 0.08, 0.24, 1);
   will-change: transform;
 }
 
 .thread-viewport[data-thread-list-pane="archived"] .thread-track {
-  transform: translateX(calc(-100% / 3));
-}
-
-.thread-viewport[data-thread-list-pane="create"] .thread-track {
-  transform: translateX(calc(-200% / 3));
+  transform: translateX(calc(-100% / 2));
 }
 
 .thread-pane {
-  flex: 0 0 calc(100% / 3);
-  width: calc(100% / 3);
+  flex: 0 0 calc(100% / 2);
+  width: calc(100% / 2);
   min-width: 0;
   min-height: 0;
   height: 100%;
   overflow-x: hidden;
   overflow-y: visible;
-}
-
-.thread-create-pane {
-  display: flex;
-  flex-direction: column;
-  padding: 0.143rem 0;
-  overflow: hidden;
-}
-
-.thread-create-card {
-  display: flex;
-
-  flex-direction: column;
-
-  /* 字段已改用 Field 体系，纵向节奏交给统一的 --field-gap。 */
-  gap: var(--field-gap, 0.857rem);
-
-  margin: 0.286rem 0;
-
-  padding: 0.857rem 0.714rem;
-
-  border-radius: var(--radius-control);
-
-  background: var(--c-f7f9f4);
-  position: relative;
-  --stroke: color-mix(in srgb, var(--c-b8c4b4) 45%, transparent);
-
-  --stroke-radius: calc((var(--radius-control)) * 2);
-  overflow: clip;
-  overflow-clip-margin: 0.857rem;
-}
-
-.thread-create-card::after {
-  content: "";
-  position: absolute;
-  left: -1px;
-  top: -1px;
-  width: calc(200% + 4px);
-  height: calc(200% + 4px);
-  box-sizing: border-box;
-  pointer-events: none;
-  border-style: inherit;
-  border-color: var(--stroke);
-  border-width: inherit;
-  border-radius: var(--stroke-radius);
-  transform: scale(0.5);
-  transform-origin: 0 0;
-}
-
-/* 卡片底色是浅绿面板而非纯白，Field 的 label 压线遮罩要跟着换成本卡底色，
-   否则 label 上浮时会在边框上压出一块白色。用 :not(--disabled) 提高特异性且
-   不干扰 Field 自身的禁用态遮罩。 */
-.thread-create-card .field:not(.field--disabled) {
-  --field-mask: var(--c-f7f9f4);
-}
-
-/* 空态时浮动 label 落在框内充当占位，与原生 placeholder 完全重叠；
-   这里在 label 未浮起时隐藏 placeholder，聚焦/有内容后再显示提示文案。 */
-.thread-create-card .field:not(.is-floating) .field-input::placeholder,
-.thread-create-card .field:not(.is-floating) .field-textarea::placeholder {
-  color: transparent;
-}
-
-.thread-create-actions {
-  display: flex;
-  gap: 0.571rem;
-}
-
-.thread-create-actions button {
-  flex: 1 1 50%;
-  min-width: 0;
-  margin: 0;
-  padding: 0.429rem 0.571rem;
-  border-radius: var(--radius-control);
-  font-size: 0.857rem;
-  font-weight: 600;
-
-  --stroke-radius: calc((var(--radius-control)) * 2);
 }
 
 .thread-pane nav {
@@ -2118,7 +2080,7 @@ label.reply-toggle input {
 .conversation-task-pool {
   display: grid;
 
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
 
   column-gap: 0.571rem;
 
@@ -2831,6 +2793,52 @@ label.reply-toggle input {
   padding: 0.857rem 1.714rem;
 }
 
+/* 无迭代时的两个入口：主按钮 + 次级「先问问老翁」，纵向排列。 */
+.welcome-primary-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.857rem;
+  margin: 1.571rem 0 3.571rem;
+}
+
+.welcome .welcome-primary-actions .primary {
+  margin: 0;
+}
+
+.welcome-ask-elder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.429rem;
+  min-height: 2.429rem;
+  padding: 0.429rem 1rem;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--c-54704e);
+  font-size: 0.929rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.welcome-ask-elder:hover {
+  background: var(--c-f4f7f2);
+  color: var(--c-395d40);
+}
+
+.welcome-ask-elder:focus-visible {
+  outline: 0.143rem solid color-mix(in srgb, var(--c-395d40) 45%, transparent);
+  outline-offset: 0.143rem;
+}
+
+.welcome-ask-elder .ui-icon {
+  opacity: 0.85;
+}
+
 .welcome-projects {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
@@ -3397,6 +3405,7 @@ label.reply-toggle input {
   overflow-x: hidden;
   overflow-y: auto;
   padding: 1.429rem 2.571rem 2.5rem;
+  outline: none;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--c-dfe4d8) transparent;
@@ -3423,6 +3432,29 @@ label.reply-toggle input {
   background: var(--c-edf0e7);
 
   flex: 1;
+}
+
+.unread-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.857rem;
+  margin: 0.286rem 0 1.429rem;
+  color: #2f6fe0;
+  font-size: 0.857rem;
+  font-weight: 700;
+  line-height: 1.429rem;
+}
+
+.unread-divider span {
+  flex: none;
+}
+
+.unread-divider:before,
+.unread-divider:after {
+  content: "";
+  flex: 1;
+  height: 0.143rem;
+  background: #2f6fe0;
 }
 
 .conversation-empty {
@@ -3900,7 +3932,8 @@ label.reply-toggle input {
 
   background: var(--c-fff);
 
-  border-radius: var(--radius-control);
+  /* 对话输入框作为容器单独一档圆角；里面的按钮仍走 --radius-control。 */
+  border-radius: var(--radius-composer);
 
   padding: 0.571rem 0.714rem;
 
@@ -3908,7 +3941,7 @@ label.reply-toggle input {
   position: relative;
   --stroke: var(--c-dfe6d6);
 
-  --stroke-radius: calc((var(--radius-control)) * 2);
+  --stroke-radius: calc((var(--radius-composer)) * 2);
   overflow: clip;
   overflow-clip-margin: 0.857rem;
 }
@@ -4055,12 +4088,12 @@ label.reply-toggle input {
   height: 2rem;
   padding: 0;
   border: 0;
-  border-radius: 0.357rem;
+  border-radius: var(--radius-control);
   background: var(--c-fff);
   color: var(--c-97a087);
   box-shadow: none;
 
-  --stroke-radius: 0.714rem;
+  --stroke-radius: calc((var(--radius-control)) * 2);
 }
 
 .composer-resize-btn:hover {
@@ -4778,10 +4811,63 @@ label.reply-toggle input {
 
 .task-pool-list-toolbar {
   display: flex;
-  align-items: center;
-  gap: 0.571rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
   flex: 0 0 auto;
   margin: 0 0 0.714rem;
+}
+
+.task-pool-list-toolbar .task-pool-mine {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.429rem;
+  width: auto;
+  max-width: 100%;
+  margin: 0;
+  color: var(--c-27362f);
+  font-size: 0.857rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: keep-all;
+  cursor: pointer;
+}
+
+.task-pool-list-toolbar .task-pool-mine span {
+  display: inline;
+  margin: 0;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
+.task-pool-list-toolbar .task-pool-mine input {
+  display: inline-block;
+  width: auto;
+  height: auto;
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.task-pool-list-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.571rem;
+  min-width: 0;
+}
+
+.task-pool-list-filters .project-memory-multi-filter {
+  flex: 0 0 7.143rem;
+  min-width: 7.143rem;
+}
+
+.task-pool-list-filters .project-memory-subtype-options {
+  left: 0;
+  right: auto;
+  z-index: 6;
 }
 
 .task-pool-search {
@@ -8887,6 +8973,7 @@ label.reply-toggle input {
 
   .workspace-label,
   .storage-status,
+  .sidebar-create-bar,
   .section-label {
     display: none;
   }
@@ -8921,16 +9008,6 @@ label.reply-toggle input {
   .thread-viewport[data-thread-list-pane="archived"] .thread-pane-archived {
     display: block;
     flex: 1;
-  }
-
-  .thread-viewport[data-thread-list-pane="create"] .thread-pane-create {
-    display: block;
-    flex: 1;
-  }
-
-  .thread-viewport[data-thread-list-pane="create"] .thread-create-pane {
-    display: flex;
-    width: 100%;
   }
 
   .sidebar nav {
@@ -10368,6 +10445,22 @@ img.file-type-icon {
   justify-content: flex-end;
   gap: 0.571rem;
   margin-top: 1.143rem;
+}
+
+/* 新迭代弹窗：主题、背景、目标三段纵向排列，沿用 Field 的统一间距。 */
+.new-thread-dialog {
+  width: min(32rem, calc(100vw - 3.429rem));
+}
+
+.new-thread-dialog .new-thread-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--field-gap, 0.857rem);
+}
+
+/* 弹窗里的多行输入按 rows 决定高度，不继承 library 弹窗的固定最小高度。 */
+.new-thread-dialog .dialog-plain-body textarea {
+  min-height: var(--field-textarea-min, 6.786rem);
 }
 
 .library-organize-actions button.danger {
@@ -12203,13 +12296,21 @@ a.primary.doc-archive-download:hover {
   color: var(--code-token-number);
 }
 
-html[data-theme="ink"] .code-preview,
-html[data-theme="night"] .code-preview {
+html[data-theme="ink"] .code-preview {
   --code-token-keyword: #c9a7ff;
   --code-token-selector: #8fce9a;
   --code-token-string: #f0b278;
   --code-token-comment: #98a69b;
   --code-token-number: #8fc8ed;
+}
+
+/* 暗夜代码预览：取暗夜色板的蓝/绿/橙/红与灰阶注释色。 */
+html[data-theme="night"] .code-preview {
+  --code-token-keyword: #93c5fd;
+  --code-token-selector: #4ed17e;
+  --code-token-string: #f7ad31;
+  --code-token-comment: #adb2b8;
+  --code-token-number: #60a5fa;
 }
 
 .pptx-preview {
@@ -13250,14 +13351,14 @@ a.workspace-space-switch:hover {
   color: #fff;
 }
 
-html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch {
-  background: #2f6feb;
-  color: #fff;
+html[data-theme="night"] a.workspace-space-switch {
+  background: #2563eb;
+  color: #eff6ff;
 }
 
-html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover {
-  background: #2563eb;
-  color: #fff;
+html[data-theme="night"] a.workspace-space-switch:hover {
+  background: #3b82f6;
+  color: #eff6ff;
 }
 
 .sidebar-toggle[aria-expanded="true"] {
@@ -13275,15 +13376,23 @@ html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover
   box-sizing: border-box;
 }
 
+.project-tab-menu .library-folder-menu-item > svg {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  color: var(--c-4a6354);
+}
+
 .project-tabs {
   display: flex;
   align-items: center;
   gap: 0.286rem;
   flex: 1;
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: thin;
   height: 100%;
+  /* 不横滑。每个页签有固定最大宽度；当前页签区放得下就保持这个宽度，添加按钮紧跟在后面。
+     页面变窄或页签变多、放不下时，按剩余宽度一起缩小，添加按钮仍留在页签区最右侧。 */
+  overflow: hidden;
 }
 
 .project-tabs button {
@@ -13308,10 +13417,23 @@ html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover
   color: var(--c-7e887a);
 }
 
-.project-tabs .project-tab-name > span {
+.project-tabs .project-tab-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.project-tab-unread {
+  flex: 0 0 auto;
+  min-width: 1rem;
+  padding: 0 0.286rem;
+  border-radius: 71.357rem;
+  background: var(--c-b75b4d);
+  color: #fff;
+  font-size: 0.714rem;
+  font-weight: 700;
+  line-height: 1rem;
+  text-align: center;
 }
 
 .project-tab {
@@ -13319,7 +13441,9 @@ html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover
 
   align-items: center;
 
-  flex-shrink: 0;
+  flex: 0 1 12.857rem;
+  min-width: 0;
+  max-width: 12.857rem;
 
   border-radius: var(--radius-control);
 
@@ -13327,6 +13451,8 @@ html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover
 
   border: 1px solid transparent;
   position: relative;
+  user-select: none;
+  touch-action: pan-y;
   --stroke: transparent;
 
   --stroke-radius: calc((var(--radius-control)) * 2);
@@ -13351,8 +13477,25 @@ html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover
   transform-origin: 0 0;
 }
 
-.project-tab:hover {
+.project-tab:not(.selected) {
   background: var(--c-eef2eb);
+}
+
+.project-tab:not(.selected):hover {
+  background: var(--c-e5ecde);
+}
+
+/* 拖拽时其它页签从下面穿过去，并且不吃悬停，避免掠过鼠标时闪一下选中色。 */
+.project-tabs.is-reordering .project-tab:not(.is-dragging) {
+  pointer-events: none;
+}
+
+.project-tabs.is-reordering .project-tab:not(.is-dragging):not(.selected):hover {
+  background: var(--c-eef2eb);
+}
+
+.project-tabs.is-reordering .project-tab.pinned:not(.is-dragging):not(.selected):hover {
+  background: var(--c-eef2e9);
 }
 
 .project-tabs-divider {
@@ -13364,12 +13507,19 @@ html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover
 
   background: var(--c-cbd5c4);
 
-  margin: 0 0.643rem;
+  margin: 0 0.143rem;
 
   flex-shrink: 0;
 }
 
 .project-tab.pinned {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  height: var(--sidebar-control-size);
+  justify-content: center;
+  padding: 0 0.643rem;
   background: var(--c-eef2e9);
 
   --stroke: var(--c-dce5d4);
@@ -13384,8 +13534,18 @@ html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover
   background: var(--c-e5ecde);
 }
 
+.project-tab.pinned .project-tab-pin-mark,
+.project-tab.pinned .project-tab-label {
+  display: none;
+}
+
 .project-tab.pinned .project-tab-name {
-  padding-left: 0.357rem;
+  justify-content: center;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
   color: var(--c-27362f);
 }
 
@@ -13421,6 +13581,13 @@ html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover
   cursor: grab;
 }
 
+.project-tab.is-dragging {
+  z-index: 30;
+  cursor: grabbing;
+  box-shadow: 0 0.45rem 1.1rem color-mix(in srgb, var(--c-27362f) 22%, transparent);
+  touch-action: none;
+}
+
 .project-tab.dragging {
   opacity: 0.45;
 }
@@ -13439,7 +13606,9 @@ html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover
 }
 
 .project-tabs .project-tab-name {
-  max-width: 12.857rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
   padding-right: 0.571rem;
 }
 
@@ -13451,8 +13620,24 @@ html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover
 
 .project-tab-actions {
   display: flex;
+  position: absolute;
+  top: 50%;
+  right: 0.143rem;
+  z-index: 1;
+  transform: translateY(-50%);
   opacity: 0;
   pointer-events: none;
+  background: inherit;
+}
+
+.project-tab:hover .project-tab-name,
+.project-tab:focus-within .project-tab-name {
+  padding-right: 2rem;
+}
+
+.project-tab.pinned:hover .project-tab-name,
+.project-tab.pinned:focus-within .project-tab-name {
+  padding: 0;
 }
 
 .project-tab:hover .project-tab-actions,
@@ -13497,6 +13682,14 @@ html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover
   .project-tab-actions {
     opacity: 1;
     pointer-events: auto;
+  }
+
+  .project-tab .project-tab-name {
+    padding-right: 2rem;
+  }
+
+  .project-tab.pinned .project-tab-name {
+    padding: 0;
   }
 }
 
@@ -13543,7 +13736,9 @@ html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover
 
   height: 7.571rem;
 
-  overflow: hidden;
+  /* 发丝线由 ::after 画在 -1px 处，必须让裁剪框外扩约 1px（0.071rem）才不会被裁掉。 */
+  overflow: clip;
+  overflow-clip-margin: 0.071rem;
 
   gap: 1.143rem;
 
@@ -13553,7 +13748,7 @@ html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover
 
   padding: 1rem;
   position: relative;
-  --stroke: var(--c-e3e9de);
+  --stroke: var(--c-c3d3b6);
 
   --stroke-radius: calc((var(--radius-control)) * 2);
 }
@@ -13611,6 +13806,24 @@ html:is([data-theme="ink"], [data-theme="night"]) a.workspace-space-switch:hover
   flex-shrink: 0;
   min-width: 2.429rem;
   min-height: 2.429rem;
+  background: var(--c-426b4b);
+  /* 字面量白：--c-fff 在近黑/墨玉下会被反相成深色，图标压不住强调色底。 */
+  color: #fff;
+  /* 主题色底上不再压浅色发丝线，描边与底色同色。 */
+  --stroke: var(--c-426b4b);
+
+  border-color: transparent;
+}
+
+/* 近黑主题把 --c-426b4b 换成蓝色，悬停再亮一档。 */
+.project-picker-card > button:not(:disabled):hover {
+  background: var(--primary-hover-bg, var(--c-33563b));
+  --stroke: var(--primary-hover-bg, var(--c-33563b));
+}
+
+.project-picker-card > button:not(:disabled):active {
+  background: var(--c-33563b);
+  --stroke: var(--c-33563b);
 }
 
 .project-picker-card > button span {
@@ -13912,6 +14125,11 @@ body.col-resizing .app-shell > .context-panel {
   max-width: 42%;
 }
 
+.thread-card-meta > .thread-unread {
+  max-width: none;
+  overflow: visible;
+}
+
 .thread-unread {
   flex: none;
   min-width: 1.143rem;
@@ -13928,17 +14146,23 @@ body.col-resizing .app-shell > .context-panel {
 }
 
 .thread-unread.is-mention {
-  background: #b45309;
+  background: #2f6fe0;
 }
 
 .mention-flag {
-  color: #b45309;
+  color: #2f6fe0;
   font-size: 0.786rem;
   font-weight: 600;
 }
 
-.message.mention-unread {
-  box-shadow: inset 0.214rem 0 0 #b45309;
+.message-text .mention-self,
+.message-quote .mention-self {
+  color: #2f6fe0;
+  background: color-mix(in srgb, #2f6fe0 16%, transparent);
+  font-weight: 700;
+  border-radius: 0.2rem;
+  padding: 0 0.15rem;
+  box-decoration-break: clone;
 }
 
 .thread-card-meta time {
@@ -14096,16 +14320,145 @@ body.col-resizing .app-shell > .context-panel {
   margin-top: 0.429rem;
 }
 
-.app-shell.left-closed .sidebar .section-label {
-  position: relative;
-  width: var(--sidebar-control-size);
-  padding: 0;
+/* 侧栏功能四宫格：关于 / 手册 / 记忆 / 监控。展开为两列，收起为图标列。 */
+.app-shell .sidebar-utility-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.429rem;
+  width: 100%;
+  margin-top: 0.429rem;
+}
+
+.app-shell .sidebar-bottom > .sidebar-utility-grid + .sidebar-card {
+  margin-top: 0.429rem;
+}
+
+.app-shell .sidebar-bottom .sidebar-utility {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
+  gap: 0.143rem;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 3.286rem;
+  margin: 0;
+  padding: 0.357rem 0.286rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: var(--c-f7f9f4);
+  color: var(--c-4f6257);
+  font-size: 0.786rem;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  overflow: clip;
+  overflow-clip-margin: 0.857rem;
+  --stroke: var(--c-dfe6d9);
+  --stroke-radius: calc(var(--radius-control) * 2);
+}
+
+.app-shell .sidebar-utility::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
+.app-shell .sidebar-utility:hover:not(:disabled) {
+  background: var(--c-e9eee5);
+  color: var(--c-4f6257);
+  text-decoration: none;
+}
+
+.app-shell .sidebar-utility .ui-icon {
+  color: var(--icon);
+}
+
+.app-shell .sidebar-utility-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell .sidebar-utility .sidebar-card-memory-dot {
+  position: absolute;
+  top: 0.286rem;
+  right: 0.286rem;
+  margin: 0;
+  pointer-events: none;
+}
+
+.app-shell.left-closed .sidebar-bottom > .sidebar-utility-grid {
+  grid-template-columns: 1fr;
+  width: var(--sidebar-control-size);
+  gap: 0.286rem;
+  margin-top: 0.286rem;
+}
+
+.app-shell.left-closed .sidebar-bottom > .sidebar-utility-grid + .sidebar-card {
+  margin-top: 0.286rem;
+}
+
+.app-shell.left-closed .sidebar-utility {
+  width: var(--sidebar-control-size);
+  height: var(--sidebar-control-size);
+  min-height: var(--sidebar-control-size);
+  padding: 0;
+  border: 0;
+  background: transparent;
   gap: 0;
 }
 
-.app-shell.left-closed .sidebar .section-label > .sidebar-label {
+.app-shell.left-closed .sidebar-utility:hover:not(:disabled) {
+  background: var(--c-dfe8d8);
+}
+
+.app-shell.left-closed .sidebar-utility-label {
+  position: absolute;
+  width: 0;
+  height: 0;
+  margin: 0;
   padding: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.app-shell.left-closed .sidebar-utility-memory .sidebar-card-memory-dot {
+  top: calc(50% - 0.929rem);
+  right: calc(50% - 0.929rem);
+}
+
+@media (max-width: 44.286rem) {
+  .sidebar-bottom > .sidebar-utility-grid {
+    flex: 1 1 8rem;
+    width: auto;
+    min-width: 7.5rem;
+    margin-top: 0;
+  }
+
+  .sidebar-bottom > .sidebar-utility-grid + .sidebar-card {
+    margin-top: 0;
+  }
+}
+
+/* 折叠态只剩图标按钮，分段切换整行隐藏。 */
+.app-shell.left-closed .sidebar .section-label {
+  display: none;
 }
 
 .app-shell.left-closed .sidebar-rail-thread-create {
@@ -14823,7 +15176,7 @@ body.col-resizing .app-shell > .context-panel {
 .role-badge,
 .member-identity-tags .role-badge,
 .profile-tags span[data-role] {
-  color: var(--c-27362f);
+  color: var(--role-ink, var(--c-27362f));
 
   background: var(--role-bg, var(--c-f7f9f4));
 
@@ -14893,7 +15246,7 @@ body.col-resizing .app-shell > .context-panel {
 }
 
 .profile-tags input:checked + span[data-role] {
-  color: var(--c-27362f);
+  color: var(--role-ink, var(--c-27362f));
 
   border-color: var(--role-ink, var(--c-81966e));
 
@@ -18557,6 +18910,86 @@ body.col-resizing .app-shell > .context-panel {
   margin: 1rem 0 0.714rem;
 }
 
+/* 项目成员页的「添加」与行内成员管理按钮：放大成强调按钮
+   （主题强调色实底 + 白字；暗夜蓝色阶见 theme-overrides.css 第 18 节）。 */
+.project-management-content .panel-heading .member-add,
+.project-management-content .member-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.357rem;
+  height: 2.143rem;
+  padding: 0 0.929rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: var(--c-426b4b);
+  color: #fff;
+  font-size: 0.929rem;
+  font-weight: 500;
+  white-space: nowrap;
+  --stroke: transparent;
+}
+
+.project-management-content .panel-heading .member-add:hover:not(:disabled),
+.project-management-content .member-actions > button:hover:not(:disabled) {
+  background: var(--c-33563b);
+  color: #fff;
+}
+
+.project-management-content .panel-heading .member-add:active:not(:disabled),
+.project-management-content .member-actions > button:active:not(:disabled) {
+  background: var(--c-33563b);
+  color: #fff;
+}
+
+/* 项目成员条目：0.5px 发丝线描边（半像素 ::after 做法，与线程列表一致）。
+   暗夜 / 墨玉的描边色由 theme-overrides.css 第 2 节的 token 重映射接管。 */
+.project-management-content .member {
+  position: relative;
+  box-sizing: border-box;
+  margin: 0 0 0.571rem;
+  padding: 0.714rem 0.857rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  --stroke: var(--c-dfe5d9);
+  --stroke-radius: calc((var(--radius-control)) * 2);
+  overflow: clip;
+  overflow-clip-margin: 0.857rem;
+}
+
+.project-management-content .member::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: calc(200% + 4px);
+  height: calc(200% + 4px);
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: inherit;
+  border-color: var(--stroke);
+  border-width: inherit;
+  border-radius: var(--stroke-radius);
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
+
+/* 成员行的动作区：右对齐、允许换行，窄屏不挤压成员信息。 */
+.project-management-content .member-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.429rem;
+  max-width: 62%;
+}
+
+.project-management-content .member > .member-actions {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
 .project-code-connectors .panel-block {
   margin: 0 0 1rem;
 
@@ -20961,7 +21394,7 @@ html body dialog.dialog-shell.modal-backdrop {
   margin: 0;
   padding: 1.714rem;
   color: var(--c-27362f);
-  overflow: auto;
+  overflow: hidden;
   transform: none;
 }
 
@@ -22618,6 +23051,8 @@ html body dialog.dialog-shell:not([open]) {
   }
 }
 
+/* 问老翁：主题强调色实底 + 白字，和主按钮同一套强调色。
+   近黑（night）在 theme-overrides.css 第 8 节改成蓝色阶，墨玉直接用主题绿。 */
 .ask-elder {
   margin-left: auto;
   align-self: center;
@@ -22626,15 +23061,23 @@ html body dialog.dialog-shell:not([open]) {
   gap: 0.357rem;
   height: 2rem;
   padding: 0 0.714rem;
-  border: 1px solid var(--c-d7dfd0);
-  border-radius: 0.571rem;
-  background: var(--c-fcfdfb);
-  color: var(--c-3d4a34);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: var(--c-426b4b);
+  color: #fff;
   font-size: 0.857rem;
+  /* 收掉全局 button::after 的 0.5px 发丝线：压在实色底边上会显脏。 */
+  --stroke: transparent;
+}
+
+.ask-elder:hover {
+  background: var(--c-33563b);
+  color: #fff;
 }
 
 .ask-elder[aria-pressed="true"] {
-  background: var(--c-e7f0df);
+  background: var(--c-33563b);
+  color: #fff;
 }
 
 .conversation-heading-divider {
@@ -24379,2832 +24822,6 @@ html body .project-memory-confirm-dialog .dialog-header {
   border-bottom: 1px solid var(--c-eef1ee);
 }
 
-:root,
-html[data-theme="forest"] {
-  --icon: #73806f;
-  --c-27362f: #27362f;
-  --c-f8faf8: #f8faf8;
-  --c-73806f: #73806f;
-  --c-758073: #758073;
-  --c-8b9689: #8b9689;
-  --c-bdc8b9: #bdc8b9;
-  --c-3f5945: #3f5945;
-  --c-90a17f: #90a17f;
-  --c-98a093: #98a093;
-  --c-f3f5f0: #f3f5f0;
-  --c-516747: #516747;
-  --c-c59d4b: #c59d4b;
-  --c-b6735d: #b6735d;
-  --c-5e6c56: #5e6c56;
-  --c-f0f3ed: #f0f3ed;
-  --c-dde5d7: #dde5d7;
-  --c-e8f0e1: #e8f0e1;
-  --c-dce7d3: #dce7d3;
-  --c-e2e9da: #e2e9da;
-  --c-f7f9f3: #f7f9f3;
-  --c-e5eddc: #e5eddc;
-  --c-c3d3b6: #c3d3b6;
-  --c-8f9e7b: #8f9e7b;
-  --c-f5f7f0: #f5f7f0;
-  --c-fff: #fff;
-  --c-f6f8fa: #f6f8fa;
-  --c-dce5d3: #dce5d3;
-  --c-9aa68a: #9aa68a;
-  --c-edf3e8: #edf3e8;
-  --c-7a896f: #7a896f;
-  --c-8c987f: #8c987f;
-  --c-567c51: #567c51;
-  --c-f0f5eb: #f0f5eb;
-  --c-a16e49: #a16e49;
-  --c-7f9078: #7f9078;
-  --c-426b4b: #426b4b;
-  --c-dde4de: #dde4de;
-  --c-72966f: #72966f;
-  --c-4a7251: #4a7251;
-  --c-33563b: #33563b;
-  --c-d9e1d9: #d9e1d9;
-  --c-29382e: #29382e;
-  --c-657369: #657369;
-  --c-395d40: #395d40;
-  --c-54704e: #54704e;
-  --c-33432f: #33432f;
-  --c-e4e9df: #e4e9df;
-  --c-8b9683: #8b9683;
-  --c-607957: #607957;
-  --c-9aa39a: #9aa39a;
-  --c-dfe3de: #dfe3de;
-  --c-c85b54: #c85b54;
-  --c-a9443e: #a9443e;
-  --c-e0e6dc: #e0e6dc;
-  --c-899585: #899585;
-  --c-e5ebdf: #e5ebdf;
-  --c-7f8b7d: #7f8b7d;
-  --c-33482605: #33482605;
-  --c-dfe5d9: #dfe5d9;
-  --c-7b8b76: #7b8b76;
-  --c-7e9c71: #7e9c71;
-  --c-a0a998: #a0a998;
-  --c-e1e7dc: #e1e7dc;
-  --c-a0aa9b: #a0aa9b;
-  --c-e9ecdf: #e9ecdf;
-  --c-7b866a: #7b866a;
-  --c-fcfdfb: #fcfdfb;
-  --c-edf0e9: #edf0e9;
-  --c-e1e7da: #e1e7da;
-  --c-6c7e5d: #6c7e5d;
-  --c-f1f5eb: #f1f5eb;
-  --c-c3d0b6: #c3d0b6;
-  --c-8a9482: #8a9482;
-  --c-4c5b42: #4c5b42;
-  --c-5d7056: #5d7056;
-  --c-9a6a60: #9a6a60;
-  --c-7a4f45: #7a4f45;
-  --c-62855a: #62855a;
-  --c-3d5a38: #3d5a38;
-  --c-30451d0a: #30451d0a;
-  --c-4a5f44: #4a5f44;
-  --c-9da69a: #9da69a;
-  --c-8a9585: #8a9585;
-  --c-4c8b55: #4c8b55;
-  --c-dfeee0: #dfeee0;
-  --c-bd9441: #bd9441;
-  --c-b75b4d: #b75b4d;
-  --c-9aa394: #9aa394;
-  --c-ad793b: #ad793b;
-  --c-34462f: #34462f;
-  --c-839079: #839079;
-  --c-929d87: #929d87;
-  --c-738566: #738566;
-  --c-e7ecdf: #e7ecdf;
-  --c-789466: #789466;
-  --c-bd935f: #bd935f;
-  --c-819076: #819076;
-  --c-e4e9dd: #e4e9dd;
-  --c-456b42: #456b42;
-  --c-58784b: #58784b;
-  --c-7c936e: #7c936e;
-  --c-f1f2ed: #f1f2ed;
-  --c-8e9388: #8e9388;
-  --c-e4e5de: #e4e5de;
-  --c-94a08c: #94a08c;
-  --c-e7ebe0: #e7ebe0;
-  --c-a4b098: #a4b098;
-  --c-9aa48f: #9aa48f;
-  --c-e7eae7: #e7eae7;
-  --c-7d8b74: #7d8b74;
-  --c-eaf0e5: #eaf0e5;
-  --c-edf1e9: #edf1e9;
-  --c-c6cebf: #c6cebf;
-  --c-526d42: #526d42;
-  --c-354f2a: #354f2a;
-  --c-718866: #718866;
-  --c-3e5035: #3e5035;
-  --c-dfe4d8: #dfe4d8;
-  --c-b3bba9: #b3bba9;
-  --c-edf0e7: #edf0e7;
-  --c-a1ad97: #a1ad97;
-  --c-e5eddf: #e5eddf;
-  --c-ede7df: #ede7df;
-  --c-9b886f: #9b886f;
-  --c-9ba496: #9ba496;
-  --c-f1f4ec: #f1f4ec;
-  --c-9aa18e: #9aa18e;
-  --c-f2f5ec: #f2f5ec;
-  --c-e2e9d9: #e2e9d9;
-  --c-7a8d6a: #7a8d6a;
-  --c-dfe6d6: #dfe6d6;
-  --c-aab29e: #aab29e;
-  --c-97a087: #97a087;
-  --c-d5dcd0: #d5dcd0;
-  --c-4d8c58: #4d8c58;
-  --c-98ad87: #98ad87;
-  --c-f2f7edf0: #f2f7edf0;
-  --c-536b43: #536b43;
-  --c-f5f7f1: #f5f7f1;
-  --c-e2e8da: #e2e8da;
-  --c-66765d: #66765d;
-  --c-0002: #00000022;
-  --c-26371dc9: #26371dc9;
-  --c-b4d697: #b4d697;
-  --c-ad6050: #ad6050;
-  --c-dfe6d7: #dfe6d7;
-  --c-263b2020: #263b2020;
-  --c-88977c: #88977c;
-  --c-edf3e7: #edf3e7;
-  --c-8c9782: #8c9782;
-  --c-e8eedd: #e8eedd;
-  --c-f0f3ee: #f0f3ee;
-  --c-d8dfd4: #d8dfd4;
-  --c-f7f9f5: #f7f9f5;
-  --c-8b9587: #8b9587;
-  --c-abb0aa: #abb0aa;
-  --c-e6ebdf: #e6ebdf;
-  --c-edf0e6: #edf0e6;
-  --c-526d46: #526d46;
-  --c-858d7d: #858d7d;
-  --c-7a8475: #7a8475;
-  --c-dce4d8: #dce4d8;
-  --c-5f7557: #5f7557;
-  --c-b34839: #b34839;
-  --c-a0a990: #a0a990;
-  --c-6f8b60: #6f8b60;
-  --c-edf1e6: #edf1e6;
-  --c-708070: #708070;
-  --c-858c87: #858c87;
-  --c-f1f3f1: #f1f3f1;
-  --c-fafbfa: #fafbfa;
-  --c-b7c9ad: #b7c9ad;
-  --c-f3f7ef: #f3f7ef;
-  --c-d8e1d3: #d8e1d3;
-  --c-f8faf6: #f8faf6;
-  --c-61765a: #61765a;
-  --c-e1e7dd: #e1e7dd;
-  --c-fafbf9: #fafbf9;
-  --c-f4f6f2: #f4f6f2;
-  --c-879181: #879181;
-  --c-4d6445: #4d6445;
-  --c-33412a14: #33412a14;
-  --c-67835b: #67835b;
-  --c-e3e8df: #e3e8df;
-  --c-fbfcfa: #fbfcfa;
-  --c-cad6c3: #cad6c3;
-  --c-f7faf5: #f7faf5;
-  --c-455440: #455440;
-  --c-939b8e: #939b8e;
-  --c-708067: #708067;
-  --c-e5f0e2: #e5f0e2;
-  --c-4a7547: #4a7547;
-  --c-f7efd9: #f7efd9;
-  --c-856b2f: #856b2f;
-  --c-f6e5e1: #f6e5e1;
-  --c-a04e42: #a04e42;
-  --c-e8ece5: #e8ece5;
-  --c-667563: #667563;
-  --c-71856a: #71856a;
-  --c-e6ebe2: #e6ebe2;
-  --c-40503c: #40503c;
-  --c-929b8e: #929b8e;
-  --c-dfe5db: #dfe5db;
-  --c-667a5e: #667a5e;
-  --c-e5eae1: #e5eae1;
-  --c-969e92: #969e92;
-  --c-596755: #596755;
-  --c-eaeee7: #eaeee7;
-  --c-5c6c57: #5c6c57;
-  --c-6c7768: #6c7768;
-  --c-8c9588: #8c9588;
-  --c-99a28d: #99a28d;
-  --c-83976c: #83976c;
-  --c-a7af9b: #a7af9b;
-  --c-c1cab5: #c1cab5;
-  --c-e5eadc: #e5eadc;
-  --c-95a37f: #95a37f;
-  --c-b0b6a3: #b0b6a3;
-  --c-a1ab92: #a1ab92;
-  --c-b7a47a: #b7a47a;
-  --c-819b68: #819b68;
-  --c-b68a6e: #b68a6e;
-  --c-8e9e79: #8e9e79;
-  --c-f9faf6: #f9faf6;
-  --c-e6eadd: #e6eadd;
-  --c-9eaa8b: #9eaa8b;
-  --c-f0f4e8: #f0f4e8;
-  --c-e2e9d6: #e2e9d6;
-  --c-6d8058: #6d8058;
-  --c-a0ac8d: #a0ac8d;
-  --c-e6ebdd: #e6ebdd;
-  --c-f7f9f1: #f7f9f1;
-  --c-a1ab91: #a1ab91;
-  --c-8d9a81: #8d9a81;
-  --c-fafafa: #fafafa;
-  --c-e9e9e9: #e9e9e9;
-  --c-414141: #414141;
-  --c-4a6354: #4a6354;
-  --c-c5d4c8: #c5d4c8;
-  --c-3d5c48: #3d5c48;
-  --c-e5e5e5: #e5e5e5;
-  --c-555: #555;
-  --c-efefef: #efefef;
-  --c-e8efe9: #e8efe9;
-  --c-263b2b: #263b2b;
-  --c-444: #444;
-  --c-666: #666;
-  --c-ededed: #ededed;
-  --c-222: #222;
-  --c-e6e6e6: #e6e6e6;
-  --c-f0f0f0: #f0f0f0;
-  --c-eaeaea: #eaeaea;
-  --c-161616: #161616;
-  --c-6d7a72: #6d7a72;
-  --c-8a9388: #8a9388;
-  --c-2f5a38: #2f5a38;
-  --c-e6f0e7: #e6f0e7;
-  --c-999: #999;
-  --c-828282: #828282;
-  --c-e7edf4: #e7edf4;
-  --c-8c9caf: #8c9caf;
-  --c-202b38: #202b38;
-  --c-777: #777;
-  --c-dedede: #dedede;
-  --c-8a8f89: #8a8f89;
-  --c-344f65: #344f65;
-  --c-899187: #899187;
-  --c-1f3d2c: #1f3d2c;
-  --c-f0f4f0: #f0f4f0;
-  --c-9b3030: #9b3030;
-  --c-fdf0f0: #fdf0f0;
-  --c-5c6658: #5c6658;
-  --c-e5e9e2: #e5e9e2;
-  --c-9aa593: #9aa593;
-  --c-dce3d9: #dce3d9;
-  --c-4a524c: #4a524c;
-  --c-f2e9e7: #f2e9e7;
-  --c-687066: #687066;
-  --c-e3ead9: #e3ead9;
-  --c-2f3a33: #2f3a33;
-  --c-e7eddf: #e7eddf;
-  --c-fbfcf9: #fbfcf9;
-  --c-f0e0dc: #f0e0dc;
-  --c-2037191a: #2037191a;
-  --c-f0e9e2: #f0e9e2;
-  --c-fdf8f3: #fdf8f3;
-  --c-eee: #eee;
-  --c-808778: #808778;
-  --c-8b968c: #8b968c;
-  --c-0001: #00000011;
-  --c-edf0ea: #edf0ea;
-  --c-e2e7de: #e2e7de;
-  --c-34402f: #34402f;
-  --c-74806e: #74806e;
-  --c-a3332d: #a3332d;
-  --c-e1e6dc: #e1e6dc;
-  --c-668052: #668052;
-  --c-eff4e9: #eff4e9;
-  --c-bc443d: #bc443d;
-  --c-3d5930: #3d5930;
-  --c-87907f: #87907f;
-  --c-edf0e8: #edf0e8;
-  --c-687360: #687360;
-  --c-f0f4eb: #f0f4eb;
-  --c-e9f0e1: #e9f0e1;
-  --c-344c2b: #344c2b;
-  --c-bcc8b2: #bcc8b2;
-  --c-e9eee5: #e9eee5;
-  --c-7e887a: #7e887a;
-  --c-eef2eb: #eef2eb;
-  --c-cbd5c4: #cbd5c4;
-  --c-eef2e9: #eef2e9;
-  --c-dce5d4: #dce5d4;
-  --c-e5ecde: #e5ecde;
-  --c-e1edd7: #e1edd7;
-  --c-3f5c35: #3f5c35;
-  --c-6d855c: #6d855c;
-  --c-dde6d6: #dde6d6;
-  --c-354d2d: #354d2d;
-  --c-ffffff24: #ffffff24;
-  --c-e3e9de: #e3e9de;
-  --c-6f8b6040: #6f8b6040;
-  --c-929c8c: #929c8c;
-  --c-dfe6d9: #dfe6d9;
-  --c-f7f9f4: #f7f9f4;
-  --c-95a08e: #95a08e;
-  --c-dfe8d8: #dfe8d8;
-  --c-7f9573: #7f9573;
-  --c-e9eee6: #e9eee6;
-  --c-929b8b: #929b8b;
-  --c-aa6655: #aa6655;
-  --c-e8d7d0: #e8d7d0;
-  --c-fff8f5: #fff8f5;
-  --c-dce4d4: #dce4d4;
-  --c-607a4b: #607a4b;
-  --c-6d7865: #6d7865;
-  --c-e5ecdc: #e5ecdc;
-  --c-81966e: #81966e;
-  --c-e8ede3: #e8ede3;
-  --c-edf1e7: #edf1e7;
-  --c-405432: #405432;
-  --c-eef2ea: #eef2ea;
-  --c-b8cfad: #b8cfad;
-  --c-537047: #537047;
-  --c-eff7ea: #eff7ea;
-  --c-d7d9d4: #d7d9d4;
-  --c-7e837b: #7e837b;
-  --c-f3f4f2: #f3f4f2;
-  --c-dfe5dc: #dfe5dc;
-  --c-788274: #788274;
-  --c-58714d: #58714d;
-  --c-63705e: #63705e;
-  --c-45573f: #45573f;
-  --c-919a8d: #919a8d;
-  --c-7d8977: #7d8977;
-  --c-929a90: #929a90;
-  --c-e4e9e1: #e4e9e1;
-  --c-52634c: #52634c;
-  --c-42503e: #42503e;
-  --c-758071: #758071;
-  --c-d8d7c6: #d8d7c6;
-  --c-faf9ef: #faf9ef;
-  --c-77704e: #77704e;
-  --c-d8d8df: #d8d8df;
-  --c-f5f5f8: #f5f5f8;
-  --c-686978: #686978;
-  --c-43513e: #43513e;
-  --c-879083: #879083;
-  --c-455140: #455140;
-  --c-5c6857: #5c6857;
-  --c-7b8577: #7b8577;
-  --c-d8ded4: #d8ded4;
-  --c-707a6b: #707a6b;
-  --c-adc79f: #adc79f;
-  --c-4f7044: #4f7044;
-  --c-ddd6d2: #ddd6d2;
-  --c-f6f3f1: #f6f3f1;
-  --c-8a7268: #8a7268;
-  --c-ccd2c8: #ccd2c8;
-  --c-66865a: #66865a;
-  --c-65845b: #65845b;
-  --c-dfe7dc: #dfe7dc;
-  --c-596653: #596653;
-  --c-4d7642: #4d7642;
-  --c-a24e42: #a24e42;
-  --c-d8c98f: #d8c98f;
-  --c-fffbea: #fffbea;
-  --c-81764f: #81764f;
-  --c-858991: #858991;
-  --c-f1f2f3: #f1f2f3;
-  --c-646971: #646971;
-  --c-6d7179: #6d7179;
-  --c-e4e4e7: #e4e4e7;
-  --c-202327: #202327;
-  --c-898d96: #898d96;
-  --c-c8cec6: #c8cec6;
-  --c-657360: #657360;
-  --c-c43c35: #c43c35;
-  --c-9f2e28: #9f2e28;
-  --c-b9c6ad: #b9c6ad;
-  --c-75836d: #75836d;
-  --c-82907b: #82907b;
-  --c-b39558: #b39558;
-  --c-272b29: #272b29;
-  --c-18201973: #18201973;
-  --c-4d5a51: #4d5a51;
-  --c-1e272014: #1e272014;
-  --c-f4f6f4: #f4f6f4;
-  --c-e3e7e3: #e3e7e3;
-  --c-8a918c: #8a918c;
-  --c-8d9690: #8d9690;
-  --c-c27b86: #c27b86;
-  --c-8a6ea3: #8a6ea3;
-  --c-c4a056: #c4a056;
-  --c-4d7ec8: #4d7ec8;
-  --c-bd594f: #bd594f;
-  --c-4d7ec880: #4d7ec880;
-  --c-4d7ec81f: #4d7ec81f;
-  --c-4d7ec866: #4d7ec866;
-  --c-3c433e: #3c433e;
-  --c-6d756f: #6d756f;
-  --c-3d8a5b: #3d8a5b;
-  --c-eef2ee: #eef2ee;
-  --c-e7eee4: #e7eee4;
-  --c-eef1ee: #eef1ee;
-  --c-7d8580: #7d8580;
-  --c-2f3531: #2f3531;
-  --c-9f4339: #9f4339;
-  --c-d5ddd4: #d5ddd4;
-  --c-f4f7f2: #f4f7f2;
-  --c-9aa59c: #9aa59c;
-  --c-f3f5f2: #f3f5f2;
-  --c-7d9877: #7d9877;
-  --c-edf0ec: #edf0ec;
-  --c-858d87: #858d87;
-  --c-e0c4a8: #e0c4a8;
-  --c-66726a: #66726a;
-  --c-4f5d4c: #4f5d4c;
-  --c-7e8781: #7e8781;
-  --c-717973: #717973;
-  --c-9ba29d: #9ba29d;
-  --c-dcece1: #dcece1;
-  --c-b78b3f: #b78b3f;
-  --c-f5f7f4: #f5f7f4;
-  --c-dce1dc: #dce1dc;
-  --c-a0a6a2: #a0a6a2;
-  --c-bdc9bb: #bdc9bb;
-  --c-f8faf7: #f8faf7;
-  --c-809778: #809778;
-  --c-f0f5ee: #f0f5ee;
-  --c-879289: #879289;
-  --c-425047: #425047;
-  --c-7f8782: #7f8782;
-  --c-666e69: #666e69;
-  --c-fff0ed: #fff0ed;
-  --c-edf0ed: #edf0ed;
-  --c-7b847e: #7b847e;
-  --c-e7ebe6: #e7ebe6;
-  --c-f7f9f6: #f7f9f6;
-  --c-f3f6fb: #f3f6fb;
-  --c-dbe3ee: #dbe3ee;
-  --c-fbf6ea: #fbf6ea;
-  --c-ead9b4: #ead9b4;
-  --c-f8fbf7: #f8fbf7;
-  --c-283329: #283329;
-  --c-e6ebe4: #e6ebe4;
-  --c-748071: #748071;
-}
-
-html[data-theme="tech"] {
-  --icon: #6b7284;
-  --c-27362f: #232a3a;
-  --c-f8faf8: #f7f8fb;
-  --c-73806f: #6b7284;
-  --c-758073: #6e7585;
-  --c-8b9689: #858b9a;
-  --c-bdc8b9: #b5bccc;
-  --c-3f5945: #384460;
-  --c-90a17f: #7686aa;
-  --c-98a093: #9096a3;
-  --c-f3f5f0: #eff1f6;
-  --c-516747: #3f4d6f;
-  --c-c59d4b: #c59d4b;
-  --c-b6735d: #b6735d;
-  --c-5e6c56: #505a72;
-  --c-f0f3ed: #ebeef5;
-  --c-dde5d7: #d3dae9;
-  --c-e8f0e1: #dde4f4;
-  --c-dce7d3: #ced7ec;
-  --c-e2e9da: #d6dded;
-  --c-f7f9f3: #f1f4fb;
-  --c-e5eddc: #d8dff1;
-  --c-c3d3b6: #aebcdb;
-  --c-8f9e7b: #7282a7;
-  --c-f5f7f0: #eef1f9;
-  --c-fff: #fff;
-  --c-f6f8fa: #f6f8fa;
-  --c-dce5d3: #ced7ea;
-  --c-9aa68a: #838fad;
-  --c-edf3e8: #e5eaf6;
-  --c-7a896f: #687490;
-  --c-8c987f: #79849f;
-  --c-567c51: #465987;
-  --c-f0f5eb: #e8edf8;
-  --c-a16e49: #a16e49;
-  --c-7f9078: #727d96;
-  --c-426b4b: #374a76;
-  --c-dde4de: #dbdee6;
-  --c-72966f: #6577a0;
-  --c-4a7251: #40527c;
-  --c-33563b: #2a3a5f;
-  --c-d9e1d9: #d7dbe3;
-  --c-29382e: #252c3c;
-  --c-657369: #616877;
-  --c-395d40: #304066;
-  --c-54704e: #455579;
-  --c-33432f: #2a3348;
-  --c-e4e9df: #dce1ec;
-  --c-8b9683: #7e879b;
-  --c-607957: #4e5e82;
-  --c-9aa39a: #969ba7;
-  --c-dfe3de: #dddfe4;
-  --c-c85b54: #c85b54;
-  --c-a9443e: #a9443e;
-  --c-e0e6dc: #d9dee9;
-  --c-899585: #818899;
-  --c-e5ebdf: #dce1ee;
-  --c-7f8b7d: #79808f;
-  --c-33482605: #1d2d5105;
-  --c-dfe5d9: #d6dbe8;
-  --c-7b8b76: #717a90;
-  --c-7e9c71: #6679a7;
-  --c-a0a998: #949bad;
-  --c-e1e7dc: #d9deea;
-  --c-a0aa9b: #979eae;
-  --c-e9ecdf: #dce2ef;
-  --c-7b866a: #636f8d;
-  --c-fcfdfb: #fafbfe;
-  --c-edf0e9: #e7eaf2;
-  --c-e1e7da: #d7ddea;
-  --c-6c7e5d: #546387;
-  --c-f1f5eb: #e8edf8;
-  --c-c3d0b6: #afbbd7;
-  --c-8a9482: #7d8699;
-  --c-4c5b42: #3c4762;
-  --c-5d7056: #4f5b77;
-  --c-9a6a60: #9a6a60;
-  --c-7a4f45: #7a4f45;
-  --c-62855a: #4f6290;
-  --c-3d5a38: #2f3f63;
-  --c-30451d0a: #13254f0a;
-  --c-4a5f44: #3d4966;
-  --c-9da69a: #979ca9;
-  --c-8a9585: #818899;
-  --c-4c8b55: #3c589b;
-  --c-dfeee0: #dbe2f2;
-  --c-bd9441: #bd9441;
-  --c-b75b4d: #b75b4d;
-  --c-9aa394: #9097a7;
-  --c-ad793b: #ad793b;
-  --c-34462f: #29344c;
-  --c-839079: #737e96;
-  --c-929d87: #818ba3;
-  --c-738566: #5e6c8d;
-  --c-e7ecdf: #dce2ef;
-  --c-789466: #5a6fa0;
-  --c-bd935f: #bd935f;
-  --c-819076: #6f7b97;
-  --c-e4e9dd: #dadfec;
-  --c-456b42: #374a76;
-  --c-58784b: #3f5484;
-  --c-7c936e: #64759d;
-  --c-f1f2ed: #eceef3;
-  --c-8e9388: #838998;
-  --c-e4e5de: #dcdfe7;
-  --c-94a08c: #8790a5;
-  --c-e7ebe0: #dde2ee;
-  --c-a4b098: #929db6;
-  --c-9aa48f: #8a93a9;
-  --c-e7eae7: #e6e8eb;
-  --c-7d8b74: #6e7991;
-  --c-eaf0e5: #e2e7f3;
-  --c-edf1e9: #e7ebf3;
-  --c-c6cebf: #bbc2d2;
-  --c-526d42: #374a78;
-  --c-354f2a: #203159;
-  --c-718866: #5d6d91;
-  --c-3e5035: #2e3a57;
-  --c-dfe4d8: #d5dae7;
-  --c-b3bba9: #a4adc0;
-  --c-edf0e7: #e5e9f2;
-  --c-a1ad97: #919bb3;
-  --c-e5eddf: #dbe2f1;
-  --c-ede7df: #ede7df;
-  --c-9b886f: #9b886f;
-  --c-9ba496: #9299a8;
-  --c-f1f4ec: #eaeef6;
-  --c-9aa18e: #8992a6;
-  --c-f2f5ec: #eaeef7;
-  --c-e2e9d9: #d5dced;
-  --c-7a8d6a: #617196;
-  --c-dfe6d6: #d2d9ea;
-  --c-aab29e: #99a2b7;
-  --c-97a087: #818ca6;
-  --c-d5dcd0: #cdd2df;
-  --c-4d8c58: #3d599c;
-  --c-98ad87: #7d8eb7;
-  --c-f2f7edf0: #eaeffaf0;
-  --c-536b43: #394b75;
-  --c-f5f7f1: #eff2f9;
-  --c-e2e8da: #d6ddec;
-  --c-66765d: #56627d;
-  --c-0002: #00000022;
-  --c-26371dc9: #16223ec9;
-  --c-b4d697: #87a3e6;
-  --c-ad6050: #ad6050;
-  --c-dfe6d7: #d3daea;
-  --c-263b2020: #19254220;
-  --c-88977c: #75819e;
-  --c-edf3e7: #e4e9f6;
-  --c-8c9782: #7d869c;
-  --c-e8eedd: #d9e0f2;
-  --c-f0f3ee: #edeff4;
-  --c-d8dfd4: #d1d6e2;
-  --c-f7f9f5: #f4f6fa;
-  --c-8b9587: #838a99;
-  --c-abb0aa: #a6aab4;
-  --c-e6ebdf: #dce1ee;
-  --c-edf0e6: #e3e8f3;
-  --c-526d46: #3c4e77;
-  --c-858d7d: #798091;
-  --c-7a8475: #717888;
-  --c-dce4d8: #d5dae7;
-  --c-5f7557: #4f5d7d;
-  --c-b34839: #b34839;
-  --c-a0a990: #8a95b0;
-  --c-6f8b60: #556896;
-  --c-edf1e6: #e3e8f4;
-  --c-708070: #6c7384;
-  --c-858c87: #858c87;
-  --c-f1f3f1: #f0f1f4;
-  --c-fafbfa: #fafafb;
-  --c-b7c9ad: #a6b2d0;
-  --c-f3f7ef: #edf1f9;
-  --c-d8e1d3: #cfd6e5;
-  --c-f8faf6: #f5f7fb;
-  --c-61765a: #535f7d;
-  --c-e1e7dd: #dadfea;
-  --c-fafbf9: #f8f9fc;
-  --c-f4f6f2: #f1f3f7;
-  --c-879181: #7d8495;
-  --c-4d6445: #3d4b6c;
-  --c-33412a14: #242f4714;
-  --c-67835b: #51638d;
-  --c-e3e8df: #dde1ea;
-  --c-fbfcfa: #f9fafd;
-  --c-cad6c3: #bec7db;
-  --c-f7faf5: #f4f6fb;
-  --c-455440: #3b4459;
-  --c-939b8e: #8b919e;
-  --c-708067: #616c87;
-  --c-e5f0e2: #dee5f4;
-  --c-4a7547: #3b5081;
-  --c-f7efd9: #d7e1f9;
-  --c-856b2f: #856b2f;
-  --c-f6e5e1: #f6e5e1;
-  --c-a04e42: #a04e42;
-  --c-e8ece5: #e3e6ee;
-  --c-667563: #5e677a;
-  --c-71856a: #636f8c;
-  --c-e6ebe2: #e0e4ed;
-  --c-40503c: #374055;
-  --c-929b8e: #8b919e;
-  --c-dfe5db: #d8dde8;
-  --c-667a5e: #576381;
-  --c-e5eae1: #dfe3ec;
-  --c-969e92: #8f94a1;
-  --c-596755: #50596c;
-  --c-eaeee7: #e5e8f0;
-  --c-5c6c57: #525b71;
-  --c-6c7768: #646b7b;
-  --c-8c9588: #848a99;
-  --c-99a28d: #8891a7;
-  --c-83976c: #6174a2;
-  --c-a7af9b: #969fb4;
-  --c-c1cab5: #b0b9cf;
-  --c-e5eadc: #d8dfee;
-  --c-95a37f: #7686ac;
-  --c-b0b6a3: #9ea7bb;
-  --c-a1ab92: #8c97b2;
-  --c-b7a47a: #b7a47a;
-  --c-819b68: #5b72a8;
-  --c-b68a6e: #b68a6e;
-  --c-8e9e79: #6f80a8;
-  --c-f9faf6: #f5f7fb;
-  --c-e6eadd: #dae0ed;
-  --c-9eaa8b: #8391b2;
-  --c-f0f4e8: #e5eaf7;
-  --c-e2e9d6: #d1daee;
-  --c-6d8058: #4e608a;
-  --c-a0ac8d: #8593b4;
-  --c-e6ebdd: #d9e0ef;
-  --c-f7f9f1: #eff3fb;
-  --c-a1ab91: #8a96b2;
-  --c-8d9a81: #7b86a1;
-  --c-fafafa: #fafafa;
-  --c-e9e9e9: #e9e9e9;
-  --c-414141: #414141;
-  --c-4a6354: #444f6a;
-  --c-c5d4c8: #c1c8d8;
-  --c-3d5c48: #354364;
-  --c-e5e5e5: #e5e5e5;
-  --c-555: #555;
-  --c-efefef: #efefef;
-  --c-e8efe9: #e6e9f1;
-  --c-263b2b: #212a40;
-  --c-444: #444;
-  --c-666: #666;
-  --c-ededed: #ededed;
-  --c-222: #222;
-  --c-e6e6e6: #e6e6e6;
-  --c-f0f0f0: #f0f0f0;
-  --c-eaeaea: #eaeaea;
-  --c-161616: #161616;
-  --c-6d7a72: #696f7e;
-  --c-8a9388: #838998;
-  --c-2f5a38: #243765;
-  --c-e6f0e7: #e3e8f3;
-  --c-999: #999;
-  --c-828282: #828282;
-  --c-e7edf4: #e7edf4;
-  --c-8c9caf: #8393b8;
-  --c-202b38: #202b38;
-  --c-777: #777;
-  --c-dedede: #dedede;
-  --c-8a8f89: #8a8f89;
-  --c-344f65: #344f65;
-  --c-899187: #828896;
-  --c-1f3d2c: #172545;
-  --c-f0f4f0: #eff1f5;
-  --c-9b3030: #9b3030;
-  --c-fdf0f0: #fdf0f0;
-  --c-5c6658: #545b6a;
-  --c-e5e9e2: #e0e3eb;
-  --c-9aa593: #8e97aa;
-  --c-dce3d9: #d6dbe6;
-  --c-4a524c: #474b55;
-  --c-f2e9e7: #f2e9e7;
-  --c-687066: #616775;
-  --c-e3ead9: #d5dcee;
-  --c-2f3a33: #2c313d;
-  --c-e7eddf: #dbe2f1;
-  --c-fbfcf9: #f8fafd;
-  --c-f0e0dc: #f0e0dc;
-  --c-2037191a: #111f3f1a;
-  --c-f0e9e2: #f0e9e2;
-  --c-fdf8f3: #fdf8f3;
-  --c-eee: #eee;
-  --c-808778: #747b8b;
-  --c-8b968c: #868c9b;
-  --c-0001: #00000011;
-  --c-edf0ea: #e8ebf2;
-  --c-e2e7de: #dce0e9;
-  --c-34402f: #2b3244;
-  --c-74806e: #697285;
-  --c-a3332d: #a3332d;
-  --c-e1e6dc: #d9dee9;
-  --c-668052: #465b8c;
-  --c-eff4e9: #e6ebf7;
-  --c-bc443d: #bc443d;
-  --c-3d5930: #253864;
-  --c-87907f: #7b8294;
-  --c-edf0e8: #e6eaf2;
-  --c-687360: #5b6478;
-  --c-f0f4eb: #e9edf6;
-  --c-e9f0e1: #dde4f4;
-  --c-344c2b: #223155;
-  --c-bcc8b2: #acb6ce;
-  --c-e9eee5: #e3e7f0;
-  --c-7e887a: #767c8c;
-  --c-eef2eb: #e9ecf4;
-  --c-cbd5c4: #c0c7d9;
-  --c-eef2e9: #e7ebf4;
-  --c-dce5d4: #d0d7e9;
-  --c-e5ecde: #dae1f0;
-  --c-e1edd7: #d1dbf3;
-  --c-3f5c35: #2b3d66;
-  --c-6d855c: #516490;
-  --c-dde6d6: #d2d9ea;
-  --c-354d2d: #253355;
-  --c-ffffff24: #ffffff24;
-  --c-e3e9de: #dbe0ec;
-  --c-6f8b6040: #55689640;
-  --c-929c8c: #888fa0;
-  --c-dfe6d9: #d6dce9;
-  --c-f7f9f4: #f3f5fa;
-  --c-95a08e: #8992a5;
-  --c-dfe8d8: #d4dbec;
-  --c-7f9573: #6a7a9e;
-  --c-e9eee6: #e4e8f0;
-  --c-929b8b: #878e9f;
-  --c-aa6655: #aa6655;
-  --c-e8d7d0: #e8d7d0;
-  --c-fff8f5: #fff8f5;
-  --c-dce4d4: #d0d7e8;
-  --c-607a4b: #3f5486;
-  --c-6d7865: #60697d;
-  --c-e5ecdc: #d8dff0;
-  --c-81966e: #6476a0;
-  --c-e8ede3: #e0e5f0;
-  --c-edf1e7: #e4e9f4;
-  --c-405432: #29395d;
-  --c-eef2ea: #e8ecf4;
-  --c-b8cfad: #a4b4d8;
-  --c-537047: #3c4f7b;
-  --c-eff7ea: #e7edfa;
-  --c-d7d9d4: #d3d5da;
-  --c-7e837b: #7e837b;
-  --c-f3f4f2: #f1f2f5;
-  --c-dfe5dc: #dadee7;
-  --c-788274: #707786;
-  --c-58714d: #44547a;
-  --c-63705e: #596275;
-  --c-45573f: #39445d;
-  --c-919a8d: #8a909d;
-  --c-7d8977: #727b8e;
-  --c-929a90: #8b919f;
-  --c-e4e9e1: #dfe3eb;
-  --c-52634c: #465169;
-  --c-42503e: #394255;
-  --c-758071: #6d7484;
-  --c-d8d7c6: #c1cadd;
-  --c-faf9ef: #edf1fc;
-  --c-77704e: #435682;
-  --c-d8d8df: #d6d9e1;
-  --c-f5f5f8: #f4f6f9;
-  --c-686978: #646b7c;
-  --c-43513e: #394256;
-  --c-879083: #7f8594;
-  --c-455140: #3c4355;
-  --c-5c6857: #535a6c;
-  --c-7b8577: #737989;
-  --c-d8ded4: #d1d6e1;
-  --c-707a6b: #676e7e;
-  --c-adc79f: #95a7d1;
-  --c-4f7044: #394d7b;
-  --c-ddd6d2: #cfd4e0;
-  --c-f6f3f1: #f6f3f1;
-  --c-8a7268: #5f6f93;
-  --c-ccd2c8: #c5cad5;
-  --c-66865a: #4f6391;
-  --c-65845b: #50638f;
-  --c-dfe7dc: #d9deea;
-  --c-596653: #4e576b;
-  --c-4d7642: #344c84;
-  --c-a24e42: #a24e42;
-  --c-d8c98f: #7d9eea;
-  --c-fffbea: #edf1fc;
-  --c-81764f: #42598e;
-  --c-858991: #808796;
-  --c-f1f2f3: #f0f1f4;
-  --c-646971: #616774;
-  --c-6d7179: #696f7d;
-  --c-e4e4e7: #e3e5e8;
-  --c-202327: #1e2129;
-  --c-898d96: #858b9a;
-  --c-c8cec6: #c4c8d0;
-  --c-657360: #5b6478;
-  --c-c43c35: #c43c35;
-  --c-9f2e28: #9f2e28;
-  --c-b9c6ad: #a7b2cd;
-  --c-75836d: #677189;
-  --c-82907b: #767f95;
-  --c-b39558: #b39558;
-  --c-272b29: #25282d;
-  --c-18201973: #161a2273;
-  --c-4d5a51: #4a505d;
-  --c-1e272014: #1c202914;
-  --c-f4f6f4: #f3f4f7;
-  --c-e3e7e3: #e2e4e8;
-  --c-8a918c: #8a918c;
-  --c-8d9690: #888e9b;
-  --c-c27b86: #6989d4;
-  --c-8a6ea3: #8a6ea3;
-  --c-c4a056: #c4a056;
-  --c-4d7ec8: #4d7ec8;
-  --c-bd594f: #bd594f;
-  --c-4d7ec880: #4d7ec880;
-  --c-4d7ec81f: #4d7ec81f;
-  --c-4d7ec866: #4d7ec866;
-  --c-3c433e: #3a3d45;
-  --c-6d756f: #676d7b;
-  --c-3d8a5b: #294c9e;
-  --c-eef2ee: #edeff3;
-  --c-e7eee4: #e1e6f1;
-  --c-eef1ee: #edeff2;
-  --c-7d8580: #7d8580;
-  --c-2f3531: #2d3037;
-  --c-9f4339: #9f4339;
-  --c-d5ddd4: #d2d6df;
-  --c-f4f7f2: #f1f3f8;
-  --c-9aa59c: #979ca8;
-  --c-f3f5f2: #f1f3f6;
-  --c-7d9877: #6e7da1;
-  --c-edf0ec: #ebedf1;
-  --c-858d87: #858d87;
-  --c-e0c4a8: #e0c4a8;
-  --c-66726a: #626876;
-  --c-4f5d4c: #484f61;
-  --c-7e8781: #777e8e;
-  --c-717973: #717973;
-  --c-9ba29d: #969ba7;
-  --c-dcece1: #d8dff0;
-  --c-b78b3f: #b78b3f;
-  --c-f5f7f4: #f3f5f8;
-  --c-dce1dc: #dbdde2;
-  --c-a0a6a2: #a0a6a2;
-  --c-bdc9bb: #b7becd;
-  --c-f8faf7: #f6f8fb;
-  --c-809778: #707e9f;
-  --c-f0f5ee: #eceff7;
-  --c-879289: #828897;
-  --c-425047: #3e4554;
-  --c-7f8782: #7f8782;
-  --c-666e69: #606674;
-  --c-fff0ed: #fff0ed;
-  --c-edf0ed: #eceef1;
-  --c-7b847e: #747b8b;
-  --c-e7ebe6: #e5e7ec;
-  --c-f7f9f6: #f5f7fa;
-  --c-f3f6fb: #f3f6fb;
-  --c-dbe3ee: #dbe3ee;
-  --c-fbf6ea: #eaeffb;
-  --c-ead9b4: #ead9b4;
-  --c-f8fbf7: #f6f8fc;
-  --c-283329: #252a36;
-  --c-e6ebe4: #e2e5ed;
-  --c-748071: #6d7484;
-}
-
-html[data-theme="dusk"] {
-  --icon: #776f80;
-  --c-27362f: #2e2736;
-  --c-f8faf8: #f9f8fa;
-  --c-73806f: #776f80;
-  --c-758073: #797380;
-  --c-8b9689: #8f8996;
-  --c-bdc8b9: #c0b9c8;
-  --c-3f5945: #4b4058;
-  --c-90a17f: #8f80a0;
-  --c-98a093: #9993a0;
-  --c-f3f5f0: #f2f0f5;
-  --c-516747: #564866;
-  --c-c59d4b: #c59d4b;
-  --c-b6735d: #b6735d;
-  --c-5e6c56: #60576b;
-  --c-f0f3ed: #f0edf3;
-  --c-dde5d7: #ded7e5;
-  --c-e8f0e1: #e8e1f0;
-  --c-dce7d3: #dcd4e6;
-  --c-e2e9da: #e1dae9;
-  --c-f7f9f3: #f6f3f9;
-  --c-e5eddc: #e4dced;
-  --c-c3d3b6: #c4b7d2;
-  --c-8f9e7b: #8b7c9d;
-  --c-f5f7f0: #f3f0f7;
-  --c-fff: #fff;
-  --c-f6f8fa: #f6f8fa;
-  --c-dce5d3: #dbd3e5;
-  --c-9aa68a: #978ba5;
-  --c-edf3e8: #ede8f3;
-  --c-7a896f: #7b7088;
-  --c-8c987f: #8b8097;
-  --c-567c51: #65527b;
-  --c-f0f5eb: #f0ebf5;
-  --c-a16e49: #a16e49;
-  --c-7f9078: #83798f;
-  --c-426b4b: #55436a;
-  --c-dde4de: #e0dde4;
-  --c-72966f: #817095;
-  --c-4a7251: #5d4b71;
-  --c-33563b: #433455;
-  --c-d9e1d9: #ddd9e1;
-  --c-29382e: #302938;
-  --c-657369: #6c6573;
-  --c-395d40: #4a3a5c;
-  --c-54704e: #5e4f6f;
-  --c-33432f: #383043;
-  --c-e4e9df: #e4dfe9;
-  --c-8b9683: #8c8396;
-  --c-607957: #675878;
-  --c-9aa39a: #9e99a4;
-  --c-dfe3de: #e0dee3;
-  --c-c85b54: #c85b54;
-  --c-a9443e: #a9443e;
-  --c-e0e6dc: #e1dce6;
-  --c-899585: #8c8595;
-  --c-e5ebdf: #e5dfeb;
-  --c-7f8b7d: #847d8b;
-  --c-33482605: #36274705;
-  --c-dfe5d9: #dfd9e5;
-  --c-7b8b76: #80778a;
-  --c-7e9c71: #85729b;
-  --c-a0a998: #a098a9;
-  --c-e1e7dc: #e1dce7;
-  --c-a0aa9b: #a29baa;
-  --c-e9ecdf: #e5dfec;
-  --c-7b866a: #776b85;
-  --c-fcfdfb: #fcfbfd;
-  --c-edf0e9: #ece9f0;
-  --c-e1e7da: #e0dae7;
-  --c-6c7e5d: #6c5e7d;
-  --c-f1f5eb: #f0ebf5;
-  --c-c3d0b6: #c2b7cf;
-  --c-8a9482: #8a8294;
-  --c-4c5b42: #4e435a;
-  --c-5d7056: #62576f;
-  --c-9a6a60: #9a6a60;
-  --c-7a4f45: #7a4f45;
-  --c-62855a: #6e5b84;
-  --c-3d5a38: #483959;
-  --c-30451d0a: #301e440a;
-  --c-4a5f44: #51455e;
-  --c-9da69a: #a09aa6;
-  --c-8a9585: #8c8595;
-  --c-4c8b55: #6a4e89;
-  --c-dfeee0: #e6dfee;
-  --c-bd9441: #bd9441;
-  --c-b75b4d: #b75b4d;
-  --c-9aa394: #9b94a3;
-  --c-ad793b: #ad793b;
-  --c-34462f: #3a3045;
-  --c-839079: #847a8f;
-  --c-929d87: #91889c;
-  --c-738566: #756784;
-  --c-e7ecdf: #e5dfec;
-  --c-789466: #7c6793;
-  --c-bd935f: #bd935f;
-  --c-819076: #82778f;
-  --c-e4e9dd: #e3dde9;
-  --c-456b42: #55436a;
-  --c-58784b: #604c77;
-  --c-7c936e: #7f6f92;
-  --c-f1f2ed: #efedf2;
-  --c-8e9388: #8d8794;
-  --c-e4e5de: #e1dee5;
-  --c-94a08c: #958da0;
-  --c-e7ebe0: #e5e0eb;
-  --c-a4b098: #a399af;
-  --c-9aa48f: #9990a3;
-  --c-e7eae7: #e8e7ea;
-  --c-7d8b74: #7f758a;
-  --c-eaf0e5: #eae5f0;
-  --c-edf1e9: #ede9f1;
-  --c-c6cebf: #c6bfce;
-  --c-526d42: #56436c;
-  --c-354f2a: #3b2b4e;
-  --c-718866: #766787;
-  --c-3e5035: #42364f;
-  --c-dfe4d8: #ded8e4;
-  --c-b3bba9: #b1a9bb;
-  --c-edf0e7: #ebe7f0;
-  --c-a1ad97: #a198ac;
-  --c-e5eddf: #e6dfed;
-  --c-ede7df: #ede7df;
-  --c-9b886f: #9b886f;
-  --c-9ba496: #9d96a4;
-  --c-f1f4ec: #f0ecf4;
-  --c-9aa18e: #978ea1;
-  --c-f2f5ec: #f0ecf5;
-  --c-e2e9d9: #e0d9e9;
-  --c-7a8d6a: #7a6b8c;
-  --c-dfe6d6: #ddd6e6;
-  --c-aab29e: #a79fb2;
-  --c-97a087: #93889f;
-  --c-d5dcd0: #d6d0dc;
-  --c-4d8c58: #6b4f8a;
-  --c-98ad87: #9988ac;
-  --c-f2f7edf0: #f2edf7f0;
-  --c-536b43: #56446a;
-  --c-f5f7f1: #f4f1f7;
-  --c-e2e8da: #e1dae8;
-  --c-66765d: #695e75;
-  --c-0002: #00000022;
-  --c-26371dc9: #291e36c9;
-  --c-b4d697: #b599d4;
-  --c-ad6050: #ad6050;
-  --c-dfe6d7: #ded7e6;
-  --c-263b2020: #2d213a20;
-  --c-88977c: #897d96;
-  --c-edf3e7: #ede7f3;
-  --c-8c9782: #8c8396;
-  --c-e8eedd: #e5ddee;
-  --c-f0f3ee: #f0eef3;
-  --c-d8dfd4: #d9d4df;
-  --c-f7f9f5: #f7f5f9;
-  --c-8b9587: #8e8795;
-  --c-abb0aa: #ada8b2;
-  --c-e6ebdf: #e5dfeb;
-  --c-edf0e6: #ebe6f0;
-  --c-526d46: #58476c;
-  --c-858d7d: #847d8d;
-  --c-7a8475: #7c7584;
-  --c-dce4d8: #ded8e4;
-  --c-5f7557: #655874;
-  --c-b34839: #b34839;
-  --c-a0a990: #9c91a8;
-  --c-6f8b60: #74618a;
-  --c-edf1e6: #ebe6f1;
-  --c-708070: #777080;
-  --c-858c87: #858c87;
-  --c-f1f3f1: #f2f1f3;
-  --c-fafbfa: #fafafb;
-  --c-b7c9ad: #baaec8;
-  --c-f3f7ef: #f3eff7;
-  --c-d8e1d3: #dad3e1;
-  --c-f8faf6: #f8f6fa;
-  --c-61765a: #675b75;
-  --c-e1e7dd: #e2dde7;
-  --c-fafbf9: #faf9fb;
-  --c-f4f6f2: #f4f2f6;
-  --c-879181: #888191;
-  --c-4d6445: #544663;
-  --c-33412a14: #352b4014;
-  --c-67835b: #6e5c82;
-  --c-e3e8df: #e3dfe8;
-  --c-fbfcfa: #fbfafc;
-  --c-cad6c3: #ccc3d6;
-  --c-f7faf5: #f7f5fa;
-  --c-455440: #494153;
-  --c-939b8e: #948e9b;
-  --c-708067: #73687f;
-  --c-e5f0e2: #e9e2f0;
-  --c-4a7547: #5d4874;
-  --c-f7efd9: #e7daf6;
-  --c-856b2f: #856b2f;
-  --c-f6e5e1: #f6e5e1;
-  --c-a04e42: #a04e42;
-  --c-e8ece5: #e8e5ec;
-  --c-667563: #6b6375;
-  --c-71856a: #776b84;
-  --c-e6ebe2: #e6e2eb;
-  --c-40503c: #453d50;
-  --c-929b8e: #948e9b;
-  --c-dfe5db: #e0dbe5;
-  --c-667a5e: #6b5f79;
-  --c-e5eae1: #e5e1ea;
-  --c-969e92: #98929e;
-  --c-596755: #5d5567;
-  --c-eaeee7: #eae7ee;
-  --c-5c6c57: #61586b;
-  --c-6c7768: #6f6877;
-  --c-8c9588: #8e8895;
-  --c-99a28d: #978ea1;
-  --c-83976c: #806d96;
-  --c-a7af9b: #a49baf;
-  --c-c1cab5: #bfb6c9;
-  --c-e5eadc: #e3dcea;
-  --c-95a37f: #9080a2;
-  --c-b0b6a3: #aca3b6;
-  --c-a1ab92: #9e93aa;
-  --c-b7a47a: #b7a47a;
-  --c-819b68: #80699a;
-  --c-b68a6e: #b68a6e;
-  --c-8e9e79: #8a7a9d;
-  --c-f9faf6: #f8f6fa;
-  --c-e6eadd: #e3ddea;
-  --c-9eaa8b: #9a8ca9;
-  --c-f0f4e8: #eee8f4;
-  --c-e2e9d6: #dfd6e9;
-  --c-6d8058: #6b597f;
-  --c-a0ac8d: #9c8eab;
-  --c-e6ebdd: #e4ddeb;
-  --c-f7f9f1: #f5f1f9;
-  --c-a1ab91: #9d92aa;
-  --c-8d9a81: #8d8299;
-  --c-fafafa: #fafafa;
-  --c-e9e9e9: #e9e9e9;
-  --c-414141: #414141;
-  --c-4a6354: #564b62;
-  --c-c5d4c8: #ccc5d4;
-  --c-3d5c48: #4c3e5b;
-  --c-e5e5e5: #e5e5e5;
-  --c-555: #555;
-  --c-efefef: #efefef;
-  --c-e8efe9: #ebe8ef;
-  --c-263b2b: #30273a;
-  --c-444: #444;
-  --c-666: #666;
-  --c-ededed: #ededed;
-  --c-222: #222;
-  --c-e6e6e6: #e6e6e6;
-  --c-f0f0f0: #f0f0f0;
-  --c-eaeaea: #eaeaea;
-  --c-161616: #161616;
-  --c-6d7a72: #736d7a;
-  --c-8a9388: #8d8794;
-  --c-2f5a38: #433059;
-  --c-e6f0e7: #ebe6f0;
-  --c-999: #999;
-  --c-828282: #828282;
-  --c-e7edf4: #e7edf4;
-  --c-8c9caf: #9c8dae;
-  --c-202b38: #202b38;
-  --c-777: #777;
-  --c-dedede: #dedede;
-  --c-8a8f89: #8a8f89;
-  --c-344f65: #344f65;
-  --c-899187: #8c8593;
-  --c-1f3d2c: #2d203c;
-  --c-f0f4f0: #f2f0f4;
-  --c-9b3030: #9b3030;
-  --c-fdf0f0: #fdf0f0;
-  --c-5c6658: #5f5866;
-  --c-e5e9e2: #e5e2e9;
-  --c-9aa593: #9b93a5;
-  --c-dce3d9: #ded9e3;
-  --c-4a524c: #4e4a52;
-  --c-f2e9e7: #f2e9e7;
-  --c-687066: #6b6571;
-  --c-e3ead9: #e1d9ea;
-  --c-2f3a33: #342f3a;
-  --c-e7eddf: #e6dfed;
-  --c-fbfcf9: #faf9fc;
-  --c-f0e0dc: #f0e0dc;
-  --c-2037191a: #271a361a;
-  --c-f0e9e2: #f0e9e2;
-  --c-fdf8f3: #fdf8f3;
-  --c-eee: #eee;
-  --c-808778: #7f7887;
-  --c-8b968c: #908a97;
-  --c-0001: #00000011;
-  --c-edf0ea: #edeaf0;
-  --c-e2e7de: #e2dee7;
-  --c-34402f: #372f40;
-  --c-74806e: #766e80;
-  --c-a3332d: #a3332d;
-  --c-e1e6dc: #e1dce6;
-  --c-668052: #68537f;
-  --c-eff4e9: #eee9f4;
-  --c-bc443d: #bc443d;
-  --c-3d5930: #433158;
-  --c-87907f: #877f90;
-  --c-edf0e8: #ece8f0;
-  --c-687360: #696073;
-  --c-f0f4eb: #efebf4;
-  --c-e9f0e1: #e8e1f0;
-  --c-344c2b: #3a2c4b;
-  --c-bcc8b2: #bcb3c7;
-  --c-e9eee5: #e9e5ee;
-  --c-7e887a: #817a88;
-  --c-eef2eb: #eeebf2;
-  --c-cbd5c4: #ccc4d5;
-  --c-eef2e9: #ede9f2;
-  --c-dce5d4: #dcd4e5;
-  --c-e5ecde: #e5deec;
-  --c-e1edd7: #e1d8ec;
-  --c-3f5c35: #47365b;
-  --c-6d855c: #6f5d84;
-  --c-dde6d6: #ddd6e6;
-  --c-354d2d: #3c2e4c;
-  --c-ffffff24: #ffffff24;
-  --c-e3e9de: #e3dee9;
-  --c-6f8b6040: #74618a40;
-  --c-929c8c: #938c9c;
-  --c-dfe6d9: #dfd9e6;
-  --c-f7f9f4: #f6f4f9;
-  --c-95a08e: #968ea0;
-  --c-dfe8d8: #dfd8e8;
-  --c-7f9573: #837494;
-  --c-e9eee6: #eae6ee;
-  --c-929b8b: #928b9b;
-  --c-aa6655: #aa6655;
-  --c-e8d7d0: #e8d7d0;
-  --c-fff8f5: #fff8f5;
-  --c-dce4d4: #dbd4e4;
-  --c-607a4b: #614c79;
-  --c-6d7865: #6e6578;
-  --c-e5ecdc: #e3dcec;
-  --c-81966e: #816f95;
-  --c-e8ede3: #e8e3ed;
-  --c-edf1e7: #ece7f1;
-  --c-405432: #423353;
-  --c-eef2ea: #eeeaf2;
-  --c-b8cfad: #bdaece;
-  --c-537047: #5a486f;
-  --c-eff7ea: #f0eaf7;
-  --c-d7d9d4: #d6d4d9;
-  --c-7e837b: #7e837b;
-  --c-f3f4f2: #f3f2f4;
-  --c-dfe5dc: #e0dce5;
-  --c-788274: #7b7482;
-  --c-58714d: #5e4e70;
-  --c-63705e: #665e70;
-  --c-45573f: #4a4056;
-  --c-919a8d: #938d9a;
-  --c-7d8977: #7f7789;
-  --c-929a90: #958f9b;
-  --c-e4e9e1: #e5e1e9;
-  --c-52634c: #574d62;
-  --c-42503e: #463e50;
-  --c-758071: #787180;
-  --c-d8d7c6: #cec6d8;
-  --c-faf9ef: #f4effa;
-  --c-77704e: #614f76;
-  --c-d8d8df: #dbd8df;
-  --c-f5f5f8: #f6f5f8;
-  --c-686978: #6f6878;
-  --c-43513e: #473e51;
-  --c-879083: #898390;
-  --c-455140: #484051;
-  --c-5c6857: #5f5768;
-  --c-7b8577: #7e7785;
-  --c-d8ded4: #d9d4de;
-  --c-707a6b: #726b7a;
-  --c-adc79f: #b2a0c6;
-  --c-4f7044: #59456f;
-  --c-ddd6d2: #d7d2dd;
-  --c-f6f3f1: #f6f3f1;
-  --c-8a7268: #786989;
-  --c-ccd2c8: #cdc8d2;
-  --c-66865a: #6f5b85;
-  --c-65845b: #6e5c83;
-  --c-dfe7dc: #e1dce7;
-  --c-596653: #5c5366;
-  --c-4d7642: #5a4375;
-  --c-a24e42: #a24e42;
-  --c-d8c98f: #b191d6;
-  --c-fffbea: #f4edfc;
-  --c-81764f: #665080;
-  --c-858991: #8b8492;
-  --c-f1f2f3: #f2f1f3;
-  --c-646971: #6a6471;
-  --c-6d7179: #736c7a;
-  --c-e4e4e7: #e5e4e7;
-  --c-202327: #232027;
-  --c-898d96: #8f8996;
-  --c-c8cec6: #cac6ce;
-  --c-657360: #696073;
-  --c-c43c35: #c43c35;
-  --c-9f2e28: #9f2e28;
-  --c-b9c6ad: #b9aec5;
-  --c-75836d: #776e82;
-  --c-82907b: #857c8f;
-  --c-b39558: #b39558;
-  --c-272b29: #29272b;
-  --c-18201973: #1c182073;
-  --c-4d5a51: #534d5a;
-  --c-1e272014: #221e2714;
-  --c-f4f6f4: #f5f4f6;
-  --c-e3e7e3: #e5e3e7;
-  --c-8a918c: #8a918c;
-  --c-8d9690: #918b98;
-  --c-c27b86: #9c7dc0;
-  --c-8a6ea3: #8a6ea3;
-  --c-c4a056: #c4a056;
-  --c-4d7ec8: #4d7ec8;
-  --c-bd594f: #bd594f;
-  --c-4d7ec880: #4d7ec880;
-  --c-4d7ec81f: #4d7ec81f;
-  --c-4d7ec866: #4d7ec866;
-  --c-3c433e: #3f3c43;
-  --c-6d756f: #716b77;
-  --c-3d8a5b: #613f88;
-  --c-eef2ee: #f0eef2;
-  --c-e7eee4: #e9e4ee;
-  --c-eef1ee: #efeef1;
-  --c-7d8580: #7d8580;
-  --c-2f3531: #322f35;
-  --c-9f4339: #9f4339;
-  --c-d5ddd4: #d8d4dd;
-  --c-f4f7f2: #f4f2f7;
-  --c-9aa59c: #9f9aa5;
-  --c-f3f5f2: #f3f2f5;
-  --c-7d9877: #867897;
-  --c-edf0ec: #eeecf0;
-  --c-858d87: #858d87;
-  --c-e0c4a8: #e0c4a8;
-  --c-66726a: #6c6672;
-  --c-4f5d4c: #544c5d;
-  --c-7e8781: #827b8a;
-  --c-717973: #717973;
-  --c-9ba29d: #9e99a4;
-  --c-dcece1: #e3dcec;
-  --c-b78b3f: #b78b3f;
-  --c-f5f7f4: #f5f4f7;
-  --c-dce1dc: #dedce1;
-  --c-a0a6a2: #a0a6a2;
-  --c-bdc9bb: #c2bbc9;
-  --c-f8faf7: #f8f7fa;
-  --c-809778: #877996;
-  --c-f0f5ee: #f1eef5;
-  --c-879289: #8c8693;
-  --c-425047: #494250;
-  --c-7f8782: #7f8782;
-  --c-666e69: #6a6470;
-  --c-fff0ed: #fff0ed;
-  --c-edf0ed: #eeedf0;
-  --c-7b847e: #7f7887;
-  --c-e7ebe6: #e8e6eb;
-  --c-f7f9f6: #f7f6f9;
-  --c-f3f6fb: #f3f6fb;
-  --c-dbe3ee: #dbe3ee;
-  --c-fbf6ea: #f2eafb;
-  --c-ead9b4: #ead9b4;
-  --c-f8fbf7: #f9f7fb;
-  --c-283329: #2d2833;
-  --c-e6ebe4: #e7e4eb;
-  --c-748071: #787180;
-}
-
-html[data-theme="sand"] {
-  --icon: #7e7871;
-  --c-27362f: #352f28;
-  --c-f8faf8: #faf9f8;
-  --c-73806f: #7e7871;
-  --c-758073: #7f7a74;
-  --c-8b9689: #95908a;
-  --c-bdc8b9: #c7c1ba;
-  --c-3f5945: #574d41;
-  --c-90a17f: #9e9182;
-  --c-98a093: #9f9a94;
-  --c-f3f5f0: #f5f3f0;
-  --c-516747: #64584a;
-  --c-c59d4b: #c59d4b;
-  --c-b6735d: #b6735d;
-  --c-5e6c56: #6a6258;
-  --c-f0f3ed: #f2f0ee;
-  --c-dde5d7: #e4ded8;
-  --c-e8f0e1: #efe9e2;
-  --c-dce7d3: #e5ded5;
-  --c-e2e9da: #e8e2db;
-  --c-f7f9f3: #f8f6f4;
-  --c-e5eddc: #ebe5de;
-  --c-c3d3b6: #d0c5b9;
-  --c-8f9e7b: #9b8d7e;
-  --c-f5f7f0: #f6f4f1;
-  --c-fff: #fff;
-  --c-f6f8fa: #f6f8fa;
-  --c-dce5d3: #e3dcd5;
-  --c-9aa68a: #a3998d;
-  --c-edf3e8: #f2eee9;
-  --c-7a896f: #877d71;
-  --c-8c987f: #968c81;
-  --c-567c51: #786855;
-  --c-f0f5eb: #f4f0ec;
-  --c-a16e49: #a16e49;
-  --c-7f9078: #8e857a;
-  --c-426b4b: #675846;
-  --c-dde4de: #e3e1de;
-  --c-72966f: #928473;
-  --c-4a7251: #6e5f4e;
-  --c-33563b: #534536;
-  --c-d9e1d9: #e0ddda;
-  --c-29382e: #37312a;
-  --c-657369: #726c66;
-  --c-395d40: #5a4c3c;
-  --c-54704e: #6d6051;
-  --c-33432f: #413a31;
-  --c-e4e9df: #e8e4e0;
-  --c-8b9683: #948d85;
-  --c-607957: #76695a;
-  --c-9aa39a: #a39f9a;
-  --c-dfe3de: #e3e1de;
-  --c-c85b54: #c85b54;
-  --c-a9443e: #a9443e;
-  --c-e0e6dc: #e5e1dd;
-  --c-899585: #948d86;
-  --c-e5ebdf: #eae5e0;
-  --c-7f8b7d: #8a847e;
-  --c-33482605: #45382905;
-  --c-dfe5d9: #e4dfda;
-  --c-7b8b76: #898178;
-  --c-7e9c71: #988875;
-  --c-a0a998: #a7a19a;
-  --c-e1e7dc: #e6e2dd;
-  --c-a0aa9b: #a9a39c;
-  --c-e9ecdf: #ebe6e0;
-  --c-7b866a: #83796d;
-  --c-fcfdfb: #fdfcfb;
-  --c-edf0e9: #efedea;
-  --c-e1e7da: #e6e1db;
-  --c-6c7e5d: #7b6e60;
-  --c-f1f5eb: #f4f0ec;
-  --c-c3d0b6: #cec4b8;
-  --c-8a9482: #928b84;
-  --c-4c5b42: #594f44;
-  --c-5d7056: #6e6458;
-  --c-9a6a60: #9a6a60;
-  --c-7a4f45: #7a4f45;
-  --c-62855a: #81715e;
-  --c-3d5a38: #574a3b;
-  --c-30451d0a: #4132210a;
-  --c-4a5f44: #5d5246;
-  --c-9da69a: #a5a09b;
-  --c-8a9585: #948d86;
-  --c-4c8b55: #856d52;
-  --c-dfeee0: #ede7e0;
-  --c-bd9441: #bd9441;
-  --c-b75b4d: #b75b4d;
-  --c-9aa394: #a29c95;
-  --c-ad793b: #ad793b;
-  --c-34462f: #443b31;
-  --c-839079: #8e857b;
-  --c-929d87: #9b9389;
-  --c-738566: #827669;
-  --c-e7ecdf: #ebe6e0;
-  --c-789466: #907e6a;
-  --c-bd935f: #bd935f;
-  --c-819076: #8e8478;
-  --c-e4e9dd: #e8e3de;
-  --c-456b42: #675846;
-  --c-58784b: #74634f;
-  --c-7c936e: #908271;
-  --c-f1f2ed: #f2f0ed;
-  --c-8e9388: #938e88;
-  --c-e4e5de: #e4e2df;
-  --c-94a08c: #9e978e;
-  --c-e7ebe0: #eae6e1;
-  --c-a4b098: #aea59a;
-  --c-9aa48f: #a29a91;
-  --c-e7eae7: #eae9e7;
-  --c-7d8b74: #898076;
-  --c-eaf0e5: #efebe6;
-  --c-edf1e9: #f0edea;
-  --c-c6cebf: #cdc7c0;
-  --c-526d42: #695946;
-  --c-354f2a: #4c3e2d;
-  --c-718866: #857869;
-  --c-3e5035: #4e4337;
-  --c-dfe4d8: #e3ded9;
-  --c-b3bba9: #b9b2ab;
-  --c-edf0e7: #efece8;
-  --c-a1ad97: #aba399;
-  --c-e5eddf: #ece6e0;
-  --c-ede7df: #ede7df;
-  --c-9b886f: #9b886f;
-  --c-9ba496: #a39d97;
-  --c-f1f4ec: #f3f0ed;
-  --c-9aa18e: #9f9890;
-  --c-f2f5ec: #f4f1ed;
-  --c-e2e9d9: #e8e1da;
-  --c-7a8d6a: #8a7c6d;
-  --c-dfe6d6: #e5ded7;
-  --c-aab29e: #b0a9a0;
-  --c-97a087: #9e9489;
-  --c-d5dcd0: #dbd6d1;
-  --c-4d8c58: #866e53;
-  --c-98ad87: #aa9b8a;
-  --c-f2f7edf0: #f6f2eef0;
-  --c-536b43: #675847;
-  --c-f5f7f1: #f6f4f2;
-  --c-e2e8da: #e7e1db;
-  --c-66765d: #746a5f;
-  --c-0002: #00000022;
-  --c-26371dc9: #352b1fc9;
-  --c-b4d697: #d0b89d;
-  --c-ad6050: #ad6050;
-  --c-dfe6d7: #e5dfd8;
-  --c-263b2020: #392e2220;
-  --c-88977c: #958a7e;
-  --c-edf3e7: #f2ede8;
-  --c-8c9782: #958d84;
-  --c-e8eedd: #ece6df;
-  --c-f0f3ee: #f3f1ee;
-  --c-d8dfd4: #dedad5;
-  --c-f7f9f5: #f9f7f5;
-  --c-8b9587: #948e88;
-  --c-abb0aa: #b1ada9;
-  --c-e6ebdf: #eae5e0;
-  --c-edf0e6: #efebe7;
-  --c-526d46: #695b4a;
-  --c-858d7d: #8c857e;
-  --c-7a8475: #837d76;
-  --c-dce4d8: #e3ded9;
-  --c-5f7557: #72675a;
-  --c-b34839: #b34839;
-  --c-a0a990: #a79d92;
-  --c-6f8b60: #877764;
-  --c-edf1e6: #f0ece7;
-  --c-708070: #7f7871;
-  --c-858c87: #858c87;
-  --c-f1f3f1: #f3f2f1;
-  --c-fafbfa: #fbfbfa;
-  --c-b7c9ad: #c6bcb0;
-  --c-f3f7ef: #f6f3f0;
-  --c-d8e1d3: #e0dad4;
-  --c-f8faf6: #faf8f6;
-  --c-61765a: #73695d;
-  --c-e1e7dd: #e6e2de;
-  --c-fafbf9: #fbfaf9;
-  --c-f4f6f2: #f6f4f2;
-  --c-879181: #908982;
-  --c-4d6445: #615548;
-  --c-33412a14: #3f362c14;
-  --c-67835b: #7f705f;
-  --c-e3e8df: #e7e4e0;
-  --c-fbfcfa: #fcfbfa;
-  --c-cad6c3: #d4cdc5;
-  --c-f7faf5: #faf8f5;
-  --c-455440: #524b42;
-  --c-939b8e: #9a958f;
-  --c-708067: #7e7469;
-  --c-e5f0e2: #efe9e3;
-  --c-4a7547: #715f4b;
-  --c-f7efd9: #f4e9dc;
-  --c-856b2f: #856b2f;
-  --c-f6e5e1: #f6e5e1;
-  --c-a04e42: #a04e42;
-  --c-e8ece5: #ebe9e6;
-  --c-667563: #736c65;
-  --c-71856a: #83786c;
-  --c-e6ebe2: #eae7e3;
-  --c-40503c: #4e473e;
-  --c-929b8e: #9a958f;
-  --c-dfe5db: #e4e0dc;
-  --c-667a5e: #776d61;
-  --c-e5eae1: #e9e6e2;
-  --c-969e92: #9d9893;
-  --c-596755: #655e57;
-  --c-eaeee7: #edebe8;
-  --c-5c6c57: #6a6259;
-  --c-6c7768: #767069;
-  --c-8c9588: #948f89;
-  --c-99a28d: #a0988f;
-  --c-83976c: #938370;
-  --c-a7af9b: #ada69d;
-  --c-c1cab5: #c8c0b7;
-  --c-e5eadc: #e9e3dd;
-  --c-95a37f: #a09282;
-  --c-b0b6a3: #b4ada5;
-  --c-a1ab92: #a99f94;
-  --c-b7a47a: #b7a47a;
-  --c-819b68: #96836d;
-  --c-b68a6e: #b68a6e;
-  --c-8e9e79: #9b8d7c;
-  --c-f9faf6: #faf8f6;
-  --c-e6eadd: #e9e4de;
-  --c-9eaa8b: #a79b8e;
-  --c-f0f4e8: #f3eee9;
-  --c-e2e9d6: #e7e0d8;
-  --c-6d8058: #7c6d5c;
-  --c-a0ac8d: #a99d90;
-  --c-e6ebdd: #eae4de;
-  --c-f7f9f1: #f8f5f2;
-  --c-a1ab91: #a99f93;
-  --c-8d9a81: #988e83;
-  --c-fafafa: #fafafa;
-  --c-e9e9e9: #e9e9e9;
-  --c-414141: #414141;
-  --c-4a6354: #61574c;
-  --c-c5d4c8: #d3cdc6;
-  --c-3d5c48: #594d40;
-  --c-e5e5e5: #e5e5e5;
-  --c-555: #555;
-  --c-efefef: #efefef;
-  --c-e8efe9: #eeece9;
-  --c-263b2b: #393128;
-  --c-444: #444;
-  --c-666: #666;
-  --c-ededed: #ededed;
-  --c-222: #222;
-  --c-e6e6e6: #e6e6e6;
-  --c-f0f0f0: #f0f0f0;
-  --c-eaeaea: #eaeaea;
-  --c-161616: #161616;
-  --c-6d7a72: #79746e;
-  --c-8a9388: #938e88;
-  --c-2f5a38: #564633;
-  --c-e6f0e7: #efebe7;
-  --c-999: #999;
-  --c-828282: #828282;
-  --c-e7edf4: #e7edf4;
-  --c-8c9caf: #ac9e8f;
-  --c-202b38: #202b38;
-  --c-777: #777;
-  --c-dedede: #dedede;
-  --c-8a8f89: #8a8f89;
-  --c-344f65: #344f65;
-  --c-899187: #928c86;
-  --c-1f3d2c: #3a2f22;
-  --c-f0f4f0: #f4f2f0;
-  --c-9b3030: #9b3030;
-  --c-fdf0f0: #fdf0f0;
-  --c-5c6658: #655f59;
-  --c-e5e9e2: #e8e6e3;
-  --c-9aa593: #a39c95;
-  --c-dce3d9: #e2deda;
-  --c-4a524c: #524e4a;
-  --c-f2e9e7: #f2e9e7;
-  --c-687066: #706b66;
-  --c-e3ead9: #e8e2db;
-  --c-2f3a33: #393530;
-  --c-e7eddf: #ece6e0;
-  --c-fbfcf9: #fcfbf9;
-  --c-f0e0dc: #f0e0dc;
-  --c-2037191a: #34291c1a;
-  --c-f0e9e2: #f0e9e2;
-  --c-fdf8f3: #fdf8f3;
-  --c-eee: #eee;
-  --c-808778: #868079;
-  --c-8b968c: #96918b;
-  --c-0001: #00000011;
-  --c-edf0ea: #efedeb;
-  --c-e2e7de: #e6e3df;
-  --c-34402f: #3e3831;
-  --c-74806e: #7e7770;
-  --c-a3332d: #a3332d;
-  --c-e1e6dc: #e5e1dd;
-  --c-668052: #7c6a56;
-  --c-eff4e9: #f3efea;
-  --c-bc443d: #bc443d;
-  --c-3d5930: #554634;
-  --c-87907f: #8e8881;
-  --c-edf0e8: #efece9;
-  --c-687360: #716a62;
-  --c-f0f4eb: #f3f0ec;
-  --c-e9f0e1: #efe9e2;
-  --c-344c2b: #493c2e;
-  --c-bcc8b2: #c6beb4;
-  --c-e9eee5: #edeae6;
-  --c-7e887a: #87817b;
-  --c-eef2eb: #f1efec;
-  --c-cbd5c4: #d3cdc6;
-  --c-eef2e9: #f1eeea;
-  --c-dce5d4: #e3ddd6;
-  --c-e5ecde: #ebe5df;
-  --c-e1edd7: #ebe3d9;
-  --c-3f5c35: #584a39;
-  --c-6d855c: #817260;
-  --c-dde6d6: #e5ded7;
-  --c-354d2d: #4a3e30;
-  --c-ffffff24: #ffffff24;
-  --c-e3e9de: #e8e4df;
-  --c-6f8b6040: #87776440;
-  --c-929c8c: #9b948d;
-  --c-dfe6d9: #e5e0da;
-  --c-f7f9f4: #f9f7f4;
-  --c-95a08e: #9e9790;
-  --c-dfe8d8: #e7e0d9;
-  --c-7f9573: #928576;
-  --c-e9eee6: #edeae7;
-  --c-929b8b: #9a938c;
-  --c-aa6655: #aa6655;
-  --c-e8d7d0: #e8d7d0;
-  --c-fff8f5: #fff8f5;
-  --c-dce4d4: #e3dcd5;
-  --c-607a4b: #76644f;
-  --c-6d7865: #766f67;
-  --c-e5ecdc: #ebe4dd;
-  --c-81966e: #928372;
-  --c-e8ede3: #ece8e4;
-  --c-edf1e7: #f0ece8;
-  --c-405432: #514435;
-  --c-eef2ea: #f1eeeb;
-  --c-b8cfad: #ccbfb0;
-  --c-537047: #6c5d4b;
-  --c-eff7ea: #f6f1eb;
-  --c-d7d9d4: #d9d7d4;
-  --c-7e837b: #7e837b;
-  --c-f3f4f2: #f4f3f2;
-  --c-dfe5dc: #e4e1dd;
-  --c-788274: #817b75;
-  --c-58714d: #6e6050;
-  --c-63705e: #6e6760;
-  --c-45573f: #554c41;
-  --c-919a8d: #99948e;
-  --c-7d8977: #878079;
-  --c-929a90: #9a9590;
-  --c-e4e9e1: #e8e5e2;
-  --c-52634c: #61584e;
-  --c-42503e: #4e4740;
-  --c-758071: #7f7972;
-  --c-d8d7c6: #d6cfc8;
-  --c-faf9ef: #f9f5f0;
-  --c-77704e: #736452;
-  --c-d8d8df: #dedcd9;
-  --c-f5f5f8: #f8f7f5;
-  --c-686978: #777069;
-  --c-43513e: #4f4840;
-  --c-879083: #8f8a84;
-  --c-455140: #4f4942;
-  --c-5c6857: #666059;
-  --c-7b8577: #847e78;
-  --c-d8ded4: #ddd9d5;
-  --c-707a6b: #79736c;
-  --c-adc79f: #c3b4a3;
-  --c-4f7044: #6c5b48;
-  --c-ddd6d2: #dcd8d3;
-  --c-f6f3f1: #f6f3f1;
-  --c-8a7268: #877a6b;
-  --c-ccd2c8: #d1cdc9;
-  --c-66865a: #82715e;
-  --c-65845b: #80715f;
-  --c-dfe7dc: #e6e2dd;
-  --c-596653: #645d55;
-  --c-4d7642: #715d47;
-  --c-a24e42: #a24e42;
-  --c-d8c98f: #d1b596;
-  --c-fffbea: #fcf5ed;
-  --c-81764f: #7d6954;
-  --c-858991: #918b85;
-  --c-f1f2f3: #f3f2f1;
-  --c-646971: #706b65;
-  --c-6d7179: #79736d;
-  --c-e4e4e7: #e7e6e4;
-  --c-202327: #262421;
-  --c-898d96: #95908a;
-  --c-c8cec6: #cdcac7;
-  --c-657360: #716a62;
-  --c-c43c35: #c43c35;
-  --c-9f2e28: #9f2e28;
-  --c-b9c6ad: #c4baaf;
-  --c-75836d: #81796f;
-  --c-82907b: #8e867d;
-  --c-b39558: #b39558;
-  --c-272b29: #2b2927;
-  --c-18201973: #1f1c1973;
-  --c-4d5a51: #59544e;
-  --c-1e272014: #26231f14;
-  --c-f4f6f4: #f6f5f4;
-  --c-e3e7e3: #e7e5e3;
-  --c-8a918c: #8a918c;
-  --c-8d9690: #97928c;
-  --c-c27b86: #bca081;
-  --c-8a6ea3: #8a6ea3;
-  --c-c4a056: #c4a056;
-  --c-4d7ec8: #4d7ec8;
-  --c-bd594f: #bd594f;
-  --c-4d7ec880: #4d7ec880;
-  --c-4d7ec81f: #4d7ec81f;
-  --c-4d7ec866: #4d7ec866;
-  --c-3c433e: #43403c;
-  --c-6d756f: #77716b;
-  --c-3d8a5b: #836644;
-  --c-eef2ee: #f2f0ee;
-  --c-e7eee4: #ede9e5;
-  --c-eef1ee: #f1f0ee;
-  --c-7d8580: #7d8580;
-  --c-2f3531: #343230;
-  --c-9f4339: #9f4339;
-  --c-d5ddd4: #dcd9d5;
-  --c-f4f7f2: #f7f5f2;
-  --c-9aa59c: #a4a09b;
-  --c-f3f5f2: #f5f4f2;
-  --c-7d9877: #95887a;
-  --c-edf0ec: #f0eeec;
-  --c-858d87: #858d87;
-  --c-e0c4a8: #e0c4a8;
-  --c-66726a: #716c67;
-  --c-4f5d4c: #5b554e;
-  --c-7e8781: #89837c;
-  --c-717973: #717973;
-  --c-9ba29d: #a39f9a;
-  --c-dcece1: #ebe4dd;
-  --c-b78b3f: #b78b3f;
-  --c-f5f7f4: #f7f6f4;
-  --c-dce1dc: #e1dfdc;
-  --c-a0a6a2: #a0a6a2;
-  --c-bdc9bb: #c8c2bc;
-  --c-f8faf7: #faf9f7;
-  --c-809778: #94887b;
-  --c-f0f5ee: #f4f2ef;
-  --c-879289: #928d87;
-  --c-425047: #4f4943;
-  --c-7f8782: #7f8782;
-  --c-666e69: #6f6a65;
-  --c-fff0ed: #fff0ed;
-  --c-edf0ed: #f0efed;
-  --c-7b847e: #868079;
-  --c-e7ebe6: #ebe9e6;
-  --c-f7f9f6: #f9f8f6;
-  --c-f3f6fb: #f3f6fb;
-  --c-dbe3ee: #dbe3ee;
-  --c-fbf6ea: #f9f3ec;
-  --c-ead9b4: #ead9b4;
-  --c-f8fbf7: #fbf9f7;
-  --c-283329: #322e29;
-  --c-e6ebe4: #eae8e5;
-  --c-748071: #7f7972;
-}
-
-html[data-theme="ink"] {
-  --icon: #9fa6a0;
-  --c-27362f: #d1d9d2;
-  --c-f8faf8: #1b231c;
-  --c-73806f: #9fa6a0;
-  --c-758073: #9ea59f;
-  --c-8b9689: #939c94;
-  --c-bdc8b9: #3c493e;
-  --c-3f5945: #adbbaf;
-  --c-90a17f: #39493b;
-  --c-98a093: #959f96;
-  --c-f3f5f0: #1d281f;
-  --c-516747: #a9b9ab;
-  --c-c59d4b: #cdab65;
-  --c-b6735d: #bf8572;
-  --c-5e6c56: #aab4ab;
-  --c-f0f3ed: #1f2a20;
-  --c-dde5d7: #273629;
-  --c-e8f0e1: #1e3321;
-  --c-dce7d3: #243927;
-  --c-e2e9da: #233526;
-  --c-f7f9f3: #182a1b;
-  --c-e5eddc: #203523;
-  --c-c3d3b6: #344d37;
-  --c-8f9e7b: #3a4a3c;
-  --c-f5f7f0: #1a2b1c;
-  --c-fff: #1b1d1b;
-  --c-f6f8fa: #172029;
-  --c-dce5d3: #263928;
-  --c-9aa68a: #91a193;
-  --c-edf3e8: #1c2f1f;
-  --c-7a896f: #9aa69c;
-  --c-8c987f: #909d92;
-  --c-567c51: #a2b6a5;
-  --c-f0f5eb: #1b2e1d;
-  --c-a16e49: #c69e82;
-  --c-7f9078: #8f9b91;
-  --c-426b4b: #a7bcaa;
-  --c-dde4de: #29312a;
-  --c-72966f: #94a596;
-  --c-4a7251: #a6b9a8;
-  --c-33563b: #abc0ae;
-  --c-d9e1d9: #2a332c;
-  --c-29382e: #d1d8d2;
-  --c-657369: #a6aca7;
-  --c-395d40: #aabead;
-  --c-54704e: #a7b7a9;
-  --c-33432f: #b2c0b4;
-  --c-e4e9df: #253126;
-  --c-8b9683: #909e92;
-  --c-607957: #a3b3a5;
-  --c-9aa39a: #969f97;
-  --c-dfe3de: #2a302b;
-  --c-c85b54: #632420;
-  --c-a9443e: #cf807b;
-  --c-e0e6dc: #273228;
-  --c-899585: #919d93;
-  --c-e5ebdf: #233225;
-  --c-7f8b7d: #919892;
-  --c-33482605: #cadacd05;
-  --c-dfe5d9: #273429;
-  --c-7b8b76: #8f9990;
-  --c-7e9c71: #90a493;
-  --c-a0a998: #94a296;
-  --c-e1e7dc: #263328;
-  --c-a0aa9b: #95a297;
-  --c-e9ecdf: #223224;
-  --c-7b866a: #9ca89e;
-  --c-fcfdfb: #162518;
-  --c-edf0e9: #212c22;
-  --c-e1e7da: #253427;
-  --c-6c7e5d: #a1afa3;
-  --c-f1f5eb: #1b2e1d;
-  --c-c3d0b6: #364c39;
-  --c-8a9482: #929b93;
-  --c-4c5b42: #adbaae;
-  --c-5d7056: #a8b4aa;
-  --c-9a6a60: #b69189;
-  --c-7a4f45: #c5a199;
-  --c-62855a: #9db0a0;
-  --c-3d5a38: #abbeae;
-  --c-30451d0a: #cbdecd0a;
-  --c-4a5f44: #abbaad;
-  --c-9da69a: #96a097;
-  --c-8a9585: #919d93;
-  --c-4c8b55: #9bb79f;
-  --c-dfeee0: #203322;
-  --c-bd9441: #ceae6f;
-  --c-b75b4d: #c67e73;
-  --c-9aa394: #94a096;
-  --c-ad793b: #d1a878;
-  --c-34462f: #b0c0b3;
-  --c-839079: #8f9b91;
-  --c-929d87: #90a092;
-  --c-738566: #9daa9f;
-  --c-e7ecdf: #223224;
-  --c-789466: #96a998;
-  --c-bd935f: #5d4426;
-  --c-819076: #8e9b90;
-  --c-e4e9dd: #243326;
-  --c-456b42: #a7bcaa;
-  --c-58784b: #a4b9a7;
-  --c-7c936e: #96a698;
-  --c-f1f2ed: #202921;
-  --c-8e9388: #929c93;
-  --c-e4e5de: #283029;
-  --c-94a08c: #91a093;
-  --c-e7ebe0: #233125;
-  --c-a4b098: #94a496;
-  --c-9aa48f: #92a294;
-  --c-e7eae7: #262b27;
-  --c-7d8b74: #8e9990;
-  --c-eaf0e5: #1f3021;
-  --c-edf1e9: #1f2d21;
-  --c-c6cebf: #39463b;
-  --c-526d42: #a6bca9;
-  --c-354f2a: #acc4af;
-  --c-718866: #9baa9d;
-  --c-3e5035: #aebfb0;
-  --c-dfe4d8: #283529;
-  --c-b3bba9: #97a799;
-  --c-edf0e7: #202e22;
-  --c-a1ad97: #94a396;
-  --c-e5eddf: #213323;
-  --c-ede7df: #362b1e;
-  --c-9b886f: #ad9e89;
-  --c-9ba496: #95a096;
-  --c-f1f4ec: #1d2c1f;
-  --c-9aa18e: #92a094;
-  --c-f2f5ec: #1b2d1e;
-  --c-e2e9d9: #233626;
-  --c-7a8d6a: #99a89b;
-  --c-dfe6d6: #253728;
-  --c-aab29e: #95a597;
-  --c-97a087: #90a192;
-  --c-d5dcd0: #323f34;
-  --c-4d8c58: #9ab79e;
-  --c-98ad87: #344637;
-  --c-f2f7edf0: #192e1bf0;
-  --c-536b43: #a7bbaa;
-  --c-f5f7f1: #1b291d;
-  --c-e2e8da: #243527;
-  --c-66765d: #a5b0a6;
-  --c-0002: #e4e7e522;
-  --c-26371dc9: #d0ded2c9;
-  --c-b4d697: #2f5f35;
-  --c-ad6050: #c2877b;
-  --c-dfe6d7: #263628;
-  --c-263b2020: #cfdcd120;
-  --c-88977c: #8f9d91;
-  --c-edf3e7: #1c301f;
-  --c-8c9782: #8f9e91;
-  --c-e8eedd: #1f3522;
-  --c-f0f3ee: #1f2920;
-  --c-d8dfd4: #313d33;
-  --c-f7f9f5: #1a271c;
-  --c-8b9587: #929c93;
-  --c-abb0aa: #99a29b;
-  --c-e6ebdf: #233225;
-  --c-edf0e6: #1f2f21;
-  --c-526d46: #a7baa9;
-  --c-858d7d: #919992;
-  --c-7a8475: #9da39d;
-  --c-dce4d8: #283529;
-  --c-5f7557: #a5b3a7;
-  --c-b34839: #d38074;
-  --c-a0a990: #92a294;
-  --c-6f8b60: #9aad9d;
-  --c-edf1e6: #1e2f21;
-  --c-708070: #9fa6a0;
-  --c-858c87: #929a93;
-  --c-f1f3f1: #212522;
-  --c-fafbfa: #1c211d;
-  --c-b7c9ad: #3a503d;
-  --c-f3f7ef: #1a2c1c;
-  --c-d8e1d3: #2f3f31;
-  --c-f8faf6: #19271b;
-  --c-61765a: #a5b1a6;
-  --c-e1e7dd: #263228;
-  --c-fafbf9: #1a241b;
-  --c-f4f6f2: #1d271f;
-  --c-879181: #929a93;
-  --c-4d6445: #aabaac;
-  --c-33412a14: #cdd8cf14;
-  --c-67835b: #9eb0a1;
-  --c-e3e8df: #263127;
-  --c-fbfcfa: #18241a;
-  --c-cad6c3: #344636;
-  --c-f7faf5: #18291a;
-  --c-455440: #afbab0;
-  --c-939b8e: #949d95;
-  --c-708067: #9faaa1;
-  --c-e5f0e2: #1e3221;
-  --c-4a7547: #a4baa7;
-  --c-f7efd9: #143d1a;
-  --c-856b2f: #d6bf8b;
-  --c-f6e5e1: #3c1a12;
-  --c-a04e42: #cb8b81;
-  --c-e8ece5: #242d25;
-  --c-667563: #a5ada6;
-  --c-71856a: #9da89e;
-  --c-e6ebe2: #242f25;
-  --c-40503c: #afbbb1;
-  --c-929b8e: #949d95;
-  --c-dfe5db: #273329;
-  --c-667a5e: #a3afa4;
-  --c-e5eae1: #243026;
-  --c-969e92: #959e96;
-  --c-596755: #abb4ac;
-  --c-eaeee7: #222d23;
-  --c-5c6c57: #aab3ab;
-  --c-6c7768: #a4aaa4;
-  --c-8c9588: #929c94;
-  --c-99a28d: #91a193;
-  --c-83976c: #94a696;
-  --c-a7af9b: #94a496;
-  --c-c1cab5: #3a4b3d;
-  --c-e5eadc: #233425;
-  --c-95a37f: #38493a;
-  --c-b0b6a3: #96a698;
-  --c-a1ab92: #93a395;
-  --c-b7a47a: #50452b;
-  --c-819b68: #92a895;
-  --c-b68a6e: #553b2b;
-  --c-8e9e79: #8ea191;
-  --c-f9faf6: #19271b;
-  --c-e6eadd: #233325;
-  --c-9eaa8b: #364538;
-  --c-f0f4e8: #1b301e;
-  --c-e2e9d6: #233826;
-  --c-6d8058: #a0b2a2;
-  --c-a0ac8d: #354437;
-  --c-e6ebdd: #223425;
-  --c-f7f9f1: #172c1a;
-  --c-a1ab91: #93a395;
-  --c-8d9a81: #8f9f91;
-  --c-fafafa: #1e201e;
-  --c-e9e9e9: #272a27;
-  --c-414141: #b4bab5;
-  --c-4a6354: #abb8ad;
-  --c-c5d4c8: #364438;
-  --c-3d5c48: #abbcad;
-  --c-e5e5e5: #292c29;
-  --c-555: #afb5af;
-  --c-efefef: #232624;
-  --c-e8efe9: #212c23;
-  --c-263b2b: #cfdad1;
-  --c-444: #b3b9b4;
-  --c-666: #a9afaa;
-  --c-ededed: #242725;
-  --c-222: #d8dbd9;
-  --c-e6e6e6: #282b29;
-  --c-f0f0f0: #232623;
-  --c-eaeaea: #262926;
-  --c-161616: #dcdfdd;
-  --c-6d7a72: #a2a8a2;
-  --c-8a9388: #929c93;
-  --c-2f5a38: #a9c3ac;
-  --c-e6f0e7: #1f2f21;
-  --c-999: #959e97;
-  --c-828282: #909991;
-  --c-e7edf4: #182534;
-  --c-8c9caf: #344536;
-  --c-202b38: #cbd5e1;
-  --c-777: #9fa6a0;
-  --c-dedede: #2c302d;
-  --c-8a8f89: #929b94;
-  --c-344f65: #9cb6cc;
-  --c-899187: #939a94;
-  --c-1f3d2c: #ceddd0;
-  --c-f0f4f0: #1f2720;
-  --c-9b3030: #d88383;
-  --c-fdf0f0: #3a0808;
-  --c-5c6658: #acb2ad;
-  --c-e5e9e2: #262f27;
-  --c-9aa593: #93a195;
-  --c-dce3d9: #29342a;
-  --c-4a524c: #b1b6b2;
-  --c-f2e9e7: #321f1b;
-  --c-687066: #a6aca7;
-  --c-e3ead9: #223625;
-  --c-2f3a33: #d1d6d1;
-  --c-e7eddf: #213323;
-  --c-fbfcf9: #172619;
-  --c-f0e0dc: #3b2019;
-  --c-2037191a: #cfe0d11a;
-  --c-f0e9e2: #35281b;
-  --c-fdf8f3: #372009;
-  --c-eee: #242724;
-  --c-808778: #909891;
-  --c-8b968c: #939c94;
-  --c-0001: #e4e7e511;
-  --c-edf0ea: #212b22;
-  --c-e2e7de: #263128;
-  --c-34402f: #ced6cf;
-  --c-74806e: #9fa7a0;
-  --c-a3332d: #db807b;
-  --c-e1e6dc: #273228;
-  --c-668052: #a0b5a3;
-  --c-eff4e9: #1b2f1e;
-  --c-bc443d: #d0756f;
-  --c-3d5930: #a9c2ad;
-  --c-87907f: #919a93;
-  --c-edf0e8: #202d22;
-  --c-687360: #a6aea7;
-  --c-f0f4eb: #1c2d1f;
-  --c-e9f0e1: #1e3321;
-  --c-344c2b: #adc3b0;
-  --c-bcc8b2: #3b4d3d;
-  --c-e9eee5: #212e23;
-  --c-7e887a: #919892;
-  --c-eef2eb: #1f2b21;
-  --c-cbd5c4: #354537;
-  --c-eef2e9: #1e2d20;
-  --c-dce5d4: #263828;
-  --c-e5ecde: #213324;
-  --c-e1edd7: #1f3922;
-  --c-3f5c35: #aac0ad;
-  --c-6d855c: #9dafa0;
-  --c-dde6d6: #253728;
-  --c-354d2d: #adc2b0;
-  --c-ffffff24: #1b1d1b24;
-  --c-e3e9de: #243226;
-  --c-6f8b6040: #9aad9d40;
-  --c-929c8c: #929e94;
-  --c-dfe6d9: #263528;
-  --c-f7f9f4: #19281b;
-  --c-95a08e: #92a094;
-  --c-dfe8d8: #243626;
-  --c-7f9573: #8d9d8f;
-  --c-e9eee6: #222d23;
-  --c-929b8b: #929e94;
-  --c-aa6655: #be8b7e;
-  --c-e8d7d0: #40291f;
-  --c-fff8f5: #3e1200;
-  --c-dce4d4: #273829;
-  --c-607a4b: #a3b9a6;
-  --c-6d7865: #a3aca4;
-  --c-e5ecdc: #213524;
-  --c-81966e: #94a696;
-  --c-e8ede3: #223024;
-  --c-edf1e7: #1f2e21;
-  --c-405432: #acc1af;
-  --c-eef2ea: #1f2c20;
-  --c-b8cfad: #365139;
-  --c-537047: #a6baa9;
-  --c-eff7ea: #17311b;
-  --c-d7d9d4: #363b36;
-  --c-7e837b: #9ba29c;
-  --c-f3f4f2: #202521;
-  --c-dfe5dc: #283229;
-  --c-788274: #9da49e;
-  --c-58714d: #a7b8a9;
-  --c-63705e: #a7b0a9;
-  --c-45573f: #adbbaf;
-  --c-919a8d: #939d95;
-  --c-7d8977: #909891;
-  --c-929a90: #949d95;
-  --c-e4e9e1: #252f27;
-  --c-52634c: #abb7ad;
-  --c-42503e: #b0bab1;
-  --c-758071: #9fa5a0;
-  --c-d8d7c6: #334535;
-  --c-faf9ef: #143018;
-  --c-77704e: #a5b8a7;
-  --c-d8d8df: #2c332d;
-  --c-f5f5f8: #1c251d;
-  --c-686978: #a3aaa4;
-  --c-43513e: #b0bbb1;
-  --c-879083: #939a94;
-  --c-455140: #b0bab1;
-  --c-5c6857: #abb3ac;
-  --c-7b8577: #9ca29d;
-  --c-d8ded4: #323d33;
-  --c-707a6b: #a2a9a3;
-  --c-adc79f: #3a573e;
-  --c-4f7044: #a6bba8;
-  --c-ddd6d2: #323e34;
-  --c-f6f3f1: #2a211b;
-  --c-8a7268: #9aa99c;
-  --c-ccd2c8: #384139;
-  --c-66865a: #9db09f;
-  --c-65845b: #9eb0a0;
-  --c-dfe7dc: #263328;
-  --c-596653: #abb4ac;
-  --c-4d7642: #a3bca7;
-  --c-a24e42: #cb8980;
-  --c-d8c98f: #2d6334;
-  --c-fffbea: #093a10;
-  --c-81764f: #a0b6a3;
-  --c-858991: #939a94;
-  --c-f1f2f3: #212522;
-  --c-646971: #a7ada8;
-  --c-6d7179: #a2a8a3;
-  --c-e4e4e7: #282c29;
-  --c-202327: #d7dbd8;
-  --c-898d96: #939c94;
-  --c-c8cec6: #3a423b;
-  --c-657360: #a6aea7;
-  --c-c43c35: #d66e69;
-  --c-9f2e28: #de827e;
-  --c-b9c6ad: #3c4f3e;
-  --c-75836d: #9da79f;
-  --c-82907b: #909a91;
-  --c-b39558: #c0a875;
-  --c-272b29: #d6d8d6;
-  --c-18201973: #d9dfda73;
-  --c-4d5a51: #afb5b0;
-  --c-1e272014: #d7dcd714;
-  --c-f4f6f4: #1f2420;
-  --c-e3e7e3: #282d28;
-  --c-8a918c: #939b94;
-  --c-8d9690: #939d94;
-  --c-c27b86: #2b4d2f;
-  --c-8a6ea3: #9a82b0;
-  --c-c4a056: #624d22;
-  --c-4d7ec8: #628dce;
-  --c-bd594f: #c8756d;
-  --c-4d7ec880: #628dce80;
-  --c-4d7ec81f: #628dce1f;
-  --c-4d7ec866: #628dce66;
-  --c-3c433e: #b5b9b5;
-  --c-6d756f: #a3a9a4;
-  --c-3d8a5b: #9cc0a1;
-  --c-eef2ee: #212822;
-  --c-e7eee4: #212f23;
-  --c-eef1ee: #222723;
-  --c-7d8580: #909991;
-  --c-2f3531: #d3d5d3;
-  --c-9f4339: #d28880;
-  --c-d5ddd4: #333d34;
-  --c-f4f7f2: #1c281d;
-  --c-9aa59c: #96a098;
-  --c-f3f5f2: #1f2620;
-  --c-7d9877: #8d9e90;
-  --c-edf0ec: #222923;
-  --c-858d87: #929a93;
-  --c-e0c4a8: #604122;
-  --c-66726a: #a6aca7;
-  --c-4f5d4c: #adb6af;
-  --c-7e8781: #919892;
-  --c-717973: #a0a8a1;
-  --c-9ba29d: #969f97;
-  --c-dcece1: #213524;
-  --c-b78b3f: #cfad73;
-  --c-f5f7f4: #1d251e;
-  --c-dce1dc: #2b312c;
-  --c-a0a6a2: #98a099;
-  --c-bdc9bb: #3c483d;
-  --c-f8faf7: #1a251b;
-  --c-809778: #8e9d90;
-  --c-f0f5ee: #1c2b1e;
-  --c-879289: #929c93;
-  --c-425047: #b1b9b2;
-  --c-7f8782: #909992;
-  --c-666e69: #a7ada8;
-  --c-fff0ed: #420b00;
-  --c-edf0ed: #222823;
-  --c-7b847e: #909891;
-  --c-e7ebe6: #252c26;
-  --c-f7f9f6: #1b251c;
-  --c-f3f6fb: #101c31;
-  --c-dbe3ee: #1b283a;
-  --c-fbf6ea: #103515;
-  --c-ead9b4: #5e481a;
-  --c-f8fbf7: #172819;
-  --c-283329: #d3d8d4;
-  --c-e6ebe4: #242e25;
-  --c-748071: #9fa5a0;
-}
-
-html[data-theme="night"] {
-  --icon: #85888c;
-  --c-27362f: #e6e6e7;
-  --c-f8faf8: #0e0f10;
-  --c-73806f: #85888c;
-  --c-758073: #85878a;
-  --c-8b9689: #8f9195;
-  --c-bdc8b9: #242528;
-  --c-3f5945: #c8c8c9;
-  --c-90a17f: #242629;
-  --c-98a093: #919397;
-  --c-f3f5f0: #101113;
-  --c-516747: #c6c6c7;
-  --c-c59d4b: #c19740;
-  --c-b6735d: #b06750;
-  --c-5e6c56: #c4c5c5;
-  --c-f0f3ed: #111214;
-  --c-dde5d7: #17191b;
-  --c-e8f0e1: #121518;
-  --c-dce7d3: #17191d;
-  --c-e2e9da: #16171a;
-  --c-f7f9f3: #0e1012;
-  --c-e5eddc: #14161a;
-  --c-c3d3b6: #212428;
-  --c-8f9e7b: #25272a;
-  --c-f5f7f0: #0f1113;
-  --c-fff: #0c0d0d;
-  --c-f6f8fa: #0b0f14;
-  --c-dce5d3: #17191d;
-  --c-9aa68a: #8e9299;
-  --c-edf3e8: #111316;
-  --c-7a896f: #81858b;
-  --c-8c987f: #8c9096;
-  --c-567c51: #8f9093;
-  --c-f0f5eb: #101215;
-  --c-a16e49: #b6835e;
-  --c-7f9078: #8b8f94;
-  --c-426b4b: #c5c6c8;
-  --c-dde4de: #171819;
-  --c-72966f: #7b818b;
-  --c-4a7251: #c4c5c6;
-  --c-33563b: #c9cacb;
-  --c-d9e1d9: #18191b;
-  --c-29382e: #e6e6e6;
-  --c-657369: #8d8e8f;
-  --c-395d40: #c8c8ca;
-  --c-54704e: #c4c5c6;
-  --c-33432f: #cbcccd;
-  --c-e4e9df: #151719;
-  --c-8b9683: #8e9095;
-  --c-607957: #8e8f91;
-  --c-9aa39a: #929498;
-  --c-dfe3de: #181819;
-  --c-c85b54: #3b1513;
-  --c-a9443e: #c05a54;
-  --c-e0e6dc: #17181a;
-  --c-899585: #8e9195;
-  --c-e5ebdf: #151619;
-  --c-7f8b7d: #8d8f92;
-  --c-33482605: #e4e5e505;
-  --c-dfe5d9: #17181b;
-  --c-7b8b76: #8b8e93;
-  --c-7e9c71: #787f8a;
-  --c-a0a998: #929499;
-  --c-e1e7dc: #16171a;
-  --c-a0aa9b: #929599;
-  --c-e9ecdf: #141619;
-  --c-7b866a: #83878e;
-  --c-fcfdfb: #0c0d10;
-  --c-edf0e9: #121315;
-  --c-e1e7da: #16181a;
-  --c-6c7e5d: #8c8d8f;
-  --c-f1f5eb: #101215;
-  --c-c3d0b6: #222428;
-  --c-8a9482: #8e9095;
-  --c-4c5b42: #c7c8c9;
-  --c-5d7056: #c4c4c5;
-  --c-9a6a60: #a2736a;
-  --c-7a4f45: #d5bbb5;
-  --c-62855a: #8a8c8e;
-  --c-3d5a38: #c8c9ca;
-  --c-30451d0a: #e5e6e70a;
-  --c-4a5f44: #c7c7c8;
-  --c-9da69a: #939598;
-  --c-8a9585: #8e9195;
-  --c-4c8b55: #8b8d91;
-  --c-dfeee0: #131519;
-  --c-bd9441: #c09949;
-  --c-b75b4d: #b85d4f;
-  --c-9aa394: #919498;
-  --c-ad793b: #c48f51;
-  --c-34462f: #cbcbcd;
-  --c-839079: #8c8f94;
-  --c-929d87: #8e9197;
-  --c-738566: #838890;
-  --c-e7ecdf: #141619;
-  --c-789466: #7d838f;
-  --c-bd935f: #372917;
-  --c-819076: #8b8e94;
-  --c-e4e9dd: #151719;
-  --c-456b42: #c5c6c8;
-  --c-58784b: #c3c4c6;
-  --c-7c936e: #7d828b;
-  --c-f1f2ed: #111214;
-  --c-8e9388: #8f9194;
-  --c-e4e5de: #171819;
-  --c-94a08c: #8f9297;
-  --c-e7ebe0: #151618;
-  --c-a4b098: #91959b;
-  --c-9aa48f: #909398;
-  --c-e7eae7: #151516;
-  --c-7d8b74: #8b8e93;
-  --c-eaf0e5: #121417;
-  --c-edf1e9: #121315;
-  --c-c6cebf: #222426;
-  --c-526d42: #c5c6c8;
-  --c-354f2a: #cacbcd;
-  --c-718866: #82878f;
-  --c-3e5035: #c9cacb;
-  --c-dfe4d8: #17191b;
-  --c-b3bba9: #94989e;
-  --c-edf0e7: #121416;
-  --c-a1ad97: #91949b;
-  --c-e5eddf: #141619;
-  --c-ede7df: #1c1710;
-  --c-9b886f: #99856b;
-  --c-9ba496: #929498;
-  --c-f1f4ec: #101214;
-  --c-9aa18e: #909398;
-  --c-f2f5ec: #101215;
-  --c-e2e9d9: #16171b;
-  --c-7a8d6a: #80858d;
-  --c-dfe6d6: #17191c;
-  --c-aab29e: #92969c;
-  --c-97a087: #8e9198;
-  --c-d5dcd0: #1e1f21;
-  --c-4d8c58: #8b8d91;
-  --c-98ad87: #212326;
-  --c-f2f7edf0: #0f1114f0;
-  --c-536b43: #c5c6c8;
-  --c-f5f7f1: #0f1013;
-  --c-e2e8da: #16181a;
-  --c-66765d: #8e8f90;
-  --c-0002: #eff0f022;
-  --c-26371dc9: #e7e7e8c9;
-  --c-b4d697: #222730;
-  --c-ad6050: #b26858;
-  --c-dfe6d7: #17181b;
-  --c-263b2020: #e6e6e720;
-  --c-88977c: #8c8f96;
-  --c-edf3e7: #111316;
-  --c-8c9782: #8d9095;
-  --c-e8eedd: #131619;
-  --c-f0f3ee: #111214;
-  --c-d8dfd4: #1d1e20;
-  --c-f7f9f5: #0e0f11;
-  --c-8b9587: #8f9194;
-  --c-abb0aa: #95979a;
-  --c-e6ebdf: #151619;
-  --c-edf0e6: #121416;
-  --c-526d46: #c5c6c7;
-  --c-858d7d: #8d8f93;
-  --c-7a8475: #838589;
-  --c-dce4d8: #17191b;
-  --c-5f7557: #8f9092;
-  --c-b34839: #c65b4c;
-  --c-a0a990: #8f939a;
-  --c-6f8b60: #818792;
-  --c-edf1e6: #121416;
-  --c-708070: #85878b;
-  --c-858c87: #8e9093;
-  --c-f1f3f1: #111212;
-  --c-fafbfa: #0e0e0f;
-  --c-b7c9ad: #24272b;
-  --c-f3f7ef: #0f1114;
-  --c-d8e1d3: #1c1e21;
-  --c-f8faf6: #0e0f11;
-  --c-61765a: #8f9091;
-  --c-e1e7dd: #161719;
-  --c-fafbf9: #0d0e10;
-  --c-f4f6f2: #101112;
-  --c-879181: #8e9094;
-  --c-4d6445: #c6c7c8;
-  --c-33412a14: #e5e5e514;
-  --c-67835b: #8b8c8e;
-  --c-e3e8df: #161719;
-  --c-fbfcfa: #0d0e10;
-  --c-cad6c3: #202225;
-  --c-f7faf5: #0e0f12;
-  --c-455440: #c8c9ca;
-  --c-939b8e: #909296;
-  --c-708067: #85898f;
-  --c-e5f0e2: #121418;
-  --c-4a7547: #c4c5c7;
-  --c-f7efd9: #10141b;
-  --c-856b2f: #e1d1ab;
-  --c-f6e5e1: #1f0d09;
-  --c-a04e42: #bc685c;
-  --c-e8ece5: #141517;
-  --c-667563: #8d8e8f;
-  --c-71856a: #83878e;
-  --c-e6ebe2: #141618;
-  --c-40503c: #c9c9ca;
-  --c-929b8e: #909296;
-  --c-dfe5db: #17181a;
-  --c-667a5e: #8d8e8f;
-  --c-e5eae1: #151618;
-  --c-969e92: #919396;
-  --c-596755: #c5c5c6;
-  --c-eaeee7: #131416;
-  --c-5c6c57: #c4c5c5;
-  --c-6c7768: #8c8c8d;
-  --c-8c9588: #8f9194;
-  --c-99a28d: #8f9298;
-  --c-83976c: #7b818c;
-  --c-a7af9b: #92959b;
-  --c-c1cab5: #242629;
-  --c-e5eadc: #15171a;
-  --c-95a37f: #242529;
-  --c-b0b6a3: #93979d;
-  --c-a1ab92: #90949a;
-  --c-b7a47a: #2f2819;
-  --c-819b68: #7a818e;
-  --c-b68a6e: #322319;
-  --c-8e9e79: #777d87;
-  --c-f9faf6: #0e0f11;
-  --c-e6eadd: #151719;
-  --c-9eaa8b: #212326;
-  --c-f0f4e8: #101216;
-  --c-e2e9d6: #16181c;
-  --c-6d8058: #8c8d90;
-  --c-a0ac8d: #212325;
-  --c-e6ebdd: #151619;
-  --c-f7f9f1: #0e1013;
-  --c-a1ab91: #90939a;
-  --c-8d9a81: #8d9096;
-  --c-fafafa: #0e0f0f;
-  --c-e9e9e9: #151516;
-  --c-414141: #c9cacc;
-  --c-4a6354: #c6c6c7;
-  --c-c5d4c8: #202224;
-  --c-3d5c48: #c7c8c9;
-  --c-e5e5e5: #161717;
-  --c-555: #c6c7c8;
-  --c-efefef: #121313;
-  --c-e8efe9: #131416;
-  --c-263b2b: #e6e6e6;
-  --c-444: #c9cacb;
-  --c-666: #8f9093;
-  --c-ededed: #131314;
-  --c-222: #e8e9e9;
-  --c-e6e6e6: #161617;
-  --c-f0f0f0: #121213;
-  --c-eaeaea: #141515;
-  --c-161616: #ebebec;
-  --c-6d7a72: #888a8d;
-  --c-8a9388: #8f9194;
-  --c-2f5a38: #c8c9cb;
-  --c-e6f0e7: #121416;
-  --c-999: #929396;
-  --c-828282: #8d8f92;
-  --c-e7edf4: #0c131b;
-  --c-8c9caf: #202225;
-  --c-202b38: #e0e6ed;
-  --c-777: #86888b;
-  --c-dedede: #19191a;
-  --c-8a8f89: #8f9193;
-  --c-344f65: #b7cada;
-  --c-899187: #8f9194;
-  --c-1f3d2c: #e6e6e7;
-  --c-f0f4f0: #111113;
-  --c-9b3030: #e3a5a5;
-  --c-fdf0f0: #1c0404;
-  --c-5c6658: #c5c5c5;
-  --c-e5e9e2: #151618;
-  --c-9aa593: #919398;
-  --c-dce3d9: #18191b;
-  --c-4a524c: #c8c8c8;
-  --c-f2e9e7: #1a100e;
-  --c-687066: #8e8e8f;
-  --c-e3ead9: #15171b;
-  --c-2f3a33: #e5e5e5;
-  --c-e7eddf: #141619;
-  --c-fbfcf9: #0d0e10;
-  --c-f0e0dc: #1f110d;
-  --c-2037191a: #e7e7e81a;
-  --c-f0e9e2: #1c150e;
-  --c-fdf8f3: #1a0f04;
-  --c-eee: #131314;
-  --c-808778: #8c8e91;
-  --c-8b968c: #909295;
-  --c-0001: #eff0f011;
-  --c-edf0ea: #121315;
-  --c-e2e7de: #161719;
-  --c-34402f: #e4e5e5;
-  --c-74806e: #85888c;
-  --c-a3332d: #cf5751;
-  --c-e1e6dc: #17181a;
-  --c-668052: #8d8f92;
-  --c-eff4e9: #101216;
-  --c-bc443d: #c44f48;
-  --c-3d5930: #c8c9cb;
-  --c-87907f: #8d9094;
-  --c-edf0e8: #121416;
-  --c-687360: #8e8f90;
-  --c-f0f4eb: #101215;
-  --c-e9f0e1: #121518;
-  --c-344c2b: #cacbcd;
-  --c-bcc8b2: #24262a;
-  --c-e9eee5: #131417;
-  --c-7e887a: #8c8e92;
-  --c-eef2eb: #111315;
-  --c-cbd5c4: #202225;
-  --c-eef2e9: #111315;
-  --c-dce5d4: #17191c;
-  --c-e5ecde: #141619;
-  --c-e1edd7: #14171b;
-  --c-3f5c35: #c8c9ca;
-  --c-6d855c: #838a94;
-  --c-dde6d6: #17191c;
-  --c-354d2d: #cacbcc;
-  --c-ffffff24: #0c0d0d24;
-  --c-e3e9de: #151719;
-  --c-6f8b6040: #81879240;
-  --c-929c8c: #909296;
-  --c-dfe6d9: #17181b;
-  --c-f7f9f4: #0e0f12;
-  --c-95a08e: #909397;
-  --c-dfe8d8: #16181b;
-  --c-7f9573: #8a8e95;
-  --c-e9eee6: #131416;
-  --c-929b8b: #8f9296;
-  --c-aa6655: #ad6c5c;
-  --c-e8d7d0: #231611;
-  --c-fff8f5: #1d0900;
-  --c-dce4d4: #18191c;
-  --c-607a4b: #c3c4c6;
-  --c-6d7865: #8c8d8e;
-  --c-e5ecdc: #14161a;
-  --c-81966e: #7b818b;
-  --c-e8ede3: #141517;
-  --c-edf1e7: #121316;
-  --c-405432: #c9cacb;
-  --c-eef2ea: #111315;
-  --c-b8cfad: #23262b;
-  --c-537047: #c5c5c7;
-  --c-eff7ea: #0f1116;
-  --c-d7d9d4: #1f1f20;
-  --c-7e837b: #828487;
-  --c-f3f4f2: #111112;
-  --c-dfe5dc: #17181a;
-  --c-788274: #84868a;
-  --c-58714d: #c4c5c6;
-  --c-63705e: #909091;
-  --c-45573f: #c8c8c9;
-  --c-919a8d: #909295;
-  --c-7d8977: #8c8e92;
-  --c-929a90: #919296;
-  --c-e4e9e1: #151618;
-  --c-52634c: #c6c6c7;
-  --c-42503e: #c9c9ca;
-  --c-758071: #85878b;
-  --c-d8d7c6: #1f2124;
-  --c-faf9ef: #0d1014;
-  --c-77704e: #c3c4c6;
-  --c-d8d8df: #191a1b;
-  --c-f5f5f8: #0f1011;
-  --c-686978: #898b8f;
-  --c-43513e: #c9c9ca;
-  --c-879083: #8e9093;
-  --c-455140: #c9c9ca;
-  --c-5c6857: #c5c5c5;
-  --c-7b8577: #828588;
-  --c-d8ded4: #1d1e20;
-  --c-707a6b: #888a8e;
-  --c-adc79f: #26292e;
-  --c-4f7044: #c5c6c7;
-  --c-ddd6d2: #1d1f21;
-  --c-f6f3f1: #15100d;
-  --c-8a7268: #81868e;
-  --c-ccd2c8: #212223;
-  --c-66865a: #838a95;
-  --c-65845b: #8a8c8e;
-  --c-dfe7dc: #16171a;
-  --c-596653: #c5c5c6;
-  --c-4d7642: #c4c5c7;
-  --c-a24e42: #bc665a;
-  --c-d8c98f: #222832;
-  --c-fffbea: #0a0f17;
-  --c-81764f: #8e8f92;
-  --c-858991: #8e9094;
-  --c-f1f2f3: #111212;
-  --c-646971: #8e8f8f;
-  --c-6d7179: #888a8d;
-  --c-e4e4e7: #161617;
-  --c-202327: #e8e9e9;
-  --c-898d96: #8f9195;
-  --c-c8cec6: #222324;
-  --c-657360: #8e8f90;
-  --c-c43c35: #cc4741;
-  --c-9f2e28: #e7a5a1;
-  --c-b9c6ad: #25272b;
-  --c-75836d: #84878d;
-  --c-82907b: #8c8f94;
-  --c-b39558: #b19253;
-  --c-272b29: #e7e7e8;
-  --c-18201973: #eaeaea73;
-  --c-4d5a51: #c7c7c8;
-  --c-1e272014: #e9e9e914;
-  --c-f4f6f4: #101011;
-  --c-e3e7e3: #161617;
-  --c-8a918c: #8f9194;
-  --c-8d9690: #909295;
-  --c-c27b86: #1d2128;
-  --c-8a6ea3: #82649d;
-  --c-c4a056: #3a2e14;
-  --c-4d7ec8: #3c72c3;
-  --c-bd594f: #bb5348;
-  --c-4d7ec880: #3c72c380;
-  --c-4d7ec81f: #3c72c31f;
-  --c-4d7ec866: #3c72c366;
-  --c-3c433e: #cacbcb;
-  --c-6d756f: #898b8e;
-  --c-3d8a5b: #c2c4c6;
-  --c-eef2ee: #111213;
-  --c-e7eee4: #131517;
-  --c-eef1ee: #121213;
-  --c-7d8580: #8d8f91;
-  --c-2f3531: #e6e6e6;
-  --c-9f4339: #c36359;
-  --c-d5ddd4: #1d1e20;
-  --c-f4f7f2: #0f1012;
-  --c-9aa59c: #939598;
-  --c-f3f5f2: #101112;
-  --c-7d9877: #8b8f96;
-  --c-edf0ec: #121314;
-  --c-858d87: #8e9093;
-  --c-e0c4a8: #362513;
-  --c-66726a: #8d8e8f;
-  --c-4f5d4c: #c6c7c7;
-  --c-7e8781: #8d8f92;
-  --c-717973: #87898c;
-  --c-9ba29d: #929498;
-  --c-dcece1: #14161a;
-  --c-b78b3f: #c1964c;
-  --c-f5f7f4: #0f1011;
-  --c-dce1dc: #18191a;
-  --c-a0a6a2: #949598;
-  --c-bdc9bb: #242527;
-  --c-f8faf7: #0e0f11;
-  --c-809778: #8b8f96;
-  --c-f0f5ee: #101114;
-  --c-879289: #8f9194;
-  --c-425047: #c9c9ca;
-  --c-7f8782: #8d8f92;
-  --c-666e69: #8e8f90;
-  --c-fff0ed: #200500;
-  --c-edf0ed: #121314;
-  --c-7b847e: #8c8e91;
-  --c-e7ebe6: #141516;
-  --c-f7f9f6: #0e0f11;
-  --c-f3f6fb: #080e18;
-  --c-dbe3ee: #0f161f;
-  --c-fbf6ea: #0d1016;
-  --c-ead9b4: #34290f;
-  --c-f8fbf7: #0d0e11;
-  --c-283329: #e6e7e7;
-  --c-e6ebe4: #141517;
-  --c-748071: #85878b;
-}
 
 :root {
   --radius-control: 0.857rem;
@@ -27299,7 +24916,7 @@ html[data-theme="night"] {
 
 .tip-item.is-leaving {
   pointer-events: none;
-  animation: tip-out var(--overlay-tip-duration) ease forwards;
+  animation: tip-out var(--overlay-tip-duration) var(--overlay-exit-easing) both;
 }
 
 .tip-icon {
@@ -27886,7 +25503,13 @@ html body .dialog-list > .dialog-footer {
 .field-select-panel {
   min-width: 10rem;
   max-height: 15.714rem;
+}
+
+.field-select-panel > [role="listbox"] {
+  max-height: calc(15.714rem - 2 * var(--overlay-select-panel-padding, 0.286rem) - 0.143rem);
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .field-select-empty {
@@ -28703,239 +26326,83 @@ html body .dialog-list > .dialog-footer {
   flex: 0 0 auto;
 }
 
+/* 岗位色固定，不参与主题生成：近黑 / 墨玉下也保留各自的色相
+   （暗夜生成器会把紫、青等色相量化成蓝阶或灰阶，岗位就分不出来了）。 */
 [data-role="管理"] {
-  --role-ink: var(--c-8b3d24);
-  --role-bg: var(--c-fff0e5);
-  --role-border: var(--c-e9b698);
+  --role-ink: #8b3d24;
+  --role-bg: #fff0e5;
+  --role-border: #e9b698;
 }
 
 [data-role="运营"] {
-  --role-ink: var(--c-87600d);
-  --role-bg: var(--c-fff7d9);
-  --role-border: var(--c-dcc66c);
+  --role-ink: #87600d;
+  --role-bg: #fff7d9;
+  --role-border: #dcc66c;
 }
 
 [data-role="设计"] {
-  --role-ink: var(--c-a03670);
-  --role-bg: var(--c-fceaf4);
-  --role-border: var(--c-e4adc9);
+  --role-ink: #a03670;
+  --role-bg: #fceaf4;
+  --role-border: #e4adc9;
 }
 
 [data-role="产品"] {
-  --role-ink: var(--c-6440a5);
-  --role-bg: var(--c-f0eafa);
-  --role-border: var(--c-c5afe5);
+  --role-ink: #6440a5;
+  --role-bg: #f0eafa;
+  --role-border: #c5afe5;
 }
 
 [data-role="前端"] {
-  --role-ink: var(--c-225caf);
-  --role-bg: var(--c-eaf2ff);
-  --role-border: var(--c-a8c5ee);
+  --role-ink: #225caf;
+  --role-bg: #eaf2ff;
+  --role-border: #a8c5ee;
 }
 
 [data-role="后端"] {
-  --role-ink: var(--c-177261);
-  --role-bg: var(--c-e3f5ef);
-  --role-border: var(--c-9acfbf);
+  --role-ink: #177261;
+  --role-bg: #e3f5ef;
+  --role-border: #9acfbf;
 }
 
 [data-role="助理"] {
-  --role-ink: var(--c-48602e);
-  --role-bg: var(--c-edf3df);
-  --role-border: var(--c-b5c993);
+  --role-ink: #48602e;
+  --role-bg: #edf3df;
+  --role-border: #b5c993;
 }
 
 [data-role="创建人"] {
-  --role-ink: var(--c-7b5c20);
-  --role-bg: var(--c-fff7df);
-  --role-border: var(--c-dfc98b);
+  --role-ink: #7b5c20;
+  --role-bg: #fff7df;
+  --role-border: #dfc98b;
 }
 
 [data-role="只读"] {
-  --role-ink: var(--c-64707b);
-  --role-bg: var(--c-f2f4f6);
-  --role-border: var(--c-cdd3d8);
+  --role-ink: #64707b;
+  --role-bg: #f2f4f6;
+  --role-border: #cdd3d8;
 }
 
-html[data-theme="night"] {
-  --c-f8faf8: #17181a;
-  --c-f8faf6: #1c1d20;
-  --c-f7f9f6: #1c1d20;
-  --c-f7f9f5: #1c1d20;
-  --c-f7f9f4: #1c1d20;
-  --c-f7f9f3: #1c1d20;
-  --c-fafbfa: #212226;
-  --c-fafbf9: #212226;
-  --c-f4f7f2: #1f2125;
-  --c-f0f3ed: #1e2024;
-  --c-fff: #2c2f34;
-  --c-eef2ea: #26292e;
-  --c-e9eee5: #24272c;
-  --c-e8f0e1: #23262b;
-}
 
-html[data-theme="ink"] {
-  --c-f8faf8: #141a15;
-  --c-f8faf6: #1a211a;
-  --c-f7f9f6: #1a211a;
-  --c-f7f9f5: #1a211a;
-  --c-f7f9f4: #1a211a;
-  --c-f7f9f3: #1a211a;
-  --c-fafbfa: #1e271f;
-  --c-fafbf9: #1e271f;
-  --c-f4f7f2: #1c241d;
-  --c-f0f3ed: #1b221c;
-  --c-fff: #273228;
-  --c-eef2ea: #222c23;
-  --c-e9eee5: #202a21;
-  --c-e8f0e1: #1f2920;
-}
 
-html[data-theme="night"] {
-  --c-f1f5eb: #34383e;
-  --c-eef2e9: #3a3f46;
-}
 
-html[data-theme="ink"] {
-  --c-f1f5eb: #303a31;
-  --c-eef2e9: #374238;
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) {
-  --c-e7eae7: color-mix(in srgb, var(--c-27362f) 24%, transparent);
-  --c-e5e9e2: color-mix(in srgb, var(--c-27362f) 24%, transparent);
-  --c-e3e7e3: color-mix(in srgb, var(--c-27362f) 24%, transparent);
-  --c-e8ece5: color-mix(in srgb, var(--c-27362f) 24%, transparent);
-  --c-eef1ee: color-mix(in srgb, var(--c-27362f) 24%, transparent);
-  --c-edf0e8: color-mix(in srgb, var(--c-27362f) 24%, transparent);
-  --c-dce3d9: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-d8e1d3: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-e2e9d6: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-e0e6dc: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dfe5d9: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dde5d7: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-e1e7da: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-e1e6dc: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dce4d4: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dfe5db: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dfe5dc: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dfe6d9: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-e4e9df: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-e2e9da: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dce7d3: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-e7eddf: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-d9e1d9: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-c3d0b6: color-mix(in srgb, var(--c-27362f) 40%, transparent);
-  --c-cad6c3: color-mix(in srgb, var(--c-27362f) 40%, transparent);
-  --c-b7c9ad: color-mix(in srgb, var(--c-27362f) 48%, transparent);
-  --c-c3d3b6: color-mix(in srgb, var(--c-27362f) 48%, transparent);
-  --c-f3f7f1: #2a2e33;
-  --c-b8c9b2: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-8a958d: #b9bdc2;
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) {
-  --icon: #cfd2d6;
-  --c-27362f: #e9eaeb;
-  --c-4a524c: #d9dbde;
-  --c-5e6c56: #d8dadd;
-  --c-516747: #d3d6d9;
-  --c-54704e: #d3d6d9;
-  --c-395d40: #d3d6d9;
-  --c-69756c: #d2d5d8;
-  --c-73806f: #d0d3d7;
-  --c-758073: #d0d3d7;
-  --c-8b9689: #ced1d5;
-  --c-8b9683: #ced1d5;
-  --c-858c87: #ced1d5;
-  --c-6d756f: #ced1d5;
-  --c-354238: #d6d9dc;
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) {
-  --c-e5f0e2: #14301b;
-  --c-4a7547: #7fd694;
-  --c-4c8b55: #6fce87;
-  --c-dfeee0: #1d3a24;
-  --c-f7efd9: #33290f;
-  --c-856b2f: #e6c169;
-  --c-bd9441: #e2b24f;
-  --c-f6e5e1: #3a1a16;
-  --c-a04e42: #f09184;
-  --c-b75b4d: #e2705f;
-  --c-eff7ea: #16301f;
-  --c-537047: #7fd694;
-  --c-b8cfad: #2f5a3b;
-  --c-d7d9d4: color-mix(in srgb, var(--c-27362f) 30%, transparent);
-  --c-7e837b: #b9bdc2;
-  --c-f3f4f2: #22252a;
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) .miniprogram-status {
-  background: #26292e;
-  color: #cfd3d8;
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) .miniprogram-status.ok {
-  background: #16301f;
-  color: #7fd694;
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) .miniprogram-status.warning {
-  background: #33290f;
-  color: #e6c169;
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) .miniprogram-status.failed {
-  background: #3a1a16;
-  color: #f09184;
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) .miniprogram-status.muted {
-  background: #26292e;
-  color: #b9bdc2;
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) :is(.brand-logo, .welcome-logo, .sidebar-logo) {
-  color: #2563eb;
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) :is(.brand-logo, .welcome-logo) {
-  filter: drop-shadow(0 0.286rem 0.5rem rgba(37, 99, 235, 0.28));
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) .streaming-status {
-  color: #60a5fa;
-}
 
 html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-heading,
-html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-group a {
-  color: var(--c-7f8b7d);
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-group a:hover {
-  background: var(--c-e9eee5);
-  color: var(--c-27362f);
-}
 
 html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-group a[aria-current="page"],
-html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-group a[aria-current="page"]:hover {
-  color: var(--c-27362f);
-  background: var(--c-fff);
-}
 
-html[data-theme="night"] {
-  --c-426b4b: #2f6feb;
-  --c-33563b: #2563eb;
-  --c-3f5945: #2f6feb;
-  --c-67835b: #3b82f6;
-  --c-4a7251: #60a5fa;
-}
 
-html[data-theme="ink"] {
-  --c-426b4b: #3f6a45;
-  --c-33563b: #35593b;
-}
 
 html:is([data-theme="ink"], [data-theme="night"])
   :is(
@@ -29003,198 +26470,14 @@ html:is([data-theme="ink"], [data-theme="night"])
   background: var(--danger-tint-bg-hover);
 }
 
-html:is([data-theme="ink"], [data-theme="night"]) button.cite-source {
-  background: #1d4f91;
-  color: #e8f1ff;
-  --stroke: #3b82f6;
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) button.cite-source:hover,
-html:is([data-theme="ink"], [data-theme="night"]) button.cite-source[aria-expanded="true"] {
-  background: #2563eb;
-}
+html[data-theme="night"] button.cite-source:hover,
 
-html:is([data-theme="ink"], [data-theme="night"]) button.cite-source .cite-count {
-  background: #ffffff2e;
-  color: #fff;
-}
 
 html:is([data-theme="ink"], [data-theme="night"]) a.cite-mark,
-html:is([data-theme="ink"], [data-theme="night"]) .cite-panel .cite-index {
-  color: var(--c-426b4b);
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) .cite-panel button:hover {
-  background: #2f6feb47;
-}
 
-html[data-theme="night"] {
-  --c-17211b: #d6d6d6;
-  --c-243024: #d6d6d6;
-  --c-273329: #d6d6d6;
-  --c-303b33: #d6d6d6;
-  --c-39463b: #d6d6d6;
-  --c-3d6e8a: #d6d6d6;
-  --c-3e5745: #d6d6d6;
-  --c-3f4942: #d6d6d6;
-  --c-3f6b3c: #292929;
-  --c-46534a: #d6d6d6;
-  --c-4f5b50: #d6d6d6;
-  --c-4f6554: #d6d6d6;
-  --c-59655c: #d6d6d6;
-  --c-5a635d: #d6d6d6;
-  --c-5c675f: #d6d6d6;
-  --c-5d7160: #d6d6d6;
-  --c-5e7958: #d6d6d6;
-  --c-5f8f5a: #292929;
-  --c-63815c: #d6d6d6;
-  --c-667168: #d6d6d6;
-  --c-6f5c54: #d6d6d6;
-  --c-6f9278: #d6d6d6;
-  --c-707b72: #d6d6d6;
-  --c-718073: #d6d6d6;
-  --c-738075: #d6d6d6;
-  --c-78906f: #d6d6d6;
-  --c-7a857d: #d6d6d6;
-  --c-7a867b: #d6d6d6;
-  --c-7b867c: #d6d6d6;
-  --c-7b8779: #d6d6d6;
-  --c-7b8d7e: #d6d6d6;
-  --c-7c887e: #d6d6d6;
-  --c-806a39: #d6d6d6;
-  --c-89938b: #d6d6d6;
-  --c-8a4a3b: #292929;
-  --c-9a6b57: #d6d6d6;
-  --c-9ab391: #d6d6d6;
-  --c-9b4a3c: #d6d6d6;
-  --c-a6afa9: #d6d6d6;
-  --c-a9b9a5: #d6d6d6;
-  --c-aab8aa: #4d4d4d;
-  --c-b1bab1: #d6d6d6;
-  --c-c9d6b8: #292929;
-  --c-cfd9ce: #d6d6d6;
-  --c-cfded0: #d6d6d6;
-  --c-d7b4a8: #d6d6d6;
-  --c-d8ded5: #d6d6d6;
-  --c-d8e2d7: #d6d6d6;
-  --c-d9dfda: #d6d6d6;
-  --c-dfe7de: #d6d6d6;
-  --c-e1e8e0: #d6d6d6;
-  --c-e3e9e2: #d6d6d6;
-  --c-e4e8e4: #d6d6d6;
-  --c-e5d7b7: #d6d6d6;
-  --c-e5ebe3: #d6d6d6;
-  --c-e5eee1: #d6d6d6;
-  --c-e7f0f5: #292929;
-  --c-e8ebe8: #292929;
-  --c-e8eee7: #d6d6d6;
-  --c-e9ece8: #292929;
-  --c-eadfd6: #d6d6d6;
-  --c-eaf2e7: #292929;
-  --c-ecf0eb: #d6d6d6;
-  --c-f0d4ce: #d6d6d6;
-  --c-f1f3ef: #292929;
-  --c-f1f6ef: #292929;
-  --c-f1f7ee: #292929;
-  --c-f1f7f0: #292929;
-  --c-f3f6f1: #292929;
-  --c-f4f8f2: #292929;
-  --c-f5f8f2: #292929;
-  --c-f5f8f3: #292929;
-  --c-f6e6e4: #292929;
-  --c-f7f8f4: #292929;
-  --c-f7faf6: #292929;
-  --c-f8f3ef: #292929;
-  --c-f9fbf8: #292929;
-  --c-fbf7f4: #292929;
-  --c-fcf8ed: #292929;
-  --c-fff4f1: #292929;
-  --c-ffffff: #292929;
-}
 
-html[data-theme="ink"] {
-  --c-17211b: #cfddd5;
-  --c-243024: #d0dcd0;
-  --c-273329: #d1dcd3;
-  --c-303b33: #d2dad4;
-  --c-39463b: #d2dad3;
-  --c-3d6e8a: #c6dbe6;
-  --c-3e5745: #cfddd3;
-  --c-3f4942: #d3d9d5;
-  --c-3f6b3c: #1f341d;
-  --c-46534a: #d3dad5;
-  --c-4f5b50: #d3d9d4;
-  --c-4f6554: #d1dbd3;
-  --c-59655c: #d4d9d5;
-  --c-5a635d: #d4d8d6;
-  --c-5c675f: #d4d9d5;
-  --c-5d7160: #d2dad3;
-  --c-5e7958: #d2ddd0;
-  --c-5f8f5a: #213220;
-  --c-63815c: #d2ddcf;
-  --c-667168: #d4d8d5;
-  --c-6f5c54: #dcd4d1;
-  --c-6f9278: #d1dcd3;
-  --c-707b72: #d4d8d5;
-  --c-718073: #d4d9d4;
-  --c-738075: #d4d8d5;
-  --c-78906f: #d4dbd1;
-  --c-7a857d: #d4d8d5;
-  --c-7a867b: #d4d8d5;
-  --c-7b867c: #d4d8d5;
-  --c-7b8779: #d5d8d4;
-  --c-7b8d7e: #d3d9d4;
-  --c-7c887e: #d4d8d5;
-  --c-806a39: #e6dcc7;
-  --c-89938b: #d4d8d5;
-  --c-8a4a3b: #391f18;
-  --c-9a6b57: #e2d2cb;
-  --c-9ab391: #d3decf;
-  --c-9b4a3c: #e7cbc6;
-  --c-a6afa9: #d4d8d5;
-  --c-a9b9a5: #d3dbd1;
-  --c-aab8aa: #465346;
-  --c-b1bab1: #d4d9d4;
-  --c-c9d6b8: #2a341e;
-  --c-cfd9ce: #d2dbd1;
-  --c-cfded0: #cfded0;
-  --c-d7b4a8: #e5cfc7;
-  --c-d8ded5: #d5dbd1;
-  --c-d8e2d7: #d1ddd0;
-  --c-d9dfda: #d3dad4;
-  --c-dfe7de: #d1ddd0;
-  --c-e1e8e0: #d2dcd0;
-  --c-e3e9e2: #d2dcd1;
-  --c-e4e8e4: #d3d9d3;
-  --c-e5d7b7: #e7ddc6;
-  --c-e5ebe3: #d3ddcf;
-  --c-e5eee1: #d2e1cb;
-  --c-e7f0f5: #182d39;
-  --c-e8ebe8: #262c26;
-  --c-e8eee7: #d1ddcf;
-  --c-e9ece8: #272d25;
-  --c-eadfd6: #e3d5c9;
-  --c-eaf2e7: #23351d;
-  --c-ecf0eb: #d3dcd0;
-  --c-f0d4ce: #e7ccc6;
-  --c-f1f3ef: #292f23;
-  --c-f1f6ef: #24341d;
-  --c-f1f7ee: #24371a;
-  --c-f1f7f0: #20351c;
-  --c-f3f6f1: #273220;
-  --c-f4f8f2: #25351d;
-  --c-f5f8f2: #29351d;
-  --c-f5f8f3: #27341e;
-  --c-f6e6e4: #391c18;
-  --c-f7f8f4: #2d3220;
-  --c-f7faf6: #23341d;
-  --c-f8f3ef: #392719;
-  --c-f9fbf8: #25341e;
-  --c-fbf7f4: #392618;
-  --c-fcf8ed: #393018;
-  --c-fff4f1: #391f18;
-  --c-ffffff: #292929;
-}
 
 .slide-switch-thumb {
   position: absolute;
@@ -30004,33 +27287,7 @@ html[data-theme="ink"] {
 }
 
 .thread-viewport[data-thread-list-pane="archived"] .thread-track {
-  transform: translate(calc(-100% / 3));
-}
-
-.thread-viewport[data-thread-list-pane="create"] .thread-track {
-  transform: translate(calc(-200% / 3));
-}
-
-.thread-create-card:after {
-  content: "";
-  position: absolute;
-  left: -1px;
-  top: -1px;
-  width: calc(200% + 4px);
-  height: calc(200% + 4px);
-  box-sizing: border-box;
-  pointer-events: none;
-  border-style: inherit;
-  border-color: var(--stroke);
-  border-width: inherit;
-  border-radius: var(--stroke-radius);
-  transform: scale(0.5);
-  transform-origin: 0 0;
-}
-
-.thread-create-card .field:not(.is-floating) .field-input::placeholder,
-.thread-create-card .field:not(.is-floating) .field-textarea::placeholder {
-  color: transparent;
+  transform: translate(calc(-100% / 2));
 }
 
 .thread-row:not(.selected):after {
@@ -30203,8 +27460,19 @@ html[data-theme="ink"] {
 }
 
 .conversation-heading-split > .conversation-log-group {
+  grid-column: 1;
   box-sizing: border-box;
   padding-left: var(--chat-edge);
+}
+
+/* 无迭代时头部没有左侧视图组，网格不能靠自动排布：拖拽条固定第 2 列、
+   老翁控件固定第 3 列，否则条会顶到左列，控件被塞进 0.071rem 宽的隔条列。 */
+.conversation-heading-split > .conversation-heading-divider {
+  grid-column: 2;
+}
+
+.conversation-heading-split > .elder-heading-side {
+  grid-column: 3;
 }
 
 .elder-heading-side,
@@ -30295,7 +27563,7 @@ html[data-theme="ink"] {
 
 .conversation-task-pool {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   column-gap: 0.571rem;
   align-items: center;
   min-width: 0;
@@ -31763,8 +29031,7 @@ a.web-link.cite-mark {
 
 @media (max-width: 44.286rem) {
   .thread-viewport[data-thread-list-pane="active"] .thread-pane-active,
-  .thread-viewport[data-thread-list-pane="archived"] .thread-pane-archived,
-  .thread-viewport[data-thread-list-pane="create"] .thread-pane-create {
+  .thread-viewport[data-thread-list-pane="archived"] .thread-pane-archived {
     display: block;
     flex: 1;
   }
@@ -32767,10 +30034,6 @@ body.col-resizing {
 }
 
 @media (prefers-reduced-motion: reduce) {
-}
-
-.message.mention-unread {
-  box-shadow: inset 0.214rem 0 #b45309;
 }
 
 .app-shell .sidebar-bottom > .sidebar-card:after {
@@ -34460,2897 +31723,6 @@ w:after {
   white-space: nowrap;
 }
 
-html[data-theme="tech"] {
-  --icon: #6b7284;
-  --logo-ink: #f3f6ec;
-  --logo-accent: #b7d295;
-  --c-27362f: #232a3a;
-  --c-f8faf8: #f7f8fb;
-  --c-73806f: #6b7284;
-  --c-758073: #6e7585;
-  --c-8b9689: #858b9a;
-  --c-bdc8b9: #b5bccc;
-  --c-3f5945: #384460;
-  --c-90a17f: #7686aa;
-  --c-98a093: #9096a3;
-  --c-f3f5f0: #eff1f6;
-  --c-516747: #3f4d6f;
-  --c-c59d4b: #c59d4b;
-  --c-b6735d: #b6735d;
-  --c-5e6c56: #505a72;
-  --c-f0f3ed: #ebeef5;
-  --c-dde5d7: #d3dae9;
-  --c-e8f0e1: #dde4f4;
-  --c-dce7d3: #ced7ec;
-  --c-e2e9da: #d6dded;
-  --c-f7f9f3: #f1f4fb;
-  --c-e5eddc: #d8dff1;
-  --c-c3d3b6: #aebcdb;
-  --c-8f9e7b: #7282a7;
-  --c-f5f7f0: #eef1f9;
-  --c-fff: #fff;
-  --c-f6f8fa: #f6f8fa;
-  --c-dce5d3: #ced7ea;
-  --c-9aa68a: #838fad;
-  --c-edf3e8: #e5eaf6;
-  --c-7a896f: #687490;
-  --c-8c987f: #79849f;
-  --c-567c51: #465987;
-  --c-f0f5eb: #e8edf8;
-  --c-a16e49: #a16e49;
-  --c-7f9078: #727d96;
-  --c-426b4b: #374a76;
-  --c-dde4de: #dbdee6;
-  --c-4f6257: #4a5367;
-  --c-edf2ec: #eaedf4;
-  --c-72966f: #6577a0;
-  --c-4a7251: #40527c;
-  --c-33563b: #2a3a5f;
-  --c-d9e1d9: #d7dbe3;
-  --c-29382e: #252c3c;
-  --c-70916f: #66769a;
-  --c-eaf0e8: #e6eaf2;
-  --c-657369: #616877;
-  --c-395d40: #304066;
-  --c-86918a: #818796;
-  --c-8b9a87: #828b9f;
-  --c-93a094: #9096a3;
-  --c-fff0ec: #fff0ec;
-  --c-a24b3d: #a24b3d;
-  --c-f3d8d0: #f3d8d0;
-  --c-f4f7f1: #eff2f9;
-  --c-7a8b7b: #767d8f;
-  --c-698164: #5c6a89;
-  --c-a2aba0: #9da2ae;
-  --c-7a9a6e: #6377a5;
-  --c-2f4a2c: #243252;
-  --c-54704e: #455579;
-  --c-f2f8ed: #eaeffb;
-  --c-243a22: #1c2740;
-  --c-dfe5da: #d7dce8;
-  --c-f2f5ef: #edf0f7;
-  --c-7c8678: #737a8b;
-  --c-33432f: #2a3348;
-  --c-cbdabe: #b7c3e1;
-  --c-52684a: #425070;
-  --c-e4e9df: #dce1ec;
-  --c-8b9683: #7e879b;
-  --c-607957: #4e5e82;
-  --c-9aa39a: #969ba7;
-  --c-dfe3de: #dddfe4;
-  --c-818981: #818981;
-  --c-c85b54: #c85b54;
-  --c-a9443e: #a9443e;
-  --c-c69236: #c69236;
-  --c-8a651f: #8a651f;
-  --c-5d8b55: #476099;
-  --c-497343: #374c7f;
-  --c-dce3d6: #d3d9e6;
-  --c-f5f6f2: #f1f3f7;
-  --c-788271: #6d7486;
-  --c-a64c42: #a64c42;
-  --c-e0e6dc: #d9dee9;
-  --c-899585: #818899;
-  --c-e5ebdf: #dce1ee;
-  --c-7f8b7d: #79808f;
-  --c-33482605: #1d2d5105;
-  --c-929d8e: #8a91a1;
-  --c-dfe5d9: #d6dbe8;
-  --c-7b8b76: #717a90;
-  --c-7e9c71: #6679a7;
-  --c-a0a998: #949bad;
-  --c-e1e7dc: #d9deea;
-  --c-a0aa9b: #979eae;
-  --c-e9ecdf: #dce2ef;
-  --c-7b866a: #636f8d;
-  --c-fcfdfb: #fafbfe;
-  --c-edf0e9: #e7eaf2;
-  --c-e1e7da: #d7ddea;
-  --c-6c7e5d: #546387;
-  --c-f1f5eb: #e8edf8;
-  --c-c3d0b6: #afbbd7;
-  --c-8a9482: #7d8699;
-  --c-4c5b42: #3c4762;
-  --c-3d4a38: #333c4f;
-  --c-5d7056: #4f5b77;
-  --c-9a6a60: #9a6a60;
-  --c-7a4f45: #7a4f45;
-  --c-62855a: #4f6290;
-  --c-3d5a38: #2f3f63;
-  --c-30451d0a: #13254f0a;
-  --c-4a5f44: #3d4966;
-  --c-9da69a: #979ca9;
-  --c-8a9585: #818899;
-  --c-4c8b55: #3c589b;
-  --c-dfeee0: #dbe2f2;
-  --c-bd9441: #bd9441;
-  --c-b75b4d: #b75b4d;
-  --c-9aa394: #9097a7;
-  --c-ad793b: #ad793b;
-  --c-dce5d5: #d1d8e9;
-  --c-34462f: #29344c;
-  --c-fcfdf9: #f8fafe;
-  --c-24371e33: #18233e33;
-  --c-26352265: #1d263a65;
-  --c-839079: #737e96;
-  --c-929d87: #818ba3;
-  --c-738566: #5e6c8d;
-  --c-e7ecdf: #dce2ef;
-  --c-789466: #5a6fa0;
-  --c-bd935f: #bd935f;
-  --c-819076: #6f7b97;
-  --c-e4e9dd: #dadfec;
-  --c-456b42: #374a76;
-  --c-58784b: #3f5484;
-  --c-d9e5d3: #ced7ea;
-  --c-7c936e: #64759d;
-  --c-f1f2ed: #eceef3;
-  --c-8e9388: #838998;
-  --c-e4e5de: #dcdfe7;
-  --c-94a08c: #8790a5;
-  --c-e7ebe0: #dde2ee;
-  --c-a4b098: #929db6;
-  --c-9aa48f: #8a93a9;
-  --c-e7eae7: #e6e8eb;
-  --c-7d8b74: #6e7991;
-  --c-eaf0e5: #e2e7f3;
-  --c-edf1e9: #e7ebf3;
-  --c-c6cebf: #bbc2d2;
-  --c-526d42: #374a78;
-  --c-354f2a: #203159;
-  --c-718866: #5d6d91;
-  --c-3e5035: #2e3a57;
-  --c-fffffff5: #fffffff5;
-  --c-293c2114: #1a264314;
-  --c-dfe4d8: #d5dae7;
-  --c-b3bba9: #a4adc0;
-  --c-edf0e7: #e5e9f2;
-  --c-a1ad97: #919bb3;
-  --c-e5eddf: #dbe2f1;
-  --c-ede7df: #ede7df;
-  --c-9b886f: #9b886f;
-  --c-9ba496: #9299a8;
-  --c-f1f4ec: #eaeef6;
-  --c-9aa18e: #8992a6;
-  --c-f2f5ec: #eaeef7;
-  --c-e2e9d9: #d5dced;
-  --c-7a8d6a: #617196;
-  --c-dfe6d6: #d2d9ea;
-  --c-5d6e4705: #3d4f7805;
-  --c-aab29e: #99a2b7;
-  --c-97a087: #818ca6;
-  --c-d5dcd0: #cdd2df;
-  --c-7a8674: #6f788b;
-  --c-4d8c58: #3d599c;
-  --c-98ad87: #7d8eb7;
-  --c-f2f7edf0: #eaeffaf0;
-  --c-536b43: #394b75;
-  --c-f5f7f1: #eff2f9;
-  --c-e2e8da: #d6ddec;
-  --c-66765d: #56627d;
-  --c-0002: #00000022;
-  --c-26371dc9: #16223ec9;
-  --c-b4d697: #87a3e6;
-  --c-ad6050: #ad6050;
-  --c-dfe6d7: #d3daea;
-  --c-263b2020: #19254220;
-  --c-88977c: #75819e;
-  --c-edf3e7: #e4e9f6;
-  --c-8c9782: #7d869c;
-  --c-e8eedd: #d9e0f2;
-  --c-e5e9e3: #e1e4eb;
-  --c-71816c: #677086;
-  --c-f0f3ee: #edeff4;
-  --c-1d251e33: #1b1f2733;
-  --c-d8dfd4: #d1d6e2;
-  --c-f7f9f5: #f4f6fa;
-  --c-8b9587: #838a99;
-  --c-e8ebe6: #e5e7ec;
-  --c-abb0aa: #a6aab4;
-  --c-8b9488: #848a98;
-  --c-929991: #8b919f;
-  --c-e6ebdf: #dce1ee;
-  --c-edf0e6: #e3e8f3;
-  --c-526d46: #3c4e77;
-  --c-858d7d: #798091;
-  --c-7a8475: #717888;
-  --c-dce4d8: #d5dae7;
-  --c-5f7557: #4f5d7d;
-  --c-b34839: #b34839;
-  --c-a0a990: #8a95b0;
-  --c-6f8b60: #556896;
-  --c-edf1e6: #e3e8f4;
-  --c-1e341340: #0a193d40;
-  --c-708070: #6c7384;
-  --c-858c87: #858c87;
-  --c-f1f3f1: #f0f1f4;
-  --c-5b635c: #565c68;
-  --c-e6eae6: #e5e7eb;
-  --c-fafbfa: #fafafb;
-  --c-b7c9ad: #a6b2d0;
-  --c-f3f7ef: #edf1f9;
-  --c-d8e1d3: #cfd6e5;
-  --c-f8faf6: #f5f7fb;
-  --c-61765a: #535f7d;
-  --c-e1e7dd: #dadfea;
-  --c-fafbf9: #f8f9fc;
-  --c-f4f6f2: #f1f3f7;
-  --c-879181: #7d8495;
-  --c-4d6445: #3d4b6c;
-  --c-33412a14: #242f4714;
-  --c-71806c: #677085;
-  --c-67835b: #51638d;
-  --c-e3e8df: #dde1ea;
-  --c-fbfcfa: #f9fafd;
-  --c-cad6c3: #bec7db;
-  --c-f7faf5: #f4f6fb;
-  --c-455440: #3b4459;
-  --c-939b8e: #8b919e;
-  --c-708067: #616c87;
-  --c-e5f0e2: #dee5f4;
-  --c-4a7547: #3b5081;
-  --c-f7efd9: #d7e1f9;
-  --c-856b2f: #856b2f;
-  --c-f6e5e1: #f6e5e1;
-  --c-a04e42: #a04e42;
-  --c-e8ece5: #e3e6ee;
-  --c-667563: #5e677a;
-  --c-71856a: #636f8c;
-  --c-e6ebe2: #e0e4ed;
-  --c-40503c: #374055;
-  --c-929b8e: #8b919e;
-  --c-dfe5db: #d8dde8;
-  --c-667a5e: #576381;
-  --c-e5eae1: #dfe3ec;
-  --c-969e92: #8f94a1;
-  --c-596755: #50596c;
-  --c-eaeee7: #e5e8f0;
-  --c-5c6c57: #525b71;
-  --c-6c7768: #646b7b;
-  --c-8c9588: #848a99;
-  --c-99a28d: #8891a7;
-  --c-83976c: #6174a2;
-  --c-a7af9b: #969fb4;
-  --c-c1cab5: #b0b9cf;
-  --c-e5eadc: #d8dfee;
-  --c-95a37f: #7686ac;
-  --c-b0b6a3: #9ea7bb;
-  --c-a1ab92: #8c97b2;
-  --c-b7a47a: #b7a47a;
-  --c-819b68: #5b72a8;
-  --c-b68a6e: #b68a6e;
-  --c-8e9e79: #6f80a8;
-  --c-f9faf6: #f5f7fb;
-  --c-e6eadd: #dae0ed;
-  --c-9eaa8b: #8391b2;
-  --c-f0f4e8: #e5eaf7;
-  --c-e2e9d6: #d1daee;
-  --c-6d8058: #4e608a;
-  --c-a0ac8d: #8593b4;
-  --c-e6ebdd: #d9e0ef;
-  --c-f7f9f1: #eff3fb;
-  --c-a1ab91: #8a96b2;
-  --c-8d9a81: #7b86a1;
-  --c-fafafa: #fafafa;
-  --c-e9e9e9: #e9e9e9;
-  --c-414141: #414141;
-  --c-4a6354: #444f6a;
-  --c-c5d4c8: #c1c8d8;
-  --c-3d5c48: #354364;
-  --c-e5e5e5: #e5e5e5;
-  --c-555: #555;
-  --c-efefef: #efefef;
-  --c-e8efe9: #e6e9f1;
-  --c-263b2b: #212a40;
-  --c-444: #444;
-  --c-666: #666;
-  --c-ededed: #ededed;
-  --c-222: #222;
-  --c-e6e6e6: #e6e6e6;
-  --c-f0f0f0: #f0f0f0;
-  --c-eaeaea: #eaeaea;
-  --c-161616: #161616;
-  --c-6d7a72: #696f7e;
-  --c-8a9388: #838998;
-  --c-2f5a38: #243765;
-  --c-e6f0e7: #e3e8f3;
-  --c-999: #999;
-  --c-828282: #828282;
-  --c-e7edf4: #e7edf4;
-  --c-8c9caf: #8393b8;
-  --c-202b38: #202b38;
-  --c-777: #777;
-  --c-dedede: #dedede;
-  --c-8a8f89: #8a8f89;
-  --c-344f65: #344f65;
-  --c-899187: #828896;
-  --c-1f3d2c: #172545;
-  --c-f0f4f0: #eff1f5;
-  --c-9b3030: #9b3030;
-  --c-fdf0f0: #fdf0f0;
-  --c-5c6658: #545b6a;
-  --c-3d8b63: #1c3e8e;
-  --c-20371955: #111f3f55;
-  --c-e5e9e2: #e0e3eb;
-  --c-f7f8f5: #f4f6f9;
-  --c-9aa593: #8e97aa;
-  --c-dce3d9: #d6dbe6;
-  --c-1c2a1e0d: #181f2e0d;
-  --c-4a524c: #474b55;
-  --c-f2e9e7: #f2e9e7;
-  --c-687066: #616775;
-  --c-e3ead9: #d5dcee;
-  --c-2f3a33: #2c313d;
-  --c-e7eddf: #dbe2f1;
-  --c-fbfcf9: #f8fafd;
-  --c-f0e0dc: #f0e0dc;
-  --c-2037191a: #111f3f1a;
-  --c-f0e9e2: #f0e9e2;
-  --c-fdf8f3: #fdf8f3;
-  --c-e8eaed: #e7e9ee;
-  --c-6b7280: #666f85;
-  --c-eee: #eee;
-  --c-808778: #747b8b;
-  --c-f0f2ed: #eceef3;
-  --c-8b968c: #868c9b;
-  --c-0001: #00000011;
-  --c-edf0ea: #e8ebf2;
-  --c-e2e7de: #dce0e9;
-  --c-dde4d8: #d5dae7;
-  --c-34402f: #2b3244;
-  --c-17231133: #0c152833;
-  --c-18231766: #14192666;
-  --c-74806e: #697285;
-  --c-a3332d: #a3332d;
-  --c-e1e6dc: #d9dee9;
-  --c-668052: #465b8c;
-  --c-eff4e9: #e6ebf7;
-  --c-bc443d: #bc443d;
-  --c-3d5930: #253864;
-  --c-87907f: #7b8294;
-  --c-edf0e8: #e6eaf2;
-  --c-687360: #5b6478;
-  --c-f0f4eb: #e9edf6;
-  --c-e9f0e1: #dde4f4;
-  --c-344c2b: #223155;
-  --c-bcc8b2: #acb6ce;
-  --c-e9eee5: #e3e7f0;
-  --c-7e887a: #767c8c;
-  --c-eef2eb: #e9ecf4;
-  --c-cbd5c4: #c0c7d9;
-  --c-eef2e9: #e7ebf4;
-  --c-dce5d4: #d0d7e9;
-  --c-e5ecde: #dae1f0;
-  --c-e1edd7: #d1dbf3;
-  --c-3f5c35: #2b3d66;
-  --c-30492a: #223051;
-  --c-6d855c: #516490;
-  --c-dde6d6: #d2d9ea;
-  --c-354d2d: #253355;
-  --c-ffffff24: #ffffff24;
-  --c-24331e26: #19223826;
-  --c-1d291f66: #1a1f2c66;
-  --c-e3e9de: #dbe0ec;
-  --c-6f8b6040: #55689640;
-  --c-929c8c: #888fa0;
-  --c-dfe6d9: #d6dce9;
-  --c-f7f9f4: #f3f5fa;
-  --c-95a08e: #8992a5;
-  --c-dfe8d8: #d4dbec;
-  --c-7f9573: #6a7a9e;
-  --c-e9eee6: #e4e8f0;
-  --c-929b8b: #878e9f;
-  --c-aa6655: #aa6655;
-  --c-e8d7d0: #e8d7d0;
-  --c-fff8f5: #fff8f5;
-  --c-dce4d4: #d0d7e8;
-  --c-607a4b: #3f5486;
-  --c-6d7865: #60697d;
-  --c-e5ecdc: #d8dff0;
-  --c-81966e: #6476a0;
-  --c-8b3d24: #8b3d24;
-  --c-fff0e5: #fff0e5;
-  --c-e9b698: #e9b698;
-  --c-87600d: #87600d;
-  --c-fff7d9: #dee7fa;
-  --c-dcc66c: #628ae6;
-  --c-a03670: #a03670;
-  --c-fceaf4: #fceaf4;
-  --c-e4adc9: #e4adc9;
-  --c-6440a5: #6440a5;
-  --c-f0eafa: #f0eafa;
-  --c-c5afe5: #c5afe5;
-  --c-225caf: #225caf;
-  --c-eaf2ff: #eaf2ff;
-  --c-a8c5ee: #a8c5ee;
-  --c-177261: #133176;
-  --c-e3f5ef: #dee7fa;
-  --c-9acfbf: #8ca4dd;
-  --c-48602e: #21386d;
-  --c-edf3df: #dae3f8;
-  --c-b5c993: #859ed7;
-  --c-e8ede3: #e0e5f0;
-  --c-edf1e7: #e4e9f4;
-  --c-405432: #29395d;
-  --c-eef2ea: #e8ecf4;
-  --c-e2e8dd: #dadfeb;
-  --c-b8cfad: #a4b4d8;
-  --c-537047: #3c4f7b;
-  --c-eff7ea: #e7edfa;
-  --c-d7d9d4: #d3d5da;
-  --c-7e837b: #7e837b;
-  --c-f3f4f2: #f1f2f5;
-  --c-dfe5dc: #dadee7;
-  --c-788274: #707786;
-  --c-58714d: #44547a;
-  --c-63705e: #596275;
-  --c-45573f: #39445d;
-  --c-919a8d: #8a909d;
-  --c-7d8977: #727b8e;
-  --c-929a90: #8b919f;
-  --c-e4e9e1: #dfe3eb;
-  --c-52634c: #465169;
-  --c-42503e: #394255;
-  --c-758071: #6d7484;
-  --c-d5ddd1: #ced3e0;
-  --c-d8d7c6: #c1cadd;
-  --c-faf9ef: #edf1fc;
-  --c-77704e: #435682;
-  --c-d8d8df: #d6d9e1;
-  --c-f5f5f8: #f4f6f9;
-  --c-686978: #646b7c;
-  --c-43513e: #394256;
-  --c-879083: #7f8594;
-  --c-455140: #3c4355;
-  --c-5c6857: #535a6c;
-  --c-e0e5dd: #dbdfe7;
-  --c-7b8577: #737989;
-  --c-d8ded4: #d1d6e1;
-  --c-707a6b: #676e7e;
-  --c-adc79f: #95a7d1;
-  --c-4f7044: #394d7b;
-  --c-ddd6d2: #cfd4e0;
-  --c-f6f3f1: #f6f3f1;
-  --c-8a7268: #5f6f93;
-  --c-ccd2c8: #c5cad5;
-  --c-66865a: #4f6391;
-  --c-65845b: #50638f;
-  --c-dfe7dc: #d9deea;
-  --c-596653: #4e576b;
-  --c-e7ebe5: #e3e6ed;
-  --c-4d7642: #344c84;
-  --c-a24e42: #a24e42;
-  --c-d8c98f: #7d9eea;
-  --c-fffbea: #edf1fc;
-  --c-81764f: #42598e;
-  --c-858991: #808796;
-  --c-f1f2f3: #f0f1f4;
-  --c-646971: #616774;
-  --c-ececef: #ebedf0;
-  --c-0000000d: #0000000d;
-  --c-6d7179: #696f7d;
-  --c-e4e4e7: #e3e5e8;
-  --c-202327: #1e2129;
-  --c-898d96: #858b9a;
-  --c-c8cec6: #c4c8d0;
-  --c-657360: #5b6478;
-  --c-c43c35: #c43c35;
-  --c-9f2e28: #9f2e28;
-  --c-b9c6ad: #a7b2cd;
-  --c-75836d: #677189;
-  --c-82907b: #767f95;
-  --c-b39558: #b39558;
-  --c-272b29: #25282d;
-  --c-1e272033: #1c202933;
-  --c-18201973: #161a2273;
-  --c-d5dcd5: #d3d6de;
-  --c-4d5a51: #4a505d;
-  --c-1e272014: #1c202914;
-  --c-f4f6f4: #f3f4f7;
-  --c-e3e7e3: #e2e4e8;
-  --c-8a918c: #8a918c;
-  --c-8d9690: #888e9b;
-  --c-c27b86: #6989d4;
-  --c-8a6ea3: #8a6ea3;
-  --c-c4a056: #c4a056;
-  --c-4d7ec8: #4d7ec8;
-  --c-bd594f: #bd594f;
-  --c-4d7ec880: #4d7ec880;
-  --c-4d7ec81f: #4d7ec81f;
-  --c-4d7ec866: #4d7ec866;
-  --c-3c433e: #3a3d45;
-  --c-1e27202e: #1c20292e;
-  --c-6d756f: #676d7b;
-  --c-3d8a5b: #294c9e;
-  --c-eef2ee: #edeff3;
-  --c-e7eee4: #e1e6f1;
-  --c-eef1ee: #edeff2;
-  --c-7d8580: #7d8580;
-  --c-2f3531: #2d3037;
-  --c-9f4339: #9f4339;
-  --c-d5ddd4: #d2d6df;
-  --c-f4f7f2: #f1f3f8;
-  --c-9aa59c: #979ca8;
-  --c-f3f5f2: #f1f3f6;
-  --c-5e6661: #595e6b;
-  --c-7d9877: #6e7da1;
-  --c-edf0ec: #ebedf1;
-  --c-d8ddd8: #d7d9de;
-  --c-858d87: #858d87;
-  --c-e0c4a8: #e0c4a8;
-  --c-66726a: #626876;
-  --c-4f5d4c: #484f61;
-  --c-7e8781: #777e8e;
-  --c-717973: #717973;
-  --c-9ba29d: #969ba7;
-  --c-dcece1: #d8dff0;
-  --c-b78b3f: #b78b3f;
-  --c-f5f7f4: #f3f5f8;
-  --c-dce1dc: #dbdde2;
-  --c-a0a6a2: #a0a6a2;
-  --c-bdc9bb: #b7becd;
-  --c-f8faf7: #f6f8fb;
-  --c-809778: #707e9f;
-  --c-f0f5ee: #eceff7;
-  --c-879289: #828897;
-  --c-425047: #3e4554;
-  --c-7f8782: #7f8782;
-  --c-666e69: #606674;
-  --c-fff0ed: #fff0ed;
-  --c-edf0ed: #eceef1;
-  --c-7b847e: #747b8b;
-  --c-e7ebe6: #e5e7ec;
-  --c-f7f9f6: #f5f7fa;
-  --c-f3f6fb: #f3f6fb;
-  --c-dbe3ee: #dbe3ee;
-  --c-fbf6ea: #eaeffb;
-  --c-ead9b4: #ead9b4;
-  --c-f8fbf7: #f6f8fc;
-  --c-7b5c20: #7b5c20;
-  --c-fff7df: #e3eafb;
-  --c-dfc98b: #80a0ea;
-  --c-64707b: #5e6981;
-  --c-f2f4f6: #f2f4f6;
-  --c-cdd3d8: #cacfdb;
-  --c-dfe5dd: #dbdfe7;
-  --c-283329: #252a36;
-  --c-e6ebe4: #e2e5ed;
-  --c-748071: #6d7484;
-}
-
-html[data-theme="dusk"] {
-  --icon: #776f80;
-  --logo-ink: #f3f6ec;
-  --logo-accent: #b7d295;
-  --c-27362f: #2e2736;
-  --c-f8faf8: #f9f8fa;
-  --c-73806f: #776f80;
-  --c-758073: #797380;
-  --c-8b9689: #8f8996;
-  --c-bdc8b9: #c0b9c8;
-  --c-3f5945: #4b4058;
-  --c-90a17f: #8f80a0;
-  --c-98a093: #9993a0;
-  --c-f3f5f0: #f2f0f5;
-  --c-516747: #564866;
-  --c-c59d4b: #c59d4b;
-  --c-b6735d: #b6735d;
-  --c-5e6c56: #60576b;
-  --c-f0f3ed: #f0edf3;
-  --c-dde5d7: #ded7e5;
-  --c-e8f0e1: #e8e1f0;
-  --c-dce7d3: #dcd4e6;
-  --c-e2e9da: #e1dae9;
-  --c-f7f9f3: #f6f3f9;
-  --c-e5eddc: #e4dced;
-  --c-c3d3b6: #c4b7d2;
-  --c-8f9e7b: #8b7c9d;
-  --c-f5f7f0: #f3f0f7;
-  --c-fff: #fff;
-  --c-f6f8fa: #f6f8fa;
-  --c-dce5d3: #dbd3e5;
-  --c-9aa68a: #978ba5;
-  --c-edf3e8: #ede8f3;
-  --c-7a896f: #7b7088;
-  --c-8c987f: #8b8097;
-  --c-567c51: #65527b;
-  --c-f0f5eb: #f0ebf5;
-  --c-a16e49: #a16e49;
-  --c-7f9078: #83798f;
-  --c-426b4b: #55436a;
-  --c-dde4de: #e0dde4;
-  --c-4f6257: #584f62;
-  --c-edf2ec: #efecf2;
-  --c-72966f: #817095;
-  --c-4a7251: #5d4b71;
-  --c-33563b: #433455;
-  --c-d9e1d9: #ddd9e1;
-  --c-29382e: #302938;
-  --c-70916f: #7f7090;
-  --c-eaf0e8: #ece8f0;
-  --c-657369: #6c6573;
-  --c-395d40: #4a3a5c;
-  --c-86918a: #8b8592;
-  --c-8b9a87: #90879a;
-  --c-93a094: #9993a0;
-  --c-fff0ec: #fff0ec;
-  --c-a24b3d: #a24b3d;
-  --c-f3d8d0: #f3d8d0;
-  --c-f4f7f1: #f4f1f7;
-  --c-7a8b7b: #827a8b;
-  --c-698164: #726580;
-  --c-a2aba0: #a5a0ab;
-  --c-7a9a6e: #836f99;
-  --c-2f4a2c: #3a2d49;
-  --c-54704e: #5e4f6f;
-  --c-f2f8ed: #f2edf8;
-  --c-243a22: #2d2339;
-  --c-dfe5da: #dfdae5;
-  --c-f2f5ef: #f2eff5;
-  --c-7c8678: #7f7886;
-  --c-33432f: #383043;
-  --c-cbdabe: #cbbfd9;
-  --c-52684a: #584b67;
-  --c-e4e9df: #e4dfe9;
-  --c-8b9683: #8c8396;
-  --c-607957: #675878;
-  --c-9aa39a: #9e99a4;
-  --c-dfe3de: #e0dee3;
-  --c-818981: #818981;
-  --c-c85b54: #c85b54;
-  --c-a9443e: #a9443e;
-  --c-c69236: #c69236;
-  --c-8a651f: #8a651f;
-  --c-5d8b55: #6e568a;
-  --c-497343: #594472;
-  --c-dce3d6: #dcd6e3;
-  --c-f5f6f2: #f4f2f6;
-  --c-788271: #797182;
-  --c-a64c42: #a64c42;
-  --c-e0e6dc: #e1dce6;
-  --c-899585: #8c8595;
-  --c-e5ebdf: #e5dfeb;
-  --c-7f8b7d: #847d8b;
-  --c-33482605: #36274705;
-  --c-929d8e: #958e9d;
-  --c-dfe5d9: #dfd9e5;
-  --c-7b8b76: #80778a;
-  --c-7e9c71: #85729b;
-  --c-a0a998: #a098a9;
-  --c-e1e7dc: #e1dce7;
-  --c-a0aa9b: #a29baa;
-  --c-e9ecdf: #e5dfec;
-  --c-7b866a: #776b85;
-  --c-fcfdfb: #fcfbfd;
-  --c-edf0e9: #ece9f0;
-  --c-e1e7da: #e0dae7;
-  --c-6c7e5d: #6c5e7d;
-  --c-f1f5eb: #f0ebf5;
-  --c-c3d0b6: #c2b7cf;
-  --c-8a9482: #8a8294;
-  --c-4c5b42: #4e435a;
-  --c-3d4a38: #40384a;
-  --c-5d7056: #62576f;
-  --c-9a6a60: #9a6a60;
-  --c-7a4f45: #7a4f45;
-  --c-62855a: #6e5b84;
-  --c-3d5a38: #483959;
-  --c-30451d0a: #301e440a;
-  --c-4a5f44: #51455e;
-  --c-9da69a: #a09aa6;
-  --c-8a9585: #8c8595;
-  --c-4c8b55: #6a4e89;
-  --c-dfeee0: #e6dfee;
-  --c-bd9441: #bd9441;
-  --c-b75b4d: #b75b4d;
-  --c-9aa394: #9b94a3;
-  --c-ad793b: #ad793b;
-  --c-dce5d5: #dcd5e5;
-  --c-34462f: #3a3045;
-  --c-fcfdf9: #fbf9fd;
-  --c-24371e33: #2a1f3633;
-  --c-26352265: #2b223565;
-  --c-839079: #847a8f;
-  --c-929d87: #91889c;
-  --c-738566: #756784;
-  --c-e7ecdf: #e5dfec;
-  --c-789466: #7c6793;
-  --c-bd935f: #bd935f;
-  --c-819076: #82778f;
-  --c-e4e9dd: #e3dde9;
-  --c-456b42: #55436a;
-  --c-58784b: #604c77;
-  --c-d9e5d3: #dbd3e5;
-  --c-7c936e: #7f6f92;
-  --c-f1f2ed: #efedf2;
-  --c-8e9388: #8d8794;
-  --c-e4e5de: #e1dee5;
-  --c-94a08c: #958da0;
-  --c-e7ebe0: #e5e0eb;
-  --c-a4b098: #a399af;
-  --c-9aa48f: #9990a3;
-  --c-e7eae7: #e8e7ea;
-  --c-7d8b74: #7f758a;
-  --c-eaf0e5: #eae5f0;
-  --c-edf1e9: #ede9f1;
-  --c-c6cebf: #c6bfce;
-  --c-526d42: #56436c;
-  --c-354f2a: #3b2b4e;
-  --c-718866: #766787;
-  --c-3e5035: #42364f;
-  --c-fffffff5: #fffffff5;
-  --c-293c2114: #2e223b14;
-  --c-dfe4d8: #ded8e4;
-  --c-b3bba9: #b1a9bb;
-  --c-edf0e7: #ebe7f0;
-  --c-a1ad97: #a198ac;
-  --c-e5eddf: #e6dfed;
-  --c-ede7df: #ede7df;
-  --c-9b886f: #9b886f;
-  --c-9ba496: #9d96a4;
-  --c-f1f4ec: #f0ecf4;
-  --c-9aa18e: #978ea1;
-  --c-f2f5ec: #f0ecf5;
-  --c-e2e9d9: #e0d9e9;
-  --c-7a8d6a: #7a6b8c;
-  --c-dfe6d6: #ddd6e6;
-  --c-5d6e4705: #59486d05;
-  --c-aab29e: #a79fb2;
-  --c-97a087: #93889f;
-  --c-d5dcd0: #d6d0dc;
-  --c-7a8674: #7c7486;
-  --c-4d8c58: #6b4f8a;
-  --c-98ad87: #9988ac;
-  --c-f2f7edf0: #f2edf7f0;
-  --c-536b43: #56446a;
-  --c-f5f7f1: #f4f1f7;
-  --c-e2e8da: #e1dae8;
-  --c-66765d: #695e75;
-  --c-0002: #00000022;
-  --c-26371dc9: #291e36c9;
-  --c-b4d697: #b599d4;
-  --c-ad6050: #ad6050;
-  --c-dfe6d7: #ded7e6;
-  --c-263b2020: #2d213a20;
-  --c-88977c: #897d96;
-  --c-edf3e7: #ede7f3;
-  --c-8c9782: #8c8396;
-  --c-e8eedd: #e5ddee;
-  --c-e5e9e3: #e6e3e9;
-  --c-71816c: #766d80;
-  --c-f0f3ee: #f0eef3;
-  --c-1d251e33: #211d2533;
-  --c-d8dfd4: #d9d4df;
-  --c-f7f9f5: #f7f5f9;
-  --c-8b9587: #8e8795;
-  --c-e8ebe6: #e8e6eb;
-  --c-abb0aa: #ada8b2;
-  --c-8b9488: #8e8894;
-  --c-929991: #958f9b;
-  --c-e6ebdf: #e5dfeb;
-  --c-edf0e6: #ebe6f0;
-  --c-526d46: #58476c;
-  --c-858d7d: #847d8d;
-  --c-7a8475: #7c7584;
-  --c-dce4d8: #ded8e4;
-  --c-5f7557: #655874;
-  --c-b34839: #b34839;
-  --c-a0a990: #9c91a8;
-  --c-6f8b60: #74618a;
-  --c-edf1e6: #ebe6f1;
-  --c-1e341340: #22143340;
-  --c-708070: #777080;
-  --c-858c87: #858c87;
-  --c-f1f3f1: #f2f1f3;
-  --c-5b635c: #5f5a64;
-  --c-e6eae6: #e8e6ea;
-  --c-fafbfa: #fafafb;
-  --c-b7c9ad: #baaec8;
-  --c-f3f7ef: #f3eff7;
-  --c-d8e1d3: #dad3e1;
-  --c-f8faf6: #f8f6fa;
-  --c-61765a: #675b75;
-  --c-e1e7dd: #e2dde7;
-  --c-fafbf9: #faf9fb;
-  --c-f4f6f2: #f4f2f6;
-  --c-879181: #888191;
-  --c-4d6445: #544663;
-  --c-33412a14: #352b4014;
-  --c-71806c: #756d80;
-  --c-67835b: #6e5c82;
-  --c-e3e8df: #e3dfe8;
-  --c-fbfcfa: #fbfafc;
-  --c-cad6c3: #ccc3d6;
-  --c-f7faf5: #f7f5fa;
-  --c-455440: #494153;
-  --c-939b8e: #948e9b;
-  --c-708067: #73687f;
-  --c-e5f0e2: #e9e2f0;
-  --c-4a7547: #5d4874;
-  --c-f7efd9: #e7daf6;
-  --c-856b2f: #856b2f;
-  --c-f6e5e1: #f6e5e1;
-  --c-a04e42: #a04e42;
-  --c-e8ece5: #e8e5ec;
-  --c-667563: #6b6375;
-  --c-71856a: #776b84;
-  --c-e6ebe2: #e6e2eb;
-  --c-40503c: #453d50;
-  --c-929b8e: #948e9b;
-  --c-dfe5db: #e0dbe5;
-  --c-667a5e: #6b5f79;
-  --c-e5eae1: #e5e1ea;
-  --c-969e92: #98929e;
-  --c-596755: #5d5567;
-  --c-eaeee7: #eae7ee;
-  --c-5c6c57: #61586b;
-  --c-6c7768: #6f6877;
-  --c-8c9588: #8e8895;
-  --c-99a28d: #978ea1;
-  --c-83976c: #806d96;
-  --c-a7af9b: #a49baf;
-  --c-c1cab5: #bfb6c9;
-  --c-e5eadc: #e3dcea;
-  --c-95a37f: #9080a2;
-  --c-b0b6a3: #aca3b6;
-  --c-a1ab92: #9e93aa;
-  --c-b7a47a: #b7a47a;
-  --c-819b68: #80699a;
-  --c-b68a6e: #b68a6e;
-  --c-8e9e79: #8a7a9d;
-  --c-f9faf6: #f8f6fa;
-  --c-e6eadd: #e3ddea;
-  --c-9eaa8b: #9a8ca9;
-  --c-f0f4e8: #eee8f4;
-  --c-e2e9d6: #dfd6e9;
-  --c-6d8058: #6b597f;
-  --c-a0ac8d: #9c8eab;
-  --c-e6ebdd: #e4ddeb;
-  --c-f7f9f1: #f5f1f9;
-  --c-a1ab91: #9d92aa;
-  --c-8d9a81: #8d8299;
-  --c-fafafa: #fafafa;
-  --c-e9e9e9: #e9e9e9;
-  --c-414141: #414141;
-  --c-4a6354: #564b62;
-  --c-c5d4c8: #ccc5d4;
-  --c-3d5c48: #4c3e5b;
-  --c-e5e5e5: #e5e5e5;
-  --c-555: #555;
-  --c-efefef: #efefef;
-  --c-e8efe9: #ebe8ef;
-  --c-263b2b: #30273a;
-  --c-444: #444;
-  --c-666: #666;
-  --c-ededed: #ededed;
-  --c-222: #222;
-  --c-e6e6e6: #e6e6e6;
-  --c-f0f0f0: #f0f0f0;
-  --c-eaeaea: #eaeaea;
-  --c-161616: #161616;
-  --c-6d7a72: #736d7a;
-  --c-8a9388: #8d8794;
-  --c-2f5a38: #433059;
-  --c-e6f0e7: #ebe6f0;
-  --c-999: #999;
-  --c-828282: #828282;
-  --c-e7edf4: #e7edf4;
-  --c-8c9caf: #9c8dae;
-  --c-202b38: #202b38;
-  --c-777: #777;
-  --c-dedede: #dedede;
-  --c-8a8f89: #8a8f89;
-  --c-344f65: #344f65;
-  --c-899187: #8c8593;
-  --c-1f3d2c: #2d203c;
-  --c-f0f4f0: #f2f0f4;
-  --c-9b3030: #9b3030;
-  --c-fdf0f0: #fdf0f0;
-  --c-5c6658: #5f5866;
-  --c-3d8b63: #523178;
-  --c-20371955: #271a3655;
-  --c-e5e9e2: #e5e2e9;
-  --c-f7f8f5: #f6f5f8;
-  --c-9aa593: #9b93a5;
-  --c-dce3d9: #ded9e3;
-  --c-1c2a1e0d: #231c2a0d;
-  --c-4a524c: #4e4a52;
-  --c-f2e9e7: #f2e9e7;
-  --c-687066: #6b6571;
-  --c-e3ead9: #e1d9ea;
-  --c-2f3a33: #342f3a;
-  --c-e7eddf: #e6dfed;
-  --c-fbfcf9: #faf9fc;
-  --c-f0e0dc: #f0e0dc;
-  --c-2037191a: #271a361a;
-  --c-f0e9e2: #f0e9e2;
-  --c-fdf8f3: #fdf8f3;
-  --c-e8eaed: #eae8ed;
-  --c-6b7280: #756c7f;
-  --c-eee: #eee;
-  --c-808778: #7f7887;
-  --c-f0f2ed: #efedf2;
-  --c-8b968c: #908a97;
-  --c-0001: #00000011;
-  --c-edf0ea: #edeaf0;
-  --c-e2e7de: #e2dee7;
-  --c-dde4d8: #ded8e4;
-  --c-34402f: #372f40;
-  --c-17231133: #19112333;
-  --c-18231766: #1d172366;
-  --c-74806e: #766e80;
-  --c-a3332d: #a3332d;
-  --c-e1e6dc: #e1dce6;
-  --c-668052: #68537f;
-  --c-eff4e9: #eee9f4;
-  --c-bc443d: #bc443d;
-  --c-3d5930: #433158;
-  --c-87907f: #877f90;
-  --c-edf0e8: #ece8f0;
-  --c-687360: #696073;
-  --c-f0f4eb: #efebf4;
-  --c-e9f0e1: #e8e1f0;
-  --c-344c2b: #3a2c4b;
-  --c-bcc8b2: #bcb3c7;
-  --c-e9eee5: #e9e5ee;
-  --c-7e887a: #817a88;
-  --c-eef2eb: #eeebf2;
-  --c-cbd5c4: #ccc4d5;
-  --c-eef2e9: #ede9f2;
-  --c-dce5d4: #dcd4e5;
-  --c-e5ecde: #e5deec;
-  --c-e1edd7: #e1d8ec;
-  --c-3f5c35: #47365b;
-  --c-30492a: #392b48;
-  --c-6d855c: #6f5d84;
-  --c-dde6d6: #ddd6e6;
-  --c-354d2d: #3c2e4c;
-  --c-ffffff24: #ffffff24;
-  --c-24331e26: #281f3226;
-  --c-1d291f66: #231d2966;
-  --c-e3e9de: #e3dee9;
-  --c-6f8b6040: #74618a40;
-  --c-929c8c: #938c9c;
-  --c-dfe6d9: #dfd9e6;
-  --c-f7f9f4: #f6f4f9;
-  --c-95a08e: #968ea0;
-  --c-dfe8d8: #dfd8e8;
-  --c-7f9573: #837494;
-  --c-e9eee6: #eae6ee;
-  --c-929b8b: #928b9b;
-  --c-aa6655: #aa6655;
-  --c-e8d7d0: #e8d7d0;
-  --c-fff8f5: #fff8f5;
-  --c-dce4d4: #dbd4e4;
-  --c-607a4b: #614c79;
-  --c-6d7865: #6e6578;
-  --c-e5ecdc: #e3dcec;
-  --c-81966e: #816f95;
-  --c-8b3d24: #8b3d24;
-  --c-fff0e5: #fff0e5;
-  --c-e9b698: #e9b698;
-  --c-87600d: #87600d;
-  --c-fff7d9: #ebdefa;
-  --c-dcc66c: #a06fd9;
-  --c-a03670: #a03670;
-  --c-fceaf4: #fceaf4;
-  --c-e4adc9: #e4adc9;
-  --c-6440a5: #6440a5;
-  --c-f0eafa: #f0eafa;
-  --c-c5afe5: #c5afe5;
-  --c-225caf: #225caf;
-  --c-eaf2ff: #eaf2ff;
-  --c-a8c5ee: #a8c5ee;
-  --c-177261: #421970;
-  --c-e3f5ef: #ebe3f5;
-  --c-9acfbf: #b39bce;
-  --c-48602e: #452f5f;
-  --c-edf3df: #e8e0f3;
-  --c-b5c993: #ac94c8;
-  --c-e8ede3: #e8e3ed;
-  --c-edf1e7: #ece7f1;
-  --c-405432: #423353;
-  --c-eef2ea: #eeeaf2;
-  --c-e2e8dd: #e2dde8;
-  --c-b8cfad: #bdaece;
-  --c-537047: #5a486f;
-  --c-eff7ea: #f0eaf7;
-  --c-d7d9d4: #d6d4d9;
-  --c-7e837b: #7e837b;
-  --c-f3f4f2: #f3f2f4;
-  --c-dfe5dc: #e0dce5;
-  --c-788274: #7b7482;
-  --c-58714d: #5e4e70;
-  --c-63705e: #665e70;
-  --c-45573f: #4a4056;
-  --c-919a8d: #938d9a;
-  --c-7d8977: #7f7789;
-  --c-929a90: #958f9b;
-  --c-e4e9e1: #e5e1e9;
-  --c-52634c: #574d62;
-  --c-42503e: #463e50;
-  --c-758071: #787180;
-  --c-d5ddd1: #d7d1dd;
-  --c-d8d7c6: #cec6d8;
-  --c-faf9ef: #f4effa;
-  --c-77704e: #614f76;
-  --c-d8d8df: #dbd8df;
-  --c-f5f5f8: #f6f5f8;
-  --c-686978: #6f6878;
-  --c-43513e: #473e51;
-  --c-879083: #898390;
-  --c-455140: #484051;
-  --c-5c6857: #5f5768;
-  --c-e0e5dd: #e1dde5;
-  --c-7b8577: #7e7785;
-  --c-d8ded4: #d9d4de;
-  --c-707a6b: #726b7a;
-  --c-adc79f: #b2a0c6;
-  --c-4f7044: #59456f;
-  --c-ddd6d2: #d7d2dd;
-  --c-f6f3f1: #f6f3f1;
-  --c-8a7268: #786989;
-  --c-ccd2c8: #cdc8d2;
-  --c-66865a: #6f5b85;
-  --c-65845b: #6e5c83;
-  --c-dfe7dc: #e1dce7;
-  --c-596653: #5c5366;
-  --c-e7ebe5: #e8e5eb;
-  --c-4d7642: #5a4375;
-  --c-a24e42: #a24e42;
-  --c-d8c98f: #b191d6;
-  --c-fffbea: #f4edfc;
-  --c-81764f: #665080;
-  --c-858991: #8b8492;
-  --c-f1f2f3: #f2f1f3;
-  --c-646971: #6a6471;
-  --c-ececef: #edecef;
-  --c-0000000d: #0000000d;
-  --c-6d7179: #736c7a;
-  --c-e4e4e7: #e5e4e7;
-  --c-202327: #232027;
-  --c-898d96: #8f8996;
-  --c-c8cec6: #cac6ce;
-  --c-657360: #696073;
-  --c-c43c35: #c43c35;
-  --c-9f2e28: #9f2e28;
-  --c-b9c6ad: #b9aec5;
-  --c-75836d: #776e82;
-  --c-82907b: #857c8f;
-  --c-b39558: #b39558;
-  --c-272b29: #29272b;
-  --c-1e272033: #221e2733;
-  --c-18201973: #1c182073;
-  --c-d5dcd5: #d8d5dc;
-  --c-4d5a51: #534d5a;
-  --c-1e272014: #221e2714;
-  --c-f4f6f4: #f5f4f6;
-  --c-e3e7e3: #e5e3e7;
-  --c-8a918c: #8a918c;
-  --c-8d9690: #918b98;
-  --c-c27b86: #9c7dc0;
-  --c-8a6ea3: #8a6ea3;
-  --c-c4a056: #c4a056;
-  --c-4d7ec8: #4d7ec8;
-  --c-bd594f: #bd594f;
-  --c-4d7ec880: #4d7ec880;
-  --c-4d7ec81f: #4d7ec81f;
-  --c-4d7ec866: #4d7ec866;
-  --c-3c433e: #3f3c43;
-  --c-1e27202e: #221e272e;
-  --c-6d756f: #716b77;
-  --c-3d8a5b: #613f88;
-  --c-eef2ee: #f0eef2;
-  --c-e7eee4: #e9e4ee;
-  --c-eef1ee: #efeef1;
-  --c-7d8580: #7d8580;
-  --c-2f3531: #322f35;
-  --c-9f4339: #9f4339;
-  --c-d5ddd4: #d8d4dd;
-  --c-f4f7f2: #f4f2f7;
-  --c-9aa59c: #9f9aa5;
-  --c-f3f5f2: #f3f2f5;
-  --c-5e6661: #625c68;
-  --c-7d9877: #867897;
-  --c-edf0ec: #eeecf0;
-  --c-d8ddd8: #dad8dd;
-  --c-858d87: #858d87;
-  --c-e0c4a8: #e0c4a8;
-  --c-66726a: #6c6672;
-  --c-4f5d4c: #544c5d;
-  --c-7e8781: #827b8a;
-  --c-717973: #717973;
-  --c-9ba29d: #9e99a4;
-  --c-dcece1: #e3dcec;
-  --c-b78b3f: #b78b3f;
-  --c-f5f7f4: #f5f4f7;
-  --c-dce1dc: #dedce1;
-  --c-a0a6a2: #a0a6a2;
-  --c-bdc9bb: #c2bbc9;
-  --c-f8faf7: #f8f7fa;
-  --c-809778: #877996;
-  --c-f0f5ee: #f1eef5;
-  --c-879289: #8c8693;
-  --c-425047: #494250;
-  --c-7f8782: #7f8782;
-  --c-666e69: #6a6470;
-  --c-fff0ed: #fff0ed;
-  --c-edf0ed: #eeedf0;
-  --c-7b847e: #7f7887;
-  --c-e7ebe6: #e8e6eb;
-  --c-f7f9f6: #f7f6f9;
-  --c-f3f6fb: #f3f6fb;
-  --c-dbe3ee: #dbe3ee;
-  --c-fbf6ea: #f2eafb;
-  --c-ead9b4: #ead9b4;
-  --c-f8fbf7: #f9f7fb;
-  --c-7b5c20: #7b5c20;
-  --c-fff7df: #eee3fb;
-  --c-dfc98b: #b28ddd;
-  --c-64707b: #6f657a;
-  --c-f2f4f6: #f2f4f6;
-  --c-cdd3d8: #d2cdd8;
-  --c-dfe5dd: #e1dde5;
-  --c-283329: #2d2833;
-  --c-e6ebe4: #e7e4eb;
-  --c-748071: #787180;
-}
-
-html[data-theme="sand"] {
-  --icon: #7e7871;
-  --logo-ink: #f3f6ec;
-  --logo-accent: #b7d295;
-  --c-27362f: #352f28;
-  --c-f8faf8: #faf9f8;
-  --c-73806f: #7e7871;
-  --c-758073: #7f7a74;
-  --c-8b9689: #95908a;
-  --c-bdc8b9: #c7c1ba;
-  --c-3f5945: #574d41;
-  --c-90a17f: #9e9182;
-  --c-98a093: #9f9a94;
-  --c-f3f5f0: #f5f3f0;
-  --c-516747: #64584a;
-  --c-c59d4b: #c59d4b;
-  --c-b6735d: #b6735d;
-  --c-5e6c56: #6a6258;
-  --c-f0f3ed: #f2f0ee;
-  --c-dde5d7: #e4ded8;
-  --c-e8f0e1: #efe9e2;
-  --c-dce7d3: #e5ded5;
-  --c-e2e9da: #e8e2db;
-  --c-f7f9f3: #f8f6f4;
-  --c-e5eddc: #ebe5de;
-  --c-c3d3b6: #d0c5b9;
-  --c-8f9e7b: #9b8d7e;
-  --c-f5f7f0: #f6f4f1;
-  --c-fff: #fff;
-  --c-f6f8fa: #f6f8fa;
-  --c-dce5d3: #e3dcd5;
-  --c-9aa68a: #a3998d;
-  --c-edf3e8: #f2eee9;
-  --c-7a896f: #877d71;
-  --c-8c987f: #968c81;
-  --c-567c51: #786855;
-  --c-f0f5eb: #f4f0ec;
-  --c-a16e49: #a16e49;
-  --c-7f9078: #8e857a;
-  --c-426b4b: #675846;
-  --c-dde4de: #e3e1de;
-  --c-4f6257: #605951;
-  --c-edf2ec: #f1efed;
-  --c-72966f: #928473;
-  --c-4a7251: #6e5f4e;
-  --c-33563b: #534536;
-  --c-d9e1d9: #e0ddda;
-  --c-29382e: #37312a;
-  --c-70916f: #8e8172;
-  --c-eaf0e8: #efece9;
-  --c-657369: #726c66;
-  --c-395d40: #5a4c3c;
-  --c-86918a: #918c86;
-  --c-8b9a87: #989189;
-  --c-93a094: #9f9a94;
-  --c-fff0ec: #fff0ec;
-  --c-a24b3d: #a24b3d;
-  --c-f3d8d0: #f3d8d0;
-  --c-f4f7f1: #f6f4f2;
-  --c-7a8b7b: #89837c;
-  --c-698164: #7e7367;
-  --c-a2aba0: #aaa6a1;
-  --c-7a9a6e: #968572;
-  --c-2f4a2c: #473c2f;
-  --c-54704e: #6d6051;
-  --c-f2f8ed: #f7f3ee;
-  --c-243a22: #382f24;
-  --c-dfe5da: #e4e0db;
-  --c-f2f5ef: #f4f2f0;
-  --c-7c8678: #857f79;
-  --c-33432f: #413a31;
-  --c-cbdabe: #d7cdc1;
-  --c-52684a: #655a4d;
-  --c-e4e9df: #e8e4e0;
-  --c-8b9683: #948d85;
-  --c-607957: #76695a;
-  --c-9aa39a: #a39f9a;
-  --c-dfe3de: #e3e1de;
-  --c-818981: #818981;
-  --c-c85b54: #c85b54;
-  --c-a9443e: #a9443e;
-  --c-c69236: #c69236;
-  --c-8a651f: #8a651f;
-  --c-5d8b55: #86715a;
-  --c-497343: #6f5c47;
-  --c-dce3d6: #e2ddd7;
-  --c-f5f6f2: #f6f4f2;
-  --c-788271: #807a73;
-  --c-a64c42: #a64c42;
-  --c-e0e6dc: #e5e1dd;
-  --c-899585: #948d86;
-  --c-e5ebdf: #eae5e0;
-  --c-7f8b7d: #8a847e;
-  --c-33482605: #45382905;
-  --c-929d8e: #9c968f;
-  --c-dfe5d9: #e4dfda;
-  --c-7b8b76: #898178;
-  --c-7e9c71: #988875;
-  --c-a0a998: #a7a19a;
-  --c-e1e7dc: #e6e2dd;
-  --c-a0aa9b: #a9a39c;
-  --c-e9ecdf: #ebe6e0;
-  --c-7b866a: #83796d;
-  --c-fcfdfb: #fdfcfb;
-  --c-edf0e9: #efedea;
-  --c-e1e7da: #e6e1db;
-  --c-6c7e5d: #7b6e60;
-  --c-f1f5eb: #f4f0ec;
-  --c-c3d0b6: #cec4b8;
-  --c-8a9482: #928b84;
-  --c-4c5b42: #594f44;
-  --c-3d4a38: #48413a;
-  --c-5d7056: #6e6458;
-  --c-9a6a60: #9a6a60;
-  --c-7a4f45: #7a4f45;
-  --c-62855a: #81715e;
-  --c-3d5a38: #574a3b;
-  --c-30451d0a: #4132210a;
-  --c-4a5f44: #5d5246;
-  --c-9da69a: #a5a09b;
-  --c-8a9585: #948d86;
-  --c-4c8b55: #856d52;
-  --c-dfeee0: #ede7e0;
-  --c-bd9441: #bd9441;
-  --c-b75b4d: #b75b4d;
-  --c-9aa394: #a29c95;
-  --c-ad793b: #ad793b;
-  --c-dce5d5: #e4ddd6;
-  --c-34462f: #443b31;
-  --c-fcfdf9: #fdfbf9;
-  --c-24371e33: #352b2033;
-  --c-26352265: #332c2465;
-  --c-839079: #8e857b;
-  --c-929d87: #9b9389;
-  --c-738566: #827669;
-  --c-e7ecdf: #ebe6e0;
-  --c-789466: #907e6a;
-  --c-bd935f: #bd935f;
-  --c-819076: #8e8478;
-  --c-e4e9dd: #e8e3de;
-  --c-456b42: #675846;
-  --c-58784b: #74634f;
-  --c-d9e5d3: #e3dcd5;
-  --c-7c936e: #908271;
-  --c-f1f2ed: #f2f0ed;
-  --c-8e9388: #938e88;
-  --c-e4e5de: #e4e2df;
-  --c-94a08c: #9e978e;
-  --c-e7ebe0: #eae6e1;
-  --c-a4b098: #aea59a;
-  --c-9aa48f: #a29a91;
-  --c-e7eae7: #eae9e7;
-  --c-7d8b74: #898076;
-  --c-eaf0e5: #efebe6;
-  --c-edf1e9: #f0edea;
-  --c-c6cebf: #cdc7c0;
-  --c-526d42: #695946;
-  --c-354f2a: #4c3e2d;
-  --c-718866: #857869;
-  --c-3e5035: #4e4337;
-  --c-fffffff5: #fffffff5;
-  --c-293c2114: #3a2f2314;
-  --c-dfe4d8: #e3ded9;
-  --c-b3bba9: #b9b2ab;
-  --c-edf0e7: #efece8;
-  --c-a1ad97: #aba399;
-  --c-e5eddf: #ece6e0;
-  --c-ede7df: #ede7df;
-  --c-9b886f: #9b886f;
-  --c-9ba496: #a39d97;
-  --c-f1f4ec: #f3f0ed;
-  --c-9aa18e: #9f9890;
-  --c-f2f5ec: #f4f1ed;
-  --c-e2e9d9: #e8e1da;
-  --c-7a8d6a: #8a7c6d;
-  --c-dfe6d6: #e5ded7;
-  --c-5d6e4705: #6a5c4b05;
-  --c-aab29e: #b0a9a0;
-  --c-97a087: #9e9489;
-  --c-d5dcd0: #dbd6d1;
-  --c-7a8674: #847d76;
-  --c-4d8c58: #866e53;
-  --c-98ad87: #aa9b8a;
-  --c-f2f7edf0: #f6f2eef0;
-  --c-536b43: #675847;
-  --c-f5f7f1: #f6f4f2;
-  --c-e2e8da: #e7e1db;
-  --c-66765d: #746a5f;
-  --c-0002: #00000022;
-  --c-26371dc9: #352b1fc9;
-  --c-b4d697: #d0b89d;
-  --c-ad6050: #ad6050;
-  --c-dfe6d7: #e5dfd8;
-  --c-263b2020: #392e2220;
-  --c-88977c: #958a7e;
-  --c-edf3e7: #f2ede8;
-  --c-8c9782: #958d84;
-  --c-e8eedd: #ece6df;
-  --c-e5e9e3: #e8e6e4;
-  --c-71816c: #7f776e;
-  --c-f0f3ee: #f3f1ee;
-  --c-1d251e33: #24211e33;
-  --c-d8dfd4: #dedad5;
-  --c-f7f9f5: #f9f7f5;
-  --c-8b9587: #948e88;
-  --c-e8ebe6: #ebe9e6;
-  --c-abb0aa: #b1ada9;
-  --c-8b9488: #948e88;
-  --c-929991: #9a9590;
-  --c-e6ebdf: #eae5e0;
-  --c-edf0e6: #efebe7;
-  --c-526d46: #695b4a;
-  --c-858d7d: #8c857e;
-  --c-7a8475: #837d76;
-  --c-dce4d8: #e3ded9;
-  --c-5f7557: #72675a;
-  --c-b34839: #b34839;
-  --c-a0a990: #a79d92;
-  --c-6f8b60: #877764;
-  --c-edf1e6: #f0ece7;
-  --c-1e341340: #31241640;
-  --c-708070: #7f7871;
-  --c-858c87: #858c87;
-  --c-f1f3f1: #f3f2f1;
-  --c-5b635c: #645f5a;
-  --c-e6eae6: #eae8e6;
-  --c-fafbfa: #fbfbfa;
-  --c-b7c9ad: #c6bcb0;
-  --c-f3f7ef: #f6f3f0;
-  --c-d8e1d3: #e0dad4;
-  --c-f8faf6: #faf8f6;
-  --c-61765a: #73695d;
-  --c-e1e7dd: #e6e2de;
-  --c-fafbf9: #fbfaf9;
-  --c-f4f6f2: #f6f4f2;
-  --c-879181: #908982;
-  --c-4d6445: #615548;
-  --c-33412a14: #3f362c14;
-  --c-71806c: #7e776e;
-  --c-67835b: #7f705f;
-  --c-e3e8df: #e7e4e0;
-  --c-fbfcfa: #fcfbfa;
-  --c-cad6c3: #d4cdc5;
-  --c-f7faf5: #faf8f5;
-  --c-455440: #524b42;
-  --c-939b8e: #9a958f;
-  --c-708067: #7e7469;
-  --c-e5f0e2: #efe9e3;
-  --c-4a7547: #715f4b;
-  --c-f7efd9: #f4e9dc;
-  --c-856b2f: #856b2f;
-  --c-f6e5e1: #f6e5e1;
-  --c-a04e42: #a04e42;
-  --c-e8ece5: #ebe9e6;
-  --c-667563: #736c65;
-  --c-71856a: #83786c;
-  --c-e6ebe2: #eae7e3;
-  --c-40503c: #4e473e;
-  --c-929b8e: #9a958f;
-  --c-dfe5db: #e4e0dc;
-  --c-667a5e: #776d61;
-  --c-e5eae1: #e9e6e2;
-  --c-969e92: #9d9893;
-  --c-596755: #655e57;
-  --c-eaeee7: #edebe8;
-  --c-5c6c57: #6a6259;
-  --c-6c7768: #767069;
-  --c-8c9588: #948f89;
-  --c-99a28d: #a0988f;
-  --c-83976c: #938370;
-  --c-a7af9b: #ada69d;
-  --c-c1cab5: #c8c0b7;
-  --c-e5eadc: #e9e3dd;
-  --c-95a37f: #a09282;
-  --c-b0b6a3: #b4ada5;
-  --c-a1ab92: #a99f94;
-  --c-b7a47a: #b7a47a;
-  --c-819b68: #96836d;
-  --c-b68a6e: #b68a6e;
-  --c-8e9e79: #9b8d7c;
-  --c-f9faf6: #faf8f6;
-  --c-e6eadd: #e9e4de;
-  --c-9eaa8b: #a79b8e;
-  --c-f0f4e8: #f3eee9;
-  --c-e2e9d6: #e7e0d8;
-  --c-6d8058: #7c6d5c;
-  --c-a0ac8d: #a99d90;
-  --c-e6ebdd: #eae4de;
-  --c-f7f9f1: #f8f5f2;
-  --c-a1ab91: #a99f93;
-  --c-8d9a81: #988e83;
-  --c-fafafa: #fafafa;
-  --c-e9e9e9: #e9e9e9;
-  --c-414141: #414141;
-  --c-4a6354: #61574c;
-  --c-c5d4c8: #d3cdc6;
-  --c-3d5c48: #594d40;
-  --c-e5e5e5: #e5e5e5;
-  --c-555: #555;
-  --c-efefef: #efefef;
-  --c-e8efe9: #eeece9;
-  --c-263b2b: #393128;
-  --c-444: #444;
-  --c-666: #666;
-  --c-ededed: #ededed;
-  --c-222: #222;
-  --c-e6e6e6: #e6e6e6;
-  --c-f0f0f0: #f0f0f0;
-  --c-eaeaea: #eaeaea;
-  --c-161616: #161616;
-  --c-6d7a72: #79746e;
-  --c-8a9388: #938e88;
-  --c-2f5a38: #564633;
-  --c-e6f0e7: #efebe7;
-  --c-999: #999;
-  --c-828282: #828282;
-  --c-e7edf4: #e7edf4;
-  --c-8c9caf: #ac9e8f;
-  --c-202b38: #202b38;
-  --c-777: #777;
-  --c-dedede: #dedede;
-  --c-8a8f89: #8a8f89;
-  --c-344f65: #344f65;
-  --c-899187: #928c86;
-  --c-1f3d2c: #3a2f22;
-  --c-f0f4f0: #f4f2f0;
-  --c-9b3030: #9b3030;
-  --c-fdf0f0: #fdf0f0;
-  --c-5c6658: #655f59;
-  --c-3d8b63: #735736;
-  --c-20371955: #34291c55;
-  --c-e5e9e2: #e8e6e3;
-  --c-f7f8f5: #f8f7f5;
-  --c-9aa593: #a39c95;
-  --c-dce3d9: #e2deda;
-  --c-1c2a1e0d: #29231d0d;
-  --c-4a524c: #524e4a;
-  --c-f2e9e7: #f2e9e7;
-  --c-687066: #706b66;
-  --c-e3ead9: #e8e2db;
-  --c-2f3a33: #393530;
-  --c-e7eddf: #ece6e0;
-  --c-fbfcf9: #fcfbf9;
-  --c-f0e0dc: #f0e0dc;
-  --c-2037191a: #34291c1a;
-  --c-f0e9e2: #f0e9e2;
-  --c-fdf8f3: #fdf8f3;
-  --c-e8eaed: #edebe8;
-  --c-6b7280: #7e766d;
-  --c-eee: #eee;
-  --c-808778: #868079;
-  --c-f0f2ed: #f2f0ed;
-  --c-8b968c: #96918b;
-  --c-0001: #00000011;
-  --c-edf0ea: #efedeb;
-  --c-e2e7de: #e6e3df;
-  --c-dde4d8: #e3ded9;
-  --c-34402f: #3e3831;
-  --c-17231133: #211a1333;
-  --c-18231766: #221d1866;
-  --c-74806e: #7e7770;
-  --c-a3332d: #a3332d;
-  --c-e1e6dc: #e5e1dd;
-  --c-668052: #7c6a56;
-  --c-eff4e9: #f3efea;
-  --c-bc443d: #bc443d;
-  --c-3d5930: #554634;
-  --c-87907f: #8e8881;
-  --c-edf0e8: #efece9;
-  --c-687360: #716a62;
-  --c-f0f4eb: #f3f0ec;
-  --c-e9f0e1: #efe9e2;
-  --c-344c2b: #493c2e;
-  --c-bcc8b2: #c6beb4;
-  --c-e9eee5: #edeae6;
-  --c-7e887a: #87817b;
-  --c-eef2eb: #f1efec;
-  --c-cbd5c4: #d3cdc6;
-  --c-eef2e9: #f1eeea;
-  --c-dce5d4: #e3ddd6;
-  --c-e5ecde: #ebe5df;
-  --c-e1edd7: #ebe3d9;
-  --c-3f5c35: #584a39;
-  --c-30492a: #463a2d;
-  --c-6d855c: #817260;
-  --c-dde6d6: #e5ded7;
-  --c-354d2d: #4a3e30;
-  --c-ffffff24: #ffffff24;
-  --c-24331e26: #31292026;
-  --c-1d291f66: #28231e66;
-  --c-e3e9de: #e8e4df;
-  --c-6f8b6040: #87776440;
-  --c-929c8c: #9b948d;
-  --c-dfe6d9: #e5e0da;
-  --c-f7f9f4: #f9f7f4;
-  --c-95a08e: #9e9790;
-  --c-dfe8d8: #e7e0d9;
-  --c-7f9573: #928576;
-  --c-e9eee6: #edeae7;
-  --c-929b8b: #9a938c;
-  --c-aa6655: #aa6655;
-  --c-e8d7d0: #e8d7d0;
-  --c-fff8f5: #fff8f5;
-  --c-dce4d4: #e3dcd5;
-  --c-607a4b: #76644f;
-  --c-6d7865: #766f67;
-  --c-e5ecdc: #ebe4dd;
-  --c-81966e: #928372;
-  --c-8b3d24: #8b3d24;
-  --c-fff0e5: #fff0e5;
-  --c-e9b698: #e9b698;
-  --c-87600d: #87600d;
-  --c-fff7d9: #faedde;
-  --c-dcc66c: #d2a776;
-  --c-a03670: #a03670;
-  --c-fceaf4: #fceaf4;
-  --c-e4adc9: #e4adc9;
-  --c-6440a5: #6440a5;
-  --c-f0eafa: #f0eafa;
-  --c-c5afe5: #c5afe5;
-  --c-225caf: #225caf;
-  --c-eaf2ff: #eaf2ff;
-  --c-a8c5ee: #a8c5ee;
-  --c-177261: #6a471f;
-  --c-e3f5ef: #f3ece5;
-  --c-9acfbf: #cab69f;
-  --c-48602e: #5b4833;
-  --c-edf3df: #f1eae1;
-  --c-b5c993: #c4af98;
-  --c-e8ede3: #ece8e4;
-  --c-edf1e7: #f0ece8;
-  --c-405432: #514435;
-  --c-eef2ea: #f1eeeb;
-  --c-e2e8dd: #e7e3de;
-  --c-b8cfad: #ccbfb0;
-  --c-537047: #6c5d4b;
-  --c-eff7ea: #f6f1eb;
-  --c-d7d9d4: #d9d7d4;
-  --c-7e837b: #7e837b;
-  --c-f3f4f2: #f4f3f2;
-  --c-dfe5dc: #e4e1dd;
-  --c-788274: #817b75;
-  --c-58714d: #6e6050;
-  --c-63705e: #6e6760;
-  --c-45573f: #554c41;
-  --c-919a8d: #99948e;
-  --c-7d8977: #878079;
-  --c-929a90: #9a9590;
-  --c-e4e9e1: #e8e5e2;
-  --c-52634c: #61584e;
-  --c-42503e: #4e4740;
-  --c-758071: #7f7972;
-  --c-d5ddd1: #dcd7d2;
-  --c-d8d7c6: #d6cfc8;
-  --c-faf9ef: #f9f5f0;
-  --c-77704e: #736452;
-  --c-d8d8df: #dedcd9;
-  --c-f5f5f8: #f8f7f5;
-  --c-686978: #777069;
-  --c-43513e: #4f4840;
-  --c-879083: #8f8a84;
-  --c-455140: #4f4942;
-  --c-5c6857: #666059;
-  --c-e0e5dd: #e4e1de;
-  --c-7b8577: #847e78;
-  --c-d8ded4: #ddd9d5;
-  --c-707a6b: #79736c;
-  --c-adc79f: #c3b4a3;
-  --c-4f7044: #6c5b48;
-  --c-ddd6d2: #dcd8d3;
-  --c-f6f3f1: #f6f3f1;
-  --c-8a7268: #877a6b;
-  --c-ccd2c8: #d1cdc9;
-  --c-66865a: #82715e;
-  --c-65845b: #80715f;
-  --c-dfe7dc: #e6e2dd;
-  --c-596653: #645d55;
-  --c-e7ebe5: #eae8e6;
-  --c-4d7642: #715d47;
-  --c-a24e42: #a24e42;
-  --c-d8c98f: #d1b596;
-  --c-fffbea: #fcf5ed;
-  --c-81764f: #7d6954;
-  --c-858991: #918b85;
-  --c-f1f2f3: #f3f2f1;
-  --c-646971: #706b65;
-  --c-ececef: #efeeec;
-  --c-0000000d: #0000000d;
-  --c-6d7179: #79736d;
-  --c-e4e4e7: #e7e6e4;
-  --c-202327: #262421;
-  --c-898d96: #95908a;
-  --c-c8cec6: #cdcac7;
-  --c-657360: #716a62;
-  --c-c43c35: #c43c35;
-  --c-9f2e28: #9f2e28;
-  --c-b9c6ad: #c4baaf;
-  --c-75836d: #81796f;
-  --c-82907b: #8e867d;
-  --c-b39558: #b39558;
-  --c-272b29: #2b2927;
-  --c-1e272033: #26231f33;
-  --c-18201973: #1f1c1973;
-  --c-d5dcd5: #dbd9d6;
-  --c-4d5a51: #59544e;
-  --c-1e272014: #26231f14;
-  --c-f4f6f4: #f6f5f4;
-  --c-e3e7e3: #e7e5e3;
-  --c-8a918c: #8a918c;
-  --c-8d9690: #97928c;
-  --c-c27b86: #bca081;
-  --c-8a6ea3: #8a6ea3;
-  --c-c4a056: #c4a056;
-  --c-4d7ec8: #4d7ec8;
-  --c-bd594f: #bd594f;
-  --c-4d7ec880: #4d7ec880;
-  --c-4d7ec81f: #4d7ec81f;
-  --c-4d7ec866: #4d7ec866;
-  --c-3c433e: #43403c;
-  --c-1e27202e: #26231f2e;
-  --c-6d756f: #77716b;
-  --c-3d8a5b: #836644;
-  --c-eef2ee: #f2f0ee;
-  --c-e7eee4: #ede9e5;
-  --c-eef1ee: #f1f0ee;
-  --c-7d8580: #7d8580;
-  --c-2f3531: #343230;
-  --c-9f4339: #9f4339;
-  --c-d5ddd4: #dcd9d5;
-  --c-f4f7f2: #f7f5f2;
-  --c-9aa59c: #a4a09b;
-  --c-f3f5f2: #f5f4f2;
-  --c-5e6661: #67625d;
-  --c-7d9877: #95887a;
-  --c-edf0ec: #f0eeec;
-  --c-d8ddd8: #dddbd8;
-  --c-858d87: #858d87;
-  --c-e0c4a8: #e0c4a8;
-  --c-66726a: #716c67;
-  --c-4f5d4c: #5b554e;
-  --c-7e8781: #89837c;
-  --c-717973: #717973;
-  --c-9ba29d: #a39f9a;
-  --c-dcece1: #ebe4dd;
-  --c-b78b3f: #b78b3f;
-  --c-f5f7f4: #f7f6f4;
-  --c-dce1dc: #e1dfdc;
-  --c-a0a6a2: #a0a6a2;
-  --c-bdc9bb: #c8c2bc;
-  --c-f8faf7: #faf9f7;
-  --c-809778: #94887b;
-  --c-f0f5ee: #f4f2ef;
-  --c-879289: #928d87;
-  --c-425047: #4f4943;
-  --c-7f8782: #7f8782;
-  --c-666e69: #6f6a65;
-  --c-fff0ed: #fff0ed;
-  --c-edf0ed: #f0efed;
-  --c-7b847e: #868079;
-  --c-e7ebe6: #ebe9e6;
-  --c-f7f9f6: #f9f8f6;
-  --c-f3f6fb: #f3f6fb;
-  --c-dbe3ee: #dbe3ee;
-  --c-fbf6ea: #f9f3ec;
-  --c-ead9b4: #ead9b4;
-  --c-f8fbf7: #fbf9f7;
-  --c-7b5c20: #7b5c20;
-  --c-fff7df: #fbf0e3;
-  --c-dfc98b: #d7b793;
-  --c-64707b: #797066;
-  --c-f2f4f6: #f2f4f6;
-  --c-cdd3d8: #d7d3ce;
-  --c-dfe5dd: #e4e1de;
-  --c-283329: #322e29;
-  --c-e6ebe4: #eae8e5;
-  --c-748071: #7f7972;
-}
-
-html[data-theme="ink"] {
-  color-scheme: dark;
-  --icon: #9fa6a0;
-  --logo-ink: #293117;
-  --logo-accent: #4c652b;
-  --c-27362f: #d1d9d2;
-  --c-f8faf8: #1b231c;
-  --c-73806f: #9fa6a0;
-  --c-758073: #9ea59f;
-  --c-8b9689: #939c94;
-  --c-bdc8b9: #3c493e;
-  --c-3f5945: #adbbaf;
-  --c-90a17f: #39493b;
-  --c-98a093: #959f96;
-  --c-f3f5f0: #1d281f;
-  --c-516747: #a9b9ab;
-  --c-c59d4b: #cdab65;
-  --c-b6735d: #bf8572;
-  --c-5e6c56: #aab4ab;
-  --c-f0f3ed: #1f2a20;
-  --c-dde5d7: #273629;
-  --c-e8f0e1: #1e3321;
-  --c-dce7d3: #243927;
-  --c-e2e9da: #233526;
-  --c-f7f9f3: #182a1b;
-  --c-e5eddc: #203523;
-  --c-c3d3b6: #344d37;
-  --c-8f9e7b: #3a4a3c;
-  --c-f5f7f0: #1a2b1c;
-  --c-fff: #1b1d1b;
-  --c-f6f8fa: #172029;
-  --c-dce5d3: #263928;
-  --c-9aa68a: #91a193;
-  --c-edf3e8: #1c2f1f;
-  --c-7a896f: #9aa69c;
-  --c-8c987f: #909d92;
-  --c-567c51: #a2b6a5;
-  --c-f0f5eb: #1b2e1d;
-  --c-a16e49: #c69e82;
-  --c-7f9078: #8f9b91;
-  --c-426b4b: #a7bcaa;
-  --c-dde4de: #29312a;
-  --c-4f6257: #acb5ad;
-  --c-edf2ec: #1f2a21;
-  --c-72966f: #94a596;
-  --c-4a7251: #a6b9a8;
-  --c-33563b: #abc0ae;
-  --c-d9e1d9: #2a332c;
-  --c-29382e: #d1d8d2;
-  --c-70916f: #8c9c8e;
-  --c-eaf0e8: #202d22;
-  --c-657369: #a6aca7;
-  --c-395d40: #aabead;
-  --c-86918a: #939a94;
-  --c-8b9a87: #919f93;
-  --c-93a094: #959f96;
-  --c-fff0ec: #430e00;
-  --c-a24b3d: #cf8a7f;
-  --c-f3d8d0: #471e12;
-  --c-f4f7f1: #1b291d;
-  --c-7a8b7b: #909992;
-  --c-698164: #9faca1;
-  --c-a2aba0: #98a199;
-  --c-7a9a6e: #92a694;
-  --c-2f4a2c: #aec2b1;
-  --c-54704e: #a7b7a9;
-  --c-f2f8ed: #172f1a;
-  --c-243a22: #cfdbd1;
-  --c-dfe5da: #273429;
-  --c-f2f5ef: #1d2a1f;
-  --c-7c8678: #9ba29c;
-  --c-33432f: #b2c0b4;
-  --c-cbdabe: #304a34;
-  --c-52684a: #a9b8ab;
-  --c-e4e9df: #253126;
-  --c-8b9683: #909e92;
-  --c-607957: #a3b3a5;
-  --c-9aa39a: #969f97;
-  --c-dfe3de: #2a302b;
-  --c-818981: #919992;
-  --c-c85b54: #632420;
-  --c-a9443e: #cf807b;
-  --c-c69236: #d6ae68;
-  --c-8a651f: #e3c181;
-  --c-5d8b55: #9bb39e;
-  --c-497343: #a4bca8;
-  --c-dce3d6: #28362a;
-  --c-f5f6f2: #1d271f;
-  --c-788271: #9ea59f;
-  --c-a64c42: #cb857d;
-  --c-e0e6dc: #273228;
-  --c-899585: #919d93;
-  --c-e5ebdf: #233225;
-  --c-7f8b7d: #919892;
-  --c-33482605: #cadacd05;
-  --c-929d8e: #939e95;
-  --c-dfe5d9: #273429;
-  --c-7b8b76: #8f9990;
-  --c-7e9c71: #90a493;
-  --c-a0a998: #94a296;
-  --c-e1e7dc: #263328;
-  --c-a0aa9b: #95a297;
-  --c-e9ecdf: #223224;
-  --c-7b866a: #9ca89e;
-  --c-fcfdfb: #162518;
-  --c-edf0e9: #212c22;
-  --c-e1e7da: #253427;
-  --c-6c7e5d: #a1afa3;
-  --c-f1f5eb: #1b2e1d;
-  --c-c3d0b6: #364c39;
-  --c-8a9482: #929b93;
-  --c-4c5b42: #adbaae;
-  --c-3d4a38: #b1bcb3;
-  --c-5d7056: #a8b4aa;
-  --c-9a6a60: #b69189;
-  --c-7a4f45: #c5a199;
-  --c-62855a: #9db0a0;
-  --c-3d5a38: #abbeae;
-  --c-30451d0a: #cbdecd0a;
-  --c-4a5f44: #abbaad;
-  --c-9da69a: #96a097;
-  --c-8a9585: #919d93;
-  --c-4c8b55: #9bb79f;
-  --c-dfeee0: #203322;
-  --c-bd9441: #ceae6f;
-  --c-b75b4d: #c67e73;
-  --c-9aa394: #94a096;
-  --c-ad793b: #d1a878;
-  --c-dce5d5: #263728;
-  --c-34462f: #b0c0b3;
-  --c-fcfdf9: #122a16;
-  --c-24371e33: #d0ddd233;
-  --c-26352265: #d1dbd365;
-  --c-839079: #8f9b91;
-  --c-929d87: #90a092;
-  --c-738566: #9daa9f;
-  --c-e7ecdf: #223224;
-  --c-789466: #96a998;
-  --c-bd935f: #5d4426;
-  --c-819076: #8e9b90;
-  --c-e4e9dd: #243326;
-  --c-456b42: #a7bcaa;
-  --c-58784b: #a4b9a7;
-  --c-d9e5d3: #263928;
-  --c-7c936e: #96a698;
-  --c-f1f2ed: #202921;
-  --c-8e9388: #929c93;
-  --c-e4e5de: #283029;
-  --c-94a08c: #91a093;
-  --c-e7ebe0: #233125;
-  --c-a4b098: #94a496;
-  --c-9aa48f: #92a294;
-  --c-e7eae7: #262b27;
-  --c-7d8b74: #8e9990;
-  --c-eaf0e5: #1f3021;
-  --c-edf1e9: #1f2d21;
-  --c-c6cebf: #39463b;
-  --c-526d42: #a6bca9;
-  --c-354f2a: #acc4af;
-  --c-718866: #9baa9d;
-  --c-3e5035: #aebfb0;
-  --c-fffffff5: #1b1d1bf5;
-  --c-293c2114: #cedcd014;
-  --c-dfe4d8: #283529;
-  --c-b3bba9: #97a799;
-  --c-edf0e7: #202e22;
-  --c-a1ad97: #94a396;
-  --c-e5eddf: #213323;
-  --c-ede7df: #362b1e;
-  --c-9b886f: #ad9e89;
-  --c-9ba496: #95a096;
-  --c-f1f4ec: #1d2c1f;
-  --c-9aa18e: #92a094;
-  --c-f2f5ec: #1b2d1e;
-  --c-e2e9d9: #233626;
-  --c-7a8d6a: #99a89b;
-  --c-dfe6d6: #253728;
-  --c-5d6e4705: #a7baa905;
-  --c-aab29e: #95a597;
-  --c-97a087: #90a192;
-  --c-d5dcd0: #323f34;
-  --c-7a8674: #9ca39d;
-  --c-4d8c58: #9ab79e;
-  --c-98ad87: #344637;
-  --c-f2f7edf0: #192e1bf0;
-  --c-536b43: #a7bbaa;
-  --c-f5f7f1: #1b291d;
-  --c-e2e8da: #243527;
-  --c-66765d: #a5b0a6;
-  --c-0002: #e4e7e522;
-  --c-26371dc9: #d0ded2c9;
-  --c-b4d697: #2f5f35;
-  --c-ad6050: #c2877b;
-  --c-dfe6d7: #263628;
-  --c-263b2020: #cfdcd120;
-  --c-88977c: #8f9d91;
-  --c-edf3e7: #1c301f;
-  --c-8c9782: #8f9e91;
-  --c-e8eedd: #1f3522;
-  --c-e5e9e3: #262e27;
-  --c-71816c: #9ea8a0;
-  --c-f0f3ee: #1f2920;
-  --c-1d251e33: #d7dcd833;
-  --c-d8dfd4: #313d33;
-  --c-f7f9f5: #1a271c;
-  --c-8b9587: #929c93;
-  --c-e8ebe6: #252c26;
-  --c-abb0aa: #99a29b;
-  --c-8b9488: #929c94;
-  --c-929991: #949d95;
-  --c-e6ebdf: #233225;
-  --c-edf0e6: #1f2f21;
-  --c-526d46: #a7baa9;
-  --c-858d7d: #919992;
-  --c-7a8475: #9da39d;
-  --c-dce4d8: #283529;
-  --c-5f7557: #a5b3a7;
-  --c-b34839: #d38074;
-  --c-a0a990: #92a294;
-  --c-6f8b60: #9aad9d;
-  --c-edf1e6: #1e2f21;
-  --c-1e341340: #cfe3d240;
-  --c-708070: #9fa6a0;
-  --c-858c87: #929a93;
-  --c-f1f3f1: #212522;
-  --c-5b635c: #acb2ad;
-  --c-e6eae6: #262b27;
-  --c-fafbfa: #1c211d;
-  --c-b7c9ad: #3a503d;
-  --c-f3f7ef: #1a2c1c;
-  --c-d8e1d3: #2f3f31;
-  --c-f8faf6: #19271b;
-  --c-61765a: #a5b1a6;
-  --c-e1e7dd: #263228;
-  --c-fafbf9: #1a241b;
-  --c-f4f6f2: #1d271f;
-  --c-879181: #929a93;
-  --c-4d6445: #aabaac;
-  --c-33412a14: #cdd8cf14;
-  --c-71806c: #9fa8a0;
-  --c-67835b: #9eb0a1;
-  --c-e3e8df: #263127;
-  --c-fbfcfa: #18241a;
-  --c-cad6c3: #344636;
-  --c-f7faf5: #18291a;
-  --c-455440: #afbab0;
-  --c-939b8e: #949d95;
-  --c-708067: #9faaa1;
-  --c-e5f0e2: #1e3221;
-  --c-4a7547: #a4baa7;
-  --c-f7efd9: #143d1a;
-  --c-856b2f: #d6bf8b;
-  --c-f6e5e1: #3c1a12;
-  --c-a04e42: #cb8b81;
-  --c-e8ece5: #242d25;
-  --c-667563: #a5ada6;
-  --c-71856a: #9da89e;
-  --c-e6ebe2: #242f25;
-  --c-40503c: #afbbb1;
-  --c-929b8e: #949d95;
-  --c-dfe5db: #273329;
-  --c-667a5e: #a3afa4;
-  --c-e5eae1: #243026;
-  --c-969e92: #959e96;
-  --c-596755: #abb4ac;
-  --c-eaeee7: #222d23;
-  --c-5c6c57: #aab3ab;
-  --c-6c7768: #a4aaa4;
-  --c-8c9588: #929c94;
-  --c-99a28d: #91a193;
-  --c-83976c: #94a696;
-  --c-a7af9b: #94a496;
-  --c-c1cab5: #3a4b3d;
-  --c-e5eadc: #233425;
-  --c-95a37f: #38493a;
-  --c-b0b6a3: #96a698;
-  --c-a1ab92: #93a395;
-  --c-b7a47a: #50452b;
-  --c-819b68: #92a895;
-  --c-b68a6e: #553b2b;
-  --c-8e9e79: #8ea191;
-  --c-f9faf6: #19271b;
-  --c-e6eadd: #233325;
-  --c-9eaa8b: #364538;
-  --c-f0f4e8: #1b301e;
-  --c-e2e9d6: #233826;
-  --c-6d8058: #a0b2a2;
-  --c-a0ac8d: #354437;
-  --c-e6ebdd: #223425;
-  --c-f7f9f1: #172c1a;
-  --c-a1ab91: #93a395;
-  --c-8d9a81: #8f9f91;
-  --c-fafafa: #1e201e;
-  --c-e9e9e9: #272a27;
-  --c-414141: #b4bab5;
-  --c-4a6354: #abb8ad;
-  --c-c5d4c8: #364438;
-  --c-3d5c48: #abbcad;
-  --c-e5e5e5: #292c29;
-  --c-555: #afb5af;
-  --c-efefef: #232624;
-  --c-e8efe9: #212c23;
-  --c-263b2b: #cfdad1;
-  --c-444: #b3b9b4;
-  --c-666: #a9afaa;
-  --c-ededed: #242725;
-  --c-222: #d8dbd9;
-  --c-e6e6e6: #282b29;
-  --c-f0f0f0: #232623;
-  --c-eaeaea: #262926;
-  --c-161616: #dcdfdd;
-  --c-6d7a72: #a2a8a2;
-  --c-8a9388: #929c93;
-  --c-2f5a38: #a9c3ac;
-  --c-e6f0e7: #1f2f21;
-  --c-999: #959e97;
-  --c-828282: #909991;
-  --c-e7edf4: #182534;
-  --c-8c9caf: #344536;
-  --c-202b38: #cbd5e1;
-  --c-777: #9fa6a0;
-  --c-dedede: #2c302d;
-  --c-8a8f89: #929b94;
-  --c-344f65: #9cb6cc;
-  --c-899187: #939a94;
-  --c-1f3d2c: #ceddd0;
-  --c-f0f4f0: #1f2720;
-  --c-9b3030: #d88383;
-  --c-fdf0f0: #3a0808;
-  --c-5c6658: #acb2ad;
-  --c-3d8b63: #9fc5a4;
-  --c-20371955: #cfe0d155;
-  --c-e5e9e2: #262f27;
-  --c-f7f8f5: #1c251d;
-  --c-9aa593: #93a195;
-  --c-dce3d9: #29342a;
-  --c-1c2a1e0d: #d5ddd60d;
-  --c-4a524c: #b1b6b2;
-  --c-f2e9e7: #321f1b;
-  --c-687066: #a6aca7;
-  --c-e3ead9: #223625;
-  --c-2f3a33: #d1d6d1;
-  --c-e7eddf: #213323;
-  --c-fbfcf9: #172619;
-  --c-f0e0dc: #3b2019;
-  --c-2037191a: #cfe0d11a;
-  --c-f0e9e2: #35281b;
-  --c-fdf8f3: #372009;
-  --c-e8eaed: #242b25;
-  --c-6b7280: #9fa8a0;
-  --c-eee: #242724;
-  --c-808778: #909891;
-  --c-f0f2ed: #202921;
-  --c-8b968c: #939c94;
-  --c-0001: #e4e7e511;
-  --c-edf0ea: #212b22;
-  --c-e2e7de: #263128;
-  --c-dde4d8: #283529;
-  --c-34402f: #ced6cf;
-  --c-17231133: #d6e3d733;
-  --c-18231766: #d7dfd866;
-  --c-74806e: #9fa7a0;
-  --c-a3332d: #db807b;
-  --c-e1e6dc: #273228;
-  --c-668052: #a0b5a3;
-  --c-eff4e9: #1b2f1e;
-  --c-bc443d: #d0756f;
-  --c-3d5930: #a9c2ad;
-  --c-87907f: #919a93;
-  --c-edf0e8: #202d22;
-  --c-687360: #a6aea7;
-  --c-f0f4eb: #1c2d1f;
-  --c-e9f0e1: #1e3321;
-  --c-344c2b: #adc3b0;
-  --c-bcc8b2: #3b4d3d;
-  --c-e9eee5: #212e23;
-  --c-7e887a: #919892;
-  --c-eef2eb: #1f2b21;
-  --c-cbd5c4: #354537;
-  --c-eef2e9: #1e2d20;
-  --c-dce5d4: #263828;
-  --c-e5ecde: #213324;
-  --c-e1edd7: #1f3922;
-  --c-3f5c35: #aac0ad;
-  --c-30492a: #aec3b1;
-  --c-6d855c: #9dafa0;
-  --c-dde6d6: #253728;
-  --c-354d2d: #adc2b0;
-  --c-ffffff24: #1b1d1b24;
-  --c-24331e26: #d2ddd326;
-  --c-1d291f66: #d6ddd766;
-  --c-e3e9de: #243226;
-  --c-6f8b6040: #9aad9d40;
-  --c-929c8c: #929e94;
-  --c-dfe6d9: #263528;
-  --c-f7f9f4: #19281b;
-  --c-95a08e: #92a094;
-  --c-dfe8d8: #243626;
-  --c-7f9573: #8d9d8f;
-  --c-e9eee6: #222d23;
-  --c-929b8b: #929e94;
-  --c-aa6655: #be8b7e;
-  --c-e8d7d0: #40291f;
-  --c-fff8f5: #3e1200;
-  --c-dce4d4: #273829;
-  --c-607a4b: #a3b9a6;
-  --c-6d7865: #a3aca4;
-  --c-e5ecdc: #213524;
-  --c-81966e: #94a696;
-  --c-8b3d24: #df9983;
-  --c-fff0e5: #461e00;
-  --c-e9b698: #6d3717;
-  --c-87600d: #f2cb77;
-  --c-fff7d9: #0b4212;
-  --c-dcc66c: #1e5625;
-  --c-a03670: #d47fad;
-  --c-fceaf4: #3d0926;
-  --c-e4adc9: #5e1f3f;
-  --c-6440a5: #9a7ecd;
-  --c-f0eafa: #1e0e39;
-  --c-c5afe5: #381e5e;
-  --c-225caf: #72a1e4;
-  --c-eaf2ff: #001a44;
-  --c-a8c5ee: #143767;
-  --c-177261: #9ad1a2;
-  --c-e3f5ef: #18351c;
-  --c-9acfbf: #345c39;
-  --c-48602e: #a7c4aa;
-  --c-edf3df: #1a361e;
-  --c-b5c993: #28442c;
-  --c-e8ede3: #223024;
-  --c-edf1e7: #1f2e21;
-  --c-405432: #acc1af;
-  --c-eef2ea: #1f2c20;
-  --c-e2e8dd: #253227;
-  --c-b8cfad: #365139;
-  --c-537047: #a6baa9;
-  --c-eff7ea: #17311b;
-  --c-d7d9d4: #363b36;
-  --c-7e837b: #9ba29c;
-  --c-f3f4f2: #202521;
-  --c-dfe5dc: #283229;
-  --c-788274: #9da49e;
-  --c-58714d: #a7b8a9;
-  --c-63705e: #a7b0a9;
-  --c-45573f: #adbbaf;
-  --c-919a8d: #939d95;
-  --c-7d8977: #909891;
-  --c-929a90: #949d95;
-  --c-e4e9e1: #252f27;
-  --c-52634c: #abb7ad;
-  --c-42503e: #b0bab1;
-  --c-758071: #9fa5a0;
-  --c-d5ddd1: #323f33;
-  --c-d8d7c6: #334535;
-  --c-faf9ef: #143018;
-  --c-77704e: #a5b8a7;
-  --c-d8d8df: #2c332d;
-  --c-f5f5f8: #1c251d;
-  --c-686978: #a3aaa4;
-  --c-43513e: #b0bbb1;
-  --c-879083: #939a94;
-  --c-455140: #b0bab1;
-  --c-5c6857: #abb3ac;
-  --c-e0e5dd: #283129;
-  --c-7b8577: #9ca29d;
-  --c-d8ded4: #323d33;
-  --c-707a6b: #a2a9a3;
-  --c-adc79f: #3a573e;
-  --c-4f7044: #a6bba8;
-  --c-ddd6d2: #323e34;
-  --c-f6f3f1: #2a211b;
-  --c-8a7268: #9aa99c;
-  --c-ccd2c8: #384139;
-  --c-66865a: #9db09f;
-  --c-65845b: #9eb0a0;
-  --c-dfe7dc: #263328;
-  --c-596653: #abb4ac;
-  --c-e7ebe5: #252d26;
-  --c-4d7642: #a3bca7;
-  --c-a24e42: #cb8980;
-  --c-d8c98f: #2d6334;
-  --c-fffbea: #093a10;
-  --c-81764f: #a0b6a3;
-  --c-858991: #939a94;
-  --c-f1f2f3: #212522;
-  --c-646971: #a7ada8;
-  --c-ececef: #232824;
-  --c-0000000d: #e4e7e50d;
-  --c-6d7179: #a2a8a3;
-  --c-e4e4e7: #282c29;
-  --c-202327: #d7dbd8;
-  --c-898d96: #939c94;
-  --c-c8cec6: #3a423b;
-  --c-657360: #a6aea7;
-  --c-c43c35: #d66e69;
-  --c-9f2e28: #de827e;
-  --c-b9c6ad: #3c4f3e;
-  --c-75836d: #9da79f;
-  --c-82907b: #909a91;
-  --c-b39558: #c0a875;
-  --c-272b29: #d6d8d6;
-  --c-1e272033: #d7dcd733;
-  --c-18201973: #d9dfda73;
-  --c-d5dcd5: #343c35;
-  --c-4d5a51: #afb5b0;
-  --c-1e272014: #d7dcd714;
-  --c-f4f6f4: #1f2420;
-  --c-e3e7e3: #282d28;
-  --c-8a918c: #939b94;
-  --c-8d9690: #939d94;
-  --c-c27b86: #2b4d2f;
-  --c-8a6ea3: #9a82b0;
-  --c-c4a056: #624d22;
-  --c-4d7ec8: #628dce;
-  --c-bd594f: #c8756d;
-  --c-4d7ec880: #628dce80;
-  --c-4d7ec81f: #628dce1f;
-  --c-4d7ec866: #628dce66;
-  --c-3c433e: #b5b9b5;
-  --c-1e27202e: #d7dcd72e;
-  --c-6d756f: #a3a9a4;
-  --c-3d8a5b: #9cc0a1;
-  --c-eef2ee: #212822;
-  --c-e7eee4: #212f23;
-  --c-eef1ee: #222723;
-  --c-7d8580: #909991;
-  --c-2f3531: #d3d5d3;
-  --c-9f4339: #d28880;
-  --c-d5ddd4: #333d34;
-  --c-f4f7f2: #1c281d;
-  --c-9aa59c: #96a098;
-  --c-f3f5f2: #1f2620;
-  --c-5e6661: #acb1ac;
-  --c-7d9877: #8d9e90;
-  --c-edf0ec: #222923;
-  --c-d8ddd8: #343a35;
-  --c-858d87: #929a93;
-  --c-e0c4a8: #604122;
-  --c-66726a: #a6aca7;
-  --c-4f5d4c: #adb6af;
-  --c-7e8781: #919892;
-  --c-717973: #a0a8a1;
-  --c-9ba29d: #969f97;
-  --c-dcece1: #213524;
-  --c-b78b3f: #cfad73;
-  --c-f5f7f4: #1d251e;
-  --c-dce1dc: #2b312c;
-  --c-a0a6a2: #98a099;
-  --c-bdc9bb: #3c483d;
-  --c-f8faf7: #1a251b;
-  --c-809778: #8e9d90;
-  --c-f0f5ee: #1c2b1e;
-  --c-879289: #929c93;
-  --c-425047: #b1b9b2;
-  --c-7f8782: #909992;
-  --c-666e69: #a7ada8;
-  --c-fff0ed: #420b00;
-  --c-edf0ed: #222823;
-  --c-7b847e: #909891;
-  --c-e7ebe6: #252c26;
-  --c-f7f9f6: #1b251c;
-  --c-f3f6fb: #101c31;
-  --c-dbe3ee: #1b283a;
-  --c-fbf6ea: #103515;
-  --c-ead9b4: #5e481a;
-  --c-f8fbf7: #172819;
-  --c-7b5c20: #e0c287;
-  --c-fff7df: #0a3f11;
-  --c-dfc98b: #286730;
-  --c-64707b: #a2aca3;
-  --c-f2f4f6: #1c2228;
-  --c-cdd3d8: #354036;
-  --c-dfe5dd: #283129;
-  --c-283329: #d3d8d4;
-  --c-e6ebe4: #242e25;
-  --c-748071: #9fa5a0;
-}
-
-html[data-theme="night"] {
-  color-scheme: dark;
-  --icon: #85888c;
-  --logo-ink: #15190c;
-  --logo-accent: #2c3b19;
-  --c-27362f: #e6e6e7;
-  --c-f8faf8: #0e0f10;
-  --c-73806f: #85888c;
-  --c-758073: #85878a;
-  --c-8b9689: #8f9195;
-  --c-bdc8b9: #242528;
-  --c-3f5945: #c8c8c9;
-  --c-90a17f: #242629;
-  --c-98a093: #919397;
-  --c-f3f5f0: #101113;
-  --c-516747: #c6c6c7;
-  --c-c59d4b: #c19740;
-  --c-b6735d: #b06750;
-  --c-5e6c56: #c4c5c5;
-  --c-f0f3ed: #111214;
-  --c-dde5d7: #17191b;
-  --c-e8f0e1: #121518;
-  --c-dce7d3: #17191d;
-  --c-e2e9da: #16171a;
-  --c-f7f9f3: #0e1012;
-  --c-e5eddc: #14161a;
-  --c-c3d3b6: #212428;
-  --c-8f9e7b: #25272a;
-  --c-f5f7f0: #0f1113;
-  --c-fff: #0c0d0d;
-  --c-f6f8fa: #0b0f14;
-  --c-dce5d3: #17191d;
-  --c-9aa68a: #8e9299;
-  --c-edf3e8: #111316;
-  --c-7a896f: #81858b;
-  --c-8c987f: #8c9096;
-  --c-567c51: #8f9093;
-  --c-f0f5eb: #101215;
-  --c-a16e49: #b6835e;
-  --c-7f9078: #8b8f94;
-  --c-426b4b: #c5c6c8;
-  --c-dde4de: #171819;
-  --c-4f6257: #c6c6c7;
-  --c-edf2ec: #111214;
-  --c-72966f: #7b818b;
-  --c-4a7251: #c4c5c6;
-  --c-33563b: #c9cacb;
-  --c-d9e1d9: #18191b;
-  --c-29382e: #e6e6e6;
-  --c-70916f: #898d95;
-  --c-eaf0e8: #121416;
-  --c-657369: #8d8e8f;
-  --c-395d40: #c8c8ca;
-  --c-86918a: #8f9094;
-  --c-8b9a87: #8e9196;
-  --c-93a094: #919397;
-  --c-fff0ec: #210700;
-  --c-a24b3d: #c06758;
-  --c-f3d8d0: #26100a;
-  --c-f4f7f1: #0f1013;
-  --c-7a8b7b: #8c8f92;
-  --c-698164: #858991;
-  --c-a2aba0: #949699;
-  --c-7a9a6e: #7a808b;
-  --c-2f4a2c: #cacbcd;
-  --c-54704e: #c4c5c6;
-  --c-f2f8ed: #0e1115;
-  --c-243a22: #e6e6e7;
-  --c-dfe5da: #17181a;
-  --c-f2f5ef: #101113;
-  --c-7c8678: #828488;
-  --c-33432f: #cbcccd;
-  --c-cbdabe: #1f2126;
-  --c-52684a: #c5c6c7;
-  --c-e4e9df: #151719;
-  --c-8b9683: #8e9095;
-  --c-607957: #8e8f91;
-  --c-9aa39a: #929498;
-  --c-dfe3de: #181819;
-  --c-818981: #8e8f92;
-  --c-c85b54: #3b1513;
-  --c-a9443e: #c05a54;
-  --c-c69236: #cb9940;
-  --c-8a651f: #ead2a4;
-  --c-5d8b55: #818997;
-  --c-497343: #c4c5c7;
-  --c-dce3d6: #18191c;
-  --c-f5f6f2: #101112;
-  --c-788271: #84878b;
-  --c-a64c42: #bc6258;
-  --c-e0e6dc: #17181a;
-  --c-899585: #8e9195;
-  --c-e5ebdf: #151619;
-  --c-7f8b7d: #8d8f92;
-  --c-33482605: #e4e5e505;
-  --c-929d8e: #909296;
-  --c-dfe5d9: #17181b;
-  --c-7b8b76: #8b8e93;
-  --c-7e9c71: #787f8a;
-  --c-a0a998: #929499;
-  --c-e1e7dc: #16171a;
-  --c-a0aa9b: #929599;
-  --c-e9ecdf: #141619;
-  --c-7b866a: #83878e;
-  --c-fcfdfb: #0c0d10;
-  --c-edf0e9: #121315;
-  --c-e1e7da: #16181a;
-  --c-6c7e5d: #8c8d8f;
-  --c-f1f5eb: #101215;
-  --c-c3d0b6: #222428;
-  --c-8a9482: #8e9095;
-  --c-4c5b42: #c7c8c9;
-  --c-3d4a38: #cacacb;
-  --c-5d7056: #c4c4c5;
-  --c-9a6a60: #a2736a;
-  --c-7a4f45: #d5bbb5;
-  --c-62855a: #8a8c8e;
-  --c-3d5a38: #c8c9ca;
-  --c-30451d0a: #e5e6e70a;
-  --c-4a5f44: #c7c7c8;
-  --c-9da69a: #939598;
-  --c-8a9585: #8e9195;
-  --c-4c8b55: #8b8d91;
-  --c-dfeee0: #131519;
-  --c-bd9441: #c09949;
-  --c-b75b4d: #b85d4f;
-  --c-9aa394: #919498;
-  --c-ad793b: #c48f51;
-  --c-dce5d5: #17191c;
-  --c-34462f: #cbcbcd;
-  --c-fcfdf9: #0b0e11;
-  --c-24371e33: #e7e7e833;
-  --c-26352265: #e7e7e765;
-  --c-839079: #8c8f94;
-  --c-929d87: #8e9197;
-  --c-738566: #838890;
-  --c-e7ecdf: #141619;
-  --c-789466: #7d838f;
-  --c-bd935f: #372917;
-  --c-819076: #8b8e94;
-  --c-e4e9dd: #151719;
-  --c-456b42: #c5c6c8;
-  --c-58784b: #c3c4c6;
-  --c-d9e5d3: #17191d;
-  --c-7c936e: #7d828b;
-  --c-f1f2ed: #111214;
-  --c-8e9388: #8f9194;
-  --c-e4e5de: #171819;
-  --c-94a08c: #8f9297;
-  --c-e7ebe0: #151618;
-  --c-a4b098: #91959b;
-  --c-9aa48f: #909398;
-  --c-e7eae7: #151516;
-  --c-7d8b74: #8b8e93;
-  --c-eaf0e5: #121417;
-  --c-edf1e9: #121315;
-  --c-c6cebf: #222426;
-  --c-526d42: #c5c6c8;
-  --c-354f2a: #cacbcd;
-  --c-718866: #82878f;
-  --c-3e5035: #c9cacb;
-  --c-fffffff5: #0c0d0df5;
-  --c-293c2114: #e6e6e714;
-  --c-dfe4d8: #17191b;
-  --c-b3bba9: #94989e;
-  --c-edf0e7: #121416;
-  --c-a1ad97: #91949b;
-  --c-e5eddf: #141619;
-  --c-ede7df: #1c1710;
-  --c-9b886f: #99856b;
-  --c-9ba496: #929498;
-  --c-f1f4ec: #101214;
-  --c-9aa18e: #909398;
-  --c-f2f5ec: #101215;
-  --c-e2e9d9: #16171b;
-  --c-7a8d6a: #80858d;
-  --c-dfe6d6: #17191c;
-  --c-5d6e4705: #c5c6c705;
-  --c-aab29e: #92969c;
-  --c-97a087: #8e9198;
-  --c-d5dcd0: #1e1f21;
-  --c-7a8674: #828589;
-  --c-4d8c58: #8b8d91;
-  --c-98ad87: #212326;
-  --c-f2f7edf0: #0f1114f0;
-  --c-536b43: #c5c6c8;
-  --c-f5f7f1: #0f1013;
-  --c-e2e8da: #16181a;
-  --c-66765d: #8e8f90;
-  --c-0002: #eff0f022;
-  --c-26371dc9: #e7e7e8c9;
-  --c-b4d697: #222730;
-  --c-ad6050: #b26858;
-  --c-dfe6d7: #17181b;
-  --c-263b2020: #e6e6e720;
-  --c-88977c: #8c8f96;
-  --c-edf3e7: #111316;
-  --c-8c9782: #8d9095;
-  --c-e8eedd: #131619;
-  --c-e5e9e3: #151617;
-  --c-71816c: #85888d;
-  --c-f0f3ee: #111214;
-  --c-1d251e33: #e9e9e933;
-  --c-d8dfd4: #1d1e20;
-  --c-f7f9f5: #0e0f11;
-  --c-8b9587: #8f9194;
-  --c-e8ebe6: #141516;
-  --c-abb0aa: #95979a;
-  --c-8b9488: #8f9194;
-  --c-929991: #919296;
-  --c-e6ebdf: #151619;
-  --c-edf0e6: #121416;
-  --c-526d46: #c5c6c7;
-  --c-858d7d: #8d8f93;
-  --c-7a8475: #838589;
-  --c-dce4d8: #17191b;
-  --c-5f7557: #8f9092;
-  --c-b34839: #c65b4c;
-  --c-a0a990: #8f939a;
-  --c-6f8b60: #818792;
-  --c-edf1e6: #121416;
-  --c-1e341340: #e8e8ea40;
-  --c-708070: #85878b;
-  --c-858c87: #8e9093;
-  --c-f1f3f1: #111212;
-  --c-5b635c: #c5c5c5;
-  --c-e6eae6: #151516;
-  --c-fafbfa: #0e0e0f;
-  --c-b7c9ad: #24272b;
-  --c-f3f7ef: #0f1114;
-  --c-d8e1d3: #1c1e21;
-  --c-f8faf6: #0e0f11;
-  --c-61765a: #8f9091;
-  --c-e1e7dd: #161719;
-  --c-fafbf9: #0d0e10;
-  --c-f4f6f2: #101112;
-  --c-879181: #8e9094;
-  --c-4d6445: #c6c7c8;
-  --c-33412a14: #e5e5e514;
-  --c-71806c: #85888d;
-  --c-67835b: #8b8c8e;
-  --c-e3e8df: #161719;
-  --c-fbfcfa: #0d0e10;
-  --c-cad6c3: #202225;
-  --c-f7faf5: #0e0f12;
-  --c-455440: #c8c9ca;
-  --c-939b8e: #909296;
-  --c-708067: #85898f;
-  --c-e5f0e2: #121418;
-  --c-4a7547: #c4c5c7;
-  --c-f7efd9: #10141b;
-  --c-856b2f: #e1d1ab;
-  --c-f6e5e1: #1f0d09;
-  --c-a04e42: #bc685c;
-  --c-e8ece5: #141517;
-  --c-667563: #8d8e8f;
-  --c-71856a: #83878e;
-  --c-e6ebe2: #141618;
-  --c-40503c: #c9c9ca;
-  --c-929b8e: #909296;
-  --c-dfe5db: #17181a;
-  --c-667a5e: #8d8e8f;
-  --c-e5eae1: #151618;
-  --c-969e92: #919396;
-  --c-596755: #c5c5c6;
-  --c-eaeee7: #131416;
-  --c-5c6c57: #c4c5c5;
-  --c-6c7768: #8c8c8d;
-  --c-8c9588: #8f9194;
-  --c-99a28d: #8f9298;
-  --c-83976c: #7b818c;
-  --c-a7af9b: #92959b;
-  --c-c1cab5: #242629;
-  --c-e5eadc: #15171a;
-  --c-95a37f: #242529;
-  --c-b0b6a3: #93979d;
-  --c-a1ab92: #90949a;
-  --c-b7a47a: #2f2819;
-  --c-819b68: #7a818e;
-  --c-b68a6e: #322319;
-  --c-8e9e79: #777d87;
-  --c-f9faf6: #0e0f11;
-  --c-e6eadd: #151719;
-  --c-9eaa8b: #212326;
-  --c-f0f4e8: #101216;
-  --c-e2e9d6: #16181c;
-  --c-6d8058: #8c8d90;
-  --c-a0ac8d: #212325;
-  --c-e6ebdd: #151619;
-  --c-f7f9f1: #0e1013;
-  --c-a1ab91: #90939a;
-  --c-8d9a81: #8d9096;
-  --c-fafafa: #0e0f0f;
-  --c-e9e9e9: #151516;
-  --c-414141: #c9cacc;
-  --c-4a6354: #c6c6c7;
-  --c-c5d4c8: #202224;
-  --c-3d5c48: #c7c8c9;
-  --c-e5e5e5: #161717;
-  --c-555: #c6c7c8;
-  --c-efefef: #121313;
-  --c-e8efe9: #131416;
-  --c-263b2b: #e6e6e6;
-  --c-444: #c9cacb;
-  --c-666: #8f9093;
-  --c-ededed: #131314;
-  --c-222: #e8e9e9;
-  --c-e6e6e6: #161617;
-  --c-f0f0f0: #121213;
-  --c-eaeaea: #141515;
-  --c-161616: #ebebec;
-  --c-6d7a72: #888a8d;
-  --c-8a9388: #8f9194;
-  --c-2f5a38: #c8c9cb;
-  --c-e6f0e7: #121416;
-  --c-999: #929396;
-  --c-828282: #8d8f92;
-  --c-e7edf4: #0c131b;
-  --c-8c9caf: #202225;
-  --c-202b38: #e0e6ed;
-  --c-777: #86888b;
-  --c-dedede: #19191a;
-  --c-8a8f89: #8f9193;
-  --c-344f65: #b7cada;
-  --c-899187: #8f9194;
-  --c-1f3d2c: #e6e6e7;
-  --c-f0f4f0: #111113;
-  --c-9b3030: #e3a5a5;
-  --c-fdf0f0: #1c0404;
-  --c-5c6658: #c5c5c5;
-  --c-3d8b63: #c5c6c9;
-  --c-20371955: #e7e7e855;
-  --c-e5e9e2: #151618;
-  --c-f7f8f5: #0f1011;
-  --c-9aa593: #919398;
-  --c-dce3d9: #18191b;
-  --c-1c2a1e0d: #e8e9e90d;
-  --c-4a524c: #c8c8c8;
-  --c-f2e9e7: #1a100e;
-  --c-687066: #8e8e8f;
-  --c-e3ead9: #15171b;
-  --c-2f3a33: #e5e5e5;
-  --c-e7eddf: #141619;
-  --c-fbfcf9: #0d0e10;
-  --c-f0e0dc: #1f110d;
-  --c-2037191a: #e7e7e81a;
-  --c-f0e9e2: #1c150e;
-  --c-fdf8f3: #1a0f04;
-  --c-e8eaed: #141416;
-  --c-6b7280: #85888e;
-  --c-eee: #131314;
-  --c-808778: #8c8e91;
-  --c-f0f2ed: #111214;
-  --c-8b968c: #909295;
-  --c-0001: #eff0f011;
-  --c-edf0ea: #121315;
-  --c-e2e7de: #161719;
-  --c-dde4d8: #17191b;
-  --c-34402f: #e4e5e5;
-  --c-17231133: #eaeaeb33;
-  --c-18231766: #eaeaea66;
-  --c-74806e: #85888c;
-  --c-a3332d: #cf5751;
-  --c-e1e6dc: #17181a;
-  --c-668052: #8d8f92;
-  --c-eff4e9: #101216;
-  --c-bc443d: #c44f48;
-  --c-3d5930: #c8c9cb;
-  --c-87907f: #8d9094;
-  --c-edf0e8: #121416;
-  --c-687360: #8e8f90;
-  --c-f0f4eb: #101215;
-  --c-e9f0e1: #121518;
-  --c-344c2b: #cacbcd;
-  --c-bcc8b2: #24262a;
-  --c-e9eee5: #131417;
-  --c-7e887a: #8c8e92;
-  --c-eef2eb: #111315;
-  --c-cbd5c4: #202225;
-  --c-eef2e9: #111315;
-  --c-dce5d4: #17191c;
-  --c-e5ecde: #141619;
-  --c-e1edd7: #14171b;
-  --c-3f5c35: #c8c9ca;
-  --c-30492a: #cbcccd;
-  --c-6d855c: #838a94;
-  --c-dde6d6: #17191c;
-  --c-354d2d: #cacbcc;
-  --c-ffffff24: #0c0d0d24;
-  --c-24331e26: #e7e7e826;
-  --c-1d291f66: #e8e9e966;
-  --c-e3e9de: #151719;
-  --c-6f8b6040: #81879240;
-  --c-929c8c: #909296;
-  --c-dfe6d9: #17181b;
-  --c-f7f9f4: #0e0f12;
-  --c-95a08e: #909397;
-  --c-dfe8d8: #16181b;
-  --c-7f9573: #8a8e95;
-  --c-e9eee6: #131416;
-  --c-929b8b: #8f9296;
-  --c-aa6655: #ad6c5c;
-  --c-e8d7d0: #231611;
-  --c-fff8f5: #1d0900;
-  --c-dce4d4: #18191c;
-  --c-607a4b: #c3c4c6;
-  --c-6d7865: #8c8d8e;
-  --c-e5ecdc: #14161a;
-  --c-81966e: #7b818b;
-  --c-8b3d24: #e8b5a5;
-  --c-fff0e5: #230f00;
-  --c-e9b698: #3e200d;
-  --c-87600d: #f5d99c;
-  --c-fff7d9: #0c121c;
-  --c-dcc66c: #191f29;
-  --c-a03670: #c65794;
-  --c-fceaf4: #1e0413;
-  --c-e4adc9: #351224;
-  --c-6440a5: #7c58be;
-  --c-f0eafa: #0f071d;
-  --c-c5afe5: #201135;
-  --c-225caf: #4582db;
-  --c-eaf2ff: #000d21;
-  --c-a8c5ee: #0b1f3a;
-  --c-177261: #c7c9cd;
-  --c-e3f5ef: #101318;
-  --c-9acfbf: #24282f;
-  --c-48602e: #c8c9cb;
-  --c-edf3df: #111419;
-  --c-b5c993: #1a1d23;
-  --c-e8ede3: #141517;
-  --c-edf1e7: #121316;
-  --c-405432: #c9cacb;
-  --c-eef2ea: #111315;
-  --c-e2e8dd: #161719;
-  --c-b8cfad: #23262b;
-  --c-537047: #c5c5c7;
-  --c-eff7ea: #0f1116;
-  --c-d7d9d4: #1f1f20;
-  --c-7e837b: #828487;
-  --c-f3f4f2: #111112;
-  --c-dfe5dc: #17181a;
-  --c-788274: #84868a;
-  --c-58714d: #c4c5c6;
-  --c-63705e: #909091;
-  --c-45573f: #c8c8c9;
-  --c-919a8d: #909295;
-  --c-7d8977: #8c8e92;
-  --c-929a90: #919296;
-  --c-e4e9e1: #151618;
-  --c-52634c: #c6c6c7;
-  --c-42503e: #c9c9ca;
-  --c-758071: #85878b;
-  --c-d5ddd1: #1d1f21;
-  --c-d8d7c6: #1f2124;
-  --c-faf9ef: #0d1014;
-  --c-77704e: #c3c4c6;
-  --c-d8d8df: #191a1b;
-  --c-f5f5f8: #0f1011;
-  --c-686978: #898b8f;
-  --c-43513e: #c9c9ca;
-  --c-879083: #8e9093;
-  --c-455140: #c9c9ca;
-  --c-5c6857: #c5c5c5;
-  --c-e0e5dd: #171819;
-  --c-7b8577: #828588;
-  --c-d8ded4: #1d1e20;
-  --c-707a6b: #888a8e;
-  --c-adc79f: #26292e;
-  --c-4f7044: #c5c6c7;
-  --c-ddd6d2: #1d1f21;
-  --c-f6f3f1: #15100d;
-  --c-8a7268: #81868e;
-  --c-ccd2c8: #212223;
-  --c-66865a: #838a95;
-  --c-65845b: #8a8c8e;
-  --c-dfe7dc: #16171a;
-  --c-596653: #c5c5c6;
-  --c-e7ebe5: #141517;
-  --c-4d7642: #c4c5c7;
-  --c-a24e42: #bc665a;
-  --c-d8c98f: #222832;
-  --c-fffbea: #0a0f17;
-  --c-81764f: #8e8f92;
-  --c-858991: #8e9094;
-  --c-f1f2f3: #111212;
-  --c-646971: #8e8f8f;
-  --c-ececef: #131314;
-  --c-0000000d: #eff0f00d;
-  --c-6d7179: #888a8d;
-  --c-e4e4e7: #161617;
-  --c-202327: #e8e9e9;
-  --c-898d96: #8f9195;
-  --c-c8cec6: #222324;
-  --c-657360: #8e8f90;
-  --c-c43c35: #cc4741;
-  --c-9f2e28: #e7a5a1;
-  --c-b9c6ad: #25272b;
-  --c-75836d: #84878d;
-  --c-82907b: #8c8f94;
-  --c-b39558: #b19253;
-  --c-272b29: #e7e7e8;
-  --c-1e272033: #e9e9e933;
-  --c-18201973: #eaeaea73;
-  --c-d5dcd5: #1e1e20;
-  --c-4d5a51: #c7c7c8;
-  --c-1e272014: #e9e9e914;
-  --c-f4f6f4: #101011;
-  --c-e3e7e3: #161617;
-  --c-8a918c: #8f9194;
-  --c-8d9690: #909295;
-  --c-c27b86: #1d2128;
-  --c-8a6ea3: #82649d;
-  --c-c4a056: #3a2e14;
-  --c-4d7ec8: #3c72c3;
-  --c-bd594f: #bb5348;
-  --c-4d7ec880: #3c72c380;
-  --c-4d7ec81f: #3c72c31f;
-  --c-4d7ec866: #3c72c366;
-  --c-3c433e: #cacbcb;
-  --c-1e27202e: #e9e9e92e;
-  --c-6d756f: #898b8e;
-  --c-3d8a5b: #c2c4c6;
-  --c-eef2ee: #111213;
-  --c-e7eee4: #131517;
-  --c-eef1ee: #121213;
-  --c-7d8580: #8d8f91;
-  --c-2f3531: #e6e6e6;
-  --c-9f4339: #c36359;
-  --c-d5ddd4: #1d1e20;
-  --c-f4f7f2: #0f1012;
-  --c-9aa59c: #939598;
-  --c-f3f5f2: #101112;
-  --c-5e6661: #c4c4c5;
-  --c-7d9877: #8b8f96;
-  --c-edf0ec: #121314;
-  --c-d8ddd8: #1d1e1f;
-  --c-858d87: #8e9093;
-  --c-e0c4a8: #362513;
-  --c-66726a: #8d8e8f;
-  --c-4f5d4c: #c6c7c7;
-  --c-7e8781: #8d8f92;
-  --c-717973: #87898c;
-  --c-9ba29d: #929498;
-  --c-dcece1: #14161a;
-  --c-b78b3f: #c1964c;
-  --c-f5f7f4: #0f1011;
-  --c-dce1dc: #18191a;
-  --c-a0a6a2: #949598;
-  --c-bdc9bb: #242527;
-  --c-f8faf7: #0e0f11;
-  --c-809778: #8b8f96;
-  --c-f0f5ee: #101114;
-  --c-879289: #8f9194;
-  --c-425047: #c9c9ca;
-  --c-7f8782: #8d8f92;
-  --c-666e69: #8e8f90;
-  --c-fff0ed: #200500;
-  --c-edf0ed: #121314;
-  --c-7b847e: #8c8e91;
-  --c-e7ebe6: #141516;
-  --c-f7f9f6: #0e0f11;
-  --c-f3f6fb: #080e18;
-  --c-dbe3ee: #0f161f;
-  --c-fbf6ea: #0d1016;
-  --c-ead9b4: #34290f;
-  --c-f8fbf7: #0d0e11;
-  --c-7b5c20: #e8d2a8;
-  --c-fff7df: #0b111a;
-  --c-dfc98b: #202733;
-  --c-64707b: #8b8c8d;
-  --c-f2f4f6: #0e1114;
-  --c-cdd3d8: #1f2022;
-  --c-dfe5dd: #171819;
-  --c-283329: #e6e7e7;
-  --c-e6ebe4: #141517;
-  --c-748071: #85878b;
-}
 
 .tip-host {
   position: fixed;
@@ -37458,7 +31830,7 @@ html
   backdrop-filter: var(--overlay-glass-blur) !important;
   -webkit-backdrop-filter: var(--overlay-glass-blur) !important;
   background-clip: padding-box !important;
-  animation: overlay-in var(--overlay-enter-duration) var(--overlay-enter-easing) both !important;
+  animation: overlay-in var(--overlay-enter-duration) var(--overlay-enter-easing) backwards !important;
   position: relative;
   --stroke: var(--overlay-glass-border);
   --stroke-radius: calc(var(--overlay-dialog-radius) * 2);
@@ -37491,7 +31863,7 @@ html
     [data-overlay="dialog-shell"].is-closing
       > :not(.tip-host, .floating-layer-host, .overlay-exit-host)
   ) {
-  animation: overlay-out var(--overlay-exit-duration) var(--overlay-exit-easing) forwards !important;
+  animation: overlay-out var(--overlay-exit-duration) var(--overlay-exit-easing) both !important;
   pointer-events: none;
 }
 
@@ -37510,7 +31882,7 @@ html body dialog[data-overlay="dialog-shell"] {
   box-shadow: none !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  overflow: auto;
+  overflow: hidden;
   transform: none;
   animation: none !important;
   --stroke-radius: 0;
@@ -37520,7 +31892,7 @@ html body dialog[data-overlay]::backdrop {
   background: var(--overlay-mask) !important;
   backdrop-filter: var(--overlay-mask-blur) !important;
   -webkit-backdrop-filter: var(--overlay-mask-blur) !important;
-  animation: overlay-mask-in var(--overlay-enter-duration) ease both !important;
+  animation: overlay-mask-in var(--overlay-enter-duration) var(--overlay-enter-easing) both !important;
 }
 
 html body dialog[data-dialog-depth]:not([data-dialog-depth="1"])::backdrop {
@@ -37528,7 +31900,7 @@ html body dialog[data-dialog-depth]:not([data-dialog-depth="1"])::backdrop {
 }
 
 html body dialog[data-overlay].is-closing::backdrop {
-  animation: overlay-mask-out var(--overlay-exit-duration) ease forwards !important;
+  animation: overlay-mask-out var(--overlay-exit-duration) var(--overlay-exit-easing) both !important;
 }
 
 html body :is([data-overlay="panel"], [data-overlay="menu"]) {
@@ -37540,7 +31912,7 @@ html body :is([data-overlay="panel"], [data-overlay="menu"]) {
   backdrop-filter: var(--overlay-glass-blur) !important;
   -webkit-backdrop-filter: var(--overlay-glass-blur) !important;
   background-clip: padding-box !important;
-  animation: overlay-in var(--overlay-enter-duration) var(--overlay-enter-easing) both !important;
+  animation: overlay-in var(--overlay-enter-duration) var(--overlay-enter-easing) backwards !important;
   position: relative;
   --stroke: var(--overlay-glass-border-float);
   --stroke-radius: calc(var(--overlay-panel-radius) * 2);
@@ -37613,7 +31985,7 @@ html body [data-overlay="menu"] [role="menuitem"].danger {
 }
 
 html body .overlay-exiting[data-overlay] {
-  animation: overlay-out var(--overlay-exit-duration) var(--overlay-exit-easing) forwards !important;
+  animation: overlay-out var(--overlay-exit-duration) var(--overlay-exit-easing) both !important;
   pointer-events: none !important;
 }
 
@@ -38575,77 +32947,9 @@ summary {
   --stroke-radius: calc(inherit * 2);
 }
 
-html[data-theme="night"],
-html[data-theme="night"] body,
-html[data-theme="night"] #root {
-  background: #17181a;
-}
 
-html[data-theme="ink"],
-html[data-theme="ink"] body,
-html[data-theme="ink"] #root {
-  background: #141a15;
-}
-
-html:is([data-theme="ink"], [data-theme="night"]) {
-  --c-e7eae7: color-mix(in srgb, var(--c-27362f) 24%, transparent);
-  --c-e5e9e2: color-mix(in srgb, var(--c-27362f) 24%, transparent);
-  --c-e3e7e3: color-mix(in srgb, var(--c-27362f) 24%, transparent);
-  --c-e8ece5: color-mix(in srgb, var(--c-27362f) 24%, transparent);
-  --c-eef1ee: color-mix(in srgb, var(--c-27362f) 24%, transparent);
-  --c-edf0e8: color-mix(in srgb, var(--c-27362f) 24%, transparent);
-  --c-dce3d9: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-d8e1d3: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-e2e9d6: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-e0e6dc: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dfe5d9: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dfe5da: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dde5d7: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-e1e7da: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-e1e6dc: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dce4d4: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dfe5db: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dfe5dc: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dfe6d9: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-e4e9df: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-e2e9da: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-dce7d3: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-e7eddf: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-d9e1d9: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-c3d0b6: color-mix(in srgb, var(--c-27362f) 40%, transparent);
-  --c-cad6c3: color-mix(in srgb, var(--c-27362f) 40%, transparent);
-  --c-b7c9ad: color-mix(in srgb, var(--c-27362f) 48%, transparent);
-  --c-c3d3b6: color-mix(in srgb, var(--c-27362f) 48%, transparent);
-  --c-f3f7f1: #2a2e33;
-  --c-b8c9b2: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  --c-8a958d: #b9bdc2;
-}
-
-html:is([data-theme="ink"], [data-theme="night"]) {
-  --logo-ink: #f3f6ec;
-  --logo-accent: #c5d8fb;
-}
-
-html[data-theme="night"] {
-  --c-426b4b: #2f6feb;
-  --c-33563b: #2563eb;
-  --c-3f5945: #2f6feb;
-  --c-67835b: #3b82f6;
-  --c-4a7251: #60a5fa;
-  --primary-hover-bg: #2563eb;
-}
-
-html[data-theme="ink"] {
-  --c-426b4b: #3f6a45;
-  --c-33563b: #35593b;
-  --primary-hover-bg: #35593b;
-}
 
 html:is([data-theme="ink"], [data-theme="night"]) .project-tab.selected,
-html:is([data-theme="ink"], [data-theme="night"]) .project-tab.pinned.selected {
-  background: var(--c-426b4b);
-  color: #fff !important;
-}
 
 html:is([data-theme="ink"], [data-theme="night"])
   :is(.context-panel.context-open, .composer.chat-composer) {
@@ -38673,13 +32977,6 @@ html:is([data-theme="ink"], [data-theme="night"])
   transform-origin: 0 0;
 }
 
-html:is([data-theme="ink"], [data-theme="night"]) aside.file-explorer.doc-browser-tree {
-  border-left: 1px solid transparent;
-  position: relative;
-  --stroke: color-mix(in srgb, var(--c-27362f) 34%, transparent);
-  overflow: clip;
-  overflow-clip-margin: 0.857rem;
-}
 
 html:is([data-theme="ink"], [data-theme="night"]) aside.file-explorer.doc-browser-tree:after {
   content: "";
@@ -38697,207 +32994,12 @@ html:is([data-theme="ink"], [data-theme="night"]) aside.file-explorer.doc-browse
   transform-origin: 0 0;
 }
 
-html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip {
-  color: color-mix(in srgb, var(--mode-accent) 38%, #fff);
-}
 
 html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-icon svg,
 html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-clear,
-html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-clear svg {
-  color: inherit;
-}
 
-html:is([data-theme="ink"], [data-theme="night"]) a.web-link:not(.cite-mark) {
-  color: #7eb6ff;
-}
 
-html[data-theme="night"] {
-  --c-17211b: #d6d6d6;
-  --c-243024: #d6d6d6;
-  --c-245b3b: #d6d6d6;
-  --c-273329: #d6d6d6;
-  --c-303b33: #d6d6d6;
-  --c-39463b: #d6d6d6;
-  --c-3d6e8a: #d6d6d6;
-  --c-3e5745: #d6d6d6;
-  --c-3f4942: #d6d6d6;
-  --c-3f6b3c: #292929;
-  --c-46534a: #d6d6d6;
-  --c-4f5b50: #d6d6d6;
-  --c-4f6554: #d6d6d6;
-  --c-59655c: #d6d6d6;
-  --c-5a635d: #d6d6d6;
-  --c-5c675f: #d6d6d6;
-  --c-5d7160: #d6d6d6;
-  --c-5d8064: #d6d6d6;
-  --c-5e7958: #d6d6d6;
-  --c-5f8f5a: #292929;
-  --c-63815c: #d6d6d6;
-  --c-667168: #d6d6d6;
-  --c-6f5c54: #d6d6d6;
-  --c-6f9278: #d6d6d6;
-  --c-707b72: #d6d6d6;
-  --c-718073: #d6d6d6;
-  --c-738075: #d6d6d6;
-  --c-78906f: #d6d6d6;
-  --c-7a857d: #d6d6d6;
-  --c-7a867b: #d6d6d6;
-  --c-7b867c: #d6d6d6;
-  --c-7b8779: #d6d6d6;
-  --c-7b8d7e: #d6d6d6;
-  --c-7c887e: #d6d6d6;
-  --c-7c897f: #d6d6d6;
-  --c-806a39: #d6d6d6;
-  --c-89938b: #d6d6d6;
-  --c-8a4a3b: #292929;
-  --c-8ca57f: #d6d6d6;
-  --c-9a6b57: #d6d6d6;
-  --c-9ab391: #d6d6d6;
-  --c-9b4a3c: #d6d6d6;
-  --c-a6afa9: #d6d6d6;
-  --c-a9b9a5: #d6d6d6;
-  --c-aab8aa: #4d4d4d;
-  --c-b0b8b0: #d6d6d6;
-  --c-b1bab1: #d6d6d6;
-  --c-c9d6b8: #292929;
-  --c-cfd9ce: #d6d6d6;
-  --c-cfded0: #d6d6d6;
-  --c-d4d9d3: #d6d6d6;
-  --c-d7b4a8: #d6d6d6;
-  --c-d8ded5: #d6d6d6;
-  --c-d8e2d7: #d6d6d6;
-  --c-d9dfda: #d6d6d6;
-  --c-dfe7de: #d6d6d6;
-  --c-e1e8e0: #d6d6d6;
-  --c-e3e9e2: #d6d6d6;
-  --c-e4e8e4: #d6d6d6;
-  --c-e5d7b7: #d6d6d6;
-  --c-e5ebe3: #d6d6d6;
-  --c-e5eee1: #d6d6d6;
-  --c-e7ece5: #292929;
-  --c-e7efe3: #292929;
-  --c-e7f0f5: #292929;
-  --c-e8ebe8: #292929;
-  --c-e8eee7: #d6d6d6;
-  --c-e9ece8: #292929;
-  --c-eadfd6: #d6d6d6;
-  --c-eaf2e7: #292929;
-  --c-ecf0eb: #d6d6d6;
-  --c-eef1ed: #292929;
-  --c-f0d4ce: #d6d6d6;
-  --c-f1f3ef: #292929;
-  --c-f1f5ef: #292929;
-  --c-f1f6ef: #292929;
-  --c-f1f7ee: #292929;
-  --c-f1f7f0: #292929;
-  --c-f3f6f1: #292929;
-  --c-f4f8f2: #292929;
-  --c-f5f8f2: #292929;
-  --c-f5f8f3: #292929;
-  --c-f6e6e4: #292929;
-  --c-f7f8f4: #292929;
-  --c-f7faf6: #292929;
-  --c-f8f3ef: #292929;
-  --c-f9fbf8: #292929;
-  --c-fbf7f4: #292929;
-  --c-fcf8ed: #292929;
-  --c-fff4f1: #292929;
-  --c-ffffff: #292929;
-}
 
-html[data-theme="ink"] {
-  --c-17211b: #cfddd5;
-  --c-243024: #d0dcd0;
-  --c-245b3b: #c6e7d4;
-  --c-273329: #d1dcd3;
-  --c-303b33: #d2dad4;
-  --c-39463b: #d2dad3;
-  --c-3d6e8a: #c6dbe6;
-  --c-3e5745: #cfddd3;
-  --c-3f4942: #d3d9d5;
-  --c-3f6b3c: #1f341d;
-  --c-46534a: #d3dad5;
-  --c-4f5b50: #d3d9d4;
-  --c-4f6554: #d1dbd3;
-  --c-59655c: #d4d9d5;
-  --c-5a635d: #d4d8d6;
-  --c-5c675f: #d4d9d5;
-  --c-5d7160: #d2dad3;
-  --c-5d8064: #d0ddd2;
-  --c-5e7958: #d2ddd0;
-  --c-5f8f5a: #213220;
-  --c-63815c: #d2ddcf;
-  --c-667168: #d4d8d5;
-  --c-6f5c54: #dcd4d1;
-  --c-6f9278: #d1dcd3;
-  --c-707b72: #d4d8d5;
-  --c-718073: #d4d9d4;
-  --c-738075: #d4d8d5;
-  --c-78906f: #d4dbd1;
-  --c-7a857d: #d4d8d5;
-  --c-7a867b: #d4d8d5;
-  --c-7b867c: #d4d8d5;
-  --c-7b8779: #d5d8d4;
-  --c-7b8d7e: #d3d9d4;
-  --c-7c887e: #d4d8d5;
-  --c-7c897f: #d4d8d5;
-  --c-806a39: #e6dcc7;
-  --c-89938b: #d4d8d5;
-  --c-8a4a3b: #391f18;
-  --c-8ca57f: #d4ddcf;
-  --c-9a6b57: #e2d2cb;
-  --c-9ab391: #d3decf;
-  --c-9b4a3c: #e7cbc6;
-  --c-a6afa9: #d4d8d5;
-  --c-a9b9a5: #d3dbd1;
-  --c-aab8aa: #465346;
-  --c-b0b8b0: #d4d8d4;
-  --c-b1bab1: #d4d9d4;
-  --c-c9d6b8: #2a341e;
-  --c-cfd9ce: #d2dbd1;
-  --c-cfded0: #cfded0;
-  --c-d4d9d3: #d4d9d3;
-  --c-d7b4a8: #e5cfc7;
-  --c-d8ded5: #d5dbd1;
-  --c-d8e2d7: #d1ddd0;
-  --c-d9dfda: #d3dad4;
-  --c-dfe7de: #d1ddd0;
-  --c-e1e8e0: #d2dcd0;
-  --c-e3e9e2: #d2dcd1;
-  --c-e4e8e4: #d3d9d3;
-  --c-e5d7b7: #e7ddc6;
-  --c-e5ebe3: #d3ddcf;
-  --c-e5eee1: #d2e1cb;
-  --c-e7ece5: #262f22;
-  --c-e7efe3: #25341e;
-  --c-e7f0f5: #182d39;
-  --c-e8ebe8: #262c26;
-  --c-e8eee7: #d1ddcf;
-  --c-e9ece8: #272d25;
-  --c-eadfd6: #e3d5c9;
-  --c-eaf2e7: #23351d;
-  --c-ecf0eb: #d3dcd0;
-  --c-eef1ed: #262e24;
-  --c-f0d4ce: #e7ccc6;
-  --c-f1f3ef: #292f23;
-  --c-f1f5ef: #26321f;
-  --c-f1f6ef: #24341d;
-  --c-f1f7ee: #24371a;
-  --c-f1f7f0: #20351c;
-  --c-f3f6f1: #273220;
-  --c-f4f8f2: #25351d;
-  --c-f5f8f2: #29351d;
-  --c-f5f8f3: #27341e;
-  --c-f6e6e4: #391c18;
-  --c-f7f8f4: #2d3220;
-  --c-f7faf6: #23341d;
-  --c-f8f3ef: #392719;
-  --c-f9fbf8: #25341e;
-  --c-fbf7f4: #392618;
-  --c-fcf8ed: #393018;
-  --c-fff4f1: #391f18;
-  --c-ffffff: #292929;
-}
 
 .slide-switch {
   --slide-pad: 0.214rem;
@@ -39335,6 +33437,27 @@ html[data-theme="ink"] {
   white-space: nowrap;
 }
 
+.conversation-task-stat-slot {
+  display: inline-flex;
+  align-items: center;
+}
+
+.conversation-task-stat-dash {
+  color: color-mix(in oklab, var(--c-8a9585) 75%, var(--c-27362f));
+  font-size: 0.786rem;
+  line-height: 1;
+  margin: 0;
+}
+
+.conversation-task-stat-slot .conversation-task-stat-value {
+  font-size: 0.929rem;
+  font-weight: 700;
+}
+
+.conversation-task-stat-slot .conversation-task-stat-value::before {
+  display: none;
+}
+
 .conversation-task-stat-value {
   display: inline-flex;
   align-items: center;
@@ -39357,22 +33480,21 @@ html[data-theme="ink"] {
   background: currentColor;
 }
 
-/* 待确认 / 已阻塞：保留语义色相，但压够对比度，11px 数字不再发灰。 */
-.conversation-task-stat-value[data-kind="awaiting_acceptance"] {
-  color: var(--c-bd9441);
-  color: color-mix(in oklab, var(--c-bd9441) 55%, var(--c-27362f));
+/* 待接受蓝、进行中青、已阻塞红、待验收橙。少掺正文色，保证数字本身够亮。 */
+.conversation-task-stat-value[data-kind="pending"] {
+  color: #2f6fe0;
+}
+
+.conversation-task-stat-value[data-kind="active"] {
+  color: #0e9aab;
 }
 
 .conversation-task-stat-value[data-kind="blocked"] {
-  color: var(--c-b75b4d);
-  color: color-mix(in oklab, var(--c-b75b4d) 55%, var(--c-27362f));
+  color: #d24b3c;
 }
 
-/* 零值不再靠半透明消失：改用中性色（不继承待确认/阻塞色相），
-   亮度介于「统计标签」与背景之间，仍然比非零值安静但看得清。 */
-.conversation-task-stat-value[data-zero="true"] {
-  color: color-mix(in oklab, var(--c-8a9585) 75%, var(--c-27362f));
-  opacity: 1;
+.conversation-task-stat-value[data-kind="review"] {
+  color: #e08612;
 }
 
 .conversation-task-stats[data-loading="true"] {
@@ -39423,6 +33545,33 @@ html[data-theme="ink"] {
 .task-detail [data-status="ignored"] {
   background: var(--c-f3f4f2);
   color: var(--c-6f776c);
+}
+
+/* 列表卡片状态标签与「任务和聊天」条的四色统计一致：待接受蓝、进行中青、已阻塞红、待验收橙。 */
+.task-pool-item [data-status="pending_assignment"],
+.task-pool-item [data-status="awaiting_acceptance"] {
+  color: #2f6fe0;
+  background: color-mix(in srgb, #2f6fe0 16%, var(--c-edf1e9));
+}
+
+.task-pool-item [data-status="pending_start"],
+.task-pool-item [data-status="assigned"],
+.task-pool-item [data-status="queued"],
+.task-pool-item [data-status="running"],
+.task-pool-item [data-status="waiting"] {
+  color: #0e9aab;
+  background: color-mix(in srgb, #0e9aab 16%, var(--c-edf1e9));
+}
+
+.task-pool-item [data-status="blocked"],
+.task-pool-item [data-status="failed"] {
+  color: #d24b3c;
+  background: color-mix(in srgb, #d24b3c 16%, var(--c-edf1e9));
+}
+
+.task-pool-item [data-status="completed"] {
+  color: #e08612;
+  background: color-mix(in srgb, #e08612 16%, var(--c-edf1e9));
 }
 
 .status-badge[data-status="ignored"] {

@@ -86,6 +86,7 @@ export function ThemePicker({
         />
         <div className="theme-scale">
           <SelectField
+            allOption={false}
             label="显示大小"
             hint={
               detected

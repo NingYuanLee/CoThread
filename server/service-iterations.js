@@ -361,6 +361,9 @@ export async function contextOperation(
     last_read_sequence: readState.lastReadSequence,
     unread_count: readState.unreadCount,
     unread_mention: readState.unreadMention,
+    unread_mention_count: readState.unreadMentionCount,
+    unread_chat: readState.unreadChat,
+    unread_task: readState.unreadTask,
     contextUsage: contextUsage(
       agentContext,
       (pending || messages).map((m) => quotedById.get(m.id)),

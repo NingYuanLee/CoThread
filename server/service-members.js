@@ -96,6 +96,27 @@ export async function transferProjectLeaderOperation(service, user, projectId, i
       "UPDATE members SET role='member',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?",
       [projectId, userId],
     );
+    await service.notify(
+      db,
+      userId,
+      projectId,
+      "leader_gained",
+      "你已成为该项目的负责人",
+      null,
+      null,
+      actor?.name || "系统通知",
+    );
+    if (user.id !== userId)
+      await service.notify(
+        db,
+        user.id,
+        projectId,
+        "leader_lost",
+        "你不再是该项目的负责人",
+        null,
+        null,
+        actor?.name || "系统通知",
+      );
     await service.projectChange(db, projectId, user.id, "leader_transferred", {
       fromUserId: user.id,
       fromUserName: actor?.name || null,
@@ -131,6 +152,17 @@ export async function addProjectAdminOperation(service, user, projectId, input) 
       "UPDATE members SET role='project_admin',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?",
       [projectId, userId],
     );
+    const [adminSender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
+    await service.notify(
+      db,
+      userId,
+      projectId,
+      "admin_granted",
+      "你已被设为该项目的项目管理员",
+      null,
+      null,
+      adminSender?.name || "系统通知",
+    );
     await service.projectChange(db, projectId, user.id, "admin_added", {
       userId,
       userName: target.name,
@@ -157,6 +189,17 @@ export async function removeProjectAdminOperation(service, user, projectId, user
       db,
       "UPDATE members SET role='member',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?",
       [projectId, userId],
+    );
+    const [adminSender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
+    await service.notify(
+      db,
+      userId,
+      projectId,
+      "admin_revoked",
+      "你的项目管理员身份已撤销",
+      null,
+      null,
+      adminSender?.name || "系统通知",
     );
     await service.projectChange(db, projectId, user.id, "admin_removed", {
       userId,
@@ -348,6 +391,18 @@ export async function updateMemberRoleOperation(service, user, projectId, userId
       db,
       "UPDATE members SET role=?,role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?",
       [role, projectId, userId],
+    );
+    const [roleSender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
+    const roleLabel = { member: "成员", viewer: "只读" };
+    await service.notify(
+      db,
+      userId,
+      projectId,
+      "role_changed",
+      `你的项目角色已从${roleLabel[target.role] || target.role}改为${roleLabel[role] || role}`,
+      null,
+      null,
+      roleSender?.name || "系统通知",
     );
     await service.projectChange(db, projectId, user.id, "member_role_changed", {
       userId,

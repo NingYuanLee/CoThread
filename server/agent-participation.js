@@ -112,6 +112,7 @@ export function normalizeParticipationDecision(decision) {
 
 export function deferSilenceProgress(reason) {
   if (reason === "cooldown") return "近期已参与，本轮保持沉默";
+  if (reason === "addressed_other") return "消息在叫别人，保持沉默";
   if (reason === "still_changing") return "讨论仍在变化，撤回未发出的回复";
   if (reason === "revised_silent") return "看到后续发言后选择不发出";
   if (reason === "judge_failed") return "参与判断暂时失败，本轮保持沉默";
@@ -235,8 +236,7 @@ export function isShortAssistantDirectedFollowUp(burst) {
     .filter(Boolean)
     .join("\n");
   if (!text || text.length > 80) return false;
-  // Clearly addressing someone else, not 小祥.
-  if (/(^|[^\p{L}\p{N}_@])@(?!小祥\b)[\p{L}\p{N}_]/u.test(text)) return false;
+  if (addressesSomeoneElse(text)) return false;
   return true;
 }
 
@@ -273,6 +273,49 @@ export function burstAddressesAgent(burst) {
   return (burst || []).some((row) => addressesAgent(row.body));
 }
 
+/**
+ * A real @ of someone other than 小祥. Email local-parts do not count.
+ * @小祥 and @Agent助手 are addresses of this assistant, not "someone else".
+ */
+const ADDRESSES_SOMEONE_ELSE =
+  /(?:^|[^\p{L}\p{N}_])@+(?!(?:小祥|Agent\s*助手)(?=$|[\s\p{P}\p{S}]))[\p{L}\p{N}_]/iu;
+
+export function addressesSomeoneElse(text) {
+  return ADDRESSES_SOMEONE_ELSE.test(String(text || ""));
+}
+
+/** @别人，且这条正文没有同时点名小祥。这种消息不能进入斟酌。 */
+export function messageAddressesOthersOnly(text) {
+  return addressesSomeoneElse(text) && !addressesAgent(text);
+}
+
+export function otherAddressedMessageIds(burst) {
+  return (burst || []).filter((row) => messageAddressesOthersOnly(row.body)).map((row) => row.id);
+}
+
+/**
+ * 当前待判消息明确在叫别人。只收下这些消息，不要把同段里的 @小祥 一起沉默，也不要调用模型。
+ * 段里另外有人点了小祥时，整段判断会退回斟酌并一直不返回，后面的完整调度就被堵住。
+ */
+export function addressedOthersDecision(burst, messageId, revision = 0) {
+  const ids = otherAddressedMessageIds(burst);
+  if (!messageId || !ids.includes(messageId)) return null;
+  return {
+    respond: false,
+    deferred: "addressed_other",
+    burstIds: ids,
+    revisions: revision,
+    usage: null,
+    executionDurationMs: 0,
+  };
+}
+
+/** Open burst is aimed at other people, and never at 小祥. Skip the model. */
+export function burstAddressesSomeoneElse(burst) {
+  if (!burst?.length || burstAddressesAgent(burst)) return false;
+  return burst.some((row) => addressesSomeoneElse(row.body));
+}
+
 /** Nudges/complaints clearly aimed at 小祥 staying quiet. */
 export function isAgentDirectedComplaint(burst) {
   if (!burst?.length) return false;
@@ -281,7 +324,7 @@ export function isAgentDirectedComplaint(burst) {
     .filter(Boolean)
     .join("\n");
   if (!text || text.length > 120) return false;
-  if (/(^|[^\p{L}\p{N}_@])@(?!小祥\b)[\p{L}\p{N}_]/u.test(text)) return false;
+  if (addressesSomeoneElse(text)) return false;
   return /一直沉默|别沉默|又不说话|又不回|不说话了|怎么不回|为啥不回|为什么不回|为啥一直|没回我|不回应|你在吗|你在么|挂了吗|挂了\s*$|装死|理我/u.test(
     text,
   );
@@ -316,7 +359,7 @@ export function needsFullAgentWork(burst) {
     .filter(Boolean)
     .join("\n");
   if (!text || text.length < 6) return false;
-  if (/(^|[^\p{L}\p{N}_@])@(?!小祥\b)[\p{L}\p{N}_]/u.test(text)) return false;
+  if (addressesSomeoneElse(text)) return false;
 
   const asks =
     /(?:帮我|麻烦|请你|请|拜托|能否|能不能|可以帮|给我|我要|我想要|需要你|劳驾|麻烦你)/u.test(
@@ -360,7 +403,7 @@ export function isNegativeMood(burst) {
     .filter(Boolean)
     .join("\n");
   if (!text || text.length < 4 || text.length > 240) return false;
-  if (/(^|[^\p{L}\p{N}_@])@(?!小祥\b)[\p{L}\p{N}_]/u.test(text)) return false;
+  if (addressesSomeoneElse(text)) return false;
   // Mild silence nudges stay on the short-ack path.
   if (isAgentDirectedComplaint(burst) && !/干活|开工|办事|做事|有没有用|敷衍|糊弄/.test(text)) {
     return false;
@@ -479,6 +522,10 @@ export async function composeOpportunisticParticipation(
     judgeReminder = judgeLightReplyReminder,
   },
 ) {
+  const openingBurst = await loadOpportunisticBurst(db, threadId);
+  const addressedOthers = addressedOthersDecision(openingBurst, messageId);
+  if (addressedOthers) return addressedOthers;
+
   if (await isWithinOpportunisticQuietPeriod(db, threadId)) {
     const burst = await loadOpportunisticBurst(db, threadId);
     const replyingToAssistant = await isReplyingToAssistant(db, threadId, burst);
@@ -560,6 +607,8 @@ export async function composeOpportunisticParticipation(
         revisions: revision,
       });
     }
+    const addressedOthers = addressedOthersDecision(burst, messageId, revision);
+    if (addressedOthers) return withUsage(addressedOthers);
     throughSequence = burst[burst.length - 1].sequence;
     const replyingToAssistant = await isReplyingToAssistant(db, threadId, burst);
     const soloRunNeedsReply = needsSoloRunReply(burst);
@@ -697,7 +746,11 @@ export async function persistOpportunisticParticipationArtifacts(
 ) {
   if (!messageId || !threadId || !decision) return;
   // Pure cooldown / no model work: nothing useful to meter or show in the ledger.
-  if (decision.deferred === "cooldown" && !decision.usage && !(decision.executionDurationMs > 0)) {
+  if (
+    (decision.deferred === "cooldown" || decision.deferred === "addressed_other") &&
+    !decision.usage &&
+    !(decision.executionDurationMs > 0)
+  ) {
     return;
   }
   try {

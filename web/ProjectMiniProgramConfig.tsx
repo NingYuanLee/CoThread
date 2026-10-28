@@ -799,6 +799,7 @@ export function ProjectMiniProgramConfig({
                     <div className="miniprogram-env-card" key={kind}>
                       <h4>{ENVIRONMENT_LABELS[kind]}</h4>
                       <SelectField
+                        allOption={false}
                         label="云环境"
                         aria-label={ENVIRONMENT_LABELS[kind]}
                         value={currentEnvId}
@@ -912,6 +913,7 @@ export function ProjectMiniProgramConfig({
         <section className="miniprogram-config-section cloudbase-auth-settings">
           <h4>CloudBase 身份认证</h4>
           <SelectField
+            allOption={false}
             label="同步环境"
             value={selectedCloudbaseEnvironment}
             disabled={readOnly || authBusy || adminBusy}

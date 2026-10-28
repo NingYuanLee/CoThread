@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
+import { joinThreadViewing } from "../server/thread-presence.js";
 
 let database, service, author, reader, project, thread;
 
@@ -13,11 +14,12 @@ before(async () => {
   author = { id: randomUUID(), kind: "session", name: "作者甲" };
   reader = { id: randomUUID(), kind: "session", name: "未读乙" };
   for (const user of [author, reader]) {
-    await query(
-      database.db,
-      "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-      [user.id, user.id + "@test.com", user.name, "unused"],
-    );
+    await query(database.db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      user.id,
+      user.id + "@test.com",
+      user.name,
+      "unused",
+    ]);
   }
   project = await service.createProject(author, { name: "未读实测" });
   thread = await service.createThread(author, project.id, { title: "已读游标" });
@@ -46,10 +48,14 @@ test("new messages are unread, mentions are marked, and reading clears both", as
   const active = afterPost.threads.find((item) => item.id === thread.id);
   assert.equal(active.unread_count, 2);
   assert.equal(active.unread_mention, true);
+  assert.equal(active.unread_mention_count, 1);
 
   const cursor = await service.listMessages(reader, thread.id, { afterMessageId: plain.id });
   assert.equal(cursor.changed, true);
-  assert.deepEqual(cursor.messages.map((item) => item.id), [mentioned.id]);
+  assert.deepEqual(
+    cursor.messages.map((item) => item.id),
+    [mentioned.id],
+  );
   assert.equal(cursor.read.unreadMention, true);
 
   const idle = await service.listMessages(reader, thread.id, { afterMessageId: mentioned.id });
@@ -58,15 +64,32 @@ test("new messages are unread, mentions are marked, and reading clears both", as
   assert.equal(idle.page.latestMessageId, mentioned.id);
 
   await assert.rejects(
-    service.listMessages(reader, thread.id, { beforeMessageId: plain.id, afterMessageId: mentioned.id }),
+    service.listMessages(reader, thread.id, {
+      beforeMessageId: plain.id,
+      afterMessageId: mentioned.id,
+    }),
     (error) => error.status === 400,
   );
 
-  await service.markThreadRead(reader, thread.id, { sequence: await sequenceOf(mentioned.id) });
+  // 人不在该迭代时不能落已读（presence 门禁），否则退出页面后新消息会被误标已读。
+  const ignored = await service.markThreadRead(reader, thread.id, {
+    sequence: await sequenceOf(mentioned.id),
+  });
+  assert.equal(ignored.ignored, true);
+  const stillUnread = await service.project(reader, project.id);
+  assert.equal(stillUnread.threads.find((item) => item.id === thread.id).unread_count, 2);
+
+  const leave = joinThreadViewing(reader.id, thread.id);
+  try {
+    await service.markThreadRead(reader, thread.id, { sequence: await sequenceOf(mentioned.id) });
+  } finally {
+    leave();
+  }
   const cleared = await service.project(reader, project.id);
   const done = cleared.threads.find((item) => item.id === thread.id);
   assert.equal(done.unread_count, 0);
   assert.equal(done.unread_mention, false);
+  assert.equal(done.unread_mention_count, 0);
   const [notice] = await query(
     database.db,
     "SELECT read_at FROM notifications WHERE user_id=? AND message_id=? AND kind='mention'",

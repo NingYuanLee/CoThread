@@ -20,7 +20,7 @@ export const UI_THEMES = [
     id: "night",
     name: "暗夜黑",
     hint: "近黑",
-    preview: ["#0e0f10", "#242629", "#c8c8c9", "#e6e6e7"],
+    preview: ["#151517", "#2c2c2e", "#cfd3d6", "#e1e5ee"],
   },
 ];
 

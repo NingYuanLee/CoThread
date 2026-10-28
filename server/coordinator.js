@@ -35,6 +35,9 @@ import {
   silenceOpportunisticBurst,
   logParticipationDecision,
   persistOpportunisticParticipationArtifacts,
+  loadOpportunisticBurst,
+  messageAddressesOthersOnly,
+  otherAddressedMessageIds,
 } from "./agent-participation.js";
 import { logAgentTiming } from "./agent-timing-log.js";
 import {
@@ -1309,6 +1312,28 @@ export async function processNextCoordinator(
     const thread = await service.thread(user, job.thread_id, true);
     // Unmentioned multi-member turns: compose a draft, revise if new messages arrive, then send or discard.
     if (job.kind === "member_message" && job.participation === "pending") {
+      // @别人且没有 @小祥：直接沉默。不能先标成「斟酌」再等模型，否则这条 running 会堵住后面的 @小祥。
+      if (messageAddressesOthersOnly(job.body)) {
+        const openingBurst = await loadOpportunisticBurst(db, job.thread_id);
+        const burstIds = [...new Set([job.message_id, ...otherAddressedMessageIds(openingBurst)])];
+        await transaction(db, async (conn) => {
+          await assertCurrentExecutorEpoch(conn);
+          await service.thread(user, job.thread_id, true, conn);
+          await silenceOpportunisticBurst(conn, burstIds, "addressed_other");
+        });
+        logParticipationDecision({
+          messageId: job.message_id,
+          threadId: job.thread_id,
+          decision: {
+            respond: false,
+            deferred: "addressed_other",
+            burstIds,
+            revisions: 0,
+          },
+          durationMs: performance.now() - started,
+        });
+        return true;
+      }
       await query(
         db,
         "UPDATE assistant_replies SET status='running',progress=? WHERE message_id=? AND status='queued'",
@@ -1345,7 +1370,8 @@ export async function processNextCoordinator(
           [job.message_id],
         );
         if (!current || !["queued", "running", "failed"].includes(current.status)) return;
-        const burstIds = decision.burstIds?.length ? decision.burstIds : [job.message_id];
+        const burstIds = decision.burstIds?.length ? [...decision.burstIds] : [];
+        if (job.message_id && !burstIds.includes(job.message_id)) burstIds.push(job.message_id);
         if (!decision.respond) {
           await silenceOpportunisticBurst(conn, burstIds, decision.deferred);
           return;

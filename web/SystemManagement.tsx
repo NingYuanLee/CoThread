@@ -712,6 +712,7 @@ function LegacyProjectLeaderRecovery({
   return (
     <div className="admin-table-actions">
       <SelectField
+        allOption={false}
         label="初始负责人"
         value={userId}
         onChange={setUserId}
@@ -889,6 +890,7 @@ export function SystemManagement({
             }}
           />
           <SelectField
+            allOption={false}
             dense
             label="成员"
             value={agentLevel}
@@ -903,6 +905,7 @@ export function SystemManagement({
             ]}
           />
           <SelectField
+            allOption={false}
             dense
             label="插件类型"
             value={pluginType}

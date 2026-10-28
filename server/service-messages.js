@@ -1,6 +1,7 @@
 import { recordMessageActivity } from "./thread-activity.js";
 import { attachMessageQuotes } from "./message-quotes.js";
 import { markThreadRead as saveThreadRead, threadReadSummary } from "./thread-reads.js";
+import { isViewingThread } from "./thread-presence.js";
 import {
   AGENT_LAOWENG_PROFILE,
   AGENT_XIAOXIANG_MEMBER,
@@ -30,6 +31,7 @@ export async function insertMessageOperation(
   executionTargetUserId = null,
   folderRefs = [],
   turnId = null,
+  options = {},
 ) {
   if (typeof db.getConnection === "function") {
     return iterationState.withIterationWrite(db, threadId, (conn) =>
@@ -46,6 +48,7 @@ export async function insertMessageOperation(
         executionTargetUserId,
         folderRefs,
         turnId,
+        options,
       ),
     );
   }
@@ -82,7 +85,7 @@ export async function insertMessageOperation(
       ).catch(() => {});
     }
   }
-  if (source !== "system") {
+  if (source !== "system" && options.inbox !== "skip") {
     const [thread] = await query(db, "SELECT project_id,title FROM threads WHERE id=?", [threadId]);
     const members = await query(
       db,
@@ -103,6 +106,8 @@ export async function insertMessageOperation(
         )
       ) {
         memoryMembers.add(member.id);
+        // 人正在看这条迭代时，消息按已读处理，不写站内信。
+        if (isViewingThread(member.id, threadId)) continue;
         await service.notify(
           db,
           member.id,
@@ -127,6 +132,8 @@ export async function markThreadReadOperation(service, user, threadId, input = {
     .string()
     .regex(/^\d+$/)
     .parse(String(input.sequence || ""));
+  // 人不在这条迭代时，不能把消息记成已读。连接还在才算在。
+  if (!isViewingThread(user.id, thread.id)) return { ok: true, ignored: true };
   await saveThreadRead(service.db, user.id, thread.id, sequence);
   return { ok: true, lastReadSequence: sequence };
 }

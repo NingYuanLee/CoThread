@@ -407,11 +407,11 @@
 .trajectory-json-number { color: #a8682b; }
 .trajectory-json-literal { color: #9a4740; }
 
-/* 夜间主题：同样的语义，换成深底上能看清的亮色 */
-html[data-theme="night"] .trajectory-json-key { color: #79b8ff; }
-html[data-theme="night"] .trajectory-json-string { color: #a8d8a0; }
-html[data-theme="night"] .trajectory-json-number { color: #f0b37e; }
-html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
+/* 夜间主题：同样的语义，换成深底上能看清的亮色（取暗夜色板：蓝/绿/橙/红） */
+html[data-theme="night"] .trajectory-json-key { color: #60a5fa; }
+html[data-theme="night"] .trajectory-json-string { color: #4ed17e; }
+html[data-theme="night"] .trajectory-json-number { color: #f7ad31; }
+html[data-theme="night"] .trajectory-json-literal { color: #f25a5a; }
 
 .trajectory-json {
   margin: 0;
@@ -781,7 +781,7 @@ html[data-theme="night"] .trajectory-json-literal { color: #f28b82; }
 }
 
 html[data-theme="night"] .trajectory-compact-tag {
-  background: #4a3a12;
-  color: #f0c96b;
+  background: #27241f;
+  color: #f7ad31;
 }
 

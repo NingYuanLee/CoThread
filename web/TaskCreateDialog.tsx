@@ -20,12 +20,37 @@ const LibraryPickerField = lazy(() =>
   import("./LibraryPicker").then((module) => ({ default: module.LibraryPickerField })),
 );
 
+/** 从已取消任务带入新建表单的草稿。提交后原任务不变，新任务记下来源任务。 */
+export type TaskCreateCopy = {
+  sourceTaskId: string;
+  title: string;
+  goal: string;
+  constraints?: string;
+  targetUserId?: string;
+  refs?: string[];
+  folderRefs?: string[];
+};
+
+/** 编辑已有草稿。保存只更新内容；提交会变成待确认的正式任务。 */
+export type TaskDraftEdit = {
+  taskId: string;
+  purpose: "save" | "submit";
+  title: string;
+  goal: string;
+  constraints?: string;
+  targetUserId?: string;
+  refs?: string[];
+  folderRefs?: string[];
+};
+
 export type TaskCreateDialogProps = {
   threadId: string;
   projectId: string;
   writable: boolean;
   initialRefId?: string;
   initialFolderId?: string;
+  copyFrom?: TaskCreateCopy;
+  draftEdit?: TaskDraftEdit;
   user: PersonalProfile;
   onClose: () => void;
   onCreated: (taskId: string) => void;
@@ -38,20 +63,23 @@ export function TaskCreateDialog({
   writable,
   initialRefId,
   initialFolderId,
+  copyFrom,
+  draftEdit,
   user,
   onClose,
   onCreated,
   detail,
 }: TaskCreateDialogProps) {
-  const [taskCreateTitle, setTaskCreateTitle] = useState("");
-  const [taskCreateGoal, setTaskCreateGoal] = useState("");
-  const [taskCreateConstraints, setTaskCreateConstraints] = useState("");
-  const [taskCreateTarget, setTaskCreateTarget] = useState(user.id);
-  const [taskCreateRefs, setTaskCreateRefs] = useState<string[]>(() =>
-    initialRefId ? [initialRefId] : [],
+  const seeded = draftEdit || copyFrom;
+  const [taskCreateTitle, setTaskCreateTitle] = useState(seeded?.title || "");
+  const [taskCreateGoal, setTaskCreateGoal] = useState(seeded?.goal || "");
+  const [taskCreateConstraints, setTaskCreateConstraints] = useState(seeded?.constraints || "");
+  const [taskCreateTarget, setTaskCreateTarget] = useState(seeded?.targetUserId || user.id);
+  const [taskCreateRefs, setTaskCreateRefs] = useState<string[]>(
+    () => seeded?.refs || (initialRefId ? [initialRefId] : []),
   );
-  const [taskCreateFolderRefs, setTaskCreateFolderRefs] = useState<string[]>(() =>
-    initialFolderId ? [initialFolderId] : [],
+  const [taskCreateFolderRefs, setTaskCreateFolderRefs] = useState<string[]>(
+    () => seeded?.folderRefs || (initialFolderId ? [initialFolderId] : []),
   );
   const [taskActionBusy, setTaskActionBusy] = useState(false);
   const [taskActionError, setTaskActionError] = useState("");
@@ -63,8 +91,7 @@ export function TaskCreateDialog({
       mounted.current = false;
     };
   }, []);
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const submit = async (asDraft = false) => {
     if (submitting.current) return;
     if (!writable) {
       setTaskActionError("当前迭代只读，任务暂不能变更");
@@ -75,18 +102,35 @@ export function TaskCreateDialog({
     setTaskActionBusy(true);
     setTaskActionError("");
     try {
-      const created = await api(`/projects/${projectId}/tasks`, {
+      const payload = {
         title: taskCreateTitle.trim(),
         goal: taskCreateGoal.trim(),
         constraints: taskCreateConstraints.trim() || undefined,
         refs: taskCreateRefs,
         folderRefs: taskCreateFolderRefs,
-        targetType: "human_member",
+        targetType: "human_member" as const,
         targetUserId: taskCreateTarget,
-        threadId,
-      });
+      };
+      const created = draftEdit
+        ? await api(
+            `/tasks/${draftEdit.taskId}/${draftEdit.purpose === "save" ? "save-draft" : "submit"}`,
+            payload,
+          )
+        : copyFrom
+          ? await api(`/tasks/${copyFrom.sourceTaskId}/copy`, payload)
+          : await api(`/projects/${projectId}/tasks`, { ...payload, threadId, asDraft });
       if (!mounted.current) return;
-      showTip("任务已创建");
+      showTip(
+        draftEdit
+          ? draftEdit.purpose === "save"
+            ? "草稿已保存"
+            : "已提交正式任务"
+          : copyFrom
+            ? "已复制新建任务"
+            : asDraft
+              ? "草稿已保存"
+              : "任务已创建",
+      );
       onCreated(created.id);
     } catch (cause) {
       if (!mounted.current) return;
@@ -109,7 +153,17 @@ export function TaskCreateDialog({
           onClick={(event) => event.stopPropagation()}
         >
           <DialogHeader
-            title={<>新建人类任务</>}
+            title={
+              <>
+                {draftEdit
+                  ? draftEdit.purpose === "save"
+                    ? "保存草稿"
+                    : "提交正式任务"
+                  : copyFrom
+                    ? "复制新建任务"
+                    : "新建人类任务"}
+              </>
+            }
             titleId="task-create-dialog-title"
             subtitle={
               <>{detail?.threads.find((item) => item.id === threadId)?.title || "未选择迭代"}</>
@@ -123,9 +177,15 @@ export function TaskCreateDialog({
             }
             onClose={close}
             disabled={taskActionBusy}
-            closeLabel="关闭新建任务"
+            closeLabel={draftEdit ? "关闭草稿" : copyFrom ? "关闭复制新建" : "关闭新建任务"}
           />
-          <form className="task-create-form" onSubmit={(event) => void submit(event)}>
+          <form
+            className="task-create-form"
+            onSubmit={(event: FormEvent<HTMLFormElement>) => {
+              event.preventDefault();
+              void submit(false);
+            }}
+          >
             <div className="task-create-fields">
               <TextField
                 label="标题"
@@ -170,6 +230,7 @@ export function TaskCreateDialog({
                 </Suspense>
               </div>
               <SelectField
+                allOption={false}
                 label="指派成员"
                 placeholder="选择指派成员"
                 value={taskCreateTarget}
@@ -192,6 +253,22 @@ export function TaskCreateDialog({
               <button type="button" disabled={taskActionBusy} onClick={close}>
                 取消
               </button>
+              {!copyFrom && !draftEdit && (
+                <button
+                  type="button"
+                  disabled={
+                    taskActionBusy ||
+                    !writable ||
+                    !taskCreateTitle.trim() ||
+                    !taskCreateGoal.trim() ||
+                    !taskCreateTarget
+                  }
+                  onClick={() => void submit(true)}
+                >
+                  <UiIcon name="save" size={13} />
+                  保存草稿
+                </button>
+              )}
               <button
                 type="submit"
                 className="primary"
@@ -203,8 +280,17 @@ export function TaskCreateDialog({
                   !taskCreateTarget
                 }
               >
-                <UiIcon name="plus" size={13} />
-                创建正式任务
+                <UiIcon
+                  name={draftEdit?.purpose === "save" ? "save" : copyFrom ? "copy" : "plus"}
+                  size={13}
+                />
+                {draftEdit
+                  ? draftEdit.purpose === "save"
+                    ? "保存"
+                    : "提交正式任务"
+                  : copyFrom
+                    ? "复制新建"
+                    : "创建正式任务"}
               </button>
             </DialogFooter>
           </form>

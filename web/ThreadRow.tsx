@@ -18,6 +18,9 @@ export type ThreadRowModel = {
   last_active_at: string;
   unread_count?: number;
   unread_mention?: boolean;
+  unread_chat?: number;
+  unread_mention_count?: number;
+  unread_task?: number;
 };
 
 export type ThreadRowProps = {
@@ -30,7 +33,7 @@ export type ThreadRowProps = {
   copiedThreadId: string;
   threadRowMenuId: string | null;
   setThreadId: Dispatch<SetStateAction<string>>;
-  setThreadListPane: Dispatch<SetStateAction<"active" | "archived" | "create">>;
+  setThreadListPane: Dispatch<SetStateAction<"active" | "archived">>;
   setThreadRowMenuId: Dispatch<SetStateAction<string | null>>;
   setThreadDeleteConfirm: Dispatch<SetStateAction<{ id: string; title: string } | null>>;
   setArchiveDialog: Dispatch<SetStateAction<{ id: string; title: string } | null>>;
@@ -77,12 +80,12 @@ export function ThreadRow({
           <span className="thread-card-meta">
             <span title="迭代创建人">{t.creator}</span>
             {t.status === "archiving" && <span className="thread-archiving-badge">归档中</span>}
-            {(t.unread_mention || (t.unread_count || 0) > 0) && (
-              <span className={"thread-unread" + (t.unread_mention ? " is-mention" : "")}>
-                {t.unread_mention ? "@" : ""}
-                {t.unread_count || ""}
+            {!selected && (t.unread_mention_count || t.unread_chat || 0) > 0 && (
+              <span className="thread-unread is-mention">
+                {t.unread_mention_count || t.unread_chat}条@我
               </span>
             )}
+            {(t.unread_task || 0) > 0 && <span className="thread-unread">任 {t.unread_task}</span>}
             <time
               dateTime={t.last_active_at?.replace(" ", "T") + "Z"}
               title={localDate(t.last_active_at)}

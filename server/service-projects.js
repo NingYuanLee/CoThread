@@ -97,7 +97,7 @@ export async function projectsOperation(service, user) {
     service.db,
     `SELECT p.id,p.name,p.description,p.created_by,p.project_leader_id,p.created_at,p.archived_at,${projectImageUrlSql()} image,creator.name created_by_name,m.role,m.joined_at,m.tab_visible,m.tab_opened_at,m.tab_pinned_at,(SELECT COUNT(*) FROM threads t WHERE t.project_id=p.id AND t.status='active') active_threads
       FROM projects p JOIN users creator ON creator.id=p.created_by JOIN members m ON m.project_id=p.id WHERE m.user_id=? AND p.archived_at IS NULL${user.scope ? " AND p.id=?" : ""}
-      ORDER BY m.tab_pinned_at DESC,m.tab_opened_at DESC,p.created_at DESC,p.id`,
+      ORDER BY (m.tab_pinned_at IS NULL),m.tab_pinned_at DESC,m.tab_opened_at ASC,p.created_at ASC,p.id`,
     user.scope ? [user.id, user.scope] : [user.id],
   );
 }
@@ -107,7 +107,7 @@ export async function updateProjectTabOperation(service, user, projectId, input)
   await service.member(user, projectId);
   const { action } = z.object({ action: z.enum(["open", "close", "pin", "unpin"]) }).parse(input);
   const updates = {
-    open: "tab_opened_at=COALESCE(tab_opened_at,UTC_TIMESTAMP(6)),tab_visible=TRUE",
+    open: "tab_opened_at=IF(tab_visible=0 OR tab_opened_at IS NULL,UTC_TIMESTAMP(6),tab_opened_at),tab_visible=1",
     close: "tab_visible=FALSE",
     pin: "tab_pinned_at=UTC_TIMESTAMP(6)",
     unpin: "tab_pinned_at=NULL",
@@ -125,29 +125,51 @@ export async function updateProjectTabOperation(service, user, projectId, input)
 
 export async function reorderProjectTabsOperation(service, user, input) {
   if (user.kind === "api") fail(403, "请在界面中管理项目页签");
-  const { projectIds } = z.object({ projectIds: z.array(id).min(1).max(1000) }).parse(input);
+  const { projectIds, scope } = z
+    .object({
+      projectIds: z.array(id).min(1).max(1000),
+      scope: z.enum(["pinned", "open"]).default("pinned"),
+    })
+    .parse(input);
+  const pinned = scope === "pinned";
   await transaction(service.db, async (db) => {
     await query(db, "SELECT id FROM users WHERE id=? FOR UPDATE", [user.id]);
-    const pinned = await query(
+    const rows = await query(
       db,
-      "SELECT project_id FROM members WHERE user_id=? AND tab_visible=TRUE AND tab_pinned_at IS NOT NULL FOR UPDATE",
+      `SELECT project_id FROM members WHERE user_id=? AND tab_visible=TRUE AND tab_pinned_at IS ${pinned ? "NOT NULL" : "NULL"} FOR UPDATE`,
       [user.id],
     );
-    const allowed = new Set(pinned.map((p) => p.project_id));
+    const allowed = new Set(rows.map((p) => p.project_id));
     if (
       projectIds.length !== allowed.size ||
       new Set(projectIds).size !== allowed.size ||
       projectIds.some((projectId) => !allowed.has(projectId))
     )
-      fail(409, "固定项目列表已变化，请刷新后重试");
-    // Pinned timestamps are ordering keys; opening times stay unchanged.
-    const [clock] = await query(db, "SELECT UTC_TIMESTAMP(6) sort_time");
-    for (const [index, projectId] of projectIds.entries()) {
-      await query(
+      fail(409, pinned ? "固定项目列表已变化，请刷新后重试" : "项目页签已变化，请刷新后重试");
+    if (pinned) {
+      // 固定组用新时间戳往前排：下标 0 最新，ORDER BY tab_pinned_at DESC 时在最左。
+      const [clock] = await query(db, "SELECT UTC_TIMESTAMP(6) sort_time");
+      for (const [index, projectId] of projectIds.entries()) {
+        await query(
+          db,
+          "UPDATE members SET tab_pinned_at=DATE_SUB(?, INTERVAL ? MICROSECOND) WHERE user_id=? AND project_id=?",
+          [clock.sort_time, index, user.id, projectId],
+        );
+      }
+    } else {
+      // 未固定组只交换已有的打开时间，不把整组挪到「现在」，关掉再打开的页签仍能插回原位置。
+      const stamps = await query(
         db,
-        "UPDATE members SET tab_pinned_at=DATE_SUB(?, INTERVAL ? MICROSECOND) WHERE user_id=? AND project_id=?",
-        [clock.sort_time, index, user.id, projectId],
+        `SELECT tab_opened_at FROM members WHERE user_id=? AND project_id IN (${projectIds.map(() => "?").join(",")}) ORDER BY tab_opened_at ASC, project_id ASC`,
+        [user.id, ...projectIds],
       );
+      for (const [index, projectId] of projectIds.entries()) {
+        await query(db, "UPDATE members SET tab_opened_at=? WHERE user_id=? AND project_id=?", [
+          stamps[index].tab_opened_at,
+          user.id,
+          projectId,
+        ]);
+      }
     }
   });
   return service.projects(user);

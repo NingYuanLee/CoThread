@@ -6,22 +6,35 @@
  * 统一放在这里，并在 main.tsx 中于 theme.css 之后引入。
  */
 
-/* ===== 1. 表面明度阶梯：页面 < 卡片 < 控件 < 弱底 ===== */
+/* ===== 1. 暗夜灰阶 =====
+   0f1115 深槽 · 151517 画布 · 1b1b1c 面板 · 232324 弱底 · 2c2c2e 悬浮层
+   353638 控件 · 43454a 悬停 · 61666b 禁用 · 81858c 占位 · 979da6 三级字
+   adb2b8 次要字 · cfd3d6 正文/图标 · e1e5ee e9ecf2 强调字 · 其余留给高亮态 */
 html[data-theme="night"] {
-  --c-f8faf8: #17181a;
-  --c-f8faf6: #1c1d20;
-  --c-f7f9f6: #1c1d20;
-  --c-f7f9f5: #1c1d20;
-  --c-f7f9f4: #1c1d20;
-  --c-f7f9f3: #1c1d20;
-  --c-fafbfa: #212226;
-  --c-fafbf9: #212226;
-  --c-f4f7f2: #1f2125;
-  --c-f0f3ed: #1e2024;
-  --c-fff: #2c2f34;
-  --c-eef2ea: #26292e;
-  --c-e9eee5: #24272c;
-  --c-e8f0e1: #23262b;
+  --c-f8faf8: #151517;
+  --c-f8faf6: #1b1b1c;
+  --c-f7f9f6: #1b1b1c;
+  --c-f7f9f5: #1b1b1c;
+  --c-f7f9f4: #1b1b1c;
+  --c-f7f9f3: #1b1b1c;
+  --c-fafbfa: #1b1b1c;
+  --c-fafbf9: #1b1b1c;
+  /* 这几个被大量 :hover / :active 规则引用，统一成悬停档 353638。 */
+  --c-f4f7f2: #353638;
+  --c-edf3e7: #353638;
+  --c-dfe8d8: #353638;
+  --c-f0f3ed: #1b1b1c;
+  --c-fff: #1b1b1c;
+  /* 悬停档：e9eee5 / eef2ea 由大量 :hover 规则共用。 */
+  --c-eef2ea: #353638;
+  --c-e9eee5: #353638;
+  --c-e8f0e1: #353638;
+  /* 内嵌深槽：文档预览、代码块比画布再深一档。 */
+  --c-f6f8fa: #0f1115;
+  --c-f3f5f0: #1b1b1c;
+  /* 主画布：workspace / admin 的 .main、.admin-content 及其它面板背景都用这颗令牌。
+     生成值偏冷，这里钉到画布档，和页面底同色。 */
+  --c-fcfdfb: #151517;
 }
 
 html[data-theme="ink"] {
@@ -41,11 +54,12 @@ html[data-theme="ink"] {
   --c-e8f0e1: #1f2920;
 }
 
-/* 页面基面（原主题把底色写死在主题块里，这里覆盖成阶梯里的最底色）。 */
+/* 页面基面（原主题把底色写死在主题块里，这里覆盖成阶梯里的最底色）。
+   暗夜的最深处固定为 #151517：再深的区域都由它托底。 */
 html[data-theme="night"],
 html[data-theme="night"] body,
 html[data-theme="night"] #root {
-  background: #17181a;
+  background: #151517;
 }
 
 html[data-theme="ink"],
@@ -54,11 +68,17 @@ html[data-theme="ink"] #root {
   background: #141a15;
 }
 
+/* 滚动条：滑块用强调描边档 61666b，轨道用深槽档 0f1115。
+   style.css 里的浅色滑块在暗夜里过亮。 */
+html[data-theme="night"] {
+  scrollbar-color: #61666b #0f1115;
+}
+
 /* 任务条令牌仍给按钮悬停、置顶标签用，保持比页面略抬一点。
    输入区本身的深浅在下面单独定，不再跟这组令牌走。 */
 html[data-theme="night"] {
-  --c-f1f5eb: #34383e;
-  --c-eef2e9: #3a3f46;
+  --c-f1f5eb: #353638;
+  --c-eef2e9: #353638;
 }
 
 html[data-theme="ink"] {
@@ -67,13 +87,14 @@ html[data-theme="ink"] {
 }
 
 /* 深色输入区：对话框比页面浅一档，目标条和任务条比对话框深一档。
-   night 对齐参考图（页面 #181818、条 #282828、对话框 #363636）。
+   night 的页面底锚定在 #151517（见第 1 节），输入区用灰阶的 #353638、
+   任务条 #2c2c2e，保住层次又不再压出死黑。
    ink 保持同一明度差，只把中性灰换成绿灰。
    条仍是半透明磨砂，只去掉上沿那条内高光。
    不改 --c-fff：那个令牌是全局表面色。强制颜色模式留给系统色。 */
 @media (forced-colors: none) {
   html[data-theme="night"] .composer.chat-composer {
-    background: #363636;
+    background: #353638;
   }
 
   html[data-theme="night"] .composer.chat-composer textarea {
@@ -81,12 +102,12 @@ html[data-theme="ink"] {
   }
 
   html[data-theme="night"] .conversation-task-pool {
-    background: color-mix(in srgb, #282828 72%, transparent);
+    background: color-mix(in srgb, #2c2c2e 72%, transparent);
     box-shadow: none;
   }
 
   html[data-theme="night"] .conversation-task-pool:hover {
-    background: color-mix(in srgb, #282828 84%, transparent);
+    background: color-mix(in srgb, #2c2c2e 84%, transparent);
   }
 
   html[data-theme="ink"] .composer.chat-composer {
@@ -113,8 +134,20 @@ html[data-theme="ink"] {
   html[data-theme="night"] .composer-mode-menu .composer-mode-option:hover:not(:disabled),
   html[data-theme="night"] .thread-row.selected,
   html[data-theme="night"] .thread-row.selected:hover,
-  html[data-theme="night"] .thread-row.selected:focus-within {
-    background: #363636;
+  html[data-theme="night"] .thread-row.selected:focus-within,
+  html[data-theme="night"] .task-pool-item[aria-current="true"],
+  html[data-theme="night"] .task-pool-item[aria-current="true"]:hover {
+    background: #353638;
+    color: var(--c-27362f);
+  }
+
+  html[data-theme="night"] .task-pool-item:not([aria-current="true"]) {
+    background: var(--c-f7f9f4);
+    color: var(--c-7f8b7d);
+  }
+
+  html[data-theme="night"] .task-pool-item:not([aria-current="true"]):hover {
+    background: var(--c-e9eee5);
   }
 
   html[data-theme="ink"] .composer-picker > button[aria-selected="true"],
@@ -123,8 +156,20 @@ html[data-theme="ink"] {
   html[data-theme="ink"] .composer-mode-menu .composer-mode-option:hover:not(:disabled),
   html[data-theme="ink"] .thread-row.selected,
   html[data-theme="ink"] .thread-row.selected:hover,
-  html[data-theme="ink"] .thread-row.selected:focus-within {
+  html[data-theme="ink"] .thread-row.selected:focus-within,
+  html[data-theme="ink"] .task-pool-item[aria-current="true"],
+  html[data-theme="ink"] .task-pool-item[aria-current="true"]:hover {
     background: #303a32;
+    color: var(--c-27362f);
+  }
+
+  html[data-theme="ink"] .task-pool-item:not([aria-current="true"]) {
+    background: var(--c-f7f9f4);
+    color: var(--c-7f8b7d);
+  }
+
+  html[data-theme="ink"] .task-pool-item:not([aria-current="true"]):hover {
+    background: var(--c-e9eee5);
   }
 
   html[data-theme="night"] .composer-mode-menu .composer-mode-option.is-active .composer-mode-option-icon,
@@ -132,7 +177,7 @@ html[data-theme="ink"] {
     background: transparent;
   }
 
-  /* 顶栏图标、侧栏按钮、放大和嘴体：深色悬停原来落到比底还暗的令牌上，改成更浅的一档。 */
+  /* 顶栏图标、侧栏按钮、放大和嘴体：统一到交互悬停档 353638。 */
   html[data-theme="night"]
     :is(
       .workspace-topbar .sidebar-toggle:hover:not(.workspace-space-switch),
@@ -141,15 +186,17 @@ html[data-theme="ink"] {
       .sidebar .sidebar-toggle:hover,
       .sidebar-brand-toggle:hover .sidebar-brand-control,
       .sidebar-card:hover:not(:disabled),
-      .sidebar-rail-thread-create:hover
+      .sidebar-utility:hover:not(:disabled),
+      .sidebar-rail-thread-create:hover,
+      .sidebar-create-button:hover
     ) {
-    background: #464d58;
-    color: #e8eaee;
+    background: #353638;
+    color: #ebeef2;
   }
 
   html[data-theme="night"] .project-tab.selected .project-tab-actions button:hover {
-    background: #5a616c;
-    color: #fff;
+    background: #1e40af;
+    color: #f9fafb;
   }
 
   html[data-theme="night"]
@@ -170,7 +217,9 @@ html[data-theme="ink"] {
       .sidebar .sidebar-toggle:hover,
       .sidebar-brand-toggle:hover .sidebar-brand-control,
       .sidebar-card:hover:not(:disabled),
-      .sidebar-rail-thread-create:hover
+      .sidebar-utility:hover:not(:disabled),
+      .sidebar-rail-thread-create:hover,
+      .sidebar-create-button:hover
     ) {
     background: #3e4b42;
     color: #e7f0e9;
@@ -190,17 +239,37 @@ html[data-theme="ink"] {
     background: #4c5c4e;
     color: #e7f0e9;
   }
+
+  /* 侧栏新迭代按钮：深色主题把 e9eee5/dfe8d8 都钉成悬停档，
+     基态要再深一档，否则悬停没有反馈。 */
+  html[data-theme="night"] .sidebar-create-button {
+    background: #232324;
+  }
+
+  html[data-theme="ink"] .sidebar-create-button {
+    background: #273228;
+  }
 }
 
-/* 条首「任务 / 目标」：深色下改用蓝色，比接近正文色的白灰更跳，
-   也与「待确认金 / 已阻塞红」的统计数字天然区分。亮色主题不受影响。 */
-html:is([data-theme="ink"], [data-theme="night"]) .conversation-task-pool-label,
-html:is([data-theme="ink"], [data-theme="night"]) .conversation-task-pool-icon {
-  color: #8ab4f8;
+/* 条首「任务 / 目标」：暗夜用蓝色，墨玉用按钮绿提亮后的字色。
+   比接近正文色的白灰更跳，也与「待确认金 / 已阻塞红」区分。亮色主题不受影响。
+   实底按钮绿是 #3f6a45，直接写在墨绿底上对比不够，字用同色相提亮的 #9dceb0。 */
+html[data-theme="night"] .conversation-task-pool-label,
+html[data-theme="night"] .conversation-task-pool-icon {
+  color: #93c5fd;
 }
 
-html:is([data-theme="ink"], [data-theme="night"]) .conversation-task-pool-label:hover {
-  color: #b8d4ff;
+html[data-theme="night"] .conversation-task-pool-label:hover {
+  color: #dbeafe;
+}
+
+html[data-theme="ink"] .conversation-task-pool-label,
+html[data-theme="ink"] .conversation-task-pool-icon {
+  color: #9dceb0;
+}
+
+html[data-theme="ink"] .conversation-task-pool-label:hover {
+  color: #c5e6d4;
 }
 
 /* ===== 2. 边框：用正文色混合，随主题自动保持对比 ===== */
@@ -238,6 +307,41 @@ html:is([data-theme="ink"], [data-theme="night"]) {
   --c-8a958d: #b9bdc2;
 }
 
+/* 暗夜边框不再用半透明混色（会产出灰阶之外的中间色），直接落到灰阶：
+   分隔线 353638 · 常规描边 43454a · 强调描边 61666b。 */
+html[data-theme="night"] {
+  --c-e7eae7: #353638;
+  --c-e5e9e2: #353638;
+  --c-e3e7e3: #353638;
+  --c-e8ece5: #353638;
+  --c-eef1ee: #353638;
+  --c-edf0e8: #353638;
+  --c-f3f7f1: #232324;
+  --c-dce3d9: #43454a;
+  --c-d8e1d3: #43454a;
+  --c-e2e9d6: #43454a;
+  --c-e0e6dc: #43454a;
+  --c-dfe5d9: #43454a;
+  --c-dfe5da: #43454a;
+  --c-dde5d7: #43454a;
+  --c-e1e7da: #43454a;
+  --c-e1e6dc: #43454a;
+  --c-dce4d4: #43454a;
+  --c-dfe5db: #43454a;
+  --c-dfe5dc: #43454a;
+  --c-dfe6d9: #43454a;
+  --c-e4e9df: #43454a;
+  --c-e2e9da: #43454a;
+  --c-dce7d3: #43454a;
+  --c-e7eddf: #43454a;
+  --c-d9e1d9: #43454a;
+  --c-b8c9b2: #43454a;
+  --c-c3d0b6: #43454a;
+  --c-cad6c3: #43454a;
+  --c-b7c9ad: #61666b;
+  --c-c3d3b6: #61666b;
+}
+
 /* ===== 3. 文字与图标接近白色 ===== */
 html:is([data-theme="ink"], [data-theme="night"]) {
   --icon: #cfd2d6;
@@ -255,6 +359,49 @@ html:is([data-theme="ink"], [data-theme="night"]) {
   --c-858c87: #ced1d5;
   --c-6d756f: #ced1d5;
   --c-354238: #d6d9dc;
+}
+
+/* 暗夜文字与图标走同一套灰阶；ink 保持上面的绿灰，不受影响。 */
+html[data-theme="night"] {
+  --icon: #cfd3d6;
+  --c-27362f: #e9ecf2;
+  /* 强文字（区块标题、弹窗标题）用 e1e5ee，悬停主字 ebeef2，最亮标题 f1f3f5。 */
+  --c-4a524c: #e1e5ee;
+  --c-5e6c56: #cfd3d6;
+  --c-516747: #cfd3d6;
+  --c-54704e: #cfd3d6;
+  --c-395d40: #f1f3f5;
+  --c-69756c: #cfd3d6;
+  --c-73806f: #adb2b8;
+  --c-758073: #adb2b8;
+  --c-8b9689: #adb2b8;
+  --c-8b9683: #adb2b8;
+  --c-858c87: #adb2b8;
+  --c-6d756f: #adb2b8;
+  --c-354238: #ebeef2;
+  --c-7f8b7d: #979da6;
+  --c-8a958d: #adb2b8;
+}
+
+/* 暗夜标题：一级 f9fafb、二级 f1f3f5，和正文 e9ecf2 拉开两层。 */
+html[data-theme="night"] h1 {
+  color: #f9fafb;
+}
+
+html[data-theme="night"] h2 {
+  color: #f1f3f5;
+}
+
+/* 禁用态统一收到 61666b：按钮、输入框、不可选项。 */
+html[data-theme="night"] :is(button, input, textarea, select, .field-select-option):disabled,
+html[data-theme="night"] .field.is-disabled .field-label,
+html[data-theme="night"] .is-disabled {
+  color: #61666b;
+}
+
+/* 占位符用 81858c，和禁用态拉开一档。 */
+html[data-theme="night"] ::placeholder {
+  color: #81858c;
 }
 
 /* ===== 4. 状态语义色（不参与中性化） ===== */
@@ -287,9 +434,42 @@ html:is([data-theme="ink"], [data-theme="night"]) .miniprogram-status.ok {
   color: #7fd694;
 }
 
+/* 暗夜成功色：绿色 4 档（深底 233c2c · 主绿 22c55e · 浅绿字 4ed17e · 亮绿字 e6faed）。 */
+html[data-theme="night"] {
+  --c-e5f0e2: #233c2c;
+  --c-dfeee0: #233c2c;
+  --c-eff7ea: #233c2c;
+  --c-4a7547: #4ed17e;
+  --c-537047: #4ed17e;
+  --c-4c8b55: #22c55e;
+  --c-b8cfad: #22c55e;
+  --c-4d7642: #22c55e;
+}
+
+html[data-theme="night"] .miniprogram-status.ok {
+  background: #233c2c;
+  color: #e6faed;
+}
+
 html:is([data-theme="ink"], [data-theme="night"]) .miniprogram-status.warning {
   background: #33290f;
   color: #e6c169;
+}
+
+/* 暗夜等待/警告色：橙色（金/琥珀）5 档
+   深底 27241f · 深橙 dd8629 · 主橙 f59e0b · 亮橙 f7ad31 · 亮字 fef5e7。 */
+html[data-theme="night"] {
+  --c-f7efd9: #27241f;
+  --c-856b2f: #f7ad31;
+  --c-bd9441: #f59e0b;
+  --c-c69236: #dd8629;
+  --c-c59d4b: #f7ad31;
+  --c-7b5c20: #f59e0b;
+}
+
+html[data-theme="night"] .miniprogram-status.warning {
+  background: #27241f;
+  color: #fef5e7;
 }
 
 html:is([data-theme="ink"], [data-theme="night"]) .miniprogram-status.failed {
@@ -302,24 +482,71 @@ html:is([data-theme="ink"], [data-theme="night"]) .miniprogram-status.muted {
   color: #b9bdc2;
 }
 
-/* ===== 5. 强调色：night 用蓝色，ink 保留绿色 ===== */
+/* 上面这批共用的中性值来自旧调色板，暗夜按灰阶收口（墨玉不受影响）。 */
+html[data-theme="night"] {
+  --c-f3f4f2: #232324;
+  --c-7e837b: #adb2b8;
+  /* 边框不再用半透明混色，落到常规描边档。 */
+  --c-d7d9d4: #43454a;
+}
+
+html[data-theme="night"] .miniprogram-status,
+html[data-theme="night"] .miniprogram-status.muted {
+  background: #2c2c2e;
+  color: #cfd3d6;
+}
+
+/* ===== 5. 强调色：night 用蓝色，ink 用按钮绿 ===== */
 /* Logo 方块填色走 currentColor。深色里 --c-395d40 被提成近白给文字用，不能改那个 token。 */
 html:is([data-theme="ink"], [data-theme="night"]) {
   --logo-ink: #f3f6ec;
-  --logo-accent: #c5d8fb;
 }
 
-html:is([data-theme="ink"], [data-theme="night"]) :is(.brand-logo, .welcome-logo, .sidebar-logo) {
-  color: #2563eb;
+html[data-theme="night"] {
+  --logo-accent: #dbeafe;
+  /* logo 描边在白底上要纯白，暗夜里用灰阶最亮一档。 */
+  --logo-ink: #ffffff;
 }
 
-html:is([data-theme="ink"], [data-theme="night"]) :is(.brand-logo, .welcome-logo) {
+html[data-theme="night"] :is(.brand-logo, .welcome-logo, .sidebar-logo) {
+  color: #3b82f6;
+}
+
+html[data-theme="night"] :is(.brand-logo, .welcome-logo) {
   filter: drop-shadow(0 0.286rem 0.5rem rgba(37, 99, 235, 0.28));
 }
 
-/* 流式状态行：浅色主题跟随主题主色，深色主题统一用蓝色。 */
-html:is([data-theme="ink"], [data-theme="night"]) .streaming-status {
+html[data-theme="ink"] {
+  --logo-accent: #d5eadc;
+}
+
+html[data-theme="ink"] :is(.brand-logo, .welcome-logo, .sidebar-logo) {
+  color: #3f6a45;
+}
+
+html[data-theme="ink"] :is(.brand-logo, .welcome-logo) {
+  filter: drop-shadow(0 0.286rem 0.5rem rgba(63, 106, 69, 0.45));
+}
+
+/* 流式状态行：浅色主题跟随主题主色。暗夜用蓝色，墨玉用按钮绿提亮字色。 */
+html[data-theme="night"] .streaming-status {
   color: #60a5fa;
+}
+
+html[data-theme="ink"] .streaming-status {
+  color: #9dceb0;
+}
+
+/* 提示条的撤销 / 复制在全主题里写死蓝色。墨玉改成按钮绿，暗夜保持蓝色。 */
+html[data-theme="ink"] .tip-undo,
+html[data-theme="ink"] .tip-copy {
+  color: #3f6a45;
+}
+
+html[data-theme="ink"] .tip-undo:hover,
+html[data-theme="ink"] .tip-copy:hover {
+  color: #35593b;
+  background: color-mix(in srgb, #3f6a45 12%, transparent);
 }
 
 /* 管理空间左侧菜单与工作空间侧栏同一套表面：未选中灰字，悬停用弱底，选中用卡片底。 */
@@ -341,12 +568,16 @@ html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-group a[aria-curren
 
 
 html[data-theme="night"] {
-  --c-426b4b: #2f6feb;
-  --c-33563b: #2563eb;
-  --c-3f5945: #2f6feb;
+  /* 暗夜强调色：蓝色 10 档。
+     主底 2563eb · 悬停 3b82f6 · 按压/深底 1e40af · 深蓝底 172554
+     描边 4d93f8 · 链接字 60a5fa · 浅字 93c5fd · 浅底字 dbeafe
+     选中文 e5f0ff · 按钮字 eff6ff */
+  --c-426b4b: #2563eb;
+  --c-33563b: #1e40af;
+  --c-3f5945: #60a5fa;
   --c-67835b: #3b82f6;
-  --c-4a7251: #60a5fa;
-  --primary-hover-bg: #2563eb;
+  --c-4a7251: #93c5fd;
+  --primary-hover-bg: #3b82f6;
 }
 
 html[data-theme="ink"] {
@@ -378,6 +609,30 @@ html:is([data-theme="ink"], [data-theme="night"])
   overflow-clip-margin: 0.857rem;
 }
 
+/* 暗夜强调按钮的字走蓝色阶最亮档 eff6ff，纯白留给需要最高对比的地方。 */
+html[data-theme="night"] body
+  :is(
+    button.primary,
+    .welcome-create,
+    .miniprogram-dialog-actions button:last-child,
+    .database-filter-footer button.primary,
+    .admin-content button.primary,
+    .admin-dialog-body button.primary,
+    .account-login-another,
+    .agent-log-row > span:first-child
+  ) {
+  color: #eff6ff !important;
+}
+
+/* 悬停升到 3b82f6，按压压到 1e40af：三个蓝色档位对应三种状态。 */
+html[data-theme="night"] :is(button.primary, .welcome-create):hover:not(:disabled) {
+  background: #3b82f6;
+}
+
+html[data-theme="night"] :is(button.primary, .welcome-create):active:not(:disabled) {
+  background: #1e40af;
+}
+
 html:is([data-theme="ink"], [data-theme="night"])
   :is(.admin-content, .admin-dialog-body, .database-filter-footer)
   button.primary,
@@ -404,6 +659,42 @@ html:is([data-theme="ink"], [data-theme="night"]) .project-tab.selected,
 html:is([data-theme="ink"], [data-theme="night"]) .project-tab.pinned.selected {
   background: var(--c-426b4b);
   color: #fff !important;
+}
+
+/* 暗夜选中页签的字用蓝色阶的 e5f0ff，压在蓝底上比灰度白更协调。 */
+html[data-theme="night"] :is(.project-tab.selected, .project-tab.pinned.selected) {
+  color: #e5f0ff !important;
+}
+
+/* 未选中页签按「芯片」处理：表面高一档 232324，悬停 2c2c2e，选中走蓝色强调。 */
+html[data-theme="night"] .project-tab:not(.selected) {
+  background: #232324;
+}
+
+html[data-theme="night"] .project-tab:not(.selected) .project-tab-label {
+  color: #adb2b8;
+}
+
+html[data-theme="night"] .project-tab:not(.selected):hover {
+  background: #353638;
+}
+
+html[data-theme="ink"] .project-tab:not(.selected) {
+  background: #3d4c42;
+}
+
+html[data-theme="ink"] .project-tab:not(.selected):hover {
+  background: #516858;
+}
+
+html[data-theme="night"] .project-tabs.is-reordering .project-tab:not(.is-dragging):not(.selected):hover,
+html[data-theme="night"] .project-tabs.is-reordering .project-tab.pinned:not(.is-dragging):not(.selected):hover {
+  background: #353638;
+}
+
+html[data-theme="ink"] .project-tabs.is-reordering .project-tab:not(.is-dragging):not(.selected):hover,
+html[data-theme="ink"] .project-tabs.is-reordering .project-tab.pinned:not(.is-dragging):not(.selected):hover {
+  background: #3d4c42;
 }
 
 /* ===== 6. 危险操作按钮：淡红底 + 红字 ===== */
@@ -446,6 +737,43 @@ html:is([data-theme="ink"], [data-theme="night"])
   background: var(--danger-tint-bg-hover);
 }
 
+/* 暗夜危险 / 失败色：红色 6 档
+   深红底 570c0c · 主红 ec1313 · 红 ef4444 · 亮红字 f25a5a · 浅红字 fee2e2 · 最亮字 fef2f2。 */
+html[data-theme="night"] {
+  --danger-tint-bg: #570c0c;
+  --danger-tint-bg-hover: #ec1313;
+  --danger-tint-border: #ec1313;
+  --danger-tint-text: #f25a5a;
+  --c-f6e5e1: #570c0c;
+  --c-fff0ec: #570c0c;
+  --c-fff0ed: #570c0c;
+  --c-f3d8d0: #570c0c;
+  --c-fff0e5: #570c0c;
+  --c-a04e42: #f25a5a;
+  --c-a9443e: #f25a5a;
+  --c-a24b3d: #f25a5a;
+  --c-b75b4d: #ef4444;
+  --c-a3332d: #ef4444;
+  --c-9f2e28: #ec1313;
+}
+
+/* 危险按钮悬停底色提亮到主红后，文字跟到最亮一档。 */
+html[data-theme="night"]
+  :is(
+    .miniprogram-danger,
+    .miniprogram-storage-row-actions .is-danger,
+    .thread-archive-footer button.danger,
+    .library-organize-actions button.danger,
+    .mcp-local-executor-confirm button.danger
+  ):hover:not(:disabled) {
+  color: #fef2f2 !important;
+}
+
+html[data-theme="night"] .miniprogram-status.failed {
+  background: #570c0c;
+  color: #fee2e2;
+}
+
 /* ===== 7. 只靠阴影的浮起面板：补可见边框 ===== */
 html:is([data-theme="ink"], [data-theme="night"])
   :is(.context-panel.context-open, .composer.chat-composer) {
@@ -472,7 +800,6 @@ html:is([data-theme="ink"], [data-theme="night"]) :is(.context-panel.context-ope
   transform: scale(0.5);
   transform-origin: 0 0;
 }
-
 
 html:is([data-theme="ink"], [data-theme="night"]) aside.file-explorer.doc-browser-tree {
 
@@ -504,22 +831,43 @@ html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip {
   color: color-mix(in srgb, var(--mode-accent) 38%, #fff);
 }
 
+/* 暗夜：浮起面板描边与模式芯片文字都改用色板实色，避免混出板外颜色。 */
+html[data-theme="night"] :is(.context-panel.context-open, .composer.chat-composer),
+html[data-theme="night"] aside.file-explorer.doc-browser-tree {
+  --stroke: #43454a;
+}
+
+html[data-theme="night"] .composer-mode-chip {
+  color: #93c5fd;
+}
+
 html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-icon svg,
 html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-clear,
 html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-clear svg {
   color: inherit;
 }
 
-/* 深色下引用聚合块用蓝底，和浅色的灰绿底区分开。 */
-html:is([data-theme="ink"], [data-theme="night"]) button.cite-source {
-  background: #1d4f91;
-  color: #e8f1ff;
-  --stroke: #3b82f6;
+/* 深色下引用聚合块：暗夜用蓝底，墨玉用按钮绿，都和浅色的灰绿底区分开。 */
+html[data-theme="night"] button.cite-source {
+  background: #1e40af;
+  color: #dbeafe;
+  --stroke: #4d93f8;
 }
 
-html:is([data-theme="ink"], [data-theme="night"]) button.cite-source:hover,
-html:is([data-theme="ink"], [data-theme="night"]) button.cite-source[aria-expanded="true"] {
+html[data-theme="night"] button.cite-source:hover,
+html[data-theme="night"] button.cite-source[aria-expanded="true"] {
   background: #2563eb;
+}
+
+html[data-theme="ink"] button.cite-source {
+  background: #3f6a45;
+  color: #fff;
+  --stroke: #6f9a78;
+}
+
+html[data-theme="ink"] button.cite-source:hover,
+html[data-theme="ink"] button.cite-source[aria-expanded="true"] {
+  background: #35593b;
 }
 
 html:is([data-theme="ink"], [data-theme="night"]) button.cite-source .cite-count {
@@ -527,8 +875,18 @@ html:is([data-theme="ink"], [data-theme="night"]) button.cite-source .cite-count
   color: #fff;
 }
 
-html:is([data-theme="ink"], [data-theme="night"]) a.web-link:not(.cite-mark) {
-  color: #7eb6ff;
+/* 暗夜引用序号：浅蓝实底 + 深蓝字，替掉原来的半透明白。 */
+html[data-theme="night"] button.cite-source .cite-count {
+  background: #4d93f8;
+  color: #172554;
+}
+
+html[data-theme="night"] a.web-link:not(.cite-mark) {
+  color: #60a5fa;
+}
+
+html[data-theme="ink"] a.web-link:not(.cite-mark) {
+  color: #9dceb0;
 }
 
 html:is([data-theme="ink"], [data-theme="night"]) a.cite-mark,
@@ -536,30 +894,519 @@ html:is([data-theme="ink"], [data-theme="night"]) .cite-panel .cite-index {
   color: var(--c-426b4b);
 }
 
-html:is([data-theme="ink"], [data-theme="night"]) .cite-panel button:hover {
-  background: rgba(47, 111, 235, 0.28);
+html[data-theme="night"] .cite-panel button:hover {
+  background: #172554;
 }
 
-/* ===== 8. 问老翁按钮：深色下改用蓝色 ===== */
-/* 这个胶囊只引用了浅色 token，深色主题没覆盖它们，于是深色下回落到深绿字 + 浅描边，
-   压在近黑底上几乎看不清。改成蓝色系后与 logo、引用块、任务条首的深色蓝一致。 */
-html:is([data-theme="ink"], [data-theme="night"]) .ask-elder {
-  background: color-mix(in srgb, #2f6feb 18%, transparent);
-  border-color: color-mix(in srgb, #60a5fa 45%, transparent);
-  color: #8ab4f8;
-  /* 收掉全局 button::after 的 0.5px 发丝线：它在深色里是近黑，会压在蓝边上显脏。 */
+html[data-theme="ink"] .cite-panel button:hover {
+  background: color-mix(in srgb, #3f6a45 28%, transparent);
+}
+
+/* ===== 8. 问老翁按钮：暗夜蓝底白字 ===== */
+/* 基础样式在 workspace.css：主题强调色实底 + 白字，墨玉直接用主题绿 #3f6a45。
+   暗夜的强调色本来就是蓝，但按钮三态要落在蓝色阶：默认 2563eb、悬停 3b82f6、
+   打开（aria-pressed）压到 1e40af，与主按钮同一套。 */
+html[data-theme="night"] .ask-elder {
+  background: #2563eb;
+  border-color: transparent;
+  color: #fff;
+  /* 收掉全局 button::after 的 0.5px 发丝线：它在深色里是近黑，会压在色边上显脏。 */
   --stroke: transparent;
 }
 
-html:is([data-theme="ink"], [data-theme="night"]) .ask-elder:hover {
-  background: color-mix(in srgb, #2f6feb 28%, transparent);
-  border-color: color-mix(in srgb, #60a5fa 62%, transparent);
-  color: #b8d4ff;
+html[data-theme="night"] .ask-elder:hover {
+  background: #3b82f6;
+  border-color: transparent;
+  color: #fff;
 }
 
-/* 分栏已打开：只把蓝底加深一档，保持胶囊轻量，不抢消息区。 */
-html:is([data-theme="ink"], [data-theme="night"]) .ask-elder[aria-pressed="true"] {
-  background: color-mix(in srgb, #2f6feb 36%, transparent);
-  border-color: color-mix(in srgb, #60a5fa 72%, transparent);
+html[data-theme="night"] .ask-elder[aria-pressed="true"] {
+  background: #1e40af;
+  border-color: transparent;
+  color: #fff;
+}
+
+/* ===== 9. 交互三态统一（暗夜） =====
+   默认 1b1b1c（画布上是卡片，面板内是透明）
+   悬停 353638 · 按下 43454a · 选中 43454a（描边 61666b）
+   四档单调递增，悬停必须明显亮于所在表面（尤其是悬浮层 2c2c2e 之上）。
+   蓝色/绿色强调态（项目页签、开关、主按钮、危险按钮、引用块）不在此列。 */
+html[data-theme="night"] {
+  --state-hover: #353638;
+  --state-pressed: #43454a;
+  --state-selected: #43454a;
+  --state-selected-stroke: #61666b;
+}
+
+/* 悬停：列表行、选择器、卡片、侧栏项 */
+html[data-theme="night"]
+  :is(
+    .thread-row:not(.selected):hover,
+    .thread-row:not(.selected):focus-within,
+    .task-pool-item:not([aria-current="true"]):hover,
+    .composer-picker > button:hover,
+    .field-select-option:hover,
+    .theme-grid > button:hover:not(:disabled),
+    .library-body > aside button:hover,
+    .tree-folder:hover,
+    .tree-file:hover,
+    .admin-nav-group a:hover,
+    .notification-row:hover,
+    .project-memory-row:hover
+  ) {
+  background: #353638;
+}
+
+/* 按下：中性按钮与可选行再深一档，强调按钮有自己的蓝色档 */
+html[data-theme="night"]
+  :is(button, .thread-row, .task-pool-item, .field-select-option, .theme-grid > button):active:not(:disabled):not(.primary):not(.danger) {
+  background: #43454a;
+}
+
+/* 选中：统一到 43454a + 61666b 描边 */
+html[data-theme="night"]
+  :is(
+    .thread-row.selected,
+    .task-pool-item[aria-current="true"],
+    .library-body > aside button.selected,
+    .tree-folder.selected,
+    .tree-file.selected,
+    .notification-row.selected,
+    .project-memory-row.is-selected,
+    .composer-picker > button[aria-selected="true"],
+    .composer-mode-menu .composer-mode-option.is-active,
+    .field-select-option.is-active,
+    .theme-grid > button.selected,
+    .admin-nav-group a[aria-current="page"],
+    .settings-nav :is(button, a)[aria-current="page"],
+    .project-management-tabs :is(button, a)[aria-current="page"],
+    .project-management-tabs :is(button, a).active,
+    .space-dialog-nav :is(button, a)[aria-current="page"],
+    .task-scope-tabs button[aria-selected="true"],
+    .admin-tabs button[aria-selected="true"],
+    .notification-tabs button[aria-selected="true"],
+    .agent-log-tabs button[aria-selected="true"],
+    .pcc-repo-item.selected,
+    .child-agent-list button.selected,
+    .org-structure .org-structure-node.is-selected,
+    .archive-choice button.is-selected
+  ) {
+  background: #43454a;
+  color: #e9ecf2;
+  --stroke: #61666b;
+}
+
+/* 已选中项再悬停时保持选中色，不再变浅。 */
+html[data-theme="night"]
+  :is(
+    .thread-row.selected:hover,
+    .thread-row.selected:focus-within,
+    .task-pool-item[aria-current="true"]:hover,
+    .theme-grid > button.selected:hover:not(:disabled)
+  ) {
+  background: #43454a;
+}
+
+/* 顶栏项目页签：选中就是强调蓝，按下保持同一个蓝色 2563eb，不再压深。
+   其余蓝底控件（引用块、管理空间入口、问老翁）按下仍压到 1e40af。 */
+html[data-theme="night"]
+  :is(.project-tab.selected, .project-tab.pinned.selected):active:not(:disabled) {
+  background: #2563eb !important;
+}
+
+/* 强调态按压：底色是蓝色的其它控件，按下留在蓝色阶，
+   不能被上面的中性按下色（43454a）覆盖。蓝阶按压档 = 1e40af，最深 = 172554。 */
+html[data-theme="night"]
+  :is(
+    button.cite-source,
+    a.workspace-space-switch,
+    .ask-elder
+  ):active:not(:disabled) {
+  background: #1e40af !important;
+}
+
+/* 蓝底页签上的操作图标同理：悬停 1e40af、按下 172554。 */
+html[data-theme="night"] .project-tab.selected .project-tab-actions button:hover {
+  background: #1e40af;
+  color: #f9fafb;
+}
+
+html[data-theme="night"] .project-tab.selected .project-tab-actions button:active {
+  background: #172554;
+  color: #eff6ff;
+}
+
+/* 项目页签是 div + 内层 button 的结构：内层按钮在所有状态下保持透明，
+   底色只能由外层 .project-tab 决定（选中蓝 / 未选中悬停中性档）。
+   否则鼠标按下时中性按下规则会把内层刷成 43454a，盖住选中的蓝色。 */
+html[data-theme="night"] .project-tab .project-tab-name,
+html[data-theme="night"] .project-tab .project-tab-name:hover,
+html[data-theme="night"] .project-tab .project-tab-name:focus-visible,
+html[data-theme="night"] .project-tab .project-tab-name:active {
+  background: transparent !important;
+}
+
+/* ===== 10. 文档预览区：容器与占位改暗色 =====
+   原来这些容器写死 #e6e6e6 / #fff，或引用了没有定义过的浅色 token（回退成白）。
+   HTML 未加载、zip、未知格式等没有内容可画的时候，露出的就是这些底色。
+   只改容器和占位；docx / pdf / 幻灯片的「纸面」仍是白的，那是文档本身的颜色。 */
+html[data-theme="night"] .doc-browser-preview,
+html[data-theme="night"] .doc-browser-preview:has(> .docx-preview),
+html[data-theme="night"] .doc-browser-preview:has(> .xlsx-preview),
+html[data-theme="night"] .doc-browser-preview:has(> .pptx-preview),
+html[data-theme="night"] .doc-browser-preview:has(> .pdf-preview),
+html[data-theme="night"] .docx-preview,
+html[data-theme="night"] .xlsx-preview,
+html[data-theme="night"] .pptx-preview,
+html[data-theme="night"] .pdf-preview,
+html[data-theme="night"] .pdf-preview-viewport,
+html[data-theme="night"] .doc-html-preview-viewport,
+html[data-theme="night"] .doc-html-preview-viewport-mobile .doc-html-preview-scroll,
+html[data-theme="night"] .agent-screenshot-preview {
+  background: #1b1b1c;
+}
+
+/* docx 外层衬底在原样式里带 !important，这里同样要压过它。 */
+html[data-theme="night"] .docx-preview .docx-preview-content-wrapper,
+html[data-theme="night"] .docx-preview-a4 .docx-preview-content-wrapper {
+  background: #1b1b1c !important;
+}
+
+/* ===== 11. 右侧文档库：页签条最暗、页签与内容跟左侧栏同色 =====
+   页签条 0f1115（最深档）· 活动页签与内容区 1b1b1c（与左侧栏一致）
+   默认页签透明（露出页签条）· 悬停 232324 · 文字按灰阶：默认次要档、悬停/选中主字。 */
+html[data-theme="night"] .doc-browser-shell {
+  --doc-browser-tabbar-surface: #0f1115;
+  --doc-browser-active-surface: #1b1b1c;
+  /* 页签之间的竖线跟全局描边/发丝线同色（夜间 --stroke = 43454a）。 */
+  --doc-browser-tab-divider: #43454a;
+}
+
+html[data-theme="night"] .doc-browser-tab:not(.active):hover {
+  background: #232324;
+}
+
+html[data-theme="night"] .doc-browser-tab-label {
+  color: #adb2b8;
+}
+
+html[data-theme="night"] .doc-browser-tab.active .doc-browser-tab-label,
+html[data-theme="night"] .doc-browser-tab:not(.active):hover .doc-browser-tab-label {
+  color: #e9ecf2;
+}
+
+/* ===== 12. 顶栏项目页签里的项目标识 =====
+   完全对齐左侧栏「项目管理」图标：底色 353638（--c-e9eee5）+ 图标色 cfd3d6。
+   选中页签是蓝底，标识字跟着页签字走 e5f0ff。 */
+html[data-theme="night"] .project-tab .project-mark {
+  background: #353638;
+  color: #cfd3d6;
+}
+
+html[data-theme="night"] .project-tab.selected .project-mark,
+html[data-theme="night"] .project-tab.pinned.selected .project-mark {
+  color: #e5f0ff;
+}
+
+/* ===== 13. 左侧栏右缘发丝线 =====
+   `.sidebar` 自带 `border-right: 1px solid transparent` 和 `::after` 半像素描边，
+   但侧栏是 overflow:hidden，伪元素画到右边缘外侧会被裁掉，实际看不见。
+   这里直接给真实边框上色（与全局描边同色 43454a）。 */
+html[data-theme="night"] .sidebar {
+  border-right-color: #43454a;
+}
+
+/* ===== 14. 层叠顺序（暗夜） =====
+   画布 151517 → 面板/页面左侧栏 1b1b1c → 悬浮层（弹窗整体：顶栏 + 左菜单 + 内容）2c2c2e
+   → 输入类下拉（含多选）353638。
+   弹窗内部只用一种底色，分区靠发丝线；下拉必须比弹窗亮一档，否则看不出浮起。
+   弹窗标题色 --overlay-header-bg 属于浮层变量，写在 overlays.css。 */
+
+/* 弹窗内左侧菜单：与弹窗内容同色 2c2c2e，且不再画分隔线，
+   顶栏 / 左菜单 / 内容只靠留白区分，不使用底色差也不用描边。 */
+html[data-theme="night"] :is(.settings-nav, .project-management-tabs, .space-dialog-nav) {
+  background: #2c2c2e;
+  border-right: 0;
+}
+
+html[data-theme="night"] :is(.settings-nav, .project-management-tabs, .space-dialog-nav)::after {
+  content: none;
+}
+
+/* 任务弹窗左侧列表同属弹窗内的左菜单，一并统一并去掉分隔线。 */
+html[data-theme="night"] .task-pool-dialog-list {
+  background: #2c2c2e;
+  border-right: 0;
+}
+
+html[data-theme="night"] .task-pool-dialog-list::after,
+html[data-theme="night"] .task-pool-dialog-list::before {
+  content: none;
+}
+
+/* ===== 15. 弹窗内文字提亮 =====
+   弹窗底色是 2c2c2e，比页面面板亮一档，原来的文字灰阶放在这里显得发闷。
+   在弹窗作用域内把这些文字 token 统一成正常正文色 #e9ecf2：
+   弹窗里默认文字就是一个正常颜色，不再按灰阶分档；
+   只有禁用态才稍微暗一点（#81858c）。状态色与 --stroke 不动。 */
+html[data-theme="night"] :is([data-overlay="dialog-shell"], dialog[data-overlay], [data-overlay="dialog"]) {
+  /* 正文 / 主字 */
+  --c-27362f: #e9ecf2;
+  --c-354238: #e9ecf2;
+  --c-4a524c: #e9ecf2;
+  --c-395d40: #e9ecf2;
+  /* 标题 */
+  --c-40503c: #e9ecf2;
+  --c-455440: #e9ecf2;
+  --c-5c6c57: #e9ecf2;
+  /* 次级文字 */
+  --c-5e6c56: #e9ecf2;
+  --c-516747: #e9ecf2;
+  --c-54704e: #e9ecf2;
+  --c-69756c: #e9ecf2;
+  /* 标签 / 时间 / 说明 */
+  --c-969e92: #e9ecf2;
+  --c-939b8e: #e9ecf2;
+  --c-71856a: #e9ecf2;
+  --c-7f8b7d: #e9ecf2;
+  --c-6c7768: #e9ecf2;
+  --c-8a958d: #e9ecf2;
+  --c-73806f: #e9ecf2;
+  --c-758073: #e9ecf2;
+  --c-8b9689: #e9ecf2;
+  --c-8b9683: #e9ecf2;
+  --c-858c87: #e9ecf2;
+  --c-6d756f: #e9ecf2;
+  /* 菜单未选中字、字段标签、提示文案、项目标识字母 */
+  --c-657369: #e9ecf2;
+  --c-8b968c: #e9ecf2;
+  --c-7b866a: #e9ecf2;
+  --c-6d7865: #e9ecf2;
+  --c-4f6257: #e9ecf2;
+  --c-a0aa9b: #e9ecf2;
+  --field-label: #e9ecf2;
+}
+
+/* 弹窗内唯一的例外：禁用态稍微暗一点（主按钮 / 危险按钮保持自身的白字）。 */
+html[data-theme="night"]
+  :is([data-overlay="dialog-shell"], dialog[data-overlay], [data-overlay="dialog"])
+  :is(button, input, select, textarea, a):is(:disabled, [aria-disabled="true"]):not(.primary):not(.danger) {
+  color: #81858c !important;
+}
+
+/* 空值占位符仍用次级灰，提示这里没有内容。 */
+html[data-theme="night"]
+  :is([data-overlay="dialog-shell"], dialog[data-overlay], [data-overlay="dialog"])
+  ::placeholder {
+  color: #81858c;
+  opacity: 1;
+}
+
+/* 浮动 label 在弹窗里也用正常正文色（原样式按聚焦/浮动状态取了更暗的 token）。 */
+html[data-theme="night"]
+  :is([data-overlay="dialog-shell"], dialog[data-overlay], [data-overlay="dialog"])
+  :is(.field-label, .project-settings-label) {
+  color: #e9ecf2 !important;
+}
+
+/* 弹窗内的小标题 / 说明文字（如项目成员页的「本项目人类成员」「负责人可…」）
+   原来继承到更暗的 token，按规则统一成正常正文色。 */
+html[data-theme="night"]
+  :is([data-overlay="dialog-shell"], dialog[data-overlay], [data-overlay="dialog"])
+  :is(.panel-heading, .member small, .member-user-id) {
+  color: #e9ecf2 !important;
+}
+
+/* 弹窗内的搜索框原来取面板色 1b1b1c，比弹窗深一档，统一成弹窗底色。
+   岗位徽标不在这里改：它的配色是固定值，深色主题下也保留岗位色相。 */
+html[data-theme="night"]
+  :is([data-overlay="dialog-shell"], dialog[data-overlay], [data-overlay="dialog"])
+  .member-search {
+  background: #2c2c2e;
+}
+
+/* ===== 16. 功能按钮：蓝底白字白图标 =====
+   这类「竖排小动作」按钮原来取深色（.account-login-another 的棕红 token、连接测试的
+   --c-fafbfa 弱底），在暗夜里读起来就是一块黑。统一走强调蓝：
+   底 2563eb / 字与图标 eff6ff，悬停 3b82f6，按下 1e40af。 */
+html[data-theme="night"]
+  :is(.account-login-another, .miniprogram-config-actions button, .miniprogram-secondary) {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #eff6ff;
+}
+
+html[data-theme="night"]
+  :is(.account-login-another, .miniprogram-config-actions button, .miniprogram-secondary):not(:disabled):hover {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #eff6ff;
+}
+
+html[data-theme="night"]
+  :is(.account-login-another, .miniprogram-config-actions button, .miniprogram-secondary):not(:disabled):active {
+  background: #1e40af;
+  border-color: #1e40af;
+  color: #eff6ff;
+}
+
+/* 按钮里的图标跟随白字（svg 用 currentColor，这里兜底 .ui-icon）。 */
+html[data-theme="night"]
+  :is(.account-login-another, .miniprogram-config-actions button, .miniprogram-secondary)
+  :is(svg, .ui-icon) {
+  color: #eff6ff;
+}
+
+html[data-theme="night"]
+  :is(.account-login-another, .miniprogram-config-actions button, .miniprogram-secondary):disabled {
+  background: #1e40af;
+  border-color: #1e40af;
+  color: #dbeafe;
+}
+
+/* ===== 17. 弹窗里的小号文字动作按钮 =====
+   个人资料的「复制 / 修改 / 更换」、MCP 配置的「显示 / 复制 / 重置令牌」、
+   环境变量的「保存 / 清除 / 说明」：原来各自是 1b1b1c 的深色小块，
+   文字也分档（有的还是 81858c）。统一成「蓝色文字动作」：
+   透明底 + 3b82f6 字，悬停 60a5fa，靠文字本身表达可点。 */
+html[data-theme="night"]
+  :is(.profile-field-action, .field-action, .profile-id-copy),
+html[data-theme="night"] .workspace-settings .mcp-settings button,
+html[data-theme="night"] .workspace-settings .env-var-value button,
+html[data-theme="night"] .workspace-settings table button.secondary {
+  background: transparent;
+  border-color: transparent;
+  color: #3b82f6;
+}
+
+html[data-theme="night"]
+  :is(.profile-field-action, .field-action, .profile-id-copy):not(:disabled):hover,
+html[data-theme="night"] .workspace-settings .mcp-settings button:not(:disabled):hover,
+html[data-theme="night"] .workspace-settings .env-var-value button:not(:disabled):hover,
+html[data-theme="night"] .workspace-settings table button.secondary:not(:disabled):hover {
+  background: transparent;
+  color: #60a5fa;
+}
+
+/* 同一套蓝色文字动作，补充项目管理弹窗里的「添加」「上传」。 */
+html[data-theme="night"] .project-management-dialog .panel-heading button,
+html[data-theme="night"] .field-action button {
+  background: transparent;
+  border-color: transparent;
+  color: #3b82f6;
+}
+
+html[data-theme="night"] .project-management-dialog .panel-heading button:not(:disabled):hover,
+html[data-theme="night"] .field-action button:not(:disabled):hover {
+  background: transparent;
+  color: #60a5fa;
+}
+
+/* 连接器开关：关闭 353638、打开 2563eb（原来是绿系 token，夜间量化成灰）。
+   滑块保持白色。 */
+html[data-theme="night"] .project-code-connectors .pcc-switch input {
+  background: #353638;
+}
+
+html[data-theme="night"] .project-code-connectors .pcc-switch input:checked {
+  background: #2563eb;
+}
+
+/* 输入框浮动 label 的遮线底色：默认取 --c-fff（面板色 1b1b1c），
+   放在弹窗（2c2c2e）里就比周围暗一块。弹窗内改为跟弹窗同色。 */
+html[data-theme="night"] :is([data-overlay="dialog-shell"], dialog[data-overlay], [data-overlay="dialog"]) .field {
+  --field-mask: #2c2c2e;
+}
+
+/* 个人设置弹窗外层容器的底色统一成弹窗色，规则在 overlays.css（浮层组件归口）。 */
+
+/* 项目记忆弹窗右列（记忆条目）原来取面板色 1b1b1c，比弹窗 2c2c2e 深一档，
+   与同一弹窗的顶栏 / 左侧内容不一致。统一成弹窗底色，并与其它弹窗一致不画竖线。 */
+html[data-theme="night"] .project-memory-side {
+  background: #2c2c2e;
+  border-left: 0;
+}
+
+/* 弹窗内的底栏与字段右侧小按钮：原来取面板色 1b1b1c，比弹窗深一档，
+   统一成弹窗底色（项目管理、个人设置两个弹窗共用这些类）。 */
+html[data-theme="night"] :is(.project-settings-footer, .profile-field-action) {
+  background: #2c2c2e;
+}
+
+/* 输入类下拉面板（单选 / 多选）：比弹窗与浮层面板亮一档。 */
+html[data-theme="night"] body .field-select-panel {
+  background: #353638 !important;
+}
+
+/* 下拉里的选项悬停：面板本身就是 353638，悬停要再亮一档才看得见。 */
+html[data-theme="night"] body .field-select-panel .field-select-option:hover {
+  background: #43454a;
+}
+
+/* 任务列表 / 项目记忆里的内联多选下拉（任务状态、任务类型等）。
+   它原地浮在列表上方，原来取的是 --c-fff（= 面板色 1b1b1c），
+   和任务弹窗左侧列表 / 弹窗面板完全同色，看不出是一层浮起的面板。 */
+html[data-theme="night"] .project-memory-subtype-options {
+  background: #353638;
+  border-color: #43454a;
+}
+
+/* 下拉里的条目悬停：面板 353638，悬停再亮一档。 */
+html[data-theme="night"] .project-memory-subtype-options label:hover {
+  background: #43454a;
+}
+
+/* 多选下拉里的复选框：原生 accent-color 原来取 --c-5d8b55，
+   夜间被量化成中性灰 81858c，勾选看不出强调色。这里统一走蓝色阶。 */
+html[data-theme="night"] .project-memory-subtype-options input {
+  accent-color: #2563eb;
+}
+
+/* 暗夜所有复选框 / 单选框统一蓝色阶（部分组件原来取到中性灰 token）。
+   蓝阶取强调色 2563eb，勾选后与按钮、页签选中态同色。 */
+html[data-theme="night"] :is(input[type="checkbox"], input[type="radio"]) {
+  accent-color: #2563eb;
+}
+
+/* ===== 18. 项目成员页：添加与成员管理按钮（暗夜蓝底白字） =====
+   基础样式在 workspace.css：主题强调色实底 + 白字，高度 2.143rem。
+   暗夜三态走蓝色阶：默认 2563eb、悬停 3b82f6、按下 / 禁用 1e40af。 */
+html[data-theme="night"]
+  :is(
+    .project-management-content .panel-heading .member-add,
+    .project-management-content .member-actions > button
+  ) {
+  background: #2563eb;
+  border-color: transparent;
+  color: #fff;
+  --stroke: transparent;
+}
+
+html[data-theme="night"]
+  :is(
+    .project-management-content .panel-heading .member-add,
+    .project-management-content .member-actions > button
+  ):hover:not(:disabled) {
+  background: #3b82f6;
+  border-color: transparent;
+  color: #fff;
+}
+
+html[data-theme="night"]
+  :is(
+    .project-management-content .panel-heading .member-add,
+    .project-management-content .member-actions > button
+  ):active:not(:disabled) {
+  background: #1e40af;
+  border-color: transparent;
+  color: #fff;
+}
+
+html[data-theme="night"]
+  :is(
+    .project-management-content .panel-heading .member-add,
+    .project-management-content .member-actions > button
+  ):disabled {
+  background: #1e40af;
   color: #dbeafe;
 }

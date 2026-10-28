@@ -3,6 +3,7 @@ import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { hashPassword } from "./auth.js";
 import { projectImageUrlSql } from "./project-image.js";
+import { AGENT_MEMBER, AGENT_XIAOXIANG_MEMBER } from "../shared/agent-member.js";
 
 async function assertAccountManagementScope(service, user, userId, permission, db, fail) {
   const access = await service.adminPermission(user, permission, db);
@@ -175,8 +176,26 @@ export async function setProjectArchived(service, user, projectId, archived, { i
       `UPDATE projects SET archived_at=${archived ? "UTC_TIMESTAMP(3)" : "NULL"} WHERE id=?`,
       [projectId],
     );
-    if (changed.affectedRows)
+    if (changed.affectedRows) {
       await service.projectChange(db, projectId, user.id, archived ? "archived" : "restored");
+      const members = await query(
+        db,
+        "SELECT user_id FROM members WHERE project_id=? AND user_id NOT IN (?,?)",
+        [projectId, AGENT_MEMBER.id, AGENT_XIAOXIANG_MEMBER.id],
+      );
+      const [sender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
+      for (const member of members)
+        await service.notify(
+          db,
+          member.user_id,
+          projectId,
+          archived ? "project_archived" : "project_restored",
+          archived ? "项目已归档" : "项目已恢复",
+          null,
+          null,
+          sender?.name || "系统通知",
+        );
+    }
     return changed;
   });
   if (!result.affectedRows) fail(404, "项目不存在");

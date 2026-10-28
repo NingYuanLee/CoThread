@@ -123,6 +123,8 @@ export async function createTask(db, input) {
         if (!target) throw new HttpError(400, "任务目标不是当前项目迭代的 小祥");
       }
     }
+    if (input.asDraft && input.targetType !== "human_member")
+      throw new HttpError(400, "只有指派给人类成员的任务可以保存为草稿");
     const idle = input.targetType === "xiaoxiang" ? await idleChildCount(conn, targetId) : 0;
     if (input.taskType === "assist" && idle < 1)
       throw new HttpError(409, "当前没有空闲子 Agent，不能创建辅助任务，请自行处理");
@@ -142,8 +144,9 @@ export async function createTask(db, input) {
       if (next > 9999) throw new HttpError(409, "本迭代任务编号已达上限");
       threadNumber = next;
     }
-    const initialStatus =
-      input.targetType === "human_member"
+    const initialStatus = input.asDraft
+      ? "draft"
+      : input.targetType === "human_member"
         ? "awaiting_acceptance"
         : startChildNow
           ? "running"
@@ -219,7 +222,7 @@ export async function createTask(db, input) {
       id,
       null,
       { type: input.createdByType, id: input.createdById },
-      input.reason || "任务创建",
+      input.reason || (input.asDraft ? "保存草稿" : "任务创建"),
     );
   });
   if (input.originThreadId) publishWork(db, input.originThreadId);
@@ -233,6 +236,7 @@ export async function updateTask(db, taskId, actor, update) {
     if (!task) throw new HttpError(404, "任务不存在");
     assertActorCanUpdateTask(task, actor);
     let nextStatus = update.status || task.status;
+    const inboxKind = update.status === "failed" ? "task_failed" : null;
     // 任务层取消失败：任何调用方（子 Agent、本地执行器、网页）传 failed 都收敛为已阻塞。
     if (nextStatus === "failed") nextStatus = "blocked";
     if (!TASK_UPDATE_STATUSES.includes(nextStatus)) throw new HttpError(400, "任务状态无效");
@@ -314,6 +318,7 @@ export async function updateTask(db, taskId, actor, update) {
       nextStatus !== (update.status || task.status)
         ? update.resultSummary
         : update.progress || update.resultSummary || null,
+      inboxKind,
     );
     return getTask(conn, taskId);
   });

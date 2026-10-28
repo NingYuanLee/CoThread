@@ -1,4 +1,5 @@
 import { query } from "./db.js";
+import { notifyTaskTransition } from "./inbox-task.js";
 
 /** Sticky 子 Agent nickname index: first appearance on the thread keeps 大娃/二娃/… forever. */
 export async function stickyChildExecutorIds(conn, originThreadId) {
@@ -25,7 +26,14 @@ export function stickyChildLabel(executorId, knownIds) {
 }
 
 // 状态变更记录：与写状态的语句放在同一事务里；status 未变化则不写。
-export async function recordTaskStatusChange(conn, taskId, fromStatus, actor, reason = null) {
+export async function recordTaskStatusChange(
+  conn,
+  taskId,
+  fromStatus,
+  actor,
+  reason = null,
+  inboxKind = null,
+) {
   const [row] = await query(conn, "SELECT status FROM agent_tasks WHERE id=?", [taskId]);
   if (!row || row.status === (fromStatus ?? null)) return null;
   const actorType = actor?.statusActorType || actor?.type || "system";
@@ -85,6 +93,7 @@ export async function recordTaskStatusChange(conn, taskId, fromStatus, actor, re
       ).catch(() => {});
     }
   }
+  await notifyTaskTransition(conn, taskId, fromStatus ?? null, row.status, inboxKind);
   return row.status;
 }
 

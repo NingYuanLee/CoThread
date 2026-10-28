@@ -1,17 +1,11 @@
 /**
- * 工作台左侧栏：品牌区、迭代列表（活跃/归档）、新建迭代面板与账号设置入口。
- * 数据与回调由父组件打包成 props 传入。
+ * 工作台左侧栏：品牌区、新迭代入口、迭代列表（活跃/归档）与账号设置入口。
+ * 新迭代入口独占一行，表单弹窗由 WorkspaceApp 渲染；数据与回调打包成 props 传入。
  */
-/**
- * 工作台左侧栏：品牌区、迭代列表（活跃/归档）、新建迭代面板与账号设置入口。
- * 数据与回调由父组件打包成 props 传入。
- */
-import { type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
+import { type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { AGENT_LEVEL_LABELS } from "./ui-labels";
 import { SlideSwitch } from "./SlideSwitch";
 import { UiIcon } from "./ui-icon";
-import { TextAreaField } from "./TextAreaField";
-import { TextField } from "./TextField";
 import { CoThreadLogo, PanelIcon, SidebarIcon } from "./workspace-chrome";
 import type { Modal } from "./workspace-types";
 import type { MemoryCounts } from "./ProjectMemory";
@@ -20,20 +14,10 @@ import type { PersonalProfile } from "./ProfileFields";
 export type WorkspaceSidebarProps<T> = {
   leftOpen: boolean;
   setLeftOpen: Dispatch<SetStateAction<boolean>>;
-  threadListPane: "active" | "archived" | "create";
-  setThreadListPane: Dispatch<SetStateAction<"active" | "archived" | "create">>;
-  railCreateRef: RefObject<HTMLButtonElement | null>;
-  newThreadInputRef: RefObject<HTMLInputElement | null>;
-  newThreadTitle: string;
-  setNewThreadTitle: Dispatch<SetStateAction<string>>;
-  newThreadBackground: string;
-  setNewThreadBackground: Dispatch<SetStateAction<string>>;
-  newThreadGoal: string;
-  setNewThreadGoal: Dispatch<SetStateAction<string>>;
-  openNewThreadPane: () => void;
-  cancelNewThread: () => void;
-  submitNewThread: () => void;
-  busy: boolean;
+  threadListPane: "active" | "archived";
+  setThreadListPane: Dispatch<SetStateAction<"active" | "archived">>;
+  /** 打开新迭代弹窗；侧栏不再承载表单本体。 */
+  openNewThreadDialog: () => void;
   projectId: string;
   /** 侧栏只负责遍历渲染，迭代结构由父组件决定，因此对元素类型保持泛型。 */
   activeThreads: T[];
@@ -53,21 +37,10 @@ export function WorkspaceSidebar<T>({
   setLeftOpen,
   threadListPane,
   setThreadListPane,
-  openNewThreadPane,
-  railCreateRef,
+  openNewThreadDialog,
   activeThreads,
   renderThreadLink,
   archivedThreads,
-  newThreadInputRef,
-  newThreadTitle,
-  setNewThreadTitle,
-  submitNewThread,
-  cancelNewThread,
-  busy,
-  newThreadBackground,
-  setNewThreadBackground,
-  newThreadGoal,
-  setNewThreadGoal,
   projectId,
   open,
   setProjectManagementOpen,
@@ -105,64 +78,60 @@ export function WorkspaceSidebar<T>({
             </span>
           </button>
         </div>
-        <div className="section-label">
+        {/* 新迭代独占一行：和下面的活跃/归档切换分开，避免再被当成第三段。 */}
+        <div className="sidebar-create-bar">
           {leftOpen ? (
-            <SlideSwitch
-              className="thread-list-capsule sidebar-label"
-              size="dense"
-              stretch
-              reselect
-              label="迭代范围"
-              value={threadListPane}
-              onChange={(next) => {
-                if (next === "create") openNewThreadPane();
-                else setThreadListPane(next);
-              }}
-              items={[
-                {
-                  value: "active",
-                  label: (
-                    <>
-                      <UiIcon name="chat" size={11} />
-                      <span>活跃中</span>
-                    </>
-                  ),
-                },
-                {
-                  value: "archived",
-                  label: (
-                    <>
-                      <UiIcon name="archive" size={11} />
-                      <span>已归档</span>
-                    </>
-                  ),
-                },
-                {
-                  value: "create",
-                  title: "新迭代",
-                  label: (
-                    <>
-                      <UiIcon name="send" size={11} />
-                      <span className="sidebar-create-label">新迭代</span>
-                    </>
-                  ),
-                },
-              ]}
-            />
+            <button
+              type="button"
+              className="sidebar-create-button"
+              title="新迭代"
+              aria-label="新迭代"
+              onClick={openNewThreadDialog}
+            >
+              <UiIcon name="send" size={14} />
+              <span className="sidebar-create-label">新迭代</span>
+            </button>
           ) : (
             <button
-              ref={railCreateRef}
               type="button"
               className="sidebar-rail-thread-create"
               title="新迭代"
               aria-label="新迭代"
-              aria-pressed={threadListPane === "create"}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={openNewThreadPane}
+              onClick={openNewThreadDialog}
             >
               <UiIcon name="send" size={18} />
             </button>
           )}
+        </div>
+        <div className="section-label">
+          <SlideSwitch
+            className="thread-list-capsule sidebar-label"
+            size="dense"
+            stretch
+            label="迭代范围"
+            value={threadListPane}
+            onChange={setThreadListPane}
+            items={[
+              {
+                value: "active",
+                label: (
+                  <>
+                    <UiIcon name="chat" size={11} />
+                    <span>活跃中</span>
+                  </>
+                ),
+              },
+              {
+                value: "archived",
+                label: (
+                  <>
+                    <UiIcon name="archive" size={11} />
+                    <span>已归档</span>
+                  </>
+                ),
+              },
+            ]}
+          />
         </div>
         <div className="thread-viewport" data-thread-list-pane={threadListPane}>
           <div className="thread-track">
@@ -193,73 +162,67 @@ export function WorkspaceSidebar<T>({
                 {!archivedThreads.length && <p className="muted side-empty">还没有已归档的迭代</p>}
               </nav>
             </div>
-            <div
-              className="thread-pane thread-pane-create"
-              aria-hidden={threadListPane !== "create"}
-              inert={threadListPane !== "create" ? true : undefined}
-            >
-              <div className="thread-create-pane">
-                <div className="thread-create-card" aria-label="发起新迭代">
-                  <TextField
-                    ref={newThreadInputRef}
-                    label="迭代主题"
-                    type="text"
-                    name="title"
-                    aria-label="迭代主题"
-                    value={newThreadTitle}
-                    onChange={(event) => setNewThreadTitle(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        submitNewThread();
-                      }
-                      if (event.key === "Escape") cancelNewThread();
-                    }}
-                    maxLength={160}
-                    placeholder="输入新迭代主题"
-                    disabled={busy}
-                    autoComplete="off"
-                    dense
-                  />
-                  <TextAreaField
-                    label="背景"
-                    rows={3}
-                    maxLength={20000}
-                    placeholder="这次协作的背景与已知约束"
-                    value={newThreadBackground}
-                    disabled={busy}
-                    onChange={(event) => setNewThreadBackground(event.target.value)}
-                    dense
-                  />
-                  <TextAreaField
-                    label="目标"
-                    rows={2}
-                    maxLength={20000}
-                    placeholder="本轮希望达成什么"
-                    value={newThreadGoal}
-                    disabled={busy}
-                    onChange={(event) => setNewThreadGoal(event.target.value)}
-                    dense
-                  />
-                  <div className="thread-create-actions">
-                    <button type="button" disabled={busy} onClick={cancelNewThread}>
-                      取消
-                    </button>
-                    <button
-                      type="button"
-                      className="primary"
-                      disabled={busy}
-                      onClick={submitNewThread}
-                    >
-                      {busy ? "正在处理…" : "确认"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
         <div className="sidebar-bottom">
+          <div
+            className="sidebar-utility-grid"
+            role="group"
+            aria-label="关于我们、使用手册、项目记忆与小祥监控"
+          >
+            <a
+              className="sidebar-utility"
+              href="/about_us.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="关于我们"
+              aria-label="关于我们"
+            >
+              <UiIcon name="info" size={16} />
+              <span className="sidebar-utility-label">关于我们</span>
+            </a>
+            <a
+              className="sidebar-utility"
+              href="/docs.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="使用手册"
+              aria-label="使用手册"
+            >
+              <UiIcon name="book" size={16} />
+              <span className="sidebar-utility-label">使用手册</span>
+            </a>
+            <button
+              type="button"
+              className="sidebar-utility sidebar-utility-memory"
+              title="项目记忆：导读、时间线与记忆条目"
+              aria-label="项目记忆"
+              disabled={!projectId}
+              onClick={() => setMemoryOpen(true)}
+            >
+              <UiIcon name="library" size={16} />
+              <span className="sidebar-utility-label">项目记忆</span>
+              {memorySignal ? (
+                <span
+                  className="sidebar-card-memory-dot"
+                  role="img"
+                  aria-label="有新的项目记忆"
+                  title="有草稿、争议或进入后的更新"
+                />
+              ) : null}
+            </button>
+            <button
+              type="button"
+              className="sidebar-utility"
+              title="查看所有小祥的运行状态"
+              aria-label="小祥监控"
+              disabled={!projectId}
+              onClick={() => setMonitorOpen(true)}
+            >
+              <UiIcon name="monitor" size={16} />
+              <span className="sidebar-utility-label">小祥监控</span>
+            </button>
+          </div>
           <button
             className="sidebar-card sidebar-project-management"
             title={`项目基础信息、人类成员、连接器与 Agent（${AGENT_LEVEL_LABELS.laoweng} / ${AGENT_LEVEL_LABELS.xiaoxiang}）`}
@@ -272,48 +235,6 @@ export function WorkspaceSidebar<T>({
             </span>
             <span className="sidebar-card-copy">
               项目管理<small>成员、连接器与 Agent</small>
-            </span>
-            <span className="sidebar-card-action" aria-hidden="true">
-              <UiIcon name="next" size={18} />
-            </span>
-          </button>
-          <button
-            className="sidebar-card sidebar-project-memory"
-            title="项目记忆：导读、时间线与记忆条目"
-            aria-label="项目记忆"
-            disabled={!projectId}
-            onClick={() => setMemoryOpen(true)}
-          >
-            <span className="sidebar-card-icon">
-              <UiIcon name="book" size={18} />
-            </span>
-            <span className="sidebar-card-copy">
-              项目记忆<small>导读、时间线与条目</small>
-            </span>
-            {memorySignal ? (
-              <span
-                className="sidebar-card-memory-dot"
-                role="img"
-                aria-label="有新的项目记忆"
-                title="有草稿、争议或进入后的更新"
-              />
-            ) : null}
-            <span className="sidebar-card-action" aria-hidden="true">
-              <UiIcon name="next" size={18} />
-            </span>
-          </button>
-          <button
-            className="sidebar-card sidebar-monitor"
-            title="查看所有小祥的运行状态"
-            aria-label="小祥监控"
-            disabled={!projectId}
-            onClick={() => setMonitorOpen(true)}
-          >
-            <span className="sidebar-card-icon">
-              <SidebarIcon kind="monitor" />
-            </span>
-            <span className="sidebar-card-copy">
-              小祥监控<small>调度、执行与知识整理</small>
             </span>
             <span className="sidebar-card-action" aria-hidden="true">
               <UiIcon name="next" size={18} />

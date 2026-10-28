@@ -10,6 +10,8 @@ import type { Thread } from "./workspace-types";
 
 export type ConversationHeaderProps = {
   thread: Thread | null;
+  /** 有项目且有登录人就能问老翁，不要求项目已有迭代。 */
+  canAskElder: boolean;
   threadView: "chat" | "trajectory";
   setThreadView: Dispatch<SetStateAction<"chat" | "trajectory">>;
   coordinatorLogLabel: string;
@@ -28,6 +30,7 @@ export type ConversationHeaderProps = {
 
 export function ConversationHeader({
   thread,
+  canAskElder,
   threadView,
   setThreadView,
   coordinatorLogLabel,
@@ -43,7 +46,8 @@ export function ConversationHeader({
   setElderView,
   onElderSplitPointerDown,
 }: ConversationHeaderProps) {
-  const elderSplit = !!thread && elderOpen;
+  // 分栏与「问老翁」入口只看能不能问（项目 + 登录人），不再要求已有迭代。
+  const elderSplit = canAskElder && elderOpen;
   return (
     <div
       className={
@@ -114,7 +118,7 @@ export function ConversationHeader({
           onPointerDown={onElderSplitPointerDown}
         />
       )}
-      {thread && (
+      {canAskElder && (
         <span className={elderSplit ? "elder-heading-side" : "conversation-heading-end"}>
           {elderSplit && (
             <div className="conversation-views" role="tablist" aria-label="老翁视图">

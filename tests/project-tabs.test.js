@@ -31,7 +31,7 @@ test("project tabs persist per user, restore opening order, and never remove pro
       second.id,
     ]);
     const visible = (rows) => rows.filter((p) => p.tab_visible).map((p) => p.id);
-    assert.deepEqual(visible(await service.projects(owner)), [second.id, first.id]);
+    assert.deepEqual(visible(await service.projects(owner)), [first.id, second.id]);
     const openingTime = (await service.projects(owner)).find(
       (p) => p.id === first.id,
     ).tab_opened_at;
@@ -46,7 +46,7 @@ test("project tabs persist per user, restore opening order, and never remove pro
     const unpinned = await service.updateProjectTab(owner, first.id, {
       action: "unpin",
     });
-    assert.deepEqual(visible(unpinned), [second.id, first.id]);
+    assert.deepEqual(visible(unpinned), [first.id, second.id]);
     assert.equal(unpinned.find((p) => p.id === first.id).tab_opened_at, openingTime);
     await service.updateProjectTab(owner, first.id, { action: "pin" });
     await service.updateProjectTab(owner, second.id, { action: "pin" });
@@ -95,9 +95,27 @@ test("project tabs persist per user, restore opening order, and never remove pro
     await assert.rejects(service.reorderProjectTabs(owner, { projectIds: [first.id, second.id] }), {
       status: 409,
     });
+    assert.deepEqual(
+      visible(
+        await service.reorderProjectTabs(owner, {
+          scope: "open",
+          projectIds: [second.id, first.id],
+        }),
+      ),
+      [second.id, first.id],
+    );
+    assert.deepEqual(
+      visible(
+        await service.reorderProjectTabs(owner, {
+          scope: "open",
+          projectIds: [first.id, second.id],
+        }),
+      ),
+      [first.id, second.id],
+    );
     assert.deepEqual(visible(await service.updateProjectTab(owner, first.id, { action: "open" })), [
-      second.id,
       first.id,
+      second.id,
     ]);
 
     await query(database.db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'viewer')", [
@@ -119,8 +137,7 @@ test("project tabs persist per user, restore opening order, and never remove pro
     assert.ok((await service.projects(viewer))[0].tab_pinned_at);
     assert.equal((await service.project(owner, first.id)).name, "First");
     assert.deepEqual(visible(await new Service(database.db).projects(owner)), [second.id]);
-    // 页签顺序按首次打开时间（tab_opened_at）倒序；open 用 COALESCE 保留首次进入时间，
-    // 因此关闭后再打开会回到原来的位置，而不是置顶。
+    // 未固定页签按添加顺序（tab_opened_at 升序）。关掉再打开会重新记一次打开时间，排到最右。
     assert.deepEqual(visible(await service.updateProjectTab(owner, first.id, { action: "open" })), [
       second.id,
       first.id,

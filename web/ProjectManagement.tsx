@@ -394,8 +394,12 @@ export function ProjectManagement({
                         </small>
                       )}
                       {canManage && (
-                        <button type="button" onClick={() => setMemberPickerOpen(true)}>
-                          <UiIcon name="userPlus" size={12} />
+                        <button
+                          type="button"
+                          className="member-add"
+                          onClick={() => setMemberPickerOpen(true)}
+                        >
+                          <UiIcon name="userPlus" size={14} />
                           添加
                         </button>
                       )}
@@ -543,126 +547,128 @@ function HumanMemberRow({
           </small>
         ) : null}
       </div>
-      {projectLeader &&
-      detail &&
-      member.id !== detail.project_leader_id &&
-      !["project_admin", "viewer"].includes(member.role || "") ? (
-        <button
-          disabled={busy}
-          onClick={() => {
-            if (window.confirm(`确定将 ${member.name} 设为项目管理？`))
-              void api(`/projects/${detail.id}/admins`, { userId: member.id }, "POST")
+      <div className="member-actions">
+        {projectLeader &&
+        detail &&
+        member.id !== detail.project_leader_id &&
+        !["project_admin", "viewer"].includes(member.role || "") ? (
+          <button
+            disabled={busy}
+            onClick={() => {
+              if (window.confirm(`确定将 ${member.name} 设为项目管理？`))
+                void api(`/projects/${detail.id}/admins`, { userId: member.id }, "POST")
+                  .then(async () => {
+                    await refresh();
+                    showTip(`已将 ${member.name} 设为项目管理`);
+                  })
+                  .catch((cause) => showTip((cause as Error).message, "error"));
+            }}
+          >
+            设为管理员
+          </button>
+        ) : null}
+        {canManage &&
+        detail &&
+        member.id !== detail.project_leader_id &&
+        member.id !== AGENT_MEMBER.id &&
+        member.id !== AGENT_XIAOXIANG_MEMBER.id &&
+        member.role === "member" ? (
+          <button
+            disabled={busy}
+            onClick={() =>
+              void api(
+                `/projects/${detail.id}/members/${member.id}/role`,
+                { role: "viewer" },
+                "PATCH",
+              )
                 .then(async () => {
                   await refresh();
-                  showTip(`已将 ${member.name} 设为项目管理`);
+                  showTip(`已将 ${member.name} 设为只读成员`);
                 })
-                .catch((cause) => showTip((cause as Error).message, "error"));
-          }}
-        >
-          设为管理员
-        </button>
-      ) : null}
-      {canManage &&
-      detail &&
-      member.id !== detail.project_leader_id &&
-      member.id !== AGENT_MEMBER.id &&
-      member.id !== AGENT_XIAOXIANG_MEMBER.id &&
-      member.role === "member" ? (
-        <button
-          disabled={busy}
-          onClick={() =>
-            void api(
-              `/projects/${detail.id}/members/${member.id}/role`,
-              { role: "viewer" },
-              "PATCH",
-            )
-              .then(async () => {
-                await refresh();
-                showTip(`已将 ${member.name} 设为只读成员`);
-              })
-              .catch((cause) => showTip((cause as Error).message, "error"))
-          }
-        >
-          设为只读
-        </button>
-      ) : null}
-      {canManage &&
-      detail &&
-      member.id !== detail.project_leader_id &&
-      member.id !== AGENT_MEMBER.id &&
-      member.id !== AGENT_XIAOXIANG_MEMBER.id &&
-      member.role === "viewer" ? (
-        <button
-          disabled={busy}
-          onClick={() =>
-            void api(
-              `/projects/${detail.id}/members/${member.id}/role`,
-              { role: "member" },
-              "PATCH",
-            )
-              .then(async () => {
-                await refresh();
-                showTip(`已恢复 ${member.name} 的编辑权限`);
-              })
-              .catch((cause) => showTip((cause as Error).message, "error"))
-          }
-        >
-          恢复编辑权限
-        </button>
-      ) : null}
-      {projectLeader && detail && member.role === "project_admin" ? (
-        <button
-          disabled={busy}
-          onClick={() => {
-            if (window.confirm(`确定撤销 ${member.name} 的项目管理身份？`))
-              void api(`/projects/${detail.id}/admins/${member.id}`, undefined, "DELETE")
+                .catch((cause) => showTip((cause as Error).message, "error"))
+            }
+          >
+            设为只读
+          </button>
+        ) : null}
+        {canManage &&
+        detail &&
+        member.id !== detail.project_leader_id &&
+        member.id !== AGENT_MEMBER.id &&
+        member.id !== AGENT_XIAOXIANG_MEMBER.id &&
+        member.role === "viewer" ? (
+          <button
+            disabled={busy}
+            onClick={() =>
+              void api(
+                `/projects/${detail.id}/members/${member.id}/role`,
+                { role: "member" },
+                "PATCH",
+              )
                 .then(async () => {
                   await refresh();
-                  showTip(`已撤销 ${member.name} 的项目管理身份`);
+                  showTip(`已恢复 ${member.name} 的编辑权限`);
                 })
-                .catch((cause) => showTip((cause as Error).message, "error"));
-          }}
-        >
-          撤销管理员
-        </button>
-      ) : null}
-      {projectLeader && detail && member.id !== detail.project_leader_id ? (
-        <button
-          disabled={busy}
-          onClick={() => {
-            if (window.confirm(`确定将项目主转移给 ${member.name}？你将失去项目主的专属权限。`))
-              void api(`/projects/${detail.id}/leader`, { userId: member.id }, "POST")
-                .then(async () => {
-                  await refresh();
-                  showTip(`项目主已转移给 ${member.name}`);
-                })
-                .catch((cause) => showTip((cause as Error).message, "error"));
-          }}
-        >
-          转移负责人
-        </button>
-      ) : null}
-      {canManage &&
-      detail &&
-      member.id !== detail.project_leader_id &&
-      member.id !== AGENT_MEMBER.id &&
-      member.role !== "project_admin" ? (
-        <button
-          disabled={busy}
-          onClick={() => {
-            if (window.confirm(`确定将 ${member.name} 移出该项目？`))
-              void api(`/projects/${detail.id}/members/${member.id}`, undefined, "DELETE")
-                .then(async () => {
-                  await refresh();
-                  showTip("已移出项目成员");
-                })
-                .catch((cause) => showTip((cause as Error).message, "error"));
-          }}
-        >
-          <UiIcon name="trash" size={13} />
-          移出项目
-        </button>
-      ) : null}
+                .catch((cause) => showTip((cause as Error).message, "error"))
+            }
+          >
+            恢复编辑权限
+          </button>
+        ) : null}
+        {projectLeader && detail && member.role === "project_admin" ? (
+          <button
+            disabled={busy}
+            onClick={() => {
+              if (window.confirm(`确定撤销 ${member.name} 的项目管理身份？`))
+                void api(`/projects/${detail.id}/admins/${member.id}`, undefined, "DELETE")
+                  .then(async () => {
+                    await refresh();
+                    showTip(`已撤销 ${member.name} 的项目管理身份`);
+                  })
+                  .catch((cause) => showTip((cause as Error).message, "error"));
+            }}
+          >
+            撤销管理员
+          </button>
+        ) : null}
+        {projectLeader && detail && member.id !== detail.project_leader_id ? (
+          <button
+            disabled={busy}
+            onClick={() => {
+              if (window.confirm(`确定将项目主转移给 ${member.name}？你将失去项目主的专属权限。`))
+                void api(`/projects/${detail.id}/leader`, { userId: member.id }, "POST")
+                  .then(async () => {
+                    await refresh();
+                    showTip(`项目主已转移给 ${member.name}`);
+                  })
+                  .catch((cause) => showTip((cause as Error).message, "error"));
+            }}
+          >
+            转移负责人
+          </button>
+        ) : null}
+        {canManage &&
+        detail &&
+        member.id !== detail.project_leader_id &&
+        member.id !== AGENT_MEMBER.id &&
+        member.role !== "project_admin" ? (
+          <button
+            disabled={busy}
+            onClick={() => {
+              if (window.confirm(`确定将 ${member.name} 移出该项目？`))
+                void api(`/projects/${detail.id}/members/${member.id}`, undefined, "DELETE")
+                  .then(async () => {
+                    await refresh();
+                    showTip("已移出项目成员");
+                  })
+                  .catch((cause) => showTip((cause as Error).message, "error"));
+            }}
+          >
+            <UiIcon name="trash" size={14} />
+            移出项目
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

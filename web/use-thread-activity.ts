@@ -19,6 +19,8 @@ export type ThreadActivityContext = {
   historyRequest: RefObject<AbortController | null>;
   wakeThreadPoll: RefObject<(() => void) | null>;
   followConversation: RefObject<boolean>;
+  /** 打开群聊后要停在未读分割线时为 true，避免这里把跟随又打开。 */
+  holdUnread: RefObject<boolean>;
   readThread: (id: string, signal: AbortSignal) => Promise<Thread>;
   hasPendingWork: (value: Thread | null | undefined) => boolean;
   setThread: Dispatch<SetStateAction<Thread | null>>;
@@ -34,6 +36,7 @@ export function useThreadActivity(ctx: ThreadActivityContext) {
     historyRequest,
     wakeThreadPoll,
     followConversation,
+    holdUnread,
     readThread,
     hasPendingWork,
     setThread,
@@ -45,7 +48,7 @@ export function useThreadActivity(ctx: ThreadActivityContext) {
     setHistoryLoading(false);
     const cached = threadCache.current.get(threadId);
     setThread(cached || null);
-    followConversation.current = true;
+    if (!holdUnread.current) followConversation.current = true;
     if (!threadId || !user) return;
     let alive = true;
     let inFlight = false;

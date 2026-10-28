@@ -18,6 +18,12 @@
 
 每次同步都按 ref 重新定位当前的 `.composer-area` 与它最近的 `.conversation-stage`，再写两个属性。
 
+## 无迭代时的分栏
+
+项目还没有迭代也能打开「问老翁」：左列是欢迎页（`WorkspaceWelcome`），没有 `.conversation-stage`，hook 找不到底栏就保持两个变量为空，不会残留旧值。头部在分栏态必须把三个子元素按列显式落位（会话视图组第 1 列、拖拽条第 2 列、老翁控件第 3 列）；无迭代时第 1 列不存在，靠自动排布会把拖拽条顶到列 1、把老翁控件挤进 0.071rem 宽的隔条列，表现为「单聊 / 轨迹 / 问老翁」竖排换行。
+
+左列点「新迭代」或在欢迎页点「发起新迭代」都会打开新迭代弹窗（`NewThreadDialog`），提交成功后会话切到新迭代、stage 才挂上，hook 会随 `.main` 子树变化重新测量，行为与有迭代时一致。欢迎页主按钮下方的「先问问老翁」与头部「问老翁」共用同一个 `elderOpen` 开关。
+
 ## 分栏重建的坑
 
 点「问老翁」时 React 会把 `conversation-body > ConversationStage` 整棵换成 `conversation-split > conversation-split-left > conversation-body > ConversationStage`，DOM 是新建的；而 hook 挂在不会重挂的 `WorkspaceApp` 上，effect 不会重跑。

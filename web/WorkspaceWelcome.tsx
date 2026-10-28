@@ -13,7 +13,10 @@ export type WorkspaceWelcomeProps = {
   busy: boolean;
   availableProjects: Project[];
   open: (value: Modal) => void;
-  openNewThreadPane: () => void;
+  openNewThreadDialog: () => void;
+  /** 与右上角「问老翁」同一个开关：有项目且有登录人就能问，不要求已有迭代。 */
+  canAskElder: boolean;
+  onAskElder: () => void;
   showProjectPicker: () => void;
   updateProjectTab: (id: string, action: "open" | "close" | "pin" | "unpin") => void;
 };
@@ -23,7 +26,9 @@ export function WorkspaceWelcome({
   busy,
   availableProjects,
   open,
-  openNewThreadPane,
+  openNewThreadDialog,
+  canAskElder,
+  onAskElder,
   showProjectPicker,
   updateProjectTab,
 }: WorkspaceWelcomeProps) {
@@ -35,11 +40,18 @@ export function WorkspaceWelcome({
             <CoThreadLogo className="welcome-logo" title="共序" />
             <h1>先从一轮讨论开始吧</h1>
           </div>
-          <p>为这个项目发起一次新的讨论。</p>
-          <button className="primary" onClick={openNewThreadPane}>
-            <UiIcon name="plus" size={14} />
-            发起新迭代
-          </button>
+          <div className="welcome-primary-actions">
+            <button className="primary" onClick={openNewThreadDialog}>
+              <UiIcon name="plus" size={14} />
+              发起新迭代
+            </button>
+            {canAskElder && (
+              <button type="button" className="welcome-ask-elder" onClick={onAskElder}>
+                <UiIcon name="messageQuestion" size={14} />
+                先问问老翁
+              </button>
+            )}
+          </div>
         </>
       ) : (
         <>

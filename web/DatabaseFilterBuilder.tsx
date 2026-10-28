@@ -274,6 +274,7 @@ export function DatabaseFilterBuilder({
                 <div className="database-filter-group-join">
                   <span />
                   <SelectField
+                    allOption={false}
                     dense
                     aria-label={`第 ${groupIndex + 1} 个分组的连接方式`}
                     value={group.join}
@@ -309,6 +310,7 @@ export function DatabaseFilterBuilder({
                         <span className="database-filter-where">条件</span>
                       ) : (
                         <SelectField
+                          allOption={false}
                           dense
                           aria-label="条件连接方式"
                           value={condition.join}
@@ -334,6 +336,7 @@ export function DatabaseFilterBuilder({
                         }
                       />
                       <SelectField
+                        allOption={false}
                         dense
                         aria-label="字段类型"
                         value={condition.type}
@@ -353,6 +356,7 @@ export function DatabaseFilterBuilder({
                       />
                       {condition.type === "array" ? (
                         <SelectField
+                          allOption={false}
                           dense
                           aria-label="数组元素类型"
                           value={condition.arrayItemType || "string"}
@@ -370,6 +374,7 @@ export function DatabaseFilterBuilder({
                         />
                       ) : null}
                       <SelectField
+                        allOption={false}
                         dense
                         aria-label="筛选条件"
                         value={condition.operator}
@@ -412,6 +417,7 @@ export function DatabaseFilterBuilder({
                         </div>
                       ) : booleanValue ? (
                         <SelectField
+                          allOption={false}
                           dense
                           aria-label="条件值"
                           value={String(condition.value ?? "true")}

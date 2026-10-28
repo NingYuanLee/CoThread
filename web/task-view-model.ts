@@ -8,6 +8,7 @@ import {
 } from "./ui-labels";
 import { taskDetailTimeline as buildTaskDetailTimeline } from "./task-timeline";
 import { taskThreadNumberSearchMatch } from "../shared/task-thread-number.js";
+import { taskStatusGroup } from "../shared/work-status.js";
 import type { AgentTask, AgentTaskDetail, Detail } from "./workspace-types";
 import type { PersonalProfile } from "./ProfileFields";
 export function taskViewModel(
@@ -17,6 +18,7 @@ export function taskViewModel(
   threadId: string,
   taskMine = true,
   taskListSearch = "",
+  taskStatuses: string[] = [],
 ) {
   const endedTask = (status: string) =>
     ["completed", "failed", "cancelled", "rejected", "abandoned", "superseded", "ignored"].includes(
@@ -94,7 +96,11 @@ export function taskViewModel(
       .toLowerCase()
       .includes(needle);
   };
-  const visibleTasks = scopedTasks.filter(matchesTaskListQuery);
+  const matchesStatus = (task: AgentTask) =>
+    !taskStatuses.length || taskStatuses.includes(taskStatusGroup(task.status)?.id || "");
+  const visibleTasks = scopedTasks.filter(
+    (task) => matchesTaskListQuery(task) && matchesStatus(task),
+  );
   const executionRunLabel = (
     run: AgentTaskDetail["executionRuns"][number],
     task: AgentTaskDetail,

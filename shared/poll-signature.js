@@ -82,6 +82,8 @@ export function projectActivityKey(detail) {
         thread.creator,
         thread.unread_count || 0,
         thread.unread_mention || false,
+        thread.unread_mention_count || 0,
+        thread.unread_chat || 0,
         thread.last_read_sequence || "",
       ].join("\t"),
     ),

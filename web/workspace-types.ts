@@ -14,6 +14,7 @@ export type Project = {
   joined_at: string;
   active_threads: string;
   tab_visible: number;
+  tab_opened_at?: string | null;
   tab_pinned_at: string | null;
 };
 
@@ -48,6 +49,9 @@ export type Detail = Project & {
     last_read_sequence?: string;
     unread_count?: number;
     unread_mention?: boolean;
+    unread_mention_count?: number;
+    unread_chat?: number;
+    unread_task?: number;
   }[];
   members: {
     id: string;
@@ -94,6 +98,7 @@ export type MessageQuote = {
   id: string;
   thread_id?: string;
   author: string;
+  author_id?: string;
   body: string;
   source: string;
   refs: string[];
@@ -156,10 +161,12 @@ export type AgentTask = {
   updated_at: string;
 };
 
-/** 本迭代任务统计的一个口径（仅待确认与已阻塞）。 */
+/** 本迭代任务统计的一个口径：待接受、进行中、已阻塞、待验收。 */
 export type TaskStatusCounts = {
-  awaiting_acceptance: number;
+  pending: number;
+  active: number;
   blocked: number;
+  review: number;
 };
 
 /** 本迭代任务统计：来源人是我 / 指派给我 / 全部任务。 */
@@ -269,6 +276,9 @@ export type Thread = {
   last_read_sequence?: string;
   unread_count?: number;
   unread_mention?: boolean;
+  unread_mention_count?: number;
+  unread_chat?: number;
+  unread_task?: number;
   messages: {
     sequence: string;
     id: string;

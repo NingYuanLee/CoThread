@@ -137,7 +137,7 @@ CREATE TABLE agent_project_memory_queue (
 ## 6. 前端
 
 - 新组件 `web/ProjectMemory.tsx`：`Dialog` 默认以普通窗口打开（右上角可手动切换全屏）；内部左右 6:4——左栏导读（Markdown + 计数摘要 + 刷新），右栏时间轴：记忆种类使用标准切换胶囊并默认选中「全部」，顺序为「里程碑、核心议题、重要任务、关键发言、主要文档、其它记忆」，关键词搜索与状态复选框放在同一行；可搜索，点卡片打开二级「记忆详情」弹窗（正文、出处、所属迭代、确认/纠错）。窄屏（<960px）上下堆叠。
-- 入口：`WorkspaceSidebar` 底部「项目记忆」卡片，与「项目管理」并列。
+- 入口：`WorkspaceSidebar` 底部四宫格「项目记忆」（与「关于我们」「使用手册」「小祥监控」同格），「项目管理」在四宫格下面。顶栏不再放关于我们、使用手册。
 - 首次自动打开：项目激活时若该用户的 `tab_opened_at` 为空 → 打开记忆并调用 `updateProjectTab(id, "open")`；之后不再自动打开。
 - 组织主页直达：`OrgHome` 的项目名改为链接 `/?projectId=<id>&memory=1`；`WorkspaceApp` 读取后清除参数。
 - 小点：`counts.drafts + counts.disputes > 0` 或 `counts.updatedSinceEntry > 0` 时入口显示提示点。
@@ -198,7 +198,7 @@ CREATE TABLE agent_project_memory_queue (
 - `server/discussion-memory.js`：讨论记忆写入原语——`upsertDiscussionMemory` 按话题归一键（标题去空白与标点）跨迭代合并、出处去重；`linkDiscussionParticipants` 从消息出处反查参与者，把各自发言记忆用 `relates` 连到讨论记忆；结算写 `subject=discussion` 条目后自动连边。
 - 老翁 `project_memory` 任务：`noteProjectMemorySignal` 轻标记、`maybeQueueProjectMemoryRun` 阈值/事件触发、`processNextMemorySettlement` 结算、`queueProjectMemoryRun` 手动刷新；任务已注册进 `LAOWENG_MAINTENANCE_TASKS`。
 - 三处轻标记：消息写入（`server/service-messages.js`）、任务状态变更（`server/task-pool-activity.js`）、正式文件新版本（`server/documents/versions.js`）。
-- 前端：`web/ProjectMemory.tsx` 普通窗口弹窗（打开后可手动全屏；7:3：导读 / 带搜索的倒序记忆时间轴 / 记忆详情二级弹窗；种类筛选为默认「全部」的标准切换胶囊）、左侧「项目记忆」卡片与小点、首次进入自动打开、`?projectId&memory=1` 直达；归档确认后提示清算摘要。
+- 前端：`web/ProjectMemory.tsx` 普通窗口弹窗（打开后可手动全屏；7:3：导读 / 带搜索的倒序记忆时间轴 / 记忆详情二级弹窗；种类筛选为默认「全部」的标准切换胶囊）、左侧四宫格「项目记忆」与小点、首次进入自动打开、`?projectId&memory=1` 直达；归档确认后提示清算摘要。
 - 迭代清算的人工校准：归档详情返回本轮记忆草稿 `memoryDrafts`，归档确认页可逐条勾选，勾选的条目在确认事务里转正。
 - 项目归档封存：项目归档后成员失去项目访问权（`p.archived_at IS NULL` 权限门槛），记忆读写都不可达；确认/纠错/知识页写入另有 409 防御拦截。
 - 人不再手写知识页：知识页 HTTP 写接口下线；右侧栏「知识页」tab 一并下线，问老翁引用改为打开项目记忆并聚焦该条。

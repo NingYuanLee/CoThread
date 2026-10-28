@@ -287,15 +287,20 @@ function TipCard({ tip }: { tip: TipItem }) {
     const surface = card.current;
     if (!surface) return;
     const material = getComputedStyle(surface);
+    const easing =
+      material.getPropertyValue("--overlay-enter-easing").trim() ||
+      "cubic-bezier(0.33, 0.66, 0.2, 1)";
+    const scaleFrom = material.getPropertyValue("--overlay-scale-from").trim() || "0.98";
     const entrance = surface.animate(
       [
         {
           opacity: 0,
-          transform: `translate3d(${material.getPropertyValue("--overlay-x").trim() || "32px"}, ${material.getPropertyValue("--overlay-y").trim() || "0px"}, 0)`,
+          translate: `${material.getPropertyValue("--overlay-x").trim() || "0.75rem"} ${material.getPropertyValue("--overlay-y").trim() || "0px"}`,
+          scale: scaleFrom,
         },
-        { opacity: 1, transform: "translate3d(0, 0, 0)" },
+        { opacity: 1, translate: "0 0", scale: 1 },
       ],
-      { duration: overlayDuration("tip"), easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+      { duration: overlayDuration("tip"), easing, fill: "backwards" },
     );
     entranceAnimation.current = entrance;
     return () => entrance?.cancel();

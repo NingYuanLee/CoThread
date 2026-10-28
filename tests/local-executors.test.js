@@ -394,12 +394,22 @@ test("group local tasks target one online member and require that member's appro
   assert.equal(completionMessage.author_id, fallback.id);
   assert.equal(completionMessage.source, "local_ai");
   assert.match(completionMessage.body, /^@提出人 /);
+  // 任务类通知统一走收件箱分类（task_*）；带 @来源 的完成消息按 inbox:skip 写入，
+  // 不再额外产生 mention 站内信，否则同一件事会在收件箱里出现两条。
   const [mention] = await query(
     db,
-    "SELECT kind FROM notifications WHERE user_id=? AND kind='mention' ORDER BY created_at DESC LIMIT 1",
+    "SELECT COUNT(*) n FROM notifications WHERE user_id=? AND kind='mention'",
     [requester.id],
   );
-  assert.equal(mention?.kind, "mention");
+  assert.equal(Number(mention.n), 0);
+  // 网页侧已取消把任务池任务收敛成终态 abandoned；执行器随后才回传完成时，
+  // agent-task-sync 的终态保护不会把它复活成 completed，因此这条路径不该发「任务已完成」。
+  const [abandonedNotice] = await query(
+    db,
+    "SELECT COUNT(*) n FROM notifications WHERE user_id=? AND kind='task_completed'",
+    [requester.id],
+  );
+  assert.equal(Number(abandonedNotice.n), 0);
 
   const directCreated = await request(
     `/projects/${projectId}/tasks`,
@@ -455,6 +465,13 @@ test("group local tasks target one online member and require that member's appro
   assert.equal(directCompletion.author_id, fallback.id);
   assert.equal(directCompletion.source, "local_ai");
   assert.match(directCompletion.body, /^@提出人 /);
+  // 直接派单到完成的真实跃迁应给发起人写「任务已完成」站内信（收件箱分类）。
+  const [completedNotice] = await query(
+    db,
+    "SELECT kind FROM notifications WHERE user_id=? AND kind='task_completed' ORDER BY created_at DESC LIMIT 1",
+    [requester.id],
+  );
+  assert.equal(completedNotice?.kind, "task_completed");
 
   await query(db, "UPDATE messages SET author_id=? WHERE id IN (?,?)", [
     requester.id,

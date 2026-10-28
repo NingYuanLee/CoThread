@@ -1,4 +1,5 @@
 import { FloatingPanel } from "./FloatingPanel";
+import { holdStickToBottom } from "./use-stick-to-bottom";
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 import { FloatingPortal } from "./FloatingPortal";
 
@@ -114,6 +115,9 @@ export const MessageNavigator = memo(function MessageNavigator({
                 );
                 if (!root || !target) return;
                 onNavigate();
+                // 贴底时平滑滚动起步的几帧离底部仍不足阈值，先开保护窗口，
+                // 否则贴底逻辑会把位置又拽回最底部（表现为点了没反应）。
+                holdStickToBottom(root);
                 root.scrollTo({
                   top:
                     root.scrollTop +

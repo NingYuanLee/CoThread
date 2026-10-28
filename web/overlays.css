@@ -1,8 +1,10 @@
 :root {
-  /* 圆角只调这两个值。
+  /* 圆角只调这三个值。
      --radius-control：按钮（含图标按钮）、卡片（含聊天气泡、会话条、任务条）、输入框
+     --radius-composer：对话输入框；容器比按钮大一档，里面自己的按钮仍走 --radius-control
      --radius-overlay：弹窗、悬浮面板、菜单、下拉和提示 */
   --radius-control: 0.857rem;
+  --radius-composer: 1.143rem;
   --radius-overlay: 0.714rem;
   --overlay-dialog-radius: var(--radius-overlay);
   --overlay-panel-radius: var(--radius-overlay);
@@ -17,11 +19,13 @@
   --overlay-body-padding: 1.429rem;
   --overlay-header-bg: color-mix(in srgb, var(--c-f8faf8) 66%, transparent);
   --overlay-header-blur: blur(2rem) saturate(180%);
-  --overlay-enter-duration: 190ms;
-  --overlay-exit-duration: 190ms;
-  --overlay-tip-duration: 240ms;
-  --overlay-enter-easing: cubic-bezier(0.22, 1, 0.36, 1);
-  --overlay-exit-easing: cubic-bezier(0.4, 0, 1, 1);
+  --overlay-enter-duration: 240ms;
+  --overlay-exit-duration: 170ms;
+  --overlay-tip-duration: 220ms;
+  /* 入场整段都在减速，不要前 1/3 就走完。退场一开始就动，避免点了关闭先停住再突然消失。 */
+  --overlay-enter-easing: cubic-bezier(0.33, 0.66, 0.2, 1);
+  --overlay-exit-easing: cubic-bezier(0.32, 0.48, 0.24, 1);
+  --overlay-scale-from: 0.98;
   /* 浮层玻璃。跟随主题色，不改提示条自己的数值。 */
   --overlay-glass-bg: color-mix(in srgb, var(--c-f8faf8) 82%, transparent);
   --overlay-glass-bg-float: color-mix(in srgb, var(--c-f8faf8) 76%, transparent);
@@ -243,7 +247,7 @@
 
 .tip-item.is-leaving {
   pointer-events: none;
-  animation: tip-out var(--overlay-tip-duration) ease forwards;
+  animation: tip-out var(--overlay-tip-duration) var(--overlay-exit-easing) both;
 }
 .tip-icon {
   flex: none;
@@ -358,51 +362,58 @@
 @keyframes tip-out {
   from {
     opacity: 1;
-    transform: translate3d(0, 0, 0);
+    translate: 0 0;
+    scale: 1;
   }
   to {
     opacity: 0;
-    transform: translate3d(var(--overlay-x, 100%), var(--overlay-y, 0), 0);
+    translate: var(--overlay-x, 0.75rem) var(--overlay-y, 0);
+    scale: var(--overlay-scale-from, 0.98);
   }
 }
 /* Component-owned rules are deliberately locked against business page overrides. */
 [data-direction] {
   --overlay-x: 0;
-  --overlay-y: 0.857rem;
+  --overlay-y: 0.75rem;
 }
 [data-direction="up"] {
-  --overlay-y: -0.857rem;
+  --overlay-y: -0.75rem;
 }
 [data-direction="left"] {
-  --overlay-x: -1.143rem;
+  --overlay-x: -0.75rem;
   --overlay-y: 0;
 }
 [data-direction="right"] {
-  --overlay-x: 1.143rem;
+  --overlay-x: 0.75rem;
   --overlay-y: 0;
 }
 [data-direction="none"] {
   --overlay-x: 0;
   --overlay-y: 0;
+  --overlay-scale-from: 1;
 }
 @keyframes overlay-in {
   from {
     opacity: 0;
     translate: var(--overlay-x) var(--overlay-y);
+    scale: var(--overlay-scale-from, 0.98);
   }
   to {
     opacity: 1;
     translate: 0 0;
+    scale: 1;
   }
 }
 @keyframes overlay-out {
   from {
     opacity: 1;
     translate: 0 0;
+    scale: 1;
   }
   to {
     opacity: 0;
     translate: var(--overlay-x) var(--overlay-y);
+    scale: var(--overlay-scale-from, 0.98);
   }
 }
 @keyframes overlay-mask-in {
@@ -443,8 +454,9 @@ html
 
   background-clip: padding-box !important;
 
-  animation: overlay-in var(--overlay-enter-duration) var(--overlay-enter-easing) both !important;
+  animation: overlay-in var(--overlay-enter-duration) var(--overlay-enter-easing) backwards !important;
   position: relative;
+  --overlay-scale-from: 0.985;
   --stroke: var(--overlay-glass-border);
 
   --stroke-radius: calc(var(--overlay-dialog-radius) * 2);
@@ -476,8 +488,22 @@ html
     [data-overlay="dialog-shell"].is-closing
       > :not(.tip-host, .floating-layer-host, .overlay-exit-host)
   ) {
-  animation: overlay-out var(--overlay-exit-duration) var(--overlay-exit-easing) forwards !important;
+  animation: overlay-out var(--overlay-exit-duration) var(--overlay-exit-easing) both !important;
   pointer-events: none;
+}
+/* 普通模态框必须脱离文档流。上面的 position: relative 只给外壳里的面板当定位包含块。
+   若把它留给 dialog 自己，会盖掉浏览器的 position: fixed，弹窗撑在页面后面，
+   打开时浏览器把页面滚过去，立刻关闭又弹回来，看起来像部分元素抖了一下。 */
+html body dialog[data-overlay="dialog"] {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: fit-content;
+  margin: auto;
+  /* 外框不自己出滚动条。inset 拉满再 overflow:auto 时，滚动条会贴在屏幕右缘，打开就在、关掉才没。 */
+  overflow: hidden;
 }
 html body dialog[data-overlay="dialog-shell"] {
   position: fixed;
@@ -494,7 +520,7 @@ html body dialog[data-overlay="dialog-shell"] {
   box-shadow: none !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  overflow: auto;
+  overflow: hidden;
   transform: none;
   animation: none !important;
 
@@ -504,13 +530,13 @@ html body dialog[data-overlay]::backdrop {
   background: var(--overlay-mask) !important;
   backdrop-filter: var(--overlay-mask-blur) !important;
   -webkit-backdrop-filter: var(--overlay-mask-blur) !important;
-  animation: overlay-mask-in var(--overlay-enter-duration) ease both !important;
+  animation: overlay-mask-in var(--overlay-enter-duration) var(--overlay-enter-easing) both !important;
 }
 html body dialog[data-dialog-depth]:not([data-dialog-depth="1"])::backdrop {
   background: var(--overlay-mask-nested) !important;
 }
 html body dialog[data-overlay].is-closing::backdrop {
-  animation: overlay-mask-out var(--overlay-exit-duration) ease forwards !important;
+  animation: overlay-mask-out var(--overlay-exit-duration) var(--overlay-exit-easing) both !important;
 }
 html body :is([data-overlay="panel"], [data-overlay="menu"]) {
   padding: var(--overlay-panel-padding) !important;
@@ -529,8 +555,9 @@ html body :is([data-overlay="panel"], [data-overlay="menu"]) {
 
   background-clip: padding-box !important;
 
-  animation: overlay-in var(--overlay-enter-duration) var(--overlay-enter-easing) both !important;
+  animation: overlay-in var(--overlay-enter-duration) var(--overlay-enter-easing) backwards !important;
   position: relative;
+  --overlay-scale-from: 0.97;
   --stroke: var(--overlay-glass-border-float);
   --stroke-radius: calc(var(--overlay-panel-radius) * 2);
 
@@ -588,8 +615,9 @@ html
 html body .field-select-panel {
   padding: var(--overlay-select-panel-padding) !important;
   border-radius: var(--overlay-select-panel-radius) !important;
-  /* 下拉紧贴触发器下边缘：动画位移同步缩短，避免起点落进输入框内部。 */
+  /* 下拉紧贴触发器：位移缩短，缩放也更轻，避免从输入框内部长出来。 */
   --overlay-y: calc(-1 * var(--overlay-select-panel-offset));
+  --overlay-scale-from: 0.99;
 
   --stroke-radius: calc(var(--overlay-select-panel-radius) * 2);
 }
@@ -617,7 +645,7 @@ html body [data-overlay="menu"] [role="menuitem"].danger {
   color: var(--c-a3332d);
 }
 html body .overlay-exiting[data-overlay] {
-  animation: overlay-out var(--overlay-exit-duration) var(--overlay-exit-easing) forwards !important;
+  animation: overlay-out var(--overlay-exit-duration) var(--overlay-exit-easing) both !important;
   pointer-events: none !important;
 }
 .overlay-exit-host {
@@ -1552,4 +1580,59 @@ html body .dialog-list > .dialog-footer {
 [data-overlay="panel"].is-positioning,
 [data-overlay="menu"].is-positioning {
   visibility: hidden;
+}
+
+/* 暗夜：悬浮层（弹窗 / 浮层面板 / 菜单 / 提示）统一比左侧边栏浅一档。
+   侧栏与页面内面板是 #1b1b1c，悬浮层用 #2c2c2e，浮起时才有"离开纸面"的层次。 */
+html[data-theme="night"] {
+  --overlay-glass-bg: #2c2c2e;
+  --overlay-glass-bg-float: #2c2c2e;
+  --overlay-glass-bg-nested: #2c2c2e;
+  --overlay-glass-fallback: #2c2c2e;
+}
+
+/* 含输入控件的弹窗原本把 --overlay-glass-bg 换回 --c-fff（= 面板色），
+   悬浮层要比面板浅，这里把那条特例也拉回悬浮层面色。 */
+html[data-theme="night"] body :is(dialog[data-overlay], [data-overlay="dialog-shell"]):has(.field) {
+  --overlay-glass-bg: #2c2c2e;
+}
+
+/* 暗夜弹窗标题：与弹窗内容同色（2c2c2e），不再单独压深；
+   顶栏与内容靠发丝线分隔，不再用第三种底色。 */
+html[data-theme="night"] {
+  --overlay-header-bg: #2c2c2e;
+}
+
+/* 个人设置弹窗外层容器：原来取面板色 1b1b1c，比同一弹窗里的
+   顶栏 / 左菜单 / 底栏（都是 2c2c2e）深一档，统一成弹窗底色。 */
+html[data-theme="night"] body .modal.workspace-settings.space-dialog {
+  background: #2c2c2e !important;
+}
+
+/* 直接挂在 body 上的弹窗（[data-overlay="dialog"]，如项目管理）本身也要取悬浮层色。
+   两个坑：①容器底色被外部样式表压成面板色 1b1b1c；
+   ②它命中了把 --overlay-glass-bg 换回 --c-fff（= 面板色）的特例。
+   所以这里同时重置变量 + 直接写死色值，权重上带 [open] 才压得住。 */
+html[data-theme="night"] body [data-overlay="dialog"][open].space-dialog,
+html[data-theme="night"] body [data-overlay="dialog"][open].modal {
+  --overlay-glass-bg: #2c2c2e;
+  --overlay-glass-bg-float: #2c2c2e;
+  background: #2c2c2e !important;
+}
+
+/* 暗夜：所有弹窗顶栏不画下边框线。顶栏与内容同色，分区靠留白；
+   原来的线用的是 ::after 半像素描边（border-color: var(--stroke)）。 */
+html[data-theme="night"] body .dialog-header {
+  border-bottom-color: transparent !important;
+}
+
+html[data-theme="night"] body .dialog-header::after {
+  content: none;
+}
+
+/* 记忆类弹窗把下边框颜色写死在自身规则里，单独覆盖一次。 */
+html[data-theme="night"] body
+  :is(.project-memory-dialog, .project-memory-detail-dialog, .project-memory-confirm-dialog)
+  .dialog-header {
+  border-bottom-color: transparent !important;
 }

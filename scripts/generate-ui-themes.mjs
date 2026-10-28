@@ -86,11 +86,90 @@ function keepSemantic(h, s) {
   return false;
 }
 
+/* 暗夜中性色阶：所有近中性色都量化到这 18 档，保证界面里的灰只有这几个值。
+   深槽 → 画布 → 面板 → 弱底 → 悬浮层 → 控件 → 悬停 → 禁用 → 占位 → 三级字
+   → 次要字 → 正文/图标 → 强调字 → 主字 → 悬停主字 → 标题 → 按钮字 → 纯白。 */
+const BLACK_RAMP = [
+  "#0f1115",
+  "#151517",
+  "#1b1b1c",
+  "#232324",
+  "#2c2c2e",
+  "#353638",
+  "#43454a",
+  "#61666b",
+  "#81858c",
+  "#979da6",
+  "#adb2b8",
+  "#cfd3d6",
+  "#e1e5ee",
+  "#e9ecf2",
+  "#ebeef2",
+  "#f1f3f5",
+  "#f9fafb",
+  "#ffffff",
+].map((raw) => parseHex(raw));
+
+/* 暗夜蓝色阶：深底 #172554 → 亮字 #eff6ff，强调色只用这 10 档。 */
+const BLACK_BLUE_RAMP = [
+  "#172554",
+  "#1e40af",
+  "#2563eb",
+  "#3b82f6",
+  "#4d93f8",
+  "#60a5fa",
+  "#93c5fd",
+  "#dbeafe",
+  "#e5f0ff",
+  "#eff6ff",
+].map((raw) => parseHex(raw));
+
+/* 暗夜绿色阶：成功色只用这 4 档（深底 → 主绿 → 浅绿字 → 亮绿字）。 */
+const BLACK_GREEN_RAMP = ["#233c2c", "#22c55e", "#4ed17e", "#e6faed"].map((raw) => parseHex(raw));
+
+/* 暗夜橙色阶（金/琥珀）：等待与警告只用这 5 档。 */
+const BLACK_AMBER_RAMP = ["#27241f", "#dd8629", "#f59e0b", "#f7ad31", "#fef5e7"].map((raw) =>
+  parseHex(raw),
+);
+
+/* 暗夜红色阶：危险与失败只用这 6 档。 */
+const BLACK_RED_RAMP = ["#570c0c", "#ec1313", "#ef4444", "#f25a5a", "#fee2e2", "#fef2f2"].map(
+  (raw) => parseHex(raw),
+);
+
+const nearestIn = (ramp, color) => {
+  let best = ramp[0];
+  let bestDistance = Infinity;
+  for (const step of ramp) {
+    const distance = (step.r - color.r) ** 2 + (step.g - color.g) ** 2 + (step.b - color.b) ** 2;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = step;
+    }
+  }
+  return { r: best.r, g: best.g, b: best.b, a: color.a };
+};
+
+/* 近中性色收进灰阶；蓝 / 绿 / 橙 / 红四套语义色各收进自己的色阶。 */
+function quantizeBlack(c) {
+  const { h, s } = rgbToHsl(c.r, c.g, c.b);
+  if (s <= 0.16) return nearestIn(BLACK_RAMP, c);
+  if (h >= 185 && h <= 255) return nearestIn(BLACK_BLUE_RAMP, c);
+  /* 紫色系暂时并入蓝色阶：目前没有紫色语义，等给了紫色阶再拆出来。 */
+  if (h > 255 && h < 345) return nearestIn(BLACK_BLUE_RAMP, c);
+  if (h >= 72 && h <= 175) return nearestIn(BLACK_GREEN_RAMP, c);
+  if (h >= 18 && h < 72) return nearestIn(BLACK_AMBER_RAMP, c);
+  if (h >= 345 || h <= 18) return nearestIn(BLACK_RED_RAMP, c);
+  return c;
+}
+
 function invertLight(l, black) {
   if (black) {
-    if (l > 0.86) return 0.05 + (1 - l) * 0.38;
-    if (l > 0.7) return 0.075 + (1 - l) * 0.3;
-    if (l > 0.55) return 0.11 + (0.72 - l) * 0.26;
+    /* 暗夜的近黑底限：0.05 会压到 #0e0f10 一带，整屏发死。
+       0.086 对应 #151517，作为暗夜最深的一档，再往下的表面由覆盖层决定。 */
+    if (l > 0.86) return 0.086 + (1 - l) * 0.38;
+    if (l > 0.7) return 0.105 + (1 - l) * 0.3;
+    if (l > 0.55) return 0.138 + (0.72 - l) * 0.26;
     if (l < 0.22) return 0.94 - l * 0.2;
     if (l < 0.4) return 0.84 - l * 0.18;
     return 0.52 + (0.5 - l) * 0.48;
@@ -155,14 +234,25 @@ if (!originals.size) {
 const blocks = recipes.map((recipe) => {
   const lines = [...originals.entries()].map(([key, raw]) => {
     const parsed = parseHex(raw);
-    const next = formatColor(remap(parsed, recipe), parsed.short);
+    const mapped = remap(parsed, recipe);
+    const next = formatColor(recipe.black ? quantizeBlack(mapped) : mapped, parsed.short);
     return `  --c-${key}: ${next};`;
   });
   const selector =
     recipe.id === "forest"
       ? ':root,\nhtml[data-theme="forest"]'
       : `html[data-theme="${recipe.id}"]`;
-  const extra = `${recipe.dark ? "\n  color-scheme: dark;" : ""}\n  --icon: ${formatColor(remap(parseHex("#73806f"), recipe), false)};\n  --logo-ink: ${logoPaint("#f3f6ec", recipe)};\n  --logo-accent: ${logoPaint("#b7d295", recipe)};`;
+  /* 附带的图标色与 logo 填色同样量化，避免暗夜里漏出灰阶/蓝色阶以外的值。 */
+  const extraColor = (hex) => {
+    const parsed = parseHex(hex);
+    const mapped = remap(parsed, { ...recipe, dark: recipe.dark });
+    return formatColor(recipe.black ? quantizeBlack(mapped) : mapped, false);
+  };
+  const logoColor = (hex) => {
+    const painted = logoPaint(hex, recipe);
+    return recipe.black ? formatColor(quantizeBlack(parseHex(painted)), false) : painted;
+  };
+  const extra = `${recipe.dark ? "\n  color-scheme: dark;" : ""}\n  --icon: ${extraColor("#73806f")};\n  --logo-ink: ${logoColor("#f3f6ec")};\n  --logo-accent: ${logoColor("#b7d295")};`;
   return `${selector} {${extra}\n${lines.join("\n")}\n}`;
 });
 
@@ -172,8 +262,9 @@ writeFileSync(
 );
 
 for (const recipe of recipes) {
-  const preview = ["#f8faf8", "#90a17f", "#3f5945", "#27362f"].map((raw) =>
-    formatColor(remap(parseHex(raw), recipe), false),
-  );
+  const preview = ["#f8faf8", "#90a17f", "#3f5945", "#27362f"].map((raw) => {
+    const mapped = remap(parseHex(raw), recipe);
+    return formatColor(recipe.black ? quantizeBlack(mapped) : mapped, false);
+  });
   console.log(recipe.id, preview.join(" "));
 }

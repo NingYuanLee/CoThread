@@ -151,9 +151,21 @@ test("failed removal can be retried through a reconnect while admission stays cl
   }
 });
 
+// The Windows stop path gives the shell 1.5s to exit through its stop-file trap
+// before falling back to `taskkill /T /F` (measured at ~1.5-2s on an idle machine,
+// slower under load, with a 5s timeout). The command has to stay alive across that
+// whole budget: one that finishes on its own while kill() is still stopping the
+// shell reports exit code 0 and prints its trailing output, which is a race in this
+// fixture rather than a kill failure. Measured `bash -lc` startup before the command
+// body is 2.3-2.5s and grows under load, so the start deadline below only guards the
+// ordering "the command started while create() was still gated"; it is deliberately
+// not a 3s kill deadline.
+const commandLifetimeMs = 8000;
+const commandStartDeadlineMs = 20000;
+
 test(
   "a reconnect during create's mkdir completion retains the active command owner",
-  { timeout: 10000 },
+  { timeout: 30000 },
   async () => {
     const entered = Promise.withResolvers();
     const resume = Promise.withResolvers();
@@ -174,8 +186,10 @@ test(
     try {
       await entered.promise;
       alias = await local.connect(basename(root));
-      running = alias.commands.run("printf ready > ready.txt; sleep 3; printf survived");
-      const deadline = Date.now() + 3000;
+      running = alias.commands.run(
+        `printf ready > ready.txt; sleep ${commandLifetimeMs / 1000}; printf survived`,
+      );
+      const deadline = Date.now() + commandStartDeadlineMs;
       while (!existsSync(`${root}/ready.txt`)) {
         assert.ok(Date.now() < deadline, "command should start before create resumes");
         await delay(10);

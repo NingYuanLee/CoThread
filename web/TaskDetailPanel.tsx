@@ -15,6 +15,7 @@ import { TextAreaField } from "./TextAreaField";
 import { labelWorkflowStatus } from "./ui-labels";
 import { UiIcon, type UiIconName } from "./ui-icon";
 import { api } from "./workspace-api";
+import type { TaskCreateCopy, TaskDraftEdit } from "./TaskCreateDialog";
 import type { AgentTask, AgentTaskDetail, Detail, TaskTimelineKind } from "./workspace-types";
 import type { PersonalProfile } from "./ProfileFields";
 
@@ -108,7 +109,52 @@ export type TaskDetailPanelProps = {
   projectConnectorBound: boolean;
   time: (text: string) => string;
   mcpEndpoint: string;
+  onCopyCreate: (copy: TaskCreateCopy) => void;
+  onEditDraft: (edit: TaskDraftEdit) => void;
 };
+
+function taskRefIds(value: string[] | string | null | undefined) {
+  if (Array.isArray(value)) return value.filter((id) => typeof id === "string" && id);
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string" && id) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function draftEditFrom(
+  task: AgentTaskDetail,
+  purpose: TaskDraftEdit["purpose"],
+  userId: string,
+  detail: Detail | null,
+): TaskDraftEdit {
+  const targetStillAssignable =
+    task.target_type === "human_member" &&
+    !!task.target_id &&
+    (detail?.members ?? []).some(
+      (member) =>
+        member.id === task.target_id &&
+        member.kind !== "laoweng" &&
+        member.kind !== "xiaoxiang" &&
+        member.id !== AGENT_MEMBER.id &&
+        member.role !== "viewer",
+    );
+  return {
+    taskId: task.id,
+    purpose,
+    title: task.title,
+    goal: task.goal,
+    constraints: task.constraints || "",
+    targetUserId: targetStillAssignable ? task.target_id || userId : userId,
+    refs: taskRefIds(task.document_refs),
+    folderRefs: taskRefIds(task.folder_refs),
+  };
+}
+
 export function TaskDetailPanel({
   taskId,
   taskCreateOpen,
@@ -123,6 +169,8 @@ export function TaskDetailPanel({
   projectConnectorBound,
   time,
   mcpEndpoint,
+  onCopyCreate,
+  onEditDraft,
 }: TaskDetailPanelProps) {
   const selectedTaskId = taskId;
 
@@ -365,9 +413,12 @@ export function TaskDetailPanel({
                 : `已重试 ${retryCount}/${maxRetryCount} 次`;
           const showQuestion = Boolean(active && openQuestion);
           const showAccept = Boolean(isTarget && task?.status === "awaiting_acceptance");
+          const showAcceptCompletion = Boolean(isSource && task?.status === "completed");
           const showSourceOps = Boolean(
             isSource && task && ["awaiting_acceptance", "blocked", "ignored"].includes(task.status),
           );
+          const showCopyCreate = Boolean(active && isSource && task?.status === "cancelled");
+          const showDraftOps = Boolean(isSource && task?.status === "draft");
           const showProgress = Boolean(
             isTarget &&
             task &&
@@ -376,9 +427,17 @@ export function TaskDetailPanel({
             task.status !== "awaiting_acceptance",
           );
           const hasPrimary =
-            showQuestion || showAccept || showProgress || Boolean(canReviewRejection);
+            showQuestion ||
+            showAccept ||
+            showAcceptCompletion ||
+            showProgress ||
+            Boolean(canReviewRejection);
           const hasSecondary =
-            showAccept || showSourceOps || showProgress || Boolean(canReviewRejection);
+            showAccept ||
+            showAcceptCompletion ||
+            showSourceOps ||
+            showProgress ||
+            Boolean(canReviewRejection);
           return (
             <div className="task-detail">
               {!task || task.id !== selectedTaskId ? (
@@ -505,7 +564,11 @@ export function TaskDetailPanel({
                         <UiIcon name="history" size={13} />
                         任务时间线
                       </button>
-                      {(hasPrimary || hasSecondary || canTransfer) && (
+                      {(hasPrimary ||
+                        hasSecondary ||
+                        canTransfer ||
+                        showCopyCreate ||
+                        showDraftOps) && (
                         <div className="task-action-dock-ops">
                           {hasSecondary && (
                             <>
@@ -538,7 +601,7 @@ export function TaskDetailPanel({
                                   disabled={taskActionBusy}
                                   onClick={() =>
                                     askTaskConfirm(
-                                      "确定取消这个任务？",
+                                      "确定直接取消这个任务？",
                                       "取消后，这个待确认任务不会再继续。",
                                       () =>
                                         finishTaskDialog(
@@ -550,7 +613,27 @@ export function TaskDetailPanel({
                                   }
                                 >
                                   <UiIcon name="close" size={13} />
-                                  取消
+                                  直接取消
+                                </button>
+                              )}
+                              {showSourceOps && task.status === "awaiting_acceptance" && (
+                                <button
+                                  type="button"
+                                  disabled={taskActionBusy}
+                                  onClick={() =>
+                                    askTaskConfirm(
+                                      "确定撤为草稿？",
+                                      "任务会回到草稿，责任人暂时不用确认。之后仍可以保存或提交。",
+                                      () =>
+                                        finishTaskDialog(
+                                          () => api(`/tasks/${task.id}/withdraw`, {}, "POST"),
+                                          "已撤为草稿",
+                                        ),
+                                    )
+                                  }
+                                >
+                                  <UiIcon name="edit" size={13} />
+                                  撤为草稿
                                 </button>
                               )}
                               {showProgress && (
@@ -668,6 +751,27 @@ export function TaskDetailPanel({
                               确认
                             </button>
                           )}
+                          {showAcceptCompletion && (
+                            <button
+                              type="button"
+                              className="primary"
+                              disabled={taskActionBusy}
+                              onClick={() =>
+                                askTaskConfirm(
+                                  "确定验收通过？",
+                                  "验收后任务进入已结束，不能再改回待验收。",
+                                  () =>
+                                    finishTaskDialog(
+                                      () => api(`/tasks/${task.id}/accept-completion`, {}, "POST"),
+                                      "任务已结束",
+                                    ),
+                                )
+                              }
+                            >
+                              <UiIcon name="check" size={13} />
+                              验收
+                            </button>
+                          )}
                           {showProgress && (
                             <button
                               type="button"
@@ -676,7 +780,7 @@ export function TaskDetailPanel({
                               onClick={() => setTaskDialog("complete")}
                             >
                               <UiIcon name="complete" size={13} />
-                              完成
+                              提交验收
                             </button>
                           )}
                           {canReviewRejection && (
@@ -687,6 +791,86 @@ export function TaskDetailPanel({
                               onClick={() => setTaskDialog("reopen")}
                             >
                               修改后重新发起
+                            </button>
+                          )}
+                          {showDraftOps && (
+                            <>
+                              <button
+                                type="button"
+                                className="task-action-danger"
+                                disabled={taskActionBusy}
+                                onClick={() =>
+                                  askTaskConfirm(
+                                    "确定取消这个草稿？",
+                                    "取消后，这条草稿不会再提交。",
+                                    () =>
+                                      finishTaskDialog(
+                                        () => api(`/tasks/${task.id}/cancel`, {}, "POST"),
+                                        "草稿已取消",
+                                      ),
+                                    true,
+                                  )
+                                }
+                              >
+                                <UiIcon name="close" size={13} />
+                                取消
+                              </button>
+                              <button
+                                type="button"
+                                disabled={taskActionBusy}
+                                onClick={() =>
+                                  onEditDraft(draftEditFrom(task, "save", user.id, detail))
+                                }
+                              >
+                                <UiIcon name="save" size={13} />
+                                保存
+                              </button>
+                              <button
+                                type="button"
+                                className="primary"
+                                disabled={taskActionBusy}
+                                onClick={() =>
+                                  onEditDraft(draftEditFrom(task, "submit", user.id, detail))
+                                }
+                              >
+                                <UiIcon name="plus" size={13} />
+                                提交正式任务
+                              </button>
+                            </>
+                          )}
+                          {showCopyCreate && (
+                            <button
+                              type="button"
+                              className="primary"
+                              disabled={taskActionBusy}
+                              onClick={() => {
+                                const members = detail?.members ?? [];
+                                const targetStillAssignable =
+                                  task.target_type === "human_member" &&
+                                  !!task.target_id &&
+                                  members.some(
+                                    (member) =>
+                                      member.id === task.target_id &&
+                                      member.kind !== "laoweng" &&
+                                      member.kind !== "xiaoxiang" &&
+                                      member.id !== AGENT_MEMBER.id &&
+                                      member.role !== "viewer",
+                                  );
+                                onCopyCreate({
+                                  sourceTaskId: task.id,
+                                  title: task.title,
+                                  goal: task.goal,
+                                  constraints: task.constraints || "",
+                                  targetUserId: targetStillAssignable
+                                    ? task.target_id || undefined
+                                    : user.id,
+                                  refs: taskRefIds(task.document_refs),
+                                  folderRefs: taskRefIds(task.folder_refs),
+                                });
+                              }}
+                            >
+                              <UiIcon name="copy" size={13} />
+                              复制新建
                             </button>
                           )}
                           {canTransfer && (
@@ -904,6 +1088,7 @@ export function TaskDetailPanel({
                     >
                       {projectConnectorBound ? (
                         <SelectField
+                          allOption={false}
                           aria-label="任务执行方式"
                           value={
                             taskExecutionMode === "auto"
@@ -927,27 +1112,27 @@ export function TaskDetailPanel({
                   )}
                   {taskDialog === "complete" && (
                     <TaskOpDialog
-                      title="完成任务"
+                      title="提交验收"
                       busy={taskActionBusy}
-                      confirmLabel="完成"
+                      confirmLabel="提交验收"
                       confirmIcon="complete"
                       onClose={closeTaskDialog}
                       onConfirm={() => {
                         const summary = taskResult.trim();
                         askTaskConfirm(
-                          "确定将任务标为已完成？",
+                          "确定提交验收？",
                           summary
                             ? `将保存结果摘要：${summary.length > 80 ? `${summary.slice(0, 80)}…` : summary}`
-                            : "未填写结果摘要，将记为「已完成」。",
+                            : "未填写结果摘要。提交后来源方可以验收。",
                           () =>
                             finishTaskDialog(
                               () =>
                                 api(
                                   `/tasks/${task.id}`,
-                                  { status: "completed", resultSummary: summary || "已完成" },
+                                  { status: "completed", resultSummary: summary || "待验收" },
                                   "PATCH",
                                 ),
-                              "任务已完成",
+                              "已提交验收",
                             ),
                         );
                       }}
@@ -1022,6 +1207,7 @@ export function TaskDetailPanel({
                       }
                     >
                       <SelectField
+                        allOption={false}
                         label="责任主体"
                         value={taskTransferTarget}
                         onChange={setTaskTransferTarget}
@@ -1078,6 +1264,7 @@ export function TaskDetailPanel({
                         placeholder="补充给执行方的说明"
                       />
                       <SelectField
+                        allOption={false}
                         label="改派责任主体"
                         value={taskRedirectTarget}
                         onChange={setTaskRedirectTarget}

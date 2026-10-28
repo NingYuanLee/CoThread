@@ -1,17 +1,24 @@
-/** 项目页签的右键菜单：菜单项按需追加，目前只有「复制项目信息」。 */
+/** 项目页签的右键菜单：固定或取消固定，以及复制项目信息。 */
 import { ContextMenu } from "./ContextMenu";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FloatingPortal } from "./FloatingPortal";
 import { UiIcon } from "./ui-icon";
+import { ProjectActionIcon } from "./workspace-chrome";
 
 export function ProjectTabContextMenu({
   x,
   y,
+  pinned,
+  busy,
+  onTogglePin,
   onCopyProjectInfo,
   onDismiss,
 }: {
   x: number;
   y: number;
+  pinned: boolean;
+  busy: boolean;
+  onTogglePin: () => void;
   onCopyProjectInfo: () => void;
   onDismiss: () => void;
 }) {
@@ -61,6 +68,20 @@ export function ProjectTabContextMenu({
         onContextMenu={(event) => event.preventDefault()}
         onClick={(event) => event.stopPropagation()}
       >
+        <button
+          type="button"
+          role="menuitem"
+          className="library-folder-menu-item"
+          disabled={busy}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            onTogglePin();
+            onDismiss();
+          }}
+        >
+          <ProjectActionIcon action={pinned ? "unpin" : "pin"} />
+          <span>{pinned ? "取消固定" : "固定项目"}</span>
+        </button>
         <button
           type="button"
           role="menuitem"

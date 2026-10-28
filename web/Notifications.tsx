@@ -7,10 +7,11 @@ import { ProjectMark } from "./ProjectMark";
 import { Dialog, animateDialogClose } from "./dialog-fx";
 import { PaginationControl } from "./PaginationControl";
 
-type Kind = "all" | "mention" | "member_added" | "member_removed";
+type Category = "all" | "chat" | "task" | "project";
 type Notice = {
   id: string;
-  kind: Exclude<Kind, "all">;
+  kind: string;
+  category?: "chat" | "task" | "project";
   title: string;
   sender_name: string;
   body: string;
@@ -24,15 +25,63 @@ type Notice = {
 type Page = {
   items: Notice[];
   unread: number;
-  counts: Partial<Record<Kind, { total: number; unread: number }>>;
+  counts: Partial<Record<string, { total: number; unread: number }>>;
+  categories?: Partial<Record<Exclude<Category, "all">, { total: number; unread: number }>>;
   next: string | null;
 };
-const tabs: { id: Kind; label: string; icon: "inbox" | "mention" | "userPlus" | "trash" }[] = [
+const tabs: { id: Category; label: string; icon: "inbox" | "mention" | "list" | "project" }[] = [
   { id: "all", label: "全部", icon: "inbox" },
-  { id: "mention", label: "@我的", icon: "mention" },
-  { id: "member_added", label: "加入项目", icon: "userPlus" },
-  { id: "member_removed", label: "移出项目", icon: "trash" },
+  { id: "chat", label: "聊天", icon: "mention" },
+  { id: "task", label: "任务", icon: "list" },
+  { id: "project", label: "项目", icon: "project" },
 ];
+const categoryKinds: Record<Exclude<Category, "all">, string[]> = {
+  chat: ["mention"],
+  task: ["task_assigned", "task_decision", "task_blocked", "task_completed", "task_failed"],
+  project: [
+    "member_added",
+    "member_removed",
+    "leader_gained",
+    "leader_lost",
+    "admin_granted",
+    "admin_revoked",
+    "role_changed",
+    "project_archived",
+    "project_restored",
+  ],
+};
+const categoryOf = (notice: Notice): Exclude<Category, "all"> => {
+  if (notice.category === "chat" || notice.category === "task" || notice.category === "project")
+    return notice.category;
+  if (notice.kind === "mention") return "chat";
+  if (notice.kind.startsWith("task_")) return "task";
+  return "project";
+};
+const tally = (counts: Page["counts"], names: string[]) =>
+  names.reduce(
+    (sum, name) => ({
+      total: sum.total + (counts[name]?.total || 0),
+      unread: sum.unread + (counts[name]?.unread || 0),
+    }),
+    { total: 0, unread: 0 },
+  );
+const kindLabel: Record<string, string> = {
+  mention: "聊天",
+  task_assigned: "任务",
+  task_decision: "任务",
+  task_blocked: "任务",
+  task_completed: "任务",
+  task_failed: "任务",
+  member_added: "项目",
+  member_removed: "项目",
+  leader_gained: "项目",
+  leader_lost: "项目",
+  admin_granted: "项目",
+  admin_revoked: "项目",
+  role_changed: "项目",
+  project_archived: "项目",
+  project_restored: "项目",
+};
 const empty: Page = { items: [], unread: 0, counts: {}, next: null };
 const time = (value: string, compact = false) =>
   new Date(value.includes("T") ? value : value.replace(" ", "T") + "Z").toLocaleString(
@@ -50,7 +99,7 @@ export function Notifications({
 }) {
   const [page, setPage] = useState<Page>(empty);
   const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState<Kind>("all");
+  const [kind, setKind] = useState<Category>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(12);
   const [selectedId, setSelectedId] = useState("");
@@ -63,10 +112,14 @@ export function Notifications({
   const revision = useRef(0);
   const pages = useRef(new Map<string, Page>());
   const selected = page.items.find((n) => n.id === selectedId);
+  const categoryTotal = (id: Exclude<Category, "all">) =>
+    page.categories?.[id] ?? tally(page.counts, categoryKinds[id]);
+  const items =
+    kind === "all" ? page.items : page.items.filter((notice) => categoryOf(notice) === kind);
   const total =
     kind === "all"
-      ? Object.values(page.counts).reduce((sum, count) => sum + count.total, 0)
-      : page.counts[kind]?.total || 0;
+      ? Object.values(page.counts).reduce((sum, count) => sum + (count?.total || 0), 0)
+      : categoryTotal(kind).total;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   useEffect(() => {
     setCurrentPage((current) => Math.min(current, totalPages));
@@ -74,7 +127,7 @@ export function Notifications({
   useEffect(() => {
     let alive = true;
     const version = ++revision.current;
-    const path = `/notifications?kind=${kind}&limit=${pageSize}&page=${currentPage}`;
+    const path = `/notifications?category=${kind}&limit=${pageSize}&page=${currentPage}`;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     let inFlight = false;
@@ -100,11 +153,24 @@ export function Notifications({
         if (!alive || version !== revision.current) return;
         if (full) {
           needsPage = false;
-          pages.current.set(path, result);
+          const filtered =
+            kind === "all"
+              ? result
+              : {
+                  ...result,
+                  items: (result.items || []).filter((notice) => categoryOf(notice) === kind),
+                };
+          pages.current.set(path, filtered);
           if (pages.current.size > 12) pages.current.delete(pages.current.keys().next().value!);
-          setPage(result);
-          setSelectedId((current) => (result.items.some((n) => n.id === current) ? current : ""));
-        } else setPage((old) => ({ ...old, unread: result.unread, counts: result.counts }));
+          setPage(filtered);
+          setSelectedId((current) => (filtered.items.some((n) => n.id === current) ? current : ""));
+        } else
+          setPage((old) => ({
+            ...old,
+            unread: result.unread,
+            counts: result.counts,
+            categories: result.categories || old.categories,
+          }));
         setError("");
       } catch (e) {
         if (alive) setError((e as Error).message);
@@ -163,7 +229,7 @@ export function Notifications({
         }));
       });
   };
-  const changeTab = (next: Kind) => {
+  const changeTab = (next: Category) => {
     if (next === kind) return;
     setKind(next);
     setCurrentPage(1);
@@ -249,8 +315,8 @@ export function Notifications({
               >
                 <UiIcon name={item.icon} size={13} />
                 {item.label}
-                {(item.id === "all" ? page.unread : page.counts[item.id]?.unread || 0) > 0 && (
-                  <span>{item.id === "all" ? page.unread : page.counts[item.id]?.unread}</span>
+                {(item.id === "all" ? page.unread : categoryTotal(item.id).unread) > 0 && (
+                  <span>{item.id === "all" ? page.unread : categoryTotal(item.id).unread}</span>
                 )}
               </button>
             ))}
@@ -285,10 +351,10 @@ export function Notifications({
             <div className="notification-rows">
               {loading ? (
                 <p className="notification-empty">正在加载…</p>
-              ) : !page.items.length && !error ? (
+              ) : !items.length && !error ? (
                 <p className="notification-empty">暂无此类站内信</p>
               ) : (
-                page.items.map((notice) => (
+                items.map((notice) => (
                   <button
                     key={notice.id}
                     className={`notification-row ${notice.read_at ? "" : "unread"} ${selectedId === notice.id ? "selected" : ""}`}
@@ -334,10 +400,12 @@ export function Notifications({
               <>
                 <span className="notification-kind">
                   <UiIcon
-                    name={tabs.find((item) => item.id === selected.kind)?.icon || "inbox"}
+                    name={
+                      tabs.find((item) => item.id === (selected.category || "all"))?.icon || "inbox"
+                    }
                     size={12}
                   />
-                  {tabs.find((item) => item.id === selected.kind)?.label}
+                  {kindLabel[selected.kind] || "站内信"}
                 </span>
                 <h3>{selected.title}</h3>
                 <div className="notification-meta">

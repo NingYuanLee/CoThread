@@ -80,6 +80,7 @@ export function MemberPicker({
         disabled={!!busy}
       />
       <SelectField
+        allOption={false}
         label="加入后角色"
         value={role}
         onChange={(next) => setRole(next as "member" | "viewer")}

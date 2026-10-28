@@ -58,6 +58,7 @@ export function OrgHome({
       </p>
       {error && <p role="alert">{error}</p>}
       <SelectField
+        allOption={false}
         label="我的组织"
         value={orgId}
         options={orgs.map((org) => ({ value: org.id, label: org.name }))}
@@ -168,6 +169,7 @@ export function OrgHome({
       )}
       <h3>问老翁</h3>
       <SelectField
+        allOption={false}
         aria-label="提问范围"
         value={scope}
         options={[

@@ -79,4 +79,8 @@ test("iteration metadata and archive decisions refresh without a new message", (
     projectActivityKey(project),
     projectActivityKey({ ...project, threads: [{ ...thread, goal: "调整后的目标" }] }),
   );
+  assert.notEqual(
+    projectActivityKey(project),
+    projectActivityKey({ ...project, threads: [{ ...thread, unread_mention_count: 2 }] }),
+  );
 });

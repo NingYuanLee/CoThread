@@ -10,6 +10,9 @@ import {
   deferSilenceProgress,
   participationDecisionLogPayload,
   isShortAssistantDirectedFollowUp,
+  addressesSomeoneElse,
+  messageAddressesOthersOnly,
+  burstAddressesSomeoneElse,
   briefAssistantFollowUpAck,
   needsSoloRunReply,
   addressesAgent,
@@ -183,6 +186,26 @@ test("normalizeParticipationDecision accepts boolean legacy doubles", () => {
   assert.equal(isShortAssistantDirectedFollowUp([{ body: "你这次反应挺快啊" }]), true);
   assert.equal(briefAssistantFollowUpAck([{ body: "你这次反应挺快啊" }]), "哈哈，这次赶上了。");
   assert.equal(isShortAssistantDirectedFollowUp([{ body: "@张三 你怎么看" }]), false);
+  assert.equal(addressesSomeoneElse("@张三 你怎么看"), true);
+  assert.equal(addressesSomeoneElse("请 @李四 看一下"), true);
+  assert.equal(addressesSomeoneElse("@小祥 在吗"), false);
+  assert.equal(addressesSomeoneElse("@Agent助手 在吗"), false);
+  assert.equal(addressesSomeoneElse("小祥，在吗"), false);
+  assert.equal(addressesSomeoneElse("写给 user@example.com"), false);
+  assert.equal(addressesSomeoneElse("请@张三"), false);
+  assert.equal(addressesSomeoneElse("@@李宁远"), true);
+  assert.equal(messageAddressesOthersOnly("@李宁远"), true);
+  assert.equal(messageAddressesOthersOnly("@@李宁远"), true);
+  assert.equal(messageAddressesOthersOnly("@张三 @小祥 一起看"), false);
+  assert.equal(burstAddressesSomeoneElse([{ body: "@张三 你怎么看" }]), true);
+  assert.equal(burstAddressesSomeoneElse([{ body: "大家觉得呢" }, { body: "@张三 你定" }]), true);
+  assert.equal(
+    burstAddressesSomeoneElse([{ body: "@张三 你看" }, { body: "@小祥 你也看" }]),
+    false,
+  );
+  assert.equal(burstAddressesSomeoneElse([{ body: "@张三 @小祥 一起看" }]), false);
+  assert.equal(addressesAgent("@张三 @小祥 一起看"), true);
+  assert.equal(deferSilenceProgress("addressed_other"), "消息在叫别人，保持沉默");
   assert.equal(addressesAgent("小祥，你为啥一直沉默"), true);
   assert.equal(addressesAgent("和小祥一起改"), false);
   assert.equal(addressesAgent("@小祥 在吗"), true);

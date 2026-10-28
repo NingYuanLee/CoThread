@@ -11,30 +11,14 @@ import { AdminDialog } from "./AdminDialog";
 import { PaginationControl } from "./PaginationControl";
 import { ProjectMark } from "./ProjectMark";
 import { labelWorkflowStatus } from "./ui-labels";
+import { TASK_STATUS_GROUPS, taskStatusGroup } from "../shared/work-status.js";
 
 const ITERATION_STATUS_LABELS: Record<string, string> = {
   active: "进行中",
+  archiving: "归档中",
   archived: "已归档",
 };
 
-/** 任务状态筛选的完整清单；标签统一走 labelWorkflowStatus。 */
-const TASK_STATUSES = [
-  "draft",
-  "pending_assignment",
-  "awaiting_acceptance",
-  "pending_start",
-  "queued",
-  "assigned",
-  "running",
-  "waiting",
-  "blocked",
-  "completed",
-  "cancelled",
-  "rejected",
-  "abandoned",
-  "superseded",
-  "ignored",
-] as const;
 type WorkItem = {
   id: string;
   title: string;
@@ -129,10 +113,15 @@ export function AdminWorkManagement({
       setBusy(false);
     }
   };
-  const states: string[] =
-    kind === "iterations" ? Object.keys(ITERATION_STATUS_LABELS) : [...TASK_STATUSES];
-  const statusLabel = (key: string) =>
-    kind === "iterations" ? ITERATION_STATUS_LABELS[key] || key : labelWorkflowStatus(key);
+  const states =
+    kind === "iterations"
+      ? Object.entries(ITERATION_STATUS_LABELS).map(([value, label]) => ({ value, label }))
+      : TASK_STATUS_GROUPS.map((group) => ({ value: group.id, label: group.label }));
+  const statusLabel = (key: string, precise = false) => {
+    if (kind === "iterations") return ITERATION_STATUS_LABELS[key] || key;
+    if (!precise) return taskStatusGroup(key)?.label || labelWorkflowStatus(key);
+    return labelWorkflowStatus(key);
+  };
   return (
     <section className="admin-work">
       {notice && <p className="admin-list-note">{notice}</p>}
@@ -176,7 +165,7 @@ export function AdminWorkManagement({
             setStatus(next);
             setPage(1);
           }}
-          options={states.map((key) => ({ value: key, label: statusLabel(key) }))}
+          options={states}
         />
         <button type="submit">查询</button>
         <button
@@ -394,8 +383,8 @@ export function AdminWorkManagement({
                   .map((event: any) => (
                     <tr key={event.id}>
                       <td>
-                        {event.from_status ? statusLabel(event.from_status) : "—"} →{" "}
-                        {statusLabel(event.to_status)}
+                        {event.from_status ? statusLabel(event.from_status, true) : "—"} →{" "}
+                        {statusLabel(event.to_status, true)}
                       </td>
                       <td>{event.reason || event.note || "—"}</td>
                       <td>{dateTime(event.created_at)}</td>

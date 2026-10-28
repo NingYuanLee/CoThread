@@ -99,13 +99,22 @@ function hslToRgb([h, s, l]) {
   return [f(p, q, h + 1 / 3), f(p, q, h), f(p, q, h - 1 / 3)];
 }
 
+/* 暗夜的三档灰必须落在灰阶里（见 theme-overrides 第 1 节），
+   否则回退 token 会冒出灰阶外的中间色。墨玉仍按原色相生成。 */
+const NIGHT_STEPS = { text: "#cfd3d6", border: "#43454a", bg: "#232324" };
+
 function build(neutral) {
   const lines = [];
   for (const [token, entry] of [...usage.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const [h, s] = rgbToHsl(parseHex(entry.fallback));
-    const lightness =
-      entry.text >= entry.bg + entry.border ? 0.84 : entry.border > entry.bg ? 0.3 : 0.16;
-    lines.push(`  ${token}: ${toHex(hslToRgb([h, neutral ? 0 : Math.min(0.4, s), lightness]))};`);
+    const kind =
+      entry.text >= entry.bg + entry.border ? "text" : entry.border > entry.bg ? "border" : "bg";
+    if (neutral) {
+      lines.push(`  ${token}: ${NIGHT_STEPS[kind]};`);
+      continue;
+    }
+    const lightness = kind === "text" ? 0.84 : kind === "border" ? 0.3 : 0.16;
+    lines.push(`  ${token}: ${toHex(hslToRgb([h, Math.min(0.4, s), lightness]))};`);
   }
   return lines.join("\n");
 }

@@ -87,6 +87,7 @@ function EffortSelect({
 }) {
   return (
     <SelectField
+      allOption={false}
       label={label}
       value={value}
       disabled={disabled}

@@ -1230,6 +1230,7 @@ function MemoryDetail({
           <span className="project-memory-detail-meta">
             {canWrite ? (
               <SelectField
+                allOption={false}
                 containerClassName="project-memory-subject-select"
                 aria-label="记忆对象类型"
                 flush
@@ -1248,6 +1249,7 @@ function MemoryDetail({
             ) : null}
             {entry.subject && canWrite ? (
               <SelectField
+                allOption={false}
                 containerClassName="project-memory-subject-select"
                 aria-label="记忆二级类型"
                 flush
@@ -1375,6 +1377,7 @@ function MemoryDetail({
             relationOpen ? (
               <div className="project-memory-relation-form">
                 <SelectField
+                  allOption={false}
                   aria-label="关系类型"
                   flush
                   value={relationKind}
@@ -1386,6 +1389,7 @@ function MemoryDetail({
                   onChange={setRelationKind}
                 />
                 <SelectField
+                  allOption={false}
                   aria-label="关联到哪条记忆"
                   flush
                   value={relationTarget}

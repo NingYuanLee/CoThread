@@ -4,6 +4,7 @@ import { HttpError } from "./http-error.js";
 import { adminAccess } from "./admin-rbac.js";
 import { listTaskStatusEvents, listTaskUpdates } from "./task-pool.js";
 import { projectImageUrlSql } from "./project-image.js";
+import { taskStatusFilter } from "../shared/work-status.js";
 
 const uuid = z.string().uuid();
 const filters = z.object({
@@ -117,8 +118,11 @@ export async function listMyWork(db, user, kind, input) {
     params.push(data.projectId);
   }
   if (data.status) {
-    where.push("w.status=?");
-    params.push(data.status);
+    const filter = iterations
+      ? { sql: "w.status=?", params: [data.status] }
+      : taskStatusFilter("w.status", data.status);
+    where.push(filter.sql);
+    params.push(...filter.params);
   }
   if (data.search) {
     where.push("(w.title LIKE ? OR p.name LIKE ?)");

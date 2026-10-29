@@ -9,7 +9,7 @@
 | 派生 | 右键及操作菜单 | ContextMenu    | 基于 FloatingPanel：仅追加 `role="menu"`、`data-overlay="menu"` 和首项聚焦、上下方向键及 Home/End 导航；材质、动画、Esc 关闭、焦点恢复、退场快照全部来自 FloatingPanel |
 | 基础 | 悬浮提示       | Tip（TipHost） | 全局提示队列、语义图标/颜色、复制、多行、延迟执行及撤销、堆叠和全部关闭                                                                                                |
 
-菜单与面板共用同一段材质规则（`[data-overlay="panel"]` 与 `[data-overlay="menu"]` 合并选择器），仅圆角与内边距不同。因此新增菜单能力应扩展 `ContextMenu`，不得另写菜单表面。
+菜单与面板共用同一段材质规则（`[data-overlay="panel"]` 与 `[data-overlay="menu"]` 合并选择器），仅圆角与内边距不同。悬浮面板和菜单都不画发丝线：半像素描边会和圆角底错位，分隔靠阴影。菜单项也不继承按钮的发丝线。因此新增菜单能力应扩展 `ContextMenu`，不得另写菜单表面。
 
 ## 视觉规则只改一处
 

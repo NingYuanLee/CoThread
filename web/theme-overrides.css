@@ -778,7 +778,7 @@ html[data-theme="night"] .miniprogram-status.failed {
 html:is([data-theme="ink"], [data-theme="night"])
   :is(.context-panel.context-open, .composer.chat-composer) {
 
-  border: 1px solid transparent;
+  border: 0.071rem solid transparent;
   position: relative;
   --stroke: color-mix(in srgb, var(--c-27362f) 34%, transparent);
 
@@ -803,7 +803,7 @@ html:is([data-theme="ink"], [data-theme="night"]) :is(.context-panel.context-ope
 
 html:is([data-theme="ink"], [data-theme="night"]) aside.file-explorer.doc-browser-tree {
 
-  border-left: 1px solid transparent;
+  border-left: 0.071rem solid transparent;
   position: relative;
   --stroke: color-mix(in srgb, var(--c-27362f) 34%, transparent);
 
@@ -1109,7 +1109,7 @@ html[data-theme="night"] .project-tab.pinned.selected .project-mark {
 }
 
 /* ===== 13. 左侧栏右缘发丝线 =====
-   `.sidebar` 自带 `border-right: 1px solid transparent` 和 `::after` 半像素描边，
+   `.sidebar` 自带 `border-right: 0.071rem solid transparent` 和 `::after` 半像素描边，
    但侧栏是 overflow:hidden，伪元素画到右边缘外侧会被裁掉，实际看不见。
    这里直接给真实边框上色（与全局描边同色 43454a）。 */
 html[data-theme="night"] .sidebar {
@@ -1262,6 +1262,146 @@ html[data-theme="night"]
   background: #1e40af;
   border-color: #1e40af;
   color: #dbeafe;
+}
+
+/* ===== 20. 侧栏迭代入口与状态切换 =====
+   这两个控件是侧栏的主要导航动作，不再使用接近背景色的玻璃灰。
+   每个主题提供一组独立语义色，保证浅色、深色和灰度/高对比场景都能识别。 */
+html {
+  --sidebar-action-bg: #3f6a45;
+  --sidebar-action-hover: #4e7d55;
+  --sidebar-action-active: #315437;
+  --sidebar-action-fg: #fff;
+  --sidebar-segment-active-bg: #dcebdd;
+  --sidebar-segment-active-fg: #244b2d;
+  --sidebar-segment-selected-bg: var(--c-f8faf8);
+  --sidebar-segment-border: #a9c5ac;
+  --sidebar-segment-muted-fg: #647568;
+}
+
+html[data-theme="tech"] {
+  --sidebar-action-bg: #4356a8;
+  --sidebar-action-hover: #5268c2;
+  --sidebar-action-active: #35478f;
+  --sidebar-segment-active-bg: #dfe5fb;
+  --sidebar-segment-active-fg: #2c3f88;
+  --sidebar-segment-selected-bg: var(--c-f8faf8);
+  --sidebar-segment-border: #aebbe8;
+  --sidebar-segment-muted-fg: #68728f;
+}
+
+html[data-theme="dusk"] {
+  --sidebar-action-bg: #7656a0;
+  --sidebar-action-hover: #8968b2;
+  --sidebar-action-active: #62468a;
+  --sidebar-segment-active-bg: #e9e0f2;
+  --sidebar-segment-active-fg: #573d78;
+  --sidebar-segment-selected-bg: var(--c-f8faf8);
+  --sidebar-segment-border: #c8b5dc;
+  --sidebar-segment-muted-fg: #776d82;
+}
+
+html[data-theme="sand"] {
+  --sidebar-action-bg: #8a5a32;
+  --sidebar-action-hover: #a06c40;
+  --sidebar-action-active: #75491f;
+  --sidebar-segment-active-bg: #f0e3d5;
+  --sidebar-segment-active-fg: #6c421f;
+  --sidebar-segment-selected-bg: var(--c-f8faf8);
+  --sidebar-segment-border: #d8bda2;
+  --sidebar-segment-muted-fg: #7e7164;
+}
+
+html[data-theme="ink"] {
+  --sidebar-action-bg: #4e8b63;
+  --sidebar-action-hover: #62a278;
+  --sidebar-action-active: #3e7351;
+  --sidebar-segment-active-bg: #294934;
+  --sidebar-segment-active-fg: #d9f4df;
+  --sidebar-segment-selected-bg: #1e271f;
+  --sidebar-segment-border: #52745c;
+  --sidebar-segment-muted-fg: #a7b7aa;
+}
+
+html[data-theme="night"] {
+  --sidebar-action-bg: #43454a;
+  --sidebar-action-hover: #51545a;
+  --sidebar-action-active: #353638;
+  --sidebar-action-fg: #f1f3f5;
+  --sidebar-segment-active-bg: #51545a;
+  --sidebar-segment-active-fg: #f1f3f5;
+  --sidebar-segment-selected-bg: #1b1b1c;
+  --sidebar-segment-border: #686c73;
+  --sidebar-segment-muted-fg: #b3b5b8;
+}
+
+.app-shell .sidebar-create-button {
+  background: var(--sidebar-action-bg);
+  border: 0.071rem solid color-mix(in srgb, var(--sidebar-action-fg) 18%, transparent);
+  color: var(--sidebar-action-fg);
+  font-weight: 500;
+}
+
+.app-shell .sidebar-create-button:hover {
+  background: var(--sidebar-action-hover);
+  color: var(--sidebar-action-fg);
+}
+
+.app-shell .sidebar-create-button:active {
+  background: var(--sidebar-action-active);
+}
+
+.app-shell .sidebar-create-button:focus-visible,
+.app-shell.left-closed .sidebar-rail-thread-create:focus-visible {
+  outline: 0.143rem solid var(--sidebar-action-hover);
+  outline-offset: 0.143rem;
+}
+
+.app-shell .sidebar-create-button .ui-icon {
+  opacity: 1;
+}
+
+.app-shell.left-closed .sidebar-rail-thread-create {
+  background: var(--sidebar-action-bg);
+  color: var(--sidebar-action-fg);
+}
+
+.app-shell.left-closed .sidebar-rail-thread-create:hover {
+  background: var(--sidebar-action-hover);
+  color: var(--sidebar-action-fg);
+}
+
+.app-shell .thread-list-capsule {
+  --stroke: var(--sidebar-segment-border);
+  background: color-mix(in srgb, var(--sidebar-segment-active-bg) 32%, var(--c-eef2ea));
+}
+
+.app-shell .thread-list-capsule > button {
+  color: var(--sidebar-segment-muted-fg);
+}
+
+.app-shell .thread-list-capsule > button:hover:not(:disabled) {
+  color: var(--sidebar-segment-active-fg);
+  background: color-mix(in srgb, var(--sidebar-segment-active-bg) 78%, transparent);
+}
+
+.app-shell .thread-list-capsule > button[aria-selected="true"] {
+  background: var(--sidebar-segment-selected-bg);
+  color: var(--sidebar-segment-active-fg);
+  font-weight: 500;
+}
+
+.app-shell .thread-list-capsule > button[aria-selected="true"]:hover {
+  background: var(--sidebar-segment-selected-bg);
+}
+
+.app-shell .thread-list-capsule > button[aria-selected="true"] .ui-icon {
+  opacity: 1;
+}
+
+.app-shell .thread-list-capsule > button:focus-visible {
+  outline: 0.143rem solid var(--sidebar-action-hover);
+  outline-offset: -0.143rem;
 }
 
 /* ===== 17. 弹窗里的小号文字动作按钮 =====

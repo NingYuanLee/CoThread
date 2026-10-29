@@ -1,20 +1,22 @@
 :root {
   /* 圆角只调这三个值。
      --radius-control：按钮（含图标按钮）、卡片（含聊天气泡、会话条、任务条）、输入框
-     --radius-composer：对话输入框；容器比按钮大一档，里面自己的按钮仍走 --radius-control
-     --radius-overlay：弹窗、悬浮面板、菜单、下拉和提示 */
+     --radius-composer：对话输入框；容器比按钮大两档，里面自己的按钮仍走 --radius-control。
+     群聊输入框另在 .chat-composer 上按圆按钮重算这个变量，让下沿圆角与加号、发送同心。
+     --radius-overlay：弹窗、悬浮面板和提示。
+     菜单、单选下拉的面板圆角不单独写：等于内边距 + --radius-control，和选项同心。 */
   --radius-control: 0.857rem;
-  --radius-composer: 1.143rem;
+  --radius-composer: 1.429rem;
   --radius-overlay: 0.714rem;
   --overlay-dialog-radius: var(--radius-overlay);
   --overlay-panel-radius: var(--radius-overlay);
-  --overlay-menu-radius: var(--radius-overlay);
   --overlay-tip-radius: var(--radius-overlay);
   --overlay-dialog-padding: 0;
   --overlay-panel-padding: 1rem;
   --overlay-menu-padding: 0.429rem;
+  --overlay-menu-radius: calc(var(--overlay-menu-padding) + var(--radius-control));
   --overlay-select-panel-padding: 0.286rem;
-  --overlay-select-panel-radius: var(--radius-overlay);
+  --overlay-select-panel-radius: calc(var(--overlay-select-panel-padding) + var(--radius-control));
   --overlay-select-panel-offset: 0.286rem;
   --overlay-body-padding: 1.429rem;
   --overlay-header-bg: color-mix(in srgb, var(--c-f8faf8) 66%, transparent);
@@ -541,7 +543,7 @@ html body dialog[data-overlay].is-closing::backdrop {
 html body :is([data-overlay="panel"], [data-overlay="menu"]) {
   padding: var(--overlay-panel-padding) !important;
 
-  border: 1px solid transparent !important;
+  border: 0 !important;
 
   border-radius: var(--overlay-panel-radius) !important;
 
@@ -564,21 +566,9 @@ html body :is([data-overlay="panel"], [data-overlay="menu"]) {
   overflow: clip;
   overflow-clip-margin: 0.857rem;
 }
+/* 悬浮面板和菜单都不画发丝线。半像素 ::after 会相对圆角底错开一截，阴影已经够分隔。 */
 html body :is([data-overlay="panel"], [data-overlay="menu"])::after {
-  content: "";
-  position: absolute;
-  left: -1px;
-  top: -1px;
-  width: calc(200% + 4px);
-  height: calc(200% + 4px);
-  box-sizing: border-box;
-  pointer-events: none;
-  border-style: inherit;
-  border-color: var(--stroke);
-  border-width: inherit;
-  border-radius: var(--stroke-radius);
-  transform: scale(0.5);
-  transform-origin: 0 0;
+  content: none;
 }
 
 /* 含输入类控件外型组的弹窗：背景层与输入框同色（白），
@@ -612,7 +602,7 @@ html
 }
 
 /* 输入类控件下拉面板：比菜单更紧凑的内边距与圆角，变量仍集中在本文件维护。 */
-html body .field-select-panel {
+html body .field-select-panel[data-overlay="panel"] {
   padding: var(--overlay-select-panel-padding) !important;
   border-radius: var(--overlay-select-panel-radius) !important;
   /* 下拉紧贴触发器：位移缩短，缩放也更轻，避免从输入框内部长出来。 */
@@ -643,6 +633,12 @@ html body [data-overlay="menu"] [role="menuitem"]:is(:hover, :focus-visible) {
 }
 html body [data-overlay="menu"] [role="menuitem"].danger {
   color: var(--c-a3332d);
+}
+/* 菜单项是 button，会继承全局发丝线。边框已经是 0，这里再收掉 ::after。 */
+html body
+  [data-overlay="menu"]
+  :is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"])::after {
+  content: none;
 }
 html body .overlay-exiting[data-overlay] {
   animation: overlay-out var(--overlay-exit-duration) var(--overlay-exit-easing) both !important;

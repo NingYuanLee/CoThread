@@ -356,7 +356,8 @@
 }
 
 /* 选项列表：容器材质来自 FloatingPanel，这里只排布选项。
-   面板本体必须保持 overlays 的 overflow: clip，发丝外框才画得出来。
+   面板基础框不再画发丝外框；本体仍保持 overlays 的 overflow: clip，
+   圆角才裁得住内容。
    纵向滚动放在内部 listbox：若在滚动容器上只写 overflow-y: auto，
    overflow-x 会被算成 auto；选项按钮的发丝 ::after 比按钮宽约 1px，
    就会冒出一条横向滚动条。 */

@@ -925,7 +925,7 @@ export function ChatComposer({
             title={pending ? "上传中…" : busy ? "处理中…" : "发送"}
             disabled={busy || pending || !message.trim()}
           >
-            <UiIcon name="send" size={17} />
+            <UiIcon name="arrowUp" size={17} />
           </button>
         </div>
       </form>

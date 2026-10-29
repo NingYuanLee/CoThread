@@ -4,6 +4,7 @@ import { designPxToRem } from "../shared/ui-scale.js";
 export type UiIconName =
   | "abandon"
   | "archive"
+  | "arrowUp"
   | "blocked"
   | "book"
   | "browser"
@@ -118,6 +119,7 @@ type Glyph = string | { d: string; fill?: true };
 const GLYPHS: Record<GlyphName, Glyph[]> = {
   abandon: ["M5 4v16", "M5 5h9l-1.5 4L14 13H5"],
   archive: ["M3 7h18v3H3z", "M5 10v10h14V10", "M10 14h4"],
+  arrowUp: ["M12 19V5", "m6 6 6-6 6 6"],
   blocked: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "m8 8 8 8"],
   book: ["M4 5h7v14H5a1 1 0 0 1-1-1V5Z", "M20 5h-7v14h6a1 1 0 0 0 1-1V5Z"],
   camera: [

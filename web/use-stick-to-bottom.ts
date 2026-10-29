@@ -209,6 +209,9 @@ export function useStickToBottom(
     settleHooks.set(container, settleFollow);
     const sizes = new ResizeObserver(schedule);
     sizes.observe(content);
+    sizes.observe(container);
+    const composer = container.parentElement?.querySelector(":scope > .composer-area");
+    if (composer instanceof HTMLElement) sizes.observe(composer);
     const stage = container.closest(".conversation-stage");
     const styles = new MutationObserver(schedule);
     if (stage instanceof HTMLElement)

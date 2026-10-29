@@ -16,6 +16,7 @@ import { ModelSettings } from "./ModelSettings";
 import { OrgStructure } from "./OrgStructure";
 import { OrgHome } from "./OrgHome";
 import { LoginScreen } from "./LoginScreen";
+import { LogoLoading, useLogoLoadingHold } from "./LogoLoading";
 import { Notifications } from "./Notifications";
 import { ThemePicker } from "./ThemePicker";
 import { UiIcon, type UiIconName } from "./ui-icon";
@@ -134,6 +135,9 @@ export function AdminApp() {
     setAuditQuery("");
     setPage(key);
   };
+  const showAdminLoading = useLogoLoadingHold(
+    !error && (!user || !profileReady || !access) && (!profileReady || !!user),
+  );
   const openAudit = (key: "account-changes" | "account-logins", userNumber: number) => {
     const search = `?userNumber=${userNumber}`;
     window.history.pushState(null, "", `/admin/${key}${search}`);
@@ -141,7 +145,9 @@ export function AdminApp() {
     setPage(key);
   };
   if (!user || !profileReady || !access || error)
-    return profileReady && !user && !error ? (
+    return showAdminLoading ? (
+      <LogoLoading label="正在加载成员权限…" />
+    ) : profileReady && !user && !error ? (
       <LoginScreen
         onLogin={(profile) => {
           acceptProfile(profile);

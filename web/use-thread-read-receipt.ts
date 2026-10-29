@@ -7,7 +7,7 @@ import { useEffect, type Dispatch, type RefObject, type SetStateAction } from "r
 import { createResourceCache } from "../shared/resource-cache.js";
 import type { PersonalProfile } from "./ProfileFields";
 import { api } from "./workspace-api";
-import type { Detail, Thread } from "./workspace-types";
+import type { Detail, Thread, ThreadView } from "./workspace-types";
 
 export type ThreadReadReceiptContext = {
   user: PersonalProfile | null;
@@ -21,7 +21,7 @@ export type ThreadReadReceiptContext = {
   setDetail: Dispatch<SetStateAction<Detail | null>>;
   listUnreadChat?: number;
   listUnreadTask?: number;
-  threadView: "chat" | "trajectory";
+  threadView: ThreadView;
 };
 
 export function useThreadReadReceipt(ctx: ThreadReadReceiptContext) {

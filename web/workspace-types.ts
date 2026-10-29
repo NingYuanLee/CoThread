@@ -1,6 +1,9 @@
 import type { ContextUsage } from "../shared/context.js";
 import type { UsageStats } from "./MessageUsage";
 
+/** 群聊主区的三种视图。任务与群聊、轨迹同级，不再盖弹窗。 */
+export type ThreadView = "chat" | "trajectory" | "tasks";
+
 export type Project = {
   id: string;
   created_by: string;

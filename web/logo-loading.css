@@ -1,0 +1,127 @@
+/* 公共 Dialog 的 shell 自带 inset:0，小数像素上四周会露一条缝。
+   再往外盖 2px（-0.143rem），避免少一圈深色底。
+   shell 把背景强制成透明，玻璃样式会落到直接子节点。
+   蒙层仍画在铺满视口的 dialog 上，舞台保持透明，避免收成一张卡片。 */
+html body dialog.logo-loading[data-overlay="dialog-shell"] {
+  position: fixed;
+  inset: -0.143rem;
+  z-index: 2147483646;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  outline: none;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--c-f4f7f1) 60%, transparent) !important;
+}
+
+dialog.logo-loading:focus,
+dialog.logo-loading:focus-visible {
+  outline: none;
+}
+
+/* backdrop 保持透明。dialog 已经盖满视口，再铺一层半透明会叠成接近实色。 */
+html body dialog.logo-loading[data-overlay]::backdrop {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  animation: none !important;
+}
+
+html body dialog.logo-loading[data-overlay="dialog-shell"] > .logo-loading-stage {
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  animation: none !important;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html body dialog.logo-loading[data-overlay="dialog-shell"] {
+    background: color-mix(in srgb, var(--c-f4f7f1) 92%, var(--c-fff)) !important;
+  }
+
+  html body dialog.logo-loading[data-overlay]::backdrop {
+    background: transparent !important;
+  }
+}
+
+.logo-loading-stage {
+  display: grid;
+  justify-items: center;
+  gap: 0.857rem;
+}
+
+.logo-loading-mark {
+  width: 4.571rem;
+  height: 4.571rem;
+  overflow: visible;
+  color: var(--c-395d40);
+}
+
+.logo-loading-plate {
+  fill: currentColor;
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  transform: scale(0.35);
+}
+
+.logo-loading-mark > path:not(.logo-loading-c):not(.logo-loading-u):not(.logo-loading-extra) {
+  fill: none;
+  stroke: none;
+}
+
+.logo-loading-c,
+.logo-loading-u,
+.logo-loading-extra,
+.logo-loading-dot {
+  opacity: 0;
+}
+
+.logo-loading-c,
+.logo-loading-u,
+.logo-loading-extra {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.logo-loading-c,
+.logo-loading-extra {
+  stroke: var(--logo-ink, #f3f6ec);
+}
+
+.logo-loading-extra {
+  opacity: 0;
+}
+
+.logo-loading-u,
+.logo-loading-dot {
+  stroke: none;
+  fill: var(--logo-accent, #b7d295);
+}
+
+.logo-loading-u {
+  fill: none;
+  stroke: var(--logo-accent, #b7d295);
+}
+
+.logo-loading-stage p {
+  margin: 0;
+  color: var(--c-4a524c);
+  font-size: 0.857rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-loading-extra {
+    opacity: 1;
+  }
+}

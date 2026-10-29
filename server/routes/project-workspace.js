@@ -75,6 +75,7 @@ import {
   updateTask,
 } from "../task-pool.js";
 import { threadTaskStats } from "../task-stats.js";
+import { draftBriefSchema, generateTaskDraftBrief } from "../task-draft-brief.js";
 import {
   mentionTaskSourceNotice,
   taskSourceMentionToken,
@@ -509,6 +510,15 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     if (!image) throw new HttpError(404, "截图不存在");
     res.setHeader("Cache-Control", "private, max-age=300");
     res.type(image.mime).send(image.content);
+  });
+  app.post("/api/projects/:id/tasks/draft-brief", async (req, res) => {
+    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+    await service.member(req.user, req.params.id);
+    const data = draftBriefSchema.parse(req.body || {});
+    const brief = await generateTaskDraftBrief(db, req.user, req.params.id, data, (id) =>
+      service.version(req.user, id, { maxBytes: 24000 }),
+    );
+    res.json(brief);
   });
   app.post("/api/projects/:id/tasks", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");

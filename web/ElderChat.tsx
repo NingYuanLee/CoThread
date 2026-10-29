@@ -659,9 +659,15 @@ export function ElderChat({
                   </article>
                 </div>
               )}
+              <div className="conversation-bottom-spacer" aria-hidden="true" />
             </div>
           </div>
           <div className="composer-area" ref={composerAreaRef}>
+            <ScrollToLatest
+              conversationRef={conversationRef}
+              followRef={followConversation}
+              token={view === "chat" ? roomKey : ""}
+            />
             <Suspense
               fallback={
                 <div className="composer-loading" role="status">
@@ -758,11 +764,6 @@ export function ElderChat({
               </div>
             )}
           </div>
-          <ScrollToLatest
-            conversationRef={conversationRef}
-            followRef={followConversation}
-            token={view === "chat" ? roomKey : ""}
-          />
         </>
       )}
     </section>

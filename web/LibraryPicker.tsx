@@ -216,6 +216,9 @@ type LibraryPickerProps = {
   searchPlaceholder?: string;
   emptyLabel?: string;
   showChips?: boolean;
+  /** 搜索行上的上传。不传则不显示，避免只读选择器也能上传。 */
+  onUpload?: () => void;
+  uploadDisabled?: boolean;
 };
 
 export function LibraryPicker({
@@ -233,6 +236,8 @@ export function LibraryPicker({
   searchPlaceholder = "搜索文件或文件夹",
   emptyLabel = "暂无可选的项目文档",
   showChips = true,
+  onUpload,
+  uploadDisabled = false,
 }: LibraryPickerProps) {
   const groupName = useId();
   const [query, setQuery] = useState("");
@@ -562,13 +567,16 @@ export function LibraryPicker({
           placeholder={searchPlaceholder}
           aria-label={searchPlaceholder}
         />
-        {selectedChips.length ? (
-          <small>
-            已选 {selectedChips.length}
-            {multiple ? ` / ${maxTotal}` : ""}
-          </small>
+        {onUpload ? (
+          <button type="button" disabled={uploadDisabled} onClick={onUpload}>
+            上传文件
+          </button>
         ) : null}
       </div>
+      <p className="library-picker-count">
+        已选 {selectedChips.length}
+        {multiple ? ` / ${maxTotal}` : ""}
+      </p>
       {showChips && selectedChips.length ? (
         <div className="library-picker-chips" aria-label="已选文档">
           {selectedChips.map((item) => (

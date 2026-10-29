@@ -1288,7 +1288,14 @@ html body .thread-brief-dialog {
   --overlay-dialog-width: 48.571rem;
 }
 html body .task-create-dialog {
-  --overlay-dialog-width: 54.286rem;
+  --overlay-dialog-width: 72rem;
+  --overlay-dialog-height: min(42rem, var(--overlay-dialog-viewport-height));
+  --overlay-dialog-min-height: 26rem;
+}
+html body .task-draft-ai-dialog {
+  --overlay-dialog-width: 72rem;
+  --overlay-dialog-height: min(34.286rem, var(--overlay-dialog-viewport-height));
+  --overlay-dialog-min-height: 22rem;
 }
 html body .task-op-dialog {
   --overlay-dialog-width: 40rem;

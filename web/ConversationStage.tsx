@@ -59,7 +59,7 @@ import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { annotateWebCitations, webCitationsInBody } from "../shared/citations.js";
 import type { ComposerController } from "./ChatComposer";
 import type { PersonalProfile } from "./ProfileFields";
-import type { Detail, MessageQuote, TaskStatusStats, Thread } from "./workspace-types";
+import type { Detail, MessageQuote, TaskStatusStats, Thread, ThreadView } from "./workspace-types";
 
 const MessageMarkdown = lazy(() =>
   import("./MessageMarkdown").then((module) => ({ default: module.MessageMarkdown })),
@@ -74,6 +74,7 @@ const ChatComposer = lazy(() =>
 export type ConversationStageProps = {
   selection: ConversationSelection;
   onOpenTasks: () => void;
+  onCreateTask?: () => void;
   onOpenBrief: () => void;
   briefDialogOpen: boolean;
   onOpenArchive: (thread: { id: string; title: string }) => void;
@@ -87,12 +88,11 @@ export type ConversationStageProps = {
     selectedFolderRefs?: string[],
     selectedQuotes?: MessageQuote[],
   ) => Promise<boolean>;
-  threadView: "chat" | "trajectory";
+  threadView: ThreadView;
   threadId: string;
   historyLoading: boolean;
   user: PersonalProfile;
   copiedMessage: string;
-  taskDialogOpen: boolean;
   projectId: string;
   busy: boolean;
   dialogueMode: DialogueMode;
@@ -286,6 +286,7 @@ function taskStatsSummary(stats: TaskStatusStats | null): string {
 export function ConversationStage({
   selection,
   onOpenTasks,
+  onCreateTask,
   onOpenBrief,
   briefDialogOpen,
   onOpenArchive,
@@ -294,7 +295,6 @@ export function ConversationStage({
   historyLoading,
   user,
   copiedMessage,
-  taskDialogOpen,
   projectId,
   busy,
   dialogueMode,
@@ -830,18 +830,23 @@ export function ConversationStage({
                 {thread.runs[0].output} 可重新发起任务。
               </div>
             )}
+            <div className="conversation-bottom-spacer" aria-hidden="true" />
           </div>
         </div>
         <div className="composer-area" ref={composerAreaRef}>
+          <ScrollToLatest
+            conversationRef={conversationRef}
+            followRef={followConversation}
+            token={threadView + ":" + threadId}
+          />
           {/* 任务条被背景与目标条顶到上方：不再贴输入框，改成四角全圆的独立条。 */}
           <div className="composer-toolbar composer-toolbar-spaced">
             <div className="conversation-task-pool-wrap">
               <button
                 type="button"
                 className="conversation-task-pool"
-                aria-haspopup="dialog"
-                aria-expanded={taskDialogOpen}
                 aria-label={taskStatsSummary(taskStats)}
+                title="查看本迭代任务"
                 onClick={() => onOpenTasks()}
               >
                 <span className="conversation-task-pool-head">
@@ -948,6 +953,7 @@ export function ConversationStage({
                 onRefresh={refresh}
                 dialogueMode={dialogueMode}
                 onDialogueModeChange={applyDialogueMode}
+                onCreateTask={onCreateTask}
                 onSend={async (body) => {
                   const targetThreadId = threadId;
                   const selectedRefs = [...refs];
@@ -997,11 +1003,6 @@ export function ConversationStage({
             </div>
           ) : null}
         </div>
-        <ScrollToLatest
-          conversationRef={conversationRef}
-          followRef={followConversation}
-          token={threadView + ":" + threadId}
-        />
       </div>
     </>
   );

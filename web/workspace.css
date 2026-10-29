@@ -3205,6 +3205,23 @@ label.reply-toggle input {
   display: none;
 }
 
+.conversation-stage-tasks {
+  flex-direction: column;
+  overflow: hidden;
+  padding-top: var(--workspace-top-strip-height);
+  background: var(--c-fcfdfb);
+}
+
+.conversation-stage-tasks > .task-pool-dialog {
+  flex: 1 1 auto;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+}
+
 .conversation-stage-trajectory {
   flex-direction: column;
   overflow: hidden;
@@ -3306,7 +3323,15 @@ label.reply-toggle input {
   min-width: 0;
   padding-top: calc(1.429rem + var(--workspace-top-strip-height));
   padding-left: 3.429rem;
-  padding-bottom: calc(var(--composer-height, 0) + 1.143rem);
+  /* 底栏是盖在滚动区上的。flex 子项的 padding-bottom 进不了可滚动高度，
+     所以留白改放到内容末尾的占位，否则滚到底仍被底栏挡住。 */
+  padding-bottom: 0;
+}
+
+.conversation-bottom-spacer {
+  height: calc(var(--composer-height, 0) + 1.143rem);
+  flex-shrink: 0;
+  pointer-events: none;
 }
 
 .message-navigator {
@@ -5303,6 +5328,7 @@ label.reply-toggle input {
   min-height: 0;
   overflow: hidden;
   padding: 0;
+  box-shadow: -0.036rem 0 0 var(--c-e7eae7);
 }
 
 .task-pool-item[aria-current="true"] {
@@ -5319,6 +5345,10 @@ label.reply-toggle input {
 @media (max-width: 50rem) {
   .task-pool-dialog-body {
     grid-template-columns: 1fr;
+  }
+
+  .task-pool-dialog-detail {
+    box-shadow: 0 -0.036rem 0 var(--c-e7eae7);
   }
 
   .task-pool-dialog-list {
@@ -5427,6 +5457,63 @@ label.reply-toggle input {
   z-index: 110;
 }
 
+.task-draft-ai-backdrop {
+  z-index: 130;
+}
+
+.task-draft-ai-dialog {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.task-draft-ai-body {
+  display: grid;
+  gap: 0.857rem;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.857rem 1.143rem 1rem;
+}
+
+.task-draft-ai-prompt {
+  display: grid;
+  gap: 0.429rem;
+}
+
+.task-draft-ai-prompt-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.571rem;
+  color: var(--c-27362f);
+  font-size: 0.857rem;
+}
+
+.task-draft-ai-prompt-bar button {
+  padding: 0.143rem 0.429rem;
+  font-size: 0.786rem;
+}
+
+.task-draft-ai-block h3 {
+  margin: 0 0 0.429rem;
+  color: var(--c-27362f);
+  font-size: 0.857rem;
+  font-weight: 500;
+}
+
+.task-draft-ai-block pre {
+  margin: 0;
+  padding: 0.714rem 0.857rem;
+  overflow: auto;
+  border-radius: 0.429rem;
+  background: var(--c-f4f6f2);
+  color: var(--c-40503c);
+  font-size: 0.786rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .task-create-dialog {
   display: flex;
   flex-direction: column;
@@ -5497,11 +5584,111 @@ label.reply-toggle input {
   overflow: hidden;
 }
 
+.task-create-split {
+  display: grid;
+  grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.task-create-files {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0.857rem 1rem 1rem;
+  box-shadow: inset -0.036rem 0 0 var(--c-e7eae7);
+}
+
+.task-create-files-label {
+  flex: none;
+  margin: 0 0 0.571rem;
+  color: var(--c-27362f);
+  font-size: 0.857rem;
+  font-weight: 500;
+}
+
+.task-create-files .library-picker {
+  flex: 1 1 auto;
+  align-content: stretch;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.task-create-files .library-picker-toolbar {
+  grid-row: 1;
+}
+
+.task-create-files .library-picker-count {
+  grid-row: 2;
+}
+
+.task-create-files .library-picker-tree {
+  grid-row: 3;
+  max-height: none;
+  min-height: 0;
+  overflow: auto;
+}
+
+.task-create-files .library-picker-chips {
+  grid-row: 4;
+  align-content: start;
+}
+
+.task-create-ai {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.714rem;
+  min-width: 0;
+}
+
+.task-create-ai-button {
+  flex: none;
+  background: var(--c-3f5945);
+  color: var(--c-fff);
+  font-weight: 600;
+  --stroke: var(--c-3f5945);
+  border-color: transparent;
+}
+
+.task-create-ai-button:hover:not(:disabled) {
+  background: var(--c-33563b);
+  color: var(--c-fff);
+}
+
+.task-create-ai-note {
+  min-width: 0;
+  color: var(--c-708070);
+  font-size: 0.786rem;
+  line-height: 1.4;
+}
+
+.task-create-error {
+  margin: 0;
+  color: var(--c-b4432f);
+  font-size: 0.857rem;
+}
+
 .task-create-fields {
   display: grid;
+  align-content: start;
   gap: var(--field-gap, 0.857rem);
   padding: 0.857rem 1.429rem;
   overflow: auto;
+}
+
+@media (max-width: 50rem) {
+  .task-create-split {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(12rem, 16rem) minmax(0, 1fr);
+  }
+
+  .task-create-files {
+    box-shadow: inset 0 -0.036rem 0 var(--c-e7eae7);
+  }
 }
 
 /* 表单已改用 Field/TextField/TextAreaField/SelectField，原生控件样式不再需要；
@@ -5722,10 +5909,15 @@ label.reply-toggle input {
   min-width: 0;
 }
 
-.library-picker-toolbar > small {
+.library-picker-toolbar > button {
   flex: none;
+}
+
+.library-picker-count {
+  margin: 0;
   color: var(--c-7a8d6a);
   font-size: 0.786rem;
+  line-height: 1.4;
 }
 
 .library-picker-chips {
@@ -9919,6 +10111,34 @@ img.file-type-icon {
   padding: 0.214rem;
   display: grid;
   gap: 0.071rem;
+}
+
+.composer-mode-menu.is-compact {
+  min-width: 9.429rem;
+}
+
+.composer-mode-group-label {
+  padding: 0.286rem 0.714rem 0.071rem;
+  color: var(--c-8a9482);
+  font-size: 0.714rem;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.composer-mode-menu.is-compact .composer-mode-option {
+  gap: 0.571rem;
+  padding: 0.571rem 0.714rem;
+  border-radius: 0.286rem;
+  font-size: 0.929rem;
+  font-weight: 400;
+  --stroke-radius: 0.571rem;
+}
+
+.composer-mode-menu.is-compact .composer-mode-option-icon {
+  width: 1.071rem;
+  height: 1.071rem;
+  border-radius: 0;
+  --stroke-radius: 0;
 }
 
 .composer-mode-menu .composer-mode-option {
@@ -33671,6 +33891,13 @@ html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-clear svg 
 
 /* 底栏上方的「回到最新」：上翻历史时浮出来，点一下回到底部。
    位置跟着量出来的底栏高度与滚动条宽度走，输入框变高或分成两栏都不会压住输入区。 */
+.composer-area > .scroll-to-latest {
+  right: calc(var(--chat-edge, 1.714rem) + 0.571rem);
+  bottom: calc(100% + 0.5rem);
+  top: auto;
+  left: auto;
+}
+
 .scroll-to-latest {
   position: absolute;
   right: calc(var(--chat-edge, 1.714rem) + 0.571rem + var(--chat-scrollbar, 0));

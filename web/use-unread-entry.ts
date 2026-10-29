@@ -14,7 +14,7 @@ import {
   type UnreadAnchor,
 } from "./unread-marker";
 import type { ThreadMessage } from "./workspace-helpers";
-import type { Thread } from "./workspace-types";
+import type { Thread, ThreadView } from "./workspace-types";
 
 const MAX_UNREAD_HISTORY_PAGES = 8;
 const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
@@ -50,7 +50,7 @@ export function useUnreadEntry({
   onCatchUp,
 }: {
   threadId: string;
-  threadView: "chat" | "trajectory";
+  threadView: ThreadView;
   thread: Thread | null;
   timeline: ThreadMessage[];
   historyLoading: boolean;

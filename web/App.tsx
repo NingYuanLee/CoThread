@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { api } from "./workspace-api";
 import { BootScreen } from "./BootScreen";
+import { LogoLoading, useLogoLoadingHold } from "./LogoLoading";
 import { LoginScreen } from "./LoginScreen";
 import type { PersonalProfile } from "./ProfileFields";
 
@@ -28,6 +29,7 @@ async function enterApp() {
 export function App() {
   const [phase, setPhase] = useState<"boot" | "login" | "app">("boot");
   const [error, setError] = useState("");
+  const showBoot = useLogoLoadingHold(phase === "boot" && !error);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -51,8 +53,8 @@ export function App() {
   if (error) {
     return <BootScreen error={error} onRetry={() => window.location.reload()} />;
   }
-  if (phase === "boot") {
-    return <BootScreen error="" onRetry={() => window.location.reload()} />;
+  if (showBoot) {
+    return <LogoLoading label="正在加载工作空间…" />;
   }
   if (phase === "login") {
     return (
@@ -66,7 +68,7 @@ export function App() {
     );
   }
   return (
-    <Suspense fallback={<BootScreen error="" onRetry={() => window.location.reload()} />}>
+    <Suspense fallback={<LogoLoading label="正在加载工作空间…" />}>
       {/^\/admin(?:\/|$)/.test(window.location.pathname) ? <AdminApp /> : <WorkspaceApp />}
     </Suspense>
   );

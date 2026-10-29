@@ -159,6 +159,7 @@ export function ChatComposer({
   uploadTarget,
   dialogueMode = "default",
   onDialogueModeChange,
+  onCreateTask,
   onController,
   mentions = true,
   modes,
@@ -181,6 +182,8 @@ export function ChatComposer({
   uploadTarget: React.MutableRefObject<((files: File[]) => void) | null>;
   dialogueMode?: DialogueMode;
   onDialogueModeChange?: (mode: DialogueMode) => void;
+  /** 群聊加号菜单里的「指令 / 新建任务」。 */
+  onCreateTask?: () => void;
   onController?: (controller: ComposerController | null, threadId?: string) => void;
   /** 为 false 时输入 @ 不弹出成员列表，只当普通文字。 */
   mentions?: boolean;
@@ -200,6 +203,9 @@ export function ChatComposer({
     : SELECTABLE_DIALOGUE_MODES.map((id) => ({ id, ...DIALOGUE_MODE_UI[id] }));
   const selectedModeId = modes?.length ? mode || modeChoices[0]?.id : dialogueMode;
   const selectedMode = modeChoices.find((item) => item.id === selectedModeId) || modeChoices[0];
+  const expertModes = modeChoices.filter((item) => item.id !== "default");
+  const groupedComposerMenu = !modes?.length && !!onDialogueModeChange;
+  const attachInputRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState("");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [imagePreview, setImagePreview] = useState<ImagePreviewSource | null>(null);
@@ -798,14 +804,27 @@ export function ChatComposer({
               >
                 <UiIcon name="plus" size={18} />
               </button>
+              {groupedComposerMenu ? (
+                <input
+                  ref={attachInputRef}
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(event) => {
+                    const chosen = event.target.files ? Array.from(event.target.files) : [];
+                    event.target.value = "";
+                    if (chosen.length) upload(chosen);
+                  }}
+                />
+              ) : null}
               {modeMenuOpen ? (
                 <FloatingPortal>
                   <ContextMenu
                     ref={modeMenuPanelRef}
                     onDismiss={() => setModeMenuOpen(false)}
-                    className={`composer-mode-menu${modeMenuBox ? "" : " is-positioning"}`}
+                    className={`composer-mode-menu${groupedComposerMenu ? " is-compact" : ""}${modeMenuBox ? "" : " is-positioning"}`}
                     role="menu"
-                    aria-label={modes?.length ? "询问范围" : "对话模式"}
+                    aria-label={modes?.length ? "询问范围" : "更多"}
                     style={{
                       position: "fixed",
                       left: modeMenuBox?.left ?? 0,
@@ -814,31 +833,102 @@ export function ChatComposer({
                       maxWidth: "min(360px, calc(100vw - 16px))",
                     }}
                   >
-                    {modeChoices.map((meta) => {
-                      return (
-                        <button
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={selectedModeId === meta.id}
-                          className={`composer-mode-option composer-mode-option-${meta.id}${selectedModeId === meta.id ? " is-active" : ""}`}
-                          key={meta.id}
-                          style={{ "--mode-accent": meta.accent } as React.CSSProperties}
-                          onClick={() => {
-                            if (modes?.length) onModeChange?.(meta.id);
-                            else onDialogueModeChange?.(meta.id as DialogueMode);
-                            setModeMenuOpen(false);
-                          }}
-                        >
-                          <span className="composer-mode-option-icon" aria-hidden="true">
-                            <UiIcon name={meta.icon as UiIconName} size={18} />
-                          </span>
-                          <span className="composer-mode-option-copy">
-                            <span className="composer-mode-option-label">{meta.label}</span>
-                            <span className="composer-mode-option-summary">{meta.summary}</span>
-                          </span>
-                        </button>
-                      );
-                    })}
+                    {groupedComposerMenu ? (
+                      <>
+                        <div className="composer-mode-group" role="group" aria-label="添加">
+                          <div className="composer-mode-group-label">添加</div>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="composer-mode-option"
+                            disabled={busy}
+                            onClick={() => {
+                              setModeMenuOpen(false);
+                              attachInputRef.current?.click();
+                            }}
+                          >
+                            <span className="composer-mode-option-icon" aria-hidden="true">
+                              <UiIcon name="upload" size={15} />
+                            </span>
+                            <span className="composer-mode-option-copy">
+                              <span className="composer-mode-option-label">文件/图片</span>
+                            </span>
+                          </button>
+                        </div>
+                        <div className="composer-mode-group" role="group" aria-label="指令">
+                          <div className="composer-mode-group-label">指令</div>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="composer-mode-option"
+                            disabled={!onCreateTask}
+                            onClick={() => {
+                              setModeMenuOpen(false);
+                              onCreateTask?.();
+                            }}
+                          >
+                            <span className="composer-mode-option-icon" aria-hidden="true">
+                              <UiIcon name="task" size={15} />
+                            </span>
+                            <span className="composer-mode-option-copy">
+                              <span className="composer-mode-option-label">新建任务</span>
+                            </span>
+                          </button>
+                        </div>
+                        {expertModes.length ? (
+                          <div className="composer-mode-group" role="group" aria-label="专家">
+                            <div className="composer-mode-group-label">专家</div>
+                            {expertModes.map((meta) => (
+                              <button
+                                type="button"
+                                role="menuitemradio"
+                                aria-checked={selectedModeId === meta.id}
+                                className={`composer-mode-option composer-mode-option-${meta.id}${selectedModeId === meta.id ? " is-active" : ""}`}
+                                key={meta.id}
+                                style={{ "--mode-accent": meta.accent } as React.CSSProperties}
+                                onClick={() => {
+                                  onDialogueModeChange?.(meta.id as DialogueMode);
+                                  setModeMenuOpen(false);
+                                }}
+                              >
+                                <span className="composer-mode-option-icon" aria-hidden="true">
+                                  <UiIcon name={meta.icon as UiIconName} size={15} />
+                                </span>
+                                <span className="composer-mode-option-copy">
+                                  <span className="composer-mode-option-label">{meta.label}</span>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      modeChoices.map((meta) => {
+                        return (
+                          <button
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={selectedModeId === meta.id}
+                            className={`composer-mode-option composer-mode-option-${meta.id}${selectedModeId === meta.id ? " is-active" : ""}`}
+                            key={meta.id}
+                            style={{ "--mode-accent": meta.accent } as React.CSSProperties}
+                            onClick={() => {
+                              if (modes?.length) onModeChange?.(meta.id);
+                              else onDialogueModeChange?.(meta.id as DialogueMode);
+                              setModeMenuOpen(false);
+                            }}
+                          >
+                            <span className="composer-mode-option-icon" aria-hidden="true">
+                              <UiIcon name={meta.icon as UiIconName} size={18} />
+                            </span>
+                            <span className="composer-mode-option-copy">
+                              <span className="composer-mode-option-label">{meta.label}</span>
+                              <span className="composer-mode-option-summary">{meta.summary}</span>
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
                   </ContextMenu>
                 </FloatingPortal>
               ) : null}

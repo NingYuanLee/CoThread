@@ -1,19 +1,19 @@
 /**
- * 会话头部：群聊/轨迹视图切换、老翁单聊/轨迹切换、停止当前执行。
+ * 会话头部：群聊/轨迹/任务视图切换、老翁单聊/轨迹切换、停止当前执行。
  * 数据与回调由 WorkspaceApp 打包成 props 传入。
  */
 import React, { type Dispatch, type SetStateAction } from "react";
 import { COORDINATOR_LOG_IDLE_LABEL } from "./agent-label";
 import { UiIcon } from "./ui-icon";
 import { api } from "./workspace-api";
-import type { Thread } from "./workspace-types";
+import type { Thread, ThreadView } from "./workspace-types";
 
 export type ConversationHeaderProps = {
   thread: Thread | null;
   /** 有项目且有登录人就能问老翁，不要求项目已有迭代。 */
   canAskElder: boolean;
-  threadView: "chat" | "trajectory";
-  setThreadView: Dispatch<SetStateAction<"chat" | "trajectory">>;
+  threadView: ThreadView;
+  setThreadView: Dispatch<SetStateAction<ThreadView>>;
   coordinatorLogLabel: string;
   liveCoordinator: Thread["replies"][number] | undefined;
   active: boolean;
@@ -85,6 +85,17 @@ export function ConversationHeader({
               )}
               <UiIcon name="trajectory" size={13} />
               轨迹
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className="conversation-view"
+              aria-selected={threadView === "tasks"}
+              title="查看本迭代任务"
+              onClick={() => setThreadView("tasks")}
+            >
+              <UiIcon name="list" size={13} />
+              任务
             </button>
           </div>
           {coordinatorLogLabel !== COORDINATOR_LOG_IDLE_LABEL && (

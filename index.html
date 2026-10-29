@@ -36,7 +36,6 @@
     html[data-theme="ink"], html[data-theme="ink"] body, html[data-theme="ink"] #root { background: #1b231c; color: #d1d9d2; }
     html[data-theme="night"], html[data-theme="night"] body, html[data-theme="night"] #root { background: #151517; color: #e9ecf2; }
     #root:empty { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-    #root:empty::after { content: "正在加载工作空间…"; }
     #root:empty.boot-slow::after { content: "仍在加载前端模块…若超过 1 分钟，请用 http://127.0.0.1:3100 打开并关闭系统代理，或执行 npm run build && npm run dev:static"; white-space: normal; max-width: 22rem; text-align: center; line-height: 1.5; padding: 0 1rem; }
   </style>
 </head>

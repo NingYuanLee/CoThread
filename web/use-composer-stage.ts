@@ -16,12 +16,15 @@ export function useComposerStageMetrics(
 ) {
   useLayoutEffect(() => {
     const initial = composerRef.current?.closest(".conversation-stage");
-    if (!(initial instanceof HTMLElement)) return;
-    // 观察根要在分栏切换时保持不变：.main 不换，stage 换。
-    const root = initial.closest(".main") ?? document.body;
+    // 首次进入时对话还在加载，底栏还没挂上。这里不能直接退出，否则之后
+    // 底栏出现也不会重测，消息区就留不出底部，切走再回来才会正常。
+    const root =
+      (initial instanceof HTMLElement ? initial.closest(".main") : null) ??
+      document.querySelector(".app-shell > .main") ??
+      document.body;
 
     let frame = 0;
-    let stage: HTMLElement | null = initial;
+    let stage: HTMLElement | null = initial instanceof HTMLElement ? initial : null;
     let observedComposer: HTMLElement | null = null;
     let observedConversation: HTMLElement | null = null;
     const resize = new ResizeObserver(() => schedule());
@@ -52,12 +55,17 @@ export function useComposerStageMetrics(
         observedConversation = conversation;
       }
       stage = nextStage;
-      const hidden = composer.hidden || !composer.offsetParent;
-      stage.style.setProperty("--composer-height", `${hidden ? 0 : composer.offsetHeight}px`);
+      const box = composer.getBoundingClientRect();
+      const stageBox = nextStage.getBoundingClientRect();
+      const hidden = composer.hidden || box.height < 1;
+      const limit = Math.max(0, stageBox.height - 96);
+      const height = hidden ? 0 : Math.min(box.height, limit || box.height);
+      stage.style.setProperty("--composer-height", `${Math.round(height)}px`);
       let gutter = 0;
       if (conversation instanceof HTMLElement) {
         gutter = Math.max(0, conversation.offsetWidth - conversation.clientWidth);
         if (!gutter && conversation.scrollHeight > conversation.clientHeight) gutter = 12;
+        gutter = Math.min(24, gutter);
       }
       stage.style.setProperty("--chat-scrollbar", `${gutter}px`);
     };

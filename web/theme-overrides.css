@@ -508,8 +508,13 @@ html[data-theme="night"] {
   --logo-ink: #ffffff;
 }
 
-html[data-theme="night"] :is(.brand-logo, .welcome-logo, .sidebar-logo) {
+html[data-theme="night"] :is(.brand-logo, .welcome-logo, .sidebar-logo, .logo-loading-mark) {
   color: #3b82f6;
+}
+
+html[data-theme="night"] .task-create-ai-button,
+html[data-theme="night"] .task-create-ai-button:hover:not(:disabled) {
+  color: #fff;
 }
 
 html[data-theme="night"] :is(.brand-logo, .welcome-logo) {

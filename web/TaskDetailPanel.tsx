@@ -97,6 +97,8 @@ function TaskOpDialog({
 }
 export type TaskDetailPanelProps = {
   taskId: string;
+  /** 任务视图正在显示。隐藏时停掉详情轮询，避免人在群聊里还在打接口。 */
+  shown: boolean;
   taskCreateOpen: boolean;
   tasks: AgentTask[];
   onChanged: () => Promise<unknown>;
@@ -157,6 +159,7 @@ function draftEditFrom(
 
 export function TaskDetailPanel({
   taskId,
+  shown,
   taskCreateOpen,
   tasks,
   onChanged,
@@ -244,15 +247,15 @@ export function TaskDetailPanel({
     const timer = setTimeout(() => setCopiedTaskId(""), 2000);
     return () => clearTimeout(timer);
   }, [copiedTaskId]);
+  const primedTaskId = useRef("");
   useEffect(() => {
-    if (!selectedTaskId) {
-      setTaskDetail(null);
+    if (!shown || !selectedTaskId) {
+      if (!selectedTaskId) setTaskDetail(null);
       return;
     }
     let alive = true;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
-    let primed = false;
     const load = async () => {
       const revision = detailRevision.current;
       try {
@@ -264,8 +267,8 @@ export function TaskDetailPanel({
         );
         if (!alive || operationBusy.current || revision !== detailRevision.current) return;
         setTaskDetail(value);
-        if (!primed) {
-          primed = true;
+        if (primedTaskId.current !== selectedTaskId) {
+          primedTaskId.current = selectedTaskId;
           setTaskResult(value.result_summary || "");
           setTaskReopenGoal(value.goal || "");
           setTaskReopenConstraints(value.constraints || "");
@@ -287,7 +290,7 @@ export function TaskDetailPanel({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [selectedTaskId]);
+  }, [selectedTaskId, shown]);
 
   const performTaskAction = async (action: () => Promise<unknown>, success = "操作成功") => {
     if (operationBusy.current) return;
@@ -822,8 +825,8 @@ export function TaskDetailPanel({
                                   onEditDraft(draftEditFrom(task, "save", user.id, detail))
                                 }
                               >
-                                <UiIcon name="save" size={13} />
-                                保存
+                                <UiIcon name="edit" size={13} />
+                                编辑
                               </button>
                               <button
                                 type="button"

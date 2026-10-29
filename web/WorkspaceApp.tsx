@@ -135,11 +135,20 @@ import {
 
 import { ProjectPicker } from "./ProjectPicker";
 import { BootScreen } from "./BootScreen";
+import { LogoLoading, useLogoLoadingHold } from "./LogoLoading";
 const LoginScreen = lazy(() =>
   import("./LoginScreen").then((module) => ({ default: module.LoginScreen })),
 );
 import { useActionTooltips } from "./use-action-tooltips";
-import type { Detail, MessageQuote, Modal, Project, Thread, Version } from "./workspace-types";
+import type {
+  Detail,
+  MessageQuote,
+  Modal,
+  Project,
+  Thread,
+  ThreadView,
+  Version,
+} from "./workspace-types";
 import {
   placeProjectTab,
   readProjectTabOrder,
@@ -276,16 +285,23 @@ export function WorkspaceApp() {
   const detail =
     loadedDetail?.id === projectId ? loadedDetail : projectCache.current.get(projectId) || null;
   const [threadId, setThreadId] = useState("");
-  const [threadView, setThreadView] = useState<"chat" | "trajectory">("chat");
+  const [threadView, setThreadView] = useState<ThreadView>("chat");
   const [elderOpen, setElderOpen] = useState(false);
   const [elderView, setElderView] = useState<"chat" | "trajectory">("chat");
   useEffect(() => {
-    setThreadView("chat");
+    // 换迭代时群聊和轨迹回到对话；任务视图留下，继续看新迭代的任务。
+    setThreadView((current) => (current === "tasks" ? current : "chat"));
   }, [threadId]);
   const pendingNotification = useRef<{ projectId: string; threadId: string | null } | null>(null);
   const [loadedThread, setThread] = useState<Thread | null>(null);
   const thread =
     loadedThread?.id === threadId ? loadedThread : threadCache.current.get(threadId) || null;
+  const showWorkspaceBoot = useLogoLoadingHold(
+    !startupError && (loading || (!!user && bootstrappedUser.current !== user.id)),
+  );
+  const showStageLoading = useLogoLoadingHold(
+    Boolean(projectId && !thread && (!detail || threadId)),
+  );
   const hasPendingWork = (value: Thread | null | undefined) =>
     !!value &&
     (value.replies.some((r) => ["queued", "running"].includes(r.status)) ||
@@ -638,13 +654,12 @@ export function WorkspaceApp() {
     setMemoryFocusId(id);
     setMemoryOpen(true);
   };
-  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [briefDialogOpen, setBriefDialogOpen] = useState(false);
   const [taskSelection, setTaskSelection] = useState({ id: 0, taskId: "" });
   const { tasks: taskPool, refresh: refreshProjectTasks } = useProjectTasks(
     projectId,
     user?.id,
-    taskDialogOpen,
+    threadView === "tasks",
     setError,
   );
   const taskCreateSequence = useRef(0);
@@ -741,11 +756,10 @@ export function WorkspaceApp() {
     device.projects?.some((item) => item.projectId === projectId),
   );
   const taskStats = useThreadTaskStats(projectId, threadId);
-  const openTaskDialog = (taskId = "") => {
-    setTaskSelection((current) => ({ id: current.id + 1, taskId }));
-    setTaskDialogOpen(true);
+  const showTasks = (taskId = "") => {
+    if (taskId) setTaskSelection((current) => ({ id: current.id + 1, taskId }));
+    setThreadView("tasks");
   };
-  const openTask = (taskId: string) => openTaskDialog(taskId);
   const openTaskCreate = (seed?: {
     refId?: string;
     folderId?: string;
@@ -763,7 +777,6 @@ export function WorkspaceApp() {
   };
   useEffect(() => {
     setTaskSelection((current) => ({ id: current.id + 1, taskId: "" }));
-    setTaskDialogOpen(false);
     setTaskCreateRequest(null);
     setNewThreadOpen(false);
   }, [threadId, projectId, user?.id]);
@@ -1505,8 +1518,8 @@ export function WorkspaceApp() {
       </button>
     );
   };
-  if (loading || startupError || (user && bootstrappedUser.current !== user.id))
-    return <BootScreen error={startupError} onRetry={() => void loadWorkspace()} />;
+  if (startupError) return <BootScreen error={startupError} onRetry={() => void loadWorkspace()} />;
+  if (showWorkspaceBoot) return <LogoLoading label="正在加载工作空间…" />;
   if (!user)
     return (
       <Suspense fallback={<BootScreen error="" onRetry={() => void loadWorkspace()} />}>
@@ -1679,7 +1692,8 @@ export function WorkspaceApp() {
   bindMessageMarkdownOpener(openConversationFile);
   const stageProps = {
     selection,
-    onOpenTasks: () => openTaskDialog(),
+    onOpenTasks: () => showTasks(),
+    onCreateTask: () => openTaskCreate(),
     onOpenBrief: () => setBriefDialogOpen(true),
     briefDialogOpen,
     onOpenArchive: setArchiveDialog,
@@ -1688,7 +1702,6 @@ export function WorkspaceApp() {
     historyLoading,
     user,
     copiedMessage,
-    taskDialogOpen,
     projectId,
     busy,
     dialogueMode,
@@ -1801,6 +1814,29 @@ export function WorkspaceApp() {
         </Suspense>
       </div>
     ) : null;
+  // 任务视图保持挂载，来回切换时筛选和选中不丢；隐藏时不再轮询。
+  const threadTasksView = threadId ? (
+    <div className="conversation-stage conversation-stage-tasks" hidden={threadView !== "tasks"}>
+      <TaskListDialog
+        key={`${user.id}:${projectId}:${threadId}`}
+        shown={threadView === "tasks"}
+        selection={taskSelection}
+        tasks={taskPool}
+        taskCreateOpen={taskCreateOpen}
+        onChanged={refreshProjectTasks}
+        detail={detail}
+        projectId={projectId}
+        threadId={threadId}
+        user={user}
+        active={!!active}
+        openTaskCreate={openTaskCreate}
+        renderRef={renderRef}
+        projectConnectorBound={projectConnectorBound}
+        time={time}
+        mcpEndpoint={health?.mcpEndpoint || "/mcp"}
+      />
+    </div>
+  ) : null;
   const elderPane =
     projectId && user ? (
       <ElderChat
@@ -1882,25 +1918,8 @@ export function WorkspaceApp() {
           <header className="workspace-top-strip">
             <ConversationHeader {...conversationHeaderProps} />
           </header>
-          {!thread && projectId && (!detail || threadId) ? (
-            <div className="conversation-loading" role="status" aria-live="polite" aria-busy="true">
-              <p>{threadId ? "正在加载会话…" : "正在加载项目…"}</p>
-              <div className="conversation-skeleton">
-                <i />
-                <span />
-                <span />
-              </div>
-              <div className="conversation-skeleton">
-                <i />
-                <span />
-                <span />
-              </div>
-              <div className="conversation-skeleton">
-                <i />
-                <span />
-                <span />
-              </div>
-            </div>
+          {showStageLoading ? (
+            <LogoLoading label={threadId ? "正在加载会话…" : "正在加载项目…"} />
           ) : !thread ? (
             elderSplitOpen ? (
               <div className="conversation-split">
@@ -1922,6 +1941,7 @@ export function WorkspaceApp() {
                       <ConversationStage {...stageProps} />
                     </div>
                     {threadTrajectoryView}
+                    {threadTasksView}
                   </div>
                   {elderSplitDivider}
                   {elderPane}
@@ -1932,6 +1952,7 @@ export function WorkspaceApp() {
                     <ConversationStage {...stageProps} />
                   </div>
                   {threadTrajectoryView}
+                  {threadTasksView}
                 </>
               )}
             </>
@@ -2045,29 +2066,6 @@ export function WorkspaceApp() {
             </Suspense>
           ) : null}
         </aside>
-        {taskDialogOpen && (
-          <TaskListDialog
-            key={`${user.id}:${projectId}:${threadId}`}
-            selection={taskSelection}
-            tasks={taskPool}
-            taskCreateOpen={taskCreateOpen}
-            onClose={() => {
-              closeTaskCreate();
-              setTaskDialogOpen(false);
-            }}
-            onChanged={refreshProjectTasks}
-            detail={detail}
-            projectId={projectId}
-            threadId={threadId}
-            user={user}
-            active={!!active}
-            openTaskCreate={openTaskCreate}
-            renderRef={renderRef}
-            projectConnectorBound={projectConnectorBound}
-            time={time}
-            mcpEndpoint={health?.mcpEndpoint || "/mcp"}
-          />
-        )}
         {briefDialogOpen && thread && (
           <Suspense fallback={null}>
             <ThreadBriefDialog
@@ -2092,6 +2090,7 @@ export function WorkspaceApp() {
             copyFrom={taskCreateRequest.copyFrom}
             draftEdit={taskCreateRequest.draftEdit}
             onClose={closeTaskCreate}
+            onLibraryRefresh={refreshDocuments}
             onCreated={(taskId) => {
               if (
                 currentContext.current.projectId !== projectId ||

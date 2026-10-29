@@ -3,11 +3,11 @@ import { sameSnapshot } from "../shared/poll-signature.js";
 import { api } from "./workspace-api";
 import type { AgentTask } from "./workspace-types";
 
-/** 项目任务资源由聊天和任务弹窗共享；搜索、草稿和详情不进入这层。 */
+/** 任务列表只在任务视图打开时拉取。离开后停止轮询；搜索、草稿和详情不进入这层。 */
 export function useProjectTasks(
   projectId: string,
   userId: string | undefined,
-  inspecting: boolean,
+  active: boolean,
   onError: (message: string) => void,
 ) {
   const scope = `${userId || ""}:${projectId}`;
@@ -50,7 +50,7 @@ export function useProjectTasks(
     [scope, projectId, userId],
   );
   useEffect(() => {
-    if (!projectId || !userId) return;
+    if (!projectId || !userId || !active) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const load = async () => {
@@ -59,7 +59,7 @@ export function useProjectTasks(
       } catch (cause) {
         if (!controller.signal.aborted) errorHandler.current((cause as Error).message);
       } finally {
-        if (!controller.signal.aborted) timer = setTimeout(load, inspecting ? 5000 : 15000);
+        if (!controller.signal.aborted) timer = setTimeout(load, 5000);
       }
     };
     void load();
@@ -67,7 +67,7 @@ export function useProjectTasks(
       controller.abort();
       clearTimeout(timer);
     };
-  }, [refresh, inspecting, projectId, userId]);
+  }, [refresh, active, projectId, userId]);
   return {
     tasks: snapshot.identity === currentScope.current ? snapshot.tasks : [],
     refresh: useCallback(() => refresh(), [refresh]),

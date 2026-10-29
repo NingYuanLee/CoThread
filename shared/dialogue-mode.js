@@ -4,8 +4,8 @@ export const SELECTABLE_DIALOGUE_MODES = DIALOGUE_MODES.filter((mode) => mode !=
 export const DIALOGUE_MODE_LABELS = {
   default: "自由发言",
   chat: "有问必答",
-  miniprogram: "仅小程序",
-  cloudbase: "CloudBase",
+  miniprogram: "小程序开发",
+  cloudbase: "CloudBase开发",
 };
 
 /** Icon names match `web/ui-icon` UiIconName. */

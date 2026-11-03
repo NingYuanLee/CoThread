@@ -55,6 +55,20 @@ test("老翁 keeps a durable DSH session per maintenance agent and validates str
         async run(_prompt, runOptions) {
           resumeSessions.push(harnessOptions.env.COTHREAD_RESUME_SESSION);
           sessionIds.push(runOptions.sessionId);
+          runOptions.onNotification({
+            method: "session.event",
+            params: {
+              sessionId: runOptions.sessionId,
+              event: {
+                type: "assistant/message",
+                data: {
+                  turn: 1,
+                  step: 1,
+                  usage: { inputTokens: 10, outputTokens: 4, cacheReadTokens: 2 },
+                },
+              },
+            },
+          });
           return { finalResponse: outputs.shift() };
         },
         async close() {},
@@ -79,6 +93,31 @@ test("老翁 keeps a durable DSH session per maintenance agent and validates str
     assert.notEqual(sessionIds[0], sessionIds[1]);
     assert.equal(sessionIds[0], sessionIds[2]);
     assert.deepEqual(resumeSessions, ["", "", sessionIds[0]]);
+    const recorded = await query(
+      database.db,
+      "SELECT input_text,output_text,usage_stats,started_at,finished_at FROM agent_laoweng_session_turns WHERE project_id=? AND task='document_memory' ORDER BY started_at,id",
+      [project.id],
+    );
+    assert.equal(recorded.length, 2);
+    assert.ok(
+      recorded.every(
+        (turn) => turn.input_text && turn.output_text && turn.started_at && turn.finished_at,
+      ),
+    );
+    const usage =
+      typeof recorded[0].usage_stats === "string"
+        ? JSON.parse(recorded[0].usage_stats)
+        : recorded[0].usage_stats;
+    assert.equal(usage.totalTokens, 16);
+    assert.ok(usage.executionDurationMs >= 0);
+    const savedView = await readLaowengTaskSession(
+      new Service(database.db),
+      user,
+      project.id,
+      "document_memory",
+    );
+    assert.equal(savedView.messages.filter((message) => message.role === "assistant").length, 2);
+    assert.equal(savedView.messages.at(-1).usage.totalTokens, 16);
     const sessions = await query(
       database.db,
       "SELECT task,status,last_error,checkpoint IS NOT NULL has_checkpoint FROM agent_project_sessions WHERE project_id=? ORDER BY task",
@@ -232,7 +271,7 @@ test("老翁 session view projects native DSH history and stays empty without a 
   }
 });
 
-test("iteration archive reuses one 老翁 session per project and updates project long-term memory", async () => {
+test("归档后的旧记忆作业退出，项目现状由里程碑作业维护", async () => {
   try {
     const user = { id: randomUUID(), kind: "session" };
     await query(
@@ -304,8 +343,14 @@ test("iteration archive reuses one 老翁 session per project and updates projec
       true,
     );
     const stored = await service.project(user, project.id);
-    assert.equal(stored.longTermSummary.summary, "项目总结：方案 A 已上线，下一步做推广");
-    assert.equal(stored.longTermSummary.lastThreadTitle, "第二轮");
+    // 占位节点不将归档内容当作已核实的项目现状，也不写旧缓存。
+    assert.equal(stored.longTermSummary, null);
+    const summaries = await query(
+      database.db,
+      "SELECT summary FROM agent_project_summaries WHERE project_id=?",
+      [project.id],
+    );
+    assert.equal(summaries.length, 0);
     // 直接排队，避免 queueLaowengMemoryRun 同步 kick 真实维护把 mock harness 绕开。
     await query(
       database.db,
@@ -321,25 +366,21 @@ test("iteration archive reuses one 老翁 session per project and updates projec
       }),
       true,
     );
-    assert.equal(sessionIds.length, 3);
-    assert.equal(sessionIds[0], sessionIds[1]);
-    assert.equal(sessionIds[2], sessionIds[0]);
-    const sessions = await query(
+    assert.equal(sessionIds.length, 0, "归档后不再调用旧总结模型");
+    const runs = await query(
       database.db,
-      "SELECT task,thread_id,session_id FROM agent_project_sessions WHERE project_id=? AND task='iteration_archive'",
+      "SELECT result FROM agent_laoweng_runs WHERE project_id=? AND task='iteration_archive' AND (archive_phase IS NULL OR archive_phase='memory') AND status='completed'",
       [project.id],
     );
-    assert.equal(sessions.length, 1);
-    assert.equal(sessions[0].thread_id, null);
-    const logs = await service.agentLogs(user, "project", project.id, {
-      task: "iteration_archive",
-    });
-    assert.ok(logs.title.includes("迭代归档"));
-    assert.ok(logs.events.every((event) => event.task === "iteration_archive"));
-    assert.ok(logs.events.filter((event) => event.tool === "prepare_context").length >= 3);
+    assert.ok(runs.length >= 3);
+    assert.ok(
+      runs.every((run) => {
+        const result = typeof run.result === "string" ? JSON.parse(run.result) : run.result;
+        return result?.discarded && result.reason === "归档后的现状由里程碑作业维护";
+      }),
+    );
     const monitor = await service.agentMonitor(user, project.id);
     assert.equal(monitor.knowledge.archives.length, 2);
-    assert.ok(monitor.knowledge.archives.every((item) => item.contextUsage));
   } finally {
   }
 });

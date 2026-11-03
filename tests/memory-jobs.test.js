@@ -6,6 +6,7 @@ import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { MEMORY_JOBS, MEMORY_JOB_KEYS } from "../shared/memory-jobs.js";
 import {
+  listMemoryJobHistory,
   listMemoryJobs,
   resetMemoryJobSettings,
   updateMemoryJobSettings,
@@ -16,6 +17,54 @@ import {
   retryMemoryJob,
 } from "../server/project-memory.js";
 import { LAOWENG_MAINTENANCE_TASKS } from "../shared/agent-label.js";
+
+test("记忆作业历史按项目和作业筛选并在服务端分页", async () => {
+  const calls = [];
+  const db = {
+    execute: async (sql, params) => {
+      calls.push({ sql, params });
+      return [calls.length === 1 ? [{ total: 23 }] : [{ id: "run-3" }]];
+    },
+  };
+  const result = await listMemoryJobHistory(db, "project-1", "document_memory", {
+    keyword: "失败%",
+    page: 99,
+    pageSize: 10,
+  });
+  assert.deepEqual(result, {
+    rows: [{ id: "run-3", documentItems: [] }],
+    total: 23,
+    page: 3,
+    pageSize: 10,
+  });
+  assert.deepEqual(calls[0].params, [
+    "project-1",
+    "document_memory",
+    "project_document_memory",
+    "iteration_document_memory",
+    "失败%",
+  ]);
+  assert.deepEqual(calls[1].params.slice(-2), [10, 20]);
+  assert.match(calls[0].sql, /LOCATE/);
+  assert.match(calls[1].sql, /LIMIT \? OFFSET \?/);
+  assert.deepEqual(await listMemoryJobHistory(db, "project-1", "task_memory"), {
+    rows: [],
+    total: 0,
+    page: 1,
+    pageSize: 10,
+  });
+  const discussionCalls = [];
+  const discussionDb = {
+    execute: async (sql, params) => {
+      discussionCalls.push({ sql, params });
+      return [discussionCalls.length === 1 ? [{ total: 1 }] : [{ id: "shared-run" }]];
+    },
+  };
+  const discussion = await listMemoryJobHistory(discussionDb, "project-1", "discussion_memory");
+  assert.equal(discussion.rows[0].id, "shared-run");
+  assert.equal(discussionCalls[0].params[1], "member_memory");
+  await assert.rejects(listMemoryJobHistory(db, "project-1", "invalid"), /没有这个记忆作业/);
+});
 
 test("五类记忆作业口径完整，有队列的键已注册为维护任务", () => {
   assert.equal(MEMORY_JOBS.length, 5);
@@ -35,8 +84,9 @@ test("五类记忆作业口径完整，有队列的键已注册为维护任务",
         job.key + " 缺少 " + field,
       );
     assert.ok(Array.isArray(job.tools) && job.tools.length > 0, job.key + " 缺少工具");
-    if (job.queue)
+    if (job.queue && job.key !== "discussion_memory")
       assert.ok(LAOWENG_MAINTENANCE_TASKS.includes(job.key), job.key + " 未注册维护任务");
+    if (job.key === "discussion_memory") assert.equal(job.queue, "conversation_memory_queue");
     if (!job.queue) assert.match(job.trigger, /结算|候选|归档/, job.key + " 应说明承接方式");
   }
 });
@@ -158,7 +208,7 @@ test("库里残留的项目级口径不再改变触发", async () => {
   }
 });
 
-test("重试按作业分派，无独立队列的作业拒绝", async () => {
+test("讨论和发言重试分派到联合维护任务", async () => {
   const database = await testDatabase();
   const db = database.db;
   try {
@@ -172,10 +222,8 @@ test("重试按作业分派，无独立队列的作业拒绝", async () => {
     const project = await service.createProject(owner, { name: "重试项目" });
     const taskRun = await retryMemoryJob(service, owner, project.id, "task_memory");
     assert.ok(taskRun?.distributionId);
-    await assert.rejects(
-      retryMemoryJob(service, owner, project.id, "discussion_memory"),
-      /还没有已归档的迭代/,
-    );
+    const discussionRun = await retryMemoryJob(service, owner, project.id, "discussion_memory");
+    assert.equal(discussionRun.task, "member_memory");
     await assert.rejects(
       retryMemoryJob(service, owner, project.id, "not_a_job"),
       /没有这个记忆作业/,
@@ -187,4 +235,143 @@ test("重试按作业分派，无独立队列的作业拒绝", async () => {
   } finally {
     await database.close();
   }
+});
+
+test("处理记录返回独立结果与此前完成范围", async () => {
+  const db = {
+    execute: async (sql) => {
+      if (sql.includes("FROM conversation_memory_windows w JOIN threads"))
+        return [
+          [
+            {
+              id: "window-1",
+              previousCompletedSequence: "10",
+              firstSequence: "11",
+              lastSequence: "20",
+            },
+          ],
+        ];
+      if (sql.includes("FROM conversation_memory_candidates c WHERE c.window_id IN"))
+        return [
+          [
+            {
+              id: "a",
+              windowId: "window-1",
+              kind: "discussion",
+              status: "completed",
+              payload: JSON.stringify({ title: "旧议题", pageId: "old" }),
+              pageId: "old",
+            },
+            {
+              id: "b",
+              windowId: "window-1",
+              kind: "discussion",
+              status: "failed",
+              payload: { title: "新议题" },
+              error: "保存失败",
+            },
+            {
+              id: "c",
+              windowId: "window-1",
+              kind: "statement",
+              status: "completed",
+              payload: { title: "发言" },
+              pageId: "new",
+            },
+          ],
+        ];
+      if (sql.includes("COUNT(*) total") && sql.includes("FROM artifacts"))
+        return [[{ total: 0, pending: 0 }]];
+      if (sql.includes("COUNT(*) count")) return [[{ count: 0 }]];
+      if (sql.includes("SUM(statement_status")) return [[{ statements: 0, discussions: 0 }]];
+      return [[]];
+    },
+  };
+  const jobs = await listMemoryJobs(db, "project-1");
+  const record = jobs.find((job) => job.key === "discussion_memory").conversationWindows[0];
+  assert.equal(record.previousCompletedSequence, "10");
+  assert.deepEqual(
+    record.results.map(({ action, status }) => [action, status]),
+    [
+      ["update", "completed"],
+      ["create", "failed"],
+      ["create", "completed"],
+    ],
+  );
+  assert.equal(record.results[1].error, "保存失败");
+});
+
+test("运行历史按运行 ID 返回处理范围和当次结果快照", async () => {
+  const db = {
+    execute: async (sql) => {
+      if (sql.includes("COUNT(*) AS total")) return [[{ total: 1 }]];
+      if (sql.includes("FROM agent_laoweng_runs WHERE")) return [[{ id: "run-1" }]];
+      if (sql.includes("FROM conversation_run_windows"))
+        return [[{ runId: "run-1", threadTitle: "讨论", firstSequence: "11", lastSequence: "20" }]];
+      if (sql.includes("FROM conversation_run_items"))
+        return [
+          [
+            {
+              runId: "run-1",
+              id: "item-1",
+              kind: "discussion",
+              status: "failed",
+              payload: JSON.stringify({ title: "议题", pageId: "old" }),
+              error: "保存失败",
+            },
+          ],
+        ];
+      throw new Error("unexpected query");
+    },
+  };
+  const history = await listMemoryJobHistory(db, "project-1", "discussion_memory");
+  assert.equal(history.rows[0].conversationRange.firstSequence, "11");
+  assert.equal(history.rows[0].conversationItems[0].action, "update");
+  assert.equal(history.rows[0].conversationItems[0].status, "failed");
+});
+
+test("项目记忆运行历史返回提交阶段的结果快照", async () => {
+  const db = {
+    execute: async (sql) => {
+      if (sql.includes("COUNT(*) AS total")) return [[{ total: 1 }]];
+      if (sql.includes("FROM agent_laoweng_runs WHERE")) return [[{ id: "run-1" }]];
+      if (sql.includes("FROM project_memory_run_phases"))
+        return [
+          [
+            {
+              runId: "run-1",
+              phase: "milestones",
+              result: JSON.stringify({
+                changes: [{ id: "p", action: "create", subject: "task", title: "任务" }],
+                statusUpdated: false,
+              }),
+            },
+          ],
+        ];
+      throw new Error("unexpected query");
+    },
+  };
+  const history = await listMemoryJobHistory(db, "project-1", "project_memory");
+  assert.equal(history.rows[0].projectPhases[0].changes[0].subject, "task");
+  assert.equal(history.rows[0].projectPhases[0].changes[0].action, "create");
+});
+
+test("记忆运行历史按触发类型在服务端筛选", async () => {
+  const calls = [];
+  const db = {
+    execute: async (sql, params) => {
+      calls.push({ sql, params });
+      return [calls.length === 1 ? [{ total: 0 }] : []];
+    },
+  };
+  await listMemoryJobHistory(db, "project-1", "document_memory", {
+    trigger: "user",
+    keyword: "失败",
+  });
+  assert.match(calls[0].sql, /trigger_source=\?/);
+  assert.deepEqual(calls[0].params.slice(-2), ["user", "失败"]);
+  await assert.rejects(
+    listMemoryJobHistory(db, "project-1", "document_memory", { trigger: "archive" }),
+    /无效的触发类型/,
+  );
 });

@@ -1,170 +1,59 @@
-# 项目记忆：实现契约
+# 项目记忆：当前实现契约
 
-状态：进行中（2026-10-25 起）。本文是实现契约，随代码同步更新。
+最近核查：2026-11-03，本地代码与独立测试库。尚未部署。完整设计、验证与恢复边界见 [按来源治理记忆](20-memory-source-lifecycle-plan.md)。后文第 10 节起保留旧实现记录，只用于追溯，不能作为当前接口契约或本轮验收成绩。
 
-## 1. 定位
+## 1. 治理原则
 
-项目记忆 = 老翁持续整理 + 人确认与纠错 + 迭代归档清算 + 项目归档封存。
+决定都有出处。记忆只分现行 current 与作废 superseded，现行不表示真实。五大类表达用途：关键发言、核心议题、重要任务、里程碑、文件索引。三大来源决定更新与作废权限，修改五类标签不能改变来源权限。AI 疑问、矛盾分析和人工反馈独立保存，不是记忆真假状态。
 
-- 不做独立的「知识库」检索入口，也不做向量库；复用现有知识页表。
-- 两类读者：新人看沉淀（导读 + 现行条目），老成员看过程（时间线 + 变更摘要）。
-- 人只做三件事：过程确认、纠错标注、迭代清算清单确认。不写正文。
+| 来源           | 当前更新                                             | 作废权限                                           |
+| -------------- | ---------------------------------------------------- | -------------------------------------------------- |
+| 群消息         | 保存谁何时说过什么，明确改口另记并关联，旧话不被覆盖 | 只有真实登录的人类可明确作废，须有写权限并填写原因 |
+| 项目—迭代—任务 | 当前状态据实覆盖，创建、执行和变更事件累积           | 人和 AI 均禁止                                     |
+| 项目文件       | 依确认事件与内容身份替换索引，保存旧修订             | 文件维护服务自动处理                               |
 
-## 2. 数据模型（记忆即 wiki，另加关系网）
+未知或混合来源保留缺口，不能按第一条出处或用途标签授权。归档项目遵守现有项目访问与写入边界。
 
-| 记忆概念 | 复用对象                   | 说明                                                                                                                                                                                                |
-| -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 记忆条目 | `wiki_pages`               | `subject_type` 是一级类型，`memory_subtype` 是受控二级类型；五类一级类型为关键发言/主要文档/重要任务/核心议题/里程碑；发言记忆用 `about_user_id` 指向说的是谁；`recall_count` / `last_recalled_at` 记召回活跃度。知识页时代的 `kind`（guide/decision/retro/glossary/status）已删除 |
-| 出处     | `wiki_page_sources`        | message / document_version / task / archive / thread（讨论记忆挂迭代）                                                                                                                              |
-| 关系     | `memory_relations`         | 记忆之间织网：`relates` 关联、`derives` 继承（单向防环）、`supersedes` 替代                                                                                                                         |
-| 导读     | `agent_project_summaries`  | 老翁维护，更新式，进入首页顶部                                                                                                                                                                      |
-| 时间线卡 | `threads.archive_snapshot` | 不可变，含 conclusion / taskDecisions / nextThreadId                                                                                                                                                |
-| 新人判定 | `members.tab_opened_at`    | 为空即从未进入；关闭页签不清除它                                                                                                                                                                    |
+## 2. 保存与出处
 
-### 2.1 二级类型
+- wiki_pages、wiki_page_sources 和 memory_relations 保留，新增 corrects 纠正关系。memory_page_revisions 固定正文与当时出处，document_content_revisions 固定文件字节，memory_evidence_snapshots/links 保存依据，memory_judgments 保存独立判断。
+- conversation_memory_source_snapshots 保存原话与作者。消息编辑不抹去已形成的快照；原消息被永久删除后仍遵守访问边界。
+- project_activity_history 保存业务事实事件。创建者、创建时间、归属、任务现状和执行数来自业务表；无法确认的更新操作者留空。完整计数与分页明细从同一只读快照读取。
+- 文件导航仍按 artifact，内容变更产生新索引。旧索引作废不删除旧正文和旧字节。确认日志保留来源产物版本及确认 ID；未确认的新产物不能替换正式内容。人工移除文件组合仅隐藏展示，不作废记忆。
+- 回答固定实际阅读的记忆修订；任务创建固定来源请求、明确采用的 memoryRevisionIds 和附带文档修订。检索到不等于采用。旧决定缺少快照时不补造依据。
 
-页面上原来标知识页类型的位置，现在显示 `memory_subtype` 的中文名。归档确认仍生成两页，但不再用 `kind` 区分：复盘页是核心议题 / 问题复盘，决策页是里程碑 / 迭代归档。
+## 3. 接口与工具
 
-### 2.2 status 状态机
+以下均沿用项目成员和原出处权限。
 
-| 转移                     | 触发                           | 执行者                                                       |
-| ------------------------ | ------------------------------ | ------------------------------------------------------------ |
-| 新建 `draft`             | 日常结算（消息/任务/文档版本） | 老翁                                                         |
-| `draft` → `current`      | 过程确认，或迭代清算清单确认   | 人                                                           |
-| `draft` 保留             | 清算时未确认                   | 系统；不转正，只计数提示                                     |
-| `current` 小修           | 日常结算补充进展               | 老翁；写 updated_at，前端标「最近变化」                      |
-| `current` 冲突           | 日常结算发现结论相反           | 老翁标争议，**不覆盖现行**，等人在过程中裁决                 |
-| `current` → `superseded` | 清算或人裁决后                 | 老翁执行；保留可查                                           |
-| 项目封存                 | 项目归档                       | 项目对成员关闭，记忆随之不可读写；管理员恢复项目后才能再打开 |
+| 接口                                            | 当前语义                                                                      |
+| ----------------------------------------------- | ----------------------------------------------------------------------------- |
+| GET /api/projects/:id/memory                    | 导读、时间轴、现行或作废条目、来源和关系                                      |
+| GET .../memory/counts                           | disputes 与 updatedSinceEntry，不再返回 drafts。disputes 是反馈展示的兼容字段 |
+| POST .../memory/entries/:entryId/supersede      | 真人停用群消息来源记忆，须传 reason                                           |
+| POST .../memory/entries/:entryId/flag           | 独立反馈，保留正文与生命周期                                                  |
+| POST .../memory/entries/:entryId/confirm        | 已退役，先核对写权限再返回 410                                                |
+| GET .../memory/entries/:entryId/history         | 修订、固定证据、独立判断与采用它的任务，limit/offset 分页                     |
+| GET .../memory/facts                            | 直接业务事实、全量统计、迭代或任务分页及事件分页                              |
+| GET /api/memory-revisions/:revisionId           | 当时记忆正文与来源，按原出处核对权限                                          |
+| GET /api/document-content-revisions/:revisionId | 下载当时文件内容，回收、永久清除与项目权限仍生效                              |
+| GET /api/tasks/:id/decision-evidence            | 任务创建时的记录与依据，不能以此推定后续重排依据                              |
 
-问答（问老翁）只消费 `current`，草稿不参与回答。
+MCP 与 DSH 提供 search_memory、read_memory_history、read_memory_revision、read_project_facts。search_memory 支持 purpose=current/history/explain、status=current/superseded/all 及 asOf。当前查询按明确纠正关系弱化旧话，历史与解释查询保留旧话。asOf 只返回当时已经记录的修订，不推测缺失历史。get_task 返回已保存的决定依据。
 
-## 3. 接口契约
+## 4. 归档、前端和兼容
 
-### 3.1 新增
+归档只汇总 current、superseded、disputed，不转正、不自动作废，移除 memoryDrafts 和 confirmedEntryIds。正文不提供手工改写入口；人工可提交反馈、管理用途标签与关系，并在授权范围停用群消息记忆。候选作业、任务和归档流程本身的工作状态不属于记忆生命周期。
 
-`GET /api/projects/:id/memory` —— 弹窗首屏数据，项目成员可读。
+项目记忆界面移除草稿和转正，展示来源、独立反馈、历史修订与业务事实。回答引用可打开固定修订；任务详情可查看创建时的决定出处。入口提示点依据反馈与新变化，不再统计草稿。
 
-```json
-{
-  "guide": {
-    "text": "",
-    "updatedAt": null,
-    "basedOn": { "iterationId": "", "title": "", "archivedAt": null }
-  },
-  "counts": { "drafts": 0, "disputes": 0, "updatedSinceEntry": 0 },
-  "timeline": [
-    {
-      "iterationId": "",
-      "title": "",
-      "archivedAt": null,
-      "conclusion": "",
-      "memoryChanges": { "added": 0, "updated": 0, "superseded": 0 },
-      "taskDecisions": [{ "taskId": "", "title": "", "disposition": "", "reason": "" }],
-      "keyVersions": [{ "versionId": "", "artifactId": "", "title": "", "version": 0 }],
-      "pageIds": []
-    }
-  ],
-  "entries": [
-    {
-      "id": "",
-      "subject": "project",
-      "subtype": "phase_change",
-      "title": "",
-      "body": "",
-      "status": "current",
-      "updatedAt": null,
-      "createdBy": "",
-      "sources": [{ "sourceKind": "archive", "sourceId": "", "label": "" }]
-    }
-  ]
-}
-```
+## 5. 本轮验证与限制
 
-`GET /api/projects/:id/memory/counts` —— 左侧入口小点用。返回 `{ drafts, disputes, updatedSinceEntry }`，`updatedSinceEntry` 统计当前用户 `tab_opened_at` 之后有更新的条目数；未进入过项目时为全部现行条目数。
+新增迁移 210—217，仅在本机独立测试库验证。最终测试、构建和检查记录见方案第 8 节。真实模型质量、浏览器点击和线上发布不在本轮自动化验证范围。
 
-`POST /api/projects/:id/memory/entries/:entryId/confirm` —— `draft` → `current`，返回更新后的条目。只允许项目成员（viewer 除外）。
+项目现状文字仍为有出处的模型提取，精确状态和数量应读取业务事实。旧历史无法凭空补齐；完整出处通过分页与固定修订 ID 读取，不能把检索 top-K 当作完整证据集合。升级与回退须同时考虑两态数据库约束和旧服务仍写草稿的问题。
 
-`POST /api/projects/:id/memory/entries/:entryId/flag` —— 纠错标注，body `{ note }`。写 `project_change_logs`（action=`memory_entry_flagged`），并置条目 `disputed_at`，供下次结算读取。**不改正文**。
-
-`POST /api/projects/:id/memory/refresh` —— 触发老翁 `project_memory` 任务，202 返回该 run 记录（`id`/`task`/`status`/`item_count`/`error` 与三个时间戳）；同项目已有 queued/running 时复用既有 run。请求会当场内联推进最多 3 批，模型慢时 HTTP 会等待；失败留在 run 记录里，不回滚已写草稿。
-
-项目归档后成员无法访问项目（`members` 权限查询带 `p.archived_at IS NULL`），记忆接口返回 403；确认、纠错与知识页写入另有 409 的防御性拦截，防止将来放宽项目访问时误写封存记忆。
-
-### 3.2 修改
-
-- `PATCH /api/threads/:id/archive/confirm`：响应增加 `settlement`；同一事务内执行：该轮已确认草稿转正、未确认草稿保留、冲突条目标争议、生成复盘页与决策页。
-- 知识页写接口已下线：`POST /api/projects/:id/wiki-pages` 与 `PATCH .../wiki-pages/:pageId` 都返回 409，人改记忆只能走「确认」与「纠错」。读接口（列表、详情）保留，供问老翁引用定位使用；右侧栏「知识页」tab 已下线，引用直接打开项目记忆并选中该条详情。服务层也删掉了改正文的入口（`updateWikiPage` 已移除），只保留 `createWikiPage` 供归档生成与测试夹具使用。
-
-### 3.3 不改
-
-`wiki_questions` / `wiki_answers` / `wiki_answer_citations`、组织架、参与组织简报、文档库全部不动。
-
-## 4. 老翁任务 project_memory
-
-- 任务名：`project_memory`，复用 `agent_laoweng_runs`（task 枚举扩展）与 `processNextProjectMemory` 分发。
-- 触发：候选队列达到阈值或静默到点、事件型（任务完成、正式文件新版本）、手动 refresh、归档清算后。
-- 输入：候选队列条目 + 现有条目索引（title / subtype / status）+ 当前导读。
-- 输出 JSON：`{ "entries": [{ "op": "create|update|dispute", "entryId"?, "subject"?, "subtype"?, "title"?, "body"?, "sourceIds": [] }], "summary": "..." }`。新建必须带 `subject` 与对应 `subtype`；`entryId` 仅在 `update`/`dispute` 时必填；同主题按 `subject + title` 归并。导读不在这条任务的输出里，由迭代归档的 memory 阶段写 `agent_project_summaries`。
-- 幂等：队列唯一键（project_id, source_kind, source_id）防重复；同主题按 `subject + title` 合并。
-- 零产出合法：`had_updates=false`，不写条目。
-- 失败：run 记 failed，可重试；条目写入在事务内，不留半成品。
-
-## 5. 候选队列
-
-迁移 `132_project_memory_queue.sql`：
-
-```sql
-CREATE TABLE agent_project_memory_queue (
-  id CHAR(36) NOT NULL,
-  project_id CHAR(36) NOT NULL,
-  source_kind ENUM('message','task','document_version','archive','manual') NOT NULL,
-  source_id CHAR(36) NOT NULL,
-  hint VARCHAR(255) NOT NULL DEFAULT '',
-  available_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  PRIMARY KEY (id),
-  UNIQUE KEY agent_project_memory_queue_source (project_id, source_kind, source_id),
-  KEY agent_project_memory_queue_ready (project_id, available_at),
-  CONSTRAINT fk_apmq_project FOREIGN KEY (project_id) REFERENCES projects(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-```
-
-轻标记在消息写入、任务状态变更、正式文件新版本三处各插一行（不做模型调用）。结算条件至少命中一个：待处理 ≥40 条、最早一条静默 ≥20 分钟、事件型存在（任务状态变更、正式文件新版本带 urgent）、手动刷新。40 同时是单次结算的候选上限（`PROJECT_MEMORY_BATCH_LIMIT`）。
-
-`source_kind` 另有 `archive`：迁移 132 预留、读取侧已支持，但当前没有写入方——归档内容走 `wiki_page_sources.source_kind='archive'` 和归档 memory 阶段的长期总结，不进候选队列。
-
-## 6. 前端
-
-- 新组件 `web/ProjectMemory.tsx`：`Dialog` 默认以普通窗口打开（右上角可手动切换全屏）；内部左右 6:4——左栏导读（Markdown + 计数摘要 + 刷新），右栏时间轴：记忆种类使用标准切换胶囊并默认选中「全部」，顺序为「里程碑、核心议题、重要任务、关键发言、主要文档、其它记忆」，关键词搜索与状态复选框放在同一行；可搜索，点卡片打开二级「记忆详情」弹窗（正文、出处、所属迭代、确认/纠错）。窄屏（<960px）上下堆叠。
-- 入口：`WorkspaceSidebar` 底部四宫格「项目记忆」（与「关于我们」「使用手册」「小祥监控」同格），「项目管理」在四宫格下面。顶栏不再放关于我们、使用手册。
-- 首次自动打开：项目激活时若该用户的 `tab_opened_at` 为空 → 打开记忆并调用 `updateProjectTab(id, "open")`；之后不再自动打开。
-- 组织主页直达：`OrgHome` 的项目名改为链接 `/?projectId=<id>&memory=1`；`WorkspaceApp` 读取后清除参数。
-- 小点：`counts.drafts + counts.disputes > 0` 或 `counts.updatedSinceEntry > 0` 时入口显示提示点。
-
-## 7. 验收
-
-- 新人判定用 `tab_opened_at IS NULL`；关闭页签再进入不重弹。
-- 日常结算产出 draft；人确认后 current；问老翁只读 current。
-- 归档清算返回 settlement 且可重跑，不重复生成页。
-- 组织主页点项目直达记忆。
-- `npm test` 通过；`npm run build` 通过。
-
-## 8. 实施顺序
-
-1. 契约与数据结构：本文、迁移 132、`GET memory` 与 `GET memory/counts`。
-2. 前端：全屏弹窗（读）、左侧入口、首次自动打开、组织主页直达。
-3. 老翁 `project_memory`：轻标记入队 + 结算产出草稿。
-4. 清算：归档确认返回 settlement、条目确认与纠错接口、争议处理。
-5. 收口：关闭手写新建、手册补「项目记忆」、清理旧文案。
-
-## 9. 风险
-
-- 老翁叙述失真：出处必留，草稿不参与问答，人可纠错。
-- 记忆抖动：变更提示、确认机制、旧版保留。
-- 成本：轻标记不调模型；结算去抖；零产出合法。
-
-## 10. 实现状态（2026-10-25）
+## 10. 历史实现状态（2026-10-25，以下记录不是当前契约）
 
 已落地：
 
@@ -173,7 +62,7 @@ CREATE TABLE agent_project_memory_queue (
 - `shared/memory-kinds.js`：五类记忆、中文标签、Markdown 骨架；里程碑由项目/成员/迭代变更入候选，核心议题保留群聊快照，主要文档补充图片识别与成组文件共享摘要；`server/memory-graph.js`：建/删关系、单条直接关系、最多 3 跳召回、召回计数，继承成环返回 409。
 - 结算写入带 `subject`：`project_memory` 输出的条目可指定对象类型，`applyProjectMemoryResult` 落 `subject_type`，`update` 时保留原值。
 - `server/memory-timeline.js`：读侧聚合、counts、confirm、flag、`settleIterationMemory`、争议推导 `disputedEntryIds`。
-- 记忆作业面板：五类口径、积压、最近运行、立即运行、调整口径、失败重试、讨论补跑、回填历史；每个维护作业可看轨迹（agent 日志）、运行历史、维护会话；老翁已不在一级监控页出现。
+- 记忆作业面板：五类口径、积压、最近运行、立即运行、调整口径、失败重试、讨论补跑；每个维护作业可看轨迹（agent 日志）、运行历史、维护会话；历史回填由后台维护任务自动补齐，手动补跑入口移到管理空间项目操作列；老翁已不在一级监控页出现。
 - 管理侧写接口：`POST/DELETE /memory/relations` 建删关系、`PATCH /memory/entries/:entryId` 改对象类型与归属成员（`aboutUserId` 需为项目成员），均要求写权限。
 - 读侧条目带 `subject`（五类对象）与 `relations`（关联/继承/替代，含方向与对方标题），`GET /api/projects/:id/memory` 与单条详情一致。
 - 路由：`GET /api/projects/:id/memory`、`GET /api/projects/:id/memory/counts`、`POST .../memory/entries/:entryId/confirm`、`POST .../memory/entries/:entryId/flag`、`POST .../memory/refresh`（202）。
@@ -186,7 +75,7 @@ CREATE TABLE agent_project_memory_queue (
   - 文档摘要：正式版本同步文档记忆后按 `变更要点` 刷新该版本缓存；
   - 回填结束统一 `refreshAllCaches`。
     已切换：`loadMemberUnderstanding`、`loadProjectWikiIndexes`（成员认识；文档摘要缓存缺失时用文档记忆补最新版本）、`loadProjectSummary`（协调器 prompt、项目列表/详情导读）、结算时补建项目整体页。仍以缓存为读来源的只有「旧版本文档摘要」与成员队列 `through_sequence` 语义，属缓存自身数据。
-- 存量回填：`backfillProjectMemory` / `POST /memory/backfill`（幂等）：按出处把 `subject_type IS NULL` 的旧条目归类；`agent_member_summaries` → 发言记忆；`agent_document_summaries` → 文档记忆「变更要点」；归档迭代补讨论记忆；再补任务分布与项目整体页。
+- 存量回填：`backfillProjectMemory` / `POST /memory/backfill`（幂等）：按出处把 `subject_type IS NULL` 的旧条目归类；`agent_member_summaries` → 发言记忆；`agent_document_summaries` → 文档记忆「变更要点」；归档迭代补讨论记忆；再补任务分布与项目整体页。后台 `POST /api/memory-maintenance` 会为尚未完成回填的活跃项目自动领取一次回填任务，状态写入 `project_memory_backfills`，失败后续轮次重试；管理空间项目列表的操作列保留 `POST /api/admin/projects/:id/memory/backfill` 手动补跑入口，项目记忆弹窗不再放置该按钮。
 - 召回入口：老翁经 MCP `search_memory`，小祥与子 Agent 经 `server/agent-tools.js` 的 `search_memory` 分发（能力键 `project_memory_recall`，工具参数 query/subjects/aboutUserId/status/depth/limit）。
 - 统一重试：`retryMemoryJob` 按作业键分派（`project_memory` → 手动结算，`member_memory`/`document_memory`/`iteration_archive` → 排队并内联跑一批；任务/讨论记忆随结算，返回 409）。
 - 可用性评估结论与限制见 `14-project-memory-usability.md`。

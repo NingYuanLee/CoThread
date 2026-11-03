@@ -32,9 +32,11 @@ async function folderAncestry(db, folderId) {
   const chain = [];
   let current = folderId;
   while (current) {
-    const [row] = await query(db,
+    const [row] = await query(
+      db,
       "SELECT id,parent_id,name,folder_kind,system_key,thread_id FROM document_folders WHERE id=?",
-      [current]);
+      [current],
+    );
     if (!row) break;
     chain.unshift({
       id: row.id,
@@ -53,41 +55,47 @@ async function restoreFolderAncestry(db, projectId, chain) {
   let parentId = null;
   let lastId = null;
   for (const node of chain || []) {
-    const [byId] = await query(db,
-      "SELECT id FROM document_folders WHERE id=? AND project_id=?", [node.id, projectId]);
+    const [byId] = await query(db, "SELECT id FROM document_folders WHERE id=? AND project_id=?", [
+      node.id,
+      projectId,
+    ]);
     if (byId) {
       parentId = byId.id;
       lastId = byId.id;
       continue;
     }
     if (node.system_key || (node.folder_kind && !node.parent_id)) {
-      const [root] = await query(db,
+      const [root] = await query(
+        db,
         "SELECT id FROM document_folders WHERE project_id=? AND folder_kind=? AND parent_id IS NULL LIMIT 1",
-        [projectId, node.folder_kind]);
+        [projectId, node.folder_kind],
+      );
       if (root) {
         parentId = root.id;
         lastId = root.id;
         continue;
       }
     }
-    await query(db,
+    await query(
+      db,
       "INSERT INTO document_folders(id,project_id,thread_id,parent_id,name,folder_kind,system_key) VALUES(?,?,?,?,?,?,?)",
-      [node.id, projectId, node.thread_id, parentId, node.name, node.folder_kind || null, node.system_key || null]);
+      [
+        node.id,
+        projectId,
+        node.thread_id,
+        parentId,
+        node.name,
+        node.folder_kind || null,
+        node.system_key || null,
+      ],
+    );
     parentId = node.id;
     lastId = node.id;
   }
   return lastId;
 }
 
-export async function libraryChange(
-  service,
-  user,
-  projectId,
-  kind,
-  target,
-  input,
-  options = {},
-) {
+export async function libraryChange(service, user, projectId, kind, target, input, options = {}) {
   if (user.kind !== "session" && !options.tool) throw new HttpError(403, "文档整理需要人工登录");
   const data = z
     .object({
@@ -101,23 +109,20 @@ export async function libraryChange(
   return transaction(service.db, async (db) => {
     await service.member(user, projectId, true, db);
     await options.authorize?.(db);
-    await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [
-      projectId,
-    ]);
+    await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);
     async function folder(folderId) {
       if (!folderId) return;
-      const [row] = await query(
-        db,
-        "SELECT * FROM document_folders WHERE id=? AND project_id=?",
-        [id.parse(folderId), projectId],
-      );
+      const [row] = await query(db, "SELECT * FROM document_folders WHERE id=? AND project_id=?", [
+        id.parse(folderId),
+        projectId,
+      ]);
       if (!row) throw new HttpError(404, "文件夹不存在");
       return row;
     }
     const requireScope = async (row) => {
       if (!row) throw new HttpError(400, "请选择文档文件夹");
       const folderId = row.folder_id || row.id;
-      if (folderId && await isOfficialLibraryFolder(db, folderId))
+      if (folderId && (await isOfficialLibraryFolder(db, folderId)))
         await service.assertOfficialOrganizing(db, projectId);
       return row;
     };
@@ -125,22 +130,30 @@ export async function libraryChange(
     const creatingFolder = kind === "folder" && !target;
     let removedFolderName = null;
     if (kind === "version") {
-      const [row] = await query(db, `SELECT v.id,a.deleted_at,a.folder_id,vr.purged_at,f.thread_id,f.folder_kind FROM versions v
+      const [row] = await query(
+        db,
+        `SELECT v.id,v.artifact_id,a.deleted_at,a.folder_id,vr.purged_at,f.thread_id,f.folder_kind FROM versions v
         JOIN artifacts a ON a.id=v.artifact_id LEFT JOIN document_folders f ON f.id=a.folder_id
         LEFT JOIN version_recycle vr ON vr.version_id=v.id
-        WHERE v.id=? AND a.project_id=? FOR UPDATE`, [id.parse(target),projectId]);
-      if (!row) throw new HttpError(404,"文档版本不存在");
+        WHERE v.id=? AND a.project_id=? FOR UPDATE`,
+        [id.parse(target), projectId],
+      );
+      if (!row) throw new HttpError(404, "文档版本不存在");
       await requireScope(row);
       const versionRoot = await folderRootKind(db, row.folder_id);
       if (versionRoot === "project_official" || isCacheFolderKind(versionRoot))
-        throw new HttpError(403, versionRoot === "project_official"
-          ? "正式文件只有一个版本，请删除整份文档"
-          : "对话缓存只有一个版本，请删除整份文档");
-      if (row.deleted_at) throw new HttpError(409,"请先恢复整份文档，再操作其中的版本");
+        throw new HttpError(
+          403,
+          versionRoot === "project_official"
+            ? "正式文件只有一个版本，请删除整份文档"
+            : "对话缓存只有一个版本，请删除整份文档",
+        );
+      if (row.deleted_at) throw new HttpError(409, "请先恢复整份文档，再操作其中的版本");
       if (row.purged_at) throw new HttpError(409, "该版本已从回收站永久清除，无法恢复");
-      if (data.deleted === undefined) throw new HttpError(400,"请指定删除或恢复版本");
-      if (data.deleted) await query(db,"INSERT IGNORE INTO version_recycle(version_id) VALUES(?)",[target]);
-      else await query(db,"DELETE FROM version_recycle WHERE version_id=?",[target]);
+      if (data.deleted === undefined) throw new HttpError(400, "请指定删除或恢复版本");
+      if (data.deleted)
+        await query(db, "INSERT IGNORE INTO version_recycle(version_id) VALUES(?)", [target]);
+      else await query(db, "DELETE FROM version_recycle WHERE version_id=?", [target]);
     } else if (kind === "artifact") {
       const [row] = await query(
         db,
@@ -154,9 +167,13 @@ export async function libraryChange(
       const rowRoot = await folderRootKind(db, row.folder_id);
       if (!human && isCacheFolderKind(rowRoot) && data.folderId !== undefined)
         throw new HttpError(403, "对话缓存是来源资料，Agent 不能移动");
-      if ((isCacheFolderKind(rowRoot) || isOutputFolderKind(rowRoot)) && data.folderId !== undefined)
+      if (
+        (isCacheFolderKind(rowRoot) || isOutputFolderKind(rowRoot)) &&
+        data.folderId !== undefined
+      )
         throw new HttpError(403, "对话缓存与沙箱产物不可移动");
-      const destination = data.folderId !== undefined ? await requireScope(await folder(data.folderId)) : null;
+      const destination =
+        data.folderId !== undefined ? await requireScope(await folder(data.folderId)) : null;
       if (destination) {
         const destRoot = await folderRootKind(db, destination.id);
         if (human) {
@@ -168,54 +185,72 @@ export async function libraryChange(
       if (destination?.folder_kind === "iteration_root")
         throw new HttpError(403, "请选择正式文件子文件夹");
       if (data.name !== undefined) {
-        const uniqueName = await uniqueArtifactTitle(db, projectId, destination?.id || row.folder_id, data.name, target);
-        await query(db, "UPDATE artifacts SET title=? WHERE id=?", [
-          uniqueName,
+        const uniqueName = await uniqueArtifactTitle(
+          db,
+          projectId,
+          destination?.id || row.folder_id,
+          data.name,
           target,
-        ]);
+        );
+        await query(db, "UPDATE artifacts SET title=? WHERE id=?", [uniqueName, target]);
       }
       if (data.folderId !== undefined) {
         if (data.name === undefined && destination) {
-          const uniqueName = await uniqueArtifactTitle(db, projectId, destination.id, row.title, target);
+          const uniqueName = await uniqueArtifactTitle(
+            db,
+            projectId,
+            destination.id,
+            row.title,
+            target,
+          );
           await query(db, "UPDATE artifacts SET title=? WHERE id=?", [uniqueName, target]);
         }
-        await query(db, "UPDATE artifacts SET folder_id=? WHERE id=?", [
-          data.folderId,
-          target,
-        ]);
+        await query(db, "UPDATE artifacts SET folder_id=? WHERE id=?", [data.folderId, target]);
       }
       if (data.deleted === true) {
-        const path = parseRecyclePath(row.recycle_path) || await folderAncestry(db, row.folder_id);
+        const path =
+          parseRecyclePath(row.recycle_path) || (await folderAncestry(db, row.folder_id));
         if (rowRoot === "project_official") {
           if (row.source_artifact_id)
-            await query(db, "UPDATE artifacts SET saved_official_artifact_id=NULL WHERE id=?", [row.source_artifact_id]);
+            await query(db, "UPDATE artifacts SET saved_official_artifact_id=NULL WHERE id=?", [
+              row.source_artifact_id,
+            ]);
           await query(db, "UPDATE artifacts SET source_artifact_id=NULL WHERE id=?", [target]);
         }
-        await query(db,
+        await query(
+          db,
           "UPDATE artifacts SET deleted_at=UTC_TIMESTAMP(3),recycle_path=? WHERE id=?",
-          [path ? JSON.stringify(path) : null, target]);
+          [path ? JSON.stringify(path) : null, target],
+        );
       } else if (data.deleted === false) {
         if (row.purged_at) throw new HttpError(409, "该文档已从回收站永久清除，无法恢复");
         let folderId = row.folder_id;
         if (folderId) {
-          const [exists] = await query(db,
-            "SELECT id FROM document_folders WHERE id=? AND project_id=?", [folderId, projectId]);
+          const [exists] = await query(
+            db,
+            "SELECT id FROM document_folders WHERE id=? AND project_id=?",
+            [folderId, projectId],
+          );
           if (!exists) folderId = null;
         }
         if (!folderId)
           folderId = await restoreFolderAncestry(db, projectId, parseRecyclePath(row.recycle_path));
         if (!folderId) {
-          const [official] = await query(db,
+          const [official] = await query(
+            db,
             "SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_official' AND parent_id IS NULL LIMIT 1",
-            [projectId]);
+            [projectId],
+          );
           folderId = official?.id || null;
         }
         if (folderId) await requireScope({ folder_id: folderId });
         const restoredTitle = await uniqueArtifactTitle(db, projectId, folderId, row.title, target);
         const restoredRoot = await folderRootKind(db, folderId);
-        await query(db,
+        await query(
+          db,
           "UPDATE artifacts SET deleted_at=NULL,recycle_path=NULL,folder_id=?,title=?,source_type=CASE WHEN ?='project_official' THEN 'recycle_restored' ELSE source_type END WHERE id=?",
-          [folderId, restoredTitle, restoredRoot, target]);
+          [folderId, restoredTitle, restoredRoot, target],
+        );
       }
     } else {
       const current = target ? await requireScope(await folder(target)) : null;
@@ -229,34 +264,55 @@ export async function libraryChange(
         const areaRoot = destinationRoot || currentRoot;
         if (areaRoot !== "project_official")
           throw new HttpError(403, "人工只能在正式文件区管理子文件夹");
-      } else if (isCacheFolderKind(currentRoot) || isCacheFolderKind(destinationRoot)
-        || isOutputFolderKind(currentRoot) || isOutputFolderKind(destinationRoot))
+      } else if (
+        isCacheFolderKind(currentRoot) ||
+        isCacheFolderKind(destinationRoot) ||
+        isOutputFolderKind(currentRoot) ||
+        isOutputFolderKind(destinationRoot)
+      )
         throw new HttpError(403, "对话缓存与沙箱产物目录不可由 Agent 修改");
       else if (destinationRoot && destinationRoot !== "project_official")
         throw new HttpError(403, "只能在正式文件区内创建子文件夹");
       if (kind === "remove-folder") {
         if (human && currentRoot === "project_official") {
-          const subtree = await query(db, `WITH RECURSIVE subtree AS (
+          const subtree = await query(
+            db,
+            `WITH RECURSIVE subtree AS (
               SELECT id, 0 depth FROM document_folders WHERE id=?
               UNION ALL
               SELECT f.id, s.depth + 1 FROM document_folders f JOIN subtree s ON f.parent_id = s.id
             )
-            SELECT id FROM subtree ORDER BY depth DESC`, [target]);
+            SELECT id FROM subtree ORDER BY depth DESC`,
+            [target],
+          );
           const ids = subtree.map((row) => row.id);
           if (ids.length) {
             const placeholders = ids.map(() => "?").join(",");
-            const artifacts = await query(db,
-              `SELECT id,folder_id,recycle_path,source_artifact_id FROM artifacts WHERE folder_id IN (${placeholders})`, ids);
+            const artifacts = await query(
+              db,
+              `SELECT id,folder_id,recycle_path,source_artifact_id FROM artifacts WHERE folder_id IN (${placeholders})`,
+              ids,
+            );
             for (const artifact of artifacts) {
               const artifactRoot = await folderRootKind(db, artifact.folder_id);
-              const path = parseRecyclePath(artifact.recycle_path) || await folderAncestry(db, artifact.folder_id);
-              await query(db,
+              const path =
+                parseRecyclePath(artifact.recycle_path) ||
+                (await folderAncestry(db, artifact.folder_id));
+              await query(
+                db,
                 `UPDATE artifacts SET deleted_at=UTC_TIMESTAMP(3),recycle_path=?,folder_id=NULL WHERE id=?`,
-                [path ? JSON.stringify(path) : null, artifact.id]);
+                [path ? JSON.stringify(path) : null, artifact.id],
+              );
               if (artifactRoot === "project_official") {
                 if (artifact.source_artifact_id)
-                  await query(db, "UPDATE artifacts SET saved_official_artifact_id=NULL WHERE id=?", [artifact.source_artifact_id]);
-                await query(db, "UPDATE artifacts SET source_artifact_id=NULL WHERE id=?", [artifact.id]);
+                  await query(
+                    db,
+                    "UPDATE artifacts SET saved_official_artifact_id=NULL WHERE id=?",
+                    [artifact.source_artifact_id],
+                  );
+                await query(db, "UPDATE artifacts SET source_artifact_id=NULL WHERE id=?", [
+                  artifact.id,
+                ]);
               }
             }
             await query(db, `DELETE FROM document_folders WHERE id IN (${placeholders})`, ids);
@@ -267,45 +323,39 @@ export async function libraryChange(
             "SELECT (SELECT COUNT(*) FROM document_folders WHERE parent_id=?)+(SELECT COUNT(*) FROM artifacts WHERE folder_id=? AND deleted_at IS NULL) count",
             [target, target],
           );
-          if (Number(children.count))
-            throw new HttpError(409, "请先移出或删除文件夹中的内容");
-          await query(
-            db,
-            "UPDATE artifacts SET folder_id=NULL WHERE folder_id=?",
-            [target],
-          );
+          if (Number(children.count)) throw new HttpError(409, "请先移出或删除文件夹中的内容");
+          await query(db, "UPDATE artifacts SET folder_id=NULL WHERE folder_id=?", [target]);
           await query(db, "DELETE FROM document_folders WHERE id=?", [target]);
         }
       } else {
         if (data.parentId !== undefined && target) {
           let ancestor = data.parentId;
           while (ancestor) {
-            if (ancestor === target)
-              throw new HttpError(409, "不能移入自身或子文件夹");
+            if (ancestor === target) throw new HttpError(409, "不能移入自身或子文件夹");
             ancestor = (await folder(ancestor)).parent_id;
           }
         }
-        let parent =
-          data.parentId === undefined
-            ? current?.parent_id || null
-            : data.parentId;
+        let parent = data.parentId === undefined ? current?.parent_id || null : data.parentId;
         if (!target && parent === null) {
-          const [official] = await query(db,
+          const [official] = await query(
+            db,
             "SELECT id FROM document_folders WHERE project_id=? AND folder_kind='project_official' AND thread_id IS NULL LIMIT 1",
-            [projectId]);
+            [projectId],
+          );
           parent = official?.id ?? null;
         }
         const folderName = data.name || current?.name;
         if (!folderName) throw new HttpError(400, "请输入文件夹名称");
-        const officialArea = destinationRoot === "project_official" || currentRoot === "project_official";
+        const officialArea =
+          destinationRoot === "project_official" || currentRoot === "project_official";
         if (officialArea && LIBRARY_DATE_FOLDER_NAME.test(folderName))
           throw new HttpError(400, "日期文件夹属于缓存/产物区，正式文件请使用主题名称");
         if (target)
-          await query(
-            db,
-            "UPDATE document_folders SET name=?,parent_id=? WHERE id=?",
-            [folderName, parent, target],
-          );
+          await query(db, "UPDATE document_folders SET name=?,parent_id=? WHERE id=?", [
+            folderName,
+            parent,
+            target,
+          ]);
         else {
           target = randomUUID();
           await query(
@@ -316,17 +366,45 @@ export async function libraryChange(
         }
       }
     }
-    const source = options.source || (user.kind === "api" ? "mcp" : user.kind === "agent" ? "agent" : "ui");
-    const action = kind === "version"
-      ? (data.deleted ? "version_deleted" : "version_restored")
-      : kind === "artifact"
-        ? (data.deleted === true ? "document_deleted" : data.deleted === false ? "document_restored" : data.name !== undefined ? "document_renamed" : "document_moved")
-        : kind === "remove-folder" ? "folder_deleted" : creatingFolder ? "folder_created" : data.name !== undefined ? "folder_renamed" : "folder_moved";
+    const source =
+      options.source || (user.kind === "api" ? "mcp" : user.kind === "agent" ? "agent" : "ui");
+    const action =
+      kind === "version"
+        ? data.deleted
+          ? "version_deleted"
+          : "version_restored"
+        : kind === "artifact"
+          ? data.deleted === true
+            ? "document_deleted"
+            : data.deleted === false
+              ? "document_restored"
+              : data.name !== undefined
+                ? "document_renamed"
+                : "document_moved"
+          : kind === "remove-folder"
+            ? "folder_deleted"
+            : creatingFolder
+              ? "folder_created"
+              : data.name !== undefined
+                ? "folder_renamed"
+                : "folder_moved";
     await recordDocumentChange(db, {
-      projectId, artifactId: kind === "artifact" ? target : null, versionId: kind === "version" ? target : null,
+      projectId,
+      artifactId: kind === "artifact" ? target : null,
+      versionId: kind === "version" ? target : null,
       folderId: kind === "folder" ? target : null,
-      action, source, actorType: user.kind, actorId: user.id, threadId: data.threadId,
-      details: { kind, action, input: data, affectedFolderId: kind === "remove-folder" ? target : null, affectedFolderName: removedFolderName },
+      action,
+      source,
+      actorType: user.kind,
+      actorId: user.id,
+      threadId: data.threadId,
+      details: {
+        kind,
+        action,
+        input: data,
+        affectedFolderId: kind === "remove-folder" ? target : null,
+        affectedFolderName: removedFolderName,
+      },
     });
     return { id: target, ok: true };
   });
@@ -354,9 +432,12 @@ function parseJsonColumn(value) {
 
 async function referencedVersionIds(db, projectId) {
   const ids = new Set();
-  const messages = await query(db,
+  const messages = await query(
+    db,
     `SELECT m.refs,m.folder_refs FROM messages m JOIN threads t ON t.id=m.thread_id
-     WHERE t.project_id=? AND (m.refs IS NOT NULL OR m.folder_refs IS NOT NULL)`, [projectId]);
+     WHERE t.project_id=? AND (m.refs IS NOT NULL OR m.folder_refs IS NOT NULL)`,
+    [projectId],
+  );
   const folderIds = [];
   for (const row of messages) {
     collectUuids(parseJsonColumn(row.refs), ids);
@@ -367,20 +448,28 @@ async function referencedVersionIds(db, projectId) {
   for (const versions of byFolder.values()) {
     for (const version of versions) if (version.version_id) ids.add(version.version_id);
   }
-  const tasks = await query(db,
-    "SELECT artifact_refs,document_refs FROM agent_tasks WHERE project_id=?", [projectId]);
+  const tasks = await query(
+    db,
+    "SELECT artifact_refs,document_refs FROM agent_tasks WHERE project_id=?",
+    [projectId],
+  );
   for (const row of tasks) {
     collectUuids(parseJsonColumn(row.artifact_refs), ids);
     collectUuids(parseJsonColumn(row.document_refs), ids);
   }
-  const linked = await query(db,
+  const linked = await query(
+    db,
     `SELECT atd.version_id FROM agent_task_documents atd
      JOIN messages m ON m.id=atd.message_id JOIN threads t ON t.id=m.thread_id
-     WHERE t.project_id=?`, [projectId]);
+     WHERE t.project_id=?`,
+    [projectId],
+  );
   for (const row of linked) if (row.version_id) ids.add(row.version_id);
-  const archives = await query(db,
+  const archives = await query(
+    db,
     "SELECT archive_snapshot FROM threads WHERE project_id=? AND archive_snapshot IS NOT NULL",
-    [projectId]);
+    [projectId],
+  );
   for (const row of archives) collectUuids(parseJsonColumn(row.archive_snapshot), ids);
   return ids;
 }
@@ -400,29 +489,39 @@ export async function emptyLibraryRecycle(service, user, projectId) {
     await service.member(user, projectId, true, db);
     await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);
     const referenced = await referencedVersionIds(db, projectId);
-    const recycledArtifacts = await query(db,
+    const recycledArtifacts = await query(
+      db,
       `SELECT id FROM artifacts WHERE project_id=? AND deleted_at IS NOT NULL AND purged_at IS NULL FOR UPDATE`,
-      [projectId]);
-    const recycledVersions = await query(db,
+      [projectId],
+    );
+    const recycledVersions = await query(
+      db,
       `SELECT v.id,v.artifact_id FROM versions v JOIN artifacts a ON a.id=v.artifact_id
        JOIN version_recycle vr ON vr.version_id=v.id
        WHERE a.project_id=? AND a.deleted_at IS NULL AND vr.purged_at IS NULL FOR UPDATE`,
-      [projectId]);
+      [projectId],
+    );
     let removedArtifacts = 0;
     let purgedArtifacts = 0;
     let removedVersions = 0;
     let purgedVersions = 0;
     for (const artifact of recycledArtifacts) {
-      const versions = await query(db, "SELECT id FROM versions WHERE artifact_id=?", [artifact.id]);
+      const versions = await query(db, "SELECT id FROM versions WHERE artifact_id=?", [
+        artifact.id,
+      ]);
       const versionIds = versions.map((row) => row.id);
       const keep = versionIds.some((versionId) => referenced.has(versionId));
       if (keep) {
-        await query(db, "UPDATE artifacts SET purged_at=UTC_TIMESTAMP(3) WHERE id=?", [artifact.id]);
+        await query(db, "UPDATE artifacts SET purged_at=UTC_TIMESTAMP(3) WHERE id=?", [
+          artifact.id,
+        ]);
         if (versionIds.length) {
           const placeholders = versionIds.map(() => "?").join(",");
-          await query(db,
+          await query(
+            db,
             `UPDATE version_recycle SET purged_at=UTC_TIMESTAMP(3) WHERE version_id IN (${placeholders}) AND purged_at IS NULL`,
-            versionIds);
+            versionIds,
+          );
         }
         purgedArtifacts += 1;
         purgedVersions += versionIds.length;
@@ -435,8 +534,11 @@ export async function emptyLibraryRecycle(service, user, projectId) {
     }
     for (const version of recycledVersions) {
       if (referenced.has(version.id)) {
-        await query(db, "UPDATE version_recycle SET purged_at=UTC_TIMESTAMP(3) WHERE version_id=? AND purged_at IS NULL",
-          [version.id]);
+        await query(
+          db,
+          "UPDATE version_recycle SET purged_at=UTC_TIMESTAMP(3) WHERE version_id=? AND purged_at IS NULL",
+          [version.id],
+        );
         purgedVersions += 1;
       } else {
         await deleteVersions(db, [version.id]);
@@ -445,7 +547,11 @@ export async function emptyLibraryRecycle(service, user, projectId) {
     }
     if (removedArtifacts || purgedArtifacts || removedVersions || purgedVersions)
       await recordDocumentChange(db, {
-        projectId, action: "recycle_emptied", source: "ui", actorType: user.kind, actorId: user.id,
+        projectId,
+        action: "recycle_emptied",
+        source: "ui",
+        actorType: user.kind,
+        actorId: user.id,
         details: { removedArtifacts, purgedArtifacts, removedVersions, purgedVersions },
       });
     return {

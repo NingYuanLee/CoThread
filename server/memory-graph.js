@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { query } from "./db.js";
 import { HttpError } from "./service.js";
 import { MEMORY_DIRECTED_RELATIONS, MEMORY_RELATION_LABELS } from "../shared/memory-kinds.js";
+import { visibleFileIndexSql, historicalFileIndexSql } from "./file-index-visibility.js";
 
 const RELATIONS = Object.keys(MEMORY_RELATION_LABELS);
 /** derives / supersedes 是单向边，防环只看有向边。 */
@@ -86,7 +87,8 @@ export async function listMemoryRelations(db, projectId, pageId) {
      FROM memory_relations r
      JOIN wiki_pages fp ON fp.id=r.from_page_id
      JOIN wiki_pages tp ON tp.id=r.to_page_id
-     WHERE r.project_id=? AND (r.from_page_id=? OR r.to_page_id=?)
+     WHERE r.project_id=? AND ${visibleFileIndexSql("fp")} AND ${visibleFileIndexSql("tp")}
+       AND (r.from_page_id=? OR r.to_page_id=?)
      ORDER BY r.relation,r.created_at`,
     [projectId, pageId, pageId],
   );
@@ -100,8 +102,9 @@ export async function memoryNeighborhood(
   db,
   projectId,
   startPageIds,
-  { depth = 1, limit = 40 } = {},
+  { depth = 1, limit = 40, historical = false } = {},
 ) {
+  const visibility = historical ? historicalFileIndexSql : visibleFileIndexSql;
   const hops = Math.min(Math.max(Number(depth) || 1, 1), 3);
   const visited = new Map();
   let frontier = [...new Set(startPageIds.filter(Boolean))];
@@ -109,9 +112,11 @@ export async function memoryNeighborhood(
   for (let step = 0; step < hops && frontier.length; step++) {
     const rows = await query(
       db,
-      `SELECT from_page_id fromPageId,to_page_id toPageId,relation FROM memory_relations
-       WHERE project_id=? AND (from_page_id IN (${frontier.map(() => "?").join(",")})
-         OR to_page_id IN (${frontier.map(() => "?").join(",")}))`,
+      `SELECT r.from_page_id fromPageId,r.to_page_id toPageId,r.relation FROM memory_relations r
+       JOIN wiki_pages fp ON fp.id=r.from_page_id JOIN wiki_pages tp ON tp.id=r.to_page_id
+       WHERE r.project_id=? AND ${visibility("fp")} AND ${visibility("tp")}
+         AND (r.from_page_id IN (${frontier.map(() => "?").join(",")})
+         OR r.to_page_id IN (${frontier.map(() => "?").join(",")}))`,
       [projectId, ...frontier, ...frontier],
     );
     const next = [];
@@ -143,7 +148,7 @@ export async function noteMemoryRecall(db, pageIds = []) {
   if (!ids.length) return;
   await query(
     db,
-    `UPDATE wiki_pages SET recall_count=recall_count+1,last_recalled_at=UTC_TIMESTAMP(3)
+    `UPDATE wiki_pages SET recall_count=recall_count+1,last_recalled_at=UTC_TIMESTAMP(3),updated_at=updated_at
      WHERE id IN (${ids.map(() => "?").join(",")})`,
     ids,
   );

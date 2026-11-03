@@ -1,3 +1,4 @@
+import { listFileIndexDiscoveryHistory, listFileIndexIssues } from "../file-index-jobs.js";
 import { queueLaowengContextCompression, readLaowengTaskSession } from "../laoweng-context.js";
 import { registerCloudbaseRoutes } from "./cloudbase-routes.js";
 import { registerMiniprogramRoutes } from "./miniprogram.js";
@@ -5,11 +6,17 @@ import { readVisualArtifact } from "../visual-artifacts.js";
 import { getWikiPage, listWikiPages } from "../wiki-pages.js";
 import {
   confirmMemoryEntry,
+  supersedeMemoryEntry,
   flagMemoryEntry,
   readProjectMemory,
   readProjectMemoryCounts,
 } from "../memory-timeline.js";
-import { listMemoryJobs, resetMemoryJobSettings, updateMemoryJobSettings } from "../memory-jobs.js";
+import {
+  listMemoryJobHistory,
+  listMemoryJobs,
+  resetMemoryJobSettings,
+  updateMemoryJobSettings,
+} from "../memory-jobs.js";
 import {
   askCompanyQuestion,
   askOrgQuestion,
@@ -307,7 +314,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   );
   // 知识页不再接受人手写：人只在「项目记忆」里确认与纠错。
   app.post("/api/projects/:id/wiki-pages", async () => {
-    throw new HttpError(409, "知识页已并入项目记忆：确认或纠错请用项目记忆");
+    throw new HttpError(409, "知识页已并入项目记忆：查看出处或提交反馈请用项目记忆");
   });
   app.get("/api/projects/:id/wiki-pages/:pageId", async (req, res) =>
     res.json(await getWikiPage(service, req.user, req.params.id, req.params.pageId)),
@@ -321,9 +328,25 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   app.get("/api/projects/:id/memory/counts", async (req, res) =>
     res.json(await readProjectMemoryCounts(service, req.user, req.params.id)),
   );
+  app.get("/api/projects/:id/memory/status/history", async (req, res) => {
+    const { listProjectStatusHistory } = await import("../project-status-node.js");
+    res.json(await listProjectStatusHistory(service, req.user, req.params.id, req.query.limit));
+  });
   app.get("/api/projects/:id/memory/jobs", async (req, res) => {
     await service.member(req.user, req.params.id);
     res.json(await listMemoryJobs(db, req.params.id));
+  });
+  app.get("/api/projects/:id/memory/file-index/discoveries", async (req, res) => {
+    await service.member(req.user, req.params.id);
+    res.json(await listFileIndexDiscoveryHistory(db, req.params.id, req.query));
+  });
+  app.get("/api/projects/:id/memory/file-index/issues", async (req, res) => {
+    await service.member(req.user, req.params.id);
+    res.json(await listFileIndexIssues(db, req.params.id, req.query));
+  });
+  app.get("/api/projects/:id/memory/jobs/:key/history", async (req, res) => {
+    await service.member(req.user, req.params.id);
+    res.json(await listMemoryJobHistory(db, req.params.id, req.params.key, req.query));
   });
   app.patch("/api/projects/:id/memory/jobs/:key", async (req, res) => {
     await service.member(req.user, req.params.id, true);
@@ -337,13 +360,16 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   });
   app.post("/api/projects/:id/memory/backfill", async (req, res) => {
     await service.member(req.user, req.params.id, true);
-    const { backfillProjectMemory } = await import("../memory-backfill.js");
-    res.json(
-      await backfillProjectMemory(service.db, {
-        projectId: req.params.id,
-        createdBy: req.user.id,
-      }),
-    );
+    const { backfillProjectMemory, completeProjectMemoryBackfill } =
+      await import("../memory-backfill.js");
+    const result = await backfillProjectMemory(service.db, {
+      projectId: req.params.id,
+      createdBy: req.user.id,
+    });
+    await completeProjectMemoryBackfill(service.db, req.params.id);
+    const { publishWork } = await import("../work-events.js");
+    publishWork(service.db);
+    res.json(result);
   });
   app.post("/api/projects/:id/memory/relations", async (req, res) => {
     await service.member(req.user, req.params.id, true);
@@ -357,6 +383,60 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
       createdBy: req.user.id,
     });
     res.status(201).json(row);
+  });
+  app.get("/api/projects/:id/memory/file-groups/needs-repair", async (req, res) => {
+    await service.member(req.user, req.params.id, true);
+    const { listFileIndexGroupsNeedingRepair } = await import("../file-index-groups.js");
+    res.json({ entries: await listFileIndexGroupsNeedingRepair(service.db, req.params.id) });
+  });
+  app.post("/api/projects/:id/memory/file-groups", async (req, res) => {
+    await service.member(req.user, req.params.id, true);
+    const { projectArchived } = await import("../memory-timeline.js");
+    if (await projectArchived(service.db, req.params.id))
+      throw new HttpError(409, "项目已归档，记忆只读");
+    const { saveFileIndexGroup } = await import("../file-index-groups.js");
+    const { title, evidence, members } = req.body || {};
+    res.status(201).json(
+      await saveFileIndexGroup(service.db, {
+        projectId: req.params.id,
+        createdBy: req.user.id,
+        title,
+        evidence,
+        members,
+      }),
+    );
+  });
+  app.patch("/api/projects/:id/memory/file-groups/:groupId", async (req, res) => {
+    await service.member(req.user, req.params.id, true);
+    const { projectArchived } = await import("../memory-timeline.js");
+    if (await projectArchived(service.db, req.params.id))
+      throw new HttpError(409, "项目已归档，记忆只读");
+    const { saveFileIndexGroup } = await import("../file-index-groups.js");
+    const { title, evidence, members } = req.body || {};
+    res.json(
+      await saveFileIndexGroup(service.db, {
+        projectId: req.params.id,
+        createdBy: req.user.id,
+        groupId: req.params.groupId,
+        title,
+        evidence,
+        members,
+      }),
+    );
+  });
+  app.delete("/api/projects/:id/memory/file-groups/:groupId", async (req, res) => {
+    await service.member(req.user, req.params.id, true);
+    const { projectArchived } = await import("../memory-timeline.js");
+    if (await projectArchived(service.db, req.params.id))
+      throw new HttpError(409, "项目已归档，记忆只读");
+    const { dismissFileIndexGroup } = await import("../file-index-groups.js");
+    res.json(
+      await dismissFileIndexGroup(service.db, {
+        projectId: req.params.id,
+        groupId: req.params.groupId,
+        userId: req.user.id,
+      }),
+    );
   });
   app.delete("/api/projects/:id/memory/relations/:relationId", async (req, res) => {
     await service.member(req.user, req.params.id, true);
@@ -374,26 +454,95 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
       ),
     ),
   );
+  app.post("/api/projects/:id/memory/entries/:entryId/recheck", async (req, res) => {
+    await service.member(req.user, req.params.id, true);
+    const { projectArchived } = await import("../memory-timeline.js");
+    if (await projectArchived(service.db, req.params.id))
+      throw new HttpError(409, "项目已归档，记忆已封存");
+    const { queueConversationRecheck } = await import("../conversation-memory-store.js");
+    let queued;
+    try {
+      queued = await queueConversationRecheck(
+        service.db,
+        req.params.id,
+        req.params.entryId,
+        req.user.id,
+      );
+    } catch (error) {
+      if (/不存在|没有可|已删除|无需重新核对/.test(String(error?.message || error)))
+        throw new HttpError(409, String(error.message));
+      throw error;
+    }
+    const { publishWork } = await import("../work-events.js");
+    publishWork(service.db);
+    res.status(202).json(queued);
+  });
   app.post("/api/projects/:id/memory/discussion/:threadId", async (req, res) => {
     await service.member(req.user, req.params.id, true);
-    const { syncThreadDiscussionMemory } = await import("../discussion-memory.js");
-    res.status(202).json(
-      (await syncThreadDiscussionMemory(service.db, {
-        projectId: req.params.id,
-        threadId: req.params.threadId,
-        createdBy: req.user.id,
-      })) || { skipped: true },
-    );
+    const { queueConversationThread } = await import("../conversation-memory-store.js");
+    const queued = await queueConversationThread(service.db, req.params.id, req.params.threadId, {
+      backfill: true,
+    });
+    const { publishWork } = await import("../work-events.js");
+    publishWork(service.db);
+    res.status(202).json(queued);
   });
   app.post("/api/projects/:id/memory/jobs/:key/retry", async (req, res) =>
     res.status(202).json(await retryMemoryJob(service, req.user, req.params.id, req.params.key)),
   );
+  app.post("/api/projects/:id/memory/files/:artifactId/retry", async (req, res) => {
+    const { retryFileIndexJob } = await import("../file-index-jobs.js");
+    res
+      .status(202)
+      .json(await retryFileIndexJob(service, req.user, req.params.id, req.params.artifactId));
+  });
   app.post("/api/projects/:id/memory/entries/:entryId/confirm", async (req, res) =>
     res.json(await confirmMemoryEntry(service, req.user, req.params.id, req.params.entryId)),
   );
   app.post("/api/projects/:id/memory/entries/:entryId/flag", async (req, res) =>
     res.json(await flagMemoryEntry(service, req.user, req.params.id, req.params.entryId, req.body)),
   );
+  app.post("/api/projects/:id/memory/entries/:entryId/supersede", async (req, res) =>
+    res.json(
+      await supersedeMemoryEntry(service, req.user, req.params.id, req.params.entryId, req.body),
+    ),
+  );
+  app.get("/api/projects/:id/memory/entries/:entryId/history", async (req, res) => {
+    const { listMemoryHistory } = await import("../memory-history.js");
+    res.json(
+      await listMemoryHistory(service, req.user, req.params.id, req.params.entryId, req.query),
+    );
+  });
+  app.get("/api/projects/:id/memory/facts", async (req, res) => {
+    await service.member(req.user, req.params.id, false);
+    const { readProjectFacts } = await import("../project-facts.js");
+    res.json(await readProjectFacts(service.db, req.params.id, req.query));
+  });
+  app.get("/api/memory-revisions/:revisionId", async (req, res) => {
+    const { readMemoryRevision } = await import("../memory-history.js");
+    res.json(await readMemoryRevision(service, req.user, req.params.revisionId));
+  });
+  app.get("/api/document-content-revisions/:revisionId", async (req, res) => {
+    const [revision] = await query(
+      service.db,
+      "SELECT * FROM document_content_revisions WHERE id=?",
+      [req.params.revisionId],
+    );
+    if (!revision) throw new HttpError(404, "文件内容修订不存在");
+    await service.member(req.user, revision.project_id, false);
+    const { canReadHistoricalSources } = await import("../memory-history.js");
+    if (
+      !(await canReadHistoricalSources(service.db, revision.project_id, [
+        { kind: "document_version", id: revision.version_id },
+      ]))
+    )
+      throw new HttpError(403, "原文件已不可访问");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename*=UTF-8''${encodeURIComponent(revision.filename)}`,
+    );
+    res.type(revision.mime).send(revision.content);
+  });
   app.post("/api/projects/:id/memory/refresh", async (req, res) =>
     res.status(202).json(await queueProjectMemoryRun(service, req.user, req.params.id)),
   );
@@ -530,6 +679,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
         constraints: z.string().max(20000).optional(),
         refs: z.array(z.string().uuid()).max(30).default([]),
         folderRefs: z.array(z.string().uuid()).max(30).default([]),
+        memoryRevisionIds: z.array(z.string().uuid()).max(30).default([]),
         targetType: z.enum(["human_member"]).optional(),
         targetUserId: z.string().uuid(),
         threadId: z.string().uuid().optional(),
@@ -553,12 +703,20 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
       goal: data.goal,
       constraints: data.constraints,
       documentRefs: data.refs,
+      memoryRevisionIds: data.memoryRevisionIds,
       folderRefs: data.folderRefs,
       targetType: "human_member",
       targetId: data.targetUserId,
       asDraft: data.asDraft === true,
     });
     res.status(201).json(task);
+  });
+  app.get("/api/tasks/:id/decision-evidence", async (req, res) => {
+    const task = await getTask(db, req.params.id);
+    if (!task) throw new HttpError(404, "任务不存在");
+    await service.member(req.user, task.project_id, false);
+    const { readTaskDecisionEvidence } = await import("../memory-decisions.js");
+    res.json({ decisions: await readTaskDecisionEvidence(db, task.project_id, task.id) });
   });
   app.post("/api/task-questions/:id/answer", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");

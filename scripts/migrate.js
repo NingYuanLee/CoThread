@@ -106,7 +106,7 @@ function withoutLeadingComments(sql) {
 
 async function matchingExistingColumn(conn, statement) {
   const match = withoutLeadingComments(statement).match(
-    /^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+`?(\w+)`?\s+(CHAR\(\d+\)|VARCHAR\(\d+\)|TEXT|JSON|BOOLEAN|TINYINT\s+UNSIGNED|BIGINT\s+UNSIGNED|INT\s+UNSIGNED|DATETIME(?:\(\d+\))?)\s+(NULL|NOT\s+NULL)(?:\s+DEFAULT\s+(FALSE|TRUE|NULL|\d+))?(?:\s+(?:AFTER\s+`?\w+`?|FIRST))?$/i,
+    /^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+`?(\w+)`?\s+(CHAR\(\d+\)|VARCHAR\(\d+\)|(?:TINY|MEDIUM|LONG)?TEXT|JSON|BOOLEAN|TINYINT\s+UNSIGNED|BIGINT\s+UNSIGNED|INT\s+UNSIGNED|DATETIME(?:\(\d+\))?|ENUM\('[^']*'(?:\s*,\s*'[^']*')*\))\s+(NULL|NOT\s+NULL)(?:\s+DEFAULT\s+(FALSE|TRUE|NULL|\d+|'[^']*'|CURRENT_TIMESTAMP(?:\(\d+\))?))?(?:\s+(?:AFTER\s+`?\w+`?|FIRST))?$/i,
   );
   if (!match) return false;
   const [, table, column, type, nullable, defaultValue] = match;
@@ -130,13 +130,15 @@ async function matchingExistingColumn(conn, statement) {
         ? "0"
         : /^true$/i.test(defaultValue)
           ? "1"
-          : defaultValue;
+          : defaultValue.replace(/^'|'$/g, "").toLowerCase();
   return (
     !!actual &&
     actual.COLUMN_TYPE.toLowerCase() === expectedType &&
     actual.IS_NULLABLE === (/^null$/i.test(nullable) ? "YES" : "NO") &&
-    (actual.COLUMN_DEFAULT === null ? null : String(actual.COLUMN_DEFAULT)) === expectedDefault &&
-    !actual.EXTRA &&
+    (actual.COLUMN_DEFAULT === null ? null : String(actual.COLUMN_DEFAULT).toLowerCase()) ===
+      expectedDefault &&
+    (!actual.EXTRA ||
+      (/^CURRENT_TIMESTAMP/i.test(defaultValue || "") && actual.EXTRA === "DEFAULT_GENERATED")) &&
     (!actual.COLLATION_NAME || actual.COLLATION_NAME === actual.TABLE_COLLATION)
   );
 }
@@ -159,18 +161,36 @@ async function matchingAbsentColumn(conn, statement) {
 }
 
 async function matchingExistingIndex(conn, statement) {
-  const match = statement.match(
-    /^CREATE\s+UNIQUE\s+INDEX\s+`?(\w+)`?\s+ON\s+`?(\w+)`?\s*\(\s*`?(\w+)`?\s*\)$/i,
+  const sql = withoutLeadingComments(statement);
+  const create = sql.match(
+    /^CREATE\s+(UNIQUE\s+)?INDEX\s+`?(\w+)`?\s+ON\s+`?(\w+)`?\s*\(([^()]+)\)$/i,
   );
+  const alter = sql.match(
+    /^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+(UNIQUE\s+)?INDEX\s+`?(\w+)`?\s*\(([^()]+)\)$/i,
+  );
+  const match = create || (alter && [alter[0], alter[2], alter[3], alter[1], alter[4]]);
   if (!match) return false;
-  const [, indexName, table, column] = match;
+  const [, unique, indexName, table, columnList] = match;
+  const columns = columnList.split(",").map((column) => column.trim().replace(/^`|`$/g, ""));
+  if (!columns.every((column) => /^\w+$/.test(column))) return false;
   const rows = await query(
     conn,
-    `SELECT COLUMN_NAME,NON_UNIQUE FROM information_schema.STATISTICS
+    `SELECT COLUMN_NAME,NON_UNIQUE,SUB_PART,COLLATION,INDEX_TYPE,IS_VISIBLE FROM information_schema.STATISTICS
     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND INDEX_NAME=? ORDER BY SEQ_IN_INDEX`,
     [table, indexName],
   );
-  return rows.length === 1 && rows[0].COLUMN_NAME === column && Number(rows[0].NON_UNIQUE) === 0;
+  return (
+    rows.length === columns.length &&
+    rows.every(
+      (row, index) =>
+        row.COLUMN_NAME === columns[index] &&
+        Number(row.NON_UNIQUE) === (unique ? 0 : 1) &&
+        row.SUB_PART === null &&
+        row.COLLATION === "A" &&
+        row.INDEX_TYPE === "BTREE" &&
+        row.IS_VISIBLE === "YES",
+    )
+  );
 }
 
 export async function migrate(

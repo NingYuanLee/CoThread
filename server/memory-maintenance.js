@@ -2,7 +2,18 @@ import { processNextProjectMemory } from "./project-memory.js";
 import { processNextLaowengContextCompression } from "./laoweng-context.js";
 import { processNextChildContextCompression } from "./child-agent-context.js";
 import { query } from "./db.js";
+import {
+  discoverNextFileIndexChange,
+  expandFileIndexProjectReconciliation,
+  reconcileNextFileIndexArtifact,
+  scheduleNextFileIndexSweep,
+} from "./file-index-discovery.js";
 import { HttpError } from "./service.js";
+import {
+  backfillProjectMemory,
+  claimProjectMemoryBackfill,
+  completeProjectMemoryBackfill,
+} from "./memory-backfill.js";
 
 export function assertMemoryMaintenanceAuth(authorizationHeader) {
   const configured = process.env.MEMORY_MAINTENANCE_TOKEN;
@@ -30,15 +41,36 @@ export async function runMemoryMaintenance(
 ) {
   await recoverStaleLaowengRuns(db);
   let processed = 0;
+  let backfillAttempted = false;
   while (processed < maxBatches) {
     let worked = false;
+    if (!projectId && !task && !backfillAttempted) {
+      backfillAttempted = true;
+      const backfillProjectId = await claimProjectMemoryBackfill(db);
+      if (backfillProjectId) {
+        try {
+          await backfillProjectMemory(db, { projectId: backfillProjectId });
+          await completeProjectMemoryBackfill(db, backfillProjectId);
+        } catch (error) {
+          await completeProjectMemoryBackfill(db, backfillProjectId, error);
+        }
+        worked = true;
+      }
+    }
+    if (!projectId && !task && !worked) {
+      worked =
+        (await discoverNextFileIndexChange(db)) ||
+        (await expandFileIndexProjectReconciliation(db)) ||
+        (await reconcileNextFileIndexArtifact(db)) ||
+        (await scheduleNextFileIndexSweep(db));
+    }
     if (projectId || task) {
-      worked = await processNextProjectMemory(db, {
+      worked ||= await processNextProjectMemory(db, {
         projectId: projectId || undefined,
         task: task || undefined,
       });
     } else {
-      worked =
+      worked ||=
         (await processNextProjectMemory(db)) ||
         (await processNextLaowengContextCompression(db)) ||
         (await processNextChildContextCompression(db));

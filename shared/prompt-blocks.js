@@ -324,7 +324,13 @@ export function buildDiscussionTurn({
   };
 }
 
-export function buildMaintenanceTurn({ projectId, workType, iterationId = null, input }) {
+export function buildMaintenanceTurn({
+  projectId,
+  workType,
+  iterationId = null,
+  input,
+  resultMode = "json",
+}) {
   const inputText = JSON.stringify(input ?? null);
   const blocks = [
     createPromptBlock({
@@ -341,7 +347,10 @@ export function buildMaintenanceTurn({ projectId, workType, iterationId = null, 
       trust: "control",
       source: "server/laoweng-agent.js",
       version: String(workType || ""),
-      text: `本次维护类型：${workType}。只返回该类型要求的 JSON，不要输出解释。类型以本段为准。`,
+      text:
+        resultMode === "file_summary_tool"
+          ? `本次维护类型：${workType}。必须先调用 save_file_index_summary 提交本文件结果，成功后只返回 JSON {"saved":true}。类型以本段为准。`
+          : `本次维护类型：${workType}。只返回该类型要求的 JSON，不要输出解释。类型以本段为准。`,
     }),
     createPromptBlock({
       name: "TaskInput",

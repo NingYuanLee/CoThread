@@ -1,9 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
-import { query } from "./db.js";
+import { query, transaction } from "./db.js";
 import { HttpError } from "./http-error.js";
 import { refreshParticipantBriefs } from "./wiki-briefs.js";
 import { projectArchived } from "./memory-timeline.js";
+import { visibleFileIndexSql, visibleFileSourceSql } from "./file-index-visibility.js";
+import {
+  intactConversationMemorySql,
+  readableConversationMemorySql,
+} from "./conversation-memory-integrity.js";
+import { hydrateFileIndexRoots } from "./file-index-roots.js";
+import { hydrateFileIndexGroups } from "./file-index-groups.js";
+import { hydrateFileIndexPaths } from "./file-index-path.js";
 
 const sourceKinds = ["message", "document_version", "task", "archive"];
 const pageId = z.string().uuid();
@@ -21,6 +29,7 @@ function mapPage(row) {
     title: row.title,
     body: row.body,
     status: row.status,
+    sourceNeedsReview: Boolean(row.sourceNeedsReview),
     createdBy: row.createdBy,
     updatedBy: row.updatedBy,
     createdAt: row.createdAt,
@@ -40,33 +49,58 @@ export async function listWikiPages(service, user, projectId, q = "") {
     ? await query(
         service.db,
         `SELECT ${pageSelect} FROM wiki_pages p
-          WHERE p.project_id=? AND MATCH(p.title, p.body) AGAINST (? IN NATURAL LANGUAGE MODE)
+          WHERE p.project_id=? AND ${visibleFileIndexSql("p")} AND ${readableConversationMemorySql("p")} AND MATCH(p.title, p.body) AGAINST (? IN NATURAL LANGUAGE MODE)
           ORDER BY MATCH(p.title, p.body) AGAINST (? IN NATURAL LANGUAGE MODE) DESC, p.updated_at DESC`,
         [projectId, text, text],
       )
     : await query(
         service.db,
-        `SELECT ${pageSelect} FROM wiki_pages p WHERE p.project_id=? ORDER BY p.updated_at DESC, p.id`,
+        `SELECT ${pageSelect} FROM wiki_pages p WHERE p.project_id=? AND ${visibleFileIndexSql("p")} AND ${readableConversationMemorySql("p")} ORDER BY p.updated_at DESC, p.id`,
         [projectId],
       );
-  return { pages: rows.map(mapPage), canWrite: gate.canWrite };
+  const rootPages = await hydrateFileIndexRoots(service.db, projectId, rows);
+  const { readProjectStatusNode } = await import("./project-status-node.js");
+  const status = await readProjectStatusNode(service.db, projectId);
+  if (status && Number(status.sourceNeedsReview)) {
+    const page = rootPages.find((item) => item.id === status.id);
+    if (page) page.sourceNeedsReview = true;
+  }
+  const groupPages = await hydrateFileIndexGroups(service.db, projectId, rootPages);
+  return {
+    pages: (await hydrateFileIndexPaths(service.db, projectId, groupPages)).map(mapPage),
+    canWrite: gate.canWrite,
+  };
 }
 
 export async function getWikiPage(service, user, projectId, id) {
+  if (typeof service.db.getConnection === "function")
+    return transaction(service.db, (conn) =>
+      getWikiPage(Object.assign(Object.create(service), { db: conn }), user, projectId, id),
+    );
   await access(service, user, projectId, false);
   pageId.parse(id);
   const [row] = await query(
     service.db,
-    `SELECT ${pageSelect} FROM wiki_pages p WHERE p.id=? AND p.project_id=?`,
+    `SELECT ${pageSelect} FROM wiki_pages p WHERE p.id=? AND p.project_id=? AND ${visibleFileIndexSql("p")} AND ${readableConversationMemorySql("p")}`,
     [id, projectId],
   );
   if (!row) throw new HttpError(404, "记忆条目不存在");
+  const { readProjectStatusNode } = await import("./project-status-node.js");
+  const status = await readProjectStatusNode(service.db, projectId);
+  if (status?.id === row.id && Number(status.sourceNeedsReview)) row.sourceNeedsReview = true;
   const sources = await query(
     service.db,
-    "SELECT id, source_kind sourceKind, source_id sourceId, label FROM wiki_page_sources WHERE page_id=? ORDER BY created_at, id",
+    `SELECT s.id,s.source_kind sourceKind,s.source_id sourceId,s.label FROM wiki_page_sources s
+     WHERE s.page_id=? AND ${visibleFileSourceSql("s")} ORDER BY s.created_at,s.id`,
     [id],
   );
-  return { page: mapPage(row), sources };
+  const rootPages = await hydrateFileIndexRoots(service.db, projectId, [row]);
+  const groupPages = await hydrateFileIndexGroups(service.db, projectId, rootPages);
+  const [page] = await hydrateFileIndexPaths(service.db, projectId, groupPages);
+  const { captureMemoryRevision } = await import("./memory-history.js");
+  // Retain every original dependency, including a source hidden from the current preview.
+  const memoryRevisionId = await captureMemoryRevision(service.db, page);
+  return { page: { ...mapPage(page), memoryRevisionId }, sources };
 }
 
 export async function createWikiPage(service, user, projectId, input) {

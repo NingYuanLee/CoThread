@@ -1,8 +1,10 @@
 - insert:
+    - id: attachment-local
+      name: "@deepseek-ai/dsh-attachment-local"
     - id: token-meter
-      name: '@deepseek-ai/dsh-token-meter'
+      name: "@deepseek-ai/dsh-token-meter"
     - id: compaction-basic
-      name: '@deepseek-ai/dsh-compaction-basic'
+      name: "@deepseek-ai/dsh-compaction-basic"
       config:
         thresholdRatio: 0.7
         # See dsh-layer/agent-patch.yml: keeps the native pressure budget aligned
@@ -22,4 +24,4 @@
   config:
     includeHarnessIdentity: false
     includeRuntimeContext: false
-    personaPrefix: ''
+    personaPrefix: ""

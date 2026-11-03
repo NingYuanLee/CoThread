@@ -10,7 +10,8 @@
  * 未提供的写 NULL，与旧代码「省略该列」的结果一致。
  */
 import { randomUUID } from "node:crypto";
-import { query } from "../db.js";
+import { query, transaction } from "../db.js";
+import { recordDocumentChange } from "./document-audit.js";
 
 export async function createArtifact(
   db,
@@ -59,6 +60,23 @@ export async function createVersion(
     createdBy,
   },
 ) {
+  if (typeof db.getConnection === "function") {
+    return transaction(db, (conn) =>
+      createVersion(conn, {
+        id,
+        artifactId,
+        version,
+        threadId,
+        filename,
+        mime,
+        content,
+        sha256,
+        byteSize,
+        note,
+        createdBy,
+      }),
+    );
+  }
   await query(
     db,
     `INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by)
@@ -66,30 +84,40 @@ export async function createVersion(
     [id, artifactId, threadId, version, filename, mime, content, sha256, byteSize, note, createdBy],
   );
   {
-    // 项目记忆候选：只有正式文件区的新版本才算事件型信号；失败不影响建档。
+    // 正式文件的根目录和子目录都可能产生里程碑候选。
     const [signalArtifact] = await query(
       db,
-      `SELECT a.project_id,f.folder_kind FROM artifacts a
+      `SELECT a.project_id,a.folder_id,f.folder_kind FROM artifacts a
        LEFT JOIN document_folders f ON f.id=a.folder_id WHERE a.id=?`,
       [artifactId],
     );
-    if (signalArtifact?.project_id && signalArtifact.folder_kind === "project_official") {
-      const { noteProjectMemorySignal } = await import("../project-memory.js");
-      await noteProjectMemorySignal(
-        db,
-        signalArtifact.project_id,
-        "document_version",
-        id,
-        String(note || filename || "").slice(0, 120),
-        { urgent: true },
-      ).catch(() => {});
-      const { syncDocumentMemory } = await import("../document-memory.js");
-      await syncDocumentMemory(db, {
+    if (signalArtifact?.project_id) {
+      await recordDocumentChange(db, {
         projectId: signalArtifact.project_id,
         artifactId,
         versionId: id,
-        createdBy,
-      }).catch(() => {});
+        folderId: signalArtifact.folder_id,
+        action: "version_created",
+        source: "system",
+        actorId: createdBy,
+        threadId,
+        details: { filename, version },
+      });
+    }
+    if (signalArtifact?.project_id && signalArtifact.folder_id) {
+      const { folderRootKind } = await import("./project-library.js");
+      const root = await folderRootKind(db, signalArtifact.folder_id);
+      if (root === "project_official") {
+        const { noteProjectMemorySignal } = await import("../project-memory.js");
+        await noteProjectMemorySignal(
+          db,
+          signalArtifact.project_id,
+          "document_version",
+          id,
+          String(note || filename || "").slice(0, 120),
+          { urgent: true },
+        );
+      }
     }
   }
   return id;
@@ -129,10 +157,40 @@ export async function replaceVersionContent(
   db,
   { id, content, mime, sha256, byteSize, note, createdBy },
 ) {
+  if (typeof db.getConnection === "function") {
+    return transaction(db, (conn) =>
+      replaceVersionContent(conn, { id, content, mime, sha256, byteSize, note, createdBy }),
+    );
+  }
+  const [previous] = await query(
+    db,
+    `SELECT v.sha256,v.mime,v.artifact_id artifactId,a.project_id projectId
+    FROM versions v JOIN artifacts a ON a.id=v.artifact_id WHERE v.id=? FOR UPDATE`,
+    [id],
+  );
+  if (!previous) return;
   await query(
     db,
     `UPDATE versions SET content=?,mime=?,sha256=?,byte_size=?,note=?,created_by=? WHERE id=?`,
     [content, mime, sha256, byteSize, note, createdBy, id],
+  );
+  if (previous.sha256 === sha256 && previous.mime === mime) return;
+  await recordDocumentChange(db, {
+    projectId: previous.projectId,
+    artifactId: previous.artifactId,
+    versionId: id,
+    action: "version_content_replaced",
+    source: "system",
+    actorId: createdBy,
+  });
+  const { noteProjectMemorySignal } = await import("../project-memory.js");
+  await noteProjectMemorySignal(
+    db,
+    previous.projectId,
+    "document_version",
+    id,
+    String(note || "文件内容已更新").slice(0, 120),
+    { urgent: true },
   );
 }
 

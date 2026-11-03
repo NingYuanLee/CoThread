@@ -1341,7 +1341,7 @@ test("project memory job routes: settings, retry, discussion and permissions", a
   const projectJob = afterPatch.body.find((job) => job.key === "project_memory");
   assert.notEqual(projectJob.enabled, false);
   assert.ok(!projectJob.promptOverridden);
-  assert.match(projectJob.prompt, /create/);
+  assert.match(projectJob.prompt, /里程碑/);
 
   const reset = await request(
     `/projects/${projectId}/memory/jobs/project_memory`,
@@ -1363,21 +1363,42 @@ test("project memory job routes: settings, retry, discussion and permissions", a
     {},
     owner,
   );
-  assert.equal(discussionRetry.status, 409, "没有已归档迭代时拒绝补跑");
+  assert.equal(discussionRetry.status, 202, "议题与发言共享联合处理，即使没有归档迭代也可运行");
+  assert.equal(discussionRetry.body.task, "member_memory");
   const retry = await request(`/projects/${projectId}/memory/jobs/member_memory/retry`, {}, owner);
   assert.equal(retry.status, 202);
   assert.equal(retry.body.task, "member_memory");
 
   const thread = await request(`/projects/${projectId}/threads`, { title: "记忆路由迭代" }, owner);
   const threadId = thread.body.id;
-  await request(`/threads/${threadId}/messages`, { body: "先做记忆" }, owner);
+  const message = await request(`/threads/${threadId}/messages`, { body: "先做记忆" }, owner);
   const discussion = await request(
     `/projects/${projectId}/memory/discussion/${threadId}`,
     {},
     owner,
   );
   assert.equal(discussion.status, 202);
-  assert.ok(discussion.body.pageId);
+  assert.equal(discussion.body.queued, true);
+  const { processNextProjectMemory } = await import("../server/project-memory.js");
+  await processNextProjectMemory(db, {
+    projectId,
+    task: "member_memory",
+    analyze: async () => ({
+      statements: [],
+      discussions: [
+        {
+          subtype: "requirements",
+          title: "先做记忆",
+          body: "待讨论先做记忆",
+          stage: "pending",
+          sourceIds: [message.body.id],
+        },
+      ],
+    }),
+    verifySupport: async () => true,
+  });
+  const { ensureProjectStatusNode } = await import("../server/project-status-node.js");
+  await ensureProjectStatusNode(db, projectId, owner.id);
 
   const memory = await request(`/projects/${projectId}/memory`, undefined, owner);
   const discussionEntry = memory.body.entries.find((entry) => entry.subject === "discussion");

@@ -9,7 +9,7 @@ import { publishWork } from "./work-events.js";
 import { nativeHistoryFromLiveHome } from "./child-agent-session.js";
 import { acquireSessionLock } from "./session-lock.js";
 import { recordArchivePages } from "./wiki-pages.js";
-import { listIterationMemoryDrafts, settleIterationMemory } from "./memory-timeline.js";
+import { settleIterationMemory } from "./memory-timeline.js";
 
 const ended = new Set(["completed", "failed", "cancelled", "rejected", "abandoned", "superseded"]);
 
@@ -370,12 +370,6 @@ export async function readArchiveWorkflow(service, user, threadId) {
     nextIteration: plan.nextIteration || { title: "", background: "", goal: "" },
     error: row.error || null,
     nextThreadId: row.next_thread_id || null,
-    // 本轮范围内的记忆草稿：归档确认前让人逐条校准，勾选的会在同一事务里转正。
-    memoryDrafts: await listIterationMemoryDrafts(service.db, {
-      projectId: thread.project_id,
-      threadId,
-      workflowId: row.id,
-    }),
     session: await archiveSessionView(service.db, thread, row),
     members: await query(
       service.db,
@@ -782,8 +776,6 @@ export async function confirmIterationArchive(service, user, threadId, input) {
     .extend({
       workflowId: z.string().uuid(),
       createNextIteration: z.boolean(),
-      // 清算清单里人勾选确认的本轮草稿；不传则全部保留为 draft。
-      confirmedEntryIds: z.array(z.string().uuid()).max(500).default([]),
       taskDecisions: z
         .array(
           z.object({
@@ -1031,11 +1023,11 @@ export async function confirmIterationArchive(service, user, threadId, input) {
     await noteProjectMemorySignal(
       conn,
       thread.project_id,
-      "milestone",
+      "archive",
       workflow.id,
       `归档迭代「${thread.title || threadId}」；结论：${String(data.conclusion || "").slice(0, 220)}`,
       { urgent: true },
-    ).catch(() => {});
+    );
     await query(
       conn,
       "UPDATE assistant_replies r JOIN messages m ON m.id=r.message_id SET r.status='cancelled',r.finished_at=UTC_TIMESTAMP(3) WHERE m.thread_id=? AND r.status='queued'",
@@ -1086,7 +1078,6 @@ export async function confirmIterationArchive(service, user, threadId, input) {
       threadId,
       userId: user.id,
       workflowId: workflow.id,
-      confirmedEntryIds: data.confirmedEntryIds,
     });
     return { status: "archived", nextThreadId, settlement };
   });

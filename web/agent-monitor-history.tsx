@@ -1,4 +1,7 @@
+import { SelectField } from "./SelectField";
 import { DialogHeader } from "./DialogHeader";
+import { DialogFooter } from "./DialogFooter";
+import { PaginationControl } from "./PaginationControl";
 import { DialogFilters } from "./DialogFilters";
 import { useRef, useState } from "react";
 
@@ -86,29 +89,42 @@ export function LaowengHistoryDialog({
   rows,
   empty,
   onClose,
+  loading = false,
+  error = "",
+  total,
+  page,
+  pageSize,
+  search,
+  onSearch,
+  triggerFilter,
+  onPageChange,
+  onPageSizeChange,
 }: {
   title: string;
   columns: HistoryColumn[];
   rows: HistoryRow[];
   empty: string;
+  loading?: boolean;
+  error?: string;
+  total: number;
+  page: number;
+  pageSize: number;
+  search: string;
+  onSearch: (keyword: string) => void;
+  triggerFilter?: { value: string; onChange: (value: string) => void };
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const hasActions = rows.some((row) => row.actions);
   const [keyword, setKeyword] = useState("");
-  const [search, setSearch] = useState("");
-  const visibleRows = rows.filter((row) =>
-    columns
-      .map((column) => row.cells[column.key] || "")
-      .join(" ")
-      .toLocaleLowerCase()
-      .includes(search.toLocaleLowerCase()),
-  );
+  const [trigger, setTrigger] = useState(triggerFilter?.value || "");
   return (
     <Dialog
       onRequestClose={onClose}
       ref={dialog}
-      className="child-task-detail-dialog laoweng-history-dialog"
+      className="l1-history-dialog dialog-list"
       aria-labelledby="laoweng-history-title"
     >
       <DialogHeader
@@ -121,47 +137,82 @@ export function LaowengHistoryDialog({
       <DialogFilters
         label="历史记录筛选"
         keyword={{ value: keyword, onChange: setKeyword, placeholder: "搜索历史记录" }}
-        onQuery={() => setSearch(keyword.trim())}
+        onQuery={() => {
+          triggerFilter?.onChange(trigger);
+          onSearch(keyword.trim());
+        }}
         onReset={() => {
           setKeyword("");
-          setSearch("");
+          setTrigger("");
+          triggerFilter?.onChange("");
+          onSearch("");
         }}
-      />
-      <div className="laoweng-history-body dialog-scroll-region">
-        <table className="laoweng-history-table">
-          <thead>
-            <tr>
-              {columns.map((column) => (
-                <th key={column.key}>{column.label}</th>
-              ))}
-              {hasActions ? <th>操作</th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {visibleRows.map((row) => (
-              <tr key={row.id}>
-                {columns.map((column) => (
-                  <td key={column.key}>
-                    {column.key === "status" && row.tone ? (
-                      <State tone={row.tone}>{row.cells[column.key]}</State>
-                    ) : (
-                      row.cells[column.key] || ""
-                    )}
-                  </td>
-                ))}
-                {hasActions ? <td className="laoweng-history-actions">{row.actions}</td> : null}
-              </tr>
-            ))}
-            {!visibleRows.length && (
+      >
+        {triggerFilter ? (
+          <SelectField
+            label="触发类型"
+            value={trigger}
+            onChange={setTrigger}
+            options={[
+              { value: "schedule", label: "自动运行" },
+              { value: "user", label: "手动运行" },
+            ]}
+            allOption="全部触发类型"
+          />
+        ) : null}
+      </DialogFilters>
+      <div className="l1-history-content">
+        <div className="l1-history-body admin-table-wrap dialog-scroll-region">
+          <table className="admin-table">
+            <thead>
               <tr>
-                <td className="monitor-empty" colSpan={columns.length + (hasActions ? 1 : 0)}>
-                  {search ? "没有符合条件的历史记录" : empty}
-                </td>
+                {columns.map((column) => (
+                  <th key={column.key}>{column.label}</th>
+                ))}
+                {hasActions ? <th>操作</th> : null}
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {!loading &&
+                !error &&
+                rows.map((row) => (
+                  <tr key={row.id}>
+                    {columns.map((column) => (
+                      <td key={column.key}>
+                        {column.key === "status" && row.tone ? (
+                          <State tone={row.tone}>{row.cells[column.key]}</State>
+                        ) : (
+                          row.cells[column.key] || ""
+                        )}
+                      </td>
+                    ))}
+                    {hasActions ? <td className="laoweng-history-actions">{row.actions}</td> : null}
+                  </tr>
+                ))}
+              {(loading || error || !rows.length) && (
+                <tr>
+                  <td className="monitor-empty" colSpan={columns.length + (hasActions ? 1 : 0)}>
+                    {loading
+                      ? "正在读取历史记录…"
+                      : error || (search ? "没有符合条件的历史记录" : empty)}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
+      <DialogFooter pagination>
+        <PaginationControl
+          total={total}
+          currentPage={page}
+          pageSize={pageSize}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+          disabled={loading || Boolean(error)}
+          ariaLabel="历史记录分页"
+        />
+      </DialogFooter>
     </Dialog>
   );
 }

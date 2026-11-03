@@ -18,7 +18,6 @@ import { AGENT_MEMBER } from "../../shared/agent-member.js";
 import { decodeUploadedBytes, verifyBytes } from "./file-bytes.js";
 import { INLINE_FILE_MAX_BYTES } from "../../shared/upload-limits.js";
 import { publishWork } from "../work-events.js";
-import { queueDocumentMemory } from "../project-memory.js";
 import {
   DOCUMENT_LIBRARY_FOLDER_SQL,
   OUTPUT_LIBRARY_FOLDER_SQL,
@@ -348,7 +347,6 @@ export class DocumentsService {
         note: data.note,
         createdBy: user.id,
       });
-      await queueDocumentMemory(db, versionId);
       await touchArtifact(db, artifactId);
       await recordDocumentChange(db, {
         projectId,
@@ -562,7 +560,6 @@ export class DocumentsService {
         note: data.note,
         createdBy: user.id,
       });
-      if (!chatUpload) await queueDocumentMemory(db, versionId);
       await touchArtifact(db, artifactId);
       await recordDocumentChange(db, {
         projectId: thread.project_id,
@@ -770,6 +767,18 @@ export class DocumentsService {
       !source.saved_official_artifact_id
     )
       return null;
+    const [approval] = await query(
+      db,
+      "SELECT id,decision FROM reviews WHERE version_id=? ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE",
+      [versionId],
+    );
+    if (approval?.decision !== "approved") return null;
+    const [latestSource] = await query(
+      db,
+      "SELECT id FROM versions WHERE artifact_id=? ORDER BY version DESC LIMIT 1 FOR UPDATE",
+      [source.artifact_id],
+    );
+    if (latestSource?.id !== versionId) return null;
     const [official] = await query(
       db,
       `SELECT a.id,a.title,a.deleted_at,a.purged_at,v.id version_id
@@ -805,6 +814,7 @@ export class DocumentsService {
       details: {
         sourceArtifactId: source.artifact_id,
         sourceVersionId: versionId,
+        confirmationId: approval.id,
         version: source.version,
       },
     });
@@ -919,8 +929,7 @@ export class DocumentsService {
       note,
       createdBy: user.id,
     });
-    await queueDocumentMemory(db, copiedVersionId);
-    await setArtifactOfficialLink(db, artifactId, source.artifact_id);
+    await setArtifactOfficialLink(db, source.artifact_id, artifactId);
     await recordDocumentChange(db, {
       projectId,
       artifactId,
@@ -1015,7 +1024,6 @@ export class DocumentsService {
         createdBy: user.id,
       });
       await touchArtifact(db, artifactId);
-      await queueDocumentMemory(db, nextVersionId);
       await recordDocumentChange(db, {
         projectId,
         artifactId,
@@ -1081,6 +1089,16 @@ export class DocumentsService {
     const reviewId = randomUUID();
     await transaction(this.db, async (db) => {
       await this.thread(user, threadId, true, db);
+      if (isOutputFolderKind(rootKind) && data.decision === "approved") {
+        // Serialize confirmation with publication of the next sandbox version.
+        await query(db, "SELECT id FROM artifacts WHERE id=? FOR UPDATE", [version.artifact_id]);
+        const [latest] = await query(
+          db,
+          "SELECT id FROM versions WHERE artifact_id=? ORDER BY version DESC LIMIT 1 FOR UPDATE",
+          [version.artifact_id],
+        );
+        if (latest?.id !== versionId) fail(409, "历史版本不能确认，请先选择当前版本");
+      }
       await query(
         db,
         "INSERT INTO reviews(id,version_id,reviewer_id,decision,comment) VALUES(?,?,?,?,?)",

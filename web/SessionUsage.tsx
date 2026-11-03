@@ -69,11 +69,13 @@ export function SessionUsage({
   thread,
   rounds,
   steps,
+  showWithoutUsage = false,
 }: {
   thread: Thread;
   /** 老翁这类「整段会话一个累计用量」的场景：轮次与步数由调用方给，不能靠 replies 计数。 */
   rounds?: number;
   steps?: number;
+  showWithoutUsage?: boolean;
 }) {
   // 小祥自己跑过的每一轮都算（含子 Agent 完工唤醒），不含子 Agent 自己的执行用量。
   const stats = sessionUsage(
@@ -120,7 +122,7 @@ export function SessionUsage({
       window.removeEventListener("resize", scroll);
     };
   }, [open]);
-  if (!visible) return null;
+  if (!visible && !showWithoutUsage) return null;
   const speed = stats.tps == null ? "未记录" : `${Math.round(stats.tps)} 词元/秒`;
   const timeLabel = [
     `${shownRounds} 轮`,
@@ -130,7 +132,7 @@ export function SessionUsage({
     .filter(Boolean)
     .join(" · ");
   const usageLabel = [
-    `${compactTokens(stats.totalTokens)} 词元`,
+    stats.hasUsage ? `${compactTokens(stats.totalTokens)} 词元` : "用量未记录",
     stats.cacheHit == null ? "" : `缓存命中 ${Math.round(stats.cacheHit * 100)}%`,
   ]
     .filter(Boolean)
@@ -188,15 +190,19 @@ export function SessionUsage({
                 <StatIcon kind={open} />
                 {open === "time" ? "会话统计" : "Token 用量"}
               </span>
-              {open === "usage" && <strong>{exactTokens(stats.totalTokens)}</strong>}
+              {open === "usage" && (
+                <strong>{stats.hasUsage ? exactTokens(stats.totalTokens) : "未记录"}</strong>
+              )}
             </header>
             <dl>
-              {(open === "time" ? timeRows : usageRows).map(([label, value]) => (
-                <React.Fragment key={label}>
-                  <dt>{label}</dt>
-                  <dd>{value}</dd>
-                </React.Fragment>
-              ))}
+              {(open === "time" ? timeRows : stats.hasUsage ? usageRows : [["用量", "未记录"]]).map(
+                ([label, value]) => (
+                  <React.Fragment key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </React.Fragment>
+                ),
+              )}
             </dl>
           </FloatingPanel>
         </FloatingPortal>

@@ -99,6 +99,13 @@ test("MCP read_document returns text and keeps binary downloads on get_document_
   assert.ok(!spec.parameters.offset.required);
   const body = "正文" + "续".repeat(7000);
   const service = {
+    db: {
+      execute: async (sql) => [
+        sql.includes("artifactId FROM versions")
+          ? [{ artifactId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }]
+          : [],
+      ],
+    },
     version: async (_user, versionId, options = {}) => {
       const binary = versionId === binaryId;
       const content = binary ? Buffer.from("png") : Buffer.from(body);

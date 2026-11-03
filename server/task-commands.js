@@ -28,6 +28,7 @@ import {
 } from "./task-access.js";
 import { getTask } from "./task-queries.js";
 import { idleChildCount } from "./task-dispatch.js";
+import { recordTaskCreationDecision } from "./memory-decisions.js";
 import { DEFAULT_PERSONA_KEY, personaByKey } from "../shared/agent-personas.js";
 export async function createTask(db, input) {
   const id = input.id || randomUUID();
@@ -217,6 +218,7 @@ export async function createTask(db, input) {
         input.sourceMessageId || null,
       ],
     );
+    await recordTaskCreationDecision(conn, input, id, documentRefs);
     await recordTaskStatusChange(
       conn,
       id,

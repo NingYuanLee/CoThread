@@ -124,6 +124,12 @@ export function apply(ctx) {
         sourceType: { type: "string" },
         sourceUserId: { type: "string" },
         sourceMessageId: { type: "string" },
+        memoryRevisionIds: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "实际用于本次任务决定的记忆修订ID，来自 search_memory/read_memory_revision。只填真正采用的依据。",
+        },
         sourceTaskId: { type: "string" },
         targetType: { type: "string" },
         targetId: { type: "string" },
@@ -188,6 +194,11 @@ export function apply(ctx) {
         query: { type: "string" },
         subjects: { type: "array" },
         aboutUserId: { type: "string" },
+        purpose: {
+          type: "string",
+          description: "current 当前安排，history 历史发言，explain 历史决定原因",
+        },
+        asOf: { type: "string", description: "ISO 时间；只查当时已记录的修订" },
         status: { type: "string" },
         depth: { type: "number" },
         limit: { type: "number" },
@@ -197,6 +208,30 @@ export function apply(ctx) {
       "read_member",
       "项目记忆：读取单个成员的名称、角色、个性签名、身份标签，以及按其关键发言整理的摘要，不含头像或凭据。",
       { memberId: { type: "string", required: true } },
+    ],
+    [
+      "read_memory_history",
+      "分页读取记忆旧修订、原话、固定依据和独立判断。",
+      {
+        pageId: { type: "string", required: true },
+        limit: { type: "number" },
+        offset: { type: "number" },
+      },
+    ],
+    [
+      "read_memory_revision",
+      "读取决定当时引用的固定修订。",
+      { revisionId: { type: "string", required: true } },
+    ],
+    [
+      "read_project_facts",
+      "读取客观项目创建事实、迭代、任务、执行轮次的全量统计与分页明细。",
+      {
+        kind: { type: "string" },
+        limit: { type: "number" },
+        offset: { type: "number" },
+        beforeEventId: { type: "string" },
+      },
     ],
     [
       "project_context",

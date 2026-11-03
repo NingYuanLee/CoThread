@@ -6,7 +6,7 @@ import { query, transaction } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { createApp } from "../server/app.js";
 import { issueCredential } from "../server/auth.js";
-import { noteProjectMemorySignal, processNextProjectMemory } from "../server/project-memory.js";
+import { processNextProjectMemory } from "../server/project-memory.js";
 import {
   confirmMemoryEntry,
   flagMemoryEntry,
@@ -42,7 +42,7 @@ async function insertEntry(
   db,
   projectId,
   userId,
-  { title = "条目", body = "正文", status = "draft" } = {},
+  { title = "条目", body = "正文", status = "current" } = {},
 ) {
   const id = randomUUID();
   await query(
@@ -53,24 +53,20 @@ async function insertEntry(
   return id;
 }
 
-test("daily signals queue, then settle into draft entries with sources", async () => {
+test("daily signals queue, then settle into current entries with sources", async () => {
   const { database, db, service, owner, project, thread } = await setup();
   try {
     await service.postMessage(owner, thread.id, { body: "我们决定先做项目记忆，不再人手维护" });
-    const [message] = await query(db, "SELECT id FROM messages WHERE thread_id=?", [thread.id]);
     const queued = await query(
       db,
       "SELECT id,source_kind sourceKind FROM agent_project_memory_queue WHERE project_id=?",
       [project.id],
     );
-    assert.equal(queued.length, 1);
-    assert.equal(queued[0].sourceKind, "message");
-    assert.equal(queued[0].id.length, 36);
+    assert.ok(queued.some((entry) => entry.sourceKind === "milestone"));
+    assert.ok(queued.some((entry) => entry.sourceKind === "thread"));
+    assert.ok(queued.every((entry) => entry.sourceKind !== "message"));
 
     // 事件型信号立即排 run
-    await noteProjectMemorySignal(db, project.id, "task", randomUUID(), "任务完成", {
-      urgent: true,
-    });
     const [run] = await query(
       db,
       "SELECT id,status FROM agent_laoweng_runs WHERE project_id=? AND task='project_memory' ORDER BY created_at LIMIT 1",
@@ -83,6 +79,7 @@ test("daily signals queue, then settle into draft entries with sources", async (
     const worked = await processNextProjectMemory(db, {
       projectId: project.id,
       task: "project_memory",
+      verifyMemorySupport: async () => ({ supported: true }),
       summarizeMemory: async (context) => {
         captured = context;
         return {
@@ -97,12 +94,13 @@ test("daily signals queue, then settle into draft entries with sources", async (
             },
           ],
           summary: "已整理",
+          projectStatus: { op: "unchanged" },
         };
       },
     });
     assert.equal(worked, true);
-    assert.ok(captured.candidates.some((candidate) => candidate.sourceKind === "message"));
-    assert.ok(captured.candidates.some((candidate) => candidate.text.includes("项目记忆")));
+    assert.ok(captured.candidates.some((candidate) => candidate.sourceKind === "milestone"));
+    assert.ok(captured.candidates.some((candidate) => candidate.sourceKind === "thread"));
 
     const pages = await query(
       db,
@@ -110,7 +108,7 @@ test("daily signals queue, then settle into draft entries with sources", async (
       [project.id, "当前状态"],
     );
     assert.equal(pages.length, 1);
-    assert.equal(pages[0].status, "draft");
+    assert.equal(pages[0].status, "current");
     assert.equal(pages[0].subjectType, "project");
     assert.equal(pages[0].subtype, "phase_change");
     const [overallPage] = await query(
@@ -124,9 +122,7 @@ test("daily signals queue, then settle into draft entries with sources", async (
       "SELECT source_kind sourceKind,source_id sourceId FROM wiki_page_sources WHERE page_id=?",
       [pages[0].id],
     );
-    assert.ok(
-      sources.some((source) => source.sourceKind === "message" && source.sourceId === message.id),
-    );
+    assert.ok(sources.some((source) => source.sourceKind === "milestone"));
 
     const left = await query(db, "SELECT id FROM agent_project_memory_queue WHERE project_id=?", [
       project.id,
@@ -145,21 +141,14 @@ test("daily signals queue, then settle into draft entries with sources", async (
   }
 });
 
-test("confirm promotes a draft once, flag records a dispute without editing", async () => {
+test("confirmation is retired and feedback does not edit memory", async () => {
   const { database, db, service, owner, viewer, project } = await setup();
   try {
     const entryId = await insertEntry(db, project.id, owner.id, { title: "当前状态" });
-    const confirmed = await confirmMemoryEntry(service, owner, project.id, entryId);
-    assert.equal(confirmed.status, "current");
     await assert.rejects(
       confirmMemoryEntry(service, owner, project.id, entryId),
-      (error) => error.status === 409,
+      (error) => error.status === 410,
     );
-    await assert.rejects(
-      confirmMemoryEntry(service, viewer, project.id, entryId),
-      (error) => error.status === 403,
-    );
-
     const draftId = await insertEntry(db, project.id, owner.id, {
       title: "决策",
       body: "原来如此",
@@ -176,85 +165,62 @@ test("confirm promotes a draft once, flag records a dispute without editing", as
     );
 
     const counts = await readProjectMemoryCounts(service, owner, project.id);
-    assert.equal(counts.drafts, 1);
+    assert.equal(counts.drafts, undefined);
     assert.equal(counts.disputes, 1);
-    assert.equal(counts.updatedSinceEntry, 1);
+    assert.equal(counts.updatedSinceEntry, 2);
 
     const memory = await readProjectMemory(service, owner, project.id);
     assert.equal(memory.canWrite, true);
-    assert.equal(memory.entries.length, 2);
+    assert.ok(memory.entries.some((entry) => entry.id === entryId));
+    assert.ok(memory.entries.some((entry) => entry.id === draftId));
     assert.ok(memory.entries.some((entry) => entry.disputed === true));
 
     const viewerMemory = await readProjectMemory(service, viewer, project.id);
     assert.equal(viewerMemory.canWrite, false);
     // 只读成员从未进入过项目：updatedSinceEntry 取现行条目数。
     const viewerCounts = await readProjectMemoryCounts(service, viewer, project.id);
-    assert.equal(viewerCounts.updatedSinceEntry, 1);
+    assert.equal(
+      viewerCounts.updatedSinceEntry,
+      memory.entries.filter((entry) => entry.status === "current").length,
+    );
   } finally {
     await database.close();
   }
 });
 
-test("iteration settlement promotes only confirmed drafts and stays stable on replay", async () => {
-  const { database, db, service, owner, project, thread } = await setup();
+test("iteration settlement only reports counts and is stable on replay", async () => {
+  const { database, db, owner, project, thread } = await setup();
   try {
     const workflowId = randomUUID();
-    const confirmedDraft = await insertEntry(db, project.id, owner.id, { title: "A" });
-    const keptDraft = await insertEntry(db, project.id, owner.id, { title: "B" });
-    for (const pageId of [confirmedDraft, keptDraft])
+    for (let i = 0; i < 2; i++) {
+      const id = await insertEntry(db, project.id, owner.id);
       await query(
         db,
-        "INSERT INTO wiki_page_sources(id,page_id,source_kind,source_id,label) VALUES(?,?,'archive',?,'归档确认')",
-        [randomUUID(), pageId, workflowId],
+        "INSERT INTO wiki_page_sources(id,page_id,source_kind,source_id,label) VALUES(?,?,'archive',?,'归档')",
+        [randomUUID(), id, workflowId],
       );
-    const first = await transaction(db, (conn) =>
-      settleIterationMemory(conn, {
-        projectId: project.id,
-        threadId: thread.id,
-        userId: owner.id,
-        workflowId,
-        confirmedEntryIds: [confirmedDraft],
-      }),
-    );
-    assert.equal(first.promoted, 1);
-    assert.equal(first.keptDraft, 1);
-    assert.equal(first.confirmed, 1);
+    }
+    const input = { projectId: project.id, threadId: thread.id, userId: owner.id, workflowId };
+    const first = await transaction(db, (conn) => settleIterationMemory(conn, input));
+    assert.equal(first.current, 2);
     assert.equal(first.superseded, 0);
-    const [promoted] = await query(db, "SELECT status FROM wiki_pages WHERE id=?", [
-      confirmedDraft,
-    ]);
-    assert.equal(promoted.status, "current");
-
-    const replay = await transaction(db, (conn) =>
-      settleIterationMemory(conn, {
-        projectId: project.id,
-        threadId: thread.id,
-        userId: owner.id,
-        workflowId,
-        apply: false,
-      }),
-    );
-    assert.equal(replay.promoted, 0);
-    assert.equal(replay.confirmed, 1);
-    assert.equal(replay.keptDraft, 1);
-
-    await assert.rejects(
-      transaction(db, (conn) =>
-        settleIterationMemory(conn, {
-          projectId: project.id,
-          threadId: thread.id,
-          userId: owner.id,
-          workflowId,
-          confirmedEntryIds: [randomUUID()],
-        }),
+    assert.deepEqual(await transaction(db, (conn) => settleIterationMemory(conn, input)), first);
+    assert.equal(
+      Number(
+        (
+          await query(
+            db,
+            "SELECT COUNT(*) n FROM project_change_logs WHERE project_id=? AND action='memory_entry_confirmed'",
+            [project.id],
+          )
+        )[0].n,
       ),
-      (error) => error.status === 400,
+      0,
     );
   } finally {
     await database.close();
   }
 });
-
 test("memory HTTP endpoints expose reads, permissions and refresh", async () => {
   const { database, db, service, owner, viewer, project, thread } = await setup();
   let server;
@@ -267,7 +233,7 @@ test("memory HTTP endpoints expose reads, permissions and refresh", async () => 
         thread.id,
       ],
     );
-    await insertEntry(db, project.id, owner.id, { title: "草稿条目" });
+    const draftId = await insertEntry(db, project.id, owner.id, { title: "草稿条目" });
     const outsider = { id: randomUUID() };
     await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
       outsider.id,
@@ -293,7 +259,7 @@ test("memory HTTP endpoints expose reads, permissions and refresh", async () => 
     assert.equal(memory.canWrite, true);
     assert.equal(memory.timeline.length, 1);
     assert.equal(memory.timeline[0].conclusion, "这轮定了项目记忆");
-    assert.equal(memory.entries.length, 1);
+    assert.ok(memory.entries.some((entry) => entry.id === draftId));
 
     const viewerMemory = await request("/memory", { token: viewerToken });
     assert.equal(viewerMemory.status, 200);
@@ -301,7 +267,7 @@ test("memory HTTP endpoints expose reads, permissions and refresh", async () => 
     assert.equal((await request("/memory", { token: outsiderToken })).status, 403);
     assert.equal((await request("/memory/counts", { token: outsiderToken })).status, 403);
 
-    const entryId = memory.entries[0].id;
+    const entryId = draftId;
     // 人手写入口已下线：知识页只能读，改记忆走确认与纠错。
     const createAttempt = await request("/wiki-pages", {
       token: ownerToken,
@@ -323,8 +289,13 @@ test("memory HTTP endpoints expose reads, permissions and refresh", async () => 
       token: ownerToken,
       body: {},
     });
-    assert.equal(confirmed.status, 200);
-    assert.equal((await confirmed.json()).status, "current");
+    assert.equal(confirmed.status, 410);
+    // Avoid invoking a real model in this route test; an existing active run is reusable.
+    await query(
+      db,
+      "UPDATE agent_laoweng_runs SET status='running',started_at=UTC_TIMESTAMP(3) WHERE project_id=? AND task='project_memory' AND status='queued'",
+      [project.id],
+    );
     const refreshed = await request("/memory/refresh", { token: ownerToken, body: {} });
     assert.equal(refreshed.status, 202);
   } finally {
@@ -333,7 +304,7 @@ test("memory HTTP endpoints expose reads, permissions and refresh", async () => 
   }
 });
 
-test("project archive freezes the memory and archive detail lists calibratable drafts", async () => {
+test("project archive freezes memory and archive no longer asks to confirm memory", async () => {
   const { database, db, service, owner, project, thread } = await setup();
   try {
     const workflowId = randomUUID();
@@ -354,14 +325,11 @@ test("project archive freezes the memory and archive detail lists calibratable d
       threadId: thread.id,
       workflowId,
     });
-    assert.equal(drafts.length, 1);
-    assert.equal(drafts[0].id, draftId);
-    assert.equal(drafts[0].title, "本轮草稿");
+    assert.equal(drafts.length, 0);
 
     const workflow = await readArchiveWorkflow(service, owner, thread.id);
     assert.equal(workflow.id, workflowId);
-    assert.equal(workflow.memoryDrafts.length, 1);
-    assert.equal(workflow.memoryDrafts[0].id, draftId);
+    assert.equal(workflow.memoryDrafts, undefined);
 
     const before = await readProjectMemory(service, owner, project.id);
     assert.equal(before.frozen, false);

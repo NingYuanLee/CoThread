@@ -12,7 +12,7 @@ export const MEMORY_SUBJECTS = Object.freeze([
 
 export const MEMORY_SUBJECT_LABELS = Object.freeze({
   utterance: "关键发言",
-  document: "主要文档",
+  document: "文件索引",
   task: "重要任务",
   discussion: "核心议题",
   project: "里程碑",
@@ -31,10 +31,11 @@ export const MEMORY_RELATION_LABELS = Object.freeze({
   relates: "关联",
   derives: "继承",
   supersedes: "替代",
+  corrects: "纠正",
 });
 
 /** 只允许单向、有方向的边；relates 双向但不重复存反向边。 */
-export const MEMORY_DIRECTED_RELATIONS = Object.freeze(["derives", "supersedes"]);
+export const MEMORY_DIRECTED_RELATIONS = Object.freeze(["derives", "supersedes", "corrects"]);
 
 /**
  * 发言记忆只记「他说过什么」，不做人格评价：

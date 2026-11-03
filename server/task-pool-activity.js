@@ -90,7 +90,7 @@ export async function recordTaskStatusChange(
         taskId,
         (signalTask.title || "") + " → " + row.status,
         { urgent: true },
-      ).catch(() => {});
+      );
     }
   }
   await notifyTaskTransition(conn, taskId, fromStatus ?? null, row.status, inboxKind);

@@ -1,3 +1,4 @@
+import { validDocumentSummarySql } from "./file-index-visibility.js";
 import { createHash } from "node:crypto";
 import { finishAgentEvent } from "./thread-activity.js";
 import { query, transaction } from "./db.js";
@@ -157,7 +158,7 @@ export async function dispatchContext(db, thread, job) {
       FROM agent_task_documents d JOIN messages m ON m.id=d.message_id
       JOIN agent_document_summaries s ON s.version_id=d.version_id
       JOIN versions v ON v.id=s.version_id JOIN artifacts a ON a.id=v.artifact_id
-      WHERE m.thread_id=? ORDER BY m.sequence,s.updated_at`,
+      WHERE m.thread_id=? AND ${validDocumentSummarySql("v")} ORDER BY m.sequence,s.updated_at`,
       [job.thread_id],
     ),
     (async () => {
@@ -225,6 +226,7 @@ export async function dispatchContext(db, thread, job) {
       statementSummary: member.statement_summary || null,
       understandingThroughSequence: String(member.through_sequence || 0),
       understandingRefreshPending:
+        Number(member.conversation_pending || 0) > 0 ||
         BigInt(member.pending_through_sequence || 0) > BigInt(member.through_sequence || 0),
     })),
     {

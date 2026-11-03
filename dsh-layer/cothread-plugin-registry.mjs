@@ -194,6 +194,14 @@ export const DSH_PLUGINS = Object.freeze([
   ),
   plugin("dsh-token-meter", "token-meter", "@deepseek-ai/dsh-token-meter", "上下文计量"),
   plugin(
+    "dsh-attachment-local",
+    "attachment-local",
+    "@deepseek-ai/dsh-attachment-local",
+    "图片附件存储",
+    "core",
+    knowledgeOnly,
+  ),
+  plugin(
     "dsh-session-query",
     "session-query",
     "@deepseek-ai/dsh-session-query",
@@ -374,7 +382,7 @@ export const AGENT_CAPABILITIES = Object.freeze([
     "cothread-project-tools",
     "项目记忆检索",
     "检索项目五类记忆，回答以前说过什么、做过什么决策、承诺过什么。",
-    ["search_memory"],
+    ["search_memory", "read_memory_history", "read_memory_revision", "read_project_facts"],
     xiaoxiangRequired,
   ),
   capability(

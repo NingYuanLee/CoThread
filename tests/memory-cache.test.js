@@ -89,9 +89,14 @@ test("项目整体记忆刷新导读缓存，占位页不覆盖", async () => {
       subject: "project",
       kind: "status",
       title: "项目整体：缓存项目",
-      body: "## 是什么\n项目整体。\n\n## 当前状态\n- 五类记忆已上线，剩下界面实机验证。",
+      body: "## 当前状态\n- 普通里程碑不能替代现状。",
       createdBy: owner.id,
     });
+    assert.equal(await refreshProjectGuideCache(db, project.id), null);
+    await query(db, "UPDATE wiki_pages SET body=? WHERE id=?", [
+      "## 当前状态\n- 五类记忆已上线，剩下界面实机验证。",
+      placeholderPage,
+    ]);
     await refreshProjectGuideCache(db, project.id);
     const [guide] = await query(
       db,
@@ -104,7 +109,7 @@ test("项目整体记忆刷新导读缓存，占位页不覆盖", async () => {
   }
 });
 
-test("文档记忆刷新版本摘要缓存", async () => {
+test("文档版本备注不会冒充已识别正文摘要", async () => {
   const { database, db, owner, project } = await setup();
   try {
     const folderId = randomUUID();
@@ -145,14 +150,23 @@ test("文档记忆刷新版本摘要缓存", async () => {
       "SELECT summary FROM agent_document_summaries WHERE version_id=?",
       [versionId],
     );
-    assert.ok(cache, "版本落库后应刷新摘要缓存");
-    assert.match(cache.summary, /补充鉴权说明/);
+    assert.equal(cache, undefined, "尚未分析正文时不能把版本备注写成摘要");
+    const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
+      await import("../server/file-index-discovery.js");
+    while (await discoverNextFileIndexChange(db)) {}
+    while (await reconcileNextFileIndexArtifact(db)) {}
+    const [index] = await query(
+      db,
+      "SELECT recognition_status FROM file_index_entries WHERE project_id=? AND artifact_id=?",
+      [project.id, artifactId],
+    );
+    assert.equal(index.recognition_status, "unrecognized");
   } finally {
     await database.close();
   }
 });
 
-test("索引与导读读取 wiki 优先，缓存缺失用文档记忆兜底", async () => {
+test("索引与导读读取 wiki 优先，文档兜底须绑定准确版本", async () => {
   const { database, db, service, owner, project } = await setup();
   try {
     const memberId = await insertUser(db, "成员丙");
@@ -201,25 +215,37 @@ test("索引与导读读取 wiki 优先，缓存缺失用文档记忆兜底", as
       "INSERT INTO versions(id,artifact_id,thread_id,version,filename,mime,content,sha256,byte_size,note,created_by) VALUES(?,?,?,1,'deploy.md','text/markdown',?,?,?,'',?)",
       [versionId, artifactId, threadId, Buffer.from("# 部署"), "f".repeat(64), 10, owner.id],
     );
-    await upsertMemoryPage(db, project.id, {
+    const documentPageId = await upsertMemoryPage(db, project.id, {
       subject: "document",
       kind: "status",
       title: "部署说明",
-      body: "## 变更要点\n- 部署需要先跑迁移。",
+      body: "## 这是什么\n- 部署需要先跑迁移。",
       createdBy: owner.id,
     });
+    const unlinked = await loadProjectWikiIndexes(db, project.id);
+    assert.equal(
+      unlinked.documentSummaries.some((item) => item.versionId === versionId),
+      false,
+      "同名页面不能证明它描述该版本",
+    );
+    await query(
+      db,
+      "INSERT INTO file_index_entries(project_id,artifact_id,page_id,indexed_version_id,recognition_status) VALUES(?,?,?,?,'recognized')",
+      [project.id, artifactId, documentPageId, versionId],
+    );
     const indexesAgain = await loadProjectWikiIndexes(db, project.id);
     const document = indexesAgain.documentSummaries.find((item) => item.versionId === versionId);
     assert.ok(document, "缓存缺失时应从文档记忆补摘要");
     assert.match(document.summary, /部署需要先跑迁移/);
 
-    await upsertMemoryPage(db, project.id, {
-      subject: "project",
-      kind: "status",
-      title: "项目整体：缓存项目",
-      body: "## 当前状态\n- wiki 项目状态：进行中。",
+    const statusPage = await ensureProjectMemoryPage(db, {
+      projectId: project.id,
       createdBy: owner.id,
     });
+    await query(db, "UPDATE wiki_pages SET body=? WHERE id=?", [
+      "## 当前状态\n- wiki 项目状态：进行中。",
+      statusPage,
+    ]);
     const summary = await loadProjectSummary(db, project.id);
     assert.match(summary.summary, /wiki 项目状态：进行中/);
   } finally {

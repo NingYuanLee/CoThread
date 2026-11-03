@@ -51,8 +51,7 @@ export function WorkspaceSidebar<T>({
 }: WorkspaceSidebarProps<T>) {
   /* 入口小点与弹窗内的提示一致：有草稿、待裁决或上次进入后的更新就提醒。 */
   const memorySignal = Boolean(
-    memoryCounts &&
-    (memoryCounts.drafts + memoryCounts.disputes > 0 || memoryCounts.updatedSinceEntry > 0),
+    memoryCounts && (memoryCounts.disputes > 0 || memoryCounts.updatedSinceEntry > 0),
   );
   return (
     <>
@@ -207,7 +206,7 @@ export function WorkspaceSidebar<T>({
                   className="sidebar-card-memory-dot"
                   role="img"
                   aria-label="有新的项目记忆"
-                  title="有草稿、争议或进入后的更新"
+                  title="有反馈或进入后的更新"
                 />
               ) : null}
             </button>

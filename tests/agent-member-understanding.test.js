@@ -23,7 +23,7 @@ afterEach(async () => {
   await database?.reset();
 });
 
-test("project-level member understanding persists across iterations and refreshes on mentions", async () => {
+test("project-level utterance memory persists across iterations without attributing mentions to the mentioned member", async () => {
   try {
     const owner = { id: randomUUID(), kind: "session" };
     const designer = { id: randomUUID(), kind: "session" };
@@ -70,7 +70,8 @@ test("project-level member understanding persists across iterations and refreshe
     assert.equal(
       await processNextProjectMemory(db, {
         projectId: project.id,
-        summarizeMembers: async () => {
+        task: "member_memory",
+        analyze: async () => {
           throw new Error("定时窗口前不应执行");
         },
       }),
@@ -78,17 +79,25 @@ test("project-level member understanding persists across iterations and refreshe
     );
     await query(
       db,
-      "UPDATE agent_member_memory_queue SET available_at=UTC_TIMESTAMP(3) WHERE project_id=?",
+      "UPDATE conversation_memory_queue SET last_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 11 MINUTE) WHERE project_id=?",
       [project.id],
     );
     await processNextProjectMemory(db, {
       projectId: project.id,
-      summarizeMembers: async () => [
-        {
-          memberId: designer.id,
-          summary: "小林负责交互设计，承诺周五前给出原型。",
-        },
-      ],
+      task: "member_memory",
+      analyze: async () => ({
+        statements: [
+          {
+            memberId: designer.id,
+            subtype: "commitment",
+            title: "交互设计承诺",
+            body: "小林负责交互设计，承诺周五前给出原型。",
+            sourceIds: [statement.id],
+          },
+        ],
+        discussions: [],
+      }),
+      verifySupport: async () => true,
     });
     const [stored] = await query(
       db,
@@ -96,7 +105,12 @@ test("project-level member understanding persists across iterations and refreshe
       [project.id, designer.id],
     );
     assert.equal(stored.summary, "小林负责交互设计，承诺周五前给出原型。");
-    assert.equal(String(stored.through_sequence), String(statement.sequence));
+    const [processed] = await query(
+      db,
+      "SELECT last_sequence FROM conversation_memory_windows WHERE project_id=?",
+      [project.id],
+    );
+    assert.equal(String(processed.last_sequence), String(statement.sequence));
 
     const second = await service.createThread(owner, project.id, { title: "评审" });
     const mention = await service.postMessage(owner, second.id, {
@@ -112,7 +126,7 @@ test("project-level member understanding persists across iterations and refreshe
     });
     const known = before.promptContext.members.find((item) => item.id === designer.id);
     assert.equal(known.understanding, "小林负责交互设计，承诺周五前给出原型。");
-    assert.equal(known.understandingRefreshPending, true);
+    assert.equal(known.understandingRefreshPending, false);
     assert.equal(known.messageCount, 1);
     await processNextCoordinator(db, second.id, async () => ({
       finalResponse: "记住了。",
@@ -120,16 +134,14 @@ test("project-level member understanding persists across iterations and refreshe
     }));
     await query(
       db,
-      "UPDATE agent_member_memory_queue SET available_at=UTC_TIMESTAMP(3) WHERE project_id=?",
+      "UPDATE conversation_memory_queue SET last_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 11 MINUTE) WHERE project_id=?",
       [project.id],
     );
     await processNextProjectMemory(db, {
       projectId: project.id,
-      summarizeMembers: async (context) =>
-        context.members.map((member) => ({
-          memberId: member.id,
-          summary: member.understanding || "该成员尚未表达可归纳的信息。",
-        })),
+      task: "member_memory",
+      analyze: async () => ({ statements: [], discussions: [] }),
+      verifySupport: async () => true,
     });
     const after = await dispatchContext(db, secondThread, {
       thread_id: second.id,
@@ -217,11 +229,13 @@ test("project memory bounds oversized member summaries before persistence", asyn
     db,
     project.id,
     [{ id: member.id, latestRelatedSequence: String(message.sequence) }],
-    [{
-      memberId: member.id,
-      statementSummary: "字".repeat(2500),
-      understanding: "好".repeat(1000),
-    }],
+    [
+      {
+        memberId: member.id,
+        statementSummary: "字".repeat(2500),
+        understanding: "好".repeat(1000),
+      },
+    ],
   );
   const [stored] = await query(
     db,
@@ -232,7 +246,7 @@ test("project memory bounds oversized member summaries before persistence", asyn
   assert.equal(Array.from(stored.statement_summary).length, 2000);
 });
 
-test("member memory does not call the model when nobody said anything new", async () => {
+test("mention does not attribute the sender's message to the mentioned member", async () => {
   try {
     const owner = { id: randomUUID(), kind: "session" };
     const mentioned = { id: randomUUID(), kind: "session" };
@@ -256,27 +270,29 @@ test("member memory does not call the model when nobody said anything new", asyn
     await service.postMessage(owner, thread.id, { body: "@小林 请稍后参加。" });
     await query(
       db,
-      "UPDATE agent_member_memory_queue SET available_at=UTC_TIMESTAMP(3) WHERE project_id=? AND user_id=?",
-      [project.id, mentioned.id],
+      "UPDATE conversation_memory_queue SET last_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 11 MINUTE) WHERE project_id=?",
+      [project.id],
     );
     let called = 0;
     assert.equal(
       await processNextProjectMemory(db, {
         projectId: project.id,
-        summarizeMembers: async () => {
+        task: "member_memory",
+        analyze: async (context) => {
           called += 1;
-          return [];
+          assert.equal(context.messages[0].authorId, owner.id);
+          return { statements: [], discussions: [] };
         },
       }),
       true,
     );
-    assert.equal(called, 0);
+    assert.equal(called, 1);
     assert.equal(
       Number(
         (
           await query(
             db,
-            "SELECT COUNT(*) count FROM agent_member_memory_queue WHERE project_id=? AND user_id=?",
+            "SELECT COUNT(*) count FROM wiki_pages WHERE project_id=? AND subject_type='utterance' AND about_user_id=?",
             [project.id, mentioned.id],
           )
         )[0].count,
@@ -285,4 +301,106 @@ test("member memory does not call the model when nobody said anything new", asyn
     );
   } finally {
   }
+});
+
+test("zero output completes the window without creating or overwriting memories", async () => {
+  const owner = { id: randomUUID(), kind: "session" };
+  await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
+    owner.id,
+    `${owner.id}@test.com`,
+    "成员",
+  ]);
+  const service = new Service(db);
+  const project = await service.createProject(owner, { name: "零产出" });
+  const thread = await service.createThread(owner, project.id, { title: "讨论" });
+  const first = await service.postMessage(owner, thread.id, { body: "你好。" });
+  const run = async (analyze) => {
+    await query(
+      db,
+      "UPDATE conversation_memory_queue SET last_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 11 MINUTE) WHERE project_id=?",
+      [project.id],
+    );
+    await processNextProjectMemory(db, {
+      projectId: project.id,
+      task: "member_memory",
+      analyze,
+      verifySupport: async () => true,
+    });
+  };
+  await run(async () => ({ statements: [], discussions: [] }));
+  let [window] = await query(
+    db,
+    "SELECT last_sequence,statement_status FROM conversation_memory_windows WHERE project_id=? ORDER BY created_at DESC LIMIT 1",
+    [project.id],
+  );
+  assert.equal(String(window.last_sequence), String(first.sequence));
+  assert.equal(window.statement_status, "completed");
+  assert.equal(
+    (
+      await query(db, "SELECT id FROM wiki_pages WHERE project_id=? AND subject_type='utterance'", [
+        project.id,
+      ])
+    ).length,
+    0,
+  );
+  const [zeroRun] = await query(
+    db,
+    "SELECT had_updates FROM agent_laoweng_runs WHERE project_id=? AND task='member_memory' ORDER BY created_at DESC LIMIT 1",
+    [project.id],
+  );
+  assert.equal(Number(zeroRun.had_updates), 0);
+
+  const second = await service.postMessage(owner, thread.id, { body: "我负责接口。" });
+  await run(async () => ({
+    statements: [
+      {
+        memberId: owner.id,
+        subtype: "commitment",
+        title: "接口分工",
+        body: "负责接口",
+        sourceIds: [second.id],
+      },
+    ],
+    discussions: [],
+  }));
+  const [pageBefore] = await query(
+    db,
+    "SELECT id,body FROM wiki_pages WHERE project_id=? AND subject_type='utterance'",
+    [project.id],
+  );
+  const before = await query(
+    db,
+    "SELECT summary,statement_summary FROM agent_member_summaries WHERE project_id=? AND user_id=?",
+    [project.id, owner.id],
+  );
+  assert.ok(pageBefore.body.includes("负责接口"));
+
+  const third = await service.postMessage(owner, thread.id, { body: "收到。" });
+  await run(async () => ({ statements: [], discussions: [] }));
+  [window] = await query(
+    db,
+    "SELECT last_sequence,statement_status FROM conversation_memory_windows WHERE project_id=? ORDER BY created_at DESC LIMIT 1",
+    [project.id],
+  );
+  assert.equal(String(window.last_sequence), String(third.sequence));
+  assert.equal(window.statement_status, "completed");
+  const [stored] = await query(
+    db,
+    "SELECT summary,statement_summary FROM agent_member_summaries WHERE project_id=? AND user_id=?",
+    [project.id, owner.id],
+  );
+  assert.equal(stored.summary, before[0].summary);
+  assert.equal(stored.statement_summary, before[0].statement_summary);
+  const [pageAfter] = await query(db, "SELECT id,body FROM wiki_pages WHERE id=?", [pageBefore.id]);
+  assert.deepEqual(pageAfter, pageBefore);
+  assert.ok(Number(second.sequence) < Number(third.sequence));
+
+  await service.postMessage(owner, thread.id, { body: "再见。" });
+  await run(async () => ({ statements: [], discussions: [] }));
+  const [pending] = await query(
+    db,
+    "SELECT COUNT(*) count FROM conversation_memory_queue WHERE project_id=?",
+    [project.id],
+  );
+  assert.equal(Number(pending.count), 0);
 });

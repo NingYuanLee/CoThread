@@ -2,12 +2,18 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import { HttpError } from "./http-error.js";
+import { assertCanSupersedeMemory, resolveMemorySourceFamily } from "./memory-policy.js";
+import { intactConversationMemorySql } from "./conversation-memory-integrity.js";
+import { visibleFileIndexSql, visibleFileSourceSql } from "./file-index-visibility.js";
+import { hydrateFileIndexRoots } from "./file-index-roots.js";
+import { hydrateFileIndexGroups } from "./file-index-groups.js";
+import { hydrateFileIndexPaths } from "./file-index-path.js";
 
 /**
- * 项目记忆读侧 + 人的两个动作（确认 / 纠错）+ 归档清算统计。
+ * 项目记忆读侧、独立反馈、群消息记忆人工停用与归档统计。
  * 数据模型见 docs/engineering/12-project-memory.md：不新增实体，记忆条目复用
  * wiki_pages、出处复用 wiki_page_sources、导读复用 agent_project_summaries、
- * 时间线卡复用 threads.archive_snapshot，纠错与确认都记 project_change_logs。
+ * 时间线卡复用 threads.archive_snapshot，反馈与人工停用记 project_change_logs。
  */
 
 const entryId = z.string().uuid();
@@ -26,9 +32,20 @@ function mapEntry(row, sources, disputed, relations = []) {
     title: row.title,
     body: row.body,
     status: row.status,
+    sourceFamily: row.sourceFamily || null,
     updatedAt: row.updatedAt,
     createdBy: row.createdBy,
     disputed: !!disputed,
+    sourceNeedsReview: Boolean(Number(row.sourceNeedsReview || 0)),
+    fileArtifactId: row.fileArtifactId || null,
+    fileGroup: row.fileGroupId
+      ? {
+          id: row.fileGroupId,
+          evidence: row.fileGroupEvidence,
+          origin: row.fileGroupOrigin,
+          members: row.fileGroupMembers || [],
+        }
+      : null,
     relations,
     sources: (sources || []).map((source) => ({
       sourceKind: source.sourceKind,
@@ -40,8 +57,8 @@ function mapEntry(row, sources, disputed, relations = []) {
 
 /**
  * 当前未解决的纠错标注：同一个条目上，最近一次 memory_entry_flagged 晚于
- * 最近一次 memory_entry_confirmed（或从未确认过）即视为争议。
- * 条目没有 disputed_at 列，争议状态完全由 project_change_logs 推导，不新增表。
+ * 最近一次旧版 memory_entry_confirmed（兼容历史）后有反馈即显示反馈标记。
+ * 这是独立反馈的展示兼容字段，不是记忆正确性或生命周期。
  */
 export async function disputedEntryIds(db, projectId) {
   const rows = await query(
@@ -64,35 +81,16 @@ export async function disputedEntryIds(db, projectId) {
   return ids;
 }
 
-/** 项目归档即关账：记忆只读，不再接受确认、纠错或手写写入。 */
+/** 项目归档即关账：记忆只读，不再接受停用、反馈或手写写入。 */
 export async function projectArchived(db, projectId) {
   const [row] = await query(db, "SELECT archived_at FROM projects WHERE id=?", [projectId]);
   return !!row?.archived_at;
 }
 
-/** 本轮迭代范围内的记忆草稿，供归档时人工校准（勾选后转正）。 */
-export async function listIterationMemoryDrafts(db, { projectId, threadId, workflowId }) {
-  const rows = await query(
-    db,
-    `SELECT DISTINCT p.id,p.memory_subtype subtype,p.title,p.body,p.status,p.updated_at updatedAt
-     FROM wiki_pages p JOIN wiki_page_sources s ON s.page_id=p.id
-     WHERE p.project_id=? AND p.status='draft' AND (
-       (s.source_kind='message' AND s.source_id IN (SELECT id FROM messages WHERE thread_id=?))
-       OR (s.source_kind='document_version' AND s.source_id IN (SELECT id FROM versions WHERE thread_id=?))
-       OR (s.source_kind='task' AND s.source_id IN (SELECT id FROM agent_tasks WHERE origin_thread_id=?))
-       OR (s.source_kind='archive' AND s.source_id=?)
-     )
-     ORDER BY p.updated_at DESC,p.id`,
-    [projectId, threadId, threadId, threadId, workflowId || ""],
-  );
-  return rows.map((row) => ({
-    id: row.id,
-    subtype: row.subtype,
-    status: row.status,
-    title: row.title,
-    preview: String(row.body || "").slice(0, 200),
-    updatedAt: row.updatedAt,
-  }));
+/** @deprecated Memory no longer has an archive confirmation workflow. */
+// Compatibility export: archive no longer promotes memory.
+export async function listIterationMemoryDrafts() {
+  return [];
 }
 
 async function loadRelations(db, projectId, pageIds) {
@@ -106,7 +104,8 @@ async function loadRelations(db, projectId, pageIds) {
      FROM memory_relations r
      JOIN wiki_pages fp ON fp.id=r.from_page_id
      JOIN wiki_pages tp ON tp.id=r.to_page_id
-     WHERE fp.project_id=? AND (r.from_page_id IN (${marks}) OR r.to_page_id IN (${marks}))`,
+     WHERE fp.project_id=? AND ${visibleFileIndexSql("fp")} AND ${visibleFileIndexSql("tp")}
+       AND (r.from_page_id IN (${marks}) OR r.to_page_id IN (${marks}))`,
     [projectId, ...pageIds, ...pageIds],
   );
   for (const row of rows) {
@@ -143,22 +142,39 @@ async function loadRelations(db, projectId, pageIds) {
 async function readMemoryEntry(db, projectId, id) {
   const [row] = await query(
     db,
-    `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.about_user_id aboutUserId,p.title,p.body,p.status,
+    `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.about_user_id aboutUserId,p.title,p.body,p.status,p.source_family sourceFamily,
+       fi.artifact_id fileArtifactId,fg.id fileGroupId,fg.evidence fileGroupEvidence,fg.origin fileGroupOrigin,
+       NOT ${intactConversationMemorySql("p")} sourceNeedsReview,
        p.created_by createdBy,p.updated_at updatedAt
-    FROM wiki_pages p WHERE p.id=? AND p.project_id=?`,
+    FROM wiki_pages p LEFT JOIN file_index_entries fi ON fi.page_id=p.id LEFT JOIN file_index_groups fg ON fg.page_id=p.id
+    WHERE p.id=? AND p.project_id=? AND ${visibleFileIndexSql("p")}`,
     [id, projectId],
   );
   if (!row) return null;
+  const { readProjectStatusNode } = await import("./project-status-node.js");
+  const projectStatus = await readProjectStatusNode(db, projectId);
+  if (projectStatus?.id === row.id && Number(projectStatus.sourceNeedsReview))
+    row.sourceNeedsReview = 1;
+  if (row.fileGroupId)
+    row.fileGroupMembers = await query(
+      db,
+      "SELECT artifact_id artifactId,description FROM file_index_group_members WHERE group_id=? ORDER BY artifact_id",
+      [row.fileGroupId],
+    );
   const [sources, disputed, relations] = await Promise.all([
     query(
       db,
-      "SELECT source_kind sourceKind,source_id sourceId,label FROM wiki_page_sources WHERE page_id=? ORDER BY created_at,id",
+      `SELECT s.source_kind sourceKind,s.source_id sourceId,s.label FROM wiki_page_sources s
+       WHERE s.page_id=? AND ${visibleFileSourceSql("s")} ORDER BY s.created_at,s.id`,
       [id],
     ),
     disputedEntryIds(db, projectId),
     loadRelations(db, projectId, [id]),
   ]);
-  return mapEntry(row, sources, disputed.has(id), relations.get(id) || []);
+  const rootRows = await hydrateFileIndexRoots(db, projectId, [row]);
+  const groupRows = await hydrateFileIndexGroups(db, projectId, rootRows);
+  const [hydrated] = await hydrateFileIndexPaths(db, projectId, groupRows);
+  return mapEntry(hydrated, sources, disputed.has(id), relations.get(id) || []);
 }
 
 async function memberTabOpenedAt(db, projectId, userId) {
@@ -230,14 +246,11 @@ export async function readProjectMemory(service, user, projectId) {
   const member = await service.member(user, projectId, false);
   const db = service.db;
   const [summaryRows, threadRows, pageRows, sourceRows, disputed, tabOpenedAt] = await Promise.all([
-    query(
-      db,
-      `SELECT s.summary,s.updated_at updatedAt,s.last_thread_id lastThreadId,
-        t.title lastTitle,t.archived_at lastArchivedAt
-      FROM agent_project_summaries s LEFT JOIN threads t ON t.id=s.last_thread_id
-      WHERE s.project_id=?`,
-      [projectId],
-    ),
+    (async () => {
+      const { loadProjectSummary } = await import("./project-memory.js");
+      const summary = await loadProjectSummary(db, projectId);
+      return summary ? [{ ...summary, lastTitle: summary.lastThreadTitle }] : [];
+    })(),
     query(
       db,
       `SELECT id,title,created_at createdAt,archived_at archivedAt,archive_snapshot archiveSnapshot
@@ -246,22 +259,31 @@ export async function readProjectMemory(service, user, projectId) {
     ),
     query(
       db,
-      `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.about_user_id aboutUserId,p.title,p.body,p.status,p.created_by createdBy,
+      `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.about_user_id aboutUserId,p.title,p.body,p.status,p.source_family sourceFamily,p.created_by createdBy,
+        fi.artifact_id fileArtifactId,fg.id fileGroupId,fg.evidence fileGroupEvidence,fg.origin fileGroupOrigin,
+        NOT ${intactConversationMemorySql("p")} sourceNeedsReview,
         p.created_at createdAt,p.updated_at updatedAt
-      FROM wiki_pages p WHERE p.project_id=?
-      ORDER BY FIELD(p.status,'draft','current','superseded'),p.updated_at DESC,p.id`,
+      FROM wiki_pages p LEFT JOIN file_index_entries fi ON fi.page_id=p.id LEFT JOIN file_index_groups fg ON fg.page_id=p.id
+      WHERE p.project_id=? AND ${visibleFileIndexSql("p")}
+      ORDER BY FIELD(p.status,'current','superseded'),p.updated_at DESC,p.id`,
       [projectId],
     ),
     query(
       db,
       `SELECT s.page_id pageId,s.source_kind sourceKind,s.source_id sourceId,s.label
       FROM wiki_page_sources s JOIN wiki_pages p ON p.id=s.page_id
-      WHERE p.project_id=? ORDER BY s.created_at,s.id`,
+      WHERE p.project_id=? AND ${visibleFileIndexSql("p")} AND ${visibleFileSourceSql("s")} ORDER BY s.created_at,s.id`,
       [projectId],
     ),
     disputedEntryIds(db, projectId),
     memberTabOpenedAt(db, projectId, user.id),
   ]);
+  const { readProjectStatusNode } = await import("./project-status-node.js");
+  const projectStatus = await readProjectStatusNode(db, projectId);
+  if (projectStatus && Number(projectStatus.sourceNeedsReview)) {
+    const row = pageRows.find((page) => page.id === projectStatus.id);
+    if (row) row.sourceNeedsReview = 1;
+  }
 
   const threads = threadRows.map((row) => ({
     ...row,
@@ -285,7 +307,22 @@ export async function readProjectMemory(service, user, projectId) {
     ).map((row) => [row.id, row.title]),
   );
 
-  const pageById = new Map(pageRows.map((row) => [row.id, row]));
+  const groupMembers = await query(
+    db,
+    `SELECT fm.group_id groupId,fm.artifact_id artifactId,fm.description
+    FROM file_index_group_members fm JOIN file_index_groups fg ON fg.id=fm.group_id WHERE fg.project_id=?`,
+    [projectId],
+  );
+  for (const row of pageRows)
+    if (row.fileGroupId)
+      row.fileGroupMembers = groupMembers.filter((item) => item.groupId === row.fileGroupId);
+  const groupPages = await hydrateFileIndexGroups(
+    db,
+    projectId,
+    await hydrateFileIndexRoots(db, projectId, pageRows),
+  );
+  const hydratedPages = await hydrateFileIndexPaths(db, projectId, groupPages);
+  const pageById = new Map(hydratedPages.map((row) => [row.id, row]));
   const sourcesByPage = new Map();
   const archivePagesByWorkflow = new Map();
   for (const source of sourceRows) {
@@ -308,7 +345,7 @@ export async function readProjectMemory(service, user, projectId) {
      WHERE m.project_id=? ORDER BY u.name,u.id`,
     [projectId],
   );
-  const entries = pageRows.map((row) =>
+  const entries = hydratedPages.map((row) =>
     mapEntry(
       row,
       sourcesByPage.get(row.id) || [],
@@ -338,7 +375,6 @@ export async function readProjectMemory(service, user, projectId) {
           basedOn: { iterationId: "", title: "", archivedAt: null },
         },
     counts: {
-      drafts: pageRows.filter((row) => row.status === "draft").length,
       disputes: [...disputed].filter((id) => pageById.has(id)).length,
       updatedSinceEntry: tabOpenedAt
         ? currentEntries.filter((row) => String(row.updatedAt) > String(tabOpenedAt)).length
@@ -355,10 +391,7 @@ export async function readProjectMemory(service, user, projectId) {
 export async function readProjectMemoryCounts(service, user, projectId) {
   await service.member(user, projectId, false);
   const db = service.db;
-  const [[draftRow], disputed, tabOpenedAt] = await Promise.all([
-    query(db, "SELECT COUNT(*) total FROM wiki_pages WHERE project_id=? AND status='draft'", [
-      projectId,
-    ]),
+  const [disputed, tabOpenedAt] = await Promise.all([
     disputedEntryIds(db, projectId),
     memberTabOpenedAt(db, projectId, user.id),
   ]);
@@ -380,42 +413,48 @@ export async function readProjectMemoryCounts(service, user, projectId) {
     updatedSinceEntry = Number(row?.total || 0);
   }
   return {
-    drafts: Number(draftRow?.total || 0),
     disputes: disputed.size,
     updatedSinceEntry,
   };
 }
 
-export async function confirmMemoryEntry(service, user, projectId, id) {
+export async function confirmMemoryEntry(service, user, projectId) {
+  if (service) await service.member(user, projectId, true);
+  throw new HttpError(410, "记忆无需确认转正，现行不代表内容真实");
+}
+
+export async function supersedeMemoryEntry(service, user, projectId, id, input) {
   await service.member(user, projectId, true);
+  if (user.kind !== "session") throw new HttpError(403, "群消息记忆只能由人类登录后明确作废");
   if (await projectArchived(service.db, projectId))
-    throw new HttpError(409, "项目已归档，项目记忆已封存，只能查看");
+    throw new HttpError(409, "项目已归档，只能查看");
   entryId.parse(id);
+  const { reason } = z.object({ reason: z.string().trim().min(1).max(1000) }).parse(input);
   return transaction(service.db, async (conn) => {
-    const [row] = await query(
+    const [page] = await query(
       conn,
-      "SELECT id,status,title FROM wiki_pages WHERE id=? AND project_id=? FOR UPDATE",
-      [id, projectId],
+      "SELECT id,title,status FROM wiki_pages WHERE project_id=? AND id=? FOR UPDATE",
+      [projectId, id],
     );
-    if (!row) throw new HttpError(404, "记忆条目不存在");
-    if (row.status === "current") throw new HttpError(409, "这条记忆已经确认过了");
-    if (row.status !== "draft") throw new HttpError(409, "被替代的记忆条目不能再确认");
-    await query(conn, "UPDATE wiki_pages SET status='current',updated_by=? WHERE id=?", [
+    if (!page) throw new HttpError(404, "记忆条目不存在");
+    const sourceFamily = await resolveMemorySourceFamily(conn, projectId, id);
+    assertCanSupersedeMemory({ sourceFamily, actorType: "human" });
+    if (page.status === "superseded") return { id, status: page.status };
+    await query(conn, "UPDATE wiki_pages SET status='superseded',updated_by=? WHERE id=?", [
       user.id,
       id,
     ]);
     await query(
       conn,
-      "INSERT INTO project_change_logs(id,project_id,actor_user_id,action,details) VALUES(?,?,?,?,?)",
+      "INSERT INTO project_change_logs(id,project_id,actor_user_id,action,details) VALUES(?,?,?,'memory_entry_superseded',?)",
       [
         randomUUID(),
         projectId,
         user.id,
-        "memory_entry_confirmed",
-        JSON.stringify({ pageId: id, title: row.title }),
+        JSON.stringify({ pageId: id, title: page.title, reason, sourceFamily }),
       ],
     );
-    return readMemoryEntry(conn, projectId, id);
+    return { id, status: "superseded", reason };
   });
 }
 
@@ -431,8 +470,20 @@ export async function flagMemoryEntry(service, user, projectId, id, input) {
     [id, projectId],
   );
   if (!row) throw new HttpError(404, "记忆条目不存在");
-  if (row.status === "superseded") throw new HttpError(409, "被替代的记忆条目不需要再纠错");
+
   const logId = randomUUID();
+  await query(
+    service.db,
+    "INSERT INTO memory_judgments(id,project_id,page_id,judgment_kind,actor_type,actor_id,judgment_json) VALUES(?,?,?,'other',?,?,?)",
+    [
+      randomUUID(),
+      projectId,
+      id,
+      user.kind === "session" ? "human" : "ai",
+      user.id,
+      JSON.stringify({ note: data.note }),
+    ],
+  );
   await query(
     service.db,
     "INSERT INTO project_change_logs(id,project_id,actor_user_id,action,details) VALUES(?,?,?,?,?)",
@@ -450,7 +501,7 @@ export async function flagMemoryEntry(service, user, projectId, id, input) {
     [logId],
   );
   const entry = await readMemoryEntry(service.db, projectId, id);
-  // 不改正文：只回带标注时间与原文备注，供前端把条目显示成「待裁决」。
+  // 不改正文和生命周期，只回带独立反馈。
   return { ...entry, disputedAt: log?.createdAt || null, flagNote: data.note };
 }
 
@@ -470,89 +521,13 @@ async function iterationEntryRows(conn, projectId, threadId, workflowId) {
   );
 }
 
-/**
- * 归档确认事务内的记忆清算。
- * - confirmedEntryIds：人在清算清单里勾选确认的草稿，只有这些会 draft → current；
- * - 未勾选的草稿原样保留（keptDraft），不转正；
- * - 有未解决纠错标注的条目保持 draft，并补一条 memory_entry_disputed 日志标争议；
- * - apply=false 只重算统计、不写任何东西，供重复确认时保持响应稳定。
- */
-export async function settleIterationMemory(conn, input) {
-  const { projectId, threadId, userId, workflowId, confirmedEntryIds = [], apply = true } = input;
+/** Archive reports lifecycle counts without promoting or discarding memory. */
+export async function settleIterationMemory(conn, { projectId, threadId, workflowId }) {
   const rows = await iterationEntryRows(conn, projectId, threadId, workflowId);
-  const ids = rows.map((row) => row.id);
-  const idSet = new Set(ids);
-  const statusById = new Map(rows.map((row) => [row.id, row.status]));
-  const requested = [...new Set(confirmedEntryIds)];
-  // 只接受本轮条目；已经转正或被替代的重复勾选直接跳过，避免清算清单重放时整笔失败。
-  if (apply && requested.some((id) => !idSet.has(id)))
-    throw new HttpError(400, "只能确认本轮清算里的条目");
-
-  let promoted = 0;
-  if (apply)
-    for (const id of requested) {
-      const result = await query(
-        conn,
-        "UPDATE wiki_pages SET status='current',updated_by=? WHERE id=? AND status='draft'",
-        [userId, id],
-      );
-      if (Number(result?.affectedRows || 0) === 0) continue;
-      statusById.set(id, "current");
-      promoted += 1;
-      await query(
-        conn,
-        "INSERT INTO project_change_logs(id,project_id,actor_user_id,action,details) VALUES(?,?,?,?,?)",
-        [
-          randomUUID(),
-          projectId,
-          userId,
-          "memory_entry_confirmed",
-          JSON.stringify({ pageId: id, threadId, workflowId, source: "iteration_archive" }),
-        ],
-      );
-    }
-
   const disputed = await disputedEntryIds(conn, projectId);
-  let superseded = 0,
-    keptDraft = 0,
-    confirmed = 0;
-  for (const id of ids) {
-    const status = statusById.get(id);
-    if (status === "superseded") superseded += 1;
-    if (status === "draft") {
-      keptDraft += 1;
-      if (apply && disputed.has(id))
-        await query(
-          conn,
-          "INSERT INTO project_change_logs(id,project_id,actor_user_id,action,details) VALUES(?,?,?,?,?)",
-          [
-            randomUUID(),
-            projectId,
-            userId,
-            "memory_entry_disputed",
-            JSON.stringify({ pageId: id, threadId, workflowId }),
-          ],
-        );
-    }
-  }
-  if (ids.length) {
-    const placeholders = ids.map(() => "?").join(",");
-    const [row] = await query(
-      conn,
-      `SELECT COUNT(DISTINCT p.id) total FROM wiki_pages p
-      JOIN project_change_logs l ON l.project_id=p.project_id
-        AND l.action='memory_entry_confirmed'
-        AND JSON_UNQUOTE(JSON_EXTRACT(l.details,'$.pageId'))=p.id
-      WHERE p.status='current' AND p.id IN (${placeholders})`,
-      ids,
-    );
-    confirmed = Number(row?.total || 0);
-  }
   return {
-    confirmed,
-    promoted,
-    superseded,
-    keptDraft,
-    disputed: [...disputed].filter((id) => idSet.has(id)).length,
+    current: rows.filter((row) => row.status === "current").length,
+    superseded: rows.filter((row) => row.status === "superseded").length,
+    disputed: rows.filter((row) => disputed.has(row.id)).length,
   };
 }

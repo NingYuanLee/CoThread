@@ -1,3 +1,4 @@
+import { validDocumentSummarySql } from "./file-index-visibility.js";
 import { finishAgentEvent } from "./thread-activity.js";
 import { documentTool } from "./documents/index.js";
 import { z } from "zod/v3";
@@ -612,6 +613,7 @@ export function createAgentTools(
           title: z.string().trim().min(1).max(240).parse(args.title),
           goal: z.string().trim().min(1).max(20000).parse(args.goal),
           constraints: args.constraints,
+          memoryRevisionIds: args.memoryRevisionIds,
           documentRefs:
             args.documentRefs == null && args.refs == null
               ? []
@@ -704,6 +706,27 @@ export function createAgentTools(
           (versionId) => allowedVersions.has(versionId),
         );
         Object.assign(result, wiki);
+      } else if (name === "read_project_facts") {
+        const { readProjectFacts } = await import("./project-facts.js");
+        result = await readProjectFacts(service.db, thread.project_id, {
+          kind: args.kind,
+          offset: args.offset,
+          limit: args.limit,
+          beforeEventId: args.beforeEventId,
+        });
+      } else if (name === "read_memory_history") {
+        const { listMemoryHistory } = await import("./memory-history.js");
+        result = await listMemoryHistory(
+          service,
+          user,
+          thread.project_id,
+          z.string().uuid().parse(args.pageId),
+          { limit: args.limit, offset: args.offset },
+        );
+      } else if (name === "read_memory_revision") {
+        const { readMemoryRevision } = await import("./memory-history.js");
+        result = await readMemoryRevision(service, user, z.string().uuid().parse(args.revisionId));
+        if (result.projectId !== thread.project_id) throw new HttpError(403, "不能跨项目读取记忆");
       } else if (name === "search_memory") {
         const { searchProjectMemory } = await import("./memory-search.js");
         result = await searchProjectMemory(service.db, thread.project_id, {
@@ -712,7 +735,7 @@ export function createAgentTools(
           subjects: Array.isArray(args.subjects) ? args.subjects : undefined,
           aboutUserId: args.aboutUserId ? z.string().uuid().parse(args.aboutUserId) : undefined,
           status: args.status
-            ? z.enum(["draft", "current", "superseded", "all"]).parse(args.status)
+            ? z.enum(["current", "superseded", "all"]).parse(args.status)
             : undefined,
           depth:
             args.depth === undefined ? undefined : z.number().int().min(0).max(3).parse(args.depth),
@@ -720,6 +743,11 @@ export function createAgentTools(
             args.limit === undefined
               ? undefined
               : z.number().int().min(1).max(50).parse(args.limit),
+          purpose:
+            args.purpose === undefined
+              ? undefined
+              : z.enum(["current", "history", "explain"]).parse(args.purpose),
+          asOf: args.asOf === undefined ? undefined : z.string().datetime().parse(args.asOf),
         });
       } else if (["list_members", "read_member"].includes(name)) {
         result = await service.conversationMembers(
@@ -828,6 +856,13 @@ export function createAgentTools(
         const version = await service.version(user, z.string().uuid().parse(args.versionId));
         if (version.project_id !== thread.project_id)
           throw new HttpError(403, "文档不属于当前项目");
+        const { captureDocumentRevision } = await import("./memory-history.js");
+        const contentRevisionId = await captureDocumentRevision(
+          service.db,
+          thread.project_id,
+          version.id,
+          version,
+        );
         const sandbox = await getSandbox(service.db, sandboxScope, progress);
         await progress(formatAgentAction(name, args, version));
         const path = `documents/${version.id}/${version.filename}`;
@@ -838,11 +873,12 @@ export function createAgentTools(
           /\.(md|txt|json|csv|js|ts|py|html|css|yaml|yml|sql)$/i.test(version.filename);
         const [existing] = await query(
           service.db,
-          "SELECT summary,updated_at FROM agent_document_summaries WHERE version_id=?",
+          `SELECT s.summary,s.updated_at FROM agent_document_summaries s JOIN versions v ON v.id=s.version_id WHERE s.version_id=? AND ${validDocumentSummarySql("v")}`,
           [version.id],
         );
         result = {
           id: version.id,
+          contentRevisionId,
           title: version.title,
           version: version.version,
           path,
@@ -862,7 +898,7 @@ export function createAgentTools(
           throw new HttpError(403, "文档不属于当前项目");
         const [sharedBefore] = await query(
           service.db,
-          "SELECT summary FROM agent_document_summaries WHERE version_id=?",
+          `SELECT s.summary FROM agent_document_summaries s JOIN versions v ON v.id=s.version_id WHERE s.version_id=? AND ${validDocumentSummarySql("v")}`,
           [versionId],
         );
         const [read] = await query(

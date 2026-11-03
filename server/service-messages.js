@@ -13,7 +13,7 @@ import { z } from "zod/v3";
 import { query, transaction } from "./db.js";
 import * as iterationState from "./iteration-state.js";
 import { publishWork } from "./work-events.js";
-import { queueMemberMemory } from "./project-memory.js";
+import { queueConversationMessage } from "./conversation-memory-store.js";
 
 import { fail, id, title, body, parseMessageRow } from "./service-support.js";
 
@@ -72,18 +72,15 @@ export async function insertMessageOperation(
   );
   await recordMessageActivity(db, messageId);
   if (text && source !== "system") {
-    // 项目记忆候选：只排队，不调模型；失败不影响发消息。
+    // 和消息在同一事务持久化，避免消息已提交而联合分析信号丢失。
     const [signalThread] = await query(db, "SELECT project_id FROM threads WHERE id=?", [threadId]);
-    if (signalThread?.project_id) {
-      const { noteProjectMemorySignal } = await import("./project-memory.js");
-      await noteProjectMemorySignal(
+    if (signalThread?.project_id)
+      await queueConversationMessage(
         db,
         signalThread.project_id,
-        "message",
-        messageId,
-        String(text).slice(0, 120),
-      ).catch(() => {});
-    }
+        threadId,
+        String(inserted.insertId),
+      );
   }
   if (source !== "system" && options.inbox !== "skip") {
     const [thread] = await query(db, "SELECT project_id,title FROM threads WHERE id=?", [threadId]);
@@ -93,9 +90,6 @@ export async function insertMessageOperation(
       [thread.project_id, source, user.id],
     );
     const [author] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
-    const memoryMembers = new Set([
-      ...(source === "human" || source === "local_ai" ? [user.id] : []),
-    ]);
     for (const member of members) {
       const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       if (
@@ -105,7 +99,6 @@ export async function insertMessageOperation(
           ),
         )
       ) {
-        memoryMembers.add(member.id);
         // 人正在看这条迭代时，消息按已读处理，不写站内信。
         if (isViewingThread(member.id, threadId)) continue;
         await service.notify(
@@ -120,8 +113,6 @@ export async function insertMessageOperation(
         );
       }
     }
-    if (memoryMembers.size)
-      await queueMemberMemory(db, thread.project_id, [...memoryMembers], String(inserted.insertId));
   }
   return { id: messageId };
 }

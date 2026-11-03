@@ -234,13 +234,8 @@ export async function syncThreadDiscussionMemory(db, { projectId, threadId, crea
     createdBy,
   });
   const { ensureProjectMemoryPage } = await import("./memory-pages.js");
-  await ensureProjectMemoryPage(db, { projectId, createdBy });
-  const [overall] = await query(
-    db,
-    `SELECT id FROM wiki_pages WHERE project_id=? AND subject_type='project' AND status='current'
-     ORDER BY updated_at DESC LIMIT 1`,
-    [projectId],
-  );
+  const overallId = await ensureProjectMemoryPage(db, { projectId, createdBy });
+  const overall = overallId ? { id: overallId } : null;
   if (overall && overall.id !== result.pageId)
     await createMemoryRelation(db, {
       projectId,

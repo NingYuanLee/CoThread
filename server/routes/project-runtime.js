@@ -192,12 +192,14 @@ export function registerProjectRuntimeRoutes(
   app.post("/api/threads/:id/archive/confirm", async (req, res) => {
     const result = await service.confirmIterationArchive(req.user, req.params.id, req.body);
     const thread = await service.thread(req.user, req.params.id);
-    const { syncThreadDiscussionMemory } = await import("../discussion-memory.js");
-    await syncThreadDiscussionMemory(service.db, {
-      projectId: thread.project_id,
-      threadId: req.params.id,
-      createdBy: req.user.id,
-    }).catch(() => {});
+    const { scanArchivedConversation } = await import("../conversation-memory-store.js");
+    await scanArchivedConversation(service.db, thread.project_id, req.params.id).catch((error) => {
+      console.error("归档后唤醒讨论记忆失败", {
+        message: String(error?.message || error).slice(0, 300),
+      });
+    });
+    const { publishWork } = await import("../work-events.js");
+    publishWork(service.db);
     const { syncTaskMemory } = await import("../task-memory.js");
     await syncTaskMemory(service.db, {
       projectId: thread.project_id,
@@ -214,6 +216,14 @@ export function registerProjectRuntimeRoutes(
   app.post("/api/threads/:id/archive", async (req, res) => {
     const result = await service.archive(req.user, req.params.id, req.body);
     const thread = await service.thread(req.user, req.params.id);
+    const { queueConversationThread } = await import("../conversation-memory-store.js");
+    await queueConversationThread(service.db, thread.project_id, req.params.id).catch((error) => {
+      console.error("归档前唤醒讨论记忆失败", {
+        message: String(error?.message || error).slice(0, 300),
+      });
+    });
+    const { publishWork } = await import("../work-events.js");
+    publishWork(service.db);
     // 梳理不依赖进程内唤醒与 60s 兜底轮询，请求一返回就踢起来。
     await startArchiveDraft(service, thread.project_id);
     return res.json(result);

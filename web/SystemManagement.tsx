@@ -1337,6 +1337,29 @@ export function SystemManagement({
                             编辑
                           </button>
                         )}
+                        {isProject && can("projects.update") && (
+                          <button
+                            disabled={busy}
+                            onClick={() =>
+                              setConfirmation({
+                                title: "回填项目历史记忆",
+                                message: `确定为项目「${project.name}」补齐历史记忆吗？已有记忆不会重复创建。`,
+                                confirm: async () => {
+                                  const result = await api(
+                                    `/admin/projects/${project.id}/memory/backfill`,
+                                    {},
+                                    "POST",
+                                  );
+                                  showTip(
+                                    `回填完成：发言 ${result?.utterancePages || 0}、文档 ${result?.documentPages || 0}、任务 ${result?.taskPages || 0}；讨论待分析 ${result?.discussionQueuedThreads || 0} 个迭代`,
+                                  );
+                                },
+                              })
+                            }
+                          >
+                            回填历史
+                          </button>
+                        )}
                         <button onClick={() => openDetail(item.id, "details")}>详情</button>
                         <button onClick={() => openDetail(item.id, "related")}>
                           {isProject ? "成员" : "项目"}

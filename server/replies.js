@@ -17,6 +17,12 @@ import { synchronizeNextDiscussion } from "./context-sync.js";
 import { processNextCoordinator } from "./coordinator.js";
 import { publishWork, subscribeWork, startWakeWorker } from "./work-events.js";
 import { processNextProjectMemory } from "./project-memory.js";
+import {
+  discoverNextFileIndexChange,
+  expandFileIndexProjectReconciliation,
+  reconcileNextFileIndexArtifact,
+  scheduleNextFileIndexSweep,
+} from "./file-index-discovery.js";
 import { processNextContextCompression, refreshNextContextStats } from "./context-compression.js";
 import { processNextLaowengContextCompression } from "./laoweng-context.js";
 import { processNextChildContextCompression } from "./child-agent-context.js";
@@ -288,8 +294,16 @@ export async function startReplyWorker(
     const stops = [
       run(() => processNextCoordinator(laneDb), COORDINATOR_LANE_CONCURRENCY),
       run(() => processNextProjectMemory(laneDb, { task: "member_memory" })),
+      run(
+        async () =>
+          (await discoverNextFileIndexChange(laneDb)) ||
+          (await expandFileIndexProjectReconciliation(laneDb)) ||
+          (await reconcileNextFileIndexArtifact(laneDb)) ||
+          (await scheduleNextFileIndexSweep(laneDb)),
+      ),
       run(() => processNextProjectMemory(laneDb, { task: "document_memory" })),
       run(() => processNextProjectMemory(laneDb, { task: "iteration_archive" })),
+      run(() => processNextProjectMemory(laneDb, { task: "project_memory" })),
       run(async () => (await recoverStaleChildAgentExecutions(laneDb)) > 0),
       run(
         async () =>

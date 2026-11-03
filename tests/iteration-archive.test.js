@@ -171,7 +171,7 @@ test("knowledge administrator prepares a draft, then confirmed handoff preserves
   assert.equal(again.nextThreadId, result.nextThreadId);
   const wikiPages = await query(
     db,
-    "SELECT memory_subtype subtype FROM wiki_pages WHERE project_id=? ORDER BY memory_subtype",
+    "SELECT memory_subtype subtype FROM wiki_pages WHERE project_id=? AND memory_subtype IN ('iteration_archived','problem_review') ORDER BY memory_subtype",
     [project.id],
   );
   assert.deepEqual(
@@ -196,10 +196,8 @@ test("knowledge administrator prepares a draft, then confirmed handoff preserves
   await processNextProjectMemory(db, {
     projectId: project.id,
     task: "iteration_archive",
-    summarizeArchive: async (context) => {
-      assert.equal(context.phase, "memory");
-      assert.equal(context.snapshot.conclusion, body.conclusion);
-      return "人工批准的长期结论";
+    summarizeArchive: async () => {
+      throw new Error("归档后不应再生成独立项目总结");
     },
   });
   assert.equal(
@@ -207,9 +205,15 @@ test("knowledge administrator prepares a draft, then confirmed handoff preserves
       await query(db, "SELECT summary FROM agent_project_summaries WHERE project_id=?", [
         project.id,
       ])
-    )[0].summary,
-    "人工批准的长期结论",
+    ).length,
+    0,
   );
+  const [signal] = await query(
+    db,
+    "SELECT source_id sourceId FROM agent_project_memory_queue WHERE project_id=? AND source_kind='archive' AND source_id=?",
+    [project.id, workflow.id],
+  );
+  assert.equal(signal?.sourceId, workflow.id);
 });
 
 test("retained tasks keep their real status and may not become detached by deleting their iteration", async () => {
@@ -333,7 +337,7 @@ test("archive HTTP endpoints expose the two-stage workflow and enforce the same 
   }
 });
 
-test("archive draft and final memory reuse the knowledge administrator's existing durable iteration_archive session", async () => {
+test("archive draft uses its durable session; confirmed archive leaves project memory to milestones", async () => {
   await service.archive(creator, thread.id);
   const sessions = [];
   const outputs = [
@@ -369,8 +373,7 @@ test("archive draft and final memory reuse the knowledge administrator's existin
     task: "iteration_archive",
     laowengOptions,
   });
-  assert.equal(sessions.length, 2);
-  assert.equal(sessions[0], sessions[1]);
+  assert.equal(sessions.length, 1);
   assert.equal(
     (
       await query(

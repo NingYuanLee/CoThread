@@ -8,6 +8,7 @@ import {
   isPublicWebUrl,
 } from "../shared/citations.js";
 import { showTip } from "./Tip";
+import { MemoryRevisionDialog } from "./MemoryRevisionDialog";
 
 export type CiteItem = {
   id: string;
@@ -16,6 +17,8 @@ export type CiteItem = {
   target?: string | null;
   pageId?: string | null;
   title?: string | null;
+  memoryRevisionId?: string | null;
+  contentRevisionId?: string | null;
 };
 
 const PANEL_GAP = 6;
@@ -66,6 +69,20 @@ export function CitationSources({
 }) {
   const groups = groupCitations(items);
   const [open, setOpen] = useState<string | null>(null);
+  const [revisionId, setRevisionId] = useState<string | null>(null);
+  const activate = (item: CiteItem) => {
+    if (item.memoryRevisionId) {
+      setRevisionId(item.memoryRevisionId);
+      setOpen(null);
+    } else if (item.contentRevisionId) {
+      window.open(
+        `/api/document-content-revisions/${encodeURIComponent(item.contentRevisionId)}`,
+        "_blank",
+        "noopener,noreferrer",
+      );
+      setOpen(null);
+    } else activateCitation(item, onActivate);
+  };
   const [box, setBox] = useState<{ top: number; left: number; width: number } | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -119,7 +136,7 @@ export function CitationSources({
         type="button"
         className="ref cite-source cite-direct"
         title={title}
-        onClick={() => activateCitation(item, onActivate)}
+        onClick={() => activate(item)}
       >
         <span className="cite-line">{title}</span>
       </button>
@@ -127,6 +144,9 @@ export function CitationSources({
   };
   return (
     <div className="references cite-sources" ref={root} aria-label="引用">
+      {revisionId ? (
+        <MemoryRevisionDialog revisionId={revisionId} onClose={() => setRevisionId(null)} />
+      ) : null}
       {groups.map((group) =>
         !collapsed ? (
           group.items.map(direct)
@@ -169,7 +189,7 @@ export function CitationSources({
                   type="button"
                   title={title}
                   onClick={() => {
-                    activateCitation(item, onActivate);
+                    activate(item);
                     setOpen(null);
                   }}
                 >

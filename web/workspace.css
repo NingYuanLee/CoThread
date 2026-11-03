@@ -75,6 +75,15 @@
   row-gap: 0.143rem;
 }
 
+.pagination-control-ellipsis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1rem;
+  height: 2.143rem;
+  line-height: 1;
+}
+
 .pagination-control-pages button {
   box-sizing: border-box;
 
@@ -19767,6 +19776,23 @@ body.col-resizing .app-shell > .context-panel {
   padding: 0;
 }
 
+.l1-history-content {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--overlay-body-padding);
+}
+
+html body .dialog-list .l1-history-body {
+  height: var(--dialog-list-height, 25.714rem);
+  max-height: var(--dialog-list-height, 25.714rem);
+}
+
+.l1-history-body .admin-table td.monitor-empty {
+  padding: 2rem 0.857rem;
+  text-align: center;
+}
+
 .l1-history-table {
   width: 100%;
   border-collapse: collapse;
@@ -23769,7 +23795,48 @@ html body .project-memory-dialog .dialog-header {
   flex: 1;
   overflow: auto;
   padding-top: 1.714rem;
-  padding-bottom: 2rem;
+  padding-bottom: 3.5rem;
+}
+
+.memory-job-session-toolbar {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  height: var(--workspace-top-strip-height);
+  padding: 0 1.429rem;
+  background: var(--overlay-glass-bg-nested);
+  backdrop-filter: var(--overlay-glass-blur);
+  -webkit-backdrop-filter: var(--overlay-glass-blur);
+  border-bottom: 1px solid var(--overlay-glass-border);
+}
+
+.memory-job-session-dialog .message-navigator {
+  top: 1.429rem;
+  bottom: 3rem;
+}
+
+.memory-job-session-dialog .scroll-to-latest {
+  bottom: 3rem;
+}
+
+.memory-job-session-footer {
+  height: 2.5rem;
+  background: var(--c-fff);
+  border-top: 1px solid var(--c-e7eae7);
+}
+
+.memory-job-process {
+  margin-bottom: 1rem;
+  color: var(--c-6a756d);
+}
+
+.memory-job-process summary {
+  cursor: pointer;
+  padding: 0.5rem 0;
+}
+
+.memory-job-process .message-text {
+  margin: 0.75rem 0;
 }
 
 .memory-job-session-dialog .conversation-stage-trajectory .agent-log-panel {

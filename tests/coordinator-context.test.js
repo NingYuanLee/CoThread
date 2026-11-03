@@ -64,7 +64,7 @@ test("the 小祥 runtime is composed from DSH AgentTeam plugins", async () => {
   assert.match(skills, /context\.agent\?\.id/);
 });
 
-test("老翁 allows only beijing_time and MCP tools are a build-time manifest", async () => {
+test("老翁默认只允许时间工具，联合分析使用受限只读工具桥", async () => {
   const laowengTools = await readFile(
     new URL("../dsh-layer/laoweng-tools.mjs", import.meta.url),
     "utf8",
@@ -84,6 +84,10 @@ test("老翁 allows only beijing_time and MCP tools are a build-time manifest", 
   );
   assert.doesNotMatch(laowengTools, /ctx\.tools\.guard\(\(\) =>/);
   assert.match(laowengAgent, /laowengRuntimePatch/);
+  assert.match(
+    laowengAgent,
+    /conversationToolEnv \? elderRuntimePatch\(\) : laowengRuntimePatch\(\)/,
+  );
   assert.match(runtimeConfig, /dsh-layer\/laoweng-tools\.mjs/);
   assert.ok(Object.isFrozen(mcp.MCP_TOOL_NAMES));
   assert.deepEqual(mcp.MCP_TOOL_NAMES, [
@@ -92,6 +96,11 @@ test("老翁 allows only beijing_time and MCP tools are a build-time manifest", 
     "get_project_context",
     "get_member",
     "search_memory",
+    "read_memory_source",
+    "read_memory_history",
+    "read_memory_revision",
+    "read_project_facts",
+    "list_project_status_history",
     "list_documents",
     "read_document",
     "list_document_changes",

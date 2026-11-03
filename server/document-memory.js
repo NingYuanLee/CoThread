@@ -1,9 +1,11 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import JSZip from "jszip";
 import sharp from "sharp";
-import { query } from "./db.js";
-import { createMemoryRelation } from "./memory-graph.js";
+import { query, transaction } from "./db.js";
 import { DEFAULT_MEMORY_SUBTYPES } from "../shared/memory-taxonomy.js";
+import { renderFileIndex } from "./file-index-format.js";
+import { ensureFileIndexRoots } from "./file-index-roots.js";
+import { fileIndexFolderPath } from "./file-index-path.js";
 
 const KIND_LABEL = { code: "代码", image: "图片", archive: "压缩包", text: "文本", other: "文件" };
 
@@ -98,10 +100,30 @@ export function documentMemoryMarkdown({
   sha256,
   byteSize,
   note,
+  summary,
+  mime,
+  path,
+  extractedText,
+  recognitionStatus,
+  recognitionNote,
   listing = null,
 } = {}) {
   const label = documentKindLabel(kind);
   const lines = [
+    renderFileIndex({
+      title,
+      filename,
+      mime,
+      path,
+      version,
+      summary,
+      extractedText,
+      status: recognitionStatus || (summary ? "partial" : "unrecognized"),
+      reason:
+        recognitionNote ||
+        (summary ? "摘要未声明完整识别范围，请按出处核对原文件。" : "尚无经内容分析的摘要。"),
+    }),
+    "",
     "## 是什么",
     label + "文件《" + (filename || title || "未命名") + "》 · " + formatSize(byteSize),
     "",
@@ -169,34 +191,107 @@ export function documentGroupMarkdown({ folderName, members = [] } = {}) {
   ].join("\n");
 }
 
-async function upsertPage(db, projectId, { title, body, createdBy, sources = [] }) {
+function filePageId(projectId, artifactId) {
+  const hash = createHash("sha256")
+    .update(`cothread:file-index:${projectId}:${artifactId}`)
+    .digest("hex");
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+}
+
+async function upsertPage(
+  db,
+  projectId,
+  { title, body, createdBy, artifactId, versionId, recognitionStatus, sources = [] },
+) {
   const clean = String(title || "")
     .trim()
     .slice(0, 160);
   if (!clean) return null;
-  const [existing] = await query(
+  const [registered] = await query(
     db,
-    `SELECT id FROM wiki_pages
-     WHERE project_id=? AND subject_type='document' AND status<>'superseded' AND title=?
-     ORDER BY updated_at DESC LIMIT 1`,
-    [projectId, clean],
+    "SELECT page_id id,indexed_version_id versionId,indexed_content_sha256 contentHash FROM file_index_entries WHERE project_id=? AND artifact_id=? FOR UPDATE",
+    [projectId, artifactId],
   );
-  const pageId = existing?.id || randomUUID();
+  const [existing] = registered
+    ? [registered]
+    : await query(
+        db,
+        `SELECT DISTINCT p.id FROM wiki_pages p
+     JOIN wiki_page_sources s ON s.page_id=p.id AND s.source_kind='document_version'
+     JOIN versions v ON v.id=s.source_id
+     WHERE p.project_id=? AND p.subject_type='document' AND p.status<>'superseded' AND v.artifact_id=?
+       AND NOT EXISTS (SELECT 1 FROM wiki_page_sources other_source JOIN versions other_version
+         ON other_source.source_kind='document_version' AND other_version.id=other_source.source_id
+         WHERE other_source.page_id=p.id AND other_version.artifact_id<>?)
+       AND NOT EXISTS (SELECT 1 FROM file_index_entries other_index
+         WHERE other_index.page_id=p.id AND other_index.artifact_id<>?)
+     ORDER BY p.id LIMIT 1`,
+        [projectId, artifactId, artifactId, artifactId],
+      );
+  const { captureDocumentRevision, recordMemoryEvidence } = await import("./memory-history.js");
+  const [version] = await query(db, "SELECT sha256,mime FROM versions WHERE id=?", [versionId]);
+  if (!version) return null;
+  const contentHash = createHash("sha256")
+    .update(version.sha256 + ":" + version.mime)
+    .digest("hex");
+  const changed =
+    !!registered && (registered.versionId !== versionId || registered.contentHash !== contentHash);
+  const pageId = changed
+    ? filePageId(projectId, artifactId + ":" + versionId + ":" + contentHash)
+    : existing?.id || filePageId(projectId, artifactId);
   const text = String(body || "").slice(0, 20000);
-  if (existing) {
-    await query(db, "UPDATE wiki_pages SET body=?,updated_by=? WHERE id=?", [
-      text,
+  const contentRevisionId = await captureDocumentRevision(db, projectId, versionId);
+  await query(
+    db,
+    "INSERT INTO wiki_pages(id,project_id,subject_type,memory_subtype,title,body,status,created_by,updated_by,source_family) VALUES(?,?,'document',?,?,?,'current',?,?,'project_file') ON DUPLICATE KEY UPDATE id=id",
+    [pageId, projectId, DEFAULT_MEMORY_SUBTYPES.document, clean, text, createdBy, createdBy],
+  );
+  if (changed) {
+    const { assertCanSupersedeMemory } = await import("./memory-policy.js");
+    assertCanSupersedeMemory({ sourceFamily: "project_file", automatedFileMaintenance: true });
+    await query(db, "UPDATE wiki_pages SET status='superseded' WHERE id=?", [registered.id]);
+    const { createMemoryRelation } = await import("./memory-graph.js");
+    await createMemoryRelation(db, {
+      projectId,
+      fromPageId: pageId,
+      toPageId: registered.id,
+      relation: "supersedes",
+      note: "文件内容修订自动替代",
       createdBy,
+    });
+  }
+  await query(
+    db,
+    "INSERT INTO file_index_entries(project_id,artifact_id,page_id,indexed_version_id,recognition_status,indexed_content_sha256,content_revision_id) VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE page_id=VALUES(page_id),indexed_version_id=VALUES(indexed_version_id),indexed_content_sha256=VALUES(indexed_content_sha256),content_revision_id=VALUES(content_revision_id)",
+    [projectId, artifactId, pageId, versionId, recognitionStatus, contentHash, contentRevisionId],
+  );
+  if (changed || !registered)
+    await recordMemoryEvidence(db, {
+      projectId,
       pageId,
-    ]);
-  } else {
+      sourceFamily: "project_file",
+      sourceKind: "document_version",
+      sourceId: versionId,
+      sourceRevision: contentRevisionId,
+      evidence: { artifactId, versionId, contentHash, contentRevisionId },
+    });
+  if (changed) {
     await query(
       db,
-      `INSERT INTO wiki_pages(id,project_id,subject_type,memory_subtype,title,body,status,created_by,updated_by)
-       VALUES(?,?,'document',?,?,?,'current',?,?)`,
-      [pageId, projectId, DEFAULT_MEMORY_SUBTYPES.document, clean, text, createdBy, createdBy],
+      "UPDATE file_index_entries SET topics=NULL,extracted_text=NULL,recognition_note=NULL WHERE project_id=? AND artifact_id=?",
+      [projectId, artifactId],
     );
   }
+  await query(
+    db,
+    "UPDATE wiki_pages SET title=?,body=?,status='current',source_family='project_file',updated_by=? WHERE id=?",
+    [clean, text, createdBy, pageId],
+  );
+  await query(
+    db,
+    "UPDATE file_index_entries SET recognition_status=? WHERE project_id=? AND artifact_id=?",
+    [recognitionStatus, projectId, artifactId],
+  );
   for (const source of sources) {
     if (!source?.id) continue;
     const kind = source.kind || "document_version";
@@ -212,29 +307,55 @@ async function upsertPage(db, projectId, { title, body, createdBy, sources = [] 
       [randomUUID(), pageId, kind, source.id, String(source.label || "").slice(0, 240)],
     );
   }
+  const { captureMemoryRevision } = await import("./memory-history.js");
+  await captureMemoryRevision(
+    db,
+    { id: pageId, title: clean, body: text, status: "current" },
+    { captureKind: "file_index_snapshot" },
+  );
   return pageId;
 }
 
 /**
- * 正式文件新版本落库后同步文档记忆：
- * 一句话说明是什么、怎么读，并把所在文件夹聚成「文档组」记忆，组与成员用 relates 相连。
+ * 同步单文件记忆：按文件身份而非标题匹配。同目录不代表文件有关联。
  */
 export async function syncDocumentMemory(db, { projectId, artifactId, versionId, createdBy } = {}) {
   if (!projectId || !artifactId || !versionId) return null;
+  if (typeof db.getConnection === "function") {
+    return transaction(db, (conn) =>
+      syncDocumentMemory(conn, { projectId, artifactId, versionId, createdBy }),
+    );
+  }
+  // Serialize updates for the same artifact before reading its current version,
+  // summary and recognition data. Otherwise a slower first pass can overwrite
+  // an OCR result written by a concurrent pass for the same version.
+  const [artifact] = await query(
+    db,
+    "SELECT id FROM artifacts WHERE id=? AND project_id=? FOR UPDATE",
+    [artifactId, projectId],
+  );
+  if (!artifact) return null;
   const [row] = await query(
     db,
     `SELECT a.id,a.title,a.folder_id folderId,f.name folderName,
        v.id versionId,v.filename,v.mime,v.version,v.sha256,v.byte_size byteSize,v.note,v.content,
-       s.summary summary
+       s.summary summary,fi.recognition_status recognitionStatus,fi.extracted_text extractedText,fi.recognition_note recognitionNote
      FROM artifacts a
-     JOIN versions v ON v.id=?
+     JOIN versions v ON v.id=? AND v.artifact_id=a.id
      LEFT JOIN agent_document_summaries s ON s.version_id=v.id
+     LEFT JOIN file_index_entries fi ON fi.project_id=a.project_id AND fi.artifact_id=a.id AND fi.indexed_version_id=v.id
      LEFT JOIN document_folders f ON f.id=a.folder_id
-     WHERE a.id=? AND a.project_id=?`,
+     WHERE a.id=? AND a.project_id=? AND a.deleted_at IS NULL AND a.purged_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM version_recycle current_recycle WHERE current_recycle.version_id=v.id)
+       AND NOT EXISTS (
+         SELECT 1 FROM versions newer LEFT JOIN version_recycle recycled ON recycled.version_id=newer.id
+         WHERE newer.artifact_id=a.id AND newer.version>v.version AND recycled.version_id IS NULL
+       ) FOR UPDATE`,
     [versionId, artifactId, projectId],
   );
   if (!row) return null;
   const kind = documentKindOf(row.mime, row.filename);
+  const path = await fileIndexFolderPath(db, projectId, row.folderId);
   const listing =
     Number(row.byteSize) > 0 && Number(row.byteSize) <= 8 * 1024 * 1024
       ? await describeContent({
@@ -245,6 +366,9 @@ export async function syncDocumentMemory(db, { projectId, artifactId, versionId,
       : null;
   const pageId = await upsertPage(db, projectId, {
     title: row.title || row.filename,
+    artifactId,
+    versionId,
+    recognitionStatus: row.recognitionStatus || (row.summary ? "partial" : "unrecognized"),
     body: documentMemoryMarkdown({
       title: row.title,
       kind,
@@ -252,49 +376,44 @@ export async function syncDocumentMemory(db, { projectId, artifactId, versionId,
       version: row.version,
       sha256: row.sha256,
       byteSize: row.byteSize,
-      note:
-        String(row.note || "").trim() ||
-        (row.summary ? "老翁摘要：" + String(row.summary).slice(0, 600) : ""),
+      note: row.summary ? String(row.summary).slice(0, 2000) : String(row.note || "").trim(),
+      summary: row.summary || "",
+      mime: row.mime,
+      path,
+      extractedText: row.extractedText,
+      recognitionStatus: row.recognitionStatus || (row.summary ? "partial" : "unrecognized"),
+      recognitionNote: row.recognitionNote,
       listing,
     }),
     createdBy,
     sources: [{ kind: "document_version", id: versionId, label: row.filename }],
   });
-  let groupId = null;
-  if (row.folderId && row.folderName) {
-    const members = await query(
-      db,
-      `SELECT a.title,v.version,v.mime,v.filename FROM artifacts a
-       LEFT JOIN versions v ON v.id=(
-         SELECT id FROM versions WHERE artifact_id=a.id ORDER BY version DESC LIMIT 1
-       )
-       WHERE a.folder_id=? AND a.deleted_at IS NULL ORDER BY a.title LIMIT 100`,
-      [row.folderId],
-    );
-    groupId = await upsertPage(db, projectId, {
-      title: "文档组：" + row.folderName,
-      body: documentGroupMarkdown({
-        folderName: row.folderName,
-        members: members.map((member) => ({
-          title: member.title,
-          filename: member.filename,
-          version: Number(member.version || 0),
-          kindLabel: documentKindLabel(documentKindOf(member.mime, member.filename)),
-        })),
-      }),
-      createdBy,
-    });
-    if (groupId)
-      await createMemoryRelation(db, {
-        projectId,
-        fromPageId: groupId,
-        toPageId: pageId,
-        relation: "relates",
-        note: "文档组包含",
-        createdBy,
-      });
+  if (pageId && row.summary) {
+    const { refreshDocumentSummaryCache } = await import("./memory-cache.js");
+    await refreshDocumentSummaryCache(db, projectId, versionId).catch(() => {});
   }
-  const { refreshDocumentSummaryCache } = await import("./memory-cache.js");
-  await refreshDocumentSummaryCache(db, projectId, versionId).catch(() => {});
-  return { pageId, groupId, kind };
+  if (pageId) await ensureFileIndexRoots(db, projectId, createdBy);
+  if (pageId && createdBy) {
+    const { discoverLinkedFileGroup, recheckGroupsForTarget, discoverWaitingFileReferences } =
+      await import("./file-index-groups.js");
+    await discoverLinkedFileGroup(db, { projectId, artifactId, createdBy });
+    await recheckGroupsForTarget(db, { projectId, artifactId, versionId, createdBy });
+    await discoverWaitingFileReferences(db, { projectId, artifactId, versionId, createdBy });
+  }
+  return { pageId, groupId: null, kind };
+}
+
+/** Rebuild after a version is recycled/restored or the artifact is moved/renamed. */
+export async function syncCurrentDocumentMemory(db, { projectId, artifactId, createdBy } = {}) {
+  const [row] = await query(
+    db,
+    `SELECT v.id FROM versions v
+    JOIN artifacts a ON a.id=v.artifact_id
+    LEFT JOIN version_recycle r ON r.version_id=v.id
+    WHERE a.id=? AND a.project_id=? AND a.deleted_at IS NULL AND a.purged_at IS NULL
+      AND r.version_id IS NULL ORDER BY v.version DESC,v.created_at DESC,v.id DESC LIMIT 1`,
+    [artifactId, projectId],
+  );
+  if (!row) return null;
+  return syncDocumentMemory(db, { projectId, artifactId, versionId: row.id, createdBy });
 }

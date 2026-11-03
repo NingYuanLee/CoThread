@@ -120,29 +120,46 @@ function mcpText(value) {
 }
 
 function mcpMaterials(name, value) {
+  if (name === "read_memory_revision" && value?.id && value?.pageId) {
+    return [
+      {
+        page: {
+          id: value.pageId,
+          title: value.title,
+          body: value.body,
+          kind: "wiki",
+          memoryRevisionId: value.id,
+        },
+        sources: value.sources || [],
+        citation: {
+          pageId: value.pageId,
+          label: value.title + " · 当时修订",
+          kind: "wiki",
+          target: value.pageId,
+        },
+      },
+    ];
+  }
   if (name === "search_memory" && Array.isArray(value?.entries)) {
-    const kindOf = (kind) =>
-      kind === "document_version"
-        ? "document"
-        : kind === "archive" || kind === "thread"
-          ? "thread"
-          : kind === "task"
-            ? "task"
-            : "message";
-    return value.entries.flatMap((entry) =>
-      (entry.sources || [])
-        .slice(0, 2)
-        .map((source) =>
-          readRecord(
-            kindOf(source.kind),
-            source.id,
-            entry.title,
-            entry.excerpt,
-            (entry.subjectLabel || "项目记忆") + " · " + (source.label || "出处"),
-            source.id,
-          ),
-        ),
-    );
+    return value.entries.map((entry) => ({
+      page: {
+        id: entry.pageId,
+        title: entry.title,
+        body: entry.excerpt,
+        kind: "wiki",
+        memoryRevisionId: entry.memoryRevisionId,
+      },
+      sources: (entry.sources || []).map((source) => ({
+        ...source,
+        label: source.label || "记忆出处",
+      })),
+      citation: {
+        pageId: entry.pageId,
+        label: entry.title + " · 项目记忆",
+        kind: "wiki",
+        target: entry.pageId,
+      },
+    }));
   }
   if (name !== "get_project_context" || !Array.isArray(value?.threads)) return [];
   return value.threads.map((row) =>
@@ -205,13 +222,17 @@ async function answerWithKernel(service, user, scope, ids, question, options) {
           text: elderDocumentReadText(value),
           materials: value?.text
             ? [
-                readRecord(
-                  "document",
-                  value.id,
-                  value.title || value.filename || "文档",
-                  value.content || value.note || "",
-                  "项目文档",
-                ),
+                {
+                  ...readRecord(
+                    "document",
+                    value.id,
+                    value.title || value.filename || "文档",
+                    value.content || value.note || "",
+                    "项目文档",
+                  ),
+                  contentRevisionId: value.contentRevisionId,
+                  sha256: value.sha256,
+                },
               ]
             : [],
         };
@@ -376,6 +397,12 @@ function mapRoom(rows) {
         label: row.citationLabel,
         kind: row.citationKind || inferCitationKind(row.citationLabel, row.pageId),
         target: row.citationTarget || null,
+        memoryRevisionId: row.memoryRevisionId || null,
+        contentRevisionId:
+          (typeof row.citationEvidence === "string"
+            ? JSON.parse(row.citationEvidence)
+            : row.citationEvidence
+          )?.contentRevisionId || null,
       });
     }
   }
@@ -383,7 +410,7 @@ function mapRoom(rows) {
 }
 
 const roomSql = `SELECT q.id questionId, q.body questionBody, q.created_at createdAt,
-  a.id answerId, a.body answerBody, a.trace answerTrace, a.usage_json answerUsage, c.id citationId, c.page_id pageId, c.kind citationKind, c.target citationTarget, c.label citationLabel
+  a.id answerId, a.body answerBody, a.trace answerTrace, a.usage_json answerUsage, c.id citationId, c.page_id pageId, c.kind citationKind, c.target citationTarget, c.label citationLabel,c.memory_revision_id memoryRevisionId,c.evidence_json citationEvidence
   FROM wiki_questions q
   LEFT JOIN wiki_answers a ON a.question_id=q.id
   LEFT JOIN wiki_answer_citations c ON c.answer_id=a.id
@@ -521,7 +548,7 @@ async function insertCitation(conn, answerId, item) {
   const citation = citationOf(item);
   await query(
     conn,
-    "INSERT INTO wiki_answer_citations(id,answer_id,page_id,kind,target,label) VALUES(?,?,?,?,?,?)",
+    "INSERT INTO wiki_answer_citations(id,answer_id,page_id,kind,target,label,memory_revision_id,evidence_json) VALUES(?,?,?,?,?,?,?,?)",
     [
       randomUUID(),
       answerId,
@@ -529,6 +556,13 @@ async function insertCitation(conn, answerId, item) {
       citation.kind || null,
       citation.target ? String(citation.target).slice(0, 2048) : null,
       String(citation.label || item.page?.title || "").slice(0, 240),
+      item.page?.memoryRevisionId || null,
+      JSON.stringify({
+        page: item.page,
+        sources: item.sources || [],
+        contentRevisionId: item.contentRevisionId || item.page?.contentRevisionId || null,
+        capturedFrom: "answer_material",
+      }),
     ],
   );
 }

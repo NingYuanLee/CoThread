@@ -178,6 +178,19 @@ export function registerAdminRoutes(app, { db, service }) {
   app.post("/api/admin/projects/:id/leader-recovery", async (req, res) =>
     res.json(await service.recoverProjectLeader(req.user, req.params.id, req.body)),
   );
+  app.post("/api/admin/projects/:id/memory/backfill", async (req, res) => {
+    await service.adminPermission(req.user, "projects.update");
+    const { backfillProjectMemory, completeProjectMemoryBackfill } =
+      await import("../memory-backfill.js");
+    const result = await backfillProjectMemory(service.db, {
+      projectId: req.params.id,
+      createdBy: req.user.id,
+    });
+    await completeProjectMemoryBackfill(service.db, req.params.id);
+    const { publishWork } = await import("../work-events.js");
+    publishWork(service.db);
+    res.json(result);
+  });
   app.get("/api/admin/accounts", async (req, res) =>
     res.json(await service.adminAccounts(req.user)),
   );

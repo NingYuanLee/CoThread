@@ -8,7 +8,7 @@ import { assetPath } from "./assets.js";
 import { hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.js";
 import { dshModelMaxTokens, dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
-import { laowengRuntimePatch } from "./dsh-runtime-config.js";
+import { laowengRuntimePatch, elderRuntimePatch } from "./dsh-runtime-config.js";
 import {
   LAOWENG_MAINTENANCE_TASKS,
   laowengTaskLabel,
@@ -17,6 +17,7 @@ import {
 import { contextBudget } from "../shared/context.js";
 import { saveVisualArtifact } from "./visual-artifacts.js";
 import { buildMaintenanceTurn } from "../shared/prompt-blocks.js";
+import { createUsageMeter } from "./agent-usage.js";
 
 const LAOWENG_CONTEXT_BUDGET = contextBudget("knowledge");
 
@@ -55,6 +56,9 @@ async function saveCheckpoint(db, sessionRowId, home, modelMessages) {
     }
   }
   await walk(join(home, "sessions"));
+  // Image blocks in the session log contain references, not the image bytes.
+  // Keep the durable attachment store alongside the log when moving hosts.
+  await walk(join(home, "attachments"), "_attachments/");
   if (modelMessages)
     files["_cothread_context.json"] = Buffer.from(JSON.stringify(modelMessages)).toString("base64");
   const checkpoint = gzipSync(JSON.stringify(files));
@@ -154,10 +158,13 @@ async function openLaowengHarness(db, projectId, session, scope, options = {}) {
       : "";
   const runtimePatch = join(home, "laoweng-runtime.yml");
   const modelPatch = join(home, "laoweng-model.yml");
-  await writeFile(runtimePatch, laowengRuntimePatch());
+  await writeFile(
+    runtimePatch,
+    options.conversationToolEnv ? elderRuntimePatch() : laowengRuntimePatch(),
+  );
   const configuredModel = options.model || modelConfig("knowledge");
   const capabilityProfile = await loadAgentCapabilityProfile(db, "laoweng");
-  await writeFile(modelPatch, dshModelPatch(configuredModel, "knowledge"));
+  await writeFile(modelPatch, dshModelPatch(configuredModel, "knowledge", { imageInput: true }));
   const env = {};
   for (const key of [
     "SystemRoot",
@@ -182,6 +189,7 @@ async function openLaowengHarness(db, projectId, session, scope, options = {}) {
     COTHREAD_RESUME_SESSION: resumeSessionId,
     HOME: home,
     USERPROFILE: home,
+    ...(options.conversationToolEnv || {}),
   });
   const harnessOptions = {
     profile: "sdk-minimal",
@@ -338,6 +346,7 @@ export async function runLaowengTask(db, projectId, task, input, schema, options
         projectId,
         workType: scope.task,
         iterationId: eventThreadId,
+        resultMode: options.readToolResult ? "file_summary_tool" : "json",
         input,
       }).prompt;
       const promptInput = options.image
@@ -350,7 +359,45 @@ export async function runLaowengTask(db, projectId, task, input, schema, options
             },
           ]
         : prompt;
-      const result = await harness.run(promptInput, { sessionId: session.session_id });
+      const turnId = randomUUID();
+      const meter = createUsageMeter();
+      await query(
+        db,
+        `INSERT INTO agent_laoweng_session_turns
+        (id,project_id,task,session_id,input_text,started_at) VALUES (?,?,?,?,?,UTC_TIMESTAMP(3))`,
+        [turnId, projectId, scope.task, session.session_id, prompt.slice(0, 16000)],
+      );
+      const started = performance.now();
+      let result;
+      try {
+        result = await harness.run(promptInput, {
+          sessionId: session.session_id,
+          onNotification: (notification) => {
+            if (
+              notification.method === "session.event" &&
+              notification.params?.sessionId === session.session_id
+            )
+              meter.notify(notification.params.event);
+          },
+        });
+      } finally {
+        if (!meter.result()) for (const event of result?.events || []) meter.notify(event);
+        const measured = meter.result();
+        const usage = {
+          ...measured,
+          executionDurationMs: Math.max(0, Math.round(performance.now() - started)),
+        };
+        await query(
+          db,
+          `UPDATE agent_laoweng_session_turns SET output_text=?,usage_stats=?,
+          finished_at=UTC_TIMESTAMP(3) WHERE id=?`,
+          [
+            result?.finalResponse ? String(result.finalResponse).slice(0, 16000) : null,
+            JSON.stringify(usage),
+            turnId,
+          ],
+        );
+      }
       const failure = providerFailure(result);
       if (failure) throw new Error(failure);
       const responseText = String(result.finalResponse || "").trim();
@@ -360,7 +407,11 @@ export async function runLaowengTask(db, projectId, task, input, schema, options
           : "模型没有返回正文",
       );
       await beginPhase("validate_result");
-      const parsed = schema.parse(parseJsonResponse(result.finalResponse));
+      const parsed = schema.parse(
+        options.readToolResult
+          ? await options.readToolResult()
+          : parseJsonResponse(result.finalResponse),
+      );
       await notePhase(
         `校验通过 · ${
           Object.keys(parsed || {})

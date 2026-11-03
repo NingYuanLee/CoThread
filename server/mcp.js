@@ -36,6 +36,12 @@ import { MCP_CAPABILITIES, MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js"
 import { searchProjectMemory } from "./memory-search.js";
 import { FILE_CHUNK_SIZE, FILE_MAX_BYTES, MCP_INLINE_BASE64_MAX } from "../shared/upload-limits.js";
 import { completeFileUpload, putFileUploadChunk, startFileUpload } from "./documents/index.js";
+import { query } from "./db.js";
+import {
+  intactConversationMemorySql,
+  readableConversationMemorySql,
+} from "./conversation-memory-integrity.js";
+import { visibleFileIndexSql } from "./file-index-visibility.js";
 
 export { MCP_TOOL_NAMES };
 
@@ -143,12 +149,15 @@ export function mcpToolDefinitions(service, user, afterMessage) {
   );
   register(
     "search_memory",
-    "按一级类型、成员或关键词检索现行项目记忆。一级类型：关键发言 utterance、主要文档 document、重要任务 task、核心议题 discussion、里程碑 project。返回标题、摘要、出处和直接关系，不返回长正文。问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文档」先用它。",
+    "按一级类型、成员或关键词检索现行项目记忆。一级类型：关键发言 utterance、文件索引 document、重要任务 task、核心议题 discussion、里程碑 project。返回标题、摘要、出处和直接关系；根文件夹索引另返回动态导航。问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文件」先用它。",
     {
       projectId: z.string().uuid(),
       query: z.string().max(200).optional(),
       subject: z.enum(["utterance", "document", "task", "discussion", "project"]).optional(),
       aboutUserId: z.string().uuid().optional(),
+      purpose: z.enum(["current", "history", "explain"]).optional(),
+      asOf: z.string().datetime().optional(),
+      status: z.enum(["current", "superseded", "all"]).optional(),
       depth: z.number().int().min(0).max(2).optional(),
       limit: z.number().int().min(1).max(50).optional(),
     },
@@ -158,6 +167,116 @@ export function mcpToolDefinitions(service, user, afterMessage) {
         ...filters,
         subjects: subject ? [subject] : undefined,
       });
+    },
+  );
+  register(
+    "read_memory_source",
+    "读取里程碑出处：项目变更 milestone、迭代目标背景变更 iteration_context、归档 archive、关联记忆 memory_page；按项目权限校验。",
+    {
+      projectId: z.string().uuid(),
+      kind: z.enum(["milestone", "iteration_context", "archive", "memory_page"]),
+      sourceId: z.string().uuid(),
+    },
+    async ({ projectId, kind, sourceId }) => {
+      await service.member(user, projectId, false);
+      const [referenced] = await query(
+        service.db,
+        `SELECT s.id FROM wiki_page_sources s JOIN wiki_pages p ON p.id=s.page_id
+         WHERE p.project_id=? AND p.status='current' AND s.source_kind=? AND s.source_id=?
+         AND ${readableConversationMemorySql("p")} AND ${visibleFileIndexSql("p")} LIMIT 1`,
+        [projectId, kind, sourceId],
+      );
+      if (!referenced) {
+        const error = new Error("出处不存在或不可访问");
+        error.status = 404;
+        throw error;
+      }
+      let rows;
+      if (kind === "milestone")
+        rows = await query(
+          service.db,
+          "SELECT id,action,details,created_at createdAt FROM project_change_logs WHERE project_id=? AND id=?",
+          [projectId, sourceId],
+        );
+      else if (kind === "iteration_context")
+        rows = await query(
+          service.db,
+          `SELECT c.id,c.before_context beforeContext,c.after_context afterContext,c.reason,c.created_at createdAt,t.id threadId,t.title
+         FROM iteration_context_changes c JOIN threads t ON t.id=c.thread_id WHERE t.project_id=? AND c.id=?`,
+          [projectId, sourceId],
+        );
+      else if (kind === "memory_page")
+        rows = await query(
+          service.db,
+          `SELECT p.id,p.title,p.body,p.subject_type subject FROM wiki_pages p
+         WHERE p.project_id=? AND p.id=? AND p.status='current' AND ${readableConversationMemorySql("p")} AND ${visibleFileIndexSql("p")}`,
+          [projectId, sourceId],
+        );
+      else
+        rows = await query(
+          service.db,
+          `SELECT w.id,t.id threadId,t.title,t.archive_snapshot snapshot,t.archived_at archivedAt
+         FROM iteration_archive_workflows w JOIN threads t ON t.id=w.thread_id WHERE t.project_id=? AND w.id=?`,
+          [projectId, sourceId],
+        );
+      if (!rows.length) {
+        const error = new Error("出处不存在或不可访问");
+        error.status = 404;
+        throw error;
+      }
+      if (kind === "memory_page") {
+        const { hydrateFileIndexGroups } = await import("./file-index-groups.js");
+        rows = await hydrateFileIndexGroups(service.db, projectId, rows);
+      }
+      return { kind, ...rows[0] };
+    },
+  );
+  register(
+    "list_project_status_history",
+    "查看项目现状历史修订及出处；自然状态变化不会抹掉历史，访问权限仍按原出处校验。",
+    { projectId: z.string().uuid(), limit: z.number().int().min(1).max(50).optional() },
+    async ({ projectId, limit }) => {
+      const { listProjectStatusHistory } = await import("./project-status-node.js");
+      return { revisions: await listProjectStatusHistory(service, user, projectId, limit) };
+    },
+  );
+  register(
+    "read_memory_history",
+    "分页读取记忆的旧修订、原话和决定依据；AI 判断单独返回。作废不会改写历史。",
+    {
+      projectId: z.string().uuid(),
+      pageId: z.string().uuid(),
+      limit: z.number().int().min(1).max(100).optional(),
+      offset: z.number().int().min(0).optional(),
+    },
+    async ({ projectId, pageId, ...filters }) => {
+      const { listMemoryHistory } = await import("./memory-history.js");
+      return listMemoryHistory(service, user, projectId, pageId, filters);
+    },
+  );
+  register(
+    "read_memory_revision",
+    "读取决定当时固定引用的记忆修订；返回原内容而非当前最新正文。",
+    { revisionId: z.string().uuid() },
+    async ({ revisionId }) => {
+      const { readMemoryRevision } = await import("./memory-history.js");
+      return readMemoryRevision(service, user, revisionId);
+    },
+  );
+  register(
+    "read_project_facts",
+    "直接读取项目创建事实、迭代/任务全量统计和分页明细、执行轮次及业务历史。未知创建者不推测。",
+    {
+      projectId: z.string().uuid(),
+      kind: z.enum(["thread", "task"]).optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+      offset: z.number().int().min(0).optional(),
+      beforeEventId: z.string().regex(/^\d+$/).optional(),
+    },
+    async ({ projectId, ...filters }) => {
+      await service.member(user, projectId, false);
+      const { readProjectFacts } = await import("./project-facts.js");
+      return readProjectFacts(service.db, projectId, filters);
     },
   );
   register(
@@ -246,7 +365,14 @@ export function mcpToolDefinitions(service, user, afterMessage) {
       if (!isDocumentText(meta.mime, meta.filename))
         return readDocumentContent(meta, { offset, limit });
       const full = await service.version(user, versionId);
-      return readDocumentContent(full, { offset, limit });
+      const { captureDocumentRevision } = await import("./memory-history.js");
+      const contentRevisionId = await captureDocumentRevision(
+        service.db,
+        full.project_id,
+        versionId,
+        full,
+      );
+      return { ...readDocumentContent(full, { offset, limit }), contentRevisionId };
     },
   );
   register(
@@ -483,6 +609,9 @@ export function mcpToolDefinitions(service, user, afterMessage) {
         updates,
         statusHistory,
         executionRuns,
+        decisionEvidence: await (
+          await import("./memory-decisions.js")
+        ).readTaskDecisionEvidence(service.db, task.project_id, task.id),
         activity: mergeTaskActivity({ updates, statusHistory, executionRuns }),
         folder_contents: folderContents,
       };

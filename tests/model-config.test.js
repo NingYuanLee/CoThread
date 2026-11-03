@@ -14,7 +14,14 @@ import {
   responseText,
 } from "../server/model-config.js";
 
-const keys = ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL", "COORDINATOR_MODEL_BASE_URL", "COORDINATOR_MODEL_API_KEY", "COORDINATOR_MODEL"];
+const keys = [
+  "MODEL_BASE_URL",
+  "MODEL_API_KEY",
+  "MODEL",
+  "COORDINATOR_MODEL_BASE_URL",
+  "COORDINATOR_MODEL_API_KEY",
+  "COORDINATOR_MODEL",
+];
 
 async function withModelEnv(values, run) {
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
@@ -22,8 +29,9 @@ async function withModelEnv(values, run) {
     if (values[key] === undefined) delete process.env[key];
     else process.env[key] = values[key];
   }
-  try { return await run(); }
-  finally {
+  try {
+    return await run();
+  } finally {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -34,70 +42,98 @@ async function withModelEnv(values, run) {
 test("model URL accepts a root or complete OpenAI endpoint", () => {
   assert.equal(normalizeModelBaseUrl("https://api.openai.com"), "https://api.openai.com");
   assert.equal(normalizeModelBaseUrl("https://api.openai.com/v1/"), "https://api.openai.com/v1");
-  assert.equal(normalizeModelBaseUrl("http://localhost:11434/v1/chat/completions"), "http://localhost:11434/v1");
-  assert.equal(normalizeModelBaseUrl("http://localhost:11434/v1/responses"), "http://localhost:11434/v1");
+  assert.equal(
+    normalizeModelBaseUrl("http://localhost:11434/v1/chat/completions"),
+    "http://localhost:11434/v1",
+  );
+  assert.equal(
+    normalizeModelBaseUrl("http://localhost:11434/v1/responses"),
+    "http://localhost:11434/v1",
+  );
   assert.throws(() => normalizeModelBaseUrl("file:///tmp/model"), /HTTP\(S\)/);
 });
 
-test("the model endpoint, API key, and name are required", () => withModelEnv({
-  COORDINATOR_MODEL_BASE_URL: "https://example.test/v1",
-  COORDINATOR_MODEL_API_KEY: "",
-  COORDINATOR_MODEL: "example-model",
-}, () => assert.throws(() => modelConfig(), /MODEL_API_KEY/)));
+test("the model endpoint, API key, and name are required", () =>
+  withModelEnv(
+    {
+      COORDINATOR_MODEL_BASE_URL: "https://example.test/v1",
+      COORDINATOR_MODEL_API_KEY: "",
+      COORDINATOR_MODEL: "example-model",
+    },
+    () => assert.throws(() => modelConfig(), /MODEL_API_KEY/),
+  ));
 
-test("compatible request and DSH route use the configured model", () => withModelEnv({
-  COORDINATOR_MODEL_BASE_URL: "https://example.test/v1/chat/completions",
-  COORDINATOR_MODEL_API_KEY: "secret-value",
-  COORDINATOR_MODEL: "example-model@high",
-}, async () => {
-  let captured;
-  const data = await modelResponse({ messages: [{ role: "user", content: "hello" }], maxTokens: 64 },
-    async (url, options) => {
-      captured = { url, options, body: JSON.parse(options.body) };
-      return {
-        ok: true,
-        headers: new Headers({ "content-type": "application/json" }),
-        text: async () => JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }] }),
-      };
-    });
-  assert.equal(responseText(data), "ok");
-  assert.equal(captured.url, "https://example.test/v1/responses");
-  assert.equal(captured.options.headers.Authorization, "Bearer secret-value");
-  assert.equal(captured.body.model, "example-model");
-  assert.equal(captured.body.max_output_tokens, 64);
-  assert.deepEqual(captured.body.input, [{ role: "user", content: "hello" }]);
-  assert.deepEqual(captured.body.reasoning, { effort: "high" });
-  const none = await modelResponse({ messages: [{ role: "user", content: "hi" }], maxTokens: 16, reasoningEffort: "none" },
-    async (_url, options) => {
-      captured = { body: JSON.parse(options.body) };
-      return {
-        ok: true,
-        headers: new Headers({ "content-type": "application/json" }),
-        text: async () => JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }] }),
-      };
-    });
-  assert.equal(responseText(none), "ok");
-  assert.deepEqual(captured.body.reasoning, { effort: "none" });
-  assert.equal(captured.body.store, false);
-  const config = modelConfig();
-  assert.equal("provider" in config, false);
-  const patch = dshModelPatch(config);
-  assert.match(patch, /llm-pi-ai/);
-  assert.match(patch, /displayName: CoThread/);
-  assert.match(patch, /api: openai-responses/);
-  assert.match(patch, /reasoning: high/);
-  assert.match(patch, /baseURL: "https:\/\/example\.test\/v1"/);
-  assert.match(patch, /id: "example-model"/);
-  assert.match(patch, /contextWindow: 1000000/);
-  assert.match(patch, /maxTokens: 131072/);
-  assert.match(patch, /reasoningEfforts:\s+off: none\s+minimal: minimal\s+low: low\s+medium: medium\s+high: high\s+xhigh: xhigh\s+max: max/);
-  assert.doesNotMatch(patch, /streamIdleTimeoutMs/);
-  const knowledge = dshModelPatch(config, "knowledge");
-  assert.match(knowledge, /streamIdleTimeoutMs: 90000/);
-  assert.match(knowledge, /maxRetries: 1/);
-  assert.equal(patch.includes("secret-value"), false);
-  assert.equal(redactSecrets("failed secret-value"), "failed [REDACTED]");
-}));
+test("compatible request and DSH route use the configured model", () =>
+  withModelEnv(
+    {
+      COORDINATOR_MODEL_BASE_URL: "https://example.test/v1/chat/completions",
+      COORDINATOR_MODEL_API_KEY: "secret-value",
+      COORDINATOR_MODEL: "example-model@high",
+    },
+    async () => {
+      let captured;
+      const data = await modelResponse(
+        { messages: [{ role: "user", content: "hello" }], maxTokens: 64 },
+        async (url, options) => {
+          captured = { url, options, body: JSON.parse(options.body) };
+          return {
+            ok: true,
+            headers: new Headers({ "content-type": "application/json" }),
+            text: async () =>
+              JSON.stringify({
+                output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }],
+              }),
+          };
+        },
+      );
+      assert.equal(responseText(data), "ok");
+      assert.equal(captured.url, "https://example.test/v1/responses");
+      assert.equal(captured.options.headers.Authorization, "Bearer secret-value");
+      assert.equal(captured.body.model, "example-model");
+      assert.equal(captured.body.max_output_tokens, 64);
+      assert.deepEqual(captured.body.input, [{ role: "user", content: "hello" }]);
+      assert.deepEqual(captured.body.reasoning, { effort: "high" });
+      const none = await modelResponse(
+        { messages: [{ role: "user", content: "hi" }], maxTokens: 16, reasoningEffort: "none" },
+        async (_url, options) => {
+          captured = { body: JSON.parse(options.body) };
+          return {
+            ok: true,
+            headers: new Headers({ "content-type": "application/json" }),
+            text: async () =>
+              JSON.stringify({
+                output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }],
+              }),
+          };
+        },
+      );
+      assert.equal(responseText(none), "ok");
+      assert.deepEqual(captured.body.reasoning, { effort: "none" });
+      assert.equal(captured.body.store, false);
+      const config = modelConfig();
+      assert.equal("provider" in config, false);
+      const patch = dshModelPatch(config);
+      assert.match(patch, /llm-pi-ai/);
+      assert.match(patch, /displayName: CoThread/);
+      assert.match(patch, /api: openai-responses/);
+      assert.match(patch, /reasoning: high/);
+      assert.match(patch, /baseURL: "https:\/\/example\.test\/v1"/);
+      assert.match(patch, /id: "example-model"/);
+      assert.match(patch, /contextWindow: 1000000/);
+      assert.match(patch, /maxTokens: 131072/);
+      assert.match(
+        patch,
+        /reasoningEfforts:\s+off: none\s+minimal: minimal\s+low: low\s+medium: medium\s+high: high\s+xhigh: xhigh\s+max: max/,
+      );
+      assert.doesNotMatch(patch, /streamIdleTimeoutMs/);
+      const knowledge = dshModelPatch(config, "knowledge");
+      assert.match(knowledge, /streamIdleTimeoutMs: 90000/);
+      assert.match(knowledge, /maxRetries: 1/);
+      assert.match(knowledge, /maxTokens: 32768/);
+      assert.equal(patch.includes("secret-value"), false);
+      assert.equal(redactSecrets("failed secret-value"), "failed [REDACTED]");
+    },
+  ));
 
 test("model capacity uses tiered context windows and model-specific output limits", () => {
   assert.equal(modelContextWindow("coordinator"), 256000);
@@ -113,13 +149,12 @@ test("DSH patch output cap leaves the native pressure budget intact", () => {
   // compaction headroom, so the advertised cap must stay well below the window.
   assert.equal(dshModelMaxTokens(deepseek, "coordinator"), 68608);
   assert.equal(dshModelMaxTokens(deepseek, "executor"), 291808);
-  assert.equal(dshModelMaxTokens(deepseek, "knowledge"), 291808);
+  assert.equal(dshModelMaxTokens(deepseek, "knowledge"), 32768);
+  assert.equal(dshModelMaxTokens({ model: "gpt-6-astra" }, "knowledge"), 32768);
   assert.equal(dshModelMaxTokens({ model: "gpt-6-astra" }, "executor"), 131072);
   for (const scope of ["coordinator", "executor", "knowledge"]) {
     const window = modelContextWindow(scope);
-    const declared = Number(
-      dshModelPatch(deepseek, scope).match(/maxTokens: (\d+)/)[1],
-    );
+    const declared = Number(dshModelPatch(deepseek, scope).match(/maxTokens: (\d+)/)[1]);
     assert.equal(declared, dshModelMaxTokens(deepseek, scope));
     assert.ok(
       window - declared - DSH_COMPACTION_HEADROOM_TOKENS >= Math.floor(window * 0.7),
@@ -139,79 +174,113 @@ test("DSH maps none and ultra onto its supported reasoning selector keys", () =>
   assert.doesNotMatch(ultra, /\n\s+ultra:/);
 });
 
-test("compatible request reports an invalid non-JSON response", () => withModelEnv({
-  COORDINATOR_MODEL_BASE_URL: "https://example.test/v1",
-  COORDINATOR_MODEL_API_KEY: "secret-value",
-  COORDINATOR_MODEL: "example-model",
-}, async () => {
-  await assert.rejects(
-    modelResponse({ messages: [], maxTokens: 64 }, async () => ({
-      ok: true,
-      headers: new Headers({ "content-type": "text/html" }),
-      text: async () => "<!doctype html>",
-    })),
-    /invalid JSON \(text\/html\)/,
-  );
-}));
+test("compatible request reports an invalid non-JSON response", () =>
+  withModelEnv(
+    {
+      COORDINATOR_MODEL_BASE_URL: "https://example.test/v1",
+      COORDINATOR_MODEL_API_KEY: "secret-value",
+      COORDINATOR_MODEL: "example-model",
+    },
+    async () => {
+      await assert.rejects(
+        modelResponse({ messages: [], maxTokens: 64 }, async () => ({
+          ok: true,
+          headers: new Headers({ "content-type": "text/html" }),
+          text: async () => "<!doctype html>",
+        })),
+        /invalid JSON \(text\/html\)/,
+      );
+    },
+  ));
 
-test("compatible request reports an incomplete Responses result", () => withModelEnv({
-  COORDINATOR_MODEL_BASE_URL: "https://example.test/v1",
-  COORDINATOR_MODEL_API_KEY: "secret-value",
-  COORDINATOR_MODEL: "example-model",
-}, async () => {
-  await assert.rejects(
-    modelResponse({ messages: [], maxTokens: 64 }, async () => ({
-      ok: true,
-      headers: new Headers({ "content-type": "application/json" }),
-      text: async () => JSON.stringify({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" } }),
-    })),
-    /incomplete \(max_output_tokens\)/,
-  );
-}));
+test("compatible request reports an incomplete Responses result", () =>
+  withModelEnv(
+    {
+      COORDINATOR_MODEL_BASE_URL: "https://example.test/v1",
+      COORDINATOR_MODEL_API_KEY: "secret-value",
+      COORDINATOR_MODEL: "example-model",
+    },
+    async () => {
+      await assert.rejects(
+        modelResponse({ messages: [], maxTokens: 64 }, async () => ({
+          ok: true,
+          headers: new Headers({ "content-type": "application/json" }),
+          text: async () =>
+            JSON.stringify({
+              status: "incomplete",
+              incomplete_details: { reason: "max_output_tokens" },
+            }),
+        })),
+        /incomplete \(max_output_tokens\)/,
+      );
+    },
+  ));
 
-test("Responses streaming forwards text deltas and returns final usage", () => withModelEnv({
-  COORDINATOR_MODEL_BASE_URL: "https://example.test/v1",
-  COORDINATOR_MODEL_API_KEY: "secret-value",
-  COORDINATOR_MODEL: "example-model@off",
-}, async () => {
-  const encoder = new TextEncoder();
-  const chunks = [
-    'data: {"type":"response.output_text.delta","delta":"你"}\n\n',
-    'data: {"type":"response.output_text.delta","delta":"好"}\n\n',
-    'data: {"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":2}}}\n\n',
-    'data: [DONE]\n\n',
-  ];
-  const deltas = [];
-  let body;
-  const result = await modelResponseStream({ messages: [], maxTokens: 64, onText: value => deltas.push(value) },
-    async (_url, options) => {
-      body = JSON.parse(options.body);
-      return new Response(new ReadableStream({ start(controller) {
-        chunks.forEach(chunk => controller.enqueue(encoder.encode(chunk)));
-        controller.close();
-      } }), { headers: { "content-type": "text/event-stream" } });
-    });
-  assert.equal(result.text, "你好");
-  assert.deepEqual(deltas, ["你", "好"]);
-  assert.equal(result.data.usage.output_tokens, 2);
-  assert.equal(body.stream, true);
-  assert.deepEqual(body.reasoning, { effort: "none" });
-}));
+test("Responses streaming forwards text deltas and returns final usage", () =>
+  withModelEnv(
+    {
+      COORDINATOR_MODEL_BASE_URL: "https://example.test/v1",
+      COORDINATOR_MODEL_API_KEY: "secret-value",
+      COORDINATOR_MODEL: "example-model@off",
+    },
+    async () => {
+      const encoder = new TextEncoder();
+      const chunks = [
+        'data: {"type":"response.output_text.delta","delta":"你"}\n\n',
+        'data: {"type":"response.output_text.delta","delta":"好"}\n\n',
+        'data: {"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":2}}}\n\n',
+        "data: [DONE]\n\n",
+      ];
+      const deltas = [];
+      let body;
+      const result = await modelResponseStream(
+        { messages: [], maxTokens: 64, onText: (value) => deltas.push(value) },
+        async (_url, options) => {
+          body = JSON.parse(options.body);
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                chunks.forEach((chunk) => controller.enqueue(encoder.encode(chunk)));
+                controller.close();
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        },
+      );
+      assert.equal(result.text, "你好");
+      assert.deepEqual(deltas, ["你", "好"]);
+      assert.equal(result.data.usage.output_tokens, 2);
+      assert.equal(body.stream, true);
+      assert.deepEqual(body.reasoning, { effort: "none" });
+    },
+  ));
 
-test("combined model field defaults coordinator to low and rejects unknown efforts", () => withModelEnv({
-  COORDINATOR_MODEL_BASE_URL: "https://example.test",
-  COORDINATOR_MODEL_API_KEY: "secret-value",
-  COORDINATOR_MODEL: "example-model",
-}, () => {
-  assert.equal(modelConfig().reasoningEffort, "low");
-  process.env.COORDINATOR_MODEL = "example-model@off";
-  assert.equal(modelConfig().reasoningEffort, "off");
-  process.env.COORDINATOR_MODEL = "example-model@extreme";
-  assert.throws(() => modelConfig(), /reasoning effort/);
-}));
+test("combined model field defaults coordinator to low and rejects unknown efforts", () =>
+  withModelEnv(
+    {
+      COORDINATOR_MODEL_BASE_URL: "https://example.test",
+      COORDINATOR_MODEL_API_KEY: "secret-value",
+      COORDINATOR_MODEL: "example-model",
+    },
+    () => {
+      assert.equal(modelConfig().reasoningEffort, "low");
+      process.env.COORDINATOR_MODEL = "example-model@off";
+      assert.equal(modelConfig().reasoningEffort, "off");
+      process.env.COORDINATOR_MODEL = "example-model@extreme";
+      assert.throws(() => modelConfig(), /reasoning effort/);
+    },
+  ));
 
 test("coordinator and executor share MODEL baseline, with optional knowledge override", () => {
-  const names = ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL", "KNOWLEDGE_MODEL_BASE_URL", "KNOWLEDGE_MODEL_API_KEY", "KNOWLEDGE_MODEL"];
+  const names = [
+    "MODEL_BASE_URL",
+    "MODEL_API_KEY",
+    "MODEL",
+    "KNOWLEDGE_MODEL_BASE_URL",
+    "KNOWLEDGE_MODEL_API_KEY",
+    "KNOWLEDGE_MODEL",
+  ];
   const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   try {
     for (const name of names) delete process.env[name];

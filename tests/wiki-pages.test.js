@@ -54,7 +54,11 @@ test("archive pages stay readable with sources and rewrite neither chat nor the 
     });
     const listed = await listWikiPages(service, owner, project.id, "知识页");
     assert.equal(listed.canWrite, true);
-    assert.equal(listed.pages.length, 2);
+    assert.equal(
+      listed.pages.filter((page) => ["problem_review", "iteration_archived"].includes(page.subtype))
+        .length,
+      2,
+    );
     const retro = listed.pages.find((page) => page.subtype === "problem_review");
     const decision = listed.pages.find((page) => page.subtype === "iteration_archived");
     assert.ok(retro.body.includes("这轮决定先做知识页"));
@@ -80,7 +84,12 @@ test("archive pages stay readable with sources and rewrite neither chat nor the 
     assert.equal(summaries.length, 0);
     const readonly = await listWikiPages(service, viewer, project.id);
     assert.equal(readonly.canWrite, false);
-    assert.equal(readonly.pages.length, 2);
+    assert.equal(
+      readonly.pages.filter((page) =>
+        ["problem_review", "iteration_archived"].includes(page.subtype),
+      ).length,
+      2,
+    );
   } finally {
     await database.close();
   }

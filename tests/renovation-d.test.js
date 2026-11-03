@@ -143,17 +143,30 @@ test("two iterations overlap and one iteration stays serial", async () => {
   await service.postMessage(user, second.id, { body: "@小祥 乙" });
   let active = 0;
   let maxActive = 0;
+  const overlap = Promise.withResolvers();
+  let expired = false;
+  const deadline = setTimeout(() => {
+    expired = true;
+    overlap.resolve();
+  }, 30_000);
   const runAgent = async () => {
     active += 1;
     maxActive = Math.max(maxActive, active);
-    await delay(400);
+    if (active === 2) overlap.resolve();
+    await overlap.promise;
     active -= 1;
     return {};
   };
-  await Promise.all([
-    processNextCoordinator(db, undefined, runAgent),
-    processNextCoordinator(db, undefined, runAgent),
-  ]);
+  try {
+    await Promise.all([
+      processNextCoordinator(db, undefined, runAgent),
+      processNextCoordinator(db, undefined, runAgent),
+    ]);
+  } finally {
+    clearTimeout(deadline);
+    overlap.resolve();
+  }
+  assert.equal(expired, false, "different iterations must enter the agent together");
   assert.equal(maxActive, 2);
 
   const same = await service.createThread(user, project.id, { title: "同一迭代" });
@@ -161,11 +174,39 @@ test("two iterations overlap and one iteration stays serial", async () => {
   await service.postMessage(user, same.id, { body: "@小祥 二" });
   active = 0;
   maxActive = 0;
-  await Promise.all([
-    processNextCoordinator(db, same.id, runAgent),
-    processNextCoordinator(db, same.id, runAgent),
-  ]);
+  let calls = 0;
+  const entered = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  expired = false;
+  const serialDeadline = setTimeout(() => {
+    expired = true;
+    entered.resolve();
+    release.resolve();
+  }, 30_000);
+  const serialAgent = async () => {
+    calls += 1;
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    entered.resolve();
+    await release.promise;
+    active -= 1;
+    return {};
+  };
+  const running = processNextCoordinator(db, same.id, serialAgent);
+  try {
+    await Promise.race([entered.promise, running]);
+    assert.equal(calls, 1);
+    assert.equal(await processNextCoordinator(db, same.id, serialAgent), false);
+    assert.equal(expired, false, "a busy iteration must reject a competing claim");
+  } finally {
+    release.resolve();
+    clearTimeout(serialDeadline);
+    await running;
+  }
   assert.equal(maxActive, 1);
+  assert.equal(calls, 1);
+  assert.equal(await processNextCoordinator(db, same.id, serialAgent), true);
+  assert.equal(calls, 2, "the next message remains available after the first completes");
 });
 
 test("a second executor is refused and does not consume the queue", async () => {

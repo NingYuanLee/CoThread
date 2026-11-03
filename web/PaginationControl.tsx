@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { SelectField } from "./SelectField";
 import { TextField } from "./TextField";
 
@@ -39,14 +39,9 @@ export function PaginationControl({
       ? [page]
       : [
           ...new Set([
-            ...Array.from({ length: Math.min(2, totalPages) }, (_, i) => i + 1),
-            ...Array.from({ length: Math.min(5, totalPages) }, (_, i) => page - 2 + i).filter(
-              (n) => n >= 1 && n <= totalPages,
-            ),
-            ...Array.from(
-              { length: Math.min(2, totalPages) },
-              (_, i) => totalPages - Math.min(2, totalPages) + i + 1,
-            ),
+            1,
+            ...[page - 1, page, page + 1].filter((n) => n >= 1 && n <= totalPages),
+            totalPages,
           ]),
         ].sort((a, b) => a - b);
   const goTo = (candidate: number) => {
@@ -100,18 +95,24 @@ export function PaginationControl({
         >
           ‹
         </button>
-        {pages.map((number) => (
-          <button
-            key={number}
-            type="button"
-            aria-label={`第 ${number} 页`}
-            aria-current={page === number ? "page" : undefined}
-            className={page === number ? "active" : ""}
-            disabled={disabled || page === number}
-            onClick={() => goTo(number)}
-          >
-            {number}
-          </button>
+        {pages.map((number, index) => (
+          <Fragment key={number}>
+            {index > 0 && number - pages[index - 1] > 1 && (
+              <span className="pagination-control-ellipsis" aria-hidden="true">
+                ⋯
+              </span>
+            )}
+            <button
+              type="button"
+              aria-label={`第 ${number} 页`}
+              aria-current={page === number ? "page" : undefined}
+              className={page === number ? "active" : ""}
+              disabled={disabled || page === number}
+              onClick={() => goTo(number)}
+            >
+              {number}
+            </button>
+          </Fragment>
         ))}
         <button
           type="button"

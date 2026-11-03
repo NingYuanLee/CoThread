@@ -100,7 +100,8 @@ test("存量回填：旧摘要与未分类条目折算成五类记忆，重复�
     assert.ok(result.projectPage);
     assert.equal(result.utterancePages, 1);
     assert.equal(result.documentPages, 1);
-    assert.equal(result.discussionPages, 1);
+    assert.equal(result.discussionPages, 0);
+    assert.equal(result.discussionQueuedThreads, 1);
     assert.ok(result.inferredSubjects >= 1, "未分类条目应按出处归类");
 
     const [legacy] = await query(db, "SELECT subject_type subject FROM wiki_pages WHERE id=?", [
@@ -121,7 +122,7 @@ test("存量回填：旧摘要与未分类条目折算成五类记忆，重复�
       "SELECT body FROM wiki_pages WHERE project_id=? AND subject_type='document' AND title='需求说明'",
       [project.id],
     );
-    assert.match(documentPage.body, /老翁摘要：记录需求边界与验收口径。/);
+    assert.match(documentPage.body, /记录需求边界与验收口径。/);
 
     const before = await query(db, "SELECT COUNT(*) count FROM wiki_pages WHERE project_id=?", [
       project.id,

@@ -14,12 +14,14 @@ export function MarkdownDocumentPreview({
   selected,
   filename,
   nativeSourceFrame,
+  onMemoryNavigate,
 }: {
   mode: "preview" | "text";
   text: string | null | undefined;
   selected: string | null;
   filename?: string;
   nativeSourceFrame: ReactNode;
+  onMemoryNavigate?: (pageId: string) => void;
 }) {
   if (mode === "text") {
     return nativeSourceFrame || <CodePreview text={text || ""} filename={filename} />;
@@ -30,6 +32,23 @@ export function MarkdownDocumentPreview({
       <Markdown
         remarkPlugins={[remarkGfm]}
         components={{
+          a: ({ href, children }) => {
+            const match = href?.match(/^\/memory-entry\/([0-9a-f-]{36})$/i);
+            if (match && onMemoryNavigate) {
+              return (
+                <a
+                  href={href}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    onMemoryNavigate(match[1]);
+                  }}
+                >
+                  {children}
+                </a>
+              );
+            }
+            return <a href={href}>{children}</a>;
+          },
           img: ({ src, alt }) => {
             const path = resolvePreviewAssetPath(src || "");
             const assetSrc =

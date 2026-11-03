@@ -43,40 +43,43 @@ async function insertPage(
   return id;
 }
 
-test("结算写入对象类型，召回统计只加计数", async () => {
+test("无出处的结算被拒，记忆召回统计只加计数", async () => {
   const { database, db, owner, project } = await setup();
   try {
-    const applied = await applyProjectMemoryResult(
-      db,
-      project.id,
-      {
-        entries: [
-          {
-            op: "create",
-            subject: "discussion",
-            subtype: "requirements",
-            title: "本轮讨论",
-            body: "## 议题\n先做记忆",
-            sourceIds: [],
-          },
-        ],
-      },
-      { userId: owner.id },
+    await assert.rejects(
+      applyProjectMemoryResult(
+        db,
+        project.id,
+        {
+          entries: [
+            {
+              op: "create",
+              subject: "discussion",
+              subtype: "requirements",
+              title: "本轮讨论",
+              body: "## 议题\n先做记忆",
+              sourceIds: [],
+            },
+          ],
+        },
+        { userId: owner.id },
+      ),
+      /缺少可核验的候选出处/,
     );
-    assert.equal(applied.created.length, 1);
+    const pageId = await insertPage(db, project.id, owner.id, { subject: "discussion" });
     const [page] = await query(
       db,
       "SELECT subject_type subjectType,recall_count recallCount FROM wiki_pages WHERE id=?",
-      [applied.created[0]],
+      [pageId],
     );
     assert.equal(page.subjectType, "discussion");
     assert.equal(Number(page.recallCount), 0);
 
-    await noteMemoryRecall(db, [applied.created[0], applied.created[0]]);
+    await noteMemoryRecall(db, [pageId, pageId]);
     const [again] = await query(
       db,
       "SELECT recall_count recallCount,last_recalled_at lastAt FROM wiki_pages WHERE id=?",
-      [applied.created[0]],
+      [pageId],
     );
     assert.equal(Number(again.recallCount), 1);
     assert.ok(again.lastAt);
@@ -187,29 +190,16 @@ test("发言记忆按项目成员维度存，只记说过什么", async () => {
       speaker + "@test.com",
       "发言人",
     ]);
-    const applied = await applyProjectMemoryResult(
-      db,
-      project.id,
-      {
-        entries: [
-          {
-            op: "create",
-            subject: "utterance",
-            subtype: "experience",
-            aboutUserId: speaker,
-            title: "发言人对记忆的取舍",
-            body: "## 要点\n先做记忆，再谈检索",
-            sourceIds: [],
-          },
-        ],
-      },
-      { userId: owner.id },
-    );
-    assert.equal(applied.created.length, 1);
+    const pageId = await insertPage(db, project.id, owner.id, {
+      subject: "utterance",
+      title: "发言人对记忆的取舍",
+      body: "## 要点\n先做记忆，再谈检索",
+    });
+    await query(db, "UPDATE wiki_pages SET about_user_id=? WHERE id=?", [speaker, pageId]);
     const [page] = await query(
       db,
       "SELECT subject_type subjectType,about_user_id aboutUserId,subject_type FROM wiki_pages WHERE id=?",
-      [applied.created[0]],
+      [pageId],
     );
     assert.equal(page.subjectType, "utterance");
     assert.equal(page.aboutUserId, speaker);

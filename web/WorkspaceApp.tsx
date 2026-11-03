@@ -906,7 +906,6 @@ export function WorkspaceApp() {
           return;
         }
         setMemoryCounts({
-          drafts: Number(counts.drafts) || 0,
           disputes: Number(counts.disputes) || 0,
           updatedSinceEntry: Number(counts.updatedSinceEntry) || 0,
         });

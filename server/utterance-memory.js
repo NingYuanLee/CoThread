@@ -53,8 +53,9 @@ export async function upsertUtteranceMemory(
   if (!memberId) throw new Error("发言记忆需要成员");
   const [existing] = await query(
     db,
-    `SELECT id FROM wiki_pages
+    `SELECT id FROM wiki_pages p
      WHERE project_id=? AND subject_type='utterance' AND about_user_id=? AND status<>'superseded'
+       AND NOT EXISTS (SELECT 1 FROM conversation_memory_revisions r WHERE r.page_id=p.id)
      ORDER BY updated_at DESC LIMIT 1`,
     [projectId, memberId],
   );

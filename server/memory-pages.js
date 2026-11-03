@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { query } from "./db.js";
+import { query, transaction } from "./db.js";
 import { DEFAULT_MEMORY_SUBTYPES } from "../shared/memory-taxonomy.js";
 
 /**
@@ -16,26 +16,51 @@ export async function upsertMemoryPage(
     body,
     createdBy,
     sources = [],
+    sourceFamily = null,
   } = {},
 ) {
+  if (typeof db.getConnection === "function")
+    return transaction(db, (conn) =>
+      upsertMemoryPage(conn, projectId, {
+        subject,
+        subtype,
+        title,
+        body,
+        createdBy,
+        sources,
+        sourceFamily,
+      }),
+    );
   const clean = String(title || "")
     .trim()
     .slice(0, 160);
   if (!projectId || !subject || !clean) return null;
+  // Serialize identity lookup and insertion, including simultaneous first writes.
+  const [project] = await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);
+  if (!project) return null;
   const [existing] = await query(
     db,
-    `SELECT id FROM wiki_pages
-     WHERE project_id=? AND subject_type=? AND status<>'superseded' AND title=?
+    `SELECT p.id FROM wiki_pages p
+     WHERE p.project_id=? AND p.subject_type=? AND p.status='current' AND
+       (? IS NOT NULL AND EXISTS(SELECT 1 FROM wiki_page_sources s WHERE s.page_id=p.id AND s.source_kind='task' AND s.source_id=?)
+        OR ? IS NULL AND p.title=?)
      ORDER BY updated_at DESC LIMIT 1`,
-    [projectId, subject, clean],
+    [
+      projectId,
+      subject,
+      sources.find((s) => s.kind === "task")?.id || null,
+      sources.find((s) => s.kind === "task")?.id || null,
+      sources.find((s) => s.kind === "task")?.id || null,
+      clean,
+    ],
   );
   const pageId = existing?.id || randomUUID();
   const text = String(body || "").slice(0, 60000);
   if (existing) {
     await query(
       db,
-      "UPDATE wiki_pages SET body=?,memory_subtype=COALESCE(?,memory_subtype),updated_by=? WHERE id=?",
-      [text, subtype, createdBy || null, pageId],
+      "UPDATE wiki_pages SET title=?,body=?,memory_subtype=COALESCE(?,memory_subtype),updated_by=? WHERE id=?",
+      [clean, text, subtype, createdBy || null, pageId],
     );
   } else {
     await query(
@@ -60,34 +85,25 @@ export async function upsertMemoryPage(
       [randomUUID(), pageId, sourceKind, source.id, String(source.label || "").slice(0, 240)],
     );
   }
+  const { sourceFamilyForSources } = await import("./memory-policy.js");
+  await query(db, "UPDATE wiki_pages SET source_family=? WHERE id=?", [
+    sourceFamily || sourceFamilyForSources(sources),
+    pageId,
+  ]);
+  const { captureMemoryRevision } = await import("./memory-history.js");
+  await captureMemoryRevision(
+    db,
+    { id: pageId, title: clean, body: text, status: "current" },
+    { captureKind: "activity_snapshot" },
+  );
   return pageId;
 }
 
-/** 项目整体记忆页：每项目一条现行页，作为讨论/任务记忆「继承」的落点。 */
+/** 项目现状是特殊里程碑节点；不得将普通里程碑误认为现状。 */
 export async function ensureProjectMemoryPage(db, { projectId, createdBy } = {}) {
   if (!projectId) return null;
-  const [existing] = await query(
-    db,
-    `SELECT id FROM wiki_pages WHERE project_id=? AND subject_type='project' AND status='current'
-     ORDER BY updated_at DESC LIMIT 1`,
-    [projectId],
-  );
-  if (existing) return existing.id;
-  const [project] = await query(db, "SELECT name FROM projects WHERE id=?", [projectId]);
-  const body = [
-    "## 是什么",
-    "项目整体记忆：记录项目目标、边界和当前状态。",
-    "",
-    "## 当前状态",
-    "- 待老翁在下次结算时更新。",
-    "",
-    "## 何时该看",
-    "- 接手项目、判断现在做到哪一步时。",
-  ].join("\n");
-  return upsertMemoryPage(db, projectId, {
-    subject: "project",
-    title: "项目整体：" + (project?.name || "项目"),
-    body,
-    createdBy,
-  });
+  const [project] = await query(db, "SELECT created_by FROM projects WHERE id=?", [projectId]);
+  if (!project) return null;
+  const { ensureProjectStatusNode } = await import("./project-status-node.js");
+  return ensureProjectStatusNode(db, projectId, createdBy || project.created_by);
 }

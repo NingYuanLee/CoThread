@@ -4,6 +4,9 @@
  * 数据契约见 docs/engineering/12-project-memory.md §3.1。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DialogFilters } from "./DialogFilters";
+import { DialogFooter } from "./DialogFooter";
+import { PaginationControl } from "./PaginationControl";
 import { DialogHeader } from "./DialogHeader";
 import { Field } from "./Field";
 import { MarkdownDocumentPreview } from "./MarkdownDocumentPreview";
@@ -13,14 +16,17 @@ import { TextField } from "./TextField";
 import { animateDialogClose, Dialog } from "./dialog-fx";
 import { showTip } from "./Tip";
 import { UiIcon } from "./ui-icon";
-import { relativeActivity } from "./workspace-format";
+import { localDate, relativeActivity } from "./workspace-format";
 import { LaowengHistoryDialog } from "./agent-monitor-history";
 import { LAOWENG_RUN_COLUMNS, laowengRunRows, runStatusLabel } from "./agent-monitor-model";
 import { MemoryJobSessionDialog } from "./MemoryJobSessionDialog";
+import { IconButton } from "./IconButton";
 import type { LaowengRun } from "./agent-monitor-types";
 import { SlideSwitch } from "./SlideSwitch";
+import { MemoryHistoryPanel } from "./MemoryHistoryPanel";
+import { ProjectFactsPanel } from "./ProjectFactsPanel";
 
-export type MemoryCounts = { drafts: number; disputes: number; updatedSinceEntry: number };
+export type MemoryCounts = { disputes: number; updatedSinceEntry: number };
 
 type MemorySource = { sourceKind?: string; sourceId?: string; label?: string };
 type MemoryRelation = {
@@ -36,6 +42,7 @@ type MemoryEntry = {
   title?: string;
   body?: string;
   status?: string;
+  sourceFamily?: string | null;
   updatedAt?: string | null;
   createdBy?: string;
   /** 老翁标了未裁决的争议（服务端由纠错日志推导）。 */
@@ -46,6 +53,14 @@ type MemoryEntry = {
   aboutUserId?: string | null;
   relations?: MemoryRelation[];
   sources?: MemorySource[];
+  sourceNeedsReview?: boolean;
+  fileArtifactId?: string | null;
+  fileGroup?: {
+    id: string;
+    evidence: string;
+    origin: string;
+    members: { artifactId: string; description?: string }[];
+  } | null;
 };
 type MemoryJobRun = {
   status?: string;
@@ -67,7 +82,75 @@ type MemoryJob = {
   backlogNote?: string;
   lastRun?: MemoryJobRun | null;
   recentRuns?: LaowengRun[];
+  fileCoverage?: {
+    total: number;
+    recognized: number;
+    partial: number;
+    unrecognized: number;
+    failed: number;
+    pending: number;
+  } | null;
+  fileIssues?: {
+    artifactId: string;
+    title: string;
+    filename: string;
+    version: number;
+    pageId?: string | null;
+    recognitionStatus: string;
+    recognitionNote?: string | null;
+    availableAt?: string | null;
+    pending?: boolean | number;
+    processingState?: "queued" | "processing" | null;
+    operation?: "create" | "update" | null;
+    triggerOrigin?: "discovery" | "manual" | "legacy" | null;
+    summaryVersionId?: string | null;
+    previousSummary?: string | null;
+    previousSummaryVersion?: number | null;
+    versionId?: string;
+  }[];
+  projectCandidates?: {
+    id: string;
+    sourceKind: string;
+    hint: string;
+    retryCount: number;
+    lastError?: string | null;
+    lastAttemptAt?: string | null;
+    availableAt?: string | null;
+  }[];
   archivedThread?: { id: string; title?: string } | null;
+  conversationWindows?: {
+    id: string;
+    threadTitle: string;
+    firstSequence: string;
+    lastSequence: string;
+    previousCompletedSequence?: string | null;
+    statementStatus: string;
+    discussionStatus: string;
+    responseSaved: boolean;
+    results: {
+      id: string;
+      kind: string;
+      status: string;
+      title: string;
+      action: string;
+      pageId?: string | null;
+      error?: string | null;
+    }[];
+    attempts: number;
+    invalidatedAt?: string | null;
+    statementCount: number;
+    discussionCount: number;
+    lastAttemptAt?: string | null;
+    error?: string | null;
+  }[];
+  observations?: {
+    id: string;
+    question: string;
+    status: string;
+    reviewAfter: string;
+    reviewAttempts: number;
+    reviewNote?: string | null;
+  }[];
 };
 type MemoryTaskDecision = {
   taskId?: string;
@@ -113,16 +196,747 @@ type MemoryApi = (
   method?: string,
   signal?: AbortSignal,
 ) => Promise<any>;
-type MemoryPendingAction = { kind: "confirm" | "flag"; entry: MemoryEntry };
+function FileCoverageDialog({
+  job,
+  projectId,
+  api,
+  editable,
+  runningJob,
+  refreshVersion,
+  onRetry,
+  onOpen,
+  onClose,
+}: {
+  job: MemoryJob;
+  projectId: string;
+  api: MemoryApi;
+  editable: boolean;
+  runningJob: string;
+  refreshVersion: number;
+  onRetry: (id: string) => Promise<void>;
+  onOpen: (id: string) => void;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [keyword, setKeyword] = useState("");
+  const [status, setStatus] = useState("");
+  const [queue, setQueue] = useState("");
+  const [filters, setFilters] = useState({ keyword: "", status: "", queue: "" });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [rows, setRows] = useState<NonNullable<MemoryJob["fileIssues"]>>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize),
+      ...filters,
+    });
+    api(
+      `/projects/${projectId}/memory/file-index/issues?${params}`,
+      undefined,
+      "GET",
+      controller.signal,
+    )
+      .then((result) => {
+        if (!controller.signal.aborted) {
+          setRows(result.rows);
+          setTotal(result.total);
+          if (result.page !== page) setPage(result.page);
+        }
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted)
+          setError(cause instanceof Error ? cause.message : "文件列表读取失败");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [api, projectId, page, pageSize, filters, revision, refreshVersion]);
+  const coverage = job.fileCoverage;
+  const labels: Record<string, string> = {
+    recognized: "已识别",
+    partial: "部分识别",
+    unrecognized: "未识别",
+    failed: "失败",
+    pending: "待识别",
+  };
+  return (
+    <Dialog
+      ref={dialog}
+      onRequestClose={onClose}
+      className="l1-history-dialog dialog-list"
+      aria-labelledby="file-coverage-title"
+    >
+      <DialogHeader
+        title="文件索引"
+        titleId="file-coverage-title"
+        subtitle={
+          coverage
+            ? `当前可访问 ${coverage.total} 个 · 已识别 ${coverage.recognized} · 部分识别 ${coverage.partial} · 未识别 ${coverage.unrecognized} · 失败 ${coverage.failed} · 待处理 ${coverage.pending}（与识别状态重叠）`
+            : undefined
+        }
+        onClose={() => animateDialogClose(dialog.current, onClose)}
+        closeLabel="关闭文件索引"
+      />
+      <DialogFilters
+        label="文件筛选"
+        keyword={{ value: keyword, onChange: setKeyword, placeholder: "搜索文件名或识别说明" }}
+        onQuery={() => {
+          setPage(1);
+          setFilters({ keyword: keyword.trim(), status, queue });
+        }}
+        onReset={() => {
+          setKeyword("");
+          setStatus("");
+          setQueue("");
+          setPage(1);
+          setFilters({ keyword: "", status: "", queue: "" });
+        }}
+      >
+        <SelectField
+          label="识别状态"
+          value={status}
+          onChange={setStatus}
+          allOption="全部识别状态"
+          options={Object.entries(labels).map(([value, label]) => ({ value, label }))}
+        />
+        <SelectField
+          label="处理状态"
+          value={queue}
+          onChange={setQueue}
+          allOption="全部处理状态"
+          options={[
+            { value: "pending", label: "已排队或处理中" },
+            { value: "idle", label: "未排队" },
+          ]}
+        />
+      </DialogFilters>
+      <div className="l1-history-content">
+        <div className="l1-history-body admin-table-wrap dialog-scroll-region">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>文件</th>
+                <th>版本</th>
+                <th>处理类型</th>
+                <th>识别状态</th>
+                <th>处理状态</th>
+                <th>识别说明</th>
+                <th>下次尝试</th>
+                {editable ? <th>操作</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {!loading &&
+                !error &&
+                rows.map((file) => (
+                  <tr key={file.artifactId}>
+                    <td>
+                      {file.pageId ? (
+                        <button
+                          type="button"
+                          className="wiki-action"
+                          onClick={() => onOpen(file.pageId!)}
+                        >
+                          {file.title || file.filename}
+                          {file.summaryVersionId && file.versionId !== file.summaryVersionId
+                            ? "（摘要来自旧版本）"
+                            : file.pending && file.operation === "update"
+                              ? "（显示上次摘要）"
+                              : ""}
+                        </button>
+                      ) : (
+                        file.title || file.filename
+                      )}
+                      {file.previousSummary ? (
+                        <details>
+                          <summary>
+                            查看上次摘要
+                            {file.previousSummaryVersion
+                              ? ` · v${file.previousSummaryVersion}`
+                              : ""}
+                          </summary>
+                          <p>{file.previousSummary}</p>
+                        </details>
+                      ) : null}
+                    </td>
+                    <td>v{file.version}</td>
+                    <td>
+                      {file.operation === "create"
+                        ? "新增"
+                        : file.operation === "update"
+                          ? "更新"
+                          : "—"}
+                    </td>
+                    <td>{labels[file.recognitionStatus] || file.recognitionStatus}</td>
+                    <td>
+                      {file.processingState === "processing"
+                        ? "处理中"
+                        : file.pending
+                          ? "排队中"
+                          : "未排队"}
+                    </td>
+                    <td>{file.recognitionNote || "—"}</td>
+                    <td>{file.availableAt ? localDate(file.availableAt) : "—"}</td>
+                    {editable ? (
+                      <td>
+                        <button
+                          type="button"
+                          className="wiki-action"
+                          disabled={!!runningJob}
+                          onClick={() =>
+                            void onRetry(file.artifactId).then(() =>
+                              setRevision((value) => value + 1),
+                            )
+                          }
+                        >
+                          重新识别
+                        </button>
+                      </td>
+                    ) : null}
+                  </tr>
+                ))}
+              {(loading || error || !rows.length) && (
+                <tr>
+                  <td className="monitor-empty" colSpan={editable ? 8 : 7}>
+                    {loading ? "正在读取文件…" : error || "没有符合条件的文件"}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <DialogFooter pagination>
+        <PaginationControl
+          total={total}
+          currentPage={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          disabled={loading || !!error}
+          ariaLabel="文件识别覆盖分页"
+        />
+      </DialogFooter>
+    </Dialog>
+  );
+}
+function FileDiscoveryHistory({
+  projectId,
+  api,
+  refreshVersion,
+  onClose,
+}: {
+  projectId: string;
+  api: MemoryApi;
+  refreshVersion: number;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [keyword, setKeyword] = useState("");
+  const [operation, setOperation] = useState("");
+  const [filters, setFilters] = useState({ keyword: "", operation: "" });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [rows, setRows] = useState<
+    { id: string; title: string; operation: string; createdAt: string }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams({
+      ...filters,
+      page: String(page),
+      pageSize: String(pageSize),
+    });
+    api(
+      `/projects/${projectId}/memory/file-index/discoveries?${params}`,
+      undefined,
+      "GET",
+      controller.signal,
+    )
+      .then((result) => {
+        if (!controller.signal.aborted) {
+          setRows(result.rows);
+          setTotal(result.total);
+          if (result.page !== page) setPage(result.page);
+        }
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted)
+          setError(cause instanceof Error ? cause.message : "读取发现记录失败");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [api, projectId, filters, page, pageSize, refreshVersion]);
+  const labels: Record<string, string> = { create: "新增", update: "更新", delete: "删除并作废" };
+  return (
+    <Dialog
+      ref={dialog}
+      onRequestClose={onClose}
+      className="l1-history-dialog dialog-list"
+      aria-labelledby="file-discovery-title"
+    >
+      <DialogHeader
+        title="文件发现记录"
+        titleId="file-discovery-title"
+        subtitle="文件变化经核对后的处理记录"
+        onClose={() => animateDialogClose(dialog.current, onClose)}
+        closeLabel="关闭发现记录"
+      />
+      <DialogFilters
+        label="发现记录筛选"
+        keyword={{ value: keyword, onChange: setKeyword, placeholder: "搜索文件名" }}
+        onQuery={() => {
+          setPage(1);
+          setFilters({ keyword: keyword.trim(), operation });
+        }}
+        onReset={() => {
+          setKeyword("");
+          setOperation("");
+          setPage(1);
+          setFilters({ keyword: "", operation: "" });
+        }}
+      >
+        <SelectField
+          label="处理类型"
+          value={operation}
+          onChange={setOperation}
+          allOption="全部类型"
+          options={Object.entries(labels).map(([value, label]) => ({ value, label }))}
+        />
+      </DialogFilters>
+      <div className="l1-history-content">
+        <div className="l1-history-body admin-table-wrap dialog-scroll-region">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>文件</th>
+                <th>处理类型</th>
+                <th>发现时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!loading &&
+                !error &&
+                rows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.title}</td>
+                    <td>{labels[row.operation] || row.operation}</td>
+                    <td>{localDate(row.createdAt)}</td>
+                  </tr>
+                ))}
+              {(loading || error || !rows.length) && (
+                <tr>
+                  <td className="monitor-empty" colSpan={3}>
+                    {loading ? "正在读取发现记录…" : error || "没有符合条件的记录"}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <DialogFooter pagination>
+        <PaginationControl
+          total={total}
+          currentPage={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPage(1);
+            setPageSize(size);
+          }}
+          disabled={loading || !!error}
+          ariaLabel="文件发现记录分页"
+        />
+      </DialogFooter>
+    </Dialog>
+  );
+}
 
-const ZERO_COUNTS: MemoryCounts = { drafts: 0, disputes: 0, updatedSinceEntry: 0 };
-const STATUS_LABEL: Record<string, string> = {
-  draft: "草稿",
-  current: "现行",
-  superseded: "被替代",
+function MemoryJobHistory({
+  job,
+  projectId,
+  api,
+  refreshVersion,
+  onClose,
+}: {
+  job: MemoryJob;
+  projectId: string;
+  api: MemoryApi;
+  refreshVersion: number;
+  onClose: () => void;
+}) {
+  const [runs, setRuns] = useState<
+    (LaowengRun & {
+      projectPhases?: {
+        phase: string;
+        statusUpdated: boolean;
+        changes: { id: string; action: string; title?: string; subject?: string }[];
+      }[];
+      conversationRange?: {
+        threadTitle: string;
+        firstSequence: string;
+        lastSequence: string;
+      } | null;
+      documentItems?: FileRunItem[];
+      conversationItems?: {
+        id: string;
+        kind: string;
+        status: string;
+        title: string;
+        action: string;
+        error?: string | null;
+      }[];
+    })[]
+  >([]);
+  const [detail, setDetail] = useState<(typeof runs)[number] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [trigger, setTrigger] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize),
+      keyword: search,
+      trigger,
+    });
+    api(
+      `/projects/${projectId}/memory/jobs/${job.key}/history?${params}`,
+      undefined,
+      "GET",
+      controller.signal,
+    )
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setRuns(data.rows);
+        setDetail((previous) =>
+          previous ? data.rows.find((row: LaowengRun) => row.id === previous.id) || previous : null,
+        );
+        setTotal(data.total);
+        if (data.page !== page) setPage(data.page);
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted)
+          setError(cause instanceof Error ? cause.message : "历史记录读取失败");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [api, projectId, job.key, page, pageSize, search, trigger, refreshVersion]);
+  return (
+    <>
+      <LaowengHistoryDialog
+        title={job.label}
+        empty="还没有运行记录。"
+        columns={LAOWENG_RUN_COLUMNS}
+        rows={laowengRunRows(runs, " 项").map((row, index) => ({
+          ...row,
+          actions: [
+            "member_memory",
+            "discussion_memory",
+            "project_memory",
+            "document_memory",
+          ].includes(job.key) ? (
+            <button type="button" className="wiki-action" onClick={() => setDetail(runs[index])}>
+              详情
+            </button>
+          ) : undefined,
+        }))}
+        loading={loading}
+        error={error}
+        total={total}
+        page={page}
+        pageSize={pageSize}
+        search={search}
+        onSearch={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
+        triggerFilter={{
+          value: trigger,
+          onChange: (value) => {
+            setTrigger(value);
+            setPage(1);
+          },
+        }}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        onClose={onClose}
+      />
+      {detail ? (
+        job.key === "project_memory" ? (
+          <ProjectRunDetail run={detail} onClose={() => setDetail(null)} />
+        ) : job.key === "document_memory" ? (
+          <FileRunDetail run={detail} onClose={() => setDetail(null)} />
+        ) : (
+          <ConversationRunDetail run={detail} onClose={() => setDetail(null)} />
+        )
+      ) : null}
+    </>
+  );
+}
+
+type FileRunItem = {
+  versionId: string;
+  title: string;
+  filename: string;
+  version: number;
+  operation: string;
+  triggerOrigin: string;
+  status: string;
+  error?: string | null;
 };
-const STATUS_KEYS = ["draft", "current", "superseded"] as const;
-const DEFAULT_STATUS_FILTER = ["draft", "current"];
+function FileRunDetail({
+  run,
+  onClose,
+}: {
+  run: LaowengRun & { documentItems?: FileRunItem[] };
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const statuses: Record<string, string> = {
+    queued: "排队中",
+    processing: "处理中",
+    recognized: "已识别",
+    partial: "部分识别",
+    failed: "失败",
+    postponed: "延后处理",
+    skipped: "未处理",
+  };
+  return (
+    <Dialog
+      ref={dialog}
+      onRequestClose={onClose}
+      className="l1-history-dialog dialog-list"
+      aria-labelledby="file-run-detail-title"
+    >
+      <DialogHeader
+        title="文件识别运行详情"
+        titleId="file-run-detail-title"
+        subtitle={`运行状态：${runStatusLabel(run.status)}`}
+        onClose={() => animateDialogClose(dialog.current, onClose)}
+        closeLabel="关闭运行详情"
+      />
+      <div className="l1-history-content">
+        <div className="l1-history-body admin-table-wrap dialog-scroll-region">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>文件</th>
+                <th>版本</th>
+                <th>处理类型</th>
+                <th>触发来源</th>
+                <th>结果</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              {run.documentItems?.length ? (
+                run.documentItems.map((item) => (
+                  <tr key={item.versionId}>
+                    <td>{item.title || item.filename}</td>
+                    <td>v{item.version}</td>
+                    <td>{item.operation === "create" ? "新增" : "更新"}</td>
+                    <td>
+                      {item.triggerOrigin === "manual"
+                        ? "人工重新识别"
+                        : item.triggerOrigin === "discovery"
+                          ? "自动发现"
+                          : "历史任务"}
+                    </td>
+                    <td>{statuses[item.status] || item.status}</td>
+                    <td>{item.error || "—"}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td className="monitor-empty" colSpan={6}>
+                    没有文件明细（可能是旧记录或本次没有待处理文件）。
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+function ProjectRunDetail({
+  run,
+  onClose,
+}: {
+  run: LaowengRun & {
+    projectPhases?: {
+      phase: string;
+      statusUpdated: boolean;
+      changes: { id: string; action: string; title?: string; subject?: string }[];
+    }[];
+  };
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  return (
+    <Dialog
+      ref={dialog}
+      onRequestClose={onClose}
+      className="l1-history-dialog dialog-list"
+      aria-labelledby="project-run-detail-title"
+    >
+      <DialogHeader
+        title="运行详情"
+        titleId="project-run-detail-title"
+        onClose={() => animateDialogClose(dialog.current, onClose)}
+        closeLabel="关闭运行详情"
+      />
+      <div className="l1-history-content dialog-scroll-region">
+        <div className="dialog-plain-body memory-job-detail">
+          <p>
+            运行状态：{runStatusLabel(run.status)}
+            {run.error ? ` · ${run.error}` : ""}
+          </p>
+          {run.projectPhases?.length ? (
+            run.projectPhases.map((phase) => (
+              <section key={phase.phase}>
+                <strong>
+                  {phase.phase === "milestones" ? "里程碑与重要任务" : "项目现状"}：已提交
+                </strong>
+                {phase.changes.map((change) => (
+                  <p key={`${change.action}-${change.id}`}>
+                    {(
+                      { create: "新增", update: "更新", dispute: "标记争议" } as Record<
+                        string,
+                        string
+                      >
+                    )[change.action] || change.action}
+                    {change.subject === "task"
+                      ? "重要任务"
+                      : change.subject === "project"
+                        ? "里程碑"
+                        : "记忆"}
+                    ：{change.title || change.id}
+                  </p>
+                ))}
+                {phase.phase === "status" ? (
+                  <p>{phase.statusUpdated ? "项目现状已更新" : "项目现状无变化"}</p>
+                ) : !phase.changes.length ? (
+                  <p>没有新增或更新条目。</p>
+                ) : null}
+              </section>
+            ))
+          ) : (
+            <p>没有已记录的提交详情（可能是旧记录、无待处理内容或提交前失败）。</p>
+          )}
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+function ConversationRunDetail({
+  run,
+  onClose,
+}: {
+  run: LaowengRun & {
+    conversationRange?: { threadTitle: string; firstSequence: string; lastSequence: string } | null;
+    conversationItems?: {
+      id: string;
+      kind: string;
+      status: string;
+      title: string;
+      action: string;
+      error?: string | null;
+    }[];
+  };
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  return (
+    <Dialog
+      ref={dialog}
+      onRequestClose={onClose}
+      className="l1-history-dialog dialog-list"
+      aria-labelledby="conversation-run-detail-title"
+    >
+      <DialogHeader
+        title="运行详情"
+        titleId="conversation-run-detail-title"
+        onClose={() => animateDialogClose(dialog.current, onClose)}
+        closeLabel="关闭运行详情"
+      />
+      <div className="l1-history-content dialog-scroll-region">
+        <div className="dialog-plain-body memory-job-detail">
+          {run.conversationRange ? (
+            <p>
+              {run.conversationRange.threadTitle} · 消息 {run.conversationRange.firstSequence}–
+              {run.conversationRange.lastSequence}
+            </p>
+          ) : (
+            <p>没有关联的消息范围（可能是旧记录或本次未处理消息）。</p>
+          )}
+          {run.conversationItems?.map((item) => (
+            <p key={item.id}>
+              {item.kind === "observation"
+                ? "待观察问题"
+                : `${item.action === "update" ? "更新" : "新增"}${item.kind === "statement" ? "关键发言" : "议题"}`}
+              ：{item.title} ·{" "}
+              {item.status === "unknown"
+                ? "结果未记录"
+                : item.status === "pending"
+                  ? "未完成"
+                  : runStatusLabel(item.status)}
+              {item.error ? ` · ${item.error}` : ""}
+            </p>
+          ))}
+          {run.conversationRange && !run.conversationItems?.length ? (
+            <p>没有记录逐项结果。</p>
+          ) : null}
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+type MemoryPendingAction = { kind: "supersede" | "flag"; entry: MemoryEntry };
+
+const ZERO_COUNTS: MemoryCounts = { disputes: 0, updatedSinceEntry: 0 };
+const STATUS_LABEL: Record<string, string> = {
+  current: "现行",
+  superseded: "作废",
+};
+const STATUS_KEYS = ["current", "superseded"] as const;
+const DEFAULT_STATUS_FILTER = ["current"];
 const SUBJECT_LABEL: Record<string, string> = {
   utterance: "发言",
   document: "文档",
@@ -214,10 +1028,10 @@ const SUBTYPE_KEYS: Record<string, string[]> = {
 const SUBJECT_FILTER_ITEMS = [
   { value: "all", label: "全部" },
   { value: "project", label: "里程碑" },
-  { value: "discussion", label: "核心议题" },
   { value: "task", label: "重要任务" },
+  { value: "discussion", label: "核心议题" },
   { value: "utterance", label: "关键发言" },
-  { value: "document", label: "主要文档" },
+  { value: "document", label: "文件索引" },
   { value: "", label: "其它记忆" },
 ] as const;
 const RELATION_LABEL: Record<string, string> = {
@@ -230,6 +1044,10 @@ const SOURCE_LABEL: Record<string, string> = {
   document_version: "文档版本",
   task: "任务",
   archive: "归档",
+  thread: "迭代",
+  milestone: "项目变更",
+  iteration_context: "迭代目标背景变更",
+  memory_page: "关联项目记忆",
   manual: "手动",
 };
 
@@ -242,7 +1060,6 @@ function normalizeCounts(value: unknown): MemoryCounts | null {
     return typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
   };
   return {
-    drafts: read("drafts"),
     disputes: read("disputes"),
     updatedSinceEntry: read("updatedSinceEntry"),
   };
@@ -300,10 +1117,48 @@ export function ProjectMemory({
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [statusHistory, setStatusHistory] = useState<
+    { id: string; createdAt: string; body: string | null; sourceNeedsReview: boolean }[] | null
+  >(null);
+  const [statusHistoryLoading, setStatusHistoryLoading] = useState(false);
   const [jobs, setJobs] = useState<MemoryJob[]>([]);
+  const displayJobs = useMemo(() => {
+    const discussion = jobs.find((job) => job.key === "discussion_memory");
+    const statement = jobs.find((job) => job.key === "member_memory");
+    const project = jobs.find((job) => job.key === "project_memory");
+    const task = jobs.find((job) => job.key === "task_memory");
+    const merge = (first: MemoryJob, second: MemoryJob, label: string) => ({
+      ...first,
+      label,
+      trigger: `${first.trigger} ${second.trigger}`,
+      prompt: `${first.label}：${first.prompt} ${second.label}：${second.prompt}`,
+      completion: `${first.label}：${first.completion} ${second.label}：${second.completion}`,
+      failure: `${first.label}：${first.failure} ${second.label}：${second.failure}`,
+      tools: [...new Set([...first.tools, ...second.tools])],
+    });
+    return jobs
+      .filter(
+        (job) =>
+          !(discussion && statement && job.key === "member_memory") &&
+          !(project && task && job.key === "task_memory"),
+      )
+      .map((job) =>
+        job.key === "discussion_memory" && discussion && statement
+          ? merge(discussion, statement, "核心议题与关键发言")
+          : job.key === "project_memory" && project && task
+            ? merge(project, task, "里程碑与重要任务")
+            : job,
+      );
+  }, [jobs]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError] = useState("");
-  const [backfilling, setBackfilling] = useState(false);
+  const [repairGroups, setRepairGroups] = useState<MemoryEntry[] | null>(null);
+  const [repairGroupsLoading, setRepairGroupsLoading] = useState(false);
+  const repairProjectRef = useRef(projectId);
+  repairProjectRef.current = projectId;
+  const [coverageOpen, setCoverageOpen] = useState(false);
+  const [discoveryHistoryOpen, setDiscoveryHistoryOpen] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const [historyJob, setHistoryJob] = useState<MemoryJob | null>(null);
   const [sessionJob, setSessionJob] = useState<MemoryJob | null>(null);
   const [runningJob, setRunningJob] = useState("");
@@ -363,6 +1218,10 @@ export function ProjectMemory({
     setServerCanWrite(null);
     setQuery("");
     setSelectedId("");
+    setRepairGroups(null);
+    setRepairGroupsLoading(false);
+    setStatusHistory(null);
+    setStatusHistoryLoading(false);
     setStatusFilter(DEFAULT_STATUS_FILTER);
     setSubjectFilter("all");
     setSubtypeFilter([]);
@@ -396,7 +1255,7 @@ export function ProjectMemory({
     const keyword = query.trim().toLowerCase();
     return entries.filter((entry) => {
       /* 状态复选框与搜索词同时生效（AND）。 */
-      if (!statusFilter.includes(entry.status || "draft")) return false;
+      if (!statusFilter.includes(entry.status || "current")) return false;
       if (subjectFilter !== "all" && (entry.subject || "") !== subjectFilter) return false;
       if (subtypeFilter.length && !subtypeFilter.includes(entry.subtype || "")) return false;
       if (!keyword) return true;
@@ -446,30 +1305,45 @@ export function ProjectMemory({
     .filter(Boolean)
     .join(" · ");
   const signals = [
-    counts.drafts ? { key: "draft", label: `待确认 ${counts.drafts}` } : null,
-    counts.disputes ? { key: "dispute", label: `待裁决 ${counts.disputes}` } : null,
+    counts.disputes ? { key: "dispute", label: `独立反馈 ${counts.disputes}` } : null,
     counts.updatedSinceEntry
       ? { key: "updated", label: `进入后更新 ${counts.updatedSinceEntry}` }
       : null,
   ].filter((item): item is { key: string; label: string } => Boolean(item));
 
-  const refreshGuide = async () => {
+  const refreshDialog = async () => {
     if (refreshing) return;
     setRefreshing(true);
     try {
-      await api(`/projects/${projectId}/memory/refresh`, undefined, "POST");
-      showTip("已交给老翁整理，整理完成后重新打开可见最新记忆");
-      await load(undefined, true);
+      await Promise.all([load(undefined, true), loadJobs()]);
+      showTip("项目记忆已刷新");
     } catch (cause) {
       showTip(cause instanceof Error ? cause.message : "刷新失败，请稍后重试", "error");
     } finally {
       setRefreshing(false);
     }
   };
+  const toggleStatusHistory = async () => {
+    if (statusHistory) {
+      setStatusHistory(null);
+      return;
+    }
+    setStatusHistoryLoading(true);
+    const requestedProject = projectId;
+    try {
+      const rows = await api(`/projects/${requestedProject}/memory/status/history`);
+      if (repairProjectRef.current === requestedProject) setStatusHistory(rows);
+    } catch (cause) {
+      showTip(cause instanceof Error ? cause.message : "历史读取失败", "error");
+    } finally {
+      if (repairProjectRef.current === requestedProject) setStatusHistoryLoading(false);
+    }
+  };
 
   const jobRunPath: Record<string, string> = useMemo(
     () => ({
       member_memory: "member-memory",
+      discussion_memory: "member-memory",
       document_memory: "document-memory",
       project_memory: "memory/refresh",
     }),
@@ -492,21 +1366,51 @@ export function ProjectMemory({
     if (phase === "ready") void loadJobs();
   }, [phase, loadJobs]);
 
-  const backfillMemory = async () => {
-    if (backfilling) return;
-    setBackfilling(true);
-    try {
-      const result = await api(`/projects/${projectId}/memory/backfill`, {}, "POST");
-      showTip(
-        `回填完成：发言 ${result?.utterancePages || 0}、文档 ${result?.documentPages || 0}、任务 ${result?.taskPages || 0}、讨论 ${result?.discussionPages || 0}`,
-      );
-      await Promise.all([load(), loadJobs()]);
-    } catch (cause) {
-      showTip(cause instanceof Error ? cause.message : "回填失败", "error");
-    } finally {
-      setBackfilling(false);
-    }
-  };
+  useEffect(() => {
+    if (phase !== "ready") return;
+    let active = true;
+    let controller: AbortController | null = null;
+    const refresh = async () => {
+      if (document.hidden || controller) return;
+      const current = new AbortController();
+      controller = current;
+      try {
+        const [memoryResult, jobsResult] = await Promise.allSettled([
+          api(`/projects/${projectId}/memory`, undefined, "GET", current.signal),
+          api(`/projects/${projectId}/memory/jobs`, undefined, "GET", current.signal),
+        ]);
+        if (!active || current.signal.aborted) return;
+        if (
+          memoryResult.status === "fulfilled" &&
+          memoryResult.value &&
+          typeof memoryResult.value === "object"
+        ) {
+          const next = memoryResult.value as MemoryData;
+          setData(next);
+          setServerCanWrite(typeof next.canWrite === "boolean" ? next.canWrite : null);
+          setFrozen(next.frozen === true);
+          publishCounts(normalizeCounts(next.counts) ?? ZERO_COUNTS);
+        }
+        if (jobsResult.status === "fulfilled") {
+          setJobs(jobsResult.value);
+          setRefreshVersion((value) => value + 1);
+        }
+      } finally {
+        if (controller === current) controller = null;
+      }
+    };
+    const timer = window.setInterval(() => void refresh(), 15000);
+    const onVisibility = () => {
+      if (!document.hidden) void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      active = false;
+      controller?.abort();
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [api, projectId, phase, publishCounts]);
 
   const retryJob = async (job: MemoryJob) => {
     if (runningJob) return;
@@ -517,6 +1421,20 @@ export function ProjectMemory({
       await loadJobs();
     } catch (cause) {
       showTip(cause instanceof Error ? cause.message : "重试失败，请稍后重试", "error");
+    } finally {
+      setRunningJob("");
+    }
+  };
+
+  const retryFile = async (artifactId: string) => {
+    if (runningJob) return;
+    setRunningJob(artifactId);
+    try {
+      await api(`/projects/${projectId}/memory/files/${artifactId}/retry`, undefined, "POST");
+      showTip("文件已重新排队");
+      await loadJobs();
+    } catch (cause) {
+      showTip(cause instanceof Error ? cause.message : "文件重试失败", "error");
     } finally {
       setRunningJob("");
     }
@@ -534,6 +1452,47 @@ export function ProjectMemory({
       await load();
     } catch (cause) {
       showTip(cause instanceof Error ? cause.message : "建立关系失败", "error");
+    }
+  };
+
+  const saveFileGroup = async (
+    groupId: string | undefined,
+    input: {
+      title: string;
+      evidence: string;
+      members: { artifactId: string; description: string }[];
+    },
+  ) => {
+    try {
+      const result = await api(
+        `/projects/${projectId}/memory/file-groups${groupId ? `/${groupId}` : ""}`,
+        input,
+        groupId ? "PATCH" : "POST",
+      );
+      await load();
+      setRepairGroups(
+        (current) => current?.filter((entry) => entry.fileGroup?.id !== groupId) || null,
+      );
+      setSelectedId(result.pageId);
+      showTip("关联文件索引已保存");
+      return true;
+    } catch (cause) {
+      showTip(cause instanceof Error ? cause.message : "保存失败", "error");
+      return false;
+    }
+  };
+
+  const dismissFileGroup = async (groupId: string) => {
+    try {
+      await api(`/projects/${projectId}/memory/file-groups/${groupId}`, undefined, "DELETE");
+      await load();
+      setRepairGroups(
+        (current) => current?.filter((entry) => entry.fileGroup?.id !== groupId) || null,
+      );
+      setSelectedId("");
+      showTip("关联展示已移除，原记忆及历史仍保留");
+    } catch (cause) {
+      showTip(cause instanceof Error ? cause.message : "移除失败", "error");
     }
   };
 
@@ -567,20 +1526,6 @@ export function ProjectMemory({
     }
   };
 
-  const runDiscussionJob = async (job: MemoryJob) => {
-    if (runningJob || !job.archivedThread) return;
-    setRunningJob(job.key);
-    try {
-      await api(`/projects/${projectId}/memory/discussion/${job.archivedThread.id}`, {}, "POST");
-      showTip("已补跑最近归档迭代的讨论记忆");
-      await Promise.all([loadJobs(), load()]);
-    } catch (cause) {
-      showTip(cause instanceof Error ? cause.message : "补跑失败，请稍后重试", "error");
-    } finally {
-      setRunningJob("");
-    }
-  };
-
   const runJob = async (job: MemoryJob) => {
     const path = jobRunPath[job.key];
     if (!path || runningJob) return;
@@ -596,13 +1541,13 @@ export function ProjectMemory({
     }
   };
 
-  const confirmEntry = async (entry: MemoryEntry) => {
+  const supersedeEntry = async (entry: MemoryEntry) => {
     if (!editable || busyId) return false;
     setBusyId(entry.id);
     try {
       const response = await api(
-        `/projects/${projectId}/memory/entries/${entry.id}/confirm`,
-        undefined,
+        `/projects/${projectId}/memory/entries/${entry.id}/supersede`,
+        { reason: flagNote.trim() },
         "POST",
       );
       const payload: { id?: string; entry?: MemoryEntry; counts?: unknown } =
@@ -614,7 +1559,7 @@ export function ProjectMemory({
               ...previous,
               entries: (previous.entries || []).map((item) =>
                 item.id === entry.id
-                  ? { ...item, ...(updated || {}), status: updated?.status || "current" }
+                  ? { ...item, ...(updated || {}), status: updated?.status || "superseded" }
                   : item,
               ),
             }
@@ -623,13 +1568,12 @@ export function ProjectMemory({
       publishCounts(
         normalizeCounts(payload.counts) ?? {
           ...counts,
-          drafts: Math.max(0, counts.drafts - 1),
         },
       );
-      showTip("已确认，这条记忆开始作为现行结论");
+      showTip("已作废，原内容与历史出处保留");
       return true;
     } catch (cause) {
-      showTip(cause instanceof Error ? cause.message : "确认失败，请稍后重试", "error");
+      showTip(cause instanceof Error ? cause.message : "作废失败，请稍后重试", "error");
       return false;
     } finally {
       setBusyId("");
@@ -648,7 +1592,7 @@ export function ProjectMemory({
       );
       const payload: { counts?: unknown } =
         response && typeof response === "object" ? response : {};
-      /* 接口只把条目标成争议并回带备注，正文不改；这里同步成「有争议」徽标。 */
+      /* 接口只把条目标成争议并回带备注，正文不改；这里同步成「有反馈」徽标。 */
       setData((previous) =>
         previous
           ? {
@@ -684,7 +1628,7 @@ export function ProjectMemory({
     if (!pending || busyId || pendingBusyRef.current) return;
     pendingBusyRef.current = true;
     try {
-      if (pending.kind === "confirm") await confirmEntry(pending.entry);
+      if (pending.kind === "supersede") await supersedeEntry(pending.entry);
       else await submitFlag(pending.entry);
     } finally {
       pendingBusyRef.current = false;
@@ -692,7 +1636,11 @@ export function ProjectMemory({
     }
   };
 
-  const selected = selectedId ? entries.find((entry) => entry.id === selectedId) || null : null;
+  const selected = selectedId
+    ? entries.find((entry) => entry.id === selectedId) ||
+      repairGroups?.find((entry) => entry.id === selectedId) ||
+      null
+    : null;
   const selectedDisputed =
     Boolean(selected?.disputed) || (selected ? flaggedIds.includes(selected.id) : false);
 
@@ -709,6 +1657,17 @@ export function ProjectMemory({
           titleId="project-memory-title"
           icon={<UiIcon name="book" size={16} />}
           subtitle={<>老翁整理 · 人确认与纠错</>}
+          actions={
+            <IconButton
+              label="刷新项目记忆"
+              icon={<UiIcon name="refresh" size={16} />}
+              className="dialog-header-control"
+              aria-label="刷新项目记忆"
+              title="刷新项目记忆"
+              disabled={refreshing || jobsLoading}
+              onClick={() => void refreshDialog()}
+            />
+          }
           onClose={() => animateDialogClose(dialog.current, onClose)}
           closeLabel="关闭项目记忆"
           fullscreen={true}
@@ -731,7 +1690,7 @@ export function ProjectMemory({
               <section className="project-memory-main" aria-labelledby="project-memory-guide">
                 <div className="project-memory-guide-head">
                   <h3 className="project-memory-section-title" id="project-memory-guide">
-                    导读
+                    项目现状
                   </h3>
                   {signals.length ? (
                     <p className="project-memory-signals">
@@ -748,15 +1707,15 @@ export function ProjectMemory({
                   ) : null}
                   <button
                     type="button"
-                    className="wiki-action project-memory-refresh"
-                    disabled={refreshing}
-                    onClick={() => void refreshGuide()}
+                    className="wiki-action"
+                    disabled={statusHistoryLoading}
+                    onClick={() => void toggleStatusHistory()}
                   >
-                    <UiIcon name="refresh" size={12} />
-                    {refreshing ? "提交中…" : "让老翁刷新"}
+                    {statusHistoryLoading ? "读取中…" : statusHistory ? "收起历史" : "查看现状历史"}
                   </button>
                 </div>
                 {guideMeta ? <p className="project-memory-guide-meta">{guideMeta}</p> : null}
+                <ProjectFactsPanel projectId={projectId} />
                 {guideText ? (
                   <div className="project-memory-guide">
                     <MarkdownDocumentPreview
@@ -768,42 +1727,106 @@ export function ProjectMemory({
                   </div>
                 ) : (
                   <p className="project-memory-state">
-                    老翁还没整理出导读。积累一轮迭代讨论或归档后，这里会先给出结论。
+                    项目现状尚未核实。老翁会根据可追溯的项目变化进行整理。
                   </p>
                 )}
                 <p className="project-memory-guide-hint">
-                  导读取自最近一轮归档的结论。右侧时间轴列出全部记忆条目，点一条看正文、出处和所属迭代。
+                  项目现状来自特殊里程碑节点；具体变化及其依据可在右侧记忆条目中查看。
                 </p>
+                {statusHistory ? (
+                  <div className="project-memory-guide">
+                    {statusHistory.length ? (
+                      statusHistory.map((item) => (
+                        <details key={item.id}>
+                          <summary>
+                            {item.createdAt}
+                            {item.sourceNeedsReview ? " · 出处后来变化" : ""}
+                          </summary>
+                          {item.body ? (
+                            <MarkdownDocumentPreview
+                              mode="preview"
+                              text={item.body}
+                              selected={null}
+                              nativeSourceFrame={null}
+                            />
+                          ) : (
+                            <p>原出处不可访问，历史正文暂不可查看。</p>
+                          )}
+                        </details>
+                      ))
+                    ) : (
+                      <p>暂无现状历史。</p>
+                    )}
+                  </div>
+                ) : null}
                 <div className="project-memory-jobs">
                   <div className="project-memory-guide-head">
                     <h3 className="project-memory-section-title">记忆作业</h3>
-                    <button
-                      type="button"
-                      className="wiki-action project-memory-refresh"
-                      disabled={jobsLoading}
-                      onClick={() => void loadJobs()}
-                    >
-                      <UiIcon name="refresh" size={12} />
-                      {jobsLoading ? "读取中…" : "刷新"}
-                    </button>
-                    <button
-                      type="button"
-                      className="wiki-action"
-                      disabled={backfilling}
-                      onClick={() => void backfillMemory()}
-                    >
-                      {backfilling ? "回填中…" : "回填历史"}
-                    </button>
                   </div>
+                  {editable ? (
+                    <div>
+                      <button
+                        type="button"
+                        className="wiki-action"
+                        disabled={repairGroupsLoading}
+                        onClick={async () => {
+                          const requestedProject = projectId;
+                          setRepairGroupsLoading(true);
+                          try {
+                            const result = await api(
+                              `/projects/${projectId}/memory/file-groups/needs-repair`,
+                            );
+                            if (repairProjectRef.current === requestedProject)
+                              setRepairGroups(Array.isArray(result.entries) ? result.entries : []);
+                          } catch (cause) {
+                            if (repairProjectRef.current === requestedProject)
+                              showTip(
+                                cause instanceof Error ? cause.message : "无法读取待修复关联",
+                                "error",
+                              );
+                          } finally {
+                            if (repairProjectRef.current === requestedProject)
+                              setRepairGroupsLoading(false);
+                          }
+                        }}
+                      >
+                        {repairGroupsLoading ? "读取中…" : "查看待修复的文件关联"}
+                      </button>
+                      {repairGroups ? (
+                        repairGroups.length ? (
+                          <ul>
+                            {repairGroups.map((entry) => (
+                              <li key={entry.id}>
+                                <button
+                                  type="button"
+                                  className="wiki-action"
+                                  onClick={() => setSelectedId(entry.id)}
+                                >
+                                  {entry.title || "关联文件"}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="project-memory-state">没有待修复的文件关联。</p>
+                        )
+                      ) : null}
+                    </div>
+                  ) : null}
                   {jobs.length ? (
                     <ul className="memory-job-list">
-                      {jobs.map((job) => (
+                      {displayJobs.map((job) => (
                         <li key={job.key} className="memory-job">
                           <details>
                             <summary>
                               <strong>{job.label}</strong>
                               <small>
-                                {job.backlog == null ? job.backlogNote : `积压 ${job.backlog}`}
+                                {job.key === "discussion_memory" &&
+                                jobs.some((item) => item.key === "member_memory")
+                                  ? `待处理：议题 ${job.backlog ?? "—"} · 发言 ${jobs.find((item) => item.key === "member_memory")?.backlog ?? "—"}（包含共同队列）`
+                                  : job.backlog == null
+                                    ? job.backlogNote
+                                    : `积压 ${job.backlog}`}
                               </small>
                               <span data-run={job.lastRun?.status || "never"}>
                                 {job.lastRun
@@ -811,18 +1834,86 @@ export function ProjectMemory({
                                   : "从未运行"}
                               </span>
                             </summary>
-                            <dl className="memory-job-detail">
-                              <dt>触发</dt>
-                              <dd>{job.trigger}</dd>
-                              <dt>完成标准</dt>
-                              <dd>{job.completion}</dd>
-                              <dt>失败补救</dt>
-                              <dd>{job.failure}</dd>
-                              <dt>可用工具</dt>
-                              <dd>{job.tools.join("、")}</dd>
-                              <dt>提示词</dt>
-                              <dd>{job.prompt}</dd>
-                            </dl>
+                            {job.fileCoverage ? (
+                              <div className="memory-job-detail">
+                                <p>
+                                  文件 {job.fileCoverage.total} · 已识别{" "}
+                                  {job.fileCoverage.recognized} · 部分识别{" "}
+                                  {job.fileCoverage.partial} · 未识别{" "}
+                                  {job.fileCoverage.unrecognized} · 失败 {job.fileCoverage.failed}
+                                </p>
+                                <p>待处理 {job.fileCoverage.pending}（与识别状态分别统计）</p>
+                                <button
+                                  type="button"
+                                  className="wiki-action"
+                                  onClick={() => setCoverageOpen(true)}
+                                >
+                                  查看全部文件与识别状态
+                                </button>
+                                <button
+                                  type="button"
+                                  className="wiki-action"
+                                  onClick={() => setDiscoveryHistoryOpen(true)}
+                                >
+                                  发现记录
+                                </button>
+                              </div>
+                            ) : null}
+                            {job.key === "document_memory" ? (
+                              <details className="memory-job-detail">
+                                <summary>作业说明</summary>
+                                <dl>
+                                  <dt>触发</dt>
+                                  <dd>{job.trigger}</dd>
+                                  <dt>完成标准</dt>
+                                  <dd>{job.completion}</dd>
+                                  <dt>失败补救</dt>
+                                  <dd>{job.failure}</dd>
+                                  <dt>可用工具</dt>
+                                  <dd>{job.tools.join("、")}</dd>
+                                  <dt>提示词</dt>
+                                  <dd>{job.prompt}</dd>
+                                </dl>
+                              </details>
+                            ) : (
+                              <dl className="memory-job-detail">
+                                <dt>触发</dt>
+                                <dd>{job.trigger}</dd>
+                                <dt>完成标准</dt>
+                                <dd>{job.completion}</dd>
+                                <dt>失败补救</dt>
+                                <dd>{job.failure}</dd>
+                                <dt>可用工具</dt>
+                                <dd>{job.tools.join("、")}</dd>
+                                <dt>提示词</dt>
+                                <dd>{job.prompt}</dd>
+                              </dl>
+                            )}
+                            {job.observations?.length ? (
+                              <div className="memory-job-detail">
+                                <strong>待观察问题</strong>
+                                {job.observations.map((item) => (
+                                  <p key={item.id}>
+                                    {item.question} ·{" "}
+                                    {item.status === "promoting" ? "正在形成议题" : "待复核"} ·
+                                    下次复核 {item.reviewAfter} · 复核次数 {item.reviewAttempts}
+                                    {item.reviewNote ? ` · ${item.reviewNote}` : ""}
+                                  </p>
+                                ))}
+                              </div>
+                            ) : null}
+                            {job.projectCandidates?.length ? (
+                              <div className="memory-job-detail">
+                                <strong>待处理的里程碑信号</strong>
+                                {job.projectCandidates.map((item) => (
+                                  <p key={item.id}>
+                                    {item.hint || item.sourceKind} · 重试 {item.retryCount} 次
+                                    {item.lastAttemptAt ? ` · 最近尝试 ${item.lastAttemptAt}` : ""}
+                                    {item.lastError ? ` · ${item.lastError}` : ""}
+                                  </p>
+                                ))}
+                              </div>
+                            ) : null}
                             <div className="memory-job-edit-actions">
                               <button
                                 type="button"
@@ -833,21 +1924,14 @@ export function ProjectMemory({
                                 {jobRunPath[job.key]
                                   ? runningJob === job.key
                                     ? "提交中…"
-                                    : "立即运行"
+                                    : job.key === "discussion_memory"
+                                      ? "立即扫描并运行"
+                                      : "立即运行"
                                   : "随结算触发"}
                               </button>
-                              {job.key === "discussion_memory" ? (
-                                <button
-                                  type="button"
-                                  className="wiki-action"
-                                  disabled={runningJob !== "" || !job.archivedThread}
-                                  onClick={() => void runDiscussionJob(job)}
-                                >
-                                  {job.archivedThread ? "补跑最近归档迭代" : "暂无已归档迭代"}
-                                </button>
-                              ) : null}
                               {[
                                 "member_memory",
+                                "discussion_memory",
                                 "document_memory",
                                 "iteration_archive",
                                 "project_memory",
@@ -858,7 +1942,7 @@ export function ProjectMemory({
                                     className="wiki-action"
                                     onClick={() => setHistoryJob(job)}
                                   >
-                                    历史记录
+                                    运行历史
                                   </button>
                                   <button
                                     type="button"
@@ -947,7 +2031,7 @@ export function ProjectMemory({
                 {filtered.length ? (
                   <ul className="project-memory-list">
                     {filtered.map((entry) => {
-                      const status = entry.status || "draft";
+                      const status = entry.status || "current";
                       const disputed = Boolean(entry.disputed) || flaggedIds.includes(entry.id);
                       return (
                         <li key={entry.id} className="project-memory-node">
@@ -956,7 +2040,7 @@ export function ProjectMemory({
                               className="project-memory-status-dot"
                               data-status={status}
                               data-disputed={disputed ? "true" : undefined}
-                              title={`${STATUS_LABEL[status] || status}${disputed ? " · 有争议" : ""}`}
+                              title={`${STATUS_LABEL[status] || status}${disputed ? " · 有反馈" : ""}`}
                             />
                           </span>
                           <button
@@ -990,7 +2074,7 @@ export function ProjectMemory({
                   <p className="project-memory-state">
                     {entries.length
                       ? "当前筛选下没有条目，换个状态或关键词试试。"
-                      : "还没有沉淀出记忆条目。日常结算会先生成草稿，确认后成为现行结论。"}
+                      : "还没有沉淀出记忆条目。记忆按来源自动维护，现行不代表内容真实。"}
                   </p>
                 )}
                 {!editable ? (
@@ -1005,15 +2089,33 @@ export function ProjectMemory({
       </Dialog>
       {selected ? (
         <MemoryDetail
+          key={selected.id}
+          projectId={projectId}
           entry={selected}
           iteration={iterationByEntry.get(selected.id) || null}
           editable={editable}
           entries={entries}
           canWrite={editable}
+          onSaveFileGroup={saveFileGroup}
+          onDismissFileGroup={dismissFileGroup}
+          onNavigateMemory={setSelectedId}
           onCreateRelation={createRelation}
           onDeleteRelation={deleteRelation}
           onChangeSubject={changeSubject}
           onChangeSubtype={changeSubtype}
+          onRecheck={async () => {
+            if (busyId) return;
+            setBusyId(selected.id);
+            try {
+              await api(`/projects/${projectId}/memory/entries/${selected.id}/recheck`, {}, "POST");
+              showTip("已排队重新核对来源，原话与历史依据继续保留");
+              await loadJobs();
+            } catch (cause) {
+              showTip(cause instanceof Error ? cause.message : "无法重新核对", "error");
+            } finally {
+              setBusyId("");
+            }
+          }}
           busy={busyId === selected.id}
           disputed={selectedDisputed}
           flagOpen={flagEntryId === selected.id}
@@ -1028,16 +2130,37 @@ export function ProjectMemory({
             setFlagNote("");
           }}
           onSubmitFlag={() => setPendingAction({ kind: "flag", entry: selected })}
-          onConfirm={() => setPendingAction({ kind: "confirm", entry: selected })}
+          onConfirm={() => setPendingAction({ kind: "supersede", entry: selected })}
           onClose={() => setSelectedId("")}
         />
       ) : null}
+      {coverageOpen && jobs.find((job) => job.key === "document_memory") ? (
+        <FileCoverageDialog
+          job={jobs.find((job) => job.key === "document_memory")!}
+          projectId={projectId}
+          api={api}
+          editable={editable}
+          runningJob={runningJob}
+          refreshVersion={refreshVersion}
+          onRetry={retryFile}
+          onOpen={setSelectedId}
+          onClose={() => setCoverageOpen(false)}
+        />
+      ) : null}
+      {discoveryHistoryOpen ? (
+        <FileDiscoveryHistory
+          refreshVersion={refreshVersion}
+          projectId={projectId}
+          api={api}
+          onClose={() => setDiscoveryHistoryOpen(false)}
+        />
+      ) : null}
       {historyJob ? (
-        <LaowengHistoryDialog
-          title={historyJob.label}
-          empty="还没有运行记录。"
-          columns={LAOWENG_RUN_COLUMNS}
-          rows={laowengRunRows(historyJob.recentRuns, " 项")}
+        <MemoryJobHistory
+          refreshVersion={refreshVersion}
+          job={historyJob}
+          projectId={projectId}
+          api={api}
           onClose={() => setHistoryJob(null)}
         />
       ) : null}
@@ -1045,7 +2168,7 @@ export function ProjectMemory({
         <MemoryJobSessionDialog
           title={sessionJob.label}
           projectId={projectId}
-          task={sessionJob.key}
+          task={sessionJob.key === "discussion_memory" ? "member_memory" : sessionJob.key}
           api={api}
           onClose={() => setSessionJob(null)}
         />
@@ -1054,7 +2177,8 @@ export function ProjectMemory({
         <MemoryActionConfirm
           kind={pendingAction.kind}
           name={pendingAction.entry.title || ""}
-          note={pendingAction.kind === "flag" ? flagNote.trim() : ""}
+          note={flagNote.trim()}
+          onNoteChange={setFlagNote}
           busy={busyId === pendingAction.entry.id}
           onCancel={() => setPendingAction(null)}
           onConfirm={() => void runPendingAction()}
@@ -1158,15 +2282,20 @@ function MemorySubtypeFilter({
 
 /** 二级弹窗：单条记忆的正文、出处、所属迭代与确认/纠错。 */
 function MemoryDetail({
+  projectId,
   entry,
   iteration,
   editable,
   entries,
   canWrite,
+  onSaveFileGroup,
+  onDismissFileGroup,
+  onNavigateMemory,
   onCreateRelation,
   onDeleteRelation,
   onChangeSubject,
   onChangeSubtype,
+  onRecheck,
   busy,
   disputed,
   flagOpen,
@@ -1178,11 +2307,22 @@ function MemoryDetail({
   onConfirm,
   onClose,
 }: {
+  projectId: string;
   entry: MemoryEntry;
   iteration: MemoryTimelineCard | null;
   editable: boolean;
   entries: MemoryEntry[];
   canWrite: boolean;
+  onSaveFileGroup: (
+    groupId: string | undefined,
+    input: {
+      title: string;
+      evidence: string;
+      members: { artifactId: string; description: string }[];
+    },
+  ) => Promise<boolean>;
+  onDismissFileGroup: (groupId: string) => Promise<void>;
+  onNavigateMemory: (pageId: string) => void;
   onCreateRelation: (input: {
     fromPageId: string;
     toPageId: string;
@@ -1192,6 +2332,7 @@ function MemoryDetail({
   onDeleteRelation: (relationId: string) => Promise<void>;
   onChangeSubject: (entryId: string, subject: string | null) => Promise<void>;
   onChangeSubtype: (entryId: string, subtype: string | null) => Promise<void>;
+  onRecheck: () => Promise<void>;
   busy: boolean;
   disputed: boolean;
   flagOpen: boolean;
@@ -1204,7 +2345,7 @@ function MemoryDetail({
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const status = entry.status || "draft";
+  const status = entry.status || "current";
   const statusLabel = STATUS_LABEL[status] || status;
   const sources = (entry.sources || []).filter((source) => source?.label);
   const relations = entry.relations || [];
@@ -1213,6 +2354,22 @@ function MemoryDetail({
   const [relationNote, setRelationNote] = useState("");
   const [relationOpen, setRelationOpen] = useState(false);
   const [relationBusy, setRelationBusy] = useState(false);
+  const [groupOpen, setGroupOpen] = useState(false);
+  const [groupTitle, setGroupTitle] = useState(entry.fileGroup ? entry.title || "" : "");
+  const [groupEvidence, setGroupEvidence] = useState(entry.fileGroup?.evidence || "");
+  const [groupMembers, setGroupMembers] = useState<string[]>(
+    entry.fileGroup?.members.map((member) => member.artifactId) ||
+      (entry.fileArtifactId ? [entry.fileArtifactId] : []),
+  );
+  const [groupDescriptions, setGroupDescriptions] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      (entry.fileGroup?.members || []).map((member) => [
+        member.artifactId,
+        member.description || "",
+      ]),
+    ),
+  );
+  const [groupBusy, setGroupBusy] = useState(false);
   const decisions = iteration?.taskDecisions || [];
 
   return (
@@ -1269,12 +2426,21 @@ function MemoryDetail({
             <span className="wiki-status" data-status={status}>
               {statusLabel}
             </span>
+            <span>
+              {entry.sourceFamily === "conversation"
+                ? "群消息来源"
+                : entry.sourceFamily === "project_activity"
+                  ? "项目—迭代—任务来源"
+                  : entry.sourceFamily === "project_file"
+                    ? "项目文件来源"
+                    : "来源尚未确定"}
+            </span>
             {disputed ? (
               <span
                 className="project-memory-dispute-badge"
-                title="老翁标了争议，等人裁决后再改结论"
+                title="此条记忆附有判断或反馈，原文与生命周期独立"
               >
-                有争议
+                有反馈
               </span>
             ) : null}
             <span>{entry.updatedAt ? `${agoOf(entry.updatedAt)}更新` : "时间未知"}</span>
@@ -1450,13 +2616,132 @@ function MemoryDetail({
             )
           ) : null}
         </section>
+        {editable && (entry.fileGroup || entry.fileArtifactId) ? (
+          <section className="project-memory-relations">
+            {groupOpen ? (
+              <div className="project-memory-relation-form">
+                <TextField
+                  aria-label="关联索引标题"
+                  flush
+                  value={groupTitle}
+                  placeholder="关联索引标题"
+                  onChange={(event) => setGroupTitle(event.target.value)}
+                />
+                <TextAreaField
+                  label="关联依据"
+                  rows={2}
+                  value={groupEvidence}
+                  onChange={(event) => setGroupEvidence(event.target.value)}
+                />
+                <p>选择相关文件（2 至 50 项）</p>
+                {entries
+                  .filter((item) => item.fileArtifactId && item.status === "current")
+                  .map((item) => (
+                    <div key={item.id}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={groupMembers.includes(item.fileArtifactId!)}
+                          onChange={(event) => {
+                            const checked = event.target.checked;
+                            setGroupMembers((current) =>
+                              checked
+                                ? [...current, item.fileArtifactId!]
+                                : current.filter((id) => id !== item.fileArtifactId),
+                            );
+                          }}
+                        />
+                        {item.title || item.id}
+                      </label>
+                      {groupMembers.includes(item.fileArtifactId!) ? (
+                        <TextField
+                          aria-label={`文件作用：${item.title || item.id}`}
+                          flush
+                          maxLength={500}
+                          placeholder="这份文件在组合中的作用（可选）"
+                          value={groupDescriptions[item.fileArtifactId!] || ""}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            setGroupDescriptions((current) => ({
+                              ...current,
+                              [item.fileArtifactId!]: value,
+                            }));
+                          }}
+                        />
+                      ) : null}
+                    </div>
+                  ))}
+                <button
+                  type="button"
+                  className="wiki-action primary"
+                  disabled={
+                    groupBusy ||
+                    !groupTitle.trim() ||
+                    !groupEvidence.trim() ||
+                    groupMembers.length < 2 ||
+                    groupMembers.length > 50
+                  }
+                  onClick={async () => {
+                    setGroupBusy(true);
+                    const saved = await onSaveFileGroup(entry.fileGroup?.id, {
+                      title: groupTitle.trim(),
+                      evidence: groupEvidence.trim(),
+                      members: groupMembers.map((artifactId) => ({
+                        artifactId,
+                        description: (groupDescriptions[artifactId] || "").trim(),
+                      })),
+                    });
+                    setGroupBusy(false);
+                    if (saved) setGroupOpen(false);
+                  }}
+                >
+                  保存关联索引
+                </button>
+                <button type="button" className="wiki-action" onClick={() => setGroupOpen(false)}>
+                  取消
+                </button>
+              </div>
+            ) : (
+              <>
+                <button type="button" className="wiki-action" onClick={() => setGroupOpen(true)}>
+                  {entry.fileGroup ? "修正关联文件" : "创建关联文件索引"}
+                </button>
+                {entry.fileGroup ? (
+                  <button
+                    type="button"
+                    className="wiki-action"
+                    onClick={() => void onDismissFileGroup(entry.fileGroup!.id)}
+                  >
+                    移除关联展示
+                  </button>
+                ) : null}
+              </>
+            )}
+          </section>
+        ) : null}
         <div className="project-memory-detail-text">
+          {entry.sourceNeedsReview ? (
+            <div role="alert">
+              <p>原出处后来发生变化。这里保留当时记录的内容，发言本身不代表说法真实。</p>
+              {editable ? (
+                <button
+                  type="button"
+                  className="wiki-action"
+                  disabled={busy}
+                  onClick={() => void onRecheck()}
+                >
+                  重新核对来源
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {entry.body ? (
             <MarkdownDocumentPreview
               mode="preview"
               text={entry.body}
               selected={null}
               nativeSourceFrame={null}
+              onMemoryNavigate={onNavigateMemory}
             />
           ) : (
             <p className="project-memory-detail-muted">这条记忆还没有正文。</p>
@@ -1493,8 +2778,9 @@ function MemoryDetail({
             </div>
           </form>
         ) : null}
+        <MemoryHistoryPanel projectId={projectId} pageId={entry.id} />
       </div>
-      {editable && (status === "draft" || (!disputed && status !== "superseded")) ? (
+      {editable && status !== "superseded" ? (
         <div className="project-memory-detail-actions">
           {!disputed && status !== "superseded" && !flagOpen ? (
             <button type="button" className="wiki-action" disabled={busy} onClick={onOpenFlag}>
@@ -1502,7 +2788,7 @@ function MemoryDetail({
               纠错
             </button>
           ) : null}
-          {status === "draft" ? (
+          {entry.sourceFamily === "conversation" && status === "current" ? (
             <button
               type="button"
               className="wiki-action primary"
@@ -1510,7 +2796,7 @@ function MemoryDetail({
               onClick={onConfirm}
             >
               <UiIcon name="check" size={12} />
-              确认这条记忆
+              作废这条记忆
             </button>
           ) : null}
         </div>
@@ -1519,24 +2805,26 @@ function MemoryDetail({
   );
 }
 
-/** 二次确认小弹窗：确认记忆 / 提交纠错前先确认，执行期间禁用按钮。 */
+/** 人工停用和提交反馈前核对原因，执行期间禁用按钮。 */
 function MemoryActionConfirm({
   kind,
   name,
   note,
+  onNoteChange,
   busy,
   onCancel,
   onConfirm,
 }: {
-  kind: "confirm" | "flag";
+  kind: "supersede" | "flag";
   name: string;
   note: string;
+  onNoteChange: (value: string) => void;
   busy: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const confirming = kind === "confirm";
+  const confirming = kind === "supersede";
 
   return (
     <Dialog
@@ -1549,7 +2837,7 @@ function MemoryActionConfirm({
       style={{ width: "min(420px, 92vw)" }}
     >
       <DialogHeader
-        title={confirming ? "确认这条记忆？" : "提交纠错？"}
+        title={confirming ? "作废这条记忆？" : "提交纠错？"}
         titleId="project-memory-confirm-title"
         onClose={() => animateDialogClose(dialog.current, onCancel)}
         closeLabel="关闭确认"
@@ -1560,16 +2848,29 @@ function MemoryActionConfirm({
         {name ? <p className="project-memory-confirm-name">{name}</p> : null}
         <p className="project-memory-confirm-text">
           {confirming
-            ? "确认后这条记忆会转为现行，问老翁时会被用来回答。"
-            : "纠错会把它标成待裁决，老翁下次结算会参考这条备注。"}
+            ? "作废后退出当前使用，原文、疑点和历史决定出处保留。"
+            : "纠错会把它标成独立反馈，老翁下次结算会参考这条备注。"}
         </p>
+        {confirming ? (
+          <TextAreaField
+            aria-label="作废原因"
+            placeholder="请说明作废原因"
+            value={note}
+            onChange={(event) => onNoteChange(event.target.value)}
+          />
+        ) : null}
         {!confirming && note ? <p className="project-memory-confirm-note">{note}</p> : null}
       </div>
       <div className="project-memory-confirm-actions">
         <button type="button" className="wiki-action" disabled={busy} onClick={onCancel}>
           取消
         </button>
-        <button type="button" className="wiki-action primary" disabled={busy} onClick={onConfirm}>
+        <button
+          type="button"
+          className="wiki-action primary"
+          disabled={busy || (confirming && !note.trim())}
+          onClick={onConfirm}
+        >
           {busy ? "处理中…" : "确定"}
         </button>
       </div>

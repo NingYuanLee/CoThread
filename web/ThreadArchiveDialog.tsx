@@ -129,7 +129,6 @@ export function ThreadArchiveDialog({
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useTipError();
-  const [memoryConfirms, setMemoryConfirms] = useState<string[]>([]);
   const [pollVersion, setPollVersion] = useState(0);
   const initialized = useRef("");
   const changed = useRef(onChanged);
@@ -221,7 +220,6 @@ export function ThreadArchiveDialog({
                 }),
               ),
               notes: draft.notes,
-              confirmedEntryIds: memoryConfirms,
               createNextIteration: withNext,
               nextIteration: {
                 ...draft.nextIteration,
@@ -246,13 +244,11 @@ export function ThreadArchiveDialog({
         if (action === "confirm" && result?.settlement) {
           const settlement = result.settlement;
           showTip(
-            "记忆清算：转正 " +
-              Number(settlement.promoted || 0) +
-              " · 保留草稿 " +
-              Number(settlement.keptDraft || 0) +
+            "记忆统计：现行 " +
+              Number(settlement.current || 0) +
               " · 替代 " +
               Number(settlement.superseded || 0) +
-              " · 待裁决 " +
+              " · 独立反馈 " +
               Number(settlement.disputed || 0),
           );
         }
@@ -798,70 +794,7 @@ export function ThreadArchiveDialog({
                     })()}
                   </section>
                 )}
-                {step === 4 && workflow && (
-                  <section className="archive-memory-verify">
-                    <p className="muted">
-                      本轮整理出的记忆草稿共 {(workflow.memoryDrafts || []).length}{" "}
-                      条。勾选的会在归档时转为现行；
-                      不勾的保留为草稿，之后可以在项目记忆里随时确认。
-                    </p>
-                    {(workflow.memoryDrafts || []).length ? (
-                      <>
-                        <div className="archive-memory-verify-actions">
-                          <button
-                            type="button"
-                            disabled={!editable}
-                            onClick={() =>
-                              setMemoryConfirms(
-                                (workflow.memoryDrafts || []).map((item) => item.id),
-                              )
-                            }
-                          >
-                            全选
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!editable || !memoryConfirms.length}
-                            onClick={() => setMemoryConfirms([])}
-                          >
-                            清空
-                          </button>
-                        </div>
-                        <ul className="archive-memory-verify-list">
-                          {(workflow.memoryDrafts || []).map((item) => (
-                            <li key={item.id}>
-                              <label>
-                                <input
-                                  type="checkbox"
-                                  disabled={!editable}
-                                  checked={memoryConfirms.includes(item.id)}
-                                  onChange={(event) =>
-                                    setMemoryConfirms((current) =>
-                                      event.target.checked
-                                        ? [...new Set([...current, item.id])]
-                                        : current.filter((id) => id !== item.id),
-                                    )
-                                  }
-                                />
-                                <span className="archive-memory-kind">
-                                  {item.subtype
-                                    ? MEMORY_SUBTYPE_LABELS[item.subtype] || item.subtype
-                                    : "未细分"}
-                                </span>
-                                <span>{item.title}</span>
-                              </label>
-                              {item.preview ? (
-                                <small className="muted">{item.preview}</small>
-                              ) : null}
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    ) : (
-                      <p className="muted">这一轮没有需要校准的记忆草稿。</p>
-                    )}
-                  </section>
-                )}
+                {step === 4 && <p className="muted">记忆按来源持续维护，无需在归档时确认转正。</p>}
                 {step === 4 && !needsNext && (
                   <section>
                     <p className="muted">

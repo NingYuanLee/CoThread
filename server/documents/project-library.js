@@ -234,6 +234,17 @@ export const DOCUMENT_LIBRARY_FOLDER_SQL = `
     f.folder_kind IN ('project_official','project_cache','project_outputs','project_miniprogram',
       'miniprogram_source','miniprogram_web','miniprogram_admin','miniprogram_server')
     OR f.folder_kind IN ('iteration_cache','iteration_outputs')
+    OR (f.folder_kind IS NULL AND EXISTS (
+      WITH RECURSIVE ancestors AS (
+        SELECT id,parent_id,folder_kind FROM document_folders WHERE id=f.parent_id
+        UNION ALL
+        SELECT p.id,p.parent_id,p.folder_kind FROM document_folders p
+        JOIN ancestors child ON p.id=child.parent_id WHERE child.folder_kind IS NULL
+      )
+      SELECT 1 FROM ancestors
+      WHERE (folder_kind IN ('project_official','project_cache','project_outputs','project_miniprogram') AND parent_id IS NULL)
+        OR folder_kind IN ('iteration_cache','iteration_outputs')
+    ))
   )`;
 
 export async function latestVersionsByFolderRoots(db, projectId, folderIds) {

@@ -73,6 +73,49 @@ test("native session view projects DSH jsonl when the derived overlay is absent"
   assert.equal(nativeHistoryFromCheckpoint(checkpoint, { sessionId: randomUUID() }).length, 0);
 });
 
+test("maintenance history attaches original message times and whole-turn usage to matching derived messages", () => {
+  const id = randomUUID();
+  const content = (text) => [{ type: "text", text }];
+  const messages = [
+    { role: "user", content: content("整理任务") },
+    { role: "assistant", content: content("已完成") },
+  ];
+  const events = [
+    { type: "turn/start", time: 1700000000000, data: { turn: 1 } },
+    { type: "user/message", time: 1700000000100, data: messages[0] },
+    { type: "step/start", time: 1700000000200, data: { turn: 1, step: 1 } },
+    {
+      type: "assistant/message",
+      time: 1700000001000,
+      data: {
+        turn: 1,
+        step: 1,
+        message: messages[1],
+        usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 3 },
+      },
+    },
+    { type: "turn/end", time: 1700000002000, data: { turn: 1 } },
+  ];
+  const checkpoint = gzipSync(
+    JSON.stringify({
+      "_cothread_context.json": Buffer.from(JSON.stringify(messages)).toString("base64"),
+      [`--tmp--/${id}/session.jsonl`]: Buffer.from(
+        events.map((event) => JSON.stringify(event)).join("\n"),
+      ).toString("base64"),
+    }),
+  );
+  const result = nativeHistoryFromCheckpoint(checkpoint, { sessionId: id, includeMetadata: true });
+  assert.equal(result[0].createdAt, new Date(1700000000100).toISOString());
+  assert.equal(result[1].createdAt, new Date(1700000001000).toISOString());
+  assert.equal(result[1].usage.totalTokens, 18);
+  assert.equal(result[1].usage.executionDurationMs, 2000);
+  assert.equal(
+    nativeHistoryFromCheckpoint(checkpoint, { sessionId: randomUUID(), includeMetadata: true })[1]
+      .usage,
+    undefined,
+  );
+});
+
 test("child session projection ignores the parent overlay in a shared checkpoint", () => {
   const xiaoxiangId = randomUUID();
   const childId = randomUUID();

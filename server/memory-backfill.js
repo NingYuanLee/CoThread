@@ -3,7 +3,9 @@ import { ensureProjectMemoryPage } from "./memory-pages.js";
 import { upsertUtteranceMemory } from "./utterance-memory.js";
 import { syncTaskMemory } from "./task-memory.js";
 import { syncDocumentMemory } from "./document-memory.js";
-import { syncThreadDiscussionMemory } from "./discussion-memory.js";
+import { queueConversationThread } from "./conversation-memory-store.js";
+import { folderRootKind } from "./documents/index.js";
+import { ensureFileIndexRoots } from "./file-index-roots.js";
 
 /**
  * 存量回填：把历史摘要表与未分类条目折算成五类记忆的基础条目。
@@ -48,10 +50,12 @@ export async function backfillProjectMemory(db, { projectId, createdBy = null } 
     documentPages: 0,
     taskPages: 0,
     discussionPages: 0,
+    discussionQueuedThreads: 0,
     notes: [],
   };
   result.inferredSubjects = await inferSubjects(db, projectId);
   result.projectPage = await ensureProjectMemoryPage(db, { projectId, createdBy });
+  await ensureFileIndexRoots(db, projectId, createdBy);
 
   const memberRows = await query(
     db,
@@ -80,15 +84,27 @@ export async function backfillProjectMemory(db, { projectId, createdBy = null } 
 
   const artifacts = await query(
     db,
-    `SELECT DISTINCT a.id artifactId FROM agent_document_summaries s
-     JOIN versions v ON v.id=s.version_id JOIN artifacts a ON a.id=v.artifact_id
-     WHERE a.project_id=? AND a.deleted_at IS NULL`,
+    `SELECT a.id artifactId,a.folder_id folderId,a.created_by createdBy FROM artifacts a
+     WHERE a.project_id=? AND a.deleted_at IS NULL AND a.purged_at IS NULL AND a.folder_id IS NOT NULL`,
     [projectId],
   );
   for (const artifact of artifacts) {
+    const root = await folderRootKind(db, artifact.folderId);
+    if (
+      ![
+        "project_official",
+        "project_cache",
+        "project_outputs",
+        "project_miniprogram",
+        "iteration_cache",
+        "iteration_outputs",
+      ].includes(root)
+    )
+      continue;
     const [latest] = await query(
       db,
-      "SELECT id FROM versions WHERE artifact_id=? ORDER BY version DESC LIMIT 1",
+      `SELECT v.id FROM versions v LEFT JOIN version_recycle r ON r.version_id=v.id
+       WHERE v.artifact_id=? AND r.version_id IS NULL ORDER BY v.version DESC,v.created_at DESC,v.id DESC LIMIT 1`,
       [artifact.artifactId],
     );
     if (!latest) continue;
@@ -96,8 +112,10 @@ export async function backfillProjectMemory(db, { projectId, createdBy = null } 
       projectId,
       artifactId: artifact.artifactId,
       versionId: latest.id,
-      createdBy,
+      createdBy: createdBy || artifact.createdBy,
     });
+    const { queueDocumentMemory } = await import("./project-memory.js");
+    await queueDocumentMemory(db, latest.id);
     result.documentPages += 1;
   }
 
@@ -110,14 +128,53 @@ export async function backfillProjectMemory(db, { projectId, createdBy = null } 
     [projectId],
   );
   for (const thread of threads) {
-    const page = await syncThreadDiscussionMemory(db, {
-      projectId,
-      threadId: thread.id,
-      createdBy,
-    });
-    if (page?.pageId) result.discussionPages += 1;
+    const queued = await queueConversationThread(db, projectId, thread.id, { backfill: true });
+    if (queued.queued) result.discussionQueuedThreads += 1;
   }
   const { refreshAllCaches } = await import("./memory-cache.js");
   await refreshAllCaches(db, projectId);
   return result;
+}
+
+/**
+ * 找出尚未完成一次存量回填的项目。回填状态单独持久化，避免维护任务每轮
+ * 都重新扫描所有项目，同时允许失败项目在下一轮自动重试。
+ */
+export async function claimProjectMemoryBackfill(db) {
+  const [project] = await query(
+    db,
+    `SELECT p.id
+       FROM projects p
+       LEFT JOIN project_memory_backfills b ON b.project_id=p.id
+      WHERE p.archived_at IS NULL
+        AND (b.project_id IS NULL OR b.status IN ('queued','failed')
+             OR (b.status='running' AND b.updated_at < DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 10 MINUTE)))
+      ORDER BY COALESCE(b.updated_at,p.created_at),p.id
+      LIMIT 1`,
+  );
+  if (!project) return null;
+  await query(
+    db,
+    `INSERT INTO project_memory_backfills(project_id,status,attempts,updated_at)
+     VALUES(?,'running',1,UTC_TIMESTAMP(3))
+     ON DUPLICATE KEY UPDATE status='running',attempts=attempts+1,updated_at=UTC_TIMESTAMP(3)`,
+    [project.id],
+  );
+  return project.id;
+}
+
+export async function completeProjectMemoryBackfill(db, projectId, error = null) {
+  await query(
+    db,
+    `INSERT INTO project_memory_backfills(project_id,status,attempts,last_error,completed_at,updated_at)
+     VALUES(?,?,1,?,?,UTC_TIMESTAMP(3))
+     ON DUPLICATE KEY UPDATE status=VALUES(status),last_error=VALUES(last_error),
+       completed_at=VALUES(completed_at),updated_at=UTC_TIMESTAMP(3)`,
+    [
+      projectId,
+      error ? "failed" : "completed",
+      error ? String(error).slice(0, 500) : null,
+      error ? null : new Date(),
+    ],
+  );
 }

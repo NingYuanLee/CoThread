@@ -141,7 +141,10 @@ test("检索能力已声明为只读 MCP 工具", () => {
 test("MCP 检索按项目权限控制", async () => {
   const { database, db, owner, project } = await setup();
   try {
-    await insertPage(db, project.id, owner.id, { subject: "project", title: "整体三" });
+    const pageId = await insertPage(db, project.id, owner.id, {
+      subject: "project",
+      title: "整体三",
+    });
     const outsider = { id: randomUUID(), kind: "session" };
     await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
       outsider.id,
@@ -150,9 +153,32 @@ test("MCP 检索按项目权限控制", async () => {
     ]);
     const service = new Service(db);
     const result = await callMcpTool(service, owner, "search_memory", { projectId: project.id });
-    assert.equal(result.total, 1);
+    assert.ok(result.entries.some((entry) => entry.title === "整体三"));
     await assert.rejects(
       callMcpTool(service, outsider, "search_memory", { projectId: project.id }),
+    );
+    const [change] = await query(
+      db,
+      "SELECT id FROM project_change_logs WHERE project_id=? AND action='created' LIMIT 1",
+      [project.id],
+    );
+    await query(
+      db,
+      "INSERT INTO wiki_page_sources(id,page_id,source_kind,source_id,label) VALUES(?,?,'milestone',?,'项目创建')",
+      [randomUUID(), pageId, change.id],
+    );
+    const source = await callMcpTool(service, owner, "read_memory_source", {
+      projectId: project.id,
+      kind: "milestone",
+      sourceId: change.id,
+    });
+    assert.equal(source.action, "created");
+    await assert.rejects(
+      callMcpTool(service, outsider, "read_memory_source", {
+        projectId: project.id,
+        kind: "milestone",
+        sourceId: change.id,
+      }),
     );
   } finally {
     await database.close();

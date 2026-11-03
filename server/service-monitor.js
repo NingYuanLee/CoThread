@@ -42,16 +42,18 @@ export async function agentMonitorOperation(service, user, projectId) {
   ] = await Promise.all([
     query(
       service.db,
-      `SELECT COUNT(*) pending,
-          COALESCE(SUM(available_at<=UTC_TIMESTAMP(3)),0) ready,
-          MIN(available_at) next_at FROM agent_member_memory_queue WHERE project_id=?`,
-      [projectId],
+      `SELECT COUNT(*) pending,COALESCE(SUM(next_at<=UTC_TIMESTAMP(3)),0) ready,MIN(next_at) next_at
+       FROM (SELECT LEAST(DATE_ADD(first_at,INTERVAL 1 HOUR),DATE_ADD(last_at,INTERVAL 10 MINUTE)) next_at
+         FROM conversation_memory_queue WHERE project_id=?
+         UNION ALL SELECT available_at next_at FROM conversation_memory_windows WHERE project_id=?
+         AND invalidated_at IS NULL AND (statement_status<>'completed' OR discussion_status<>'completed')) pending_conversation`,
+      [projectId, projectId],
     ),
     query(
       service.db,
       `SELECT COUNT(*) pending,
-          COALESCE(SUM(q.available_at<=UTC_TIMESTAMP(3)),0) ready,
-          MIN(q.available_at) next_at FROM agent_document_memory_queue q
+          COALESCE(SUM(q.processing_state='queued' AND q.available_at<=UTC_TIMESTAMP(3)),0) ready,
+          MIN(IF(q.processing_state='queued',q.available_at,NULL)) next_at FROM agent_document_memory_queue q
           JOIN versions v ON v.id=q.version_id JOIN artifacts a ON a.id=v.artifact_id
           LEFT JOIN document_folders f ON f.id=a.folder_id
           WHERE a.project_id=? ${DOCUMENT_LIBRARY_FOLDER_SQL}`,

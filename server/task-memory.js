@@ -53,8 +53,8 @@ function uniqueErrors(runs, limit = 3) {
 }
 
 /** 读取任务与执行记录，算出耗时、重试、返工和坑，供任务记忆使用。 */
-export async function loadTaskMemoryStats(db, projectId, { threadId = null, limit = 200 } = {}) {
-  const cap = Math.min(Math.max(Number(limit) || 200, 1), 500);
+export async function loadTaskMemoryStats(db, projectId, { threadId = null, limit = null } = {}) {
+  const cap = limit == null ? null : Math.min(Math.max(Number(limit) || 200, 1), 500);
   const params = [projectId];
   let where = "t.project_id=?";
   if (threadId) {
@@ -66,9 +66,10 @@ export async function loadTaskMemoryStats(db, projectId, { threadId = null, limi
     `SELECT t.id,t.title,t.goal,t.constraints,t.status,t.task_type taskType,t.source_type sourceType,
        t.execution_agent_type executionAgentType,t.retry_count retryCount,t.revision,
        t.result_summary resultSummary,t.progress,t.finished_at finishedAt,t.created_at createdAt,
-       t.origin_thread_id threadId
-     FROM agent_tasks t WHERE ${where} ORDER BY t.created_at DESC LIMIT ?`,
-    [...params, cap],
+       t.origin_thread_id threadId,t.created_by_type createdByType,t.created_by_id createdById,
+       (SELECT COUNT(*) FROM agent_task_status_events e WHERE e.task_id=t.id AND e.from_status='completed' AND e.to_status NOT IN ('completed','cancelled','superseded')) reopenCount
+     FROM agent_tasks t WHERE ${where} ORDER BY t.created_at DESC,t.id ${cap == null ? "" : "LIMIT ?"}`,
+    cap == null ? params : [...params, cap],
   );
   const ids = tasks.map((task) => task.id);
   const runs = ids.length
@@ -105,7 +106,7 @@ export async function loadTaskMemoryStats(db, projectId, { threadId = null, limi
       executorLabel: executorLabel(task.executionAgentType),
       human: isHumanTask(task),
       durationMs: durationOf(task) || runDuration,
-      reworked: Number(task.revision) > 1 || taskRuns.length > 1 || failedRuns > 0,
+      reworked: Number(task.reopenCount) > 0,
       errors: uniqueErrors(taskRuns),
       done: DONE.has(task.status),
     };
@@ -248,6 +249,7 @@ export async function syncTaskMemory(db, { projectId, createdBy } = {}) {
   const stats = await loadTaskMemoryStats(db, projectId);
   const distributionId = await upsertMemoryPage(db, projectId, {
     subject: "task",
+    sourceFamily: "project_activity",
     title: "任务分布",
     body: taskDistributionMarkdown(stats),
     createdBy,

@@ -101,6 +101,11 @@ test("聚合耗时、重试与返工", async () => {
       title: "顺利的任务",
       taskType: "assist",
     });
+    await query(
+      db,
+      "INSERT INTO agent_task_status_events(task_id,from_status,to_status,actor_type,actor_id,reason) VALUES(?,'completed','running','human_member',?,'实际重开')",
+      [hard, owner.id],
+    );
 
     const stats = await loadTaskMemoryStats(db, project.id);
     assert.equal(stats.length, 2);

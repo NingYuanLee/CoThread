@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { taskViewModel } from "./task-view-model";
+import { TaskDecisionEvidence } from "./TaskDecisionEvidence";
 import { showTip } from "./Tip";
 import { taskCopyInfo } from "./task-copy";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
@@ -502,6 +503,7 @@ export function TaskDetailPanel({
                     <section>
                       <h4>任务目标</h4>
                       <p>{task.goal}</p>
+                      <TaskDecisionEvidence key={task.id} taskId={task.id} />
                       {task.constraints && (
                         <>
                           <h4>约束</h4>

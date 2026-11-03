@@ -35,7 +35,7 @@ export async function projectChangeOperation(
     changeId,
     `${action}：${JSON.stringify(details).slice(0, 220)}`,
     { urgent: true },
-  ).catch(() => {});
+  );
   return changeId;
 }
 
@@ -193,6 +193,8 @@ export async function createProjectOperation(service, user, input) {
       [projectId, data.name, data.description, image, user.id, user.id],
     );
     await ensureProjectLibraryRoots(db, projectId);
+    const { ensureFileIndexRoots } = await import("./file-index-roots.js");
+    await ensureFileIndexRoots(db, projectId, user.id);
     await query(
       db,
       "INSERT INTO members(project_id,user_id,role,tab_visible,tab_opened_at,role_changed_at) VALUES(?,?,?,TRUE,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",

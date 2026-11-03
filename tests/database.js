@@ -2,7 +2,7 @@ import mysql from "mysql2/promise";
 import { readFile, readdir } from "node:fs/promises";
 import { createDatabase } from "../server/db.js";
 import { resolveConfiguredTestDatabaseUrl } from "../server/database-policy.js";
-import { migrate } from "../scripts/migrate.js";
+import { migrate, migrationChecksum } from "../scripts/migrate.js";
 
 function quoteIdentifier(value) {
   return `\`${String(value).replaceAll("`", "``")}\``;
@@ -49,9 +49,12 @@ async function resetData(connection, name) {
   await connection.query("SET FOREIGN_KEY_CHECKS=0");
   try {
     await connection.beginTransaction();
-    for (const table of tables) {
-      await connection.query(`DELETE FROM ${quoteIdentifier(table.TABLE_NAME)}`);
-    }
+    // Identifiers come only from this guarded test schema's metadata. Batch
+    // deletes to avoid one network round trip per table on a remote test RDS.
+    if (tables.length)
+      await connection.query(
+        tables.map((table) => `DELETE FROM ${quoteIdentifier(table.TABLE_NAME)}`).join(";"),
+      );
     await connection.commit();
     await connection.query("ALTER TABLE `users` AUTO_INCREMENT=100001");
   } catch (error) {
@@ -66,6 +69,14 @@ const PROTECTED_TEST_DATABASES = new Set(["cothread", "cothread_dev"]);
 const MIGRATION_NAMES = new Set(
   (await readdir(new URL("../migrations/", import.meta.url))).filter((name) =>
     name.endsWith(".sql"),
+  ),
+);
+const MIGRATION_CHECKSUMS = new Map(
+  await Promise.all(
+    [...MIGRATION_NAMES].map(async (name) => [
+      name,
+      migrationChecksum(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8")),
+    ]),
   ),
 );
 
@@ -103,6 +114,7 @@ export async function testDatabase() {
         }
       : undefined;
   const control = await mysql.createConnection({
+    multipleStatements: true,
     host: source.hostname,
     port: Number(source.port || 3306),
     user: decodeURIComponent(source.username),
@@ -117,16 +129,18 @@ export async function testDatabase() {
     const [[lock]] = await control.query("SELECT GET_LOCK(?,120) acquired", [lockName]);
     if (Number(lock.acquired) !== 1) throw new Error("等待测试库锁超时");
     locked = true;
-    let appliedMigrations = new Set();
+    let appliedMigrations = new Map();
     try {
-      const [rows] = await control.query("SELECT name FROM schema_migrations");
-      appliedMigrations = new Set(rows.map((row) => row.name));
+      const [rows] = await control.query("SELECT name,checksum FROM schema_migrations");
+      appliedMigrations = new Map(rows.map((row) => [row.name, row.checksum]));
     } catch {
-      appliedMigrations = new Set();
+      appliedMigrations = new Map();
     }
     const schemaIsCurrent =
       appliedMigrations.size === MIGRATION_NAMES.size &&
-      [...MIGRATION_NAMES].every((name) => appliedMigrations.has(name));
+      [...MIGRATION_NAMES].every(
+        (name) => appliedMigrations.get(name) === MIGRATION_CHECKSUMS.get(name),
+      );
     if (schemaIsCurrent) await resetData(control, sourceDatabase);
     else await resetSchema(control, sourceDatabase);
     db = await createDatabase(configured);

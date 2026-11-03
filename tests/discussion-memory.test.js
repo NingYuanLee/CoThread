@@ -168,7 +168,7 @@ test("同话题合并更新，出处去重", async () => {
   }
 });
 
-test("结算写讨论记忆时自动连参与者的发言记忆", async () => {
+test("旧结算原语兼容可核验出处并关联参与者", async () => {
   const { database, db, owner, project } = await setup();
   try {
     const member = await insertMember(db, "成员乙");
@@ -215,8 +215,8 @@ test("结算写讨论记忆时自动连参与者的发言记忆", async () => {
       {
         userId: owner.id,
         candidates: [
-          { queueId: queueFirst, sourceKind: "message", sourceId: first },
-          { queueId: queueSecond, sourceKind: "message", sourceId: second },
+          { queueId: queueFirst, sourceKind: "message", sourceId: first, verified: true },
+          { queueId: queueSecond, sourceKind: "message", sourceId: second, verified: true },
         ],
       },
     );
@@ -249,7 +249,7 @@ test("宽窗口：整迭代讨论沉淀为一条讨论记忆，连参与者并�
       aboutUserId: member,
       title: "成员丙的发言",
     });
-    const overall = await insertPage(db, project.id, owner.id, {
+    await insertPage(db, project.id, owner.id, {
       subject: "project",
       title: "项目整体",
     });
@@ -284,7 +284,12 @@ test("宽窗口：整迭代讨论沉淀为一条讨论记忆，连参与者并�
     );
     assert.equal(edges.filter((edge) => edge.relation === "relates").length, 2);
     const derives = edges.find((edge) => edge.relation === "derives");
-    assert.equal(derives.toPageId, overall);
+    const [statusNode] = await query(
+      db,
+      "SELECT page_id pageId FROM project_status_nodes WHERE project_id=?",
+      [project.id],
+    );
+    assert.equal(derives.toPageId, statusNode.pageId);
 
     const again = await syncThreadDiscussionMemory(db, {
       projectId: project.id,

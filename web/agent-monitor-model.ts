@@ -83,7 +83,7 @@ export function laowengRunRows(runs: LaowengRun[] | undefined, unit: string): Hi
       tone: runTone(run.status),
       cells: {
         time: time(run.finished_at || run.started_at || run.created_at),
-        trigger: run.trigger_source === "user" ? "手动" : "定时",
+        trigger: run.trigger_source === "user" ? "手动运行" : "自动运行",
         updates: pending
           ? "—"
           : run.had_updates

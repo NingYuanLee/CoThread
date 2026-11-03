@@ -5,6 +5,7 @@ import { publishWork } from "./work-events.js";
 import { contextUsage } from "../shared/context.js";
 import { LAOWENG_MAINTENANCE_TASKS, normalizeLaowengTask } from "../shared/agent-label.js";
 import { nativeHistoryFromCheckpoint, nativeHistoryFromLiveHome } from "./child-agent-session.js";
+import { mergeLaowengSessionTurns } from "./laoweng-session-turns.js";
 
 export async function readLaowengTaskSession(service, user, projectId, task) {
   const scopedTask = normalizeLaowengTask(task);
@@ -12,13 +13,25 @@ export async function readLaowengTaskSession(service, user, projectId, task) {
   await service.project(user, projectId);
   const [row] = await query(
     service.db,
-    `SELECT status,last_error,checkpoint,context_stats,compact_status,compact_error,compact_result
+    `SELECT status,last_error,checkpoint,context_stats,compact_status,compact_error,compact_result,session_id
      FROM agent_project_sessions WHERE project_id=? AND task=? AND scope_id=?`,
     [projectId, scopedTask, projectId],
   );
-  let messages = nativeHistoryFromCheckpoint(row?.checkpoint);
+  let messages = nativeHistoryFromCheckpoint(row?.checkpoint, {
+    sessionId: row?.session_id,
+    includeMetadata: true,
+  });
   if (!messages.length)
     messages = await nativeHistoryFromLiveHome(`laoweng-${scopedTask}-${projectId}`);
+  if (row?.session_id) {
+    const turns = await query(
+      service.db,
+      `SELECT id,input_text,output_text,usage_stats,started_at,finished_at
+      FROM agent_laoweng_session_turns WHERE project_id=? AND task=? AND session_id=? ORDER BY started_at,id`,
+      [projectId, scopedTask, row.session_id],
+    );
+    messages = mergeLaowengSessionTurns(messages, turns);
+  }
   const events = await query(
     service.db,
     `SELECT e.id,e.phase tool,e.status,e.created_at,e.finished_at,a.id visual_artifact_id

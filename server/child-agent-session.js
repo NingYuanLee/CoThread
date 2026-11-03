@@ -5,6 +5,7 @@ import { query, transaction } from "./db.js";
 import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";
 import { contextUsage } from "../shared/context.js";
+import { createUsageMeter } from "./agent-usage.js";
 
 function flattenContent(content) {
   const parts = [];
@@ -31,12 +32,34 @@ function projectDerivedMessages(messages) {
       role: message.role || "user",
       source: message.source?.plugin || message.source?.kind || null,
       text: flattenContent(message.content).slice(0, 16000),
+      ...(message.createdAt ? { createdAt: message.createdAt } : {}),
+      ...(message.usage ? { usage: message.usage } : {}),
     }))
     .filter((message) => message.text);
 }
 
 function messagesFromJsonlBytes(bytes) {
   const collected = [];
+  let meter = createUsageMeter();
+  let startedAt = null;
+  let lastAssistant = null;
+  const finish = (end) => {
+    if (lastAssistant) {
+      const usage = meter.result();
+      const duration =
+        Number.isFinite(startedAt) && Number.isFinite(end) && end >= startedAt
+          ? end - startedAt
+          : null;
+      if (usage || duration != null)
+        lastAssistant.usage = {
+          ...usage,
+          ...(duration != null ? { executionDurationMs: duration } : {}),
+        };
+    }
+    meter = createUsageMeter();
+    startedAt = null;
+    lastAssistant = null;
+  };
   for (const line of Buffer.from(bytes).toString("utf8").split("\n")) {
     if (!line.trim()) continue;
     let event;
@@ -45,20 +68,33 @@ function messagesFromJsonlBytes(bytes) {
     } catch {
       continue;
     }
+    if (event.type === "turn/start") {
+      finish(null);
+      startedAt = Number.isFinite(event.time) ? event.time : null;
+    }
+    meter.notify(event);
     if (event.type === "user/message") {
+      if (lastAssistant) finish(null);
+      if (startedAt == null && Number.isFinite(event.time)) startedAt = event.time;
       collected.push({
         role: event.data?.role || "user",
         source: event.data?.source,
         content: event.data?.content,
+        createdAt: Number.isFinite(event.time) ? new Date(event.time).toISOString() : null,
       });
     } else if (event.type === "assistant/message") {
-      collected.push({
+      const message = {
         role: "assistant",
         source: event.data?.message?.source || event.data?.source,
         content: event.data?.message?.content || event.data?.content,
-      });
+        createdAt: Number.isFinite(event.time) ? new Date(event.time).toISOString() : null,
+      };
+      collected.push(message);
+      if (flattenContent(message.content)) lastAssistant = message;
     }
+    if (event.type === "turn/end") finish(event.time);
   }
+  finish(null);
   return projectDerivedMessages(collected);
 }
 
@@ -75,15 +111,22 @@ function isSessionLog(path) {
   return path === "session.jsonl" || path.endsWith("/session.jsonl");
 }
 
-export function nativeHistoryFromCheckpoint(checkpoint, { sessionId } = {}) {
+export function nativeHistoryFromCheckpoint(
+  checkpoint,
+  { sessionId, includeMetadata = false } = {},
+) {
   const files = checkpointFiles(checkpoint);
   if (!files) return [];
-  if (!sessionId && files["_cothread_context.json"]) {
+  let overlay = null;
+  if ((!sessionId || includeMetadata) && files["_cothread_context.json"]) {
     try {
       const projected = projectDerivedMessages(
         JSON.parse(Buffer.from(files["_cothread_context.json"], "base64").toString()),
       );
-      if (projected.length) return projected;
+      if (projected.length) {
+        if (!includeMetadata) return projected;
+        overlay = projected;
+      }
     } catch {
       /* fall through to native DSH logs */
     }
@@ -98,7 +141,25 @@ export function nativeHistoryFromCheckpoint(checkpoint, { sessionId } = {}) {
       /* skip a corrupt log and keep other sessions */
     }
   }
-  return projected;
+  if (!overlay) return projected;
+  // Derived context can omit compacted messages; only attach metadata for exact,
+  // ordered matches in this session's original log.
+  let cursor = projected.length - 1;
+  for (let index = overlay.length - 1; index >= 0; index--) {
+    const message = overlay[index];
+    let match = cursor;
+    while (
+      match >= 0 &&
+      (projected[match].role !== message.role || projected[match].text !== message.text)
+    )
+      match--;
+    if (match < 0) continue;
+    const original = projected[match];
+    if (original.createdAt) message.createdAt = original.createdAt;
+    if (original.usage) message.usage = original.usage;
+    cursor = match - 1;
+  }
+  return overlay;
 }
 
 export function agentRuntimeHome(homeId) {

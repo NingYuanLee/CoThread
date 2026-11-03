@@ -75,12 +75,16 @@ test("hosted projects stay linked, participants only get briefs, and questions c
     });
     const guestShelf = await readOrgShelf(service, participant, guest.id);
     assert.equal(guestShelf.projects.length, 0);
-    assert.equal(guestShelf.briefs.length, 1);
-    assert.equal(guestShelf.briefs[0].brief, "《入门指南》有更新");
+    assert.equal(guestShelf.briefs.filter((brief) => brief.pageId === page.page.id).length, 1);
+    assert.equal(
+      guestShelf.briefs.find((brief) => brief.pageId === page.page.id).brief,
+      "《入门指南》有更新",
+    );
     assert.equal(JSON.stringify(guestShelf).includes(secret), false);
     const hostShelf = await readOrgShelf(service, admin, host.id);
-    assert.equal(hostShelf.projects[0].pages[0].title, page.page.title);
-    assert.equal(hostShelf.projects[0].pages[0].body, undefined);
+    const hostedPage = hostShelf.projects[0].pages.find((item) => item.id === page.page.id);
+    assert.equal(hostedPage.title, page.page.title);
+    assert.equal(hostedPage.body, undefined);
     assert.equal(hostShelf.briefs.length, 0);
     await assert.rejects(
       readOrgShelf(service, outsider, guest.id),

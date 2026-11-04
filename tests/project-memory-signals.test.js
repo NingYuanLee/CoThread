@@ -5,6 +5,7 @@ import { testDatabase } from "./database.js";
 import { query, transaction } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { recordTaskStatusChange } from "../server/task-pool-activity.js";
+import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
 
 async function setup() {
   const database = await testDatabase();
@@ -20,6 +21,8 @@ async function setup() {
     const project = await service.createProject(owner, { name: "信号过滤项目" });
     const thread = await service.createThread(owner, project.id, { title: "第一轮" });
     await query(db, "DELETE FROM agent_project_memory_queue WHERE project_id=?", [project.id]);
+    /* 先建扫描水位，之后的任务流转再由扫描生成信号。 */
+    await scanProjectMemorySignals(db, project.id);
     const taskId = randomUUID();
     await query(
       db,
@@ -53,13 +56,16 @@ test("普通任务流转不入队，主要任务的终态/返工才入队", asyn
   const { database, db, project, taskId } = await setup();
   try {
     await forceStatus(db, taskId, "queued", "running");
+    await scanProjectMemorySignals(db, project.id);
     assert.equal((await taskSignals(db, project.id)).length, 0, "开始执行不触发");
 
     await forceStatus(db, taskId, "running", "completed");
+    await scanProjectMemorySignals(db, project.id);
     assert.equal((await taskSignals(db, project.id)).length, 0, "普通任务完成不触发");
 
     await query(db, "UPDATE agent_tasks SET task_type='formal' WHERE id=?", [taskId]);
     await forceStatus(db, taskId, "completed", "queued");
+    await scanProjectMemorySignals(db, project.id);
     const signals = await taskSignals(db, project.id);
     assert.equal(signals.length, 1, "主要任务返工应入队");
     assert.equal(signals[0].sourceId, taskId);

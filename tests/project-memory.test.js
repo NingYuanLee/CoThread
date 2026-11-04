@@ -12,6 +12,7 @@ import {
   resetProjectMemoryRetryBudget,
 } from "../server/project-memory.js";
 import { isImportantIteration, isImportantTask } from "../server/memory-signal-filter.js";
+import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
 import {
   confirmMemoryEntry,
   flagMemoryEntry,
@@ -62,6 +63,10 @@ test("daily signals queue, then settle into current entries with sources", async
   const { database, db, service, owner, project, thread } = await setup();
   try {
     await service.postMessage(owner, thread.id, { body: "我们决定先做项目记忆，不再人手维护" });
+    // 信号不再由事件写入：先建水位，再制造一次项目级变更，由扫描生成待结算信号。
+    await scanProjectMemorySignals(db, project.id);
+    await service.projectChange(db, project.id, owner.id, "profile_updated", { name: "记忆项目" });
+    await scanProjectMemorySignals(db, project.id);
     const queued = await query(
       db,
       "SELECT id,source_kind sourceKind FROM agent_project_memory_queue WHERE project_id=?",

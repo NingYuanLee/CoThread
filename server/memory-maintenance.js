@@ -15,6 +15,7 @@ import {
   claimProjectMemoryBackfill,
   completeProjectMemoryBackfill,
 } from "./memory-backfill.js";
+import { scanNextProjectMemoryProject, scanProjectMemorySignals } from "./project-memory-scan.js";
 
 export function assertMemoryMaintenanceAuth(authorizationHeader) {
   const configured = process.env.MEMORY_MAINTENANCE_TOKEN;
@@ -68,6 +69,13 @@ export async function runMemoryMaintenance(
         (await reconcileNextFileIndexArtifact(db)) ||
         (await scheduleNextFileIndexSweep(db)) ||
         (await closeStaleFileIndexScanBatches(db)) > 0;
+    }
+    // 项目进程信号不再由业务事件写入：先按项目游标扫描增量事实（新项目只建水位），
+    // 再交给结算消费。手动运行只扫指定项目，自动维护每轮挑一个到期项目。
+    if (projectId) {
+      if (processed === 0) await scanProjectMemorySignals(db, projectId);
+    } else if (!task && !worked) {
+      worked = await scanNextProjectMemoryProject(db);
     }
     if (projectId || task) {
       worked ||= await processNextProjectMemory(db, {

@@ -140,6 +140,23 @@
 
 2026-11-04 已随第三次发布上线（提交 `dbfc54f`，包 `cothread-release-20261104T063024Z.tgz`，execution `exec-4afe972af70747aca0e7`，`current` 为 `/opt/cothread/releases/20261104T063140Z`）；线上健康、执行器就绪与新符号已核对，但记忆作业的实际运行效果仍需从运行历史确认——尤其那 2 条已被推到 30 天后的项目进程排队行，要人工点一次「重试」才会被调度。
 
+## 项目进程信号改为扫描生成（2026-11-04 第五轮）
+
+用户要求项目进程不要由业务事件直接写队列，改成像其它记忆作业那样先落进度/事实、再扫描进队列；并指出成员发言实际是「发消息写消息进度 → 扫描进度建窗口」，而不是逐条入队。核对代码后确认该判断成立：`queueConversationMessage` 只写线程级 `conversation_memory_queue`（first/last sequence）与 pending 消息索引，分析单元由 `createConversationWindow` 按序列扫描生成。项目进程此前的 5 处事件钩子则是在业务事务里直接写队列。
+
+改动：
+
+- 新增迁移 `221_project_memory_scan_state.sql`：每项目一行水位 `project_memory_scan_state.scan_cursor`（`cursor` 是 MySQL 保留字，列名用 `scan_cursor`）。
+- 新增 `server/project-memory-scan.js`：按来源水位增量扫描 `project_change_logs`（动作白名单）、`iteration_context_changes`、`iteration_archive_workflows(status=completed)`、`agent_task_status_events`、`document_change_logs`（version_created / version_content_replaced / version_restored），复用 `isImportantTask` / `isImportantIteration` / `isTaskMilestoneTransition` 过滤后写队列；同一来源去重与失败次数重置沿用 `noteProjectMemorySignal`。
+- 首次扫描只建水位（不回放历史）；新建项目在创建时写入空水位，让「项目初创」在首次扫描入队。
+- `runMemoryMaintenance` 每轮挑一个到期项目扫描（30 秒节流），手动运行先扫指定项目再结算。
+- 移除 5 处事件钩子：`service-projects.js`、`service-iterations.js`、`iteration-archive.js`、`task-pool-activity.js`、`documents/versions.js`；文档恢复改为写 `document_change_logs(version_restored)`，由扫描器展开为各版本信号。
+- 面板「待处理的项目进程信号」收成计数按钮 + 只读列表弹窗（来源类型、提示、重试次数、最近/下次尝试、最近错误），不再内联铺开。
+
+验证：新增 `tests/project-memory-scan.test.js` 4/4（新建项目首批事实首次扫描入队且建项目不写队列、项目变更/任务终态/迭代目标变更三条信号且二次扫描不重复、正式文件新版本与内容替换同一版本只留一行且版本号递增、主要任务与归档各一条）；受钩子移除影响的用例补扫描调用后通过：`project-memory` 7/7、`project-memory-signals` 1/1、`project-status` 7/7、`iteration-archive` 23/23、`document-memory` 15/15、`project-memory-signal-cleanup` 6/6；`conversation-memory-store` 14/14、`memory-jobs` 11/11、`memory-retry` 8/8、`integration` 22/22；`npm run lint`、`npx tsc --noEmit`、`npm run build` 通过。全量 `npm test` 结果见发布记录。
+
+已知取舍：扫描有最长约一个维护周期的延迟（手动运行会先扫再结算）；项目首次扫描不回放历史，历史存量仍由一次性回填处理；任务水位用自增 id，其余来源用 `(created_at,id)` 游标并以数据库原始时间字符串比较（连接 `dateStrings: true`，避免时区换算导致重复入队）。
+
 ## 尚需实际环境验收
 
 自动化使用替身模型，不能证明观点判断、议题合并、文件识别和项目进程取舍质量。浏览器交互、真实模型材料抽样尚未完成。持续流量下的模型调用次数、公平调度、耗时，以及运行中项目封存等竞态仍需观察；不把它们写作已确认缺陷或已通过验收。

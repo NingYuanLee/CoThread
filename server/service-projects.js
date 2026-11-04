@@ -26,16 +26,7 @@ export async function projectChangeOperation(
     "INSERT INTO project_change_logs(id,project_id,actor_user_id,action,details) VALUES(?,?,?,?,?)",
     [changeId, projectId, actorUserId, action, JSON.stringify(details)],
   );
-  // 项目级变更统一作为项目进程候选，具体是否值得长期保留交给 project_memory 结算。
-  const { noteProjectMemorySignal } = await import("./project-memory.js");
-  await noteProjectMemorySignal(
-    db,
-    projectId,
-    "milestone",
-    changeId,
-    `${action}：${JSON.stringify(details).slice(0, 220)}`,
-    { urgent: true },
-  );
+  // 项目级变更只落事实日志；项目进程信号由 project-memory-scan 按游标扫描生成。
   return changeId;
 }
 
@@ -205,6 +196,9 @@ export async function createProjectOperation(service, user, input) {
       description: data.description,
       ...(image ? { image: "set" } : {}),
     });
+    // 新项目先建空扫描水位：扫描器下一轮会把这批首批事实（含「项目初创」）作为信号。
+    const { startProjectMemoryScanState } = await import("./project-memory-scan.js");
+    await startProjectMemoryScanState(db, projectId);
   });
   return {
     id: projectId,

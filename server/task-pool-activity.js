@@ -76,29 +76,6 @@ export async function recordTaskStatusChange(
       reason ? String(reason).slice(0, 500) : null,
     ],
   );
-  {
-    // 第 2、3 层：只留终态、阻塞、返工等主要行为，且任务本身要够主要。
-    const { isTaskMilestoneTransition, isImportantTask } =
-      await import("./memory-signal-filter.js");
-    if (isTaskMilestoneTransition(fromStatus ?? null, row.status)) {
-      const [signalTask] = await query(
-        conn,
-        "SELECT project_id,title FROM agent_tasks WHERE id=?",
-        [taskId],
-      );
-      if (signalTask?.project_id && (await isImportantTask(conn, signalTask.project_id, taskId))) {
-        const { noteProjectMemorySignal } = await import("./project-memory.js");
-        await noteProjectMemorySignal(
-          conn,
-          signalTask.project_id,
-          "task",
-          taskId,
-          (signalTask.title || "") + " → " + row.status,
-          { urgent: true },
-        );
-      }
-    }
-  }
   await notifyTaskTransition(conn, taskId, fromStatus ?? null, row.status, inboxKind);
   return row.status;
 }

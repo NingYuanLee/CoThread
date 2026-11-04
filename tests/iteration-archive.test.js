@@ -6,6 +6,7 @@ import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { createTask, acceptTask, updateTask, cancelTask } from "../server/task-pool.js";
 import { processNextProjectMemory } from "../server/project-memory.js";
+import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
 import { claimReply } from "../server/reply-dispatch.js";
 import { lockIteration } from "../server/iteration-state.js";
 import { createApp } from "../server/app.js";
@@ -166,7 +167,10 @@ test("knowledge administrator prepares a draft, then confirmed handoff preserves
     0,
   );
   const body = confirmBody(workflow, true);
+  /* 先建扫描水位，归档确认后再扫描生成 archive 信号。 */
+  await scanProjectMemorySignals(db, project.id);
   const result = await service.confirmIterationArchive(leader, thread.id, body);
+  await scanProjectMemorySignals(db, project.id);
   const again = await service.confirmIterationArchive(leader, thread.id, body);
   assert.equal(again.nextThreadId, result.nextThreadId);
   const wikiPages = await query(

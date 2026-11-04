@@ -125,17 +125,7 @@ export async function updateThreadOperation(
           JSON.stringify(next),
         ],
       );
-    if (previous.background !== next.background || previous.goal !== next.goal) {
-      const { noteProjectMemorySignal } = await import("./project-memory.js");
-      await noteProjectMemorySignal(
-        db,
-        before.project_id,
-        "iteration_context",
-        contextChangeId,
-        `迭代「${before.title || threadId}」变更目标或背景`,
-        { urgent: true },
-      );
-    }
+    // 迭代目标/背景变化只落事实记录，项目进程信号由扫描器按游标生成。
     return service.thread(user, threadId, false, db);
   });
 }

@@ -10,6 +10,7 @@ import {
   noteProjectMemorySignal,
   processNextProjectMemory,
 } from "../server/project-memory.js";
+import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
 
 async function setup() {
   const database = await testDatabase();
@@ -23,6 +24,10 @@ async function setup() {
   ]);
   const project = await service.createProject(owner, { name: "现状项目" });
   const thread = await service.createThread(owner, project.id, { title: "第一轮" });
+  /* 项目进程信号改由扫描生成：先建水位，再制造一次项目级变更作为候选。 */
+  await scanProjectMemorySignals(db, project.id);
+  await service.projectChange(db, project.id, owner.id, "profile_updated", { name: "现状项目" });
+  await scanProjectMemorySignals(db, project.id);
   return { database, db, service, owner, project, thread };
 }
 

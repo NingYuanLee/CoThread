@@ -104,21 +104,7 @@ export async function createVersion(
         details: { filename, version },
       });
     }
-    if (signalArtifact?.project_id && signalArtifact.folder_id) {
-      const { folderRootKind } = await import("./project-library.js");
-      const root = await folderRootKind(db, signalArtifact.folder_id);
-      if (root === "project_official") {
-        const { noteProjectMemorySignal } = await import("../project-memory.js");
-        await noteProjectMemorySignal(
-          db,
-          signalArtifact.project_id,
-          "document_version",
-          id,
-          String(note || filename || "").slice(0, 120),
-          { urgent: false },
-        );
-      }
-    }
+    // 正式文件新版本已记录在 document_change_logs；项目进程信号由扫描器按游标生成。
   }
   return id;
 }
@@ -183,15 +169,7 @@ export async function replaceVersionContent(
     source: "system",
     actorId: createdBy,
   });
-  const { noteProjectMemorySignal } = await import("../project-memory.js");
-  await noteProjectMemorySignal(
-    db,
-    previous.projectId,
-    "document_version",
-    id,
-    String(note || "文件内容已更新").slice(0, 120),
-    { urgent: true },
-  );
+  // 内容替换已记录在 document_change_logs；项目进程信号由扫描器按游标生成。
 }
 
 export async function setArtifactOfficialLink(db, artifactId, officialArtifactId) {

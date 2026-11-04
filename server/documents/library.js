@@ -259,23 +259,16 @@ export async function libraryChange(service, user, projectId, kind, target, inpu
           "UPDATE artifacts SET deleted_at=NULL,recycle_path=NULL,folder_id=?,title=?,source_type=CASE WHEN ?='project_official' THEN 'recycle_restored' ELSE source_type END WHERE id=?",
           [folderId, restoredTitle, restoredRoot, target],
         );
-        // 删除时已清掉文档信号；恢复到正式文件后重新排一条，保证这次恢复仍进入项目记忆结算。
-        if (restoredRoot === "project_official") {
-          const restoredVersions = await query(db, "SELECT id FROM versions WHERE artifact_id=?", [
-            target,
-          ]);
-          if (restoredVersions.length) {
-            const { noteProjectMemorySignal } = await import("../project-memory.js");
-            for (const version of restoredVersions)
-              await noteProjectMemorySignal(
-                db,
-                projectId,
-                "document_version",
-                version.id,
-                String(restoredTitle || row.title || "").slice(0, 120),
-              );
-          }
-        }
+        // 删除时已清掉文档信号；恢复写入事实日志，扫描器据此重新排队（不在业务事务里写队列）。
+        if (restoredRoot === "project_official")
+          await recordDocumentChange(db, {
+            projectId,
+            artifactId: target,
+            folderId,
+            action: "version_restored",
+            source: "system",
+            details: { title: restoredTitle || row.title || "" },
+          });
       }
     } else {
       const current = target ? await requireScope(await folder(target)) : null;

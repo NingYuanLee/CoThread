@@ -100,19 +100,21 @@
 
 落点：`wiki_pages`（条目）、`wiki_page_sources`（出处）、`agent_project_summaries`（导读 / 长期总结）、`project_change_logs`（审计）；成员认识与文档摘要各有独立表。没有独立知识库或向量库。
 
-### 5.1 候选入队（轻标记，不调模型）
+### 5.1 候选信号由扫描生成（不调模型）
 
-| 事件             | 位置                           | 写入                                                                                                |
-| ---------------- | ------------------------------ | --------------------------------------------------------------------------------------------------- |
-| 群聊消息         | `server/service-messages.js`   | 写入独立的 `conversation_memory_queue` 和消息指纹，不再由项目结算重复处理                           |
-| 项目主要行为     | `server/service-projects.js`   | `source_kind='milestone'`，项目创建/简介目标背景/成员变化，`urgent=true`                            |
-| 迭代目标背景变更 | `server/service-iterations.js` | `source_kind='iteration_context'`，`urgent=true`；迭代创建不单独入队                                |
-| 迭代归档         | `server/iteration-archive.js`  | `source_kind='archive'`，仅主要迭代（有主要任务、实质讨论、核心议题或目标变更）`urgent=true`        |
-| 任务主要行为     | `server/task-pool-activity.js` | 终态/阻塞/返工且属于主要任务时写 `source_kind='task'`、`urgent=true`；开始与进行中不写              |
-| 正式文件新版本   | `server/documents/versions.js` | `source_kind='document_version'`，仅 `folder_kind='project_official'`，`urgent=false`（只入候选池） |
+业务事件只把事实写进各自的事实表，**不再在业务事务里直接写队列**；维护循环按项目水位扫描增量，过滤出项目级信号后入队：
 
-- 唯一键 `(project_id, source_kind, source_id)`，重复只刷新 hint 与可用时间。
-- 只有项目级信号（`milestone` / `iteration_context` / `archive` / `task` / `document_version`）会入队；`memory_page`（议题页、文件索引关系）请求会被 `noteProjectMemorySignal` 直接忽略，旧版本留下的这类队列行在下一次调度时删除，不调用模型。清单的单一事实源是 `server/project-memory.js` 的 `PROJECT_MEMORY_SIGNAL_KINDS`。
+| 事实来源                                                                                | 写入位置                                                 | 扫描入队的 `source_kind`                                                                                                                                                                              |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `project_change_logs`                                                                   | `service-projects` / `service-members` / `service-admin` | `milestone`（动作白名单：created、profile_updated、archived、restored、member_added、member_removed、member_role_changed、leader_transferred、leader_migration_resolved、admin_added、admin_removed） |
+| `iteration_context_changes`                                                             | `service-iterations`                                     | `iteration_context`                                                                                                                                                                                   |
+| `iteration_archive_workflows`（status=completed）                                       | `iteration-archive`                                      | `archive`（仅主要迭代）                                                                                                                                                                               |
+| `agent_task_status_events`                                                              | `task-pool-activity`                                     | `task`（终态/阻塞/返工且属于主要任务）                                                                                                                                                                |
+| `document_change_logs`（version_created / version_content_replaced / version_restored） | `documents/versions`、`documents/library`                | `document_version`（仅 `folder_kind='project_official'`）                                                                                                                                             |
+
+- 扫描器 `server/project-memory-scan.js`：每项目一行水位 `project_memory_scan_state.scan_cursor`（迁移 221），维护循环每轮挑一个到期项目（30 秒节流）读增量；手动「立即运行」先扫指定项目再结算。首次扫描只建水位；新建项目在创建时先写空水位，所以「项目初创」会在首次扫描入队。
+- 唯一键 `(project_id, source_kind, source_id)`，重复只刷新 hint 与可用时间；同一来源再次变化递增 `signal_revision` 并重置失败次数。
+- 只有五类信号（`milestone` / `iteration_context` / `archive` / `task` / `document_version`）会入队；白名单单一事实源仍是 `server/project-memory.js` 的 `PROJECT_MEMORY_SIGNAL_KINDS`。
 - 结算条件：项目/主要迭代/主要任务的事件型信号立即触发；其余候选按 ≥40 条或最早静默 ≥20 分钟批量触发；手动刷新始终可用。
 - 手动「现在整理」不写队列，直接插一条 `trigger_source='user'` 的 run。
 

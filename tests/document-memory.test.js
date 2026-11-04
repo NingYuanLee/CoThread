@@ -11,6 +11,7 @@ import {
 import { searchProjectMemory } from "../server/memory-search.js";
 import { getWikiPage, listWikiPages } from "../server/wiki-pages.js";
 import { readProjectMemory } from "../server/memory-timeline.js";
+import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
 import { loadProjectWikiIndexes, loadProjectMemoryEntryIndex } from "../server/project-memory.js";
 import { libraryChange as libraryChangeRaw } from "../server/documents/library.js";
 import {
@@ -163,6 +164,8 @@ test("正式文件子目录中的新版本也触发项目进程判断", async ()
       note: "",
       createdBy: owner.id,
     });
+    // 版本变更只落事实日志，项目进程信号由扫描生成。
+    await scanProjectMemorySignals(db, project.id);
     const [signal] = await query(
       db,
       "SELECT source_id sourceId FROM agent_project_memory_queue WHERE project_id=? AND source_kind='document_version' AND source_id=?",

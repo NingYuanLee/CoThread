@@ -10,6 +10,7 @@ import {
   dropUnavailableDocumentVersionSignals,
   processNextProjectMemory,
 } from "../server/project-memory.js";
+import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
 
 async function setup() {
   const database = await testDatabase();
@@ -61,6 +62,8 @@ async function createOfficialDoc(
     note: "",
     createdBy: owner.id,
   });
+  /* 版本变更只落事实日志，信号由扫描生成。 */
+  await scanProjectMemorySignals(db, project.id);
   return { artifactId, versionId, rootId };
 }
 
@@ -98,6 +101,7 @@ test("从回收站恢复正式文档后重新排队文档信号", async () => {
     assert.equal((await documentSignals(db, project.id, versionId)).length, 0);
 
     await libraryChange(service, owner, project.id, "artifact", artifactId, { deleted: false });
+    await scanProjectMemorySignals(db, project.id);
 
     const restored = await documentSignals(db, project.id, versionId);
     assert.equal(restored.length, 1, "恢复后的文档应重新进入项目记忆结算");

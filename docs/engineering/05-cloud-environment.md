@@ -397,3 +397,17 @@ bash -n scripts/ecs-codedeploy-start.sh
 线上执行输出：启动钩子安装 Node 到 `/opt/cothread/node-runtime-24.18.0`（`added 2 packages in 29s`，输出 `v24.18.0`）；解压到 `/opt/cothread/releases/20261104T162834Z`；`npm ci` 安装生产依赖时出现 `ERESOLVE overriding peer dependency` 警告（`@opentelemetry/resources@2.11.0` 与 `@deepseek-ai/dsh-otel` 的 `@opentelemetry/api`），安装继续并成功，审计报告 286 个漏洞（1 low、53 moderate、227 high、5 critical，不据此判失败）；3110 探活通过（`status: ok`、执行器 ready 为 false、`laneCount: 0`），原子切换 `current -> /opt/cothread/releases/20261104T162834Z`，清理旧 release `/opt/cothread/releases/20261104T090333Z`。公网 `https://cothread.z2l.top/api/health?release=7499491` 返回 200，`status: ok`、`database: mysql`、`dshEnabled: true`、执行器 `ready: true`、8 个执行槽、holder `273726897`、`acquiredAt` 为 UTC `2026-11-04T16:32:15.261Z`；首页 200，资源 `index-BRpfTqJv.js`、`index-BHw62KsI.css` 与本地 `dist/index.html` 一致。
 
 本轮验证边界：未做登录后的业务验收；DSH 0.2.2 的 `startActivation` 派发、会话续接与压缩阈值只在自动化测试与上游包核对层验证，没有在生产执行真实 Agent 会话（本轮无模型调用的端到端冒烟）。本轮安装的 `alibaba-codex` MCP 版本只暴露 `OOS_CodeDeploy`/`OOS_GetDeployStatus`/`OOS_GetLastDeploymentInfo`，没有 `OOS_RunCommand`/`ECS_*`，因此 Node 版本、`current` 与旧 release 清理的证据来自 execution 的 `deployCommandOutput`，没有另发 ECS 只读命令核对 `readlink`/`systemctl`。modulepreload MIME 与未登录 `/api/me` 401 为既有现象。依赖审计 286 条未整改。验收凭据在 `.code_deploy/verification/20261104-dsh-upgrade/`（不进 Git）。
+
+2026-11-04 第十次发布，一次上线：「小祥监控任务会话 / 记忆作业会话的派活展示与用量补齐」。用户反馈任务卡片会话弹窗把「小祥派活」显示成普通内容、空态与正文同屏、子 Agent 消息未收缩且缺复制/时间/用时/用量；记忆作业会话与任务会话的消息和底部统计都显示「未记录」。代码提交 `c254da6`（已推送，`origin/main` 与本地 HEAD 一致）。
+
+根因：DSH 0.2.x 把会话日志写成 `session.v4.jsonl`，而 `server/child-agent-session.js` 只认 `session.jsonl`，导致原生正文、创建时间和逐条用量都读不到；任务池子会话因此只剩事件，弹窗同时显示空态；底部统计固定传入空 `thread`，所以永远显示「用量未记录」。
+
+改动：`server/child-agent-session.js` 识别带版本号的会话日志（`session(\.v\d+)?\.jsonl`），派生快照缺元数据时从原生日志按 role+text 倒序合并时间与用量，任务池子会话没有正文时把任务书补成「小祥派活」用户消息；`server/laoweng-context.js` 同样从原生日志补时间/用量；`web/agent-monitor-session.tsx` 空态只在确实没有消息、事件、待纳入和实时输出时显示，子 Agent 活动默认收缩，已有正文时活动流只保留工具事件避免重复；`web/AgentActivity.tsx` 过程消息补复制与时间；`web/SessionConversationDialog.tsx` 输出过程补复制与用量，底栏统计改为按消息用量汇总、缺失时回退轨迹总量。
+
+门禁：`npm run lint` 通过；`npm run build` 退出码 0；`npm run test:unit` 521/521；全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 1093/1093、0 失败，`duration_ms` 1003559.8098（约 16.7 分钟）。本轮未改依赖与启停钩子，没有重跑 npm 10 生产安装预检和钩子语法检查。
+
+包 `cothread-release-20261104T172833Z.tgz`，6,222,346 字节，SHA-256 `717C2E7A1DAE49489CC72F2A7F35C1081C2F1574AE194B3860B2E3809BD055A4`，tar 条目 709，包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests` 或 `.code_deploy`；前端改动只经 `dist` 进入发布包，服务端包含 `child-agent-session.js` 与 `laoweng-context.js`。上传用本机 `alibaba-codex` 的 Python 包直连：`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A1A79B-7EF8-52E8-8798-1128CE2BFEBB`，revision `rev-aaa55a8ee50a4731ba0e`，execution `exec-39ad0f0105624fd3b31b` 为 `Success`（8/8，0 失败），分组 `Released`，结束于 UTC `2026-11-04T17:31:39Z`。
+
+线上执行输出：`原子切换 current -> /opt/cothread/releases/20261104T172926Z`，`上线完成`。公网 `https://cothread.z2l.top/api/health?release=c254da6` 返回 200，`status: ok`、`database: mysql`、执行器 `ready: true`、8 个执行槽、`acquiredAt` 为 UTC `2026-11-04T17:31:22Z`；首页 200，资源 `index-BgRAZlJ_.js`、`index-BHw62KsI.css`，与本地 `dist/index.html` 一致。
+
+本轮验证边界：没有生产登录态，未在浏览器实机打开这两个弹窗复测「派活右置、空态消失、过程收缩、复制/时间/用量」；数据层由新增/更新的会话单测（含 `session.v4.jsonl` 与元数据合并）和全量测试覆盖，界面效果需要登录后确认。未重跑 npm 10 生产安装预检与钩子检查（依赖、钩子未改）。验收凭据在 `.code_deploy/verification/20261104-monitor-usage/`（不进 Git）。

@@ -104,19 +104,19 @@
 
 业务事件只把事实写进各自的事实表，**不再在业务事务里直接写队列**；维护循环按项目水位扫描增量，过滤出项目级信号后入队：
 
-| 事实来源                                                                                | 写入位置                                                 | 扫描入队的 `source_kind`                                                                                                                                                                              |
-| --------------------------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `project_change_logs`                                                                   | `service-projects` / `service-members` / `service-admin` | `milestone`（动作白名单：created、profile_updated、archived、restored、member_added、member_removed、member_role_changed、leader_transferred、leader_migration_resolved、admin_added、admin_removed） |
-| `iteration_context_changes`                                                             | `service-iterations`                                     | `iteration_context`                                                                                                                                                                                   |
-| `iteration_archive_workflows`（status=completed）                                       | `iteration-archive`                                      | `archive`（仅主要迭代）                                                                                                                                                                               |
-| `agent_task_status_events`                                                              | `task-pool-activity`                                     | `task`（终态/阻塞/返工且属于主要任务）                                                                                                                                                                |
-| `document_change_logs`（version_created / version_content_replaced / version_restored） | `documents/versions`、`documents/library`                | `document_version`（仅 `folder_kind='project_official'`）                                                                                                                                             |
+| 事实来源                                          | 写入位置                                                 | 扫描入队的 `source_kind`                                                                                                                                                                              |
+| ------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `project_change_logs`                             | `service-projects` / `service-members` / `service-admin` | `milestone`（动作白名单：created、profile_updated、archived、restored、member_added、member_removed、member_role_changed、leader_transferred、leader_migration_resolved、admin_added、admin_removed） |
+| `iteration_context_changes`                       | `service-iterations`                                     | `iteration_context`                                                                                                                                                                                   |
+| `iteration_archive_workflows`（status=completed） | `iteration-archive`                                      | `archive`（仅主要迭代）                                                                                                                                                                               |
+| `agent_task_status_events`                        | `task-pool-activity`                                     | `task`（终态/阻塞/返工且属于主要任务）                                                                                                                                                                |
 
+- **文档不进入项目进程**：文件索引与关联记忆已有独立作业与展示，迁移 222 清掉历史遗留的 `document_version` 队列行；`noteProjectMemorySignal` 会忽略该来源，维护扫描只保留清理历史死行的兼容逻辑。
 - 扫描器 `server/project-memory-scan.js`：每项目一行水位 `project_memory_scan_state.scan_cursor`（迁移 221），维护循环每轮挑一个到期项目（30 秒节流）读增量；手动「立即运行」先扫指定项目再结算。首次扫描只建水位；新建项目在创建时先写空水位，所以「项目初创」会在首次扫描入队。
 - 唯一键 `(project_id, source_kind, source_id)`，重复只刷新 hint 与可用时间；同一来源再次变化递增 `signal_revision` 并重置失败次数。
-- 只有五类信号（`milestone` / `iteration_context` / `archive` / `task` / `document_version`）会入队；白名单单一事实源仍是 `server/project-memory.js` 的 `PROJECT_MEMORY_SIGNAL_KINDS`。
+- 只有四类信号（`milestone` / `iteration_context` / `archive` / `task`）会入队；白名单单一事实源仍是 `server/project-memory.js` 的 `PROJECT_MEMORY_SIGNAL_KINDS`。
 - 结算条件：项目/主要迭代/主要任务的事件型信号立即触发；其余候选按 ≥40 条或最早静默 ≥20 分钟批量触发；手动刷新始终可用。
-- 手动「现在整理」不写队列，直接插一条 `trigger_source='user'` 的 run。
+- 手动「现在整理」不写队列，直接插一条 `trigger_source='user'` 的 run；「待处理信号」弹窗支持逐条「忽略」（删除队列行 + 审计，不再重试）。
 
 ### 5.2 日常结算写条目（`project_memory`）
 

@@ -2,7 +2,7 @@
  * 待处理的项目进程信号：面板上只保留一个计数按钮，点开是只读列表弹窗。
  * 信号由业务事件写入队列，结算成功后自动消失；这里不提供写入或删除操作。
  */
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { DialogHeader } from "./DialogHeader";
 import { animateDialogClose, Dialog } from "./dialog-fx";
 
@@ -42,11 +42,27 @@ export function ProjectMemorySignalsButton({
 export function ProjectMemorySignalsDialog({
   signals,
   onClose,
+  onIgnore,
 }: {
   signals: ProjectMemorySignal[];
   onClose: () => void;
+  onIgnore: (queueId: string) => Promise<void>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const [busyId, setBusyId] = useState("");
+  const [error, setError] = useState("");
+  const ignore = async (queueId: string) => {
+    if (busyId) return;
+    setBusyId(queueId);
+    setError("");
+    try {
+      await onIgnore(queueId);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "忽略失败，请稍后重试");
+    } finally {
+      setBusyId("");
+    }
+  };
   return (
     <Dialog
       ref={dialog}
@@ -62,8 +78,14 @@ export function ProjectMemorySignalsDialog({
         fullscreen
       />
       <p className="project-memory-signals-note">
-        任务变化、正式文件新版本、迭代与项目变更写入的待结算来源；结算成功后自动消失，失败会按退避重试。
+        任务变化、迭代与项目变更写入的待结算来源；结算成功后自动消失，失败按 5
+        级退避重试。确认真实无用的历史信号可以忽略，忽略后不再重试。
       </p>
+      {error ? (
+        <p className="project-memory-signals-error" role="alert">
+          {error}
+        </p>
+      ) : null}
       <ul className="project-memory-signals-list">
         {signals.map((signal) => (
           <li key={signal.id}>
@@ -79,6 +101,16 @@ export function ProjectMemorySignalsDialog({
             {signal.lastError ? (
               <small className="project-memory-signals-error">{signal.lastError}</small>
             ) : null}
+            <div className="project-memory-signals-actions">
+              <button
+                type="button"
+                className="wiki-action"
+                disabled={busyId !== ""}
+                onClick={() => void ignore(signal.id)}
+              >
+                {busyId === signal.id ? "忽略中…" : "忽略"}
+              </button>
+            </div>
           </li>
         ))}
       </ul>

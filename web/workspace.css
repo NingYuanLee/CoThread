@@ -23847,6 +23847,13 @@ html body .project-memory-dialog .dialog-header {
   word-break: break-word;
 }
 
+.project-memory-signals-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.429rem;
+  margin-top: 0.214rem;
+}
+
 /* 待观察项列表：问题原文可能很长，表格内截两行，完整内容看详情。 */
 .memory-observation-question {
   display: -webkit-box;

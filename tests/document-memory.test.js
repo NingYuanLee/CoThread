@@ -130,7 +130,7 @@ test("文档种类与正文骨架", () => {
   assert.match(body, /先看清单与入口文件/);
 });
 
-test("正式文件子目录中的新版本也触发项目进程判断", async () => {
+test("正式文件子目录中的新版本也不进入项目进程", async () => {
   const { database, db, owner, project } = await setup();
   try {
     const [root] = await query(
@@ -164,14 +164,13 @@ test("正式文件子目录中的新版本也触发项目进程判断", async ()
       note: "",
       createdBy: owner.id,
     });
-    // 版本变更只落事实日志，项目进程信号由扫描生成。
     await scanProjectMemorySignals(db, project.id);
     const [signal] = await query(
       db,
       "SELECT source_id sourceId FROM agent_project_memory_queue WHERE project_id=? AND source_kind='document_version' AND source_id=?",
       [project.id, versionId],
     );
-    assert.equal(signal?.sourceId, versionId);
+    assert.equal(signal, undefined, "文档变更由文件索引作业处理，不再进入项目进程");
   } finally {
     await database.close();
   }

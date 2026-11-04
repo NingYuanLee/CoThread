@@ -7,6 +7,7 @@ import { Service } from "../server/service.js";
 import { createApp } from "../server/app.js";
 import { issueCredential } from "../server/auth.js";
 import {
+  ignoreProjectMemorySignal,
   noteProjectMemorySignal,
   processNextProjectMemory,
   resetProjectMemoryRetryBudget,
@@ -42,6 +43,12 @@ async function setup() {
   ]);
   const thread = await service.createThread(owner, project.id, { title: "第一轮" });
   return { database, db, service, owner, viewer, project, thread };
+}
+
+/** 消费建项目产生的首批信号，让后续断言只针对用例自己制造的事实。 */
+async function primeScan(db, projectId) {
+  await scanProjectMemorySignals(db, projectId);
+  await query(db, "DELETE FROM agent_project_memory_queue WHERE project_id=?", [projectId]);
 }
 
 async function insertEntry(
@@ -433,6 +440,193 @@ test("主要任务与主要迭代过滤：普通任务和空迭代不进入记�
     await query(db, "UPDATE agent_tasks SET origin_thread_id=? WHERE id=?", [empty.id, taskId]);
     assert.equal(await isImportantIteration(db, empty.id), true);
     assert.equal(await isImportantIteration(db, thread.id), false);
+  } finally {
+    await database.close();
+  }
+});
+
+test("核验失败逐条丢弃，其余条目照常写入", async () => {
+  const { database, db, service, owner, project } = await setup();
+  try {
+    await primeScan(db, project.id);
+    await service.projectChange(db, project.id, owner.id, "profile_updated", { name: "一" });
+    await service.projectChange(db, project.id, owner.id, "member_added", { name: "二" });
+    await scanProjectMemorySignals(db, project.id);
+    await processNextProjectMemory(db, {
+      projectId: project.id,
+      task: "project_memory",
+      verifyMemorySupport: async (_projectId, result) => ({
+        verdicts: (result.entries || []).map((_entry, index) => ({
+          index,
+          supported: index === 0,
+          reason: index === 0 ? "" : "来源不足以支持这一条",
+        })),
+      }),
+      summarizeMemory: async (context) => ({
+        entries: context.candidates.slice(0, 2).map((candidate, index) => ({
+          op: "create",
+          subject: "project",
+          subtype: "phase_change",
+          title: `进程${index}`,
+          body: `## 正文${index}`,
+          sourceIds: [candidate.queueId],
+        })),
+        statusMarkdown: "## 当前状态\n\n- 只写入被支持的条目。",
+      }),
+    });
+    const pages = await query(
+      db,
+      "SELECT title FROM wiki_pages WHERE project_id=? AND title LIKE '进程%' ORDER BY title",
+      [project.id],
+    );
+    assert.deepEqual(
+      pages.map((page) => page.title),
+      ["进程0"],
+      "只写被核验支持的条目",
+    );
+    const [run] = await query(
+      db,
+      "SELECT status,item_count itemCount,result FROM agent_laoweng_runs WHERE project_id=? AND task='project_memory' ORDER BY created_at DESC LIMIT 1",
+      [project.id],
+    );
+    assert.equal(run.status, "completed");
+    assert.equal(Number(run.itemCount), 2, "一条条目 + 一次现状覆盖");
+    const outcome = typeof run.result === "string" ? JSON.parse(run.result) : run.result;
+    assert.deepEqual(
+      outcome.droppedEntries.map((item) => item.title),
+      ["进程1"],
+    );
+    assert.match(outcome.droppedEntries[0].reason, /来源不足/);
+    assert.equal(
+      (
+        await query(db, "SELECT id FROM agent_project_memory_queue WHERE project_id=?", [
+          project.id,
+        ])
+      ).length,
+      0,
+      "逐条丢弃后候选照常消费，不再整批失败重试",
+    );
+  } finally {
+    await database.close();
+  }
+});
+
+test("任务信号只并入任务分布汇总，不单独建条", async () => {
+  const { database, db, service, owner, project, thread } = await setup();
+  try {
+    await primeScan(db, project.id);
+    for (const title of ["任务甲", "任务乙"]) {
+      const taskId = randomUUID();
+      await query(
+        db,
+        `INSERT INTO agent_tasks(id,project_id,created_by_type,created_by_id,task_type,title,goal,status,execution_agent_type,retry_count,revision,origin_thread_id)
+         VALUES(?,?,'human_member',?,'formal',?,'目标','completed','child_agent',0,1,?)`,
+        [taskId, project.id, owner.id, title, thread.id],
+      );
+      await query(
+        db,
+        "INSERT INTO agent_task_status_events(task_id,from_status,to_status,actor_type,actor_id) VALUES(?,NULL,'completed','system',?)",
+        [taskId, owner.id],
+      );
+    }
+    await scanProjectMemorySignals(db, project.id);
+    await processNextProjectMemory(db, {
+      projectId: project.id,
+      task: "project_memory",
+      verifyMemorySupport: async (_projectId, result) => ({
+        verdicts: (result.entries || []).map((_entry, index) => ({
+          index,
+          supported: true,
+          reason: "",
+        })),
+      }),
+      summarizeMemory: async (context) => {
+        const ids = context.candidates.map((candidate) => candidate.queueId);
+        return {
+          entries: [
+            {
+              op: "create",
+              subject: "task",
+              subtype: "blocked_task",
+              title: "任务甲",
+              body: "## 单任务\n\n不应单独建条",
+              sourceIds: [ids[0]],
+            },
+            {
+              op: "create",
+              subject: "task",
+              subtype: "blocked_task",
+              title: "任务分布",
+              body: "## 分布\n\n两条任务",
+              sourceIds: [ids[0], ids[1]],
+            },
+          ],
+          statusMarkdown: "",
+        };
+      },
+    });
+    const pages = await query(
+      db,
+      "SELECT title FROM wiki_pages WHERE project_id=? AND title IN ('任务甲','任务分布')",
+      [project.id],
+    );
+    assert.deepEqual(
+      pages.map((page) => page.title),
+      ["任务分布"],
+    );
+    const [run] = await query(
+      db,
+      "SELECT result FROM agent_laoweng_runs WHERE project_id=? AND task='project_memory' ORDER BY created_at DESC LIMIT 1",
+      [project.id],
+    );
+    const outcome = typeof run.result === "string" ? JSON.parse(run.result) : run.result;
+    assert.deepEqual(
+      outcome.droppedEntries.map((item) => item.title),
+      ["任务甲"],
+    );
+    assert.match(outcome.droppedEntries[0].reason, /任务分布汇总/);
+  } finally {
+    await database.close();
+  }
+});
+
+test("忽略信号会删除队列行并留审计，重复忽略返回 404", async () => {
+  const { database, db, service, owner, viewer, project } = await setup();
+  try {
+    await primeScan(db, project.id);
+    await service.projectChange(db, project.id, owner.id, "profile_updated", { name: "忽略" });
+    await scanProjectMemorySignals(db, project.id);
+    const [row] = await query(
+      db,
+      "SELECT id FROM agent_project_memory_queue WHERE project_id=? LIMIT 1",
+      [project.id],
+    );
+    assert.ok(row);
+    await assert.rejects(
+      ignoreProjectMemorySignal(service, viewer, project.id, row.id),
+      (error) => error.status === 403,
+      "只读成员不能忽略信号",
+    );
+    const ignored = await ignoreProjectMemorySignal(service, owner, project.id, row.id);
+    assert.equal(ignored.ignored, true);
+    assert.equal(
+      (
+        await query(db, "SELECT id FROM agent_project_memory_queue WHERE project_id=?", [
+          project.id,
+        ])
+      ).length,
+      0,
+    );
+    const [log] = await query(
+      db,
+      "SELECT details FROM project_change_logs WHERE project_id=? AND action='project_memory_signal_ignored'",
+      [project.id],
+    );
+    assert.ok(log, "忽略要留审计");
+    await assert.rejects(
+      ignoreProjectMemorySignal(service, owner, project.id, row.id),
+      (error) => error.status === 404,
+    );
   } finally {
     await database.close();
   }

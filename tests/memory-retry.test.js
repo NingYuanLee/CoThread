@@ -122,15 +122,14 @@ test("已有摘要的文档只在非手动重试时直接出队", () => {
   assert.equal(shouldReuseDocumentSummary(), false);
 });
 
-test("项目记忆只为项目级信号排队，议题页/文件索引页不触发结算", () => {
+test("项目记忆只为项目级信号排队，议题页/文件索引页/文档版本不触发结算", () => {
   assert.deepEqual([...PROJECT_MEMORY_SIGNAL_KINDS].sort(), [
     "archive",
-    "document_version",
     "iteration_context",
     "milestone",
     "task",
   ]);
-  for (const kind of ["memory_page", "message"])
+  for (const kind of ["memory_page", "message", "document_version"])
     assert.equal(
       PROJECT_MEMORY_SIGNAL_KINDS.includes(kind),
       false,

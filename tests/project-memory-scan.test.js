@@ -106,7 +106,7 @@ test("项目变更、主要任务终态、迭代目标变更按游标生成信�
   }
 });
 
-test("正式文件新版本与内容替换生成 document_version 信号", async () => {
+test("正式文件新版本与内容替换不进入项目进程", async () => {
   const { database, db, owner, project } = await setup();
   try {
     await primeScan(db, project.id);
@@ -134,13 +134,6 @@ test("正式文件新版本与内容替换生成 document_version 信号", async
       note: "",
       createdBy: owner.id,
     });
-    const scanned = await scanProjectMemorySignals(db, project.id);
-    assert.equal(scanned.inserted, 1);
-    const rows = await queueRows(db, project.id);
-    assert.equal(rows[0].sourceKind, "document_version");
-    assert.equal(rows[0].sourceId, versionId);
-    assert.match(rows[0].hint, /需求说明|文件内容/);
-
     const replaced = Buffer.from("第二版内容", "utf8");
     await replaceVersionContent(db, {
       id: versionId,
@@ -151,12 +144,15 @@ test("正式文件新版本与内容替换生成 document_version 信号", async
       note: "替换正文",
       createdBy: owner.id,
     });
-    const rescanned = await scanProjectMemorySignals(db, project.id);
-    assert.equal(rescanned.inserted, 1);
-    const afterRows = await queueRows(db, project.id);
-    assert.equal(afterRows.length, 1, "同一版本重复变化只保留一行");
-    assert.ok(Number(afterRows[0].signalRevision) >= 1, "同一来源再次变化会递增版本号");
-    assert.equal(afterRows[0].hint, "替换正文");
+    const scanned = await scanProjectMemorySignals(db, project.id);
+    assert.equal(scanned.inserted, 0, "文档变更不再扫描进项目进程");
+    assert.equal((await queueRows(db, project.id)).length, 0);
+    /* 即使有旧调用直接写信号，白名单也会忽略文档版本。 */
+    const { noteProjectMemorySignal } = await import("../server/project-memory.js");
+    await noteProjectMemorySignal(db, project.id, "document_version", versionId, "旧调用", {
+      urgent: true,
+    });
+    assert.equal((await queueRows(db, project.id)).length, 0);
   } finally {
     await database.close();
   }

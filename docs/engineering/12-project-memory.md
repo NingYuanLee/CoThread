@@ -32,6 +32,7 @@
 | GET /api/projects/:id/memory                    | 导读、时间轴、条目与来源关系；`?entries=0` 时跳过全量水合：只返回导读、计数（含 `counts.entries`）、时间线、`entryIndex` 轻量索引与空 `entries` |
 | GET .../memory/entries                          | 右侧时间线分页：subject/subtypes/statuses/q/page/pageSize → items/page/pageSize/total/hasMore；条目与 /memory 同构，按 updated_at 倒序          |
 | GET .../memory/entries/:entryId                 | 单条详情（正文、出处、关系、文件组合），弹窗按需读取；不存在或不在项目内返回 404                                                                |
+| POST .../memory/signals/:queueId/ignore         | 人工忽略一条待处理信号：删除队列行并写 `project_memory_signal_ignored` 审计，需写权限                                                           |
 | GET .../memory/counts                           | disputes 与 updatedSinceEntry，不再返回 drafts。disputes 是反馈展示的兼容字段                                                                   |
 | POST .../memory/entries/:entryId/supersede      | 真人停用群消息来源记忆，须传 reason                                                                                                             |
 | POST .../memory/entries/:entryId/flag           | 独立反馈，保留正文与生命周期                                                                                                                    |
@@ -66,8 +67,10 @@ MCP 与 DSH 提供 search_memory、read_memory_history、read_memory_revision、
 - 结算写入带 `subject`：`project_memory` 输出的条目可指定对象类型，`applyProjectMemoryResult` 落 `subject_type`，`update` 时保留原值。
 - `server/memory-timeline.js`：读侧聚合、counts、confirm、flag、`settleIterationMemory`、争议推导 `disputedEntryIds`。
 - 记忆作业面板：五类口径、积压、最近运行、立即运行、调整口径、失败重试、讨论补跑；每个维护作业可看轨迹（agent 日志）、运行历史、维护会话；历史回填由后台维护任务自动补齐，手动补跑入口移到管理空间项目操作列；老翁已不在一级监控页出现。
-- 待处理的项目进程信号：面板上收成计数按钮，点开是只读列表弹窗（来源类型、提示、重试次数、最近尝试、下次尝试与最近错误），不提供写入或删除。
-- 信号生成方式（2026-11-04 改为扫描）：业务事件只落事实表——`project_change_logs`（项目/成员变更）、`iteration_context_changes`、`iteration_archive_workflows`（completed）、`agent_task_status_events`、`document_change_logs`（新版本/内容替换/恢复）；`server/project-memory-scan.js` 按每项目水位 `project_memory_scan_state.scan_cursor`（迁移 221）增量扫描，过滤主要任务/主要迭代/正式文件等条件后写队列。维护循环每轮挑一个到期项目扫描（30 秒节流），手动运行先扫指定项目；首次扫描只建水位，新建项目先写空水位以便「项目初创」入队。事件钩子已从 service-projects/service-iterations/iteration-archive/task-pool-activity/documents 移除；恢复文档改为写 `version_restored` 事实日志。
+- 待处理的项目进程信号：面板上收成计数按钮，点开是只读列表弹窗（来源类型、提示、重试次数、最近尝试、下次尝试、最近错误），每条可「忽略」——忽略会删除队列行并写 `project_memory_signal_ignored` 审计，不再自动重试；只读成员不能忽略。
+- 信号生成方式（2026-11-04 改为扫描）：业务事件只落事实表——`project_change_logs`（项目/成员变更）、`iteration_context_changes`、`iteration_archive_workflows`（completed）、`agent_task_status_events`；`server/project-memory-scan.js` 按每项目水位 `project_memory_scan_state.scan_cursor`（迁移 221）增量扫描，过滤主要任务/主要迭代后写队列。维护循环每轮挑一个到期项目扫描（30 秒节流），手动运行先扫指定项目；首次扫描只建水位，新建项目先写空水位以便「项目初创」入队。事件钩子已从 service-projects/service-iterations/iteration-archive/task-pool-activity/documents 移除。
+- 文档不进入项目进程（2026-11-04 起）：文件索引与关联记忆已有独立作业与展示，项目进程只收 `milestone` / `iteration_context` / `archive` / `task` 四类；迁移 222 清掉历史遗留的 `document_version` 队列行，`noteProjectMemorySignal` 会忽略该来源，维护扫描仍保留清理历史死行的兼容逻辑。
+- 核验与任务聚合（2026-11-04 起）：核验结果逐条应用——不被来源直接支持的条目单独丢弃并记入运行结果的 `droppedEntries`，其它支持条目照常写入、候选照常消费，不再整批失败重试；`subject=task` 只允许引用多个任务来源的「任务分布」汇总条目，只引用一个任务来源的单任务条目会被丢弃。项目结算仍不能生成发言/议题/文档类条目。
 - 管理侧写接口：`POST/DELETE /memory/relations` 建删关系、`PATCH /memory/entries/:entryId` 改对象类型与归属成员（`aboutUserId` 需为项目成员），均要求写权限。
 - 读侧条目带 `subject`（五类对象）与 `relations`（关联/继承/替代，含方向与对方标题），`GET /api/projects/:id/memory` 与单条详情一致。
 - 路由：`GET /api/projects/:id/memory`、`GET /api/projects/:id/memory/counts`、`POST .../memory/entries/:entryId/confirm`、`POST .../memory/entries/:entryId/flag`、`POST .../memory/refresh`（202）。

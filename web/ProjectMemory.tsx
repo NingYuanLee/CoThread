@@ -2065,6 +2065,17 @@ export function ProjectMemory({
     if (phase === "ready") void loadJobs();
   }, [phase, loadJobs]);
 
+  /** 忽略一条待处理信号：后端删除队列行并留审计，之后不再自动重试。 */
+  const ignoreSignal = async (queueId: string) => {
+    await api(`/projects/${projectId}/memory/signals/${queueId}/ignore`, {}, "POST");
+    setSignalsDialog((current) => {
+      const next = (current || []).filter((item) => item.id !== queueId);
+      return next.length ? next : null;
+    });
+    await loadJobs();
+    showTip("信号已忽略，不会再自动重试");
+  };
+
   const retryJob = async (job: MemoryJob) => {
     if (runningJob) return;
     setRunningJob(job.key);
@@ -2828,6 +2839,7 @@ export function ProjectMemory({
         <ProjectMemorySignalsDialog
           signals={signalsDialog}
           onClose={() => setSignalsDialog(null)}
+          onIgnore={ignoreSignal}
         />
       ) : null}
       {pendingAction ? (

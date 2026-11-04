@@ -159,6 +159,19 @@
 
 已知取舍：扫描有最长约一个维护周期的延迟（手动运行会先扫再结算）；项目首次扫描不回放历史，历史存量仍由一次性回填处理；任务水位用自增 id，其余来源用 `(created_at,id)` 游标并以数据库原始时间字符串比较（连接 `dateStrings: true`，避免时区换算导致重复入队）。
 
+## 项目进程减负：去文档、逐条核验、任务聚合、忽略入口（2026-11-04 第六轮）
+
+用户提出四点：①项目进程不需要跟文档相关（已有文件索引和关联记忆）；②核验失败改为逐条丢弃；③task 信号不单独建条；④旧信号加「忽略」入口。重试策略确认为 5 级退避（1 分钟→5 分钟→30 分钟→2 小时→6 小时），之后停止自动重试。
+
+改动：
+
+- 去掉文档来源：`PROJECT_MEMORY_SIGNAL_KINDS` 收敛为 `milestone` / `iteration_context` / `archive` / `task`；扫描器删除 `document_change_logs` 分支；迁移 `222_drop_document_version_project_signals.sql` 清掉历史遗留行；`noteProjectMemorySignal` 忽略 `document_version`；`dropDocumentVersionSignals` / `dropUnavailableDocumentVersionSignals` 只作为历史遗留行的兼容清理保留。
+- 逐条核验：核验调用改为返回 `{verdicts:[{index,supported,reason}]}`，`filterVerifiedEntries` 逐条丢掉不被来源直接支持的条目并记录到运行结果 `droppedEntries`，其余条目照常写入、候选照常消费，不再整批失败重试；兼容旧的 `{supported,reason}` 返回。
+- 任务聚合：结算禁止生成发言/议题/文档类条目；`subject=task` 只允许引用多个任务来源的「任务分布」汇总条目，只引用一个任务来源的单任务条目丢弃；提示词同步改为「task 候选只汇总一条任务分布」。
+- 忽略入口：新增 `POST /api/projects/:id/memory/signals/:queueId/ignore`，写权限校验、删除队列行并写 `project_memory_signal_ignored` 审计；信号弹窗每条加「忽略」按钮，忽略后不再自动重试。
+
+验证：`tests/project-memory.test.js` 10/10（新增逐条丢弃、任务分布、忽略审计与 403/404）；`project-memory-scan` 4/4（文档变更不再入队）；`project-memory-signal-cleanup` 4/4（改为历史遗留行清理语义）；`memory-retry` 8/8、`document-memory` 15/15、`memory-jobs` 11/11、`iteration-archive` 23/23、`memory-read` 14/14、`project-status` 7/7、`project-memory-signals` 1/1、`integration` 22/22；`tsc`/`lint`/`build` 通过。全量与发布记录见 `05-cloud-environment.md` 文末。
+
 ## 尚需实际环境验收
 
 自动化使用替身模型，不能证明观点判断、议题合并、文件识别和项目进程取舍质量。浏览器交互、真实模型材料抽样尚未完成。持续流量下的模型调用次数、公平调度、耗时，以及运行中项目封存等竞态仍需观察；不把它们写作已确认缺陷或已通过验收。

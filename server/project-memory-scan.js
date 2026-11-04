@@ -2,8 +2,8 @@
  * 项目进程信号的扫描器。
  *
  * 业务事件不再直接写队列，只把事实落在各业务日志里（项目变更、迭代目标背景变更、
- * 迭代归档、任务状态事件、正式文件版本变更）；这里按项目维护每个来源的游标，
- * 定期扫描增量、过滤出「值得进入项目进程」的信号再写队列。
+ * 迭代归档、任务状态事件）；这里按项目维护每个来源的游标，定期扫描增量、过滤出
+ * 「值得进入项目进程」的信号再写队列。文档版本不进入项目进程（有独立的文件索引作业）。
  *
  * 与成员发言一致：先落进度/事实，再由扫描生成待处理单元；不再在业务事务里写队列。
  */
@@ -13,7 +13,6 @@ import {
   isImportantTask,
   isTaskMilestoneTransition,
 } from "./memory-signal-filter.js";
-import { folderRootKindInList } from "./documents/index.js";
 import { maybeQueueProjectMemoryRun, noteProjectMemorySignal } from "./project-memory.js";
 
 /** 项目级变更里值得进入项目进程的动作；与 service.projectChange 的调用方一致。 */
@@ -29,11 +28,6 @@ const MILESTONE_ACTIONS = Object.freeze([
   "leader_migration_resolved",
   "admin_added",
   "admin_removed",
-]);
-const DOCUMENT_ACTIONS = Object.freeze([
-  "version_created",
-  "version_content_replaced",
-  "version_restored",
 ]);
 const SCAN_BATCH = 200;
 
@@ -97,13 +91,6 @@ async function initializeCursor(conn, projectId) {
        WHERE t.project_id=? AND w.status='completed' AND w.finished_at IS NOT NULL
        ORDER BY w.finished_at DESC,w.id DESC LIMIT 1`,
       [projectId],
-    ),
-    documentChange: await latestCursor(
-      conn,
-      `SELECT d.created_at at,d.id FROM document_change_logs d
-       WHERE d.project_id=? AND d.action IN (${MARKS(DOCUMENT_ACTIONS)})
-       ORDER BY d.created_at DESC,d.id DESC LIMIT 1`,
-      [projectId, ...DOCUMENT_ACTIONS],
     ),
   };
 }
@@ -216,60 +203,6 @@ async function scanTaskTransitions(conn, projectId, cursor) {
   };
 }
 
-async function scanDocumentChanges(conn, projectId, cursor) {
-  const after = cursorClause("d.created_at", "d.id", cursor);
-  const rows = await query(
-    conn,
-    `SELECT d.id,d.created_at at,d.action,d.artifact_id artifactId,d.version_id versionId,
-       d.folder_id folderId,a.folder_id artifactFolderId,v.note,v.filename
-     FROM document_change_logs d
-     LEFT JOIN artifacts a ON a.id=d.artifact_id AND a.project_id=d.project_id
-     LEFT JOIN versions v ON v.id=d.version_id
-     WHERE d.project_id=? AND d.action IN (${MARKS(DOCUMENT_ACTIONS)})${after.sql}
-     ORDER BY d.created_at,d.id LIMIT ?`,
-    [projectId, ...DOCUMENT_ACTIONS, ...after.params, SCAN_BATCH],
-  );
-  const folders = rows.some((row) => (row.folderId || row.artifactFolderId) != null)
-    ? await query(
-        conn,
-        "SELECT id,parent_id,folder_kind FROM document_folders WHERE project_id=?",
-        [projectId],
-      )
-    : [];
-  let inserted = 0;
-  for (const row of rows) {
-    const rootKind = folderRootKindInList(row.folderId || row.artifactFolderId, folders);
-    if (rootKind !== "project_official") continue;
-    if (row.action === "version_restored") {
-      const versions = await query(conn, "SELECT id FROM versions WHERE artifact_id=?", [
-        row.artifactId,
-      ]);
-      for (const version of versions) {
-        await noteProjectMemorySignal(
-          conn,
-          projectId,
-          "document_version",
-          version.id,
-          "文件已从回收站恢复",
-          { urgent: false },
-        );
-        inserted++;
-      }
-      continue;
-    }
-    if (!row.versionId) continue;
-    const hint =
-      row.action === "version_content_replaced"
-        ? String(row.note || "文件内容已更新").slice(0, 120)
-        : String(row.note || row.filename || "").slice(0, 120);
-    await noteProjectMemorySignal(conn, projectId, "document_version", row.versionId, hint, {
-      urgent: row.action === "version_content_replaced",
-    });
-    inserted++;
-  }
-  return { inserted, cursor: lastCursor(rows, "at", "id") };
-}
-
 /** 新项目：先建空水位，让「项目初创」等首批事实在下一轮扫描中作为信号入队。 */
 export async function startProjectMemoryScanState(db, projectId) {
   await query(
@@ -282,7 +215,6 @@ export async function startProjectMemoryScanState(db, projectId) {
         milestone: null,
         iterationContext: null,
         archive: null,
-        documentChange: null,
       }),
     ],
   );
@@ -312,7 +244,6 @@ export async function scanProjectMemorySignals(db, projectId) {
       milestone: null,
       iterationContext: null,
       archive: null,
-      documentChange: null,
       ...(typeof state.scanCursor === "string"
         ? JSON.parse(state.scanCursor)
         : state.scanCursor || {}),
@@ -327,23 +258,12 @@ export async function scanProjectMemorySignals(db, projectId) {
     const tasks = await scanTaskTransitions(conn, projectId, {
       id: cursor.taskEventId || 0,
     });
-    const documents = await scanDocumentChanges(
-      conn,
-      projectId,
-      marshalCursor(cursor.documentChange),
-    );
-    const inserted =
-      milestones.inserted +
-      contexts.inserted +
-      archives.inserted +
-      tasks.inserted +
-      documents.inserted;
+    const inserted = milestones.inserted + contexts.inserted + archives.inserted + tasks.inserted;
     const next = {
       taskEventId: Number(tasks.cursor?.id || cursor.taskEventId || 0),
       milestone: milestones.cursor || cursor.milestone,
       iterationContext: contexts.cursor || cursor.iterationContext,
       archive: archives.cursor || cursor.archive,
-      documentChange: documents.cursor || cursor.documentChange,
     };
     await query(
       conn,

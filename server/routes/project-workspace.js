@@ -42,6 +42,7 @@ import {
   readOrgShelf,
 } from "../org-shelf.js";
 import {
+  ignoreProjectMemorySignal,
   queueLaowengMemoryRun,
   queueProjectMemoryRun,
   retryMemoryJob,
@@ -354,6 +355,9 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     if (!entry) throw new HttpError(404, "记忆条目不存在");
     res.json(entry);
   });
+  app.post("/api/projects/:id/memory/signals/:queueId/ignore", async (req, res) =>
+    res.json(await ignoreProjectMemorySignal(service, req.user, req.params.id, req.params.queueId)),
+  );
   app.get("/api/projects/:id/memory/jobs", async (req, res) => {
     await service.member(req.user, req.params.id);
     res.json(await listMemoryJobs(db, req.params.id));

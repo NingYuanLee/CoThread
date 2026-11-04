@@ -12,6 +12,7 @@ import { getWikiPage, listWikiPages } from "../wiki-pages.js";
 import {
   confirmMemoryEntry,
   listProjectMemoryEntries,
+  readProjectMemoryEntry,
   supersedeMemoryEntry,
   flagMemoryEntry,
   readProjectMemory,
@@ -330,7 +331,12 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     throw new HttpError(409, "知识页已并入项目记忆：正文不再直接编辑，发现不准确请纠错");
   });
   app.get("/api/projects/:id/memory", async (req, res) =>
-    res.json(await readProjectMemory(service, req.user, req.params.id)),
+    res.json(
+      await readProjectMemory(service, req.user, req.params.id, {
+        /* 弹窗传 entries=0：只取导读、计数、时间线与轻量条目索引，详情按条读取。 */
+        includeEntries: String(req.query.entries ?? "1") !== "0",
+      }),
+    ),
   );
   app.get("/api/projects/:id/memory/counts", async (req, res) =>
     res.json(await readProjectMemoryCounts(service, req.user, req.params.id)),
@@ -338,6 +344,16 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   app.get("/api/projects/:id/memory/entries", async (req, res) =>
     res.json(await listProjectMemoryEntries(service, req.user, req.params.id, req.query)),
   );
+  app.get("/api/projects/:id/memory/entries/:entryId", async (req, res) => {
+    const entry = await readProjectMemoryEntry(
+      service,
+      req.user,
+      req.params.id,
+      req.params.entryId,
+    );
+    if (!entry) throw new HttpError(404, "记忆条目不存在");
+    res.json(entry);
+  });
   app.get("/api/projects/:id/memory/jobs", async (req, res) => {
     await service.member(req.user, req.params.id);
     res.json(await listMemoryJobs(db, req.params.id));

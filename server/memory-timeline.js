@@ -353,34 +353,85 @@ function timelineCard(thread, pages, artifacts, archivePagesByWorkflow) {
   };
 }
 
-export async function readProjectMemory(service, user, projectId) {
+/**
+ * 先按 id 收窄、再套可见性谓词：整表直接用它要 3 秒（优化器会把全部文件索引与
+ * 关联组物化后再跑依赖子查询），按 id 查是毫秒级。分块避开 IN 参数上限。
+ */
+async function visiblePageIds(db, projectId, pageIds) {
+  const visible = new Set();
+  for (let index = 0; index < pageIds.length; index += 400) {
+    const chunk = pageIds.slice(index, index + 400);
+    const rows = await query(
+      db,
+      `SELECT p.id FROM wiki_pages p
+       WHERE p.id IN (${chunk.map(() => "?").join(",")}) AND p.project_id=?
+       AND ${visibleFileIndexSql("p")}`,
+      [...chunk, projectId],
+    );
+    for (const row of rows) visible.add(row.id);
+  }
+  return visible;
+}
+
+/** 时间线聚合只需要页骨架：不水合正文、出处与文件索引。 */
+function loadPageSkeleton(db, projectId) {
+  return query(
+    db,
+    `SELECT id,status,created_at createdAt,updated_at updatedAt
+     FROM wiki_pages WHERE project_id=? ORDER BY updated_at DESC,id DESC`,
+    [projectId],
+  );
+}
+
+/** 迭代归档所生成的记忆页：时间线卡片按它补齐窗口外的新增页。 */
+async function loadArchivePagesByWorkflow(db, projectId) {
+  const rows = await query(
+    db,
+    `SELECT s.source_id workflowId,s.page_id pageId
+     FROM wiki_page_sources s JOIN wiki_pages p ON p.id=s.page_id
+     WHERE p.project_id=? AND s.source_kind='archive' ORDER BY s.created_at,s.id`,
+    [projectId],
+  );
+  const map = new Map();
+  for (const row of rows) {
+    const pages = map.get(row.workflowId) || [];
+    if (!pages.includes(row.pageId)) pages.push(row.pageId);
+    map.set(row.workflowId, pages);
+  }
+  return map;
+}
+
+/** 弹窗默认只要导读、计数、时间线与轻量条目索引；传 includeEntries:false 跳过全量水合。 */
+export async function readProjectMemory(service, user, projectId, options = {}) {
+  const includeEntries = options.includeEntries !== false;
   const member = await service.member(user, projectId, false);
   const db = service.db;
-  const [summaryRows, threadRows, pageRows, tabOpenedAt] = await Promise.all([
-    (async () => {
-      const { loadProjectSummary } = await import("./project-memory.js");
-      const summary = await loadProjectSummary(db, projectId);
-      return summary ? [{ ...summary, lastTitle: summary.lastThreadTitle }] : [];
-    })(),
-    query(
-      db,
-      `SELECT id,title,created_at createdAt,archived_at archivedAt,archive_snapshot archiveSnapshot
+  const [summaryRows, threadRows, skeleton, tabOpenedAt, totalRows, entryIndex] = await Promise.all(
+    [
+      (async () => {
+        const { loadProjectSummary } = await import("./project-memory.js");
+        const summary = await loadProjectSummary(db, projectId);
+        return summary ? [{ ...summary, lastTitle: summary.lastThreadTitle }] : [];
+      })(),
+      query(
+        db,
+        `SELECT id,title,created_at createdAt,archived_at archivedAt,archive_snapshot archiveSnapshot
       FROM threads WHERE project_id=? AND status='archived' ORDER BY archived_at,id`,
-      [projectId],
-    ),
-    query(
-      db,
-      `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.about_user_id aboutUserId,p.title,p.body,p.status,p.source_family sourceFamily,p.created_by createdBy,
-        fi.artifact_id fileArtifactId,fg.id fileGroupId,fg.evidence fileGroupEvidence,fg.origin fileGroupOrigin,
-        NOT ${intactConversationMemorySql("p")} sourceNeedsReview,
-        p.created_at createdAt,p.updated_at updatedAt
-      FROM wiki_pages p LEFT JOIN file_index_entries fi ON fi.page_id=p.id LEFT JOIN file_index_groups fg ON fg.page_id=p.id
-      WHERE p.project_id=? AND ${visibleFileIndexSql("p")}
-      ORDER BY FIELD(p.status,'current','superseded'),p.updated_at DESC,p.id`,
-      [projectId],
-    ),
-    memberTabOpenedAt(db, projectId, user.id),
-  ]);
+        [projectId],
+      ),
+      loadPageSkeleton(db, projectId),
+      memberTabOpenedAt(db, projectId, user.id),
+      query(db, "SELECT COUNT(*) total FROM wiki_pages WHERE project_id=?", [projectId]),
+      query(
+        db,
+        `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.title,p.status,
+        fi.artifact_id fileArtifactId
+      FROM wiki_pages p LEFT JOIN file_index_entries fi ON fi.page_id=p.id
+      WHERE p.project_id=? ORDER BY p.updated_at DESC,p.id DESC`,
+        [projectId],
+      ),
+    ],
+  );
   const threads = threadRows.map((row) => ({
     ...row,
     snapshot: jsonValue(row.archiveSnapshot) || {},
@@ -403,17 +454,48 @@ export async function readProjectMemory(service, user, projectId) {
     ).map((row) => [row.id, row.title]),
   );
 
-  const { entries, sourcesByPage, disputed } = await hydrateEntries(db, projectId, pageRows);
-  const pageById = new Map(entries.map((entry) => [entry.id, entry]));
-  const archivePagesByWorkflow = new Map();
-  for (const sources of sourcesByPage.values()) {
-    for (const source of sources) {
-      if (source.sourceKind !== "archive") continue;
-      const pages = archivePagesByWorkflow.get(source.sourceId) || [];
-      if (!pages.includes(source.pageId)) pages.push(source.pageId);
-      archivePagesByWorkflow.set(source.sourceId, pages);
+  let entries = [];
+  let pageRows = skeleton;
+  let archivePages = new Map();
+  if (includeEntries) {
+    // 兼容旧调用（测试与需要整表的读法）：完整行 + 可见性 + 水合。弹窗已不走这条。
+    const fullRows = await query(
+      db,
+      `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.about_user_id aboutUserId,p.title,p.body,p.status,p.source_family sourceFamily,p.created_by createdBy,
+        fi.artifact_id fileArtifactId,fg.id fileGroupId,fg.evidence fileGroupEvidence,fg.origin fileGroupOrigin,
+        NOT ${intactConversationMemorySql("p")} sourceNeedsReview,
+        p.created_at createdAt,p.updated_at updatedAt
+      FROM wiki_pages p LEFT JOIN file_index_entries fi ON fi.page_id=p.id LEFT JOIN file_index_groups fg ON fg.page_id=p.id
+      WHERE p.project_id=?
+      ORDER BY FIELD(p.status,'current','superseded'),p.updated_at DESC,p.id`,
+      [projectId],
+    );
+    const visible = await visiblePageIds(
+      db,
+      projectId,
+      fullRows.map((row) => row.id),
+    );
+    pageRows = fullRows.filter((row) => visible.has(row.id));
+    const hydrated = await hydrateEntries(db, projectId, pageRows);
+    entries = hydrated.entries;
+    for (const sources of hydrated.sourcesByPage.values()) {
+      for (const source of sources) {
+        if (source.sourceKind !== "archive") continue;
+        const pages = archivePages.get(source.sourceId) || [];
+        if (!pages.includes(source.pageId)) pages.push(source.pageId);
+        archivePages.set(source.sourceId, pages);
+      }
     }
+  } else if (threads.length) {
+    const visible = await visiblePageIds(
+      db,
+      projectId,
+      skeleton.map((row) => row.id),
+    );
+    pageRows = skeleton.filter((row) => visible.has(row.id));
+    archivePages = await loadArchivePagesByWorkflow(db, projectId);
   }
+  const disputed = await disputedEntryIds(db, projectId);
   const members = await query(
     db,
     `SELECT u.id,u.name FROM members m JOIN users u ON u.id=m.user_id
@@ -442,17 +524,24 @@ export async function readProjectMemory(service, user, projectId) {
           basedOn: { iterationId: "", title: "", archivedAt: null },
         },
     counts: {
-      disputes: [...disputed].filter((id) => pageById.has(id)).length,
+      disputes: disputed.size,
       updatedSinceEntry: tabOpenedAt
         ? currentEntries.filter((row) => String(row.updatedAt) > String(tabOpenedAt)).length
         : currentEntries.length,
+      entries: Number(totalRows?.[0]?.total || 0),
     },
     members: members.map((member) => ({ id: member.id, name: member.name })),
-    timeline: threads.map((thread) =>
-      timelineCard(thread, pageRows, artifacts, archivePagesByWorkflow),
-    ),
+    timeline: threads.map((thread) => timelineCard(thread, pageRows, artifacts, archivePages)),
+    /** 轻量条目索引：关系选择、文件组合选择与聚焦判断需要全部条目的身份字段，但不含正文。 */
+    entryIndex,
     entries,
   };
+}
+
+/** 单条详情：点开/聚焦时按需读取，避免打开弹窗就水合全部条目。 */
+export async function readProjectMemoryEntry(service, user, projectId, entryId) {
+  await service.member(user, projectId, false);
+  return readMemoryEntry(service.db, projectId, entryId);
 }
 
 export async function listProjectMemoryEntries(service, user, projectId, options = {}) {
@@ -475,7 +564,7 @@ export async function listProjectMemoryEntries(service, user, projectId, options
   const page = positiveInteger(options.page, 1);
   const pageSize = positiveInteger(options.pageSize, 20, 100);
 
-  const where = ["p.project_id=?", visibleFileIndexSql("p")];
+  const where = ["p.project_id=?"];
   const params = [projectId];
   if (subject === "") where.push("(p.subject_type IS NULL OR p.subject_type='')");
   else if (subject !== "all") {
@@ -505,29 +594,54 @@ export async function listProjectMemoryEntries(service, user, projectId, options
   }
   const whereSql = where.join(" AND ");
   const offset = (page - 1) * pageSize;
-  const [countRows, rows] = await Promise.all([
-    query(db, `SELECT COUNT(*) total FROM wiki_pages p WHERE ${whereSql}`, params),
-    query(
+  /* 可见性谓词在整表上要 3 秒，按 id 收窄是毫秒级：先按普通条件批量扫出候选页骨架，
+     再分批套可见性过滤，凑够当前页（含多取一条判断 hasMore）。total 用普通计数，
+     极少数不可见的文件页可能让它略微偏大，列表本身是准确的。 */
+  const [countRows] = await query(
+    db,
+    `SELECT COUNT(*) total FROM wiki_pages p WHERE ${whereSql}`,
+    params,
+  );
+  const total = Number(countRows?.total || 0);
+  const skeletonSql = `SELECT p.id,p.status,p.created_at createdAt,p.updated_at updatedAt
+    FROM wiki_pages p WHERE ${whereSql} ORDER BY p.updated_at DESC,p.id DESC LIMIT ? OFFSET ?`;
+  const batchSize = Math.max(100, pageSize * 3);
+  const picked = [];
+  let rawOffset = 0;
+  while (picked.length <= offset + pageSize && rawOffset < total) {
+    const chunk = await query(db, skeletonSql, [...params, batchSize, rawOffset]);
+    if (!chunk.length) break;
+    rawOffset += chunk.length;
+    const visible = await visiblePageIds(
       db,
-      `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.about_user_id aboutUserId,p.title,p.body,p.status,p.source_family sourceFamily,p.created_by createdBy,
+      projectId,
+      chunk.map((row) => row.id),
+    );
+    picked.push(...chunk.filter((row) => visible.has(row.id)));
+    if (chunk.length < batchSize) break;
+  }
+  const pageSkeleton = picked.slice(offset, offset + pageSize);
+  const hasMore = picked.length > offset + pageSize;
+  const rows = pageSkeleton.length
+    ? await query(
+        db,
+        `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.about_user_id aboutUserId,p.title,p.body,p.status,p.source_family sourceFamily,p.created_by createdBy,
         fi.artifact_id fileArtifactId,fg.id fileGroupId,fg.evidence fileGroupEvidence,fg.origin fileGroupOrigin,
         NOT ${intactConversationMemorySql("p")} sourceNeedsReview,
         p.created_at createdAt,p.updated_at updatedAt
       FROM wiki_pages p LEFT JOIN file_index_entries fi ON fi.page_id=p.id LEFT JOIN file_index_groups fg ON fg.page_id=p.id
-      WHERE ${whereSql}
-      ORDER BY p.updated_at DESC,p.id DESC
-      LIMIT ? OFFSET ?`,
-      [...params, pageSize + 1, offset],
-    ),
-  ]);
-  const hasMore = rows.length > pageSize;
-  const pageRows = hasMore ? rows.slice(0, pageSize) : rows;
+      WHERE p.id IN (${pageSkeleton.map(() => "?").join(",")})`,
+        pageSkeleton.map((row) => row.id),
+      )
+    : [];
+  const rowById = new Map(rows.map((row) => [row.id, row]));
+  const pageRows = pageSkeleton.map((row) => rowById.get(row.id)).filter(Boolean);
   const { entries } = await hydrateEntries(db, projectId, pageRows);
   return {
     items: entries,
     page,
     pageSize,
-    total: Number(countRows[0]?.total || 0),
+    total,
     hasMore,
   };
 }

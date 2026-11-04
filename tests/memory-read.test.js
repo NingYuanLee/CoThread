@@ -6,7 +6,11 @@ import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { createApp } from "../server/app.js";
 import { issueCredential } from "../server/auth.js";
-import { listProjectMemoryEntries, readProjectMemory } from "../server/memory-timeline.js";
+import {
+  listProjectMemoryEntries,
+  readProjectMemory,
+  readProjectMemoryEntry,
+} from "../server/memory-timeline.js";
 import { createMemoryRelation } from "../server/memory-graph.js";
 
 async function setup() {
@@ -383,6 +387,95 @@ test("非项目成员读记忆条目返回 403", async () => {
       (error) => error.status === 403,
     );
   } finally {
+    await database.close();
+  }
+});
+
+test("弹窗轻量读不水合全量条目，返回轻量索引与计数", async () => {
+  const { database, db, service, owner, project } = await setup();
+  try {
+    const task = await insertPage(db, project.id, owner.id, {
+      subject: "task",
+      subtype: "blocked_task",
+      title: "轻量索引里的任务",
+    });
+    const light = await readProjectMemory(service, owner, project.id, { includeEntries: false });
+    assert.deepEqual(light.entries, []);
+    assert.ok(light.entryIndex.some((entry) => entry.id === task));
+    assert.equal(light.counts.entries, light.entryIndex.length);
+    assert.ok(light.counts.entries >= 1);
+    /* 时间线聚合仍有卡片结构（本项目没有归档迭代时为空）。 */
+    assert.ok(Array.isArray(light.timeline));
+    const full = await readProjectMemory(service, owner, project.id);
+    assert.ok(
+      full.entries.some((entry) => entry.id === task),
+      "默认读法仍返回完整条目",
+    );
+  } finally {
+    await database.close();
+  }
+});
+
+test("单条详情按需读取并带关系，跨项目或不存在返回空", async () => {
+  const { database, db, service, owner, project } = await setup();
+  try {
+    const first = await insertPage(db, project.id, owner.id, {
+      subject: "project",
+      subtype: "phase_change",
+      title: "阶段一",
+    });
+    const second = await insertPage(db, project.id, owner.id, {
+      subject: "task",
+      subtype: "critical_delivery",
+      title: "交付一",
+    });
+    await createMemoryRelation(db, {
+      projectId: project.id,
+      fromPageId: first,
+      toPageId: second,
+      relation: "relates",
+      note: "关联说明",
+      createdBy: owner.id,
+    });
+    const entry = await readProjectMemoryEntry(service, owner, project.id, second);
+    assert.equal(entry.id, second);
+    assert.ok(entry.relations.some((item) => item.otherPageId === first));
+    assert.equal(await readProjectMemoryEntry(service, owner, project.id, randomUUID()), null);
+
+    const other = await new Service(db).createProject(owner, { name: "另一个项目" });
+    assert.equal(await readProjectMemoryEntry(service, owner, other.id, first), null);
+  } finally {
+    await database.close();
+  }
+});
+
+test("HTTP 轻量读只返回索引，单条详情接口可用", async () => {
+  const { database, db, owner, project } = await setup();
+  let server;
+  try {
+    const page = await insertPage(db, project.id, owner.id, {
+      subject: "task",
+      title: "按需详情条目",
+    });
+    server = createApp(db).listen(0, "127.0.0.1");
+    await new Promise((done) => server.once("listening", done));
+    const root = `http://127.0.0.1:${server.address().port}/api/projects/${project.id}/memory`;
+    const token = (await issueCredential(db, owner.id, "session", "memory-light-owner")).token;
+    const get = (path) => fetch(path, { headers: { Cookie: "cothread_session=" + token } });
+
+    const light = await (await get(`${root}?entries=0`)).json();
+    assert.deepEqual(light.entries, []);
+    assert.ok(light.entryIndex.some((entry) => entry.id === page));
+    assert.ok(light.counts.entries >= 1);
+
+    const detail = await get(`${root}/entries/${page}`);
+    assert.equal(detail.status, 200);
+    const body = await detail.json();
+    assert.equal(body.id, page);
+    assert.equal(body.subject, "task");
+    assert.equal((await get(`${root}/entries/${randomUUID()}`)).status, 404);
+  } finally {
+    if (server) await new Promise((done) => server.close(done));
     await database.close();
   }
 });

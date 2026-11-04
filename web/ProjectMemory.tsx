@@ -32,7 +32,7 @@ import type { LaowengRun } from "./agent-monitor-types";
 import { SlideSwitch } from "./SlideSwitch";
 import { MemoryHistoryPanel } from "./MemoryHistoryPanel";
 
-export type MemoryCounts = { disputes: number; updatedSinceEntry: number };
+export type MemoryCounts = { disputes: number; updatedSinceEntry: number; entries?: number };
 
 type MemorySource = { sourceKind?: string; sourceId?: string; label?: string };
 type MemoryRelation = {
@@ -202,6 +202,15 @@ type MemoryGuide = {
   updatedAt?: string | null;
   basedOn?: { iterationId?: string; title?: string; archivedAt?: string | null } | null;
 };
+type MemoryEntryIdentity = {
+  id: string;
+  subject?: string | null;
+  subtype?: string | null;
+  title?: string;
+  status?: string;
+  updatedAt?: string | null;
+  fileArtifactId?: string | null;
+};
 type MemoryData = {
   /** viewer 为 false；以服务端为准，父组件的项目角色只作兜底。 */
   canWrite?: boolean;
@@ -211,6 +220,8 @@ type MemoryData = {
   counts?: Partial<MemoryCounts> | null;
   timeline?: MemoryTimelineCard[] | null;
   members?: { id: string; name?: string }[] | null;
+  /** 轻量条目索引：不含正文与出处；详情按条拉取。 */
+  entryIndex?: MemoryEntryIdentity[] | null;
   entries?: MemoryEntry[] | null;
 };
 type MemoryApi = (
@@ -1461,7 +1472,7 @@ function ConversationRunDetail({
 
 type MemoryPendingAction = { kind: "supersede" | "flag"; entry: MemoryEntry };
 
-const ZERO_COUNTS: MemoryCounts = { disputes: 0, updatedSinceEntry: 0 };
+const ZERO_COUNTS: MemoryCounts = { disputes: 0, updatedSinceEntry: 0, entries: 0 };
 const STATUS_LABEL: Record<string, string> = {
   current: "现行",
   superseded: "作废",
@@ -1595,6 +1606,7 @@ function normalizeCounts(value: unknown): MemoryCounts | null {
   return {
     disputes: read("disputes"),
     updatedSinceEntry: read("updatedSinceEntry"),
+    entries: read("entries"),
   };
 }
 
@@ -1649,6 +1661,8 @@ export function ProjectMemory({
   const [frozen, setFrozen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState("");
+  /** 当前选中的完整条目；弹窗不再一次性拉全量，详情按条读取后放这里。 */
+  const [selectedEntry, setSelectedEntry] = useState<MemoryEntry | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [jobs, setJobs] = useState<MemoryJob[]>([]);
   const displayJobs = useMemo(() => {
@@ -1859,7 +1873,13 @@ export function ProjectMemory({
       if (!silent) setPhase("loading");
       setError("");
       try {
-        const payload = await api(`/projects/${projectId}/memory`, undefined, undefined, signal);
+        const payload = await api(
+          /* entries=0：打开弹窗不再拉全量条目与水合出处，详情按条读取。 */
+          `/projects/${projectId}/memory?entries=0`,
+          undefined,
+          undefined,
+          signal,
+        );
         if (signal?.aborted) return;
         const next: MemoryData =
           payload && typeof payload === "object" ? (payload as MemoryData) : {};
@@ -1906,14 +1926,19 @@ export function ProjectMemory({
     setListEpoch((value) => value + 1);
   }, [projectId]);
 
-  const entries = useMemo(
-    () =>
-      (Array.isArray(data?.entries) ? data.entries : [])
+  /* 弹窗只拿轻量条目索引（无正文）；detail 打开的单条内容按需读取。 */
+  const entries = useMemo<MemoryEntry[]>(() => {
+    const indexed = Array.isArray(data?.entryIndex) ? data.entryIndex : null;
+    if (indexed)
+      return indexed
         .filter((entry) => Boolean(entry) && typeof entry.id === "string")
         .slice()
-        .sort((left, right) => timeOf(right.updatedAt) - timeOf(left.updatedAt)),
-    [data],
-  );
+        .sort((left, right) => timeOf(right.updatedAt) - timeOf(left.updatedAt));
+    return (Array.isArray(data?.entries) ? data.entries : [])
+      .filter((entry) => Boolean(entry) && typeof entry.id === "string")
+      .slice()
+      .sort((left, right) => timeOf(right.updatedAt) - timeOf(left.updatedAt));
+  }, [data]);
   const timeline = useMemo(
     () =>
       (Array.isArray(data?.timeline) ? data.timeline : []).filter(
@@ -1929,6 +1954,30 @@ export function ProjectMemory({
     }
     return map;
   }, [timeline]);
+  /* 条目正文按需读取：列表里已加载的直接用；引用聚焦、关系跳转等再拉单条详情。 */
+  useEffect(() => {
+    if (!selectedId) {
+      setSelectedEntry(null);
+      return;
+    }
+    const listed = entryList.items.find((entry) => entry.id === selectedId);
+    if (listed) {
+      setSelectedEntry(listed);
+      return;
+    }
+    const controller = new AbortController();
+    api(`/projects/${projectId}/memory/entries/${selectedId}`, undefined, "GET", controller.signal)
+      .then((payload) => {
+        if (controller.signal.aborted) return;
+        if (payload && typeof payload === "object" && typeof payload.id === "string")
+          setSelectedEntry(payload as MemoryEntry);
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted)
+          showTip(cause instanceof Error ? cause.message : "记忆详情读取失败", "error");
+      });
+    return () => controller.abort();
+  }, [api, entryList.items, projectId, selectedId]);
   /* 引用进来时聚焦单条详情：同一次打开只自动弹出一次，手动关掉详情不再弹。
      focusId 清空（关掉整个记忆弹窗）时重置去重，保证再点同一条引用能重新打开。 */
   useEffect(() => {
@@ -2211,6 +2260,11 @@ export function ProjectMemory({
         entryPages.current.set(next.key, next);
         return next;
       });
+      setSelectedEntry((current) =>
+        current && current.id === entry.id
+          ? { ...current, ...(updated || {}), status: updated?.status || "superseded" }
+          : current,
+      );
       showTip("已作废，原内容与历史出处保留");
       return true;
     } catch (cause) {
@@ -2248,6 +2302,9 @@ export function ProjectMemory({
       );
       setFlaggedIds((current) => (current.includes(entry.id) ? current : [...current, entry.id]));
       patchEntryInList(entry.id, { disputed: true });
+      setSelectedEntry((current) =>
+        current && current.id === entry.id ? { ...current, disputed: true } : current,
+      );
       setFlagEntryId("");
       setFlagNote("");
       publishCounts(
@@ -2279,9 +2336,9 @@ export function ProjectMemory({
   };
 
   const selected = selectedId
-    ? entries.find((entry) => entry.id === selectedId) ||
-      repairGroups?.find((entry) => entry.id === selectedId) ||
-      null
+    ? repairGroups?.find((entry) => entry.id === selectedId) ||
+      entryList.items.find((entry) => entry.id === selectedId) ||
+      (selectedEntry?.id === selectedId ? selectedEntry : null)
     : null;
   const selectedDisputed =
     Boolean(selected?.disputed) || (selected ? flaggedIds.includes(selected.id) : false);
@@ -2637,7 +2694,7 @@ export function ProjectMemory({
                   </p>
                 ) : (
                   <p className="project-memory-state">
-                    {entries.length
+                    {counts.entries
                       ? "当前筛选下没有条目，换个状态或关键词试试。"
                       : "还没有沉淀出记忆条目。记忆按来源自动维护，现行不代表内容真实。"}
                   </p>

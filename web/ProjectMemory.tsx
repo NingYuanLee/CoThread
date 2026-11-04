@@ -68,6 +68,23 @@ type MemoryEntry = {
     members: { artifactId: string; description?: string }[];
   } | null;
 };
+type MemoryEntryPage = {
+  items?: MemoryEntry[];
+  page?: number;
+  total?: number;
+  hasMore?: boolean;
+};
+/** 右侧时间线的分页状态：key 是「一级+二级+状态+关键词」组合，用来按条件复用已加载页。 */
+type MemoryEntryList = {
+  key: string;
+  items: MemoryEntry[];
+  page: number;
+  total: number;
+  hasMore: boolean;
+  loading: boolean;
+  loadingMore: boolean;
+  error: string;
+};
 type MemoryJobRun = {
   status?: string;
   createdAt?: string;
@@ -1451,6 +1468,8 @@ const STATUS_LABEL: Record<string, string> = {
 };
 const STATUS_KEYS = ["current", "superseded"] as const;
 const DEFAULT_STATUS_FILTER = ["current"];
+/** 右侧时间线每页条数：首屏一页，上滑再取下一页。 */
+const ENTRY_PAGE_SIZE = 20;
 const SUBJECT_LABEL: Record<string, string> = {
   utterance: "发言",
   document: "文档",
@@ -1673,6 +1692,160 @@ export function ProjectMemory({
   const appliedFocus = useRef("");
   const editable = serverCanWrite ?? canWrite;
 
+  /* 右侧时间线走分页接口：每个「一级类型 + 二级类型 + 状态 + 关键词」组合各自缓存
+     已加载页，第一次切到新条件时取第一页，切回看过的条件直接复用、不重复请求；
+     滚到底部再取下一页。 */
+  const [queryApplied, setQueryApplied] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setQueryApplied(query.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const [listEpoch, setListEpoch] = useState(0);
+  const [entryList, setEntryList] = useState<MemoryEntryList>({
+    key: "",
+    items: [],
+    page: 0,
+    total: 0,
+    hasMore: false,
+    loading: false,
+    loadingMore: false,
+    error: "",
+  });
+  const entryPages = useRef(
+    new Map<string, { items: MemoryEntry[]; page: number; total: number; hasMore: boolean }>(),
+  );
+  const listRequest = useRef(0);
+  const listEl = useRef<HTMLUListElement | null>(null);
+  const entryFilterKey = useMemo(
+    () =>
+      JSON.stringify([
+        subjectFilter,
+        [...subtypeFilter].sort(),
+        [...statusFilter].sort(),
+        queryApplied,
+      ]),
+    [subjectFilter, subtypeFilter, statusFilter, queryApplied],
+  );
+  const filterKeyRef = useRef(entryFilterKey);
+  filterKeyRef.current = entryFilterKey;
+  const listStateRef = useRef(entryList);
+  listStateRef.current = entryList;
+  const entryPagePath = useCallback(
+    (page: number) => {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(ENTRY_PAGE_SIZE),
+      });
+      if (subjectFilter !== "all") params.set("subject", subjectFilter);
+      if (subtypeFilter.length) params.set("subtypes", subtypeFilter.join(","));
+      if (statusFilter.length) params.set("statuses", statusFilter.join(","));
+      if (queryApplied) params.set("q", queryApplied);
+      return `/projects/${projectId}/memory/entries?${params.toString()}`;
+    },
+    [projectId, subjectFilter, subtypeFilter, statusFilter, queryApplied],
+  );
+  const entryPagePathRef = useRef(entryPagePath);
+  entryPagePathRef.current = entryPagePath;
+
+  const loadEntryPage = useCallback(
+    async (page: number) => {
+      const key = filterKeyRef.current;
+      const requestId = ++listRequest.current;
+      setEntryList((current) => ({
+        ...(current.key === key
+          ? current
+          : { ...current, items: [], page: 0, total: 0, hasMore: false }),
+        key,
+        loading: page === 1,
+        loadingMore: page > 1,
+        error: "",
+      }));
+      try {
+        const payload = await api(entryPagePathRef.current(page));
+        /* 条件已经切走（或又有新请求）时丢弃这次结果，避免旧条件覆盖新列表。 */
+        if (requestId !== listRequest.current || filterKeyRef.current !== key) return;
+        const pageData: MemoryEntryPage =
+          payload && typeof payload === "object" ? (payload as MemoryEntryPage) : {};
+        const incoming = (Array.isArray(pageData.items) ? pageData.items : []).filter(
+          (entry) => Boolean(entry) && typeof entry.id === "string",
+        );
+        setEntryList((current) => {
+          const base = page === 1 || current.key !== key ? [] : current.items;
+          const seen = new Set(base.map((entry) => entry.id));
+          const next: MemoryEntryList = {
+            key,
+            items: [...base, ...incoming.filter((entry) => !seen.has(entry.id))],
+            page,
+            total: Number.isFinite(pageData.total) ? Number(pageData.total) : incoming.length,
+            hasMore: pageData.hasMore === true,
+            loading: false,
+            loadingMore: false,
+            error: "",
+          };
+          entryPages.current.set(key, next);
+          return next;
+        });
+      } catch (cause) {
+        if (requestId !== listRequest.current || filterKeyRef.current !== key) return;
+        setEntryList((current) => ({
+          ...current,
+          loading: false,
+          loadingMore: false,
+          error: cause instanceof Error ? cause.message : "记忆条目读取失败",
+        }));
+      }
+    },
+    [api],
+  );
+
+  useEffect(() => {
+    const cached = entryPages.current.get(entryFilterKey);
+    if (cached) {
+      setEntryList({
+        ...cached,
+        key: entryFilterKey,
+        loading: false,
+        loadingMore: false,
+        error: "",
+      });
+      if (listEl.current) listEl.current.scrollTop = 0;
+      return;
+    }
+    void loadEntryPage(1);
+  }, [entryFilterKey, listEpoch, loadEntryPage]);
+
+  const loadMoreEntries = useCallback(() => {
+    const state = listStateRef.current;
+    if (state.loading || state.loadingMore || !state.hasMore || state.page < 1) return;
+    void loadEntryPage(state.page + 1);
+  }, [loadEntryPage]);
+
+  const handleListScroll = (element: HTMLElement | null) => {
+    if (!element) return;
+    if (element.scrollHeight - element.scrollTop - element.clientHeight > 240) return;
+    loadMoreEntries();
+  };
+
+  /** 丢弃分页缓存并重新取当前条件的第一页（刷新手、编辑后列表失配时用）。 */
+  const resetEntryPages = useCallback(() => {
+    entryPages.current.clear();
+    setListEpoch((value) => value + 1);
+  }, []);
+
+  /** 就地更新已渲染条目的字段，避免一次纠错/作废把整列滚动位置重置。 */
+  const patchEntryInList = (entryId: string, patch: Partial<MemoryEntry>) => {
+    setEntryList((current) => {
+      const next = {
+        ...current,
+        items: current.items.map((entry) =>
+          entry.id === entryId ? { ...entry, ...patch } : entry,
+        ),
+      };
+      entryPages.current.set(next.key, next);
+      return next;
+    });
+  };
+
   const publishCounts = useCallback(
     (next: MemoryCounts) => {
       setCounts(next);
@@ -1728,6 +1901,9 @@ export function ProjectMemory({
     setSubjectFilter("all");
     setSubtypeFilter([]);
     setPendingAction(null);
+    setQueryApplied("");
+    entryPages.current.clear();
+    setListEpoch((value) => value + 1);
   }, [projectId]);
 
   const entries = useMemo(
@@ -1753,22 +1929,6 @@ export function ProjectMemory({
     }
     return map;
   }, [timeline]);
-  const filtered = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
-    return entries.filter((entry) => {
-      /* 状态复选框与搜索词同时生效（AND）。 */
-      if (!statusFilter.includes(entry.status || "current")) return false;
-      if (subjectFilter !== "all" && (entry.subject || "") !== subjectFilter) return false;
-      if (subtypeFilter.length && !subtypeFilter.includes(entry.subtype || "")) return false;
-      if (!keyword) return true;
-      return [
-        entry.title || "",
-        SUBTYPE_LABEL[entry.subtype || ""] || "",
-        entry.subtype || "",
-      ].some((value) => value.toLowerCase().includes(keyword));
-    });
-  }, [entries, query, statusFilter, subjectFilter, subtypeFilter]);
-
   /* 引用进来时聚焦单条详情：同一次打开只自动弹出一次，手动关掉详情不再弹。
      focusId 清空（关掉整个记忆弹窗）时重置去重，保证再点同一条引用能重新打开。 */
   useEffect(() => {
@@ -1814,6 +1974,14 @@ export function ProjectMemory({
     if (refreshing) return;
     setRefreshing(true);
     try {
+      /* 右上角刷新回到默认「全部」条件，并从第一页重取时间线。 */
+      setSubjectFilter("all");
+      setSubtypeFilter([]);
+      setStatusFilter(DEFAULT_STATUS_FILTER);
+      setQuery("");
+      setQueryApplied("");
+      entryPages.current.clear();
+      setListEpoch((value) => value + 1);
       await Promise.all([load(undefined, true), loadJobs()]);
       showTip("项目记忆已刷新");
     } catch (cause) {
@@ -1966,6 +2134,8 @@ export function ProjectMemory({
       await api(`/projects/${projectId}/memory/entries/${entryId}`, { subject }, "PATCH");
       showTip("对象类型已更新");
       await load();
+      /* 一级类型变了会影响当前筛选的命中集合，重新取当前条件的第一页。 */
+      resetEntryPages();
     } catch (cause) {
       showTip(cause instanceof Error ? cause.message : "更新对象类型失败", "error");
     }
@@ -1976,6 +2146,7 @@ export function ProjectMemory({
       await api(`/projects/${projectId}/memory/entries/${entryId}`, { subtype }, "PATCH");
       showTip("二级类型已更新");
       await load();
+      resetEntryPages();
     } catch (cause) {
       showTip(cause instanceof Error ? cause.message : "更新二级类型失败", "error");
     }
@@ -2025,6 +2196,21 @@ export function ProjectMemory({
           ...counts,
         },
       );
+      /* 时间线就地更新状态；当前状态筛选不含作废时把它从列表移走。 */
+      setEntryList((current) => {
+        const next = {
+          ...current,
+          items: current.items
+            .map((item) =>
+              item.id === entry.id
+                ? { ...item, ...(updated || {}), status: updated?.status || "superseded" }
+                : item,
+            )
+            .filter((item) => statusFilter.includes(item.status || "current")),
+        };
+        entryPages.current.set(next.key, next);
+        return next;
+      });
       showTip("已作废，原内容与历史出处保留");
       return true;
     } catch (cause) {
@@ -2061,6 +2247,7 @@ export function ProjectMemory({
           : previous,
       );
       setFlaggedIds((current) => (current.includes(entry.id) ? current : [...current, entry.id]));
+      patchEntryInList(entry.id, { disputed: true });
       setFlagEntryId("");
       setFlagNote("");
       publishCounts(
@@ -2127,7 +2314,10 @@ export function ProjectMemory({
           closeLabel="关闭项目记忆"
           fullscreen={true}
         />
-        <div className="project-memory-body">
+        <div
+          className="project-memory-body"
+          onScroll={(event) => handleListScroll(event.currentTarget)}
+        >
           {phase === "error" ? (
             <div className="project-memory-error" role="alert">
               <p>项目记忆还没能读出来：{error || "接口暂时不可用"}</p>
@@ -2345,7 +2535,9 @@ export function ProjectMemory({
                     className="project-memory-subject-switch"
                   />
                   <small>
-                    {filtered.length} / {entries.length}
+                    {entryList.loading && !entryList.items.length
+                      ? "加载中…"
+                      : `已加载 ${entryList.items.length} / ${entryList.total}`}
                   </small>
                 </div>
                 <div className="project-memory-filter-row">
@@ -2389,9 +2581,13 @@ export function ProjectMemory({
                     ))}
                   </div>
                 </div>
-                {filtered.length ? (
-                  <ul className="project-memory-list">
-                    {filtered.map((entry) => {
+                {entryList.items.length ? (
+                  <ul
+                    className="project-memory-list"
+                    ref={listEl}
+                    onScroll={(event) => handleListScroll(event.currentTarget)}
+                  >
+                    {entryList.items.map((entry) => {
                       const status = entry.status || "current";
                       const disputed = Boolean(entry.disputed) || flaggedIds.includes(entry.id);
                       return (
@@ -2431,6 +2627,14 @@ export function ProjectMemory({
                       );
                     })}
                   </ul>
+                ) : entryList.error ? (
+                  <p className="project-memory-state" role="alert">
+                    {entryList.error}
+                  </p>
+                ) : entryList.loading ? (
+                  <p className="project-memory-state" role="status" aria-live="polite">
+                    正在读取记忆条目…
+                  </p>
                 ) : (
                   <p className="project-memory-state">
                     {entries.length
@@ -2438,6 +2642,24 @@ export function ProjectMemory({
                       : "还没有沉淀出记忆条目。记忆按来源自动维护，现行不代表内容真实。"}
                   </p>
                 )}
+                {entryList.items.length ? (
+                  <p
+                    className="project-memory-state project-memory-list-more"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {entryList.loadingMore
+                      ? "正在加载下一页…"
+                      : entryList.hasMore
+                        ? "上滑加载更多"
+                        : "没有更多了"}
+                  </p>
+                ) : null}
+                {entryList.items.length && entryList.error ? (
+                  <p className="project-memory-state" role="alert">
+                    {entryList.error}
+                  </p>
+                ) : null}
                 {!editable ? (
                   <p className="project-memory-readonly">
                     {frozen ? "项目已归档，项目记忆已封存，只能查看。" : "只读成员只能查看。"}

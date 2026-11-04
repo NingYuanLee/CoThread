@@ -11,6 +11,7 @@ import { readVisualArtifact } from "../visual-artifacts.js";
 import { getWikiPage, listWikiPages } from "../wiki-pages.js";
 import {
   confirmMemoryEntry,
+  listProjectMemoryEntries,
   supersedeMemoryEntry,
   flagMemoryEntry,
   readProjectMemory,
@@ -333,6 +334,9 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   );
   app.get("/api/projects/:id/memory/counts", async (req, res) =>
     res.json(await readProjectMemoryCounts(service, req.user, req.params.id)),
+  );
+  app.get("/api/projects/:id/memory/entries", async (req, res) =>
+    res.json(await listProjectMemoryEntries(service, req.user, req.params.id, req.query)),
   );
   app.get("/api/projects/:id/memory/jobs", async (req, res) => {
     await service.member(req.user, req.params.id);

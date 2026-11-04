@@ -8,6 +8,8 @@ import { visibleFileIndexSql, visibleFileSourceSql } from "./file-index-visibili
 import { hydrateFileIndexRoots } from "./file-index-roots.js";
 import { hydrateFileIndexGroups } from "./file-index-groups.js";
 import { hydrateFileIndexPaths } from "./file-index-path.js";
+import { MEMORY_SUBJECTS } from "../shared/memory-kinds.js";
+import { MEMORY_SUBTYPES, MEMORY_SUBTYPE_LABELS } from "../shared/memory-taxonomy.js";
 
 /**
  * 项目记忆读侧、独立反馈、群消息记忆人工停用与归档统计。
@@ -55,12 +57,53 @@ function mapEntry(row, sources, disputed, relations = []) {
   };
 }
 
+function parseCsv(value, limit = 50) {
+  const raw = Array.isArray(value) ? value.join(",") : value;
+  return [
+    ...new Set(
+      String(raw || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, limit);
+}
+
+/** 非法/缺省值回落到默认值，分页参数一律收敛成正整数。 */
+function positiveInteger(value, fallback, max = Number.MAX_SAFE_INTEGER) {
+  const number = Math.trunc(Number(value));
+  if (!Number.isFinite(number) || number < 1) return fallback;
+  return Math.min(number, max);
+}
+
+/** LIKE 里 % _ \ 需要转义，否则关键词会被当成通配符。 */
+function escapeLike(value) {
+  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+const MEMORY_SUBTYPE_INDEX = Object.freeze(
+  Object.entries(MEMORY_SUBTYPES).flatMap(([subject, keys]) =>
+    keys.map((key) => ({ subject, key, label: MEMORY_SUBTYPE_LABELS[key] || "" })),
+  ),
+);
+
+/** 关键词命中二级类型：key 或中文标签包含关键词（大小写不敏感）。 */
+function matchedSubtypeKeys(keyword) {
+  const needle = keyword.toLowerCase();
+  return MEMORY_SUBTYPE_INDEX.filter(
+    (item) => item.key.toLowerCase().includes(needle) || item.label.toLowerCase().includes(needle),
+  ).map((item) => item.key);
+}
+
 /**
  * 当前未解决的纠错标注：同一个条目上，最近一次 memory_entry_flagged 晚于
  * 最近一次旧版 memory_entry_confirmed（兼容历史）后有反馈即显示反馈标记。
  * 这是独立反馈的展示兼容字段，不是记忆正确性或生命周期。
+ * pageIds 省略时统计全项目；传数组时只统计这些条目，供分页读只查当前页。
  */
-export async function disputedEntryIds(db, projectId) {
+export async function disputedEntryIds(db, projectId, pageIds = null) {
+  if (Array.isArray(pageIds) && !pageIds.length) return new Set();
+  const scope = Array.isArray(pageIds) ? ` AND p.id IN (${pageIds.map(() => "?").join(",")})` : "";
   const rows = await query(
     db,
     `SELECT p.id pageId,
@@ -69,9 +112,9 @@ export async function disputedEntryIds(db, projectId) {
     FROM project_change_logs l
     JOIN wiki_pages p ON p.project_id=l.project_id
       AND JSON_UNQUOTE(JSON_EXTRACT(l.details,'$.pageId'))=p.id
-    WHERE l.project_id=? AND l.action IN ('memory_entry_flagged','memory_entry_confirmed')
+    WHERE l.project_id=?${scope} AND l.action IN ('memory_entry_flagged','memory_entry_confirmed')
     GROUP BY p.id`,
-    [projectId],
+    Array.isArray(pageIds) ? [projectId, ...pageIds] : [projectId],
   );
   const ids = new Set();
   for (const row of rows) {
@@ -137,6 +180,78 @@ async function loadRelations(db, projectId, pageIds) {
     }
   }
   return map;
+}
+
+async function loadGroupMembers(db, projectId, pageRows) {
+  const groupIds = [...new Set(pageRows.map((row) => row.fileGroupId).filter(Boolean))];
+  if (!groupIds.length) return [];
+  return query(
+    db,
+    `SELECT fm.group_id groupId,fm.artifact_id artifactId,fm.description
+    FROM file_index_group_members fm JOIN file_index_groups fg ON fg.id=fm.group_id
+    WHERE fg.project_id=? AND fg.id IN (${groupIds.map(() => "?").join(",")})`,
+    [projectId, ...groupIds],
+  );
+}
+
+async function loadPageSources(db, projectId, pageIds) {
+  if (!pageIds.length) return [];
+  return query(
+    db,
+    `SELECT s.page_id pageId,s.source_kind sourceKind,s.source_id sourceId,s.label
+    FROM wiki_page_sources s JOIN wiki_pages p ON p.id=s.page_id
+    WHERE p.project_id=? AND p.id IN (${pageIds.map(() => "?").join(",")})
+      AND ${visibleFileIndexSql("p")} AND ${visibleFileSourceSql("s")} ORDER BY s.created_at,s.id`,
+    [projectId, ...pageIds],
+  );
+}
+
+/**
+ * 补全一页（或全项目）条目所需的出处、关系、文件索引与纠错标注。
+ * 多表查询都按 pageRows 的 id 收窄，分页读因此只补当前页，不扫全项目条目。
+ */
+async function hydrateEntries(db, projectId, pageRows) {
+  const pageIds = pageRows.map((row) => row.id);
+  if (!pageIds.length) return { entries: [], sourcesByPage: new Map(), disputed: new Set() };
+  const [groupMembers, sourceRows, disputed, relationsByPage] = await Promise.all([
+    loadGroupMembers(db, projectId, pageRows),
+    loadPageSources(db, projectId, pageIds),
+    disputedEntryIds(db, projectId, pageIds),
+    loadRelations(db, projectId, pageIds),
+  ]);
+  const membersByGroup = new Map();
+  for (const member of groupMembers) {
+    const list = membersByGroup.get(member.groupId) || [];
+    list.push(member);
+    membersByGroup.set(member.groupId, list);
+  }
+  const withMembers = pageRows.map((row) =>
+    row.fileGroupId ? { ...row, fileGroupMembers: membersByGroup.get(row.fileGroupId) || [] } : row,
+  );
+  const hydratedPages = await hydrateFileIndexPaths(
+    db,
+    projectId,
+    await hydrateFileIndexGroups(
+      db,
+      projectId,
+      await hydrateFileIndexRoots(db, projectId, withMembers),
+    ),
+  );
+  const sourcesByPage = new Map();
+  for (const source of sourceRows) {
+    const list = sourcesByPage.get(source.pageId) || [];
+    list.push(source);
+    sourcesByPage.set(source.pageId, list);
+  }
+  const entries = hydratedPages.map((row) =>
+    mapEntry(
+      row,
+      sourcesByPage.get(row.id) || [],
+      disputed.has(row.id),
+      relationsByPage.get(row.id) || [],
+    ),
+  );
+  return { entries, sourcesByPage, disputed };
 }
 
 async function readMemoryEntry(db, projectId, id) {
@@ -241,7 +356,7 @@ function timelineCard(thread, pages, artifacts, archivePagesByWorkflow) {
 export async function readProjectMemory(service, user, projectId) {
   const member = await service.member(user, projectId, false);
   const db = service.db;
-  const [summaryRows, threadRows, pageRows, sourceRows, disputed, tabOpenedAt] = await Promise.all([
+  const [summaryRows, threadRows, pageRows, tabOpenedAt] = await Promise.all([
     (async () => {
       const { loadProjectSummary } = await import("./project-memory.js");
       const summary = await loadProjectSummary(db, projectId);
@@ -264,14 +379,6 @@ export async function readProjectMemory(service, user, projectId) {
       ORDER BY FIELD(p.status,'current','superseded'),p.updated_at DESC,p.id`,
       [projectId],
     ),
-    query(
-      db,
-      `SELECT s.page_id pageId,s.source_kind sourceKind,s.source_id sourceId,s.label
-      FROM wiki_page_sources s JOIN wiki_pages p ON p.id=s.page_id
-      WHERE p.project_id=? AND ${visibleFileIndexSql("p")} AND ${visibleFileSourceSql("s")} ORDER BY s.created_at,s.id`,
-      [projectId],
-    ),
-    disputedEntryIds(db, projectId),
     memberTabOpenedAt(db, projectId, user.id),
   ]);
   const threads = threadRows.map((row) => ({
@@ -296,51 +403,22 @@ export async function readProjectMemory(service, user, projectId) {
     ).map((row) => [row.id, row.title]),
   );
 
-  const groupMembers = await query(
-    db,
-    `SELECT fm.group_id groupId,fm.artifact_id artifactId,fm.description
-    FROM file_index_group_members fm JOIN file_index_groups fg ON fg.id=fm.group_id WHERE fg.project_id=?`,
-    [projectId],
-  );
-  for (const row of pageRows)
-    if (row.fileGroupId)
-      row.fileGroupMembers = groupMembers.filter((item) => item.groupId === row.fileGroupId);
-  const groupPages = await hydrateFileIndexGroups(
-    db,
-    projectId,
-    await hydrateFileIndexRoots(db, projectId, pageRows),
-  );
-  const hydratedPages = await hydrateFileIndexPaths(db, projectId, groupPages);
-  const pageById = new Map(hydratedPages.map((row) => [row.id, row]));
-  const sourcesByPage = new Map();
+  const { entries, sourcesByPage, disputed } = await hydrateEntries(db, projectId, pageRows);
+  const pageById = new Map(entries.map((entry) => [entry.id, entry]));
   const archivePagesByWorkflow = new Map();
-  for (const source of sourceRows) {
-    const list = sourcesByPage.get(source.pageId) || [];
-    list.push(source);
-    sourcesByPage.set(source.pageId, list);
-    if (source.sourceKind !== "archive") continue;
-    const pages = archivePagesByWorkflow.get(source.sourceId) || [];
-    if (!pages.includes(source.pageId)) pages.push(source.pageId);
-    archivePagesByWorkflow.set(source.sourceId, pages);
+  for (const sources of sourcesByPage.values()) {
+    for (const source of sources) {
+      if (source.sourceKind !== "archive") continue;
+      const pages = archivePagesByWorkflow.get(source.sourceId) || [];
+      if (!pages.includes(source.pageId)) pages.push(source.pageId);
+      archivePagesByWorkflow.set(source.sourceId, pages);
+    }
   }
-  const relationsByPage = await loadRelations(
-    db,
-    projectId,
-    pageRows.map((row) => row.id),
-  );
   const members = await query(
     db,
     `SELECT u.id,u.name FROM members m JOIN users u ON u.id=m.user_id
      WHERE m.project_id=? ORDER BY u.name,u.id`,
     [projectId],
-  );
-  const entries = hydratedPages.map((row) =>
-    mapEntry(
-      row,
-      sourcesByPage.get(row.id) || [],
-      disputed.has(row.id),
-      relationsByPage.get(row.id) || [],
-    ),
   );
   const currentEntries = pageRows.filter((row) => row.status === "current");
   const summary = summaryRows[0];
@@ -374,6 +452,83 @@ export async function readProjectMemory(service, user, projectId) {
       timelineCard(thread, pageRows, artifacts, archivePagesByWorkflow),
     ),
     entries,
+  };
+}
+
+export async function listProjectMemoryEntries(service, user, projectId, options = {}) {
+  await service.member(user, projectId, false);
+  const db = service.db;
+  // subject 三态：省略或 all 不筛；空串对应前端「其它记忆」（subject_type 为空）；
+  // 其余按五类对象精确匹配，未知值按 all。
+  const subjectFiltered = options.subject !== undefined && options.subject !== null;
+  const requestedSubject = subjectFiltered ? String(options.subject).trim() : "";
+  const subject = subjectFiltered
+    ? requestedSubject === "" || MEMORY_SUBJECTS.includes(requestedSubject)
+      ? requestedSubject
+      : "all"
+    : "all";
+  const subtypes = parseCsv(options.subtypes);
+  const statuses = parseCsv(options.statuses, 20);
+  const keyword = String(options.q || "")
+    .trim()
+    .slice(0, 200);
+  const page = positiveInteger(options.page, 1);
+  const pageSize = positiveInteger(options.pageSize, 20, 100);
+
+  const where = ["p.project_id=?", visibleFileIndexSql("p")];
+  const params = [projectId];
+  if (subject === "") where.push("(p.subject_type IS NULL OR p.subject_type='')");
+  else if (subject !== "all") {
+    where.push("p.subject_type=?");
+    params.push(subject);
+  }
+  if (subtypes.length) {
+    where.push(`p.memory_subtype IN (${subtypes.map(() => "?").join(",")})`);
+    params.push(...subtypes);
+  }
+  if (statuses.length) {
+    where.push(`p.status IN (${statuses.map(() => "?").join(",")})`);
+    params.push(...statuses);
+  }
+  if (keyword) {
+    const like = `%${escapeLike(keyword)}%`;
+    const subtypeKeys = matchedSubtypeKeys(keyword);
+    if (subtypeKeys.length) {
+      where.push(
+        `(p.title LIKE ? OR p.memory_subtype IN (${subtypeKeys.map(() => "?").join(",")}))`,
+      );
+      params.push(like, ...subtypeKeys);
+    } else {
+      where.push("p.title LIKE ?");
+      params.push(like);
+    }
+  }
+  const whereSql = where.join(" AND ");
+  const offset = (page - 1) * pageSize;
+  const [countRows, rows] = await Promise.all([
+    query(db, `SELECT COUNT(*) total FROM wiki_pages p WHERE ${whereSql}`, params),
+    query(
+      db,
+      `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.about_user_id aboutUserId,p.title,p.body,p.status,p.source_family sourceFamily,p.created_by createdBy,
+        fi.artifact_id fileArtifactId,fg.id fileGroupId,fg.evidence fileGroupEvidence,fg.origin fileGroupOrigin,
+        NOT ${intactConversationMemorySql("p")} sourceNeedsReview,
+        p.created_at createdAt,p.updated_at updatedAt
+      FROM wiki_pages p LEFT JOIN file_index_entries fi ON fi.page_id=p.id LEFT JOIN file_index_groups fg ON fg.page_id=p.id
+      WHERE ${whereSql}
+      ORDER BY p.updated_at DESC,p.id DESC
+      LIMIT ? OFFSET ?`,
+      [...params, pageSize + 1, offset],
+    ),
+  ]);
+  const hasMore = rows.length > pageSize;
+  const pageRows = hasMore ? rows.slice(0, pageSize) : rows;
+  const { entries } = await hydrateEntries(db, projectId, pageRows);
+  return {
+    items: entries,
+    page,
+    pageSize,
+    total: Number(countRows[0]?.total || 0),
+    hasMore,
   };
 }
 

@@ -24488,6 +24488,13 @@ html body .project-memory-dialog .dialog-header {
   color: var(--c-9aa394);
 }
 
+/* 时间线分页脚注：加载中 / 上滑加载更多 / 没有更多了。 */
+.project-memory-list-more {
+  flex: 0 0 auto;
+  text-align: center;
+  font-size: 0.75rem;
+}
+
 .project-memory-readonly {
   margin: 0;
   font-size: 0.75rem;

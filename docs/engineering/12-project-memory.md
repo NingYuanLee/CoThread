@@ -27,18 +27,19 @@
 
 以下均沿用项目成员和原出处权限。
 
-| 接口                                            | 当前语义                                                                      |
-| ----------------------------------------------- | ----------------------------------------------------------------------------- |
-| GET /api/projects/:id/memory                    | 导读、时间轴、现行或作废条目、来源和关系                                      |
-| GET .../memory/counts                           | disputes 与 updatedSinceEntry，不再返回 drafts。disputes 是反馈展示的兼容字段 |
-| POST .../memory/entries/:entryId/supersede      | 真人停用群消息来源记忆，须传 reason                                           |
-| POST .../memory/entries/:entryId/flag           | 独立反馈，保留正文与生命周期                                                  |
-| POST .../memory/entries/:entryId/confirm        | 已退役，先核对写权限再返回 410                                                |
-| GET .../memory/entries/:entryId/history         | 修订、固定证据、独立判断与采用它的任务，limit/offset 分页                     |
-| GET .../memory/facts                            | 直接业务事实、全量统计、迭代或任务分页及事件分页                              |
-| GET /api/memory-revisions/:revisionId           | 当时记忆正文与来源，按原出处核对权限                                          |
-| GET /api/document-content-revisions/:revisionId | 下载当时文件内容，回收、永久清除与项目权限仍生效                              |
-| GET /api/tasks/:id/decision-evidence            | 任务创建时的记录与依据，不能以此推定后续重排依据                              |
+| 接口                                            | 当前语义                                                                                                                               |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| GET /api/projects/:id/memory                    | 导读、时间轴、现行或作废条目、来源和关系                                                                                               |
+| GET .../memory/entries                          | 右侧时间线分页：subject/subtypes/statuses/q/page/pageSize → items/page/pageSize/total/hasMore；条目与 /memory 同构，按 updated_at 倒序 |
+| GET .../memory/counts                           | disputes 与 updatedSinceEntry，不再返回 drafts。disputes 是反馈展示的兼容字段                                                          |
+| POST .../memory/entries/:entryId/supersede      | 真人停用群消息来源记忆，须传 reason                                                                                                    |
+| POST .../memory/entries/:entryId/flag           | 独立反馈，保留正文与生命周期                                                                                                           |
+| POST .../memory/entries/:entryId/confirm        | 已退役，先核对写权限再返回 410                                                                                                         |
+| GET .../memory/entries/:entryId/history         | 修订、固定证据、独立判断与采用它的任务，limit/offset 分页                                                                              |
+| GET .../memory/facts                            | 直接业务事实、全量统计、迭代或任务分页及事件分页                                                                                       |
+| GET /api/memory-revisions/:revisionId           | 当时记忆正文与来源，按原出处核对权限                                                                                                   |
+| GET /api/document-content-revisions/:revisionId | 下载当时文件内容，回收、永久清除与项目权限仍生效                                                                                       |
+| GET /api/tasks/:id/decision-evidence            | 任务创建时的记录与依据，不能以此推定后续重排依据                                                                                       |
 
 MCP 与 DSH 提供 search_memory、read_memory_history、read_memory_revision、read_project_facts。search_memory 支持 purpose=current/history/explain、status=current/superseded/all 及 asOf。当前查询按明确纠正关系弱化旧话，历史与解释查询保留旧话。asOf 只返回当时已经记录的修订，不推测缺失历史。get_task 返回已保存的决定依据。
 
@@ -93,6 +94,8 @@ MCP 与 DSH 提供 search_memory、read_memory_history、read_memory_revision、
 - 项目现状覆盖条件：模型对 `summary` / `statusMarkdown` 返回 `null` 视同未返回（不再整份判失败）；只有提交项目进程条目（`subject=project`）或主动给出正文时才覆盖 `project_status`，本次只提交任务/文档条目且未给正文时保留原现状、条目照常写入。
 - 维护会话快照上限：`saveCheckpoint` 超过 10 MiB 时不再让整次运行失败（否则每次运行都在结尾失败、作业永久卡死），而是重置维护会话（新 `session_id`、清空 `checkpoint` 与 `context_stats`）并把本次已校验结果照常返回；轨迹记「会话快照超过上限，已重置维护会话」。`runLaowengTask` 与 `compactLaowengSession` 两条保存路径都已接这个降级。
 - 前端：`web/ProjectMemory.tsx` 普通窗口弹窗（打开后可手动全屏；7:3：导读 / 带搜索的倒序记忆时间轴 / 记忆详情二级弹窗；种类筛选为默认「全部」的标准切换胶囊）、左侧四宫格「项目记忆」与小点、首次进入自动打开、`?projectId&memory=1` 直达；归档确认后提示清算摘要。
+- 时间线分页：右侧列表走 `GET .../memory/entries`，首屏 20 条，列表滚到底部再取下一页；每个「一级类型 + 二级类型 + 状态 + 关键词」组合各自缓存已加载页——第一次切到新条件取第一页，切回看过的条件直接复用、不重复请求；关键词输入 300ms 防抖。打开弹窗和右上角刷新都回到默认「全部」条件并重取第一页；改对象类型/二级类型后丢弃缓存重取当前条件第一页，作废与纠错只就地更新列表（不重置滚动）。
+- 时间线分页验证：`tests/memory-read.test.js` 11/11（默认第一页与 `/memory` 条目同构、subject 三态含空串「其它记忆」、subtypes、statuses、关键词命中标题与二级类型中文标签、第二页与 hasMore、pageSize 上限与非法参数、非成员函数级与 HTTP 403）；`project-memory` 7/7、`memory-jobs` 11/11、`memory-cache` 4/4、`memory-graph` 4/4、`project-memory-signal-cleanup` 6/6。`npm run build`（tsc + vite）通过，`prettier` 与 `node --check` 通过。浏览器实机点击与真实数据下的分页手感未验证。
 - 迭代清算的人工校准：归档详情返回本轮记忆草稿 `memoryDrafts`，归档确认页可逐条勾选，勾选的条目在确认事务里转正。
 - 项目归档封存：项目归档后成员失去项目访问权（`p.archived_at IS NULL` 权限门槛），记忆读写都不可达；确认/纠错/知识页写入另有 409 防御拦截。
 - 人不再手写知识页：知识页 HTTP 写接口下线；右侧栏「知识页」tab 一并下线，问老翁引用改为打开项目记忆并聚焦该条。

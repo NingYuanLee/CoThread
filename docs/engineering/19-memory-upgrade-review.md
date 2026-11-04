@@ -138,6 +138,8 @@
 
 验证：`tests/project-status.test.js` 7/7（新增「只提交任务条目时可以不带项目现状」「项目进程条目返回 null 现状时整次结算失败」；前者在旧写入逻辑下实测为 `failed`，修复后 `completed`，已做反向验证）；`tests/project-memory.test.js` 7/7（新增「失败次数不跨内容变化与人工重试继承」）；`tests/laoweng-agent.test.js` 新增「会话快照超过上限时重置维护会话，本次结果照常返回」通过（该文件另 4 项仍失败于本机 `.local\agents` mkdir EPERM，与本次改动无关）；回归 `project-memory-signal-cleanup` 6/6、`memory-retry` 8/8、`project-memory-signals` 1/1、`memory-jobs` 11/11、`discussion-memory` 4/4，19 个记忆相关文件（含 `conversation-memory-*`、`memory-*`、`utterance-memory`、`task-memory`）除本机沙箱 EPERM 外全部通过（`laoweng-agent` 4、`conversation-memory-store` 1、`conversation-memory-runtime` 1 失败均为 `.local\agents` mkdir / spawn 被沙箱拒绝）。`tsc --noEmit`、prettier、`check-boundaries` / `check-overlays` / `check-field-resets` / `check-field-usage` 通过；`npm run test:unit` 因沙箱拒绝 spawn 未执行。线上库从本机不可达（RDS 公共地址 `PROTOCOL_CONNECTION_LOST`，生产只放行 ECS），本地 3307 开发库无该项目数据，因此本轮结论来自线上运行日志与代码，不是线上数据核对；发布后需确认：项目进程运行不再出现 `statusMarkdown` 校验失败、人工重试后排队行 `retry_count` 归零、只含任务条目的批次能正常落库、快照超限时运行仍为完成并出现「已重置维护会话」。
 
+2026-11-04 已随第三次发布上线（提交 `dbfc54f`，包 `cothread-release-20261104T063024Z.tgz`，execution `exec-4afe972af70747aca0e7`，`current` 为 `/opt/cothread/releases/20261104T063140Z`）；线上健康、执行器就绪与新符号已核对，但记忆作业的实际运行效果仍需从运行历史确认——尤其那 2 条已被推到 30 天后的项目进程排队行，要人工点一次「重试」才会被调度。
+
 ## 尚需实际环境验收
 
 自动化使用替身模型，不能证明观点判断、议题合并、文件识别和项目进程取舍质量。浏览器交互、真实模型材料抽样尚未完成。持续流量下的模型调用次数、公平调度、耗时，以及运行中项目封存等竞态仍需观察；不把它们写作已确认缺陷或已通过验收。

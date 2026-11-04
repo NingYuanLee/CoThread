@@ -1,6 +1,6 @@
 # 云端环境变量
 
-维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-11-04 两次发布——上午「按来源治理记忆 / 项目现状 Markdown」，下午「删除文档后的失效项目进程信号清理」；两次都重核了门禁、全量测试、打包清单、OOS 上传和上线验收。本轮补充了 Alibaba MCP 通道现状、测试库锁残留检查和 `OOS_GetDeployStatus` 参数约束；详见「ECS 发布」及文末。
+维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-11-04 三次发布——上午「按来源治理记忆 / 项目现状 Markdown」，下午「删除文档后的失效项目进程信号清理」，晚间「项目记忆结算修复 + 时间线分页 + index.html 预加载修复」；三次都重核了门禁、全量测试、打包清单、OOS 上传和上线验收。本轮补充了 Alibaba MCP 通道现状、测试库锁残留检查和 `OOS_GetDeployStatus` 参数约束；详见「ECS 发布」及文末。
 
 应用后端需要常驻 Node.js 进程（Node.js 22.22.3+，推荐 24）、MySQL 网络连接及可写的 `.local` 目录。只发布 `dist/` 静态文件无法运行 API、MCP 和后台 Agent；生产环境固定为阿里云 ECS 单实例 + RDS，本机开发用便携版 MySQL。
 
@@ -300,4 +300,14 @@ bash -n scripts/ecs-codedeploy-start.sh
 
 本轮已知未完成项：依赖审计告警未整改；未做登录后的业务验收；全量测试未第二次复跑，仅以 1045/1048 加 3 项锁超时文件复跑 3/3 作为证据。
 
-2026-11-04 追加（未发布）：上面记录的 `data:application/octet-stream` modulepreload MIME 报错已在工作区修复，线上仍是旧 HTML，下次发布随包上线。根因是 `index.html` 把开发入口写成 `<link rel="modulepreload" href="/web/main.tsx">`，构建时 Vite 把该入口内联成 `data:application/octet-stream;base64,...`，浏览器按模块 MIME 校验失败；开发期预热本来由 `server/index.js` 的 `vite.warmupRequest("/web/main.tsx")` 完成，这条 link 是多余的。修复为删除该 link，并在 `tests/dev-progress.test.js` 增加「index.html 不得把开发入口写成 modulepreload」的回归断言。重建后 `dist/index.html` 不再含 `modulepreload` 与 `application/octet-stream`；用 `vite preview` + 浏览器实测，控制台只剩既有的 `@property` 提示，不再出现该 MIME 报错；`tests/dev-progress.test.js` 24/24、`npm run lint`、`npm run build` 通过。
+2026-11-04 追加（已随当日第三次发布上线）：上面记录的 `data:application/octet-stream` modulepreload MIME 报错已修复，并随本次发布进入线上 HTML。根因是 `index.html` 把开发入口写成 `<link rel="modulepreload" href="/web/main.tsx">`，构建时 Vite 把该入口内联成 `data:application/octet-stream;base64,...`，浏览器按模块 MIME 校验失败；开发期预热本来由 `server/index.js` 的 `vite.warmupRequest("/web/main.tsx")` 完成，这条 link 是多余的。修复为删除该 link，并在 `tests/dev-progress.test.js` 增加「index.html 不得把开发入口写成 modulepreload」的回归断言。重建后 `dist/index.html` 不再含 `modulepreload` 与 `application/octet-stream`；本次线上浏览器实测控制台只剩两条被忽略的 `@property` 与未登录 `/api/me` 401，不再出现该 MIME 报错。
+
+2026-11-04 第三次发布，一次上线：「项目记忆结算修复 + 时间线分页 + index.html 预加载修复」。代码提交 `dbfc54f`（已推送，`origin/main` 与本地 HEAD 一致），本轮包含三个已推送提交：`4c08b90`（项目记忆结算被历史数据卡死：null 现状、空正文回滚、失败预算继承、快照超限重置会话）、`5492b1f`（失效项目进程信号清理 + 老翁会话日志分裂修复，此前已在线上但未提交）、`aa195f1`（index.html 去掉开发入口 modulepreload）、`dbfc54f`（时间线服务端分页）。本轮无新增迁移文件，最新仍是 220。
+
+发布前门禁：`npm run lint` exit 0；`npm run test:unit` 500/500；全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 1063/1063、0 失败，`duration_ms` 1244188.8（约 20.7 分钟）；`npm run build` exit 0（`✓ built in 34.24s`）；`npm install --package-lock-only` 无改动；`npx npm@10.9.8 ci --omit=dev --dry-run` exit 0（`added 246 packages`）；停止钩子续行输出 `HOOK_CONTINUES`，启动钩子 `bash -n` exit 0。全量测试放在后台运行，期间只做了只读核对，未与构建并行。
+
+包 `cothread-release-20261104T063024Z.tgz`，6,171,538 字节，SHA-256 `5CA5A7E3B52A2975E2442B4F2BB2EE4C07A4384F19C782065EB3EFDD24408786`，tar 条目 706（含目录条目），包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests` 或 `.code_deploy`。上传用本机 stdio 阿里云 MCP（`alibaba-codex` 的 `alibaba-cloud-ops-mcp-server.exe`，AK/SK 取自用户级环境变量），直连成功、未复现 `SSLEOFError`，未使用代理补丁。`OOS_CodeDeploy` 返回 HTTP 200：CreateDeployRevision RequestId `01A1A541-0748-53CD-AC72-A35BB1F6FFE1`、revision `rev-d92401932cb44c4da40a`，DeployApplicationGroup RequestId `01A1A541-08B6-5BCE-AB95-2A32BDA0BCD0`；execution `exec-4afe972af70747aca0e7` 为 `Success`（8/8，0 失败），分组 `Releasing`（Progress 99）约两分钟后变为 `Released`，`StatusReason` 为 `Release success!`。
+
+线上：执行输出切换到 `/opt/cothread/releases/20261104T063140Z`；web 侧只读命令核对 `readlink -f /opt/cothread/current` 为该目录，systemd `ActiveState=active`、`ExecMainStartTimestamp` 为北京时间 2026-11-04 14:33:02、`MainPID` 1325937，Node `v22.22.3`，release 目录保留 3 个（`20261104T032244Z 20261104T044814Z 20261104T063140Z`）；`current/server/memory-timeline.js` 含 `listProjectMemoryEntries`，`current/server/routes/project-workspace.js` 含 `memory/entries`。公网 `https://cothread.z2l.top/api/health?release=dbfc54f` 返回 `status: ok`、`database: mysql`、执行器 `ready: true`、8 个执行槽、holder `542122853`、`acquiredAt` UTC `2026-11-04T06:33:04.645Z`。首页资源为 `index-DNl2DpTZ.js` 与 `index-BHw62KsI.css`，与本地 `dist/index.html` 及 ECS 上的 `dist/index.html` 一致。浏览器打开带提交号的首页，登录页正常，控制台无 octet-stream MIME 报错（见上一条追加说明）。
+
+本轮已知未完成项：未做登录后的业务验收——记忆时间线的分页/上滑加载/筛选缓存在浏览器实机未点击（接口有自动化用例，前端构建与类型检查通过，不等于界面验收）；项目记忆结算修复与「发言/项目进程不再无法处理」的线上效果需从「记忆作业」运行历史确认，尤其那 2 条已推到 30 天后的项目进程排队行，发布后仍需人工点一次「重试」才会被调度；本次文档更新在打包之后，不在已上线的包内。验收凭据与登录页截图在 `.code_deploy/verification/20261104-timeline-pagination/`（不进 Git）。

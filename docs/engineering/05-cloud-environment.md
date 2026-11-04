@@ -411,3 +411,17 @@ bash -n scripts/ecs-codedeploy-start.sh
 线上执行输出：`原子切换 current -> /opt/cothread/releases/20261104T172926Z`，`上线完成`。公网 `https://cothread.z2l.top/api/health?release=c254da6` 返回 200，`status: ok`、`database: mysql`、执行器 `ready: true`、8 个执行槽、`acquiredAt` 为 UTC `2026-11-04T17:31:22Z`；首页 200，资源 `index-BgRAZlJ_.js`、`index-BHw62KsI.css`，与本地 `dist/index.html` 一致。
 
 本轮验证边界：没有生产登录态，未在浏览器实机打开这两个弹窗复测「派活右置、空态消失、过程收缩、复制/时间/用量」；数据层由新增/更新的会话单测（含 `session.v4.jsonl` 与元数据合并）和全量测试覆盖，界面效果需要登录后确认。未重跑 npm 10 生产安装预检与钩子检查（依赖、钩子未改）。验收凭据在 `.code_deploy/verification/20261104-monitor-usage/`（不进 Git）。
+
+2026-11-04 第十一次发布，一次上线：「DSH 压缩会话日志解析与子 Agent 思考/正文展示」。用户反馈任务卡片会话里子 Agent 只剩工具、没有思考和正文，也没有复制/时间/用量/用时。代码提交 `9d2a2c7`（已推送，`origin/main` 一致）。
+
+根因：`@deepseek-ai/dsh-session-persistence-jsonl@0.2.2` 的 `DEFAULT_COMPRESSION = "zstd"`，会话日志改成多帧追加的 `session.v4.jsonl.zstd`；上一版只认明文 `session.jsonl`，所以原生正文、时间、逐条用量全部读不到，任务会话只剩事件流；同时上一版把 `thinking` 也从活动流过滤掉了，于是只剩工具。
+
+改动：`server/child-agent-session.js` 识别 `session(\.v\d+)?\.jsonl(\.zstd)?`，按 zstd 帧魔数切分逐帧解压（Node 的 `zstdDecompressSync` 只解第一帧；尾部未写完的半帧丢弃），快照与 live home 两条路径都支持；`web/agent-monitor-session.tsx` 有正文时活动流保留思考与工具、只去重 `assistant_text`/`assistant_final`；`web/AgentActivity.tsx` 工具事件补复制按钮与时间。
+
+门禁：`npm run build` 通过；`npm run lint` 通过；会话单测 8/8（含多帧 zstd 用例）；全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 1094/1094、0 失败，`duration_ms` 577990.8906（约 9.6 分钟）。本轮未改依赖与启停钩子，没有重跑 npm 10 生产安装预检和钩子语法检查。
+
+包 `cothread-release-20261104T174936Z.tgz`，6,221,926 字节，SHA-256 `CC44C572AC484F6A6741161A038B1B6BD87E92015D88B9897F406782C1158195`，tar 条目 709，包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests` 或 `.code_deploy`。上传 RequestId `01A1A7AE-E744-5D67-9E2C-461CC143DB85`，revision `rev-01a8fa3ccb0241e4a9f1`，execution `exec-b530a9ce4afe4167860e` 为 `Success`（8/8，0 失败），`EndDate` UTC `2026-11-04T17:52:35Z`。
+
+线上执行输出 `原子切换 current -> /opt/cothread/releases/20261104T175038Z`。公网 `/api/health?release=9d2a2c7` 返回 200、`status: ok`、执行器 ready、8 槽、`acquiredAt` UTC `2026-11-04T17:52:25Z`；首页资源 `index-ScL5S1TT.js`、`index-BHw62KsI.css`，与本地 `dist/index.html` 一致。
+
+本轮验证边界：仍无生产登录态，未在浏览器实机确认弹窗内思考/正文/复制/时间/用量/用时；压缩日志解析由多帧 zstd 单测覆盖，历史日志的时间与用量取决于原生日志完整度。验收凭据在 `.code_deploy/verification/20261104-monitor-zstd/`（不进 Git）。

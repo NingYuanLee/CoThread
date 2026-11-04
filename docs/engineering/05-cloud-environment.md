@@ -1,6 +1,6 @@
 # 云端环境变量
 
-维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-11-04 七次发布——上午「按来源治理记忆 / 项目现状 Markdown」，下午「删除文档后的失效项目进程信号清理」，晚间「项目记忆结算修复 + 时间线分页 + index.html 预加载修复」，随后「项目记忆读取性能（轻量读 + 按需详情）与核验理由截断」、「项目进程信号改为按水位扫描生成（迁移 221）」，以及「项目进程去文档化 + 逐条核验 + 任务聚合 + 忽略入口（迁移 222）」，以及「发布重启 502 窗口收缩（SSE 主动结束 + 连接强断 + 前端退避重试）」；七次都重核了门禁、打包清单、OOS 上传和上线验收。本轮补充了 Alibaba MCP 通道现状、测试库锁残留检查、`OOS_GetDeployStatus` 参数约束、`visibleFileIndexSql` 整表开销实测，以及迁移 221/222 的线上应用核对，以及本机沙箱管道限制下的构建与上传替代路径；详见「ECS 发布」及文末。
+维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-11-04 八次发布——上午「按来源治理记忆 / 项目现状 Markdown」，下午「删除文档后的失效项目进程信号清理」，晚间「项目记忆结算修复 + 时间线分页 + index.html 预加载修复」，随后「项目记忆读取性能（轻量读 + 按需详情）与核验理由截断」、「项目进程信号改为按水位扫描生成（迁移 221）」，以及「项目进程去文档化 + 逐条核验 + 任务聚合 + 忽略入口（迁移 222）」，以及「发布重启 502 窗口收缩（SSE 主动结束 + 连接强断 + 前端退避重试）」，以及「WPS/旧版二进制 Office 读取与预览派生文件（迁移 223）」；八次都重核了门禁、打包清单、OOS 上传和上线验收（第八次本机全量测试因测试库不可达未跑，见文末）。本轮补充了 Alibaba MCP 通道现状、测试库锁残留检查、`OOS_GetDeployStatus` 参数约束、`visibleFileIndexSql` 整表开销实测，以及迁移 221/222 的线上应用核对，以及本机沙箱管道限制下的构建与上传替代路径；详见「ECS 发布」及文末。
 
 应用后端需要常驻 Node.js 进程（Node.js 22.22.3+，推荐 24）、MySQL 网络连接及可写的 `.local` 目录。只发布 `dist/` 静态文件无法运行 API、MCP 和后台 Agent；生产环境固定为阿里云 ECS 单实例 + RDS，本机开发用便携版 MySQL。
 
@@ -365,3 +365,21 @@ bash -n scripts/ecs-codedeploy-start.sh
 窗口验证：本次发布由旧进程执行关闭，仍是 30 秒（`17:48:53` Stopping → `17:49:23` Stopped，其中 502 段 `17:49:04–17:49:25` 约 21 秒，当天 cothread 502 累计 397 条）。发布后对新代码做一次 `systemctl restart`：`17:51:05` Stopping → `17:51:05` Stopped/Started → `17:51:07` 服务就绪，全程约 2 秒，该窗口 502 仅 12 条（`17:51:06–17:51:07`，属新进程启动期），日志无「服务关闭超过」。即关闭排空已不再是窗口主体，剩余约 2 秒为进程启动时间。
 
 本轮已知未完成项：登录后的业务界面未实机验收；未用真实登录会话打开 presence SSE 复测（该路径由 `tests/sse-shutdown.test.js` 覆盖，线上验证以重启时长与 502 数量为准）；旧进程的关闭逻辑只在下次发版被替换，本次已用一次人工 restart 预验证，下一次发版的真实窗口需再记录。验收凭据在 `.code_deploy/verification/20261104-release-shutdown-window/`（不进 Git）。
+
+2026-11-04 第八次发布，一次上线：「WPS/旧版二进制 Office 读取与预览派生文件」。
+
+背景：用户提供的 WPS 线上文档导出文件后缀是 `.docx`、内容实为 Word 97-2003 二进制 `.doc`（OLE2，含 `WordDocument`/`0Table`/`WpsCustomData` 流），且尾部缺 374 字节。此前文件索引、文档摘要和 `read_document` 都按扩展名走 JSZip，直接失败；预览 `docx-preview` 同样无法渲染。
+
+改动：新增 `server/legacy-office-extract.js`（按文件头识别 OLE2，解析 FAT/目录/迷你流，按 FIB + piece table 取正文，截断补零，加密与旧版 xls/ppt 给明确原因）；`file-index-extract.js` 改为「扩展名或文件头命中」，OLE2 分支先于 JSZip；`read_document` 对 Office 返回提取正文；新增迁移 223 `version_renditions` 与预览派生链路（`server/office-convert.js` 转换后端、`server/office-renditions.js` 单飞编排、`GET /api/versions/:id/rendition`、前端 `.doc/.xls/.ppt` 与伪 docx 走派生文件）；安装 `@deepseek-ai/libreoffice-kit@^0.2.3` 作为转换后端（Linux 用 WASM，不需要系统 LibreOffice）。
+
+门禁：`npm run build` 通过（vite 3m23s）；`npm run lint` 通过（prettier/边界/浮层/输入控件/主题/UI 尺度）；定向测试 renditions 3、office-convert 5、legacy-office-extract 6、file-index-extract 4、read-document 4、sse-shutdown 3、json-response 3 全部通过；本地开发库执行 `npm run db:migrate`（221/222/223）并用真实文件跑集成脚本：pending→ready、缓存命中、同版本源哈希变化后重转、非 OLE2 判定 unsupported、清理无残留。全量 `npm test` 未完成：测试库 RDS 公网 TCP 不可达（`Test-NetConnection … 3306` = False），进程会长时间等待锁，已终止并以定向测试结果作为门禁。
+
+推送：提交 `f3cd3b6`（第七次 SSE 关停修复，此前未提交）与 `8c80518`（本次功能）已推送 GitHub `main`。本机到 `github.com:443` 的连接被网络拦截（curl 超时，`api.github.com` 正常），临时部署密钥推送被 GitHub 拒绝；最终用本机 CONNECT 代理指向可用 GitHub 边缘 IP + `gh` 凭据助手完成推送，未持久化任何代理或密钥配置。
+
+包：`cothread-release-20261104T102749Z.tgz`，6,186,990 字节，SHA-256 `C43F44E5C486951D5F92E3B0BBC14DC3D372C51F662A700512FA9E24F8535952`，tar 条目 715；包含 `server/legacy-office-extract.js`、`server/office-renditions.js`、`migrations/223_version_renditions.sql`，不含 `docs`/`tests`/`AGENTS.md`/`.env`。
+
+上传：本机沙箱内 stdio MCP 不可用，改用 MCP 包内同一实现直接调用 `OOS_CodeDeploy`；RequestId `01A1A61C-01BF-5C60-96EA-D08182333030`，deploy_time 18:30:15，约 80 秒后分组状态 `Released`。
+
+线上：`readlink -f /opt/cothread/current` 为 `/opt/cothread/releases/20261104T103050Z`，systemd `active`，Node `v22.22.3`；`current/server/legacy-office-extract.js`、`current/server/office-renditions.js`、`current/migrations/223_version_renditions.sql` 均存在；生产库 `schema_migrations` 已有 `223_version_renditions.sql`，`version_renditions` 13 列、0 行；公网 `/api/health` 返回 `status: ok`、执行器 ready、8 槽；首页资源 `index-C-N7OCO-.js`、`index-BHw62KsI.css` 与本地 `dist/index.html` 一致。
+
+本轮已知未完成项：预览未实机验收（需登录后上传该 WPS 文档并打开预览，确认 202→docx 渲染）；ECS/Linux 上 kit 的 WASM 引擎未实际转换（本机为 Windows 原生引擎，Linux 路径只完成了安装与锁文件准备）；`.ppt→pptx` 无真实样例；`wps-docx-reader/` 本地目录（含用户文档副本）已加入 `.gitignore`，未入库；`github.com` 直连仍被拦截，后续推送仍需代理或可用网络。验收凭据在 `.code_deploy/verification/20261104-legacy-office-renditions/`（不进 Git）。

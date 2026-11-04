@@ -1,6 +1,6 @@
 # 云端环境变量
 
-维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-11-02 主要文档图片作业修复，构建、打包、ecs-promote 启停钩子和上线验收步骤已按本轮实际操作核对；详见「ECS 发布」及文末。
+维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-11-04 按「按来源治理记忆 / 项目现状 Markdown」发布重核了门禁、全量测试、独立库完整迁移链与真实升级路径、打包清单、OOS 上传和上线验收，并按本轮实际操作更新了 Alibaba MCP 通道现状；详见「ECS 发布」及文末。
 
 应用后端需要常驻 Node.js 进程（Node.js 22.22.3+，推荐 24）、MySQL 网络连接及可写的 `.local` 目录。只发布 `dist/` 静态文件无法运行 API、MCP 和后台 Agent；生产环境固定为阿里云 ECS 单实例 + RDS，本机开发用便携版 MySQL。
 
@@ -39,7 +39,7 @@
 
 ## ECS 发布
 
-2026-11-03 发布尝试暂未完成。lint 和构建通过。无数据库测试发现 MCP 工具清单断言缺少三个新增读取工具，补齐后对应测试通过。全量测试的数据库用例出现连接失败，迁移恢复测试报告 PROTOCOL_CONNECTION_LOST，尚未完成迁移验证或线上发布。后续应先确认测试库连接并重跑数据库测试，再继续发布。
+2026-11-03 早前一次发布尝试暂未完成：lint 和构建通过；无数据库测试发现 MCP 工具清单断言缺少三个新增读取工具，补齐后对应测试通过；全量测试的数据库用例出现连接失败，迁移恢复测试报告 PROTOCOL_CONNECTION_LOST，当时未完成迁移验证或线上发布。同日稍后改用本机测试库重新打包上传成功（提交 `a628fc6`，见文末记录）。
 
 
 2026-11-02 主要文档图片作业修复的发布核查：用户指定本机禁止提交或推送，本轮以工作区内容构建并核对发布包，不执行下方通用流程中的提交和推送。上线前已在独立测试库验证完整迁移链，并确认发布包包含 152 号队列清理迁移且不包含 AGENTS.md、`.env` 或 `.local`。该迁移只删除已有摘要对应的冗余队列行，不删除摘要或原文；探活阶段会先执行迁移，回切代码不会撤销这些队列清理。
@@ -61,6 +61,8 @@
 1. 检查 `git status` 与目标分支，核实未跟踪文件来源，再暂存提交。截图、运行时附件、`.env`、私钥及生成目录不应混入代码；本地临时文件可用 `.git/info/exclude` 排除并保留原文件。本次曾出现 504 个根目录哈希名称图片，约 130 MB，抽查为界面截图。
 2. 先运行 `npm run lint`、`npm run test:unit` 和 `npm run build`。类型声明必须与运行时代码一致，组件回调的参数也要覆盖实际调用。格式化后，源码匹配测试应容许换行与空白变化，不能靠恢复旧排版让断言通过。
 
+   2026-11-04 发布前全量测试暴露 4 项失败：3 项是测试仍在断言旧的 `memory_page` / `thread` 入队行为，与「只有项目级信号进入项目进程」的现行设计冲突，按文档语义改成断言不入队；1 项是真缺陷——正式文件原地替换内容后 `version_id` 不变，`shouldReuseDocumentSummary` 仅凭「同版本已有摘要」直接出队，导致新内容沿用旧摘要。修复为必须比对 `file_index_entries.summary_sha256` / `summary_mime` 与当前内容一致才复用，并补单测。修复后全量 1039/1039 通过。判定测试过时还是代码缺陷，以工程文档写明的现行行为和迁移注释为准，不能为了变绿直接改期望值。
+
    2026-10-22 首轮 340 项无数据库测试有 2 项 DSH `sdk-minimal` 初始化超时；将 `context-runtime.test.js`、`model-runtime-config.test.js` 用 `node --test --test-concurrency=1` 单独复跑，3 项均通过。未确认超时根因，不能据此声称并发运行已稳定。构建还发现两个菜单调用用内联 `visibility`，超出 `OverlayLayoutStyle` 白名单；改为公共 `.is-positioning` 状态规则，保留锚点测量前隐藏行为后构建通过。
 
    2026-10-28 第二次发布前，当轮已确认全量测试通过，但 `npm run build` 里的 `tsc --noEmit` 仍失败：新建的 `shared/work-status.js` 没有配套 `.d.ts`，`Notifications` 对 `Partial` 计数直接读 `count.total` 时 `count` 可能为空。补了 `shared/work-status.d.ts`，相加改为 `count?.total || 0` 后构建通过。测试通过不能代替这次类型检查；这两处是在口头确认测试之后改的，本轮没有为此再跑测试。
@@ -77,6 +79,8 @@
 4. 核对项目及依赖的 Node 要求和 ECS 实际版本。本次 `@dimina/compiler@1.2.2` 要求至少 `22.22.3`，ECS 原为 `22.19.0`。[启动钩子](../../scripts/ecs-codedeploy-start.sh)已加入版本检查：需要升级时，将固定版本安装到 `/opt/cothread/node-runtime-22.22.3`，验证可执行文件后再切换 `/usr/local/bin/node`，并保留 `node.previous`。以后依赖提高要求时，须同步核对 `package.json`、钩子和本文，不能只忽略 `EBADENGINE`。
 5. 有迁移时，先在独立测试库验证完整迁移链，并检查已有生产库的升级路径。本次 114 号迁移错误更新了已被 046 号迁移删除的 `agent_capabilities`、`agent_capability_contracts`，直到独立 MySQL 验证才发现。修复尚未上线的迁移；不要随意改写已应用迁移或手工重写校验和。触发器语句需按[迁移执行器](../../scripts/migrate.js)的处理方式执行。
 
+   2026-11-04 核对迁移与升级路径的做法：本机 `cothread` 账号只有 `cothread_dev`、`cothread_test*`、`cothread_refactor_check` 等库的授权，新建任意库名会被拒绝（`ERROR 1044`），核对库应复用已授权的 `cothread_refactor_check`。先在空库执行完整迁移链（本轮 201/201），再用恢复出来的真实数据副本从旧状态升级（本轮 183 → 201，含 220 的正文迁移与旧现状表删除），两者都通过才打包。迁移 218—220 在空库与真实数据上均只执行一次；198 号生产库本次升级到 201，218/219 为加表与回填列，220 会复制旧现状正文后删除 `project_status_nodes` / `project_status_revisions` / `project_status_source_snapshots` 并收敛 `project_memory_settlements` 列。
+
    平台模型配置的 118 号迁移仅新增单例配置表，初始不写配置。新版本探活也会应用该迁移；若随后回切旧代码，可保留新增表，不执行删除表或重写迁移记录。旧代码不会读取此表，因此启用数据库模型配置后再回切旧代码，会重新采用服务器环境变量，恢复前须核对两者。
 
 6. 远端测试库出现 `PROTOCOL_CONNECTION_LOST` 时，先区分连接故障与业务断言失败。测试配置用的已经是公网域名 `TEST_DATABASE_HOST_PUBLIC`，不是内网地址；本机 TUN 仍把该域名解析到 `198.18.0.0/15`，所以“改用公网域名”不能绕过假 IP。2026-10-26 该主机名解析到 `198.18.30.123`，整轮 431 项都是连接丢失、0 项断言失败，不能记成业务回归。2026-10-27 系统 `Resolve-DnsName` 与未打补丁的 `node` 仍分别得到 `198.18.124.171`、`198.18.124.172`。桌面插件 `dsh-real-ip` 只改当前进程的 `dns.lookup`：在测试进程启动时 `--import` 它的 `installProcessLookup` 后，同一公网域名不再落在 `198.18`，并且能连上 `cothread_test`。这个补丁不会传给测试里用干净 `env` 拉起的子进程，系统自带的 `Resolve-DnsName` 和 `mysql` 客户端也仍然看到假 IP。公网 RDS 上串行全量很慢：2026-10-27 一轮 900 项用了约 82 分钟，而本机 `cothread_test_2` 上一轮大约 6 分钟；慢的是跨网 SQL，不是 `DELETE` 重置被改回 `TRUNCATE`。本机 `127.0.0.1:3307` 没有名为 `cothread_test` 的库，仍有 `cothread_test_2` 到 `_5`；本机 `cothread` 账号能写 `_2`，RDS 的 `TEST_DATABASE_AUTH` 不能连这些本机库。要在本机库复跑时，只向测试子进程注入 `TEST_DATABASE_HOST_PUBLIC=127.0.0.1:3307/cothread_test_2` 和本机账号的 `TEST_DATABASE_AUTH`，凭据从现有本地配置读取，不打印、不提交。`npm test` 会清空目标测试库，不能指向生产库或 `cothread_dev`。`cothread_deploy_test` 若未单独授权不可直接使用。
@@ -89,6 +93,8 @@
 ### Alibaba MCP 调用与失败重试
 
 先用 `LOCAL_AnalyzeDeployStack` 确认项目类型。目标实例、地域、应用和分组须来自已确认的发布配置，不通过枚举 ECS 临时挑选。本项目使用 `ecs-promote`、共享目录和 systemd，调用 `OOS_CodeDeploy` 时应将清单中的 `applicationStart`、`applicationStop` **一起传入**，不能换成通用的 `npm start` 启停命令。`releaseTgz` 对应 `file_path`，`objectName` 对应 `object_name`。
+
+2026-11-04 核对本机通道现状：插件 `dsh-alibaba-mcp` 的默认命令仍指向 `D:\tools\mcp\vendor\alibaba\.venv\Scripts\alibaba-cloud-ops-mcp-server.exe`，该路径已不存在；本机实际安装在 `D:\tools\mcp\vendor\alibaba-codex\Scripts\alibaba-cloud-ops-mcp-server.exe`。本轮发布所在的 DSH 会话没有暴露 `OOS_*` / `ECS_*` 工具，改用仓库自带 `@modelcontextprotocol/sdk` 的 `StdioClientTransport` 起这个 exe（`--transport stdio --visible-tools OOS_CodeDeploy,OOS_GetDeployStatus,OOS_GetLastDeploymentInfo,OOS_RunCommand,ECS_DescribeInstances`），AK/SK 只从用户级环境变量读入子进程，不写文件、日志或命令行。本轮注册表代理为 `127.0.0.1:2080`，同一子进程直连成功，没有复现 `SSLEOFError`；下方空 `proxies` 补丁只在复现时使用。只读核对用 `OOS_RunCommand`（Cloud Assistant，结果在 `Outputs.commandOutputs`）；`LOCAL_RunShellScript` 是本机工具，`working_directory` 传 `/opt/cothread` 会报 `Invalid path`，不能拿来读 ECS。
 
 **停止钩子不能调用顶层 `exit 0`。** 本次 OOS 将停止与启动钩子拼接到同一个 shell；停止钩子提前退出后，上传和执行仍被记录为成功，启动钩子却完全没运行，正式版本一直停在 10 月 15 日。[停止钩子](../../scripts/ecs-codedeploy-stop.sh)现在使用 `:`，由 [ecs-promote.sh](../../scripts/ecs-promote.sh)负责探活后切换。修改钩子后，可在 Git Bash 检查后续命令仍能执行，预期输出 `HOOK_CONTINUES`：
 
@@ -110,7 +116,7 @@ bash -n scripts/ecs-codedeploy-start.sh
 | 分组 `DeployParameters` 仍是旧包名和 `systemctl stop`                         | 该字段不是本轮实际执行的命令。2026-10-28 与 2026-10-29 第二次发布时分组已是本轮 `Released`，但 `ObjectName` 仍是 `cothread-release-20260927T101450Z.tgz`                                                                                                                                                                                                                                                                    | 不要用它判断实际命令。以本次 execution 的 `deployCommandOutput` 为准，调用时仍传入当前 `ecs-promote` 启停钩子                                                                                                                                                                                                                                                                                 |
 | 轮询响应里出现 `FailurePause`，任务数却还在增加                               | `Mode: FailurePause` 是模板的失败暂停策略，成功或仍在运行的执行里也有这个词。2026-10-29 第二次发布在 4/8 时状态仍是 `Running`，随后 8/8 `Success`                                                                                                                                                                                                                                                                           | 不要因为响应里出现这个词就判定失败或重复上传。只把执行 `Status: Failed`，或 `FailedTasks` 大于 0，当成失败                                                                                                                                                                                                                                                                                    |
 | Alibaba `LOCAL_RunShellScript` 一直无结果                                     | 本次分别达到 30 秒、120 秒超时                                                                                                                                                                                                                                                                                                                                                                                              | 说明已试路径；必要时用本机已安装的 Alibaba SDK 和既有环境凭据读取 OOS/ECS 诊断信息。不要把 AK/SK、临时签名 OSS URL 写入文档或日志；发布入口仍用 MCP CodeDeploy                                                                                                                                                                                                                                |
-| MCP 与 Tea SDK 调 ECS/OOS 报 `SSLEOFError`                                    | 2026-10-23 上午 curl 能握手并得到 HTTP 400，Tea 签名请求在握手阶段被对端断开；约 4 小时后同一 SDK 重试成功。当天下午 curl 仍返回 HTTP 400，立刻重试仍是 `SSLEOFError`。同一虚拟环境里新开的 Python 能握手，已运行的 MCP 进程不能；稍后同一次会话里原调用恢复成功。本机 TUN 把 `*.aliyuncs.com` 解析到 `198.18.0.0/15`                                                                                                       | 不要改用通用 `npm start`。没有 execution 前视为未上传。桌面配置改为用该虚拟环境的 `python.exe` 启动 `C:/Users/liyun/.dsh/profiles/desktop/alibaba-fakeip/launch.py`：只在阿里云域名落到该网段时改用公共 DoH 的真实地址，TLS 仍用原主机名。2026-10-23 实测该包装解析到公网地址，TLS 1.3 握手后对端返回 HTTP 400。已运行的 MCP 要等下次重启 App 才走这条路径。发布入口仍是 MCP `OOS_CodeDeploy` |
+| MCP 与 Tea SDK 调 ECS/OOS 报 `SSLEOFError`                                    | 2026-10-23 上午 curl 能握手并得到 HTTP 400，Tea 签名请求在握手阶段被对端断开；约 4 小时后同一 SDK 重试成功。当天下午 curl 仍返回 HTTP 400，立刻重试仍是 `SSLEOFError`。同一虚拟环境里新开的 Python 能握手，已运行的 MCP 进程不能；稍后同一次会话里原调用恢复成功。本机 TUN 把 `*.aliyuncs.com` 解析到 `198.18.0.0/15`                                                                                                       | 不要改用通用 `npm start`。没有 execution 前视为未上传。2026-10-23 曾用 `C:/Users/liyun/.dsh/profiles/desktop/alibaba-fakeip/launch.py` 包装：只在阿里云域名落到该网段时改用公共 DoH 的真实地址，TLS 仍用原主机名，实测解析到公网地址、握手后对端返回 HTTP 400。2026-11-04 核对时该包装路径已不存在，按本节开头 2026-11-04 的本地 stdio 方式起新进程即可。已运行的 MCP 要等下次重启 App 才更新路径。发布入口仍是 MCP `OOS_CodeDeploy` |
 | 全部 ECS/OOS 调用都 `SSLEOFError`，但 `OOS_GetLastDeploymentInfo` 仍成功      | 2026-10-28 实测根因：本机注册表系统代理为 `http://127.0.0.1:5090`；阿里云 Tea SDK（darabonba）调用 `requests.Session.send(proxies={})` 时，requests 会把注册表代理合并进来，该代理对 TUN 分配的 `198.18.x` 假地址做 TLS 时直接 EOF。普通 `requests.get`/curl 不传空 `proxies` 均正常，`alibabacloud_oss_v2` 也正常。`OOS_GetLastDeploymentInfo` 读的是本地 `.code_deploy/application.json`，不是云端，不能据它判断 MCP 可用 | 不要反复重试同一调用，也不要把 SDK 改成 HTTP。用新起的同款 MCP 子进程按清单调用（见下节「系统代理导致 MCP 全部 SSLEOFError 的恢复路径」）；发布入口仍是 MCP `OOS_CodeDeploy`，只是换一个刚启动的子进程                                                                                                                                                                                        |
 
 定位执行问题时，从本次父 execution 的部署任务进入实例子执行，再读取 `deployCurrentRevision` 的状态、输出和实际命令。本次层级为 `<execution>.t0005.i0001`；任务名称和层级应按实际返回发现，不把后缀当作永久 API 契约。应用分组摘要不足以说明启动命令是否真正运行。
@@ -122,7 +128,7 @@ bash -n scripts/ecs-codedeploy-start.sh
 - 有效恢复（2026-10-28 实测部署成功 8/8）：
 
   1. 在 `%TEMP%` 下建临时目录放 `sitecustomize.py`，内容只做一件事：`requests.Session.send` 收到 `proxies == {}` 时把该参数去掉再转调原方法。
-  2. 用仓库自带的 `@modelcontextprotocol/sdk`（`StdioClientTransport`）起一个全新的 `D:\tools\mcp\vendor\alibaba\.venv\Scripts\alibaba-cloud-ops-mcp-server.exe`，参数与插件 `launch.js` 一致：`--transport stdio --services ecs,vpc,rds --visible-tools OOS_CodeDeploy,OOS_GetDeployStatus,OOS_GetLastDeploymentInfo,ECS_DescribeInstances`。
+  2. 用仓库自带的 `@modelcontextprotocol/sdk`（`StdioClientTransport`）起一个全新的 `D:\tools\mcp\vendor\alibaba-codex\Scripts\alibaba-cloud-ops-mcp-server.exe`（旧 `.venv` 路径已不存在），参数与插件 `launch.js` 一致，只读核对时用 `--transport stdio --visible-tools OOS_CodeDeploy,OOS_GetDeployStatus,OOS_GetLastDeploymentInfo,OOS_RunCommand,ECS_DescribeInstances`。
   3. 子进程环境除 `PYTHONPATH` 指向第 1 步目录外，沿用插件的 `ALIBABA_CLOUD_ACCESS_KEY_ID`、`ALIBABA_CLOUD_ACCESS_KEY_SECRET`（从用户级环境变量读取，不写日志/脚本/命令行）与 `ALIBABA_CLOUD_REGION_ID`。
   4. 按 `.code_deploy/last-deploy.json` 调 `OOS_CodeDeploy`，参数与平时一致（`application_start`/`application_stop` 用清单里的内容）；随后用同一子进程调 `OOS_GetDeployStatus` 轮询。
 
@@ -272,3 +278,13 @@ bash -n scripts/ecs-codedeploy-start.sh
 本轮 execution `exec-34ab93feef484da3881d` 为 `Success`、8/8，分组 `Released`，实际切换至 `/opt/cothread/releases/20261102T065234Z`。公网健康接口为 `ok`，正式执行器 `ready: true`。项目 `9373b154-770b-437d-b182-30fe49ae8577` 的 6 条已有摘要的冗余队列记录被 152 号迁移清除；剩余 4 张图片由 run `4742e7c5-bc77-4acd-bb80-6f14365d8ba8` 在北京时间 14:55:53 至 14:56:29 完成，队列归零、最近错误为空，轨迹显示图片模型输出、结构校验和多次检查点保存成功。这是该项目的实际验收，不代表所有项目均已验收。本轮未访问仅回环开放的 `/api/health/work`，因此不推断全站排队或运行任务为零。
 
 2026-11-03 发布提交 `a628fc6`：本机独立测试库全量测试 1021/1021 通过，迁移恢复测试 9/9 通过；`npm run lint`、`npm run build`、npm 10 生产依赖安装计划预检、停止钩子续行和启动钩子语法检查均通过。远程测试库此前出现 `PROTOCOL_CONNECTION_LOST`，改用本机 `127.0.0.1:3307/cothread_test_2` 与本机 root 测试账号复跑。发布包 `cothread-release-20261103T115049Z.tgz`，SHA-256 `c7a21b1c7475ec8477fe36e3e9d8bf5ca4c91b905547d178f3fee72ec71d55bd`。包中未包含 `AGENTS.md`、`.env` 或 `.local`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A1A140-E116-513A-A7EE-D5C89A8C3601`，revision `rev-4603168cd93b418697b4`，execution `exec-5bae170b83ae4b288144` 成功（8/8，0 失败），分组最终为 `Released`。线上 `current` 切到 `/opt/cothread/releases/20261103T115245Z`，正式健康接口返回 `status: ok`、数据库 mysql、执行器 `ready: true`、8 个执行槽，公网 `/api/health?release=a628fc6` 返回 200。线上安装 2266 个生产依赖并报告 105 个漏洞，未作为发布失败依据。未做登录后业务操作和全站任务排队验收。
+
+2026-11-04 发布「按来源治理项目记忆 / 项目现状改 Markdown」：代码提交 `7316999`（已推送，`origin/main` 与本地 HEAD 一致），提交含 82 个文件；发布包 `cothread-release-20261104T032106Z.tgz`，6,162,624 字节，SHA-256 `850D4522E533BC108E1F21B85D38E8B21CC6281491FA01C66C0B31DFFD00621F`，tar 条目 705（含目录条目），包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests` 或 `.code_deploy`。门禁：`npm run lint` 退出码 0，`npm run test:unit` 496/496，`npm run build` 退出码 0；全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 1039/1039、0 失败，耗时约 433 秒；`npm install --package-lock-only` 无改动，`npx npm@10.9.8 ci --omit=dev --dry-run` 退出码 0。发布前独立库完整迁移链 201/201；恢复出来的真实开发库副本从 183 升到 201，218/219/220 均正常应用。
+
+上传：`OOS_CodeDeploy` 返回 HTTP 200（RequestId `01A1A494-4E9C-5622-9397-1A5A04BF8EBC`，见本文 Alibaba MCP 现状一节），revision `rev-85e8601bcf7e4feaa2fd`，execution `exec-2058e884406646949a65` 为 `Success`（8/8，0 失败），结束于 UTC `2026-11-04T03:27:28Z`，分组 `Released`，`StatusReason` 为 release success；执行输出 `PKG=/root/cothread-release-20261104T032106Z.tgz`。本轮从 `Releasing` 到 `Released` 约 5 分钟（往轮约 1 分钟），期间未重复上传。
+
+线上：`readlink -f /opt/cothread/current` 为 `/opt/cothread/releases/20261104T032244Z`；systemd `active/running`，`ExecMainStartTimestamp` 为北京时间 2026-11-04 11:27:20（UTC 03:27:20），`MainPID` 1320149，Node `v22.22.3`；`current/.env` 与 `current/.local` 仍指向 `/opt/cothread/` 共享目录；`/opt/cothread/releases` 保留 3 个目录。生产迁移 198 → 201，最新三条为 218/219/220；`project_status` 已建并有 15 行，`project_status_nodes` / `project_status_revisions` / `project_status_source_snapshots` 已不存在。本机健康接口 `status: ok`、数据库 mysql、执行器 `ready: true`、8 个执行槽、锁获取 UTC `2026-11-04T03:27:22.403Z`；公网 `https://cothread.z2l.top/api/health?release=7316999` 返回 200，`status: ok` 且执行器 ready。首页资源为 `index-DNkmfHTK.js` 与 `index-BHw62KsI.css`，与本地 `dist/index.html` 一致。
+
+浏览器实测带提交号的首页：登录页正常渲染（登录 / 注册 / 重置密码，预填管理员邮箱），主脚本与样式均 200；控制台仍有一条 `data:application/octet-stream` 的 modulepreload MIME 报错、未登录时 `/api/me` 401，以及两条被忽略的 `@property`，与 2026-10-25 起记录的现象相同，不是本轮引入。未做登录后的业务功能验收，也未访问仅回环开放的 `/api/health/work`，不能推断全站排队或运行任务为零。验收凭据与截图保存在本地 `.code_deploy/verification/2026-11-04-release/`，不进 Git。
+
+本轮已知未完成项：modulepreload 的 `data:application/octet-stream` 仍待改成 `data:text/javascript;base64` 或去掉；项目现状 Markdown 与记忆信号治理只完成迁移和冒烟级线上核对，未逐项目验证结算产物质量。

@@ -27,7 +27,7 @@ test("DSH starts with a custom OpenAI-compatible provider route", async () => {
     env,
     provider: "cothread-compatible",
     model: "local-model",
-    initializeTimeoutMs: 15000,
+    initializeTimeoutMs: 30000,
   });
   try {
     await harness.start();

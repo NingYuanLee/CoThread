@@ -23798,6 +23798,55 @@ html body .project-memory-dialog .dialog-header {
   color: var(--c-2f3a33);
 }
 
+/* 待处理的项目进程信号：面板上只留计数按钮，明细收进弹窗列表。 */
+.project-memory-signals-dialog {
+  max-width: 44rem;
+}
+
+.project-memory-signals-note {
+  margin: 0;
+  padding: 0 1.143rem 0.571rem;
+  font-size: 0.786rem;
+  line-height: 1.7;
+  color: var(--c-6a756d);
+}
+
+.project-memory-signals-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 1.143rem 1.143rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.571rem;
+  overflow-y: auto;
+}
+
+.project-memory-signals-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.214rem;
+  padding: 0.571rem 0.714rem;
+  border: 1px solid var(--c-e7eae7);
+  border-radius: 0.5rem;
+  background: var(--c-fbfcf9);
+}
+
+.project-memory-signals-list strong {
+  font-size: 0.857rem;
+  color: var(--c-2f3a33);
+  word-break: break-word;
+}
+
+.project-memory-signals-list small {
+  font-size: 0.75rem;
+  color: var(--c-8a9482);
+}
+
+.project-memory-signals-error {
+  color: var(--c-b6735d);
+  word-break: break-word;
+}
+
 /* 待观察项列表：问题原文可能很长，表格内截两行，完整内容看详情。 */
 .memory-observation-question {
   display: -webkit-box;

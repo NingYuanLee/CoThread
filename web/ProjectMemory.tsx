@@ -26,6 +26,11 @@ import {
   runStatusLabel,
 } from "./agent-monitor-model";
 import { MemoryJobSessionDialog } from "./MemoryJobSessionDialog";
+import {
+  ProjectMemorySignalsButton,
+  ProjectMemorySignalsDialog,
+  type ProjectMemorySignal,
+} from "./ProjectMemorySignals";
 import { MemoryObservations } from "./MemoryObservations";
 import { IconButton, RefreshButton } from "./IconButton";
 import type { LaowengRun } from "./agent-monitor-types";
@@ -131,15 +136,7 @@ type MemoryJob = {
     previousSummaryVersion?: number | null;
     versionId?: string;
   }[];
-  projectCandidates?: {
-    id: string;
-    sourceKind: string;
-    hint: string;
-    retryCount: number;
-    lastError?: string | null;
-    lastAttemptAt?: string | null;
-    availableAt?: string | null;
-  }[];
+  projectCandidates?: ProjectMemorySignal[];
   archivedThread?: { id: string; title?: string } | null;
   conversationWindows?: {
     id: string;
@@ -1697,6 +1694,8 @@ export function ProjectMemory({
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [historyJob, setHistoryJob] = useState<MemoryJob | null>(null);
   const [sessionJob, setSessionJob] = useState<MemoryJob | null>(null);
+  /** 待处理项目进程信号的列表弹窗；面板上只留计数按钮。 */
+  const [signalsDialog, setSignalsDialog] = useState<ProjectMemorySignal[] | null>(null);
   const [progressOpen, setProgressOpen] = useState(false);
   const [runningJob, setRunningJob] = useState("");
   const [statusFilter, setStatusFilter] = useState<string[]>(DEFAULT_STATUS_FILTER);
@@ -1921,6 +1920,7 @@ export function ProjectMemory({
     setSubjectFilter("all");
     setSubtypeFilter([]);
     setPendingAction(null);
+    setSignalsDialog(null);
     setQueryApplied("");
     entryPages.current.clear();
     setListEpoch((value) => value + 1);
@@ -2471,19 +2471,11 @@ export function ProjectMemory({
                               <dt>提示词</dt>
                               <dd>{job.prompt}</dd>
                             </dl>
-                            {job.projectCandidates?.length ? (
-                              <div className="memory-job-detail">
-                                <strong>待处理的项目进程信号</strong>
-                                {job.projectCandidates.map((item) => (
-                                  <p key={item.id}>
-                                    {item.hint || item.sourceKind} · 重试 {item.retryCount} 次
-                                    {item.lastAttemptAt ? ` · 最近尝试 ${item.lastAttemptAt}` : ""}
-                                    {item.lastError ? ` · ${item.lastError}` : ""}
-                                  </p>
-                                ))}
-                              </div>
-                            ) : null}
                             <div className="memory-job-edit-actions">
+                              <ProjectMemorySignalsButton
+                                signals={job.projectCandidates || []}
+                                onOpen={() => setSignalsDialog(job.projectCandidates || [])}
+                              />
                               <button
                                 type="button"
                                 className="wiki-action"
@@ -2830,6 +2822,12 @@ export function ProjectMemory({
           task={sessionJob.key}
           api={api}
           onClose={() => setSessionJob(null)}
+        />
+      ) : null}
+      {signalsDialog ? (
+        <ProjectMemorySignalsDialog
+          signals={signalsDialog}
+          onClose={() => setSignalsDialog(null)}
         />
       ) : null}
       {pendingAction ? (

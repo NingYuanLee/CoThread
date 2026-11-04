@@ -26,3 +26,4 @@ export * from "./file-bytes.js";
 export * from "./service-preview.js";
 export * from "./preview-mime.js";
 export * from "./versions.js";
+export * from "./renditions.js";

@@ -35,6 +35,7 @@ const TABLES = [
   "file_uploads",
   "document_change_logs",
   "document_change_snapshots",
+  "version_renditions",
 ];
 const WRITE_RE = new RegExp(
   `(?:INSERT\\s+INTO|UPDATE|DELETE\\s+FROM)\\s+(?:${TABLES.join("|")})\\b`,

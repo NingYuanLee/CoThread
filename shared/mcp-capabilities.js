@@ -86,7 +86,7 @@ export const MCP_CAPABILITIES = Object.freeze([
     group: "文档与目录",
     title: "读取文档",
     description:
-      "按版本读取文本正文，可指定字符偏移和长度；二进制只返回类型、大小和哈希，不返回原始字节。",
+      "按版本读取正文，可指定字符偏移和长度；Word/PPT/Excel（含旧版 .doc 与被 WPS 改名成 .docx 的二进制文档）返回提取出的文字，图片、批注不包含；加密或无法解析时给出原因。",
     access: "read",
     icon: "detail",
   },

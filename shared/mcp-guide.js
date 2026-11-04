@@ -21,7 +21,7 @@ export const MCP_INSTRUCTIONS = `你已连接共序 CoThread，一个按账号�
    c. 全部片成功后 complete_file_upload(uploadId, sha256=整文件哈希)。用返回的 id 作为版本 ID；再核对返回的 sha256 与 byteSize。哈希不一致或分片不完整会失败，不会留下半截文件。
 4. 不要把文件放进 post_message.files。需要随消息带附件时：先上传拿到版本 ID，再 post_message(refs:[版本 ID])。
 5. zip、application/octet-stream、带 charset 的 MIME 都可以传，按文件名推断类型，不会因此拒绝。同文件夹同名不会覆盖，会改成「名称 (2)」。
-6. 分片合并后单文件上限 ${FILE_MAX_MIB} MiB。消息最多关联 30 个版本，另可引用最多 30 个文件夹，body 最多 20000 字符。读取文本正文用 read_document（offset 为字符偏移，limit 最大 8000）；二进制只返回类型、大小和哈希。get_document_version 按字节分片下载原始内容，每次最多 6144 字节；用返回的 nextOffset 作为下次 offset，直到 complete 为 true。不要把分片 Base64 当阅读结果。整文件 sha256 与 byte_size 在每一片里都会返回。
+6. 分片合并后单文件上限 ${FILE_MAX_MIB} MiB。消息最多关联 30 个版本，另可引用最多 30 个文件夹，body 最多 20000 字符。读取正文用 read_document（offset 为字符偏移，limit 最大 8000）：Word/PPT/Excel 会返回提取出的文字（含旧版 .doc 和被 WPS 改名成 .docx 的二进制文档），图片与批注不包含在内，加密或无法解析时在 note 里给出原因。get_document_version 按字节分片下载原始内容，每次最多 6144 字节；用返回的 nextOffset 作为下次 offset，直到 complete 为 true。不要把分片 Base64 当阅读结果。整文件 sha256 与 byte_size 在每一片里都会返回。
 7. 引用文件夹用 folderRefs，不要把文件夹展开成文件列表。读取文件夹内容用 list_documents({projectId, folderId})；recursive=true 可包含全部子目录和文件。任务 folder_refs 同样是文件夹 ID，get_task 会附带 folder_contents，也可再按 folderId 列出。
 mentionAgent=true 自动 @${AGENT_MEMBER.name}；正文 @${AGENT_MEMBER.name} 或旧名 @Agent助手 也支持。不显式提及时本地 Agent 消息不触发内置助手回复。不要自动提及或自动接力回复，以免循环。
 沙箱产物主要由云端 Agent 通过内部 publish_artifact 写入，不通过上述 MCP 上传。

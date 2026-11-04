@@ -44,3 +44,35 @@ test("电子表格有界提取，非 UTF-8 文本不能伪装为可靠正文", a
   assert.equal(broken.text, "");
   assert.match(broken.reason, /UTF-8/);
 });
+
+test("Word 宏文档等 OOXML 变体共用 docx 正文提取", async () => {
+  const zip = new JSZip();
+  zip.file(
+    "word/document.xml",
+    '<w:document xmlns:w="urn:test"><w:p><w:r><w:t>宏文档正文</w:t></w:r></w:p></w:document>',
+  );
+  const content = await zip.generateAsync({ type: "nodebuffer" });
+  const result = await extractIndexText({ filename: "宏.docm", content });
+  assert.equal(result.text, "宏文档正文");
+});
+
+test("旧版 .xls（OLE2 BIFF8）按文件头识别后由表格解析器提取", async () => {
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.aoa_to_sheet([
+      ["城市", "人数"],
+      ["杭州", 12],
+    ]),
+    "统计",
+  );
+  const bytes = XLSX.write(workbook, { type: "buffer", bookType: "biff8" });
+  const result = await extractIndexText({
+    filename: "旧表.xls",
+    mime: "application/vnd.ms-excel",
+    content: bytes,
+  });
+  assert.match(result.text, /工作表 统计/);
+  assert.match(result.text, /杭州/);
+  assert.equal(result.partial, true);
+});

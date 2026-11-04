@@ -3,6 +3,7 @@ import {
   documentTool,
   documentToolSchemas,
   isDocumentText,
+  paginateText,
   readDocumentContent,
 } from "./documents/index.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -68,6 +69,43 @@ function mcpErrorText(error) {
       .join("；");
   if (error.status) return error.message;
   return "请求失败，请检查输入与权限";
+}
+
+const OFFICE_EXTENSION = /\.(doc|docx|docm|dotx|pptx|pptm|xlsx|xlsm)$/i;
+const OFFICE_EXTRACT_MAX_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Office 文件在 read_document 里返回提取出的正文，而不是只给类型和哈希。
+ * 覆盖「扩展名 docx、实际是 Word 97 二进制」的 WPS 导出件：这类文件按扩展名会被当成
+ * OOXML，只有按文件头识别才能读到正文。提取失败时把具体原因回给调用方。
+ */
+async function readOfficeDocumentText(service, user, meta, { offset, limit }) {
+  if (!OFFICE_EXTENSION.test(String(meta.filename || ""))) return null;
+  const byteSize = Number(meta.byte_size) || 0;
+  if (byteSize > OFFICE_EXTRACT_MAX_BYTES) return null;
+  const full = await service.version(user, meta.id);
+  const { extractIndexText } = await import("./file-index-extract.js");
+  const extraction = await extractIndexText({
+    mime: full.mime,
+    filename: full.filename,
+    content: full.content,
+  });
+  const { text: _text, note: _note, ...base } = readDocumentContent(meta, {});
+  if (!extraction.text) {
+    return {
+      ...base,
+      text: false,
+      note: extraction.reason || "未能从该 Office 文件提取正文。",
+    };
+  }
+  const { afterEnd: _afterEnd, ...page } = paginateText(extraction.text, { offset, limit });
+  return {
+    ...base,
+    text: true,
+    ...page,
+    extracted: true,
+    extractionNote: extraction.reason,
+  };
 }
 
 export function mcpToolDefinitions(service, user, afterMessage) {
@@ -333,7 +371,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
   );
   register(
     "read_document",
-    "读取文档版本的文本正文。versionId 来自 list_documents 或消息引用。offset 为起始字符，limit 默认 6000、最大 8000。返回正文、总字符数和是否截断；截断时用 nextOffset 继续。二进制只返回类型、大小和哈希，不返回原始字节。原始字节用 get_document_version 按片下载。",
+    "读取文档版本的文本正文。versionId 来自 list_documents 或消息引用。offset 为起始字符，limit 默认 6000、最大 8000。返回正文、总字符数和是否截断；截断时用 nextOffset 继续。Word/PPT/Excel（含旧版 .doc 与 WPS 把二进制文档存成 .docx 的情况）会返回提取出的文字，图片、批注等不包含在内；加密或无法解析时在 note 里给出具体原因。原始字节用 get_document_version 按片下载。",
     {
       versionId: z.string().uuid(),
       offset: z
@@ -353,8 +391,10 @@ export function mcpToolDefinitions(service, user, afterMessage) {
     },
     async ({ versionId, offset, limit }) => {
       const meta = await service.version(user, versionId, { includeContent: false });
-      if (!isDocumentText(meta.mime, meta.filename))
-        return readDocumentContent(meta, { offset, limit });
+      if (!isDocumentText(meta.mime, meta.filename)) {
+        const office = await readOfficeDocumentText(service, user, meta, { offset, limit });
+        return office || readDocumentContent(meta, { offset, limit });
+      }
       const full = await service.version(user, versionId);
       const { captureDocumentRevision } = await import("./memory-history.js");
       const contentRevisionId = await captureDocumentRevision(

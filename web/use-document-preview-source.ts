@@ -33,6 +33,44 @@ export type DocumentPreviewSourceContext = {
   setFileInfoOpen: Dispatch<SetStateAction<boolean>>;
 };
 
+const RENDITION_KIND_BY_EXTENSION: Record<string, "docx" | "xlsx" | "pptx"> = {
+  doc: "docx",
+  xls: "xlsx",
+  ppt: "pptx",
+};
+const RENDITION_MIME_BY_KIND: Record<string, string> = {
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
+
+/** OLE2 复合文档头：旧版二进制 Office 或 WPS 改名成 .docx 的文件。 */
+function isCompoundFile(bytes: Uint8Array) {
+  return bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0;
+}
+
+/**
+ * 取服务端派生出的 OOXML：转换在后台进行，202 时短轮询；415/422 表示无法转换。
+ * 返回 pending 时前端展示「正在转换」而不是失败的预览。
+ */
+async function fetchRendition(
+  versionId: string,
+  isAlive: () => boolean,
+): Promise<
+  { status: "ready"; bytes: Uint8Array<ArrayBuffer> } | { status: "pending" | "unavailable" }
+> {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const response = await apiFetch(`/api/versions/${versionId}/rendition`);
+    if (!isAlive()) return { status: "unavailable" };
+    if (response.ok)
+      return { status: "ready", bytes: new Uint8Array(await response.arrayBuffer()) };
+    if (response.status !== 202) return { status: "unavailable" };
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    if (!isAlive()) return { status: "unavailable" };
+  }
+  return { status: "pending" };
+}
+
 export function useDocumentPreviewSource(ctx: DocumentPreviewSourceContext) {
   const { selected, previewReload, setView, setError, setImagePreview, setFileInfoOpen } = ctx;
   useEffect(() => {
@@ -107,6 +145,26 @@ export function useDocumentPreviewSource(ctx: DocumentPreviewSourceContext) {
       };
       const extension = name.split(".").pop() || "";
       const mime = String(metadata.mime || "");
+      const directRenditionKind = RENDITION_KIND_BY_EXTENSION[extension];
+      if (directRenditionKind) {
+        const rendition = await fetchRendition(selected, () => alive);
+        if (!alive) return;
+        if (rendition.status === "ready") {
+          const entry = {
+            kind: directRenditionKind,
+            bytes: rendition.bytes,
+            mime: RENDITION_MIME_BY_KIND[directRenditionKind],
+          } satisfies DocumentViewCacheEntry;
+          documentViewCache.update(selected, () => entry);
+          setView(entry);
+          return;
+        }
+        setView({
+          kind: rendition.status === "pending" ? "converting" : "download",
+          mime: mime || "application/octet-stream",
+        });
+        return;
+      }
       if (
         imageMime[extension] ||
         name.endsWith(".docx") ||
@@ -132,9 +190,19 @@ export function useDocumentPreviewSource(ctx: DocumentPreviewSourceContext) {
             : name.endsWith(".xlsx") || name.endsWith(".csv")
               ? "xlsx"
               : "pptx";
+          let renditionBytes = bytes;
+          if (isCompoundFile(bytes)) {
+            const rendition = await fetchRendition(selected, () => alive);
+            if (!alive) return;
+            if (rendition.status === "ready") renditionBytes = rendition.bytes;
+            else if (rendition.status === "pending") {
+              setView({ kind: "converting", mime: mime || "application/octet-stream" });
+              return;
+            }
+          }
           const entry = {
             kind,
-            bytes,
+            bytes: renditionBytes,
             mime: String(v.mime || mime || "application/octet-stream"),
           } satisfies DocumentViewCacheEntry;
           documentViewCache.update(selected, () => entry);

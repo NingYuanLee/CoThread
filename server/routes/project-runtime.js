@@ -21,6 +21,9 @@ import { retryReply } from "../reply-actions.js";
 import { signPreviewTicket, splitPreviewAssetPath } from "../../shared/preview-ticket.mjs";
 import { randomBytes } from "node:crypto";
 import { joinThreadViewing } from "../thread-presence.js";
+import { trackSse } from "../sse-streams.js";
+import { getRendition } from "../documents/index.js";
+import { ensureOfficeRendition } from "../office-renditions.js";
 
 export function registerProjectRuntimeRoutes(
   app,
@@ -38,6 +41,9 @@ export function registerProjectRuntimeRoutes(
       Connection: "keep-alive",
     });
     res.write(": in\n\n");
+    // presence 连接只在浏览器失焦时由客户端断开；进程退出要能主动结束它，
+    // 否则 server.close() 会等到关闭超时。
+    const untrack = trackSse(res);
     const beat = setInterval(() => {
       res.write(": stay\n\n");
     }, 15000);
@@ -46,6 +52,7 @@ export function registerProjectRuntimeRoutes(
       if (closed) return;
       closed = true;
       clearInterval(beat);
+      untrack();
       leave();
     };
     req.on("close", done);
@@ -254,6 +261,29 @@ export function registerProjectRuntimeRoutes(
     );
     res.setHeader("Content-Type", "application/octet-stream");
     res.send(version.content);
+  });
+  const sendRendition = (res, rendition) => {
+    res.setHeader("Content-Type", rendition.mime);
+    res.setHeader("Content-Length", String(rendition.content.length));
+    res.setHeader("Cache-Control", "private, max-age=300");
+    res.send(rendition.content);
+  };
+  // 旧版二进制 Office（含 WPS 存成 .docx 后缀的 .doc）的预览派生文件：
+  // 200 直接返回 OOXML 字节；202 表示已开始异步转换；415/422 让前端回退到下载。
+  app.get("/api/versions/:id/rendition", async (req, res) => {
+    const meta = await service.version(req.user, req.params.id, { includeContent: false });
+    const existing = await getRendition(service.db, meta.id, { withContent: true });
+    const fresh = existing && existing.source_sha256 === meta.sha256;
+    if (fresh && existing.status === "ready" && existing.content)
+      return sendRendition(res, existing);
+    const full = await service.version(req.user, req.params.id);
+    const result = await ensureOfficeRendition({ db: service.db, version: full, existing });
+    if (result.status === "ready") return sendRendition(res, result);
+    if (result.status === "pending")
+      return res.status(202).json({ status: "pending", retryAfterMs: 1500 });
+    if (result.status === "unsupported")
+      return res.status(415).json({ status: "unsupported", reason: result.reason });
+    res.status(422).json({ status: "failed", reason: result.reason });
   });
   app.get("/api/projects/:id/folders/:folderId/download", async (req, res) => {
     const archive = await service.folderArchive(req.user, req.params.id, req.params.folderId);

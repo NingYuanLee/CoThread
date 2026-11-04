@@ -38,3 +38,6 @@ backups/
 *.pem
 *.p12
 *.pfx
+
+# Personal document conversion scratch output (contains user file copies)
+wps-docx-reader/

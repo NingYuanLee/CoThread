@@ -1424,9 +1424,9 @@ export const Documents = memo(function Documents({
     if (TEXT_PREVIEW_NAME.test(name)) return "text";
     if (/\.pdf$/.test(name)) return "pdf";
     if (/\.(png|jpe?g|gif|webp|svg)$/.test(name)) return "image";
-    if (/\.docx$/.test(name)) return "docx";
-    if (/\.(xlsx|csv)$/.test(name)) return "xlsx";
-    if (/\.pptx$/.test(name)) return "pptx";
+    if (/\.(doc|docx)$/.test(name)) return "docx";
+    if (/\.(xls|xlsx|csv)$/.test(name)) return "xlsx";
+    if (/\.(ppt|pptx)$/.test(name)) return "pptx";
     return "download";
   })();
   const isHtmlFile = capsuleKind === "html";

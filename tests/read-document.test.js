@@ -7,6 +7,7 @@ import { readDocumentContent } from "../server/documents/index.js";
 import { createMcpServer, mcpReadToolSpecs } from "../server/mcp.js";
 import { elderDocumentReadText } from "../server/wiki-questions.js";
 import { FILE_CHUNK_SIZE } from "../shared/upload-limits.js";
+import { buildLegacyWordFile } from "./legacy-doc-fixture.js";
 
 const textId = "ad62dc74-57ec-46ce-8a60-67e96832817b";
 const binaryId = "bd62dc74-57ec-46ce-8a60-67e96832817b";
@@ -221,6 +222,50 @@ test("get_document_version resumes by byte offset without returning the whole fi
     const past = await call({ versionId: binaryId, offset: bytes.length + 1 });
     assert.equal(past.error, true);
     assert.match(String(past.data), /偏移已经超过文件大小/);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP read_document extracts text from a legacy binary Office file", async () => {
+  const officeId = "cd62dc74-57ec-46ce-8a60-67e96832817b";
+  const bytes = buildLegacyWordFile({ text: "这个字段这样写" });
+  const service = {
+    db: { execute: async () => [[]] },
+    version: async (_user, versionId, options = {}) => ({
+      id: versionId,
+      artifact_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      project_id: projectId,
+      title: "批注",
+      filename: "批注.docx",
+      version: 1,
+      mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      sha256: "ab".repeat(32),
+      byte_size: bytes.length,
+      folder_id: null,
+      content: options.includeContent === false ? undefined : bytes,
+    }),
+  };
+  const server = createMcpServer(service, { id: "user" });
+  const client = new Client({ name: "read-legacy-office", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  try {
+    const result = await client.callTool({
+      name: "read_document",
+      arguments: { versionId: officeId, limit: 4 },
+    });
+    assert.ok(!result.isError, result.content?.[0]?.text);
+    const page = JSON.parse(result.content[0].text);
+    assert.equal(page.text, true);
+    assert.equal(page.extracted, true);
+    assert.equal(page.content, "这个字段");
+    assert.equal(page.truncated, true);
+    assert.equal(page.nextOffset, 4);
+    assert.match(page.extractionNote, /提取正文文字/);
+    assert.equal("contentBase64" in page, false);
   } finally {
     await client.close();
     await server.close();

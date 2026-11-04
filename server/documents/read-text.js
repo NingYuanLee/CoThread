@@ -39,6 +39,40 @@ function metaOf(version) {
   };
 }
 
+/** 按字符偏移切分正文，供文本文件与提取出的 Office 正文共用。 */
+export function paginateText(body, { offset = 0, limit = DOCUMENT_TEXT_READ_DEFAULT } = {}) {
+  const start = Math.max(0, Math.trunc(Number(offset) || 0));
+  const size = Math.min(
+    DOCUMENT_TEXT_READ_MAX,
+    Math.max(1, Math.trunc(Number(limit) || DOCUMENT_TEXT_READ_DEFAULT)),
+  );
+  if (start > body.length) {
+    return {
+      offset: start,
+      limit: size,
+      returned: 0,
+      totalChars: body.length,
+      truncated: false,
+      nextOffset: null,
+      content: "",
+      afterEnd: true,
+    };
+  }
+  const content = body.slice(start, start + size);
+  const end = start + content.length;
+  const truncated = end < body.length;
+  return {
+    offset: start,
+    limit: size,
+    returned: content.length,
+    totalChars: body.length,
+    truncated,
+    nextOffset: truncated ? end : null,
+    content,
+    afterEnd: false,
+  };
+}
+
 export function readDocumentContent(
   version,
   { offset = 0, limit = DOCUMENT_TEXT_READ_DEFAULT } = {},
@@ -62,37 +96,11 @@ export function readDocumentContent(
     };
   }
   const body = raw.toString("utf8");
-  const start = Math.max(0, Math.trunc(Number(offset) || 0));
-  const size = Math.min(
-    DOCUMENT_TEXT_READ_MAX,
-    Math.max(1, Math.trunc(Number(limit) || DOCUMENT_TEXT_READ_DEFAULT)),
-  );
-  if (start > body.length) {
-    return {
-      ...meta,
-      text: true,
-      offset: start,
-      limit: size,
-      returned: 0,
-      totalChars: body.length,
-      truncated: false,
-      nextOffset: null,
-      content: "",
-      note: "偏移已经超过正文长度。",
-    };
+  const page = paginateText(body, { offset, limit });
+  if (page.afterEnd) {
+    const { afterEnd: _ignored, ...rest } = page;
+    return { ...meta, text: true, ...rest, note: "偏移已经超过正文长度。" };
   }
-  const content = body.slice(start, start + size);
-  const end = start + content.length;
-  const truncated = end < body.length;
-  return {
-    ...meta,
-    text: true,
-    offset: start,
-    limit: size,
-    returned: content.length,
-    totalChars: body.length,
-    truncated,
-    nextOffset: truncated ? end : null,
-    content,
-  };
+  const { afterEnd: _ignored, ...rest } = page;
+  return { ...meta, text: true, ...rest };
 }

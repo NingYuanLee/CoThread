@@ -72,6 +72,12 @@ export function StaticDocumentPreview({
   }
   if (kind === "pdf" && version && bytes)
     return <PdfPreview bytes={bytes} filename={version.filename} />;
+  if (kind === "converting")
+    return (
+      <div className="doc-archive-preview">
+        <p>该文件正在转换为可预览格式，完成后重新打开即可查看。</p>
+      </div>
+    );
   if (kind === "download" && version && ARCHIVE_FILENAME.test(version.filename)) {
     return (
       <div className="doc-archive-preview">

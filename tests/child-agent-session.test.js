@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { gzipSync } from "node:zlib";
+import { gzipSync, zstdCompressSync } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import {
   nativeHistoryFromCheckpoint,
@@ -108,6 +108,48 @@ test("native session view recognizes versioned session log names", () => {
   const checkpoint = gzipSync(
     JSON.stringify({
       [`--tmp--/${id}/session.v4.jsonl`]: Buffer.from(jsonl).toString("base64"),
+    }),
+  );
+  const result = nativeHistoryFromCheckpoint(checkpoint, { sessionId: id });
+  assert.deepEqual(
+    result.map((row) => row.text),
+    ["派活", "完成"],
+  );
+  assert.equal(result[1].usage.totalTokens, 15);
+  assert.ok(result[1].createdAt);
+});
+
+test("native session view decodes multi-frame zstd session logs", () => {
+  // DSH 0.2.x 默认写 session.v4.jsonl.zstd（多帧追加）；只解第一帧会丢正文，
+  // 完全不认 .zstd 则任务会话只剩事件流。
+  const id = randomUUID();
+  const events = [
+    { type: "turn/start", time: 1700000000000, data: { turn: 1 } },
+    {
+      type: "user/message",
+      time: 1700000000100,
+      data: { role: "user", content: [{ type: "text", text: "派活" }] },
+    },
+    { type: "step/start", time: 1700000000200, data: { turn: 1, step: 1 } },
+    {
+      type: "assistant/message",
+      time: 1700000001000,
+      data: {
+        turn: 1,
+        step: 1,
+        message: { role: "assistant", content: [{ type: "text", text: "完成" }] },
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      },
+    },
+    { type: "turn/end", time: 1700000002000, data: { turn: 1 } },
+  ].map((event) => JSON.stringify(event));
+  const frames = [
+    Buffer.from(events.slice(0, 2).join("\n") + "\n"),
+    Buffer.from(events.slice(2).join("\n") + "\n"),
+  ].map((frame) => zstdCompressSync(frame));
+  const checkpoint = gzipSync(
+    JSON.stringify({
+      [`--tmp--/${id}/session.v4.jsonl.zstd`]: Buffer.concat(frames).toString("base64"),
     }),
   );
   const result = nativeHistoryFromCheckpoint(checkpoint, { sessionId: id });

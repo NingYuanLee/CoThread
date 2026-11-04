@@ -1,3 +1,4 @@
+import * as zlib from "node:zlib";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve, sep } from "node:path";
@@ -107,11 +108,39 @@ function checkpointFiles(checkpoint) {
   }
 }
 
-const SESSION_LOG_NAME = /^session(\.v\d+)?\.jsonl$/;
+const SESSION_LOG_NAME = /^session(\.v\d+)?\.jsonl(\.zstd)?$/;
+const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
 
 function isSessionLog(path) {
   const name = String(path).split("/").pop();
   return SESSION_LOG_NAME.test(name);
+}
+
+/**
+ * DSH 0.2.x 默认把会话日志写成多帧 zstd（`session.v4.jsonl.zstd`）。
+ * Node 的 zstdDecompressSync 只解第一帧，这里按帧魔数切开逐帧解压；末尾
+ * 可能有一个还没写完的半帧，解不开就丢掉尾部，保留已完整写入的事件。
+ */
+function decodeSessionLog(name, bytes) {
+  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  if (!String(name).endsWith(".zstd")) return buffer;
+  const decompress = zlib.zstdDecompressSync;
+  if (typeof decompress !== "function") return null;
+  const starts = [];
+  for (let index = 0; index + 4 <= buffer.length; index += 1) {
+    if (buffer.subarray(index, index + 4).equals(ZSTD_MAGIC)) starts.push(index);
+  }
+  if (!starts.length) return null;
+  starts.push(buffer.length);
+  const parts = [];
+  for (let index = 0; index < starts.length - 1; index += 1) {
+    try {
+      parts.push(decompress(buffer.subarray(starts[index], starts[index + 1])));
+    } catch {
+      break;
+    }
+  }
+  return parts.length ? Buffer.concat(parts) : null;
 }
 
 export function nativeHistoryFromCheckpoint(
@@ -139,7 +168,9 @@ export function nativeHistoryFromCheckpoint(
     if (!isSessionLog(path)) continue;
     if (sessionId && !path.split("/").includes(sessionId)) continue;
     try {
-      projected.push(...messagesFromJsonlBytes(Buffer.from(bytes, "base64")));
+      const decoded = decodeSessionLog(path, Buffer.from(bytes, "base64"));
+      if (!decoded) continue;
+      projected.push(...messagesFromJsonlBytes(decoded));
     } catch {
       /* skip a corrupt log and keep other sessions */
     }
@@ -182,7 +213,8 @@ export async function nativeHistoryFromLiveHome(homeId, sessionId) {
       if (entry.isDirectory()) await walk(candidate);
       else if (entry.isFile() && SESSION_LOG_NAME.test(entry.name)) {
         if (sessionId && !path.split(/[/\\]/).includes(sessionId)) continue;
-        logs.push(await readFile(candidate));
+        const decoded = decodeSessionLog(entry.name, await readFile(candidate));
+        if (decoded) logs.push(decoded);
       }
     }
   };

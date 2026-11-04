@@ -105,13 +105,13 @@ export function TaskSessionDialog({
         const events = task?.events || [];
         const pending = task?.pending || [];
         const screenshots = live ? [] : events.filter((event) => event.screenshotUrl);
-        // 会话正文已经包含子 Agent 的回复时，执行活动只保留工具事件，避免正文与
-        // 活动流重复展示同一段文字，也避免长文本直接铺开。
-        const hasMessages = !!task?.messages?.length;
-        const activityEvents = hasMessages
-          ? events.filter(
-              (event) => !["thinking", "assistant_text", "assistant_final"].includes(event.tool),
-            )
+        // 会话正文已经包含子 Agent 的回复时，执行活动只保留思考与工具事件：
+        // 正文已在会话里带复制/时间/用量，思考只在事件流里有，不能再被过滤掉。
+        const hasAssistantMessages = !!task?.messages?.some(
+          (message) => message.role === "assistant",
+        );
+        const activityEvents = hasAssistantMessages
+          ? events.filter((event) => !["assistant_text", "assistant_final"].includes(event.tool))
           : events;
         return (
           <>

@@ -215,6 +215,17 @@ export function AgentActivity({
                     loading="lazy"
                   />
                 )}
+                <div className="message-actions">
+                  <button
+                    type="button"
+                    title={copiedId === e.id ? "已复制" : "复制"}
+                    aria-label="复制"
+                    onClick={() => copy(e.id, e.input || "")}
+                  >
+                    <UiIcon name={copiedId === e.id ? "check" : "copy"} size={14} />
+                  </button>
+                  <MessageTime value={e.finished_at || undefined} />
+                </div>
               </AgentEvent>
             );
           })}

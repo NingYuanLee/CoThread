@@ -374,55 +374,135 @@ async function historyForExecutor(db, threadId, executorId, checkpoint) {
 }
 
 /**
- * 派活时写入的两条事件就是轨迹里的「小祥派活」与「上下文注入」：
- * context_notice 的 input 是任务书正文，system_prompt 的 input 是子 Agent
- * 系统提示词。会话视图把这两段作为右侧用户消息展示，而不是只显示任务目标。
+ * 任务会话按事件时间生成时间线：右侧是小祥派活与上下文注入，左侧是模型正文，
+ * 思考与工具按发生顺序收成可展开的过程块。原生日志里与注入正文重复的 user
+ * 消息不再重复展示。
  */
-export function childContextMessages(events = []) {
-  const notice = events.find(
-    (event) =>
-      event.tool === "context_notice" &&
-      String(event.output || "").includes("cothread-child-context"),
-  );
-  const system = events.find((event) => event.tool === "system_prompt");
-  const messages = [];
-  if (notice?.input)
-    messages.push({
-      id: `dispatch:${notice.id}`,
-      role: "user",
-      source: "coordinator",
-      text: String(notice.input),
-      ...(notice.created_at ? { createdAt: notice.created_at } : {}),
-    });
-  if (system?.input)
-    messages.push({
-      id: `context:${system.id}`,
-      role: "user",
-      source: "coordinator",
-      text: String(system.input),
-      ...(system.created_at ? { createdAt: system.created_at } : {}),
-    });
-  return messages;
+const TIMELINE_USER_TOOLS = new Set(["context_notice"]);
+const TIMELINE_PROCESS_SKIP = new Set([
+  "context_notice",
+  "system_prompt",
+  "assistant_text",
+  "assistant_final",
+]);
+
+function timelineTime(value) {
+  if (!value) return null;
+  const text = String(value);
+  const normalized = text.includes("T") ? text : text.replace(" ", "T") + "Z";
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-/**
- * 任务池里的子会话如果只有原生日志缺失、只剩事件，会话列表会为空，弹窗会同时
- * 显示空态和事件。把任务书作为「小祥派活」用户消息补在最前，保证派活总是可见。
- */
-function withDispatchMessage(messages, task) {
-  if (messages.some((message) => message.role === "user")) return messages;
-  const text = String(task.task_goal || task.task_title || "").trim();
-  if (!text) return messages;
-  return [
-    {
-      id: `dispatch:${task.task_id}`,
-      role: "user",
+function timelineIso(value) {
+  const time = timelineTime(value);
+  return time === null ? undefined : new Date(time).toISOString();
+}
+
+export function buildChildTimeline({ history = [], events = [], task } = {}) {
+  const items = [];
+  let order = 0;
+  const contextTexts = new Set();
+  for (const event of events) {
+    if (!TIMELINE_USER_TOOLS.has(event.tool) || !event.input) continue;
+    const text = String(event.input);
+    contextTexts.add(text);
+    items.push({
+      kind: "user",
+      id: `event:${event.id}`,
       source: "coordinator",
       text,
-      ...(task.task_created_at ? { createdAt: task.task_created_at } : {}),
-    },
-    ...messages,
-  ];
+      createdAt: timelineIso(event.created_at),
+      order: order++,
+    });
+  }
+  for (const message of history) {
+    if (message.role === "assistant")
+      items.push({
+        kind: "assistant",
+        message,
+        createdAt: timelineIso(message.createdAt),
+        order: order++,
+      });
+    else if (message.role === "user" && !contextTexts.has(message.text))
+      items.push({
+        kind: "user",
+        id: message.id,
+        source: message.source,
+        text: message.text,
+        createdAt: timelineIso(message.createdAt),
+        order: order++,
+      });
+  }
+  for (const event of events) {
+    if (!event.tool || TIMELINE_PROCESS_SKIP.has(event.tool)) continue;
+    items.push({
+      kind: "process",
+      event,
+      createdAt: timelineIso(event.created_at || event.finished_at),
+      order: order++,
+    });
+  }
+  // 没有时间的条目沿用前一条时间，保证派活与上下文注入的相对位置稳定。
+  let last = 0;
+  for (const item of items) {
+    const at = timelineTime(item.createdAt);
+    if (at === null) item.sortTime = last;
+    else {
+      item.sortTime = at;
+      last = at;
+    }
+  }
+  items.sort((left, right) => left.sortTime - right.sortTime || left.order - right.order);
+  const messages = [];
+  let block = null;
+  for (const item of items) {
+    if (item.kind === "process") {
+      if (!block) {
+        block = {
+          id: `process:${item.event.id}`,
+          role: "process",
+          source: "child_agent",
+          text: "",
+          ...(item.createdAt ? { createdAt: item.createdAt } : {}),
+          process: [],
+        };
+        messages.push(block);
+      }
+      block.process.push({
+        id: String(item.event.id),
+        tool: item.event.tool,
+        status: item.event.status,
+        input: item.event.input || "",
+        output: item.event.output || "",
+        createdAt: timelineIso(item.event.created_at),
+        finishedAt: timelineIso(item.event.finished_at),
+      });
+      continue;
+    }
+    block = null;
+    if (item.kind === "assistant") messages.push(item.message);
+    else
+      messages.push({
+        id: item.id,
+        role: "user",
+        source: item.source,
+        text: item.text,
+        ...(item.createdAt ? { createdAt: item.createdAt } : {}),
+      });
+  }
+  if (!messages.some((message) => message.role === "user")) {
+    const text = String(task?.task_goal || task?.task_title || "").trim();
+    if (text)
+      messages.unshift({
+        id: `dispatch:${task.task_id}`,
+        role: "user",
+        source: "coordinator",
+        text,
+        ...(task.task_created_at ? { createdAt: timelineIso(task.task_created_at) } : {}),
+      });
+  }
+  return messages;
 }
 
 export async function readChildTaskSession(service, user, threadId, messageId) {
@@ -496,18 +576,7 @@ export async function readChildTaskSession(service, user, threadId, messageId) {
     [task.task_id],
   );
   const history = await historyForExecutor(service.db, threadId, executorId, task.checkpoint);
-  // 会话右侧按轨迹口径显示「小祥派活」与「上下文注入正文」；原生日志里
-  // 已含同样正文的 user 消息不再重复展示。
-  const injected = childContextMessages(events);
-  let messages = history;
-  if (injected.length) {
-    const injectedTexts = new Set(injected.map((message) => message.text));
-    messages = history.filter(
-      (message) => message.role !== "user" || !injectedTexts.has(message.text),
-    );
-    messages = [...injected, ...messages];
-  }
-  messages = withDispatchMessage(messages, task);
+  const messages = buildChildTimeline({ history, events, task });
   return {
     messageId: task.task_id,
     slot: null,

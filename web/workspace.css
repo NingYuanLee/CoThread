@@ -23951,6 +23951,18 @@ html body .project-memory-dialog .dialog-header {
   margin: 0.75rem 0;
 }
 
+.session-process-body {
+  margin: 0.35rem 0 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--c-f3f5f0);
+  border-radius: var(--radius-control);
+  color: inherit;
+  font-size: 0.857rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .agent-session-dialog .conversation-stage-trajectory .agent-log-panel {
   flex: 1;
   min-height: 0;

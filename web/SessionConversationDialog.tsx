@@ -24,6 +24,15 @@ const AgentTrajectory = lazy(() =>
   import("./AgentLogDialog").then((module) => ({ default: module.AgentTrajectory })),
 );
 
+export type SessionProcessEvent = {
+  id: string;
+  tool: string;
+  status: string;
+  input: string;
+  output: string;
+  createdAt?: string;
+  finishedAt?: string;
+};
 export type SessionMessage = {
   id: string;
   role: string;
@@ -31,6 +40,8 @@ export type SessionMessage = {
   text: string;
   createdAt?: string;
   usage?: UsageStats;
+  /** role=process：子 Agent 的思考与工具，按时间线收成可展开块。 */
+  process?: SessionProcessEvent[];
 };
 export type SessionDialogData = {
   status?: string;
@@ -81,6 +92,49 @@ export function MessageTime({ value }: { value?: string }) {
 }
 
 type Group = { trigger?: SessionMessage; notice?: SessionMessage; output: SessionMessage[] };
+
+function SessionProcess({
+  message,
+  copied,
+  onCopy,
+}: {
+  message: SessionMessage;
+  copied: string;
+  onCopy: (id: string, text: string) => void;
+}) {
+  const events = message.process || [];
+  return (
+    <article className="message agent-session-turn">
+      <div className="message-content">
+        <details className="agent-session-process">
+          <summary>思考与工具 · {events.length} 条</summary>
+          {events.map((event) => {
+            const body = event.output || event.input || "";
+            return (
+              <div key={event.id} className="message-text" data-message-id={event.id}>
+                <small>
+                  {event.tool === "thinking" ? "思考" : event.tool} · {event.status}
+                </small>
+                {body ? <pre className="session-process-body">{body}</pre> : null}
+                <div className="message-actions">
+                  <button
+                    type="button"
+                    title={copied === event.id ? "已复制" : "复制"}
+                    aria-label="复制"
+                    onClick={() => onCopy(event.id, body)}
+                  >
+                    <UiIcon name={copied === event.id ? "check" : "copy"} size={14} />
+                  </button>
+                  <MessageTime value={event.finishedAt || event.createdAt} />
+                </div>
+              </div>
+            );
+          })}
+        </details>
+      </div>
+    </article>
+  );
+}
 
 function groupMessages(messages: SessionMessage[]): Group[] {
   const groups: Group[] = [];
@@ -149,6 +203,9 @@ export function SessionConversationDialog({
   useStickToBottom(conversationRef, followConversation, roomKey);
   const messages = data?.messages || [];
   const groups = groupMessages(messages);
+  // 任务会话由服务端按事件时间生成时间线（含 process 块）时，正文与过程
+  // 严格按顺序渲染；其它会话沿用原来的「过程折叠 + 最后正文」版式。
+  const chronological = messages.some((message) => message.role === "process");
   const navigatorMessages = groups.flatMap((group) => [
     ...(group.trigger
       ? [{ id: group.trigger.id, source: "human", body: group.trigger.text, author: triggerAuthor }]
@@ -339,7 +396,53 @@ export function SessionConversationDialog({
                       </div>
                     )}
                     {group.trigger && renderMessage(group.trigger)}
-                    {(process.length > 0 || final) && (
+                    {chronological
+                      ? group.output.map((message) =>
+                          message.role === "process" ? (
+                            <SessionProcess
+                              key={message.id}
+                              message={message}
+                              copied={copied}
+                              onCopy={copy}
+                            />
+                          ) : (
+                            <article
+                              key={message.id}
+                              className="message agent-session-turn"
+                              data-message-id={message.id}
+                            >
+                              <div className="message-content">
+                                <div className="message-text">
+                                  <Suspense fallback={message.text}>
+                                    <MessageMarkdown body={message.text} />
+                                  </Suspense>
+                                </div>
+                                <div className="message-actions">
+                                  <button
+                                    type="button"
+                                    title={copied === message.id ? "已复制" : "复制"}
+                                    aria-label="复制"
+                                    onClick={() => copy(message.id, message.text)}
+                                  >
+                                    <UiIcon
+                                      name={copied === message.id ? "check" : "copy"}
+                                      size={14}
+                                    />
+                                  </button>
+                                  {message.usage ? (
+                                    <MessageUsage
+                                      record={{ usage_stats: message.usage }}
+                                      allowClockFallback={false}
+                                    />
+                                  ) : null}
+                                  <MessageTime value={message.createdAt} />
+                                </div>
+                              </div>
+                            </article>
+                          ),
+                        )
+                      : null}
+                    {!chronological && (process.length > 0 || final) && (
                       <article className="message agent-session-turn">
                         <div className="message-content">
                           {process.length > 0 && (

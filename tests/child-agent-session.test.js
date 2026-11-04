@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { gzipSync, zstdCompressSync } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import {
-  childContextMessages,
+  buildChildTimeline,
   nativeHistoryFromCheckpoint,
   persistChildContextStats,
   persistChildRunCheckpoint,
@@ -243,31 +243,75 @@ test("child session projection ignores the parent overlay in a shared checkpoint
   );
 });
 
-test("child context messages expose the dispatch brief and system prompt", () => {
-  const messages = childContextMessages([
-    {
-      id: "10",
-      tool: "context_notice",
-      input: "TASK_ID: x\n任务书正文",
-      output: JSON.stringify({ kind: "cothread-child-context", summary: "任务书 / 对话模式" }),
-      created_at: "2026-11-04 16:40:00.000",
+test("child timeline keeps 小祥派活 and collapses thinking and tools in order", () => {
+  const messages = buildChildTimeline({
+    history: [
+      {
+        id: "a1",
+        role: "assistant",
+        source: null,
+        text: "正文",
+        createdAt: "2026-11-04T16:40:42.000Z",
+      },
+    ],
+    events: [
+      {
+        id: "10",
+        tool: "context_notice",
+        status: "completed",
+        input: "TASK_ID: x\n任务书正文",
+        output: JSON.stringify({ kind: "cothread-child-context" }),
+        created_at: "2026-11-04 16:40:38.700",
+        finished_at: "2026-11-04 16:40:38.700",
+      },
+      {
+        id: "11",
+        tool: "thinking",
+        status: "completed",
+        input: "",
+        output: "思考内容",
+        created_at: "2026-11-04 16:40:39.000",
+        finished_at: "2026-11-04 16:40:41.000",
+      },
+      {
+        id: "12",
+        tool: "system_prompt",
+        status: "completed",
+        input: "子 Agent 系统提示词",
+        output: JSON.stringify({ kind: "cothread-system-prompt" }),
+        created_at: "2026-11-04 16:40:39.100",
+        finished_at: "2026-11-04 16:40:39.100",
+      },
+      {
+        id: "13",
+        tool: "beijing_time",
+        status: "completed",
+        input: "{}",
+        output: "ok",
+        created_at: "2026-11-04 16:40:41.500",
+        finished_at: "2026-11-04 16:40:41.600",
+      },
+    ],
+    task: {
+      task_id: "t1",
+      task_goal: "读取资料",
+      task_title: "整理",
+      task_created_at: "2026-11-04 16:40:38.000",
     },
-    {
-      id: "11",
-      tool: "system_prompt",
-      input: "子 Agent 系统提示词",
-      output: JSON.stringify({ kind: "cothread-system-prompt" }),
-      created_at: "2026-11-04 16:40:00.100",
-    },
-  ]);
+  });
   assert.deepEqual(
     messages.map((message) => message.role),
-    ["user", "user"],
+    ["user", "process", "assistant"],
   );
   assert.equal(messages[0].text, "TASK_ID: x\n任务书正文");
-  assert.equal(messages[1].text, "子 Agent 系统提示词");
-  assert.ok(messages[0].createdAt);
   assert.equal(messages[0].source, "coordinator");
+  assert.deepEqual(
+    messages[1].process.map((event) => event.tool),
+    ["thinking", "beijing_time"],
+  );
+  assert.equal(messages[2].text, "正文");
+  // 上下文注入（system_prompt）不再作为消息展示。
+  assert.equal(JSON.stringify(messages).includes("子 Agent 系统提示词"), false);
 });
 
 test("子 Agent run snapshots store derived history for later session view", () => {

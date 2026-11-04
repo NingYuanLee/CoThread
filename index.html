@@ -1,52 +1,84 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <link rel="icon" href="/cothread-logo.svg" type="image/svg+xml"/>
-  <title>共序 CoThread</title>
-  <link rel="modulepreload" href="/web/main.tsx"/>
-  <script>
-    try {
-      var theme = localStorage.getItem("cothread-ui-theme");
-      if (theme) document.documentElement.setAttribute("data-theme", theme);
-      var steps = ["100", "125", "150", "175", "200", "225", "250", "300"];
-      function nearestScale(percent) {
-        var best = "100";
-        var bestGap = 1e9;
-        for (var i = 0; i < steps.length; i++) {
-          var gap = Math.abs(Number(steps[i]) - percent);
-          if (gap < bestGap) {
-            bestGap = gap;
-            best = steps[i];
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/cothread-logo.svg" type="image/svg+xml" />
+    <title>共序 CoThread</title>
+    <script>
+      try {
+        var theme = localStorage.getItem("cothread-ui-theme");
+        if (theme) document.documentElement.setAttribute("data-theme", theme);
+        var steps = ["100", "125", "150", "175", "200", "225", "250", "300"];
+        function nearestScale(percent) {
+          var best = "100";
+          var bestGap = 1e9;
+          for (var i = 0; i < steps.length; i++) {
+            var gap = Math.abs(Number(steps[i]) - percent);
+            if (gap < bestGap) {
+              bestGap = gap;
+              best = steps[i];
+            }
           }
+          return best;
         }
-        return best;
+        var ratio = window.devicePixelRatio;
+        var device = ratio > 0 ? nearestScale(ratio * 100) : "100";
+        var scale = localStorage.getItem("cothread-ui-scale");
+        if (scale === "high" || scale === "standard" || steps.indexOf(scale) < 0) scale = device;
+        document.documentElement.setAttribute("data-ui-scale", scale);
+        document.documentElement.style.setProperty(
+          "--ui-scale",
+          String(Number(device) / Number(scale)),
+        );
+      } catch (e) {}
+    </script>
+    <style>
+      html,
+      body,
+      #root {
+        margin: 0;
+        min-height: 100%;
+        background: #f8faf8;
+        color: #27362f;
+        font-family: system-ui, sans-serif;
       }
-      var ratio = window.devicePixelRatio;
-      var device = ratio > 0 ? nearestScale(ratio * 100) : "100";
-      var scale = localStorage.getItem("cothread-ui-scale");
-      if (scale === "high" || scale === "standard" || steps.indexOf(scale) < 0) scale = device;
-      document.documentElement.setAttribute("data-ui-scale", scale);
-      document.documentElement.style.setProperty("--ui-scale", String(Number(device) / Number(scale)));
-    } catch (e) {}
-  </script>
-  <style>
-    html, body, #root { margin: 0; min-height: 100%; background: #f8faf8; color: #27362f; font-family: system-ui, sans-serif; }
-    html[data-theme="ink"], html[data-theme="ink"] body, html[data-theme="ink"] #root { background: #1b231c; color: #d1d9d2; }
-    html[data-theme="night"], html[data-theme="night"] body, html[data-theme="night"] #root { background: #151517; color: #e9ecf2; }
-    #root:empty { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-    #root:empty.boot-slow::after { content: "仍在加载前端模块…若超过 1 分钟，请用 http://127.0.0.1:3100 打开并关闭系统代理，或执行 npm run build && npm run dev:static"; white-space: normal; max-width: 22rem; text-align: center; line-height: 1.5; padding: 0 1rem; }
-  </style>
-</head>
-<body>
-  <div id="root"></div>
-  <script>
-    setTimeout(function () {
-      var root = document.getElementById("root");
-      if (root && !root.childNodes.length) root.classList.add("boot-slow");
-    }, 12000);
-  </script>
-  <script type="module" src="/web/main.tsx"></script>
-</body>
+      html[data-theme="ink"],
+      html[data-theme="ink"] body,
+      html[data-theme="ink"] #root {
+        background: #1b231c;
+        color: #d1d9d2;
+      }
+      html[data-theme="night"],
+      html[data-theme="night"] body,
+      html[data-theme="night"] #root {
+        background: #151517;
+        color: #e9ecf2;
+      }
+      #root:empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+      #root:empty.boot-slow::after {
+        content: "仍在加载前端模块…若超过 1 分钟，请用 http://127.0.0.1:3100 打开并关闭系统代理，或执行 npm run build && npm run dev:static";
+        white-space: normal;
+        max-width: 22rem;
+        text-align: center;
+        line-height: 1.5;
+        padding: 0 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      setTimeout(function () {
+        var root = document.getElementById("root");
+        if (root && !root.childNodes.length) root.classList.add("boot-slow");
+      }, 12000);
+    </script>
+    <script type="module" src="/web/main.tsx"></script>
+  </body>
 </html>

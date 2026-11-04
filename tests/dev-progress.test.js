@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import { readFile } from "node:fs/promises";
 import {
   COTHREAD_BANNER,
   COTHREAD_GREETING,
@@ -512,6 +513,16 @@ test("warmup url extraction follows browser module refs only", () => {
     ),
     ["/web/main.tsx", "/web/App.tsx", "/@vite/client", "/web/WorkspaceApp.tsx"],
   );
+});
+
+test("index.html 不把开发入口写成 modulepreload，避免构建产物出现 octet-stream 预加载", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.doesNotMatch(
+    html,
+    /<link[^>]+rel=["']modulepreload["'][^>]*\/web\/main\.tsx/,
+    "构建时 Vite 会把该入口内联成 data:application/octet-stream，浏览器按模块 MIME 校验会报错",
+  );
+  assert.match(html, /<script type="module" src="\/web\/main\.tsx"><\/script>/);
 });
 
 test("warmup crawl percent never reports 100", () => {

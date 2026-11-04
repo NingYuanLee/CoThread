@@ -1,6 +1,6 @@
 # 云端环境变量
 
-维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-11-04 五次发布——上午「按来源治理记忆 / 项目现状 Markdown」，下午「删除文档后的失效项目进程信号清理」，晚间「项目记忆结算修复 + 时间线分页 + index.html 预加载修复」，随后「项目记忆读取性能（轻量读 + 按需详情）与核验理由截断」，以及「项目进程信号改为按水位扫描生成（迁移 221）」；五次都重核了门禁、打包清单、OOS 上传和上线验收。本轮补充了 Alibaba MCP 通道现状、测试库锁残留检查、`OOS_GetDeployStatus` 参数约束、`visibleFileIndexSql` 整表开销实测，以及迁移 221 的线上应用核对；详见「ECS 发布」及文末。
+维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-11-04 六次发布——上午「按来源治理记忆 / 项目现状 Markdown」，下午「删除文档后的失效项目进程信号清理」，晚间「项目记忆结算修复 + 时间线分页 + index.html 预加载修复」，随后「项目记忆读取性能（轻量读 + 按需详情）与核验理由截断」、「项目进程信号改为按水位扫描生成（迁移 221）」，以及「项目进程去文档化 + 逐条核验 + 任务聚合 + 忽略入口（迁移 222）」；六次都重核了门禁、打包清单、OOS 上传和上线验收。本轮补充了 Alibaba MCP 通道现状、测试库锁残留检查、`OOS_GetDeployStatus` 参数约束、`visibleFileIndexSql` 整表开销实测，以及迁移 221/222 的线上应用核对；详见「ECS 发布」及文末。
 
 应用后端需要常驻 Node.js 进程（Node.js 22.22.3+，推荐 24）、MySQL 网络连接及可写的 `.local` 目录。只发布 `dist/` 静态文件无法运行 API、MCP 和后台 Agent；生产环境固定为阿里云 ECS 单实例 + RDS，本机开发用便携版 MySQL。
 
@@ -331,3 +331,15 @@ bash -n scripts/ecs-codedeploy-start.sh
 线上：`readlink -f /opt/cothread/current` 为 `/opt/cothread/releases/20261104T082634Z`，systemd `active`、启动时间北京时间 16:28:09、`MainPID` 1327591；迁移 221 已在 `schema_migrations` 命中，`project_memory_scan_state` 表存在且扫描器模块在包内；首页资源 `index-3hEz6vEN.js`、`index-BHw62KsI.css` 与本地 `dist/index.html` 一致；公网 `GET /api/health?release=15a1dab` 返回 `status: ok`、执行器 ready、8 槽、`acquiredAt` UTC `08:28:11.118Z`。对本项目执行一次线上扫描：`initialized:true, inserted:0`（只建水位、不回放历史），cursor `taskEventId=197`、`milestone` 停在 2026-10-12。
 
 本轮已知未完成项：登录后的「待处理信号」按钮/弹窗未实机点击；本项目队列仍有 2 条 10-25/10-26 的旧 `task` 信号（`retryCount=4`），核验理由已从 `too_big` 变为「候选未通过出处核验：缺少来源直接支持」，说明旧事实已无法支撑记忆条目，自动重试到上限会停止——需要人工决定清理还是保留；验收凭据在 `.code_deploy/verification/20261104-project-memory-scan/`（不进 Git）。
+
+2026-11-04 第六次发布，一次上线：「项目进程去文档化 + 逐条核验 + 任务聚合 + 忽略入口」。代码提交 `68b1b44`（已推送，`origin/main` 一致）。用户提出项目进程不需要跟文档相关、核验失败改为逐条丢弃、task 信号不单独建条、旧信号加忽略入口；重试仍为 5 级退避（1 分钟→5 分钟→30 分钟→2 小时→6 小时），之后停止。
+
+改动：`PROJECT_MEMORY_SIGNAL_KINDS` 收敛为 `milestone` / `iteration_context` / `archive` / `task`；扫描器删除 `document_change_logs` 分支；迁移 `222_drop_document_version_project_signals.sql` 清掉历史遗留 `document_version` 行；`noteProjectMemorySignal` 忽略该来源；核验调用改为逐条 `verdicts`，不支持的条目记入 `droppedEntries` 后单独丢弃、其余照常写入与消费；`subject=task` 只允许引用多个任务来源的「任务分布」汇总条目；禁止生成文档类条目；新增 `POST /api/projects/:id/memory/signals/:queueId/ignore`（写权限、删队列行、写 `project_memory_signal_ignored` 审计）与弹窗逐条「忽略」按钮。
+
+门禁：`npm run lint` exit 0；`npx tsc --noEmit` exit 0；`npm run build` exit 0（44.95 s）；全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 1071/1071、0 失败，`duration_ms` 693295（约 11.6 分钟），迁移 222 已在该库应用；新增/调整用例：`project-memory` 10/10、`project-memory-scan` 4/4、`project-memory-signal-cleanup` 4/4，其余相关 9 个文件全通过。
+
+包 `cothread-release-20261104T090228Z.tgz`，6,177,116 字节，SHA-256 `415399110158112A07DEA79A3209897A21D21FC8B06F7E90F859954EF790075E`，tar 条目 709，包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests`、`.code_deploy`。`OOS_CodeDeploy`：revision `rev-8a132e18fd0f40719085`，execution `exec-0df5c341b93142af8796`，分组 `Released`（8/8，0 失败），`StatusReason` 为 `Release success!`，`UpdateDate` UTC `09:06:43Z`。
+
+线上：`readlink -f /opt/cothread/current` 为 `/opt/cothread/releases/20261104T090333Z`，systemd `active`、启动时间北京时间 17:06:10、`MainPID` 1329930；迁移 222 已应用（`MIGRATION_222=1`），`document_version` 队列行归零（`DOCUMENT_SIGNALS=0`），忽略路由存在（`IGNORE_ROUTE=1`），扫描器已无文档扫描（`DOC_SCAN=0`）；首页资源 `index-C901aWt1.js`、`index-BHw62KsI.css` 与本地 `dist/index.html` 一致；公网 `GET /api/health?release=68b1b44` 返回 `status: ok`、执行器 ready、8 槽、`acquiredAt` UTC `09:06:12.37Z`。
+
+本轮已知未完成项：登录后的信号弹窗「忽略」按钮未实机点击；本项目 2 条旧 `task` 信号仍在队列（`retryCount=4`、`availableAt` 09:40），升级后可在面板逐条「忽略」把它们清掉，未代用户操作。验收凭据在 `.code_deploy/verification/20261104-project-memory-scope/`（不进 Git）。

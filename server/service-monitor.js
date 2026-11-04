@@ -752,6 +752,44 @@ export async function agentLogsOperation(
         user_created_at: laowengFirstIds.has(String(row.id)) ? row.created_at : null,
       };
     });
+    // 老翁每轮的用量记录在 agent_laoweng_session_turns；按时间窗口挂到本轮
+    // model_run/understanding 事件上，轨迹「请求」的选项/用量/计时才有数据。
+    const turnRows = await query(
+      service.db,
+      `SELECT usage_stats,started_at,finished_at FROM agent_laoweng_session_turns
+       WHERE project_id=? AND task=? AND usage_stats IS NOT NULL ORDER BY started_at`,
+      [scopeId, scopedTask],
+    );
+    if (turnRows.length) {
+      const timeOf = (value) => {
+        if (!value) return null;
+        const text = String(value);
+        const stamp = Date.parse(text.includes("T") ? text : text.replace(" ", "T") + "Z");
+        return Number.isFinite(stamp) ? stamp : null;
+      };
+      const turns = turnRows
+        .map((row) => {
+          const start = timeOf(row.started_at);
+          const finish = timeOf(row.finished_at);
+          let usage = row.usage_stats;
+          if (typeof usage === "string") {
+            try {
+              usage = JSON.parse(usage);
+            } catch {
+              usage = null;
+            }
+          }
+          return { start, finish: finish ?? start, usage };
+        })
+        .filter((turn) => turn.usage && turn.start !== null);
+      for (const row of rows) {
+        if (!["model_run", "understanding"].includes(row.tool)) continue;
+        const at = timeOf(row.created_at);
+        if (at === null) continue;
+        const match = turns.find((turn) => at >= turn.start - 2000 && at <= turn.finish + 2000);
+        if (match) row.usage = match.usage;
+      }
+    }
   } else if (scopeType === "thread") {
     const thread = await service.thread(user, scopeId);
     titleText = `${thread.title} · 小祥轨迹`;
@@ -814,7 +852,7 @@ export async function agentLogsOperation(
   } else if (scopeType === "task") {
     const [task] = await query(
       service.db,
-      "SELECT id,project_id,title FROM agent_tasks WHERE id=?",
+      "SELECT id,project_id,title,origin_thread_id FROM agent_tasks WHERE id=?",
       [scopeId],
     );
     if (!task) fail(404, "任务不存在");
@@ -839,6 +877,30 @@ export async function agentLogsOperation(
     hasMore = rows.length > pageSize;
     rows = rows.slice(0, pageSize);
     rows = rows.map((row) => ({ ...row, agent_type: "child_agent" }));
+    // 子 Agent 的逐轮用量在原生日志里，agent_events 没有 usage 列；按正文前缀
+    // 把原生 assistant 消息的用量挂到对应事件，轨迹的「请求/用量/计时」才有数据。
+    const [childRun] = await query(
+      service.db,
+      `SELECT executor_id FROM agent_task_execution_runs
+       WHERE task_id=? AND executor_type='child_agent' ORDER BY created_at DESC LIMIT 1`,
+      [scopeId],
+    );
+    if (childRun?.executor_id && task.origin_thread_id) {
+      const { nativeHistoryFromLiveHome } = await import("./child-agent-session.js");
+      const history = await nativeHistoryFromLiveHome(task.origin_thread_id, childRun.executor_id);
+      const answers = history.filter((message) => message.role === "assistant" && message.usage);
+      const normalize = (value) =>
+        String(value || "")
+          .replace(/\s+/g, " ")
+          .trim();
+      for (const row of rows) {
+        if (!["assistant_text", "assistant_final"].includes(row.tool)) continue;
+        const preview = normalize(row.output_preview).slice(0, 40);
+        if (!preview) continue;
+        const match = answers.find((message) => normalize(message.text).startsWith(preview));
+        if (match?.usage) row.usage = match.usage;
+      }
+    }
   } else fail(400, "未知日志作用域");
   const taskIds = [
     ...new Set(
@@ -875,9 +937,12 @@ export async function agentLogsOperation(
     inputs: scopeType === "task" ? await collectTaskInputs(scopeId) : await collectInputs(rows),
     events: rows.map((row) => {
       const label = labelFor(row);
-      // 整轮用量只落在收尾的 assistant_final 上，其它事件没有可关联的用量。
+      // 子 Agent 的逐轮用量从原生日志挂到 assistant 事件上；其它来源仍按回复整轮量。
       const usage =
-        row.tool === "assistant_final" ? eventUsageFromReply(replyUsage.get(row.message_id)) : null;
+        row.usage ||
+        (row.tool === "assistant_final"
+          ? eventUsageFromReply(replyUsage.get(row.message_id))
+          : null);
       const preview =
         row.agent_type === "laoweng"
           ? String(row.summary || "")

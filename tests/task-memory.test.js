@@ -167,7 +167,7 @@ test("人类任务与子 Agent 任务分开计数", async () => {
   }
 });
 
-test("确定性写入：任务分布与重要任务成条，重复调用不重复建条", async () => {
+test("确定性写入：任务分布与主要任务成条，重复调用不重复建条", async () => {
   const { database, db, owner, project } = await setup();
   try {
     const hard = await insertTask(db, project.id, owner.id, {

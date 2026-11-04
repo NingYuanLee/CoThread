@@ -211,6 +211,7 @@ test("旧结算原语兼容可核验出处并关联参与者", async () => {
             sourceIds: [queueFirst, queueSecond],
           },
         ],
+        statusMarkdown: "## 当前状态\n\n- 议题讨论中。",
       },
       {
         userId: owner.id,
@@ -283,13 +284,6 @@ test("宽窗口：整迭代讨论沉淀为一条讨论记忆，连参与者并�
       [project.id, result.pageId],
     );
     assert.equal(edges.filter((edge) => edge.relation === "relates").length, 2);
-    const derives = edges.find((edge) => edge.relation === "derives");
-    const [statusNode] = await query(
-      db,
-      "SELECT page_id pageId FROM project_status_nodes WHERE project_id=?",
-      [project.id],
-    );
-    assert.equal(derives.toPageId, statusNode.pageId);
 
     const again = await syncThreadDiscussionMemory(db, {
       projectId: project.id,

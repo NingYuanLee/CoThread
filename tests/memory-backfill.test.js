@@ -97,7 +97,6 @@ test("存量回填：旧摘要与未分类条目折算成五类记忆，重复�
       projectId: project.id,
       createdBy: owner.id,
     });
-    assert.ok(result.projectPage);
     assert.equal(result.utterancePages, 1);
     assert.equal(result.documentPages, 1);
     assert.equal(result.discussionPages, 0);

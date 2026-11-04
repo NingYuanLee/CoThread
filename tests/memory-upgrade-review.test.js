@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { testDatabase } from "./database.js";
 import { migrate } from "../scripts/migrate.js";
-import { query, transaction } from "../server/db.js";
+import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import {
   queueConversationMessage,
@@ -20,16 +20,7 @@ import {
   retryFileIndexJob,
 } from "../server/file-index-jobs.js";
 import { listMemoryJobs } from "../server/memory-jobs.js";
-import {
-  ensureProjectStatusNode,
-  readProjectStatusNode,
-  applyProjectStatusNode,
-} from "../server/project-status-node.js";
-import {
-  inspectProjectMemorySources,
-  noteProjectMemorySignal,
-  processNextProjectMemory,
-} from "../server/project-memory.js";
+import { processNextProjectMemory } from "../server/project-memory.js";
 
 async function setup() {
   const database = await testDatabase(),
@@ -144,7 +135,7 @@ test("来源编辑后替代窗口只重分析失败项，成功页不重复，�
     assert.equal(ended.discarded, 1);
     const jobs = await listMemoryJobs(db, project.id);
     const resumed = jobs
-      .find((job) => job.key === "discussion_memory")
+      .find((job) => job.key === "member_memory")
       .conversationWindows.find((window) => window.id === withdrawn.replacementId);
     assert.equal(Number(resumed.discussionCount), 0, "结束候选不能计为新增记忆");
     await message("撤回后的讨论仍继续");
@@ -229,7 +220,8 @@ test("文件工具桥动态导航与回收边界，文件覆盖及重试绑定�
     });
     let jobs = await readFileIndexJobs(db, project.id);
     assert.equal(jobs.coverage.total, 1);
-    assert.equal(jobs.coverage.failed, 1);
+    assert.equal(jobs.coverage.pending, 1);
+    assert.equal(jobs.issues[0].processingState, "failed");
     assert.match(jobs.issues[0].recognitionNote, /模型识别失败/);
     assert.equal(
       (await retryFileIndexJob(service, owner, project.id, artifactId)).versionId,
@@ -243,7 +235,10 @@ test("文件工具桥动态导航与回收边界，文件覆盖及重试绑定�
     });
     assert.equal(retriedFiles.total, 1);
     assert.equal(retriedFiles.rows[0].artifactId, artifactId);
-    assert.equal((await listFileIndexIssues(db, project.id, { queue: "idle" })).total, 0);
+    const retriedCoverage = (await readFileIndexJobs(db, project.id)).coverage;
+    assert.equal(retriedCoverage.pending, 1);
+    assert.equal(retriedFiles.rows[0].processingState, "pending");
+    assert.equal((await listFileIndexIssues(db, project.id, { queue: "success" })).total, 0);
     await query(db, "DELETE FROM agent_document_memory_queue WHERE version_id=?", [versionId]);
     await query(
       db,
@@ -252,10 +247,12 @@ test("文件工具桥动态导航与回收边界，文件覆盖及重试绑定�
     );
     const recognizedFiles = await listFileIndexIssues(db, project.id, {
       status: "recognized",
-      queue: "idle",
+      queue: "success",
     });
     assert.equal(recognizedFiles.total, 1);
     assert.equal(recognizedFiles.rows[0].artifactId, artifactId);
+    assert.equal(recognizedFiles.rows[0].processingState, "success");
+    assert.equal((await readFileIndexJobs(db, project.id)).coverage.recognized, 1);
     await assert.rejects(retryFileIndexJob(service, owner, project.id, randomUUID()), /不存在/);
     await query(db, "UPDATE artifacts SET deleted_at=UTC_TIMESTAMP(3) WHERE id=?", [artifactId]);
     assert.equal((await read(file.pageId)).status, 400);
@@ -282,78 +279,6 @@ test("文件工具桥动态导航与回收边界，文件覆盖及重试绑定�
     assert.equal((await read(otherPage)).status, 400);
   } finally {
     await bridge?.close();
-    await database.close();
-  }
-});
-
-test("现状正文相同时刷新来源，unchanged 拒绝核验后再次变化的来源", async () => {
-  const { database, db, owner, project, threadId } = await setup();
-  try {
-    await query(db, "DELETE FROM agent_project_memory_queue WHERE project_id=?", [project.id]);
-    await ensureProjectStatusNode(db, project.id, owner.id);
-    const write = async () => {
-      const snapshot = await readProjectStatusNode(db, project.id);
-      const evidence = await inspectProjectMemorySources(db, project.id, [
-        { kind: "thread", id: threadId },
-      ]);
-      return transaction(db, (conn) =>
-        applyProjectStatusNode(
-          conn,
-          project.id,
-          owner.id,
-          snapshot,
-          { op: "update", body: "## 当前状态\n\n- 正在讨论。", sourceIds: [threadId] },
-          evidence,
-        ),
-      );
-    };
-    await write();
-    await query(db, "UPDATE threads SET title='讨论第二轮' WHERE id=?", [threadId]);
-    assert.equal(Number((await readProjectStatusNode(db, project.id)).sourceNeedsReview), 1);
-    assert.equal(await write(), false);
-    assert.equal(Number((await readProjectStatusNode(db, project.id)).sourceNeedsReview), 0);
-    const [history] = await query(
-      db,
-      "SELECT COUNT(*) count FROM project_status_revisions WHERE project_id=?",
-      [project.id],
-    );
-    assert.equal(Number(history.count), 1);
-    const preservedStatus = await readProjectStatusNode(db, project.id);
-    await query(db, "UPDATE wiki_pages SET body=CONCAT(body,CHAR(10)) WHERE id=?", [
-      preservedStatus.id,
-    ]);
-    const run = async (verify) => {
-      await noteProjectMemorySignal(db, project.id, "thread", threadId, "来源更新", {
-        urgent: true,
-      });
-      return processNextProjectMemory(db, {
-        projectId: project.id,
-        task: "project_memory",
-        summarizeMemory: async () => ({ entries: [], projectStatus: { op: "unchanged" } }),
-        verifyMemorySupport: verify,
-      });
-    };
-    await query(db, "UPDATE threads SET title='讨论第三轮' WHERE id=?", [threadId]);
-    await run(async () => ({ supported: true }));
-    assert.equal(Number((await readProjectStatusNode(db, project.id)).sourceNeedsReview), 0);
-    assert.equal(
-      (await readProjectStatusNode(db, project.id)).body,
-      preservedStatus.body + "\n",
-      "unchanged 不能改变正文空白或产生正文修订",
-    );
-    await query(db, "UPDATE threads SET title='讨论第四轮' WHERE id=?", [threadId]);
-    await run(async () => {
-      await query(db, "UPDATE threads SET title='核验后变化' WHERE id=?", [threadId]);
-      return { supported: true };
-    });
-    assert.equal(Number((await readProjectStatusNode(db, project.id)).sourceNeedsReview), 1);
-    const [pending] = await query(
-      db,
-      "SELECT COUNT(*) count FROM agent_project_memory_queue WHERE project_id=?",
-      [project.id],
-    );
-    assert.equal(Number(pending.count), 1);
-  } finally {
     await database.close();
   }
 });

@@ -159,15 +159,7 @@ export async function createThreadOperation(service, user, projectId, input) {
       [threadId, projectId, data.title, user.id, data.background, data.goal],
     );
     await service.createIterationFolders(db, projectId, threadId, data.title);
-    const { noteProjectMemorySignal } = await import("./project-memory.js");
-    await noteProjectMemorySignal(
-      db,
-      projectId,
-      "thread",
-      threadId,
-      `新建迭代「${data.title}」；背景：${data.background.slice(0, 180)}；目标：${data.goal.slice(0, 180)}`,
-      { urgent: true },
-    );
+    // 第 6 层：迭代创建不单独触发项目进程，等有目标背景变更或归档时再判断。
   });
   return { id: threadId, project_id: projectId, ...data };
 }

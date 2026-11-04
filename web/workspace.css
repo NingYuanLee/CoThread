@@ -3707,7 +3707,12 @@ label.reply-toggle input {
   z-index: 8;
   padding: 2rem 2.286rem 2rem;
   /* 任务条与背景条两行高度内保持通透，磨砂才能透出背后的消息。 */
-  background: linear-gradient(180deg, transparent 0, transparent 6.857rem, var(--c-fcfdfb) 9.286rem);
+  background: linear-gradient(
+    180deg,
+    transparent 0,
+    transparent 6.857rem,
+    var(--c-fcfdfb) 9.286rem
+  );
   pointer-events: none;
 }
 
@@ -4108,7 +4113,9 @@ label.reply-toggle input {
   /* 左右和下沿间距保持不变。圆角比按钮同心值小 0.286rem，只把拐角收一点。 */
   --composer-action-size: 2.429rem;
   --composer-corner-gap: calc(var(--composer-action-size) / 4 + 0.107rem);
-  --radius-composer: calc(0.071rem + var(--composer-corner-gap) + var(--composer-action-size) / 2 - 0.286rem);
+  --radius-composer: calc(
+    0.071rem + var(--composer-corner-gap) + var(--composer-action-size) / 2 - 0.286rem
+  );
   padding: 0.678rem var(--composer-corner-gap) var(--composer-corner-gap);
 }
 
@@ -12910,7 +12917,6 @@ html[data-theme="night"] .code-preview {
   gap: 0.7143rem;
   padding: 0.2857rem 1.4286rem 0;
 }
-
 
 .theme-dialog-header {
   display: flex;
@@ -23597,6 +23603,7 @@ a.cite-mark .web-link-icon {
   align-items: center;
   gap: 0.286rem;
   font-size: 0.821rem;
+  white-space: nowrap;
   background: var(--c-fff);
   border-color: var(--c-e7eae7);
   --stroke: var(--c-e7eae7);
@@ -23642,9 +23649,19 @@ html body .project-memory-dialog .dialog-header {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
   padding: 1.429rem 1.857rem 2.857rem;
+  overflow: hidden;
+}
+
+/* 左栏上区：项目现状与项目进程内容独立滚动，不和底部记忆作业共用滚动条。 */
+.project-memory-main-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
   overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
 }
 
@@ -23698,12 +23715,25 @@ html body .project-memory-dialog .dialog-header {
 }
 
 .project-memory-jobs {
-  margin-top: 1.571rem;
-  padding-top: 1.143rem;
+  flex: 0 0 auto;
+  height: 17rem;
+  margin-top: 1.143rem;
   border-top: 1px solid color-mix(in srgb, var(--c-2f3a33) 10%, transparent);
   display: flex;
   flex-direction: column;
   gap: 0.714rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+/* 作业标题停在作业区顶部；卡片展开只在作业区内滚动，不推高上半区。 */
+.project-memory-jobs > .project-memory-guide-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.857rem 0 0.286rem;
+  background: var(--c-fff);
 }
 
 .memory-job-list {
@@ -23766,6 +23796,21 @@ html body .project-memory-dialog .dialog-header {
 .memory-job-detail dd {
   margin: 0;
   color: var(--c-2f3a33);
+}
+
+/* 项目文件索引：文件名过长省略，操作按钮一行排开。 */
+.memory-file-name {
+  display: block;
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-file-actions {
+  display: flex;
+  gap: 0.429rem;
+  white-space: nowrap;
 }
 
 .memory-job .wiki-action {
@@ -23970,9 +24015,11 @@ html body .project-memory-dialog .dialog-header {
 }
 
 .project-memory-guide-meta {
-  margin: 0;
+  margin: 0 0 0 auto;
   font-size: 0.75rem;
   color: var(--c-9aa394);
+  text-align: right;
+  white-space: nowrap;
 }
 
 .project-memory-guide {
@@ -23987,15 +24034,6 @@ html body .project-memory-dialog .dialog-header {
   padding: 0;
   font-size: 1rem;
   line-height: 1.9;
-}
-
-.project-memory-guide-hint {
-  margin: 0;
-  padding-top: 0.857rem;
-  border-top: 1px solid var(--c-eef1ee);
-  font-size: 0.75rem;
-  line-height: 1.7;
-  color: var(--c-9aa394);
 }
 
 .project-memory-side {
@@ -24818,6 +24856,15 @@ html body .project-memory-confirm-dialog .dialog-header {
     padding: 1.143rem 1.143rem 1.429rem;
   }
 
+  .project-memory-main-scroll {
+    overflow: visible;
+  }
+
+  .project-memory-jobs {
+    height: auto;
+    max-height: 40vh;
+  }
+
   .project-memory-side {
     border-left: 0;
     border-top: 1px solid var(--c-e7eae7);
@@ -25115,7 +25162,6 @@ html body .project-memory-confirm-dialog .dialog-header {
   border-right: 0;
   border-bottom: 1px solid var(--c-eef1ee);
 }
-
 
 :root {
   --radius-control: 0.857rem;
@@ -26676,28 +26722,8 @@ html body .dialog-list > .dialog-footer {
   --role-border: #cdd3d8;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-heading,
-
-
 html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-group a[aria-current="page"],
-
-
-
 html:is([data-theme="ink"], [data-theme="night"])
   :is(
     button.primary,
@@ -26764,15 +26790,8 @@ html:is([data-theme="ink"], [data-theme="night"])
   background: var(--danger-tint-bg-hover);
 }
 
-
 html[data-theme="night"] button.cite-source:hover,
-
-
 html:is([data-theme="ink"], [data-theme="night"]) a.cite-mark,
-
-
-
-
 .slide-switch-thumb {
   position: absolute;
   z-index: 0;
@@ -28180,7 +28199,12 @@ a.web-link.cite-mark {
   bottom: 0;
   z-index: 8;
   padding: 2rem 2.286rem;
-  background: linear-gradient(180deg, transparent 0, transparent 6.857rem, var(--c-fcfdfb) 9.286rem);
+  background: linear-gradient(
+    180deg,
+    transparent 0,
+    transparent 6.857rem,
+    var(--c-fcfdfb) 9.286rem
+  );
   pointer-events: none;
 }
 
@@ -32017,11 +32041,10 @@ w:after {
   white-space: nowrap;
 }
 
-
 .tip-host {
   position: fixed;
-  inset: max(5.143rem, calc(env(safe-area-inset-top) + 1.714rem)) max(1.286rem, env(safe-area-inset-right)) auto
-    auto;
+  inset: max(5.143rem, calc(env(safe-area-inset-top) + 1.714rem))
+    max(1.286rem, env(safe-area-inset-right)) auto auto;
   z-index: 2147483647;
   display: flex;
   flex-direction: column;
@@ -32266,7 +32289,8 @@ html body [data-overlay="menu"] [role="menuitem"].danger {
   color: var(--c-a3332d);
 }
 
-html body
+html
+  body
   [data-overlay="menu"]
   :is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]):after {
   content: none;
@@ -33235,10 +33259,7 @@ summary {
   --stroke-radius: calc(inherit * 2);
 }
 
-
-
 html:is([data-theme="ink"], [data-theme="night"]) .project-tab.selected,
-
 html:is([data-theme="ink"], [data-theme="night"])
   :is(.context-panel.context-open, .composer.chat-composer) {
   border: 1px solid transparent;
@@ -33265,7 +33286,6 @@ html:is([data-theme="ink"], [data-theme="night"])
   transform-origin: 0 0;
 }
 
-
 html:is([data-theme="ink"], [data-theme="night"]) aside.file-explorer.doc-browser-tree:after {
   content: "";
   position: absolute;
@@ -33281,7 +33301,6 @@ html:is([data-theme="ink"], [data-theme="night"]) aside.file-explorer.doc-browse
   transform: scale(0.5);
   transform-origin: 0 0;
 }
-
 
 html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-icon svg,
 html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-clear,
@@ -34430,4 +34449,27 @@ html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-clear svg 
   background: var(--c-f6e5e1);
   color: var(--c-a04e42);
   --stroke: var(--c-e3b0a6);
+}
+
+/* 时间段：外型跟随标准 Field 输入框，这里只补筛选栏宽度。 */
+html body .dialog-filters > .document-change-log-date-range-picker {
+  flex: 0 0 18.571rem;
+  min-width: 0;
+}
+
+html body .dialog-filters > .document-change-log-date-range-picker .field {
+  width: 100%;
+  margin: 0;
+}
+
+/* 日期范围：超出可选范围的日期与到边的切换按钮置灰。 */
+.document-change-log-date-range-calendar button:disabled,
+.document-change-log-date-range-toolbar button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.document-change-log-date-range-toolbar > strong {
+  flex: 1;
+  text-align: center;
 }

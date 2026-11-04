@@ -3,6 +3,7 @@ import { processNextLaowengContextCompression } from "./laoweng-context.js";
 import { processNextChildContextCompression } from "./child-agent-context.js";
 import { query } from "./db.js";
 import {
+  closeStaleFileIndexScanBatches,
   discoverNextFileIndexChange,
   expandFileIndexProjectReconciliation,
   reconcileNextFileIndexArtifact,
@@ -62,7 +63,8 @@ export async function runMemoryMaintenance(
         (await discoverNextFileIndexChange(db)) ||
         (await expandFileIndexProjectReconciliation(db)) ||
         (await reconcileNextFileIndexArtifact(db)) ||
-        (await scheduleNextFileIndexSweep(db));
+        (await scheduleNextFileIndexSweep(db)) ||
+        (await closeStaleFileIndexScanBatches(db)) > 0;
     }
     if (projectId || task) {
       worked ||= await processNextProjectMemory(db, {

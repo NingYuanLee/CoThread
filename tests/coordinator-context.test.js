@@ -100,7 +100,6 @@ test("老翁默认只允许时间工具，联合分析使用受限只读工具�
     "read_memory_history",
     "read_memory_revision",
     "read_project_facts",
-    "list_project_status_history",
     "list_documents",
     "read_document",
     "list_document_changes",

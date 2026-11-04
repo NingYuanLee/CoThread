@@ -98,12 +98,3 @@ export async function upsertMemoryPage(
   );
   return pageId;
 }
-
-/** 项目现状是特殊里程碑节点；不得将普通里程碑误认为现状。 */
-export async function ensureProjectMemoryPage(db, { projectId, createdBy } = {}) {
-  if (!projectId) return null;
-  const [project] = await query(db, "SELECT created_by FROM projects WHERE id=?", [projectId]);
-  if (!project) return null;
-  const { ensureProjectStatusNode } = await import("./project-status-node.js");
-  return ensureProjectStatusNode(db, projectId, createdBy || project.created_by);
-}

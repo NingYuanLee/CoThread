@@ -89,13 +89,11 @@ export async function refreshMemberSummaryCache(db, projectId, userId) {
 /** 项目整体记忆 → 项目导读缓存。 */
 export async function refreshProjectGuideCache(db, projectId) {
   if (!projectId) return null;
-  const { readProjectStatusNode } = await import("./project-status-node.js");
-  const page = await readProjectStatusNode(db, projectId);
-  if (!page) return null;
-  const status = memorySection(page.body, "当前状态");
-  // 占位页（尚未结算）不覆盖导读缓存，避免把“待更新”写进模型上下文。
-  if (!status || status === "- 待核实。") return null;
-  const summary = memoryExcerpt(status, 2000) || "（暂无项目状态）";
+  const { readProjectStatus } = await import("./project-status.js");
+  const status = await readProjectStatus(db, projectId);
+  const body = String(status?.body || "").trim();
+  if (!body) return null;
+  const summary = memoryExcerpt(body, 2000) || "（暂无项目状态）";
   await query(
     db,
     `INSERT INTO agent_project_summaries(project_id,summary) VALUES(?,?)

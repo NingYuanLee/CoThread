@@ -364,11 +364,18 @@ export async function syncDocumentMemory(db, { projectId, artifactId, versionId,
           content: row.content,
         })
       : null;
+  // 数据库仍存四种识别状态；索引页对“还没有结论”的文件显示等待识别，
+  // 避免把尚未处理写成暂不支持。
+  const dbRecognitionStatus = row.recognitionStatus || (row.summary ? "partial" : "unrecognized");
+  const shownRecognitionStatus =
+    dbRecognitionStatus === "unrecognized" && !row.summary && !row.recognitionNote
+      ? "pending"
+      : dbRecognitionStatus;
   const pageId = await upsertPage(db, projectId, {
     title: row.title || row.filename,
     artifactId,
     versionId,
-    recognitionStatus: row.recognitionStatus || (row.summary ? "partial" : "unrecognized"),
+    recognitionStatus: dbRecognitionStatus,
     body: documentMemoryMarkdown({
       title: row.title,
       kind,
@@ -381,7 +388,7 @@ export async function syncDocumentMemory(db, { projectId, artifactId, versionId,
       mime: row.mime,
       path,
       extractedText: row.extractedText,
-      recognitionStatus: row.recognitionStatus || (row.summary ? "partial" : "unrecognized"),
+      recognitionStatus: shownRecognitionStatus,
       recognitionNote: row.recognitionNote,
       listing,
     }),

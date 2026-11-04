@@ -4,7 +4,7 @@
 
 ## 1. 治理原则
 
-决定都有出处。记忆只分现行 current 与作废 superseded，现行不表示真实。五大类表达用途：关键发言、核心议题、重要任务、里程碑、文件索引。三大来源决定更新与作废权限，修改五类标签不能改变来源权限。AI 疑问、矛盾分析和人工反馈独立保存，不是记忆真假状态。
+决定都有出处。记忆只分现行 current 与作废 superseded，现行不表示真实。五大类表达用途：关键发言、核心议题、主要任务、项目进程、文件索引。三大来源决定更新与作废权限，修改五类标签不能改变来源权限。AI 疑问、矛盾分析和人工反馈独立保存，不是记忆真假状态。
 
 | 来源           | 当前更新                                             | 作废权限                                           |
 | -------------- | ---------------------------------------------------- | -------------------------------------------------- |
@@ -21,6 +21,7 @@
 - project_activity_history 保存业务事实事件。创建者、创建时间、归属、任务现状和执行数来自业务表；无法确认的更新操作者留空。完整计数与分页明细从同一只读快照读取。
 - 文件导航仍按 artifact，内容变更产生新索引。旧索引作废不删除旧正文和旧字节。确认日志保留来源产物版本及确认 ID；未确认的新产物不能替换正式内容。人工移除文件组合仅隐藏展示，不作废记忆。
 - 回答固定实际阅读的记忆修订；任务创建固定来源请求、明确采用的 memoryRevisionIds 和附带文档修订。检索到不等于采用。旧决定缺少快照时不补造依据。
+- 项目现状不是记忆条目：每项目一行 `project_status.body`（纯正文），随项目进程结算覆盖；写入时清洗掉标题、列表、加粗等修饰，不保存修订或来源快照，历史变化由项目进程条目承担。
 
 ## 3. 接口与工具
 
@@ -49,9 +50,9 @@ MCP 与 DSH 提供 search_memory、read_memory_history、read_memory_revision、
 
 ## 5. 本轮验证与限制
 
-新增迁移 210—217，仅在本机独立测试库验证。最终测试、构建和检查记录见方案第 8 节。真实模型质量、浏览器点击和线上发布不在本轮自动化验证范围。
+迁移 210—217 已在本机独立测试库验证；220 号迁移把项目现状收敛为单份 Markdown，并删除旧现状节点、来源快照与修订表。最终测试、构建和检查记录见方案第 8 节。真实模型质量、浏览器点击和线上发布不在本轮自动化验证范围。
 
-项目现状文字仍为有出处的模型提取，精确状态和数量应读取业务事实。旧历史无法凭空补齐；完整出处通过分页与固定修订 ID 读取，不能把检索 top-K 当作完整证据集合。升级与回退须同时考虑两态数据库约束和旧服务仍写草稿的问题。
+项目现状是一份覆盖式 Markdown，具体阶段以它为准，精确状态和数量应读取业务事实。旧历史无法凭空补齐；完整出处通过分页与固定修订 ID 读取，不能把检索 top-K 当作完整证据集合。升级与回退须同时考虑两态数据库约束和旧服务仍写草稿的问题。
 
 ## 10. 历史实现状态（2026-10-25，以下记录不是当前契约）
 
@@ -59,7 +60,7 @@ MCP 与 DSH 提供 search_memory、read_memory_history、read_memory_revision、
 
 - 迁移 `132_project_memory_queue.sql`；队列表按 §5。
 - 迁移 `137_memory_subjects_and_relations.sql`：`wiki_pages` 增加 `subject_type`（五类记忆）、`recall_count`、`last_recalled_at`；`wiki_page_sources` 出处补 `thread`；新建 `memory_relations`（relates / derives / supersedes）。
-- `shared/memory-kinds.js`：五类记忆、中文标签、Markdown 骨架；里程碑由项目/成员/迭代变更入候选，核心议题保留群聊快照，主要文档补充图片识别与成组文件共享摘要；`server/memory-graph.js`：建/删关系、单条直接关系、最多 3 跳召回、召回计数，继承成环返回 409。
+- `shared/memory-kinds.js`：五类记忆、中文标签、Markdown 骨架；项目进程由项目/成员/迭代变更入候选，核心议题保留群聊快照，主要文档补充图片识别与成组文件共享摘要；`server/memory-graph.js`：建/删关系、单条直接关系、最多 3 跳召回、召回计数，继承成环返回 409。
 - 结算写入带 `subject`：`project_memory` 输出的条目可指定对象类型，`applyProjectMemoryResult` 落 `subject_type`，`update` 时保留原值。
 - `server/memory-timeline.js`：读侧聚合、counts、confirm、flag、`settleIterationMemory`、争议推导 `disputedEntryIds`。
 - 记忆作业面板：五类口径、积压、最近运行、立即运行、调整口径、失败重试、讨论补跑；每个维护作业可看轨迹（agent 日志）、运行历史、维护会话；历史回填由后台维护任务自动补齐，手动补跑入口移到管理空间项目操作列；老翁已不在一级监控页出现。
@@ -71,7 +72,7 @@ MCP 与 DSH 提供 search_memory、read_memory_history、read_memory_revision、
 - `server/utterance-memory.js`：发言记忆落 wiki——`upsertUtteranceMemory` 每个成员一条 `subject=utterance` 页面（`about_user_id` 唯一，滚动更新正文、出处去重），`saveMemberUnderstandings` 在写旧表后同步落 wiki；旧表 `agent_member_summaries` 降为读取缓存。
 - **单一事实源（方向 A）**：事实在 `wiki_pages`（+ 出处 + 关系）；`agent_member_summaries` / `agent_document_summaries` / `agent_project_summaries` 降级为缓存，由 `server/memory-cache.js` 从 wiki 刷新：
   - 成员认识：会话结算 apply 后按 `subject=utterance` 刷新；`loadMemberUnderstanding` 已改为 wiki 优先、旧表兜底；
-  - 项目导读：结算 apply 后按 `subject=project` 刷新（占位页不覆盖）；
+  - 项目导读：结算写入或覆盖 `project_status` 后刷新；
   - 文档摘要：正式版本同步文档记忆后按 `变更要点` 刷新该版本缓存；
   - 回填结束统一 `refreshAllCaches`。
     已切换：`loadMemberUnderstanding`、`loadProjectWikiIndexes`（成员认识；文档摘要缓存缺失时用文档记忆补最新版本）、`loadProjectSummary`（协调器 prompt、项目列表/详情导读）、结算时补建项目整体页。仍以缓存为读来源的只有「旧版本文档摘要」与成员队列 `through_sequence` 语义，属缓存自身数据。
@@ -80,10 +81,10 @@ MCP 与 DSH 提供 search_memory、read_memory_history、read_memory_revision、
 - 统一重试：`retryMemoryJob` 按作业键分派（`project_memory` → 手动结算，`member_memory`/`document_memory`/`iteration_archive` → 排队并内联跑一批；任务/讨论记忆随结算，返回 409）。
 - 可用性评估结论与限制见 `14-project-memory-usability.md`。
 - 迁移 `139_memory_job_settings.sql`：项目级口径覆盖（`enabled` / `trigger_threshold` / `prompt`），停用与阈值已接入 `maybeQueueProjectMemoryRun`、`queueLaowengMemoryRun`、`queueProjectMemoryRun`，提示词覆盖追加到结算 instructions。
-- `shared/memory-jobs.js` + `server/memory-jobs.js`：五类记忆作业的触发、提示词、工具、完成标准、失败补救口径；管理视图 `GET /api/projects/:id/memory/jobs` 返回口径、最近一次 `agent_laoweng_runs` 与积压（发言/文档/项目队列），只读。
+- `shared/memory-jobs.js` + `server/memory-jobs.js`：四类记忆作业的触发、提示词、工具、完成标准、失败补救口径（核心议题与关键发言合为一条作业，只有产物分成议题、发言两类）；管理视图 `GET /api/projects/:id/memory/jobs` 返回口径、最近一次 `agent_laoweng_runs` 与积压（议题/发言/文档/项目队列），只读。
 - `server/memory-search.js`：`searchProjectMemory` 按对象类型 / 成员 / 关键词检索（ngram，未命中回退 LIKE），按关系展开 1 跳，返回出处并累计召回；MCP 只读工具 `search_memory` 已注册，问老翁经 `callMcpTool` 自动带 projectId 调用，引用映射到记忆出处（消息 / 文档版本 / 任务 / 迭代）。
-- `server/task-memory.js`：任务记忆聚合（耗时、重试、返工、坑，状态与执行者分布），提供 `loadTaskMemoryStats`、`importantTasks`、`taskMemoryMarkdown`、`taskDistributionMarkdown`；结算候选的任务信号已带执行者类型、执行次数、失败次数、重试与最近错误，按提示词拆成「重要任务单条 + 迭代任务分布」。
-- `server/discussion-memory.js` 另有 `syncThreadDiscussionMemory` 宽窗口版：扫一整个迭代的可见发言（≤500 条），生成/更新一条「讨论：<迭代名>」总结，群聊快照只作为模型上下文和消息出处保留，不直接复制进正文；同时连参与者发言记忆，并用 `derives` 继承到项目整体；归档确认后自动执行，也可 `POST /api/projects/:id/memory/discussion/:threadId` 手动补跑；受 `discussion_memory` 口径开关控制。
+- `server/task-memory.js`：任务记忆聚合（耗时、重试、返工、坑，状态与执行者分布），提供 `loadTaskMemoryStats`、`importantTasks`、`taskMemoryMarkdown`、`taskDistributionMarkdown`；结算候选的任务信号已带执行者类型、执行次数、失败次数、重试与最近错误，按提示词拆成「主要任务单条 + 迭代任务分布」。
+- `server/discussion-memory.js` 另有 `syncThreadDiscussionMemory` 宽窗口版：扫一整个迭代的可见发言（≤500 条），生成/更新一条「讨论：<迭代名>」总结，群聊快照只作为模型上下文和消息出处保留，不直接复制进正文；同时连参与者发言记忆，并用 `derives` 继承到项目整体；归档确认后自动执行，也可 `POST /api/projects/:id/memory/discussion/:threadId` 手动补跑；口径固定为默认，不接受项目级覆盖。
 - `server/discussion-memory.js`：讨论记忆写入原语——`upsertDiscussionMemory` 按话题归一键（标题去空白与标点）跨迭代合并、出处去重；`linkDiscussionParticipants` 从消息出处反查参与者，把各自发言记忆用 `relates` 连到讨论记忆；结算写 `subject=discussion` 条目后自动连边。
 - 老翁 `project_memory` 任务：`noteProjectMemorySignal` 轻标记、`maybeQueueProjectMemoryRun` 阈值/事件触发、`processNextMemorySettlement` 结算、`queueProjectMemoryRun` 手动刷新；任务已注册进 `LAOWENG_MAINTENANCE_TASKS`。
 - 三处轻标记：消息写入（`server/service-messages.js`）、任务状态变更（`server/task-pool-activity.js`）、正式文件新版本（`server/documents/versions.js`）。

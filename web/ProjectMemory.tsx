@@ -17,14 +17,19 @@ import { animateDialogClose, Dialog } from "./dialog-fx";
 import { showTip } from "./Tip";
 import { UiIcon } from "./ui-icon";
 import { localDate, relativeActivity } from "./workspace-format";
+import { DocumentChangeDateRangePicker } from "./DocumentChangeDateRangePicker";
 import { LaowengHistoryDialog } from "./agent-monitor-history";
-import { LAOWENG_RUN_COLUMNS, laowengRunRows, runStatusLabel } from "./agent-monitor-model";
+import {
+  LAOWENG_RUN_COLUMNS,
+  fullTime,
+  laowengRunRows,
+  runStatusLabel,
+} from "./agent-monitor-model";
 import { MemoryJobSessionDialog } from "./MemoryJobSessionDialog";
-import { IconButton } from "./IconButton";
+import { IconButton, RefreshButton } from "./IconButton";
 import type { LaowengRun } from "./agent-monitor-types";
 import { SlideSwitch } from "./SlideSwitch";
 import { MemoryHistoryPanel } from "./MemoryHistoryPanel";
-import { ProjectFactsPanel } from "./ProjectFactsPanel";
 
 export type MemoryCounts = { disputes: number; updatedSinceEntry: number };
 
@@ -80,6 +85,7 @@ type MemoryJob = {
   batch?: number;
   backlog?: number | null;
   backlogNote?: string;
+  backlogDetail?: { statements?: number; discussions?: number; queued?: number } | null;
   lastRun?: MemoryJobRun | null;
   recentRuns?: LaowengRun[];
   fileCoverage?: {
@@ -87,7 +93,6 @@ type MemoryJob = {
     recognized: number;
     partial: number;
     unrecognized: number;
-    failed: number;
     pending: number;
   } | null;
   fileIssues?: {
@@ -100,7 +105,7 @@ type MemoryJob = {
     recognitionNote?: string | null;
     availableAt?: string | null;
     pending?: boolean | number;
-    processingState?: "queued" | "processing" | null;
+    processingState?: "processing" | "failed" | "pending" | "success" | null;
     operation?: "create" | "update" | null;
     triggerOrigin?: "discovery" | "manual" | "legacy" | null;
     summaryVersionId?: string | null;
@@ -261,12 +266,12 @@ function FileCoverageDialog({
     return () => controller.abort();
   }, [api, projectId, page, pageSize, filters, revision, refreshVersion]);
   const coverage = job.fileCoverage;
+  // 识别结果只表达内容结论；排队、处理中、处理出错都属于处理状态。
   const labels: Record<string, string> = {
-    recognized: "已识别",
-    partial: "部分识别",
-    unrecognized: "未识别",
-    failed: "失败",
-    pending: "待识别",
+    recognized: "识别完整",
+    partial: "识别部分",
+    unrecognized: "暂不支持",
+    pending: "等待识别",
   };
   return (
     <Dialog
@@ -280,7 +285,7 @@ function FileCoverageDialog({
         titleId="file-coverage-title"
         subtitle={
           coverage
-            ? `当前可访问 ${coverage.total} 个 · 已识别 ${coverage.recognized} · 部分识别 ${coverage.partial} · 未识别 ${coverage.unrecognized} · 失败 ${coverage.failed} · 待处理 ${coverage.pending}（与识别状态重叠）`
+            ? `当前可访问 ${coverage.total} 个 · 识别完整 ${coverage.recognized} · 识别部分 ${coverage.partial} · 暂不支持 ${coverage.unrecognized} · 等待识别 ${coverage.pending}`
             : undefined
         }
         onClose={() => animateDialogClose(dialog.current, onClose)}
@@ -302,10 +307,10 @@ function FileCoverageDialog({
         }}
       >
         <SelectField
-          label="识别状态"
+          label="识别结果"
           value={status}
           onChange={setStatus}
-          allOption="全部识别状态"
+          allOption="全部识别结果"
           options={Object.entries(labels).map(([value, label]) => ({ value, label }))}
         />
         <SelectField
@@ -314,8 +319,10 @@ function FileCoverageDialog({
           onChange={setQueue}
           allOption="全部处理状态"
           options={[
-            { value: "pending", label: "已排队或处理中" },
-            { value: "idle", label: "未排队" },
+            { value: "success", label: "处理成功" },
+            { value: "processing", label: "处理中" },
+            { value: "pending", label: "排队中" },
+            { value: "failed", label: "处理失败" },
           ]}
         />
       </DialogFilters>
@@ -326,12 +333,10 @@ function FileCoverageDialog({
               <tr>
                 <th>文件</th>
                 <th>版本</th>
-                <th>处理类型</th>
-                <th>识别状态</th>
+                <th>识别结果</th>
                 <th>处理状态</th>
                 <th>识别说明</th>
-                <th>下次尝试</th>
-                {editable ? <th>操作</th> : null}
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -340,22 +345,9 @@ function FileCoverageDialog({
                 rows.map((file) => (
                   <tr key={file.artifactId}>
                     <td>
-                      {file.pageId ? (
-                        <button
-                          type="button"
-                          className="wiki-action"
-                          onClick={() => onOpen(file.pageId!)}
-                        >
-                          {file.title || file.filename}
-                          {file.summaryVersionId && file.versionId !== file.summaryVersionId
-                            ? "（摘要来自旧版本）"
-                            : file.pending && file.operation === "update"
-                              ? "（显示上次摘要）"
-                              : ""}
-                        </button>
-                      ) : (
-                        file.title || file.filename
-                      )}
+                      <span className="memory-file-name" title={file.filename || file.title || ""}>
+                        {file.filename || file.title}
+                      </span>
                       {file.previousSummary ? (
                         <details>
                           <summary>
@@ -369,44 +361,55 @@ function FileCoverageDialog({
                       ) : null}
                     </td>
                     <td>v{file.version}</td>
-                    <td>
-                      {file.operation === "create"
-                        ? "新增"
-                        : file.operation === "update"
-                          ? "更新"
-                          : "—"}
-                    </td>
                     <td>{labels[file.recognitionStatus] || file.recognitionStatus}</td>
                     <td>
                       {file.processingState === "processing"
                         ? "处理中"
-                        : file.pending
-                          ? "排队中"
-                          : "未排队"}
+                        : file.processingState === "failed"
+                          ? "处理失败"
+                          : file.processingState === "success"
+                            ? "处理成功"
+                            : "排队中"}
                     </td>
-                    <td>{file.recognitionNote || "—"}</td>
-                    <td>{file.availableAt ? localDate(file.availableAt) : "—"}</td>
-                    {editable ? (
-                      <td>
+                    <td>
+                      {file.recognitionNote || "—"}
+                      {file.processingState === "failed" && file.availableAt
+                        ? ` · 将于 ${localDate(file.availableAt)} 自动重试`
+                        : ""}
+                    </td>
+                    <td>
+                      <div className="memory-file-actions">
                         <button
                           type="button"
                           className="wiki-action"
-                          disabled={!!runningJob}
-                          onClick={() =>
-                            void onRetry(file.artifactId).then(() =>
-                              setRevision((value) => value + 1),
-                            )
-                          }
+                          disabled={!file.pageId}
+                          onClick={() => {
+                            if (file.pageId) onOpen(file.pageId);
+                          }}
                         >
-                          重新识别
+                          看记忆
                         </button>
-                      </td>
-                    ) : null}
+                        {editable ? (
+                          <button
+                            type="button"
+                            className="wiki-action"
+                            disabled={!!runningJob}
+                            onClick={() =>
+                              void onRetry(file.artifactId).then(() =>
+                                setRevision((value) => value + 1),
+                              )
+                            }
+                          >
+                            重新识别
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               {(loading || error || !rows.length) && (
                 <tr>
-                  <td className="monitor-empty" colSpan={editable ? 8 : 7}>
+                  <td className="monitor-empty" colSpan={6}>
                     {loading ? "正在读取文件…" : error || "没有符合条件的文件"}
                   </td>
                 </tr>
@@ -432,15 +435,133 @@ function FileCoverageDialog({
     </Dialog>
   );
 }
-function FileDiscoveryHistory({
+function FileRepairDialog({
+  entries,
+  editable,
+  onOpen,
+  onDismiss,
+  onClose,
+}: {
+  entries: MemoryEntry[];
+  editable: boolean;
+  onOpen: (entry: MemoryEntry) => void;
+  onDismiss: (entry: MemoryEntry) => Promise<void>;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [busyId, setBusyId] = useState("");
+  return (
+    <Dialog
+      ref={dialog}
+      onRequestClose={onClose}
+      className="l1-history-dialog dialog-list"
+      aria-labelledby="file-repair-title"
+    >
+      <DialogHeader
+        title="待修复关联"
+        titleId="file-repair-title"
+        subtitle="关联索引已不可展示；修正后会重新可用，移除展示会停止自动恢复"
+        onClose={() => animateDialogClose(dialog.current, onClose)}
+        closeLabel="关闭待修复关联"
+      />
+      <div className="l1-history-content">
+        <div className="l1-history-body admin-table-wrap dialog-scroll-region">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>关联索引</th>
+                <th>来源</th>
+                <th>仍可用文件</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry) => (
+                <tr key={entry.id}>
+                  <td>{entry.title || "关联文件"}</td>
+                  <td>{entry.fileGroup?.origin === "automatic" ? "自动发现" : "人工指定"}</td>
+                  <td>{entry.fileGroup?.members.length || 0} 个</td>
+                  <td>
+                    <div className="memory-file-actions">
+                      <button
+                        type="button"
+                        className="wiki-action"
+                        disabled={busyId === entry.id}
+                        onClick={() => onOpen(entry)}
+                      >
+                        修正关联
+                      </button>
+                      {editable ? (
+                        <button
+                          type="button"
+                          className="wiki-action"
+                          disabled={busyId === entry.id}
+                          onClick={async () => {
+                            setBusyId(entry.id);
+                            try {
+                              await onDismiss(entry);
+                            } finally {
+                              setBusyId("");
+                            }
+                          }}
+                        >
+                          {busyId === entry.id ? "移除中…" : "移除展示"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!entries.length && (
+                <tr>
+                  <td className="monitor-empty" colSpan={4}>
+                    没有待修复的关联。
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+const SCAN_OPERATION_LABELS: Record<string, string> = {
+  create: "新增",
+  update: "更新",
+  delete: "删除并作废",
+};
+const SCAN_TRIGGER_LABELS: Record<string, string> = {
+  schedule: "定时扫描",
+  manual: "手动扫描",
+  change: "变更触发",
+  log: "日志触发",
+};
+const SCAN_BATCH_STATUS_LABELS: Record<string, string> = {
+  running: "进行中",
+  completed: "已完成",
+  failed: "失败",
+};
+type ScanBatchRow = {
+  id: string;
+  triggerType: string;
+  status: string;
+  startedAt: string;
+  finishedAt?: string | null;
+  changes: number;
+  created: number;
+  updated: number;
+  deleted: number;
+};
+function ScanBatchItemsDialog({
   projectId,
   api,
-  refreshVersion,
+  batch,
   onClose,
 }: {
   projectId: string;
   api: MemoryApi;
-  refreshVersion: number;
+  batch: ScanBatchRow;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -460,6 +581,7 @@ function FileDiscoveryHistory({
     setLoading(true);
     setError("");
     const params = new URLSearchParams({
+      batchId: batch.id,
       ...filters,
       page: String(page),
       pageSize: String(pageSize),
@@ -479,30 +601,29 @@ function FileDiscoveryHistory({
       })
       .catch((cause) => {
         if (!controller.signal.aborted)
-          setError(cause instanceof Error ? cause.message : "读取发现记录失败");
+          setError(cause instanceof Error ? cause.message : "读取批次明细失败");
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [api, projectId, filters, page, pageSize, refreshVersion]);
-  const labels: Record<string, string> = { create: "新增", update: "更新", delete: "删除并作废" };
+  }, [api, batch.id, filters, page, pageSize, projectId]);
   return (
     <Dialog
       ref={dialog}
       onRequestClose={onClose}
       className="l1-history-dialog dialog-list"
-      aria-labelledby="file-discovery-title"
+      aria-labelledby="scan-batch-items-title"
     >
       <DialogHeader
-        title="文件发现记录"
-        titleId="file-discovery-title"
-        subtitle="文件变化经核对后的处理记录"
+        title="批次明细"
+        titleId="scan-batch-items-title"
+        subtitle={`${SCAN_TRIGGER_LABELS[batch.triggerType] || batch.triggerType} · ${localDate(batch.startedAt)}`}
         onClose={() => animateDialogClose(dialog.current, onClose)}
-        closeLabel="关闭发现记录"
+        closeLabel="关闭批次明细"
       />
       <DialogFilters
-        label="发现记录筛选"
+        label="批次明细筛选"
         keyword={{ value: keyword, onChange: setKeyword, placeholder: "搜索文件名" }}
         onQuery={() => {
           setPage(1);
@@ -520,7 +641,10 @@ function FileDiscoveryHistory({
           value={operation}
           onChange={setOperation}
           allOption="全部类型"
-          options={Object.entries(labels).map(([value, label]) => ({ value, label }))}
+          options={Object.entries(SCAN_OPERATION_LABELS).map(([value, label]) => ({
+            value,
+            label,
+          }))}
         />
       </DialogFilters>
       <div className="l1-history-content">
@@ -530,7 +654,7 @@ function FileDiscoveryHistory({
               <tr>
                 <th>文件</th>
                 <th>处理类型</th>
-                <th>发现时间</th>
+                <th>扫描时间</th>
               </tr>
             </thead>
             <tbody>
@@ -539,14 +663,19 @@ function FileDiscoveryHistory({
                 rows.map((row) => (
                   <tr key={row.id}>
                     <td>{row.title}</td>
-                    <td>{labels[row.operation] || row.operation}</td>
+                    <td>{SCAN_OPERATION_LABELS[row.operation] || row.operation}</td>
                     <td>{localDate(row.createdAt)}</td>
                   </tr>
                 ))}
               {(loading || error || !rows.length) && (
                 <tr>
                   <td className="monitor-empty" colSpan={3}>
-                    {loading ? "正在读取发现记录…" : error || "没有符合条件的记录"}
+                    {loading
+                      ? "正在读取批次明细…"
+                      : error ||
+                        (filters.keyword || filters.operation
+                          ? "没有符合条件的记录"
+                          : "该批次没有文件变化")}
                   </td>
                 </tr>
               )}
@@ -565,13 +694,358 @@ function FileDiscoveryHistory({
             setPageSize(size);
           }}
           disabled={loading || !!error}
-          ariaLabel="文件发现记录分页"
+          ariaLabel="批次明细分页"
         />
       </DialogFooter>
     </Dialog>
   );
 }
+function FileDiscoveryHistory({
+  projectId,
+  api,
+  refreshVersion,
+  onClose,
+}: {
+  projectId: string;
+  api: MemoryApi;
+  refreshVersion: number;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [batches, setBatches] = useState<ScanBatchRow[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanNote, setScanNote] = useState("");
+  const [scanVersion, setScanVersion] = useState(0);
+  const [detail, setDetail] = useState<ScanBatchRow | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    api(
+      `/projects/${projectId}/memory/file-index/scan-batches?page=${page}&pageSize=${pageSize}`,
+      undefined,
+      "GET",
+      controller.signal,
+    )
+      .then((result) => {
+        if (!controller.signal.aborted) {
+          setBatches(result.rows);
+          setTotal(result.total);
+          if (result.page !== page) setPage(result.page);
+        }
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted)
+          setError(cause instanceof Error ? cause.message : "读取扫描批次失败");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [api, projectId, page, pageSize, refreshVersion, scanVersion]);
+  const startScan = () => {
+    if (scanBusy) return;
+    setScanBusy(true);
+    setScanNote("");
+    api(`/projects/${projectId}/memory/file-index/scan`, undefined, "POST")
+      .then((result) => {
+        setScanNote(result?.queued ? "已开始扫描，正在排队" : "已有扫描在排队，无需重复");
+        setPage(1);
+        setScanVersion((value) => value + 1);
+      })
+      .catch((cause) => setScanNote(cause instanceof Error ? cause.message : "启动扫描失败"))
+      .finally(() => setScanBusy(false));
+  };
+  return (
+    <>
+      <Dialog
+        ref={dialog}
+        onRequestClose={onClose}
+        className="l1-history-dialog dialog-list"
+        aria-labelledby="file-discovery-title"
+      >
+        <DialogHeader
+          title="文件扫描记录"
+          titleId="file-discovery-title"
+          subtitle="扫描批次；点“明细”查看该批次的文件变化"
+          onClose={() => animateDialogClose(dialog.current, onClose)}
+          closeLabel="关闭扫描记录"
+        />
+        <DialogFilters
+          label="扫描记录筛选"
+          onQuery={() => setScanVersion((value) => value + 1)}
+          onReset={() => {
+            setScanNote("");
+            setPage(1);
+            setScanVersion((value) => value + 1);
+          }}
+          showActions={false}
+        >
+          <button type="button" className="wiki-action" disabled={scanBusy} onClick={startScan}>
+            {scanBusy ? "正在排队…" : "立即扫描"}
+          </button>
+          {scanNote ? <small>{scanNote}</small> : null}
+        </DialogFilters>
+        <div className="l1-history-content">
+          <div className="l1-history-body admin-table-wrap dialog-scroll-region">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>开始时间</th>
+                  <th>来源</th>
+                  <th>状态</th>
+                  <th>合计</th>
+                  <th>新增</th>
+                  <th>更新</th>
+                  <th>删除</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!loading &&
+                  !error &&
+                  batches.map((batch) => (
+                    <tr key={batch.id}>
+                      <td>{localDate(batch.startedAt)}</td>
+                      <td>{SCAN_TRIGGER_LABELS[batch.triggerType] || batch.triggerType}</td>
+                      <td>{SCAN_BATCH_STATUS_LABELS[batch.status] || batch.status}</td>
+                      <td>{batch.changes}</td>
+                      <td>{batch.created}</td>
+                      <td>{batch.updated}</td>
+                      <td>{batch.deleted}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="wiki-action"
+                          onClick={() => setDetail(batch)}
+                        >
+                          明细
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                {(loading || error || !batches.length) && (
+                  <tr>
+                    <td className="monitor-empty" colSpan={8}>
+                      {loading ? "正在读取扫描批次…" : error || "没有扫描批次"}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <DialogFooter pagination>
+          <PaginationControl
+            total={total}
+            currentPage={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPage(1);
+              setPageSize(size);
+            }}
+            disabled={loading || !!error}
+            ariaLabel="文件扫描记录分页"
+          />
+        </DialogFooter>
+      </Dialog>
+      {detail ? (
+        <ScanBatchItemsDialog
+          projectId={projectId}
+          api={api}
+          batch={detail}
+          onClose={() => setDetail(null)}
+        />
+      ) : null}
+    </>
+  );
+}
 
+const CONVERSATION_PROGRESS_STATE_LABELS: Record<string, string> = {
+  done: "已完成",
+  processing: "处理中",
+  waiting: "等待中",
+  failed: "有失败",
+  pending: "待处理",
+  unbackfilled: "未入队",
+  empty: "无消息",
+};
+type ConversationProgressRow = {
+  id: string;
+  title: string;
+  status: string;
+  archivedAt?: string | null;
+  lastMessageAt?: string | null;
+  messageCount: number;
+  latestSequence: number | null;
+  processedThrough: number | null;
+  processingThrough: number | null;
+  pendingWindows: number;
+  queued: number;
+  lastAttemptAt?: string | null;
+  lastError?: string | null;
+  state: string;
+};
+function ConversationProgressDialog({
+  projectId,
+  api,
+  refreshVersion,
+  onClose,
+}: {
+  projectId: string;
+  api: MemoryApi;
+  refreshVersion: number;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [keyword, setKeyword] = useState("");
+  const [filters, setFilters] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [rows, setRows] = useState<ConversationProgressRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams({
+      keyword: filters,
+      page: String(page),
+      pageSize: String(pageSize),
+    });
+    api(
+      `/projects/${projectId}/memory/conversation-progress?${params}`,
+      undefined,
+      "GET",
+      controller.signal,
+    )
+      .then((result) => {
+        if (!controller.signal.aborted) {
+          setRows(result.rows);
+          setTotal(result.total);
+          if (result.page !== page) setPage(result.page);
+        }
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted)
+          setError(cause instanceof Error ? cause.message : "读取消息记忆进度失败");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [api, projectId, filters, page, pageSize, refreshVersion, revision]);
+  return (
+    <Dialog
+      ref={dialog}
+      onRequestClose={onClose}
+      className="l1-history-dialog dialog-list"
+      aria-labelledby="conversation-progress-title"
+    >
+      <DialogHeader
+        title="消息记忆进度"
+        titleId="conversation-progress-title"
+        subtitle="按迭代查看消息处理到哪一步；打开或点刷新时读取最新数据。序号是全项目递增编号，通常大于该迭代的消息条数。“未入队”表示有历史消息还没进入记忆窗口，点“立即扫描并运行”会补入队。"
+        actions={
+          <RefreshButton
+            pending={loading}
+            onClick={() => {
+              setPage(1);
+              setRevision((value) => value + 1);
+            }}
+          />
+        }
+        onClose={() => animateDialogClose(dialog.current, onClose)}
+        closeLabel="关闭消息记忆进度"
+      />
+      <DialogFilters
+        label="消息记忆进度筛选"
+        keyword={{ value: keyword, onChange: setKeyword, placeholder: "搜索迭代标题" }}
+        onQuery={() => {
+          setPage(1);
+          setFilters(keyword.trim());
+        }}
+        onReset={() => {
+          setKeyword("");
+          setFilters("");
+          setPage(1);
+        }}
+      />
+      <div className="l1-history-content">
+        <div className="l1-history-body admin-table-wrap dialog-scroll-region">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>迭代</th>
+                <th>迭代状态</th>
+                <th>记忆状态</th>
+                <th>可见消息数</th>
+                <th>最新序号</th>
+                <th>已处理到序号</th>
+                <th>正在处理序号</th>
+                <th>待处理窗口</th>
+                <th>最近尝试</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!loading &&
+                !error &&
+                rows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.title}</td>
+                    <td>{row.status === "archived" ? "已归档" : "进行中"}</td>
+                    <td>{CONVERSATION_PROGRESS_STATE_LABELS[row.state] || row.state}</td>
+                    <td>{row.messageCount}</td>
+                    <td>{row.latestSequence ?? "—"}</td>
+                    <td>{row.processedThrough ?? "—"}</td>
+                    <td>{row.processingThrough ?? "—"}</td>
+                    <td>
+                      {row.pendingWindows}
+                      {row.queued ? ` · 排队 ${row.queued}` : ""}
+                    </td>
+                    <td>
+                      {row.lastAttemptAt ? localDate(row.lastAttemptAt) : "—"}
+                      {row.lastError ? " · 失败" : ""}
+                    </td>
+                  </tr>
+                ))}
+              {(loading || error || !rows.length) && (
+                <tr>
+                  <td className="monitor-empty" colSpan={9}>
+                    {loading ? "正在读取消息记忆进度…" : error || "没有迭代"}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <DialogFooter pagination>
+        <PaginationControl
+          total={total}
+          currentPage={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPage(1);
+            setPageSize(size);
+          }}
+          disabled={loading || !!error}
+          ariaLabel="消息记忆进度分页"
+        />
+      </DialogFooter>
+    </Dialog>
+  );
+}
 function MemoryJobHistory({
   job,
   projectId,
@@ -592,26 +1066,19 @@ function MemoryJobHistory({
         statusUpdated: boolean;
         changes: { id: string; action: string; title?: string; subject?: string }[];
       }[];
-      conversationRange?: {
-        threadTitle: string;
-        firstSequence: string;
-        lastSequence: string;
-      } | null;
+      conversationWindows?: RunConversationWindow[];
       documentItems?: FileRunItem[];
-      conversationItems?: {
-        id: string;
-        kind: string;
-        status: string;
-        title: string;
-        action: string;
-        error?: string | null;
-      }[];
     })[]
   >([]);
   const [detail, setDetail] = useState<(typeof runs)[number] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+  const [statusDraft, setStatusDraft] = useState("");
+  const [from, setFrom] = useState("");
+  const [fromDraft, setFromDraft] = useState("");
+  const [to, setTo] = useState("");
+  const [toDraft, setToDraft] = useState("");
   const [trigger, setTrigger] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -623,7 +1090,9 @@ function MemoryJobHistory({
     const params = new URLSearchParams({
       page: String(page),
       pageSize: String(pageSize),
-      keyword: search,
+      status,
+      from,
+      to,
       trigger,
     });
     api(
@@ -649,7 +1118,7 @@ function MemoryJobHistory({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [api, projectId, job.key, page, pageSize, search, trigger, refreshVersion]);
+  }, [api, projectId, job.key, page, pageSize, status, from, to, trigger, refreshVersion]);
   return (
     <>
       <LaowengHistoryDialog
@@ -658,12 +1127,13 @@ function MemoryJobHistory({
         columns={LAOWENG_RUN_COLUMNS}
         rows={laowengRunRows(runs, " 项").map((row, index) => ({
           ...row,
-          actions: [
-            "member_memory",
-            "discussion_memory",
-            "project_memory",
-            "document_memory",
-          ].includes(job.key) ? (
+          cells: {
+            ...row.cells,
+            time: fullTime(
+              runs[index].finished_at || runs[index].started_at || runs[index].created_at,
+            ),
+          },
+          actions: ["member_memory", "project_memory", "document_memory"].includes(job.key) ? (
             <button type="button" className="wiki-action" onClick={() => setDetail(runs[index])}>
               详情
             </button>
@@ -674,11 +1144,48 @@ function MemoryJobHistory({
         total={total}
         page={page}
         pageSize={pageSize}
-        search={search}
-        onSearch={(value) => {
-          setSearch(value);
+        search=""
+        showSearch={false}
+        filters={
+          <>
+            <SelectField
+              label="状态"
+              value={statusDraft}
+              onChange={setStatusDraft}
+              options={[
+                { value: "completed", label: "已完成" },
+                { value: "failed", label: "失败" },
+                { value: "running", label: "进行中" },
+                { value: "queued", label: "排队中" },
+              ]}
+              allOption="全部状态"
+            />
+            <DocumentChangeDateRangePicker
+              label="时间段"
+              value={{ from: fromDraft, to: toDraft }}
+              onChange={(range) => {
+                setFromDraft(range.from);
+                setToDraft(range.to);
+              }}
+            />
+          </>
+        }
+        onQuery={() => {
+          setStatus(statusDraft);
+          setFrom(fromDraft);
+          setTo(toDraft);
           setPage(1);
         }}
+        onReset={() => {
+          setStatus("");
+          setStatusDraft("");
+          setFrom("");
+          setFromDraft("");
+          setTo("");
+          setToDraft("");
+          setPage(1);
+        }}
+        onSearch={() => {}}
         triggerFilter={{
           value: trigger,
           onChange: (value) => {
@@ -727,9 +1234,9 @@ function FileRunDetail({
   const statuses: Record<string, string> = {
     queued: "排队中",
     processing: "处理中",
-    recognized: "已识别",
-    partial: "部分识别",
-    failed: "失败",
+    recognized: "识别完整",
+    partial: "识别部分",
+    failed: "处理失败",
     postponed: "延后处理",
     skipped: "未处理",
   };
@@ -829,9 +1336,7 @@ function ProjectRunDetail({
           {run.projectPhases?.length ? (
             run.projectPhases.map((phase) => (
               <section key={phase.phase}>
-                <strong>
-                  {phase.phase === "milestones" ? "里程碑与重要任务" : "项目现状"}：已提交
-                </strong>
+                <strong>项目进程与主要任务：已提交</strong>
                 {phase.changes.map((change) => (
                   <p key={`${change.action}-${change.id}`}>
                     {(
@@ -841,18 +1346,15 @@ function ProjectRunDetail({
                       >
                     )[change.action] || change.action}
                     {change.subject === "task"
-                      ? "重要任务"
+                      ? "主要任务"
                       : change.subject === "project"
-                        ? "里程碑"
+                        ? "项目进程"
                         : "记忆"}
                     ：{change.title || change.id}
                   </p>
                 ))}
-                {phase.phase === "status" ? (
-                  <p>{phase.statusUpdated ? "项目现状已更新" : "项目现状无变化"}</p>
-                ) : !phase.changes.length ? (
-                  <p>没有新增或更新条目。</p>
-                ) : null}
+                {!phase.changes.length ? <p>没有新增或更新条目。</p> : null}
+                {phase.statusUpdated ? <p>项目现状已更新。</p> : null}
               </section>
             ))
           ) : (
@@ -864,20 +1366,21 @@ function ProjectRunDetail({
   );
 }
 
+type RunConversationWindow = {
+  windowId?: string | null;
+  threadTitle: string;
+  firstSequence: string | null;
+  lastSequence: string | null;
+  createdDiscussions: number;
+  updatedDiscussions: number;
+  statements: number;
+};
 function ConversationRunDetail({
   run,
   onClose,
 }: {
   run: LaowengRun & {
-    conversationRange?: { threadTitle: string; firstSequence: string; lastSequence: string } | null;
-    conversationItems?: {
-      id: string;
-      kind: string;
-      status: string;
-      title: string;
-      action: string;
-      error?: string | null;
-    }[];
+    conversationWindows?: RunConversationWindow[];
   };
   onClose: () => void;
 }) {
@@ -892,36 +1395,46 @@ function ConversationRunDetail({
       <DialogHeader
         title="运行详情"
         titleId="conversation-run-detail-title"
+        subtitle={`运行状态：${runStatusLabel(run.status)}${run.error ? ` · ${run.error}` : ""}`}
         onClose={() => animateDialogClose(dialog.current, onClose)}
         closeLabel="关闭运行详情"
       />
-      <div className="l1-history-content dialog-scroll-region">
-        <div className="dialog-plain-body memory-job-detail">
-          {run.conversationRange ? (
-            <p>
-              {run.conversationRange.threadTitle} · 消息 {run.conversationRange.firstSequence}–
-              {run.conversationRange.lastSequence}
-            </p>
-          ) : (
-            <p>没有关联的消息范围（可能是旧记录或本次未处理消息）。</p>
-          )}
-          {run.conversationItems?.map((item) => (
-            <p key={item.id}>
-              {item.kind === "observation"
-                ? "待观察问题"
-                : `${item.action === "update" ? "更新" : "新增"}${item.kind === "statement" ? "关键发言" : "议题"}`}
-              ：{item.title} ·{" "}
-              {item.status === "unknown"
-                ? "结果未记录"
-                : item.status === "pending"
-                  ? "未完成"
-                  : runStatusLabel(item.status)}
-              {item.error ? ` · ${item.error}` : ""}
-            </p>
-          ))}
-          {run.conversationRange && !run.conversationItems?.length ? (
-            <p>没有记录逐项结果。</p>
-          ) : null}
+      <div className="l1-history-content">
+        <div className="l1-history-body admin-table-wrap dialog-scroll-region">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>迭代</th>
+                <th>消息范围</th>
+                <th>更新议题数</th>
+                <th>新增议题数</th>
+                <th>关键发言数</th>
+              </tr>
+            </thead>
+            <tbody>
+              {run.conversationWindows?.length ? (
+                run.conversationWindows.map((window, index) => (
+                  <tr key={window.windowId || `extra-${index}`}>
+                    <td>{window.threadTitle}</td>
+                    <td>
+                      {window.firstSequence && window.lastSequence
+                        ? `消息 ${window.firstSequence}–${window.lastSequence}`
+                        : "—"}
+                    </td>
+                    <td>{window.updatedDiscussions}</td>
+                    <td>{window.createdDiscussions}</td>
+                    <td>{window.statements}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td className="monitor-empty" colSpan={5}>
+                    没有关联的消息范围（可能是旧记录或本次未处理消息）。
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </Dialog>
@@ -1027,8 +1540,8 @@ const SUBTYPE_KEYS: Record<string, string[]> = {
 };
 const SUBJECT_FILTER_ITEMS = [
   { value: "all", label: "全部" },
-  { value: "project", label: "里程碑" },
-  { value: "task", label: "重要任务" },
+  { value: "project", label: "项目进程" },
+  { value: "task", label: "主要任务" },
   { value: "discussion", label: "核心议题" },
   { value: "utterance", label: "关键发言" },
   { value: "document", label: "文件索引" },
@@ -1117,16 +1630,11 @@ export function ProjectMemory({
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  const [statusHistory, setStatusHistory] = useState<
-    { id: string; createdAt: string; body: string | null; sourceNeedsReview: boolean }[] | null
-  >(null);
-  const [statusHistoryLoading, setStatusHistoryLoading] = useState(false);
   const [jobs, setJobs] = useState<MemoryJob[]>([]);
   const displayJobs = useMemo(() => {
-    const discussion = jobs.find((job) => job.key === "discussion_memory");
-    const statement = jobs.find((job) => job.key === "member_memory");
     const project = jobs.find((job) => job.key === "project_memory");
     const task = jobs.find((job) => job.key === "task_memory");
+    if (!project || !task) return jobs;
     const merge = (first: MemoryJob, second: MemoryJob, label: string) => ({
       ...first,
       label,
@@ -1136,24 +1644,18 @@ export function ProjectMemory({
       failure: `${first.label}：${first.failure} ${second.label}：${second.failure}`,
       tools: [...new Set([...first.tools, ...second.tools])],
     });
+    // 核心议题与关键发言已在作业定义里合并，这里只合并同为记忆产物的项目进程与主要任务。
     return jobs
-      .filter(
-        (job) =>
-          !(discussion && statement && job.key === "member_memory") &&
-          !(project && task && job.key === "task_memory"),
-      )
+      .filter((job) => job.key !== "task_memory")
       .map((job) =>
-        job.key === "discussion_memory" && discussion && statement
-          ? merge(discussion, statement, "核心议题与关键发言")
-          : job.key === "project_memory" && project && task
-            ? merge(project, task, "里程碑与重要任务")
-            : job,
+        job.key === "project_memory" ? merge(project, task, "项目进程与主要任务") : job,
       );
   }, [jobs]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError] = useState("");
   const [repairGroups, setRepairGroups] = useState<MemoryEntry[] | null>(null);
-  const [repairGroupsLoading, setRepairGroupsLoading] = useState(false);
+  const [repairOpen, setRepairOpen] = useState(false);
+  const [repairLoading, setRepairLoading] = useState(false);
   const repairProjectRef = useRef(projectId);
   repairProjectRef.current = projectId;
   const [coverageOpen, setCoverageOpen] = useState(false);
@@ -1161,6 +1663,7 @@ export function ProjectMemory({
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [historyJob, setHistoryJob] = useState<MemoryJob | null>(null);
   const [sessionJob, setSessionJob] = useState<MemoryJob | null>(null);
+  const [progressOpen, setProgressOpen] = useState(false);
   const [runningJob, setRunningJob] = useState("");
   const [statusFilter, setStatusFilter] = useState<string[]>(DEFAULT_STATUS_FILTER);
   const [subjectFilter, setSubjectFilter] = useState("all");
@@ -1219,9 +1722,7 @@ export function ProjectMemory({
     setQuery("");
     setSelectedId("");
     setRepairGroups(null);
-    setRepairGroupsLoading(false);
-    setStatusHistory(null);
-    setStatusHistoryLoading(false);
+    setRepairOpen(false);
     setStatusFilter(DEFAULT_STATUS_FILTER);
     setSubjectFilter("all");
     setSubtypeFilter([]);
@@ -1306,9 +1807,6 @@ export function ProjectMemory({
     .join(" · ");
   const signals = [
     counts.disputes ? { key: "dispute", label: `独立反馈 ${counts.disputes}` } : null,
-    counts.updatedSinceEntry
-      ? { key: "updated", label: `进入后更新 ${counts.updatedSinceEntry}` }
-      : null,
   ].filter((item): item is { key: string; label: string } => Boolean(item));
 
   const refreshDialog = async () => {
@@ -1323,27 +1821,10 @@ export function ProjectMemory({
       setRefreshing(false);
     }
   };
-  const toggleStatusHistory = async () => {
-    if (statusHistory) {
-      setStatusHistory(null);
-      return;
-    }
-    setStatusHistoryLoading(true);
-    const requestedProject = projectId;
-    try {
-      const rows = await api(`/projects/${requestedProject}/memory/status/history`);
-      if (repairProjectRef.current === requestedProject) setStatusHistory(rows);
-    } catch (cause) {
-      showTip(cause instanceof Error ? cause.message : "历史读取失败", "error");
-    } finally {
-      if (repairProjectRef.current === requestedProject) setStatusHistoryLoading(false);
-    }
-  };
 
   const jobRunPath: Record<string, string> = useMemo(
     () => ({
       member_memory: "member-memory",
-      discussion_memory: "member-memory",
       document_memory: "document-memory",
       project_memory: "memory/refresh",
     }),
@@ -1365,52 +1846,6 @@ export function ProjectMemory({
   useEffect(() => {
     if (phase === "ready") void loadJobs();
   }, [phase, loadJobs]);
-
-  useEffect(() => {
-    if (phase !== "ready") return;
-    let active = true;
-    let controller: AbortController | null = null;
-    const refresh = async () => {
-      if (document.hidden || controller) return;
-      const current = new AbortController();
-      controller = current;
-      try {
-        const [memoryResult, jobsResult] = await Promise.allSettled([
-          api(`/projects/${projectId}/memory`, undefined, "GET", current.signal),
-          api(`/projects/${projectId}/memory/jobs`, undefined, "GET", current.signal),
-        ]);
-        if (!active || current.signal.aborted) return;
-        if (
-          memoryResult.status === "fulfilled" &&
-          memoryResult.value &&
-          typeof memoryResult.value === "object"
-        ) {
-          const next = memoryResult.value as MemoryData;
-          setData(next);
-          setServerCanWrite(typeof next.canWrite === "boolean" ? next.canWrite : null);
-          setFrozen(next.frozen === true);
-          publishCounts(normalizeCounts(next.counts) ?? ZERO_COUNTS);
-        }
-        if (jobsResult.status === "fulfilled") {
-          setJobs(jobsResult.value);
-          setRefreshVersion((value) => value + 1);
-        }
-      } finally {
-        if (controller === current) controller = null;
-      }
-    };
-    const timer = window.setInterval(() => void refresh(), 15000);
-    const onVisibility = () => {
-      if (!document.hidden) void refresh();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      active = false;
-      controller?.abort();
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [api, projectId, phase, publishCounts]);
 
   const retryJob = async (job: MemoryJob) => {
     if (runningJob) return;
@@ -1455,6 +1890,23 @@ export function ProjectMemory({
     }
   };
 
+  const openRepair = async () => {
+    if (repairLoading) return;
+    const requestedProject = projectId;
+    setRepairLoading(true);
+    try {
+      const result = await api(`/projects/${requestedProject}/memory/file-groups/needs-repair`);
+      if (repairProjectRef.current !== requestedProject) return;
+      setRepairGroups(Array.isArray(result?.entries) ? result.entries : []);
+      setRepairOpen(true);
+    } catch (cause) {
+      if (repairProjectRef.current === requestedProject)
+        showTip(cause instanceof Error ? cause.message : "无法读取待修复关联", "error");
+    } finally {
+      if (repairProjectRef.current === requestedProject) setRepairLoading(false);
+    }
+  };
+
   const saveFileGroup = async (
     groupId: string | undefined,
     input: {
@@ -1473,6 +1925,7 @@ export function ProjectMemory({
       setRepairGroups(
         (current) => current?.filter((entry) => entry.fileGroup?.id !== groupId) || null,
       );
+      setRefreshVersion((value) => value + 1);
       setSelectedId(result.pageId);
       showTip("关联文件索引已保存");
       return true;
@@ -1489,6 +1942,7 @@ export function ProjectMemory({
       setRepairGroups(
         (current) => current?.filter((entry) => entry.fileGroup?.id !== groupId) || null,
       );
+      setRefreshVersion((value) => value + 1);
       setSelectedId("");
       showTip("关联展示已移除，原记忆及历史仍保留");
     } catch (cause) {
@@ -1688,131 +2142,43 @@ export function ProjectMemory({
           ) : (
             <>
               <section className="project-memory-main" aria-labelledby="project-memory-guide">
-                <div className="project-memory-guide-head">
-                  <h3 className="project-memory-section-title" id="project-memory-guide">
-                    项目现状
-                  </h3>
-                  {signals.length ? (
-                    <p className="project-memory-signals">
-                      {signals.map((signal) => (
-                        <span
-                          key={signal.key}
-                          className="project-memory-signal"
-                          data-kind={signal.key}
-                        >
-                          {signal.label}
-                        </span>
-                      ))}
-                    </p>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="wiki-action"
-                    disabled={statusHistoryLoading}
-                    onClick={() => void toggleStatusHistory()}
-                  >
-                    {statusHistoryLoading ? "读取中…" : statusHistory ? "收起历史" : "查看现状历史"}
-                  </button>
+                <div className="project-memory-main-scroll">
+                  <div className="project-memory-guide-head">
+                    <h3 className="project-memory-section-title" id="project-memory-guide">
+                      项目现状
+                    </h3>
+                    {signals.length ? (
+                      <p className="project-memory-signals">
+                        {signals.map((signal) => (
+                          <span
+                            key={signal.key}
+                            className="project-memory-signal"
+                            data-kind={signal.key}
+                          >
+                            {signal.label}
+                          </span>
+                        ))}
+                      </p>
+                    ) : null}
+                    {guideMeta ? <p className="project-memory-guide-meta">{guideMeta}</p> : null}
+                  </div>
+                  {guideText ? (
+                    <div className="project-memory-guide">
+                      <MarkdownDocumentPreview
+                        mode="preview"
+                        text={guideText}
+                        selected={null}
+                        nativeSourceFrame={null}
+                      />
+                    </div>
+                  ) : (
+                    <p className="project-memory-state">暂无项目现状。</p>
+                  )}
                 </div>
-                {guideMeta ? <p className="project-memory-guide-meta">{guideMeta}</p> : null}
-                <ProjectFactsPanel projectId={projectId} />
-                {guideText ? (
-                  <div className="project-memory-guide">
-                    <MarkdownDocumentPreview
-                      mode="preview"
-                      text={guideText}
-                      selected={null}
-                      nativeSourceFrame={null}
-                    />
-                  </div>
-                ) : (
-                  <p className="project-memory-state">
-                    项目现状尚未核实。老翁会根据可追溯的项目变化进行整理。
-                  </p>
-                )}
-                <p className="project-memory-guide-hint">
-                  项目现状来自特殊里程碑节点；具体变化及其依据可在右侧记忆条目中查看。
-                </p>
-                {statusHistory ? (
-                  <div className="project-memory-guide">
-                    {statusHistory.length ? (
-                      statusHistory.map((item) => (
-                        <details key={item.id}>
-                          <summary>
-                            {item.createdAt}
-                            {item.sourceNeedsReview ? " · 出处后来变化" : ""}
-                          </summary>
-                          {item.body ? (
-                            <MarkdownDocumentPreview
-                              mode="preview"
-                              text={item.body}
-                              selected={null}
-                              nativeSourceFrame={null}
-                            />
-                          ) : (
-                            <p>原出处不可访问，历史正文暂不可查看。</p>
-                          )}
-                        </details>
-                      ))
-                    ) : (
-                      <p>暂无现状历史。</p>
-                    )}
-                  </div>
-                ) : null}
                 <div className="project-memory-jobs">
                   <div className="project-memory-guide-head">
                     <h3 className="project-memory-section-title">记忆作业</h3>
                   </div>
-                  {editable ? (
-                    <div>
-                      <button
-                        type="button"
-                        className="wiki-action"
-                        disabled={repairGroupsLoading}
-                        onClick={async () => {
-                          const requestedProject = projectId;
-                          setRepairGroupsLoading(true);
-                          try {
-                            const result = await api(
-                              `/projects/${projectId}/memory/file-groups/needs-repair`,
-                            );
-                            if (repairProjectRef.current === requestedProject)
-                              setRepairGroups(Array.isArray(result.entries) ? result.entries : []);
-                          } catch (cause) {
-                            if (repairProjectRef.current === requestedProject)
-                              showTip(
-                                cause instanceof Error ? cause.message : "无法读取待修复关联",
-                                "error",
-                              );
-                          } finally {
-                            if (repairProjectRef.current === requestedProject)
-                              setRepairGroupsLoading(false);
-                          }
-                        }}
-                      >
-                        {repairGroupsLoading ? "读取中…" : "查看待修复的文件关联"}
-                      </button>
-                      {repairGroups ? (
-                        repairGroups.length ? (
-                          <ul>
-                            {repairGroups.map((entry) => (
-                              <li key={entry.id}>
-                                <button
-                                  type="button"
-                                  className="wiki-action"
-                                  onClick={() => setSelectedId(entry.id)}
-                                >
-                                  {entry.title || "关联文件"}
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="project-memory-state">没有待修复的文件关联。</p>
-                        )
-                      ) : null}
-                    </div>
-                  ) : null}
                   {jobs.length ? (
                     <ul className="memory-job-list">
                       {displayJobs.map((job) => (
@@ -1821,9 +2187,8 @@ export function ProjectMemory({
                             <summary>
                               <strong>{job.label}</strong>
                               <small>
-                                {job.key === "discussion_memory" &&
-                                jobs.some((item) => item.key === "member_memory")
-                                  ? `待处理：议题 ${job.backlog ?? "—"} · 发言 ${jobs.find((item) => item.key === "member_memory")?.backlog ?? "—"}（包含共同队列）`
+                                {job.key === "member_memory" && job.backlogDetail
+                                  ? `待处理：议题 ${job.backlogDetail.discussions ?? "—"} · 发言 ${job.backlogDetail.statements ?? "—"}（共同队列 ${job.backlogDetail.queued ?? "—"}）`
                                   : job.backlog == null
                                     ? job.backlogNote
                                     : `积压 ${job.backlog}`}
@@ -1834,61 +2199,30 @@ export function ProjectMemory({
                                   : "从未运行"}
                               </span>
                             </summary>
-                            {job.fileCoverage ? (
-                              <div className="memory-job-detail">
-                                <p>
-                                  文件 {job.fileCoverage.total} · 已识别{" "}
-                                  {job.fileCoverage.recognized} · 部分识别{" "}
-                                  {job.fileCoverage.partial} · 未识别{" "}
-                                  {job.fileCoverage.unrecognized} · 失败 {job.fileCoverage.failed}
-                                </p>
-                                <p>待处理 {job.fileCoverage.pending}（与识别状态分别统计）</p>
-                                <button
-                                  type="button"
-                                  className="wiki-action"
-                                  onClick={() => setCoverageOpen(true)}
-                                >
-                                  查看全部文件与识别状态
-                                </button>
-                                <button
-                                  type="button"
-                                  className="wiki-action"
-                                  onClick={() => setDiscoveryHistoryOpen(true)}
-                                >
-                                  发现记录
-                                </button>
-                              </div>
-                            ) : null}
-                            {job.key === "document_memory" ? (
-                              <details className="memory-job-detail">
-                                <summary>作业说明</summary>
-                                <dl>
-                                  <dt>触发</dt>
-                                  <dd>{job.trigger}</dd>
-                                  <dt>完成标准</dt>
-                                  <dd>{job.completion}</dd>
-                                  <dt>失败补救</dt>
-                                  <dd>{job.failure}</dd>
-                                  <dt>可用工具</dt>
-                                  <dd>{job.tools.join("、")}</dd>
-                                  <dt>提示词</dt>
-                                  <dd>{job.prompt}</dd>
-                                </dl>
-                              </details>
-                            ) : (
-                              <dl className="memory-job-detail">
-                                <dt>触发</dt>
-                                <dd>{job.trigger}</dd>
-                                <dt>完成标准</dt>
-                                <dd>{job.completion}</dd>
-                                <dt>失败补救</dt>
-                                <dd>{job.failure}</dd>
-                                <dt>可用工具</dt>
-                                <dd>{job.tools.join("、")}</dd>
-                                <dt>提示词</dt>
-                                <dd>{job.prompt}</dd>
-                              </dl>
-                            )}
+                            <dl className="memory-job-detail">
+                              {job.fileCoverage ? (
+                                <>
+                                  <dt>识别结果</dt>
+                                  <dd>
+                                    文件 {job.fileCoverage.total} · 识别完整{" "}
+                                    {job.fileCoverage.recognized} · 识别部分{" "}
+                                    {job.fileCoverage.partial} · 暂不支持{" "}
+                                    {job.fileCoverage.unrecognized} · 等待识别{" "}
+                                    {job.fileCoverage.pending}
+                                  </dd>
+                                </>
+                              ) : null}
+                              <dt>触发</dt>
+                              <dd>{job.trigger}</dd>
+                              <dt>完成标准</dt>
+                              <dd>{job.completion}</dd>
+                              <dt>失败补救</dt>
+                              <dd>{job.failure}</dd>
+                              <dt>可用工具</dt>
+                              <dd>{job.tools.join("、")}</dd>
+                              <dt>提示词</dt>
+                              <dd>{job.prompt}</dd>
+                            </dl>
                             {job.observations?.length ? (
                               <div className="memory-job-detail">
                                 <strong>待观察问题</strong>
@@ -1904,7 +2238,7 @@ export function ProjectMemory({
                             ) : null}
                             {job.projectCandidates?.length ? (
                               <div className="memory-job-detail">
-                                <strong>待处理的里程碑信号</strong>
+                                <strong>待处理的项目进程信号</strong>
                                 {job.projectCandidates.map((item) => (
                                   <p key={item.id}>
                                     {item.hint || item.sourceKind} · 重试 {item.retryCount} 次
@@ -1924,14 +2258,13 @@ export function ProjectMemory({
                                 {jobRunPath[job.key]
                                   ? runningJob === job.key
                                     ? "提交中…"
-                                    : job.key === "discussion_memory"
+                                    : job.key === "member_memory"
                                       ? "立即扫描并运行"
                                       : "立即运行"
                                   : "随结算触发"}
                               </button>
                               {[
                                 "member_memory",
-                                "discussion_memory",
                                 "document_memory",
                                 "iteration_archive",
                                 "project_memory",
@@ -1951,6 +2284,15 @@ export function ProjectMemory({
                                   >
                                     会话
                                   </button>
+                                  {job.key === "member_memory" ? (
+                                    <button
+                                      type="button"
+                                      className="wiki-action"
+                                      onClick={() => setProgressOpen(true)}
+                                    >
+                                      消息进度
+                                    </button>
+                                  ) : null}
                                 </>
                               ) : null}
                               {job.lastRun?.status === "failed" ? (
@@ -1961,6 +2303,34 @@ export function ProjectMemory({
                                   onClick={() => void retryJob(job)}
                                 >
                                   重试失败运行
+                                </button>
+                              ) : null}
+                              {job.fileCoverage ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="wiki-action"
+                                    onClick={() => setCoverageOpen(true)}
+                                  >
+                                    已扫描文件
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="wiki-action"
+                                    onClick={() => setDiscoveryHistoryOpen(true)}
+                                  >
+                                    扫描记录
+                                  </button>
+                                </>
+                              ) : null}
+                              {job.key === "document_memory" ? (
+                                <button
+                                  type="button"
+                                  className="wiki-action"
+                                  disabled={repairLoading}
+                                  onClick={() => void openRepair()}
+                                >
+                                  {repairLoading ? "读取中…" : "待修复关联"}
                                 </button>
                               ) : null}
                             </div>
@@ -2147,6 +2517,17 @@ export function ProjectMemory({
           onClose={() => setCoverageOpen(false)}
         />
       ) : null}
+      {repairOpen && repairGroups ? (
+        <FileRepairDialog
+          entries={repairGroups}
+          editable={editable}
+          onOpen={(entry) => setSelectedId(entry.id)}
+          onDismiss={async (entry) => {
+            if (entry.fileGroup) await dismissFileGroup(entry.fileGroup.id);
+          }}
+          onClose={() => setRepairOpen(false)}
+        />
+      ) : null}
       {discoveryHistoryOpen ? (
         <FileDiscoveryHistory
           refreshVersion={refreshVersion}
@@ -2164,11 +2545,19 @@ export function ProjectMemory({
           onClose={() => setHistoryJob(null)}
         />
       ) : null}
+      {progressOpen ? (
+        <ConversationProgressDialog
+          refreshVersion={refreshVersion}
+          projectId={projectId}
+          api={api}
+          onClose={() => setProgressOpen(false)}
+        />
+      ) : null}
       {sessionJob ? (
         <MemoryJobSessionDialog
           title={sessionJob.label}
           projectId={projectId}
-          task={sessionJob.key === "discussion_memory" ? "member_memory" : sessionJob.key}
+          task={sessionJob.key}
           api={api}
           onClose={() => setSessionJob(null)}
         />

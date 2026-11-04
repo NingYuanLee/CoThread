@@ -178,7 +178,7 @@ test("记忆两态迁移保留旧内容和来源缺口，DDL回执丢失后可�
   }
 });
 
-test("里程碑迁移在 DDL 已执行但回执缺失时可安全重试", async () => {
+test("项目进程迁移在 DDL 已执行但回执缺失时可安全重试", async () => {
   const database = await testDatabase();
   const db = database.db;
   try {
@@ -190,12 +190,14 @@ test("里程碑迁移在 DDL 已执行但回执缺失时可安全重试", async 
     ]);
     const project = await new Service(db).createProject(user, { name: "迁移重试保留数据" });
     for (const name of [
+      "190_project_status_node.sql",
       "191_milestone_sources.sql",
       "192_project_status_checks.sql",
       "194_project_memory_settlements.sql",
       "195_project_settlement_errors.sql",
       "196_project_settlement_candidates.sql",
       "197_project_memory_retries.sql",
+      "198_project_status_source_snapshots.sql",
     ])
       await query(db, "DELETE FROM schema_migrations WHERE name=?", [name]);
     await migrate(db);

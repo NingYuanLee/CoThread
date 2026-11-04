@@ -84,7 +84,7 @@ export async function createVersion(
     [id, artifactId, threadId, version, filename, mime, content, sha256, byteSize, note, createdBy],
   );
   {
-    // 正式文件的根目录和子目录都可能产生里程碑候选。
+    // 正式文件的根目录和子目录都可能产生项目进程候选。
     const [signalArtifact] = await query(
       db,
       `SELECT a.project_id,a.folder_id,f.folder_kind FROM artifacts a
@@ -115,7 +115,7 @@ export async function createVersion(
           "document_version",
           id,
           String(note || filename || "").slice(0, 120),
-          { urgent: true },
+          { urgent: false },
         );
       }
     }

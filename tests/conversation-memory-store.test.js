@@ -343,7 +343,11 @@ test("真实发消息后由成员作业调度联合窗口", async () => {
       "SELECT source_id sourceId FROM agent_project_memory_queue WHERE project_id=? AND source_kind='memory_page' AND source_id=?",
       [project.id, page.id],
     );
-    assert.equal(signal?.sourceId, page.id, "核心议题更新应触发里程碑判断");
+    assert.equal(
+      signal,
+      undefined,
+      "核心议题页由联合分析处理，不再入项目进程队列（见 13-laoweng-workloads 5.1）",
+    );
     const [run] = await query(
       db,
       "SELECT status,had_updates FROM agent_laoweng_runs WHERE project_id=? AND task='member_memory' ORDER BY created_at DESC LIMIT 1",

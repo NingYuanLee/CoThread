@@ -149,7 +149,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
   );
   register(
     "search_memory",
-    "按一级类型、成员或关键词检索现行项目记忆。一级类型：关键发言 utterance、文件索引 document、重要任务 task、核心议题 discussion、里程碑 project。返回标题、摘要、出处和直接关系；根文件夹索引另返回动态导航。问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文件」先用它。",
+    "按一级类型、成员或关键词检索现行项目记忆。一级类型：关键发言 utterance、文件索引 document、主要任务 task、核心议题 discussion、项目进程 project。返回标题、摘要、出处和直接关系；根文件夹索引另返回动态导航。问「以前说过什么、做过什么决策、承诺过什么、有哪些主要任务或文件」先用它。",
     {
       projectId: z.string().uuid(),
       query: z.string().max(200).optional(),
@@ -171,7 +171,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
   );
   register(
     "read_memory_source",
-    "读取里程碑出处：项目变更 milestone、迭代目标背景变更 iteration_context、归档 archive、关联记忆 memory_page；按项目权限校验。",
+    "读取项目进程出处：项目变更 milestone、迭代目标背景变更 iteration_context、归档 archive、关联记忆 memory_page；按项目权限校验。",
     {
       projectId: z.string().uuid(),
       kind: z.enum(["milestone", "iteration_context", "archive", "memory_page"]),
@@ -229,15 +229,6 @@ export function mcpToolDefinitions(service, user, afterMessage) {
         rows = await hydrateFileIndexGroups(service.db, projectId, rows);
       }
       return { kind, ...rows[0] };
-    },
-  );
-  register(
-    "list_project_status_history",
-    "查看项目现状历史修订及出处；自然状态变化不会抹掉历史，访问权限仍按原出处校验。",
-    { projectId: z.string().uuid(), limit: z.number().int().min(1).max(50).optional() },
-    async ({ projectId, limit }) => {
-      const { listProjectStatusHistory } = await import("./project-status-node.js");
-      return { revisions: await listProjectStatusHistory(service, user, projectId, limit) };
     },
   );
   register(

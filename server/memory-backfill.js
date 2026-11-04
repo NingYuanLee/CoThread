@@ -1,5 +1,4 @@
 import { query } from "./db.js";
-import { ensureProjectMemoryPage } from "./memory-pages.js";
 import { upsertUtteranceMemory } from "./utterance-memory.js";
 import { syncTaskMemory } from "./task-memory.js";
 import { syncDocumentMemory } from "./document-memory.js";
@@ -45,7 +44,6 @@ export async function backfillProjectMemory(db, { projectId, createdBy = null } 
   if (!projectId) return null;
   const result = {
     inferredSubjects: 0,
-    projectPage: null,
     utterancePages: 0,
     documentPages: 0,
     taskPages: 0,
@@ -54,7 +52,6 @@ export async function backfillProjectMemory(db, { projectId, createdBy = null } 
     notes: [],
   };
   result.inferredSubjects = await inferSubjects(db, projectId);
-  result.projectPage = await ensureProjectMemoryPage(db, { projectId, createdBy });
   await ensureFileIndexRoots(db, projectId, createdBy);
 
   const memberRows = await query(

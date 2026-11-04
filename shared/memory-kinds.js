@@ -13,9 +13,9 @@ export const MEMORY_SUBJECTS = Object.freeze([
 export const MEMORY_SUBJECT_LABELS = Object.freeze({
   utterance: "关键发言",
   document: "文件索引",
-  task: "重要任务",
+  task: "主要任务",
   discussion: "核心议题",
-  project: "里程碑",
+  project: "项目进程",
 });
 
 /**
@@ -54,7 +54,7 @@ export const MEMORY_SKELETONS = Object.freeze({
     "仍在争",
     "下一步与负责人",
   ],
-  project: ["里程碑", "发生时间", "背景与影响", "相关成员与迭代", "依据与来源"],
+  project: ["项目进程", "发生时间", "背景与影响", "相关成员与迭代", "依据与来源"],
 });
 
 export function isMemorySubject(value) {

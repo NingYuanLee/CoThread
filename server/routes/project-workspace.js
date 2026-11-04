@@ -1,4 +1,9 @@
-import { listFileIndexDiscoveryHistory, listFileIndexIssues } from "../file-index-jobs.js";
+import {
+  listFileIndexDiscoveryHistory,
+  listFileIndexIssues,
+  listFileIndexScanBatches,
+  requestFileIndexScan,
+} from "../file-index-jobs.js";
 import { queueLaowengContextCompression, readLaowengTaskSession } from "../laoweng-context.js";
 import { registerCloudbaseRoutes } from "./cloudbase-routes.js";
 import { registerMiniprogramRoutes } from "./miniprogram.js";
@@ -12,6 +17,7 @@ import {
   readProjectMemoryCounts,
 } from "../memory-timeline.js";
 import {
+  listConversationProgress,
   listMemoryJobHistory,
   listMemoryJobs,
   resetMemoryJobSettings,
@@ -328,18 +334,25 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   app.get("/api/projects/:id/memory/counts", async (req, res) =>
     res.json(await readProjectMemoryCounts(service, req.user, req.params.id)),
   );
-  app.get("/api/projects/:id/memory/status/history", async (req, res) => {
-    const { listProjectStatusHistory } = await import("../project-status-node.js");
-    res.json(await listProjectStatusHistory(service, req.user, req.params.id, req.query.limit));
-  });
   app.get("/api/projects/:id/memory/jobs", async (req, res) => {
     await service.member(req.user, req.params.id);
     res.json(await listMemoryJobs(db, req.params.id));
+  });
+  app.get("/api/projects/:id/memory/conversation-progress", async (req, res) => {
+    await service.member(req.user, req.params.id);
+    res.json(await listConversationProgress(db, req.params.id, req.query));
   });
   app.get("/api/projects/:id/memory/file-index/discoveries", async (req, res) => {
     await service.member(req.user, req.params.id);
     res.json(await listFileIndexDiscoveryHistory(db, req.params.id, req.query));
   });
+  app.get("/api/projects/:id/memory/file-index/scan-batches", async (req, res) => {
+    await service.member(req.user, req.params.id);
+    res.json(await listFileIndexScanBatches(db, req.params.id, req.query));
+  });
+  app.post("/api/projects/:id/memory/file-index/scan", async (req, res) =>
+    res.status(202).json(await requestFileIndexScan(service, req.user, req.params.id)),
+  );
   app.get("/api/projects/:id/memory/file-index/issues", async (req, res) => {
     await service.member(req.user, req.params.id);
     res.json(await listFileIndexIssues(db, req.params.id, req.query));

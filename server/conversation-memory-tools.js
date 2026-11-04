@@ -2,22 +2,96 @@ import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { query } from "./db.js";
 import { searchProjectMemory } from "./memory-search.js";
-import { intactConversationMemorySql } from "./conversation-memory-integrity.js";
+import { isMemorySubject } from "../shared/memory-kinds.js";
+import {
+  intactConversationMemorySql,
+  readableConversationMemorySql,
+} from "./conversation-memory-integrity.js";
 import { visibleFileIndexSql, visibleFileSourceSql } from "./file-index-visibility.js";
 import { hydrateFileIndexRoots } from "./file-index-roots.js";
 import { hydrateFileIndexGroups } from "./file-index-groups.js";
-import { hydrateFileIndexPaths } from "./file-index-path.js";
+import { fileIndexFolderPath, hydrateFileIndexPaths } from "./file-index-path.js";
 
 const specs = [
   {
     name: "search_memory",
-    description: "搜索当前项目的现行记忆。需要更新搜索结果时先用 read_memory 读详情。",
-    parameters: { query: { type: "string", required: true } },
+    description:
+      "搜索当前项目的现行记忆；可按 query 检索，也可用 subjects（utterance、discussion、project、task、document）限定类型（如项目进程 project、主要任务 task）。depth=1 可沿关联关系再展开一层（最多 2）。需要更新搜索结果时先用 read_memory 读详情。",
+    parameters: {
+      query: { type: "string" },
+      subjects: { type: "array", items: { type: "string" } },
+      depth: { type: "number" },
+    },
   },
   {
     name: "read_memory",
     description: "分段读取当前项目的一条现行记忆及出处；有 nextOffset 时继续读取。",
     parameters: { pageId: { type: "string", required: true }, offset: { type: "number" } },
+  },
+  {
+    name: "search_discussion_memory",
+    description:
+      "查当前项目的核心议题记忆，可跨迭代；不传关键词返回最近更新的议题。提炼出议题时先查，相关就更新原议题而不是新增；更新前先用 read_memory 读取目标（登记核对快照）。",
+    parameters: { query: { type: "string" }, limit: { type: "number" } },
+  },
+  {
+    name: "search_statement_memory",
+    description:
+      "查当前项目的关键发言记忆，可按成员和迭代过滤（默认本次迭代）。用于同一成员同迭代的前后对照：矛盾、改口、继承或关联；发言是追加事件，改口用 correctsPageId 关联原话。",
+    parameters: {
+      memberId: { type: "string" },
+      threadId: { type: "string" },
+      query: { type: "string" },
+      limit: { type: "number" },
+    },
+  },
+  {
+    name: "search_messages",
+    description:
+      "查当前项目的消息：默认当前迭代且只取本次窗口之前的消息（可用 beforeSequence 指定更晚的截止），也可按内容/作者关键词搜索。用于补充前文、核对原话。",
+    parameters: {
+      threadId: { type: "string" },
+      beforeSequence: { type: "number" },
+      query: { type: "string" },
+      limit: { type: "number" },
+    },
+  },
+  {
+    name: "search_files",
+    description:
+      "搜当前项目的文件记忆：按文件名/标题/识别说明/主题/提取文字关键词，可按识别结果过滤；不传关键词返回最近更新的文件。用于确认某个文件是否存在、内容识别到哪一步。",
+    parameters: {
+      query: { type: "string" },
+      recognitionStatus: { type: "string" },
+      limit: { type: "number" },
+    },
+  },
+  {
+    name: "read_file_memory",
+    description:
+      "读取当前项目某个文件的索引记忆：页面正文（用途、内容描述、识别状态）、版本、路径和识别文字摘录；可按 pageId 或 artifactId，正文支持 offset 分段。需要原文时用 read_document(versionId)。",
+    parameters: {
+      pageId: { type: "string" },
+      artifactId: { type: "string" },
+      offset: { type: "number" },
+    },
+  },
+  {
+    name: "get_project",
+    description:
+      "读取当前项目信息：名称、描述和项目现状摘录（状态页需全文时用 read_memory(pageId)）。",
+    parameters: {},
+  },
+  {
+    name: "get_iteration",
+    description:
+      "读取迭代目标与背景：默认本次迭代，可传 threadId；背景或目标过长会截断并标注 totalChars。",
+    parameters: { threadId: { type: "string" } },
+  },
+  {
+    name: "list_iterations",
+    description: "列出当前项目的迭代（标题、状态、创建/归档时间和目标/背景摘录），用于跨迭代追溯。",
+    parameters: { limit: { type: "number" } },
   },
   {
     name: "read_message",
@@ -64,8 +138,20 @@ export async function startConversationToolBridge(db, context) {
       const text = String(args.query || "")
         .trim()
         .slice(0, 200);
-      if (!text) throw new Error("请输入检索词");
-      return searchProjectMemory(db, projectId, { query: text, limit: 10, depth: 0 });
+      const rawSubjects = Array.isArray(args.subjects)
+        ? args.subjects
+        : String(args.subjects || "").split(",");
+      const subjects = [...new Set(rawSubjects.map((item) => String(item).trim()))].filter(
+        (item) => item && isMemorySubject(item),
+      );
+      if (!text && !subjects.length) throw new Error("请输入检索词或指定 subjects");
+      const depth = Math.min(Math.max(Number(args.depth) || 0, 0), 2);
+      return searchProjectMemory(db, projectId, {
+        query: text,
+        subjects,
+        limit: 10,
+        depth,
+      });
     }
     if (name === "read_memory") {
       const [page] = await query(
@@ -107,6 +193,278 @@ export async function startConversationToolBridge(db, context) {
       if (!message) throw new Error("消息不存在或不在当前项目");
       const { body, ...meta } = message;
       return { ...meta, ...sliceText(body, args.offset) };
+    }
+    if (name === "search_discussion_memory") {
+      const text = String(args.query || "")
+        .trim()
+        .slice(0, 200);
+      const limit = Math.min(Math.max(Number(args.limit) || 10, 1), 20);
+      const result = await searchProjectMemory(db, projectId, {
+        query: text,
+        subjects: ["discussion"],
+        limit,
+        depth: 0,
+      });
+      return { scope: "discussion", ...result };
+    }
+    if (name === "search_statement_memory") {
+      const memberId =
+        String(args.memberId || "")
+          .trim()
+          .slice(0, 36) || null;
+      const threadId =
+        String(args.threadId || "")
+          .trim()
+          .slice(0, 36) ||
+        context.window.threadId ||
+        null;
+      const text = String(args.query || "")
+        .trim()
+        .slice(0, 200);
+      const limit = Math.min(Math.max(Number(args.limit) || 10, 1), 20);
+      const where = [
+        "p.project_id=?",
+        "p.status='current'",
+        readableConversationMemorySql("p"),
+        "p.subject_type='utterance'",
+      ];
+      const params = [projectId];
+      if (memberId) {
+        where.push("p.about_user_id=?");
+        params.push(memberId);
+      }
+      if (threadId) {
+        where.push(`EXISTS (SELECT 1 FROM wiki_page_sources s JOIN messages m ON m.id=s.source_id
+          WHERE s.page_id=p.id AND s.source_kind='message' AND m.thread_id=?)`);
+        params.push(threadId);
+      }
+      if (text) {
+        where.push("(p.title LIKE ? OR p.body LIKE ?)");
+        params.push(`%${text}%`, `%${text}%`);
+      }
+      const rows = await query(
+        db,
+        `SELECT p.id,p.title,LEFT(p.body,300) excerpt,p.about_user_id memberId,
+        p.memory_subtype subtype,p.updated_at updatedAt,
+        (SELECT GROUP_CONCAT(DISTINCT t.title SEPARATOR '、') FROM wiki_page_sources s
+          JOIN messages m ON m.id=s.source_id AND s.source_kind='message'
+          JOIN threads t ON t.id=m.thread_id WHERE s.page_id=p.id) threads
+        FROM wiki_pages p WHERE ${where.join(" AND ")}
+        ORDER BY p.updated_at DESC LIMIT ?`,
+        [...params, limit],
+      );
+      return { scope: "statement", threadId, memberId, count: rows.length, rows };
+    }
+    if (name === "search_messages") {
+      const threadId =
+        String(args.threadId || "")
+          .trim()
+          .slice(0, 36) || context.window.threadId;
+      const requestedBefore = Number(args.beforeSequence);
+      // 默认只取本次窗口之前的消息，避免把窗口之后的内容当成前文。
+      const beforeSequence =
+        Number.isFinite(requestedBefore) && requestedBefore > 0
+          ? Math.trunc(requestedBefore)
+          : Number(context.window.firstSequence) || null;
+      const text = String(args.query || "")
+        .trim()
+        .slice(0, 200);
+      const limit = Math.min(Math.max(Number(args.limit) || 10, 1), 20);
+      const where = ["t.project_id=?", "m.source<>'system'", "m.body<>''"];
+      const params = [projectId];
+      if (threadId) {
+        where.push("m.thread_id=?");
+        params.push(threadId);
+      }
+      if (Number.isFinite(beforeSequence) && beforeSequence > 0) {
+        where.push("m.sequence<?");
+        params.push(Math.trunc(beforeSequence));
+      }
+      if (text) {
+        where.push("(m.body LIKE ? OR u.name LIKE ?)");
+        params.push(`%${text}%`, `%${text}%`);
+      }
+      const rows = await query(
+        db,
+        `SELECT m.id,m.author_id authorId,u.name author,m.thread_id threadId,
+        t.title threadTitle,m.sequence,LEFT(m.body,800) excerpt,m.created_at createdAt
+        FROM messages m JOIN threads t ON t.id=m.thread_id JOIN users u ON u.id=m.author_id
+        WHERE ${where.join(" AND ")} ORDER BY m.sequence DESC LIMIT ?`,
+        [...params, limit],
+      );
+      rows.reverse();
+      return {
+        threadId,
+        count: rows.length,
+        // 继续往更早翻页时，把当前最早一条的 sequence 作为下一次 beforeSequence。
+        nextBeforeSequence: rows[0]?.sequence ?? null,
+        rows,
+      };
+    }
+    if (name === "search_files") {
+      const text = String(args.query || "")
+        .trim()
+        .slice(0, 200);
+      const status = String(args.recognitionStatus || "").trim();
+      const limit = Math.min(Math.max(Number(args.limit) || 10, 1), 20);
+      const where = [
+        "p.project_id=?",
+        "p.status='current'",
+        "p.subject_type='document'",
+        visibleFileIndexSql("p"),
+      ];
+      const params = [projectId];
+      if (["recognized", "partial", "unrecognized", "failed"].includes(status)) {
+        where.push("fi.recognition_status=?");
+        params.push(status);
+      }
+      if (text) {
+        where.push(`(a.title LIKE ? OR v.filename LIKE ? OR fi.recognition_note LIKE ?
+          OR CAST(fi.topics AS CHAR) LIKE ? OR fi.extracted_text LIKE ?)`);
+        params.push(`%${text}%`, `%${text}%`, `%${text}%`, `%${text}%`, `%${text}%`);
+      }
+      const rows = await query(
+        db,
+        `SELECT p.id pageId,p.title title,a.id artifactId,a.folder_id folderId,
+        v.id versionId,v.filename filename,v.version version,v.mime mime,
+        fi.recognition_status recognitionStatus,fi.recognition_note recognitionNote,
+        fi.topics topics,LEFT(COALESCE(fi.extracted_text,''),400) extractedExcerpt,
+        p.updated_at updatedAt
+        FROM wiki_pages p
+        JOIN file_index_entries fi ON fi.page_id=p.id AND fi.project_id=p.project_id
+        JOIN artifacts a ON a.id=fi.artifact_id AND a.project_id=fi.project_id
+        LEFT JOIN versions v ON v.id=fi.indexed_version_id
+        WHERE ${where.join(" AND ")}
+        ORDER BY p.updated_at DESC LIMIT ?`,
+        [...params, limit],
+      );
+      for (const row of rows) {
+        row.path = await fileIndexFolderPath(db, projectId, row.folderId);
+        delete row.folderId;
+      }
+      return { count: rows.length, rows };
+    }
+    if (name === "read_file_memory") {
+      const pageId = String(args.pageId || "")
+        .trim()
+        .slice(0, 36);
+      const artifactId = String(args.artifactId || "")
+        .trim()
+        .slice(0, 36);
+      if (!pageId && !artifactId) throw new Error("需要 pageId 或 artifactId");
+      const [row] = await query(
+        db,
+        `SELECT p.id pageId,p.title title,p.body body,a.id artifactId,a.folder_id folderId,
+        v.id versionId,v.filename filename,v.version version,v.mime mime,
+        fi.recognition_status recognitionStatus,fi.recognition_note recognitionNote,
+        fi.topics topics,LEFT(COALESCE(fi.extracted_text,''),1500) extractedExcerpt
+        FROM wiki_pages p
+        JOIN file_index_entries fi ON fi.page_id=p.id AND fi.project_id=p.project_id
+        JOIN artifacts a ON a.id=fi.artifact_id AND a.project_id=fi.project_id
+        LEFT JOIN versions v ON v.id=fi.indexed_version_id
+        WHERE p.project_id=? AND p.status='current' AND p.subject_type='document'
+          AND ${visibleFileIndexSql("p")}
+          AND ${pageId ? "p.id=?" : "a.id=?"}
+        LIMIT 1`,
+        pageId ? [projectId, pageId] : [projectId, artifactId],
+      );
+      if (!row) throw new Error("文件记忆不存在或不可访问");
+      const [hydrated] = await hydrateFileIndexPaths(db, projectId, [{ ...row, id: row.pageId }]);
+      const { body, folderId, ...meta } = hydrated;
+      return { ...meta, ...sliceText(body, args.offset) };
+    }
+    if (name === "get_project") {
+      const [project] = await query(
+        db,
+        "SELECT id,name,description,created_at createdAt,archived_at archivedAt FROM projects WHERE id=?",
+        [projectId],
+      );
+      if (!project) throw new Error("项目不存在");
+      const { readProjectStatus } = await import("./project-status.js");
+      const projectStatus = await readProjectStatus(db, projectId).catch(() => null);
+      const related = await query(
+        db,
+        `SELECT p.id pageId,p.title,p.subject_type subjectType,LEFT(p.body,200) excerpt,
+        p.updated_at updatedAt FROM wiki_pages p
+        WHERE p.project_id=? AND p.status='current' AND ${readableConversationMemorySql("p")}
+        AND p.subject_type IN ('project','task')
+        ORDER BY p.updated_at DESC LIMIT 10`,
+        [projectId],
+      );
+      return {
+        id: project.id,
+        name: project.name,
+        description: String(project.description || "").slice(0, 4000),
+        createdAt: project.createdAt,
+        archivedAt: project.archivedAt,
+        status: projectStatus
+          ? {
+              title: "项目现状",
+              excerpt: String(projectStatus.body || "").slice(0, 1200),
+              updatedAt: projectStatus.updatedAt,
+            }
+          : null,
+        milestones: related.filter((row) => row.subjectType === "project"),
+        importantTasks: related.filter((row) => row.subjectType === "task"),
+      };
+    }
+    if (name === "get_iteration") {
+      const threadId =
+        String(args.threadId || "")
+          .trim()
+          .slice(0, 36) || context.window.threadId;
+      const [thread] = await query(
+        db,
+        `SELECT id,title,background,goal,status,created_at createdAt,archived_at archivedAt
+        FROM threads WHERE id=? AND project_id=?`,
+        [threadId, projectId],
+      );
+      if (!thread) throw new Error("迭代不存在或不在当前项目");
+      const clip = (value, size = 6000) => {
+        const text = String(value || "");
+        return text.length > size
+          ? { value: text.slice(0, size), truncated: true, totalChars: text.length }
+          : { value: text, truncated: false };
+      };
+      const background = clip(thread.background);
+      const goal = clip(thread.goal);
+      const memories = await query(
+        db,
+        `SELECT DISTINCT p.id pageId,p.title,p.subject_type subjectType,LEFT(p.body,200) excerpt,
+        p.updated_at updatedAt FROM wiki_pages p
+        JOIN wiki_page_sources s ON s.page_id=p.id
+        LEFT JOIN agent_tasks t ON s.source_kind='task' AND t.id=s.source_id
+        WHERE p.project_id=? AND p.status='current' AND ${readableConversationMemorySql("p")}
+        AND ((s.source_kind='thread' AND s.source_id=?)
+          OR (s.source_kind='task' AND t.thread_id=? AND t.project_id=?))
+        ORDER BY p.updated_at DESC LIMIT 10`,
+        [projectId, threadId, threadId, projectId],
+      );
+      return {
+        id: thread.id,
+        title: thread.title,
+        status: thread.status,
+        createdAt: thread.createdAt,
+        archivedAt: thread.archivedAt,
+        background: background.value,
+        backgroundTruncated: background.truncated,
+        backgroundTotalChars: background.totalChars ?? undefined,
+        goal: goal.value,
+        goalTruncated: goal.truncated,
+        goalTotalChars: goal.totalChars ?? undefined,
+        memories,
+      };
+    }
+    if (name === "list_iterations") {
+      const limit = Math.min(Math.max(Number(args.limit) || 10, 1), 20);
+      const rows = await query(
+        db,
+        `SELECT id,title,status,created_at createdAt,archived_at archivedAt,
+        LEFT(COALESCE(goal,''),200) goalExcerpt,LEFT(COALESCE(background,''),200) backgroundExcerpt
+        FROM threads WHERE project_id=? ORDER BY created_at DESC LIMIT ?`,
+        [projectId, limit],
+      );
+      return { count: rows.length, rows };
     }
     if (name === "read_document" || name === "get_task") {
       const id = String(name === "get_task" ? args.taskId || "" : args.versionId || "");

@@ -205,8 +205,6 @@ export async function searchProjectMemory(
     : [];
   const rootIds = new Set(roots.map((row) => row.pageId));
   const sourceMap = await sourcesOf(db, ids);
-  const { readProjectStatusNode } = await import("./project-status-node.js");
-  const projectStatus = await readProjectStatusNode(db, projectId);
   const { captureMemoryRevision } = await import("./memory-history.js");
   for (const row of rows) row.memoryRevisionId = await captureMemoryRevision(db, row);
   const entries = rows.map((row) => ({
@@ -220,13 +218,7 @@ export async function searchProjectMemory(
     subtype: row.subtype || null,
     subtypeLabel: MEMORY_SUBTYPE_LABELS[row.subtype] || "",
     title: row.title,
-    excerpt:
-      (projectStatus?.id === row.id && Number(projectStatus.sourceNeedsReview)
-        ? "【现状待核实】"
-        : "") + excerptOf(row.body),
-    ...(projectStatus?.id === row.id
-      ? { sourceNeedsReview: Boolean(Number(projectStatus.sourceNeedsReview)) }
-      : {}),
+    excerpt: excerptOf(row.body),
     ...(rootIds.has(row.id)
       ? {
           navigation:

@@ -1326,7 +1326,7 @@ test("project memory job routes: settings, retry, discussion and permissions", a
 
   const list = await request(`/projects/${projectId}/memory/jobs`, undefined, owner);
   assert.equal(list.status, 200);
-  assert.equal(list.body.length, 5);
+  assert.equal(list.body.length, 4, "四类记忆作业：核心议题与关键发言已合并");
   const jobsForOutsider = await request(`/projects/${projectId}/memory/jobs`, undefined, outsider);
   assert.equal(jobsForOutsider.status, 403);
 
@@ -1341,7 +1341,7 @@ test("project memory job routes: settings, retry, discussion and permissions", a
   const projectJob = afterPatch.body.find((job) => job.key === "project_memory");
   assert.notEqual(projectJob.enabled, false);
   assert.ok(!projectJob.promptOverridden);
-  assert.match(projectJob.prompt, /里程碑/);
+  assert.match(projectJob.prompt, /项目进程/);
 
   const reset = await request(
     `/projects/${projectId}/memory/jobs/project_memory`,
@@ -1358,13 +1358,14 @@ test("project memory job routes: settings, retry, discussion and permissions", a
   );
   assert.equal(taskRetry.status, 202);
   assert.ok(taskRetry.body.distributionId);
-  const discussionRetry = await request(
+  // 核心议题与关键发言已合并；旧键名继续映射到同一联合维护任务。
+  const legacyDiscussionRetry = await request(
     `/projects/${projectId}/memory/jobs/discussion_memory/retry`,
     {},
     owner,
   );
-  assert.equal(discussionRetry.status, 202, "议题与发言共享联合处理，即使没有归档迭代也可运行");
-  assert.equal(discussionRetry.body.task, "member_memory");
+  assert.equal(legacyDiscussionRetry.status, 202, "旧键名仍应映射到联合处理任务");
+  assert.equal(legacyDiscussionRetry.body.task, "member_memory");
   const retry = await request(`/projects/${projectId}/memory/jobs/member_memory/retry`, {}, owner);
   assert.equal(retry.status, 202);
   assert.equal(retry.body.task, "member_memory");
@@ -1397,8 +1398,13 @@ test("project memory job routes: settings, retry, discussion and permissions", a
     }),
     verifySupport: async () => true,
   });
-  const { ensureProjectStatusNode } = await import("../server/project-status-node.js");
-  await ensureProjectStatusNode(db, projectId, owner.id);
+  const { upsertMemoryPage } = await import("../server/memory-pages.js");
+  await upsertMemoryPage(db, projectId, {
+    subject: "project",
+    title: "项目进程入口",
+    body: "## 项目进程\n\n- 集成测试入口",
+    createdBy: owner.id,
+  });
 
   const memory = await request(`/projects/${projectId}/memory`, undefined, owner);
   const discussionEntry = memory.body.entries.find((entry) => entry.subject === "discussion");

@@ -15,6 +15,8 @@ export type LaowengRun = {
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  /** 搜索命中详情字段时的说明（迭代/候选/文件），由服务端返回。 */
+  matchHint?: string | null;
 };
 export type LaowengSession = {
   id: string;

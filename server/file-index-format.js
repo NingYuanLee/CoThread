@@ -11,10 +11,11 @@ export function renderFileIndex({
   reason,
 } = {}) {
   const labels = {
-    recognized: "已识别",
-    partial: "部分识别",
-    unrecognized: "未识别",
-    failed: "处理失败",
+    recognized: "识别完整",
+    partial: "识别部分",
+    unrecognized: "暂不支持",
+    pending: "等待识别",
+    failed: "等待识别",
   };
   if (!Object.hasOwn(labels, status)) throw new Error("无效的文件识别状态");
   const clean = (value) => String(value || "").trim();
@@ -29,7 +30,7 @@ export function renderFileIndex({
     clean(summary) || "- 暂无内容说明",
   ];
   if (clean(extractedText)) lines.push("", "## 识别文字（需核对原文件）", clean(extractedText));
-  lines.push("", "## 识别状态", `- ${labels[status]}`);
+  lines.push("", "## 识别结果", `- ${labels[status]}`);
   if (clean(reason)) lines.push(`- 说明：${clean(reason)}`);
   return lines.join("\n");
 }

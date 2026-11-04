@@ -36,15 +36,15 @@ export const MCP_CAPABILITIES = Object.freeze([
     group: "项目记忆",
     title: "检索项目记忆",
     description:
-      "按一级类型、成员或关键词检索现行项目记忆。一级类型：关键发言 utterance、主要文档 document、重要任务 task、核心议题 discussion、里程碑 project。返回标题、摘要、出处和直接关系，不返回长正文。问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文档」先用它。",
+      "按一级类型、成员或关键词检索现行项目记忆。一级类型：关键发言 utterance、主要文档 document、主要任务 task、核心议题 discussion、项目进程 project。返回标题、摘要、出处和直接关系，不返回长正文。问「以前说过什么、做过什么决策、承诺过什么、有哪些主要任务或文档」先用它。",
     access: "read",
     icon: "book",
   },
   {
     name: "read_memory_source",
     group: "项目记忆",
-    title: "读取里程碑出处",
-    description: "读取项目内里程碑引用的项目变更、迭代目标背景变更或归档记录。",
+    title: "读取项目进程出处",
+    description: "读取项目内项目进程引用的项目变更、迭代目标背景变更或归档记录。",
     access: "read",
     icon: "detail",
   },
@@ -71,14 +71,6 @@ export const MCP_CAPABILITIES = Object.freeze([
     description: "从业务数据读取项目创建、迭代、任务、执行的全量统计与分页历史。",
     access: "read",
     icon: "detail",
-  },
-  {
-    name: "list_project_status_history",
-    group: "项目记忆",
-    title: "项目现状历史",
-    description: "查看项目现状以前的修订；自然状态变化保留历史，访问受限的出处不暴露正文。",
-    access: "read",
-    icon: "book",
   },
   {
     name: "list_documents",

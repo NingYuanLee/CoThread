@@ -59,12 +59,6 @@ export async function listWikiPages(service, user, projectId, q = "") {
         [projectId],
       );
   const rootPages = await hydrateFileIndexRoots(service.db, projectId, rows);
-  const { readProjectStatusNode } = await import("./project-status-node.js");
-  const status = await readProjectStatusNode(service.db, projectId);
-  if (status && Number(status.sourceNeedsReview)) {
-    const page = rootPages.find((item) => item.id === status.id);
-    if (page) page.sourceNeedsReview = true;
-  }
   const groupPages = await hydrateFileIndexGroups(service.db, projectId, rootPages);
   return {
     pages: (await hydrateFileIndexPaths(service.db, projectId, groupPages)).map(mapPage),
@@ -85,9 +79,6 @@ export async function getWikiPage(service, user, projectId, id) {
     [id, projectId],
   );
   if (!row) throw new HttpError(404, "记忆条目不存在");
-  const { readProjectStatusNode } = await import("./project-status-node.js");
-  const status = await readProjectStatusNode(service.db, projectId);
-  if (status?.id === row.id && Number(status.sourceNeedsReview)) row.sourceNeedsReview = true;
   const sources = await query(
     service.db,
     `SELECT s.id,s.source_kind sourceKind,s.source_id sourceId,s.label FROM wiki_page_sources s

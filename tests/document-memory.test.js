@@ -129,7 +129,7 @@ test("文档种类与正文骨架", () => {
   assert.match(body, /先看清单与入口文件/);
 });
 
-test("正式文件子目录中的新版本也触发里程碑判断", async () => {
+test("正式文件子目录中的新版本也触发项目进程判断", async () => {
   const { database, db, owner, project } = await setup();
   try {
     const [root] = await query(
@@ -363,7 +363,7 @@ test("四类文档区域的新文件建立基础索引并进入内容处理队�
         WHERE p.project_id=? AND s.source_kind='document_version' AND s.source_id=?`,
         [project.id, versionId],
       );
-      assert.match(page.body, /未识别/);
+      assert.match(page.body, /等待识别/);
       const [pending] = await query(
         db,
         "SELECT version_id FROM agent_document_memory_queue WHERE version_id=?",
@@ -479,7 +479,11 @@ test("明确的另存关系形成关联索引，人工修正不被自动发现�
       "SELECT source_id sourceId FROM agent_project_memory_queue WHERE project_id=? AND source_kind='memory_page' AND source_id=?",
       [project.id, group.pageId],
     );
-    assert.equal(milestoneSignal?.sourceId, group.pageId);
+    assert.equal(
+      milestoneSignal,
+      undefined,
+      "文件索引页由文档记忆处理，不再入项目进程队列（见 13-laoweng-workloads 5.1）",
+    );
     const service = new Service(db);
     let page = (await getWikiPage(service, owner, project.id, group.pageId)).page;
     assert.match(page.body, /来源文件/);

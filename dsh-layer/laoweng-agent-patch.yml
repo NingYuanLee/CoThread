@@ -1,6 +1,12 @@
 - insert:
     - id: attachment-local
       name: "@deepseek-ai/dsh-attachment-local"
+      config:
+        # 文档记忆会把原图直接交给视觉模型。高 DPI 截图的长边经常超过 DSH 默认的
+        # 8192 准入上限，不改会被判「Image exceeds the configured per-side pixel limit」
+        # 并反复重试。放宽准入后仍由 DSH 归一化按默认 8192 长边 / 4.19MP / 4MB 缩图
+        # 再送给模型；总量安全上限（maxImagePixels 64MP）保持不变。
+        maxImageDimension: 16384
     - id: token-meter
       name: "@deepseek-ai/dsh-token-meter"
     - id: compaction-basic

@@ -3,7 +3,7 @@ import { DialogHeader } from "./DialogHeader";
 import { DialogFooter } from "./DialogFooter";
 import { PaginationControl } from "./PaginationControl";
 import { DialogFilters } from "./DialogFilters";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import { Dialog, animateDialogClose } from "./dialog-fx";
 import type { HistoryColumn, HistoryRow, ChildDetail } from "./agent-monitor-types";
@@ -95,6 +95,11 @@ export function LaowengHistoryDialog({
   page,
   pageSize,
   search,
+  searchPlaceholder = "搜索历史记录",
+  showSearch = true,
+  filters,
+  onQuery,
+  onReset,
   onSearch,
   triggerFilter,
   onPageChange,
@@ -110,6 +115,11 @@ export function LaowengHistoryDialog({
   page: number;
   pageSize: number;
   search: string;
+  searchPlaceholder?: string;
+  showSearch?: boolean;
+  filters?: ReactNode;
+  onQuery?: () => void;
+  onReset?: () => void;
   onSearch: (keyword: string) => void;
   triggerFilter?: { value: string; onChange: (value: string) => void };
   onPageChange: (page: number) => void;
@@ -136,16 +146,22 @@ export function LaowengHistoryDialog({
       />
       <DialogFilters
         label="历史记录筛选"
-        keyword={{ value: keyword, onChange: setKeyword, placeholder: "搜索历史记录" }}
+        keyword={
+          showSearch
+            ? { value: keyword, onChange: setKeyword, placeholder: searchPlaceholder }
+            : undefined
+        }
         onQuery={() => {
           triggerFilter?.onChange(trigger);
-          onSearch(keyword.trim());
+          if (showSearch) onSearch(keyword.trim());
+          onQuery?.();
         }}
         onReset={() => {
           setKeyword("");
           setTrigger("");
           triggerFilter?.onChange("");
           onSearch("");
+          onReset?.();
         }}
       >
         {triggerFilter ? (
@@ -160,6 +176,7 @@ export function LaowengHistoryDialog({
             allOption="全部触发类型"
           />
         ) : null}
+        {filters}
       </DialogFilters>
       <div className="l1-history-content">
         <div className="l1-history-body admin-table-wrap dialog-scroll-region">

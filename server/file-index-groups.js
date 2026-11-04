@@ -167,7 +167,7 @@ export async function saveFileIndexGroup(
     "memory_page",
     pageId,
     `关联文件索引变化：${cleanTitle}`,
-    { urgent: true },
+    { urgent: false },
   );
   return { groupId: id, pageId, preserved: false };
 }

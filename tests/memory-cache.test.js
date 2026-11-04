@@ -10,7 +10,7 @@ import {
   loadProjectSummary,
   loadProjectWikiIndexes,
 } from "../server/project-memory.js";
-import { ensureProjectMemoryPage, upsertMemoryPage } from "../server/memory-pages.js";
+import { upsertMemoryPage } from "../server/memory-pages.js";
 import { refreshProjectGuideCache } from "../server/memory-cache.js";
 import { createVersion } from "../server/documents/versions.js";
 
@@ -69,34 +69,24 @@ test("发言记忆刷新成员摘要缓存，读取以 wiki 为准", async () =>
   }
 });
 
-test("项目整体记忆刷新导读缓存，占位页不覆盖", async () => {
+test("项目现状 md 刷新导读缓存，空现状不覆盖", async () => {
   const { database, db, owner, project } = await setup();
   try {
-    const placeholderPage = await ensureProjectMemoryPage(db, {
-      projectId: project.id,
-      createdBy: owner.id,
-    });
-    assert.ok(placeholderPage);
     assert.equal(await refreshProjectGuideCache(db, project.id), null);
     const [empty] = await query(
       db,
       "SELECT COUNT(*) count FROM agent_project_summaries WHERE project_id=?",
       [project.id],
     );
-    assert.equal(Number(empty.count), 0, "占位页不应写导读缓存");
+    assert.equal(Number(empty.count), 0, "没有现状时不写导读缓存");
 
-    await upsertMemoryPage(db, project.id, {
-      subject: "project",
-      kind: "status",
-      title: "项目整体：缓存项目",
-      body: "## 当前状态\n- 普通里程碑不能替代现状。",
-      createdBy: owner.id,
-    });
-    assert.equal(await refreshProjectGuideCache(db, project.id), null);
-    await query(db, "UPDATE wiki_pages SET body=? WHERE id=?", [
+    const { writeProjectStatus } = await import("../server/project-status.js");
+    await writeProjectStatus(
+      db,
+      project.id,
       "## 当前状态\n- 五类记忆已上线，剩下界面实机验证。",
-      placeholderPage,
-    ]);
+      owner.id,
+    );
     await refreshProjectGuideCache(db, project.id);
     const [guide] = await query(
       db,
@@ -238,14 +228,8 @@ test("索引与导读读取 wiki 优先，文档兜底须绑定准确版本", as
     assert.ok(document, "缓存缺失时应从文档记忆补摘要");
     assert.match(document.summary, /部署需要先跑迁移/);
 
-    const statusPage = await ensureProjectMemoryPage(db, {
-      projectId: project.id,
-      createdBy: owner.id,
-    });
-    await query(db, "UPDATE wiki_pages SET body=? WHERE id=?", [
-      "## 当前状态\n- wiki 项目状态：进行中。",
-      statusPage,
-    ]);
+    const { writeProjectStatus } = await import("../server/project-status.js");
+    await writeProjectStatus(db, project.id, "## 当前状态\n- wiki 项目状态：进行中。", owner.id);
     const summary = await loadProjectSummary(db, project.id);
     assert.match(summary.summary, /wiki 项目状态：进行中/);
   } finally {

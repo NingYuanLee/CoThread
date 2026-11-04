@@ -49,10 +49,8 @@ export function WorkspaceSidebar<T>({
   setMonitorOpen,
   user,
 }: WorkspaceSidebarProps<T>) {
-  /* 入口小点与弹窗内的提示一致：有草稿、待裁决或上次进入后的更新就提醒。 */
-  const memorySignal = Boolean(
-    memoryCounts && (memoryCounts.disputes > 0 || memoryCounts.updatedSinceEntry > 0),
-  );
+  /* 入口小点只在有独立反馈时提醒；条目更新时间口径不稳定，不再据此点亮。 */
+  const memorySignal = Boolean(memoryCounts && memoryCounts.disputes > 0);
   return (
     <>
       <aside className="sidebar">

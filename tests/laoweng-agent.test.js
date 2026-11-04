@@ -271,7 +271,7 @@ test("老翁 session view projects native DSH history and stays empty without a 
   }
 });
 
-test("归档后的旧记忆作业退出，项目现状由里程碑作业维护", async () => {
+test("归档后的旧记忆作业退出，项目现状由项目进程作业维护", async () => {
   try {
     const user = { id: randomUUID(), kind: "session" };
     await query(
@@ -376,7 +376,7 @@ test("归档后的旧记忆作业退出，项目现状由里程碑作业维护",
     assert.ok(
       runs.every((run) => {
         const result = typeof run.result === "string" ? JSON.parse(run.result) : run.result;
-        return result?.discarded && result.reason === "归档后的现状由里程碑作业维护";
+        return result?.discarded && result.reason === "归档后的现状由项目进程作业维护";
       }),
     );
     const monitor = await service.agentMonitor(user, project.id);

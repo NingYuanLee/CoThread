@@ -151,10 +151,6 @@ async function readMemoryEntry(db, projectId, id) {
     [id, projectId],
   );
   if (!row) return null;
-  const { readProjectStatusNode } = await import("./project-status-node.js");
-  const projectStatus = await readProjectStatusNode(db, projectId);
-  if (projectStatus?.id === row.id && Number(projectStatus.sourceNeedsReview))
-    row.sourceNeedsReview = 1;
   if (row.fileGroupId)
     row.fileGroupMembers = await query(
       db,
@@ -278,13 +274,6 @@ export async function readProjectMemory(service, user, projectId) {
     disputedEntryIds(db, projectId),
     memberTabOpenedAt(db, projectId, user.id),
   ]);
-  const { readProjectStatusNode } = await import("./project-status-node.js");
-  const projectStatus = await readProjectStatusNode(db, projectId);
-  if (projectStatus && Number(projectStatus.sourceNeedsReview)) {
-    const row = pageRows.find((page) => page.id === projectStatus.id);
-    if (row) row.sourceNeedsReview = 1;
-  }
-
   const threads = threadRows.map((row) => ({
     ...row,
     snapshot: jsonValue(row.archiveSnapshot) || {},

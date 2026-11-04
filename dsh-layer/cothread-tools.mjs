@@ -189,7 +189,7 @@ export function apply(ctx) {
     ["list_members", "会话资料：读取当前项目成员列表，只含ID、名称、角色，不含头像。", {}],
     [
       "search_memory",
-      "项目记忆：按一级类型检索现行记忆。类型为关键发言 utterance、主要文档 document、重要任务 task、核心议题 discussion、里程碑 project。返回摘要、出处和直接关系，不返回长正文。问「以前说过什么、做过什么决策、承诺过什么、有哪些重要任务或文档」时先用它；可按成员、对象类型、状态收窄，depth 控制沿关系展开跳数。",
+      "项目记忆：按一级类型检索现行记忆。类型为关键发言 utterance、主要文档 document、主要任务 task、核心议题 discussion、项目进程 project。返回摘要、出处和直接关系，不返回长正文。问「以前说过什么、做过什么决策、承诺过什么、有哪些主要任务或文档」时先用它；可按成员、对象类型、状态收窄，depth 控制沿关系展开跳数。",
       {
         query: { type: "string" },
         subjects: { type: "array" },

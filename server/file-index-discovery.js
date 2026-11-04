@@ -47,6 +47,77 @@ export function decideFileIndexChange(previous, current, hasSuccessfulSummary) {
     return hasSuccessfulSummary ? "update" : "create";
   return hasSuccessfulSummary ? "metadata" : "create";
 }
+/** 扫描批次只在项目级扫描（定时、手动、目录/批量变更）时创建；日志触发单独成批。 */
+const SCAN_BATCH_TRIGGERS = new Set(["schedule", "manual", "change", "log"]);
+const LOG_BATCH_WINDOW_MINUTES = 10;
+
+async function createScanBatch(conn, projectId, triggerType) {
+  const id = randomUUID();
+  await query(
+    conn,
+    "INSERT INTO file_index_scan_batches(id,project_id,trigger_type) VALUES(?,?,?)",
+    [id, projectId, SCAN_BATCH_TRIGGERS.has(triggerType) ? triggerType : "change"],
+  );
+  return id;
+}
+
+/** 日志驱动的单文件核对没有项目扫描批次：归入最近 10 分钟内开始的日志批次。 */
+async function ensureLogScanBatch(conn, projectId) {
+  const [batch] = await query(
+    conn,
+    `SELECT id FROM file_index_scan_batches
+    WHERE project_id=? AND trigger_type='log' AND status='running'
+      AND started_at >= DATE_SUB(UTC_TIMESTAMP(3), INTERVAL ${LOG_BATCH_WINDOW_MINUTES} MINUTE)
+    ORDER BY started_at DESC,id DESC LIMIT 1`,
+    [projectId],
+  );
+  if (batch) return batch.id;
+  return createScanBatch(conn, projectId, "log");
+}
+
+/**
+ * 批次收尾：分页展开和逐文件核对都结束后关闭批次。
+ * 这里只用普通读（不用 FOR UPDATE），并发收尾最多是延迟关闭，不会提前关闭；
+ * 悬挂批次由 closeStaleFileIndexScanBatches 兜底。
+ */
+async function finishScanBatchIfDone(conn, batchId) {
+  if (!batchId) return false;
+  const [scan] = await query(
+    conn,
+    "SELECT project_id FROM file_index_project_reconciliations WHERE batch_id=? LIMIT 1",
+    [batchId],
+  );
+  if (scan) return false;
+  const [request] = await query(
+    conn,
+    "SELECT artifact_id FROM file_index_reconcile_requests WHERE batch_id=? LIMIT 1",
+    [batchId],
+  );
+  if (request) return false;
+  const result = await query(
+    conn,
+    "UPDATE file_index_scan_batches SET status='completed',finished_at=UTC_TIMESTAMP(3) WHERE id=? AND status='running'",
+    [batchId],
+  );
+  return Number(result?.affectedRows || 0) > 0;
+}
+
+/** 关闭因进程中断等原因残留在 running 的批次；无待办才关，有待办说明仍在扫描。 */
+export async function closeStaleFileIndexScanBatches(db, { staleMinutes = 10 } = {}) {
+  return transaction(db, async (conn) => {
+    const batches = await query(
+      conn,
+      `SELECT id FROM file_index_scan_batches
+      WHERE status='running' AND started_at < DATE_SUB(UTC_TIMESTAMP(3), INTERVAL ? MINUTE)
+      ORDER BY started_at LIMIT 5`,
+      [Math.max(1, Math.trunc(Number(staleMinutes) || 10))],
+    );
+    let closed = 0;
+    for (const batch of batches) if (await finishScanBatchIfDone(conn, batch.id)) closed += 1;
+    return closed;
+  });
+}
+
 /** Persist the scope of a log event for reconciliation. A folder operation,
  * bulk purge, or historical event lacking an identity requires a project scan.
  * A request inserted while a project scan is in progress causes another pass.
@@ -55,16 +126,25 @@ export async function scheduleFileIndexChange(conn, change) {
   if (change.artifactId) {
     await query(
       conn,
-      `INSERT INTO file_index_reconcile_requests(project_id,artifact_id)
-      VALUES(?,?) ON DUPLICATE KEY UPDATE requested_at=LEAST(requested_at,VALUES(requested_at))`,
-      [change.projectId, change.artifactId],
+      `INSERT INTO file_index_reconcile_requests(project_id,artifact_id,batch_id)
+      VALUES(?,?,?) ON DUPLICATE KEY UPDATE requested_at=LEAST(requested_at,VALUES(requested_at)),
+      batch_id=COALESCE(batch_id,VALUES(batch_id))`,
+      [change.projectId, change.artifactId, change.batchId || null],
     );
   } else {
+    const [pending] = await query(
+      conn,
+      "SELECT batch_id batchId FROM file_index_project_reconciliations WHERE project_id=? FOR UPDATE",
+      [change.projectId],
+    );
+    // 扫描进行中又来了目录/批量事件：沿用原批次，只标记需要再跑一遍。
+    const batchId =
+      pending?.batchId || (await createScanBatch(conn, change.projectId, change.triggerType));
     await query(
       conn,
-      `INSERT INTO file_index_project_reconciliations(project_id) VALUES(?)
-      ON DUPLICATE KEY UPDATE restart_required=TRUE`,
-      [change.projectId],
+      `INSERT INTO file_index_project_reconciliations(project_id,batch_id) VALUES(?,?)
+      ON DUPLICATE KEY UPDATE restart_required=TRUE,batch_id=COALESCE(batch_id,VALUES(batch_id))`,
+      [change.projectId, batchId],
     );
   }
 }
@@ -79,17 +159,20 @@ export async function consumeFileIndexReconciliation(db, reconcileArtifact) {
   return transaction(db, async (conn) => {
     const [request] = await query(
       conn,
-      `SELECT project_id projectId,artifact_id artifactId
+      `SELECT project_id projectId,artifact_id artifactId,batch_id batchId
       FROM file_index_reconcile_requests ORDER BY requested_at,project_id,artifact_id
       LIMIT 1 FOR UPDATE SKIP LOCKED`,
     );
     if (!request) return false;
-    await reconcileArtifact(conn, request.projectId, request.artifactId);
+    await reconcileArtifact(conn, request.projectId, request.artifactId, {
+      batchId: request.batchId,
+    });
     await query(
       conn,
       "DELETE FROM file_index_reconcile_requests WHERE project_id=? AND artifact_id=?",
       [request.projectId, request.artifactId],
     );
+    await finishScanBatchIfDone(conn, request.batchId);
     return true;
   });
 }
@@ -104,7 +187,7 @@ export async function expandFileIndexProjectReconciliation(db, batchSize = 100) 
     const [scan] = await query(
       conn,
       `SELECT project_id projectId,cursor_artifact_id cursorId,
-      restart_required restartRequired FROM file_index_project_reconciliations
+      restart_required restartRequired,batch_id batchId FROM file_index_project_reconciliations
       ORDER BY requested_at,project_id LIMIT 1 FOR UPDATE SKIP LOCKED`,
     );
     if (!scan) return false;
@@ -121,6 +204,7 @@ export async function expandFileIndexProjectReconciliation(db, batchSize = 100) 
       await scheduleFileIndexChange(conn, {
         projectId: scan.projectId,
         artifactId: row.artifactId,
+        batchId: scan.batchId,
       });
     if (rows.length === size) {
       await query(
@@ -138,6 +222,7 @@ export async function expandFileIndexProjectReconciliation(db, batchSize = 100) 
       await query(conn, "DELETE FROM file_index_project_reconciliations WHERE project_id=?", [
         scan.projectId,
       ]);
+      await finishScanBatchIfDone(conn, scan.batchId);
     }
     return true;
   });
@@ -373,11 +458,12 @@ export async function reconcileFileIndexArtifact(conn, projectId, artifactId, ho
       }
     }
   }
-  if (recordOperation)
+  if (recordOperation) {
+    const batchId = hooks.batchId || (await ensureLogScanBatch(conn, projectId));
     await query(
       conn,
       `INSERT INTO file_index_discovery_items
-    (id,project_id,artifact_id,version_id,title,operation) VALUES(?,?,?,?,?,?)`,
+    (id,project_id,artifact_id,version_id,title,operation,batch_id) VALUES(?,?,?,?,?,?,?)`,
       [
         randomUUID(),
         projectId,
@@ -385,8 +471,10 @@ export async function reconcileFileIndexArtifact(conn, projectId, artifactId, ho
         current?.versionId || observed?.versionId || index?.versionId || null,
         artifact?.title || index?.pageTitle || "已删除文件",
         recordOperation,
+        batchId,
       ],
     );
+  }
   if (current || observed)
     await query(
       conn,
@@ -425,7 +513,7 @@ export async function scheduleNextFileIndexSweep(db) {
       next_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 1 DAY)`,
       [project.id],
     );
-    await scheduleFileIndexChange(conn, { projectId: project.id });
+    await scheduleFileIndexChange(conn, { projectId: project.id, triggerType: "schedule" });
     return true;
   });
 }

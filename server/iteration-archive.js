@@ -1019,15 +1019,19 @@ export async function confirmIterationArchive(service, user, threadId, input) {
       "UPDATE iteration_archive_workflows SET status='completed',plan=?,next_thread_id=?,decided_by=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?",
       [JSON.stringify(plan), nextThreadId, user.id, workflow.id],
     );
-    const { noteProjectMemorySignal } = await import("./project-memory.js");
-    await noteProjectMemorySignal(
-      conn,
-      thread.project_id,
-      "archive",
-      workflow.id,
-      `归档迭代「${thread.title || threadId}」；结论：${String(data.conclusion || "").slice(0, 220)}`,
-      { urgent: true },
-    );
+    // 第 3、6 层：空迭代、几乎没有消息且无议题的迭代归档不进入项目进程。
+    const { isImportantIteration } = await import("./memory-signal-filter.js");
+    if (await isImportantIteration(conn, threadId)) {
+      const { noteProjectMemorySignal } = await import("./project-memory.js");
+      await noteProjectMemorySignal(
+        conn,
+        thread.project_id,
+        "archive",
+        workflow.id,
+        `归档迭代「${thread.title || threadId}」；结论：${String(data.conclusion || "").slice(0, 220)}`,
+        { urgent: true },
+      );
+    }
     await query(
       conn,
       "UPDATE assistant_replies r JOIN messages m ON m.id=r.message_id SET r.status='cancelled',r.finished_at=UTC_TIMESTAMP(3) WHERE m.thread_id=? AND r.status='queued'",

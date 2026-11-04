@@ -7,6 +7,7 @@ import { Service } from "../server/service.js";
 import { createApp } from "../server/app.js";
 import { issueCredential } from "../server/auth.js";
 import { processNextProjectMemory } from "../server/project-memory.js";
+import { isImportantIteration, isImportantTask } from "../server/memory-signal-filter.js";
 import {
   confirmMemoryEntry,
   flagMemoryEntry,
@@ -63,7 +64,6 @@ test("daily signals queue, then settle into current entries with sources", async
       [project.id],
     );
     assert.ok(queued.some((entry) => entry.sourceKind === "milestone"));
-    assert.ok(queued.some((entry) => entry.sourceKind === "thread"));
     assert.ok(queued.every((entry) => entry.sourceKind !== "message"));
 
     // 事件型信号立即排 run
@@ -94,13 +94,12 @@ test("daily signals queue, then settle into current entries with sources", async
             },
           ],
           summary: "已整理",
-          projectStatus: { op: "unchanged" },
+          statusMarkdown: "## 当前状态\n\n- 先做项目记忆",
         };
       },
     });
     assert.equal(worked, true);
     assert.ok(captured.candidates.some((candidate) => candidate.sourceKind === "milestone"));
-    assert.ok(captured.candidates.some((candidate) => candidate.sourceKind === "thread"));
 
     const pages = await query(
       db,
@@ -111,12 +110,10 @@ test("daily signals queue, then settle into current entries with sources", async
     assert.equal(pages[0].status, "current");
     assert.equal(pages[0].subjectType, "project");
     assert.equal(pages[0].subtype, "phase_change");
-    const [overallPage] = await query(
-      db,
-      "SELECT id FROM wiki_pages WHERE project_id=? AND subject_type='project'",
-      [project.id],
-    );
-    assert.ok(overallPage, "结算应保证项目整体页存在");
+    const [statusRow] = await query(db, "SELECT body FROM project_status WHERE project_id=?", [
+      project.id,
+    ]);
+    assert.match(statusRow.body, /先做项目记忆/);
     const sources = await query(
       db,
       "SELECT source_kind sourceKind,source_id sourceId FROM wiki_page_sources WHERE page_id=?",
@@ -135,7 +132,7 @@ test("daily signals queue, then settle into current entries with sources", async
     );
     assert.equal(finished.status, "completed");
     assert.equal(Number(finished.had_updates), 1);
-    assert.equal(Number(finished.item_count), 1);
+    assert.equal(Number(finished.item_count), 2, "一条项目进程条目 + 一次现状覆盖");
   } finally {
     await database.close();
   }
@@ -349,6 +346,30 @@ test("project archive freezes memory and archive no longer asks to confirm memor
       flagMemoryEntry(service, owner, project.id, draftId, { note: "已经归档了" }),
       (error) => error.status === 403,
     );
+  } finally {
+    await database.close();
+  }
+});
+
+test("主要任务与主要迭代过滤：普通任务和空迭代不进入记忆判断", async () => {
+  const { database, db, service, owner, project, thread } = await setup();
+  try {
+    const taskId = randomUUID();
+    await query(
+      db,
+      `INSERT INTO agent_tasks(id,project_id,created_by_type,created_by_id,task_type,title,goal,status,execution_agent_type,retry_count,revision)
+       VALUES(?,?,'human_member',?,'assist','普通任务','普通目标','completed','child_agent',0,1)`,
+      [taskId, project.id, owner.id],
+    );
+    assert.equal(await isImportantTask(db, project.id, taskId), false);
+    await query(db, "UPDATE agent_tasks SET task_type='formal' WHERE id=?", [taskId]);
+    assert.equal(await isImportantTask(db, project.id, taskId), true);
+
+    const empty = await service.createThread(owner, project.id, { title: "空迭代" });
+    assert.equal(await isImportantIteration(db, empty.id), false);
+    await query(db, "UPDATE agent_tasks SET origin_thread_id=? WHERE id=?", [empty.id, taskId]);
+    assert.equal(await isImportantIteration(db, empty.id), true);
+    assert.equal(await isImportantIteration(db, thread.id), false);
   } finally {
     await database.close();
   }

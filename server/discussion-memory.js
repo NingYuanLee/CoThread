@@ -233,17 +233,5 @@ export async function syncThreadDiscussionMemory(db, { projectId, threadId, crea
     ],
     createdBy,
   });
-  const { ensureProjectMemoryPage } = await import("./memory-pages.js");
-  const overallId = await ensureProjectMemoryPage(db, { projectId, createdBy });
-  const overall = overallId ? { id: overallId } : null;
-  if (overall && overall.id !== result.pageId)
-    await createMemoryRelation(db, {
-      projectId,
-      fromPageId: result.pageId,
-      toPageId: overall.id,
-      relation: "derives",
-      note: "迭代讨论沉淀",
-      createdBy,
-    });
   return result;
 }

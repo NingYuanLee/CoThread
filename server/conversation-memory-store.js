@@ -349,6 +349,26 @@ export async function queueConversationThread(db, projectId, threadId, { backfil
   return { queued: Number(changed.affectedRows) > 0, pendingWindows: Number(windows.affectedRows) };
 }
 
+/**
+ * 把尚未进入窗口、也不在待处理表里的历史消息补入队。
+ * 不限制迭代数：漏掉哪个迭代就会一直显示“未入队”。
+ * 单个迭代体量由窗口分批兜底（每窗最多 40 条、3 万字符），不会一次生成超大窗口。
+ */
+export async function queueUnwindowedConversationThreads(db, projectId) {
+  const rows = await query(
+    db,
+    `SELECT t.id FROM threads t
+     WHERE t.project_id=?
+       AND EXISTS (SELECT 1 FROM messages m WHERE m.thread_id=t.id AND m.source<>'system' AND m.body<>''
+         AND NOT EXISTS (SELECT 1 FROM conversation_window_messages wm WHERE wm.message_id=m.id)
+         AND NOT EXISTS (SELECT 1 FROM conversation_pending_messages p WHERE p.message_id=m.id))
+     ORDER BY t.archived_at IS NULL DESC,t.id`,
+    [projectId],
+  );
+  for (const row of rows) await queueConversationThread(db, projectId, row.id, { backfill: true });
+  return rows.length;
+}
+
 /** Scan an archive once per archive version; enqueue and checkpoint atomically. */
 export async function scanArchivedConversation(db, projectId, threadId) {
   if (typeof db.getConnection === "function")
@@ -892,7 +912,7 @@ export async function applyConversationCandidate(db, candidateId, { actorId, ver
         "memory_page",
         pageId,
         `核心议题进展：${payload.title}`,
-        { urgent: true },
+        { urgent: false },
       );
     }
     if (subject === "discussion" && payload.observationId) {
@@ -1147,7 +1167,8 @@ export async function repairConversationCandidate(db, candidateId, replacement, 
 
 /** A failed candidate stays durable and blocks only its own output class. */
 export async function failConversationCandidate(db, candidateId, error, delaySeconds = 60) {
-  const delay = Math.max(1, Math.min(3600, Math.trunc(delaySeconds) || 60));
+  // 允许把停止自动重试后的队列推到远期（最多 30 天），避免同一份内容继续被调度。
+  const delay = Math.max(1, Math.min(30 * 24 * 3600, Math.trunc(delaySeconds) || 60));
   return transaction(db, async (conn) => {
     const [candidate] = await query(
       conn,

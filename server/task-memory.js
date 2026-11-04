@@ -113,7 +113,7 @@ export async function loadTaskMemoryStats(db, projectId, { threadId = null, limi
   });
 }
 
-/** 重要任务：失败过、重试过、返工过、正式任务，或耗时明显偏长的少数。 */
+/** 主要任务：失败过、重试过、返工过、正式任务，或耗时明显偏长的少数。 */
 export function importantTasks(stats, limit = 20) {
   const sorted = [...stats].sort((a, b) => b.durationMs - a.durationMs);
   const slow = new Set(
@@ -150,7 +150,7 @@ function bullets(items, empty = "- 暂无记录") {
   return items.length ? items.map((item) => "- " + item).join("\n") : empty;
 }
 
-/** 单条重要任务的记忆正文：目标、决策、结果、失败与重试、坑与成本、返工。 */
+/** 单条主要任务的记忆正文：目标、决策、结果、失败与重试、坑与成本、返工。 */
 export function taskMemoryMarkdown(task) {
   const lines = [];
   lines.push("## 目标与约束", task.goal ? String(task.goal).trim() : "- 未记录目标");
@@ -242,7 +242,7 @@ export function taskMemoryTitle(task) {
 
 /**
  * 任务记忆的确定性写入：不依赖模型也会落下基础条目。
- * 「任务分布」一条覆盖全部任务；重要任务（失败/重试/返工/正式/偏慢）各单列一条。
+ * 「任务分布」一条覆盖全部任务；主要任务（失败/重试/返工/正式/偏慢）各单列一条。
  */
 export async function syncTaskMemory(db, { projectId, createdBy } = {}) {
   if (!projectId) return null;

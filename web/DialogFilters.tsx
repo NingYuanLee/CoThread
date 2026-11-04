@@ -14,6 +14,8 @@ export type DialogFiltersProps = {
   onQuery: () => void;
   onReset: () => void;
   disabled?: boolean;
+  /** 隐藏查询/重置按钮（切换视图等自动加载的场景）。 */
+  showActions?: boolean;
   label?: string;
 };
 
@@ -24,6 +26,7 @@ export function DialogFilters({
   onQuery,
   onReset,
   disabled = false,
+  showActions = true,
   label = "列表筛选",
 }: DialogFiltersProps) {
   return (
@@ -50,14 +53,16 @@ export function DialogFilters({
         </div>
       )}
       {children}
-      <div className="dialog-filter-actions">
-        <button type="submit" className="primary" disabled={disabled}>
-          查询
-        </button>
-        <button type="button" className="secondary" disabled={disabled} onClick={onReset}>
-          重置
-        </button>
-      </div>
+      {showActions && (
+        <div className="dialog-filter-actions">
+          <button type="submit" className="primary" disabled={disabled}>
+            查询
+          </button>
+          <button type="button" className="secondary" disabled={disabled} onClick={onReset}>
+            重置
+          </button>
+        </div>
+      )}
     </form>
   );
 }

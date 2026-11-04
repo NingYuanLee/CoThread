@@ -36,6 +36,20 @@ export function time(value: string | null | undefined) {
     }) || "暂无"
   );
 }
+/** 带年份和秒的完整时间，用于运行历史等需要精确定位的表格。 */
+export function fullTime(value: string | null | undefined) {
+  const parsed = date(value);
+  return (
+    parsed?.toLocaleString("zh-CN", {
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }) || "暂无"
+  );
+}
 export function nextTime(value: string | null | undefined, pending: number) {
   if (!pending) return "无待处理";
   const parsed = date(value);

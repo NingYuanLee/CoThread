@@ -26,7 +26,7 @@ export async function projectChangeOperation(
     "INSERT INTO project_change_logs(id,project_id,actor_user_id,action,details) VALUES(?,?,?,?,?)",
     [changeId, projectId, actorUserId, action, JSON.stringify(details)],
   );
-  // 项目级变更统一作为里程碑候选，具体是否值得长期保留交给 project_memory 结算。
+  // 项目级变更统一作为项目进程候选，具体是否值得长期保留交给 project_memory 结算。
   const { noteProjectMemorySignal } = await import("./project-memory.js");
   await noteProjectMemorySignal(
     db,

@@ -107,8 +107,11 @@ function checkpointFiles(checkpoint) {
   }
 }
 
+const SESSION_LOG_NAME = /^session(\.v\d+)?\.jsonl$/;
+
 function isSessionLog(path) {
-  return path === "session.jsonl" || path.endsWith("/session.jsonl");
+  const name = String(path).split("/").pop();
+  return SESSION_LOG_NAME.test(name);
 }
 
 export function nativeHistoryFromCheckpoint(
@@ -177,7 +180,7 @@ export async function nativeHistoryFromLiveHome(homeId, sessionId) {
       const candidate = resolve(path, entry.name);
       if (candidate !== sessions && !candidate.startsWith(sessions + sep)) continue;
       if (entry.isDirectory()) await walk(candidate);
-      else if (entry.isFile() && entry.name === "session.jsonl") {
+      else if (entry.isFile() && SESSION_LOG_NAME.test(entry.name)) {
         if (sessionId && !path.split(/[/\\]/).includes(sessionId)) continue;
         logs.push(await readFile(candidate));
       }
@@ -269,6 +272,7 @@ async function loadTaskPoolSession(db, threadId, taskId) {
   const [row] = await query(
     db,
     `SELECT t.id task_id,t.status,t.progress,t.result_summary,t.execution_agent_id,
+    t.title task_title,t.goal task_goal,t.created_at task_created_at,
     r.checkpoint,r.context_stats,r.status run_status,r.error,r.executor_id,r.progress run_progress
     FROM agent_tasks t
     LEFT JOIN agent_task_execution_runs r ON r.id=(
@@ -292,15 +296,70 @@ function mapEvents(events) {
   }));
 }
 
+/**
+ * 用原生日志补回派生会话缺少的时间与用量。派生的 `_cothread_context.json`
+ * 只有角色和正文；按 role + text 的倒序顺序匹配，命中才补，避免张冠李戴。
+ */
+export function mergeNativeMetadata(messages, native) {
+  if (!Array.isArray(native) || !native.length) return messages;
+  const merged = messages.map((message) => ({ ...message }));
+  let cursor = merged.length - 1;
+  for (let index = native.length - 1; index >= 0; index--) {
+    const source = native[index];
+    let match = cursor;
+    while (match >= 0 && (merged[match].role !== source.role || merged[match].text !== source.text))
+      match--;
+    if (match < 0) continue;
+    const target = merged[match];
+    if (!target.createdAt && source.createdAt) target.createdAt = source.createdAt;
+    if (!target.usage && source.usage) target.usage = source.usage;
+    cursor = match - 1;
+  }
+  return merged;
+}
+
 async function historyForExecutor(db, threadId, executorId, checkpoint) {
-  let messages = nativeHistoryFromCheckpoint(checkpoint);
-  if (messages.length || !executorId) return messages;
+  // 子会话的会话快照通常只有派生上下文（角色 + 正文），时间与用量在原生
+  // session.v4.jsonl 里。读原生日志并合并元数据，前端才能显示派活时间与
+  // 子 Agent 的耗时/用量。
+  let messages = executorId
+    ? nativeHistoryFromCheckpoint(checkpoint, { sessionId: executorId, includeMetadata: true })
+    : nativeHistoryFromCheckpoint(checkpoint);
+  if (messages.length)
+    return executorId
+      ? mergeNativeMetadata(messages, await nativeHistoryFromLiveHome(threadId, executorId))
+      : messages;
+  if (!executorId) return messages;
   const [xiaoxiang] = await query(db, "SELECT checkpoint FROM agent_sessions WHERE thread_id=?", [
     threadId,
   ]);
-  messages = nativeHistoryFromCheckpoint(xiaoxiang?.checkpoint, { sessionId: executorId });
-  if (messages.length) return messages;
+  messages = nativeHistoryFromCheckpoint(xiaoxiang?.checkpoint, {
+    sessionId: executorId,
+    includeMetadata: true,
+  });
+  if (messages.length)
+    return mergeNativeMetadata(messages, await nativeHistoryFromLiveHome(threadId, executorId));
   return nativeHistoryFromLiveHome(threadId, executorId);
+}
+
+/**
+ * 任务池里的子会话如果只有原生日志缺失、只剩事件，会话列表会为空，弹窗会同时
+ * 显示空态和事件。把任务书作为「小祥派活」用户消息补在最前，保证派活总是可见。
+ */
+function withDispatchMessage(messages, task) {
+  if (messages.some((message) => message.role === "user")) return messages;
+  const text = String(task.task_goal || task.task_title || "").trim();
+  if (!text) return messages;
+  return [
+    {
+      id: `dispatch:${task.task_id}`,
+      role: "user",
+      source: "coordinator",
+      text,
+      ...(task.task_created_at ? { createdAt: task.task_created_at } : {}),
+    },
+    ...messages,
+  ];
 }
 
 export async function readChildTaskSession(service, user, threadId, messageId) {
@@ -321,7 +380,7 @@ export async function readChildTaskSession(service, user, threadId, messageId) {
       WHERE e.message_id=? ORDER BY e.id LIMIT 200`,
       [messageId],
     );
-    let messages = nativeHistoryFromCheckpoint(row.checkpoint);
+    let messages = nativeHistoryFromCheckpoint(row.checkpoint, { includeMetadata: true });
     if (!messages.length) messages = await nativeHistoryFromLiveHome(messageId);
     return {
       messageId: row.message_id,
@@ -373,6 +432,7 @@ export async function readChildTaskSession(service, user, threadId, messageId) {
     WHERE task_id=? AND consumed_at IS NULL ORDER BY created_at`,
     [task.task_id],
   );
+  const history = await historyForExecutor(service.db, threadId, executorId, task.checkpoint);
   return {
     messageId: task.task_id,
     slot: null,
@@ -381,7 +441,7 @@ export async function readChildTaskSession(service, user, threadId, messageId) {
     running,
     error: task.error || null,
     contextUsage: contextUsage(task, [], []),
-    messages: await historyForExecutor(service.db, threadId, executorId, task.checkpoint),
+    messages: withDispatchMessage(history, task),
     events: mapEvents(events),
     pending: pending.map((item) => ({
       id: item.id,

@@ -82,11 +82,18 @@ export function TaskSessionDialog({
       sourceKey={sourceKey}
       trajectory={scope}
       navigatorAuthor={agentName || "执行 Agent"}
-      empty={(data) => (
-        <p className="monitor-empty">
-          {(data as TaskSessionData | null)?.running ? "正在写入原生会话…" : emptyIdle}
-        </p>
-      )}
+      empty={(data) => {
+        const task = data as TaskSessionData | null;
+        // 子 Agent 的输出可能先落在事件/实时流里，会话正文还没写出来；这时不展示
+        // 「还没有会话内容」，否则会和下面的执行内容同时出现。
+        const hasActivity =
+          !!task?.events?.length ||
+          !!task?.pending?.length ||
+          !!liveOutput?.content ||
+          !!liveOutput?.reasoning;
+        if (hasActivity) return null;
+        return <p className="monitor-empty">{task?.running ? "正在写入原生会话…" : emptyIdle}</p>;
+      }}
       context={(data) => ({
         writable: !(data as TaskSessionData | null)?.running,
         onCompact: async () => {
@@ -98,6 +105,14 @@ export function TaskSessionDialog({
         const events = task?.events || [];
         const pending = task?.pending || [];
         const screenshots = live ? [] : events.filter((event) => event.screenshotUrl);
+        // 会话正文已经包含子 Agent 的回复时，执行活动只保留工具事件，避免正文与
+        // 活动流重复展示同一段文字，也避免长文本直接铺开。
+        const hasMessages = !!task?.messages?.length;
+        const activityEvents = hasMessages
+          ? events.filter(
+              (event) => !["thinking", "assistant_text", "assistant_final"].includes(event.tool),
+            )
+          : events;
         return (
           <>
             {screenshots.map((event) => (
@@ -128,17 +143,18 @@ export function TaskSessionDialog({
                 </div>
               </article>
             ))}
-            {task && (events.length || liveOutput?.content || liveOutput?.reasoning) ? (
+            {task && (activityEvents.length || liveOutput?.content || liveOutput?.reasoning) ? (
               <div className="child-task-session-live">
                 <AgentActivity
                   threadId={live?.threadId || ""}
                   messageId={live?.messageId || ""}
-                  events={events}
+                  events={activityEvents}
                   output={liveOutput}
                   status={task.status || "running"}
                   progress={task.progress}
                   hasFinal={task.status === "completed"}
-                  expanded={!!live}
+                  // 子 Agent 的过程默认收缩，点状态行再展开，避免大段文字直接铺开。
+                  expanded={false}
                 />
               </div>
             ) : null}

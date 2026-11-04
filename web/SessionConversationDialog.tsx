@@ -40,10 +40,17 @@ export type SessionDialogData = {
   contextUsage?: ContextUsage | null;
   messages?: SessionMessage[];
 };
+export type SessionTotals = {
+  turns: number;
+  steps: number;
+  tokens?: number;
+  durationMs?: number;
+  modelCalls?: number;
+};
 export type SessionDialogPayload = {
   data: SessionDialogData;
   /** 轨迹汇总的回合/步数；拿不到时留空，底栏不画这两枚统计。 */
-  totals?: { turns: number; steps: number } | null;
+  totals?: SessionTotals | null;
 };
 export type SessionApi = (
   path: string,
@@ -136,7 +143,7 @@ export function SessionConversationDialog({
   const [data, setData] = useState<SessionDialogData | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
-  const [totals, setTotals] = useState<{ turns: number; steps: number } | null>(null);
+  const [totals, setTotals] = useState<SessionTotals | null>(null);
   const [revision, setRevision] = useState(0);
   const roomKey = view === "chat" ? sourceKey : "";
   useStickToBottom(conversationRef, followConversation, roomKey);
@@ -161,6 +168,29 @@ export function SessionConversationDialog({
   const rounds = totals ? totals.turns : fallbackTurns;
   const showRounds = rounds > 0;
   const showFooter = showRounds || !!data?.contextUsage;
+  // 底栏用量按本会话消息的用量汇总；消息没有逐条用量时退回轨迹汇总的总量，
+  // 避免记忆作业/任务会话固定显示「用量未记录」。
+  const usageReplies = messages
+    .filter((message) => message.usage)
+    .map((message) => ({ usage_stats: message.usage }));
+  const fallbackReplies =
+    totals && (totals.tokens || totals.durationMs || totals.modelCalls)
+      ? [
+          {
+            usage_stats: {
+              totalTokens: totals.tokens || 0,
+              executionDurationMs: totals.durationMs || 0,
+              steps: totals.steps,
+              calls: totals.modelCalls || 0,
+            },
+          },
+        ]
+      : [];
+  const usageThread = {
+    ...EMPTY_THREAD,
+    replies: (usageReplies.length ? usageReplies : fallbackReplies) as unknown as Thread["replies"],
+    toolDurationMs: totals?.durationMs ?? 0,
+  } as Thread;
 
   useEffect(() => {
     setView("chat");
@@ -325,6 +355,23 @@ export function SessionConversationDialog({
                                     <MessageMarkdown body={message.text} />
                                   </Suspense>
                                   <div className="message-actions">
+                                    <button
+                                      type="button"
+                                      title={copied === message.id ? "已复制" : "复制"}
+                                      aria-label="复制"
+                                      onClick={() => copy(message.id, message.text)}
+                                    >
+                                      <UiIcon
+                                        name={copied === message.id ? "check" : "copy"}
+                                        size={14}
+                                      />
+                                    </button>
+                                    {message.usage ? (
+                                      <MessageUsage
+                                        record={{ usage_stats: message.usage }}
+                                        allowClockFallback={false}
+                                      />
+                                    ) : null}
                                     <MessageTime value={message.createdAt} />
                                   </div>
                                 </div>
@@ -373,7 +420,7 @@ export function SessionConversationDialog({
             <div className="composer-context agent-session-footer">
               {showRounds ? (
                 <SessionUsage
-                  thread={EMPTY_THREAD}
+                  thread={usageThread}
                   rounds={rounds}
                   steps={totals?.steps}
                   showWithoutUsage

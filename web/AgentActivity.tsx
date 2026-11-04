@@ -7,6 +7,8 @@ import { AgentEvent } from "./AgentEvent";
 import { AgentToolIcon } from "./AgentToolIcon";
 import { fetchJson } from "./api-fetch";
 import { agentLabel } from "./agent-label";
+import { MessageTime } from "./SessionConversationDialog";
+import { UiIcon } from "./ui-icon";
 import type { LiveOutput } from "./useAgentLiveOutput";
 type Event = {
   id: string;
@@ -47,7 +49,12 @@ export function AgentActivity({
   const [open, setOpen] = useState(false);
   const revealed = expanded || open;
   const [texts, setTexts] = useState<Record<string, string>>({});
+  const [copiedId, setCopiedId] = useState("");
   const [error, setError] = useState("");
+  const copy = (id: string, body: string) => {
+    void navigator.clipboard.writeText(body);
+    setCopiedId(id);
+  };
   const ordered = [...events].sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
   const revision = ordered.map((e) => `${e.id}:${e.tool}:${e.status}:${e.finished_at}`).join(",");
   useEffect(() => {
@@ -160,6 +167,7 @@ export function AgentActivity({
                     ? output?.reasoning
                     : output?.content
                   : undefined;
+              const body = live || texts[e.id] || "";
               return (
                 <div
                   className={`agent-phase ${e.tool === "thinking" ? "thinking" : "text"}`}
@@ -167,13 +175,23 @@ export function AgentActivity({
                   key={e.id}
                 >
                   <div className="message-text">
-                    <Suspense fallback={live || texts[e.id] || ""}>
-                      <MessageMarkdown
-                        body={live || texts[e.id] || ""}
-                        active={!!live && running}
-                      />
+                    <Suspense fallback={body}>
+                      <MessageMarkdown body={body} active={!!live && running} />
                     </Suspense>
                   </div>
+                  {body ? (
+                    <div className="message-actions">
+                      <button
+                        type="button"
+                        title={copiedId === e.id ? "已复制" : "复制"}
+                        aria-label="复制"
+                        onClick={() => copy(e.id, body)}
+                      >
+                        <UiIcon name={copiedId === e.id ? "check" : "copy"} size={14} />
+                      </button>
+                      <MessageTime value={e.finished_at || undefined} />
+                    </div>
+                  ) : null}
                 </div>
               );
             }

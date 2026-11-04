@@ -73,6 +73,52 @@ test("native session view projects DSH jsonl when the derived overlay is absent"
   assert.equal(nativeHistoryFromCheckpoint(checkpoint, { sessionId: randomUUID() }).length, 0);
 });
 
+test("native session view recognizes versioned session log names", () => {
+  // DSH 0.2.x 把会话日志写成 session.v4.jsonl；只认 session.jsonl 会让
+  // 任务会话与记忆作业会话读不到正文、时间和用量。
+  const id = randomUUID();
+  const jsonl = [
+    JSON.stringify({
+      type: "turn/start",
+      time: 1700000000000,
+      data: { turn: 1 },
+    }),
+    JSON.stringify({
+      type: "user/message",
+      time: 1700000000100,
+      data: { role: "user", content: [{ type: "text", text: "派活" }] },
+    }),
+    JSON.stringify({
+      type: "step/start",
+      time: 1700000000200,
+      data: { turn: 1, step: 1 },
+    }),
+    JSON.stringify({
+      type: "assistant/message",
+      time: 1700000001000,
+      data: {
+        turn: 1,
+        step: 1,
+        message: { role: "assistant", content: [{ type: "text", text: "完成" }] },
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      },
+    }),
+    JSON.stringify({ type: "turn/end", time: 1700000002000, data: { turn: 1 } }),
+  ].join("\n");
+  const checkpoint = gzipSync(
+    JSON.stringify({
+      [`--tmp--/${id}/session.v4.jsonl`]: Buffer.from(jsonl).toString("base64"),
+    }),
+  );
+  const result = nativeHistoryFromCheckpoint(checkpoint, { sessionId: id });
+  assert.deepEqual(
+    result.map((row) => row.text),
+    ["派活", "完成"],
+  );
+  assert.equal(result[1].usage.totalTokens, 15);
+  assert.ok(result[1].createdAt);
+});
+
 test("maintenance history attaches original message times and whole-turn usage to matching derived messages", () => {
   const id = randomUUID();
   const content = (text) => [{ type: "text", text }];
@@ -203,7 +249,11 @@ test("子 Agent task-pool session reads the run checkpoint saved before the chil
       [childSessionId, task.id],
     );
     const empty = await readChildTaskSession(service, user, thread.id, task.id);
-    assert.equal(empty.messages.length, 0);
+    // 子会话正文尚未落库时，任务书仍作为「小祥派活」用户消息补在最前。
+    assert.equal(empty.messages.length, 1);
+    assert.equal(empty.messages[0].role, "user");
+    assert.equal(empty.messages[0].text, "读取资料");
+    assert.equal(empty.messages[0].source, "coordinator");
     assert.equal(
       await persistChildRunCheckpoint(database.db, childSessionId, [
         { role: "user", content: [{ type: "text", text: "任务目标" }] },

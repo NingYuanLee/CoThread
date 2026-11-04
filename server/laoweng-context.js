@@ -4,7 +4,11 @@ import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";
 import { contextUsage } from "../shared/context.js";
 import { LAOWENG_MAINTENANCE_TASKS, normalizeLaowengTask } from "../shared/agent-label.js";
-import { nativeHistoryFromCheckpoint, nativeHistoryFromLiveHome } from "./child-agent-session.js";
+import {
+  mergeNativeMetadata,
+  nativeHistoryFromCheckpoint,
+  nativeHistoryFromLiveHome,
+} from "./child-agent-session.js";
 import { mergeLaowengSessionTurns } from "./laoweng-session-turns.js";
 
 export async function readLaowengTaskSession(service, user, projectId, task) {
@@ -21,8 +25,15 @@ export async function readLaowengTaskSession(service, user, projectId, task) {
     sessionId: row?.session_id,
     includeMetadata: true,
   });
-  if (!messages.length)
-    messages = await nativeHistoryFromLiveHome(`laoweng-${scopedTask}-${projectId}`);
+  const nativeHome = `laoweng-${scopedTask}-${projectId}`;
+  if (!messages.length) messages = await nativeHistoryFromLiveHome(nativeHome);
+  else {
+    // 快照只有派生正文时，从原生 session.v4.jsonl 补回时间与用量。
+    messages = mergeNativeMetadata(
+      messages,
+      await nativeHistoryFromLiveHome(nativeHome, row?.session_id),
+    );
+  }
   if (row?.session_id) {
     const turns = await query(
       service.db,

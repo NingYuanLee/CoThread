@@ -59,16 +59,16 @@ export function ChildTaskCard({
         <State tone={tone}>{status}</State>
       </div>
       <div className="child-task-actions">
-        <button type="button" onClick={onDetail}>
+        <button type="button" className="wiki-action" onClick={onDetail}>
           <UiIcon name="detail" size={12} />
           详情
         </button>
-        <button type="button" onClick={onTrace}>
+        <button type="button" className="wiki-action" onClick={onTrace}>
           <UiIcon name="trajectory" size={12} />
           轨迹
         </button>
         {onSession ? (
-          <button type="button" onClick={onSession}>
+          <button type="button" className="wiki-action" onClick={onSession}>
             <UiIcon name="session" size={12} />
             会话
           </button>

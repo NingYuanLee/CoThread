@@ -229,7 +229,14 @@ export type TaskSessionData = {
   running?: boolean;
   error?: string | null;
   contextUsage: ContextUsage;
-  messages: { id: string; role: string; source: string | null; text: string }[];
+  messages: {
+    id: string;
+    role: string;
+    source: string | null;
+    text: string;
+    createdAt?: string;
+    usage?: import("./MessageUsage").UsageStats;
+  }[];
   events?: {
     id: string;
     tool: string;
@@ -245,4 +252,7 @@ export type SessionTarget = {
   title: string;
   threadId: string;
   messageId: string;
+  /** 任务轨迹所在作用域；任务池里的任务才有。 */
+  scope?: import("./trajectory-model").AgentLogScope | null;
+  agentName?: string;
 };

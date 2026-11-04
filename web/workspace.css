@@ -23882,7 +23882,9 @@ html body .project-memory-dialog .dialog-header {
   margin: 0 0.857rem 0.714rem;
 }
 
-.memory-job-session-dialog {
+/* 记忆作业与小祥监控共用的只读会话弹窗（SessionConversationDialog）：
+   会话 / 轨迹同窗切换，底栏固定轮次、步数、用量与上下文。 */
+.agent-session-dialog {
   display: flex;
   flex-direction: column;
   width: min(77.143rem, calc(100vw - 3.429rem));
@@ -23892,23 +23894,23 @@ html body .project-memory-dialog .dialog-header {
   background: var(--c-fff);
 }
 
-.memory-job-session-dialog .conversation-stage {
+.agent-session-dialog .conversation-stage {
   flex: 1 1 auto;
   min-height: 0;
 }
 
-.memory-job-session-dialog .conversation-stage-trajectory {
+.agent-session-dialog .conversation-stage-trajectory {
   padding-top: 0;
 }
 
-.memory-job-session-dialog .conversation-stage > .conversation {
+.agent-session-dialog .conversation-stage > .conversation {
   flex: 1;
   overflow: auto;
   padding-top: 1.714rem;
   padding-bottom: 3.5rem;
 }
 
-.memory-job-session-toolbar {
+.agent-session-toolbar {
   display: flex;
   flex: none;
   align-items: stretch;
@@ -23920,41 +23922,41 @@ html body .project-memory-dialog .dialog-header {
   border-bottom: 1px solid var(--overlay-glass-border);
 }
 
-.memory-job-session-dialog .message-navigator {
+.agent-session-dialog .message-navigator {
   top: 1.429rem;
   bottom: 3rem;
 }
 
-.memory-job-session-dialog .scroll-to-latest {
+.agent-session-dialog .scroll-to-latest {
   bottom: 3rem;
 }
 
-.memory-job-session-footer {
+.agent-session-footer {
   height: 2.5rem;
   background: var(--c-fff);
   border-top: 1px solid var(--c-e7eae7);
 }
 
-.memory-job-process {
+.agent-session-process {
   margin-bottom: 1rem;
   color: var(--c-6a756d);
 }
 
-.memory-job-process summary {
+.agent-session-process summary {
   cursor: pointer;
   padding: 0.5rem 0;
 }
 
-.memory-job-process .message-text {
+.agent-session-process .message-text {
   margin: 0.75rem 0;
 }
 
-.memory-job-session-dialog .conversation-stage-trajectory .agent-log-panel {
+.agent-session-dialog .conversation-stage-trajectory .agent-log-panel {
   flex: 1;
   min-height: 0;
 }
 
-.memory-job-session-dialog .dialog-header .conversation-views {
+.agent-session-dialog .dialog-header .conversation-views {
   align-self: stretch;
 }
 
@@ -33637,6 +33639,14 @@ html:is([data-theme="ink"], [data-theme="night"]) .composer-mode-chip-clear svg 
 
 .child-task-card .executor-title {
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* 任务卡动作行：统一用标准小按钮 .wiki-action，不再吃全局 button 的默认内边距。 */
+.child-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.429rem;
+  margin-top: 0.714rem;
 }
 
 .child-workspace {

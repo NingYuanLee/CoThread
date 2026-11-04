@@ -284,6 +284,8 @@ export function AgentMonitor({
                                   threadId,
                                   messageId: task.task_id,
                                   title,
+                                  scope: { type: "task", id: task.task_id },
+                                  agentName: selectedAgent?.agent.name,
                                 })
                               }
                             />
@@ -312,12 +314,11 @@ export function AgentMonitor({
           kicker="任务会话"
           title={sessionTarget.title}
           emptyIdle="这个任务还没有会话内容。"
-          roleLabel={(role) =>
-            role === "assistant" ? "执行 Agent" : role === "system" ? "系统" : "成员 / 上下文"
-          }
           path={`/threads/${sessionTarget.threadId}/replies/${sessionTarget.messageId}/session`}
           compactPath={`/threads/${sessionTarget.threadId}/replies/${sessionTarget.messageId}/context/compact`}
           live={{ threadId: sessionTarget.threadId, messageId: sessionTarget.messageId }}
+          scope={sessionTarget.scope}
+          agentName={sessionTarget.agentName}
           api={api}
           onClose={() => setSessionTarget(null)}
         />

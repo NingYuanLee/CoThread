@@ -1,6 +1,6 @@
 # 云端环境变量
 
-维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-11-04 四次发布——上午「按来源治理记忆 / 项目现状 Markdown」，下午「删除文档后的失效项目进程信号清理」，晚间「项目记忆结算修复 + 时间线分页 + index.html 预加载修复」，随后「项目记忆读取性能（轻量读 + 按需详情）与核验理由截断」；四次都重核了门禁、打包清单、OOS 上传和上线验收。本轮补充了 Alibaba MCP 通道现状、测试库锁残留检查、`OOS_GetDeployStatus` 参数约束，以及 `visibleFileIndexSql` 整表开销的实测；详见「ECS 发布」及文末。
+维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-11-04 五次发布——上午「按来源治理记忆 / 项目现状 Markdown」，下午「删除文档后的失效项目进程信号清理」，晚间「项目记忆结算修复 + 时间线分页 + index.html 预加载修复」，随后「项目记忆读取性能（轻量读 + 按需详情）与核验理由截断」，以及「项目进程信号改为按水位扫描生成（迁移 221）」；五次都重核了门禁、打包清单、OOS 上传和上线验收。本轮补充了 Alibaba MCP 通道现状、测试库锁残留检查、`OOS_GetDeployStatus` 参数约束、`visibleFileIndexSql` 整表开销实测，以及迁移 221 的线上应用核对；详见「ECS 发布」及文末。
 
 应用后端需要常驻 Node.js 进程（Node.js 22.22.3+，推荐 24）、MySQL 网络连接及可写的 `.local` 目录。只发布 `dist/` 静态文件无法运行 API、MCP 和后台 Agent；生产环境固定为阿里云 ECS 单实例 + RDS，本机开发用便携版 MySQL。
 
@@ -321,3 +321,13 @@ bash -n scripts/ecs-codedeploy-start.sh
 包 `cothread-release-20261104T071627Z.tgz`，6,173,512 字节，SHA-256 `39DA1D2261F30EF398AA1D317B6E287EEF2B73822EB4AD78D7934521E272C779`，tar 条目 706，包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests`、`.code_deploy`。`OOS_CodeDeploy`：revision `rev-ac1e2f365b244cc0a38c`，execution `exec-fc47a0a329534bf0be06` 为 `Success`（8/8，0 失败），分组 `Releasing`（4/8）约两分钟后 `Released`。线上 `readlink -f /opt/cothread/current` 为 `/opt/cothread/releases/20261104T071748Z`，systemd `active`、启动时间北京时间 15:19:12、`MainPID` 1326469；`current/server/memory-timeline.js` 含 `readProjectMemoryEntry` 与 `includeEntries`。公网 `https://cothread.z2l.top/api/health?release=baefd8c` 返回 `status: ok`、执行器 ready、8 槽、`acquiredAt` UTC `2026-11-04T07:19:14.665Z`；首页资源 `index-DOm-Ricz.js`、`index-BHw62KsI.css`，与本地 `dist/index.html` 一致。
 
 线上复测（同一只读探针方式）：`/memory` 轻量读 13,845 ms → **109 ms**；分页第一页 4,053 ms → **440 ms**；单条详情 **44 ms**（此前无此接口）；轻量读返回 `entryIndex=1149`、`counts.entries=1149`、`entries=[]`。浏览器登录后的弹窗实机点击仍未做；2 条项目进程排队行（`task` 信号，创建于 10-25/10-26，`retry_count=2`、已推到 30 天后）需要人工点一次「重试」才会按新逻辑结算，本轮未代触发。验收凭据在 `.code_deploy/verification/20261104-memory-performance/`（不进 Git）。
+
+2026-11-04 第五次发布，一次上线：「项目进程信号改为按水位扫描生成 + 面板信号收成按钮/弹窗」。代码提交 `15a1dab`（已推送，`origin/main` 一致）。按用户要求，业务事件不再直接写队列：新增迁移 `221_project_memory_scan_state.sql`（每项目一行 `scan_cursor`）与 `server/project-memory-scan.js`，按游标扫描项目变更日志/迭代目标背景/迭代归档/任务状态事件/正式文件变更，过滤后入队；移除 5 处事件钩子，文档恢复改为写 `version_restored` 事实日志；维护循环每轮扫一个到期项目，手动运行先扫再结算，新项目创建时写空水位让「项目初创」入队。前端记忆作业面板的待处理信号改为「待处理信号 N」按钮 + 只读列表弹窗。
+
+门禁：`npm run lint` exit 0；`npx tsc --noEmit` exit 0；`npm run build` exit 0（45.59 s）；全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 1070/1070、0 失败，`duration_ms` 721652（约 12 分钟），迁移 221 已在该库应用；新增 `tests/project-memory-scan.test.js` 4/4。本轮无其它迁移。
+
+包 `cothread-release-20261104T082524Z.tgz`，6,176,060 字节，SHA-256 `0DF763B4C587B658CD6022EEE9540DAEE3A2B6C434FC70A0DF9AC2B0F70C543B`，tar 条目 708，包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests`、`.code_deploy`。`OOS_CodeDeploy`：revision `rev-cc19bf48d35245318fc0`，execution `exec-891d4b8c21e742da8694`，分组 `Released`（8/8，0 失败），`StatusReason` 为 `Release success!`，`UpdateDate` UTC `08:28:40Z`。
+
+线上：`readlink -f /opt/cothread/current` 为 `/opt/cothread/releases/20261104T082634Z`，systemd `active`、启动时间北京时间 16:28:09、`MainPID` 1327591；迁移 221 已在 `schema_migrations` 命中，`project_memory_scan_state` 表存在且扫描器模块在包内；首页资源 `index-3hEz6vEN.js`、`index-BHw62KsI.css` 与本地 `dist/index.html` 一致；公网 `GET /api/health?release=15a1dab` 返回 `status: ok`、执行器 ready、8 槽、`acquiredAt` UTC `08:28:11.118Z`。对本项目执行一次线上扫描：`initialized:true, inserted:0`（只建水位、不回放历史），cursor `taskEventId=197`、`milestone` 停在 2026-10-12。
+
+本轮已知未完成项：登录后的「待处理信号」按钮/弹窗未实机点击；本项目队列仍有 2 条 10-25/10-26 的旧 `task` 信号（`retryCount=4`），核验理由已从 `too_big` 变为「候选未通过出处核验：缺少来源直接支持」，说明旧事实已无法支撑记忆条目，自动重试到上限会停止——需要人工决定清理还是保留；验收凭据在 `.code_deploy/verification/20261104-project-memory-scan/`（不进 Git）。

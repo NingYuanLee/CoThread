@@ -155,6 +155,8 @@
 
 验证：新增 `tests/project-memory-scan.test.js` 4/4（新建项目首批事实首次扫描入队且建项目不写队列、项目变更/任务终态/迭代目标变更三条信号且二次扫描不重复、正式文件新版本与内容替换同一版本只留一行且版本号递增、主要任务与归档各一条）；受钩子移除影响的用例补扫描调用后通过：`project-memory` 7/7、`project-memory-signals` 1/1、`project-status` 7/7、`iteration-archive` 23/23、`document-memory` 15/15、`project-memory-signal-cleanup` 6/6；`conversation-memory-store` 14/14、`memory-jobs` 11/11、`memory-retry` 8/8、`integration` 22/22；`npm run lint`、`npx tsc --noEmit`、`npm run build` 通过。全量 `npm test` 结果见发布记录。
 
+2026-11-04 已随第五次发布上线（提交 `15a1dab`，包 `cothread-release-20261104T082524Z.tgz`，execution `exec-891d4b8c21e742da8694`，`current` 为 `/opt/cothread/releases/20261104T082634Z`）：线上迁移 221 已应用，对本项目执行扫描返回 `initialized:true, inserted:0`（只建水位、不回放历史），cursor `taskEventId=197`、`milestone` 停在 2026-10-12。队列里那 2 条 10-25/10-26 的旧 `task` 信号核验失败原因已从 `too_big` 变为「缺少来源直接支持」，需要人工决定清理还是保留；自动重试到上限会停止。
+
 已知取舍：扫描有最长约一个维护周期的延迟（手动运行会先扫再结算）；项目首次扫描不回放历史，历史存量仍由一次性回填处理；任务水位用自增 id，其余来源用 `(created_at,id)` 游标并以数据库原始时间字符串比较（连接 `dateStrings: true`，避免时区换算导致重复入队）。
 
 ## 尚需实际环境验收

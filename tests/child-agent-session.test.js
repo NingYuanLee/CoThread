@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { gzipSync, zstdCompressSync } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import {
+  childContextMessages,
   nativeHistoryFromCheckpoint,
   persistChildContextStats,
   persistChildRunCheckpoint,
@@ -242,6 +243,33 @@ test("child session projection ignores the parent overlay in a shared checkpoint
   );
 });
 
+test("child context messages expose the dispatch brief and system prompt", () => {
+  const messages = childContextMessages([
+    {
+      id: "10",
+      tool: "context_notice",
+      input: "TASK_ID: x\n任务书正文",
+      output: JSON.stringify({ kind: "cothread-child-context", summary: "任务书 / 对话模式" }),
+      created_at: "2026-11-04 16:40:00.000",
+    },
+    {
+      id: "11",
+      tool: "system_prompt",
+      input: "子 Agent 系统提示词",
+      output: JSON.stringify({ kind: "cothread-system-prompt" }),
+      created_at: "2026-11-04 16:40:00.100",
+    },
+  ]);
+  assert.deepEqual(
+    messages.map((message) => message.role),
+    ["user", "user"],
+  );
+  assert.equal(messages[0].text, "TASK_ID: x\n任务书正文");
+  assert.equal(messages[1].text, "子 Agent 系统提示词");
+  assert.ok(messages[0].createdAt);
+  assert.equal(messages[0].source, "coordinator");
+});
+
 test("子 Agent run snapshots store derived history for later session view", () => {
   const checkpoint = checkpointFromHistory([
     { role: "user", text: "任务目标" },
@@ -341,6 +369,77 @@ test("子 Agent task-pool session reads the run checkpoint saved before the chil
     );
     const kept = await readChildTaskSession(service, user, thread.id, task.id);
     assert.equal(kept.contextUsage.used, 18432);
+  } finally {
+    await database.close();
+  }
+});
+
+test("子 Agent task session ignores the parent derived overlay in a shared checkpoint", async () => {
+  const database = await testDatabase();
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(
+      database.db,
+      "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [user.id, `${user.id}@test.com`, "负责人"],
+    );
+    const service = new Service(database.db);
+    const project = await service.createProject(user, { name: "子 Agent 会话" });
+    const thread = await service.createThread(user, project.id, { title: "执行" });
+    const xiaoxiangSessionId = randomUUID();
+    const childSessionId = randomUUID();
+    const jsonl = (id, text) =>
+      [
+        JSON.stringify({ type: "session", version: 0, id, createdAt: 1, cwd: "/tmp" }),
+        JSON.stringify({
+          type: "user/message",
+          seq: 0,
+          time: 1700000000000,
+          data: { content: [{ type: "text", text }] },
+        }),
+      ].join("\n");
+    const sharedCheckpoint = gzipSync(
+      JSON.stringify({
+        "_cothread_context.json": Buffer.from(
+          JSON.stringify([{ role: "user", content: [{ type: "text", text: "小祥 讨论" }] }]),
+        ).toString("base64"),
+        [`--tmp--/${xiaoxiangSessionId}/session.v4.jsonl`]: Buffer.from(
+          jsonl(xiaoxiangSessionId, "小祥 讨论"),
+        ).toString("base64"),
+        [`--tmp--/${childSessionId}/session.v4.jsonl`]: Buffer.from(
+          jsonl(childSessionId, "子 Agent 任务"),
+        ).toString("base64"),
+      }),
+    );
+    await query(
+      database.db,
+      "INSERT INTO agent_sessions(thread_id,session_id,checkpoint) VALUES(?,?,?)",
+      [thread.id, xiaoxiangSessionId, sharedCheckpoint],
+    );
+    const task = await createTask(database.db, {
+      projectId: project.id,
+      originThreadId: thread.id,
+      sourceType: "human_member",
+      sourceUserId: user.id,
+      createdByType: "xiaoxiang",
+      createdById: xiaoxiangSessionId,
+      taskType: "assist",
+      title: "整理资料",
+      goal: "读取资料",
+      targetType: "xiaoxiang",
+      targetId: xiaoxiangSessionId,
+    });
+    await query(
+      database.db,
+      `UPDATE agent_task_execution_runs SET executor_id=?,status='completed',
+      started_at=UTC_TIMESTAMP(3),finished_at=UTC_TIMESTAMP(3) WHERE task_id=?`,
+      [childSessionId, task.id],
+    );
+    const view = await readChildTaskSession(service, user, thread.id, task.id);
+    assert.deepEqual(
+      view.messages.map((row) => row.text),
+      ["子 Agent 任务"],
+    );
   } finally {
     await database.close();
   }

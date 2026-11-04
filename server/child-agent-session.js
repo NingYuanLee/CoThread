@@ -365,13 +365,44 @@ async function historyForExecutor(db, threadId, executorId, checkpoint) {
   const [xiaoxiang] = await query(db, "SELECT checkpoint FROM agent_sessions WHERE thread_id=?", [
     threadId,
   ]);
-  messages = nativeHistoryFromCheckpoint(xiaoxiang?.checkpoint, {
-    sessionId: executorId,
-    includeMetadata: true,
-  });
+  // 小祥的会话快照里还有它自己的派生上下文（讨论注入等），那不是子会话内容。
+  // 这里只取该子会话自己的原生日志，不能把父会话 overlay 当成子 Agent 历史。
+  messages = nativeHistoryFromCheckpoint(xiaoxiang?.checkpoint, { sessionId: executorId });
   if (messages.length)
     return mergeNativeMetadata(messages, await nativeHistoryFromLiveHome(threadId, executorId));
   return nativeHistoryFromLiveHome(threadId, executorId);
+}
+
+/**
+ * 派活时写入的两条事件就是轨迹里的「小祥派活」与「上下文注入」：
+ * context_notice 的 input 是任务书正文，system_prompt 的 input 是子 Agent
+ * 系统提示词。会话视图把这两段作为右侧用户消息展示，而不是只显示任务目标。
+ */
+export function childContextMessages(events = []) {
+  const notice = events.find(
+    (event) =>
+      event.tool === "context_notice" &&
+      String(event.output || "").includes("cothread-child-context"),
+  );
+  const system = events.find((event) => event.tool === "system_prompt");
+  const messages = [];
+  if (notice?.input)
+    messages.push({
+      id: `dispatch:${notice.id}`,
+      role: "user",
+      source: "coordinator",
+      text: String(notice.input),
+      ...(notice.created_at ? { createdAt: notice.created_at } : {}),
+    });
+  if (system?.input)
+    messages.push({
+      id: `context:${system.id}`,
+      role: "user",
+      source: "coordinator",
+      text: String(system.input),
+      ...(system.created_at ? { createdAt: system.created_at } : {}),
+    });
+  return messages;
 }
 
 /**
@@ -452,7 +483,7 @@ export async function readChildTaskSession(service, user, threadId, messageId) {
   const events = executorId
     ? await query(
         service.db,
-        `SELECT e.id,e.tool,e.status,LEFT(e.input,2000) input,e.finished_at,a.id visual_artifact_id
+        `SELECT e.id,e.tool,e.status,LEFT(e.input,16000) input,LEFT(e.output,4000) output,e.created_at,e.finished_at,a.id visual_artifact_id
         FROM agent_events e LEFT JOIN agent_visual_artifacts a ON a.agent_event_id=e.id
         WHERE e.agent_task_id=? OR e.agent_session_id=? ORDER BY e.id LIMIT 200`,
         [task.task_id, executorId],
@@ -465,6 +496,18 @@ export async function readChildTaskSession(service, user, threadId, messageId) {
     [task.task_id],
   );
   const history = await historyForExecutor(service.db, threadId, executorId, task.checkpoint);
+  // 会话右侧按轨迹口径显示「小祥派活」与「上下文注入正文」；原生日志里
+  // 已含同样正文的 user 消息不再重复展示。
+  const injected = childContextMessages(events);
+  let messages = history;
+  if (injected.length) {
+    const injectedTexts = new Set(injected.map((message) => message.text));
+    messages = history.filter(
+      (message) => message.role !== "user" || !injectedTexts.has(message.text),
+    );
+    messages = [...injected, ...messages];
+  }
+  messages = withDispatchMessage(messages, task);
   return {
     messageId: task.task_id,
     slot: null,
@@ -473,7 +516,7 @@ export async function readChildTaskSession(service, user, threadId, messageId) {
     running,
     error: task.error || null,
     contextUsage: contextUsage(task, [], []),
-    messages: withDispatchMessage(history, task),
+    messages,
     events: mapEvents(events),
     pending: pending.map((item) => ({
       id: item.id,

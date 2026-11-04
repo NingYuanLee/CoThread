@@ -88,6 +88,10 @@ MCP 与 DSH 提供 search_memory、read_memory_history、read_memory_revision、
 - `server/discussion-memory.js`：讨论记忆写入原语——`upsertDiscussionMemory` 按话题归一键（标题去空白与标点）跨迭代合并、出处去重；`linkDiscussionParticipants` 从消息出处反查参与者，把各自发言记忆用 `relates` 连到讨论记忆；结算写 `subject=discussion` 条目后自动连边。
 - 老翁 `project_memory` 任务：`noteProjectMemorySignal` 轻标记、`maybeQueueProjectMemoryRun` 阈值/事件触发、`processNextMemorySettlement` 结算、`queueProjectMemoryRun` 手动刷新；任务已注册进 `LAOWENG_MAINTENANCE_TASKS`。
 - 三处轻标记：消息写入（`server/service-messages.js`）、任务状态变更（`server/task-pool-activity.js`）、正式文件新版本（`server/documents/versions.js`）。
+- 信号生命周期：删除整份文档、版本进回收站、同名合并软删、清空回收站、删除迭代连带删文档时，同步清掉指向这些版本的 `document_version` 信号（`dropDocumentVersionSignals`）；从回收站恢复正式文档会重新排一条，保证这次恢复仍进入结算。`runMemoryMaintenance` 每轮先执行 `dropUnavailableDocumentVersionSignals` 清理历史遗留的失效信号；结算加载候选时也会把「来源已删除」的信号直接丢弃并收口为完成运行（`agent_called=false`），只有暂时取不到的信号才继续退避重试。
+- 失败预算按内容算：同一来源产出新内容（提示变化触发 `signal_revision` 递增）时 `noteProjectMemorySignal` 重置该行 `retry_count` 与 `last_error`；人工「立即运行 / 重试」经 `resetProjectMemoryRetryBudget` 重置项目进程排队行的失败次数并把行拉回当前。否则历史失败会算进新一次重试，任何新错误都直接落成「已停止自动重试」。
+- 项目现状覆盖条件：模型对 `summary` / `statusMarkdown` 返回 `null` 视同未返回（不再整份判失败）；只有提交项目进程条目（`subject=project`）或主动给出正文时才覆盖 `project_status`，本次只提交任务/文档条目且未给正文时保留原现状、条目照常写入。
+- 维护会话快照上限：`saveCheckpoint` 超过 10 MiB 时不再让整次运行失败（否则每次运行都在结尾失败、作业永久卡死），而是重置维护会话（新 `session_id`、清空 `checkpoint` 与 `context_stats`）并把本次已校验结果照常返回；轨迹记「会话快照超过上限，已重置维护会话」。`runLaowengTask` 与 `compactLaowengSession` 两条保存路径都已接这个降级。
 - 前端：`web/ProjectMemory.tsx` 普通窗口弹窗（打开后可手动全屏；7:3：导读 / 带搜索的倒序记忆时间轴 / 记忆详情二级弹窗；种类筛选为默认「全部」的标准切换胶囊）、左侧四宫格「项目记忆」与小点、首次进入自动打开、`?projectId&memory=1` 直达；归档确认后提示清算摘要。
 - 迭代清算的人工校准：归档详情返回本轮记忆草稿 `memoryDrafts`，归档确认页可逐条勾选，勾选的条目在确认事务里转正。
 - 项目归档封存：项目归档后成员失去项目访问权（`p.archived_at IS NULL` 权限门槛），记忆读写都不可达；确认/纠错/知识页写入另有 409 防御拦截。
@@ -97,7 +101,7 @@ MCP 与 DSH 提供 search_memory、read_memory_history、read_memory_revision、
 - 主弹窗与详情弹窗都带全屏切换；详情底部不再放关闭按钮（走头部 X 与 Esc）。
 - 确认与纠错都先弹二次确认，确定后才调用接口，避免误点改变记忆状态。
 - 使用手册 `public/docs.html` 增补「项目记忆」章节。
-- 测试：`tests/project-memory.test.js`（入队与结算、确认与纠错、迭代清算与重放）。
+- 测试：`tests/project-memory.test.js`（入队与结算、确认与纠错、迭代清算与重放、失败次数不跨内容变化与人工重试继承）；`tests/project-status.test.js`（现状覆盖、只提交任务条目时可不带现状、项目进程条目缺现状时整次失败）；`tests/project-memory-signal-cleanup.test.js`（删除/恢复/清空回收站/同名合并清信号，历史失效信号扫描清理，只剩死信号时结算收口为完成）。
 - 轨迹与重试已接入 MCP：`get_laoweng_logs` 接受 `project_memory`，`retry_laoweng_task` 对 `project_memory` 走一次立即结算（与 `POST /memory/refresh` 同一条路径）。
 - 老翁工作面与各任务触发/产出见 [13-laoweng-workloads.md](13-laoweng-workloads.md)。
 

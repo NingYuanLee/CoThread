@@ -6,7 +6,11 @@ import { query, transaction } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { createApp } from "../server/app.js";
 import { issueCredential } from "../server/auth.js";
-import { processNextProjectMemory } from "../server/project-memory.js";
+import {
+  noteProjectMemorySignal,
+  processNextProjectMemory,
+  resetProjectMemoryRetryBudget,
+} from "../server/project-memory.js";
 import { isImportantIteration, isImportantTask } from "../server/memory-signal-filter.js";
 import {
   confirmMemoryEntry,
@@ -133,6 +137,60 @@ test("daily signals queue, then settle into current entries with sources", async
     assert.equal(finished.status, "completed");
     assert.equal(Number(finished.had_updates), 1);
     assert.equal(Number(finished.item_count), 2, "一条项目进程条目 + 一次现状覆盖");
+  } finally {
+    await database.close();
+  }
+});
+
+test("失败次数不跨内容变化与人工重试继承", async () => {
+  const { database, db, project } = await setup();
+  try {
+    const sourceId = randomUUID();
+    await query(
+      db,
+      `INSERT INTO agent_project_memory_queue(id,project_id,source_kind,source_id,hint,retry_count,available_at,last_error)
+       VALUES(?,?,'task',?,'旧提示',5,DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 30 DAY),'已停止自动重试：旧错误')`,
+      [randomUUID(), project.id, sourceId],
+    );
+    const readQueueRow = async () => {
+      const [row] = await query(
+        db,
+        `SELECT retry_count retryCount,last_error lastError,available_at availableAt
+         FROM agent_project_memory_queue WHERE project_id=? AND source_kind='task' AND source_id=?`,
+        [project.id, sourceId],
+      );
+      return row;
+    };
+    // 同一来源产出新内容：内容变了就应重新获得自动重试预算。
+    await noteProjectMemorySignal(db, project.id, "task", sourceId, "新提示");
+    const changed = await readQueueRow();
+    assert.equal(Number(changed.retryCount), 0);
+    assert.equal(changed.lastError, null);
+    // 内容没变、只是重复通知时保留原有预算。
+    await query(
+      db,
+      "UPDATE agent_project_memory_queue SET retry_count=3 WHERE project_id=? AND source_kind='task' AND source_id=?",
+      [project.id, sourceId],
+    );
+    await noteProjectMemorySignal(db, project.id, "task", sourceId, "新提示");
+    assert.equal(Number((await readQueueRow()).retryCount), 3);
+    // 人工重试重置预算并把排队行拉回当前，否则历史失败会让下一次失败直接又判成停止。
+    await query(
+      db,
+      `UPDATE agent_project_memory_queue SET retry_count=5,last_error='已停止自动重试：旧错误',
+       available_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 30 DAY)
+       WHERE project_id=? AND source_kind='task' AND source_id=?`,
+      [project.id, sourceId],
+    );
+    await resetProjectMemoryRetryBudget(db, project.id);
+    const reset = await readQueueRow();
+    assert.equal(Number(reset.retryCount), 0);
+    assert.equal(reset.lastError, null);
+    const [now] = await query(db, "SELECT UTC_TIMESTAMP(3) now");
+    assert.ok(
+      new Date(reset.availableAt).getTime() <= new Date(now.now).getTime(),
+      "排队行应重新到点",
+    );
   } finally {
     await database.close();
   }

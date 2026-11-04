@@ -2,7 +2,8 @@ import { gzipSync } from "node:zlib";
 import { test, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod/v3";
 import { testDatabase } from "./database.js";
@@ -185,6 +186,77 @@ test("老翁 keeps a durable DSH session per maintenance agent and validates str
     assert.ok(memberLogs.events.every((event) => event.task === "member_memory"));
     assert.notEqual(memberLogs.events[0].id, logs.events[0].id);
   } finally {
+  }
+});
+
+test("会话快照超过上限时重置维护会话，本次结果照常返回", async () => {
+  const agentsRoot = await mkdtemp(join(tmpdir(), "laoweng-oversize-"));
+  try {
+    const user = { id: randomUUID(), kind: "session" };
+    await query(
+      database.db,
+      "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')",
+      [user.id, `${user.id}@test.com`, "负责人"],
+    );
+    const project = await new Service(database.db).createProject(user, { name: "快照上限" });
+    const sessionIds = [];
+    const options = {
+      agentsRoot,
+      checkpointLimitBytes: 1,
+      model: {
+        baseUrl: "http://127.0.0.1:1/v1",
+        apiKey: "test",
+        model: "test",
+        reasoningEffort: "medium",
+      },
+      createHarness: () => ({
+        async start() {},
+        async run(_prompt, runOptions) {
+          sessionIds.push(runOptions.sessionId);
+          return { finalResponse: JSON.stringify({ summary: "已校验" }) };
+        },
+        async close() {},
+      }),
+    };
+    const schema = z.object({ summary: z.string() });
+    const first = await runLaowengTask(
+      database.db,
+      project.id,
+      "project_memory",
+      {},
+      schema,
+      options,
+    );
+    assert.equal(first.summary, "已校验", "快照存不下时本次已校验的结果仍应返回");
+    const readSession = async () => {
+      const [row] = await query(
+        database.db,
+        `SELECT session_id sessionId,checkpoint,status,context_stats contextStats
+         FROM agent_project_sessions WHERE project_id=? AND task='project_memory'`,
+        [project.id],
+      );
+      return row;
+    };
+    const rotated = await readSession();
+    assert.notEqual(rotated.sessionId, sessionIds[0], "应换成新的维护会话");
+    assert.equal(rotated.checkpoint, null);
+    assert.equal(rotated.status, "idle");
+    assert.equal(rotated.contextStats, null);
+    const events = await query(
+      database.db,
+      `SELECT phase,summary FROM agent_project_events
+       WHERE project_id=? AND task='project_memory' ORDER BY id`,
+      [project.id],
+    );
+    assert.ok(
+      events.some((event) => /已重置维护会话/.test(String(event.summary))),
+      "轨迹里应说明会话已被重置",
+    );
+    // 下一次运行使用新会话，不再复用已经过大的那个。
+    await runLaowengTask(database.db, project.id, "project_memory", {}, schema, options);
+    assert.equal(sessionIds[1], rotated.sessionId);
+  } finally {
+    await rm(agentsRoot, { recursive: true, force: true });
   }
 });
 

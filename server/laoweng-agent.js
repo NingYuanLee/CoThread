@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { query } from "./db.js";
 import { acquireNamedLock } from "./named-lock.js";
 import { assetPath } from "./assets.js";
-import { hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.js";
+import { dedupeSessionLogs, hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.js";
 import { dshModelMaxTokens, dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { laowengRuntimePatch, elderRuntimePatch } from "./dsh-runtime-config.js";
@@ -20,6 +20,8 @@ import { buildMaintenanceTurn } from "../shared/prompt-blocks.js";
 import { createUsageMeter } from "./agent-usage.js";
 
 const LAOWENG_CONTEXT_BUDGET = contextBudget("knowledge");
+/** 维护会话快照上限；超过即视为历史累积过量，重置会话而不是让运行反复失败。 */
+const LAOWENG_CHECKPOINT_LIMIT_BYTES = 10 * 1024 * 1024;
 
 export { LAOWENG_MAINTENANCE_TASKS, normalizeLaowengTask };
 
@@ -43,7 +45,7 @@ function maintenanceInputSummary(input) {
   return parts.length ? `输入：${parts.join(" · ")}` : "输入：无";
 }
 
-async function saveCheckpoint(db, sessionRowId, home, modelMessages) {
+async function saveCheckpoint(db, sessionRowId, home, modelMessages, limitBytes) {
   const files = {};
   async function walk(path, prefix = "") {
     for (const entry of await readdir(path, { withFileTypes: true }).catch((error) =>
@@ -62,11 +64,28 @@ async function saveCheckpoint(db, sessionRowId, home, modelMessages) {
   if (modelMessages)
     files["_cothread_context.json"] = Buffer.from(JSON.stringify(modelMessages)).toString("base64");
   const checkpoint = gzipSync(JSON.stringify(files));
-  if (checkpoint.length > 10 * 1024 * 1024) throw new Error("老翁 会话快照超过 10 MiB");
+  const limit = Number(limitBytes) > 0 ? Number(limitBytes) : LAOWENG_CHECKPOINT_LIMIT_BYTES;
+  const limitMb = Math.max(1, Math.round(limit / (1024 * 1024)));
+  if (checkpoint.length > limit) throw new Error(`老翁 会话快照超过 ${limitMb} MiB`);
   await query(db, "UPDATE agent_project_sessions SET checkpoint=? WHERE id=?", [
     checkpoint,
     sessionRowId,
   ]);
+}
+
+/**
+ * 会话历史累积到快照超过上限时，快照永远存不进去，每次运行都会在结尾失败，作业就此卡死。
+ * 这不是本次结果的问题：换一个新的 DSH 会话（旧日志移走、检查点清空），本次已校验的结果
+ * 照常返回，下一次运行从干净上下文继续。代价是维护会话的连续性，但好过整项作业无法处理。
+ */
+async function resetOversizedLaowengSession(db, sessionRowId, home) {
+  await rm(join(home, "sessions"), { recursive: true, force: true });
+  await query(
+    db,
+    `UPDATE agent_project_sessions SET session_id=?,checkpoint=NULL,context_stats=NULL,
+     status='idle',last_error=NULL,last_finished_at=UTC_TIMESTAMP(3) WHERE id=?`,
+    [randomUUID(), sessionRowId],
+  );
 }
 
 async function sampleHistory(harness, sessionId) {
@@ -138,7 +157,12 @@ async function requestCompact(harness, sessionId, automatic) {
 }
 
 async function openLaowengHarness(db, projectId, session, scope, options = {}) {
-  const root = resolve(".local/agents");
+  // `.local` 在每个 release 目录里都是指向 /opt/cothread/.local 的软链；resolve 不解析软链，
+  // 直接用路径拼写会让 home 随每次发布变化，同一会话被记到新的项目目录下（重复 JSONL）。
+  // agentsRoot 只给测试注入可写根目录，线上始终用 `.local/agents`。
+  const root = options.agentsRoot
+    ? resolve(options.agentsRoot)
+    : await realpath(resolve(".local/agents")).catch(() => resolve(".local/agents"));
   const home = resolve(root, `laoweng-${scope.task}-${scope.scopeId}`);
   await mkdir(home, { recursive: true });
   if (session.checkpoint) {
@@ -148,6 +172,16 @@ async function openLaowengHarness(db, projectId, session, scope, options = {}) {
       }).toString(),
     );
     await restoreSessionCheckpoint(files, home);
+  }
+  // 同一 home 改名或搬迁后，会话 id 可能同时在旧、新两个项目目录下各留一份日志，
+  // DSH 的 findLog 遇到重复会在 model_run 前直接抛错，之后每次维护都失败。
+  // 开跑前收敛成一份，避免一条残留目录把整个任务卡死。
+  for (const repaired of await dedupeSessionLogs(home)) {
+    console.warn("老翁会话日志去重", {
+      sessionId: repaired.id,
+      kept: repaired.kept,
+      movedTo: repaired.to,
+    });
   }
   // A run that created the session log but failed before saving a checkpoint still
   // owns that id on disk; re-creating it fails with 'session "<id>" already exists'
@@ -424,16 +458,28 @@ export async function runLaowengTask(db, projectId, task, input, schema, options
       await harness.close();
       harness = null;
       await beginPhase("save_checkpoint");
-      await saveCheckpoint(db, sessionRowId, opened.home, history);
-      await notePhase(
-        `检查点已保存 · 上下文 ${Math.round((contextStats?.used || 0) / 100)} 词元 · 历史 ${Array.isArray(history) ? history.length : 0} 条`,
-      );
-      await query(
-        db,
-        `UPDATE agent_project_sessions SET status='idle',last_finished_at=UTC_TIMESTAMP(3),
-        last_error=NULL,context_stats=COALESCE(?,context_stats) WHERE id=?`,
-        [contextStats ? JSON.stringify(contextStats) : null, sessionRowId],
-      );
+      let checkpointSaved = true;
+      try {
+        await saveCheckpoint(db, sessionRowId, opened.home, history, options.checkpointLimitBytes);
+      } catch (error) {
+        // 历史累积超过快照上限：本次结果已经过校验，不该因存不下快照而整次失败。
+        // 换一个新会话继续维护，避免一份过大的历史把整个作业永久卡住。
+        if (!/会话快照超过/.test(String(error?.message || ""))) throw error;
+        checkpointSaved = false;
+        await resetOversizedLaowengSession(db, sessionRowId, opened.home);
+        await notePhase("会话快照超过上限，已重置维护会话");
+      }
+      if (checkpointSaved) {
+        await notePhase(
+          `检查点已保存 · 上下文 ${Math.round((contextStats?.used || 0) / 100)} 词元 · 历史 ${Array.isArray(history) ? history.length : 0} 条`,
+        );
+        await query(
+          db,
+          `UPDATE agent_project_sessions SET status='idle',last_finished_at=UTC_TIMESTAMP(3),
+          last_error=NULL,context_stats=COALESCE(?,context_stats) WHERE id=?`,
+          [contextStats ? JSON.stringify(contextStats) : null, sessionRowId],
+        );
+      }
       await completePhase();
       return parsed;
     });
@@ -485,12 +531,21 @@ export async function compactLaowengSession(db, projectId, task, options = {}) {
           : { before: used, after: used, changed: false };
       const after = await sampleContextStats(harness, session.session_id);
       const history = await sampleHistory(harness, session.session_id);
-      await saveCheckpoint(db, session.id, opened.home, history);
-      await query(
-        db,
-        `UPDATE agent_project_sessions SET context_stats=COALESCE(?,context_stats) WHERE id=?`,
-        [after ? JSON.stringify(after) : null, session.id],
-      );
+      let checkpointSaved = true;
+      try {
+        await saveCheckpoint(db, session.id, opened.home, history, options.checkpointLimitBytes);
+      } catch (error) {
+        // 压缩后快照仍然超限：同样按历史累积过量处理，重置会话让后续运行能继续。
+        if (!/会话快照超过/.test(String(error?.message || ""))) throw error;
+        checkpointSaved = false;
+        await resetOversizedLaowengSession(db, session.id, opened.home);
+      }
+      if (checkpointSaved)
+        await query(
+          db,
+          `UPDATE agent_project_sessions SET context_stats=COALESCE(?,context_stats) WHERE id=?`,
+          [after ? JSON.stringify(after) : null, session.id],
+        );
       await harness.close();
       harness = null;
       return result || { before: used, after: after?.used || used, changed: false };

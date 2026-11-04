@@ -93,6 +93,51 @@
 
 验证：`tests/memory-retry.test.js` 增至 8 项（新增信号白名单与收口说明断言）全部通过；`tsc --noEmit` 与 prettier 检查通过。本轮仍未执行数据库用例（测试库 RDS 从本机 `PROTOCOL_CONNECTION_LOST`），线上效果需部署后从历史记录确认：项目记忆不再出现只有议题/文件索引输入的运行；同一失败窗口不再连续重跑。收口会把剩余失败候选标记为失败记录而不是静默丢弃，但自动重试不会再处理它们，需要人工在记忆作业里重试或重新分析。
 
+## 删除文档后的失效项目进程信号（2026-11-04 第三轮）
+
+用户从「记忆作业 · 项目进程与主要任务」指出：`丧事文案修改稿.wps · 重试 17 次 · 最近尝试 2026-11-04 03:40:44 · 已停止自动重试，需要人工重试：候选来源不存在或不可访问`。
+
+核对「讣告排版」项目数据后确认：
+
+- 该 wps 于 2026-10-31 09:13:53 上传到正式文件，09:16:38 被删除（artifact 软删除进回收站）；上传时写入的 `document_version` 信号没有随删除清掉。
+- 结算加载候选时要求文档 `deleted_at IS NULL AND purged_at IS NULL` 且版本未进回收站，因此这条信号永远核验失败；11-03 13:07 那次成功结算消费完其它候选后，队列只剩它，14:08 起每小时结算都只剩这条死信号。每命中一次重试计数 +1（自动退避，加上人工「立即运行/重试失败运行」会把 `available_at` 重置为当前时间），5 次自动重试预算用尽后写「已停止自动重试」并把队列行推到 30 天后。
+- 根因是删除路径不清理项目进程信号，且结算把「永久不可用」当成「暂时取不到」按退避重试。
+
+改动：
+
+- `server/project-memory.js` 新增 `dropDocumentVersionSignals`（按版本或文档清理信号）与 `dropUnavailableDocumentVersionSignals`（维护扫描清理失效信号）；`candidateTexts` 标记永久失效来源，`processNextMemorySettlement` 直接删除这些队列行，只剩它们时把运行收口为完成（不调模型、不写失败）。
+- 删除路径接线：`server/documents/library.js`（整份删除、版本进回收站、文件夹级联删除、清空回收站）、`server/documents/versions.js`（同名合并软删）、`server/documents/service.js`（删除迭代连带删文档）；`library.js` 恢复正式文档时重新排一条 `document_version` 信号。
+- `server/memory-maintenance.js` 每轮维护先清理失效信号，历史遗留行（包括已推到 30 天后的）会在下一轮 cron 被删掉，不依赖人工重试。
+
+验证：`tests/project-memory-signal-cleanup.test.js` 6/6；相关 `project-memory`、`memory-retry`、`project-memory-signals`、`project-status`、`memory-jobs` 共 31/31；`document-memory` 15/15；`check-boundaries` / `check-overlays` / `check-field-resets` / `check-field-usage` 通过；`node --check` 通过。测试库 RDS 从本机仍 `PROTOCOL_CONNECTION_LOST`，数据库用例改用本机 3307 便携 MySQL 的 `cothread_test` 执行；`npm run lint` 因沙箱拒绝 spawn git 未能完整执行，`file-index-discovery` 4 项失败是本机沙箱 `.local\agents` mkdir EPERM，与本次改动无关。线上需部署后确认：该 wps 的队列行消失、项目记忆不再出现「候选来源不存在或不可访问」的按小时失败。
+
+2026-11-04 已随当日第二次发布上线（包 `cothread-release-20261104T044635Z.tgz`，execution `exec-0c361976593d4107af3c`，`current` 为 `/opt/cothread/releases/20261104T044814Z`）。线上核对：`current/server/project-memory.js` 含 `dropDocumentVersionSignals`；该 wps 的 artifact 已置 `purged_at`、残留信号行删除（`signalsRemaining=0`），MCP `list_documents` 不再列出；手动 `project_memory` 结算 run `4f86f25f-89f4-4303-9d91-0938b03679db` 为 `completed`、`agent_called=0`，不再出现「候选来源不存在或不可访问」。发布细节与门禁见 `05-cloud-environment.md` 文末。
+
+## 记忆作业项目进程 / 发言「无法处理」（2026-11-04 第四轮）
+
+用户从「记忆作业」反馈：项目进程与发言两块似乎因为一些历史数据导致无法处理。核对 `get_laoweng_status`、`get_laoweng_logs`（项目 `8d0cf468`，时间为 UTC）后确认：
+
+- **项目进程（结算校验失败）**：13:01 手动触发的运行 `76c709c7` 中，`model_run` 24 s 正常返回，`validate_result` 报 `invalid_type: Expected string, received null`（path `statusMarkdown`），整次判失败；错误文案是「项目记忆整理未完成。已停止自动重试，需要人工重试」——说明该批队列行的 `retry_count` 已被更早的失败累计到上限，新错误一出现就直接停止。
+- **项目进程（更早的 12 次失败）**：12:34–13:28 每轮 `model_run`、`validate_result` 都成功，随后 `save_checkpoint` 报「老翁 会话快照超过 10 MiB」，共 12 次；同一会话 `90b324c6` 的历史在 12 次失败中反复累积。注意轨迹里的「上下文 3729 词元」是 `used/100` 的显示口径，实际约 37.3 万词元，历史并未回落；即使校验层修好，下一次成功结算仍会在保存快照时失败，所以本轮必须同时给快照超限加降级。
+- **发言**：12:34–13:27 每次 `model_run` 前失败 `duplicate JSONL session id "91296140-…" appears in multiple project directories`（约 44 个输入）；这是第三轮已修的会话目录分裂问题，发布后 13:08 起连续 `{"supported":true}` 正常处理，未再复现。13:00 那次「部分候选未通过校验，可重试」是候选核验未通过后的正常退避，随后成功。
+
+根因（三处在 `server/project-memory.js`，一处 在 `server/laoweng-agent.js`；前两处由当日上午 `7316999` 改造引入）：
+
+1. 校验层 `statusMarkdown: z.string().optional().default("")`：zod/v3 的 `.optional()` 只接受 `undefined`，模型按「没有项目进程条目就不返回」写成 `"statusMarkdown": null` 时整份结果被拒。`summary` 同写法。
+2. 写入条件 `if (created.length || updated.length)`：只提交任务/文档条目时也会调用 `writeProjectStatus(result.statusMarkdown)`，正文为空即抛「项目现状正文为空」，整批条目随事务回滚。提示词却写的是「只在提交了新增或更新项目进程条目时返回」，两处口径不一致，导致这批内容永远处理不了。
+3. 失败预算被历史继承：人工「立即运行 / 重试」（`queueProjectMemoryRun`）只把 `available_at` 拉回当前，不重置 `retry_count`；`noteProjectMemorySignal` 在来源内容变化（`signal_revision` 递增）时也不重置。于是旧失败预算永久生效，任何新错误都立刻落成「已停止自动重试」。
+4. 快照上限让维护会话本身卡死：`saveCheckpoint` 抛错即整次运行失败，而历史只增不减，于是形成 12 次连续失败；正确做法是本次结果照常落库并重置会话，而不是让作业永久无法处理。
+
+改动：
+
+- `projectMemorySchema`：`summary` / `statusMarkdown` 为 `null` 时视同未返回（`preprocess` 转空串），不再整份失败。
+- `applyProjectMemoryResult`：只有提交项目进程条目（`subject=project`）或主动给出正文时才覆盖 `project_status`；本次只提交任务/文档条目且未给正文时保留原现状、条目照常写入；项目进程条目缺正文仍然整次失败。
+- 提示词同步为「提交项目进程条目时必须返回 statusMarkdown；只提交任务或文档条目时可省略」。
+- 新增 `resetProjectMemoryRetryBudget`，`queueProjectMemoryRun` 调用它重置排队行失败次数与上次错误；`noteProjectMemorySignal` 在候选提示变化时重置该行 `retry_count` / `last_error`。
+- `server/laoweng-agent.js`：`saveCheckpoint` 超过 10 MiB 时改为重置维护会话（新 `session_id`、清空 `checkpoint` 与 `context_stats`、移走旧 `sessions` 目录，轨迹记「已重置维护会话」），本次已校验结果照常返回；`runLaowengTask` 与 `compactLaowengSession` 两条保存路径都走这个降级。`openLaowengHarness` 增加 `agentsRoot` 选项，仅用于测试注入可写目录（线上仍用 `.local/agents`）。
+
+验证：`tests/project-status.test.js` 7/7（新增「只提交任务条目时可以不带项目现状」「项目进程条目返回 null 现状时整次结算失败」；前者在旧写入逻辑下实测为 `failed`，修复后 `completed`，已做反向验证）；`tests/project-memory.test.js` 7/7（新增「失败次数不跨内容变化与人工重试继承」）；`tests/laoweng-agent.test.js` 新增「会话快照超过上限时重置维护会话，本次结果照常返回」通过（该文件另 4 项仍失败于本机 `.local\agents` mkdir EPERM，与本次改动无关）；回归 `project-memory-signal-cleanup` 6/6、`memory-retry` 8/8、`project-memory-signals` 1/1、`memory-jobs` 11/11、`discussion-memory` 4/4，19 个记忆相关文件（含 `conversation-memory-*`、`memory-*`、`utterance-memory`、`task-memory`）除本机沙箱 EPERM 外全部通过（`laoweng-agent` 4、`conversation-memory-store` 1、`conversation-memory-runtime` 1 失败均为 `.local\agents` mkdir / spawn 被沙箱拒绝）。`tsc --noEmit`、prettier、`check-boundaries` / `check-overlays` / `check-field-resets` / `check-field-usage` 通过；`npm run test:unit` 因沙箱拒绝 spawn 未执行。线上库从本机不可达（RDS 公共地址 `PROTOCOL_CONNECTION_LOST`，生产只放行 ECS），本地 3307 开发库无该项目数据，因此本轮结论来自线上运行日志与代码，不是线上数据核对；发布后需确认：项目进程运行不再出现 `statusMarkdown` 校验失败、人工重试后排队行 `retry_count` 归零、只含任务条目的批次能正常落库、快照超限时运行仍为完成并出现「已重置维护会话」。
+
 ## 尚需实际环境验收
 
 自动化使用替身模型，不能证明观点判断、议题合并、文件识别和项目进程取舍质量。浏览器交互、真实模型材料抽样尚未完成。持续流量下的模型调用次数、公平调度、耗时，以及运行中项目封存等竞态仍需观察；不把它们写作已确认缺陷或已通过验收。

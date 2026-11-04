@@ -144,6 +144,77 @@ test("条目更新缺少现状正文时整次结算失败并保留候选", async
   }
 });
 
+test("只提交任务条目时可以不带项目现状，条目照常写入", async () => {
+  const { database, db, owner, project } = await setup();
+  try {
+    await writeProjectStatus(db, project.id, "## 当前状态\n\n- 已有现状。", owner.id);
+    await processNextProjectMemory(db, {
+      projectId: project.id,
+      task: "project_memory",
+      verifyMemorySupport: async () => ({ supported: true }),
+      summarizeMemory: async (context) => ({
+        entries: [
+          {
+            op: "create",
+            subject: "task",
+            subtype: "blocked_task",
+            title: "替换默认头像",
+            body: "## 任务概况\n\n- 被阻塞",
+            sourceIds: context.candidates.map((candidate) => candidate.queueId),
+          },
+        ],
+        statusMarkdown: null,
+      }),
+    });
+    const [run] = await query(
+      db,
+      `SELECT status,item_count FROM agent_laoweng_runs
+       WHERE project_id=? AND task='project_memory' ORDER BY created_at DESC LIMIT 1`,
+      [project.id],
+    );
+    assert.equal(run.status, "completed");
+    assert.equal(Number(run.item_count), 1);
+    assert.match((await readProjectStatus(db, project.id)).body, /已有现状/, "现状保持原样");
+    const pages = await query(db, "SELECT id FROM wiki_pages WHERE project_id=? AND title=?", [
+      project.id,
+      "替换默认头像",
+    ]);
+    assert.equal(pages.length, 1, "任务条目应写入，不因缺少现状正文回滚");
+  } finally {
+    await database.close();
+  }
+});
+
+test("项目进程条目返回 null 现状时整次结算失败并保留候选", async () => {
+  const { database, db, project } = await setup();
+  try {
+    await processNextProjectMemory(db, {
+      projectId: project.id,
+      task: "project_memory",
+      verifyMemorySupport: async () => ({ supported: true }),
+      summarizeMemory: async (context) => ({
+        entries: [projectEntry(context, "无现状", "## 无现状\n\n- 正文")],
+        statusMarkdown: null,
+      }),
+    });
+    assert.equal(await readProjectStatus(db, project.id), null);
+    const [failed] = await query(
+      db,
+      "SELECT COUNT(*) count FROM agent_laoweng_runs WHERE project_id=? AND task='project_memory' AND status='failed'",
+      [project.id],
+    );
+    assert.equal(Number(failed.count), 1);
+    const [pending] = await query(
+      db,
+      "SELECT COUNT(*) count FROM agent_project_memory_queue WHERE project_id=?",
+      [project.id],
+    );
+    assert.ok(Number(pending.count) >= 1, "候选应保留重试");
+  } finally {
+    await database.close();
+  }
+});
+
 test("导读读取项目现状 md", async () => {
   const { database, db, owner, project } = await setup();
   try {

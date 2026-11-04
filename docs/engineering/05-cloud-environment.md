@@ -2,9 +2,11 @@
 
 维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-11-04 八次发布——上午「按来源治理记忆 / 项目现状 Markdown」，下午「删除文档后的失效项目进程信号清理」，晚间「项目记忆结算修复 + 时间线分页 + index.html 预加载修复」，随后「项目记忆读取性能（轻量读 + 按需详情）与核验理由截断」、「项目进程信号改为按水位扫描生成（迁移 221）」，以及「项目进程去文档化 + 逐条核验 + 任务聚合 + 忽略入口（迁移 222）」，以及「发布重启 502 窗口收缩（SSE 主动结束 + 连接强断 + 前端退避重试）」，以及「WPS/旧版二进制 Office 读取与预览派生文件（迁移 223）」；八次都重核了门禁、打包清单、OOS 上传和上线验收（第八次本机全量测试因测试库不可达未跑，见文末）。本轮补充了 Alibaba MCP 通道现状、测试库锁残留检查、`OOS_GetDeployStatus` 参数约束、`visibleFileIndexSql` 整表开销实测，以及迁移 221/222 的线上应用核对，以及本机沙箱管道限制下的构建与上传替代路径；详见「ECS 发布」及文末。
 
-应用后端需要常驻 Node.js 进程（Node.js 22.22.3+，推荐 24）、MySQL 网络连接及可写的 `.local` 目录。只发布 `dist/` 静态文件无法运行 API、MCP 和后台 Agent；生产环境固定为阿里云 ECS 单实例 + RDS，本机开发用便携版 MySQL。
+应用后端需要常驻 Node.js 进程（Node.js 24.9+，DSH 0.2.2 起强制要求）、MySQL 网络连接及可写的 `.local` 目录。只发布 `dist/` 静态文件无法运行 API、MCP 和后台 Agent；生产环境固定为阿里云 ECS 单实例 + RDS，本机开发用便携版 MySQL。
 
 在 ECS 上把变量配置到后端运行环境（`/opt/cothread/.env`）。无需上传真实 `.env`；`npm start`、`npm run db:migrate`、`npm run db:seed` 和 `npm run db:backup` 允许该文件不存在。本地存在 `.env` 时仍会读取，环境里已设置的同名变量优先。
+
+2026-11-04 DSH 整链升级到 `0.2.2-rc.1`（npm 的 `next` tag；`0.2.2` 尚无正式版）：`package.json` 中全部 `@deepseek-ai/dsh*` 与 `cordis-plugin-group` 同步升级，`engines.node` 提到 `>=24.9.0`。本机 Node 24.18 满足；Docker 固定 `node:24.18-bookworm-slim`，CI 只保留 `24.x`，ECS 启动钩子改装 `/opt/cothread/node-runtime-24.18.0`。代码侧同步了 `startActivation`、会话恢复 `resume` 透传、官方新增装配条目（filesystem / tool-fs / working-directory / tool-executor-native / image-offload / checkpoint-policy）与移除的 invariants / `list-agents` 子路径。**本次升级尚未部署到 ECS**：上线前必须确认生产 Node 已切到 24.9+，否则进程起不来。
 
 | 变量                                                                       | 配置                                                                                                         |
 | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -75,7 +77,7 @@
 
    上述 npm 10 预检用于覆盖本次生产安装问题；后续应按目标 ECS 的 npm 主版本选择。`--dry-run` 只验证安装计划，不代表包下载和安装脚本已成功。
 
-4. 核对项目及依赖的 Node 要求和 ECS 实际版本。本次 `@dimina/compiler@1.2.2` 要求至少 `22.22.3`，ECS 原为 `22.19.0`。[启动钩子](../../scripts/ecs-codedeploy-start.sh)已加入版本检查：需要升级时，将固定版本安装到 `/opt/cothread/node-runtime-22.22.3`，验证可执行文件后再切换 `/usr/local/bin/node`，并保留 `node.previous`。以后依赖提高要求时，须同步核对 `package.json`、钩子和本文，不能只忽略 `EBADENGINE`。
+4. 核对项目及依赖的 Node 要求和 ECS 实际版本。本次 DSH 0.2.2 要求至少 `24.9.0`（`package.json` 的 `engines` 同步；旧版 `@dimina/compiler@1.2.2` 的 `22.22.3` 要求已被覆盖），ECS 原为 `22.22.3`。[启动钩子](../../scripts/ecs-codedeploy-start.sh)已加入版本检查：需要升级时，将固定版本安装到 `/opt/cothread/node-runtime-24.18.0`，验证可执行文件后再切换 `/usr/local/bin/node`，并保留 `node.previous`。以后依赖提高要求时，须同步核对 `package.json`、钩子和本文，不能只忽略 `EBADENGINE`。
 5. 有迁移时，先在独立测试库验证完整迁移链，并检查已有生产库的升级路径。本次 114 号迁移错误更新了已被 046 号迁移删除的 `agent_capabilities`、`agent_capability_contracts`，直到独立 MySQL 验证才发现。修复尚未上线的迁移；不要随意改写已应用迁移或手工重写校验和。触发器语句需按[迁移执行器](../../scripts/migrate.js)的处理方式执行。
 
    2026-11-04 核对迁移与升级路径的做法：本机 `cothread` 账号只有 `cothread_dev`、`cothread_test*`、`cothread_refactor_check` 等库的授权，新建任意库名会被拒绝（`ERROR 1044`），核对库应复用已授权的 `cothread_refactor_check`。先在空库执行完整迁移链（本轮 201/201），再用恢复出来的真实数据副本从旧状态升级（本轮 183 → 201，含 220 的正文迁移与旧现状表删除），两者都通过才打包。迁移 218—220 在空库与真实数据上均只执行一次；198 号生产库本次升级到 201，218/219 为加表与回填列，220 会复制旧现状正文后删除 `project_status_nodes` / `project_status_revisions` / `project_status_source_snapshots` 并收敛 `project_memory_settlements` 列。

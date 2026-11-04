@@ -90,7 +90,7 @@ export function chatModeText(dialogueMode) {
 /**
  * DeepSeek 在延续的 in-history 序列里会追加变更后的系统提示词，旧文仍可见。
  * 新序列才会替换头节点。因此会变的 B 段不能放进系统提示词。
- * 规则对应 dsh-agent-loop SystemPromptProjection.project（SDK 0.2.0-rc.2）。
+ * 规则对应 dsh-agent-loop SystemPromptProjection.project（SDK 0.2.2-rc.1）。
  */
 export function projectSystemPrompt({ nodes, rendered, inHistory, startsSeries }) {
   const head = nodes[0];

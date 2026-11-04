@@ -2,7 +2,7 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 import { startChildAgent } from "./sdk-resume.mjs";
 
 export const name = "cothread-project-tools";
-// subagents is required so create_task can startContinuable in-process
+// subagents is required so create_task can startActivation in-process
 // (same path as explicit child_agent). Without it: "cannot get property subagents without inject".
 export const inject = ["tools", "agents", "subagents"];
 

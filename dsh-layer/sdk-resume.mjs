@@ -1,5 +1,7 @@
-// Adapter for the pinned DSH 0.2.0-rc.2 SDK: its named-session path creates
-// a new session even when a durable record exists. Resume that record explicitly.
+// Adapter for the pinned DSH 0.2.2-rc.1 SDK: the runtime owns session restore
+// through `openSession(id, resume)` and child lifecycles through
+// `startActivation`. Keep the named-session resume explicit and forward the
+// resume flag so restored sessions are not recreated.
 import { JsonRpcLineTransport } from "@deepseek-ai/dsh-sdk-protocol";
 import {
   Config,
@@ -10,6 +12,7 @@ import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { parentAgentOptionsForDelegation } from "@deepseek-ai/dsh-subagent";
 import { measureContext } from "./context-meter.mjs";
 import { repairContext, transcriptBlocks } from "./repair-context.mjs";
+import { registerAgentPersona } from "./cothread-system-prompt.mjs";
 export { Config };
 export const name = "cothread-sdk-server";
 export const inject = [...sdkInject, "tokenMeter", "compaction"];
@@ -131,7 +134,7 @@ export async function startChildAgent(ctx, parent, { label, prompt, signal, pers
     // Cordis throws on undeclared inject even under optional chaining.
     throw new Error(`当前运行时不能启动 子 Agent（${error?.message || error}）`);
   }
-  if (!subagents?.startContinuable) throw new Error("当前运行时不能启动 子 Agent");
+  if (!subagents?.startActivation) throw new Error("当前运行时不能启动 子 Agent");
   const title = String(label || "任务").slice(0, 80);
   let agentOptions;
   try {
@@ -141,20 +144,23 @@ export async function startChildAgent(ctx, parent, { label, prompt, signal, pers
   }
   const outer = signal || AbortSignal.timeout(30000);
   const spawn = async (spawnSignal) => {
-    const started = await subagents.startContinuable({
+    const started = await subagents.startActivation({
       provider: "spawn",
       label: title,
       request: {
-        label: title,
         prompt: [{ type: "text", text }],
         parent,
         ...(agentOptions ? { agentOptions } : {}),
-        ...(persona ? { persona: String(persona) } : {}),
         maxDepth: 1,
       },
       signal: spawnSignal,
+      // 完成时由运行时通知父模型，等价于旧版 continuable 子 Agent 的默认行为。
+      delivery: "parent",
     });
     if (!started?.childId) throw new Error("子 Agent 启动没有返回会话");
+    // 0.2.2 的启动请求不再接收 persona（改由 agentPreset 拥有）；任务级 persona
+    // 由共序系统提示词层按子会话 id 注入。
+    if (persona) registerAgentPersona(started.childId, String(persona));
     return { childId: started.childId };
   };
   const waitIdle = async () => {
@@ -320,7 +326,7 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (method, params
   if (method === "cothread/compact") return compactMeasuredSession(this, agent, params);
   if (method === "cothread/dispatch-child") {
     // child_agent tool passes the live parent; getOrCreateSession can return a
-    // different handle that startContinuable will not admit under the running team.
+    // different handle that startActivation will not admit under the running team.
     const parent = liveAgent(this, params.sessionId) || agent;
     return startChildAgent(this.ctx, parent, params);
   }
@@ -351,9 +357,9 @@ HarnessSdkJsonRpcServer.prototype.handleRequest = async function (method, params
   }
   return measureContext(this.ctx, agent.session, { level: sessionContextLevel(params.sessionId) });
 };
-HarnessSdkJsonRpcServer.prototype.createSession = async function (sessionId) {
+HarnessSdkJsonRpcServer.prototype.createSession = async function (sessionId, resume) {
   if (sessionId !== process.env.COTHREAD_RESUME_SESSION) {
-    return createSession.call(this, sessionId);
+    return createSession.call(this, sessionId, resume);
   }
   const handle = await this.ctx.agents.resume({
     resumeSessionId: sessionId,

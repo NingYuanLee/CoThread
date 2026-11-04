@@ -292,9 +292,13 @@ export function SessionConversationDialog({
               {error ? <p role="alert">{error}</p> : null}
               {!error && !messages.length ? (empty ? empty(data) : null) : null}
               {groups.map((group, groupIndex) => {
-                const finalIndex = group.output.findLastIndex(
-                  (message) => message.role === "assistant",
-                );
+                let finalIndex = -1;
+                for (let index = group.output.length - 1; index >= 0; index -= 1) {
+                  if (group.output[index].role === "assistant") {
+                    finalIndex = index;
+                    break;
+                  }
+                }
                 const final = finalIndex >= 0 ? group.output[finalIndex] : undefined;
                 const process = group.output.filter((_, index) => index !== finalIndex);
                 return (

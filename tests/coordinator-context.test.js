@@ -19,15 +19,14 @@ test("the 小祥 runtime is composed from DSH AgentTeam plugins", async () => {
     "@deepseek-ai/dsh-subagent",
     "@deepseek-ai/dsh-subagent-spawn-in-process",
     "@deepseek-ai/dsh-tool-subagent",
-    "@deepseek-ai/dsh-compaction-basic",
-    "@deepseek-ai/dsh-token-meter",
-  ])
-    assert.ok(patch.includes(plugin), plugin);
-  for (const plugin of [
     "@deepseek-ai/dsh-tool-subagent-control",
-    "@deepseek-ai/dsh-tool-subagent-control/list-agents",
   ])
     assert.ok(patch.includes(plugin), plugin);
+  // 0.2.2-rc.1 起 token-meter / compaction-basic / attachment-local 由 sdk-minimal
+  // 官方装配提供，共序装配单只按 id 覆盖配置，不再 insert 同名包。
+  assert.ok(patch.includes("id: compaction-basic"), "compaction-basic override");
+  assert.ok(!patch.includes("dsh-tool-subagent-control/list-agents"), "list-agents merged");
+  assert.ok(!patch.includes("backgroundMode"), "backgroundMode removed in 0.2.2");
   const registeredTools = [];
   applyProjectTools({
     tools: {

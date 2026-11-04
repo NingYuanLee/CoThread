@@ -2,12 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { HarnessSdkJsonRpcServer } from "@deepseek-ai/dsh-sdk-jsonrpc-server";
 import { startChildAgent } from "../dsh-layer/sdk-resume.mjs";
+import { agentPersonaFor } from "../dsh-layer/cothread-system-prompt.mjs";
 
 test("dispatch starts one continuable 子 Agent with the task prompt", async () => {
   const calls = [];
   const ctx = {
     subagents: {
-      startContinuable: async (spec) => {
+      startActivation: async (spec) => {
         calls.push(spec);
         return { childId: "child-1", messageId: "msg-1" };
       },
@@ -27,13 +28,15 @@ test("dispatch starts one continuable 子 Agent with the task prompt", async () 
   assert.equal(calls[0].request.maxDepth, 1);
   assert.equal(calls[0].request.prompt[0].text, "TASK_ID: abc\n去做");
   assert.equal(calls[0].label, "待启动的沙箱任务");
+  assert.equal(calls[0].delivery, "parent");
+  assert.equal(calls[0].request.label, undefined);
 });
 
-test("dispatch injects the selected persona into the child session", async () => {
+test("dispatch registers the selected persona for the child system prompt", async () => {
   const calls = [];
   const ctx = {
     subagents: {
-      startContinuable: async (spec) => {
+      startActivation: async (spec) => {
         calls.push(spec);
         return { childId: "child-persona", messageId: "msg-persona" };
       },
@@ -45,11 +48,13 @@ test("dispatch injects the selected persona into the child session", async () =>
     { prompt: "TASK_ID: abc\n去做", persona: "你的固定人设是「大娃」（p1）。" },
   );
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].request.persona, "你的固定人设是「大娃」（p1）。");
+  // 0.2.2 起启动请求不再接收 persona（改由 agentPreset 拥有）。
+  assert.equal(calls[0].request.persona, undefined);
+  assert.equal(agentPersonaFor("child-persona"), "你的固定人设是「大娃」（p1）。");
 });
 
 test("dispatch refuses an empty prompt or a runtime that cannot start children", async () => {
-  const ctx = { subagents: { startContinuable: async () => ({ childId: "child-1" }) } };
+  const ctx = { subagents: { startActivation: async () => ({ childId: "child-1" }) } };
   await assert.rejects(
     startChildAgent(ctx, { status: "running" }, { prompt: "  " }),
     /缺少任务说明/,
@@ -72,7 +77,7 @@ test("idle parents spawn through runMaintenance instead of opening a model turn"
   };
   const ctx = {
     subagents: {
-      startContinuable: async (spec) => {
+      startActivation: async (spec) => {
         calls.push(spec.request.parent);
         return { childId: "child-idle", messageId: "msg-idle" };
       },
@@ -98,7 +103,7 @@ test("idle parents fall back to direct spawn when runMaintenance rejects", async
   };
   const ctx = {
     subagents: {
-      startContinuable: async () => {
+      startActivation: async () => {
         calls.push("direct");
         return { childId: "child-fallback" };
       },
@@ -129,7 +134,7 @@ test("running parents that fail direct spawn wait idle then use runMaintenance",
   let attempts = 0;
   const ctx = {
     subagents: {
-      startContinuable: async () => {
+      startActivation: async () => {
         attempts += 1;
         calls.push(`spawn-${attempts}`);
         if (attempts === 1) throw new Error("parent busy");
@@ -157,7 +162,7 @@ test("dispatch-child prefers the live parent agent over getOrCreateSession", asy
     ctx: {
       agents: { get: (id) => (id === "live-xiaoxiang" ? liveParent : undefined) },
       subagents: {
-        startContinuable: async (spec) => {
+        startActivation: async (spec) => {
           calls.push(spec.request.parent);
           return { childId: "child-live", messageId: "msg-live" };
         },

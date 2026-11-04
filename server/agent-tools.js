@@ -629,7 +629,7 @@ export function createAgentTools(
           targetId,
         });
         // Harness create_task auto-spawns 子 Agent in-process (same window as child_agent).
-        // Attach the launch prompt so the tool can startContinuable without another round-trip.
+        // Attach the launch prompt so the tool can startActivation without another round-trip.
         if (result?.needsDispatch && result.id) {
           const launch = await childLaunchPrompt(service.db, result.id);
           if (launch?.prompt) {

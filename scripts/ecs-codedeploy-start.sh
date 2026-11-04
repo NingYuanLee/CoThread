@@ -3,10 +3,10 @@
 set -euo pipefail
 export PATH=/usr/local/bin:/usr/bin:$PATH
 
-# 编译器要求至少 Node 22.22.3；先在独立目录安装，成功后才切换命令。
-if ! node -e 'const [major, minor, patch] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && (minor > 22 || (minor === 22 && patch >= 3))) ? 0 : 1)'; then
-  NODE_RUNTIME=/opt/cothread/node-runtime-22.22.3
-  npm install --prefix "$NODE_RUNTIME" --no-save --package-lock=false --no-audit --no-fund node@22.22.3
+# DSH 0.2.2 要求至少 Node 24.9；先在独立目录安装，成功后才切换命令。
+if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 24 || (major === 24 && minor >= 9) ? 0 : 1)'; then
+  NODE_RUNTIME=/opt/cothread/node-runtime-24.18.0
+  npm install --prefix "$NODE_RUNTIME" --no-save --package-lock=false --no-audit --no-fund node@24.18.0
   [ -x "$NODE_RUNTIME/node_modules/node/bin/node" ]
   "$NODE_RUNTIME/node_modules/node/bin/node" --version
   if [ ! -e /usr/local/bin/node.previous ]; then

@@ -26,6 +26,7 @@ import {
   runStatusLabel,
 } from "./agent-monitor-model";
 import { MemoryJobSessionDialog } from "./MemoryJobSessionDialog";
+import { MemoryObservations } from "./MemoryObservations";
 import { IconButton, RefreshButton } from "./IconButton";
 import type { LaowengRun } from "./agent-monitor-types";
 import { SlideSwitch } from "./SlideSwitch";
@@ -2223,19 +2224,6 @@ export function ProjectMemory({
                               <dt>提示词</dt>
                               <dd>{job.prompt}</dd>
                             </dl>
-                            {job.observations?.length ? (
-                              <div className="memory-job-detail">
-                                <strong>待观察问题</strong>
-                                {job.observations.map((item) => (
-                                  <p key={item.id}>
-                                    {item.question} ·{" "}
-                                    {item.status === "promoting" ? "正在形成议题" : "待复核"} ·
-                                    下次复核 {item.reviewAfter} · 复核次数 {item.reviewAttempts}
-                                    {item.reviewNote ? ` · ${item.reviewNote}` : ""}
-                                  </p>
-                                ))}
-                              </div>
-                            ) : null}
                             {job.projectCandidates?.length ? (
                               <div className="memory-job-detail">
                                 <strong>待处理的项目进程信号</strong>
@@ -2284,6 +2272,9 @@ export function ProjectMemory({
                                   >
                                     会话
                                   </button>
+                                  {job.observations?.length ? (
+                                    <MemoryObservations job={job} />
+                                  ) : null}
                                   {job.key === "member_memory" ? (
                                     <button
                                       type="button"

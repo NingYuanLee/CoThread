@@ -154,6 +154,11 @@ export async function libraryChange(service, user, projectId, kind, target, inpu
       if (data.deleted)
         await query(db, "INSERT IGNORE INTO version_recycle(version_id) VALUES(?)", [target]);
       else await query(db, "DELETE FROM version_recycle WHERE version_id=?", [target]);
+      if (data.deleted) {
+        // 版本进了回收站，指向它的项目进程信号已无法核验，直接清掉。
+        const { dropDocumentVersionSignals } = await import("../project-memory.js");
+        await dropDocumentVersionSignals(db, { projectId, versionIds: [target] });
+      }
     } else if (kind === "artifact") {
       const [row] = await query(
         db,
@@ -222,6 +227,9 @@ export async function libraryChange(service, user, projectId, kind, target, inpu
           "UPDATE artifacts SET deleted_at=UTC_TIMESTAMP(3),recycle_path=? WHERE id=?",
           [path ? JSON.stringify(path) : null, target],
         );
+        // 整份文档删除后，它名下的文档信号永久不可核验；不清理就会变成反复失败的死信号。
+        const { dropDocumentVersionSignals } = await import("../project-memory.js");
+        await dropDocumentVersionSignals(db, { projectId, artifactIds: [target] });
       } else if (data.deleted === false) {
         if (row.purged_at) throw new HttpError(409, "该文档已从回收站永久清除，无法恢复");
         let folderId = row.folder_id;
@@ -251,6 +259,23 @@ export async function libraryChange(service, user, projectId, kind, target, inpu
           "UPDATE artifacts SET deleted_at=NULL,recycle_path=NULL,folder_id=?,title=?,source_type=CASE WHEN ?='project_official' THEN 'recycle_restored' ELSE source_type END WHERE id=?",
           [folderId, restoredTitle, restoredRoot, target],
         );
+        // 删除时已清掉文档信号；恢复到正式文件后重新排一条，保证这次恢复仍进入项目记忆结算。
+        if (restoredRoot === "project_official") {
+          const restoredVersions = await query(db, "SELECT id FROM versions WHERE artifact_id=?", [
+            target,
+          ]);
+          if (restoredVersions.length) {
+            const { noteProjectMemorySignal } = await import("../project-memory.js");
+            for (const version of restoredVersions)
+              await noteProjectMemorySignal(
+                db,
+                projectId,
+                "document_version",
+                version.id,
+                String(restoredTitle || row.title || "").slice(0, 120),
+              );
+          }
+        }
       }
     } else {
       const current = target ? await requireScope(await folder(target)) : null;
@@ -293,6 +318,7 @@ export async function libraryChange(service, user, projectId, kind, target, inpu
               `SELECT id,folder_id,recycle_path,source_artifact_id FROM artifacts WHERE folder_id IN (${placeholders})`,
               ids,
             );
+            const trashedOfficialArtifacts = [];
             for (const artifact of artifacts) {
               const artifactRoot = await folderRootKind(db, artifact.folder_id);
               const path =
@@ -304,6 +330,7 @@ export async function libraryChange(service, user, projectId, kind, target, inpu
                 [path ? JSON.stringify(path) : null, artifact.id],
               );
               if (artifactRoot === "project_official") {
+                trashedOfficialArtifacts.push(artifact.id);
                 if (artifact.source_artifact_id)
                   await query(
                     db,
@@ -314,6 +341,13 @@ export async function libraryChange(service, user, projectId, kind, target, inpu
                   artifact.id,
                 ]);
               }
+            }
+            if (trashedOfficialArtifacts.length) {
+              const { dropDocumentVersionSignals } = await import("../project-memory.js");
+              await dropDocumentVersionSignals(db, {
+                projectId,
+                artifactIds: trashedOfficialArtifacts,
+              });
             }
             await query(db, `DELETE FROM document_folders WHERE id IN (${placeholders})`, ids);
           }
@@ -505,11 +539,14 @@ export async function emptyLibraryRecycle(service, user, projectId) {
     let purgedArtifacts = 0;
     let removedVersions = 0;
     let purgedVersions = 0;
+    // 回收站里的版本要么被永久清除、要么被物理删除，两种情况下文档信号都不再可核验。
+    const unreachableVersionIds = [];
     for (const artifact of recycledArtifacts) {
       const versions = await query(db, "SELECT id FROM versions WHERE artifact_id=?", [
         artifact.id,
       ]);
       const versionIds = versions.map((row) => row.id);
+      unreachableVersionIds.push(...versionIds);
       const keep = versionIds.some((versionId) => referenced.has(versionId));
       if (keep) {
         await query(db, "UPDATE artifacts SET purged_at=UTC_TIMESTAMP(3) WHERE id=?", [
@@ -533,6 +570,7 @@ export async function emptyLibraryRecycle(service, user, projectId) {
       }
     }
     for (const version of recycledVersions) {
+      unreachableVersionIds.push(version.id);
       if (referenced.has(version.id)) {
         await query(
           db,
@@ -544,6 +582,10 @@ export async function emptyLibraryRecycle(service, user, projectId) {
         await deleteVersions(db, [version.id]);
         removedVersions += 1;
       }
+    }
+    if (unreachableVersionIds.length) {
+      const { dropDocumentVersionSignals } = await import("../project-memory.js");
+      await dropDocumentVersionSignals(db, { projectId, versionIds: unreachableVersionIds });
     }
     if (removedArtifacts || purgedArtifacts || removedVersions || purgedVersions)
       await recordDocumentChange(db, {

@@ -1,10 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { relocateSessionFiles, restoreSessionCheckpoint } from "../server/agent-checkpoint.js";
+import {
+  dedupeSessionLogs,
+  relocateSessionFiles,
+  restoreSessionCheckpoint,
+} from "../server/agent-checkpoint.js";
 import { isCorruptSessionLog } from "../server/agent.js";
 import { documentSummarySchema } from "../server/project-memory.js";
 
@@ -51,6 +55,33 @@ test("Windows checkpoints move to Linux workspace without changing identity or h
   );
 });
 
+test("checkpoint restore relocates generation logs (session.vN.jsonl)", () => {
+  const id = randomUUID();
+  const header = {
+    type: "session",
+    version: 4,
+    id,
+    cwd: "/opt/cothread/releases/20261026T105745Z/.local/agents/laoweng-x",
+    isSeeded: false,
+    delegationDepth: 0,
+  };
+  const events = Buffer.from('{"type":"turn/end","seq":7}\n');
+  const files = {
+    [`--opt-cothread-releases-20261026T105745Z-.local-agents-laoweng-x--/${id}/session.v4.jsonl`]:
+      Buffer.concat([Buffer.from(JSON.stringify(header) + "\n"), events]).toString("base64"),
+  };
+  const [[target, content]] = [
+    ...relocateSessionFiles(files, "/opt/cothread/.local/agents/laoweng-x"),
+  ];
+  assert.equal(target, `--opt-cothread-.local-agents-laoweng-x--/${id}/session.v4.jsonl`);
+  const end = content.indexOf(10);
+  assert.deepEqual(JSON.parse(content.subarray(0, end)), {
+    ...header,
+    cwd: "/opt/cothread/.local/agents/laoweng-x",
+  });
+  assert.deepEqual(content.subarray(end + 1), events);
+});
+
 test("restore keeps durable image attachments with their session and rejects traversal", async () => {
   const home = await mkdtemp(join(tmpdir(), "cothread-attachment-"));
   try {
@@ -74,6 +105,86 @@ test("restore keeps durable image attachments with their session and rejects tra
       restoreSessionCheckpoint({ "_attachments/v1/../../escape": "" }, home),
       /无效/,
     );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// 与线上故障一致：同一个 session id 在旧、新两个项目目录下各留一份日志。
+const DUPLICATE_SESSION_ID = "333db0b7-5d8f-4727-9fd9-2cae37f6a595";
+
+async function writeSessionLog(home, project, bytes) {
+  const dir = join(home, "sessions", project, DUPLICATE_SESSION_ID);
+  await mkdir(dir, { recursive: true });
+  const header = JSON.stringify({
+    type: "session",
+    version: 4,
+    id: DUPLICATE_SESSION_ID,
+    createdAt: 1,
+    cwd: "/opt/cothread/releases/OLD/.local/agents/laoweng-x",
+  });
+  await writeFile(
+    join(dir, "session.v4.jsonl"),
+    `${header}\n${"x".repeat(Math.max(0, bytes - header.length - 1))}`,
+  );
+  return dir;
+}
+
+test("duplicate session logs collapse onto the current home project directory", async () => {
+  const home = await mkdtemp(join(tmpdir(), "cothread-agent-home-"));
+  try {
+    const stale = await writeSessionLog(home, "--old-key--", 400);
+    await writeSessionLog(home, "--new-key--", 4000);
+    const moved = await dedupeSessionLogs(home);
+    // 旧副本进 .trash，保留的那份归位到当前 home 推算出的项目目录并改写 header。
+    assert.equal(moved.length, 2);
+    assert.deepEqual(await readdir(join(home, "sessions", "--old-key--")), []);
+    const withId = [];
+    for (const project of await readdir(join(home, "sessions"))) {
+      try {
+        await stat(join(home, "sessions", project, DUPLICATE_SESSION_ID));
+        withId.push(project);
+      } catch {
+        /* 旧项目目录可能留空 */
+      }
+    }
+    assert.equal(withId.length, 1);
+    const log = join(home, "sessions", withId[0], DUPLICATE_SESSION_ID, "session.v4.jsonl");
+    const text = await readFile(log, "utf8");
+    const [head, body] = text.split("\n");
+    assert.equal(JSON.parse(head).cwd, home);
+    assert.match(body, /^x+$/);
+    assert.equal(
+      moved.some((item) => item.from === stale),
+      true,
+    );
+    assert.deepEqual(await dedupeSessionLogs(home), []);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a single log under a stale project directory is relocated, dry-run moves nothing", async () => {
+  const home = await mkdtemp(join(tmpdir(), "cothread-agent-home-"));
+  try {
+    const stale = await writeSessionLog(home, "--only--", 1000);
+    const planned = await dedupeSessionLogs(home, { dryRun: true });
+    assert.equal(planned.length, 1);
+    assert.equal((await readFile(join(stale, "session.v4.jsonl"), "utf8")).length, 1000);
+    assert.deepEqual(await readdir(join(home, "sessions")), ["--only--"]);
+    assert.equal((await dedupeSessionLogs(home)).length, 1);
+    const withId = [];
+    for (const project of await readdir(join(home, "sessions"))) {
+      try {
+        await stat(join(home, "sessions", project, DUPLICATE_SESSION_ID));
+        withId.push(project);
+      } catch {
+        /* 旧项目目录可能留空 */
+      }
+    }
+    assert.equal(withId.length, 1);
+    assert.notEqual(withId[0], "--only--");
+    assert.deepEqual(await dedupeSessionLogs(home), []);
   } finally {
     await rm(home, { recursive: true, force: true });
   }

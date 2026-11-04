@@ -266,4 +266,9 @@ export async function setArtifactFolder(
     `UPDATE artifacts SET folder_id=?${softDeleteOnConflict ? ",deleted_at=COALESCE(deleted_at,UTC_TIMESTAMP(3))" : ""} WHERE id=?`,
     [folderId, artifactId],
   );
+  if (softDeleteOnConflict) {
+    // 同名合并会把冲突副本软删除；它的文档信号同样不可核验，一并清掉。
+    const { dropDocumentVersionSignals } = await import("../project-memory.js");
+    await dropDocumentVersionSignals(db, { artifactIds: [artifactId] });
+  }
 }

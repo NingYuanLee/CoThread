@@ -23798,6 +23798,15 @@ html body .project-memory-dialog .dialog-header {
   color: var(--c-2f3a33);
 }
 
+/* 待观察项列表：问题原文可能很长，表格内截两行，完整内容看详情。 */
+.memory-observation-question {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  max-width: 32rem;
+}
+
 /* 项目文件索引：文件名过长省略，操作按钮一行排开。 */
 .memory-file-name {
   display: block;

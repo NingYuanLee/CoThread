@@ -41,6 +41,9 @@ export async function runMemoryMaintenance(
   { maxBatches = 25, projectId = null, task = null } = {},
 ) {
   await recoverStaleLaowengRuns(db);
+  // 先清掉来源已删除的文档信号：它们不会自愈，留着会让结算反复失败并常驻面板。
+  const { dropUnavailableDocumentVersionSignals } = await import("./project-memory.js");
+  await dropUnavailableDocumentVersionSignals(db, { projectId: projectId || null });
   let processed = 0;
   let backfillAttempted = false;
   while (processed < maxBatches) {

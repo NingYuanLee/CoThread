@@ -1228,6 +1228,9 @@ export class DocumentsService {
         : await query(db, "SELECT id FROM versions WHERE thread_id=?", [threadId]);
       const versionIds = [...new Set(versionIdRows.map((row) => row.id))];
       if (versionIds.length) {
+        // 迭代删除会连带删掉文档版本，指向它们的项目进程信号随之失效。
+        const { dropDocumentVersionSignals } = await import("../project-memory.js");
+        await dropDocumentVersionSignals(db, { versionIds });
         const placeholders = versionIds.map(() => "?").join(",");
         await query(
           db,

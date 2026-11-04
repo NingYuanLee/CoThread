@@ -430,7 +430,7 @@ bash -n scripts/ecs-codedeploy-start.sh
 
 根因与改动：① DSH 0.2.x 默认写多帧 `session.v4.jsonl.zstd`，之前只认明文导致子会话正文/时间/用量读不到；`server/child-agent-session.js` 增加按帧魔数切分解压（尾部半帧丢弃）并识别带版本号与 `.zstd` 后缀的日志。② `historyForExecutor` 在小祥共享快照里错误地取了父会话派生 overlay，弹窗显示的是小祥讨论注入的整条消息 JSON；改为只按该子会话 id 取原生日志。③ 任务会话由 `buildChildTimeline` 按事件时间生成时间线：小祥派活在右、模型正文在左、思考与工具按时序收成可展开过程块（不再展示上下文注入正文）；前端 `SessionConversationDialog` 新增 `process` 消息渲染（复制、时间、展开）并给过程长文本换行。④ 轨迹「请求」的用量/计时：子 Agent 的事件表无 usage 列，按正文前缀把原生 assistant 消息的用量挂到 `assistant_*` 事件；老翁从 `agent_laoweng_session_turns` 按时间窗口挂到 `model_run`/`understanding` 事件，前端原本的请求回填逻辑即可显示选项/用量/计时。⑤ `tests/model-runtime-config.test.js` 的 DSH 初始化超时从 15s 对齐生产配置 30s——本机实测初始化 17.6s，原值会稳定超时。
 
-门禁：`npm run build` 通过；`npm run lint` 通过。全量 `npm test` 首轮在清理孤儿测试进程与遗留 DSH 进程后仍耗时 2471445ms（约 41 分钟，机器负载异常），仅 `model-runtime-config` 1 项因 15s 初始化超时失败；对齐 30s 后该文件单独通过（1/1），**未再重跑完整全量**。此前一次完整全量（含 zstd/时间线改动，不含轨迹用量）为 1094/1094。
+门禁：`npm run build` 通过；`npm run lint` 通过。全量 `npm test` 首轮在清理孤儿测试进程与遗留 DSH 进程后仍耗时 2471445ms（约 41 分钟，机器负载异常），仅 `model-runtime-config` 1 项因 15s 初始化超时失败；对齐 30s 后该文件单独通过（1/1）。最终代码随后重跑全量：1096/1096、0 失败，`duration_ms` 2348335.5945（约 39 分钟，负载仍偏高），已包含时间线与轨迹用量改动。
 
 包 `cothread-release-20261104T194007Z.tgz`，6,224,757 字节，SHA-256 `8A89AD2208DBE529E4C17526354AFF134B1B929EA9BBFE2FC3E13DBE1F77C9AC`，tar 条目 709，不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests`、`.code_deploy`。上传时 ECS API 出现 `SSLEOFError`，按本文「系统代理导致 MCP 全部 SSLEOFError 的恢复路径」给 Python 子进程加空 `proxies` 补丁后成功：RequestId `01A1A817-38D5-5A51-8D99-DAAA5DFFAAB7`，revision `rev-17134e27366b41e09756`，execution `exec-2ed979fc0cc34df88a9f` 为 `Success`（8/8，0 失败），`EndDate` UTC `2026-11-04T19:46:33Z`。
 

@@ -1,6 +1,6 @@
 # 云端环境变量
 
-维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-11-04 三次发布——上午「按来源治理记忆 / 项目现状 Markdown」，下午「删除文档后的失效项目进程信号清理」，晚间「项目记忆结算修复 + 时间线分页 + index.html 预加载修复」；三次都重核了门禁、全量测试、打包清单、OOS 上传和上线验收。本轮补充了 Alibaba MCP 通道现状、测试库锁残留检查和 `OOS_GetDeployStatus` 参数约束；详见「ECS 发布」及文末。
+维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-11-04 四次发布——上午「按来源治理记忆 / 项目现状 Markdown」，下午「删除文档后的失效项目进程信号清理」，晚间「项目记忆结算修复 + 时间线分页 + index.html 预加载修复」，随后「项目记忆读取性能（轻量读 + 按需详情）与核验理由截断」；四次都重核了门禁、打包清单、OOS 上传和上线验收。本轮补充了 Alibaba MCP 通道现状、测试库锁残留检查、`OOS_GetDeployStatus` 参数约束，以及 `visibleFileIndexSql` 整表开销的实测；详见「ECS 发布」及文末。
 
 应用后端需要常驻 Node.js 进程（Node.js 22.22.3+，推荐 24）、MySQL 网络连接及可写的 `.local` 目录。只发布 `dist/` 静态文件无法运行 API、MCP 和后台 Agent；生产环境固定为阿里云 ECS 单实例 + RDS，本机开发用便携版 MySQL。
 
@@ -311,3 +311,13 @@ bash -n scripts/ecs-codedeploy-start.sh
 线上：执行输出切换到 `/opt/cothread/releases/20261104T063140Z`；web 侧只读命令核对 `readlink -f /opt/cothread/current` 为该目录，systemd `ActiveState=active`、`ExecMainStartTimestamp` 为北京时间 2026-11-04 14:33:02、`MainPID` 1325937，Node `v22.22.3`，release 目录保留 3 个（`20261104T032244Z 20261104T044814Z 20261104T063140Z`）；`current/server/memory-timeline.js` 含 `listProjectMemoryEntries`，`current/server/routes/project-workspace.js` 含 `memory/entries`。公网 `https://cothread.z2l.top/api/health?release=dbfc54f` 返回 `status: ok`、`database: mysql`、执行器 `ready: true`、8 个执行槽、holder `542122853`、`acquiredAt` UTC `2026-11-04T06:33:04.645Z`。首页资源为 `index-DNl2DpTZ.js` 与 `index-BHw62KsI.css`，与本地 `dist/index.html` 及 ECS 上的 `dist/index.html` 一致。浏览器打开带提交号的首页，登录页正常，控制台无 octet-stream MIME 报错（见上一条追加说明）。
 
 本轮已知未完成项：未做登录后的业务验收——记忆时间线的分页/上滑加载/筛选缓存在浏览器实机未点击（接口有自动化用例，前端构建与类型检查通过，不等于界面验收）；项目记忆结算修复与「发言/项目进程不再无法处理」的线上效果需从「记忆作业」运行历史确认，尤其那 2 条已推到 30 天后的项目进程排队行，发布后仍需人工点一次「重试」才会被调度；本次文档更新在打包之后，不在已上线的包内。验收凭据与登录页截图在 `.code_deploy/verification/20261104-timeline-pagination/`（不进 Git）。
+
+2026-11-04 第四次发布，一次上线：「项目记忆读取性能（轻量读 + 按需详情）与核验理由截断」。代码提交 `baefd8c`（已推送，`origin/main` 一致）。用户反馈新上的时间线分页后弹窗打开仍很慢；在 ECS 上用只读探针（`current/server` 模块 + 正式库）量出根因：`visibleFileIndexSql("p")` 直接用于整表 COUNT/LIMIT 时固定约 3.0–3.2 秒（EXPLAIN 显示 411 条 `file_index_entries`、407 个 `file_index_groups` 被物化后跑依赖子查询），而先 `p.id IN (...)` 收窄再套同一谓词只要 6–7 ms；`/memory` 全量水合要 13.8 秒。同轮还确认线上项目进程排队行的失败原因是核验步骤理由超过 500 字（`too_big maximum:500`），不是缓存数据问题。
+
+改动：`/memory` 支持 `?entries=0` 轻量读（返回导读、计数含 `counts.entries`、时间线、`entryIndex`，`entries` 为空），新增 `GET /memory/entries/:entryId` 单条详情；分页接口改为普通条件批量扫页骨架、再分批套 id 收窄的可见性过滤（`total` 用普通计数，极少数不可见文件页可能偏大，列表本身准确）；核验理由超长改为截断；前端弹窗只取轻量索引、详情按需读取，作废/纠错同步选中条目。
+
+门禁：`npm run lint` exit 0；`npm run build` exit 0（54.56 s）；`npx tsc --noEmit` exit 0，prettier 通过；针对性测试 `memory-read` 14/14（含轻量读、单条详情、HTTP 404）、`project-memory` 7/7、`memory-jobs` 11/11、`project-status` 7/7、`memory-cache` 4/4、`project-memory-signal-cleanup` 6/6、`memory-retry` 8/8。本轮未再跑全量 `npm test`，只跑受改动覆盖的用例；无新增迁移。
+
+包 `cothread-release-20261104T071627Z.tgz`，6,173,512 字节，SHA-256 `39DA1D2261F30EF398AA1D317B6E287EEF2B73822EB4AD78D7934521E272C779`，tar 条目 706，包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests`、`.code_deploy`。`OOS_CodeDeploy`：revision `rev-ac1e2f365b244cc0a38c`，execution `exec-fc47a0a329534bf0be06` 为 `Success`（8/8，0 失败），分组 `Releasing`（4/8）约两分钟后 `Released`。线上 `readlink -f /opt/cothread/current` 为 `/opt/cothread/releases/20261104T071748Z`，systemd `active`、启动时间北京时间 15:19:12、`MainPID` 1326469；`current/server/memory-timeline.js` 含 `readProjectMemoryEntry` 与 `includeEntries`。公网 `https://cothread.z2l.top/api/health?release=baefd8c` 返回 `status: ok`、执行器 ready、8 槽、`acquiredAt` UTC `2026-11-04T07:19:14.665Z`；首页资源 `index-DOm-Ricz.js`、`index-BHw62KsI.css`，与本地 `dist/index.html` 一致。
+
+线上复测（同一只读探针方式）：`/memory` 轻量读 13,845 ms → **109 ms**；分页第一页 4,053 ms → **440 ms**；单条详情 **44 ms**（此前无此接口）；轻量读返回 `entryIndex=1149`、`counts.entries=1149`、`entries=[]`。浏览器登录后的弹窗实机点击仍未做；2 条项目进程排队行（`task` 信号，创建于 10-25/10-26，`retry_count=2`、已推到 30 天后）需要人工点一次「重试」才会按新逻辑结算，本轮未代触发。验收凭据在 `.code_deploy/verification/20261104-memory-performance/`（不进 Git）。

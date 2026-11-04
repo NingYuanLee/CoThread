@@ -11,6 +11,7 @@ import { startReplyWorker } from "./replies.js";
 import { resolveSandboxProvider, sandboxProviderName } from "./sandbox-provider.js";
 import { createShutdown } from "./shutdown.js";
 import { stopLiveOutputStreams } from "./agent-live-output.js";
+import { endSseStreams } from "./sse-streams.js";
 import { migrate } from "../scripts/migrate.js";
 import { loadPlatformModelSettings, platformModelSettingsView } from "./platform-model-settings.js";
 import {
@@ -194,20 +195,39 @@ process.on("uncaughtException", (error) => {
   process.exit(1);
 });
 
+// 发布窗口由旧进程退出速度决定：SSE 结束后只给在途请求很短宽限，强制断开剩余连接。
+const shutdownConnectionGraceMs = Number(process.env.COTHREAD_SHUTDOWN_GRACE_MS || 1000);
+const shutdownTimeoutMs = Number(process.env.COTHREAD_SHUTDOWN_TIMEOUT_MS || 5000);
 const shutdown = createShutdown({
   stopWorker: stopReplyWorker,
   closeServer: () => {
+    // server.close() 只停止接收新连接，不会主动结束已建立的 SSE；先结束登记过的长连接。
+    endSseStreams();
     const httpClosed = new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
     const streamsClosed = stopLiveOutputStreams(db).then(() => server.closeIdleConnections());
+    let graceTimer;
+    const connectionsClosed = new Promise((resolve) => {
+      const finish = () => {
+        clearTimeout(graceTimer);
+        resolve();
+      };
+      graceTimer = setTimeout(() => {
+        server.closeAllConnections();
+        finish();
+      }, shutdownConnectionGraceMs);
+      httpClosed.then(finish, finish);
+    });
     return Promise.all([
       httpClosed,
       streamsClosed,
+      connectionsClosed,
       stopDevServerUpgrades(),
       ...(healthProbe ? [] : [stopCoThreadPreviewServers(db).catch(() => 0)]),
     ]);
   },
+  timeoutMs: shutdownTimeoutMs,
   closeResources: async () => {
     await vite?.close();
     await Promise.all([db.end(), workDb.end()]);

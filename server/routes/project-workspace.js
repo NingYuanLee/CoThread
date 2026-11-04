@@ -8,6 +8,7 @@ import { queueLaowengContextCompression, readLaowengTaskSession } from "../laowe
 import { registerCloudbaseRoutes } from "./cloudbase-routes.js";
 import { registerMiniprogramRoutes } from "./miniprogram.js";
 import { readVisualArtifact } from "../visual-artifacts.js";
+import { trackSse } from "../sse-streams.js";
 import { getWikiPage, listWikiPages } from "../wiki-pages.js";
 import {
   confirmMemoryEntry,
@@ -170,6 +171,7 @@ async function respondElderAsk(req, res, run) {
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
+  const untrack = trackSse(res);
   const send = (event, data) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     if (typeof res.flush === "function") res.flush();
@@ -187,6 +189,7 @@ async function respondElderAsk(req, res, run) {
   } catch (error) {
     send("error", { message: error?.message || "老翁没有答上" });
   } finally {
+    untrack();
     res.end();
   }
 }

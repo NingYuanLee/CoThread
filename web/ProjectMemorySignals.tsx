@@ -34,7 +34,7 @@ export function ProjectMemorySignalsButton({
   if (!signals.length) return null;
   return (
     <button type="button" className="wiki-action" onClick={onOpen}>
-      待处理的项目进程信号 {signals.length}
+      待处理信号 {signals.length}
     </button>
   );
 }

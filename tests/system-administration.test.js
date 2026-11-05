@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
 import { hashPassword, issueCredential, verifyPassword } from "../server/auth.ts";
-import { createApp } from "../server/http-app.js";
+import { createApp } from "../server/http-app.ts";
 import { listAccountChanges, listAccountLogins } from "../server/account-audit.ts";
 
 test("super administrators manage projects and accounts without storing reset passwords", async () => {

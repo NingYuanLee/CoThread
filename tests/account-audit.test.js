@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
-import { createApp } from "../server/http-app.js";
+import { createApp } from "../server/http-app.ts";
 import { issueCredential } from "../server/auth.ts";
 import { saveAdminRole, assignAdminRoles } from "../server/admin-rbac.ts";
 import { listAccountChanges, listAccountLogins } from "../server/account-audit.ts";

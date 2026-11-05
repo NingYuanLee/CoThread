@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createApp } from "../server/http-app.js";
+import { createApp } from "../server/http-app.ts";
 import { jsonBodyLimit } from "../server/json-body-limit.ts";
 import { sweepExpired, touchWindow } from "../server/rate-window.ts";
 

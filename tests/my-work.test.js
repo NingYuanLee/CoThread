@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { createApp } from "../server/http-app.js";
+import { createApp } from "../server/http-app.ts";
 import { issueCredential } from "../server/auth.ts";
 import { adminAccess } from "../server/admin-rbac.ts";
 import { IMPLICIT_ADMIN_PERMISSIONS } from "../shared/admin-permissions.js";

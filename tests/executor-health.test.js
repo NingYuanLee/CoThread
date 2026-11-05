@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
-import { createApp } from "../server/http-app.js";
+import { createApp } from "../server/http-app.ts";
 import { EXECUTOR_LOCK_NAME, executorStatus, startReplyWorker } from "../server/replies.js";
 
 test("health 报告执行器锁归属，worker 启停同步本实例状态", async () => {

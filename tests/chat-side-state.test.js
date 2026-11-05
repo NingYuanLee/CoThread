@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
 import { issueCredential } from "../server/auth.ts";
-import { createApp } from "../server/http-app.js";
+import { createApp } from "../server/http-app.ts";
 
 test("an unchanged message cursor still observes old task completion, usage, updates and removals", async () => {
   const database = await testDatabase();

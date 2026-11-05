@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
-import { createApp } from "../server/http-app.js";
+import { createApp } from "../server/http-app.ts";
 import { issueCredential } from "../server/auth.ts";
 import { assignAdminRoles, saveAdminRole } from "../server/admin-rbac.ts";
 import { clearPlatformModelSettings, modelConfig } from "../server/model-config.js";

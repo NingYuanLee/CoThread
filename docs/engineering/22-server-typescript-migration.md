@@ -341,13 +341,23 @@ member(...args: OperationRest<typeof accessDomain.memberOperation>)
 
 **一个自己造成的失误**：我先写了 `service.ts`，又对 `service.js` 跑迁移工具——工具把 `service.js` 重命名成 `service.ts`，**覆盖掉了我刚写的版本**。重写后才通过。教训：目标文件已存在时不要再对同名 `.js` 跑改名工具。
 
-剩余 61 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
+第三十批：`http-app.ts`(200 行、18 处引用)，以及随之调整的 `app.ts`。这是 `service.ts` 转完后解锁的第一个——此前它卡在「`service.executeRun` 等属性不存在」。
+
+三个只有读代码才知道的类型约束：
+
+- `createApp` 第 2 个参数用解构默认值 `= {}` 时，TS 会从**解构模式**推参数类型：有默认值的变可选、没默认值的变必填，且错误位置绕（指向解构行）。改成 `options: CreateAppOptions = {}`、函数体内再解构，问题消失。
+- `authenticate()` 返回 `AuthenticatedUserRow | null`，而 `RequestUser.kind` 是 `"session" | "api"` 且必填。原代码分两次给 `req.user` 赋值，改成先算出 `user` 再判空赋值。
+- 错误中间件的 `error` 在 TS 里是 `unknown`（原 JS 里是 `any`），`error.status` / `error.code` 全要显式收窄。
+
+注入项（`executeRun` / `stopAgent` / `startArchiveDraft` / `afterMcpMessage`）的真实签名各不相同，选项类型先用 `unknown` 接住、传参处再收口——比给每个编一个假签名更诚实。
+
+剩余 60 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
 
 | 批次 | 范围                                                                                | 文件数            |
 | ---- | ----------------------------------------------------------------------------------- | ----------------- |
 | 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                           | 10                |
 | 4    | 被 2–4 个文件引用                                                                   | 15                |
-| 5    | 被 5–9 个文件引用                                                                   | 18                |
+| 5    | 被 5–9 个文件引用                                                                   | 17                |
 | 6    | 被 10+ 个文件引用（含 `project-memory.js`、`service-monitor.js`、`coordinator.js`） | 18                |
 | 7    | 入口 `server/index.js` 的部署侧路径（`package.json` / systemd / 脚本）              | 1（已计入批次 3） |
 
